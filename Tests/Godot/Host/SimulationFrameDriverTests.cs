@@ -157,6 +157,34 @@ public sealed class SimulationFrameDriverTests
         Assert.AreEqual(1UL, completed);
         Assert.AreEqual(1, calls);
         driver.SetPlayerPaused(false);
-        Assert.AreEqual(0UL, driver.AdvanceFrame(0, () => throw new AssertFailedException("产生了追赶步骤。")));
+        Assert.AreEqual(0UL, driver.AdvanceFrame(SimulationTime.StepSeconds / 16,
+            () => throw new AssertFailedException("产生了追赶步骤。")));
+        Assert.AreEqual(1UL, driver.AdvanceFrame(SimulationTime.StepSeconds / 16, () => (1u, false)));
+    }
+
+    [TestMethod]
+    public void Speed_reduction_excludes_steps_completed_before_the_sample_reset()
+    {
+        var now = 0.0;
+        var driver = new SimulationFrameDriver(() => now);
+        driver.SetSpeed(SimulationSpeed.Eight);
+        driver.SetPlayerPaused(false);
+        var calls = 0;
+        Assert.AreEqual(3UL, driver.AdvanceFrame(SimulationTime.StepSeconds, () =>
+        {
+            now += 0.0001;
+            calls++;
+            if (calls == 3) { driver.SetSpeed(SimulationSpeed.One); now += 0.000001; return (1u, true); }
+            return (1u, false);
+        }));
+        Assert.AreEqual(0.0, driver.ActualSpeed);
+        now += SimulationTime.StepSeconds - 0.000001;
+        Assert.AreEqual(1UL, driver.AdvanceFrame(SimulationTime.StepSeconds, () => (1u, false)));
+        Assert.AreEqual(1.0, driver.ActualSpeed, 1e-12);
+        driver.SetSpeed(SimulationSpeed.One);
+        Assert.AreEqual(1.0, driver.ActualSpeed, 1e-12);
+        now += SimulationTime.StepSeconds;
+        Assert.AreEqual(1UL, driver.AdvanceFrame(SimulationTime.StepSeconds, () => (1u, false)));
+        Assert.AreEqual(1.0, driver.ActualSpeed, 1e-12);
     }
 }

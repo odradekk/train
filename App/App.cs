@@ -59,14 +59,14 @@ public partial class App : Node
             Action<IReadOnlyList<string>>? simulationCommands = null;
             if (OS.IsDebugBuild())
                 simulationCommands = Host is null ? new LegacySimulationConsoleCommands(this, _logger).Execute
-                    : new SimulationConsoleCommands(Host, _logger.Log).Execute;
+                    : new SimulationConsoleCommands(Host, _logger).Execute;
             console.Initialize(buffer, new ConsoleCommandDispatcher(
-                _logger, buffer.Clear, RequestQuit, ReloadContent, OS.IsDebugBuild(), simulationCommands));
+                _logger, buffer.Clear, RequestQuit, () => ReloadContent(Train.Core.Contracts.CommandSource.Console), OS.IsDebugBuild(), simulationCommands));
             AddChild(console);
             if (Host is not null)
             {
                 Host.SetFocused(GetWindow().HasFocus());
-                if (!Host.IsBusy && Host.Content is null) Host.BeginReload();
+                if (!Host.IsBusy) Host.BeginReload(Train.Core.Contracts.CommandSource.UserInterface);
                 return;
             }
             var loaded = _reloader!.Reload();
@@ -100,10 +100,10 @@ public partial class App : Node
         QuitAction();
     }
 
-    private void ReloadContent()
+    private void ReloadContent(Train.Core.Contracts.CommandSource source)
     {
         if (Host is null) _reloader!.Reload();
-        else if (Host.BeginReload().Problem is { } problem)
+        else if (Host.BeginReload(source).Problem is { Code: "busy" } problem)
             _logger!.Warning("content", "content_reload_failed", problem.Code,
                 new Dictionary<string, object?> { ["code"] = problem.Code, ["field"] = problem.Field });
     }
@@ -183,9 +183,7 @@ public partial class App : Node
         if (OS.IsDebugBuild() && (_reloader is not null || Host is not null) &&
             @event.IsActionPressed(ReloadContentAction) && !@event.IsEcho())
         {
-            if (Host is null) ReloadContent();
-            else if (Host.BeginReload(Train.Core.Contracts.CommandSource.UserInterface).Problem is { } problem)
-                _logger!.Warning("content", "content_reload_failed", problem.Code);
+            ReloadContent(Train.Core.Contracts.CommandSource.UserInterface);
             GetViewport().SetInputAsHandled();
         }
     }

@@ -28,3 +28,5 @@ reload
 | 菜单状态，没有活动核心 | 只激活内容，不创建核心会话或提交命令 |
 
 日志沿用 `content` 分类和已有 `content_reload_summary`、`content_reload_failed` 事件 ID。默认旧路径的结果摘要仍包含 `status`、`changed`、`generation`、`scanned_files`、`accepted`、`warning_count`、`error_count`；新契约摘要使用 `operation_id`、`status`、`changed`、活动 `generation`、`warning_count`、`error_count` 和可选 `code`，不伪造扫描数或定义数。核心拒绝问题保留在 `problems` 的 `code`、`field`、`subject` 中。准备报告的诊断用 `content_invalid`；失败诊断包含 `code`、`stage`、`field`、`source`，内部内容故障包含 `code`、`diagnostic_stack_trace`。核心故障按 `CoreFault`／`CoreDiagnostic` 记录，字段见 [`sim`](sim.md)。取消及迟到候选只清理，不输出发布成功摘要。
+
+每条内容诊断只记一次 `content_invalid`；一次重载结束只记一次 `content_reload_failed`，并附结果摘要。捕获失败按重载失败报告，准备阶段异常和内容内部故障的状态为 `Faulted`。新局和读档准备失败分别使用 `application/host_new_game_failed`、`application/host_restore_failed`，不记成重载失败。

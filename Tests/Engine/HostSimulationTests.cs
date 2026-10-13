@@ -1,9 +1,9 @@
-using System.Collections.Immutable;
 using System.Text.Json;
 using Chickensoft.GoDotTest;
 using Chickensoft.GodotTestDriver;
 using Godot;
 using Train.App;
+using Train.App.Logging;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
 using Train.Core.Contracts;
@@ -25,9 +25,10 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
         {
             var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
             var owner = System.Environment.CurrentManagedThreadId;
-            app.CreateHost = logger => setup.Create(logger.Log);
+            app.CreateHost = logger => setup.Create(logger);
             await fixture.AddToRoot(app);
             await FramesUntil(() => app.Host!.GetStatus() is not null);
+            setup.AssertPrepared();
             Require(setup.PreparationThread != owner && setup.Candidate.ActivationThread == owner,
                 "候选未在后台准备并由 Godot 主线程激活。");
             var host = app.Host!;
@@ -64,9 +65,10 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
         try
         {
             var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
-            app.CreateHost = logger => setup.Create(logger.Log, _ => NotificationAction.Pause);
+            app.CreateHost = logger => setup.Create(logger, _ => NotificationAction.Pause);
             await fixture.AddToRoot(app);
             await FramesUntil(() => app.Host!.GetStatus() is not null);
+            setup.AssertPrepared();
             var host = app.Host!;
             var boundaries = 0;
             host.BoundaryCompleted += (_, _, _, events) => { if (events.Length > 0) boundaries++; };
@@ -89,9 +91,10 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
         try
         {
             var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
-            app.CreateHost = logger => setup.Create(logger.Log);
+            app.CreateHost = logger => setup.Create(logger);
             await fixture.AddToRoot(app);
             await FramesUntil(() => app.Host!.GetStatus() is not null);
+            setup.AssertPrepared();
             var host = app.Host!;
             app.Notification((int)Node.NotificationApplicationFocusIn);
             host.SetPaused(false);
@@ -121,9 +124,10 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
         try
         {
             var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
-            app.CreateHost = logger => setup.Create(logger.Log);
+            app.CreateHost = logger => setup.Create(logger);
             await fixture.AddToRoot(app);
             await FramesUntil(() => app.Host!.GetStatus() is not null);
+            setup.AssertPrepared();
             app.Host!.SetPaused(false);
             await FramesUntil(() => app.Host.GetStatus()!.IsFrozen);
             var console = app.GetChildren().OfType<GameConsole>().Single();
@@ -160,14 +164,16 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
         internal ScriptedCoreSession Session { get; } = new(new FixedCoreReadView(new(0, 0), HostCoreScenario.Input));
         internal ScriptedCoreCandidate Candidate { get; }
         internal int PreparationThread { get; private set; }
+        private CoreContentProjection? _restoreProjection;
+        private CoreSessionOptions? _restoreOptions;
+        private readonly CoreSessionOptions _options = new(new("fixture", "fixture", "fixture", "fixture", "fixture"), true, 1);
         internal HostSetup() => Candidate = new(Session, HostCoreScenario.References);
         internal void QueueSteps(int count)
         {
             for (var step = 1u; step <= count; step++)
                 Session.QueueAdvance(new(1, new(step, 0), [], null, null), new FixedCoreReadView(new(step, 0), HostCoreScenario.Input));
         }
-        internal HostCoordinator Create(Action<Train.App.Logging.LogLevel, string, string, string,
-            IReadOnlyDictionary<string, object?>?, Exception?> log, Func<CoreEvent, NotificationAction>? policy = null)
+        internal HostCoordinator Create(TrainLogger logger, Func<CoreEvent, NotificationAction>? policy = null)
         {
             var view = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1));
             var capture = new FixedCoreCapture(new(new(0, 0), "fixed", "fixed"), HostCoreScenario.References,
@@ -180,8 +186,12 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
                     if (payload != "opaque core") throw new InvalidOperationException("UNCONFIGURED: payload");
                     return new CoreResult<ICoreCapture>.Success(capture);
                 },
-                PrepareRestoreCall = (_, projection, _) => projection.Identity == HostCoreScenario.Input
-                    ? new CoreResult<ICoreSessionCandidate>.Success(Candidate) : throw new InvalidOperationException("UNCONFIGURED: projection")
+                PrepareRestoreCall = (_, projection, options) =>
+                {
+                    _restoreProjection = projection;
+                    _restoreOptions = options;
+                    return new CoreResult<ICoreSessionCandidate>.Success(Candidate);
+                }
             };
             var content = new ScriptedContentFactory
             {
@@ -190,18 +200,16 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
                 PrepareLoadCall = (request, _, _) => request.Purpose is ContentLoadPurpose.Restore
                     ? new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(view)) : throw new InvalidOperationException("UNCONFIGURED: purpose")
             };
-            var ports = new UnusedPorts();
-            var host = new HostCoordinator(core, content, ports, ports,
-                new(new("builtin"), new("mods"), null, "fixture", []), log, policy);
-            host.BeginRestore("opaque core", "opaque content",
-                new(new("fixture", "fixture", "fixture", "fixture", "fixture"), true, 1));
+            var host = new HostCoordinator(core, content, new ScriptedContentFiles(), new UnconfiguredAssetInspector(),
+                new(new("builtin"), new("mods"), null, "fixture", []), logger, policy);
+            host.BeginRestore("opaque core", "opaque content", _options);
             return host;
         }
-    }
-    private sealed class UnusedPorts : IContentFiles, IAssetInspector
-    {
-        public ContentIoResult<ImmutableArray<ContentFileEntry>> Enumerate(ContentPath directory) => throw new InvalidOperationException("UNCONFIGURED");
-        public ContentIoResult<ImmutableArray<byte>> Read(ContentPath path, long limit) => throw new InvalidOperationException("UNCONFIGURED");
-        public AssetInspection Inspect(AssetKind kind, AssetRevision revision, ImmutableArray<byte> bytes) => throw new InvalidOperationException("UNCONFIGURED");
+
+        internal void AssertPrepared()
+        {
+            Require(_restoreProjection?.Identity == HostCoreScenario.Input && _restoreOptions == _options,
+                "读档准备没有收到预期内容投影与核心选项。");
+        }
     }
 }

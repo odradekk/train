@@ -7,17 +7,13 @@ namespace Train.Tests.Engine.Bootstrap;
 
 public partial class Runner : Node
 {
-    [Export] public bool ObserveHostWindow { get; set; }
-
     public override async void _Ready()
     {
         try
         {
             // _Ready 期间根节点仍在挂接子节点；测试加载 App 必须从下一帧开始。
             await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-            var path = ObserveHostWindow
-                ? ProjectSettings.GlobalizePath("res://.godot/mono/temp/bin/Debug/Train.Engine.Tests.dll")
-                : System.Environment.GetEnvironmentVariable("TRAIN_ENGINE_TEST_ASSEMBLY")!;
+            var path = System.Environment.GetEnvironmentVariable("TRAIN_ENGINE_TEST_ASSEMBLY")!;
             var context = AssemblyLoadContext.GetLoadContext(GetType().Assembly)!;
             var resolver = new AssemblyDependencyResolver(path);
             // 测试专用依赖不在宿主 deps.json 中；按测试程序集自身的依赖清单加载。
@@ -27,13 +23,6 @@ public partial class Runner : Node
             try
             {
                 var assembly = context.LoadFromAssemblyPath(path);
-                if (ObserveHostWindow)
-                {
-                    await (Task)assembly.GetType("Train.Engine.Tests.HostWindowObservation")!
-                        .GetMethod("Run")!.Invoke(null, [this])!;
-                    GetTree().Quit();
-                    return;
-                }
                 GoTest.Adapter = new ReportAdapter(System.Environment.GetEnvironmentVariable("TRAIN_ENGINE_REPORT")!);
                 GoTest.TimeoutMilliseconds = 60000;
                 await GoTest.RunTests(assembly, this, TestEnvironment.From(OS.GetCmdlineUserArgs()));

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.App;
+using Train.App.Logging;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
 using Train.Core.Contracts;
@@ -17,6 +18,7 @@ public sealed class HostCoordinatorTests
         var calls = 0;
         using var fixture = new HostFixture(_ => ++calls == 1
             ? throw new InvalidOperationException("fixed notification failure") : NotificationAction.Pause);
+        fixture.AllowHostFailure("host_notification_failed");
         var session = fixture.ReadyHost();
         var command = new CoreCommand.StopTrain(new(1));
         ImmutableArray<EventEnvelope> events = [new(new(0, 1), 0, new CoreEvent.TrainArrived(new(1), new(1))),
@@ -26,12 +28,16 @@ public sealed class HostCoordinatorTests
             new FixedCoreReadView(new(0, 1), HostCoreScenario.Input));
         fixture.Host.SetPaused(false);
         var received = new List<int>();
+        var consumerCalls = 0;
+        var observedPause = false;
         fixture.Host.BoundaryCompleted += (_, _, _, batch) =>
-        { received.AddRange(batch.Select(envelope => envelope.Ordinal)); Assert.IsTrue(fixture.Host.GetStatus()!.PlayerPaused); };
+        { consumerCalls++; received.AddRange(batch.Select(envelope => envelope.Ordinal)); observedPause = fixture.Host.GetStatus()!.PlayerPaused; };
         var result = fixture.Host.Submit(fixture.Host.GetStatus()!.Binding, command, CommandSource.UserInterface);
         Assert.IsInstanceOfType<SubmissionResult.Completed>(result);
         Assert.AreEqual(new SimulationPosition(0, 1), fixture.Host.GetStatus()!.View.Position);
         CollectionAssert.AreEqual(new[] { 0, 1 }, received);
+        Assert.AreEqual(1, consumerCalls);
+        Assert.IsTrue(observedPause);
         Assert.AreEqual(2, calls);
         Assert.AreEqual(1, fixture.Logs.Count(log => log.EventId == "host_notification_failed"));
         Assert.IsFalse(fixture.Host.GetStatus()!.IsFrozen);
@@ -44,11 +50,183 @@ public sealed class HostCoordinatorTests
         var session = fixture.ReadyHost();
         var fault = new CoreFault("capture_failed", new(0, 0), "capture", "state", null);
         session.SetCapture(CapturePurpose.Save, new CoreResult<ICoreCapture>.Faulted(fault, new("fixed", "stack")));
-        Assert.IsInstanceOfType<CoreResult<CoreCheckpoint>.Faulted>(fixture.Host.CaptureCheckpoint());
+        Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Faulted>(fixture.Host.CaptureCheckpoint());
         Assert.IsFalse(fixture.Host.GetStatus()!.IsFrozen);
-        Assert.AreEqual("capture_failed", fixture.Host.BeginReload().Problem?.Code);
+        Assert.AreEqual("capture_failed", fixture.Host.BeginReload(CommandSource.Console).Problem?.Code);
         Assert.IsFalse(fixture.Host.IsBusy);
         Assert.AreEqual(0, fixture.Logs.Count(log => log.EventId == "simulation_fault"));
+        Assert.AreEqual(0, fixture.Logs.Count(log => log.EventId == "simulation_checkpoint_failed"));
+        Assert.AreEqual(1, fixture.Logs.Count(log => log.EventId == "content_reload_failed"));
+        Assert.AreEqual("Faulted", fixture.Logs.Single(log => log.EventId == "content_reload_summary").Attributes["status"]);
+    }
+
+    [TestMethod]
+    [DataRow(0.0)]
+    [DataRow(1.0 / 60)]
+    public void Reload_completes_in_frame_and_skips_the_next_interval_containing_commit_time(double completionDelta)
+    {
+        using var fixture = new HostFixture();
+        var session = fixture.ReadyHost();
+        fixture.Host.SetSpeed(SimulationSpeed.Four);
+        fixture.Host.SetPaused(false);
+        var target = new FixedContentView(fixture.Content.Core, new(2));
+        var candidate = new ScriptedContentCandidate(target, fixture.Content, ContentChange.Presentation);
+        fixture.Load = _ => new ContentResult<IContentCandidate>.Success(candidate);
+        if (completionDelta > 0)
+            for (var i = 1u; i <= 4; i++)
+                session.QueueAdvance(new(1, new(i, 0), [], null, null), new FixedCoreReadView(new(i, 0), HostCoreScenario.Input));
+        fixture.Host.BeginReload(CommandSource.Console);
+        Assert.IsTrue(SpinWait.SpinUntil(() => { fixture.Host.ProcessFrame(completionDelta); return !fixture.Host.IsBusy; }, 900));
+        Assert.AreEqual(completionDelta > 0 ? 4 : 0, session.AdvanceCount, "完成帧应使用正常间隔。");
+        fixture.Host.ProcessFrame(100);
+        Assert.AreEqual(completionDelta > 0 ? 4 : 0, session.AdvanceCount, "下一帧不能追赶提交耗时。");
+        Assert.AreSame(target, fixture.Host.Content);
+        Assert.AreEqual(1, candidate.Activations);
+        Assert.IsFalse(fixture.Host.GetStatus()!.IsPaused);
+        Assert.AreEqual(SimulationSpeed.Four, fixture.Host.GetStatus()!.Speed);
+    }
+
+    [TestMethod]
+    public void Slow_notification_at_one_speed_keeps_the_remaining_steps()
+    {
+        using var fixture = new HostFixture(_ => NotificationAction.SlowToOne);
+        var session = fixture.ReadyHost();
+        for (var i = 1u; i <= 2; i++)
+            session.QueueAdvance(new(1, new(i, 0), [new(new(i, 0), 0, new CoreEvent.TrainArrived(new(1), new(1)))], null, null),
+                new FixedCoreReadView(new(i, 0), HostCoreScenario.Input));
+        fixture.Host.SetPaused(false);
+        fixture.Host.ProcessFrame(1.0 / 30);
+        Assert.AreEqual(2, session.AdvanceCount);
+        Assert.AreEqual(2UL, fixture.Host.GetStatus()!.View.Position.CompletedSteps);
+        Assert.AreEqual(SimulationSpeed.One, fixture.Host.GetStatus()!.Speed);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Pause_wins_over_slow_in_same_boundary_in_both_event_orders(bool reverse)
+    {
+        using var fixture = new HostFixture(@event => @event is CoreEvent.TrainArrived ? NotificationAction.SlowToOne : NotificationAction.Pause);
+        var session = fixture.ReadyHost();
+        CoreEvent slow = new CoreEvent.TrainArrived(new(1), new(1));
+        CoreEvent pause = new CoreEvent.RailBroken(new(1), new(new(1), 0, 2));
+        ImmutableArray<EventEnvelope> events = [new(new(1, 0), 0, reverse ? pause : slow), new(new(1, 0), 1, reverse ? slow : pause)];
+        session.QueueAdvance(new(1, new(1, 0), events, null, null), new FixedCoreReadView(new(1, 0), HostCoreScenario.Input));
+        fixture.Host.SetSpeed(SimulationSpeed.Eight);
+        fixture.Host.SetPaused(false);
+        fixture.Host.ProcessFrame(SimulationTime.StepSeconds);
+        Assert.AreEqual(1, session.AdvanceCount);
+        Assert.IsTrue(fixture.Host.GetStatus()!.PlayerPaused);
+        Assert.AreEqual(SimulationSpeed.Eight, fixture.Host.GetStatus()!.Speed);
+    }
+
+    [TestMethod]
+    [DataRow("reload", "invalid")]
+    [DataRow("reload", "fault")]
+    [DataRow("reload", "exception")]
+    [DataRow("new", "invalid")]
+    [DataRow("restore", "invalid")]
+    [DataRow("new", "fault")]
+    [DataRow("restore", "fault")]
+    [DataRow("new", "exception")]
+    [DataRow("restore", "exception")]
+    public void Preparation_failure_uses_operation_event_and_logs_each_content_diagnostic_once(string operation, string outcome)
+    {
+        using var fixture = new HostFixture();
+        var eventId = operation == "reload" ? "content_reload_failed" : operation == "new" ? "host_new_game_failed" : "host_restore_failed";
+        if (operation != "reload") fixture.AllowHostFailure(eventId);
+        fixture.Load = _ => outcome switch
+        {
+            "invalid" => new ContentResult<IContentCandidate>.Failure([
+                new("invalid_one", ContentDiagnosticSeverity.Error, "decode", null, null, "one", null, "one"),
+                new("invalid_two", ContentDiagnosticSeverity.Warning, "validate", null, null, "two", null, "two")]),
+            "fault" => new ContentResult<IContentCandidate>.Faulted("load_fault", "fixed fault", "fixed stack"),
+            _ => throw new InvalidOperationException("fixed preparation exception")
+        };
+        if (operation == "reload") fixture.Host.BeginReload(CommandSource.Console);
+        else if (operation == "new") fixture.Host.BeginNewGame(new("fixture:profile"), 1, "fixed", HostFixture.Options);
+        else fixture.Host.BeginRestore("core-state", "content-state", HostFixture.Options);
+        fixture.PumpUntil(() => !fixture.Host.IsBusy);
+        Assert.IsNull(fixture.Host.GetStatus());
+        Assert.IsNull(fixture.Host.Content);
+        Assert.AreEqual(outcome == "invalid" ? 2 : outcome == "fault" ? 1 : 0, fixture.Logs.Count(log => log.EventId == "content_invalid"));
+        Assert.AreEqual(1, fixture.Logs.Count(log => log.EventId == eventId));
+        Assert.AreEqual(outcome == "invalid" ? "Rejected" : "Faulted", fixture.Logs.Single(log => log.EventId == eventId).Attributes["status"]);
+        Assert.AreEqual(operation == "reload" ? 1 : 0, fixture.Logs.Count(log => log.EventId == "content_reload_summary"));
+        Assert.AreEqual(operation == "reload" ? 1 : 0, fixture.Logs.Count(log => log.EventId == "content_reload_failed"));
+    }
+
+    [TestMethod]
+    [DataRow("world_rejected")]
+    [DataRow("world_faulted")]
+    [DataRow("core_rejected")]
+    public void New_game_failure_before_activation_preserves_running_group(string outcome)
+    {
+        using var fixture = new HostFixture();
+        fixture.AllowHostFailure("host_new_game_failed");
+        fixture.ReadyHost();
+        var binding = fixture.Host.GetStatus()!.Binding;
+        fixture.Host.SetPaused(false);
+        fixture.Host.SetSpeed(SimulationSpeed.Four);
+        var content = new ScriptedContentCandidate(fixture.Content);
+        fixture.Load = _ => new ContentResult<IContentCandidate>.Success(content);
+        fixture.World = (_, _, _, _) => outcome switch
+        {
+            "world_rejected" => new ContentResult<WorldGenerationInput>.Failure([new("world_invalid", ContentDiagnosticSeverity.Error, "generate", null, null, "profile", null, "fixed")]),
+            "world_faulted" => new ContentResult<WorldGenerationInput>.Faulted("world_fault", "fixed", "stack"),
+            _ => new ContentResult<WorldGenerationInput>.Success(HostCoreScenario.World)
+        };
+        fixture.Core.PrepareNewCall = (_, _, _) => new CoreResult<ICoreSessionCandidate>.Failure([new("new_rejected", "input", null, [])]);
+        fixture.Host.BeginNewGame(new("fixture:profile"), 1, "fixed", HostFixture.Options);
+        fixture.PumpUntil(() => !fixture.Host.IsBusy);
+        Assert.AreEqual(binding, fixture.Host.GetStatus()!.Binding);
+        Assert.AreSame(fixture.Content, fixture.Host.Content);
+        Assert.IsFalse(fixture.Host.GetStatus()!.IsPaused);
+        Assert.IsFalse(fixture.Host.GetStatus()!.IsFrozen);
+        Assert.AreEqual(SimulationSpeed.Four, fixture.Host.GetStatus()!.Speed);
+        Assert.AreEqual(1, content.Disposals);
+        Assert.AreEqual(0, content.Activations);
+        Assert.AreEqual(outcome == "core_rejected" ? 1 : 0, fixture.Core.PrepareNewCount);
+        Assert.AreEqual(outcome == "world_faulted" ? "Faulted" : "Rejected",
+            fixture.Logs.Single(log => log.EventId == "host_new_game_failed").Attributes["status"]);
+    }
+
+    [TestMethod]
+    public void New_game_waits_for_content_missing_confirmation_and_applies_current_focus_pause()
+    {
+        using var fixture = new HostFixture();
+        var missing = new MissingContentReference(new ContentReference.Generation(new("fixture:missing")), null, "runtime", []);
+        fixture.Load = _ => new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(fixture.Content,
+            report: new(fixture.Content.Packages, [missing], [], [])));
+        fixture.World = (_, _, _, _) => new ContentResult<WorldGenerationInput>.Success(HostCoreScenario.World);
+        fixture.Core.PrepareNewCall = (_, _, _) => new CoreResult<ICoreSessionCandidate>.Success(fixture.CoreCandidate);
+        fixture.Host.AutoPauseOnFocusLoss = true;
+        var operation = fixture.Host.BeginNewGame(new("fixture:profile"), 1, "fixed", HostFixture.Options);
+        fixture.PumpUntil(() => fixture.Host.MissingConfirmation is not null);
+        Assert.IsNull(fixture.Host.GetStatus());
+        Assert.AreEqual(0, fixture.CoreCandidate.ActivationCount);
+        fixture.Host.SetFocused(false);
+        Assert.IsTrue(fixture.Host.ConfirmMissing(operation.Operation));
+        Assert.IsTrue(fixture.Host.GetStatus()!.PlayerPaused);
+        Assert.IsTrue(fixture.Host.GetStatus()!.FocusPaused);
+        Assert.IsNull(fixture.Host.SetPaused(false));
+        Assert.IsTrue(fixture.Host.GetStatus()!.IsPaused);
+        Assert.AreEqual(1, fixture.CoreCandidate.ActivationCount);
+    }
+
+    [TestMethod]
+    public void Host_calls_from_a_different_thread_fail_before_touching_session()
+    {
+        using var fixture = new HostFixture();
+        fixture.ReadyHost();
+        Exception? observed = null;
+        var thread = new Thread(() => { try { fixture.Host.SetPaused(false); } catch (Exception exception) { observed = exception; } });
+        thread.Start();
+        Assert.IsTrue(thread.Join(500));
+        Assert.IsInstanceOfType<InvalidOperationException>(observed);
+        StringAssert.Contains(observed.Message, "协调线程");
+        Assert.IsTrue(fixture.Host.GetStatus()!.PlayerPaused);
+        Assert.AreEqual(0, fixture.Session.AdvanceCount);
     }
 
     [TestMethod]
@@ -61,12 +239,14 @@ public sealed class HostCoordinatorTests
                 [new(new(step, 0), 0, new CoreEvent.TrainArrived(new(1), new(1)))], null, null),
                 new FixedCoreReadView(new(step, 0), HostCoreScenario.Input));
         var positions = new List<ulong>();
+        var eventCounts = new List<int>();
         fixture.Host.BoundaryCompleted += (_, view, _, events) =>
-        { Assert.AreEqual(1, events.Length); positions.Add(view.Position.CompletedSteps); };
+        { eventCounts.Add(events.Length); positions.Add(view.Position.CompletedSteps); };
         fixture.Host.SetSpeed(SimulationSpeed.Two);
         fixture.Host.SetPaused(false);
         fixture.Host.ProcessFrame(SimulationTime.StepSeconds);
         CollectionAssert.AreEqual(new ulong[] { 1, 2 }, positions);
+        CollectionAssert.AreEqual(new[] { 1, 1 }, eventCounts);
         Assert.AreEqual(SimulationSpeed.Two, fixture.Host.GetStatus()!.Speed);
         Assert.IsFalse(fixture.Host.GetStatus()!.IsPaused);
     }
@@ -77,14 +257,17 @@ public sealed class HostCoordinatorTests
     public void Accepted_settlement_copies_are_paired_before_consumers_or_stop_on_pairing_failure(bool fail)
     {
         using var fixture = new HostFixture();
+        if (fail) fixture.AllowHostFailure("host_pairing_failed");
         var session = fixture.ReadyHost();
         var command = new CoreCommand.FoundSettlement(new(1), new(1));
         ImmutableArray<OwnedSettlementTemplateReference> copies = [new(new(91), new("fixture:template"), [])];
         var paired = new FixedContentView(fixture.Content.Core, new(1), new(2));
+        IContentView? copiedBasis = null;
+        ImmutableArray<OwnedSettlementTemplateReference> copiedReferences = [];
+        var copyCalls = 0;
         fixture.Copies = (basis, actual) =>
         {
-            Assert.AreSame(fixture.Content, basis);
-            CollectionAssert.AreEqual(copies.ToArray(), actual.ToArray());
+            copyCalls++; copiedBasis = basis; copiedReferences = actual;
             if (fail) throw new InvalidOperationException("fixed pairing failure");
             return paired;
         };
@@ -93,12 +276,17 @@ public sealed class HostCoordinatorTests
                 [new(new(0, 1), 0, new CoreEvent.TrainArrived(new(1), new(1)))], null),
             new FixedCoreReadView(new(0, 1), HostCoreScenario.Input));
         var observations = 0;
+        IContentView? observedContent = null;
         fixture.Host.BoundaryCompleted += (_, _, content, _) =>
-        { Assert.AreSame(paired, content); observations++; };
+        { observedContent = content; observations++; };
         var result = fixture.Host.Submit(fixture.Host.GetStatus()!.Binding, command, CommandSource.UserInterface);
         Assert.IsInstanceOfType<SubmissionResult.Completed>(result);
         Assert.IsInstanceOfType<CommandDecision.Accepted>(((SubmissionResult.Completed)result).Receipt.Decision);
         Assert.AreEqual(fail ? 0 : 1, observations);
+        if (!fail) Assert.AreSame(paired, observedContent);
+        Assert.AreEqual(1, copyCalls);
+        Assert.AreSame(fixture.Content, copiedBasis);
+        CollectionAssert.AreEqual(copies.ToArray(), copiedReferences.ToArray());
         Assert.AreSame(fail ? fixture.Content : paired, fixture.Host.Content);
         Assert.AreEqual(fail, fixture.Host.GetStatus()!.IsFrozen);
         if (fail)
@@ -133,7 +321,7 @@ public sealed class HostCoordinatorTests
             if (saved.Encode() == "A")
             {
                 enteredA.Set();
-                if (!releaseA.Wait(900)) throw new AssertFailedException("A 的受控门未释放。");
+                if (!releaseA.Wait(900)) throw new AssertFailedException("A 的准备任务的放行信号未触发。");
                 return new CoreResult<ICoreSessionCandidate>.Success(candidateA);
             }
             if (saved.Encode() == "B") return new CoreResult<ICoreSessionCandidate>.Success(candidateB);
@@ -164,6 +352,7 @@ public sealed class HostCoordinatorTests
     public void Command_events_keep_order_and_continue_after_consumer_failure_without_reentry()
     {
         using var fixture = new HostFixture(_ => NotificationAction.Pause);
+        fixture.AllowHostFailure("host_consumer_failed");
         var session = fixture.ReadyHost();
         var command = new CoreCommand.StopTrain(new(7));
         var position = new SimulationPosition(0, 1);
@@ -175,17 +364,27 @@ public sealed class HostCoordinatorTests
         fixture.Host.SetPaused(false);
         var binding = fixture.Host.GetStatus()!.Binding;
         var observed = new List<int>();
+        var consumerCalls = 0;
+        SimulationPosition? observedPosition = null;
+        IContentView? observedContent = null;
+        var observedPause = false;
+        SubmissionResult? reentryResult = null;
         fixture.Host.BoundaryCompleted += (_, _, _, _) => throw new InvalidOperationException("consumer failed");
         fixture.Host.BoundaryCompleted += (_, view, content, batch) =>
         {
-            Assert.AreEqual(position, view.Position);
-            Assert.AreSame(fixture.Content, content);
-            Assert.IsTrue(fixture.Host.GetStatus()!.PlayerPaused);
+            consumerCalls++; observedPosition = view.Position; observedContent = content;
+            observedPause = fixture.Host.GetStatus()!.PlayerPaused;
             observed.AddRange(batch.Select(envelope => envelope.Ordinal));
-            Assert.IsInstanceOfType<SubmissionResult.NotAccepted>(fixture.Host.Submit(binding, command, CommandSource.Console));
+            reentryResult = fixture.Host.Submit(binding, command, CommandSource.Console);
         };
         Assert.IsInstanceOfType<SubmissionResult.Completed>(fixture.Host.Submit(binding, command, CommandSource.Console));
         CollectionAssert.AreEqual(new[] { 0, 1 }, observed);
+        Assert.AreEqual(1, consumerCalls);
+        Assert.AreEqual(position, observedPosition);
+        Assert.AreSame(fixture.Content, observedContent);
+        Assert.IsTrue(observedPause);
+        Assert.IsInstanceOfType<SubmissionResult.NotAccepted>(reentryResult);
+        Assert.AreEqual("busy", ((SubmissionResult.NotAccepted)reentryResult!).Reason.Code);
         Assert.AreEqual(1, session.SubmitCount);
         Assert.AreEqual(1, fixture.Logs.Count(log => log.EventId == "host_consumer_failed"));
     }
@@ -240,7 +439,8 @@ public sealed class HostCoordinatorTests
         fixture.Host.SetPaused(false);
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
-        var abandoned = new ScriptedContentCandidate(fixture.Content, fixture.Content, ContentChange.None);
+        var abandoned = new ScriptedContentCandidate(new FixedContentView(fixture.Content.Core, new(2)),
+            fixture.Content, ContentChange.Presentation);
         fixture.Load = _ =>
         {
             entered.Set();
@@ -249,21 +449,23 @@ public sealed class HostCoordinatorTests
         };
         try
         {
-            var op = fixture.Host.BeginReload();
+            var op = fixture.Host.BeginReload(CommandSource.Console);
             Assert.IsTrue(entered.Wait(500));
             Assert.IsTrue(fixture.Host.GetStatus()!.OperationLocked);
             Assert.AreEqual("busy", fixture.Host.SetPaused(true)?.Code);
             Assert.AreEqual("busy", fixture.Host.Step(1).Problem?.Code);
-            Assert.AreEqual("busy", fixture.Host.BeginReload().Problem?.Code);
-            Assert.IsInstanceOfType<CoreResult<CoreCheckpoint>.Success>(fixture.Host.CaptureCheckpoint());
+            Assert.AreEqual("busy", fixture.Host.BeginReload(CommandSource.Console).Problem?.Code);
+            Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Success>(fixture.Host.CaptureCheckpoint());
             Assert.IsTrue(fixture.Host.Cancel(op.Operation));
             Assert.IsFalse(fixture.Host.GetStatus()!.IsPaused);
             Assert.AreEqual(SimulationSpeed.Four, fixture.Host.GetStatus()!.Speed);
             fixture.Host.ProcessFrame(100);
             Assert.AreEqual(0UL, fixture.Host.GetStatus()!.View.Position.CompletedSteps);
-            Assert.AreEqual("busy", fixture.Host.BeginReload().Problem?.Code);
+            Assert.AreEqual("busy", fixture.Host.BeginReload(CommandSource.Console).Problem?.Code);
         }
         finally { release.Set(); fixture.PumpUntil(() => abandoned.Disposals == 1); }
+        Assert.AreEqual(0, abandoned.Activations);
+        Assert.AreSame(fixture.Content, fixture.Host.Content);
     }
 
     [TestMethod]
@@ -279,10 +481,10 @@ public sealed class HostCoordinatorTests
         fixture.Host.SetPaused(false);
         var target = new FixedContentView(HostContentScenario.CreateProjection(new(new string('B', 64))), new(2));
         var candidate = new ScriptedContentCandidate(target, fixture.Content);
+        ContentLoadPurpose? observedPurpose = null;
         fixture.Load = request =>
         {
-            Assert.IsInstanceOfType<ContentLoadPurpose.Reload>(request.Purpose);
-            Assert.AreSame(fixture.Content, ((ContentLoadPurpose.Reload)request.Purpose).Basis);
+            observedPurpose = request.Purpose;
             return new ContentResult<IContentCandidate>.Success(candidate);
         };
         var fault = new CoreFault("fixture_fault", new(0, 1), "publish", "content", null);
@@ -300,13 +502,13 @@ public sealed class HostCoordinatorTests
                 outcome == "accepted" ? target.Core.Identity : fixture.Content.Core.Identity,
                 outcome == "faulted" ? fault : null));
         var observations = 0;
+        var observedPairs = new List<(CoreInputId Core, IContentView Content)>();
         fixture.Host.BoundaryCompleted += (_, view, content, _) =>
         {
-            Assert.AreEqual(content.Core.Identity, view.InputIdentity);
-            Assert.AreSame(outcome == "accepted" ? target : fixture.Content, content);
+            observedPairs.Add((view.InputIdentity, content));
             observations++;
         };
-        Assert.IsNull(fixture.Host.BeginReload().Problem);
+        Assert.IsNull(fixture.Host.BeginReload(CommandSource.Console).Problem);
         fixture.PumpUntil(() => !fixture.Host.IsBusy);
         Assert.AreEqual(outcome == "accepted" ? 1 : 0, candidate.Activations);
         Assert.AreSame(outcome == "accepted" ? target : fixture.Content, fixture.Host.Content);
@@ -314,6 +516,13 @@ public sealed class HostCoordinatorTests
         Assert.AreEqual(SimulationSpeed.Four, fixture.Host.GetStatus()!.Speed);
         Assert.IsFalse(fixture.Host.GetStatus()!.PlayerPaused);
         Assert.AreEqual(outcome == "not_accepted" ? 0 : 1, observations);
+        foreach (var pair in observedPairs)
+        {
+            Assert.AreEqual(pair.Content.Core.Identity, pair.Core);
+            Assert.AreSame(outcome == "accepted" ? target : fixture.Content, pair.Content);
+        }
+        Assert.IsInstanceOfType<ContentLoadPurpose.Reload>(observedPurpose);
+        Assert.AreSame(fixture.Content, ((ContentLoadPurpose.Reload)observedPurpose!).Basis);
         Assert.AreEqual(outcome == "faulted" ? 1 : 0, fixture.Logs.Count(log => log.EventId == "simulation_fault"));
         Assert.AreEqual(1, candidate.Disposals);
         var summary = fixture.Logs.Single(log => log.EventId == "content_reload_summary");
@@ -333,7 +542,7 @@ public sealed class HostCoordinatorTests
             new FixedContentView(fixture.Content.Core, new(2));
         var candidate = new ScriptedContentCandidate(target, fixture.Content, change);
         fixture.Load = _ => new ContentResult<IContentCandidate>.Success(candidate);
-        fixture.Host.BeginReload();
+        fixture.Host.BeginReload(CommandSource.Console);
         fixture.PumpUntil(() => !fixture.Host.IsBusy);
         Assert.AreSame(change == ContentChange.None ? fixture.Content : target, fixture.Host.Content);
         Assert.AreEqual(change == ContentChange.None ? 0 : 1, candidate.Activations);
@@ -347,14 +556,16 @@ public sealed class HostCoordinatorTests
     public void Menu_reload_only_activates_content_without_a_core_session()
     {
         using var fixture = new HostFixture();
+        ContentLoadPurpose? observedPurpose = null;
         fixture.Load = request =>
         {
-            Assert.IsInstanceOfType<ContentLoadPurpose.Initial>(request.Purpose);
+            observedPurpose = request.Purpose;
             return new ContentResult<IContentCandidate>.Success(fixture.ContentCandidate);
         };
-        fixture.Host.BeginReload();
+        fixture.Host.BeginReload(CommandSource.Console);
         fixture.PumpUntil(() => fixture.Host.Content is not null);
         Assert.AreSame(fixture.Content, fixture.Host.Content);
+        Assert.IsInstanceOfType<ContentLoadPurpose.Initial>(observedPurpose);
         Assert.IsNull(fixture.Host.GetStatus());
         Assert.AreEqual(1, fixture.ContentCandidate.Activations);
         Assert.AreEqual(0, fixture.Core.PrepareRestoreCount);
@@ -371,35 +582,50 @@ public sealed class HostCoordinatorTests
         var references = HostCoreScenario.References with { Templates = templates };
         var candidate = new ScriptedCoreCandidate(fixture.Session, references);
         var paired = new FixedContentView(fixture.Content.Core, new(1), new(2));
+        (IContentView View, GenerationProfileId Profile, ulong Seed, string Version)? worldArguments = null;
+        (WorldGenerationInput World, CoreContentProjection Projection, CoreSessionOptions Options)? coreArguments = null;
+        (IContentView View, ImmutableArray<OwnedSettlementTemplateReference> Copies, int Activations)? copyArguments = null;
+        (IContentView Content, int Thread)? observedBoundary = null;
+        var boundaryCalls = 0;
         fixture.Load = request => request.Purpose is ContentLoadPurpose.Initial
             ? new ContentResult<IContentCandidate>.Success(fixture.ContentCandidate) : throw new AssertFailedException("用途失配。");
         fixture.World = (view, profile, seed, version) =>
         {
-            Assert.AreSame(fixture.Content, view);
-            Assert.AreEqual(new GenerationProfileId("fixture:profile"), profile);
-            Assert.AreEqual(1UL, seed);
-            Assert.AreEqual("fixture-generator", version);
+            worldArguments = (view, profile, seed, version);
             return new ContentResult<WorldGenerationInput>.Success(HostCoreScenario.World);
         };
         fixture.Core.PrepareNewCall = (world, projection, options) =>
         {
             preparationThread = Environment.CurrentManagedThreadId;
-            Assert.AreSame(HostCoreScenario.World, world);
-            Assert.AreSame(fixture.Content.Core, projection);
+            coreArguments = (world, projection, options);
             return new CoreResult<ICoreSessionCandidate>.Success(candidate);
         };
         fixture.Copies = (view, copies) =>
         {
-            Assert.AreEqual(0, candidate.ActivationCount);
-            Assert.AreSame(fixture.Content, view);
-            CollectionAssert.AreEqual(templates.ToArray(), copies.ToArray());
+            copyArguments = (view, copies, candidate.ActivationCount);
             return paired;
         };
         fixture.Host.BoundaryCompleted += (_, _, content, _) =>
-        { Assert.AreSame(paired, content); Assert.AreEqual(owner, Environment.CurrentManagedThreadId); };
+        { boundaryCalls++; observedBoundary = (content, Environment.CurrentManagedThreadId); };
         fixture.Host.BeginNewGame(new("fixture:profile"), 1, "fixture-generator", HostFixture.Options);
         fixture.PumpUntil(() => fixture.Host.GetStatus() is not null);
         Assert.AreNotEqual(owner, preparationThread);
+        Assert.IsNotNull(worldArguments);
+        Assert.AreSame(fixture.Content, worldArguments.Value.View);
+        Assert.AreEqual(new GenerationProfileId("fixture:profile"), worldArguments.Value.Profile);
+        Assert.AreEqual(1UL, worldArguments.Value.Seed);
+        Assert.AreEqual("fixture-generator", worldArguments.Value.Version);
+        Assert.IsNotNull(coreArguments);
+        Assert.AreSame(HostCoreScenario.World, coreArguments.Value.World);
+        Assert.AreSame(fixture.Content.Core, coreArguments.Value.Projection);
+        Assert.AreEqual(HostFixture.Options, coreArguments.Value.Options);
+        Assert.IsNotNull(copyArguments);
+        Assert.AreEqual(0, copyArguments.Value.Activations);
+        Assert.AreSame(fixture.Content, copyArguments.Value.View);
+        CollectionAssert.AreEqual(templates.ToArray(), copyArguments.Value.Copies.ToArray());
+        Assert.AreEqual(1, boundaryCalls);
+        Assert.AreSame(paired, observedBoundary!.Value.Content);
+        Assert.AreEqual(owner, observedBoundary.Value.Thread);
         Assert.AreEqual(owner, candidate.ActivationThread);
         Assert.AreEqual(1, candidate.ActivationCount);
         Assert.IsTrue(fixture.Host.GetStatus()!.PlayerPaused);
@@ -410,6 +636,7 @@ public sealed class HostCoordinatorTests
     public void Preparation_failure_preserves_old_group_and_old_bindings_are_rejected_after_success()
     {
         using var fixture = new HostFixture();
+        fixture.AllowHostFailure("host_restore_failed");
         fixture.ReadyHost();
         fixture.Host.SetPaused(false);
         var original = fixture.Host.GetStatus()!.Binding;
@@ -441,6 +668,7 @@ public sealed class HostCoordinatorTests
     public void Bad_candidate_activation_cleans_new_session_and_does_not_freeze_old_group()
     {
         using var fixture = new HostFixture();
+        fixture.AllowHostFailure("host_activation_failed");
         fixture.ReadyHost();
         fixture.Host.SetPaused(false);
         var binding = fixture.Host.GetStatus()!.Binding;

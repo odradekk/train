@@ -106,3 +106,9 @@ public sealed class FixedContentCapture(string opaquePayload, ContentRevision re
     public ImmutableArray<PackageMetadata> ReferencedPackages { get; } = referencedPackages.IsDefault ? [] : referencedPackages;
     public string Encode() => opaquePayload;
 }
+
+public sealed class UnconfiguredAssetInspector : IAssetInspector
+{
+    public AssetInspection Inspect(AssetKind kind, AssetRevision revision, ImmutableArray<byte> bytes) =>
+        throw new InvalidOperationException("UNCONFIGURED: 资产检查未配置。");
+}

@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
@@ -53,7 +52,7 @@ public sealed class HostContentScenarioTests
         var request = new ContentLoadRequest(new ContentInstallation(new ContentRoot("built-in"),
             new ContentRoot("mods"), null, "fixture", []), new ContentLoadPurpose.Initial());
         var files = new ScriptedContentFiles();
-        var inspector = new UnusedInspector();
+        var inspector = new UnconfiguredAssetInspector();
         var candidate = new ScriptedContentCandidate(view);
         var inputResult = new ContentResult<WorldGenerationInput>.Faulted("fixture", "configured", null);
         var profile = new GenerationProfileId("fixture-profile");
@@ -109,10 +108,16 @@ public sealed class HostContentScenarioTests
         AssertUnconfigured(() => factory.WithSettlementCopies(view, []));
         AssertUnconfigured(() => factory.PrepareLoad(new ContentLoadRequest(
             new ContentInstallation(new ContentRoot("built-in"), new ContentRoot("mods"), null, "fixture", []),
-            new ContentLoadPurpose.Initial()), new ScriptedContentFiles(), new UnusedInspector()));
+            new ContentLoadPurpose.Initial()), new ScriptedContentFiles(), new UnconfiguredAssetInspector()));
         AssertUnconfigured(() => factory.DecodeReplay("unexpected"));
         AssertUnconfigured(() => view.FindDesign(new DesignHash("unexpected")));
         AssertUnconfigured(() => _ = view.Blueprints);
+    }
+
+    [TestMethod]
+    public void UnconfiguredAssetInspectorFailsExplicitly()
+    {
+        AssertUnconfigured(() => new UnconfiguredAssetInspector().Inspect(default, default, []));
     }
 
     private static void AssertUnconfigured(Action operation)
@@ -121,9 +126,4 @@ public sealed class HostContentScenarioTests
         StringAssert.StartsWith(error.Message, "UNCONFIGURED:");
     }
 
-    private sealed class UnusedInspector : IAssetInspector
-    {
-        public AssetInspection Inspect(AssetKind kind, AssetRevision revision, ImmutableArray<byte> bytes) =>
-            throw new InvalidOperationException("UNCONFIGURED: 资产检查未配置。");
-    }
 }

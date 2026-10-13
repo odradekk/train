@@ -25,14 +25,14 @@ internal sealed class SimulationConsoleCommands
         "用法: sim [status|pause|resume|speed 1|2|4|8|step [N]|checkpoint]";
 
     private readonly HostCoordinator _host;
-    private readonly Action<LogLevel, string, string, string, IReadOnlyDictionary<string, object?>?, Exception?> _write;
+    private readonly TrainLogger _logger;
 
-    internal SimulationConsoleCommands(HostCoordinator host, Action<LogLevel, string, string, string, IReadOnlyDictionary<string, object?>?, Exception?> write)
+    internal SimulationConsoleCommands(HostCoordinator host, TrainLogger logger)
     {
         ArgumentNullException.ThrowIfNull(host);
-        ArgumentNullException.ThrowIfNull(write);
+        ArgumentNullException.ThrowIfNull(logger);
         _host = host;
-        _write = write;
+        _logger = logger;
     }
 
     internal void Execute(IReadOnlyList<string> arguments)
@@ -85,7 +85,7 @@ internal sealed class SimulationConsoleCommands
         Log(LogLevel.Info, StatusEventId,
             $"模拟位置={state.Position.CompletedSteps}:{state.Position.Sequence}，模拟秒={Number(status.SimulationSeconds)}，" +
             $"暂停={status.IsPaused}，设定倍速={(int)status.Speed}，实际倍速={Number(status.ActualSpeed)}，" +
-            $"玩家暂停={status.PlayerPaused}，失焦暂停={status.FocusPaused}，操作锁={status.OperationLocked}，" +
+            $"玩家暂停={status.PlayerPaused}，失焦暂停={status.FocusPaused}，技术操作锁={status.OperationLocked}，" +
             $"帧余量秒={Number(status.Remainder)}，故障={fault}。");
     }
 
@@ -136,10 +136,15 @@ internal sealed class SimulationConsoleCommands
 
     private void ReportCheckpoint()
     {
+        if (_host.GetStatus() is null)
+        {
+            SessionUnavailable();
+            return;
+        }
         switch (_host.CaptureCheckpoint())
         {
-            case CoreResult<CoreCheckpoint>.Success success:
-                var checkpoint = success.Value;
+            case CoreResult<ICoreCapture>.Success success:
+                var checkpoint = success.Value.Checkpoint;
                 Log(LogLevel.Info, CheckpointEventId,
                     $"模拟检查点位置={checkpoint.Position.CompletedSteps}:{checkpoint.Position.Sequence}，SHA-256={checkpoint.Sha256}。",
                     new Dictionary<string, object?>
@@ -148,12 +153,28 @@ internal sealed class SimulationConsoleCommands
                         ["sequence"] = checkpoint.Position.Sequence, ["sha256"] = checkpoint.Sha256
                     });
                 return;
-            case CoreResult<CoreCheckpoint>.Failure failure:
-                foreach (var problem in failure.Problems) ReportProblem(problem);
-                return;
-            case CoreResult<CoreCheckpoint>.Faulted faulted:
+            case CoreResult<ICoreCapture>.Failure failure:
                 Log(LogLevel.Warning, CheckpointFailedEventId,
-                    $"检查点获取失败：{faulted.Fault.Code}/{faulted.Fault.Operation}/{faulted.Fault.Field}。");
+                    "检查点获取失败：" + string.Join("，", failure.Problems.Select(problem => $"{problem.Code}/{problem.Field}")) + "。",
+                    new Dictionary<string, object?>
+                    {
+                        ["problem_code"] = string.Join(",", failure.Problems.Select(problem => problem.Code)),
+                        ["problem_field"] = string.Join(",", failure.Problems.Select(problem => problem.Field))
+                    });
+                return;
+            case CoreResult<ICoreCapture>.Faulted faulted:
+                Log(LogLevel.Warning, CheckpointFailedEventId,
+                    $"检查点获取失败：{faulted.Fault.Code}/{faulted.Fault.Operation}/{faulted.Fault.Field}。",
+                    new Dictionary<string, object?>
+                    {
+                        ["fault_code"] = faulted.Fault.Code, ["operation"] = faulted.Fault.Operation,
+                        ["field"] = faulted.Fault.Field,
+                        ["fault_completed_steps"] = faulted.Fault.Position.CompletedSteps,
+                        ["fault_sequence"] = faulted.Fault.Position.Sequence,
+                        ["subject"] = faulted.Fault.Subject?.ToString(),
+                        ["diagnostic_message"] = faulted.Diagnostic?.Message,
+                        ["diagnostic_stack_trace"] = faulted.Diagnostic?.StackTrace
+                    });
                 return;
         }
     }
@@ -175,12 +196,16 @@ internal sealed class SimulationConsoleCommands
         var detail = fault is null ? $"{problem.Code}/{problem.Field}" :
             $"{fault.Code}/{fault.Operation}/{fault.Field}";
         Log(LogLevel.Warning, eventId, $"{prefix}模拟操作未完成：{detail}。",
-            new Dictionary<string, object?> { ["problem_code"] = problem.Code, ["problem_field"] = problem.Field });
+            new Dictionary<string, object?>
+            {
+                ["problem_code"] = problem.Code, ["problem_field"] = problem.Field,
+                ["fault_code"] = fault?.Code, ["operation"] = fault?.Operation, ["field"] = fault?.Field
+            });
     }
 
     private void Log(LogLevel level, string eventId, string message,
         IReadOnlyDictionary<string, object?>? attributes = null) =>
-        _write(level, Category, eventId, message, attributes, null);
+        _logger.Log(level, Category, eventId, message, attributes);
     private static bool TryParseSpeed(string text, out SimulationSpeed speed)
     {
         speed = text switch

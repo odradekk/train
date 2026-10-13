@@ -2,8 +2,6 @@ using System.Collections.Immutable;
 using Train.App.Logging;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
-using HostLog = System.Action<Train.App.Logging.LogLevel, string, string, string,
-    System.Collections.Generic.IReadOnlyDictionary<string, object?>?, System.Exception?>;
 
 namespace Train.App;
 
@@ -24,7 +22,7 @@ internal sealed class HostCoordinator : IDisposable
     private readonly IContentFiles _files;
     private readonly IAssetInspector _assets;
     private readonly ContentInstallation _installation;
-    private readonly HostLog _log;
+    private readonly TrainLogger _logger;
     private readonly Func<CoreEvent, NotificationAction> _notification;
     private readonly Func<double>? _seconds;
     private readonly int _owner = Environment.CurrentManagedThreadId;
@@ -40,11 +38,11 @@ internal sealed class HostCoordinator : IDisposable
     private bool _skipNextFrame;
 
     internal HostCoordinator(ICoreFactory core, IContentFactory content, IContentFiles files,
-        IAssetInspector assets, ContentInstallation installation, HostLog log,
+        IAssetInspector assets, ContentInstallation installation, TrainLogger logger,
         Func<CoreEvent, NotificationAction>? notification = null, Func<double>? seconds = null)
     {
         _core = core; _contentFactory = content; _files = files; _assets = assets;
-        _installation = installation; _log = log;
+        _installation = installation; _logger = logger;
         _notification = notification ?? (_ => NotificationAction.None);
         _seconds = seconds;
     }
@@ -73,7 +71,7 @@ internal sealed class HostCoordinator : IDisposable
     internal CoreProblem? SetPaused(bool paused)
     {
         EnsureOwner();
-        var problem = MutationProblem();
+        var problem = MutationProblem(allowFrozen: paused);
         if (problem is not null) return problem;
         _active!.Driver.SetPlayerPaused(paused);
         return null;
@@ -82,7 +80,7 @@ internal sealed class HostCoordinator : IDisposable
     internal CoreProblem? SetSpeed(SimulationSpeed speed)
     {
         EnsureOwner();
-        var problem = MutationProblem();
+        var problem = MutationProblem(allowFrozen: true);
         if (problem is not null) return problem;
         _active!.Driver.SetSpeed(speed);
         return null;
@@ -104,17 +102,11 @@ internal sealed class HostCoordinator : IDisposable
         finally { _insideBoundary = false; }
     }
 
-    internal CoreResult<CoreCheckpoint> CaptureCheckpoint()
+    internal CoreResult<ICoreCapture> CaptureCheckpoint()
     {
         EnsureOwner();
-        if (_active is null) return new CoreResult<CoreCheckpoint>.Failure([Problem("simulation_session_unavailable")]);
-        var result = CaptureCurrent();
-        if (result is CoreResult<ICoreCapture>.Success saved)
-            return new CoreResult<CoreCheckpoint>.Success(saved.Value.Checkpoint);
-        if (result is CoreResult<ICoreCapture>.Failure rejected)
-            return new CoreResult<CoreCheckpoint>.Failure(rejected.Problems);
-        var faulted = (CoreResult<ICoreCapture>.Faulted)result;
-        return new CoreResult<CoreCheckpoint>.Faulted(faulted.Fault, faulted.Diagnostic);
+        return _active is null ? new CoreResult<ICoreCapture>.Failure([Problem("simulation_session_unavailable")])
+            : CaptureCurrent();
     }
 
     private CoreResult<ICoreCapture> CaptureCurrent()
@@ -126,11 +118,6 @@ internal sealed class HostCoordinator : IDisposable
             // 只读捕获失败不等于活动核心已冻结，以会话读视图的故障为准。
             group.View = group.Core.Read();
             if (group.View.Fault is { } fault) RecordCoreFault(fault, failed.Diagnostic);
-            else
-                _log(LogLevel.Error, "simulation", "simulation_checkpoint_failed", failed.Fault.Code,
-                    new Dictionary<string, object?> { ["code"] = failed.Fault.Code, ["field"] = failed.Fault.Field,
-                        ["operation"] = failed.Fault.Operation, ["diagnostic_message"] = failed.Diagnostic?.Message,
-                        ["diagnostic_stack_trace"] = failed.Diagnostic?.StackTrace }, null);
         }
         return result;
     }
@@ -154,13 +141,13 @@ internal sealed class HostCoordinator : IDisposable
 
     internal (long Operation, CoreProblem? Problem) BeginNewGame(GenerationProfileId profile,
         ulong seed, string generatorVersion, CoreSessionOptions options)
-        => Begin(reload: false, () => PrepareNew(profile, seed, generatorVersion, options));
+        => Begin(OperationKind.NewGame, () => PrepareNew(profile, seed, generatorVersion, options), CommandSource.UserInterface);
 
     internal (long Operation, CoreProblem? Problem) BeginRestore(string corePayload,
         string contentPayload, CoreSessionOptions options)
-        => Begin(reload: false, () => PrepareRestore(corePayload, contentPayload, options));
+        => Begin(OperationKind.Restore, () => PrepareRestore(corePayload, contentPayload, options), CommandSource.UserInterface);
 
-    internal (long Operation, CoreProblem? Problem) BeginReload(CommandSource source = CommandSource.Console)
+    internal (long Operation, CoreProblem? Problem) BeginReload(CommandSource source)
     {
         EnsureOwner();
         if (IsBusy || _abandoned.Any(operation => operation.Reload && !operation.Work.IsCompleted))
@@ -169,9 +156,15 @@ internal sealed class HostCoordinator : IDisposable
         if (_active is not null)
         {
             var captured = CaptureCurrent();
-            if (captured is CoreResult<ICoreCapture>.Failure rejected) return (0, rejected.Problems[0]);
+            if (captured is CoreResult<ICoreCapture>.Failure rejected)
+            {
+                LogReloadResult(checked(++_nextOperation), null, "Rejected", false, rejected.Problems);
+                return (0, rejected.Problems[0]);
+            }
             if (captured is CoreResult<ICoreCapture>.Faulted failed)
             {
+                LogReloadResult(checked(++_nextOperation), null, "Faulted", false,
+                    [new(failed.Fault.Code, failed.Fault.Field, failed.Fault.Subject, [])], failed.Diagnostic);
                 return (0, _active.Driver.Frozen ? Problem("frozen") :
                     new(failed.Fault.Code, failed.Fault.Field, failed.Fault.Subject, []));
             }
@@ -180,16 +173,16 @@ internal sealed class HostCoordinator : IDisposable
         var basis = _content;
         ContentLoadPurpose purpose = basis is null ? new ContentLoadPurpose.Initial()
             : new ContentLoadPurpose.Reload(basis, references);
-        return Begin(reload: true, () => new(_contentFactory.PrepareLoad(
+        return Begin(OperationKind.Reload, () => new(_contentFactory.PrepareLoad(
             new(_installation, purpose), _files, _assets), null, null), source);
     }
 
-    private (long Operation, CoreProblem? Problem) Begin(bool reload, Func<PreparedOperation> prepare,
-        CommandSource source = CommandSource.UserInterface)
+    private (long Operation, CoreProblem? Problem) Begin(OperationKind kind, Func<PreparedOperation> prepare,
+        CommandSource source)
     {
         EnsureOwner();
         if (IsBusy) return (0, Problem("busy"));
-        var operation = new PendingOperation(checked(++_nextOperation), reload, _active?.Binding,
+        var operation = new PendingOperation(checked(++_nextOperation), kind, _active?.Binding,
             _content, Task.Run(prepare), source);
         _pending = operation;
         _active?.Driver.SetOperationLocked(true);
@@ -231,9 +224,9 @@ internal sealed class HostCoordinator : IDisposable
     {
         EnsureOwner();
         if (_insideBoundary) throw new InvalidOperationException("宿主边界内不能重入帧驱动。");
-        var completedOperation = PumpPreparations();
-        var skipAdvance = completedOperation || _skipNextFrame;
+        var skipAdvance = _skipNextFrame;
         _skipNextFrame = false;
+        PumpPreparations();
         _insideBoundary = true;
         try
         {
@@ -242,36 +235,44 @@ internal sealed class HostCoordinator : IDisposable
         finally { _insideBoundary = false; }
     }
 
-    private bool PumpPreparations()
+    private void PumpPreparations()
     {
         foreach (var operation in _abandoned.Where(operation => operation.Work.IsCompleted).ToArray())
         {
             TakeAndDiscard(operation);
             _abandoned.Remove(operation);
         }
-        if (_pending is not { Prepared: null } current || !current.Work.IsCompleted) return false;
+        if (_pending is not { Prepared: null } current || !current.Work.IsCompleted) return;
         PreparedOperation prepared;
         try { prepared = current.Work.GetAwaiter().GetResult(); }
         catch (Exception exception)
         {
-            _log(LogLevel.Error, "application", "host_preparation_failed", "候选准备失败，保留原活动组。",
-                new Dictionary<string, object?> { ["operation_id"] = current.Id }, exception);
-            if (current.Reload) LogReloadResult(current, null, "Rejected", false);
+            if (current.Reload) LogReloadResult(current.Id, null, "Faulted", false,
+                diagnostic: new(exception.Message, exception.StackTrace ?? ""));
+            else LogReplacementFailure(current, "Faulted", [], "preparation_exception", exception: exception);
             EndOperation(current);
-            return true;
+            return;
         }
         if (_active?.Binding != current.BasisBinding || !ReferenceEquals(_content, current.BasisContent))
-        { Discard(prepared); EndOperation(current); return true; }
-        if (!ReportPreparation(prepared))
+        { Discard(prepared); EndOperation(current); return; }
+        if (ReportPreparation(prepared) is { } failureStatus)
         {
-            if (current.Reload) LogReloadResult(current, prepared, "Rejected", false);
-            Discard(prepared); EndOperation(current); return true;
+            if (current.Reload) LogReloadResult(current.Id, prepared, failureStatus, false);
+            else LogReplacementFailure(current, failureStatus,
+                (prepared.Core as CoreResult<ICoreSessionCandidate>.Failure)?.Problems ?? [],
+                (prepared.Content as ContentResult<IContentCandidate>.Faulted)?.Code ??
+                    (prepared.Core as CoreResult<ICoreSessionCandidate>.Faulted)?.Fault.Code ??
+                    (prepared.Content as ContentResult<IContentCandidate>.Failure)?.Diagnostics.FirstOrDefault()?.Code ??
+                    (prepared.Core as CoreResult<ICoreSessionCandidate>.Failure)?.Problems.FirstOrDefault()?.Code,
+                (prepared.Core as CoreResult<ICoreSessionCandidate>.Faulted)?.Diagnostic ??
+                    (prepared.Content is ContentResult<IContentCandidate>.Faulted contentFault
+                        ? new(contentFault.Message, contentFault.StackTrace ?? "") : null));
+            Discard(prepared); EndOperation(current); return;
         }
         if (!current.Reload && (prepared.ContentCandidate!.Report.RuntimeMissing.Length > 0 ||
             prepared.CoreCandidate!.MissingReferences.Length > 0))
-        { current.Prepared = prepared; return true; }
+        { current.Prepared = prepared; return; }
         Commit(current, prepared);
-        return true;
     }
 
     private PreparedOperation PrepareNew(GenerationProfileId profile, ulong seed,
@@ -327,7 +328,7 @@ internal sealed class HostCoordinator : IDisposable
             if (operation.Reload)
             {
                 if (candidate.Changes == ContentChange.None && _content is not null)
-                { LogReloadResult(operation, prepared, "Committed", false); return; }
+                { LogReloadResult(operation.Id, prepared, "Committed", false); return; }
                 if (_active is not null && candidate.Changes.HasFlag(ContentChange.CoreInput))
                 {
                     coreWasCalled = true;
@@ -337,18 +338,18 @@ internal sealed class HostCoordinator : IDisposable
                         var published = CompleteSubmission(completed, candidate);
                         var status = published ? "Committed" : completed.Receipt.Decision is CommandDecision.Rejected
                             ? "Rejected" : "Faulted";
-                        LogReloadResult(operation, prepared, status, published,
+                        LogReloadResult(operation.Id, prepared, status, published,
                             completed.Receipt.Decision is CommandDecision.Rejected rejected ? rejected.Problems : []);
                     }
                     else
-                        LogReloadResult(operation, prepared, "NotAccepted", false,
+                        LogReloadResult(operation.Id, prepared, "NotAccepted", false,
                             [((SubmissionResult.NotAccepted)result).Reason]);
                 }
                 else
                 {
                     _content = candidate.Activate();
                     if (_active is not null) { _active.Content = _content; Dispatch([]); }
-                    LogReloadResult(operation, prepared, "Committed", true);
+                    LogReloadResult(operation.Id, prepared, "Committed", true);
                 }
             }
             else
@@ -362,7 +363,7 @@ internal sealed class HostCoordinator : IDisposable
                 activatedCore = null;
                 UpdateFocusPause();
                 foreach (var problem in prepared.CoreCandidate.AdaptationReport)
-                    _log(LogLevel.Info, "application", "host_state_adapted", problem.Code,
+                    _logger.Log(LogLevel.Info, "application", "host_state_adapted", problem.Code,
                         new Dictionary<string, object?> { ["operation_id"] = operation.Id, ["code"] = problem.Code,
                             ["field"] = problem.Field, ["subject"] = problem.Subject?.ToString() }, null);
                 Dispatch([]);
@@ -376,7 +377,7 @@ internal sealed class HostCoordinator : IDisposable
             try { activatedCore?.Dispose(); }
             catch (Exception cleanup) { LogHostFailure("host_cleanup_failed", cleanup); }
             LogHostFailure("host_activation_failed", exception);
-            if (operation.Reload) LogReloadResult(operation, prepared, "Faulted", false);
+            if (operation.Reload) LogReloadResult(operation.Id, prepared, "Faulted", false);
         }
         finally { Discard(prepared); EndOperation(operation); _insideBoundary = false; }
     }
@@ -384,7 +385,6 @@ internal sealed class HostCoordinator : IDisposable
     private bool CompleteSubmission(SubmissionResult.Completed completed, IContentCandidate? target)
     {
         var group = _active!;
-        if (target is not null) group.History.Add(target.View);
         if (completed.Receipt.Decision is CommandDecision.Accepted accepted)
         {
             try
@@ -392,7 +392,6 @@ internal sealed class HostCoordinator : IDisposable
                 var content = target?.Activate() ?? group.Content;
                 if (accepted.SettlementCopies.Length > 0)
                     content = _contentFactory.WithSettlementCopies(content, accepted.SettlementCopies);
-                if (!ReferenceEquals(content, group.Content)) group.History.Add(content);
                 group.Content = content; _content = content;
             }
             catch (Exception exception)
@@ -408,12 +407,13 @@ internal sealed class HostCoordinator : IDisposable
     private (uint Completed, bool Stop) AdvanceOne(bool manual)
     {
         var group = _active!;
+        var speed = group.Driver.Speed;
         var result = group.Core.Advance(1);
         group.View = group.Core.Read();
         if (result.Fault is not null) RecordCoreFault(result.Fault, result.Diagnostic);
         var action = Dispatch(result.Events);
         return (result.CompletedSteps, group.Driver.Frozen || action == NotificationAction.Pause ||
-            (!manual && action == NotificationAction.SlowToOne));
+            (!manual && speed > SimulationSpeed.One && action == NotificationAction.SlowToOne));
     }
 
     private NotificationAction Dispatch(ImmutableArray<EventEnvelope> events)
@@ -421,7 +421,7 @@ internal sealed class HostCoordinator : IDisposable
         var group = _active!;
         var action = NotificationAction.None;
         foreach (var envelope in events)
-            try { action = (NotificationAction)Math.Max((int)action, (int)_notification(envelope.Event)); }
+            try { var next = _notification(envelope.Event); if (next > action) action = next; }
             catch (Exception exception) { LogHostFailure("host_notification_failed", exception); }
         if (action == NotificationAction.Pause) group.Driver.SetPlayerPaused(true);
         else if (action == NotificationAction.SlowToOne) group.Driver.SetSpeed(SimulationSpeed.One);
@@ -436,7 +436,7 @@ internal sealed class HostCoordinator : IDisposable
     {
         if (_active!.Driver.Frozen) return;
         _active.Driver.Freeze();
-        _log(LogLevel.Error, "simulation", "simulation_fault", "核心模拟发生内部故障，已冻结在最后完整边界。",
+        _logger.Log(LogLevel.Error, "simulation", "simulation_fault", "核心模拟发生内部故障，已冻结在最后完整边界。",
             new Dictionary<string, object?>
             {
                 ["fault_code"] = fault.Code, ["operation"] = fault.Operation, ["field"] = fault.Field,
@@ -447,39 +447,39 @@ internal sealed class HostCoordinator : IDisposable
             }, null);
     }
 
-    private bool ReportPreparation(PreparedOperation prepared)
+    private string? ReportPreparation(PreparedOperation prepared)
     {
-        if (prepared.ContentCandidate is { } candidate)
-            foreach (var diagnostic in candidate.Report.Diagnostics)
-                _log(diagnostic.Severity switch { ContentDiagnosticSeverity.Information => LogLevel.Info,
+        var diagnostics = prepared.ContentCandidate?.Report.Diagnostics ??
+            (prepared.Content as ContentResult<IContentCandidate>.Failure)?.Diagnostics ?? [];
+        foreach (var diagnostic in diagnostics)
+                _logger.Log(diagnostic.Severity switch { ContentDiagnosticSeverity.Information => LogLevel.Info,
                     ContentDiagnosticSeverity.Warning => LogLevel.Warning, _ => LogLevel.Error },
                     "content", "content_invalid", diagnostic.Message,
                     new Dictionary<string, object?> { ["code"] = diagnostic.Code, ["stage"] = diagnostic.Stage,
                         ["field"] = diagnostic.Field, ["source"] = diagnostic.Source?.ToString(),
                         ["subject"] = diagnostic.Subject?.ToString() }, null);
-        if (prepared.Content is ContentResult<IContentCandidate>.Failure invalid)
-            foreach (var diagnostic in invalid.Diagnostics)
-                _log(LogLevel.Error, "content", "content_reload_failed", diagnostic.Message,
-                    new Dictionary<string, object?> { ["code"] = diagnostic.Code, ["stage"] = diagnostic.Stage,
-                        ["field"] = diagnostic.Field, ["source"] = diagnostic.Source?.ToString() }, null);
         if (prepared.Content is ContentResult<IContentCandidate>.Faulted failed)
-            _log(LogLevel.Error, "content", "content_reload_failed", failed.Message,
+            _logger.Log(LogLevel.Error, "content", "content_invalid", failed.Message,
                 new Dictionary<string, object?> { ["code"] = failed.Code, ["diagnostic_stack_trace"] = failed.StackTrace }, null);
-        if (prepared.Core is CoreResult<ICoreSessionCandidate>.Failure rejected)
-            foreach (var problem in rejected.Problems)
-                _log(LogLevel.Warning, "application", "host_preparation_rejected", problem.Code,
-                    new Dictionary<string, object?> { ["code"] = problem.Code, ["field"] = problem.Field,
-                        ["subject"] = problem.Subject?.ToString() }, null);
-        if (prepared.Core is CoreResult<ICoreSessionCandidate>.Faulted faulted)
-            _log(LogLevel.Error, "application", "host_preparation_failed", faulted.Fault.Code,
-                new Dictionary<string, object?> { ["code"] = faulted.Fault.Code, ["field"] = faulted.Fault.Field,
-                    ["diagnostic_message"] = faulted.Diagnostic?.Message, ["diagnostic_stack_trace"] = faulted.Diagnostic?.StackTrace }, null);
-        return prepared.ContentCandidate is not null &&
-            (prepared.Core is null || prepared.CoreCandidate is not null);
+        if (prepared.ContentCandidate is not null && (prepared.Core is null || prepared.CoreCandidate is not null)) return null;
+        return prepared.Content is ContentResult<IContentCandidate>.Faulted ||
+            prepared.Core is CoreResult<ICoreSessionCandidate>.Faulted ? "Faulted" : "Rejected";
     }
 
-    private void LogReloadResult(PendingOperation operation, PreparedOperation? prepared, string status,
-        bool changed, ImmutableArray<CoreProblem> problems = default)
+    private void LogReplacementFailure(PendingOperation operation, string status,
+        ImmutableArray<CoreProblem> problems, string? code, CoreDiagnostic? diagnostic = null, Exception? exception = null) =>
+        _logger.Log(status == "Faulted" ? LogLevel.Error : LogLevel.Warning, "application",
+            operation.Kind == OperationKind.NewGame ? "host_new_game_failed" : "host_restore_failed",
+            "候选准备失败，保留原活动组。", new Dictionary<string, object?>
+            {
+                ["operation_id"] = operation.Id, ["status"] = status, ["code"] = code,
+                ["problems"] = problems.Select(problem => new Dictionary<string, object?>
+                    { ["code"] = problem.Code, ["field"] = problem.Field, ["subject"] = problem.Subject?.ToString() }).ToArray(),
+                ["diagnostic_message"] = diagnostic?.Message, ["diagnostic_stack_trace"] = diagnostic?.StackTrace
+            }, exception);
+
+    private void LogReloadResult(long operationId, PreparedOperation? prepared, string status,
+        bool changed, ImmutableArray<CoreProblem> problems = default, CoreDiagnostic? diagnostic = null)
     {
         var diagnostics = prepared?.Content is ContentResult<IContentCandidate>.Failure failed
             ? failed.Diagnostics : prepared?.ContentCandidate?.Report.Diagnostics ?? [];
@@ -487,16 +487,18 @@ internal sealed class HostCoordinator : IDisposable
         if (status == "Committed" && warnings > 0) status = "CommittedWithWarnings";
         var attributes = new Dictionary<string, object?>
         {
-            ["operation_id"] = operation.Id, ["status"] = status, ["changed"] = changed,
+            ["operation_id"] = operationId, ["status"] = status, ["changed"] = changed,
             ["generation"] = _content?.Generation.Value ?? 0, ["warning_count"] = warnings,
             ["error_count"] = diagnostics.Count(diagnostic => diagnostic.Severity == ContentDiagnosticSeverity.Error),
-            ["code"] = problems.IsDefaultOrEmpty ? null : problems[0].Code,
+            ["code"] = problems.IsDefaultOrEmpty ? (prepared?.Content as ContentResult<IContentCandidate>.Faulted)?.Code : problems[0].Code,
+            ["diagnostic_message"] = diagnostic?.Message,
+            ["diagnostic_stack_trace"] = diagnostic?.StackTrace,
             ["problems"] = problems.IsDefault ? [] : problems.Select(problem => new Dictionary<string, object?>
                 { ["code"] = problem.Code, ["field"] = problem.Field, ["subject"] = problem.Subject?.ToString() }).ToArray()
         };
         if (status is not ("Committed" or "CommittedWithWarnings"))
-            _log(LogLevel.Error, "content", "content_reload_failed", "内容未发布。", attributes, null);
-        _log(LogLevel.Info, "content", "content_reload_summary", "内容重载结束。", attributes, null);
+            _logger.Log(LogLevel.Error, "content", "content_reload_failed", "内容未发布。", attributes, null);
+        _logger.Log(LogLevel.Info, "content", "content_reload_summary", "内容重载结束。", attributes, null);
     }
 
     private void EndOperation(PendingOperation operation)
@@ -506,8 +508,8 @@ internal sealed class HostCoordinator : IDisposable
         _active?.Driver.SetOperationLocked(false);
         _skipNextFrame = true;
     }
-    private CoreProblem? MutationProblem() => IsBusy ? Problem("busy") : _active is null
-        ? Problem("simulation_session_unavailable") : _active.Driver.Frozen ? Problem("frozen") : null;
+    private CoreProblem? MutationProblem(bool allowFrozen = false) => IsBusy ? Problem("busy") : _active is null
+        ? Problem("simulation_session_unavailable") : _active.Driver.Frozen && !allowFrozen ? Problem("frozen") : null;
     private static CoreProblem Problem(string code, string field = "host") => new(code, field, null, []);
     private void EnsureOwner()
     {
@@ -516,7 +518,7 @@ internal sealed class HostCoordinator : IDisposable
             throw new InvalidOperationException("宿主操作只能由协调线程调用。");
     }
     private void LogHostFailure(string eventId, Exception exception) =>
-        _log(LogLevel.Error, "application", eventId, "宿主接入发生异常。", null, exception);
+        _logger.Log(LogLevel.Error, "application", eventId, "宿主接入发生异常。", null, exception);
     private void Discard(PreparedOperation prepared)
     {
         try { prepared.Dispose(); }
@@ -557,14 +559,14 @@ internal sealed class HostCoordinator : IDisposable
         internal IContentView Content { get; set; } = content;
         internal ICoreReadView View { get; set; } = core.Read();
         internal SimulationFrameDriver Driver { get; } = driver;
-        // Completed 的目标依赖须保留，拒绝与故障也不能随候选释放；导出由 #322 接入。
-        internal List<IContentView> History { get; } = [content];
     }
-    private sealed class PendingOperation(long id, bool reload, HostBinding? basisBinding,
+    private enum OperationKind { NewGame, Restore, Reload }
+    private sealed class PendingOperation(long id, OperationKind kind, HostBinding? basisBinding,
         IContentView? basisContent, Task<PreparedOperation> work, CommandSource source)
     {
         internal long Id { get; } = id;
-        internal bool Reload { get; } = reload;
+        internal OperationKind Kind { get; } = kind;
+        internal bool Reload => Kind == OperationKind.Reload;
         internal HostBinding? BasisBinding { get; } = basisBinding;
         internal IContentView? BasisContent { get; } = basisContent;
         internal Task<PreparedOperation> Work { get; } = work;

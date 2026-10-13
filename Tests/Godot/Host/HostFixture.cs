@@ -5,6 +5,7 @@ using Train.Content.Contracts;
 using Train.Content.ContractSupport;
 using Train.Core.Contracts;
 using Train.Core.ContractSupport;
+using Train.Godot.Tests.Logging;
 
 namespace Train.Godot.Tests.Host;
 
@@ -19,12 +20,17 @@ internal sealed class HostFixture : IDisposable
     internal ScriptedCoreCandidate CoreCandidate { get; }
     internal ScriptedContentCandidate ContentCandidate { get; }
     internal FixedContentView Content { get; }
-    internal List<LogEvent> Logs { get; } = [];
+    private readonly LoggerSession _logging = LoggerSession.CreateMemory();
+    private readonly Dictionary<string, int> _allowedHostFailures = [];
+    internal TrainLogger Logger => _logging.Logger;
+    internal IReadOnlyList<LogEvent> Logs => _logging.Memory.Snapshot();
+    internal CoreContentProjection? RestoreProjection { get; private set; }
+    internal CoreSessionOptions? RestoreOptions { get; private set; }
     internal Func<ContentLoadRequest, ContentResult<IContentCandidate>>? Load { get; set; }
     internal Func<IContentView, GenerationProfileId, ulong, string, ContentResult<WorldGenerationInput>>? World { get; set; }
     internal Func<IContentView, System.Collections.Immutable.ImmutableArray<OwnedSettlementTemplateReference>, IContentView>? Copies { get; set; }
 
-    internal HostFixture(Func<CoreEvent, NotificationAction>? notification = null)
+    internal HostFixture(Func<CoreEvent, NotificationAction>? notification = null, Func<double>? seconds = null)
     {
         Content = new(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1));
         Session = new(new FixedCoreReadView(new(0, 0), Content.Core.Identity));
@@ -37,8 +43,8 @@ internal sealed class HostFixture : IDisposable
                 : throw new InvalidOperationException("UNCONFIGURED: 核心载荷。"),
             PrepareRestoreCall = (saved, projection, options) =>
             {
-                Assert.AreEqual(Content.Core.Identity, projection.Identity);
-                Assert.AreEqual(Options, options);
+                RestoreProjection = projection;
+                RestoreOptions = options;
                 return new CoreResult<ICoreSessionCandidate>.Success(CoreCandidate);
             }
         };
@@ -53,21 +59,24 @@ internal sealed class HostFixture : IDisposable
             CreateWorldInputCall = (view, profile, seed, version) => (World ?? throw new InvalidOperationException("UNCONFIGURED: 生成输入。"))(view, profile, seed, version),
             WithSettlementCopiesCall = (view, copies) => (Copies ?? throw new InvalidOperationException("UNCONFIGURED: 模板副本。"))(view, copies)
         };
-        var ports = new UnusedPorts();
-        Host = new(Core, Factory, ports, ports, new(new("builtin"), new("mods"), null, "fixture-game", []),
-            Write, notification, () => 0);
+        Host = new(Core, Factory, new ScriptedContentFiles(), new UnconfiguredAssetInspector(), new(new("builtin"), new("mods"), null, "fixture-game", []),
+            Logger, notification, seconds ?? (() => 0));
     }
 
-    internal void Write(LogLevel level, string category, string eventId, string message,
-        IReadOnlyDictionary<string, object?>? attributes, Exception? exception)
-        => Logs.Add(new(DateTimeOffset.UnixEpoch, Guid.Empty, Logs.Count + 1, level, category,
-            eventId, message, attributes ?? new Dictionary<string, object?>(), exception is null ? null : LogExceptionData.From(exception)));
+    internal void AllowHostFailure(string id, int count = 1)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(count);
+        _allowedHostFailures.Add(id, count);
+    }
 
     internal ScriptedCoreSession ReadyHost()
     {
         var started = Host.BeginRestore("core-state", "content-state", Options);
         Assert.IsNull(started.Problem);
         PumpUntil(() => Host.GetStatus() is not null);
+        Assert.AreEqual(Content.Core.Identity, RestoreProjection?.Identity);
+        Assert.AreEqual(Options, RestoreOptions);
+        Host.ProcessFrame(0);
         return Session;
     }
 
@@ -80,16 +89,26 @@ internal sealed class HostFixture : IDisposable
     internal FixedCoreCapture Capture(SimulationPosition position) => new(new(position,
         "fixture canonical text", "fixture fixed sha256"), HostCoreScenario.References,
         "opaque core capture", HostCoreScenario.Input, new(1));
-    public void Dispose() => Host.Dispose();
-
-    private sealed class UnusedPorts : IContentFiles, IAssetInspector
+    public void Dispose()
     {
-        public ContentIoResult<System.Collections.Immutable.ImmutableArray<ContentFileEntry>> Enumerate(ContentPath directory)
-            => throw new InvalidOperationException("UNCONFIGURED: 文件枚举。" );
-        public ContentIoResult<System.Collections.Immutable.ImmutableArray<byte>> Read(ContentPath file, long maximumBytes)
-            => throw new InvalidOperationException("UNCONFIGURED: 文件读取。");
-        public AssetInspection Inspect(AssetKind kind, AssetRevision revision,
-            System.Collections.Immutable.ImmutableArray<byte> bytes)
-            => throw new InvalidOperationException("UNCONFIGURED: 资产检查。");
+        try
+        {
+            Host.Dispose();
+            var logs = Logs;
+            Assert.IsFalse(logs.Any(log => ContainsUnconfigured(log.Exception)),
+                "宿主吞掉了未配置的测试替身调用。");
+            var failures = logs.Where(log => log.EventId.StartsWith("host_", StringComparison.Ordinal)
+                && log.EventId.EndsWith("_failed", StringComparison.Ordinal))
+                .GroupBy(log => log.EventId).ToDictionary(group => group.Key, group => group.Count());
+            foreach (var (id, count) in failures)
+                Assert.AreEqual(_allowedHostFailures.GetValueOrDefault(id), count, $"意外宿主失败日志：{id}。");
+            foreach (var (id, count) in _allowedHostFailures)
+                Assert.AreEqual(count, failures.GetValueOrDefault(id), $"预期宿主失败日志数量不符：{id}。");
+        }
+        finally { _logging.Dispose(); }
     }
+
+    private static bool ContainsUnconfigured(LogExceptionData? exception) => exception is not null
+        && (exception.Message.Contains("UNCONFIGURED", StringComparison.Ordinal)
+            || exception.InnerExceptions.Any(ContainsUnconfigured));
 }
