@@ -13,6 +13,8 @@
     <ProjectReference Include="../../Core/Train.Core.csproj" />
     <ProjectReference Include="../../Content/Train.Content.csproj" />
     <Compile Include="../../App/Assets/DiskContentFiles.cs" Link="DiskContentFiles.cs" />
+    <Compile Include="../../App/Saves/SaveContainer.cs" Link="SaveContainer.cs" />
+    <Compile Include="../../App/Saves/FileSaveStore.cs" Link="FileSaveStore.cs" />
     <InternalsVisibleTo Include="Train.Cli.Tests" />
   </ItemGroup>
 </Project>

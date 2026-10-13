@@ -13,6 +13,10 @@ public sealed class ProjectAnalysisTests
         var owner = Path.Combine(root, "Tools", "Cli");
         bool Allowed(string file) => ProjectAnalysis.OwnsCompileSource(root, "Train.Cli", owner, Path.Combine(root, "App", file));
         Assert.IsTrue(Allowed("Assets/DiskContentFiles.cs"));
+        Assert.IsTrue(Allowed("Saves/SaveContainer.cs"));
+        Assert.IsTrue(Allowed("Saves/FileSaveStore.cs"));
+        Assert.IsFalse(Allowed("Saves/SaveCapture.cs"));
+        Assert.IsFalse(Allowed("Saves/SaveService.cs"));
         Assert.IsFalse(Allowed("Assets/ContentFiles.cs"));
         Assert.IsFalse(Allowed("Assets/../HostCoordinator.cs"));
     }

@@ -10,7 +10,7 @@ namespace Train.Cli.Tests;
 
 [TestClass]
 [TestCategory("integration")]
-public sealed class CliProcessTests
+public sealed partial class CliProcessTests
 {
     public TestContext TestContext { get; set; } = null!;
 
