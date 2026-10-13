@@ -229,6 +229,58 @@ public sealed class SaveServiceTests
     }
 
     [TestMethod]
+    public void Example_opens_with_unique_unsaved_identities_and_saves_only_the_copy()
+    {
+        using var run = new Run();
+        var source = run.Source();
+        var original = File.ReadAllBytes(source);
+        var document = run.Store.Read(source);
+        run.Service.ReturnToMenu();
+        run.Service.ChooseLeave(LeaveChoice.Discard);
+        run.ConfigureRestore();
+        Assert.IsNull(run.Service.StartExample(document));
+        run.Drain();
+        var first = run.Service.Status!.Identity;
+        Assert.AreNotEqual(document.Header.Id, first.Id);
+        Assert.AreEqual(document.Header.Name, first.Name);
+        Assert.IsTrue(run.Service.Status.Unsaved);
+        Assert.IsFalse(File.Exists(run.Store.PathFor(first.Id)));
+        Assert.IsNull(run.Service.Save());
+        run.Drain();
+        Assert.AreEqual(first.Id, run.Store.ReadHeader(run.Store.PathFor(first.Id)).Id);
+        Assert.IsFalse(File.Exists(run.Store.PathFor(document.Header.Id)));
+        CollectionAssert.AreEqual(original, File.ReadAllBytes(source));
+
+        run.ConfigureRestore();
+        Assert.IsNull(run.Service.StartExample(document));
+        run.Drain();
+        var second = run.Service.Status!.Identity;
+        Assert.AreNotEqual(document.Header.Id, second.Id);
+        Assert.AreNotEqual(first.Id, second.Id);
+        Assert.AreEqual(document.Header.Name, second.Name);
+        Assert.IsTrue(run.Service.Status.Unsaved);
+        CollectionAssert.AreEqual(original, File.ReadAllBytes(source));
+    }
+
+    [TestMethod]
+    public void Example_start_waits_for_unsaved_session_leave_choice()
+    {
+        using var run = new Run();
+        var before = run.Service.Status!;
+        var document = run.Store.Read(run.Source());
+        var (core, _) = run.ConfigureRestore();
+        Assert.IsNull(run.Service.StartExample(document));
+        Assert.IsNotNull(run.Service.Leaving);
+        Assert.AreEqual(before, run.Service.Status);
+        Assert.AreEqual(0, core.ActivationCount);
+        run.Service.ChooseLeave(LeaveChoice.Discard);
+        run.Drain();
+        Assert.AreNotEqual(before.Binding, run.Service.Status!.Binding);
+        Assert.AreNotEqual(document.Header.Id, run.Service.Status.Identity.Id);
+        Assert.IsTrue(run.Service.Status.Unsaved);
+    }
+
+    [TestMethod]
     public void Valid_load_activates_new_candidates_and_establishes_clean_manual_save_identity()
     {
         using var run = new Run();

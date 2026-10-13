@@ -16,11 +16,13 @@ namespace Train.App;
 public partial class App : Node
 {
     public const string ReloadContentAction = "reload_content";
+    internal const string ExampleSavePath = "res://examples/basic-through/save.json";
 
     private TrainLogger? _logger;
     private GodotMainThreadDispatcher? _dispatcher;
     private bool _smoke;
     private MeasurementRun? _measurement;
+    private Guid? _smokeExampleId;
 
     internal TrainLogger Logger => _logger!;
     internal Action QuitAction { get; set; }
@@ -48,6 +50,7 @@ public partial class App : Node
             Host = CreateHost?.Invoke(_logger) ?? HostComposition.CreateHost(_logger, userData, _dispatcher);
             Saves = new SaveService(Host, new FileSaveStore(userData));
             GetNode<MainMenu>("MainMenu").ConfigureSaves(Saves);
+            GetNode<MainMenu>("MainMenu").ExampleRequested += () => StartExample();
             Recording = new RecordingService(Host, new FileSaveStore(userData));
             WorldScenes = new(Host, CreateScenes?.Invoke() ?? HostComposition.CreateScenes(), _logger);
             AddChild(WorldScenes.View);
@@ -108,6 +111,26 @@ public partial class App : Node
         else GetNode<MainMenu>("MainMenu").ShowSaveFailure(Saves.RequestLeave(FinishQuit));
     }
 
+    internal SaveFailure? StartExample(string path = ExampleSavePath)
+    {
+        SaveFailure? failure;
+        try
+        {
+            using var file = Godot.FileAccess.Open(path, Godot.FileAccess.ModeFlags.Read);
+            if (file is null) failure = new("example-read-failed", $"无法读取示例存档：{Godot.FileAccess.GetOpenError()}。");
+            else
+            {
+                var document = SaveContainer.Decode(file.GetAsText());
+                if (_smoke) _smokeExampleId = document.Header.Id;
+                failure = Saves!.StartExample(document);
+            }
+        }
+        catch (SaveFormatException error)
+        { failure = new(error.Code, $"无法读取示例存档：{error.Message}"); }
+        GetNode<MainMenu>("MainMenu").ShowSaveFailure(failure);
+        return failure;
+    }
+
     private void FinishQuit()
     {
         if (Recording is null) QuitAction();
@@ -147,7 +170,10 @@ public partial class App : Node
         // headless 的虚拟窗口始终报告最小化；它仍需执行资源和显示边界检查。
         WorldScenes?.ProcessFrame(delta, DisplayServer.GetName() != "headless" && GetWindow().Mode == Window.ModeEnum.Minimized);
         _logger?.DrainGodotQueue();
-        if (_smoke && Host is { IsBusy: false }) CompleteSmoke();
+        if (_smoke && Host is { IsBusy: false } && Saves is { IsBusy: false })
+        {
+            if (_smokeExampleId is not null || StartExample() is not null) CompleteSmoke();
+        }
     }
 
     private void CompleteSmoke()
@@ -155,15 +181,29 @@ public partial class App : Node
         _smoke = false;
         var content = Host!.Content;
         var display = content?.FindVoxelDisplay(new("core:staple-food"));
+        var status = Host.GetStatus();
+        var save = Saves!.Status;
+        var exampleVisible = GetNode<MainMenu>("MainMenu").GetNode<Button>("%Example").Visible;
+        var restored = status is { IsReplay: false } && save is not null;
         var passed = display is ContentLookup<VoxelDisplayProjection>.Found food &&
             content!.FindAsset(food.Value.Icon) is ContentLookup<ContentAsset>.Found
                 { Value.Metadata: AssetMetadata.Png { Width: > 0, Height: > 0 } } &&
             content.FindGood(new GoodId.Voxel(new("core:staple-food"))) is
-                ContentLookup<GoodPresentation>.Found;
+                ContentLookup<GoodPresentation>.Found && restored && _smokeExampleId is not null &&
+            save!.Identity.Id != _smokeExampleId && status!.View.Position == new SimulationPosition(200, 0) &&
+            status.IsPaused && save.Unsaved && !exampleVisible;
         _logger!.Info("application", "application_smoke_summary", "生产装配冒烟结束。",
             new Dictionary<string, object?>
             {
                 ["passed"] = passed,
+                ["example_source_id"] = _smokeExampleId?.ToString(),
+                ["save_id"] = save?.Identity.Id.ToString(),
+                ["restored"] = restored,
+                ["completed_steps"] = status?.View.Position.CompletedSteps,
+                ["sequence"] = status?.View.Position.Sequence,
+                ["paused"] = status?.IsPaused == true,
+                ["unsaved"] = save?.Unsaved == true,
+                ["example_button_visible"] = exampleVisible,
                 ["packages"] = content?.Packages.Where(package => package.State == PackageState.Available)
                     .Select(package => package.Metadata!.Id.Value).ToArray() ?? [],
                 ["voxels"] = content?.Voxels.Select(voxel => voxel.Definition.Value).ToArray() ?? []
