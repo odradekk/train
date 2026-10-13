@@ -121,7 +121,7 @@ internal static class RailwayFixtures
         NodeScene.Built? previous, CancellationToken token) =>
         new(NodeLayout.Build(snapshot, node, token), ImmutableDictionary<string, NodeScene.Part>.Empty);
 
-    internal static RailwayScene Controlled(SceneWorldSnapshot snapshot,
+    internal static RailwayScene Controlled(SceneWorldSnapshot snapshot, SceneVehicles vehicles,
         Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null)
     {
         var ids = new Dictionary<string, SceneObjectId>();
@@ -130,7 +130,7 @@ internal static class RailwayFixtures
         {
             if (!ids.TryGetValue(key, out var id)) ids.Add(key, id = new(++next));
             return id;
-        }, build ?? EmptySegment);
+        }, vehicles, build ?? EmptySegment);
     }
 
     internal static async Task<SceneFrame> Settled(RailwayScene scene, SceneWorldSnapshot snapshot,

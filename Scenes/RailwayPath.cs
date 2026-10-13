@@ -34,6 +34,10 @@ internal static class RailwayCoordinates
     internal const double TerrainSlopeMarginCells = 26.5;
     internal const double FogHorizontalPaddingCells = 8;
     internal const float FogVerticalPaddingCells = 128;
+    // Cover a voxel's footprint beyond its sampled centre, including endpoint grid snapping.
+    internal const int CellFootprintMargin = 1;
+    // The node and line endpoints each round by half a cell; include the full boundary voxel too.
+    internal const int BoundaryGridMargin = 2;
     internal static double OutermostTrackOffset(int count) => Math.Max(0, count - 1) * TrackSpacing / 2;
     internal static double TerrainHalfWidth(int count) =>
         OutermostTrackOffset(count) + BedBaseHalfWidth + BedBlendWidth + TerrainSlopeMarginCells;
@@ -81,8 +85,6 @@ internal sealed class RailwayPath
     internal NodeMapItem End { get; }
     internal ulong Seed { get; }
     internal RailwayAppearanceProjection Rules { get; }
-    internal NodeLayout.EntriesData StartNode { get; }
-    internal NodeLayout.EntriesData EndNode { get; }
     internal double LengthCells { get; }
     internal int SegmentCount => checked((int)Math.Ceiling(LengthCells / RailwayCoordinates.SegmentLengthCells));
     private readonly ScenePoint start;
@@ -120,8 +122,6 @@ internal sealed class RailwayPath
             !double.IsFinite(Rules.MinimumCurveRadiusMeters) || Rules.MinimumCurveRadiusMeters <= 0 ||
             !double.IsFinite(Rules.MaximumGrade) || Rules.MaximumGrade <= 0)
             throw new RailwayBuildException("The edge length or railway appearance cannot produce a valid alignment.");
-        StartNode = NodeLayout.BuildEntries(snapshot, Start.Id);
-        EndNode = NodeLayout.BuildEntries(snapshot, End.Id);
         forwardX = dx / direct;
         forwardZ = dz / direct;
         side = RailwayRandom.Unit(Seed, id.Value, 0, HorizontalSidePurpose) < 0.5 ? -1 : 1;

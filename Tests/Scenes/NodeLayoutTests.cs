@@ -16,10 +16,10 @@ public sealed class NodeLayoutTests
         var basis = RailwayFixtures.Snapshot(tracks: 1, trackLimit: 3);
         var layout = NodeLayout.Build(basis, new(1));
         var moreTracks = RailwayFixtures.ReplaceCore(basis, edge: basis.Core.World.Edges[0] with { Tracks = 3 });
-        Assert.AreEqual(layout.Inputs, NodeLayout.InputKey(moreTracks, new(1)));
+        Assert.AreEqual(layout.Inputs, NodeLayout.Build(moreTracks, new(1)).Inputs);
         Assert.AreEqual(layout.EntryPoint(RailwayFixtures.Edge), NodeLayout.Build(moreTracks, new(1)).EntryPoint(RailwayFixtures.Edge));
         var station = RailwayFixtures.ReplaceCore(basis, node: basis.Core.World.Nodes[0] with { Platforms = 4 });
-        Assert.AreNotEqual(layout.Inputs, NodeLayout.InputKey(station, new(1)));
+        Assert.AreNotEqual(layout.Inputs, NodeLayout.Build(station, new(1)).Inputs);
         Assert.IsTrue(NodeLayout.Build(station, new(1)).HalfSize >= layout.HalfSize);
     }
 
@@ -85,15 +85,20 @@ public sealed class NodeLayoutTests
         var snapshot = Junction(bearings);
         var layout = NodeLayout.Build(snapshot, new(1));
         var radius = RailwayFixtures.Rules.MinimumCurveRadiusMeters * RailwayCoordinates.CellsPerMeter;
-        // Two station tracks and reserved half-spacing lanes account for the fan-out, in addition to the turn.
-        var stationSpan = NodeLayout.StationTrackSpacing;
-        var laneHalfWidth = RailwayCoordinates.OutermostTrackOffset(2);
-        var corridor = laneHalfWidth + RailwayCoordinates.BedBaseHalfWidth;
-        var fanOut = Math.Sqrt(3) * (stationSpan + 2 * laneHalfWidth + 4);
-        var sameSideSpan = layout.Entries.GroupBy(entry => (entry.Side, Math.Sign(entry.BendAngle)))
-            .Max(group => group.Max(entry => entry.Separation));
-        var bound = NodeLayout.PlatformLength / 2.0 + NodeLayout.PlatformClearance + NodeLayout.ApproachStraight +
-            radius + fanOut + sameSideSpan * (1 + Math.Sqrt(3)) + corridor + NodeLayout.GroundMargin + 1 + VoxelGrid.ChunkSize;
+        // The approved budget includes a minimum-radius turn and a lateral crossing
+        // with a 30-degree intermediate tangent; none of its inputs come from the layout.
+        var directions = bearings.Select(degrees => new Vector2(
+            (float)Math.Cos(degrees * Math.PI / 180), (float)Math.Sin(degrees * Math.PI / 180))).ToArray();
+        var alongX = directions.Sum(direction => Math.Acos(Math.Clamp(Math.Abs(direction.X), 0, 1))) <
+            directions.Sum(direction => Math.Acos(Math.Clamp(Math.Abs(direction.Y), 0, 1))) - 1e-8;
+        var sameSideEntries = directions.Select(direction => (alongX ? direction.X : direction.Y) >= 0)
+            .GroupBy(side => side).Max(group => group.Count());
+        var entrySpacing = (sameSideEntries - 1) * 59;
+        var lateralShift = 20 + 17 + entrySpacing;
+        var lateralForwardSpan = radius + Math.Sqrt(3) * Math.Max(0, lateralShift - (2 - Math.Sqrt(3)) * radius);
+        // 64 half-platform, 16 clearance, 16 approach, 66 terrain corridor,
+        // 32 terrain margin, and two half-cell grid roundings.
+        var bound = Math.Ceiling((64 + 16 + 16 + radius + lateralForwardSpan + 66 + entrySpacing + 32 + 2) / 32) * 32;
         Assert.IsTrue(layout.HalfSize <= bound, $"{name}: half-size {layout.HalfSize}, bound {bound}");
         foreach (var entry in layout.Entries)
         {
@@ -140,17 +145,27 @@ public sealed class NodeLayoutTests
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
-    public void SameSideEntriesHaveSeparateQueueStartsAndCheapEntriesMatchFullLayout(bool perpendicular)
+    public void SameSideEntriesHaveSeparateInnerQueueStartsAndTranslatedPanBounds(bool perpendicular)
     {
         var snapshot = Junction(perpendicular ? [0, 180, 0, 90, 90] : [0, 0]);
-        var cheap = NodeLayout.BuildEntries(snapshot, new(1));
         var layout = NodeLayout.Build(snapshot, new(1));
-        CollectionAssert.AreEqual(cheap.Entries.ToArray(), layout.Entries.ToArray());
+        foreach (var entry in layout.Entries)
+        {
+            var at = layout.QueueSample(entry, 0);
+            var expected = RailwayCoordinates.Add(entry.Point, -entry.Outward * (float)(16 + entry.StraightLength));
+            Assert.IsTrue(Vector3.Distance(RailwayCoordinates.Relative(at.Position, expected), Vector3.Zero) < .001);
+            Assert.IsTrue(Vector3.Distance(at.Forward, -entry.Outward) < .001);
+            var boundary = layout.QueueSample(entry, 16 + entry.StraightLength);
+            Assert.IsTrue(Vector3.Distance(RailwayCoordinates.Relative(boundary.Position, entry.Point), Vector3.Zero) < .001);
+            var overflow = layout.QueueSample(entry, 16 + entry.StraightLength + 104);
+            Assert.IsTrue(Vector3.Distance(RailwayCoordinates.Relative(overflow.Position, entry.Point), entry.Outward * 104) < .001);
+        }
         var first = layout.QueueSample(layout.Entries[^2], 0, -17).Position;
         var second = layout.QueueSample(layout.Entries[^1], 0, -17).Position;
         Assert.IsTrue(Vector3.Distance(RailwayCoordinates.Relative(first, second), Vector3.Zero) >= 34 + 2 * RailwayCoordinates.BedBaseHalfWidth);
+        AssertQueuesDoNotOverlap(layout, layout.Entries[^2], layout.Entries[^1]);
         var origin = new ScenePoint(64, -256, 128);
-        var bounds = cheap.PanBounds(origin);
+        var bounds = layout.PanBounds(origin);
         var zero = layout.PanBounds(default);
         Assert.AreEqual(zero.Minimum - new Vector2(64, 128), bounds.Minimum);
         Assert.AreEqual(zero.Maximum - new Vector2(64, 128), bounds.Maximum);
@@ -170,17 +185,22 @@ public sealed class NodeLayoutTests
         var second = layout.QueueSample(layout.Entries[1], 0, -17).Position;
         Assert.IsTrue(Vector3.Distance(RailwayCoordinates.Relative(first, second), Vector3.Zero) > 55,
             $"bearings {firstBearing}, {secondBearing}: {first}, {second}");
+        AssertQueuesDoNotOverlap(layout, layout.Entries[0], layout.Entries[1]);
+    }
+
+    private static void AssertQueuesDoNotOverlap(NodeLayout layout, NodeLayout.Entry first, NodeLayout.Entry second)
+    {
         for (var i = 0; i < 8; i++)
         for (var j = 0; j < 8; j++)
         {
-            var a = layout.QueueSample(layout.Entries[0], 52 + i * 108, -17);
-            var b = layout.QueueSample(layout.Entries[1], 52 + j * 108, -17);
+            var a = layout.QueueSample(first, 4 + 52 + i * 108, -17);
+            var b = layout.QueueSample(second, 4 + 52 + j * 108, -17);
             var delta = RailwayCoordinates.Relative(b.Position, a.Position);
             var separated = new[] { a.Forward, a.Right, b.Forward, b.Right }.Any(axis =>
                 Math.Abs(Vector3.Dot(delta, axis)) >= 52 * Math.Abs(Vector3.Dot(a.Forward, axis)) +
                     8 * Math.Abs(Vector3.Dot(a.Right, axis)) + 52 * Math.Abs(Vector3.Dot(b.Forward, axis)) +
                     8 * Math.Abs(Vector3.Dot(b.Right, axis)));
-            Assert.IsTrue(separated, $"Queue bodies overlap: {firstBearing}/{secondBearing}, slots {i}/{j}");
+            Assert.IsTrue(separated, $"104-cell queue bodies overlap: entries {first.Edge}/{second.Edge}, slots {i}/{j}");
         }
     }
 

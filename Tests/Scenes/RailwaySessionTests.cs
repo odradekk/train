@@ -63,7 +63,8 @@ public sealed class RailwaySessionTests
         var other = RailwayFixtures.Train(50, [new(3)], 2, 2);
         var instances = ImmutableArray.Create(RailwayFixtures.Instance(), RailwayFixtures.Instance(2, design: second.Design), RailwayFixtures.Instance(3));
         var snapshot = RailwayFixtures.Snapshot(300, 300, 0, 2, content: view, trains: [train, other], instances: instances);
-        await using var scene = RailwayFixtures.Controlled(snapshot);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = RailwayFixtures.Controlled(snapshot, vehicles);
         var before = await Settled(scene, snapshot);
         AssertPosition(before, 1, new(-17, 0, 86));
         AssertPosition(before, 2, new(-17, 0, 76));
@@ -83,7 +84,8 @@ public sealed class RailwaySessionTests
     {
         var content = Content(RailwayFixtures.Vehicle());
         var old = RailwayFixtures.Snapshot(300, 300, 0, content: content, trains: [RailwayFixtures.Train(100)], instances: [RailwayFixtures.Instance()]);
-        await using var scene = RailwayFixtures.Controlled(old);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = RailwayFixtures.Controlled(old, vehicles);
         var newer = RailwayFixtures.Snapshot(300, 300, 0, steps: 1, content: content, trains: [RailwayFixtures.Train(102)], instances: [RailwayFixtures.Instance()]);
         var middle = await Settled(scene, newer, old, interpolation: 0.25);
         AssertPosition(middle, 1, new(0, 0, 201));
@@ -103,7 +105,8 @@ public sealed class RailwaySessionTests
     {
         var content = Content(RailwayFixtures.Vehicle());
         var old = RailwayFixtures.Snapshot(600, 600, 0, content: content, trains: [RailwayFixtures.Train(127)], instances: [RailwayFixtures.Instance()]);
-        await using var scene = RailwayFixtures.Controlled(old);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = RailwayFixtures.Controlled(old, vehicles);
         var before = await Settled(scene, old);
         var body = before.Objects.Single(item => item.Subject is WorldObjectId.Instance && item.Parent is null);
         var next = RailwayFixtures.Snapshot(600, 600, 0, content: content, trains: [RailwayFixtures.Train(129)], instances: [RailwayFixtures.Instance()]);
@@ -125,7 +128,8 @@ public sealed class RailwaySessionTests
         var instances = members.Select(id => RailwayFixtures.Instance(id.Value)).ToImmutableArray();
         var train = RailwayFixtures.Train(127, members);
         var old = RailwayFixtures.Snapshot(600, 600, 0, content: content, trains: [train], instances: instances);
-        await using var scene = RailwayFixtures.Controlled(old);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = RailwayFixtures.Controlled(old, vehicles);
         var before = await Settled(scene, old, followed: new(11));
         var next = RailwayFixtures.Snapshot(600, 600, 0, content: content,
             trains: [RailwayFixtures.Train(129, members)], instances: instances);
@@ -155,7 +159,8 @@ public sealed class RailwaySessionTests
         using var release = new ManualResetEventSlim();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var snapshot = Short();
-        var scene = RailwayFixtures.Controlled(snapshot, (input, path, index, token) =>
+        await using var vehicles = new SceneVehicles();
+        var scene = RailwayFixtures.Controlled(snapshot, vehicles, (input, path, index, token) =>
         { entered.TrySetResult(); release.Wait(token); return RailwayFixtures.EmptySegment(input, path, index, token); });
         try
         {

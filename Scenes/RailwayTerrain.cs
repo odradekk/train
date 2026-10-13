@@ -92,7 +92,7 @@ internal static class RailwayTerrain
     new SegmentBuilder(snapshot, path, index, cancellation).Build();
 
     internal static (ImmutableArray<SceneCell> Cells, ImmutableDictionary<GridColumn, double> Heights,
-        ScenePoint Origin, ImmutableArray<SceneProblem> Problems)
+        ScenePoint Origin, ImmutableArray<SceneProblem> Problems, string Inputs)
         NodeBoundary(SceneWorldSnapshot snapshot, RailwayPath path, NodeId node, NodeLayout.Entry entry, CancellationToken token) =>
         new SegmentBuilder(snapshot, path, node == path.Start.Id ? 0 : path.SegmentCount - 1, token).Boundary(node, entry);
 
@@ -138,10 +138,8 @@ internal static class RailwayTerrain
             endpointBlend = Math.Min(RailwayCoordinates.NodeTransitionCells, path.LengthCells / 2);
             startPoint = path.Sample(0).Position;
             endPoint = path.Sample(path.LengthCells).Position;
-            var startLayout = path.StartNode.Inputs == NodeLayout.InputKey(snapshot, path.Start.Id) ? path.StartNode : NodeLayout.BuildEntries(snapshot, path.Start.Id);
-            var endLayout = path.EndNode.Inputs == NodeLayout.InputKey(snapshot, path.End.Id) ? path.EndNode : NodeLayout.BuildEntries(snapshot, path.End.Id);
-            startEntry = startLayout.EntryPoint(path.Edge.Id);
-            endEntry = endLayout.EntryPoint(path.Edge.Id);
+            startEntry = NodeLayout.Build(snapshot, path.Start.Id).EntryPoint(path.Edge.Id);
+            endEntry = NodeLayout.Build(snapshot, path.End.Id).EntryPoint(path.Edge.Id);
             waterRegions = WaterFeatures().Select(feature =>
             {
                 var first = Math.Max(0, feature.Center - feature.HalfWidth);
@@ -262,12 +260,12 @@ internal static class RailwayTerrain
         }
 
         internal (ImmutableArray<SceneCell> Cells, ImmutableDictionary<GridColumn, double> Heights,
-            ScenePoint Origin, ImmutableArray<SceneProblem> Problems) Boundary(NodeId node, NodeLayout.Entry entry)
+            ScenePoint Origin, ImmutableArray<SceneProblem> Problems, string Inputs) Boundary(NodeId node, NodeLayout.Entry entry)
         {
             var isStart = node == path.Start.Id;
             var endpoint = path.Sample(isStart ? 0 : path.LengthCells).Position;
             var shift = new ScenePoint(Math.Round(entry.Point.X - endpoint.X), entry.Point.Y - endpoint.Y, Math.Round(entry.Point.Z - endpoint.Z));
-            var radius = NodeLayout.GroundMargin + halfWidth + 2;
+            var radius = NodeLayout.GroundMargin + halfWidth + RailwayCoordinates.BoundaryGridMargin;
             var cells = ImmutableArray.CreateBuilder<SceneCell>();
             var heights = ImmutableDictionary.CreateBuilder<GridColumn, double>();
             for (var z = (int)Math.Floor(endpoint.Z - radius); z <= endpoint.Z + radius; z++)
@@ -278,7 +276,7 @@ internal static class RailwayTerrain
                 var relative = RailwayCoordinates.Relative(center, endpoint);
                 var inward = Vector3.Dot(relative, -entry.Outward);
                 var lateral = Vector3.Dot(relative, Vector3.Cross(Vector3.UnitY, -entry.Outward));
-                if (inward < -1 || inward > NodeLayout.GroundMargin || Math.Abs(lateral) > halfWidth) continue;
+                if (inward < -RailwayCoordinates.CellFootprintMargin || inward > NodeLayout.GroundMargin || Math.Abs(lateral) > halfWidth) continue;
                 var arc = path.Locate(center);
                 var rail = path.Sample(arc);
                 var lineLateral = (center.X - rail.Position.X) * rail.Right.X + (center.Z - rail.Position.Z) * rail.Right.Z;
@@ -290,7 +288,9 @@ internal static class RailwayTerrain
                     path.Edge.Tracks > 0 && !value.Water && !value.Tunnel, Appearance,
                     new PickSubject.Terrain(new WorldLocation.Node(node)));
             }
-            return (cells.ToImmutable(), heights.ToImmutable(), shift, diagnostics.ToImmutable());
+            return (cells.ToImmutable(), heights.ToImmutable(), shift, diagnostics.ToImmutable(),
+                RailwayDependencies.Capture(snapshot, path, index, terrainReads, modelReads, models, voxelReads,
+                    readsStartTerrain, readsEndTerrain).Key);
         }
 
         private void PlaceModels(Dictionary<GridColumn, TerrainColumn> columns)

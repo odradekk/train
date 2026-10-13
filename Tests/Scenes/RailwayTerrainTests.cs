@@ -166,7 +166,7 @@ public sealed class RailwayTerrainTests
         var column = new GridColumn((int)Math.Floor(point.X - segment.Origin.X), (int)Math.Floor(point.Z - segment.Origin.Z));
         var local = new ScenePoint(point.X - endpoint.X, 0, point.Z - endpoint.Z);
         var nodeHeight = Math.Floor(RailwayTerrain.NodeGround(snapshot, endNode,
-            new(local.X + path.EndNode.EntryPoint(path.Edge.Id).X, local.Y, local.Z + path.EndNode.EntryPoint(path.Edge.Id).Z))) + 1;
+            new(local.X + NodeLayout.Build(snapshot, path.End.Id).EntryPoint(path.Edge.Id).X, local.Y, local.Z + NodeLayout.Build(snapshot, path.End.Id).EntryPoint(path.Edge.Id).Z))) + 1;
         Assert.AreEqual(nodeHeight, segment.Heights[column], 1,
             "The endpoint blend must approach the same node-local sample used by the node scene.");
     }

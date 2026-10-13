@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 using System.Numerics;
+using System.Diagnostics;
+using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
@@ -12,6 +14,8 @@ namespace Train.Scenes.Tests;
 [TestClass]
 public sealed class NodeSceneTests
 {
+    public TestContext TestContext { get; set; } = null!;
+
     [TestMethod]
     public void GeneratedPlatformsHaveCapacityClearanceAndOnlyTrackSideRowsAreYellow()
     {
@@ -61,7 +65,8 @@ public sealed class NodeSceneTests
         var snapshot = NodeFixtures.Snapshot(trains: [], content: NodeFixtures.Content(missing: true,
             rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 }));
         ulong next = 0;
-        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), _ => new(++next),
+        await using var vehicles = new SceneVehicles();
+        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), _ => new(++next), vehicles,
             (input, node, _, token) =>
             {
                 var layout = NodeLayout.Build(input, node, token);
@@ -175,7 +180,7 @@ public sealed class NodeSceneTests
     public void DiagonalBoundaryHeightsMatchTheSameLineGridColumns()
     {
         var snapshot = DiagonalSnapshot();
-        var entry = NodeLayout.BuildEntries(snapshot, NodeFixtures.NodeId).EntryFor(new(1));
+        var entry = NodeLayout.Build(snapshot, NodeFixtures.NodeId).EntryFor(new(1));
         var path = new RailwayPath(snapshot, new(1));
         var line = RailwayTerrain.Build(snapshot, path, 0, default);
         var endpoint = path.Sample(0).Position;
@@ -206,6 +211,133 @@ public sealed class NodeSceneTests
         Assert.AreSame(same.Parts["entry:1"], changed.Parts["entry:1"]);
         Assert.AreSame(same.Parts["station-tracks"], changed.Parts["station-tracks"]);
         Assert.AreSame(same.Parts["platform:0"], changed.Parts["platform:0"]);
+    }
+
+    [TestMethod]
+    [TestCategory("integration")]
+    public async Task ProductionNodePreservesTrackBedsPlatformsAndObjectOrderAcrossProcesses()
+    {
+        var root = TestContext.TestRunResultsDirectory ?? throw new AssertFailedException("缺少测试结果目录。");
+        var directory = Path.Combine(root, "node-process-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        using var first = await RunNodeProcess(directory, "first");
+        using var second = await RunNodeProcess(directory, "second");
+        Assert.AreNotEqual(first.RootElement.GetProperty("ProcessId").GetInt32(), second.RootElement.GetProperty("ProcessId").GetInt32());
+        Assert.AreEqual(first.RootElement.GetProperty("Observation").GetRawText(), second.RootElement.GetProperty("Observation").GetRawText(),
+            "Independent processes must preserve terrain observations and object IDs, parent IDs and frame order.");
+    }
+
+    private async Task<JsonDocument> RunNodeProcess(string directory, string name)
+    {
+        var output = Path.Combine(directory, name + ".json");
+        var start = new ProcessStartInfo("dotnet")
+        {
+            UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true,
+            CreateNoWindow = true, WorkingDirectory = directory
+        };
+        foreach (var argument in new[] { typeof(NodeSceneTests).Assembly.Location, "--node-process", output })
+            start.ArgumentList.Add(argument);
+        using var process = Process.Start(start) ?? throw new AssertFailedException("无法启动节点子进程。");
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        try { await process.WaitForExitAsync(TestContext.CancellationToken); }
+        finally
+        {
+            if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); }
+            await File.WriteAllTextAsync(Path.Combine(directory, name + ".stdout.log"), await stdout);
+            await File.WriteAllTextAsync(Path.Combine(directory, name + ".stderr.log"), await stderr);
+        }
+        Assert.AreEqual(0, process.ExitCode, $"节点子进程失败；证据：{directory}");
+        var result = JsonDocument.Parse(await File.ReadAllTextAsync(output));
+        Assert.AreEqual(process.Id, result.RootElement.GetProperty("ProcessId").GetInt32());
+        Assert.AreNotEqual(Environment.ProcessId, process.Id);
+        return result;
+    }
+
+    internal static async Task ObserveProductionNode(string output)
+    {
+        var snapshot = NodeFixtures.Snapshot(platforms: 1, tracks: 2,
+            trains: [NodeFixtures.Train(1, enteredFrom: new(1)), NodeFixtures.Train(2, enteredFrom: new(2))],
+            content: NodeFixtures.Content(design: RailwayFixtures.Vehicle(lengthCells: 104),
+                rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 }));
+        snapshot = RailwayFixtures.ReplaceCore(snapshot, node: snapshot.Core.World.Nodes[2] with { Position = new(700, 0) });
+        var built = NodeScene.Build(snapshot, NodeFixtures.NodeId);
+        var heights = built.Parts.Values.SelectMany(part => part.Heights.Select(item => new KeyValuePair<GridColumn, double>(
+            new((int)Math.Round(item.Key.X + part.Origin.X), (int)Math.Round(item.Key.Z + part.Origin.Z)), item.Value + part.Origin.Y))).ToDictionary();
+        var seamColumns = new List<int>();
+        foreach (var entry in built.Layout.Entries.OrderBy(entry => entry.Edge.Value))
+        {
+            var path = new RailwayPath(snapshot, entry.Edge);
+            var isStart = path.Start.Id == NodeFixtures.NodeId;
+            var line = RailwayTerrain.Build(snapshot, path, isStart ? 0 : path.SegmentCount - 1, default);
+            var endpoint = path.Sample(isStart ? 0 : path.LengthCells).Position;
+            var shift = new ScenePoint(Math.Round(entry.Point.X - endpoint.X), -endpoint.Y, Math.Round(entry.Point.Z - endpoint.Z));
+            var right = Vector3.Cross(Vector3.UnitY, -entry.Outward);
+            var compared = 0;
+            foreach (var item in line.Heights)
+            {
+                var x = item.Key.X + line.Origin.X + shift.X;
+                var z = item.Key.Z + line.Origin.Z + shift.Z;
+                var relative = new Vector3((float)(x + .5 - entry.Point.X), 0, (float)(z + .5 - entry.Point.Z));
+                var inward = Vector3.Dot(relative, -entry.Outward);
+                var lateral = Vector3.Dot(relative, right);
+                var distance = Enumerable.Range(1, 2).Min(number => Math.Abs(lateral - RailwayCoordinates.TrackOffset(number, 2)));
+                if (inward < -1 || inward > 0 || distance > 12) continue;
+                Assert.AreEqual(item.Value + shift.Y, heights[new((int)x, (int)z)], 1e-8,
+                    $"Edge {entry.Edge.Value} seam column ({x}, {z}) must retain its own track bed.");
+                compared++;
+            }
+            Assert.IsTrue(compared > 30, $"Edge {entry.Edge.Value} must compare both track corridors.");
+            seamColumns.Add(compared);
+        }
+        var station = built.Layout.StationSample(0.5, 0.5).Position;
+        Assert.AreEqual(-1.0, heights[new((int)Math.Floor(station.X), (int)Math.Floor(station.Z))],
+            "The station track bed must be carved independently of the raw node ground.");
+        var platform = built.Layout.StationSample(20.5, 0.5).Position;
+        Assert.AreEqual(-1.0, heights[new((int)Math.Floor(platform.X), (int)Math.Floor(platform.Z))],
+            "Terrain under the platform must be flattened to its supporting level.");
+        var ground = built.Layout.StationSample(30.5, 0.5).Position;
+        Assert.AreNotEqual(-1.0, heights[new((int)Math.Floor(ground.X), (int)Math.Floor(ground.Z))]);
+
+        var keys = new Dictionary<SceneObjectId, string>();
+        var ids = new Dictionary<string, SceneObjectId>();
+        ulong next = 0;
+        SceneObjectId ObjectId(string key)
+        {
+            if (ids.TryGetValue(key, out var existing)) return existing;
+            var id = new SceneObjectId(++next);
+            ids.Add(key, id); keys.Add(id, key);
+            return id;
+        }
+        await using var vehicles = new SceneVehicles();
+        foreach (var train in snapshot.Core.World.Trains)
+            vehicles.Reconcile(snapshot.Content, ((Lookup<InstanceView>.Found)snapshot.Core.FindInstance(
+                new InstanceId.Vehicle(new(train.Id.Value)))).Value, ObjectId);
+        await Task.WhenAll(vehicles.PendingWork);
+        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), ObjectId, vehicles, (_, _, _, _) => built);
+        await scene.BuildWork!;
+        var stamp = new SceneFrameStamp(new(Guid.NewGuid()), new(1), new(1), 1);
+        var frame = scene.Present(snapshot, new(1, null, SceneDebugLayer.None), stamp, null, default);
+        Assert.AreEqual(SceneReadiness.Ready, frame.Readiness);
+        Assert.IsTrue(frame.Objects.Length > 0);
+        var queueHeights = snapshot.Core.World.Trains.Select(train =>
+        {
+            var pose = ((Lookup<ScenePose>.Found)frame.FindPose(new WorldObjectId.Instance(new InstanceId.Vehicle(new(train.Id.Value))))).Value;
+            Assert.AreEqual(NodeFixtures.Location, ((Lookup<WorldLocation>.Found)frame.Locate(pose.Position)).Value,
+                "The first 104-cell queue member must sit on node terrain.");
+            return ((Lookup<double>.Found)frame.TerrainHeight(pose.Position.X, pose.Position.Z)).Value;
+        }).ToArray();
+        var observation = new
+        {
+            PartKeys = built.Parts.Keys.Order(StringComparer.Ordinal).ToArray(),
+            SeamColumns = seamColumns,
+            QueueHeights = queueHeights,
+            StationHeight = heights[new((int)Math.Floor(station.X), (int)Math.Floor(station.Z))],
+            PlatformHeight = heights[new((int)Math.Floor(platform.X), (int)Math.Floor(platform.Z))],
+            GroundHeight = heights[new((int)Math.Floor(ground.X), (int)Math.Floor(ground.Z))],
+            Objects = frame.Objects.Select(item => new { Key = keys[item.Id], Id = item.Id.Value, Parent = item.Parent?.Value }).ToArray()
+        };
+        await File.WriteAllTextAsync(output, JsonSerializer.Serialize(new { ProcessId = Environment.ProcessId, Observation = observation }));
     }
 
     private static SceneWorldSnapshot DiagonalSnapshot()

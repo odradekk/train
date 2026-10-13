@@ -38,7 +38,6 @@ internal sealed class NodeScene : IAsyncDisposable
     private readonly Func<string, SceneObjectId> objectId;
     private readonly CancellationTokenSource cancellation = new();
     private readonly SceneVehicles vehicles;
-    private readonly bool ownsVehicles;
     private readonly ImmutableDictionary<EdgeId, int> openingTracks;
     private readonly Dictionary<string, BuiltGeometry> attached = [];
     private readonly Task<Built>? pending;
@@ -51,17 +50,17 @@ internal sealed class NodeScene : IAsyncDisposable
     internal Task[] PendingWork => (pending is { IsCompleted: false } ? new Task[] { pending } : []).Concat(vehicles.PendingWork).ToArray();
     internal bool Failed => failure is not null;
 
-    internal NodeScene(SceneWorldSnapshot initial, NodeId node, Cache cache, Func<string, SceneObjectId> objectId,
-        Func<SceneWorldSnapshot, NodeId, Built?, CancellationToken, Built>? generate = null, SceneVehicles? vehicles = null)
+    internal NodeScene(SceneWorldSnapshot initial, NodeId node, Cache cache, Func<string, SceneObjectId> objectId, SceneVehicles vehicles,
+        Func<SceneWorldSnapshot, NodeId, Built?, CancellationToken, Built>? generate = null)
     {
         Node = node; this.cache = cache; this.objectId = objectId; owner = cache.Open(node);
-        this.vehicles = vehicles ?? new SceneVehicles(); ownsVehicles = vehicles is null;
+        this.vehicles = vehicles;
         openingTracks = initial.Core.World.Edges.Where(edge => edge.Start == node || edge.End == node).ToImmutableDictionary(edge => edge.Id, edge => edge.Tracks);
         try { layout = NodeLayout.Build(initial, node); }
         catch (RailwayBuildException error) { Fail(error); return; }
-        var build = generate ?? Build;
         var previous = cache.Read(node);
-        pending = Task.Run(() => build(initial, node, previous, cancellation.Token), cancellation.Token);
+        pending = Task.Run(() => generate is null ? Build(initial, node, previous, cancellation.Token, layout) :
+            generate(initial, node, previous, cancellation.Token), cancellation.Token);
     }
     internal void Pump()
     {
@@ -69,7 +68,7 @@ internal sealed class NodeScene : IAsyncDisposable
         try
         {
             built = pending.GetAwaiter().GetResult();
-            foreach (var part in built.Parts) attached[part.Key] = WorldSceneSession.Attach(part.Value.Geometry, "node:" + part.Key + ":", objectId);
+            foreach (var part in built.Parts.OrderBy(item => item.Key, StringComparer.Ordinal)) attached[part.Key] = WorldSceneSession.Attach(part.Value.Geometry, "node:" + part.Key + ":", objectId);
             cache.Publish(Node, owner, built);
         }
         catch (RailwayBuildException error) { Fail(error); }
@@ -85,10 +84,10 @@ internal sealed class NodeScene : IAsyncDisposable
         var problems = ImmutableArray.CreateBuilder<SceneProblem>();
         var fog = ImmutableArray.CreateBuilder<SceneFog>();
         var shift = new ScenePose(RailwayCoordinates.Relative(default, origin), Quaternion.Identity);
-        foreach (var part in attached.Values) Add(SceneGeometry.Place(part.Geometry, shift));
+        foreach (var part in attached.OrderBy(item => item.Key, StringComparer.Ordinal)) Add(SceneGeometry.Place(part.Value.Geometry, shift));
         if (built is null && failure is null)
         {
-            var size = layout?.HalfSize ?? float.MaxValue / 2;
+            var size = layout!.HalfSize;
             fog.Add(new(new SceneBounds(new((float)(-size - origin.X), (float)(-128 - origin.Y), (float)(-size - origin.Z)),
                 new((float)(size - origin.X), (float)(128 - origin.Y), (float)(size - origin.Z)))));
         }
@@ -97,16 +96,16 @@ internal sealed class NodeScene : IAsyncDisposable
         return new(stamp, origin, snapshot.Core.Position.CompletedSteps * SimulationTime.StepSeconds,
             failure is not null ? SceneReadiness.Failed : built is null ? SceneReadiness.Loading : fog.Count > 0 ? SceneReadiness.Partial : SceneReadiness.Ready,
             objects.ToImmutable(), picking.ToImmutable(), fog.ToImmutable(), RailwayTerrain.UniqueProblems(problems), displayed,
-            node: layout, nodeParts: built?.Parts.Values.ToImmutableArray() ?? []);
+            node: layout, nodeParts: built?.Parts.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => item.Value).ToImmutableArray() ?? []);
 
         void Add(RenderedDesign geometry)
         { objects.AddRange(geometry.Objects); picking.AddRange(geometry.Picking); problems.AddRange(geometry.Diagnostics); }
     }
 
     internal static Built Build(SceneWorldSnapshot snapshot, NodeId node, Built? previous = null,
-        CancellationToken token = default)
+        CancellationToken token = default, NodeLayout? layout = null)
     {
-        var layout = previous?.Layout.Inputs == NodeLayout.InputKey(snapshot, node) ? previous.Layout : NodeLayout.Build(snapshot, node, token);
+        layout ??= NodeLayout.Build(snapshot, node, token);
         var map = snapshot.Core.World.Nodes.Single(item => item.Id == node);
         var terrainLookup = snapshot.Content.FindTerrain(map.Terrain.TypeId);
         var terrain = (terrainLookup as ContentLookup<TerrainAppearanceProjection>.Found)?.Value;
@@ -119,6 +118,9 @@ internal sealed class NodeScene : IAsyncDisposable
         var diagnostics = ImmutableArray.CreateBuilder<SceneProblem>();
         var bed = new Dictionary<GridColumn, double>();
         var boundaryColumns = new HashSet<GridColumn>();
+        var boundaries = new List<(NodeLayout.Entry Entry, string Inputs, ImmutableArray<SceneCell> Cells,
+            ImmutableDictionary<GridColumn, double> Heights, ScenePoint Origin)>();
+        var boundaryOwners = new Dictionary<GridColumn, (EdgeId Edge, double Distance)>();
         var terrainInputs = RailwayDependencies.Values(new object?[] { snapshot.Core.World.WorldSeed, map.Position, map.Terrain.TypeId,
             map.Terrain.Relief, TerrainInputs(snapshot.Content, map.Terrain.TypeId) });
         foreach (var entry in layout.Entries)
@@ -141,25 +143,31 @@ internal sealed class NodeScene : IAsyncDisposable
             }
             Put("entry:" + entry.Edge.Value, entryKey, () => MeshPart(meshes.ToImmutable()));
             var edge = snapshot.Core.World.Edges.Single(value => value.Id == entry.Edge);
-            var boundaryInputs = RailwayDependencies.Values(new object[] { layout.Inputs,
-                NodeLayout.InputKey(snapshot, edge.Start), NodeLayout.InputKey(snapshot, edge.End),
-                edge.Id, edge.Start, edge.End, edge.LengthMeters, edge.Terrain, edge.Tracks, edge.TrackLimit, snapshot.Core.World.WorldSeed,
-                snapshot.Content.FindRailwayAppearance(snapshot.Core.World.RailwayRule),
-                TerrainInputs(snapshot.Content, edge.Terrain.TypeId),
-                snapshot.Core.World.Nodes.Where(item => item.Id == edge.Start || item.Id == edge.End)
-                    .Select(item => new object[] { item.Terrain, TerrainInputs(snapshot.Content, item.Terrain.TypeId) }).ToArray() });
             var boundary = RailwayTerrain.NodeBoundary(snapshot, new RailwayPath(snapshot, entry.Edge, token), node, entry, token);
             diagnostics.AddRange(boundary.Problems);
+            boundaries.Add((entry, RailwayDependencies.Values(new[] { layout.Inputs, boundary.Inputs }), boundary.Cells, boundary.Heights, boundary.Origin));
+            foreach (var column in boundary.Heights.Keys)
+            {
+                var global = new GridColumn((int)Math.Round(column.X + boundary.Origin.X), (int)Math.Round(column.Z + boundary.Origin.Z));
+                var relative = new Vector3(global.X + .5f - (float)entry.Point.X, 0, global.Z + .5f - (float)entry.Point.Z);
+                var lateral = Vector3.Dot(relative, Vector3.Cross(Vector3.UnitY, -entry.Outward));
+                var distance = edge.Tracks > 0 ? Enumerable.Range(1, edge.Tracks)
+                    .Min(number => Math.Abs(lateral - RailwayCoordinates.TrackOffset(number, edge.Tracks))) : Math.Abs(lateral);
+                if (!boundaryOwners.TryGetValue(global, out var owner) || distance < owner.Distance ||
+                    distance == owner.Distance && entry.Edge.Value < owner.Edge.Value)
+                    boundaryOwners[global] = (entry.Edge, distance);
+            }
+        }
+        foreach (var boundary in boundaries)
+        {
             GridColumn Global(GridColumn column) => new((int)Math.Round(column.X + boundary.Origin.X), (int)Math.Round(column.Z + boundary.Origin.Z));
-            var allowed = boundary.Heights.Keys.Where(column => !boundaryColumns.Contains(Global(column))).ToImmutableHashSet();
-            boundaryInputs = RailwayDependencies.Values(new object[] { boundaryInputs,
+            var allowed = boundary.Heights.Keys.Where(column => boundaryOwners[Global(column)].Edge == boundary.Entry.Edge).ToImmutableHashSet();
+            var inputs = RailwayDependencies.Values(new object[] { boundary.Inputs,
                 boundary.Heights.Keys.Where(column => !allowed.Contains(column)).OrderBy(column => column.X).ThenBy(column => column.Z).ToArray() });
-            Put("boundary:" + entry.Edge.Value, boundaryInputs, () => GridPart(
+            Put("boundary:" + boundary.Entry.Edge.Value, inputs, () => GridPart(
                 boundary.Cells.Where(cell => allowed.Contains(new(cell.At.X, cell.At.Z))).ToImmutableArray(),
                 boundary.Heights.Where(item => allowed.Contains(item.Key)).ToImmutableDictionary(), [], boundary.Origin));
-            var strip = parts["boundary:" + entry.Edge.Value];
-            foreach (var column in strip.Heights.Keys)
-                boundaryColumns.Add(new((int)Math.Round(column.X + strip.Origin.X), (int)Math.Round(column.Z + strip.Origin.Z)));
+            foreach (var column in allowed) boundaryColumns.Add(Global(column));
         }
         var stationMeshes = ImmutableArray.CreateBuilder<SceneMesh>();
         var anyTracks = snapshot.Core.World.Edges.Any(edge => (edge.Start == node || edge.End == node) && edge.Tracks > 0);
@@ -173,17 +181,22 @@ internal sealed class NodeScene : IAsyncDisposable
                 AddRoute(arc => layout.StationSample(x, -halfLength + arc), halfLength * 2, stationMeshes, needsStationMesh);
         }
         Put("station-tracks", stationKey, () => MeshPart(stationMeshes.ToImmutable()));
+        GridColumn Chunk(GridColumn at) => new((int)Math.Floor((double)at.X / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize,
+            (int)Math.Floor((double)at.Z / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize);
+        var bedChunks = bed.GroupBy(item => Chunk(item.Key)).ToDictionary(group => group.Key, group => group.ToDictionary());
+        var boundaryChunks = boundaryColumns.GroupBy(Chunk).ToDictionary(group => group.Key, group => group.ToHashSet());
         var size = checked((int)layout.HalfSize);
         for (var z = -size; z < size; z += VoxelGrid.ChunkSize)
         for (var x = -size; x < size; x += VoxelGrid.ChunkSize)
         {
             token.ThrowIfCancellationRequested();
             var from = new GridColumn(x, z);
+            var chunkBed = bedChunks.GetValueOrDefault(from) ?? [];
+            var chunkBoundary = boundaryChunks.GetValueOrDefault(from) ?? [];
             var chunkInputs = RailwayDependencies.Values(new object[] { terrainInputs,
-                bed.Where(item => InChunk(item.Key)).OrderBy(item => item.Key.X).ThenBy(item => item.Key.Z).ToArray(),
-                boundaryColumns.Where(InChunk).OrderBy(item => item.X).ThenBy(item => item.Z).ToArray() });
-            Put("terrain:" + x + ":" + z, chunkInputs, () => TerrainPart(snapshot, map, layout, terrain, appearances, bed, boundaryColumns, from, token));
-            bool InChunk(GridColumn at) => at.X >= from.X && at.X < from.X + VoxelGrid.ChunkSize && at.Z >= from.Z && at.Z < from.Z + VoxelGrid.ChunkSize;
+                chunkBed.OrderBy(item => item.Key.X).ThenBy(item => item.Key.Z).ToArray(),
+                chunkBoundary.OrderBy(item => item.X).ThenBy(item => item.Z).ToArray() });
+            Put("terrain:" + x + ":" + z, chunkInputs, () => TerrainPart(snapshot, map, layout, terrain, appearances, chunkBed, chunkBoundary, from, token));
         }
         for (var station = 0; station < layout.Platforms; station++)
         {
@@ -414,7 +427,6 @@ internal sealed class NodeScene : IAsyncDisposable
         cancellation.Cancel();
         try { if (pending is not null) await pending.ConfigureAwait(false); }
         catch (Exception) { /* Retired scene work cannot be attached or published. */ }
-        if (ownsVehicles) await vehicles.DisposeAsync().ConfigureAwait(false);
         cancellation.Dispose();
     }
 }

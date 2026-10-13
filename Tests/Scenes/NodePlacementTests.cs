@@ -27,7 +27,8 @@ public sealed class NodePlacementTests
             NodeFixtures.Train(3, enteredFrom: new(2), activity: TrainActivity.Servicing)
         ];
         var snapshot = Snapshot(trains, occupant: new NodeOccupant.Settlement(new(1), relation));
-        await using var scene = Controlled(snapshot);
+        await using var sceneVehicles = new SceneVehicles();
+        await using var scene = Controlled(snapshot, sceneVehicles);
         var before = await Settled(scene, snapshot);
         AssertPosition(before, 3, new(-20, 0, 0));
         AssertPosition(before, 7, new(20, 0, 0));
@@ -61,7 +62,8 @@ public sealed class NodePlacementTests
             NodeFixtures.Train(1, enteredFrom: new(1), nextEdge: new(2), activity: TrainActivity.Servicing)
         ];
         var snapshot = Snapshot(trains, occupant: occupant);
-        await using var scene = Controlled(snapshot);
+        await using var sceneVehicles = new SceneVehicles();
+        await using var scene = Controlled(snapshot, sceneVehicles);
         var before = await Settled(scene, snapshot);
         Assert.IsTrue(Pose(before, 1).Position.Z > 64);
         Assert.IsTrue(Pose(before, 2).Position.Z < -64);
@@ -93,17 +95,20 @@ public sealed class NodePlacementTests
                 { [new InstanceId.Vehicle(new(1))] = snapshot.Core.FindInstance(new InstanceId.Vehicle(new(1))) }
             }
         };
-        await using var scene = Controlled(snapshot);
+        await using var sceneVehicles = new SceneVehicles();
+        await using var scene = Controlled(snapshot, sceneVehicles);
         var automatic = await Settled(scene, snapshot);
         var explicitEntry = Snapshot([NodeFixtures.Train(enteredFrom: new(1))], platforms: 0);
         var explicitFrame = await Settled(scene, explicitEntry);
         Assert.AreEqual(Pose(explicitFrame, 1), Pose(automatic, 1));
 
         var unbuiltFirst = RailwayFixtures.ReplaceCore(snapshot, edge: world.Edges[0] with { Tracks = 0 });
-        await using var reopened = Controlled(unbuiltFirst);
+        await using var reopenedVehicles = new SceneVehicles();
+        await using var reopened = Controlled(unbuiltFirst, reopenedVehicles);
         var secondEdge = await Settled(reopened, unbuiltFirst);
         var expectedEntry = reopened.Layout!.EntryFor(new(2));
-        AssertPosition(secondEdge, 1, RailwayCoordinates.Relative(expectedEntry.Point, default) - expectedEntry.Outward * 8);
+        AssertPosition(secondEdge, 1, RailwayCoordinates.Relative(expectedEntry.Point, default) -
+            expectedEntry.Outward * (float)(16 + expectedEntry.StraightLength - 8));
     }
 
     [TestMethod]
@@ -117,7 +122,8 @@ public sealed class NodePlacementTests
             enteredFrom: servicing ? new EdgeId(2) : null, nextEdge: new(2),
             activity: servicing ? TrainActivity.Servicing : TrainActivity.Stopped, facing: facing);
         var snapshot = Snapshot([train], platforms: servicing ? 1 : 0, tracks: servicing ? 1 : 0);
-        await using var scene = Controlled(snapshot);
+        await using var sceneVehicles = new SceneVehicles();
+        await using var scene = Controlled(snapshot, sceneVehicles);
         var frame = await Settled(scene, snapshot);
         var positive = facing == TrainOrderFacing.FirstEndLeading;
         var expected = servicing ? new[] { 8f, 0f, -8f } : new[] { -4f, -12f, -20f };
@@ -136,7 +142,8 @@ public sealed class NodePlacementTests
     {
         var train = NodeFixtures.Train(vehicles: [new(1), new(2), new(3)], enteredFrom: new(2), activity: TrainActivity.Servicing);
         var snapshot = Snapshot([train], length: 104);
-        await using var scene = Controlled(snapshot);
+        await using var sceneVehicles = new SceneVehicles();
+        await using var scene = Controlled(snapshot, sceneVehicles);
         var frame = await Settled(scene, snapshot);
         AssertPosition(frame, 1, new(-20, 0, 104));
         AssertPosition(frame, 2, new(-20, 0, 0));
@@ -150,15 +157,27 @@ public sealed class NodePlacementTests
         var trains = Enumerable.Range(1, 6).Reverse()
             .Select(id => NodeFixtures.Train((ulong)id, enteredFrom: new(2))).ToImmutableArray();
         var snapshot = Snapshot(trains, platforms: 0, length: 64);
-        await using var scene = Controlled(snapshot);
+        await using var sceneVehicles = new SceneVehicles();
+        await using var scene = Controlled(snapshot, sceneVehicles);
         var frame = await Settled(scene, snapshot);
         var entry = scene.Layout!.EntryFor(new(2));
+        var innerEnd = RailwayCoordinates.Relative(entry.Point, default) -
+            entry.Outward * (float)(16 + entry.StraightLength);
         for (ulong id = 1; id <= 6; id++)
         {
-            var expected = RailwayCoordinates.Relative(entry.Point, default) + entry.Outward * (32 + 4 + ((float)id - 1) * 68 - 16);
+            var expected = innerEnd + entry.Outward * (32 + 4 + ((float)id - 1) * 68);
             AssertPosition(frame, id, expected);
             Assert.IsTrue(Vector3.Distance(Vector3.UnitZ, Vector3.Transform(Vector3.UnitZ, Pose(frame, id).Rotation)) < 1e-4);
+            var front = Pose(frame, id).Position - entry.Outward * 32;
+            Assert.AreEqual(4 + ((float)id - 1) * 68, Vector3.Dot(front - innerEnd, entry.Outward), .001f);
+            if (id > 1)
+            {
+                var previousTail = Pose(frame, id - 1).Position + entry.Outward * 32;
+                Assert.AreEqual(4f, Vector3.Dot(front - previousTail, entry.Outward), .001f);
+            }
         }
+        Assert.IsTrue(Vector3.Dot(Pose(frame, 1).Position - RailwayCoordinates.Relative(entry.Point, default), entry.Outward) < 0,
+            "The first train starts inside the node, at its own approach's inner end.");
         Assert.IsTrue(Vector3.Dot(Pose(frame, 6).Position - RailwayCoordinates.Relative(entry.Point, default), entry.Outward) > 0,
             "The queue extends past the generated connection instead of stacking at its endpoint.");
     }
@@ -168,7 +187,8 @@ public sealed class NodePlacementTests
     {
         var trains = Enumerable.Range(1, 6).Select(id => NodeFixtures.Train((ulong)id, enteredFrom: new(2))).ToImmutableArray();
         var snapshot = Snapshot(trains, platforms: 0, tracks: 2, length: 64);
-        await using var scene = Controlled(snapshot);
+        await using var sceneVehicles = new SceneVehicles();
+        await using var scene = Controlled(snapshot, sceneVehicles);
         var frame = await Settled(scene, snapshot);
         var fifth = Pose(frame, 5).Position;
         var sixth = Pose(frame, 6).Position;
@@ -179,6 +199,7 @@ public sealed class NodePlacementTests
         Assert.AreEqual(-17f, Vector3.Dot(sixth - at, right), .001f);
         Assert.IsTrue(fifth.Z < scene.Layout!.EntryFor(new(2)).Point.Z);
         Assert.AreEqual(new Vector3(0, 0, -68), sixth - fifth);
+        AssertPosition(frame, 1, at - entry.Outward * (float)(16 + entry.StraightLength - 36) - right * 17);
     }
 
     [TestMethod]
@@ -198,7 +219,8 @@ public sealed class NodePlacementTests
                 RailwayFixtures.Instance() with { Location = NodeFixtures.Location },
                 RailwayFixtures.Instance(2, design: hash) with { Location = NodeFixtures.Location }
             ]);
-        await using var scene = Controlled(snapshot);
+        await using var sceneVehicles = new SceneVehicles();
+        await using var scene = Controlled(snapshot, sceneVehicles);
         var frame = await Settled(scene, snapshot);
         Assert.IsTrue(frame.Diagnostics.Any(problem => problem.Code == diagnostic.Code &&
             problem.Content == reference && problem.Package == diagnostic.Source!.Package));
@@ -220,7 +242,7 @@ public sealed class NodePlacementTests
             node: snapshot.Core.World.Nodes.Single(item => item.Id == NodeFixtures.NodeId) with { Occupant = occupant });
     }
 
-    private static NodeScene Controlled(SceneWorldSnapshot snapshot)
+    private static NodeScene Controlled(SceneWorldSnapshot snapshot, SceneVehicles vehicles)
     {
         var ids = new Dictionary<string, SceneObjectId>();
         ulong next = 0;
@@ -228,7 +250,7 @@ public sealed class NodePlacementTests
         {
             if (!ids.TryGetValue(key, out var id)) ids.Add(key, id = new(++next));
             return id;
-        }, RailwayFixtures.EmptyNode);
+        }, vehicles, RailwayFixtures.EmptyNode);
     }
 
     private static async Task<SceneFrame> Settled(NodeScene scene, SceneWorldSnapshot snapshot)

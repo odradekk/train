@@ -12,6 +12,36 @@ public sealed class SceneVehiclePoolTests
     private static SceneObjectId Id(string _) => new(1);
 
     [TestMethod]
+    public async Task ClosingRailwayCandidateDoesNotWaitForSharedVehicleBuild()
+    {
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var vehicles = new SceneVehicles(build: (content, instance) =>
+        {
+            entered.SetResult();
+            release.Wait();
+            return RailwayVehicles.Build(content, instance);
+        });
+        var snapshot = RailwayFixtures.Snapshot(content: RailwayFixtures.Content(design: RailwayFixtures.Vehicle()));
+        var scene = RailwayFixtures.Controlled(snapshot, vehicles);
+        Task? closing = null;
+        try
+        {
+            vehicles.Reconcile(snapshot.Content, RailwayFixtures.Instance(), Id);
+            await entered.Task;
+            closing = scene.DisposeAsync().AsTask();
+            Assert.IsTrue(closing.IsCompletedSuccessfully, "A candidate with no segment work must close while the shared body build is blocked.");
+            Assert.IsFalse(vehicles.PendingWork.Single().IsCompleted);
+            await closing;
+        }
+        finally
+        {
+            release.Set();
+            await (closing ?? scene.DisposeAsync().AsTask());
+        }
+    }
+
+    [TestMethod]
     public async Task LateOldBindingBuildCannotRepopulateTheRetainedCache()
     {
         var cache = new SceneVehicles.Cache();
@@ -30,13 +60,13 @@ public sealed class SceneVehiclePoolTests
             builds++;
             return RailwayVehicles.Build(view, member);
         });
-        current.Retain([]);
+        current.Retain([instance.Id]);
         release.Set();
         await Task.WhenAll(old.PendingWork);
         old.Reconcile(content, instance, Id);
         Assert.IsNull(current.Reconcile(content, instance, Id));
         await Task.WhenAll(current.PendingWork);
-        Assert.AreEqual(1, builds, "A late old binding must not restore the removed cache body.");
+        Assert.AreEqual(1, builds, "A late old binding must not publish a body into the new binding cache.");
     }
 
     [TestMethod]

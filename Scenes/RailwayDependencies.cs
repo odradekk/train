@@ -49,6 +49,7 @@ internal sealed class RailwayDependencies
     private readonly ImmutableArray<DesignHash> models;
     private readonly ImmutableArray<VoxelDefinitionId> voxels;
     private readonly string value;
+    internal string Key => value;
     private readonly bool startTerrain;
     private readonly bool endTerrain;
     private RailwayDependencies(SceneWorldSnapshot snapshot, RailwayPath path, int index,
@@ -69,8 +70,8 @@ internal sealed class RailwayDependencies
     {
         var values = new List<object?> { path.Seed, path.Edge.Id, path.Edge.LengthMeters, path.Edge.Tracks, path.Edge.TrackLimit,
             path.Start.Id, path.Start.Position, path.End.Id, path.End.Position, path.Rules, index, Terrain(path.Edge.Terrain) };
-        if (startTerrain) { values.Add(Terrain(path.Start.Terrain)); values.Add(NodeLayout.InputKey(snapshot, path.Start.Id)); }
-        if (endTerrain) { values.Add(Terrain(path.End.Terrain)); values.Add(NodeLayout.InputKey(snapshot, path.End.Id)); }
+        if (startTerrain) { values.Add(Terrain(path.Start.Terrain)); values.Add(NodeLayout.ReadInputs(snapshot, path.Start.Id)); }
+        if (endTerrain) { values.Add(Terrain(path.End.Terrain)); values.Add(NodeLayout.ReadInputs(snapshot, path.End.Id)); }
         foreach (var id in terrains)
         {
             var lookup = snapshot.Content.FindTerrain(id);

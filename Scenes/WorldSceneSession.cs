@@ -122,7 +122,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         }
         if (value is not WorldSceneTarget.Combat && CurrentLocation(snapshot, value) is WorldLocation.Node location)
         {
-            node = new(snapshot, location.Id, nodeCache, ObjectId, nodeBuild, vehicles);
+            node = new(snapshot, location.Id, nodeCache, ObjectId, vehicles, nodeBuild);
             pending = null;
             PruneCaches();
             return new SceneResult<SceneRequestId>.Success(request);
@@ -220,25 +220,17 @@ internal sealed class WorldSceneSession : IWorldSceneSession
                     node is not null && (location is not WorldLocation.Node atNode || atNode.Id != node.Node))
                     Switch(location, displayedFrame as SceneFrame);
             }
-            if (node is not null)
+            closingScenes.RemoveAll(task => task.IsCompleted);
+            if (node is not null || railway is not null)
             {
-                var frame = node.Present(snapshot, frameRequest, new(Id, request, space, ++revision), displayedFrame as SceneFrame,
-                    sceneOrigin ?? default);
+                var stamp = new SceneFrameStamp(Id, request, space, ++revision);
+                var frame = node is not null
+                    ? node.Present(snapshot, frameRequest, stamp, displayedFrame as SceneFrame, sceneOrigin ?? default)
+                    : railway!.Present(snapshot, interpolationStart, target, frameRequest, stamp, displayedFrame as SceneFrame, sceneOrigin);
+                if (railway is not null) sceneOrigin = null;
                 var liveIds = frame.Objects.Select(item => item.Id).ToHashSet();
                 foreach (var key in ids.Where(item => !liveIds.Contains(item.Value)).Select(item => item.Key).ToArray()) ids.Remove(key);
-                Prebuild(frameRequest);
-                PruneCaches();
-                return new SceneResult<ISceneFrame>.Success(frame);
-            }
-            if (railway is not null)
-            {
-                var frame = railway.Present(snapshot, interpolationStart, target, frameRequest,
-                    new(Id, request, space, ++revision), displayedFrame as SceneFrame, sceneOrigin);
-                sceneOrigin = null;
-                var liveIds = frame.Objects.Select(item => item.Id).ToHashSet();
-                foreach (var key in ids.Where(item => !liveIds.Contains(item.Value)).Select(item => item.Key).ToArray()) ids.Remove(key);
-                closingScenes.RemoveAll(task => task.IsCompleted);
-                Prebuild(frameRequest);
+                Prebuild();
                 PruneCaches();
                 return new SceneResult<ISceneFrame>.Success(frame);
             }
@@ -323,7 +315,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             CancelCandidate(); ids = [];
             var map = ids;
             if (location is WorldLocation.Edge edge) railway = new(snapshot, edge.Id, railwayCache, key => AssignId(map, key), vehicles: vehicles);
-            else if (location is WorldLocation.Node atNode) node = new(snapshot, atNode.Id, nodeCache, key => AssignId(map, key), nodeBuild, vehicles);
+            else if (location is WorldLocation.Node atNode) node = new(snapshot, atNode.Id, nodeCache, key => AssignId(map, key), vehicles, nodeBuild);
             else throw new ArgumentException("Invalid follow location.");
         }
         sceneOrigin = displayed is null ? null : SceneFrame.SwitchOrigin(displayed, node?.Layout, railway?.Path);
@@ -340,7 +332,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         nodeCache.Retain(node?.Node, candidate?.Node?.Node);
         railwayCache.Retain(railway?.Edge, candidate?.Railway?.Edge);
     }
-    private void Prebuild(SceneFrameRequest frameRequest)
+    private void Prebuild()
     {
         if (target is not WorldSceneTarget.Follow follow) return;
         var train = ((Lookup<TrainView>.Found)snapshot.Core.FindTrain(follow.Train)).Value;
@@ -356,13 +348,13 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         {
             var map = new Dictionary<string, SceneObjectId>();
             candidate = wanted is WorldLocation.Node atNode
-                ? new(wanted, map, Node: new(snapshot, atNode.Id, nodeCache, key => AssignId(map, key), nodeBuild, vehicles))
+                ? new(wanted, map, Node: new(snapshot, atNode.Id, nodeCache, key => AssignId(map, key), vehicles, nodeBuild))
                 : new(wanted, map, Railway: new(snapshot, ((WorldLocation.Edge)wanted).Id, railwayCache, key => AssignId(map, key), vehicles: vehicles));
         }
         try
         {
             candidate?.Node?.Pump();
-            candidate?.Railway?.Pump(snapshot, new WorldSceneTarget.Location(wanted), frameRequest with { Camera = null });
+            if (wanted is WorldLocation.Edge atEdge) candidate?.Railway?.Pump(snapshot, atEdge);
             if (candidate?.Node?.Failed == true || candidate?.Railway?.Failed == true)
             { rejectedCandidate = wanted; CancelCandidate(); }
         }

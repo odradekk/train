@@ -38,7 +38,6 @@ internal sealed class RailwayScene : IAsyncDisposable
     private readonly Dictionary<int, SegmentWork> pendingSegments = [];
     private readonly List<SegmentWork> retiredSegments = [];
     private readonly SceneVehicles vehicles;
-    private readonly bool ownsVehicles;
     private RailwayPath? path;
     private SceneProblem? failure;
     private double lastRealSeconds = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
@@ -50,12 +49,11 @@ internal sealed class RailwayScene : IAsyncDisposable
     internal Task[] PendingWork => pendingSegments.Values.Select(item => (Task)item.Task).Concat(vehicles.PendingWork)
         .Concat(retiredSegments.Where(item => !item.Task.IsCompleted).Select(item => item.Task)).ToArray();
 
-    internal RailwayScene(SceneWorldSnapshot initial, EdgeId edge, RailwayCache cache, Func<string, SceneObjectId> objectId,
-        Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null, SceneVehicles? vehicles = null)
+    internal RailwayScene(SceneWorldSnapshot initial, EdgeId edge, RailwayCache cache, Func<string, SceneObjectId> objectId, SceneVehicles vehicles,
+        Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null)
     {
         this.cache = cache;
-        this.vehicles = vehicles ?? new SceneVehicles();
-        ownsVehicles = vehicles is null;
+        this.vehicles = vehicles;
         Edge = edge;
         owner = cache.OpenSession(edge);
         this.objectId = objectId;
@@ -98,13 +96,11 @@ internal sealed class RailwayScene : IAsyncDisposable
             segments.Values.Select(item => item.Source).ToImmutableArray());
     }
 
-    internal void Pump(SceneWorldSnapshot snapshot, WorldSceneTarget target, SceneFrameRequest request)
+    internal void Pump(SceneWorldSnapshot snapshot, WorldLocation.Edge location)
     {
         if (path is null) return;
-        var trains = PlaceTrains(snapshot, null, 1);
-        var followed = target is WorldSceneTarget.Follow follow ? trains.First(item => item.Train.Id == follow.Train) : null;
-        var focal = Focal(target, followed);
-        ScheduleSegments(snapshot, focal, followed?.Train, snapshot.Core.Position.CompletedSteps * SimulationTime.StepSeconds);
+        var focal = location.DistanceMeters * RailwayCoordinates.CellsPerMeter;
+        ScheduleSegments(snapshot, focal, null, snapshot.Core.Position.CompletedSteps * SimulationTime.StepSeconds);
         RetireCompletedWork();
     }
 
@@ -306,8 +302,7 @@ internal sealed class RailwayScene : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         cancellation.Cancel();
-        if (ownsVehicles) await vehicles.DisposeAsync();
-        try { await Task.WhenAll(PendingWork); }
+        try { await Task.WhenAll(pendingSegments.Values.Concat(retiredSegments).Select(work => work.Task)); }
         catch (Exception) { /* Closing observes owned build failures; they cannot publish after cancellation. */ }
         foreach (var work in pendingSegments.Values.Concat(retiredSegments)) work.Cancellation.Dispose();
         cancellation.Dispose();

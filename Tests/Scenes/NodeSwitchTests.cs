@@ -16,7 +16,8 @@ public sealed class NodeSwitchTests
     {
         var content = NodeFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 });
         var snapshot = RailwayFixtures.Snapshot(800, 800, 0, content: content);
-        await using var scene = RailwayFixtures.Controlled(snapshot);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = RailwayFixtures.Controlled(snapshot, vehicles);
         await RailwayFixtures.Settled(scene, snapshot, new WorldSceneTarget.Location(RailwayFixtures.Location), Request,
             new(new(Guid.NewGuid()), new(1), new(1), 1));
         Assert.IsNull(scene.FrontNode(snapshot, RailwayFixtures.Train(735, speed: 10)));
