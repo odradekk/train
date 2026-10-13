@@ -9,7 +9,9 @@ namespace Train.App;
 
 internal readonly record struct HostBinding(Guid Session);
 internal enum NotificationAction { None, SlowToOne, Pause }
-internal enum OperationKind { NewGame, Restore, Reload }
+internal sealed record ReplayRecording(string Path, SimulationPosition From, SimulationPosition Until,
+    ImmutableArray<RecordedCommand> Commands, ImmutableArray<RecordingGap> Gaps);
+internal enum OperationKind { NewGame, Restore, Reload, Replay }
 internal enum HostOperationStatus { Committed, CommittedWithWarnings, Rejected, NotAccepted, Faulted, Cancelled, Discarded }
 internal sealed record HostOperationResult(long Operation, OperationKind Kind, HostOperationStatus Status,
     ImmutableArray<CoreProblem> Problems, ImmutableArray<ContentDiagnostic> Diagnostics, string? FaultCode,
@@ -19,7 +21,7 @@ internal sealed record HostOperationResult(long Operation, OperationKind Kind, H
 }
 internal sealed record HostStatus(HostBinding Binding, ICoreReadView View,
     bool PlayerPaused, bool FocusPaused, bool OperationLocked, bool IsFrozen,
-    SimulationSpeed Speed, double ActualSpeed, double Remainder)
+    SimulationSpeed Speed, double ActualSpeed, double Remainder, bool IsReplay = false)
 {
     internal bool IsPaused => PlayerPaused || FocusPaused || OperationLocked || IsFrozen;
     internal double SimulationSeconds => View.Position.CompletedSteps / (double)SimulationTime.StepsPerSecond;
@@ -47,6 +49,7 @@ internal sealed class HostCoordinator : IDisposable
     private bool _disposed;
     private bool _skipNextFrame;
     private bool _leaveLocked;
+    private bool _boundaryStop;
 
     internal HostCoordinator(ICoreFactory core, IContentFactory content, IContentFiles files,
         IAssetInspector assets, ContentInstallation installation, TrainLogger logger,
@@ -63,6 +66,9 @@ internal sealed class HostCoordinator : IDisposable
     internal event Action<HostBinding, ICoreReadView, IContentView, ImmutableArray<EventEnvelope>>? BoundaryCompleted;
     internal event Action<HostOperationResult>? OperationEnded;
     internal CoreSessionOptions? SessionOptions { get; }
+    internal RuntimeIdentity? Runtime { get { EnsureOwner(); return _active?.Runtime; } }
+    internal ReplayRecording? ReplayRecording { get { EnsureOwner(); return _active?.ReplayRecording; } }
+    internal NotificationAction LastNotification { get; private set; }
     internal IContentView? Content { get { EnsureOwner(); return _content; } }
     internal bool IsBusy { get { EnsureOwner(); return _pending is not null || _insideBoundary || _leaveLocked; } }
     internal bool AutoPauseOnFocusLoss
@@ -77,7 +83,8 @@ internal sealed class HostCoordinator : IDisposable
         if (_active is not { } group) return null;
         var driver = group.Driver;
         return new(group.Binding, group.View, driver.PlayerPaused, driver.FocusPaused,
-            driver.OperationLocked, driver.Frozen, driver.Speed, driver.ActualSpeed, driver.Remainder);
+            driver.OperationLocked, driver.Frozen, driver.Speed, driver.ActualSpeed, driver.Remainder,
+            group.Replay is not null);
     }
 
     internal void SetFocused(bool focused) { EnsureOwner(); _focused = focused; UpdateFocusPause(); }
@@ -86,7 +93,7 @@ internal sealed class HostCoordinator : IDisposable
     internal CoreProblem? SetPaused(bool paused)
     {
         EnsureOwner();
-        var problem = MutationProblem(allowFrozen: paused);
+        var problem = MutationProblem(allowFrozen: paused, allowReplay: true);
         if (problem is not null) return problem;
         _active!.Driver.SetPlayerPaused(paused);
         return null;
@@ -124,10 +131,25 @@ internal sealed class HostCoordinator : IDisposable
             : CaptureCurrent();
     }
 
+    internal CoreResult<CheckpointComparison> CompareCheckpoints(CoreCheckpoint expected, CoreCheckpoint actual)
+    {
+        EnsureOwner();
+        return _core.CompareCheckpoints(expected, actual);
+    }
+
+    internal void RequestPauseAfterBoundary()
+    {
+        EnsureOwner();
+        if (!_insideBoundary) throw new InvalidOperationException("边界暂停只能由边界通知请求。");
+        // 不重入核心写入口；分发结束后由当前驱动停止下一步。
+        _boundaryStop = true;
+        _active!.Driver.SetPlayerPaused(true);
+    }
+
     internal CoreRecordingWindow? ReadRecording(HostBinding binding)
     {
         EnsureOwner();
-        return _active is { } group && group.Binding == binding ? group.Core.ReadRecording() : null;
+        return _active is { Replay: null } group && group.Binding == binding ? group.Core.ReadRecording() : null;
     }
 
     internal CoreResult<RecordingStart> CaptureRecordingStart(HostBinding binding)
@@ -142,7 +164,7 @@ internal sealed class HostCoordinator : IDisposable
         HostBinding binding, CoreRecordingWindow window)
     {
         EnsureOwner();
-        if (_active is not { } group || group.Binding != binding)
+        if (_active is not { Replay: null } group || group.Binding != binding)
             return (null, new("no-session", "录制所属对局已离开。"));
         var result = _contentFactory.CaptureReplay(group.History.ToImmutableArray(), window.RequiredReferences);
         return result switch
@@ -158,7 +180,7 @@ internal sealed class HostCoordinator : IDisposable
         RecordingWriteOutcome outcome)
     {
         EnsureOwner();
-        if (_active is not { } group || group.Binding != binding) return;
+        if (_active is not { Replay: null } group || group.Binding != binding) return;
         var result = group.Core.ConfirmRecordingStart(point, outcome);
         group.ReleasedInputs.UnionWith(result.ReleasedInputs);
         group.History.RemoveAll(view => group.ReleasedInputs.Contains(view.Core.Identity)
@@ -168,7 +190,7 @@ internal sealed class HostCoordinator : IDisposable
     internal SaveStatus? GetSaveStatus()
     {
         EnsureOwner();
-        return _active is not { } group ? null : new(group.Binding, group.Save,
+        return _active is not { Replay: null } group ? null : new(group.Binding, group.Save,
             group.Saved != new SaveRevision(group.View.Revision, group.Content.PersistentRevision, group.Save.Name),
             group.Driver.Frozen);
     }
@@ -194,8 +216,9 @@ internal sealed class HostCoordinator : IDisposable
             if (content is ContentResult<IContentCapture>.Faulted faulted)
                 return (null, new(faulted.Code, faulted.Message));
             var fixedContent = ((ContentResult<IContentCapture>.Success)content).Value;
-            return (new(group.Binding, group.Save,
-                new(fixedCore.Revision, fixedContent.Revision, group.Save.Name), fixedCore, fixedContent), null);
+            var identity = group.Replay is null ? group.Save : new SaveIdentity(Guid.NewGuid(), "重放边界副本");
+            return (new(group.Binding, identity,
+                new(fixedCore.Revision, fixedContent.Revision, identity.Name), fixedCore, fixedContent), null);
         }
         finally { _insideBoundary = false; }
     }
@@ -243,12 +266,14 @@ internal sealed class HostCoordinator : IDisposable
             throw new InvalidOperationException("离开对局需要先取得离开保护锁。");
         var old = _active;
         _active = null;
-        old?.Core.Dispose();
+        old?.Dispose();
     }
 
     private CoreResult<ICoreCapture> CaptureCurrent()
     {
         var group = _active!;
+        if (group.Replay is { } replay)
+            return new CoreResult<ICoreCapture>.Success(replay.CaptureBoundary());
         var result = group.Core.Capture(group.Driver.Frozen ? CapturePurpose.Diagnostic : CapturePurpose.Save);
         if (result is CoreResult<ICoreCapture>.Faulted failed)
         {
@@ -276,6 +301,54 @@ internal sealed class HostCoordinator : IDisposable
         finally { _insideBoundary = false; }
     }
 
+    internal static CoreReplayInput SelectReplayInput(RecordingPackage package)
+    {
+        var header = package.Header;
+        if (!header.FaultSegments.IsEmpty)
+        {
+            var fault = header.FaultSegments[0];
+            return new(1, header.Runtime, fault.Start.Payload, fault.Commands, fault.Checkpoints,
+                fault.Fault.Position, fault.Fault);
+        }
+        var start = header.Starts.OrderBy(point => point.Position.CompletedSteps).ThenBy(point => point.Position.Sequence)
+            .FirstOrDefault(point => ComparePosition(point.Position, header.EndPosition) <= 0 &&
+                !header.Gaps.Any(gap => ComparePosition(gap.From, header.EndPosition) < 0 &&
+                    (gap.Until is null || ComparePosition(gap.Until.Value, point.Position) > 0)));
+        if (start is null) throw new InvalidDataException("录制窗口没有之后连续、无缺口的可用起点。");
+        return new(1, header.Runtime, start.Payload,
+            package.Commands.Where(command => ComparePosition(command.Result.After, start.Position) > 0 &&
+                ComparePosition(command.Result.After, header.EndPosition) <= 0).ToImmutableArray(),
+            header.Checkpoints.Where(checkpoint => ComparePosition(checkpoint.Position, start.Position) >= 0 &&
+                ComparePosition(checkpoint.Position, header.EndPosition) <= 0).ToImmutableArray(), header.EndPosition, null);
+    }
+
+    internal static int ComparePosition(SimulationPosition left, SimulationPosition right) =>
+        left.CompletedSteps != right.CompletedSteps ? left.CompletedSteps.CompareTo(right.CompletedSteps)
+            : left.Sequence.CompareTo(right.Sequence);
+
+    private static IContentView ReplayContent(IEnumerable<IContentView> history, CoreInputId input) =>
+        history.LastOrDefault(view => view.Core.Identity == input)
+            ?? throw new InvalidDataException("复现包缺少当前输入的原内容。");
+
+    internal ReplayAdvanceResult? AdvanceReplay(uint maximumSteps, SimulationPosition? stopAt = null)
+    {
+        EnsureOwner();
+        if (IsBusy || _active is not { Replay: { } replay } group) return null;
+        if (group.Driver.Frozen) return null;
+        _insideBoundary = true;
+        try
+        {
+            var result = replay.Advance(maximumSteps, stopAt);
+            group.View = replay.Read();
+            group.Content = ReplayContent(group.History, group.View.InputIdentity);
+            _content = group.Content;
+            if (result.Fault is not null) group.Driver.Freeze();
+            Dispatch(result.Events);
+            return result;
+        }
+        finally { _insideBoundary = false; }
+    }
+
     internal (long Operation, CoreProblem? Problem) BeginNewGame(GenerationProfileId profile,
         ulong seed, string generatorVersion, CoreSessionOptions options)
         => Begin(OperationKind.NewGame, () => PrepareNew(profile, seed, generatorVersion, options), CommandSource.UserInterface, options: options);
@@ -284,9 +357,49 @@ internal sealed class HostCoordinator : IDisposable
         string contentPayload, CoreSessionOptions options, SaveIdentity? save = null, bool unsaved = true)
         => Begin(OperationKind.Restore, () => PrepareRestore(corePayload, contentPayload, options), CommandSource.UserInterface, save, unsaved, options);
 
+    internal (long Operation, CoreProblem? Problem) BeginReplay(string path, Func<string, RecordingPackage>? read = null)
+    {
+        EnsureOwner();
+        if (SessionOptions is not { } options) return (0, Problem("session_options_unavailable"));
+        return Begin(OperationKind.Replay, () => PrepareReplay(path, options.Runtime, read ?? RecordingPackage.Read),
+            CommandSource.UserInterface, options: options);
+    }
+
+    private PreparedOperation PrepareReplay(string path, RuntimeIdentity runtime, Func<string, RecordingPackage> read)
+    {
+        ICoreReplay? replay = null;
+        try
+        {
+            var package = read(path);
+            var input = SelectReplayInput(package);
+            var decoded = _contentFactory.DecodeReplay(package.ContentPayload);
+            if (decoded is ContentResult<IContentReplayCapture>.Failure invalid)
+                return new(new ContentResult<IContentCandidate>.Failure(invalid.Diagnostics), null, null);
+            if (decoded is ContentResult<IContentReplayCapture>.Faulted failed)
+                return new(new ContentResult<IContentCandidate>.Faulted(failed.Code, failed.Message, failed.StackTrace), null, null);
+            var history = ((ContentResult<IContentReplayCapture>.Success)decoded).Value.History;
+            var result = _core.PrepareReplay(input, runtime, history.Select(view => view.Core).ToImmutableArray());
+            if (result is CoreResult<ICoreReplay>.Failure rejected)
+                return new(null, new CoreResult<ICoreSessionCandidate>.Failure(rejected.Problems), null);
+            if (result is CoreResult<ICoreReplay>.Faulted fault)
+                return new(null, new CoreResult<ICoreSessionCandidate>.Faulted(fault.Fault, fault.Diagnostic), null);
+            replay = ((CoreResult<ICoreReplay>.Success)result).Value;
+            var view = replay.Read();
+            _ = ReplayContent(history, view.InputIdentity);
+            return new(null, null, null) { Replay = replay, History = history,
+                Recording = new(Path.GetFullPath(path), view.Position, input.EndPosition, input.Commands, package.Header.Gaps) };
+        }
+        catch
+        {
+            replay?.Dispose();
+            throw;
+        }
+    }
+
     internal (long Operation, CoreProblem? Problem) BeginReload(CommandSource source)
     {
         EnsureOwner();
+        if (_active?.Replay is not null) return (0, Problem("replay_read_only"));
         if (IsBusy || _abandoned.Any(operation => operation.Reload && !operation.Work.IsCompleted))
             return (0, Problem("busy"));
         var references = new CoreReferenceManifest([], [], [], []);
@@ -372,7 +485,8 @@ internal sealed class HostCoordinator : IDisposable
         _insideBoundary = true;
         try
         {
-            if (!skipAdvance) _active?.Driver.AdvanceFrame(delta, () => AdvanceOne(manual: false));
+            if (!skipAdvance && _active is { Replay: null } group)
+                group.Driver.AdvanceFrame(delta, () => AdvanceOne(manual: false));
         }
         finally { _insideBoundary = false; }
     }
@@ -389,11 +503,15 @@ internal sealed class HostCoordinator : IDisposable
         try { prepared = current.Work.GetAwaiter().GetResult(); }
         catch (Exception exception)
         {
-            var status = HostOperationStatus.Faulted;
+            var packageRejected = current.Kind == OperationKind.Replay &&
+                exception is IOException or UnauthorizedAccessException or InvalidDataException;
+            var status = packageRejected ? HostOperationStatus.Rejected : HostOperationStatus.Faulted;
+            var code = packageRejected ? "replay_package_read_failed" : "preparation_exception";
+            ImmutableArray<CoreProblem> problems = packageRejected ? [Problem(code, "recording.read")] : [];
             if (current.Reload) LogReloadResult(current.Id, null, status.ToString(), false,
                 diagnostic: new(exception.Message, exception.StackTrace ?? ""));
-            else LogReplacementFailure(current, status.ToString(), [], "preparation_exception", exception: exception);
-            EndOperation(current, status, faultCode: "preparation_exception");
+            else LogReplacementFailure(current, status.ToString(), problems, code, exception: exception);
+            EndOperation(current, status, problems: problems, faultCode: packageRejected ? null : code);
             return;
         }
         if (_active?.Binding != current.BasisBinding || !ReferenceEquals(_content, current.BasisContent))
@@ -413,7 +531,7 @@ internal sealed class HostCoordinator : IDisposable
             Discard(prepared); EndOperation(current, failureStatus,
                 prepared, (prepared.Core as CoreResult<ICoreSessionCandidate>.Failure)?.Problems ?? []); return;
         }
-        if (!current.Reload && (prepared.ContentCandidate!.Report.RuntimeMissing.Length > 0 ||
+        if (!current.Reload && prepared.Replay is null && (prepared.ContentCandidate!.Report.RuntimeMissing.Length > 0 ||
             prepared.CoreCandidate!.MissingReferences.Length > 0))
         { current.Prepared = prepared; return; }
         Commit(current, prepared);
@@ -510,23 +628,33 @@ internal sealed class HostCoordinator : IDisposable
             else
             {
                 var old = _active;
-                var content = candidate.Activate();
-                activatedCore = prepared.CoreCandidate!.Activate();
-                var group = new ActiveGroup(activatedCore, content, new(_seconds), operation.Options!.Runtime);
-                group.UseContent(prepared.Paired ?? content);
-                if (operation.Save is { } identity) group.Save = identity;
-                if (!operation.Unsaved && prepared.Saved is { } saved)
-                    group.Saved = saved with { Name = group.Save.Name };
+                ActiveGroup group;
+                if (prepared.Replay is { } replay)
+                {
+                    group = new(replay, ReplayContent(prepared.History, replay.Read().InputIdentity), prepared.History,
+                        new(_seconds), operation.Options!.Runtime, prepared.Recording!);
+                    prepared.Replay = null;
+                }
+                else
+                {
+                    var content = candidate.Activate();
+                    activatedCore = prepared.CoreCandidate!.Activate();
+                    group = new(activatedCore, content, new(_seconds), operation.Options!.Runtime);
+                    group.UseContent(prepared.Paired ?? content);
+                    if (operation.Save is { } identity) group.Save = identity;
+                    if (!operation.Unsaved && prepared.Saved is { } saved)
+                        group.Saved = saved with { Name = group.Save.Name };
+                }
                 if (group.View.Fault is not null) group.Driver.Freeze();
                 _active = group; _content = group.Content;
                 activatedCore = null;
                 UpdateFocusPause();
-                foreach (var problem in prepared.CoreCandidate.AdaptationReport)
+                foreach (var problem in prepared.CoreCandidate?.AdaptationReport ?? [])
                     _logger.Log(LogLevel.Info, "application", "host_state_adapted", problem.Code,
                         new Dictionary<string, object?> { ["operation_id"] = operation.Id, ["code"] = problem.Code,
                             ["field"] = problem.Field, ["subject"] = problem.Subject?.ToString() }, null);
                 Dispatch([]);
-                try { old?.Core.Dispose(); }
+                try { old?.Dispose(); }
                 catch (Exception exception) { LogHostFailure("host_retirement_failed", exception); }
             }
         }
@@ -577,18 +705,20 @@ internal sealed class HostCoordinator : IDisposable
         if (result.Fault is not null) RecordCoreFault(result.Fault, result.Diagnostic);
         var action = Dispatch(result.Events);
         return (result.CompletedSteps, group.Driver.Frozen || action == NotificationAction.Pause ||
-            (!manual && speed > SimulationSpeed.One && action == NotificationAction.SlowToOne));
+            _boundaryStop || (!manual && speed > SimulationSpeed.One && action == NotificationAction.SlowToOne));
     }
 
     private NotificationAction Dispatch(ImmutableArray<EventEnvelope> events)
     {
         var group = _active!;
         var action = NotificationAction.None;
+        _boundaryStop = false;
         foreach (var envelope in events)
             try { var next = _notification(envelope.Event); if (next > action) action = next; }
             catch (Exception exception) { LogHostFailure("host_notification_failed", exception); }
         if (action == NotificationAction.Pause) group.Driver.SetPlayerPaused(true);
         else if (action == NotificationAction.SlowToOne) group.Driver.SetSpeed(SimulationSpeed.One);
+        LastNotification = action;
         if (BoundaryCompleted is { } handlers)
             foreach (Action<HostBinding, ICoreReadView, IContentView, ImmutableArray<EventEnvelope>> handler in handlers.GetInvocationList())
                 try { handler(group.Binding, group.View, group.Content, events); }
@@ -625,7 +755,7 @@ internal sealed class HostCoordinator : IDisposable
         if (prepared.Content is ContentResult<IContentCandidate>.Faulted failed)
             _logger.Log(LogLevel.Error, "content", "content_invalid", failed.Message,
                 new Dictionary<string, object?> { ["code"] = failed.Code, ["diagnostic_stack_trace"] = failed.StackTrace }, null);
-        if (prepared.ContentCandidate is not null && (prepared.Core is null || prepared.CoreCandidate is not null)) return null;
+        if (prepared.Replay is not null || prepared.ContentCandidate is not null && (prepared.Core is null || prepared.CoreCandidate is not null)) return null;
         return prepared.Content is ContentResult<IContentCandidate>.Faulted ||
             prepared.Core is CoreResult<ICoreSessionCandidate>.Faulted ? HostOperationStatus.Faulted : HostOperationStatus.Rejected;
     }
@@ -633,7 +763,7 @@ internal sealed class HostCoordinator : IDisposable
     private void LogReplacementFailure(PendingOperation operation, string status,
         ImmutableArray<CoreProblem> problems, string? code, CoreDiagnostic? diagnostic = null, Exception? exception = null) =>
         _logger.Log(status == "Faulted" ? LogLevel.Error : LogLevel.Warning, "application",
-            operation.Kind == OperationKind.NewGame ? "host_new_game_failed" : "host_restore_failed",
+            operation.Kind switch { OperationKind.NewGame => "host_new_game_failed", OperationKind.Replay => "host_replay_failed", _ => "host_restore_failed" },
             "候选准备失败，保留原活动组。", new Dictionary<string, object?>
             {
                 ["operation_id"] = operation.Id, ["status"] = status, ["code"] = code,
@@ -686,8 +816,9 @@ internal sealed class HostCoordinator : IDisposable
             try { handler(result); }
             catch (Exception exception) { LogHostFailure("host_operation_consumer_failed", exception); }
     }
-    private CoreProblem? MutationProblem(bool allowFrozen = false) => IsBusy ? Problem("busy") : _active is null
-        ? Problem("simulation_session_unavailable") : _active.Driver.Frozen && !allowFrozen ? Problem("frozen") : null;
+    private CoreProblem? MutationProblem(bool allowFrozen = false, bool allowReplay = false) => IsBusy ? Problem("busy") : _active is null
+        ? Problem("simulation_session_unavailable") : _active.Replay is not null && !allowReplay ? Problem("replay_read_only")
+        : _active.Driver.Frozen && !allowFrozen ? Problem("frozen") : null;
     private static CoreProblem Problem(string code, string field = "host") => new(code, field, null, []);
     private void EnsureOwner()
     {
@@ -726,22 +857,30 @@ internal sealed class HostCoordinator : IDisposable
         _disposed = true;
         foreach (var operation in _abandoned) _ = CleanAfterClose(operation);
         _abandoned.Clear();
-        _active?.Core.Dispose();
+        _active?.Dispose();
         _active = null; _content = null;
     }
 
-    private sealed class ActiveGroup(ICoreSession core, IContentView content, SimulationFrameDriver driver,
-        RuntimeIdentity runtime)
+    private sealed class ActiveGroup : IDisposable
     {
+        private readonly ICoreSession? _core;
+        internal ActiveGroup(ICoreSession core, IContentView content, SimulationFrameDriver driver, RuntimeIdentity runtime)
+        { _core = core; Content = content; Driver = driver; Runtime = runtime; View = core.Read(); History.Add(content); }
+        internal ActiveGroup(ICoreReplay replay, IContentView content, ImmutableArray<IContentView> history,
+            SimulationFrameDriver driver, RuntimeIdentity runtime, ReplayRecording recording)
+        { Replay = replay; Content = content; Driver = driver; Runtime = runtime; View = replay.Read();
+            History.AddRange(history); ReplayRecording = recording; }
         internal HostBinding Binding { get; } = new(Guid.NewGuid());
-        internal ICoreSession Core { get; } = core;
-        internal IContentView Content { get; set; } = content;
-        internal ICoreReadView View { get; set; } = core.Read();
-        internal SimulationFrameDriver Driver { get; } = driver;
+        internal ICoreSession Core => _core ?? throw new InvalidOperationException("重放没有核心写入口。");
+        internal ICoreReplay? Replay { get; }
+        internal ReplayRecording? ReplayRecording { get; }
+        internal IContentView Content { get; set; }
+        internal ICoreReadView View { get; set; }
+        internal SimulationFrameDriver Driver { get; }
         internal SaveIdentity Save { get; set; } = new(Guid.NewGuid(), "未命名存档");
         internal SaveRevision? Saved { get; set; }
-        internal RuntimeIdentity Runtime { get; } = runtime;
-        internal List<IContentView> History { get; } = [content];
+        internal RuntimeIdentity Runtime { get; }
+        internal List<IContentView> History { get; } = [];
         internal HashSet<CoreInputId> ReleasedInputs { get; } = [];
         internal void Retain(IContentView view)
         {
@@ -749,6 +888,7 @@ internal sealed class HostCoordinator : IDisposable
             if (!History.Any(old => ReferenceEquals(old, view))) History.Add(view);
         }
         internal void UseContent(IContentView view) { Retain(view); Content = view; }
+        public void Dispose() { if (Replay is not null) Replay.Dispose(); else Core.Dispose(); }
     }
     private sealed class PendingOperation(long id, OperationKind kind, HostBinding? basisBinding,
         IContentView? basisContent, Task<PreparedOperation> work, CommandSource source)
@@ -769,8 +909,15 @@ internal sealed class HostCoordinator : IDisposable
         CoreResult<ICoreSessionCandidate>? Core, IContentView? Paired) : IDisposable
     {
         internal SaveRevision? Saved { get; init; }
+        internal ICoreReplay? Replay { get; set; }
+        internal ImmutableArray<IContentView> History { get; init; } = [];
+        internal ReplayRecording? Recording { get; init; }
         internal IContentCandidate? ContentCandidate => (Content as ContentResult<IContentCandidate>.Success)?.Value;
         internal ICoreSessionCandidate? CoreCandidate => (Core as CoreResult<ICoreSessionCandidate>.Success)?.Value;
-        public void Dispose() { try { CoreCandidate?.Dispose(); } finally { ContentCandidate?.Dispose(); } }
+        public void Dispose()
+        {
+            try { Replay?.Dispose(); }
+            finally { try { CoreCandidate?.Dispose(); } finally { ContentCandidate?.Dispose(); } }
+        }
     }
 }

@@ -63,6 +63,13 @@ internal sealed record RecordingPackage(RecordingPackage.Manifest Header,
 
     internal void Validate(string path)
     {
+        var decoded = Read(path);
+        if (JsonSerializer.Serialize(this, Json) != JsonSerializer.Serialize(decoded, Json))
+            throw new InvalidDataException("录制 ZIP 读回值与写入快照不一致。");
+    }
+
+    internal static RecordingPackage Read(string path)
+    {
         try
         {
             using var file = File.OpenRead(path);
@@ -70,7 +77,13 @@ internal sealed record RecordingPackage(RecordingPackage.Manifest Header,
             var manifest = JsonSerializer.Deserialize<Manifest>(ReadEntry(zip, "manifest.json"), Json)
                 ?? throw new InvalidDataException("录制清单为空。");
             if (manifest.FormatVersion != 1) throw new InvalidDataException("不支持的录制格式。");
-            if (manifest.FaultSegments.IsDefault) throw new InvalidDataException("缺少故障片段。");
+            if (manifest.Runtime is null || manifest.Starts.IsDefault || manifest.Checkpoints.IsDefault
+                || manifest.FaultSegments.IsDefault || manifest.Gaps.IsDefault
+                || manifest.Starts.Any(s => s is null) || manifest.Checkpoints.Any(c => c is null)
+                || manifest.Gaps.Any(g => g is null))
+                throw new InvalidDataException("录制清单缺少必要结构。");
+            ValidateReferences(manifest.RequiredReferences);
+            foreach (var start in manifest.Starts) ValidateStart(start);
             if (zip.Entries.Count != 3 + manifest.FaultSegments.Length)
                 throw new InvalidDataException("录制 ZIP 条目不完整或重复。");
             manifest = manifest with
@@ -78,20 +91,39 @@ internal sealed record RecordingPackage(RecordingPackage.Manifest Header,
                 FaultSegments = manifest.FaultSegments.Select((f, i) =>
                 {
                     if (f is null) throw new InvalidDataException("故障片段为空。");
-                    if (!f.Commands.IsEmpty) throw new InvalidDataException("故障命令必须来自 JSONL。");
+                    if (f.Commands.IsDefault || !f.Commands.IsEmpty)
+                        throw new InvalidDataException("故障命令必须来自 JSONL。");
+                    if (f.Checkpoints.IsDefault || f.Checkpoints.Any(c => c is null) || f.Fault is null)
+                        throw new InvalidDataException("故障片段缺少必要结构。");
+                    ValidateStart(f.Start);
+                    ValidateReferences(f.RequiredReferences);
                     return f with { Commands = DecodeCommands(ReadEntry(zip, $"faults/{i}/commands.jsonl")) };
                 }).ToImmutableArray()
             };
-            var decoded = new RecordingPackage(manifest, DecodeCommands(ReadEntry(zip, "commands.jsonl")),
+            return new RecordingPackage(manifest, DecodeCommands(ReadEntry(zip, "commands.jsonl")),
                 ReadEntry(zip, "content.payload"));
-            if (JsonSerializer.Serialize(this, Json) != JsonSerializer.Serialize(decoded, Json))
-                throw new InvalidDataException("录制 ZIP 读回值与写入快照不一致。");
         }
         catch (Exception error) when (error is JsonException or NotSupportedException or DecoderFallbackException
             or ArgumentException or InvalidOperationException)
         {
             throw new InvalidDataException("录制 ZIP 无法解码。", error);
         }
+    }
+
+    private static void ValidateStart(EncodedStart start)
+    {
+        if (start is null || start.Checkpoint is null || start.Payload is null)
+            throw new InvalidDataException("录制起点缺少必要结构。");
+        ValidateReferences(start.References);
+    }
+
+    private static void ValidateReferences(CoreReferenceManifest references)
+    {
+        if (references is null || references.Designs.IsDefault || references.Templates.IsDefault
+            || references.Definitions.IsDefault || references.Inputs.IsDefault
+            || references.Templates.Any(t => t is null || t.Plots.IsDefault || t.Plots.Any(p => p is null))
+            || references.Definitions.Any(d => d is null))
+            throw new InvalidDataException("录制引用清单缺少必要结构。");
     }
 
     private static string EncodeCommands(ImmutableArray<RecordedCommand> commands)
@@ -101,8 +133,25 @@ internal sealed record RecordingPackage(RecordingPackage.Manifest Header,
     {
         if (text.Length == 0) return [];
         if (!text.EndsWith('\n')) throw new InvalidDataException("录制命令 JSONL 未完整结束。");
-        return text[..^1].Split('\n').Select(line => JsonSerializer.Deserialize<RecordedCommand>(line, Json)
-            ?? throw new InvalidDataException("录制命令为空。")).ToImmutableArray();
+        return text[..^1].Split('\n').Select(line =>
+        {
+            var command = JsonSerializer.Deserialize<RecordedCommand>(line, Json)
+                ?? throw new InvalidDataException("录制命令为空。");
+            if (command.Result is null || command.Result.Decision is null)
+                throw new InvalidDataException("录制命令缺少回执。");
+            switch (command.Result.Decision)
+            {
+                case CommandDecision.Accepted accepted when accepted.Created.IsDefault
+                    || accepted.Created.Any(c => c is null) || accepted.SettlementCopies.IsDefault
+                    || accepted.SettlementCopies.Any(t => t is null || t.Plots.IsDefault || t.Plots.Any(p => p is null)):
+                case CommandDecision.Rejected rejected when rejected.Problems.IsDefault
+                    || rejected.Problems.Any(p => p is null || p.RelatedIdentities.IsDefault
+                        || p.RelatedIdentities.Any(id => id is null)):
+                case CommandDecision.Faulted { Fault: null }:
+                    throw new InvalidDataException("录制命令回执缺少必要结构。");
+            }
+            return command;
+        }).ToImmutableArray();
     }
 
     private static void WriteEntry(ZipArchive zip, string name, string text)

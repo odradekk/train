@@ -1,5 +1,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.App;
+using Train.App.Development;
+using Train.App.Saves;
 using Train.App.Logging;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
@@ -29,7 +31,9 @@ public sealed class SimulationConsoleCommandTests
     public void InvalidArgumentsReportUsageBeforeSessionAccess()
     {
         using var fixture = CreateFixture();
-        var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger);
+        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()));
+        using var tools = new DeveloperTools(fixture.Host, saves);
+        var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger, tools);
         string[][] invalid =
         [
             ["unknown"], ["status", "extra"], ["pause", "extra"], ["resume", "extra"],
@@ -48,7 +52,9 @@ public sealed class SimulationConsoleCommandTests
     public void ValidCommandsWithoutSessionReportUnavailable()
     {
         using var fixture = CreateFixture();
-        var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger);
+        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()));
+        using var tools = new DeveloperTools(fixture.Host, saves);
+        var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger, tools);
         string[][] valid =
         [
             [], ["STATUS"], ["PAUSE"], ["RESUME"], ["speed", "1"], ["speed", "2"],
@@ -65,7 +71,9 @@ public sealed class SimulationConsoleCommandTests
     {
         using var fixture = CreateFixture();
         fixture.ReadyHost();
-        var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger);
+        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()));
+        using var tools = new DeveloperTools(fixture.Host, saves);
+        var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger, tools);
 
         commands.Execute(["speed", "4"]);
         Assert.IsTrue(fixture.Host.GetStatus()!.PlayerPaused);
@@ -84,12 +92,26 @@ public sealed class SimulationConsoleCommandTests
     public void CheckpointReportsDeclaredPositionAndHash()
     {
         using var fixture = CreateFixture();
-        var session = fixture.ReadyHost();
+        var session = new ScriptedCoreSession(new FixedCoreReadView(new(0, 0), HostCoreScenario.Input)
+        {
+            World = new(1, new("fixture:railway"), 100, 100, [], [], [], [], [])
+        });
+        var prepareRestore = fixture.Core.PrepareRestoreCall;
+        fixture.Core.PrepareRestoreCall = (capture, projection, options) =>
+        {
+            prepareRestore!(capture, projection, options);
+            return new CoreResult<ICoreSessionCandidate>.Success(new ScriptedCoreCandidate(session, HostCoreScenario.References));
+        };
+        fixture.ReadyHost();
         var expected = fixture.Capture(new(27, 4));
         session.SetCapture(CapturePurpose.Save, new CoreResult<ICoreCapture>.Success(expected));
-        var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger);
+        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()));
+        using var tools = new DeveloperTools(fixture.Host, saves);
+        var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger, tools);
         var previousCount = fixture.Logs.Count;
         commands.Execute(["checkpoint"]);
+        Assert.AreEqual(expected.Checkpoint, tools.Checkpoints.Single().Checkpoint);
+        Assert.AreEqual("控制台检查点", tools.Checkpoints.Single().Label);
         var events = fixture.Logs.Skip(previousCount).ToArray();
         Assert.AreEqual(1, events.Length);
         Assert.AreEqual(SimulationConsoleCommands.CheckpointEventId, events[0].EventId);
@@ -102,11 +124,33 @@ public sealed class SimulationConsoleCommandTests
     }
 
     [TestMethod]
+    public void OrdinaryCheckpointFailureReportsAllProblemFieldsOnceWithoutRetainingCheckpoint()
+    {
+        using var fixture = CreateFixture();
+        var session = fixture.ReadyHost();
+        session.SetCapture(CapturePurpose.Save, new CoreResult<ICoreCapture>.Failure(
+            [new("capture_rejected", "checkpoint", null, []), new("input_unavailable", "input", null, [])]));
+        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()));
+        using var tools = new DeveloperTools(fixture.Host, saves);
+        var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger, tools);
+        var previousCount = fixture.Logs.Count;
+        commands.Execute(["checkpoint"]);
+        var log = fixture.Logs.Skip(previousCount).Single();
+        Assert.AreEqual(SimulationConsoleCommands.CheckpointFailedEventId, log.EventId);
+        Assert.AreEqual(LogLevel.Warning, log.Level);
+        Assert.AreEqual("capture_rejected,input_unavailable", log.Attributes["problem_code"]);
+        Assert.AreEqual("checkpoint,input", log.Attributes["problem_field"]);
+        Assert.AreEqual(0, tools.Checkpoints.Count);
+    }
+
+    [TestMethod]
     public void StepWhileRunningRequiresPauseWithoutAdvancing()
     {
         using var fixture = CreateFixture();
         var session = fixture.ReadyHost();
-        var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger);
+        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()));
+        using var tools = new DeveloperTools(fixture.Host, saves);
+        var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger, tools);
         commands.Execute(["resume"]);
         commands.Execute(["step", "3"]);
         Assert.AreEqual(SimulationConsoleCommands.RequiresPauseEventId, fixture.Logs[^1].EventId);
@@ -122,7 +166,9 @@ public sealed class SimulationConsoleCommandTests
         session.QueueAdvance(new(1, new(1, 0),
             [new(new(1, 0), 0, new CoreEvent.TrainArrived(new(1), new(1)))], null, null),
             new FixedCoreReadView(new(1, 0), HostCoreScenario.Input));
-        var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger);
+        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()));
+        using var tools = new DeveloperTools(fixture.Host, saves);
+        var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger, tools);
         commands.Execute(["step", "3"]);
         var log = fixture.Logs[^1];
         Assert.AreEqual(SimulationConsoleCommands.SteppedEventId, log.EventId);
@@ -144,10 +190,13 @@ public sealed class SimulationConsoleCommandTests
         session.QueueAdvance(new(1, position, [], null, null),
             new FixedCoreReadView(position, HostCoreScenario.Input));
         session.QueueAdvance(new(0, position, [], fault, diagnostic),
-            new FixedCoreReadView(position, HostCoreScenario.Input, fault));
+            new FixedCoreReadView(position, HostCoreScenario.Input, fault)
+            { World = new(1, new("fixture:railway"), 100, 100, [], [], [], [], []) });
         var expected = fixture.Capture(position);
         session.SetCapture(CapturePurpose.Diagnostic, new CoreResult<ICoreCapture>.Success(expected));
-        var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger);
+        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()));
+        using var tools = new DeveloperTools(fixture.Host, saves);
+        var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger, tools);
         commands.Execute(["step", "4"]);
         Assert.AreEqual(SimulationConsoleCommands.FrozenEventId, fixture.Logs[^1].EventId);
         StringAssert.Contains(fixture.Logs[^1].Message, "实际推进 1 步");
@@ -161,12 +210,26 @@ public sealed class SimulationConsoleCommandTests
         commands.Execute(["checkpoint"]);
         Assert.AreEqual(SimulationConsoleCommands.CheckpointFailedEventId, fixture.Logs[^1].EventId);
         StringAssert.Contains(fixture.Logs[^1].Message, "fixture_capture_failed/checkpoint");
+        Assert.AreEqual(LogLevel.Warning, fixture.Logs[^1].Level);
+        Assert.AreEqual("fixture_capture_failed", fixture.Logs[^1].Attributes["problem_code"]);
+        Assert.AreEqual("checkpoint", fixture.Logs[^1].Attributes["problem_field"]);
+        Assert.AreEqual(1, tools.Checkpoints.Count);
         session.SetCapture(CapturePurpose.Diagnostic, new CoreResult<ICoreCapture>.Faulted(fault, diagnostic));
         var checkpointFailures = fixture.Logs.Count(log => log.EventId == SimulationConsoleCommands.CheckpointFailedEventId);
         commands.Execute(["checkpoint"]);
         Assert.AreEqual(checkpointFailures + 1, fixture.Logs.Count(log => log.EventId == SimulationConsoleCommands.CheckpointFailedEventId));
-        Assert.AreEqual(diagnostic.Message, fixture.Logs[^1].Attributes["diagnostic_message"]);
-        Assert.AreEqual(diagnostic.StackTrace, fixture.Logs[^1].Attributes["diagnostic_stack_trace"]);
+        StringAssert.Contains(fixture.Logs[^1].Message, fault.Code);
+        var checkpointFailure = fixture.Logs[^1];
+        Assert.AreEqual(LogLevel.Warning, checkpointFailure.Level);
+        Assert.AreEqual(fault.Code, checkpointFailure.Attributes["fault_code"]);
+        Assert.AreEqual(fault.Operation, checkpointFailure.Attributes["operation"]);
+        Assert.AreEqual(fault.Field, checkpointFailure.Attributes["field"]);
+        Assert.AreEqual(position.CompletedSteps, checkpointFailure.Attributes["fault_completed_steps"]);
+        Assert.AreEqual(position.Sequence, checkpointFailure.Attributes["fault_sequence"]);
+        Assert.AreEqual(fault.Subject!.ToString(), checkpointFailure.Attributes["subject"]);
+        Assert.AreEqual(diagnostic.Message, checkpointFailure.Attributes["diagnostic_message"]);
+        Assert.AreEqual(diagnostic.StackTrace, checkpointFailure.Attributes["diagnostic_stack_trace"]);
+        Assert.AreEqual(1, tools.Checkpoints.Count);
         commands.Execute(["pause"]);
         Assert.AreEqual(SimulationConsoleCommands.PausedEventId, fixture.Logs[^1].EventId);
         commands.Execute(["speed", "4"]);
@@ -205,7 +268,9 @@ public sealed class SimulationConsoleCommandTests
         using var fixture = CreateFixture();
         fixture.ReadyHost();
         fixture.Host.AutoPauseOnFocusLoss = true;
-        var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger);
+        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()));
+        using var tools = new DeveloperTools(fixture.Host, saves);
+        var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger, tools);
         fixture.Host.SetFocused(false);
         commands.Execute(["resume"]);
         Assert.IsFalse(fixture.Host.GetStatus()!.PlayerPaused);
@@ -239,7 +304,9 @@ public sealed class SimulationConsoleCommandTests
             var operation = fixture.Host.BeginReload(CommandSource.Console);
             Assert.IsNull(operation.Problem);
             HostFixture.WaitForSignal(entered, "重载准备任务未进入");
-            var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger);
+            using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()));
+            using var tools = new DeveloperTools(fixture.Host, saves);
+            var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger, tools);
             string[][] mutations = [["resume"], ["pause"], ["speed", "8"], ["step", "2"]];
             foreach (var arguments in mutations)
             {

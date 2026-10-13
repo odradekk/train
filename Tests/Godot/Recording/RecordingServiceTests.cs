@@ -6,12 +6,34 @@ using Train.Content.ContractSupport;
 using Train.Core.Contracts;
 using Train.Core.ContractSupport;
 using Train.Godot.Tests.Host;
+using Train.Godot.Tests.Development;
 
 namespace Train.Godot.Tests.Recording;
 
 [TestClass]
 public sealed class RecordingServiceTests
 {
+    [TestMethod]
+    [TestCategory("fast")]
+    public void Replay_process_does_not_record_and_export_is_read_only()
+    {
+        using var run = new ReplayFixture();
+        var writes = 0;
+        using var service = new RecordingService(run.Host.Host, Store(), write: (_, _, _, _) =>
+        {
+            writes++;
+            return Task.FromResult(new FileWriteResult(true));
+        });
+        run.Open();
+        service.Process();
+        service.Process();
+        Assert.IsNull(service.Status);
+        Assert.IsNull(service.LastMessage);
+        Assert.AreEqual("replay_read_only", service.Export("replay.zip")!.Code);
+        Assert.AreEqual(0, writes);
+        run.Host.AssertNoUnexpectedFailures();
+    }
+
     [TestMethod]
     [TestCategory("fast")]
     public void Initial_publication_waits_for_owner_process_and_pending_write_blocks_new_starts()

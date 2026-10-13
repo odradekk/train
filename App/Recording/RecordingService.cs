@@ -53,7 +53,8 @@ internal sealed class RecordingService : IDisposable
         private set => _lastMessage = value;
     }
     internal bool IsBusy => _pending is not null || _faults.Count != 0 || _closing || _host.IsBusy;
-    internal RecordingStatus? Status => _host.GetStatus() is not { } status ? null : new(
+    private HostStatus? OrdinaryStatus => _host.GetStatus() is { IsReplay: false } status ? status : null;
+    internal RecordingStatus? Status => OrdinaryStatus is not { } status ? null : new(
         _binding == status.Binding && _window is { Starts.Length: > 0 } ? _window.Starts[0].State.Position : status.View.Position,
         status.View.Position, _binding == status.Binding ? _window?.Gaps ?? [] : [],
         _binding == status.Binding && _hasUsableStart, status.IsFrozen,
@@ -62,7 +63,7 @@ internal sealed class RecordingService : IDisposable
     internal void Process()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        ObserveBinding(_host.GetStatus()?.Binding);
+        ObserveBinding(OrdinaryStatus?.Binding);
         if (_pending is { } completed && completed.Work.IsCompleted)
         {
             _pending = null;
@@ -96,7 +97,7 @@ internal sealed class RecordingService : IDisposable
             closed?.Invoke();
             return;
         }
-        if (_host.GetStatus() is not { } status || _host.IsBusy) return;
+        if (OrdinaryStatus is not { } status || _host.IsBusy) return;
         RecordingStart start;
         if (!_initialized)
         {
@@ -128,7 +129,8 @@ internal sealed class RecordingService : IDisposable
     private void OnBoundary(HostBinding binding, ICoreReadView view, IContentView content,
         ImmutableArray<EventEnvelope> events)
     {
-        if (view.Fault is null || !_faultBindings.Add(binding)) return;
+        if (OrdinaryStatus is not { } status || status.Binding != binding ||
+            view.Fault is null || !_faultBindings.Add(binding)) return;
         ObserveBinding(binding);
         var window = _host.ReadRecording(binding)!;
         _window = window;
@@ -147,8 +149,11 @@ internal sealed class RecordingService : IDisposable
 
     internal SaveFailure? Export(string path, bool overwriteConfirmed = false)
     {
+        var status = OrdinaryStatus;
+        if (status is null) return _host.GetStatus() is null
+            ? Fail("no-session", "当前没有对局。")
+            : Fail("replay_read_only", "重放不录制新的复现包。");
         if (IsBusy) return Fail("busy", "正在写入复现资料，请稍后再试。");
-        if (_host.GetStatus() is not { } status) return Fail("no-session", "当前没有对局。");
         if (File.Exists(path) && !overwriteConfirmed) return Fail("overwrite-confirmation", "目标文件已存在，请确认覆盖。");
         var window = _host.ReadRecording(status.Binding)!;
         var (snapshot, failure) = _host.CaptureRecording(status.Binding, window);
