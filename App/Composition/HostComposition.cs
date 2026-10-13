@@ -27,13 +27,21 @@ internal static class HostComposition
         var installation = new ContentInstallation(builtin, mods, null,
             ProjectSettings.GetSetting("application/config/version").AsString(), []);
         var discovered = content.Discover(installation, files);
-        if (discovered is not ContentResult<ImmutableArray<PackageStatus>>.Success packages)
-            throw new InvalidOperationException($"内容发现失败：{discovered}");
-        installation = installation with
+        if (discovered is ContentResult<ImmutableArray<PackageStatus>>.Success packages)
         {
-            EnabledMods = packages.Value.Where(package => package.State == PackageState.Disabled)
-                .Select(package => package.Metadata!.Id).ToImmutableArray()
-        };
+            installation = installation with
+            {
+                EnabledMods = packages.Value.Where(package => package.State == PackageState.Disabled)
+                    .Select(package => package.Metadata!.Id).ToImmutableArray()
+            };
+        }
+        else if (discovered is ContentResult<ImmutableArray<PackageStatus>>.Faulted fault)
+            logger.Error("content", "content_discovery_failed", fault.Message,
+                new Dictionary<string, object?> { ["code"] = fault.Code });
+        else if (discovered is ContentResult<ImmutableArray<PackageStatus>>.Failure failure)
+            foreach (var diagnostic in failure.Diagnostics)
+                logger.Error("content", "content_discovery_failed", diagnostic.Message,
+                    new Dictionary<string, object?> { ["code"] = diagnostic.Code });
         return new(Train.Core.CoreFactory.Create(), content, files, new GodotAssetInspector(dispatcher),
             installation, logger, sessionOptions: new(Identity(), OS.IsDebugBuild(), 1));
     }
