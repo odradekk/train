@@ -1,6 +1,9 @@
 using System.Collections.Immutable;
 using System.Numerics;
+using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Train.Content.Contracts;
+using Train.Content.ContractSupport;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
 
@@ -10,6 +13,117 @@ namespace Train.Scenes.Tests;
 public sealed class NodeSwitchTests
 {
     private static readonly SceneFrameRequest Request = new(1, null, SceneDebugLayer.None);
+    public TestContext TestContext { get; set; } = null!;
+
+    [TestMethod]
+    [TestCategory("integration")]
+    public async Task ProductionFollowCrossesEmptyNodeBetweenTwoDifferentLines()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "empty-node-switch-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        using var result = await NodeSceneTests.RunNodeProcess(TestContext, directory, "switch", "--empty-node-switch-process");
+        Assert.AreEqual(nameof(SceneReadiness.Ready), result.RootElement.GetProperty("Observation").GetProperty("Ready").GetString());
+    }
+
+    internal static async Task ObserveProductionEmptyNodeSwitch(string output)
+    {
+        var content = new FixedContentView
+        {
+            Generation = new(1), Core = SceneFixtures.Content().Core,
+            Voxels = [new(NodeFixtures.Concrete, null), new(SceneFixtures.Voxel, null)],
+            Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+            { [SceneFixtures.Design] = new ContentLookup<DesignEvaluation>.Found(RailwayFixtures.Vehicle()) },
+            // Concrete is deliberately unconfigured: reading it would fault this build.
+            VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
+            { [SceneFixtures.Voxel] = new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube) },
+            Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
+            { [RailwayFixtures.Terrain] = new ContentLookup<TerrainAppearanceProjection>.Found(RailwayFixtures.TerrainAppearance) },
+            RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>
+            { [RailwayFixtures.Rule] = new ContentLookup<RailwayAppearanceProjection>.Found(RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 }) }
+        };
+        SceneWorldSnapshot Snapshot(TrainView train, ulong step)
+        {
+            var value = ShortNodeSnapshot(train, content, step);
+            return RailwayFixtures.ReplaceCore(value, node: value.Core.World.Nodes.Single(item => item.Id == NodeFixtures.NodeId)
+                with { Occupant = new NodeOccupant.Empty(), Platforms = 0 });
+        }
+        var approaching = RailwayFixtures.Train(0, direction: TravelDirection.Reverse);
+        var cache = new NodeScene.Cache();
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), Snapshot(approaching, 0),
+            WorldSceneSession.Generate, new(), cache);
+        session.RequestView(new WorldSceneTarget.Follow(new(1), new(1)));
+        var lineA = await RailwayFixtures.Settled(session, Request);
+        Assert.AreEqual(SceneReadiness.Ready, lineA.Readiness);
+        Assert.AreEqual(new EdgeId(1), lineA.Railway!.Edge.Id);
+        var boundaryA = lineA.Railway.Sample(0).Position;
+        var stopped = NodeFixtures.Train(enteredFrom: new(1), nextEdge: new(2));
+        session.Observe(Snapshot(stopped, 1), []);
+        var firstNode = Present(session, lineA);
+        var entryA = firstNode.Node!.EntryFor(new(1));
+        var expectedNodeOrigin = new ScenePoint(entryA.Point.X - boundaryA.X + lineA.Origin.X,
+            entryA.Point.Y - boundaryA.Y + lineA.Origin.Y, entryA.Point.Z - boundaryA.Z + lineA.Origin.Z);
+        Assert.AreEqual(expectedNodeOrigin, firstNode.Origin);
+        Assert.AreEqual(lineA.Update.Frame.Space.Value + 1, firstNode.Update.Frame.Space.Value);
+        var node = await RailwayFixtures.Settled(session, Request, firstNode);
+        Assert.AreEqual(SceneReadiness.Ready, node.Readiness);
+        Assert.IsFalse(node.Diagnostics.Any(problem => problem.Code == "content_missing"), "An empty node needs no concrete or settlement content.");
+        var built = cache.Read(NodeFixtures.NodeId)!;
+        Assert.IsTrue(built.Parts.Keys.Any(key => key.StartsWith("terrain:", StringComparison.Ordinal)));
+        var visibleMeshes = node.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>()
+            .Select(visual => visual.Mesh).ToHashSet(ReferenceEqualityComparer.Instance);
+        foreach (var key in new[] { "entry:1", "entry:2", "station-tracks" })
+        {
+            var meshes = built.Parts[key].Geometry.Geometry.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().ToArray();
+            Assert.IsTrue(meshes.Length > 0 && meshes.All(visual => visibleMeshes.Contains(visual.Mesh)), key);
+        }
+        Assert.IsTrue(built.Parts.Where(part => part.Key.StartsWith("terrain:", StringComparison.Ordinal))
+            .SelectMany(part => part.Value.Geometry.Geometry.Objects).SelectMany(item => item.Visuals)
+            .OfType<SceneVisual.Geometry>().Any(visual => visibleMeshes.Contains(visual.Mesh)), "The node frame displays its generated terrain.");
+        Assert.IsFalse(built.Parts.Keys.Any(key => key.StartsWith("platform:", StringComparison.Ordinal)));
+        var innerEnd = RailwayCoordinates.Add(entryA.Point, -entryA.Outward * (float)(16 + entryA.StraightLength));
+        var expectedQueueCenter = RailwayCoordinates.Add(innerEnd, entryA.Outward * 8);
+        var subject = new WorldObjectId.Instance(new InstanceId.Vehicle(new(1)));
+        var stoppedPose = ((Lookup<ScenePose>.Found)node.FindPose(subject)).Value;
+        Assert.IsTrue(Vector3.Distance(RailwayCoordinates.Relative(expectedQueueCenter, node.Origin), stoppedPose.Position) < .001);
+        Assert.AreEqual(NodeFixtures.Location, ((Lookup<WorldLocation>.Found)node.Locate(stoppedPose.Position)).Value);
+        Assert.IsInstanceOfType<Lookup<double>.Found>(node.TerrainHeight(stoppedPose.Position.X, stoppedPose.Position.Z));
+        Assert.AreEqual(new WorldLocation.Edge(new(2), 4), session.PrebuiltLocation);
+        await Task.WhenAll(session.PendingPrebuilds);
+        session.Observe(Snapshot(stopped with { Activity = TrainActivity.Servicing }, 2), []);
+        var servicing = await RailwayFixtures.Settled(session, Request, node);
+        Assert.AreEqual(SceneReadiness.Ready, servicing.Readiness);
+        Assert.IsFalse(servicing.Diagnostics.Any(problem => problem.Code == "content_missing"));
+        Assert.AreEqual(node.Update.Frame.Space, servicing.Update.Frame.Space);
+        Assert.AreEqual(stoppedPose, ((Lookup<ScenePose>.Found)servicing.FindPose(subject)).Value);
+        var leaving = RailwayFixtures.Train(3.9) with { Position = new TrainPosition.Edge(new(2), 1, TravelDirection.Reverse, 3.9) };
+        session.Observe(Snapshot(leaving, 3), []);
+        var firstLineB = Present(session, servicing);
+        Assert.AreEqual(new EdgeId(2), firstLineB.Railway!.Edge.Id);
+        var boundaryB = firstLineB.Railway.Sample(firstLineB.Railway.LengthCells).Position;
+        var entryB = servicing.Node!.EntryFor(new(2)).Point;
+        var expectedLineOrigin = new ScenePoint(boundaryB.X - entryB.X + servicing.Origin.X,
+            boundaryB.Y - entryB.Y + servicing.Origin.Y, boundaryB.Z - entryB.Z + servicing.Origin.Z);
+        Assert.AreEqual(expectedLineOrigin, firstLineB.Origin);
+        Assert.AreEqual(servicing.Update.Frame.Space.Value + 1, firstLineB.Update.Frame.Space.Value);
+        AssertVehicleBody(firstLineB);
+        var lineB = await RailwayFixtures.Settled(session, Request, firstLineB);
+        Assert.AreEqual(SceneReadiness.Ready, lineB.Readiness);
+        Assert.AreEqual(new EdgeId(2), lineB.Railway!.Edge.Id);
+        await File.WriteAllTextAsync(output, JsonSerializer.Serialize(new
+        {
+            ProcessId = Environment.ProcessId,
+            Observation = new
+            {
+                Ready = lineB.Readiness.ToString(),
+                Spaces = new[] { lineA.Update.Frame.Space.Value, firstNode.Update.Frame.Space.Value, firstLineB.Update.Frame.Space.Value },
+                NodeOrigin = new[] { firstNode.Origin.X, firstNode.Origin.Y, firstNode.Origin.Z },
+                LineBOrigin = new[] { firstLineB.Origin.X, firstLineB.Origin.Y, firstLineB.Origin.Z },
+                Parts = built.Parts.Keys.Order(StringComparer.Ordinal).ToArray(),
+                Lines = new[] { lineA.Railway.Edge.Id.Value, lineB.Railway.Edge.Id.Value },
+                QueueCenter = new[] { stoppedPose.Position.X, stoppedPose.Position.Y, stoppedPose.Position.Z }
+            }
+        }));
+    }
 
     [TestMethod]
     public async Task FrontNodePrefetchUsesSpeedAndDirectionWithTheExistingSegmentCap()

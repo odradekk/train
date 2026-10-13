@@ -222,14 +222,15 @@ public sealed class NodeSceneTests
         var root = Path.GetTempPath();
         var directory = Path.Combine(root, "node-process-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
-        using var first = await RunNodeProcess(directory, "first");
-        using var second = await RunNodeProcess(directory, "second");
+        using var first = await RunNodeProcess(TestContext, directory, "first");
+        using var second = await RunNodeProcess(TestContext, directory, "second");
         Assert.AreNotEqual(first.RootElement.GetProperty("ProcessId").GetInt32(), second.RootElement.GetProperty("ProcessId").GetInt32());
         Assert.AreEqual(first.RootElement.GetProperty("Observation").GetRawText(), second.RootElement.GetProperty("Observation").GetRawText(),
             "Independent processes must preserve terrain observations and object IDs, parent IDs and frame order.");
     }
 
-    private async Task<JsonDocument> RunNodeProcess(string directory, string name)
+    internal static async Task<JsonDocument> RunNodeProcess(TestContext context, string directory, string name,
+        string command = "--node-process")
     {
         var output = Path.Combine(directory, name + ".json");
         var start = new ProcessStartInfo("dotnet")
@@ -237,12 +238,12 @@ public sealed class NodeSceneTests
             UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true,
             CreateNoWindow = true, WorkingDirectory = directory
         };
-        foreach (var argument in new[] { typeof(NodeSceneTests).Assembly.Location, "--node-process", output })
+        foreach (var argument in new[] { typeof(NodeSceneTests).Assembly.Location, command, output })
             start.ArgumentList.Add(argument);
         using var process = Process.Start(start) ?? throw new AssertFailedException("无法启动节点子进程。");
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();
-        try { await process.WaitForExitAsync(TestContext.CancellationToken); }
+        try { await process.WaitForExitAsync(context.CancellationToken); }
         finally
         {
             if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); }

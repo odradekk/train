@@ -35,7 +35,7 @@ pwsh -NoProfile -File scripts/test.ps1 -All -Layer all,stage
 
 Scenes 快速层验证会话生命周期、不可变帧、立方体网格及其贴图方向与跨格平铺、拾取、只读预览、线路与节点生成规则、平台涂装、列车摆放和线路—节点切换；Core／Content 为配置情景的固定读视图，几何使用生产构造和独立采样检查，会话时序另用受控后台门控验证，摆放使用省略地形的构建夹具。快速层不提供大型真实样例的首建和重绑定成本证据。它们不提供真实四模块联调证据；立方体 UV 与黄色体素的纯 .NET 检查不替代 #298 的真实 Godot 纹理、涂装和画面联调。Scenes 已接入实际隔离入口，单次是否通过以运行日志与摘要为准；后续实现范围见[体素契约](contracts/scenes.md)。
 
-快速层运行未标记 `integration` 或 `stage` 的 MSTest；集成层运行真实文件读写和子进程用例，并按下述规则选择独立检查。Scenes 集成层最低 1 个用例：两个独立子进程构建同面双入口节点，逐列核对接缝道床、站内道床和站台地面，并比较部件键与帧内对象身份、顺序；子进程结果和日志保留在本次运行目录。Schema 需要 Python 3 与 `jsonschema`（CI 固定为 Python 3.11、`jsonschema==4.25.1`）；它不验证跨文件引用或生产加载器行为。
+快速层运行未标记 `integration` 或 `stage` 的 MSTest；集成层运行真实文件读写和子进程用例，并按下述规则选择独立检查。Scenes 集成层最低 2 个用例：两个独立子进程构建同面双入口节点，逐列核对接缝道床、站内道床和站台地面，并比较部件键与帧内对象身份、顺序；另一个子进程覆盖生产线路 A → 空节点 → 线路 B 的跟随、停留与首帧坐标交接，断言只有地形与交汇轨道、无站台或混凝土读取。子进程结果和日志先写入本次运行目录，成功后的清理遵循统一入口规则。Schema 需要 Python 3 与 `jsonschema`（CI 固定为 Python 3.11、`jsonschema==4.25.1`）；它不验证跨文件引用或生产加载器行为。
 
 引擎层在真实 Godot 中运行 `Tests/Engine/Train.Engine.Tests.csproj` 的当前 App 集成用例，需要 `GODOT`。独立测试程序集固定使用 Chickensoft.GoDotTest 2.0.47 和 GodotTestDriver 3.1.83；根项目仅在 Debug 编译 `Tests/Engine/Bootstrap/Runner.tscn` 的启动代码，加载外部测试 DLL 并生成 JUnit；当前无界面引擎最低用例数为 24。Release、ExportDebug 和 ExportRelease 排除测试代码、启动场景和测试依赖。这些用例不证明目标四模块的隔离装配。显式导出选择另用 `scripts/checks/run-export-smoke.ps1` 执行一个导出冒烟检查，对同一次 Windows 导出运行两次 `--smoke`，需要 Windows 和匹配的导出模板。Benchmark、长测、额外平台和人工观察不在 `all` 中。
 
