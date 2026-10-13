@@ -14,10 +14,10 @@ internal sealed record HostOperationResult(long Operation, OperationKind Kind, H
     ImmutableArray<CoreProblem> Problems, ImmutableArray<ContentDiagnostic> Diagnostics, string? FaultCode,
     CoreFault? Fault = null);
 internal sealed record HostStatus(HostBinding Binding, ICoreReadView View,
-    bool PlayerPaused, bool NotificationPaused, bool FocusPaused, bool OperationLocked, bool IsFrozen,
+    bool PlayerPaused, bool FocusPaused, bool OperationLocked, bool IsFrozen,
     SimulationSpeed Speed, double ActualSpeed, double Remainder)
 {
-    internal bool IsPaused => PlayerPaused || NotificationPaused || FocusPaused || OperationLocked || IsFrozen;
+    internal bool IsPaused => PlayerPaused || FocusPaused || OperationLocked || IsFrozen;
     internal double SimulationSeconds => View.Position.CompletedSteps / (double)SimulationTime.StepsPerSecond;
 }
 
@@ -72,7 +72,7 @@ internal sealed class HostCoordinator : IDisposable
         EnsureOwner();
         if (_active is not { } group) return null;
         var driver = group.Driver;
-        return new(group.Binding, group.View, driver.PlayerPaused, driver.NotificationPaused, driver.FocusPaused,
+        return new(group.Binding, group.View, driver.PlayerPaused, driver.FocusPaused,
             driver.OperationLocked, driver.Frozen, driver.Speed, driver.ActualSpeed, driver.Remainder);
     }
 
@@ -540,7 +540,7 @@ internal sealed class HostCoordinator : IDisposable
         foreach (var envelope in events)
             try { var next = _notification(envelope.Event); if (next > action) action = next; }
             catch (Exception exception) { LogHostFailure("host_notification_failed", exception); }
-        if (action == NotificationAction.Pause) group.Driver.SetNotificationPaused(true);
+        if (action == NotificationAction.Pause) group.Driver.SetPlayerPaused(true);
         else if (action == NotificationAction.SlowToOne) group.Driver.SetSpeed(SimulationSpeed.One);
         if (BoundaryCompleted is { } handlers)
             foreach (Action<HostBinding, ICoreReadView, IContentView, ImmutableArray<EventEnvelope>> handler in handlers.GetInvocationList())

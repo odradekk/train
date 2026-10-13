@@ -55,7 +55,7 @@ public sealed class HostCoordinatorTests
         var consumerCalls = 0;
         var observedPause = false;
         fixture.Host.BoundaryCompleted += (_, _, _, batch) =>
-        { consumerCalls++; received.AddRange(batch.Select(envelope => envelope.Ordinal)); observedPause = fixture.Host.GetStatus()!.NotificationPaused; };
+        { consumerCalls++; received.AddRange(batch.Select(envelope => envelope.Ordinal)); observedPause = fixture.Host.GetStatus()!.PlayerPaused; };
         var result = fixture.Host.Submit(fixture.Host.GetStatus()!.Binding, command, CommandSource.UserInterface);
         Assert.IsInstanceOfType<SubmissionResult.Completed>(result);
         Assert.AreEqual(new SimulationPosition(0, 1), fixture.Host.GetStatus()!.View.Position);
@@ -140,16 +140,8 @@ public sealed class HostCoordinatorTests
         fixture.Host.SetPaused(false);
         fixture.Host.ProcessFrame(SimulationTime.StepSeconds);
         Assert.AreEqual(1, session.AdvanceCount);
-        Assert.IsTrue(fixture.Host.GetStatus()!.NotificationPaused);
-        Assert.IsFalse(fixture.Host.GetStatus()!.PlayerPaused);
+        Assert.IsTrue(fixture.Host.GetStatus()!.PlayerPaused);
         Assert.AreEqual(SimulationSpeed.Eight, fixture.Host.GetStatus()!.Speed);
-        Assert.IsNull(fixture.Host.SetSpeed(SimulationSpeed.Two));
-        Assert.IsNull(fixture.Host.SetPaused(false));
-        fixture.Host.ProcessFrame(SimulationTime.StepSeconds);
-        Assert.AreEqual(SimulationSpeed.Two, fixture.Host.GetStatus()!.Speed);
-        Assert.IsTrue(fixture.Host.GetStatus()!.NotificationPaused);
-        Assert.IsTrue(fixture.Host.GetStatus()!.IsPaused);
-        Assert.AreEqual(1, session.AdvanceCount);
     }
 
     [TestMethod]
@@ -415,7 +407,7 @@ public sealed class HostCoordinatorTests
         fixture.Host.BoundaryCompleted += (_, view, content, batch) =>
         {
             consumerCalls++; observedPosition = view.Position; observedContent = content;
-            observedPause = fixture.Host.GetStatus()!.NotificationPaused;
+            observedPause = fixture.Host.GetStatus()!.PlayerPaused;
             observed.AddRange(batch.Select(envelope => envelope.Ordinal));
             reentryResult = fixture.Host.Submit(binding, command, CommandSource.Console);
         };
