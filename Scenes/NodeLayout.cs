@@ -17,7 +17,9 @@ internal sealed class NodeLayout
     internal const int ApproachStraight = 16;
     internal const int QueueGap = 4;
     internal const int EntryLateralGap = 4;
-    // Two endpoint grid snaps can displace a connection by one cell per axis.
+    // Two grid snaps contribute at most 0.5 + 0.5 = 1 cell per axis.
+    // The first snap is included in forwardShift; the final snap can shorten the last straight by
+    // 0.5 + 0.5 * cot(phi) <= 1.37 cells (phi >= 30 degrees), so the reserve rounds up to two.
     private const int ConnectionSnapMargin = 2;
     private const double ConnectionTolerance = 1e-4;
     internal sealed record Entry(EdgeId Edge, ScenePoint Point, Vector3 Outward, int TrackLimit,

@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using System.Numerics;
-using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
@@ -13,19 +12,9 @@ namespace Train.Scenes.Tests;
 public sealed class NodeSwitchTests
 {
     private static readonly SceneFrameRequest Request = new(1, null, SceneDebugLayer.None);
-    public TestContext TestContext { get; set; } = null!;
 
     [TestMethod]
-    [TestCategory("integration")]
     public async Task ProductionFollowCrossesEmptyNodeBetweenTwoDifferentLines()
-    {
-        var directory = Path.Combine(Path.GetTempPath(), "empty-node-switch-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
-        using var result = await NodeSceneTests.RunNodeProcess(TestContext, directory, "switch", "--empty-node-switch-process");
-        Assert.AreEqual(nameof(SceneReadiness.Ready), result.RootElement.GetProperty("Observation").GetProperty("Ready").GetString());
-    }
-
-    internal static async Task ObserveProductionEmptyNodeSwitch(string output)
     {
         var content = new FixedContentView
         {
@@ -109,20 +98,6 @@ public sealed class NodeSwitchTests
         var lineB = await RailwayFixtures.Settled(session, Request, firstLineB);
         Assert.AreEqual(SceneReadiness.Ready, lineB.Readiness);
         Assert.AreEqual(new EdgeId(2), lineB.Railway!.Edge.Id);
-        await File.WriteAllTextAsync(output, JsonSerializer.Serialize(new
-        {
-            ProcessId = Environment.ProcessId,
-            Observation = new
-            {
-                Ready = lineB.Readiness.ToString(),
-                Spaces = new[] { lineA.Update.Frame.Space.Value, firstNode.Update.Frame.Space.Value, firstLineB.Update.Frame.Space.Value },
-                NodeOrigin = new[] { firstNode.Origin.X, firstNode.Origin.Y, firstNode.Origin.Z },
-                LineBOrigin = new[] { firstLineB.Origin.X, firstLineB.Origin.Y, firstLineB.Origin.Z },
-                Parts = built.Parts.Keys.Order(StringComparer.Ordinal).ToArray(),
-                Lines = new[] { lineA.Railway.Edge.Id.Value, lineB.Railway.Edge.Id.Value },
-                QueueCenter = new[] { stoppedPose.Position.X, stoppedPose.Position.Y, stoppedPose.Position.Z }
-            }
-        }));
     }
 
     [TestMethod]
@@ -401,7 +376,6 @@ public sealed class NodeSwitchTests
             Assert.IsFalse(loading.Update.Environment.FoggedRegions.IsEmpty);
             Assert.IsInstanceOfType<ScenePick.NotReady>(loading.Pick(new(new(0, 10, 0), -Vector3.UnitY, 30)));
             release.SetResult();
-            await session.PendingBuild!;
             var ready = await RailwayFixtures.Settled(session, Request, loading);
             Assert.AreEqual(SceneReadiness.Ready, ready.Readiness);
             Assert.AreEqual(loading.NodePanBounds, ready.NodePanBounds);

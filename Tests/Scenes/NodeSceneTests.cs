@@ -74,25 +74,28 @@ public sealed class NodeSceneTests
                     i => NodeScene.PlatformPart(layout, i, NodeScene.Concrete(input.Content))), []);
             });
         await scene.BuildWork!;
+        Assert.IsTrue(scene.PendingWork.Contains(scene.BuildWork!), "A completed build remains pending until Present attaches it.");
         var frame = scene.Present(snapshot, new(1, null, SceneDebugLayer.None), new(new(Guid.NewGuid()), new(1), new(1), 1), null, default);
         Assert.AreEqual(SceneReadiness.Ready, frame.Readiness);
         Assert.IsTrue(frame.Update.Environment.FoggedRegions.IsEmpty);
         Assert.IsTrue(frame.Diagnostics.All(problem => problem.Code == "content_missing"));
         Assert.AreEqual(1, frame.Diagnostics.Length);
+        Assert.IsEmpty(scene.PendingWork);
     }
 
     [TestMethod]
     public void StaticRebindUsesValuesAndRebuildsOnlyTerrainWhenItsVoxelAppearanceChanges()
     {
         var snapshot = Isolated(NodeFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 }));
-        var before = NodeScene.Build(snapshot, new(1));
+        var before = NodeScene.Build(snapshot, NodeLayout.Build(snapshot, new(1)));
         var equivalent = Isolated(NodeFixtures.Content(generation: 2, rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 },
             terrain: RailwayFixtures.TerrainAppearance with { Display = new("new label", "new description"), LocalHeightNoise = [], Decorations = [] }));
-        var same = NodeScene.Build(equivalent, new(1), before);
+        var same = NodeScene.Build(equivalent, NodeLayout.Build(equivalent, new(1)), before);
         foreach (var part in before.Parts) Assert.AreSame(part.Value, same.Parts[part.Key]);
         var appearance = SceneFixtures.Cube with { Presentation = ((VoxelPresentation.Cube)SceneFixtures.Cube.Presentation) with { Side = new("changed") } };
-        var changed = NodeScene.Build(Isolated(NodeFixtures.Content(generation: 3,
-            rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 }, voxel: appearance)), new(1), same);
+        var changedSnapshot = Isolated(NodeFixtures.Content(generation: 3,
+            rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 }, voxel: appearance));
+        var changed = NodeScene.Build(changedSnapshot, NodeLayout.Build(changedSnapshot, new(1)), same);
         foreach (var part in before.Parts)
             if (part.Key.StartsWith("terrain:", StringComparison.Ordinal)) Assert.AreNotSame(part.Value, changed.Parts[part.Key]);
             else Assert.AreSame(part.Value, changed.Parts[part.Key]);
@@ -147,7 +150,7 @@ public sealed class NodeSceneTests
     public void ProductionDiagonalNodeHasNoMissingOrDuplicateSeamColumns()
     {
         var snapshot = DiagonalSnapshot();
-        var built = NodeScene.Build(snapshot, NodeFixtures.NodeId);
+        var built = NodeScene.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
         Assert.IsTrue(built.Parts["entry:1"].Geometry.Geometry.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Any());
         Assert.IsTrue(built.Parts["station-tracks"].Geometry.Geometry.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Any());
         Assert.IsFalse(built.Parts["platform:0"].Geometry.Geometry.Picking.Single().Grid.Cells.IsEmpty);
@@ -201,14 +204,14 @@ public sealed class NodeSceneTests
     public void ProductionNodeRebindPreservesRailsAndPlatformsWhileRefreshingReliefDependencies()
     {
         var snapshot = DiagonalSnapshot();
-        var built = NodeScene.Build(snapshot, NodeFixtures.NodeId);
-        var same = NodeScene.Build(snapshot, NodeFixtures.NodeId, built);
-        Assert.AreSame(built.Boundaries[new(1)], same.Boundaries[new(1)], "Unchanged inputs reuse strip samples and their path before building.");
+        var built = NodeScene.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+        var same = NodeScene.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId), built);
+        Assert.AreSame(built.Boundaries[new(1)], same.Boundaries[new(1)], "Unchanged inputs reuse strip samples.");
         foreach (var part in built.Parts) Assert.AreSame(part.Value, same.Parts[part.Key]);
         var relief = RailwayFixtures.ReplaceCore(snapshot, node: snapshot.Core.World.Nodes[0] with
         { Terrain = snapshot.Core.World.Nodes[0].Terrain with { Relief = 2 } });
-        var changed = NodeScene.Build(relief, NodeFixtures.NodeId, same);
-        Assert.AreNotSame(same.Boundaries[new(1)], changed.Boundaries[new(1)], "Relief is read from the rebound snapshot, including when the old path is cached.");
+        var changed = NodeScene.Build(relief, NodeLayout.Build(relief, NodeFixtures.NodeId), same);
+        Assert.AreNotSame(same.Boundaries[new(1)], changed.Boundaries[new(1)], "Relief is read from the rebound snapshot.");
         Assert.AreNotSame(same.Parts["boundary:1"], changed.Parts["boundary:1"]);
         Assert.AreSame(same.Parts["entry:1"], changed.Parts["entry:1"]);
         Assert.AreSame(same.Parts["station-tracks"], changed.Parts["station-tracks"]);
@@ -222,15 +225,16 @@ public sealed class NodeSceneTests
         var root = Path.GetTempPath();
         var directory = Path.Combine(root, "node-process-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
-        using var first = await RunNodeProcess(TestContext, directory, "first");
-        using var second = await RunNodeProcess(TestContext, directory, "second");
-        Assert.AreNotEqual(first.RootElement.GetProperty("ProcessId").GetInt32(), second.RootElement.GetProperty("ProcessId").GetInt32());
+        var hostOutput = Path.Combine(directory, "host.json");
+        await ObserveProductionNode(hostOutput);
+        using var first = JsonDocument.Parse(await File.ReadAllTextAsync(hostOutput));
+        using var second = await RunNodeProcess(TestContext, directory, "child");
         Assert.AreEqual(first.RootElement.GetProperty("Observation").GetRawText(), second.RootElement.GetProperty("Observation").GetRawText(),
             "Independent processes must preserve terrain observations and object IDs, parent IDs and frame order.");
+        Directory.Delete(directory, recursive: true);
     }
 
-    internal static async Task<JsonDocument> RunNodeProcess(TestContext context, string directory, string name,
-        string command = "--node-process")
+    private static async Task<JsonDocument> RunNodeProcess(TestContext context, string directory, string name)
     {
         var output = Path.Combine(directory, name + ".json");
         var start = new ProcessStartInfo("dotnet")
@@ -238,7 +242,7 @@ public sealed class NodeSceneTests
             UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true,
             CreateNoWindow = true, WorkingDirectory = directory
         };
-        foreach (var argument in new[] { typeof(NodeSceneTests).Assembly.Location, command, output })
+        foreach (var argument in new[] { typeof(NodeSceneTests).Assembly.Location, "--node-process", output })
             start.ArgumentList.Add(argument);
         using var process = Process.Start(start) ?? throw new AssertFailedException("无法启动节点子进程。");
         var stdout = process.StandardOutput.ReadToEndAsync();
@@ -253,7 +257,6 @@ public sealed class NodeSceneTests
         Assert.AreEqual(0, process.ExitCode, $"节点子进程失败；证据：{directory}");
         var result = JsonDocument.Parse(await File.ReadAllTextAsync(output));
         Assert.AreEqual(process.Id, result.RootElement.GetProperty("ProcessId").GetInt32());
-        Assert.AreNotEqual(Environment.ProcessId, process.Id);
         return result;
     }
 
@@ -264,7 +267,7 @@ public sealed class NodeSceneTests
             content: NodeFixtures.Content(design: RailwayFixtures.Vehicle(lengthCells: 104),
                 rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 }));
         snapshot = RailwayFixtures.ReplaceCore(snapshot, node: snapshot.Core.World.Nodes[2] with { Position = new(700, 0) });
-        var built = NodeScene.Build(snapshot, NodeFixtures.NodeId);
+        var built = NodeScene.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
         var heights = built.Parts.Values.SelectMany(part => part.Heights.Select(item => new KeyValuePair<GridColumn, double>(
             new((int)Math.Round(item.Key.X + part.Origin.X), (int)Math.Round(item.Key.Z + part.Origin.Z)), item.Value + part.Origin.Y))).ToDictionary();
         var seamColumns = new List<int>();

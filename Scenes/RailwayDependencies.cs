@@ -66,22 +66,9 @@ internal sealed class RailwayDependencies
         new(snapshot, path, index, terrains.Distinct().ToImmutableArray(), slots.Distinct().ToImmutableArray(),
             models.Distinct().ToImmutableArray(), voxels.Distinct().ToImmutableArray(), startTerrain, endTerrain);
     internal bool Matches(SceneWorldSnapshot snapshot, RailwayPath path, int index) => value == Read(snapshot, path, index);
-    internal bool MatchesBoundary(SceneWorldSnapshot snapshot, RailwayPath path, int index) => value == Read(snapshot, path, index, true);
-    private string Read(SceneWorldSnapshot snapshot, RailwayPath path, int index, bool currentAlignment = false)
+    private string Read(SceneWorldSnapshot snapshot, RailwayPath path, int index)
     {
         var edge = path.Edge; var start = path.Start; var end = path.End; var rules = path.Rules; var seed = path.Seed;
-        // A rebound node may reuse the old path. Read its current alignment inputs before reusing the strip;
-        // live line scenes deliberately retain the counts and geometry captured when they were created.
-        if (currentAlignment)
-        {
-            if (snapshot.Core.FindEdge(edge.Id) is not Lookup<EdgeView>.Found currentEdge ||
-                snapshot.Core.FindNode(currentEdge.Value.Map.Start) is not Lookup<NodeView>.Found currentStart ||
-                snapshot.Core.FindNode(currentEdge.Value.Map.End) is not Lookup<NodeView>.Found currentEnd ||
-                snapshot.Content.FindRailwayAppearance(snapshot.Core.World.RailwayRule) is not ContentLookup<RailwayAppearanceProjection>.Found currentRules)
-                return "";
-            edge = currentEdge.Value.Map; start = currentStart.Value.Map; end = currentEnd.Value.Map;
-            rules = currentRules.Value; seed = snapshot.Core.World.WorldSeed;
-        }
         var values = new List<object?> { seed, edge.Id, edge.LengthMeters, edge.Tracks, edge.TrackLimit,
             start.Id, start.Position, end.Id, end.Position, rules, index, Terrain(edge.Terrain) };
         if (startTerrain) { values.Add(Terrain(start.Terrain)); values.Add(NodeLayout.ReadInputs(snapshot, start.Id)); }

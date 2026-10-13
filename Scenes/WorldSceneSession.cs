@@ -25,6 +25,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     private Candidate? candidate;
     private WorldLocation? rejectedCandidate;
     private Task? retiringCandidate;
+    // Nodes retain the handoff origin for their whole scene; railways use it only for the first frame.
     private ScenePoint? sceneOrigin;
     private readonly Func<SceneWorldSnapshot, NodeId, NodeScene.Built?, CancellationToken, NodeScene.Built>? nodeBuild;
     private readonly List<Task> closingScenes = [];

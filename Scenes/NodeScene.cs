@@ -48,7 +48,7 @@ internal sealed class NodeScene : IAsyncDisposable
     internal NodeId Node { get; }
     internal NodeLayout? Layout => layout;
     internal Task? BuildWork => pending;
-    internal Task[] PendingWork => (pending is { IsCompleted: false } ? new Task[] { pending } : []).Concat(vehicles.PendingWork).ToArray();
+    internal Task[] PendingWork => (pending is not null && built is null && failure is null ? new Task[] { pending } : []).Concat(vehicles.PendingWork).ToArray();
     internal bool Failed => failure is not null;
 
     internal NodeScene(SceneWorldSnapshot initial, NodeId node, Cache cache, Func<string, SceneObjectId> objectId, SceneVehicles vehicles,
@@ -60,7 +60,7 @@ internal sealed class NodeScene : IAsyncDisposable
         try { layout = NodeLayout.Build(initial, node); }
         catch (RailwayBuildException error) { Fail(error); return; }
         var previous = cache.Read(node);
-        pending = Task.Run(() => generate is null ? Build(initial, node, previous, cancellation.Token, layout) :
+        pending = Task.Run(() => generate is null ? Build(initial, layout, previous, cancellation.Token) :
             generate(initial, node, previous, cancellation.Token), cancellation.Token);
     }
     internal void Pump()
@@ -103,10 +103,10 @@ internal sealed class NodeScene : IAsyncDisposable
         { objects.AddRange(geometry.Objects); picking.AddRange(geometry.Picking); problems.AddRange(geometry.Diagnostics); }
     }
 
-    internal static Built Build(SceneWorldSnapshot snapshot, NodeId node, Built? previous = null,
-        CancellationToken token = default, NodeLayout? layout = null)
+    internal static Built Build(SceneWorldSnapshot snapshot, NodeLayout layout, Built? previous = null,
+        CancellationToken token = default)
     {
-        layout ??= NodeLayout.Build(snapshot, node, token);
+        var node = layout.Node;
         var map = snapshot.Core.World.Nodes.Single(item => item.Id == node);
         var terrainLookup = snapshot.Content.FindTerrain(map.Terrain.TypeId);
         var terrain = (terrainLookup as ContentLookup<TerrainAppearanceProjection>.Found)?.Value;
@@ -125,7 +125,9 @@ internal sealed class NodeScene : IAsyncDisposable
             map.Terrain.Relief, TerrainInputs(snapshot.Content, map.Terrain.TypeId) });
         foreach (var entry in layout.Entries)
         {
-            var tracks = snapshot.Core.World.Edges.Single(edge => edge.Id == entry.Edge).Tracks;
+            var path = new RailwayPath(snapshot, entry.Edge, token);
+            var edge = path.Edge;
+            var tracks = edge.Tracks;
             var entryKey = RailwayDependencies.Values(new object[] { layout.Inputs, entry.Edge, tracks });
             var needsMesh = previous is null || !previous.Parts.TryGetValue("entry:" + entry.Edge.Value, out var oldEntry) || oldEntry.Inputs != entryKey;
             var meshes = ImmutableArray.CreateBuilder<SceneMesh>();
@@ -142,10 +144,9 @@ internal sealed class NodeScene : IAsyncDisposable
                 }
             }
             Put("entry:" + entry.Edge.Value, entryKey, () => MeshPart(meshes.ToImmutable()));
-            var edge = snapshot.Core.World.Edges.Single(value => value.Id == entry.Edge);
             var boundary = previous?.Layout.Inputs == layout.Inputs && previous.Boundaries.TryGetValue(entry.Edge, out var oldBoundary) &&
-                oldBoundary.Dependencies.MatchesBoundary(snapshot, oldBoundary.Path, node == oldBoundary.Path.Start.Id ? 0 : oldBoundary.Path.SegmentCount - 1)
-                ? oldBoundary : RailwayTerrain.NodeBoundary(snapshot, new RailwayPath(snapshot, entry.Edge, token), node, entry, token);
+                oldBoundary.Dependencies.Matches(snapshot, path, node == path.Start.Id ? 0 : path.SegmentCount - 1)
+                ? oldBoundary : RailwayTerrain.NodeBoundary(snapshot, path, node, entry, token);
             diagnostics.AddRange(boundary.Problems);
             boundaries.Add(entry.Edge, boundary);
             foreach (var column in boundary.Heights.Keys)

@@ -149,7 +149,6 @@ internal static class RailwayFixtures
 
     internal static async Task<SceneFrame> Settled(WorldSceneSession session, SceneFrameRequest request, ISceneFrame? displayed = null)
     {
-        if (session.PendingBuild is { } build) await build;
         SceneFrame Present() => (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(request, displayed)).Value;
         var frame = Present();
         while (Work().Length > 0)
