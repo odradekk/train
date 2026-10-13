@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
-using System.Text;
+using System.Reflection;
 using Godot;
 using Train.App.Assets;
 using Train.App.Logging;
@@ -26,40 +25,30 @@ internal static class HostComposition
         var content = Train.Content.ContentFactory.Create();
         var installation = new ContentInstallation(builtin, mods, null,
             ProjectSettings.GetSetting("application/config/version").AsString(), []);
-        var discovered = content.Discover(installation, files);
-        if (discovered is ContentResult<ImmutableArray<PackageStatus>>.Success packages)
+        var discovery = content.Discover(installation, files);
+        if (discovery is ContentResult<ImmutableArray<PackageStatus>>.Success discovered)
         {
             installation = installation with
             {
-                EnabledMods = packages.Value.Where(package => package.State == PackageState.Disabled)
+                EnabledMods = discovered.Value.Where(package => package.Root == mods &&
+                    package.Metadata is not null && package.State is PackageState.Available or PackageState.Disabled)
                     .Select(package => package.Metadata!.Id).ToImmutableArray()
             };
         }
-        else if (discovered is ContentResult<ImmutableArray<PackageStatus>>.Faulted fault)
+        else if (discovery is ContentResult<ImmutableArray<PackageStatus>>.Faulted fault)
             logger.Error("content", "content_discovery_failed", fault.Message,
                 new Dictionary<string, object?> { ["code"] = fault.Code });
-        else if (discovered is ContentResult<ImmutableArray<PackageStatus>>.Failure failure)
+        else if (discovery is ContentResult<ImmutableArray<PackageStatus>>.Failure failure)
             foreach (var diagnostic in failure.Diagnostics)
                 logger.Error("content", "content_discovery_failed", diagnostic.Message,
                     new Dictionary<string, object?> { ["code"] = diagnostic.Code });
+        var runtime = new RuntimeIdentity(typeof(HostComposition).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion, "core-session-v1",
+            RuntimeInformation.OSDescription, RuntimeInformation.ProcessArchitecture.ToString(),
+            RuntimeInformation.FrameworkDescription);
         return new(Train.Core.CoreFactory.Create(), content, files, new GodotAssetInspector(dispatcher),
-            installation, logger, sessionOptions: new(Identity(), OS.IsDebugBuild(), 1));
+            installation, logger, sessionOptions: new(runtime, OS.IsDebugBuild(), 3));
     }
 
     internal static IScenesFactory CreateScenes() => Train.Scenes.ScenesFactory.Create();
-
-    private static RuntimeIdentity Identity()
-    {
-        var manifest = new StringBuilder();
-        foreach (var assembly in new[] { typeof(App).Assembly, typeof(ICoreFactory).Assembly,
-            typeof(IContentFactory).Assembly, typeof(IScenesFactory).Assembly,
-            typeof(Train.Core.CoreFactory).Assembly, typeof(Train.Content.ContentFactory).Assembly,
-            typeof(Train.Scenes.ScenesFactory).Assembly })
-            // Godot 可从内存加载程序集，Assembly.Location 此时为空。
-            manifest.Append(assembly.GetName().Name).Append(':')
-                .Append(assembly.ManifestModule.ModuleVersionId).Append('\n');
-        return new(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(manifest.ToString()))),
-            "core-session-v1", RuntimeInformation.OSDescription,
-            RuntimeInformation.ProcessArchitecture.ToString(), RuntimeInformation.FrameworkDescription);
-    }
 }
