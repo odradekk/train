@@ -36,13 +36,14 @@ function Get-TestSelection {
         'Tests/Engine/*', 'project.godot', 'export_presets.cfg', 'builtin/*', 'addons/*'
     )
     $resourcePatterns = @('*.tscn', '*.tres', '*.uid', '*.import')
+    $cliPatterns = @('examples/*', 'builtin/*', 'project.godot')
     $isolationPatterns = @('*.csproj', 'Directory.Build.*', '*/Directory.Build.*', 'Train.sln', 'scripts/checks/project-boundaries.json', 'Tests/ContractChecks/*')
     foreach ($file in $files) {
         $engineRules = @($enginePatterns | Where-Object { $file -like $_ })
         if ($file -notmatch '^(archive|docs|prototypes|Tests)/') {
             $engineRules += @($resourcePatterns | Where-Object { $file -like $_ })
         }
-        $selection.changes += @{ path = $file; project = $null; sharedRules = @($sharedPatterns | Where-Object { $file -like $_ }); engineRules = $engineRules }
+        $selection.changes += @{ path = $file; project = $null; sharedRules = @($sharedPatterns | Where-Object { $file -like $_ }); engineRules = $engineRules; cliRules = @($cliPatterns | Where-Object { $file -like $_ }) }
         if ($engineRules.Count) { $selection.engine = $true }
         if (@($contractPatterns | Where-Object { $file -like $_ }).Count) { $selection.contracts = $true }
         if (@($isolationPatterns | Where-Object { $file -like $_ }).Count) { $selection.isolation = $true }
@@ -65,7 +66,8 @@ function Get-TestSelection {
     if ('Tests/Engine/Train.Engine.Tests.csproj' -in $selection.affectedProjects) { $selection.engine = $true }
     $selection.projects = @(if (@($selection.changes | Where-Object { $_.sharedRules.Count }).Count) {
         @($Projects.name)
-    } else { @($Projects | Where-Object { $_.path -in $selection.affectedProjects } | ForEach-Object name) })
+    } else { @($Projects | Where-Object { $_.path -in $selection.affectedProjects -or
+            ($_.name -eq 'cli' -and @($selection.changes | Where-Object { $_.cliRules.Count }).Count) } | ForEach-Object name) })
 
     $projectPaths = @(git -c core.quotepath=false ls-files --cached --others --exclude-standard -- '*.csproj')
     if ($LASTEXITCODE) { throw 'Cannot list project files for selection explanations.' }
