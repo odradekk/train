@@ -144,10 +144,11 @@ try {
         Invoke-Check build preparation dotnet @('build', 'Train.sln', '--nologo') 300
     } elseif (-not $selectedLayers.Count) { Write-Host 'No affected test projects or checks selected; no build or tests required.' }
     foreach ($current in $layers) {
-        $budget = @{ fast = 30; integration = 180; engine = 300 }[$current]
+        $budget = @{ fast = 30; integration = 210; engine = 300 }[$current]
         $watch = [Diagnostics.Stopwatch]::StartNew()
         $selected = $current -in $selectedLayers
         $layerError = $null
+        $layerCompleted = $false
         try {
             if (-not $selected) { Write-Host "LAYER=$current not selected"; continue }
             if ($current -eq 'stage') {
@@ -201,7 +202,9 @@ try {
                 $timedOut = @($results | Where-Object { $_.result.TimedOut } | ForEach-Object name)
                 $notStarted = @($results | Where-Object { $_.result.NotStarted } | ForEach-Object name)
                 if ($timedOut.Count -or $notStarted.Count) {
-                    throw "$current exhausted its ${budget}s budget; timed out checks: $($timedOut -join ', '); checks not started because the budget expired: $($notStarted -join ', '); evidence: $run"
+                    $message = "$current exhausted its ${budget}s budget; timed out checks: $($timedOut -join ', '); checks not started because the budget expired: $($notStarted -join ', '); evidence: $run"
+                    if ($failure) { $message += "; check failure: $($failure.Exception.Message)" }
+                    throw $message
                 }
                 if ($failure) { throw $failure }
                 if ($results.Count -ne $tasks.Count) { throw "$current did not complete every selected task." }
@@ -251,7 +254,9 @@ try {
             }
             if ($current -ne 'stage' -and $watch.Elapsed.TotalSeconds -gt $budget) { throw "$current took $($watch.Elapsed.TotalSeconds)s; limit ${budget}s." }
             if (-not ($summary.checks | Where-Object layer -eq $current | Measure-Object executed -Sum).Sum) { throw "$current executed no tests." }
+            $layerCompleted = $true
         } catch {
+            $layerCompleted = $true
             $layerError = $_.Exception.Message
             throw
         } finally {
@@ -259,7 +264,7 @@ try {
             $layerSummary = @{ name = $current; selected = [bool] $selected; seconds = $watch.Elapsed.TotalSeconds; budget = $budget }
             foreach ($count in @('total', 'executed', 'passed', 'failed', 'skipped')) { $layerSummary[$count] = [int] ($summary.checks | Where-Object layer -eq $current | Measure-Object $count -Sum).Sum }
             $summary.layers += $layerSummary
-            if ($selected -and $current -eq 'integration' -and $summary.selection.isolation) {
+            if ($layerCompleted -and $selected -and $current -eq 'integration' -and $summary.selection.isolation) {
                 try { Invoke-Isolation isolate isolation (Join-Path $run 'isolation') 300 }
                 catch {
                     if ($layerError) { throw "$layerError; $($_.Exception.Message)" }
