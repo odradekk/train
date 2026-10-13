@@ -151,6 +151,40 @@ public sealed class WorldGenerationTests
     }
 
     [TestMethod]
+    [DataRow(PlotSize.Small, PlotSize.Medium, true)]
+    [DataRow(PlotSize.Small, PlotSize.Large, true)]
+    [DataRow(PlotSize.Large, PlotSize.Small, false)]
+    [DataRow(PlotSize.Station, PlotSize.Small, false)]
+    [DataRow(PlotSize.Small, PlotSize.Station, false)]
+    public void Prebuilt_buildings_require_matching_plot_kind_and_sufficient_size(
+        PlotSize buildingSize, PlotSize plotSize, bool fits)
+    {
+        var content = MultiContent;
+        var template = content.SettlementTemplates[0];
+        var design = content.Designs.Single(d => d.Design == FactoryBuilding);
+        content = content with
+        {
+            Designs = content.Designs.Replace(design, design with
+            {
+                Kind = new DesignKind.Building(buildingSize,
+                    buildingSize == PlotSize.Station ? BuildingKind.Station : BuildingKind.Production, [])
+            }),
+            SettlementTemplates = [template with
+                { Plots = template.Plots.SetItem(1, template.Plots[1] with { Size = plotSize }) }]
+        };
+        if (!fits)
+        {
+            Failure(WorldFixture.Input, content, "config_invalid",
+                $"Content.SettlementTemplates[{template.Id.Value}].Plots[2]");
+            return;
+        }
+        using var candidate = Prepare(WorldFixture.Input, content);
+        var building = ((Lookup<InstanceView>.Found)candidate.View.FindInstance(new InstanceId.Building(new(2)))).Value;
+        Assert.AreEqual(FactoryBuilding, building.Design);
+        Assert.AreEqual(new InstanceDetails.Building(new(2), plotSize), building.Details);
+    }
+
+    [TestMethod]
     public void Unsupported_npc_initialization_reports_the_specific_requested_field()
     {
         var input = WorldFixture.Input;
