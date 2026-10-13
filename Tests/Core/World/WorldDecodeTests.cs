@@ -10,6 +10,8 @@ public sealed class WorldDecodeTests
     [TestMethod]
     [DataRow("duplicate_node")]
     [DataRow("unordered_nodes")]
+    [DataRow("unordered_source_noise")]
+    [DataRow("unordered_capabilities")]
     [DataRow("missing_edge_node")]
     [DataRow("missing_vehicle_owner")]
     [DataRow("wrong_instance_kind")]
@@ -45,6 +47,14 @@ public sealed class WorldDecodeTests
                 nodes[0] = nodes[1]!.DeepClone(); nodes[1] = first;
                 break;
             case "missing_edge_node": world["edges"]![0]!["end"]!["value"] = 999999; break;
+            case "unordered_source_noise":
+                world["source"]!["configuration"]!["elevation_noise"] = JsonNode.Parse("[{\"scale_meters\":16,\"amplitude\":0.5},{\"scale_meters\":8,\"amplitude\":0.5}]");
+                break;
+            case "unordered_capabilities":
+                var capabilities = world["designs"]![0]!["parts"]![0]!["capabilities"]!.AsArray();
+                var capability = capabilities[0]!.DeepClone();
+                capabilities[0] = capabilities[1]!.DeepClone(); capabilities[1] = capability;
+                break;
             case "missing_vehicle_owner": vehicle["details"]!["train"]!["value"] = 999999; break;
             case "wrong_instance_kind":
                 vehicle["details"] = instances.First(i => i!["id"]!["$kind"]!.GetValue<string>() == "building")!["details"]!.DeepClone();

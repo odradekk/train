@@ -135,6 +135,23 @@ public sealed class WorldCaptureTests
         Assert.AreEqual(before.RootElement.GetProperty("world").GetRawText(), after.RootElement.GetProperty("world").GetRawText());
     }
 
+    [TestMethod]
+    public void Missing_parts_in_current_design_projection_are_reported_and_capture_round_trips()
+    {
+        using var candidate = Prepare();
+        using var session = candidate.Activate();
+        var saved = Success(CoreFactory.Create().DecodeState(Capture(session).Encode()));
+        var content = WorldFixture.Content;
+        content = content with { Designs = content.Designs.Select(d => d.Design == WorldFixture.Vehicle
+            ? d with { Parts = d.Parts.Select(p => p with { Missing = true }).ToImmutableArray() } : d).ToImmutableArray() };
+        using var restoredCandidate = Success(CoreFactory.Create().PrepareRestore(saved, content, WorldGenerationTests.Options));
+        Assert.IsTrue(restoredCandidate.MissingReferences.Any(m => m.FieldPath ==
+            $"World.Designs[{WorldFixture.Vehicle.Value}].Parts[0].Definition"));
+        using var restored = restoredCandidate.Activate();
+        var captured = Capture(restored);
+        Assert.AreEqual(captured.Encode(), Success(CoreFactory.Create().DecodeState(captured.Encode())).Encode());
+    }
+
     private static CoreReferenceManifest MinimalReferences()
     {
         var definitions = new List<RequiredDefinition>

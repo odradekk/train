@@ -41,32 +41,9 @@ internal static class WorldStateValidation
                     new(new("decode", "decode", "decode", "decode", "decode"), false, 1));
         }
         catch (ArgumentException) { throw new InvalidState("/world/source"); }
-        var configuration = world.Source.Configuration;
-        foreach (var noise in new[] { configuration.ElevationNoise, configuration.MoistureNoise, configuration.RiverNoise })
-            Require(noise.SequenceEqual(noise.OrderBy(o => o.ScaleMeters).ThenBy(o => o.Amplitude)), "/world/source/configuration/noise");
-        Require(configuration.TerrainBands.SequenceEqual(configuration.TerrainBands.Distinct()
-            .OrderBy(b => b.MinimumElevation).ThenBy(b => b.MaximumElevation).ThenBy(b => b.MinimumMoisture)
-            .ThenBy(b => b.MaximumMoisture).ThenBy(b => b.MaximumRelief).ThenBy(b => b.DetourMultiplier)
-            .ThenBy(b => b.MaximumTracks).ThenBy(b => b.Terrain.Value, StringComparer.Ordinal)), "/world/source/configuration/terrain_bands");
-        Strings(configuration.LairWeights, w => w.Type.Value, "/world/source/configuration/lair_weights");
-        Strings(configuration.Resources, r => r.Good.Value, "/world/source/configuration/resources");
-        foreach (var resource in configuration.Resources)
-            Strings(resource.AllowedTerrainTypes, t => t.Value, "/world/source/configuration/resources/allowed_terrain_types");
-        Strings(configuration.NpcInitialization.ForSaleVehicleCandidates, d => d.Value, "/world/source/configuration/npc_initialization/for_sale_vehicle_candidates");
-        foreach (var train in world.Source.Start.Trains)
-            Strings(train.Inventory, g => WorldReferences.GoodKey(g.Good), "/world/source/start/trains/inventory");
         foreach (var design in world.Designs)
-        {
-            Require(design.Parts.Select(p => p.Id.Value).SequenceEqual(design.Parts.Select(p => p.Id.Value).Order()), "/world/designs/parts");
-            Strings(design.StructuralGoods, g => WorldReferences.GoodKey(g.Good), "/world/designs/structural_goods");
-            Strings(design.BillOfMaterials, g => WorldReferences.GoodKey(g.Good), "/world/designs/bill_of_materials");
             foreach (var unit in design.ReturnUnits)
-            {
-                Require(unit.Parts.SequenceEqual(unit.Parts.OrderBy(p => p.Value)), "/world/designs/return_units/parts");
                 Require(unit.Parts.All(id => design.Parts.Any(p => p.Id == id)), "/world/designs/return_units/parts");
-                Strings(unit.StructuralGoods, g => WorldReferences.GoodKey(g.Good), "/world/designs/return_units/structural_goods");
-            }
-        }
         var nodes = world.Nodes.ToDictionary(n => n.Id);
         var edges = world.Edges.ToDictionary(e => e.Id);
         var settlements = world.Settlements.ToDictionary(s => s.Id);
@@ -144,11 +121,6 @@ internal static class WorldStateValidation
             Require(Enum.IsDefined(settlement.Relation) && settlement.Population > 0
                 && settlement.Template.Type == settlement.Type, "/world/settlements");
             Ordered(settlement.Plots, p => p.Id.Value, "/world/settlements/plots");
-            Ordered(settlement.Template.Plots, p => (ulong)p.Number, "/world/settlements/template/plots");
-            Ordered(settlement.Template.FoundingBuildings, p => (ulong)p.PlotNumber, "/world/settlements/template/founding_buildings");
-            Strings(settlement.Template.SpecialInitialInventory, g => WorldReferences.GoodKey(g.Good), "/world/settlements/template/special_initial_inventory");
-            Require(settlement.Template.ProductionPlans.SequenceEqual(settlement.Template.ProductionPlans
-                .OrderBy(p => p.PlotNumber).ThenBy(p => p.Capability)), "/world/settlements/template/production_plans");
             Require(settlement.Plots.Select(p => (p.TemplateNumber, p.Size)).SequenceEqual(
                 settlement.Template.Plots.Select(p => (p.Number, p.Size))), "/world/settlements/plots");
             foreach (var plot in settlement.Plots)
