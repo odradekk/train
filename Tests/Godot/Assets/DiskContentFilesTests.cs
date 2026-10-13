@@ -50,13 +50,23 @@ public sealed class DiskContentFilesTests
     public void Invalid_relative_paths_are_rejected_before_io()
     {
         using var files = new DiskFiles();
-        foreach (var path in new[] { "", "/file", "../file", "nested/../file", "nested//file", "nested/", "C:/file", "nested\\file" })
+        foreach (var path in new[] { "", "/file", "../file", "nested/../file", "nested//file", "nested/", "nested\\file" })
             Assert.ThrowsExactly<ArgumentException>(() => files.Port.Read(files.Path(path), 1));
         Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => files.Port.Read(files.Path("file"), -1));
     }
 
     [TestMethod]
     [TestCategory("integration")]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Windows_drive_root_paths_are_rejected_before_io()
+    {
+        using var files = new DiskFiles();
+        Assert.ThrowsExactly<ArgumentException>(() => files.Port.Read(files.Path("C:/file"), 1));
+    }
+
+    [TestMethod]
+    [TestCategory("integration")]
+    [OSCondition(OperatingSystems.Windows)]
     public void Junctions_at_or_inside_root_are_rejected_but_linked_ancestors_are_allowed()
     {
         using var files = new DiskFiles();

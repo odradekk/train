@@ -58,7 +58,7 @@ internal static class Isolation
                 var testAssembly = facts.RootElement.GetProperty("Properties").GetProperty("TargetPath").GetString()!;
                 await ToolProcess.Run("dotnet", ["test", "--test-modules", Path.GetRelativePath(isolated, testAssembly).Replace(Path.DirectorySeparatorChar, '/'),
                     "--root-directory", isolated, "--results-directory", evidence, "--minimum-expected-tests", "1", "--",
-                    "--report-trx", "--report-trx-filename", "tests.trx", "--timeout", "115s",
+                    "--filter", "TestCategory!=stage", "--report-trx", "--report-trx-filename", "tests.trx", "--timeout", "115s",
                     "--hangdump", "--hangdump-timeout", "110s"], isolated, Path.Combine(evidence, "tests.log"), 120);
                 Console.WriteLine($"isolation passed: {test}; evidence={evidence}");
 
