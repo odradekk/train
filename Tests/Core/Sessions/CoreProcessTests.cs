@@ -10,6 +10,8 @@ namespace Train.Core.Tests.Sessions;
 [TestCategory("integration")]
 public sealed class CoreProcessTests
 {
+    public TestContext TestContext { get; set; } = null!;
+
     [TestMethod]
     public async Task World_save_in_one_process_restores_the_same_execution_in_another()
     {
@@ -59,7 +61,7 @@ public sealed class CoreProcessTests
         Assert.AreEqual(first.Identity, second.Identity);
     }
 
-    private static async Task<CoreProcessResult> Run(string directory, string name, string mode)
+    private async Task<CoreProcessResult> Run(string directory, string name, string mode)
     {
         var output = Path.Combine(directory, name + ".json");
         var stdoutPath = Path.Combine(directory, name + ".stdout.log");
@@ -75,21 +77,20 @@ public sealed class CoreProcessTests
         using var process = Process.Start(start) ?? throw new AssertFailedException("无法启动核心子进程。");
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         try
         {
-            await process.WaitForExitAsync(timeout.Token);
+            await process.WaitForExitAsync(TestContext.CancellationToken);
         }
         catch (OperationCanceledException)
         {
-            process.Kill(entireProcessTree: true);
-            await process.WaitForExitAsync();
+            throw new AssertFailedException($"测试运行已取消；核心子进程 {name}：{directory}");
+        }
+        finally
+        {
+            if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); }
             await File.WriteAllTextAsync(stdoutPath, await stdout, new UTF8Encoding(false));
             await File.WriteAllTextAsync(stderrPath, await stderr, new UTF8Encoding(false));
-            throw new AssertFailedException($"核心子进程超过 30 秒：{directory}");
         }
-        await File.WriteAllTextAsync(stdoutPath, await stdout, new UTF8Encoding(false));
-        await File.WriteAllTextAsync(stderrPath, await stderr, new UTF8Encoding(false));
         Assert.AreEqual(0, process.ExitCode, $"子进程失败：{stdoutPath}；{stderrPath}");
         Assert.IsTrue(File.Exists(output), $"缺少子进程结果：{output}");
         var result = JsonSerializer.Deserialize<CoreProcessResult>(await File.ReadAllTextAsync(output))
