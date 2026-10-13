@@ -45,7 +45,7 @@ public sealed class TrainCapabilitiesTests
     [TestMethod]
     public void Departure_problems_prioritize_control_then_traction_then_overload()
     {
-        var missing = new TrainCapabilities(2, 10, 0, 0, 0, false);
+        var missing = new TrainCapabilities(2, 10, 0, 0, 0, false, []);
         var control = missing.DepartureProblem(new(7), 0.5)!;
         Assert.AreEqual("control_missing", control.Code);
         Assert.AreEqual("Train.Vehicles", control.Field);
@@ -94,6 +94,25 @@ public sealed class TrainCapabilitiesTests
         var reversed = TrainCapabilities.Calculate([(design, [])], cargo.Reverse().ToImmutableArray(), goods.Reverse().ToImmutableArray());
         Assert.AreEqual(1e18, first.MassTons);
         Assert.AreEqual(1e18, reversed.MassTons);
+    }
+
+    [TestMethod]
+    public void Missing_cargo_is_reported_in_canonical_order_and_only_known_mass_is_used()
+    {
+        var design = Design(SizeClass.Small, 2, 10,
+            [Part(1, new PartCapability.Control()), Part(2, new PartCapability.Propulsion(20, 5))]);
+        var a = new GoodId.Voxel(new("test:a"));
+        var z = new GoodId.Voxel(new("test:z"));
+        var c = new GoodId.Composite(new("test:a"));
+        var known = new GoodId.Voxel(new("test:known"));
+        var result = TrainCapabilities.Calculate([(design, [(new(1), 100), (new(2), 100)])],
+            [new(c, 1), new(z, 2), new(known, 3), new(a, 4)], [Good(known, 2)]);
+        Assert.AreEqual(16.0, result.MassTons);
+        Assert.AreEqual(1.25, result.Acceleration);
+        CollectionAssert.AreEqual(new GoodId[] { c, a, z }, result.MissingGoods.ToArray());
+        Assert.AreEqual("content_missing", result.DepartureProblem(new(1), 2)!.Code);
+        Assert.AreEqual("traction_missing", (result with { TractionKilonewtons = 0 }).DepartureProblem(new(1), 2)!.Code);
+        Assert.AreEqual("control_missing", (result with { HasControl = false }).DepartureProblem(new(1), 2)!.Code);
     }
 
     private static DesignProjection Design(SizeClass size, int length, double mass, ImmutableArray<PartProjection> parts)

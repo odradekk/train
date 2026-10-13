@@ -1,11 +1,12 @@
 using System.Collections.Immutable;
 using Train.Core.Contracts;
+using Train.Core.World;
 
 namespace Train.Core.Railway;
 
 internal sealed record TrainCapabilities(double LengthMeters, double MassTons,
     double TractionKilonewtons, double MaximumSpeedMetersPerSecond, double Acceleration,
-    bool HasControl)
+    bool HasControl, ImmutableArray<GoodId> MissingGoods)
 {
     internal static TrainCapabilities Calculate(
         ImmutableArray<(DesignProjection Design, ImmutableArray<(PartId Part, long Current)> Durability)> vehicles,
@@ -39,10 +40,16 @@ internal sealed record TrainCapabilities(double LengthMeters, double MassTons,
                 }
             }
         }
+        var missing = ImmutableArray.CreateBuilder<GoodId>();
         foreach (var stack in inventory.OrderBy(s => GoodOrder(s.Good).Kind)
                      .ThenBy(s => GoodOrder(s.Good).Identity, StringComparer.Ordinal))
-            mass += goods.Single(g => g.Good == stack.Good).MassTons * stack.Quantity;
-        return new(length, mass, traction, maximumSpeed ?? 0, mass > 0 ? traction / mass : 0, hasControl);
+        {
+            var definition = goods.SingleOrDefault(g => g.Good == stack.Good);
+            if (definition is null) missing.Add(stack.Good);
+            else mass += definition.MassTons * stack.Quantity;
+        }
+        return new(length, mass, traction, maximumSpeed ?? 0, mass > 0 ? traction / mass : 0,
+            hasControl, missing.OrderBy(WorldReferences.GoodKey, StringComparer.Ordinal).ToImmutableArray());
     }
 
     internal CoreProblem? DepartureProblem(TrainId train, double minimumAcceleration)
@@ -52,9 +59,14 @@ internal sealed record TrainCapabilities(double LengthMeters, double MassTons,
             return new("control_missing", "Train.Vehicles", subject, []);
         if (TractionKilonewtons == 0)
             return new("traction_missing", "Train.TractionKilonewtons", subject, []);
+        if (MissingProblem(train) is { } missing) return missing;
         return Acceleration < minimumAcceleration
             ? new("overloaded", "Train.Acceleration", subject, []) : null;
     }
+
+    internal CoreProblem? MissingProblem(TrainId train) => MissingGoods.IsEmpty ? null
+        : new("content_missing", "Train.Inventory", new WorldObjectId.Train(train),
+            MissingGoods.Select(WorldReferences.GoodKey).ToImmutableArray());
 
     private static (int Kind, string Identity) GoodOrder(GoodId good) => good switch
     {

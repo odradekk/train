@@ -1,0 +1,152 @@
+using System.Collections.Immutable;
+using Train.Core.Contracts;
+using Train.Core.Sessions;
+using Train.Core.World;
+
+namespace Train.Core.Railway;
+
+internal static class TrainCommands
+{
+    internal static void Validate(CoreCommand command)
+    {
+        switch (command)
+        {
+            case CoreCommand.FormTrain form:
+                if (form.OrderedVehicles.IsDefault || form.OrderedVehicles.Any(v => v.Value == 0))
+                    throw new ArgumentException("车辆数组必须初始化且编号非零。", nameof(command));
+                return;
+            case CoreCommand.ReplaceRunPlan replace:
+                ArgumentNullException.ThrowIfNull(replace.Plan);
+                if (replace.Plan.Stops.IsDefault || replace.Plan.Stops.Any(s => s is null))
+                    throw new ArgumentException("停靠点数组必须初始化。", nameof(command));
+                foreach (var stop in replace.Plan.Stops)
+                {
+                    if (TrainOperations.Target(stop).Value == 0)
+                        throw new ArgumentException("节点编号必须非零。", nameof(command));
+                    if (stop is not PlanStop.Station station) continue;
+                    if (station.GoodsRules.IsDefault) throw new ArgumentException("货物规则数组必须初始化。", nameof(command));
+                    if (!station.GoodsRules.IsEmpty) throw new NotImplementedException("自动货物规则尚未实现。");
+                }
+                TrainId(replace.Train);
+                return;
+            case CoreCommand.DisbandTrain disband: TrainId(disband.Train); return;
+            case CoreCommand.StartTrain start: TrainId(start.Train); return;
+            case CoreCommand.StopTrain stop: TrainId(stop.Train); return;
+            default: throw new NotImplementedException($"{command.GetType().Name} 尚未实现。");
+        }
+        static void TrainId(TrainId id)
+        {
+            if (id.Value == 0) throw new ArgumentException("列车编号必须非零。", nameof(command));
+        }
+    }
+
+    internal static CommandEffect Execute(WorldState world, CoreContentProjection content, CoreCommand command)
+    {
+        if (command is CoreCommand.FormTrain form) return Form(world, content, form);
+        var id = command switch
+        {
+            CoreCommand.DisbandTrain c => c.Train,
+            CoreCommand.ReplaceRunPlan c => c.Train,
+            CoreCommand.StartTrain c => c.Train,
+            CoreCommand.StopTrain c => c.Train,
+            _ => throw new InvalidOperationException("铁路命令种类无效。")
+        };
+        var subject = new WorldObjectId.Train(id);
+        var train = world.Trains.FirstOrDefault(t => t.Id == id);
+        if (train is null) return Reject("train_missing", "Train", subject);
+        if (command is CoreCommand.DisbandTrain) return Disband(world, content, train);
+        var events = ImmutableArray.CreateBuilder<CoreEvent>();
+        switch (command)
+        {
+            case CoreCommand.ReplaceRunPlan replace:
+                if (replace.Plan.Stops.IsEmpty) return Reject("plan_empty", "Plan.Stops", subject);
+                foreach (var stop in replace.Plan.Stops)
+                {
+                    var node = world.Nodes.FirstOrDefault(n => n.Id == TrainOperations.Target(stop));
+                    if (node is null) return Reject("node_missing", "Plan.Stops", subject);
+                    if (stop is PlanStop.Station && node.Occupant is not NodeOccupant.Settlement { Relation: not SettlementRelation.Hostile })
+                        return Reject("station_unavailable", "Plan.Stops", subject);
+                }
+                if (replace.Plan.Loop && replace.Plan.Stops.Select(TrainOperations.Target).Distinct().Count() == 1)
+                    return Reject("plan_degenerate", "Plan.Stops", subject);
+                train = train with { Plan = replace.Plan, NextStopIndex = 0, RemainingDwellSteps = 0 };
+                if (train.Position is TrainPosition.Node && train.Activity != TrainActivity.Stopped)
+                    train = TrainOperations.ResolveNode(world, content, train, events);
+                break;
+            case CoreCommand.StartTrain:
+                if (train.Activity != TrainActivity.Stopped) return Reject("train_not_stopped", "Train.Activity", subject);
+                if (train.Plan is null) return Reject("plan_missing", "Train.Plan", subject);
+                if (train.NextStopIndex is null) return Reject("plan_completed", "Train.NextStopIndex", subject);
+                if (TrainOperations.Capabilities(world, content, train).DepartureProblem(id,
+                    TrainOperations.Rule(world, content).MinimumAcceleration) is { } problem)
+                    return new CommandEffect.Rejected([problem]);
+                train = TrainOperations.ResolveNode(world, content, train, events);
+                break;
+            case CoreCommand.StopTrain:
+                if (train.Position is TrainPosition.Edge) train = train with { StopRequested = true };
+                else train = TrainOperations.ChangeActivity(train with { SpeedMetersPerSecond = 0,
+                    Transit = train.Transit! with { NextEdge = null } }, TrainActivity.Stopped, events);
+                break;
+        }
+        return new CommandEffect.Accepted(content, events.ToImmutable(), world with
+        { Trains = world.Trains.Select(t => t.Id == id ? train : t).ToImmutableArray() });
+    }
+
+    private static CommandEffect Form(WorldState world, CoreContentProjection content, CoreCommand.FormTrain command)
+    {
+        if (command.OrderedVehicles.IsEmpty) return Reject("composition_empty", "OrderedVehicles");
+        if (command.OrderedVehicles.Distinct().Count() != command.OrderedVehicles.Length)
+            return Reject("vehicle_duplicate", "OrderedVehicles");
+        SettlementState? settlement = null;
+        foreach (var id in command.OrderedVehicles)
+        {
+            var subject = new WorldObjectId.Instance(new InstanceId.Vehicle(id));
+            var instance = world.Instances.FirstOrDefault(i => i.Id == new InstanceId.Vehicle(id));
+            if (instance is null) return Reject("vehicle_missing", "OrderedVehicles", subject);
+            if (instance.Ownership != SettlementRelation.PlayerOwned) return Reject("ownership_required", "OrderedVehicles", subject);
+            if (instance.Details is not InstanceDetails.Vehicle { Train: null }) return Reject("vehicle_in_train", "OrderedVehicles", subject);
+            var parked = world.Settlements.FirstOrDefault(s => s.ParkedVehicles.Contains(id));
+            if (parked is null) return Reject("vehicle_not_parked", "OrderedVehicles", subject);
+            if (settlement is not null && settlement.Id != parked.Id) return Reject("vehicles_not_colocated", "OrderedVehicles", subject);
+            settlement = parked;
+        }
+        if (settlement!.Relation == SettlementRelation.Hostile) return Reject("settlement_unavailable", "OrderedVehicles");
+        if (world.Next.Train == ulong.MaxValue || world.Next.Inventory == ulong.MaxValue)
+            return Reject("identity_exhausted", "World.Next");
+        var train = new TrainId(world.Next.Train);
+        var inventory = new InventoryId(world.Next.Inventory);
+        var added = new TrainState(train, new TrainPosition.Node(settlement.Node), command.OrderedVehicles, inventory,
+            new(null, null), TrainOrderFacing.FirstEndLeading, TrainActivity.Stopped, 0, null, null, 0, false);
+        return new CommandEffect.Accepted(content, [new CoreEvent.TrainCompositionChanged(train, command.OrderedVehicles)], world with
+        {
+            Trains = world.Trains.Add(added), Inventories = world.Inventories.Add(new(inventory, new InventoryOwner.Train(train), [])),
+            Instances = world.Instances.Select(i => i.Id is InstanceId.Vehicle v && command.OrderedVehicles.Contains(v.Id)
+                ? i with { Details = ((InstanceDetails.Vehicle)i.Details) with { Train = train } } : i).ToImmutableArray(),
+            Settlements = world.Settlements.Select(s => s.Id == settlement.Id ? s with
+                { ParkedVehicles = s.ParkedVehicles.Except(command.OrderedVehicles).ToImmutableArray() } : s).ToImmutableArray(),
+            Next = world.Next with { Train = world.Next.Train + 1, Inventory = world.Next.Inventory + 1 }
+        }, [new WorldObjectId.Train(train), new WorldObjectId.Inventory(inventory)]);
+    }
+
+    private static CommandEffect Disband(WorldState world, CoreContentProjection content, TrainState train)
+    {
+        var subject = new WorldObjectId.Train(train.Id);
+        if (train.Position is not TrainPosition.Node node || train.SpeedMetersPerSecond != 0)
+            return Reject("train_not_stationary_at_node", "Train.Position", subject);
+        var settlement = world.Settlements.FirstOrDefault(s => s.Node == node.Id && s.Relation != SettlementRelation.Hostile);
+        if (settlement is null) return Reject("settlement_unavailable", "Train.Position", subject);
+        if (!world.Inventories.Single(i => i.Id == train.Inventory).Goods.IsEmpty)
+            return Reject("inventory_not_empty", "Train.Inventory", subject);
+        return new CommandEffect.Accepted(content, [new CoreEvent.TrainCompositionChanged(train.Id, [])], world with
+        {
+            Trains = world.Trains.Remove(train), Inventories = world.Inventories.Where(i => i.Id != train.Inventory).ToImmutableArray(),
+            Instances = world.Instances.Select(i => i.Id is InstanceId.Vehicle v && train.Vehicles.Contains(v.Id)
+                ? i with { Details = ((InstanceDetails.Vehicle)i.Details) with { Train = null } } : i).ToImmutableArray(),
+            Settlements = world.Settlements.Select(s => s.Id == settlement.Id ? s with
+                { ParkedVehicles = s.ParkedVehicles.AddRange(train.Vehicles).OrderBy(v => v.Value).ToImmutableArray() } : s).ToImmutableArray()
+        });
+    }
+
+    private static CommandEffect.Rejected Reject(string code, string field, WorldObjectId? subject = null)
+        => new([new(code, field, subject, [])]);
+}

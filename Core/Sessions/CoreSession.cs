@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Train.Core.Contracts;
 using Train.Core.World;
+using Train.Core.Railway;
 
 namespace Train.Core.Sessions;
 
@@ -10,7 +11,8 @@ internal sealed record CoreState(SimulationPosition Position, ulong NextCommandN
 internal abstract record CommandEffect
 {
     private CommandEffect() { }
-    internal sealed record Accepted(CoreContentProjection Content, ImmutableArray<CoreEvent> Events) : CommandEffect;
+    internal sealed record Accepted(CoreContentProjection Content, ImmutableArray<CoreEvent> Events,
+        WorldState? World = null, ImmutableArray<WorldObjectId> Created = default) : CommandEffect;
     internal sealed record Rejected(ImmutableArray<CoreProblem> Problems) : CommandEffect;
 }
 
@@ -23,7 +25,7 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
     public ICoreReadView Read()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return new CoreReadView(State.Position, State.Revision, State.Content.Identity, State.Fault, State.World);
+        return new CoreReadView(State.Position, State.Revision, State.Content.Identity, State.Fault, State.World, State.Content);
     }
 
     public SubmissionResult Submit(CoreCommand command, CommandSource source)
@@ -32,15 +34,18 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
         ArgumentNullException.ThrowIfNull(command);
         if (!Enum.IsDefined(source))
             throw new ArgumentOutOfRangeException(nameof(source));
-        if (command is not CoreCommand.PublishContent publish)
-            throw new NotImplementedException($"{command.GetType().Name} 尚未实现。");
-        WorldInputs.ValidateContent(publish.Content);
-        if (publish.Content.Identity == State.Content.Identity)
-            throw new ArgumentException("发布内容的输入身份必须不同于当前身份。", nameof(command));
-        return ExecuteCommand(publish, source, _ => new CommandEffect.Accepted(publish.Content, []));
+        if (command is CoreCommand.PublishContent publish)
+        {
+            WorldInputs.ValidateContent(publish.Content);
+            if (publish.Content.Identity == State.Content.Identity)
+                throw new ArgumentException("发布内容的输入身份必须不同于当前身份。", nameof(command));
+            return ExecuteCommand(publish, source, _ => new CommandEffect.Accepted(publish.Content, []));
+        }
+        TrainCommands.Validate(command);
+        return ExecuteCommand(command, source, content => TrainCommands.Execute(State.World, content, command));
     }
 
-    internal SubmissionResult ExecuteCommand(CoreCommand.PublishContent command, CommandSource source,
+    internal SubmissionResult ExecuteCommand(CoreCommand command, CommandSource source,
         Func<CoreContentProjection, CommandEffect> body)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -60,7 +65,8 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
             var effect = body(before.Content);
             var decision = effect switch
             {
-                CommandEffect.Accepted => (CommandDecision)new CommandDecision.Accepted([], []),
+                CommandEffect.Accepted acceptance => (CommandDecision)new CommandDecision.Accepted(
+                    acceptance.Created.IsDefault ? [] : acceptance.Created, []),
                 CommandEffect.Rejected rejected => new CommandDecision.Rejected(rejected.Problems),
                 _ => throw new InvalidOperationException("命令结果无效。")
             };
@@ -71,7 +77,8 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
                 Position = position,
                 NextCommandNumber = checked(before.NextCommandNumber + 1),
                 Revision = new(checked(before.Revision.Value + 1)),
-                Content = effect is CommandEffect.Accepted change ? change.Content : before.Content
+                Content = effect is CommandEffect.Accepted change ? change.Content : before.Content,
+                World = effect is CommandEffect.Accepted { World: { } world } ? world : before.World
             };
             result = new SubmissionResult.Completed(new(before.NextCommandNumber, before.Position,
                 after.Position, decision), events, null);
@@ -96,10 +103,22 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
         return result;
     }
 
-    public AdvanceResult Advance(uint steps) => Advance(steps, content => (content, []));
+    public AdvanceResult Advance(uint steps) => AdvanceWorld(steps, before =>
+    {
+        var (world, events) = TrainOperations.Advance(before.World, before.Content);
+        return (before.Content, world, events);
+    });
 
     internal AdvanceResult Advance(uint steps,
         Func<CoreContentProjection, (CoreContentProjection Content, ImmutableArray<CoreEvent> Events)> stepBody)
+        => AdvanceWorld(steps, before =>
+        {
+            var (content, events) = stepBody(before.Content);
+            return (content, before.World, events);
+        });
+
+    private AdvanceResult AdvanceWorld(uint steps,
+        Func<CoreState, (CoreContentProjection Content, WorldState World, ImmutableArray<CoreEvent> Events)> stepBody)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var completed = 0u;
@@ -112,13 +131,14 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
             try
             {
                 position = new(checked(before.Position.CompletedSteps + 1), 0);
-                var change = stepBody(before.Content);
+                var change = stepBody(before);
                 var stepEvents = Envelopes(position, change.Events);
                 var after = before with
                 {
                     Position = position,
                     Revision = new(checked(before.Revision.Value + 1)),
-                    Content = change.Content
+                    Content = change.Content,
+                    World = change.World
                 };
                 events.AddRange(stepEvents);
                 State = after;

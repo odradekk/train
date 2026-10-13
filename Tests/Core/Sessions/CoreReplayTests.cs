@@ -156,7 +156,7 @@ public sealed class CoreReplayTests
     [DataRow("{\"input_format_version\":2,\"kind\":\"content.publish\",\"kind\":\"content.publish\"}", "/kind")]
     public void Malformed_payloads_fail_with_a_field_instead_of_throwing(string payload, string field)
     {
-        var failure = (CoreResult<CoreInputId>.Failure)CoreCommandEncoding.Decode(payload);
+        var failure = (CoreResult<DecodedCommand>.Failure)CoreCommandEncoding.Decode(payload);
         Assert.AreEqual("invalid_state", failure.Problems.Single().Code);
         Assert.AreEqual(field, failure.Problems.Single().Field);
     }
@@ -350,6 +350,31 @@ public sealed class CoreReplayTests
         Assert.AreEqual("invalid_state", failure.Problems.Single().Code);
         Assert.AreEqual("/world/money", failure.Problems.Single().Field);
         AssertFailure(Input(session) with { Checkpoints = [invalid] }, History, "invalid_state", "/world/money");
+    }
+
+    [TestMethod]
+    public void Preparation_decodes_all_train_commands_before_execution()
+    {
+        using var session = Session();
+        session.Submit(new CoreCommand.PublishContent(Content('B')), CommandSource.Console);
+        var input = Input(session);
+        CoreCommand[] commands = [new CoreCommand.FormTrain([new(1)]), new CoreCommand.DisbandTrain(new(2)),
+            new CoreCommand.ReplaceRunPlan(new(2), new(false, [new PlanStop.Waypoint(new(1))])),
+            new CoreCommand.StartTrain(new(2)), new CoreCommand.StopTrain(new(2))];
+        foreach (var command in commands)
+        {
+            var record = input.Commands.Single() with
+            {
+                CanonicalPayload = CoreCommandEncoding.Encode(command), InputAfter = Content('A').Identity
+            };
+            using var replay = Replay(input with { Commands = [record] });
+            Assert.AreEqual(new SimulationPosition(0, 0), replay.Read().Position);
+        }
+        var invalid = input.Commands.Single() with
+        {
+            CanonicalPayload = "{\"input_format_version\":2,\"kind\":\"train.start\",\"train\":0}"
+        };
+        AssertFailure(input with { Commands = [invalid] }, History, "invalid_state", "Commands[0].CanonicalPayload/train");
     }
 
     private static CoreReplayInput Input(CoreSession session)

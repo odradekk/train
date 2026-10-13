@@ -125,8 +125,13 @@ internal sealed class CoreRecording
         var manifests = starts.Select(start => start.State.References)
             .Concat(faults.Select(fault => fault.RequiredReferences)).ToArray();
         var inputs = manifests.SelectMany(manifest => manifest.Inputs)
-            .Concat(commands.SelectMany(command => new[] { command.InputBefore, command.InputAfter,
-                ((CoreResult<CoreInputId>.Success)CoreCommandEncoding.Decode(command.CanonicalPayload)).Value }))
+            .Concat(commands.SelectMany(command =>
+            {
+                var target = ((CoreResult<DecodedCommand>.Success)CoreCommandEncoding.Decode(command.CanonicalPayload)).Value;
+                return target.InputIdentity is { } identity
+                    ? new[] { command.InputBefore, command.InputAfter, identity }
+                    : [command.InputBefore, command.InputAfter];
+            }))
             .Distinct().OrderBy(input => input.Value, StringComparer.Ordinal).ToImmutableArray();
         return new(
             manifests.SelectMany(manifest => manifest.Designs).Distinct()

@@ -128,8 +128,15 @@ internal static class WorldStateValidation
             Items(edge.Breaks, "/world/edges/breaks"); Items(edge.Works, "/world/edges/works");
             Require(edge.Breaks.IsEmpty && edge.Works.IsEmpty, "/world/edges");
         }
+        var parkedVehicles = new HashSet<VehicleId>();
         foreach (var settlement in world.Settlements)
         {
+            Ordered(settlement.ParkedVehicles, id => id.Value, "/world/settlements/parked_vehicles");
+            foreach (var vehicle in settlement.ParkedVehicles)
+                Require(parkedVehicles.Add(vehicle)
+                    && instances.TryGetValue(new InstanceId.Vehicle(vehicle), out var parked)
+                    && parked.Details is InstanceDetails.Vehicle { Train: null }
+                    && parked.Ownership == SettlementRelation.PlayerOwned, "/world/settlements/parked_vehicles");
             Require(nodes.TryGetValue(settlement.Node, out var node)
                 && node.Occupant == new NodeOccupant.Settlement(settlement.Id, settlement.Relation), "/world/settlements/node");
             Identity(settlement.Type.Value, "/world/settlements/type");
@@ -167,7 +174,7 @@ internal static class WorldStateValidation
         }
         foreach (var train in world.Trains)
         {
-            Require(nodes.ContainsKey(train.Node) && Enum.IsDefined(train.OrderFacing), "/world/trains/node");
+            ValidateTrain(train, nodes, edges);
             Items(train.Vehicles, "/world/trains/vehicles");
             Require(!train.Vehicles.IsEmpty && train.Vehicles.Distinct().Count() == train.Vehicles.Length, "/world/trains/vehicles");
             foreach (var vehicle in train.Vehicles)
@@ -177,10 +184,7 @@ internal static class WorldStateValidation
                     "/world/trains/vehicles");
             Require(inventories.TryGetValue(train.Inventory, out var inventory)
                 && inventory.Owner == new InventoryOwner.Train(train.Id), "/world/trains/inventory");
-            Require(train.Transit is not null, "/world/trains/transit");
-            foreach (var edgeId in new[] { train.Transit.EnteredFrom, train.Transit.NextEdge })
-                if (edgeId is { } id) Require(edges.TryGetValue(id, out var edge)
-                    && (edge.Start == train.Node || edge.End == train.Node), "/world/trains/transit");
+
         }
         foreach (var instance in world.Instances)
         {
@@ -190,8 +194,9 @@ internal static class WorldStateValidation
                     Require(plots.TryGetValue(b.Plot, out var plot) && plot.Plot.Building == id.Id
                         && b.Size == plot.Plot.Size && design.PlotSize == b.Size, "/world/instances/details"); break;
                 case (InstanceId.Vehicle id, InstanceDetails.Vehicle v, DesignKind.Vehicle design):
-                    Require(v.Train is { } train && trains.TryGetValue(train, out var owner)
-                        && owner.Vehicles.Contains(id.Id) && design.Size == v.Size, "/world/instances/details"); break;
+                    Require(design.Size == v.Size && (v.Train is { } train
+                        ? trains.TryGetValue(train, out var owner) && owner.Vehicles.Contains(id.Id)
+                        : parkedVehicles.Contains(id.Id)), "/world/instances/details"); break;
                 default: throw new CoreStateFormatException("/world/instances/details");
             }
         }
@@ -217,6 +222,91 @@ internal static class WorldStateValidation
         Next(next.Vehicle, world.Instances.Select(i => i.Id).OfType<InstanceId.Vehicle>().Select(i => i.Id.Value), "/world/next/vehicle");
         Next(next.Train, world.Trains.Select(t => t.Id.Value), "/world/next/train");
         Next(next.Inventory, world.Inventories.Select(i => i.Id.Value), "/world/next/inventory");
+    }
+
+    private static void ValidateTrain(TrainState train, Dictionary<NodeId, NodeMapItem> nodes,
+        Dictionary<EdgeId, EdgeMapItem> edges)
+    {
+        Require(Enum.IsDefined(train.OrderFacing) && double.IsFinite(train.SpeedMetersPerSecond)
+            && train.SpeedMetersPerSecond >= 0, "/world/trains");
+        switch (train.Position)
+        {
+            case TrainPosition.Node node:
+                Require(nodes.ContainsKey(node.Id), "/world/trains/position");
+                Require(train.Transit is not null, "/world/trains/transit");
+                foreach (var edgeId in new[] { train.Transit.EnteredFrom, train.Transit.NextEdge })
+                    if (edgeId is { } id) Require(edges.TryGetValue(id, out var adjacentEdge)
+                        && (adjacentEdge.Start == node.Id || adjacentEdge.End == node.Id), "/world/trains/transit");
+                Require(train.Transit.NextEdge is null || train.Activity == TrainActivity.Running, "/world/trains/transit");
+                break;
+            case TrainPosition.Edge position:
+                Require(edges.TryGetValue(position.Id, out var edge)
+                    && position.Track >= 1 && position.Track <= edge.Tracks
+                    && Enum.IsDefined(position.Direction) && double.IsFinite(position.DistanceMeters)
+                    && position.DistanceMeters >= 0 && position.DistanceMeters <= edge.LengthMeters, "/world/trains/position");
+                Require(train.Transit is null, "/world/trains/transit");
+                break;
+            default: throw new CoreStateFormatException("/world/trains/position");
+        }
+        if (train.Plan is { } plan)
+        {
+            Items(plan.Stops, "/world/trains/plan/stops");
+            Require(!plan.Stops.IsEmpty, "/world/trains/plan/stops");
+            var targets = new HashSet<NodeId>();
+            foreach (var stop in plan.Stops)
+            {
+                var target = stop switch
+                {
+                    PlanStop.Waypoint waypoint => waypoint.Node,
+                    PlanStop.Station stationStop => stationStop.Node,
+                    _ => throw new CoreStateFormatException("/world/trains/plan/stops")
+                };
+                Require(nodes.TryGetValue(target, out var node), "/world/trains/plan/stops/node");
+                targets.Add(target);
+                if (stop is PlanStop.Station station)
+                {
+                    Require(node.Occupant is NodeOccupant.Settlement { Relation: not SettlementRelation.Hostile },
+                        "/world/trains/plan/stops/node");
+                    Items(station.GoodsRules, "/world/trains/plan/stops/goods_rules");
+                    Require(station.GoodsRules.IsEmpty, "/world/trains/plan/stops/goods_rules");
+                }
+            }
+            Require(!plan.Loop || targets.Count >= 2, "/world/trains/plan");
+            Require(train.NextStopIndex is null || train.NextStopIndex >= 0 && train.NextStopIndex < plan.Stops.Length,
+                "/world/trains/next_stop_index");
+            Require(!plan.Loop || train.NextStopIndex is not null, "/world/trains/next_stop_index");
+        }
+        else Require(train.NextStopIndex is null, "/world/trains/next_stop_index");
+        var unfinished = train.Plan is not null && train.NextStopIndex is not null;
+        Require(unfinished || train.Activity == TrainActivity.Stopped && train.RemainingDwellSteps == 0,
+            "/world/trains/activity");
+        Require(!train.StopRequested || train.Position is TrainPosition.Edge && train.Activity == TrainActivity.Running,
+            "/world/trains/stop_requested");
+        if (train.RemainingDwellSteps > 0)
+            Require(unfinished && train.Position is TrainPosition.Node dwellNode
+                && train.Plan!.Stops[train.NextStopIndex!.Value] is PlanStop.Station dwellStation
+                && dwellStation.Node == dwellNode.Id && train.RemainingDwellSteps <= dwellStation.DwellSteps,
+                "/world/trains/remaining_dwell_steps");
+        switch (train.Activity)
+        {
+            case TrainActivity.Stopped:
+                Require(train.Position is TrainPosition.Node && train.SpeedMetersPerSecond == 0
+                    && train.Transit!.NextEdge is null, "/world/trains/activity");
+                break;
+            case TrainActivity.Running:
+                Require(unfinished && train.RemainingDwellSteps == 0, "/world/trains/activity");
+                break;
+            case TrainActivity.Servicing:
+                Require(unfinished && train.Position is TrainPosition.Node && train.SpeedMetersPerSecond == 0
+                    && train.RemainingDwellSteps > 0, "/world/trains/activity");
+                break;
+            case TrainActivity.Waiting:
+            case TrainActivity.NoRoute:
+                Require(unfinished && train.Position is TrainPosition.Node && train.SpeedMetersPerSecond == 0
+                    && train.RemainingDwellSteps == 0, "/world/trains/activity");
+                break;
+            default: throw new CoreStateFormatException("/world/trains/activity");
+        }
     }
 
     private static void Terrain(TerrainView terrain, string field)
