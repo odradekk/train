@@ -1,7 +1,6 @@
 using System.Numerics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
-using Train.Core.ContractSupport;
 using Train.Scenes.Contracts;
 
 namespace Train.Scenes.Tests;
@@ -122,17 +121,7 @@ public sealed class RailwayPathTests
         var world = original.Core.World;
         var first = world.Nodes[0] with { Position = new(30, -20) };
         var last = world.Nodes[1] with { Position = new(390, 460) };
-        var snapshot = original with { Core = new FixedCoreReadView
-        {
-            World = world with { Nodes = [first, last] },
-            Nodes = new Dictionary<NodeId, Lookup<NodeView>>
-            {
-                [first.Id] = new Lookup<NodeView>.Found(new(first, [RailwayFixtures.Edge])),
-                [last.Id] = new Lookup<NodeView>.Found(new(last, [RailwayFixtures.Edge]))
-            },
-            Edges = new Dictionary<EdgeId, Lookup<EdgeView>>
-            { [RailwayFixtures.Edge] = original.Core.FindEdge(RailwayFixtures.Edge) }
-        } };
+        var snapshot = RailwayFixtures.ReplaceCore(RailwayFixtures.ReplaceCore(original, first), last);
         var axis = new RailwayPath(original, RailwayFixtures.Edge);
         var diagonal = new RailwayPath(snapshot, RailwayFixtures.Edge);
         AssertPoint(new(60, 0, -40), diagonal.Sample(0).Position);
@@ -225,12 +214,12 @@ public sealed class RailwayPathTests
         var empty = new RailwayPath(RailwayFixtures.Snapshot(600, 28.224, tracks: 0, trackLimit: 3), RailwayFixtures.Edge);
         var occupied = new RailwayPath(RailwayFixtures.Snapshot(600, 28.224, tracks: 3, trackLimit: 3), RailwayFixtures.Edge);
         foreach (var distance in new[] { 0.0, 37, 200, 450, 600, 750, 1000, 1163, 1200 })
-        foreach (var offset in new[] { -44.5, -17.0, 0, 17, 44.5 })
-        {
-            var sample = empty.Sample(distance, offset);
-            Assert.AreEqual(sample, occupied.Sample(distance, offset));
-            Assert.AreEqual(distance, empty.Locate(sample.Position), 1e-4);
-        }
+            foreach (var offset in new[] { -44.5, -17.0, 0, 17, 44.5 })
+            {
+                var sample = empty.Sample(distance, offset);
+                Assert.AreEqual(sample, occupied.Sample(distance, offset));
+                Assert.AreEqual(distance, empty.Locate(sample.Position), 1e-4);
+            }
     }
 
     [TestMethod]
@@ -259,6 +248,44 @@ public sealed class RailwayPathTests
         Assert.ThrowsExactly<RailwayBuildException>(() => new RailwayPath(snapshot, RailwayFixtures.Edge));
         Assert.AreEqual(length, snapshot.Core.World.Edges[0].LengthMeters);
         Assert.AreEqual(3UL, snapshot.Core.World.WorldSeed);
+    }
+
+    [TestMethod]
+    [DataRow(0.0, -34.0)]
+    [DataRow(0.0, 34.0)]
+    [DataRow(2.0, -34.0)]
+    [DataRow(2.0, 34.0)]
+    public void OffsetTrackMemberSpacingUsesClosedArcWithBoundedGradeError(double relief, double offset)
+    {
+        var rules = RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 100 };
+        var snapshot = RailwayFixtures.Snapshot(600, 300, relief, 3, content: RailwayFixtures.Content(rules: rules));
+        var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
+        var center = path.TrackArc(380, offset);
+        var first = path.CenterArc(center - 32, offset);
+        var last = path.CenterArc(center + 32, offset);
+        var measured = RailwayFixtures.MeasuredTrackLength(path, first, last, offset);
+        // The independent chord sum measures the real 3D curve, rather than the approved planar approximation.
+        var slope = relief == 0 ? 0 : Math.Atan(rules.MaximumGrade);
+        var innerScale = 1 - Math.Abs(offset) / (rules.MinimumCurveRadiusMeters * 2);
+        var relativeError = Math.Sqrt(Math.Pow(Math.Cos(slope), 2) + Math.Pow(Math.Sin(slope) / innerScale, 2)) - 1;
+        Assert.AreEqual(64, measured, 64 * relativeError + 1e-6);
+        Assert.IsTrue(Vector3.Distance(path.Sample(first).Forward, path.Sample(last).Forward) > .01,
+            "The selected interval must exercise a bend.");
+    }
+
+    [TestMethod]
+    public void OffsetTrackTangentMatchesIndependentPositionDifferencesOnGrade()
+    {
+        var snapshot = RailwayFixtures.Snapshot(600, 300, 2, 3,
+            content: RailwayFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 100 }));
+        var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
+        foreach (var offset in new[] { -34.0, 34.0 })
+        {
+            var first = path.Sample(379.999, offset).Position;
+            var last = path.Sample(380.001, offset).Position;
+            var expected = Vector3.Normalize(new Vector3((float)(last.X - first.X), (float)(last.Y - first.Y), (float)(last.Z - first.Z)));
+            AssertVector(expected, path.Sample(380, offset).Forward);
+        }
     }
 
     private static double Distance(ScenePoint a, ScenePoint b) => Math.Sqrt(

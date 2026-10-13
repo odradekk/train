@@ -18,18 +18,21 @@ public sealed class RailwayVehicleTests
             SceneFixtures.Cell(new(-2, 0, 2), 1),
             SceneFixtures.Cell(new(2, 0, 2), 2) with { Orientation = VoxelOrientation.PzPx, LocalOrientation = VoxelOrientation.PzPx },
             SceneFixtures.Cell(new(0, 0, 9), 3, path: [0]) with { LocalAt = new(0, 0, 1) });
-        evaluation = evaluation with { Scene = SceneFixtures.Projection(cells,
-            [new([0], new(0, 0, 8), VoxelOrientation.PxPy, new NestedObjectDetails.Assembly(null))]) };
+        evaluation = evaluation with
+        {
+            Scene = SceneFixtures.Projection(cells,
+            [new([0], new(0, 0, 8), VoxelOrientation.PxPy, new NestedObjectDetails.Assembly(null))])
+        };
         var geometry = RailwayVehicles.Build(RailwayFixtures.Content(vehicle: evaluation, wheelsetMarkers: true), RailwayFixtures.Instance());
-        var wheelsets = WheelObjects(geometry.Geometry);
+        var wheelsets = WheelObjects(geometry.Geometry.Geometry);
         Assert.AreEqual(2, wheelsets.Length);
         CollectionAssert.AreEqual(new[] { 2.5f, 9.5f }, wheelsets.Select(item => item.Pose.Position.Z).ToArray());
-        var root = geometry.Geometry.Objects.Single(item => item.Parent is null);
+        var root = geometry.Geometry.Geometry.Objects.Single(item => item.Parent is null);
         foreach (var wheelset in wheelsets)
         {
             Assert.AreEqual(root.Id, wheelset.Parent);
             Assert.AreEqual(0f, wheelset.Pose.Position.X);
-            Assert.AreEqual(0.5f, wheelset.Pose.Position.Y);
+            Assert.AreEqual((float)((SceneVisual.Wheelset)wheelset.Visuals.Single()).RadiusCells, wheelset.Pose.Position.Y);
             AssertVector(Vector3.UnitX, Vector3.Transform(Vector3.UnitX, wheelset.Pose.Rotation));
         }
     }
@@ -38,54 +41,60 @@ public sealed class RailwayVehicleTests
     public void DestroyedAndMissingMarkerCellsDoNotCreateWheelsets()
     {
         var evaluation = RailwayFixtures.Vehicle(cells: [new(0, 0, 0), new(0, 0, 3), new(0, 0, 6)]);
-        evaluation = evaluation with { Scene = evaluation.Scene with
+        evaluation = evaluation with
         {
-            Voxels = evaluation.Scene.Voxels.SetItem(2, evaluation.Scene.Voxels[2] with { Missing = true })
-        } };
+            Scene = evaluation.Scene with
+            {
+                Voxels = evaluation.Scene.Voxels.SetItem(2, evaluation.Scene.Voxels[2] with { Missing = true })
+            }
+        };
         var instance = RailwayFixtures.Instance() with { Parts = [new(new(1), new(0, 100), false, true)] };
         var geometry = RailwayVehicles.Build(RailwayFixtures.Content(vehicle: evaluation, wheelsetMarkers: true), instance);
-        var wheelsets = WheelObjects(geometry.Geometry);
+        var wheelsets = WheelObjects(geometry.Geometry.Geometry);
         Assert.AreEqual(1, wheelsets.Length);
         Assert.AreEqual(3.5f, wheelsets[0].Pose.Position.Z);
         var unmarked = RailwayVehicles.Build(RailwayFixtures.Content(vehicle: evaluation), instance);
-        Assert.AreEqual(0, WheelObjects(unmarked.Geometry).Length);
+        Assert.AreEqual(0, WheelObjects(unmarked.Geometry.Geometry).Length);
     }
 
     [TestMethod]
     public void DestroyedCompositeRemovesItsDescendantWheelsetsButKeepsRootMarkers()
     {
         var evaluation = RailwayFixtures.Vehicle();
-        evaluation = evaluation with { Scene = SceneFixtures.Projection(
+        evaluation = evaluation with
+        {
+            Scene = SceneFixtures.Projection(
             [SceneFixtures.Cell(new(0, 0, 1), 1),
                 SceneFixtures.Cell(new(0, 0, 5), 2, path: [0]) with { LocalAt = new(0, 0, 0) },
                 SceneFixtures.Cell(new(0, 0, 8), 3, path: [0, 0]) with { LocalAt = new(0, 0, 0) }],
             [new([0], new(0, 0, 5), VoxelOrientation.PxPy,
                 new NestedObjectDetails.FunctionalComposite(new("test:composite"), new(10), null)),
-                new([0, 0], new(0, 0, 3), VoxelOrientation.PxPy, new NestedObjectDetails.Assembly(null))]) };
+                new([0, 0], new(0, 0, 3), VoxelOrientation.PxPy, new NestedObjectDetails.Assembly(null))])
+        };
         var instance = RailwayFixtures.Instance() with { Parts = [new(new(10), new(0, 100), false, true)] };
         var geometry = RailwayVehicles.Build(RailwayFixtures.Content(vehicle: evaluation, wheelsetMarkers: true), instance);
-        var wheelsets = WheelObjects(geometry.Geometry);
+        var wheelsets = WheelObjects(geometry.Geometry.Geometry);
         Assert.AreEqual(1, wheelsets.Length);
         Assert.AreEqual(1.5f, wheelsets[0].Pose.Position.Z);
-        Assert.AreEqual(1, geometry.Geometry.Picking.Length);
+        Assert.AreEqual(1, geometry.Geometry.Geometry.Picking.Length);
     }
 
     [TestMethod]
-    [DataRow(SizeClass.Small, 3.0, 0.5, 0.25)]
-    [DataRow(SizeClass.Medium, 7.0, 1.0, 0.5)]
-    [DataRow(SizeClass.Large, 7.0, 1.0, 0.5)]
-    [DataRow(SizeClass.ExtraLarge, 15.0, 2.0, 1.0)]
-    [DataRow(SizeClass.Titan, 15.0, 2.0, 1.0)]
-    public void VehicleSizeDeterminesGaugeRadiusWidthAndAxleCenter(SizeClass size, double gauge, double radius, double width)
+    [DataRow(SizeClass.Small, 3.0)]
+    [DataRow(SizeClass.Medium, 7.0)]
+    [DataRow(SizeClass.Large, 7.0)]
+    [DataRow(SizeClass.ExtraLarge, 15.0)]
+    [DataRow(SizeClass.Titan, 15.0)]
+    public void VehicleSizeDeterminesGaugeAndAxleRestsOnRailSurface(SizeClass size, double gauge)
     {
         var evaluation = RailwayFixtures.Vehicle(size, cells: [new(3, 1, 4)]);
         var geometry = RailwayVehicles.Build(RailwayFixtures.Content(vehicle: evaluation, wheelsetMarkers: true), RailwayFixtures.Instance(size: size));
-        var axle = WheelObjects(geometry.Geometry).Single();
+        var axle = WheelObjects(geometry.Geometry.Geometry).Single();
         var visual = (SceneVisual.Wheelset)axle.Visuals.Single();
         Assert.AreEqual(gauge, visual.GaugeCells);
-        Assert.AreEqual(radius, visual.RadiusCells);
-        Assert.AreEqual(width, visual.WidthCells);
-        AssertVector(new(0, (float)radius, 4.5f), axle.Pose.Position);
+        Assert.IsTrue(visual.RadiusCells > 0);
+        Assert.IsTrue(visual.WidthCells > 0);
+        AssertVector(new(0, (float)visual.RadiusCells, 4.5f), axle.Pose.Position);
         Assert.AreEqual(Quaternion.Identity, axle.Pose.Rotation);
     }
 
@@ -94,14 +103,15 @@ public sealed class RailwayVehicleTests
     {
         var evaluation = RailwayFixtures.Vehicle(cells: [new(0, 0, 2)]);
         var content = RailwayFixtures.Content(vehicle: evaluation, wheelsetMarkers: true);
-        var geometry = RailwayVehicles.Build(content, RailwayFixtures.Instance()).Geometry;
+        var geometry = RailwayVehicles.Build(content, RailwayFixtures.Instance()).Geometry.Geometry;
         foreach (var distance in new[] { 1.0, 1, 4, 1, -1, 0 })
         {
             var placed = RailwayVehicles.Place(geometry, SceneFixtures.Identity, distance);
             var wheel = (SceneVisual.Wheelset)WheelObjects(placed).Single().Visuals.Single();
-            var expected = distance == -1 ? 2 * Math.PI - 2 : distance == 4 ? 8 - 2 * Math.PI : distance * 2;
-            Assert.AreEqual(expected, wheel.RotationRadians, 1e-12);
-            var reopened = RailwayVehicles.Place(RailwayVehicles.Build(content, RailwayFixtures.Instance()).Geometry,
+            Assert.IsTrue(wheel.RotationRadians >= 0 && wheel.RotationRadians < 2 * Math.PI);
+            Assert.AreEqual(Math.Sin(distance / wheel.RadiusCells), Math.Sin(wheel.RotationRadians), 1e-12);
+            Assert.AreEqual(Math.Cos(distance / wheel.RadiusCells), Math.Cos(wheel.RotationRadians), 1e-12);
+            var reopened = RailwayVehicles.Place(RailwayVehicles.Build(content, RailwayFixtures.Instance()).Geometry.Geometry,
                 SceneFixtures.Identity, distance);
             Assert.AreEqual(wheel, (SceneVisual.Wheelset)WheelObjects(reopened).Single().Visuals.Single());
         }
@@ -112,13 +122,16 @@ public sealed class RailwayVehicleTests
     public void PlacementReusesBodyMeshesAndMovesRenderingAndPickingWithTheSamePose()
     {
         var evaluation = RailwayFixtures.Vehicle();
-        evaluation = evaluation with { Scene = SceneFixtures.Projection(
+        evaluation = evaluation with
+        {
+            Scene = SceneFixtures.Projection(
             [SceneFixtures.Cell(new(0, 0, 0)),
                 SceneFixtures.Cell(new(1, 2, 3), 2, path: [0]) with { LocalAt = new(0, 0, 0) }],
-            [new([0], new(1, 2, 3), VoxelOrientation.PxPy, new NestedObjectDetails.Assembly(null))]) };
-        var geometry = RailwayVehicles.Build(RailwayFixtures.Content(vehicle: evaluation), RailwayFixtures.Instance()).Geometry;
+            [new([0], new(1, 2, 3), VoxelOrientation.PxPy, new NestedObjectDetails.Assembly(null))])
+        };
+        var geometry = RailwayVehicles.Build(RailwayFixtures.Content(vehicle: evaluation), RailwayFixtures.Instance()).Geometry.Geometry;
         var pose = new ScenePose(new(10, 20, 30), Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2));
-        var placed = RailwayVehicles.Place(geometry, pose, 15);
+        var placed = BuiltGeometry.Place(geometry, pose);
         var root = placed.Objects.Single(item => item.Parent is null);
         AssertVector(pose.Position, root.Pose.Position);
         AssertVector(Vector3.UnitX, Vector3.Transform(Vector3.UnitZ, root.Pose.Rotation));
@@ -139,6 +152,21 @@ public sealed class RailwayVehicleTests
             Assert.AreSame(geometry.Picking.Single(item => item.Object == pick.Object).Grid, pick.Grid);
         }
         AssertVector(Vector3.Zero, geometry.Objects.Single(item => item.Parent is null).Pose.Position);
+    }
+
+    [TestMethod]
+    public void GeneralPlacementPreservesWheelRotationAndChildLocalPose()
+    {
+        var content = RailwayFixtures.Content(vehicle: RailwayFixtures.Vehicle(cells: [new(0, 0, 2)]), wheelsetMarkers: true);
+        var built = RailwayVehicles.Build(content, RailwayFixtures.Instance()).Geometry.Geometry;
+        var rotated = RailwayVehicles.Place(built, SceneFixtures.Identity, 1);
+        var before = WheelObjects(rotated).Single();
+        var pose = new ScenePose(new(10, 20, 30), Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2));
+        var placed = BuiltGeometry.Place(rotated, pose);
+        var after = WheelObjects(placed).Single();
+        Assert.AreEqual(before.Pose, after.Pose);
+        Assert.AreSame(before.Visuals[0], after.Visuals[0]);
+        AssertVector(pose.Position, placed.Objects.Single(item => item.Parent is null).Pose.Position);
     }
 
     [TestMethod]

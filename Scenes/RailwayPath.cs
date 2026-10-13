@@ -13,15 +13,52 @@ internal static class RailwayCoordinates
 {
     internal const double CellsPerMeter = 2;
     internal const double SegmentLengthCells = 128;
+    internal const double TrackSpacing = 34;
+    internal const double BedTopHalfWidth = 9.5;
+    internal const double BedBaseHalfWidth = 10.5;
+    internal const double BedBlendWidth = 12;
+    internal const double TunnelClearance = 20;
+    internal const double DecorationRootClearance = 24;
+    internal const double DecorationVoxelClearance = 17;
+    internal const double TerrainBaselineOffset = 4;
+    internal const int TerrainDepthCells = 6;
+    internal const double NodeTransitionCells = 128;
+    internal const double WaterSurfaceOffset = 2;
+    internal const double WaterDepth = 5;
+    internal const int ViewRadiusSegments = 2;
+    internal const int MaxConcurrentBuilds = 2;
+    internal const double PrefetchSeconds = 4;
+    internal const double MaximumDisplayRate = 64;
+    internal const int MaxPrefetchSegments = 4;
+    internal const double OriginStepCells = 256;
+    internal static double OutermostTrackOffset(int count) => Math.Max(0, count - 1) * TrackSpacing / 2;
+    internal static double TerrainHalfWidth(int count) => Math.Max(48, count > 0 ? OutermostTrackOffset(count) + 49 : 0);
+    internal static double FogHalfWidth(int count) => Math.Max(64, OutermostTrackOffset(count) + 57);
+    internal static readonly (double Gauge, float RailHeight)[] Gauges = [(3, .3f), (7, .4f), (15, .6f)];
+    internal static double GaugeFor(SizeClass size) => size switch
+    {
+        SizeClass.Small => Gauges[0].Gauge,
+        SizeClass.Medium or SizeClass.Large => Gauges[1].Gauge,
+        SizeClass.ExtraLarge or SizeClass.Titan => Gauges[2].Gauge,
+        _ => throw new ArgumentException("Invalid vehicle size.", nameof(size))
+    };
+    internal static Quaternion Pose(Vector3 forward)
+    {
+        var right = Vector3.Normalize(Vector3.Cross(Vector3.UnitY, forward));
+        var up = Vector3.Cross(forward, right);
+        return Quaternion.Normalize(Quaternion.CreateFromRotationMatrix(new(
+            right.X, right.Y, right.Z, 0, up.X, up.Y, up.Z, 0,
+            forward.X, forward.Y, forward.Z, 0, 0, 0, 0, 1)));
+    }
     // A common level datum permits straight, zero-slack edges. Local relief is generated around it.
     internal static double NodeElevation(NodeMapItem node) => 0;
     internal static ScenePoint NodePoint(NodeMapItem node) =>
         new(node.Position.X * CellsPerMeter, NodeElevation(node), node.Position.Y * CellsPerMeter);
-    internal static double TrackOffset(int number, int count) => (number - (count + 1) / 2.0) * 34;
+    internal static double TrackOffset(int number, int count) => (number - (count + 1) / 2.0) * TrackSpacing;
     internal static (double HalfWidth, double Radius, double MinimumChord) AlignmentLimits(
         double horizontalLength, int trackLimit, RailwayAppearanceProjection rules)
     {
-        var width = 10.5 + 17 * Math.Max(0, trackLimit - 1);
+        var width = BedBaseHalfWidth + OutermostTrackOffset(trackLimit);
         // Keep the inner offset arc regular, including when the corridor is wider than the rule radius.
         var radius = Math.Max(rules.MinimumCurveRadiusMeters * CellsPerMeter, width + 0.5);
         return (width, radius, 4 * radius * Math.Sin(Math.Min(horizontalLength / (4 * radius), Math.PI / 2)));
@@ -40,7 +77,6 @@ internal sealed class RailwayPath
     internal ulong Seed { get; }
     internal RailwayAppearanceProjection Rules { get; }
     internal double LengthCells { get; }
-    internal double CorridorHalfWidthCells { get; }
     internal int SegmentCount => checked((int)Math.Ceiling(LengthCells / RailwayCoordinates.SegmentLengthCells));
     private readonly ScenePoint start;
     private readonly double forwardX;
@@ -49,6 +85,12 @@ internal sealed class RailwayPath
     private readonly double rise;
     private readonly HorizontalAlignment horizontal;
     private readonly CircularBend vertical;
+    private readonly (double Begin, double End, double Curvature)[] trackPieces;
+    private const ulong HorizontalSidePurpose = 1;
+    private const ulong VerticalSidePurpose = 2;
+    // Reserve half the permitted grade; relief scales the shallow, level-ended vertical bend.
+    private const double GradeReserve = 0.5;
+    private const double ReliefSlopeRadians = 0.03;
 
     internal RailwayPath(SceneWorldSnapshot snapshot, EdgeId id)
     {
@@ -73,14 +115,41 @@ internal sealed class RailwayPath
             throw new RailwayBuildException("The edge length or railway appearance cannot produce a valid alignment.");
         forwardX = dx / direct;
         forwardZ = dz / direct;
-        side = RailwayRandom.Unit(Seed, id.Value, 0, 1) < 0.5 ? -1 : 1;
-        rise = RailwayRandom.Unit(Seed, id.Value, 0, 2) < 0.5 ? -1 : 1;
-        var slope = Math.Min(Math.Atan(Rules.MaximumGrade) / 2, Math.Max(0, Edge.Terrain.Relief) * 0.03);
+        side = RailwayRandom.Unit(Seed, id.Value, 0, HorizontalSidePurpose) < 0.5 ? -1 : 1;
+        rise = RailwayRandom.Unit(Seed, id.Value, 0, VerticalSidePurpose) < 0.5 ? -1 : 1;
+        var slope = Math.Min(Math.Atan(Rules.MaximumGrade) * GradeReserve, Math.Max(0, Edge.Terrain.Relief) * ReliefSlopeRadians);
         vertical = new(LengthCells, slope);
         var limits = RailwayCoordinates.AlignmentLimits(vertical.ForwardLength, Edge.TrackLimit, Rules);
-        CorridorHalfWidthCells = limits.HalfWidth;
         var chord = Math.Min(vertical.ForwardLength, Math.Max(direct, limits.MinimumChord));
         horizontal = new(vertical.ForwardLength, chord, limits.Radius);
+        trackPieces = horizontal.Ranges.Select(piece =>
+            (vertical.Distance(piece.Begin), vertical.Distance(piece.End), side * piece.Curvature)).ToArray();
+    }
+
+    // Approved #315 decision 12 uses the closed planar scale even when the vertical profile bends.
+    internal double TrackArc(double centerArc, double offset)
+    {
+        if (centerArc < 0) return centerArc;
+        var distance = 0.0;
+        foreach (var piece in trackPieces)
+        {
+            distance += (Math.Min(centerArc, piece.End) - piece.Begin) * (1 - piece.Curvature * offset);
+            if (centerArc <= piece.End) return distance;
+        }
+        return distance + centerArc - LengthCells;
+    }
+
+    internal double CenterArc(double trackArc, double offset)
+    {
+        if (trackArc < 0) return trackArc;
+        foreach (var piece in trackPieces)
+        {
+            var scale = 1 - piece.Curvature * offset;
+            var length = (piece.End - piece.Begin) * scale;
+            if (trackArc <= length) return piece.Begin + trackArc / scale;
+            trackArc -= length;
+        }
+        return LengthCells + trackArc;
     }
 
     internal RailwaySample Sample(double distanceCells, double offsetCells = 0)
@@ -88,16 +157,20 @@ internal sealed class RailwayPath
         if (distanceCells < 0 || distanceCells > LengthCells)
         {
             var endpoint = Sample(Math.Clamp(distanceCells, 0, LengthCells), offsetCells);
-            return endpoint with { Position = RailwayCoordinates.Add(endpoint.Position,
-                endpoint.Forward * (float)(distanceCells - Math.Clamp(distanceCells, 0, LengthCells))) };
+            return endpoint with
+            {
+                Position = RailwayCoordinates.Add(endpoint.Position,
+                endpoint.Forward * (float)(distanceCells - Math.Clamp(distanceCells, 0, LengthCells)))
+            };
         }
         var (height, progress, grade) = vertical.Sample(distanceCells);
         var (lateral, forward, heading) = horizontal.Sample(progress);
         var tx = forwardX * Math.Cos(heading) + forwardZ * side * Math.Sin(heading);
         var tz = forwardZ * Math.Cos(heading) - forwardX * side * Math.Sin(heading);
         var right = new Vector3((float)tz, 0, (float)-tx);
-        var tangent = Vector3.Normalize(new((float)(tx * Math.Cos(grade)), (float)(rise * Math.Sin(grade)),
-            (float)(tz * Math.Cos(grade))));
+        var scale = 1 - side * horizontal.Curvature(progress) * offsetCells;
+        var tangent = Vector3.Normalize(new((float)(tx * Math.Cos(grade) * scale), (float)(rise * Math.Sin(grade)),
+            (float)(tz * Math.Cos(grade) * scale)));
         var point = new ScenePoint(start.X + forwardX * forward + forwardZ * side * lateral + tz * offsetCells,
             start.Y + rise * height, start.Z + forwardZ * forward - forwardX * side * lateral - tx * offsetCells);
         return new(point, tangent, right);
@@ -111,36 +184,35 @@ internal sealed class RailwayPath
         var forward = dx * forwardX + dz * forwardZ;
         var progress = horizontal.Locate(lateral, forward);
         if (vertical.IsStraight) return progress;
-        var lower = 0.0;
-        var upper = LengthCells;
-        for (var i = 0; i < 64; i++)
-        {
-            var middle = (lower + upper) / 2;
-            if (vertical.Sample(middle).Forward < progress) lower = middle;
-            else upper = middle;
-        }
-        return (lower + upper) / 2;
+        return vertical.Distance(progress);
     }
 
-    internal bool IntersectsArcRange(SceneRay ray, ScenePoint origin, double begin, double end, double entry, double exit)
+    internal bool IntersectsArcRange(SceneRay ray, ScenePoint origin, RailwayArcRange range, double entry, double exit)
     {
         var dx = origin.X + ray.Origin.X - start.X;
         var dz = origin.Z + ray.Origin.Z - start.Z;
         return horizontal.Intersects((dx * forwardZ - dz * forwardX) * side, dx * forwardX + dz * forwardZ,
             (ray.Direction.X * forwardZ - ray.Direction.Z * forwardX) * side,
             ray.Direction.X * forwardX + ray.Direction.Z * forwardZ, entry, exit,
-            vertical.Sample(begin).Forward, vertical.Sample(end).Forward, Math.Max(64, Edge.Tracks * 17 + 40));
+            vertical.Sample(Math.Clamp(range.Begin, 0, LengthCells)).Forward,
+            vertical.Sample(Math.Clamp(range.End, 0, LengthCells)).Forward, range.Width);
     }
 
     internal SceneBounds Bounds(double begin, double end, ScenePoint origin, double width)
     {
         var minimum = new Vector3(float.MaxValue);
         var maximum = new Vector3(float.MinValue);
-        foreach (var value in horizontal.Extrema(vertical.Sample(begin).Forward, vertical.Sample(end).Forward,
+        foreach (var value in horizontal.Extrema(vertical.Sample(Math.Clamp(begin, 0, LengthCells)).Forward,
+            vertical.Sample(Math.Clamp(end, 0, LengthCells)).Forward,
             (forwardZ * side, forwardX), (-forwardX * side, forwardZ)))
         {
             var point = new Vector3((float)(start.X + forwardX * value.Forward + forwardZ * side * value.Lateral - origin.X),
                 0, (float)(start.Z + forwardZ * value.Forward - forwardX * side * value.Lateral - origin.Z));
+            minimum = Vector3.Min(minimum, point); maximum = Vector3.Max(maximum, point);
+        }
+        foreach (var arc in new[] { begin, end })
+        {
+            var point = RailwayCoordinates.Relative(Sample(arc).Position, origin);
             minimum = Vector3.Min(minimum, point); maximum = Vector3.Max(maximum, point);
         }
         var heights = new[] { Sample(begin).Position.Y, Sample(end).Position.Y,
@@ -153,6 +225,8 @@ internal sealed class RailwayPath
     {
         private readonly Piece[] pieces;
         private readonly double length;
+        internal IEnumerable<(double Begin, double End, double Curvature)> Ranges =>
+            pieces.Select(piece => (piece.Start, piece.Start + piece.Length, piece.Curvature));
         private readonly record struct Piece(double Start, double Length, double X, double Z, double Heading, double Curvature)
         {
             internal (double Lateral, double Forward, double Heading) Sample(double distance)
@@ -219,6 +293,12 @@ internal sealed class RailwayPath
             var last = pieces[^1];
             return last.Sample(last.Length);
         }
+        internal double Curvature(double distance)
+        {
+            foreach (var piece in pieces)
+                if (distance <= piece.Start + piece.Length) return piece.Curvature;
+            return 0;
+        }
         internal List<(double Lateral, double Forward, double Heading)> Extrema(double begin, double end,
             (double X, double Z) axisX, (double X, double Z) axisZ)
         {
@@ -231,12 +311,12 @@ internal sealed class RailwayPath
                 values.Add(first); values.Add(last);
                 if (piece.Curvature == 0) continue;
                 foreach (var axis in new[] { axisX, axisZ })
-                for (var turn = -2; turn <= 2; turn++)
-                {
-                    var angle = Math.Atan2(-axis.Z, axis.X) + turn * Math.PI;
-                    if (angle >= Math.Min(first.Heading, last.Heading) && angle <= Math.Max(first.Heading, last.Heading))
-                        values.Add(piece.Sample((angle - piece.Heading) / piece.Curvature));
-                }
+                    for (var turn = -2; turn <= 2; turn++)
+                    {
+                        var angle = Math.Atan2(-axis.Z, axis.X) + turn * Math.PI;
+                        if (angle >= Math.Min(first.Heading, last.Heading) && angle <= Math.Max(first.Heading, last.Heading))
+                            values.Add(piece.Sample((angle - piece.Heading) / piece.Curvature));
+                    }
             }
             return values;
         }
@@ -337,11 +417,20 @@ internal sealed class RailwayPath
     private sealed class CircularBend(double length, double angle)
     {
         internal bool IsStraight => angle < 1e-12;
-        internal double Radius => angle == 0 ? double.PositiveInfinity : length / (4 * angle);
-        internal double ForwardLength => angle == 0 ? length : length * Math.Sin(angle) / angle;
-        internal (double Lateral, double Forward, double Heading) Sample(double distance)
+        internal double Radius => IsStraight ? double.PositiveInfinity : length / (4 * angle);
+        internal double ForwardLength => IsStraight ? length : length * Math.Sin(angle) / angle;
+        internal double Distance(double progress)
         {
-            if (angle < 1e-12) return (0, distance, 0);
+            if (IsStraight) return progress;
+            var first = Radius * Math.Sin(angle);
+            if (progress <= first) return Radius * Math.Asin(Math.Clamp(progress / Radius, -1, 1));
+            if (progress <= 3 * first)
+                return length / 4 + Radius * (angle - Math.Asin(Math.Clamp(2 * Math.Sin(angle) - progress / Radius, -1, 1)));
+            return 3 * length / 4 + Radius * (angle + Math.Asin(Math.Clamp(progress / Radius - 4 * Math.Sin(angle), -1, 1)));
+        }
+        internal (double Height, double Forward, double Grade) Sample(double distance)
+        {
+            if (IsStraight) return (0, distance, 0);
             var radius = Radius;
             var quarter = length / 4;
             if (distance <= quarter)

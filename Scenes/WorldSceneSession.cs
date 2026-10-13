@@ -16,14 +16,14 @@ internal sealed record WorldSceneContent(ImmutableArray<SceneCell> Terrain,
 internal sealed class WorldSceneSession : IWorldSceneSession
 {
     private readonly Func<SceneWorldSnapshot, WorldSceneTarget, CancellationToken, WorldSceneContent> generate;
-    private readonly RailwayCache? railwayCache;
+    private readonly RailwayCache railwayCache;
     private RailwayScene? railway;
     private readonly List<Task> closingRailways = [];
     private SceneWorldSnapshot? interpolationStart;
     private readonly List<(Task Task, CancellationTokenSource Cancellation)> tasks = [];
     private readonly Dictionary<InstanceId, Task<BuiltObject>> rebuilds = [];
     private readonly Dictionary<string, SceneObjectId> ids = [];
-    private readonly Dictionary<InstanceId, (DesignHash Design, ImmutableHashSet<PartId> Destroyed, RenderedDesign Geometry)> designs = [];
+    private readonly Dictionary<InstanceId, BuiltObject> designs = [];
     private SceneWorldSnapshot snapshot;
     private WorldSceneTarget? target;
     private Task<BuiltWorld>? pending;
@@ -43,19 +43,17 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     internal Task[] PendingObjectBuilds => rebuilds.Values.Cast<Task>().ToArray();
     internal Task[] PendingRailwayBuilds => railway?.PendingWork ?? [];
 
-    private sealed record BuiltGeometry(RenderedDesign Geometry, ImmutableDictionary<SceneObjectId, string> Keys);
-    private sealed record BuiltObject(DesignHash Design, ImmutableHashSet<PartId> Destroyed, BuiltGeometry Geometry);
     private sealed record BuiltWorld(WorldSceneContent Content, BuiltGeometry Scenery,
         ImmutableDictionary<InstanceId, BuiltObject> Objects);
 
     internal WorldSceneSession(SceneBinding binding, SceneWorldSnapshot initial,
-        Func<SceneWorldSnapshot, WorldSceneTarget, CancellationToken, WorldSceneContent> generate, RailwayCache? railwayCache = null)
+        Func<SceneWorldSnapshot, WorldSceneTarget, CancellationToken, WorldSceneContent> generate, RailwayCache railwayCache)
     {
         ValidateSnapshot(initial);
         Binding = binding;
         snapshot = initial;
         this.generate = generate;
-        this.railwayCache = railwayCache;
+        this.railwayCache = railwayCache ?? throw new ArgumentNullException(nameof(railwayCache));
     }
 
     internal static void ValidateSnapshot(SceneWorldSnapshot snapshot)
@@ -72,17 +70,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         cancellation.ThrowIfCancellationRequested();
         if (target is WorldSceneTarget.Combat)
             throw new NotImplementedException("Combat scene generation is implemented by Issue #353.");
-        var location = target switch
-        {
-            WorldSceneTarget.Location value => value.Value,
-            WorldSceneTarget.Follow follow => ((Lookup<TrainView>.Found)snapshot.Core.FindTrain(follow.Train)).Value.Position switch
-            {
-                TrainPosition.Node node => (WorldLocation)new WorldLocation.Node(node.Id),
-                TrainPosition.Edge edge => new WorldLocation.Edge(edge.Id, edge.DistanceMeters),
-                _ => throw new ArgumentException("Invalid train position.")
-            },
-            _ => throw new ArgumentException("Invalid target.")
-        };
+        var location = CurrentLocation(snapshot, target);
         if (location is WorldLocation.Node)
             throw new NotImplementedException("Node scene generation is implemented by Issue #316.");
         throw new ArgumentException("Railway generation uses the segmented world-session path.");
@@ -105,7 +93,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         designs.Clear();
         rebuilds.Clear();
         ids.Clear();
-        if (railwayCache is not null && value is not WorldSceneTarget.Combat && CurrentLocation(value) is WorldLocation.Edge edge)
+        if (value is not WorldSceneTarget.Combat && CurrentLocation(snapshot, value) is WorldLocation.Edge edge)
         {
             railway = new(snapshot, edge.Id, railwayCache, ObjectId);
             pending = null;
@@ -119,7 +107,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         return new SceneResult<SceneRequestId>.Success(request);
     }
 
-    private WorldLocation CurrentLocation(WorldSceneTarget value) => value switch
+    private static WorldLocation CurrentLocation(SceneWorldSnapshot snapshot, WorldSceneTarget value) => value switch
     {
         WorldSceneTarget.Location location => location.Value,
         WorldSceneTarget.Follow follow => ((Lookup<TrainView>.Found)snapshot.Core.FindTrain(follow.Train)).Value.Position switch
@@ -195,7 +183,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         {
             if (railway is not null)
             {
-                if (CurrentLocation(target) is not WorldLocation.Edge location || location.Id != railway.Edge)
+                if (CurrentLocation(snapshot, target) is not WorldLocation.Edge location || location.Id != railway.Edge)
                     throw new NotImplementedException("Following trains across nodes is implemented by Issue #316.");
                 var frame = railway.Present(snapshot, interpolationStart, target, frameRequest,
                     new(Id, request, space, ++revision), displayedFrame as SceneFrame);
@@ -209,7 +197,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
                 var built = pending.GetAwaiter().GetResult();
                 pending = null;
                 content = built.Content;
-                scenery = Attach(built.Scenery, "");
+                scenery = Attach(built.Scenery, "", ObjectId);
                 foreach (var item in built.Objects)
                     if (snapshot.Core.FindInstance(item.Key) is Lookup<InstanceView>.Found current && Matches(item.Value, current.Value))
                         Accept(item.Key, item.Value);
@@ -259,7 +247,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         return value;
     }
 
-    private static BuiltGeometry BuildGeometry(Func<Func<string, SceneObjectId>, RenderedDesign> build)
+    internal static BuiltGeometry BuildGeometry(Func<Func<string, SceneObjectId>, RenderedDesign> build)
     {
         var keys = ImmutableDictionary.CreateBuilder<SceneObjectId, string>();
         ulong next = 0;
@@ -288,13 +276,13 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         return new(content, scenery, objects.ToImmutable());
     }
 
-    private static ImmutableHashSet<PartId> Destroyed(InstanceView instance) =>
+    internal static ImmutableHashSet<PartId> Destroyed(InstanceView instance) =>
         instance.Parts.Where(part => part.Destroyed).Select(part => part.Part).ToImmutableHashSet();
 
-    private static bool Matches(BuiltObject built, InstanceView current) =>
+    internal static bool Matches(BuiltObject built, InstanceView current) =>
         built.Design == current.Design && built.Destroyed.SetEquals(Destroyed(current));
 
-    private static BuiltObject BuildObject(IContentView content, InstanceView instance, ScenePose pose)
+    internal static BuiltObject BuildObject(IContentView content, InstanceView instance, ScenePose pose)
     {
         var destroyed = Destroyed(instance);
         var geometry = BuildGeometry(id =>
@@ -318,17 +306,9 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         return new(instance.Design, destroyed, geometry);
     }
 
-    internal static RenderedDesign BuildInstance(IContentView content, InstanceView instance,
-        out ImmutableDictionary<SceneObjectId, string> keys)
+    internal static RenderedDesign Attach(BuiltGeometry built, string prefix, Func<string, SceneObjectId> objectId)
     {
-        var built = BuildObject(content, instance, new(Vector3.Zero, Quaternion.Identity)).Geometry;
-        keys = built.Keys;
-        return built.Geometry;
-    }
-
-    private RenderedDesign Attach(BuiltGeometry built, string prefix)
-    {
-        var assigned = built.Keys.ToDictionary(item => item.Key, item => ObjectId(prefix + item.Value));
+        var assigned = built.Keys.ToDictionary(item => item.Key, item => objectId(prefix + item.Value));
         return built.Geometry with
         {
             Objects = built.Geometry.Objects.Select(item => item with
@@ -341,7 +321,11 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     }
 
     private void Accept(InstanceId instance, BuiltObject built) =>
-        designs[instance] = (built.Design, built.Destroyed, Attach(built.Geometry, "instance:" + instance + ":"));
+        designs[instance] = built with
+        {
+            Geometry = built.Geometry with
+            { Geometry = Attach(built.Geometry, "instance:" + instance + ":", ObjectId) }
+        };
 
     private static RenderedDesign BuildScenery(WorldSceneContent value, Func<string, SceneObjectId> id)
     {
@@ -399,7 +383,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
                 if (Matches(built, current)) Accept(item.Instance, built);
             }
             if (!designs.TryGetValue(item.Instance, out var cached) ||
-                cached.Design != current.Design || !cached.Destroyed.SetEquals(Destroyed(current)))
+                !Matches(cached, current))
             {
                 rebuilding = true;
                 if (!rebuilds.ContainsKey(item.Instance))
@@ -411,11 +395,11 @@ internal sealed class WorldSceneSession : IWorldSceneSession
                     tasks.Add((work, cancellation));
                 }
             }
-            if (cached.Geometry is not null)
+            if (cached is not null)
             {
-                objects.AddRange(cached.Geometry.Objects);
-                picking.AddRange(cached.Geometry.Picking);
-                problems.AddRange(cached.Geometry.Diagnostics);
+                objects.AddRange(cached.Geometry.Geometry.Objects);
+                picking.AddRange(cached.Geometry.Geometry.Picking);
+                problems.AddRange(cached.Geometry.Geometry.Diagnostics);
             }
         }
         foreach (var id in designs.Keys.Concat(rebuilds.Keys).Where(id => !present.Contains(id)).Distinct().ToArray())

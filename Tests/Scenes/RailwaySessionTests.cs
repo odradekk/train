@@ -17,59 +17,23 @@ public sealed class RailwaySessionTests
     private static SceneWorldSnapshot Short(DesignEvaluation? design = null, TrainView? train = null, ulong steps = 0) =>
         RailwayFixtures.Snapshot(4, 4, 0, steps: steps, content: Content(design ?? RailwayFixtures.Vehicle()),
             trains: [train ?? RailwayFixtures.Train(1)], instances: [RailwayFixtures.Instance()]);
-    private static FixedContentView Content(DesignEvaluation? design, ulong generation = 1, TerrainAppearanceProjection? terrain = null) => new()
-    {
-        Generation = new(generation), Core = SceneFixtures.Content().Core,
-        Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
-        { [RailwayFixtures.Terrain] = new ContentLookup<TerrainAppearanceProjection>.Found(terrain ?? RailwayFixtures.TerrainAppearance) },
-        RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>
-        { [RailwayFixtures.Rule] = new ContentLookup<RailwayAppearanceProjection>.Found(RailwayFixtures.Rules) },
-        VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
-        { [SceneFixtures.Voxel] = new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube with { Behaviors = new(true, null) }) },
-        Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
-        { [SceneFixtures.Design] = design is null ? new ContentLookup<DesignEvaluation>.Missing([]) : new ContentLookup<DesignEvaluation>.Found(design) }
-    };
+    private static FixedContentView Content(DesignEvaluation? design, ulong generation = 1, TerrainAppearanceProjection? terrain = null) =>
+        RailwayFixtures.Content(terrain, vehicle: design, wheelsetMarkers: true, generation: generation,
+            designs: design is null ? new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+            { [SceneFixtures.Design] = new ContentLookup<DesignEvaluation>.Missing([]) } : null);
     private static WorldSceneSession Open(SceneWorldSnapshot snapshot) =>
         (WorldSceneSession)((SceneResult<IWorldSceneSession>.Success)ScenesFactory.Create().OpenWorld(new(Guid.NewGuid()), snapshot)).Value;
     private static ISceneFrame Present(WorldSceneSession session, ISceneFrame? displayed = null, double interpolation = 1) =>
         ((SceneResult<ISceneFrame>.Success)session.Present(Request with { Interpolation = interpolation }, displayed)).Value;
-    private static async Task<ISceneFrame> Settled(WorldSceneSession session, ISceneFrame? displayed = null, double interpolation = 1)
-    {
-        var frame = Present(session, displayed, interpolation);
-        while (session.PendingRailwayBuilds.Length > 0)
-        {
-            await Task.WhenAll(session.PendingRailwayBuilds);
-            frame = Present(session, displayed, interpolation);
-        }
-        return frame;
-    }
+    private static Task<ISceneFrame> Settled(WorldSceneSession session, ISceneFrame? displayed = null, double interpolation = 1) =>
+        RailwayFixtures.Settled(session, Request with { Interpolation = interpolation }, displayed);
     private static RailwayScene Controlled(SceneWorldSnapshot snapshot,
-        Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null)
-    {
-        var ids = new Dictionary<string, SceneObjectId>();
-        ulong next = 0;
-        return new(snapshot, RailwayFixtures.Edge, new(), key =>
-        {
-            if (!ids.TryGetValue(key, out var id)) ids.Add(key, id = new(++next));
-            return id;
-        }, build ?? EmptySegment);
-    }
-    private static RailwaySegment EmptySegment(SceneWorldSnapshot snapshot, RailwayPath path, int index, CancellationToken token) =>
-        new(index, path.Sample(index * 128).Position, new([], [], []), ImmutableDictionary<GridColumn, double>.Empty,
-            RailwayDependencies.Capture(snapshot, path, index, [], [], [], [], false, false), []);
-    private static async Task<SceneFrame> Settled(RailwayScene scene, SceneWorldSnapshot snapshot,
+        Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null) =>
+        RailwayFixtures.Controlled(snapshot, build);
+    private static Task<SceneFrame> Settled(RailwayScene scene, SceneWorldSnapshot snapshot,
         SceneWorldSnapshot? previous = null, SceneFrame? displayed = null, double interpolation = 1, ulong revision = 1,
-        VehicleId? followed = null)
-    {
-        var target = new WorldSceneTarget.Follow(new(1), followed ?? new(1));
-        var frame = scene.Present(snapshot, previous, target, Request with { Interpolation = interpolation }, Stamp(revision), displayed);
-        while (scene.PendingWork.Length > 0)
-        {
-            await Task.WhenAll(scene.PendingWork);
-            frame = scene.Present(snapshot, previous, target, Request with { Interpolation = interpolation }, Stamp(++revision), displayed);
-        }
-        return frame;
-    }
+        VehicleId? followed = null) => RailwayFixtures.Settled(scene, snapshot,
+            new WorldSceneTarget.Follow(new(1), followed ?? new(1)), Request with { Interpolation = interpolation }, Stamp(revision), previous, displayed);
 
     [TestMethod]
     public async Task ProductionFactoryBuildsRailwayAndMapsTerrainAndVehicleInTheSameFrame()
@@ -95,19 +59,9 @@ public sealed class RailwaySessionTests
     {
         var first = RailwayFixtures.Vehicle(lengthCells: 8);
         var second = RailwayFixtures.Vehicle(lengthCells: 12, design: new("second"));
-        var content = Content(first);
-        var view = new FixedContentView
-        {
-            Generation = content.Generation, Core = content.Core,
-            Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
-            { [RailwayFixtures.Terrain] = content.FindTerrain(RailwayFixtures.Terrain) },
-            RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>
-            { [RailwayFixtures.Rule] = content.FindRailwayAppearance(RailwayFixtures.Rule) },
-            VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
-            { [SceneFixtures.Voxel] = content.FindVoxelAppearance(SceneFixtures.Voxel) },
-            Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
-            { [first.Design] = new ContentLookup<DesignEvaluation>.Found(first), [second.Design] = new ContentLookup<DesignEvaluation>.Found(second) }
-        };
+        var view = RailwayFixtures.Content(vehicle: first, wheelsetMarkers: true,
+            designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+            { [second.Design] = new ContentLookup<DesignEvaluation>.Found(second) });
         var train = RailwayFixtures.Train(40, [new(1), new(2)]) with { LengthMeters = 10 };
         var other = RailwayFixtures.Train(50, [new(3)], 2, 2);
         var instances = ImmutableArray.Create(RailwayFixtures.Instance(), RailwayFixtures.Instance(2, design: second.Design), RailwayFixtures.Instance(3));
@@ -205,7 +159,7 @@ public sealed class RailwaySessionTests
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var snapshot = Short();
         var scene = Controlled(snapshot, (input, path, index, token) =>
-        { entered.TrySetResult(); release.Wait(token); return EmptySegment(input, path, index, token); });
+        { entered.TrySetResult(); release.Wait(token); return RailwayFixtures.EmptySegment(input, path, index, token); });
         try
         {
             await Task.WhenAll(scene.PendingWork);
@@ -231,8 +185,8 @@ public sealed class RailwaySessionTests
         session.RequestView(new WorldSceneTarget.Follow(new(1), new(1)));
         var frame = await Settled(session);
         Assert.IsTrue(frame.Diagnostics.Any(problem => problem.Code == "vehicle_length_unknown"));
-        Assert.IsTrue(frame.Update.Upserts.Where(item => item.Subject is WorldObjectId.Instance).SelectMany(item => item.Visuals)
-            .All(visual => visual is SceneVisual.Missing));
+        Assert.IsInstanceOfType<Lookup<ScenePose>.Found>(frame.FindPose(new WorldObjectId.Instance(new InstanceId.Vehicle(new(1)))));
+        Assert.IsTrue(frame.Update.Upserts.Single(item => item.Subject is WorldObjectId.Instance).Visuals.IsEmpty);
         var invalid = RailwayFixtures.Snapshot(10, 20);
         await using var failed = Open(invalid);
         failed.RequestView(new WorldSceneTarget.Location(new WorldLocation.Edge(RailwayFixtures.Edge, 0)));
@@ -265,7 +219,7 @@ public sealed class RailwaySessionTests
         await using var missing = Open(Short() with { Content = Content(null) });
         missing.RequestView(target);
         var unavailable = await Settled(missing);
-        Assert.IsTrue(unavailable.Diagnostics.Any(problem => problem.Code == "vehicle_length_unknown"));
+        Assert.IsTrue(unavailable.Diagnostics.Any(problem => problem.Code == "content_missing"));
         Assert.IsTrue(unavailable.Update.Upserts.Where(item => item.Subject is WorldObjectId.Instance).SelectMany(item => item.Visuals)
             .Any(visual => visual is SceneVisual.Missing { Reference: ContentReference.Design { Hash: var hash } } && hash == SceneFixtures.Design));
         Assert.IsFalse(unavailable.Update.Upserts.Where(item => item.Subject is WorldObjectId.Instance).SelectMany(item => item.Visuals)

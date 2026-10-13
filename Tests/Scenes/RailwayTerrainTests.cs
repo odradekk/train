@@ -4,7 +4,6 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
 using Train.Core.Contracts;
-using Train.Core.ContractSupport;
 using Train.Scenes.Contracts;
 
 namespace Train.Scenes.Tests;
@@ -16,28 +15,112 @@ public sealed class RailwayTerrainTests
     private static readonly VoxelDefinitionId ModelVoxel = new("test:model-voxel");
 
     [TestMethod]
+    public void LongGradedLineWithoutTerrainNoiseHasNoTunnelOrHighEmbankment()
+    {
+        var snapshot = RailwayFixtures.Snapshot(4000, 4000, relief: 0.5);
+        var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
+        var segment = RailwayTerrain.Build(snapshot, path, path.SegmentCount / 2, CancellationToken.None);
+        Assert.AreEqual(0, segment.Tunnels.Length, "A flat terrain appearance must not create a tunnel from the rail profile alone.");
+        foreach (var cell in segment.Geometry.Picking.Single().Grid.Cells.Where(cell =>
+            cell.Subject is PickSubject.Terrain).GroupBy(cell => new GridColumn(cell.At.X, cell.At.Z)).Select(group => group.First()))
+        {
+            var location = (WorldLocation.Edge)((PickSubject.Terrain)cell.Subject!).Location;
+            var rail = path.Sample(location.DistanceMeters * RailwayCoordinates.CellsPerMeter).Position;
+            var groundTop = segment.Heights[new(cell.At.X, cell.At.Z)];
+            Assert.IsTrue(groundTop <= rail.Y && groundTop >= rail.Y - RailwayCoordinates.TerrainBaselineOffset - 1,
+                "Terrain must follow the local rail profile, with only the shallow trackbed above the ground baseline.");
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void MissingRailwayModelReportsItsTerrainReference(bool tunnel)
+    {
+        var segment = Build(tunnel ? TunnelSnapshot(false) : WithFeatures(Short(), ["river"]));
+        var problems = segment.Geometry.Diagnostics.Where(item => item.Detail == "No railway scene model matches the track count.").ToArray();
+        Assert.IsTrue(problems.Length > 0);
+        Assert.IsTrue(problems.All(problem => problem.Content ==
+            new ContentReference.Core(new CoreDefinitionReference.Terrain(RailwayFixtures.Terrain))));
+    }
+
+    [TestMethod]
+    [DataRow("model_missing")]
+    [DataRow("model_failed")]
+    [DataRow("terrain")]
+    [DataRow("voxel")]
+    public void MissingContentPreservesDiagnosticsAndPackage(string kind)
+    {
+        ContentReference reference = kind switch
+        {
+            "terrain" => new ContentReference.Core(new CoreDefinitionReference.Terrain(RailwayFixtures.Terrain)),
+            "voxel" => new ContentReference.Core(new CoreDefinitionReference.Voxel(SceneFixtures.Voxel)),
+            _ => new ContentReference.Design(ModelHash)
+        };
+        var package = new PackageId("test:terrain-package");
+        ImmutableArray<ContentDiagnostic> source = [new("source_failure", ContentDiagnosticSeverity.Error,
+            "content", reference, new(package, "terrain.json"), "model", null, "Source content is unavailable.")];
+        var content = kind switch
+        {
+            "terrain" => RailwayFixtures.Content(terrains: new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
+            { [RailwayFixtures.Terrain] = new ContentLookup<TerrainAppearanceProjection>.Missing(source) }),
+            "voxel" => RailwayFixtures.Content(voxels: new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
+            { [SceneFixtures.Voxel] = new ContentLookup<VoxelAppearanceProjection>.Missing(source) }),
+            _ => RailwayFixtures.Content(
+                terrain: RailwayFixtures.TerrainAppearance with { RailwayModels = [new(1, ModelHash, ModelHash)] },
+                designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+                {
+                    [ModelHash] = kind == "model_failed"
+                    ? new ContentLookup<DesignEvaluation>.Found(new DesignEvaluation.Failed(source))
+                    : new ContentLookup<DesignEvaluation>.Missing(source)
+                })
+        };
+        var model = kind.StartsWith("model_");
+        var snapshot = Short(content, tracks: model ? 1 : 0);
+        if (model) snapshot = WithFeatures(snapshot, ["river"]);
+        var problems = Build(snapshot).Geometry.Diagnostics;
+        var forwarded = problems.Single(problem => problem.Code == "source_failure");
+        Assert.AreEqual(reference, forwarded.Content);
+        Assert.AreEqual(package, forwarded.Package);
+        var missing = problems.Where(problem => problem.Code == "content_missing" && problem.Content == reference).ToArray();
+        Assert.IsTrue(missing.Length > 0);
+        Assert.IsTrue(missing.All(problem => problem.Package == package));
+    }
+
+    [TestMethod]
+    public void TunnelTransitionColumnsKeepTheTrackClearanceEmpty()
+    {
+        var snapshot = TunnelSnapshot(false, diagonal: true);
+        var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
+        var segment = Build(snapshot);
+        var highColumns = 0;
+        foreach (var column in segment.Geometry.Picking.Single().Grid.Cells.GroupBy(cell => new GridColumn(cell.At.X, cell.At.Z)))
+        {
+            var point = new ScenePoint(segment.Origin.X + column.Key.X + 0.5, 0,
+                segment.Origin.Z + column.Key.Z + 0.5);
+            var rail = path.Sample(path.Locate(point));
+            var offset = (point.X - rail.Position.X) * rail.Right.X + (point.Z - rail.Position.Z) * rail.Right.Z;
+            if (Math.Abs(offset) >= RailwayCoordinates.BedTopHalfWidth ||
+                segment.Heights[column.Key] <= rail.Position.Y + RailwayCoordinates.TunnelClearance) continue;
+            highColumns++;
+            Assert.IsTrue(column.All(cell => cell.At.Y + segment.Origin.Y < rail.Position.Y ||
+                cell.At.Y + segment.Origin.Y >= rail.Position.Y + RailwayCoordinates.TunnelClearance),
+                "A high column at a tunnel entrance or exit must not fill the track clearance.");
+        }
+        Assert.IsTrue(highColumns > 0, "The fixture must include high terrain in the track corridor.");
+    }
+
+    [TestMethod]
     public void ExtendedChordSamplesTheEndNodeTerrainInNodeLocalCoordinates()
     {
         var nodeType = new TerrainTypeId("test:node-ground");
         var line = RailwayFixtures.TerrainAppearance;
         var nodeTerrain = line with { Id = nodeType, LocalHeightNoise = [new(4, 10)] };
-        var original = RailwayFixtures.Content();
-        var content = new FixedContentView
-        {
-            Core = original.Core,
-            Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
-            {
-                [line.Id] = new ContentLookup<TerrainAppearanceProjection>.Found(line),
-                [nodeType] = new ContentLookup<TerrainAppearanceProjection>.Found(nodeTerrain)
-            },
-            RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>
-            { [RailwayFixtures.Rule] = original.FindRailwayAppearance(RailwayFixtures.Rule) },
-            VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
-            { [SceneFixtures.Voxel] = original.FindVoxelAppearance(SceneFixtures.Voxel) }
-        };
+        var content = RailwayFixtures.Content(terrains: new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
+        { [nodeType] = new ContentLookup<TerrainAppearanceProjection>.Found(nodeTerrain) });
         var basis = RailwayFixtures.Snapshot(600, 28.224, relief: 0, content: content);
         var endNode = basis.Core.World.Nodes[1] with { Terrain = new(nodeType, 1, []) };
-        var snapshot = ReplaceCore(basis, endNode);
+        var snapshot = RailwayFixtures.ReplaceCore(basis, endNode);
         var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
         var endpoint = path.Sample(path.LengthCells).Position;
         Assert.IsTrue(endpoint.Z > endNode.Position.Y * 2);
@@ -94,34 +177,19 @@ public sealed class RailwayTerrainTests
         var lineTerrain = RailwayFixtures.TerrainAppearance;
         var nodeTerrain = lineTerrain with
         {
-            Id = nodeType, SurfaceVoxel = ModelVoxel, SubsurfaceVoxel = ModelVoxel, RockVoxel = ModelVoxel
+            Id = nodeType,
+            SurfaceVoxel = ModelVoxel,
+            SubsurfaceVoxel = ModelVoxel,
+            RockVoxel = ModelVoxel
         };
-        var content = new FixedContentView
-        {
-            Core = SceneFixtures.Content().Core,
-            Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
-            {
-                [lineTerrain.Id] = new ContentLookup<TerrainAppearanceProjection>.Found(lineTerrain),
-                [nodeTerrain.Id] = new ContentLookup<TerrainAppearanceProjection>.Found(nodeTerrain)
-            },
-            RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>
-            { [RailwayFixtures.Rule] = new ContentLookup<RailwayAppearanceProjection>.Found(RailwayFixtures.Rules) },
-            VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
-            {
-                [SceneFixtures.Voxel] = new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube),
-                [ModelVoxel] = new ContentLookup<VoxelAppearanceProjection>.Found(ModelAppearance("node-rock"))
-            }
-        };
-        var basis = Short(content);
-        var nodes = basis.Core.World.Nodes.Select(node => node with
-        { Terrain = node.Terrain with { TypeId = nodeType } }).ToImmutableArray();
-        var edge = ((Lookup<EdgeView>.Found)basis.Core.FindEdge(RailwayFixtures.Edge)).Value;
-        var snapshot = basis with { Core = new FixedCoreReadView
-        {
-            World = basis.Core.World with { Nodes = nodes },
-            Nodes = nodes.ToDictionary(node => node.Id, node => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(node, [edge.Map.Id]))),
-            Edges = new Dictionary<EdgeId, Lookup<EdgeView>> { [edge.Map.Id] = new Lookup<EdgeView>.Found(edge) }
-        } };
+        var content = RailwayFixtures.Content(terrain: lineTerrain,
+            terrains: new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
+            { [nodeTerrain.Id] = new ContentLookup<TerrainAppearanceProjection>.Found(nodeTerrain) },
+            voxels: new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
+            { [ModelVoxel] = new ContentLookup<VoxelAppearanceProjection>.Found(ModelAppearance("node-rock")) });
+        var snapshot = Short(content);
+        foreach (var node in snapshot.Core.World.Nodes)
+            snapshot = RailwayFixtures.ReplaceCore(snapshot, node with { Terrain = node.Terrain with { TypeId = nodeType } });
 
         var cells = Build(snapshot).Geometry.Picking.Single().Grid.Cells;
         Assert.IsTrue(cells.Any(cell => Math.Abs(cell.At.X + 0.5) > 24 && cell.Appearance?.Definition == ModelVoxel),
@@ -135,21 +203,7 @@ public sealed class RailwayTerrainTests
     [TestMethod]
     public void TunnelKeepsItsRoofAboveTheTrackAndLeavesTheInteriorClear()
     {
-        var terrain = RailwayFixtures.TerrainAppearance with
-        {
-            LocalHeightNoise = [new(1_000_000, 100)],
-            RailwayModels = [new(1, ModelHash, ModelHash)]
-        };
-        var basis = RailwayFixtures.Snapshot(4, 4, relief: 1, content: Content(terrain, Model()));
-        var nodes = basis.Core.World.Nodes.Select(node => node with
-        { Terrain = node.Terrain with { Relief = 0 } }).ToImmutableArray();
-        var edge = ((Lookup<EdgeView>.Found)basis.Core.FindEdge(RailwayFixtures.Edge)).Value;
-        var snapshot = basis with { Core = new FixedCoreReadView
-        {
-            World = basis.Core.World with { WorldSeed = 4, Nodes = nodes },
-            Nodes = nodes.ToDictionary(node => node.Id, node => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(node, [edge.Map.Id]))),
-            Edges = new Dictionary<EdgeId, Lookup<EdgeView>> { [edge.Map.Id] = new Lookup<EdgeView>.Found(edge) }
-        } };
+        var snapshot = TunnelSnapshot(true);
 
         // Level endpoints surround a high, slowly varying ridge on this short straight route.
         var segment = Build(snapshot);
@@ -213,7 +267,8 @@ public sealed class RailwayTerrainTests
         var model = Model(flatten: new(new(0, 0), new(0, 0), 3));
         var terrain = RailwayFixtures.TerrainAppearance with
         {
-            Decorations = [new(ModelHash, 1)], DecorationTargetPerSquareMeter = 0.03
+            Decorations = [new(ModelHash, 1)],
+            DecorationTargetPerSquareMeter = 0.03
         };
         var segment = Build(Short(Content(terrain, model)));
         var decorations = segment.Geometry.Objects.Where(item => item.Parent is null && item.Id.Value != 0).ToArray();
@@ -253,7 +308,7 @@ public sealed class RailwayTerrainTests
         var start = Build(snapshot, 0);
         var end = Build(snapshot, 2);
         var first = snapshot.Core.World.Nodes[0];
-        var changed = ReplaceCore(snapshot, first with { Terrain = first.Terrain with { Relief = 2 } });
+        var changed = RailwayFixtures.ReplaceCore(snapshot, first with { Terrain = first.Terrain with { Relief = 2 } });
         var path = new RailwayPath(changed, RailwayFixtures.Edge);
         Assert.IsFalse(start.Dependencies.Matches(changed, path, 0));
         Assert.IsTrue(end.Dependencies.Matches(changed, path, 2));
@@ -302,6 +357,26 @@ public sealed class RailwayTerrainTests
         Assert.IsNull(cache.Find(equivalent, path, 0));
     }
 
+    private static SceneWorldSnapshot TunnelSnapshot(bool includeModel, bool diagonal = false)
+    {
+        var terrain = RailwayFixtures.TerrainAppearance with
+        {
+            LocalHeightNoise = [new(1_000_000, 100)],
+            RailwayModels = includeModel ? [new(1, ModelHash, ModelHash)] : []
+        };
+        var basis = RailwayFixtures.Snapshot(4, 4, relief: 1, content: Content(terrain, Model()));
+        var snapshot = RailwayFixtures.ReplaceCore(basis, worldSeed: 4);
+        foreach (var node in snapshot.Core.World.Nodes)
+            snapshot = RailwayFixtures.ReplaceCore(snapshot, node with { Terrain = node.Terrain with { Relief = 0 } });
+
+        if (diagonal)
+        {
+            var end = snapshot.Core.World.Nodes[1];
+            snapshot = RailwayFixtures.ReplaceCore(snapshot, end with { Position = new(2.4, 3.2) });
+        }
+        return snapshot;
+    }
+
     private static SceneWorldSnapshot Short(IContentView? content = null, int tracks = 1) =>
         RailwayFixtures.Snapshot(4, 4, relief: 0, tracks: tracks, content: content);
 
@@ -309,24 +384,17 @@ public sealed class RailwayTerrainTests
         RailwayTerrain.Build(snapshot, new(snapshot, RailwayFixtures.Edge), index, CancellationToken.None);
 
     private static FixedContentView Content(TerrainAppearanceProjection terrain, DesignEvaluation.Complete? model = null,
-        VoxelAppearanceProjection? modelAppearance = null, bool missingGround = false) => new()
-    {
-        Generation = new(2), Core = SceneFixtures.Content().Core,
-        Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
-        { [terrain.Id] = new ContentLookup<TerrainAppearanceProjection>.Found(terrain) },
-        RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>
-        { [RailwayFixtures.Rule] = new ContentLookup<RailwayAppearanceProjection>.Found(RailwayFixtures.Rules with { }) },
-        Designs = model is null ? new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>() :
-            new Dictionary<DesignHash, ContentLookup<DesignEvaluation>> { [model.Design] = new ContentLookup<DesignEvaluation>.Found(model) },
-        VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
-        {
-            [SceneFixtures.Voxel] = missingGround ? new ContentLookup<VoxelAppearanceProjection>.Missing([]) :
-                new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube with
-                { Presentation = new VoxelPresentation.Cube([new("cube")], MaterialCategory.PaintedMetal, 1,
-                    new("tile"), new("tile"), new("tile"), new("tile")) }),
-            [ModelVoxel] = new ContentLookup<VoxelAppearanceProjection>.Found(modelAppearance ?? ModelAppearance("model"))
-        }
-    };
+        VoxelAppearanceProjection? modelAppearance = null, bool missingGround = false) => RailwayFixtures.Content(
+            terrain: terrain, vehicle: model, voxels: new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
+            {
+                [SceneFixtures.Voxel] = missingGround ? new ContentLookup<VoxelAppearanceProjection>.Missing([]) :
+                    new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube with
+                    {
+                        Presentation = new VoxelPresentation.Cube([new("cube")], MaterialCategory.PaintedMetal, 1,
+                        new("tile"), new("tile"), new("tile"), new("tile"))
+                    }),
+                [ModelVoxel] = new ContentLookup<VoxelAppearanceProjection>.Found(modelAppearance ?? ModelAppearance("model"))
+            });
 
     private static VoxelAppearanceProjection ModelAppearance(string texture) => SceneFixtures.Cube with
     {
@@ -337,25 +405,13 @@ public sealed class RailwayTerrainTests
 
     private static DesignEvaluation.Complete Model(GridPosition? at = null, FlattenRegion? flatten = null) =>
         SceneFixtures.Evaluation(SceneFixtures.Projection([SceneFixtures.Cell(at ?? new(0, 0, 0)) with { Voxel = ModelVoxel }]) with
-        { Design = ModelHash, RootFlatten = flatten }) with { Design = ModelHash };
+        { Design = ModelHash, RootFlatten = flatten }) with
+        { Design = ModelHash };
 
     private static SceneWorldSnapshot WithFeatures(SceneWorldSnapshot snapshot, ImmutableArray<string> features)
     {
         var edge = snapshot.Core.World.Edges.Single();
-        return ReplaceCore(snapshot, edge: edge with { Terrain = edge.Terrain with { FeatureIds = features } });
-    }
-
-    private static SceneWorldSnapshot ReplaceCore(SceneWorldSnapshot snapshot, NodeMapItem? replacement = null, EdgeMapItem? edge = null)
-    {
-        var nodes = snapshot.Core.World.Nodes.Select(node => replacement is not null && node.Id == replacement.Id ? replacement : node).ToImmutableArray();
-        var current = edge ?? snapshot.Core.World.Edges.Single();
-        var oldEdge = ((Lookup<EdgeView>.Found)snapshot.Core.FindEdge(current.Id)).Value;
-        return snapshot with { Core = new FixedCoreReadView
-        {
-            World = snapshot.Core.World with { Nodes = nodes, Edges = [current] },
-            Nodes = nodes.ToDictionary(node => node.Id, node => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(node, [current.Id]))),
-            Edges = new Dictionary<EdgeId, Lookup<EdgeView>> { [current.Id] = new Lookup<EdgeView>.Found(oldEdge with { Map = current }) }
-        } };
+        return RailwayFixtures.ReplaceCore(snapshot, edge: edge with { Terrain = edge.Terrain with { FeatureIds = features } });
     }
 
     private static IEnumerable<SceneMesh> Meshes(RailwaySegment segment) =>

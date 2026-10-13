@@ -17,7 +17,7 @@ internal static class RailwayMeshes
         for (var track = 1; track <= path.Edge.Tracks; track++)
         {
             var offset = RailwayCoordinates.TrackOffset(track, path.Edge.Tracks);
-            foreach (var (gauge, height) in new[] { (3f, .3f), (7f, .4f), (15f, .6f) })
+            foreach (var (gauge, height) in RailwayCoordinates.Gauges)
             {
                 var width = height * .65f;
                 Vector2[] profile = [new(-width, -height), new(width, -height),
@@ -73,8 +73,10 @@ internal static class RailwayMeshes
                 var up = Vector3.Normalize(Vector3.Cross(sample.Forward, sample.Right));
                 var center = RailwayCoordinates.Relative(sample.Position, origin) - up * .8f;
                 Box(0, 0, 8.5f, .2f);
-                Box(-1.5f, .35f, .3f, .15f); Box(1.5f, .35f, .3f, .15f);
-                Box(-3.5f, .3f, .3f, .1f); Box(3.5f, .3f, .3f, .1f);
+                var smallHalfGauge = (float)RailwayCoordinates.Gauges[0].Gauge / 2;
+                var mediumHalfGauge = (float)RailwayCoordinates.Gauges[1].Gauge / 2;
+                Box(-smallHalfGauge, .35f, .3f, .15f); Box(smallHalfGauge, .35f, .3f, .15f);
+                Box(-mediumHalfGauge, .3f, .3f, .1f); Box(mediumHalfGauge, .3f, .3f, .1f);
                 void Box(float lateral, float height, float halfWidth, float halfHeight)
                 {
                     Vector3 Corner(float x, float y, float z) => center + sample.Right * (x + lateral) + up * (y + height) + sample.Forward * z;
