@@ -101,7 +101,6 @@ public sealed class CliTests
     public void Structure_rejects_a_real_factory_reference_outside_host_composition()
     {
         Write("App/Fixture.cs", "using Factory = Train.Core.CoreFactory; namespace Fixture; public sealed class Host { public object Create() => Factory.Create(); }");
-        Build("App/Train.csproj");
         var result = Check("structure", "outputs/structure-factory-invalid");
         Assert.AreEqual(1, result.ExitCode, result.Output);
         StringAssert.Contains(result.Output, "factory reference outside composition: Train");
@@ -137,7 +136,6 @@ public sealed class CliTests
     {
         RequireSuccess(Check("verify", "baseline.txt"));
         File.WriteAllText(contractSource, OriginalContract.Replace("Original", "Replacement", StringComparison.Ordinal));
-        Build("Contracts/Core/Train.Core.Contracts.csproj");
         var result = Check("verify", "baseline.txt");
         Assert.AreEqual(1, result.ExitCode, result.Output);
         Assert.IsTrue(result.Output.Split('\n').Any(line => line.Contains("added public API:") && line.Contains("Replacement")), result.Output);
