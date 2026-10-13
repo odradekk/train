@@ -30,6 +30,10 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
         => await CreateThroughInput(false, true, confirm: true);
 
     [Test]
+    public async Task Missing_confirmation_keeps_an_unrelated_error_with_the_same_text()
+        => await CreateThroughInput(false, true, confirm: true, preserveError: true);
+
+    [Test]
     public async Task New_game_without_session_options_is_disabled()
     {
         var fixture = new Fixture(TestScene.GetTree());
@@ -55,7 +59,7 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
         finally { await fixture.Cleanup(); }
     }
 
-    private async Task CreateThroughInput(bool reject, bool missing = false, bool confirm = false)
+    private async Task CreateThroughInput(bool reject, bool missing = false, bool confirm = false, bool preserveError = false)
     {
         var tree = TestScene.GetTree();
         var fixture = new Fixture(tree);
@@ -145,6 +149,7 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
                 var action = panel.GetNode<Button>(confirm ? "Layout/Body/ConfirmMissing" : "Layout/Body/Cancel");
                 Require(action.IsVisibleInTree() && !action.Disabled, "缺失确认的操作入口不可用。");
                 Require(candidate.ActivationCount == 0, "缺失确认前已激活候选。");
+                if (preserveError) ui.ShowError(ui.ErrorText);
                 action.GrabFocus();
                 await _input.PressKey(Key.Space);
                 await _input.WaitUntil(() => !app.Host.IsBusy);
@@ -153,10 +158,10 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
                 if (confirm)
                 {
                     var map = ui.GetNode<MacroMap>("Root/World/MacroMap");
-                    await _input.WaitUntil(() => ReferenceEquals(map.View, view));
+                    await _input.WaitUntil(() => ReferenceEquals(map.View, view) && map.IsVisibleInTree());
                     Require(candidate.ActivationCount == 1 && app.Host.GetStatus()!.PlayerPaused &&
                         map.IsVisibleInTree() && !menu.IsVisibleInTree() &&
-                        !ui.GetNode<Control>("Root/ErrorPanel").IsVisibleInTree(),
+                        ui.GetNode<Control>("Root/ErrorPanel").IsVisibleInTree() == preserveError,
                         "真实确认输入没有激活候选并进入暂停地图。");
                     session.AssertComplete();
                 }
@@ -174,7 +179,7 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
             else
             {
                 var map = ui.GetNode<MacroMap>("Root/World/MacroMap");
-                await _input.WaitUntil(() => ReferenceEquals(map.View, view));
+                await _input.WaitUntil(() => ReferenceEquals(map.View, view) && map.IsVisibleInTree());
                 Require(app.Host!.GetStatus()!.PlayerPaused && map.IsVisibleInTree() &&
                     !menu.IsVisibleInTree() && !panel.IsVisibleInTree() && candidate.ActivationCount == 1,
                     "创建成功后未进入暂停地图，或候选重复激活。");

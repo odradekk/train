@@ -106,9 +106,13 @@ public partial class WorldPanels : Control
     internal void Invalidate()
     {
         Refresh(default, _view, _content);
-        foreach (var detail in _details) detail.Panel.Hide();
+        foreach (var detail in _details) detail.Panel.QueueFree();
+        _details.Clear();
         _disband.Hide();
     }
+
+    internal bool IsObjectOpen(WorldObjectId target) =>
+        _details.Any(detail => detail.Target.Object == target && detail.Panel.IsVisibleInTree());
 
     internal void OpenObject(WorldObjectId target)
     {
@@ -210,7 +214,7 @@ public partial class WorldPanels : Control
             if (_view.FindLocation(new WorldLocation.Node(node.Id)) is Lookup<LocationView>.Found location)
                 foreach (var instance in location.Value.Instances.OfType<InstanceId.Vehicle>())
                     if (_view.FindInstance(instance) is Lookup<InstanceView>.Found vehicle)
-                        text.AppendLine($"车辆 {instance.Id.Value} · {(vehicle.Value.Details is InstanceDetails.Vehicle details && details.Train is { } trainId ? $"列车 {trainId.Value}" : "未编组")} · {vehicle.Value.Ownership switch { SettlementRelation.PlayerOwned => "自有", SettlementRelation.NonHostile => "非敌对", _ => "敌对" }}");
+                        text.AppendLine($"车辆 {instance.Id.Value} · {(vehicle.Value.Details is InstanceDetails.Vehicle details && details.Train is { } trainId ? $"列车 {trainId.Value}" : "未编组")} · {Relation(vehicle.Value.Ownership)}");
             text.AppendLine("\n相邻线路");
             foreach (var edge in foundNode.Value.AdjacentEdges) text.AppendLine(NameOf(new WorldObjectId.Edge(edge)));
         }

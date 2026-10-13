@@ -1,10 +1,35 @@
 using Godot;
+using Train.App.Saves;
+using Train.Ui;
 using static Train.Engine.Tests.Assertions;
 
 namespace Train.Engine.Tests;
 
 internal sealed class UiTestInput(Node scene)
 {
+    internal async Task Activate(BaseButton button, Window? window = null)
+    {
+        Require(button.IsVisibleInTree() && !button.Disabled, $"真实输入按钮不可用：{button.Name}。");
+        button.GrabFocus();
+        await PressKey(Key.Space, window: window);
+    }
+
+    internal static Button SaveButton(SavePanel panel, string text) =>
+        panel.FindChildren("*", "Button", true, false).Cast<Button>()
+            .Single(button => button.Text == text && button.GetWindow() == panel);
+
+    internal static void DeleteSaves(IEnumerable<Guid> owned)
+    {
+        var store = new FileSaveStore(OS.GetUserDataDir());
+        foreach (var id in owned)
+        {
+            var directory = Path.GetFullPath(store.DirectoryFor(id));
+            Require(Path.GetDirectoryName(directory) == Path.Combine(store.Root, FileSaveStore.SavesFolder),
+                "测试清理路径不在本次存档目录内。");
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
     internal async Task Frames(int count = 1)
     {
         for (var frame = 0; frame < count; frame++)

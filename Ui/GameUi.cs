@@ -19,6 +19,7 @@ public partial class GameUi : CanvasLayer
     private Control _world = null!;
     private SettingsPanel _settings = null!;
     private Label _error = null!;
+    private long? _missingErrorOperation;
     private PanelContainer _errorPanel = null!;
     private Button? _createNewGame;
     private Button? _confirmMissing;
@@ -29,10 +30,7 @@ public partial class GameUi : CanvasLayer
     private TrainFormationPanel? _formation;
     private TrainPlanPanel? _plan;
     private HFlowContainer _bar = null!;
-    private readonly Dictionary<int, Button> _speeds = [];
-    private HostBinding _displayedBinding;
-    private ICoreReadView? _displayedView;
-    private IContentView? _displayedContent;
+    private readonly List<(SimulationSpeed? Speed, Button Button)> _speeds = [];
     private PanelContainer? _newGame;
     private Label? _newGameError;
     private long _newOperation;
@@ -81,14 +79,14 @@ public partial class GameUi : CanvasLayer
             _scenes.Selected += OnSelected;
         }
         var speeds = new ButtonGroup();
-        foreach (var speed in new[] { 0, 1, 2, 4, 8 })
+        foreach (var speed in new SimulationSpeed?[] { null, SimulationSpeed.One, SimulationSpeed.Two, SimulationSpeed.Four, SimulationSpeed.Eight })
         {
-            var button = UiStyle.Button(speed == 0 ? "Pause" : $"Speed{speed}",
-                speed == 0 ? "暂停" : $"{speed}×", () => SetSpeed(speed));
+            var button = UiStyle.Button(speed is null ? "Pause" : $"Speed{(int)speed.Value}",
+                speed is null ? "暂停" : $"{(int)speed.Value}×", () => SetSpeed(speed));
             button.ToggleMode = true;
             button.ButtonGroup = speeds;
             button.ThemeTypeVariation = "Speed";
-            _speeds.Add(speed, button);
+            _speeds.Add((speed, button));
             _bar.AddChild(button);
         }
         if (_host is not null)
@@ -143,6 +141,8 @@ public partial class GameUi : CanvasLayer
     public override void _Process(double delta)
     {
         var showingScene = _scenes?.View.Visible == true;
+        var status = _host?.GetStatus();
+        _map.Visible = status is not null && !showingScene;
         _returnToMap?.SetVisible(showingScene);
         if (_newOperation != 0 && _host?.MissingConfirmation is { } missing &&
             missing.Operation == _newOperation && _reportedMissing != missing.Operation)
@@ -155,23 +155,18 @@ public partial class GameUi : CanvasLayer
             _confirmMissing!.Show();
             _logger.Warning("ui", "new_game_missing_confirmation", message);
             ShowError(message);
+            _missingErrorOperation = missing.Operation;
         }
-        if (_host?.GetStatus() is { } status)
+        if (status is not null)
         {
-            _map.Visible = !showingScene;
             _clock.Text = $"{UiInput.FormatTime(status.View.Position.CompletedSteps)}   {(status.IsPaused ? "已暂停" : "运行中")}   实际 {status.ActualSpeed:0.00}×";
             foreach (var (speed, button) in _speeds)
             {
-                button.Disabled = _host.IsBusy;
-                button.SetPressedNoSignal(speed == (status.PlayerPaused ? 0 : (int)status.Speed));
+                button.Disabled = _host!.IsBusy;
+                button.SetPressedNoSignal(speed == (status.PlayerPaused ? null : (SimulationSpeed?)status.Speed));
             }
             if (_view is not null && _content is not null)
             {
-                if (!ReferenceEquals(_displayedView, _view) || !ReferenceEquals(_displayedContent, _content))
-                {
-                    _map.SetView(_view, _content, _displayedBinding != _binding);
-                    _displayedBinding = _binding; _displayedView = _view; _displayedContent = _content;
-                }
                 _panels!.Refresh(_binding, _view, _content);
                 _formation!.Refresh(_binding, _view, _content);
                 _plan!.Refresh(_binding, _view, _content);
@@ -184,8 +179,7 @@ public partial class GameUi : CanvasLayer
             _plan!.Refresh(default, _view, _content!);
             _formation.Hide(); _plan.Hide();
             _view = null; _content = null; _binding = default;
-            _displayedView = null; _displayedContent = null; _displayedBinding = default;
-            _world.Hide(); _map.Show(); _errorPanel.Hide(); _settings.Hide();
+            _world.Hide(); _errorPanel.Hide(); _settings.Hide(); _missingErrorOperation = null;
             _menu.Show();
         }
         _menu.SetNewGameEnabled(_host?.SessionOptions is not null && !_host.IsBusy && _host.Content is not null);
@@ -199,11 +193,11 @@ public partial class GameUi : CanvasLayer
         ShowError(message);
     }
 
-    private void SetSpeed(int speed)
+    private void SetSpeed(SimulationSpeed? speed)
     {
         if (_host is null) return;
-        if (speed == 0) { Report(_host.SetPaused(true)); return; }
-        var problem = _host.SetSpeed((SimulationSpeed)speed);
+        if (speed is null) { Report(_host.SetPaused(true)); return; }
+        var problem = _host.SetSpeed(speed.Value);
         if (problem is not null) { Report(problem); return; }
         Report(_host.SetPaused(false));
     }
@@ -233,9 +227,9 @@ public partial class GameUi : CanvasLayer
     {
         if (view.Fault is { } fault && (_binding != binding || _view?.Fault != fault))
             ShowError(CommandDiagnostics.Describe(fault));
+        _map.SetView(view, content, _binding != binding);
         _binding = binding; _view = view; _content = content;
         _menu.Hide(); _world.Show();
-        _map.Visible = _scenes?.View.Visible != true;
     }
 
     private void OpenScene(WorldObjectId id)
@@ -254,15 +248,11 @@ public partial class GameUi : CanvasLayer
         };
         if (target is null) { ReportUiError("对象没有可观察的场景目标。"); return; }
         _scenes.Open(target);
-        _map.Visible = !_scenes.View.Visible;
     }
 
     private void OnReturnedToMap(SceneProblem? problem)
     {
         if (problem is not null) ShowError($"{problem.Code}：{problem.Detail}");
-        if (_view is null || _menu.Visible || !_world.Visible || _host?.GetStatus()?.Binding != _binding || _map.Visible)
-            return;
-        _map.Show();
     }
 
     private void OnSelected(PickSubject subject)
@@ -310,10 +300,9 @@ public partial class GameUi : CanvasLayer
         {
             var operation = _newOperation;
             if (operation == 0 || _host!.MissingConfirmation?.Operation != operation) return;
-            var missingMessage = _newGameError!.Text;
             if (_host.ConfirmMissing(operation))
             {
-                if (_error.Text == missingMessage) _errorPanel.Hide();
+                if (_missingErrorOperation == operation) { _errorPanel.Hide(); _missingErrorOperation = null; }
                 return;
             }
             const string message = "缺失确认已失效，请重新创建对局。";
@@ -381,6 +370,7 @@ public partial class GameUi : CanvasLayer
 
     internal void ShowError(string message)
     {
+        _missingErrorOperation = null;
         _error.Text = message; _errorPanel.Show(); _errorPanel.MoveToFront();
         _errorPanel.Position = new(Math.Max(16, _root.Size.X - _errorPanel.Size.X - 24), 68);
     }

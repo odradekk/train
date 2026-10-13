@@ -4,7 +4,6 @@ using Chickensoft.GodotTestDriver;
 using Godot;
 using Train.App;
 using Train.App.Logging;
-using Train.App.Saves;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
 using Train.Core.Contracts;
@@ -49,11 +48,10 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
             var session = setup.Scenes[^1];
             await _input.Click(new(950, 650));
             Require(frame.LastPickRay is not null && session.ResolveCalls.Count == 1 &&
-                ui.GetNode<WorldPanels>("Root/World/WorldPanels").FindChildren("Description", "Label", true, false)
-                    .Cast<Label>().Any(label => label.IsVisibleInTree() && label.Text.Contains("结构耐久：100 / 100") && label.Text.Contains("归属：自有") && label.Text.Contains("编组：列车 7")),
+                ui.GetNode<WorldPanels>("Root/World/WorldPanels").IsObjectOpen(new WorldObjectId.Instance(Vehicle)),
                 "场景真实点击未经过Pick/Resolve打开实例详情。");
             var pickedRay = frame.LastPickRay;
-            await Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
+            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
             var list = ui.GetNode<ItemList>("Root/World/WorldPanels/NodesList/Layout/Body/Objects");
             await _input.ClickItem(list, 0);
             Require(session.ResolveCalls.Count == 1 && ReferenceEquals(frame.LastPickRay, pickedRay), "顶栏或列表点击穿透场景拾取。");
@@ -64,11 +62,13 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
             Require(map.Offset == offset && map.Zoom == zoom && session.IsDisposed &&
                 !ui.GetNode<Control>("Root/ErrorPanel").Visible, "Escape返回地图丢失视角、未释放场景或将正常返回显示成错误。");
             await Open(app, setup, map.GlobalPosition + map.MapToScreen(new(500, 300)), EdgeTarget);
-            await Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/ReturnToMap"));
+            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/ReturnToMap"));
+            await _input.WaitUntil(() => map.IsVisibleInTree());
             Require(map.IsVisibleInTree() && map.Offset == offset && map.Zoom == zoom, "返回地图按钮未恢复原地图视角。");
             await Open(app, setup, map.GlobalPosition + map.MapToScreen(new(250, 300)) + new Vector2(25, -22), TrainTarget);
             await _input.PressKey(Key.Escape);
             setup.RejectNext = true;
+            await _input.WaitUntil(() => map.IsVisibleInTree());
             await _input.Click(map.GlobalPosition + map.MapToScreen(new(250, 300)));
             await _input.WaitUntil(() => map.IsVisibleInTree() && ui.ErrorText.Contains("fixture_node_failed"));
             Require(!app.WorldScenes!.View.Visible, "节点构建失败仍保留场景。");
@@ -89,19 +89,19 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
             var ui = app.GetNode<GameUi>("GameUi");
             var map = ui.GetNode<MacroMap>("Root/World/MacroMap");
             var panel = app.GetNode<MainMenu>("MainMenu").GetChildren().OfType<SavePanel>().Single();
-            await Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Saves"));
-            await Activate(SaveButton(panel, "保存"), panel);
+            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Saves"));
+            await _input.Activate(UiTestInput.SaveButton(panel, "保存"), panel);
             await _input.WaitUntil(() => !app.Saves!.HasPendingWork);
             var identity = app.Saves!.Status!.Identity;
             panel.Hide();
             await Open(app, setup, map.GlobalPosition + map.MapToScreen(new(250, 300)), NodeTarget);
             var scene = setup.Scenes[^1];
             var oldCore = setup.Session;
-            await Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Saves"));
+            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Saves"));
             var list = panel.FindChildren("*", "ItemList", true, false).Cast<ItemList>().Single(item => item.GetWindow() == panel);
             var row = Enumerable.Range(0, list.ItemCount).Single(index => list.GetItemText(index).StartsWith(identity.Name + " ·", StringComparison.Ordinal));
             await _input.ClickItem(list, row, window: panel);
-            await Activate(SaveButton(panel, "读取选中存档"), panel);
+            await _input.Activate(UiTestInput.SaveButton(panel, "读取选中存档"), panel);
             await _input.WaitUntil(() => !app.Saves.HasPendingWork && map.IsVisibleInTree());
             Require(app.Host!.GetStatus() is { IsPaused: true, PlayerPaused: true } && scene.IsDisposed &&
                 oldCore.DisposeCount == 1 && !app.WorldScenes!.View.Visible && app.Saves.Status!.Identity == identity &&
@@ -128,20 +128,20 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
             var returned = 0;
             app.WorldScenes!.ReturnedToMap += _ => returned++;
             var panel = menu.GetChildren().OfType<SavePanel>().Single();
-            await Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Saves"));
-            await Activate(SaveButton(panel, "返回菜单"), panel);
+            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Saves"));
+            await _input.Activate(UiTestInput.SaveButton(panel, "返回菜单"), panel);
             await _input.WaitUntil(() => panel.GetChildren().OfType<ConfirmationDialog>().Any(dialog => dialog.Title == "未保存的更改" && dialog.Visible));
             Require(!scene.IsDisposed && app.Host!.GetStatus() is not null, "未保存确认前离开了场景对局。");
             var confirmation = panel.GetChildren().OfType<ConfirmationDialog>().Single(dialog => dialog.Title == "未保存的更改");
-            await Activate(confirmation.FindChildren("*", "Button", true, false).Cast<Button>().Single(button => button.Text == "不保存"), confirmation);
+            await _input.Activate(confirmation.FindChildren("*", "Button", true, false).Cast<Button>().Single(button => button.Text == "不保存"), confirmation);
             await _input.WaitUntil(() => menu.IsVisibleInTree() && app.Host!.GetStatus() is null);
             Require(scene.IsDisposed && returned == 0 && !app.WorldScenes.View.Visible &&
                 !map.IsVisibleInTree() && !ui.GetNode<Control>("Root/World/Bar").IsVisibleInTree() &&
                 !ui.GetNode<WorldPanels>("Root/World/WorldPanels").IsVisibleInTree(),
                 "没有ReturnedToMap事件的离开未重置场景和游戏界面。");
             panel.Hide();
-            await Activate(menu.GetNode<Button>("%NewGame"));
-            await Activate(ui.GetNode<Button>("Root/NewGame/Layout/Body/Create"));
+            await _input.Activate(menu.GetNode<Button>("%NewGame"));
+            await _input.Activate(ui.GetNode<Button>("Root/NewGame/Layout/Body/Create"));
             await _input.WaitUntil(() => app.Host!.GetStatus() is not null && map.IsVisibleInTree());
             Require(app.Host!.GetStatus() is { IsPaused: true, PlayerPaused: true } && !menu.IsVisibleInTree() &&
                 !app.WorldScenes!.View.Visible && setup.Scenes.Count == 1,
@@ -171,15 +171,6 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
         Require(setup.Scenes[^1].RequestCalls.SequenceEqual(new[] { target }), "地图点击未请求对应世界场景目标。");
     }
 
-    private async Task Activate(BaseButton button, Window? window = null)
-    {
-        Require(button.IsVisibleInTree() && !button.Disabled, $"真实输入按钮不可用：{button.Name}。");
-        button.GrabFocus();
-        await _input.PressKey(Key.Space, window: window);
-    }
-    private static Button SaveButton(SavePanel panel, string text) => panel.FindChildren("*", "Button", true, false)
-        .Cast<Button>().Single(button => button.Text == text && button.GetWindow() == panel);
-
     private async Task Cleanup(Fixture fixture, Train.App.App? app)
     {
         var identity = app?.Saves?.Status?.Identity.Id;
@@ -188,10 +179,7 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
         TestScene.GetTree().Root.ContentScaleFactor = _previousScale;
         if (identity is { } id)
         {
-            var store = new FileSaveStore(OS.GetUserDataDir());
-            var directory = Path.GetFullPath(store.DirectoryFor(id));
-            Require(Path.GetDirectoryName(directory) == Path.Combine(store.Root, FileSaveStore.SavesFolder), "测试存档清理路径越界。");
-            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            UiTestInput.DeleteSaves([id]);
         }
     }
 
@@ -233,7 +221,7 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
                 "scene-ui", HostCoreScenario.Input, new(0));
             ScriptedCoreCandidate Candidate()
             {
-                Session = new(View());
+                Session = new(UiWorldFixture.Scene());
                 Session.SetCapture(CapturePurpose.Save, new CoreResult<ICoreCapture>.Success(capture));
                 return new(Session, HostCoreScenario.References);
             }
@@ -263,29 +251,7 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
             return new(new(1), null, new(NVector3.Zero, System.Numerics.Quaternion.Identity),
                 new WorldObjectId.Instance(Vehicle), [new SceneVisual.Geometry(mesh, new(false, 0, 0, false))], [], []);
         }
-        private static FixedCoreReadView View()
-        {
-            var terrain = new TerrainView(new("fixture:plain"), 0, []);
-            var first = new NodeMapItem(new(1), new(250, 300), terrain, new NodeOccupant.Empty(), [], 0, 1, null);
-            var second = first with { Id = new(2), Position = new(750, 300) };
-            var edge = new EdgeMapItem(new(1), first.Id, second.Id, 600, terrain, 1, 1, [], []);
-            var position = new TrainPosition.Node(first.Id);
-            var train = new TrainView(new(7), position, TrainActivity.Stopped, [new(9)], new(1), 0, 20, 10, 100, 0, 30,
-                null, null, 0, new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, .2), [], null, [], null, TrainOrderFacing.FirstEndLeading);
-            var location = new WorldLocation.Node(first.Id);
-            return new(new(0, 0), HostCoreScenario.Input, revision: new(0)) {
-                World = new(1, new("fixture:railway"), 1000, 600, [first, second], [edge], [new(train.Id, position, train.Activity)], [], []),
-                Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [first.Id] = new Lookup<NodeView>.Found(new(first, [edge.Id])), [second.Id] = new Lookup<NodeView>.Found(new(second, [edge.Id])) },
-                Edges = new Dictionary<EdgeId, Lookup<EdgeView>> { [edge.Id] = new Lookup<EdgeView>.Found(new(edge, [], null)) },
-                Trains = new Dictionary<TrainId, Lookup<TrainView>> { [train.Id] = new Lookup<TrainView>.Found(train) },
-                Locations = new Dictionary<WorldLocation, Lookup<LocationView>> { [location] = new Lookup<LocationView>.Found(new(location, [train.Id], [Vehicle], [], [], new NodeOccupant.Empty())) },
-                Instances = new Dictionary<InstanceId, Lookup<InstanceView>> { [Vehicle] = new Lookup<InstanceView>.Found(new(Vehicle,
-                    new("fixture-design"), new("fixture-composition"), location, SettlementRelation.PlayerOwned,
-                    new InstanceDetails.Vehicle(SizeClass.Medium, train.Id), InstanceLock.None, new(100, 100), [], [])) }
-            };
-        }
+
     }
 }
-
-
 

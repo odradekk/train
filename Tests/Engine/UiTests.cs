@@ -19,7 +19,7 @@ public class UiTests(Node testScene) : TestClass(testScene)
         var tree = TestScene.GetTree();
         var fixture = new Fixture(tree);
         var scale = tree.Root.ContentScaleFactor;
-        var view = WorldView();
+        var view = UiWorldFixture.Map();
         var setup = new HostSimulationTests.HostSetup(view);
         try
         {
@@ -80,7 +80,7 @@ public class UiTests(Node testScene) : TestClass(testScene)
     {
         var tree = TestScene.GetTree();
         var fixture = new Fixture(tree);
-        var setup = new HostSimulationTests.HostSetup(WorldView());
+        var setup = new HostSimulationTests.HostSetup(UiWorldFixture.Map());
         try
         {
             var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
@@ -116,14 +116,14 @@ public class UiTests(Node testScene) : TestClass(testScene)
         var tree = TestScene.GetTree();
         var fixture = new Fixture(tree);
         var scale = tree.Root.ContentScaleFactor;
-        var view = WorldView();
+        var view = UiWorldFixture.Map();
         var setup = new HostSimulationTests.HostSetup(view);
-        var rejectedView = WorldView(new(0, 1));
-        setup.Session.QueueSubmit(new CoreCommand.StopTrain(new(1)), CommandSource.UserInterface,
+        var rejectedView = UiWorldFixture.Map(new(0, 1));
+        setup.Session.QueueSubmit(new CoreCommand.StopTrain(new(7)), CommandSource.UserInterface,
             new SubmissionResult.Completed(new(1, view.Position, new(0, 1),
-                new CommandDecision.Rejected([new("no_route", "train.plan", new WorldObjectId.Train(new(1)), [])])), [], null),
+                new CommandDecision.Rejected([new("no_route", "train.plan", new WorldObjectId.Train(new(7)), [])])), [], null),
             rejectedView);
-        var replacement = new ScriptedCoreSession(WorldView());
+        var replacement = new ScriptedCoreSession(UiWorldFixture.Map());
         setup.ReplacementCandidate = new(replacement, HostCoreScenario.References);
         try
         {
@@ -180,24 +180,6 @@ public class UiTests(Node testScene) : TestClass(testScene)
         finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
     }
 
-    private static FixedCoreReadView WorldView(SimulationPosition tick = default)
-    {
-        var terrain = new TerrainView(new("core:plains"), 0, []);
-        var first = new NodeMapItem(new(1), new(250, 300), terrain, new NodeOccupant.Empty(), [], 0, 0, null);
-        var second = new NodeMapItem(new(2), new(750, 300), terrain, new NodeOccupant.Empty(), [], 0, 0, null);
-        var position = new TrainPosition.Node(first.Id);
-        var train = new TrainView(new(1), position, TrainActivity.Stopped, [], new(1),
-            0, 20, 10, 100, 0, 30, null, null, 0,
-            new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, .2), [], null, [], null,
-            TrainOrderFacing.FirstEndLeading);
-        return new(tick, HostCoreScenario.Input)
-        {
-            World = new(1, new("fixture:railway"), 1000, 600, [first, second], [],
-                [new(train.Id, position, train.Activity)], [], []),
-            Trains = new Dictionary<TrainId, Lookup<TrainView>> { [train.Id] = new Lookup<TrainView>.Found(train) }
-        };
-    }
-
     [Test]
     public async Task Settings_open_through_input_and_persist_scale_with_bundled_fonts()
     {
@@ -247,7 +229,6 @@ public class UiTests(Node testScene) : TestClass(testScene)
             if (original is null) File.Delete(path); else File.WriteAllBytes(path, original);
         }
     }
-
 
 }
 
