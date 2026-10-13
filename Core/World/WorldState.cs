@@ -51,6 +51,23 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
         Source.Configuration.WidthMeters, Source.Configuration.HeightMeters, Nodes, Edges,
         Trains.Select(t => new TrainMapItem(t.Id, t.Position, t.Activity)).ToImmutableArray(), [], []);
 
+    internal static int CountPlatforms(SettlementState settlement, IReadOnlyDictionary<InstanceId, InstanceState> instances,
+        IReadOnlyDictionary<DesignHash, DesignProjection> designs)
+    {
+        var platforms = 0;
+        foreach (var plot in settlement.Plots)
+        {
+            if (plot.Building is not { } building) continue;
+            var instance = instances[new InstanceId.Building(building)];
+            var design = designs[instance.Design];
+            if (design.Kind is not DesignKind.Building { Type: BuildingKind.Station }
+                || Math.Min(instance.StructureDurability, design.MaxStructureDurability) == 0) continue;
+            platforms += design.Parts.Count(part => part.Capabilities.Any(c => c is PartCapability.Platform)
+                && Math.Min(instance.Parts.Single(p => p.Id == part.Id).Current, part.MaxDurability) > 0);
+        }
+        return platforms;
+    }
+
     internal static WorldState Create(WorldGenerationInput input, CoreContentProjection content,
         ImmutableArray<CandidateNode> nodes, ImmutableArray<CandidateEdge> edges,
         ImmutableArray<GeneratedOccupant> occupants, ImmutableArray<ImmutableArray<NodeResourceView>> resources,
