@@ -1,18 +1,19 @@
 # 控制台命令手册
 
-本页记录当前基础控制台分发器提供的五个命令，以及 Debug 游戏宿主接入的模拟和光照检查命令：
+本页记录当前基础控制台分发器提供的五个命令，以及 Debug 游戏宿主接入的模拟、列车和光照检查命令：
 
 | 命令 | 用途 |
 | --- | --- |
-| [help](help.md) | 列出基础命令名称 |
+| [help](help.md) | 列出当前可用命令名称 |
 | [clear](clear.md) | 清空内存中的控制台日志缓冲区 |
 | [quit](quit.md) | 委托宿主处理退出；新契约宿主接入存档离开保护 |
 | [reload](reload.md) | 委托宿主重新加载内容 |
 | [loglevel](loglevel.md) | 查询或设置日志过滤等级 |
 | [sim](sim.md) | 查询或控制当前活动模拟会话（仅 Debug） |
+| [train](train.md) | 编组、解编、启停列车和替换运行计划（仅 Debug 且接入新 Host） |
 | [lighting](lighting.md) | 查询、切换检查光照并恢复游戏光照（仅 Debug） |
 
-玩家构建的 `help` 列表不包含 `reload`、`sim` 或 `lighting`；Debug 游戏宿主列出五个基础命令与 `sim`、`lighting`。编辑器内运行和 debug 模板导出均为开发构建，release 模板导出为玩家构建。
+玩家构建的 `help` 列表不包含 `reload`、`sim`、`train` 或 `lighting`；Debug 游戏宿主列出五个基础命令与 `sim`、`lighting`，接入新 `HostCoordinator` 时另列出 `train`。`sim` 在默认旧模拟入口也可用。编辑器内运行和 debug 模板导出均为开发构建，release 模板导出为玩家构建。
 
 默认 App 通过 `App/Composition/` 装配真实工厂，使用 `HostCoordinator` 与契约命令。模拟控制及内容重载行为见 [`sim`](sim.md) 和 [`reload`](reload.md)。
 

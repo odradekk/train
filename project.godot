@@ -35,6 +35,10 @@ project/assembly_name="Train"
 
 enabled=PackedStringArray("res://addons/godot_mcp/plugin.cfg")
 
+[gui]
+
+theme/custom="res://Ui/Theme.tres"
+
 [input]
 
 reload_content={

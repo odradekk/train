@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Chickensoft.GoDotTest;
 using Chickensoft.GodotTestDriver;
 using Godot;
@@ -16,6 +15,129 @@ namespace Train.Engine.Tests;
 
 public class SaveTests(Node testScene) : TestClass(testScene)
 {
+    private readonly UiTestInput _input = new(testScene);
+
+    [Test]
+    public async Task Main_menu_load_real_input_enters_paused_macro_map_without_active_session()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var setup = new SaveSetup();
+        var owned = new HashSet<Guid>();
+        Train.App.App? app = null;
+        try
+        {
+            app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
+            app.CreateHost = setup.Create;
+            await fixture.AddToRoot(app);
+            await _input.WaitUntil(() => app.Saves!.Status is not null);
+            var saves = app.Saves!;
+            var identity = saves.Status!.Identity;
+            owned.Add(identity.Id);
+            var menu = app.GetNode<MainMenu>("MainMenu");
+            var ui = app.GetNode<GameUi>("GameUi");
+            var panel = menu.GetChildren().OfType<SavePanel>().Single();
+            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Saves"));
+            await _input.Activate(UiTestInput.SaveButton(panel, "保存"), panel);
+            await _input.WaitUntil(() => !saves.HasPendingWork);
+            var store = new FileSaveStore(OS.GetUserDataDir());
+            Require(!saves.Status!.Unsaved && store.ReadHeader(store.PathFor(identity.Id)).Id == identity.Id,
+                "真实保存输入未发布本次测试拥有的存档文件。");
+            var previous = setup.Session!;
+            await _input.Activate(UiTestInput.SaveButton(panel, "返回菜单"), panel);
+            await _input.WaitUntil(() => app.Host!.GetStatus() is null && menu.IsVisibleInTree());
+            panel.Hide();
+            await _input.Frames();
+            await _input.Activate(menu.GetNode<Button>("%Saves"));
+            Require(panel.Visible, "无活动会话时主菜单真实输入未打开存档面板。");
+            var list = panel.FindChildren("*", "ItemList", true, false).Cast<ItemList>()
+                .Single(candidate => candidate.GetWindow() == panel);
+            var row = Enumerable.Range(0, list.ItemCount).Single(index =>
+                list.GetItemText(index).StartsWith(identity.Name + " ·", StringComparison.Ordinal));
+            await _input.ClickItem(list, row, window: panel);
+            Require(list.GetSelectedItems().SequenceEqual(new[] { row }), "真实列表点击未选中本次存档。");
+            await _input.Activate(UiTestInput.SaveButton(panel, "读取选中存档"), panel);
+            await _input.WaitUntil(() => !saves.HasPendingWork && saves.Status is not null);
+            await _input.WaitUntil(() => ui.GetNode<MacroMap>("Root/World/MacroMap").IsVisibleInTree());
+            var status = app.Host!.GetStatus()!;
+            Require(status.IsPaused && status.PlayerPaused && saves.Status!.Identity == identity &&
+                !saves.Status.Unsaved && previous.DisposeCount == 1 && !menu.IsVisibleInTree() &&
+                ReferenceEquals(ui.GetNode<MacroMap>("Root/World/MacroMap").View, status.View),
+                "主菜单读档成功未进入暂停地图、发布读取视图或保留存档身份。");
+        }
+        finally { await Cleanup(fixture, app, owned); }
+    }
+
+    [Test]
+    public async Task In_game_saves_real_input_discards_unsaved_session_and_invalidates_old_drafts()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var setup = new SaveSetup();
+        var owned = new HashSet<Guid>();
+        Train.App.App? app = null;
+        try
+        {
+            app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
+            app.CreateHost = setup.Create;
+            await fixture.AddToRoot(app);
+            await _input.WaitUntil(() => app.Saves!.Status is not null);
+            owned.Add(app.Saves!.Status!.Identity.Id);
+            var ui = app.GetNode<GameUi>("GameUi");
+            var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
+            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
+            var nodes = panels.GetNode<ItemList>("NodesList/Layout/Body/Objects");
+            await _input.ClickItem(nodes, 0);
+            await _input.Activate(panels.FindChildren("Form", "Button", true, false).Cast<Button>().Single());
+            var formation = ui.GetNode<TrainFormationPanel>("Root/World/TrainFormationPanel");
+            var available = formation.FindChildren("AvailableVehicles", "ItemList", true, false).Cast<ItemList>().Single();
+            await _input.ClickItem(available, 0);
+            await _input.Activate(formation.FindChildren("AddSelected", "Button", true, false).Cast<Button>().Single());
+            var form = formation.FindChildren("Form", "Button", true, false).Cast<Button>().Single();
+            Require(formation.IsVisibleInTree() && !form.Disabled &&
+                formation.FindChildren("OrderedVehicles", "ItemList", true, false).Cast<ItemList>().Single().ItemCount == 1,
+                "未建立可提交的编组草稿。");
+            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Fleet"));
+            var fleet = panels.GetNode<ItemList>("FleetList/Layout/Body/Objects");
+            await _input.ClickItem(fleet, 0);
+            await _input.Activate(panels.FindChildren("EditPlan", "Button", true, false).Cast<Button>().Single());
+            var plan = ui.GetNode<TrainPlanPanel>("Root/World/TrainPlanPanel");
+            await _input.Activate(plan.GetNode<CheckBox>("Plan/Layout/Body/Loop"));
+            var apply = plan.FindChildren("Apply", "Button", true, false).Cast<Button>().Single();
+            var descriptions = panels.FindChildren("Description", "Label", true, false).Cast<Label>().ToArray();
+            Require(plan.IsVisibleInTree() && !apply.Disabled && descriptions.Length == 2 &&
+                descriptions.All(label => !label.Text.Contains("已不存在", StringComparison.Ordinal)),
+                "未建立有效节点、列车详情和可提交的计划草稿。");
+            var session = setup.Session!;
+            var menu = app.GetNode<MainMenu>("MainMenu");
+            var panel = menu.GetChildren().OfType<SavePanel>().Single();
+            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Saves"));
+            Require(panel.Visible, "游戏顶栏真实输入未打开存档面板。");
+            await _input.Activate(UiTestInput.SaveButton(panel, "返回菜单"), panel);
+            await _input.WaitUntil(() => Dialog<ConfirmationDialog>(panel, "未保存的更改").Visible);
+            Require(app.Host!.GetStatus() is not null && session.DisposeCount == 0 &&
+                app.Saves!.Leaving is { CanSave: true, Waiting: false }, "返回菜单绕过了未保存确认。");
+            var leave = Dialog<ConfirmationDialog>(panel, "未保存的更改");
+            var discard = leave.FindChildren("*", "Button", true, false).Cast<Button>().Single(button => button.Text == "不保存");
+            await _input.Activate(discard, leave);
+            await _input.WaitUntil(() => app.Host.GetStatus() is null && menu.IsVisibleInTree());
+            Require(app.Saves.Status is null && app.Saves.Leaving is null && session.DisposeCount == 1 &&
+                !ui.GetNode<Control>("Root/World").IsVisibleInTree() &&
+                !ui.GetNode<MacroMap>("Root/World/MacroMap").IsVisibleInTree() &&
+                !ui.GetNode<Control>("Root/World/Bar").IsVisibleInTree() &&
+                !panels.IsVisibleInTree() && !formation.IsVisibleInTree() && !plan.IsVisibleInTree(),
+                "不保存离开后仍保留活动会话或游戏界面。");
+            await _input.Frames();
+            Require(descriptions.All(label => !GodotObject.IsInstanceValid(label)) &&
+                panels.FindChildren("Description", "Label", true, false).Count == 0 &&
+                !panels.IsObjectOpen(new WorldObjectId.Node(new(1))) &&
+                !panels.IsObjectOpen(new WorldObjectId.Train(new(7))) && form.Disabled && apply.Disabled &&
+                formation.FindChildren("Reason", "Label", true, false).Cast<Label>().Single().Text.Contains("已不存在") &&
+                plan.FindChildren("Reason", "Label", true, false).Cast<Label>().Single().Text.Contains("已不存在") &&
+                session.SubmitCount == 0,
+                "离开对局后旧详情或编组、计划草稿仍可提交。");
+        }
+        finally { await Cleanup(fixture, app, owned); }
+    }
+
     [Test]
     public async Task Save_and_save_as_buttons_publish_files_and_load_requires_missing_confirmation()
     {
@@ -28,7 +150,7 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
             app.CreateHost = setup.Create;
             await fixture.AddToRoot(app);
-            await FramesUntil(() => app.Saves!.Status is not null);
+            await _input.WaitUntil(() => app.Saves!.Status is not null);
             var saves = app.Saves!;
             owned.Add(saves.Status!.Identity.Id);
             var store = new FileSaveStore(OS.GetUserDataDir());
@@ -47,7 +169,7 @@ public class SaveTests(Node testScene) : TestClass(testScene)
                 label.GetWindow() == panel && label.Text.Contains("基于全局体素世界的旧存档已不支持", StringComparison.Ordinal)),
                 "列表没有立即显示旧格式兼容性诊断。");
             Press(panel, "保存");
-            await FramesUntil(() => !saves.HasPendingWork);
+            await _input.WaitUntil(() => !saves.HasPendingWork);
             var first = saves.Status!;
             Require(!first.Unsaved && File.Exists(new FileSaveStore(OS.GetUserDataDir()).PathFor(first.Identity.Id)),
                 "保存按钮未发布真实文件并确认已保存状态。");
@@ -60,7 +182,7 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             using (var locked = new FileStream(store.PathFor(first.Identity.Id), FileMode.Open, System.IO.FileAccess.ReadWrite, FileShare.None))
             {
                 Press(panel, "保存");
-                await FramesUntil(() => !saves.HasPendingWork);
+                await _input.WaitUntil(() => !saves.HasPendingWork);
                 Require(saves.Status!.Unsaved && !string.IsNullOrWhiteSpace(saves.LastMessage), "写盘失败没有保留未保存状态及原因。");
                 Require(panel.FindChildren("*", "Label", true, false).Cast<Label>().Any(label =>
                     label.GetWindow() == panel && label.Text == saves.LastMessage), "面板未显示保存失败原因。");
@@ -74,7 +196,7 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             nameDialog.GetChildren().OfType<LineEdit>().Single().Text = name;
             nameDialog.Hide();
             nameDialog.EmitSignal(AcceptDialog.SignalName.Confirmed);
-            await FramesUntil(() => !saves.HasPendingWork);
+            await _input.WaitUntil(() => !saves.HasPendingWork);
             var second = saves.Status!;
             owned.Add(second.Identity.Id);
             Require(second.Identity.Id != first.Identity.Id && second.Identity.Name == name && !second.Unsaved,
@@ -90,26 +212,26 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             var previousSession = setup.Session;
             var previousBinding = second.Binding;
             Press(panel, "读取选中存档");
-            await FramesUntil(() => saves.Missing is not null);
+            await _input.WaitUntil(() => saves.Missing is not null);
             Require(saves.Status!.Binding == previousBinding && previousSession!.DisposeCount == 0,
                 "确认缺失内容前替换了活动会话。");
-            await FramesUntil(() => Dialog<ConfirmationDialog>(panel, "缺失内容").Visible);
+            await _input.WaitUntil(() => Dialog<ConfirmationDialog>(panel, "缺失内容").Visible);
             var missing = Dialog<ConfirmationDialog>(panel, "缺失内容");
             Require(missing.DialogText.Contains("fixture:missing", StringComparison.Ordinal), "缺失弹窗未显示固定引用。");
             missing.Hide();
             missing.EmitSignal(AcceptDialog.SignalName.Confirmed);
-            await FramesUntil(() => !saves.HasPendingWork);
+            await _input.WaitUntil(() => !saves.HasPendingWork);
             Require(saves.Status!.Identity == second.Identity && saves.Status.Binding != previousBinding &&
                 previousSession.DisposeCount == 1 && !saves.Status.Unsaved,
                 "缺失确认后未完成读档替换或未保留存档身份。");
             Require(app.Host!.RenameSave("discard before menu") is null, "无法准备未保存的离开情景。");
             saves.ReturnToMenu();
-            await FramesUntil(() => Dialog<ConfirmationDialog>(panel, "未保存的更改").Visible);
+            await _input.WaitUntil(() => Dialog<ConfirmationDialog>(panel, "未保存的更改").Visible);
             var discard = Dialog<ConfirmationDialog>(panel, "未保存的更改")
                 .FindChildren("*", "Button", true, false).Cast<Button>().Single(button => button.Text == "不保存");
             Require(!discard.Disabled && discard.IsVisibleInTree(), "不保存按钮不可用。");
             discard.EmitSignal(BaseButton.SignalName.Pressed);
-            await FramesUntil(() => panel.FindChildren("*", "Button", true, false).Cast<Button>()
+            await _input.WaitUntil(() => panel.FindChildren("*", "Button", true, false).Cast<Button>()
                 .Where(button => button.GetWindow() == panel && button.Text is "导出文件" or "返回菜单")
                 .All(button => !button.IsVisibleInTree()));
             Require(saves.Status is null, "返回菜单后仍保留活动会话。");
@@ -139,12 +261,12 @@ public class SaveTests(Node testScene) : TestClass(testScene)
                     store.ReadHeader(store.PathFor(status.Identity.Id)).Id == status.Identity.Id;
             };
             await fixture.AddToRoot(app);
-            await FramesUntil(() => app.Saves!.Status is not null);
+            await _input.WaitUntil(() => app.Saves!.Status is not null);
             var saves = app.Saves!;
             owned.Add(saves.Status!.Identity.Id);
             var panel = app.GetNode<MainMenu>("MainMenu").GetChildren().OfType<SavePanel>().Single();
             app.Notification((int)Node.NotificationWMCloseRequest);
-            await FramesUntil(() => Dialog<ConfirmationDialog>(panel, "未保存的更改").Visible);
+            await _input.WaitUntil(() => Dialog<ConfirmationDialog>(panel, "未保存的更改").Visible);
             Require(quitRequests == 0 && saves.Leaving is { CanSave: true, Waiting: false }, "窗口关闭绕过了未保存保护。");
             var leave = Dialog<ConfirmationDialog>(panel, "未保存的更改");
             leave.Hide();
@@ -152,17 +274,17 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             Require(saves.Leaving is null && quitRequests == 0 && !app.Host!.GetStatus()!.OperationLocked,
                 "取消关闭没有恢复宿主或仍请求退出。");
             app.GetChildren().OfType<GameConsole>().Single().SubmitLine("quit");
-            await FramesUntil(() => leave.Visible);
+            await _input.WaitUntil(() => leave.Visible);
             Require(quitRequests == 0 && saves.Leaving is { CanSave: true, Waiting: false }, "控制台退出没有使用同一保存保护。");
             leave.Hide();
             leave.EmitSignal(AcceptDialog.SignalName.Confirmed);
             Require(quitRequests == 0 && saves.HasPendingWork, "退出没有等待异步文件发布。");
-            await FramesUntil(() => quitRequests == 1);
+            await _input.WaitUntil(() => quitRequests == 1);
             Require(publishedAtQuit && !saves.HasPendingWork && saves.Leaving is null,
                 "保存成功前执行了退出动作或文件不可读取。");
             Require(app.Host!.RenameSave("discard before quit") is null, "无法准备未保存的退出情景。");
             app.Notification((int)Node.NotificationWMCloseRequest);
-            await FramesUntil(() => leave.Visible);
+            await _input.WaitUntil(() => leave.Visible);
             var discard = leave.FindChildren("*", "Button", true, false).Cast<Button>()
                 .Single(button => button.Text == "不保存");
             Require(!discard.Disabled && discard.IsVisibleInTree(), "退出时不保存按钮不可用。");
@@ -173,21 +295,12 @@ public class SaveTests(Node testScene) : TestClass(testScene)
         finally { await Cleanup(fixture, app, owned); }
     }
 
-    private async Task FramesUntil(Func<bool> completed)
-    {
-        var guard = Stopwatch.StartNew();
-        while (!completed() && guard.Elapsed < TimeSpan.FromSeconds(30))
-            await TestScene.ToSignal(TestScene.GetTree(), SceneTree.SignalName.ProcessFrame);
-        Require(completed(), "挂起保护超时：真实 Godot 帧未接入存档结果。");
-    }
-
     private static T Dialog<T>(SavePanel panel, string title) where T : Window =>
         panel.GetChildren().OfType<T>().Single(dialog => dialog.Title == title);
 
     private static void Press(SavePanel panel, string text)
     {
-        var button = panel.FindChildren("*", "Button", true, false).Cast<Button>()
-            .Single(candidate => candidate.Text == text && candidate.GetWindow() == panel);
+        var button = UiTestInput.SaveButton(panel, text);
         Require(!button.Disabled && button.Visible, $"按钮不可用：{text}。");
         button.EmitSignal(BaseButton.SignalName.Pressed);
     }
@@ -200,7 +313,7 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             {
                 if (saves.Status is { } status) owned.Add(status.Identity.Id);
                 saves.Cancel();
-                await FramesUntil(() => !saves.HasPendingWork);
+                await _input.WaitUntil(() => !saves.HasPendingWork);
             }
         }
         finally
@@ -208,14 +321,7 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             try { await fixture.Cleanup(); }
             finally
             {
-                var store = new FileSaveStore(OS.GetUserDataDir());
-                foreach (var id in owned)
-                {
-                    var directory = Path.GetFullPath(store.DirectoryFor(id));
-                    Require(Path.GetDirectoryName(directory) == Path.Combine(store.Root, FileSaveStore.SavesFolder),
-                        "测试清理路径不在本次存档目录内。");
-                    if (Directory.Exists(directory)) Directory.Delete(directory, true);
-                }
+                UiTestInput.DeleteSaves(owned);
             }
         }
     }
@@ -237,7 +343,7 @@ public class SaveTests(Node testScene) : TestClass(testScene)
                 PrepareRestoreCall = (_, projection, _) =>
                 {
                     Require(projection.Identity == HostCoreScenario.Input, "恢复时收到错误内容投影。");
-                    Session = new(new FixedCoreReadView(new(0, 0), projection.Identity, revision: new(0)));
+                    Session = new(UiWorldFixture.Save(projection.Identity));
                     Session.SetCapture(CapturePurpose.Save, new CoreResult<ICoreCapture>.Success(capture));
                     Session.ReadRecordingCall = () => new(new(0, 0), [new(new(1), capture)], [], [capture.Checkpoint], [], [], capture.References);
                     Session.ConfirmRecordingStartCall = (point, _) => point.Value == 1 ? new([], [])
@@ -254,7 +360,11 @@ public class SaveTests(Node testScene) : TestClass(testScene)
                 PrepareLoadCall = (request, _, _) =>
                 {
                     Require(request.Purpose is ContentLoadPurpose.Restore, "存档引擎情景只允许恢复。");
-                    var view = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1));
+                    var view = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1))
+                    {
+                        Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+                        { [new("engine-vehicle")] = new ContentLookup<DesignEvaluation>.NotFound() }
+                    };
                     var report = new ContentPreparationReport([], MissingOnRestore
                         ? [new(new ContentReference.Generation(new("fixture:missing")), null, "runtime", [])] : [], [], []);
                     return new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(view, report: report));
@@ -266,5 +376,6 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             Require(host.BeginRestore("engine core", "engine content", options).Problem is null, "无法开始初始恢复。");
             return host;
         }
+
     }
 }

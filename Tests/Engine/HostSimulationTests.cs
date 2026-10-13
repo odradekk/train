@@ -61,7 +61,7 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
         var setup = new HostSetup();
         setup.Session.QueueAdvance(new(1, new(1, 0),
             [new(new(1, 0), 0, new CoreEvent.TrainArrived(new(1), new(1)))], null, null),
-            new FixedCoreReadView(new(1, 0), HostCoreScenario.Input));
+            EmptyView(new(1, 0)));
         try
         {
             var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
@@ -120,7 +120,7 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
         var setup = new HostSetup();
         var fault = new CoreFault("engine_fixture_fault", new(0, 0), "step", "fixture", new WorldObjectId.Train(new(1)));
         setup.Session.QueueAdvance(new(0, new(0, 0), [], fault, new("fixed message", "fixed stack")),
-            new FixedCoreReadView(new(0, 0), HostCoreScenario.Input, fault));
+            EmptyView(new(0, 0), fault));
         try
         {
             var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
@@ -159,23 +159,34 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
             .Where(log => log.GetProperty("event_id").GetString() == eventId).ToArray();
     }
 
+    private static FixedCoreReadView EmptyView(SimulationPosition position, CoreFault? fault = null) =>
+        new(position, HostCoreScenario.Input, fault)
+        { World = new(0, new("fixture:railway"), 100, 100, [], [], [], [], []) };
+
     internal sealed class HostSetup
     {
-        internal ScriptedCoreSession Session { get; } = new(new FixedCoreReadView(new(0, 0), HostCoreScenario.Input));
+        internal ScriptedCoreSession Session { get; }
         internal ScriptedCoreCandidate Candidate { get; }
+        internal ScriptedCoreCandidate? ReplacementCandidate { get; set; }
         internal int PreparationThread { get; private set; }
         private CoreContentProjection? _restoreProjection;
         private CoreSessionOptions? _restoreOptions;
         private readonly CoreSessionOptions _options = new(new("fixture", "fixture", "fixture", "fixture", "fixture"), true, 1);
-        internal HostSetup() => Candidate = new(Session, HostCoreScenario.References);
+        private readonly IContentView? _contentView;
+        internal HostSetup(ICoreReadView? initial = null, IContentView? content = null)
+        {
+            _contentView = content;
+            Session = new(initial ?? EmptyView(new(0, 0)));
+            Candidate = new(Session, HostCoreScenario.References);
+        }
         internal void QueueSteps(int count)
         {
             for (var step = 1u; step <= count; step++)
-                Session.QueueAdvance(new(1, new(step, 0), [], null, null), new FixedCoreReadView(new(step, 0), HostCoreScenario.Input));
+                Session.QueueAdvance(new(1, new(step, 0), [], null, null), EmptyView(new(step, 0)));
         }
         internal HostCoordinator Create(TrainLogger logger, Func<CoreEvent, NotificationAction>? policy = null)
         {
-            var view = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1));
+            var view = _contentView ?? new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1));
             var capture = new FixedCoreCapture(new(new(0, 0), "fixed", "fixed"), HostCoreScenario.References,
                 "opaque", HostCoreScenario.Input, new(1));
             Session.ReadRecordingCall = () => new(new(0, 0), [new(new(1), capture)], [], [capture.Checkpoint], [], [], capture.References);
@@ -193,7 +204,8 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
                 {
                     _restoreProjection = projection;
                     _restoreOptions = options;
-                    return new CoreResult<ICoreSessionCandidate>.Success(Candidate);
+                    return new CoreResult<ICoreSessionCandidate>.Success(Candidate.ActivationCount == 0
+                        ? Candidate : ReplacementCandidate ?? throw new InvalidOperationException("UNCONFIGURED: replacement restore"));
                 }
             };
             var content = new ScriptedContentFactory
@@ -205,7 +217,7 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
                     ? new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(view)) : throw new InvalidOperationException("UNCONFIGURED: purpose")
             };
             var host = new HostCoordinator(core, content, new ScriptedContentFiles(), new UnconfiguredAssetInspector(),
-                new(new("builtin"), new("mods"), null, "fixture", []), logger, policy);
+                new(new("builtin"), new("mods"), null, "fixture", []), logger, policy, sessionOptions: _options);
             host.BeginRestore("opaque core", "opaque content", _options);
             return host;
         }
