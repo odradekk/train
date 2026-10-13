@@ -1,7 +1,12 @@
 using Chickensoft.GoDotTest;
 using Chickensoft.GodotTestDriver;
 using Godot;
+using System.Collections.Immutable;
+using System.Text;
+using System.Text.Json.Nodes;
 using Train.App;
+using Train.App.Assets;
+using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Core.ContractSupport;
 using Train.Ui;
@@ -12,6 +17,104 @@ namespace Train.Engine.Tests;
 public class UiTests(Node testScene) : TestClass(testScene)
 {
     private readonly UiTestInput _input = new(testScene);
+
+    [Test]
+    public async Task Major_settlement_outer_marker_accepts_input_while_ordinary_settlement_does_not()
+    {
+        var tree = TestScene.GetTree();
+        var fixture = new Fixture(tree);
+        var scale = tree.Root.ContentScaleFactor;
+        using var dispatcher = new GodotMainThreadDispatcher();
+        var factory = Train.Content.ContentFactory.Create();
+        var loaded = factory.PrepareLoad(new(new(new("builtin"), new("mods"), null, "0.0.56", []),
+            new ContentLoadPurpose.Initial()), new MajorSettlementFiles(), new GodotAssetInspector(dispatcher));
+        Require(loaded is ContentResult<IContentCandidate>.Success, $"聚居地测试内容加载失败：{loaded}。");
+        using var candidate = ((ContentResult<IContentCandidate>.Success)loaded).Value;
+        var templates = new[] { "core:agricultural-town", "core:ordinary-town" };
+        var content = factory.WithSettlementCopies(candidate.View, templates.Select((id, index) =>
+        {
+            var template = candidate.View.Core.SettlementTemplates.Single(item => item.Id.Value == id);
+            return new OwnedSettlementTemplateReference(new((ulong)index + 1), template.Id,
+                template.Plots.Select(plot => new TemplatePlotReference(plot.Number, plot.Size)).ToImmutableArray());
+        }).ToImmutableArray());
+        var original = UiWorldFixture.Map();
+        var nodes = original.World.Nodes.Select(node => node with
+        { Occupant = new NodeOccupant.Settlement(new(node.Id.Value), SettlementRelation.Hostile) }).ToImmutableArray();
+        var view = new FixedCoreReadView(default, HostCoreScenario.Input)
+        {
+            World = original.World with { Nodes = nodes, Trains = [] },
+            Nodes = nodes.ToDictionary(node => node.Id, node => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(node, []))),
+            Locations = nodes.ToDictionary(node => (WorldLocation)new WorldLocation.Node(node.Id), node =>
+                (Lookup<LocationView>)new Lookup<LocationView>.Found(new(new WorldLocation.Node(node.Id), [], [], [], [], node.Occupant)))
+        };
+        try
+        {
+            var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
+            app.CreateHost = logger => new HostSimulationTests.HostSetup(view, content).Create(logger);
+            await fixture.AddToRoot(app);
+            await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
+            tree.Root.ContentScaleFactor = 1;
+            UiCapture.ConfigureWindowIfNeeded(tree.Root);
+            await _input.Frames(2);
+            var ui = app.GetNode<GameUi>("GameUi");
+            var map = ui.GetNode<MacroMap>("Root/World/MacroMap");
+            Require(ui.ErrorText.Length == 0, $"聚居地地图显示失败：{ui.ErrorText}。");
+            await UiCapture.Capture(TestScene, "major-settlements");
+            WorldObjectId? clicked = null;
+            map.ObjectClicked += value => clicked = value;
+            // 先点击普通聚居地，避免主要聚居地命中后打开的详情面板遮挡后续输入。
+            var ordinaryPoint = map.GlobalPosition + map.MapToScreen(nodes[1].Position) + new Vector2(18, 0);
+            Require(map.GetGlobalRect().HasPoint(ordinaryPoint), "普通聚居地测试点击位于地图范围外。");
+            var screenPoint = TestScene.GetViewport().GetScreenTransform() * ordinaryPoint;
+            using (var motion = new InputEventMouseMotion { Position = screenPoint, GlobalPosition = screenPoint })
+                Input.ParseInputEvent(motion);
+            await _input.Frames();
+            Require(tree.Root.GuiGetHoveredControl() == map, "普通聚居地测试点击被其他界面遮挡。");
+            await _input.Click(ordinaryPoint);
+            Require(clicked is null, "普通聚居地在圆心外 18 像素处被实际左键选中。");
+            await _input.Click(map.GlobalPosition + map.MapToScreen(nodes[0].Position) + new Vector2(18, 0));
+            Require(clicked == new WorldObjectId.Node(nodes[0].Id), "主要聚居地在圆心外 18 像素处未被实际左键选中。");
+        }
+        finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
+    }
+
+    private sealed class MajorSettlementFiles : IContentFiles
+    {
+        private readonly DiskContentFiles _disk = new(ProjectSettings.GlobalizePath("res://builtin/core"));
+
+        public ContentIoResult<ImmutableArray<ContentFileEntry>> Enumerate(ContentPath directory)
+        {
+            if (directory.Root.Key == "mods") return new ContentIoResult<ImmutableArray<ContentFileEntry>>.Success([]);
+            var result = _disk.Enumerate(directory);
+            var extra = directory.RelativePath switch
+            {
+                "resources/settlement-types" => "ordinary-town.settlement-type.json",
+                "resources/settlement-templates" => "ordinary-town.settlement-template.json",
+                _ => null
+            };
+            return extra is not null && result is ContentIoResult<ImmutableArray<ContentFileEntry>>.Success entries
+                ? new ContentIoResult<ImmutableArray<ContentFileEntry>>.Success(entries.Value.Add(new(extra, ContentEntryKind.File))) : result;
+        }
+
+        public ContentIoResult<ImmutableArray<byte>> Read(ContentPath file, long maximumBytes)
+        {
+            var ordinary = file.RelativePath.Contains("ordinary-town", StringComparison.Ordinal);
+            var source = ordinary ? file with { RelativePath = file.RelativePath.Replace("ordinary-town", "agricultural-town", StringComparison.Ordinal) } : file;
+            var result = _disk.Read(source, maximumBytes);
+            if (result is not ContentIoResult<ImmutableArray<byte>>.Success bytes ||
+                source.RelativePath is not ("resources/settlement-types/agricultural-town.settlement-type.json" or
+                    "resources/settlement-templates/agricultural-town.settlement-template.json")) return result;
+            var json = JsonNode.Parse(bytes.Value.AsSpan())!;
+            if (ordinary) json["id"] = "ordinary-town";
+            if (source.RelativePath.EndsWith(".settlement-type.json", StringComparison.Ordinal)) json["display"]!["major"] = !ordinary;
+            else
+            {
+                if (ordinary) json["settlement_type"] = "ordinary-town";
+                json["display"]!["name"] = ordinary ? "普通农业镇 · major=false" : "主要农业镇 · major=true";
+            }
+            return new ContentIoResult<ImmutableArray<byte>>.Success(Encoding.UTF8.GetBytes(json.ToJsonString()).ToImmutableArray());
+        }
+    }
 
     [Test]
     public async Task Lair_node_draws_an_ordinary_marker_without_a_content_error()

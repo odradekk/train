@@ -6,6 +6,7 @@ using Train.Content.Voxels;
 using Train.App.Logging;
 using Train.App.Saves;
 using Train.App.Recording;
+using Train.App.Development;
 using Train.Core.Simulation;
 using Train.Ui;
 
@@ -36,6 +37,7 @@ public partial class App : Node
     internal WorldSceneController? WorldScenes { get; private set; }
     internal SaveService? Saves { get; private set; }
     internal RecordingService? Recording { get; private set; }
+    internal DeveloperTools? Development { get; private set; }
 
     public App() => QuitAction = () => GetTree().Quit();
 
@@ -78,18 +80,26 @@ public partial class App : Node
             Action<IReadOnlyList<string>>? simulationCommands = null;
             Action<IReadOnlyList<string>>? trainCommands = null;
             Action<IReadOnlyList<string>>? lightingCommands = null;
+            Action<IReadOnlyList<string>>? developmentCommands = null;
             if (OS.IsDebugBuild())
             {
-                simulationCommands = Host is null ? new LegacySimulationConsoleCommands(this, _logger).Execute
-                    : new SimulationConsoleCommands(Host, _logger).Execute;
                 if (Host is not null)
+                {
+                    Development = new(Host, Saves!);
+                    var inspector = new DeveloperInspector();
+                    AddChild(inspector);
+                    inspector.Configure(Development, WorldScenes);
+                    developmentCommands = inspector.Execute;
+                    simulationCommands = new SimulationConsoleCommands(Host, _logger, Development).Execute;
                     trainCommands = new TrainConsoleCommands(Host, _logger, ui.ShowError).Execute;
+                }
+                else simulationCommands = new LegacySimulationConsoleCommands(this, _logger).Execute;
                 lightingCommands = new LightingConsoleCommands(_logger, () => WorldScenes?.View.Lighting,
                     mode => WorldScenes!.View.SetLighting(mode)).Execute;
             }
             console.Initialize(buffer, new ConsoleCommandDispatcher(
                 _logger, buffer.Clear, RequestQuit, () => ReloadContent(Train.Core.Contracts.CommandSource.Console), OS.IsDebugBuild(), simulationCommands,
-                train: trainCommands, lighting: lightingCommands));
+                train: trainCommands, lighting: lightingCommands, development: developmentCommands));
             AddChild(console);
             if (Host is not null)
             {
@@ -232,6 +242,7 @@ public partial class App : Node
     {
         Saves?.Process();
         Host?.ProcessFrame(delta);
+        Development?.Process();
         Recording?.Process();
         // headless 的虚拟窗口始终报告最小化；它仍需执行资源和显示边界检查。
         WorldScenes?.ProcessFrame(delta, DisplayServer.GetName() != "headless" && GetWindow().Mode == Window.ModeEnum.Minimized);
@@ -253,6 +264,8 @@ public partial class App : Node
 
     public override void _ExitTree()
     {
+        Development?.Dispose();
+        Development = null;
         Recording?.Dispose();
         Recording = null;
         Saves?.Dispose();

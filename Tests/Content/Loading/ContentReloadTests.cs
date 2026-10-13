@@ -12,6 +12,20 @@ namespace Train.Content.Tests.Loading;
 public sealed class ContentReloadTests
 {
     [TestMethod]
+    public void Changing_only_settlement_major_publishes_a_presentation_generation_without_changing_core_input()
+    {
+        var fixture = WorldContentFixtures.Content();
+        using var initial = fixture.Load();
+        var basis = initial.Activate();
+        Change(fixture, "resources/settlement-types/farm.settlement-type.json", json => json["display"]!["major"] = true);
+        using var reloaded = Reload(fixture, basis, References(basis, "engine"));
+        Assert.AreEqual(C.ContentChange.Presentation, reloaded.Changes);
+        var published = reloaded.Activate();
+        Assert.AreEqual(basis.Generation.Value + 1, published.Generation.Value);
+        Assert.AreEqual(basis.Core.Identity, published.Core.Identity);
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void Reload_rejects_newly_missing_required_definition_or_design_dependency(bool designDependency)

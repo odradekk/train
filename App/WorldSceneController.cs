@@ -32,6 +32,7 @@ internal sealed class WorldSceneController : IDisposable
 
     internal WorldSceneView View { get; } = new();
     internal SceneDisplay? Display => _display;
+    internal SceneDebugLayer DebugLayers { get; set; }
     internal event Action<SceneProblem?>? ReturnedToMap;
     internal event Action<PickSubject>? Selected;
 
@@ -69,6 +70,22 @@ internal sealed class WorldSceneController : IDisposable
         _hostBinding = binding;
         _generation = generation;
         _sceneBinding = new(Guid.NewGuid());
+    }
+
+    internal SceneProblem? Regenerate()
+    {
+        _dispatcher.RequireMainThread();
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_host.IsBusy)
+            return new("busy", SceneStage.Input, null, null, null, null, "宿主正在处理操作，请稍后重试。");
+        if (_session is null || _target is not { } target ||
+            _host.GetStatus() is not { } status || _host.Content is not { } content)
+            return new("no_scene", SceneStage.Input, null, null, null, null, "没有可重新生成的世界场景。");
+        CloseScene();
+        UpdateBinding(status.Binding, content.Generation);
+        Start(new(status.View, content), target);
+        return _session is not null ? null :
+            new("scene_failed", SceneStage.Input, null, null, null, null, "重新生成场景失败。");
     }
 
     private void Start(SceneWorldSnapshot snapshot, WorldSceneTarget target)
@@ -144,7 +161,7 @@ internal sealed class WorldSceneController : IDisposable
             var displayed = _fullReplacement ? null : actual;
             var camera = actual is null ? null : new SceneCameraSample(actual, ToNumerics(View.CameraRig.Focus));
             var interpolation = status.Remainder / SimulationTime.StepSeconds;
-            var result = _session.Present(new(Math.Clamp(interpolation, 0, 1), camera, SceneDebugLayer.None), displayed);
+            var result = _session.Present(new(Math.Clamp(interpolation, 0, 1), camera, DebugLayers), displayed);
             if (result is SceneResult<ISceneFrame>.Failure { Problems: var problems } &&
                 problems.Length > 0 && problems.All(problem => problem.Code == "target_missing"))
             {
