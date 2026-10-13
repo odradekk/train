@@ -71,7 +71,8 @@ $engineUserRoot = $null
 function Add-CheckResult([string] $Name, [string] $Group, [string] $Program, [string[]] $Arguments, $Result) {
     $result.Output | Set-Content (Join-Path $run "$Name.log")
     Write-Host $result.Output
-    $check = [ordered]@{ name = $Name; layer = $Group; command = @($Program) + $Arguments; seconds = $result.DurationMs / 1000; exitCode = $result.ExitCode; timedOut = $result.TimedOut; cleanupSucceeded = $result.CleanupSucceeded; total = 0; executed = 0; passed = 0; failed = 0; skipped = 0 }
+    $check = [ordered]@{ name = $Name; layer = $Group; command = @($Program) + $Arguments; seconds = $result.DurationMs / 1000; exitCode = $result.ExitCode; timedOut = $result.TimedOut; notStarted = [bool] $result.NotStarted; cleanupSucceeded = $result.CleanupSucceeded; total = 0; executed = 0; passed = 0; failed = 0; skipped = 0 }
+    Write-Host "CHECK=$Name seconds=$($check.seconds) timeout=$($check.timedOut) notStarted=$($check.notStarted)"
     $trx = Join-Path $run "$Name.trx"
     if (Test-Path $trx) {
         [xml] $report = Get-Content $trx -Raw
@@ -97,13 +98,16 @@ function Add-CheckResult([string] $Name, [string] $Group, [string] $Program, [st
         }
         return
     } elseif ($Name -match '^(fast|integration)-(core|content|scenes|godot|contract-support|contract-checks)$') {
-        $summary.checks += [pscustomobject] $check
-        throw "$Name did not produce its required TRX report."
-    } elseif ($Group -ne 'preparation') {
+        if (-not $check.timedOut -and -not $check.notStarted) {
+            $summary.checks += [pscustomobject] $check
+            throw "$Name did not produce its required TRX report."
+        }
+    } elseif ($Group -ne 'preparation' -and -not $check.notStarted) {
         $check.total = 1; $check.executed = 1
         if ($result.ExitCode -eq 0 -and -not $result.TimedOut) { $check.passed = 1 } else { $check.failed = 1 }
     }
     $summary.checks += [pscustomobject] $check
+    if ($check.notStarted) { throw "$Name was not started because $Group exhausted its time budget; evidence: $run" }
     if ($result.ExitCode -ne 0 -or $result.TimedOut -or -not $result.CleanupSucceeded) { throw "$Name failed (exit=$($result.ExitCode), timeout=$($result.TimedOut)); evidence: $run" }
 }
 function Invoke-Check([string] $Name, [string] $Group, [string] $Program, [string[]] $Arguments, [int] $Seconds) {
@@ -177,13 +181,14 @@ try {
                     if ($task.project) {
                         $minimum = $task.project[$current]
                         $filter = if ($current -eq 'fast') { 'TestCategory!=integration' } else { 'TestCategory=integration' }
-                        $arguments = @('test', '--project', $task.project.path, '--no-build', '--results-directory', $using:run)
+                        $module = Join-Path (Split-Path $task.project.path) ('bin/Debug/net10.0/' + [IO.Path]::GetFileNameWithoutExtension($task.project.path) + '.dll')
+                        $arguments = @('test', '--test-modules', $module.Replace('\', '/'), '--root-directory', $using:root, '--results-directory', $using:run)
                         if ($minimum) { $arguments += @('--minimum-expected-tests', "$minimum") }
                         $arguments += @('--', '--filter', $filter, '--report-trx', '--report-trx-filename', "$($task.name).trx", '--timeout', "$([Math]::Max(1, $remaining))s", '--hangdump', '--hangdump-type', 'Mini', '--hangdump-timeout', "$([Math]::Max(1, $remaining - 5))s")
                         if (-not $minimum) { $arguments += @('--ignore-exit-code', '8') }
                     }
                     $result = if ($remaining -lt 1) {
-                        [pscustomobject]@{ ExitCode = -1; Output = "$current exhausted its time budget."; TimedOut = $true; CleanupSucceeded = $true; DurationMs = 0 }
+                        [pscustomobject]@{ ExitCode = -1; Output = "$current exhausted its time budget before $($task.name) could start."; TimedOut = $false; NotStarted = $true; CleanupSucceeded = $true; DurationMs = 0 }
                     } else {
                         try { Invoke-HiddenProcess -FilePath $task.program -ArgumentList $arguments -TimeoutSeconds $remaining }
                         catch { [pscustomobject]@{ ExitCode = -1; Output = $_.Exception.Message; TimedOut = $false; CleanupSucceeded = $false; DurationMs = 0 } }
@@ -200,6 +205,11 @@ try {
                     try { Add-CheckResult $item.name $current $item.program $item.arguments $item.result }
                     catch { if (-not $failure) { $failure = $_ } }
                 }
+                $timedOut = @($results | Where-Object { $_.result.TimedOut } | ForEach-Object name)
+                $notStarted = @($results | Where-Object { $_.result.NotStarted } | ForEach-Object name)
+                if ($timedOut.Count -or $notStarted.Count) {
+                    throw "$current exhausted its ${budget}s budget; timed out checks: $($timedOut -join ', '); checks not started because the budget expired: $($notStarted -join ', '); evidence: $run"
+                }
                 if ($failure) { throw $failure }
                 if ($results.Count -ne $tasks.Count) { throw "$current did not complete every selected task." }
             } else {
@@ -212,13 +222,24 @@ try {
                     [Environment]::SetEnvironmentVariable($name, $directory)
                 }
                 $engineUserRoot = if ($IsWindows) { Join-Path $env:APPDATA 'Godot/app_userdata/Train' } else { Join-Path $env:XDG_DATA_HOME 'godot/app_userdata/Train' }
-                Invoke-Check import preparation $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'import-godot.log'), '--editor', '--import') 120
                 $binary = Join-Path $run 'exports/windows/train.exe'
+                $templateDirectory = $null
                 if ($ExportWindows) {
-                    New-Item -ItemType Directory -Path (Split-Path $binary) -Force | Out-Null
-                    $env:APPDATA = $environment.APPDATA
-                    try { Invoke-Check export preparation $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'export-godot.log'), '--export-release', 'Windows Desktop', $binary) 120 }
-                    finally { $env:APPDATA = Join-Path $run $paths.APPDATA }
+                    $templateDirectory = Join-Path $env:APPDATA 'Godot/export_templates/4.7.2.stable.mono'
+                    if (-not ([IO.Path]::GetFullPath($templateDirectory).StartsWith($run + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase))) { throw 'Export templates escaped the run directory.' }
+                }
+                try {
+                    if ($ExportWindows) {
+                        New-Item -ItemType Directory -Path (Split-Path $binary) -Force | Out-Null
+                        New-Item -ItemType Directory -Path $templateDirectory -Force | Out-Null
+                        Copy-Item -LiteralPath (Join-Path $environment.APPDATA 'Godot/export_templates/4.7.2.stable.mono/windows_release_x86_64.exe') -Destination $templateDirectory
+                    }
+                    Invoke-Check import preparation $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'import-godot.log'), '--editor', '--import') 120
+                    if ($ExportWindows) {
+                        Invoke-Check export preparation $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'export-godot.log'), '--export-release', 'Windows Desktop', $binary) 120
+                    }
+                } finally {
+                    if ($templateDirectory -and (Test-Path -LiteralPath $templateDirectory)) { Remove-Item -LiteralPath $templateDirectory -Recurse -Force }
                 }
                 $watch.Start()
                 foreach ($name in @('TRAIN_ENGINE_TEST_ASSEMBLY', 'TRAIN_ENGINE_REPORT', 'TRAIN_LOG_LEVEL')) { $environment[$name] = [Environment]::GetEnvironmentVariable($name) }
