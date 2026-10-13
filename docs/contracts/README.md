@@ -57,12 +57,15 @@
 | `Train.Content` | `Train.Content.Contracts`、`Train.Core.Contracts` |
 | `Train.Scenes` | `Train.Scenes.Contracts`、`Train.Content.Contracts`、`Train.Core.Contracts` |
 | `Train` | 三个契约项目；真实实现项目只用于下述装配例外 |
+| `Train.Cli` | Core、Content 的契约与实现项目；真实工厂只在 `Tools/Cli/Composition.cs` 调用 |
 
 核心在编译时看不到布局、体素朝向、表现资产和显示文本。内容按读取方提供投影；体素可以读取核心查询和内容契约，宏观地图及管理界面可以直接使用核心查询，不需要经过体素。
 
 各实现类型默认 `internal`，实现程序集只额外公开少量创建工厂。工厂的参数和返回值使用公开契约，不泄露实现类型；工厂是受控的装配入口，同样纳入文档、公开面检查和变更基线。既有 `public` 类型不自动成为新契约，不承诺保留通用模拟框架的全部构造和扩展入口。
 
 Godot 只有 `App/Composition/` 可以调用真实创建工厂；其他宿主流程、渲染和界面接收装配好的契约接口。独立测试替换装配入口并注入替身，仍执行同一份 Godot 生产代码。暂不引入依赖注入容器、插件扫描或反射装配框架。
+
+`Tools/Cli/` 是纯 .NET 宿主工具，不是新的业务模块，不引用 Godot 或 Scenes。只有其 `Composition.cs` 调用真实 Core／Content 工厂，其余代码接收契约。工具链接 `App/Assets/DiskContentFiles.cs` 同份文件端口源码；源码归属检查按精确文件允许共享，不开放整个宿主目录。
 
 不为 Godot 对称地增设第四个契约程序集。下层需要的文件读取、PNG 解码、资源提交等宿主接口由需要它的模块定义，Godot 实现；下层不引用 Godot 类型。Godot 的接口文档仍须说明这些适配、装配、交互和资源责任。
 

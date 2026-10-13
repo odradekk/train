@@ -24,7 +24,8 @@ internal static class ProjectAnalysis
         (IsChildPath(path, Path.Combine(root, "App", "Assets")) ||
          Path.GetFullPath(path).Equals(Path.Combine(root, "Tests", "Engine", "Assets", "GlbFixture.cs"), PathComparison)) || name == "Train.Benchmarks" &&
         new[] { "SimulationExamples.cs", "ResourceCommandCodec.cs" }.Any(file =>
-            Path.GetFullPath(path).Equals(Path.Combine(root, "Tests", "Core", "Simulation", file), PathComparison));
+            Path.GetFullPath(path).Equals(Path.Combine(root, "Tests", "Core", "Simulation", file), PathComparison)) || name == "Train.Cli" &&
+        Path.GetFullPath(path).Equals(Path.Combine(root, "App", "Assets", "DiskContentFiles.cs"), PathComparison);
 
     internal static IEnumerable<string> BuiltInImportFailures(string root)
     {

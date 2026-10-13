@@ -25,6 +25,9 @@
     <Compile Remove="prototypes/**" />
     <EmbeddedResource Remove="prototypes/**" />
     <None Remove="prototypes/**" />
+    <Compile Remove="Tools/**" />
+    <EmbeddedResource Remove="Tools/**" />
+    <None Remove="Tools/**" />
     <Compile Remove="Core/**" />
     <EmbeddedResource Remove="Core/**" />
     <None Remove="Core/**" />
