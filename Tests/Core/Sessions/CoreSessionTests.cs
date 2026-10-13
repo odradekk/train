@@ -1,6 +1,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
 using Train.Core.Sessions;
+using Train.Core.Tests.World;
 
 namespace Train.Core.Tests.Sessions;
 
@@ -115,7 +116,7 @@ public sealed class CoreSessionTests
     public void Frozen_sessions_do_not_accept_commands_or_repeat_diagnostics()
     {
         var fault = new CoreFault("internal_error", new(7, 3), "Submit", "", null);
-        using var session = new CoreSession(new(new(7, 2), 10, new(20), A, fault));
+        using var session = new CoreSession(WorldFixture.State(new(7, 2), 10, new(20), A) with { Content = A, Fault = fault });
 
         var submission = session.Submit(new CoreCommand.PublishContent(B), CommandSource.AutomationTest);
         var advancement = session.Advance(1);
@@ -133,7 +134,7 @@ public sealed class CoreSessionTests
     [DataRow(10UL, ulong.MaxValue)]
     public void Exhausted_command_numbers_or_sequences_do_not_accept_or_change_state(ulong number, ulong sequence)
     {
-        using var session = new CoreSession(new(new(7, sequence), number, new(20), A));
+        using var session = new CoreSession(WorldFixture.State(new(7, sequence), number, new(20), A) with { Content = A });
 
         var result = session.Submit(new CoreCommand.PublishContent(B), CommandSource.AutomationTest);
 
@@ -180,7 +181,7 @@ public sealed class CoreSessionTests
     [TestMethod]
     public void A_fault_at_the_maximum_revision_freezes_without_wrapping_the_revision()
     {
-        using var session = new CoreSession(new(new(7, 2), 10, new(ulong.MaxValue), A));
+        using var session = new CoreSession(WorldFixture.State(new(7, 2), 10, new(ulong.MaxValue), A) with { Content = A });
         var retained = session.Read();
 
         var result = session.Advance(1);
@@ -287,10 +288,10 @@ public sealed class CoreSessionTests
         AssertBoundary(session, new(7, 2), 10, 20, A);
     }
 
-    private static CoreSession Session() => new(new(new(7, 2), 10, new(20), A));
+    private static CoreSession Session() => new(WorldFixture.State(new(7, 2), 10, new(20), A) with { Content = A });
 
     private static CoreContentProjection Content(char identity)
-        => new(new(new string(identity, 64)), [], [], [], [], [], [], [], [], [], [], [], [], [], []);
+        => WorldFixture.Content with { Identity = new(new string(identity, 64)) };
 
     private static SubmissionResult.Completed Completed(SubmissionResult result)
     {

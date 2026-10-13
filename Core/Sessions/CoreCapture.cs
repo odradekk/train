@@ -14,7 +14,7 @@ internal sealed class CoreCapture : ICoreCapture
             state.World, WorldReferences.Create(state.World, state.Content)) { }
 
     private CoreCapture(SimulationPosition position, ulong nextCommandNumber, CoreRevision revision,
-        CoreInputId inputIdentity, CoreFault? fault, WorldState? world, CoreReferenceManifest references)
+        CoreInputId inputIdentity, CoreFault? fault, WorldState world, CoreReferenceManifest references)
     {
         Position = position;
         NextCommandNumber = nextCommandNumber;
@@ -34,7 +34,7 @@ internal sealed class CoreCapture : ICoreCapture
     public CoreCheckpoint Checkpoint { get; }
     internal ulong NextCommandNumber { get; }
     internal CoreFault? Fault { get; }
-    internal WorldState? World { get; }
+    internal WorldState World { get; }
 
     public string Encode() => Format(writer =>
     {
@@ -72,22 +72,19 @@ internal sealed class CoreCapture : ICoreCapture
             var number = Unsigned(root.GetProperty("next_command_number"), "/next_command_number", nonzero: true);
             var revision = new CoreRevision(Unsigned(root.GetProperty("revision"), "/revision"));
             var identity = String(root.GetProperty("input_identity"), "/input_identity");
-            if (identity.Length != 64 || !identity.All(c => c is >= '0' and <= '9' or >= 'A' and <= 'F'))
-                throw new InvalidState("/input_identity");
+            if (!WorldFormat.IsHash(identity))
+                throw new CoreStateFormatException("/input_identity");
             var fault = ReadFault(root.GetProperty("fault"));
+            if (root.GetProperty("world").ValueKind == JsonValueKind.Null) throw new CoreStateFormatException("/world");
             var world = WorldJson.Read(root.GetProperty("world"));
             var references = WorldJson.ReadReferences(root.GetProperty("references"));
             var knownMissing = references.Definitions.Where(d => d.WasMissing)
                 .Select(d => new MissingCoreReference(d.Definition, d.Field)).ToImmutableArray();
             if (!WorldJson.SameReferences(references, WorldReferences.Create(world, new CoreInputId(identity), knownMissing)))
-                throw new InvalidState("/references");
+                throw new CoreStateFormatException("/references");
             return new CoreResult<ICoreCapture>.Success(new CoreCapture(position, number, revision, new(identity), fault, world, references));
         }
-        catch (InvalidState error)
-        {
-            return new CoreResult<ICoreCapture>.Failure([new("invalid_state", error.Field, null, [])]);
-        }
-        catch (WorldStateValidation.InvalidState error)
+        catch (CoreStateFormatException error)
         {
             return new CoreResult<ICoreCapture>.Failure([new("invalid_state", error.Field, null, [])]);
         }
@@ -145,7 +142,7 @@ internal sealed class CoreCapture : ICoreCapture
         var operation = String(value.GetProperty("operation"), "/fault/operation", nonempty: true);
         var field = String(value.GetProperty("field"), "/fault/field");
         if (value.GetProperty("subject").ValueKind != JsonValueKind.Null)
-            throw new InvalidState("/fault/subject");
+            throw new CoreStateFormatException("/fault/subject");
         return new(code, position, operation, field, null);
     }
 
@@ -159,37 +156,37 @@ internal sealed class CoreCapture : ICoreCapture
     private static void Object(JsonElement value, string path, params string[] fields)
     {
         if (value.ValueKind != JsonValueKind.Object)
-            throw new InvalidState(path);
+            throw new CoreStateFormatException(path);
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var property in value.EnumerateObject())
         {
             string name;
             try { name = property.Name; }
-            catch (InvalidOperationException) { throw new InvalidState(path); }
+            catch (InvalidOperationException) { throw new CoreStateFormatException(path); }
             if (!fields.Contains(name, StringComparer.Ordinal) || !seen.Add(name))
-                throw new InvalidState(path + "/" + name.Replace("~", "~0").Replace("/", "~1"));
+                throw new CoreStateFormatException(path + "/" + WorldFormat.EscapePointer(name));
         }
         foreach (var name in fields)
             if (!seen.Contains(name))
-                throw new InvalidState(path + "/" + name);
+                throw new CoreStateFormatException(path + "/" + name);
     }
 
     private static ulong Unsigned(JsonElement value, string path, bool nonzero = false)
     {
         if (value.ValueKind != JsonValueKind.Number || !value.TryGetUInt64(out var result) || (nonzero && result == 0))
-            throw new InvalidState(path);
+            throw new CoreStateFormatException(path);
         return result;
     }
 
     private static string String(JsonElement value, string path, bool nonempty = false)
     {
         if (value.ValueKind != JsonValueKind.String)
-            throw new InvalidState(path);
+            throw new CoreStateFormatException(path);
         string result;
         try { result = value.GetString()!; }
-        catch (InvalidOperationException) { throw new InvalidState(path); }
+        catch (InvalidOperationException) { throw new CoreStateFormatException(path); }
         if (nonempty && result.Length == 0)
-            throw new InvalidState(path);
+            throw new CoreStateFormatException(path);
         return result;
     }
 
@@ -199,10 +196,5 @@ internal sealed class CoreCapture : ICoreCapture
         using (var writer = new Utf8JsonWriter(stream))
             write(writer);
         return Encoding.UTF8.GetString(stream.ToArray());
-    }
-
-    private sealed class InvalidState(string field) : Exception
-    {
-        internal string Field { get; } = field;
     }
 }

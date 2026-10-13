@@ -5,7 +5,7 @@ using Train.Core.World;
 namespace Train.Core.Sessions;
 
 internal sealed record CoreState(SimulationPosition Position, ulong NextCommandNumber,
-    CoreRevision Revision, CoreContentProjection Content, CoreFault? Fault = null, WorldState? World = null);
+    CoreRevision Revision, CoreContentProjection Content, WorldState World, CoreFault? Fault = null);
 
 internal abstract record CommandEffect
 {

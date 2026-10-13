@@ -6,16 +6,10 @@ namespace Train.Core.World;
 
 internal static class WorldInputs
 {
-    internal static void Validate(WorldGenerationInput input, CoreContentProjection content, CoreSessionOptions options)
+    internal static void ValidateInput(WorldGenerationInput input)
     {
         ArgumentNullException.ThrowIfNull(input);
-        ArgumentNullException.ThrowIfNull(content);
-        ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(options.Runtime);
-        foreach (var value in new[] { options.Runtime.GameBuild, options.Runtime.SimulationVersion, options.Runtime.OperatingSystem,
-            options.Runtime.Architecture, options.Runtime.DotNetRuntime }) ArgumentNullException.ThrowIfNull(value);
         Hash(input.GenerationContentRevision.Value);
-        Hash(content.Identity.Value);
         ArgumentNullException.ThrowIfNull(input.GeneratorVersion);
         var c = input.Configuration;
         ArgumentNullException.ThrowIfNull(c);
@@ -75,157 +69,74 @@ internal static class WorldInputs
             foreach (var design in train.Vehicles) Hash(design.Value);
             Quantities(train.Inventory);
         }
-        ValidateContent(content);
     }
 
-    private static void ValidateContent(CoreContentProjection content)
+    internal static void ValidateContent(CoreContentProjection content)
     {
+        ArgumentNullException.ThrowIfNull(content);
+        Hash(content.Identity.Value);
         Unique(Items(content.Goods), x => GoodKey(x.Good));
+        foreach (var good in content.Goods) ValidateGood(good.Good);
         Unique(Items(content.DesignGoods), x => GoodKey(x.Good));
-        foreach (var good in content.Goods.Concat(content.DesignGoods))
-        {
-            Good(good.Good); Hash(good.Revision.Value);
-            Require(good.BaseValue.Value >= 0, "BaseValue"); Nonnegative(good.MassTons);
-            if (good.FuelEnergyPerUnit is { } energy) Positive(energy);
-        }
-        var goods = content.Goods.ToDictionary(x => GoodKey(x.Good), StringComparer.Ordinal);
-        foreach (var good in content.DesignGoods)
-            Require(!goods.TryGetValue(GoodKey(good.Good), out var other) || other == good, "DesignGoods");
+        foreach (var good in content.DesignGoods) ValidateDesignGood(good);
         Unique(Items(content.Designs), x => x.Design.Value);
-        foreach (var design in content.Designs)
-        {
-            Hash(design.Design.Value); Hash(design.Composition.Value);
-            Require(design.MaxStructureDurability >= 0 && design.StructureHitWeight >= 0 && design.StructuralBaseValue.Value >= 0 && design.BillOfMaterialsItemCount >= 0, "Designs");
-            Nonnegative(design.MassTons);
-            switch (design.Kind)
-            {
-                case DesignKind.Vehicle vehicle: EnumValue(vehicle.Size); Require(vehicle.LengthCells > 0, "LengthCells"); break;
-                case DesignKind.Building building:
-                    EnumValue(building.PlotSize); EnumValue(building.Type);
-                    Unique(Items(building.FacilityTags), x => x);
-                    foreach (var tag in building.FacilityTags) EnumValue(tag);
-                    break;
-                case DesignKind.LargeEquipment equipment: Good(equipment.ManufacturedGood); break;
-                default: throw new ArgumentException("Invalid design kind.");
-            }
-            Unique(Items(design.Parts), x => x.Id);
-            foreach (var part in design.Parts)
-            {
-                Require(part.Id.Value >= 0 && part.MaxDurability >= 0 && part.HitWeight >= 0 && part.BaseValue.Value >= 0, "Parts");
-                Reference(part.Definition); Good(part.RepairGood);
-                foreach (var capability in Items(part.Capabilities)) Capability(capability);
-            }
-            Quantities(design.StructuralGoods); Quantities(design.BillOfMaterials);
-            foreach (var unit in Items(design.ReturnUnits))
-            {
-                Good(unit.Good); Require(unit.Quantity > 0, "ReturnUnits");
-                Unique(Items(unit.Parts), x => x);
-                foreach (var part in unit.Parts) Require(part.Value >= 0, "ReturnUnits.Parts");
-                Quantities(unit.StructuralGoods); Missing(unit.MissingReferences);
-            }
-            Missing(design.MissingReferences);
-        }
+        foreach (var design in content.Designs) ValidateDesign(design);
         Unique(Items(content.Processes), x => ProcessKey(x.Details));
         foreach (var process in content.Processes)
         {
-            Hash(process.Revision.Value); Require(process.WorkRequired > 0, "WorkRequired");
-            Nonnegative(process.PowerPerWork); Nonnegative(process.LaborPerWork); EnumValue(process.RequiredFacilityTag);
-            Identities(process.AllowedTerrainTypes);
             switch (process.Details)
             {
-                case ProcessDetails.Production p: Identity(p.Id.Value); Quantities(p.Inputs); Quantities(p.Outputs); break;
-                case ProcessDetails.Extraction p: Identity(p.Id.Value); Quantity(p.Extracts); break;
-                case ProcessDetails.Recovery p: Identity(p.Id.Value); Quantities(p.Inputs); Quantities(p.Outputs); break;
-                default: throw new ArgumentException("Invalid process details.");
+                case ProcessDetails.Production p: Items(p.Inputs); Items(p.Outputs); break;
+                case ProcessDetails.Recovery p: Items(p.Inputs); Items(p.Outputs); break;
+                case ProcessDetails.Extraction p: Require(p.Extracts is not null, "Processes.Extracts"); break;
             }
+            var reference = process.Details switch
+            {
+                ProcessDetails.Production p => (ProcessRef)new ProcessRef.Production(p.Id),
+                ProcessDetails.Extraction p => new ProcessRef.Production(p.Id),
+                ProcessDetails.Recovery p => new ProcessRef.Recovery(p.Id),
+                _ => throw new ArgumentException("Invalid process details.")
+            };
+            Process(reference);
+            Identities(process.AllowedTerrainTypes);
+            foreach (var good in WorldReferences.ProcessGoods(process.Details)) ValidateGood(good);
         }
         Unique(Items(content.PopulationRules), x => x.Id.Value);
         foreach (var rule in content.PopulationRules)
         {
-            Identity(rule.Id.Value); Hash(rule.Revision.Value); Ratio(rule.LaborRatio);
-            Require(rule.ConsumptionIntervalTicks > 0 && rule.StatisticsPeriodTicks > 0, "PopulationRules");
-            Nonnegative(rule.BaseGrowthPerSecond); Nonnegative(rule.ImprovementGrowthPerSecond); Nonnegative(rule.MaximumLossPerSecond);
-            Unique(Items(rule.Needs), x => x.Need);
-            foreach (var need in rule.Needs) { EnumValue(need.Need); EnumValue(need.Class); Positive(need.AmountPerPersonSecond); Positive(need.Weight); }
+            Identity(rule.Id.Value);
             Unique(Items(rule.ConsumptionGoods), x => GoodKey(x.Good));
-            foreach (var good in rule.ConsumptionGoods)
-            {
-                Good(good.Good); Require(good.SelectionOrder >= 0, "SelectionOrder"); Unique(Items(good.Satisfies), x => x.Need);
-                foreach (var conversion in good.Satisfies) { EnumValue(conversion.Need); Positive(conversion.AmountPerGoodUnit); }
-            }
+            foreach (var good in rule.ConsumptionGoods) ValidateGood(good.Good);
         }
         Unique(Items(content.MarketRules), x => x.Id.Value);
         foreach (var rule in content.MarketRules)
         {
-            Identity(rule.Id.Value); Hash(rule.Revision.Value);
-            Nonnegative(rule.BasicReserveHours); Nonnegative(rule.ProductionReserveHours); Nonnegative(rule.ImprovementReserveHours);
-            Prices(rule.DefaultGoodsPrices);
+            Identity(rule.Id.Value);
             Unique(Items(rule.GoodPrices), x => GoodKey(x.Good));
-            foreach (var price in rule.GoodPrices) { Good(price.Good); Prices(price.Parameters); }
-            Unique(Items(rule.VehiclePurchaseLimits), x => x.Size);
-            foreach (var limit in rule.VehiclePurchaseLimits) { EnumValue(limit.Size); Require(limit.MaximumForSale >= 0, "MaximumForSale"); }
-            Require(rule.VehicleBuyMultiplier.Value > 0 && rule.VehicleSellMultiplier.Value > 0 && rule.AutomaticEvaluationIntervalTicks > 0 &&
-                rule.RecentReportLimit > 0 && rule.CommissionMoneyPerWork.Value >= 0 && rule.RentMoneyPerCapacityHour.Value >= 0 &&
-                rule.RentableCapacityRatio.Value is >= 0 and <= 10000 && rule.LeaseDurationTicks > 0, "MarketRules");
+            foreach (var good in rule.GoodPrices) ValidateGood(good.Good);
         }
         Unique(Items(content.ConstructionRules), x => x.Id.Value);
-        foreach (var rule in content.ConstructionRules)
-        {
-            Identity(rule.Id.Value); Hash(rule.Revision.Value);
-            Require(rule.FoundingDurationTicks > 0 && rule.ConstructionWorkPerItem > 0 && rule.RefitWorkPerChangedItem > 0 &&
-                rule.DeconstructionWorkPerItem > 0 && rule.RepairWorkPerDamagedPart > 0, "ConstructionRules");
-            Nonnegative(rule.PowerPerWork); Nonnegative(rule.LaborPerWork);
-        }
+        foreach (var rule in content.ConstructionRules) Identity(rule.Id.Value);
         Unique(Items(content.RailwayRules), x => x.Id.Value);
-        foreach (var rule in content.RailwayRules)
-        {
-            Identity(rule.Id.Value); Hash(rule.Revision.Value); Identity(rule.RailGood.Value);
-            Positive(rule.BrakingDeceleration); Positive(rule.MinimumAcceleration); Positive(rule.MinimumGapMeters);
-            Positive(rule.RailUnitsPerMeter); Positive(rule.BuildSecondsPerMeter); Positive(rule.RepairSecondsPerBreak);
-            Require(rule.RepairRailUnitsPerBreak > 0, "RepairRailUnitsPerBreak");
-        }
+        foreach (var rule in content.RailwayRules) { Identity(rule.Id.Value); Identity(rule.RailGood.Value); }
         Unique(Items(content.CombatRules), x => x.Id.Value);
-        foreach (var rule in content.CombatRules)
-        {
-            Identity(rule.Id.Value); Hash(rule.Revision.Value);
-            Positive(rule.RetreatSeconds); Nonnegative(rule.MoraleDamageCoefficient); Ratio(rule.WeaponDestroyedMoraleLoss);
-            Nonnegative(rule.MoraleRecoveryPerSecond); Ratio(rule.SurrenderThreshold); Positive(rule.NewLairIntervalSeconds);
-        }
+        foreach (var rule in content.CombatRules) Identity(rule.Id.Value);
         Unique(Items(content.SettlementTypes), x => x.Id.Value);
         foreach (var type in content.SettlementTypes)
         {
-            Identity(type.Id.Value); Hash(type.Revision.Value); Identities(type.PreferredTerrain);
+            Identity(type.Id.Value); Identities(type.PreferredTerrain);
             Require(type.Weight > 0 && type.MinimumInitialPopulation > 0 && type.MaximumInitialPopulation >= type.MinimumInitialPopulation, "SettlementTypes");
         }
         Unique(Items(content.SettlementTemplates), x => x.Id.Value);
-        foreach (var template in content.SettlementTemplates)
-        {
-            Identity(template.Id.Value); Identity(template.Type.Value); Require(template.Weight > 0, "Templates.Weight");
-            Unique(Items(template.Plots), x => x.Number);
-            foreach (var plot in template.Plots)
-            { Require(plot.Number > 0, "Plots.Number"); EnumValue(plot.Size); if (plot.PrebuiltDesign is { } design) Hash(design.Value); }
-            Unique(Items(template.FoundingBuildings), x => x.PlotNumber);
-            foreach (var building in template.FoundingBuildings) { Require(building.PlotNumber > 0, "FoundingBuildings"); Hash(building.Design.Value); }
-            Quantities(template.SpecialInitialInventory);
-            Unique(Items(template.ProductionPlans), x => (x.PlotNumber, x.Capability));
-            foreach (var plan in template.ProductionPlans)
-            { Require(plan.PlotNumber > 0, "ProductionPlans"); EnumValue(plan.Capability); Process(plan.Process); }
-        }
+        foreach (var template in content.SettlementTemplates) ValidateTemplate(template);
         Unique(Items(content.Creatures), x => x.Id.Value);
-        foreach (var creature in content.Creatures)
-        {
-            Identity(creature.Id.Value); Hash(creature.Revision.Value); Require(creature.HitPoints > 0, "HitPoints");
-            Nonnegative(creature.SpeedMetersPerSecond); Ratio(creature.RetreatLossRatio); Positive(creature.RaidDurationSeconds);
-            if (creature.Weapon is { } weapon) Capability(weapon);
-        }
+        foreach (var creature in content.Creatures) Identity(creature.Id.Value);
         Unique(Items(content.LairTypes), x => x.Id.Value);
         foreach (var lair in content.LairTypes)
         {
-            Identity(lair.Id.Value); Hash(lair.Revision.Value);
-            Require(lair.GenerationWeight > 0 && lair.MaximumMembers > 0 && lair.RoamingRadiusHops >= 0 && lair.RaidRadiusHops >= 0 && lair.ClearanceReward.Value >= 0, "LairTypes");
-            Positive(lair.SpawnIntervalSeconds); Positive(lair.RaidIntervalSeconds); Positive(lair.RailDamageWorkSeconds);
+            Identity(lair.Id.Value);
             Unique(Items(lair.Members), x => x.Creature.Value);
-            foreach (var member in lair.Members) { Identity(member.Creature.Value); Require(member.Weight > 0, "Members.Weight"); }
+            foreach (var member in lair.Members) Identity(member.Creature.Value);
         }
         Missing(content.MissingReferences);
         Unique(content.PopulationRules.Select(x => x.Id).Concat(content.MarketRules.Select(x => x.Id))
@@ -233,25 +144,90 @@ internal static class WorldInputs
             .Concat(content.CombatRules.Select(x => x.Id)), x => x.Value);
     }
 
-    internal static (WorldGenerationInput Input, CoreContentProjection Content) Normalize(
-        WorldGenerationInput input, CoreContentProjection content, GenerationBudgetCounter budget)
+    internal static void ValidateDesignGood(GoodDefinitionProjection good)
+    {
+        ArgumentNullException.ThrowIfNull(good);
+        ValidateGood(good.Good); Hash(good.Revision.Value);
+        Require(good.BaseValue.Value >= 0, "BaseValue"); Nonnegative(good.MassTons);
+        if (good.FuelEnergyPerUnit is { } energy) Positive(energy);
+    }
+
+    internal static void ValidateDesign(DesignProjection design)
+    {
+        ArgumentNullException.ThrowIfNull(design);
+        Hash(design.Design.Value); Hash(design.Composition.Value);
+        Require(design.MaxStructureDurability >= 0 && design.StructureHitWeight >= 0 && design.StructuralBaseValue.Value >= 0 && design.BillOfMaterialsItemCount >= 0, "Designs");
+        Nonnegative(design.MassTons);
+        switch (design.Kind)
+        {
+            case DesignKind.Vehicle vehicle: EnumValue(vehicle.Size); Require(vehicle.LengthCells > 0, "LengthCells"); break;
+            case DesignKind.Building building:
+                EnumValue(building.PlotSize); EnumValue(building.Type);
+                Unique(Items(building.FacilityTags), x => x);
+                foreach (var tag in building.FacilityTags) EnumValue(tag);
+                break;
+            case DesignKind.LargeEquipment equipment: ValidateGood(equipment.ManufacturedGood); break;
+            default: throw new ArgumentException("Invalid design kind.");
+        }
+        Unique(Items(design.Parts), x => x.Id);
+        foreach (var part in design.Parts)
+        {
+            Require(part.Id.Value >= 0 && part.MaxDurability >= 0 && part.HitWeight >= 0 && part.BaseValue.Value >= 0, "Parts");
+            ValidateReference(part.Definition); ValidateGood(part.RepairGood);
+            foreach (var capability in Items(part.Capabilities)) Capability(capability);
+        }
+        Quantities(design.StructuralGoods); Quantities(design.BillOfMaterials);
+        foreach (var unit in Items(design.ReturnUnits))
+        {
+            ValidateGood(unit.Good); Require(unit.Quantity > 0, "ReturnUnits");
+            Unique(Items(unit.Parts), x => x);
+            foreach (var part in unit.Parts) Require(part.Value >= 0, "ReturnUnits.Parts");
+            Quantities(unit.StructuralGoods); Missing(unit.MissingReferences);
+        }
+        Missing(design.MissingReferences);
+    }
+
+    internal static void ValidateTemplate(SettlementTemplateProjection template)
+    {
+        ArgumentNullException.ThrowIfNull(template);
+        Identity(template.Id.Value); Identity(template.Type.Value); Require(template.Weight > 0, "Templates.Weight");
+        Unique(Items(template.Plots), x => x.Number);
+        foreach (var plot in template.Plots)
+        { Require(plot.Number > 0, "Plots.Number"); EnumValue(plot.Size); if (plot.PrebuiltDesign is { } design) Hash(design.Value); }
+        Unique(Items(template.FoundingBuildings), x => x.PlotNumber);
+        foreach (var building in template.FoundingBuildings) { Require(building.PlotNumber > 0, "FoundingBuildings"); Hash(building.Design.Value); }
+        Quantities(template.SpecialInitialInventory);
+        Unique(Items(template.ProductionPlans), x => (x.PlotNumber, x.Capability));
+        foreach (var plan in template.ProductionPlans)
+        { Require(plan.PlotNumber > 0, "ProductionPlans"); EnumValue(plan.Capability); Process(plan.Process); }
+    }
+
+    internal static WorldGenerationInput NormalizeInput(WorldGenerationInput input, GenerationBudgetCounter? budget = null)
     {
         var c = input.Configuration;
         var normalized = c with
         {
+            CandidateProbability = Zero(c.CandidateProbability), LakeElevationThreshold = Zero(c.LakeElevationThreshold),
+            RiverBandHalfWidth = Zero(c.RiverBandHalfWidth),
+            SettlementRatio = Zero(c.SettlementRatio), LairRatio = Zero(c.LairRatio), HostileSettlementRatio = Zero(c.HostileSettlementRatio),
             ElevationNoise = Noise(c.ElevationNoise, budget), MoistureNoise = Noise(c.MoistureNoise, budget), RiverNoise = Noise(c.RiverNoise, budget),
             TerrainBands = Bands(c.TerrainBands, budget),
             LairWeights = Sorted(c.LairWeights, x => x.Type.Value, budget),
             Resources = Sorted(c.Resources, x => x.Good.Value, budget).Select(x => x with
-                { AllowedTerrainTypes = Sorted(x.AllowedTerrainTypes, t => t.Value, budget) }).ToImmutableArray(),
+                { AllowedTerrainTypes = Sorted(x.AllowedTerrainTypes, t => t.Value, budget), Probability = Zero(x.Probability),
+                    RecoveryUnitsPerSecond = Zero(x.RecoveryUnitsPerSecond),
+                    GlobalRegenerationRemainingReserveRatio = Zero(x.GlobalRegenerationRemainingReserveRatio) }).ToImmutableArray(),
             NpcInitialization = c.NpcInitialization with
-                { ForSaleVehicleCandidates = Sorted(c.NpcInitialization.ForSaleVehicleCandidates, x => x.Value, budget) }
+                { OutputReserveHours = Zero(c.NpcInitialization.OutputReserveHours), ForSaleVehicleCandidates = Sorted(c.NpcInitialization.ForSaleVehicleCandidates, x => x.Value, budget) }
         };
-        return (input with { Configuration = normalized, Start = input.Start with
-            { Trains = input.Start.Trains.Select(x => x with { Inventory = Amounts(x.Inventory, budget) }).ToImmutableArray() } }, content with
+        return input with { Configuration = normalized, Start = input.Start with
+            { Trains = input.Start.Trains.Select(x => x with { Inventory = Amounts(x.Inventory, budget) }).ToImmutableArray() } };
+    }
+
+    internal static CoreContentProjection NormalizeContent(CoreContentProjection content) => content with
         {
             Goods = Sorted(content.Goods, x => GoodKey(x.Good)),
-            DesignGoods = Sorted(content.DesignGoods, x => GoodKey(x.Good)),
+            DesignGoods = Sorted(content.DesignGoods, x => GoodKey(x.Good)).Select(x => x with { MassTons = Zero(x.MassTons) }).ToImmutableArray(),
             Designs = Sorted(content.Designs, x => x.Design.Value).Select(NormalizeDesign).ToImmutableArray(),
             Processes = Sorted(content.Processes, x => ProcessKey(x.Details)),
             PopulationRules = Sorted(content.PopulationRules, x => x.Id.Value),
@@ -265,8 +241,7 @@ internal static class WorldInputs
             Creatures = Sorted(content.Creatures, x => x.Id.Value),
             LairTypes = Sorted(content.LairTypes, x => x.Id.Value).Select(x => x with
                 { Members = Sorted(x.Members, m => m.Creature.Value) }).ToImmutableArray()
-        });
-    }
+        };
 
     internal static SettlementTemplateProjection NormalizeTemplate(SettlementTemplateProjection template) => template with
     {
@@ -278,6 +253,7 @@ internal static class WorldInputs
 
     internal static DesignProjection NormalizeDesign(DesignProjection design) => design with
     {
+        MassTons = Zero(design.MassTons),
         Kind = design.Kind is DesignKind.Building building ? building with
             { FacilityTags = building.FacilityTags.Order().ToImmutableArray() } : design.Kind,
         Parts = design.Parts.OrderBy(x => x.Id.Value).Select(x => x with
@@ -339,12 +315,15 @@ internal static class WorldInputs
         return left.MissingReferences.Length.CompareTo(right.MissingReferences.Length);
     }
 
-    private static ImmutableArray<NoiseOctave> Noise(ImmutableArray<NoiseOctave> values, GenerationBudgetCounter budget)
-    { budget.Sort(values.Length); return values.OrderBy(x => x.ScaleMeters).ThenBy(x => x.Amplitude).ToImmutableArray(); }
-    private static ImmutableArray<TerrainGenerationBand> Bands(ImmutableArray<TerrainGenerationBand> values, GenerationBudgetCounter budget)
+    private static ImmutableArray<NoiseOctave> Noise(ImmutableArray<NoiseOctave> values, GenerationBudgetCounter? budget)
+    { budget?.Sort(values.Length); return values.Select(x => x with { Amplitude = Zero(x.Amplitude) }).OrderBy(x => x.ScaleMeters).ThenBy(x => x.Amplitude).ToImmutableArray(); }
+    private static ImmutableArray<TerrainGenerationBand> Bands(ImmutableArray<TerrainGenerationBand> values, GenerationBudgetCounter? budget)
     {
-        budget.Sort(values.Length);
-        return values.Distinct().OrderBy(x => x.MinimumElevation).ThenBy(x => x.MaximumElevation)
+        budget?.Sort(values.Length);
+        return values.Select(x => x with
+            { MinimumElevation = Zero(x.MinimumElevation), MaximumElevation = Zero(x.MaximumElevation),
+                MinimumMoisture = Zero(x.MinimumMoisture), MaximumMoisture = Zero(x.MaximumMoisture), MaximumRelief = Zero(x.MaximumRelief) })
+            .Distinct().OrderBy(x => x.MinimumElevation).ThenBy(x => x.MaximumElevation)
             .ThenBy(x => x.MinimumMoisture).ThenBy(x => x.MaximumMoisture).ThenBy(x => x.MaximumRelief)
             .ThenBy(x => x.DetourMultiplier).ThenBy(x => x.MaximumTracks).ThenBy(x => x.Terrain.Value, StringComparer.Ordinal).ToImmutableArray();
     }
@@ -365,20 +344,14 @@ internal static class WorldInputs
     private static void Quantities(ImmutableArray<GoodsQuantity> values)
     { Unique(Items(values), x => GoodKey(x.Good)); foreach (var value in values) Quantity(value); }
     private static void Quantity(GoodsQuantity value)
-    { ArgumentNullException.ThrowIfNull(value); Good(value.Good); Require(value.Quantity > 0, "Quantity"); }
-    private static void Prices(GoodsPriceParameters value)
-    {
-        ArgumentNullException.ThrowIfNull(value);
-        Require(value.Sensitivity.Value >= 0 && value.MinimumMultiplier.Value > 0 && value.MaximumMultiplier.Value >= value.MinimumMultiplier.Value &&
-            value.Spread.Value is >= 0 and < 10000, "GoodsPriceParameters");
-    }
+    { ArgumentNullException.ThrowIfNull(value); ValidateGood(value.Good); Require(value.Quantity > 0, "Quantity"); }
     private static void Identities(ImmutableArray<TerrainTypeId> values)
     { Unique(Items(values), x => x.Value); foreach (var value in values) Identity(value.Value); }
     private static void Missing(ImmutableArray<MissingCoreReference> values)
     {
-        foreach (var value in Items(values)) { Reference(value.Reference); ArgumentNullException.ThrowIfNull(value.FieldPath); }
+        foreach (var value in Items(values)) { ValidateReference(value.Reference); ArgumentNullException.ThrowIfNull(value.FieldPath); }
     }
-    private static void Good(GoodId good)
+    internal static void ValidateGood(GoodId good)
     {
         switch (good)
         {
@@ -404,7 +377,7 @@ internal static class WorldInputs
             default: throw new ArgumentException("Invalid process reference.");
         }
     }
-    private static void Reference(CoreDefinitionReference reference)
+    internal static void ValidateReference(CoreDefinitionReference reference)
     {
         switch (reference)
         {
@@ -435,19 +408,10 @@ internal static class WorldInputs
             default: throw new ArgumentException("Invalid part capability.");
         }
     }
-    private static void Identity(string value)
-    {
-        ArgumentNullException.ThrowIfNull(value);
-        var separator = value.IndexOf(':');
-        Require(separator > 0 && separator < value.Length - 1 && separator == value.LastIndexOf(':') &&
-            !value.Any(char.IsWhiteSpace) && value == value.ToLowerInvariant(), "Canonical identity");
-    }
-    private static void Hash(string value)
-    {
-        ArgumentNullException.ThrowIfNull(value);
-        Require(value.Length == 64 && value.All(x => x is >= '0' and <= '9' or >= 'A' and <= 'F'), "Canonical SHA-256");
-    }
+    private static void Identity(string value) => Require(WorldFormat.IsIdentity(value), "Canonical identity");
+    private static void Hash(string value) => Require(WorldFormat.IsHash(value), "Canonical SHA-256");
     private static void EnumValue<T>(T value) where T : struct, Enum => Require(Enum.IsDefined(value), "Invalid enum");
+    private static double Zero(double value) => value == 0 ? 0 : value;
     private static void Finite(double value) => Require(double.IsFinite(value), "Non-finite value");
     private static void Positive(double value) { Finite(value); Require(value > 0, "Positive value required"); }
     private static void Nonnegative(double value) { Finite(value); Require(value >= 0, "Nonnegative value required"); }

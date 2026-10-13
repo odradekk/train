@@ -7,13 +7,13 @@ internal sealed record TerrainSample(TerrainView View, TerrainGenerationBand Ban
 
 internal sealed class WorldTerrain(WorldGenerationInput input, GenerationBudgetCounter budget, ulong worldRetry)
 {
+    private readonly double _riverAmplitude = input.Configuration.RiverNoise.Sum(o => o.Amplitude);
     internal double SampleSpacing => input.Configuration.TerrainSampleSpacingMeters;
     internal int MaximumTracks => input.Configuration.InitialRailway.MaximumTracks;
     internal double Noise(string family, ImmutableArray<NoiseOctave> octaves, double x, double y)
     {
         var value = 0.0;
-        budget.Sort(octaves.Length);
-        foreach (var octave in octaves.OrderBy(o => o.ScaleMeters).ThenBy(o => o.Amplitude))
+        foreach (var octave in octaves)
         {
             if (octave.Amplitude == 0) continue;
             budget.Work();
@@ -56,7 +56,7 @@ internal sealed class WorldTerrain(WorldGenerationInput input, GenerationBudgetC
             Elevation(point.X, Math.Max(0, point.Y - radius)),
             Elevation(point.X, Math.Min(config.HeightMeters, point.Y + radius)) };
         var relief = samples.Max() - samples.Min();
-        var matches = config.TerrainBands.Distinct().Where(b =>
+        var matches = config.TerrainBands.Where(b =>
         {
             budget.Work();
             return elevation >= b.MinimumElevation && elevation <= b.MaximumElevation
@@ -70,10 +70,9 @@ internal sealed class WorldTerrain(WorldGenerationInput input, GenerationBudgetC
             throw new GenerationFailure("config_invalid", "Configuration.TerrainBands");
         var features = ImmutableArray.CreateBuilder<string>();
         if (elevation < config.LakeElevationThreshold) features.Add("lake");
-        var amplitude = config.RiverNoise.Sum(o => o.Amplitude);
-        if (!double.IsFinite(amplitude))
+        if (!double.IsFinite(_riverAmplitude))
             throw new GenerationFailure("config_invalid", "Configuration.RiverNoise");
-        if (amplitude > 0 && Math.Abs(Noise("river", config.RiverNoise, point.X, point.Y) - amplitude / 2)
+        if (_riverAmplitude > 0 && Math.Abs(Noise("river", config.RiverNoise, point.X, point.Y) - _riverAmplitude / 2)
             <= config.RiverBandHalfWidth) features.Add("river");
         return new(new(chosen[0].Terrain, relief, features.ToImmutable()), chosen[0]);
 

@@ -25,7 +25,7 @@ public sealed class WorldRandomTests
     [DataRow("rail.cycle", 6, 8715095948868530376UL)]
     [DataRow("rail.tracks", 6, 3236087425112613175UL)]
     [DataRow("start.rank", 7, 12502784646848428110UL)]
-    public void PurposeSamplesMatchIndependentGolden(string purpose, int stage, ulong expected)
+    public void Purpose_samples_match_independent_golden(string purpose, int stage, ulong expected)
     {
         ulong[] components = purpose switch
         {
@@ -39,7 +39,7 @@ public sealed class WorldRandomTests
     }
 
     [TestMethod]
-    public void KeysIsolateStagesRetriesCandidatesAndCallOrder()
+    public void Keys_isolate_stages_retries_candidates_and_call_order()
     {
         var expected = WorldRandom.Sample(42, "node.x", 2, 2, 3, 5, 8);
         ulong[] different = [
@@ -54,7 +54,7 @@ public sealed class WorldRandomTests
     }
 
     [TestMethod]
-    public void IdentityUsesUtf8LengthAndBytes()
+    public void Identity_uses_utf8_length_and_bytes()
     {
         CollectionAssert.AreEqual(new ulong[] { 3, 232, 189, 166 }, WorldRandom.Identity("车"));
         CollectionAssert.AreEqual(new ulong[] { 0 }, WorldRandom.Identity(""));
@@ -65,7 +65,7 @@ public sealed class WorldRandomTests
     }
 
     [TestMethod]
-    public void SampleConversionsHonorClosedIntegerAndHalfOpenUnitBounds()
+    public void Sample_conversions_honor_closed_integer_and_half_open_unit_bounds()
     {
         Assert.AreEqual(0d, WorldRandom.Unit(0));
         Assert.AreEqual(1 - 1d / 9007199254740992d, WorldRandom.Unit(ulong.MaxValue));

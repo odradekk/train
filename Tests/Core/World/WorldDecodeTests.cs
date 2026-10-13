@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
+using static Train.Core.Tests.World.WorldFixture;
 
 namespace Train.Core.Tests.World;
 
@@ -8,28 +9,42 @@ namespace Train.Core.Tests.World;
 public sealed class WorldDecodeTests
 {
     [TestMethod]
-    [DataRow("duplicate_node")]
-    [DataRow("unordered_nodes")]
-    [DataRow("unordered_source_noise")]
-    [DataRow("unordered_capabilities")]
-    [DataRow("missing_edge_node")]
-    [DataRow("missing_vehicle_owner")]
-    [DataRow("wrong_instance_kind")]
-    [DataRow("missing_inventory_owner")]
-    [DataRow("next_id_reused")]
-    [DataRow("nonfinite_position")]
-    [DataRow("negative_quantity")]
-    [DataRow("null_collection")]
-    [DataRow("missing_collection")]
-    [DataRow("null_collection_element")]
-    [DataRow("duplicate_nested_property")]
-    [DataRow("unknown_nested_property")]
-    [DataRow("reference_mismatch")]
-    [DataRow("missing_world_field")]
-    public void Corrupt_world_payload_is_rejected_without_changing_the_active_session(string corruption)
+    [DataRow("duplicate_node", null)]
+    [DataRow("unordered_nodes", null)]
+    [DataRow("unordered_source_noise", null)]
+    [DataRow("unordered_capabilities", null)]
+    [DataRow("missing_edge_node", null)]
+    [DataRow("missing_vehicle_owner", null)]
+    [DataRow("wrong_instance_kind", null)]
+    [DataRow("missing_inventory_owner", null)]
+    [DataRow("next_id_reused", null)]
+    [DataRow("nonfinite_position", null)]
+    [DataRow("negative_quantity", null)]
+    [DataRow("null_collection", null)]
+    [DataRow("missing_collection", null)]
+    [DataRow("null_collection_element", null)]
+    [DataRow("duplicate_nested_property", null)]
+    [DataRow("unknown_nested_property", null)]
+    [DataRow("reference_mismatch", null)]
+    [DataRow("missing_world_field", null)]
+    [DataRow("null_world", "/world")]
+    [DataRow("excess_track_limit", "/world/edges")]
+    [DataRow("zero_station_maximum", "/world/nodes/platforms")]
+    [DataRow("zero_platform_maximum", "/world/nodes/platforms")]
+    [DataRow("wrong_platform_count", "/world/nodes/platforms")]
+    [DataRow("destroyed_station", "/world/nodes/platforms")]
+    [DataRow("destroyed_platform_part", "/world/nodes/platforms")]
+    [DataRow("wrong_station_kind", "/world/nodes/platforms")]
+    [DataRow("missing_platform_capability", "/world/nodes/platforms")]
+    [DataRow("missing_commission_design", "/world/source/configuration/start_constraints/required_affordable_commission_design")]
+    [DataRow("missing_for_sale_design", "/world/source/configuration/npc_initialization/for_sale_vehicle_candidates")]
+    [DataRow("missing_start_design", "/world/source/start/trains/vehicles")]
+    [DataRow("missing_prebuilt_design", "/world/settlements/template/plots/prebuilt_design")]
+    [DataRow("missing_founding_design", "/world/settlements/template/founding_buildings/design")]
+    public void Corrupt_world_payload_is_rejected_without_changing_the_active_session(string corruption, string? expectedField)
     {
         var factory = CoreFactory.Create();
-        using var candidate = Success(factory.PrepareNew(Input(), WorldFixture.Content, WorldGenerationTests.Options));
+        using var candidate = Prepare(InputWithInventory());
         using var session = candidate.Activate();
         var original = Success(session.Capture(CapturePurpose.Save));
         var payload = original.Encode();
@@ -39,8 +54,30 @@ public sealed class WorldDecodeTests
         var nodes = world["nodes"]!.AsArray();
         var instances = world["instances"]!.AsArray();
         var vehicle = instances.Single(i => i!["id"]!["$kind"]!.GetValue<string>() == "vehicle")!;
+        var station = instances.First(i => i!["id"]!["$kind"]!.GetValue<string>() == "building")!;
+        var stationDesign = world["designs"]!.AsArray().Single(d =>
+            d!["design"]!["value"]!.GetValue<string>() == station["design"]!["value"]!.GetValue<string>())!;
+        var settlement = world["settlements"]![0]!;
+        var settlementNode = nodes.Single(n => n!["id"]!["value"]!.GetValue<ulong>() == settlement["node"]!["value"]!.GetValue<ulong>())!;
+        var configuration = world["source"]!["configuration"]!;
+        var missingHash = new string('E', 64);
         switch (corruption)
         {
+            case "null_world": root["world"] = null; break;
+            case "excess_track_limit": world["edges"]![0]!["track_limit"] = configuration["initial_railway"]!["maximum_tracks"]!.GetValue<int>() + 1; break;
+            case "wrong_platform_count": settlementNode["platforms"] = settlementNode["platforms"]!.GetValue<int>() + 1; break;
+            case "destroyed_station": station["structure_durability"] = 0; break;
+            case "destroyed_platform_part": station["parts"]![0]!["current"] = 0; break;
+            case "zero_station_maximum": stationDesign["max_structure_durability"] = 0; break;
+            case "zero_platform_maximum": stationDesign["parts"]![0]!["max_durability"] = 0; break;
+            case "wrong_station_kind": stationDesign["kind"]!["type"] = (int)BuildingKind.Warehouse; break;
+            case "missing_platform_capability": stationDesign["parts"]![0]!["capabilities"]!.AsArray().Clear(); break;
+            case "missing_commission_design": configuration["start_constraints"]!["required_affordable_commission_design"]!["value"] = missingHash; break;
+            case "missing_for_sale_design": configuration["npc_initialization"]!["for_sale_vehicle_candidates"] = new JsonArray(new JsonObject { ["value"] = missingHash }); break;
+            case "missing_start_design": world["source"]!["start"]!["trains"]![0]!["vehicles"]![0]!["value"] = missingHash; break;
+            case "missing_prebuilt_design": settlement["template"]!["plots"]![0]!["prebuilt_design"]!["value"] = missingHash; break;
+            case "missing_founding_design": settlement["template"]!["founding_buildings"] = new JsonArray(new JsonObject
+                { ["plot_number"] = 1, ["design"] = new JsonObject { ["value"] = missingHash } }); break;
             case "duplicate_node": nodes[1]!["id"] = nodes[0]!["id"]!.DeepClone(); break;
             case "unordered_nodes":
                 var first = nodes[0]!.DeepClone();
@@ -84,6 +121,7 @@ public sealed class WorldDecodeTests
         Assert.AreEqual("invalid_state", problem.Code, corruption);
         Assert.IsTrue(problem.Field!.StartsWith("/world", StringComparison.Ordinal)
             || problem.Field.StartsWith("/references", StringComparison.Ordinal), corruption);
+        if (expectedField is not null) Assert.AreEqual(expectedField, problem.Field, corruption);
         var after = Success(session.Capture(CapturePurpose.Save));
         Assert.AreEqual(payload, after.Encode());
         Assert.AreEqual(original.Checkpoint, after.Checkpoint);
@@ -93,7 +131,7 @@ public sealed class WorldDecodeTests
     public void Raw_durability_above_the_design_maximum_survives_restore_and_queries_clamp_it()
     {
         var factory = CoreFactory.Create();
-        using var candidate = Success(factory.PrepareNew(Input(), WorldFixture.Content, WorldGenerationTests.Options));
+        using var candidate = Prepare(InputWithInventory());
         using var session = candidate.Activate();
         var root = JsonNode.Parse(Success(session.Capture(CapturePurpose.Save)).Encode())!;
         var vehicle = root["world"]!["instances"]!.AsArray()
@@ -101,7 +139,7 @@ public sealed class WorldDecodeTests
         vehicle["structure_durability"] = 123;
         vehicle["parts"]![0]!["current"] = 456;
         var decoded = Success(factory.DecodeState(root.ToJsonString()));
-        using var restoredCandidate = Success(factory.PrepareRestore(decoded, WorldFixture.Content, WorldGenerationTests.Options));
+        using var restoredCandidate = Success(factory.PrepareRestore(decoded, Content, Options));
         using var restored = restoredCandidate.Activate();
         var instance = ((Lookup<InstanceView>.Found)restored.Read().FindInstance(new InstanceId.Vehicle(new(1)))).Value;
         Assert.AreEqual(new DurabilityView(100, 100), instance.Structure);
@@ -114,18 +152,13 @@ public sealed class WorldDecodeTests
         Assert.AreEqual(456L, raw["parts"]![0]!["current"]!.GetValue<long>());
     }
 
-    private static WorldGenerationInput Input() => WorldFixture.Input with
+    private static WorldGenerationInput InputWithInventory() => Input with
     {
-        Configuration = WorldFixture.Input.Configuration with { WidthMeters = 100 },
-        Start = WorldFixture.Input.Start with
+        Configuration = Input.Configuration with { WidthMeters = 100 },
+        Start = Input.Start with
         {
-            Trains = [WorldFixture.Input.Start.Trains[0] with { Inventory = [new(new GoodId.Voxel(WorldFixture.Material), 1)] }]
+            Trains = [Input.Start.Trains[0] with { Inventory = [new(new GoodId.Voxel(Material), 1)] }]
         }
     };
 
-    private static T Success<T>(CoreResult<T> result) where T : notnull
-    {
-        Assert.IsInstanceOfType<CoreResult<T>.Success>(result);
-        return ((CoreResult<T>.Success)result).Value;
-    }
 }

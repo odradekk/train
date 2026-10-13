@@ -9,40 +9,37 @@ internal static class WorldJson
 {
     private static readonly JsonSerializerOptions Options = CreateOptions();
 
-    internal static void Write(Utf8JsonWriter writer, WorldState? world) => JsonSerializer.Serialize(writer, world, Options);
+    internal static void Write(Utf8JsonWriter writer, WorldState world) => JsonSerializer.Serialize(writer, world, Options);
     internal static void WriteReferences(Utf8JsonWriter writer, CoreReferenceManifest references) => JsonSerializer.Serialize(writer, references, Options);
 
-    internal static WorldState? Read(JsonElement element)
+    internal static WorldState Read(JsonElement element)
     {
-        if (element.ValueKind == JsonValueKind.Null) return null;
-        CheckDuplicates(element, "/world");
         try
         {
-            var world = element.Deserialize<WorldState>(Options) ?? throw new WorldStateValidation.InvalidState("/world");
+            var world = element.Deserialize<WorldState>(Options) ?? throw new CoreStateFormatException("/world");
             WorldStateValidation.Validate(world);
-            var empty = new CoreContentProjection(new(new string('0', 64)), [], [], [], [], [], [], [], [], [], [], [], [], [], []);
-            var normalized = WorldInputs.Normalize(world.Source, empty, new(new(0, 0, long.MaxValue, long.MaxValue))).Input;
-            if (!SameValue(world.Source, normalized)) throw new WorldStateValidation.InvalidState("/world/source");
+            var normalized = WorldInputs.NormalizeInput(world.Source);
+            if (!SameValue(world.Source, normalized)) throw new CoreStateFormatException("/world/source");
             foreach (var design in world.Designs)
-                if (!SameValue(design, WorldInputs.NormalizeDesign(design))) throw new WorldStateValidation.InvalidState("/world/designs");
+                if (!SameValue(design, WorldInputs.NormalizeDesign(design))) throw new CoreStateFormatException("/world/designs");
             foreach (var settlement in world.Settlements)
-                if (!SameValue(settlement.Template, WorldInputs.NormalizeTemplate(settlement.Template))) throw new WorldStateValidation.InvalidState("/world/settlements/template");
+                if (!SameValue(settlement.Template, WorldInputs.NormalizeTemplate(settlement.Template))) throw new CoreStateFormatException("/world/settlements/template");
             return world;
         }
         catch (Exception error) when (error is JsonException or NotSupportedException or ArgumentException)
-        { throw new WorldStateValidation.InvalidState("/world"); }
+        { throw new CoreStateFormatException("/world"); }
     }
 
     internal static CoreReferenceManifest ReadReferences(JsonElement element)
     {
-        CheckDuplicates(element, "/references");
         CoreReferenceManifest? references;
         try { references = element.Deserialize<CoreReferenceManifest>(Options); }
         catch (Exception error) when (error is JsonException or NotSupportedException)
-        { throw new WorldStateValidation.InvalidState("/references"); }
+        { throw new CoreStateFormatException("/references"); }
         if (references is null || references.Designs.IsDefault || references.Templates.IsDefault
-            || references.Definitions.IsDefault || references.Inputs.IsDefault || references.Definitions.Any(d => d is null))
-            throw new WorldStateValidation.InvalidState("/references");
+            || references.Definitions.IsDefault || references.Inputs.IsDefault || references.Definitions.Any(d => d is null)
+            || references.Templates.Any(t => t is null || t.Plots.IsDefault || t.Plots.Any(p => p is null)))
+            throw new CoreStateFormatException("/references");
         return references;
     }
 
@@ -50,25 +47,6 @@ internal static class WorldJson
         => SameValue(left, right);
 
     private static bool SameValue<T>(T left, T right) => JsonSerializer.Serialize(left, Options) == JsonSerializer.Serialize(right, Options);
-
-    private static void CheckDuplicates(JsonElement element, string path)
-    {
-        if (element.ValueKind == JsonValueKind.Object)
-        {
-            var names = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var property in element.EnumerateObject())
-            {
-                var child = path + "/" + property.Name.Replace("~", "~0").Replace("/", "~1");
-                if (!names.Add(property.Name)) throw new WorldStateValidation.InvalidState(child);
-                CheckDuplicates(property.Value, child);
-            }
-        }
-        if (element.ValueKind == JsonValueKind.Array)
-        {
-            var index = 0;
-            foreach (var child in element.EnumerateArray()) CheckDuplicates(child, path + "/" + index++);
-        }
-    }
 
     private static JsonSerializerOptions CreateOptions()
     {
@@ -100,6 +78,7 @@ internal static class WorldJson
         return new()
         {
             PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+            AllowDuplicateProperties = false,
             UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
             RespectNullableAnnotations = true,
             RespectRequiredConstructorParameters = true,

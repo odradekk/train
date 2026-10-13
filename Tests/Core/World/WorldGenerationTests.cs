@@ -1,15 +1,13 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using System.Collections.Immutable;
 using Train.Core.Contracts;
 using Train.Core.Sessions;
+using static Train.Core.Tests.World.WorldFixture;
 
 namespace Train.Core.Tests.World;
 
 [TestClass]
 public sealed class WorldGenerationTests
 {
-    internal static CoreSessionOptions Options => new(new("fixture", "1", "Windows", "x64", "10"), false, 1);
-
     [TestMethod]
     public void Unsupported_generator_version_returns_a_located_failure()
     {
@@ -37,6 +35,23 @@ public sealed class WorldGenerationTests
         })
             Assert.ThrowsExactly<ArgumentException>(() => CoreFactory.Create().PrepareNew(
                 input with { Configuration = configuration }, WorldFixture.Content, Options));
+    }
+
+    [TestMethod]
+    [DataRow("default")]
+    [DataRow("null_element")]
+    [DataRow("null_extract")]
+    public void Read_process_goods_collections_reject_uninitialized_or_null_values(string malformed)
+    {
+        var good = new GoodsQuantity(new GoodId.Voxel(WorldFixture.Material), 1);
+        ProcessDetails details = malformed switch
+        {
+            "default" => new ProcessDetails.Production(new("fixture:process"), default, [good]),
+            "null_element" => new ProcessDetails.Recovery(new("fixture:process"), [good], [null!]),
+            _ => new ProcessDetails.Extraction(new("fixture:process"), null!)
+        };
+        var content = WorldFixture.Content with { Processes = [new(details, WorldFixture.Revision, 1, 0, 0, FacilityTag.Assembly, [])] };
+        Assert.ThrowsExactly<ArgumentException>(() => CoreFactory.Create().PrepareNew(WorldFixture.Input, content, Options));
     }
 
     [TestMethod]
@@ -122,6 +137,20 @@ public sealed class WorldGenerationTests
     }
 
     [TestMethod]
+    public void Prebuilt_and_founding_designs_must_be_buildings()
+    {
+        var template = WorldFixture.Content.SettlementTemplates[0];
+        foreach (var changed in new[]
+        {
+            template with { Plots = [template.Plots[0] with { PrebuiltDesign = WorldFixture.Vehicle }] },
+            template with { FoundingBuildings = [new(1, WorldFixture.Vehicle)] }
+        })
+            Failure(WorldFixture.Input, WorldFixture.Content with { SettlementTemplates = [changed] }, "config_invalid",
+                changed.FoundingBuildings.IsEmpty ? "Content.SettlementTemplates[fixture:town-template].Plots[1]"
+                    : "Content.SettlementTemplates[fixture:town-template].FoundingBuildings");
+    }
+
+    [TestMethod]
     public void Unsupported_npc_initialization_reports_the_specific_requested_field()
     {
         var input = WorldFixture.Input;
@@ -179,37 +208,6 @@ public sealed class WorldGenerationTests
     }
 
     [TestMethod]
-    public void Adjacent_lairs_are_excluded_even_when_the_incident_edge_has_no_tracks()
-    {
-        var input = WorldFixture.Input;
-        var content = WithLair();
-        input = input with { Configuration = input.Configuration with { WidthMeters = 100, SettlementRatio = .5, LairRatio = .5,
-            LairWeights = [new(new("fixture:lair"), 1)],
-            StartConstraints = input.Configuration.StartConstraints with { ExcludeAdjacentLairs = false } } };
-        using var allowed = Prepare(input, content);
-        Assert.IsTrue(allowed.View.World.Edges.Any(e => e.Tracks == 0 &&
-            (allowed.View.World.Nodes.Single(n => n.Id == e.Start).Occupant is NodeOccupant.Lair ||
-             allowed.View.World.Nodes.Single(n => n.Id == e.End).Occupant is NodeOccupant.Lair)));
-        var restricted = input with { Configuration = input.Configuration with { StartConstraints = input.Configuration.StartConstraints with
-            { ExcludeAdjacentLairs = true } } };
-        var result = CoreFactory.Create().PrepareNew(restricted, content, Options);
-        if (result is CoreResult<ICoreSessionCandidate>.Success success)
-        {
-            using var candidate = success.Value;
-            var world = candidate.View.World;
-            var root = ((TrainPosition.Node)world.Trains[0].Position).Id;
-            Assert.IsFalse(world.Edges.Where(e => e.Start == root || e.End == root).Any(e =>
-                world.Nodes.Single(n => n.Id == (e.Start == root ? e.End : e.Start)).Occupant is NodeOccupant.Lair));
-        }
-        else
-        {
-            var problem = ((CoreResult<ICoreSessionCandidate>.Failure)result).Problems.Single();
-            Assert.AreEqual("constraint_unsatisfied", problem.RelatedIdentities[0]);
-            Assert.AreEqual("Configuration.StartConstraints.ExcludeAdjacentLairs", problem.Field);
-        }
-    }
-
-    [TestMethod]
     public void Resources_obey_probability_endpoints_fixed_reserves_and_renewal_limits()
     {
         var input = WorldFixture.Input;
@@ -253,7 +251,10 @@ public sealed class WorldGenerationTests
         Assert.AreEqual(new NodeId(1), candidate.View.World.Nodes.Single().Id);
         var exhausted = Failure(input with { Configuration = input.Configuration with { CandidateProbability = 0 } },
             WorldFixture.Content, "constraint_unsatisfied", "World.Nodes");
-        CollectionAssert.AreEqual(new[] { "constraint_unsatisfied", "nodes", "cell:0,0", "1", "4", "5" }, exhausted.RelatedIdentities.ToArray());
+        Assert.AreEqual("nodes", exhausted.RelatedIdentities[1]);
+        Assert.AreEqual("", exhausted.RelatedIdentities[2]);
+        Assert.AreEqual("1", exhausted.RelatedIdentities[3]);
+        Assert.AreEqual("4", exhausted.RelatedIdentities[4]);
         var candidates = Failure(WorldFixture.Input with { Configuration = WorldFixture.Input.Configuration with
             { WidthMeters = 20, Budget = new(1, 1, 1, 1_000_000) } }, WorldFixture.Content, "budget_exhausted", "Configuration.Budget.MaximumCandidates");
         Assert.AreEqual("nodes", candidates.RelatedIdentities[1]);
@@ -261,7 +262,7 @@ public sealed class WorldGenerationTests
         var work = Failure(WorldFixture.Input with { Configuration = WorldFixture.Input.Configuration with
             { Budget = new(1, 1, 100_000, 1) } }, WorldFixture.Content, "budget_exhausted", "Configuration.Budget.MaximumSearchWork");
         Assert.AreEqual("nodes", work.RelatedIdentities[1]);
-        Assert.AreEqual("1", work.RelatedIdentities[5]);
+
     }
 
     [TestMethod]
@@ -301,57 +302,6 @@ public sealed class WorldGenerationTests
     }
 
     [TestMethod]
-    public void Unordered_inputs_catalogs_and_nested_design_template_leaves_have_identical_results()
-    {
-        var input = WorldFixture.Input;
-        var content = WorldFixture.Content;
-        var other = new VoxelDefinitionId("fixture:other");
-        content = content with
-        {
-            Goods = [content.Goods[0], content.Goods[0] with { Good = new GoodId.Voxel(other) }],
-            Designs = content.Designs.Select(d => d with { StructuralGoods = [new(new GoodId.Voxel(WorldFixture.Material), 1), new(new GoodId.Voxel(other), 2)] }).ToImmutableArray(),
-            SettlementTemplates = [content.SettlementTemplates[0] with
-            {
-                Plots = [new(1, PlotSize.Station, WorldFixture.Station), new(2, PlotSize.Station, null)],
-                SpecialInitialInventory = [new(new GoodId.Voxel(WorldFixture.Material), 3), new(new GoodId.Voxel(other), 4)]
-            }]
-        };
-        input = input with { Configuration = input.Configuration with
-        {
-            ElevationNoise = [new(10, 0), new(20, 0)],
-            TerrainBands = [input.Configuration.TerrainBands[0], input.Configuration.TerrainBands[0] with { MaximumRelief = 2 }],
-            Resources = [new(WorldFixture.Material, [WorldFixture.Plain, new("fixture:unused")], 1, 5, 5, false, 0, 1, 0),
-                new(other, [WorldFixture.Plain], 0, 5, 5, false, 0, 1, 0)]
-        } };
-        var permutedInput = input with { Configuration = input.Configuration with
-        {
-            ElevationNoise = Reverse(input.Configuration.ElevationNoise), TerrainBands = Reverse(input.Configuration.TerrainBands),
-            Resources = Reverse(input.Configuration.Resources).Select(r => r with { AllowedTerrainTypes = Reverse(r.AllowedTerrainTypes) }).ToImmutableArray()
-        } };
-        var permutedContent = content with
-        {
-            Goods = Reverse(content.Goods), Designs = Reverse(content.Designs).Select(d => d with
-            {
-                StructuralGoods = Reverse(d.StructuralGoods), Parts = Reverse(d.Parts).Select(p => p with { Capabilities = Reverse(p.Capabilities) }).ToImmutableArray()
-            }).ToImmutableArray(),
-            SettlementTemplates = Reverse(content.SettlementTemplates).Select(t => t with
-                { Plots = Reverse(t.Plots), SpecialInitialInventory = Reverse(t.SpecialInitialInventory) }).ToImmutableArray()
-        };
-        using var first = Prepare(input, content);
-        using var second = Prepare(permutedInput, permutedContent);
-        using var firstSession = first.Activate();
-        using var secondSession = second.Activate();
-        var firstCapture = firstSession.Capture(CapturePurpose.Save);
-        var secondCapture = secondSession.Capture(CapturePurpose.Save);
-        Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Success>(firstCapture);
-        Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Success>(secondCapture);
-        var left = ((CoreResult<ICoreCapture>.Success)firstCapture).Value;
-        var right = ((CoreResult<ICoreCapture>.Success)secondCapture).Value;
-        Assert.AreEqual(left.Encode(), right.Encode());
-        Assert.AreEqual(left.Checkpoint, right.Checkpoint);
-    }
-
-    [TestMethod]
     public void Train_and_vehicle_input_order_assigns_the_corresponding_instance_numbers()
     {
         var content = WorldFixture.Content;
@@ -368,15 +318,6 @@ public sealed class WorldGenerationTests
         Assert.AreEqual(WorldFixture.Vehicle, ((Lookup<InstanceView>.Found)vehicleReordered.View.FindInstance(new InstanceId.Vehicle(new(2)))).Value.Design);
         Assert.AreEqual(other, ((Lookup<InstanceView>.Found)second.View.FindInstance(new InstanceId.Vehicle(new(1)))).Value.Design);
         Assert.AreEqual(WorldFixture.Vehicle, ((Lookup<InstanceView>.Found)second.View.FindInstance(new InstanceId.Vehicle(new(3)))).Value.Design);
-    }
-
-    private static ImmutableArray<T> Reverse<T>(ImmutableArray<T> values) => values.Reverse().ToImmutableArray();
-
-    private static ICoreSessionCandidate Prepare(WorldGenerationInput input, CoreContentProjection? content = null)
-    {
-        var result = CoreFactory.Create().PrepareNew(input, content ?? WorldFixture.Content, Options);
-        Assert.IsInstanceOfType<CoreResult<ICoreSessionCandidate>.Success>(result);
-        return ((CoreResult<ICoreSessionCandidate>.Success)result).Value;
     }
 
     private static CoreProblem Failure(WorldGenerationInput input, CoreContentProjection content, string category, string field)

@@ -14,7 +14,9 @@ internal sealed class CoreSessionFactory : ICoreFactory
 {
     public CoreResult<ICoreSessionCandidate> PrepareNew(WorldGenerationInput input,
         CoreContentProjection content, CoreSessionOptions options)
-        => WorldGenerator.Generate(input, content, options) switch
+    {
+        ValidateOptions(options);
+        return WorldGenerator.Generate(input, content) switch
         {
             CoreResult<GeneratedWorld>.Success success => new CoreResult<ICoreSessionCandidate>.Success(
                 new CoreSessionCandidate(new(new(0, 0), 1, new(0), success.Value.Content, World: success.Value.State))),
@@ -22,6 +24,7 @@ internal sealed class CoreSessionFactory : ICoreFactory
             CoreResult<GeneratedWorld>.Faulted fault => new CoreResult<ICoreSessionCandidate>.Faulted(fault.Fault, fault.Diagnostic),
             _ => throw new InvalidOperationException("世界生成结果无效。")
         };
+    }
 
     public CoreResult<ICoreCapture> DecodeState(string canonicalPayload)
         => CoreCapture.Decode(canonicalPayload);
@@ -31,9 +34,8 @@ internal sealed class CoreSessionFactory : ICoreFactory
     {
         if (saved is not CoreCapture capture)
             throw new ArgumentException("捕获必须由核心工厂或会话生成。", nameof(saved));
-        ArgumentNullException.ThrowIfNull(content);
-        ArgumentNullException.ThrowIfNull(options);
-        if (capture.World is { } world) WorldInputs.Validate(world.Source, content, options);
+        ValidateOptions(options);
+        WorldInputs.ValidateContent(content);
         if (capture.Fault is not null)
             return new CoreResult<ICoreSessionCandidate>.Failure([new("frozen", "Fault", null, [])]);
         ImmutableArray<CoreProblem> report = capture.InputIdentity == content.Identity
@@ -48,4 +50,13 @@ internal sealed class CoreSessionFactory : ICoreFactory
 
     public CoreResult<CheckpointComparison> CompareCheckpoints(CoreCheckpoint expected, CoreCheckpoint actual)
         => throw new NotImplementedException("CompareCheckpoints 尚未实现。");
+
+    private static void ValidateOptions(CoreSessionOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(options.Runtime);
+        foreach (var value in new[] { options.Runtime.GameBuild, options.Runtime.SimulationVersion,
+            options.Runtime.OperatingSystem, options.Runtime.Architecture, options.Runtime.DotNetRuntime })
+            ArgumentNullException.ThrowIfNull(value);
+    }
 }

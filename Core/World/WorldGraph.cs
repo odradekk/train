@@ -52,8 +52,11 @@ internal static class WorldGraph
                 { kept.RemoveAt(index); lookup.Remove((edge.A, edge.B)); break; }
             }
         }
-        if (!Connected(nodes.Length, kept, Enumerable.Range(0, nodes.Length).ToHashSet(), budget))
+        if (nodes.IsEmpty || WorldTraversal.Build(nodes.Length, kept.Select(e => (e.A, e.B)), budget).Reachable(0).Nodes.Count != nodes.Length)
+        {
+            budget.Candidate = "";
             throw new GenerationFailure("constraint_unsatisfied", "World.Connected");
+        }
         budget.Sort(kept.Count);
         return kept.OrderBy(e => e.A).ThenBy(e => e.B).ToImmutableArray();
     }
@@ -63,28 +66,6 @@ internal static class WorldGraph
         var result = left.LengthMeters.CompareTo(right.LengthMeters);
         if (result == 0) result = left.A.CompareTo(right.A);
         return result == 0 ? left.B.CompareTo(right.B) : result;
-    }
-
-    internal static bool Connected(int nodeCount, IEnumerable<CandidateEdge> edges, HashSet<int> selected,
-        GenerationBudgetCounter budget)
-    {
-        if (selected.Count == 0) return false;
-        var adjacency = Enumerable.Range(0, nodeCount).Select(_ => new List<int>()).ToArray();
-        foreach (var edge in edges)
-        {
-            budget.Work();
-            if (selected.Contains(edge.A) && selected.Contains(edge.B))
-            { adjacency[edge.A].Add(edge.B); adjacency[edge.B].Add(edge.A); }
-        }
-        var reached = new HashSet<int> { selected.Min() };
-        var pending = new Queue<int>(reached);
-        while (pending.TryDequeue(out var node))
-            foreach (var next in adjacency[node])
-            {
-                budget.Work();
-                if (reached.Add(next)) pending.Enqueue(next);
-            }
-        return reached.Count == selected.Count;
     }
 
     private static CandidateEdge SampleEdge(int a, int b, ImmutableArray<CandidateNode> nodes,

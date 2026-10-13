@@ -5,9 +5,9 @@ namespace Train.Core.World;
 
 internal static class WorldReferences
 {
-    internal static CoreReferenceManifest Create(WorldState? world, CoreContentProjection content)
+    internal static CoreReferenceManifest Create(WorldState world, CoreContentProjection content)
     {
-        var usedDesigns = world?.Designs.Select(d => d.Design).ToHashSet() ?? [];
+        var usedDesigns = world.Designs.Select(d => d.Design).ToHashSet();
         var missing = content.MissingReferences.Concat(content.Designs.Where(d => usedDesigns.Contains(d.Design))
             .SelectMany(d => d.MissingReferences.Concat(d.ReturnUnits.SelectMany(u => u.MissingReferences))
                 .Concat(d.Parts.Where(p => p.Missing).Select(p => new MissingCoreReference(p.Definition, "")))))
@@ -15,10 +15,9 @@ internal static class WorldReferences
         return Create(world, content.Identity, missing);
     }
 
-    internal static CoreReferenceManifest Create(WorldState? world, CoreInputId identity,
+    internal static CoreReferenceManifest Create(WorldState world, CoreInputId identity,
         ImmutableArray<MissingCoreReference> missingReferences)
     {
-        if (world is null) return new([], [], [], [identity]);
         var definitions = ImmutableArray.CreateBuilder<RequiredDefinition>();
         foreach (var node in world.Nodes)
         {
@@ -37,19 +36,8 @@ internal static class WorldReferences
         foreach (var design in world.Designs)
         {
             var path = $"World.Designs[{design.Design.Value}]";
-            if (design.Kind is DesignKind.LargeEquipment equipment) Good(equipment.ManufacturedGood, path + ".Kind.ManufacturedGood");
-            foreach (var part in design.Parts)
-            {
-                Add(part.Definition, path + $".Parts[{part.Id.Value}].Definition");
-                Good(part.RepairGood, path + $".Parts[{part.Id.Value}].RepairGood");
-            }
-            foreach (var good in design.StructuralGoods) Good(good.Good, path + $".StructuralGoods[{GoodKey(good.Good)}]");
-            foreach (var good in design.BillOfMaterials) Good(good.Good, path + $".BillOfMaterials[{GoodKey(good.Good)}]");
-            foreach (var unit in design.ReturnUnits)
-            {
-                Good(unit.Good, path + $".ReturnUnits[{GoodKey(unit.Good)}]");
-                foreach (var good in unit.StructuralGoods) Good(good.Good, path + $".ReturnUnits.StructuralGoods[{GoodKey(good.Good)}]");
-            }
+            foreach (var part in design.Parts) Add(part.Definition, path + $".Parts[{part.Id.Value}].Definition");
+            foreach (var (good, field) in DesignGoods(design)) Good(good, path + field);
         }
         foreach (var inventory in world.Inventories)
             foreach (var good in inventory.Goods) Good(good.Good, $"World.Inventories[{inventory.Id.Value}].Goods[{GoodKey(good.Good)}]");
@@ -78,8 +66,7 @@ internal static class WorldReferences
         void Add(CoreDefinitionReference definition, string field) => definitions.Add(new(definition, null, field, false));
         void Good(GoodId good, string field)
         {
-            if (good is GoodId.Voxel voxel) Add(new CoreDefinitionReference.Voxel(voxel.Definition), field);
-            if (good is GoodId.Composite composite) Add(new CoreDefinitionReference.Composite(composite.Definition), field);
+            if (GoodReference(good) is { } reference) Add(reference, field);
         }
     }
 
@@ -90,8 +77,7 @@ internal static class WorldReferences
         {
             foreach (var (good, field) in DependencyGoods(reference, content))
             {
-                if (good is GoodId.Voxel voxel) result.Add(new(new CoreDefinitionReference.Voxel(voxel.Definition), null, field, false));
-                if (good is GoodId.Composite composite) result.Add(new(new CoreDefinitionReference.Composite(composite.Definition), null, field, false));
+                if (GoodReference(good) is { } dependency) result.Add(new(dependency, null, field, false));
             }
             foreach (var (dependency, field, _) in DependencyDefinitions(reference, content)) result.Add(new(dependency, null, field, false));
         }
@@ -117,14 +103,7 @@ internal static class WorldReferences
             foreach (var projection in content.Processes.Where(p => Matches(p.Details, process.Id)))
             {
                 var path = $"Content.Processes[{DefinitionKey(reference)}]";
-                var goods = projection.Details switch
-                {
-                    ProcessDetails.Production p => p.Inputs.Concat(p.Outputs),
-                    ProcessDetails.Recovery p => p.Inputs.Concat(p.Outputs),
-                    ProcessDetails.Extraction p => [p.Extracts],
-                    _ => throw new InvalidOperationException("流程种类非法。")
-                };
-                foreach (var good in goods) yield return (good.Good, path + ".Details");
+                foreach (var good in ProcessGoods(projection.Details)) yield return (good, path + ".Details");
             }
     }
 
@@ -145,6 +124,35 @@ internal static class WorldReferences
                     yield return (new CoreDefinitionReference.Creature(member.Creature), $"Content.LairTypes[{lair.Id.Value}].Members",
                         content.Creatures.Any(c => c.Id == member.Creature));
     }
+
+    internal static IEnumerable<(GoodId Good, string Field)> DesignGoods(DesignProjection design)
+    {
+        if (design.Kind is DesignKind.LargeEquipment equipment) yield return (equipment.ManufacturedGood, ".Kind.ManufacturedGood");
+        foreach (var part in design.Parts) yield return (part.RepairGood, $".Parts[{part.Id.Value}].RepairGood");
+        foreach (var good in design.StructuralGoods) yield return (good.Good, $".StructuralGoods[{GoodKey(good.Good)}]");
+        foreach (var good in design.BillOfMaterials) yield return (good.Good, $".BillOfMaterials[{GoodKey(good.Good)}]");
+        foreach (var unit in design.ReturnUnits)
+        {
+            yield return (unit.Good, $".ReturnUnits[{GoodKey(unit.Good)}]");
+            foreach (var good in unit.StructuralGoods) yield return (good.Good, $".ReturnUnits.StructuralGoods[{GoodKey(good.Good)}]");
+        }
+    }
+
+    internal static IEnumerable<GoodId> ProcessGoods(ProcessDetails details) => details switch
+    {
+        ProcessDetails.Production p => p.Inputs.Concat(p.Outputs).Select(g => g.Good),
+        ProcessDetails.Recovery p => p.Inputs.Concat(p.Outputs).Select(g => g.Good),
+        ProcessDetails.Extraction p => [p.Extracts.Good],
+        _ => throw new ArgumentException("Invalid process details.")
+    };
+
+    internal static CoreDefinitionReference? GoodReference(GoodId good) => good switch
+    {
+        GoodId.Voxel v => new CoreDefinitionReference.Voxel(v.Definition),
+        GoodId.Composite c => new CoreDefinitionReference.Composite(c.Definition),
+        GoodId.Assembly => null,
+        _ => throw new ArgumentException("Invalid good identity.")
+    };
 
     internal static bool Matches(ProcessDetails details, ProcessRef reference) => (details, reference) switch
     {

@@ -36,8 +36,7 @@ internal sealed record TrainState(TrainId Id, NodeId Node, ImmutableArray<Vehicl
 internal sealed record InventoryState(InventoryId Id, InventoryOwner Owner,
     ImmutableArray<GoodsQuantity> Goods);
 internal sealed record WorldIdentities(ulong Node, ulong Edge, ulong Settlement, ulong Lair, ulong Plot,
-    ulong Building, ulong Train, ulong Vehicle, ulong Inventory, ulong Job = 1, ulong Lease = 1,
-    ulong Combat = 1, ulong Creature = 1, ulong CreatureGroup = 1, ulong Break = 1);
+    ulong Building, ulong Train, ulong Vehicle, ulong Inventory);
 
 internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<NodeMapItem> Nodes, ImmutableArray<EdgeMapItem> Edges,
     ImmutableArray<SettlementState> Settlements, ImmutableArray<LairState> Lairs,
@@ -123,13 +122,7 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
         }
         var designs = content.Designs.Where(d => designHashes.Contains(d.Design)).ToImmutableArray();
         var goods = new HashSet<GoodId>(inventories.SelectMany(i => i.Goods).Select(g => g.Good));
-        foreach (var design in designs)
-        {
-            goods.UnionWith(design.Parts.Select(p => p.RepairGood));
-            goods.UnionWith(design.StructuralGoods.Concat(design.BillOfMaterials).Select(g => g.Good));
-            goods.UnionWith(design.ReturnUnits.Select(r => r.Good));
-            goods.UnionWith(design.ReturnUnits.SelectMany(r => r.StructuralGoods).Select(g => g.Good));
-        }
+        goods.UnionWith(designs.SelectMany(WorldReferences.DesignGoods).Select(g => g.Good));
         var state = new WorldState(input, mapNodes.ToImmutable(), mapEdges, settlements.ToImmutable(), lairs.ToImmutable(), instances.ToImmutable(), trains.ToImmutable(),
             inventories.ToImmutable(), designs, content.DesignGoods.Where(g => goods.Contains(g.Good)).ToImmutableArray(),
             input.Start.InitialMoney, new((ulong)nodes.Length + 1, (ulong)edges.Length + 1, settlementNumber, lairNumber,

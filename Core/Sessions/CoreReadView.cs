@@ -4,10 +4,10 @@ using Train.Core.World;
 namespace Train.Core.Sessions;
 
 internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Revision,
-    CoreInputId InputIdentity, CoreFault? Fault, WorldState? State = null) : ICoreReadView
+    CoreInputId InputIdentity, CoreFault? Fault, WorldState State) : ICoreReadView
 {
-    private readonly WorldSummary? _world = State?.Map;
-    public WorldSummary World => _world ?? throw new NotImplementedException("会话没有世界状态。");
+    private readonly WorldSummary _world = State.Map;
+    public WorldSummary World => _world;
     public EconomyView Economy => throw new NotImplementedException("Economy 尚未实现。");
     public Lookup<NodeView> FindNode(NodeId id)
     {
@@ -34,7 +34,7 @@ internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Re
             throw new ArgumentException("实例编号必须非零。", nameof(id));
         return Lookup(Data.FindInstance(id));
     }
-    private WorldState Data => State ?? throw new NotImplementedException("会话没有世界状态。");
+    private WorldState Data => State;
     private static Lookup<T> Lookup<T>(T? value) where T : class
         => value is null ? new Lookup<T>.Missing() : new Lookup<T>.Found(value);
     public Lookup<SettlementView> FindSettlement(SettlementId id)

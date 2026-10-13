@@ -1,21 +1,14 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
+using static Train.Core.Tests.World.WorldFixture;
 
 namespace Train.Core.Tests.World;
 
 [TestClass]
 public sealed class WorldQueryTests
 {
-    private static ICoreSessionCandidate Prepare(WorldGenerationInput? input = null)
-    {
-        var result = CoreFactory.Create().PrepareNew(input ?? WorldFixture.Input,
-            WorldFixture.Content, WorldGenerationTests.Options);
-        Assert.IsInstanceOfType<CoreResult<ICoreSessionCandidate>.Success>(result);
-        return ((CoreResult<ICoreSessionCandidate>.Success)result).Value;
-    }
-
     [TestMethod]
-    public void MinimalWorldQueriesExposeInitialStationVehicleAndStoppedTrain()
+    public void Minimal_world_queries_expose_initial_station_vehicle_and_stopped_train()
     {
         using var candidate = Prepare();
         using var session = candidate.Activate();
@@ -68,7 +61,7 @@ public sealed class WorldQueryTests
     }
 
     [TestMethod]
-    public void UnknownWorldObjectsReturnMissing()
+    public void Unknown_world_objects_return_missing()
     {
         using var candidate = Prepare();
         var view = candidate.View;
@@ -81,7 +74,7 @@ public sealed class WorldQueryTests
     }
 
     [TestMethod]
-    public void EdgeQueriesAgreeWithWorldAndNodeAdjacency()
+    public void Edge_queries_agree_with_world_and_node_adjacency()
     {
         var input = WorldFixture.Input;
         input = input with { Configuration = input.Configuration with { WidthMeters = 100 } };
@@ -108,7 +101,7 @@ public sealed class WorldQueryTests
     }
 
     [TestMethod]
-    public void InstancesAppearAtTheirOwnerNodeAcrossSeveralSettlements()
+    public void Instances_appear_at_their_owner_node_across_several_settlements()
     {
         var input = WorldFixture.Input with { Configuration = WorldFixture.Input.Configuration with { WidthMeters = 100 } };
         using var candidate = Prepare(input);
@@ -131,7 +124,7 @@ public sealed class WorldQueryTests
     }
 
     [TestMethod]
-    public void CandidateReferencesDescribeHandWrittenTemplateAndDesigns()
+    public void Candidate_references_describe_hand_written_template_and_designs()
     {
         using var candidate = Prepare();
         Assert.AreEqual(0, candidate.MissingReferences.Length);

@@ -6,11 +6,6 @@ namespace Train.Core.World;
 
 internal static class WorldStateValidation
 {
-    internal sealed class InvalidState(string field) : Exception("世界状态不一致：" + field)
-    {
-        internal string Field { get; } = field;
-    }
-
     internal static void Validate(WorldState world)
     {
         Require(world is not null, "/world");
@@ -29,21 +24,39 @@ internal static class WorldStateValidation
             "/world/definition_dependencies");
         Require(dependencies.All(d => d.FrozenRevision is null && !d.WasMissing && !string.IsNullOrEmpty(d.Field)),
             "/world/definition_dependencies");
-        try
+        foreach (var dependency in dependencies)
         {
-            var templates = world.Settlements.Select(s => s.Template).DistinctBy(t => t.Id).ToImmutableArray();
-            var content = new CoreContentProjection(new(new string('0', 64)), [], world.Designs, world.DesignGoods,
-                [], [], [], [], [], [], [], templates, [], [],
-                dependencies.Select(d => new MissingCoreReference(d.Definition, d.Field)).ToImmutableArray());
-            WorldInputs.Validate(world.Source, content, new(new("decode", "decode", "decode", "decode", "decode"), false, 1));
-            foreach (var template in world.Settlements.Select(s => s.Template))
-                WorldInputs.Validate(world.Source, content with { SettlementTemplates = [template] },
-                    new(new("decode", "decode", "decode", "decode", "decode"), false, 1));
+            try { WorldInputs.ValidateReference(dependency.Definition); }
+            catch (ArgumentException) { throw new CoreStateFormatException("/world/definition_dependencies/definition"); }
         }
-        catch (ArgumentException) { throw new InvalidState("/world/source"); }
+        foreach (var good in world.DesignGoods)
+        {
+            try { WorldInputs.ValidateDesignGood(good); }
+            catch (ArgumentException) { throw new CoreStateFormatException("/world/design_goods"); }
+        }
+        try { WorldInputs.ValidateInput(world.Source); }
+        catch (ArgumentException) { throw new CoreStateFormatException("/world/source"); }
         foreach (var design in world.Designs)
+        {
+            try { WorldInputs.ValidateDesign(design); }
+            catch (ArgumentException) { throw new CoreStateFormatException("/world/designs"); }
             foreach (var unit in design.ReturnUnits)
                 Require(unit.Parts.All(id => design.Parts.Any(p => p.Id == id)), "/world/designs/return_units/parts");
+        }
+        foreach (var settlement in world.Settlements)
+        {
+            try { WorldInputs.ValidateTemplate(settlement.Template); }
+            catch (ArgumentException) { throw new CoreStateFormatException("/world/settlements/template"); }
+        }
+        var designs = world.Designs.ToDictionary(d => d.Design);
+        Require(designs.ContainsKey(world.Source.Configuration.StartConstraints.RequiredAffordableCommissionDesign), "/world/source/configuration/start_constraints/required_affordable_commission_design");
+        Require(world.Source.Configuration.NpcInitialization.ForSaleVehicleCandidates.All(designs.ContainsKey), "/world/source/configuration/npc_initialization/for_sale_vehicle_candidates");
+        Require(world.Source.Start.Trains.All(t => t.Vehicles.All(designs.ContainsKey)), "/world/source/start/trains/vehicles");
+        foreach (var settlement in world.Settlements)
+        {
+            Require(settlement.Template.Plots.All(p => p.PrebuiltDesign is not { } hash || designs.ContainsKey(hash)), "/world/settlements/template/plots/prebuilt_design");
+            Require(settlement.Template.FoundingBuildings.All(b => designs.ContainsKey(b.Design)), "/world/settlements/template/founding_buildings/design");
+        }
         var nodes = world.Nodes.ToDictionary(n => n.Id);
         var edges = world.Edges.ToDictionary(e => e.Id);
         var settlements = world.Settlements.ToDictionary(s => s.Id);
@@ -59,7 +72,7 @@ internal static class WorldStateValidation
             {
                 InstanceId.Building b => (0, b.Id.Value),
                 InstanceId.Vehicle v => (1, v.Id.Value),
-                _ => throw new InvalidState("/world/instances/id")
+                _ => throw new CoreStateFormatException("/world/instances/id")
             };
             Require(key.Item2 != 0 && key.CompareTo(previousInstance) > 0, "/world/instances/id");
             previousInstance = key;
@@ -86,8 +99,9 @@ internal static class WorldStateValidation
                         && settlement.Relation == s.Relation, "/world/nodes/occupant"); break;
                 case NodeOccupant.Lair l:
                     Require(lairs.TryGetValue(l.Id, out var lair) && lair.Node == node.Id, "/world/nodes/occupant"); break;
-                default: throw new InvalidState("/world/nodes/occupant");
+                default: throw new CoreStateFormatException("/world/nodes/occupant");
             }
+            if (node.Occupant is not NodeOccupant.Settlement) Require(node.Platforms == 0, "/world/nodes/platforms");
             Strings(node.Resources, r => WorldReferences.GoodKey(r.Good), "/world/nodes/resources");
             foreach (var resource in node.Resources)
             {
@@ -104,6 +118,7 @@ internal static class WorldStateValidation
             Require(nodes.ContainsKey(edge.Start) && nodes.ContainsKey(edge.End) && edge.Start.Value < edge.End.Value
                 && pairs.Add((edge.Start, edge.End)), "/world/edges/endpoints");
             Require(double.IsFinite(edge.LengthMeters) && edge.LengthMeters > 0 && edge.TrackLimit > 0
+                && edge.TrackLimit <= world.Source.Configuration.InitialRailway.MaximumTracks
                 && edge.Tracks >= 0 && edge.Tracks <= edge.TrackLimit, "/world/edges");
             var start = nodes[edge.Start].Position;
             var end = nodes[edge.End].Position;
@@ -133,6 +148,17 @@ internal static class WorldStateValidation
             }
             Require(inventories.TryGetValue(settlement.Inventory, out var inventory)
                 && inventory.Owner == new InventoryOwner.Settlement(settlement.Id), "/world/settlements/inventory");
+            var platforms = 0;
+            foreach (var plot in settlement.Plots)
+            {
+                if (plot.Building is not { } building) continue;
+                var instance = instances[new InstanceId.Building(building)];
+                var design = designs[instance.Design];
+                if (design.Kind is not DesignKind.Building { Type: BuildingKind.Station } || Math.Min(instance.StructureDurability, design.MaxStructureDurability) == 0) continue;
+                platforms += design.Parts.Count(part => part.Capabilities.Any(c => c is PartCapability.Platform)
+                    && Math.Min(instance.Parts.Single(p => p.Id == part.Id).Current, part.MaxDurability) > 0);
+            }
+            Require(node.Platforms == platforms, "/world/nodes/platforms");
         }
         foreach (var lair in world.Lairs)
         {
@@ -166,7 +192,7 @@ internal static class WorldStateValidation
                 case (InstanceId.Vehicle id, InstanceDetails.Vehicle v, DesignKind.Vehicle design):
                     Require(v.Train is { } train && trains.TryGetValue(train, out var owner)
                         && owner.Vehicles.Contains(id.Id) && design.Size == v.Size, "/world/instances/details"); break;
-                default: throw new InvalidState("/world/instances/details");
+                default: throw new CoreStateFormatException("/world/instances/details");
             }
         }
         foreach (var inventory in world.Inventories)
@@ -191,8 +217,6 @@ internal static class WorldStateValidation
         Next(next.Vehicle, world.Instances.Select(i => i.Id).OfType<InstanceId.Vehicle>().Select(i => i.Id.Value), "/world/next/vehicle");
         Next(next.Train, world.Trains.Select(t => t.Id.Value), "/world/next/train");
         Next(next.Inventory, world.Inventories.Select(i => i.Id.Value), "/world/next/inventory");
-        Require(next.Job > 0 && next.Lease > 0 && next.Combat > 0 && next.Creature > 0
-            && next.CreatureGroup > 0 && next.Break > 0, "/world/next");
     }
 
     private static void Terrain(TerrainView terrain, string field)
@@ -205,22 +229,13 @@ internal static class WorldStateValidation
 
     private static void Good(GoodId good, string field)
     {
-        switch (good)
-        {
-            case GoodId.Voxel v: Identity(v.Definition.Value, field); break;
-            case GoodId.Composite c: Identity(c.Definition.Value, field); break;
-            case GoodId.Assembly a:
-                Require(a.Composition.Value is { Length: 64 } hash && hash.All(c => c is >= '0' and <= '9' or >= 'A' and <= 'F'), field); break;
-            default: throw new InvalidState(field);
-        }
+        try { WorldInputs.ValidateGood(good); }
+        catch (ArgumentException) { throw new CoreStateFormatException(field); }
     }
 
     private static void Identity(string value, string field)
     {
-        Require(value is not null, field);
-        var colon = value.IndexOf(':');
-        Require(colon > 0 && colon < value.Length - 1 && colon == value.LastIndexOf(':')
-            && !value.Any(char.IsWhiteSpace) && value == value.ToLowerInvariant(), field);
+        Require(WorldFormat.IsIdentity(value), field);
     }
 
     private static void Items<T>(ImmutableArray<T> values, string field)
@@ -241,7 +256,7 @@ internal static class WorldStateValidation
         {
             string id;
             try { id = key(value); }
-            catch (ArgumentException) { throw new InvalidState(field); }
+            catch (ArgumentException) { throw new CoreStateFormatException(field); }
             Require(id is not null && (previous is null || StringComparer.Ordinal.Compare(previous, id) < 0), field);
             previous = id;
         }
@@ -252,6 +267,6 @@ internal static class WorldStateValidation
 
     private static void Require([DoesNotReturnIf(false)] bool condition, string field)
     {
-        if (!condition) throw new InvalidState(field);
+        if (!condition) throw new CoreStateFormatException(field);
     }
 }

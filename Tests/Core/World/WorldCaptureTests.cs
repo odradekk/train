@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
 using Train.Core.ContractSupport;
+using static Train.Core.Tests.World.WorldFixture;
 
 namespace Train.Core.Tests.World;
 
@@ -48,7 +49,7 @@ public sealed class WorldCaptureTests
         var decoded = Success(CoreFactory.Create().DecodeState(captured.Encode()));
         Assert.AreEqual(captured.Encode(), decoded.Encode());
         Assert.AreEqual(captured.Checkpoint, decoded.Checkpoint);
-        using var restoredCandidate = Success(CoreFactory.Create().PrepareRestore(decoded, content, WorldGenerationTests.Options));
+        using var restoredCandidate = Success(CoreFactory.Create().PrepareRestore(decoded, content, WorldFixture.Options));
         Assert.AreEqual(0, restoredCandidate.MissingReferences.Length);
         using var restored = restoredCandidate.Activate();
         AssertQueries(original.Read(), restored.Read());
@@ -84,7 +85,7 @@ public sealed class WorldCaptureTests
         var payload = JsonNode.Parse(Capture(session).Encode())!;
         payload["world"]!["source"]!["generator_version"] = "retired-world-generator";
         var saved = Success(CoreFactory.Create().DecodeState(payload.ToJsonString()));
-        using var restoredCandidate = Success(CoreFactory.Create().PrepareRestore(saved, WorldFixture.Content, WorldGenerationTests.Options));
+        using var restoredCandidate = Success(CoreFactory.Create().PrepareRestore(saved, WorldFixture.Content, WorldFixture.Options));
         using var restored = restoredCandidate.Activate();
         AssertQueries(session.Read(), restored.Read());
         using var recaptured = JsonDocument.Parse(Capture(restored).Encode());
@@ -124,7 +125,7 @@ public sealed class WorldCaptureTests
         var saved = Success(CoreFactory.Create().DecodeState(captured.Encode()));
         var content = WorldFixture.Content with { Goods = [], MissingReferences =
             [new(new CoreDefinitionReference.Voxel(WorldFixture.Material), "Content.Goods")] };
-        using var restoredCandidate = Success(CoreFactory.Create().PrepareRestore(saved, content, WorldGenerationTests.Options));
+        using var restoredCandidate = Success(CoreFactory.Create().PrepareRestore(saved, content, WorldFixture.Options));
         Assert.IsTrue(restoredCandidate.MissingReferences.Any(m => m.Reference == new CoreDefinitionReference.Voxel(WorldFixture.Material)
             && m.FieldPath.Contains("World.Designs", StringComparison.Ordinal)));
         Assert.AreEqual(0, restoredCandidate.AdaptationReport.Length);
@@ -144,7 +145,7 @@ public sealed class WorldCaptureTests
         var content = WorldFixture.Content;
         content = content with { Designs = content.Designs.Select(d => d.Design == WorldFixture.Vehicle
             ? d with { Parts = d.Parts.Select(p => p with { Missing = true }).ToImmutableArray() } : d).ToImmutableArray() };
-        using var restoredCandidate = Success(CoreFactory.Create().PrepareRestore(saved, content, WorldGenerationTests.Options));
+        using var restoredCandidate = Success(CoreFactory.Create().PrepareRestore(saved, content, WorldFixture.Options));
         Assert.IsTrue(restoredCandidate.MissingReferences.Any(m => m.FieldPath ==
             $"World.Designs[{WorldFixture.Vehicle.Value}].Parts[0].Definition"));
         using var restored = restoredCandidate.Activate();
@@ -209,12 +210,5 @@ public sealed class WorldCaptureTests
             JsonSerializer.Serialize(((Lookup<T>.Found)actual).Value));
     }
 
-    private static ICoreSessionCandidate Prepare(WorldGenerationInput? input = null, CoreContentProjection? content = null)
-        => Success(CoreFactory.Create().PrepareNew(input ?? WorldFixture.Input, content ?? WorldFixture.Content, WorldGenerationTests.Options));
     private static ICoreCapture Capture(ICoreSession session) => Success(session.Capture(CapturePurpose.Save));
-    private static T Success<T>(CoreResult<T> result) where T : notnull
-    {
-        Assert.IsInstanceOfType<CoreResult<T>.Success>(result);
-        return ((CoreResult<T>.Success)result).Value;
-    }
 }

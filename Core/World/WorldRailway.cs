@@ -17,14 +17,8 @@ internal static class WorldRailway
         var usable = Enumerable.Range(0, edges.Length).Where(i => occupants[edges[i].A] is not GeneratedOccupant.Lair
             && occupants[edges[i].B] is not GeneratedOccupant.Lair
             && Math.Max(1, config.MinimumInitialTracks) <= Math.Min(2, Math.Min(config.MaximumInitialTracks, edges[i].TrackLimit))).ToArray();
-        var adjacency = Enumerable.Range(0, nodes.Length).Select(_ => new List<int>()).ToArray();
-        foreach (var index in usable)
-        {
-            budget.Work();
-            adjacency[edges[index].A].Add(edges[index].B);
-            adjacency[edges[index].B].Add(edges[index].A);
-        }
-        var component = Component(null);
+        var traversal = WorldTraversal.Build(nodes.Length, usable.Select(i => (edges[i].A, edges[i].B)), budget);
+        var component = traversal.Reachable(mandatory[0]);
         var selected = component.Nodes;
         if (mandatory.Any(i => !selected.Contains(i)))
             throw new GenerationFailure("constraint_unsatisfied", "Configuration.InitialRailway");
@@ -48,7 +42,7 @@ internal static class WorldRailway
                 budget.CandidateCount();
                 if (emptyCount == minimumEmpty) continue;
                 selected.Remove(node);
-                var remaining = Component(selected);
+                var remaining = traversal.Reachable(mandatory[0], selected);
                 if (remaining.Nodes.Count == selected.Count && remaining.Edges - selected.Count + 1 >= config.AdditionalCycleEdges)
                 { emptyCount--; removed = true; }
                 else
@@ -77,25 +71,6 @@ internal static class WorldRailway
             tracks[index] = (int)WorldRandom.Integer(Random("rail.tracks", edges[index]), Math.Max(1, config.MinimumInitialTracks),
                 Math.Min(2, Math.Min(config.MaximumInitialTracks, edges[index].TrackLimit)));
         return tracks.ToImmutableArray();
-
-        (HashSet<int> Nodes, int Edges) Component(HashSet<int>? allowed)
-        {
-            var reached = new HashSet<int> { mandatory[0] };
-            var pending = new Queue<int>(reached);
-            var incidentEdges = 0;
-            while (pending.TryDequeue(out var node))
-            {
-                budget.Work();
-                foreach (var next in adjacency[node])
-                {
-                    budget.Work();
-                    if (allowed is not null && !allowed.Contains(next)) continue;
-                    incidentEdges++;
-                    if (reached.Add(next)) pending.Enqueue(next);
-                }
-            }
-            return (reached, incidentEdges / 2);
-        }
 
         int Root(int index)
         {

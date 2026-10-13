@@ -22,7 +22,7 @@ public sealed class WorldGraphTests
     [TestMethod]
     [DataRow(6, "fixture:a-low", 0.12634067247966257)]
     [DataRow(8, "fixture:z-high", 0.12634067247966257)]
-    public void EdgeSamplesIncludeEndpointsAndAggregateTerrainByContract(int endX, string mainTerrain, double maximumRelief)
+    public void Edge_samples_include_endpoints_and_aggregate_terrain_by_contract(int endX, string mainTerrain, double maximumRelief)
     {
         var low = new TerrainGenerationBand(new("fixture:a-low"), 0, .08, 0, 1, 1, 2, 2);
         var high = new TerrainGenerationBand(new("fixture:z-high"), .08, 1, 0, 1, 1, 3, 1);
@@ -71,7 +71,7 @@ public sealed class WorldGraphTests
     }
 
     [TestMethod]
-    public void CollinearNodesKeepOnlyAdjacentSegmentsAndAllowSharedEndpoints()
+    public void Collinear_nodes_keep_only_adjacent_segments_and_allow_shared_endpoints()
     {
         var nodes = Nodes(new(1, 1), new(5, 1), new(9, 1));
         var edges = Graph(nodes);
@@ -80,7 +80,7 @@ public sealed class WorldGraphTests
     }
 
     [TestMethod]
-    public void SquareIsConnectedPlanarAndDropsLongerDiagonal()
+    public void Square_is_connected_planar_and_drops_longer_diagonal()
     {
         var nodes = Nodes(new(1, 1), new(9, 1), new(1, 9), new(9, 9));
         var edges = Graph(nodes);
@@ -90,7 +90,7 @@ public sealed class WorldGraphTests
     }
 
     [TestMethod]
-    public void TriangleDropsLongerEdgeWhenTwoShorterEdgesStillConnectItsEndpoints()
+    public void Triangle_drops_longer_edge_when_two_shorter_edges_still_connect_its_endpoints()
     {
         var nodes = Nodes(new(1, 1), new(4, 1), new(1, 5));
         var edges = Graph(nodes);
@@ -99,11 +99,11 @@ public sealed class WorldGraphTests
     }
 
     [TestMethod]
-    public void PublicGeneratedWorldHasSpacedBoundedNodesAndConnectedNoncrossingEdges()
+    public void Public_generated_world_has_spaced_bounded_nodes_and_connected_noncrossing_edges()
     {
         var input = WorldFixture.Input with { Configuration = WorldFixture.Input.Configuration with { WidthMeters = 100 } };
         using var candidate = ((CoreResult<ICoreSessionCandidate>.Success)CoreFactory.Create()
-            .PrepareNew(input, WorldFixture.Content, WorldGenerationTests.Options)).Value;
+            .PrepareNew(input, WorldFixture.Content, WorldFixture.Options)).Value;
         var map = candidate.View.World;
         var nodes = map.Nodes.Select(n => new CandidateNode(new(n.Id.Value, 0), n.Position, n.Terrain)).ToImmutableArray();
         var edges = map.Edges.Select(e => new CandidateEdge((int)e.Start.Value - 1, (int)e.End.Value - 1,
@@ -125,7 +125,7 @@ public sealed class WorldGraphTests
     }
 
     [TestMethod]
-    public void GreedyGraphRejectsCrossingShortDiagonalsBeforeLongBoundaryEdges()
+    public void Greedy_graph_rejects_crossing_short_diagonals_before_long_boundary_edges()
     {
         // 独立 Python struct/SplitMix64 + 高 53 位 smoothstep 参考实现，seed=42、scale=8、retry=0：
         // 四端 (0,0)/(4,4)/(0,4)/(4,0) 及中心 (2,2) 的海拔。
@@ -218,7 +218,7 @@ public sealed class WorldGraphTests
         new(WorldFixture.Plain, 0, []), 2);
 
     [TestMethod]
-    public void RailwayUsesMinimumEmptyRelayToConnectMandatorySettlements()
+    public void Railway_uses_minimum_empty_relay_to_connect_mandatory_settlements()
     {
         var nodes = Nodes(new(1, 1), new(5, 1), new(9, 1));
         var input = WorldFixture.Input;
@@ -228,7 +228,7 @@ public sealed class WorldGraphTests
     }
 
     [TestMethod]
-    public void RailwayAddsConfiguredCycleAndRespectsTrackLimit()
+    public void Railway_adds_configured_cycle_and_respects_track_limit()
     {
         var nodes = Nodes(new(1, 1), new(9, 1), new(9, 9), new(1, 9));
         var input = WorldFixture.Input;
@@ -247,7 +247,7 @@ public sealed class WorldGraphTests
     }
 
     [TestMethod]
-    public void RailwayCannotUseLairAsRelayAndReportsExhaustedBudget()
+    public void Railway_cannot_use_lair_as_relay_and_reports_exhausted_budget()
     {
         var nodes = Nodes(new(1, 1), new(5, 1), new(9, 1));
         var input = WorldFixture.Input;
@@ -264,7 +264,7 @@ public sealed class WorldGraphTests
     }
 
     [TestMethod]
-    public void RailwayRejectsSettlementsInSeparateBuildableComponents()
+    public void Railway_rejects_settlements_in_separate_buildable_components()
     {
         var nodes = Nodes(new(0, 0), new(1, 0), new(2, 0));
         var input = WorldFixture.Input;
@@ -276,7 +276,7 @@ public sealed class WorldGraphTests
     }
 
     [TestMethod]
-    public void RailwayCountsReachableEmptyNodesWithinSettlementComponent()
+    public void Railway_counts_reachable_empty_nodes_within_settlement_component()
     {
         var nodes = Nodes(new(0, 0), new(1, 0), new(2, 0));
         var input = WorldFixture.Input;
@@ -289,7 +289,7 @@ public sealed class WorldGraphTests
     }
 
     [TestMethod]
-    public void RailwayRevisitsEmptyRelayAfterItsLeafIsRemoved()
+    public void Railway_revisits_empty_relay_after_its_leaf_is_removed()
     {
         var nodes = Nodes(new(0, 0), new(1, 0), new(2, 0));
         var input = WorldFixture.Input;
@@ -309,7 +309,7 @@ public sealed class WorldGraphTests
     [DataRow(0, 1)]
     [DataRow(1, 0)]
     [DataRow(0, 0)]
-    public void RailwayRemovesEmptyNodesByCellYThenX(int firstY, int secondY)
+    public void Railway_removes_empty_nodes_by_cell_ythen_x(int firstY, int secondY)
     {
         var nodes = Nodes(new(0, 0), new(1, 0), new(0, 1), new(1, 1));
         nodes = nodes.SetItem(1, nodes[1] with { Cell = new(10, (ulong)firstY) })
@@ -322,7 +322,7 @@ public sealed class WorldGraphTests
     }
 
     [TestMethod]
-    public void RailwayKeepsAnInclusionMinimalRelaySetWithoutClaimingGlobalMinimum()
+    public void Railway_keeps_an_inclusion_minimal_relay_set_without_claiming_global_minimum()
     {
         var nodes = Nodes(new(0, 0), new(1, 0), new(0, 1), new(1, 1), new(2, 0));
         var input = WorldFixture.Input;
@@ -350,7 +350,7 @@ public sealed class WorldGraphTests
     }
 
     [TestMethod]
-    public void RailwayRetainsEmptyNodesRequiredByCycleAndReachabilityConstraints()
+    public void Railway_retains_empty_nodes_required_by_cycle_and_reachability_constraints()
     {
         var nodes = Nodes(new(0, 0), new(1, 0), new(2, 0));
         var input = WorldFixture.Input;

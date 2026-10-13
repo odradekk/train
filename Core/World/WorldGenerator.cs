@@ -3,15 +3,14 @@ using Train.Core.Contracts;
 
 namespace Train.Core.World;
 
-internal sealed record GeneratedWorld(WorldState State, CoreContentProjection Content, long Candidates, long SearchWork,
-    ulong WorldRetries, long OccupantRetries);
+internal sealed record GeneratedWorld(WorldState State, CoreContentProjection Content);
 
 internal static class WorldGenerator
 {
-    internal static CoreResult<GeneratedWorld> Generate(WorldGenerationInput input, CoreContentProjection content,
-        CoreSessionOptions options)
+    internal static CoreResult<GeneratedWorld> Generate(WorldGenerationInput input, CoreContentProjection content)
     {
-        WorldInputs.Validate(input, content, options);
+        WorldInputs.ValidateInput(input);
+        WorldInputs.ValidateContent(content);
         var budget = new GenerationBudgetCounter(input.Configuration.Budget);
         try
         {
@@ -20,12 +19,12 @@ internal static class WorldGenerator
             if (npc.FillInputsAndLivingTargets) Invalid("Configuration.NpcInitialization.FillInputsAndLivingTargets");
             if (npc.OutputReserveHours > 0) Invalid("Configuration.NpcInitialization.OutputReserveHours");
             if (npc.MaximumForSaleVehicles > 0) Invalid("Configuration.NpcInitialization.MaximumForSaleVehicles");
-            (input, content) = WorldInputs.Normalize(input, content, budget);
+            input = WorldInputs.NormalizeInput(input, budget);
+            content = WorldInputs.NormalizeContent(content);
             ValidateReferences(input, content);
-            if (!content.SettlementTypes.Any(t => content.SettlementTemplates.Any(p => p.Type == t.Id)))
-                Invalid("Content.SettlementTemplates");
+            var types = content.SettlementTypes.Where(t => content.SettlementTemplates.Any(p => p.Type == t.Id)).ToArray();
+            if (types.Length == 0) Invalid("Content.SettlementTemplates");
             GenerationFailure? last = null;
-            long occupantRetries = 0;
             for (ulong world = 0; world <= (ulong)input.Configuration.Budget.MaximumWorldRetries; world++)
             {
                 budget.WorldRetry = world;
@@ -36,6 +35,7 @@ internal static class WorldGenerator
                 {
                     nodes = PlaceNodes(input, terrain, budget, attempt);
                     if (!nodes.IsEmpty) break;
+                    budget.Candidate = "";
                     last = new("constraint_unsatisfied", "World.Nodes");
                 }
                 if (nodes.IsEmpty) continue;
@@ -46,13 +46,12 @@ internal static class WorldGenerator
                 {
                     try
                     {
-                        if (attempt > 0) occupantRetries++;
-                        var occupants = Occupants(nodes, input, content, budget, attempt);
+                        var occupants = Occupants(nodes, input, content, types, budget, attempt);
                         var resources = Resources(nodes, input, budget);
                         var tracks = WorldRailway.Build(nodes, edges, occupants, input, budget);
                         var start = Start(nodes, edges, occupants, tracks, input, budget);
                         var state = WorldState.Create(input, content, nodes, edges, occupants, resources, tracks, start);
-                        return new CoreResult<GeneratedWorld>.Success(new(state, content, budget.UsedCandidates, budget.UsedSearchWork, world, occupantRetries));
+                        return new CoreResult<GeneratedWorld>.Success(new(state, content));
                     }
                     catch (GenerationFailure failure) when (failure.Category == "constraint_unsatisfied") { last = failure; }
                 }
@@ -111,7 +110,7 @@ internal static class WorldGenerator
     }
 
     private static ImmutableArray<GeneratedOccupant> Occupants(ImmutableArray<CandidateNode> nodes,
-        WorldGenerationInput input, CoreContentProjection content, GenerationBudgetCounter budget, ulong attempt)
+        WorldGenerationInput input, CoreContentProjection content, SettlementTypeProjection[] types, GenerationBudgetCounter budget, ulong attempt)
     {
         budget.Stage = "occupants";
         var config = input.Configuration;
@@ -125,8 +124,6 @@ internal static class WorldGenerator
         var hostileCount = (int)Math.Floor(settlements * config.HostileSettlementRatio);
         budget.Sort(settlements);
         var hostile = order.Take(settlements).OrderBy(i => Random("settlement.relation", i)).ThenBy(i => i).Take(hostileCount).ToHashSet();
-        var types = content.SettlementTypes.Where(t => content.SettlementTemplates.Any(p => p.Type == t.Id)).ToArray();
-        if (types.Length == 0) Invalid("Content.SettlementTemplates");
         foreach (var index in order.Take(settlements))
         {
             budget.Candidate = nodes[index].Cell.ToString();
@@ -193,7 +190,7 @@ internal static class WorldGenerator
         return result.ToImmutable();
     }
 
-    private static int Start(ImmutableArray<CandidateNode> nodes, ImmutableArray<CandidateEdge> edges,
+    internal static int Start(ImmutableArray<CandidateNode> nodes, ImmutableArray<CandidateEdge> edges,
         ImmutableArray<GeneratedOccupant> occupants, ImmutableArray<int> tracks, WorldGenerationInput input, GenerationBudgetCounter budget)
     {
         budget.Stage = "validation";
@@ -201,6 +198,7 @@ internal static class WorldGenerator
         var roots = Enumerable.Range(0, nodes.Length).Where(i => occupants[i] is GeneratedOccupant.Settlement { Relation: SettlementRelation.NonHostile }).ToArray();
         budget.Sort(roots.Length);
         roots = roots.OrderBy(i => WorldRandom.Sample(input.WorldSeed, "start.rank", 7, budget.WorldRetry, 0, nodes[i].Cell.X, nodes[i].Cell.Y)).ThenBy(i => i).ToArray();
+        var traversal = WorldTraversal.Build(nodes.Length, edges.Where((_, i) => tracks[i] > 0).Select(e => (e.A, e.B)), budget);
         var field = "Configuration.StartConstraints";
         foreach (var root in roots)
         {
@@ -214,20 +212,7 @@ internal static class WorldGenerator
                     || (e.B == root && occupants[e.A] is GeneratedOccupant.Lair);
             }))
             { field = "Configuration.StartConstraints.ExcludeAdjacentLairs"; continue; }
-            var reached = new HashSet<int> { root };
-            var pending = new Queue<int>(reached);
-            while (pending.TryDequeue(out var node))
-            {
-                budget.Work();
-                for (var i = 0; i < edges.Length; i++)
-                {
-                    budget.Work();
-                    var edge = edges[i];
-                    if (tracks[i] == 0) continue;
-                    if (edge.A == node && reached.Add(edge.B)) pending.Enqueue(edge.B);
-                    if (edge.B == node && reached.Add(edge.A)) pending.Enqueue(edge.A);
-                }
-            }
+            var reached = traversal.Reachable(root).Nodes;
             if (reached.Count(i => i != root && occupants[i] is GeneratedOccupant.Settlement { Relation: SettlementRelation.NonHostile }) < config.MinimumReachableNonHostileSettlements)
             { field = "Configuration.StartConstraints.MinimumReachableNonHostileSettlements"; continue; }
             if (reached.Count(i => occupants[i] is GeneratedOccupant.Empty) < config.MinimumReachableEmptyNodes)
@@ -260,7 +245,9 @@ internal static class WorldGenerator
             foreach (var plot in template.Plots)
                 if (plot.PrebuiltDesign is { } design && (FindDesign(design, $"Content.SettlementTemplates[{template.Id.Value}].Plots[{plot.Number}]").Kind is not DesignKind.Building building || building.PlotSize != plot.Size))
                     Invalid($"Content.SettlementTemplates[{template.Id.Value}].Plots[{plot.Number}]");
-            foreach (var building in template.FoundingBuildings) FindDesign(building.Design, $"Content.SettlementTemplates[{template.Id.Value}].FoundingBuildings");
+            foreach (var building in template.FoundingBuildings)
+                if (FindDesign(building.Design, $"Content.SettlementTemplates[{template.Id.Value}].FoundingBuildings").Kind is not DesignKind.Building)
+                    Invalid($"Content.SettlementTemplates[{template.Id.Value}].FoundingBuildings");
             foreach (var good in template.SpecialInitialInventory) CheckGood(good.Good, $"Content.SettlementTemplates[{template.Id.Value}].SpecialInitialInventory");
             foreach (var plan in template.ProductionPlans)
                 Need(new CoreDefinitionReference.Process(plan.Process), $"Content.SettlementTemplates[{template.Id.Value}].ProductionPlans", content.Processes.Any(p => WorldReferences.Matches(p.Details, plan.Process)));
@@ -281,16 +268,9 @@ internal static class WorldGenerator
         {
             var design = content.Designs.FirstOrDefault(d => d.Design == hash);
             if (design is null || !design.MissingReferences.IsEmpty || design.Parts.Any(p => p.Missing)) Invalid(field);
-            if (design!.Kind is DesignKind.LargeEquipment equipment) CheckGood(equipment.ManufacturedGood, field);
-            foreach (var part in design!.Parts)
-            { Need(part.Definition, field, true); CheckGood(part.RepairGood, field); }
-            foreach (var good in design.StructuralGoods.Concat(design.BillOfMaterials)) CheckGood(good.Good, field);
-            foreach (var unit in design.ReturnUnits)
-            {
-                if (!unit.MissingReferences.IsEmpty) Invalid(field);
-                CheckGood(unit.Good, field);
-                foreach (var good in unit.StructuralGoods) CheckGood(good.Good, field);
-            }
+            foreach (var part in design!.Parts) Need(part.Definition, field, true);
+            if (design.ReturnUnits.Any(u => !u.MissingReferences.IsEmpty)) Invalid(field);
+            foreach (var (good, _) in WorldReferences.DesignGoods(design)) CheckGood(good, field);
             return design;
         }
 
@@ -304,8 +284,7 @@ internal static class WorldGenerator
         void CheckGood(GoodId good, string field)
         {
             if (!content.Goods.Concat(content.DesignGoods).Any(g => g.Good == good)) Invalid(field);
-            if (good is GoodId.Voxel voxel) Need(new CoreDefinitionReference.Voxel(voxel.Definition), field, true);
-            if (good is GoodId.Composite composite) Need(new CoreDefinitionReference.Composite(composite.Definition), field, true);
+            if (WorldReferences.GoodReference(good) is { } reference) Need(reference, field, true);
         }
     }
 
