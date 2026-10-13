@@ -1,4 +1,4 @@
-﻿using System.Collections.Immutable;
+using System.Collections.Immutable;
 using System.Diagnostics;
 using Train.App.Saves;
 using Train.Core.Contracts;
@@ -38,7 +38,7 @@ internal sealed class DeveloperTools : IDisposable
         _host = host; _saves = saves;
         _seconds = seconds ?? (() => Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency);
         host.BoundaryCompleted += OnBoundary;
-        host.ReplacementCompleted += OnReplacement;
+        host.OperationEnded += OnOperationEnded;
         saves.Changed += OnSaveChanged;
     }
     internal HostStatus? Status => _host.GetStatus();
@@ -194,24 +194,17 @@ internal sealed class DeveloperTools : IDisposable
         LastMessage = string.Join("；", _stops);
     }
 
-    internal SaveFailure? CaptureCheckpoint(string label)
+    internal CoreResult<ICoreCapture> CaptureCheckpoint(string label)
     {
-        if (Status is not { } status || _host.Runtime is not { } runtime) return Fail("no-session", "当前没有会话。");
         var result = _host.CaptureCheckpoint();
-        if (result is not CoreResult<ICoreCapture>.Success capture)
-            return result switch
-            {
-                CoreResult<ICoreCapture>.Failure failure => Fail(failure.Problems[0].Code,
-                    "无法捕获检查点：" + string.Join("；", failure.Problems.Select(problem => $"{problem.Code}/{problem.Field}"))),
-                CoreResult<ICoreCapture>.Faulted fault => Fail(fault.Fault.Code,
-                    $"无法捕获检查点：{fault.Fault.Code}/{fault.Fault.Operation}/{fault.Fault.Field}" +
-                    (fault.Diagnostic is { } diagnostic ? $" · {diagnostic.Message}" : "")),
-                _ => throw new InvalidOperationException("未知检查点捕获结果。")
-            };
-        _checkpoints.Add(new(label, capture.Value.Position, status.View.World.WorldSeed,
-            runtime, capture.Value.InputIdentity, capture.Value.Checkpoint));
-        LastMessage = $"检查点已保存在内存：{label} · {capture.Value.Position}";
-        return null;
+        if (result is CoreResult<ICoreCapture>.Success capture)
+        {
+            var status = Status!;
+            _checkpoints.Add(new(label, capture.Value.Position, status.View.World.WorldSeed,
+                _host.Runtime!, capture.Value.InputIdentity, capture.Value.Checkpoint));
+            LastMessage = $"检查点已保存在内存：{label} · {capture.Value.Position}";
+        }
+        return result;
     }
     internal SaveFailure? AddMark(string text)
     {
@@ -273,12 +266,21 @@ internal sealed class DeveloperTools : IDisposable
         LastMessage = _saves.LastMessage;
         if (!_saves.HasPendingWork) _exporting = false;
     }
-    private void OnReplacement(long operation, bool succeeded)
+    private void OnOperationEnded(HostOperationResult result)
     {
-        if (_replayOperation != operation) return;
+        if (_replayOperation != result.Operation || result.Kind != OperationKind.Replay) return;
         _replayOperation = null;
-        LastMessage = succeeded ? $"隔离重放已打开：{_host.ReplayRecording!.Path}"
-            : "重放准备失败或已取消，保留原会话。";
+        var details = string.Join("；", result.Problems.Select(problem => $"{problem.Code}/{problem.Field}")
+            .Concat(result.Diagnostics.Select(diagnostic => $"{diagnostic.Code}/{diagnostic.Field}：{diagnostic.Message}"))
+            .Concat(result.FaultCode is { } code ? new[] { code } : Array.Empty<string>()));
+        LastMessage = result.Status switch
+        {
+            HostOperationStatus.Committed => $"隔离重放已打开：{_host.ReplayRecording!.Path}",
+            HostOperationStatus.CommittedWithWarnings => $"隔离重放已打开：{_host.ReplayRecording!.Path}；{details}",
+            HostOperationStatus.Cancelled => "重放准备已取消，保留原会话。",
+            HostOperationStatus.Discarded => "重放准备结果已丢弃，保留原会话。",
+            _ => $"重放准备未完成（{result.Status}），保留原会话：{details}"
+        };
     }
     private static string ReplayStopMessage(ReplayAdvanceResult result) =>
         $"重放停止：{result.Stop} · {result.Position.CompletedSteps}:{result.Position.Sequence}" +
@@ -291,7 +293,7 @@ internal sealed class DeveloperTools : IDisposable
         _disposed = true;
         Cancel();
         _host.BoundaryCompleted -= OnBoundary;
-        _host.ReplacementCompleted -= OnReplacement;
+        _host.OperationEnded -= OnOperationEnded;
         _saves.Changed -= OnSaveChanged;
     }
     private sealed record Run(HostBinding Binding, SimulationPosition Start, DeveloperCondition? Condition,

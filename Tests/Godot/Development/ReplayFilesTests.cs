@@ -115,7 +115,8 @@ public sealed class ReplayFilesTests
         Assert.AreEqual(before, run.Host.Host.GetStatus()!.Binding);
         Assert.IsFalse(run.Host.Host.GetStatus()!.IsReplay);
         Assert.IsTrue(run.Host.Logs.Any(log => log.EventId == "host_replay_failed" &&
-            log.Attributes["code"] as string == "preparation_exception"));
+            log.Attributes["code"] as string == "replay_package_read_failed" &&
+            log.Attributes["status"] as string == "Rejected"));
         Assert.AreEqual(0, run.Host.Session.DisposeCount);
     }
 

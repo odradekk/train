@@ -124,6 +124,26 @@ public sealed class SimulationConsoleCommandTests
     }
 
     [TestMethod]
+    public void OrdinaryCheckpointFailureReportsAllProblemFieldsOnceWithoutRetainingCheckpoint()
+    {
+        using var fixture = CreateFixture();
+        var session = fixture.ReadyHost();
+        session.SetCapture(CapturePurpose.Save, new CoreResult<ICoreCapture>.Failure(
+            [new("capture_rejected", "checkpoint", null, []), new("input_unavailable", "input", null, [])]));
+        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()));
+        using var tools = new DeveloperTools(fixture.Host, saves);
+        var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger, tools);
+        var previousCount = fixture.Logs.Count;
+        commands.Execute(["checkpoint"]);
+        var log = fixture.Logs.Skip(previousCount).Single();
+        Assert.AreEqual(SimulationConsoleCommands.CheckpointFailedEventId, log.EventId);
+        Assert.AreEqual(LogLevel.Warning, log.Level);
+        Assert.AreEqual("capture_rejected,input_unavailable", log.Attributes["problem_code"]);
+        Assert.AreEqual("checkpoint,input", log.Attributes["problem_field"]);
+        Assert.AreEqual(0, tools.Checkpoints.Count);
+    }
+
+    [TestMethod]
     public void StepWhileRunningRequiresPauseWithoutAdvancing()
     {
         using var fixture = CreateFixture();
@@ -190,11 +210,26 @@ public sealed class SimulationConsoleCommandTests
         commands.Execute(["checkpoint"]);
         Assert.AreEqual(SimulationConsoleCommands.CheckpointFailedEventId, fixture.Logs[^1].EventId);
         StringAssert.Contains(fixture.Logs[^1].Message, "fixture_capture_failed/checkpoint");
+        Assert.AreEqual(LogLevel.Warning, fixture.Logs[^1].Level);
+        Assert.AreEqual("fixture_capture_failed", fixture.Logs[^1].Attributes["problem_code"]);
+        Assert.AreEqual("checkpoint", fixture.Logs[^1].Attributes["problem_field"]);
+        Assert.AreEqual(1, tools.Checkpoints.Count);
         session.SetCapture(CapturePurpose.Diagnostic, new CoreResult<ICoreCapture>.Faulted(fault, diagnostic));
         var checkpointFailures = fixture.Logs.Count(log => log.EventId == SimulationConsoleCommands.CheckpointFailedEventId);
         commands.Execute(["checkpoint"]);
         Assert.AreEqual(checkpointFailures + 1, fixture.Logs.Count(log => log.EventId == SimulationConsoleCommands.CheckpointFailedEventId));
         StringAssert.Contains(fixture.Logs[^1].Message, fault.Code);
+        var checkpointFailure = fixture.Logs[^1];
+        Assert.AreEqual(LogLevel.Warning, checkpointFailure.Level);
+        Assert.AreEqual(fault.Code, checkpointFailure.Attributes["fault_code"]);
+        Assert.AreEqual(fault.Operation, checkpointFailure.Attributes["operation"]);
+        Assert.AreEqual(fault.Field, checkpointFailure.Attributes["field"]);
+        Assert.AreEqual(position.CompletedSteps, checkpointFailure.Attributes["fault_completed_steps"]);
+        Assert.AreEqual(position.Sequence, checkpointFailure.Attributes["fault_sequence"]);
+        Assert.AreEqual(fault.Subject!.ToString(), checkpointFailure.Attributes["subject"]);
+        Assert.AreEqual(diagnostic.Message, checkpointFailure.Attributes["diagnostic_message"]);
+        Assert.AreEqual(diagnostic.StackTrace, checkpointFailure.Attributes["diagnostic_stack_trace"]);
+        Assert.AreEqual(1, tools.Checkpoints.Count);
         commands.Execute(["pause"]);
         Assert.AreEqual(SimulationConsoleCommands.PausedEventId, fixture.Logs[^1].EventId);
         commands.Execute(["speed", "4"]);

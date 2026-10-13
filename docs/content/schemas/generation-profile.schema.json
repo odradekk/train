@@ -306,12 +306,12 @@
             "minimum_initial_tracks": {
               "type": "integer",
               "minimum": 0,
-              "maximum": 2147483647
+              "maximum": 2
             },
             "maximum_initial_tracks": {
               "type": "integer",
               "minimum": 0,
-              "maximum": 2147483647
+              "maximum": 2
             },
             "additional_cycle_edges": {
               "type": "integer",

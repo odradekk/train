@@ -22,21 +22,10 @@ internal static class InspectorData
     {
         try
         {
-            return id switch
-            {
-                WorldObjectId.Node x => InspectLookup(id, view.FindNode(x.Id)),
-                WorldObjectId.Edge x => InspectLookup(id, view.FindEdge(x.Id)),
-                WorldObjectId.Train x => InspectLookup(id, view.FindTrain(x.Id)),
-                WorldObjectId.Instance x => InspectLookup(id, view.FindInstance(x.Id)),
-                WorldObjectId.Settlement x => InspectLookup(id, view.FindSettlement(x.Id)),
-                WorldObjectId.Inventory x => InspectLookup(id, view.FindInventory(x.Id)),
-                WorldObjectId.Job x => InspectLookup(id, view.FindJob(x.Id)),
-                WorldObjectId.Combat x => InspectLookup(id, view.FindCombat(x.Id)),
-                WorldObjectId.Creature x => InspectLookup(id, view.FindCreature(x.Id)),
-                WorldObjectId.CreatureGroup x => InspectLookup(id, view.FindCreatureGroup(x.Id)),
-                WorldObjectId.Lair x => InspectLookup(id, view.FindLair(x.Id)),
-                _ => new(id, InspectionStatus.Unavailable, null, "未支持的公开对象身份。")
-            };
+            var value = FindObject(view, id);
+            return value is not null
+                ? new(id, InspectionStatus.Found, JsonSerializer.Serialize(value, value.GetType(), JsonOptions), null)
+                : new(id, InspectionStatus.Missing, null, "对象已失效；保留原身份。");
         }
         catch (Exception error)
         {
@@ -48,29 +37,29 @@ internal static class InspectorData
     {
         try
         {
-            return id switch
-            {
-                WorldObjectId.Node x => view.FindNode(x.Id) is Lookup<NodeView>.Found,
-                WorldObjectId.Edge x => view.FindEdge(x.Id) is Lookup<EdgeView>.Found,
-                WorldObjectId.Train x => view.FindTrain(x.Id) is Lookup<TrainView>.Found,
-                WorldObjectId.Instance x => view.FindInstance(x.Id) is Lookup<InstanceView>.Found,
-                WorldObjectId.Settlement x => view.FindSettlement(x.Id) is Lookup<SettlementView>.Found,
-                WorldObjectId.Inventory x => view.FindInventory(x.Id) is Lookup<InventoryView>.Found,
-                WorldObjectId.Job x => view.FindJob(x.Id) is Lookup<JobView>.Found,
-                WorldObjectId.Combat x => view.FindCombat(x.Id) is Lookup<CombatView>.Found,
-                WorldObjectId.Creature x => view.FindCreature(x.Id) is Lookup<CreatureView>.Found,
-                WorldObjectId.CreatureGroup x => view.FindCreatureGroup(x.Id) is Lookup<CreatureGroupView>.Found,
-                WorldObjectId.Lair x => view.FindLair(x.Id) is Lookup<LairView>.Found,
-                _ => false
-            };
+            return FindObject(view, id) is not null;
         }
         catch (Exception) { return false; }
     }
 
-    private static ObjectInspection InspectLookup<T>(WorldObjectId id, Lookup<T> lookup) where T : notnull
-        => lookup is Lookup<T>.Found found
-            ? new(id, InspectionStatus.Found, JsonSerializer.Serialize(found.Value, found.Value.GetType(), JsonOptions), null)
-            : new(id, InspectionStatus.Missing, null, "对象已失效；保留原身份。");
+    private static object? FindObject(ICoreReadView view, WorldObjectId id) => id switch
+    {
+        WorldObjectId.Node x => FoundValue(view.FindNode(x.Id)),
+        WorldObjectId.Edge x => FoundValue(view.FindEdge(x.Id)),
+        WorldObjectId.Train x => FoundValue(view.FindTrain(x.Id)),
+        WorldObjectId.Instance x => FoundValue(view.FindInstance(x.Id)),
+        WorldObjectId.Settlement x => FoundValue(view.FindSettlement(x.Id)),
+        WorldObjectId.Inventory x => FoundValue(view.FindInventory(x.Id)),
+        WorldObjectId.Job x => FoundValue(view.FindJob(x.Id)),
+        WorldObjectId.Combat x => FoundValue(view.FindCombat(x.Id)),
+        WorldObjectId.Creature x => FoundValue(view.FindCreature(x.Id)),
+        WorldObjectId.CreatureGroup x => FoundValue(view.FindCreatureGroup(x.Id)),
+        WorldObjectId.Lair x => FoundValue(view.FindLair(x.Id)),
+        _ => throw new NotSupportedException("未支持的公开对象身份。")
+    };
+
+    private static object? FoundValue<T>(Lookup<T> lookup) where T : notnull
+        => lookup is Lookup<T>.Found found ? found.Value : null;
 
     internal static ImmutableArray<CommandInspection> ReadCommands(ImmutableArray<RecordedCommand> commands,
         string? kind = null, string? result = null, WorldObjectId? subject = null)

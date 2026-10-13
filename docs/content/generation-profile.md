@@ -35,7 +35,7 @@
 | `hostile_settlement_ratio` | [0,1]，聚居地中初始敌对比例 |
 | `lair_weights` | 每项 `type` 引用生物聚落类型、`weight` 正整数；类型不重复；需要生成聚落时至少一项 |
 | `resources` | 节点资源生成表，见下文 |
-| `initial_railway` | `maximum_tracks` 全局正整数上限；`minimum_initial_tracks`、`maximum_initial_tracks` 是非负整数初始铁轨范围；`additional_cycle_edges` 非负整数，增加的成环边数。最小值不大于最大值，最大值不超过全局上限 |
+| `initial_railway` | `maximum_tracks` 全局正整数上限；`minimum_initial_tracks`、`maximum_initial_tracks` 各为 [0,2] 整数，只限制世界生成时的初始铁轨范围；`additional_cycle_edges` 非负整数，增加的成环边数。最小值不大于最大值，最大值仍不超过全局上限。全局和地貌带的 `maximum_tracks` 不受初始范围限制，之后新建或扩建按线路铁轨上限处理 |
 | `budget` | `maximum_stage_retries`、`maximum_world_retries` 正 Int32 次数；`maximum_candidates`、`maximum_search_work` 正 Int64 计数预算。计数归生成器版本，不使用时间超时替代 |
 | `npc_initialization` | 库存与现车初始化参数，见下文 |
 | `start_constraints` | 默认开局检查参数，见下文 |

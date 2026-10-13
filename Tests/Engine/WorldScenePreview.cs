@@ -48,7 +48,7 @@ public partial class WorldScenePreview : Node
         {
             _content = CreateContent();
             _gallery = Gallery();
-            _core = new(new FixedCoreReadView(new(0, 0), HostCoreScenario.Input));
+            _core = new(WorldSceneFixture.EmptyWorld(new(0, 0)));
             _app = GD.Load<PackedScene>("res://App/App.tscn").Instantiate<Train.App.App>();
             _app.GetNode<Control>("MainMenu").Visible = false;
             _app.CreateHost = logger => WorldSceneFixture.CreateHost(_core, _content, logger);
@@ -58,6 +58,7 @@ public partial class WorldScenePreview : Node
                     _session = new PreviewSession(this, binding))
             };
             AddChild(_app);
+            _app.GetNode<Control>("GameUi/Root").Hide();
             _host = _app.Host!;
             _host.AutoPauseOnFocusLoss = false;
             _world = _app.WorldScenes!;
@@ -116,7 +117,7 @@ public partial class WorldScenePreview : Node
             while (_queuedSteps - _core!.AdvanceCount < needed)
             {
                 var position = new SimulationPosition((ulong)++_queuedSteps, 0);
-                _core.QueueAdvance(new(1, position, [], null, null), new FixedCoreReadView(position, HostCoreScenario.Input));
+                _core.QueueAdvance(new(1, position, [], null, null), WorldSceneFixture.EmptyWorld(position));
             }
             var ready = _host.GetStatus() is not null;
             if (ready && !_running) { _host.SetPaused(false); _running = true; }

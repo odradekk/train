@@ -145,9 +145,35 @@ internal sealed class SimulationConsoleCommands
             SessionUnavailable();
             return;
         }
-        if (_development.CaptureCheckpoint("控制台检查点") is { } failure)
-            Log(LogLevel.Warning, CheckpointFailedEventId, failure.Message);
-        else ReportCheckpointValue(_development.Checkpoints[^1].Checkpoint);
+        switch (_development.CaptureCheckpoint("控制台检查点"))
+        {
+            case CoreResult<ICoreCapture>.Success success:
+                ReportCheckpointValue(success.Value.Checkpoint);
+                return;
+            case CoreResult<ICoreCapture>.Failure failure:
+                Log(LogLevel.Warning, CheckpointFailedEventId,
+                    "检查点获取失败：" + string.Join("，", failure.Problems.Select(problem => $"{problem.Code}/{problem.Field}")) + "。",
+                    new Dictionary<string, object?>
+                    {
+                        ["problem_code"] = string.Join(",", failure.Problems.Select(problem => problem.Code)),
+                        ["problem_field"] = string.Join(",", failure.Problems.Select(problem => problem.Field))
+                    });
+                return;
+            case CoreResult<ICoreCapture>.Faulted faulted:
+                Log(LogLevel.Warning, CheckpointFailedEventId,
+                    $"检查点获取失败：{faulted.Fault.Code}/{faulted.Fault.Operation}/{faulted.Fault.Field}。",
+                    new Dictionary<string, object?>
+                    {
+                        ["fault_code"] = faulted.Fault.Code, ["operation"] = faulted.Fault.Operation,
+                        ["field"] = faulted.Fault.Field,
+                        ["fault_completed_steps"] = faulted.Fault.Position.CompletedSteps,
+                        ["fault_sequence"] = faulted.Fault.Position.Sequence,
+                        ["subject"] = faulted.Fault.Subject?.ToString(),
+                        ["diagnostic_message"] = faulted.Diagnostic?.Message,
+                        ["diagnostic_stack_trace"] = faulted.Diagnostic?.StackTrace
+                    });
+                return;
+        }
     }
 
     private void ReportCheckpointValue(CoreCheckpoint checkpoint) => Log(LogLevel.Info, CheckpointEventId,

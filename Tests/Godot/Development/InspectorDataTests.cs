@@ -34,6 +34,7 @@ public sealed class InspectorDataTests
         Assert.AreEqual(id, missing.Id);
         Assert.AreEqual(InspectionStatus.Missing, missing.Status);
         var unavailable = InspectorData.Inspect(new FixedCoreReadView(), new WorldObjectId.Settlement(new(9)));
+        Assert.IsFalse(InspectorData.Exists(new FixedCoreReadView(), new WorldObjectId.Settlement(new(9))));
         Assert.AreEqual(InspectionStatus.Unavailable, unavailable.Status);
         Assert.IsNotNull(unavailable.Explanation);
     }

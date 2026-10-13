@@ -57,7 +57,8 @@ public sealed class RailwayGenerationTests
             snapshot = RailwayFixtures.ReplaceCore(snapshot, node: end);
         }
         using var release = new ManualResetEventSlim();
-        var scene = RailwayFixtures.Controlled(snapshot, (input, path, index, token) =>
+        await using var vehicles = new SceneVehicles();
+        var scene = RailwayFixtures.Controlled(snapshot, vehicles, (input, path, index, token) =>
         {
             if (index != 2) release.Wait(token);
             return index == 2 ? RailwayTerrain.Build(input, path, index, token) :

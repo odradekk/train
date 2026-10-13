@@ -117,7 +117,11 @@ internal static class RailwayFixtures
             ImmutableDictionary<GridColumn, double>.Empty,
             RailwayDependencies.Capture(snapshot, path, index, [], [], [], [], false, false), []);
 
-    internal static RailwayScene Controlled(SceneWorldSnapshot snapshot,
+    internal static NodeScene.Built EmptyNode(SceneWorldSnapshot snapshot, NodeId node,
+        NodeScene.Built? previous, CancellationToken token) =>
+        new(NodeLayout.Build(snapshot, node, token), ImmutableDictionary<string, NodeScene.Part>.Empty, []);
+
+    internal static RailwayScene Controlled(SceneWorldSnapshot snapshot, SceneVehicles vehicles,
         Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null)
     {
         var ids = new Dictionary<string, SceneObjectId>();
@@ -126,7 +130,7 @@ internal static class RailwayFixtures
         {
             if (!ids.TryGetValue(key, out var id)) ids.Add(key, id = new(++next));
             return id;
-        }, build ?? EmptySegment);
+        }, vehicles, build ?? EmptySegment);
     }
 
     internal static async Task<SceneFrame> Settled(RailwayScene scene, SceneWorldSnapshot snapshot,
@@ -143,16 +147,19 @@ internal static class RailwayFixtures
         return frame;
     }
 
-    internal static async Task<ISceneFrame> Settled(WorldSceneSession session, SceneFrameRequest request, ISceneFrame? displayed = null)
+    internal static async Task<SceneFrame> Settled(WorldSceneSession session, SceneFrameRequest request, ISceneFrame? displayed = null)
     {
-        ISceneFrame Present() => ((SceneResult<ISceneFrame>.Success)session.Present(request, displayed)).Value;
+        SceneFrame Present() => (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(request, displayed)).Value;
         var frame = Present();
-        while (session.PendingRailwayBuilds.Length > 0)
+        while (Work().Length > 0)
         {
-            await Task.WhenAll(session.PendingRailwayBuilds);
+            await Task.WhenAll(Work());
             frame = Present();
         }
         return frame;
+
+        Task[] Work() => session.PendingNodeBuilds.Concat(session.PendingRailwayBuilds)
+            .Concat(session.PendingObjectBuilds).ToArray();
     }
 
     internal static double TrackGradeErrorBound(double length, double relief, double offset, RailwayAppearanceProjection rules)

@@ -62,7 +62,6 @@ public partial class App : Node
                 Saves = new SaveService(Host, new FileSaveStore(userData));
                 GetNode<MainMenu>("MainMenu").ConfigureSaves(Saves);
                 Recording = new RecordingService(Host, new FileSaveStore(userData));
-                GetNode<MainMenu>("MainMenu").ConfigureRecording(Recording);
             }
             else
             {
@@ -74,8 +73,12 @@ public partial class App : Node
                 WorldScenes = new(Host, CreateScenes(), _logger);
                 AddChild(WorldScenes.View);
             }
+            var ui = new GameUi { Name = "GameUi" };
+            ui.Initialize(GetNode<MainMenu>("MainMenu"), Host, _logger, WorldScenes, Recording);
+            AddChild(ui);
             var console = new GameConsole();
             Action<IReadOnlyList<string>>? simulationCommands = null;
+            Action<IReadOnlyList<string>>? trainCommands = null;
             Action<IReadOnlyList<string>>? lightingCommands = null;
             Action<IReadOnlyList<string>>? developmentCommands = null;
             if (OS.IsDebugBuild())
@@ -88,13 +91,15 @@ public partial class App : Node
                     inspector.Configure(Development, WorldScenes);
                     developmentCommands = inspector.Execute;
                     simulationCommands = new SimulationConsoleCommands(Host, _logger, Development).Execute;
+                    trainCommands = new TrainConsoleCommands(Host, _logger, ui.ShowError).Execute;
                 }
                 else simulationCommands = new LegacySimulationConsoleCommands(this, _logger).Execute;
                 lightingCommands = new LightingConsoleCommands(_logger, () => WorldScenes?.View.Lighting,
                     mode => WorldScenes!.View.SetLighting(mode)).Execute;
             }
             console.Initialize(buffer, new ConsoleCommandDispatcher(
-                _logger, buffer.Clear, RequestQuit, () => ReloadContent(Train.Core.Contracts.CommandSource.Console), OS.IsDebugBuild(), simulationCommands, lightingCommands, developmentCommands));
+                _logger, buffer.Clear, RequestQuit, () => ReloadContent(Train.Core.Contracts.CommandSource.Console), OS.IsDebugBuild(), simulationCommands,
+                train: trainCommands, lighting: lightingCommands, development: developmentCommands));
             AddChild(console);
             if (Host is not null)
             {

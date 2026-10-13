@@ -277,7 +277,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             var changedInput = new CoreInputId(new string('B', 64));
             var rejectedContent = new FixedContentView(HostContentScenario.CreateProjection(changedInput), new(2));
             setup.Reload = new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(rejectedContent, changes: ContentChange.CoreInput));
-            var rejectedView = new FixedCoreReadView(new(0, 1), HostCoreScenario.Input);
+            var rejectedView = WorldSceneFixture.EmptyWorld(new(0, 1));
             setup.Session.QueueSubmit(new CoreCommand.PublishContent(rejectedContent.Core), CommandSource.Console,
                 new SubmissionResult.Completed(new(1, new(0, 0), new(0, 1), new CommandDecision.Rejected([new("rejected", "field", null, ["reason"])])), [], null), rejectedView);
             app.Host!.BeginReload(CommandSource.Console);
@@ -311,6 +311,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             world.Open(Target);
             world.ProcessFrame(0, false);
             app.GetNode<Control>("MainMenu").Hide();
+            app.GetNode<Control>("GameUi/Root").Hide();
             var picks = 0;
             world.View.PickRequested += _ => picks++;
             var cover = new Control { MouseFilter = Control.MouseFilterEnum.Stop };
@@ -359,7 +360,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             SceneProblem? reason = null;
             world.ReturnedToMap += problem => { returned++; reason = problem; };
             var oldBinding = app.Host!.GetStatus()!.Binding;
-            setup.RestoredSession = new(new FixedCoreReadView(new(0, 0), HostCoreScenario.Input));
+            setup.RestoredSession = new(WorldSceneFixture.EmptyWorld(new(0, 0)));
             app.Host.BeginRestore("opaque", "opaque",
                 new(new("fixture", "fixture", "fixture", "fixture", "fixture"), true, 1));
             await Pump(app.Host);
@@ -576,7 +577,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
 
     private sealed class Setup
     {
-        internal ScriptedCoreSession Session { get; } = new(new FixedCoreReadView(new(0, 0), HostCoreScenario.Input));
+        internal ScriptedCoreSession Session { get; } = new(WorldSceneFixture.EmptyWorld(new(0, 0)));
         internal ContentResult<IContentCandidate>? Reload { get; set; }
         internal ScriptedCoreSession? RestoredSession { get; set; }
         internal IReadOnlyDictionary<AssetRevision, ContentLookup<ContentAsset>> Assets { get; init; } =

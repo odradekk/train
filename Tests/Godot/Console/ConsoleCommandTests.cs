@@ -363,7 +363,7 @@ internal sealed class DispatchHarness : IDisposable
             () => Quit = true,
             () => Reloaded = true,
             allowReload,
-            simulation ? arguments => SimulationArguments = arguments.ToArray() : null, lighting, development);
+            simulation ? arguments => SimulationArguments = arguments.ToArray() : null, lighting: lighting, development: development);
     }
 
     public static DispatchHarness Create(bool allowReload = true, bool simulation = false) =>

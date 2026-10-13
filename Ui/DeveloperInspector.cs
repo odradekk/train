@@ -151,7 +151,7 @@ public partial class DeveloperInspector : Window
     {
         var label = Input("CheckpointLabel", "检查点说明");
         tab.AddChild(label);
-        Button(tab, "捕获内存检查点", "CaptureCheckpoint", () => Run(() => _tools!.CaptureCheckpoint(label.Text)));
+        Button(tab, "捕获内存检查点", "CaptureCheckpoint", () => CaptureCheckpoint(label.Text));
         tab.AddChild(_expected); tab.AddChild(_actual);
         Button(tab, "比较检查点", "CompareCheckpoints", () =>
         {
@@ -280,6 +280,22 @@ public partial class DeveloperInspector : Window
         var failure = _tools.ExportReplayBoundary(path, confirmed);
         if (failure?.Code == "overwrite-confirmation") { _exportPath = path; _overwrite.PopupCentered(); }
         else _localMessage = failure?.Message;
+        Refresh();
+    }
+
+    private void CaptureCheckpoint(string label)
+    {
+        if (_tools is null) return;
+        _localMessage = _tools.CaptureCheckpoint(label) switch
+        {
+            CoreResult<ICoreCapture>.Success => null,
+            CoreResult<ICoreCapture>.Failure failure => "无法捕获检查点：" +
+                string.Join("；", failure.Problems.Select(problem => $"{problem.Code}/{problem.Field}")),
+            CoreResult<ICoreCapture>.Faulted fault =>
+                $"无法捕获检查点：{fault.Fault.Code}/{fault.Fault.Operation}/{fault.Fault.Field}" +
+                (fault.Diagnostic is { } diagnostic ? $" · {diagnostic.Message}" : ""),
+            _ => throw new InvalidOperationException("未知检查点捕获结果。")
+        };
         Refresh();
     }
 

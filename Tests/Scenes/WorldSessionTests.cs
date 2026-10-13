@@ -15,7 +15,7 @@ public sealed class WorldSessionTests
 {
     private static readonly InstanceId Vehicle = new InstanceId.Vehicle(new(1));
     private static readonly WorldLocation Location = new WorldLocation.Node(new(1));
-    private static readonly WorldSceneTarget Target = new WorldSceneTarget.Location(Location);
+    private static readonly WorldSceneTarget Target = new WorldSceneTarget.Combat(new(1));
     private static readonly SceneFrameRequest FrameRequest = new(0, null, SceneDebugLayer.None);
     private static readonly SceneRay Ray = new(new(0.5f, 0.5f, -2), Vector3.UnitZ, 10);
     private static DesignEvaluation.Complete Evaluation => SceneFixtures.Evaluation(SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0))]));
@@ -34,6 +34,11 @@ public sealed class WorldSessionTests
                 [new(2)] = new Lookup<NodeView>.Found(Node(2)),
                 [new(99)] = new Lookup<NodeView>.Missing()
             },
+            Combats = new Dictionary<CombatId, Lookup<CombatView>>
+            {
+                [new(1)] = new Lookup<CombatView>.Found(new(new(1), Location, 0, [])),
+                [new(2)] = new Lookup<CombatView>.Found(new(new(2), new WorldLocation.Node(new(2)), 0, []))
+            },
             Instances = new Dictionary<InstanceId, Lookup<InstanceView>>
             { [Vehicle] = removed ? new Lookup<InstanceView>.Missing() : new Lookup<InstanceView>.Found(instance ?? Instance) }
         }, content ?? SceneFixtures.Content(Evaluation));
@@ -42,7 +47,7 @@ public sealed class WorldSessionTests
         new(new(0, 0, 0), VoxelOrientation.PxPy, SceneFixtures.Cube, null, null, new PickSubject.Terrain(Location), [])], [], [], [], []);
     private static WorldSceneContent ObjectContent() => new([], [new(Vehicle, SceneFixtures.Identity)], [], [], []);
     private static WorldSceneSession Session(SceneWorldSnapshot snapshot, WorldSceneContent? content = null) => new(
-        new(Guid.NewGuid()), snapshot, (_, _, _) => content ?? Terrain(), new());
+        new(Guid.NewGuid()), snapshot, (_, _, _) => content ?? Terrain(), new(), new());
     private static async Task<ISceneFrame> Ready(WorldSceneSession session)
     {
         Assert.IsInstanceOfType<SceneResult<SceneRequestId>.Success>(session.RequestView(Target));
@@ -76,14 +81,20 @@ public sealed class WorldSessionTests
     }
 
     [TestMethod]
-    public async Task ProductionWorldGenerationReportsExplicitFaultInsteadOfEmptySuccess()
+    public async Task ProductionWorldGenerationKeepsCombatExplicitlyDeferred()
     {
-        await using var session = (WorldSceneSession)((SceneResult<IWorldSceneSession>.Success)ScenesFactory.Create().OpenWorld(new(Guid.NewGuid()), Snapshot())).Value;
-        session.RequestView(Target);
+        var basis = Snapshot();
+        var snapshot = basis with { Core = new FixedCoreReadView
+        {
+            InputIdentity = basis.Core.InputIdentity,
+            Combats = new Dictionary<CombatId, Lookup<CombatView>> { [new(1)] = new Lookup<CombatView>.Found(new(new(1), Location, 0, [])) }
+        } };
+        await using var session = (WorldSceneSession)((SceneResult<IWorldSceneSession>.Success)ScenesFactory.Create().OpenWorld(new(Guid.NewGuid()), snapshot)).Value;
+        session.RequestView(new WorldSceneTarget.Combat(new(1)));
         await Assert.ThrowsExactlyAsync<NotImplementedException>(async () => await session.PendingBuild!);
         var fault = (SceneResult<ISceneFrame>.Faulted)session.Present(FrameRequest, null);
         Assert.AreEqual("scene_internal_fault", fault.Problem.Code);
-        StringAssert.Contains(fault.Problem.Detail, "#316");
+        StringAssert.Contains(fault.Problem.Detail, "#353");
     }
 
     [TestMethod]
@@ -92,7 +103,7 @@ public sealed class WorldSessionTests
         using var release = new ManualResetEventSlim();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var session = new WorldSceneSession(new(Guid.NewGuid()), Snapshot(), (_, _, _) =>
-        { entered.SetResult(); release.Wait(); return Terrain(); }, new());
+        { entered.SetResult(); release.Wait(); return Terrain(); }, new(), new());
         try
         {
             session.RequestView(Target);
@@ -170,12 +181,12 @@ public sealed class WorldSessionTests
         {
             if (value == Target) { entered.SetResult(); release.Wait(); return Terrain(); }
             return Terrain() with { Terrain = [new(new(5, 0, 0), VoxelOrientation.PxPy, SceneFixtures.Cube, null, null, new PickSubject.Terrain(new WorldLocation.Node(new(2))), [])] };
-        }, new());
+        }, new(), new());
         try
         {
             session.RequestView(Target); await entered.Task;
             var oldTask = session.PendingBuild!;
-            session.RequestView(new WorldSceneTarget.Location(new WorldLocation.Node(new(2))));
+            session.RequestView(new WorldSceneTarget.Combat(new(2)));
             await session.PendingBuild!;
             var next = Present(session);
             Assert.IsInstanceOfType<ScenePick.Miss>(next.Pick(Ray));
@@ -193,7 +204,7 @@ public sealed class WorldSessionTests
         using var release = new ManualResetEventSlim();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var session = new WorldSceneSession(new(Guid.NewGuid()), Snapshot(), (_, _, _) =>
-        { entered.SetResult(); release.Wait(); return ObjectContent(); }, new());
+        { entered.SetResult(); release.Wait(); return ObjectContent(); }, new(), new());
         try
         {
             session.RequestView(Target); await entered.Task;
@@ -328,7 +339,7 @@ public sealed class WorldSessionTests
         using var release = new ManualResetEventSlim();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var session = new WorldSceneSession(new(Guid.NewGuid()), Snapshot(), (_, _, _) =>
-        { entered.SetResult(); release.Wait(); return ObjectContent(); }, new());
+        { entered.SetResult(); release.Wait(); return ObjectContent(); }, new(), new());
         try
         {
             session.RequestView(Target); await entered.Task;
@@ -556,7 +567,7 @@ public sealed class WorldSessionTests
             {
                 InputIdentity = new("scenes-test"),
                 Position = new(1, 0),
-                Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [new(1)] = new Lookup<NodeView>.Missing() }
+                Combats = new Dictionary<CombatId, Lookup<CombatView>> { [new(1)] = new Lookup<CombatView>.Missing() }
             }
         };
         session.Observe(missing, []);

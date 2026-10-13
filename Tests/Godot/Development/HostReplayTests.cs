@@ -44,7 +44,7 @@ public sealed class HostReplayTests
     {
         using var run = new ReplayFixture();
         var replacements = new List<(long Operation, bool Succeeded)>();
-        run.Host.Host.ReplacementCompleted += (operation, succeeded) => replacements.Add((operation, succeeded));
+        run.Host.Host.OperationEnded += result => { if (result.Kind == OperationKind.Replay) replacements.Add((result.Operation, result.Succeeded)); };
         var second = new FixedContentView(run.Host.Content.Core, new(2), new(2));
         run.History = [run.Host.Content, second];
         run.Open();
@@ -56,6 +56,7 @@ public sealed class HostReplayTests
         var status = run.Host.Host.GetStatus()!;
         Assert.IsTrue(status.IsReplay);
         Assert.IsTrue(replacements.Single().Succeeded);
+        Assert.AreEqual(run.OpenOperation, replacements.Single().Operation);
         Assert.AreEqual("replay_read_only", ((SubmissionResult.NotAccepted)run.Host.Host.Submit(status.Binding,
             new CoreCommand.StartTrain(new(1)), CommandSource.UserInterface)).Reason.Code);
         Assert.AreEqual("replay_read_only", run.Host.Host.BeginReload(CommandSource.Console).Problem?.Code);
@@ -70,17 +71,37 @@ public sealed class HostReplayTests
     }
 
     [TestMethod]
+    public void TrainConsoleCommandRejectsActiveReplayWithoutCallingRetiredCore()
+    {
+        using var run = new ReplayFixture();
+        run.Open();
+        var errors = new List<string>();
+        var commands = new TrainConsoleCommands(run.Host.Host, run.Host.Logger, errors.Add);
+        var binding = run.Host.Host.GetStatus()!.Binding;
+
+        commands.Execute(["start", "1"]);
+
+        StringAssert.Contains(errors.Single(), "replay_read_only");
+        Assert.AreEqual("NotAccepted", run.Host.Logs.Single(log => log.EventId == "train_command_failed").Attributes["decision"]);
+        Assert.AreEqual(binding, run.Host.Host.GetStatus()!.Binding);
+        Assert.AreEqual(0, run.Host.Session.SubmitCount);
+        Assert.AreEqual(0, run.Replay.AdvanceCalls.Count);
+        run.Host.AssertNoUnexpectedFailures();
+    }
+    [TestMethod]
     public void ReaderAndMissingDependencyFailuresPreserveOriginalBinding()
     {
         using var run = new ReplayFixture();
         var replacements = new List<bool>();
-        run.Host.Host.ReplacementCompleted += (_, succeeded) => replacements.Add(succeeded);
+        run.Host.Host.OperationEnded += result => { if (result.Kind == OperationKind.Replay) replacements.Add(result.Succeeded); };
         var original = run.Host.Host.GetStatus()!.Binding;
         Assert.IsNull(run.Host.Host.BeginReplay("memory.zip", _ => throw new InvalidDataException("bad package")).Problem);
         run.Host.PumpUntil(() => !run.Host.Host.IsBusy);
         Assert.AreEqual(original, run.Host.Host.GetStatus()!.Binding);
         var readFailure = run.Host.Logs.Single(log => log.EventId == "host_replay_failed");
-        Assert.AreEqual("preparation_exception", readFailure.Attributes["code"]);
+        Assert.AreEqual("replay_package_read_failed", readFailure.Attributes["code"]);
+        Assert.AreEqual("Rejected", readFailure.Attributes["status"]);
+        Assert.AreEqual(Train.App.Logging.LogLevel.Warning, readFailure.Level);
         StringAssert.Contains(readFailure.Exception!.Message, "bad package");
         run.Host.Core.PrepareReplayCall = (_, _, _) => new CoreResult<ICoreReplay>.Failure(
             [new("content_missing", "ContentHistory", null, [])]);
@@ -228,6 +249,7 @@ internal sealed class ReplayFixture : IDisposable
     internal ImmutableArray<IContentView> History { get; set; }
     internal ImmutableArray<CoreContentProjection> PreparedHistory { get; private set; }
     internal RecordingPackage Package { get; }
+    internal long OpenOperation { get; private set; }
 
     internal ReplayFixture(Func<CoreEvent, NotificationAction>? notification = null)
     {
@@ -251,7 +273,9 @@ internal sealed class ReplayFixture : IDisposable
 
     internal void Open(string path = "memory.zip", bool fromFile = false)
     {
-        Assert.IsNull(Host.Host.BeginReplay(path, fromFile ? null : _ => Package).Problem);
+        var operation = Host.Host.BeginReplay(path, fromFile ? null : _ => Package);
+        Assert.IsNull(operation.Problem);
+        OpenOperation = operation.Operation;
         Host.PumpUntil(() => Host.Host.GetStatus()?.IsReplay == true);
     }
 

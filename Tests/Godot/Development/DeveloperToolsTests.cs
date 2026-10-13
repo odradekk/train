@@ -1,4 +1,4 @@
-﻿using System.Collections.Immutable;
+using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.App;
 using Train.App.Development;
@@ -133,7 +133,7 @@ public sealed class DeveloperToolsTests
     {
         using var run = CreateRun();
         run.SetCapture();
-        Assert.IsNull(run.Tools.CaptureCheckpoint("retained"));
+        Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Success>(run.Tools.CaptureCheckpoint("retained"));
         Assert.IsNull(run.Tools.AddMark("retained mark"));
         Assert.IsNull(run.Tools.StartSteps(5));
         run.Tools.Cancel();
@@ -191,11 +191,29 @@ public sealed class DeveloperToolsTests
     }
 
     [TestMethod]
+    public void FailedCheckpointReturnsOriginalCoreResultWithoutRetainingIt()
+    {
+        using var run = CreateRun();
+        CoreResult<ICoreCapture>[] results =
+        [
+            new CoreResult<ICoreCapture>.Failure([new("capture_rejected", "checkpoint", null, [])]),
+            new CoreResult<ICoreCapture>.Faulted(new("capture_fault", new(0, 0), "capture", "checkpoint", null),
+                new("capture message", "capture stack"))
+        ];
+        foreach (var result in results)
+        {
+            run.Session.SetCapture(CapturePurpose.Save, result);
+            Assert.AreSame(result, run.Tools.CaptureCheckpoint("failed"));
+            Assert.AreEqual(0, run.Tools.Checkpoints.Count);
+        }
+    }
+
+    [TestMethod]
     public void CheckpointComparabilityChecksMetadataInOrderBeforeCallingCore()
     {
         using var run = CreateRun();
         run.SetCapture();
-        Assert.IsNull(run.Tools.CaptureCheckpoint("baseline"));
+        Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Success>(run.Tools.CaptureCheckpoint("baseline"));
         var otherRuntime = HostFixture.Options.Runtime with { GameBuild = "other-build" };
         var otherInput = new CoreInputId("other-input");
         var cases = new[]
@@ -209,13 +227,13 @@ public sealed class DeveloperToolsTests
         {
             run.Replace(item.View, item.Runtime);
             run.SetCapture();
-            Assert.IsNull(run.Tools.CaptureCheckpoint(item.Message));
+            Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Success>(run.Tools.CaptureCheckpoint(item.Message));
             Assert.AreEqual(item.Message, run.Tools.Compare(0, run.Tools.Checkpoints.Count - 1));
         }
         Assert.AreEqual(0, run.Fixture.Core.CompareCheckpointsCount);
         run.Replace(View(0));
         run.SetCapture();
-        Assert.IsNull(run.Tools.CaptureCheckpoint("comparable"));
+        Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Success>(run.Tools.CaptureCheckpoint("comparable"));
         run.Fixture.Core.CompareCheckpointsCall = (receivedLeft, receivedRight) =>
         {
             Assert.AreSame(run.Tools.Checkpoints[0].Checkpoint, receivedLeft);

@@ -61,6 +61,11 @@ public class DeveloperToolsTests(Node testScene) : TestClass(testScene)
                 "重放候选激活后没有退役原会话。");
             Require(app.Saves.Save()?.Code == "replay_read_only" && app.Host.Step(1).Problem?.Code == "replay_read_only",
                 "重放允许普通保存或普通核心推进。");
+            var console = app.GetChildren().OfType<GameConsole>().Single();
+            console.SubmitLine("train start 1");
+            Require(app.GetChildren().OfType<GameUi>().Single().ErrorText.Contains("replay_read_only", StringComparison.Ordinal) &&
+                setup.InitialSession.SubmitCount == 0,
+                "合并后的真实App列车命令未在重放中拒绝，或调用了已退役会话。");
             app.WorldScenes!.DebugLayers = SceneDebugLayer.Origin;
             app.WorldScenes.Open(DeveloperToolsFixture.Target);
             await Until(() => app.WorldScenes.Display?.DisplayedFrame?.DebugLines.Length == 2);

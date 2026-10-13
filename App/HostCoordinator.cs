@@ -11,6 +11,14 @@ internal readonly record struct HostBinding(Guid Session);
 internal enum NotificationAction { None, SlowToOne, Pause }
 internal sealed record ReplayRecording(string Path, SimulationPosition From, SimulationPosition Until,
     ImmutableArray<RecordedCommand> Commands, ImmutableArray<RecordingGap> Gaps);
+internal enum OperationKind { NewGame, Restore, Reload, Replay }
+internal enum HostOperationStatus { Committed, CommittedWithWarnings, Rejected, NotAccepted, Faulted, Cancelled, Discarded }
+internal sealed record HostOperationResult(long Operation, OperationKind Kind, HostOperationStatus Status,
+    ImmutableArray<CoreProblem> Problems, ImmutableArray<ContentDiagnostic> Diagnostics, string? FaultCode,
+    CoreFault? Fault = null)
+{
+    internal bool Succeeded => Status is HostOperationStatus.Committed or HostOperationStatus.CommittedWithWarnings;
+}
 internal sealed record HostStatus(HostBinding Binding, ICoreReadView View,
     bool PlayerPaused, bool FocusPaused, bool OperationLocked, bool IsFrozen,
     SimulationSpeed Speed, double ActualSpeed, double Remainder, bool IsReplay = false)
@@ -56,7 +64,7 @@ internal sealed class HostCoordinator : IDisposable
     }
 
     internal event Action<HostBinding, ICoreReadView, IContentView, ImmutableArray<EventEnvelope>>? BoundaryCompleted;
-    internal event Action<long, bool>? ReplacementCompleted;
+    internal event Action<HostOperationResult>? OperationEnded;
     internal CoreSessionOptions? SessionOptions { get; }
     internal RuntimeIdentity? Runtime { get { EnsureOwner(); return _active?.Runtime; } }
     internal ReplayRecording? ReplayRecording { get { EnsureOwner(); return _active?.ReplayRecording; } }
@@ -400,13 +408,17 @@ internal sealed class HostCoordinator : IDisposable
             var captured = CaptureCurrent();
             if (captured is CoreResult<ICoreCapture>.Failure rejected)
             {
-                LogReloadResult(checked(++_nextOperation), null, "Rejected", false, rejected.Problems);
+                var status = HostOperationStatus.Rejected;
+                LogReloadResult(checked(++_nextOperation), null, status.ToString(), false, rejected.Problems);
+                NotifyOperation(new(_nextOperation, OperationKind.Reload, status, rejected.Problems, [], null));
                 return (0, rejected.Problems[0]);
             }
             if (captured is CoreResult<ICoreCapture>.Faulted failed)
             {
-                LogReloadResult(checked(++_nextOperation), null, "Faulted", false,
+                var status = HostOperationStatus.Faulted;
+                LogReloadResult(checked(++_nextOperation), null, status.ToString(), false,
                     [new(failed.Fault.Code, failed.Fault.Field, failed.Fault.Subject, [])], failed.Diagnostic);
+                NotifyOperation(new(_nextOperation, OperationKind.Reload, status, [], [], failed.Fault.Code, failed.Fault));
                 return (0, _active.Driver.Frozen ? Problem("frozen") :
                     new(failed.Fault.Code, failed.Fault.Field, failed.Fault.Subject, []));
             }
@@ -440,7 +452,7 @@ internal sealed class HostCoordinator : IDisposable
         _skipNextFrame = true;
         if (operation.Prepared is { } prepared) Discard(prepared);
         else _abandoned.Add(operation);
-        NotifyReplacement(operation);
+        NotifyOperation(new(operation.Id, operation.Kind, HostOperationStatus.Cancelled, [], [], null));
         return true;
     }
 
@@ -491,18 +503,23 @@ internal sealed class HostCoordinator : IDisposable
         try { prepared = current.Work.GetAwaiter().GetResult(); }
         catch (Exception exception)
         {
-            if (current.Reload) LogReloadResult(current.Id, null, "Faulted", false,
+            var packageRejected = current.Kind == OperationKind.Replay &&
+                exception is IOException or UnauthorizedAccessException or InvalidDataException;
+            var status = packageRejected ? HostOperationStatus.Rejected : HostOperationStatus.Faulted;
+            var code = packageRejected ? "replay_package_read_failed" : "preparation_exception";
+            ImmutableArray<CoreProblem> problems = packageRejected ? [Problem(code, "recording.read")] : [];
+            if (current.Reload) LogReloadResult(current.Id, null, status.ToString(), false,
                 diagnostic: new(exception.Message, exception.StackTrace ?? ""));
-            else LogReplacementFailure(current, "Faulted", [], "preparation_exception", exception: exception);
-            EndOperation(current);
+            else LogReplacementFailure(current, status.ToString(), problems, code, exception: exception);
+            EndOperation(current, status, problems: problems, faultCode: packageRejected ? null : code);
             return;
         }
         if (_active?.Binding != current.BasisBinding || !ReferenceEquals(_content, current.BasisContent))
-        { Discard(prepared); EndOperation(current); return; }
+        { Discard(prepared); EndOperation(current, HostOperationStatus.Discarded); return; }
         if (ReportPreparation(prepared) is { } failureStatus)
         {
-            if (current.Reload) LogReloadResult(current.Id, prepared, failureStatus, false);
-            else LogReplacementFailure(current, failureStatus,
+            if (current.Reload) LogReloadResult(current.Id, prepared, failureStatus.ToString(), false);
+            else LogReplacementFailure(current, failureStatus.ToString(),
                 (prepared.Core as CoreResult<ICoreSessionCandidate>.Failure)?.Problems ?? [],
                 (prepared.Content as ContentResult<IContentCandidate>.Faulted)?.Code ??
                     (prepared.Core as CoreResult<ICoreSessionCandidate>.Faulted)?.Fault.Code ??
@@ -511,7 +528,8 @@ internal sealed class HostCoordinator : IDisposable
                 (prepared.Core as CoreResult<ICoreSessionCandidate>.Faulted)?.Diagnostic ??
                     (prepared.Content is ContentResult<IContentCandidate>.Faulted contentFault
                         ? new(contentFault.Message, contentFault.StackTrace ?? "") : null));
-            Discard(prepared); EndOperation(current); return;
+            Discard(prepared); EndOperation(current, failureStatus,
+                prepared, (prepared.Core as CoreResult<ICoreSessionCandidate>.Failure)?.Problems ?? []); return;
         }
         if (!current.Reload && prepared.Replay is null && (prepared.ContentCandidate!.Report.RuntimeMissing.Length > 0 ||
             prepared.CoreCandidate!.MissingReferences.Length > 0))
@@ -567,13 +585,19 @@ internal sealed class HostCoordinator : IDisposable
         _insideBoundary = true;
         ICoreSession? activatedCore = null;
         var coreWasCalled = false;
+        var status = HostOperationStatus.Committed;
+        ImmutableArray<CoreProblem> problems = [];
+        string? faultCode = null;
+        CoreFault? fault = null;
         try
         {
             var candidate = prepared.ContentCandidate!;
+            if (operation.Reload && candidate.Report.Diagnostics.Any(diagnostic => diagnostic.Severity == ContentDiagnosticSeverity.Warning))
+                status = HostOperationStatus.CommittedWithWarnings;
             if (operation.Reload)
             {
                 if (candidate.Changes == ContentChange.None && _content is not null)
-                { LogReloadResult(operation.Id, prepared, "Committed", false); return; }
+                { LogReloadResult(operation.Id, prepared, status.ToString(), false); return; }
                 if (_active is not null && candidate.Changes.HasFlag(ContentChange.CoreInput))
                 {
                     coreWasCalled = true;
@@ -581,20 +605,24 @@ internal sealed class HostCoordinator : IDisposable
                     if (result is SubmissionResult.Completed completed)
                     {
                         var published = CompleteSubmission(completed, candidate);
-                        var status = published ? "Committed" : completed.Receipt.Decision is CommandDecision.Rejected
-                            ? "Rejected" : "Faulted";
-                        LogReloadResult(operation.Id, prepared, status, published,
-                            completed.Receipt.Decision is CommandDecision.Rejected rejected ? rejected.Problems : []);
+                        if (!published) status = completed.Receipt.Decision is CommandDecision.Rejected
+                            ? HostOperationStatus.Rejected : HostOperationStatus.Faulted;
+                        problems = completed.Receipt.Decision is CommandDecision.Rejected rejection ? rejection.Problems : [];
+                        fault = (completed.Receipt.Decision as CommandDecision.Faulted)?.Fault;
+                        LogReloadResult(operation.Id, prepared, status.ToString(), published, problems);
                     }
                     else
-                        LogReloadResult(operation.Id, prepared, "NotAccepted", false,
-                            [((SubmissionResult.NotAccepted)result).Reason]);
+                    {
+                        status = HostOperationStatus.NotAccepted;
+                        problems = [((SubmissionResult.NotAccepted)result).Reason];
+                        LogReloadResult(operation.Id, prepared, status.ToString(), false, problems);
+                    }
                 }
                 else
                 {
                     _content = candidate.Activate();
                     if (_active is not null) { _active.UseContent(_content); Dispatch([]); }
-                    LogReloadResult(operation.Id, prepared, "Committed", true);
+                    LogReloadResult(operation.Id, prepared, status.ToString(), true);
                 }
             }
             else
@@ -619,7 +647,6 @@ internal sealed class HostCoordinator : IDisposable
                 }
                 if (group.View.Fault is not null) group.Driver.Freeze();
                 _active = group; _content = group.Content;
-                operation.Succeeded = true;
                 activatedCore = null;
                 UpdateFocusPause();
                 foreach (var problem in prepared.CoreCandidate?.AdaptationReport ?? [])
@@ -637,9 +664,12 @@ internal sealed class HostCoordinator : IDisposable
             try { activatedCore?.Dispose(); }
             catch (Exception cleanup) { LogHostFailure("host_cleanup_failed", cleanup); }
             LogHostFailure("host_activation_failed", exception);
-            if (operation.Reload) LogReloadResult(operation.Id, prepared, "Faulted", false);
+            status = HostOperationStatus.Faulted;
+            problems = [];
+            faultCode = "host_activation_failed";
+            if (operation.Reload) LogReloadResult(operation.Id, prepared, status.ToString(), false);
         }
-        finally { Discard(prepared); EndOperation(operation); _insideBoundary = false; }
+        finally { Discard(prepared); EndOperation(operation, status, prepared, problems, faultCode, fault); _insideBoundary = false; }
     }
 
     private bool CompleteSubmission(SubmissionResult.Completed completed, IContentCandidate? target)
@@ -711,7 +741,7 @@ internal sealed class HostCoordinator : IDisposable
             }, null);
     }
 
-    private string? ReportPreparation(PreparedOperation prepared)
+    private HostOperationStatus? ReportPreparation(PreparedOperation prepared)
     {
         var diagnostics = prepared.ContentCandidate?.Report.Diagnostics ??
             (prepared.Content as ContentResult<IContentCandidate>.Failure)?.Diagnostics ?? [];
@@ -727,7 +757,7 @@ internal sealed class HostCoordinator : IDisposable
                 new Dictionary<string, object?> { ["code"] = failed.Code, ["diagnostic_stack_trace"] = failed.StackTrace }, null);
         if (prepared.Replay is not null || prepared.ContentCandidate is not null && (prepared.Core is null || prepared.CoreCandidate is not null)) return null;
         return prepared.Content is ContentResult<IContentCandidate>.Faulted ||
-            prepared.Core is CoreResult<ICoreSessionCandidate>.Faulted ? "Faulted" : "Rejected";
+            prepared.Core is CoreResult<ICoreSessionCandidate>.Faulted ? HostOperationStatus.Faulted : HostOperationStatus.Rejected;
     }
 
     private void LogReplacementFailure(PendingOperation operation, string status,
@@ -748,7 +778,6 @@ internal sealed class HostCoordinator : IDisposable
         var diagnostics = prepared?.Content is ContentResult<IContentCandidate>.Failure failed
             ? failed.Diagnostics : prepared?.ContentCandidate?.Report.Diagnostics ?? [];
         var warnings = diagnostics.Count(diagnostic => diagnostic.Severity == ContentDiagnosticSeverity.Warning);
-        if (status == "Committed" && warnings > 0) status = "CommittedWithWarnings";
         var attributes = new Dictionary<string, object?>
         {
             ["operation_id"] = operationId, ["status"] = status, ["changed"] = changed,
@@ -765,20 +794,27 @@ internal sealed class HostCoordinator : IDisposable
         _logger.Log(LogLevel.Info, "content", "content_reload_summary", "内容重载结束。", attributes, null);
     }
 
-    private void EndOperation(PendingOperation operation)
+    private void EndOperation(PendingOperation operation, HostOperationStatus status,
+        PreparedOperation? prepared = null, ImmutableArray<CoreProblem> problems = default,
+        string? faultCode = null, CoreFault? fault = null)
     {
         if (!ReferenceEquals(_pending, operation)) return;
         _pending = null;
         _active?.Driver.SetOperationLocked(_leaveLocked);
         _skipNextFrame = true;
-        NotifyReplacement(operation);
+        var diagnostics = (prepared?.Content as ContentResult<IContentCandidate>.Failure)?.Diagnostics ??
+            prepared?.ContentCandidate?.Report.Diagnostics ?? [];
+        fault ??= (prepared?.Core as CoreResult<ICoreSessionCandidate>.Faulted)?.Fault;
+        faultCode ??= (prepared?.Content as ContentResult<IContentCandidate>.Faulted)?.Code ?? fault?.Code;
+        NotifyOperation(new(operation.Id, operation.Kind, status, problems.IsDefault ? [] : problems,
+            diagnostics, faultCode, fault));
     }
-    private void NotifyReplacement(PendingOperation operation)
+    private void NotifyOperation(HostOperationResult result)
     {
-        if (operation.Reload || ReplacementCompleted is not { } handlers) return;
-        foreach (Action<long, bool> handler in handlers.GetInvocationList())
-            try { handler(operation.Id, operation.Succeeded); }
-            catch (Exception exception) { LogHostFailure("host_consumer_failed", exception); }
+        if (OperationEnded is not { } handlers) return;
+        foreach (Action<HostOperationResult> handler in handlers.GetInvocationList())
+            try { handler(result); }
+            catch (Exception exception) { LogHostFailure("host_operation_consumer_failed", exception); }
     }
     private CoreProblem? MutationProblem(bool allowFrozen = false, bool allowReplay = false) => IsBusy ? Problem("busy") : _active is null
         ? Problem("simulation_session_unavailable") : _active.Replay is not null && !allowReplay ? Problem("replay_read_only")
@@ -854,7 +890,6 @@ internal sealed class HostCoordinator : IDisposable
         internal void UseContent(IContentView view) { Retain(view); Content = view; }
         public void Dispose() { if (Replay is not null) Replay.Dispose(); else Core.Dispose(); }
     }
-    private enum OperationKind { NewGame, Restore, Reload, Replay }
     private sealed class PendingOperation(long id, OperationKind kind, HostBinding? basisBinding,
         IContentView? basisContent, Task<PreparedOperation> work, CommandSource source)
     {
@@ -868,7 +903,6 @@ internal sealed class HostCoordinator : IDisposable
         internal PreparedOperation? Prepared { get; set; }
         internal SaveIdentity? Save { get; init; }
         internal bool Unsaved { get; init; }
-        internal bool Succeeded { get; set; }
         internal CoreSessionOptions? Options { get; init; }
     }
     internal sealed record PreparedOperation(ContentResult<IContentCandidate>? Content,
