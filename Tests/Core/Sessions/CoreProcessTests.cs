@@ -11,6 +11,39 @@ namespace Train.Core.Tests.Sessions;
 public sealed class CoreProcessTests
 {
     [TestMethod]
+    public async Task Independent_processes_generate_identical_complete_world_states()
+    {
+        var directory = CreateDirectory();
+        var first = await Run(directory, "first", "world-complete");
+        var second = await Run(directory, "second", "world-complete");
+        AssertIndependent(first, second);
+        AssertSamples(first.Samples, second.Samples);
+        CollectionAssert.AreEqual(first.Receipts, second.Receipts);
+        using var payload = JsonDocument.Parse(first.Samples[0].Payload);
+        Assert.AreEqual(42UL, payload.RootElement.GetProperty("world").GetProperty("source").GetProperty("world_seed").GetUInt64());
+        Assert.AreEqual(1, payload.RootElement.GetProperty("world").GetProperty("nodes").GetArrayLength());
+        Directory.Delete(directory, true);
+    }
+
+    [TestMethod]
+    public async Task World_save_in_one_process_restores_the_same_execution_in_another()
+    {
+        var directory = CreateDirectory();
+        var continuous = await Run(directory, "continuous", "world-complete");
+        var prefix = await Run(directory, "prefix", "world-save");
+        var restored = await Run(directory, "restored", "world-resume");
+        AssertIndependent(continuous, prefix);
+        AssertIndependent(prefix, restored);
+        Assert.AreEqual(prefix.Samples[^1].Payload, await File.ReadAllTextAsync(Path.Combine(directory, "state.json")));
+        AssertSamples(continuous.Samples[..5], prefix.Samples);
+        AssertSamples(continuous.Samples[4..], restored.Samples);
+        CollectionAssert.AreEqual(continuous.Receipts[..3], prefix.Receipts);
+        CollectionAssert.AreEqual(continuous.Receipts[3..], restored.Receipts);
+        Assert.AreEqual(new SimulationPosition(1, 2), restored.Samples[0].Position);
+        Directory.Delete(directory, true);
+    }
+
+    [TestMethod]
     public async Task Independent_processes_repeat_the_same_session_boundaries()
     {
         var directory = CreateDirectory();

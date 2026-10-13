@@ -9,12 +9,12 @@ namespace Train.Core.Tests.Sessions;
 public sealed class CoreCaptureTests
 {
     private const string Identity = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-    private const string Payload = "{\"core_state_format_version\":1,\"position\":{\"completed_steps\":7,\"sequence\":2},\"next_command_number\":10,\"revision\":20,\"input_identity\":\"" + Identity + "\",\"fault\":null}";
-    private const string CheckpointText = "{\"position\":{\"completed_steps\":7,\"sequence\":2},\"next_command_number\":10,\"fault\":null}";
-    private const string CheckpointHash = "7164320630B008C414C22F3CAFDC6EB23A7BFED698B24626192A501986BE4927";
+    private const string Payload = "{\"core_state_format_version\":2,\"position\":{\"completed_steps\":7,\"sequence\":2},\"next_command_number\":10,\"revision\":20,\"input_identity\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"fault\":null,\"world\":null,\"references\":{\"designs\":[],\"templates\":[],\"definitions\":[],\"inputs\":[{\"value\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}]}}";
+    private const string CheckpointText = "{\"position\":{\"completed_steps\":7,\"sequence\":2},\"next_command_number\":10,\"fault\":null,\"world\":null}";
+    private const string CheckpointHash = "8C4B9A854B543986C0913AA9B9CB3F43E07C2D794E32FDC61F5FBD52D17FA6AA";
     private const string FaultText = "{\"code\":\"internal_error\",\"position\":{\"completed_steps\":7,\"sequence\":3},\"operation\":\"Submit\",\"field\":\"\",\"subject\":null}";
-    private const string DiagnosticPayload = "{\"core_state_format_version\":1,\"position\":{\"completed_steps\":7,\"sequence\":2},\"next_command_number\":10,\"revision\":21,\"input_identity\":\"" + Identity + "\",\"fault\":" + FaultText + "}";
-    private const string DiagnosticCheckpoint = "{\"position\":{\"completed_steps\":7,\"sequence\":2},\"next_command_number\":10,\"fault\":" + FaultText + "}";
+    private const string DiagnosticPayload = "{\"core_state_format_version\":2,\"position\":{\"completed_steps\":7,\"sequence\":2},\"next_command_number\":10,\"revision\":21,\"input_identity\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"fault\":{\"code\":\"internal_error\",\"position\":{\"completed_steps\":7,\"sequence\":3},\"operation\":\"Submit\",\"field\":\"\",\"subject\":null},\"world\":null,\"references\":{\"designs\":[],\"templates\":[],\"definitions\":[],\"inputs\":[{\"value\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}]}}";
+    private const string DiagnosticCheckpoint = "{\"position\":{\"completed_steps\":7,\"sequence\":2},\"next_command_number\":10,\"fault\":{\"code\":\"internal_error\",\"position\":{\"completed_steps\":7,\"sequence\":3},\"operation\":\"Submit\",\"field\":\"\",\"subject\":null},\"world\":null}";
     private static readonly CoreSessionOptions Options = new(new("test", "test", "windows", "x64", "test"), false, 1);
 
     [TestMethod]
@@ -85,7 +85,7 @@ public sealed class CoreCaptureTests
         var diagnostic = Success(session.Capture(CapturePurpose.Diagnostic));
         Assert.AreEqual(DiagnosticPayload, diagnostic.Encode());
         Assert.AreEqual(new CoreCheckpoint(new(7, 2), DiagnosticCheckpoint,
-            "83C6FA841D3B06E3CEDCC04222B7DE927038B4C9C65C248165534A03CD2AE2FB"), diagnostic.Checkpoint);
+            "D56DCFDB3AC0A2BE126406672B477954B7564DC73FE86EE827F693D78FF65DDC"), diagnostic.Checkpoint);
         var decoded = Decode(diagnostic.Encode());
         Assert.AreEqual(DiagnosticPayload, decoded.Encode());
         Assert.AreEqual(diagnostic.Checkpoint, decoded.Checkpoint);
@@ -198,17 +198,17 @@ public sealed class CoreCaptureTests
 
     [TestMethod]
     public void Unsupported_version_is_rejected_before_reading_an_unknown_state_schema()
-        => AssertFailure(CoreFactory.Create().DecodeState("{\"core_state_format_version\":2}"),
+        => AssertFailure(CoreFactory.Create().DecodeState("{\"core_state_format_version\":3}"),
             "unsupported_format", "/core_state_format_version");
 
     [TestMethod]
-    [DataRow("\"core_state_format_version\":1", "\"core_state_format_version\":2", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":1", "\"core_state_format_version\":\"1\"", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":1", "\"core_state_format_version\":null", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":1", "\"core_state_format_version\":-1", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":1", "\"core_state_format_version\":1.5", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":1", "\"core_state_format_version\":18446744073709551616", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":1,", "", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":2", "\"core_state_format_version\":3", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":2", "\"core_state_format_version\":\"1\"", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":2", "\"core_state_format_version\":null", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":2", "\"core_state_format_version\":-1", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":2", "\"core_state_format_version\":1.5", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":2", "\"core_state_format_version\":18446744073709551616", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":2,", "", "unsupported_format", "/core_state_format_version")]
     [DataRow("\"revision\":20,", "", "invalid_state", "/revision")]
     [DataRow("\"revision\":20", "\"revision\":20,\"extra\":1", "invalid_state", "/extra")]
     [DataRow("\"revision\":20", "\"revision\":20,\"revision\":21", "invalid_state", "/revision")]

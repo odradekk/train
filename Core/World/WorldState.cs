@@ -18,15 +18,15 @@ internal sealed record SettlementState(SettlementId Id, NodeId Node, SettlementT
 internal sealed record PlotState(PlotId Id, int TemplateNumber, PlotSize Size, BuildingId? Building);
 internal sealed record LairState(LairId Id, NodeId Node, LairTypeId Type);
 internal sealed record PartDurability(PartId Id, long Current);
-internal sealed record InstanceState(InstanceId Id, DesignProjection Design,
+internal sealed record InstanceState(InstanceId Id, DesignHash Design,
     SettlementRelation Ownership, InstanceDetails Details, long StructureDurability,
     ImmutableArray<PartDurability> Parts)
 {
-    internal InstanceView Read(WorldLocation location) => new(Id, Design.Design, Design.Composition, location, Ownership, Details,
-        InstanceLock.None, new(Math.Min(StructureDurability, Design.MaxStructureDurability), Design.MaxStructureDurability),
+    internal InstanceView Read(WorldLocation location, DesignProjection design) => new(Id, design.Design, design.Composition, location, Ownership, Details,
+        InstanceLock.None, new(Math.Min(StructureDurability, design.MaxStructureDurability), design.MaxStructureDurability),
         Parts.Select(p =>
         {
-            var specification = Design.Parts.Single(d => d.Id == p.Id);
+            var specification = design.Parts.Single(d => d.Id == p.Id);
             return new PartDamageView(p.Id, new(Math.Min(p.Current, specification.MaxDurability), specification.MaxDurability),
                 specification.Missing, p.Current == 0);
         }).ToImmutableArray(), []);
@@ -43,7 +43,8 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
     ImmutableArray<SettlementState> Settlements, ImmutableArray<LairState> Lairs,
     ImmutableArray<InstanceState> Instances, ImmutableArray<TrainState> Trains,
     ImmutableArray<InventoryState> Inventories, ImmutableArray<DesignProjection> Designs,
-    ImmutableArray<GoodDefinitionProjection> DesignGoods, Money Money, WorldIdentities Next)
+    ImmutableArray<GoodDefinitionProjection> DesignGoods, Money Money, WorldIdentities Next,
+    ImmutableArray<RequiredDefinition> DefinitionDependencies)
 {
     internal WorldSummary Map => new(Source.WorldSeed, Source.Configuration.Rules.Railway,
         Source.Configuration.WidthMeters, Source.Configuration.HeightMeters, Nodes, Edges,
@@ -129,17 +130,18 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
             goods.UnionWith(design.ReturnUnits.Select(r => r.Good));
             goods.UnionWith(design.ReturnUnits.SelectMany(r => r.StructuralGoods).Select(g => g.Good));
         }
-        return new(input, mapNodes.ToImmutable(), mapEdges, settlements.ToImmutable(), lairs.ToImmutable(), instances.ToImmutable(), trains.ToImmutable(),
+        var state = new WorldState(input, mapNodes.ToImmutable(), mapEdges, settlements.ToImmutable(), lairs.ToImmutable(), instances.ToImmutable(), trains.ToImmutable(),
             inventories.ToImmutable(), designs, content.DesignGoods.Where(g => goods.Contains(g.Good)).ToImmutableArray(),
             input.Start.InitialMoney, new((ulong)nodes.Length + 1, (ulong)edges.Length + 1, settlementNumber, lairNumber,
-                plotNumber, buildingNumber, trainNumber, vehicleNumber, inventoryNumber));
+                plotNumber, buildingNumber, trainNumber, vehicleNumber, inventoryNumber), []);
+        return state with { DefinitionDependencies = WorldReferences.Dependencies(state, content) };
 
         InstanceState CreateInstance(InstanceId id, DesignHash hash,
             SettlementRelation ownership, InstanceDetails details)
         {
             designHashes.Add(hash);
             var design = content.Designs.Single(d => d.Design == hash);
-            return new(id, design, ownership, details, design.MaxStructureDurability,
+            return new(id, hash, ownership, details, design.MaxStructureDurability,
                 design.Parts.Select(p => new PartDurability(p.Id, p.MaxDurability)).ToImmutableArray());
         }
     }
@@ -176,7 +178,7 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
     internal InstanceView? FindInstance(InstanceId id)
     {
         var instance = Instances.FirstOrDefault(i => i.Id == id);
-        return instance?.Read(Location(instance));
+        return instance?.Read(Location(instance), Designs.Single(d => d.Design == instance.Design));
     }
 
     private WorldLocation Location(InstanceState instance) => instance.Details switch

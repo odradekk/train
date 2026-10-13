@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Train.Core.Contracts;
 using Train.Core.Sessions;
+using Train.Core.Tests.World;
 
 namespace Train.Core.Tests.Sessions;
 
@@ -16,13 +17,21 @@ internal static class CoreProcessDriver
             var mode = args[0];
             var output = args[1];
             var payloadPath = args[2];
+            var world = mode.StartsWith("world-", StringComparison.Ordinal);
+            if (world) mode = mode[6..];
             var runtime = Identity();
             ICoreSession session;
             if (mode == "resume")
             {
                 var factory = CoreFactory.Create();
                 var saved = Success(factory.DecodeState(await File.ReadAllTextAsync(payloadPath)));
-                using var candidate = Success(factory.PrepareRestore(saved, Content('B'), new(runtime, false, 0)));
+                using var candidate = Success(factory.PrepareRestore(saved, Content('B', world), new(runtime, false, 0)));
+                session = candidate.Activate();
+            }
+            else if (world)
+            {
+                using var candidate = Success(CoreFactory.Create().PrepareNew(WorldFixture.Input,
+                    Content('A', true), new(runtime, false, 0)));
                 session = candidate.Activate();
             }
             else
@@ -40,7 +49,7 @@ internal static class CoreProcessDriver
                 }
                 void Publish(char identity)
                 {
-                    if (session.Submit(new CoreCommand.PublishContent(Content(identity)), CommandSource.AutomationTest)
+                    if (session.Submit(new CoreCommand.PublishContent(Content(identity, world)), CommandSource.AutomationTest)
                         is not SubmissionResult.Completed { Receipt.Decision: CommandDecision.Accepted } completed)
                         throw new InvalidOperationException("内容发布未成功。");
                     receipts.Add(new(completed.Receipt.Number, completed.Receipt.Before, completed.Receipt.After));
@@ -85,8 +94,9 @@ internal static class CoreProcessDriver
     private static T Success<T>(CoreResult<T> result) where T : notnull => result is CoreResult<T>.Success success
         ? success.Value : throw new InvalidOperationException($"核心调用失败：{result}");
 
-    private static CoreContentProjection Content(char identity) =>
-        new(new(new string(identity, 64)), [], [], [], [], [], [], [], [], [], [], [], [], [], []);
+    private static CoreContentProjection Content(char identity, bool world = false) => world
+        ? WorldFixture.Content with { Identity = new(new string(identity, 64)) }
+        : new(new(new string(identity, 64)), [], [], [], [], [], [], [], [], [], [], [], [], [], []);
 
     internal static string Sha256(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 

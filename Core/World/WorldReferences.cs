@@ -7,7 +7,18 @@ internal static class WorldReferences
 {
     internal static CoreReferenceManifest Create(WorldState? world, CoreContentProjection content)
     {
-        if (world is null) return new([], [], [], [content.Identity]);
+        var usedDesigns = world?.Designs.Select(d => d.Design).ToHashSet() ?? [];
+        var missing = content.MissingReferences.Concat(content.Designs.Where(d => usedDesigns.Contains(d.Design))
+            .SelectMany(d => d.MissingReferences.Concat(d.ReturnUnits.SelectMany(u => u.MissingReferences))
+                .Concat(d.Parts.Where(p => p.Missing).Select(p => new MissingCoreReference(p.Definition, "")))))
+            .ToImmutableArray();
+        return Create(world, content.Identity, missing);
+    }
+
+    internal static CoreReferenceManifest Create(WorldState? world, CoreInputId identity,
+        ImmutableArray<MissingCoreReference> missingReferences)
+    {
+        if (world is null) return new([], [], [], [identity]);
         var definitions = ImmutableArray.CreateBuilder<RequiredDefinition>();
         foreach (var node in world.Nodes)
         {
@@ -56,17 +67,13 @@ internal static class WorldReferences
             foreach (var type in resource.AllowedTerrainTypes) Add(new CoreDefinitionReference.Terrain(type), $"Configuration.Resources[{resource.Good.Value}].AllowedTerrainTypes[{type.Value}]");
         }
         foreach (var weight in config.LairWeights) Add(new CoreDefinitionReference.Lair(weight.Type), $"Configuration.LairWeights[{weight.Type.Value}].Type");
-        foreach (var definition in definitions.Select(d => d.Definition).Distinct().ToArray())
-        {
-            foreach (var (good, field) in DependencyGoods(definition, content)) Good(good, field);
-            foreach (var (dependency, field, _) in DependencyDefinitions(definition, content)) Add(dependency, field);
-        }
-        var missing = content.MissingReferences.Select(m => m.Reference).ToHashSet();
+        definitions.AddRange(world.DefinitionDependencies);
+        var missing = missingReferences.Select(m => m.Reference).ToHashSet();
         return new(world.Designs.Select(d => d.Design).OrderBy(d => d.Value, StringComparer.Ordinal).ToImmutableArray(),
             world.Settlements.OrderBy(s => s.Id.Value).Select(s => new OwnedSettlementTemplateReference(s.Id, s.Template.Id,
                 s.Template.Plots.Select(p => new TemplatePlotReference(p.Number, p.Size)).ToImmutableArray())).ToImmutableArray(),
             definitions.Distinct().OrderBy(d => DefinitionKey(d.Definition), StringComparer.Ordinal).ThenBy(d => d.Field, StringComparer.Ordinal)
-                .Select(d => d with { WasMissing = missing.Contains(d.Definition) }).ToImmutableArray(), [content.Identity]);
+                .Select(d => d with { WasMissing = missing.Contains(d.Definition) }).ToImmutableArray(), [identity]);
 
         void Add(CoreDefinitionReference definition, string field) => definitions.Add(new(definition, null, field, false));
         void Good(GoodId good, string field)
@@ -74,6 +81,22 @@ internal static class WorldReferences
             if (good is GoodId.Voxel voxel) Add(new CoreDefinitionReference.Voxel(voxel.Definition), field);
             if (good is GoodId.Composite composite) Add(new CoreDefinitionReference.Composite(composite.Definition), field);
         }
+    }
+
+    internal static ImmutableArray<RequiredDefinition> Dependencies(WorldState world, CoreContentProjection content)
+    {
+        var result = ImmutableArray.CreateBuilder<RequiredDefinition>();
+        foreach (var reference in Create(world, content).Definitions.Select(d => d.Definition).Distinct())
+        {
+            foreach (var (good, field) in DependencyGoods(reference, content))
+            {
+                if (good is GoodId.Voxel voxel) result.Add(new(new CoreDefinitionReference.Voxel(voxel.Definition), null, field, false));
+                if (good is GoodId.Composite composite) result.Add(new(new CoreDefinitionReference.Composite(composite.Definition), null, field, false));
+            }
+            foreach (var (dependency, field, _) in DependencyDefinitions(reference, content)) result.Add(new(dependency, null, field, false));
+        }
+        return result.Distinct().OrderBy(d => DefinitionKey(d.Definition), StringComparer.Ordinal)
+            .ThenBy(d => d.Field, StringComparer.Ordinal).ToImmutableArray();
     }
 
     internal static IEnumerable<(GoodId Good, string Field)> DependencyGoods(CoreDefinitionReference reference,

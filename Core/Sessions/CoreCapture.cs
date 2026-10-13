@@ -1,24 +1,28 @@
+using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Train.Core.Contracts;
+using Train.Core.World;
 
 namespace Train.Core.Sessions;
 
 internal sealed class CoreCapture : ICoreCapture
 {
     internal CoreCapture(CoreState state)
-        : this(state.Position, state.NextCommandNumber, state.Revision, state.Content.Identity, state.Fault) { }
+        : this(state.Position, state.NextCommandNumber, state.Revision, state.Content.Identity, state.Fault,
+            state.World, WorldReferences.Create(state.World, state.Content)) { }
 
     private CoreCapture(SimulationPosition position, ulong nextCommandNumber, CoreRevision revision,
-        CoreInputId inputIdentity, CoreFault? fault)
+        CoreInputId inputIdentity, CoreFault? fault, WorldState? world, CoreReferenceManifest references)
     {
         Position = position;
         NextCommandNumber = nextCommandNumber;
         Revision = revision;
         InputIdentity = inputIdentity;
         Fault = fault;
-        References = new([], [], [], [inputIdentity]);
+        World = world;
+        References = references;
         var text = Format(WriteBoundary);
         Checkpoint = new(position, text, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))));
     }
@@ -30,11 +34,12 @@ internal sealed class CoreCapture : ICoreCapture
     public CoreCheckpoint Checkpoint { get; }
     internal ulong NextCommandNumber { get; }
     internal CoreFault? Fault { get; }
+    internal WorldState? World { get; }
 
     public string Encode() => Format(writer =>
     {
         writer.WriteStartObject();
-        writer.WriteNumber("core_state_format_version", 1);
+        writer.WriteNumber("core_state_format_version", 2);
         writer.WritePropertyName("position");
         WritePosition(writer, Position);
         writer.WriteNumber("next_command_number", NextCommandNumber);
@@ -42,6 +47,10 @@ internal sealed class CoreCapture : ICoreCapture
         writer.WriteString("input_identity", InputIdentity.Value);
         writer.WritePropertyName("fault");
         WriteFault(writer);
+        writer.WritePropertyName("world");
+        WorldJson.Write(writer, World);
+        writer.WritePropertyName("references");
+        WorldJson.WriteReferences(writer, References);
         writer.WriteEndObject();
     });
 
@@ -55,10 +64,10 @@ internal sealed class CoreCapture : ICoreCapture
             if (root.ValueKind != JsonValueKind.Object)
                 return new CoreResult<ICoreCapture>.Failure([new("unsupported_format", "", null, [])]);
             if (!root.TryGetProperty("core_state_format_version", out var version)
-                || version.ValueKind != JsonValueKind.Number || !version.TryGetUInt64(out var numberVersion) || numberVersion != 1)
+                || version.ValueKind != JsonValueKind.Number || !version.TryGetUInt64(out var numberVersion) || numberVersion != 2)
                 return new CoreResult<ICoreCapture>.Failure([new("unsupported_format", "/core_state_format_version", null, [])]);
             Object(root, "", "core_state_format_version", "position", "next_command_number",
-                "revision", "input_identity", "fault");
+                "revision", "input_identity", "fault", "world", "references");
             var position = ReadPosition(root.GetProperty("position"), "/position");
             var number = Unsigned(root.GetProperty("next_command_number"), "/next_command_number", nonzero: true);
             var revision = new CoreRevision(Unsigned(root.GetProperty("revision"), "/revision"));
@@ -66,9 +75,19 @@ internal sealed class CoreCapture : ICoreCapture
             if (identity.Length != 64 || !identity.All(c => c is >= '0' and <= '9' or >= 'A' and <= 'F'))
                 throw new InvalidState("/input_identity");
             var fault = ReadFault(root.GetProperty("fault"));
-            return new CoreResult<ICoreCapture>.Success(new CoreCapture(position, number, revision, new(identity), fault));
+            var world = WorldJson.Read(root.GetProperty("world"));
+            var references = WorldJson.ReadReferences(root.GetProperty("references"));
+            var knownMissing = references.Definitions.Where(d => d.WasMissing)
+                .Select(d => new MissingCoreReference(d.Definition, d.Field)).ToImmutableArray();
+            if (!WorldJson.SameReferences(references, WorldReferences.Create(world, new CoreInputId(identity), knownMissing)))
+                throw new InvalidState("/references");
+            return new CoreResult<ICoreCapture>.Success(new CoreCapture(position, number, revision, new(identity), fault, world, references));
         }
         catch (InvalidState error)
+        {
+            return new CoreResult<ICoreCapture>.Failure([new("invalid_state", error.Field, null, [])]);
+        }
+        catch (WorldStateValidation.InvalidState error)
         {
             return new CoreResult<ICoreCapture>.Failure([new("invalid_state", error.Field, null, [])]);
         }
@@ -86,6 +105,8 @@ internal sealed class CoreCapture : ICoreCapture
         writer.WriteNumber("next_command_number", NextCommandNumber);
         writer.WritePropertyName("fault");
         WriteFault(writer);
+        writer.WritePropertyName("world");
+        WorldJson.Write(writer, World);
         writer.WriteEndObject();
     }
 

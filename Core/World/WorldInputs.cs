@@ -251,7 +251,7 @@ internal static class WorldInputs
         {
             Goods = Sorted(content.Goods, x => GoodKey(x.Good)),
             DesignGoods = Sorted(content.DesignGoods, x => GoodKey(x.Good)),
-            Designs = Sorted(content.Designs, x => x.Design.Value).Select(Design).ToImmutableArray(),
+            Designs = Sorted(content.Designs, x => x.Design.Value).Select(NormalizeDesign).ToImmutableArray(),
             Processes = Sorted(content.Processes, x => ProcessKey(x.Details)),
             PopulationRules = Sorted(content.PopulationRules, x => x.Id.Value),
             MarketRules = Sorted(content.MarketRules, x => x.Id.Value),
@@ -260,20 +260,22 @@ internal static class WorldInputs
             CombatRules = Sorted(content.CombatRules, x => x.Id.Value),
             SettlementTypes = Sorted(content.SettlementTypes, x => x.Id.Value).Select(x => x with
                 { PreferredTerrain = Sorted(x.PreferredTerrain, t => t.Value) }).ToImmutableArray(),
-            SettlementTemplates = Sorted(content.SettlementTemplates, x => x.Id.Value).Select(x => x with
-            {
-                Plots = x.Plots.OrderBy(p => p.Number).ToImmutableArray(),
-                FoundingBuildings = x.FoundingBuildings.OrderBy(p => p.PlotNumber).ToImmutableArray(),
-                SpecialInitialInventory = Amounts(x.SpecialInitialInventory),
-                ProductionPlans = x.ProductionPlans.OrderBy(p => p.PlotNumber).ThenBy(p => p.Capability).ToImmutableArray()
-            }).ToImmutableArray(),
+            SettlementTemplates = Sorted(content.SettlementTemplates, x => x.Id.Value).Select(NormalizeTemplate).ToImmutableArray(),
             Creatures = Sorted(content.Creatures, x => x.Id.Value),
             LairTypes = Sorted(content.LairTypes, x => x.Id.Value).Select(x => x with
                 { Members = Sorted(x.Members, m => m.Creature.Value) }).ToImmutableArray()
         });
     }
 
-    private static DesignProjection Design(DesignProjection design) => design with
+    internal static SettlementTemplateProjection NormalizeTemplate(SettlementTemplateProjection template) => template with
+    {
+        Plots = template.Plots.OrderBy(p => p.Number).ToImmutableArray(),
+        FoundingBuildings = template.FoundingBuildings.OrderBy(p => p.PlotNumber).ToImmutableArray(),
+        SpecialInitialInventory = Amounts(template.SpecialInitialInventory),
+        ProductionPlans = template.ProductionPlans.OrderBy(p => p.PlotNumber).ThenBy(p => p.Capability).ToImmutableArray()
+    };
+
+    internal static DesignProjection NormalizeDesign(DesignProjection design) => design with
     {
         Kind = design.Kind is DesignKind.Building building ? building with
             { FacilityTags = building.FacilityTags.Order().ToImmutableArray() } : design.Kind,
