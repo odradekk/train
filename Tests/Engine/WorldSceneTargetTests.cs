@@ -49,6 +49,9 @@ public class WorldSceneTargetTests(Node testScene) : TestClass(testScene)
             world.ProcessFrame(0, false);
             Require(session.RequestCalls.SequenceEqual(new[] { Follow3, Follow1 }),
                 "必须按车辆ID最小选择替代，不能按编组数组顺序选择2。");
+            Require(app.GetChildren().OfType<Train.Ui.GameConsole>().Single().LogEvents.Any(log =>
+                log.EventId == "scene_problem" && Equals(log.Attributes["code"], Missing.Code)),
+                "成功回退车辆时也必须记录目标消失的SceneProblem。");
             Require(!world.View.Loading && !world.View.Interactive && world.Display!.DisplayedFrame == first,
                 "切换请求期间应保留旧显示帧、禁用交互且不显示加载罩。");
             world.ProcessFrame(0, false);

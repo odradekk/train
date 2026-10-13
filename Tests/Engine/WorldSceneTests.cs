@@ -84,12 +84,13 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
         var problem = new SceneProblem("build_failed", SceneStage.Build, null,
             new ContentReference.Design(new(new string('D', 64))), new("fixture-package"), null, "原始诊断文本，不作为协议解析。");
         var unavailable = new AssetRevision(new string('E', 64));
-        foreach (var failure in new SceneResult<ISceneFrame>[]
+        foreach (var (failure, expectedCode) in new (SceneResult<ISceneFrame>, string)[]
         {
-            Success(Frame(2, readiness: SceneReadiness.Failed, diagnostics: [problem])),
-            new SceneResult<ISceneFrame>.Faulted(problem), new SceneResult<ISceneFrame>.Failure([problem]),
-            Success(Frame(2, objects: [Object(1, new SceneVisual.Model(unavailable, [], null,
-                new(false, 0, 0, false), default))]))
+            (Success(Frame(2, readiness: SceneReadiness.Failed, diagnostics: [problem])), "build_failed"),
+            (new SceneResult<ISceneFrame>.Faulted(problem), "build_failed"),
+            (new SceneResult<ISceneFrame>.Failure([problem]), "build_failed"),
+            (Success(Frame(2, objects: [Object(1, new SceneVisual.Model(unavailable, [], null,
+                new(false, 0, 0, false), default))])), "scene_adapter_failed")
         })
         {
             var fixture = new Fixture(TestScene.GetTree());
@@ -118,10 +119,14 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
                 world.ProcessFrame(0, false);
                 Require(world.Display is null && !world.View.Visible && !world.View.Interactive && sessions[0].IsDisposed,
                     "故障没有隐藏场景、停止交互和关闭会话。");
-                Require(!GodotObject.IsInstanceValid(oldRoot) && reason is not null, "故障没有退役显示组或报告原因。");
-                if (reason!.Code == problem.Code)
+                Require(!GodotObject.IsInstanceValid(oldRoot) && reason?.Code == expectedCode,
+                    $"故障必须报告{expectedCode}并退役旧组，不能用其他异常替代。");
+                var consoleLogs = app.GetChildren().OfType<Train.Ui.GameConsole>().Single().LogEvents;
+                Require(!consoleLogs.Any(log => log.Exception?.Message.Contains("UNCONFIGURED", StringComparison.Ordinal) == true),
+                    "未配置的替身调用不能充当预期故障。");
+                if (expectedCode == problem.Code)
                 {
-                    var logged = app.GetChildren().OfType<Train.Ui.GameConsole>().Single().LogEvents.Single(log =>
+                    var logged = consoleLogs.Single(log =>
                         log.EventId == "scene_problem" && Equals(log.Attributes["code"], problem.Code));
                     Require(logged.Message == problem.Detail && Equals(logged.Attributes["package"], problem.Package!.Value.Value) &&
                         Equals(logged.Attributes["content"], problem.Content!.ToString()), "诊断没有保留Code、Content、Package和原始Detail。");

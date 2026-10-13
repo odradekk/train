@@ -114,7 +114,11 @@ internal sealed class WorldSceneController : IDisposable
             var interpolation = status.IsPaused ? 1 : status.Remainder / SimulationTime.StepSeconds;
             var result = _session.Present(new(Math.Clamp(interpolation, 0, 1), camera, SceneDebugLayer.None), displayed);
             if (result is SceneResult<ISceneFrame>.Failure { Problems: var problems } &&
-                problems.Any(problem => problem.Code == "target_missing") && FollowReplacement()) return;
+                problems.Any(problem => problem.Code == "target_missing"))
+            {
+                foreach (var problem in problems) Report(problem);
+                if (FollowReplacement()) return;
+            }
             if (result is not SceneResult<ISceneFrame>.Success success) { Fail(result); return; }
             var frame = success.Value;
             foreach (var diagnostic in frame.Diagnostics) Report(diagnostic);
