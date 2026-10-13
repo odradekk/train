@@ -127,13 +127,14 @@ try {
     if ($layers.Count -eq 1 -and $layers[0] -eq 'stage') {
         $summary.selection = @{ mode = 'stage'; baseRef = $BaseRef; projects = @(); contracts = $true; isolation = $true; schema = $false }
     } else {
-        $summary.selection = Get-TestSelection -BaseRef $BaseRef -All:$All -Project $Project -Projects $projects -OutputDirectory $run
+        $summary.selection = Get-TestSelection -BaseRef $BaseRef -All:$All -ExportWindows:$ExportWindows -Project $Project -Projects $projects -OutputDirectory $run
     }
     $summary.selection.layers = $layers
     $summary.selection.exportWindows = [bool] $ExportWindows
     $projects = @($projects | Where-Object { $_.name -in $summary.selection.projects })
     $selectedLayers = @($layers | Where-Object {
-        $_ -in @('engine', 'stage') -or $projects.Count -or ($_ -eq 'integration' -and ($summary.selection.contracts -or $summary.selection.isolation -or $summary.selection.schema))
+        if ($_ -eq 'engine') { $summary.selection.engine }
+        else { $_ -eq 'stage' -or $projects.Count -or ($_ -eq 'integration' -and ($summary.selection.contracts -or $summary.selection.isolation -or $summary.selection.schema)) }
     })
     if ($selectedLayers.Count -and ($projects.Count -or $summary.selection.contracts -or $summary.selection.isolation -or 'engine' -in $selectedLayers -or 'stage' -in $selectedLayers)) {
         Invoke-Check build preparation dotnet @('build', 'Train.sln', '--nologo') 300
