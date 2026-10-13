@@ -6,6 +6,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
+using Train.Core.Tests.World;
+using Train.Core.World;
 using VerifyMSTest;
 using VerifyTests;
 
@@ -82,15 +84,22 @@ public sealed partial class CoreReplayCorpusTests
     private static CoreCheckpoint[] Replay(string name, ulong step, ulong sequence, ulong number,
         ulong revision, ulong end)
     {
-        var identity = new string('A', 64);
-        var initial = $"{{\"core_state_format_version\":1,\"position\":{{\"completed_steps\":{step},\"sequence\":{sequence}}},\"next_command_number\":{number},\"revision\":{revision},\"input_identity\":\"{identity}\",\"fault\":null}}";
+        var history = new[] { 'A', 'B', 'C' }.Select(character =>
+            WorldFixture.Content with { Identity = new(new string(character, 64)) }).ToImmutableArray();
+        foreach (var content in history)
+            WorldInputs.ValidateContent(content);
+        var factory = CoreFactory.Create();
+        using var candidate = Success(factory.PrepareNew(WorldFixture.Input, history[0], new(Runtime, false, 1)));
+        using var session = candidate.Activate();
+        var initial = JsonNode.Parse(Success(session.Capture(CapturePurpose.Save)).Encode())!.AsObject();
+        initial["position"]!["completed_steps"] = step;
+        initial["position"]!["sequence"] = sequence;
+        initial["next_command_number"] = number;
+        initial["revision"] = revision;
         var commands = File.ReadLines(Path.Combine(Corpus, name + ".commands.jsonl"))
             .Select(ReadCommand).ToImmutableArray();
-        var history = new[] { 'A', 'B', 'C' }.Select(character =>
-            new CoreContentProjection(new(new string(character, 64)), [], [], [], [], [], [], [], [], [], [], [], [], [], []))
-            .ToImmutableArray();
-        using var replay = Success(CoreFactory.Create().PrepareReplay(
-            new(1, Runtime, initial, commands, [], new(end, 0), null), Runtime, history));
+        using var replay = Success(factory.PrepareReplay(
+            new(1, Runtime, initial.ToJsonString(), commands, [], new(end, 0), null), Runtime, history));
         var checkpoints = new List<CoreCheckpoint> { replay.CaptureBoundary().Checkpoint };
         while (true)
         {
@@ -132,7 +141,13 @@ public sealed partial class CoreReplayCorpusTests
         var factory = CoreFactory.Create();
         for (var index = 0; index < Math.Min(expected.Length, actual.Length); index++)
         {
-            if (Success(factory.CompareCheckpoints(expected[index], actual[index])) is CheckpointComparison.Different different)
+            var comparison = factory.CompareCheckpoints(expected[index], actual[index]);
+            if (comparison is CoreResult<CheckpointComparison>.Failure failure)
+            {
+                var problem = failure.Problems[0];
+                return new(expected[index].Position, problem.Field, $"invalid baseline: {problem.Code}", "valid checkpoint");
+            }
+            if (Success(comparison) is CheckpointComparison.Different different)
                 return different.Difference;
         }
         if (expected.Length != actual.Length)

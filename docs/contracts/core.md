@@ -4,7 +4,7 @@
 
 ## 交付状态与入口
 
-已提供独立的 [Train.Core.Contracts](../../Contracts/Core/Train.Core.Contracts.csproj) 声明和[可编译消费样例](../../prototypes/core-contract/ConsumerExamples.cs)。当前实现了核心工厂对象、内部候选与会话生命周期、同步内容发布、逐步位置推进、四字段不可变读视图，当前状态的捕获、编码、解码和普通恢复，以及默认录制、起点确认与裁剪、故障片段、严格重放和检查点比较；世界生成及其他领域行为尚未实现。声明编译通过只证明结构可用，模块测试不代表公开新局、非空业务世界恢复、真实四模块联调或完整 Demo 已通过。
+已提供独立的 [Train.Core.Contracts](../../Contracts/Core/Train.Core.Contracts.csproj) 声明和[可编译消费样例](../../prototypes/core-contract/ConsumerExamples.cs)。当前实现了核心工厂、候选与会话生命周期、阶段一小世界生成、同步内容发布、逐步位置推进、不可变世界查询，以及当前世界状态的捕获、编码、解码、普通恢复、默认录制、起点确认与裁剪、固定故障片段、严格重放和检查点比较。列车运行和其他领域行为仍待交付；模块证据不代表真实四模块联调或完整 Demo 已通过。
 
 | 声明 | 调用方使用的内容 |
 | --- | --- |
@@ -19,21 +19,22 @@
 
 当前已实现的成员：
 
-- 候选的 `View`、`References`、`AdaptationReport`、`MissingReferences`、单次 `Activate` 和 `Dispose`；该内部构造供后续生成共用，普通恢复已接入。
-- 会话的 `Read`、`Submit(PublishContent)`、`Advance` 和 `Dispose`。推进只前进位置，不运行领域系统；内容身份不同时提交投影，身份相同时在事务之前抛 `ArgumentException`。当前没有引用内容的世界状态，因此尚无引用适配检查。
+- `PrepareNew` 及候选的 `View`、`References`、`AdaptationReport`、`MissingReferences`、单次 `Activate` 和 `Dispose`；生成失败不替换活动会话。
+- 会话的 `Read`、`Submit(PublishContent)`、`Advance` 和 `Dispose`。推进只前进模拟位置，不运行领域系统；`PublishContent` 在比较身份前使用与新局相同的内容投影校验，未初始化数组等输入错误在事务前抛 `ArgumentException`，不取得命令编号。合法投影身份不同时提交，身份相同时在事务前抛 `ArgumentException`。当前发布尚不校验或标记世界所用的地貌、类型、设计等引用，也不执行领域适配；恢复候选的缺失标注见下文“当前载荷”。
 - 读视图的 `Position`、`Revision`、`InputIdentity` 和 `Fault`。修订在每个 Completed 命令、完成步骤及新步骤故障时各增加一次；NotAccepted、查询和零步推进不增加。修订已达 `ulong.MaxValue` 时，故障仍写入并冻结，修订保持最大值；正常路径的递增仍使用 checked 算术。
-- `Capture`、`DecodeState` 和 `PrepareRestore`，仅覆盖当前真实状态；格式与恢复规则见下文“当前载荷”。共享 `CaptureScenario` 通过内部构造的真实会话执行，不代表公开新局路径已实现。
-- `ReadRecording`、`CaptureRecordingStart`、`ConfirmRecordingStart`、`PrepareReplay` 和 `CompareCheckpoints`，仅覆盖当前真实状态及 `PublishContent` 命令。正常拒绝的录制与依赖保留通过现有内部事务测试入口验证；当前公开命令尚无正常业务拒绝路径。
+- `World`、`FindNode`、`FindEdge`、`FindLocation`、`FindInstance`，覆盖生成的图、占据者、资源及初始实例；列车详情查询尚未实现。
+- `Capture`、`DecodeState` 和 `PrepareRestore`，覆盖当前真实世界状态；格式与恢复规则见下文“当前载荷”。公开 `PrepareNew` 路径有共享 `CaptureScenario` 及跨进程生成、保存恢复测试。
+- `ReadRecording`、`CaptureRecordingStart`、`ConfirmRecordingStart`、`PrepareReplay` 和 `CompareCheckpoints`，覆盖当前完整世界状态及 `PublishContent`。正常拒绝的录制与依赖保留通过现有内部事务测试入口验证；当前公开命令尚无正常业务拒绝路径。
 
-下表成员尚未实现，直接抛 `NotImplementedException`，不以业务失败、故障结果、缺失查询或空世界成功代替。未实现的命令在取得编号和进入事务捕获之前抛出；异常消息只注明成员或命令种类，交付责任在此维护。
+下表列出尚未实现的行为。尚未实现的独立成员直接抛 `NotImplementedException`，不以业务失败、故障结果或缺失查询代替。未实现的命令在取得编号和进入事务捕获之前抛出；异常消息只注明成员或命令种类。
 
 | 未实现成员 | 交付责任 |
 | --- | --- |
-| `PrepareNew`，生成候选的引用与缺失资料，`World`、节点、线路、地点及初始实例查询 | #309 小世界生成；列车详情由 #310 接入，线路与站台调度由 #311 补齐 |
 | 编组、解编、运行计划、起停命令及列车查询 | #310；调度与开发断点行为由 #311 接入 |
 | 其余命令、`Economy`、其他 `Find*`、报价和预览 | 后续经济运输、制造与编辑、自有建设、战斗与生物领域任务 |
+| 内容发布时的世界引用检查与适配 | 待协调者指定 |
 
-旧 `Train.Core.Simulation` 仍只供旧宿主路径使用，其公开类型不成为新接口。它随 #317 宿主切换的旧入口删除任务退役；当前仅移除旧驱动、控制台和说明中的恒零 `PendingSteps`。内部会话测试执行真实事务代码，拒绝与事件由内部测试体供给；公开创建会话须等 #309 的 `PrepareNew` 接入后验证。世界、列车、调度及后续领域任务各自将新增权威字段补入捕获、恢复和检查点，不能以当前捕获通过代替非空业务世界恢复证据。
+旧 `Train.Core.Simulation` 仍供旧宿主路径使用，其公开类型不成为新接口。它随 #317 宿主切换的旧入口删除任务退役；生成器当前依赖其中的 `Train.Core.Simulation.KeyedRandom`，#317 必须保留该实现或将它迁出旧命名空间。`PendingSteps` 已从旧驱动、控制台和说明移除。会话始终持有世界状态；内部会话测试也使用真实生成状态，拒绝与事件由内部测试体供给。列车运行、调度及后续领域任务须将各自新增权威字段补入捕获、恢复和检查点，不能把初始世界往返当作完整玩法恢复证据。
 
 ## 所有权与数值
 
@@ -72,6 +73,40 @@
 
 ## 创建、恢复与销毁
 
+### 阶段一生成器
+
+[#309 的批准计划](https://github.com/odradekk/train/issues/309#issuecomment-6134702996)落实为内部 [WorldGenerator](../../Core/World/WorldGenerator.cs)，只接受生成器版本 `stage1-world-v1`。七阶段依次生成地貌、节点、非交叉连通图、占据者、资源、初始铁路及有效起点。无模板的聚居地类型不参选；优先从偏好当前节点地貌或没有地貌偏好的类型中按权重选择，若没有这样的类型，则从全部有模板的类型中选择。类型和模板按规范身份排序后抽取，人口取类型闭区间。模板业务字段复制到聚居地内，库存和生产计划保存但不执行；生物聚落仅保存类型、节点和身份，不生成生物群。地貌特征身份固定为 `lake`、`river`。
+
+初始铁路只用铁轨数范围有效且不经过生物聚落的线路。先检查包含全部聚居地的连通分量能否满足环数与可达空节点数，再按格子 `(y,x)` 顺序尝试删除空节点；仅在诱导子图仍连通、环数及空节点数仍足够时删除，重复整轮直到没有删除。每轮检查计入预算，结果为“包含意义上最少”：去掉任一空节点都会破坏条件，不保证全局最少。精确枚举所有空节点子集的搜索呈指数增长，已在目标规模耗尽预算，因此采用批准决定 12 的删点规则。剩余集合上按长度、身份做 Kruskal，再按随机分数增加成环边；初始铁轨数取配置、线路铁轨上限与 `[1,2]` 的交集。
+
+起点验证非敌对、站点、已建铁路可达的非敌对聚居地和空节点数量，以及是否排除相邻生物聚落。`FullyLoadedPurchaseRoundsPerTrain`、`RequiredAffordableCommissionDesign` 只检查取值、车辆设计种类和引用，不评估经济条件。`FillInputsAndLivingTargets=true`、`OutputReserveHours>0`、`MaximumForSaleVehicles>0` 都返回 `config_invalid`；生成成功不证明经济或战斗开局可玩。初始车队按输入顺序在起点创建，车辆归玩家、满耐久，列车停着且不占站台，`EnteredFrom` 为空。实例和库存不另存位置，查询从所属列车或聚居地派生。
+
+违反契约取值范围的输入（包括空地貌带）抛 `ArgumentException`；没有带模板的聚居地类型在重试前返回 `config_invalid`；不支持的版本、缺少引用或无法唯一匹配的地貌带返回配置失败。失败用一条 `CoreProblem("generation_failed", 字段路径, null, [类别, 阶段, 候选身份, 世界重试序号, 已用候选数, 已用搜索工作量])` 表达，六项都是字符串，计数使用不变区域十进制；类别为 `config_invalid`、`constraint_unsatisfied`、`budget_exhausted`。同步入口没有中断类别，也没有成功报告字段。预算跨整次准备累计，起点 BFS 与相邻生物聚落的线路扫描也计入搜索工作量；进入阶段时清空候选身份。配置失败和预算耗尽立即返回，约束失败有界重试，失败不消耗正式身份。最大阶段／世界重试数表示首次之外的次数。
+
+诊断的阶段和候选身份使用下表格式；格子坐标为生成时的非负整数，尚未分配正式节点编号。阶段开始及整阶段失败 `World.Nodes`、`World.Connected` 时，候选身份为空字符串。地貌在节点和线路采样期间求值，因此诊断没有单独的地貌阶段；地貌随机键仍使用阶段编号 1。
+
+| 诊断阶段 | 对应生成阶段编号 | 候选身份 |
+| --- | --- | --- |
+| `configuration` | 生成前的校验与规范化，不使用随机键 | 空字符串 |
+| `nodes` | 2；地貌采样使用 1 | `cell:x,y` |
+| `edges` | 3；地貌采样使用 1 | `cell:x1,y1/cell:x2,y2` |
+| `occupants` | 4 | `cell:x,y` |
+| `resources` | 5 | `cell:x,y:namespace:good-id` |
+| `railway` | 6 | 删除空节点时为 `rail:remove:cell:x,y`；尚未检查具体候选时为空字符串 |
+| `validation` | 7 | `cell:x,y`；尚未检查起点时为空字符串 |
+
+随机使用 `KeyedRandom` 版本 1：`RandomKey(WorldSeed, "world.stage1.v1.<用途>", [阶段编号, 世界重试序号, 阶段重试序号, 候选分量…])`。无序输入规范排序，车队和编组保持输入顺序；不以正式编号或枚举次序作为候选身份。各用途的候选分量如下，阶段 3 的图算法没有随机键。
+
+| 阶段 | 用途后缀 | 阶段重试序号与候选分量 |
+| --- | --- | --- |
+| 1 | `noise.elevation`、`noise.moisture`、`noise.river` | 0；八度尺度的 double 位模式、格点 x/y 的 ZigZag 编码 |
+| 2 | `node.presence`、`node.x`、`node.y` | 节点重试序号；格子 x/y |
+| 4 | `occupant.rank`、`settlement.relation`、`settlement.type`、`lair.type` | 占据者重试序号；格子 x/y |
+| 4 | `settlement.template`、`settlement.population` | 占据者重试序号；格子 x/y、类型身份的 UTF-8 字节数及逐字节数值 |
+| 5 | `resource.presence`、`resource.reserve` | 0；格子 x/y、资源货物身份的 UTF-8 字节数及逐字节数值 |
+| 6 | `rail.cycle`、`rail.tracks` | 0；按端点身份排列的两端格子 x/y |
+| 7 | `start.rank` | 0；格子 x/y |
+
 新局调用 `PrepareNew`，输入固定种子、生成器版本、完整解析配置、开局资料和核心内容投影。成功返回独立候选；阶段约束不满足或预算耗尽返回阶段、相关字段和失败原因。失败不会替换活动会话。配置中的平衡值来自内容，不以声明中的字段为默认数值或生成算法实现。
 
 普通读档先 `DecodeState`，从 `ICoreCapture.References` 得到设计、定义以及冻结执行资料所需引用。宿主交给内容解析，再用固定候选投影调用 `PrepareRestore`。核心校验并适配状态，不重跑世界生成，不让宿主解析 JSON 查引用。候选的缺失清单与适配报告用于宿主确认；确认只适用于该固定候选。缺失确认不能绕过格式、状态一致性或内容合法性检查。
@@ -80,7 +115,7 @@
 
 宿主准备完整活动组并完成必要确认后调用一次 `Activate`。未激活候选的 `Dispose` 放弃候选；激活后会话所有权移交调用方，销毁候选不再销毁会话。会话 `Dispose` 终止写入口、释放自身持有的录制资料；已返回的值、读视图、捕获与导出资料仍有效。重复释放无副作用；对已释放会话调用操作或重复激活是编程错误。
 
-`CoreSessionOptions.RetainedRecordingStarts` 必须至少为 1，在选项进入核心时检查；当前 `PrepareRestore` 对非正数抛 `ArgumentOutOfRangeException`，未来 `PrepareNew` 沿用。没有关闭录制或无限保留的特殊数值。数量由宿主明确传入，实际容量与起点请求间隔仍由 #322 测量并提交用户确认。
+`CoreSessionOptions.RetainedRecordingStarts` 必须至少为 1，在选项进入核心时检查；`PrepareNew` 与 `PrepareRestore` 使用同一选项校验，对非正数抛 `ArgumentOutOfRangeException`，并把宿主给定的数量传入候选。没有关闭录制或无限保留的特殊数值。数量由宿主明确传入，实际容量与起点请求间隔仍由 #322 测量并提交用户确认。
 
 核心对象与内容投影都是托管数据，没有借用数组、引擎资源或文件句柄。宿主仍须按跨层协议处理旧组资源与迟到结果。新局/读档成功后的暂停、技术操作锁及编辑期间暂停由宿主执行，不成为核心命令。
 
@@ -150,7 +185,7 @@
 内容加载、资产检查和设计计算先在固定输入上完成；宿主核对操作及基准，并在协调线程调用 `Submit`。调用开始前可以取消；同步执行期间不再接受取消。核心在返回前落实接受、拒绝或内部故障及相应记录，不存在取消后须另交回的预备故障。耗时尚未测量；若实际阻塞不能接受，再有针对性调整，不预建后台命令协议。
 
 - 建造、改装与立即应用随命令带入 `DesignInput`；对应完整设计先保留在固定内容候选中，接受后才激活。拒绝不改变本局内容，但录制仍须保留这次输入的依赖。
-- `PublishContent` 携带候选 `CoreContentProjection`；核心同步检查运行引用和适配，接受后宿主立即 `Activate` 内容候选，再通知或继续推进。正常拒绝只改变应有计数和拒绝记录，旧业务和有效内容不变；内部故障保留旧业务边界并冻结。
+- `PublishContent` 携带候选 `CoreContentProjection`，核心先校验投影自身的数组、身份及当前读取字段，再比较输入身份并提交投影替换；接受后宿主立即 `Activate` 内容候选，再通知或继续推进。契约要求核心同步检查运行引用和适配，但世界引用检查与适配尚待实现。正常拒绝只改变应有计数和拒绝记录，旧业务和有效内容不变；内部故障保留旧业务边界并冻结。
 - `FoundSettlement` 接受结果的 `SettlementCopies` 返回预留的最终所有者、源模板和地块对应。宿主从同一固定内容调用 `WithSettlementCopies`，纯内存关联已完成校验的模板副本；配对完成前不分发事件、不保存、不继续推进。来源或地块错配是编程错误，不在此阶段重新进行合法性裁决。若意外故障中断关联，宿主停止该活动组的使用并报告，不继续运行半配对状态。
 - 新局仍为独立候选，先用其 `References.Templates` 调用相同复制操作，完整配对后激活。普通读档沿用内嵌副本，不用当前源模板补造。
 
@@ -162,27 +197,31 @@
 
 ### 当前载荷
 
-#312 按[批准决定](https://github.com/odradekk/train/issues/312#issuecomment-6133949111)实现当前真实状态，编码器为内部的 [CoreCapture](../../Core/Sessions/CoreCapture.cs)。核心载荷有独立格式版本，从 1 开始，与宿主完整存档的 `SaveFormatVersion` 6 分开；不包含内容投影，也不支持旧通用模拟框架的载荷。诊断消息和堆栈不进入载荷。内部字段布局由编码器维护，宿主只通过公开契约取得所需资料。
+#312 按[批准决定](https://github.com/odradekk/train/issues/312#issuecomment-6133949111)实现捕获边界，#309 扩展世界状态。内部编码器 [CoreCapture](../../Core/Sessions/CoreCapture.cs) 当前使用独立的 `core_state_format_version = 2`，与宿主完整存档的 `SaveFormatVersion` 6 分开；不支持格式 1 或旧通用模拟框架载荷。诊断消息和堆栈不进入载荷。内部字段布局由编码器维护，宿主只通过公开契约取得所需资料。
 
-当前引用清单由输入身份确定：`Designs`、`Templates`、`Definitions` 都为空，`Inputs` 仅含这一个身份；没有额外的世界引用字段。捕获的检查点另行生成，只含位置、下一命令编号和故障全部字段，不含修订和输入身份。文本对 UTF-8 求 SHA-256，取大写十六进制。当前捕获、引用和检查点在会话推进及释放后仍有效。
+顶层载荷包含格式版本、位置、下一命令编号、修订、当前输入身份、故障、`world` 和 `references`。`world` 保存完整生成来源 `source`（含种子、生成器版本、生成内容语义修订、解析配置及开局输入）、图与资源、聚居地与生物聚落、聚居地模板业务副本和地块、实例耐久、列车、库存、资金、全部下一身份编号，以及实际设计投影和衍生货物。实例只保存 `DesignHash`，引用同一 `world.designs` 中的投影，不在每个实例重复设计。实例和库存位置由所有者派生，不进载荷。
 
-`DecodeState` 不做内容适配，保留保存时的身份、位置、修订、引用和检查点；`Encode()` 一律按状态重新规范编码，编码器产生的规范载荷往返后逐字节相同。确认版本受支持之前的错误返回 `unsupported_format`：JSON 无法解析、根不是对象、缺少版本、版本不是无符号整数或版本不受支持，定位到根或版本字段。确认版本受支持后，字段缺失、多余、重复、类型、范围或身份格式错误返回带字段路径的 `invalid_state`。这些检查仅覆盖当前状态，领域一致性检查随领域实现补入。
+`world.definition_dependencies` 保存生成时使用的规则、类型及流程等外部依赖身份和字段路径，使无内容解码仍能重建引用；它不是冻结执行参数。顶层 `references` 是交接清单，生成候选、捕获及恢复候选都由同一 [WorldReferences](../../Core/World/WorldReferences.cs) 从状态计算。`Templates` 按最终聚居地所有者排序且唯一，包含源模板和本地地块号／尺寸；`Designs`、`Definitions` 覆盖实际依赖，`Inputs` 使用对应候选或捕获的当前输入身份。新局缺少所需投影即配置失败，成功候选没有缺失项。
 
-`PrepareRestore` 使用调用方固定的当前投影。身份相同则适配报告为空；身份不同时只改候选输入身份，报告恰好一条 `CoreProblem("content_changed", "InputIdentity", null, [旧身份, 新身份])`。两种情况都保留位置、修订和下一命令编号，检查点不变；候选 `References.Inputs` 使用候选身份，`MissingReferences` 为空。原捕获不变。普通保存或普通恢复遇到故障返回 `Failure(frozen, "Fault")`，诊断载荷仍可解码；外部自行实现的 `ICoreCapture` 传入恢复属于编程错误，抛 `ArgumentException`。
+检查点包含位置、下一命令编号、故障全部字段及全部 `world` 字段；修订和当前输入身份仍在检查点之外，生成内容语义修订作为世界来源的一部分保留。文本对 UTF-8 求 SHA-256，取大写十六进制。捕获、引用和检查点在会话推进及释放后仍有效。
 
-严格重放复用同一解码器，按原输入身份从调用方的历史投影恢复，不走普通恢复的内容适配。当前测试通过内部构造或固定载荷创建真实起点，恢复及重放经过公开工厂入口；不代表 #309 的公开新局、后续领域或 #298 的四模块联调已经通过。
+`DecodeState` 不做内容适配，保留保存时的身份、位置、修订、引用和检查点；`Encode()` 按状态重新规范编码，编码器产生的规范载荷往返后逐字节相同。确认格式版本受支持之前的错误返回 `unsupported_format`：JSON 无法解析、根不是对象、缺少版本、版本不是无符号整数或版本不受支持，定位到根或版本字段。确认版本受支持后，字段缺失、多余、重复、类型、范围或身份格式错误返回带字段路径的 `invalid_state`；`world` 必须是完整世界对象，不能为 `null`。世界校验还检查有限连续量、规范集合顺序、唯一身份、图及所有者引用、模板地块和实例设计配对、下一身份编号大于现存最大编号，以及顶层引用清单与状态一致。不要求保存时的生成器版本仍可用于新局；解码及恢复不重新生成世界。后续领域一致性检查随领域实现补入。
+
+`PrepareRestore` 使用调用方固定的当前投影。身份相同则适配报告为空；身份不同时只改候选输入身份，报告恰好一条 `CoreProblem("content_changed", "InputIdentity", null, [旧身份, 新身份])`。两种情况都保留世界、位置、修订和下一命令编号，检查点不变；候选 `References.Inputs` 使用候选身份。`MissingReferences` 按传入投影中已知缺失标注及字段路径产生，当前不做进一步适配，不重新计算保存的初始世界。原捕获不变。普通保存或普通恢复遇到故障返回 `Failure(frozen, "Fault")`，诊断载荷仍可解码；外部自行实现的 `ICoreCapture` 传入恢复属于编程错误，抛 `ArgumentException`。
+
+严格重放复用同一解码器，从捕获恢复完整世界和原输入身份，不走普通恢复的内容适配。测试覆盖公开新局创建、共享捕获情景、跨进程生成、保存恢复及生产重放路径；重放语料用公开 `PrepareNew` 的固定输入在运行时生成起点，没有另行提交起点载荷文件。#298 的真实四模块交接仍待验证，也未证明后续经济、调度或战斗状态恢复。
 
 ### 完整领域状态与录制
 
 载荷读取和适配必须保留设计/损伤、对象及编号进度、等待顺序、批次与任务冻结规格、物资预留/输出、人口消费和统计进度及两类余量、本期规则、燃料电量、租约、现车、自动重评余时和经营报告。内部字段布局不属于公开数据模型；格式版本和完整权威字段定义仍由核心编码器在实现时维护，不能以本页查询字段代替存档字段。
 
-数值规范编码使用十进制整数，不给 `Money`/`BasisPoints` 的线格式增加 `Value` 包装对象；连续量保持既有 round-trip `R` 表示，有限值及集合顺序依[确定性规则](../design/04-deterministic-simulation.md)。命令继续使用既定格式 2 的有序外壳；具体封闭命令负载在实现中由核心编解码，宿主只保留 `CanonicalPayload`。冻结规则必须保存原精确整数参数与原连续值，不从当前定义重新拼回。核心载荷和复现版本不等于契约基线版本；旧存档/命令迁移不在范围内。
+当前世界载荷和检查点沿用 `WorldJson` 的规范形状，包括数值对象的 `value` 字段；整数使用十进制，连续量保持既有 round-trip 表示，有限值及集合顺序依[确定性规则](../design/04-deterministic-simulation.md)。命令继续使用既定格式 2 的有序外壳；具体封闭命令负载在实现中由核心编解码，宿主只保留 `CanonicalPayload`。冻结规则必须保存原精确整数参数与原连续值，不从当前定义重新拼回。核心载荷和复现版本不等于契约基线版本；旧存档/命令迁移不在范围内。
 
 录制的设计命令负载保留完整 DesignInput 与差额，起点保留实际采用的设计／衍生货物；设计哈希与 CoreInputId 不能代替这些业务资料。引用清单覆盖保留窗口内的全部命令，包括被拒绝和故障命令的目标设计；宿主持有对应未激活候选的固定内容依赖，普通存档不把它们误算作成功修改。
 
 核心保管命令、检查点和故障片段；宿主按 `RequiredReferences` 保管对应内容并写文件。`ReadRecording` 给出截止位置，因而没有命令的运行区间也可以准确导出。`CaptureRecordingStart` 建立待写起点；宿主仅在起点和全部依赖已经发布后，以原起点标识调用 `ConfirmRecordingStart(PublishedWithDependencies)`。
 
-当前会话创建时自动建立初始起点，出现在 `ReadRecording().Starts` 中，同样需要宿主确认。检查点只在录制起点、故障边界及读取窗口的截止边界生成；同一内容的截止检查点不重复列出，不逐命令生成，也不设置核心固定采样间隔。命令与对应记录在同一完整边界生效，查询、捕获、起点确认、暂停和倍速不生成模拟输入。当前 `content.publish` 的规范负载为 `{"input_format_version":2,"kind":"content.publish","input_identity":"<目标 CoreInputId>"}`；目标投影由宿主保留，核心不编码内容投影。窗口引用包含各起点、全部 Completed 命令的前后及目标输入身份，并包含固定故障片段的依赖，按 Ordinal 排序去重；当前没有设计、模板和定义引用。
+当前会话创建时自动建立初始起点，出现在 `ReadRecording().Starts` 中，同样需要宿主确认。检查点只在录制起点、故障边界及读取窗口的截止边界生成；同一内容的截止检查点不重复列出，不逐命令生成，也不设置核心固定采样间隔。命令与对应记录在同一完整边界生效，查询、捕获、起点确认、暂停和倍速不生成模拟输入。当前 `content.publish` 的规范负载为 `{"input_format_version":2,"kind":"content.publish","input_identity":"<目标 CoreInputId>"}`；目标投影由宿主保留，核心不编码内容投影。窗口引用合并各起点和固定故障片段的完整清单，并包含全部 Completed 命令的前后及目标输入身份。设计和输入身份按 Ordinal 排序去重；定义依赖按类型身份及字段路径排序去重；模板按 `Owner` 排序且所有者唯一。起点世界的设计、模板和定义依赖在普通窗口及固定故障片段中保留。
 
 `RecordedCommand` 的命令编号与前后位置统一由 `Result` 中的 `CommandReceipt` 提供，不另外保存可矛盾的编号或前置位置。此结构调整不改变既定命令线格式的编号、位置与结果语义。
 
@@ -196,7 +235,7 @@
 
 宿主读取复现容器并还原包内内容投影，调用 `PrepareReplay`；核心比较原构建、模拟版本、兼容环境、配置和输入身份。依赖不完整、格式无法理解或身份不符明确失败，不跳过命令，也不读取安装目录补救。
 
-当前 `CoreReplayInput.FormatVersion` 为 1，与命令输入格式 2 分开。`RuntimeIdentity` 的 `GameBuild`、`SimulationVersion`、`OperatingSystem`、`Architecture` 和 `DotNetRuntime` 全部按 Ordinal 匹配；不匹配返回 `incompatible_replay`，字段为 `OriginalRuntime.<成员>`，兼容粒度由宿主提供的字符串决定。准备阶段解码起点与全部命令，核验记录位置、检查点格式／SHA-256，并从 `contentHistory` 取得起点及所有命令前后、目标输入身份的投影；任一依赖缺失返回 `content_missing`。不支持的版本和种类返回 `unsupported_format`，非法字段和位置返回 `invalid_state`，附字段路径；带故障的起点不能作为可执行起点。当前捕获不保存世界生成配置，未来领域字段仍须随各自任务接入。
+当前 `CoreReplayInput.FormatVersion` 为 1，与命令输入格式 2 分开。`RuntimeIdentity` 的 `GameBuild`、`SimulationVersion`、`OperatingSystem`、`Architecture` 和 `DotNetRuntime` 全部按 Ordinal 匹配；不匹配返回 `incompatible_replay`，字段为 `OriginalRuntime.<成员>`，兼容粒度由宿主提供的字符串决定。准备阶段解码起点与全部命令，核验记录位置、检查点格式／SHA-256，并从 `contentHistory` 取得起点及所有命令前后、目标输入身份的投影；任一依赖缺失返回 `content_missing`。不支持的版本和种类返回 `unsupported_format`，非法字段和位置返回 `invalid_state`，附字段路径；带故障的起点不能作为可执行起点。准备阶段也对全部 `contentHistory` 使用与 `PublishContent`、普通恢复相同的内容投影校验，非法投影抛 `ArgumentException`，不能在执行一段前缀后才发现输入无法使用。检查点复用世界载荷读取与校验，世界内部差异以 JSON Pointer 报告。世界来源含生成配置，未来新增领域字段仍须同步接入。
 
 重放只有读取、推进和边界捕获入口，没有 Submit。`Advance` 到达预算、指定位置、记录截止位置、首个差异或故障即返回明确停止原因；`stopAt` 可以指定同一步内某条命令后的边界，不能越过它。同一步内的命令按记录位置顺序执行，拒绝结果也核对。`CompareCheckpoints` 返回首个字段差异，不要求宿主解析检查点文本。`CaptureBoundary` 可作为普通读档候选建立可编辑副本；此后当前内容适配属于新会话，不改原重放或声称其仍是严格复现。
 

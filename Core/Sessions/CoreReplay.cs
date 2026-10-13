@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using Train.Core.Contracts;
+using Train.Core.World;
 
 namespace Train.Core.Sessions;
 
@@ -22,6 +23,8 @@ internal sealed class CoreReplay(CoreSession session, CoreReplayInput input,
         ArgumentNullException.ThrowIfNull(input.OriginalRuntime);
         if (history.IsDefault || input.Commands.IsDefault || input.Checkpoints.IsDefault)
             throw new ArgumentException("数组必须初始化。");
+        foreach (var projection in history)
+            WorldInputs.ValidateContent(projection);
         if (input.FormatVersion != 1)
             return Failure("unsupported_format", "FormatVersion");
         var runtimeFields = new[]
@@ -99,7 +102,7 @@ internal sealed class CoreReplay(CoreSession session, CoreReplayInput input,
             previous = checkpoint.Position;
         }
         return new CoreResult<ICoreReplay>.Success(new CoreReplay(
-            new CoreSession(new(capture.Position, capture.NextCommandNumber, capture.Revision, initial)),
+            new CoreSession(new(capture.Position, capture.NextCommandNumber, capture.Revision, initial, capture.World)),
             input, decodedCommands.ToImmutable()));
     }
 

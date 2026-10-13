@@ -1,6 +1,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
 using Train.Core.Sessions;
+using Train.Core.Tests.World;
 
 namespace Train.Core.Tests.Sessions;
 
@@ -89,12 +90,15 @@ public sealed class CoreRecordingTests
     }
 
     [TestMethod]
-    public void The_requested_number_of_published_starts_controls_retention()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void The_requested_number_of_published_starts_controls_retention(bool newSession)
     {
         using var original = Session();
-        using var candidate = Success(CoreFactory.Create().PrepareRestore(
-            Success(original.Capture(CapturePurpose.Save)), Content('A'),
-            new(new("build", "sim", "os", "arch", "net"), false, 2)));
+        var options = WorldFixture.Options with { RetainedRecordingStarts = 2 };
+        using var candidate = Success(newSession
+            ? CoreFactory.Create().PrepareNew(WorldFixture.Input, Content('A'), options)
+            : CoreFactory.Create().PrepareRestore(Success(original.Capture(CapturePurpose.Save)), Content('A'), options));
         using var session = candidate.Activate();
         var initial = session.ReadRecording().Starts.Single();
         session.ConfirmRecordingStart(initial.Id, RecordingWriteOutcome.PublishedWithDependencies);
@@ -158,17 +162,53 @@ public sealed class CoreRecordingTests
     [TestMethod]
     [DataRow(0)]
     [DataRow(-1)]
-    public void Restore_rejects_nonpositive_recording_retention(int retention)
+    public void New_and_restore_reject_nonpositive_recording_retention(int retention)
     {
         using var session = Session();
         var capture = Success(session.Capture(CapturePurpose.Save));
         Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => CoreFactory.Create().PrepareRestore(capture,
             Content('A'), new(new("build", "sim", "os", "arch", "net"), false, retention)));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => CoreFactory.Create().PrepareNew(
+            WorldFixture.Input, Content('A'), WorldFixture.Options with { RetainedRecordingStarts = retention }));
     }
 
-    private static CoreSession Session(ulong revision = 0) => new(new(new(0, 0), 1, new(revision), Content('A')));
+    [TestMethod]
+    public void Window_and_fixed_fault_manifests_keep_the_starts_full_world_dependencies()
+    {
+        using var candidate = WorldFixture.Prepare(WorldFixture.MultiInput, WorldFixture.MultiContent);
+        using var session = (CoreSession)candidate.Activate();
+        var initial = session.ReadRecording().Starts.Single();
+        var expected = initial.State.References;
+        Assert.IsFalse(expected.Designs.IsEmpty);
+        Assert.IsFalse(expected.Templates.IsEmpty);
+        Assert.IsFalse(expected.Definitions.IsEmpty);
+        session.Submit(new CoreCommand.PublishContent(WorldFixture.MultiContent with
+            { Identity = Content('B').Identity }), CommandSource.Console);
+        var later = Success(session.CaptureRecordingStart());
+        session.ExecuteCommand(new CoreCommand.PublishContent(Content('C')), CommandSource.Console,
+            _ => throw new InvalidOperationException("test fault"));
+        var window = session.ReadRecording();
+        var fault = window.FaultSegments.Single();
+        session.ConfirmRecordingStart(later.Id, RecordingWriteOutcome.PublishedWithDependencies);
+        foreach (var manifest in new[] { window.RequiredReferences, fault.RequiredReferences,
+            session.ReadRecording().RequiredReferences })
+        {
+            CollectionAssert.AreEqual(expected.Designs.ToArray(), manifest.Designs.ToArray());
+            CollectionAssert.AreEqual(expected.Definitions.ToArray(), manifest.Definitions.ToArray());
+            CollectionAssert.AreEqual(expected.Templates.Select(template => template.Owner).ToArray(),
+                manifest.Templates.Select(template => template.Owner).ToArray());
+            foreach (var template in expected.Templates)
+            {
+                var actual = manifest.Templates.Single(value => value.Owner == template.Owner);
+                Assert.AreEqual(template.SourceTemplate, actual.SourceTemplate);
+                CollectionAssert.AreEqual(template.Plots.ToArray(), actual.Plots.ToArray());
+            }
+        }
+    }
+
+    private static CoreSession Session(ulong revision = 0) => new(WorldFixture.State(revision: new(revision), content: Content('A')));
     private static CoreContentProjection Content(char identity)
-        => new(new(new string(identity, 64)), [], [], [], [], [], [], [], [], [], [], [], [], [], []);
+        => WorldFixture.Content with { Identity = new(new string(identity, 64)) };
     private static T Success<T>(CoreResult<T> result) where T : notnull
         => ((CoreResult<T>.Success)result).Value;
 }

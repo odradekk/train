@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Train.Core.Contracts;
+using Train.Core.World;
 
 namespace Train.Core.Sessions;
 
@@ -40,7 +41,8 @@ internal sealed class CoreRecording
         var start = _starts[0].Start;
         var checkpoints = Checkpoints(new CoreCapture(state).Checkpoint);
         var commands = _commands.ToImmutableArray();
-        _faults.Add(new(start, commands, checkpoints, state.Fault!, References([start], commands, [])));
+        _faults.Add(new(start, commands, checkpoints, state.Fault!,
+            References(_starts.Select(entry => entry.Start), commands, [])));
     }
 
     internal CoreRecordingWindow Read(CoreState state)
@@ -120,12 +122,19 @@ internal sealed class CoreRecording
     private static CoreReferenceManifest References(IEnumerable<RecordingStart> starts,
         IEnumerable<RecordedCommand> commands, IEnumerable<FaultRecordingSegment> faults)
     {
-        // 当前真实状态没有设计、模板或定义引用；发布的拒绝目标仍是录制依赖。
-        var inputs = starts.SelectMany(start => start.State.References.Inputs)
+        var manifests = starts.Select(start => start.State.References)
+            .Concat(faults.Select(fault => fault.RequiredReferences)).ToArray();
+        var inputs = manifests.SelectMany(manifest => manifest.Inputs)
             .Concat(commands.SelectMany(command => new[] { command.InputBefore, command.InputAfter,
                 ((CoreResult<CoreInputId>.Success)CoreCommandEncoding.Decode(command.CanonicalPayload)).Value }))
-            .Concat(faults.SelectMany(fault => fault.RequiredReferences.Inputs))
             .Distinct().OrderBy(input => input.Value, StringComparer.Ordinal).ToImmutableArray();
-        return new([], [], [], inputs);
+        return new(
+            manifests.SelectMany(manifest => manifest.Designs).Distinct()
+                .OrderBy(design => design.Value, StringComparer.Ordinal).ToImmutableArray(),
+            manifests.SelectMany(manifest => manifest.Templates).DistinctBy(template => template.Owner)
+                .OrderBy(template => template.Owner.Value).ToImmutableArray(),
+            manifests.SelectMany(manifest => manifest.Definitions).Distinct()
+                .OrderBy(definition => WorldReferences.DefinitionKey(definition.Definition), StringComparer.Ordinal)
+                .ThenBy(definition => definition.Field, StringComparer.Ordinal).ToImmutableArray(), inputs);
     }
 }

@@ -1,9 +1,11 @@
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
 using Train.Core.Sessions;
+using Train.Core.Tests.World;
 
 namespace Train.Core.Tests.Sessions;
 
@@ -12,6 +14,19 @@ public sealed class CoreReplayTests
 {
     private static readonly RuntimeIdentity Runtime = new("build", "sim", "windows", "x64", "net");
     private static readonly ImmutableArray<CoreContentProjection> History = [Content('A'), Content('B'), Content('C')];
+
+    [TestMethod]
+    public void Replay_restores_the_captured_world_without_regenerating_it()
+    {
+        using var session = Session();
+        var input = Input(session);
+        var saved = JsonNode.Parse(input.InitialStatePayload)!;
+        saved["world"]!["money"]!["value"] = 1001;
+        using var replay = Replay(input with { InitialStatePayload = saved.ToJsonString(), Checkpoints = [] });
+        var restored = JsonNode.Parse(replay.CaptureBoundary().Checkpoint.CanonicalText)!;
+        Assert.AreEqual(1001, restored["world"]!["money"]!["value"]!.GetValue<int>());
+        Assert.AreEqual(ReplayStop.EndOfRecording, replay.Advance(0).Stop);
+    }
 
     [TestMethod]
     public void Recording_round_trip_replays_all_inputs_and_commandless_tail_at_the_same_position()
@@ -102,6 +117,19 @@ public sealed class CoreReplayTests
         AssertFailure(input, [Content('B'), Content('C')], "content_missing", "InitialStatePayload.InputIdentity");
         AssertFailure(input with { FormatVersion = 2 }, History, "unsupported_format", "FormatVersion");
         Assert.AreEqual(new SimulationPosition(0, 2), session.Read().Position);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Preparation_rejects_invalid_history_even_when_it_is_only_used_later_or_unused(bool unused)
+    {
+        using var session = Session();
+        session.Submit(new CoreCommand.PublishContent(Content('B')), CommandSource.Console);
+        session.Submit(new CoreCommand.PublishContent(Content('C')), CommandSource.Console);
+        var invalid = Content(unused ? 'D' : 'C') with { Designs = default };
+        var history = unused ? History.Add(invalid) : History.SetItem(2, invalid);
+        Assert.ThrowsExactly<ArgumentException>(() => CoreFactory.Create().PrepareReplay(Input(session), Runtime, history));
     }
 
     [TestMethod]
@@ -289,6 +317,41 @@ public sealed class CoreReplayTests
         Assert.AreEqual("/next_command_number", result.Difference!.Field);
     }
 
+    [TestMethod]
+    public void A_world_field_difference_is_reported_by_comparison_and_replay_at_its_json_pointer()
+    {
+        using var session = Session();
+        var actual = Success(session.Capture(CapturePurpose.Save)).Checkpoint;
+        var node = JsonNode.Parse(actual.CanonicalText)!;
+        node["world"]!["money"]!["value"] = 1001;
+        var text = node.ToJsonString();
+        var expected = actual with { CanonicalText = text, Sha256 = Hash(text) };
+        var comparison = (CheckpointComparison.Different)Success(CoreFactory.Create().CompareCheckpoints(expected, actual));
+        Assert.AreEqual("/world/money/value", comparison.Difference.Field);
+        Assert.AreEqual("1001", comparison.Difference.Expected);
+        Assert.AreEqual("1000", comparison.Difference.Actual);
+        using var replay = Replay(Input(session) with { Checkpoints = [expected] });
+        var result = replay.Advance(0);
+        Assert.AreEqual(ReplayStop.FirstDifference, result.Stop);
+        Assert.AreEqual(actual.Position, result.Position);
+        Assert.AreEqual("/world/money/value", result.Difference!.Field);
+    }
+
+    [TestMethod]
+    public void An_invalid_world_checkpoint_fails_validation_before_replay_exists()
+    {
+        using var session = Session();
+        var actual = Success(session.Capture(CapturePurpose.Save)).Checkpoint;
+        var node = JsonNode.Parse(actual.CanonicalText)!;
+        node["world"]!["money"]!["value"] = -1;
+        var text = node.ToJsonString();
+        var invalid = actual with { CanonicalText = text, Sha256 = Hash(text) };
+        var failure = (CoreResult<CheckpointComparison>.Failure)CoreFactory.Create().CompareCheckpoints(invalid, actual);
+        Assert.AreEqual("invalid_state", failure.Problems.Single().Code);
+        Assert.AreEqual("/world/money", failure.Problems.Single().Field);
+        AssertFailure(Input(session) with { Checkpoints = [invalid] }, History, "invalid_state", "/world/money");
+    }
+
     private static CoreReplayInput Input(CoreSession session)
     {
         var window = session.ReadRecording();
@@ -298,9 +361,9 @@ public sealed class CoreReplayTests
 
     private static ICoreReplay Replay(CoreReplayInput input)
         => Success(CoreFactory.Create().PrepareReplay(input, Runtime, History));
-    private static CoreSession Session(ulong revision = 0) => new(new(new(0, 0), 1, new(revision), Content('A')));
+    private static CoreSession Session(ulong revision = 0) => new(WorldFixture.State(revision: new(revision), content: Content('A')));
     private static CoreContentProjection Content(char identity)
-        => new(new(new string(identity, 64)), [], [], [], [], [], [], [], [], [], [], [], [], [], []);
+        => WorldFixture.Content with { Identity = new(new string(identity, 64)) };
     private static T Success<T>(CoreResult<T> result) where T : notnull => ((CoreResult<T>.Success)result).Value;
     private static string Hash(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 
