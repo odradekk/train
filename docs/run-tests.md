@@ -29,7 +29,7 @@ pwsh -NoProfile -File scripts/test.ps1 -All -Layer all,stage
 
 `-Layer` 接受 `fast`、`integration`、`engine`、`stage` 的一个或多个值；`all` 仍等于 fast、integration、engine，默认是 `fast`。逗号多选和 PowerShell 数组都可用，例如 `& ./scripts/test.ps1 -Layer @('fast', 'integration')`。`-All` 强制全部项目和独立检查，含所请求的引擎层，仍只执行所选层；它与 `-Project` 冲突。`-Project` 接受 `core`、`content`、`scenes`、`godot`、`contract-support`、`contract-checks`、`cli` 的一个或多个值，显式选择 MSTest 项目并跳过改动分析、契约结构与公开面、隔离、内容 Schema、引擎和阶段检查。`-ExportWindows` 仅能与未指定 `-Project` 的引擎层一起使用，并强制运行引擎层及导出冒烟。单独 `-Layer engine` 仍按改动选择。
 
-`-Project cli -Layer fast,integration` 验证命令行工具：快速层检查 PNG 结构与明确不支持的 GLB；集成层启动真实 CLI 进程，加载已提交的 `builtin/core`，比较重复运行的检查点，并严格重放本次录制中的接受／拒绝命令。它不提供 Godot、Scenes 或四模块阶段验收证据。工具与配方用法见[基础示例](../examples/README.md)。
+`-Project cli -Layer fast,integration` 验证命令行工具：快速层检查 PNG 结构与明确不支持的 GLB；集成层启动真实 CLI 进程，加载已提交的 `builtin/core`，比较重复运行及保存退出后恢复的检查点，并严格重放本次录制中的接受／拒绝命令。已提交示例的重新制作比较及临时副本篡改用例以 `OSCondition` 限定 Windows；同机跨进程检查在所有平台运行。输入身份变化先报需要重新制作，相同才比较检查点。这些检查不重跑内容制备脚本，也不提供 Godot、Scenes 或四模块阶段验收证据。工具与配方用法见[基础示例](../examples/README.md)。
 
 无待运行项目或检查的层在摘要中记为 `selected: false`；所有层均未选择时明确报告、写摘要并成功退出，不构建。已选中的层实际执行零个用例、无效参数、必需工具缺失或最低用例数不足仍判失败。最低用例数表位于 `scripts/test.ps1` 的 `$projects`，引擎层使用其中的 `godot` 行；删除用例或调整分层时必须同步更新。最低数为零的项目与层组合仍执行，只允许该组合没有用例。
 
