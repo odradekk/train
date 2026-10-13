@@ -107,7 +107,7 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
     public async Task Lighting_survives_return_and_reentry_without_simulation_or_save_mutation()
     {
         var fixture = new Fixture(TestScene.GetTree());
-        var core = new ScriptedCoreSession(new FixedCoreReadView(new(0, 0), HostCoreScenario.Input));
+        var core = new ScriptedCoreSession(WorldSceneFixture.EmptyWorld(new(0, 0)));
         var content = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1));
         var target = new WorldSceneTarget.Location(new WorldLocation.Node(new(1)));
         var factory = new FixedDisplayFactory
@@ -175,6 +175,8 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
             Require((core.AdvanceCount, core.SubmitCount, core.CaptureCount) == calls &&
                 app.Host.GetSaveStatus() == save && app.Host.GetStatus() == status,
                 "光照切换或重入推进了模拟、提交命令、捕获存档或改变宿主存档状态。");
+            Require(!console.LogEvents.Any(log => log.EventId == "host_consumer_failed"),
+                "光照用例的宿主边界未成功接入界面。");
         }
         finally { await fixture.Cleanup(); }
     }
