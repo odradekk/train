@@ -14,6 +14,7 @@
     <ProjectReference Include="../../Train.csproj" />
     <ProjectReference Include="../ContractSupport/Core/Train.Core.ContractSupport.csproj" />
     <ProjectReference Include="../ContractSupport/Content/Train.Content.ContractSupport.csproj" />
+    <ProjectReference Include="../ContractSupport/Scenes/Train.Scenes.ContractSupport.csproj" />
     <!-- Godot.Logger 的 C# 重写需要生成原生回调分派。 -->
     <PackageReference Include="Godot.SourceGenerators" Version="4.7.2" PrivateAssets="all" />
     <PackageReference Include="Chickensoft.GoDotTest" Version="2.0.47" />

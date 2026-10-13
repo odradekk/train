@@ -5,12 +5,14 @@ using Train.App;
 using Train.App.Logging;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
+using Train.Scenes.Contracts;
 
 namespace Train.Ui;
 
 public partial class GameUi : CanvasLayer
 {
     private HostCoordinator? _host;
+    private WorldSceneController? _scenes;
     private TrainLogger _logger = null!;
     private MainMenu _menu = null!;
     private Control _root = null!;
@@ -20,6 +22,7 @@ public partial class GameUi : CanvasLayer
     private PanelContainer _errorPanel = null!;
     private Button? _createNewGame;
     private Button? _confirmMissing;
+    private Button? _returnToMap;
     private Label _clock = null!;
     private MacroMap _map = null!;
     private WorldPanels? _panels;
@@ -42,8 +45,9 @@ public partial class GameUi : CanvasLayer
     internal ICoreReadView? View => _view;
     internal string ErrorText => _error.Text;
 
-    internal void Initialize(MainMenu menu, HostCoordinator? host, TrainLogger logger)
-    { _menu = menu; _host = host; _logger = logger; }
+    internal void Initialize(MainMenu menu, HostCoordinator? host, TrainLogger logger,
+        WorldSceneController? scenes = null)
+    { _menu = menu; _host = host; _logger = logger; _scenes = scenes; }
 
     public override void _Ready()
     {
@@ -56,6 +60,7 @@ public partial class GameUi : CanvasLayer
         _map = new MacroMap { Name = "MacroMap" };
         _map.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         _world.AddChild(_map);
+        _map.ObjectClicked += OpenScene;
         _map.DisplayFailed += message =>
         { _logger.Warning("ui", "map_display_failed", message); ShowError(message); };
         var top = new PanelContainer { Name = "Bar", ThemeTypeVariation = "TopBar", MouseFilter = Control.MouseFilterEnum.Stop,
@@ -68,6 +73,14 @@ public partial class GameUi : CanvasLayer
         _clock = UiStyle.Label("");
         _clock.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
         _bar.AddChild(_clock);
+        if (_scenes is not null)
+        {
+            _returnToMap = UiStyle.Button("ReturnToMap", "返回地图", _scenes.ReturnToMap);
+            _returnToMap.Hide();
+            _bar.AddChild(_returnToMap);
+            _scenes.ReturnedToMap += OnReturnedToMap;
+            _scenes.Selected += OnSelected;
+        }
         var speeds = new ButtonGroup();
         foreach (var speed in new[] { 0, 1, 2, 4, 8 })
         {
@@ -130,6 +143,8 @@ public partial class GameUi : CanvasLayer
 
     public override void _Process(double delta)
     {
+        var showingScene = _scenes?.View.Visible == true;
+        _returnToMap?.SetVisible(showingScene);
         if (_newOperation != 0 && _host?.MissingConfirmation is { } missing &&
             missing.Operation == _newOperation && _reportedMissing != missing.Operation)
         {
@@ -144,6 +159,7 @@ public partial class GameUi : CanvasLayer
         }
         if (_host?.GetStatus() is { } status)
         {
+            _map.Visible = !showingScene;
             _clock.Text = $"{UiInput.FormatTime(status.View.Position.CompletedSteps)}   {(status.IsPaused ? "已暂停" : "运行中")}   实际 {status.ActualSpeed:0.00}×";
             foreach (var (speed, button) in _speeds)
             {
@@ -220,6 +236,52 @@ public partial class GameUi : CanvasLayer
             ShowError(CommandDiagnostics.Describe(fault));
         _binding = binding; _view = view; _content = content;
         _menu.Hide(); _world.Show();
+        _map.Visible = _scenes?.View.Visible != true;
+    }
+
+    private void OpenScene(WorldObjectId id)
+    {
+        if (_scenes is null || _content is null || _host?.GetStatus() is not { } status || _host.Content is not { } content ||
+            !new PanelTarget(_binding, _content.Generation, id).IsAvailable(status.Binding, content.Generation, status.View))
+            return;
+        WorldSceneTarget? target = id switch
+        {
+            WorldObjectId.Node node => new WorldSceneTarget.Location(new WorldLocation.Node(node.Id)),
+            WorldObjectId.Edge edge when status.View.FindEdge(edge.Id) is Lookup<EdgeView>.Found found =>
+                new WorldSceneTarget.Location(new WorldLocation.Edge(edge.Id, found.Value.Map.LengthMeters / 2)),
+            WorldObjectId.Train train when status.View.FindTrain(train.Id) is Lookup<TrainView>.Found found &&
+                !found.Value.Vehicles.IsEmpty => new WorldSceneTarget.Follow(train.Id, found.Value.Vehicles[0]),
+            _ => null
+        };
+        if (target is null) { ReportUiError("对象没有可观察的场景目标。"); return; }
+        _scenes.Open(target);
+        _map.Visible = !_scenes.View.Visible;
+    }
+
+    private void OnReturnedToMap(SceneProblem? problem)
+    {
+        if (problem is not null) ShowError($"{problem.Code}：{problem.Detail}");
+        if (_view is null || _menu.Visible || !_world.Visible || _host?.GetStatus()?.Binding != _binding || _map.Visible)
+            return;
+        _map.Show();
+    }
+
+    private void OnSelected(PickSubject subject)
+    {
+        if (_scenes?.View.Visible != true || _host?.GetStatus() is not { } status || _host.Content is not { } content)
+            return;
+        WorldObjectId? id = subject switch
+        {
+            PickSubject.WorldObject item => item.Object,
+            PickSubject.Terrain { Location: WorldLocation.Node node } => new WorldObjectId.Node(node.Id),
+            PickSubject.Terrain { Location: WorldLocation.Edge edge } => new WorldObjectId.Edge(edge.Id),
+            _ => null
+        };
+        if (id is null || _content is null ||
+            !new PanelTarget(_binding, _content.Generation, id).IsAvailable(status.Binding, content.Generation, status.View))
+            return;
+        _panels!.Refresh(status.Binding, status.View, content);
+        _panels.OpenObject(id);
     }
 
     private void OpenNewGame()
@@ -331,6 +393,8 @@ public partial class GameUi : CanvasLayer
 
     public override void _ExitTree()
     {
+        if (_scenes is not null)
+        { _scenes.ReturnedToMap -= OnReturnedToMap; _scenes.Selected -= OnSelected; }
         if (_host is not null)
         { _host.BoundaryCompleted -= OnBoundary; _host.OperationEnded -= OnOperationEnded; }
         _menu.NewGameRequested -= OpenNewGame;

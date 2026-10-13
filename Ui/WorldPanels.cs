@@ -179,7 +179,8 @@ public partial class WorldPanels : Control
         WorldObjectId.Edge edge when _view.FindEdge(edge.Id) is Lookup<EdgeView>.Found found =>
             $"线路 {edge.Id.Value} · {NodeName(found.Value.Map.Start)}—{NodeName(found.Value.Map.End)}",
         WorldObjectId.Train train => $"列车 {train.Id.Value} · {Activity(_view.World.Trains.First(item => item.Id == train.Id).Activity)}",
-        WorldObjectId.Instance instance => $"{instance.Id}",
+        WorldObjectId.Instance { Id: InstanceId.Vehicle vehicle } => $"车辆 {vehicle.Id.Value}",
+        WorldObjectId.Instance { Id: InstanceId.Building building } => $"建筑 {building.Id.Value}",
         _ => id.ToString()
     };
 
@@ -237,6 +238,19 @@ public partial class WorldPanels : Control
                 });
             }
             else text.AppendLine("未设置计划");
+        }
+        else if (target is WorldObjectId.Instance instance && _view.FindInstance(instance.Id) is Lookup<InstanceView>.Found foundInstance)
+        {
+            var value = foundInstance.Value;
+            var location = value.Location switch
+            { WorldLocation.Node nodeLocation => NodeName(nodeLocation.Id),
+                WorldLocation.Edge edgeLocation => $"线路 {edgeLocation.Id.Value} · {edgeLocation.DistanceMeters:0.##} m", _ => "" };
+            text.AppendLine($"位置：{location}\n归属：{Relation(value.Ownership)}\n结构耐久：{value.Structure.EffectiveCurrent} / {value.Structure.Maximum}\n");
+            if (value.Details is InstanceDetails.Vehicle vehicle)
+                text.AppendLine(vehicle.Train is { } trainId ? $"编组：列车 {trainId.Value}" : "未编组");
+            else if (value.Details is InstanceDetails.Building building)
+                text.AppendLine($"地块：{building.Plot.Value}");
+            foreach (var problem in value.MissingContent) text.AppendLine(CommandDiagnostics.Describe(problem));
         }
         else return "已不存在";
         return text.ToString();

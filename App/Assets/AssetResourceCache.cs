@@ -41,6 +41,8 @@ internal sealed class AssetResourceCache(GodotMainThreadDispatcher dispatcher) :
     private readonly Dictionary<(AssetRevision Revision, Use Use), Entry> _resources = new();
     private bool _disposed;
 
+    internal void RequireMainThread() => dispatcher.RequireMainThread();
+
     internal AssetLease<ImageTexture> AcquireFaceTexture(ContentAsset asset) => dispatcher.Invoke(() =>
         Acquire(asset, Use.FaceTexture, () =>
         {
