@@ -30,7 +30,7 @@ internal sealed class DefinitionJson
         var parts = text.Split(':');
         var ns = parts.Length == 1 ? package?.Metadata!.Id.Value ?? "" : parts[0];
         if (package is null && parts.Length != 2 || parts.Length > 2 || !ContentIdentity.IsValidPart(parts[^1]) || parts[^1] == "shared" ||
-            (ns != "core" && (!ModManifest.TryCanonicalUuid(ns, out var canonical) || canonical != ns)))
+            (ns != "core" && (!PackageIdentity.TryCanonicalUuid(ns, out var canonical) || canonical != ns)))
             Fail(field, "引用必须为 local id 或规范的 namespace:local-id。");
         if (package is not null && ns != package.Metadata!.Id.Value && !package.Metadata.Dependencies.Any(d => d.Package.Value == ns))
             Fail(field, "引用的包必须在 dependencies 中声明。", "reference_missing");

@@ -2,7 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace Train.Content;
 
-internal static class ModManifest
+internal static class PackageIdentity
 {
     private static readonly Regex CanonicalUuid = new(
         "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
