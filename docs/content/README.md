@@ -33,7 +33,9 @@
 
 ## 基础贯通正式内容
 
-`builtin/core/resources/` 当前提供基础贯通小世界的正式输入，由 [generate_small_world.py](../../scripts/content/generate_small_world.py) 独占生成：三种轨距的小型／中型／超大型机车、小站点和站台设备、农业镇类型与八地块模板、平原与丘陵及桥隧模型、五类规则和 `core:basic-through-world` 生成配置。占位 PNG 也由脚本生成，并附带确定 UID 的 Keep File `.import`。
+`builtin/core/resources/` 当前提供基础贯通小世界的正式输入，由 [generate_small_world.py](../../scripts/content/generate_small_world.py) 独占生成：三种轨距的小型／中型／超大型机车、小站点和站台设备、农业镇类型与八地块模板、平原与丘陵及桥隧模型、五类规则和 `core:basic-through-world` 生成配置。PNG 的唯一可编辑源也是该脚本，附带确定 UID 的 Keep File `.import`；改图后须重制。
+
+第一阶段风格样稿覆盖 `ground`、`subsoil`、`rock` 和小型机车使用的五种货物体素：`structural-metal`、`bogie`、`propulsion-equipment`、`control-equipment`、`storage-equipment`。面贴图每格 32 px，图标 128×128、透明底；土层图与车辆底面放在 `voxels/shared/` 复用。小型机车采用驾驶室、机器间、两侧检修走廊和端部平台的外形，轮对格位与体素数量沿用原内容。中型、超大型蓝图保持原模板，共用的体素表现会随本批素材更新；其余资产仍为占位。本批样稿不代表完整 Demo 美术完成，画面待用户阶段试玩确认。
 
 这是基础贯通小世界，**不是完整 Demo 默认开局**。配置使用非零噪声和成环线路，起始车队每种轨距各一台机车；数值另起，尚未完成经济配平、全目录制作或正式美术。`lair_ratio=0`，不启用生产计划、自动库存和现车初始化。含生物聚落的预算未测量：生物聚落会占用节点，影响起点检查、初始铁路和选路，需要在内容接入后重测。
 
@@ -46,7 +48,7 @@ python scripts/content/generate_small_world.py --output-dir TestResults/content-
 pwsh -NoProfile -File scripts/test.ps1 -Project content -Layer fast,integration
 ```
 
-`--check` 比较全部文件清单与字节并校验 Schema；目录中多出、缺少或手改任何文件都会失败。生成时也拒绝多余文件，避免覆盖未归脚本所有的内容。修改正式内容应修改生成脚本，再重制；每份 JSON 必须在现有 1 MiB 单文件上限内。新 PNG 的 `.import` 已设置 `importer="keep"`，无头导入后应保持不变。
+`--check` 比较全部文件清单与字节并校验 Schema；目录中多出、缺少或手改任何文件都会失败。生成时也拒绝多余文件，避免覆盖未归脚本所有的内容；仅清除本批已停用且无引用的旧 `shared/metal-face.png`、`metal-icon.png` 及其 `.import`。修改正式内容应修改生成脚本，再重制；每份 JSON 必须在现有 1 MiB 单文件上限内。新 PNG 的 `.import` 已设置 `importer="keep"`，无头导入后应保持不变。
 
 真实内容加载测试只验证 Content 的解析、引用和设计投影。世界测量及固定种子的节点／线路定位记录见 [#372](https://github.com/odradekk/train/issues/372) 测量评论；三维弯坡、轮轨表现与看图确认归 #298，依赖 PR #431 合并。当前旧宿主的临时 grain 资源迁至 `builtin/legacy-host/resources/`，继续走原加载路径；宿主接入新工厂和新格式导出分别归 #317／#377。
 
