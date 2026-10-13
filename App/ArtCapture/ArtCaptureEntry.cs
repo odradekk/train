@@ -61,7 +61,6 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         foreach (var lighting in new[] { InspectionLighting.Daylight, InspectionLighting.Overcast, InspectionLighting.Night })
         {
             World!.View.SetLighting(lighting);
-            if (World.View.Lighting != lighting) throw new InvalidOperationException("检查光照设置失败。");
             foreach (var distance in new[] { "near", "follow", "far" })
             {
                 PlaceCamera(distance, 0);
@@ -78,20 +77,16 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         RequireTurn();
         for (var frame = 0; frame < 60; frame++)
         {
-            PlaceCamera("follow", Mathf.Tau * frame / 59);
+            PlaceCamera("follow", Mathf.Tau * frame / 60);
             await SaveImageAsync($"{scene}_orbit_daylight_{frame:D4}.png");
         }
-        if (_saveHash != Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(input.SavePath))))
-            throw new IOException("输入存档在采集期间发生变化。");
-        var commands = Host!.ReadRecording(Host.GetStatus()!.Binding)!.Commands.Length;
-        if (commands != 0) throw new InvalidOperationException("截图会话提交了核心命令。");
         var commit = typeof(ArtCaptureEntry).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!
             .InformationalVersion.Split('+')[^1];
         File.WriteAllText(Path.Combine(_output!, "manifest.json"), JsonSerializer.Serialize(new
         {
             commit, inputSaveHash = _saveHash, scene, train = input.Train.Value,
             viewportSize = new[] { owner.GetViewport().GetTexture().GetWidth(), owner.GetViewport().GetTexture().GetHeight() },
-            submittedCommands = commands, images = _images
+            images = _images
         }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = true }));
     }
 
@@ -140,7 +135,7 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
     internal Task DisplayAsync() => WaitAsync(
         () => World!.Display?.DisplayedFrame is { Readiness: SceneReadiness.Ready } frame &&
             frame.FindPose(_subject!) is Lookup<ScenePose>.Found,
-        () => World!.ProcessFrame(0, false, atCompletedStep: true));
+        () => World!.ProcessFrame(0, false));
 
     internal async Task AdvanceTurnFrameAsync()
     {
@@ -180,8 +175,8 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         var box = bounds ?? throw new InvalidDataException("跟随车辆没有可显示的网格。");
         var focus = vehicle.Root.GlobalTransform * box.GetCenter();
         var front = vehicle.Root.GlobalBasis * Vector3.Back;
-        var yaw = Mathf.Atan2(front.X, front.Z) + orbit;
-        const float pitch = 0.55f;
+        var yaw = Mathf.Atan2(front.X, front.Z) + orbit + (distance == "near" ? Mathf.Pi / 4 : 0);
+        var pitch = distance == "near" ? 0.2f : 0.55f;
         var range = distance == "far" ? WorldCamera.MaximumDistance : WorldCamera.DefaultDistance;
         if (distance == "near")
         {

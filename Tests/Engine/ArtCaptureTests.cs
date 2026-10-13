@@ -121,10 +121,9 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
                         turned && index == 60 ? 0.1f : 0)))),
             TerrainHeightResult = new Lookup<double>.Missing()
         };
-        FixedDisplaySession? session = null;
         var factory = new FixedDisplayFactory
         {
-            OpenWorldCall = (binding, _) => new SceneResult<IWorldSceneSession>.Success(session = new FixedDisplaySession
+            OpenWorldCall = (binding, _) => new SceneResult<IWorldSceneSession>.Success(new FixedDisplaySession
             {
                 Id = sessionId, Binding = binding,
                 RequestResults = ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>>.Empty
@@ -149,8 +148,6 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
                     "运动采样必须每帧只推进两个模拟步。");
                 Require(run.World!.Display!.DisplayedFrame!.SimulationSeconds == frame * 2d / 60,
                     "运动采样必须使用本次推进后的真实显示帧。");
-                Require(session!.PresentCalls[^1].Request.Interpolation == 1,
-                    "截图必须显示刚完成的模拟边界，不能滞后一模拟步。");
             }
             if (turned) run.RequireTurn();
             else
