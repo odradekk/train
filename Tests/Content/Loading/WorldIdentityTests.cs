@@ -77,12 +77,19 @@ public sealed class WorldIdentityTests
     public void Changing_only_a_rule_good_changes_its_revision_and_both_business_identities()
     {
         var fixture = WorldContentFixtures.Content();
+        const string path = "resources/rules/market.market-rule.json";
+        Change(fixture, path, j => j["simulation"]!["good_prices"] = new JsonArray(new JsonObject
+        {
+            ["good"] = "ore", ["parameters"] = j["simulation"]!["default_goods_prices"]!.DeepClone()
+        }));
         using var first = fixture.Load();
-        Change(fixture, "resources/railway-rules/rail.railway-rule.json", j => j["rail_good"] = "ore");
+        Change(fixture, path, j => j["simulation"]!["good_prices"]![0]!["good"] = "rail");
         using var second = fixture.Load();
-        Assert.AreEqual(new K.VoxelDefinitionId("core:ore"), second.View.Core.RailwayRules.Single().RailGood);
-        Assert.AreNotEqual(first.View.Core.RailwayRules.Single().Revision, second.View.Core.RailwayRules.Single().Revision);
+        Assert.AreEqual(new K.GoodId.Voxel(new("core:ore")), first.View.Core.MarketRules.Single().GoodPrices.Single().Good);
+        Assert.AreEqual(new K.GoodId.Voxel(new("core:rail")), second.View.Core.MarketRules.Single().GoodPrices.Single().Good);
+        Assert.AreNotEqual(first.View.Core.MarketRules.Single().Revision, second.View.Core.MarketRules.Single().Revision);
         Assert.AreNotEqual(first.View.Core.Identity, second.View.Core.Identity);
+        // ore and rail are already referenced by resources/start inventory and railway in both loads.
         Assert.AreNotEqual(World(first.View).GenerationContentRevision, World(second.View).GenerationContentRevision);
     }
 
