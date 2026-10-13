@@ -26,7 +26,8 @@ public sealed class RailwayTrainTests
         var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle(), wheelsetMarkers: true);
         var train = RailwayFixtures.Train(10, direction: direction, facing: facing);
         var snapshot = RailwayFixtures.Snapshot(100, 100, 0, content: content, trains: [train], instances: [RailwayFixtures.Instance()]);
-        await using var scene = RailwayFixtures.Controlled(snapshot);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = RailwayFixtures.Controlled(snapshot, vehicles);
         var before = await RailwayFixtures.Settled(scene, snapshot, Target, Request, Stamp);
         var forward = Vector3.Transform(Vector3.UnitZ, Pose(before, 1).Rotation);
         var nextTrain = train with { Position = ((TrainPosition.Edge)train.Position) with { DistanceMeters = 10 + .1 * Math.Sign(forward.Z) } };
@@ -49,7 +50,8 @@ public sealed class RailwayTrainTests
         var train = RailwayFixtures.Train(190, [new(1), new(2), new(3)], track: track);
         var instances = Enumerable.Range(1, 3).Select(id => RailwayFixtures.Instance((ulong)id, SizeClass.Large)).ToImmutableArray();
         var snapshot = RailwayFixtures.Snapshot(600, 300, relief, 3, content: content, trains: [train], instances: instances);
-        await using var scene = RailwayFixtures.Controlled(snapshot);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = RailwayFixtures.Controlled(snapshot, vehicles);
         var frame = await RailwayFixtures.Settled(scene, snapshot, Target, Request, Stamp);
         var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
         var offset = (track - 2) * 34.0;
@@ -102,7 +104,8 @@ public sealed class RailwayTrainTests
             _ => snapshot
         };
         var initial = Orient(Snapshot(false));
-        var scene = RailwayFixtures.Controlled(initial);
+        await using var vehicles = new SceneVehicles();
+        var scene = RailwayFixtures.Controlled(initial, vehicles);
         try
         {
             await RailwayFixtures.Settled(scene, initial, new WorldSceneTarget.Location(new WorldLocation.Edge(RailwayFixtures.Edge, distance)), Request, Stamp);
@@ -135,7 +138,8 @@ public sealed class RailwayTrainTests
             designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>> { [hash] = lookup });
         var snapshot = RailwayFixtures.Snapshot(100, 100, 0, content: content,
             trains: [RailwayFixtures.Train(50, [new(1), new(2)])], instances: [RailwayFixtures.Instance(), RailwayFixtures.Instance(2, design: hash)]);
-        await using var scene = RailwayFixtures.Controlled(snapshot);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = RailwayFixtures.Controlled(snapshot, vehicles);
         var frame = await RailwayFixtures.Settled(scene, snapshot, Target, Request, Stamp);
         Assert.IsTrue(frame.Diagnostics.Any(problem => problem.Code == diagnostic.Code && problem.Content == reference && problem.Package == package));
         Assert.IsTrue(frame.Diagnostics.Any(problem => problem.Code == "content_missing" && problem.Content == reference && problem.Package == package));
@@ -171,7 +175,8 @@ public sealed class RailwayTrainTests
         var snapshot = RailwayFixtures.Snapshot(2000, 2000, 0, content: RailwayFixtures.Content(design: RailwayFixtures.Vehicle()),
             trains: [train], instances: [RailwayFixtures.Instance()]);
         var requested = new System.Collections.Concurrent.ConcurrentBag<int>();
-        await using var scene = RailwayFixtures.Controlled(snapshot, (input, path, index, token) =>
+        await using var vehicles = new SceneVehicles();
+        await using var scene = RailwayFixtures.Controlled(snapshot, vehicles, (input, path, index, token) =>
         { requested.Add(index); return RailwayFixtures.EmptySegment(input, path, index, token); });
         await RailwayFixtures.Settled(scene, snapshot, Target, Request, Stamp);
         var segmentMeters = RailwayCoordinates.SegmentLengthCells / RailwayCoordinates.CellsPerMeter;
@@ -186,7 +191,8 @@ public sealed class RailwayTrainTests
         var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle());
         var initial = RailwayFixtures.Snapshot(600, 600, 0, tracks: 1, trackLimit: 2, content: content,
             trains: [RailwayFixtures.Train(100)], instances: [RailwayFixtures.Instance()], missingTrains: [new(2)]);
-        await using var scene = RailwayFixtures.Controlled(initial);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = RailwayFixtures.Controlled(initial, vehicles);
         var before = await RailwayFixtures.Settled(scene, initial, Target, Request, Stamp);
         var next = RailwayFixtures.Snapshot(600, 600, 0, tracks: 2, trackLimit: 2, steps: 1, content: content,
             trains: [RailwayFixtures.Train(102), RailwayFixtures.Train(200, [new(2)], 2, 2)],

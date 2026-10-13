@@ -19,6 +19,8 @@ public class RecordingTests(Node testScene) : TestClass(testScene)
     public async Task Report_panel_exports_the_memory_window_and_remains_available_after_a_fault()
     {
         var fixture = new Fixture(TestScene.GetTree());
+        var input = new UiTestInput(TestScene);
+        UiCapture.ConfigureWindowIfNeeded(TestScene.GetTree().Root);
         var setup = new HostSimulationTests.HostSetup();
         var start = new RecordingStart(new(1), new FixedCoreCapture(new(new(0, 0), "engine start", "start sha"),
             HostCoreScenario.References, "engine original state", HostCoreScenario.Input, new(1)));
@@ -49,14 +51,27 @@ public class RecordingTests(Node testScene) : TestClass(testScene)
             var recording = app.Recording!;
             Require(File.Exists(recording.SnapshotPath), "初始录制起点未自动落盘。");
             var menu = app.GetNode<MainMenu>("MainMenu");
-            var button = menu.GetNode<Button>("%ReportIssue");
+            var ui = app.GetNode<GameUi>("GameUi");
+            Require(!menu.IsVisibleInTree(), "对局中仍显示主菜单。");
+            await input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Settings"));
+            var settings = ui.GetNode<SettingsPanel>("Root/SettingsPanel");
+            var button = settings.GetNode<Button>("Settings/Layout/Body/ReportIssue");
             Require(button.IsVisibleInTree(), "新宿主没有显示报告问题入口。");
-            button.EmitSignal(BaseButton.SignalName.Pressed);
-            var panel = menu.GetChildren().OfType<IssueReportPanel>().Single();
+            await UiCapture.Capture(TestScene, "session-report-settings");
+            await input.Activate(button);
+            var panel = settings.GetNode<IssueReportPanel>("IssueReportPanel");
             await FramesUntil(() => panel.Visible && Labels(panel).Any(label => label.Text == "正在录制"));
             Require(Labels(panel).Any(label => label.Text.Contains("0:0 → 0:0", StringComparison.Ordinal)) &&
                 Labels(panel).Any(label => label.Text.Contains(recording.EvidenceDirectory, StringComparison.Ordinal)),
                 "报告面板没有显示录制范围和证据入口。");
+            if (DisplayServer.GetName() != "headless" &&
+                System.Environment.GetEnvironmentVariable("TRAIN_UI_CAPTURE_DIR") is { Length: > 0 } captureDirectory)
+            {
+                await TestScene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+                using var image = panel.GetTexture().GetImage();
+                Require(image.SavePng(Path.Combine(captureDirectory, "session-issue-report.png")) == Error.Ok,
+                    "报告窗口截图保存失败。");
+            }
             panel.Export(Path.Combine(exportDirectory, "report.zip"));
             await FramesUntil(() => !recording.IsBusy);
             Package(window).Validate(Path.Combine(exportDirectory, "report.zip"));
@@ -80,6 +95,15 @@ public class RecordingTests(Node testScene) : TestClass(testScene)
             await FramesUntil(() => !recording.IsBusy);
             Package(window).Validate(Path.Combine(exportDirectory, "frozen-report.zip"));
             Require(File.Exists(faultPath) && confirms == 1, "报告导出裁剪或删除了独立故障证据。");
+            panel.Hide();
+            Require(app.Host.LockLeaving() is null, "离开测试会话没有取得保护锁。");
+            app.Host.LeaveSession();
+            app.Host.UnlockLeaving();
+            await input.WaitUntil(() => menu.IsVisibleInTree() && !settings.IsVisibleInTree());
+            await input.Activate(menu.GetNode<Button>("%Settings"));
+            await input.Activate(button);
+            Require(panel.Visible && Labels(panel).Any(label => label.Text == "当前没有活动会话"),
+                "主菜单设置不能打开报告问题，或仍显示旧对局录制状态。");
             GD.Print("ISSUE_322_RECORDING_REPORT_VERIFIED");
         }
         finally

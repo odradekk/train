@@ -45,13 +45,23 @@ public sealed class FixedContentView : IContentView
         init => packages = value;
     }
 
-    public ImmutableArray<VoxelCatalogEntry> Voxels => throw Unconfigured(nameof(Voxels));
+    private ImmutableArray<VoxelCatalogEntry> voxels;
+    public ImmutableArray<VoxelCatalogEntry> Voxels
+    {
+        get => voxels.IsDefault ? throw Unconfigured(nameof(Voxels)) : voxels;
+        init => voxels = value;
+    }
 
     public ImmutableArray<BlueprintSummary> Blueprints => throw Unconfigured(nameof(Blueprints));
 
     public ImmutableArray<SavedContentDraft> LocalDrafts => throw Unconfigured(nameof(LocalDrafts));
 
-    public ImmutableArray<GenerationProfileSummary> GenerationProfiles => throw Unconfigured(nameof(GenerationProfiles));
+    private ImmutableArray<GenerationProfileSummary> generationProfiles;
+    public ImmutableArray<GenerationProfileSummary> GenerationProfiles
+    {
+        get => generationProfiles.IsDefault ? throw Unconfigured(nameof(GenerationProfiles)) : generationProfiles;
+        init => generationProfiles = value;
+    }
 
     public ContentLookup<BlueprintRecord> FindBlueprint(BlueprintAddress address) => throw Unconfigured(nameof(FindBlueprint));
 

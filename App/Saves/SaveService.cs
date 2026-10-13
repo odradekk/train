@@ -36,7 +36,7 @@ internal sealed class SaveService : IDisposable
         _host = host; _store = store;
         _seconds = seconds ?? (() => Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency);
         _date = date ?? (() => DateTimeOffset.UtcNow);
-        _host.ReplacementCompleted += OnReplacement;
+        _host.OperationEnded += OnOperationEnded;
     }
 
     internal event Action? Changed;
@@ -346,11 +346,11 @@ internal sealed class SaveService : IDisposable
         Changed?.Invoke();
     }
 
-    private void OnReplacement(long operation, bool succeeded)
+    private void OnOperationEnded(HostOperationResult result)
     {
-        if (_restore != operation) return;
+        if (_restore != result.Operation || result.Kind != OperationKind.Restore) return;
         _restore = null;
-        LastMessage = succeeded ? "读档完成，游戏已暂停。" : "读档失败或已取消，保留原对局。";
+        LastMessage = result.Succeeded ? "读档完成，游戏已暂停。" : "读档失败或已取消，保留原对局。";
         Changed?.Invoke();
     }
 
@@ -411,7 +411,7 @@ internal sealed class SaveService : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        _host.ReplacementCompleted -= OnReplacement;
+        _host.OperationEnded -= OnOperationEnded;
         Cancel();
         foreach (var write in _writes) _ = FinishWrite(write.Work, write.Cancellation);
         _writes.Clear();

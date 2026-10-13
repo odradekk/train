@@ -9,6 +9,19 @@ namespace Train.Scenes.Tests;
 public sealed class RailwayMeshTests
 {
     [TestMethod]
+    public void NodeRailAdapterKeepsTheSameThreeGaugesAtTheLineBoundary()
+    {
+        var path = new RailwayPath(RailwayFixtures.Snapshot(8, 8, 0), new(1));
+        var line = RailwayMeshes.Build(path, 0, default)[0];
+        var node = RailwayMeshes.Build(arc => new(new(0, 0, arc), Vector3.UnitZ, Vector3.UnitX), 16, default)[0];
+        var lineRing = line.Vertices.Where(vertex => vertex.Position.Z == 0).Select(vertex => (vertex.Position.X, vertex.Position.Y)).Distinct().Order().ToArray();
+        var nodeRing = node.Vertices.Where(vertex => vertex.Position.Z == 0).Select(vertex => (vertex.Position.X, vertex.Position.Y)).Distinct().Order().ToArray();
+        CollectionAssert.AreEqual(lineRing, nodeRing);
+        Assert.IsTrue(nodeRing.Any(point => point.X > 7.5));
+        Assert.IsTrue(nodeRing.Any(point => point.X < -7.5));
+    }
+
+    [TestMethod]
     public void StraightRailsHaveThreeGaugesAndOneTopLevel()
     {
         var path = new RailwayPath(RailwayFixtures.Snapshot(lengthMeters: 100, directMeters: 100, relief: 0), new EdgeId(1));

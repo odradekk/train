@@ -205,6 +205,7 @@ public class WorldSceneTargetTests(Node testScene) : TestClass(testScene)
 
     private static FixedCoreReadView View(bool alternatives, bool initial) => new(new(initial ? 0UL : 1UL, 0), HostCoreScenario.Input)
     {
+        World = new(1, new("fixture:railway"), 1, 1, [], [], [], [], []),
         Trains = new Dictionary<TrainId, Lookup<TrainView>>
         {
             [Train] = new Lookup<TrainView>.Found(new(Train, new TrainPosition.Node(new(1)), TrainActivity.Stopped,
