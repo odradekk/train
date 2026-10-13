@@ -58,10 +58,13 @@ public sealed class TrainProcessTests
             Assert.AreEqual(boundary == "pending-stop", payload.RootElement.GetProperty("world")
                 .GetProperty("trains")[0].GetProperty("stop_requested").GetBoolean());
         }
-        finally { Directory.Delete(directory, recursive: true); }
+        finally
+        {
+            if (!TestContext.CancellationToken.IsCancellationRequested) Directory.Delete(directory, recursive: true);
+        }
     }
 
-    private static async Task<TrainProcessResult> Run(string directory, string name, string mode, string boundary)
+    private async Task<TrainProcessResult> Run(string directory, string name, string mode, string boundary)
     {
         var output = Path.Combine(directory, name + ".json");
         var stdoutPath = Path.Combine(directory, name + ".stdout.log");
@@ -73,9 +76,14 @@ public sealed class TrainProcessTests
         using var process = Process.Start(start) ?? throw new AssertFailedException("无法启动铁路子进程。");
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        try { await process.WaitForExitAsync(timeout.Token); }
-        catch (OperationCanceledException) { throw new AssertFailedException($"铁路子进程超过 30 秒：{directory}"); }
+        try { await process.WaitForExitAsync(TestContext.CancellationToken); }
+        catch (OperationCanceledException)
+        {
+            var message = $"测试运行已取消；铁路子进程 {name}：{directory}";
+            // MTP 取消整次运行时可能丢弃未完成用例的结果，单独保留取消原因。
+            await File.WriteAllTextAsync(Path.Combine(directory, name + ".canceled.log"), message);
+            throw new AssertFailedException(message);
+        }
         finally
         {
             if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); }

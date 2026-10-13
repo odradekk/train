@@ -15,11 +15,18 @@ public sealed class CliTests
     private static string originalCoreProject = null!;
     private static string contractSource = null!;
     private static (int ExitCode, string Output) isolationBaseline;
+    private static CancellationToken cancellationToken;
     private const string OriginalContract = "namespace Fixture; public sealed class Contract { public int Original() => 1; }";
+
+    public TestContext TestContext { get; set; } = null!;
+
+    [TestInitialize]
+    public void UseTestCancellation() => cancellationToken = TestContext.CancellationToken;
 
     [ClassInitialize]
     public static void CreateFixture(TestContext context)
     {
+        cancellationToken = context.CancellationToken;
         root = Path.Combine(Path.GetTempPath(), "cc-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(root);
         try
@@ -188,11 +195,23 @@ public sealed class CliTests
         using var process = Process.Start(start)!;
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();
-        if (!process.WaitForExit(90_000))
+        var log = Path.Combine(Path.GetTempPath(), "cli-process-" + Guid.NewGuid().ToString("N"));
+        try
         {
-            process.Kill(entireProcessTree: true);
-            process.WaitForExit();
-            Assert.Fail($"Timed out: {executable} {string.Join(' ', arguments)}\n{stdout.GetAwaiter().GetResult()}{stderr.GetAwaiter().GetResult()}");
+            process.WaitForExitAsync(cancellationToken).GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException)
+        {
+            var message = $"测试运行已取消；子进程 {executable} {string.Join(' ', arguments)}；目录：{root}；日志：{log}.stdout.log；{log}.stderr.log";
+            // MTP 取消整次运行时可能丢弃未完成用例的结果，单独保留取消原因。
+            File.WriteAllText(log + ".canceled.log", message);
+            throw new AssertFailedException(message);
+        }
+        finally
+        {
+            if (!process.HasExited) { process.Kill(entireProcessTree: true); process.WaitForExit(); }
+            File.WriteAllText(log + ".stdout.log", stdout.GetAwaiter().GetResult());
+            File.WriteAllText(log + ".stderr.log", stderr.GetAwaiter().GetResult());
         }
         return (process.ExitCode, stdout.GetAwaiter().GetResult() + stderr.GetAwaiter().GetResult());
     }
