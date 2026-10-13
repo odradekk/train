@@ -82,7 +82,8 @@ public sealed partial class CliProcessTests
 
     [TestMethod]
     [OSCondition(OperatingSystems.Windows)]
-    [DataRow("seed")]
+    [DataRow("command")]
+    [DataRow("world_seed")]
     [DataRow("next_command_number")]
     public async Task Check_reports_first_state_difference_without_changing_committed_files(string changed)
     {
@@ -96,24 +97,28 @@ public sealed partial class CliProcessTests
             var recipePath = Path.Combine(directory, "recipe.json");
             await File.WriteAllBytesAsync(save, originalSave);
             await File.WriteAllBytesAsync(recipePath, originalRecipe);
-            if (changed == "seed")
+            if (changed == "command")
             {
                 var recipe = JsonNode.Parse(originalRecipe)!;
-                recipe["seed"] = recipe["seed"]!.GetValue<ulong>() + 1;
+                var commands = recipe["commands"]!.AsArray();
+                commands.RemoveAt(commands.Count - 1);
                 await File.WriteAllTextAsync(recipePath, recipe.ToJsonString());
             }
             else
             {
                 var container = JsonNode.Parse(originalSave)!;
                 var payload = JsonNode.Parse(container["CorePayload"]!.GetValue<string>())!;
-                payload["next_command_number"] = payload["next_command_number"]!.GetValue<ulong>() + 1;
+                if (changed == "world_seed")
+                    payload["world"]!["source"]!["world_seed"] = payload["world"]!["source"]!["world_seed"]!.GetValue<ulong>() + 1;
+                else
+                    payload["next_command_number"] = payload["next_command_number"]!.GetValue<ulong>() + 1;
                 container["CorePayload"] = payload.ToJsonString();
                 await File.WriteAllTextAsync(save, container.ToJsonString());
             }
             await Run(directory, "changed-check", 1, "check", Repository, recipePath, save);
             var diagnostic = await File.ReadAllTextAsync(Path.Combine(directory, "changed-check.stderr.log"));
             StringAssert.Contains(diagnostic, "检查点不同：");
-            StringAssert.Contains(diagnostic, changed == "seed" ? "/world/source/world_seed" : "/next_command_number");
+            StringAssert.Contains(diagnostic, changed == "world_seed" ? "/world/source/world_seed" : "/next_command_number");
             CollectionAssert.AreEqual(originalSave, await File.ReadAllBytesAsync(committed));
             CollectionAssert.AreEqual(originalRecipe, await File.ReadAllBytesAsync(RecipePath));
         }
