@@ -1,4 +1,6 @@
-# train
+# `train`：编组、解编与运行计划
+
+[返回命令索引](README.md)
 
 仅 Debug 构建且接入新 `HostCoordinator` 时可用。默认旧模拟入口不提供此命令。
 
@@ -10,7 +12,7 @@ train stop <列车ID>
 train plan <列车ID> once|loop <计划项>...
 ```
 
-`form` 按输入顺序编组车辆；`disband` 解散列车；`start` 启动列车；`stop` 停止列车；`plan` 替换运行计划。`once` 表示单次运行，`loop` 表示循环。计划至少有一项，按输入顺序执行：
+`form` 按输入顺序编组车辆；`disband` 解编列车；`start` 启动列车；`stop` 停止列车；`plan` 替换运行计划。`once` 表示单次运行，`loop` 表示循环。计划至少有一项，按输入顺序执行：
 
 - `station:<节点ID>:<停站秒数>`：停站，秒数为非负整数，换算为模拟步数；自动货物规则为空。
 - `waypoint:<节点ID>`：途经节点。

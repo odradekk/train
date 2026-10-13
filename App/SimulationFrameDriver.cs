@@ -20,15 +20,17 @@ internal sealed class SimulationFrameDriver(Func<double>? getRealSeconds = null)
     private double _actualSpeed;
 
     internal bool PlayerPaused { get; private set; } = true;
+    internal bool NotificationPaused { get; private set; }
     internal bool FocusPaused { get; private set; }
     internal bool OperationLocked { get; private set; }
     internal bool Frozen { get; private set; }
-    internal bool IsPaused => PlayerPaused || FocusPaused || OperationLocked || Frozen;
+    internal bool IsPaused => PlayerPaused || NotificationPaused || FocusPaused || OperationLocked || Frozen;
     internal SimulationSpeed Speed { get; private set; } = SimulationSpeed.One;
     internal double Remainder { get; private set; }
     internal double ActualSpeed => IsPaused ? 0 : _actualSpeed;
 
     internal void SetPlayerPaused(bool value) { PlayerPaused = value; ResetSample(); }
+    internal void SetNotificationPaused(bool value) { NotificationPaused = value; ResetSample(); }
     internal void SetFocusPaused(bool value) { FocusPaused = value; ResetSample(); }
     internal void SetOperationLocked(bool value) { OperationLocked = value; ResetSample(); }
     internal void Freeze() { Frozen = true; ResetSample(); }

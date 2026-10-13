@@ -1,35 +1,41 @@
 using System.Text;
 using Godot;
 using Train.App;
-using Train.App.Logging;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 
 namespace Train.Ui;
 
+internal enum WorldListKind { Nodes, Edges, Fleet }
+
 public partial class WorldPanels : Control
 {
     private HostCoordinator _host = null!;
-    private TrainLogger _logger = null!;
-    private Action<string> _showError = null!;
+    private Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> _submit = null!;
+    private Action<string> _reportError = null!;
     private HostBinding _binding;
     private ICoreReadView _view = null!;
     private IContentView _content = null!;
-    private readonly Dictionary<string, (PanelContainer Panel, LineEdit Search, ItemList List, List<WorldObjectId> Ids)> _lists = [];
+    private readonly Dictionary<WorldListKind, (PanelContainer Panel, LineEdit Search, ItemList List, List<WorldObjectId> Ids)> _lists = [];
     private readonly List<Detail> _details = [];
-    private (PanelTarget Target, PanelContainer Panel, Button Confirm, Label Reason)? _disband;
+    private ConfirmationDialog _disband = null!;
+    private PanelTarget? _disbandTarget;
+    private TrainId _disbandTrain;
 
     internal event Action<PanelTarget, TrainView, ICoreReadView, IContentView>? PlanRequested;
     internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
-    internal ICoreReadView? View => _view;
 
-    internal void Initialize(HostCoordinator host, TrainLogger logger, Action<string> showError)
-    { _host = host; _logger = logger; _showError = showError; }
+    internal void Initialize(HostCoordinator host,
+        Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit, Action<string> reportError)
+    { _host = host; _submit = submit; _reportError = reportError; }
 
     public override void _Ready()
     {
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
+        _disband = new ConfirmationDialog { Name = "DisbandConfirmation", OkButtonText = "解编", CancelButtonText = "取消" };
+        _disband.Confirmed += () => _submit(_disbandTarget, new CoreCommand.DisbandTrain(_disbandTrain));
+        AddChild(_disband);
     }
 
     internal void Refresh(HostBinding binding, ICoreReadView view, IContentView content)
@@ -61,20 +67,21 @@ public partial class WorldPanels : Control
             detail.Text.Text = valid ? Describe(detail.Target.Object) : "已不存在\n\n对象或所属对局已失效。请从当前列表重新打开。";
             foreach (var button in detail.Buttons) button.Disabled = !valid || _host.IsBusy;
         }
-        if (_disband is { } disband)
+        if (_disbandTarget is { } target)
         {
-            var valid = disband.Target.IsAvailable(binding, content.Generation, view);
-            disband.Confirm.Disabled = !valid || _host.IsBusy;
-            disband.Reason.Text = valid ? "解编后车辆停放在所在聚居地。" : "已不存在：对象或所属对局已失效。";
+            var valid = target.IsAvailable(binding, content.Generation, view);
+            _disband.GetOkButton().Disabled = !valid || _host.IsBusy;
+            _disband.DialogText = valid ? "解编后车辆停放在所在聚居地。" : "已不存在：对象或所属对局已失效。";
         }
     }
 
-    internal void OpenList(string kind)
+    internal void OpenList(WorldListKind kind)
     {
         if (_view is null) return;
         if (_lists.TryGetValue(kind, out var existing)) { existing.Panel.Show(); existing.Panel.MoveToFront(); return; }
         PanelContainer panel = null!;
-        panel = UiStyle.Panel(this, kind + "List", kind, new(24, 68), 360, () => panel.Hide(), out var body);
+        var title = kind switch { WorldListKind.Nodes => "节点", WorldListKind.Edges => "线路", _ => "车队" };
+        panel = UiStyle.Panel(this, kind + "List", title, new(24, 68), 360, () => panel.Hide(), out var body);
         var search = new LineEdit { Name = "Search", PlaceholderText = "搜索名称或编号" };
         body.AddChild(search);
         var list = new ItemList { Name = "Objects", CustomMinimumSize = new(328, 340),
@@ -124,8 +131,8 @@ public partial class WorldPanels : Control
                 if (Available(bound) && _view.FindTrain(train.Id) is Lookup<TrainView>.Found found)
                     PlanRequested?.Invoke(bound, found.Value, _view, _content);
             }, true));
-            buttons.Add(UiStyle.Button("Start", "启动", () => Submit(bound, new CoreCommand.StartTrain(train.Id)), true));
-            buttons.Add(UiStyle.Button("Stop", "停车", () => Submit(bound, new CoreCommand.StopTrain(train.Id))));
+            buttons.Add(UiStyle.Button("Start", "启动", () => _submit(bound, new CoreCommand.StartTrain(train.Id)), true));
+            buttons.Add(UiStyle.Button("Stop", "停车", () => _submit(bound, new CoreCommand.StopTrain(train.Id))));
             buttons.Add(UiStyle.Button("Disband", "解编…", () => ConfirmDisband(bound, train.Id)));
         }
         foreach (var button in buttons) body.AddChild(button);
@@ -139,45 +146,23 @@ public partial class WorldPanels : Control
         if (status is not null && _host.Content is { } content &&
             target.IsAvailable(status.Binding, content.Generation, status.View))
         { _binding = status.Binding; _view = status.View; _content = content; return true; }
-        var message = "对象已不存在或所属对局已更换，操作未提交。";
-        _logger.Warning("ui", "ui_target_unavailable", message);
-        _showError(message);
+        _reportError("对象已不存在或所属对局已更换，操作未提交。");
         return false;
-    }
-
-    private void Submit(PanelTarget target, CoreCommand command)
-    {
-        if (!Available(target)) return;
-        var result = _host.Submit(target.Binding, command, CommandSource.UserInterface);
-        if (CommandDiagnostics.Report(_logger, result) is { } problem) _showError(problem);
     }
 
     private void ConfirmDisband(PanelTarget target, TrainId train)
     {
         if (!Available(target)) return;
-        CloseDisband();
-        PanelContainer confirm = null!;
-        confirm = UiStyle.Panel(this, "DisbandConfirmation", $"解编列车 {train.Value}？", new(600, 270), 480,
-            CloseDisband, out var body);
-        var reason = UiStyle.Label("解编后车辆停放在所在聚居地。");
-        body.AddChild(reason);
-        body.AddChild(UiStyle.Button("Cancel", "取消", CloseDisband));
-        var button = UiStyle.Button("Confirm", "解编", () =>
-        { Submit(target, new CoreCommand.DisbandTrain(train)); CloseDisband(); }, true);
-        body.AddChild(button);
-        _disband = (target, confirm, button, reason);
+        _disbandTarget = target; _disbandTrain = train;
+        _disband.Title = $"解编列车 {train.Value}？";
+        Refresh(_binding, _view, _content);
+        _disband.PopupCentered(new(480, 180));
     }
 
-    private void CloseDisband()
+    private IEnumerable<WorldObjectId> Items(WorldListKind kind) => kind switch
     {
-        if (_disband is not { } disband) return;
-        RemoveChild(disband.Panel); disband.Panel.QueueFree(); _disband = null;
-    }
-
-    private IEnumerable<WorldObjectId> Items(string kind) => kind switch
-    {
-        "节点" => _view.World.Nodes.Select(item => new WorldObjectId.Node(item.Id)),
-        "线路" => _view.World.Edges.Select(item => new WorldObjectId.Edge(item.Id)),
+        WorldListKind.Nodes => _view.World.Nodes.Select(item => new WorldObjectId.Node(item.Id)),
+        WorldListKind.Edges => _view.World.Edges.Select(item => new WorldObjectId.Edge(item.Id)),
         _ => _view.World.Trains.Select(item => new WorldObjectId.Train(item.Id))
     };
 
@@ -191,11 +176,13 @@ public partial class WorldPanels : Control
         _ => id.ToString()
     };
 
-    private string NodeName(NodeId id)
+    private string NodeName(NodeId id) => NodeName(id, _view, _content);
+
+    internal static string NodeName(NodeId id, ICoreReadView view, IContentView content)
     {
-        var node = _view.World.Nodes.FirstOrDefault(item => item.Id == id);
+        var node = view.World.Nodes.FirstOrDefault(item => item.Id == id);
         if (node?.Occupant is NodeOccupant.Settlement settlement &&
-            _content.FindSettlementLayout(settlement.Id) is ContentLookup<SettlementLayoutProjection>.Found layout)
+            content.FindSettlementLayout(settlement.Id) is ContentLookup<SettlementLayoutProjection>.Found layout)
             return $"{layout.Value.Display.Name} · {id.Value}";
         return $"节点 {id.Value}";
     }
@@ -237,7 +224,7 @@ public partial class WorldPanels : Control
                 text.AppendLine(plan.Loop ? "循环" : "单次");
                 foreach (var stop in plan.Stops) text.AppendLine(stop switch
                 {
-                    PlanStop.Station station => $"{NodeName(station.Node)} · 停靠 {station.DwellSteps / 60m:0.###} 秒",
+                    PlanStop.Station station => $"{NodeName(station.Node)} · 停靠 {station.DwellSteps / (decimal)SimulationTime.StepsPerSecond:0.###} 秒",
                     PlanStop.Waypoint waypoint => $"{NodeName(waypoint.Node)} · 途经",
                     _ => ""
                 });

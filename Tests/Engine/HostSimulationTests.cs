@@ -74,9 +74,10 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
             host.BoundaryCompleted += (_, _, _, events) => { if (events.Length > 0) boundaries++; };
             host.SetSpeed(Train.App.SimulationSpeed.Eight);
             host.SetPaused(false);
-            await FramesUntil(() => host.GetStatus()!.PlayerPaused);
+            await FramesUntil(() => host.GetStatus()!.NotificationPaused);
             for (var frame = 0; frame < 3; frame++) await TestScene.ToSignal(TestScene.GetTree(), SceneTree.SignalName.ProcessFrame);
-            Require(host.GetStatus()!.View.Position.CompletedSteps == 1 && setup.Session.AdvanceCount == 1 && boundaries == 1,
+            Require(host.GetStatus()!.NotificationPaused && !host.GetStatus()!.PlayerPaused &&
+                host.GetStatus()!.View.Position.CompletedSteps == 1 && setup.Session.AdvanceCount == 1 && boundaries == 1,
                 "真实帧跨过通知暂停边界或重复分发事件。");
         }
         finally { await fixture.Cleanup(); }

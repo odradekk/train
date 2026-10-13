@@ -26,7 +26,7 @@ public partial class GameUi : CanvasLayer
     private TrainFormationPanel? _formation;
     private TrainPlanPanel? _plan;
     private HFlowContainer _bar = null!;
-    private OptionButton _speed = null!;
+    private readonly Dictionary<int, Button> _speeds = [];
     private HostBinding _displayedBinding;
     private ICoreReadView? _displayedView;
     private IContentView? _displayedContent;
@@ -53,8 +53,6 @@ public partial class GameUi : CanvasLayer
         _previousTheme = _window.Theme;
         _window.Theme = UiStyle.CreateTheme();
         _root = new Control { Name = "Root", MouseFilter = Control.MouseFilterEnum.Ignore };
-        _root.Theme = _window.Theme;
-        _menu.Theme = _window.Theme;
         _root.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         AddChild(_root);
         _world = new Control { Name = "World", Visible = false, MouseFilter = Control.MouseFilterEnum.Ignore };
@@ -75,25 +73,30 @@ public partial class GameUi : CanvasLayer
         _clock = UiStyle.Label("");
         _clock.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
         _bar.AddChild(_clock);
-        _bar.AddChild(UiStyle.Button("Pause", "暂停", () => Report(_host!.SetPaused(true))));
-        _bar.AddChild(UiStyle.Button("Resume", "继续", () => Report(_host!.SetPaused(false)), true));
-        _speed = new OptionButton { Name = "Speed", ThemeTypeVariation = "Speed" };
-        foreach (var speed in new[] { 1, 2, 4, 8 }) _speed.AddItem($"{speed}×", speed);
-        _speed.ItemSelected += index => Report(_host!.SetSpeed((SimulationSpeed)_speed.GetItemId((int)index)));
-        _bar.AddChild(_speed);
+        var speeds = new ButtonGroup();
+        foreach (var speed in new[] { 0, 1, 2, 4, 8 })
+        {
+            var button = UiStyle.Button(speed == 0 ? "Pause" : $"Speed{speed}",
+                speed == 0 ? "暂停" : $"{speed}×", () => SetSpeed(speed));
+            button.ToggleMode = true;
+            button.ButtonGroup = speeds;
+            button.ThemeTypeVariation = "Speed";
+            _speeds.Add(speed, button);
+            _bar.AddChild(button);
+        }
         if (_host is not null)
         {
             _panels = new WorldPanels { Name = "WorldPanels" };
-            _panels.Initialize(_host, _logger, ShowError);
+            _panels.Initialize(_host, Submit, ReportUiError);
             _world.AddChild(_panels);
-            _bar.AddChild(UiStyle.Button("Nodes", "节点", () => _panels.OpenList("节点")));
-            _bar.AddChild(UiStyle.Button("Edges", "线路", () => _panels.OpenList("线路")));
-            _bar.AddChild(UiStyle.Button("Fleet", "车队", () => _panels.OpenList("车队")));
+            _bar.AddChild(UiStyle.Button("Nodes", "节点", () => _panels.OpenList(WorldListKind.Nodes)));
+            _bar.AddChild(UiStyle.Button("Edges", "线路", () => _panels.OpenList(WorldListKind.Edges)));
+            _bar.AddChild(UiStyle.Button("Fleet", "车队", () => _panels.OpenList(WorldListKind.Fleet)));
             _formation = new TrainFormationPanel();
-            _formation.Initialize(_host, _logger, ShowError);
+            _formation.Initialize(_host, Submit, ReportUiError);
             _world.AddChild(_formation);
             _plan = new TrainPlanPanel();
-            _plan.Initialize(_host, _logger, ShowError);
+            _plan.Initialize(_host, Submit, ReportUiError);
             _world.AddChild(_plan);
             _panels.FormationRequested += _formation.Open;
             _panels.PlanRequested += _plan.Open;
@@ -146,10 +149,11 @@ public partial class GameUi : CanvasLayer
         if (_host?.GetStatus() is { } status)
         {
             _clock.Text = $"{UiInput.FormatTime(status.View.Position.CompletedSteps)}   {(status.IsPaused ? "已暂停" : "运行中")}   实际 {status.ActualSpeed:0.00}×";
-            _bar.GetNode<Button>("Pause").Disabled = status.PlayerPaused || _host.IsBusy;
-            _bar.GetNode<Button>("Resume").Disabled = !status.PlayerPaused || _host.IsBusy || status.IsFrozen;
-            _speed.Disabled = _host.IsBusy;
-            _speed.Select(_speed.GetItemIndex((int)status.Speed));
+            foreach (var (speed, button) in _speeds)
+            {
+                button.Disabled = _host.IsBusy;
+                button.SetPressedNoSignal(speed == (status.PlayerPaused ? 0 : (int)status.Speed));
+            }
             if (_view is not null && _content is not null)
             {
                 if (!ReferenceEquals(_displayedView, _view) || !ReferenceEquals(_displayedContent, _content))
@@ -173,11 +177,40 @@ public partial class GameUi : CanvasLayer
         ShowError(message);
     }
 
+    private void SetSpeed(int speed)
+    {
+        if (_host is null) return;
+        if (speed == 0) { Report(_host.SetPaused(true)); return; }
+        var problem = _host.SetSpeed((SimulationSpeed)speed);
+        if (problem is not null) { Report(problem); return; }
+        Report(_host.SetPaused(false));
+    }
+
+    private CommandDecision.Accepted? Submit(PanelTarget? target, CoreCommand command)
+    {
+        var status = _host?.GetStatus();
+        if (status is null || _host!.Content is not { } content || target is null ||
+            !target.IsAvailable(status.Binding, content.Generation, status.View) || _host.IsBusy)
+        {
+            ReportUiError("当前操作不可提交：对象已失效或宿主正在操作。");
+            return null;
+        }
+        var result = _host.Submit(target.Binding, command, CommandSource.UserInterface);
+        if (CommandDiagnostics.Report(_logger, result) is { } problem) ShowError(problem);
+        return (result as SubmissionResult.Completed)?.Receipt.Decision as CommandDecision.Accepted;
+    }
+
+    private void ReportUiError(string message)
+    {
+        _logger.Warning("ui", "ui_operation_invalid", message);
+        ShowError(message);
+    }
+
     private void OnBoundary(HostBinding binding, ICoreReadView view, IContentView content,
         ImmutableArray<EventEnvelope> events)
     {
         if (view.Fault is { } fault && (_binding != binding || _view?.Fault != fault))
-            ShowError($"核心模拟发生故障，已冻结：{fault.Code}/{fault.Field}。");
+            ShowError(CommandDiagnostics.Describe(fault));
         _binding = binding; _view = view; _content = content;
         _menu.Hide(); _world.Show();
     }
@@ -259,12 +292,16 @@ public partial class GameUi : CanvasLayer
 
     private void OnOperationEnded(HostOperationResult result)
     {
-        if (result.Status is not ("Committed" or "CommittedWithWarnings" or "Cancelled" or "Discarded"))
+        if (result.Status is not (HostOperationStatus.Committed or HostOperationStatus.CommittedWithWarnings or
+            HostOperationStatus.Cancelled or HostOperationStatus.Discarded))
         {
             var message = string.Join("；", result.Problems.Select(CommandDiagnostics.Describe)
                 .Concat(result.Diagnostics.Select(problem => problem.Message)));
-            var operation = result.Kind switch { "NewGame" => "新游戏", "Restore" => "读档", "Reload" => "内容重载", _ => "宿主操作" };
-            if (message.Length == 0) message = $"{operation}准备失败：{result.FaultCode ?? result.Status}。";
+            var operation = result.Kind switch
+            { OperationKind.NewGame => "新游戏", OperationKind.Restore => "读档", OperationKind.Reload => "内容重载", _ => "宿主操作" };
+            if (result.Status == HostOperationStatus.Faulted)
+                message = result.Fault is { } fault ? CommandDiagnostics.Describe(fault) : $"{operation}发生故障：{result.FaultCode}。";
+            else if (message.Length == 0) message = $"{operation}准备失败：{result.Status}。";
             ShowError(message);
             if (_newOperation == result.Operation) _newGameError!.Text = message;
         }
@@ -272,7 +309,8 @@ public partial class GameUi : CanvasLayer
         _newOperation = 0;
         _confirmMissing!.Hide();
         _createNewGame!.Disabled = false;
-        if (result.Status is "Committed" or "CommittedWithWarnings" or "Cancelled") _newGame!.Hide();
+        if (result.Status is HostOperationStatus.Committed or HostOperationStatus.CommittedWithWarnings or HostOperationStatus.Cancelled)
+            _newGame!.Hide();
     }
 
     internal void ShowError(string message)

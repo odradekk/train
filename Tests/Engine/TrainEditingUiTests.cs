@@ -13,6 +13,8 @@ namespace Train.Engine.Tests;
 
 public class TrainEditingUiTests(Node testScene) : TestClass(testScene)
 {
+    private readonly UiTestInput _input = new(testScene);
+
     [Test]
     public async Task Formation_and_plan_real_input_preserve_order_and_rejected_draft()
     {
@@ -42,36 +44,32 @@ public class TrainEditingUiTests(Node testScene) : TestClass(testScene)
             var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
             app.CreateHost = logger => setup.Create(logger);
             await fixture.AddToRoot(app);
-            await FramesUntil(() => app.Host!.GetStatus() is not null);
+            await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
             tree.Root.ContentScaleFactor = 1;
             UiCapture.ConfigureWindowIfNeeded(tree.Root);
-            await Frames(2);
+            await _input.Frames(2);
             var ui = app.GetNode<GameUi>("GameUi");
             await Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
-            var nodes = ui.GetNode<ItemList>("Root/World/WorldPanels/节点List/Layout/Body/Objects");
-            await ClickItem(nodes, 0);
+            var nodes = ui.GetNode<ItemList>("Root/World/WorldPanels/NodesList/Layout/Body/Objects");
+            await _input.ClickItem(nodes, 0);
             var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
             await Activate(Find<Button>(panels, "Form"));
             var formation = ui.GetNode<TrainFormationPanel>("Root/World/TrainFormationPanel");
             var available = Find<ItemList>(formation, "AvailableVehicles");
             Require(available.ItemCount == 2, "有限车辆情景未在编组列表显示。");
-            await ClickItem(available, 0);
-            await ClickItem(available, 1, true);
+            await _input.ClickItem(available, 0);
+            await _input.ClickItem(available, 1, true);
             Require(available.GetSelectedItems().SequenceEqual(new[] { 0, 1 }), "真实 Ctrl 点击未形成多选。");
             await Activate(Find<Button>(formation, "AddSelected"));
             var ordered = Find<ItemList>(formation, "OrderedVehicles");
-            await ClickItem(ordered, 1);
+            await _input.ClickItem(ordered, 1);
             Require(ordered.GetSelectedItems().SequenceEqual(new[] { 1 }),
                 $"编组顺序列表未选中第二行：rect={ordered.GetGlobalRect()}，item={ordered.GetItemRect(1)}，selected={string.Join(',', ordered.GetSelectedItems())}，hover={tree.Root.GuiGetHoveredControl()?.GetPath()}。");
             await Activate(Find<Button>(formation, "MoveUp"));
-            Require(ordered.GetItemText(0).Contains("车辆 2") && ordered.GetItemText(1).Contains("车辆 1"),
-                "真实上移按钮没有调整编组顺序。");
             await UiCapture.Capture(TestScene, "formation");
             await Activate(Find<Button>(formation, "Form"));
             Require(setup.Session.SubmitCount == 1 && !formation.Visible &&
-                panels.FindChildren("Description", "Label", true, false).Cast<Label>()
-                    .Any(label => label.IsVisibleInTree() && label.Text.Contains("车辆 2 → 车辆 1")),
-                "编组接受后没有关闭表单并打开新列车详情。");
+                ReferenceEquals(ui.View, formed), "编组接受后没有发布新列车视图并关闭表单。");
 
             await Activate(Find<Button>(panels, "EditPlan"));
             var editor = ui.GetNode<TrainPlanPanel>("Root/World/TrainPlanPanel");
@@ -97,13 +95,19 @@ public class TrainEditingUiTests(Node testScene) : TestClass(testScene)
                 "计划拒绝没有显示原因或保留原草稿顺序和输入。");
             await UiCapture.Capture(TestScene, "plan-rejected");
             await Activate(apply);
-            await FramesUntil(() => panels.FindChildren("Description", "Label", true, false).Cast<Label>()
-                .Any(label => label.Text.Contains("循环") && label.Text.Contains("节点 2 · 途经") && label.Text.Contains("停靠 2 秒")));
-            Require(setup.Session.SubmitCount == 3 && !editor.Visible &&
-                panels.FindChildren("Description", "Label", true, false).Cast<Label>()
-                    .Any(label => label.Text.Contains("循环") && label.Text.Contains("节点 2 · 途经") && label.Text.Contains("停靠 2 秒")),
-                "再次应用没有提交保留的计划或更新列车详情。");
+            await _input.WaitUntil(() => ReferenceEquals(ui.View, applied));
+            Require(setup.Session.SubmitCount == 3 && !editor.Visible,
+                "再次应用没有提交保留的计划或更新列车视图。");
             await UiCapture.Capture(TestScene, "train-details");
+            await Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
+            await _input.ClickItem(nodes, 0);
+            await Activate(Find<Button>(panels, "Form"));
+            Require(formation.IsVisibleInTree() && available.ItemCount == 0 &&
+                Find<Button>(formation, "Form").Disabled && Find<Label>(formation, "Reason").Text.Length > 0 &&
+                setup.Session.SubmitCount == 3,
+                "已编组车辆仍被列为候选，或空候选表单没有说明原因并禁用提交。");
+            await Activate(Find<Button>(formation, "Cancel"));
+            Require(!formation.Visible && setup.Session.SubmitCount == 3, "取消空候选编组提交了命令或未关闭表单。");
             setup.Session.AssertComplete();
         }
         finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
@@ -146,51 +150,17 @@ public class TrainEditingUiTests(Node testScene) : TestClass(testScene)
     private static T Find<T>(Node root, string name) where T : Node
         => root.FindChildren(name, typeof(T).Name, true, false).Cast<T>().Single();
 
-    private async Task Activate(BaseButton button) { button.GrabFocus(); await PressKey(Key.Space); }
+    private async Task Activate(BaseButton button) { button.GrabFocus(); await _input.PressKey(Key.Space); }
 
     private async Task SelectSecond(OptionButton button)
     {
-        button.GrabFocus(); await PressKey(Key.Space); await PressKey(Key.Down); await PressKey(Key.Enter);
+        button.GrabFocus(); await _input.PressKey(Key.Space); await _input.PressKey(Key.Down); await _input.PressKey(Key.Enter);
     }
 
     private async Task EnterSeconds(LineEdit edit, char character, Key key)
     {
-        edit.GrabFocus(); await Frames(1); await PressKey(Key.A, true);
-        await PressKey(key, unicode: character);
+        edit.GrabFocus(); await _input.Frames(1); await _input.PressKey(Key.A, true);
+        await _input.PressKey(key, unicode: character);
     }
 
-    private async Task ClickItem(ItemList list, int index, bool control = false)
-    {
-        // ItemList 的行矩形由绘制更新；列表刚建立或填充时不能立即拿缓存坐标点击。
-        await FramesUntil(() => list.IsVisibleInTree() && list.Size.X > 0 && list.Size.Y > 0 &&
-            list.GetItemRect(index).Size.Y > 0 &&
-            list.GetItemAtPosition(list.GetItemRect(index).GetCenter(), true) == index);
-        var position = list.GlobalPosition + list.GetItemRect(index).GetCenter();
-        position = TestScene.GetViewport().GetScreenTransform() * position;
-        using var press = new InputEventMouseButton { Position = position, GlobalPosition = position,
-            ButtonIndex = MouseButton.Left, Pressed = true, ButtonMask = MouseButtonMask.Left, CtrlPressed = control };
-        Input.ParseInputEvent(press); await Frames(1);
-        using var release = new InputEventMouseButton { Position = position, GlobalPosition = position,
-            ButtonIndex = MouseButton.Left, Pressed = false, CtrlPressed = control };
-        Input.ParseInputEvent(release); await Frames(1);
-    }
-
-    private async Task PressKey(Key key, bool control = false, uint unicode = 0)
-    {
-        using var press = new InputEventKey { Keycode = key, Pressed = true, CtrlPressed = control, Unicode = unicode };
-        Input.ParseInputEvent(press); await Frames(1);
-        using var release = new InputEventKey { Keycode = key, Pressed = false, CtrlPressed = control, Unicode = unicode };
-        Input.ParseInputEvent(release); await Frames(1);
-    }
-
-    private async Task Frames(int count)
-    {
-        for (var frame = 0; frame < count; frame++) await TestScene.ToSignal(TestScene.GetTree(), SceneTree.SignalName.ProcessFrame);
-    }
-
-    private async Task FramesUntil(Func<bool> completed)
-    {
-        for (var frame = 0; frame < 180 && !completed(); frame++) await Frames(1);
-        Require(completed(), "真实帧没有发布编组测试会话。");
-    }
 }

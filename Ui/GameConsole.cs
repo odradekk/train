@@ -35,7 +35,6 @@ public partial class GameConsole : CanvasLayer
 
         _panel = new PanelContainer
         {
-            Theme = GetWindow().Theme,
             Visible = false,
             MouseFilter = Control.MouseFilterEnum.Stop
         };

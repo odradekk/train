@@ -1,7 +1,6 @@
 using System.Globalization;
 using Godot;
 using Train.App;
-using Train.App.Logging;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 
@@ -10,15 +9,18 @@ namespace Train.Ui;
 internal partial class TrainPlanPanel : Control
 {
     private HostCoordinator _host = null!;
-    private TrainLogger _logger = null!;
-    private Action<string> _showError = null!;
+    private Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> _submit = null!;
+    private Action<string> _reportError = null!;
     private PanelTarget? _target;
     private TrainId _train;
     private NodeId[] _nodes = [];
+    private string[] _nodeNames = [];
     private readonly List<Row> _rows = [];
     private VBoxContainer _rowsBox = null!;
     private CheckBox _loop = null!;
     private Button _apply = null!;
+    private Button _addStop = null!;
+    private Label _reason = null!;
     private bool _protected;
     private int _nextRow;
 
@@ -26,9 +28,10 @@ internal partial class TrainPlanPanel : Control
     private sealed record Row(HBoxContainer Box, OptionButton Node, OptionButton Kind, LineEdit Seconds,
         string InitialSeconds, ulong? InitialSteps);
 
-    internal void Initialize(HostCoordinator host, TrainLogger logger, Action<string> showError)
+    internal void Initialize(HostCoordinator host,
+        Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit, Action<string> reportError)
     {
-        _host = host; _logger = logger; _showError = showError;
+        _host = host; _submit = submit; _reportError = reportError;
         Name = "TrainPlanPanel";
         MouseFilter = MouseFilterEnum.Ignore;
         UiStyle.Panel(this, "Plan", "运行计划", new(310, 90), 660, Hide, out var body);
@@ -37,9 +40,11 @@ internal partial class TrainPlanPanel : Control
         var scroll = new ScrollContainer { Name = "RowsScroll", CustomMinimumSize = new(0, 300) };
         _rowsBox = new VBoxContainer { Name = "Rows", SizeFlagsHorizontal = SizeFlags.ExpandFill };
         scroll.AddChild(_rowsBox); body.AddChild(scroll);
-        body.AddChild(UiStyle.Button("AddStop", "添加计划项", () => { if (!_protected) AddRow(null); }));
+        _addStop = UiStyle.Button("AddStop", "添加计划项", () => { if (!_protected) AddRow(null); });
+        body.AddChild(_addStop);
         body.AddChild(UiStyle.Label("节点从列表选择；停站秒数为非负整数。未编辑的原停留时间保留精确步数。"));
-        body.AddChild(new Label { Name = "Reason", AutowrapMode = TextServer.AutowrapMode.WordSmart });
+        _reason = new Label { Name = "Reason", AutowrapMode = TextServer.AutowrapMode.WordSmart };
+        body.AddChild(_reason);
         var actions = new HBoxContainer();
         _apply = UiStyle.Button("Apply", "应用计划", Apply, true);
         actions.AddChild(_apply); actions.AddChild(UiStyle.Button("Cancel", "取消", Hide));
@@ -51,14 +56,15 @@ internal partial class TrainPlanPanel : Control
     {
         _target = target; _train = train.Id;
         _nodes = view.World.Nodes.Select(item => item.Id).ToArray();
+        _nodeNames = _nodes.Select(id => WorldPanels.NodeName(id, view, content)).ToArray();
         foreach (var row in _rows) { _rowsBox.RemoveChild(row.Box); row.Box.QueueFree(); }
         _rows.Clear();
         _nextRow = 0;
         _protected = train.Plan?.Stops.Any(stop => stop is PlanStop.Station station && !station.GoodsRules.IsEmpty) == true;
         _loop.ButtonPressed = train.Plan?.Loop ?? false;
         _loop.Disabled = _protected;
-        GetNode<Button>("Plan/Layout/Body/AddStop").Disabled = _protected;
-        GetNode<Label>("Plan/Layout/Body/Reason").Text = _protected
+        _addStop.Disabled = _protected;
+        _reason.Text = _protected
             ? "此计划含自动货物规则，当前表单不支持编辑，已禁止修改以保留规则。" : "";
         if (train.Plan is { } plan) foreach (var stop in plan.Stops) AddRow(stop);
         else AddRow(null);
@@ -70,7 +76,7 @@ internal partial class TrainPlanPanel : Control
     {
         var box = new HBoxContainer { Name = $"Row{_nextRow++}" };
         var node = new OptionButton { Name = "Node", SizeFlagsHorizontal = SizeFlags.ExpandFill, Disabled = _protected };
-        foreach (var id in _nodes) node.AddItem($"节点 {id.Value}");
+        foreach (var name in _nodeNames) node.AddItem(name);
         var selected = stop switch { PlanStop.Station station => station.Node, PlanStop.Waypoint waypoint => waypoint.Node, _ => default };
         var index = Array.IndexOf(_nodes, selected);
         if (index >= 0) node.Select(index);
@@ -109,29 +115,21 @@ internal partial class TrainPlanPanel : Control
         var unavailable = _target is null || !_target.IsAvailable(binding, content.Generation, view);
         _apply.Disabled = _protected || _host.IsBusy || unavailable;
         if (unavailable && _target is not null)
-            GetNode<Label>("Plan/Layout/Body/Reason").Text = "已不存在：草稿所属对象或对局已失效，请从当前列表重新打开。";
+            _reason.Text = "已不存在：草稿所属对象或对局已失效，请从当前列表重新打开。";
     }
 
     private void Apply()
     {
-        var status = _host.GetStatus(); var content = _host.Content;
-        if (_protected || status is null || content is null || _target is null ||
-            !_target.IsAvailable(status.Binding, content.Generation, status.View) || _host.IsBusy)
+        if (_protected)
         {
-            Error("当前计划不可提交：对象已失效、含不支持的货物规则或宿主正在操作。"); return;
+            _reportError("当前计划含不支持的货物规则，已禁止修改以保留规则。"); return;
         }
         var inputs = _rows.Select(row => new PlanRowInput(
             row.Node.Selected >= 0 && row.Node.Selected < _nodes.Length ? _nodes[row.Node.Selected] : default,
             row.Kind.Selected == 0, row.Seconds.Text,
             row.Seconds.Text == row.InitialSeconds ? row.InitialSteps : null)).ToArray();
-        if (!UiInput.TryPlan(_train, _loop.ButtonPressed, inputs, out var command, out var error)) { Error(error!); return; }
-        var result = _host.Submit(_target.Binding, command!, CommandSource.UserInterface);
-        if (CommandDiagnostics.Report(_logger, result) is { } problem) _showError(problem);
-        else Hide();
-    }
-
-    private void Error(string message)
-    {
-        _logger.Log(LogLevel.Warning, "ui", "train_plan_invalid", message); _showError(message);
+        if (!TrainPlanInput.TryPlan(_train, _loop.ButtonPressed, inputs, out var command, out var error))
+        { _reportError(error!); return; }
+        if (_submit(_target, command!) is not null) Hide();
     }
 }

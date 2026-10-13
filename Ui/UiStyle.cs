@@ -30,17 +30,26 @@ internal static class UiStyle
         var bar = Box(new(0.094f, 0.11f, 0.13f, 0.92f));
         bar.ContentMarginTop = bar.ContentMarginBottom = 5;
         theme.SetStylebox("panel", "TopBar", bar);
-        theme.SetTypeVariation("Speed", "OptionButton");
-        theme.SetStylebox("normal", "Speed", Box(Accent));
-        theme.SetColor("font_color", "Speed", new("1a1a1a"));
         foreach (var type in new[] { "Button", "OptionButton" })
         {
-            theme.SetStylebox("normal", type, Box(new("181c21")));
-            theme.SetStylebox("hover", type, Box(new("313942")));
-            theme.SetStylebox("pressed", type, Box(new("403421")));
-            theme.SetStylebox("disabled", type, Box(new("15191e")));
+            theme.SetStylebox("normal", type, Box(Colors.Transparent));
+            theme.SetStylebox("hover", type, Box(Colors.Transparent, Text));
+            theme.SetStylebox("pressed", type, Box(Colors.Transparent, Accent));
+            theme.SetStylebox("disabled", type, Box(Colors.Transparent));
             theme.SetStylebox("focus", type, Box(Colors.Transparent, Accent));
         }
+        theme.SetTypeVariation("PrimaryButton", "Button");
+        theme.SetTypeVariation("Speed", "Button");
+        theme.SetStylebox("normal", "PrimaryButton", Box(Accent));
+        theme.SetStylebox("hover", "PrimaryButton", Box(new("edb54b")));
+        theme.SetStylebox("pressed", "PrimaryButton", Box(new("c98c20")));
+        theme.SetStylebox("hover_pressed", "PrimaryButton", Box(new("c98c20")));
+        foreach (var state in new[] { "font_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color", "font_focus_color" })
+            theme.SetColor(state, "PrimaryButton", new("1a1a1a"));
+        theme.SetStylebox("pressed", "Speed", Box(Accent));
+        theme.SetStylebox("hover_pressed", "Speed", Box(new("edb54b")));
+        theme.SetColor("font_pressed_color", "Speed", new("1a1a1a"));
+        theme.SetColor("font_hover_pressed_color", "Speed", new("1a1a1a"));
         theme.SetStylebox("normal", "LineEdit", Box(new("11161c")));
         theme.SetStylebox("focus", "LineEdit", Box(Colors.Transparent, Accent));
         return theme;
@@ -56,12 +65,8 @@ internal static class UiStyle
 
     internal static Button Button(string name, string text, Action clicked, bool primary = false)
     {
-        var button = new Button { Name = name, Text = text, CustomMinimumSize = new(0, 34) };
-        if (primary)
-        {
-            button.AddThemeStyleboxOverride("normal", Box(Accent));
-            button.AddThemeColorOverride("font_color", new("1a1a1a"));
-        }
+        var button = new Button { Name = name, Text = text, CustomMinimumSize = new(0, 34),
+            ThemeTypeVariation = primary ? "PrimaryButton" : "" };
         button.Pressed += clicked;
         return button;
     }

@@ -7,15 +7,16 @@ internal static class CommandDiagnostics
 {
     internal static string? Report(TrainLogger logger, SubmissionResult result)
     {
+        if (result is SubmissionResult.Completed { Receipt.Decision: CommandDecision.Faulted failed })
+            return Describe(failed.Fault);
         var message = result switch
         {
             SubmissionResult.NotAccepted rejected => Describe(rejected.Reason),
             SubmissionResult.Completed { Receipt.Decision: CommandDecision.Rejected rejected } =>
                 string.Join("；", rejected.Problems.Select(Describe)),
-            SubmissionResult.Completed { Receipt.Decision: CommandDecision.Faulted failed } =>
-                $"核心模拟发生故障，已冻结：{failed.Fault.Code}/{failed.Fault.Field}。",
             _ => null
         };
+        if (message is null) return null;
         var receipt = (result as SubmissionResult.Completed)?.Receipt;
         var problems = result switch
         {
@@ -23,25 +24,18 @@ internal static class CommandDiagnostics
             SubmissionResult.Completed { Receipt.Decision: CommandDecision.Rejected rejected } => rejected.Problems.ToArray(),
             _ => []
         };
-        var fault = (receipt?.Decision as CommandDecision.Faulted)?.Fault;
-        var diagnostic = (result as SubmissionResult.Completed)?.Diagnostic;
-        logger.Log(fault is not null ? LogLevel.Error : message is null ? LogLevel.Info : LogLevel.Warning, "train",
-            message is null ? "train_command_accepted" : "train_command_failed",
-            message ?? "列车命令已接受。",
+        logger.Log(LogLevel.Warning, "train", "train_command_failed", message,
             new Dictionary<string, object?> { ["command_id"] = receipt?.Number,
                 ["decision"] = receipt?.Decision.GetType().Name ?? "NotAccepted",
                 ["problems"] = problems.Select(problem => new Dictionary<string, object?>
                 {
                     ["code"] = problem.Code, ["field"] = problem.Field,
                     ["subject"] = problem.Subject?.ToString(), ["related"] = problem.RelatedIdentities.ToArray()
-                }).ToArray(),
-                ["fault_code"] = fault?.Code, ["fault_field"] = fault?.Field,
-                ["fault_subject"] = fault?.Subject?.ToString(), ["fault_operation"] = fault?.Operation,
-                ["fault_completed_steps"] = fault?.Position.CompletedSteps,
-                ["fault_sequence"] = fault?.Position.Sequence,
-                ["diagnostic_message"] = diagnostic?.Message, ["diagnostic_stack_trace"] = diagnostic?.StackTrace });
+                }).ToArray() });
         return message;
     }
+
+    internal static string Describe(CoreFault fault) => $"核心模拟发生故障：{fault.Code}/{fault.Field}。";
 
     internal static string Describe(CoreProblem problem)
     {

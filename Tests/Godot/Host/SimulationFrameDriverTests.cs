@@ -67,12 +67,15 @@ public sealed class SimulationFrameDriverTests
     [DataRow(0)]
     [DataRow(1)]
     [DataRow(2)]
+    [DataRow(3)]
     public void Player_resume_preserves_other_pause_sources(int source)
     {
         var driver = new SimulationFrameDriver(() => 0);
         if (source == 0) driver.SetFocusPaused(true);
         else if (source == 1) driver.SetOperationLocked(true);
-        else driver.Freeze();
+        else if (source == 2) driver.Freeze();
+        else driver.SetNotificationPaused(true);
+        driver.SetSpeed(SimulationSpeed.Two);
         driver.SetPlayerPaused(false);
         Assert.IsFalse(driver.PlayerPaused);
         Assert.IsTrue(driver.IsPaused);
@@ -142,7 +145,7 @@ public sealed class SimulationFrameDriverTests
     }
 
     [TestMethod]
-    public void Pause_event_stops_before_next_step_without_time_debt()
+    public void Notification_pause_stops_before_next_step_without_time_debt()
     {
         var driver = new SimulationFrameDriver(() => 0);
         driver.SetPlayerPaused(false);
@@ -151,12 +154,14 @@ public sealed class SimulationFrameDriverTests
         var completed = driver.AdvanceFrame(1.0 / 60, () =>
         {
             calls++;
-            driver.SetPlayerPaused(true);
+            driver.SetNotificationPaused(true);
             return (1u, false);
         });
         Assert.AreEqual(1UL, completed);
         Assert.AreEqual(1, calls);
-        driver.SetPlayerPaused(false);
+        Assert.IsTrue(driver.NotificationPaused);
+        Assert.IsFalse(driver.PlayerPaused);
+        driver.SetNotificationPaused(false);
         Assert.AreEqual(0UL, driver.AdvanceFrame(SimulationTime.StepSeconds / 16,
             () => throw new AssertFailedException("产生了追赶步骤。")));
         Assert.AreEqual(1UL, driver.AdvanceFrame(SimulationTime.StepSeconds / 16, () => (1u, false)));

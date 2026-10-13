@@ -19,6 +19,7 @@ public partial class MacroMap : Control
     private readonly List<(Vector2[] Points, Color Color)> _regions = [];
     private bool _dragging;
     private bool _fitPending;
+    private float _fitZoom = 1;
 
     internal ICoreReadView? View { get; private set; }
     internal Vector2 Offset { get; private set; }
@@ -71,6 +72,7 @@ public partial class MacroMap : Control
         if (!_fitPending || _world is null || Size.X <= 0 || Size.Y <= 0) return;
         Zoom = Math.Min(Math.Max(1, Size.X - 120) / (float)Math.Max(1, _world.WidthMeters),
             Math.Max(1, Size.Y - 120) / (float)Math.Max(1, _world.HeightMeters));
+        _fitZoom = Zoom;
         Offset = (Size - new Vector2((float)_world.WidthMeters, (float)_world.HeightMeters) * Zoom) / 2;
         _fitPending = false;
     }
@@ -84,7 +86,8 @@ public partial class MacroMap : Control
             if (button.ButtonIndex == MouseButton.Middle) _dragging = button.Pressed;
             else if (button.Pressed && button.ButtonIndex is MouseButton.WheelUp or MouseButton.WheelDown)
             {
-                var next = Math.Clamp(Zoom * (button.ButtonIndex == MouseButton.WheelUp ? 1.2f : 1 / 1.2f), .01f, 8);
+                var next = Math.Clamp(Zoom * (button.ButtonIndex == MouseButton.WheelUp ? 1.2f : 1 / 1.2f),
+                    _fitZoom / 8, _fitZoom * 8);
                 Offset = button.Position - (button.Position - Offset) * (next / Zoom);
                 Zoom = next;
                 QueueRedraw();

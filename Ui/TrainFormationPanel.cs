@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using Godot;
 using Train.App;
-using Train.App.Logging;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 
@@ -11,8 +10,8 @@ internal partial class TrainFormationPanel : Control
 {
     internal event Action<TrainId>? TrainCreated;
     private HostCoordinator _host = null!;
-    private TrainLogger _logger = null!;
-    private Action<string> _showError = null!;
+    private Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> _submit = null!;
+    private Action<string> _reportError = null!;
     private PanelTarget? _target;
     private ItemList _available = null!;
     private ItemList _ordered = null!;
@@ -23,14 +22,16 @@ internal partial class TrainFormationPanel : Control
     private readonly List<(VehicleId Id, string Text)> _candidates = [];
     private readonly List<(VehicleId Id, string Text)> _selection = [];
 
-    internal void Initialize(HostCoordinator host, TrainLogger logger, Action<string> showError)
+    internal void Initialize(HostCoordinator host,
+        Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit, Action<string> reportError)
     {
-        _host = host; _logger = logger; _showError = showError;
+        _host = host; _submit = submit; _reportError = reportError;
         Name = "TrainFormationPanel";
         MouseFilter = MouseFilterEnum.Ignore;
         UiStyle.Panel(this, "Formation", "编组列车", new(310, 90), 660, Hide, out var body);
         body.AddChild(UiStyle.Label("选择本站未编组的玩家车辆，再调整编组顺序。"));
         _reason = UiStyle.Label("");
+        _reason.Name = "Reason";
         _reason.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         body.AddChild(_reason);
         var columns = new HBoxContainer();
@@ -107,32 +108,18 @@ internal partial class TrainFormationPanel : Control
     internal void Refresh(HostBinding binding, ICoreReadView view, IContentView content)
     {
         var unavailable = _target is null || !_target.IsAvailable(binding, content.Generation, view);
-        _form.Disabled = _host.IsBusy || unavailable;
-        _reason.Text = unavailable && _target is not null ? "已不存在：编组草稿所属节点或对局已失效。" : "";
+        _form.Disabled = _host.IsBusy || unavailable || _candidates.Count == 0;
+        _reason.Text = unavailable && _target is not null ? "已不存在：编组草稿所属节点或对局已失效。"
+            : _candidates.Count == 0 ? "本站没有未编组的玩家车辆可供编组。" : "";
     }
 
     private void Form()
     {
-        var status = _host.GetStatus(); var content = _host.Content;
-        if (status is null || content is null || _target is null ||
-            !_target.IsAvailable(status.Binding, content.Generation, status.View) || _host.IsBusy)
-        {
-            Error("当前编组不可提交：对象已失效或宿主正在操作。"); return;
-        }
-        if (_selection.Count == 0) { Error("请至少选择一辆车。"); return; }
-        var result = _host.Submit(_target.Binding,
-            new CoreCommand.FormTrain(_selection.Select(item => item.Id).ToImmutableArray()), CommandSource.UserInterface);
-        if (CommandDiagnostics.Report(_logger, result) is { } problem) _showError(problem);
-        else
+        if (_selection.Count == 0) { _reportError("请至少选择一辆车。"); return; }
+        if (_submit(_target, new CoreCommand.FormTrain(_selection.Select(item => item.Id).ToImmutableArray())) is { } accepted)
         {
             Hide();
-            if (result is SubmissionResult.Completed { Receipt.Decision: CommandDecision.Accepted accepted })
-                foreach (var train in accepted.Created.OfType<WorldObjectId.Train>()) TrainCreated?.Invoke(train.Id);
+            foreach (var train in accepted.Created.OfType<WorldObjectId.Train>()) TrainCreated?.Invoke(train.Id);
         }
-    }
-
-    private void Error(string message)
-    {
-        _logger.Log(LogLevel.Warning, "ui", "train_formation_invalid", message); _showError(message);
     }
 }

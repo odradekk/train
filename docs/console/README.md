@@ -1,16 +1,16 @@
 # 控制台命令手册
 
-本页记录当前基础控制台分发器提供的五个命令，以及 Debug 游戏宿主可选接入的模拟调试命令：
+本页记录当前基础控制台分发器提供的五个命令，以及 Debug 游戏宿主可选接入的模拟和列车命令：
 
 | 命令 | 用途 |
 | --- | --- |
-| [help](help.md) | 列出基础命令名称 |
+| [help](help.md) | 列出当前可用命令名称 |
 | [clear](clear.md) | 清空内存中的控制台日志缓冲区 |
 | [quit](quit.md) | 委托宿主处理退出 |
 | [reload](reload.md) | 委托宿主重新加载内容 |
 | [loglevel](loglevel.md) | 查询或设置日志过滤等级 |
 | [sim](sim.md) | 查询或控制当前活动模拟会话（仅 Debug） |
-| [train](train.md) | 编组、解散、启停列车和替换运行计划（仅 Debug 且接入新 Host） |
+| [train](train.md) | 编组、解编、启停列车和替换运行计划（仅 Debug 且接入新 Host） |
 
 发布构建的 `help` 列表不包含 `reload`、`sim` 或 `train`；Debug 游戏宿主列出五个基础命令与 `sim`，接入新 `HostCoordinator` 时另列出 `train`。`sim` 在默认旧模拟入口也可用。
 

@@ -30,14 +30,23 @@ public partial class SettingsPanel : Control
             var result = config.Load(Path);
             if (result == Error.Ok)
             {
-                _mode = config.GetValue("display", "mode", 0).AsInt32();
-                _scale = (float)config.GetValue("display", "scale", 1.0).AsDouble();
-                _fps = config.GetValue("display", "fps", _fps).AsInt32();
-                _focusPause = config.GetValue("game", "focus_pause", false).AsBool();
-                if (_mode is < 0 or > 2 || !float.IsFinite(_scale) || _scale is < 0.75f or > 2 || _fps < 0)
+                var mode = config.GetValue("display", "mode", 0);
+                var configScale = config.GetValue("display", "scale", 1.0);
+                var configFps = config.GetValue("display", "fps", _fps);
+                var focusPause = config.GetValue("game", "focus_pause", false);
+                if (mode.VariantType != Variant.Type.Int || mode.AsInt64() is < 0 or > 2 ||
+                    configScale.VariantType is not (Variant.Type.Int or Variant.Type.Float) ||
+                    !double.IsFinite(configScale.AsDouble()) || configScale.AsDouble() is < 0.75 or > 2 ||
+                    configFps.VariantType != Variant.Type.Int || configFps.AsInt64() is < 0 or > 1000 ||
+                    focusPause.VariantType != Variant.Type.Bool)
                 {
                     Report("设置文件包含无效值，使用当前工程默认设置。", Error.InvalidData);
                     _mode = 0; _scale = 1; _fps = Engine.MaxFps; _focusPause = false;
+                }
+                else
+                {
+                    _mode = mode.AsInt32(); _scale = (float)configScale.AsDouble();
+                    _fps = configFps.AsInt32(); _focusPause = focusPause.AsBool();
                 }
             }
             else if (result != Error.FileNotFound) Report("无法读取设置文件，使用当前工程默认设置。", result);

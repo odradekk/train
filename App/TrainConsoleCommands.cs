@@ -47,7 +47,8 @@ internal sealed class TrainConsoleCommands(HostCoordinator host, TrainLogger log
         }
         else
         {
-            if (!TryId(args[1], out var id)) return false;
+            if (!ulong.TryParse(args[1], NumberStyles.None, CultureInfo.InvariantCulture, out var id) ||
+                operation != "plan" && id == 0) return false;
             var train = new TrainId(id);
             if (args.Count == 2)
                 command = operation switch
@@ -61,24 +62,21 @@ internal sealed class TrainConsoleCommands(HostCoordinator host, TrainLogger log
             {
                 var mode = args[2].ToLowerInvariant();
                 if (mode is not ("once" or "loop")) return false;
-                var stops = ImmutableArray.CreateBuilder<PlanStop>();
+                var rows = new List<PlanRowInput>();
                 for (var i = 3; i < args.Count; i++)
                 {
                     var parts = args[i].Split(':');
-                    if (parts.Length < 2 || !TryId(parts[1], out var node)) return false;
+                    if (parts.Length < 2 ||
+                        !ulong.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var node)) return false;
                     if (parts[0].Equals("waypoint", StringComparison.OrdinalIgnoreCase) && parts.Length == 2)
-                        stops.Add(new PlanStop.Waypoint(new(node)));
-                    else if (parts[0].Equals("station", StringComparison.OrdinalIgnoreCase) && parts.Length == 3 &&
-                        ulong.TryParse(parts[2], NumberStyles.None, CultureInfo.InvariantCulture, out var seconds))
-                    {
-                        ulong steps;
-                        try { steps = checked(seconds * (ulong)SimulationTime.StepsPerSecond); }
-                        catch (OverflowException) { return false; }
-                        stops.Add(new PlanStop.Station(new(node), steps, []));
-                    }
+                        rows.Add(new(new(node), false, ""));
+                    else if (parts[0].Equals("station", StringComparison.OrdinalIgnoreCase) && parts.Length == 3)
+                        rows.Add(new(new(node), true, parts[2]));
                     else return false;
                 }
-                command = new CoreCommand.ReplaceRunPlan(train, new(mode == "loop", stops.ToImmutable()));
+                var parsed = TrainPlanInput.TryPlan(train, mode == "loop", rows, out var plan, out error);
+                command = plan;
+                return parsed;
             }
         }
         if (command is null) return false;

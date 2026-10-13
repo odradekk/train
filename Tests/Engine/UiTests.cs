@@ -11,6 +11,8 @@ namespace Train.Engine.Tests;
 
 public class UiTests(Node testScene) : TestClass(testScene)
 {
+    private readonly UiTestInput _input = new(testScene);
+
     [Test]
     public async Task Map_input_hits_objects_and_panels_block_camera_input()
     {
@@ -24,45 +26,88 @@ public class UiTests(Node testScene) : TestClass(testScene)
             var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
             app.CreateHost = logger => setup.Create(logger);
             await fixture.AddToRoot(app);
-            await FramesUntil(() => app.Host!.GetStatus() is not null);
+            await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
             tree.Root.ContentScaleFactor = 1;
             UiCapture.ConfigureWindowIfNeeded(tree.Root);
-            await Frames(2);
+            await _input.Frames(2);
             var ui = app.GetNode<GameUi>("GameUi");
             var map = ui.GetNode<MacroMap>("Root/World/MacroMap");
             Require(ReferenceEquals(map.View, view) && ReferenceEquals(ui.View, view), "地图和宿主未读取同一固定快照。");
             WorldObjectId? clicked = null;
             map.ObjectClicked += value => clicked = value;
-            await Click(map.GlobalPosition + map.MapToScreen(view.World.Nodes[1].Position));
+            await _input.Click(map.GlobalPosition + map.MapToScreen(view.World.Nodes[1].Position));
             Require(clicked == new WorldObjectId.Node(view.World.Nodes[1].Id), "实际左键没有命中地图节点。");
 
             var free = map.GlobalPosition + map.Size * new Vector2(.75f, .8f);
             var before = map.Offset;
-            await Drag(free, new Vector2(37, -19));
+            await _input.Drag(free, new Vector2(37, -19));
             Require(map.Offset.DistanceTo(before + new Vector2(37, -19)) < .1f, "实际中键拖动没有平移地图。");
             var local = free - map.GlobalPosition;
             var anchor = (local - map.Offset) / map.Zoom;
             var zoom = map.Zoom;
-            await SendMouseButton(free, MouseButton.WheelUp, true);
-            await SendMouseButton(free, MouseButton.WheelUp, false);
+            await _input.MouseButton(free, MouseButton.WheelUp, true);
+            await _input.MouseButton(free, MouseButton.WheelUp, false);
             Require(map.Zoom > zoom && ((local - map.Offset) / map.Zoom).DistanceTo(anchor) < .01f,
                 "滚轮没有以实际鼠标位置缩放。");
             await UiCapture.Capture(TestScene, "macro-map");
 
             var fleet = ui.GetNode<Button>("Root/World/Bar/TopBar/Fleet");
             fleet.GrabFocus();
-            await PressKey(Key.Space);
-            var list = ui.GetNode<ItemList>("Root/World/WorldPanels/车队List/Layout/Body/Objects");
+            await _input.PressKey(Key.Space);
+            var list = ui.GetNode<ItemList>("Root/World/WorldPanels/FleetList/Layout/Body/Objects");
             Require(list.IsVisibleInTree(), "顶栏实际按键没有打开车队列表。");
+            await _input.Frames(2);
             var covered = list.GlobalPosition + new Vector2(30, 30);
+            var nodePosition = map.GlobalPosition + map.MapToScreen(view.World.Nodes[1].Position);
+            await _input.Drag(free, covered - nodePosition);
+            Require(map.HitTest(covered - map.GlobalPosition) == new WorldObjectId.Node(view.World.Nodes[1].Id),
+                "遮挡情景下方没有预期地图节点。");
+            clicked = null;
+            await _input.Click(covered);
+            Require(clicked is null, "上层列表的左键输入穿透并选中了地图对象。");
             before = map.Offset;
             zoom = map.Zoom;
-            await Drag(covered, new Vector2(20, 12));
-            await SendMouseButton(covered, MouseButton.WheelUp, true);
-            await SendMouseButton(covered, MouseButton.WheelUp, false);
+            await _input.Drag(covered, new Vector2(20, 12));
+            await _input.MouseButton(covered, MouseButton.WheelUp, true);
+            await _input.MouseButton(covered, MouseButton.WheelUp, false);
             Require(map.Offset == before && map.Zoom == zoom, "上层列表的实际输入穿透到了地图。");
         }
         finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
+    }
+
+    [Test]
+    public async Task Speed_buttons_preserve_focus_pause_and_select_only_the_current_control()
+    {
+        var tree = TestScene.GetTree();
+        var fixture = new Fixture(tree);
+        var setup = new HostSimulationTests.HostSetup(WorldView());
+        try
+        {
+            var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
+            app.CreateHost = logger => setup.Create(logger);
+            await fixture.AddToRoot(app);
+            await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
+            var host = app.Host!;
+            host.AutoPauseOnFocusLoss = true;
+            host.SetFocused(false);
+            var bar = app.GetNode<GameUi>("GameUi").GetNode<Control>("Root/World/Bar/TopBar");
+            var controls = new[] { "Pause", "Speed1", "Speed2", "Speed4", "Speed8" }
+                .Select(name => bar.GetNode<Button>(name)).ToArray();
+            controls[2].GrabFocus();
+            await _input.PressKey(Key.Space);
+            var status = host.GetStatus()!;
+            Require(status.Speed == SimulationSpeed.Two && !status.PlayerPaused && status.FocusPaused &&
+                controls[2].ButtonPressed && controls.Count(button => button.ButtonPressed) == 1,
+                "真实倍速输入未解除玩家暂停、保留失焦暂停并单选当前速度。");
+            controls[0].GrabFocus();
+            await _input.PressKey(Key.Space);
+            status = host.GetStatus()!;
+            Require(status.PlayerPaused && status.FocusPaused && controls[0].ButtonPressed &&
+                controls.Count(button => button.ButtonPressed) == 1 && setup.Session.AdvanceCount == 0,
+                "真实暂停输入未保留失焦暂停，或保护期间仍推进模拟。");
+            setup.Session.AssertComplete();
+        }
+        finally { await fixture.Cleanup(); }
     }
 
     [Test]
@@ -85,35 +130,49 @@ public class UiTests(Node testScene) : TestClass(testScene)
             var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
             app.CreateHost = logger => setup.Create(logger);
             await fixture.AddToRoot(app);
-            await FramesUntil(() => app.Host!.GetStatus() is not null);
+            await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
             tree.Root.ContentScaleFactor = 1;
-            await Frames(2);
+            await _input.Frames(2);
             var ui = app.GetNode<GameUi>("GameUi");
             ui.GetNode<Button>("Root/World/Bar/TopBar/Fleet").GrabFocus();
-            await PressKey(Key.Space);
-            var list = ui.GetNode<ItemList>("Root/World/WorldPanels/车队List/Layout/Body/Objects");
-            await FramesUntil(() => list.IsVisibleInTree() && list.Size.X > 0 && list.Size.Y > 0 &&
-                list.GetItemRect(0).Size.Y > 0 &&
-                list.GetItemAtPosition(list.GetItemRect(0).GetCenter(), true) == 0);
-            await Click(list.GlobalPosition + list.GetItemRect(0).GetCenter());
+            await _input.PressKey(Key.Space);
+            var list = ui.GetNode<ItemList>("Root/World/WorldPanels/FleetList/Layout/Body/Objects");
+            await _input.ClickItem(list, 0);
             var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
             var stop = panels.GetNodeOrNull<Button>("Details/Layout/Body/Stop");
             Require(stop is not null && stop.IsVisibleInTree(),
                 $"实际列表点击没有打开列车详情：rect={list.GetGlobalRect()}，item={list.GetItemRect(0)}，selected={string.Join(',', list.GetSelectedItems())}，hover={tree.Root.GuiGetHoveredControl()?.GetPath()}。");
             stop!.GrabFocus();
-            await PressKey(Key.Space);
+            await _input.PressKey(Key.Space);
             Require(setup.Session.SubmitCount == 1 && ui.ErrorText.Contains("no_route/train.plan") &&
                 ui.GetNode<Control>("Root/ErrorPanel").IsVisibleInTree(), "真实停车命令的拒绝没有显示在界面。");
             setup.Session.AssertComplete();
 
+            var disband = panels.GetNode<Button>("Details/Layout/Body/Disband");
+            disband.GrabFocus();
+            await _input.PressKey(Key.Space);
+            var confirmation = panels.GetNode<ConfirmationDialog>("DisbandConfirmation");
+            Require(confirmation.Visible, "真实解编输入没有打开原生确认窗口。");
+            confirmation.GetCancelButton().GrabFocus();
+            await _input.PressKey(Key.Space);
+            Require(!confirmation.Visible && setup.Session.SubmitCount == 1,
+                "取消原生解编确认提交了命令或未关闭窗口。");
+            disband.GrabFocus();
+            await _input.PressKey(Key.Space);
+            Require(confirmation.Visible, "再次解编没有打开确认窗口。");
             var binding = app.Host!.GetStatus()!.Binding;
             var result = app.Host.BeginRestore("opaque core", "opaque content",
                 new(new("fixture", "fixture", "fixture", "fixture", "fixture"), true, 1));
             Require(result.Problem is null, "替换对局的有限情景未被接受。");
-            await FramesUntil(() => app.Host.GetStatus()!.Binding != binding);
+            await _input.WaitUntil(() => app.Host.GetStatus()!.Binding != binding);
+            Require(confirmation.GetOkButton().Disabled && replacement.SubmitCount == 0 && setup.Session.SubmitCount == 1,
+                "替换对局后旧解编目标仍可确认，或产生额外提交。");
+            confirmation.GetCancelButton().GrabFocus();
+            await _input.PressKey(Key.Space);
+            Require(!confirmation.Visible, "旧解编确认窗口没有经真实取消输入关闭。");
             var text = panels.FindChildren("Description", "Label", true, false).Cast<Label>().Single();
             Require(stop.Disabled && text.Text.Contains("已不存在"), "旧对局详情没有明确失效。");
-            await Click(stop.GetGlobalRect().GetCenter());
+            await _input.Click(stop.GetGlobalRect().GetCenter());
             Require(replacement.SubmitCount == 0 && setup.Session.SubmitCount == 1,
                 "旧对局按钮仍向当前或已退出会话提交。");
             replacement.AssertComplete();
@@ -139,51 +198,6 @@ public class UiTests(Node testScene) : TestClass(testScene)
         };
     }
 
-    private async Task Frames(int count)
-    {
-        for (var frame = 0; frame < count; frame++)
-            await TestScene.ToSignal(TestScene.GetTree(), SceneTree.SignalName.ProcessFrame);
-    }
-
-    private async Task FramesUntil(Func<bool> completed)
-    {
-        for (var frame = 0; frame < 180 && !completed(); frame++) await Frames(1);
-        Require(completed(), "真实帧没有发布预期 UI 会话。");
-    }
-
-    private async Task SendMouseButton(Vector2 position, MouseButton button, bool pressed)
-    {
-        // ParseInputEvent 接收窗口坐标，需计入项目的 canvas_items 缩放。
-        position = TestScene.GetViewport().GetScreenTransform() * position;
-        using var input = new InputEventMouseButton { Position = position, GlobalPosition = position,
-            ButtonIndex = button, Pressed = pressed, ButtonMask = !pressed ? 0 : button switch
-            {
-                Godot.MouseButton.Middle => MouseButtonMask.Middle,
-                Godot.MouseButton.Left => MouseButtonMask.Left,
-                _ => 0
-            } };
-        Input.ParseInputEvent(input);
-        await Frames(1);
-    }
-
-    private async Task Click(Vector2 position)
-    {
-        await SendMouseButton(position, Godot.MouseButton.Left, true);
-        await SendMouseButton(position, Godot.MouseButton.Left, false);
-    }
-
-    private async Task Drag(Vector2 start, Vector2 delta)
-    {
-        await SendMouseButton(start, Godot.MouseButton.Middle, true);
-        var transform = TestScene.GetViewport().GetScreenTransform();
-        var end = transform * (start + delta);
-        using var motion = new InputEventMouseMotion { Position = end, GlobalPosition = end,
-            Relative = end - transform * start, ButtonMask = MouseButtonMask.Middle };
-        Input.ParseInputEvent(motion);
-        await Frames(1);
-        await SendMouseButton(start + delta, Godot.MouseButton.Middle, false);
-    }
-
     [Test]
     public async Task Settings_open_through_input_and_persist_scale_with_bundled_fonts()
     {
@@ -200,7 +214,7 @@ public class UiTests(Node testScene) : TestClass(testScene)
             var ui = app.GetNode<GameUi>("GameUi");
             var settings = app.GetNode<MainMenu>("MainMenu").GetNode<Button>("%Settings");
             settings.GrabFocus();
-            await PressKey(Key.Space);
+            await _input.PressKey(Key.Space);
             Require(ui.GetNode<SettingsPanel>("Root/SettingsPanel").Visible, "实际按键没有打开设置。");
             var font = settings.GetThemeFont("font");
             Require(font.ResourcePath == "res://Ui/Fonts/NotoSansSC-Regular.otf" && font.GetFontName() == "Noto Sans SC",
@@ -215,10 +229,10 @@ public class UiTests(Node testScene) : TestClass(testScene)
             var input = ui.FindChildren("UiScale", "SpinBox", true, false).Cast<SpinBox>().Single();
             var edit = input.GetLineEdit();
             edit.GrabFocus();
-            await TestScene.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
+            await _input.Frames();
             Require(edit.HasFocus() && edit.IsEditing(), "缩放输入未进入编辑模式。");
             edit.Text = "1.25";
-            await PressKey(Key.Enter);
+            await _input.PressKey(Key.Enter);
             Require(Mathf.IsEqualApprox(tree.Root.ContentScaleFactor, 1.25f),
                 $"设置输入没有改变界面缩放：text={edit.Text}，value={input.Value}，scale={tree.Root.ContentScaleFactor}。");
             using var saved = new ConfigFile();
@@ -234,15 +248,7 @@ public class UiTests(Node testScene) : TestClass(testScene)
         }
     }
 
-    private async Task PressKey(Key key)
-    {
-        using var press = new InputEventKey { Keycode = key, Pressed = true };
-        Input.ParseInputEvent(press);
-        await TestScene.ToSignal(TestScene.GetTree(), SceneTree.SignalName.ProcessFrame);
-        using var release = new InputEventKey { Keycode = key, Pressed = false };
-        Input.ParseInputEvent(release);
-        await TestScene.ToSignal(TestScene.GetTree(), SceneTree.SignalName.ProcessFrame);
-    }
+
 }
 
 internal static class UiCapture
