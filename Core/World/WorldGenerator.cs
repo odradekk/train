@@ -22,6 +22,8 @@ internal static class WorldGenerator
             if (npc.MaximumForSaleVehicles > 0) Invalid("Configuration.NpcInitialization.MaximumForSaleVehicles");
             (input, content) = WorldInputs.Normalize(input, content, budget);
             ValidateReferences(input, content);
+            if (!content.SettlementTypes.Any(t => content.SettlementTemplates.Any(p => p.Type == t.Id)))
+                Invalid("Content.SettlementTemplates");
             GenerationFailure? last = null;
             long occupantRetries = 0;
             for (ulong world = 0; world <= (ulong)input.Configuration.Budget.MaximumWorldRetries; world++)
@@ -205,19 +207,27 @@ internal static class WorldGenerator
             budget.Candidate = nodes[root].Cell.ToString();
             if (config.RequireStation && ((GeneratedOccupant.Settlement)occupants[root]).Platforms == 0)
             { field = "Configuration.StartConstraints.RequireStation"; continue; }
-            if (config.ExcludeAdjacentLairs && edges.Any(e => (e.A == root && occupants[e.B] is GeneratedOccupant.Lair)
-                || (e.B == root && occupants[e.A] is GeneratedOccupant.Lair)))
+            if (config.ExcludeAdjacentLairs && edges.Any(e =>
+            {
+                budget.Work();
+                return (e.A == root && occupants[e.B] is GeneratedOccupant.Lair)
+                    || (e.B == root && occupants[e.A] is GeneratedOccupant.Lair);
+            }))
             { field = "Configuration.StartConstraints.ExcludeAdjacentLairs"; continue; }
             var reached = new HashSet<int> { root };
             var pending = new Queue<int>(reached);
             while (pending.TryDequeue(out var node))
+            {
+                budget.Work();
                 for (var i = 0; i < edges.Length; i++)
                 {
+                    budget.Work();
                     var edge = edges[i];
                     if (tracks[i] == 0) continue;
                     if (edge.A == node && reached.Add(edge.B)) pending.Enqueue(edge.B);
                     if (edge.B == node && reached.Add(edge.A)) pending.Enqueue(edge.A);
                 }
+            }
             if (reached.Count(i => i != root && occupants[i] is GeneratedOccupant.Settlement { Relation: SettlementRelation.NonHostile }) < config.MinimumReachableNonHostileSettlements)
             { field = "Configuration.StartConstraints.MinimumReachableNonHostileSettlements"; continue; }
             if (reached.Count(i => occupants[i] is GeneratedOccupant.Empty) < config.MinimumReachableEmptyNodes)
@@ -255,8 +265,11 @@ internal static class WorldGenerator
             foreach (var plan in template.ProductionPlans)
                 Need(new CoreDefinitionReference.Process(plan.Process), $"Content.SettlementTemplates[{template.Id.Value}].ProductionPlans", content.Processes.Any(p => WorldReferences.Matches(p.Details, plan.Process)));
         }
-        FindDesign(config.StartConstraints.RequiredAffordableCommissionDesign, "Configuration.StartConstraints.RequiredAffordableCommissionDesign");
-        foreach (var hash in config.NpcInitialization.ForSaleVehicleCandidates) FindDesign(hash, "Configuration.NpcInitialization.ForSaleVehicleCandidates");
+        var commissionField = "Configuration.StartConstraints.RequiredAffordableCommissionDesign";
+        if (FindDesign(config.StartConstraints.RequiredAffordableCommissionDesign, commissionField).Kind is not DesignKind.Vehicle) Invalid(commissionField);
+        foreach (var hash in config.NpcInitialization.ForSaleVehicleCandidates)
+            if (FindDesign(hash, "Configuration.NpcInitialization.ForSaleVehicleCandidates").Kind is not DesignKind.Vehicle)
+                Invalid("Configuration.NpcInitialization.ForSaleVehicleCandidates");
         for (var i = 0; i < input.Start.Trains.Length; i++)
         {
             foreach (var hash in input.Start.Trains[i].Vehicles)

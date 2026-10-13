@@ -33,6 +33,7 @@ internal static class WorldInputs
             Nonnegative(band.MaximumRelief); Finite(band.DetourMultiplier);
             Require(band.DetourMultiplier >= 1 && band.MaximumTracks > 0, "TerrainBands");
         }
+        Require(!c.TerrainBands.IsEmpty, "TerrainBands");
         Positive(c.TerrainSampleSpacingMeters);
         Ratio(c.SettlementRatio); Ratio(c.LairRatio); Ratio(c.HostileSettlementRatio);
         Require(c.SettlementRatio + c.LairRatio <= 1, "SettlementRatio");

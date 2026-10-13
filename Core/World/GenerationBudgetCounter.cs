@@ -11,8 +11,13 @@ internal sealed class GenerationFailure(string category, string field) : Excepti
 
 internal sealed class GenerationBudgetCounter(GenerationBudget limits)
 {
+    private string _stage = "configuration";
     internal ulong WorldRetry { get; set; }
-    internal string Stage { get; set; } = "configuration";
+    internal string Stage
+    {
+        get => _stage;
+        set { _stage = value; Candidate = ""; }
+    }
     internal string Candidate { get; set; } = "";
     internal long UsedCandidates { get; private set; }
     internal long UsedSearchWork { get; private set; }

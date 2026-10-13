@@ -168,12 +168,19 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
             if (!double.IsFinite(edge.DistanceMeters) || edge.DistanceMeters < 0)
                 throw new ArgumentException("地点距离必须是有限非负数。", nameof(location));
             var found = FindEdge(edge.Id);
-            if (found is null || edge.DistanceMeters > found.Map.LengthMeters) return null;
+            if (found is null) return null;
         }
         return new(location,
-            Trains.Where(t => location == new WorldLocation.Node(t.Node)).Select(t => t.Id).ToImmutableArray(),
-            Instances.Where(i => Location(i) == location).Select(i => i.Id).ToImmutableArray(), [], [], occupant);
+            Trains.Where(t => SameLocation(location, new WorldLocation.Node(t.Node))).Select(t => t.Id).ToImmutableArray(),
+            Instances.Where(i => SameLocation(Location(i), location)).Select(i => i.Id).ToImmutableArray(), [], [], occupant);
     }
+
+    private static bool SameLocation(WorldLocation left, WorldLocation right) => (left, right) switch
+    {
+        (WorldLocation.Node a, WorldLocation.Node b) => a.Id == b.Id,
+        (WorldLocation.Edge a, WorldLocation.Edge b) => a.Id == b.Id,
+        _ => false
+    };
 
     internal InstanceView? FindInstance(InstanceId id)
     {

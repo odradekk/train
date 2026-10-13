@@ -1,6 +1,5 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Collections.Immutable;
-using System.Text.Json;
 using Train.Core.Contracts;
 using Train.Core.Sessions;
 
@@ -100,22 +99,26 @@ public sealed class WorldGenerationTests
     }
 
     [TestMethod]
-    public void Large_equipment_commission_design_keeps_its_manufactured_good_reference()
+    public void Commission_and_for_sale_designs_must_be_vehicles()
     {
         var content = WorldFixture.Content;
         var hash = new DesignHash(new string('F', 64));
         var good = new GoodId.Voxel(new("fixture:equipment"));
-        content = content with { Designs = [.. content.Designs,
-            content.Designs[0] with { Design = hash, Kind = new DesignKind.LargeEquipment(good) }] };
-        var input = WorldFixture.Input with { Configuration = WorldFixture.Input.Configuration with
-            { StartConstraints = WorldFixture.Input.Configuration.StartConstraints with { RequiredAffordableCommissionDesign = hash } } };
-        Failure(input, content, "config_invalid", "Configuration.StartConstraints.RequiredAffordableCommissionDesign");
-        content = content with { Goods = [.. content.Goods, new(good, WorldFixture.Revision, new(1), 1, false, null)] };
-        using var candidate = Prepare(input, content);
-        Assert.IsTrue(candidate.References.Definitions.Any(d => d.Definition == new CoreDefinitionReference.Voxel(good.Definition)
-            && d.Field == $"World.Designs[{hash.Value}].Kind.ManufacturedGood"));
-        Failure(input, content with { MissingReferences = [new(new CoreDefinitionReference.Voxel(good.Definition), "known")] },
-            "config_invalid", "Configuration.StartConstraints.RequiredAffordableCommissionDesign");
+        content = content with
+        {
+            Designs = [.. content.Designs, content.Designs[0] with { Design = hash, Kind = new DesignKind.LargeEquipment(good) }],
+            Goods = [.. content.Goods, new(good, WorldFixture.Revision, new(1), 1, false, null)]
+        };
+        foreach (var nonVehicle in new[] { WorldFixture.Station, hash })
+        {
+            var configuration = WorldFixture.Input.Configuration;
+            Failure(WorldFixture.Input with { Configuration = configuration with
+                { StartConstraints = configuration.StartConstraints with { RequiredAffordableCommissionDesign = nonVehicle } } },
+                content, "config_invalid", "Configuration.StartConstraints.RequiredAffordableCommissionDesign");
+            Failure(WorldFixture.Input with { Configuration = configuration with
+                { NpcInitialization = configuration.NpcInitialization with { ForSaleVehicleCandidates = [nonVehicle] } } },
+                content, "config_invalid", "Configuration.NpcInitialization.ForSaleVehicleCandidates");
+        }
     }
 
     [TestMethod]
@@ -198,7 +201,12 @@ public sealed class WorldGenerationTests
             Assert.IsFalse(world.Edges.Where(e => e.Start == root || e.End == root).Any(e =>
                 world.Nodes.Single(n => n.Id == (e.Start == root ? e.End : e.Start)).Occupant is NodeOccupant.Lair));
         }
-        else Assert.AreEqual("constraint_unsatisfied", ((CoreResult<ICoreSessionCandidate>.Failure)result).Problems.Single().RelatedIdentities[0]);
+        else
+        {
+            var problem = ((CoreResult<ICoreSessionCandidate>.Failure)result).Problems.Single();
+            Assert.AreEqual("constraint_unsatisfied", problem.RelatedIdentities[0]);
+            Assert.AreEqual("Configuration.StartConstraints.ExcludeAdjacentLairs", problem.Field);
+        }
     }
 
     [TestMethod]
@@ -331,28 +339,16 @@ public sealed class WorldGenerationTests
         };
         using var first = Prepare(input, content);
         using var second = Prepare(permutedInput, permutedContent);
-        using var firstSession = (CoreSession)first.Activate();
-        using var secondSession = (CoreSession)second.Activate();
-        Assert.AreEqual(JsonSerializer.Serialize(firstSession.State.World), JsonSerializer.Serialize(secondSession.State.World));
-        var left = firstSession.State.World!;
-        var right = secondSession.State.World!;
-        CollectionAssert.AreEqual(left.Nodes.Select(n => n.Occupant).ToArray(), right.Nodes.Select(n => n.Occupant).ToArray());
-        for (var i = 0; i < left.Designs.Length; i++)
-        {
-            var firstDesign = left.Designs[i];
-            var secondDesign = right.Designs[i];
-            Assert.AreEqual(firstDesign.Kind.GetType(), secondDesign.Kind.GetType());
-            CollectionAssert.AreEqual(firstDesign.StructuralGoods.ToArray(), secondDesign.StructuralGoods.ToArray());
-            for (var p = 0; p < firstDesign.Parts.Length; p++)
-            {
-                Assert.AreEqual(firstDesign.Parts[p].Definition, secondDesign.Parts[p].Definition);
-                Assert.AreEqual(firstDesign.Parts[p].RepairGood, secondDesign.Parts[p].RepairGood);
-                CollectionAssert.AreEqual(firstDesign.Parts[p].Capabilities.ToArray(), secondDesign.Parts[p].Capabilities.ToArray());
-            }
-        }
-        for (var i = 0; i < left.Settlements.Length; i++)
-            CollectionAssert.AreEqual(left.Settlements[i].Template.SpecialInitialInventory.ToArray(),
-                right.Settlements[i].Template.SpecialInitialInventory.ToArray());
+        using var firstSession = first.Activate();
+        using var secondSession = second.Activate();
+        var firstCapture = firstSession.Capture(CapturePurpose.Save);
+        var secondCapture = secondSession.Capture(CapturePurpose.Save);
+        Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Success>(firstCapture);
+        Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Success>(secondCapture);
+        var left = ((CoreResult<ICoreCapture>.Success)firstCapture).Value;
+        var right = ((CoreResult<ICoreCapture>.Success)secondCapture).Value;
+        Assert.AreEqual(left.Encode(), right.Encode());
+        Assert.AreEqual(left.Checkpoint, right.Checkpoint);
     }
 
     [TestMethod]

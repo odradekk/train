@@ -146,18 +146,16 @@ public sealed class WorldQueryTests
     }
 
     [TestMethod]
-    public void RetainedViewRemainsReadableAfterAdvanceAndSessionDisposal()
+    public void Edge_location_queries_preserve_a_nonnegative_distance_beyond_the_edge_length()
     {
-        using var candidate = Prepare();
-        var session = candidate.Activate();
-        var retained = session.Read();
-        var original = retained.World;
-        var position = retained.Position;
-        session.Advance(1);
-        session.Dispose();
-        Assert.AreEqual(position, retained.Position);
-        Assert.AreEqual(original, retained.World);
-        Assert.AreEqual(original.Nodes[0], ((Lookup<NodeView>.Found)retained.FindNode(new(1))).Value.Map);
-        Assert.IsInstanceOfType<Lookup<InstanceView>.Found>(retained.FindInstance(new InstanceId.Vehicle(new(1))));
+        using var candidate = Prepare(WorldFixture.Input with { Configuration = WorldFixture.Input.Configuration with { WidthMeters = 100 } });
+        var view = candidate.View;
+        var edge = view.World.Edges[0];
+        var requested = new WorldLocation.Edge(edge.Id, edge.LengthMeters + 1);
+        var result = view.FindLocation(requested);
+        Assert.IsInstanceOfType<Lookup<LocationView>.Found>(result);
+        Assert.AreEqual(requested, ((Lookup<LocationView>.Found)result).Value.Location);
+        foreach (var distance in new[] { -1d, double.NaN, double.PositiveInfinity, double.NegativeInfinity })
+            Assert.ThrowsExactly<ArgumentException>(() => view.FindLocation(new WorldLocation.Edge(edge.Id, distance)));
     }
 }

@@ -124,7 +124,53 @@ public sealed class WorldGraphTests
         AssertGraph(nodes, edges);
     }
 
+    [TestMethod]
+    public void GreedyGraphRejectsCrossingShortDiagonalsBeforeLongBoundaryEdges()
+    {
+        // 独立 Python struct/SplitMix64 + 高 53 位 smoothstep 参考实现，seed=42、scale=8、retry=0：
+        // 四端 (0,0)/(4,4)/(0,4)/(4,0) 及中心 (2,2) 的海拔。
+        double[] lowElevations = [0.05290786737049469, 0.3274539939951563,
+            0.17192402109368948, 0.09742917262025147, 0.11485401349990437];
+        var bands = lowElevations.Select(elevation => new TerrainGenerationBand(new("fixture:low"),
+            elevation - 1e-14, elevation + 1e-14, 0, 1, 1, 1, 2)).ToImmutableArray();
+        var input = WorldFixture.Input;
+        input = input with { Configuration = input.Configuration with
+        {
+            WidthMeters = 4, HeightMeters = 4, TerrainSampleSpacingMeters = Math.Sqrt(8),
+            ElevationNoise = [new(8, 1)],
+            TerrainBands = [.. bands, new(new("fixture:detour"), 0, 1, 0, 1, 2, 3, 2)]
+        } };
+        var budget = new GenerationBudgetCounter(input.Configuration.Budget);
+        var nodes = Nodes(new(0, 0), new(4, 4), new(0, 4), new(4, 0));
+        var edges = WorldGraph.Build(nodes, new(input, budget, 0), budget);
+
+        // 间距 √8 让对角线只采两端与中心。边界内部采样的海拔分别为
+        // .1211307003207879/.07842851709546747/.1241388552008819/.18998362084967235，均只匹配绕行带。
+        // 两条对角线因此都比全部边界边短；删边不可能通过更短的两段路径删除任一对角线。
+        AssertConnectedAndNoncrossing(nodes, edges);
+        var diagonals = edges.Where(edge => (edge.A, edge.B) is (0, 1) or (2, 3)).ToArray();
+        Assert.AreEqual(1, diagonals.Length);
+        Assert.AreEqual(Math.Sqrt(32), diagonals[0].LengthMeters, 1e-12);
+        var boundary = edges.Where(edge => (edge.A, edge.B) is not ((0, 1) or (2, 3))).ToArray();
+        Assert.IsTrue(boundary.Length >= 2);
+        foreach (var edge in boundary) Assert.AreEqual(12d, edge.LengthMeters, 1e-12);
+    }
+
     private static void AssertGraph(ImmutableArray<CandidateNode> nodes, ImmutableArray<CandidateEdge> edges)
+    {
+        AssertConnectedAndNoncrossing(nodes, edges);
+        foreach (var edge in edges)
+        {
+            var a = nodes[edge.A].Position;
+            var b = nodes[edge.B].Position;
+            Assert.AreEqual(Math.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y)),
+                edge.LengthMeters, 1e-12);
+            Assert.AreEqual(2, edge.TrackLimit);
+            Assert.AreEqual(WorldFixture.Plain, edge.Terrain.TypeId);
+        }
+    }
+
+    private static void AssertConnectedAndNoncrossing(ImmutableArray<CandidateNode> nodes, ImmutableArray<CandidateEdge> edges)
     {
         var reached = new HashSet<int> { 0 };
         var pending = new Queue<int>();
@@ -136,15 +182,6 @@ public sealed class WorldGraphTests
                 if (reached.Add(next)) pending.Enqueue(next);
             }
         Assert.AreEqual(nodes.Length, reached.Count);
-        foreach (var edge in edges)
-        {
-            var a = nodes[edge.A].Position;
-            var b = nodes[edge.B].Position;
-            Assert.AreEqual(Math.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y)),
-                edge.LengthMeters, 1e-12);
-            Assert.AreEqual(2, edge.TrackLimit);
-            Assert.AreEqual(WorldFixture.Plain, edge.Terrain.TypeId);
-        }
         for (var i = 0; i < edges.Length; i++)
             for (var j = i + 1; j < edges.Length; j++)
             {
