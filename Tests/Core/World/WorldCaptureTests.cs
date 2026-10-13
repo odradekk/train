@@ -21,6 +21,30 @@ public sealed class WorldCaptureTests
     }
 
     [TestMethod]
+    public void Small_building_on_medium_plot_round_trips_with_the_plot_size()
+    {
+        var content = MultiContent;
+        var template = content.SettlementTemplates[0];
+        content = content with { SettlementTemplates = [template with
+            { Plots = template.Plots.SetItem(1, template.Plots[1] with { Size = PlotSize.Medium }) }] };
+        using var candidate = Prepare(content: content);
+        using var original = candidate.Activate();
+        var captured = Capture(original);
+        var decoded = Success(CoreFactory.Create().DecodeState(captured.Encode()));
+        Assert.AreEqual(captured.Encode(), decoded.Encode());
+        Assert.AreEqual(captured.Checkpoint, decoded.Checkpoint);
+        using var restoredCandidate = Success(CoreFactory.Create().PrepareRestore(decoded, content, Options));
+        using var restored = restoredCandidate.Activate();
+        AssertQueries(original.Read(), restored.Read());
+        var building = ((Lookup<InstanceView>.Found)restored.Read().FindInstance(new InstanceId.Building(new(2)))).Value;
+        Assert.AreEqual(FactoryBuilding, building.Design);
+        Assert.AreEqual(new InstanceDetails.Building(new(2), PlotSize.Medium), building.Details);
+        var recaptured = Capture(restored);
+        Assert.AreEqual(captured.Encode(), recaptured.Encode());
+        Assert.AreEqual(captured.Checkpoint, recaptured.Checkpoint);
+    }
+
+    [TestMethod]
     public void World_round_trip_retains_queries_authoritative_state_and_template_business_data()
     {
         var input = WorldFixture.Input;

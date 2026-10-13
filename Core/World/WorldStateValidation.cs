@@ -192,7 +192,7 @@ internal static class WorldStateValidation
             {
                 case (InstanceId.Building id, InstanceDetails.Building b, DesignKind.Building design):
                     Require(plots.TryGetValue(b.Plot, out var plot) && plot.Plot.Building == id.Id
-                        && b.Size == plot.Plot.Size && design.PlotSize == b.Size, "/world/instances/details"); break;
+                        && b.Size == plot.Plot.Size && WorldInputs.FitsPlot(design.PlotSize, b.Size), "/world/instances/details"); break;
                 case (InstanceId.Vehicle id, InstanceDetails.Vehicle v, DesignKind.Vehicle design):
                     Require(design.Size == v.Size && (v.Train is { } train
                         ? trains.TryGetValue(train, out var owner) && owner.Vehicles.Contains(id.Id)
