@@ -21,11 +21,11 @@ if ($ExportWindows -and ('engine' -notin $layers -or $Project.Count -or -not $Is
 if ($Project.Count) { $layers = @($layers | Where-Object { $_ -notin @('engine', 'stage') }) }
 if (-not $layers.Count) { throw 'Selected layers match no MSTest tests.' }
 $projects = @(
-    @{ name = 'core'; path = 'Tests/Core/Train.Core.Tests.csproj'; fast = 629; integration = $(if ($IsWindows) { 11 } else { 8 }) },
-    @{ name = 'content'; path = 'Tests/Content/Train.Content.Tests.csproj'; fast = 507; integration = 7 },
-    @{ name = 'scenes'; path = 'Tests/Scenes/Train.Scenes.Tests.csproj'; fast = 167; integration = 1 },
-    @{ name = 'godot'; path = 'Tests/Godot/Train.Godot.Tests.csproj'; fast = 13; integration = $(if ($IsWindows) { 40 } else { 37 }); engine = 24 },
-    @{ name = 'contract-support'; path = 'Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj'; fast = 24; integration = 0 },
+    @{ name = 'core'; path = 'Tests/Core/Train.Core.Tests.csproj'; fast = 481; integration = $(if ($IsWindows) { 10 } else { 7 }) },
+    @{ name = 'content'; path = 'Tests/Content/Train.Content.Tests.csproj'; fast = 515; integration = 7 },
+    @{ name = 'scenes'; path = 'Tests/Scenes/Train.Scenes.Tests.csproj'; fast = 251; integration = 1 },
+    @{ name = 'godot'; path = 'Tests/Godot/Train.Godot.Tests.csproj'; fast = 145; integration = $(if ($IsWindows) { 85 } else { 77 }); engine = 101 },
+    @{ name = 'contract-support'; path = 'Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj'; fast = 40; integration = 0 },
     @{ name = 'contract-checks'; path = 'Tests/ContractChecks.Tests/Train.ContractChecks.Tests.csproj'; fast = 9; integration = 4 },
     @{ name = 'cli'; path = 'Tests/Cli/Train.Cli.Tests.csproj'; fast = 4; integration = $(if ($IsWindows) { 7 } else { 3 }) }
 )
@@ -171,7 +171,7 @@ try {
         Invoke-Check build preparation dotnet @('build', 'Train.sln', '--nologo') 300
     } elseif (-not $selectedLayers.Count) { Write-Host 'No affected test projects or checks selected; no build or tests required.' }
     foreach ($current in $layers) {
-        $budget = @{ fast = 60; integration = 210; engine = 300 }[$current]
+        $budget = @{ fast = 90; integration = 330; engine = 300 }[$current]
         $watch = [Diagnostics.Stopwatch]::StartNew()
         $selected = $current -in $selectedLayers
         $layerError = $null
@@ -187,7 +187,7 @@ try {
                 Invoke-Check benchmark-build preparation dotnet @('build', 'Tests/Benchmarks/Train.Benchmarks.csproj', '-c', 'Release', '--nologo') 300
                 Invoke-Check stage-structure $current dotnet @($contractTool, 'structure', $root, 'Debug', (Join-Path $run 'stage-structure')) 300
                 Invoke-Check stage-verify $current dotnet @($contractTool, 'verify', $root, 'Debug', $contractBaseline) 120
-                Invoke-Isolation stage-isolate $current (Join-Path $run 'stage-isolate') 300
+                Invoke-Isolation stage-isolate $current (Join-Path $run 'stage-isolate') 450
 
                 Invoke-Check stage-core $current dotnet @('test', '--test-modules', 'Tests/Core/bin/Debug/net10.0/Train.Core.Tests.dll', '--root-directory', $root, '--results-directory', $run,
                     '--minimum-expected-tests', '2', '--', '--filter', 'TestCategory=stage', '--report-trx', '--report-trx-filename', 'stage-core.trx', '--timeout', '180s') 180
@@ -195,12 +195,12 @@ try {
                 if ($IsWindows) {
                     $threshold = [ordered]@{ name = 'benchmark-threshold'; layer = $current; total = 1; executed = 1; passed = 0; failed = 1; skipped = 0 }
                     try {
-                        $threshold.baseline = Get-Content (Join-Path $root 'Tests/Benchmarks/Baselines/windows-resource-simulation.json') -Raw | ConvertFrom-Json
+                        $threshold.baseline = Get-Content (Join-Path $root 'Tests/Benchmarks/Baselines/windows-core-train-loop.json') -Raw | ConvertFrom-Json
                         $threshold.measurement = Get-Content (Join-Path $run 'benchmark/throughput.json') -Raw | ConvertFrom-Json
                         foreach ($value in @($threshold.baseline.baselineStepsPerSecond, $threshold.baseline.maximumSlowdown, $threshold.measurement.stepsPerSecond)) {
                             if (($value -isnot [long] -and $value -isnot [double]) -or -not [double]::IsFinite($value)) { throw 'Benchmark numeric values are invalid.' }
                         }
-                        if ($threshold.baseline.workload -ne 'resource-simulation-v1' -or $threshold.baseline.workload -ne $threshold.measurement.workload -or
+                        if ($threshold.baseline.workload -ne 'core-train-loop-v1' -or $threshold.baseline.workload -ne $threshold.measurement.workload -or
                             $threshold.baseline.baselineStepsPerSecond -le 0 -or $threshold.baseline.maximumSlowdown -lt 1 -or $threshold.measurement.stepsPerSecond -le 0) { throw 'Benchmark workload or numeric values are invalid.' }
                         $threshold.measurementRatio = $threshold.measurement.stepsPerSecond / $threshold.baseline.baselineStepsPerSecond
                         if ($threshold.measurement.stepsPerSecond * $threshold.baseline.maximumSlowdown -lt $threshold.baseline.baselineStepsPerSecond) { throw 'Benchmark slowdown exceeds the candidate limit.' }
@@ -324,7 +324,7 @@ try {
             foreach ($count in @('total', 'executed', 'passed', 'failed', 'skipped')) { $layerSummary[$count] = [int] ($summary.checks | Where-Object layer -eq $current | Measure-Object $count -Sum).Sum }
             $summary.layers += $layerSummary
             if ($layerCompleted -and $selected -and $current -eq 'integration' -and $summary.selection.isolation) {
-                try { Invoke-Isolation isolate isolation (Join-Path $run 'isolation') 300 }
+                try { Invoke-Isolation isolate isolation (Join-Path $run 'isolation') 450 }
                 catch {
                     if ($layerError) { throw "$layerError; $($_.Exception.Message)" }
                     throw
@@ -376,7 +376,10 @@ finally {
                     $inBenchmark = $artifact.FullName.StartsWith((Join-Path $run 'benchmark') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
                     $inScreenshot = $artifact.FullName.StartsWith((Join-Path $run 'screenshot') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
                     $inProbeData = $artifact.FullName.StartsWith($probeData + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
-                    if ($artifact.Name -ne 'summary.json' -and -not $inProbeData -and -not $inBenchmark -and -not $inScreenshot -and $artifact.Name -ne 'stage-screenshot.junit.xml' -and $artifact.Extension -notin @('.log', '.jsonl') -and
+                    $isIsolationEvidence = ($artifact.FullName.StartsWith((Join-Path $run 'isolation') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -or
+                        $artifact.FullName.StartsWith((Join-Path $run 'stage-isolate') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) -and
+                        $artifact.Name -in @('inputs.json', 'first-party-assemblies.json', 'isolation-summary.json')
+                    if ($artifact.Name -ne 'summary.json' -and -not $isIsolationEvidence -and -not $inProbeData -and -not $inBenchmark -and -not $inScreenshot -and $artifact.Name -ne 'stage-screenshot.junit.xml' -and $artifact.Extension -notin @('.log', '.jsonl') -and
                         $artifact.Name -notlike '*.process.json' -and $artifact.Name -ne 'duration.json') {
                         Remove-Item -LiteralPath $artifact.FullName -Force
                     }

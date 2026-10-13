@@ -131,17 +131,22 @@ public class DeveloperToolsTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Legacy_app_without_contract_host_has_no_developer_window()
+    public async Task Production_app_registers_the_developer_window_with_real_content_ready()
     {
         var fixture = new Fixture(TestScene.GetTree());
         try
         {
             var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
             await fixture.AddToRoot(app);
-            Require(app.Host is null && app.Development is null && !app.GetChildren().OfType<DeveloperInspector>().Any(),
-                "没有新宿主时不应注册开发窗口。");
+            await FramesUntil(TestScene, () => !app.Host!.IsBusy);
+            var inspector = app.GetChildren().OfType<DeveloperInspector>().Single();
+            Require(app.Host!.Content is not null && app.Host.GetStatus() is null &&
+                app.Development is not null && !inspector.Visible,
+                "生产菜单未在真实内容就绪后挂接默认隐藏的开发窗口。");
             app.GetChildren().OfType<GameConsole>().Single().SubmitLine("dev open");
-            Require(!app.GetChildren().OfType<DeveloperInspector>().Any(), "旧启动路径的dev创建了开发窗口。");
+            Require(inspector.Visible, "生产宿主的 dev open 未打开开发窗口。");
+            app.GetChildren().OfType<GameConsole>().Single().SubmitLine("dev close");
+            Require(!inspector.Visible, "生产宿主的 dev close 未隐藏开发窗口。");
         }
         finally { await fixture.Cleanup(); }
     }

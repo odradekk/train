@@ -107,7 +107,7 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
     public async Task Lighting_survives_return_and_reentry_without_simulation_or_save_mutation()
     {
         var fixture = new Fixture(TestScene.GetTree());
-        var core = new ScriptedCoreSession(new FixedCoreReadView(new(0, 0), HostCoreScenario.Input));
+        var core = new ScriptedCoreSession(WorldSceneFixture.EmptyWorld(new(0, 0)));
         var content = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1));
         var target = new WorldSceneTarget.Location(new WorldLocation.Node(new(1)));
         var factory = new FixedDisplayFactory
@@ -175,25 +175,30 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
             Require((core.AdvanceCount, core.SubmitCount, core.CaptureCount) == calls &&
                 app.Host.GetSaveStatus() == save && app.Host.GetStatus() == status,
                 "光照切换或重入推进了模拟、提交命令、捕获存档或改变宿主存档状态。");
+            Require(!console.LogEvents.Any(log => log.EventId == "host_consumer_failed"),
+                "光照用例的宿主边界未成功接入界面。");
         }
         finally { await fixture.Cleanup(); }
     }
 
     [Test]
-    public async Task Legacy_app_reports_lighting_unavailable_through_the_console()
+    public async Task Production_app_selects_lighting_before_entering_the_world()
     {
         var fixture = new Fixture(TestScene.GetTree());
         try
         {
             var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
-            Require(app.WorldScenes is null, "普通启动意外创建了世界场景控制器。");
+            var world = app.WorldScenes;
+            Require(world is not null && !world.View.Visible && app.Host!.GetStatus() is null,
+                "生产启动没有在菜单创建尚未进入场景的世界视图。");
             var console = app.GetChildren().OfType<GameConsole>().Single();
             var previous = console.LogEvents.Count;
             console.SubmitLine("lighting night");
             var feedback = console.LogEvents.Skip(previous).ToArray();
-            Require(feedback.Any(log => log.EventId == "lighting_unavailable") &&
-                !feedback.Any(log => log.EventId is "lighting_denied" or "unknown_command"),
-                "没有世界场景时lighting未报告不可用。");
+            Require(world!.View.Lighting == InspectionLighting.Night && app.Host!.GetStatus() is null &&
+                feedback.Any(log => log.EventId == "lighting_mode" && Equals(log.Attributes["mode"], "night")) &&
+                !feedback.Any(log => log.EventId is "lighting_unavailable" or "lighting_denied" or "unknown_command"),
+                "菜单预选光照没有生效，或错误地建立了核心会话。");
         }
         finally { await fixture.Cleanup(); }
     }
