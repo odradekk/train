@@ -35,9 +35,13 @@ internal sealed class SceneFrame : ISceneFrame
     private readonly RailwayPath? railway;
     private readonly ImmutableArray<RailwaySegment> segments;
     private readonly ImmutableArray<SceneFog> fog;
+    private readonly NodeLayout? node;
+    private readonly ImmutableArray<NodeScene.Part> nodeParts;
+    internal RailwayPath? Railway => railway;
+    internal NodeLayout? Node => node;
     internal ImmutableArray<SceneObject> Objects { get; }
     public ScenePoint Origin { get; }
-    public ScenePanBounds? NodePanBounds => null;
+    public ScenePanBounds? NodePanBounds => node?.PanBounds(Origin);
     public SceneReadiness Readiness { get; }
     public double SimulationSeconds { get; }
     public SceneUpdate Update { get; }
@@ -47,7 +51,8 @@ internal sealed class SceneFrame : ISceneFrame
     internal SceneFrame(SceneFrameStamp stamp, ScenePoint origin, double seconds,
         SceneReadiness readiness, ImmutableArray<SceneObject> objects, ImmutableArray<PickGrid> picking,
         ImmutableArray<SceneFog> fog, ImmutableArray<SceneProblem> diagnostics, SceneFrame? displayed = null,
-        RailwayPath? railway = null, ImmutableArray<RailwaySegment> segments = default)
+        RailwayPath? railway = null, ImmutableArray<RailwaySegment> segments = default,
+        NodeLayout? node = null, ImmutableArray<NodeScene.Part> nodeParts = default)
     {
         Origin = origin;
         SimulationSeconds = seconds;
@@ -56,6 +61,8 @@ internal sealed class SceneFrame : ISceneFrame
         this.picking = picking;
         Diagnostics = diagnostics;
         this.railway = railway;
+        this.node = node;
+        this.nodeParts = nodeParts.IsDefault ? [] : nodeParts;
         this.segments = segments.IsDefault ? [] : segments;
         this.fog = fog;
         var environment = new SceneEnvironment(fog.Select(item => item.WorldBounds).ToImmutableArray(), []);
@@ -129,6 +136,17 @@ internal sealed class SceneFrame : ISceneFrame
     public Lookup<WorldLocation> Locate(Vector3 point)
     {
         if (!SceneGeometry.Finite(point)) throw new ArgumentException("Point must be finite.", nameof(point));
+        if (node is not null)
+        {
+            foreach (var part in nodeParts)
+            {
+                var x = Math.Floor(point.X + Origin.X - part.Origin.X);
+                var z = Math.Floor(point.Z + Origin.Z - part.Origin.Z);
+                if (x >= int.MinValue && x <= int.MaxValue && z >= int.MinValue && z <= int.MaxValue &&
+                    part.Heights.ContainsKey(new((int)x, (int)z))) return new Lookup<WorldLocation>.Found(new WorldLocation.Node(node.Node));
+            }
+            return new Lookup<WorldLocation>.Missing();
+        }
         if (railway is null) return new Lookup<WorldLocation>.Missing();
         var distance = railway.Locate(RailwayCoordinates.Add(Origin, point));
         var index = Math.Clamp((int)(distance / RailwayCoordinates.SegmentLengthCells), 0, railway.SegmentCount - 1);
@@ -139,6 +157,17 @@ internal sealed class SceneFrame : ISceneFrame
     {
         if (!double.IsFinite(x) || !double.IsFinite(z)) throw new ArgumentException("Coordinates must be finite.");
         var point = new ScenePoint(x + Origin.X, 0, z + Origin.Z);
+        if (node is not null)
+        {
+            foreach (var part in nodeParts)
+            {
+                var localX = Math.Floor(point.X - part.Origin.X);
+                var localZ = Math.Floor(point.Z - part.Origin.Z);
+                if (localX >= int.MinValue && localX <= int.MaxValue && localZ >= int.MinValue && localZ <= int.MaxValue &&
+                    part.Heights.TryGetValue(new((int)localX, (int)localZ), out var height)) return new Lookup<double>.Found(height - Origin.Y);
+            }
+            return new Lookup<double>.Missing();
+        }
         foreach (var segment in segments)
         {
             var localX = Math.Floor(point.X - segment.Origin.X);
@@ -148,5 +177,24 @@ internal sealed class SceneFrame : ISceneFrame
             if (segment.Heights.TryGetValue(column, out var height)) return new Lookup<double>.Found(height - Origin.Y);
         }
         return new Lookup<double>.Missing();
+    }
+
+    internal static ScenePoint? SwitchOrigin(SceneFrame previous, NodeLayout? nextNode, RailwayPath? nextRailway)
+    {
+        ScenePoint from, to;
+        if (previous.railway is { } oldRailway && nextNode is not null &&
+            (oldRailway.Start.Id == nextNode.Node || oldRailway.End.Id == nextNode.Node))
+        {
+            from = oldRailway.Sample(oldRailway.Start.Id == nextNode.Node ? 0 : oldRailway.LengthCells).Position;
+            to = nextNode.EntryPoint(oldRailway.Edge.Id);
+        }
+        else if (previous.node is { } oldNode && nextRailway is not null &&
+            (nextRailway.Start.Id == oldNode.Node || nextRailway.End.Id == oldNode.Node))
+        {
+            from = oldNode.EntryPoint(nextRailway.Edge.Id);
+            to = nextRailway.Sample(nextRailway.Start.Id == oldNode.Node ? 0 : nextRailway.LengthCells).Position;
+        }
+        else return null;
+        return new(previous.Origin.X + to.X - from.X, previous.Origin.Y + to.Y - from.Y, previous.Origin.Z + to.Z - from.Z);
     }
 }
