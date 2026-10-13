@@ -63,7 +63,14 @@ internal sealed class FileSaveStore
             _ = Read(candidate);
             cancellation.ThrowIfCancellationRequested();
             publishing = true;
-            publish(candidate, fullTarget, overwrite);
+            // Windows 的短暂占用可能拒绝替换；进入发布后不再把取消当作撤销。
+            for (var attempt = 0; ; attempt++)
+            {
+                try { publish(candidate, fullTarget, overwrite); break; }
+                catch (Exception error) when ((error is IOException or UnauthorizedAccessException)
+                    && attempt < 3 && (overwrite || !File.Exists(fullTarget)))
+                { Thread.Sleep(25); }
+            }
             result = new(true);
         }
         catch (OperationCanceledException) when (!publishing && cancellation.IsCancellationRequested)

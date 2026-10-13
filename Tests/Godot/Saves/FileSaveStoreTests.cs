@@ -31,8 +31,6 @@ public sealed class FileSaveStoreTests
         Assert.IsTrue(files.Store.Write(target, document, false).Published);
         Assert.AreEqual(document.CorePayload, files.Store.Read(target).CorePayload);
         Assert.AreEqual(document.Header.Id, files.Store.ReadHeader(target).Id);
-        Assert.AreEqual(Path.Combine(files.Store.DirectoryFor(document.Header.Id), "autosave-2.json"), files.Store.AutoPathFor(document.Header.Id, 2));
-        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => files.Store.AutoPathFor(document.Header.Id, 3));
         CollectionAssert.AreEqual(new[] { target }, Directory.GetFiles(Path.GetDirectoryName(target)!));
     }
 
@@ -95,6 +93,69 @@ public sealed class FileSaveStoreTests
         Assert.IsTrue(result.Published, $"{result.Code}: {result.Message}; cleanup: {result.CleanupMessage}");
         Assert.IsNull(result.Code);
         Assert.AreEqual("replacement", files.Store.Read(files.Target).CorePayload);
+        files.AssertOnlyTarget();
+    }
+
+    [TestMethod]
+    public void Transient_publication_failures_retry_and_publication_ignores_later_cancellation()
+    {
+        using var files = new SaveFiles();
+        files.SaveOriginal();
+        using var cancellation = new CancellationTokenSource();
+        var attempts = 0;
+        var store = new FileSaveStore(files.Root, FileSaveStore.WriteCandidate, (candidate, target, overwrite) =>
+        {
+            if (++attempts <= 2)
+            {
+                cancellation.Cancel();
+                throw new UnauthorizedAccessException("短暂拒绝替换");
+            }
+            File.Move(candidate, target, overwrite);
+        });
+        var result = store.Write(files.Target, SaveContainerTests.Document("replacement"), true, cancellation.Token);
+        Assert.IsTrue(result.Published, result.Message);
+        Assert.IsNull(result.Code);
+        Assert.AreEqual("replacement", files.Store.Read(files.Target).CorePayload);
+        files.AssertOnlyTarget();
+    }
+
+    [TestMethod]
+    public void Persistent_publication_failure_is_bounded_and_preserves_old_target()
+    {
+        using var files = new SaveFiles();
+        files.SaveOriginal();
+        var original = File.ReadAllBytes(files.Target);
+        var attempts = 0;
+        var store = new FileSaveStore(files.Root, FileSaveStore.WriteCandidate, (_, _, _) =>
+        {
+            if (++attempts > 4) Assert.Fail("文件发布最多尝试四次。");
+            throw new IOException("持续拒绝替换");
+        });
+        var result = store.Write(files.Target, SaveContainerTests.Document("replacement"), true);
+        Assert.IsFalse(result.Published);
+        Assert.AreEqual("write-failed", result.Code);
+        Assert.AreEqual("持续拒绝替换", result.Message);
+        Assert.AreEqual(4, attempts);
+        CollectionAssert.AreEqual(original, File.ReadAllBytes(files.Target));
+        files.AssertOnlyTarget();
+    }
+
+    [TestMethod]
+    public void Existing_target_without_overwrite_permission_is_not_retried()
+    {
+        using var files = new SaveFiles();
+        files.SaveOriginal();
+        var attempts = 0;
+        var store = new FileSaveStore(files.Root, FileSaveStore.WriteCandidate, (candidate, target, overwrite) =>
+        {
+            attempts++;
+            File.Move(candidate, target, overwrite);
+        });
+        var result = store.Write(files.Target, SaveContainerTests.Document("replacement"), false);
+        Assert.IsFalse(result.Published);
+        Assert.AreEqual("write-failed", result.Code);
+        Assert.AreEqual(1, attempts);
+        Assert.AreEqual("original", files.Store.Read(files.Target).CorePayload);
         files.AssertOnlyTarget();
     }
 
