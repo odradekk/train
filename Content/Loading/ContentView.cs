@@ -28,11 +28,14 @@ internal sealed class ContentView : C.IContentView
     public ImmutableArray<C.GenerationProfileSummary> GenerationProfiles { get; }
     internal ImmutableArray<C.PackageMetadata> SavedPackages { get; } = [];
     internal ImmutableArray<CapturedDesign> SavedDesigns { get; } = [];
+    internal ContentSourceSnapshot? Source { get; }
 
     internal ContentView(ImmutableArray<LoadedVoxel> voxels, ImmutableArray<C.PackageStatus> packages,
-        ImmutableArray<C.ContentAsset> assets, ImmutableArray<C.BlueprintRecord> blueprints, WorldDefinitions? world = null)
+        ImmutableArray<C.ContentAsset> assets, ImmutableArray<C.BlueprintRecord> blueprints, WorldDefinitions? world = null,
+        ContentSourceSnapshot? source = null)
     {
         _world = world ?? WorldDefinitions.Empty;
+        Source = source;
         _layouts = FrozenDictionary<K.SettlementId, C.SettlementLayoutProjection>.Empty;
         PersistentRevision = new(0);
         _voxels = voxels.ToFrozenDictionary(voxel => voxel.Definition.Definition);
@@ -68,7 +71,7 @@ internal sealed class ContentView : C.IContentView
     {
         _voxels = basis._voxels; _assets = basis._assets; _blueprints = basis._blueprints; _designs = basis._designs;
         _world = basis._world; _layouts = layouts;
-        Generation = basis.Generation; SavedPackages = basis.SavedPackages; SavedDesigns = basis.SavedDesigns;
+        Generation = basis.Generation; SavedPackages = basis.SavedPackages; SavedDesigns = basis.SavedDesigns; Source = basis.Source;
         Core = basis.Core; Packages = basis.Packages; Voxels = basis.Voxels; Blueprints = basis.Blueprints; GenerationProfiles = basis.GenerationProfiles;
         PersistentRevision = new(checked(basis.PersistentRevision.Value + 1));
     }
@@ -78,7 +81,7 @@ internal sealed class ContentView : C.IContentView
         capture.Validate(references);
         _voxels = basis._voxels; _assets = basis._assets; _blueprints = basis._blueprints; _world = basis._world;
         Generation = generation; PersistentRevision = capture.Revision;
-        SavedPackages = capture.ReferencedPackages; SavedDesigns = capture.Records;
+        SavedPackages = capture.ReferencedPackages; SavedDesigns = capture.Records; Source = basis.Source;
         Packages = basis.Packages; Voxels = basis.Voxels; Blueprints = basis.Blueprints; GenerationProfiles = basis.GenerationProfiles;
         var designs = basis._designs.ToDictionary();
         foreach (var record in capture.Records)
@@ -117,6 +120,12 @@ internal sealed class ContentView : C.IContentView
     internal ContentView WithCapture(ContentCapture capture, K.CoreReferenceManifest references, C.ContentGeneration? generation = null) =>
         new(this, capture, references, generation ?? Generation);
 
+    internal K.CoreReferenceManifest PersistentReferences => new(
+        SavedDesigns.Select(d => d.Hash).ToImmutableArray(),
+        _layouts.Values.OrderBy(t => t.Owner.Value).Select(t => new K.OwnedSettlementTemplateReference(t.Owner, t.SourceTemplate,
+            t.Plots.Select(p => new K.TemplatePlotReference(p.Number, p.Size)).ToImmutableArray())).ToImmutableArray(),
+        Core.MissingReferences.Select(m => new K.RequiredDefinition(m.Reference, null, m.FieldPath, true)).ToImmutableArray(), [Core.Identity]);
+
     internal C.ContentChange ChangesFrom(ContentView basis)
     {
         var changes = Core.Identity == basis.Core.Identity ? C.ContentChange.None : C.ContentChange.CoreInput;
@@ -140,21 +149,30 @@ internal sealed class ContentView : C.IContentView
         writer.WriteEndArray();
     });
 
-    private string Presentation() => JsonSerializer.Serialize(new
+    private string Presentation()
     {
-        voxels = _voxels.Values.OrderBy(v => v.Definition.Definition.Value, StringComparer.Ordinal).Select(v => new
+        string Composition(K.DesignHash hash) => ((C.DesignEvaluation.Complete)_designs[hash]).Composition.Value;
+        return JsonSerializer.Serialize(new
         {
-            v.Display, v.Appearance.Definition, v.Appearance.AllowedOrientations, v.Appearance.Behaviors,
-            collision = JsonSerializer.Serialize(v.Appearance.Collision, v.Appearance.Collision.GetType()),
-            presentation = JsonSerializer.Serialize(v.Appearance.Presentation, v.Appearance.Presentation.GetType())
-        }),
-        terrains = _world.Terrains,
-        types = _world.Types.Select(t => new { t.Source.Core.Id, t.Source.Display, t.Symbol }),
-        templates = _world.Templates.Select(t => new { t.Core.Id, t.Source.Display, t.Source.Layout, t.SceneModel.Design }),
-        profiles = _world.Profiles.Select(p => new { p.Id, p.Display }),
-        packages = Packages.Where(p => p.State == C.PackageState.Available).Select(p => p.Metadata).OfType<C.PackageMetadata>()
-            .OrderBy(p => p.Id.Value, StringComparer.Ordinal)
-    });
+            voxels = _voxels.Values.OrderBy(v => v.Definition.Definition.Value, StringComparer.Ordinal).Select(v => new
+            {
+                v.Display, v.Appearance.Definition, v.Appearance.AllowedOrientations, v.Appearance.Behaviors,
+                collision = JsonSerializer.Serialize(v.Appearance.Collision, v.Appearance.Collision.GetType()),
+                presentation = JsonSerializer.Serialize(v.Appearance.Presentation, v.Appearance.Presentation.GetType())
+            }),
+            terrains = _world.Terrains,
+            types = _world.Types.Select(t => new { t.Source.Core.Id, t.Source.Display, t.Symbol }),
+            templates = _world.Templates.Select(t => new { t.Core.Id, t.Source.Display, t.Source.Layout, t.SceneModel.Design }),
+            railways = _world.Rules.OfType<ParsedRule.Railway>().Select(r => r.Appearance),
+            profiles = _world.Profiles.Select(p => new
+            {
+                p.Id, p.Display, configuration = GenerationSemantics.Configuration(p.Configuration, Composition),
+                start = GenerationSemantics.Start(p.Start, Composition)
+            }),
+            packages = Packages.Where(p => p.State == C.PackageState.Available).Select(p => p.Metadata).OfType<C.PackageMetadata>()
+                .OrderBy(p => p.Id.Value, StringComparer.Ordinal)
+        });
+    }
 
     internal ImmutableArray<C.MissingContentReference> Missing(K.CoreReferenceManifest references)
     {
@@ -230,9 +248,9 @@ internal sealed class ContentView : C.IContentView
     };
 
     public C.ContentLookup<C.VoxelAppearanceProjection> FindVoxelAppearance(K.VoxelDefinitionId definition) =>
-        _voxels.TryGetValue(definition, out var voxel) ? new C.ContentLookup<C.VoxelAppearanceProjection>.Found(voxel.Appearance) : new C.ContentLookup<C.VoxelAppearanceProjection>.NotFound();
+        _voxels.TryGetValue(definition, out var voxel) ? new C.ContentLookup<C.VoxelAppearanceProjection>.Found(voxel.Appearance) : Absent<C.VoxelAppearanceProjection>(new K.CoreDefinitionReference.Voxel(definition));
     public C.ContentLookup<C.VoxelDisplayProjection> FindVoxelDisplay(K.VoxelDefinitionId definition) =>
-        _voxels.TryGetValue(definition, out var voxel) ? new C.ContentLookup<C.VoxelDisplayProjection>.Found(voxel.Display) : new C.ContentLookup<C.VoxelDisplayProjection>.NotFound();
+        _voxels.TryGetValue(definition, out var voxel) ? new C.ContentLookup<C.VoxelDisplayProjection>.Found(voxel.Display) : Absent<C.VoxelDisplayProjection>(new K.CoreDefinitionReference.Voxel(definition));
     public C.ContentLookup<C.ContentDisplay> FindDefinitionDisplay(K.CoreDefinitionReference definition)
     {
         if (definition is K.CoreDefinitionReference.Voxel reference && _voxels.TryGetValue(reference.Id, out var voxel))
@@ -243,12 +261,20 @@ internal sealed class ContentView : C.IContentView
             return new C.ContentLookup<C.ContentDisplay>.Found(new(ground.Display, null, null));
         if (definition is K.CoreDefinitionReference.Template template && _world.Templates.FirstOrDefault(t => t.Core.Id == template.Id) is { } source)
             return new C.ContentLookup<C.ContentDisplay>.Found(new(source.Source.Display, null, null));
-        return new C.ContentLookup<C.ContentDisplay>.NotFound();
+        return Absent<C.ContentDisplay>(definition);
     }
     public C.ContentLookup<C.GoodPresentation> FindGood(K.GoodId good) =>
         good is K.GoodId.Voxel reference && _voxels.TryGetValue(reference.Definition, out var voxel) && voxel.Definition.Good is not null
             ? new C.ContentLookup<C.GoodPresentation>.Found(new(good, new(voxel.Display.Display, voxel.Display.Icon, null), null, false))
-            : new C.ContentLookup<C.GoodPresentation>.NotFound();
+            : good is K.GoodId.Voxel missing ? Absent<C.GoodPresentation>(new K.CoreDefinitionReference.Voxel(missing.Definition))
+                : new C.ContentLookup<C.GoodPresentation>.NotFound();
+    private C.ContentLookup<T> Absent<T>(K.CoreDefinitionReference definition) where T : notnull
+    {
+        var diagnostics = Core.MissingReferences.Where(m => m.Reference == definition).Select(m => new C.ContentDiagnostic(
+            "reference_missing", C.ContentDiagnosticSeverity.Error, "lookup", new C.ContentReference.Core(definition),
+            new(new(DefinitionId(definition).Split(':')[0]), ""), m.FieldPath, null, "定义缺失。")).ToImmutableArray();
+        return diagnostics.IsEmpty ? new C.ContentLookup<T>.NotFound() : new C.ContentLookup<T>.Missing(diagnostics);
+    }
     public C.ContentLookup<C.ContentAsset> FindAsset(C.AssetRevision revision) =>
         _assets.TryGetValue(revision, out var asset) ? new C.ContentLookup<C.ContentAsset>.Found(asset) : new C.ContentLookup<C.ContentAsset>.NotFound();
     public C.ContentLookup<C.BlueprintRecord> FindBlueprint(C.BlueprintAddress address) =>
@@ -261,8 +287,8 @@ internal sealed class ContentView : C.IContentView
     public C.ContentLookup<C.LairAppearanceProjection> FindLair(K.LairTypeId lair) => new C.ContentLookup<C.LairAppearanceProjection>.NotFound();
     public C.ContentLookup<C.TerrainAppearanceProjection> FindTerrain(K.TerrainTypeId terrain) =>
         _world.Terrains.FirstOrDefault(t => t.Id == terrain) is { } ground
-            ? new C.ContentLookup<C.TerrainAppearanceProjection>.Found(ground) : new C.ContentLookup<C.TerrainAppearanceProjection>.NotFound();
+            ? new C.ContentLookup<C.TerrainAppearanceProjection>.Found(ground) : Absent<C.TerrainAppearanceProjection>(new K.CoreDefinitionReference.Terrain(terrain));
     public C.ContentLookup<C.RailwayAppearanceProjection> FindRailwayAppearance(K.RuleDefinitionId rule) =>
         _world.Rules.OfType<ParsedRule.Railway>().FirstOrDefault(r => r.Id == rule) is { } railway
-            ? new C.ContentLookup<C.RailwayAppearanceProjection>.Found(railway.Appearance) : new C.ContentLookup<C.RailwayAppearanceProjection>.NotFound();
+            ? new C.ContentLookup<C.RailwayAppearanceProjection>.Found(railway.Appearance) : Absent<C.RailwayAppearanceProjection>(new K.CoreDefinitionReference.Rule(rule));
 }

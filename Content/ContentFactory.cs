@@ -162,8 +162,20 @@ internal sealed class InitialContentFactory : C.IContentFactory
     private static C.ContentDiagnostic CaptureDiagnostic(DefinitionFormatException exception) => new(
         exception.Code is "invalid_json" or "unsupported_format" ? exception.Code : "inconsistent_capture",
         C.ContentDiagnosticSeverity.Error, "capture", null, null, exception.Field, null, exception.Message);
-    public C.ContentResult<C.IContentReplayCapture> CaptureReplay(ImmutableArray<C.IContentView> history, K.CoreReferenceManifest references) => throw new NotImplementedException();
-    public C.ContentResult<C.IContentReplayCapture> DecodeReplay(string payload) => throw new NotImplementedException();
+    public C.ContentResult<C.IContentReplayCapture> CaptureReplay(ImmutableArray<C.IContentView> history, K.CoreReferenceManifest references)
+    {
+        ArgumentNullException.ThrowIfNull(references);
+        return CaptureResult<C.IContentReplayCapture>(() => ContentReplayCapture.Create(history, references));
+    }
+    public C.ContentResult<C.IContentReplayCapture> DecodeReplay(string payload)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        return CaptureResult<C.IContentReplayCapture>(() =>
+        {
+            using var document = ContentCapture.Parse(payload);
+            return ContentReplayCapture.Read(document.RootElement);
+        });
+    }
     public C.ContentResult<string> EncodeDraft(C.SavedContentDraft draft) => throw new NotImplementedException();
     public C.ContentResult<C.SavedContentDraft> DecodeDraft(string payload) => throw new NotImplementedException();
     public C.ContentResult<C.IAuthoringPackage> OpenAuthoringPackage(C.ContentRoot source, C.PackageId package, C.PackageSourceVersion sourceVersion, C.IContentFiles files) => throw new NotImplementedException();

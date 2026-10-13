@@ -29,6 +29,7 @@ public sealed class ContentRestoreTests
         Assert.IsTrue(restored.Report.RuntimeMissing.Any(m => m.Package?.Value == ModId && m.Field == "instance.part"));
         Assert.IsTrue(restored.Report.RuntimeMissing.Any(m => m.Field.Contains("/layout/palette/", StringComparison.Ordinal)));
         Assert.IsTrue(restored.Report.RuntimeMissing.Any(m => m.Field == "world.terrain"));
+        Assert.IsInstanceOfType<C.ContentLookup<C.TerrainAppearanceProjection>.Missing>(restored.View.FindTerrain(new("core:absent")));
         var partial = (C.DesignEvaluation.Partial)((C.ContentLookup<C.DesignEvaluation>.Found)restored.View.FindDesign(before.Design)).Value;
         Assert.AreEqual(before.Design, partial.CorePlaceholder!.Design);
         var part = partial.CorePlaceholder.Parts.Single();
@@ -45,6 +46,7 @@ public sealed class ContentRestoreTests
         Assert.AreEqual(1, partial.Scene.EditLocks.Length);
         Assert.IsTrue(partial.Scene.Voxels.Single().Missing);
         Assert.IsTrue(restored.View.Core.Designs.Any(d => d.Design == before.Design));
+        Assert.IsInstanceOfType<C.ContentLookup<C.VoxelAppearanceProjection>.Missing>(restored.View.FindVoxelAppearance(new(ModId + ":motor")));
         var resaved = Success(factory.Capture(restored.View, references));
         var installed = ModContent();
         using var recovered = Restore(installed, Success(factory.DecodeCapture(resaved.Encode())), references);

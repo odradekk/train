@@ -167,6 +167,23 @@ public sealed class ContentReloadTests
         Assert.AreEqual(before.MaxStructureDurability, after.MaxStructureDurability);
     }
 
+    [TestMethod]
+    public void Reload_updates_generation_catalog_and_railway_appearance_without_changing_current_core_identity()
+    {
+        var fixture = WorldContentFixtures.Content();
+        using var initial = fixture.Load();
+        var references = References(initial.View);
+        var factory = ContentFactory.Create();
+        Change(fixture, ProfilePath, json => json["configuration"]!["width_meters"] = 1200);
+        Change(fixture, "resources/railway-rules/rail.railway-rule.json", json => json["appearance"]!["maximum_grade"] = 0.2);
+        using var updated = Reload(fixture, initial.View, references);
+        Assert.AreEqual(initial.View.Core.Identity, updated.View.Core.Identity);
+        Assert.AreEqual(initial.View.Generation.Value + 1, updated.View.Generation.Value);
+        Assert.IsTrue(updated.Changes.HasFlag(C.ContentChange.Presentation));
+        Assert.AreEqual(0.2, Found(updated.View.FindRailwayAppearance(new("core:rail"))).MaximumGrade);
+        Assert.AreEqual(1200d, Success(factory.CreateWorldInput(updated.View, new("core:world"), 1, "test")).Configuration.WidthMeters);
+    }
+
     private static C.ContentResult<C.IContentCandidate> Prepare(ContentFixture fixture, C.IContentView basis, K.CoreReferenceManifest references) =>
         ContentFactory.Create().PrepareLoad(new(fixture.Installation, new C.ContentLoadPurpose.Reload(basis, references)), fixture, fixture);
 
