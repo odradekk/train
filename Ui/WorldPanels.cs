@@ -103,6 +103,13 @@ public partial class WorldPanels : Control
         Refresh(_binding, _view, _content);
     }
 
+    internal void Invalidate()
+    {
+        Refresh(default, _view, _content);
+        foreach (var detail in _details) detail.Panel.Hide();
+        _disband.Hide();
+    }
+
     internal void OpenObject(WorldObjectId target)
     {
         var bound = new PanelTarget(_binding, _content.Generation, target);

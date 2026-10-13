@@ -87,6 +87,7 @@ public partial class GameUi : CanvasLayer
             _bar.AddChild(UiStyle.Button("Nodes", "节点", () => _panels.OpenList(WorldListKind.Nodes)));
             _bar.AddChild(UiStyle.Button("Edges", "线路", () => _panels.OpenList(WorldListKind.Edges)));
             _bar.AddChild(UiStyle.Button("Fleet", "车队", () => _panels.OpenList(WorldListKind.Fleet)));
+            _bar.AddChild(UiStyle.Button("Saves", "存档", _menu.OpenSaves));
             _formation = new TrainFormationPanel();
             _formation.Initialize(_host, Submit, ReportUiError);
             _world.AddChild(_formation);
@@ -160,6 +161,17 @@ public partial class GameUi : CanvasLayer
                 _formation!.Refresh(_binding, _view, _content);
                 _plan!.Refresh(_binding, _view, _content);
             }
+        }
+        else if (_view is not null)
+        {
+            _panels!.Invalidate();
+            _formation!.Refresh(default, _view, _content!);
+            _plan!.Refresh(default, _view, _content!);
+            _formation.Hide(); _plan.Hide();
+            _view = null; _content = null; _binding = default;
+            _displayedView = null; _displayedContent = null; _displayedBinding = default;
+            _world.Hide(); _map.Show(); _errorPanel.Hide(); _settings.Hide();
+            _menu.Show();
         }
         _menu.GetNode<Button>("%NewGame").Disabled = _host is null || _host.IsBusy || _host.Content is null;
     }
@@ -287,6 +299,9 @@ public partial class GameUi : CanvasLayer
 
     private void OnOperationEnded(HostOperationResult result)
     {
+        if (result.Kind == OperationKind.Restore &&
+            result.Status is HostOperationStatus.Committed or HostOperationStatus.CommittedWithWarnings)
+            _menu.CloseSaves();
         if (result.Status is not (HostOperationStatus.Committed or HostOperationStatus.CommittedWithWarnings or
             HostOperationStatus.Cancelled or HostOperationStatus.Discarded))
         {

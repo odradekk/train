@@ -90,10 +90,10 @@ public sealed class CoreReplayTests
         using var session = Session();
         var input = Input(session);
         var saved = JsonNode.Parse(input.InitialStatePayload)!;
-        saved["world"]!["money"]!["value"] = 1001;
+        saved["world"]!["money"] = 1001;
         using var replay = Replay(input with { InitialStatePayload = saved.ToJsonString(), Checkpoints = [] });
         var restored = JsonNode.Parse(replay.CaptureBoundary().Checkpoint.CanonicalText)!;
-        Assert.AreEqual(1001, restored["world"]!["money"]!["value"]!.GetValue<int>());
+        Assert.AreEqual(1001, restored["world"]!["money"]!.GetValue<int>());
         Assert.AreEqual(ReplayStop.EndOfRecording, replay.Advance(0).Stop);
     }
 
@@ -392,18 +392,18 @@ public sealed class CoreReplayTests
         using var session = Session();
         var actual = Success(session.Capture(CapturePurpose.Save)).Checkpoint;
         var node = JsonNode.Parse(actual.CanonicalText)!;
-        node["world"]!["money"]!["value"] = 1001;
+        node["world"]!["money"] = 1001;
         var text = node.ToJsonString();
         var expected = actual with { CanonicalText = text, Sha256 = Hash(text) };
         var comparison = (CheckpointComparison.Different)Success(CoreFactory.Create().CompareCheckpoints(expected, actual));
-        Assert.AreEqual("/world/money/value", comparison.Difference.Field);
+        Assert.AreEqual("/world/money", comparison.Difference.Field);
         Assert.AreEqual("1001", comparison.Difference.Expected);
         Assert.AreEqual("1000", comparison.Difference.Actual);
         using var replay = Replay(Input(session) with { Checkpoints = [expected] });
         var result = replay.Advance(0);
         Assert.AreEqual(ReplayStop.FirstDifference, result.Stop);
         Assert.AreEqual(actual.Position, result.Position);
-        Assert.AreEqual("/world/money/value", result.Difference!.Field);
+        Assert.AreEqual("/world/money", result.Difference!.Field);
     }
 
     [TestMethod]
@@ -412,7 +412,7 @@ public sealed class CoreReplayTests
         using var session = Session();
         var actual = Success(session.Capture(CapturePurpose.Save)).Checkpoint;
         var node = JsonNode.Parse(actual.CanonicalText)!;
-        node["world"]!["money"]!["value"] = -1;
+        node["world"]!["money"] = -1;
         var text = node.ToJsonString();
         var invalid = actual with { CanonicalText = text, Sha256 = Hash(text) };
         var failure = (CoreResult<CheckpointComparison>.Failure)CoreFactory.Create().CompareCheckpoints(invalid, actual);

@@ -6,7 +6,7 @@
 | --- | --- |
 | [help](help.md) | 列出当前可用命令名称 |
 | [clear](clear.md) | 清空内存中的控制台日志缓冲区 |
-| [quit](quit.md) | 委托宿主处理退出 |
+| [quit](quit.md) | 委托宿主处理退出；新契约宿主接入存档离开保护 |
 | [reload](reload.md) | 委托宿主重新加载内容 |
 | [loglevel](loglevel.md) | 查询或设置日志过滤等级 |
 | [sim](sim.md) | 查询或控制当前活动模拟会话（仅 Debug） |

@@ -30,10 +30,11 @@ internal sealed class UiTestInput(Node scene)
     internal async Task MouseButton(Vector2 position, Godot.MouseButton button, bool pressed)
         => await SendMouseButton(position, button, pressed, false);
 
-    private async Task SendMouseButton(Vector2 position, Godot.MouseButton button, bool pressed, bool control)
+    private async Task SendMouseButton(Vector2 position, Godot.MouseButton button, bool pressed, bool control,
+        Window? window = null)
     {
         // ParseInputEvent 接收窗口坐标，需计入项目的 canvas_items 缩放。
-        position = scene.GetViewport().GetScreenTransform() * position;
+        if (window is null) position = scene.GetViewport().GetScreenTransform() * position;
         using var input = new InputEventMouseButton { Position = position, GlobalPosition = position,
             ButtonIndex = button, Pressed = pressed, CtrlPressed = control,
             ButtonMask = !pressed ? 0 : button switch
@@ -42,13 +43,14 @@ internal sealed class UiTestInput(Node scene)
                 Godot.MouseButton.Left => MouseButtonMask.Left,
                 _ => 0
             } };
-        Input.ParseInputEvent(input); await Frames();
+        if (window is null) Input.ParseInputEvent(input); else window.PushInput(input, true);
+        await Frames();
     }
 
-    internal async Task Click(Vector2 position, bool control = false)
+    internal async Task Click(Vector2 position, bool control = false, Window? window = null)
     {
-        await SendMouseButton(position, Godot.MouseButton.Left, true, control);
-        await SendMouseButton(position, Godot.MouseButton.Left, false, control);
+        await SendMouseButton(position, Godot.MouseButton.Left, true, control, window);
+        await SendMouseButton(position, Godot.MouseButton.Left, false, control, window);
     }
 
     internal async Task Drag(Vector2 start, Vector2 delta)
@@ -62,12 +64,12 @@ internal sealed class UiTestInput(Node scene)
         await MouseButton(start + delta, Godot.MouseButton.Middle, false);
     }
 
-    internal async Task ClickItem(ItemList list, int index, bool control = false)
+    internal async Task ClickItem(ItemList list, int index, bool control = false, Window? window = null)
     {
         // ItemList 的行矩形由绘制更新，建立或填充后需等待缓存坐标有效。
         await WaitUntil(() => list.IsVisibleInTree() && list.Size.X > 0 && list.Size.Y > 0 &&
             list.GetItemRect(index).Size.Y > 0 &&
             list.GetItemAtPosition(list.GetItemRect(index).GetCenter(), true) == index);
-        await Click(list.GlobalPosition + list.GetItemRect(index).GetCenter(), control);
+        await Click(list.GlobalPosition + list.GetItemRect(index).GetCenter(), control, window);
     }
 }
