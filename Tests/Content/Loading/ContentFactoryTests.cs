@@ -1,3 +1,6 @@
+using System.Collections.Immutable;
+using static Train.Content.Tests.Loading.ContentCaptureTests;
+using K = Train.Core.Contracts;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using C = Train.Content.Contracts;
 
@@ -42,13 +45,11 @@ public sealed class ContentFactoryTests
         var factory = ContentFactory.Create();
         using var candidate = fixture.Load();
         Assert.ThrowsExactly<NotImplementedException>(() => factory.PrepareLoad(
-            new(fixture.Installation, new C.ContentLoadPurpose.Reload(candidate.View, null!)), fixture, fixture));
-        Assert.ThrowsExactly<NotImplementedException>(() => factory.PrepareLoad(
-            new(fixture.Installation, new C.ContentLoadPurpose.Restore(null!, null!)), fixture, fixture));
-        Assert.ThrowsExactly<NotImplementedException>(() => factory.PrepareLoad(
             new(fixture.Installation with { UserLibrary = new C.ContentRoot("library") }, new C.ContentLoadPurpose.Initial()), fixture, fixture));
-        Assert.ThrowsExactly<NotImplementedException>(() => factory.Capture(candidate.View, null!));
-        Assert.ThrowsExactly<NotImplementedException>(() => factory.CaptureReplay([candidate.View], null!));
+        Assert.ThrowsExactly<NotImplementedException>(() => factory.PrepareLoad(
+            new(fixture.Installation with { UserLibrary = new C.ContentRoot("library") }, new C.ContentLoadPurpose.Restore(null!, null!)), fixture, fixture));
+        Assert.ThrowsExactly<NotImplementedException>(() => factory.PrepareLoad(
+            new(fixture.Installation with { UserLibrary = new C.ContentRoot("library") }, new C.ContentLoadPurpose.Reload(candidate.View, null!)), fixture, fixture));
         Assert.ThrowsExactly<NotImplementedException>(() => factory.OpenAuthoringPackage(ContentFixture.BuiltIn, new("core"), new("unused"), fixture));
     }
 
@@ -67,4 +68,88 @@ public sealed class ContentFactoryTests
         Assert.IsTrue(((C.ContentResult<C.IContentCandidate>.Failure)result).Diagnostics.Any(diagnostic =>
             diagnostic.Code == "unsupported_format" && diagnostic.Severity == C.ContentDiagnosticSeverity.Error && diagnostic.Source?.Path == path));
     }
+    [TestMethod]
+    public void Caller_errors_throw_before_loading_or_fault_conversion()
+    {
+        var fixture = WorldContentFixtures.Content();
+        using var initial = fixture.Load();
+        var factory = ContentFactory.Create();
+        var references = References(initial.View, "engine");
+        var saved = Success(factory.Capture(initial.View, references));
+        Assert.ThrowsExactly<ArgumentNullException>(() => Prepare(new C.ContentLoadPurpose.Restore(null!, references)));
+        Assert.ThrowsExactly<ArgumentNullException>(() => Prepare(new C.ContentLoadPurpose.Restore(saved, null!)));
+        Assert.ThrowsExactly<ArgumentNullException>(() => Prepare(new C.ContentLoadPurpose.Reload(null!, references)));
+        Assert.ThrowsExactly<ArgumentNullException>(() => Prepare(new C.ContentLoadPurpose.Reload(initial.View, null!)));
+        Assert.ThrowsExactly<ArgumentException>(() => Prepare(new C.ContentLoadPurpose.Restore(new ForeignCapture(), references)));
+        var foreign = new ForeignView();
+        Assert.ThrowsExactly<ArgumentException>(() => Prepare(new C.ContentLoadPurpose.Reload(foreign, references)));
+        Assert.ThrowsExactly<ArgumentException>(() => factory.CaptureReplay([foreign], references));
+        Assert.ThrowsExactly<ArgumentNullException>(() => factory.CaptureReplay([null!], references));
+        Assert.ThrowsExactly<ArgumentException>(() => factory.CaptureReplay(default, references));
+        foreach (var invalid in new[] { references with { Designs = default }, references with { Templates = default },
+            references with { Definitions = default }, references with { Inputs = default },
+            references with { Templates = [Template(41) with { Plots = default }] } })
+        {
+            Assert.ThrowsExactly<ArgumentException>(() => factory.Capture(initial.View, invalid));
+            Assert.ThrowsExactly<ArgumentException>(() => factory.CaptureReplay([initial.View], invalid));
+            Assert.ThrowsExactly<ArgumentException>(() => Prepare(new C.ContentLoadPurpose.Restore(saved, invalid)));
+            Assert.ThrowsExactly<ArgumentException>(() => Prepare(new C.ContentLoadPurpose.Reload(initial.View, invalid)));
+        }
+        C.ContentResult<C.IContentCandidate> Prepare(C.ContentLoadPurpose purpose) =>
+            factory.PrepareLoad(new(fixture.Installation, purpose), fixture, fixture);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Default_arrays_returned_by_host_files_remain_faulted(bool read)
+    {
+        var fixture = new ContentFixture();
+        fixture.AddCube();
+        var result = ContentFactory.Create().PrepareLoad(new(fixture.Installation, new C.ContentLoadPurpose.Initial()),
+            new DefaultFiles(fixture, read), fixture);
+        Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Faulted>(result);
+    }
+
+    private sealed class DefaultFiles(ContentFixture fixture, bool read) : C.IContentFiles
+    {
+        public C.ContentIoResult<ImmutableArray<C.ContentFileEntry>> Enumerate(C.ContentPath directory) =>
+            read ? fixture.Enumerate(directory) : new C.ContentIoResult<ImmutableArray<C.ContentFileEntry>>.Success(default);
+        public C.ContentIoResult<ImmutableArray<byte>> Read(C.ContentPath file, long maximumBytes) =>
+            new C.ContentIoResult<ImmutableArray<byte>>.Success(default);
+    }
+
+    private sealed class ForeignCapture : C.IContentCapture
+    {
+        public C.ContentRevision Revision => throw new InvalidOperationException();
+        public ImmutableArray<K.DesignHash> Designs => throw new InvalidOperationException();
+        public ImmutableArray<K.OwnedSettlementTemplateReference> Templates => throw new InvalidOperationException();
+        public ImmutableArray<C.PackageMetadata> ReferencedPackages => throw new InvalidOperationException();
+        public string Encode() => throw new InvalidOperationException("Foreign capture must not be encoded.");
+    }
+
+    private sealed class ForeignView : C.IContentView
+    {
+        public C.ContentGeneration Generation => throw new InvalidOperationException();
+        public C.ContentRevision PersistentRevision => throw new InvalidOperationException();
+        public K.CoreContentProjection Core => throw new InvalidOperationException();
+        public ImmutableArray<C.PackageStatus> Packages => throw new InvalidOperationException();
+        public ImmutableArray<C.VoxelCatalogEntry> Voxels => throw new InvalidOperationException();
+        public ImmutableArray<C.BlueprintSummary> Blueprints => throw new InvalidOperationException();
+        public ImmutableArray<C.SavedContentDraft> LocalDrafts => throw new InvalidOperationException();
+        public ImmutableArray<C.GenerationProfileSummary> GenerationProfiles => throw new InvalidOperationException();
+        public C.ContentLookup<C.BlueprintRecord> FindBlueprint(C.BlueprintAddress address) => throw new InvalidOperationException();
+        public C.ContentLookup<C.DesignEvaluation> FindDesign(K.DesignHash hash) => throw new InvalidOperationException();
+        public C.ContentLookup<C.VoxelAppearanceProjection> FindVoxelAppearance(K.VoxelDefinitionId definition) => throw new InvalidOperationException();
+        public C.ContentLookup<C.VoxelDisplayProjection> FindVoxelDisplay(K.VoxelDefinitionId definition) => throw new InvalidOperationException();
+        public C.ContentLookup<C.ContentDisplay> FindDefinitionDisplay(K.CoreDefinitionReference definition) => throw new InvalidOperationException();
+        public C.ContentLookup<C.GoodPresentation> FindGood(K.GoodId good) => throw new InvalidOperationException();
+        public C.ContentLookup<C.ContentAsset> FindAsset(C.AssetRevision revision) => throw new InvalidOperationException();
+        public C.ContentLookup<C.SettlementLayoutProjection> FindSettlementLayout(K.SettlementId settlement) => throw new InvalidOperationException();
+        public C.ContentLookup<C.CreatureAppearanceProjection> FindCreature(K.CreatureDefinitionId creature) => throw new InvalidOperationException();
+        public C.ContentLookup<C.LairAppearanceProjection> FindLair(K.LairTypeId lair) => throw new InvalidOperationException();
+        public C.ContentLookup<C.TerrainAppearanceProjection> FindTerrain(K.TerrainTypeId terrain) => throw new InvalidOperationException();
+        public C.ContentLookup<C.RailwayAppearanceProjection> FindRailwayAppearance(K.RuleDefinitionId rule) => throw new InvalidOperationException();
+    }
+
 }
