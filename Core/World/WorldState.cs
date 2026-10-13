@@ -34,21 +34,22 @@ internal sealed record InstanceState(InstanceId Id, DesignHash Design,
 internal sealed record TrainState(TrainId Id, TrainPosition Position, ImmutableArray<VehicleId> Vehicles,
     InventoryId Inventory, NodeTransitView? Transit, TrainOrderFacing OrderFacing,
     TrainActivity Activity, double SpeedMetersPerSecond, RunPlan? Plan, int? NextStopIndex,
-    ulong RemainingDwellSteps, bool StopRequested);
+    ulong RemainingDwellSteps, bool StopRequested, ulong? QueueEnteredStep, BreakId? ReturningFromBreak);
+internal sealed record TrackHandoff(EdgeId Edge, int Track, TravelDirection Direction);
 internal sealed record InventoryState(InventoryId Id, InventoryOwner Owner,
     ImmutableArray<GoodsQuantity> Goods);
 internal sealed record WorldIdentities(ulong Node, ulong Edge, ulong Settlement, ulong Lair, ulong Plot,
-    ulong Building, ulong Train, ulong Vehicle, ulong Inventory);
+    ulong Building, ulong Train, ulong Vehicle, ulong Inventory, ulong Break);
 
 internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<NodeMapItem> Nodes, ImmutableArray<EdgeMapItem> Edges,
     ImmutableArray<SettlementState> Settlements, ImmutableArray<LairState> Lairs,
     ImmutableArray<InstanceState> Instances, ImmutableArray<TrainState> Trains,
     ImmutableArray<InventoryState> Inventories, ImmutableArray<DesignProjection> Designs,
     ImmutableArray<GoodDefinitionProjection> DesignGoods, Money Money, WorldIdentities Next,
-    ImmutableArray<RequiredDefinition> DefinitionDependencies)
+    ImmutableArray<RequiredDefinition> DefinitionDependencies, ImmutableArray<TrackHandoff> TrackHandoffs)
 {
     internal WorldSummary Map => new(Source.WorldSeed, Source.Configuration.Rules.Railway,
-        Source.Configuration.WidthMeters, Source.Configuration.HeightMeters, Nodes, Edges,
+        Source.Configuration.WidthMeters, Source.Configuration.HeightMeters, Nodes.Select(ReadNode).ToImmutableArray(), Edges,
         Trains.Select(t => new TrainMapItem(t.Id, t.Position, t.Activity)).ToImmutableArray(), [], []);
 
     internal static int CountPlatforms(SettlementState settlement, IReadOnlyDictionary<InstanceId, InstanceState> instances,
@@ -138,7 +139,7 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
             var inventory = new InventoryId(inventoryNumber++);
             inventories.Add(new(inventory, new InventoryOwner.Train(trainId), initial.Inventory));
             trains.Add(new(trainId, new TrainPosition.Node(startNode), vehicles.ToImmutable(), inventory,
-                new(null, null), TrainOrderFacing.FirstEndLeading, TrainActivity.Stopped, 0, null, null, 0, false));
+                new(null, null), TrainOrderFacing.FirstEndLeading, TrainActivity.Stopped, 0, null, null, 0, false, null, null));
         }
         var designs = content.Designs.Where(d => designHashes.Contains(d.Design)).ToImmutableArray();
         var goods = new HashSet<GoodId>(inventories.SelectMany(i => i.Goods).Select(g => g.Good));
@@ -146,7 +147,7 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
         var state = new WorldState(input, mapNodes.ToImmutable(), mapEdges, settlements.ToImmutable(), lairs.ToImmutable(), instances.ToImmutable(), trains.ToImmutable(),
             inventories.ToImmutable(), designs, content.DesignGoods.Where(g => goods.Contains(g.Good)).ToImmutableArray(),
             input.Start.InitialMoney, new((ulong)nodes.Length + 1, (ulong)edges.Length + 1, settlementNumber, lairNumber,
-                plotNumber, buildingNumber, trainNumber, vehicleNumber, inventoryNumber), []);
+                plotNumber, buildingNumber, trainNumber, vehicleNumber, inventoryNumber, 1), [], []);
         return state with { DefinitionDependencies = WorldReferences.Dependencies(state, content) };
 
         InstanceState CreateInstance(InstanceId id, DesignHash hash,
@@ -162,14 +163,21 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
     internal NodeView? FindNode(NodeId id)
     {
         var node = Nodes.FirstOrDefault(n => n.Id == id);
-        return node is null ? null : new(node, Edges.Where(e => e.Start == id || e.End == id).Select(e => e.Id).ToImmutableArray());
+        return node is null ? null : new(ReadNode(node), Edges.Where(e => e.Start == id || e.End == id).Select(e => e.Id).ToImmutableArray());
     }
+
+    internal int OccupiedPlatforms(NodeId node) => Trains.Count(t => t.Activity == TrainActivity.Servicing
+        && t.Position is TrainPosition.Node position && position.Id == node
+        && Nodes.Single(n => n.Id == node).Occupant is NodeOccupant.Settlement { Relation: not SettlementRelation.Hostile });
+
+    private NodeMapItem ReadNode(NodeMapItem node) => node with { OccupiedPlatforms = OccupiedPlatforms(node.Id) };
 
     internal EdgeView? FindEdge(EdgeId id)
     {
         var edge = Edges.FirstOrDefault(e => e.Id == id);
         return edge is null ? null : new(edge,
-            Enumerable.Range(1, edge.Tracks).Select(n => new TrackView(n, null,
+            Enumerable.Range(1, edge.Tracks).Select(n => new TrackView(n,
+                Trains.FirstOrDefault(t => t.Position is TrainPosition.Edge p && p.Id == id && p.Track == n)?.Position is TrainPosition.Edge locked ? locked.Direction : null,
                 Trains.Where(t => t.Position is TrainPosition.Edge p && p.Id == id && p.Track == n)
                     .Select(t => t.Id).ToImmutableArray())).ToImmutableArray(), null);
     }

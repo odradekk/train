@@ -42,7 +42,7 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
             return ExecuteCommand(publish, source, before => WorldContentPublication.Execute(State.World, before, publish.Content));
         }
         TrainCommands.Validate(command);
-        return ExecuteCommand(command, source, content => TrainCommands.Execute(State.World, content, command));
+        return ExecuteCommand(command, source, content => TrainCommands.Execute(State.World, content, command, State.Position.CompletedSteps));
     }
 
     internal SubmissionResult ExecuteCommand(CoreCommand command, CommandSource source,
@@ -105,7 +105,7 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
 
     public AdvanceResult Advance(uint steps) => AdvanceWorld(steps, before =>
     {
-        var (world, events) = TrainOperations.Advance(before.World, before.Content);
+        var (world, events) = TrainOperations.Advance(before.World, before.Content, before.Position.CompletedSteps);
         return (before.Content, world, events);
     });
 
