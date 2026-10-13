@@ -60,7 +60,7 @@ Core 和 Content 测试已各自引用一个实现；原聚合项目的用例已
 
 当前工具命令为 `structure <仓库根> <配置> <输出目录>`、`verify <仓库根> <配置> <基线文件>`、`isolate <仓库根> <配置> <输出目录>`、`snapshot <仓库根> <配置> <基线文件>`；退出码 0 表示通过，1 表示检查或执行失败，2 表示用法错误。`contract-checks` 自测项目包含 8 个快速层、4 个集成层用例。按 #318 的审查决定，其中 6 个 Keep File 规则用例仅使用临时文件、在进程内执行，须满足快速层每例 1 秒上限；CLI 接线由既有结构失败用例同时断言，不额外启动 structure。
 
-单独选择阶段层 `pwsh -NoProfile -File scripts/test.ps1 -Layer stage` 时完全跳过改动分析，总是构建一次解决方案并执行 structure、verify、isolate。`-Layer stage,engine` 不强制引擎，引擎仍按同一套影响规则选择；阶段全量正确性使用 `-All -Layer all`，由 `-All` 强制引擎。常规集成层仅在任意 `*.csproj`、任意层级 `Directory.Build.*`、`Train.sln`、边界矩阵、`Tests/ContractChecks/**` 改动或 `-All` 时选中隔离；显式 `-Project` 跳过这些全仓检查。
+阶段层的固定检查、平台范围和候选基准见[阶段检查与候选基准](../run-tests.md#阶段检查与候选基准)；完整阶段检查使用 `-All -Layer all,stage`。常规集成层仅在任意 `*.csproj`、任意层级 `Directory.Build.*`、`Train.sln`、边界矩阵、`Tests/ContractChecks/**` 改动或 `-All` 时选中隔离；显式 `-Project` 跳过这些全仓检查。
 
 边界矩阵 `scripts/checks/project-boundaries.json` 在顶层、与 `projects` 同级登记 `isolationTests`，其元素是 `projects` 中的隔离根测试项目名。`isolate` 只选择此列表中的项目，沿矩阵声明的允许引用生成各自的依赖闭包；空列表判失败，不回退到固定项目名。工具夹具可以只登记一个模块；真实仓库登记 `["Train.Core.Tests", "Train.Content.Tests", "Train.Scenes.Tests"]`，重新构建三个模块并运行各自全部用例；单次是否通过以运行日志与摘要为准。
 
@@ -153,7 +153,7 @@ Godot 隔离构建只替换真实创建工厂所在的装配入口及其实现�
 | 显式较重检查 | 运行 `-All -Layer all`，执行全部已实现的非导出正确性检查；目标还包括真实 Godot 的隔离与契约行为检查 |
 | 相关变更交付前 | 取得受影响模块及消费者的适用证据；影响 Godot 行为或其所消费契约时须有真实引擎证据，常规 CI 通过不能代替 |
 | 契约原型及整组基线确认 | 完成规定调用矩阵和相关故意破坏验证；初始基线先交候选，再由检查工具任务完成适用证据并取得用户确认，候选交付不提前确认基线；缺少真实实现的验证单列待办，不冒充生产模块通过 |
-| 阶段性联调与验收 | 先运行 `-Layer stage`，始终执行结构、公开面与 Core/Content/Scenes 隔离；再连接本阶段所需的真实实现，执行阶段要求的回归及人工、平台和性能验证；本阶段联调通过后才能开始下一阶段开发。完整 Demo 的全量验收要求保留，具体流程由[交付流程票](https://github.com/odradekk/train/issues/293)确定 |
+| 阶段性联调与验收 | 按[阶段检查与候选基准](../run-tests.md#阶段检查与候选基准)运行完整阶段检查，并取得本阶段所需的真实联调及人工证据；本阶段联调通过后才能开始下一阶段开发。完整 Demo 的全量验收要求保留，具体流程由[交付流程票](https://github.com/odradekk/train/issues/293)确定 |
 
 测量检查耗时并遵守 Testing standard 的分层预算；超出预算时报告实测值，不放宽上限或以耗时为由静默减少必需检查。Benchmark、长测、导出和人工检查继续按风险与阶段要求单独选择。CI 触发方式和权限保持现有约定，不自动调整分支保护或开展付费的较重运行。
 
