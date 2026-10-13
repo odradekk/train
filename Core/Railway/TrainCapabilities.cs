@@ -41,7 +41,7 @@ internal sealed record TrainCapabilities(double LengthMeters, double MassTons,
         }
         foreach (var stack in inventory.OrderBy(s => GoodOrder(s.Good).Kind)
                      .ThenBy(s => GoodOrder(s.Good).Identity, StringComparer.Ordinal))
-            mass += (goods.SingleOrDefault(g => g.Good == stack.Good)?.MassTons ?? 0) * stack.Quantity;
+            mass += goods.Single(g => g.Good == stack.Good).MassTons * stack.Quantity;
         return new(length, mass, traction, maximumSpeed ?? 0, mass > 0 ? traction / mass : 0, hasControl);
     }
 

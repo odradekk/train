@@ -14,7 +14,7 @@ public sealed class TrainMotionTests
         var arrived = false;
         for (var step = 1; step <= 362 && !arrived; step++)
         {
-            var result = TrainMotion.Advance(8 - distance, 8 - distance, speed, 1, 1, 2);
+            var result = TrainMotion.Advance(8 - distance, 0, speed, 1, 1, 2);
             distance += result.DistanceMeters;
             speed = result.SpeedMetersPerSecond;
             arrived = result.Arrived;
@@ -37,7 +37,7 @@ public sealed class TrainMotionTests
         var arrived = false;
         for (var step = 1; step <= 122 && !arrived; step++)
         {
-            var result = TrainMotion.Advance(1 - distance, 1 - distance, speed, 1, 1, 2);
+            var result = TrainMotion.Advance(1 - distance, 0, speed, 1, 1, 2);
             distance += result.DistanceMeters;
             speed = result.SpeedMetersPerSecond;
             arrived = result.Arrived;
@@ -63,7 +63,7 @@ public sealed class TrainMotionTests
     public void One_step_can_finish_cruising_and_begin_braking()
     {
         // 以 1m/s 巡航 1/120 秒，随后按 1m/s² 制动 1/120 秒。
-        var result = TrainMotion.Advance(0.5 + 1.0 / 120, 0.5 + 1.0 / 120, 1, 1, 1, 1);
+        var result = TrainMotion.Advance(0.5 + 1.0 / 120, 0, 1, 1, 1, 1);
         Assert.AreEqual(1.0 / 60 - 1.0 / 28800, result.DistanceMeters, 1e-14);
         Assert.AreEqual(119.0 / 120, result.SpeedMetersPerSecond, 1e-14);
         Assert.IsFalse(result.Arrived);
@@ -72,7 +72,7 @@ public sealed class TrainMotionTests
     [TestMethod]
     public void Critical_braking_distance_begins_braking_immediately()
     {
-        var result = TrainMotion.Advance(0.5, 0.5, 1, 3, 1, 2);
+        var result = TrainMotion.Advance(0.5, 0, 1, 3, 1, 2);
         Assert.AreEqual(119.0 / 7200, result.DistanceMeters, 1e-14);
         Assert.AreEqual(59.0 / 60, result.SpeedMetersPerSecond, 1e-14);
         Assert.IsFalse(result.Arrived);
@@ -92,7 +92,7 @@ public sealed class TrainMotionTests
     [TestMethod]
     public void Braking_for_a_station_begins_before_the_previous_waypoint()
     {
-        var first = TrainMotion.Advance(0.01, 0.5, 1, 1, 1, 2);
+        var first = TrainMotion.Advance(0.01, 0.49, 1, 1, 1, 2);
         Assert.IsTrue(first.Arrived);
         Assert.AreEqual(0.01, first.DistanceMeters);
         Assert.AreEqual(Math.Sqrt(0.98), first.SpeedMetersPerSecond, 1e-14);
@@ -101,7 +101,7 @@ public sealed class TrainMotionTests
         var arrived = false;
         for (var step = 0; step < 62 && !arrived; step++)
         {
-            var result = TrainMotion.Advance(remaining, remaining, speed, 1, 1, 2);
+            var result = TrainMotion.Advance(remaining, 0, speed, 1, 1, 2);
             remaining -= result.DistanceMeters;
             speed = result.SpeedMetersPerSecond;
             arrived = result.Arrived;
@@ -117,13 +117,13 @@ public sealed class TrainMotionTests
     {
         var remaining = 1.0;
         var speed = 2.0;
-        var first = TrainMotion.Advance(remaining, remaining, speed, 1, 1, 2);
+        var first = TrainMotion.Advance(remaining, 0, speed, 1, 1, 2);
         Assert.AreEqual(239.0 / 7200, first.DistanceMeters, 1e-14);
         Assert.AreEqual(119.0 / 60, first.SpeedMetersPerSecond, 1e-14);
         var arrived = false;
         for (var step = 0; step < 36 && !arrived; step++)
         {
-            var result = TrainMotion.Advance(remaining, remaining, speed, 1, 1, 2);
+            var result = TrainMotion.Advance(remaining, 0, speed, 1, 1, 2);
             remaining -= result.DistanceMeters;
             speed = result.SpeedMetersPerSecond;
             arrived = result.Arrived;
@@ -137,7 +137,7 @@ public sealed class TrainMotionTests
     [TestMethod]
     public void A_stop_shorter_than_one_step_is_committed_at_the_exact_endpoint()
     {
-        var result = TrainMotion.Advance(0.000001, 0.000001, 0, 1, 1, 2);
+        var result = TrainMotion.Advance(0.000001, 0, 0, 1, 1, 2);
         Assert.IsTrue(result.Arrived);
         Assert.AreEqual(0.000001, result.DistanceMeters);
         Assert.AreEqual(0.0, result.SpeedMetersPerSecond);
@@ -148,7 +148,7 @@ public sealed class TrainMotionTests
     {
         // 0.05m/s 按 3m/s² 制动正好一个模拟步，制动距离为 v²/(2b)。
         var distance = 0.05 * 0.05 / 6;
-        var result = TrainMotion.Advance(distance, distance, 0.05, 1, 3, 2);
+        var result = TrainMotion.Advance(distance, 0, 0.05, 1, 3, 2);
         Assert.IsTrue(result.Arrived);
         Assert.AreEqual(distance, result.DistanceMeters);
         Assert.AreEqual(0.0, result.SpeedMetersPerSecond);
@@ -158,7 +158,7 @@ public sealed class TrainMotionTests
     public void One_step_can_accelerate_then_brake_on_a_short_line_without_reaching_the_speed_limit()
     {
         // 峰值 1.5m/s：加速 1/80 秒，再制动 1/240 秒，位移 7/480 米。
-        var result = TrainMotion.Advance(3.0 / 160, 3.0 / 160, 0, 120, 120, 2);
+        var result = TrainMotion.Advance(3.0 / 160, 0, 0, 120, 120, 2);
         Assert.AreEqual(7.0 / 480, result.DistanceMeters, 1e-14);
         Assert.AreEqual(1.0, result.SpeedMetersPerSecond, 1e-14);
         Assert.IsFalse(result.Arrived);
@@ -176,9 +176,18 @@ public sealed class TrainMotionTests
     [TestMethod]
     public void Losing_traction_while_moving_can_still_cruise_then_brake()
     {
-        var result = TrainMotion.Advance(2, 2, 1, 0, 1, 2);
+        var result = TrainMotion.Advance(2, 0, 1, 0, 1, 2);
         Assert.AreEqual(1.0 / 60, result.DistanceMeters, 1e-14);
         Assert.AreEqual(1.0, result.SpeedMetersPerSecond);
         Assert.IsFalse(result.Arrived);
+    }
+
+    [TestMethod]
+    public void A_stop_beyond_the_endpoint_preserves_speed_even_when_total_distance_rounds_to_the_endpoint()
+    {
+        var result = TrainMotion.Advance(0.01, 1e-20, 2, 1, 1, 2);
+        Assert.IsTrue(result.Arrived);
+        Assert.AreEqual(0.01, result.DistanceMeters);
+        Assert.AreEqual(Math.Sqrt(3.98), result.SpeedMetersPerSecond, 1e-14);
     }
 }

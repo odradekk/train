@@ -5,16 +5,16 @@ namespace Train.Core.Railway;
 internal static class TrainMotion
 {
     internal static (double DistanceMeters, double SpeedMetersPerSecond, bool Arrived) Advance(
-        double remainingDistance, double? stopDistance, double speed, double acceleration,
+        double remainingDistance, double? stopDistanceAfterEndpoint, double speed, double acceleration,
         double brakingDeceleration, double maximumSpeed)
     {
-        var stopAtEndpoint = stopDistance == remainingDistance;
+        var stopAtEndpoint = stopDistanceAfterEndpoint is 0;
         if (remainingDistance == 0)
             return (0, stopAtEndpoint ? 0 : speed, true);
         var time = SimulationTime.StepSeconds;
         var distance = 0.0;
 
-        if (stopDistance is not { } stoppingDistance)
+        if (stopDistanceAfterEndpoint is not { } distanceAfterEndpoint)
         {
             if (acceleration > 0 && Move(Math.Max(0, (maximumSpeed - speed) / acceleration), acceleration, maximumSpeed))
                 return (distance, speed, true);
@@ -22,6 +22,7 @@ internal static class TrainMotion
             return (distance, speed, arrived);
         }
 
+        var stoppingDistance = remainingDistance + distanceAfterEndpoint;
         if (stoppingDistance <= speed * speed / (2 * brakingDeceleration))
         {
             var arrived = Move(speed / brakingDeceleration, -brakingDeceleration, 0);
