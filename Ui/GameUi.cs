@@ -184,7 +184,7 @@ public partial class GameUi : CanvasLayer
             _world.Hide(); _errorPanel.Hide(); _settings.Hide(); _missingErrorOperation = null;
             _menu.Show();
         }
-        _menu.SetNewGameEnabled(_host?.SessionOptions is not null && !_host.IsBusy && _host.Content is not null);
+        _menu.SetGameStartEnabled(_host?.SessionOptions is not null && !_host.IsBusy && _host.Content is not null);
     }
 
     private void Report(CoreProblem? problem)
