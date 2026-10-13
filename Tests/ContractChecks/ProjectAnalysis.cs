@@ -24,7 +24,7 @@ internal static class ProjectAnalysis
         (IsChildPath(path, Path.Combine(root, "App", "Assets")) ||
          Path.GetFullPath(path).Equals(Path.Combine(root, "Tests", "Engine", "Assets", "GlbFixture.cs"), PathComparison));
 
-    private static IEnumerable<string> BuiltInImportFailures(string root)
+    internal static IEnumerable<string> BuiltInImportFailures(string root)
     {
         var builtin = Path.Combine(root, "builtin");
         if (!Directory.Exists(builtin)) yield break;

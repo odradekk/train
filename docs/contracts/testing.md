@@ -58,7 +58,7 @@ Core 和 Content 测试已各自引用一个实现；原聚合项目的用例已
 
 ## 实际隔离与结构检查
 
-当前工具命令为 `structure <仓库根> <配置> <输出目录>`、`verify <仓库根> <配置> <基线文件>`、`isolate <仓库根> <配置> <输出目录>`、`snapshot <仓库根> <配置> <基线文件>`；退出码 0 表示通过，1 表示检查或执行失败，2 表示用法错误。`contract-checks` 自测项目包含 2 个快速层、5 个集成层用例。
+当前工具命令为 `structure <仓库根> <配置> <输出目录>`、`verify <仓库根> <配置> <基线文件>`、`isolate <仓库根> <配置> <输出目录>`、`snapshot <仓库根> <配置> <基线文件>`；退出码 0 表示通过，1 表示检查或执行失败，2 表示用法错误。`contract-checks` 自测项目包含 8 个快速层、4 个集成层用例。按 #318 的审查决定，其中 6 个 Keep File 规则用例仅使用临时文件、在进程内执行，须满足快速层每例 1 秒上限；CLI 接线由既有结构失败用例同时断言，不额外启动 structure。
 
 阶段层 `pwsh -NoProfile -File scripts/test.ps1 -Layer stage` 不按改动选择，总是构建一次解决方案并执行 structure、verify、isolate。常规集成层仅在任意 `*.csproj`、任意层级 `Directory.Build.*`、`Train.sln`、边界矩阵、`Tests/ContractChecks/**` 改动或 `-All` 时选中隔离；显式 `-Project` 跳过这些全仓检查。
 

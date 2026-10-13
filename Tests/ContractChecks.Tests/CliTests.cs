@@ -88,42 +88,25 @@ public sealed class CliTests
     }
 
     [TestMethod]
-    public void Structure_requires_keep_file_imports_for_builtin_assets()
+    public void Structure_reports_forbidden_project_reference_and_non_keep_builtin_import()
     {
+        RequireSuccess(Check("structure", "outputs/structure-valid"));
+        AddCoreReference("<ProjectReference Include=\"../Hidden/Train.Hidden.csproj\" />");
         try
         {
-            Write("builtin/texture.PNG", "fixture");
-            Write("builtin/model.glb", "fixture");
-            Write("builtin/texture.PNG.import", "[remap]\nimporter=\"keep\"\n");
-            Write("builtin/model.glb.import", "[remap]\nimporter=\"keep\"\n");
-            RequireSuccess(Check("structure", "outputs/import-valid"));
-            File.Delete(Path.Combine(root, "builtin", "texture.PNG.import"));
-            Write("builtin/model.glb.import", "[remap]\nimporter=\"scene\"\n[params]\nimporter=\"keep\"\n");
-            var invalid = Check("structure", "outputs/import-invalid");
-            Assert.AreEqual(1, invalid.ExitCode, invalid.Output);
-            StringAssert.Contains(invalid.Output, "Keep File import missing:");
-            StringAssert.Contains(invalid.Output, "Keep File importer required:");
-            Write("builtin/texture.PNG.import", "[remap]\nimporter=\"keep\"\n");
-            Write("builtin/model.glb.import", "[remap]\nimporter=\"keep\"\nimporter=\"keep\"\n");
-            var duplicate = Check("structure", "outputs/import-duplicate");
-            Assert.AreEqual(1, duplicate.ExitCode, duplicate.Output);
-            StringAssert.Contains(duplicate.Output, "Keep File importer required:");
+            Write("builtin/texture.png", "fixture");
+            Write("builtin/texture.png.import", "[remap]\nimporter=\"texture\"\n");
+            var result = Check("structure", "outputs/structure-invalid");
+            Assert.AreEqual(1, result.ExitCode, result.Output);
+            StringAssert.Contains(result.Output, "forbidden project reference:");
+            StringAssert.Contains(result.Output, "Train.Hidden");
+            StringAssert.Contains(result.Output, "Keep File importer required:");
+            StringAssert.Contains(result.Output, "texture.png.import");
         }
         finally
         {
             Directory.Delete(Path.Combine(root, "builtin"), true);
         }
-    }
-
-    [TestMethod]
-    public void Structure_rejects_a_forbidden_project_reference()
-    {
-        RequireSuccess(Check("structure", "outputs/structure-valid"));
-        AddCoreReference("<ProjectReference Include=\"../Hidden/Train.Hidden.csproj\" />");
-        var result = Check("structure", "outputs/structure-invalid");
-        Assert.AreEqual(1, result.ExitCode, result.Output);
-        StringAssert.Contains(result.Output, "forbidden project reference:");
-        StringAssert.Contains(result.Output, "Train.Hidden");
     }
 
     [TestMethod]
