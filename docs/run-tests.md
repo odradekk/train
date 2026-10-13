@@ -53,6 +53,8 @@ dotnet build Tests/Engine/Train.Engine.Tests.csproj -c Debug
 
 选择“检查光照预览”启动 `InspectionLightingPreview`。该手动预览通过真实 `ScenesFactory.Create()` 生成一条线路和一列小型列车，复用生产 App、世界视图、相机和渲染；Core/Content 使用 ContractSupport 的固定读视图与明确的线路、车辆及素材输入，并保持暂停。按反引号打开控制台，执行 [`lighting`](console/lighting.md) 切换三种检查光照或恢复；“线路 / 重新进入”支持线路平移及重入，“跟随列车”切换跟随目标。它提供真实 Scenes 生成、真实 Godot 渲染的窗口检查入口，不生成截图或 JUnit，不证明完整四模块联调或 Godot 完整隔离；后两者分别归 #298 和 #424。截图采集遵循实施 SOP，本票证据放在工作树 `TestResults/`，自动截图流程归 #400。预览代码仅在 Debug 可用，导出构建不包含此入口。
 
+选择“开发检查预览”启动 `DeveloperToolsPreview`，仍使用同份生产 App、开发窗口、协调器和文件流程；Core、Content、Scenes 为界面列明的有限契约替身。普通会话只支持运行到步 2，重放验证顺序为单步到 `1:0`、推进到 `2:0`、导出普通存档、通过存档面板导入并读取副本。预览启动时在 `TestResults/developer-tools-preview/` 写入固定复现包，窗口或辅助按钮可执行这些操作；场景图层开关请求替身提供彩色线。它不验证真实 Core 重放、生产 Scenes 图层生成、完整 Godot 隔离或四模块联调。
+
 ## 阶段检查与候选基准
 
 `stage` 在所有平台始终运行 structure、verify、Core/Content/Scenes/Godot 隔离重建、两项生产 Core 确定性用例和独立 Release Benchmark。确定性用例通过生产命令日志与回放接口，在新进程逐检查点比较回放，以及每步写盘、读盘、恢复后与连续运行比较。它们属于阶段层，快速层和集成层不包含这些用例。
@@ -96,7 +98,7 @@ dotnet-affected 退出码 166 表示空项目集合；其他非零退出码、12
 
 `AppTests` 和 `ContentTests` 使用生产默认装配，验证内置内容就绪、新局、真实保存后读档、控制台与输入重载，覆盖业务更新、纯表现／无变化及失败保留核心与内容配对；日志用例观测 Godot 输出、控制台缓冲、后台队列、JSONL 和退出释放。菜单用例验证退出请求。`HostSimulationTests` 通过注入宿主及真实帧验证控制台会话控制、步进、检查点、重绑定、故障冻结和诊断。引擎结果要求退出码、JUnit 结果及最低用例数均满足入口规则；实际执行、通过、失败和跳过数写入摘要，不以帧数或超时退出证明通过。
 
-`RecordingTests` 在真实 App 场景中注入有限情景的核心／内容契约替身，验证初始起点自动落盘、报告面板状态、从内存窗口导出、故障文件及冻结后导出。路径由测试直接给定，不自动化原生 FileDialog；`recording-artifacts/` 写在本次 JUnit 报告目录。它执行同一份生产宿主和文件代码，但不证明完整 Godot 隔离或默认真实工厂接线。纯宿主录制测试归 `Tests/Godot/Recording/`；真实 ZIP 与发布失败用例属于 integration。
+`RecordingTests` 在真实 App 场景中注入有限情景的核心／内容契约替身，验证初始起点自动落盘、报告面板状态、从内存窗口导出、故障文件及冻结后导出。路径由测试直接给定，不自动化原生 FileDialog；`recording-artifacts/` 写在本次 JUnit 报告目录。它执行同一份生产宿主和文件代码，但不证明完整 Godot 隔离或默认真实工厂装配。纯宿主录制测试归 `Tests/Godot/Recording/`；真实 ZIP 与发布失败用例属于 integration。
 
 导出冒烟的两次运行分别使用空用户目录和有效 Mod 用户目录，都必须退出 0 并提供 JSONL 证据。生产 `--smoke` 等待真实内容准备完成，验证 `core:staple-food`、PNG 解码和已发布包，不接收测试专用预期参数。脚本核对 Info 事件 `content_reload_summary` 的状态为 `Committed` 或 `CommittedWithWarnings`，并读取 `application_smoke_summary` 的 `passed`、`packages`、`voxels`。Mod 夹具采用 manifest v2、voxel v3；Mod 运行必须包含包 `550e8400-e29b-41d4-a716-446655440000` 及定义 `550e8400-e29b-41d4-a716-446655440000:smoke-food`，包数比空目录运行增加 1。
 

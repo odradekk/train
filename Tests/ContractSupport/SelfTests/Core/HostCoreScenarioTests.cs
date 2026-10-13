@@ -155,6 +155,74 @@ public sealed class HostCoreScenarioTests
         Assert.AreSame(activeSession.CurrentView, activeSession.Read());
     }
 
+    [TestMethod]
+    public void ReplayPreservesScriptOnWrongBoundaryAndRetainedStateAfterDisposal()
+    {
+        var initial = new FixedCoreReadView(new(0, 0), HostCoreScenario.Input);
+        var after = new FixedCoreReadView(new(2, 1), HostCoreScenario.Input);
+        var result = new ReplayAdvanceResult(ReplayStop.RequestedPosition, after.Position, [], null, null);
+        var checkpoint = new CoreCheckpoint(after.Position, "checkpoint", new string('B', 64));
+        var capture = new FixedCoreCapture(checkpoint, HostCoreScenario.References,
+            "opaque state", HostCoreScenario.Input, after.Revision);
+        var replay = new ScriptedCoreReplay(initial);
+        replay.QueueAdvance(5, after.Position, result, after);
+        AssertUnconfigured(() => replay.CaptureBoundary());
+        AssertUnconfigured(() => replay.Advance(4, after.Position));
+        AssertUnconfigured(() => replay.Advance(5));
+        AssertUnconfigured(replay.AssertComplete);
+        Assert.AreSame(initial, replay.Read());
+        Assert.AreSame(result, replay.Advance(5, after.Position));
+        Assert.AreEqual((5u, (SimulationPosition?)after.Position), replay.AdvanceCalls.Single());
+        Assert.AreSame(after, replay.Read());
+        replay.SetCapture(capture);
+        AssertUnconfigured(replay.AssertComplete);
+        Assert.AreSame(capture, replay.CaptureBoundary());
+        replay.AssertComplete();
+        replay.SetCapture(capture);
+        AssertUnconfigured(replay.AssertComplete);
+        replay.CaptureBoundary();
+        replay.AssertComplete();
+        replay.Dispose();
+        replay.Dispose();
+        Assert.AreEqual(1, replay.DisposeCount);
+        Assert.ThrowsExactly<ObjectDisposedException>(() => replay.Read());
+        Assert.ThrowsExactly<ObjectDisposedException>(() => replay.Advance(5));
+        Assert.ThrowsExactly<ObjectDisposedException>(() => replay.CaptureBoundary());
+    }
+
+    [TestMethod]
+    public void ReplayFactoryRequiresConfigurationAndPassesInputAndComparisonThrough()
+    {
+        var runtime = new RuntimeIdentity("fixture", "1", "os", "architecture", "runtime");
+        var input = new CoreReplayInput(1, runtime, "opaque initial", [], [], new(2, 0), null);
+        var checkpoint = new CoreCheckpoint(new(2, 0), "checkpoint", new string('B', 64));
+        var otherCheckpoint = checkpoint with { CanonicalText = "actual" };
+        using var replay = new ScriptedCoreReplay(new FixedCoreReadView(new(0, 0), HostCoreScenario.Input));
+        var prepared = new CoreResult<ICoreReplay>.Success(replay);
+        var compared = new CoreResult<CheckpointComparison>.Success(new CheckpointComparison.Equal());
+        var factory = new ScriptedCoreFactory();
+        AssertUnconfigured(() => factory.PrepareReplay(input, runtime, []));
+        AssertUnconfigured(() => factory.CompareCheckpoints(checkpoint, otherCheckpoint));
+        factory.PrepareReplayCall = (receivedInput, receivedRuntime, history) =>
+        {
+            Assert.AreSame(input, receivedInput);
+            Assert.AreSame(runtime, receivedRuntime);
+            Assert.IsTrue(history.IsEmpty);
+            return prepared;
+        };
+        factory.CompareCheckpointsCall = (receivedExpected, receivedActual) =>
+        {
+            Assert.AreSame(checkpoint, receivedExpected);
+            Assert.AreSame(otherCheckpoint, receivedActual);
+            return compared;
+        };
+        AssertUnconfigured(factory.AssertComplete);
+        Assert.AreSame(prepared, factory.PrepareReplay(input, runtime, []));
+        AssertUnconfigured(factory.AssertComplete);
+        Assert.AreSame(compared, factory.CompareCheckpoints(checkpoint, otherCheckpoint));
+        factory.AssertComplete();
+    }
+
     private static void AssertUnconfigured(Action call)
     {
         var error = Assert.ThrowsExactly<InvalidOperationException>(call);

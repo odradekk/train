@@ -46,6 +46,7 @@ public sealed class ConsoleCommandDispatcher
     private readonly Action<IReadOnlyList<string>>? _simulation;
     private readonly Action<IReadOnlyList<string>>? _train;
     private readonly Action<IReadOnlyList<string>>? _lighting;
+    private readonly Action<IReadOnlyList<string>>? _development;
 
     public ConsoleCommandDispatcher(
         TrainLogger logger,
@@ -55,7 +56,8 @@ public sealed class ConsoleCommandDispatcher
         bool allowReload,
         Action<IReadOnlyList<string>>? simulation = null,
         Action<IReadOnlyList<string>>? train = null,
-        Action<IReadOnlyList<string>>? lighting = null)
+        Action<IReadOnlyList<string>>? lighting = null,
+        Action<IReadOnlyList<string>>? development = null)
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(clear);
@@ -69,6 +71,7 @@ public sealed class ConsoleCommandDispatcher
         _simulation = simulation;
         _train = train;
         _lighting = lighting;
+        _development = development;
     }
 
     public void Execute(string line)
@@ -101,6 +104,9 @@ public sealed class ConsoleCommandDispatcher
                 return;
             case "sim" when _simulation is not null:
                 _simulation(parsed.Arguments);
+                return;
+            case "dev" when _development is not null:
+                _development(parsed.Arguments);
                 return;
             case "train" when _train is not null:
                 _train(parsed.Arguments);
@@ -145,6 +151,8 @@ public sealed class ConsoleCommandDispatcher
             commands += ", train";
         if (_lighting is not null)
             commands += ", lighting";
+        if (_development is not null)
+            commands += ", dev";
         return $"Available commands: {commands}.";
     }
 }

@@ -8,7 +8,7 @@ internal enum SimulationSpeed { One = 1, Two = 2, Four = 4, Eight = 8 }
 internal sealed class SimulationFrameDriver(Func<double>? getRealSeconds = null)
 {
     // 沿用旧宿主的暂定参数；性能预算和统计窗口仍待测量。
-    private const double FrameBudgetSeconds = 0.005;
+    internal const double FrameBudgetSeconds = 0.005;
     private const double SpeedSampleSeconds = 1;
     // 避免帧间隔的浮点误差把完整一步误判为不足一步。
     private const double StepRoundingTolerance = 1e-9;

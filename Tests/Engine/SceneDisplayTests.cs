@@ -18,6 +18,69 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
     private static readonly SceneSessionId Session = new(Guid.Parse("7dd364aa-df8f-4144-b345-fc130ea11ca9"));
 
     [Test]
+    public void Debug_lines_use_committed_frame_coordinates_and_release_replaced_resources()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView());
+        Commit(display, Frame(0, []));
+        Require(display.Root.GetNodeOrNull<MeshInstance3D>("DebugLines") is null,
+            "空线集合不得创建调试线节点。");
+        var lines = ImmutableArray.Create(new SceneDebugLine(new(10, 2, 3), new(20, 4, 6), new(1, 0, 0, 1)));
+        var first = Frame(1, [], origin: new(100, 0, 0), debugLines: lines);
+        Commit(display, first);
+        var root = display.Root.GetNode<MeshInstance3D>("DebugLines");
+        var mesh = root.Mesh;
+        Require(mesh is ImmediateMesh && mesh.GetSurfaceCount() == 1,
+            "调试线必须生成真实线段网格。");
+        using var firstArrays = mesh.SurfaceGetArrays(0);
+        var vertices = firstArrays[(int)Godot.Mesh.ArrayType.Vertex].AsVector3Array();
+        Require(vertices.Length == 2, "一条调试线必须包含两个顶点。");
+        Near(vertices[0], new(10, 2, 3));
+        Near(vertices[1], new(20, 4, 6));
+        var colors = firstArrays[(int)Godot.Mesh.ArrayType.Color].AsColorArray();
+        Require(colors.Length == 2 && colors.All(color => color == Colors.Red), "线段端点必须保留Scenes提供的颜色。");
+        var unchanged = Frame(2, [], first.Update.Frame,
+            debugLines: ImmutableArray.Create(lines[0]));
+        using (var abandoned = Prepare(display, unchanged)) { }
+        Require(ReferenceEquals(root, display.Root.GetNode<MeshInstance3D>("DebugLines")) &&
+            GodotObject.IsInstanceValid(mesh), "丢弃复用线段的候选不得释放当前资源。");
+        Commit(display, unchanged);
+        Require(ReferenceEquals(root, display.Root.GetNode<MeshInstance3D>("DebugLines")) &&
+            ReferenceEquals(mesh, root.Mesh), "线序列未变化必须复用节点和网格。");
+        var shiftedLines = ImmutableArray.Create(new SceneDebugLine(new(-90, 2, 3), new(-80, 4, 6), new(0, 1, 0, 1)));
+        var next = Frame(3, [], unchanged.Update.Frame, new(-100, 0, 0), new(200, 0, 0), debugLines: shiftedLines);
+        using (var abandoned = Prepare(display, next))
+        {
+            var candidateRoot = abandoned.DebugLines!.Root;
+            var candidateMesh = candidateRoot.Mesh;
+            abandoned.Dispose();
+            Require(!GodotObject.IsInstanceValid(candidateRoot) && !GodotObject.IsInstanceValid(candidateMesh),
+                "丢弃新线段候选必须释放其节点和网格。");
+        }
+        Require(ReferenceEquals(root, display.Root.GetNode<MeshInstance3D>("DebugLines")) &&
+            GodotObject.IsInstanceValid(mesh), "丢弃候选不得改变已显示线段。");
+        Commit(display, next);
+        Require(!GodotObject.IsInstanceValid(root) && !GodotObject.IsInstanceValid(mesh), "替换线段必须释放旧节点和网格。");
+        var shiftedMesh = display.Root.GetNode<MeshInstance3D>("DebugLines").Mesh;
+        using var shiftedArrays = shiftedMesh.SurfaceGetArrays(0);
+        vertices = shiftedArrays[(int)Godot.Mesh.ArrayType.Vertex].AsVector3Array();
+        Near(vertices[0], new(-90, 2, 3));
+        var empty = Frame(4, [], next.Update.Frame);
+        using (var abandoned = Prepare(display, empty)) { }
+        Require(GodotObject.IsInstanceValid(shiftedMesh), "丢弃空线候选不得释放当前线段。");
+        Commit(display, empty);
+        Require(display.Root.GetNodeOrNull<MeshInstance3D>("DebugLines") is null &&
+            !GodotObject.IsInstanceValid(shiftedMesh), "空线集合必须清除旧线且不创建空组。");
+        Commit(display, Frame(5, [], empty.Update.Frame, debugLines: lines));
+        var lastRoot = display.Root.GetNode<MeshInstance3D>("DebugLines");
+        var lastMesh = lastRoot.Mesh;
+        display.Dispose();
+        Require(!GodotObject.IsInstanceValid(lastRoot) && !GodotObject.IsInstanceValid(lastMesh),
+            "关闭显示组必须释放调试线资源。");
+    }
+
+    [Test]
     public void Candidates_publish_only_on_commit_and_abandoned_resources_are_released()
     {
         using var dispatcher = new GodotMainThreadDispatcher();
@@ -241,10 +304,11 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
     private static FixedSceneFrame Frame(ulong revision, ImmutableArray<SceneObject> objects,
         SceneFrameStamp? @base = null, NVector3 shift = default, ScenePoint origin = default,
         SceneReadiness readiness = SceneReadiness.Ready, ImmutableArray<SceneObjectId> removed = default,
-        ImmutableArray<SceneBounds> fog = default) => new()
+        ImmutableArray<SceneBounds> fog = default, ImmutableArray<SceneDebugLine> debugLines = default) => new()
     {
         Origin = origin,
         Readiness = readiness,
+        DebugLines = debugLines.IsDefault ? [] : debugLines,
         Update = new(@base, new(Session, new(1), new(1), revision), shift, objects,
             removed.IsDefault ? [] : removed, new(fog.IsDefault ? [] : fog, []), [])
     };

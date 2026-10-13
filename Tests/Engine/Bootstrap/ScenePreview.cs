@@ -25,7 +25,7 @@ public partial class ScenePreview : Node
             AddChild(menu);
             var buttons = new VBoxContainer { Position = new(32, 32) };
             menu.AddChild(buttons);
-            foreach (var (name, text) in new[] { ("WorldScenePreview", "显示帧预览"), ("InspectionLightingPreview", "检查光照预览") })
+            foreach (var (name, text) in new[] { ("WorldScenePreview", "显示帧预览"), ("InspectionLightingPreview", "检查光照预览"), ("DeveloperToolsPreview", "开发检查预览") })
             {
                 var button = new Button { Name = name, Text = text, CustomMinimumSize = new(220, 48) };
                 buttons.AddChild(button);

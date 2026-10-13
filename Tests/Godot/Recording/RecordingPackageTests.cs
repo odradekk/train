@@ -103,6 +103,67 @@ public sealed class RecordingPackageTests
         });
     }
 
+    [TestMethod]
+    public void Read_returns_package_values_without_reinterpreting_opaque_payloads()
+    {
+        WithFile(path =>
+        {
+            var package = Package();
+            package.Write(path);
+            using (var zip = ZipFile.Open(path, ZipArchiveMode.Update))
+                Replace(zip, "content.payload", _ => "changed opaque content, not JSON");
+            Assert.AreEqual("changed opaque content, not JSON", RecordingPackage.Read(path).ContentPayload);
+            Assert.ThrowsExactly<InvalidDataException>(() => package.Validate(path));
+        });
+    }
+
+    [TestMethod]
+    public void Read_rejects_invalid_container_and_missing_required_structures()
+    {
+        foreach (var mutation in new Action<ZipArchive>[]
+        {
+            zip => zip.GetEntry("content.payload")!.Delete(),
+            zip => zip.CreateEntry("commands.jsonl"),
+            zip => Replace(zip, "manifest.json", _ => "{}"),
+            zip => Replace(zip, "manifest.json", _ => "null"),
+            zip => Replace(zip, "manifest.json", text => text.Replace("\"FormatVersion\":1", "\"FormatVersion\":2")),
+            zip => Replace(zip, "manifest.json", text =>
+            {
+                var manifest = JsonNode.Parse(text)!;
+                manifest["Starts"] = null;
+                return manifest.ToJsonString();
+            }),
+            zip => Replace(zip, "manifest.json", text =>
+            {
+                var manifest = JsonNode.Parse(text)!;
+                manifest["RequiredReferences"]!["Inputs"] = null;
+                return manifest.ToJsonString();
+            }),
+            zip => Replace(zip, "manifest.json", text =>
+            {
+                var manifest = JsonNode.Parse(text)!;
+                manifest["FaultSegments"]![0]!["Checkpoints"] = null;
+                return manifest.ToJsonString();
+            }),
+            zip => Replace(zip, "commands.jsonl", text => text.TrimEnd('\n')),
+            zip => Replace(zip, "commands.jsonl", text => text.Replace("\"$kind\":\"accepted\"", "\"$kind\":\"unknown\"")),
+            zip => Replace(zip, "manifest.json", _ => "not JSON")
+        })
+        {
+            WithFile(path =>
+            {
+                Package().Write(path);
+                using (var zip = ZipFile.Open(path, ZipArchiveMode.Update)) mutation(zip);
+                Assert.ThrowsExactly<InvalidDataException>(() => RecordingPackage.Read(path));
+            });
+        }
+        WithFile(path =>
+        {
+            File.WriteAllText(path, "not ZIP");
+            Assert.ThrowsExactly<InvalidDataException>(() => RecordingPackage.Read(path));
+        });
+    }
+
     private static RecordingPackage Package()
     {
         CoreReferenceManifest references = new([new("design")],
