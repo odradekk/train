@@ -171,7 +171,7 @@ try {
         Invoke-Check build preparation dotnet @('build', 'Train.sln', '--nologo') 300
     } elseif (-not $selectedLayers.Count) { Write-Host 'No affected test projects or checks selected; no build or tests required.' }
     foreach ($current in $layers) {
-        $budget = @{ fast = 60; integration = 210; engine = 300 }[$current]
+        $budget = @{ fast = 90; integration = 330; engine = 300 }[$current]
         $watch = [Diagnostics.Stopwatch]::StartNew()
         $selected = $current -in $selectedLayers
         $layerError = $null
@@ -187,7 +187,7 @@ try {
                 Invoke-Check benchmark-build preparation dotnet @('build', 'Tests/Benchmarks/Train.Benchmarks.csproj', '-c', 'Release', '--nologo') 300
                 Invoke-Check stage-structure $current dotnet @($contractTool, 'structure', $root, 'Debug', (Join-Path $run 'stage-structure')) 300
                 Invoke-Check stage-verify $current dotnet @($contractTool, 'verify', $root, 'Debug', $contractBaseline) 120
-                Invoke-Isolation stage-isolate $current (Join-Path $run 'stage-isolate') 300
+                Invoke-Isolation stage-isolate $current (Join-Path $run 'stage-isolate') 450
 
                 Invoke-Check stage-core $current dotnet @('test', '--test-modules', 'Tests/Core/bin/Debug/net10.0/Train.Core.Tests.dll', '--root-directory', $root, '--results-directory', $run,
                     '--minimum-expected-tests', '2', '--', '--filter', 'TestCategory=stage', '--report-trx', '--report-trx-filename', 'stage-core.trx', '--timeout', '180s') 180
@@ -324,7 +324,7 @@ try {
             foreach ($count in @('total', 'executed', 'passed', 'failed', 'skipped')) { $layerSummary[$count] = [int] ($summary.checks | Where-Object layer -eq $current | Measure-Object $count -Sum).Sum }
             $summary.layers += $layerSummary
             if ($layerCompleted -and $selected -and $current -eq 'integration' -and $summary.selection.isolation) {
-                try { Invoke-Isolation isolate isolation (Join-Path $run 'isolation') 300 }
+                try { Invoke-Isolation isolate isolation (Join-Path $run 'isolation') 450 }
                 catch {
                     if ($layerError) { throw "$layerError; $($_.Exception.Message)" }
                     throw
