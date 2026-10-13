@@ -39,7 +39,7 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
             WorldInputs.ValidateContent(publish.Content);
             if (publish.Content.Identity == State.Content.Identity)
                 throw new ArgumentException("发布内容的输入身份必须不同于当前身份。", nameof(command));
-            return ExecuteCommand(publish, source, _ => new CommandEffect.Accepted(publish.Content, []));
+            return ExecuteCommand(publish, source, before => WorldContentPublication.Execute(State.World, before, publish.Content));
         }
         TrainCommands.Validate(command);
         return ExecuteCommand(command, source, content => TrainCommands.Execute(State.World, content, command));

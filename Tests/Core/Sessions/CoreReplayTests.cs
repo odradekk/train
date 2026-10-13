@@ -16,6 +16,75 @@ public sealed class CoreReplayTests
     private static readonly ImmutableArray<CoreContentProjection> History = [Content('A'), Content('B'), Content('C')];
 
     [TestMethod]
+    public void Real_adaptation_and_rejected_publication_replay_at_every_sampled_boundary()
+    {
+        using var session = Session();
+        var original = Content('A');
+        var changed = Content('B') with
+        {
+            Designs = original.Designs.Select(d => d with
+            {
+                MaxStructureDurability = 40, MassTons = 2,
+                Parts = d.Parts.Select(p => p with { MaxDurability = 30,
+                    Capabilities = d.Design == WorldFixture.Station ? [] : p.Capabilities }).ToImmutableArray()
+            }).ToImmutableArray()
+        };
+        var rejected = changed with { Identity = Content('C').Identity, Goods = [] };
+        var samples = new List<ICoreCapture> { Success(session.Capture(CapturePurpose.Save)) };
+        var receipts = new List<CommandReceipt>();
+        void Sample() => samples.Add(Success(session.Capture(CapturePurpose.Save)));
+        void Publish(CoreContentProjection content)
+        {
+            var result = (SubmissionResult.Completed)session.Submit(new CoreCommand.PublishContent(content),
+                CommandSource.AutomationTest);
+            receipts.Add(result.Receipt);
+            Sample();
+        }
+
+        Publish(changed);
+        Assert.IsInstanceOfType<CommandDecision.Accepted>(receipts[0].Decision);
+        var vehicle = ((Lookup<InstanceView>.Found)session.Read().FindInstance(new InstanceId.Vehicle(new(1)))).Value;
+        Assert.AreEqual(new DurabilityView(40, 40), vehicle.Structure);
+        Assert.IsTrue(session.Read().World.Nodes.All(n => n.Platforms == 0));
+        session.Advance(1);
+        Sample();
+        Publish(rejected);
+        Assert.IsInstanceOfType<CommandDecision.Rejected>(receipts[1].Decision);
+        Assert.AreEqual(changed.Identity, session.Read().InputIdentity);
+        session.Advance(1);
+        Sample();
+        Publish(original);
+        Assert.IsInstanceOfType<CommandDecision.Accepted>(receipts[2].Decision);
+        session.Advance(1);
+        Sample();
+
+        var recording = session.ReadRecording();
+        CollectionAssert.AreEqual(receipts.ToArray(), recording.Commands.Select(c => c.Result).ToArray());
+        CollectionAssert.AreEqual(new ulong[] { 1, 2, 3 }, receipts.Select(r => r.Number).ToArray());
+        CollectionAssert.AreEqual(new SimulationPosition[] { new(0, 1), new(1, 1), new(2, 1) },
+            receipts.Select(r => r.After).ToArray());
+        Assert.AreEqual(changed.Identity, recording.Commands[1].InputBefore);
+        Assert.AreEqual(changed.Identity, recording.Commands[1].InputAfter);
+        Assert.IsTrue(recording.RequiredReferences.Inputs.Contains(rejected.Identity));
+        var input = Input(session) with { Checkpoints = samples.Select(s => s.Checkpoint).ToImmutableArray() };
+        AssertFailure(input, [original, changed], "content_missing", "Commands[1].CanonicalPayload/input_identity");
+        using var replay = Success(CoreFactory.Create().PrepareReplay(input, Runtime, [original, changed, rejected]));
+        foreach (var sample in samples)
+        {
+            var result = replay.Advance(3, sample.Position);
+            Assert.AreEqual(ReplayStop.RequestedPosition, result.Stop);
+            Assert.IsNull(result.Difference);
+            Assert.AreEqual(sample.Position, replay.Read().Position);
+            Assert.AreEqual(sample.InputIdentity, replay.Read().InputIdentity);
+            Assert.AreEqual(sample.Revision, replay.Read().Revision);
+            Assert.AreEqual(sample.Encode(), replay.CaptureBoundary().Encode());
+            Assert.IsInstanceOfType<CheckpointComparison.Equal>(Success(CoreFactory.Create().CompareCheckpoints(
+                sample.Checkpoint, replay.CaptureBoundary().Checkpoint)));
+        }
+        Assert.AreEqual(ReplayStop.EndOfRecording, replay.Advance(0).Stop);
+    }
+
+    [TestMethod]
     public void Replay_restores_the_captured_world_without_regenerating_it()
     {
         using var session = Session();
