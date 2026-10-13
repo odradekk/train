@@ -70,7 +70,7 @@ When the reviewer asks you to sync with master, merge `origin/master` into the b
 
 ## Art Issues
 
-Produce and inspect assets under [art 08](art/08-asset-pipeline-and-review.md). For each texture, shared texture, wear overlay, paint card and icon, choose between your image model and a generator script, and record the choice; an image-model PNG is its own source, and the completion comment records the model and prompt. Build custom models in Blender through Blender MCP and keep the `.blend` source under `art-source/`. Take screenshots with the [art inspection screenshot entry](https://github.com/odradekk/train/issues/400); until it exists, use Godot MCP. Put the checklist table and screenshot paths in the completion comment.
+Produce and inspect assets under [art 08](art/08-asset-pipeline-and-review.md). For each texture, shared texture, wear overlay, paint card and icon, choose between your image model and a generator script, and record the choice; an image-model PNG is its own source, and the completion comment records the model and prompt. Build custom models in Blender through Blender MCP and keep the `.blend` source under `art-source/`. Take screenshots with the [art inspection screenshot entry](art/08-asset-pipeline-and-review.md#检查人与记录). Put the checklist table and screenshot paths in the completion comment.
 
 ## Recovery
 

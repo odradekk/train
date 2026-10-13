@@ -1,7 +1,7 @@
 
-namespace Train.Core.Simulation;
+namespace Train.Core.World;
 
-public static class SplitMix64
+internal static class SplitMix64
 {
     private const ulong Increment = 0x9E3779B97F4A7C15UL;
 

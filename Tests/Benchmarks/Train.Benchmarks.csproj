@@ -11,7 +11,7 @@
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
     <ProjectReference Include="../../Core/Train.Core.csproj" />
-    <Compile Include="../Core/Simulation/SimulationExamples.cs" Link="Fixtures/SimulationExamples.cs" />
-    <Compile Include="../Core/Simulation/ResourceCommandCodec.cs" Link="Fixtures/ResourceCommandCodec.cs" />
+    <Compile Include="../Core/World/WorldFixture.cs" Link="Fixtures/WorldFixture.cs" />
+    <Compile Include="../Core/Railway/TrainRecoveryFixture.cs" Link="Fixtures/TrainRecoveryFixture.cs" />
   </ItemGroup>
 </Project>

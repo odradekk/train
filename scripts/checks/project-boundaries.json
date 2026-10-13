@@ -2,7 +2,8 @@
   "isolationTests": [
     "Train.Core.Tests",
     "Train.Content.Tests",
-    "Train.Scenes.Tests"
+    "Train.Scenes.Tests",
+    "Train.Godot.Tests"
   ],
   "projects": {
     "Train.Cli": {

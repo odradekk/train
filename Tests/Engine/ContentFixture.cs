@@ -1,40 +1,56 @@
 using System.Text.Json.Nodes;
 using Godot;
+using Train.App;
+using Train.App.Assets;
+using Train.App.Logging;
+using Train.Content.Contracts;
+using Train.Core.Contracts;
 
 namespace Train.Engine.Tests;
 
 internal static class ContentFixture
 {
-    internal static string ReadResource(string relative) => Godot.FileAccess.GetFileAsString("res://builtin/legacy-host/resources/" + relative);
-
-    internal static void WriteVoxel(string resources, string id)
+    internal static void WriteMod(string directory, Guid id)
     {
-        var voxels = Path.Combine(resources, "voxels");
-        Directory.CreateDirectory(Path.Combine(voxels, "grain"));
-        var definition = JsonNode.Parse(ReadResource("voxels/grain.voxels.json"))!;
-        definition["voxels"]![0]!["id"] = id;
-        File.WriteAllText(Path.Combine(voxels, id + ".voxels.json"), definition.ToJsonString());
-        File.WriteAllBytes(Path.Combine(voxels, "grain/placeholder.png"), Godot.FileAccess.GetFileAsBytes("res://builtin/legacy-host/resources/voxels/grain/placeholder.png"));
-    }
-
-    internal static void WriteMod(string directory)
-    {
-        Directory.CreateDirectory(directory);
+        var voxels = Path.Combine(directory, "resources", "voxels");
+        Directory.CreateDirectory(Path.Combine(voxels, "shared"));
         File.WriteAllText(Path.Combine(directory, "mod.json"), $$"""
-            {"schema_version":1,"id":"{{Guid.NewGuid():D}}","name":"Engine fixture","version":"1.0.0","authors":["Engine tests"]}
+            {"schema_version":2,"id":"{{id:D}}","name":"Engine fixture","version":"1.0.0","authors":["Engine tests"]}
             """);
-        WriteVoxel(Path.Combine(directory, "resources"), "engine-grain");
+        var definition = JsonNode.Parse(Godot.FileAccess.GetFileAsString(
+            "res://builtin/core/resources/voxels/staple-food.voxel.json"))!;
+        definition["id"] = "engine-food";
+        File.WriteAllText(Path.Combine(voxels, "engine-food.voxel.json"), definition.ToJsonString());
+        foreach (var image in new[] { "organic-icon.png", "organic-face.png" })
+            File.WriteAllBytes(Path.Combine(voxels, "shared", image), Godot.FileAccess.GetFileAsBytes(
+                "res://builtin/core/resources/voxels/shared/" + image));
     }
 
-    internal static void WriteEconomy(string resources, double sensitivity, int capacity)
+    internal static string CopyBuiltIn()
     {
-        Directory.CreateDirectory(Path.Combine(resources, "markets"));
-        Directory.CreateDirectory(Path.Combine(resources, "settlement-types"));
-        File.WriteAllText(Path.Combine(resources, "markets/smoke.market-tables.json"), $$"""
-            {"schema_version":1,"market_tables":[{"id":"smoke-prices","goods":[{"definition":"core:grain","sensitivity":{{sensitivity.ToString(System.Globalization.CultureInfo.InvariantCulture)}},"min_price":1,"max_price":1000}]}]}
-            """);
-        File.WriteAllText(Path.Combine(resources, "settlement-types/smoke.settlement-types.json"), $$"""
-            {"schema_version":1,"settlement_types":[{"id":"smoke-settlement","name":"Smoke settlement","supply":[{"definition":"core:grain","capacity":{{capacity}},"restore_per_tick":1}],"demand":[],"preferred_terrain":[],"weight":1,"population_min":1,"population_max":1,"initial_platform_count":0}]}
-            """);
+        var destination = Path.Combine(Path.GetTempPath(), "engine-content-" + Guid.NewGuid().ToString("N"));
+        var source = ProjectSettings.GlobalizePath("res://builtin/core");
+        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+        {
+            var target = Path.Combine(destination, Path.GetRelativePath(source, file));
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(file, target);
+        }
+        return destination;
+    }
+
+    internal static HostCoordinator CreateHost(TrainLogger logger, string builtin,
+        GodotMainThreadDispatcher dispatcher)
+    {
+        var root = new ContentRoot("builtin");
+        var mods = new ContentRoot("mods");
+        var files = new ContentFiles(dispatcher, new Dictionary<ContentRoot, ContentRootLocation>
+        {
+            [root] = new ContentRootLocation.Disk(builtin),
+            [mods] = new ContentRootLocation.Disk(Path.Combine(builtin, "mods"))
+        });
+        return new(Train.Core.CoreFactory.Create(), Train.Content.ContentFactory.Create(), files,
+            new GodotAssetInspector(dispatcher), new(root, mods, null, "0.0.56", []), logger,
+            sessionOptions: new(new("engine-fixture", "core-session-v1", "Windows", "x64", "10"), true, 1));
     }
 }

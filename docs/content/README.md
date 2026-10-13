@@ -48,7 +48,7 @@ pwsh -NoProfile -File scripts/test.ps1 -Project content -Layer fast,integration
 
 `--check` 比较全部文件清单与字节并校验 Schema；目录中多出、缺少或手改任何文件都会失败。生成时也拒绝多余文件，避免覆盖未归脚本所有的内容。修改正式内容应修改生成脚本，再重制；每份 JSON 必须在现有 1 MiB 单文件上限内。新 PNG 的 `.import` 已设置 `importer="keep"`，无头导入后应保持不变。
 
-真实内容加载测试只验证 Content 的解析、引用和设计投影。世界测量及固定种子的节点／线路定位记录见 [#372](https://github.com/odradekk/train/issues/372) 测量评论；三维弯坡、轮轨表现与看图确认归 #298，依赖 PR #431 合并。当前旧宿主的临时 grain 资源迁至 `builtin/legacy-host/resources/`，继续走原加载路径；宿主接入新工厂和新格式导出分别归 #317／#377。
+真实内容加载测试只验证 Content 的解析、引用和设计投影。世界测量及固定种子的节点／线路定位记录见 [#372](https://github.com/odradekk/train/issues/372) 测量评论；三维弯坡、轮轨表现与看图确认归 #298，依赖 PR #431 合并。游戏已不加载 `builtin/legacy-host/`；该目录仅保留资产导出探针与 `ContentPortsTests` 使用的 PNG 夹具。宿主已在 #424 接入真实工厂，导出规则清理归 #377。
 
 ## 内容包的结构
 

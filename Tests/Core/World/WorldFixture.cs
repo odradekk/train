@@ -1,10 +1,9 @@
 using System.Collections.Immutable;
 using Train.Core.Contracts;
-using Train.Core.Sessions;
 
 namespace Train.Core.Tests.World;
 
-internal static class WorldFixture
+internal static partial class WorldFixture
 {
     public static CoreSessionOptions Options => new(new("fixture", "1", "Windows", "x64", "10"), false, 1);
 
@@ -13,15 +12,6 @@ internal static class WorldFixture
 
     public static ICoreSessionCandidate Prepare(WorldGenerationInput? input = null, CoreContentProjection? content = null) =>
         Success(CoreFactory.Create().PrepareNew(input ?? Input, content ?? Content, Options));
-
-    public static CoreState State(SimulationPosition? position = null, ulong next = 1,
-        CoreRevision? revision = null, CoreContentProjection? content = null)
-    {
-        using var candidate = Prepare(content: content);
-        using var session = (CoreSession)candidate.Activate();
-        return session.State with { Position = position ?? session.State.Position, NextCommandNumber = next,
-            Revision = revision ?? session.State.Revision };
-    }
 
     public static DesignHash Vehicle { get; } = new(new string('A', 64));
     public static DesignHash Station { get; } = new(new string('B', 64));
