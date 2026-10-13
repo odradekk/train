@@ -98,7 +98,9 @@ public sealed class SaveServiceTests
         Assert.AreEqual(run.Id, run.Store.ReadHeader(export).Id);
         Assert.AreEqual(run.Id, run.Service.Status!.Identity.Id);
         Assert.IsTrue(run.Service.Status.Unsaved);
+        File.WriteAllText(export, "existing external file");
         Assert.AreEqual("overwrite-confirmation", run.Service.Export(export)?.Code);
+        Assert.AreEqual("existing external file", File.ReadAllText(export));
         Assert.IsNull(run.Service.Export(export, true));
         run.Drain();
         Assert.AreEqual(run.Id, run.Store.ReadHeader(export).Id);
