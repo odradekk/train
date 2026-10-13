@@ -48,7 +48,7 @@ public sealed class TrainDispatchValidationTests
     }
 
     [TestMethod]
-    public void Handoffs_require_ordered_unique_existing_empty_tracks()
+    public void Handoffs_require_ordered_unique_existing_empty_open_tracks()
     {
         var state = State();
         var edge = state.World.Edges[0];
@@ -63,6 +63,9 @@ public sealed class TrainDispatchValidationTests
         var train = world.Trains[0] with { Position = new TrainPosition.Edge(edge.Id, 1, TravelDirection.Forward, 0),
             Transit = null, Activity = TrainActivity.Running };
         AssertInvalid(world with { Trains = [train] }, "/world/track_handoffs/track");
+        var broken = world with { Edges = world.Edges.SetItem(0, edge with { Breaks = [new(new(1), 1, 0)] }),
+            Next = world.Next with { Break = 2 } };
+        Assert.AreEqual("/world/track_handoffs/track", Failure(new CoreCapture(state with { World = broken }).Encode()));
     }
 
     [TestMethod]

@@ -197,6 +197,7 @@ internal static class WorldStateValidation
             previousHandoff = key;
             Require(edges.TryGetValue(handoff.Edge, out var edge), "/world/track_handoffs/edge");
             Require(handoff.Track >= 1 && handoff.Track <= edge.Tracks, "/world/track_handoffs/track");
+            Require(!edge.Breaks.Any(b => b.Track == handoff.Track), "/world/track_handoffs/track");
             Require(Enum.IsDefined(handoff.Direction), "/world/track_handoffs/direction");
             Require(!world.Trains.Any(t => t.Position is TrainPosition.Edge p
                 && p.Id == handoff.Edge && p.Track == handoff.Track), "/world/track_handoffs/track");

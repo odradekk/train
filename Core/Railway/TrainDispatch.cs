@@ -13,7 +13,7 @@ internal sealed class TrainDispatch
     private readonly Dictionary<(EdgeId Edge, int Track), List<TrainState>> _tracks;
     private readonly Dictionary<TrainId, (EdgeId Edge, TravelDirection Direction)> _requests = [];
     private readonly Dictionary<NodeId, int> _platforms;
-    private readonly HashSet<TrainId> _platformHolders = [];
+    private readonly HashSet<TrainId> _platformHolders;
     private readonly HashSet<(EdgeId, int)> _usedHandoffs = [];
 
     internal TrainDispatch(WorldState world, CoreContentProjection content)
@@ -25,6 +25,8 @@ internal sealed class TrainDispatch
             .GroupBy(t => { var p = (TrainPosition.Edge)t.Position; return (p.Id, p.Track); })
             .ToDictionary(g => g.Key, g => g.ToList());
         _platforms = world.Nodes.ToDictionary(n => n.Id, n => world.OccupiedPlatforms(n.Id));
+        _platformHolders = world.Trains.Where(t => t.Activity == TrainActivity.Servicing && NeedsPlatform(world, t))
+            .Select(t => t.Id).ToHashSet();
         foreach (var train in world.Trains)
             if (RequestedEdge(world, content, train, _capabilities[train.Id]) is { } edge)
                 _requests.Add(train.Id, (edge.Id, Direction(edge, ((TrainPosition.Node)train.Position).Id)));
@@ -122,7 +124,9 @@ internal sealed class TrainDispatch
     private bool EntrySpace(TrainState entering, TrainState ahead, EdgeMapItem edge, TravelDirection direction)
     {
         var distance = ((TrainPosition.Edge)ahead.Position).DistanceMeters;
-        return (direction == TravelDirection.Forward ? distance : edge.LengthMeters - distance) >= Gap(entering, ahead);
+        var available = (direction == TravelDirection.Forward ? distance : edge.LengthMeters - distance) - Gap(entering, ahead);
+        return available >= entering.SpeedMetersPerSecond * entering.SpeedMetersPerSecond
+            / (2 * TrainOperations.Rule(_world, _content).BrakingDeceleration);
     }
 
     private double Gap(TrainState first, TrainState second) =>
@@ -188,7 +192,8 @@ internal sealed class TrainDispatch
         var handoffs = _world.TrackHandoffs.Where(h => !_usedHandoffs.Contains((h.Edge, h.Track))
             && requests.Contains((h.Edge, h.Direction))).ToDictionary(h => (h.Edge, h.Track));
         foreach (var (key, occupants) in _tracks)
-            if (!world.Trains.Any(t => t.Position is TrainPosition.Edge p && p.Id == key.Edge && p.Track == key.Track))
+            if (Open(world.Edges.Single(e => e.Id == key.Edge), key.Track)
+                && !world.Trains.Any(t => t.Position is TrainPosition.Edge p && p.Id == key.Edge && p.Track == key.Track))
             {
                 var direction = Opposite(((TrainPosition.Edge)occupants[0].Position).Direction);
                 if (requests.Contains((key.Edge, direction))) handoffs[key] = new(key.Edge, key.Track, direction);

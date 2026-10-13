@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
 using Train.Core.Sessions;
@@ -97,6 +98,63 @@ public sealed class TrainDispatchTests
     }
 
     [TestMethod]
+    [DataRow(1)]
+    [DataRow(2)]
+    public void Moving_arrival_needs_braking_room_to_join_a_locked_track_or_uses_an_empty_track(int tracks)
+    {
+        var state = TwoEdges(2, tracks, 30);
+        var leading = OnEdge(state.World.Trains[0], 1.5, 0) with
+        { Position = new TrainPosition.Edge(new(2), 1, TravelDirection.Forward, 1.5), Plan = Plan(3) };
+        var arriving = OnEdge(state.World.Trains[1], 29.95, 8) with { Plan = Plan(3) };
+        using var session = new CoreSession(state with { World = state.World with { Trains = [leading, arriving] } });
+        Step(session);
+        Assert.AreEqual(new TrainPosition.Node(new(2)), View(session, 2).Position);
+        if (tracks == 1)
+        {
+            Assert.AreEqual(TrainActivity.Waiting, View(session, 2).Activity);
+            Assert.AreEqual(0.0, View(session, 2).SpeedMetersPerSecond);
+            Assert.IsNull(View(session, 2).NodeTransit!.NextEdge);
+            Assert.AreEqual("track_wait", View(session, 2).Blockers.Single().Code);
+        }
+        else
+        {
+            Assert.AreEqual(TrainActivity.Running, View(session, 2).Activity);
+            Assert.IsTrue(View(session, 2).SpeedMetersPerSecond > 7);
+        }
+        Step(session);
+        var position = (TrainPosition.Edge)View(session, 2).Position;
+        Assert.AreEqual(new EdgeId(2), position.Id);
+        Assert.AreEqual(tracks, position.Track);
+        Assert.IsTrue(View(session, 2).SpeedMetersPerSecond > 0);
+    }
+
+    [TestMethod]
+    public void Multi_train_running_without_breaks_obeys_the_braking_rate_on_every_committed_track_step()
+    {
+        var state = TwoEdges(4, 1, 5);
+        state = state with { World = state.World with { Trains = state.World.Trains.Select(t => t with
+        { Activity = TrainActivity.Running, Plan = Plan(3) }).ToImmutableArray() } };
+        using var session = new CoreSession(state);
+        var maximumDrop = WorldFixture.Content.RailwayRules[0].BrakingDeceleration * SimulationTime.StepSeconds;
+        var deceleratingSteps = 0;
+        for (var step = 0; step < 1000; step++)
+        {
+            var before = session.Read().World.Trains.ToDictionary(t => t.Id, t => View(session, t.Id.Value));
+            Step(session);
+            foreach (var train in session.Read().World.Trains.Select(t => View(session, t.Id.Value)))
+                if (before[train.Id].Position is TrainPosition.Edge a && train.Position is TrainPosition.Edge b
+                    && a.Id == b.Id && a.Track == b.Track)
+                {
+                    var drop = before[train.Id].SpeedMetersPerSecond - train.SpeedMetersPerSecond;
+                    if (drop > 0) deceleratingSteps++;
+                    Assert.IsTrue(drop <= maximumDrop + 1e-9, $"第 {step} 步，列车 {train.Id.Value} 减速 {drop:R}");
+                }
+        }
+        Assert.IsTrue(deceleratingSteps > 0);
+        Assert.IsTrue(session.Read().World.Trains.All(t => t.Position == new TrainPosition.Node(new(3))));
+    }
+
+    [TestMethod]
     public void Increasing_gap_keeps_the_follower_still_until_the_leader_opens_space()
     {
         var state = State();
@@ -162,14 +220,46 @@ public sealed class TrainDispatchTests
         Assert.AreEqual(2UL, View(session, 1).RemainingDwellSteps);
         Assert.AreEqual(TrainActivity.Waiting, View(session, 2).Activity);
         Assert.AreEqual("platform_wait", View(session, 2).Blockers.Single().Code);
-        Assert.AreEqual(1, session.Read().World.Nodes[0].OccupiedPlatforms);
-        Assert.AreEqual(0, session.State.World.Nodes[0].OccupiedPlatforms);
+        var occupied = session.Read().World.Nodes[0];
+        Assert.AreEqual(1, occupied.OccupiedPlatforms);
         Step(session); Step(session);
         Assert.AreEqual(0, session.Read().World.Nodes[0].OccupiedPlatforms);
+        Assert.AreEqual(1, occupied.OccupiedPlatforms);
         Assert.AreEqual(TrainActivity.Waiting, View(session, 2).Activity);
         Step(session);
         Assert.AreEqual(TrainActivity.Servicing, View(session, 2).Activity);
         Assert.AreEqual(2UL, View(session, 2).RemainingDwellSteps);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Consecutive_stations_at_the_same_node_keep_the_platform_without_requeueing(bool competitor)
+    {
+        var state = State(competitor ? 2 : 1);
+        var first = state.World.Trains[0] with { Activity = TrainActivity.Running,
+            Plan = new(false, [new PlanStop.Station(new(1), 3, []), new PlanStop.Station(new(1), 3, []), new PlanStop.Waypoint(new(2))]) };
+        var trains = competitor ? ImmutableArray.Create(first, state.World.Trains[1] with
+        { Activity = TrainActivity.Running, Plan = new(false, [new PlanStop.Station(new(1), 2, [])]) }) : [first];
+        using var session = new CoreSession(state with { World = state.World with { Trains = trains } });
+        Step(session);
+        for (var step = 0; step < 3; step++)
+        {
+            Step(session);
+            Assert.AreEqual(TrainActivity.Servicing, View(session, 1).Activity);
+            Assert.AreEqual(1, session.Read().World.Nodes[0].OccupiedPlatforms);
+            if (competitor) Assert.AreEqual(TrainActivity.Waiting, View(session, 2).Activity);
+        }
+        Assert.AreEqual(1, View(session, 1).NextStopIndex);
+        Assert.AreEqual(3UL, View(session, 1).RemainingDwellSteps);
+        Step(session); Step(session); Step(session);
+        Assert.AreEqual(0, session.Read().World.Nodes[0].OccupiedPlatforms);
+        if (competitor)
+        {
+            Assert.AreEqual(TrainActivity.Waiting, View(session, 2).Activity);
+            Step(session);
+            Assert.AreEqual(TrainActivity.Servicing, View(session, 2).Activity);
+        }
     }
 
     [TestMethod]
@@ -229,9 +319,19 @@ public sealed class TrainDispatchTests
     {
         var state = State();
         using var session = new CoreSession(state with { World = state.World with { Trains =
-            [OnEdge(state.World.Trains[0], 19.99, 2), OnEdge(state.World.Trains[1], 10, 2), OnEdge(state.World.Trains[2], 6, 2)] } });
+            [OnEdge(state.World.Trains[0], 12, 0), OnEdge(state.World.Trains[1], 10, 2), OnEdge(state.World.Trains[2], 6, 2)] } });
         Submit(session, new CoreCommand.DebugAddRailBreak(new(1), 1, 11));
-        for (var step = 0; step < 1000 && session.State.World.Trains[1].ReturningFromBreak is null; step++) Step(session);
+        Step(session);
+        for (var step = 0; step < 1000 && (View(session, 2).SpeedMetersPerSecond != 0 || View(session, 3).SpeedMetersPerSecond != 0); step++) Step(session);
+        Assert.IsInstanceOfType<TrainPosition.Edge>(View(session, 1).Position);
+        Assert.AreEqual(0.0, View(session, 2).SpeedMetersPerSecond);
+        Assert.AreEqual(0.0, View(session, 3).SpeedMetersPerSecond);
+        for (var step = 0; step < 1000 && View(session, 1).Position is TrainPosition.Edge; step++)
+        {
+            foreach (var id in new ulong[] { 2, 3 })
+                Assert.AreEqual(TravelDirection.Forward, ((TrainPosition.Edge)View(session, id).Position).Direction);
+            Step(session);
+        }
         Assert.IsInstanceOfType<TrainPosition.Node>(View(session, 1).Position);
         foreach (var id in new ulong[] { 2, 3 })
         {
@@ -331,6 +431,37 @@ public sealed class TrainDispatchTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Broken_tracks_leave_no_saved_handoff_and_do_not_reorder_requests_for_the_open_track(bool returning)
+    {
+        var state = State(2, 2) with { Position = new(5, 0) };
+        var world = state.World;
+        if (returning)
+            world = world with
+            {
+                Edges = [world.Edges[0] with { Breaks = [new(new(1), 1, 20)] }],
+                Next = world.Next with { Break = 2 },
+                Trains = [world.Trains[0] with { Position = new TrainPosition.Node(new(2)), Plan = Plan(1) },
+                    OnEdge(world.Trains[1], 0.01, 2, reverse: true) with { ReturningFromBreak = new(1), Plan = Plan(2) }]
+            };
+        else
+            world = world with { Trains = [Queued(world.Trains[0], 1, 1, 2), Queued(world.Trains[1], 2, 3, 1)],
+                TrackHandoffs = [new(new(1), 1, TravelDirection.Reverse)] };
+        using var session = new CoreSession(state with { World = world });
+        if (returning) Step(session);
+        else Submit(session, new CoreCommand.DebugAddRailBreak(new(1), 1, 20));
+        using var saved = JsonDocument.Parse(WorldFixture.Success(session.Capture(CapturePurpose.Save)).Checkpoint.CanonicalText);
+        Assert.AreEqual(0, saved.RootElement.GetProperty("world").GetProperty("track_handoffs").GetArrayLength());
+        if (returning) Submit(session, new CoreCommand.StartTrain(new(1)));
+        Step(session);
+        var admitted = (TrainPosition.Edge)View(session, 1).Position;
+        Assert.AreEqual(2, admitted.Track);
+        Assert.AreEqual(returning ? TravelDirection.Reverse : TravelDirection.Forward, admitted.Direction);
+        Assert.AreEqual(TrainActivity.Waiting, View(session, 2).Activity);
+    }
+
+    [TestMethod]
     [DataRow(2UL, 1, 0.0, "object_missing", "Edge")]
     [DataRow(1UL, 2, 0.0, "invalid_state", "Break")]
     [DataRow(1UL, 1, 21.0, "invalid_state", "Break")]
@@ -338,10 +469,17 @@ public sealed class TrainDispatchTests
     {
         using var session = new CoreSession(State(1));
         var before = session.State;
+        var view = session.Read().World;
+        var checkpoint = WorldFixture.Success(session.Capture(CapturePurpose.Save)).Checkpoint;
         var result = (SubmissionResult.Completed)session.Submit(new CoreCommand.DebugAddRailBreak(new(edge), track, distance), CommandSource.AutomationTest);
         var problem = ((CommandDecision.Rejected)result.Receipt.Decision).Problems.Single();
         Assert.AreEqual(code, problem.Code); Assert.AreEqual(field, problem.Field);
-        Assert.AreSame(before.World, session.State.World);
+        Assert.AreEqual(view.Edges[0].Breaks.Length, session.Read().World.Edges[0].Breaks.Length);
+        Assert.AreEqual(view.Trains[0].Position, View(session, 1).Position);
+        Assert.AreEqual(view.Trains[0].Activity, View(session, 1).Activity);
+        using var beforeJson = JsonDocument.Parse(checkpoint.CanonicalText);
+        using var afterJson = JsonDocument.Parse(WorldFixture.Success(session.Capture(CapturePurpose.Save)).Checkpoint.CanonicalText);
+        Assert.AreEqual(beforeJson.RootElement.GetProperty("world").GetRawText(), afterJson.RootElement.GetProperty("world").GetRawText());
         Assert.AreEqual(before.NextCommandNumber + 1, session.State.NextCommandNumber);
         Assert.AreEqual(result.Receipt, session.ReadRecording().Commands.Single().Result);
     }
@@ -351,6 +489,17 @@ public sealed class TrainDispatchTests
         var state = State(2);
         return new(state with { World = state.World with { Trains = state.World.Trains.Select(t => t with
         { Activity = TrainActivity.Running, Plan = new(false, [new PlanStop.Station(new(1), 2, []), new PlanStop.Waypoint(new(2))]) }).ToImmutableArray() } });
+    }
+    private static CoreState TwoEdges(int count, int tracks, double length)
+    {
+        var state = State(count, tracks, length);
+        var world = state.World;
+        return state with { World = world with
+        {
+            Nodes = world.Nodes.Add(world.Nodes[1] with { Id = new(3), Position = new(10, 0) }),
+            Edges = world.Edges.Add(world.Edges[0] with { Id = new(2), Start = new(2), End = new(3) }),
+            Next = world.Next with { Node = 4, Edge = 3 }
+        } };
     }
     private static RunPlan Plan(ulong node) => new(false, [new PlanStop.Waypoint(new(node))]);
     private static TrainState Queued(TrainState train, ulong node, ulong age, ulong target) => train with
