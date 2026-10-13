@@ -111,7 +111,7 @@ public sealed class WorldIdentityTests
     }
 
     [TestMethod]
-    public void Duplicate_terrain_bands_remain_effective_generation_input()
+    public void Duplicate_terrain_bands_preserve_generation_revision_after_core_normalization()
     {
         var fixture = WorldContentFixtures.Content();
         using var first = fixture.Load();
@@ -123,7 +123,7 @@ public sealed class WorldIdentityTests
         using var second = fixture.Load();
         Assert.AreEqual(2, World(second.View).Configuration.TerrainBands.Length);
         Assert.AreEqual(first.View.Core.Identity, second.View.Core.Identity);
-        Assert.AreNotEqual(World(first.View).GenerationContentRevision, World(second.View).GenerationContentRevision);
+        Assert.AreEqual(World(first.View).GenerationContentRevision, World(second.View).GenerationContentRevision);
     }
 
     [TestMethod]

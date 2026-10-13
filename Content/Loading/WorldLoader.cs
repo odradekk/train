@@ -6,7 +6,7 @@ namespace Train.Content.Loading;
 
 internal sealed record LoadedGenerationProfile(C.GenerationProfileId Id, C.DisplayText Display,
     K.ResolvedGenerationConfiguration Configuration, K.NewGameStartInput Start);
-internal sealed record WorldDefinitions(ImmutableArray<LoadedTerrain> Terrains,
+internal sealed record WorldDefinitions(ImmutableArray<C.TerrainAppearanceProjection> Terrains,
     ImmutableArray<LoadedSettlementType> Types, ImmutableArray<LoadedSettlementTemplate> Templates,
     ImmutableArray<ParsedRule> Rules, ImmutableArray<LoadedGenerationProfile> Profiles)
 {
@@ -66,7 +66,7 @@ internal sealed class WorldLoader
         RejectDuplicates(_templates, t => t.Id.Value, t => t.Path);
         RejectDuplicates(_rules, r => r.Id.Value, r => r.Path);
         RejectDuplicates(_profiles, p => p.Id.Value, p => p.Path);
-        var resolvedTerrains = new Dictionary<K.TerrainTypeId, LoadedTerrain>();
+        var resolvedTerrains = new Dictionary<K.TerrainTypeId, C.TerrainAppearanceProjection>();
         var resolvedTemplates = new Dictionary<K.SettlementTemplateId, LoadedSettlementTemplate>();
         var resolvedProfiles = new Dictionary<C.GenerationProfileId, LoadedGenerationProfile>();
         int before;
@@ -109,14 +109,14 @@ internal sealed class WorldLoader
             PackageLoader.ExcludeDependents(packages);
         } while (packages.Count(p => Active(p)) < before);
 
-        return new(_terrains.Where(t => Active(t.Package)).Select(t => resolvedTerrains[t.Value.Id]).OrderBy(t => t.Appearance.Id.Value, StringComparer.Ordinal).ToImmutableArray(),
+        return new(_terrains.Where(t => Active(t.Package)).Select(t => resolvedTerrains[t.Value.Id]).OrderBy(t => t.Id.Value, StringComparer.Ordinal).ToImmutableArray(),
             _types.Where(t => Active(t.Package)).Select(t => t.Value).OrderBy(t => t.Source.Core.Id.Value, StringComparer.Ordinal).ToImmutableArray(),
             _templates.Where(t => Active(t.Package)).Select(t => resolvedTemplates[t.Value.Id]).OrderBy(t => t.Core.Id.Value, StringComparer.Ordinal).ToImmutableArray(),
             _rules.Where(r => Active(r.Package)).Select(r => r.Value).OrderBy(r => r.Id.Value, StringComparer.Ordinal).ToImmutableArray(),
             _profiles.Where(p => Active(p.Package)).Select(p => resolvedProfiles[p.Value.Id]).OrderBy(p => p.Id.Value, StringComparer.Ordinal).ToImmutableArray());
     }
 
-    private static LoadedTerrain? ResolveTerrain(LoadPackage package, ParsedTerrain source, References references)
+    private static C.TerrainAppearanceProjection? ResolveTerrain(LoadPackage package, ParsedTerrain source, References references)
     {
         var subject = new C.ContentReference.Core(new K.CoreDefinitionReference.Terrain(source.Id));
         foreach (var (id, field) in new[] { (source.SurfaceVoxel, "/surface_voxel"), (source.SubsurfaceVoxel, "/subsurface_voxel"), (source.RockVoxel, "/rock_voxel") })
@@ -136,9 +136,9 @@ internal sealed class WorldLoader
             var portal = references.Scene(package, source.Path, subject, model.TunnelPortal, "/railway_models");
             if (bridge is not null && portal is not null) railwayModels.Add(new(model.Tracks, bridge.Design, portal.Design));
         }
-        return Active(package) ? new(new(source.Id, source.SurfaceVoxel, source.SubsurfaceVoxel, source.RockVoxel,
+        return Active(package) ? new(source.Id, source.SurfaceVoxel, source.SubsurfaceVoxel, source.RockVoxel,
             source.LocalHeightNoise, decorations.ToImmutable(), source.DecorationTargetPerSquareMeter,
-            railwayModels.ToImmutable(), source.Display)) : null;
+            railwayModels.ToImmutable(), source.Display) : null;
     }
 
     private static void ResolveRule(LoadPackage package, ParsedRule rule, References references)

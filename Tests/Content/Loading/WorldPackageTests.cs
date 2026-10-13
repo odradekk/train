@@ -106,12 +106,12 @@ public sealed class WorldPackageTests
     }
 
     [TestMethod]
-    [DataRow("wrong-rule")]
-    [DataRow("scene-good")]
-    [DataRow("duplicate-rule")]
-    [DataRow("invalid-symbol")]
-    [DataRow("wrong-terrain-voxel")]
-    public void Wrong_reference_kinds_duplicate_rule_ids_and_invalid_symbols_reject_the_package(string mutation)
+    [DataRow("wrong-rule", "/configuration/rules/population")]
+    [DataRow("scene-good", "/rail_good")]
+    [DataRow("duplicate-rule", "/id")]
+    [DataRow("invalid-symbol", "/display/map_symbol")]
+    [DataRow("wrong-terrain-voxel", "/surface_voxel")]
+    public void Wrong_reference_kinds_duplicate_rule_ids_and_invalid_symbols_reject_the_package(string mutation, string expectedField)
     {
         var fixture = WorldContentFixtures.Content();
         switch (mutation)
@@ -136,7 +136,41 @@ public sealed class WorldPackageTests
         var result = fixture.Prepare();
         Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Failure>(result, result.ToString());
         var code = mutation == "duplicate-rule" ? "duplicate_identity" : mutation == "invalid-symbol" ? "asset_rule_failed" : "reference_wrong_kind";
-        Assert.IsTrue(((C.ContentResult<C.IContentCandidate>.Failure)result).Diagnostics.Any(d => d.Code == code));
+        Assert.IsTrue(((C.ContentResult<C.IContentCandidate>.Failure)result).Diagnostics.Any(d => d.Code == code && d.Field == expectedField));
+    }
+
+    [TestMethod]
+    [DataRow("terrain-decoration", "/decorations")]
+    [DataRow("template-scene", "/scene_model")]
+    [DataRow("plot-building", "/plots")]
+    [DataRow("for-sale-candidate", "/configuration/npc_initialization/for_sale_vehicle_candidates")]
+    public void Blueprint_references_to_the_wrong_design_kind_report_their_field(string mutation, string expectedField)
+    {
+        var fixture = WorldContentFixtures.Content();
+        const string terrainPath = "resources/terrain-types/plains.terrain-type.json";
+        var path = mutation == "terrain-decoration" ? terrainPath
+            : mutation == "for-sale-candidate" ? WorldContentFixtures.ProfilePath : WorldContentFixtures.TemplatePath;
+        WorldContentFixtures.Change(fixture, path, json =>
+        {
+            switch (mutation)
+            {
+                case "terrain-decoration":
+                    json["decorations"] = new JsonArray(new JsonObject { ["scene_model"] = "station", ["weight"] = 1 });
+                    break;
+                case "template-scene":
+                    json["scene_model"] = "station";
+                    break;
+                case "plot-building":
+                    json["plots"]![1]!["building"] = "wagon";
+                    break;
+                case "for-sale-candidate":
+                    json["configuration"]!["npc_initialization"]!["for_sale_vehicle_candidates"] = new JsonArray("station");
+                    break;
+            }
+        });
+        var failure = WorldContentFixtures.Failure(fixture.Prepare());
+        Assert.IsTrue(failure.Diagnostics.Any(d => d.Code == "reference_wrong_kind" &&
+            d.Field == expectedField && d.Source?.Path == path));
     }
 
     private static JsonObject Manifest(string id) => new()

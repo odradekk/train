@@ -11,7 +11,6 @@ internal sealed record ParsedTerrain(K.TerrainTypeId Id, K.VoxelDefinitionId Sur
     K.VoxelDefinitionId SubsurfaceVoxel, K.VoxelDefinitionId RockVoxel, ImmutableArray<K.NoiseOctave> LocalHeightNoise,
     ImmutableArray<ParsedTerrainDecoration> Decorations, double DecorationTargetPerSquareMeter,
     ImmutableArray<ParsedRailwayModels> RailwayModels, C.DisplayText Display, string Path);
-internal sealed record LoadedTerrain(C.TerrainAppearanceProjection Appearance);
 
 internal static class TerrainParser
 {

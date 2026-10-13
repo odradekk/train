@@ -109,8 +109,8 @@ internal sealed class ContentView : C.IContentView
             return new C.ContentLookup<C.ContentDisplay>.Found(new(voxel.Display.Display, voxel.Display.Icon, null));
         if (definition is K.CoreDefinitionReference.SettlementType type && _world.Types.FirstOrDefault(t => t.Source.Core.Id == type.Id) is { } entry)
             return new C.ContentLookup<C.ContentDisplay>.Found(new(entry.Source.Display, null, entry.Symbol));
-        if (definition is K.CoreDefinitionReference.Terrain terrain && _world.Terrains.FirstOrDefault(t => t.Appearance.Id == terrain.Id) is { } ground)
-            return new C.ContentLookup<C.ContentDisplay>.Found(new(ground.Appearance.Display, null, null));
+        if (definition is K.CoreDefinitionReference.Terrain terrain && _world.Terrains.FirstOrDefault(t => t.Id == terrain.Id) is { } ground)
+            return new C.ContentLookup<C.ContentDisplay>.Found(new(ground.Display, null, null));
         if (definition is K.CoreDefinitionReference.Template template && _world.Templates.FirstOrDefault(t => t.Core.Id == template.Id) is { } source)
             return new C.ContentLookup<C.ContentDisplay>.Found(new(source.Source.Display, null, null));
         return new C.ContentLookup<C.ContentDisplay>.NotFound();
@@ -130,8 +130,8 @@ internal sealed class ContentView : C.IContentView
     public C.ContentLookup<C.CreatureAppearanceProjection> FindCreature(K.CreatureDefinitionId creature) => new C.ContentLookup<C.CreatureAppearanceProjection>.NotFound();
     public C.ContentLookup<C.LairAppearanceProjection> FindLair(K.LairTypeId lair) => new C.ContentLookup<C.LairAppearanceProjection>.NotFound();
     public C.ContentLookup<C.TerrainAppearanceProjection> FindTerrain(K.TerrainTypeId terrain) =>
-        _world.Terrains.FirstOrDefault(t => t.Appearance.Id == terrain) is { } ground
-            ? new C.ContentLookup<C.TerrainAppearanceProjection>.Found(ground.Appearance) : new C.ContentLookup<C.TerrainAppearanceProjection>.NotFound();
+        _world.Terrains.FirstOrDefault(t => t.Id == terrain) is { } ground
+            ? new C.ContentLookup<C.TerrainAppearanceProjection>.Found(ground) : new C.ContentLookup<C.TerrainAppearanceProjection>.NotFound();
     public C.ContentLookup<C.RailwayAppearanceProjection> FindRailwayAppearance(K.RuleDefinitionId rule) =>
         _world.Rules.OfType<ParsedRule.Railway>().FirstOrDefault(r => r.Id == rule) is { } railway
             ? new C.ContentLookup<C.RailwayAppearanceProjection>.Found(railway.Appearance) : new C.ContentLookup<C.RailwayAppearanceProjection>.NotFound();

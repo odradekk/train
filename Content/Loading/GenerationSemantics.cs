@@ -15,7 +15,7 @@ internal static class GenerationSemantics
         river_noise = Noise(value.RiverNoise),
         lake_elevation_threshold = value.LakeElevationThreshold,
         river_band_half_width = value.RiverBandHalfWidth,
-        terrain_bands = value.TerrainBands.OrderBy(x => x.MinimumElevation).ThenBy(x => x.MaximumElevation)
+        terrain_bands = value.TerrainBands.Distinct().OrderBy(x => x.MinimumElevation).ThenBy(x => x.MaximumElevation)
             .ThenBy(x => x.MinimumMoisture).ThenBy(x => x.MaximumMoisture).ThenBy(x => x.MaximumRelief)
             .ThenBy(x => x.DetourMultiplier).ThenBy(x => x.MaximumTracks).ThenBy(x => x.Terrain.Value, StringComparer.Ordinal)
             .Select(x => new

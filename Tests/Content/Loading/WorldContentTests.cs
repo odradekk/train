@@ -34,6 +34,13 @@ public sealed class WorldContentTests
     public void Factory_publishes_world_definitions_and_resolves_generation_rules_and_ordered_fleet()
     {
         var fixture = WorldContentFixtures.Content();
+        Change(fixture, ProfilePath, json =>
+        {
+            var configuration = json["configuration"]!;
+            configuration["hostile_settlement_ratio"] = 0.25;
+            configuration["moisture_noise"] = new JsonArray(new JsonObject { ["scale_meters"] = 300, ["amplitude"] = 2 });
+            configuration["river_noise"] = new JsonArray(new JsonObject { ["scale_meters"] = 400, ["amplitude"] = 3 });
+        });
         using var candidate = fixture.Load();
         var view = candidate.View;
         Assert.AreEqual("core:people", view.Core.PopulationRules.Single().Id.Value);
@@ -57,6 +64,14 @@ public sealed class WorldContentTests
         var world = World(view, 987, "generator-test");
         Assert.AreEqual(987UL, world.WorldSeed);
         Assert.AreEqual("generator-test", world.GeneratorVersion);
+        Assert.AreEqual(1000d, world.Configuration.WidthMeters);
+        Assert.AreEqual(2000d, world.Configuration.HeightMeters);
+        Assert.AreEqual(0.5, world.Configuration.SettlementRatio);
+        Assert.AreEqual(0d, world.Configuration.LairRatio);
+        Assert.AreEqual(0.25, world.Configuration.HostileSettlementRatio);
+        CollectionAssert.AreEqual(new[] { new K.NoiseOctave(100, 0), new K.NoiseOctave(200, 1) }, world.Configuration.ElevationNoise.ToArray());
+        CollectionAssert.AreEqual(new[] { new K.NoiseOctave(300, 2) }, world.Configuration.MoistureNoise.ToArray());
+        CollectionAssert.AreEqual(new[] { new K.NoiseOctave(400, 3) }, world.Configuration.RiverNoise.ToArray());
         Assert.AreEqual(new K.RuleSelection(new("core:people"), new("core:market"), new("core:building"), new("core:rail"), new("core:battle")), world.Configuration.Rules);
         Assert.IsTrue(world.Configuration.NpcInitialization.FillInputsAndLivingTargets);
         Assert.AreEqual(2d, world.Configuration.NpcInitialization.OutputReserveHours);
