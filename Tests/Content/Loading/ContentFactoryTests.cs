@@ -42,9 +42,11 @@ public sealed class ContentFactoryTests
         var factory = ContentFactory.Create();
         using var candidate = fixture.Load();
         Assert.ThrowsExactly<NotImplementedException>(() => factory.PrepareLoad(
-            new(fixture.Installation, new C.ContentLoadPurpose.Reload(candidate.View, null!)), fixture, fixture));
-        Assert.ThrowsExactly<NotImplementedException>(() => factory.PrepareLoad(
             new(fixture.Installation with { UserLibrary = new C.ContentRoot("library") }, new C.ContentLoadPurpose.Initial()), fixture, fixture));
+        Assert.ThrowsExactly<NotImplementedException>(() => factory.PrepareLoad(
+            new(fixture.Installation with { UserLibrary = new C.ContentRoot("library") }, new C.ContentLoadPurpose.Restore(null!, null!)), fixture, fixture));
+        Assert.ThrowsExactly<NotImplementedException>(() => factory.PrepareLoad(
+            new(fixture.Installation with { UserLibrary = new C.ContentRoot("library") }, new C.ContentLoadPurpose.Reload(candidate.View, null!)), fixture, fixture));
         Assert.ThrowsExactly<NotImplementedException>(() => factory.CaptureReplay([candidate.View], null!));
         Assert.ThrowsExactly<NotImplementedException>(() => factory.OpenAuthoringPackage(ContentFixture.BuiltIn, new("core"), new("unused"), fixture));
     }

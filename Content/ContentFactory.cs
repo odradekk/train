@@ -35,14 +35,35 @@ internal sealed class InitialContentFactory : C.IContentFactory
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(files);
         ArgumentNullException.ThrowIfNull(inspector);
-        if (request.Installation.UserLibrary is not null || request.Purpose is C.ContentLoadPurpose.Reload)
-            throw new NotImplementedException("用户蓝图库与重载尚未实现。");
+        if (request.Installation.UserLibrary is not null)
+            throw new NotImplementedException("用户蓝图库尚未实现。");
         try
         {
             var loaded = new InitialLoader(request.Installation, files, inspector).Load();
             if (loaded is not C.ContentResult<C.IContentCandidate>.Success success || request.Purpose is C.ContentLoadPurpose.Initial)
                 return loaded;
             using var initial = success.Value;
+            if (request.Purpose is C.ContentLoadPurpose.Reload reload)
+            {
+                if (reload.Basis is not ContentView basis) throw new ArgumentException("需要本工厂产生的固定内容视图。", nameof(request));
+                var saved = ContentCapture.Create(basis, reload.References);
+                var installed = (ContentView)initial.View;
+                var changes = installed.ChangesFrom(basis);
+                var generation = changes == C.ContentChange.None ? basis.Generation : new C.ContentGeneration(checked(basis.Generation.Value + 1));
+                var view = installed.WithCapture(saved, reload.References, generation);
+                var missing = view.Missing(reload.References);
+                var previousMissing = basis.Missing(reload.References).Select(m => ((C.ContentReference.Core)m.Reference).Definition).ToHashSet();
+                var forbidden = missing.Where(m =>
+                {
+                    var definition = ((C.ContentReference.Core)m.Reference).Definition;
+                    var declared = reload.References.Definitions.Where(d => d.Definition == definition).ToArray();
+                    return declared.Any(d => !d.WasMissing) || declared.Length == 0 && !previousMissing.Contains(definition);
+                }).ToImmutableArray();
+                if (!forbidden.IsEmpty)
+                    return new C.ContentResult<C.IContentCandidate>.Failure(forbidden.SelectMany(m => m.Diagnostics).ToImmutableArray());
+                return new C.ContentResult<C.IContentCandidate>.Success(new ContentCandidate(changes == C.ContentChange.None ? basis : view,
+                    initial.Report with { RuntimeMissing = missing }, basis, changes));
+            }
             var restore = (C.ContentLoadPurpose.Restore)request.Purpose;
             var decoded = restore.Saved as ContentCapture;
             if (decoded is null)
@@ -54,12 +75,13 @@ internal sealed class InitialContentFactory : C.IContentFactory
                     return new C.ContentResult<C.IContentCandidate>.Faulted(fault.Code, fault.Message, fault.StackTrace);
                 decoded = (ContentCapture)((C.ContentResult<C.IContentCapture>.Success)result).Value;
             }
-            return CaptureResult<C.IContentCandidate>(() =>
-            {
-                var view = ((ContentView)initial.View).WithCapture(decoded, restore.References);
-                var missing = view.Missing(restore.References);
-                return new ContentCandidate(view, initial.Report with { RuntimeMissing = missing });
-            });
+            var restored = ((ContentView)initial.View).WithCapture(decoded, restore.References);
+            return new C.ContentResult<C.IContentCandidate>.Success(new ContentCandidate(restored,
+                initial.Report with { RuntimeMissing = restored.Missing(restore.References) }));
+        }
+        catch (DefinitionFormatException exception)
+        {
+            return new C.ContentResult<C.IContentCandidate>.Failure([CaptureDiagnostic(exception)]);
         }
         catch (NotImplementedException) { throw; }
         catch (Exception exception)
@@ -124,9 +146,7 @@ internal sealed class InitialContentFactory : C.IContentFactory
         try { return new C.ContentResult<T>.Success(action()); }
         catch (DefinitionFormatException exception)
         {
-            return new C.ContentResult<T>.Failure([new(
-                exception.Code is "invalid_json" or "unsupported_format" ? exception.Code : "inconsistent_capture",
-                C.ContentDiagnosticSeverity.Error, "capture", null, null, exception.Field, null, exception.Message)]);
+            return new C.ContentResult<T>.Failure([CaptureDiagnostic(exception)]);
         }
         catch (JsonException exception)
         {
@@ -139,6 +159,9 @@ internal sealed class InitialContentFactory : C.IContentFactory
             return new C.ContentResult<T>.Faulted("content_fault", exception.Message, exception.StackTrace);
         }
     }
+    private static C.ContentDiagnostic CaptureDiagnostic(DefinitionFormatException exception) => new(
+        exception.Code is "invalid_json" or "unsupported_format" ? exception.Code : "inconsistent_capture",
+        C.ContentDiagnosticSeverity.Error, "capture", null, null, exception.Field, null, exception.Message);
     public C.ContentResult<C.IContentReplayCapture> CaptureReplay(ImmutableArray<C.IContentView> history, K.CoreReferenceManifest references) => throw new NotImplementedException();
     public C.ContentResult<C.IContentReplayCapture> DecodeReplay(string payload) => throw new NotImplementedException();
     public C.ContentResult<string> EncodeDraft(C.SavedContentDraft draft) => throw new NotImplementedException();

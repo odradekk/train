@@ -1,5 +1,6 @@
 using System.Collections.Frozen;
 using System.Collections.Immutable;
+using System.Text.Json;
 using Train.Content.Designs;
 using Train.Content.Persistence;
 using C = Train.Content.Contracts;
@@ -72,11 +73,11 @@ internal sealed class ContentView : C.IContentView
         PersistentRevision = new(checked(basis.PersistentRevision.Value + 1));
     }
 
-    private ContentView(ContentView basis, ContentCapture capture, K.CoreReferenceManifest references)
+    private ContentView(ContentView basis, ContentCapture capture, K.CoreReferenceManifest references, C.ContentGeneration generation)
     {
         capture.Validate(references);
         _voxels = basis._voxels; _assets = basis._assets; _blueprints = basis._blueprints; _world = basis._world;
-        Generation = basis.Generation; PersistentRevision = capture.Revision;
+        Generation = generation; PersistentRevision = capture.Revision;
         SavedPackages = capture.ReferencedPackages; SavedDesigns = capture.Records;
         Packages = basis.Packages; Voxels = basis.Voxels; Blueprints = basis.Blueprints; GenerationProfiles = basis.GenerationProfiles;
         var designs = basis._designs.ToDictionary();
@@ -113,7 +114,47 @@ internal sealed class ContentView : C.IContentView
         };
     }
 
-    internal ContentView WithCapture(ContentCapture capture, K.CoreReferenceManifest references) => new(this, capture, references);
+    internal ContentView WithCapture(ContentCapture capture, K.CoreReferenceManifest references, C.ContentGeneration? generation = null) =>
+        new(this, capture, references, generation ?? Generation);
+
+    internal C.ContentChange ChangesFrom(ContentView basis)
+    {
+        var changes = Core.Identity == basis.Core.Identity ? C.ContentChange.None : C.ContentChange.CoreInput;
+        if (Presentation() != basis.Presentation()) changes |= C.ContentChange.Presentation;
+        if (Library() != basis.Library()) changes |= C.ContentChange.Library;
+        return changes;
+    }
+
+    private string Library() => ContentCapture.Encode(writer =>
+    {
+        writer.WriteStartArray();
+        foreach (var record in _blueprints.Values.OrderBy(b => b.Address.Id.Value, StringComparer.Ordinal))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("id", record.Address.Id.Value);
+            writer.WriteStartObject("definition");
+            BlueprintParser.WriteDesign(writer, record.Definition);
+            writer.WriteEndObject();
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+    });
+
+    private string Presentation() => JsonSerializer.Serialize(new
+    {
+        voxels = _voxels.Values.OrderBy(v => v.Definition.Definition.Value, StringComparer.Ordinal).Select(v => new
+        {
+            v.Display, v.Appearance.Definition, v.Appearance.AllowedOrientations, v.Appearance.Behaviors,
+            collision = JsonSerializer.Serialize(v.Appearance.Collision, v.Appearance.Collision.GetType()),
+            presentation = JsonSerializer.Serialize(v.Appearance.Presentation, v.Appearance.Presentation.GetType())
+        }),
+        terrains = _world.Terrains,
+        types = _world.Types.Select(t => new { t.Source.Core.Id, t.Source.Display, t.Symbol }),
+        templates = _world.Templates.Select(t => new { t.Core.Id, t.Source.Display, t.Source.Layout, t.SceneModel.Design }),
+        profiles = _world.Profiles.Select(p => new { p.Id, p.Display }),
+        packages = Packages.Where(p => p.State == C.PackageState.Available).Select(p => p.Metadata).OfType<C.PackageMetadata>()
+            .OrderBy(p => p.Id.Value, StringComparer.Ordinal)
+    });
 
     internal ImmutableArray<C.MissingContentReference> Missing(K.CoreReferenceManifest references)
     {
