@@ -57,16 +57,26 @@ internal sealed record RecipeCommand(
     [property: JsonRequired] SimulationPosition At,
     [property: JsonRequired] string Kind,
     [property: JsonRequired] ulong Train,
-    ImmutableArray<ulong>? Waypoints = null,
-    bool? Loop = null)
+    RecipePlan? Plan = null)
 {
     internal CoreCommand Parse() => Kind switch
     {
-        "replace_run_plan" when Waypoints is { IsDefault: false, IsEmpty: false } points && Loop is { } loop =>
-            new CoreCommand.ReplaceRunPlan(new(Train), new(loop,
-                points.Select(id => (PlanStop)new PlanStop.Waypoint(new(id))).ToImmutableArray())),
-        "start_train" when Waypoints is null && Loop is null => new CoreCommand.StartTrain(new(Train)),
-        "stop_train" when Waypoints is null && Loop is null => new CoreCommand.StopTrain(new(Train)),
+        "train.replace_run_plan" when Plan is { Stops.IsDefault: false, Stops.IsEmpty: false } plan =>
+            new CoreCommand.ReplaceRunPlan(new(Train), new(plan.Loop,
+                plan.Stops.Select(stop => stop is { Kind: "waypoint" }
+                    ? (PlanStop)new PlanStop.Waypoint(new(stop.Node))
+                    : throw new InvalidDataException($"不支持的计划站点：{stop?.Kind}。"))
+                .ToImmutableArray())),
+        "train.start" when Plan is null => new CoreCommand.StartTrain(new(Train)),
+        "train.stop" when Plan is null => new CoreCommand.StopTrain(new(Train)),
         _ => throw new InvalidDataException($"不支持的配方命令或参数：{Kind}。")
     };
 }
+
+internal sealed record RecipePlan(
+    [property: JsonRequired] bool Loop,
+    [property: JsonRequired] ImmutableArray<RecipePlanStop> Stops);
+
+internal sealed record RecipePlanStop(
+    [property: JsonRequired] string Kind,
+    [property: JsonRequired] ulong Node);

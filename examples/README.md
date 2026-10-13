@@ -1,6 +1,6 @@
 # 基础贯通示例
 
-`basic-through/recipe.json` 固定生成配置身份、种子、生成器版本、存档元数据、命令位置和目标位置。它使用仓库已提交的 `builtin/core`，运行列车计划、启动和停车命令。工具只解析这三种命令，其他种类明确拒绝；命令裁决和模拟推进均由真实 Core 工厂执行。
+`basic-through/recipe.json` 固定生成配置身份、种子、生成器版本、存档元数据、命令位置和目标位置。它使用仓库已提交的 `builtin/core`，执行 `train.replace_run_plan`、`train.start` 和 `train.stop`。命令名和计划结构沿用核心输入格式 2：`plan` 包含 `loop` 与 `stops`，站点只支持 `{kind:"waypoint",node}`。工具只解析这三种命令，其他种类明确拒绝；命令裁决和模拟推进均由真实 Core 工厂执行。
 
 在仓库根目录构建并运行：
 

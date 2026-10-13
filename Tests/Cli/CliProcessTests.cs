@@ -73,7 +73,7 @@ public sealed class CliProcessTests
             commands[0]!["at"]!["sequence"] = 1;
             commands[1]!["at"]!["sequence"] = 2;
             commands.Insert(0, JsonNode.Parse("""
-                {"at":{"completed_steps":0,"sequence":0},"kind":"start_train","train":1}
+                {"at":{"completed_steps":0,"sequence":0},"kind":"train.start","train":1}
                 """));
             var modified = Path.Combine(directory, "with-rejection.recipe.json");
             await File.WriteAllTextAsync(modified, recipe.ToJsonString());

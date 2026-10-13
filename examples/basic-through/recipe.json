@@ -11,19 +11,24 @@
   "commands": [
     {
       "at": { "completed_steps": 0, "sequence": 0 },
-      "kind": "replace_run_plan",
+      "kind": "train.replace_run_plan",
       "train": 1,
-      "waypoints": [5, 2],
-      "loop": true
+      "plan": {
+        "loop": true,
+        "stops": [
+          { "kind": "waypoint", "node": 5 },
+          { "kind": "waypoint", "node": 2 }
+        ]
+      }
     },
     {
       "at": { "completed_steps": 0, "sequence": 1 },
-      "kind": "start_train",
+      "kind": "train.start",
       "train": 1
     },
     {
       "at": { "completed_steps": 150, "sequence": 0 },
-      "kind": "stop_train",
+      "kind": "train.stop",
       "train": 1
     }
   ],
