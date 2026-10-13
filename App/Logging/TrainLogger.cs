@@ -81,7 +81,8 @@ public sealed class TrainLogger : IContentLogger, IDisposable
         string? levelOverride,
         TextWriter? overflowWriter,
         bool readEnvironmentVariable,
-        int godotQueueCapacity)
+        int godotQueueCapacity,
+        JsonlLogSink? jsonl = null)
     {
         ArgumentNullException.ThrowIfNull(logDirectory);
         ArgumentNullException.ThrowIfNull(godotOutput);
@@ -101,7 +102,7 @@ public sealed class TrainLogger : IContentLogger, IDisposable
         if (invalidOverride)
             WriteDirectWarning("Invalid TRAIN_LOG_LEVEL value; using the build default.");
 
-        _jsonl = new JsonlLogSink(logDirectory, SessionId);
+        _jsonl = jsonl ?? new JsonlLogSink(logDirectory, SessionId);
         if (!_jsonl.IsEnabled)
         {
             _jsonlFaulted = true;
