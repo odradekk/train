@@ -4,9 +4,6 @@ namespace Train.Ui;
 
 internal static class UiStyle
 {
-    internal static readonly Color Text = new("e6e9ec");
-    internal static readonly Color Muted = new("9aa3ad");
-    internal static readonly Color Accent = new("e0a22e");
     internal static readonly Color Error = new("c9423a");
 
     internal static Button Button(string name, string text, Action clicked, bool primary = false)

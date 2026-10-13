@@ -15,18 +15,19 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
 {
     private readonly UiTestInput _input = new(testScene);
 
+    // GoDotTest 2.0.47 根据异步状态机标记判断是否等待，直接返回 Task 会被当作同步测试。
     [Test]
-    public Task Menu_inputs_create_a_paused_world() => CreateThroughInput(false);
+    public async Task Menu_inputs_create_a_paused_world() => await CreateThroughInput(false);
 
     [Test]
-    public Task New_game_rejection_keeps_the_menu_and_shows_the_problem() => CreateThroughInput(true);
+    public async Task New_game_rejection_keeps_the_menu_and_shows_the_problem() => await CreateThroughInput(true);
 
     [Test]
-    public Task Missing_new_game_references_are_visible_and_can_be_cancelled() => CreateThroughInput(false, true);
+    public async Task Missing_new_game_references_are_visible_and_can_be_cancelled() => await CreateThroughInput(false, true);
 
     [Test]
-    public Task Missing_new_game_confirmation_activates_the_candidate_and_opens_a_paused_map()
-        => CreateThroughInput(false, true, confirm: true);
+    public async Task Missing_new_game_confirmation_activates_the_candidate_and_opens_a_paused_map()
+        => await CreateThroughInput(false, true, confirm: true);
 
     private async Task CreateThroughInput(bool reject, bool missing = false, bool confirm = false)
     {
