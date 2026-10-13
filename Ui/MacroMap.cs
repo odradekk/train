@@ -111,7 +111,7 @@ public partial class MacroMap : Control
             if (TrainPoint(train) is { } p && new Rect2(p - new Vector2(14, 7), new Vector2(28, 14)).HasPoint(point))
                 return new WorldObjectId.Train(train.Id);
         foreach (var node in _world.Nodes.Reverse())
-            if (MapToScreen(node.Position).DistanceTo(point) <= (node.Occupant is NodeOccupant.Empty or NodeOccupant.Lair ? 6 : 16))
+            if (MapToScreen(node.Position).DistanceTo(point) <= NodeDisplay(node).Radius)
                 return new WorldObjectId.Node(node.Id);
         foreach (var edge in _world.Edges)
             if (EdgePoints(edge) is { } ends && Geometry2D.GetClosestPointToSegment(point, ends.Start, ends.End).DistanceTo(point) <= 6)
@@ -158,11 +158,12 @@ public partial class MacroMap : Control
     private void DrawNode(NodeMapItem node)
     {
         var point = MapToScreen(node.Position);
+        var (radius, name, revision) = NodeDisplay(node);
         if (node.Occupant is NodeOccupant.Empty or NodeOccupant.Lair)
         {
-            DrawCircle(point, 6, Colors.White);
-            DrawArc(point, 6, 0, Mathf.Tau, 32, Ink, 2, true);
-            DrawMapText($"节点 {node.Id.Value}", point + new Vector2(0, 27), new Color("#1e1e1e"));
+            DrawCircle(point, radius, Colors.White);
+            DrawArc(point, radius, 0, Mathf.Tau, 32, Ink, 2, true);
+            DrawMapText(name, point + new Vector2(0, radius + 21), new Color("#1e1e1e"));
             return;
         }
         var color = node.Occupant is NodeOccupant.Settlement settlement ? settlement.Relation switch
@@ -171,29 +172,39 @@ public partial class MacroMap : Control
             SettlementRelation.Hostile => new Color("#c9423a"),
             _ => new Color("#7f8893")
         } : new Color("#7f8893");
-        DrawCircle(point, 16, Colors.White);
-        DrawArc(point, 16, 0, Mathf.Tau, 48, color, 3, true);
+        DrawCircle(point, radius, Colors.White);
+        DrawArc(point, radius, 0, Mathf.Tau, 48, color, 3, true);
         if (node.Occupant is NodeOccupant.Settlement { Relation: SettlementRelation.Hostile })
-            for (var i = 0; i < 12; i++) DrawArc(point, 22, i * Mathf.Tau / 12, (i + .55f) * Mathf.Tau / 12, 4, color, 2, true);
-        var name = $"节点 {node.Id.Value}";
-        ImageTexture? symbol = null;
-        if (node.Occupant is NodeOccupant.Settlement occupied && _content is not null)
-        {
-            if (_content.FindSettlementLayout(occupied.Id) is ContentLookup<SettlementLayoutProjection>.Found layout)
-            {
-                name = layout.Value.Display.Name;
-                var template = _content.Core.SettlementTemplates.FirstOrDefault(t => t.Id == layout.Value.SourceTemplate);
-                if (template is not null && _content.FindDefinitionDisplay(new CoreDefinitionReference.SettlementType(template.Type)) is ContentLookup<ContentDisplay>.Found display && display.Value.MapSymbol is { } revision)
-                    symbol = FindSymbol(revision);
-            }
-        }
+            for (var i = 0; i < 12; i++) DrawArc(point, radius + 6, i * Mathf.Tau / 12, (i + .55f) * Mathf.Tau / 12, 4, color, 2, true);
+        var symbol = revision is { } asset ? FindSymbol(asset) : null;
         if (symbol is not null) DrawTextureRect(symbol, new Rect2(point - new Vector2(12, 12), new Vector2(24, 24)), false, color);
         else
         {
             DrawMapText("?", point + new Vector2(0, 6), color);
             Fail($"节点 {node.Id.Value} 缺少可显示的地图符号。");
         }
-        DrawMapText(name, point + new Vector2(0, 37), new Color("#1e1e1e"));
+        DrawMapText(name, point + new Vector2(0, radius + 21), new Color("#1e1e1e"));
+    }
+
+    private (float Radius, string Name, AssetRevision? Symbol) NodeDisplay(NodeMapItem node)
+    {
+        var radius = node.Occupant is NodeOccupant.Empty or NodeOccupant.Lair ? 6f : 16f;
+        var name = $"节点 {node.Id.Value}";
+        AssetRevision? symbol = null;
+        if (node.Occupant is NodeOccupant.Settlement occupied && _content is not null)
+        {
+            if (_content.FindSettlementLayout(occupied.Id) is ContentLookup<SettlementLayoutProjection>.Found layout)
+            {
+                name = layout.Value.Display.Name;
+                var template = _content.Core.SettlementTemplates.FirstOrDefault(t => t.Id == layout.Value.SourceTemplate);
+                if (template is not null && _content.FindDefinitionDisplay(new CoreDefinitionReference.SettlementType(template.Type)) is ContentLookup<ContentDisplay>.Found display)
+                {
+                    radius = display.Value.Major ? 20 : 16;
+                    symbol = display.Value.MapSymbol;
+                }
+            }
+        }
+        return (radius, name, symbol);
     }
 
     private void DrawMapText(string text, Vector2 center, Color color)

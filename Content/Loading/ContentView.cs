@@ -159,7 +159,7 @@ internal sealed class ContentView : C.IContentView
                 presentation = JsonSerializer.Serialize(v.Appearance.Presentation, v.Appearance.Presentation.GetType())
             }),
             terrains = _world.Terrains,
-            types = _world.Types.Select(t => new { t.Source.Core.Id, t.Source.Display, t.Symbol }),
+            types = _world.Types.Select(t => new { t.Source.Core.Id, t.Source.Display, t.Source.Major, t.Symbol }),
             templates = _world.Templates.Select(t => new { t.Core.Id, t.Source.Display, t.Source.Layout, t.SceneModel.Design }),
             railways = _world.Rules.OfType<ParsedRule.Railway>().Select(r => r.Appearance),
             profiles = _world.Profiles.Select(p => new
@@ -252,18 +252,18 @@ internal sealed class ContentView : C.IContentView
     public C.ContentLookup<C.ContentDisplay> FindDefinitionDisplay(K.CoreDefinitionReference definition)
     {
         if (definition is K.CoreDefinitionReference.Voxel reference && _voxels.TryGetValue(reference.Id, out var voxel))
-            return new C.ContentLookup<C.ContentDisplay>.Found(new(voxel.Display.Display, voxel.Display.Icon, null));
+            return new C.ContentLookup<C.ContentDisplay>.Found(new(voxel.Display.Display, voxel.Display.Icon, null, false));
         if (definition is K.CoreDefinitionReference.SettlementType type && _world.Types.FirstOrDefault(t => t.Source.Core.Id == type.Id) is { } entry)
-            return new C.ContentLookup<C.ContentDisplay>.Found(new(entry.Source.Display, null, entry.Symbol));
+            return new C.ContentLookup<C.ContentDisplay>.Found(new(entry.Source.Display, null, entry.Symbol, entry.Source.Major));
         if (definition is K.CoreDefinitionReference.Terrain terrain && _world.Terrains.FirstOrDefault(t => t.Id == terrain.Id) is { } ground)
-            return new C.ContentLookup<C.ContentDisplay>.Found(new(ground.Display, null, null));
+            return new C.ContentLookup<C.ContentDisplay>.Found(new(ground.Display, null, null, false));
         if (definition is K.CoreDefinitionReference.Template template && _world.Templates.FirstOrDefault(t => t.Core.Id == template.Id) is { } source)
-            return new C.ContentLookup<C.ContentDisplay>.Found(new(source.Source.Display, null, null));
+            return new C.ContentLookup<C.ContentDisplay>.Found(new(source.Source.Display, null, null, false));
         return Absent<C.ContentDisplay>(definition);
     }
     public C.ContentLookup<C.GoodPresentation> FindGood(K.GoodId good) =>
         good is K.GoodId.Voxel reference && _voxels.TryGetValue(reference.Definition, out var voxel) && voxel.Definition.Good is not null
-            ? new C.ContentLookup<C.GoodPresentation>.Found(new(good, new(voxel.Display.Display, voxel.Display.Icon, null), null, false))
+            ? new C.ContentLookup<C.GoodPresentation>.Found(new(good, new(voxel.Display.Display, voxel.Display.Icon, null, false), null, false))
             : good is K.GoodId.Voxel missing ? Absent<C.GoodPresentation>(new K.CoreDefinitionReference.Voxel(missing.Definition))
                 : new C.ContentLookup<C.GoodPresentation>.NotFound();
     private C.ContentLookup<T> Absent<T>(K.CoreDefinitionReference definition) where T : notnull

@@ -8,7 +8,7 @@ using K = Train.Core.Contracts;
 namespace Train.Content.Loading;
 
 internal sealed record ParsedSettlementType(K.SettlementTypeProjection Core, C.DisplayText Display,
-    string MapSymbol, string Path);
+    string MapSymbol, bool Major, string Path);
 internal sealed record LoadedSettlementType(ParsedSettlementType Source, C.AssetRevision Symbol);
 internal sealed record ParsedTemplatePlot(int Number, K.PlotSize Size, C.BlueprintAddress? Building);
 internal sealed record ParsedSettlementTemplate(K.SettlementTemplateId Id, K.SettlementTypeId Type, int Weight,
@@ -46,8 +46,8 @@ internal static class SettlementParser
             var display = Required(root, "display", "");
             var text = Display(display, "/display", "map_symbol", "major");
             var symbol = Asset(Required(display, "map_symbol", "/display"), "/display/map_symbol", "png");
-            if (display.TryGetProperty("major", out var value)) Boolean(value, "/display/major");
-            return new(projection, text, symbol, path);
+            var major = display.TryGetProperty("major", out var value) && Boolean(value, "/display/major");
+            return new(projection, text, symbol, major, path);
         }
         catch (DefinitionFormatException error)
         {
