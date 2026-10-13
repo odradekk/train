@@ -11,6 +11,20 @@ namespace Train.Content.Tests.Loading;
 public sealed class WorldContentTests
 {
     [TestMethod]
+    [DataRow(null, false)]
+    [DataRow(false, false)]
+    [DataRow(true, true)]
+    public void Settlement_type_display_reports_major_with_false_default(bool? major, bool expected)
+    {
+        var fixture = WorldContentFixtures.Content();
+        if (major.HasValue)
+            Change(fixture, "resources/settlement-types/farm.settlement-type.json", json => json["display"]!["major"] = major.Value);
+        using var candidate = fixture.Load();
+        var display = Found(candidate.View.FindDefinitionDisplay(new K.CoreDefinitionReference.SettlementType(new("core:farm"))));
+        Assert.AreEqual(expected, display.Major);
+    }
+
+    [TestMethod]
     public void Terrain_models_resolve_to_designs_available_in_the_fixed_view()
     {
         var fixture = WorldContentFixtures.Content();

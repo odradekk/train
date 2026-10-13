@@ -31,6 +31,8 @@
 
 经[契约审计修订](https://github.com/odradekk/train/issues/296)，`CoreInputId` 只对外部定义、规则、源模板及它们的核心语义引用计算；`CoreContentProjection.Designs`、`DesignGoods` 与派生缺失清单不参与身份。前两者只提供新局种子、普通恢复或重载重算所需的业务资料，不是动态蓝图库。`Goods` 只放定义型货物，衍生组装体货物放在 `DesignGoods`。同一外部输入下同一设计哈希及组装体身份的业务投影必须一致。功能复合体 Goods 条目的 Revision 覆盖其全部核心语义及依赖，包括能力、耐久和返还规格，不能只摘要 GoodDefinitionProjection 的质量与价值字段。依赖规格改变即使设计哈希未变，也须改变外部输入身份并重算；纯显示／资产更新不改变身份。
 
+`FindDefinitionDisplay` 返回的 `ContentDisplay.Major` 只表示聚居地类型的城市尺寸标记，对应[聚居地类型](../content/settlement-type.md)的 `display.major`，省略时为 `false`；其他定义及货物、生物聚落的显示资料为 `false`。宏观地图按[美术 07](../art/07-icons-and-ui.md#宏观地图)选择圆的尺寸。该值的变化属于 `ContentChange.Presentation`，不改变核心输入身份或生成内容修订。
+
 保存／删除本局或用户蓝图不改变核心输入，不提交核心命令。建造、改装或立即应用时，内容随 `DesignInput` 提供固定外部输入身份、完整业务设计投影和本设计及嵌套设备的全部衍生组装体货物；核心接受后自行保留。`DesignInput` 不包含布局，完整设计仍由内容持有并供存档与复现捕获。
 
 ## 加载、包隔离与固定候选
