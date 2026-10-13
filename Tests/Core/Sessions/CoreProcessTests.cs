@@ -20,11 +20,18 @@ public sealed class CoreProcessTests
         AssertIndependent(continuous, prefix);
         AssertIndependent(prefix, restored);
         Assert.AreEqual(prefix.Samples[^1].Payload, await File.ReadAllTextAsync(Path.Combine(directory, "state.json")));
-        AssertSamples(continuous.Samples[..5], prefix.Samples);
-        AssertSamples(continuous.Samples[4..], restored.Samples);
-        CollectionAssert.AreEqual(continuous.Receipts[..3], prefix.Receipts);
-        CollectionAssert.AreEqual(continuous.Receipts[3..], restored.Receipts);
-        Assert.AreEqual(new SimulationPosition(1, 2), restored.Samples[0].Position);
+        AssertSamples(continuous.Samples[..6], prefix.Samples);
+        AssertSamples(continuous.Samples[5..], restored.Samples);
+        CollectionAssert.AreEqual(continuous.Receipts[..4], prefix.Receipts);
+        CollectionAssert.AreEqual(continuous.Receipts[4..], restored.Receipts);
+        Assert.AreEqual(new SimulationPosition(1, 3), restored.Samples[0].Position);
+        Assert.AreEqual(new string('E', 64), restored.Samples[0].InputIdentity);
+        using var savedPayload = JsonDocument.Parse(restored.Samples[0].Payload);
+        var savedWorld = savedPayload.RootElement.GetProperty("world");
+        Assert.IsTrue(savedWorld.GetProperty("designs").EnumerateArray().All(d =>
+            d.GetProperty("max_structure_durability").GetInt64() == 40
+            && d.GetProperty("mass_tons").GetDouble() == 2));
+        Assert.IsTrue(savedWorld.GetProperty("nodes").EnumerateArray().All(n => n.GetProperty("platforms").GetInt32() == 0));
         using var payload = JsonDocument.Parse(continuous.Samples[0].Payload);
         var world = payload.RootElement.GetProperty("world");
         Assert.AreEqual(42UL, world.GetProperty("source").GetProperty("world_seed").GetUInt64());

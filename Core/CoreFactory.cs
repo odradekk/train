@@ -39,6 +39,8 @@ internal sealed class CoreSessionFactory : ICoreFactory
         WorldInputs.ValidateContent(content);
         if (capture.Fault is not null)
             return new CoreResult<ICoreSessionCandidate>.Failure([new("frozen", "Fault", null, [])]);
+        content = WorldContentPublication.WithMissingDirectories(content,
+            capture.References.Definitions.Where(r => r.WasMissing));
         ImmutableArray<CoreProblem> report = capture.InputIdentity == content.Identity
             ? [] : [new("content_changed", "InputIdentity", null, [capture.InputIdentity.Value, content.Identity.Value])];
         return new CoreResult<ICoreSessionCandidate>.Success(new CoreSessionCandidate(
