@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
 using Train.Core.ContractSupport;
+using Train.Core.World;
 using static Train.Core.Tests.World.WorldFixture;
 
 namespace Train.Core.Tests.World;
@@ -135,7 +136,7 @@ public sealed class WorldCaptureTests
 
         using var payload = JsonDocument.Parse(recaptured.Encode());
         var world = payload.RootElement.GetProperty("world");
-        Assert.AreEqual(1234L, world.GetProperty("money").GetProperty("value").GetInt64());
+        Assert.AreEqual(1234L, world.GetProperty("money").GetInt64());
         Assert.AreEqual(42UL, world.GetProperty("source").GetProperty("world_seed").GetUInt64());
         Assert.AreEqual(2, world.GetProperty("designs").GetArrayLength());
         foreach (var settlement in world.GetProperty("settlements").EnumerateArray())
@@ -151,6 +152,44 @@ public sealed class WorldCaptureTests
             i.GetProperty("goods").EnumerateArray().Any(g => g.GetProperty("quantity").GetInt64() == 11)));
         Assert.AreEqual((ulong)original.Read().World.Nodes.Length + 1, world.GetProperty("next").GetProperty("node").GetUInt64());
         Assert.AreEqual(2UL, world.GetProperty("next").GetProperty("vehicle").GetUInt64());
+    }
+
+    [TestMethod]
+    [DataRow(9_007_199_254_740_993L)]
+    [DataRow(long.MaxValue)]
+    public void Money_is_encoded_as_numbers_and_round_trips_without_losing_integer_precision(long amount)
+    {
+        var input = WorldFixture.Input;
+        input = input with { Start = input.Start with { InitialMoney = new(amount) } };
+        var content = WorldFixture.Content;
+        content = content with { DesignGoods = [content.Goods[0] with { BaseValue = new(amount) }] };
+        using var candidate = Prepare(input, content);
+        using var session = candidate.Activate();
+        using var payload = JsonDocument.Parse(Capture(session).Encode());
+        var world = payload.RootElement.GetProperty("world");
+        Assert.AreEqual(JsonValueKind.Number, world.GetProperty("money").ValueKind);
+        Assert.AreEqual(JsonValueKind.Number, world.GetProperty("design_goods")[0].GetProperty("base_value").ValueKind);
+        var decoded = WorldJson.Read(world);
+        Assert.AreEqual(new Money(amount), decoded.Money);
+        Assert.AreEqual(new Money(amount), decoded.Source.Start.InitialMoney);
+        Assert.AreEqual(new Money(amount), decoded.DesignGoods.Single().BaseValue);
+    }
+
+    [TestMethod]
+    [DataRow("\"1000\"")]
+    [DataRow("{\"value\":1000}")]
+    [DataRow("9223372036854775808")]
+    [DataRow("-9223372036854775809")]
+    public void Invalid_money_encoding_is_reported_as_a_world_format_error(string invalid)
+    {
+        using var candidate = Prepare();
+        using var session = candidate.Activate();
+        var payload = JsonNode.Parse(Capture(session).Encode())!;
+        payload["world"]!["money"] = JsonNode.Parse(invalid);
+        using var document = JsonDocument.Parse(payload.ToJsonString());
+        var error = Assert.ThrowsExactly<CoreStateFormatException>(() =>
+            WorldJson.Read(document.RootElement.GetProperty("world")));
+        Assert.AreEqual("/world", error.Field);
     }
 
     [TestMethod]
