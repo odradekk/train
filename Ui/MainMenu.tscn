@@ -58,6 +58,13 @@ custom_minimum_size = Vector2(300, 44)
 layout_mode = 2
 text = "新游戏"
 
+[node name="Example" type="Button" parent="Center/Buttons"]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(300, 44)
+layout_mode = 2
+text = "从示例开始"
+
 [node name="Settings" type="Button" parent="Center/Buttons"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(300, 44)

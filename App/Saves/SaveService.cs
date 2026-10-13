@@ -139,6 +139,9 @@ internal sealed class SaveService : IDisposable
 
     internal SaveFailure? Load(SaveEntry entry) => RequestLeave(() => StartRead(entry));
 
+    internal SaveFailure? StartExample(SaveDocument document) => RequestLeave(() =>
+        StartRestore(document, new(Guid.NewGuid(), document.Header.Name), unsaved: true));
+
     private void StartRead(SaveEntry entry)
     {
         if (_host.SessionOptions is null) { Fail("session-options-unavailable", "宿主尚未配置会话环境。"); return; }
@@ -297,13 +300,24 @@ internal sealed class SaveService : IDisposable
         try
         {
             var document = read.Work.GetAwaiter().GetResult();
-            var begun = _host.BeginRestore(document.CorePayload, document.ContentPayload, _host.SessionOptions!,
-                new(document.Header.Id, document.Header.Name), read.Entry.Automatic);
-            if (begun.Problem is { } problem) Fail(problem.Code, "无法开始读档。");
-            else _restore = begun.Operation;
+            StartRestore(document, new(document.Header.Id, document.Header.Name), read.Entry.Automatic);
         }
         catch (Exception error) { ReportFileFailure(error); }
         Changed?.Invoke();
+    }
+
+    private void StartRestore(SaveDocument document, SaveIdentity identity, bool unsaved)
+    {
+        if (_host.SessionOptions is not { } options)
+        { Fail("session-options-unavailable", "宿主尚未配置会话环境。"); return; }
+        var begun = _host.BeginRestore(document.CorePayload, document.ContentPayload, options, identity, unsaved);
+        if (begun.Problem is { } problem) Fail(problem.Code, "无法开始读档。");
+        else
+        {
+            _restore = begun.Operation;
+            LastMessage = "正在读取存档…";
+            Changed?.Invoke();
+        }
     }
 
     private void PumpImport()

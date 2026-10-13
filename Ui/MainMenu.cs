@@ -8,12 +8,22 @@ public partial class MainMenu : Control
 {
     private SavePanel? _saves;
     private Button _newGame = null!;
+    private Button _example = null!;
     public event Action? QuitRequested;
     public event Action? NewGameRequested;
+    public event Action? ExampleRequested;
     public event Action? SettingsRequested;
 
-    internal void SetHostAvailable(bool available) => _newGame.Visible = available;
-    internal void SetNewGameEnabled(bool enabled) => _newGame.Disabled = !enabled;
+    internal void SetHostAvailable(bool available)
+    {
+        _newGame.Visible = available;
+        _example.Visible = available && OS.IsDebugBuild();
+    }
+    internal void SetGameStartEnabled(bool enabled)
+    {
+        _newGame.Disabled = !enabled;
+        _example.Disabled = !enabled;
+    }
 
     internal void ShowSaveFailure(SaveFailure? failure) => _saves?.ShowFailure(failure);
 
@@ -36,6 +46,9 @@ public partial class MainMenu : Control
         quit.Pressed += () => QuitRequested?.Invoke();
         _newGame = GetNode<Button>("%NewGame");
         _newGame.Pressed += () => NewGameRequested?.Invoke();
+        _example = GetNode<Button>("%Example");
+        _example.Visible = OS.IsDebugBuild();
+        _example.Pressed += () => ExampleRequested?.Invoke();
         GetNode<Button>("%Settings").Pressed += () => SettingsRequested?.Invoke();
         quit.GrabFocus();
     }
