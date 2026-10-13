@@ -34,6 +34,7 @@ public sealed class ConsoleCommandDispatcher
     public const string HelpEventId = "help";
     public const string UnknownEventId = "unknown_command";
     public const string ReloadDeniedEventId = "reload_denied";
+    public const string LightingDeniedEventId = "lighting_denied";
     public const string LogLevelEventId = "log_level";
     public const string LogLevelUsageEventId = "log_level_usage";
 
@@ -43,6 +44,7 @@ public sealed class ConsoleCommandDispatcher
     private readonly Action _reload;
     private readonly bool _allowReload;
     private readonly Action<IReadOnlyList<string>>? _simulation;
+    private readonly Action<IReadOnlyList<string>>? _lighting;
 
     public ConsoleCommandDispatcher(
         TrainLogger logger,
@@ -50,7 +52,8 @@ public sealed class ConsoleCommandDispatcher
         Action quit,
         Action reload,
         bool allowReload,
-        Action<IReadOnlyList<string>>? simulation = null)
+        Action<IReadOnlyList<string>>? simulation = null,
+        Action<IReadOnlyList<string>>? lighting = null)
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(clear);
@@ -62,6 +65,7 @@ public sealed class ConsoleCommandDispatcher
         _reload = reload;
         _allowReload = allowReload;
         _simulation = simulation;
+        _lighting = lighting;
     }
 
     public void Execute(string line)
@@ -95,6 +99,12 @@ public sealed class ConsoleCommandDispatcher
             case "sim" when _simulation is not null:
                 _simulation(parsed.Arguments);
                 return;
+            case "lighting":
+                if (_lighting is not null)
+                    _lighting(parsed.Arguments);
+                else
+                    _logger.Warning(Category, LightingDeniedEventId, "lighting 仅在 Debug 构建中可用。");
+                return;
             default:
                 _logger.Warning(Category, UnknownEventId, $"Unknown command: {parsed.Name}");
                 return;
@@ -125,6 +135,8 @@ public sealed class ConsoleCommandDispatcher
         var commands = _allowReload ? "help, clear, quit, reload, loglevel" : "help, clear, quit, loglevel";
         if (_simulation is not null)
             commands += ", sim";
+        if (_lighting is not null)
+            commands += ", lighting";
         return $"Available commands: {commands}.";
     }
 }
