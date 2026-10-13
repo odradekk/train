@@ -106,7 +106,10 @@ internal sealed class VoxelParser
                     Object(c, "/appearance/collision", "kind", "offset", "size");
                     var offset = Point(Required(c, "offset", "/appearance/collision"), "/appearance/collision/offset", false);
                     var size = Point(Required(c, "size", "/appearance/collision"), "/appearance/collision/size", true);
-                    if (offset.X + size.X > 1 || offset.Y + size.Y > 1 || offset.Z + size.Z > 1) Fail("/appearance/collision", "碰撞盒必须在格内。");
+                    // 较大值不小于 0.5 时差值精确，避免加法舍入吞掉越界量。
+                    if (Math.Min(offset.X, size.X) > 1 - Math.Max(offset.X, size.X) ||
+                        Math.Min(offset.Y, size.Y) > 1 - Math.Max(offset.Y, size.Y) ||
+                        Math.Min(offset.Z, size.Z) > 1 - Math.Max(offset.Z, size.Z)) Fail("/appearance/collision", "碰撞盒必须在格内。");
                     collision = new C.VoxelCollision.LocalBox(offset, size);
                 }
                 else { Object(c, "/appearance/collision", "kind"); collision = kind == "none" ? new C.VoxelCollision.None() : new C.VoxelCollision.FullBox(); }
