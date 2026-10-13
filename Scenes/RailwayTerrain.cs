@@ -325,4 +325,3 @@ internal static class RailwayTerrain
         }
     }
 }
-

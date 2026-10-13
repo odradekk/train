@@ -112,4 +112,3 @@ internal static class RailwayMeshes
         internal SceneMesh Build() => new(new SceneMaterial.BuiltIn(material), vertices.ToImmutableArray(), indices.ToImmutableArray());
     }
 }
-

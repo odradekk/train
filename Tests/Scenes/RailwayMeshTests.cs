@@ -120,4 +120,3 @@ public sealed class RailwayMeshTests
         Assert.AreEqual(0, RailwayMeshes.Build(path, 0, new(0, 0, 0)).Length);
     }
 }
-
