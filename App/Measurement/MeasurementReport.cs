@@ -17,9 +17,14 @@ internal static class MeasurementReport
     };
 
     internal static string Serialize(string scenario, IReadOnlyDictionary<string, object?> identity,
-        MeasurementTiming timing, IEnumerable<MemoryMeasurement> memory, IEnumerable<MeasuredOperation> operations)
-        => JsonSerializer.Serialize(new
+        MeasurementTiming? timing, IEnumerable<MemoryMeasurement> memory, IEnumerable<MeasuredOperation> operations,
+        string? failure = null)
+    {
+        if (timing is null && failure is null) throw new InvalidOperationException("成功报告必须包含真实绘制帧。");
+        return JsonSerializer.Serialize(new
         {
+            outcome = failure is null ? "completed" : "failed",
+            problem = failure,
             scenario,
             scope = new { stage = 1, world = "small", machine = "development", content = "placeholder",
                 final_performance = false, unmeasured = new[] { "full_demo_load", "target_hardware", "long_runs" } },
@@ -33,4 +38,5 @@ internal static class MeasurementReport
             }),
             operations
         }, Json);
+    }
 }

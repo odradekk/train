@@ -9,6 +9,17 @@ namespace Train.Godot.Tests.Measurement;
 public sealed class MeasurementReportTests
 {
     [TestMethod]
+    public void MissingSamplesCanOnlyBeReportedAsFailure()
+    {
+        Assert.Throws<InvalidOperationException>(() => MeasurementReport.Serialize("map-1x",
+            new Dictionary<string, object?>(), null, [], []));
+        using var report = JsonDocument.Parse(MeasurementReport.Serialize("map-1x",
+            new Dictionary<string, object?>(), null, [], [], "no rendered frames"));
+        Assert.AreEqual("failed", report.RootElement.GetProperty("outcome").GetString());
+        Assert.AreEqual(JsonValueKind.Null, report.RootElement.GetProperty("timing").ValueKind);
+    }
+
+    [TestMethod]
     public void ReportKeepsRawEvidenceUnavailableMetricsAndFailedOperations()
     {
         var measurements = new FrameMeasurements(10, 20);

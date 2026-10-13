@@ -8,6 +8,20 @@ namespace Train.Godot.Tests.Host;
 public sealed class SimulationFrameDriverTests
 {
     [TestMethod]
+    public void WorkTimeMeasuresOnlyFrameAdvancementAndClearsWhenPaused()
+    {
+        var seconds = 10d;
+        var driver = new SimulationFrameDriver(() => seconds);
+        driver.SetPlayerPaused(false);
+        driver.AdvanceFrame(SimulationTime.StepSeconds, () => { seconds += 0.002; return (1u, false); });
+        Assert.AreEqual(0.002, driver.LastFrameWorkSeconds, 1e-12);
+        seconds += 10;
+        driver.SetPlayerPaused(true);
+        driver.AdvanceFrame(1, () => throw new InvalidOperationException("暂停期间不能推进。"));
+        Assert.AreEqual(0d, driver.LastFrameWorkSeconds);
+    }
+
+    [TestMethod]
     public void Fractional_step_survives_pause_and_speed_change()
     {
         var driver = new SimulationFrameDriver(() => 0);
