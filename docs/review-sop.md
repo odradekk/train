@@ -53,11 +53,12 @@ Re-review each new delivery: the fixed findings, the areas the fixes touch, and 
 
 When no findings remain:
 
-1. Map every Acceptance criterion to the inspected implementation and its evidence. Check only satisfied criteria; read the saved Issue body back to confirm. Do not change the criteria's wording. Criteria that need the user's confirmation, such as visual approval, thresholds, budgets or values, stay unchecked and do not block acceptance.
-2. Post the acceptance comment: PR URL and head SHA, evidence per criterion, the checks you ran and the worker's results you relied on, resolved findings, and remaining non-blocking risks. List the criteria waiting for the user, each with the evidence the user needs, such as screenshot paths or measurements.
-3. End your final message with `PAIR-RESULT: accepted <PR URL> <head SHA>` and [send it to the coordinator](#report-to-the-coordinator).
+1. Fetch and check whether `origin/master` is an ancestor of the PR head. If master has moved, have the worker merge it into the branch (no rebase), rerun the affected checks and push; review the merge and the behavior it touches, and accept the new head. The coordinator merges only heads that contain master.
+2. Map every Acceptance criterion to the inspected implementation and its evidence. Check only satisfied criteria; read the saved Issue body back to confirm. Do not change the criteria's wording. Criteria that need the user's confirmation, such as visual approval, thresholds, budgets or values, stay unchecked and do not block acceptance.
+3. Post the acceptance comment: PR URL and head SHA, evidence per criterion, the checks you ran and the worker's results you relied on, resolved findings, and remaining non-blocking risks. List the criteria waiting for the user, each with the evidence the user needs, such as screenshot paths or measurements.
+4. End your final message with `PAIR-RESULT: accepted <PR URL> <head SHA>` and [send it to the coordinator](#report-to-the-coordinator).
 
-If the coordinator later reports that master has moved, tell the worker to merge `origin/master` into the branch (no rebase), rerun the affected checks and push. Review the merge and the affected behavior, post a new acceptance comment for the new head, and report `accepted` again.
+If master moves again before the coordinator merges, the coordinator updates the task branch with `gh pr update-branch` and merges once the Windows checks pass, without a new acceptance. It comes back to you only when that update conflicts or its checks fail. Then have the worker pull the branch, merge `origin/master` (no rebase), fix, rerun the affected checks and push. Review the merge and the affected behavior, post a new acceptance comment for the new head, and report `accepted` again.
 
 ## Blocked
 

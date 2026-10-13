@@ -13,7 +13,7 @@ Issue comments are the durable record of dispatch, decisions, review findings an
 | Worker | `codex/gpt-6.1-sol`, thinking `xhigh`, mode `full-access`, Fast speed (`service_tier: priority`) | Implements, tests, commits, pushes the task branch, opens the PR, fixes review findings |
 | User | — | Plays each stage build and confirms the stage; answers decisions the docs cannot settle; approves scope or Acceptance-criteria changes |
 
-The user has given the coordinator standing authority to merge reviewer-accepted PRs of current-stage Issues after the checks in [step 3](#3-merge-and-close--coordinator), close those Issues or label them `awaiting-user`, archive their workspaces, delete merged task branches, file current-stage fix Issues, and record the version change after a stage passes. This does not authorize closing a stage acceptance Issue without the user's confirmation, changing scope or Acceptance criteria, force-pushing, changing branch protection, or starting the next stage early.
+The user has given the coordinator standing authority to merge reviewer-accepted PRs of current-stage Issues after the checks in [step 3](#3-merge-and-close--coordinator), including updating an accepted PR branch with master when it has no conflict, close those Issues or label them `awaiting-user`, archive their workspaces, delete merged task branches, file current-stage fix Issues, and record the version change after a stage passes. This does not authorize closing a stage acceptance Issue without the user's confirmation, changing scope or Acceptance criteria, force-pushing, changing branch protection, or starting the next stage early.
 
 Art Issues go through the same pairs; their production and inspection rules are in [art 08](art/08-asset-pipeline-and-review.md).
 
@@ -74,9 +74,9 @@ Read the reviewer's blocking comment on the Issue, then:
 
 After an `accepted` result:
 
-1. Check that the PR head equals the accepted SHA, the Windows checks passed on that head, the reviewer's acceptance comment names that SHA, and all Acceptance criteria are checked.
-2. Check that the head contains the current `origin/master` (`git merge-base --is-ancestor origin/master <head>`). If master has moved, ask the reviewer to have the worker merge master and to accept the new head; wait for a new `PAIR-RESULT:`.
-3. Merge with `gh pr merge <pr> --merge` and verify the remote merged state and merge commit.
+1. Check that the PR head equals the accepted SHA, the reviewer's acceptance comment names that SHA, and all Acceptance criteria are checked.
+2. Check that the head contains the current `origin/master` (`git merge-base --is-ancestor origin/master <head>`). If master has moved and GitHub reports the PR as mergeable, run `gh pr update-branch <pr>`: GitHub merges master into the task branch without a rebase. The acceptance carries over to the new head because the update adds only master's commits. If the update conflicts, or the Windows checks fail on the new head, ask the reviewer to have the worker merge master, fix and accept again; wait for a new `PAIR-RESULT:`.
+3. Wait for the Windows checks on the head you are about to merge, which is the accepted SHA or your update merge. Merge with `gh pr merge <pr> --merge --match-head-commit <head>` and verify the remote merged state and merge commit.
 4. Stop the task's Godot editor and Blender instance if it has them. Run `archive_workspace`, then check `git worktree list` and that the directory is gone. If Windows locks keep the directory, record it and retry on the next heartbeat; do not block other work. Delete the remote task branch once its head is in master.
 5. If the acceptance comment lists criteria waiting for the user, label the Issue `awaiting-user`, keep it open, and add those criteria to the progress record; for an art Issue, also tell the user where its screenshots are. Otherwise post a closure comment linking the PR, merge commit and acceptance comment, and close the Issue as completed.
 6. Update the progress record and fill the freed slot.
@@ -103,4 +103,4 @@ Each passed stage increases MINOR by 1 and resets PATCH to 0 (`0.0.56 → 0.1.0`
 
 ## Recovery
 
-After an interruption, read the progress record, open Issues with dispatch comments, Paseo `list_workspaces` and `list_agents`, `git worktree list`, open PRs, and running Godot editors and Blender instances. Resume each pair at its first incomplete step: send a continue prompt to an idle reviewer, rather than creating a second workspace, PR or merge. Restart a stopped Godot editor or Blender instance on the same port and tell the reviewer that the worker must reconnect. A changed PR head after acceptance needs a new `accepted` result before merging.
+After an interruption, read the progress record, open Issues with dispatch comments, Paseo `list_workspaces` and `list_agents`, `git worktree list`, open PRs, and running Godot editors and Blender instances. Resume each pair at its first incomplete step: send a continue prompt to an idle reviewer, rather than creating a second workspace, PR or merge. Restart a stopped Godot editor or Blender instance on the same port and tell the reviewer that the worker must reconnect. A PR head that changed after acceptance needs a new `accepted` result before merging, unless the only change is your own `gh pr update-branch` merge from step 3.
