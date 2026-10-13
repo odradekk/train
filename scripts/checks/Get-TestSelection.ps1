@@ -29,7 +29,8 @@ function Get-TestSelection {
     )
     $contractPatterns = @(
         'Contracts/*', '*.csproj', 'Directory.Build.*', '*/Directory.Build.*', 'Train.sln',
-        'prototypes/*', 'Tests/ContractChecks/*', 'docs/contracts/public-api.txt', 'scripts/checks/project-boundaries.json'
+        'prototypes/*', 'Tests/ContractChecks/*', 'docs/contracts/public-api.txt', 'scripts/checks/project-boundaries.json',
+        'builtin/*.png', 'builtin/*.glb', 'builtin/*.png.import', 'builtin/*.glb.import'
     )
     $enginePatterns = @($sharedPatterns | Where-Object { $_ -notin @('docs/content/schemas/*', 'Tests/ContractSupport/*') }) + @(
         'Tests/Engine/*', 'project.godot', 'export_presets.cfg', 'builtin/*', 'addons/*'

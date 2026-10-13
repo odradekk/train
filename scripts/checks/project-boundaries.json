@@ -125,12 +125,17 @@
     "Train.Godot.Tests": {
       "path": "Tests/Godot/Train.Godot.Tests.csproj",
       "references": [
-        "Train"
+        "Train",
+        "Train.Content.ContractSupport"
       ]
     },
     "Train.Engine.Tests": {
       "path": "Tests/Engine/Train.Engine.Tests.csproj",
-      "references": ["Train"]
+      "references": ["Train", "Train.Content.ContractSupport"]
+    },
+    "Train.AssetExport": {
+      "path": "Tests/AssetExport/Train.AssetExport.csproj",
+      "references": ["Train.Content.Contracts", "Train.Core.Contracts"]
     },
     "Train.Core.ContractSamples": {
       "path": "prototypes/core-contract/Train.Core.ContractSamples.csproj",
