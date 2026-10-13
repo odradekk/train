@@ -148,8 +148,9 @@ def content_files():
     for tracks in (1, 2):
         half_width = 16 + 17 * (tracks - 1)
         bridge = {(x, 0, z): 0 for x in range(-half_width, half_width + 1) for z in range(-3, 4)}
-        tunnel = {(x, y, 0): 0 for x in range(-half_width - 2, half_width + 3) for y in range(13)
-                  if abs(x) >= half_width or y >= 11}
+        portal_half_width = 17 * tracks
+        tunnel = {(x, y, 0): 0 for x in range(-portal_half_width - 2, portal_half_width + 2) for y in range(44)
+                  if x < -portal_half_width or x >= portal_half_width or y >= 42}
         for kind, name, cells in (("bridge", "桥梁", bridge), ("tunnel-portal", "隧道口", tunnel)):
             identity = f"{kind}-{tracks}"
             document("blueprints", "blueprint", identity, blueprint(identity, f"{tracks}轨{name}", "scene_model", ["rock"], cells))
