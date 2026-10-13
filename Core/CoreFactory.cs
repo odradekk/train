@@ -31,8 +31,8 @@ internal sealed class CoreSessionFactory : ICoreFactory
         ImmutableArray<CoreProblem> report = capture.InputIdentity == content.Identity
             ? [] : [new("content_changed", "InputIdentity", null, [capture.InputIdentity.Value, content.Identity.Value])];
         return new CoreResult<ICoreSessionCandidate>.Success(new CoreSessionCandidate(
-            new(capture.Position, capture.NextCommandNumber, capture.Revision, content), report,
-            options.RetainedRecordingStarts));
+            new(capture.Position, capture.NextCommandNumber, capture.Revision, content),
+            options.RetainedRecordingStarts, report));
     }
 
     public CoreResult<ICoreReplay> PrepareReplay(CoreReplayInput input, RuntimeIdentity environment,

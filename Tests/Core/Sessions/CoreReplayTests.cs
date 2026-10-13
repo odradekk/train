@@ -105,6 +105,22 @@ public sealed class CoreReplayTests
     }
 
     [TestMethod]
+    [DataRow(true, "Commands[0].InputBefore")]
+    [DataRow(false, "Commands[0].InputAfter")]
+    public void Missing_recorded_input_dependencies_name_the_actual_member(bool before, string field)
+    {
+        using var session = Session();
+        session.Submit(new CoreCommand.PublishContent(Content('B')), CommandSource.Console);
+        var input = Input(session);
+        var command = input.Commands.Single();
+        var missing = Content('D').Identity;
+        AssertFailure(input with
+        {
+            Commands = [before ? command with { InputBefore = missing } : command with { InputAfter = missing }]
+        }, History, "content_missing", field);
+    }
+
+    [TestMethod]
     [DataRow("{\"input_format_version\":2,\"kind\":\"\\uD800\"}", "/kind")]
     [DataRow("{\"input_format_version\":2,\"kind\":\"content.publish\",\"input_identity\":\"\\uD800\"}", "/input_identity")]
     [DataRow("{\"input_format_version\":2,\"kind\":\"content.publish\",\"\\uD800\":1}", "")]

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -16,7 +17,6 @@ namespace Train.Core.Tests.Sessions;
 public sealed partial class CoreReplayCorpusTests
 {
     private static readonly RuntimeIdentity Runtime = new("corpus-1", "core-1", "fixed-os", "fixed-arch", "fixed-dotnet");
-    private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
     private static readonly string Corpus = Path.Combine(AppContext.BaseDirectory, "Sessions", "ReplayCorpus");
 
     [TestMethod]
@@ -28,7 +28,7 @@ public sealed partial class CoreReplayCorpusTests
         var actual = Replay(name, step, sequence, number, revision, end);
         var baseline = Path.Combine(Corpus, name + ".verified.txt");
         var difference = File.Exists(baseline)
-            ? FirstDifference(JsonSerializer.Deserialize<CoreCheckpoint[]>(File.ReadAllText(baseline))!, actual)
+            ? FirstDifference(ReadBaseline(baseline), actual)
             : null;
         var directory = Path.Combine(Path.GetTempPath(), "core-replay-corpus", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -40,7 +40,8 @@ public sealed partial class CoreReplayCorpusTests
         settings.UseFileName(name);
         try
         {
-            await Verifier.Verify(JsonSerializer.Serialize(actual, Json), settings);
+            await Verifier.Verify(string.Join('\n', actual.Select(checkpoint =>
+                FormattableString.Invariant($"{checkpoint.Position.CompletedSteps}:{checkpoint.Position.Sequence} {checkpoint.Sha256} {checkpoint.CanonicalText}"))), settings);
             Assert.IsNull(difference, Describe(difference));
             Directory.Delete(directory, recursive: true);
         }
@@ -54,8 +55,7 @@ public sealed partial class CoreReplayCorpusTests
     public void Modified_middle_baseline_reports_the_first_position_and_field()
     {
         var actual = Replay("same-step", 0, 0, 1, 0, 6);
-        var baseline = JsonSerializer.Deserialize<CoreCheckpoint[]>(
-            File.ReadAllText(Path.Combine(Corpus, "same-step.verified.txt")))!;
+        var baseline = ReadBaseline(Path.Combine(Corpus, "same-step.verified.txt"));
         Assert.IsTrue(baseline.Length >= 4);
         var modified = baseline.ToArray();
         for (var index = 1; index <= 2; index++)
@@ -118,6 +118,14 @@ public sealed partial class CoreReplayCorpusTests
 
     private static SimulationPosition Position(JsonElement value) =>
         new(value.GetProperty("completed_steps").GetUInt64(), value.GetProperty("sequence").GetUInt64());
+
+    private static CoreCheckpoint[] ReadBaseline(string path) => File.ReadLines(path).Select(line =>
+    {
+        var fields = line.Split(' ', 3);
+        var position = fields[0].Split(':');
+        return new CoreCheckpoint(new(ulong.Parse(position[0], CultureInfo.InvariantCulture),
+            ulong.Parse(position[1], CultureInfo.InvariantCulture)), fields[2], fields[1]);
+    }).ToArray();
 
     private static CheckpointDifference? FirstDifference(CoreCheckpoint[] expected, CoreCheckpoint[] actual)
     {

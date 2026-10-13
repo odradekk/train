@@ -91,7 +91,11 @@ public sealed class CoreRecordingTests
     [TestMethod]
     public void The_requested_number_of_published_starts_controls_retention()
     {
-        using var session = new CoreSession(new(new(0, 0), 1, new(0), Content('A')), 2);
+        using var original = Session();
+        using var candidate = Success(CoreFactory.Create().PrepareRestore(
+            Success(original.Capture(CapturePurpose.Save)), Content('A'),
+            new(new("build", "sim", "os", "arch", "net"), false, 2)));
+        using var session = candidate.Activate();
         var initial = session.ReadRecording().Starts.Single();
         session.ConfirmRecordingStart(initial.Id, RecordingWriteOutcome.PublishedWithDependencies);
         session.Advance(1);

@@ -59,8 +59,10 @@ internal sealed class CoreReplay(CoreSession session, CoreReplayInput input,
             var identity = ((CoreResult<CoreInputId>.Success)target).Value;
             if (!content.TryGetValue(identity, out var projection))
                 return Failure("content_missing", field + ".CanonicalPayload/input_identity");
-            if (!content.ContainsKey(record.InputBefore) || !content.ContainsKey(record.InputAfter))
-                return Failure("content_missing", field + ".InputIdentity");
+            if (!content.ContainsKey(record.InputBefore))
+                return Failure("content_missing", field + ".InputBefore");
+            if (!content.ContainsKey(record.InputAfter))
+                return Failure("content_missing", field + ".InputAfter");
             if (!Enum.IsDefined(record.Source) || !Reachable(position, record.Result.Before)
                 || record.Result.Number == 0)
                 return Failure("invalid_state", field + ".Result");

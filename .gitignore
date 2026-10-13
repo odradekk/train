@@ -9,6 +9,5 @@ TestResults/
 /TestResults/*
 !/TestResults/.gdignore
 *.user
-*.received.*
 .amp/portals/*
 .vs/
