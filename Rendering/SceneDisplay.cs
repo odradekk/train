@@ -107,7 +107,11 @@ internal sealed class SceneDisplay : IDisposable
                 (item.Source.Parent is { } parent ? next[parent].Root : Root).AddChild(item.Root);
         var old = _objects;
         var oldFog = _fog;
-        if (!ReferenceEquals(oldFog, prepared.Fog)) Root.AddChild(prepared.Fog.Root);
+        if (!ReferenceEquals(oldFog, prepared.Fog))
+        {
+            oldFog?.Root.GetParent()?.RemoveChild(oldFog.Root);
+            Root.AddChild(prepared.Fog.Root);
+        }
         _fog = prepared.Fog;
         _objects = next;
         prepared.Transferred = true;

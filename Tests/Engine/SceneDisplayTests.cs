@@ -183,6 +183,8 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         var replacement = Frame(3, [], next.Update.Frame, fog: []);
         Commit(display, replacement);
         Require(!GodotObject.IsInstanceValid(fog), "雾区域变化后必须释放旧雾节点。");
+        Require(display.Root.GetNodeOrNull<Node3D>("LoadingFog") is { } currentFog &&
+            ReferenceEquals(currentFog.GetParent(), display.Root), "换雾组不能因根节点重名失去当前组的命名入口。");
     }
 
     [Test]
