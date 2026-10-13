@@ -253,22 +253,21 @@ internal static class WorldStateValidation
             Items(plan.Stops, "/world/trains/plan/stops");
             Require(!plan.Stops.IsEmpty, "/world/trains/plan/stops");
             var targets = new HashSet<NodeId>();
-            foreach (var stop in plan.Stops)
+            for (var index = 0; index < plan.Stops.Length; index++)
             {
+                var stop = plan.Stops[index];
                 var target = stop switch
                 {
                     PlanStop.Waypoint waypoint => waypoint.Node,
                     PlanStop.Station stationStop => stationStop.Node,
                     _ => throw new CoreStateFormatException("/world/trains/plan/stops")
                 };
-                Require(nodes.TryGetValue(target, out var node), "/world/trains/plan/stops/node");
+                Require(nodes.ContainsKey(target), $"/world/trains/plan/stops/{index}/node");
                 targets.Add(target);
                 if (stop is PlanStop.Station station)
                 {
-                    Require(node.Occupant is NodeOccupant.Settlement { Relation: not SettlementRelation.Hostile },
-                        "/world/trains/plan/stops/node");
-                    Items(station.GoodsRules, "/world/trains/plan/stops/goods_rules");
-                    Require(station.GoodsRules.IsEmpty, "/world/trains/plan/stops/goods_rules");
+                    Items(station.GoodsRules, $"/world/trains/plan/stops/{index}/goods_rules");
+                    Require(station.GoodsRules.IsEmpty, $"/world/trains/plan/stops/{index}/goods_rules");
                 }
             }
             Require(!plan.Loop || targets.Count >= 2, "/world/trains/plan");

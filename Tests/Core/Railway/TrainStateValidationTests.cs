@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
@@ -33,20 +34,52 @@ public sealed class TrainStateValidationTests
     }
 
     [TestMethod]
-    [DataRow("missing_field")]
-    [DataRow("invalid_track")]
-    [DataRow("invalid_distance")]
-    [DataRow("invalid_direction")]
-    [DataRow("edge_transit")]
-    [DataRow("unsupported_activity")]
-    [DataRow("stopped_on_edge")]
-    [DataRow("missing_plan")]
-    [DataRow("invalid_index")]
-    [DataRow("empty_plan")]
-    [DataRow("single_target_loop")]
-    [DataRow("missing_target")]
-    [DataRow("invalid_dwell")]
-    public void Inconsistent_nonempty_railway_payload_is_rejected(string corruption)
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Station_at_empty_or_hostile_node_round_trips(bool hostile)
+    {
+        var state = StateWithPlan(emptyNodes: !hostile);
+        var world = state.World;
+        NodeId target;
+        if (hostile)
+        {
+            var settlement = world.Settlements[0] with { Relation = SettlementRelation.Hostile };
+            target = settlement.Node;
+            world = world with
+            {
+                Settlements = world.Settlements.SetItem(0, settlement),
+                Nodes = world.Nodes.Select(node => node.Id == target ? node with
+                    { Occupant = new NodeOccupant.Settlement(settlement.Id, settlement.Relation) } : node).ToImmutableArray(),
+                Instances = world.Instances.Select(instance => instance.Details is InstanceDetails.Building building
+                    && settlement.Plots.Any(plot => plot.Id == building.Plot)
+                    ? instance with { Ownership = SettlementRelation.Hostile } : instance).ToImmutableArray()
+            };
+        }
+        else target = world.Nodes.First(node => node.Occupant is NodeOccupant.Empty).Id;
+        var train = world.Trains[0] with
+        {
+            Position = new TrainPosition.Node(target), Transit = new(null, null),
+            Plan = new(false, [new PlanStop.Station(target, 10, [])]),
+            Activity = TrainActivity.Servicing, RemainingDwellSteps = 5
+        };
+        RoundTrip(state with { World = world with { Trains = [train] } });
+    }
+
+    [TestMethod]
+    [DataRow("missing_field", "/world")]
+    [DataRow("invalid_track", "/world/trains/position")]
+    [DataRow("invalid_distance", "/world/trains/position")]
+    [DataRow("invalid_direction", "/world/trains/position")]
+    [DataRow("edge_transit", "/world/trains/transit")]
+    [DataRow("unsupported_activity", "/world/trains/activity")]
+    [DataRow("stopped_on_edge", "/world/trains/activity")]
+    [DataRow("missing_plan", "/world/trains/activity")]
+    [DataRow("invalid_index", "/world/trains/next_stop_index")]
+    [DataRow("empty_plan", "/world/trains/plan/stops")]
+    [DataRow("single_target_loop", "/world/trains/plan")]
+    [DataRow("missing_target", "/world/trains/plan/stops/0/node")]
+    [DataRow("invalid_dwell", "/world/trains/remaining_dwell_steps")]
+    public void Inconsistent_nonempty_railway_payload_is_rejected(string corruption, string expectedField)
     {
         var state = StateWithPlan();
         var edge = state.World.Edges[0];
@@ -55,6 +88,14 @@ public sealed class TrainStateValidationTests
             Position = new TrainPosition.Edge(edge.Id, 1, TravelDirection.Forward, edge.LengthMeters / 2),
             Transit = null, Activity = TrainActivity.Running, SpeedMetersPerSecond = 2
         };
+        if (corruption == "invalid_dwell")
+            original = original with
+            {
+                Position = new TrainPosition.Node(state.World.Settlements[0].Node), Transit = new(null, null),
+                Activity = TrainActivity.Stopped, SpeedMetersPerSecond = 0,
+                Plan = new(false, [new PlanStop.Station(state.World.Settlements[0].Node, 10, [])]),
+                RemainingDwellSteps = 10
+            };
         var capture = new CoreCapture(state with { World = state.World with { Trains = [original] } });
         var root = JsonNode.Parse(capture.Encode())!;
         var train = root["world"]!["trains"]![0]!;
@@ -72,11 +113,13 @@ public sealed class TrainStateValidationTests
             case "empty_plan": train["plan"]!["stops"]!.AsArray().Clear(); break;
             case "single_target_loop": train["plan"]!["loop"] = true; break;
             case "missing_target": train["plan"]!["stops"]![0]!["node"]!["value"] = 999999; break;
-            case "invalid_dwell": train["remaining_dwell_steps"] = 1; break;
+            case "invalid_dwell": train["remaining_dwell_steps"] = 11; break;
         }
         var result = CoreFactory.Create().DecodeState(root.ToJsonString());
         Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Failure>(result, corruption);
-        Assert.AreEqual("invalid_state", ((CoreResult<ICoreCapture>.Failure)result).Problems.Single().Code);
+        var problem = ((CoreResult<ICoreCapture>.Failure)result).Problems.Single();
+        Assert.AreEqual("invalid_state", problem.Code, corruption);
+        Assert.AreEqual(expectedField, problem.Field, corruption);
     }
 
     [TestMethod]
@@ -100,18 +143,23 @@ public sealed class TrainStateValidationTests
         var capture = RoundTrip(state with { World = world });
         var root = JsonNode.Parse(capture.Encode())!;
         root["world"]!["settlements"]![0]!["parked_vehicles"]!.AsArray().Clear();
-        Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Failure>(CoreFactory.Create().DecodeState(root.ToJsonString()));
+        var missingOwner = CoreFactory.Create().DecodeState(root.ToJsonString());
+        Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Failure>(missingOwner);
+        Assert.AreEqual("/world/instances/details", ((CoreResult<ICoreCapture>.Failure)missingOwner).Problems.Single().Field);
         root = JsonNode.Parse(capture.Encode())!;
         var parkedVehicles = root["world"]!["settlements"]![0]!["parked_vehicles"]!.AsArray();
         parkedVehicles.Add(parkedVehicles[0]!.DeepClone());
-        Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Failure>(CoreFactory.Create().DecodeState(root.ToJsonString()));
+        var duplicate = CoreFactory.Create().DecodeState(root.ToJsonString());
+        Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Failure>(duplicate);
+        Assert.AreEqual("/world/settlements/parked_vehicles", ((CoreResult<ICoreCapture>.Failure)duplicate).Problems.Single().Field);
     }
 
-    private static CoreState StateWithPlan()
+    private static CoreState StateWithPlan(bool emptyNodes = false)
     {
         using var candidate = WorldFixture.Prepare(WorldFixture.Input with
         {
-            Configuration = WorldFixture.Input.Configuration with { WidthMeters = 100 }
+            Configuration = WorldFixture.Input.Configuration with
+            { WidthMeters = 100, SettlementRatio = emptyNodes ? 0.5 : WorldFixture.Input.Configuration.SettlementRatio }
         });
         using var session = (CoreSession)candidate.Activate();
         var state = session.State;

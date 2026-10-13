@@ -162,13 +162,13 @@
 
 | 命令 | 当前条件及领域拒绝（代码 / 字段） |
 | --- | --- |
-| `FormTrain` | 有序成员非空且唯一：`composition_empty`、`vehicle_duplicate / OrderedVehicles`；车辆存在、玩家自有、未编组、在同一非敌对聚居地停放：`vehicle_missing`、`ownership_required`、`vehicle_in_train`、`vehicle_not_parked`、`vehicles_not_colocated`、`settlement_unavailable / OrderedVehicles`；新列车或库存编号耗尽为 `identity_exhausted / World.Next`。成功创建停车列车及空库存，回执给出二者身份，保留车辆输入顺序 |
-| `DisbandTrain` | 在节点且速度为零：`train_not_stationary_at_node / Train.Position`；该节点为非敌对聚居地：`settlement_unavailable / Train.Position`；库存必须为空：`inventory_not_empty / Train.Inventory`。停留、等待、无路的静止列车也可解编；删除列车、计划和库存，成员原地停放，身份不复用 |
-| `ReplaceRunPlan` | 非空：`plan_empty / Plan.Stops`；目标存在：`node_missing / Plan.Stops`；Station 为非敌对聚居地：`station_unavailable / Plan.Stops`；循环目标不能全部相同：`plan_degenerate / Plan.Stops`。非空 GoodsRules 在编号前抛 `NotImplementedException`。索引置 0，放弃剩余停留，保持启停意图；运行在线路上先到前方节点，当前节点目标依序视为已到达，停车列车保持停车且索引 0 |
-| `StartTrain` | 已停车：`train_not_stopped / Train.Activity`；有未完计划：`plan_missing / Train.Plan`、`plan_completed / Train.NextStopIndex`；通过上述静止出发检查。暂停停留恢复余时，否则立即选择路线 |
+| `FormTrain` | 有序成员非空且唯一：`composition_empty`、`vehicle_duplicate / OrderedVehicles`；车辆存在、玩家自有、未编组、在同一非敌对聚居地停放：`object_missing`、`not_owned`、`vehicle_in_train`、`vehicles_not_colocated`、`access_denied / OrderedVehicles`；新列车或库存编号耗尽为 `identity_exhausted / World.Next`。成功创建停车列车及空库存，回执给出二者身份，保留车辆输入顺序 |
+| `DisbandTrain` | 在节点且速度为零：`train_not_stationary_at_node / Train.Position`；节点不是聚居地：`settlement_unavailable / Train.Position`，聚居地敌对：`access_denied / Train.Position`；库存必须为空：`inventory_not_empty / Train.Inventory`。停留、等待、无路的静止列车也可解编；删除列车、计划和库存，成员原地停放，身份不复用 |
+| `ReplaceRunPlan` | 非空：`plan_empty / Plan.Stops`；目标存在：`object_missing / Plan.Stops[i].Node`，主体为该节点；循环目标不能全部相同：`plan_degenerate / Plan.Stops`。Station 可设在任何现存节点，空节点、敌对聚居地及生物聚落均照常停留计时。非空 GoodsRules 在编号前抛 `NotImplementedException`。索引置 0，放弃剩余停留，保持启停意图；运行在线路上先到前方节点，当前节点目标依序视为已到达，停车列车保持停车且索引 0 |
+| `StartTrain` | 非 `Stopped` 时接受，清除尚未完成的停车请求，否则保持业务状态；仅在 `Stopped` 时检查未完计划（`plan_missing / Train.Plan`、`plan_completed / Train.NextStopIndex`）及上述静止出发条件。暂停停留恢复余时，否则立即选择路线 |
 | `StopTrain` | 节点立即停车并暂停停留；在线路上请求停在前方节点。重复请求保持同样业务状态 |
 
-后四个命令不存在的列车统一为 `train_missing / Train`。正常拒绝仍前进命令编号和边界序号并录制，无事件且业务状态不变。单次计划完成后保留计划、索引为空、活动为 `Stopped`，须替换计划才可再次启动。相邻重复目标依序消费，零停留 Station 仍是停车点。
+后四个命令不存在的列车统一为 `object_missing / Train`，主体为该列车；编组中缺失车辆的主体为该车辆实例，非自有用 `not_owned`，聚居地敌对用 `access_denied`。正常拒绝仍前进命令编号和边界序号并录制，无事件且业务状态不变。单次计划完成后保留计划、索引为空、活动为 `Stopped`，须替换计划才可再次启动。相邻重复目标依序消费，零停留 Station 仍是停车点。
 
 普通查询无副作用。报价不锁价格、库存、容量或资金，也不是提交凭证。只读派生计算若遇内部故障，返回 `CoreResult.Faulted` 及该视图的位置，不记录命令或修改任何活动会话；不能用旧视图的错误冻结新局。命令执行重新裁决时发生内部故障，仍按下节冻结。这一区分也适用于独立新局/读档准备与活动运行。
 
@@ -226,7 +226,7 @@
 
 顶层载荷包含格式版本、位置、下一命令编号、修订、当前输入身份、故障、`world` 和 `references`。`world` 保存完整生成来源 `source`（含种子、生成器版本、生成内容语义修订、解析配置及开局输入）、图与资源、聚居地与生物聚落、聚居地模板业务副本和地块、实例耐久、列车、库存、资金、全部下一身份编号，以及实际设计投影和衍生货物。实例只保存 `DesignHash`，引用同一 `world.designs` 中的投影，不在每个实例重复设计。实例和库存位置由所有者派生，不进载荷。
 
-铁路新增权威字段全部进入捕获、检查点和解码一致性检查：列车的唯一 `position`（节点或线路、轨号、方向、中心距离）、`activity`、`speed_meters_per_second`、`plan`、`next_stop_index`、`remaining_dwell_steps`、`stop_requested`，以及节点转场与正反标记；聚居地的 `parked_vehicles` 是未编组车辆的唯一停放归属。成员、库存所有者和下一身份编号沿用原世界状态。解码检查位置范围、节点/线路与转场互斥、活动与速度及计划进度匹配、暂停停留余时、停车请求仅在线路上、计划目标与 Station 类型、循环不退化，以及车辆与列车或停放清单的双向唯一归属。能力、Blockers、预测距离、交战默认值和运行报告占位均为查询派生，不增加持久副本。
+铁路新增权威字段全部进入捕获、检查点和解码一致性检查：列车的唯一 `position`（节点或线路、轨号、方向、中心距离）、`activity`、`speed_meters_per_second`、`plan`、`next_stop_index`、`remaining_dwell_steps`、`stop_requested`，以及节点转场与正反标记；聚居地的 `parked_vehicles` 是未编组车辆的唯一停放归属。成员、库存所有者和下一身份编号沿用原世界状态。解码检查位置范围、节点/线路与转场互斥、活动与速度及计划进度匹配、暂停停留余时、停车请求仅在线路上、计划目标存在、Station 货物规则为空、循环不退化，以及车辆与列车或停放清单的双向唯一归属。能力、Blockers、预测距离、交战默认值和运行报告占位均为查询派生，不增加持久副本。
 
 `world.definition_dependencies` 保存生成时使用的规则、类型及流程等外部依赖身份和字段路径，使无内容解码仍能重建引用；它不是冻结执行参数。顶层 `references` 是交接清单，生成候选、捕获及恢复候选都由同一 [WorldReferences](../../Core/World/WorldReferences.cs) 从状态计算。`Templates` 按最终聚居地所有者排序且唯一，包含源模板和本地地块号／尺寸；`Designs`、`Definitions` 覆盖实际依赖，`Inputs` 使用对应候选或捕获的当前输入身份。新局缺少所需投影即配置失败，成功候选没有缺失项。
 

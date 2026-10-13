@@ -53,19 +53,18 @@ internal static class TrainCommands
         };
         var subject = new WorldObjectId.Train(id);
         var train = world.Trains.FirstOrDefault(t => t.Id == id);
-        if (train is null) return Reject("train_missing", "Train", subject);
+        if (train is null) return Reject("object_missing", "Train", subject);
         if (command is CoreCommand.DisbandTrain) return Disband(world, content, train);
         var events = ImmutableArray.CreateBuilder<CoreEvent>();
         switch (command)
         {
             case CoreCommand.ReplaceRunPlan replace:
                 if (replace.Plan.Stops.IsEmpty) return Reject("plan_empty", "Plan.Stops", subject);
-                foreach (var stop in replace.Plan.Stops)
+                for (var index = 0; index < replace.Plan.Stops.Length; index++)
                 {
-                    var node = world.Nodes.FirstOrDefault(n => n.Id == TrainOperations.Target(stop));
-                    if (node is null) return Reject("node_missing", "Plan.Stops", subject);
-                    if (stop is PlanStop.Station && node.Occupant is not NodeOccupant.Settlement { Relation: not SettlementRelation.Hostile })
-                        return Reject("station_unavailable", "Plan.Stops", subject);
+                    var target = TrainOperations.Target(replace.Plan.Stops[index]);
+                    if (!world.Nodes.Any(n => n.Id == target))
+                        return Reject("object_missing", $"Plan.Stops[{index}].Node", new WorldObjectId.Node(target));
                 }
                 if (replace.Plan.Loop && replace.Plan.Stops.Select(TrainOperations.Target).Distinct().Count() == 1)
                     return Reject("plan_degenerate", "Plan.Stops", subject);
@@ -74,7 +73,11 @@ internal static class TrainCommands
                     train = TrainOperations.ResolveNode(world, content, train, events);
                 break;
             case CoreCommand.StartTrain:
-                if (train.Activity != TrainActivity.Stopped) return Reject("train_not_stopped", "Train.Activity", subject);
+                if (train.Activity != TrainActivity.Stopped)
+                {
+                    train = train with { StopRequested = false };
+                    break;
+                }
                 if (train.Plan is null) return Reject("plan_missing", "Train.Plan", subject);
                 if (train.NextStopIndex is null) return Reject("plan_completed", "Train.NextStopIndex", subject);
                 if (TrainOperations.Capabilities(world, content, train).DepartureProblem(id,
@@ -102,15 +105,15 @@ internal static class TrainCommands
         {
             var subject = new WorldObjectId.Instance(new InstanceId.Vehicle(id));
             var instance = world.Instances.FirstOrDefault(i => i.Id == new InstanceId.Vehicle(id));
-            if (instance is null) return Reject("vehicle_missing", "OrderedVehicles", subject);
-            if (instance.Ownership != SettlementRelation.PlayerOwned) return Reject("ownership_required", "OrderedVehicles", subject);
+            if (instance is null) return Reject("object_missing", "OrderedVehicles", subject);
+            if (instance.Ownership != SettlementRelation.PlayerOwned) return Reject("not_owned", "OrderedVehicles", subject);
             if (instance.Details is not InstanceDetails.Vehicle { Train: null }) return Reject("vehicle_in_train", "OrderedVehicles", subject);
-            var parked = world.Settlements.FirstOrDefault(s => s.ParkedVehicles.Contains(id));
-            if (parked is null) return Reject("vehicle_not_parked", "OrderedVehicles", subject);
+            var parked = world.Settlements.Single(s => s.ParkedVehicles.Contains(id));
             if (settlement is not null && settlement.Id != parked.Id) return Reject("vehicles_not_colocated", "OrderedVehicles", subject);
             settlement = parked;
         }
-        if (settlement!.Relation == SettlementRelation.Hostile) return Reject("settlement_unavailable", "OrderedVehicles");
+        if (settlement!.Relation == SettlementRelation.Hostile)
+            return Reject("access_denied", "OrderedVehicles", new WorldObjectId.Settlement(settlement.Id));
         if (world.Next.Train == ulong.MaxValue || world.Next.Inventory == ulong.MaxValue)
             return Reject("identity_exhausted", "World.Next");
         var train = new TrainId(world.Next.Train);
@@ -133,8 +136,9 @@ internal static class TrainCommands
         var subject = new WorldObjectId.Train(train.Id);
         if (train.Position is not TrainPosition.Node node || train.SpeedMetersPerSecond != 0)
             return Reject("train_not_stationary_at_node", "Train.Position", subject);
-        var settlement = world.Settlements.FirstOrDefault(s => s.Node == node.Id && s.Relation != SettlementRelation.Hostile);
+        var settlement = world.Settlements.FirstOrDefault(s => s.Node == node.Id);
         if (settlement is null) return Reject("settlement_unavailable", "Train.Position", subject);
+        if (settlement.Relation == SettlementRelation.Hostile) return Reject("access_denied", "Train.Position", subject);
         if (!world.Inventories.Single(i => i.Id == train.Inventory).Goods.IsEmpty)
             return Reject("inventory_not_empty", "Train.Inventory", subject);
         return new CommandEffect.Accepted(content, [new CoreEvent.TrainCompositionChanged(train.Id, [])], world with

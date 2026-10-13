@@ -48,7 +48,8 @@ internal static class TrainProcessDriver
                 else
                 {
                     // 所有分支从同一个保存边界执行同一后缀，含停车后恢复运行。
-                    TrainRecoveryFixture.Submit(session, new CoreCommand.StopTrain(TrainRecoveryFixture.Train(session).Id), events);
+                    if (boundary != "pending-stop")
+                        TrainRecoveryFixture.Submit(session, new CoreCommand.StopTrain(TrainRecoveryFixture.Train(session).Id), events);
                     Sample();
                     for (var step = 0; TrainRecoveryFixture.Train(session).Activity != TrainActivity.Stopped; step++)
                     {

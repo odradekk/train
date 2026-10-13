@@ -37,7 +37,8 @@ public sealed class TrainOperationTests
         using var session = Session();
         Rejected(session, new CoreCommand.FormTrain([]), "composition_empty");
         Rejected(session, new CoreCommand.FormTrain([new(1), new(1)]), "vehicle_duplicate");
-        Rejected(session, new CoreCommand.FormTrain([new(99)]), "vehicle_missing");
+        Rejected(session, new CoreCommand.FormTrain([new(99)]), "object_missing", "OrderedVehicles",
+            new WorldObjectId.Instance(new InstanceId.Vehicle(new(99))));
         Rejected(session, new CoreCommand.FormTrain([new(1)]), "vehicle_in_train");
         var state = session.State;
         using var loaded = new CoreSession(state with { World = state.World with
@@ -109,7 +110,7 @@ public sealed class TrainOperationTests
     }
 
     [TestMethod]
-    public void Empty_and_degenerate_plans_and_invalid_stations_are_rejected()
+    public void Empty_and_degenerate_plans_and_missing_targets_are_rejected()
     {
         using var session = Session();
         Rejected(session, new CoreCommand.StartTrain(new(1)), "plan_missing");
@@ -117,8 +118,128 @@ public sealed class TrainOperationTests
         Rejected(session, new CoreCommand.ReplaceRunPlan(new(1), new(true,
             [new PlanStop.Waypoint(new(2)), new PlanStop.Waypoint(new(2))])), "plan_degenerate");
         Rejected(session, new CoreCommand.ReplaceRunPlan(new(1), new(false,
-            [new PlanStop.Station(new(2), 0, [])])), "station_unavailable");
-        Rejected(session, new CoreCommand.ReplaceRunPlan(new(99), Plan(2)), "train_missing");
+            [new PlanStop.Waypoint(new(2)), new PlanStop.Station(new(99), 0, [])])), "object_missing",
+            "Plan.Stops[1].Node", new WorldObjectId.Node(new(99)));
+        Rejected(session, new CoreCommand.ReplaceRunPlan(new(99), Plan(2)), "object_missing", "Train",
+            new WorldObjectId.Train(new(99)));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Station_at_empty_or_hostile_node_is_accepted_and_completes_dwell(bool hostile)
+    {
+        var state = hostile ? Hostile(State()) : State();
+        using var session = new CoreSession(state);
+        var target = new NodeId(hostile ? 1UL : 2UL);
+        Accepted(session, new CoreCommand.ReplaceRunPlan(new(1), new(false, [new PlanStop.Station(target, 3, [])])));
+        Accepted(session, new CoreCommand.StartTrain(new(1)));
+        AdvanceUntil(session, t => t.Activity == TrainActivity.Servicing);
+        Assert.AreEqual(new TrainPosition.Node(target), Train(session).Position);
+        Assert.AreEqual(3UL, Train(session).RemainingDwellSteps);
+        var capture = Success(session.Capture(CapturePurpose.Save));
+        Assert.AreEqual(capture.Checkpoint, Success(CoreFactory.Create().DecodeState(capture.Encode())).Checkpoint);
+        session.Advance(2);
+        Assert.AreEqual(TrainActivity.Servicing, Train(session).Activity);
+        Assert.AreEqual(1UL, Train(session).RemainingDwellSteps);
+        session.Advance(1);
+        Assert.AreEqual(TrainActivity.Stopped, Train(session).Activity);
+        Assert.IsNull(Train(session).NextStopIndex);
+    }
+
+    [TestMethod]
+    public void Start_cancels_pending_stop_on_edge_and_keeps_running_through_the_front_node()
+    {
+        using var session = Moving(Plan(3), 9.99, 2);
+        Accepted(session, new CoreCommand.StopTrain(new(1)));
+        Assert.IsTrue(session.State.World.Trains[0].StopRequested);
+        var before = session.State.World.Trains[0];
+        var result = Accepted(session, new CoreCommand.StartTrain(new(1)));
+        Assert.AreEqual(before with { StopRequested = false }, session.State.World.Trains[0]);
+        Assert.IsTrue(result.Events.IsEmpty);
+        session.Advance(1);
+        Assert.AreEqual(new TrainPosition.Node(new(2)), Train(session).Position);
+        Assert.AreEqual(TrainActivity.Running, Train(session).Activity);
+        Assert.AreEqual(Math.Sqrt(6), Train(session).SpeedMetersPerSecond, 1e-12);
+    }
+
+    [TestMethod]
+    [DataRow(TrainActivity.Running)]
+    [DataRow(TrainActivity.Servicing)]
+    [DataRow(TrainActivity.Waiting)]
+    [DataRow(TrainActivity.NoRoute)]
+    public void Start_is_idempotently_accepted_outside_stopped_even_with_missing_cargo(TrainActivity activity)
+    {
+        using var loaded = LoadedSession();
+        var state = loaded.State;
+        var train = state.World.Trains[0] with { Activity = activity, Plan = Plan(2), NextStopIndex = 0 };
+        if (activity == TrainActivity.Servicing)
+            train = train with { Plan = new(false, [new PlanStop.Station(new(1), 3, [])]), RemainingDwellSteps = 2 };
+        if (activity == TrainActivity.Running) train = train with { Transit = new(null, new(1)) };
+        using var session = new CoreSession(state with { Content = state.Content with { Goods = [] },
+            World = state.World with { Trains = [train] } });
+        var result = Accepted(session, new CoreCommand.StartTrain(new(1)));
+        Assert.AreEqual(train, session.State.World.Trains[0]);
+        Assert.IsTrue(result.Events.IsEmpty);
+    }
+
+    [TestMethod]
+    public void Formation_and_disband_reject_access_and_location_problems_atomically()
+    {
+        var ownershipState = State();
+        using var notOwned = new CoreSession(ownershipState with { World = ownershipState.World with
+        { Instances = ownershipState.World.Instances.Select(i => i.Id is InstanceId.Vehicle
+            ? i with { Ownership = SettlementRelation.NonHostile } : i).ToImmutableArray() } });
+        Rejected(notOwned, new CoreCommand.FormTrain([new(1)]), "not_owned", "OrderedVehicles",
+            new WorldObjectId.Instance(new InstanceId.Vehicle(new(1))));
+        using var hostile = new CoreSession(Hostile(State()));
+        Rejected(hostile, new CoreCommand.DisbandTrain(new(1)), "access_denied", "Train.Position", new WorldObjectId.Train(new(1)));
+        var parkedWorld = hostile.State.World with
+        {
+            Trains = [], Inventories = hostile.State.World.Inventories.Where(i => i.Owner is not InventoryOwner.Train).ToImmutableArray(),
+            Instances = hostile.State.World.Instances.Select(i => i.Details is InstanceDetails.Vehicle vehicle
+                ? i with { Details = vehicle with { Train = null } } : i).ToImmutableArray(),
+            Settlements = hostile.State.World.Settlements.Select(s => s with { ParkedVehicles = [new(1)] }).ToImmutableArray()
+        };
+        using var hostileParked = new CoreSession(hostile.State with { World = parkedWorld });
+        Rejected(hostileParked, new CoreCommand.FormTrain([new(1)]), "access_denied", "OrderedVehicles", new WorldObjectId.Settlement(new(1)));
+        var state = State();
+        using var emptyNode = new CoreSession(state with { World = state.World with
+        { Trains = [state.World.Trains[0] with { Position = new TrainPosition.Node(new(2)) }] } });
+        Rejected(emptyNode, new CoreCommand.DisbandTrain(new(1)), "settlement_unavailable", "Train.Position", new WorldObjectId.Train(new(1)));
+    }
+
+    [TestMethod]
+    public void Parked_vehicles_in_different_settlements_cannot_form_a_train()
+    {
+        using var candidate = Prepare(Input with
+        {
+            Configuration = Input.Configuration with { WidthMeters = 40, HeightMeters = 20 },
+            Start = Input.Start with { Trains = [Input.Start.Trains[0], Input.Start.Trains[0]] }
+        });
+        using var original = (CoreSession)candidate.Activate();
+        Accepted(original, new CoreCommand.DisbandTrain(new(1)));
+        Accepted(original, new CoreCommand.DisbandTrain(new(2)));
+        var world = original.State.World;
+        var source = world.Settlements.Single(s => s.ParkedVehicles.Contains(new(2)));
+        var destination = world.Settlements.First(s => s.Id != source.Id);
+        world = world with { Settlements = world.Settlements.Select(s => s.Id == source.Id
+            ? s with { ParkedVehicles = [new(1)] } : s.Id == destination.Id
+            ? s with { ParkedVehicles = [new(2)] } : s).ToImmutableArray() };
+        using var session = new CoreSession(original.State with { World = world });
+        Rejected(session, new CoreCommand.FormTrain([new(1), new(2)]), "vehicles_not_colocated", "OrderedVehicles",
+            new WorldObjectId.Instance(new InstanceId.Vehicle(new(2))));
+    }
+
+    [TestMethod]
+    public void Formation_reports_exhausted_domain_identities_atomically()
+    {
+        using var original = Session();
+        Accepted(original, new CoreCommand.DisbandTrain(new(1)));
+        var state = original.State;
+        using var session = new CoreSession(state with { World = state.World with
+        { Next = state.World.Next with { Train = ulong.MaxValue } } });
+        Rejected(session, new CoreCommand.FormTrain([new(1)]), "identity_exhausted", "World.Next");
     }
 
     [TestMethod]
@@ -176,6 +297,22 @@ public sealed class TrainOperationTests
         Assert.IsNull(Train(session).CurrentRun);
         Assert.IsTrue(Train(session).RecentReports.IsEmpty);
         Assert.AreEqual(EncounterAction.Retreat, Train(session).Engagement.Encounter);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Braking_for_station_beyond_waypoint_preserves_hand_calculated_speed_in_both_directions(bool reverse)
+    {
+        // b=1，起始速度 √40，停车距离20；减速走过10米后 v²=40-2×1×10=20。
+        using var session = Moving(Plan(reverse ? 1UL : 3UL), reverse ? 10 : 0, Math.Sqrt(40), reverse);
+        Accepted(session, new CoreCommand.ReplaceRunPlan(new(1), new(false,
+            [new PlanStop.Waypoint(new(2)), new PlanStop.Station(new(reverse ? 1UL : 3UL), 3, [])])));
+        AdvanceUntil(session, t => t.Position == new TrainPosition.Node(new(2)));
+        Assert.AreEqual(Math.Sqrt(20), Train(session).SpeedMetersPerSecond, 1e-11);
+        Assert.AreEqual(TrainActivity.Running, Train(session).Activity);
+        Assert.AreEqual(1, Train(session).NextStopIndex);
+        Assert.AreEqual(new EdgeId(reverse ? 1UL : 2UL), Train(session).NodeTransit!.NextEdge);
     }
 
     [TestMethod]
@@ -270,6 +407,29 @@ public sealed class TrainOperationTests
     }
 
     [TestMethod]
+    public void Moving_train_stops_at_front_node_when_the_next_edge_loses_its_tracks_and_capture_decodes()
+    {
+        using var moving = Moving(Plan(3), 9.99, 2);
+        var state = moving.State;
+        using var session = new CoreSession(state with { World = state.World with
+        { Edges = state.World.Edges.Select(e => e.Id == new EdgeId(2) ? e with { Tracks = 0 } : e).ToImmutableArray() } });
+        var result = session.Advance(1);
+        Assert.IsNull(result.Fault);
+        Assert.AreEqual(new TrainPosition.Node(new(2)), Train(session).Position);
+        Assert.AreEqual(TrainActivity.NoRoute, Train(session).Activity);
+        Assert.AreEqual(0.0, Train(session).SpeedMetersPerSecond);
+        Assert.AreEqual(new NodeTransitView(new(1), null), Train(session).NodeTransit);
+        Assert.AreEqual(2, result.Events.Length);
+        Assert.IsInstanceOfType<CoreEvent.TrainArrived>(result.Events[0].Event);
+        var activity = (CoreEvent.TrainActivityChanged)result.Events[1].Event;
+        Assert.AreEqual(TrainActivity.Running, activity.Before);
+        Assert.AreEqual(TrainActivity.NoRoute, activity.After);
+        Assert.AreEqual("no_route", activity.Reasons.Single().Code);
+        var capture = Success(session.Capture(CapturePurpose.Save));
+        Assert.AreEqual(capture.Checkpoint, Success(CoreFactory.Create().DecodeState(capture.Encode())).Checkpoint);
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void Missing_cargo_after_publish_or_restore_is_visible_and_prevents_start(bool restore)
@@ -295,7 +455,8 @@ public sealed class TrainOperationTests
             Assert.AreEqual("content_missing", problem.Code);
             Assert.AreEqual("Train.Inventory", problem.Field);
             CollectionAssert.AreEqual(new[] { "voxel:" + Material.Value }, problem.RelatedIdentities.ToArray());
-            Assert.IsInstanceOfType<CommandDecision.Rejected>(((SubmissionResult.Completed)session.Submit(new CoreCommand.StartTrain(new(1)), CommandSource.AutomationTest)).Receipt.Decision);
+            Rejected((CoreSession)session, new CoreCommand.StartTrain(new(1)), "content_missing", "Train.Inventory",
+                new WorldObjectId.Train(new(1)));
         }
         finally { if (restore) session.Dispose(); }
     }
@@ -334,17 +495,25 @@ public sealed class TrainOperationTests
         } };
     }
     private static CoreSession Session() => new(State());
+    private static CoreState Hostile(CoreState state) => state with { World = state.World with
+    {
+        Settlements = state.World.Settlements.Select(s => s with { Relation = SettlementRelation.Hostile }).ToImmutableArray(),
+        Nodes = state.World.Nodes.Select(n => n.Occupant is NodeOccupant.Settlement settlement
+            ? n with { Occupant = settlement with { Relation = SettlementRelation.Hostile } } : n).ToImmutableArray(),
+        Instances = state.World.Instances.Select(i => i.Id is InstanceId.Building
+            ? i with { Ownership = SettlementRelation.Hostile } : i).ToImmutableArray()
+    } };
     private static CoreSession LoadedSession()
     {
         var state = State();
         return new(state with { World = state.World with { Inventories = state.World.Inventories.Select(i =>
             i.Owner is InventoryOwner.Train ? i with { Goods = [new(new GoodId.Voxel(Material), 2)] } : i).ToImmutableArray() } });
     }
-    private static CoreSession Moving(RunPlan plan, double distance, double speed)
+    private static CoreSession Moving(RunPlan plan, double distance, double speed, bool reverse = false)
     {
         var state = State();
         return new(state with { World = state.World with { Trains = [state.World.Trains[0] with
-        { Position = new TrainPosition.Edge(new(1), 1, TravelDirection.Forward, distance), Transit = null,
+        { Position = new TrainPosition.Edge(new(reverse ? 2UL : 1UL), 1, reverse ? TravelDirection.Reverse : TravelDirection.Forward, distance), Transit = null,
             Plan = plan, NextStopIndex = 0, Activity = TrainActivity.Running, SpeedMetersPerSecond = speed }] } });
     }
     private static RunPlan Plan(ulong node) => new(false, [new PlanStop.Waypoint(new(node))]);
@@ -355,13 +524,23 @@ public sealed class TrainOperationTests
         Assert.IsInstanceOfType<CommandDecision.Accepted>(result.Receipt.Decision);
         return result;
     }
-    private static void Rejected(CoreSession session, CoreCommand command, string code)
+    private static void Rejected(CoreSession session, CoreCommand command, string code, string? field = null, WorldObjectId? subject = null)
     {
         var before = session.State;
         var result = (SubmissionResult.Completed)session.Submit(command, CommandSource.AutomationTest);
-        Assert.AreEqual(code, ((CommandDecision.Rejected)result.Receipt.Decision).Problems[0].Code);
+        var problem = ((CommandDecision.Rejected)result.Receipt.Decision).Problems.Single();
+        Assert.AreEqual(code, problem.Code);
+        if (field is not null) Assert.AreEqual(field, problem.Field);
+        if (subject is not null) Assert.AreEqual(subject, problem.Subject);
         Assert.AreSame(before.World, session.State.World);
+        Assert.AreSame(before.Content, session.State.Content);
+        Assert.AreEqual(before.NextCommandNumber, result.Receipt.Number);
         Assert.AreEqual(before.NextCommandNumber + 1, session.State.NextCommandNumber);
+        Assert.AreEqual(before.Position, result.Receipt.Before);
+        Assert.AreEqual(new SimulationPosition(before.Position.CompletedSteps, before.Position.Sequence + 1), result.Receipt.After);
+        Assert.AreEqual(result.Receipt.After, session.State.Position);
+        Assert.IsNull(session.State.Fault);
+        Assert.IsNull(result.Diagnostic);
         Assert.IsTrue(result.Events.IsEmpty);
     }
     private static ImmutableArray<CoreEvent> AdvanceUntil(CoreSession session, Func<TrainView, bool> reached)
