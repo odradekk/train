@@ -326,7 +326,7 @@ internal sealed class RailwayScene : IAsyncDisposable
             frame.Problems.Add(new("target_missing", SceneStage.Reconcile, subject, null, null, null, "A train member is missing from the current core view."));
             return;
         }
-        if (member.Design is ContentLookup<DesignEvaluation>.Missing or ContentLookup<DesignEvaluation>.Found { Value: DesignEvaluation.Failed })
+        if (member.Design is not ContentLookup<DesignEvaluation>.Found found || found.Value is DesignEvaluation.Failed)
         {
             var built = WorldSceneSession.BuildObject(content, member.Instance, pose);
             frame.Add(WorldSceneSession.Attach(built.Geometry, "vehicle:" + member.Id + ":", objectId));
@@ -335,7 +335,7 @@ internal sealed class RailwayScene : IAsyncDisposable
         // An incomplete consist has no trustworthy member positions. Keep its valid identities at the core center.
         frame.Objects.Add(new(objectId("vehicle:" + member.Id + ":unplaced"), null, pose, subject, [], [], []));
         if (member.Length is > 0) return;
-        var evaluation = ((ContentLookup<DesignEvaluation>.Found)member.Design!).Value;
+        var evaluation = found.Value;
         var diagnostics = evaluation is DesignEvaluation.Complete complete ? complete.Diagnostics : ((DesignEvaluation.Partial)evaluation).Diagnostics;
         DesignGeometry.AddDiagnostics(diagnostics, frame.Problems, subject);
         var reference = new ContentReference.Design(member.Instance.Design);

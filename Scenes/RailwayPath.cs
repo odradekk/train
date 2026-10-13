@@ -195,7 +195,7 @@ internal sealed class RailwayPath
             (ray.Direction.X * forwardZ - ray.Direction.Z * forwardX) * side,
             ray.Direction.X * forwardX + ray.Direction.Z * forwardZ, entry, exit,
             vertical.Sample(Math.Clamp(range.Begin, 0, LengthCells)).Forward,
-            vertical.Sample(Math.Clamp(range.End, 0, LengthCells)).Forward, range.Width);
+            vertical.Sample(Math.Clamp(range.End, 0, LengthCells)).Forward, range.Width, range.End >= LengthCells);
     }
 
     internal SceneBounds Bounds(double begin, double end, ScenePoint origin, double width)
@@ -354,7 +354,7 @@ internal sealed class RailwayPath
         }
 
         internal bool Intersects(double x, double z, double vx, double vz, double entry, double exit,
-            double begin, double end, double width)
+            double begin, double end, double width, bool includeEnd)
         {
             // Fog bounds are a broad phase. Split the ray at the actual strip boundaries before
             // checking arc ownership, so a rotated or curved bounding box cannot hide loaded geometry.
@@ -388,7 +388,8 @@ internal sealed class RailwayPath
                 var t = (cuts[i - 1] + cuts[i]) / 2;
                 var px = x + vx * t; var pz = z + vz * t;
                 var progress = Locate(px, pz);
-                if (progress < begin || progress > end) continue;
+                // Match column ownership: shared endpoints belong to the following segment.
+                if (progress < begin || progress > end || progress == end && !includeEnd) continue;
                 var nearest = Sample(progress);
                 if (Math.Pow(px - nearest.Lateral, 2) + Math.Pow(pz - nearest.Forward, 2) <= width * width) return true;
             }

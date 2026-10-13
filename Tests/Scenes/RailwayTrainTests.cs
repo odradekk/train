@@ -138,6 +138,23 @@ public sealed class RailwayTrainTests
     }
 
     [TestMethod]
+    public async Task UnregisteredVehicleDesignProducesMissingWithoutFaultingTheSession()
+    {
+        var content = RailwayFixtures.Content(designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+        { [SceneFixtures.Design] = new ContentLookup<DesignEvaluation>.NotFound() });
+        var snapshot = RailwayFixtures.Snapshot(4, 4, 0, content: content,
+            trains: [RailwayFixtures.Train(1)], instances: [RailwayFixtures.Instance()]);
+        await using var session = (WorldSceneSession)((SceneResult<IWorldSceneSession>.Success)
+            ScenesFactory.Create().OpenWorld(new(Guid.NewGuid()), snapshot)).Value;
+        session.RequestView(Target);
+        var frame = await RailwayFixtures.Settled(session, Request);
+        Assert.IsTrue(frame.Diagnostics.Any(problem => problem.Code == "content_missing" &&
+            problem.Content == new ContentReference.Design(SceneFixtures.Design)));
+        Assert.IsFalse(frame.Diagnostics.Any(problem => problem.Code == "vehicle_length_unknown"));
+        Assert.IsInstanceOfType<Lookup<ScenePose>.Found>(frame.FindPose(new WorldObjectId.Instance(new InstanceId.Vehicle(new(1)))));
+    }
+
+    [TestMethod]
     public async Task PrefetchCoversTheConfiguredTimeInMeters()
     {
         var train = RailwayFixtures.Train(512, speed: 40);

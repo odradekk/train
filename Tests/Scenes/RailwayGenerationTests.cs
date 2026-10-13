@@ -77,6 +77,9 @@ public sealed class RailwayGenerationTests
             Assert.IsInstanceOfType<ScenePick.Hit>(hit,
                 "Fog for unloaded segment 1 must not cover segment 2's generated terrain.");
             Assert.IsInstanceOfType<PickSubject.Terrain>(((ScenePick.Hit)hit).Value.Subject);
+            var boundary = RailwayCoordinates.Relative(Point(256), frame.Origin);
+            Assert.IsInstanceOfType<ScenePick.Hit>(frame.Pick(new(boundary, -Vector3.UnitY, 30)),
+                "An unloaded segment excludes the exact start plane of its loaded neighbor.");
             var unloaded = RailwayCoordinates.Relative(Point(255.5), frame.Origin);
             Assert.IsInstanceOfType<ScenePick.NotReady>(frame.Pick(new(unloaded, -Vector3.UnitY, 30)));
         }
