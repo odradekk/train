@@ -91,6 +91,64 @@ public sealed class VoxelParsingTests
     }
 
     [TestMethod]
+    [DataRow("{\"kind\":\"none\",\"offset\":{\"x\":0,\"y\":0,\"z\":0}}")]
+    [DataRow("{\"kind\":\"full_box\",\"size\":{\"x\":1,\"y\":1,\"z\":1}}")]
+    [DataRow("{\"kind\":\"local_box\"}")]
+    [DataRow("{\"kind\":\"local_box\",\"offset\":{\"x\":0,\"y\":0,\"z\":0},\"size\":{\"x\":1,\"y\":1}}")]
+    [DataRow("{\"kind\":\"local_box\",\"offset\":{\"x\":0,\"y\":0,\"z\":0,\"w\":1},\"size\":{\"x\":1,\"y\":1,\"z\":1}}")]
+    public void Collision_fields_follow_the_selected_shape(string collision)
+    {
+        var json = Document();
+        json["appearance"]!["collision"] = JsonNode.Parse(collision);
+        AssertRejected(json.ToJsonString(), "invalid_field");
+    }
+
+    [TestMethod]
+    [DataRow("offset", "x", "-0.01")]
+    [DataRow("offset", "y", "1.01")]
+    [DataRow("size", "x", "0")]
+    [DataRow("size", "y", "-0.1")]
+    [DataRow("size", "z", "1.01")]
+    [DataRow("size", "z", "0.51")]
+    [DataRow("size", "x", "1e400")]
+    public void Local_box_rejects_nonfinite_nonpositive_and_out_of_cell_dimensions(string point, string axis, string value)
+    {
+        var json = Document();
+        var collision = JsonNode.Parse("""
+            {"kind":"local_box","offset":{"x":0,"y":0,"z":0.5},"size":{"x":0.5,"y":0.5,"z":0.5}}
+            """)!;
+        collision[point]![axis] = JsonNode.Parse(value);
+        json["appearance"]!["collision"] = collision;
+        AssertRejected(json.ToJsonString(), "invalid_field");
+    }
+
+    [TestMethod]
+    [DataRow("x", 1d, 1e-20, false)]
+    [DataRow("y", 1d, 1e-20, false)]
+    [DataRow("z", 1d, 1e-20, false)]
+    [DataRow("x", 1e-20, 1d, false)]
+    [DataRow("x", 0.25d, 0.75d, true)]
+    [DataRow("x", 0.5d, 1e-20, true)]
+    public void Local_box_checks_exact_cell_bounds_without_requiring_distinguishable_endpoints(
+        string axis, double offset, double size, bool valid)
+    {
+        var json = Document();
+        var collision = JsonNode.Parse("""
+            {"kind":"local_box","offset":{"x":0,"y":0,"z":0},"size":{"x":1,"y":1,"z":1}}
+            """)!;
+        collision["offset"]![axis] = offset;
+        collision["size"]![axis] = size;
+        json["appearance"]!["collision"] = collision;
+        if (valid)
+        {
+            using var candidate = Load(json);
+            Assert.IsInstanceOfType<C.VoxelCollision.LocalBox>(Appearance(candidate).Collision);
+        }
+        else
+            AssertRejected(json.ToJsonString(), "invalid_field");
+    }
+
+    [TestMethod]
     [DataRow("duplicate")]
     [DataRow("comment")]
     [DataRow("trailing")]
