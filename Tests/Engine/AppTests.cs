@@ -66,7 +66,9 @@ public class AppTests(Node testScene) : TestClass(testScene)
             Require(menu.IsNodeReady() && menu.IsVisibleInTree(), "Main menu is not ready and visible.");
             var buttons = menu.FindChildren("*", "BaseButton", true, false).Cast<BaseButton>().Where(b => b.IsVisibleInTree()).ToArray();
             var quit = menu.GetNode<Button>("%QuitGame");
-            Require(buttons.Length == 1 && buttons[0] == quit && !quit.Disabled && quit.Text == "退出", "Main menu must expose only the enabled quit button.");
+            Require(buttons.Length == 2 && buttons.Contains(quit) && !quit.Disabled && quit.Text == "退出" &&
+                buttons.Contains(menu.GetNode<Button>("%Settings")) && !menu.GetNode<Button>("%NewGame").Visible,
+                "默认菜单须提供设置、退出，且不得显示新游戏。");
             quit.EmitSignal(BaseButton.SignalName.Pressed);
             Require(requests == 1, "Quit button signal did not reach App's quit request.");
         }

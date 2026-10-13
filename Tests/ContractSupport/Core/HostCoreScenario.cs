@@ -171,7 +171,7 @@ public sealed class ScriptedCoreSession(ICoreReadView initial) : ICoreSession
     {
         EnsureAlive();
         if (!steps.TryPeek(out var next) || next is not SubmitStep submit
-            || submit.Command != command || submit.Source != source)
+            || !Matches(submit.Command, command) || submit.Source != source)
             throw HostCoreScenario.Unconfigured(nameof(Submit));
         steps.Dequeue();
         CurrentView = submit.After;
@@ -179,6 +179,23 @@ public sealed class ScriptedCoreSession(ICoreReadView initial) : ICoreSession
         SubmitThread = Environment.CurrentManagedThreadId;
         return submit.Result;
     }
+
+    private static bool Matches(CoreCommand expected, CoreCommand actual) => (expected, actual) switch
+    {
+        (CoreCommand.FormTrain left, CoreCommand.FormTrain right) =>
+            left.OrderedVehicles.SequenceEqual(right.OrderedVehicles),
+        (CoreCommand.ReplaceRunPlan left, CoreCommand.ReplaceRunPlan right) =>
+            left.Train == right.Train && left.Plan.Loop == right.Plan.Loop &&
+            left.Plan.Stops.Length == right.Plan.Stops.Length &&
+            left.Plan.Stops.Zip(right.Plan.Stops).All(pair => (pair.First, pair.Second) switch
+            {
+                (PlanStop.Station first, PlanStop.Station second) => first.Node == second.Node &&
+                    first.DwellSteps == second.DwellSteps && first.GoodsRules.SequenceEqual(second.GoodsRules),
+                (PlanStop.Waypoint first, PlanStop.Waypoint second) => first.Node == second.Node,
+                _ => false
+            }),
+        _ => expected == actual
+    };
 
     public CoreResult<ICoreCapture> Capture(CapturePurpose purpose)
     {

@@ -44,6 +44,7 @@ public sealed class ConsoleCommandDispatcher
     private readonly Action _reload;
     private readonly bool _allowReload;
     private readonly Action<IReadOnlyList<string>>? _simulation;
+    private readonly Action<IReadOnlyList<string>>? _train;
     private readonly Action<IReadOnlyList<string>>? _lighting;
 
     public ConsoleCommandDispatcher(
@@ -53,6 +54,7 @@ public sealed class ConsoleCommandDispatcher
         Action reload,
         bool allowReload,
         Action<IReadOnlyList<string>>? simulation = null,
+        Action<IReadOnlyList<string>>? train = null,
         Action<IReadOnlyList<string>>? lighting = null)
     {
         ArgumentNullException.ThrowIfNull(logger);
@@ -65,6 +67,7 @@ public sealed class ConsoleCommandDispatcher
         _reload = reload;
         _allowReload = allowReload;
         _simulation = simulation;
+        _train = train;
         _lighting = lighting;
     }
 
@@ -98,6 +101,9 @@ public sealed class ConsoleCommandDispatcher
                 return;
             case "sim" when _simulation is not null:
                 _simulation(parsed.Arguments);
+                return;
+            case "train" when _train is not null:
+                _train(parsed.Arguments);
                 return;
             case "lighting":
                 if (_lighting is not null)
@@ -135,6 +141,8 @@ public sealed class ConsoleCommandDispatcher
         var commands = _allowReload ? "help, clear, quit, reload, loglevel" : "help, clear, quit, loglevel";
         if (_simulation is not null)
             commands += ", sim";
+        if (_train is not null)
+            commands += ", train";
         if (_lighting is not null)
             commands += ", lighting";
         return $"Available commands: {commands}.";

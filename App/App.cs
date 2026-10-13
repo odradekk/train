@@ -60,7 +60,6 @@ public partial class App : Node
                 Saves = new SaveService(Host, new FileSaveStore(userData));
                 GetNode<MainMenu>("MainMenu").ConfigureSaves(Saves);
                 Recording = new RecordingService(Host, new FileSaveStore(userData));
-                GetNode<MainMenu>("MainMenu").ConfigureRecording(Recording);
             }
             else
             {
@@ -72,18 +71,25 @@ public partial class App : Node
                 WorldScenes = new(Host, CreateScenes(), _logger);
                 AddChild(WorldScenes.View);
             }
+            var ui = new GameUi { Name = "GameUi" };
+            ui.Initialize(GetNode<MainMenu>("MainMenu"), Host, _logger, WorldScenes, Recording);
+            AddChild(ui);
             var console = new GameConsole();
             Action<IReadOnlyList<string>>? simulationCommands = null;
+            Action<IReadOnlyList<string>>? trainCommands = null;
             Action<IReadOnlyList<string>>? lightingCommands = null;
             if (OS.IsDebugBuild())
             {
                 simulationCommands = Host is null ? new LegacySimulationConsoleCommands(this, _logger).Execute
                     : new SimulationConsoleCommands(Host, _logger).Execute;
+                if (Host is not null)
+                    trainCommands = new TrainConsoleCommands(Host, _logger, ui.ShowError).Execute;
                 lightingCommands = new LightingConsoleCommands(_logger, () => WorldScenes?.View.Lighting,
                     mode => WorldScenes!.View.SetLighting(mode)).Execute;
             }
             console.Initialize(buffer, new ConsoleCommandDispatcher(
-                _logger, buffer.Clear, RequestQuit, () => ReloadContent(Train.Core.Contracts.CommandSource.Console), OS.IsDebugBuild(), simulationCommands, lightingCommands));
+                _logger, buffer.Clear, RequestQuit, () => ReloadContent(Train.Core.Contracts.CommandSource.Console), OS.IsDebugBuild(), simulationCommands,
+                train: trainCommands, lighting: lightingCommands));
             AddChild(console);
             if (Host is not null)
             {
