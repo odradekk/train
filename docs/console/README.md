@@ -10,8 +10,9 @@
 | [reload](reload.md) | 委托宿主重新加载内容 |
 | [loglevel](loglevel.md) | 查询或设置日志过滤等级 |
 | [sim](sim.md) | 查询或控制当前活动模拟会话（仅 Debug） |
+| [train](train.md) | 编组、解散、启停列车和替换运行计划（仅 Debug 且接入新 Host） |
 
-发布构建的 `help` 列表不包含 `reload` 或 `sim`；Debug 游戏宿主列出五个基础命令与 `sim`。
+发布构建的 `help` 列表不包含 `reload`、`sim` 或 `train`；Debug 游戏宿主列出五个基础命令与 `sim`，接入新 `HostCoordinator` 时另列出 `train`。`sim` 在默认旧模拟入口也可用。
 
 默认 App 仍使用旧模拟和内容加载入口；新 `HostCoordinator` 与契约命令通过实例级 `CreateHost` 测试装配委托接入，尚未连接真实工厂。按[用户拆票决定](https://github.com/odradekk/train/issues/317#issuecomment-6136143469)，#317 交付协调器，生产切换与旧入口删除归 #424。两条路径的差异见 [`sim`](sim.md) 和 [`reload`](reload.md)。
 

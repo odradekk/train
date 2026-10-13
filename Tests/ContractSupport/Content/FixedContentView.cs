@@ -51,7 +51,12 @@ public sealed class FixedContentView : IContentView
 
     public ImmutableArray<SavedContentDraft> LocalDrafts => throw Unconfigured(nameof(LocalDrafts));
 
-    public ImmutableArray<GenerationProfileSummary> GenerationProfiles => throw Unconfigured(nameof(GenerationProfiles));
+    private ImmutableArray<GenerationProfileSummary> generationProfiles;
+    public ImmutableArray<GenerationProfileSummary> GenerationProfiles
+    {
+        get => generationProfiles.IsDefault ? throw Unconfigured(nameof(GenerationProfiles)) : generationProfiles;
+        init => generationProfiles = value;
+    }
 
     public ContentLookup<BlueprintRecord> FindBlueprint(BlueprintAddress address) => throw Unconfigured(nameof(FindBlueprint));
 
@@ -73,13 +78,37 @@ public sealed class FixedContentView : IContentView
 
     public ContentLookup<VoxelDisplayProjection> FindVoxelDisplay(VoxelDefinitionId id) => throw Unconfigured(nameof(FindVoxelDisplay));
 
-    public ContentLookup<ContentDisplay> FindDefinitionDisplay(CoreDefinitionReference id) => throw Unconfigured(nameof(FindDefinitionDisplay));
+    private ImmutableDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>> definitionDisplays = ImmutableDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>.Empty;
+    public IReadOnlyDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>> DefinitionDisplays
+    {
+        init => definitionDisplays = value.ToImmutableDictionary();
+    }
+    public ContentLookup<ContentDisplay> FindDefinitionDisplay(CoreDefinitionReference id)
+        => definitionDisplays.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindDefinitionDisplay));
 
-    public ContentLookup<GoodPresentation> FindGood(GoodId id) => throw Unconfigured(nameof(FindGood));
+    private ImmutableDictionary<GoodId, ContentLookup<GoodPresentation>> goods = ImmutableDictionary<GoodId, ContentLookup<GoodPresentation>>.Empty;
+    public IReadOnlyDictionary<GoodId, ContentLookup<GoodPresentation>> Goods
+    {
+        init => goods = value.ToImmutableDictionary();
+    }
+    public ContentLookup<GoodPresentation> FindGood(GoodId id)
+        => goods.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindGood));
 
-    public ContentLookup<ContentAsset> FindAsset(AssetRevision id) => throw Unconfigured(nameof(FindAsset));
+    private ImmutableDictionary<AssetRevision, ContentLookup<ContentAsset>> assets = ImmutableDictionary<AssetRevision, ContentLookup<ContentAsset>>.Empty;
+    public IReadOnlyDictionary<AssetRevision, ContentLookup<ContentAsset>> Assets
+    {
+        init => assets = value.ToImmutableDictionary();
+    }
+    public ContentLookup<ContentAsset> FindAsset(AssetRevision id)
+        => assets.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindAsset));
 
-    public ContentLookup<SettlementLayoutProjection> FindSettlementLayout(SettlementId id) => throw Unconfigured(nameof(FindSettlementLayout));
+    private ImmutableDictionary<SettlementId, ContentLookup<SettlementLayoutProjection>> settlementLayouts = ImmutableDictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>.Empty;
+    public IReadOnlyDictionary<SettlementId, ContentLookup<SettlementLayoutProjection>> SettlementLayouts
+    {
+        init => settlementLayouts = value.ToImmutableDictionary();
+    }
+    public ContentLookup<SettlementLayoutProjection> FindSettlementLayout(SettlementId id)
+        => settlementLayouts.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindSettlementLayout));
 
     public ContentLookup<CreatureAppearanceProjection> FindCreature(CreatureDefinitionId id) => throw Unconfigured(nameof(FindCreature));
 

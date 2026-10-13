@@ -1,0 +1,156 @@
+using Chickensoft.GoDotTest;
+using Chickensoft.GodotTestDriver;
+using Godot;
+using Train.App;
+using Train.Content.Contracts;
+using Train.Content.ContractSupport;
+using Train.Core.Contracts;
+using Train.Core.ContractSupport;
+using Train.Ui;
+using static Train.Engine.Tests.Assertions;
+
+namespace Train.Engine.Tests;
+
+public class NewGameUiTests(Node testScene) : TestClass(testScene)
+{
+    [Test]
+    public Task Menu_inputs_create_a_paused_world() => CreateThroughInput(false);
+
+    [Test]
+    public Task New_game_rejection_keeps_the_menu_and_shows_the_problem() => CreateThroughInput(true);
+
+    [Test]
+    public Task Missing_new_game_references_are_visible_and_can_be_cancelled() => CreateThroughInput(false, true);
+
+    private async Task CreateThroughInput(bool reject, bool missing = false)
+    {
+        var tree = TestScene.GetTree();
+        var fixture = new Fixture(tree);
+        var scale = tree.Root.ContentScaleFactor;
+        var projection = HostContentScenario.CreateProjection(HostCoreScenario.Input);
+        var contentView = new FixedContentView(projection, new(1))
+        {
+            GenerationProfiles = [new(new("fixture:first"), new("首个配置", "")),
+                new(new("fixture:second"), new("第二配置", ""))]
+        };
+        var view = new FixedCoreReadView(default, HostCoreScenario.Input)
+        { World = new(42, new("fixture:railway"), 100, 100, [], [], [], [], []) };
+        var session = new ScriptedCoreSession(view);
+        var candidate = new ScriptedCoreCandidate(session, HostCoreScenario.References,
+            missing ? [new(new CoreDefinitionReference.Voxel(new("fixture:missing")), "vehicles[0]")] : []);
+        var loads = 0;
+        var worldInputs = 0;
+        var core = new ScriptedCoreFactory
+        {
+            PrepareNewCall = (world, content, options) =>
+            {
+                Require(ReferenceEquals(world, HostCoreScenario.World) && ReferenceEquals(content, projection) &&
+                    options.Runtime.GameBuild.Length > 0, "新游戏未传递情景世界输入、内容投影和运行时选项。");
+                return reject ? new CoreResult<ICoreSessionCandidate>.Failure(
+                    [new("fixture_generation_rejected", "world", null, [])])
+                    : new CoreResult<ICoreSessionCandidate>.Success(candidate);
+            }
+        };
+        var content = new ScriptedContentFactory
+        {
+            PrepareLoadCall = (request, _, _) =>
+            {
+                Require(request.Purpose is ContentLoadPurpose.Initial && ++loads <= 2,
+                    "有限情景只接受启动和新游戏的两次初始加载。");
+                return new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(contentView));
+            },
+            CreateWorldInputCall = (basis, profile, seed, generator) =>
+            {
+                Require(ReferenceEquals(basis, contentView) && profile == new GenerationProfileId("fixture:second") &&
+                    seed == 42 && generator == "stage1-world-v1" && ++worldInputs == 1,
+                    "实际输入未传入选中的配置、种子或生成器版本。");
+                return new ContentResult<WorldGenerationInput>.Success(HostCoreScenario.World);
+            }
+        };
+        try
+        {
+            var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
+            app.CreateHost = logger => new HostCoordinator(core, content, new ScriptedContentFiles(),
+                new UnconfiguredAssetInspector(), new(new("builtin"), new("mods"), null, "fixture", []), logger);
+            await fixture.AddToRoot(app);
+            await FramesUntil(() => app.Host!.Content is not null && !app.Host.IsBusy);
+            tree.Root.ContentScaleFactor = 1;
+            await Frame();
+            var menu = app.GetNode<MainMenu>("MainMenu");
+            var ui = app.GetNode<GameUi>("GameUi");
+            menu.GetNode<Button>("%NewGame").GrabFocus();
+            await Press(Key.Space);
+            var panel = ui.GetNode<Control>("Root/NewGame");
+            Require(panel.IsVisibleInTree(), "菜单实际按键未打开新游戏面板。");
+            var seedInput = panel.GetNode<LineEdit>("Layout/Body/Seed");
+            seedInput.GrabFocus();
+            await Frame();
+            await Press(Key.A, control: true);
+            await Press(Key.Key4, '4');
+            await Press(Key.Key2, '2');
+            Require(seedInput.Text == "42", "真实键盘输入未替换世界种子。");
+            var profileInput = panel.GetNode<OptionButton>("Layout/Body/Profile");
+            profileInput.GrabFocus();
+            await Press(Key.Space);
+            await Press(Key.Down);
+            await Press(Key.Enter);
+            Require(profileInput.Selected == 1, "真实键盘输入未选择第二个生成配置。");
+            panel.GetNode<Button>("Layout/Body/Create").GrabFocus();
+            await Press(Key.Space);
+            await FramesUntil(() => missing
+                ? app.Host!.MissingConfirmation is not null && ui.ErrorText.Contains("fixture:missing")
+                : !app.Host!.IsBusy && (reject ? ui.ErrorText.Length > 0 : app.Host.GetStatus() is not null));
+            Require(loads == 2 && worldInputs == 1 && core.PrepareNewCount == 1,
+                "新游戏未完成规定的有限准备序列。");
+            if (missing)
+            {
+                Require(app.Host!.IsBusy && app.Host.GetStatus() is null && menu.IsVisibleInTree() &&
+                    panel.IsVisibleInTree() && ui.ErrorText.Contains("vehicles[0]") &&
+                    ui.GetNode<Control>("Root/ErrorPanel").IsVisibleInTree() &&
+                    panel.GetNode<Label>("Layout/Body/Problem").Text.Contains("等待缺失确认"),
+                    "缺失引用未显示具体引用、字段和等待确认状态，或提前替换了活动局。");
+                panel.GetNode<Button>("Layout/Body/Cancel").GrabFocus();
+                await Press(Key.Space);
+                await FramesUntil(() => !app.Host.IsBusy);
+                Require(app.Host.MissingConfirmation is null && app.Host.GetStatus() is null &&
+                    candidate.ActivationCount == 0 && candidate.DisposeCount == 1 && !panel.IsVisibleInTree(),
+                    "真实取消输入未清除缺失确认，或候选被激活、重复释放。");
+            }
+            else if (reject)
+            {
+                Require(app.Host!.GetStatus() is null && menu.IsVisibleInTree() && panel.IsVisibleInTree() &&
+                    ui.ErrorText.Contains("fixture_generation_rejected") &&
+                    ui.GetNode<Control>("Root/ErrorPanel").IsVisibleInTree(),
+                    "创建失败未保留菜单与输入面板，或未显示具体拒绝原因。");
+            }
+            else
+            {
+                var map = ui.GetNode<MacroMap>("Root/World/MacroMap");
+                await FramesUntil(() => ReferenceEquals(map.View, view));
+                Require(app.Host!.GetStatus()!.PlayerPaused && map.IsVisibleInTree() &&
+                    !menu.IsVisibleInTree() && !panel.IsVisibleInTree() && candidate.ActivationCount == 1,
+                    "创建成功后未进入暂停地图，或候选重复激活。");
+                session.AssertComplete();
+            }
+        }
+        finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
+    }
+
+    private async Task Frame() => await TestScene.ToSignal(TestScene.GetTree(), SceneTree.SignalName.ProcessFrame);
+
+    private async Task FramesUntil(Func<bool> completed)
+    {
+        for (var frame = 0; frame < 180 && !completed(); frame++) await Frame();
+        Require(completed(), "真实帧未完成预期的新游戏输入路径。");
+    }
+
+    private async Task Press(Key key, uint unicode = 0, bool control = false)
+    {
+        using var press = new InputEventKey { Keycode = key, Unicode = unicode, CtrlPressed = control, Pressed = true };
+        Input.ParseInputEvent(press);
+        await Frame();
+        using var release = new InputEventKey { Keycode = key, CtrlPressed = control, Pressed = false };
+        Input.ParseInputEvent(release);
+        await Frame();
+    }
+}
