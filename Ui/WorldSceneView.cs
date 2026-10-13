@@ -5,6 +5,8 @@ using Train.Scenes.Contracts;
 
 namespace Train.Ui;
 
+internal enum InspectionLighting { Game, Daylight, Overcast, Night }
+
 internal partial class WorldSceneView : Node3D
 {
     private readonly CanvasLayer _overlay = new() { Layer = 5 };
@@ -17,12 +19,20 @@ internal partial class WorldSceneView : Node3D
     internal WorldCamera CameraRig { get; } = new() { Name = "WorldCamera" };
     internal bool Loading => _loading.Visible;
     internal bool Interactive { get; set; }
+    internal InspectionLighting Lighting { get; private set; }
     internal event Action<Vector2>? PickRequested;
     internal event Action? ReturnRequested;
     private readonly Godot.Environment _environment;
     private readonly WorldEnvironment _worldEnvironment;
     private readonly Sky _sky;
     private readonly ProceduralSkyMaterial _skyMaterial;
+    private readonly DirectionalLight3D _sun;
+    private readonly Godot.Environment _inspectionEnvironment;
+    private readonly Sky _inspectionSky;
+    private readonly ProceduralSkyMaterial _inspectionSkyMaterial = new();
+    private readonly Node3D _workLights = new() { Name = "InspectionWorkLights", Visible = false };
+    private Godot.Environment CurrentEnvironment => Lighting is InspectionLighting.Game or InspectionLighting.Daylight
+        ? _environment : _inspectionEnvironment;
 
     internal WorldSceneView()
     {
@@ -41,9 +51,20 @@ internal partial class WorldSceneView : Node3D
         };
         _worldEnvironment = new() { Name = "WorldEnvironment", Environment = _environment };
         AddChild(_worldEnvironment);
-        AddChild(new DirectionalLight3D { Name = "Sun", RotationDegrees = new Vector3(-40, -30, 0),
+        _sun = new() { Name = "Sun", RotationDegrees = new Vector3(-40, -30, 0),
             LightColor = new Color(1, 0.96f, 0.9f), ShadowEnabled = true,
-            DirectionalShadowMode = DirectionalLight3D.ShadowMode.Parallel4Splits });
+            DirectionalShadowMode = DirectionalLight3D.ShadowMode.Parallel4Splits };
+        AddChild(_sun);
+        _inspectionSky = new() { SkyMaterial = _inspectionSkyMaterial };
+        _inspectionEnvironment = (Godot.Environment)_environment.Duplicate();
+        _inspectionEnvironment.Sky = _inspectionSky;
+        _inspectionEnvironment.AmbientLightSource = Godot.Environment.AmbientSource.Color;
+        _inspectionEnvironment.AmbientLightSkyContribution = 0;
+        AddChild(_workLights);
+        _workLights.AddChild(new OmniLight3D { Position = new(-12, 14, 8), LightColor = new Color("ffd9a0"),
+            LightEnergy = 24, OmniRange = 80, ShadowEnabled = true });
+        _workLights.AddChild(new OmniLight3D { Position = new(10, 9, -12), LightColor = new Color("ffd9a0"),
+            LightEnergy = 16, OmniRange = 80, ShadowEnabled = true });
         AddChild(_overlay);
         _overlay.AddChild(_loading);
         _loading.AddChild(_message);
@@ -59,11 +80,37 @@ internal partial class WorldSceneView : Node3D
     }
 
     internal void SetLoading(bool loading) => _loading.Visible = loading;
+    internal void SetLighting(InspectionLighting mode)
+    {
+        Lighting = mode;
+        _sun.Visible = mode is InspectionLighting.Game or InspectionLighting.Daylight;
+        _workLights.Visible = mode == InspectionLighting.Night;
+        _workLights.Position = CameraRig.Focus;
+        if (mode is InspectionLighting.Overcast or InspectionLighting.Night)
+        {
+            var night = mode == InspectionLighting.Night;
+            var horizon = new Color(night ? "101928" : "c9d6e0");
+            _inspectionSkyMaterial.SkyTopColor = new Color(night ? "080e1a" : "c9d6e0");
+            _inspectionSkyMaterial.SkyHorizonColor = horizon;
+            _inspectionSkyMaterial.GroundHorizonColor = horizon;
+            _inspectionSkyMaterial.GroundBottomColor = new Color(night ? "050811" : "aab5be");
+            _inspectionEnvironment.AmbientLightColor = new Color(night ? "29344a" : "c9d6e0");
+            _inspectionEnvironment.AmbientLightEnergy = night ? 0.12f : 0.8f;
+            _inspectionEnvironment.FogLightColor = horizon;
+        }
+        _worldEnvironment.Environment = Visible ? CurrentEnvironment : null;
+    }
+
+    public override void _Process(double delta)
+    {
+        if (Lighting == InspectionLighting.Night) _workLights.Position = CameraRig.Focus;
+    }
+
     internal void SetActive(bool active)
     {
         Visible = active;
         CameraRig.Camera.Current = active;
-        _worldEnvironment.Environment = active ? _environment : null;
+        _worldEnvironment.Environment = active ? CurrentEnvironment : null;
     }
     internal void ShowFrame(ISceneFrame frame, WorldObjectId? follow, bool railwayPan = false)
     {
@@ -101,5 +148,8 @@ internal partial class WorldSceneView : Node3D
         _environment.Dispose();
         _sky.Dispose();
         _skyMaterial.Dispose();
+        _inspectionEnvironment.Dispose();
+        _inspectionSky.Dispose();
+        _inspectionSkyMaterial.Dispose();
     }
 }
