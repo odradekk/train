@@ -1,6 +1,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
 using Train.Core.Sessions;
+using Train.Core.Tests.World;
 
 namespace Train.Core.Tests.Sessions;
 
@@ -10,7 +11,7 @@ public sealed class CoreLifecycleTests
     [TestMethod]
     public void Candidate_view_is_readable_before_activation()
     {
-        using var candidate = new CoreSessionCandidate(new(new(0, 0), 1, new(0), Content('A')));
+        using var candidate = new CoreSessionCandidate(WorldFixture.State(content: Content('A')), 1);
 
         Assert.AreEqual(new SimulationPosition(0, 0), candidate.View.Position);
         Assert.AreEqual(new CoreRevision(0), candidate.View.Revision);
@@ -21,7 +22,7 @@ public sealed class CoreLifecycleTests
     [TestMethod]
     public void Candidate_can_only_be_activated_once()
     {
-        using var candidate = new CoreSessionCandidate(new(new(0, 0), 1, new(0), Content('A')));
+        using var candidate = new CoreSessionCandidate(WorldFixture.State(content: Content('A')), 1);
         using var session = candidate.Activate();
 
         Assert.ThrowsExactly<InvalidOperationException>(() => candidate.Activate());
@@ -33,7 +34,7 @@ public sealed class CoreLifecycleTests
     [TestMethod]
     public void Disposing_an_unactivated_candidate_abandons_it()
     {
-        var candidate = new CoreSessionCandidate(new(new(0, 0), 1, new(0), Content('A')));
+        var candidate = new CoreSessionCandidate(WorldFixture.State(content: Content('A')), 1);
         var retained = candidate.View;
 
         candidate.Dispose();
@@ -49,7 +50,7 @@ public sealed class CoreLifecycleTests
     [TestMethod]
     public void Disposing_an_activated_candidate_leaves_the_session_owned_by_its_caller()
     {
-        var candidate = new CoreSessionCandidate(new(new(0, 0), 1, new(0), Content('A')));
+        var candidate = new CoreSessionCandidate(WorldFixture.State(content: Content('A')), 1);
         using var session = candidate.Activate();
         candidate.Dispose();
         candidate.Dispose();
@@ -66,7 +67,7 @@ public sealed class CoreLifecycleTests
     [TestMethod]
     public void Disposed_sessions_reject_writes_and_leave_retained_views_readable()
     {
-        using var candidate = new CoreSessionCandidate(new(new(0, 0), 1, new(0), Content('A')));
+        using var candidate = new CoreSessionCandidate(WorldFixture.State(content: Content('A')), 1);
         var session = candidate.Activate();
         var retained = session.Read();
 
@@ -83,5 +84,5 @@ public sealed class CoreLifecycleTests
     }
 
     private static CoreContentProjection Content(char identity)
-        => new(new(new string(identity, 64)), [], [], [], [], [], [], [], [], [], [], [], [], [], []);
+        => WorldFixture.Content with { Identity = new(new string(identity, 64)) };
 }

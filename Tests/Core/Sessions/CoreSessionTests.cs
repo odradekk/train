@@ -1,6 +1,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
 using Train.Core.Sessions;
+using Train.Core.Tests.World;
 
 namespace Train.Core.Tests.Sessions;
 
@@ -67,7 +68,7 @@ public sealed class CoreSessionTests
     {
         using var session = Session();
 
-        var result = Completed(session.ExecuteCommand(_ =>
+        var result = Completed(session.ExecuteCommand(new CoreCommand.PublishContent(B), CommandSource.AutomationTest, _ =>
             new CommandEffect.Rejected([new("invalid_state", "test", null, [])])));
 
         Assert.IsInstanceOfType<CommandDecision.Rejected>(result.Receipt.Decision);
@@ -115,7 +116,7 @@ public sealed class CoreSessionTests
     public void Frozen_sessions_do_not_accept_commands_or_repeat_diagnostics()
     {
         var fault = new CoreFault("internal_error", new(7, 3), "Submit", "", null);
-        using var session = new CoreSession(new(new(7, 2), 10, new(20), A, fault));
+        using var session = new CoreSession(WorldFixture.State(new(7, 2), 10, new(20), A) with { Content = A, Fault = fault });
 
         var submission = session.Submit(new CoreCommand.PublishContent(B), CommandSource.AutomationTest);
         var advancement = session.Advance(1);
@@ -133,7 +134,7 @@ public sealed class CoreSessionTests
     [DataRow(10UL, ulong.MaxValue)]
     public void Exhausted_command_numbers_or_sequences_do_not_accept_or_change_state(ulong number, ulong sequence)
     {
-        using var session = new CoreSession(new(new(7, sequence), number, new(20), A));
+        using var session = new CoreSession(WorldFixture.State(new(7, sequence), number, new(20), A) with { Content = A });
 
         var result = session.Submit(new CoreCommand.PublishContent(B), CommandSource.AutomationTest);
 
@@ -148,7 +149,7 @@ public sealed class CoreSessionTests
         using var session = Session();
         var retained = session.Read();
 
-        var result = Completed(session.ExecuteCommand(_ => throw new InvalidOperationException("命令测试故障。")));
+        var result = Completed(session.ExecuteCommand(new CoreCommand.PublishContent(B), CommandSource.AutomationTest, _ => throw new InvalidOperationException("命令测试故障。")));
 
         Assert.IsInstanceOfType<CommandDecision.Faulted>(result.Receipt.Decision);
         var fault = ((CommandDecision.Faulted)result.Receipt.Decision).Fault;
@@ -180,7 +181,7 @@ public sealed class CoreSessionTests
     [TestMethod]
     public void A_fault_at_the_maximum_revision_freezes_without_wrapping_the_revision()
     {
-        using var session = new CoreSession(new(new(7, 2), 10, new(ulong.MaxValue), A));
+        using var session = new CoreSession(WorldFixture.State(new(7, 2), 10, new(ulong.MaxValue), A) with { Content = A });
         var retained = session.Read();
 
         var result = session.Advance(1);
@@ -237,7 +238,7 @@ public sealed class CoreSessionTests
     {
         using var session = Session();
 
-        var result = Completed(session.ExecuteCommand(_ => new CommandEffect.Accepted(B, [First, Second])));
+        var result = Completed(session.ExecuteCommand(new CoreCommand.PublishContent(B), CommandSource.AutomationTest, _ => new CommandEffect.Accepted(B, [First, Second])));
 
         Assert.AreEqual(10UL, result.Receipt.Number);
         Assert.AreEqual(new SimulationPosition(7, 3), result.Receipt.After);
@@ -266,6 +267,35 @@ public sealed class CoreSessionTests
     }
 
     [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void Malformed_published_arrays_are_rejected_before_identity_checks_without_consuming_a_command(
+        bool sameIdentity, bool missingReferences)
+    {
+        using var session = Session();
+        var malformed = sameIdentity ? A : B;
+        malformed = missingReferences ? malformed with { MissingReferences = default } : malformed with { Designs = default };
+        var before = WorldFixture.Success(session.Capture(CapturePurpose.Save));
+        var payload = before.Encode();
+        var checkpoint = before.Checkpoint;
+
+        var exception = Assert.ThrowsExactly<ArgumentException>(() =>
+            session.Submit(new CoreCommand.PublishContent(malformed), CommandSource.AutomationTest));
+
+        Assert.AreEqual("Uninitialized array", exception.ParamName);
+        AssertBoundary(session, new(7, 2), 10, 20, A);
+        var after = WorldFixture.Success(session.Capture(CapturePurpose.Save));
+        Assert.AreEqual(payload, after.Encode());
+        Assert.AreEqual(checkpoint, after.Checkpoint);
+        var accepted = Completed(session.Submit(new CoreCommand.PublishContent(B), CommandSource.AutomationTest));
+        Assert.IsInstanceOfType<CommandDecision.Accepted>(accepted.Receipt.Decision);
+        Assert.AreEqual(10UL, accepted.Receipt.Number);
+        AssertBoundary(session, new(7, 3), 11, 21, B);
+    }
+
+    [TestMethod]
     public void Publishing_the_current_identity_is_a_precondition_error_without_state_changes()
     {
         using var session = Session();
@@ -287,10 +317,10 @@ public sealed class CoreSessionTests
         AssertBoundary(session, new(7, 2), 10, 20, A);
     }
 
-    private static CoreSession Session() => new(new(new(7, 2), 10, new(20), A));
+    private static CoreSession Session() => new(WorldFixture.State(new(7, 2), 10, new(20), A) with { Content = A });
 
     private static CoreContentProjection Content(char identity)
-        => new(new(new string(identity, 64)), [], [], [], [], [], [], [], [], [], [], [], [], [], []);
+        => WorldFixture.Content with { Identity = new(new string(identity, 64)) };
 
     private static SubmissionResult.Completed Completed(SubmissionResult result)
     {
