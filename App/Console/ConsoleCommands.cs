@@ -34,6 +34,7 @@ public sealed class ConsoleCommandDispatcher
     public const string HelpEventId = "help";
     public const string UnknownEventId = "unknown_command";
     public const string ReloadDeniedEventId = "reload_denied";
+    public const string LightingDeniedEventId = "lighting_denied";
     public const string LogLevelEventId = "log_level";
     public const string LogLevelUsageEventId = "log_level_usage";
 
@@ -44,6 +45,7 @@ public sealed class ConsoleCommandDispatcher
     private readonly bool _allowReload;
     private readonly Action<IReadOnlyList<string>>? _simulation;
     private readonly Action<IReadOnlyList<string>>? _train;
+    private readonly Action<IReadOnlyList<string>>? _lighting;
 
     public ConsoleCommandDispatcher(
         TrainLogger logger,
@@ -52,7 +54,8 @@ public sealed class ConsoleCommandDispatcher
         Action reload,
         bool allowReload,
         Action<IReadOnlyList<string>>? simulation = null,
-        Action<IReadOnlyList<string>>? train = null)
+        Action<IReadOnlyList<string>>? train = null,
+        Action<IReadOnlyList<string>>? lighting = null)
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(clear);
@@ -65,6 +68,7 @@ public sealed class ConsoleCommandDispatcher
         _allowReload = allowReload;
         _simulation = simulation;
         _train = train;
+        _lighting = lighting;
     }
 
     public void Execute(string line)
@@ -101,6 +105,12 @@ public sealed class ConsoleCommandDispatcher
             case "train" when _train is not null:
                 _train(parsed.Arguments);
                 return;
+            case "lighting":
+                if (_lighting is not null)
+                    _lighting(parsed.Arguments);
+                else
+                    _logger.Warning(Category, LightingDeniedEventId, "lighting 仅在 Debug 构建中可用。");
+                return;
             default:
                 _logger.Warning(Category, UnknownEventId, $"Unknown command: {parsed.Name}");
                 return;
@@ -133,6 +143,8 @@ public sealed class ConsoleCommandDispatcher
             commands += ", sim";
         if (_train is not null)
             commands += ", train";
+        if (_lighting is not null)
+            commands += ", lighting";
         return $"Available commands: {commands}.";
     }
 }

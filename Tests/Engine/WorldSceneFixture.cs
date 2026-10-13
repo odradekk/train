@@ -22,11 +22,24 @@ internal static class WorldSceneFixture
         var core = new ScriptedCoreFactory
         {
             DecodeStateCall = _ => new CoreResult<ICoreCapture>.Success(capture),
-            PrepareRestoreCall = (_, _, _) => new CoreResult<ICoreSessionCandidate>.Success(
-                new ScriptedCoreCandidate(restore?.Invoke() ?? session, HostCoreScenario.References))
+            PrepareRestoreCall = (_, _, _) =>
+            {
+                var prepared = restore?.Invoke() ?? session;
+                var start = new RecordingStart(new(1), new FixedCoreCapture(
+                    new(prepared.CurrentView.Position, "fixed recording", "fixed recording"),
+                    HostCoreScenario.References, "opaque recording", prepared.CurrentView.InputIdentity, new(1)));
+                prepared.ReadRecordingCall = () => new(prepared.CurrentView.Position, [start], [],
+                    [start.State.Checkpoint], [], [], start.State.References);
+                prepared.ConfirmRecordingStartCall = (point, _) => point == start.Id ? new([], [])
+                    : throw new InvalidOperationException("UNCONFIGURED: recording point");
+                return new CoreResult<ICoreSessionCandidate>.Success(new ScriptedCoreCandidate(prepared,
+                    HostCoreScenario.References));
+            }
         };
         var factory = new ScriptedContentFactory
         {
+            CaptureReplayCall = (history, _) => new ContentResult<IContentReplayCapture>.Success(
+                new FixedContentReplayCapture(history, "opaque recording content")),
             DecodeCaptureCall = _ => new ContentResult<IContentCapture>.Success(new FixedContentCapture("opaque")),
             PrepareLoadCall = (request, _, _) => request.Purpose is ContentLoadPurpose.Restore
                 ? new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(content))

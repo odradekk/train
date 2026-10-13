@@ -1,6 +1,7 @@
 
 using Godot;
 using Train.App.Saves;
+using Train.App.Recording;
 
 namespace Train.Ui;
 
@@ -28,6 +29,16 @@ public partial class MainMenu : Control
         var button = GetNode<Button>("%Saves");
         button.Visible = true;
         button.Pressed += OpenSaves;
+    }
+
+    internal void ConfigureRecording(RecordingService service)
+    {
+        var report = new IssueReportPanel();
+        AddChild(report);
+        report.Configure(service);
+        var button = GetNode<Button>("%ReportIssue");
+        button.Visible = true;
+        button.Pressed += report.Open;
     }
 
     public override void _Ready()

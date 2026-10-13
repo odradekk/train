@@ -345,11 +345,15 @@ public class SaveTests(Node testScene) : TestClass(testScene)
                     Require(projection.Identity == HostCoreScenario.Input, "恢复时收到错误内容投影。");
                     Session = new(UiWorldFixture.Save(projection.Identity));
                     Session.SetCapture(CapturePurpose.Save, new CoreResult<ICoreCapture>.Success(capture));
+                    Session.ReadRecordingCall = () => new(new(0, 0), [new(new(1), capture)], [], [capture.Checkpoint], [], [], capture.References);
+                    Session.ConfirmRecordingStartCall = (point, _) => point.Value == 1 ? new([], [])
+                        : throw new InvalidOperationException("UNCONFIGURED: recording point");
                     return new CoreResult<ICoreSessionCandidate>.Success(new ScriptedCoreCandidate(Session, HostCoreScenario.References));
                 }
             };
             Content = new()
             {
+                CaptureReplayCall = (history, _) => new ContentResult<IContentReplayCapture>.Success(new FixedContentReplayCapture(history, "engine recording content")),
                 CaptureCall = (view, _) => new ContentResult<IContentCapture>.Success(new FixedContentCapture("engine content", view.PersistentRevision)),
                 DecodeCaptureCall = payload => payload == "engine content"
                     ? new ContentResult<IContentCapture>.Success(new FixedContentCapture(payload)) : throw new InvalidOperationException("UNCONFIGURED: content payload"),

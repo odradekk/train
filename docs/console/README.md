@@ -1,6 +1,6 @@
 # 控制台命令手册
 
-本页记录当前基础控制台分发器提供的五个命令，以及 Debug 游戏宿主可选接入的模拟和列车命令：
+本页记录当前基础控制台分发器提供的五个命令，以及 Debug 游戏宿主接入的模拟、列车和光照检查命令：
 
 | 命令 | 用途 |
 | --- | --- |
@@ -11,8 +11,9 @@
 | [loglevel](loglevel.md) | 查询或设置日志过滤等级 |
 | [sim](sim.md) | 查询或控制当前活动模拟会话（仅 Debug） |
 | [train](train.md) | 编组、解编、启停列车和替换运行计划（仅 Debug 且接入新 Host） |
+| [lighting](lighting.md) | 查询、切换检查光照并恢复游戏光照（仅 Debug） |
 
-发布构建的 `help` 列表不包含 `reload`、`sim` 或 `train`；Debug 游戏宿主列出五个基础命令与 `sim`，接入新 `HostCoordinator` 时另列出 `train`。`sim` 在默认旧模拟入口也可用。
+玩家构建的 `help` 列表不包含 `reload`、`sim`、`train` 或 `lighting`；Debug 游戏宿主列出五个基础命令与 `sim`、`lighting`，接入新 `HostCoordinator` 时另列出 `train`。`sim` 在默认旧模拟入口也可用。编辑器内运行和 debug 模板导出均为开发构建，release 模板导出为玩家构建。
 
 默认 App 仍使用旧模拟和内容加载入口；新 `HostCoordinator` 与契约命令通过实例级 `CreateHost` 测试装配委托接入，尚未连接真实工厂。按[用户拆票决定](https://github.com/odradekk/train/issues/317#issuecomment-6136143469)，#317 交付协调器，生产切换与旧入口删除归 #424。两条路径的差异见 [`sim`](sim.md) 和 [`reload`](reload.md)。
 

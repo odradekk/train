@@ -19,6 +19,9 @@ internal static class WorldGenerator
             if (npc.FillInputsAndLivingTargets) Invalid("Configuration.NpcInitialization.FillInputsAndLivingTargets");
             if (npc.OutputReserveHours > 0) Invalid("Configuration.NpcInitialization.OutputReserveHours");
             if (npc.MaximumForSaleVehicles > 0) Invalid("Configuration.NpcInitialization.MaximumForSaleVehicles");
+            var railway = input.Configuration.InitialRailway;
+            if (railway.MinimumInitialTracks > 2) Invalid("Configuration.InitialRailway.MinimumInitialTracks");
+            if (railway.MaximumInitialTracks < 1) Invalid("Configuration.InitialRailway.MaximumInitialTracks");
             input = WorldInputs.NormalizeInput(input, budget);
             content = WorldInputs.NormalizeContent(content);
             ValidateReferences(input, content);
