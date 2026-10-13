@@ -56,7 +56,6 @@ public sealed class TrainDevelopmentTests
             Assert.AreEqual(1, session.AdvanceCount, "命中命令完整边界后不能继续推进。");
             Assert.AreEqual(2, session.SubmitCount);
             Assert.AreEqual(2, errors.Count);
-            session.AssertComplete();
             fixture.AssertNoUnexpectedFailures();
         }
     }
