@@ -3,6 +3,7 @@ using Microsoft.Testing.Platform.Builder;
 using Train.Core.Tests;
 using Train.Core.Tests.Sessions;
 using Train.Core.Tests.Railway;
+using Train.Core.Tests.Inventory;
 
 if (args.Length > 0 && string.Equals(args[0], "--core-process", StringComparison.Ordinal))
     return await CoreProcessDriver.RunAsync(args[1..]);
@@ -12,6 +13,9 @@ if (args.Length > 0 && string.Equals(args[0], "--train-process", StringCompariso
 
 if (args.Length > 0 && string.Equals(args[0], "--dispatch-process", StringComparison.Ordinal))
     return await TrainDispatchProcessDriver.RunAsync(args[1..]);
+
+if (args.Length > 0 && string.Equals(args[0], "--inventory-process", StringComparison.Ordinal))
+    return await InventoryProcessDriver.RunAsync(args[1..]);
 
 var builder = await TestApplication.CreateBuilderAsync(args);
 builder.AddSelfRegisteredExtensions(args);

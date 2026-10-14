@@ -192,7 +192,7 @@ public sealed class CoreCaptureTests
 
     [TestMethod]
     public void Unsupported_version_is_rejected_before_reading_an_unknown_state_schema()
-        => AssertFailure(CoreFactory.Create().DecodeState("{\"core_state_format_version\":4}"),
+        => AssertFailure(CoreFactory.Create().DecodeState("{\"core_state_format_version\":5}"),
             "unsupported_format", "/core_state_format_version");
 
     [TestMethod]
@@ -219,13 +219,13 @@ public sealed class CoreCaptureTests
     }
 
     [TestMethod]
-    [DataRow("\"core_state_format_version\":3", "\"core_state_format_version\":4", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":3", "\"core_state_format_version\":\"1\"", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":3", "\"core_state_format_version\":null", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":3", "\"core_state_format_version\":-1", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":3", "\"core_state_format_version\":1.5", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":3", "\"core_state_format_version\":18446744073709551616", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":3,", "", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":4", "\"core_state_format_version\":3", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":4", "\"core_state_format_version\":\"1\"", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":4", "\"core_state_format_version\":null", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":4", "\"core_state_format_version\":-1", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":4", "\"core_state_format_version\":1.5", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":4", "\"core_state_format_version\":18446744073709551616", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":4,", "", "unsupported_format", "/core_state_format_version")]
     [DataRow("\"revision\":20,", "", "invalid_state", "/revision")]
     [DataRow("\"revision\":20", "\"revision\":20,\"extra\":1", "invalid_state", "/extra")]
     [DataRow("\"revision\":20", "\"revision\":20,\"revision\":21", "invalid_state", "/revision")]
@@ -301,7 +301,7 @@ public sealed class CoreCaptureTests
     {
         using var document = JsonDocument.Parse(capture.Encode());
         var root = document.RootElement;
-        Assert.AreEqual(3, root.GetProperty("core_state_format_version").GetInt32());
+        Assert.AreEqual(4, root.GetProperty("core_state_format_version").GetInt32());
         Assert.AreEqual(7UL, root.GetProperty("position").GetProperty("completed_steps").GetUInt64());
         Assert.AreEqual(2UL, root.GetProperty("position").GetProperty("sequence").GetUInt64());
         Assert.AreEqual(10UL, root.GetProperty("next_command_number").GetUInt64());

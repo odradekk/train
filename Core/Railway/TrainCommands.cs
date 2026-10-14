@@ -142,7 +142,7 @@ internal static class TrainCommands
             new(null, null), TrainOrderFacing.FirstEndLeading, TrainActivity.Stopped, 0, null, null, 0, false, null, null);
         return new CommandEffect.Accepted(content, [new CoreEvent.TrainCompositionChanged(train, command.OrderedVehicles)], world with
         {
-            Trains = world.Trains.Add(added), Inventories = world.Inventories.Add(new(inventory, new InventoryOwner.Train(train), [])),
+            Trains = world.Trains.Add(added), Inventories = world.Inventories.Add(new(inventory, new InventoryOwner.Train(train), [], [])),
             Instances = world.Instances.Select(i => i.Id is InstanceId.Vehicle v && command.OrderedVehicles.Contains(v.Id)
                 ? i with { Details = ((InstanceDetails.Vehicle)i.Details) with { Train = train } } : i).ToImmutableArray(),
             Settlements = world.Settlements.Select(s => s.Id == settlement.Id ? s with
@@ -159,7 +159,8 @@ internal static class TrainCommands
         var settlement = world.Settlements.FirstOrDefault(s => s.Node == node.Id);
         if (settlement is null) return Reject("settlement_unavailable", "Train.Position", subject);
         if (settlement.Relation == SettlementRelation.Hostile) return Reject("access_denied", "Train.Position", subject);
-        if (!world.Inventories.Single(i => i.Id == train.Inventory).Goods.IsEmpty)
+        var inventory = world.Inventories.Single(i => i.Id == train.Inventory);
+        if (!inventory.Goods.IsEmpty || !inventory.Reservations.IsEmpty)
             return Reject("inventory_not_empty", "Train.Inventory", subject);
         return new CommandEffect.Accepted(content, [new CoreEvent.TrainCompositionChanged(train.Id, [])], world with
         {
