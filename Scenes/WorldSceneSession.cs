@@ -207,6 +207,12 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             throw new ArgumentException("The displayed frame belongs to another session.", nameof(displayedFrame));
         if (frameRequest.Camera is { } camera && (!SceneGeometry.Finite(camera.Focus) || camera.Frame.Update.Frame.Session != Id))
             throw new ArgumentException("Camera must use this session's displayed space.", nameof(frameRequest));
+        if (frameRequest.PickRay is { } pickRay)
+        {
+            if (pickRay.Frame is null || pickRay.Frame.Update.Frame.Session != Id)
+                throw new ArgumentException("The pick ray belongs to another session.", nameof(frameRequest));
+            SceneGeometry.Validate(pickRay.Ray);
+        }
         if (fault is not null) return new SceneResult<ISceneFrame>.Faulted(fault);
         if (target is null || !Exists(target)) return Failure<ISceneFrame>("target_missing", SceneStage.Present);
         try
@@ -262,7 +268,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             var next = new SceneFrame(new(Id, request, space, ++revision), content?.Origin ?? new(0, 0, 0),
                 snapshot.Core.Position.CompletedSteps * SimulationTime.StepSeconds, readiness,
                 objects.ToImmutable(), picking.ToImmutable(), fog.Select(bounds => new SceneFog(bounds)).ToImmutableArray(),
-                problems.ToImmutable(), displayedFrame as SceneFrame, debugLayers: frameRequest.DebugLayers);
+                problems.ToImmutable(), displayedFrame as SceneFrame, debugLayers: frameRequest.DebugLayers, pickRay: frameRequest.PickRay);
             var live = next.Objects.Select(item => item.Id).ToHashSet();
             foreach (var key in ids.Where(item => !live.Contains(item.Value)).Select(item => item.Key).ToArray()) ids.Remove(key);
             RetireCompletedTasks();

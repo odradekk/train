@@ -49,12 +49,15 @@ public class WorldSceneTargetTests(Node testScene) : TestClass(testScene)
             world.ProcessFrame(0, false);
             var focus = world.View.CameraRig.Focus;
             var cameraPosition = world.View.CameraRig.Camera.Position;
+            world.Pick(TestScene.GetViewport().GetVisibleRect().Size / 2);
             world.Open(Follow1);
             Require(factory.OpenCalls.Count == 1 && !session!.IsDisposed && !world.View.Loading && !world.View.Interactive,
                 "同列车切换车辆应复用会话，禁用交互且不显示加载罩。");
             world.ProcessFrame(0, false);
             Require(world.View.Interactive && !world.View.Loading && session!.PresentCalls[^1].DisplayedFrame is null,
                 "换车辆的Ready首帧没有完整接入，或出现了加载罩。");
+            Require(session!.PresentCalls[^1].Request.PickRay is null,
+                "同会话切换目标的首个Present仍收到旧请求的拾取样本。");
             Near(world.View.CameraRig.Focus, focus);
             Near(world.View.CameraRig.Camera.Position, cameraPosition);
             world.ProcessFrame(0.05, false);
@@ -89,6 +92,7 @@ public class WorldSceneTargetTests(Node testScene) : TestClass(testScene)
             world.ProcessFrame(0, false);
             world.View.CameraRig.Orbit(80, 15);
             world.View.CameraRig.Zoom(1);
+            world.Pick(TestScene.GetViewport().GetVisibleRect().Size / 2);
             var offset = world.View.CameraRig.Camera.Position - world.View.CameraRig.Focus;
             var forward = world.View.CameraRig.Camera.Basis.Z;
             Require(app.Host!.Step(1).Completed == 1, "未推进目标消失的固定核心边界。");
@@ -105,6 +109,8 @@ public class WorldSceneTargetTests(Node testScene) : TestClass(testScene)
             world.ProcessFrame(0, false);
             Require(session.PresentCalls[^1].DisplayedFrame is null && world.Display!.DisplayedFrame == next,
                 "替代目标的新请求未以完整帧接入。");
+            Require(session.PresentCalls[^1].Request.PickRay is null,
+                "跨空间回退目标的首个Present仍收到旧空间的拾取样本。");
             Require(!world.View.Loading && world.View.Interactive, "跟随跨空间切换不能出现加载罩。");
             Near(world.View.CameraRig.Focus, new(-500, 0, 700));
             Near(world.View.CameraRig.Camera.Position - world.View.CameraRig.Focus, offset);
@@ -197,6 +203,7 @@ public class WorldSceneTargetTests(Node testScene) : TestClass(testScene)
         Update = new(null, new(SceneId, new(request), new(space), revision), NVector3.Zero,
             [], [], new([], []), []),
         Readiness = readiness, SimulationSeconds = revision == 1 ? 0 : 1d / 60,
+        PickResult = new ScenePick.Miss(),
         Diagnostics = diagnostics.IsDefault ? [] : diagnostics,
         Poses = ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty.Add(Subject(vehicle),
             new Lookup<ScenePose>.Found(new(position, System.Numerics.Quaternion.Identity))),

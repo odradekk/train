@@ -13,11 +13,12 @@ internal static class SceneDebugLines
     private static readonly Vector4 OriginXColor = new(1, 0, 0, 1);
     private static readonly Vector4 OriginYColor = new(0, 1, 0, 1);
     private static readonly Vector4 OriginZColor = new(0, 0, 1, 1);
+    private static readonly Vector4 PickRayColor = new(1, 1, 1, 1);
 
     internal static ImmutableArray<SceneDebugLine> Generate(SceneDebugLayer layers,
         ImmutableArray<PickGrid> picking, ScenePoint origin, RailwayPath? railway,
         ImmutableArray<RailwaySegment> segments, NodeLayout? node,
-        ImmutableDictionary<EdgeId, int>? nodeTracks)
+        ImmutableDictionary<EdgeId, int>? nodeTracks, SceneFrameStamp stamp, ScenePickRaySample? pickRay)
     {
         var lines = ImmutableArray.CreateBuilder<SceneDebugLine>();
         if ((layers & SceneDebugLayer.Chunks) != 0)
@@ -70,6 +71,13 @@ internal static class SceneDebugLines
                     Polyline(route.Sample, 0, route.Length);
             foreach (var route in node.StationRoutes(nodeTracks!.Values.Any(count => count > 0)))
                 Polyline(route.Sample, 0, route.Length);
+        }
+        if ((layers & SceneDebugLayer.PickRay) != 0 && pickRay is { } sample &&
+            sample.Frame.Update.Frame.Session == stamp.Session && sample.Frame.Update.Frame.Request == stamp.Request &&
+            sample.Frame.Update.Frame.Space == stamp.Space)
+        {
+            var from = RailwayCoordinates.Relative(RailwayCoordinates.Add(sample.Frame.Origin, sample.Ray.Origin), origin);
+            lines.Add(new(from, from + sample.Ray.Direction * (float)sample.Ray.MaximumDistanceCells, PickRayColor));
         }
         return lines.ToImmutable();
 

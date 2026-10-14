@@ -26,6 +26,7 @@ internal sealed class WorldSceneController : IDisposable
     private SceneBinding _sceneBinding;
     private SceneRequestId _request;
     private WorldSceneTarget? _target;
+    private ScenePickRaySample? _pickRay;
     private bool _fullReplacement;
     private bool _awaitingRequest;
     private bool _disposed;
@@ -161,7 +162,7 @@ internal sealed class WorldSceneController : IDisposable
             var displayed = _fullReplacement ? null : actual;
             var camera = actual is null ? null : new SceneCameraSample(actual, ToNumerics(View.CameraRig.Focus));
             var interpolation = status.Remainder / SimulationTime.StepSeconds;
-            var result = _session.Present(new(Math.Clamp(interpolation, 0, 1), camera, DebugLayers), displayed);
+            var result = _session.Present(new(Math.Clamp(interpolation, 0, 1), camera, DebugLayers, _pickRay), displayed);
             if (result is SceneResult<ISceneFrame>.Failure { Problems: var problems } &&
                 problems.Length > 0 && problems.All(problem => problem.Code == "target_missing"))
             {
@@ -190,6 +191,7 @@ internal sealed class WorldSceneController : IDisposable
             if (prepared is not null)
             {
                 prepared.Commit();
+                if (_pickRay is { } sample && sample.Frame.Update.Frame.Space != frame.Update.Frame.Space) _pickRay = null;
                 _fullReplacement = false;
                 View.ShowFrame(frame, FollowSubject(), _target is WorldSceneTarget.Location { Value: WorldLocation.Edge });
             }
@@ -208,6 +210,7 @@ internal sealed class WorldSceneController : IDisposable
         {
             _target = target;
             _request = success.Value;
+            _pickRay = null;
             _fullReplacement = true;
             _awaitingRequest = true;
             View.Interactive = false;
@@ -243,7 +246,10 @@ internal sealed class WorldSceneController : IDisposable
             var inverse = _display.Root.GlobalTransform.AffineInverse();
             var origin = inverse * camera.ProjectRayOrigin(screenPoint);
             var direction = (inverse.Basis * camera.ProjectRayNormal(screenPoint)).Normalized();
-            if (frame.Pick(new(ToNumerics(origin), ToNumerics(direction), camera.Far)) is not ScenePick.Hit hit) return;
+            var ray = new SceneRay(ToNumerics(origin), ToNumerics(direction), camera.Far);
+            var picked = frame.Pick(ray);
+            _pickRay = new(frame, ray);
+            if (picked is not ScenePick.Hit hit) return;
             var result = _session.Resolve(hit.Value);
             if (result is SceneResult<PickSubject>.Success selected) Selected?.Invoke(selected.Value);
             else if (result is SceneResult<PickSubject>.Failure rejected)
@@ -294,6 +300,7 @@ internal sealed class WorldSceneController : IDisposable
 
     private void CloseScene()
     {
+        _pickRay = null;
         View.Interactive = false;
         View.SetActive(false);
         View.SetLoading(false);

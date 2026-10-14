@@ -98,7 +98,7 @@ internal sealed class NodeScene : IAsyncDisposable
             failure is not null ? SceneReadiness.Failed : built is null ? SceneReadiness.Loading : fog.Count > 0 ? SceneReadiness.Partial : SceneReadiness.Ready,
             objects.ToImmutable(), picking.ToImmutable(), fog.ToImmutable(), RailwayTerrain.UniqueProblems(problems), displayed,
             node: layout, nodeParts: built?.Parts.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => item.Value).ToImmutableArray() ?? [],
-            debugLayers: request.DebugLayers, nodeTracks: openingTracks);
+            debugLayers: request.DebugLayers, nodeTracks: openingTracks, pickRay: request.PickRay);
 
         void Add(RenderedDesign geometry)
         { objects.AddRange(geometry.Objects); picking.AddRange(geometry.Picking); problems.AddRange(geometry.Diagnostics); }
