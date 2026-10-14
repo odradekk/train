@@ -24,20 +24,26 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
             var worldEnvironment = view.GetNode<WorldEnvironment>("WorldEnvironment");
             var game = worldEnvironment.Environment;
             var sky = game.Sky;
-            var material = (ProceduralSkyMaterial)sky.SkyMaterial;
-            var gameSkyColor = material.SkyTopColor;
+            var material = (ShaderMaterial)sky.SkyMaterial;
             var sun = view.GetNode<DirectionalLight3D>("Sun");
             var originalSun = (sun.Visible, sun.LightEnergy, sun.LightColor, sun.Rotation);
             var originalAmbient = (game.AmbientLightSource, game.AmbientLightColor, game.AmbientLightEnergy);
+            void RequireFogDoesNotCoverSky(string mode) =>
+                Require(worldEnvironment.Environment is { FogEnabled: true, FogSkyAffect: 0 },
+                    $"{mode}的雾未开启或遮蔽了天空。");
             Require(view.Lighting == InspectionLighting.Game, "初始光照不是正常游戏光照。");
+            RequireFogDoesNotCoverSky("正常游戏");
             for (var cycle = 0; cycle < 2; cycle++)
             {
                 view.SetLighting(InspectionLighting.Overcast);
+                RequireFogDoesNotCoverSky("阴天");
                 Require(!sun.Visible && worldEnvironment.Environment.AmbientLightSource == Godot.Environment.AmbientSource.Color,
                     "阴天未关闭太阳或未使用颜色环境光。");
+                var overcastSkyColor = ((ProceduralSkyMaterial)worldEnvironment.Environment.Sky.SkyMaterial).SkyTopColor;
                 view.SetLighting(InspectionLighting.Night);
+                RequireFogDoesNotCoverSky("夜间");
                 var nightSky = (ProceduralSkyMaterial)worldEnvironment.Environment.Sky.SkyMaterial;
-                Require(!sun.Visible && Brightness(nightSky.SkyTopColor) < Brightness(gameSkyColor),
+                Require(!sun.Visible && Brightness(nightSky.SkyTopColor) < Brightness(overcastSkyColor),
                     "夜间没有关闭太阳并压暗天空。");
                 var lights = view.GetNode<Node3D>("InspectionWorkLights");
                 Require(lights.Visible && lights.GetChildren().OfType<Light3D>().Any(light =>
@@ -46,10 +52,10 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
                 foreach (var mode in new[] { InspectionLighting.Daylight, InspectionLighting.Game })
                 {
                     view.SetLighting(mode);
+                    RequireFogDoesNotCoverSky(mode == InspectionLighting.Daylight ? "日光" : "恢复游戏");
                     Require(worldEnvironment.Environment == game && game.Sky == sky && sky.SkyMaterial == material,
                         "日光或恢复替换了正常游戏的环境/天空资源。");
-                    Require(material.SkyTopColor == gameSkyColor &&
-                        (game.AmbientLightSource, game.AmbientLightColor, game.AmbientLightEnergy) == originalAmbient &&
+                    Require((game.AmbientLightSource, game.AmbientLightColor, game.AmbientLightEnergy) == originalAmbient &&
                         (sun.Visible, sun.LightEnergy, sun.LightColor, sun.Rotation) == originalSun,
                         "反复切换后没有恢复正常天空、环境光或太阳原值。");
                     Require(!lights.Visible, "离开夜间后工作灯仍启用。");
@@ -69,7 +75,8 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
         {
             var environment = view.GetNode<WorldEnvironment>("WorldEnvironment");
             var game = environment.Environment;
-            var gameSkyColor = ((ProceduralSkyMaterial)game.Sky.SkyMaterial).SkyTopColor;
+            view.SetLighting(InspectionLighting.Overcast);
+            var overcastSkyColor = ((ProceduralSkyMaterial)environment.Environment.Sky.SkyMaterial).SkyTopColor;
             view.SetActive(false);
             view.SetLighting(InspectionLighting.Night);
             Require(environment.Environment is null && view.Lighting == InspectionLighting.Night,
@@ -79,7 +86,7 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
             Require(night != game && view.Lighting == InspectionLighting.Night,
                 "进入世界没有应用隐藏时选择的光照。");
             Require(night.AmbientLightSource == Godot.Environment.AmbientSource.Color &&
-                Brightness(((ProceduralSkyMaterial)night.Sky.SkyMaterial).SkyTopColor) < Brightness(gameSkyColor),
+                Brightness(((ProceduralSkyMaterial)night.Sky.SkyMaterial).SkyTopColor) < Brightness(overcastSkyColor),
                 "进入世界后的夜间没有使用颜色环境光和较暗天空。");
             view.ShowFrame(Frame(new(Guid.NewGuid())), null, railwayPan: true);
             view.CameraRig.Pan(new(12, 0, -8));
@@ -147,10 +154,10 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
             world.Open(target);
             world.ProcessFrame(0, false);
             var environment = world.View.GetNode<WorldEnvironment>("WorldEnvironment");
+            var overcastSkyColor = ((ProceduralSkyMaterial)environment.Environment.Sky.SkyMaterial).SkyTopColor;
             console.SubmitLine("lighting daylight");
             Require(world.View.Lighting == InspectionLighting.Daylight, "控制台命令没有应用日光模式。");
             var game = environment.Environment;
-            var gameSkyColor = ((ProceduralSkyMaterial)game.Sky.SkyMaterial).SkyTopColor;
             foreach (var (argument, mode) in new[] { ("overcast", InspectionLighting.Overcast),
                 ("night", InspectionLighting.Night) })
             {
@@ -168,7 +175,7 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
             var night = environment.Environment ?? throw new InvalidOperationException("重新打开世界没有接入环境。");
             Require(night != game, "重新打开世界接入了游戏环境而非检查光照环境。");
             Require(night.AmbientLightSource == Godot.Environment.AmbientSource.Color &&
-                Brightness(((ProceduralSkyMaterial)night.Sky.SkyMaterial).SkyTopColor) < Brightness(gameSkyColor),
+                Brightness(((ProceduralSkyMaterial)night.Sky.SkyMaterial).SkyTopColor) < Brightness(overcastSkyColor),
                 "重新打开世界后的夜间没有使用颜色环境光和较暗天空。");
             console.SubmitLine("lighting restore");
             Require(world.View.Lighting == InspectionLighting.Game, "控制台restore没有恢复游戏光照。");
