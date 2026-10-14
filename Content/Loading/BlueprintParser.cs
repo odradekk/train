@@ -214,7 +214,7 @@ internal sealed class BlueprintParser
         Array(value, field, 2);
         return new(Integer(value[0], field + "/0"), Integer(value[1], field + "/1"));
     }
-    private static T EnumValue<T>(JsonElement value, string field) where T : struct, Enum
+    internal static T EnumValue<T>(JsonElement value, string field) where T : struct, Enum
     {
         var text = Text(value, field);
         foreach (var candidate in Enum.GetValues<T>())

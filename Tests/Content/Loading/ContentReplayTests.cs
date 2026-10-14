@@ -27,6 +27,7 @@ public sealed class ContentReplayTests
     public void Replay_restores_fixed_definitions_layout_appearance_and_asset_sources_after_installation_changes()
     {
         var fixture = WorldContentFixtures.Content();
+        ProcessLoadingTests.Add(fixture, ProcessLoadingTests.Process("extraction"));
         using var candidate = fixture.Load();
         var factory = ContentFactory.Create();
         var original = factory.WithSettlementCopies(candidate.View, [Template(41)]);
@@ -36,7 +37,9 @@ public sealed class ContentReplayTests
         var asset = Found(original.FindAsset(cube.Top));
         var layout = Found(original.FindSettlementLayout(new(41)));
         var saved = Success(factory.Capture(original, references)).Encode();
+        var process = original.Core.Processes.Single();
         var replay = Success(factory.CaptureReplay([original], references));
+        fixture.RemoveEntry(ContentFixture.BuiltIn, ProcessLoadingTests.Path);
         Change(fixture, "resources/voxels/machine.voxel.json", json => json["simulation"]!["max_durability"] = 2);
         fixture.RemoveEntry(ContentFixture.BuiltIn, TemplatePath);
         fixture.RemoveEntry(ContentFixture.BuiltIn, "resources/blueprints/engine.blueprint.json");
@@ -46,6 +49,8 @@ public sealed class ContentReplayTests
         var decoded = Success(factory.DecodeReplay(replay.Encode()));
         var restored = decoded.History.Single();
         Assert.AreEqual(original.Core.Identity, restored.Core.Identity);
+        Assert.AreEqual(process.Revision, restored.Core.Processes.Single().Revision);
+        Assert.AreEqual(process.Details, restored.Core.Processes.Single().Details);
         Assert.AreEqual(original.Generation, restored.Generation);
         Assert.AreEqual(original.PersistentRevision, restored.PersistentRevision);
         Assert.IsInstanceOfType<C.DesignEvaluation.Complete>(Found(restored.FindDesign(references.Designs.Single())));

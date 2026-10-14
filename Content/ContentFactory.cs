@@ -80,8 +80,13 @@ internal sealed class InitialContentFactory : C.IContentFactory
                     var declared = reload.References.Definitions.Where(d => d.Definition == definition).ToArray();
                     return declared.Any(d => !d.WasMissing) || declared.Length == 0 && !previousMissing.Contains(definition);
                 }).ToImmutableArray();
-                if (!forbidden.IsEmpty)
-                    return new C.ContentResult<C.IContentCandidate>.Failure(forbidden.SelectMany(m => m.Diagnostics).ToImmutableArray());
+                var kindChanges = reload.References.Definitions.Where(d => !d.WasMissing)
+                    .Select(d => ChangedProcessKind(basis, installed, d)).OfType<C.ContentDiagnostic>().ToImmutableArray();
+                var failures = forbidden.SelectMany(m => m.Diagnostics)
+                    .Where(d => !kindChanges.Any(change => change.Subject == d.Subject && change.Field == d.Field))
+                    .Concat(kindChanges).ToImmutableArray();
+                if (!failures.IsEmpty)
+                    return new C.ContentResult<C.IContentCandidate>.Failure(failures);
                 return new C.ContentResult<C.IContentCandidate>.Success(new ContentCandidate(changes == C.ContentChange.None ? basis : view,
                     initial.Report with { RuntimeMissing = missing }, basis, changes));
             }
@@ -100,6 +105,15 @@ internal sealed class InitialContentFactory : C.IContentFactory
         {
             return new C.ContentResult<C.IContentCandidate>.Faulted("content_fault", exception.Message, exception.StackTrace);
         }
+    }
+
+    private static C.ContentDiagnostic? ChangedProcessKind(ContentView basis, ContentView installed, K.RequiredDefinition required)
+    {
+        if (required.Definition is not K.CoreDefinitionReference.Process process || basis.FindProcess(process.Id) is not { } before ||
+            installed.FindProcess(before.Id) is not { } after || before.Projection.Details.GetType() == after.Projection.Details.GetType())
+            return null;
+        return new("reference_missing", C.ContentDiagnosticSeverity.Error, "reload", new C.ContentReference.Core(required.Definition),
+            new(new(before.Id.Split(':')[0]), after.Path), required.Field, null, "流程种类改变视为删除原流程；仍被引用时不能发布。");
     }
 
     public C.ContentResult<C.DesignEvaluation> EvaluateDesign(C.IContentView content, C.DesignDraft draft)

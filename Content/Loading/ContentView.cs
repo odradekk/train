@@ -56,7 +56,7 @@ internal sealed class ContentView : C.IContentView
             ((C.DesignEvaluation.Complete)blueprint.Evaluation).Diagnostics)).ToImmutableArray();
         Core = new(Identity: new(identity), Goods: voxels.Where(voxel => voxel.Definition.Good is not null)
             .Select(voxel => voxel.Definition.Good!).ToImmutableArray(), Designs: designs.Where(design => design.Core is not null)
-                .Select(design => design.Core!.Design).ToImmutableArray(), DesignGoods: [], Processes: [],
+                .Select(design => design.Core!.Design).ToImmutableArray(), DesignGoods: [], Processes: _world.Processes.Select(p => p.Projection).ToImmutableArray(),
             PopulationRules: _world.Rules.OfType<ParsedRule.Population>().Select(r => r.Projection).ToImmutableArray(),
             MarketRules: _world.Rules.OfType<ParsedRule.Market>().Select(r => r.Projection).ToImmutableArray(),
             ConstructionRules: _world.Rules.OfType<ParsedRule.Construction>().Select(r => r.Projection).ToImmutableArray(),
@@ -162,6 +162,7 @@ internal sealed class ContentView : C.IContentView
             types = _world.Types.Select(t => new { t.Source.Core.Id, t.Source.Display, t.Source.Major, t.Symbol }),
             templates = _world.Templates.Select(t => new { t.Core.Id, t.Source.Display, t.Source.Layout, t.SceneModel.Design }),
             railways = _world.Rules.OfType<ParsedRule.Railway>().Select(r => r.Appearance),
+            processes = _world.Processes.Select(p => new { p.Id, p.Display }),
             profiles = _world.Profiles.Select(p => new
             {
                 p.Id, p.Display, configuration = GenerationSemantics.Configuration(p.Configuration, Composition),
@@ -192,6 +193,7 @@ internal sealed class ContentView : C.IContentView
     {
         K.CoreDefinitionReference.Voxel voxel => _voxels.ContainsKey(voxel.Id),
         K.CoreDefinitionReference.Rule rule => _world.Rules.Any(r => r.Id == rule.Id),
+        K.CoreDefinitionReference.Process process => FindProcess(process.Id) is not null,
         K.CoreDefinitionReference.SettlementType type => _world.Types.Any(t => t.Source.Core.Id == type.Id),
         K.CoreDefinitionReference.Template template => _world.Templates.Any(t => t.Core.Id == template.Id),
         K.CoreDefinitionReference.Terrain terrain => _world.Terrains.Any(t => t.Id == terrain.Id),
@@ -229,6 +231,8 @@ internal sealed class ContentView : C.IContentView
     }
 
     internal LoadedVoxel? FindVoxel(K.VoxelDefinitionId definition) => _voxels.GetValueOrDefault(definition);
+    internal ParsedProcess? FindProcess(K.ProcessRef id) => _world.Processes.FirstOrDefault(p => p.Reference == id);
+    internal ParsedProcess? FindProcess(string id) => _world.Processes.FirstOrDefault(p => p.Id == id);
 
     internal static string DefinitionId(K.CoreDefinitionReference definition) => definition switch
     {
@@ -251,6 +255,8 @@ internal sealed class ContentView : C.IContentView
         _voxels.TryGetValue(definition, out var voxel) ? new C.ContentLookup<C.VoxelDisplayProjection>.Found(voxel.Display) : Absent<C.VoxelDisplayProjection>(new K.CoreDefinitionReference.Voxel(definition));
     public C.ContentLookup<C.ContentDisplay> FindDefinitionDisplay(K.CoreDefinitionReference definition)
     {
+        if (definition is K.CoreDefinitionReference.Process process && FindProcess(process.Id) is { } flow)
+            return new C.ContentLookup<C.ContentDisplay>.Found(new(flow.Display, null, null, false));
         if (definition is K.CoreDefinitionReference.Voxel reference && _voxels.TryGetValue(reference.Id, out var voxel))
             return new C.ContentLookup<C.ContentDisplay>.Found(new(voxel.Display.Display, voxel.Display.Icon, null, false));
         if (definition is K.CoreDefinitionReference.SettlementType type && _world.Types.FirstOrDefault(t => t.Source.Core.Id == type.Id) is { } entry)
