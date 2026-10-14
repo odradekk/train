@@ -13,7 +13,6 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'checks/Invoke-HiddenProcess.ps1')
-. (Join-Path $PSScriptRoot 'checks/MeasurementSourceIdentity.ps1')
 
 function Get-FileIdentity([string] $Path) {
     @{ path = $Path; sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
@@ -50,17 +49,21 @@ try {
     $assemblies = @(Get-ChildItem -LiteralPath $exportDirectory -Filter Train.dll -File -Recurse)
     if ($assemblies.Count -ne 1) { throw '导出目录必须包含唯一的 Train.dll。' }
 
-    $workspace = Get-MeasurementSourceIdentity $repo
-    $manifestPath = Join-Path $OutputDirectory 'source-manifest.json'
-    Write-Json $manifestPath $workspace
+    # 短命进程读取元数据，避免同一终端复测不同构建时程序集身份冲突或 DLL 锁定。
+    $build = & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -Command {
+        param($path)
+        $ErrorActionPreference = 'Stop'
+        [Reflection.Assembly]::LoadFrom($path).GetCustomAttributes(
+            [Reflection.AssemblyInformationalVersionAttribute], $false)[0].InformationalVersion
+    } -args $assemblies[0].FullName
+    if ($LASTEXITCODE -ne 0) { throw '无法读取 Train.dll 构建版本。' }
+    if ($build -notmatch '\+([0-9a-f]{40})$') { throw "程序集版本未包含完整 Git 提交：$build" }
+    $commit = $Matches[1]
+    $apiBlob = & git -C $repo rev-parse "${commit}:docs/contracts/public-api.txt"
+    if ($LASTEXITCODE -ne 0) { throw '无法读取构建提交的 public-api Git blob。' }
     $identity = @{
-        measurement_workspace = @{
-            commit = $workspace.commit
-            dirty = $workspace.dirty
-            contract_baseline = $workspace.contract_baseline
-            public_api_git_blob = $workspace.public_api_git_blob
-            source_manifest = Get-FileIdentity $manifestPath
-        }
+        build_commit = $commit
+        public_api_git_blob = $apiBlob
         executable = Get-FileIdentity $ExecutablePath
         pck = Get-FileIdentity $pck
         assembly = Get-FileIdentity $assemblies[0].FullName

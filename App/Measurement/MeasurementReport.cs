@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace Train.App.Measurement;
 
-internal sealed record MemoryMeasurement(double ElapsedSeconds, long WorkingSetBytes, long PrivateBytes,
+internal sealed record MemoryMeasurement(double ElapsedSeconds, long WorkingSetBytes, long PrivateBytes, long PeakWorkingSetBytes,
     double? GodotStaticBytes, double? VideoMemoryBytes);
 
 internal sealed record MeasuredOperation(string Name, double ElapsedSeconds, double DurationSeconds,
@@ -32,7 +32,7 @@ internal static class MeasurementReport
             timing,
             memory = memory.Select(sample => new
             {
-                sample.ElapsedSeconds, sample.WorkingSetBytes, sample.PrivateBytes,
+                sample.ElapsedSeconds, sample.WorkingSetBytes, sample.PrivateBytes, sample.PeakWorkingSetBytes,
                 GodotStaticBytes = sample.GodotStaticBytes is { } engine ? (object)engine : "unavailable",
                 VideoMemoryBytes = sample.VideoMemoryBytes is { } video ? (object)video : "unavailable"
             }),

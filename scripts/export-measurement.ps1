@@ -5,12 +5,11 @@ param([Parameter(Mandatory)][string] $OutputDirectory)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'checks/Invoke-HiddenProcess.ps1')
-. (Join-Path $PSScriptRoot 'checks/MeasurementSourceIdentity.ps1')
 
 $repo = Split-Path $PSScriptRoot -Parent
 $originalDirectory = Get-Location
 $environment = @{}
-foreach ($name in @('APPDATA', 'LOCALAPPDATA', 'MeasurementBuildIdentityPath')) {
+foreach ($name in @('APPDATA', 'LOCALAPPDATA')) {
     $environment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
 }
 $templateDirectory = $null
@@ -32,6 +31,10 @@ function Invoke-MeasurementBuildStep([string] $Name, [string] $FilePath, [string
 
 try {
     if (-not $IsWindows) { throw '测量构建只支持 Windows Release 导出。' }
+    $commit = & git -C $repo rev-parse HEAD
+    if ($LASTEXITCODE -ne 0) { throw '无法读取构建提交。' }
+    $status = @(& git -C $repo status --porcelain)
+    if ($LASTEXITCODE -ne 0 -or $status.Count -ne 0) { throw '测量导出需要干净工作树，请先提交修改。' }
     if ([string]::IsNullOrWhiteSpace($env:GODOT) -or -not (Test-Path -LiteralPath $env:GODOT -PathType Leaf)) {
         throw 'GODOT 必须指向已安装的 Godot .NET 可执行文件。'
     }
@@ -52,11 +55,6 @@ try {
     $summaryPath = Join-Path $OutputDirectory 'export-summary.json'
     $sourceTemplate = Join-Path $environment.APPDATA 'Godot/export_templates/4.7.2.stable.mono/windows_release_x86_64.exe'
     if (-not (Test-Path -LiteralPath $sourceTemplate -PathType Leaf)) { throw "缺少已安装的 Windows Release 模板：$sourceTemplate" }
-    $source = Get-MeasurementSourceIdentity $repo
-    $sourceJson = $source | ConvertTo-Json -Depth 10
-    $manifestPath = Join-Path $OutputDirectory 'build-source.json'
-    $sourceJson | Set-Content -LiteralPath $manifestPath -Encoding utf8
-    $env:MeasurementBuildIdentityPath = $manifestPath
     $env:APPDATA = Join-Path $OutputDirectory 'appdata'
     $env:LOCALAPPDATA = Join-Path $OutputDirectory 'localappdata'
     [IO.Directory]::CreateDirectory($env:LOCALAPPDATA) | Out-Null
@@ -70,9 +68,10 @@ try {
     $binary = Join-Path $OutputDirectory 'train.exe'
     Invoke-MeasurementBuildStep 'export' $env:GODOT @('--headless', '--path', $repo,
         '--log-file', (Join-Path $OutputDirectory 'export-godot.log'), '--export-release', 'Windows Desktop', $binary)
-    $afterJson = Get-MeasurementSourceIdentity $repo | ConvertTo-Json -Depth 10
-    $afterJson | Set-Content -LiteralPath (Join-Path $OutputDirectory 'source-after.json') -Encoding utf8
-    if ($sourceJson -cne $afterJson) { throw '导出期间源码身份发生变化；保留证据，但此构建不能用于测量。' }
+    $afterCommit = & git -C $repo rev-parse HEAD
+    if ($LASTEXITCODE -ne 0 -or $commit -ne $afterCommit) { throw '导出期间 HEAD 发生变化；此构建不能用于测量。' }
+    $status = @(& git -C $repo status --porcelain)
+    if ($LASTEXITCODE -ne 0 -or $status.Count -ne 0) { throw '导出结束后工作树不干净；此构建不能用于测量。' }
     foreach ($path in @($binary, [IO.Path]::ChangeExtension($binary, '.pck'))) {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "缺少导出文件：$path" }
     }
@@ -96,7 +95,7 @@ finally {
         catch { $failure = $_.Exception.Message }
     }
     if ($null -ne $summaryPath) {
-        [ordered]@{ succeeded = $null -eq $failure; error = $failure; steps = $steps.ToArray() } |
+        [ordered]@{ succeeded = $null -eq $failure; error = $failure; build_commit = $commit; steps = $steps.ToArray() } |
             ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $summaryPath -Encoding utf8
     }
 }

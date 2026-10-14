@@ -28,7 +28,6 @@ internal sealed class MeasurementRun : IDisposable
     private double _lastDraw;
     private ulong _lastDrawSteps;
     private double _simulationWork;
-    private double _nextMemory;
     private double? _firstDisplay;
     private double? _readyDisplay;
     private ScenePoint? _origin;
@@ -84,7 +83,10 @@ internal sealed class MeasurementRun : IDisposable
             });
             var host = _app.Host!;
             var view = host.GetStatus()!.View;
-            var train = ((Lookup<TrainView>.Found)view.FindTrain(view.World.Trains.OrderBy(item => item.Id.Value).First().Id)).Value;
+            var train = view.World.Trains.OrderBy(item => item.Id.Value)
+                .Select(item => ((Lookup<TrainView>.Found)view.FindTrain(item.Id)).Value)
+                .FirstOrDefault(item => !item.Vehicles.IsEmpty)
+                ?? throw new InvalidDataException("存档中没有非空编组列车可供测量。");
             _subject = new WorldObjectId.Instance(new InstanceId.Vehicle(train.Vehicles[0]));
             var submitted = host.Submit(host.GetStatus()!.Binding, new CoreCommand.StartTrain(train.Id), CommandSource.AutomationTest);
             if (submitted is not SubmissionResult.Completed { Receipt.Decision: CommandDecision.Accepted })
@@ -119,6 +121,14 @@ internal sealed class MeasurementRun : IDisposable
             _samples = new(_lastDraw, _lastDrawSteps);
             _simulationWork = 0;
             await Wait(() => _timing is not null);
+            // Process 读取可能枚举系统进程；只在最后一个计时帧之后采集。
+            _process.Refresh();
+            var video = Performance.GetMonitor(Performance.Monitor.RenderVideoMemUsed);
+            _memory.Add(new(Seconds() - _sampleStarted, _process.WorkingSet64, _process.PrivateMemorySize64,
+                _process.PeakWorkingSet64,
+                OS.IsDebugBuild() ? Performance.GetMonitor(Performance.Monitor.MemoryStatic) : null,
+                video > 0 ? video : null));
+            _identity["memory_scope"] = "one reading after frame sampling; working set and private bytes are current; peak working set covers process lifetime";
             _identity["scene_observations"] = _scenes;
             _identity["moving_sample_frames"] = _movingFrames;
             if ((_scenario.StartsWith("taa-", StringComparison.Ordinal) || _scenario.StartsWith("follow-", StringComparison.Ordinal)) && _movingFrames == 0)
@@ -166,19 +176,16 @@ internal sealed class MeasurementRun : IDisposable
         if (_identity["assembly"] is not JsonElement supplied ||
             !string.Equals(supplied.GetProperty("sha256").GetString(), hash, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("构建身份与当前加载的 Train.dll 不同。");
-        using var sourceStream = assembly.GetManifestResourceStream("Train.Measurement.BuildIdentity")
-            ?? throw new InvalidDataException("导出缺少构建时源码身份，请用 export-measurement.ps1 重新导出。");
-        using var sourceDocument = JsonDocument.Parse(sourceStream);
-        var source = sourceDocument.RootElement.Clone();
-        if (source.GetProperty("build_configuration").GetString() != "ExportRelease")
-            throw new InvalidDataException("构建时身份不是 ExportRelease。");
-        _identity["build_source"] = source;
-        var expectedCommit = source.GetProperty("commit").GetString()!;
         var build = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion;
-        if (!build.Contains(expectedCommit, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException($"构建提交不匹配：{build} / {expectedCommit}");
+        var commit = build[(build.LastIndexOf('+') + 1)..];
+        if (_identity["build_commit"] is not JsonElement expectedCommit ||
+            !string.Equals(commit, expectedCommit.GetString(), StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("构建提交与当前加载程序集不同。");
         _identity["game_build"] = build;
-        _identity["build_configuration"] = OS.IsDebugBuild() ? "Debug" : "ExportRelease";
+        _identity["build_commit"] = commit;
+        _identity["build_configuration"] = assembly.GetCustomAttribute<AssemblyConfigurationAttribute>()!.Configuration;
+        if ((string)_identity["build_configuration"]! != "ExportRelease")
+            throw new InvalidDataException("测量需要 ExportRelease 构建。");
         _identity["runtime"] = host.Runtime;
         _identity["godot"] = Engine.GetVersionInfo()["string"].AsString();
         _identity["dotnet"] = RuntimeInformation.FrameworkDescription;
@@ -240,15 +247,6 @@ internal sealed class MeasurementRun : IDisposable
             if (_samples is not null)
             {
                 _samples.AddFrame(now, status.View.Position.CompletedSteps, _simulationWork, status.Speed, status.IsPaused);
-                if (now >= _nextMemory)
-                {
-                    _process.Refresh();
-                    var video = Performance.GetMonitor(Performance.Monitor.RenderVideoMemUsed);
-                    _memory.Add(new(now - _sampleStarted, _process.WorkingSet64, _process.PrivateMemorySize64,
-                        OS.IsDebugBuild() ? Performance.GetMonitor(Performance.Monitor.MemoryStatic) : null,
-                        video > 0 ? video : null));
-                    _nextMemory = now + 1;
-                }
                 if (now - _sampleStarted >= 30) { _timing = _samples.Summarize(); _samples = null; }
             }
             _lastDraw = now;

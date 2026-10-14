@@ -27,7 +27,7 @@ public sealed class MeasurementReportTests
         var json = MeasurementReport.Serialize("follow-8x", new Dictionary<string, object?>
         {
             ["commit"] = "tested-build", ["dirty"] = false, ["input_sha256"] = "input-identity"
-        }, measurements.Summarize(), [new(0.1, 1000, 2000, null, 3000)],
+        }, measurements.Summarize(), [new(0.1, 1000, 2000, 1500, null, 3000)],
             [new("first-load", 0, 0.2, true), new("save", 0.5, 0.1, false, "publication_failed")]);
         using var document = JsonDocument.Parse(json);
         var report = document.RootElement;
@@ -36,6 +36,7 @@ public sealed class MeasurementReportTests
         var memory = report.GetProperty("memory")[0];
         Assert.AreEqual("unavailable", memory.GetProperty("godot_static_bytes").GetString());
         Assert.AreEqual(3000d, memory.GetProperty("video_memory_bytes").GetDouble());
+        Assert.AreEqual(1500L, memory.GetProperty("peak_working_set_bytes").GetInt64());
         Assert.AreEqual(26ul, report.GetProperty("timing").GetProperty("frames")[0]
             .GetProperty("completed_steps").GetUInt64());
         var failedSave = report.GetProperty("operations")[1];
