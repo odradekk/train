@@ -165,6 +165,32 @@ internal sealed class NodeLayout
         return new(new(right.X * u + axis.X * v, 0, right.Z * u + axis.Z * v), axis, right);
     }
     internal RailwaySample StationSample(double u, double v) => StationPose(StationForward, u, v);
+    internal IEnumerable<(Func<double, RailwaySample> Sample, double Length)> EntryRoutes(Entry entry, int tracks)
+    {
+        for (var number = 1; number <= tracks; number++)
+        {
+            var offset = RailwayCoordinates.TrackOffset(number, tracks);
+            var forward = -entry.Outward;
+            var right = Vector3.Cross(Vector3.UnitY, forward);
+            var start = RailwayCoordinates.Add(entry.Point, right * (float)offset);
+            yield return (arc => new(RailwayCoordinates.Add(start, forward * (float)arc), forward, right), ApproachStraight);
+            for (var station = 0; station < Math.Max(1, Platforms); station++)
+            {
+                var curve = Connection(entry.Edge, offset, station);
+                yield return (curve.Sample, curve.Length);
+            }
+        }
+    }
+    internal IEnumerable<(Func<double, RailwaySample> Sample, double Length)> StationRoutes(bool anyTracks)
+    {
+        if (Platforms == 0 && !anyTracks) yield break;
+        for (var station = 0; station < Math.Max(1, Platforms); station++)
+        {
+            var x = Platforms > 0 ? StationX(station, Platforms) : 0;
+            var halfLength = Platforms > 0 ? PlatformLength / 2 + PlatformClearance : PlatformClearance;
+            yield return (arc => StationSample(x, -halfLength + arc), halfLength * 2);
+        }
+    }
     internal Entry EntryFor(EdgeId edge) => Entries.Single(item => item.Edge == edge);
     internal Track Connection(EdgeId edge, int laneSlot, int station)
     {

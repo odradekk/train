@@ -97,7 +97,8 @@ internal sealed class NodeScene : IAsyncDisposable
         return new(stamp, origin, snapshot.Core.Position.CompletedSteps * SimulationTime.StepSeconds,
             failure is not null ? SceneReadiness.Failed : built is null ? SceneReadiness.Loading : fog.Count > 0 ? SceneReadiness.Partial : SceneReadiness.Ready,
             objects.ToImmutable(), picking.ToImmutable(), fog.ToImmutable(), RailwayTerrain.UniqueProblems(problems), displayed,
-            node: layout, nodeParts: built?.Parts.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => item.Value).ToImmutableArray() ?? []);
+            node: layout, nodeParts: built?.Parts.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => item.Value).ToImmutableArray() ?? [],
+            debugLayers: request.DebugLayers, nodeTracks: openingTracks);
 
         void Add(RenderedDesign geometry)
         { objects.AddRange(geometry.Objects); picking.AddRange(geometry.Picking); problems.AddRange(geometry.Diagnostics); }
@@ -131,18 +132,8 @@ internal sealed class NodeScene : IAsyncDisposable
             var entryKey = RailwayDependencies.Values(new object[] { layout.Inputs, entry.Edge, tracks });
             var needsMesh = previous is null || !previous.Parts.TryGetValue("entry:" + entry.Edge.Value, out var oldEntry) || oldEntry.Inputs != entryKey;
             var meshes = ImmutableArray.CreateBuilder<SceneMesh>();
-            for (var number = 1; number <= tracks; number++)
-            {
-                var offset = RailwayCoordinates.TrackOffset(number, tracks);
-                var start = RailwayCoordinates.Add(entry.Point, Vector3.Cross(Vector3.UnitY, -entry.Outward) * (float)offset);
-                AddRoute(arc => new(RailwayCoordinates.Add(start, -entry.Outward * (float)arc), -entry.Outward,
-                    Vector3.Cross(Vector3.UnitY, -entry.Outward)), NodeLayout.ApproachStraight, meshes, needsMesh);
-                for (var station = 0; station < Math.Max(1, layout.Platforms); station++)
-                {
-                    var curve = layout.Connection(entry.Edge, offset, station);
-                    AddRoute(curve.Sample, curve.Length, meshes, needsMesh);
-                }
-            }
+            foreach (var route in layout.EntryRoutes(entry, tracks))
+                AddRoute(route.Sample, route.Length, meshes, needsMesh);
             Put("entry:" + entry.Edge.Value, entryKey, () => MeshPart(meshes.ToImmutable()));
             var boundary = previous?.Layout.Inputs == layout.Inputs && previous.Boundaries.TryGetValue(entry.Edge, out var oldBoundary) &&
                 oldBoundary.Dependencies.Matches(snapshot, path, node == path.Start.Id ? 0 : path.SegmentCount - 1)
@@ -177,13 +168,8 @@ internal sealed class NodeScene : IAsyncDisposable
         var anyTracks = snapshot.Core.World.Edges.Any(edge => (edge.Start == node || edge.End == node) && edge.Tracks > 0);
         var stationKey = RailwayDependencies.Values(new object[] { layout.Inputs, anyTracks });
         var needsStationMesh = previous is null || !previous.Parts.TryGetValue("station-tracks", out var oldStation) || oldStation.Inputs != stationKey;
-        for (var station = 0; station < Math.Max(1, layout.Platforms); station++)
-        {
-            var x = layout.Platforms > 0 ? NodeLayout.StationX(station, layout.Platforms) : 0;
-            var halfLength = layout.Platforms > 0 ? NodeLayout.PlatformLength / 2 + NodeLayout.PlatformClearance : NodeLayout.PlatformClearance;
-            if (layout.Platforms > 0 || anyTracks)
-                AddRoute(arc => layout.StationSample(x, -halfLength + arc), halfLength * 2, stationMeshes, needsStationMesh);
-        }
+        foreach (var route in layout.StationRoutes(anyTracks))
+            AddRoute(route.Sample, route.Length, stationMeshes, needsStationMesh);
         Put("station-tracks", stationKey, () => MeshPart(stationMeshes.ToImmutable()));
         GridColumn Chunk(GridColumn at) => new((int)Math.Floor((double)at.X / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize,
             (int)Math.Floor((double)at.Z / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize);

@@ -71,7 +71,8 @@ internal sealed class RailwayScene : IAsyncDisposable
             snapshot.Core.Position.CompletedSteps) * SimulationTime.StepSeconds;
         if (path is null)
             return new(stamp, switchedOrigin ?? default, seconds, failure is null ? SceneReadiness.Loading : SceneReadiness.Failed,
-                [], [], [new(new SceneBounds(new(float.MinValue), new(float.MaxValue)))], failure is null ? [] : [failure], displayed);
+                [], [], [new(new SceneBounds(new(float.MinValue), new(float.MaxValue)))], failure is null ? [] : [failure], displayed,
+                debugLayers: request.DebugLayers);
 
         var trains = PlaceTrains(snapshot, adjacent ? previous : null, request.Interpolation);
         var followed = target is WorldSceneTarget.Follow follow ? trains.First(item => item.Train.Id == follow.Train) : null;
@@ -93,7 +94,7 @@ internal sealed class RailwayScene : IAsyncDisposable
         return new(stamp, origin, seconds, failure is not null ? SceneReadiness.Failed : segments.Count == 0 ? SceneReadiness.Loading :
             ready ? SceneReadiness.Ready : SceneReadiness.Partial, frame.Objects.ToImmutable(), frame.Picking.ToImmutable(),
             frame.Fog.ToImmutable(), RailwayTerrain.UniqueProblems(frame.Problems), displayed, path,
-            segments.Values.Select(item => item.Source).ToImmutableArray());
+            segments.Values.Select(item => item.Source).ToImmutableArray(), debugLayers: request.DebugLayers);
     }
 
     internal void Pump(SceneWorldSnapshot snapshot, WorldLocation.Edge location)

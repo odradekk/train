@@ -19,6 +19,7 @@ internal sealed class VoxelGrid
     private readonly Dictionary<GridPosition, SceneCell?[]> chunks = [];
     internal ImmutableArray<SceneCell> Cells { get; }
     internal SceneBounds? Bounds { get; }
+    internal IEnumerable<GridPosition> Chunks => chunks.Keys;
 
     internal VoxelGrid(ImmutableArray<SceneCell> cells)
     {

@@ -262,7 +262,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             var next = new SceneFrame(new(Id, request, space, ++revision), content?.Origin ?? new(0, 0, 0),
                 snapshot.Core.Position.CompletedSteps * SimulationTime.StepSeconds, readiness,
                 objects.ToImmutable(), picking.ToImmutable(), fog.Select(bounds => new SceneFog(bounds)).ToImmutableArray(),
-                problems.ToImmutable(), displayedFrame as SceneFrame);
+                problems.ToImmutable(), displayedFrame as SceneFrame, debugLayers: frameRequest.DebugLayers);
             var live = next.Objects.Select(item => item.Id).ToHashSet();
             foreach (var key in ids.Where(item => !live.Contains(item.Value)).Select(item => item.Key).ToArray()) ids.Remove(key);
             RetireCompletedTasks();
