@@ -21,7 +21,6 @@ internal static class InventoryLeases
     internal static LeaseQuote Quote(WorldState world, CoreContentProjection content, ulong step,
         CoreRevision revision, LeaseRequest request, Money? maximumPayment = null)
     {
-        Validate(request);
         var lease = request is LeaseRequest.Renew renew ? world.Leases.FirstOrDefault(l => l.Id == renew.Lease) : null;
         var settlementId = request is LeaseRequest.Rent rent ? rent.Settlement : lease?.Settlement;
         var settlement = world.Settlements.FirstOrDefault(s => s.Id == settlementId);
@@ -30,13 +29,6 @@ internal static class InventoryLeases
         var ruleId = world.Source.Configuration.Rules.Market;
         var rule = content.MissingReferences.Any(m => m.Reference == new CoreDefinitionReference.Rule(ruleId))
             ? null : content.MarketRules.SingleOrDefault(r => r.Id == ruleId);
-        Money? total = null;
-        if (rule is not null && duration == (ulong)rule.LeaseDurationTicks && capacity is { } quantity)
-        {
-            var amount = checked((Int128)rule.RentMoneyPerCapacityHour.Value * quantity * duration);
-            const int stepsPerHour = SimulationTime.StepsPerSecond * 3600;
-            total = new(checked((long)(amount / stepsPerHour + (amount % stepsPerHour == 0 ? 0 : 1))));
-        }
         long rentable = 0;
         var occupancyFits = true;
         if (settlement is not null && rule is not null)
@@ -50,6 +42,14 @@ internal static class InventoryLeases
                 var occupied = checked(InventoryStorage.Used(inventory) + InventoryStorage.Reserved(inventory));
                 occupancyFits = occupied <= free;
             }
+        }
+        Money? total = null;
+        if (rule is not null && duration == (ulong)rule.LeaseDurationTicks
+            && capacity is { } quantity && quantity <= rentable && occupancyFits)
+        {
+            var amount = checked((Int128)rule.RentMoneyPerCapacityHour.Value * quantity * duration);
+            const int stepsPerHour = SimulationTime.StepsPerSecond * 3600;
+            total = new(checked((long)(amount / stepsPerHour + (amount % stepsPerHour == 0 ? 0 : 1))));
         }
         CoreProblem? problem;
         if (request is LeaseRequest.Renew n && lease is null) problem = new("object_missing", "Request.Lease", null, [n.Lease.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)]);

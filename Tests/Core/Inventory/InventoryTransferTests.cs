@@ -45,12 +45,12 @@ public sealed class InventoryTransferTests
         using var session = Session();
         var lease = Rent(session, 3);
         var train = session.State.World.Trains.Single();
-        RejectWithoutWorldChange(session, new CoreCommand.UnloadGoods(train.Id, lease.Settlement, lease.Inventory, Voxel, 2));
+        RejectWithoutWorldChange(session, new CoreCommand.UnloadGoods(train.Id, lease.Settlement, lease.Inventory, Voxel, 2), "platform_required");
         Service(session);
-        RejectWithoutWorldChange(session, new CoreCommand.UnloadGoods(train.Id, lease.Settlement, lease.Inventory, Voxel, 11));
-        RejectWithoutWorldChange(session, new CoreCommand.UnloadGoods(train.Id, lease.Settlement, lease.Inventory, Voxel, 4));
+        RejectWithoutWorldChange(session, new CoreCommand.UnloadGoods(train.Id, lease.Settlement, lease.Inventory, Voxel, 11), "insufficient_goods");
+        RejectWithoutWorldChange(session, new CoreCommand.UnloadGoods(train.Id, lease.Settlement, lease.Inventory, Voxel, 4), "insufficient_capacity");
         Accept(session, new CoreCommand.UnloadGoods(train.Id, lease.Settlement, lease.Inventory, Voxel, 3));
-        RejectWithoutWorldChange(session, new CoreCommand.LoadGoods(train.Id, lease.Settlement, lease.Inventory, Voxel, 4));
+        RejectWithoutWorldChange(session, new CoreCommand.LoadGoods(train.Id, lease.Settlement, lease.Inventory, Voxel, 4), "insufficient_goods");
         Assert.AreEqual(3L, ReadInventory(session, lease.Inventory).Used);
         Assert.AreEqual(27L, ReadInventory(session, train.Inventory).Used);
     }
@@ -79,7 +79,7 @@ public sealed class InventoryTransferTests
         Accept(session, new CoreCommand.PublishContent(content));
         Assert.AreEqual(7L, ReadInventory(session, lease.Inventory).Used);
         Assert.AreEqual(0L, ReadInventory(session, lease.Inventory).Available);
-        RejectWithoutWorldChange(session, new CoreCommand.UnloadGoods(new(1), lease.Settlement, lease.Inventory, Voxel, 1));
+        RejectWithoutWorldChange(session, new CoreCommand.UnloadGoods(new(1), lease.Settlement, lease.Inventory, Voxel, 1), "insufficient_capacity");
         Accept(session, new CoreCommand.LoadGoods(new(1), lease.Settlement, lease.Inventory, Voxel, 2));
         Assert.AreEqual(5L, ReadInventory(session, lease.Inventory).Used);
     }
@@ -98,7 +98,7 @@ public sealed class InventoryTransferTests
         var stack = ReadInventory(session, lease.Inventory).Stacks.Single();
         Assert.AreEqual(2L, stack.Quantity);
         Assert.IsTrue(stack.DefinitionMissing);
-        RejectWithoutWorldChange(session, new CoreCommand.LoadGoods(new(1), lease.Settlement, lease.Inventory, Composite, 1));
-        RejectWithoutWorldChange(session, new CoreCommand.UnloadGoods(new(1), lease.Settlement, lease.Inventory, Composite, 1));
+        RejectWithoutWorldChange(session, new CoreCommand.LoadGoods(new(1), lease.Settlement, lease.Inventory, Composite, 1), "content_missing");
+        RejectWithoutWorldChange(session, new CoreCommand.UnloadGoods(new(1), lease.Settlement, lease.Inventory, Composite, 1), "content_missing");
     }
 }

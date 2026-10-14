@@ -13,6 +13,8 @@ internal static class InventoryCommands
         if (command is CoreCommand.AcquireLease acquire)
         {
             InventoryLeases.Validate(acquire.Request);
+            if (acquire.MaximumPayment.Value < 0)
+                throw new ArgumentException("付款上限必须非负。", nameof(command));
             return;
         }
         var (train, settlement, inventory, good, quantity, _) = Transfer(command);

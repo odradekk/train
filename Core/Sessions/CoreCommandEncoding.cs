@@ -42,6 +42,8 @@ internal static class CoreCommandEncoding
                     WriteTransfer(writer, unload.Train, unload.Settlement, unload.LocalInventory, unload.Good, unload.Quantity);
                     break;
                 case CoreCommand.AcquireLease acquire:
+                    if (acquire.MaximumPayment.Value < 0)
+                        throw new ArgumentException("付款上限必须非负。", nameof(command));
                     writer.WriteStartObject("request");
                     switch (acquire.Request)
                     {
@@ -165,7 +167,7 @@ internal static class CoreCommandEncoding
                         Positive(Property(request, "capacity", "/request", JsonValueKind.Number), "/request/capacity"), duration)
                     : new LeaseRequest.Renew(new(Identity(Property(request, "lease", "/request", JsonValueKind.Number), "/request/lease")), duration);
                 var payment = Property(root, "maximum_payment", "", JsonValueKind.Number);
-                if (!payment.TryGetInt64(out var money)) throw new InvalidField("/maximum_payment");
+                if (!payment.TryGetInt64(out var money) || money < 0) throw new InvalidField("/maximum_payment");
                 return Success(new(null, new CoreCommand.AcquireLease(leaseRequest, new(money))));
             }
             if (name is "inventory.load_goods" or "inventory.unload_goods")

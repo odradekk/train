@@ -34,7 +34,7 @@
 | 自动货物规则、`CurrentRun`、`RecentReports`、`RunReported` | #385 |
 | `FindSettlement`、聚居地库存身份发现、租约列表与 `SettlementStorageView` 的公开查询 | 后续聚居地／市场查询任务；本票只实现已知身份的库存和租约查询 |
 | `Economy`、钱包及经营统计公开查询 | 后续经济运输任务；钱包变化可通过租赁事件、累计付款及完整捕获验证 |
-| 其余命令、`Economy`、其他 `Find*`、报价和预览 | 后续经济运输、制造与编辑、自有建设、战斗与生物领域任务 |
+| 其余命令、其他 `Find*`、报价和预览 | 后续经济运输、制造与编辑、自有建设、战斗与生物领域任务 |
 
 旧 `Train.Core.Simulation` 及宿主入口已删除。`RandomKey`、`KeyedRandom`、`SplitMix64` 原算法迁到 `Core/World/`，作为内部实现保留；固定向量测试及独立 Python 参考工具位于 `Tests/Core/World/`。会话始终持有世界状态；内部会话测试也使用真实生成状态，拒绝与事件由内部测试体供给。列车运行、调度及后续领域任务须将各自新增权威字段补入捕获、恢复和检查点，不能把初始世界往返当作完整玩法恢复证据。
 
@@ -202,9 +202,9 @@
 
 装卸要求非零身份、合法货物身份及正数量，否则取得编号前抛 ArgumentException。合法输入依序检查：对象存在（object_missing / Train、Settlement、LocalInventory）；列车所有权（not_owned / Train）；同地（train_not_at_settlement / Train.Position）；当地库存归属（invalid_state / LocalInventory）；冻结（access_denied / LocalInventory）；NPC 库存（not_owned / LocalInventory）；卸入到期租库（access_denied / LocalInventory）；调度站台持有（platform_required / Train.Position）；缺定义（content_missing / Good）；来源数量（insufficient_goods / Quantity）；目标及全城容量（insufficient_capacity / Train.Inventory.Capacity 或 LocalInventory.Capacity）。返回首个拒绝，不抢占站台，不新增站台状态。成功发一个 GoodsTransferred，Action 为 Load/Unload，双方库存和数量为实际完整转移，ActualAmount 为零；拒绝不改双方货物或资金，无业务事件。
 
-Rent 要求非零聚居地身份和正容量，Renew 要求非零租约身份，两者期限必须为正，否则取得编号前抛 ArgumentException。只允许在非敌对 NPC 聚居地租用；敌对拒绝 access_denied / Request.Settlement，自有拒绝 invalid_state / Request.Settlement。其后依序检查市场规则（content_missing / MarketRule）、期限必须等于当前 LeaseDurationTicks（invalid_state / Request.DurationSteps）、容量（insufficient_capacity / Request.Capacity）、付款上限（price_condition_failed / MaximumPayment）、钱包（insufficient_money / Wallet）及新租身份（identity_exhausted / World.Next.Lease 或 World.Next.Inventory）。对象不存在使用 object_missing / Request.Settlement 或 Request.Lease。
+Rent 要求非零聚居地身份和正容量，Renew 要求非零租约身份，两者期限必须为正；AcquireLease.MaximumPayment 必须非负，否则取得编号前抛 ArgumentException。命令解码拒绝负付款上限，代码为 invalid_state，字段为 /maximum_payment。只允许在非敌对 NPC 聚居地租用；敌对拒绝 access_denied / Request.Settlement，自有拒绝 invalid_state / Request.Settlement。其后依序检查市场规则（content_missing / MarketRule）、期限必须等于当前 LeaseDurationTicks（invalid_state / Request.DurationSteps）、容量（insufficient_capacity / Request.Capacity）、付款上限（price_condition_failed / MaximumPayment）、钱包（insufficient_money / Wallet）及新租身份（identity_exhausted / World.Next.Lease 或 World.Next.Inventory）。对象不存在使用 object_missing / Request.Settlement 或 Request.Lease。
 
-租金单位为最小货币整数单位/容量/模拟小时，总额为 `ceil(单价×容量×期限步数/216000)`，只向上取整一次，无最低一元，checked Int128 中间计算和结果转换溢出沿用内部故障。有效续租从原到期步追加，到期续租从当前完成步起算，沿用容量并使用当前规则单价。LeaseView.Paid 是累计实际付款，LeaseAcquired.ActualPayment 为本次付款。QuoteLease 不锁资源；规则缺失或期限不匹配时 Total 为空，容量、关系、钱包等其它拒绝在能够确定容量时仍给总价和 Blockers。付款上限由 AcquireLease 重新检查，报价请求没有付款上限参数。报价计算故障返回 CoreResult.Faulted，不冻结活动会话。
+租金单位为最小货币整数单位/容量/模拟小时，总额为 `ceil(单价×容量×期限步数/216000)`，只向上取整一次，无最低一元。仅在规则存在、期限匹配且容量检查通过后计价；checked Int128 中间计算和结果转换溢出沿用内部故障。有效续租从原到期步追加，到期续租从当前完成步起算，沿用容量并使用当前规则单价。LeaseView.Paid 是累计实际付款，LeaseAcquired.ActualPayment 为本次付款。QuoteLease 不锁资源；规则缺失、期限不匹配或容量不足（含续租自身货物及预留占位放不下）时 Total 为空，其余关系、钱包等拒绝仍给总价和 Blockers。付款上限由 AcquireLease 重新检查，报价请求没有付款上限参数。报价计算故障返回 CoreResult.Faulted，不冻结活动会话。
 
 从完成步 n 推进到 n+1 时，期限落在该边界的租约按 LeaseId 升序发 LeaseExpired，事件排在同一步铁路事件之前。到期状态由完成步派生，恢复不重复发事件，空租约及其库存不自动删除。市场规则缺失不暂停到期，也不禁止其它条件合法的手动装卸。规则更新不追改已付金额、合同额度或到期步。
 

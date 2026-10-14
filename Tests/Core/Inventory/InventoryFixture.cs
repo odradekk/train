@@ -72,12 +72,13 @@ internal static class InventoryFixture
         return result;
     }
 
-    internal static void RejectWithoutWorldChange(CoreSession session, CoreCommand command, string? code = null)
+    internal static void RejectWithoutWorldChange(CoreSession session, CoreCommand command, string? code = null, string? field = null)
     {
         var before = session.State.World;
         var result = Submit(session, command);
         var decision = (CommandDecision.Rejected)result.Receipt.Decision;
         if (code is not null) Assert.AreEqual(code, decision.Problems[0].Code);
+        if (field is not null) Assert.AreEqual(field, decision.Problems[0].Field);
         Assert.IsTrue(result.Events.IsEmpty);
         Assert.AreEqual(before, session.State.World);
     }

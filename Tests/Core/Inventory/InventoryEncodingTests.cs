@@ -17,7 +17,7 @@ public sealed class InventoryEncodingTests
             RoundTrip(new CoreCommand.UnloadGoods(new(1), new(2), new(3), good, 1));
         }
         RoundTrip(new CoreCommand.AcquireLease(new LeaseRequest.Rent(new(2), long.MaxValue, ulong.MaxValue), new(long.MaxValue)));
-        RoundTrip(new CoreCommand.AcquireLease(new LeaseRequest.Renew(new(7), 1), new(-1)));
+        RoundTrip(new CoreCommand.AcquireLease(new LeaseRequest.Renew(new(7), 1), new(0)));
     }
 
     [TestMethod]
@@ -34,9 +34,20 @@ public sealed class InventoryEncodingTests
             new CoreCommand.LoadGoods(new(0), new(2), new(3), new GoodId.Voxel(new("fixture:ore")), 1),
             new CoreCommand.UnloadGoods(new(1), new(2), new(3), new GoodId.Voxel(new("fixture:ore")), 0),
             new CoreCommand.AcquireLease(new LeaseRequest.Rent(new(2), 0, 1), new(1)),
-            new CoreCommand.AcquireLease(new LeaseRequest.Renew(new(7), 0), new(1))];
+            new CoreCommand.AcquireLease(new LeaseRequest.Renew(new(7), 0), new(1)),
+            new CoreCommand.AcquireLease(new LeaseRequest.Rent(new(2), 1, 1), new(-1))];
         foreach (var command in commands)
             Assert.ThrowsExactly<ArgumentException>(() => CoreCommandEncoding.Encode(command));
+    }
+
+    [TestMethod]
+    public void Lease_predecode_rejects_negative_payment_limit()
+    {
+        var payload = CoreCommandEncoding.Encode(new CoreCommand.AcquireLease(new LeaseRequest.Renew(new(7), 1), new(0)));
+        var failure = (CoreResult<DecodedCommand>.Failure)CoreCommandEncoding.Decode(
+            payload.Replace("\"maximum_payment\":0", "\"maximum_payment\":-1", StringComparison.Ordinal));
+        Assert.AreEqual("invalid_state", failure.Problems.Single().Code);
+        Assert.AreEqual("/maximum_payment", failure.Problems.Single().Field);
     }
 
     [TestMethod]

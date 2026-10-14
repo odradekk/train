@@ -19,12 +19,12 @@ public sealed class InventoryLeaseTests
         var quote = WorldFixture.Success(session.Read().QuoteLease(request));
         Assert.AreEqual(new Money(8), quote.Total);
         Assert.IsTrue(quote.Blockers.IsEmpty);
-        RejectWithoutWorldChange(session, new CoreCommand.AcquireLease(request, new(7)));
+        RejectWithoutWorldChange(session, new CoreCommand.AcquireLease(request, new(7)), "price_condition_failed");
         var accepted = Accept(session, new CoreCommand.AcquireLease(request, new(8)));
         Assert.AreEqual(new Money(8), accepted.Events.Select(e => e.Event).OfType<CoreEvent.LeaseAcquired>().Single().ActualPayment);
         var tooLarge = WorldFixture.Success(session.Read().QuoteLease(new LeaseRequest.Rent(settlement, 100, 108000)));
-        Assert.AreEqual(new Money(250), tooLarge.Total);
-        Assert.IsFalse(tooLarge.Blockers.IsEmpty);
+        Assert.IsNull(tooLarge.Total);
+        Assert.AreEqual("insufficient_capacity", tooLarge.Blockers.Single().Code);
     }
 
     [TestMethod]
@@ -112,12 +112,41 @@ public sealed class InventoryLeaseTests
         var settlement = full.State.World.Settlements.Single();
         var quote = WorldFixture.Success(full.Read().QuoteLease(new LeaseRequest.Rent(settlement.Id, 20, 3)));
         Assert.AreEqual(0L, quote.CurrentlyRentableCapacity);
-        Assert.IsNotNull(quote.Total);
-        RejectWithoutWorldChange(full, new CoreCommand.AcquireLease(quote.Request, new(1000)));
+        Assert.IsNull(quote.Total);
+        RejectWithoutWorldChange(full, new CoreCommand.AcquireLease(quote.Request, new(1000)), "insufficient_capacity");
     }
 
     [TestMethod]
-    public void Nonpositive_amounts_and_zero_duration_throw_before_allocating_command_number()
+    public void Excessive_requested_capacity_is_rejected_without_pricing_or_freezing()
+    {
+        using var session = Session(Content(108000));
+        var request = new LeaseRequest.Rent(session.State.World.Settlements.Single().Id, long.MaxValue, 108000);
+        var before = session.State;
+        var quote = WorldFixture.Success(session.Read().QuoteLease(request));
+        Assert.IsNull(quote.Total);
+        Assert.AreEqual("insufficient_capacity", quote.Blockers.Single().Code);
+        Assert.AreEqual("Request.Capacity", quote.Blockers.Single().Field);
+        Assert.AreEqual(before, session.State);
+        RejectWithoutWorldChange(session, new CoreCommand.AcquireLease(request, new(long.MaxValue)),
+            "insufficient_capacity", "Request.Capacity");
+        Assert.IsNull(session.Read().Fault);
+        Rent(session, 3, 108000);
+    }
+
+    [TestMethod]
+    public void Insufficient_wallet_keeps_the_price_but_rejects_without_spending()
+    {
+        using var session = Session(Content(108000, rate: 1000));
+        var request = new LeaseRequest.Rent(session.State.World.Settlements.Single().Id, 3, 108000);
+        var quote = WorldFixture.Success(session.Read().QuoteLease(request));
+        Assert.AreEqual(new Money(1500), quote.Total);
+        Assert.AreEqual("insufficient_money", quote.Blockers.Single().Code);
+        Assert.AreEqual("Wallet", quote.Blockers.Single().Field);
+        RejectWithoutWorldChange(session, new CoreCommand.AcquireLease(request, new(1500)), "insufficient_money", "Wallet");
+    }
+
+    [TestMethod]
+    public void Invalid_lease_and_transfer_arguments_throw_before_allocating_command_number()
     {
         using var session = Session();
         var settlement = session.State.World.Settlements.Single();
@@ -126,6 +155,8 @@ public sealed class InventoryLeaseTests
             new CoreCommand.AcquireLease(new LeaseRequest.Rent(settlement.Id, -1, 3), new(1000)),
             new CoreCommand.AcquireLease(new LeaseRequest.Rent(settlement.Id, 3, 0), new(1000)),
             new CoreCommand.AcquireLease(new LeaseRequest.Renew(new(1), 0), new(1000)),
+            new CoreCommand.AcquireLease(new LeaseRequest.Rent(settlement.Id, 3, 3), new(-1)),
+            new CoreCommand.AcquireLease(new LeaseRequest.Renew(new(1), 3), new(-1)),
             new CoreCommand.LoadGoods(new(1), settlement.Id, settlement.Inventory, Voxel, 0),
             new CoreCommand.UnloadGoods(new(1), settlement.Id, settlement.Inventory, Voxel, -1)];
         var before = session.State;

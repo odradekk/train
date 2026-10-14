@@ -23,6 +23,9 @@ public sealed class InventoryLeaseBoundaryTests
         while (session.Read().Position.CompletedSteps < 6) Step(session);
         Rent(session, 90);
         var before = Lease(session, first.Id);
+        var quote = WorldFixture.Success(session.Read().QuoteLease(new LeaseRequest.Renew(first.Id, 3)));
+        Assert.IsNull(quote.Total);
+        Assert.AreEqual("insufficient_capacity", quote.Blockers.Single().Code);
         RejectWithoutWorldChange(session, new CoreCommand.AcquireLease(new LeaseRequest.Renew(first.Id, 3), new(1000)), "insufficient_capacity");
         Assert.AreEqual(before, Lease(session, first.Id));
         Assert.AreEqual(7L, ReadInventory(session, first.Inventory).Used);

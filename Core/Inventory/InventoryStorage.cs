@@ -37,7 +37,6 @@ internal static class InventoryStorage
             };
             if (part.Missing || Math.Min(instance.Parts.Single(p => p.Id == part.Id).Current, part.MaxDurability) <= 0
                 || definitionGood is not null && DefinitionMissing(world, content, definitionGood)
-                || content.MissingReferences.Any(m => m.Reference == part.Definition)
                 || current is not null && (current.MissingReferences.Any(m => m.Reference == part.Definition)
                     || current.Parts.Any(p => p.Id == part.Id && p.Missing))) continue;
             foreach (var storage in part.Capabilities.OfType<PartCapability.Storage>())
