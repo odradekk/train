@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -26,6 +27,11 @@ public sealed partial class CliProcessTests
             var two = await Run(directory, "second", "run", Repository, RecipePath, second);
             using var firstOutput = JsonDocument.Parse(await File.ReadAllTextAsync(first));
             using var secondOutput = JsonDocument.Parse(await File.ReadAllTextAsync(second));
+            var runtime = JsonSerializer.Deserialize<RuntimeIdentity>(
+                firstOutput.RootElement.GetProperty("runtime").GetRawText(), Recipe.Json)!;
+            Assert.AreEqual(OperatingSystem.IsWindows() ? "Windows" : RuntimeInformation.OSDescription, runtime.OperatingSystem);
+            Assert.AreEqual(RuntimeInformation.ProcessArchitecture.ToString(), runtime.Architecture);
+            Assert.AreEqual(RuntimeInformation.FrameworkDescription, runtime.DotNetRuntime);
             Assert.AreEqual(one, firstOutput.RootElement.GetProperty("process_id").GetInt32());
             Assert.AreEqual(two, secondOutput.RootElement.GetProperty("process_id").GetInt32());
             Assert.AreNotEqual(one, two);

@@ -37,9 +37,13 @@ public sealed class ScriptedCoreFactory : ICoreFactory
     public Func<WorldGenerationInput, CoreContentProjection, CoreSessionOptions, CoreResult<ICoreSessionCandidate>>? PrepareNewCall { get; set; }
     public Func<string, CoreResult<ICoreCapture>>? DecodeStateCall { get; set; }
     public Func<ICoreCapture, CoreContentProjection, CoreSessionOptions, CoreResult<ICoreSessionCandidate>>? PrepareRestoreCall { get; set; }
+    public Func<CoreReplayInput, RuntimeIdentity, ImmutableArray<CoreContentProjection>, CoreResult<ICoreReplay>>? PrepareReplayCall { get; set; }
+    public Func<CoreCheckpoint, CoreCheckpoint, CoreResult<CheckpointComparison>>? CompareCheckpointsCall { get; set; }
     public int PrepareNewCount { get; private set; }
     public int DecodeStateCount { get; private set; }
     public int PrepareRestoreCount { get; private set; }
+    public int PrepareReplayCount { get; private set; }
+    public int CompareCheckpointsCount { get; private set; }
 
     public CoreResult<ICoreSessionCandidate> PrepareNew(WorldGenerationInput input,
         CoreContentProjection content, CoreSessionOptions options)
@@ -74,15 +78,29 @@ public sealed class ScriptedCoreFactory : ICoreFactory
     {
         if ((PrepareNewCall is not null && PrepareNewCount == 0)
             || (DecodeStateCall is not null && DecodeStateCount == 0)
-            || (PrepareRestoreCall is not null && PrepareRestoreCount == 0))
+            || (PrepareRestoreCall is not null && PrepareRestoreCount == 0)
+            || (PrepareReplayCall is not null && PrepareReplayCount == 0)
+            || (CompareCheckpointsCall is not null && CompareCheckpointsCount == 0))
             throw HostCoreScenario.Unconfigured(nameof(AssertComplete));
     }
 
     public CoreResult<ICoreReplay> PrepareReplay(CoreReplayInput input, RuntimeIdentity environment,
         ImmutableArray<CoreContentProjection> contentHistory)
-        => throw HostCoreScenario.Unconfigured(nameof(PrepareReplay));
+    {
+        if (PrepareReplayCall is null)
+            throw HostCoreScenario.Unconfigured(nameof(PrepareReplay));
+        var result = PrepareReplayCall(input, environment, contentHistory);
+        PrepareReplayCount++;
+        return result;
+    }
     public CoreResult<CheckpointComparison> CompareCheckpoints(CoreCheckpoint expected, CoreCheckpoint actual)
-        => throw HostCoreScenario.Unconfigured(nameof(CompareCheckpoints));
+    {
+        if (CompareCheckpointsCall is null)
+            throw HostCoreScenario.Unconfigured(nameof(CompareCheckpoints));
+        var result = CompareCheckpointsCall(expected, actual);
+        CompareCheckpointsCount++;
+        return result;
+    }
 }
 
 public sealed class ScriptedCoreCandidate(ICoreSession session, CoreReferenceManifest references,
@@ -222,6 +240,68 @@ public sealed class ScriptedCoreSession(ICoreReadView initial) : ICoreSession
     { EnsureAlive(); return (CaptureRecordingStartCall ?? throw HostCoreScenario.Unconfigured(nameof(CaptureRecordingStart)))(); }
     public RecordingMaintenance ConfirmRecordingStart(RecordingPointId point, RecordingWriteOutcome outcome)
     { EnsureAlive(); return (ConfirmRecordingStartCall ?? throw HostCoreScenario.Unconfigured(nameof(ConfirmRecordingStart)))(point, outcome); }
+}
+
+public sealed class ScriptedCoreReplay(ICoreReadView initial) : ICoreReplay
+{
+    private sealed record AdvanceStep(uint MaximumSteps, SimulationPosition? StopAt,
+        ReplayAdvanceResult Result, ICoreReadView After);
+    private readonly Queue<AdvanceStep> steps = new();
+    private ICoreCapture? capture;
+    private bool captured;
+    public ICoreReadView CurrentView { get; private set; } = initial;
+    public List<(uint MaximumSteps, SimulationPosition? StopAt)> AdvanceCalls { get; } = [];
+    public int DisposeCount { get; private set; }
+
+    public void QueueAdvance(uint expectedMaximumSteps, SimulationPosition? expectedStopAt,
+        ReplayAdvanceResult result, ICoreReadView after)
+        => steps.Enqueue(new(expectedMaximumSteps, expectedStopAt, result, after));
+
+    public void SetCapture(ICoreCapture value)
+    {
+        capture = value;
+        captured = false;
+    }
+
+    public ICoreReadView Read()
+    {
+        EnsureAlive();
+        return CurrentView;
+    }
+
+    public ReplayAdvanceResult Advance(uint maximumSteps, SimulationPosition? stopAt = null)
+    {
+        EnsureAlive();
+        if (!steps.TryPeek(out var next) || next.MaximumSteps != maximumSteps || next.StopAt != stopAt)
+            throw HostCoreScenario.Unconfigured(nameof(Advance));
+        steps.Dequeue();
+        CurrentView = next.After;
+        AdvanceCalls.Add((maximumSteps, stopAt));
+        return next.Result;
+    }
+
+    public ICoreCapture CaptureBoundary()
+    {
+        EnsureAlive();
+        if (capture is null)
+            throw HostCoreScenario.Unconfigured(nameof(CaptureBoundary));
+        captured = true;
+        return capture;
+    }
+
+    public void AssertComplete()
+    {
+        if (steps.Count != 0 || (capture is not null && !captured))
+            throw HostCoreScenario.Unconfigured(nameof(AssertComplete));
+    }
+
+    public void Dispose()
+    {
+        if (DisposeCount != 0) return;
+        DisposeCount++;
+    }
+
+    private void EnsureAlive() => ObjectDisposedException.ThrowIf(DisposeCount != 0, this);
 }
 
 public sealed class FixedCoreCapture(CoreCheckpoint checkpoint, CoreReferenceManifest references,

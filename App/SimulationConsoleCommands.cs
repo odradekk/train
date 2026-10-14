@@ -2,6 +2,7 @@
 using System.Globalization;
 using Train.App.Logging;
 using Train.Core.Contracts;
+using Train.App.Development;
 
 namespace Train.App;
 
@@ -26,13 +27,16 @@ internal sealed class SimulationConsoleCommands
 
     private readonly HostCoordinator _host;
     private readonly TrainLogger _logger;
+    private readonly DeveloperTools _development;
 
-    internal SimulationConsoleCommands(HostCoordinator host, TrainLogger logger)
+    internal SimulationConsoleCommands(HostCoordinator host, TrainLogger logger, DeveloperTools development)
     {
         ArgumentNullException.ThrowIfNull(host);
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(development);
         _host = host;
         _logger = logger;
+        _development = development;
     }
 
     internal void Execute(IReadOnlyList<string> arguments)
@@ -141,17 +145,10 @@ internal sealed class SimulationConsoleCommands
             SessionUnavailable();
             return;
         }
-        switch (_host.CaptureCheckpoint())
+        switch (_development.CaptureCheckpoint("控制台检查点"))
         {
             case CoreResult<ICoreCapture>.Success success:
-                var checkpoint = success.Value.Checkpoint;
-                Log(LogLevel.Info, CheckpointEventId,
-                    $"模拟检查点位置={checkpoint.Position.CompletedSteps}:{checkpoint.Position.Sequence}，SHA-256={checkpoint.Sha256}。",
-                    new Dictionary<string, object?>
-                    {
-                        ["completed_steps"] = checkpoint.Position.CompletedSteps,
-                        ["sequence"] = checkpoint.Position.Sequence, ["sha256"] = checkpoint.Sha256
-                    });
+                ReportCheckpointValue(success.Value.Checkpoint);
                 return;
             case CoreResult<ICoreCapture>.Failure failure:
                 Log(LogLevel.Warning, CheckpointFailedEventId,
@@ -178,6 +175,14 @@ internal sealed class SimulationConsoleCommands
                 return;
         }
     }
+
+    private void ReportCheckpointValue(CoreCheckpoint checkpoint) => Log(LogLevel.Info, CheckpointEventId,
+        $"模拟检查点位置={checkpoint.Position.CompletedSteps}:{checkpoint.Position.Sequence}，SHA-256={checkpoint.Sha256}。",
+        new Dictionary<string, object?>
+        {
+            ["completed_steps"] = checkpoint.Position.CompletedSteps,
+            ["sequence"] = checkpoint.Position.Sequence, ["sha256"] = checkpoint.Sha256
+        });
 
     private void SessionUnavailable() =>
         Log(LogLevel.Warning, SessionUnavailableEventId, "没有活动模拟会话。");

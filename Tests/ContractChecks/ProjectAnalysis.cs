@@ -23,9 +23,9 @@ internal static class ProjectAnalysis
         IsChildPath(path, owner) || name == "Train.AssetExport" &&
         (IsChildPath(path, Path.Combine(root, "App", "Assets")) ||
          Path.GetFullPath(path).Equals(Path.Combine(root, "Tests", "Engine", "Assets", "GlbFixture.cs"), PathComparison)) || name == "Train.Benchmarks" &&
-        new[] { "SimulationExamples.cs", "ResourceCommandCodec.cs" }.Any(file =>
-            Path.GetFullPath(path).Equals(Path.Combine(root, "Tests", "Core", "Simulation", file), PathComparison)) || name == "Train.Cli" &&
-        new[] { "Assets/DiskContentFiles.cs", "Saves/SaveContainer.cs", "Saves/FileSaveStore.cs" }.Any(file =>
+        new[] { "World/WorldFixture.cs", "Railway/TrainRecoveryFixture.cs" }.Any(file =>
+            Path.GetFullPath(path).Equals(Path.GetFullPath(Path.Combine(root, "Tests", "Core", file)), PathComparison)) || name == "Train.Cli" &&
+        new[] { "Assets/DiskContentFiles.cs", "Saves/SaveContainer.cs", "Saves/FileSaveStore.cs", "RuntimeEnvironment.cs" }.Any(file =>
             Path.GetFullPath(path).Equals(Path.GetFullPath(Path.Combine(root, "App", file)), PathComparison));
 
     internal static IEnumerable<string> BuiltInImportFailures(string root)
@@ -146,6 +146,14 @@ internal static class ProjectAnalysis
                         projectFailures.Add("host compiles foreign source: " + path);
                 }
             }
+            foreach (var item in items.GetProperty("None").EnumerateArray())
+            {
+                var path = item.GetProperty("FullPath").GetString()!;
+                if (!OwnsCompileSource(root, name, owner, path)) projectFailures.Add($"source fixture outside owner: {name} ({path})");
+                if (isolated && !IsChildPath(path, root)) projectFailures.Add($"source fixture outside isolation: {name} ({path})");
+            }
+            projectFailures.AddRange(FactoryReferences.Check(root, name, items,
+                data.GetProperty("Properties").GetProperty("DefineConstants").GetString()!));
             var friends = new HashSet<string>(StringComparer.Ordinal);
             foreach (var item in items.GetProperty("InternalsVisibleTo").EnumerateArray())
                 friends.Add(item.GetProperty("Identity").GetString()!);

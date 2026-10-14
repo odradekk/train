@@ -148,6 +148,34 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
         finally { camera.Free(); }
     }
 
+    [Test]
+    public void Absolute_placement_is_immediate_and_clears_follow_smoothing()
+    {
+        var camera = AttachCamera();
+        try
+        {
+            camera.DisplayedFrame(Frame(poses: Poses((First, Pose(0, 0, 0)))), First);
+            camera.DisplayedFrame(Frame(revision: 2, poses: Poses((First, Pose(100, 0, 80, 1.2f)))), First);
+            camera.Update(0.05);
+            Require(camera.Focus.DistanceTo(new(100, 0, 80)) > 1, "测试必须先产生真实跟随残差。");
+            camera.Orbit(50, 20);
+
+            var focus = new Vector3(8, 12, -3);
+            const float distance = 40, yaw = 0.7f, pitch = 0.4f;
+            var expected = focus + new Vector3(Mathf.Sin(yaw) * distance * Mathf.Cos(pitch),
+                distance * Mathf.Sin(pitch), Mathf.Cos(yaw) * distance * Mathf.Cos(pitch));
+            camera.PlaceAbsolute(focus, distance, yaw, pitch);
+            Near(camera.Focus, focus);
+            Near(camera.Camera.Position, expected);
+            Near(-camera.Camera.Basis.Z, (focus - expected).Normalized());
+            camera.Update(0.5);
+            Near(camera.Focus, focus);
+            Near(camera.Camera.Position, expected);
+            Near(-camera.Camera.Basis.Z, (focus - expected).Normalized());
+        }
+        finally { camera.Free(); }
+    }
+
     private WorldCamera AttachCamera()
     {
         var camera = new WorldCamera();

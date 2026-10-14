@@ -6,7 +6,7 @@
 
 [Train.Content.Contracts](../../Contracts/Content/Train.Content.Contracts.csproj) 只引用核心契约，并提供[可编译消费样例](../../prototypes/content-contract/ConsumerExamples.cs)。`Content/Train.Content.csproj` 已实现真实工厂的 `Discover` 与不含用户蓝图库的 `PrepareLoad(Initial/Restore/Reload)`：manifest v2、依赖、voxel v3、固定资产字节、资产规则、只读投影及候选生命周期；包内 blueprint v3 支持无嵌套的车辆、建筑和场景模型。Initial 还支持地貌 v1、聚居地类型 v3、聚居地模板 v2、五类规则与生成配置 v2，包含 NPC 初始化参数；铁路表现参数通过 `FindRailwayAppearance` 提供。`CreateWorldInput` 交出已解析的新局输入，`WithSettlementCopies` 按最终所有者固定模板副本，`FindSettlementLayout` 读取所有者的布局。模板的 `founding`、`inventory`、`production_plans` 省略或为空时支持，非空时以 `unsupported_format` 拒绝。Restore 从内嵌设计与实例模板副本重算当前投影，Reload 保留清单仍引用的原设计与副本；源蓝图、源模板的删改不改写已有实例布局。
 
-`EvaluateDesign` 在真实工厂产生的固定视图上计算这三类平面设计的身份、合法性及投影，车辆和建筑提供 `DesignInput`。`Capture/DecodeCapture` 与 `CaptureReplay/DecodeReplay` 已实现当前范围的普通内容往返和仅凭载荷重建历史视图。恢复／重载只对已保存设计和模板副本中的缺失定义提供部分计算、占位和锁资料；损伤原值仍由核心保存。流程、生物聚落、大型设备、生物与非空嵌套布局尚未支持；不完整草稿、草稿与蓝图库编辑、用户库加载、设计比较及创作仍待后续工单，相关入口直接抛 `NotImplementedException`。上述模块实现不表示完整存档容器、核心耐久保存恢复或真实四模块联调已经通过；阶段一真实交接归 #298，新的宿主装配归 #317。共享用例与替身的行为验证由[契约原型](https://github.com/odradekk/train/issues/292)完成。
+`EvaluateDesign` 在真实工厂产生的固定视图上计算这三类平面设计的身份、合法性及投影，车辆和建筑提供 `DesignInput`。`Capture/DecodeCapture` 与 `CaptureReplay/DecodeReplay` 已实现当前范围的普通内容往返和仅凭载荷重建历史视图。恢复／重载只对已保存设计和模板副本中的缺失定义提供部分计算、占位和锁资料；损伤原值仍由核心保存。流程、生物聚落、大型设备、生物与非空嵌套布局尚未支持；不完整草稿、草稿与蓝图库编辑、用户库加载、设计比较及创作仍待后续工单，相关入口直接抛 `NotImplementedException`。上述模块实现不表示完整存档容器、核心耐久保存恢复或真实四模块联调已经通过；阶段一真实交接归 #298；生产宿主已通过 `App/Composition/` 接入真实工厂。共享用例与替身的行为验证由[契约原型](https://github.com/odradekk/train/issues/292)完成。
 
 | 声明 | 作用 |
 | --- | --- |
@@ -18,7 +18,7 @@
 | [Authoring.cs](../../Contracts/Content/Authoring.cs) | 已保存草稿、开发表单输入及包文件变更 |
 | [Lifecycle.cs](../../Contracts/Content/Lifecycle.cs) | 工厂、准备、固定读取、保存和复现捕获 |
 
-实现程序集已新增 `Train.Content.ContentFactory.Create()`，返回 `IContentFactory`；候选、视图和解析器等实现类型均为 `internal`。宿主的 `App/Composition/` 接入、旧公开路径退役，以及工厂公开面和调用位置的自动检查仍待 #317／#406。文件端口和资产检查由宿主注入，内容不访问静态全局目录、不启动线程、不依赖 Godot，也不允许调用方替换解析器、哈希器或业务计算阶段。
+实现程序集唯一公开类型为 `Train.Content.ContentFactory`，其 `Create()` 返回 `IContentFactory`；候选、视图、解析器和辅助类型均为 `internal`。宿主已在 `App/Composition/` 接入，工厂调用位置由结构检查验证。旧公开加载路径已在 [#452](https://github.com/odradekk/train/issues/452) 退役；[ContentFactoryTests.cs](../../Tests/Content/Loading/ContentFactoryTests.cs) 的 `Only_the_factory_is_exported_from_the_content_implementation` 用例通过反射断言检查实现程序集的公开面。文件端口和资产检查由宿主注入，内容不访问静态全局目录、不启动线程、不依赖 Godot，也不允许调用方替换解析器、哈希器或业务计算阶段。
 
 ## 身份、版本与数据所有权
 
@@ -30,6 +30,8 @@
 - `IContentView` 是读取入口，不是公开内部索引。核心读取 `Core` 投影；体素读取具体场景与外观投影；界面读取摘要、显示和诊断。完整创作草稿只在需要编辑的入口公开，解析器及文件布局不会沿着查询泄漏给场景。
 
 经[契约审计修订](https://github.com/odradekk/train/issues/296)，`CoreInputId` 只对外部定义、规则、源模板及它们的核心语义引用计算；`CoreContentProjection.Designs`、`DesignGoods` 与派生缺失清单不参与身份。前两者只提供新局种子、普通恢复或重载重算所需的业务资料，不是动态蓝图库。`Goods` 只放定义型货物，衍生组装体货物放在 `DesignGoods`。同一外部输入下同一设计哈希及组装体身份的业务投影必须一致。功能复合体 Goods 条目的 Revision 覆盖其全部核心语义及依赖，包括能力、耐久和返还规格，不能只摘要 GoodDefinitionProjection 的质量与价值字段。依赖规格改变即使设计哈希未变，也须改变外部输入身份并重算；纯显示／资产更新不改变身份。
+
+`FindDefinitionDisplay` 返回的 `ContentDisplay.Major` 只表示聚居地类型的城市尺寸标记，对应[聚居地类型](../content/settlement-type.md)的 `display.major`，省略时为 `false`；其他定义及货物、生物聚落的显示资料为 `false`。宏观地图按[美术 07](../art/07-icons-and-ui.md#宏观地图)选择圆的尺寸。该值的变化属于 `ContentChange.Presentation`，不改变核心输入身份或生成内容修订。
 
 保存／删除本局或用户蓝图不改变核心输入，不提交核心命令。建造、改装或立即应用时，内容随 `DesignInput` 提供固定外部输入身份、完整业务设计投影和本设计及嵌套设备的全部衍生组装体货物；核心接受后自行保留。`DesignInput` 不包含布局，完整设计仍由内容持有并供存档与复现捕获。
 

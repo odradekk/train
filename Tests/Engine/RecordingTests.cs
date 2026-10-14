@@ -81,7 +81,8 @@ public class RecordingTests(Node testScene) : TestClass(testScene)
             var segment = new FaultRecordingSegment(start, [], [start.State.Checkpoint, checkpoint], fault, start.State.References);
             window = window with { Checkpoints = segment.Checkpoints, FaultSegments = [segment] };
             setup.Session.QueueAdvance(new(0, fault.Position, [], fault, new("recording fault", "engine stack")),
-                new FixedCoreReadView(fault.Position, HostCoreScenario.Input, fault));
+                new FixedCoreReadView(fault.Position, HostCoreScenario.Input, fault)
+                { World = app.Host!.GetStatus()!.View.World });
             app.Host!.Step(1);
             await FramesUntil(() => !recording.IsBusy && recording.Status?.Frozen == true);
             var faultPath = Directory.GetFiles(recording.EvidenceDirectory,
@@ -104,6 +105,8 @@ public class RecordingTests(Node testScene) : TestClass(testScene)
             await input.Activate(button);
             Require(panel.Visible && Labels(panel).Any(label => label.Text == "当前没有活动会话"),
                 "主菜单设置不能打开报告问题，或仍显示旧对局录制状态。");
+            Require(!app.GetChildren().OfType<GameConsole>().Single().LogEvents
+                .Any(log => log.EventId == "host_consumer_failed"), "录制故障边界未成功接入界面。");
             GD.Print("ISSUE_322_RECORDING_REPORT_VERIFIED");
         }
         finally

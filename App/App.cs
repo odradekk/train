@@ -1,12 +1,13 @@
-
 using Godot;
+using Train.App.Assets;
+using Train.App.Composition;
 using Train.App.Console;
-using Train.Content;
-using Train.Content.Voxels;
 using Train.App.Logging;
 using Train.App.Saves;
+using Train.Content.Contracts;
+using Train.Core.Contracts;
 using Train.App.Recording;
-using Train.Core.Simulation;
+using Train.App.Development;
 using Train.Ui;
 
 namespace Train.App;
@@ -14,21 +15,14 @@ namespace Train.App;
 public partial class App : Node
 {
     public const string ReloadContentAction = "reload_content";
-
-    private const double SimulationFrameBudgetSeconds = 0.005;
-
-    internal const string SimulationFaultEventId = "simulation_fault";
+    internal const string ExampleSavePath = "res://examples/basic-through/save.json";
 
     private TrainLogger? _logger;
-    private ContentReloader? _reloader;
-    private SimulationDriver? _simulation;
-    private int _mainThread;
-    private bool _insideSimulation;
-    private long _attachedAt;
-    private bool _firstSimulationFrame;
+    private GodotMainThreadDispatcher? _dispatcher;
+    private bool _smoke;
+    private Guid? _smokeExampleId;
 
     internal TrainLogger Logger => _logger!;
-    internal ContentSnapshot? CurrentContent => _reloader?.Current;
     internal Action QuitAction { get; set; }
     internal Func<TrainLogger, HostCoordinator>? CreateHost { get; set; }
     internal Func<Train.Scenes.Contracts.IScenesFactory>? CreateScenes { get; set; }
@@ -36,16 +30,12 @@ public partial class App : Node
     internal WorldSceneController? WorldScenes { get; private set; }
     internal SaveService? Saves { get; private set; }
     internal RecordingService? Recording { get; private set; }
+    internal DeveloperTools? Development { get; private set; }
 
     public App() => QuitAction = () => GetTree().Quit();
 
-    public event Action<AdvanceResult>? SimulationAdvanced;
-
-    public event Action<SubmissionResult.Completed>? SimulationCommandCompleted;
-
     public override void _Ready()
     {
-        _mainThread = System.Environment.CurrentManagedThreadId;
         GetTree().AutoAcceptQuit = false;
         GetNode<MainMenu>("MainMenu").QuitRequested += RequestQuit;
         try
@@ -54,23 +44,14 @@ public partial class App : Node
             var buffer = new RingBufferLogSink();
             _logger = TrainLogger.StartSession(Path.Combine(userData, "logs"),
                 OS.IsDebugBuild() ? LogLevel.Debug : LogLevel.Info, new GodotLogOutput(), buffer);
-            if (CreateHost is not null)
-            {
-                Host = CreateHost(_logger);
-                Saves = new SaveService(Host, new FileSaveStore(userData));
-                GetNode<MainMenu>("MainMenu").ConfigureSaves(Saves);
-                Recording = new RecordingService(Host, new FileSaveStore(userData));
-            }
-            else
-            {
-                var source = new GodotContentSource(_logger, userData);
-                _reloader = new ContentReloader(source, _logger);
-            }
-            if (Host is not null && CreateScenes is not null)
-            {
-                WorldScenes = new(Host, CreateScenes(), _logger);
-                AddChild(WorldScenes.View);
-            }
+            _dispatcher = new();
+            Host = CreateHost?.Invoke(_logger) ?? HostComposition.CreateHost(_logger, userData, _dispatcher);
+            Saves = new SaveService(Host, new FileSaveStore(userData));
+            GetNode<MainMenu>("MainMenu").ConfigureSaves(Saves);
+            GetNode<MainMenu>("MainMenu").ExampleRequested += () => StartExample();
+            Recording = new RecordingService(Host, new FileSaveStore(userData));
+            WorldScenes = new(Host, CreateScenes?.Invoke() ?? HostComposition.CreateScenes(), _logger);
+            AddChild(WorldScenes.View);
             var ui = new GameUi { Name = "GameUi" };
             ui.Initialize(GetNode<MainMenu>("MainMenu"), Host, _logger, WorldScenes, Recording);
             AddChild(ui);
@@ -78,33 +59,26 @@ public partial class App : Node
             Action<IReadOnlyList<string>>? simulationCommands = null;
             Action<IReadOnlyList<string>>? trainCommands = null;
             Action<IReadOnlyList<string>>? lightingCommands = null;
+            Action<IReadOnlyList<string>>? developmentCommands = null;
             if (OS.IsDebugBuild())
             {
-                simulationCommands = Host is null ? new LegacySimulationConsoleCommands(this, _logger).Execute
-                    : new SimulationConsoleCommands(Host, _logger).Execute;
-                if (Host is not null)
-                    trainCommands = new TrainConsoleCommands(Host, _logger, ui.ShowError).Execute;
+                Development = new(Host, Saves);
+                var inspector = new DeveloperInspector();
+                AddChild(inspector);
+                inspector.Configure(Development, WorldScenes);
+                developmentCommands = inspector.Execute;
+                simulationCommands = new SimulationConsoleCommands(Host, _logger, Development).Execute;
+                trainCommands = new TrainConsoleCommands(Host, _logger, ui.ShowError).Execute;
                 lightingCommands = new LightingConsoleCommands(_logger, () => WorldScenes?.View.Lighting,
                     mode => WorldScenes!.View.SetLighting(mode)).Execute;
             }
             console.Initialize(buffer, new ConsoleCommandDispatcher(
-                _logger, buffer.Clear, RequestQuit, () => ReloadContent(Train.Core.Contracts.CommandSource.Console), OS.IsDebugBuild(), simulationCommands,
-                train: trainCommands, lighting: lightingCommands));
+                _logger, buffer.Clear, RequestQuit, () => ReloadContent(CommandSource.Console), OS.IsDebugBuild(), simulationCommands,
+                train: trainCommands, lighting: lightingCommands, development: developmentCommands));
             AddChild(console);
-            if (Host is not null)
-            {
-                Host.SetFocused(GetWindow().HasFocus());
-                if (!Host.IsBusy) Host.BeginReload(Train.Core.Contracts.CommandSource.UserInterface);
-                return;
-            }
-            var loaded = _reloader!.Reload();
-            if (OS.GetCmdlineUserArgs().Contains("--smoke", StringComparer.Ordinal))
-            {
-                var grain = loaded.Snapshot?.Voxels.GetValueOrDefault(new VoxelDefinitionId("core", "grain"));
-                var passed = loaded.IsCommitted && grain is not null && grain.PresentationImages.Count > 0 &&
-                    grain.PresentationImages.Values.All(image => image.Width > 0 && image.Height > 0);
-                GetTree().Quit(passed ? 0 : 1);
-            }
+            _smoke = OS.GetCmdlineUserArgs().Contains("--smoke", StringComparer.Ordinal);
+            Host.SetFocused(GetWindow().HasFocus());
+            if (!Host.IsBusy) Host.BeginReload(CommandSource.UserInterface);
         }
         catch (Exception exception)
         {
@@ -129,6 +103,26 @@ public partial class App : Node
         else GetNode<MainMenu>("MainMenu").ShowSaveFailure(Saves.RequestLeave(FinishQuit));
     }
 
+    internal SaveFailure? StartExample(string path = ExampleSavePath)
+    {
+        SaveFailure? failure;
+        try
+        {
+            using var file = Godot.FileAccess.Open(path, Godot.FileAccess.ModeFlags.Read);
+            if (file is null) failure = new("example-read-failed", $"无法读取示例存档：{Godot.FileAccess.GetOpenError()}。");
+            else
+            {
+                var document = SaveContainer.Decode(file.GetAsText());
+                if (_smoke) _smokeExampleId = document.Header.Id;
+                failure = Saves!.StartExample(document);
+            }
+        }
+        catch (SaveFormatException error)
+        { failure = new(error.Code, $"无法读取示例存档：{error.Message}"); }
+        GetNode<MainMenu>("MainMenu").ShowSaveFailure(failure);
+        return failure;
+    }
+
     private void FinishQuit()
     {
         if (Recording is null) QuitAction();
@@ -140,119 +134,78 @@ public partial class App : Node
         }
     }
 
-    private void ReloadContent(Train.Core.Contracts.CommandSource source)
+    private void ReloadContent(CommandSource source)
     {
-        if (Host is null) _reloader!.Reload();
-        else if (Host.BeginReload(source).Problem is { Code: "busy" } problem)
+        if (Host!.BeginReload(source).Problem is { Code: "busy" } problem)
             _logger!.Warning("content", "content_reload_failed", problem.Code,
                 new Dictionary<string, object?> { ["code"] = problem.Code, ["field"] = problem.Field });
     }
 
-    public void AttachSession(SimulationSession session, SimulationStateCodec states)
-    {
-        EnsureSimulationMutation();
-        _simulation = new SimulationDriver(session, states);
-        _attachedAt = System.Diagnostics.Stopwatch.GetTimestamp();
-        _firstSimulationFrame = true;
-    }
-
-    public void DetachSession()
-    {
-        EnsureSimulationMutation();
-        _simulation = null;
-        _firstSimulationFrame = false;
-    }
-
-    public SimulationStatus? GetSimulationStatus()
-    {
-        EnsureSimulationThread();
-        return _simulation?.GetStatus();
-    }
-
-    public bool SetSimulationPaused(bool paused)
-    {
-        EnsureSimulationMutation();
-        if (_simulation is null)
-            return false;
-        _simulation.SetPaused(paused);
-        return true;
-    }
-
-    public bool SetSimulationSpeed(Train.Core.Simulation.SimulationSpeed speed)
-    {
-        EnsureSimulationMutation();
-        if (_simulation is null)
-            return false;
-        _simulation.SetSpeed(speed);
-        return true;
-    }
-
-    public AdvanceResult? StepSimulation(ulong steps)
-    {
-        EnsureSimulationMutation();
-        if (_simulation is null)
-            return null;
-        var result = RunSimulation(() => _simulation.Step(steps));
-        ReportSimulationFault(result.Diagnostic);
-        SimulationAdvanced?.Invoke(result);
-        return result;
-    }
-
-    public SubmissionResult SubmitCommand(CoreCommand command, CommandSource source)
-    {
-        EnsureSimulationMutation();
-        if (_simulation is null)
-            return new SubmissionResult.NotAccepted("simulation_session_unavailable");
-        var result = RunSimulation(() => _simulation.SubmitCommand(command, source));
-        if (result is SubmissionResult.Completed completed)
-        {
-            ReportSimulationFault(completed.Diagnostic);
-            SimulationCommandCompleted?.Invoke(completed);
-        }
-        return result;
-    }
-
-    public AuthoritativeCheckpoint? CreateSimulationCheckpoint()
-    {
-        EnsureSimulationThread();
-        return _simulation?.CreateCheckpoint();
-    }
-
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (OS.IsDebugBuild() && (_reloader is not null || Host is not null) &&
+        if (OS.IsDebugBuild() && Host is not null &&
             @event.IsActionPressed(ReloadContentAction) && !@event.IsEcho())
         {
-            ReloadContent(Train.Core.Contracts.CommandSource.UserInterface);
+            ReloadContent(CommandSource.UserInterface);
             GetViewport().SetInputAsHandled();
         }
     }
 
     public override void _Process(double delta)
     {
+        _dispatcher?.Pump();
         Saves?.Process();
         Host?.ProcessFrame(delta);
+        Development?.Process();
         Recording?.Process();
         // headless 的虚拟窗口始终报告最小化；它仍需执行资源和显示边界检查。
         WorldScenes?.ProcessFrame(delta, DisplayServer.GetName() != "headless" && GetWindow().Mode == Window.ModeEnum.Minimized);
-        if (_simulation is not null)
-        {
-            // 挂接可能发生在较长的生成帧内；第一帧只累计会话实际存在的时间。
-            var simulationDelta = delta;
-            if (_firstSimulationFrame)
-            {
-                simulationDelta = Math.Min(delta, System.Diagnostics.Stopwatch.GetElapsedTime(_attachedAt).TotalSeconds);
-                _firstSimulationFrame = false;
-            }
-            var result = RunSimulation(() => _simulation.AdvanceFrame(simulationDelta, SimulationFrameBudgetSeconds));
-            ReportSimulationFault(result.Diagnostic);
-            SimulationAdvanced?.Invoke(result);
-        }
         _logger?.DrainGodotQueue();
+        if (_smoke && Host is { IsBusy: false } && Saves is { IsBusy: false })
+        {
+            if (_smokeExampleId is not null || StartExample() is not null) CompleteSmoke();
+        }
+    }
+
+    private void CompleteSmoke()
+    {
+        _smoke = false;
+        var content = Host!.Content;
+        var display = content?.FindVoxelDisplay(new("core:staple-food"));
+        var status = Host.GetStatus();
+        var save = Saves!.Status;
+        var exampleVisible = GetNode<MainMenu>("MainMenu").GetNode<Button>("%Example").Visible;
+        var restored = status is { IsReplay: false } && save is not null;
+        var passed = display is ContentLookup<VoxelDisplayProjection>.Found food &&
+            content!.FindAsset(food.Value.Icon) is ContentLookup<ContentAsset>.Found
+                { Value.Metadata: AssetMetadata.Png { Width: > 0, Height: > 0 } } &&
+            content.FindGood(new GoodId.Voxel(new("core:staple-food"))) is
+                ContentLookup<GoodPresentation>.Found && restored && _smokeExampleId is not null &&
+            save!.Identity.Id != _smokeExampleId && status!.View.Position == new SimulationPosition(200, 0) &&
+            status.IsPaused && save.Unsaved && !exampleVisible;
+        _logger!.Info("application", "application_smoke_summary", "生产装配冒烟结束。",
+            new Dictionary<string, object?>
+            {
+                ["passed"] = passed,
+                ["example_source_id"] = _smokeExampleId?.ToString(),
+                ["save_id"] = save?.Identity.Id.ToString(),
+                ["restored"] = restored,
+                ["completed_steps"] = status?.View.Position.CompletedSteps,
+                ["sequence"] = status?.View.Position.Sequence,
+                ["paused"] = status?.IsPaused == true,
+                ["unsaved"] = save?.Unsaved == true,
+                ["example_button_visible"] = exampleVisible,
+                ["packages"] = content?.Packages.Where(package => package.State == PackageState.Available)
+                    .Select(package => package.Metadata!.Id.Value).ToArray() ?? [],
+                ["voxels"] = content?.Voxels.Select(voxel => voxel.Definition.Value).ToArray() ?? []
+            });
+        GetTree().Quit(passed ? 0 : 1);
     }
 
     public override void _ExitTree()
     {
+        Development?.Dispose();
+        Development = null;
         Recording?.Dispose();
         Recording = null;
         Saves?.Dispose();
@@ -261,51 +214,9 @@ public partial class App : Node
         WorldScenes = null;
         Host?.Dispose();
         Host = null;
-        _simulation = null;
+        _dispatcher?.Dispose();
+        _dispatcher = null;
         _logger?.Dispose();
         _logger = null;
-        _reloader = null;
-    }
-
-    private T RunSimulation<T>(Func<T> operation)
-    {
-        EnsureSimulationMutation();
-        _insideSimulation = true;
-        try { return operation(); }
-        finally { _insideSimulation = false; }
-    }
-
-    private void ReportSimulationFault(SimulationFaultDiagnostic? diagnostic)
-    {
-        if (diagnostic is null)
-            return;
-        var fault = diagnostic.Fault;
-        var context = fault.Context;
-        _logger!.Error(SimulationConsoleCommands.Category, SimulationFaultEventId,
-            "核心模拟发生内部故障，已冻结在最后完整边界。",
-            new Dictionary<string, object?>
-            {
-                ["fault_code"] = fault.Code,
-                ["fault_phase"] = fault.Phase.ToString(),
-                ["operation"] = context?.Operation.ToString(),
-                ["attempted_transaction_id"] = context?.TransactionId,
-                ["attempted_completed_steps"] = context?.Position.CompletedSteps,
-                ["attempted_sequence"] = context?.Position.Sequence,
-                ["attempted_command_id"] = context?.CommandId,
-                ["entity_id"] = fault.EntityId
-            }, diagnostic.Exception);
-    }
-
-    private void EnsureSimulationThread()
-    {
-        if (_mainThread == 0 || System.Environment.CurrentManagedThreadId != _mainThread)
-            throw new InvalidOperationException("App 模拟服务只能由 Godot 主线程调用。");
-    }
-
-    private void EnsureSimulationMutation()
-    {
-        EnsureSimulationThread();
-        if (_insideSimulation)
-            throw new InvalidOperationException("模拟计算期间不能重入 App 修改入口。");
     }
 }

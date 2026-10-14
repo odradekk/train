@@ -8,7 +8,7 @@
     <Train.ContractChecks.ProjectFacts OutputFile="$(ContractFactsDirectory)/$(MSBuildProjectName).facts.json"
       TargetPath="$(TargetPath)" Root="$(ContractRoot)"
       ProjectReference="@(ProjectReference)" ReferencePath="@(ReferencePath)" Compile="@(Compile)"
-      InternalsVisibleTo="@(InternalsVisibleTo)">
+      InternalsVisibleTo="@(InternalsVisibleTo)" None="@(None)" DefineConstants="$(DefineConstants)">
       <Output TaskParameter="ReferencedProjects" ItemName="_ContractReferencedProjects" />
     </Train.ContractChecks.ProjectFacts>
     <MSBuild Condition="'$(ContractCollectReferences)' == 'true'" Projects="@(_ContractReferencedProjects)"

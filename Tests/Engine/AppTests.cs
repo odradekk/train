@@ -3,8 +3,11 @@ using Chickensoft.GoDotTest;
 using Chickensoft.GodotTestDriver;
 using Godot;
 using Train.App.Logging;
-using Train.Content.Voxels;
+using Train.Content.Contracts;
+using System.Text.Json.Nodes;
 using Train.Ui;
+using Train.App.Saves;
+using Train.Core.Contracts;
 using static Train.Engine.Tests.Assertions;
 
 namespace Train.Engine.Tests;
@@ -22,6 +25,7 @@ public class AppTests(Node testScene) : TestClass(testScene)
         try
         {
             var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
+            await FramesUntil(TestScene, () => !app.Host!.IsBusy);
             var console = app.GetChildren().OfType<GameConsole>().Single();
             Require(console.LogEvents.Any(e => e.EventId == TrainLogger.ApplicationReadyEventId), "App startup event missing.");
             Require(output.Contains("[application][application_ready]"), "App startup event did not reach Godot output.");
@@ -62,17 +66,80 @@ public class AppTests(Node testScene) : TestClass(testScene)
             var requests = 0;
             app.QuitAction = () => requests++;
             await fixture.AddToRoot(app);
+            await FramesUntil(TestScene, () => !app.Host!.IsBusy);
             var menu = app.GetNode<MainMenu>("MainMenu");
             Require(menu.IsNodeReady() && menu.IsVisibleInTree(), "Main menu is not ready and visible.");
-            var buttons = menu.FindChildren("*", "BaseButton", true, false).Cast<BaseButton>().Where(b => b.IsVisibleInTree()).ToArray();
             var quit = menu.GetNode<Button>("%QuitGame");
-            Require(buttons.Length == 2 && buttons.Contains(quit) && !quit.Disabled && quit.Text == "退出" &&
-                buttons.Contains(menu.GetNode<Button>("%Settings")) && !menu.GetNode<Button>("%NewGame").Visible,
-                "默认菜单须提供设置、退出，且不得显示新游戏。");
+            foreach (var name in new[] { "%NewGame", "%Example", "%Saves", "%Settings", "%QuitGame" })
+            {
+                var button = menu.GetNode<Button>(name);
+                Require(button.IsVisibleInTree() && !button.Disabled,
+                    $"生产菜单须提供可用的 {name} 按钮。");
+            }
+            Require(quit.Text == "退出", "Main menu must expose the quit button.");
             quit.EmitSignal(BaseButton.SignalName.Pressed);
             Require(requests == 1, "Quit button signal did not reach App's quit request.");
         }
         finally { await fixture.Cleanup(); }
+    }
+
+    [Test]
+    public async Task Example_menu_input_restores_an_unsaved_paused_world()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var input = new UiTestInput(TestScene);
+        var source = Godot.FileAccess.GetFileAsString(Train.App.App.ExampleSavePath);
+        using var json = JsonDocument.Parse(source);
+        var header = json.RootElement.GetProperty("Header");
+        try
+        {
+            var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
+            await FramesUntil(TestScene, () => !app.Host!.IsBusy);
+            await input.Frames();
+            var menu = app.GetNode<MainMenu>("MainMenu");
+            await input.Activate(menu.GetNode<Button>("%Example"));
+            await FramesUntil(TestScene, () => app.Saves!.Status is not null && !app.Saves.IsBusy);
+            await FramesUntil(TestScene, () => app.GetNode<MacroMap>("GameUi/Root/World/MacroMap").IsVisibleInTree());
+            var status = app.Host!.GetStatus()!;
+            var save = app.Saves!.Status!;
+            Require(save.Identity.Id != header.GetProperty("Id").GetGuid() &&
+                save.Identity.Name == header.GetProperty("Name").GetString() && save.Unsaved,
+                "示例启动未生成新 UUID、保留原名称或标记未保存。");
+            Require(status.View.Position == new SimulationPosition(200, 0) && status.IsPaused &&
+                !menu.IsVisibleInTree() && app.GetNode<MacroMap>("GameUi/Root/World/MacroMap").IsVisibleInTree(),
+                "示例菜单输入未恢复到 200:0 的暂停宏观地图。");
+            Require(Godot.FileAccess.GetFileAsString(Train.App.App.ExampleSavePath) == source,
+                "示例启动修改了原存档。");
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
+    [Test]
+    public async Task Example_read_and_decode_failures_are_visible()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var path = Path.Combine(OS.GetUserDataDir(), "invalid-example-" + Guid.NewGuid() + ".json");
+        try
+        {
+            var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
+            await FramesUntil(TestScene, () => !app.Host!.IsBusy);
+            var panel = app.GetNode<MainMenu>("MainMenu").GetChildren().OfType<SavePanel>().Single();
+            foreach (var invalidJson in new[] { false, true })
+            {
+                if (invalidJson) File.WriteAllText(path, "not JSON");
+                var failure = app.StartExample(path);
+                Require(failure is not null && panel.Visible && panel.FindChildren("*", "Label", true, false)
+                    .Cast<Label>().Any(label => label.Text == failure.Message),
+                    "示例读取或解码失败未通过存档面板显示。");
+                Require(app.Host!.GetStatus() is null, "损坏示例创建了活动会话。");
+                panel.Hide();
+            }
+        }
+        finally
+        {
+            try { await fixture.Cleanup(); }
+            finally { if (File.Exists(path)) File.Delete(path); }
+        }
     }
 
     [Test]
@@ -82,13 +149,15 @@ public class AppTests(Node testScene) : TestClass(testScene)
         try
         {
             var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
-            Require(app.CurrentContent is { Generation: > 0 }, "App did not publish initial content.");
-            var grain = app.CurrentContent!.Voxels[new VoxelDefinitionId("core", "grain")];
-            const string imagePath = "voxels/grain/placeholder.png";
-            var presentation = grain.Definition.Presentation;
-            Require(presentation.IconPath == imagePath && presentation.TopPath == imagePath && presentation.SidePath == imagePath && presentation.BottomPath == imagePath,
-                "Grain presentation paths were not loaded.");
-            Require(grain.PresentationImages.Count == 1 && grain.PresentationImages[imagePath] is { Width: > 0, Height: > 0 }, "Godot PNG decoder did not produce the grain image.");
+            await FramesUntil(TestScene, () => !app.Host!.IsBusy);
+            var content = app.Host!.Content;
+            Require(content is { Generation.Value: > 0 }, "App did not publish initial content.");
+            Require(content!.FindVoxelDisplay(new("core:staple-food")) is ContentLookup<VoxelDisplayProjection>.Found,
+                "Built-in staple food was not loaded.");
+            var display = ((ContentLookup<VoxelDisplayProjection>.Found)content.FindVoxelDisplay(new("core:staple-food"))).Value;
+            Require(display.Icon is { } icon && content.FindAsset(icon) is ContentLookup<ContentAsset>.Found
+                { Value.Metadata: AssetMetadata.Png { Width: > 0, Height: > 0 } },
+                "Godot PNG decoder did not produce the built-in icon.");
         }
         finally { await fixture.Cleanup(); }
     }
@@ -99,18 +168,26 @@ public class AppTests(Node testScene) : TestClass(testScene)
         var tree = TestScene.GetTree();
         var fixture = new Fixture(tree);
         var directory = Path.Combine(OS.GetUserDataDir(), "mods", "engine-input-" + Guid.NewGuid().ToString("N"));
+        var id = Guid.NewGuid();
         try
         {
+            ContentFixture.WriteMod(directory, id);
             var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
-            var before = app.CurrentContent!;
-            ContentFixture.WriteMod(directory);
+            await FramesUntil(TestScene, () => !app.Host!.IsBusy);
+            var before = app.Host!.Content!;
+            Require(before.FindVoxelDisplay(new(id.ToString("D") + ":engine-food")) is ContentLookup<VoxelDisplayProjection>.Found,
+                "Production composition did not enable the installed Mod.");
+            var path = Path.Combine(directory, "resources/voxels/engine-food.voxel.json");
+            var definition = JsonNode.Parse(File.ReadAllText(path))!;
+            definition["simulation"]!["value"] = 13;
+            File.WriteAllText(path, definition.ToJsonString());
             Require(InputMap.HasAction(Train.App.App.ReloadContentAction), "reload_content input action is missing.");
             using var input = new InputEventAction { Action = Train.App.App.ReloadContentAction, Pressed = true };
             Input.ParseInputEvent(input);
             Input.FlushBufferedEvents();
-            for (var frame = 0; frame < 3 && app.CurrentContent!.Generation == before.Generation; frame++)
-                await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
-            Require(app.CurrentContent!.Generation == before.Generation + 1, "reload_content input did not publish one new generation.");
+            await FramesUntil(TestScene, () => !app.Host.IsBusy && app.Host.Content!.Generation != before.Generation);
+            Require(app.Host.Content!.Generation.Value == before.Generation.Value + 1 && app.Host.Content.Core.Identity != before.Core.Identity,
+                "reload_content input did not publish the modified Mod exactly once.");
         }
         finally
         {
@@ -121,4 +198,5 @@ public class AppTests(Node testScene) : TestClass(testScene)
             finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
         }
     }
+
 }

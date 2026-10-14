@@ -111,9 +111,11 @@ internal sealed class SaveService : IDisposable
     private SaveFailure? StartWrite(WriteKind kind, SaveIdentity? target = null, string? path = null,
         bool overwrite = true, bool leaving = false)
     {
+        if (_host.GetStatus() is { IsReplay: true } && kind != WriteKind.Export)
+            return Fail("replay_read_only", "重放只允许显式导出边界为普通存档。");
         if (_read is not null || _import is not null || _restore is not null || (!leaving && _leave is not null))
             return Fail("busy", "正在处理其他存档操作。");
-        var status = Status;
+        var status = _host.GetStatus();
         if (status is null) return Fail("no-session", "当前没有对局。");
         if (_writes.Any(write => write.Capture.Binding == status.Binding)) return Fail("busy", "当前对局正在写入存档。");
         var (capture, failure) = _host.CaptureSave();
@@ -136,6 +138,9 @@ internal sealed class SaveService : IDisposable
     }
 
     internal SaveFailure? Load(SaveEntry entry) => RequestLeave(() => StartRead(entry));
+
+    internal SaveFailure? StartExample(SaveDocument document) => RequestLeave(() =>
+        StartRestore(document, new(Guid.NewGuid(), document.Header.Name), unsaved: true));
 
     private void StartRead(SaveEntry entry)
     {
@@ -295,13 +300,24 @@ internal sealed class SaveService : IDisposable
         try
         {
             var document = read.Work.GetAwaiter().GetResult();
-            var begun = _host.BeginRestore(document.CorePayload, document.ContentPayload, _host.SessionOptions!,
-                new(document.Header.Id, document.Header.Name), read.Entry.Automatic);
-            if (begun.Problem is { } problem) Fail(problem.Code, "无法开始读档。");
-            else _restore = begun.Operation;
+            StartRestore(document, new(document.Header.Id, document.Header.Name), read.Entry.Automatic);
         }
         catch (Exception error) { ReportFileFailure(error); }
         Changed?.Invoke();
+    }
+
+    private void StartRestore(SaveDocument document, SaveIdentity identity, bool unsaved)
+    {
+        if (_host.SessionOptions is not { } options)
+        { Fail("session-options-unavailable", "宿主尚未配置会话环境。"); return; }
+        var begun = _host.BeginRestore(document.CorePayload, document.ContentPayload, options, identity, unsaved);
+        if (begun.Problem is { } problem) Fail(problem.Code, "无法开始读档。");
+        else
+        {
+            _restore = begun.Operation;
+            LastMessage = "正在读取存档…";
+            Changed?.Invoke();
+        }
     }
 
     private void PumpImport()

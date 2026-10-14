@@ -38,7 +38,7 @@ internal sealed class PackageLoader(C.ContentInstallation installation, C.IConte
                 continue;
             }
             var path = package.Prefix + "mod.json";
-            var read = files.Read(new(package.Root, path), 1024 * 1024);
+            var read = files.Read(new(package.Root, path), ContentLimits.JsonFileMaxBytes);
             if (read is C.ContentIoResult<ImmutableArray<byte>>.Failure readFailure)
                 package.Reject(ContentDocument.IoCode(readFailure.Kind), path, "", readFailure.Diagnostic);
             else
@@ -150,7 +150,7 @@ internal sealed class PackageLoader(C.ContentInstallation installation, C.IConte
             package.Reject("unsupported_format", path, "/schema_version", "manifest 只支持 schema_version 2。");
         var id = Text(root, "id", 100, trim: false);
         var canonical = "";
-        if (id?.Length != 36 || !ModManifest.TryCanonicalUuid(id, out canonical)) Invalid("/id");
+        if (id?.Length != 36 || !PackageIdentity.TryCanonicalUuid(id, out canonical)) Invalid("/id");
         var name = Text(root, "name", 100);
         var version = Text(root, "version", int.MaxValue, trim: false);
         if (!SemVer.IsValid(version)) Invalid("/version");
@@ -182,7 +182,7 @@ internal sealed class PackageLoader(C.ContentInstallation installation, C.IConte
                 var dependency = Text(value, "id", 100, trim: false, prefix: field);
                 var minimum = Text(value, "min_version", int.MaxValue, trim: false, prefix: field);
                 Text(value, "name", 100, true, prefix: field);
-                if (dependency != "core" && (dependency?.Length != 36 || !ModManifest.TryCanonicalUuid(dependency, out _))) Invalid(field + "/id");
+                if (dependency != "core" && (dependency?.Length != 36 || !PackageIdentity.TryCanonicalUuid(dependency, out _))) Invalid(field + "/id");
                 if (!SemVer.IsValid(minimum)) Invalid(field + "/min_version");
                 if (dependency == id || dependencies.Any(d => d.Package.Value == dependency)) Invalid(field + "/id");
                 if (dependency is not null && minimum is not null) dependencies.Add(new(new(dependency), minimum));

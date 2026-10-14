@@ -173,6 +173,24 @@ public sealed class WorldPackageTests
             d.Field == expectedField && d.Source?.Path == path));
     }
 
+    [TestMethod]
+    [DataRow("weight", "0", "/simulation/weight")]
+    [DataRow("weight", "1.5", "/simulation/weight")]
+    [DataRow("population_min", "0", "/simulation/population_min")]
+    [DataRow("population_min", "201", "/simulation/population_max")]
+    [DataRow("population_max", "0", "/simulation/population_max")]
+    [DataRow("preferred_terrain", "[\"plains\",\"plains\"]", "/simulation/preferred_terrain")]
+    [DataRow("preferred_terrain", "[\"plains\",\"core:plains\"]", "/simulation/preferred_terrain")]
+    public void Invalid_settlement_type_simulation_reports_its_field(string field, string replacement, string pointer)
+    {
+        var fixture = WorldContentFixtures.Content();
+        const string path = "resources/settlement-types/farm.settlement-type.json";
+        WorldContentFixtures.Change(fixture, path, json => json["simulation"]![field] = JsonNode.Parse(replacement));
+        var failure = WorldContentFixtures.Failure(fixture.Prepare());
+        Assert.IsTrue(failure.Diagnostics.Any(d => d.Code == "invalid_field" && d.Field == pointer &&
+            d.Source == new C.ContentSourceLocation(new("core"), path)));
+    }
+
     private static JsonObject Manifest(string id) => new()
     {
         ["schema_version"] = 2, ["id"] = id, ["name"] = "世界配置扩展", ["version"] = "1.0.0", ["authors"] = new JsonArray("test")

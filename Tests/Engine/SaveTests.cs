@@ -177,19 +177,6 @@ public class SaveTests(Node testScene) : TestClass(testScene)
                 "保存没有同时捕获核心与内容。");
             Require(panel.FindChildren("*", "Label", true, false).Cast<Label>().Any(label =>
                 label.GetWindow() == panel && label.Text == "保存完成。"), "列表诊断覆盖了保存结果。");
-            Require(app.Host!.RenameSave("changed before failed save") is null, "无法准备保存失败的未保存状态。");
-            var original = File.ReadAllBytes(store.PathFor(first.Identity.Id));
-            using (var locked = new FileStream(store.PathFor(first.Identity.Id), FileMode.Open, System.IO.FileAccess.ReadWrite, FileShare.None))
-            {
-                Press(panel, "保存");
-                await _input.WaitUntil(() => !saves.HasPendingWork);
-                Require(saves.Status!.Unsaved && !string.IsNullOrWhiteSpace(saves.LastMessage), "写盘失败没有保留未保存状态及原因。");
-                Require(panel.FindChildren("*", "Label", true, false).Cast<Label>().Any(label =>
-                    label.GetWindow() == panel && label.Text == saves.LastMessage), "面板未显示保存失败原因。");
-                Require(panel.FindChildren("*", "Label", true, false).Cast<Label>().Any(label =>
-                    label.GetWindow() == panel && label.Text.StartsWith("存档列表：", StringComparison.Ordinal)), "列表诊断未独立显示。");
-            }
-            Require(original.SequenceEqual(File.ReadAllBytes(store.PathFor(first.Identity.Id))), "保存失败改写了旧目标。");
             Press(panel, "另存为");
             var nameDialog = Dialog<AcceptDialog>(panel, "另存为");
             var name = "engine-save-" + Guid.NewGuid().ToString("N");
@@ -237,6 +224,82 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             Require(saves.Status is null, "返回菜单后仍保留活动会话。");
         }
         finally { await Cleanup(fixture, app, owned); }
+    }
+
+    [Test]
+    public async Task Save_button_publication_failure_preserves_unsaved_status_identity_message_and_old_file()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var setup = new SaveSetup();
+        var owned = new HashSet<Guid>();
+        Train.App.App? app = null;
+        SaveService? saves = null;
+        SavePanel? panel = null;
+        try
+        {
+            app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
+            app.CreateHost = setup.Create;
+            await fixture.AddToRoot(app);
+            await _input.WaitUntil(() => app.Saves!.Status is not null);
+            owned.Add(app.Saves!.Status!.Identity.Id);
+            const string reason = "injected save publication failure";
+            var failPublication = false;
+            var store = new FileSaveStore(OS.GetUserDataDir(), FileSaveStore.WriteCandidate, (candidate, target, overwrite) =>
+            {
+                if (failPublication) throw new IOException(reason);
+                File.Move(candidate, target, overwrite);
+            });
+            var damagedId = Guid.NewGuid();
+            owned.Add(damagedId);
+            Directory.CreateDirectory(store.DirectoryFor(damagedId));
+            File.WriteAllText(store.PathFor(damagedId), "{}");
+            saves = new SaveService(app.Host!, store);
+            panel = new SavePanel();
+            app.AddChild(panel);
+            panel.Configure(saves);
+            panel.Open();
+            await _input.Frames();
+            Press(panel, "保存");
+            await _input.WaitUntil(() => { saves.Process(); return !saves.HasPendingWork; });
+            Require(!saves.Status!.Unsaved, "首次真实保存没有确认已保存状态。");
+            Require(app.Host!.RenameSave("changed before failed save") is null, "无法准备保存失败的未保存状态。");
+            var before = saves.Status!;
+            var original = File.ReadAllBytes(store.PathFor(before.Identity.Id));
+            failPublication = true;
+            await _input.WaitUntil(() => !UiTestInput.SaveButton(panel, "保存").Disabled);
+            Press(panel, "保存");
+            await _input.WaitUntil(() => { saves.Process(); return !saves.HasPendingWork; });
+            Require(saves.Status!.Unsaved && saves.Status.Identity == before.Identity &&
+                saves.LastMessage?.Contains(reason, StringComparison.Ordinal) == true,
+                "写盘失败没有保留未保存状态、存档身份及注入的原因。");
+            Require(panel.FindChildren("*", "Label", true, false).Cast<Label>().Any(label =>
+                label.GetWindow() == panel && label.IsVisibleInTree() && label.Text == saves.LastMessage), "面板未显示保存失败原因。");
+            Require(panel.FindChildren("*", "Label", true, false).Cast<Label>().Any(label =>
+                label.GetWindow() == panel && label.IsVisibleInTree() &&
+                label.Text.StartsWith("存档列表：", StringComparison.Ordinal)), "列表诊断未独立显示。");
+            Require(original.SequenceEqual(File.ReadAllBytes(store.PathFor(before.Identity.Id))), "保存失败改写了旧目标。");
+        }
+        finally
+        {
+            try
+            {
+                if (saves is not null)
+                {
+                    saves.Cancel();
+                    await _input.WaitUntil(() => { saves.Process(); return !saves.HasPendingWork; });
+                }
+            }
+            finally
+            {
+                if (panel is not null)
+                {
+                    panel.GetParent()?.RemoveChild(panel);
+                    panel.Free();
+                }
+                saves?.Dispose();
+                await Cleanup(fixture, app, owned);
+            }
+        }
     }
 
     [Test]

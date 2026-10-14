@@ -21,7 +21,7 @@ try
         .WithArtifactsPath(artifacts)
         .AddJob(Job.Default.WithLaunchCount(1).WithWarmupCount(3).WithIterationCount(15)
             .WithInvocationCount(1).WithUnrollFactor(1));
-    var summary = BenchmarkRunner.Run<ResourceSimulationBenchmark>(config);
+    var summary = BenchmarkRunner.Run<TrainLoopBenchmark>(config);
     var report = summary.Reports.SingleOrDefault();
     if (summary.HasCriticalValidationErrors || report is null || !report.Success ||
         report.ResultStatistics is not { } statistics || !double.IsFinite(statistics.Mean) || statistics.Mean <= 0)
@@ -32,10 +32,10 @@ try
 
     var result = new
     {
-        workload = "resource-simulation-v1",
+        workload = "core-train-loop-v1",
         measuredAtUtc = DateTimeOffset.UtcNow,
-        entityCount = ResourceSimulationBenchmark.EntityCount,
-        stepsPerBatch = ResourceSimulationBenchmark.StepsPerBatch,
+        trainCount = TrainLoopBenchmark.TrainCount,
+        stepsPerBatch = TrainLoopBenchmark.StepsPerBatch,
         meanNanosecondsPerStep = statistics.Mean,
         standardDeviationNanosecondsPerStep = statistics.StandardDeviation,
         sampleCount = statistics.N,

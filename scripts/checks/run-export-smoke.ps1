@@ -16,7 +16,7 @@ foreach ($name in @('APPDATA', 'LOCALAPPDATA', 'TRAIN_LOG_LEVEL')) { $environmen
 $watch = [Diagnostics.Stopwatch]::StartNew()
 try {
     $env:TRAIN_LOG_LEVEL = 'info'
-    $emptyAccepted = $null
+    $emptyPackages = $null
     foreach ($case in @('empty', 'mod')) {
         $ownsUserData = $false
         $userData = $null
@@ -31,13 +31,15 @@ try {
             if ($case -eq 'mod') {
                 $mod = Join-Path $userData 'mods/smoke-fixture'
                 $resources = Join-Path $mod 'resources/voxels'
-                New-Item -ItemType Directory -Path (Join-Path $resources 'grain') -Force | Out-Null
-                @{ schema_version = 1; id = '550e8400-e29b-41d4-a716-446655440000'; name = 'Export smoke'; version = '1.0.0'; authors = @('Tests') } |
+                New-Item -ItemType Directory -Path (Join-Path $resources 'shared') -Force | Out-Null
+                @{ schema_version = 2; id = '550e8400-e29b-41d4-a716-446655440000'; name = 'Export smoke'; version = '1.0.0'; authors = @('Tests') } |
                     ConvertTo-Json | Set-Content (Join-Path $mod 'mod.json')
-                $definition = Get-Content (Join-Path $root 'builtin/legacy-host/resources/voxels/grain.voxels.json') -Raw | ConvertFrom-Json
-                $definition.voxels[0].id = 'smoke-grain'
-                $definition | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $resources 'smoke-grain.voxels.json')
-                Copy-Item -LiteralPath (Join-Path $root 'builtin/legacy-host/resources/voxels/grain/placeholder.png') -Destination (Join-Path $resources 'grain/placeholder.png')
+                $definition = Get-Content (Join-Path $root 'builtin/core/resources/voxels/staple-food.voxel.json') -Raw | ConvertFrom-Json
+                $definition.id = 'smoke-food'
+                $definition | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $resources 'smoke-food.voxel.json')
+                foreach ($image in @('organic-icon.png', 'organic-face.png')) {
+                    Copy-Item -LiteralPath (Join-Path $root "builtin/core/resources/voxels/shared/$image") -Destination (Join-Path $resources "shared/$image")
+                }
             }
             $remaining = [int] [Math]::Floor($TimeoutSeconds - $watch.Elapsed.TotalSeconds)
             if ($remaining -lt 1) { throw 'Export smoke exhausted its time budget.' }
@@ -46,18 +48,32 @@ try {
             $result.Output | Set-Content (Join-Path $directory 'process.log')
             Write-Host $result.Output
             if ($result.ExitCode -ne 0 -or $result.TimedOut -or -not $result.CleanupSucceeded) { throw "Export smoke $case failed (exit=$($result.ExitCode), timeout=$($result.TimedOut))." }
+            $errors = @(Get-Content -LiteralPath (Join-Path $directory 'godot.log') | Where-Object { $_ -match '^\s*(?:SCRIPT |USER |FATAL )?ERROR:' })
+            if ($errors.Count) { throw "Export smoke $case reported engine or script errors: $($errors -join '; ')" }
             $logs = @(Get-ChildItem -LiteralPath (Join-Path $userData 'logs') -Filter 'train-session-*.jsonl' -File)
             if ($logs.Count -ne 1) { throw "Export smoke $case did not produce one JSONL session." }
             $events = @(Get-Content -LiteralPath $logs[0].FullName | ForEach-Object { $_ | ConvertFrom-Json })
             $reload = $events | Where-Object { $_.level -eq 'info' -and $_.event_id -eq 'content_reload_summary' } | Select-Object -Last 1
             if (-not $reload -or $reload.attributes.status -notin @('Committed', 'CommittedWithWarnings')) { throw "Export smoke $case did not commit content." }
             Write-Host "$case reload: $($reload | ConvertTo-Json -Depth 10 -Compress)"
-            if ($case -eq 'empty') { $emptyAccepted = [int] $reload.attributes.accepted }
+            $smoke = $events | Where-Object { $_.level -eq 'info' -and $_.event_id -eq 'application_smoke_summary' } | Select-Object -Last 1
+            if (-not $smoke -or $smoke.attributes.passed -ne $true -or 'core' -notin $smoke.attributes.packages -or
+                'core:staple-food' -notin $smoke.attributes.voxels) { throw "Export smoke $case did not validate the production content and PNG." }
+            $sourceId = [Guid]::Empty
+            $saveId = [Guid]::Empty
+            if (-not [Guid]::TryParse([string]$smoke.attributes.example_source_id, [ref]$sourceId) -or
+                -not [Guid]::TryParse([string]$smoke.attributes.save_id, [ref]$saveId) -or $sourceId -eq $saveId -or
+                $smoke.attributes.restored -ne $true -or $smoke.attributes.completed_steps -ne 200 -or
+                $smoke.attributes.sequence -ne 0 -or $smoke.attributes.paused -ne $true -or
+                $smoke.attributes.unsaved -ne $true -or $smoke.attributes.example_button_visible -ne $false) {
+                throw "Export smoke $case did not restore the packaged example with a new unsaved identity and hidden player entry."
+            }
+            if ($case -eq 'empty') { $emptyPackages = @($smoke.attributes.packages).Count }
             else {
-                # 源扫描与加载器共用此事件 ID；isolated_count 只在加载器的最终汇总中出现。
-                $mods = $events | Where-Object { $_.level -eq 'info' -and $_.event_id -eq 'content_mods_scan_summary' -and $_.attributes.PSObject.Properties.Name -contains 'isolated_count' } | Select-Object -Last 1
-                Write-Host "mod scan: $($mods | ConvertTo-Json -Depth 10 -Compress)"
-                if (-not $mods -or $mods.attributes.accepted_count -ne 1 -or $mods.attributes.isolated_count -ne 0 -or [int] $reload.attributes.accepted -ne $emptyAccepted + 1) {
+                Write-Host "mod content: $($smoke | ConvertTo-Json -Depth 10 -Compress)"
+                if ('550e8400-e29b-41d4-a716-446655440000' -notin $smoke.attributes.packages -or
+                    '550e8400-e29b-41d4-a716-446655440000:smoke-food' -notin $smoke.attributes.voxels -or
+                    @($smoke.attributes.packages).Count -ne $emptyPackages + 1) {
                     throw 'Export smoke did not load the valid Mod fixture into published content.'
                 }
             }

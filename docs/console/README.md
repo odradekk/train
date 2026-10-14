@@ -1,21 +1,22 @@
 # 控制台命令手册
 
-本页记录当前基础控制台分发器提供的五个命令，以及 Debug 游戏宿主接入的模拟、列车和光照检查命令：
+本页记录当前基础控制台分发器提供的五个命令，以及 Debug 游戏宿主接入的模拟、列车、光照和开发检查命令：
 
 | 命令 | 用途 |
 | --- | --- |
 | [help](help.md) | 列出当前可用命令名称 |
 | [clear](clear.md) | 清空内存中的控制台日志缓冲区 |
-| [quit](quit.md) | 委托宿主处理退出；新契约宿主接入存档离开保护 |
+| [quit](quit.md) | 委托宿主处理退出；宿主接入存档离开保护 |
 | [reload](reload.md) | 委托宿主重新加载内容 |
 | [loglevel](loglevel.md) | 查询或设置日志过滤等级 |
 | [sim](sim.md) | 查询或控制当前活动模拟会话（仅 Debug） |
-| [train](train.md) | 编组、解编、启停列车和替换运行计划（仅 Debug 且接入新 Host） |
+| [train](train.md) | 编组、解编、启停列车和替换运行计划（仅 Debug） |
 | [lighting](lighting.md) | 查询、切换检查光照并恢复游戏光照（仅 Debug） |
+| [dev](dev.md) | 打开或关闭开发检查器（仅 Debug） |
 
-玩家构建的 `help` 列表不包含 `reload`、`sim`、`train` 或 `lighting`；Debug 游戏宿主列出五个基础命令与 `sim`、`lighting`，接入新 `HostCoordinator` 时另列出 `train`。`sim` 在默认旧模拟入口也可用。编辑器内运行和 debug 模板导出均为开发构建，release 模板导出为玩家构建。
+玩家构建的 `help` 列表不包含 `reload`、`sim`、`train`、`lighting` 或 `dev`；Debug 游戏宿主列出 `help, clear, quit, reload, loglevel, sim, train, lighting, dev`。编辑器内运行和 debug 模板导出均为开发构建，release 模板导出为玩家构建。
 
-默认 App 仍使用旧模拟和内容加载入口；新 `HostCoordinator` 与契约命令通过实例级 `CreateHost` 测试装配委托接入，尚未连接真实工厂。按[用户拆票决定](https://github.com/odradekk/train/issues/317#issuecomment-6136143469)，#317 交付协调器，生产切换与旧入口删除归 #424。两条路径的差异见 [`sim`](sim.md) 和 [`reload`](reload.md)。
+默认 App 通过 `App/Composition/` 装配真实工厂，使用 `HostCoordinator` 与契约命令。模拟控制及内容重载行为见 [`sim`](sim.md) 和 [`reload`](reload.md)。
 
 ## 输入规则
 
@@ -29,4 +30,4 @@
 
 ## 实现依据
 
-基础分发器见 [`App/Console/ConsoleCommands.cs`](../../App/Console/ConsoleCommands.cs)，默认旧路径的模拟命令见 [`App/LegacySimulationConsoleCommands.cs`](../../App/LegacySimulationConsoleCommands.cs)，新契约路径见 [`App/SimulationConsoleCommands.cs`](../../App/SimulationConsoleCommands.cs) 与 [`App/HostCoordinator.cs`](../../App/HostCoordinator.cs)，游戏内界面见 [`Ui/GameConsole.cs`](../../Ui/GameConsole.cs)。宿主将退出、清屏、内容重载及可选的模拟命令回调交给分发器，再将分发器与日志缓冲传入界面；界面从 `RingBufferLogSink` 读取显示内容。
+基础分发器见 [`App/Console/ConsoleCommands.cs`](../../App/Console/ConsoleCommands.cs)，模拟命令与宿主协调见 [`App/SimulationConsoleCommands.cs`](../../App/SimulationConsoleCommands.cs) 与 [`App/HostCoordinator.cs`](../../App/HostCoordinator.cs)，游戏内界面见 [`Ui/GameConsole.cs`](../../Ui/GameConsole.cs)。宿主将退出、清屏、内容重载及可选的模拟命令回调交给分发器，再将分发器与日志缓冲传入界面；界面从 `RingBufferLogSink` 读取显示内容。

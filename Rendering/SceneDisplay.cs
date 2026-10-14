@@ -12,6 +12,7 @@ internal sealed class SceneDisplay : IDisposable
     private readonly AssetResourceCache _cache;
     private Dictionary<SceneObjectId, DisplayObject> _objects = [];
     private FogGroup? _fog;
+    private DebugLineGroup? _debugLines;
     private bool _disposed;
 
     internal Node3D Root { get; } = new() { Name = "SceneDisplay" };
@@ -35,6 +36,7 @@ internal sealed class SceneDisplay : IDisposable
         var created = new List<PreparedVisual>();
         var roots = new List<Node3D>();
         FogGroup? fog = null;
+        DebugLineGroup? debugLines = null;
         try
         {
             foreach (var id in update.Removed) next.Remove(id);
@@ -62,13 +64,18 @@ internal sealed class SceneDisplay : IDisposable
                     throw new InvalidOperationException("显示对象的父对象不存在。");
             if (_fog is null || !_fog.Regions.SequenceEqual(update.Environment.FoggedRegions))
                 fog = new(update.Environment.FoggedRegions);
-            return new(this, frame, next, created, roots, fog ?? _fog!, fog is not null);
+            if (!frame.DebugLines.IsEmpty &&
+                (_debugLines is null || !_debugLines.Lines.SequenceEqual(frame.DebugLines)))
+                debugLines = new(frame.DebugLines);
+            return new(this, frame, next, created, roots, fog ?? _fog!, fog is not null,
+                frame.DebugLines.IsEmpty ? null : debugLines ?? _debugLines, debugLines is not null);
         }
         catch
         {
             foreach (var visual in created) visual.Dispose();
             foreach (var root in roots) root.Free();
             fog?.Dispose();
+            debugLines?.Dispose();
             throw;
         }
     }
@@ -114,6 +121,12 @@ internal sealed class SceneDisplay : IDisposable
         }
         _fog = prepared.Fog;
         _objects = next;
+        if (!ReferenceEquals(_debugLines, prepared.DebugLines))
+        {
+            _debugLines?.Dispose();
+            _debugLines = prepared.DebugLines;
+            if (_debugLines is not null) Root.AddChild(_debugLines.Root);
+        }
         prepared.Transferred = true;
         foreach (var item in old.Values)
         {
@@ -141,6 +154,8 @@ internal sealed class SceneDisplay : IDisposable
         _objects.Clear();
         _fog?.Dispose();
         _fog = null;
+        _debugLines?.Dispose();
+        _debugLines = null;
         Root.Free();
         _resources.Dispose();
         DisplayedFrame = null;
@@ -148,13 +163,14 @@ internal sealed class SceneDisplay : IDisposable
 
     internal sealed class PreparedFrame(SceneDisplay owner, ISceneFrame frame,
         Dictionary<SceneObjectId, DisplayObject> objects, List<PreparedVisual> visuals,
-        List<Node3D> roots, FogGroup fog, bool ownsFog) : IDisposable
+        List<Node3D> roots, FogGroup fog, bool ownsFog, DebugLineGroup? debugLines, bool ownsDebugLines) : IDisposable
     {
         internal bool Transferred { get; set; }
         private bool _disposed;
         internal ISceneFrame Frame { get; } = frame;
         internal Dictionary<SceneObjectId, DisplayObject> Objects { get; } = objects;
         internal FogGroup Fog { get; } = fog;
+        internal DebugLineGroup? DebugLines { get; } = debugLines;
         internal void Commit()
         {
             owner.Commit(this);
@@ -166,6 +182,44 @@ internal sealed class SceneDisplay : IDisposable
             foreach (var visual in visuals) visual.Dispose();
             foreach (var root in roots) if (GodotObject.IsInstanceValid(root)) root.Free();
             if (ownsFog) Fog.Dispose();
+            if (ownsDebugLines) DebugLines?.Dispose();
+        }
+    }
+
+    internal sealed class DebugLineGroup : IDisposable
+    {
+        internal System.Collections.Immutable.ImmutableArray<SceneDebugLine> Lines { get; }
+        internal MeshInstance3D Root { get; } = new()
+        {
+            Name = "DebugLines", CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
+        };
+        private readonly ImmediateMesh _mesh = new();
+        private readonly StandardMaterial3D _material = new()
+        {
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            VertexColorUseAsAlbedo = true,
+            Transparency = BaseMaterial3D.TransparencyEnum.Alpha
+        };
+
+        internal DebugLineGroup(System.Collections.Immutable.ImmutableArray<SceneDebugLine> lines)
+        {
+            Lines = lines;
+            Root.Mesh = _mesh;
+            _mesh.SurfaceBegin(Mesh.PrimitiveType.Lines, _material);
+            foreach (var line in lines)
+            {
+                _mesh.SurfaceSetColor(new(line.Color.X, line.Color.Y, line.Color.Z, line.Color.W));
+                _mesh.SurfaceAddVertex(ToGodot(line.From));
+                _mesh.SurfaceAddVertex(ToGodot(line.To));
+            }
+            _mesh.SurfaceEnd();
+        }
+
+        public void Dispose()
+        {
+            Root.Free();
+            _mesh.Dispose();
+            _material.Dispose();
         }
     }
 
