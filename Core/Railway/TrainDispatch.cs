@@ -25,7 +25,7 @@ internal sealed class TrainDispatch
             .GroupBy(t => { var p = (TrainPosition.Edge)t.Position; return (p.Id, p.Track); })
             .ToDictionary(g => g.Key, g => g.ToList());
         _platforms = world.Nodes.ToDictionary(n => n.Id, n => world.OccupiedPlatforms(n.Id));
-        _platformHolders = world.Trains.Where(t => t.Activity == TrainActivity.Servicing && NeedsPlatform(world, t))
+        _platformHolders = world.Trains.Where(t => HoldsPlatform(world, t))
             .Select(t => t.Id).ToHashSet();
         foreach (var train in world.Trains)
             if (RequestedEdge(world, content, train, _capabilities[train.Id]) is { } edge)
@@ -40,6 +40,9 @@ internal sealed class TrainDispatch
     internal static bool NeedsPlatform(WorldState world, TrainState train)
         => train.Position is TrainPosition.Node node
             && world.Nodes.Single(n => n.Id == node.Id).Occupant is NodeOccupant.Settlement { Relation: not SettlementRelation.Hostile };
+
+    internal static bool HoldsPlatform(WorldState world, TrainState train)
+        => train.Activity == TrainActivity.Servicing && NeedsPlatform(world, train);
 
     internal bool TakePlatform(TrainState train, ulong step)
     {
