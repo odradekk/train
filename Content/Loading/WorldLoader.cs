@@ -191,14 +191,15 @@ internal sealed class WorldLoader
         for (var index = 0; index < plots.Length; index++)
         {
             var plot = plots[index];
+            var field = source.Plots[index].SourceField + "/at";
             if (range is not { } bounds || plot.MinX < bounds.MinX || plot.MaxX > bounds.MaxX
                 || plot.MinZ < bounds.MinZ || plot.MaxZ > bounds.MaxZ)
-                package.Reject("invalid_field", source.Path, $"/plots/{index}/at", "地块占地超出场景模型范围。", subject);
+                package.Reject("invalid_field", source.Path, field, "地块占地超出场景模型范围。", subject);
             for (var previous = 0; previous < index; previous++)
             {
                 var other = plots[previous];
                 if (plot.MinX <= other.MaxX && plot.MaxX >= other.MinX && plot.MinZ <= other.MaxZ && plot.MaxZ >= other.MinZ)
-                    package.Reject("invalid_field", source.Path, $"/plots/{index}/at", "地块占地与其他地块重叠。", subject);
+                    package.Reject("invalid_field", source.Path, field, "地块占地与其他地块重叠。", subject);
             }
         }
     }

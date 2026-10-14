@@ -144,4 +144,20 @@ public sealed class PlotValidationTests
         if (valid) { using var candidate = fixture.Load(); }
         else Assert.IsTrue(Failure(fixture.Prepare()).Diagnostics.Any(d => d.Code == "invalid_field" && d.Field.StartsWith("/plots/", StringComparison.Ordinal)));
     }
+
+    [TestMethod]
+    [DataRow(false, "/plots/1/at")]
+    [DataRow(true, "/plots/0/at")]
+    public void Spatial_diagnostics_use_source_array_positions_when_plot_numbers_are_unsorted(bool overlap, string expectedField)
+    {
+        var fixture = WorldContentFixtures.Content();
+        var template = Template();
+        template["plots"] = new JsonArray(
+            new JsonObject { ["id"] = 11, ["size"] = "small", ["at"] = new JsonArray(overlap ? 48 : 0, 0, 0) },
+            new JsonObject { ["id"] = 7, ["size"] = "small", ["at"] = new JsonArray(overlap ? 0 : 500, 0, 0), ["orientation"] = "pz_py" });
+        fixture.AddFile(ContentFixture.BuiltIn, TemplatePath, template.ToJsonString());
+        var diagnostic = Failure(fixture.Prepare()).Diagnostics.Single(d => d.Code == "invalid_field"
+            && d.Field.StartsWith("/plots/", StringComparison.Ordinal));
+        Assert.AreEqual(expectedField, diagnostic.Field);
+    }
 }
