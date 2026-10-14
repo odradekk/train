@@ -70,13 +70,18 @@ public sealed class TemplateConsumer(IScenesFactory factory, ISceneDisplay displ
 public sealed class WorldConsumer(IWorldSceneSession session, ISceneDisplay display) : IAsyncDisposable
 {
     private ISceneFrame? displayedFrame;
+    private ScenePickRaySample? pickRay;
 
     public static SceneResult<IWorldSceneSession> Open(IScenesFactory factory,
         SceneBinding binding, ICoreReadView core, IContentView content)
         => factory.OpenWorld(binding, new SceneWorldSnapshot(core, content));
 
     public SceneResult<SceneRequestId> RequestView(WorldSceneTarget target)
-        => session.RequestView(target);
+    {
+        var result = session.RequestView(target);
+        if (result is SceneResult<SceneRequestId>.Success) pickRay = null;
+        return result;
+    }
 
     public Vector3 ConstrainNodeFocus(Vector3 currentFocus, Vector3 requestedFocus)
     {
@@ -96,7 +101,7 @@ public sealed class WorldConsumer(IWorldSceneSession session, ISceneDisplay disp
         if (observed is SceneResult<SimulationPosition>.Faulted faulted)
             return new SceneResult<ISceneFrame>.Faulted(faulted.Problem);
         var camera = displayedFrame is null ? null : new SceneCameraSample(displayedFrame, cameraFocus);
-        var request = new SceneFrameRequest(interpolation, camera, debugLayers);
+        var request = new SceneFrameRequest(interpolation, camera, debugLayers, pickRay);
         var presented = session.Present(request, displayedFrame);
         if (presented is SceneResult<ISceneFrame>.Success candidate
             && candidate.Value.Readiness != SceneReadiness.Failed
@@ -108,7 +113,10 @@ public sealed class WorldConsumer(IWorldSceneSession session, ISceneDisplay disp
             && (success.Value.Update.Base is null
                 || success.Value.Update.Base == displayedFrame?.Update.Frame)
             && display.TryDisplay(success.Value))
+        {
+            if (pickRay is { } sample && sample.Frame.Update.Frame.Space != success.Value.Update.Frame.Space) pickRay = null;
             displayedFrame = success.Value;
+        }
         return presented;
     }
 
@@ -117,6 +125,7 @@ public sealed class WorldConsumer(IWorldSceneSession session, ISceneDisplay disp
         if (displayedFrame is null)
             return null;
         var picked = displayedFrame.Pick(ray);
+        pickRay = new ScenePickRaySample(displayedFrame, ray);
         showPick(picked);
         return picked is ScenePick.Hit hit ? session.Resolve(hit.Value) : null;
     }

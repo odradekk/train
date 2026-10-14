@@ -1114,7 +1114,7 @@ Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneEffectCue|public sealed 
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneEffectId|public readonly record struct SceneEffectId(ulong Value);
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneEffectKind|public enum SceneEffectKind
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneEnvironment|public sealed record SceneEnvironment(ImmutableArray<SceneBounds> FoggedRegions, ImmutableArray<TerrainCollisionPatch> TerrainCollision);
-Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneFrameRequest|public sealed record SceneFrameRequest(double Interpolation, SceneCameraSample? Camera, SceneDebugLayer DebugLayers);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneFrameRequest|public sealed record SceneFrameRequest(double Interpolation, SceneCameraSample? Camera, SceneDebugLayer DebugLayers, ScenePickRaySample? PickRay = null);
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneFrameStamp|public sealed record SceneFrameStamp(SceneSessionId Session, SceneRequestId Request, SceneSpaceId Space, ulong Revision);
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneHit|public sealed record SceneHit(SceneFrameStamp Frame, SceneObjectId? Object, PickSubject Subject, GridPosition Cell, GridFace Face, Vector3 Point, Vector3 Normal, double DistanceCells, ImmutableArray<int> NestedObjectPath);
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneLight|public sealed record SceneLight(PaintColor Color, double RangeCells, float Damage, ulong Seed);
@@ -1128,6 +1128,7 @@ Train.Scenes.Contracts|type|Train.Scenes.Contracts.ScenePanBounds|public sealed 
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.ScenePick.Hit|public sealed record Hit(SceneHit Value) : ScenePick;
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.ScenePick.Miss|public sealed record Miss : ScenePick;
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.ScenePick.NotReady|public sealed record NotReady : ScenePick;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.ScenePickRaySample|public sealed record ScenePickRaySample(ISceneFrame Frame, SceneRay Ray);
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.ScenePick|public abstract record ScenePick
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.ScenePoint|public readonly record struct ScenePoint(double X, double Y, double Z);
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.ScenePose|public sealed record ScenePose(Vector3 Position, Quaternion Rotation);
