@@ -24,6 +24,8 @@ public partial class WorldPanels : Control
 
     internal event Action<PanelTarget, TrainView, ICoreReadView, IContentView>? PlanRequested;
     internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
+    internal event Action<PanelTarget, SettlementId>? SettlementRequested;
+    internal event Action<PanelTarget, TrainId>? InventoryRequested;
 
     internal void Initialize(HostCoordinator host,
         Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit, Action<string> reportError)
@@ -131,12 +133,21 @@ public partial class WorldPanels : Control
         scroll.AddChild(text); body.AddChild(scroll);
         List<Button> buttons = [];
         if (target is WorldObjectId.Node node)
+        {
             buttons.Add(UiStyle.Button("Form", "编组", () =>
             {
                 if (Available(bound)) FormationRequested?.Invoke(bound, node.Id, _view, _content);
             }, true));
+            if (_view.World.Nodes.FirstOrDefault(item => item.Id == node.Id)?.Occupant is NodeOccupant.Settlement settlement)
+                buttons.Add(UiStyle.Button("Economy", "库存、市场与服务…", () =>
+                {
+                    if (Available(bound)) SettlementRequested?.Invoke(bound, settlement.Id);
+                }));
+        }
         if (target is WorldObjectId.Train train)
         {
+            buttons.Add(UiStyle.Button("Inventory", "列车库存…", () =>
+            { if (Available(bound)) InventoryRequested?.Invoke(bound, train.Id); }));
             buttons.Add(UiStyle.Button("EditPlan", "编辑计划", () =>
             {
                 if (Available(bound) && _view.FindTrain(train.Id) is Lookup<TrainView>.Found found)

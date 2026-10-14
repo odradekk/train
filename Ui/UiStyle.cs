@@ -5,6 +5,14 @@ namespace Train.Ui;
 internal static class UiStyle
 {
     internal static readonly Color Error = new("c9423a");
+    internal static readonly Color Warning = new("d8962a");
+    internal static readonly Color Success = new("2f9e5c");
+
+    internal static FontVariation NumericFont(bool bold = false) => new()
+    {
+        BaseFont = GD.Load<Font>(bold ? "res://Ui/Fonts/NotoSansSC-Bold.otf" : "res://Ui/Fonts/NotoSansSC-Regular.otf"),
+        OpentypeFeatures = new() { ["tnum"] = 1 }
+    };
 
     internal static Button Button(string name, string text, Action clicked, bool primary = false)
     {
