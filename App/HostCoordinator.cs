@@ -67,6 +67,7 @@ internal sealed class HostCoordinator : IDisposable
     internal event Action<HostOperationResult>? OperationEnded;
     internal CoreSessionOptions? SessionOptions { get; }
     internal RuntimeIdentity? Runtime { get { EnsureOwner(); return _active?.Runtime; } }
+    internal double SimulationFrameSeconds { get; private set; }
     internal ReplayRecording? ReplayRecording { get { EnsureOwner(); return _active?.ReplayRecording; } }
     internal NotificationAction LastNotification { get; private set; }
     internal IContentView? Content { get { EnsureOwner(); return _content; } }
@@ -478,6 +479,7 @@ internal sealed class HostCoordinator : IDisposable
     internal void ProcessFrame(double delta)
     {
         EnsureOwner();
+        SimulationFrameSeconds = 0;
         if (_insideBoundary) throw new InvalidOperationException("宿主边界内不能重入帧驱动。");
         var skipAdvance = _skipNextFrame;
         _skipNextFrame = false;
@@ -486,7 +488,10 @@ internal sealed class HostCoordinator : IDisposable
         try
         {
             if (!skipAdvance && _active is { Replay: null } group)
+            {
                 group.Driver.AdvanceFrame(delta, () => AdvanceOne(manual: false));
+                SimulationFrameSeconds = group.Driver.LastFrameWorkSeconds;
+            }
         }
         finally { _insideBoundary = false; }
     }

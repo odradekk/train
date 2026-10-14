@@ -8,6 +8,7 @@ using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.App.Recording;
 using Train.App.Development;
+using Train.App.Measurement;
 using Train.Ui;
 
 namespace Train.App;
@@ -20,6 +21,7 @@ public partial class App : Node
     private TrainLogger? _logger;
     private GodotMainThreadDispatcher? _dispatcher;
     private bool _smoke;
+    private MeasurementRun? _measurement;
     private Guid? _smokeExampleId;
 
     internal TrainLogger Logger => _logger!;
@@ -78,7 +80,13 @@ public partial class App : Node
             AddChild(console);
             _smoke = OS.GetCmdlineUserArgs().Contains("--smoke", StringComparer.Ordinal);
             Host.SetFocused(GetWindow().HasFocus());
-            if (!Host.IsBusy) Host.BeginReload(CommandSource.UserInterface);
+            var arguments = OS.GetCmdlineUserArgs();
+            if (arguments.Any(argument => argument.StartsWith("--measure=", StringComparison.Ordinal)))
+            {
+                _measurement = new(this, arguments);
+                _measurement.Start();
+            }
+            else if (!Host.IsBusy) Host.BeginReload(CommandSource.UserInterface);
         }
         catch (Exception exception)
         {
@@ -156,6 +164,7 @@ public partial class App : Node
         _dispatcher?.Pump();
         Saves?.Process();
         Host?.ProcessFrame(delta);
+        _measurement?.OnSimulationFrame(Host!.SimulationFrameSeconds);
         Development?.Process();
         Recording?.Process();
         // headless 的虚拟窗口始终报告最小化；它仍需执行资源和显示边界检查。
@@ -204,6 +213,8 @@ public partial class App : Node
 
     public override void _ExitTree()
     {
+        _measurement?.Dispose();
+        _measurement = null;
         Development?.Dispose();
         Development = null;
         Recording?.Dispose();

@@ -27,6 +27,7 @@ internal sealed class SimulationFrameDriver(Func<double>? getRealSeconds = null)
     internal SimulationSpeed Speed { get; private set; } = SimulationSpeed.One;
     internal double Remainder { get; private set; }
     internal double ActualSpeed => IsPaused ? 0 : _actualSpeed;
+    internal double LastFrameWorkSeconds { get; private set; }
 
     internal void SetPlayerPaused(bool value) { PlayerPaused = value; ResetSample(); }
     internal void SetFocusPaused(bool value) { FocusPaused = value; ResetSample(); }
@@ -42,6 +43,7 @@ internal sealed class SimulationFrameDriver(Func<double>? getRealSeconds = null)
 
     internal ulong AdvanceFrame(double delta, Func<(uint Completed, bool Stop)> advanceOne)
     {
+        LastFrameWorkSeconds = 0;
         if (IsPaused || !double.IsFinite(delta) || delta <= 0) return 0;
         var scaled = delta * (int)Speed + Remainder;
         var allowance = (ulong)Math.Floor(scaled * SimulationTime.StepsPerSecond + StepRoundingTolerance);
@@ -58,6 +60,7 @@ internal sealed class SimulationFrameDriver(Func<double>? getRealSeconds = null)
             if (result.Completed == 0 || result.Stop || IsPaused || _seconds() - started >= FrameBudgetSeconds) break;
         }
         var now = _seconds();
+        LastFrameWorkSeconds = now - started;
         var elapsed = now - _sampleStarted;
         _actualSpeed = elapsed > 0 ? _sampleSteps / (double)SimulationTime.StepsPerSecond / elapsed : 0;
         if (elapsed >= SpeedSampleSeconds) { _sampleStarted = now; _sampleSteps = 0; }

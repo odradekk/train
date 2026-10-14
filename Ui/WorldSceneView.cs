@@ -80,6 +80,12 @@ internal partial class WorldSceneView : Node3D
     }
 
     internal void SetLoading(bool loading) => _loading.Visible = loading;
+    internal bool SdfgiEnabled => _environment.SdfgiEnabled;
+    internal void SetMeasurementEffects(bool sdfgi, bool taa)
+    {
+        _environment.SdfgiEnabled = sdfgi;
+        GetViewport().UseTaa = taa;
+    }
     internal void SetLighting(InspectionLighting mode)
     {
         Lighting = mode;
