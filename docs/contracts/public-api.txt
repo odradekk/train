@@ -399,10 +399,12 @@ Train.Core.Contracts|enum|global::Train.Core.Contracts.InventoryAccess|ReadWrite
 Train.Core.Contracts|enum|global::Train.Core.Contracts.InventoryAccess|WithdrawOnly|1
 Train.Core.Contracts|enum|global::Train.Core.Contracts.JobFunding|NpcCommission|1
 Train.Core.Contracts|enum|global::Train.Core.Contracts.JobFunding|OwnInventory|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.PlotSize|Giant|3
+Train.Core.Contracts|enum|global::Train.Core.Contracts.PlotSize|LargeStation|5
 Train.Core.Contracts|enum|global::Train.Core.Contracts.PlotSize|Large|2
 Train.Core.Contracts|enum|global::Train.Core.Contracts.PlotSize|Medium|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.PlotSize|SmallStation|4
 Train.Core.Contracts|enum|global::Train.Core.Contracts.PlotSize|Small|0
-Train.Core.Contracts|enum|global::Train.Core.Contracts.PlotSize|Station|3
 Train.Core.Contracts|enum|global::Train.Core.Contracts.PopulationNeedClass|Basic|0
 Train.Core.Contracts|enum|global::Train.Core.Contracts.PopulationNeedClass|Improvement|1
 Train.Core.Contracts|enum|global::Train.Core.Contracts.PopulationNeed|Clothing|1

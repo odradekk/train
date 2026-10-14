@@ -71,7 +71,7 @@ public sealed class TrainRecoveryTests
             return json.RootElement.GetProperty("kind").GetString();
         }).Distinct().ToArray());
         Assert.IsTrue(recording.Commands.All(command => command.Result.Decision is CommandDecision.Accepted));
-        var input = new CoreReplayInput(1, TrainRecoveryFixture.Runtime, recording.Starts[0].State.Encode(), recording.Commands,
+        var input = new CoreReplayInput(2, TrainRecoveryFixture.Runtime, recording.Starts[0].State.Encode(), recording.Commands,
             checkpoints.ToImmutableArray(), recording.EndPosition, null);
         return (input, prefix, events);
     }

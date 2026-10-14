@@ -74,7 +74,7 @@ internal static class DesignEvaluator
         if (draft.Display.Description.Length is < 1 or > 2000) Invalid("/display/description", "说明长度必须为 1–2000。");
         if (draft.Specification is C.DesignSpecification.Building building)
         {
-            if ((building.PlotSize == K.PlotSize.Station) != (building.Kind == K.BuildingKind.Station))
+            if (PlotRules.IsStation(building.PlotSize!.Value) != (building.Kind == K.BuildingKind.Station))
                 Invalid("/simulation/building_type", "站点尺寸和站点建筑类型必须相互对应。");
             if (building.FacilityTags.Distinct().Count() != building.FacilityTags.Length)
                 Invalid("/simulation/facility_tags", "设施标签不能重复。");
@@ -199,6 +199,7 @@ internal static class DesignEvaluator
 
     private static C.GridBounds? Envelope(C.DesignSpecification specification)
     {
+        if (specification is C.DesignSpecification.Building building) return PlotRules.Envelope(building.PlotSize!.Value);
         var dimensions = specification switch
         {
             C.DesignSpecification.Vehicle vehicle => vehicle.Size switch
@@ -206,12 +207,6 @@ internal static class DesignEvaluator
                 K.SizeClass.Small => (7, 52, 9), K.SizeClass.Medium => (10, 64, 13),
                 K.SizeClass.Large => (14, 80, 18), K.SizeClass.ExtraLarge => (20, 104, 26),
                 K.SizeClass.Titan => (30, 136, 38), _ => throw new ArgumentOutOfRangeException(nameof(specification))
-            },
-            C.DesignSpecification.Building building => building.PlotSize switch
-            {
-                K.PlotSize.Small => (16, 16, 16), K.PlotSize.Medium => (24, 24, 24),
-                K.PlotSize.Large => (32, 32, 32), K.PlotSize.Station => (64, 24, 16),
-                _ => throw new ArgumentOutOfRangeException(nameof(specification))
             },
             _ => (0, 0, 0)
         };

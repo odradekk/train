@@ -62,6 +62,8 @@
 
 `DesignKind` 分为车辆、建筑、大型设备，公共质量、部件和 BOM 不重复。`InstanceDetails` 分为车辆与建筑；车辆未编组时其 Train 可空。类别不再由一组可空字段推断。
 
+`PlotSize` 为 `Small`、`Medium`、`Large`、`Giant`、`SmallStation`、`LargeStation` 六档，包络与适配规则见[地块与建筑](../design/16-settlements.md#地块与建筑)。核心在新局预建与恢复校验时检查建筑档位能否放进目标地块；旧 `Station` 已移除，旧载荷不能沿用其枚举数值读取。
+
 `ProcessProjection` 共享版本、工作量、电力与劳动力系数、设施标签和地貌要求；`ProcessDetails` 将生产、开采、回收的强类型身份及货物资料分别封闭。开采只有 `Extracts`，其产出隐含为同种货物、同样数量；生产和回收分别持有输入输出。三种流程均可要求地貌，`AllowedTerrainTypes` 为空表示没有地貌要求。
 
 `ResourceGenerationEntry` 保持扁平配置。`Renewable=true` 使用 `RecoveryUnitsPerSecond` 原地恢复至该项生成时的初始储量上限；不可再生资源按 `RegenerationIntervalSeconds` 检查全世界该货物的剩余总储量，低于初始总量乘 `GlobalRegenerationRemainingReserveRatio` 时新增节点资源。触发比例为有限 `double`，范围 [0,1]；新增储量沿用 `MinimumReserve`、`MaximumReserve`，候选与随机规则遵循[资源与开采](../design/10-resources-and-extraction.md#再生事件)。参数由内容提供，不在契约中冻结配平值。
@@ -237,7 +239,7 @@
 
 ### 当前载荷
 
-#312 按[批准决定](https://github.com/odradekk/train/issues/312#issuecomment-6133949111)实现捕获边界，#309 扩展世界状态。内部编码器 [CoreCapture](../../Core/Sessions/CoreCapture.cs) 当前使用独立的 `core_state_format_version = 2`，与宿主完整存档的 `SaveFormatVersion` 6 分开；不支持格式 1 或旧通用模拟框架载荷。诊断消息和堆栈不进入载荷。内部字段布局由编码器维护，宿主只通过公开契约取得所需资料。
+#312 按[批准决定](https://github.com/odradekk/train/issues/312#issuecomment-6133949111)实现捕获边界，#309 扩展世界状态。内部编码器 [CoreCapture](../../Core/Sessions/CoreCapture.cs) 当前使用独立的 `core_state_format_version = 3`，与宿主完整存档的 `SaveFormatVersion` 6 分开；不支持格式 1、2 或旧通用模拟框架载荷，旧版本返回 `unsupported_format`。诊断消息和堆栈不进入载荷。内部字段布局由编码器维护，宿主只通过公开契约取得所需资料。
 
 顶层载荷包含格式版本、位置、下一命令编号、修订、当前输入身份、故障、`world` 和 `references`。`world` 保存完整生成来源 `source`（含种子、生成器版本、生成内容语义修订、解析配置及开局输入）、图与资源、聚居地与生物聚落、聚居地模板业务副本和地块、实例耐久、列车、库存、资金、全部下一身份编号，以及实际设计投影和衍生货物。实例只保存 `DesignHash`，引用同一 `world.designs` 中的投影，不在每个实例重复设计。实例和库存位置由所有者派生，不进载荷。
 
@@ -285,7 +287,7 @@
 
 宿主读取复现容器并还原包内内容投影，调用 `PrepareReplay`；核心比较原构建、模拟版本、兼容环境、配置和输入身份。依赖不完整、格式无法理解或身份不符明确失败，不跳过命令，也不读取安装目录补救。
 
-当前 `CoreReplayInput.FormatVersion` 为 1，与命令输入格式 2 分开。`RuntimeIdentity` 的 `GameBuild`、`SimulationVersion`、`OperatingSystem`、`Architecture` 和 `DotNetRuntime` 全部按 Ordinal 匹配；不匹配返回 `incompatible_replay`，字段为 `OriginalRuntime.<成员>`，兼容粒度由宿主提供的字符串决定。准备阶段解码起点与全部命令，核验记录位置、检查点格式／SHA-256，并从 `contentHistory` 取得起点及所有命令前后、目标输入身份的投影；任一依赖缺失返回 `content_missing`。不支持的版本和种类返回 `unsupported_format`，非法字段和位置返回 `invalid_state`，附字段路径；带故障的起点不能作为可执行起点。准备阶段也对全部 `contentHistory` 使用与 `PublishContent`、普通恢复相同的内容投影校验，非法投影抛 `ArgumentException`，不能在执行一段前缀后才发现输入无法使用。检查点复用世界载荷读取与校验，世界内部差异以 JSON Pointer 报告。世界来源含生成配置，未来新增领域字段仍须同步接入。
+当前 `CoreReplayInput.FormatVersion` 为 2（旧版 1 因检查点与命令回执包含旧地块档位而拒绝），与命令输入格式 2 分开。`RuntimeIdentity` 的 `GameBuild`、`SimulationVersion`、`OperatingSystem`、`Architecture` 和 `DotNetRuntime` 全部按 Ordinal 匹配；不匹配返回 `incompatible_replay`，字段为 `OriginalRuntime.<成员>`，兼容粒度由宿主提供的字符串决定。准备阶段解码起点与全部命令，核验记录位置、检查点格式／SHA-256，并从 `contentHistory` 取得起点及所有命令前后、目标输入身份的投影；任一依赖缺失返回 `content_missing`。不支持的版本和种类返回 `unsupported_format`，非法字段和位置返回 `invalid_state`，附字段路径；带故障的起点不能作为可执行起点。准备阶段也对全部 `contentHistory` 使用与 `PublishContent`、普通恢复相同的内容投影校验，非法投影抛 `ArgumentException`，不能在执行一段前缀后才发现输入无法使用。检查点复用世界载荷读取与校验，世界内部差异以 JSON Pointer 报告。世界来源含生成配置，未来新增领域字段仍须同步接入。
 
 重放只有读取、推进和边界捕获入口，没有 Submit。`Advance` 到达预算、指定位置、记录截止位置、首个差异或故障即返回明确停止原因；`stopAt` 可以指定同一步内某条命令后的边界，不能越过它。同一步内的命令按记录位置顺序执行，拒绝结果也核对。`CompareCheckpoints` 返回首个字段差异，不要求宿主解析检查点文本。`CaptureBoundary` 可作为普通读档候选建立可编辑副本；此后当前内容适配属于新会话，不改原重放或声称其仍是严格复现。
 

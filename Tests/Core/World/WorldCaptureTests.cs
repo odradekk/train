@@ -13,6 +13,20 @@ namespace Train.Core.Tests.World;
 public sealed class WorldCaptureTests
 {
     [TestMethod]
+    public void Old_plot_sizes_in_version_two_state_are_rejected()
+    {
+        using var candidate = Prepare();
+        using var session = candidate.Activate();
+        var json = JsonNode.Parse(Capture(session).Encode())!;
+        json["core_state_format_version"] = 2;
+        var result = CoreFactory.Create().DecodeState(json.ToJsonString());
+        Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Failure>(result);
+        var problem = ((CoreResult<ICoreCapture>.Failure)result).Problems.Single();
+        Assert.AreEqual("unsupported_format", problem.Code);
+        Assert.AreEqual("/core_state_format_version", problem.Field);
+    }
+
+    [TestMethod]
     public void Published_specifications_round_trip_and_restore_without_changing_the_previous_capture()
     {
         using var candidate = Prepare();
@@ -288,7 +302,7 @@ public sealed class WorldCaptureTests
                 definitions.Add(new(new CoreDefinitionReference.Voxel(WorldFixture.Material), null,
                     $"World.Designs[{hash.Value}].Parts[0].{field}", false));
         return new([WorldFixture.Vehicle, WorldFixture.Station],
-            [new(new(1), new("fixture:town-template"), [new(1, PlotSize.Station)])], definitions.ToImmutableArray(), [WorldFixture.Content.Identity]);
+            [new(new(1), new("fixture:town-template"), [new(1, PlotSize.SmallStation)])], definitions.ToImmutableArray(), [WorldFixture.Content.Identity]);
     }
 
     private static void AssertQueries(ICoreReadView expected, ICoreReadView actual)

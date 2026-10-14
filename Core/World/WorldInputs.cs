@@ -7,7 +7,8 @@ namespace Train.Core.World;
 internal static class WorldInputs
 {
     internal static bool FitsPlot(PlotSize buildingSize, PlotSize plotSize) =>
-        (buildingSize == PlotSize.Station) == (plotSize == PlotSize.Station) && buildingSize <= plotSize;
+        (buildingSize is PlotSize.SmallStation or PlotSize.LargeStation)
+            == (plotSize is PlotSize.SmallStation or PlotSize.LargeStation) && buildingSize <= plotSize;
 
     internal static void ValidateInput(WorldGenerationInput input)
     {

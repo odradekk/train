@@ -44,7 +44,7 @@ public sealed class TrainDispatchRecoveryTests
         for (var step = 0; step < 12; step++) TrainRecoveryFixture.Advance(session, events);
         checkpoints.Add(Success(session.Capture(CapturePurpose.Save)).Checkpoint);
         var recording = session.ReadRecording();
-        var input = new CoreReplayInput(1, Options.Runtime, recording.Starts[0].State.Encode(), recording.Commands,
+        var input = new CoreReplayInput(2, Options.Runtime, recording.Starts[0].State.Encode(), recording.Commands,
             checkpoints.ToImmutableArray(), recording.EndPosition, null);
         using var replay = Success(CoreFactory.Create().PrepareReplay(input, Options.Runtime, [state.Content]));
         var replayEvents = new List<string>();

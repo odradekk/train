@@ -94,7 +94,7 @@ public sealed class ContentReloadTests
         }
         else
         {
-            Change(fixture, TemplatePath, json => json["plots"]![1]!["at"]![0] = 40);
+            Change(fixture, TemplatePath, json => json["plots"]![1]!["at"]![0] = 240);
             Change(fixture, "resources/blueprints/engine.blueprint.json", json => json["layout"]!["cells"]![0]![0] = 1);
         }
         using var reloaded = Reload(fixture, basis, references);

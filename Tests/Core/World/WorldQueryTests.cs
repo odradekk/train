@@ -47,7 +47,7 @@ public sealed class WorldQueryTests
         Assert.AreEqual(SettlementRelation.PlayerOwned, vehicle.Ownership);
         Assert.AreEqual(SettlementRelation.NonHostile, building.Ownership);
         Assert.AreEqual(new InstanceDetails.Vehicle(SizeClass.Small, new TrainId(1)), vehicle.Details);
-        Assert.AreEqual(new InstanceDetails.Building(new(1), PlotSize.Station), building.Details);
+        Assert.AreEqual(new InstanceDetails.Building(new(1), PlotSize.SmallStation), building.Details);
         foreach (var instance in new[] { vehicle, building })
         {
             Assert.AreEqual(new WorldLocation.Node(new(1)), instance.Location);
@@ -135,7 +135,7 @@ public sealed class WorldQueryTests
         var template = candidate.References.Templates[0];
         Assert.AreEqual(new SettlementId(1), template.Owner);
         Assert.AreEqual(new SettlementTemplateId("fixture:town-template"), template.SourceTemplate);
-        CollectionAssert.AreEqual(new[] { new TemplatePlotReference(1, PlotSize.Station) }, template.Plots.ToArray());
+        CollectionAssert.AreEqual(new[] { new TemplatePlotReference(1, PlotSize.SmallStation) }, template.Plots.ToArray());
     }
 
     [TestMethod]

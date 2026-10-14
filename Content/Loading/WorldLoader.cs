@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Train.Content.Designs;
 using C = Train.Content.Contracts;
 using K = Train.Core.Contracts;
 
@@ -162,19 +163,44 @@ internal sealed class WorldLoader
         var subject = new C.ContentReference.Core(new K.CoreDefinitionReference.Template(source.Id));
         references.Need(package, source.Path, subject, source.Type.Value, typePresent, "/settlement_type");
         var scene = references.Scene(package, source.Path, subject, source.SceneModel, "/scene_model");
+        if (scene is not null) ValidatePlotSpace(package, source, scene.Scene, subject);
         var plots = ImmutableArray.CreateBuilder<K.TemplatePlotProjection>();
         foreach (var plot in source.Plots)
         {
             if (plot.Building is not { } address) { plots.Add(new(plot.Number, plot.Size, null)); continue; }
             var design = references.Design(package, source.Path, subject, address, "/plots", vehicle: false);
-            if (design?.Core?.Design.Kind is K.DesignKind.Building building &&
-                ((building.Type == K.BuildingKind.Station) != (plot.Size == K.PlotSize.Station) ||
-                 (building.Type != K.BuildingKind.Station && building.PlotSize > plot.Size)))
+            if (design?.Core?.Design.Kind is K.DesignKind.Building building && !PlotRules.Fits(building.PlotSize, plot.Size))
                 package.Reject("invalid_field", source.Path, "/plots", "建筑类型或尺寸不能放入地块。", subject);
             if (design is not null) plots.Add(new(plot.Number, plot.Size, design.Design));
         }
         return Active(package) && scene is not null
             ? new(source, new(source.Id, source.Type, source.Weight, plots.ToImmutable(), [], [], []), scene) : null;
+    }
+
+    private static void ValidatePlotSpace(LoadPackage package, ParsedSettlementTemplate source,
+        C.DesignSceneProjection scene, C.ContentReference subject)
+    {
+        (long MinX, long MaxX, long MinZ, long MaxZ)? range = scene.OccupiedBounds is { } occupied
+            ? (occupied.Minimum.X, occupied.Maximum.X, occupied.Minimum.Z, occupied.Maximum.Z) : null;
+        if (scene.RootFlatten is { } flatten)
+            range = range is { } bounds
+                ? (Math.Min(bounds.MinX, flatten.From.X), Math.Max(bounds.MaxX, flatten.To.X),
+                    Math.Min(bounds.MinZ, flatten.From.Z), Math.Max(bounds.MaxZ, flatten.To.Z))
+                : (flatten.From.X, flatten.To.X, flatten.From.Z, flatten.To.Z);
+        var plots = source.Layout.Select(PlotRules.Footprint).ToArray();
+        for (var index = 0; index < plots.Length; index++)
+        {
+            var plot = plots[index];
+            if (range is not { } bounds || plot.MinX < bounds.MinX || plot.MaxX > bounds.MaxX
+                || plot.MinZ < bounds.MinZ || plot.MaxZ > bounds.MaxZ)
+                package.Reject("invalid_field", source.Path, $"/plots/{index}/at", "地块占地超出场景模型范围。", subject);
+            for (var previous = 0; previous < index; previous++)
+            {
+                var other = plots[previous];
+                if (plot.MinX <= other.MaxX && plot.MaxX >= other.MinX && plot.MinZ <= other.MaxZ && plot.MaxZ >= other.MinZ)
+                    package.Reject("invalid_field", source.Path, $"/plots/{index}/at", "地块占地与其他地块重叠。", subject);
+            }
+        }
     }
 
     private static LoadedGenerationProfile? ResolveProfile(LoadPackage package, ParsedGenerationProfile source,

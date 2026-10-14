@@ -396,11 +396,13 @@ def content_files():
     for spec in VEHICLES:
         value = small_locomotive() if spec[0] == "small-locomotive" else locomotive(spec)
         document("blueprints", "blueprint", value["id"], value)
-    station = {(x, 0, z): 0 for x in range(-30, 30) for z in range(-10, 10)}
-    station[-20, 1, 0] = station[20, 1, 0] = 1
+    station = {(x, 0, z): 0 for x in range(-96, 96)
+               for z in (*range(-24, -20), *range(20, 24))}
+    station.update({(x, 0, z): 0 for x in range(-2, 2) for z in range(-20, 20)})
+    station[0, 1, -22] = station[0, 1, 22] = 1
     document("blueprints", "blueprint", "small-station",
              blueprint("small-station", "小站点", "building", ["construction-material", "platform-equipment"],
-                       station, {"plot_size": "station", "building_type": "station", "facility_tags": []}))
+                       station, {"plot_size": "small_station", "building_type": "station", "facility_tags": []}))
     for tracks in (1, 2):
         half_width = 16 + 17 * (tracks - 1)
         bridge = {(x, 0, z): 0 for x in range(-half_width, half_width + 1) for z in range(-3, 4)}
@@ -410,10 +412,11 @@ def content_files():
         for kind, name, cells in (("bridge", "桥梁", bridge), ("tunnel-portal", "隧道口", tunnel)):
             identity = f"{kind}-{tracks}"
             document("blueprints", "blueprint", identity, blueprint(identity, f"{tracks}轨{name}", "scene_model", ["rock"], cells))
-    ground = {(x, 0, z): 0 for x in range(-64, 64) for z in range(-48, 48)}
+    ground = {(x, 0, z): 0 for x in range(-208, 208) for z in range(-2, 2)}
+    ground.update({(x, 0, z): 0 for x in range(-2, 2) for z in range(-148, 100)})
     document("blueprints", "blueprint", "agricultural-town-ground",
              blueprint("agricultural-town-ground", "农业镇地面", "scene_model", ["ground"], ground,
-                       appearance={"flatten": {"from": [-64, -48], "to": [63, 47], "height": 1}}))
+                       appearance={"flatten": {"from": [-208, -148], "to": [207, 99], "height": 1}}))
     for identity, name, local_amplitude in (("plains", "平原", 0.7), ("hills", "丘陵", 2.8)):
         document("terrain-types", "terrain-type", identity,
                  {"schema_version": 1, "id": identity, "display": {"name": name, "description": f"基础贯通{name}，提供局部起伏与铁路模型。"},
@@ -426,10 +429,10 @@ def content_files():
               "weight": 3, "population_min": 120, "population_max": 360},
               "display": {"name": "农业镇", "description": "基础贯通的农业镇类型；生产链和服务设施随后接入。",
                           "map_symbol": "shared/agricultural-town.png", "major": False}})
-    plots = [{"id": 1, "size": "station", "at": [-32, 1, -28], "building": "small-station"},
-             {"id": 2, "size": "station", "at": [32, 1, -28]}]
+    plots = [{"id": 1, "size": "small_station", "at": [-104, 1, -88], "building": "small-station"},
+             {"id": 2, "size": "small_station", "at": [104, 1, -88]}]
     plots += [{"id": n, "size": "small", "at": [x, 1, z]} for n, (x, z) in enumerate(
-        ((-40, 0), (-16, 0), (16, 0), (40, 0), (-16, 28), (16, 28)), 3)]
+        ((-64, 8), (0, 8), (64, 8), (-64, 72), (0, 72), (64, 72)), 3)]
     document("settlement-templates", "settlement-template", "agricultural-town",
              {"schema_version": 2, "id": "agricultural-town", "settlement_type": "agricultural-town", "weight": 3,
               "scene_model": "agricultural-town-ground", "plots": plots,
