@@ -47,7 +47,7 @@ internal partial class WorldSceneView : Node3D
             ReflectedLightSource = Godot.Environment.ReflectionSource.Sky,
             TonemapMode = Godot.Environment.ToneMapper.Agx, SsaoEnabled = true,
             SsaoIntensity = 0.5f, GlowEnabled = true, GlowBloom = 0,
-            FogEnabled = true, FogLightColor = new Color("c9d6e0"), FogDensity = 0.001f
+            FogEnabled = true, FogLightColor = new Color("c9d6e0"), FogDensity = 0.001f, FogSkyAffect = 0
         };
         _worldEnvironment = new() { Name = "WorldEnvironment", Environment = _environment };
         AddChild(_worldEnvironment);

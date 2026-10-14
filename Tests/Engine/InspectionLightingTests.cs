@@ -30,12 +30,18 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
             var originalSun = (sun.Visible, sun.LightEnergy, sun.LightColor, sun.Rotation);
             var originalAmbient = (game.AmbientLightSource, game.AmbientLightColor, game.AmbientLightEnergy);
             Require(view.Lighting == InspectionLighting.Game, "初始光照不是正常游戏光照。");
+            Require(worldEnvironment.Environment is { FogEnabled: true, FogSkyAffect: 0 },
+                "正常游戏的雾未开启或遮蔽了天空。");
             for (var cycle = 0; cycle < 2; cycle++)
             {
                 view.SetLighting(InspectionLighting.Overcast);
+                Require(worldEnvironment.Environment is { FogEnabled: true, FogSkyAffect: 0 },
+                    "阴天的雾未开启或遮蔽了天空。");
                 Require(!sun.Visible && worldEnvironment.Environment.AmbientLightSource == Godot.Environment.AmbientSource.Color,
                     "阴天未关闭太阳或未使用颜色环境光。");
                 view.SetLighting(InspectionLighting.Night);
+                Require(worldEnvironment.Environment is { FogEnabled: true, FogSkyAffect: 0 },
+                    "夜间的雾未开启或遮蔽了天空。");
                 var nightSky = (ProceduralSkyMaterial)worldEnvironment.Environment.Sky.SkyMaterial;
                 Require(!sun.Visible && Brightness(nightSky.SkyTopColor) < Brightness(gameSkyColor),
                     "夜间没有关闭太阳并压暗天空。");
@@ -46,6 +52,8 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
                 foreach (var mode in new[] { InspectionLighting.Daylight, InspectionLighting.Game })
                 {
                     view.SetLighting(mode);
+                    Require(worldEnvironment.Environment is { FogEnabled: true, FogSkyAffect: 0 },
+                        "日光或恢复后的雾未开启或遮蔽了天空。");
                     Require(worldEnvironment.Environment == game && game.Sky == sky && sky.SkyMaterial == material,
                         "日光或恢复替换了正常游戏的环境/天空资源。");
                     Require(material.SkyTopColor == gameSkyColor &&
