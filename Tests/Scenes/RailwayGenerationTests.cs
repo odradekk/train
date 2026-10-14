@@ -87,7 +87,8 @@ public sealed class RailwayGenerationTests
             Assert.IsInstanceOfType<ScenePick.NotReady>(frame.Pick(new(unloaded, -Vector3.UnitY, 30)));
         }
         finally { release.Set(); await scene.DisposeAsync(); }
-        ScenePoint Point(double forward) => diagonal ? new(20.5 * .8 + forward * .6, 10, -20.5 * .6 + forward * .8) :
+        // 斜向射线的横向偏移在首帧根空间中可精确表示，避免单精度取整把边界点移入前段。
+        ScenePoint Point(double forward) => diagonal ? new(21.25 * .8 + forward * .6, 10, -21.25 * .6 + forward * .8) :
             new(20.5, 10, forward);
     }
 

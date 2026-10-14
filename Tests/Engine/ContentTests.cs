@@ -59,7 +59,7 @@ public class ContentTests(Node testScene) : TestClass(testScene)
                 "读档没有更换运行绑定、保留存档身份并暂停。");
             Require(Checkpoint(host).Sha256 == checkpoint.Sha256 && restored.View.InputIdentity == host.Content!.Core.Identity,
                 "真实文件恢复后检查点或核心／内容配对改变。");
-            var edge = restored.View.World.Edges.First();
+            var edge = restored.View.World.Edges.Single(edge => edge.Id == new EdgeId(7));
             var map = app.GetNode<GameUi>("GameUi").GetNode<MacroMap>("Root/World/MacroMap");
             var input = new UiTestInput(TestScene);
             await input.Frames(2);
@@ -68,11 +68,32 @@ public class ContentTests(Node testScene) : TestClass(testScene)
             var point = map.GlobalPosition + (map.MapToScreen(start) + map.MapToScreen(end)) / 2;
             Require(map.HitTest(point - map.GlobalPosition) == new WorldObjectId.Edge(edge.Id),
                 "真实地图点击位置没有命中待验证线路。");
+            // 手动推进生产帧入口，等焦点所在分段接入，避免断言依赖并行构建的完成顺序。
+            app.SetProcess(false);
             await input.Click(point);
-            await FramesUntil(TestScene, () => app.WorldScenes!.Display?.DisplayedFrame is not null || !app.WorldScenes.View.Visible);
-            Require(app.WorldScenes!.Display?.DisplayedFrame is { Readiness: SceneReadiness.Ready or SceneReadiness.Partial },
-                "真实体素工厂没有把线路帧接入 Godot。");
+            await FramesUntil(TestScene, () =>
+            {
+                app.WorldScenes!.ProcessFrame(0, false);
+                var focus = app.WorldScenes.View.CameraRig.Focus;
+                return app.WorldScenes.Display?.DisplayedFrame?.Locate(new(focus.X, focus.Y, focus.Z)) is Lookup<WorldLocation>.Found;
+            });
+            AssertFocus();
+            for (var frame = 0; frame < 5; frame++)
+            {
+                await input.Frames();
+                app.WorldScenes!.ProcessFrame(0, false);
+                AssertFocus();
+            }
             Require(!output.Contains("scene_adapter_failed"), "真实地图点击打开场景记录了适配异常。");
+
+            void AssertFocus()
+            {
+                var focus = app.WorldScenes!.View.CameraRig.Focus;
+                var location = app.WorldScenes.Display?.DisplayedFrame?.Locate(new(focus.X, focus.Y, focus.Z));
+                Require(location is Lookup<WorldLocation>.Found { Value: WorldLocation.Edge at } &&
+                    at.Id == edge.Id && Math.Abs(at.DistanceMeters - edge.LengthMeters / 2) < 0.01,
+                    $"真实地图首次进入及后续帧的相机焦点必须映射到线路 {edge.Id} 的请求距离 {edge.LengthMeters / 2}，实际 {location}。");
+            }
         }
         finally
         {
