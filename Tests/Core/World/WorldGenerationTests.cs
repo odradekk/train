@@ -151,37 +151,43 @@ public sealed class WorldGenerationTests
     }
 
     [TestMethod]
-    [DataRow(PlotSize.Small, PlotSize.Medium, true)]
-    [DataRow(PlotSize.Small, PlotSize.Large, true)]
-    [DataRow(PlotSize.Large, PlotSize.Small, false)]
-    [DataRow(PlotSize.Station, PlotSize.Small, false)]
-    [DataRow(PlotSize.Small, PlotSize.Station, false)]
-    public void Prebuilt_buildings_require_matching_plot_kind_and_sufficient_size(
-        PlotSize buildingSize, PlotSize plotSize, bool fits)
+    [DataRow(PlotSize.Small, "111100")]
+    [DataRow(PlotSize.Medium, "011100")]
+    [DataRow(PlotSize.Large, "001100")]
+    [DataRow(PlotSize.Giant, "000100")]
+    [DataRow(PlotSize.SmallStation, "000011")]
+    [DataRow(PlotSize.LargeStation, "000001")]
+    public void Prebuilt_buildings_follow_the_six_by_six_plot_fit_table(PlotSize buildingSize, string expected)
     {
-        var content = MultiContent;
-        var template = content.SettlementTemplates[0];
-        var design = content.Designs.Single(d => d.Design == FactoryBuilding);
-        content = content with
+        PlotSize[] columns = [PlotSize.Small, PlotSize.Medium, PlotSize.Large, PlotSize.Giant, PlotSize.SmallStation, PlotSize.LargeStation];
+        for (var index = 0; index < columns.Length; index++)
         {
-            Designs = content.Designs.Replace(design, design with
+            var plotSize = columns[index];
+            var fits = expected[index] == '1';
+            var content = MultiContent;
+            var template = content.SettlementTemplates[0];
+            var design = content.Designs.Single(d => d.Design == FactoryBuilding);
+            content = content with
             {
-                Kind = new DesignKind.Building(buildingSize,
-                    buildingSize == PlotSize.Station ? BuildingKind.Station : BuildingKind.Production, [])
-            }),
-            SettlementTemplates = [template with
-                { Plots = template.Plots.SetItem(1, template.Plots[1] with { Size = plotSize }) }]
-        };
-        if (!fits)
-        {
-            Failure(WorldFixture.Input, content, "config_invalid",
-                $"Content.SettlementTemplates[{template.Id.Value}].Plots[2]");
-            return;
+                Designs = content.Designs.Replace(design, design with
+                {
+                    Kind = new DesignKind.Building(buildingSize,
+                        buildingSize is PlotSize.SmallStation or PlotSize.LargeStation ? BuildingKind.Station : BuildingKind.Production, [])
+                }),
+                SettlementTemplates = [template with
+                    { Plots = template.Plots.SetItem(1, template.Plots[1] with { Size = plotSize }) }]
+            };
+            if (!fits)
+            {
+                Failure(WorldFixture.Input, content, "config_invalid",
+                    $"Content.SettlementTemplates[{template.Id.Value}].Plots[2]");
+                continue;
+            }
+            using var candidate = Prepare(WorldFixture.Input, content);
+            var building = ((Lookup<InstanceView>.Found)candidate.View.FindInstance(new InstanceId.Building(new(2)))).Value;
+            Assert.AreEqual(FactoryBuilding, building.Design);
+            Assert.AreEqual(new InstanceDetails.Building(new(2), plotSize), building.Details);
         }
-        using var candidate = Prepare(WorldFixture.Input, content);
-        var building = ((Lookup<InstanceView>.Found)candidate.View.FindInstance(new InstanceId.Building(new(2)))).Value;
-        Assert.AreEqual(FactoryBuilding, building.Design);
-        Assert.AreEqual(new InstanceDetails.Building(new(2), plotSize), building.Details);
     }
 
     [TestMethod]
@@ -231,7 +237,7 @@ public sealed class WorldGenerationTests
     {
         var input = WorldFixture.Input;
         var content = WorldFixture.Content;
-        content = content with { SettlementTemplates = [content.SettlementTemplates[0] with { Plots = [new(1, PlotSize.Station, null)] }] };
+        content = content with { SettlementTemplates = [content.SettlementTemplates[0] with { Plots = [new(1, PlotSize.SmallStation, null)] }] };
         Failure(input, content, "constraint_unsatisfied", "Configuration.StartConstraints.RequireStation");
         using var withoutStation = Prepare(input with { Configuration = input.Configuration with
             { StartConstraints = input.Configuration.StartConstraints with { RequireStation = false } } }, content);

@@ -61,11 +61,11 @@ internal static class WorldContentFixtures
         json["category"] = "scene_model";
         json.Remove("simulation");
         json["layout"]!["palette"]![0]!["voxel"] = "scenery";
-        json["appearance"] = JsonNode.Parse("""{"flatten":{"from":[0,0],"to":[0,0],"height":0}}""");
+        json["appearance"] = JsonNode.Parse("""{"flatten":{"from":[-400,-400],"to":[400,400],"height":0}}""");
         return json;
     }
 
-    internal static JsonObject Building(string id = "station", string size = "station", string kind = "station")
+    internal static JsonObject Building(string id = "station", string size = "small_station", string kind = "station")
     {
         var json = DesignFixtures.Blueprint(id);
         json["category"] = "building";
@@ -76,7 +76,7 @@ internal static class WorldContentFixtures
 
     internal static JsonObject Template() => JsonNode.Parse("""
         {"schema_version":2,"id":"farm-start","settlement_type":"farm","weight":2,"scene_model":"scene",
-        "plots":[{"id":7,"size":"station","at":[0,0,0],"building":"station"},{"id":11,"size":"medium","at":[30,0,0],"orientation":"pz_py"}],
+        "plots":[{"id":7,"size":"small_station","at":[0,0,0],"building":"station"},{"id":11,"size":"medium","at":[160,0,0],"orientation":"pz_py"}],
         "display":{"name":"农庄","description":"最小模板"}}
         """)!.AsObject();
 
@@ -105,7 +105,7 @@ internal static class WorldContentFixtures
     }
 
     internal static K.OwnedSettlementTemplateReference Reference(ulong owner) =>
-        new(new(owner), new("core:farm-start"), [new(7, K.PlotSize.Station), new(11, K.PlotSize.Medium)]);
+        new(new(owner), new("core:farm-start"), [new(7, K.PlotSize.SmallStation), new(11, K.PlotSize.Medium)]);
 
     internal static K.DesignHash Design(C.IContentView view, string id) =>
         ((C.DesignEvaluation.Complete)Found(view.FindBlueprint(new(C.BlueprintLibrary.Packages, new("core:" + id)))).Evaluation).Design;

@@ -12,6 +12,13 @@ namespace Train.Core.Tests.Sessions;
 [TestClass]
 public sealed class CoreReplayTests
 {
+    [TestMethod]
+    public void Version_one_replay_input_with_unversioned_plot_checkpoints_is_rejected()
+    {
+        using var session = Session();
+        AssertFailure(Input(session) with { FormatVersion = 1 }, History, "unsupported_format", "FormatVersion");
+    }
+
     private static readonly RuntimeIdentity Runtime = new("build", "sim", "windows", "x64", "net");
     private static readonly ImmutableArray<CoreContentProjection> History = [Content('A'), Content('B'), Content('C')];
 
@@ -184,7 +191,7 @@ public sealed class CoreReplayTests
         AssertFailure(corrupt, History, "unsupported_format", "Commands[1].CanonicalPayload/input_format_version");
         AssertFailure(input, [Content('A'), Content('B')], "content_missing", "Commands[1].CanonicalPayload/input_identity");
         AssertFailure(input, [Content('B'), Content('C')], "content_missing", "InitialStatePayload.InputIdentity");
-        AssertFailure(input with { FormatVersion = 2 }, History, "unsupported_format", "FormatVersion");
+        AssertFailure(input with { FormatVersion = 3 }, History, "unsupported_format", "FormatVersion");
         Assert.AreEqual(new SimulationPosition(0, 2), session.Read().Position);
     }
 
@@ -449,7 +456,7 @@ public sealed class CoreReplayTests
     private static CoreReplayInput Input(CoreSession session)
     {
         var window = session.ReadRecording();
-        return new(1, Runtime, window.Starts[0].State.Encode(), window.Commands, window.Checkpoints,
+        return new(2, Runtime, window.Starts[0].State.Encode(), window.Commands, window.Checkpoints,
             window.EndPosition, session.Read().Fault);
     }
 

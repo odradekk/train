@@ -4,7 +4,9 @@
   "category": "scene_model",
   "layout": {
     "palette": [
-      { "voxel": "grassland" }
+      {
+        "voxel": "grassland"
+      }
     ],
     "cells": [
       [-12, 0, -12, 0],
@@ -586,19 +588,31 @@
     ],
     "composites": [
       {
-        "at": [5, 1, 7],
+        "at": [
+          5,
+          1,
+          7
+        ],
         "design": {
           "category": "scene_model",
           "layout": {
             "composites": [
               {
-                "at": [0, 0, 0],
+                "at": [
+                  0,
+                  0,
+                  0
+                ],
                 "design": {
                   "category": "scene_model",
                   "layout": {
                     "palette": [
-                      { "voxel": "tree-trunk" },
-                      { "voxel": "foliage" }
+                      {
+                        "voxel": "tree-trunk"
+                      },
+                      {
+                        "voxel": "foliage"
+                      }
                     ],
                     "cells": [
                       [0, 0, 0, 0],
@@ -630,18 +644,29 @@
                       [0, 6, 1, 1]
                     ]
                   },
-                  "display": { "name": "树", "description": "一棵阔叶树，由树干和树冠组成。" }
+                  "display": {
+                    "name": "树",
+                    "description": "一棵阔叶树，由树干和树冠组成。"
+                  }
                 }
               },
               {
-                "at": [3, 0, 1],
+                "at": [
+                  3,
+                  0,
+                  1
+                ],
                 "orientation": "pz_py",
                 "design": {
                   "category": "scene_model",
                   "layout": {
                     "palette": [
-                      { "voxel": "tree-trunk" },
-                      { "voxel": "foliage" }
+                      {
+                        "voxel": "tree-trunk"
+                      },
+                      {
+                        "voxel": "foliage"
+                      }
                     ],
                     "cells": [
                       [0, 0, 0, 0],
@@ -673,18 +698,29 @@
                       [0, 6, 1, 1]
                     ]
                   },
-                  "display": { "name": "树", "description": "一棵阔叶树，由树干和树冠组成。" }
+                  "display": {
+                    "name": "树",
+                    "description": "一棵阔叶树，由树干和树冠组成。"
+                  }
                 }
               },
               {
-                "at": [-2, 0, 3],
+                "at": [
+                  -2,
+                  0,
+                  3
+                ],
                 "orientation": "nz_py",
                 "design": {
                   "category": "scene_model",
                   "layout": {
                     "palette": [
-                      { "voxel": "tree-trunk" },
-                      { "voxel": "foliage" }
+                      {
+                        "voxel": "tree-trunk"
+                      },
+                      {
+                        "voxel": "foliage"
+                      }
                     ],
                     "cells": [
                       [0, 0, 0, 0],
@@ -716,18 +752,37 @@
                       [0, 6, 1, 1]
                     ]
                   },
-                  "display": { "name": "树", "description": "一棵阔叶树，由树干和树冠组成。" }
+                  "display": {
+                    "name": "树",
+                    "description": "一棵阔叶树，由树干和树冠组成。"
+                  }
                 }
               }
             ]
           },
-          "display": { "name": "树丛", "description": "三棵朝向不同的树，只含被嵌套的场景模型。" }
+          "display": {
+            "name": "树丛",
+            "description": "三棵朝向不同的树，只含被嵌套的场景模型。"
+          }
         }
       }
     ]
   },
   "appearance": {
-    "flatten": { "from": [-12, -12], "to": [11, 11], "height": 0 }
+    "flatten": {
+      "from": [
+        -136,
+        -104
+      ],
+      "to": [
+        127,
+        103
+      ],
+      "height": 1
+    }
   },
-  "display": { "name": "村落地面", "description": "24×24 格的草地，角上有一个树丛；放置时整平下方的地面。聚居地模板把地块放在它上面。" }
+  "display": {
+    "name": "村落地面",
+    "description": "24×24 格的草地，角上有一个树丛；放置时整平下方的地面。聚居地模板把地块放在它上面。"
+  }
 }
