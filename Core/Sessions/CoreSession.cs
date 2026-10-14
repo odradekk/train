@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using Train.Core.Contracts;
 using Train.Core.World;
 using Train.Core.Railway;
+using Train.Core.Inventory;
 
 namespace Train.Core.Sessions;
 
@@ -40,6 +41,11 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
             if (publish.Content.Identity == State.Content.Identity)
                 throw new ArgumentException("发布内容的输入身份必须不同于当前身份。", nameof(command));
             return ExecuteCommand(publish, source, before => WorldContentPublication.Execute(State.World, before, publish.Content));
+        }
+        if (command is CoreCommand.LoadGoods or CoreCommand.UnloadGoods or CoreCommand.AcquireLease)
+        {
+            InventoryCommands.Validate(command);
+            return ExecuteCommand(command, source, content => InventoryCommands.Execute(State.World, content, command, State.Position.CompletedSteps));
         }
         TrainCommands.Validate(command);
         return ExecuteCommand(command, source, content => TrainCommands.Execute(State.World, content, command, State.Position.CompletedSteps));
@@ -106,7 +112,7 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
     public AdvanceResult Advance(uint steps) => AdvanceWorld(steps, before =>
     {
         var (world, events) = TrainOperations.Advance(before.World, before.Content, before.Position.CompletedSteps);
-        return (before.Content, world, events);
+        return (before.Content, world, InventoryLeases.ExpirationEvents(before.World, before.Position.CompletedSteps).AddRange(events));
     });
 
     internal AdvanceResult Advance(uint steps,

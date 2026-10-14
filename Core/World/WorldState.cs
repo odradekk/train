@@ -37,16 +37,19 @@ internal sealed record TrainState(TrainId Id, TrainPosition Position, ImmutableA
     ulong RemainingDwellSteps, bool StopRequested, ulong? QueueEnteredStep, BreakId? ReturningFromBreak);
 internal sealed record TrackHandoff(EdgeId Edge, int Track, TravelDirection Direction);
 internal sealed record InventoryState(InventoryId Id, InventoryOwner Owner,
-    ImmutableArray<GoodsQuantity> Goods);
+    ImmutableArray<GoodsQuantity> Goods, ImmutableArray<StorageReservationView> Reservations);
+internal sealed record LeaseState(LeaseId Id, SettlementId Settlement, InventoryId Inventory,
+    long Capacity, ulong ExpiresAtStep, Money Paid);
 internal sealed record WorldIdentities(ulong Node, ulong Edge, ulong Settlement, ulong Lair, ulong Plot,
-    ulong Building, ulong Train, ulong Vehicle, ulong Inventory, ulong Break);
+    ulong Building, ulong Train, ulong Vehicle, ulong Inventory, ulong Break, ulong Lease);
 
 internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<NodeMapItem> Nodes, ImmutableArray<EdgeMapItem> Edges,
     ImmutableArray<SettlementState> Settlements, ImmutableArray<LairState> Lairs,
     ImmutableArray<InstanceState> Instances, ImmutableArray<TrainState> Trains,
     ImmutableArray<InventoryState> Inventories, ImmutableArray<DesignProjection> Designs,
     ImmutableArray<GoodDefinitionProjection> DesignGoods, Money Money, WorldIdentities Next,
-    ImmutableArray<RequiredDefinition> DefinitionDependencies, ImmutableArray<TrackHandoff> TrackHandoffs)
+    ImmutableArray<RequiredDefinition> DefinitionDependencies, ImmutableArray<TrackHandoff> TrackHandoffs,
+    ImmutableArray<LeaseState> Leases)
 {
     internal WorldSummary Map => new(Source.WorldSeed, Source.Configuration.Rules.Railway,
         Source.Configuration.WidthMeters, Source.Configuration.HeightMeters, Nodes.Select(ReadNode).ToImmutableArray(), Edges,
@@ -108,7 +111,7 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
                 }
                 foreach (var founding in settlement.Template.FoundingBuildings) designHashes.Add(founding.Design);
                 var inventory = new InventoryId(inventoryNumber++);
-                inventories.Add(new(inventory, new InventoryOwner.Settlement(settlementId), settlement.Template.SpecialInitialInventory));
+                inventories.Add(new(inventory, new InventoryOwner.Settlement(settlementId), settlement.Template.SpecialInitialInventory, []));
                 settlements.Add(new(settlementId, id, settlement.Type.Id, settlement.Relation, settlement.Population,
                     settlement.Template, plots.ToImmutable(), inventory, []));
             }
@@ -137,7 +140,7 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
                     new InstanceDetails.Vehicle(((DesignKind.Vehicle)design.Kind).Size, trainId)));
             }
             var inventory = new InventoryId(inventoryNumber++);
-            inventories.Add(new(inventory, new InventoryOwner.Train(trainId), initial.Inventory));
+            inventories.Add(new(inventory, new InventoryOwner.Train(trainId), initial.Inventory, []));
             trains.Add(new(trainId, new TrainPosition.Node(startNode), vehicles.ToImmutable(), inventory,
                 new(null, null), TrainOrderFacing.FirstEndLeading, TrainActivity.Stopped, 0, null, null, 0, false, null, null));
         }
@@ -147,7 +150,7 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
         var state = new WorldState(input, mapNodes.ToImmutable(), mapEdges, settlements.ToImmutable(), lairs.ToImmutable(), instances.ToImmutable(), trains.ToImmutable(),
             inventories.ToImmutable(), designs, content.DesignGoods.Where(g => goods.Contains(g.Good)).ToImmutableArray(),
             input.Start.InitialMoney, new((ulong)nodes.Length + 1, (ulong)edges.Length + 1, settlementNumber, lairNumber,
-                plotNumber, buildingNumber, trainNumber, vehicleNumber, inventoryNumber, 1), [], []);
+                plotNumber, buildingNumber, trainNumber, vehicleNumber, inventoryNumber, 1, 1), [], [], []);
         return state with { DefinitionDependencies = WorldReferences.Dependencies(state, content) };
 
         InstanceState CreateInstance(InstanceId id, DesignHash hash,

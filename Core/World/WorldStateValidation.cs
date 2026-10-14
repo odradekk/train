@@ -14,6 +14,7 @@ internal static class WorldStateValidation
         Ordered(world.Lairs, l => l.Id.Value, "/world/lairs");
         Ordered(world.Trains, t => t.Id.Value, "/world/trains");
         Ordered(world.Inventories, i => i.Id.Value, "/world/inventories");
+        Ordered(world.Leases, l => l.Id.Value, "/world/leases");
         Strings(world.Designs, d => d.Design.Value, "/world/designs");
         Strings(world.DesignGoods, g => WorldReferences.GoodKey(g.Good), "/world/design_goods");
         Items(world.Instances, "/world/instances");
@@ -64,6 +65,7 @@ internal static class WorldStateValidation
         var lairs = world.Lairs.ToDictionary(l => l.Id);
         var trains = world.Trains.ToDictionary(t => t.Id);
         var inventories = world.Inventories.ToDictionary(i => i.Id);
+        var leases = world.Leases.ToDictionary(l => l.Id);
         var plots = new Dictionary<PlotId, (SettlementState Settlement, PlotState Plot)>();
         var instances = new Dictionary<InstanceId, InstanceState>();
         (int Kind, ulong Id) previousInstance = (-1, 0);
@@ -216,16 +218,42 @@ internal static class WorldStateValidation
                 default: throw new CoreStateFormatException("/world/instances/details");
             }
         }
+        foreach (var lease in world.Leases)
+        {
+            Require(settlements.ContainsKey(lease.Settlement), "/world/leases/settlement");
+            Require(inventories.TryGetValue(lease.Inventory, out var inventory)
+                && inventory.Owner == new InventoryOwner.Lease(lease.Id), "/world/leases/inventory");
+            Require(lease.Capacity > 0, "/world/leases/capacity");
+            Require(lease.ExpiresAtStep > 0, "/world/leases/expires_at_step");
+            Require(lease.Paid.Value >= 0, "/world/leases/paid");
+        }
+        var reservationJobs = new HashSet<JobId>();
         foreach (var inventory in world.Inventories)
         {
             Require(inventory.Owner switch
             {
                 InventoryOwner.Settlement s => settlements.TryGetValue(s.Id, out var owner) && owner.Inventory == inventory.Id,
                 InventoryOwner.Train t => trains.TryGetValue(t.Id, out var owner) && owner.Inventory == inventory.Id,
+                InventoryOwner.Lease l => leases.TryGetValue(l.Id, out var owner) && owner.Inventory == inventory.Id,
                 _ => false
             }, "/world/inventories/owner");
             Strings(inventory.Goods, g => WorldReferences.GoodKey(g.Good), "/world/inventories/goods");
             foreach (var good in inventory.Goods) { Good(good.Good, "/world/inventories/goods"); Require(good.Quantity > 0, "/world/inventories/goods"); }
+            Items(inventory.Reservations, "/world/inventories/reservations");
+            foreach (var reservation in inventory.Reservations)
+            {
+                Require(reservation.Job.Value != 0 && reservationJobs.Add(reservation.Job), "/world/inventories/reservations/job");
+                Require(reservation.Capacity > 0, "/world/inventories/reservations/capacity");
+                Items(reservation.ExpectedReturns, "/world/inventories/reservations/expected_returns");
+                Int128 total = 0;
+                foreach (var good in reservation.ExpectedReturns)
+                {
+                    Good(good.Good, "/world/inventories/reservations/expected_returns");
+                    Require(good.Quantity > 0, "/world/inventories/reservations/expected_returns");
+                    total += good.Quantity;
+                }
+                Require(total <= reservation.Capacity, "/world/inventories/reservations/expected_returns");
+            }
         }
         Require(world.Money.Value >= 0 && world.Next is not null, "/world/money");
         var next = world.Next;
@@ -239,6 +267,7 @@ internal static class WorldStateValidation
         Next(next.Train, world.Trains.Select(t => t.Id.Value), "/world/next/train");
         Next(next.Inventory, world.Inventories.Select(i => i.Id.Value), "/world/next/inventory");
         Next(next.Break, breakIds, "/world/next/break");
+        Next(next.Lease, world.Leases.Select(l => l.Id.Value), "/world/next/lease");
     }
 
     private static void ValidateTrain(TrainState train, Dictionary<NodeId, NodeMapItem> nodes,
