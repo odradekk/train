@@ -29,7 +29,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
         var sessions = new List<FixedDisplaySession>();
         var factory = Factory(binding =>
         {
-            var session = Session(binding, [Success(Frame(1, debugLines:
+            var session = Session(binding, [Success(Frame(1, pick: new ScenePick.Miss(), debugLines:
                 [new(new(3, 4, 5), new(6, 7, 8), new(1, 1, 0, 1))]))]);
             sessions.Add(session);
             return session;
@@ -51,6 +51,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
                     "Scenes返回的调试线没有成为真实Godot几何。");
             }
             var oldRoot = world.Display!.Root;
+            world.Pick(TestScene.GetViewport().GetVisibleRect().Size / 2);
             var status = app.Host!.GetStatus()!;
             Require(world.Regenerate() is null, "活动场景重新生成失败。");
             Require(sessions.Count == 2 && sessions[0].IsDisposed && !GodotObject.IsInstanceValid(oldRoot),
@@ -61,6 +62,8 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             world.ProcessFrame(0, false);
             Require(sessions[1].PresentCalls.Single().Request.DebugLayers == world.DebugLayers,
                 "重新生成丢失调试图层选择。");
+            Require(sessions[1].PresentCalls.Single().Request.PickRay is null,
+                "重新生成后的新会话仍收到旧会话的拾取样本。");
         }
         finally { await fixture.Cleanup(); }
     }
@@ -129,6 +132,9 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             Require(world.View.CameraRig.Camera.Position.Y > 100 && world.View.CameraRig.Camera.Position.Y < 200,
                 "Loading候选帧改变了已显示地形高度约束。");
             world.ProcessFrame(0, false);
+            Require(session!.PresentCalls[^1].Request.PickRay is { } missSample &&
+                ReferenceEquals(missSample.Frame, first) && ReferenceEquals(missSample.Ray, first.LastPickRay),
+                "未命中的拾取没有携带实际显示帧和实际拾取射线传给下一次Present。");
             Require(ReferenceEquals(world.Display.DisplayedFrame, first), "Base不符部分接入了更新。");
             Require(ReferenceEquals(world.Display.Root, root) && world.Display.Objects.Count == 1 &&
                 ReferenceEquals(world.Display.Objects[new(1)].Root, oldObject) && oldObject.Transform == oldTransform,
@@ -217,9 +223,10 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
         var shifted = Frame(2, baseline: first.Update.Frame, origin: new(100, 0, 0), shift: new(-100, 0, 0),
             pick: new ScenePick.Hit(hit with { Frame = Stamp(2) }));
         var secondHit = ((ScenePick.Hit)shifted.PickResult!).Value;
+        var notReady = Frame(3, pick: new ScenePick.NotReady());
         FixedDisplaySession? session = null;
         var factory = Factory(binding => session = Session(binding, [Success(first), Success(shifted),
-            Success(Frame(3, pick: new ScenePick.NotReady()))], resolve:
+            Success(notReady), Success(Frame(4))], resolve:
             new Dictionary<SceneHit, SceneResult<PickSubject>> { [hit] = new SceneResult<PickSubject>.Success(hit.Subject),
                 [secondHit] = new SceneResult<PickSubject>.Success(secondHit.Subject) }.ToImmutableDictionary()));
         try
@@ -234,6 +241,9 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             world.Pick(center);
             var oldRay = first.LastPickRay!;
             world.ProcessFrame(0, false);
+            Require(session!.PresentCalls[^1].Request.PickRay is { } hitSample &&
+                ReferenceEquals(hitSample.Frame, first) && ReferenceEquals(hitSample.Ray, oldRay),
+                "命中拾取样本没有保留拾取时的显示帧和射线。");
             world.Pick(center);
             Require(selected == 2 && session!.ResolveCalls.SequenceEqual(new[] { hit, secondHit }), "命中没有经当前会话Resolve交给宿主事件。");
             Require(NVector3.Distance(shifted.LastPickRay!.Origin, oldRay.Origin + new NVector3(-100, 0, 0)) < 0.01f &&
@@ -241,6 +251,10 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             world.ProcessFrame(0, false);
             world.Pick(center);
             Require(selected == 2 && session!.ResolveCalls.Count == 2, "NotReady被当作可选择空地。");
+            world.ProcessFrame(0, false);
+            Require(session!.PresentCalls[^1].Request.PickRay is { } notReadySample &&
+                ReferenceEquals(notReadySample.Frame, notReady) && ReferenceEquals(notReadySample.Ray, notReady.LastPickRay),
+                "NotReady拾取没有替换为最近一次实际拾取样本。");
         }
         finally { await fixture.Cleanup(); }
     }
