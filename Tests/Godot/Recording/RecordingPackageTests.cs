@@ -15,6 +15,24 @@ namespace Train.Godot.Tests.Recording;
 public sealed class RecordingPackageTests
 {
     [TestMethod]
+    public void Version_one_recording_with_numeric_plot_references_is_rejected()
+    {
+        WithFile(path =>
+        {
+            Package().Write(path);
+            using (var zip = ZipFile.Open(path, ZipArchiveMode.Update))
+                Replace(zip, "manifest.json", text =>
+                {
+                    var manifest = JsonNode.Parse(text)!;
+                    manifest["FormatVersion"] = 1;
+                    return manifest.ToJsonString();
+                });
+            var exception = Assert.ThrowsExactly<InvalidDataException>(() => RecordingPackage.Read(path));
+            StringAssert.Contains(exception.Message, "不支持的录制格式");
+        });
+    }
+
+    [TestMethod]
     public void Zip_preserves_opaque_payloads_window_and_complete_command_receipts()
     {
         WithFile(path =>
@@ -26,7 +44,7 @@ public sealed class RecordingPackageTests
             Assert.AreEqual(" 内容\r\n🚂\0 opaque ", Read(zip, "content.payload"));
             using var manifest = JsonDocument.Parse(Read(zip, "manifest.json"));
             var header = manifest.RootElement;
-            Assert.AreEqual(1, header.GetProperty("FormatVersion").GetInt32());
+            Assert.AreEqual(2, header.GetProperty("FormatVersion").GetInt32());
             Assert.AreEqual("actual-runtime", header.GetProperty("Runtime").GetProperty("DotNetRuntime").GetString());
             Assert.AreEqual(900ul, header.GetProperty("EndPosition").GetProperty("CompletedSteps").GetUInt64());
             Assert.AreEqual(2, header.GetProperty("Starts").GetArrayLength());
@@ -71,7 +89,7 @@ public sealed class RecordingPackageTests
         {
             zip => zip.GetEntry("content.payload")!.Delete(),
             zip => zip.CreateEntry("commands.jsonl"),
-            zip => Replace(zip, "manifest.json", text => text.Replace("\"FormatVersion\":1", "\"FormatVersion\":2")),
+            zip => Replace(zip, "manifest.json", text => text.Replace("\"FormatVersion\":2", "\"FormatVersion\":3")),
             zip => Replace(zip, "manifest.json", text => text.Replace("hash-unmodified", "different-hash")),
             zip => Replace(zip, "manifest.json", text => text.Replace("fault-only", "lost-reference")),
             zip => Replace(zip, "manifest.json", text =>
@@ -126,7 +144,7 @@ public sealed class RecordingPackageTests
             zip => zip.CreateEntry("commands.jsonl"),
             zip => Replace(zip, "manifest.json", _ => "{}"),
             zip => Replace(zip, "manifest.json", _ => "null"),
-            zip => Replace(zip, "manifest.json", text => text.Replace("\"FormatVersion\":1", "\"FormatVersion\":2")),
+            zip => Replace(zip, "manifest.json", text => text.Replace("\"FormatVersion\":2", "\"FormatVersion\":3")),
             zip => Replace(zip, "manifest.json", text =>
             {
                 var manifest = JsonNode.Parse(text)!;
@@ -167,7 +185,7 @@ public sealed class RecordingPackageTests
     private static RecordingPackage Package()
     {
         CoreReferenceManifest references = new([new("design")],
-            [new(new(4), new("template"), [new(7, PlotSize.Station)])],
+            [new(new(4), new("template"), [new(7, PlotSize.SmallStation)])],
             [new(new CoreDefinitionReference.Process(new ProcessRef.Recovery(new("recovery"))),
                 new("frozen-revision"), "field-reference", true)], [new("input")]);
         var fault = new CoreFault("fault-code", new(8, 9), "operation", "fault-field",

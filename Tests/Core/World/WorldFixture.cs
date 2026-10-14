@@ -72,7 +72,7 @@ internal static partial class WorldFixture
             var typeA = new SettlementTypeProjection(new("fixture:town-a"), Revision, 1, [Plain, Hills], 10, 20);
             var typeB = typeA with { Id = new("fixture:town-b"), Weight = 2, MinimumInitialPopulation = 30, MaximumInitialPopulation = 40 };
             var templateA = new SettlementTemplateProjection(new("fixture:template-a1"), typeA.Id, 1,
-                [new(1, PlotSize.Station, Station), new(2, PlotSize.Small, FactoryBuilding),
+                [new(1, PlotSize.SmallStation, Station), new(2, PlotSize.Small, FactoryBuilding),
                     new(3, PlotSize.Small, null), new(4, PlotSize.Small, null)],
                 [new(3, FactoryBuilding), new(4, FactoryBuilding)], InitialGoods(3, 4),
                 [new(2, CapabilityKind.Production, production, true, 0), new(2, CapabilityKind.Extraction, extraction, false, 1)]);
@@ -126,7 +126,7 @@ internal static partial class WorldFixture
         [new(new GoodId.Voxel(Material), Revision, new(1), 1, true, null)],
         [Design(Vehicle, new DesignKind.Vehicle(SizeClass.Small, 1),
             [new PartCapability.Control(), new PartCapability.Propulsion(100, 10), new PartCapability.Storage(100)]),
-         Design(Station, new DesignKind.Building(PlotSize.Station, BuildingKind.Station, []),
+         Design(Station, new DesignKind.Building(PlotSize.SmallStation, BuildingKind.Station, []),
             [new PartCapability.Platform()])],
         [], [],
         [new(Rules.Population, Revision, [], [], 0.5, 1, 10, 0, 0, 0)],
@@ -136,7 +136,7 @@ internal static partial class WorldFixture
         [new(Rules.Railway, Revision, 1, 1, 1, Material, 1, 1, 1, 1)],
         [new(Rules.Combat, Revision, 1, 0, 0, 0, 0, 1)],
         [new(new("fixture:town"), Revision, 1, [Plain], 10, 10)],
-        [new(new("fixture:town-template"), new("fixture:town"), 1, [new(1, PlotSize.Station, Station)], [], [], [])],
+        [new(new("fixture:town-template"), new("fixture:town"), 1, [new(1, PlotSize.SmallStation, Station)], [], [], [])],
         [], [], []);
 
     private static DesignProjection Design(DesignHash hash, DesignKind kind,

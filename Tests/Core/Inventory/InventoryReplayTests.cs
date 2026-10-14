@@ -29,7 +29,7 @@ public sealed class InventoryReplayTests
         var recording = session.ReadRecording();
         Assert.IsTrue(recording.Commands.Any(c => c.Result.Decision is CommandDecision.Rejected));
         Assert.IsTrue(recording.EndPosition.CompletedSteps > recording.Commands.Last().Result.After.CompletedSteps);
-        var input = new CoreReplayInput(1, WorldFixture.Options.Runtime, recording.Starts[0].State.Encode(),
+        var input = new CoreReplayInput(2, WorldFixture.Options.Runtime, recording.Starts[0].State.Encode(),
             recording.Commands, samples.Select(s => s.Checkpoint).ToImmutableArray(), recording.EndPosition, null);
         using var replay = WorldFixture.Success(CoreFactory.Create().PrepareReplay(input, WorldFixture.Options.Runtime, [Content()]));
         var expired = new List<LeaseId>();

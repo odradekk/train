@@ -12,6 +12,18 @@ namespace Train.Content.Tests.Loading;
 public sealed class ContentReplayTests
 {
     [TestMethod]
+    public void Version_one_replay_content_with_plot_sizes_is_rejected()
+    {
+        using var candidate = WorldContentFixtures.Content().Load();
+        var factory = ContentFactory.Create();
+        var json = JsonNode.Parse(Success(factory.CaptureReplay([candidate.View], References(candidate.View, "engine"))).Encode())!;
+        json["format_version"] = 1;
+        var result = factory.DecodeReplay(json.ToJsonString());
+        Failure(result, "unsupported_format");
+        Assert.IsTrue(((C.ContentResult<C.IContentReplayCapture>.Failure)result).Diagnostics.Any(d => d.Field == "/format_version"));
+    }
+
+    [TestMethod]
     public void Replay_restores_fixed_definitions_layout_appearance_and_asset_sources_after_installation_changes()
     {
         var fixture = WorldContentFixtures.Content();
@@ -116,7 +128,7 @@ public sealed class ContentReplayTests
             var json = JsonNode.Parse(payload)!;
             switch (mutation)
             {
-                case "version": json["format_version"] = 2; json["future_field"] = true; break;
+                case "version": json["format_version"] = 3; json["future_field"] = true; break;
                 case "input": json["history"]![0]!["input"] = new string('A', 64); break;
                 case "hash": json["blobs"]![0]!["hash"] = new string('A', 64); break;
                 case "bytes": json["blobs"]![0]!["bytes"] = Convert.ToBase64String([255, 254]); break;

@@ -51,7 +51,7 @@ public sealed record CoreContentProjection(
 public sealed record GoodDefinitionProjection(GoodId Good, SemanticRevision Revision,
     Money BaseValue, double MassTons, bool RawGood, double? FuelEnergyPerUnit);
 
-public enum PlotSize { Small, Medium, Large, Station }
+public enum PlotSize { Small, Medium, Large, Giant, SmallStation, LargeStation }
 public enum BuildingKind { Production, Warehouse, Power, Construction, Station, Defense }
 public enum FacilityTag
 {

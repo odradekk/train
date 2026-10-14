@@ -194,7 +194,7 @@ public sealed class HostCoreScenarioTests
     public void ReplayFactoryRequiresConfigurationAndPassesInputAndComparisonThrough()
     {
         var runtime = new RuntimeIdentity("fixture", "1", "os", "architecture", "runtime");
-        var input = new CoreReplayInput(1, runtime, "opaque initial", [], [], new(2, 0), null);
+        var input = new CoreReplayInput(2, runtime, "opaque initial", [], [], new(2, 0), null);
         var checkpoint = new CoreCheckpoint(new(2, 0), "checkpoint", new string('B', 64));
         var otherCheckpoint = checkpoint with { CanonicalText = "actual" };
         using var replay = new ScriptedCoreReplay(new FixedCoreReadView(new(0, 0), HostCoreScenario.Input));

@@ -6,11 +6,11 @@
   "plots": [
     {
       "id": 1,
-      "size": "station",
+      "size": "small_station",
       "at": [
-        0,
+        -72,
         1,
-        -10
+        0
       ],
       "orientation": "pz_py",
       "building": "5e1f0c3a-7b2d-4c8e-9a61-0d4b7f2e8c15:small-station"
@@ -19,9 +19,9 @@
       "id": 2,
       "size": "small",
       "at": [
-        6,
+        40,
         1,
-        0
+        -64
       ]
     }
   ],

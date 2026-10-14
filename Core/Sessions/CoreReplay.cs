@@ -25,7 +25,7 @@ internal sealed class CoreReplay(CoreSession session, CoreReplayInput input,
             throw new ArgumentException("数组必须初始化。");
         foreach (var projection in history)
             WorldInputs.ValidateContent(projection);
-        if (input.FormatVersion != 1)
+        if (input.FormatVersion != 2)
             return Failure("unsupported_format", "FormatVersion");
         var runtimeFields = new[]
         {
