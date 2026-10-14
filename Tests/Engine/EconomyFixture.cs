@@ -10,13 +10,14 @@ internal static class EconomyFixture
 {
     internal enum VehicleState { ForSale, Owned, Formed }
     internal const long LargeQuantity = 9007199254740993;
-    internal const ulong LeaseDuration = 216000;
+    internal const ulong LeaseDuration = 3600;
     internal static GoodId Food { get; } = new GoodId.Voxel(new("core:staple-food"));
     internal static GoodId Equipment { get; } = new GoodId.Composite(new("fixture:equipment"));
 
     internal static FixedCoreReadView Create(ulong revision = 1,
         VehicleState vehicle = VehicleState.ForSale, int forSale = 1, int purchaseAvailable = 1,
-        bool blocked = false, bool shortage = false, long foodQuantity = 4, long tradeTotal = 731, long? executableQuantity = null)
+        bool blocked = false, bool shortage = false, long foodQuantity = 4, long tradeTotal = 731, long? executableQuantity = null,
+        bool missingMarketRule = false)
     {
         var location = new WorldLocation.Node(new(1));
         var rule = new RuleStatusView(new("fixture:economy"), null, []);
@@ -43,7 +44,10 @@ internal static class EconomyFixture
             [new(SizeClass.Medium, forSale, 4, purchaseAvailable)], [], new(0, 0, 0, 0),
             new(rule, 10, 10, 0, 10, new PopulationExecution.NotStarted([]), null, []),
             new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [new(1)],
-            new(rule, new(100, 5, 2, 20, 0, 75, 50),
+            new(missingMarketRule ? rule with { Problems = [
+                    new("content_missing", "market.rule", new WorldObjectId.Settlement(new(1)), ["fixture:missing-market"]),
+                    new("invalid_state", "market.rule", new WorldObjectId.Settlement(new(1)), ["fixture:invalid-market"])] } : rule,
+                new(100, 5, 2, 20, 0, 75, 50),
                 [new(Food, 42, 50, 2, 40, 20, []), new(Equipment, 3, 5, 0, 3, 2, [])]));
         InventoryView Inventory(ulong id, InventoryOwner owner) => new(new(id), owner, location, InventoryAccess.ReadWrite,
             100, 5, 2, 93, 1.25, [new(Food, foodQuantity, false), new(Equipment, 1, false)], []);
@@ -123,12 +127,19 @@ internal static class EconomyFixture
         };
     }
 
-    internal static FixedContentView Content(ulong generation = 1)
+    internal static FixedContentView Content(ulong generation = 1, bool missingMarketRule = false)
     {
         var icon = new AssetRevision("fixture-food-png");
         var bytes = ImmutableArray.CreateRange(Convert.FromBase64String(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNoOODwHwAFxAKAPuJ4AwAAAABJRU5ErkJggg=="));
-        return new(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(generation))
+        var market = new MarketRuleProjection(new("fixture:economy"), new("fixture-market-v1"), 1, 1, 1,
+            new(new(10000), new(10000), new(10000), new(0)), [], new(10000), new(10000), [],
+            60, 10, new(1), new(1), new(10000), (long)LeaseDuration);
+        var projection = HostContentScenario.CreateProjection(HostCoreScenario.Input) with
+        {
+            MarketRules = missingMarketRule ? [] : [market with { Id = new("fixture:another-market"), LeaseDurationTicks = 120 }, market]
+        };
+        return new(projection, new(generation))
         {
             SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
             {

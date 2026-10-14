@@ -14,7 +14,8 @@ internal partial class EconomyPanels
     private readonly List<LeaseId?> _leaseIds = [];
     private LeaseId? _leaseId;
     private LineEdit _leaseCapacity = null!;
-    private LineEdit _leaseSeconds = null!;
+    private Label _leaseDuration = null!;
+    private MarketRuleProjection? _leaseRule;
     private Label _leaseDescription = null!;
     private Button _leaseQuoteButton = null!;
     private Button _leaseConfirm = null!;
@@ -22,17 +23,16 @@ internal partial class EconomyPanels
 
     private void BuildLeases(VBoxContainer body)
     {
-        _leaseId = null; _leaseQuote = null; _leaseIds.Clear(); _leaseItems.Clear();
+        _leaseId = null; _leaseQuote = null; _leaseRule = null; _leaseIds.Clear(); _leaseItems.Clear();
         _leaseRows = List(body, "Leases", 240); _storage = Text(_leaseRows, "Storage", "");
         _leasesEmpty = Text(_leaseRows, "Empty", "没有仓库租约。");
         _leaseChoice = new OptionButton { Name = "Lease" }; body.AddChild(_leaseChoice);
         Text(body, "LeaseCapacityLabel", "新租容量（续租沿用原容量）");
         _leaseCapacity = IntegerInput(body, "LeaseCapacity", "新租容量（正整数）");
-        Text(body, "LeaseSecondsLabel", "租用时长（模拟秒，正整数）");
-        _leaseSeconds = IntegerInput(body, "LeaseSeconds", "租用时长（模拟秒，正整数）", "3600");
+        _leaseDuration = Text(body, "LeaseDuration", "");
         _leaseDescription = Text(body, "LeaseQuote", "报价不锁定。续租沿用原容量，重新检查可租空间。");
         _leaseChoice.ItemSelected += index => { _leaseId = _leaseIds[(int)index]; ClearLeaseQuote(); };
-        _leaseCapacity.TextChanged += _ => ClearLeaseQuote(); _leaseSeconds.TextChanged += _ => ClearLeaseQuote();
+        _leaseCapacity.TextChanged += _ => ClearLeaseQuote();
         var actions = new HBoxContainer(); body.AddChild(actions);
         _leaseQuoteButton = UiStyle.Button("QuoteLease", "获取报价", () => Quote(RequestLeaseQuote));
         _leaseConfirm = UiStyle.Button("ConfirmLease", "确认租用／续租", ConfirmLease, true);
@@ -41,6 +41,13 @@ internal partial class EconomyPanels
 
     private void RefreshLeases()
     {
+        var status = _settlement!.Market.Rule;
+        _leaseRule = _content.Core.MarketRules.SingleOrDefault(rule => rule.Id == status.Rule);
+        _leaseDuration.Text = _leaseRule is { } rule
+            ? $"市场规定租期：{rule.LeaseDurationTicks / (decimal)SimulationTime.StepsPerSecond:0.###} 模拟秒（{rule.LeaseDurationTicks} 步）"
+            : $"市场规则缺失：{status.Rule.Value}，无法确定租期。\n" + Problems(status.Problems);
+        _leaseDuration.AddThemeColorOverride("font_color", _leaseRule is null ? UiStyle.Error : Colors.White);
+        if (_leaseRule is null) ResetQuote(ref _leaseQuote, _leaseDescription, "市场规则缺失，不能获取或确认租赁报价。");
         var storage = _settlement!.Market.Storage;
         _storage.Text = $"全城物理容量 {storage.PhysicalCapacity} · 已用 {storage.TotalUsed} · 预留 {storage.TotalReserved}\n有效租出 {storage.ActiveLeaseCapacity} · 到期占用 {storage.ExpiredLeaseUsed}\nNPC 容量 {storage.NpcCapacity} · 可出租 {storage.RentableCapacity}";
         var leases = _locals.Where(local => local.Lease is not null).Select(local => local.Lease!).ToArray();
@@ -63,10 +70,8 @@ internal partial class EconomyPanels
     private void RequestLeaseQuote()
     {
         _leaseQuote = null;
-        if (!ulong.TryParse(_leaseSeconds.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var seconds) ||
-            seconds == 0 || seconds > ulong.MaxValue / (ulong)SimulationTime.StepsPerSecond)
-        { ResetQuote(ref _leaseQuote, _leaseDescription, "租用时长须为可表示的正整数模拟秒。"); return; }
-        var duration = seconds * (ulong)SimulationTime.StepsPerSecond;
+        if (_leaseRule is null) return;
+        var duration = checked((ulong)_leaseRule.LeaseDurationTicks);
         LeaseRequest request;
         if (_leaseId is { } id)
         {
@@ -91,9 +96,10 @@ internal partial class EconomyPanels
     private void UpdateLeaseActions()
     {
         var present = _leaseId is null || _leaseItems.ContainsKey(_leaseId.Value);
-        _leaseChoice.Disabled = !CanAct; _leaseQuoteButton.Disabled = !CanAct || !present;
-        _leaseCapacity.Editable = CanAct && _leaseId is null; _leaseSeconds.Editable = CanAct;
-        _leaseConfirm.Disabled = !CanAct || !present || _leaseQuote is not { Total: not null, Blockers.IsEmpty: true };
+        var available = CanAct && _leaseRule is not null;
+        _leaseChoice.Disabled = !available; _leaseQuoteButton.Disabled = !available || !present;
+        _leaseCapacity.Editable = available && _leaseId is null;
+        _leaseConfirm.Disabled = !available || !present || _leaseQuote is not { Total: not null, Blockers.IsEmpty: true };
         if (_leaseQuote is { } quote) ShowQuote(_leaseDescription, quote.Revision,
             $"当前可租容量：{quote.CurrentlyRentableCapacity}\n总额：{Amount(quote.Total)}", quote.Blockers,
             reason: quote.Total is null ? "报价未提供总额，不能确认租用。" : null);

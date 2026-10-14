@@ -100,7 +100,7 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Rent_and_renew_preserve_core_amount_and_convert_seconds()
+    public async Task Rent_and_renew_use_matching_market_rule_duration_and_preserve_core_amount()
     {
         var before = EconomyFixture.Create();
         var rented = EconomyFixture.Create(2);
@@ -114,7 +114,8 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
         {
             await Page(economy, 3);
             await _input.Enter(Find<LineEdit>(economy, "LeaseCapacity"), "3");
-            Require(Find<LineEdit>(economy, "LeaseSeconds").Text == "3600", "租期默认秒数错误。");
+            Require(Find<Label>(economy, "LeaseDuration").Text.Contains("60 模拟秒（3600 步）") &&
+                economy.FindChildren("LeaseSeconds", "LineEdit", true, false).Count == 0, "市场规则租期未只读显示。");
             await _input.Activate(Find<Button>(economy, "QuoteLease"));
             Require(Find<Label>(economy, "LeaseQuote").Text.Contains("总额：419"), "租赁未显示核心总额。");
             await UiCapture.Capture(TestScene, "economy-lease");
@@ -124,6 +125,26 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
             await _input.Activate(Find<Button>(economy, "QuoteLease"));
             await _input.Activate(Find<Button>(economy, "ConfirmLease"));
             await _input.WaitUntil(() => ReferenceEquals(ui.View, renewed));
+        });
+        setup.Session.AssertComplete();
+    }
+
+    [Test]
+    public async Task Missing_market_rule_displays_all_problems_and_disables_leasing()
+    {
+        var setup = new HostSimulationTests.HostSetup(EconomyFixture.Create(missingMarketRule: true),
+            EconomyFixture.Content(missingMarketRule: true));
+        await Run(setup, async (_, economy) =>
+        {
+            await Page(economy, 3);
+            var text = Find<Label>(economy, "LeaseDuration").Text;
+            Require(text.Contains("市场规则缺失：fixture:economy") && text.Contains("content_missing/market.rule") &&
+                text.Contains("fixture:missing-market") && text.Contains("invalid_state/market.rule") &&
+                text.Contains("fixture:invalid-market"), "缺失市场规则的问题未完整显示。");
+            Require(Find<OptionButton>(economy, "Lease").Disabled && !Find<LineEdit>(economy, "LeaseCapacity").Editable &&
+                Find<Button>(economy, "QuoteLease").Disabled && Find<Button>(economy, "ConfirmLease").Disabled &&
+                Find<Label>(economy, "LeaseQuote").Text.Contains("市场规则缺失"), "缺失市场规则时仍允许租赁或未说明原因。");
+            Require(setup.Session.SubmitCount == 0, "缺失市场规则时提交了租赁命令。");
         });
         setup.Session.AssertComplete();
     }

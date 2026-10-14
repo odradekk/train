@@ -9,7 +9,7 @@ internal sealed class EconomicQueries(Action<string> report)
         value = default!;
         if (MissingEntry is not null) return false;
         try { value = read(); return true; }
-        // #325、#384 提供查询后删除；缺少生产实现不能变成空库存或零报价。
+        // FindSettlement、Economy、QuoteTrade、QuoteVehicle 实现后删除；不能用替代数据掩盖缺失实现。
         catch (NotImplementedException)
         {
             MissingEntry = entry;
