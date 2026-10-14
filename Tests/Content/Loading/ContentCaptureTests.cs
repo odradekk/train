@@ -10,6 +10,20 @@ namespace Train.Content.Tests.Loading;
 public sealed class ContentCaptureTests
 {
     [TestMethod]
+    public void Version_one_capture_with_plot_sizes_is_rejected()
+    {
+        using var candidate = WorldContentFixtures.Content().Load();
+        var factory = ContentFactory.Create();
+        var owned = factory.WithSettlementCopies(candidate.View, [Template(41)]);
+        var json = JsonNode.Parse(Success(factory.Capture(owned,
+            References(owned, "engine") with { Templates = [Template(41)] })).Encode())!;
+        json["format_version"] = 1;
+        var result = factory.DecodeCapture(json.ToJsonString());
+        Failure(result, "unsupported_format");
+        Assert.IsTrue(((C.ContentResult<C.IContentCapture>.Failure)result).Diagnostics.Any(d => d.Field == "/format_version"));
+    }
+
+    [TestMethod]
     public void Capture_round_trips_designs_and_owner_copies_without_derived_state()
     {
         using var candidate = WorldContentFixtures.Content().Load();
@@ -61,7 +75,7 @@ public sealed class ContentCaptureTests
             var json = JsonNode.Parse(payload)!;
             switch (mutation)
             {
-                case "version": json["format_version"] = 2; json["future_field"] = true; break;
+                case "version": json["format_version"] = 3; json["future_field"] = true; break;
                 case "hash": json["designs"]![0]!["hash"] = new string('A', 64); break;
                 case "scene": json["designs"] = new JsonArray(); break;
                 case "duplicate": json["templates"]!.AsArray().Add(json["templates"]![0]!.DeepClone()); break;
@@ -84,7 +98,7 @@ public sealed class ContentCaptureTests
     }
 
     internal static K.OwnedSettlementTemplateReference Template(ulong owner) => new(new(owner), new("core:farm-start"),
-        [new(7, K.PlotSize.Station), new(11, K.PlotSize.Medium)]);
+        [new(7, K.PlotSize.SmallStation), new(11, K.PlotSize.Medium)]);
     internal static K.CoreReferenceManifest References(C.IContentView view, params string[] blueprints) => new(
         blueprints.Select(id => ((C.ContentLookup<C.BlueprintRecord>.Found)view.FindBlueprint(new(C.BlueprintLibrary.Packages, new("core:" + id)))).Value)
             .Select(record => ((C.DesignEvaluation.Complete)record.Evaluation).Design).ToImmutableArray(), [], [], [view.Core.Identity]);

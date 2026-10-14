@@ -100,7 +100,7 @@ public sealed partial class CoreReplayCorpusTests
         var commands = File.ReadLines(Path.Combine(Corpus, name + ".commands.jsonl"))
             .Select(ReadCommand).ToImmutableArray();
         using var replay = Success(factory.PrepareReplay(
-            new(1, Runtime, initial.ToJsonString(), commands, [], new(end, 0), null), Runtime, history));
+            new(2, Runtime, initial.ToJsonString(), commands, [], new(end, 0), null), Runtime, history));
         var checkpoints = new List<CoreCheckpoint> { replay.CaptureBoundary().Checkpoint };
         while (true)
         {

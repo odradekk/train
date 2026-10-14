@@ -308,7 +308,7 @@ internal sealed class HostCoordinator : IDisposable
         if (!header.FaultSegments.IsEmpty)
         {
             var fault = header.FaultSegments[0];
-            return new(1, header.Runtime, fault.Start.Payload, fault.Commands, fault.Checkpoints,
+            return new(2, header.Runtime, fault.Start.Payload, fault.Commands, fault.Checkpoints,
                 fault.Fault.Position, fault.Fault);
         }
         var start = header.Starts.OrderBy(point => point.Position.CompletedSteps).ThenBy(point => point.Position.Sequence)
@@ -316,7 +316,7 @@ internal sealed class HostCoordinator : IDisposable
                 !header.Gaps.Any(gap => ComparePosition(gap.From, header.EndPosition) < 0 &&
                     (gap.Until is null || ComparePosition(gap.Until.Value, point.Position) > 0)));
         if (start is null) throw new InvalidDataException("录制窗口没有之后连续、无缺口的可用起点。");
-        return new(1, header.Runtime, start.Payload,
+        return new(2, header.Runtime, start.Payload,
             package.Commands.Where(command => ComparePosition(command.Result.After, start.Position) > 0 &&
                 ComparePosition(command.Result.After, header.EndPosition) <= 0).ToImmutableArray(),
             header.Checkpoints.Where(checkpoint => ComparePosition(checkpoint.Position, start.Position) >= 0 &&

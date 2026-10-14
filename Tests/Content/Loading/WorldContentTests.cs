@@ -163,25 +163,6 @@ public sealed class WorldContentTests
     }
 
     [TestMethod]
-    [DataRow("ordinary-on-station")]
-    [DataRow("station-on-ordinary")]
-    [DataRow("large-on-medium")]
-    public void Station_buildings_and_station_plots_must_match_in_both_directions(string mutation)
-    {
-        var fixture = WorldContentFixtures.Content();
-        var template = WorldContentFixtures.Template();
-        if (mutation == "ordinary-on-station") template["plots"]![0]!["building"] = "workshop";
-        else if (mutation == "station-on-ordinary") template["plots"]![1]!["building"] = "station";
-        else
-        {
-            AddBlueprint(fixture, Building("large-workshop", "large", "production"));
-            template["plots"]![1]!["building"] = "large-workshop";
-        }
-        fixture.AddFile(ContentFixture.BuiltIn, WorldContentFixtures.TemplatePath, template.ToJsonString());
-        Assert.IsTrue(Failure(fixture.Prepare()).Diagnostics.Any(diagnostic => diagnostic.Code == "invalid_field" && diagnostic.Field == "/plots"));
-    }
-
-    [TestMethod]
     public void Ordinary_building_can_use_a_larger_plot_and_empty_future_arrays_are_accepted()
     {
         var fixture = WorldContentFixtures.Content();
@@ -213,8 +194,8 @@ public sealed class WorldContentTests
             Assert.AreEqual(new K.SettlementId(owner), layout.Owner);
             Assert.AreEqual(new K.SettlementTemplateId("core:farm-start"), layout.SourceTemplate);
             Assert.AreEqual(Design(original, "scene"), layout.SceneModel.Design);
-            Assert.AreEqual(new C.SettlementPlotLayout(7, K.PlotSize.Station, new(0, 0, 0), C.VoxelOrientation.PxPy), layout.Plots[0]);
-            Assert.AreEqual(new C.SettlementPlotLayout(11, K.PlotSize.Medium, new(30, 0, 0), C.VoxelOrientation.PzPy), layout.Plots[1]);
+            Assert.AreEqual(new C.SettlementPlotLayout(7, K.PlotSize.SmallStation, new(0, 0, 0), C.VoxelOrientation.PxPy), layout.Plots[0]);
+            Assert.AreEqual(new C.SettlementPlotLayout(11, K.PlotSize.Medium, new(160, 0, 0), C.VoxelOrientation.PzPy), layout.Plots[1]);
         }
         var empty = factory.WithSettlementCopies(copied, []);
         Assert.AreEqual(copied.PersistentRevision, empty.PersistentRevision);
@@ -236,7 +217,7 @@ public sealed class WorldContentTests
         reference = mutation switch
         {
             "missing-source" => reference with { SourceTemplate = new("core:absent") },
-            "plot-number" => reference with { Plots = [new(8, K.PlotSize.Station), new(11, K.PlotSize.Medium)] },
+            "plot-number" => reference with { Plots = [new(8, K.PlotSize.SmallStation), new(11, K.PlotSize.Medium)] },
             "plot-size" => reference with { Plots = [new(7, K.PlotSize.Small), new(11, K.PlotSize.Medium)] },
             "existing-owner" => reference with { Owner = new(41) },
             _ => reference
@@ -259,14 +240,14 @@ public sealed class WorldContentTests
         var changed = WorldContentFixtures.Template();
         changed["weight"] = 9;
         changed["plots"]![1]!["size"] = "large";
-        changed["plots"]![1]!["at"] = new JsonArray(40, 0, 0);
+        changed["plots"]![1]!["at"] = new JsonArray(240, 0, 0);
         fixture.AddFile(ContentFixture.BuiltIn, WorldContentFixtures.TemplatePath, changed.ToJsonString());
         using var second = fixture.Load();
         Assert.AreEqual(9, second.View.Core.SettlementTemplates.Single().Weight);
         Assert.AreEqual(K.PlotSize.Large, second.View.Core.SettlementTemplates.Single().Plots[1].Size);
         var newlyOwned = ContentFactory.Create().WithSettlementCopies(second.View,
-            [Reference(42) with { Plots = [new(7, K.PlotSize.Station), new(11, K.PlotSize.Large)] }]);
-        Assert.AreEqual(new C.GridPosition(40, 0, 0), Found(newlyOwned.FindSettlementLayout(new(42))).Plots[1].At);
+            [Reference(42) with { Plots = [new(7, K.PlotSize.SmallStation), new(11, K.PlotSize.Large)] }]);
+        Assert.AreEqual(new C.GridPosition(240, 0, 0), Found(newlyOwned.FindSettlementLayout(new(42))).Plots[1].At);
         AssertLayoutEqual(retained, Found(owned.FindSettlementLayout(new(41))));
     }
 

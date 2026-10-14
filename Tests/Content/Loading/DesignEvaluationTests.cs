@@ -92,17 +92,19 @@ public sealed class DesignEvaluationTests
     }
 
     [TestMethod]
-    public void Station_has_its_own_plot_envelope_and_requires_matching_building_type()
+    [DataRow(K.PlotSize.SmallStation, 95, 47, 55)]
+    [DataRow(K.PlotSize.LargeStation, 127, 63, 103)]
+    public void Station_has_its_own_plot_envelope_and_requires_matching_building_type(K.PlotSize size, int x, int y, int z)
     {
         using var candidate = DesignFixtures.Content().Load();
         var draft = DesignFixtures.Vehicle() with
         {
-            Specification = new C.DesignSpecification.Building(K.PlotSize.Station, K.BuildingKind.Station, []),
-            Layout = new([DesignFixtures.Entry()], [new(new(31, 15, 11), 0)], [])
+            Specification = new C.DesignSpecification.Building(size, K.BuildingKind.Station, []),
+            Layout = new([DesignFixtures.Entry()], [new(new(x, y, z), 0)], [])
         };
         Assert.IsTrue(DesignFixtures.Evaluate(candidate.View, draft).IsValid);
-        Assert.IsFalse(DesignFixtures.Evaluate(candidate.View, draft with { Layout = draft.Layout with { Cells = [new(new(32, 15, 11), 0)] } }).IsValid);
-        Assert.IsFalse(DesignFixtures.Evaluate(candidate.View, draft with { Specification = new C.DesignSpecification.Building(K.PlotSize.Station, K.BuildingKind.Warehouse, []) }).IsValid);
+        Assert.IsFalse(DesignFixtures.Evaluate(candidate.View, draft with { Layout = draft.Layout with { Cells = [new(new(x + 1, y, z), 0)] } }).IsValid);
+        Assert.IsFalse(DesignFixtures.Evaluate(candidate.View, draft with { Specification = new C.DesignSpecification.Building(size, K.BuildingKind.Warehouse, []) }).IsValid);
         Assert.IsFalse(DesignFixtures.Evaluate(candidate.View, draft with { Specification = new C.DesignSpecification.Building(K.PlotSize.Small, K.BuildingKind.Station, []) }).IsValid);
     }
 

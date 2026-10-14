@@ -26,7 +26,7 @@ internal sealed record RecordingPackage(RecordingPackage.Manifest Header,
     private static readonly JsonSerializerOptions Json = CreateOptions();
 
     internal static RecordingPackage Capture(CoreRecordingWindow window, IContentReplayCapture content,
-        RuntimeIdentity runtime) => new(new(1, runtime, window.EndPosition,
+        RuntimeIdentity runtime) => new(new(2, runtime, window.EndPosition,
             window.Starts.Select(EncodeStart).ToImmutableArray(), window.Checkpoints,
             window.FaultSegments.Select(f => new EncodedFault(EncodeStart(f.Start), f.Commands,
                 f.Checkpoints, f.Fault, f.RequiredReferences)).ToImmutableArray(), window.Gaps,
@@ -76,7 +76,7 @@ internal sealed record RecordingPackage(RecordingPackage.Manifest Header,
             using var zip = new ZipArchive(file, ZipArchiveMode.Read);
             var manifest = JsonSerializer.Deserialize<Manifest>(ReadEntry(zip, "manifest.json"), Json)
                 ?? throw new InvalidDataException("录制清单为空。");
-            if (manifest.FormatVersion != 1) throw new InvalidDataException("不支持的录制格式。");
+            if (manifest.FormatVersion != 2) throw new InvalidDataException("不支持的录制格式。");
             if (manifest.Runtime is null || manifest.Starts.IsDefault || manifest.Checkpoints.IsDefault
                 || manifest.FaultSegments.IsDefault || manifest.Gaps.IsDefault
                 || manifest.Starts.Any(s => s is null) || manifest.Checkpoints.Any(c => c is null)

@@ -10,7 +10,7 @@ namespace Train.Content.Loading;
 internal sealed record ParsedSettlementType(K.SettlementTypeProjection Core, C.DisplayText Display,
     string MapSymbol, bool Major, string Path);
 internal sealed record LoadedSettlementType(ParsedSettlementType Source, C.AssetRevision Symbol);
-internal sealed record ParsedTemplatePlot(int Number, K.PlotSize Size, C.BlueprintAddress? Building);
+internal sealed record ParsedTemplatePlot(int Number, K.PlotSize Size, C.BlueprintAddress? Building, string SourceField);
 internal sealed record ParsedSettlementTemplate(K.SettlementTemplateId Id, K.SettlementTypeId Type, int Weight,
     ImmutableArray<ParsedTemplatePlot> Plots, C.BlueprintAddress SceneModel,
     ImmutableArray<C.SettlementPlotLayout> Layout, C.DisplayText Display, string Path);
@@ -83,7 +83,7 @@ internal static class SettlementParser
                 var plotLayout = ReadPlotLayoutFields(value, field);
                 C.BlueprintAddress? building = value.TryGetProperty("building", out var reference)
                     ? new(C.BlueprintLibrary.Packages, new(json.Reference(reference, field + "/building"))) : null;
-                plots.Add(new(plotLayout.Number, plotLayout.Size, building));
+                plots.Add(new(plotLayout.Number, plotLayout.Size, building, field));
                 layout.Add(plotLayout);
             }
             if (plots.Count == 0) Fail("/plots", "地块表不能为空。");

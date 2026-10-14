@@ -124,7 +124,7 @@ internal static class CoreProcessDriver
     private static async Task<int> Replay(string output, string payloadPath, RuntimeIdentity runtime)
     {
         var recording = JsonSerializer.Deserialize<CoreDiskRecording>(await File.ReadAllTextAsync(payloadPath))!;
-        var input = new CoreReplayInput(1, recording.Runtime, recording.InitialState,
+        var input = new CoreReplayInput(2, recording.Runtime, recording.InitialState,
             recording.Commands.Select(command => new RecordedCommand(command.Source, command.Payload,
                 new(command.Number, command.Before, command.After, command.Decision),
                 command.InputBefore, command.InputAfter)).ToImmutableArray(),

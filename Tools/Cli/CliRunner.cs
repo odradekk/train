@@ -191,7 +191,7 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
 
     private void VerifyReplay(CoreRecordingWindow recording, IContentView view, ImmutableArray<CoreCheckpoint> checkpoints)
     {
-        using var replay = Require(core.PrepareReplay(new(1, runtime, recording.Starts[0].State.Encode(),
+        using var replay = Require(core.PrepareReplay(new(2, runtime, recording.Starts[0].State.Encode(),
             recording.Commands, checkpoints, recording.EndPosition, null), runtime, [view.Core]));
         foreach (var checkpoint in checkpoints)
         {

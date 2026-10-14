@@ -7,11 +7,11 @@
   "plots": [
     {
       "id": 1,
-      "size": "station",
+      "size": "small_station",
       "at": [
-        0,
+        -72,
         1,
-        -10
+        0
       ],
       "orientation": "pz_py",
       "building": "small-station"
@@ -20,9 +20,9 @@
       "id": 2,
       "size": "small",
       "at": [
-        -6,
+        40,
         1,
-        2
+        -64
       ],
       "building": "warehouse"
     },
@@ -30,9 +30,9 @@
       "id": 3,
       "size": "medium",
       "at": [
-        6,
+        72,
         1,
-        0
+        48
       ]
     }
   ],

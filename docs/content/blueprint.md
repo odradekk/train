@@ -105,14 +105,14 @@
 | 类别 | `simulation` | `appearance` | 用哪种体素 | 能装进去的 |
 | --- | --- | --- | --- | --- |
 | `vehicle` | `size_class`，必填：`small`、`medium`、`large`、`extra_large`、`titan` | 无 | 货物体素 | 大型设备 |
-| `building` | `plot_size`，必填：`small`、`medium`、`large`、`station`；`building_type`，必填；`facility_tags`，默认 `[]` | 无 | 货物体素 | 大型设备 |
+| `building` | `plot_size`，必填：`small`、`medium`、`large`、`giant`、`small_station`、`large_station`；`building_type`，必填；`facility_tags`，默认 `[]` | 无 | 货物体素 | 大型设备 |
 | `large_equipment` | `behaviors`：只有功能复合体才写 | `behaviors.rotation`，可选 | 货物体素 | 大型设备；功能复合体不能装 |
 | `scene_model` | 没有这一节 | `flatten`，可选 | 场景体素 | 场景模型 |
 | `creature` | `behaviors`：`creature` 必填，`weapon` 可选 | 无 | 场景体素 | 无 |
 
 - `building_type` 和 `facility_tags` 的取值由代码提供，写错了整个包无效。Demo 的建筑类型有 6 种：`production`、`warehouse`、`power`、`construction`、`station`、`defense`，只有 `station` 有放置约束；设施兼容标签是 Demo 的 10 个，见[Demo 内容与资产清单](demo-catalog.md#流程与设施兼容标签)。
-- 每个流程要求一个设施兼容标签，建筑的 `facility_tags` 包含它，这座建筑才兼容该流程；标签不提供能力，见[流程的格式](process.md)。`plot_size` 为 `station` 的建筑必须是 `station` 类型，反过来也一样。
-- 各地块尺寸的格数在场景实测时确定，见[设计文档 16 的地块与建筑](../design/16-settlements.md#地块与建筑)。
+- 每个流程要求一个设施兼容标签，建筑的 `facility_tags` 包含它，这座建筑才兼容该流程；标签不提供能力，见[流程的格式](process.md)。`plot_size` 为 `small_station` 或 `large_station` 的建筑必须是 `station` 类型，反过来也一样。
+- 地块包络上限按 X×Z×Y（格）：`small` 48×48×48、`medium` 96×96×80、`large` 192×192×128、`giant` 384×384×256、`small_station` 192×112×48、`large_station` 256×208×64。站点本地 X 沿轨、Z 跨轨；尺寸标准见[设计文档 16 的地块与建筑](../design/16-settlements.md#地块与建筑)。
 - `flatten`：`from`、`to` 是 `[x, z]`，两端都包括；`height` 是整数。放置场景模型时，这个矩形里 y 小于 `height` 的格是地面，以上清空。
 
 ### 蓝图上的行为
@@ -158,7 +158,7 @@ Schema 之外，加载器按[设计文档 03 的设计合法性](../design/03-ve
 | `large-diesel-engine` 大型柴油机 | 大型设备 | 功能复合体：蓝图上带 `propulsion`，里面只有结构体素 | Demo |
 | `armed-locomotive` 武装车头 | 车辆 | 装了武器的车辆：复制的机枪塔，加按身份引用并整件涂装的大型柴油机；转向架、车头灯、楔形车鼻 | Demo |
 | `warehouse` 仓库 | 建筑 | `plot_size`、`building_type`；涂装的混凝土外墙加货舱 | Demo |
-| `small-station` 小站点 | 建筑 | 站点：`plot_size` 和 `building_type` 都是 `station`；带 `platform` 的站台控制台 | Demo |
+| `small-station` 小站点 | 建筑 | 站点：`plot_size` 为 `small_station`，`building_type` 为 `station`；带 `platform` 的站台控制台 | Demo |
 | `village-ground` 村落地面 | 场景模型 | 聚居地模板用的地面：草地加一个树丛，`flatten` | Demo |
 | `example-addon` 的 `armored-wagon` 装甲货车 | 车辆 | 第二个包：依赖 `example-pack`，用完整标识引用它的体素，嵌套的机枪塔副本换了涂装 | Demo |
 | `content-library/d1b6e8a2-….blueprint.json` 我的小型车头 | 车辆 | 玩家的蓝图：`id` 是 UUID，带 `used_packages`，引用写完整标识 | Demo |
