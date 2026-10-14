@@ -39,9 +39,12 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
                 RequireFogDoesNotCoverSky("阴天");
                 Require(!sun.Visible && worldEnvironment.Environment.AmbientLightSource == Godot.Environment.AmbientSource.Color,
                     "阴天未关闭太阳或未使用颜色环境光。");
+                var overcastSkyColor = ((ProceduralSkyMaterial)worldEnvironment.Environment.Sky.SkyMaterial).SkyTopColor;
                 view.SetLighting(InspectionLighting.Night);
                 RequireFogDoesNotCoverSky("夜间");
-                Require(!sun.Visible, "夜间没有关闭太阳。");
+                var nightSky = (ProceduralSkyMaterial)worldEnvironment.Environment.Sky.SkyMaterial;
+                Require(!sun.Visible && Brightness(nightSky.SkyTopColor) < Brightness(overcastSkyColor),
+                    "夜间没有关闭太阳并压暗天空。");
                 var lights = view.GetNode<Node3D>("InspectionWorkLights");
                 Require(lights.Visible && lights.GetChildren().OfType<Light3D>().Any(light =>
                     light.Visible && light.LightEnergy > 0 && light.LightColor.IsEqualApprox(new Color("ffd9a0"))),
@@ -72,6 +75,8 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
         {
             var environment = view.GetNode<WorldEnvironment>("WorldEnvironment");
             var game = environment.Environment;
+            view.SetLighting(InspectionLighting.Overcast);
+            var overcastSkyColor = ((ProceduralSkyMaterial)environment.Environment.Sky.SkyMaterial).SkyTopColor;
             view.SetActive(false);
             view.SetLighting(InspectionLighting.Night);
             Require(environment.Environment is null && view.Lighting == InspectionLighting.Night,
@@ -80,8 +85,9 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
             var night = environment.Environment ?? throw new InvalidOperationException("进入世界没有接入环境。");
             Require(night != game && view.Lighting == InspectionLighting.Night,
                 "进入世界没有应用隐藏时选择的光照。");
-            Require(night.AmbientLightSource == Godot.Environment.AmbientSource.Color,
-                "进入世界后的夜间没有使用颜色环境光。");
+            Require(night.AmbientLightSource == Godot.Environment.AmbientSource.Color &&
+                Brightness(((ProceduralSkyMaterial)night.Sky.SkyMaterial).SkyTopColor) < Brightness(overcastSkyColor),
+                "进入世界后的夜间没有使用颜色环境光和较暗天空。");
             view.ShowFrame(Frame(new(Guid.NewGuid())), null, railwayPan: true);
             view.CameraRig.Pan(new(12, 0, -8));
             await TestScene.ToSignal(TestScene.GetTree(), SceneTree.SignalName.ProcessFrame);
@@ -148,6 +154,7 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
             world.Open(target);
             world.ProcessFrame(0, false);
             var environment = world.View.GetNode<WorldEnvironment>("WorldEnvironment");
+            var overcastSkyColor = ((ProceduralSkyMaterial)environment.Environment.Sky.SkyMaterial).SkyTopColor;
             console.SubmitLine("lighting daylight");
             Require(world.View.Lighting == InspectionLighting.Daylight, "控制台命令没有应用日光模式。");
             var game = environment.Environment;
@@ -167,8 +174,9 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
                 "重新打开世界丢失了夜间光照。");
             var night = environment.Environment ?? throw new InvalidOperationException("重新打开世界没有接入环境。");
             Require(night != game, "重新打开世界接入了游戏环境而非检查光照环境。");
-            Require(night.AmbientLightSource == Godot.Environment.AmbientSource.Color,
-                "重新打开世界后的夜间没有使用颜色环境光。");
+            Require(night.AmbientLightSource == Godot.Environment.AmbientSource.Color &&
+                Brightness(((ProceduralSkyMaterial)night.Sky.SkyMaterial).SkyTopColor) < Brightness(overcastSkyColor),
+                "重新打开世界后的夜间没有使用颜色环境光和较暗天空。");
             console.SubmitLine("lighting restore");
             Require(world.View.Lighting == InspectionLighting.Game, "控制台restore没有恢复游戏光照。");
             Require((core.AdvanceCount, core.SubmitCount, core.CaptureCount) == calls &&
@@ -202,6 +210,7 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
         finally { await fixture.Cleanup(); }
     }
 
+    private static float Brightness(Color color) => color.R + color.G + color.B;
     private static FixedSceneFrame Frame(SceneSessionId id) => new()
     {
         Update = new(null, new(id, new(1), new(1), 1), default, [], [], new([], []), []),
