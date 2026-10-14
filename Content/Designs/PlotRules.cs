@@ -19,7 +19,7 @@ internal static class PlotRules
             K.PlotSize.SmallStation => (192, 112, 48), K.PlotSize.LargeStation => (256, 208, 64),
             _ => throw new ArgumentOutOfRangeException(nameof(size))
         };
-        return new(new(-width / 2, 0, -depth / 2), new(width / 2 - 1, height - 1, depth / 2 - 1));
+        return new(new(-width / 2, 0, -depth / 2), new(width - width / 2 - 1, height - 1, depth - depth / 2 - 1));
     }
 
     internal static (long MinX, long MaxX, long MinZ, long MaxZ) Footprint(C.SettlementPlotLayout plot)
