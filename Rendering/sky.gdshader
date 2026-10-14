@@ -24,7 +24,7 @@
 shader_type sky;
 render_mode use_debanding;
 
-uniform vec4 sky_top_color : source_color;
+uniform vec4 sky_top_color : source_color = vec4(0.385, 0.454, 0.55, 1.0);
 uniform vec4 sky_horizon_color : source_color = vec4(0.788235294117647, 0.83921568627451, 0.87843137254902, 1.0);
 uniform float inv_sky_curve = 3.999999761581421;
 uniform vec4 ground_bottom_color : source_color = vec4(0.2, 0.169, 0.133, 1.0);

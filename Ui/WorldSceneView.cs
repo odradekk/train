@@ -39,7 +39,6 @@ internal partial class WorldSceneView : Node3D
         Name = "WorldSceneView";
         AddChild(CameraRig);
         _skyMaterial = new() { Shader = GD.Load<Shader>("res://Rendering/sky.gdshader") };
-        _skyMaterial.SetShaderParameter("sky_top_color", new Color(0.385f, 0.454f, 0.55f));
         _sky = new() { SkyMaterial = _skyMaterial };
         _environment = new()
         {
