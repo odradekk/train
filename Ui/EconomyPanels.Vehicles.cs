@@ -28,7 +28,6 @@ internal partial class EconomyPanels
         _vehicle = null; _vehicleQuote = null; _vehicleAvailable = false; _vehicleItems.Clear(); _capacityItems.Clear();
         _vehicleRows = List(body, "Vehicles", 270); _soldOut = Text(_vehicleRows, "SoldOut", "现车已售罄。");
         _vehicleDetails = Text(body, "VehicleDetails", "请选择实际车辆。");
-        _vehicleDescription = Text(body, "VehicleQuote", "报价不锁定。成交保留原车辆、位置和损伤，不自动编组。");
         var actions = new HBoxContainer(); body.AddChild(actions);
         _vehicleQuoteButton = UiStyle.Button("QuoteVehicle", "获取报价", () => Quote(RequestVehicleQuote));
         _vehicleConfirm = UiStyle.Button("ConfirmVehicle", "确认买卖", ConfirmVehicle, true);
@@ -37,6 +36,7 @@ internal partial class EconomyPanels
             if (CanAct) FormationRequested?.Invoke(new(_binding, _content.Generation, new WorldObjectId.Node(_settlement!.Node)), _settlement.Node, _view, _content);
         });
         actions.AddChild(_vehicleQuoteButton); actions.AddChild(_vehicleConfirm); actions.AddChild(_formPurchased);
+        _vehicleDescription = Text(body, "VehicleQuote", "报价不锁定。成交保留原车辆、位置和损伤，不自动编组。");
     }
 
     private void RefreshVehicles()

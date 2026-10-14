@@ -30,13 +30,13 @@ internal partial class EconomyPanels
         Text(body, "LeaseCapacityLabel", "新租容量（续租沿用原容量）");
         _leaseCapacity = IntegerInput(body, "LeaseCapacity", "新租容量（正整数）");
         _leaseDuration = Text(body, "LeaseDuration", "");
-        _leaseDescription = Text(body, "LeaseQuote", "报价不锁定。续租沿用原容量，重新检查可租空间。");
         _leaseChoice.ItemSelected += index => { _leaseId = _leaseIds[(int)index]; ClearLeaseQuote(); };
         _leaseCapacity.TextChanged += _ => ClearLeaseQuote();
         var actions = new HBoxContainer(); body.AddChild(actions);
         _leaseQuoteButton = UiStyle.Button("QuoteLease", "获取报价", () => Quote(RequestLeaseQuote));
         _leaseConfirm = UiStyle.Button("ConfirmLease", "确认租用／续租", ConfirmLease, true);
         actions.AddChild(_leaseQuoteButton); actions.AddChild(_leaseConfirm);
+        _leaseDescription = Text(body, "LeaseQuote", "报价不锁定。续租沿用原容量，重新检查可租空间。");
     }
 
     private void RefreshLeases()

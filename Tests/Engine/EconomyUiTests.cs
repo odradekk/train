@@ -103,11 +103,13 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
     public async Task Rent_and_renew_use_matching_market_rule_duration_and_preserve_core_amount()
     {
         var before = EconomyFixture.Create();
-        var rented = EconomyFixture.Create(2);
-        var renewed = EconomyFixture.Create(3);
+        var changed = EconomyFixture.Create(2);
+        var rented = EconomyFixture.Create(3);
+        var renewed = EconomyFixture.Create(4);
         var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content());
+        setup.Session.QueueAdvance(new(1, changed.Position, [], null, null), changed);
         setup.Session.QueueSubmit(new CoreCommand.AcquireLease(new LeaseRequest.Rent(new(1), 3, EconomyFixture.LeaseDuration), new(419)),
-            CommandSource.UserInterface, Completed(1, before, rented, new CommandDecision.Accepted([], [])), rented);
+            CommandSource.UserInterface, Completed(1, changed, rented, new CommandDecision.Accepted([], [])), rented);
         setup.Session.QueueSubmit(new CoreCommand.AcquireLease(new LeaseRequest.Renew(new(1), EconomyFixture.LeaseDuration), new(419)),
             CommandSource.UserInterface, Completed(2, rented, renewed, new CommandDecision.Accepted([], [])), renewed);
         await Run(setup, async (ui, economy) =>
@@ -119,7 +121,12 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
             await _input.Activate(Find<Button>(economy, "QuoteLease"));
             Require(Find<Label>(economy, "LeaseQuote").Text.Contains("总额：419"), "租赁未显示核心总额。");
             await UiCapture.Capture(TestScene, "economy-lease");
-            await _input.Activate(Find<Button>(economy, "ConfirmLease"));
+            var host = ui.GetParent<Train.App.App>().Host!;
+            await _input.ClickAcrossRevision(Find<Button>(economy, "ConfirmLease"), () =>
+            {
+                Require(host.Step(1).Problem is null, "不能发布租赁确认修订。");
+                economy.Refresh(host.GetStatus()!.Binding, changed, host.Content!);
+            });
             await _input.WaitUntil(() => ReferenceEquals(ui.View, rented));
             await _input.Choose(Find<OptionButton>(economy, "Lease"), 1);
             await _input.Activate(Find<Button>(economy, "QuoteLease"));
