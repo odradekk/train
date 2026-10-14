@@ -18,18 +18,25 @@ internal partial class GoodsIconCache : Node
         internal List<GoodIcon> Controls { get; } = [];
         internal Capture? Pending;
     }
-    private sealed class Capture(SubViewport viewport, SceneDisplay display, IDesignPreview preview,
-        Godot.Environment environment) : IDisposable
+    private sealed class Capture(IDesignPreview preview) : IDisposable
     {
-        internal SubViewport Viewport { get; } = viewport;
+        internal SceneDisplay? Display { get; set; }
+        internal SubViewport? Viewport { get; set; }
+        internal Godot.Environment? Environment { get; set; }
         internal int CreatedFrame { get; } = Engine.GetFramesDrawn();
+        private bool _disposed;
         public void Dispose()
         {
+            if (_disposed) return;
+            _disposed = true;
             preview.Dispose();
-            display.Dispose();
-            Viewport.GetParent()?.RemoveChild(Viewport);
-            Viewport.Free();
-            environment.Dispose();
+            Display?.Dispose();
+            if (Viewport is { } viewport)
+            {
+                viewport.GetParent()?.RemoveChild(viewport);
+                viewport.Free();
+            }
+            Environment?.Dispose();
         }
     }
     private readonly Dictionary<(DesignHash, ContentGeneration), Entry> _designs = [];
@@ -62,15 +69,15 @@ internal partial class GoodsIconCache : Node
     {
         _dispatcher.RequireMainThread();
         if (size is not (32 or 48 or 64)) throw new ArgumentOutOfRangeException(nameof(size));
-        var control = new GoodIcon(size) { Quantity = quantity, Unavailable = unavailable };
         if (!_goods.TryGetValue(good, out var entry))
         {
             entry = Load(good);
             _goods.Add(good, entry);
         }
+        var control = new GoodIcon(size) { Quantity = quantity, Unavailable = unavailable };
         entry.Controls.Add(control);
         control.TreeExiting += () => entry.Controls.Remove(control);
-        control.SetTexture(entry.Texture, entry.Failure ?? (entry.Pending is null ? "图标缺失" : "图标正在生成"));
+        control.SetTexture(entry.Texture, entry.Texture is not null ? null : entry.Failure ?? (entry.Pending is null ? "图标缺失" : "图标正在生成"));
         return control;
     }
 
@@ -101,34 +108,30 @@ internal partial class GoodsIconCache : Node
             return Missing($"图标显示设计缺失：{design}。");
         var opened = _factory.PreviewDesign(content, evaluation.Value);
         if (opened is not SceneResult<IDesignPreview>.Success success) return Missing(Describe(opened));
-        var preview = success.Value;
-        SceneDisplay? display = null;
-        SubViewport? viewport = null;
-        Godot.Environment? environment = null;
+        var capture = new Capture(success.Value);
+        var transferred = false;
         try
         {
-            var presented = preview.Present();
+            var presented = success.Value.Present();
             if (presented is not SceneResult<ISceneFrame>.Success frame)
             {
-                preview.Dispose();
                 return Missing(Describe(presented));
             }
             if (frame.Value.Readiness is SceneReadiness.Loading or SceneReadiness.Failed)
             {
-                preview.Dispose();
                 return Missing("图标只读预览未返回完整可显示帧。");
             }
             foreach (var problem in frame.Value.Diagnostics) Diagnostic?.Invoke($"图标：{problem.Code}：{problem.Detail}");
-            display = new(_assets, content);
+            var display = capture.Display = new(_assets, content);
             using (var prepared = display.Prepare(frame.Value))
             {
                 if (prepared is null) throw new InvalidOperationException("只读图标预览没有返回完整替换帧。");
                 prepared.Commit();
             }
-            viewport = new() { Size = new(128, 128), TransparentBg = true, OwnWorld3D = true,
+            var viewport = capture.Viewport = new SubViewport() { Size = new(128, 128), TransparentBg = true, OwnWorld3D = true,
                 RenderTargetUpdateMode = SubViewport.UpdateMode.Once, Msaa3D = Viewport.Msaa.Msaa4X };
             viewport.AddChild(display.Root);
-            environment = new() { BackgroundMode = Godot.Environment.BGMode.Color, BackgroundColor = Colors.Transparent,
+            var environment = capture.Environment = new Godot.Environment() { BackgroundMode = Godot.Environment.BGMode.Color, BackgroundColor = Colors.Transparent,
                 AmbientLightSource = Godot.Environment.AmbientSource.Color, AmbientLightColor = Colors.White,
                 AmbientLightEnergy = 0.65f, ReflectedLightSource = Godot.Environment.ReflectionSource.Disabled };
             viewport.AddChild(new WorldEnvironment { Environment = environment });
@@ -147,8 +150,6 @@ internal partial class GoodsIconCache : Node
             Include(display.Root);
             if (bounds is null)
             {
-                preview.Dispose(); display.Dispose();
-                viewport.GetParent()?.RemoveChild(viewport); viewport.Free(); environment.Dispose();
                 return Missing("图标预览没有可显示的网格。");
             }
             var center = bounds.Value.GetCenter();
@@ -158,15 +159,12 @@ internal partial class GoodsIconCache : Node
                 Position = center + new Vector3(1, 0.8f, 1).Normalized() * (radius * 3 + 1), Current = true };
             viewport.AddChild(camera);
             camera.LookAt(center, Vector3.Up);
-            return new() { Pending = new(viewport, display, preview, environment) };
+            transferred = true;
+            return new() { Pending = capture };
         }
-        catch
+        finally
         {
-            preview.Dispose();
-            display?.Dispose();
-            if (viewport is not null) { viewport.GetParent()?.RemoveChild(viewport); viewport.Free(); }
-            environment?.Dispose();
-            throw;
+            if (!transferred) capture.Dispose();
         }
     }
 
@@ -195,7 +193,7 @@ internal partial class GoodsIconCache : Node
             if (entry.Pending is not { } capture || Engine.GetFramesDrawn() <= capture.CreatedFrame) continue;
             try
             {
-                using var image = capture.Viewport.GetTexture().GetImage();
+                using var image = capture.Viewport!.GetTexture().GetImage();
                 if (image.IsEmpty()) throw new InvalidOperationException("图标离屏渲染返回空图像。");
                 entry.Texture = ImageTexture.CreateFromImage(image);
                 foreach (var control in entry.Controls) control.SetTexture(entry.Texture);

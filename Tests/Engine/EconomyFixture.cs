@@ -15,9 +15,8 @@ internal static class EconomyFixture
     internal static GoodId Equipment { get; } = new GoodId.Composite(new("fixture:equipment"));
 
     internal static FixedCoreReadView Create(ulong revision = 1,
-        InventoryAccess access = InventoryAccess.ReadWrite, bool expired = false,
         VehicleState vehicle = VehicleState.ForSale, int forSale = 1, int purchaseAvailable = 1,
-        bool blocked = false, bool shortage = false, long foodQuantity = 4)
+        bool blocked = false, bool shortage = false, long foodQuantity = 4, long tradeTotal = 731, long? executableQuantity = null)
     {
         var location = new WorldLocation.Node(new(1));
         var rule = new RuleStatusView(new("fixture:economy"), null, []);
@@ -46,13 +45,13 @@ internal static class EconomyFixture
             new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [new(1)],
             new(rule, new(100, 5, 2, 20, 0, 75, 50),
                 [new(Food, 42, 50, 2, 40, 20, []), new(Equipment, 3, 5, 0, 3, 2, [])]));
-        InventoryView Inventory(ulong id, InventoryOwner owner) => new(new(id), owner, location, access,
+        InventoryView Inventory(ulong id, InventoryOwner owner) => new(new(id), owner, location, InventoryAccess.ReadWrite,
             100, 5, 2, 93, 1.25, [new(Food, foodQuantity, false), new(Equipment, 1, false)], []);
         ImmutableArray<CoreProblem> blockers = blocked
             ? [new("insufficient_money", "wallet", new WorldObjectId.Settlement(new(1)), ["fixture:quote"]),
                new("insufficient_capacity", "inventory", new WorldObjectId.Inventory(new(10)), ["fixture:capacity"])] : [];
         ImmutableArray<CoreProblem> warnings = shortage
-            ? [new("insufficient_goods", "quantity", new WorldObjectId.Inventory(new(12)), ["fixture:shortage"])] : [];
+            ? [new("insufficient_goods", "quantity", new WorldObjectId.Inventory(new(12)), ["fixture:shortage"]), new("content_missing", "goods", new WorldObjectId.Inventory(new(12)), ["fixture:missing"])] : [];
         var trades = new Dictionary<TradeQuoteRequest, CoreResult<TradeQuote>>();
         foreach (var local in new InventoryId[] { new(10), new(11) })
         foreach (var good in new[] { Food, Equipment })
@@ -60,8 +59,8 @@ internal static class EconomyFixture
         foreach (var quantity in new[] { 1L, LargeQuantity })
         {
             var request = new TradeQuoteRequest(new(7), new(1), local, action, good, quantity);
-            trades.Add(request, new CoreResult<TradeQuote>.Success(new(request, new(revision), quantity,
-                new Money(731), blockers, warnings)));
+            trades.Add(request, new CoreResult<TradeQuote>.Success(new(request, new(revision), executableQuantity ?? quantity,
+                action is TradeAction.Load or TradeAction.Unload ? null : new Money(tradeTotal), blockers, warnings)));
         }
         var vehicles = new Dictionary<VehicleTradeQuoteRequest, CoreResult<VehicleTradeQuote>>();
         foreach (var action in new[] { VehicleTradeAction.Buy, VehicleTradeAction.Sell })
@@ -117,7 +116,7 @@ internal static class EconomyFixture
             },
             Leases = new Dictionary<LeaseId, Lookup<LeaseView>>
             {
-                [new(1)] = new Lookup<LeaseView>.Found(new(new(1), new(1), new(11), 20, 216000, new(419), expired)),
+                [new(1)] = new Lookup<LeaseView>.Found(new(new(1), new(1), new(11), 20, LeaseDuration, new(419), false)),
                 [new(2)] = new Lookup<LeaseView>.Missing()
             },
             TradeQuotes = trades, VehicleQuotes = vehicles, LeaseQuotes = leases

@@ -30,6 +30,7 @@ public sealed class FixedContentViewTests
         AssertUnconfigured(() => view.FindAsset(new AssetRevision("asset")));
         AssertUnconfigured(() => view.FindTerrain(new("terrain")));
         AssertUnconfigured(() => view.FindRailwayAppearance(new("railway")));
+        AssertUnconfigured(() => view.FindDefinitionDisplay(new CoreDefinitionReference.SettlementType(new("town"))));
     }
 
     [TestMethod]
@@ -105,22 +106,15 @@ public sealed class FixedContentViewTests
     }
 
     [TestMethod]
-    public void MapLookupsCopyExplicitResultsAndRejectUnknownInputs()
+    public void SettlementLayoutsCopyExplicitResultsAndRejectUnknownInputs()
     {
         var absent = new ContentLookup<SettlementLayoutProjection>.NotFound();
-        var display = new ContentLookup<ContentDisplay>.Found(new(new("Town", ""), null, null, true));
-        CoreDefinitionReference definition = new CoreDefinitionReference.SettlementType(new("town"));
         var layouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>> { [new(1)] = absent };
-        var displays = new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>> { [definition] = display };
-        var view = new FixedContentView { SettlementLayouts = layouts, DefinitionDisplays = displays };
+        var view = new FixedContentView { SettlementLayouts = layouts };
         layouts.Clear();
-        displays.Clear();
         Assert.AreSame(absent, view.FindSettlementLayout(new(1)));
-        Assert.AreSame(display, view.FindDefinitionDisplay(definition));
         AssertUnconfigured(() => view.FindSettlementLayout(new(2)));
-        AssertUnconfigured(() => view.FindDefinitionDisplay(new CoreDefinitionReference.SettlementType(new("other"))));
         AssertUnconfigured(() => new FixedContentView().FindSettlementLayout(new(1)));
-        AssertUnconfigured(() => new FixedContentView().FindDefinitionDisplay(definition));
     }
 
     private static void AssertUnconfigured(Action operation)

@@ -8,9 +8,14 @@ internal static class UiStyle
     internal static readonly Color Warning = new("d8962a");
     internal static readonly Color Success = new("2f9e5c");
 
-    internal static FontVariation NumericFont(bool bold = false) => new()
+    private static FontVariation? _regularNumbers, _boldNumbers;
+    internal static FontVariation NumericFont(bool bold = false) => bold
+        ? _boldNumbers ??= CreateNumericFont("res://Ui/Fonts/NotoSansSC-Bold.otf")
+        : _regularNumbers ??= CreateNumericFont("res://Ui/Fonts/NotoSansSC-Regular.otf");
+
+    private static FontVariation CreateNumericFont(string path) => new()
     {
-        BaseFont = GD.Load<Font>(bold ? "res://Ui/Fonts/NotoSansSC-Bold.otf" : "res://Ui/Fonts/NotoSansSC-Regular.otf"),
+        BaseFont = GD.Load<Font>(path),
         OpentypeFeatures = new() { ["tnum"] = 1 }
     };
 

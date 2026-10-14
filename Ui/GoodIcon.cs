@@ -11,7 +11,7 @@ internal partial class GoodIcon : Control
         HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom };
     private readonly Label _missing = new() { Text = "?", MouseFilter = MouseFilterEnum.Ignore,
         HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-    private readonly Shader _frameShader = new() { Code = """
+    private static readonly Shader FrameShader = new() { Code = """
         shader_type canvas_item;
         uniform vec4 border : source_color = vec4(0.42, 0.46, 0.50, 1.0);
         uniform float width = 0.03;
@@ -27,7 +27,7 @@ internal partial class GoodIcon : Control
             COLOR *= tint;
         }
         """ };
-    private readonly Shader _imageShader = new() { Code = """
+    private static readonly Shader ImageShader = new() { Code = """
         shader_type canvas_item;
         uniform bool unavailable = false;
         void fragment() {
@@ -37,7 +37,7 @@ internal partial class GoodIcon : Control
         """ };
     private readonly ShaderMaterial _frameMaterial;
     private readonly ShaderMaterial _imageMaterial;
-    private readonly FontVariation _font = UiStyle.NumericFont(true);
+    private bool _retired;
     private bool _selected, _unavailable, _hover;
     internal bool Selected { get => _selected; set { _selected = value; Refresh(); } }
     internal bool Unavailable { get => _unavailable; set { _unavailable = value; Refresh(); } }
@@ -51,8 +51,8 @@ internal partial class GoodIcon : Control
         SizeFlagsHorizontal = SizeFlags.ShrinkCenter;
         SizeFlagsVertical = SizeFlags.ShrinkCenter;
         MouseFilter = MouseFilterEnum.Pass;
-        _frameMaterial = new() { Shader = _frameShader };
-        _imageMaterial = new() { Shader = _imageShader };
+        _frameMaterial = new() { Shader = FrameShader };
+        _imageMaterial = new() { Shader = ImageShader };
         _frame.Material = _frameMaterial;
         _image.Material = _imageMaterial;
         AddChild(_frame); AddChild(_image); AddChild(_missing); AddChild(_quantity);
@@ -60,7 +60,7 @@ internal partial class GoodIcon : Control
         _image.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         _image.AnchorLeft = _image.AnchorTop = 0.11f;
         _image.AnchorRight = _image.AnchorBottom = 0.89f;
-        _quantity.AddThemeFontOverride("font", _font);
+        _quantity.AddThemeFontOverride("font", UiStyle.NumericFont(true));
         _quantity.AddThemeFontSizeOverride("font_size", Math.Max(12, size / 3));
         _quantity.AddThemeColorOverride("font_color", new Color("1a1a1a"));
         _quantity.AddThemeColorOverride("font_outline_color", Colors.White);
@@ -81,6 +81,7 @@ internal partial class GoodIcon : Control
 
     private void Refresh()
     {
+        if (_retired) return;
         _frameMaterial.SetShaderParameter("border", new Color(_selected ? "e0a22e" : _hover ? "3f4751" : "6b7580"));
         _frameMaterial.SetShaderParameter("width", _selected ? 0.06f : 0.03f);
         _frameMaterial.SetShaderParameter("unavailable", _unavailable);
@@ -91,10 +92,10 @@ internal partial class GoodIcon : Control
 
     public override void _ExitTree()
     {
+        _retired = true;
         _image.Texture = null;
         _frame.Material = null; _image.Material = null;
         _frameMaterial.Dispose(); _imageMaterial.Dispose();
-        _frameShader.Dispose(); _imageShader.Dispose(); _font.Dispose();
     }
 }
 

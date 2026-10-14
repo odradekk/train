@@ -32,7 +32,7 @@ public partial class GameUi : CanvasLayer
     private TrainFormationPanel? _formation;
     private TrainPlanPanel? _plan;
     private EconomyPanels? _economy;
-    private GoodsIconCache? _icons;
+    private GoodsIconCache _icons = null!;
     private HFlowContainer _bar = null!;
     private readonly List<(SimulationSpeed? Speed, Button Button)> _speeds = [];
     private PanelContainer? _newGame;
@@ -47,7 +47,7 @@ public partial class GameUi : CanvasLayer
     internal string ErrorText => _error.Text;
 
     internal void Initialize(MainMenu menu, HostCoordinator? host, TrainLogger logger,
-        WorldSceneController? scenes = null, RecordingService? recording = null, GoodsIconCache? icons = null)
+        WorldSceneController? scenes, RecordingService? recording, GoodsIconCache icons)
     { _menu = menu; _host = host; _logger = logger; _scenes = scenes; _recording = recording; _icons = icons; }
 
     public override void _Ready()
@@ -111,7 +111,7 @@ public partial class GameUi : CanvasLayer
             _panels.FormationRequested += _formation.Open;
             _panels.PlanRequested += _plan.Open;
             _economy = new EconomyPanels { Name = "EconomyPanels" };
-            _economy.Initialize(_host, Submit, message => _logger.Warning("ui", "economic_query_unavailable", message), _icons!);
+            _economy.Initialize(_host, Submit, message => _logger.Warning("ui", "economic_query_unavailable", message), _icons);
             _world.AddChild(_economy);
             _panels.SettlementRequested += _economy.OpenSettlement;
             _panels.InventoryRequested += _economy.OpenTrainInventory;
@@ -188,8 +188,8 @@ public partial class GameUi : CanvasLayer
             _panels!.Invalidate();
             _formation!.Refresh(default, _view, _content!);
             _plan!.Refresh(default, _view, _content!);
-            _economy!.Refresh(default, _view, _content!);
-            _icons?.Bind(default, null);
+            _economy!.Close();
+            _icons.Bind(default, null);
             _formation.Hide(); _plan.Hide();
             _view = null; _content = null; _binding = default;
             _world.Hide(); _errorPanel.Hide(); _settings.Hide(); _missingErrorOperation = null;
@@ -241,7 +241,7 @@ public partial class GameUi : CanvasLayer
         if (view.Fault is { } fault && (_binding != binding || _view?.Fault != fault))
             ShowError(CommandDiagnostics.Describe(fault));
         _map.SetView(view, content, _binding != binding);
-        _icons?.Bind(binding, content);
+        _icons.Bind(binding, content);
         _binding = binding; _view = view; _content = content;
         _menu.Hide(); _world.Show();
     }

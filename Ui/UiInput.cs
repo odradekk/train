@@ -13,13 +13,12 @@ internal static class UiInput
     }
 }
 
-internal sealed record PanelTarget(HostBinding Binding, ContentGeneration Generation, WorldObjectId Object,
-    LeaseId? Lease = null)
+internal sealed record PanelTarget(HostBinding Binding, ContentGeneration Generation, WorldObjectId Object)
 {
     internal bool IsAvailable(HostBinding binding, ContentGeneration generation, ICoreReadView view)
     {
         if (Binding != binding || Generation != generation) return false;
-        var exists = Object switch
+        return Object switch
         {
             WorldObjectId.Node node => view.World.Nodes.Any(item => item.Id == node.Id),
             WorldObjectId.Edge edge => view.World.Edges.Any(item => item.Id == edge.Id),
@@ -29,6 +28,5 @@ internal sealed record PanelTarget(HostBinding Binding, ContentGeneration Genera
             WorldObjectId.Inventory inventory => view.FindInventory(inventory.Id) is Lookup<InventoryView>.Found,
             _ => false
         };
-        return exists && (Lease is null || view.FindLease(Lease.Value) is Lookup<LeaseView>.Found);
     }
 }

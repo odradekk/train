@@ -20,6 +20,92 @@ public class GoodsIconTests(Node testScene) : TestClass(testScene)
     private static readonly GoodId Second = new GoodId.Assembly(new("icon:second"));
 
     [Test]
+    public void Failed_or_throwing_previews_release_their_capture_once()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        var preview = new Preview(new(1), empty: true);
+        var factory = new FixedDisplayFactory { PreviewDesignCall = (_, _) => new SceneResult<IDesignPreview>.Success(preview) };
+        var cache = new GoodsIconCache();
+        cache.Initialize(factory, dispatcher);
+        TestScene.AddChild(cache);
+        cache.Bind(new(Guid.NewGuid()), Content(1));
+        try
+        {
+            var missing = cache.Create(First, null);
+            TestScene.AddChild(missing);
+            Require(preview.DisposeCalls == 1 && cache.GetChildCount() == 0 && Texture(missing) is null &&
+                missing.TooltipText.Contains("没有可显示的网格"), "空网格失败必须清理已创建显示组、视口及预览，并明确显示失败。");
+            missing.Free();
+            cache.Bind(new(Guid.NewGuid()), Content(1));
+            preview = new Preview(new(1), fault: true);
+            var threw = false;
+            try { cache.Create(First, null); }
+            catch (InvalidOperationException exception) when (exception.Message == "preview fault") { threw = true; }
+            Require(threw && preview.DisposeCalls == 1 && cache.GetChildCount() == 0,
+                "Present意外异常必须传播，并由同一Capture清理预览。");
+        }
+        finally { cache.Free(); }
+    }
+
+    [Test]
+    public async Task Ordinary_icons_share_resources_and_removal_while_hovered_is_safe()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var image = Image.CreateEmpty(4, 4, false, Image.Format.Rgba8);
+        image.Fill(Colors.Red);
+        var revision = new AssetRevision("ordinary-icon");
+        var asset = new ContentAsset(revision, System.Collections.Immutable.ImmutableArray.CreateRange(image.SavePngToBuffer()),
+            new AssetMetadata.Png(4, 4), []);
+        var content = new FixedContentView { Generation = new(1),
+            Goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>> {
+                [First] = new ContentLookup<GoodPresentation>.Found(new(First, new(new("普通物品", ""), revision, null, false), null, false)) },
+            Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>> { [revision] = new ContentLookup<ContentAsset>.Found(asset) } };
+        var cache = new GoodsIconCache();
+        cache.Initialize(new FixedDisplayFactory(), dispatcher);
+        TestScene.AddChild(cache);
+        cache.Bind(new(Guid.NewGuid()), content);
+        var first = cache.Create(First, 2);
+        var second = cache.Create(First, 3);
+        first.Position = new(100, 100); second.Position = new(180, 100);
+        TestScene.AddChild(first); TestScene.AddChild(second);
+        try
+        {
+            Require(Texture(first) is not null && ReferenceEquals(Texture(first), Texture(second)) &&
+                first.TooltipText == "" && second.TooltipText == "", "成功普通图标及缓存命中不得提示缺失。");
+            var firstFrame = (ShaderMaterial)first.GetChildren().OfType<ColorRect>().Single().Material;
+            var secondFrame = (ShaderMaterial)second.GetChildren().OfType<ColorRect>().Single().Material;
+            var firstImage = (ShaderMaterial)first.GetChildren().OfType<TextureRect>().Single().Material;
+            var secondImage = (ShaderMaterial)second.GetChildren().OfType<TextureRect>().Single().Material;
+            var frameShader = firstFrame.Shader;
+            var imageShader = firstImage.Shader;
+            Require(ReferenceEquals(frameShader, secondFrame.Shader) && ReferenceEquals(imageShader, secondImage.Shader),
+                "图标必须共用两份Shader，状态材质仍独立。");
+            Require(ReferenceEquals(UiStyle.NumericFont(), UiStyle.NumericFont()) &&
+                ReferenceEquals(UiStyle.NumericFont(true), UiStyle.NumericFont(true)) &&
+                !ReferenceEquals(UiStyle.NumericFont(), UiStyle.NumericFont(true)), "数字字体必须只共享常规与粗体两种资源。");
+            await new UiTestInput(TestScene).Frames(2);
+            var point = first.GetViewport().GetScreenTransform() * first.GetGlobalRect().GetCenter();
+            using (var motion = new InputEventMouseMotion { Position = point, GlobalPosition = point }) Input.ParseInputEvent(motion);
+            await new UiTestInput(TestScene).Frames(2);
+            Require(firstFrame.GetShaderParameter("border").AsColor() == new Color("3f4751"), "真实鼠标悬停应刷新图标边框。");
+            first.Quantity = 4;
+            Require(firstFrame.GetShaderParameter("border").AsColor() == new Color("3f4751"), "数量修订不能丢失悬停状态。");
+            first.Free();
+            await new UiTestInput(TestScene).Frames(2);
+            Require(!GodotObject.IsInstanceValid(firstFrame) && GodotObject.IsInstanceValid(frameShader) &&
+                GodotObject.IsInstanceValid(imageShader) && GodotObject.IsInstanceValid(UiStyle.NumericFont(true)),
+                "移除悬停图标只释放独占材质，不得释放共享Shader或字体。");
+            second.Selected = true;
+            Require(secondFrame.GetShaderParameter("border").AsColor() == new Color("e0a22e"), "其余图标仍能更新共享Shader的独立材质。");
+        }
+        finally
+        {
+            if (GodotObject.IsInstanceValid(first)) first.Free();
+            second.Free(); cache.Free();
+        }
+    }
+
+    [Test]
     public async Task Shared_design_capture_is_retired_on_binding_generation_and_exit()
     {
         using var dispatcher = new GodotMainThreadDispatcher();
@@ -106,6 +192,11 @@ public class GoodsIconTests(Node testScene) : TestClass(testScene)
             await FramesUntil(TestScene, () => Texture(controls[0]) is not null);
             Require(factory.PreviewCalls.Count == 1 && previews[0].DisposeCalls == 1 && cache.GetChildCount() == 0,
                 "截图后必须只缓存纹理，释放预览和临时视口。");
+            var cached = cache.Create(Second, null);
+            panel.AddChild(cached);
+            cached.Position = new(520, 30);
+            Require(cached.TooltipText == "" && Texture(cached) is not null && controls.All(icon => icon.TooltipText == ""),
+                "成功复合图标及截图完成后的缓存命中不得显示缺失或生成中提示。");
             var texture = Texture(controls[0])!;
             Require(controls.All(icon => ReferenceEquals(Texture(icon), texture)), "所有尺寸、状态和货物应共用设计纹理。");
             using (var image = texture.GetImage())
@@ -151,7 +242,7 @@ public class GoodsIconTests(Node testScene) : TestClass(testScene)
             Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>> { [Design] = new ContentLookup<DesignEvaluation>.Found(evaluation) } };
     }
 
-    private sealed class Preview(ContentGeneration content) : IDesignPreview
+    private sealed class Preview(ContentGeneration content, bool empty = false, bool fault = false) : IDesignPreview
     {
         public ContentGeneration Content => content;
         internal int PresentCalls { get; private set; }
@@ -159,6 +250,7 @@ public class GoodsIconTests(Node testScene) : TestClass(testScene)
         public SceneResult<ISceneFrame> Present()
         {
             PresentCalls++;
+            if (fault) throw new InvalidOperationException("preview fault");
             Require(DisposeCalls == 0, "关闭的预览不得继续Present。");
             var mesh = new SceneMesh(new SceneMaterial.BuiltIn(BuiltInMaterial.RailSteel),
                 [new(new(-1, -1, 0), NVector3.UnitZ, new(0, 0), new(0, 0), ExposedFaceEdges.None, 0, 0),
@@ -167,7 +259,7 @@ public class GoodsIconTests(Node testScene) : TestClass(testScene)
             var obj = new SceneObject(new(1), null, new(NVector3.Zero, System.Numerics.Quaternion.Identity), null,
                 [new SceneVisual.Geometry(mesh, new(false, 0, 0, false))], [], []);
             var frame = new FixedSceneFrame { Update = new(null,
-                new(new(Guid.NewGuid()), new(1), new(1), 1), NVector3.Zero, [obj], [], new([], []), []) };
+                new(new(Guid.NewGuid()), new(1), new(1), 1), NVector3.Zero, empty ? [] : [obj], [], new([], []), []) };
             return new SceneResult<ISceneFrame>.Success(frame);
         }
         public void Dispose() => DisposeCalls++;

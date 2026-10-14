@@ -46,7 +46,7 @@ public sealed class UiInputTests
         }
     }
     [TestMethod]
-    public void EconomicTargetsRequireObjectsAndOptionalLeaseToRemainPresent()
+    public void EconomicTargetsRequireObjectsToRemainPresent()
     {
         var binding = new HostBinding(Guid.NewGuid());
         var generation = new ContentGeneration(3);
@@ -58,8 +58,8 @@ public sealed class UiInputTests
             new(rule, new(0, 0, 0, 0, 0, 0, 0), []));
         var inventory = new InventoryView(new(2), new InventoryOwner.Settlement(new(1)),
             new WorldLocation.Node(new(1)), InventoryAccess.ReadWrite, 10, 0, 0, 10, 0, [], []);
-        var lease = new LeaseView(new(3), new(1), new(2), 10, 100, new(5), false);
-        FixedCoreReadView View(bool objectsExist, bool leaseExists) => new()
+
+        FixedCoreReadView View(bool objectsExist) => new()
         {
             Settlements = new Dictionary<SettlementId, Lookup<SettlementView>>
             {
@@ -68,23 +68,16 @@ public sealed class UiInputTests
             Inventories = new Dictionary<InventoryId, Lookup<InventoryView>>
             {
                 [new(2)] = objectsExist ? new Lookup<InventoryView>.Found(inventory) : new Lookup<InventoryView>.Missing()
-            },
-            Leases = new Dictionary<LeaseId, Lookup<LeaseView>>
-            {
-                [new(3)] = leaseExists ? new Lookup<LeaseView>.Found(lease) : new Lookup<LeaseView>.Missing()
             }
         };
         WorldObjectId[] objects = [new WorldObjectId.Settlement(new(1)), new WorldObjectId.Inventory(new(2))];
         foreach (var obj in objects)
         {
             var target = new PanelTarget(binding, generation, obj);
-            Assert.IsTrue(target.IsAvailable(binding, generation, View(true, false)));
-            Assert.IsFalse(target.IsAvailable(binding, generation, View(false, true)));
-            var leased = target with { Lease = new LeaseId(3) };
-            Assert.IsTrue(leased.IsAvailable(binding, generation, View(true, true)));
-            Assert.IsFalse(leased.IsAvailable(binding, generation, View(true, false)));
-            Assert.IsFalse(leased.IsAvailable(new(Guid.NewGuid()), generation, new FixedCoreReadView()));
-            Assert.IsFalse(leased.IsAvailable(binding, new(4), new FixedCoreReadView()));
+            Assert.IsTrue(target.IsAvailable(binding, generation, View(true)));
+            Assert.IsFalse(target.IsAvailable(binding, generation, View(false)));
+            Assert.IsFalse(target.IsAvailable(new(Guid.NewGuid()), generation, new FixedCoreReadView()));
+            Assert.IsFalse(target.IsAvailable(binding, new(4), new FixedCoreReadView()));
         }
     }
 }
