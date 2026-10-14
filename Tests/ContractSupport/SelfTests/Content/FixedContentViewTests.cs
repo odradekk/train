@@ -89,6 +89,40 @@ public sealed class FixedContentViewTests
         AssertUnconfigured(() => view.FindVoxelAppearance(new("other")));
     }
 
+    [TestMethod]
+    public void GoodsRetainExplicitResultsAndCopyConfiguration()
+    {
+        var id = new GoodId.Voxel(new("good"));
+        var found = new ContentLookup<GoodPresentation>.Found(new(id, new(new DisplayText("Good", ""), null, null, false), null, false));
+        var missing = new ContentLookup<GoodPresentation>.Missing([]);
+        var goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>> { [id] = found, [new GoodId.Voxel(new("missing"))] = missing };
+        var view = new FixedContentView { Goods = goods };
+        goods.Clear();
+        Assert.AreSame(found, view.FindGood(id));
+        Assert.AreSame(missing, view.FindGood(new GoodId.Voxel(new("missing"))));
+        AssertUnconfigured(() => view.FindGood(new GoodId.Voxel(new("other"))));
+        AssertUnconfigured(() => new FixedContentView().FindGood(id));
+    }
+
+    [TestMethod]
+    public void MapLookupsCopyExplicitResultsAndRejectUnknownInputs()
+    {
+        var absent = new ContentLookup<SettlementLayoutProjection>.NotFound();
+        var display = new ContentLookup<ContentDisplay>.Found(new(new("Town", ""), null, null, true));
+        CoreDefinitionReference definition = new CoreDefinitionReference.SettlementType(new("town"));
+        var layouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>> { [new(1)] = absent };
+        var displays = new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>> { [definition] = display };
+        var view = new FixedContentView { SettlementLayouts = layouts, DefinitionDisplays = displays };
+        layouts.Clear();
+        displays.Clear();
+        Assert.AreSame(absent, view.FindSettlementLayout(new(1)));
+        Assert.AreSame(display, view.FindDefinitionDisplay(definition));
+        AssertUnconfigured(() => view.FindSettlementLayout(new(2)));
+        AssertUnconfigured(() => view.FindDefinitionDisplay(new CoreDefinitionReference.SettlementType(new("other"))));
+        AssertUnconfigured(() => new FixedContentView().FindSettlementLayout(new(1)));
+        AssertUnconfigured(() => new FixedContentView().FindDefinitionDisplay(definition));
+    }
+
     private static void AssertUnconfigured(Action operation)
     {
         var error = Assert.ThrowsExactly<InvalidOperationException>(operation);

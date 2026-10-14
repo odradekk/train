@@ -40,6 +40,7 @@ public sealed class FixedSceneFrame : ISceneFrame
 public sealed record DisplayPresentCall(SceneFrameRequest Request, ISceneFrame? DisplayedFrame);
 public sealed record DisplayObserveCall(SceneWorldSnapshot Snapshot, ImmutableArray<EventEnvelope> Events);
 public sealed record DisplayOpenCall(SceneBinding Binding, SceneWorldSnapshot Snapshot);
+public sealed record DisplayPreviewCall(IContentView Content, DesignEvaluation Initial);
 
 public sealed class FixedDisplaySession : IWorldSceneSession
 {
@@ -114,7 +115,13 @@ public sealed class FixedDisplayFactory : IScenesFactory
     }
 
     public SceneResult<IDesignEditSession> OpenEditor(IContentView content, DesignEvaluation initial) => throw FrameDisplayScenario.Unconfigured("编辑会话");
-    public SceneResult<IDesignPreview> PreviewDesign(IContentView content, DesignEvaluation initial) => throw FrameDisplayScenario.Unconfigured("设计预览");
+    public Func<IContentView, DesignEvaluation, SceneResult<IDesignPreview>>? PreviewDesignCall { get; init; }
+    public List<DisplayPreviewCall> PreviewCalls { get; } = [];
+    public SceneResult<IDesignPreview> PreviewDesign(IContentView content, DesignEvaluation initial)
+    {
+        PreviewCalls.Add(new(content, initial));
+        return PreviewDesignCall is not null ? PreviewDesignCall(content, initial) : throw FrameDisplayScenario.Unconfigured("设计预览");
+    }
     public SceneResult<ITemplatePreview> PreviewTemplate(IContentView content, SettlementTemplateDraft draft, EditRevision revision) => throw FrameDisplayScenario.Unconfigured("模板预览");
 }
 
