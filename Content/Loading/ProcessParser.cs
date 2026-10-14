@@ -62,7 +62,7 @@ internal static class ProcessParser
                 Int64(Required(sim, "work_required", field), field + "/work_required", 1),
                 Number(Required(sim, "power_per_work", field), field + "/power_per_work", 0),
                 Number(Required(sim, "labor_per_work", field), field + "/labor_per_work", 0),
-                BlueprintParser.EnumValue<K.FacilityTag>(Required(sim, "facility_tag", field), field + "/facility_tag"),
+                EnumValue<K.FacilityTag>(Required(sim, "facility_tag", field), field + "/facility_tag"),
                 terrains.Select(t => t.Id).OrderBy(t => t.Value, StringComparer.Ordinal).ToImmutableArray());
             var revision = Semantic("process", json.Id, new
             {

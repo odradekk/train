@@ -46,7 +46,7 @@
 
 货物写成 `{ "voxel": <体素定义引用>, "quantity": <正整数> }`。被引用的体素定义必须带 `simulation` 一节，也就是货物。Demo 的流程只处理体素货物；大型设备由施工任务按蓝图制造，不由流程制造或回收。
 
-总工作量的整数表示经[核心模拟层公开契约](https://github.com/odradekk/train/issues/287)确认；进度、工作速率、电量和劳动力保持 `double`。本文与 Schema 同步格式约定，不代表加载器或模拟实现已迁移。
+总工作量的整数表示经[核心模拟层公开契约](https://github.com/odradekk/train/issues/287)确认；进度、工作速率、电量和劳动力保持 `double`。加载器已实现，模拟运行由核心任务完成。
 
 单位和运行时怎样使用这些数，见设计文档 [13 的单位与实际速率](../design/13-production-runtime-and-facilities.md#单位与实际速率)。
 
