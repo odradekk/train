@@ -77,13 +77,18 @@ internal sealed class RailwayScene : IAsyncDisposable
         var trains = PlaceTrains(snapshot, adjacent ? previous : null, request.Interpolation);
         var followed = target is WorldSceneTarget.Follow follow ? trains.First(item => item.Train.Id == follow.Train) : null;
         var focal = Focal(target, followed);
-        if (request.Camera is { } camera && target is WorldSceneTarget.Location && camera.Frame.Update.Frame.Space == stamp.Space)
-            focal = path.Locate(RailwayCoordinates.Add(camera.Frame.Origin, camera.Focus));
+        var camera = request.Camera;
+        var hasSameSpaceCamera = camera is not null && camera.Frame.Update.Frame.Space == stamp.Space;
+        if (target is WorldSceneTarget.Location && hasSameSpaceCamera)
+            focal = path.Locate(RailwayCoordinates.Add(camera!.Frame.Origin, camera.Focus));
         var focus = path.Sample(focal).Position;
-        var step = RailwayCoordinates.OriginStepCells;
-        var origin = switchedOrigin ?? (target is WorldSceneTarget.Location &&
-            request.Camera?.Frame.Update.Frame.Space != stamp.Space ? focus :
-            new ScenePoint(Math.Floor(focus.X / step) * step, Math.Floor(focus.Y / step) * step, Math.Floor(focus.Z / step) * step));
+        var origin = focus;
+        if (target is not WorldSceneTarget.Location || hasSameSpaceCamera)
+        {
+            var step = RailwayCoordinates.OriginStepCells;
+            origin = new ScenePoint(Math.Floor(focus.X / step) * step, Math.Floor(focus.Y / step) * step, Math.Floor(focus.Z / step) * step);
+        }
+        origin = switchedOrigin ?? origin;
         var (middle, minimum, maximum) = ScheduleSegments(snapshot, focal, followed?.Train, seconds);
         var frame = new FrameContents();
         RenderSegments(origin, minimum, maximum, frame);

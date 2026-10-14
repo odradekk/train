@@ -68,13 +68,14 @@ public class ContentTests(Node testScene) : TestClass(testScene)
             var point = map.GlobalPosition + (map.MapToScreen(start) + map.MapToScreen(end)) / 2;
             Require(map.HitTest(point - map.GlobalPosition) == new WorldObjectId.Edge(edge.Id),
                 "真实地图点击位置没有命中待验证线路。");
-            // 手动推进生产帧入口，确保断言观察到首次接入，尚未回传下一帧相机样本。
+            // 手动推进生产帧入口，等焦点所在分段接入，避免断言依赖并行构建的完成顺序。
             app.SetProcess(false);
             await input.Click(point);
             await FramesUntil(TestScene, () =>
             {
                 app.WorldScenes!.ProcessFrame(0, false);
-                return app.WorldScenes.Display?.DisplayedFrame is not null || !app.WorldScenes.View.Visible;
+                var focus = app.WorldScenes.View.CameraRig.Focus;
+                return app.WorldScenes.Display?.DisplayedFrame?.Locate(new(focus.X, focus.Y, focus.Z)) is Lookup<WorldLocation>.Found;
             });
             AssertFocus();
             for (var frame = 0; frame < 5; frame++)
