@@ -40,7 +40,12 @@ internal static class WorldReferences
             foreach (var (good, field) in DesignGoods(design)) Good(good, path + field);
         }
         foreach (var inventory in world.Inventories)
+        {
             foreach (var good in inventory.Goods) Good(good.Good, $"World.Inventories[{inventory.Id.Value}].Goods[{GoodKey(good.Good)}]");
+            foreach (var reservation in inventory.Reservations)
+                foreach (var good in reservation.ExpectedReturns)
+                    Good(good.Good, $"World.Inventories[{inventory.Id.Value}].Reservations[{reservation.Job.Value}].ExpectedReturns[{GoodKey(good.Good)}]");
+        }
         var config = world.Source.Configuration;
         var rules = config.Rules;
         Add(new CoreDefinitionReference.Rule(rules.Population), "Configuration.Rules.Population");
