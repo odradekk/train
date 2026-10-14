@@ -81,7 +81,9 @@ internal sealed class RailwayScene : IAsyncDisposable
             focal = path.Locate(RailwayCoordinates.Add(camera.Frame.Origin, camera.Focus));
         var focus = path.Sample(focal).Position;
         var step = RailwayCoordinates.OriginStepCells;
-        var origin = switchedOrigin ?? new ScenePoint(Math.Floor(focus.X / step) * step, Math.Floor(focus.Y / step) * step, Math.Floor(focus.Z / step) * step);
+        var origin = switchedOrigin ?? (target is WorldSceneTarget.Location &&
+            request.Camera?.Frame.Update.Frame.Space != stamp.Space ? focus :
+            new ScenePoint(Math.Floor(focus.X / step) * step, Math.Floor(focus.Y / step) * step, Math.Floor(focus.Z / step) * step));
         var (middle, minimum, maximum) = ScheduleSegments(snapshot, focal, followed?.Train, seconds);
         var frame = new FrameContents();
         RenderSegments(origin, minimum, maximum, frame);

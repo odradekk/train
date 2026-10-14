@@ -52,6 +52,38 @@ public sealed class RailwaySessionTests
     }
 
     [TestMethod]
+    public async Task LocationFocusMapsToRequestedDistanceAndKeepsScheduledSegmentsCentered()
+    {
+        const double distance = 306.75;
+        var snapshot = RailwayFixtures.Snapshot(800, 800, relief: 0);
+        var target = new WorldSceneTarget.Location(new WorldLocation.Edge(RailwayFixtures.Edge, distance));
+        var request = Request with { DebugLayers = SceneDebugLayer.RailwaySegments };
+        await using var vehicles = new SceneVehicles();
+        await using var scene = RailwayFixtures.Controlled(snapshot, vehicles);
+        var first = await RailwayFixtures.Settled(scene, snapshot, target, request, Stamp(1));
+        AssertLocation(first, Vector3.Zero);
+
+        var next = await RailwayFixtures.Settled(scene, snapshot, target,
+            request with { Camera = new(first, Vector3.Zero) },
+            Stamp(first.Update.Frame.Revision + 1), displayed: first);
+        AssertLocation(next, next.Update.ShiftExistingRoots);
+        var centers = next.DebugLines.Chunk(2).Select(lines =>
+            ((Lookup<WorldLocation>.Found)next.Locate(
+                (lines[0].From + lines[0].To + lines[1].From + lines[1].To) / 4)).Value)
+            .Cast<WorldLocation.Edge>().Select(location => location.DistanceMeters).Order().ToArray();
+        Assert.IsTrue(Math.Abs(centers[centers.Length / 2] - distance) <
+            RailwayCoordinates.SegmentLengthCells / RailwayCoordinates.CellsPerMeter / 2,
+            "The middle scheduled segment must still contain the requested location.");
+
+        void AssertLocation(ISceneFrame frame, Vector3 focus)
+        {
+            var location = (WorldLocation.Edge)((Lookup<WorldLocation>.Found)frame.Locate(focus)).Value;
+            Assert.AreEqual(RailwayFixtures.Edge, location.Id);
+            Assert.AreEqual(distance, location.DistanceMeters, 0.001);
+        }
+    }
+
+    [TestMethod]
     public async Task AllTracksAndMixedVehicleLengthsAreCenteredAndReversalKeepsBodyAndOrder()
     {
         var first = RailwayFixtures.Vehicle(lengthCells: 8);
