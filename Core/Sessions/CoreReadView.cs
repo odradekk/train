@@ -1,6 +1,7 @@
 using Train.Core.Contracts;
 using Train.Core.World;
 using Train.Core.Railway;
+using Train.Core.Inventory;
 
 namespace Train.Core.Sessions;
 
@@ -43,8 +44,18 @@ internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Re
         => value is null ? new Lookup<T>.Missing() : new Lookup<T>.Found(value);
     public Lookup<SettlementView> FindSettlement(SettlementId id)
         => throw new NotImplementedException("FindSettlement 尚未实现。");
-    public Lookup<InventoryView> FindInventory(InventoryId id) => throw new NotImplementedException("FindInventory 尚未实现。");
-    public Lookup<LeaseView> FindLease(LeaseId id) => throw new NotImplementedException("FindLease 尚未实现。");
+    public Lookup<InventoryView> FindInventory(InventoryId id)
+    {
+        if (id.Value == 0) throw new ArgumentException("库存编号必须非零。", nameof(id));
+        var inventory = State.Inventories.FirstOrDefault(i => i.Id == id);
+        return Lookup(inventory is null ? null : InventoryStorage.Read(State, Content, Position.CompletedSteps, inventory));
+    }
+    public Lookup<LeaseView> FindLease(LeaseId id)
+    {
+        if (id.Value == 0) throw new ArgumentException("租约编号必须非零。", nameof(id));
+        var lease = State.Leases.FirstOrDefault(l => l.Id == id);
+        return Lookup(lease is null ? null : InventoryLeases.Read(lease, Position.CompletedSteps));
+    }
     public Lookup<FacilityView> FindFacility(FacilityKey key) => throw new NotImplementedException("FindFacility 尚未实现。");
     public Lookup<JobView> FindJob(JobId id) => throw new NotImplementedException("FindJob 尚未实现。");
     public Lookup<CombatView> FindCombat(CombatId id) => throw new NotImplementedException("FindCombat 尚未实现。");
@@ -57,7 +68,15 @@ internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Re
     public CoreResult<VehicleTradeQuote> QuoteVehicle(VehicleTradeQuoteRequest request)
         => throw new NotImplementedException("QuoteVehicle 尚未实现。");
     public CoreResult<LeaseQuote> QuoteLease(LeaseRequest request)
-        => throw new NotImplementedException("QuoteLease 尚未实现。");
+    {
+        InventoryLeases.Validate(request);
+        try { return new CoreResult<LeaseQuote>.Success(InventoryLeases.Quote(State, Content, Position.CompletedSteps, Revision, request)); }
+        catch (Exception exception)
+        {
+            return new CoreResult<LeaseQuote>.Faulted(new("internal_error", Position, nameof(QuoteLease), "", null),
+                new(exception.Message, exception.StackTrace));
+        }
+    }
     public CoreResult<JobQuote> GetJobQuote(JobRequest request, JobFunding funding)
         => throw new NotImplementedException("GetJobQuote 尚未实现。");
     public CoreResult<SettlementFoundingPreview> PreviewSettlement(NodeId node)

@@ -23,6 +23,7 @@
 - 会话的 `Read`、`Submit`、`Advance` 和 `Dispose`。实现 `PublishContent`、五个铁路命令和 `DebugAddRailBreak`，推进包含列车运行及线路、站台调度；`PublishContent` 在比较身份前使用与新局相同的内容投影校验，未初始化数组等输入错误在事务前抛 `ArgumentException`，不取得命令编号。身份相同时在事务前抛 `ArgumentException`；合法投影身份不同时，在同步事务内检查世界引用并适配保存的设计、衍生货物、当前定义依赖和节点站台数，具体拒绝与兼容规则见下文“内容候选与同步提交”。铁路货物查询和出发检查从当前货物目录识别缺失，恢复候选的缺失标注见下文“当前载荷”。
 - 读视图的 `Position`、`Revision`、`InputIdentity` 和 `Fault`。修订在每个 Completed 命令、完成步骤及新步骤故障时各增加一次；NotAccepted、查询和零步推进不增加。修订已达 `ulong.MaxValue` 时，故障仍写入并冻结，修订保持最大值；正常路径的递增仍使用 checked 算术。
 - `World`、`FindNode`、`FindEdge`、`FindLocation`、`FindInstance`、`FindTrain`，覆盖生成的图、占据者、资源、实例和运行列车；车辆位置随所属列车派生，轨道查询列出实际在轨列车。
+- `FindInventory`、`FindLease`、`QuoteLease`、`LoadGoods`、`UnloadGoods`、`AcquireLease` 及租约到期，按 [#325 的批准计划](https://github.com/odradekk/train/issues/325#issuecomment-6172428536)实现。库存预留参与容量和持久化；任务产生和释放预留仍归 #331/#332，具体规则见下文“库存与租约”。
 - `Capture`、`DecodeState` 和 `PrepareRestore`，覆盖当前真实世界状态；格式与恢复规则见下文“当前载荷”。公开 `PrepareNew` 路径有共享 `CaptureScenario` 及跨进程生成、保存恢复测试。
 - `ReadRecording`、`CaptureRecordingStart`、`ConfirmRecordingStart`、`PrepareReplay` 和 `CompareCheckpoints`，覆盖当前完整世界状态、`PublishContent`、五个铁路命令和 `DebugAddRailBreak`，包含正常业务拒绝。运行在线路上、停留及调度中的录制通过生产重放路径逐检查点比较。
 
@@ -31,6 +32,8 @@
 | 未实现成员 | 交付责任 |
 | --- | --- |
 | 自动货物规则、`CurrentRun`、`RecentReports`、`RunReported` | #385 |
+| `FindSettlement`、聚居地库存身份发现、租约列表与 `SettlementStorageView` 的公开查询 | 后续聚居地／市场查询任务；本票只实现已知身份的库存和租约查询 |
+| `Economy`、钱包及经营统计公开查询 | 后续经济运输任务；钱包变化可通过租赁事件、累计付款及完整捕获验证 |
 | 其余命令、`Economy`、其他 `Find*`、报价和预览 | 后续经济运输、制造与编辑、自有建设、战斗与生物领域任务 |
 
 旧 `Train.Core.Simulation` 及宿主入口已删除。`RandomKey`、`KeyedRandom`、`SplitMix64` 原算法迁到 `Core/World/`，作为内部实现保留；固定向量测试及独立 Python 参考工具位于 `Tests/Core/World/`。会话始终持有世界状态；内部会话测试也使用真实生成状态，拒绝与事件由内部测试体供给。列车运行、调度及后续领域任务须将各自新增权威字段补入捕获、恢复和检查点，不能把初始世界往返当作完整玩法恢复证据。
@@ -185,6 +188,28 @@
 
 事件用于通知和瞬时表现。射击与命中事件保存武器部件、目标部件/生物及地点；实例表现引用保留当时设计，即使对象在同一步被删除也能解释。生物查询和表现引用保留种类身份 `Definition`，不保存设计；体素通过与核心视图或事件配对的固定内容视图调用 `FindCreature(Definition)` 取得当前种类外观。持续损伤、人员和库存以查询为准。后来打开场景只重建当前状态，不补演遗漏的射击。战报由宿主按[界面规则](../design/08-window-and-ui.md)保留，不等于核心录制或存档。
 
+## 库存与租约
+
+`FindInventory`、`FindLease` 的身份必须非零；对象不存在返回 `Lookup.Missing`。结果及其集合可以保留，后续命令、推进、发布或会话释放不改变旧结果。库存只有按 `GoodId` 计数的栈，三种身份不相互合并。缺定义货物保留身份和数量、照常占容量，`DefinitionMissing=true`，装卸拒绝 `content_missing / Good`。库存质量只包含已知定义的部分，不作为容量约束。
+
+容量来自有效结构耐久及部件耐久均大于零、定义未缺失的存储部件。列车汇总成员车辆，聚居地汇总所有建筑，不按建筑类别限制。城内统计只含聚居地库存与当地租用库存，不含停靠列车。设物理容量为 P、有效租约额度合计为 A、到期租约货物合计为 E，聚居地库存容量为 `max(0, P-A-E)`。有效租约扣完整额度，不重复扣其中货物；到期只保留实际货物占位。
+
+`InventoryView.Used` 为整件数量合计，`Reserved` 为预留容量合计，`Reservations` 保留 JobId、容量和预计返还。列车 Available 为 `max(0, Capacity-Used-Reserved)`；城内库存还取与 `max(0, P-全城Used-全城Reserved)` 的较小值。租用库存 Capacity 保留合同额度；非 ReadWrite 库存 Available 为零，到期显示的额度不构成继续占有空空间的承诺。能力下降不删货、不删预留，超容禁止新增入库，合法取出仍允许。
+
+可租比例额度为 `floor(P×RentableCapacityRatio/10000)`，只计有效租约。实际承诺空间为聚居地库存的 Used+Reserved，加各有效租约的 `max(合同额度, Used+Reserved)`，再加各到期租约的 Used+Reserved；可租容量为比例剩余额度与实际未承诺空间的较小值，各项最低为零。到期预留继续占位。续租排除自身旧额度及占位，再检查原容量和自身 Used+Reserved，不重复计入；不自动缩减额度。
+
+库存访问权独立于直接装卸授权。玩家列车、自有聚居地库存、有效租用库存及非敌对 NPC 聚居地库存显示 ReadWrite；到期租库为 WithdrawOnly；敌对聚居地库存和租库为 Frozen，优先于到期。冻结不释放额度、货物或预留。直接装卸只允许列车与同地自有聚居地库存或玩家租库之间移动，NPC 库存交易归 #384。
+
+装卸要求非零身份、合法货物身份及正数量，否则取得编号前抛 ArgumentException。合法输入依序检查：对象存在（object_missing / Train、Settlement、LocalInventory）；列车所有权（not_owned / Train）；同地（train_not_at_settlement / Train.Position）；当地库存归属（invalid_state / LocalInventory）；冻结（access_denied / LocalInventory）；NPC 库存（not_owned / LocalInventory）；卸入到期租库（access_denied / LocalInventory）；调度站台持有（platform_required / Train.Position）；缺定义（content_missing / Good）；来源数量（insufficient_goods / Quantity）；目标及全城容量（insufficient_capacity / Train.Inventory.Capacity 或 LocalInventory.Capacity）。返回首个拒绝，不抢占站台，不新增站台状态。成功发一个 GoodsTransferred，Action 为 Load/Unload，双方库存和数量为实际完整转移，ActualAmount 为零；拒绝不改双方货物或资金，无业务事件。
+
+Rent 要求非零聚居地身份和正容量，Renew 要求非零租约身份，两者期限必须为正，否则取得编号前抛 ArgumentException。只允许在非敌对 NPC 聚居地租用；敌对拒绝 access_denied / Request.Settlement，自有拒绝 invalid_state / Request.Settlement。其后依序检查市场规则（content_missing / MarketRule）、期限必须等于当前 LeaseDurationTicks（invalid_state / Request.DurationSteps）、容量（insufficient_capacity / Request.Capacity）、付款上限（price_condition_failed / MaximumPayment）、钱包（insufficient_money / Wallet）及新租身份（identity_exhausted / World.Next.Lease 或 World.Next.Inventory）。对象不存在使用 object_missing / Request.Settlement 或 Request.Lease。
+
+租金单位为最小货币整数单位/容量/模拟小时，总额为 `ceil(单价×容量×期限步数/216000)`，只向上取整一次，无最低一元，checked Int128 中间计算和结果转换溢出沿用内部故障。有效续租从原到期步追加，到期续租从当前完成步起算，沿用容量并使用当前规则单价。LeaseView.Paid 是累计实际付款，LeaseAcquired.ActualPayment 为本次付款。QuoteLease 不锁资源；规则缺失或期限不匹配时 Total 为空，容量、关系、钱包等其它拒绝在能够确定容量时仍给总价和 Blockers。付款上限由 AcquireLease 重新检查，报价请求没有付款上限参数。报价计算故障返回 CoreResult.Faulted，不冻结活动会话。
+
+从完成步 n 推进到 n+1 时，期限落在该边界的租约按 LeaseId 升序发 LeaseExpired，事件排在同一步铁路事件之前。到期状态由完成步派生，恢复不重复发事件，空租约及其库存不自动删除。市场规则缺失不暂停到期，也不禁止其它条件合法的手动装卸。规则更新不追改已付金额、合同额度或到期步。
+
+预留随库存保存、恢复并参与检查点。解码检查正容量、合法正数返还及合计不超过容量、JobId 非零且全世界唯一；预计返还货物定义加入引用清单。不检查任务是否存在，不新增任务状态；创建、释放预留及任务交叉检查归 #331/#332。本票不新增控制台命令，单命令手册和索引更新不适用。
+
 ## 命令与执行
 
 命令输入是封闭的类型目录，不提供字符串路由加任意 JSON 的扩展口。全部命令在协调线程同步 `Submit`，包括 `FoundSettlement` 和携带完整固定投影的 `PublishContent`；核心可以在内部使用候选保证原子性，不公开命令准备对象或另一个完成入口。控制台先在宿主解析参数，再调用相同命令，不访问核心实现。
@@ -237,7 +262,7 @@
 
 ### 当前载荷
 
-#312 按[批准决定](https://github.com/odradekk/train/issues/312#issuecomment-6133949111)实现捕获边界，#309 扩展世界状态。内部编码器 [CoreCapture](../../Core/Sessions/CoreCapture.cs) 当前使用独立的 `core_state_format_version = 2`，与宿主完整存档的 `SaveFormatVersion` 6 分开；不支持格式 1 或旧通用模拟框架载荷。诊断消息和堆栈不进入载荷。内部字段布局由编码器维护，宿主只通过公开契约取得所需资料。
+#312 按[批准决定](https://github.com/odradekk/train/issues/312#issuecomment-6133949111)实现捕获边界，#309 扩展世界状态，#325 增加租约、库存预留和下一租约编号。内部编码器 [CoreCapture](../../Core/Sessions/CoreCapture.cs) 当前使用独立的 `core_state_format_version = 3`，与宿主完整存档的 `SaveFormatVersion` 6 分开；不支持格式 1、2 或旧通用模拟框架载荷。诊断消息和堆栈不进入载荷。内部字段布局由编码器维护，宿主只通过公开契约取得所需资料。
 
 顶层载荷包含格式版本、位置、下一命令编号、修订、当前输入身份、故障、`world` 和 `references`。`world` 保存完整生成来源 `source`（含种子、生成器版本、生成内容语义修订、解析配置及开局输入）、图与资源、聚居地与生物聚落、聚居地模板业务副本和地块、实例耐久、列车、库存、资金、全部下一身份编号，以及实际设计投影和衍生货物。实例只保存 `DesignHash`，引用同一 `world.designs` 中的投影，不在每个实例重复设计。实例和库存位置由所有者派生，不进载荷。
 

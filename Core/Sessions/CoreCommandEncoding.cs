@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Train.Core.Contracts;
+using Train.Core.World;
 
 namespace Train.Core.Sessions;
 
@@ -27,10 +28,39 @@ internal static class CoreCommandEncoding
                 CoreCommand.StartTrain => "train.start",
                 CoreCommand.StopTrain => "train.stop",
                 CoreCommand.DebugAddRailBreak => "rail.debug_add_break",
+                CoreCommand.LoadGoods => "inventory.load_goods",
+                CoreCommand.UnloadGoods => "inventory.unload_goods",
+                CoreCommand.AcquireLease => "lease.acquire",
                 _ => throw new NotImplementedException($"{command.GetType().Name} 尚未实现。")
             });
             switch (command)
             {
+                case CoreCommand.LoadGoods load:
+                    WriteTransfer(writer, load.Train, load.Settlement, load.LocalInventory, load.Good, load.Quantity);
+                    break;
+                case CoreCommand.UnloadGoods unload:
+                    WriteTransfer(writer, unload.Train, unload.Settlement, unload.LocalInventory, unload.Good, unload.Quantity);
+                    break;
+                case CoreCommand.AcquireLease acquire:
+                    writer.WriteStartObject("request");
+                    switch (acquire.Request)
+                    {
+                        case LeaseRequest.Rent rent:
+                            writer.WriteString("kind", "rent");
+                            WriteIdentity(writer, "settlement", rent.Settlement.Value);
+                            WritePositive(writer, "capacity", rent.Capacity);
+                            WriteIdentity(writer, "duration_steps", rent.DurationSteps);
+                            break;
+                        case LeaseRequest.Renew renew:
+                            writer.WriteString("kind", "renew");
+                            WriteIdentity(writer, "lease", renew.Lease.Value);
+                            WriteIdentity(writer, "duration_steps", renew.DurationSteps);
+                            break;
+                        default: throw new ArgumentException("租约请求无效。", nameof(command));
+                    }
+                    writer.WriteEndObject();
+                    writer.WriteNumber("maximum_payment", acquire.MaximumPayment.Value);
+                    break;
                 case CoreCommand.PublishContent publish:
                     if (!ValidIdentity(publish.Content.Identity.Value))
                         throw new ArgumentException("输入身份必须是大写 SHA-256。", nameof(command));
@@ -116,10 +146,39 @@ internal static class CoreCommandEncoding
                 "train.replace_run_plan" => ["input_format_version", "kind", "train", "plan"],
                 "train.disband" or "train.start" or "train.stop" => ["input_format_version", "kind", "train"],
                 "rail.debug_add_break" => ["input_format_version", "kind", "edge", "track", "distance_meters"],
+                "inventory.load_goods" or "inventory.unload_goods" => ["input_format_version", "kind", "train", "settlement", "local_inventory", "good", "quantity"],
+                "lease.acquire" => ["input_format_version", "kind", "request", "maximum_payment"],
                 _ => null
             };
             if (fields is null) return Failure("unsupported_format", "/kind");
             Fields(root, "", fields);
+            if (name == "lease.acquire")
+            {
+                var request = Property(root, "request", "", JsonValueKind.Object);
+                var requestKind = Text(Property(request, "kind", "/request", JsonValueKind.String), "/request/kind");
+                if (requestKind is not ("rent" or "renew")) throw new InvalidField("/request/kind");
+                Fields(request, "/request", requestKind == "rent"
+                    ? ["kind", "settlement", "capacity", "duration_steps"] : ["kind", "lease", "duration_steps"]);
+                var duration = Identity(Property(request, "duration_steps", "/request", JsonValueKind.Number), "/request/duration_steps");
+                LeaseRequest leaseRequest = requestKind == "rent"
+                    ? new LeaseRequest.Rent(new(Identity(Property(request, "settlement", "/request", JsonValueKind.Number), "/request/settlement")),
+                        Positive(Property(request, "capacity", "/request", JsonValueKind.Number), "/request/capacity"), duration)
+                    : new LeaseRequest.Renew(new(Identity(Property(request, "lease", "/request", JsonValueKind.Number), "/request/lease")), duration);
+                var payment = Property(root, "maximum_payment", "", JsonValueKind.Number);
+                if (!payment.TryGetInt64(out var money)) throw new InvalidField("/maximum_payment");
+                return Success(new(null, new CoreCommand.AcquireLease(leaseRequest, new(money))));
+            }
+            if (name is "inventory.load_goods" or "inventory.unload_goods")
+            {
+                var transferTrain = new TrainId(Identity(Property(root, "train", "", JsonValueKind.Number), "/train"));
+                var settlement = new SettlementId(Identity(Property(root, "settlement", "", JsonValueKind.Number), "/settlement"));
+                var inventory = new InventoryId(Identity(Property(root, "local_inventory", "", JsonValueKind.Number), "/local_inventory"));
+                var good = ReadGood(Property(root, "good", "", JsonValueKind.Object));
+                var quantity = Positive(Property(root, "quantity", "", JsonValueKind.Number), "/quantity");
+                return Success(new(null, name == "inventory.load_goods"
+                    ? new CoreCommand.LoadGoods(transferTrain, settlement, inventory, good, quantity)
+                    : new CoreCommand.UnloadGoods(transferTrain, settlement, inventory, good, quantity)));
+            }
             if (name == "content.publish")
             {
                 var identity = Text(Property(root, "input_identity", "", JsonValueKind.String), "/input_identity");
@@ -157,6 +216,55 @@ internal static class CoreCommandEncoding
         catch (JsonException) { return Failure("unsupported_format", ""); }
         catch (InvalidField error) { return Failure("invalid_state", error.Field); }
         catch (InvalidOperationException) { return Failure("invalid_state", ""); }
+    }
+
+    private static void WriteTransfer(Utf8JsonWriter writer, TrainId train, SettlementId settlement,
+        InventoryId inventory, GoodId good, long quantity)
+    {
+        WriteIdentity(writer, "train", train.Value);
+        WriteIdentity(writer, "settlement", settlement.Value);
+        WriteIdentity(writer, "local_inventory", inventory.Value);
+        WorldInputs.ValidateGood(good);
+        writer.WriteStartObject("good");
+        writer.WriteString("kind", good switch { GoodId.Voxel => "voxel", GoodId.Composite => "composite", GoodId.Assembly => "assembly", _ => throw new ArgumentException("货物无效。", nameof(good)) });
+        switch (good)
+        {
+            case GoodId.Voxel voxel: writer.WriteString("definition", voxel.Definition.Value); break;
+            case GoodId.Composite composite: writer.WriteString("definition", composite.Definition.Value); break;
+            case GoodId.Assembly assembly: writer.WriteString("composition", assembly.Composition.Value); break;
+        }
+        writer.WriteEndObject();
+        WritePositive(writer, "quantity", quantity);
+    }
+
+    private static GoodId ReadGood(JsonElement value)
+    {
+        var kind = Text(Property(value, "kind", "/good", JsonValueKind.String), "/good/kind");
+        if (kind is not ("voxel" or "composite" or "assembly")) throw new InvalidField("/good/kind");
+        var name = kind == "assembly" ? "composition" : "definition";
+        Fields(value, "/good", ["kind", name]);
+        var identity = Text(Property(value, name, "/good", JsonValueKind.String), "/good/" + name);
+        GoodId good = kind switch
+        {
+            "voxel" => new GoodId.Voxel(new(identity!)),
+            "composite" => new GoodId.Composite(new(identity!)),
+            _ => new GoodId.Assembly(new(identity!))
+        };
+        try { WorldInputs.ValidateGood(good); }
+        catch (ArgumentException) { throw new InvalidField("/good/" + name); }
+        return good;
+    }
+
+    private static void WritePositive(Utf8JsonWriter writer, string name, long value)
+    {
+        if (value <= 0) throw new ArgumentException("数量必须为正。", name);
+        writer.WriteNumber(name, value);
+    }
+
+    private static long Positive(JsonElement value, string field)
+    {
+        if (!value.TryGetInt64(out var number) || number <= 0) throw new InvalidField(field);
+        return number;
     }
 
     private static RunPlan Plan(JsonElement plan)

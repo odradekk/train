@@ -68,7 +68,7 @@ internal static class WorldJson
                 var t when t == typeof(ResourceRenewal) => [new(typeof(ResourceRenewal.NonRenewable), "non_renewable"), new(typeof(ResourceRenewal.Renewable), "renewable")],
                 var t when t == typeof(InstanceId) => [new(typeof(InstanceId.Vehicle), "vehicle"), new(typeof(InstanceId.Building), "building")],
                 var t when t == typeof(InstanceDetails) => [new(typeof(InstanceDetails.Vehicle), "vehicle"), new(typeof(InstanceDetails.Building), "building")],
-                var t when t == typeof(InventoryOwner) => [new(typeof(InventoryOwner.Settlement), "settlement"), new(typeof(InventoryOwner.Train), "train")],
+                var t when t == typeof(InventoryOwner) => [new(typeof(InventoryOwner.Settlement), "settlement"), new(typeof(InventoryOwner.Train), "train"), new(typeof(InventoryOwner.Lease), "lease")],
                 var t when t == typeof(TrainPosition) => [new(typeof(TrainPosition.Node), "node"), new(typeof(TrainPosition.Edge), "edge")],
                 var t when t == typeof(PlanStop) => [new(typeof(PlanStop.Waypoint), "waypoint"), new(typeof(PlanStop.Station), "station")],
                 _ => []
