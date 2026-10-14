@@ -57,12 +57,20 @@ public interface IFrameDisplay
 public sealed class WorldDisplayConsumer(IWorldSceneSession scene, IFrameDisplay display)
 {
     private ISceneFrame? _displayed;
+    private ScenePickRaySample? _pickRay;
+
+    public SceneResult<SceneRequestId> RequestView(WorldSceneTarget target)
+    {
+        var result = scene.RequestView(target);
+        if (result is SceneResult<SceneRequestId>.Success) _pickRay = null;
+        return result;
+    }
 
     public SceneResult<ISceneFrame> Present(IContentView content, double interpolation,
         Vector3 focus, SceneDebugLayer debug)
     {
         var camera = _displayed is null ? null : new SceneCameraSample(_displayed, focus);
-        var result = scene.Present(new SceneFrameRequest(interpolation, camera, debug), _displayed);
+        var result = scene.Present(new SceneFrameRequest(interpolation, camera, debug, _pickRay), _displayed);
         if (result is not SceneResult<ISceneFrame>.Success ready || ready.Value.Readiness == SceneReadiness.Failed)
         {
             _displayed = null;
@@ -71,7 +79,11 @@ public sealed class WorldDisplayConsumer(IWorldSceneSession scene, IFrameDisplay
         try
         {
             if (display.TryInstall(ready.Value, content))
+            {
+                if (_pickRay is { } sample && sample.Frame.Update.Frame.Space != ready.Value.Update.Frame.Space)
+                    _pickRay = null;
                 _displayed = ready.Value;
+            }
         }
         catch
         {
@@ -84,5 +96,10 @@ public sealed class WorldDisplayConsumer(IWorldSceneSession scene, IFrameDisplay
     public Lookup<ScenePose>? CameraPose(WorldObjectId subject) => _displayed?.FindPose(subject);
 
     public SceneResult<PickSubject>? Pick(SceneRay ray)
-        => _displayed?.Pick(ray) is ScenePick.Hit hit ? scene.Resolve(hit.Value) : null;
+    {
+        if (_displayed is null) return null;
+        var picked = _displayed.Pick(ray);
+        _pickRay = new ScenePickRaySample(_displayed, ray);
+        return picked is ScenePick.Hit hit ? scene.Resolve(hit.Value) : null;
+    }
 }

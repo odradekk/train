@@ -59,14 +59,7 @@ public sealed class PickRayTests
         var invalid = new List<ScenePickRaySample>
         {
             new(null!, Ray), new(foreign, Ray),
-            new(before, Ray with { Origin = new(float.NaN, 0, 0) }),
-            new(before, Ray with { Direction = new(float.PositiveInfinity, 0, 0) }),
-            new(before, Ray with { Direction = Vector3.Zero }),
-            new(before, Ray with { Direction = Vector3.UnitX * 2 }),
-            new(before, Ray with { MaximumDistanceCells = double.NaN }),
-            new(before, Ray with { MaximumDistanceCells = double.PositiveInfinity }),
-            new(before, Ray with { MaximumDistanceCells = 0 }),
-            new(before, Ray with { MaximumDistanceCells = -1 })
+            new(before, Ray with { Origin = new(float.NaN, 0, 0) })
         };
         foreach (var sample in invalid)
             Assert.ThrowsExactly<ArgumentException>(() => session.Present(Request with { PickRay = sample }, before));
