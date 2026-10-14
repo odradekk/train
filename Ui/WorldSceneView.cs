@@ -25,7 +25,7 @@ internal partial class WorldSceneView : Node3D
     private readonly Godot.Environment _environment;
     private readonly WorldEnvironment _worldEnvironment;
     private readonly Sky _sky;
-    private readonly ProceduralSkyMaterial _skyMaterial;
+    private readonly ShaderMaterial _skyMaterial;
     private readonly DirectionalLight3D _sun;
     private readonly Godot.Environment _inspectionEnvironment;
     private readonly Sky _inspectionSky;
@@ -38,7 +38,8 @@ internal partial class WorldSceneView : Node3D
     {
         Name = "WorldSceneView";
         AddChild(CameraRig);
-        _skyMaterial = new() { SkyHorizonColor = new Color("c9d6e0"), GroundHorizonColor = new Color("c9d6e0") };
+        _skyMaterial = new() { Shader = GD.Load<Shader>("res://Rendering/sky.gdshader") };
+        _skyMaterial.SetShaderParameter("sky_top_color", new Color(0.385f, 0.454f, 0.55f));
         _sky = new() { SkyMaterial = _skyMaterial };
         _environment = new()
         {
