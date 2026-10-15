@@ -78,6 +78,8 @@ Use an absolute executable path for Windows runtime checks; the process launcher
 
 统一入口将主游戏和资产探针导出的 `APPDATA` 重定向到各自运行目录，只从真实模板目录复制 `4.7.2.stable.mono/windows_release_x86_64.exe`，不创建模板 junction；真实模板目录只读，复制的模板在导出 `finally` 中删除，前序步骤失败时也清理。Windows 发布版本导出到本次运行目录的 `exports/windows/train.exe`，空用户目录与有效 Mod 用户目录的两次 `--smoke` 运行共用该文件。资产导出探针的范围、产物保留和环境隔离见[统一测试入口](run-tests.md#选择)。
 
+统一入口和测量导出入口在主游戏导出后共用程序集优化检查：读取 DLL 元数据并跳过原生 DLL，任何托管 DLL 带 `DisableOptimizations`，或缺少 Train／Core／Content／Scenes 程序集，均判失败；结果分别保留在独立检查日志和测量导出步骤中。
+
 需要直接验证已有构建时，通过 `-ExecutablePath` 传入绝对路径：
 
 ```powershell

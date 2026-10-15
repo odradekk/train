@@ -141,6 +141,7 @@ function Invoke-WindowsExport([string] $Name, [string] $Group, [string] $Binary)
             $script:importDone = $true
         }
         Invoke-Check $Name $Group $env:GODOT @('--headless', '--path', $root, '--log-file', (Join-Path $run "$Name-godot.log"), '--export-release', 'Windows Desktop', $Binary) 120
+        Invoke-Check "$Name-optimizations" $Group $pwsh @('-NoProfile', '-File', 'scripts/checks/check-export-optimizations.ps1', '-ExportDirectory', (Split-Path $Binary -Parent)) 30
     } finally {
         if (Test-Path -LiteralPath $templateDirectory) { Remove-Item -LiteralPath $templateDirectory -Recurse -Force }
     }
@@ -180,7 +181,7 @@ try {
             if (-not $selected) { Write-Host "LAYER=$current not selected"; continue }
             if ($current -eq 'stage') {
                 if (-not $IsWindows) {
-                    foreach ($name in @('stage-export', 'stage-export-runtime', 'stage-asset-export', 'stage-screenshot', 'benchmark-threshold')) {
+                    foreach ($name in @('stage-export', 'stage-export-optimizations', 'stage-export-runtime', 'stage-asset-export', 'stage-screenshot', 'benchmark-threshold')) {
                         $summary.checks += [pscustomobject]@{ name = $name; layer = $current; status = 'not-executed'; reason = 'Windows required'; total = 0; executed = 0; passed = 0; failed = 0; skipped = 0 }
                     }
                 }
