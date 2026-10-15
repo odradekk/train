@@ -17,10 +17,13 @@ public sealed class NodeStreamingTests
     [TestMethod]
     public async Task Near_parts_are_interactive_while_far_work_is_blocked()
     {
-        var snapshot = Snapshot(true);
+        var snapshot = Snapshot(true, nearVehicle: true);
         using var release = new ManualResetEventSlim();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var vehicles = new SceneVehicles();
+        var instance = ((Lookup<InstanceView>.Found)snapshot.Core.FindInstance(new InstanceId.Vehicle(new(1)))).Value;
+        vehicles.Prepare(snapshot.Content, instance);
+        await Task.WhenAll(vehicles.PendingWork);
         await using var scene = Open(snapshot, vehicles, build: (data, from, old, token) =>
         {
             if (!new NodeRange(default, NodeStreaming.NearCells).Intersects(from))
@@ -39,6 +42,11 @@ public sealed class NodeStreamingTests
             Assert.AreEqual(SceneReadiness.Partial, frame.Readiness);
             var hit = (ScenePick.Hit)frame.Pick(Ray(scene.RetainedChunks.Keys.First()));
             Assert.AreEqual(new PickSubject.Terrain(NodeFixtures.Location), hit.Value.Subject);
+            var subject = new WorldObjectId.Instance(instance.Id);
+            var pose = ((Lookup<ScenePose>.Found)frame.FindPose(subject)).Value;
+            var cellCenter = pose.Position + Vector3.Transform(new Vector3(.5f, .5f, .5f), pose.Rotation);
+            var businessHit = (ScenePick.Hit)frame.Pick(new(cellCenter + Vector3.UnitY * 20, -Vector3.UnitY, 100));
+            Assert.AreEqual(new PickSubject.WorldObject(subject, instance.Design, new PartId(1)), businessHit.Value.Subject);
         }
         finally { release.Set(); }
     }
@@ -201,7 +209,7 @@ public sealed class NodeStreamingTests
         }
     }
 
-    private static SceneWorldSnapshot Snapshot(bool large)
+    private static SceneWorldSnapshot Snapshot(bool large, bool nearVehicle = false)
     {
         var source = NodeFixtures.Content();
         var layout = NodeFixtures.Layout with
@@ -216,6 +224,8 @@ public sealed class NodeStreamingTests
         var content = new FixedContentView
         {
             Generation = source.Generation, Core = source.Core, Voxels = source.Voxels,
+            Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+            { [SceneFixtures.Design] = source.FindDesign(SceneFixtures.Design) },
             VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
             { [SceneFixtures.Voxel] = source.FindVoxelAppearance(SceneFixtures.Voxel) },
             Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
@@ -227,10 +237,17 @@ public sealed class NodeStreamingTests
         };
         var original = NodeFixtures.Snapshot(platforms: 0, trains: [], instances: [], content: content);
         var node = original.Core.World.Nodes.Single(item => item.Id == NodeFixtures.NodeId);
+        var train = NodeFixtures.Train();
+        var vehicle = RailwayFixtures.Instance(train: train.Id) with { Location = NodeFixtures.Location };
         return new(new FixedCoreReadView
         {
             Position = original.Core.Position, InputIdentity = original.Core.InputIdentity,
-            World = original.Core.World with { Nodes = [node], Edges = [], Trains = [] },
+            World = original.Core.World with { Nodes = [node], Edges = [],
+                Trains = nearVehicle ? [new(train.Id, train.Position, train.Activity)] : [] },
+            Trains = nearVehicle ? new Dictionary<TrainId, Lookup<TrainView>>
+                { [train.Id] = new Lookup<TrainView>.Found(train) } : [],
+            Instances = nearVehicle ? new Dictionary<InstanceId, Lookup<InstanceView>>
+                { [vehicle.Id] = new Lookup<InstanceView>.Found(vehicle) } : [],
             Settlements = new Dictionary<SettlementId, Lookup<SettlementView>>
             { [new(1)] = new Lookup<SettlementView>.Found(NodeFixtures.Settlement(0) with { Plots = [] }) }
         }, content);
