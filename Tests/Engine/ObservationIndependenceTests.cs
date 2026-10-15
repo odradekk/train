@@ -33,6 +33,7 @@ public class ObservationIndependenceTests(Node testScene) : TestClass(testScene)
         ImmutableArray<DeveloperCheckpoint> expected = default)
     {
         var fixture = new Fixture(TestScene.GetTree());
+        GD.Print($"[DEBUG-481] {variant.Name} run start {Time.GetTicksMsec()}");
         try
         {
             // 不设置 CreateHost/CreateScenes：App 使用生产 HostComposition 的三个真实工厂。
@@ -147,6 +148,7 @@ public class ObservationIndependenceTests(Node testScene) : TestClass(testScene)
                 var view = host.GetStatus()!.View;
                 var previous = scenes.Display?.DisplayedFrame?.Update.Frame;
                 var train = ((Lookup<TrainView>.Found)view.FindTrain(new(1))).Value;
+                GD.Print($"[DEBUG-481] {variant.Name} observe {step} start {Time.GetTicksMsec()} train={train.Position}");
                 scenes.Open(step switch
                 {
                     30 => new WorldSceneTarget.Location(new WorldLocation.Edge(view.World.Edges[0].Id, 1)),
@@ -170,9 +172,15 @@ public class ObservationIndependenceTests(Node testScene) : TestClass(testScene)
                     return scenes.Display?.DisplayedFrame is { Readiness: SceneReadiness.Ready or SceneReadiness.Partial } displayed &&
                         displayed.Update.Frame != previous;
                 });
+                GD.Print($"[DEBUG-481] {variant.Name} observe {step} ready {Time.GetTicksMsec()}");
             }
         }
-        finally { await fixture.Cleanup(); }
+        finally
+        {
+            GD.Print($"[DEBUG-481] {variant.Name} cleanup start {Time.GetTicksMsec()}");
+            await fixture.Cleanup();
+            GD.Print($"[DEBUG-481] {variant.Name} cleanup done {Time.GetTicksMsec()}");
+        }
     }
 
     private static SimulationPosition Position(JsonElement value) =>
