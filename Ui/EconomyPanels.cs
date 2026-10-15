@@ -10,7 +10,6 @@ internal partial class EconomyPanels : Control
 {
     private HostCoordinator _host = null!;
     private Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> _submit = null!;
-    private Action<string> _diagnostic = null!;
     private GoodsIconCache _icons = null!;
     private HostBinding _binding;
     private ICoreReadView _view = null!;
@@ -20,7 +19,6 @@ internal partial class EconomyPanels : Control
     private SettlementId _settlementId;
     private SettlementView? _settlement;
     private CoreRevision? _settlementRevision;
-    private EconomicQueries _queries = null!;
     private Label _state = null!;
     private Label _wallet = null!;
     private OptionButton _localChoice = null!;
@@ -33,7 +31,6 @@ internal partial class EconomyPanels : Control
     private PanelContainer? _trainPanel;
     private PanelTarget? _trainTarget;
     private CoreRevision? _trainRevision;
-    private EconomicQueries _trainQueries = null!;
     private Label _trainState = null!;
     private VBoxContainer _trainStock = null!;
     private StockRows _trainRows = null!;
@@ -47,8 +44,8 @@ internal partial class EconomyPanels : Control
     internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
 
     internal void Initialize(HostCoordinator host,
-        Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit, Action<string> diagnostic, GoodsIconCache icons)
-    { _host = host; _submit = submit; _diagnostic = diagnostic; _icons = icons; }
+        Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit, GoodsIconCache icons)
+    { _host = host; _submit = submit; _icons = icons; }
 
     public override void _Ready()
     { SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect); MouseFilter = MouseFilterEnum.Ignore; }
@@ -59,7 +56,6 @@ internal partial class EconomyPanels : Control
         RemoveWindow(_settlementPanel);
         _settlementTarget = new(_binding, _content.Generation, new WorldObjectId.Settlement(id));
         _settlementId = id; _settlement = null; _settlementRevision = null; _localId = null; _localOptions.Clear();
-        _queries = new(_diagnostic);
         _settlementPanel = UiStyle.Panel(this, "Settlement", $"聚居地 {id.Value}", new(420, 70), 720,
             () => _settlementPanel!.Hide(), out _settlementBody);
         _state = Text(_settlementBody, "State", "");
@@ -84,7 +80,7 @@ internal partial class EconomyPanels : Control
     {
         if (!ReadCurrent() || target.Binding != _binding || target.Generation != _content.Generation) return;
         RemoveWindow(_trainPanel);
-        _trainTarget = target; _trainRevision = null; _trainQueries = new(_diagnostic);
+        _trainTarget = target; _trainRevision = null;
         _trainPanel = UiStyle.Panel(this, "TrainInventory", $"列车 {id.Value} 库存", new(1160, 70), 420,
             () => _trainPanel!.Hide(), out var body);
         _trainState = Text(body, "State", "");
@@ -110,28 +106,23 @@ internal partial class EconomyPanels : Control
         if (_settlementPanel?.Visible == true)
         {
             if (!Current(_settlementTarget)) Invalidate(_settlementBody, _state);
-            else if (_queries.MissingEntry is { } entry) Unavailable(_settlementBody, _state, entry);
             else
             {
                 if (_settlementRevision != view.Revision)
                 { _settlementRevision = view.Revision; ReadSettlement(); }
-                if (_queries.MissingEntry is { } missing) Unavailable(_settlementBody, _state, missing);
-                else if (_settlement is not null) UpdateActions();
+                if (_settlement is not null) UpdateActions();
             }
         }
         if (_trainPanel?.Visible == true)
         {
             if (!Current(_trainTarget)) Invalidate(_trainStock, _trainState);
-            else if (_trainQueries.MissingEntry is { } entry) Unavailable(_trainStock, _trainState, entry);
             else if (_trainRevision != view.Revision)
             {
                 _trainRevision = view.Revision;
                 var trainId = ((WorldObjectId.Train)_trainTarget!.Object).Id;
                 if (_view.FindTrain(trainId) is not Lookup<TrainView>.Found train)
                 { Invalidate(_trainStock, _trainState); return; }
-                if (!_trainQueries.TryRead(nameof(ICoreReadView.FindInventory), () => _view.FindInventory(train.Value.Inventory), out var inventory))
-                { Unavailable(_trainStock, _trainState, _trainQueries.MissingEntry!); return; }
-                if (inventory is not Lookup<InventoryView>.Found found)
+                if (_view.FindInventory(train.Value.Inventory) is not Lookup<InventoryView>.Found found)
                 { Invalidate(_trainStock, _trainState); return; }
                 _trainState.Text = ""; RenderInventory(_trainStock, _trainRows, found.Value);
             }
@@ -140,18 +131,15 @@ internal partial class EconomyPanels : Control
 
     private void ReadSettlement()
     {
-        if (!_queries.TryRead(nameof(ICoreReadView.FindSettlement), () => _view.FindSettlement(_settlementId), out var settlement)) return;
-        if (settlement is not Lookup<SettlementView>.Found found)
+        if (_view.FindSettlement(_settlementId) is not Lookup<SettlementView>.Found found)
         { _settlement = null; Invalidate(_settlementBody, _state); return; }
         _settlement = found.Value;
-        if (!_queries.TryRead(nameof(ICoreReadView.Economy), () => _view.Economy, out var economy)) return;
-        _wallet.Text = $"资金：{economy.Wallet.Value}";
+        _wallet.Text = $"资金：{_view.Economy.Wallet.Value}";
         _locals.Clear();
-        if (!AddInventory(_settlement.Inventory, null)) return;
+        AddInventory(_settlement.Inventory, null);
         foreach (var leaseId in _settlement.Leases)
         {
-            if (!_queries.TryRead(nameof(ICoreReadView.FindLease), () => _view.FindLease(leaseId), out var lookup)) return;
-            if (lookup is Lookup<LeaseView>.Found lease && !AddInventory(lease.Value.Inventory, lease.Value)) return;
+            if (_view.FindLease(leaseId) is Lookup<LeaseView>.Found lease) AddInventory(lease.Value.Inventory, lease.Value);
         }
         _localId ??= _settlement.Inventory;
         SyncChoices(_localChoice, _localOptions, _locals.Select(local => local.Inventory.Id), _localId,
@@ -160,15 +148,13 @@ internal partial class EconomyPanels : Control
         RenderLocal(); RefreshTrade(); RefreshVehicles(); RefreshLeases();
     }
 
-    private bool AddInventory(InventoryId id, LeaseView? lease)
+    private void AddInventory(InventoryId id, LeaseView? lease)
     {
-        if (!_queries.TryRead(nameof(ICoreReadView.FindInventory), () => _view.FindInventory(id), out var lookup)) return false;
-        if (lookup is Lookup<InventoryView>.Found found) _locals.Add((found.Value, lease));
-        return true;
+        if (_view.FindInventory(id) is Lookup<InventoryView>.Found found) _locals.Add((found.Value, lease));
     }
 
     private InventoryView? Local => _locals.FirstOrDefault(local => local.Inventory.Id == _localId).Inventory;
-    private bool CanAct => Current(_settlementTarget) && _settlement is not null && _queries.MissingEntry is null &&
+    private bool CanAct => Current(_settlementTarget) && _settlement is not null &&
         !_host.IsBusy && _view.Fault is null;
 
     private void RenderLocal() => RenderInventory(_stock, _stockRows, Local);
@@ -231,8 +217,6 @@ internal partial class EconomyPanels : Control
 
     private static void Invalidate(Control body, Label state)
     { state.Text = "已不存在：对象或所属对局已失效，请重新打开。"; state.AddThemeColorOverride("font_color", UiStyle.Error); Disable(body); }
-    private static void Unavailable(Control body, Label state, string entry)
-    { state.Text = $"核心尚未提供：{entry}"; state.AddThemeColorOverride("font_color", UiStyle.Warning); Disable(body); }
     private static void Disable(Control body)
     {
         foreach (var button in body.FindChildren("*", "BaseButton", true, false).OfType<BaseButton>()) button.Disabled = true;
@@ -252,9 +236,8 @@ internal partial class EconomyPanels : Control
         request(); Refresh(_binding, _view, _content);
     }
 
-    private T? ReadQuote<T>(string entry, Func<CoreResult<T>> query, Label description) where T : class
+    private T? ReadQuote<T>(CoreResult<T> result, Label description) where T : class
     {
-        if (!_queries.TryRead(entry, query, out var result)) return null;
         if (result is CoreResult<T>.Success success) return success.Value;
         description.Text = result switch
         {
