@@ -43,7 +43,7 @@ public sealed class ContentCaptureTests
             Designs = references.Designs.Reverse().ToImmutableArray(), Templates = references.Templates.Reverse().ToImmutableArray()
         })).Encode());
         var json = JsonNode.Parse(payload)!.AsObject();
-        CollectionAssert.AreEquivalent(new[] { "format_version", "revision", "packages", "designs", "templates" }, json.Select(p => p.Key).ToArray());
+        CollectionAssert.AreEquivalent(new[] { "format_version", "revision", "packages", "designs", "templates", "assembly_displays" }, json.Select(p => p.Key).ToArray());
         foreach (var item in json["designs"]!.AsArray())
         {
             CollectionAssert.AreEquivalent(new[] { "hash", "definition" }, item!.AsObject().Select(p => p.Key).ToArray());
@@ -75,7 +75,7 @@ public sealed class ContentCaptureTests
             var json = JsonNode.Parse(payload)!;
             switch (mutation)
             {
-                case "version": json["format_version"] = 3; json["future_field"] = true; break;
+                case "version": json["format_version"] = 2; json["future_field"] = true; break;
                 case "hash": json["designs"]![0]!["hash"] = new string('A', 64); break;
                 case "scene": json["designs"] = new JsonArray(); break;
                 case "duplicate": json["templates"]!.AsArray().Add(json["templates"]![0]!.DeepClone()); break;

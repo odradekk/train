@@ -45,15 +45,42 @@ internal sealed class BlueprintParser
     private static C.DesignDraft ReadDesign(JsonElement root, LoadPackage? package)
     {
         var category = Choice(Required(root, "category", ""), "/category", ["vehicle", "building", "large_equipment", "scene_model", "creature"]);
-        if (category is "large_equipment" or "creature")
-            Fail("/category", "当前不支持大型设备或生物蓝图。", "unsupported_format");
+        if (category == "creature")
+            Fail("/category", "当前不支持生物蓝图。", "unsupported_format");
         var layout = Required(root, "layout", "");
         Object(layout, "/layout", "palette", "cells", "composites");
+        var nested = ImmutableArray.CreateBuilder<C.NestedDesignItem>();
         if (layout.TryGetProperty("composites", out var composites))
         {
             Array(composites, "/layout/composites");
-            if (composites.GetArrayLength() > 0)
-                Fail("/layout/composites", "当前不支持嵌套蓝图。", "unsupported_format");
+            foreach (var item in composites.EnumerateArray())
+            {
+                var field = "/layout/composites/" + nested.Count;
+                Object(item, field, "at", "orientation", "design", "blueprint", "paint");
+                var at = Position(Required(item, "at", field), field + "/at");
+                var orientation = item.TryGetProperty("orientation", out var o)
+                    ? EnumValue<C.VoxelOrientation>(o, field + "/orientation") : C.VoxelOrientation.PxPy;
+                if (item.TryGetProperty("design", out var design))
+                {
+                    if (item.TryGetProperty("blueprint", out _) || item.TryGetProperty("paint", out _))
+                        Fail(field, "复制设计不能带 blueprint 或 paint。");
+                    Object(design, field + "/design", "category", "simulation", "layout", "appearance", "display");
+                    C.DesignDraft child;
+                    try { child = ReadDesign(design, package); }
+                    catch (DefinitionFormatException exception)
+                    { throw new DefinitionFormatException(field + "/design" + exception.Field, exception.Message, exception.Code); }
+                    if (category == "scene_model")
+                        nested.Add(new C.NestedDesignItem.SceneModelCopy(at, orientation, child));
+                    else
+                        nested.Add(new C.NestedDesignItem.AssemblyCopy(at, orientation, child));
+                }
+                else
+                {
+                    var reference = DefinitionJson.Reference(Required(item, "blueprint", field), field + "/blueprint", package);
+                    C.PaintColor? paint = item.TryGetProperty("paint", out var p) ? new(Text(p, field + "/paint")) : null;
+                    nested.Add(new C.NestedDesignItem.FunctionalCompositeReference(at, orientation, new(reference), paint));
+                }
+            }
         }
         var palette = ImmutableArray.CreateBuilder<C.VoxelPaletteEntry>();
         if (layout.TryGetProperty("palette", out var entries))
@@ -90,13 +117,11 @@ internal sealed class BlueprintParser
         Object(display, "/display", "name", "description");
         return new(new(Text(Required(display, "name", "/display"), "/display/name"),
             Text(Required(display, "description", "/display"), "/display/description")),
-            specification, new(palette.ToImmutable(), cells.ToImmutable(), []));
+            specification, new(palette.ToImmutable(), cells.ToImmutable(), nested.ToImmutable()));
     }
 
     internal static void WriteDesign(Utf8JsonWriter writer, C.DesignDraft draft)
     {
-        if (!draft.Layout.NestedItems.IsEmpty)
-            Fail("/layout/composites", "当前不支持嵌套蓝图。", "unsupported_format");
         switch (draft.Specification)
         {
             case C.DesignSpecification.Vehicle { Size: { } size }:
@@ -113,6 +138,17 @@ internal sealed class BlueprintParser
                 writer.WriteStartArray("facility_tags");
                 foreach (var tag in building.FacilityTags) writer.WriteStringValue(DesignEvaluator.Wire(tag));
                 writer.WriteEndArray();
+                writer.WriteEndObject();
+                break;
+            case C.DesignSpecification.Assembly:
+                writer.WriteString("category", "large_equipment");
+                break;
+            case C.DesignSpecification.FunctionalComposite functional:
+                writer.WriteString("category", "large_equipment");
+                writer.WriteStartObject("simulation");
+                writer.WriteStartObject("behaviors");
+                foreach (var capability in functional.Behaviors) WriteBehavior(writer, capability);
+                writer.WriteEndObject();
                 writer.WriteEndObject();
                 break;
             case C.DesignSpecification.SceneModel:
@@ -145,7 +181,49 @@ internal sealed class BlueprintParser
             writer.WriteEndArray();
         }
         writer.WriteEndArray();
+        writer.WriteStartArray("composites");
+        foreach (var item in draft.Layout.NestedItems)
+        {
+            writer.WriteStartObject();
+            WritePosition(writer, "at", DesignTraversal.At(item));
+            writer.WriteString("orientation", DesignEvaluator.Wire(DesignTraversal.Orientation(item)));
+            if (item is C.NestedDesignItem.FunctionalCompositeReference reference)
+            {
+                writer.WriteString("blueprint", reference.Definition.Value);
+                if (reference.Paint is { } paint) writer.WriteString("paint", paint.Value);
+            }
+            else
+            {
+                writer.WriteStartObject("design");
+                WriteDesign(writer, DesignTraversal.Copy(item)!);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
         writer.WriteEndObject();
+        var rotation = draft.Specification switch
+        {
+            C.DesignSpecification.Assembly a => a.Rotation,
+            C.DesignSpecification.FunctionalComposite f => f.Rotation,
+            _ => null
+        };
+        if (rotation is not null)
+        {
+            writer.WriteStartObject("appearance");
+            writer.WriteStartObject("behaviors");
+            writer.WriteStartObject("rotation");
+            writer.WriteString("axis", DesignEvaluator.Wire(rotation.Axis));
+            WritePosition(writer, "pivot", rotation.Pivot);
+            writer.WriteStartArray("range");
+            writer.WriteNumberValue(rotation.MinimumDegrees);
+            writer.WriteNumberValue(rotation.MaximumDegrees);
+            writer.WriteEndArray();
+            writer.WriteNumber("speed", rotation.SpeedDegreesPerSecond);
+            writer.WriteEndObject();
+            writer.WriteEndObject();
+            writer.WriteEndObject();
+        }
         if (draft.Specification is C.DesignSpecification.SceneModel { Flatten: { } flatten })
         {
             writer.WriteStartObject("appearance");
@@ -187,6 +265,44 @@ internal sealed class BlueprintParser
             }
             return new C.DesignSpecification.SceneModel(flatten);
         }
+        if (category == "large_equipment")
+        {
+            C.RotationAppearance? rotation = null;
+            if (root.TryGetProperty("appearance", out var appearance))
+            {
+                Object(appearance, "/appearance", "behaviors");
+                if (appearance.TryGetProperty("behaviors", out var visual))
+                {
+                    Object(visual, "/appearance/behaviors", "rotation");
+                    if (visual.TryGetProperty("rotation", out var r))
+                    {
+                        const string field = "/appearance/behaviors/rotation";
+                        Object(r, field, "axis", "pivot", "range", "speed");
+                        var axis = EnumValue<C.RotationAxis>(Required(r, "axis", field), field + "/axis");
+                        var pivot = Position(Required(r, "pivot", field), field + "/pivot");
+                        var range = Required(r, "range", field);
+                        Array(range, field + "/range", 2);
+                        var minimum = Finite(range[0], field + "/range/0");
+                        var maximum = Finite(range[1], field + "/range/1");
+                        if (minimum < -180 || maximum > 180 || minimum >= maximum) Fail(field + "/range", "角度必须在 −180 到 180 内，且最小角小于最大角。");
+                        var speed = r.TryGetProperty("speed", out var speedValue) ? Finite(speedValue, field + "/speed") : 90;
+                        if (speed <= 0) Fail(field + "/speed", "转速必须大于 0。");
+                        rotation = new(axis, pivot, minimum, maximum, speed);
+                    }
+                }
+            }
+            if (root.TryGetProperty("simulation", out var simulation))
+            {
+                Object(simulation, "/simulation", "behaviors");
+                if (simulation.TryGetProperty("behaviors", out var behaviors))
+                {
+                    var capabilities = VoxelParser.ReadBehaviors(behaviors).Capabilities;
+                    if (capabilities.IsEmpty) Fail("/simulation/behaviors", "功能性行为不能为空。");
+                    return new C.DesignSpecification.FunctionalComposite(capabilities, rotation);
+                }
+            }
+            return new C.DesignSpecification.Assembly(rotation);
+        }
         if (root.TryGetProperty("appearance", out var empty)) Object(empty, "/appearance");
         var sim = Required(root, "simulation", "");
         if (category == "vehicle")
@@ -208,6 +324,48 @@ internal sealed class BlueprintParser
             }
         }
         return new C.DesignSpecification.Building(plot, kind, tags.ToImmutable());
+    }
+
+    private static double Finite(JsonElement value, string field)
+    {
+        if (value.ValueKind != JsonValueKind.Number || !value.TryGetDouble(out var number) || !double.IsFinite(number)) Fail(field, "必须为有限数值。");
+        return value.GetDouble();
+    }
+    private static C.GridPosition Position(JsonElement value, string field)
+    {
+        Array(value, field, 3);
+        return new(Integer(value[0], field + "/0"), Integer(value[1], field + "/1"), Integer(value[2], field + "/2"));
+    }
+    private static void WritePosition(Utf8JsonWriter writer, string name, C.GridPosition at)
+    {
+        writer.WriteStartArray(name);
+        writer.WriteNumberValue(at.X);
+        writer.WriteNumberValue(at.Y);
+        writer.WriteNumberValue(at.Z);
+        writer.WriteEndArray();
+    }
+    internal static void WriteBehavior(Utf8JsonWriter writer, K.PartCapability capability)
+    {
+        var name = capability switch
+        {
+            K.PartCapability.Propulsion => "propulsion", K.PartCapability.Control => "control",
+            K.PartCapability.Storage => "storage", K.PartCapability.Production => "production",
+            K.PartCapability.Extraction => "extraction", K.PartCapability.Construction => "construction",
+            K.PartCapability.Power => "power", K.PartCapability.Weapon => "weapon",
+            K.PartCapability.Platform => "platform", _ => throw new InvalidOperationException()
+        };
+        writer.WriteStartObject(name);
+        switch (capability)
+        {
+            case K.PartCapability.Propulsion p: writer.WriteNumber("traction", p.TractionKilonewtons); writer.WriteNumber("rated_speed", p.RatedSpeedMetersPerSecond); break;
+            case K.PartCapability.Storage s: writer.WriteNumber("capacity", s.Capacity); break;
+            case K.PartCapability.Production p: writer.WriteNumber("work_rate", p.WorkPerSecond); break;
+            case K.PartCapability.Extraction e: writer.WriteNumber("work_rate", e.WorkPerSecond); break;
+            case K.PartCapability.Construction c: writer.WriteNumber("work_rate", c.WorkPerSecond); writer.WriteString("max_size_class", DesignEvaluator.Wire(c.MaximumVehicleSize)); break;
+            case K.PartCapability.Power p: writer.WriteNumber("output", p.EnergyPerSecond); break;
+            case K.PartCapability.Weapon w: writer.WriteNumber("damage", w.Damage); writer.WriteNumber("interval", w.IntervalSeconds); break;
+        }
+        writer.WriteEndObject();
     }
 
     private static C.GridColumn Column(JsonElement value, string field)
