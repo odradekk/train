@@ -222,14 +222,15 @@ public sealed class WorldPublicationTests
         using var initial = Prepare(MultiInput, content);
         using var original = initial.Activate();
         var saved = Success(original.Capture(CapturePurpose.Save));
-        var missing = content with { Goods = [], MissingReferences =
+        var missing = content with { Goods = content.Goods.Where(g => g.Good != new GoodId.Voxel(Material)
+            && g.Good != new GoodId.Voxel(Ore)).ToImmutableArray(), MissingReferences =
             [new(new CoreDefinitionReference.Voxel(Material), "old"), new(new CoreDefinitionReference.Voxel(Ore), "old")] };
         using var restored = Success(CoreFactory.Create().PrepareRestore(saved, missing, Options));
         using var session = restored.Activate();
         var before = Success(session.Capture(CapturePurpose.Save));
         var proposed = Next(content, 'A') with
         {
-            Goods = content.Goods.Where(g => g.Good == new GoodId.Voxel(Material)).ToImmutableArray(),
+            Goods = content.Goods.Where(g => g.Good != new GoodId.Voxel(Ore)).ToImmutableArray(),
             MissingReferences = [new(new CoreDefinitionReference.Voxel(Ore), "still missing")],
             RailwayRules = removeValid ? [] : content.RailwayRules
         };
@@ -272,7 +273,7 @@ public sealed class WorldPublicationTests
         using var initial = Prepare(content: content);
         using var original = initial.Activate();
         var definition = new CoreDefinitionReference.Voxel(Material);
-        var missing = content with { Goods = [],
+        var missing = content with { Goods = content.Goods.Where(g => g.Good != new GoodId.Voxel(Material)).ToImmutableArray(),
             MissingReferences = [new(definition, "old")] };
         using var restored = Success(CoreFactory.Create().PrepareRestore(Success(original.Capture(CapturePurpose.Save)), missing, Options));
         using var session = restored.Activate();
@@ -297,7 +298,8 @@ public sealed class WorldPublicationTests
         using var initial = Prepare(content: content);
         using var original = initial.Activate();
         var definition = new CoreDefinitionReference.Voxel(Material);
-        var missing = content with { Goods = [], MissingReferences = [new(definition, "old")] };
+        var missing = content with { Goods = content.Goods.Where(g => g.Good != new GoodId.Voxel(Material)).ToImmutableArray(),
+            MissingReferences = [new(definition, "old")] };
         using var restored = Success(CoreFactory.Create().PrepareRestore(Success(original.Capture(CapturePurpose.Save)), missing, Options));
         using var session = restored.Activate();
         var proposed = Next(missing, 'A');

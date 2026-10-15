@@ -91,7 +91,6 @@ public sealed class CoreSessionTests
         Assert.AreEqual(2u, result.CompletedSteps);
         Assert.AreEqual(new SimulationPosition(9, 0), result.Position);
         AssertBoundary(session, new(9, 0), 10, 22, A);
-        Assert.IsTrue(result.Events.IsEmpty);
         Assert.IsNull(result.Fault);
         Assert.IsNull(result.Diagnostic);
     }

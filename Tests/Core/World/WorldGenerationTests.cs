@@ -62,7 +62,7 @@ public sealed class WorldGenerationTests
         {
             (content with { PopulationRules = [] }, "Configuration.Rules.Population"),
             (content with { Designs = [content.Designs[1]] }, "Configuration.StartConstraints.RequiredAffordableCommissionDesign"),
-            (content with { Goods = [] }, "Content.RailwayRules[fixture:railway].RailGood"),
+            (content with { Goods = content.Goods.RemoveAt(0) }, "Content.RailwayRules[fixture:railway].RailGood"),
             (content with { SettlementTypes = [] }, "Content.SettlementTemplates[fixture:town-template].Type"),
             (content with { SettlementTemplates = [] }, "Content.SettlementTemplates"),
             (content with { MissingReferences = [new(new CoreDefinitionReference.Template(content.SettlementTemplates[0].Id), "known")] }, "Content.SettlementTemplates[fixture:town-template]")
@@ -86,7 +86,9 @@ public sealed class WorldGenerationTests
         {
             (content with { RailwayRules = [content.RailwayRules[0] with { RailGood = absent.Definition }] },
                 "Content.RailwayRules[fixture:railway].RailGood"),
-            (content with { PopulationRules = [content.PopulationRules[0] with { ConsumptionGoods = [new(absent, [], 1)] }] },
+            (content with { PopulationRules = [content.PopulationRules[0] with
+                { ConsumptionGoods = content.PopulationRules[0].ConsumptionGoods.SetItem(0,
+                    content.PopulationRules[0].ConsumptionGoods[0] with { Good = absent }) }] },
                 "Content.PopulationRules[fixture:population].ConsumptionGoods"),
             (content with { MarketRules = [content.MarketRules[0] with { GoodPrices = [new(absent, price)] }] },
                 "Content.MarketRules[fixture:market].GoodPrices"),

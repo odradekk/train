@@ -62,10 +62,14 @@ internal static class WorldContentPublication
         var alreadyMissing = oldReferences.Where(d => d.WasMissing).Select(d => (d.Definition, d.Field)).ToHashSet();
         var references = Create(adapted, content).Definitions;
         foreach (var reference in references)
+        {
+            // Retired consumption remains physical state; only current or executing goods must still exist.
+            if (reference.Field.EndsWith(".PopulationState.ConsumptionRemaining", StringComparison.Ordinal)) continue;
             if (reference.WasMissing
                 ? !alreadyMissing.Contains((reference.Definition, reference.Field))
                 : !Exists(reference, content))
                 Problem("content_missing", reference.Field, DefinitionKey(reference.Definition));
+        }
 
         if (problems.Count != 0)
             return new CommandEffect.Rejected(problems.OrderBy(p => p.Field, StringComparer.Ordinal)

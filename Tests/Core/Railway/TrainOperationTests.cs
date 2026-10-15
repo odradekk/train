@@ -93,7 +93,7 @@ public sealed class TrainOperationTests
         var state = State();
         using var session = new CoreSession(state with
         {
-            Content = state.Content with { Goods = [] },
+            Content = state.Content with { Goods = state.Content.Goods.Where(g => g.Good != new GoodId.Voxel(Material)).ToImmutableArray() },
             World = state.World with
             {
                 Inventories = state.World.Inventories.Select(i => i.Owner is InventoryOwner.Train
@@ -106,7 +106,7 @@ public sealed class TrainOperationTests
         });
         var result = session.Advance(1);
         Assert.AreEqual(TrainActivity.Waiting, Train(session).Activity);
-        Assert.AreEqual("content_missing", ((CoreEvent.TrainActivityChanged)result.Events.Single().Event).Reasons.Single().Code);
+        Assert.AreEqual("content_missing", result.Events.Select(e => e.Event).OfType<CoreEvent.TrainActivityChanged>().Single().Reasons.Single().Code);
     }
 
     [TestMethod]
@@ -176,7 +176,8 @@ public sealed class TrainOperationTests
         if (activity == TrainActivity.Servicing)
             train = train with { Plan = new(false, [new PlanStop.Station(new(1), 3, [])]), RemainingDwellSteps = 2 };
         if (activity == TrainActivity.Running) train = train with { Transit = new(null, new(1)) };
-        using var session = new CoreSession(state with { Content = state.Content with { Goods = [] },
+        using var session = new CoreSession(state with { Content = state.Content with
+            { Goods = state.Content.Goods.Where(g => g.Good != new GoodId.Voxel(Material)).ToImmutableArray() },
             World = state.World with { Trains = [train] } });
         var result = Accepted(session, new CoreCommand.StartTrain(new(1)));
         Assert.AreEqual(train, session.State.World.Trains[0]);
@@ -283,8 +284,9 @@ public sealed class TrainOperationTests
         Assert.AreEqual(new TrainPosition.Node(new(2)), Train(session).Position);
         Assert.AreEqual(Math.Sqrt(6), Train(session).SpeedMetersPerSecond, 1e-12);
         Assert.AreEqual(new NodeTransitView(new(1), new(2)), Train(session).NodeTransit);
-        Assert.AreEqual(1, result.Events.Length);
-        Assert.IsInstanceOfType<CoreEvent.TrainArrived>(result.Events[0].Event);
+        var events = result.Events.Select(e => e.Event).Where(e => e is CoreEvent.TrainArrived or CoreEvent.TrainActivityChanged).ToArray();
+        Assert.AreEqual(1, events.Length);
+        Assert.IsInstanceOfType<CoreEvent.TrainArrived>(events[0]);
         Assert.IsInstanceOfType<TrainPosition.Edge>(((Lookup<TrainView>.Found)old.FindTrain(new(1))).Value.Position);
         session.Advance(1);
         Assert.AreEqual(new EdgeId(2), ((TrainPosition.Edge)Train(session).Position).Id);
@@ -337,9 +339,10 @@ public sealed class TrainOperationTests
         Assert.AreEqual(new TrainPosition.Node(new(2)), Train(session).Position);
         Assert.AreEqual(TrainActivity.Stopped, Train(session).Activity);
         Assert.AreEqual(0.0, Train(session).SpeedMetersPerSecond);
-        Assert.AreEqual(2, result.Events.Length);
-        Assert.IsInstanceOfType<CoreEvent.TrainArrived>(result.Events[0].Event);
-        Assert.IsInstanceOfType<CoreEvent.TrainActivityChanged>(result.Events[1].Event);
+        var events = result.Events.Select(e => e.Event).Where(e => e is CoreEvent.TrainArrived or CoreEvent.TrainActivityChanged).ToArray();
+        Assert.AreEqual(2, events.Length);
+        Assert.IsInstanceOfType<CoreEvent.TrainArrived>(events[0]);
+        Assert.IsInstanceOfType<CoreEvent.TrainActivityChanged>(events[1]);
     }
 
     [TestMethod]
@@ -398,7 +401,7 @@ public sealed class TrainOperationTests
         var start = Accepted(blocked, new CoreCommand.StartTrain(new(1)));
         Assert.AreEqual(TrainActivity.NoRoute, Train(blocked).Activity);
         Assert.AreEqual("no_route", ((CoreEvent.TrainActivityChanged)start.Events.Single().Event).Reasons.Single().Code);
-        Assert.IsTrue(blocked.Advance(3).Events.IsEmpty);
+        Assert.IsFalse(blocked.Advance(3).Events.Any(e => e.Event is CoreEvent.TrainArrived or CoreEvent.TrainActivityChanged));
         using var available = new CoreSession(blocked.State with { World = blocked.State.World with
         { Edges = blocked.State.World.Edges.Select(e => e with { Tracks = 1 }).ToImmutableArray() } });
         Assert.IsNull(available.Advance(1).Fault);
@@ -419,9 +422,10 @@ public sealed class TrainOperationTests
         Assert.AreEqual(TrainActivity.NoRoute, Train(session).Activity);
         Assert.AreEqual(0.0, Train(session).SpeedMetersPerSecond);
         Assert.AreEqual(new NodeTransitView(new(1), null), Train(session).NodeTransit);
-        Assert.AreEqual(2, result.Events.Length);
-        Assert.IsInstanceOfType<CoreEvent.TrainArrived>(result.Events[0].Event);
-        var activity = (CoreEvent.TrainActivityChanged)result.Events[1].Event;
+        var events = result.Events.Select(e => e.Event).Where(e => e is CoreEvent.TrainArrived or CoreEvent.TrainActivityChanged).ToArray();
+        Assert.AreEqual(2, events.Length);
+        Assert.IsInstanceOfType<CoreEvent.TrainArrived>(events[0]);
+        var activity = (CoreEvent.TrainActivityChanged)events[1];
         Assert.AreEqual(TrainActivity.Running, activity.Before);
         Assert.AreEqual(TrainActivity.NoRoute, activity.After);
         Assert.AreEqual("no_route", activity.Reasons.Single().Code);
@@ -436,7 +440,8 @@ public sealed class TrainOperationTests
     {
         using var original = LoadedSession();
         Accepted(original, new CoreCommand.ReplaceRunPlan(new(1), Plan(2)));
-        var missing = Content with { Identity = new(new string('E', 64)), Goods = [], MissingReferences =
+        var missing = Content with { Identity = new(new string('E', 64)),
+            Goods = Content.Goods.Where(g => g.Good != new GoodId.Voxel(Material)).ToImmutableArray(), MissingReferences =
             [new(new CoreDefinitionReference.Voxel(Material), "Content.Goods")] };
         var saved = Success(CoreFactory.Create().DecodeState(Success(original.Capture(CapturePurpose.Save)).Encode()));
         using var candidate = Success(CoreFactory.Create().PrepareRestore(saved, missing, Options));
@@ -462,7 +467,8 @@ public sealed class TrainOperationTests
         Accepted(original, new CoreCommand.StartTrain(new(1)));
         original.Advance(1);
         Assert.IsInstanceOfType<TrainPosition.Edge>(Train(original).Position);
-        var missing = Content with { Identity = new(new string('E', 64)), Goods = [],
+        var missing = Content with { Identity = new(new string('E', 64)),
+            Goods = Content.Goods.Where(g => g.Good != new GoodId.Voxel(Material)).ToImmutableArray(),
             MissingReferences = [new(new CoreDefinitionReference.Voxel(Material), "Content.Goods")] };
         var saved = Success(CoreFactory.Create().DecodeState(Success(original.Capture(CapturePurpose.Save)).Encode()));
         using var candidate = Success(CoreFactory.Create().PrepareRestore(saved, missing, Options));
@@ -472,7 +478,7 @@ public sealed class TrainOperationTests
         session.Advance(2);
         Assert.AreEqual(TrainActivity.Waiting, Train(session).Activity);
         Assert.AreEqual("content_missing", Train(session).Blockers.Single().Code);
-        Assert.IsTrue(session.Advance(3).Events.IsEmpty);
+        Assert.IsFalse(session.Advance(3).Events.Any(e => e.Event is CoreEvent.TrainArrived or CoreEvent.TrainActivityChanged));
         Accepted(session, new CoreCommand.PublishContent(Content));
         session.Advance(1);
         Assert.AreEqual(TrainActivity.Running, Train(session).Activity);

@@ -12,6 +12,15 @@ internal static class WorldReferences
             .SelectMany(d => d.MissingReferences.Concat(d.ReturnUnits.SelectMany(u => u.MissingReferences))
                 .Concat(d.Parts.Where(p => p.Missing).Select(p => new MissingCoreReference(p.Definition, "")))))
             .ToImmutableArray();
+        var populationRule = world.Source.Configuration.Rules.Population;
+        if (!content.PopulationRules.Any(r => r.Id == populationRule))
+            missing = missing.Add(new(new CoreDefinitionReference.Rule(populationRule), "Configuration.Rules.Population"));
+        var populationGoods = content.PopulationRules.Where(r => r.Id == populationRule).SelectMany(r => r.ConsumptionGoods).Select(g => g.Good)
+            .Concat(world.Settlements.SelectMany(s => s.PopulationState.Period?.Rule.ConsumptionGoods.Select(g => g.Good) ?? []))
+            .Concat(world.Settlements.SelectMany(s => s.PopulationState.ConsumptionRemaining).Select(r => r.Good));
+        missing = missing.AddRange(populationGoods.Where(g => WorldGoods.DefinitionMissing(world, content, g))
+            .Select(GoodReference).OfType<CoreDefinitionReference>()
+            .Select(r => new MissingCoreReference(r, "")));
         return Create(world, content.Identity, missing);
     }
 
@@ -31,6 +40,15 @@ internal static class WorldReferences
             Add(new CoreDefinitionReference.SettlementType(settlement.Type), path + ".Type");
             foreach (var plan in settlement.Template.ProductionPlans)
                 Add(new CoreDefinitionReference.Process(plan.Process), path + $".Template.ProductionPlans[{plan.PlotNumber},{plan.Capability}].Process");
+            if (settlement.PopulationState.Period is { } period)
+            {
+                definitions.Add(new(new CoreDefinitionReference.Rule(period.Rule.Id), period.Rule.Revision,
+                    path + ".PopulationState.Period.Rule", false));
+                foreach (var good in period.Rule.ConsumptionGoods)
+                    Good(good.Good, path + ".PopulationState.Period.Rule.ConsumptionGoods");
+            }
+            foreach (var remainder in settlement.PopulationState.ConsumptionRemaining)
+                Good(remainder.Good, path + ".PopulationState.ConsumptionRemaining");
         }
         foreach (var lair in world.Lairs) Add(new CoreDefinitionReference.Lair(lair.Type), $"World.Lairs[{lair.Id.Value}].Type");
         foreach (var design in world.Designs)
@@ -88,6 +106,18 @@ internal static class WorldReferences
         }
         return result.Distinct().OrderBy(d => DefinitionKey(d.Definition), StringComparer.Ordinal)
             .ThenBy(d => d.Field, StringComparer.Ordinal).ToImmutableArray();
+    }
+
+    internal static WorldState RestorePopulationDependencies(WorldState world, CoreContentProjection content)
+    {
+        var selected = world.Source.Configuration.Rules.Population;
+        var field = $"Content.PopulationRules[{selected.Value}].ConsumptionGoods";
+        var current = DependencyGoods(new CoreDefinitionReference.Rule(selected), content)
+            .Select(g => GoodReference(g.Good)).OfType<CoreDefinitionReference>()
+            .Select(g => new RequiredDefinition(g, null, field, false));
+        var dependencies = world.DefinitionDependencies.Where(d => d.Field != field).Concat(current).Distinct()
+            .OrderBy(d => DefinitionKey(d.Definition), StringComparer.Ordinal).ThenBy(d => d.Field, StringComparer.Ordinal).ToImmutableArray();
+        return dependencies.SequenceEqual(world.DefinitionDependencies) ? world : world with { DefinitionDependencies = dependencies };
     }
 
     internal static IEnumerable<(GoodId Good, string Field)> DependencyGoods(CoreDefinitionReference reference,

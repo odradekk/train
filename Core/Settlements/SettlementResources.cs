@@ -22,7 +22,7 @@ internal static class SettlementResources
     // Callers submit at most one request per facility capability and cap work at this step's useful rate.
     internal static SettlementResolution Resolve(WorldState world, CoreContentProjection content, SettlementId id,
         double availableLabor, ImmutableArray<GoodsQuantity> basic, ImmutableArray<FacilityRequest> facilities,
-        ImmutableArray<GoodsQuantity> improvement)
+        Func<ImmutableArray<long>, ImmutableArray<GoodsQuantity>> improvement)
     {
         var settlement = world.Settlements.Single(s => s.Id == id);
         var inventory = world.Inventories.Single(i => i.Id == settlement.Inventory);
@@ -73,7 +73,7 @@ internal static class SettlementResources
             }
         }
 
-        var improvementGranted = Consume(improvement);
+        var improvementGranted = Consume(improvement(basicGranted));
         var resolved = world with
         {
             Settlements = world.Settlements.Select(s => s.Id == id ? s with { FuelEnergyRemaining = fuelRemaining } : s).ToImmutableArray(),

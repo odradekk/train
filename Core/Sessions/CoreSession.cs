@@ -3,6 +3,7 @@ using Train.Core.Contracts;
 using Train.Core.World;
 using Train.Core.Railway;
 using Train.Core.Inventory;
+using Train.Core.Settlements;
 
 namespace Train.Core.Sessions;
 
@@ -112,6 +113,17 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
     public AdvanceResult Advance(uint steps) => AdvanceWorld(steps, before =>
     {
         var (world, events) = TrainOperations.Advance(before.World, before.Content, before.Position.CompletedSteps);
+        foreach (var settlement in before.World.Settlements)
+        {
+            var population = PopulationOperations.Begin(before.World, before.Content, settlement.Id);
+            var consumption = population.Consumption;
+            var resolution = SettlementResources.Resolve(world, before.Content, settlement.Id, population.AvailableLabor,
+                consumption?.BasicRequests ?? [], [], granted => consumption?.PrepareImprovement(granted) ?? []);
+            var result = PopulationOperations.Complete(resolution.World, settlement.Id, population,
+                resolution.ImprovementGrantedUnits, new(checked(before.Position.CompletedSteps + 1), 0));
+            world = result.World;
+            events = events.AddRange(result.Events);
+        }
         return (before.Content, world, InventoryLeases.ExpirationEvents(before.World, before.Position.CompletedSteps).AddRange(events));
     });
 
