@@ -110,6 +110,7 @@
 | `scene_model` | 没有这一节 | `flatten`，可选 | 场景体素 | 场景模型 |
 | `creature` | `behaviors`：`creature` 必填，`weapon` 可选 | 无 | 场景体素 | 无 |
 
+- 建筑设计若包含 `construction`（含嵌套功能复合体），声明的最高车辆档位必须放得进建筑自身 `plot_size` 包络；比较高度，并允许水平旋转 90°。不以模板实际放置地块替代此检查；放不下时拒绝加载。`max_plot_size` 为必填的普通建筑上限，`max_size_class` 缺省不能造车，见[体素行为参数](voxel.md#功能性行为的核心参数)。
 - `building_type` 和 `facility_tags` 的取值由代码提供，写错了整个包无效。Demo 的建筑类型有 6 种：`production`、`warehouse`、`power`、`construction`、`station`、`defense`，只有 `station` 有放置约束；设施兼容标签是 Demo 的 10 个，见[Demo 内容与资产清单](demo-catalog.md#流程与设施兼容标签)。
 - 每个流程要求一个设施兼容标签，建筑的 `facility_tags` 包含它，这座建筑才兼容该流程；标签不提供能力，见[流程的格式](process.md)。`plot_size` 为 `small_station` 或 `large_station` 的建筑必须是 `station` 类型，反过来也一样。
 - 地块包络上限按 X×Z×Y（格）：`small` 48×48×48、`medium` 96×96×80、`large` 192×192×128、`giant` 384×384×256、`small_station` 192×112×48、`large_station` 256×208×64。站点本地 X 沿轨、Z 跨轨；尺寸标准见[设计文档 16 的地块与建筑](../design/16-settlements.md#地块与建筑)。

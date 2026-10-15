@@ -94,7 +94,7 @@ public sealed class NestedBlueprintParsingTests
     public void Functional_behaviors_round_trip_and_keep_voxel_validation_rules()
     {
         var root = Design("large_equipment");
-        root["simulation"] = JsonNode.Parse("""{"behaviors":{"propulsion":{"traction":10,"rated_speed":20},"control":{},"storage":{"capacity":30},"production":{"work_rate":2},"extraction":{"work_rate":3},"construction":{"work_rate":4,"max_size_class":"extra_large"},"power":{"output":5},"weapon":{"damage":6,"interval":0.5},"platform":{}}}""");
+        root["simulation"] = JsonNode.Parse("""{"behaviors":{"propulsion":{"traction":10,"rated_speed":20},"control":{},"storage":{"capacity":30},"production":{"work_rate":2},"extraction":{"work_rate":3},"construction":{"work_rate":4,"max_plot_size":"medium","max_size_class":"extra_large"},"power":{"output":5},"weapon":{"damage":6,"interval":0.5},"platform":{}}}""");
         var draft = Read(root);
         Assert.AreEqual(9, ((C.DesignSpecification.FunctionalComposite)draft.Specification).Behaviors.Length);
         RoundTrip(draft);

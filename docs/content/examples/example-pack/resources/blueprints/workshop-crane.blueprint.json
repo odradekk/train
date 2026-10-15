@@ -1,0 +1,15 @@
+{
+  "schema_version": 3,
+  "id": "workshop-crane",
+  "category": "large_equipment",
+  "simulation": {
+    "behaviors": {
+      "construction": { "work_rate": 1, "max_plot_size": "large", "max_size_class": "large" }
+    }
+  },
+  "layout": {
+    "palette": [{ "voxel": "hull-plate" }],
+    "cells": [[0, 0, 0, 0], [1, 0, 0, 0], [0, 1, 0, 0], [1, 1, 0, 0]]
+  },
+  "display": { "name": "车间吊机", "description": "为车辆车间提供施工能力，最高施工大地块建筑和大型车辆。" }
+}

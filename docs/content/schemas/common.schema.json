@@ -85,10 +85,11 @@
     "construction": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["work_rate", "max_size_class"],
+      "required": ["work_rate", "max_plot_size"],
       "properties": {
         "work_rate": { "$ref": "#/$defs/positiveNumber" },
-        "max_size_class": { "$ref": "#/$defs/sizeClass" }
+        "max_plot_size": { "description": "可施工建筑的最高普通地块档位，不接受站点档位。", "enum": ["small", "medium", "large", "giant"] },
+        "max_size_class": { "$ref": "#/$defs/sizeClass", "description": "可选；缺省表示不能建造、改装或修理车辆。" }
       }
     },
     "power": {
