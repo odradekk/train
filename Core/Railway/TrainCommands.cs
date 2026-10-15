@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Train.Core.Contracts;
 using Train.Core.Sessions;
+using Train.Core.Trading;
 using Train.Core.World;
 
 namespace Train.Core.Railway;
@@ -29,7 +30,7 @@ internal static class TrainCommands
                         throw new ArgumentException("节点编号必须非零。", nameof(command));
                     if (stop is not PlanStop.Station station) continue;
                     if (station.GoodsRules.IsDefault) throw new ArgumentException("货物规则数组必须初始化。", nameof(command));
-                    if (!station.GoodsRules.IsEmpty) throw new NotImplementedException("自动货物规则尚未实现。");
+                    foreach (var rule in station.GoodsRules) AutomaticGoodsOperations.Validate(rule);
                 }
                 TrainId(replace.Train);
                 return;
@@ -44,8 +45,9 @@ internal static class TrainCommands
         }
     }
 
-    internal static CommandEffect Execute(WorldState world, CoreContentProjection content, CoreCommand command, ulong step)
+    internal static CommandEffect Execute(WorldState world, CoreContentProjection content, CoreCommand command, SimulationPosition boundary)
     {
+        var step = boundary.CompletedSteps;
         if (command is CoreCommand.DebugAddRailBreak broken)
         {
             var edge = world.Edges.FirstOrDefault(e => e.Id == broken.Edge);
@@ -73,7 +75,7 @@ internal static class TrainCommands
         var subject = new WorldObjectId.Train(id);
         var train = world.Trains.FirstOrDefault(t => t.Id == id);
         if (train is null) return Reject("object_missing", "Train", subject);
-        if (command is CoreCommand.DisbandTrain) return Disband(world, content, train);
+        if (command is CoreCommand.DisbandTrain) return Disband(world, content, train, boundary);
         var events = ImmutableArray.CreateBuilder<CoreEvent>();
         switch (command)
         {
@@ -84,21 +86,30 @@ internal static class TrainCommands
                     var target = TrainOperations.Target(replace.Plan.Stops[index]);
                     if (!world.Nodes.Any(n => n.Id == target))
                         return Reject("object_missing", $"Plan.Stops[{index}].Node", new WorldObjectId.Node(target));
+                    if (replace.Plan.Stops[index] is PlanStop.Station station)
+                    {
+                        var goods = new HashSet<GoodId>();
+                        for (var ruleIndex = 0; ruleIndex < station.GoodsRules.Length; ruleIndex++)
+                            if (!goods.Add(station.GoodsRules[ruleIndex].Good))
+                                return Reject("plan_duplicate_good", $"Plan.Stops[{index}].GoodsRules[{ruleIndex}].Good", subject);
+                    }
                 }
                 if (replace.Plan.Loop && replace.Plan.Stops.Select(TrainOperations.Target).Distinct().Count() == 1)
                     return Reject("plan_degenerate", "Plan.Stops", subject);
-                train = train with { Plan = replace.Plan, NextStopIndex = 0, RemainingDwellSteps = 0, QueueEnteredStep = null };
+                train = RunReports.End(ref world, content, train, boundary, RunEndReason.PlanReplaced, events);
+                train = train with { Plan = replace.Plan, NextStopIndex = 0, RemainingDwellSteps = 0,
+                    AutomaticEvaluationRemainingSteps = null, CurrentRun = RunReports.Begin(boundary), QueueEnteredStep = null };
                 if (train.Position is TrainPosition.Node { Phase: NodeTravelPhase.Departing } departing)
                 {
                     while (train.NextStopIndex is { } index && replace.Plan.Stops[index] is PlanStop.Waypoint waypoint
                         && waypoint.Node == departing.Id)
-                        train = TrainOperations.Consume(train);
+                        train = TrainOperations.ConsumeStop(ref world, content, train, boundary, events);
                     if (train.NextStopIndex is null)
                         train = train.SpeedMetersPerSecond > 0 ? train with { StopRequested = true }
                             : TrainOperations.ChangeActivity(train with { StopRequested = false }, TrainActivity.Stopped, events);
                 }
                 if (train.Position is TrainPosition.Node && train.Activity != TrainActivity.Stopped)
-                    train = TrainOperations.ResolveNode(world, content, train, events, new TrainDispatch(world, content), step);
+                    train = TrainOperations.ResolveNode(ref world, content, train, events, new TrainDispatch(world, content), step, boundary);
                 break;
             case CoreCommand.StartTrain:
                 if (train.Plan is null) return Reject("plan_missing", "Train.Plan", subject);
@@ -111,7 +122,7 @@ internal static class TrainCommands
                 if (TrainOperations.Capabilities(world, content, train).DepartureProblem(id,
                     TrainOperations.Rule(world, content).MinimumAcceleration) is { } problem)
                     return new CommandEffect.Rejected([problem]);
-                train = TrainOperations.ResolveNode(world, content, train with { StopRequested = false }, events, new TrainDispatch(world, content), step);
+                train = TrainOperations.ResolveNode(ref world, content, train with { StopRequested = false }, events, new TrainDispatch(world, content), step, boundary);
                 break;
             case CoreCommand.StopTrain:
                 if (train.SpeedMetersPerSecond > 0 || train.Position is TrainPosition.Edge) train = train with { StopRequested = true };
@@ -160,7 +171,7 @@ internal static class TrainCommands
         }, [new WorldObjectId.Train(train), new WorldObjectId.Inventory(inventory)]);
     }
 
-    private static CommandEffect Disband(WorldState world, CoreContentProjection content, TrainState train)
+    private static CommandEffect Disband(WorldState world, CoreContentProjection content, TrainState train, SimulationPosition boundary)
     {
         var subject = new WorldObjectId.Train(train.Id);
         if (train.Position is not TrainPosition.Node node || train.SpeedMetersPerSecond != 0)
@@ -171,9 +182,12 @@ internal static class TrainCommands
         var inventory = world.Inventories.Single(i => i.Id == train.Inventory);
         if (!inventory.Goods.IsEmpty || !inventory.Reservations.IsEmpty)
             return Reject("inventory_not_empty", "Train.Inventory", subject);
-        return new CommandEffect.Accepted(content, [new CoreEvent.TrainCompositionChanged(train.Id, [])], world with
+        var events = ImmutableArray.CreateBuilder<CoreEvent>();
+        train = RunReports.End(ref world, content, train, boundary, RunEndReason.TrainDisbanded, events);
+        events.Add(new CoreEvent.TrainCompositionChanged(train.Id, []));
+        return new CommandEffect.Accepted(content, events.ToImmutable(), world with
         {
-            Trains = world.Trains.Remove(train), Inventories = world.Inventories.Where(i => i.Id != train.Inventory).ToImmutableArray(),
+            Trains = world.Trains.Where(t => t.Id != train.Id).ToImmutableArray(), Inventories = world.Inventories.Where(i => i.Id != train.Inventory).ToImmutableArray(),
             Instances = world.Instances.Select(i => i.Id is InstanceId.Vehicle v && train.Vehicles.Contains(v.Id)
                 ? i with { Details = ((InstanceDetails.Vehicle)i.Details) with { Train = null } } : i).ToImmutableArray(),
             Settlements = world.Settlements.Select(s => s.Id == settlement.Id ? s with
