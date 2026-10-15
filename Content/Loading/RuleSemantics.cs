@@ -43,7 +43,8 @@ internal static class RuleSemantics
         }).ToArray(),
         automatic_evaluation_interval_ticks = rule.AutomaticEvaluationIntervalTicks, recent_report_limit = rule.RecentReportLimit,
         commission_money_per_work = rule.CommissionMoneyPerWork.Value, rent_money_per_capacity_hour = rule.RentMoneyPerCapacityHour.Value,
-        rentable_capacity_ratio_basis_points = rule.RentableCapacityRatio.Value, lease_duration_ticks = rule.LeaseDurationTicks
+        rentable_capacity_ratio_basis_points = rule.RentableCapacityRatio.Value, lease_duration_ticks = rule.LeaseDurationTicks,
+        maximum_lease_duration_multiple = rule.MaximumLeaseDurationMultiple
     });
 
     private static object Prices(K.GoodsPriceParameters price) => new

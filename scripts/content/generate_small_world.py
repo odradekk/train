@@ -451,14 +451,15 @@ def content_files():
                  "consumption_goods": consumption, "labor_ratio": 0.58, "consumption_interval_ticks": 120,
                  "statistics_period_ticks": 720, "base_growth_per_second": 0.000002,
                  "improvement_growth_per_second": 0.000001, "maximum_loss_per_second": 0.000004}})
-    document("rules", "market-rule", "basic-market", {"schema_version": 1, "id": "basic-market", "simulation": {
+    document("rules", "market-rule", "basic-market", {"schema_version": 2, "id": "basic-market", "simulation": {
         "basic_reserve_hours": 12, "production_reserve_hours": 6, "improvement_reserve_hours": 4,
         "default_goods_prices": {"sensitivity_basis_points": 1800, "minimum_multiplier_basis_points": 5500,
                                  "maximum_multiplier_basis_points": 23000, "spread_basis_points": 1200},
         "good_prices": [], "vehicle_buy_multiplier_basis_points": 8500, "vehicle_sell_multiplier_basis_points": 11500,
         "vehicle_purchase_limits": [{"size": size, "maximum_for_sale": 3} for size in ("small", "medium", "large", "extra_large", "titan")],
         "automatic_evaluation_interval_ticks": 240, "recent_report_limit": 24, "commission_money_per_work": 2,
-        "rent_money_per_capacity_hour": 1, "rentable_capacity_ratio_basis_points": 4500, "lease_duration_ticks": 3600}})
+        "rent_money_per_capacity_hour": 1, "rentable_capacity_ratio_basis_points": 4500, "lease_duration_ticks": 5184000,
+        "maximum_lease_duration_multiple": 12}})
     document("rules", "construction-rule", "basic-construction", {"schema_version": 1, "id": "basic-construction", "simulation": {
         "founding_duration_ticks": 2400, "construction_work_per_item": 8, "refit_work_per_changed_item": 5,
         "deconstruction_work_per_item": 3, "repair_work_per_damaged_part": 4, "power_per_work": 0.4, "labor_per_work": 0.25}})

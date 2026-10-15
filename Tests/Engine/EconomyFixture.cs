@@ -134,7 +134,7 @@ internal static class EconomyFixture
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNoOODwHwAFxAKAPuJ4AwAAAABJRU5ErkJggg=="));
         var market = new MarketRuleProjection(new("fixture:economy"), new("fixture-market-v1"), 1, 1, 1,
             new(new(10000), new(10000), new(10000), new(0)), [], new(10000), new(10000), [],
-            60, 10, new(1), new(1), new(10000), (long)LeaseDuration);
+            60, 10, new(1), new(1), new(10000), (long)LeaseDuration, 12);
         var projection = HostContentScenario.CreateProjection(HostCoreScenario.Input) with
         {
             MarketRules = missingMarketRule ? [] : [market with { Id = new("fixture:another-market"), LeaseDurationTicks = 120 }, market]

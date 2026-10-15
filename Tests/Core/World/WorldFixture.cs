@@ -144,7 +144,7 @@ internal static partial class WorldFixture
         [], [],
         [PopulationRule()],
         [new(Rules.Market, Revision, 0, 0, 0, new(new(0), new(10000), new(10000), new(0)),
-            [], new(10000), new(10000), [], 1, 10, new(0), new(0), new(0), 1)],
+            [], new(10000), new(10000), [], 1, 10, new(0), new(0), new(0), 1, 12)],
         [new(Rules.Construction, Revision, 1, 1, 1, 1, 1, 0, 0)],
         [new(Rules.Railway, Revision, 1, 1, 1, Material, 1, 1, 1, 1, ApproachLength, DepartureLength, 15)],
         [new(Rules.Combat, Revision, 1, 0, 0, 0, 0, 1)],
