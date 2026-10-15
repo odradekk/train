@@ -109,6 +109,38 @@ public sealed class ContentReloadTests
     }
 
     [TestMethod]
+    public void Mixed_owner_copies_survive_capture_restore_reload_and_replay_after_source_removal()
+    {
+        var fixture = WorldContentFixtures.Content();
+        using var initial = fixture.Load();
+        var factory = ContentFactory.Create();
+        var original = factory.WithSettlementCopies(initial.View, [Template(41)]);
+        var references = References(original, "engine") with { Templates = [Template(41)] };
+        var oldLayout = Found(original.FindSettlementLayout(new(41)));
+        Change(fixture, TemplatePath, json => json["plots"]![1]!["at"]![0] = 240);
+        using var updated = Reload(fixture, original, references);
+        var mixed = factory.WithSettlementCopies(updated.View, [Template(42)]);
+        references = references with { Templates = [Template(41), Template(42)] };
+        var newLayout = Found(mixed.FindSettlementLayout(new(42)));
+        Assert.AreNotEqual(oldLayout.Plots[1].At, newLayout.Plots[1].At);
+        CollectionAssert.AreEqual(oldLayout.Plots.ToArray(), Found(mixed.FindSettlementLayout(new(41))).Plots.ToArray());
+        var saved = Success(factory.Capture(mixed, references));
+        var replay = Success(factory.CaptureReplay([mixed], references)).Encode();
+        fixture.RemoveEntry(ContentFixture.BuiltIn, ProfilePath);
+        fixture.RemoveEntry(ContentFixture.BuiltIn, TemplatePath);
+        using var reloaded = Reload(fixture, mixed, references);
+        using var restored = Restore(fixture, Success(factory.DecodeCapture(saved.Encode())), references);
+        var history = Success(factory.DecodeReplay(replay)).History.Single();
+        foreach (var view in new[] { reloaded.View, restored.View, history })
+        {
+            CollectionAssert.AreEqual(oldLayout.Plots.ToArray(), Found(view.FindSettlementLayout(new(41))).Plots.ToArray());
+            CollectionAssert.AreEqual(newLayout.Plots.ToArray(), Found(view.FindSettlementLayout(new(42))).Plots.ToArray());
+            Assert.AreEqual(saved.Encode(), Success(factory.Capture(view, references)).Encode());
+        }
+        Assert.ThrowsExactly<ArgumentException>(() => factory.WithSettlementCopies(reloaded.View, [Template(43)]));
+    }
+
+    [TestMethod]
     public void Reload_without_changes_reuses_basis_and_revisions()
     {
         var fixture = WorldContentFixtures.Content();

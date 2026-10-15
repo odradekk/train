@@ -412,11 +412,6 @@ def content_files():
         for kind, name, cells in (("bridge", "桥梁", bridge), ("tunnel-portal", "隧道口", tunnel)):
             identity = f"{kind}-{tracks}"
             document("blueprints", "blueprint", identity, blueprint(identity, f"{tracks}轨{name}", "scene_model", ["rock"], cells))
-    ground = {(x, 0, z): 0 for x in range(-208, 208) for z in range(-2, 2)}
-    ground.update({(x, 0, z): 0 for x in range(-2, 2) for z in range(-148, 100)})
-    document("blueprints", "blueprint", "agricultural-town-ground",
-             blueprint("agricultural-town-ground", "农业镇地面", "scene_model", ["ground"], ground,
-                       appearance={"flatten": {"from": [-208, -148], "to": [207, 99], "height": 1}}))
     for identity, name, local_amplitude in (("plains", "平原", 0.7), ("hills", "丘陵", 2.8)):
         document("terrain-types", "terrain-type", identity,
                  {"schema_version": 1, "id": identity, "display": {"name": name, "description": f"基础贯通{name}，提供局部起伏与铁路模型。"},
@@ -424,19 +419,107 @@ def content_files():
                   "local_height_noise": [{"scale_meters": 140, "amplitude": local_amplitude}],
                   "decorations": [], "decoration_target_per_square_meter": 0,
                   "railway_models": [{"tracks": n, "bridge": f"bridge-{n}", "tunnel_portal": f"tunnel-portal-{n}"} for n in (1, 2)]})
-    document("settlement-types", "settlement-type", "agricultural-town",
-             {"schema_version": 3, "id": "agricultural-town", "simulation": {"preferred_terrain": ["core:plains", "core:hills"],
-              "weight": 3, "population_min": 120, "population_max": 360},
-              "display": {"name": "农业镇", "description": "基础贯通的农业镇类型；生产链和服务设施随后接入。",
-                          "map_symbol": "shared/agricultural-town.png", "major": False}})
-    plots = [{"id": 1, "size": "small_station", "at": [-104, 1, -88], "building": "small-station"},
-             {"id": 2, "size": "small_station", "at": [104, 1, -88]}]
-    plots += [{"id": n, "size": "small", "at": [x, 1, z]} for n, (x, z) in enumerate(
-        ((-64, 8), (0, 8), (64, 8), (-64, 72), (0, 72), (64, 72)), 3)]
-    document("settlement-templates", "settlement-template", "agricultural-town",
-             {"schema_version": 2, "id": "agricultural-town", "settlement_type": "agricultural-town", "weight": 3,
-              "scene_model": "agricultural-town-ground", "plots": plots,
-              "display": {"name": "农业镇基础布局", "description": "含真实小站点建筑的八地块布局；尚不启用生产计划。"}})
+    # 本批只提供设施能力，不引入生产流程或 NPC 初始化库存。
+    for identity, name, behavior in (
+        ("industrial-machinery", "机床", {"production": {"work_rate": 1}}),
+        ("extraction-equipment", "钻头", {"extraction": {"work_rate": 1}}),
+        ("construction-equipment", "基础吊机", {"construction": {"work_rate": 1, "max_plot_size": "medium"}}),
+        ("power-equipment", "发电机", {"power": {"output": 100}}),
+    ):
+        voxel(identity, name, "painted_metal", faces("shared/equipment-face.png"),
+              "shared/equipment-icon.png", good(240, 0.08, behaviors=behavior))
+    fuel = good(24, 0.7)
+    fuel["fuel_energy"] = 100
+    voxel("fuel", "燃料", "organic", faces("shared/organic-face.png"), "shared/organic-icon.png", fuel)
+
+    # 吊机是独立货物；建筑只引用它，不手写汇总施工能力。
+    for identity, name, span, plot_limit, vehicle_limit in (
+        ("workshop-crane", "车间吊机", 8, "large", "large"),
+        ("gantry-crane", "龙门吊", 16, "giant", "titan"),
+    ):
+        crane = {(x, y, 0): 0 for x in range(-span, span + 1) for y in range(8)
+                 if x in (-span, span) or y == 7}
+        document("blueprints", "blueprint", identity,
+                 blueprint(identity, name, "large_equipment", ["structural-metal"], crane,
+                           {"behaviors": {"construction": {"work_rate": 4, "max_plot_size": plot_limit,
+                                                          "max_size_class": vehicle_limit}}}))
+
+    buildings = (
+        ("basic-shed", "基础工棚", "small", "construction", None, "construction-equipment"),
+        ("vehicle-workshop", "车辆车间", "medium", "construction", None, "workshop-crane"),
+        ("small-warehouse", "小仓库", "small", "warehouse", None, "storage-equipment"),
+        ("power-station", "发电站", "medium", "power", None, "power-equipment"),
+        ("farm", "农场", "medium", "production", "agriculture", "industrial-machinery"),
+        ("food-factory", "食品厂", "small", "production", "food_processing", "industrial-machinery"),
+        ("extraction-site", "开采场", "medium", "production", "extraction", "extraction-equipment"),
+        ("metallurgy-factory", "冶金厂", "large", "production", "metallurgy", "industrial-machinery"),
+        ("building-materials-factory", "建材厂", "medium", "production", "building_materials", "industrial-machinery"),
+        ("light-industry-factory", "轻工厂", "medium", "production", "light_industry", "industrial-machinery"),
+        ("chemical-factory", "化工厂", "large", "production", "chemical", "industrial-machinery"),
+        ("assembly-factory", "装配厂", "large", "production", "assembly", "industrial-machinery"),
+        ("electronics-factory", "电子厂", "medium", "production", "electronics", "industrial-machinery"),
+        ("recovery-factory", "回收厂", "medium", "production", "recovery", "industrial-machinery"),
+        ("heavy-vehicle-factory", "重型车辆工厂", "large", "construction", None, "gantry-crane"),
+    )
+    plot_sizes = {}
+    for identity, name, size, kind, tag, equipment in buildings:
+        plot_sizes[identity] = size
+        half_x, half_z, height = (20, 40, 20) if identity == "vehicle-workshop" else (
+            (32, 80, 44) if identity == "heavy-vehicle-factory" else (8, 10, 8))
+        cells = {(x, 0, z): 0 for x in range(-half_x, half_x) for z in range(-half_z, half_z)}
+        # 四角立柱和屋顶边框与地板相连，保留内部设备空间。
+        cells.update({(x, y, z): 0 for x in (-half_x, half_x - 1) for z in (-half_z, half_z - 1)
+                      for y in range(1, height)})
+        cells.update({(x, height - 1, z): 0 for x in range(-half_x, half_x) for z in range(-half_z, half_z)
+                      if x in (-half_x, half_x - 1) or z in (-half_z, half_z - 1)})
+        nested = equipment in ("workshop-crane", "gantry-crane")
+        palette = ["construction-material"] if nested else ["construction-material", equipment]
+        if not nested:
+            cells[0, 1, 0] = 1
+        value = blueprint(identity, name, "building", palette, cells,
+                          {"plot_size": size, "building_type": kind, "facility_tags": [tag] if tag else []})
+        if nested:
+            value["layout"]["composites"] = [{"at": [0, 1, 0], "blueprint": equipment}]
+        document("blueprints", "blueprint", identity, value)
+
+    settlements = (
+        ("agricultural-town", "农业镇", ("farm", "food-factory")),
+        ("mining-town", "矿业镇", ("extraction-site", "metallurgy-factory", "building-materials-factory")),
+        ("forestry-town", "林业镇", ("extraction-site", "light-industry-factory")),
+        ("oilfield-town", "油田镇", ("extraction-site", "chemical-factory")),
+        ("industrial-city", "工业城", ("assembly-factory", "electronics-factory", "recovery-factory", "heavy-vehicle-factory")),
+    )
+    for identity, name, major_buildings in settlements:
+        document("settlement-types", "settlement-type", identity,
+                 {"schema_version": 3, "id": identity,
+                  "simulation": {"preferred_terrain": ["core:plains", "core:hills"], "weight": 3,
+                                 "population_min": 120, "population_max": 360},
+                  "display": {"name": name, "description": "本阶段临时使用平原、丘陵偏好；完整地貌和生产配平随后接入。",
+                              "map_symbol": "shared/agricultural-town.png", "major": identity == "industrial-city"}})
+        plots = [{"id": 1, "size": "small_station", "at": [-104, 1, -176], "orientation": "px_py", "building": "small-station"},
+                 {"id": 2, "size": "small_station", "at": [104, 1, -176], "orientation": "px_py"}]
+        prebuilt = ("vehicle-workshop", "small-warehouse", "power-station") + major_buildings
+        # 各行列间隔足以容纳旋转后的大地块；第十地块留给建城工棚。
+        positions = ((-224, 0), (0, 0), (224, 0), (-224, 224), (0, 224), (224, 224), (-224, 448), (0, 448))
+        for index, (x, z) in enumerate(positions):
+            plot = {"id": index + 3, "size": plot_sizes[prebuilt[index]] if index < len(prebuilt) else "small",
+                    "at": [x, 1, z], "orientation": "px_py"}
+            if index < len(prebuilt):
+                plot["building"] = prebuilt[index]
+            plots.append(plot)
+        ground = {(x, 0, z): 0 for x in range(-328, 328) for z in range(-2, 2)}
+        ground.update({(x, 0, z): 0 for x in range(-2, 2) for z in range(-232, 552)})
+        for row in (224, 448):
+            ground.update({(x, 0, z): 0 for x in range(-328, 328) for z in range(row - 2, row + 2)})
+        document("blueprints", "blueprint", identity + "-ground",
+                 blueprint(identity + "-ground", name + "地面", "scene_model", ["ground"], ground,
+                           appearance={"flatten": {"from": [-328, -232], "to": [327, 551], "height": 1}}))
+        document("settlement-templates", "settlement-template", identity,
+                 {"schema_version": 2, "id": identity, "settlement_type": identity, "weight": 3,
+                  "scene_model": identity + "-ground", "plots": plots,
+                  "founding": [{"plot": 1, "building": "small-station"}, {"plot": 10, "building": "basic-shed"}],
+                  "inventory": [], "production_plans": [],
+                  "display": {"name": name + "基础布局", "description": "十地块布局，含两个站点地块与委托、仓储、供能设施；生产计划和库存待后续切片。"}})
 
     needs = ("food", "clothing", "improved_diet", "consumer_goods", "consumer_electronics", "medical_supplies")
     consumption = []
