@@ -72,6 +72,22 @@ public sealed partial class CliProcessTests
             var originalSave = await File.ReadAllBytesAsync(committed);
             var originalRecipe = await File.ReadAllBytesAsync(recipePath);
             await Run(directory, "check", "check", Repository, recipePath, committed);
+            if (example == "storage-tight")
+            {
+                var output = Path.Combine(directory, "capacity.json");
+                await Run(directory, "capacity", "run", Repository, recipePath, output);
+                var final = (await ReadEconomyOutput(output)).Samples[^1];
+                var train = final.Trains.Single(train => train.Id == 1);
+                var cargo = final.Inventories.Single(inventory => inventory.Id == train.Inventory);
+                Assert.AreEqual(0L, cargo.Available);
+                Assert.AreEqual(cargo.Capacity, cargo.Used);
+                var rule = train.CurrentRun!.IncompleteRules.Single();
+                Assert.AreEqual(cargo.Capacity + 1, rule.RequestedQuantity);
+                Assert.AreEqual(cargo.Capacity, rule.CompletedQuantity);
+                var problem = rule.IncompleteReasons.Single();
+                Assert.AreEqual("insufficient_capacity", problem.Code);
+                Assert.AreEqual("Train.Inventory.Capacity", problem.Field);
+            }
             CollectionAssert.AreEqual(originalSave, await File.ReadAllBytesAsync(committed));
             CollectionAssert.AreEqual(originalRecipe, await File.ReadAllBytesAsync(recipePath));
         }
