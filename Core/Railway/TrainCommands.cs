@@ -89,20 +89,25 @@ internal static class TrainCommands
                     return Reject("plan_degenerate", "Plan.Stops", subject);
                 train = train with { Plan = replace.Plan, NextStopIndex = 0, RemainingDwellSteps = 0, QueueEnteredStep = null };
                 if (train.Position is TrainPosition.Node { Phase: NodeTravelPhase.Departing } departing)
+                {
                     while (train.NextStopIndex is { } index && replace.Plan.Stops[index] is PlanStop.Waypoint waypoint
                         && waypoint.Node == departing.Id)
                         train = TrainOperations.Consume(train);
+                    if (train.NextStopIndex is null)
+                        train = train.SpeedMetersPerSecond > 0 ? train with { StopRequested = true }
+                            : TrainOperations.ChangeActivity(train with { StopRequested = false }, TrainActivity.Stopped, events);
+                }
                 if (train.Position is TrainPosition.Node && train.Activity != TrainActivity.Stopped)
                     train = TrainOperations.ResolveNode(world, content, train, events, new TrainDispatch(world, content), step);
                 break;
             case CoreCommand.StartTrain:
+                if (train.Plan is null) return Reject("plan_missing", "Train.Plan", subject);
+                if (train.NextStopIndex is null) return Reject("plan_completed", "Train.NextStopIndex", subject);
                 if (train.Activity != TrainActivity.Stopped)
                 {
                     train = train with { StopRequested = false };
                     break;
                 }
-                if (train.Plan is null) return Reject("plan_missing", "Train.Plan", subject);
-                if (train.NextStopIndex is null) return Reject("plan_completed", "Train.NextStopIndex", subject);
                 if (TrainOperations.Capabilities(world, content, train).DepartureProblem(id,
                     TrainOperations.Rule(world, content).MinimumAcceleration) is { } problem)
                     return new CommandEffect.Rejected([problem]);

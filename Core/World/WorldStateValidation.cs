@@ -386,7 +386,9 @@ internal static class WorldStateValidation
         }
         else Require(train.NextStopIndex is null, "/world/trains/next_stop_index");
         var unfinished = train.Plan is not null && train.NextStopIndex is not null;
-        Require(unfinished || train.Activity == TrainActivity.Stopped && train.RemainingDwellSteps == 0,
+        var finishingStop = train.Plan is not null && train.NextStopIndex is null
+            && train.Activity == TrainActivity.Running && train.StopRequested;
+        Require(unfinished || finishingStop || train.Activity == TrainActivity.Stopped && train.RemainingDwellSteps == 0,
             "/world/trains/activity");
         Require(!train.StopRequested || train.Activity is TrainActivity.Running or TrainActivity.Waiting,
             "/world/trains/stop_requested");
@@ -401,7 +403,7 @@ internal static class WorldStateValidation
                 Require(train.Position is TrainPosition.Node && train.SpeedMetersPerSecond == 0, "/world/trains/activity");
                 break;
             case TrainActivity.Running:
-                Require(unfinished && train.RemainingDwellSteps == 0, "/world/trains/activity");
+                Require((unfinished || finishingStop) && train.RemainingDwellSteps == 0, "/world/trains/activity");
                 break;
             case TrainActivity.Servicing:
                 Require(unfinished && train.Position is TrainPosition.Node { Phase: NodeTravelPhase.Docked } && train.SpeedMetersPerSecond == 0

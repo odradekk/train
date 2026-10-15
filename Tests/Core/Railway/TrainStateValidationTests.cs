@@ -154,6 +154,33 @@ public sealed class TrainStateValidationTests
         Assert.AreEqual("/world/settlements/parked_vehicles", ((CoreResult<ICoreCapture>.Failure)duplicate).Problems.Single().Field);
     }
 
+    [TestMethod]
+    [DataRow(true, false, TrainActivity.Running)]
+    [DataRow(false, true, TrainActivity.Running)]
+    [DataRow(true, true, TrainActivity.Waiting)]
+    [DataRow(true, true, TrainActivity.Servicing)]
+    [DataRow(true, true, TrainActivity.NoRoute)]
+    public void Completed_plan_requires_stopped_activity_unless_running_with_a_pending_stop(
+        bool hasPlan, bool stopRequested, TrainActivity activity)
+    {
+        var state = StateWithPlan();
+        var edge = state.World.Edges[0];
+        var train = state.World.Trains[0] with
+        {
+            Position = activity == TrainActivity.Running
+                ? new TrainPosition.Edge(edge.Id, 1, TravelDirection.Forward, edge.LengthMeters / 2)
+                : WorldFixture.Node(edge.Start, NodeTravelPhase.Departing, nextEdge: edge.Id),
+            Activity = activity, SpeedMetersPerSecond = activity == TrainActivity.Running ? 2 : 0,
+            Plan = hasPlan ? state.World.Trains[0].Plan : null, NextStopIndex = null, StopRequested = stopRequested
+        };
+        var capture = new CoreCapture(state with { World = state.World with { Trains = [train] } });
+        var result = CoreFactory.Create().DecodeState(capture.Encode());
+        Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Failure>(result);
+        var problem = ((CoreResult<ICoreCapture>.Failure)result).Problems.Single();
+        Assert.AreEqual("invalid_state", problem.Code);
+        Assert.AreEqual("/world/trains/activity", problem.Field);
+    }
+
     private static CoreState StateWithPlan(bool emptyNodes = false)
     {
         using var candidate = WorldFixture.Prepare(WorldFixture.Input with

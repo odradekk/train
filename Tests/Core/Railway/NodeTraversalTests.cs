@@ -270,16 +270,121 @@ public sealed class NodeTraversalTests
             NextStopIndex = 1, QueueEnteredStep = waitingAtExit ? 0UL : null
         };
         using var session = new CoreSession(state with { World = state.World with { Trains = [train] } });
-        Accepted(session, new CoreCommand.ReplaceRunPlan(new(1), new(false,
-            station ? [Waypoint(1), Waypoint(1), Station(1), Waypoint(3)]
-                : [Waypoint(1), Waypoint(1), Waypoint(3)])));
+        ImmutableArray<PlanStop> stops = station ? [Waypoint(1), Waypoint(1), Station(1), Waypoint(3)]
+            : [Waypoint(1), Waypoint(1), Waypoint(3)];
+        Accepted(session, new CoreCommand.ReplaceRunPlan(new(1), new(false, stops)));
         Assert.AreEqual(position, Train(session).Position);
         Assert.AreEqual(2, Train(session).NextStopIndex);
+        var saved = Success(session.Capture(CapturePurpose.Save));
+        Assert.AreEqual(saved.Checkpoint, Success(CoreFactory.Create().DecodeState(saved.Encode())).Checkpoint);
         Until(session, () => Train(session).Position is TrainPosition.Edge { Id.Value: 2 }, () =>
         {
             Assert.AreEqual(2, Train(session).NextStopIndex);
             Assert.AreEqual(0, session.Read().World.Nodes.Single(n => n.Id.Value == 1).OccupiedPlatforms);
         });
+    }
+
+    [TestMethod]
+    public void Completed_departing_plan_restores_through_the_edge_and_approach_then_stops_at_the_next_midpoint()
+    {
+        var state = State();
+        var train = state.World.Trains[0] with
+        {
+            Position = new TrainPosition.Node(new(1), new(1), new(2), NodeTravelPhase.Departing, 150, 1),
+            SpeedMetersPerSecond = 5
+        };
+        using var session = new CoreSession(state with { World = state.World with
+        { Trains = [train], Edges = state.World.Edges.SetItem(1, state.World.Edges[1] with { LengthMeters = 100 }) } });
+        Accepted(session, new CoreCommand.ReplaceRunPlan(new(1), new(false, [Waypoint(1), Waypoint(1)])));
+        Assert.IsNull(Train(session).NextStopIndex);
+        Assert.IsTrue(session.State.World.Trains[0].StopRequested);
+        var restart = (SubmissionResult.Completed)session.Submit(new CoreCommand.StartTrain(new(1)), CommandSource.AutomationTest);
+        Assert.AreEqual("plan_completed", ((CommandDecision.Rejected)restart.Receipt.Decision).Problems.Single().Code);
+        var saved = Success(session.Capture(CapturePurpose.Save));
+        using var restored = Restore(saved, state.Content);
+        Assert.AreEqual(1, ((TrainPosition.Node)Train(restored).Position).PlatformNumber);
+        Until(restored, () => Train(restored).Position is TrainPosition.Edge { Id.Value: 2 });
+        var onEdge = Success(restored.Capture(CapturePurpose.Save));
+        Assert.AreEqual(onEdge.Checkpoint, Success(CoreFactory.Create().DecodeState(onEdge.Encode())).Checkpoint);
+        Assert.AreEqual(0, restored.Read().World.Nodes.Single(n => n.Id.Value == 1).OccupiedPlatforms);
+        Until(restored, () => Train(restored).Position is TrainPosition.Node { Id.Value: 3, Phase: NodeTravelPhase.Approaching });
+        Assert.IsTrue(restored.State.World.Trains[0].StopRequested);
+        Assert.IsNull(Train(restored).NextStopIndex);
+        using var entering = Restore(Success(restored.Capture(CapturePurpose.Save)), state.Content);
+        Until(entering, () => Train(entering).Activity == TrainActivity.Stopped, checkBraking: true);
+        Assert.AreEqual(new TrainPosition.Node(new(3), new(2), null, NodeTravelPhase.Docked, 80, null), Train(entering).Position);
+        Assert.AreEqual(0.0, Train(entering).SpeedMetersPerSecond);
+        Assert.IsFalse(entering.State.World.Trains[0].StopRequested);
+        Assert.IsNull(session.Advance((uint)(entering.Read().Position.CompletedSteps - saved.Position.CompletedSteps)).Fault);
+        Assert.AreEqual(Success(entering.Capture(CapturePurpose.Save)).Checkpoint, Success(session.Capture(CapturePurpose.Save)).Checkpoint);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Completed_plan_at_the_exit_stays_stopped_and_reserved_after_restore(bool trackRejected)
+    {
+        var state = State(blocker: trackRejected);
+        var position = new TrainPosition.Node(new(1), new(1), new(2), NodeTravelPhase.Departing, 256, 1);
+        var train = state.World.Trains[0] with
+        {
+            Position = position, SpeedMetersPerSecond = trackRejected ? 5 : 0,
+            Activity = trackRejected ? TrainActivity.Running : TrainActivity.Waiting,
+            QueueEnteredStep = trackRejected ? null : 0UL
+        };
+        var world = state.World with { Trains = state.World.Trains.SetItem(0, train) };
+        if (trackRejected) world = world with
+        {
+            Edges = world.Edges.SetItem(1, world.Edges[1] with { LengthMeters = 10000 }),
+            Trains = world.Trains.SetItem(1, world.Trains[1] with
+            {
+                Position = new TrainPosition.Edge(new(2), 1, TravelDirection.Reverse, 5000),
+                Activity = TrainActivity.Running, SpeedMetersPerSecond = 1,
+                Plan = new(false, [Waypoint(1)]), NextStopIndex = 0
+            })
+        };
+        using var session = new CoreSession(state with { World = world });
+        Accepted(session, new CoreCommand.ReplaceRunPlan(new(1), new(false, [Waypoint(1)])));
+        if (trackRejected)
+        {
+            Assert.AreEqual(TrainActivity.Running, Train(session).Activity);
+            Assert.IsTrue(session.State.World.Trains[0].StopRequested);
+            Step(session);
+        }
+        Assert.AreEqual(TrainActivity.Stopped, Train(session).Activity);
+        Assert.AreEqual(0.0, Train(session).SpeedMetersPerSecond);
+        Assert.AreEqual(position, Train(session).Position);
+        Assert.IsNull(session.State.World.Trains[0].QueueEnteredStep);
+        Assert.IsFalse(session.State.World.Trains[0].StopRequested);
+        using var restored = Restore(Success(session.Capture(CapturePurpose.Save)), state.Content);
+        Step(restored);
+        Assert.AreEqual(TrainActivity.Stopped, Train(restored).Activity);
+        Assert.AreEqual(position, Train(restored).Position);
+        Assert.AreEqual(1, restored.Read().World.Nodes.Single(n => n.Id.Value == 1).OccupiedPlatforms);
+    }
+
+    [TestMethod]
+    public void Completed_plan_stays_restorable_if_departure_capability_is_lost_before_the_exit()
+    {
+        var state = State();
+        var train = state.World.Trains[0] with
+        {
+            Position = new TrainPosition.Node(new(1), new(1), new(2), NodeTravelPhase.Departing, 150, 1),
+            SpeedMetersPerSecond = 5
+        };
+        using var session = new CoreSession(state with { World = state.World with { Trains = [train] } });
+        Accepted(session, new CoreCommand.ReplaceRunPlan(new(1), new(false, [Waypoint(1)])));
+        var unpowered = state.Content with { Identity = new(new string('E', 64)), Designs = state.Content.Designs.Select(d => d with
+            { Parts = d.Parts.Select(p => p with { Capabilities = p.Capabilities.Where(c => c is not PartCapability.Propulsion).ToImmutableArray() }).ToImmutableArray() }).ToImmutableArray() };
+        Accepted(session, new CoreCommand.PublishContent(unpowered));
+        Until(session, () => Train(session).SpeedMetersPerSecond == 0, checkBraking: true);
+        Step(session);
+        Assert.AreEqual(TrainActivity.Stopped, Train(session).Activity);
+        Assert.IsFalse(session.State.World.Trains[0].StopRequested);
+        using var restored = Restore(Success(session.Capture(CapturePurpose.Save)), unpowered);
+        Step(restored);
+        Assert.AreEqual(TrainActivity.Stopped, Train(restored).Activity);
+        Assert.AreEqual(Train(session).Position, Train(restored).Position);
     }
 
     [TestMethod]
@@ -418,6 +523,11 @@ public sealed class NodeTraversalTests
     }
 
     private static TrainView Train(ICoreSession session) => ((Lookup<TrainView>.Found)session.Read().FindTrain(new(1))).Value;
+    private static CoreSession Restore(ICoreCapture saved, CoreContentProjection content)
+    {
+        using var candidate = Success(CoreFactory.Create().PrepareRestore(Success(CoreFactory.Create().DecodeState(saved.Encode())), content, Options));
+        return (CoreSession)candidate.Activate();
+    }
     private static PlanStop.Waypoint Waypoint(ulong id) => new(new(id));
     private static PlanStop.Station Station(ulong id) => new(new(id), 4, []);
     private static void Accepted(ICoreSession session, CoreCommand command)

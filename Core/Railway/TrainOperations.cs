@@ -133,6 +133,9 @@ internal static class TrainOperations
                         direction == TravelDirection.Forward ? 0 : edge.LengthMeters), QueueEnteredStep = null
                 }, TrainActivity.Running, events);
             }
+            else if (train.NextStopIndex is null && train.StopRequested)
+                trains[train.Id] = ChangeActivity(train with { SpeedMetersPerSecond = 0,
+                    StopRequested = false, QueueEnteredStep = null }, TrainActivity.Stopped, events);
             else trains[train.Id] = Wait(train, checked(step + 1), TrainDispatch.TrackWait(train, edge.Id), events);
         }
         return (dispatch.Finish(world with { Trains = world.Trains.Select(t => trains[t.Id]).ToImmutableArray() }), events.ToImmutable());
@@ -309,20 +312,26 @@ internal static class TrainOperations
         }
         if (train.SpeedMetersPerSecond == 0 && dispatch.Capabilities(train).DepartureProblem(train.Id,
                 Rule(world, content).MinimumAcceleration) is { } problem)
+        {
+            if (train.NextStopIndex is null)
+                return ChangeActivity(train with { StopRequested = false, QueueEnteredStep = null }, TrainActivity.Stopped, events);
             return ChangeActivity(train, TrainActivity.Waiting, events, [problem]);
+        }
         return ChangeActivity(train, TrainActivity.Running, events);
     }
 
-    internal static WorldState AdaptNodes(WorldState world, CoreContentProjection content)
+    internal static WorldState AdaptNodes(WorldState world, CoreContentProjection content, CoreContentProjection? previous)
         => world with { Trains = world.Trains.Select(train =>
         {
             if (train.Position is not TrainPosition.Node position) return train;
             var dimensions = NodeDimensions.Read(world, content, position.Id);
+            var previousDimensions = previous is null ? (NodeDimensions?)null : NodeDimensions.Read(world, previous, position.Id);
             var distance = train.SpeedMetersPerSecond == 0 ? position.Phase switch
             {
                 NodeTravelPhase.Waiting => dimensions.Approach,
                 NodeTravelPhase.Docked => dimensions.Stop,
-                NodeTravelPhase.Departing => dimensions.Length,
+                NodeTravelPhase.Departing when previousDimensions is null
+                    || position.DistanceMeters == previousDimensions.Value.Length => dimensions.Length,
                 _ => Math.Min(position.DistanceMeters, dimensions.Length)
             } : Math.Min(position.DistanceMeters, dimensions.Length);
             if (position.Phase == NodeTravelPhase.Approaching && distance > dimensions.Stop)
