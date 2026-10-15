@@ -95,18 +95,25 @@ Windows 阶段层还执行 Windows 导出、空用户目录与有效 Mod 的导�
 
 截图复用引擎测试程序集、Bootstrap 和 JUnit，仅在 Windows 有窗口运行中执行。普通 headless engine 在执行前排除截图套件，不把它计为跳过。输入为 [windows-main-menu.png](../Tests/Engine/Baselines/windows-main-menu.png) 与 [windows-main-menu.json](../Tests/Engine/Baselines/windows-main-menu.json)，通过物理路径读取；`Tests/.gdignore` 阻止编辑器为测试 PNG 生成导入文件。比较先转为 RGBA8。候选值为 `MaxChannelDelta=32`、`MaxDifferentPixelFraction=0.00002`：任一通道差大于 32 的像素计为明显差异，明显差异像素数除以总像素数大于 0.00002 才失败。`comparison.json` 每次记录任意差异像素数、明显差异像素数及比例、最大通道差；`difference.png` 用红色区分明显差异、黄色区分轻微差异，通过时也保留。尺寸不一致、缺少基准或容差均失败。
 
-吞吐输入为 [windows-core-train-loop.json](../Tests/Benchmarks/Baselines/windows-core-train-loop.json)。BenchmarkDotNet 以独立 Release 构建测量 `core-train-loop-v1`：复用 Core 世界和铁路恢复夹具，通过真实 `CoreFactory` 创建 `ICoreSession`，一辆列车持续循环经过三个车站，每批 65,536 个完整模拟步。每次迭代在计时外重建会话并设置循环计划，计时仅覆盖 `ICoreSession.Advance`；结束时在计时外核对实际完成步数、无故障、循环计划仍活动，以及每个计划车站至少两次真实到达，并释放会话。`throughput.json` 保存负载身份、列车数、批次步数、每步耗时、样本数和步/秒，BDN 日志和报告保留原始测量。它只测量该固定列车运行负载的核心吞吐，不提供帧耗时或完整游戏 8× 运行证据。Windows 候选规则使用 `baselineStepsPerSecond=190000` 和 `maximumSlowdown=3`（三次独立完整测量中的最低吞吐向下取整至每秒一万步，等待用户确认），仅当实测步/秒乘以 3 小于候选基线时失败；摘要记录实测值、基线和实测除以基线的比值。缺少基准、负载身份不符或无效数字仍失败。Linux 只记录结果，不应用 Windows 阈值。
+吞吐输入为 [windows-core-train-loop.json](../Tests/Benchmarks/Baselines/windows-core-train-loop.json)。BenchmarkDotNet 以独立 Release 构建测量 `core-train-loop-v2`：复用 Core 世界夹具并显式固定种子 42、生成器 `stage1-world-v1`、40×20 米世界、80 米进站段、96 米站台段、80 米出站段、15 米/秒节点限速和 0.7 米/秒²制动减速度，通过真实 `CoreFactory` 创建 `ICoreSession`，一辆牵引力 100 kN、最高速度 30 米/秒的列车持续循环经过三个车站，依次停留 4／3／2 步，每批 65,536 个完整模拟步。每次迭代在计时外重建会话并设置循环计划，计时仅覆盖 `ICoreSession.Advance`；结束时在计时外核对实际完成步数、无故障、循环计划仍活动，以及每个计划车站至少两次真实到达，并释放会话。`throughput.json` 保存负载身份、种子、生成器、世界尺寸、节点三段长度、节点限速、制动减速度、列车数、批次步数、每步耗时及标准差、样本数和步/秒，BDN 日志和报告保留原始测量。它只测量该固定列车运行负载的核心吞吐，不提供帧耗时或完整游戏 8× 运行证据。v2 的 Windows 候选规则为 `baselineStepsPerSecond=130000`、`maximumSlowdown=3`；基线取三次独立完整测量中的最低吞吐，向下取整至每秒一万步，仍等待用户确认，仅当实测步/秒乘以 3 小于候选基线时失败；摘要记录实测值、基线和实测除以基线的比值。缺少基准、负载身份不符或无效数字仍失败。Linux 只记录结果，不应用 Windows 阈值。
 
-需要单独重新采集吞吐时，显式构建并运行不在 `Train.sln` 中的 Benchmark 项目：
+需要单独重新采集吞吐时，显式构建不在 `Train.sln` 中的 Benchmark 项目，再从项目目录启动。基准的构建工具链直接指定本次编译源码所在的 `Train.Benchmarks.csproj`，并在日志中写出路径，避免 BenchmarkDotNet 默认从解决方案根目录递归搜索时扫到 `TestResults` 中保留的旧隔离副本，无需删除证据：
 
 ```powershell
 dotnet build Tests/Benchmarks/Train.Benchmarks.csproj -c Release
-dotnet run --project Tests/Benchmarks/Train.Benchmarks.csproj -c Release --no-build -- --artifacts <本次运行目录>
+Push-Location Tests/Benchmarks
+try {
+    dotnet run --project Train.Benchmarks.csproj -c Release --no-build -- --artifacts <本次运行目录的绝对路径>
+} finally {
+    Pop-Location
+}
 ```
+
+首次确认启动方式时，在上述运行命令末尾添加 `--job Dry`，只做一次最短作业，验证构建、执行和 `throughput.json` 写出。结果的 `dryRun` 为 `true`、`sampleCount` 为 1；这只证明运行链路可用，不能作为吞吐或候选基线依据。正式测量使用完全相同的启动命令，仅去掉 `--job Dry`，并为每次运行指定独立目录。
 
 提交的 PNG、容差和吞吐基线均为**等待用户阶段验收确认的候选基准**，只能用于检查机制，不能据此宣布阶段或产品性能验收通过。更新截图时，在目标 Windows 图形配置下至少用三个独立 Godot 进程和独立用户目录采集，核对菜单内容并比较各图的通道差和明显差异像素比例，再替换 PNG 与容差 JSON。更换 GPU、驱动或 Godot 版本后重新核对。需要重新采集吞吐时，使用上面的 BenchmarkDotNet 命令做多次独立完整测量，记录外部负载和波动，以实测结果提出基线；不要用单次较快结果掩盖波动。候选值及其替换需用户阶段验收确认，替换后重跑完整阶段检查。原始截图、差异、设备信息和测量结果只保留在忽略的运行目录，长期证据引用写入 Issue 评论，不提交运行报告。
 
-`core-train-loop-v1` 复用的铁路恢复夹具采用 120／720 步的人口消费／统计间隔，与内置规则一致；共享基础夹具仍用 1／10 步缩短人口行为用例。基准在计时外创建会话，不移除人口执行。比较其他提交时，两边应使用同一份基准和世界／铁路夹具源码，使列车、地图、内容及人口间隔一致。
+`core-train-loop-v2` 复用的铁路恢复夹具采用 120／720 步的人口消费／统计间隔，与内置规则一致；共享基础夹具仍用 1／10 步缩短人口行为用例。基准在计时外创建会话，不移除人口执行。比较其他提交时，两边应使用同一份基准和世界／铁路夹具源码，使列车、地图、内容及人口间隔一致。
 
 ## 按改动选择
 

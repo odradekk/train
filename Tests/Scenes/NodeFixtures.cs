@@ -28,12 +28,13 @@ internal static class NodeFixtures
 
     internal static TrainView Train(ulong trainId = 1, ImmutableArray<VehicleId> vehicles = default,
         EdgeId? enteredFrom = null, EdgeId? nextEdge = null, TrainActivity activity = TrainActivity.Stopped,
-        TrainOrderFacing facing = TrainOrderFacing.FirstEndLeading, double speed = 0) =>
+        TrainOrderFacing facing = TrainOrderFacing.FirstEndLeading, double speed = 0, int? platformNumber = null) =>
         RailwayFixtures.Train(vehicles: vehicles.IsDefault ? [new(trainId)] : vehicles,
             trainId: trainId, facing: facing, speed: speed) with
         {
-            Position = new TrainPosition.Node(NodeId), Activity = activity,
-            NodeTransit = new(enteredFrom, nextEdge)
+            Position = new TrainPosition.Node(NodeId, enteredFrom, nextEdge,
+                activity == TrainActivity.Servicing ? NodeTravelPhase.Docked :
+                activity == TrainActivity.Running ? NodeTravelPhase.Departing : NodeTravelPhase.Waiting, 80, platformNumber), Activity = activity
         };
 
     internal static SceneWorldSnapshot Snapshot(int platforms = 2, ImmutableArray<TrainView> trains = default,
@@ -62,7 +63,7 @@ internal static class NodeFixtures
             World = new(3, RailwayFixtures.Rule, 1200, 1200, nodes, edges,
                 trains.Select(train => new TrainMapItem(train.Id, train.Position, train.Activity)).ToImmutableArray(), [], []),
             Nodes = nodes.ToDictionary(item => item.Id, item => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(item,
-                edges.Where(edge => edge.Start == item.Id || edge.End == item.Id).Select(edge => edge.Id).ToImmutableArray()))),
+                edges.Where(edge => edge.Start == item.Id || edge.End == item.Id).Select(edge => edge.Id).ToImmutableArray(), 80, 0, 80))),
             Edges = edges.ToDictionary(item => item.Id, item => (Lookup<EdgeView>)new Lookup<EdgeView>.Found(new(item,
                 Enumerable.Range(1, item.Tracks).Select(number => new TrackView(number, null,
                     trains.Where(train => train.Position is TrainPosition.Edge position && position.Id == item.Id && position.Track == number)

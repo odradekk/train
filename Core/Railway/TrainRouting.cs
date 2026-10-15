@@ -73,38 +73,6 @@ internal static class TrainRouting
         return null;
     }
 
-    internal static double? PredictStopDistance(ImmutableArray<NodeMapItem> nodes,
-        ImmutableArray<EdgeMapItem> edges, NodeId start, RunPlan plan, int nextStopIndex,
-        double maximumSpeedMetersPerSecond)
-    {
-        var distance = 0.0;
-        var current = start;
-        var index = nextStopIndex;
-        // 循环还须验证末项回到首项的路径，才能确认不存在后续无路停车点。
-        var stopsToCheck = plan.Stops.Length + (plan.Loop ? 1 : 0);
-        for (var checkedStops = 0; checkedStops < stopsToCheck; checkedStops++)
-        {
-            var stop = plan.Stops[index];
-            var target = stop switch
-            {
-                PlanStop.Waypoint waypoint => waypoint.Node,
-                PlanStop.Station station => station.Node,
-                _ => throw new InvalidOperationException("Unknown plan stop.")
-            };
-            var route = FindRoute(nodes, edges, current, target, maximumSpeedMetersPerSecond);
-            if (route is null)
-                return distance;
-
-            distance += route.Value.DistanceMeters;
-            if (stop is PlanStop.Station || !plan.Loop && index == plan.Stops.Length - 1)
-                return distance;
-
-            current = target;
-            index = (index + 1) % plan.Stops.Length;
-        }
-        return null;
-    }
-
     private static int CompareRoutes(double firstTime, ImmutableArray<EdgeId> first,
         double secondTime, ImmutableArray<EdgeId> second)
     {

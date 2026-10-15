@@ -191,7 +191,8 @@ internal sealed class WorldLoader
             if (design is not null) plots.Add(new(plot.Number, plot.Size, design.Design));
         }
         return Active(package) && scene is not null
-            ? new(source, new(source.Id, source.Type, source.Weight, plots.ToImmutable(), [], [], []), scene) : null;
+            ? new(source, new(source.Id, source.Type, source.Weight, plots.ToImmutable(), [], [], [],
+                PlotRules.PlatformLengthMeters(source.Plots.Select(p => p.Size))), scene) : null;
     }
 
     private static void ValidatePlotSpace(LoadPackage package, ParsedSettlementTemplate source,

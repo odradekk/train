@@ -399,6 +399,10 @@ Train.Core.Contracts|enum|global::Train.Core.Contracts.InventoryAccess|ReadWrite
 Train.Core.Contracts|enum|global::Train.Core.Contracts.InventoryAccess|WithdrawOnly|1
 Train.Core.Contracts|enum|global::Train.Core.Contracts.JobFunding|NpcCommission|1
 Train.Core.Contracts|enum|global::Train.Core.Contracts.JobFunding|OwnInventory|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.NodeTravelPhase|Approaching|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.NodeTravelPhase|Departing|3
+Train.Core.Contracts|enum|global::Train.Core.Contracts.NodeTravelPhase|Docked|2
+Train.Core.Contracts|enum|global::Train.Core.Contracts.NodeTravelPhase|Waiting|1
 Train.Core.Contracts|enum|global::Train.Core.Contracts.PlotSize|Giant|3
 Train.Core.Contracts|enum|global::Train.Core.Contracts.PlotSize|LargeStation|5
 Train.Core.Contracts|enum|global::Train.Core.Contracts.PlotSize|Large|2
@@ -804,8 +808,8 @@ Train.Core.Contracts|type|Train.Core.Contracts.NodeOccupant.Lair|public sealed r
 Train.Core.Contracts|type|Train.Core.Contracts.NodeOccupant.Settlement|public sealed record Settlement(SettlementId Id, SettlementRelation Relation) : NodeOccupant;
 Train.Core.Contracts|type|Train.Core.Contracts.NodeOccupant|public abstract record NodeOccupant
 Train.Core.Contracts|type|Train.Core.Contracts.NodeResourceView|public sealed record NodeResourceView(GoodId Good, long Quantity, ResourceRenewal Renewal);
-Train.Core.Contracts|type|Train.Core.Contracts.NodeTransitView|public sealed record NodeTransitView(EdgeId? EnteredFrom, EdgeId? NextEdge);
-Train.Core.Contracts|type|Train.Core.Contracts.NodeView|public sealed record NodeView(NodeMapItem Map, ImmutableArray<EdgeId> AdjacentEdges);
+Train.Core.Contracts|type|Train.Core.Contracts.NodeTravelPhase|public enum NodeTravelPhase
+Train.Core.Contracts|type|Train.Core.Contracts.NodeView|public sealed record NodeView(NodeMapItem Map, ImmutableArray<EdgeId> AdjacentEdges, double ApproachLengthMeters, double PlatformLengthMeters, double DepartureLengthMeters);
 Train.Core.Contracts|type|Train.Core.Contracts.NoiseOctave|public sealed record NoiseOctave(double ScaleMeters, double Amplitude);
 Train.Core.Contracts|type|Train.Core.Contracts.NpcInitializationConfiguration|public sealed record NpcInitializationConfiguration(bool FillInputsAndLivingTargets, double OutputReserveHours, int MinimumForSaleVehicles, int MaximumForSaleVehicles, ImmutableArray<DesignHash> ForSaleVehicleCandidates);
 Train.Core.Contracts|type|Train.Core.Contracts.OwnedSettlementTemplateReference|public sealed record OwnedSettlementTemplateReference(SettlementId Owner, SettlementTemplateId SourceTemplate, ImmutableArray<TemplatePlotReference> Plots);
@@ -858,7 +862,7 @@ Train.Core.Contracts|type|Train.Core.Contracts.ProcessRef.Recovery|public sealed
 Train.Core.Contracts|type|Train.Core.Contracts.ProcessRef|public abstract record ProcessRef
 Train.Core.Contracts|type|Train.Core.Contracts.ProductionProcessDefinitionId|public readonly record struct ProductionProcessDefinitionId(string Value);
 Train.Core.Contracts|type|Train.Core.Contracts.ProductionState|public enum ProductionState
-Train.Core.Contracts|type|Train.Core.Contracts.RailwayRuleProjection|public sealed record RailwayRuleProjection(RuleDefinitionId Id, SemanticRevision Revision, double BrakingDeceleration, double MinimumAcceleration, double MinimumGapMeters, VoxelDefinitionId RailGood, double RailUnitsPerMeter, double BuildSecondsPerMeter, long RepairRailUnitsPerBreak, double RepairSecondsPerBreak);
+Train.Core.Contracts|type|Train.Core.Contracts.RailwayRuleProjection|public sealed record RailwayRuleProjection(RuleDefinitionId Id, SemanticRevision Revision, double BrakingDeceleration, double MinimumAcceleration, double MinimumGapMeters, VoxelDefinitionId RailGood, double RailUnitsPerMeter, double BuildSecondsPerMeter, long RepairRailUnitsPerBreak, double RepairSecondsPerBreak, double ApproachLengthMeters, double DepartureLengthMeters, double NodeSpeedLimitMetersPerSecond);
 Train.Core.Contracts|type|Train.Core.Contracts.RailwayWorkKind|public enum RailwayWorkKind
 Train.Core.Contracts|type|Train.Core.Contracts.RailwayWorkView|public sealed record RailwayWorkView(JobId Id, RailwayWorkKind Kind, int Track, BreakId? RepairingBreak, SettlementId MaterialSource, ImmutableArray<GoodsQuantity> InvestedGoods, double Progress, ImmutableArray<CoreProblem> Blockers);
 Train.Core.Contracts|type|Train.Core.Contracts.RecordedCommand|public sealed record RecordedCommand(CommandSource Source, string CanonicalPayload, CommandReceipt Result, CoreInputId InputBefore, CoreInputId InputAfter);
@@ -891,7 +895,7 @@ Train.Core.Contracts|type|Train.Core.Contracts.SettlementId|public readonly reco
 Train.Core.Contracts|type|Train.Core.Contracts.SettlementRelation|public enum SettlementRelation
 Train.Core.Contracts|type|Train.Core.Contracts.SettlementStorageView|public sealed record SettlementStorageView(long PhysicalCapacity, long TotalUsed, long TotalReserved, long ActiveLeaseCapacity, long ExpiredLeaseUsed, long NpcCapacity, long RentableCapacity);
 Train.Core.Contracts|type|Train.Core.Contracts.SettlementTemplateId|public readonly record struct SettlementTemplateId(string Value);
-Train.Core.Contracts|type|Train.Core.Contracts.SettlementTemplateProjection|public sealed record SettlementTemplateProjection(SettlementTemplateId Id, SettlementTypeId Type, int Weight, ImmutableArray<TemplatePlotProjection> Plots, ImmutableArray<FoundingBuildingProjection> FoundingBuildings, ImmutableArray<GoodsQuantity> SpecialInitialInventory, ImmutableArray<TemplateProductionPlan> ProductionPlans);
+Train.Core.Contracts|type|Train.Core.Contracts.SettlementTemplateProjection|public sealed record SettlementTemplateProjection(SettlementTemplateId Id, SettlementTypeId Type, int Weight, ImmutableArray<TemplatePlotProjection> Plots, ImmutableArray<FoundingBuildingProjection> FoundingBuildings, ImmutableArray<GoodsQuantity> SpecialInitialInventory, ImmutableArray<TemplateProductionPlan> ProductionPlans, double PlatformLengthMeters);
 Train.Core.Contracts|type|Train.Core.Contracts.SettlementTypeId|public readonly record struct SettlementTypeId(string Value);
 Train.Core.Contracts|type|Train.Core.Contracts.SettlementTypeProjection|public sealed record SettlementTypeProjection(SettlementTypeId Id, SemanticRevision Revision, int Weight, ImmutableArray<TerrainTypeId> PreferredTerrain, long MinimumInitialPopulation, long MaximumInitialPopulation);
 Train.Core.Contracts|type|Train.Core.Contracts.SettlementView|public sealed record SettlementView(SettlementId Id, NodeId Node, SettlementTypeId Type, SettlementTemplateId? SourceTemplateId, SettlementRelation Relation, InventoryId Inventory, ImmutableArray<PlotView> Plots, ImmutableArray<VehicleId> ParkedVehicles, int ParkingCapacity, int Platforms, int OccupiedPlatforms, ImmutableArray<VehicleId> VehiclesForSale, ImmutableArray<VehiclePurchaseCapacity> VehiclePurchaseCapacities, ImmutableArray<FacilityView> Facilities, PowerPoolView Power, PopulationView Population, SettlementEngagementRules Engagement, double MoraleRatio, bool Surrendered, ImmutableArray<JobId> CommissionJobs, ImmutableArray<LeaseId> Leases, MarketView Market);
@@ -922,9 +926,9 @@ Train.Core.Contracts|type|Train.Core.Contracts.TrainId|public readonly record st
 Train.Core.Contracts|type|Train.Core.Contracts.TrainMapItem|public sealed record TrainMapItem(TrainId Id, TrainPosition Position, TrainActivity Activity);
 Train.Core.Contracts|type|Train.Core.Contracts.TrainOrderFacing|public enum TrainOrderFacing
 Train.Core.Contracts|type|Train.Core.Contracts.TrainPosition.Edge|public sealed record Edge(EdgeId Id, int Track, TravelDirection Direction, double DistanceMeters) : TrainPosition;
-Train.Core.Contracts|type|Train.Core.Contracts.TrainPosition.Node|public sealed record Node(NodeId Id) : TrainPosition;
+Train.Core.Contracts|type|Train.Core.Contracts.TrainPosition.Node|public sealed record Node(NodeId Id, EdgeId? EnteredFrom, EdgeId? NextEdge, NodeTravelPhase Phase, double DistanceMeters, int? PlatformNumber) : TrainPosition;
 Train.Core.Contracts|type|Train.Core.Contracts.TrainPosition|public abstract record TrainPosition
-Train.Core.Contracts|type|Train.Core.Contracts.TrainView|public sealed record TrainView(TrainId Id, TrainPosition Position, TrainActivity Activity, ImmutableArray<VehicleId> Vehicles, InventoryId Inventory, double SpeedMetersPerSecond, double LengthMeters, double MassTons, double TractionKilonewtons, double Acceleration, double MaximumSpeedMetersPerSecond, RunPlan? Plan, int? NextStopIndex, ulong RemainingDwellSteps, TrainEngagementRules Engagement, ImmutableArray<CoreProblem> Blockers, RunAccumulatorView? CurrentRun, ImmutableArray<RunReport> RecentReports, NodeTransitView? NodeTransit, TrainOrderFacing OrderFacing);
+Train.Core.Contracts|type|Train.Core.Contracts.TrainView|public sealed record TrainView(TrainId Id, TrainPosition Position, TrainActivity Activity, ImmutableArray<VehicleId> Vehicles, InventoryId Inventory, double SpeedMetersPerSecond, double LengthMeters, double MassTons, double TractionKilonewtons, double Acceleration, double MaximumSpeedMetersPerSecond, RunPlan? Plan, int? NextStopIndex, ulong RemainingDwellSteps, TrainEngagementRules Engagement, ImmutableArray<CoreProblem> Blockers, RunAccumulatorView? CurrentRun, ImmutableArray<RunReport> RecentReports, TrainOrderFacing OrderFacing);
 Train.Core.Contracts|type|Train.Core.Contracts.TravelDirection|public enum TravelDirection
 Train.Core.Contracts|type|Train.Core.Contracts.VehicleId|public readonly record struct VehicleId(ulong Value);
 Train.Core.Contracts|type|Train.Core.Contracts.VehiclePurchaseCapacity|public sealed record VehiclePurchaseCapacity(SizeClass Size, int ForSale, int Limit, int Available);

@@ -34,7 +34,7 @@ public sealed class TrainDispatchValidationTests
         var state = State();
         var edge = state.World.Edges[0] with { Breaks = [new(new(1), 1, 0), new(new(2), 1, state.World.Edges[0].LengthMeters)] };
         var train = state.World.Trains[0] with { Position = new TrainPosition.Edge(edge.Id, 1, TravelDirection.Reverse, 0),
-            Transit = null, Activity = TrainActivity.Running, ReturningFromBreak = new(1) };
+            Activity = TrainActivity.Running, ReturningFromBreak = new(1) };
         var world = state.World with { Edges = state.World.Edges.SetItem(0, edge), Trains = [train], Next = state.World.Next with { Break = 3 } };
         RoundTrip(state with { World = world });
         AssertInvalid(world with { Trains = [train with { ReturningFromBreak = new(3) }] }, "/world/trains/returning_from_break");
@@ -61,7 +61,7 @@ public sealed class TrainDispatchValidationTests
         AssertInvalid(world with { TrackHandoffs = [handoff with { Track = 0 }] }, "/world/track_handoffs/track");
         AssertInvalid(world with { TrackHandoffs = [handoff with { Direction = (TravelDirection)99 }] }, "/world/track_handoffs/direction");
         var train = world.Trains[0] with { Position = new TrainPosition.Edge(edge.Id, 1, TravelDirection.Forward, 0),
-            Transit = null, Activity = TrainActivity.Running };
+            Activity = TrainActivity.Running };
         AssertInvalid(world with { Trains = [train] }, "/world/track_handoffs/track");
         var broken = world with { Edges = world.Edges.SetItem(0, edge with { Breaks = [new(new(1), 1, 0)] }),
             Next = world.Next with { Break = 2 } };
@@ -75,7 +75,7 @@ public sealed class TrainDispatchValidationTests
         var world = state.World;
         var edge = world.Edges[0];
         var train = world.Trains[0] with { Position = new TrainPosition.Edge(edge.Id, 1, TravelDirection.Forward, 0),
-            Transit = null, Activity = TrainActivity.Running };
+            Activity = TrainActivity.Running };
         var second = train with { Id = new(world.Next.Train), Vehicles = [new(world.Next.Vehicle)], Inventory = new(world.Next.Inventory) };
         var vehicle = world.Instances.Single(i => i.Id == new InstanceId.Vehicle(train.Vehicles[0]));
         var inventory = world.Inventories.Single(i => i.Id == train.Inventory);

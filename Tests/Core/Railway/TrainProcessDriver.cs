@@ -22,10 +22,10 @@ internal static class TrainProcessDriver
             {
                 var factory = CoreFactory.Create();
                 using var candidate = Success(factory.PrepareRestore(Success(factory.DecodeState(await File.ReadAllTextAsync(statePath))),
-                    TrainRecoveryFixture.Content, new(runtime, false, 32)));
+                    TrainRecoveryFixture.ContentFor(boundary), new(runtime, false, 32)));
                 session = candidate.Activate();
             }
-            else session = TrainRecoveryFixture.New(runtime);
+            else session = TrainRecoveryFixture.New(runtime, boundary);
             using (session)
             {
                 var events = new List<string>();

@@ -17,24 +17,24 @@ public sealed class NodePlacementTests
     [TestMethod]
     [DataRow(SettlementRelation.NonHostile)]
     [DataRow(SettlementRelation.PlayerOwned)]
-    public async Task FirstServicingTrainIdsOccupyPlatformsAndOverflowAndStoppedTrainsQueue(SettlementRelation relation)
+    public async Task ReservedPlatformNumbersRemainStableAndUnreservedTrainsQueue(SettlementRelation relation)
     {
         ImmutableArray<TrainView> trains =
         [
-            NodeFixtures.Train(9, enteredFrom: new(2), activity: TrainActivity.Servicing),
-            NodeFixtures.Train(7, enteredFrom: new(2), activity: TrainActivity.Servicing),
+            NodeFixtures.Train(9, enteredFrom: new(2), activity: TrainActivity.Waiting),
+            NodeFixtures.Train(7, enteredFrom: new(2), activity: TrainActivity.Servicing, platformNumber: 1),
             NodeFixtures.Train(2, enteredFrom: new(2)),
-            NodeFixtures.Train(3, enteredFrom: new(2), activity: TrainActivity.Servicing)
+            NodeFixtures.Train(3, enteredFrom: new(2), activity: TrainActivity.Servicing, platformNumber: 2)
         ];
         var snapshot = Snapshot(trains, occupant: new NodeOccupant.Settlement(new(1), relation));
         await using var sceneVehicles = new SceneVehicles();
         await using var scene = Controlled(snapshot, sceneVehicles);
         var before = await Settled(scene, snapshot);
-        AssertPosition(before, 3, new(-20, 0, 0));
-        AssertPosition(before, 7, new(20, 0, 0));
+        AssertPosition(before, 3, new(20, 0, 0));
+        AssertPosition(before, 7, new(-20, 0, 0));
         Assert.IsTrue(Pose(before, 2).Position.Z < -64);
         Assert.IsTrue(Pose(before, 9).Position.Z < Pose(before, 2).Position.Z,
-            "Overflow joins the incoming queue behind the lower TrainId stopped train.");
+            "The unreserved train joins the incoming queue behind the lower TrainId stopped train.");
 
         var reordered = Snapshot(trains.Reverse().ToImmutableArray(),
             occupant: new NodeOccupant.Settlement(new(1), relation));
@@ -70,7 +70,7 @@ public sealed class NodePlacementTests
 
         var changedPlans = trains.Select(train => train with
         {
-            NodeTransit = train.NodeTransit! with { NextEdge = train.NodeTransit!.EnteredFrom },
+            Position = ((TrainPosition.Node)train.Position) with { NextEdge = ((TrainPosition.Node)train.Position).EnteredFrom },
             Plan = new(false, [new PlanStop.Waypoint(new(99))]), NextStopIndex = 0
         }).ToImmutableArray();
         var after = await Settled(scene, Snapshot(changedPlans, occupant: occupant));
@@ -120,7 +120,8 @@ public sealed class NodePlacementTests
     {
         var train = NodeFixtures.Train(vehicles: [new(3), new(1), new(2)],
             enteredFrom: servicing ? new EdgeId(2) : null, nextEdge: new(2),
-            activity: servicing ? TrainActivity.Servicing : TrainActivity.Stopped, facing: facing);
+            activity: servicing ? TrainActivity.Servicing : TrainActivity.Stopped, facing: facing,
+            platformNumber: servicing ? 1 : null);
         var snapshot = Snapshot([train], platforms: servicing ? 1 : 0, tracks: servicing ? 1 : 0);
         await using var sceneVehicles = new SceneVehicles();
         await using var scene = Controlled(snapshot, sceneVehicles);
@@ -140,7 +141,7 @@ public sealed class NodePlacementTests
     [TestMethod]
     public async Task LongServicingConsistExtendsPastBothPlatformTrackEndsWithoutClamping()
     {
-        var train = NodeFixtures.Train(vehicles: [new(1), new(2), new(3)], enteredFrom: new(2), activity: TrainActivity.Servicing);
+        var train = NodeFixtures.Train(vehicles: [new(1), new(2), new(3)], enteredFrom: new(2), activity: TrainActivity.Servicing, platformNumber: 1);
         var snapshot = Snapshot([train], length: 104);
         await using var sceneVehicles = new SceneVehicles();
         await using var scene = Controlled(snapshot, sceneVehicles);
@@ -213,7 +214,7 @@ public sealed class NodePlacementTests
             design: RailwayFixtures.Vehicle(), designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
             { [hash] = new ContentLookup<DesignEvaluation>.Missing([diagnostic]) });
         var snapshot = NodeFixtures.Snapshot(platforms: 1, content: content,
-            trains: [NodeFixtures.Train(vehicles: [new(1), new(2)], enteredFrom: new(2), activity: TrainActivity.Servicing)],
+            trains: [NodeFixtures.Train(vehicles: [new(1), new(2)], enteredFrom: new(2), activity: TrainActivity.Servicing, platformNumber: 1)],
             instances:
             [
                 RailwayFixtures.Instance() with { Location = NodeFixtures.Location },

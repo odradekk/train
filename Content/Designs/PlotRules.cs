@@ -7,6 +7,10 @@ internal static class PlotRules
 {
     internal static bool IsStation(K.PlotSize size) => size is K.PlotSize.SmallStation or K.PlotSize.LargeStation;
 
+    internal static double PlatformLengthMeters(IEnumerable<K.PlotSize> sizes) => sizes.Where(IsStation)
+        .Select(size => Envelope(size)).Select(bounds => (bounds.Maximum.X - bounds.Minimum.X + 1) * 0.5)
+        .DefaultIfEmpty(0).Max();
+
     internal static bool Fits(K.PlotSize building, K.PlotSize plot) =>
         IsStation(building) == IsStation(plot) && building <= plot;
 
