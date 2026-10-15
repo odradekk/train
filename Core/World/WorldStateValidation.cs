@@ -166,6 +166,7 @@ internal static class WorldStateValidation
                         && instance.Details == new InstanceDetails.Building(plot.Id, plot.Size)
                         && instance.Ownership == settlement.Relation, "/world/settlements/plots/building");
             }
+            ValidateProduction(settlement);
             Require(inventories.TryGetValue(settlement.Inventory, out var inventory)
                 && inventory.Owner == new InventoryOwner.Settlement(settlement.Id), "/world/settlements/inventory");
             Require(node.Platforms == WorldState.CountPlatforms(settlement, instances, designs), "/world/nodes/platforms");
@@ -270,6 +271,54 @@ internal static class WorldStateValidation
         Next(next.Inventory, world.Inventories.Select(i => i.Id.Value), "/world/next/inventory");
         Next(next.Break, breakIds, "/world/next/break");
         Next(next.Lease, world.Leases.Select(l => l.Id.Value), "/world/next/lease");
+    }
+
+    private static void ValidateProduction(SettlementState settlement)
+    {
+        const string field = "/world/settlements/production_facilities";
+        Ordered(settlement.ProductionFacilities, f => f.Building.Value, field);
+        var expected = settlement.Template.ProductionPlans.Where(p => p.Capability == CapabilityKind.Production)
+            .Select(p => settlement.Plots.SingleOrDefault(plot => plot.TemplateNumber == p.PlotNumber)?.Building)
+            .Where(b => b is not null).Select(b => b!.Value).OrderBy(b => b.Value);
+        Require(settlement.ProductionFacilities.Select(f => f.Building).SequenceEqual(expected), field + "/building");
+        foreach (var facility in settlement.ProductionFacilities)
+        {
+            Require(double.IsFinite(facility.LastActualWorkPerSecond) && facility.LastActualWorkPerSecond >= 0,
+                field + "/last_actual_work_per_second");
+            Require(double.IsFinite(facility.LastPowerDemand) && facility.LastPowerDemand >= 0,
+                field + "/last_power_demand");
+            Require(double.IsFinite(facility.LastActualSupply) && facility.LastActualSupply >= 0
+                && facility.LastActualSupply <= facility.LastPowerDemand, field + "/last_actual_supply");
+            Items(facility.LastLimits, field + "/last_limits");
+            Require(facility.LastLimits.All(l => Enum.IsDefined(l))
+                && facility.LastLimits.SequenceEqual(facility.LastLimits.Distinct().Order()), field + "/last_limits");
+            ProductionGoods(facility.OutputBuffer, field + "/output_buffer");
+            if (facility.Batch is not { } batch) continue;
+            Require(facility.OutputBuffer.IsEmpty, field + "/output_buffer");
+            var plot = settlement.Plots.Single(p => p.Building == facility.Building);
+            var plan = settlement.Template.ProductionPlans.Single(p => p.PlotNumber == plot.TemplateNumber
+                && p.Capability == CapabilityKind.Production);
+            Require(batch.Process == plan.Process, field + "/batch/process");
+            Require(WorldFormat.IsHash(batch.StartedFromRevision.Value), field + "/batch/started_from_revision");
+            Require(batch.FrozenWorkRequired > 0 && double.IsFinite(batch.ProgressWork)
+                && batch.ProgressWork >= 0 && batch.ProgressWork < batch.FrozenWorkRequired, field + "/batch/progress_work");
+            Require(double.IsFinite(batch.FrozenPowerPerWork) && batch.FrozenPowerPerWork >= 0,
+                field + "/batch/frozen_power_per_work");
+            Require(double.IsFinite(batch.FrozenLaborPerWork) && batch.FrozenLaborPerWork >= 0,
+                field + "/batch/frozen_labor_per_work");
+            ProductionGoods(batch.FrozenOutputs, field + "/batch/frozen_outputs");
+            Require(!batch.FrozenOutputs.IsEmpty, field + "/batch/frozen_outputs");
+        }
+    }
+
+    private static void ProductionGoods(ImmutableArray<GoodsQuantity> goods, string field)
+    {
+        Strings(goods, g => WorldReferences.GoodKey(g.Good), field);
+        foreach (var good in goods)
+        {
+            Good(good.Good, field);
+            Require(good.Good is GoodId.Voxel && good.Quantity > 0, field);
+        }
     }
 
     private static void ValidateTrain(TrainState train, Dictionary<NodeId, NodeMapItem> nodes,

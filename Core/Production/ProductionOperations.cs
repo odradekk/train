@@ -1,0 +1,118 @@
+using System.Collections.Immutable;
+using Train.Core.Contracts;
+using Train.Core.Inventory;
+using Train.Core.Settlements;
+using Train.Core.World;
+
+namespace Train.Core.Production;
+
+internal static class ProductionOperations
+{
+    internal static (WorldState World, ImmutableArray<CoreEvent> Events) Advance(WorldState world,
+        CoreContentProjection content, SettlementId id, double availableLabor, ulong step)
+    {
+        var before = world;
+        var settlement = world.Settlements.Single(s => s.Id == id);
+        var plans = settlement.Template.ProductionPlans.Where(p => p.Capability == CapabilityKind.Production)
+            .Select(p => (Plan: p, Building: settlement.Plots.Single(plot => plot.TemplateNumber == p.PlotNumber).Building))
+            .Where(p => p.Building is not null).OrderBy(p => p.Plan.Priority).ThenBy(p => p.Building!.Value.Value).ToArray();
+        if (plans.Length == 0) return (world, []);
+        var facilities = settlement.ProductionFacilities.ToDictionary(f => f.Building);
+        var requests = ImmutableArray.CreateBuilder<FacilityRequest>();
+        foreach (var (plan, building) in plans)
+        {
+            var key = new FacilityKey(building!.Value, CapabilityKind.Production);
+            var runtime = facilities[building.Value];
+            var view = ProductionQueries.Find(world, content, key)!;
+            var process = ProductionQueries.Process(content, plan.Process);
+            if (runtime.Batch is { } batch)
+            {
+                if (process is null || view.CapabilityWorkPerSecond == 0) continue;
+                var rate = Math.Min(view.CapabilityWorkPerSecond,
+                    (batch.FrozenWorkRequired - batch.ProgressWork) / SimulationTime.StepSeconds);
+                requests.Add(new FacilityRequest.Work(key, plan.Priority, rate, batch.FrozenPowerPerWork, batch.FrozenLaborPerWork));
+            }
+            else if (view.State == ProductionState.Running)
+                requests.Add(new FacilityRequest.Batch(key, plan.Priority, ProductionQueries.Inputs(process!.Details)));
+        }
+
+        var resolution = SettlementResources.Resolve(world, content, id, availableLabor, [], requests.ToImmutable(), []);
+        world = resolution.World;
+        var accepted = resolution.AcceptedBatches.ToHashSet();
+        var allocations = resolution.Work.ToDictionary(a => a.Facility.Building);
+        var workRequests = requests.OfType<FacilityRequest.Work>().ToDictionary(r => r.Facility.Building);
+        var completed = new List<(FacilityKey Key, ProductionBatchState Batch)>();
+        foreach (var (plan, building) in plans)
+        {
+            var key = new FacilityKey(building!.Value, CapabilityKind.Production);
+            var runtime = facilities[building.Value] with
+            {
+                LastActualWorkPerSecond = 0, LastLimits = [], LastPowerDemand = 0, LastActualSupply = 0
+            };
+            if (accepted.Contains(key))
+            {
+                var process = ProductionQueries.Process(content, plan.Process)!;
+                runtime = runtime with { Batch = new(plan.Process, process.Revision,
+                    ProductionQueries.Outputs(process.Details).OrderBy(g => WorldReferences.GoodKey(g.Good), StringComparer.Ordinal).ToImmutableArray(),
+                    process.WorkRequired, process.PowerPerWork, process.LaborPerWork, 0) };
+            }
+            else if (allocations.TryGetValue(building.Value, out var allocation))
+            {
+                var batch = runtime.Batch!;
+                var request = workRequests[building.Value];
+                var capability = BuildingCapabilities.Read(before, content, building.Value).Production;
+                var limits = allocation.Limits;
+                if (allocation.WorkPerSecond == capability) limits = limits.Insert(0, WorkLimit.Capability);
+                var progress = Math.Min(batch.FrozenWorkRequired,
+                    batch.ProgressWork + allocation.WorkPerSecond * SimulationTime.StepSeconds);
+                runtime = runtime with
+                {
+                    Batch = batch with { ProgressWork = progress },
+                    LastActualWorkPerSecond = allocation.WorkPerSecond, LastLimits = limits,
+                    LastPowerDemand = request.MaximumWorkPerSecond * batch.FrozenPowerPerWork,
+                    LastActualSupply = allocation.WorkPerSecond * batch.FrozenPowerPerWork
+                };
+                if (progress >= batch.FrozenWorkRequired)
+                {
+                    runtime = runtime with { Batch = null, OutputBuffer = batch.FrozenOutputs };
+                    completed.Add((key, batch));
+                }
+            }
+            facilities[building.Value] = runtime;
+        }
+
+        // 入库在全部批次请求仲裁后提交，不把本步产出再用作本步原料。
+        settlement = world.Settlements.Single(s => s.Id == id);
+        var inventory = world.Inventories.Single(i => i.Id == settlement.Inventory);
+        var goods = inventory.Goods.ToDictionary(g => g.Good, g => g.Quantity);
+        var available = InventoryStorage.Settlement(world, content, settlement, checked(step + 1)).Uncommitted;
+        foreach (var (_, building) in plans)
+        {
+            var runtime = facilities[building!.Value];
+            var remaining = ImmutableArray.CreateBuilder<GoodsQuantity>();
+            foreach (var output in runtime.OutputBuffer)
+            {
+                var units = Math.Min(output.Quantity, available);
+                if (units > 0) goods[output.Good] = checked(goods.GetValueOrDefault(output.Good) + units);
+                available -= units;
+                if (units < output.Quantity) remaining.Add(output with { Quantity = output.Quantity - units });
+            }
+            facilities[building.Value] = runtime with { OutputBuffer = remaining.ToImmutable() };
+        }
+        world = world with
+        {
+            Settlements = world.Settlements.Select(s => s.Id == id ? s with
+            {
+                ProductionFacilities = facilities.Values.OrderBy(f => f.Building.Value).ToImmutableArray()
+            } : s).ToImmutableArray(),
+            Inventories = world.Inventories.Select(i => i.Id == inventory.Id ? i with
+            {
+                Goods = goods.OrderBy(g => WorldReferences.GoodKey(g.Key), StringComparer.Ordinal)
+                    .Select(g => new GoodsQuantity(g.Key, g.Value)).ToImmutableArray()
+            } : i).ToImmutableArray()
+        };
+        var events = completed.Select(c => (CoreEvent)new CoreEvent.ProductionCompleted(c.Key, c.Batch.Process,
+            c.Batch.StartedFromRevision, c.Batch.FrozenOutputs, !facilities[c.Key.Building].OutputBuffer.IsEmpty)).ToImmutableArray();
+        return (world, events);
+    }
+}

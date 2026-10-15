@@ -31,6 +31,18 @@ internal static class WorldReferences
             Add(new CoreDefinitionReference.SettlementType(settlement.Type), path + ".Type");
             foreach (var plan in settlement.Template.ProductionPlans)
                 Add(new CoreDefinitionReference.Process(plan.Process), path + $".Template.ProductionPlans[{plan.PlotNumber},{plan.Capability}].Process");
+            foreach (var facility in settlement.ProductionFacilities)
+            {
+                var field = path + $".ProductionFacilities[{facility.Building.Value}]";
+                if (facility.Batch is { } batch)
+                {
+                    Add(new CoreDefinitionReference.Process(batch.Process), field + ".Batch.Process");
+                    foreach (var good in batch.FrozenOutputs)
+                        Good(good.Good, field + $".Batch.FrozenOutputs[{GoodKey(good.Good)}]");
+                }
+                foreach (var good in facility.OutputBuffer)
+                    Good(good.Good, field + $".OutputBuffer[{GoodKey(good.Good)}]");
+            }
         }
         foreach (var lair in world.Lairs) Add(new CoreDefinitionReference.Lair(lair.Type), $"World.Lairs[{lair.Id.Value}].Type");
         foreach (var design in world.Designs)
