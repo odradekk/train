@@ -51,7 +51,7 @@ internal static class WorldReferences
                 Good(remainder.Good, path + ".PopulationState.ConsumptionRemaining");
             foreach (var facility in settlement.ProductionFacilities)
             {
-                var field = path + $".ProductionFacilities[{facility.Building.Value}]";
+                var field = path + $".ProductionFacilities[{facility.Facility.Building.Value}:{facility.Facility.Capability}]";
                 if (facility.Batch is { } batch)
                 {
                     Add(new CoreDefinitionReference.Process(batch.Process), field + ".Batch.Process");

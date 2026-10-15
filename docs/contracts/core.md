@@ -25,6 +25,7 @@
 - `World`、`FindNode`、`FindEdge`、`FindLocation`、`FindInstance`、`FindTrain`，覆盖生成的图、占据者、资源、实例和运行列车；车辆位置随所属列车派生，轨道查询列出实际在轨列车。
 - `FindInventory`、`FindLease`、`QuoteLease`、`LoadGoods`、`UnloadGoods`、`AcquireLease` 及租约到期，按 [#325 的批准计划](https://github.com/odradekk/train/issues/325#issuecomment-6172428536)实现。库存预留参与容量和持久化；任务产生和释放预留仍归 #331/#332，具体规则见下文“库存与租约”。
 - `FindFacility` 的 `Production` 键、模板中的加工／回收计划、批次推进、输出缓冲及生产事件，按 [#381 的批准计划](https://github.com/odradekk/train/issues/381#issuecomment-6183793182)实现，具体范围见下文“加工与回收”。
+- `Extraction` 设施、开采批次、节点资源原地恢复与全局再生，按 [#383 的批准决定](https://github.com/odradekk/train/issues/383#issuecomment-6188092446)实现，使用同一批次运行时与资源仲裁；参数、时序及事件见下文“节点资源”。
 - `Capture`、`DecodeState` 和 `PrepareRestore`，覆盖当前真实世界状态；格式与恢复规则见下文“当前载荷”。公开 `PrepareNew` 路径有共享 `CaptureScenario` 及跨进程生成、保存恢复测试。
 - `ReadRecording`、`CaptureRecordingStart`、`ConfirmRecordingStart`、`PrepareReplay` 和 `CompareCheckpoints`，覆盖当前完整世界状态、`PublishContent`、五个铁路命令和 `DebugAddRailBreak`，包含正常业务拒绝。运行在线路上、停留及调度中的录制通过生产重放路径逐检查点比较。
 - #382 将人口消费与结算接入 `Advance`：六类生活需求、主食优先与加工食品共享满足、整数取用后的物理余量、分类加权、人口变化余量和最低一人。每次消费全部完成后判断各项短缺，仅在状态变化时发 `PopulationShortageChanged`；结算发 `PopulationSettled`，从多于一人降至一人时发 `PopulationMinimumReached`。停用与恢复使用 `PopulationAvailabilityChanged`，停用期间不消费、不累计周期、不判断短缺，劳动力为零。
@@ -56,7 +57,7 @@
 
 计划直接读取每座聚居地已保存的 `Template.ProductionPlans`，按地块的 `TemplateNumber` 定位建筑；没有第二份运行计划。源模板更新不改变该副本。`SetProductionPlan` 仍未实现，继续抛 `NotImplementedException`；玩家计划编辑归后续自有建设任务。本票不新增控制台命令。
 
-`FindFacility` 仅支持 `CapabilityKind.Production`，覆盖加工与回收。建筑不在聚居地地块上，或既无生产计划、设计也没有声明生产能力时返回 `Missing`。设备损坏或缺定义造成有效能力为零，不会使仍有计划或声明能力的设施消失。`Extraction`、`Construction` 键分别归 #383 与施工任务，当前抛出注明 `FindFacility` 和能力种类的 `NotImplementedException`。`PotentialConsumption` 暂为空，待 #384 接入；调用方不能把它解释为零需求。
+`FindFacility` 支持 `CapabilityKind.Production`（加工与回收）及 `Extraction`（开采）。建筑不在聚居地地块上，或既无该能力的计划、设计也没有声明该能力时返回 `Missing`。设备损坏或缺定义造成有效能力为零，不会使仍有计划或声明能力的设施消失。`Construction` 键仍归施工任务，抛出注明 `FindFacility` 和能力种类的 `NotImplementedException`。`PotentialConsumption` 暂为空，待 #384 接入；调用方不能把它解释为零需求。
 
 状态按流程缺失、停用、能力为零、不满足条件、出料阻塞、等待原料、运行中的顺序判断。锁定目前没有权威来源，由 #332、#343 接入，不能据当前七态的模块证据宣称八态完整通过。停用只阻止启动新批次；当前流程的 Tag／地貌要求不再满足时，状态为“不满足条件”，已有批次仍按冻结规格完成。能力为零或流程缺失时保留批次进度。流程补回后继续，不重新扣原料。
 
@@ -64,7 +65,23 @@
 
 完成产出和已有缓冲在批次请求仲裁之后按计划优先级、建筑身份入库，同一批多输出按货物身份的 Ordinal 顺序。使用扣除租约和预留后的真实可用容量，不扩大超容；本步完成或步初缓冲非空的设施不在本步启动下一批。生产能力失效不阻止已完成货物的内部转入。仅冻结产出或缓冲货物定义缺失时，仍按件数转入库存并保留身份；已有库存规则将其标为缺失且排除原料和燃料使用。流程本身缺失则暂停执行，不用冻结参数替代缺失定义。
 
-`SettlementState.ProductionFacilities` 按建筑身份保存 `Batch`、`OutputBuffer` 和上一步的 `LastActualWorkPerSecond`、`LastLimits`、`LastPowerDemand`、`LastActualSupply`。批次保存流程、启动版本、冻结产出、总工作量、两项系数和进度。请求功率为本步最大有用速率乘冻结电力系数，实际供电为获分配速率乘该系数；无工作请求时四项结果归零／空。`ActualWorkPerSecond` 和 `Limits` 直接返回上一步结果，能力、主状态和规格差异按当前内容派生。内容发布不重算上一步结果；读档、旧读视图和检查点保留它们。`PowerPoolView.Demand/ActualSupply` 由每座聚居地的设施结果求和，公开查询由 #486 接入，不另存重复汇总。
+`SettlementState.ProductionFacilities` 按 `FacilityKey`（建筑身份、能力种类）保存 `Batch`、`OutputBuffer` 和上一步的 `LastActualWorkPerSecond`、`LastLimits`、`LastPowerDemand`、`LastActualSupply`。同一建筑的加工和开采计划独立运行，共同竞争电力、劳动力与输出容量；相同优先级、建筑身份的请求及入库按能力种类排序。批次保存流程、启动版本、冻结产出、总工作量、两项系数和进度。请求功率为本步最大有用速率乘冻结电力系数，实际供电为获分配速率乘该系数；无工作请求时四项结果归零／空。`ActualWorkPerSecond` 和 `Limits` 直接返回上一步结果，能力、主状态和规格差异按当前内容派生。内容发布不重算上一步结果；读档、旧读视图和检查点保留它们。`PowerPoolView.Demand/ActualSupply` 由每座聚居地的设施结果求和，公开查询由 #486 接入，不另存重复汇总。
+
+### 节点资源
+
+开采使用本节点的储量作为批次投入，不读取库存中的同种货物。启动时经同一次 `SettlementResources.Resolve` 按优先级、建筑身份、能力种类原子扣除完整 `Extracts`，下一步才工作；冻结产出为同种同量货物。设施标签、地貌、有效开采能力、缺失流程、停用、供电、劳动力与 OutputBuffer 沿用普通批次规则。资源不足时等待完整一批，不部分开采。不可再生项扣到零时删除，可再生项保留零储量；设施和计划保留。
+
+可再生项使用自己已保存的 `ResourceRenewal.Renewable(Maximum, UnitsPerSecond)`。每步按 `UnitsPerSecond / 60` 加入小数余量，累计出的整量恢复储量；恢复量最多为步初距离上限的差额，到达上限时丢弃余量。恢复在本步开采扣量之后提交，因此本步恢复量下一步才可开采；步初已满的项不会因本步开采而取得恢复量。非零余量按节点、货物身份保存于 `resource_recovery`，参与检查点及严格重放，其货物依赖由已有节点资源引用覆盖。普通恢复和内容发布不重算上限、速率或余量。
+
+不可再生项的参数来自 `world.source` 中已解析的资源生成配置。`resource_regenerations` 按货物保存生成时全世界该货物的初始储量合计及下一次抽取序号；初始总量使用 `Int128`，不以当前剩余量重算，其货物依赖由已有生成配置引用覆盖。内容发布和普通恢复不改变这些参数。周期步数为 `max(1, ceil(RegenerationIntervalSeconds × 60))`，乘积按一次 `double` 运算后向上取整；周期超过 `ulong` 可表达步数时，在可表达的会话时间内不会到期。各货物的整数检查进度从已保存的完成步数与自身周期派生，不另存进度。步初完成步数为 `n` 时，恰在 `(n + 1) % 周期步数 == 0` 的步骤检查，读取步初的全世界剩余量与资源存在性；恢复后继续同一周期。
+
+剩余量严格低于初始总量乘触发比例时，每个检查周期最多新增一项。阈值比较使用输入比例的精确二进制值和整数储量，不把大整数合计转成 `double`；初始量为零或比例为零时不触发。候选是生成表允许地貌、步初没有该资源的节点，占据者不限，按 `NodeId` 升序排列。新增量取配置的闭区间，不再次判定初始生成的出现概率。无候选时不抽取、不推进序号，下个周期继续检查。抽到零时不新增、不发事件，但消耗序号；下个周期继续检查。新储量下一步才可开采，世界图结构和地貌不变。没有扣量、没有未满可再生项、没有到期检查的空步直接保留已提交的世界记录和节点数组；只有储量实际变化的节点才重建。
+
+随机沿用 `KeyedRandom` 算法版本 1。选节点的用途是 `resource.regeneration.node.v1`，抽储量的用途是 `resource.regeneration.reserve.v1`；两者的 `WorldSeed` 为世界种子，分量依次为货物标识 UTF-8 字节数、每个字节各自扩为 `ulong`、该货物抽取序号。序号从零开始，有候选且实际抽取时递增。编码及混合遵循已有 `KeyedRandom` 小端编码；节点索引和储量均用已有整数区间映射。固定向量见 `ResourceStateTests`。
+
+资源事件在生产／人口提交后、生产状态变化事件前发出。同一步先发全部 `ResourceExhausted`，再发全部 `ResourceRecovered`，各组按节点身份、货物身份的 Ordinal 顺序；最后发 `ResourceRegenerated`，按货物身份的 Ordinal 顺序。不可再生项扣到零并删除时发 `ResourceExhausted(Renewable=false)`；可再生项扣到零时发 `ResourceExhausted(Renewable=true)`。`ResourceRecovered` 只在恢复提交将零储量变为正数时发出，`Quantity` 是本步恢复后的储量；其他恢复步及单纯到达上限不发事件。同一步允许先耗尽再恢复，两事件按上述顺序发出。`ResourceRegenerated.Quantity` 是实际新增量。查询不会推进周期、改变储量或发事件，旧读视图保持不变。
+
+本票只提供核心内部情景的模块与独立进程证据，不新增 builtin 开采内容；真实内容装配及四模块交接仍由阶段二 #299 验证。本票未新增命令，控制台手册不适用。
 
 ## 所有权与数值
 
@@ -300,7 +317,7 @@ Rent 要求非零聚居地身份和正容量，Renew 要求非零租约身份，
 
 ### 当前载荷
 
-#312 按[批准决定](https://github.com/odradekk/train/issues/312#issuecomment-6133949111)实现捕获边界，#309 扩展世界状态，#480 更新地块枚举，#325 增加租约、库存预留和下一租约编号，#380 增加每座聚居地的 `fuel_energy_remaining`，#381 增加 `production_facilities`，#382 增加 `population_state`。内部编码器 [CoreCapture](../../Core/Sessions/CoreCapture.cs) 当前使用独立的 `core_state_format_version = 8`，与宿主完整存档的 `SaveFormatVersion` 6 分别演进；不支持格式 1–7 或旧通用模拟框架载荷，旧版本返回 `unsupported_format`。#480 与 #325 各自的格式 3 布局不同，合并后使用格式 4 明确区分；燃料余量使用格式 5，生产状态使用格式 6，主线合并人口状态后使用格式 7，#481 的节点权威位置布局使用格式 8。
+#312 按[批准决定](https://github.com/odradekk/train/issues/312#issuecomment-6133949111)实现捕获边界，#309 扩展世界状态，#480 更新地块枚举，#325 增加租约、库存预留和下一租约编号，#380 增加每座聚居地的 `fuel_energy_remaining`，#381 增加 `production_facilities`，#382 增加 `population_state`，#481 更新节点权威位置，#383 将设施状态改为能力键并增加 `resource_regenerations`、`resource_recovery`。内部编码器 [CoreCapture](../../Core/Sessions/CoreCapture.cs) 当前使用独立的 `core_state_format_version = 9`，与宿主完整存档的 `SaveFormatVersion` 6 分别演进；不支持格式 1–8 或旧通用模拟框架载荷，旧版本返回 `unsupported_format`。#480 与 #325 各自的格式 3 布局不同，合并后使用格式 4 明确区分；燃料余量使用格式 5，生产状态使用格式 6，人口状态使用格式 7，#481 的节点权威位置布局使用格式 8，#383 的开采与资源周期状态使用格式 9。
 
 人口状态保存精确执行参数、有效进度、累计应需与满足量、按货物身份保留的消费剩余量、人口变化余量、短缺与可用性状态及最近一次结算；普通恢复和严格重放使用同一份生产推进。当前规则缺失或本期必需货物缺失时停用人口，保留这些状态；新局仍须有有效规则。燃料余量必须为有限非负数，新局为零，保存、恢复、检查点、严格重放及内容发布保留其电量，不反推已消费燃料。生产状态保存完整冻结批次、输出缓冲和上一步结果；解码拒绝非法进度、系数、数量、排序、建筑／计划配对及同时存在批次与缓冲。诊断消息和堆栈不进入载荷。内部字段布局由编码器维护，宿主只通过公开契约取得所需资料。
 

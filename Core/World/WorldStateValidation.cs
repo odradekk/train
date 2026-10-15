@@ -118,6 +118,7 @@ internal static class WorldStateValidation
                     "/world/nodes/resources/renewal");
             }
         }
+        ValidateResources(world, nodes);
         var pairs = new HashSet<(NodeId, NodeId)>();
         var breakIds = new HashSet<ulong>();
         foreach (var edge in world.Edges)
@@ -281,11 +282,14 @@ internal static class WorldStateValidation
     private static void ValidateProduction(SettlementState settlement)
     {
         const string field = "/world/settlements/production_facilities";
-        Ordered(settlement.ProductionFacilities, f => f.Building.Value, field);
-        var expected = settlement.Template.ProductionPlans.Where(p => p.Capability == CapabilityKind.Production)
-            .Select(p => settlement.Plots.SingleOrDefault(plot => plot.TemplateNumber == p.PlotNumber)?.Building)
-            .Where(b => b is not null).Select(b => b!.Value).OrderBy(b => b.Value);
-        Require(settlement.ProductionFacilities.Select(f => f.Building).SequenceEqual(expected), field + "/building");
+        Items(settlement.ProductionFacilities, field);
+        Require(settlement.ProductionFacilities.All(f => f.Facility is not null
+            && f.Facility.Building.Value != 0 && f.Facility.Capability is CapabilityKind.Production or CapabilityKind.Extraction), field + "/facility");
+        var expected = settlement.Template.ProductionPlans.Where(p => p.Capability is CapabilityKind.Production or CapabilityKind.Extraction)
+            .Select(p => (Plan: p, Building: settlement.Plots.SingleOrDefault(plot => plot.TemplateNumber == p.PlotNumber)?.Building))
+            .Where(p => p.Building is not null).Select(p => new FacilityKey(p.Building!.Value, p.Plan.Capability))
+            .OrderBy(f => f.Building.Value).ThenBy(f => f.Capability).ToArray();
+        Require(settlement.ProductionFacilities.Select(f => f.Facility).SequenceEqual(expected), field + "/facility");
         foreach (var facility in settlement.ProductionFacilities)
         {
             Require(double.IsFinite(facility.LastActualWorkPerSecond) && facility.LastActualWorkPerSecond >= 0,
@@ -300,9 +304,9 @@ internal static class WorldStateValidation
             ProductionGoods(facility.OutputBuffer, field + "/output_buffer");
             if (facility.Batch is not { } batch) continue;
             Require(facility.OutputBuffer.IsEmpty, field + "/output_buffer");
-            var plot = settlement.Plots.Single(p => p.Building == facility.Building);
+            var plot = settlement.Plots.Single(p => p.Building == facility.Facility.Building);
             var plan = settlement.Template.ProductionPlans.Single(p => p.PlotNumber == plot.TemplateNumber
-                && p.Capability == CapabilityKind.Production);
+                && p.Capability == facility.Facility.Capability);
             Require(batch.Process == plan.Process, field + "/batch/process");
             Require(WorldFormat.IsHash(batch.StartedFromRevision.Value), field + "/batch/started_from_revision");
             Require(batch.FrozenWorkRequired > 0 && double.IsFinite(batch.ProgressWork)
@@ -425,6 +429,14 @@ internal static class WorldStateValidation
 
     internal static void ValidateBoundary(WorldState world, ulong completedSteps)
     {
+        foreach (var state in world.ResourceRegenerations)
+        {
+            var interval = WorldResources.IntervalSteps(world.Source.Configuration.Resources.Single(e => e.Good == state.Good).RegenerationIntervalSeconds);
+            Require(interval is not { } period
+                ? state.Sequence == 0
+                : state.Sequence <= completedSteps / period,
+                "/world/resource_regenerations");
+        }
         foreach (var train in world.Trains)
             Require(train.QueueEnteredStep is null || train.QueueEnteredStep <= completedSteps,
                 "/world/trains/queue_entered_step");
@@ -443,6 +455,29 @@ internal static class WorldStateValidation
             Require(elapsed > 0 && elapsed <= completedSteps - previousSettlement, field + "/elapsed_steps");
             if (elapsed < (ulong)period.Rule.ConsumptionIntervalTicks)
                 Require(period.Required.All(r => r == 0) && period.Satisfied.All(s => s == 0), field);
+        }
+    }
+
+    private static void ValidateResources(WorldState world, IReadOnlyDictionary<NodeId, NodeMapItem> nodes)
+    {
+        const string regeneration = "/world/resource_regenerations";
+        Strings(world.ResourceRegenerations, r => r.Good.Value, regeneration);
+        var entries = world.Source.Configuration.Resources.Where(e => !e.Renewable).ToArray();
+        Require(world.ResourceRegenerations.Select(r => r.Good).SequenceEqual(entries.Select(e => e.Good)), regeneration);
+        foreach (var state in world.ResourceRegenerations)
+        {
+            Require(state.InitialQuantity >= 0, regeneration + "/initial_quantity");
+        }
+        const string recovery = "/world/resource_recovery";
+        Items(world.ResourceRecovery, recovery);
+        var keys = world.ResourceRecovery.Select(r => (r.Node.Value, Good: WorldReferences.GoodKey(r.Good))).ToArray();
+        Require(keys.SequenceEqual(keys.Distinct().OrderBy(k => k.Value).ThenBy(k => k.Good, StringComparer.Ordinal)), recovery);
+        foreach (var state in world.ResourceRecovery)
+        {
+            Good(state.Good, recovery + "/good");
+            Require(nodes.TryGetValue(state.Node, out var node) && node.Resources.Any(r => r.Good == state.Good
+                && r.Renewal is ResourceRenewal.Renewable renewable && r.Quantity < renewable.Maximum), recovery);
+            Require(double.IsFinite(state.Remaining) && state.Remaining is > 0 and < 1, recovery + "/remaining");
         }
     }
 
