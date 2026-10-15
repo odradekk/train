@@ -51,42 +51,9 @@ internal sealed class VoxelParser
                 var behaviorData = Map();
                 if (sim.TryGetProperty("behaviors", out var behaviors))
                 {
-                    Object(behaviors, "/simulation/behaviors", "propulsion", "control", "storage", "production", "extraction", "construction", "power", "weapon", "platform");
-                    foreach (var property in behaviors.EnumerateObject().OrderBy(p => p.Name, StringComparer.Ordinal))
-                    {
-                        var field = Child("/simulation/behaviors", property.Name);
-                        var b = property.Value;
-                        var data = Map();
-                        double Number(string key) { var v = Positive(Required(b, key, field), field + "/" + key); data[key] = v; return v; }
-                        int Int(string key) { var v = Integer(Required(b, key, field), field + "/" + key); data[key] = v; return v; }
-                        switch (property.Name)
-                        {
-                            case "propulsion":
-                                Object(b, field, "traction", "rated_speed");
-                                capabilities.Add(new K.PartCapability.Propulsion(Number("traction"), Number("rated_speed")));
-                                break;
-                            case "control": Object(b, field); capabilities.Add(new K.PartCapability.Control()); break;
-                            case "storage": Object(b, field, "capacity"); capabilities.Add(new K.PartCapability.Storage(Int("capacity"))); break;
-                            case "production": Object(b, field, "work_rate"); capabilities.Add(new K.PartCapability.Production(Number("work_rate"))); break;
-                            case "extraction": Object(b, field, "work_rate"); capabilities.Add(new K.PartCapability.Extraction(Number("work_rate"))); break;
-                            case "construction":
-                                Object(b, field, "work_rate", "max_size_class");
-                                var workRate = Number("work_rate");
-                                var size = Choice(Required(b, "max_size_class", field), field + "/max_size_class", ["small", "medium", "large", "extra_large", "titan"]);
-                                data["max_size_class"] = size;
-                                capabilities.Add(new K.PartCapability.Construction(workRate, size switch
-                                {
-                                    "small" => K.SizeClass.Small, "medium" => K.SizeClass.Medium,
-                                    "large" => K.SizeClass.Large, "extra_large" => K.SizeClass.ExtraLarge,
-                                    _ => K.SizeClass.Titan
-                                }));
-                                break;
-                            case "power": Object(b, field, "output"); capabilities.Add(new K.PartCapability.Power(Number("output"))); break;
-                            case "weapon": Object(b, field, "damage", "interval"); capabilities.Add(new K.PartCapability.Weapon(Int("damage"), Number("interval"))); break;
-                            case "platform": Object(b, field); capabilities.Add(new K.PartCapability.Platform()); break;
-                        }
-                        behaviorData[property.Name] = data;
-                    }
+                    var parsed = ReadBehaviors(behaviors);
+                    capabilities.AddRange(parsed.Capabilities);
+                    behaviorData = parsed.Data;
                 }
                 simulation = (value, mass, tags, fuel);
                 semantic["simulation"] = Map(("behaviors", behaviorData), ("fuel_energy", fuel), ("mass", mass), ("max_durability", durability), ("tags", tags.Order(StringComparer.Ordinal).ToArray()), ("value", value));
@@ -138,12 +105,67 @@ internal sealed class VoxelParser
             K.GoodDefinitionProjection? good = simulation is null ? null : new(new K.GoodId.Voxel(definition), revision, new K.Money(simulation.Value.Price), simulation.Value.Mass, simulation.Value.Tags.Contains("raw_good"), simulation.Value.FuelEnergy);
             return new(definition, good, revision, maxDurability, capabilities.ToImmutable(), new C.DisplayText(name, description), icon, orientations, collision, presentation, new(wheelset, light));
         }
+        catch (DefinitionFormatException exception)
+        {
+            package.Reject(exception.Code, path, exception.Field, exception.Message, subject);
+            return null;
+        }
         catch (InvalidVoxel exception)
         {
             package.Reject(exception.Field == "/schema_version" ? "unsupported_format" : "invalid_field",
                 path, exception.Field, exception.Message, subject);
             return null;
         }
+    }
+
+    internal static (ImmutableArray<K.PartCapability> Capabilities, SortedDictionary<string, object?> Data) ReadBehaviors(JsonElement behaviors)
+    {
+        var capabilities = ImmutableArray.CreateBuilder<K.PartCapability>();
+        var behaviorData = Map();
+        try
+        {
+                    Object(behaviors, "/simulation/behaviors", "propulsion", "control", "storage", "production", "extraction", "construction", "power", "weapon", "platform");
+                    foreach (var property in behaviors.EnumerateObject().OrderBy(p => p.Name, StringComparer.Ordinal))
+                    {
+                        var field = Child("/simulation/behaviors", property.Name);
+                        var b = property.Value;
+                        var data = Map();
+                        double Number(string key) { var v = Positive(Required(b, key, field), field + "/" + key); data[key] = v; return v; }
+                        int Int(string key) { var v = Integer(Required(b, key, field), field + "/" + key); data[key] = v; return v; }
+                        switch (property.Name)
+                        {
+                            case "propulsion":
+                                Object(b, field, "traction", "rated_speed");
+                                capabilities.Add(new K.PartCapability.Propulsion(Number("traction"), Number("rated_speed")));
+                                break;
+                            case "control": Object(b, field); capabilities.Add(new K.PartCapability.Control()); break;
+                            case "storage": Object(b, field, "capacity"); capabilities.Add(new K.PartCapability.Storage(Int("capacity"))); break;
+                            case "production": Object(b, field, "work_rate"); capabilities.Add(new K.PartCapability.Production(Number("work_rate"))); break;
+                            case "extraction": Object(b, field, "work_rate"); capabilities.Add(new K.PartCapability.Extraction(Number("work_rate"))); break;
+                            case "construction":
+                                Object(b, field, "work_rate", "max_size_class");
+                                var workRate = Number("work_rate");
+                                var size = Choice(Required(b, "max_size_class", field), field + "/max_size_class", ["small", "medium", "large", "extra_large", "titan"]);
+                                data["max_size_class"] = size;
+                                capabilities.Add(new K.PartCapability.Construction(workRate, size switch
+                                {
+                                    "small" => K.SizeClass.Small, "medium" => K.SizeClass.Medium,
+                                    "large" => K.SizeClass.Large, "extra_large" => K.SizeClass.ExtraLarge,
+                                    _ => K.SizeClass.Titan
+                                }));
+                                break;
+                            case "power": Object(b, field, "output"); capabilities.Add(new K.PartCapability.Power(Number("output"))); break;
+                            case "weapon": Object(b, field, "damage", "interval"); capabilities.Add(new K.PartCapability.Weapon(Int("damage"), Number("interval"))); break;
+                            case "platform": Object(b, field); capabilities.Add(new K.PartCapability.Platform()); break;
+                        }
+                        behaviorData[property.Name] = data;
+                    }
+        }
+        catch (InvalidVoxel exception)
+        {
+            throw new DefinitionFormatException(exception.Field, exception.Message, "invalid_field");
+        }
+        return (capabilities.ToImmutable(), behaviorData);
     }
 
     private static ParsedPresentation Presentation(JsonElement p)
