@@ -293,6 +293,45 @@ public sealed class InventoryTradeTests
     }
 
     [TestMethod]
+    [DataRow(50L)]
+    [DataRow(200L)]
+    [DataRow(1000L)]
+    public void Sufficient_prepared_food_leaves_no_staple_demand_with_builtin_conversion(long residents)
+    {
+        var staple = new GoodId.Voxel(new("fixture:food"));
+        var content = Content(capacity: 200000);
+        content = content with
+        {
+            MarketRules = [content.MarketRules[0] with { BasicReserveHours = 12 }],
+            PopulationRules = [content.PopulationRules[0] with
+            {
+                Needs = content.PopulationRules[0].Needs.Select(n => n with { AmountPerPersonSecond = .00016 }).ToImmutableArray(),
+                ConsumptionGoods = content.PopulationRules[0].ConsumptionGoods.Select(g => g with
+                {
+                    Satisfies = g.Satisfies.Select(c => c.Need == PopulationNeed.Food
+                        ? c with { AmountPerGoodUnit = 1.4 } : c).ToImmutableArray()
+                }).ToImmutableArray()
+            }]
+        };
+        // Food need is 345.6 / 1382.4 / 6912. Prepared stock covers 14000 food units,
+        // and 1..245 staple units cover less than even the smallest need. In this
+        // substitution interval staple target is exactly its stock, with zero demand.
+        foreach (var stock in new long[] { 1, 2, 3, 4, 7, 13, 17, 31, 63, 101, 127, 199, 200, 245 })
+        {
+            using var original = Session(content, local: [new(staple, stock), new(PreparedFood, 10000)], cargo: [new(staple, 1)]);
+            using var session = new CoreSession(original.State with { World = original.State.World with
+            { Settlements = original.State.World.Settlements.Select(s => s with { Population = residents }).ToImmutableArray() } });
+            var settlement = ((Lookup<SettlementView>.Found)session.Read().FindSettlement(new(1))).Value;
+            var row = settlement.Market.Goods.Single(g => g.Good == staple);
+            Assert.AreEqual(stock, row.RestockTarget, $"residents={residents}, stock={stock}");
+            Assert.AreEqual(0L, row.ReceivableQuantity);
+            var quote = Quote(session, Request(session, TradeAction.Sell, staple, 1));
+            Assert.AreEqual(0L, quote.CurrentlyExecutableQuantity);
+            Assert.AreEqual("insufficient_demand", quote.Blockers.Single().Code);
+        }
+    }
+
+    [TestMethod]
     public void Price_condition_precedes_wallet_and_demand_precedes_capacity()
     {
         using var poor = Session(local: [new(Clothing, 13)], money: 96);

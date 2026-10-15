@@ -63,8 +63,11 @@ internal static class PopulationStockTargets
         var preparedBasicUnits = Math.Min(preparedStock + Remainder(prepared.Good),
             Math.Max(0, food - stapleStockCoverage) / Conversion(prepared, PopulationNeed.Food));
         var preparedBasicStock = Math.Max(0, preparedBasicUnits - Remainder(prepared.Good));
-        return (Math.Ceiling(Math.Max(0, food - preparedBasicUnits * Conversion(prepared, PopulationNeed.Food))
-            / Conversion(staple, PopulationNeed.Food)), Math.Ceiling(preparedBasicStock));
+        // Avoid a divide/multiply round trip that can round the substitution target above its stock.
+        var stapleUnits = Math.Max(Math.Max(0, food - (preparedStock + Remainder(prepared.Good))
+                * Conversion(prepared, PopulationNeed.Food)) / Conversion(staple, PopulationNeed.Food),
+            Math.Min(stapleStock, food / Conversion(staple, PopulationNeed.Food)));
+        return (Math.Ceiling(stapleUnits), Math.Ceiling(preparedBasicStock));
 
         double Remainder(GoodId good) => remainders.Where(g => g.Good == good).Sum(g => g.Units);
     }
