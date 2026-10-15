@@ -8,23 +8,24 @@ internal sealed record TrainCapabilities(double LengthMeters, double MassTons,
     double TractionKilonewtons, double MaximumSpeedMetersPerSecond, double Acceleration,
     bool HasControl, ImmutableArray<GoodId> MissingGoods)
 {
-    internal static TrainCapabilities Calculate(
-        ImmutableArray<(DesignProjection Design, ImmutableArray<(PartId Part, long Current)> Durability)> vehicles,
-        ImmutableArray<GoodsQuantity> inventory, ImmutableArray<GoodDefinitionProjection> goods)
+    internal static TrainCapabilities Calculate(WorldState world, CoreContentProjection content, TrainState train)
     {
         var length = 0.0;
         var mass = 0.0;
         var traction = 0.0;
         double? maximumSpeed = null;
         var hasControl = false;
-        foreach (var (design, durability) in vehicles)
+        foreach (var vehicle in train.Vehicles)
         {
+            var instance = world.Instances.Single(i => i.Id == new InstanceId.Vehicle(vehicle));
+            var design = world.Designs.Single(d => d.Design == instance.Design);
             length += ((DesignKind.Vehicle)design.Kind).LengthCells * 0.5;
             mass += design.MassTons;
             foreach (var part in design.Parts.OrderBy(p => p.Id.Value))
             {
-                var current = durability.Single(d => d.Part == part.Id).Current;
-                if (part.Missing || Math.Min(current, part.MaxDurability) <= 0)
+                var current = instance.Parts.Single(d => d.Id == part.Id).Current;
+                if (InstanceCapabilities.DefinitionMissing(world, content, design.Design, part)
+                    || Math.Min(current, part.MaxDurability) <= 0)
                     continue;
                 foreach (var capability in part.Capabilities)
                 {
@@ -40,6 +41,8 @@ internal sealed record TrainCapabilities(double LengthMeters, double MassTons,
                 }
             }
         }
+        var inventory = world.Inventories.Single(i => i.Id == train.Inventory).Goods;
+        var goods = content.Goods.AddRange(world.DesignGoods.Where(g => g.Good is GoodId.Assembly));
         var missing = ImmutableArray.CreateBuilder<GoodId>();
         foreach (var stack in inventory.OrderBy(s => GoodOrder(s.Good).Kind)
                      .ThenBy(s => GoodOrder(s.Good).Identity, StringComparer.Ordinal))
