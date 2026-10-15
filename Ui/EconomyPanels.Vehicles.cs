@@ -110,7 +110,7 @@ internal partial class EconomyPanels
         _vehicleQuote = null;
         if (_vehicle is not { } id || !_vehicleAvailable) return;
         var request = new VehicleTradeQuoteRequest(_settlementId, id, _vehicleAction);
-        _vehicleQuote = ReadQuote(nameof(ICoreReadView.QuoteVehicle), () => _view.QuoteVehicle(request), _vehicleDescription);
+        _vehicleQuote = ReadQuote(_view.QuoteVehicle(request), _vehicleDescription);
     }
 
     private void ConfirmVehicle()

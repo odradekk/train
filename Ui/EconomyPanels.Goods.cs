@@ -67,8 +67,7 @@ internal partial class EconomyPanels
         var trainGoods = Array.Empty<InventoryStackView>();
         if (_tradeTrain is { } id && _view.FindTrain(id) is Lookup<TrainView>.Found train)
         {
-            if (!_queries.TryRead(nameof(ICoreReadView.FindInventory), () => _view.FindInventory(train.Value.Inventory), out var lookup)) return;
-            if (lookup is Lookup<InventoryView>.Found inventory) trainGoods = inventory.Value.Stacks.ToArray();
+            if (_view.FindInventory(train.Value.Inventory) is Lookup<InventoryView>.Found inventory) trainGoods = inventory.Value.Stacks.ToArray();
         }
         var goods = market.Goods.Select(item => item.Good).Concat(Local?.Stacks.Select(stack => stack.Good) ?? [])
             .Concat(trainGoods.Select(stack => stack.Good)).Concat(_tradeGood is null ? [] : new[] { _tradeGood }).Distinct().ToArray();
@@ -113,7 +112,7 @@ internal partial class EconomyPanels
             !long.TryParse(_quantity.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var quantity) || quantity <= 0)
         { ResetQuote(ref _tradeQuote, _tradeDescription, "请选择列车、本地库存和货物，并输入正整数数量。"); return; }
         var request = new TradeQuoteRequest(train, _settlementId, inventory.Id, (TradeAction)_tradeAction.GetSelectedId(), good, quantity);
-        _tradeQuote = ReadQuote(nameof(ICoreReadView.QuoteTrade), () => _view.QuoteTrade(request), _tradeDescription);
+        _tradeQuote = ReadQuote(_view.QuoteTrade(request), _tradeDescription);
     }
 
     private void ConfirmTrade()
