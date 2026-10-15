@@ -19,24 +19,18 @@ internal static class PopulationStockTargets
         var staple = rule.ConsumptionGoods.Single(g => g.Satisfies.Any(c => c.Need == PopulationNeed.Food)
             && !g.Satisfies.Any(c => c.Need == PopulationNeed.ImprovedDiet));
         var prepared = rule.ConsumptionGoods.Single(g => g.Satisfies.Any(c => c.Need == PopulationNeed.ImprovedDiet));
-        var food = Required(PopulationNeed.Food, basicReserveHours);
-        food = Math.Max(0, food - Remainder(staple.Good) * Conversion(staple, PopulationNeed.Food));
-        var stapleStockCoverage = stapleStock * Conversion(staple, PopulationNeed.Food);
-        var preparedBasicUnits = Math.Min(preparedStock + Remainder(prepared.Good),
-            Math.Max(0, food - stapleStockCoverage) / Conversion(prepared, PopulationNeed.Food));
-        var preparedBasicStock = Math.Max(0, preparedBasicUnits - Remainder(prepared.Good));
+        var food = FoodTargets(rule, residents, basicReserveHours, stapleStock, preparedStock, remainders);
 
         if (needClass == PopulationNeedClass.Basic)
         {
-            Add(staple.Good, Math.Max(0, food - preparedBasicUnits * Conversion(prepared, PopulationNeed.Food))
-                / Conversion(staple, PopulationNeed.Food));
-            Add(prepared.Good, preparedBasicStock);
+            Add(staple.Good, food.Staple);
+            Add(prepared.Good, food.Prepared);
         }
         else
         {
             Add(prepared.Good, Math.Max(0, Required(PopulationNeed.ImprovedDiet, improvementReserveHours)
                 / Conversion(prepared, PopulationNeed.ImprovedDiet) - Remainder(prepared.Good)
-                - Math.Ceiling(preparedBasicStock)));
+                - food.Prepared));
         }
 
         foreach (var need in rule.Needs.Where(n => n.Class == needClass
@@ -53,6 +47,26 @@ internal static class PopulationStockTargets
             .AmountPerPersonSecond * residents * (hours * 3600);
         double Remainder(GoodId good) => remainders.Where(g => g.Good == good).Sum(g => g.Units);
         void Add(GoodId good, double units) => targets[good] = targets.GetValueOrDefault(good) + units;
+    }
+
+    internal static (double Staple, double Prepared) FoodTargets(PopulationRuleProjection rule,
+        long residents, double basicReserveHours, long stapleStock, long preparedStock,
+        ImmutableArray<PopulationConsumptionRemainder> remainders)
+    {
+        var staple = rule.ConsumptionGoods.Single(g => g.Satisfies.Any(c => c.Need == PopulationNeed.Food)
+            && !g.Satisfies.Any(c => c.Need == PopulationNeed.ImprovedDiet));
+        var prepared = rule.ConsumptionGoods.Single(g => g.Satisfies.Any(c => c.Need == PopulationNeed.ImprovedDiet));
+        var food = rule.Needs.Single(n => n.Need == PopulationNeed.Food)
+            .AmountPerPersonSecond * residents * (basicReserveHours * 3600);
+        food = Math.Max(0, food - Remainder(staple.Good) * Conversion(staple, PopulationNeed.Food));
+        var stapleStockCoverage = stapleStock * Conversion(staple, PopulationNeed.Food);
+        var preparedBasicUnits = Math.Min(preparedStock + Remainder(prepared.Good),
+            Math.Max(0, food - stapleStockCoverage) / Conversion(prepared, PopulationNeed.Food));
+        var preparedBasicStock = Math.Max(0, preparedBasicUnits - Remainder(prepared.Good));
+        return (Math.Ceiling(Math.Max(0, food - preparedBasicUnits * Conversion(prepared, PopulationNeed.Food))
+            / Conversion(staple, PopulationNeed.Food)), Math.Ceiling(preparedBasicStock));
+
+        double Remainder(GoodId good) => remainders.Where(g => g.Good == good).Sum(g => g.Units);
     }
 
     internal static ImmutableArray<GoodsQuantity> Allocate(IEnumerable<(GoodId Good, BigInteger Quantity)> targets, long capacityBudget)

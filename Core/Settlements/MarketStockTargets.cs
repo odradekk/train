@@ -122,6 +122,57 @@ internal sealed class MarketStockTargets
                 good == Prepared ? stock : PreparedStock) : Current)
             .Where(g => g.Good == good).Sum(g => g.Quantity);
 
+    internal (long Minimum, long Maximum, long Target) TargetRange(GoodId good, long stock)
+    {
+        var target = Target(good, stock);
+        if (!DependsOnStock(good)) return (0, long.MaxValue, target);
+        var food = Food(stock);
+        if (!double.IsFinite(food.Staple) || !double.IsFinite(food.Prepared)) return (stock, stock, target);
+        var finite = true;
+        var minimum = stock;
+        var maximum = stock;
+        // Each food component is monotone in either stock. Equal pairs form one interval,
+        // and determine both population allocations and every subsequent production budget.
+        if (stock > 0 && Same(stock - 1))
+        {
+            long low = 0, high = stock - 1;
+            if (Same(low)) high = low;
+            while (low < high)
+            {
+                var middle = low + (high - low) / 2;
+                if (Same(middle)) high = middle;
+                else low = middle + 1;
+            }
+            minimum = low;
+        }
+        if (stock < long.MaxValue && Same(stock + 1))
+        {
+            var low = stock + 1;
+            var high = long.MaxValue;
+            if (Same(high)) low = high;
+            while (low < high)
+            {
+                var middle = low + (high - low) / 2 + 1;
+                if (Same(middle)) low = middle;
+                else high = middle - 1;
+            }
+            maximum = low;
+        }
+        return finite ? (minimum, maximum, target) : (stock, stock, target);
+
+        (double Staple, double Prepared) Food(long candidate)
+            => PopulationStockTargets.FoodTargets(_population!, _settlement.Population, Rule!.BasicReserveHours,
+                good == Staple ? candidate : StapleStock, good == Prepared ? candidate : PreparedStock,
+                _settlement.PopulationState.ConsumptionRemaining);
+
+        bool Same(long candidate)
+        {
+            var other = Food(candidate);
+            if (!double.IsFinite(other.Staple) || !double.IsFinite(other.Prepared)) { finite = false; return false; }
+            return other == food;
+        }
+    }
+
     internal long Quantity(GoodId good, long stock, long limit, bool buy)
     {
         if (!DependsOnStock(good))
@@ -129,25 +180,23 @@ internal sealed class MarketStockTargets
             var target = Target(good, stock);
             return Math.Min(limit, buy ? Math.Max(0, stock - target) : Math.Max(0, target - stock));
         }
-        var conversion = _population!.ConsumptionGoods.Single(g => g.Good == good).Satisfies.Single(c => c.Need == PopulationNeed.Food).AmountPerGoodUnit;
-        var foodUnits = new BigInteger(Math.Ceiling(_population.Needs.Single(n => n.Need == PopulationNeed.Food)
-            .AmountPerPersonSecond * _settlement.Population * (Rule!.BasicReserveHours * 3600) / conversion));
-        var boundary = checked((long)BigInteger.Min(_capacity, foodUnits));
         long count = 0;
         while (count < limit)
         {
             var current = buy ? stock - count : checked(stock + count);
-            var target = Target(good, current);
-            // Above food coverage targets are constant; above capacity every target is bounded by capacity.
-            if (!buy && current >= boundary)
-                return checked(count + Math.Min(limit - count, Math.Max(0, target - current)));
-            if (buy && current > boundary)
+            var range = TargetRange(good, current);
+            // Every target is bounded by the shared capacity, including compressed food targets.
+            if (buy && current > _capacity)
             {
-                var surplus = Math.Min(limit - count, current - Math.Max(boundary, target));
-                if (surplus > 0) { count += surplus; continue; }
+                count += Math.Min(limit - count, current - _capacity);
+                continue;
             }
-            if (buy ? current <= target : current >= target) break;
-            count++;
+            var possible = buy ? Math.Max(0, current - range.Target) : Math.Max(0, range.Target - current);
+            if (possible == 0) break;
+            var quantity = Math.Min(limit - count, possible);
+            var distance = buy ? current - range.Minimum : range.Maximum - current;
+            if (quantity - 1 > distance) quantity = distance + 1;
+            count = checked(count + quantity);
         }
         return count;
     }

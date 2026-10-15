@@ -97,13 +97,14 @@ internal static class InventoryCommands
         {
             var prices = rule!.GoodPrices.SingleOrDefault(p => p.Good == request.Good)?.Parameters ?? rule.DefaultGoodsPrices;
             var value = WorldGoods.Definition(world, content, request.Good)!.BaseValue;
-            var fixedTarget = market!.Target(request.Good, localStock);
+            var range = market!.TargetRange(request.Good, incoming ? localStock - 1 : localStock);
             long amount = 0, affordable = 0;
             for (long i = 0; i < request.Quantity; i++)
             {
                 var lowerStock = incoming ? localStock - i - 1 : checked(localStock + i);
-                var target = market.DependsOnStock(request.Good) ? market.Target(request.Good, lowerStock) : fixedTarget;
-                var price = MarketPrices.Good(value, prices, target, (BigInteger)lowerStock * 2 + 1, incoming);
+                if (lowerStock < range.Minimum || lowerStock > range.Maximum)
+                    range = market.TargetRange(request.Good, lowerStock);
+                var price = MarketPrices.Good(value, prices, range.Target, (BigInteger)lowerStock * 2 + 1, incoming);
                 amount = checked(amount + price.Value);
                 if (amount <= world.Money.Value) affordable++;
             }

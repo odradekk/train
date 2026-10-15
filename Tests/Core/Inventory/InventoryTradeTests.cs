@@ -1,8 +1,11 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Numerics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
 using Train.Core.Sessions;
+using Train.Core.Settlements;
+using Train.Core.Trading;
 using Train.Core.Tests.World;
 using static Train.Core.Tests.Inventory.InventoryFixture;
 
@@ -399,14 +402,171 @@ public sealed class InventoryTradeTests
         foreach (var good in new[] { new GoodId.Voxel(new("fixture:food")), PreparedFood })
         {
             using var session = Session(Content(capacity: stock), local: [new(good, stock)]);
-            var settlement = ((Lookup<SettlementView>.Found)session.Read().FindSettlement(new(1))).Value;
+            var market = Market(session);
+            var range = market.TargetRange(good, stock);
+            Assert.AreEqual(good == PreparedFood ? 10L : 0L, range.Minimum);
+            Assert.AreEqual(long.MaxValue, range.Maximum);
+            Assert.AreEqual(10L, range.Target);
+            // Keep the public query bounded: a singleton-range regression must fail above, not hang here.
+            using var bounded = Session(Content(capacity: 1000), local: [new(good, 1000)]);
+            var settlement = ((Lookup<SettlementView>.Found)bounded.Read().FindSettlement(new(1))).Value;
             var row = settlement.Market.Goods.Single(g => g.Good == good);
             // Ten residents, one food unit/person/second and one second of basic reserve.
             Assert.AreEqual(10L, row.RestockTarget);
-            Assert.AreEqual(stock - 10, row.SellableQuantity);
+            Assert.AreEqual(990L, row.SellableQuantity);
             Assert.IsTrue(row.Blockers.IsEmpty);
         }
     }
+
+    [TestMethod]
+    public void Nonfinite_range_probes_do_not_fault_an_executable_food_target()
+    {
+        var staple = new GoodId.Voxel(new("fixture:food"));
+        var content = Content();
+        content = content with { PopulationRules = [content.PopulationRules[0] with
+        {
+            ConsumptionGoods = content.PopulationRules[0].ConsumptionGoods.Select(g => g with
+            {
+                Satisfies = g.Satisfies.Select(c => c.Need == PopulationNeed.Food
+                    ? c with { AmountPerGoodUnit = g.Good == staple ? double.Epsilon : 10 } : c).ToImmutableArray()
+            }).ToImmutableArray()
+        }] };
+        using var session = Session(content, local: [new(PreparedFood, 1)]);
+        // One prepared food covers all ten food units. Probing zero prepared food would
+        // require 10 / epsilon staple units, but that stock is outside the actual operation.
+        Assert.AreEqual((1L, 1L, 1L), Market(session).TargetRange(PreparedFood, 1));
+        Assert.IsInstanceOfType<Lookup<SettlementView>.Found>(session.Read().FindSettlement(new(1)));
+        Assert.IsNull(session.Read().Fault);
+    }
+
+    [TestMethod]
+    [DataRow(12L, 0L)]
+    [DataRow(12L, 3L)]
+    [DataRow(12L, 8L)]
+    [DataRow(12L, 12L)]
+    [DataRow(25L, 0L)]
+    [DataRow(25L, 3L)]
+    [DataRow(25L, 8L)]
+    [DataRow(25L, 12L)]
+    [DataRow(40L, 0L)]
+    [DataRow(40L, 3L)]
+    [DataRow(40L, 8L)]
+    [DataRow(40L, 12L)]
+    public void Food_quantities_and_public_quote_amounts_match_the_unit_by_unit_D3_reference(long capacity, long otherStock)
+    {
+        var staple = new GoodId.Voxel(new("fixture:food"));
+        // Stocks 0..24 cross the ten-unit food coverage boundary for both substitutes.
+        // Capacity 12 compresses basic needs; 25 also leaves a limited improvement budget.
+        foreach (var good in new[] { staple, PreparedFood })
+        for (long stock = 0; stock <= Math.Min(24, capacity - otherStock); stock++)
+        {
+            var other = good == staple ? PreparedFood : staple;
+            var content = Content(capacity);
+            content = content with { MarketRules = [content.MarketRules[0] with { ImprovementReserveHours = 1d / 3600 }] };
+            using var session = Session(content, local: new[] { new GoodsQuantity(good, stock), new GoodsQuantity(other, otherStock) }
+                    .Where(g => g.Quantity > 0).ToImmutableArray(),
+                cargo: [new(good, 40)], money: 1_000_000);
+            var market = Market(session);
+            foreach (var buy in new[] { true, false })
+            {
+                var limit = buy ? stock : capacity - stock - otherStock;
+                long expected = 0;
+                while (expected < limit)
+                {
+                    var beforeStock = buy ? stock - expected : stock + expected;
+                    var target = market.Target(good, beforeStock);
+                    if (buy ? beforeStock <= target : beforeStock >= target) break;
+                    expected++;
+                }
+                var scenario = $"capacity={capacity}, other={otherStock}, stock={stock}, good={good}, buy={buy}";
+                Assert.AreEqual(expected, market.Quantity(good, stock, limit, buy), scenario);
+                if (expected == 0) continue;
+                long amount = 0;
+                for (long i = 0; i < expected; i++)
+                {
+                    var lowerStock = buy ? stock - i - 1 : stock + i;
+                    amount += MarketPrices.Good(new(100), content.MarketRules[0].DefaultGoodsPrices,
+                        market.Target(good, lowerStock), (BigInteger)lowerStock * 2 + 1, buy).Value;
+                }
+                var request = Request(session, buy ? TradeAction.Buy : TradeAction.Sell, good, expected);
+                AssertQuote(session, Quote(session, request), request, expected, amount);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("integration")]
+    public void Food_reserve_scales_and_compressed_partial_coverage_measure_warm_queries()
+    {
+        var staple = new GoodId.Voxel(new("fixture:food"));
+        foreach (var hours in new[] { .05, 1d })
+        {
+            var content = Content(capacity: 200000);
+            content = content with { MarketRules = [content.MarketRules[0] with { BasicReserveHours = hours }] };
+            using var session = Session(content, cargo: [new(staple, 1000)], money: 1_000_000_000);
+            Measure(session, staple, TradeAction.Sell, 1000, $"review probe: capacity=200000, NPC food=0, residents=10, food/person/second=1, reserveHours={hours}");
+        }
+        foreach (var hours in new[] { .05, 1d })
+        {
+            var foodRequirement = (long)(10 * hours * 3600);
+            var stock = foodRequirement * 3 / 4;
+            var content = Content(capacity: 100);
+            content = content with
+            {
+                MarketRules = [content.MarketRules[0] with { BasicReserveHours = hours }],
+                Designs = content.Designs.Select(d => d.Design == WorldFixture.Station ? d : d with
+                {
+                    Parts = d.Parts.Select(p => p with
+                    {
+                        Capabilities = p.Capabilities.Select<PartCapability, PartCapability>(c =>
+                            c is PartCapability.Storage ? new PartCapability.Storage(200000) : c).ToImmutableArray()
+                    }).ToImmutableArray()
+                }).ToImmutableArray()
+            };
+            // Capacity reduction can leave existing inventory above capacity; neither stock is deleted.
+            // Each food independently covers 3/4 of basic food demand, while raw basic targets total 2F.
+            using var session = Session(content, local: [new(staple, stock), new(PreparedFood, stock)], money: 1_000_000);
+            foreach (var good in new[] { staple, PreparedFood })
+            {
+                var market = Market(session);
+                var range = market.TargetRange(good, stock);
+                if (good == staple)
+                {
+                    Assert.AreEqual(stock, range.Minimum);
+                    Assert.AreEqual(stock, range.Maximum);
+                    Assert.AreEqual(market.Target(good, stock), market.Target(good, stock + 1));
+                    TestContext.WriteLine("Staple K changes at adjacent stocks while compressed T remains equal: singleton ranges conservatively recalculate per unit.");
+                }
+                TestContext.WriteLine($"compressed after capacity reduction: reserveHours={hours}, good={good}, stock={stock}, dynamic interval width={foodRequirement / 2}, range=[{range.Minimum},{range.Maximum}], target={range.Target}");
+                Measure(session, good, TradeAction.Buy, 1000, $"compressed capacity=100, staple=prepared={stock}, reserveHours={hours}");
+                if (good == staple)
+                    Measure(session, good, TradeAction.Buy, foodRequirement / 2,
+                        $"compressed full dynamic width: capacity=100, staple=prepared={stock}, reserveHours={hours}");
+            }
+        }
+    }
+
+    private void Measure(CoreSession session, GoodId good, TradeAction action, long quantity, string scenario)
+    {
+        var request = Request(session, action, good, quantity);
+        session.Read().FindSettlement(request.Settlement);
+        Quote(session, request);
+        var stopwatch = Stopwatch.StartNew();
+        for (var i = 0; i < 5; i++) session.Read().FindSettlement(request.Settlement);
+        stopwatch.Stop();
+        var findMilliseconds = stopwatch.Elapsed.TotalMilliseconds / 5;
+        stopwatch.Restart();
+        TradeQuote quote = null!;
+        for (var i = 0; i < 5; i++) quote = Quote(session, request);
+        stopwatch.Stop();
+        Assert.AreEqual(quantity, quote.CurrentlyExecutableQuantity);
+        Assert.IsTrue(quote.Blockers.IsEmpty);
+        Assert.IsTrue(quote.Total!.Value.Value > 0);
+        TestContext.WriteLine($"{scenario}; {action} {good} x{quantity}; FindSettlement warm mean(5)={findMilliseconds:F3} ms; QuoteTrade warm mean(5)={stopwatch.Elapsed.TotalMilliseconds / 5:F3} ms; total={quote.Total}");
+    }
+
+    private static MarketStockTargets Market(CoreSession session)
+        => new(session.State.World, session.State.Content, session.State.World.Settlements.Single(), session.State.Position.CompletedSteps);
 
     private static void AssertOverflow(CoreSession session, TradeQuoteRequest request)
     {
