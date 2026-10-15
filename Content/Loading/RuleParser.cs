@@ -16,7 +16,7 @@ internal static partial class RuleParser
         try
         {
             var root = document.RootElement;
-            var json = new DefinitionJson(root, package, path, kind + "-rule", kind == "railway" ? 2 : 1);
+            var json = new DefinitionJson(root, package, path, kind + "-rule", kind is "railway" or "market" ? 2 : 1);
             var id = new K.RuleDefinitionId(json.Id);
             subject = new C.ContentReference.Core(new K.CoreDefinitionReference.Rule(id));
             return kind switch
@@ -44,7 +44,7 @@ internal static partial class RuleParser
         Object(sim, field, "basic_reserve_hours", "production_reserve_hours", "improvement_reserve_hours",
             "default_goods_prices", "good_prices", "vehicle_buy_multiplier_basis_points", "vehicle_sell_multiplier_basis_points",
             "vehicle_purchase_limits", "automatic_evaluation_interval_ticks", "recent_report_limit", "commission_money_per_work",
-            "rent_money_per_capacity_hour", "rentable_capacity_ratio_basis_points", "lease_duration_ticks");
+            "rent_money_per_capacity_hour", "rentable_capacity_ratio_basis_points", "lease_duration_ticks", "maximum_lease_duration_multiple");
         var goods = ImmutableArray.CreateBuilder<RuleGoodReference>();
         var prices = ImmutableArray.CreateBuilder<K.GoodPriceOverride>();
         foreach (var (value, itemField) in Items(Required(sim, "good_prices", field), field + "/good_prices"))
@@ -71,7 +71,7 @@ internal static partial class RuleParser
             new(I("vehicle_buy_multiplier_basis_points", 1)), new(I("vehicle_sell_multiplier_basis_points", 1)),
             limits.OrderBy(limit => limit.Size).ToImmutableArray(), I("automatic_evaluation_interval_ticks", 1), I("recent_report_limit", 1),
             new(L("commission_money_per_work", 0)), new(L("rent_money_per_capacity_hour", 0)),
-            new(I("rentable_capacity_ratio_basis_points", 0, 10000)), L("lease_duration_ticks", 1));
+            new(I("rentable_capacity_ratio_basis_points", 0, 10000)), L("lease_duration_ticks", 1), I("maximum_lease_duration_multiple", 1));
         return new(projection with { Revision = RuleSemantics.Revision(projection) }, path,
             goods.OrderBy(good => good.Id.Value, StringComparer.Ordinal).ToImmutableArray());
         double N(string key) => Number(Required(sim, key, field), field + "/" + key, 0);

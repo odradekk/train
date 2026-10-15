@@ -51,11 +51,42 @@ public sealed class RuleParserTests
         var json = Market();
         json["simulation"]!["commission_money_per_work"] = long.MaxValue;
         json["simulation"]!["vehicle_buy_multiplier_basis_points"] = int.MaxValue;
+        json["simulation"]!["lease_duration_ticks"] = long.MaxValue;
         var rule = (ParsedRule.Market)Parse("market", json)!;
         Assert.AreEqual(long.MaxValue, rule.Projection.CommissionMoneyPerWork.Value);
         Assert.AreEqual(int.MaxValue, rule.Projection.VehicleBuyMultiplier.Value);
+        Assert.AreEqual(long.MaxValue, rule.Projection.LeaseDurationTicks);
         Assert.AreEqual(9999, rule.Projection.DefaultGoodsPrices.Spread.Value);
         CollectionAssert.AreEqual(Enum.GetValues<K.SizeClass>(), rule.Projection.VehiclePurchaseLimits.Select(limit => limit.Size).ToArray());
+    }
+
+    [TestMethod]
+    [DataRow(1)]
+    [DataRow(int.MaxValue)]
+    public void Market_lease_multiple_is_required_projected_and_part_of_business_revision(int multiple)
+    {
+        var json = Market();
+        var original = (ParsedRule.Market)Parse("market", json)!;
+        Assert.AreEqual(12, original.Projection.MaximumLeaseDurationMultiple);
+        json["simulation"]!["maximum_lease_duration_multiple"] = multiple;
+        var changed = (ParsedRule.Market)Parse("market", json)!;
+        Assert.AreEqual(multiple, changed.Projection.MaximumLeaseDurationMultiple);
+        Assert.AreNotEqual(original.Revision, changed.Revision);
+        json["simulation"]!.AsObject().Remove("maximum_lease_duration_multiple");
+        var package = Package();
+        Assert.IsNull(Parse("market", json, package));
+        Assert.AreEqual("/simulation/maximum_lease_duration_multiple", package.Diagnostics.Single().Field);
+    }
+
+    [TestMethod]
+    public void Version_one_market_rules_are_rejected()
+    {
+        var json = Market();
+        json["schema_version"] = 1;
+        var package = Package();
+        Assert.IsNull(Parse("market", json, package));
+        Assert.AreEqual("unsupported_format", package.Diagnostics.Single().Code);
+        Assert.AreEqual("/schema_version", package.Diagnostics.Single().Field);
     }
 
     [TestMethod]
@@ -116,6 +147,10 @@ public sealed class RuleParserTests
     [DataRow("market", "/simulation/default_goods_prices/maximum_multiplier_basis_points", "1")]
     [DataRow("market", "/simulation/rentable_capacity_ratio_basis_points", "10001")]
     [DataRow("market", "/simulation/lease_duration_ticks", "0")]
+    [DataRow("market", "/simulation/maximum_lease_duration_multiple", "0")]
+    [DataRow("market", "/simulation/maximum_lease_duration_multiple", "-1")]
+    [DataRow("market", "/simulation/maximum_lease_duration_multiple", "1.5")]
+    [DataRow("market", "/simulation/maximum_lease_duration_multiple", "2147483648")]
     [DataRow("railway", "/approach_length_meters", "0")]
     [DataRow("railway", "/departure_length_meters", "-1")]
     [DataRow("railway", "/node_speed_limit_meters_per_second", "1e999")]
@@ -223,13 +258,13 @@ public sealed class RuleParserTests
         "morale_recovery_per_second":0,"surrender_threshold":0,"new_lair_interval_seconds":2}
         """)!.AsObject();
     internal static JsonObject Market() => JsonNode.Parse("""
-        {"schema_version":1,"id":"test","simulation":{"basic_reserve_hours":1,"production_reserve_hours":2,"improvement_reserve_hours":3,
+        {"schema_version":2,"id":"test","simulation":{"basic_reserve_hours":1,"production_reserve_hours":2,"improvement_reserve_hours":3,
         "default_goods_prices":{"sensitivity_basis_points":0,"minimum_multiplier_basis_points":2,"maximum_multiplier_basis_points":3,"spread_basis_points":9999},
         "good_prices":[],"vehicle_buy_multiplier_basis_points":10000,"vehicle_sell_multiplier_basis_points":5000,
         "vehicle_purchase_limits":[{"size":"titan","maximum_for_sale":5},{"size":"large","maximum_for_sale":3},
         {"size":"small","maximum_for_sale":1},{"size":"extra_large","maximum_for_sale":4},{"size":"medium","maximum_for_sale":2}],
         "automatic_evaluation_interval_ticks":60,"recent_report_limit":1,"commission_money_per_work":0,"rent_money_per_capacity_hour":0,
-        "rentable_capacity_ratio_basis_points":10000,"lease_duration_ticks":1}}
+        "rentable_capacity_ratio_basis_points":10000,"lease_duration_ticks":1,"maximum_lease_duration_multiple":12}}
         """)!.AsObject();
     internal static JsonObject Population()
     {

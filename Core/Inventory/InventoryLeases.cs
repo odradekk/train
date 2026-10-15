@@ -43,8 +43,12 @@ internal static class InventoryLeases
                 occupancyFits = occupied <= free;
             }
         }
+        var durationValid = rule is not null && duration >= (ulong)rule.LeaseDurationTicks
+            && duration % (ulong)rule.LeaseDurationTicks == 0
+            && (Int128)duration + (lease is null ? 0 : Math.Max(step, lease.ExpiresAtStep) - step)
+                <= (Int128)rule.LeaseDurationTicks * rule.MaximumLeaseDurationMultiple;
         Money? total = null;
-        if (rule is not null && duration == (ulong)rule.LeaseDurationTicks
+        if (rule is not null && durationValid
             && capacity is { } quantity && quantity <= rentable && occupancyFits)
         {
             var amount = checked((Int128)rule.RentMoneyPerCapacityHour.Value * quantity * duration);
@@ -57,7 +61,7 @@ internal static class InventoryLeases
         else if (settlement.Relation == SettlementRelation.Hostile) problem = new("access_denied", "Request.Settlement", new WorldObjectId.Settlement(settlement.Id), []);
         else if (settlement.Relation == SettlementRelation.PlayerOwned) problem = new("invalid_state", "Request.Settlement", new WorldObjectId.Settlement(settlement.Id), []);
         else if (rule is null) problem = new("content_missing", "MarketRule", null, [ruleId.Value]);
-        else if (duration != (ulong)rule.LeaseDurationTicks) problem = new("invalid_state", "Request.DurationSteps", null, []);
+        else if (!durationValid) problem = new("invalid_state", "Request.DurationSteps", null, []);
         else if (capacity > rentable || !occupancyFits) problem = new("insufficient_capacity", "Request.Capacity", new WorldObjectId.Settlement(settlement.Id), []);
         else if (maximumPayment is { } maximum && total!.Value.Value > maximum.Value) problem = new("price_condition_failed", "MaximumPayment", null, []);
         else if (total!.Value.Value > world.Money.Value) problem = new("insufficient_money", "Wallet", null, []);

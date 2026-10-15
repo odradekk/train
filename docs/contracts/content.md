@@ -148,13 +148,13 @@ Mod 缺依赖、版本不够、依赖循环、未知行为／字段、定义或�
 
 捕获不可变，Encode 可在后台进行，不再读取活动内容。解码只接受当前格式；内容载荷、草稿载荷和完整存档各自版本化，不复用契约基线版本。结构有效但玩法不合法的已保存草稿可以恢复；损伤、模拟进度和冻结执行参数仍由核心保存，内容不重建它们。
 
-当前普通内容载荷为版本 4（版本 1–3 返回 `unsupported_format`），包含持久修订、引用包元数据、实例设计、按所有者保存的模板副本及按构成哈希保存的组装体首次显示记录；本局库和草稿仍归 #329。显示记录持有其设计，即使核心清单没有实例设计引用也捕获该设计。解码要求全部组装体都有显示记录，记录目标存在且构成哈希配对，否则返回 `inconsistent_capture`。设计条目包含 `hash`、`definition`，根功能复合体还必须带 `composite` 定义身份，其他设计不得携带该字段。施工行为新增必填 `max_plot_size`，功能复合体的行为会写入设计正文，因此 #501 将载荷从 3 升至 4。设计正文复用 blueprint v3 的字段，体素引用全限定；模板副本复用模板 v2 的地块布局字段，场景模型原设计按设计哈希入档。编码采用固定字段顺序，设计按哈希、副本按所有者、包按身份排序。正文重算的哈希与键不一致、缺内嵌设计、缺副本或地块不配对返回 `inconsistent_capture`；JSON 损坏返回 `invalid_json`，版本不符返回 `unsupported_format`。Restore 保留捕获中的全部组装体显示记录并优先使用，再按与 Initial／Reload 相同的稳定顺序，为当前视图中新出现且尚无记录的构成登记首次显示资料；没有新增记录时持久修订取捕获值，新增记录时增加持久修订。`RuntimeMissing` 列出清单、设计体素及功能复合体的缺失引用与所属包，当前 `AuthoringMissing` 为空。
+当前普通内容载荷为版本 4（版本 1–3 返回 `unsupported_format`），不包含市场等外部规则定义，包含持久修订、引用包元数据、实例设计、按所有者保存的模板副本及按构成哈希保存的组装体首次显示记录；本局库和草稿仍归 #329。显示记录持有其设计，即使核心清单没有实例设计引用也捕获该设计。解码要求全部组装体都有显示记录，记录目标存在且构成哈希配对，否则返回 `inconsistent_capture`。设计条目包含 `hash`、`definition`，根功能复合体还必须带 `composite` 定义身份，其他设计不得携带该字段。施工行为新增必填 `max_plot_size`，功能复合体的行为会写入设计正文，因此 #501 将载荷从 3 升至 4。设计正文复用 blueprint v3 的字段，体素引用全限定；模板副本复用模板 v2 的地块布局字段，场景模型原设计按设计哈希入档。编码采用固定字段顺序，设计按哈希、副本按所有者、包按身份排序。正文重算的哈希与键不一致、缺内嵌设计、缺副本或地块不配对返回 `inconsistent_capture`；JSON 损坏返回 `invalid_json`，版本不符返回 `unsupported_format`。Restore 保留捕获中的全部组装体显示记录并优先使用，再按与 Initial／Reload 相同的稳定顺序，为当前视图中新出现且尚无记录的构成登记首次显示资料；没有新增记录时持久修订取捕获值，新增记录时增加持久修订。`RuntimeMissing` 列出清单、设计体素及功能复合体的缺失引用与所属包，当前 `AuthoringMissing` 为空。
 
 Reload 保留已有组装体显示记录并优先使用，按稳定顺序登记尚无记录的构成；新引入显示记录时增加持久修订并标记 `Persistent`，其他变化不增加持久修订。原有效必需定义或设计依赖新增缺失时整次返回 `reference_missing`；已经确认的缺失可保留或恢复。有效变化才增加内容世代；表现与开局目录资料、核心输入、包蓝图库分别按实际变化标记 `Presentation`、`CoreInput`、`Library`。包蓝图增加、删除或正文变化不因其设计目录变化而修改核心输入身份；源模板的核心语义及依赖仍按既有身份规则计算。无有效变化时复用基准视图。
 
 `CaptureReplay` 使用宿主保留的原内容视图及核心所需输入清单；缺历史即失败，不能读取安装目录的当前文件补齐。它保存复现需要的语义资料及原资产字节，DecodeReplay 返回仅由包内材料重建的历史投影，交给核心核对原输入身份。普通存档与严格复现不共用“缺失时补当前定义”的策略。宿主按核心录制反馈释放历史视图前，还须确认活动会话、场景和其他捕获不再使用它。
 
-当前复现内容载荷独立使用版本 4；版本 1–3 返回 `unsupported_format`。PrepareLoad 固定安装描述、目录枚举、文件读取（含失败）及资产检查结果；原始字节按 SHA-256 去重。每个历史视图保存自身来源事实、普通内容载荷、缺失引用、世代和原输入身份。DecodeReplay 校验字节哈希，使用内存文件端口及记录的检查结果重跑同一个加载器，再接入内嵌资料并核对输入身份；不会重新访问安装目录或外部检查器。资产规则继续执行，PNG／GLB 检查事实来自原加载。清单中的输入身份、设计或模板所有者缺历史材料时返回 `inconsistent_capture`。
+当前复现内容载荷独立使用版本 5；版本 1–4 返回 `unsupported_format`。PrepareLoad 固定安装描述、目录枚举、文件读取（含失败）及资产检查结果；原始字节按 SHA-256 去重。每个历史视图保存自身来源事实、普通内容载荷、缺失引用、世代和原输入身份。DecodeReplay 校验字节哈希，使用内存文件端口及记录的检查结果重跑同一个加载器，再接入内嵌资料并核对输入身份；不会重新访问安装目录或外部检查器。资产规则继续执行，PNG／GLB 检查事实来自原加载。清单中的输入身份、设计或模板所有者缺历史材料时返回 `inconsistent_capture`。
 
 两种载荷先检查版本，再检查该版本的字段。复现中的枚举用线上名称编码，PNG／GLB 检查事实使用显式 snake_case 字段；被排除包的非有限包围盒坐标用 `nan`、`positive_infinity`、`negative_infinity` 保留，解码后仍由资产规则拒绝，不成为有效业务数值。缺失记录必须与重建内容的缺失清单逐条一致。CaptureReplay 在准备时就固定并校验各视图的内嵌捕获，Encode 不重新生成它们。
 
@@ -166,7 +166,7 @@ Restore、Reload、Capture 及 CaptureReplay 使用本内容实现产生的视�
 
 ## 规则格式与验证责任
 
-内容解析[人口](../content/population-rule.md)、[市场](../content/market-rule.md)、[施工](../content/construction-rule.md)、[铁路](../content/railway-rule.md)、[战斗](../content/combat-rule.md)、[聚落](../content/lair-type.md)、[生成配置](../content/generation-profile.md)和[地貌](../content/terrain-type.md)，直接生成核心已有输入及场景投影。铁路规则使用 `schema_version = 2`，向核心提供 `ApproachLengthMeters`、`DepartureLengthMeters`、`NodeSpeedLimitMetersPerSecond`，均为正有限值，初值分别为 80 米、80 米、15 米/秒。每类独立 Schema；未知字段、重复身份、错类引用和依赖未声明都拒绝。临时市场表仅作历史格式记录，目标聚居地类型移除临时供需和站台数。生产计划由模板表达，生成器执行库存与现车初始化；内容不计算运行库存目标、报价、消费满足率或当前劳动力。
+内容解析[人口](../content/population-rule.md)、[市场](../content/market-rule.md)、[施工](../content/construction-rule.md)、[铁路](../content/railway-rule.md)、[战斗](../content/combat-rule.md)、[聚落](../content/lair-type.md)、[生成配置](../content/generation-profile.md)和[地貌](../content/terrain-type.md)，直接生成核心已有输入及场景投影。铁路规则使用 `schema_version = 2`，向核心提供 `ApproachLengthMeters`、`DepartureLengthMeters`、`NodeSpeedLimitMetersPerSecond`，均为正有限值，初值分别为 80 米、80 米、15 米/秒。市场规则使用 `schema_version = 2`，新增必填正 `int` 的 `MaximumLeaseDurationMultiple`（JSON 字段 `maximum_lease_duration_multiple`），并纳入语义修订；内容是该投影的唯一生产方，负责固定租期及最大倍数的正数校验。旧市场版本返回 `unsupported_format`。每类独立 Schema；未知字段、重复身份、错类引用和依赖未声明都拒绝。临时市场表仅作历史格式记录，目标聚居地类型移除临时供需和站台数。生产计划由模板表达，生成器执行库存与现车初始化；内容不计算运行库存目标、报价、消费满足率或当前劳动力。
 
 六项人口需求率均为有限正数，六类生活货物各指定一种，只有加工食品具有已定的食物／改善饮食双换算。价格参数使用万分比整数，金额与费率用整数；超出字段表示范围是无效文件，不增加运行中金额越界的业务分支。按合法输入计算时发生意外溢出属于内部故障，不能伪装为设计不合法。
 
