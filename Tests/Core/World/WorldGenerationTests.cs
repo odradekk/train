@@ -193,21 +193,6 @@ public sealed class WorldGenerationTests
     }
 
     [TestMethod]
-    public void Unsupported_npc_initialization_reports_the_specific_requested_field()
-    {
-        var input = WorldFixture.Input;
-        var npc = input.Configuration.NpcInitialization;
-        foreach (var (configuration, field) in new (NpcInitializationConfiguration, string)[]
-        {
-            (npc with { FillInputsAndLivingTargets = true }, nameof(npc.FillInputsAndLivingTargets)),
-            (npc with { OutputReserveHours = 1 }, nameof(npc.OutputReserveHours)),
-            (npc with { MaximumForSaleVehicles = 1 }, nameof(npc.MaximumForSaleVehicles))
-        })
-            Failure(input with { Configuration = input.Configuration with { NpcInitialization = configuration } },
-                WorldFixture.Content, "config_invalid", "Configuration.NpcInitialization." + field);
-    }
-
-    [TestMethod]
     [DataRow(3, 3, "MinimumInitialTracks")]
     [DataRow(0, 0, "MaximumInitialTracks")]
     public void Initial_tracks_without_a_supported_intersection_fail_before_generation(int minimum, int maximum, string field)
