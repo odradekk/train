@@ -28,7 +28,14 @@ public sealed class RailwayTerrainTests
         }
         var grid = new VoxelGrid(cells.ToImmutable());
         var meshes = DesignGeometry.Meshes(grid, false).OfType<SceneVisual.Geometry>().ToArray();
-        Assert.AreEqual(2 * (RailwayCoordinates.TerrainDepthCells * 8 + 4), meshes.Sum(mesh => mesh.Mesh.TriangleIndices.Length / 3));
+        var surfaceArea = meshes.Sum(visual => visual.Mesh.TriangleIndices.Chunk(3).Sum(triangle =>
+        {
+            var a = visual.Mesh.Vertices[triangle[0]].Position;
+            var b = visual.Mesh.Vertices[triangle[1]].Position;
+            var c = visual.Mesh.Vertices[triangle[2]].Position;
+            return Vector3.Cross(b - a, c - a).Length() / 2;
+        }));
+        Assert.AreEqual(2 * (RailwayCoordinates.TerrainDepthCells * 4 + 2), surfaceArea);
         var basis = SceneFixtures.Build(SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0))]));
         var frame = SceneFixtures.Frame(basis with { Picking = [new(basis.Objects[0].Id, SceneFixtures.Identity, grid)] });
         foreach (var x in new[] { 0, 2 })

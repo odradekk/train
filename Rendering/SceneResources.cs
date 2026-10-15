@@ -211,18 +211,26 @@ internal sealed class SceneResources : IDisposable
     {
         using var arrays = new Godot.Collections.Array();
         arrays.Resize((int)Mesh.ArrayType.Max);
-        arrays[(int)Mesh.ArrayType.Vertex] = source.Vertices.Select(vertex => new Vector3(vertex.Position.X, vertex.Position.Y, vertex.Position.Z)).ToArray();
-        arrays[(int)Mesh.ArrayType.Normal] = source.Vertices.Select(vertex => new Vector3(vertex.Normal.X, vertex.Normal.Y, vertex.Normal.Z)).ToArray();
-        arrays[(int)Mesh.ArrayType.TexUV] = source.Vertices.Select(vertex => new Vector2(vertex.TextureUv.X, vertex.TextureUv.Y)).ToArray();
-        arrays[(int)Mesh.ArrayType.TexUV2] = source.Vertices.Select(vertex => new Vector2(vertex.FaceUv.X, vertex.FaceUv.Y)).ToArray();
+        var positions = new Vector3[source.Vertices.Length];
+        var normals = new Vector3[source.Vertices.Length];
+        var textureUvs = new Vector2[source.Vertices.Length];
+        var faceUvs = new Vector2[source.Vertices.Length];
         var custom = new float[source.Vertices.Length * 4];
         for (var index = 0; index < source.Vertices.Length; index++)
         {
             var vertex = source.Vertices[index];
+            positions[index] = new(vertex.Position.X, vertex.Position.Y, vertex.Position.Z);
+            normals[index] = new(vertex.Normal.X, vertex.Normal.Y, vertex.Normal.Z);
+            textureUvs[index] = new(vertex.TextureUv.X, vertex.TextureUv.Y);
+            faceUvs[index] = new(vertex.FaceUv.X, vertex.FaceUv.Y);
             custom[index * 4] = (int)vertex.ExposedEdges;
             custom[index * 4 + 1] = vertex.RelativeHeight;
             custom[index * 4 + 2] = vertex.Damage;
         }
+        arrays[(int)Mesh.ArrayType.Vertex] = positions;
+        arrays[(int)Mesh.ArrayType.Normal] = normals;
+        arrays[(int)Mesh.ArrayType.TexUV] = textureUvs;
+        arrays[(int)Mesh.ArrayType.TexUV2] = faceUvs;
         arrays[(int)Mesh.ArrayType.Custom0] = custom;
         var indices = source.TriangleIndices.ToArray();
         // 契约为外侧看 CCW，Godot 为 CW；不反转外向法线。
