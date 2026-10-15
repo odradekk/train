@@ -21,6 +21,11 @@ public sealed class ProductionTests
         Assert.AreEqual(7L, Stock(session, Input));
         Assert.AreEqual(1L, Stock(session, OtherProduct));
         Assert.AreEqual(ProductionState.WaitingForInputs, Read(session).State);
+        var blocker = Read(session).Blockers.Single();
+        Assert.AreEqual("inputs_missing", blocker.Code);
+        Assert.AreEqual("Facility", blocker.Field);
+        Assert.AreEqual(new WorldObjectId.Instance(new InstanceId.Building(Facility.Building)), blocker.Subject);
+        Assert.IsTrue(blocker.RelatedIdentities.IsEmpty);
         Assert.IsNull(Read(session).Batch);
     }
 
@@ -38,6 +43,7 @@ public sealed class ProductionTests
         Step(session);
         Assert.AreEqual(8L, Stock(session, Input));
         Assert.AreEqual(1d, Read(session).Batch!.ProgressWork, 1e-12);
+        CollectionAssert.AreEqual(new[] { WorkLimit.Capability }, Read(session).Limits.ToArray());
         var working = session.Read();
         var finished = Step(session);
         Assert.IsNull(Read(session).Batch);
@@ -62,7 +68,7 @@ public sealed class ProductionTests
         Step(session);
         Assert.AreEqual(.5, Read(session).Batch!.ProgressWork, 1e-12);
         Assert.AreEqual(30d, Read(session).ActualWorkPerSecond, 1e-12);
-        CollectionAssert.Contains(Read(session).Limits.ToArray(), WorkLimit.Power);
+        CollectionAssert.AreEqual(new[] { WorkLimit.Power }, Read(session).Limits.ToArray());
         Step(session, 3);
         Assert.AreEqual(1d, Read(session).Batch!.ProgressWork, 1e-12);
         Assert.AreEqual(0d, Read(session).ActualWorkPerSecond);
@@ -86,12 +92,30 @@ public sealed class ProductionTests
         var batch = limited.Settlements.Single().ProductionFacilities.Single().Batch!;
         Assert.AreEqual(.25, batch.ProgressWork, 1e-12);
         Assert.AreEqual(15d, limited.Settlements.Single().ProductionFacilities.Single().LastActualWorkPerSecond, 1e-12);
-        CollectionAssert.Contains(limited.Settlements.Single().ProductionFacilities.Single().LastLimits.ToArray(), WorkLimit.Labor);
+        CollectionAssert.AreEqual(new[] { WorkLimit.Labor }, limited.Settlements.Single().ProductionFacilities.Single().LastLimits.ToArray());
         var paused = ProductionOperations.Advance(limited, state.Content, Settlement, 0, 3).World;
         Assert.AreEqual(.25, paused.Settlements.Single().ProductionFacilities.Single().Batch!.ProgressWork, 1e-12);
         var finished = ProductionOperations.Advance(paused, state.Content, Settlement, 240, 4).World;
         Assert.IsNull(finished.Settlements.Single().ProductionFacilities.Single().Batch);
         Assert.AreEqual(3L, finished.Inventories.Single(i => i.Id == LocalInventory).Goods.Single(g => g.Good == Product).Quantity);
+    }
+
+    [TestMethod]
+    [DataRow(30d, 15d, true)]
+    [DataRow(20d, 10d, false)]
+    public void Simultaneous_power_and_labor_demands_limit_work(double labor, double expectedRate, bool powerAlsoBinds)
+    {
+        var state = State(Content(stock: [new(Input, 2), new(Fuel, 2)], work: 4, rate: 120,
+            powerPerWork: 2, laborPerWork: 2, power: 30));
+        var started = ProductionOperations.Advance(state.World, state.Content, Settlement, labor, 0).World;
+        var advanced = ProductionOperations.Advance(started, state.Content, Settlement, labor, 1).World;
+        var runtime = advanced.Settlements.Single().ProductionFacilities.Single();
+        Assert.AreEqual(expectedRate, runtime.LastActualWorkPerSecond, 1e-12);
+        Assert.AreEqual(expectedRate / 60, runtime.Batch!.ProgressWork, 1e-12);
+        Assert.AreEqual(240d, runtime.LastPowerDemand);
+        Assert.AreEqual(expectedRate * 2, runtime.LastActualSupply, 1e-12);
+        CollectionAssert.AreEqual(powerAlsoBinds ? new[] { WorkLimit.Power, WorkLimit.Labor } : new[] { WorkLimit.Labor },
+            runtime.LastLimits.ToArray());
     }
 
     [TestMethod]
@@ -109,7 +133,13 @@ public sealed class ProductionTests
         Publish(session, updated);
         Assert.IsTrue(Read(session).Batch!.CurrentSpecificationDiffers);
         Assert.AreEqual(2L, Read(session).Batch!.FrozenWorkRequired);
-        Step(session, 2);
+        var finished = Step(session, 2);
+        var completed = finished.Events.Select(e => e.Event).OfType<CoreEvent.ProductionCompleted>().Single();
+        Assert.AreEqual(Facility, completed.Facility);
+        Assert.AreEqual(Process, completed.Process);
+        Assert.AreEqual(content.Processes[0].Revision, completed.StartedFromRevision);
+        CollectionAssert.AreEqual(new[] { new GoodsQuantity(Product, 3) }, completed.Outputs.ToArray());
+        Assert.IsFalse(completed.Buffered);
         Assert.AreEqual(3L, Stock(session, Product));
         Step(session);
         Assert.AreEqual(5L, Stock(session, Input));
@@ -128,12 +158,20 @@ public sealed class ProductionTests
         Assert.AreEqual(Recovery, Read(session).Batch!.Process);
         Assert.AreEqual(0L, Stock(session, Input));
         var completed = Step(session);
+        var production = completed.Events.Select(e => e.Event).OfType<CoreEvent.ProductionCompleted>().Single();
+        Assert.AreEqual(Facility, production.Facility);
+        Assert.AreEqual(Recovery, production.Process);
+        Assert.AreEqual(WorldFixture.Revision, production.StartedFromRevision);
+        CollectionAssert.AreEqual(new[] { new GoodsQuantity(Product, 3) }, production.Outputs.ToArray());
+        Assert.IsTrue(production.Buffered);
         Assert.AreEqual(1L, Stock(session, Product));
         Assert.AreEqual(new GoodsQuantity(Product, 2), Read(session).OutputBuffer.Single());
         Assert.AreEqual(ProductionState.OutputBlocked, Read(session).State);
         var change = completed.Events.Select(e => e.Event).OfType<CoreEvent.ProductionStateChanged>().Single();
         Assert.AreEqual(ProductionState.Running, change.Before);
         Assert.AreEqual(ProductionState.OutputBlocked, change.After);
+        CollectionAssert.AreEqual(new[] { "output_blocked" }, change.Reasons.Select(r => r.Code).ToArray());
+        CollectionAssert.AreEqual(new[] { "output_blocked" }, Read(session).Blockers.Select(r => r.Code).ToArray());
     }
 
     [TestMethod]
@@ -162,7 +200,11 @@ public sealed class ProductionTests
             outputs: [new(OtherProduct, 3), new(Product, 3)]);
         using var candidate = Prepare(content);
         using var session = candidate.Activate();
-        Step(session, 2);
+        Step(session);
+        Assert.IsFalse(Read(session).Batch!.CurrentSpecificationDiffers);
+        CollectionAssert.AreEqual(new[] { new GoodsQuantity(Product, 3), new GoodsQuantity(OtherProduct, 3) },
+            Read(session).Batch!.FrozenOutputs.ToArray());
+        Step(session);
         Assert.AreEqual(2L, Stock(session, Product));
         Assert.AreEqual(0L, Stock(session, OtherProduct));
         CollectionAssert.AreEqual(new[] { new GoodsQuantity(Product, 1), new GoodsQuantity(OtherProduct, 3) }, Read(session).OutputBuffer.ToArray());
@@ -193,7 +235,9 @@ public sealed class ProductionTests
             Goods = extraStock == 0 ? [] : [new(OtherProduct, extraStock)],
             Reservations = reserved == 0 ? [] : [new(new(1), reserved, [])]
         }).ToImmutableArray() };
-        using var session = new CoreSession(state with { World = world });
+        var saved = WorldFixture.Success(CoreFactory.Create().DecodeState(new CoreCapture(state with { World = world }).Encode()));
+        using var candidate = WorldFixture.Success(CoreFactory.Create().PrepareRestore(saved, state.Content, WorldFixture.Options));
+        using var session = candidate.Activate();
         Step(session);
         Assert.AreEqual(0L, Stock(session, Product));
         Assert.AreEqual(new GoodsQuantity(Product, 3), Read(session).OutputBuffer.Single());
@@ -217,6 +261,15 @@ public sealed class ProductionTests
         Publish(session, zero);
         Assert.AreEqual(ProductionState.ZeroCapability, Read(session).State);
         Assert.AreEqual(3L, Read(session).OutputBuffer.Sum(g => g.Quantity) + Stock(session, Product));
+        var expanded = Changed(zero, 'B') with { Designs = zero.Designs.Select(d => d.Design != WorldFixture.Station ? d : d with
+        { Parts = d.Parts.Select(p => p with { Capabilities = p.Capabilities.Select(c => c is PartCapability.Storage
+            ? new PartCapability.Storage(10) : c).ToImmutableArray() }).ToImmutableArray() }).ToImmutableArray() };
+        Publish(session, expanded);
+        Step(session);
+        Assert.AreEqual(ProductionState.ZeroCapability, Read(session).State);
+        Assert.IsTrue(Read(session).OutputBuffer.IsEmpty);
+        Assert.AreEqual(3L, Stock(session, Product));
+        Assert.IsNull(Read(session).Batch);
 
         var disabledContent = Content(enabled: false);
         disabledContent = disabledContent with
@@ -234,16 +287,21 @@ public sealed class ProductionTests
     }
 
     [TestMethod]
-    public void Changed_conditions_allow_existing_batch_to_finish()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Changed_conditions_allow_existing_batch_to_finish(bool changeTag)
     {
         var content = Content();
         using var candidate = Prepare(content);
         using var session = candidate.Activate();
         Step(session);
-        var published = Publish(session, Changed(content) with { Processes = [content.Processes[0] with { AllowedTerrainTypes = [WorldFixture.Hills] }] });
+        var process = changeTag ? content.Processes[0] with { RequiredFacilityTag = FacilityTag.Assembly }
+            : content.Processes[0] with { AllowedTerrainTypes = [WorldFixture.Hills] };
+        var published = Publish(session, Changed(content) with { Processes = [process] });
         var change = published.Events.Select(e => e.Event).OfType<CoreEvent.ProductionStateChanged>().Single();
         Assert.AreEqual(ProductionState.Running, change.Before);
         Assert.AreEqual(ProductionState.ConditionsNotMet, change.After);
+        CollectionAssert.AreEqual(new[] { "conditions_not_met" }, change.Reasons.Select(r => r.Code).ToArray());
         Step(session, 2);
         Assert.AreEqual(3L, Stock(session, Product));
         Assert.AreEqual(ProductionState.ConditionsNotMet, Read(session).State);

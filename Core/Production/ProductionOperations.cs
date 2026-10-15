@@ -113,6 +113,6 @@ internal static class ProductionOperations
         };
         var events = completed.Select(c => (CoreEvent)new CoreEvent.ProductionCompleted(c.Key, c.Batch.Process,
             c.Batch.StartedFromRevision, c.Batch.FrozenOutputs, !facilities[c.Key.Building].OutputBuffer.IsEmpty)).ToImmutableArray();
-        return (world, events.AddRange(ProductionQueries.StateChanges(before, content, world, content, id)));
+        return (world, events);
     }
 }
