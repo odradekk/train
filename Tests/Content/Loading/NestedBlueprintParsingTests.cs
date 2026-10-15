@@ -1,0 +1,191 @@
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Train.Content.Loading;
+using C = Train.Content.Contracts;
+
+namespace Train.Content.Tests.Loading;
+
+[TestClass]
+public sealed class NestedBlueprintParsingTests
+{
+    [TestMethod]
+    public void Nested_copies_references_and_rotation_survive_serialization()
+    {
+        var root = Design("large_equipment");
+        var child = Design("large_equipment");
+        child["appearance"] = JsonNode.Parse("""{"behaviors":{"rotation":{"axis":"z","pivot":[1,-2,3],"range":[-37.5,89.25],"speed":12.5}}}""");
+        child["layout"]!["composites"] = JsonNode.Parse("""[{"at":[1,2,3],"orientation":"pz_py","blueprint":"core:engine","paint":"#123456"}]""");
+        AddCopy(root, child);
+        var draft = Read(root);
+        var copy = (C.NestedDesignItem.AssemblyCopy)draft.Layout.NestedItems.Single();
+        Assert.AreEqual(new C.RotationAppearance(C.RotationAxis.Z, new(1, -2, 3), -37.5, 89.25, 12.5), ((C.DesignSpecification.Assembly)copy.Design.Specification).Rotation);
+        var reference = (C.NestedDesignItem.FunctionalCompositeReference)copy.Design.Layout.NestedItems.Single();
+        Assert.AreEqual("core:engine", reference.Definition.Value);
+        Assert.AreEqual("#123456", reference.Paint!.Value.Value);
+        RoundTrip(draft);
+    }
+
+    [TestMethod]
+    public void Four_layers_are_valid_and_fifth_is_invalid()
+    {
+        var root = Design("scene_model");
+        var cursor = root;
+        for (var i = 1; i < 4; i++)
+        {
+            var child = Design("scene_model");
+            AddCopy(cursor, child);
+            cursor = child;
+        }
+        Assert.IsInstanceOfType<C.NestedDesignItem.SceneModelCopy>(Read(root).Layout.NestedItems.Single());
+        RoundTrip(Read(root));
+        var fixture = DesignFixtures.Content();
+        using (var candidate = fixture.Load())
+            Assert.IsTrue(DesignFixtures.Evaluate(candidate.View, Read(root)).IsValid);
+        AddCopy(cursor, Design("scene_model"));
+        AssertInvalid(root, "/layout/composites/0/design/layout/composites/0/design/layout/composites/0/design/layout/composites/0");
+    }
+
+    [TestMethod]
+    public void Four_layers_with_deepest_rotation_load_and_round_trip_capture()
+    {
+        var root = Design("large_equipment");
+        var cursor = root;
+        for (var level = 1; level < 4; level++)
+        {
+            cursor["layout"]!["cells"] = new JsonArray();
+            var child = Design("large_equipment");
+            AddCopy(cursor, child);
+            cursor = child;
+        }
+        cursor["appearance"] = JsonNode.Parse("""{"behaviors":{"rotation":{"axis":"y","pivot":[0,0,0],"range":[0,15],"speed":20}}}""");
+        root["schema_version"] = 3;
+        root["id"] = "four-layers";
+        var fixture = DesignFixtures.Content();
+        WorldContentFixtures.AddBlueprint(fixture, root);
+        using var candidate = fixture.Load();
+        var record = WorldContentFixtures.Found(candidate.View.FindBlueprint(new(C.BlueprintLibrary.Packages, new("core:four-layers"))));
+        var evaluated = (C.DesignEvaluation.Complete)record.Evaluation;
+        Assert.IsTrue(evaluated.IsValid);
+        Assert.AreEqual(3, evaluated.Scene.RotationSweeps.Single().NestedItemIndices.Length);
+        var factory = ContentFactory.Create();
+        var saved = ContentCaptureTests.Success(factory.Capture(candidate.View, ContentCaptureTests.References(candidate.View)));
+        var decoded = ContentCaptureTests.Success(factory.DecodeCapture(saved.Encode()));
+        Assert.AreEqual(saved.Encode(), decoded.Encode());
+    }
+
+    [TestMethod]
+    public void Copied_functional_specification_and_category_mismatch_are_invalid()
+    {
+        var root = Design("large_equipment");
+        var child = Design("large_equipment");
+        var functional = Design("large_equipment");
+        functional["simulation"] = JsonNode.Parse("""{"behaviors":{"control":{}}}""");
+        AddCopy(child, functional);
+        AddCopy(root, child);
+        AssertInvalid(root, "/layout/composites/0/design/layout/composites/0/design/category");
+        var scene = Design("scene_model");
+        AddCopy(scene, Design("large_equipment"));
+        AssertInvalid(scene, "/layout/composites/0/design/category");
+    }
+
+    [TestMethod]
+    public void Functional_behaviors_round_trip_and_keep_voxel_validation_rules()
+    {
+        var root = Design("large_equipment");
+        root["simulation"] = JsonNode.Parse("""{"behaviors":{"propulsion":{"traction":10,"rated_speed":20},"control":{},"storage":{"capacity":30},"production":{"work_rate":2},"extraction":{"work_rate":3},"construction":{"work_rate":4,"max_size_class":"extra_large"},"power":{"output":5},"weapon":{"damage":6,"interval":0.5},"platform":{}}}""");
+        var draft = Read(root);
+        Assert.AreEqual(9, ((C.DesignSpecification.FunctionalComposite)draft.Specification).Behaviors.Length);
+        RoundTrip(draft);
+        root["simulation"]!["behaviors"]!["weapon"]!["damage"] = 0;
+        Assert.ThrowsExactly<DefinitionFormatException>(() => Read(root));
+    }
+
+    [TestMethod]
+    public void Duplicate_origins_and_nested_functional_definition_are_invalid()
+    {
+        var root = Design("large_equipment");
+        AddCopy(root, Design("large_equipment"));
+        root["layout"]!["composites"]!.AsArray().Add(root["layout"]!["composites"]![0]!.DeepClone());
+        AssertInvalid(root, "/layout/composites/1/at");
+        root["layout"]!["composites"]!.AsArray().RemoveAt(1);
+        root["simulation"] = JsonNode.Parse("""{"behaviors":{"control":{}}}""");
+        AssertInvalid(root, "/layout/composites/0");
+    }
+
+    private static void AssertInvalid(JsonObject root, string field)
+    {
+        var draft = Read(root);
+        var fixture = DesignFixtures.Content();
+        using (var basis = fixture.Load())
+        {
+            var evaluation = draft.Specification is C.DesignSpecification.FunctionalComposite
+                ? Train.Content.Designs.DesignEvaluator.Evaluate((ContentView)basis.View, draft, compositeIdentity: new("core:test"))
+                : ContentCaptureTests.Success(ContentFactory.Create().EvaluateDesign(basis.View, draft));
+            Assert.IsInstanceOfType<C.DesignEvaluation.Complete>(evaluation);
+            var complete = (C.DesignEvaluation.Complete)evaluation;
+            Assert.IsFalse(complete.IsValid);
+            if (draft.Specification is not C.DesignSpecification.SceneModel)
+            {
+                Assert.IsNotNull(complete.Core);
+                Assert.IsFalse(complete.Core.Design.CanConstruct);
+            }
+            Assert.IsTrue(complete.Diagnostics.Any(d => d.Code == "design_invalid" && d.Field == field));
+        }
+
+        const string package = "11111111-1111-4111-8111-111111111111";
+        fixture.AddFile(ContentFixture.Mods, "nested/mod.json", $$"""
+            {"schema_version":2,"id":"{{package}}","name":"包","version":"1.0.0","authors":["作者"],"dependencies":[]}
+            """);
+        fixture.AddDirectory(ContentFixture.Mods, "nested/resources");
+        fixture.Installation = fixture.Installation with { EnabledMods = fixture.Installation.EnabledMods.Add(new(package)) };
+        var invalid = (JsonObject)root.DeepClone();
+        invalid["schema_version"] = 3;
+        invalid["id"] = "invalid";
+        fixture.AddFile(ContentFixture.Mods, "nested/resources/blueprints/invalid.blueprint.json", invalid.ToJsonString());
+        var valid = DesignFixtures.Blueprint("valid");
+        valid["layout"]!["palette"]![0]!["voxel"] = "core:block";
+        fixture.AddFile(ContentFixture.Mods, "nested/resources/blueprints/valid.blueprint.json", valid.ToJsonString());
+        using var candidate = fixture.Load();
+        var status = candidate.Report.Packages.Single(p => p.Metadata?.Id.Value == package);
+        Assert.AreEqual(C.PackageState.Invalid, status.State);
+        Assert.IsTrue(status.Diagnostics.Any(d => d.Code == "design_invalid" && d.Field == field),
+            string.Join("\n", status.Diagnostics.Select(d => $"{d.Code} {d.Field}: {d.Message}")));
+        Assert.IsFalse(status.Diagnostics.Any(d => d.Code == "invalid_field"));
+        Assert.IsFalse(candidate.View.Blueprints.Any(b => b.Address.Id.Value.StartsWith(package + ":", StringComparison.Ordinal)));
+    }
+
+    private static JsonObject Design(string category) => new()
+    {
+        ["category"] = category,
+        ["display"] = new JsonObject { ["name"] = "design", ["description"] = "test" },
+        ["layout"] = new JsonObject
+        {
+            ["palette"] = new JsonArray(new JsonObject { ["voxel"] = category == "scene_model" ? "core:scenery" : "core:block" }),
+            ["cells"] = new JsonArray(new JsonArray(0, 0, 0, 0))
+        }
+    };
+    private static void AddCopy(JsonObject parent, JsonObject child) =>
+        parent["layout"]!["composites"] = new JsonArray(new JsonObject
+        {
+            ["at"] = new JsonArray(0, 0, 1), ["design"] = child
+        });
+    private static C.DesignDraft Read(JsonObject root)
+    {
+        using var document = JsonDocument.Parse(root.ToJsonString());
+        return BlueprintParser.ReadDesign(document.RootElement);
+    }
+    private static void RoundTrip(C.DesignDraft draft) => Assert.AreEqual(Serialize(draft), Serialize(Read(JsonNode.Parse(Serialize(draft))!.AsObject())));
+    private static string Serialize(C.DesignDraft draft)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            BlueprintParser.WriteDesign(writer, draft);
+            writer.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+}
