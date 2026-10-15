@@ -41,7 +41,7 @@ public sealed class AutomaticRecoveryTests
         var original = session.Read().Economy.RecentRunReports.Single(r => !r.Totals.IncompleteRules.IsEmpty);
         Assert.AreEqual(new Money(97), original.Totals.PurchasePayments);
 
-        var removed = content with { Identity = new(new string('D', 64)),
+        var removed = content with { Identity = new(new string('F', 64)),
             Goods = content.Goods.Where(g => g.Good != good).ToImmutableArray() };
         var capture = WorldFixture.Success(session.Capture(CapturePurpose.Save));
         InventoryFixture.Accept(session, new CoreCommand.PublishContent(removed));
