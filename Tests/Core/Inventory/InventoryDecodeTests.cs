@@ -12,6 +12,23 @@ namespace Train.Core.Tests.Inventory;
 public sealed class InventoryDecodeTests
 {
     [TestMethod]
+    public void Parked_npc_vehicle_round_trips_but_cannot_belong_to_a_different_relation()
+    {
+        using var session = VehicleTradeTests.Parked();
+        var town = session.State.World.Settlements.Single();
+        InventoryFixture.Accept(session, new CoreCommand.SellVehicle(town.Id, new(1), new(0)));
+        var factory = CoreFactory.Create();
+        var capture = WorldFixture.Success(session.Capture(CapturePurpose.Save));
+        Assert.AreEqual(capture.Encode(), WorldFixture.Success(factory.DecodeState(capture.Encode())).Encode());
+        var modified = JsonNode.Parse(capture.Encode())!;
+        var vehicle = modified["world"]!["instances"]!.AsArray().Single(i => i!["id"]!["$kind"]!.GetValue<string>() == "vehicle")!;
+        vehicle["ownership"] = (int)SettlementRelation.Hostile;
+        var failure = (CoreResult<ICoreCapture>.Failure)factory.DecodeState(modified.ToJsonString());
+        Assert.AreEqual("invalid_state", failure.Problems.Single().Code);
+        Assert.AreEqual("/world/settlements/parked_vehicles", failure.Problems.Single().Field);
+    }
+
+    [TestMethod]
     public void Lease_and_reservation_survive_capture_and_checkpoint_round_trip()
     {
         var capture = new CoreCapture(State());

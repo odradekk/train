@@ -6,10 +6,12 @@ namespace Train.Ui;
 
 internal static class UiInput
 {
+    internal const ulong StepsPerDay = SimulationTime.StepsPerSecond * 60UL * 60 * 24;
+
     internal static string FormatTime(ulong completedSteps)
     {
-        var minutes = completedSteps / (ulong)SimulationTime.StepsPerSecond / 60;
-        return $"第{minutes / 1440 + 1}天 {minutes / 60 % 24:00}:{minutes % 60:00}";
+        var minutes = completedSteps % StepsPerDay / (ulong)SimulationTime.StepsPerSecond / 60;
+        return $"第{completedSteps / StepsPerDay + 1}天 {minutes / 60:00}:{minutes % 60:00}";
     }
 }
 

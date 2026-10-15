@@ -158,6 +158,60 @@ public sealed class CoreCommandEncodingTests
         Assert.ThrowsExactly<NotImplementedException>(() => CoreCommandEncoding.Encode(command));
     }
 
+    [TestMethod]
+    public void Trades_have_fixed_canonical_vectors_and_accept_reordered_fields()
+    {
+        var good = new GoodId.Voxel(new("fixture:ore"));
+        (CoreCommand Command, string Kind, string Fields)[] vectors = [
+            (new CoreCommand.BuyGoods(new(1), new(2), new(3), good, 4, new(5)), "market.buy_goods", "\"train\":1,\"settlement\":2,\"local_inventory\":3,\"good\":{\"kind\":\"voxel\",\"definition\":\"fixture:ore\"},\"quantity\":4,\"maximum_payment\":5"),
+            (new CoreCommand.SellGoods(new(1), new(2), new(3), good, 4, new(5)), "market.sell_goods", "\"train\":1,\"settlement\":2,\"local_inventory\":3,\"good\":{\"kind\":\"voxel\",\"definition\":\"fixture:ore\"},\"quantity\":4,\"minimum_receipt\":5"),
+            (new CoreCommand.BuyVehicle(new(2), new(3), new(5)), "market.buy_vehicle", "\"seller\":2,\"vehicle\":3,\"maximum_payment\":5"),
+            (new CoreCommand.SellVehicle(new(2), new(3), new(5)), "market.sell_vehicle", "\"buyer\":2,\"vehicle\":3,\"minimum_receipt\":5")];
+        foreach (var (command, kind, fields) in vectors)
+        {
+            var payload = "{\"input_format_version\":2,\"kind\":\"" + kind + "\"," + fields + "}";
+            Assert.AreEqual(payload, CoreCommandEncoding.Encode(command));
+            Assert.AreEqual(command, Decode(payload));
+            using var document = System.Text.Json.JsonDocument.Parse(payload);
+            var reordered = "{" + string.Join(",", document.RootElement.EnumerateObject().Reverse()
+                .Select(property => "\"" + property.Name + "\":" + property.Value.GetRawText())) + "}";
+            Assert.AreEqual(command, Decode(reordered));
+        }
+    }
+
+    [TestMethod]
+    [DataRow("buy_goods", "\"train\":1", "\"train\":0", "/train")]
+    [DataRow("sell_goods", "\"settlement\":2", "\"settlement\":-1", "/settlement")]
+    [DataRow("buy_goods", "\"local_inventory\":3", "\"local_inventory\":18446744073709551616", "/local_inventory")]
+    [DataRow("sell_goods", "\"quantity\":4", "\"quantity\":0", "/quantity")]
+    [DataRow("buy_goods", "\"quantity\":4", "\"quantity\":-1", "/quantity")]
+    [DataRow("sell_goods", "\"quantity\":4", "\"quantity\":9223372036854775808", "/quantity")]
+    [DataRow("buy_goods", "\"maximum_payment\":5", "\"maximum_payment\":-1", "/maximum_payment")]
+    [DataRow("sell_goods", "\"minimum_receipt\":5", "\"minimum_receipt\":1.5", "/minimum_receipt")]
+    [DataRow("buy_goods", "\"definition\":\"fixture:ore\"", "\"definition\":\"bad id\"", "/good/definition")]
+    [DataRow("sell_goods", "\"train\":1,", "", "/train")]
+    [DataRow("buy_goods", "\"train\":1", "\"train\":1,\"train\":2", "/train")]
+    [DataRow("sell_goods", "\"train\":1", "\"train\":1,\"extra\":2", "/extra")]
+    [DataRow("buy_vehicle", "\"seller\":2", "\"seller\":0", "/seller")]
+    [DataRow("sell_vehicle", "\"buyer\":2", "\"buyer\":1.5", "/buyer")]
+    [DataRow("buy_vehicle", "\"vehicle\":3", "\"vehicle\":0", "/vehicle")]
+    [DataRow("sell_vehicle", "\"minimum_receipt\":5", "\"minimum_receipt\":-1", "/minimum_receipt")]
+    [DataRow("buy_vehicle", "\"maximum_payment\":5", "\"maximum_payment\":9223372036854775808", "/maximum_payment")]
+    [DataRow("sell_vehicle", ",\"minimum_receipt\":5", "", "/minimum_receipt")]
+    [DataRow("buy_vehicle", "\"vehicle\":3", "\"vehicle\":3,\"vehicle\":4", "/vehicle")]
+    [DataRow("sell_vehicle", "\"vehicle\":3", "\"vehicle\":3,\"extra\":2", "/extra")]
+    public void Trade_payload_fields_are_strict(string kind, string from, string to, string field)
+    {
+        var fields = kind.EndsWith("goods", StringComparison.Ordinal)
+            ? "\"train\":1,\"settlement\":2,\"local_inventory\":3,\"good\":{\"kind\":\"voxel\",\"definition\":\"fixture:ore\"},\"quantity\":4"
+            : (kind == "buy_vehicle" ? "\"seller\":2" : "\"buyer\":2") + ",\"vehicle\":3";
+        fields += kind.StartsWith("buy", StringComparison.Ordinal) ? ",\"maximum_payment\":5" : ",\"minimum_receipt\":5";
+        var payload = "{\"input_format_version\":2,\"kind\":\"market." + kind + "\"," + fields + "}";
+        var failure = (CoreResult<DecodedCommand>.Failure)CoreCommandEncoding.Decode(payload.Replace(from, to, StringComparison.Ordinal));
+        Assert.AreEqual("invalid_state", failure.Problems.Single().Code);
+        Assert.AreEqual(field, failure.Problems.Single().Field);
+    }
+
     private static CoreCommand Decode(string payload)
     {
         var decoded = ((CoreResult<DecodedCommand>.Success)CoreCommandEncoding.Decode(payload)).Value;

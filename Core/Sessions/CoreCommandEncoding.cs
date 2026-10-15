@@ -30,11 +30,33 @@ internal static class CoreCommandEncoding
                 CoreCommand.DebugAddRailBreak => "rail.debug_add_break",
                 CoreCommand.LoadGoods => "inventory.load_goods",
                 CoreCommand.UnloadGoods => "inventory.unload_goods",
+                CoreCommand.BuyGoods => "market.buy_goods",
+                CoreCommand.SellGoods => "market.sell_goods",
+                CoreCommand.BuyVehicle => "market.buy_vehicle",
+                CoreCommand.SellVehicle => "market.sell_vehicle",
                 CoreCommand.AcquireLease => "lease.acquire",
                 _ => throw new NotImplementedException($"{command.GetType().Name} 尚未实现。")
             });
             switch (command)
             {
+                case CoreCommand.BuyGoods buy:
+                    WriteTransfer(writer, buy.Train, buy.Settlement, buy.LocalInventory, buy.Good, buy.Quantity);
+                    WriteMoney(writer, "maximum_payment", buy.MaximumPayment.Value);
+                    break;
+                case CoreCommand.SellGoods sell:
+                    WriteTransfer(writer, sell.Train, sell.Settlement, sell.LocalInventory, sell.Good, sell.Quantity);
+                    WriteMoney(writer, "minimum_receipt", sell.MinimumReceipt.Value);
+                    break;
+                case CoreCommand.BuyVehicle buy:
+                    WriteIdentity(writer, "seller", buy.Seller.Value);
+                    WriteIdentity(writer, "vehicle", buy.Vehicle.Value);
+                    WriteMoney(writer, "maximum_payment", buy.MaximumPayment.Value);
+                    break;
+                case CoreCommand.SellVehicle sell:
+                    WriteIdentity(writer, "buyer", sell.Buyer.Value);
+                    WriteIdentity(writer, "vehicle", sell.Vehicle.Value);
+                    WriteMoney(writer, "minimum_receipt", sell.MinimumReceipt.Value);
+                    break;
                 case CoreCommand.LoadGoods load:
                     WriteTransfer(writer, load.Train, load.Settlement, load.LocalInventory, load.Good, load.Quantity);
                     break;
@@ -150,6 +172,10 @@ internal static class CoreCommandEncoding
                 "rail.debug_add_break" => ["input_format_version", "kind", "edge", "track", "distance_meters"],
                 "inventory.load_goods" or "inventory.unload_goods" => ["input_format_version", "kind", "train", "settlement", "local_inventory", "good", "quantity"],
                 "lease.acquire" => ["input_format_version", "kind", "request", "maximum_payment"],
+                "market.buy_goods" => ["input_format_version", "kind", "train", "settlement", "local_inventory", "good", "quantity", "maximum_payment"],
+                "market.sell_goods" => ["input_format_version", "kind", "train", "settlement", "local_inventory", "good", "quantity", "minimum_receipt"],
+                "market.buy_vehicle" => ["input_format_version", "kind", "seller", "vehicle", "maximum_payment"],
+                "market.sell_vehicle" => ["input_format_version", "kind", "buyer", "vehicle", "minimum_receipt"],
                 _ => null
             };
             if (fields is null) return Failure("unsupported_format", "/kind");
@@ -170,16 +196,32 @@ internal static class CoreCommandEncoding
                 if (!payment.TryGetInt64(out var money) || money < 0) throw new InvalidField("/maximum_payment");
                 return Success(new(null, new CoreCommand.AcquireLease(leaseRequest, new(money))));
             }
-            if (name is "inventory.load_goods" or "inventory.unload_goods")
+            if (name is "market.buy_vehicle" or "market.sell_vehicle")
+            {
+                var partyName = name == "market.buy_vehicle" ? "seller" : "buyer";
+                var party = new SettlementId(Identity(Property(root, partyName, "", JsonValueKind.Number), "/" + partyName));
+                var vehicle = new VehicleId(Identity(Property(root, "vehicle", "", JsonValueKind.Number), "/vehicle"));
+                var moneyName = name == "market.buy_vehicle" ? "maximum_payment" : "minimum_receipt";
+                var money = ReadMoney(root, moneyName);
+                return Success(new(null, name == "market.buy_vehicle"
+                    ? new CoreCommand.BuyVehicle(party, vehicle, money)
+                    : new CoreCommand.SellVehicle(party, vehicle, money)));
+            }
+            if (name is "inventory.load_goods" or "inventory.unload_goods" or "market.buy_goods" or "market.sell_goods")
             {
                 var transferTrain = new TrainId(Identity(Property(root, "train", "", JsonValueKind.Number), "/train"));
                 var settlement = new SettlementId(Identity(Property(root, "settlement", "", JsonValueKind.Number), "/settlement"));
                 var inventory = new InventoryId(Identity(Property(root, "local_inventory", "", JsonValueKind.Number), "/local_inventory"));
                 var good = ReadGood(Property(root, "good", "", JsonValueKind.Object));
                 var quantity = Positive(Property(root, "quantity", "", JsonValueKind.Number), "/quantity");
-                return Success(new(null, name == "inventory.load_goods"
-                    ? new CoreCommand.LoadGoods(transferTrain, settlement, inventory, good, quantity)
-                    : new CoreCommand.UnloadGoods(transferTrain, settlement, inventory, good, quantity)));
+                CoreCommand transfer = name switch
+                {
+                    "inventory.load_goods" => new CoreCommand.LoadGoods(transferTrain, settlement, inventory, good, quantity),
+                    "inventory.unload_goods" => new CoreCommand.UnloadGoods(transferTrain, settlement, inventory, good, quantity),
+                    "market.buy_goods" => new CoreCommand.BuyGoods(transferTrain, settlement, inventory, good, quantity, ReadMoney(root, "maximum_payment")),
+                    _ => new CoreCommand.SellGoods(transferTrain, settlement, inventory, good, quantity, ReadMoney(root, "minimum_receipt"))
+                };
+                return Success(new(null, transfer));
             }
             if (name == "content.publish")
             {
@@ -261,6 +303,19 @@ internal static class CoreCommandEncoding
     {
         if (value <= 0) throw new ArgumentException("数量必须为正。", name);
         writer.WriteNumber(name, value);
+    }
+
+    private static void WriteMoney(Utf8JsonWriter writer, string name, long value)
+    {
+        if (value < 0) throw new ArgumentException("金额必须非负。", name);
+        writer.WriteNumber(name, value);
+    }
+
+    private static Money ReadMoney(JsonElement root, string name)
+    {
+        var value = Property(root, name, "", JsonValueKind.Number);
+        if (!value.TryGetInt64(out var money) || money < 0) throw new InvalidField("/" + name);
+        return new(money);
     }
 
     private static long Positive(JsonElement value, string field)
