@@ -113,6 +113,7 @@ public partial class GameUi : CanvasLayer
             _economy = new EconomyPanels { Name = "EconomyPanels" };
             _economy.Initialize(_host, Submit, _icons);
             _world.AddChild(_economy);
+            _bar.AddChild(UiStyle.Button("EconomyReports", "经营报告", _economy.OpenReports));
             _panels.SettlementRequested += _economy.OpenSettlement;
             _panels.InventoryRequested += _economy.OpenTrainInventory;
             _economy.FormationRequested += _formation.Open;
@@ -243,6 +244,7 @@ public partial class GameUi : CanvasLayer
         _map.SetView(view, content, _binding != binding);
         _icons.Bind(binding, content);
         _binding = binding; _view = view; _content = content;
+        _economy!.Refresh(binding, view, content);
         _menu.Hide(); _world.Show();
     }
 
