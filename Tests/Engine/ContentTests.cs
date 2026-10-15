@@ -124,7 +124,7 @@ public class ContentTests(Node testScene) : TestClass(testScene)
             var before = Checkpoint(host);
             var file = Path.Combine(directory, "resources/voxels/staple-food.voxel.json");
             var definition = JsonNode.Parse(File.ReadAllText(file))!;
-            definition["simulation"]!["value"] = 13;
+            definition["simulation"]!["value"] = definition["simulation"]!["value"]!.GetValue<int>() + 1;
             File.WriteAllText(file, definition.ToJsonString());
             var console = app.GetChildren().OfType<GameConsole>().Single();
             console.SubmitLine("reload");
