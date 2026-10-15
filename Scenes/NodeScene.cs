@@ -267,15 +267,17 @@ internal sealed class NodeScene : IAsyncDisposable
                 ImmutableDictionary<GridColumn, double>.Empty);
         var left = (int)NodeLayout.StationX(station, layout.Platforms) + NodeLayout.PlatformClearance;
         var cells = ImmutableArray.CreateBuilder<SceneCell>();
+        var subject = new PickSubject.Terrain(new WorldLocation.Node(layout.Node));
+        VoxelShape? shape = ((VoxelPresentation.Cube)concrete.Presentation).Shapes.IsEmpty ? null : new("cube");
+        var plain = new CellProperties(VoxelOrientation.PxPy, concrete, shape, null, subject, []);
+        var warning = new CellProperties(VoxelOrientation.PxPy, concrete, shape, new("#d9a62b"), subject, []);
         for (var z = -NodeLayout.PlatformLength / 2; z < NodeLayout.PlatformLength / 2; z++)
         for (var x = left; x < left + NodeLayout.PlatformWidth; x++)
         for (var y = -1; y <= 0; y++)
         {
             var yellow = x == left || station + 1 < layout.Platforms && x == left + NodeLayout.PlatformWidth - 1;
             var at = layout.StationSample(x + .5, z + .5).Position;
-            cells.Add(new(new((int)Math.Floor(at.X), y, (int)Math.Floor(at.Z)), VoxelOrientation.PxPy, concrete,
-                ((VoxelPresentation.Cube)concrete.Presentation).Shapes.IsEmpty ? null : new("cube"),
-                yellow ? new("#d9a62b") : null, new PickSubject.Terrain(new WorldLocation.Node(layout.Node)), []));
+            cells.Add(new(new((int)Math.Floor(at.X), y, (int)Math.Floor(at.Z)), yellow ? warning : plain));
         }
         return GridPart(cells.ToImmutable(), ImmutableDictionary<GridColumn, double>.Empty, []);
     }
@@ -288,6 +290,8 @@ internal sealed class NodeScene : IAsyncDisposable
             (VoxelGrid.ChunkSize * VoxelGrid.ChunkSize - boundaryColumns.Count) * RailwayCoordinates.TerrainDepthCells;
         var cells = ImmutableArray.CreateBuilder<SceneCell>(cellCount);
         var heights = ImmutableDictionary.CreateBuilder<GridColumn, double>();
+        var subject = new PickSubject.Terrain(new WorldLocation.Node(node.Id));
+        var layers = RailwayTerrain.PrepareLayers(terrain, id => appearances.GetValueOrDefault(id), subject);
         for (var z = from.Z; z < from.Z + VoxelGrid.ChunkSize; z++)
         for (var x = from.X; x < from.X + VoxelGrid.ChunkSize; x++)
         {
@@ -296,8 +300,7 @@ internal sealed class NodeScene : IAsyncDisposable
             if (boundaryColumns.Contains(column)) continue;
             var (height, distance) = Column(column);
             heights.Add(column, height + 1);
-            RailwayTerrain.FillColumn(cells, column, height, terrain, terrain, distance, double.IsFinite(distance),
-                id => appearances.GetValueOrDefault(id), new PickSubject.Terrain(new WorldLocation.Node(node.Id)));
+            RailwayTerrain.FillColumn(cells, column, height, layers, layers?.Rock, distance, double.IsFinite(distance));
         }
         return GridPart(cells.DrainToImmutable(), heights.ToImmutable(), []);
 

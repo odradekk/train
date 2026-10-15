@@ -74,14 +74,27 @@ public sealed class GeometryTests
     }
 
     [TestMethod]
+    public void RevisitedChunksKeepCellsAndRejectOverlaps()
+    {
+        var first = new SceneCell(new(0, 0, 0), new(VoxelOrientation.PxPy, SceneFixtures.Cube, null,
+            null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), []));
+        ImmutableArray<SceneCell> cells = [first, first with { At = new(32, 0, 0) }, first with { At = new(1, 0, 0) }];
+        var grid = new VoxelGrid(cells);
+        Assert.AreEqual(cells.Length, grid.Count);
+        foreach (var cell in cells) Assert.AreEqual(cell, grid.Find(cell.At));
+        Assert.ThrowsExactly<ArgumentException>(() => new VoxelGrid([.. cells, first]));
+    }
+
+    [TestMethod]
     public void SameAppearanceKeepsIndependentPaintSubjectsAndPathsWithinChunk()
     {
-        var first = new SceneCell(new(0, 0, 0), VoxelOrientation.PxPy, SceneFixtures.Cube, null,
-            new("#ff0000"), new PickSubject.WorldObject(SceneFixtures.Subject, SceneFixtures.Design, new(1)), [1]);
+        var first = new SceneCell(new(0, 0, 0), new(VoxelOrientation.PxPy, SceneFixtures.Cube, null,
+            new("#ff0000"), new PickSubject.WorldObject(SceneFixtures.Subject, SceneFixtures.Design, new(1)), [1]));
         SceneCell[] cells = [first,
-            first with { At = new(2, 0, 0), Paint = new("#0000ff") },
-            first with { At = new(4, 0, 0), Subject = new PickSubject.WorldObject(SceneFixtures.Subject, SceneFixtures.Design, new(2)) },
-            first with { At = new(6, 0, 0), Path = [2] }];
+            new(new(2, 0, 0), new(first.Orientation, first.Appearance, first.Shape, new("#0000ff"), first.Subject, first.Path)),
+            new(new(4, 0, 0), new(first.Orientation, first.Appearance, first.Shape, first.Paint,
+                new PickSubject.WorldObject(SceneFixtures.Subject, SceneFixtures.Design, new(2)), first.Path)),
+            new(new(6, 0, 0), new(first.Orientation, first.Appearance, first.Shape, first.Paint, first.Subject, [2]))];
         var grid = new VoxelGrid([.. cells]);
         var meshes = DesignGeometry.Meshes(grid, false).OfType<SceneVisual.Geometry>().Select(item => item.Mesh).ToArray();
         Assert.HasCount(2, meshes);
@@ -106,24 +119,60 @@ public sealed class GeometryTests
     }
 
     [TestMethod]
+    public void MissingDefinitionsRemainDistinctWithOtherwiseEqualTerrainProperties()
+    {
+        var subject = new PickSubject.Terrain(new WorldLocation.Node(new(1)));
+        SceneCell[] cells = Enumerable.Range(0, 2).Select(x => new SceneCell(new(x, 0, 0),
+            new(VoxelOrientation.PxPy, null, null, null, subject, [],
+                new ContentReference.Core(new CoreDefinitionReference.Voxel(new("missing:" + x)))))).ToArray();
+        var grid = new VoxelGrid([.. cells]);
+        Assert.IsEmpty(DesignGeometry.Meshes(grid, false));
+        var basis = SceneFixtures.Build(SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0))]));
+        var frame = SceneFixtures.Frame(basis with { Picking = [new(basis.Objects[0].Id, SceneFixtures.Identity, grid)] });
+        foreach (var cell in cells)
+        {
+            Assert.AreEqual(cell.MissingReference, grid.Find(cell.At)?.MissingReference);
+            var hit = ((ScenePick.Hit)frame.Pick(new(new(cell.At.X + 0.5f, 0.5f, -2), Vector3.UnitZ, 4))).Value;
+            Assert.AreEqual(cell.At, hit.Cell);
+            Assert.AreEqual(subject, hit.Subject);
+            Assert.AreEqual(GridFace.NegativeZ, hit.Face);
+        }
+        var adjacentCube = new SceneCell(new(2, 0, 0), new(VoxelOrientation.PxPy, SceneFixtures.Cube,
+            null, null, subject, []));
+        var meshes = DesignGeometry.Meshes(new VoxelGrid([.. cells, adjacentCube]), false)
+            .OfType<SceneVisual.Geometry>().Select(visual => visual.Mesh).ToArray();
+        Assert.AreEqual(12, meshes.Sum(mesh => mesh.TriangleIndices.Length / 3));
+        Assert.IsTrue(meshes.SelectMany(mesh => mesh.Vertices)
+            .Any(vertex => vertex.Position.X == 2 && vertex.Normal == -Vector3.UnitX));
+    }
+
+    [TestMethod]
     public void MissingAppearanceRemainsPickableWithoutOccludingOrBecomingAnEmptySlot()
     {
         var missingVoxel = new VoxelDefinitionId("missing:cube");
+        var otherMissingVoxel = new VoxelDefinitionId("missing:other");
         var content = new FixedContentView
         {
             VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
             {
                 [SceneFixtures.Voxel] = new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube),
-                [missingVoxel] = new ContentLookup<VoxelAppearanceProjection>.NotFound()
+                [missingVoxel] = new ContentLookup<VoxelAppearanceProjection>.NotFound(),
+                [otherMissingVoxel] = new ContentLookup<VoxelAppearanceProjection>.NotFound()
             }
         };
         var geometry = SceneFixtures.Build(SceneFixtures.Projection([
             SceneFixtures.Cell(new(0, 0, 0)),
             SceneFixtures.Cell(new(1, 0, 0), 2) with { Voxel = missingVoxel },
-            SceneFixtures.Cell(new(3, 0, 0), 3)]), content: content);
+            SceneFixtures.Cell(new(3, 0, 0), 3),
+            SceneFixtures.Cell(new(4, 0, 0), 4) with { Voxel = otherMissingVoxel }]), content: content);
         var grid = geometry.Picking.Single().Grid;
         var reference = new ContentReference.Core(new CoreDefinitionReference.Voxel(missingVoxel));
         Assert.AreEqual(reference, grid.Find(new(1, 0, 0))?.MissingReference);
+        var otherReference = new ContentReference.Core(new CoreDefinitionReference.Voxel(otherMissingVoxel));
+        Assert.AreEqual(otherReference, grid.Find(new(4, 0, 0))?.MissingReference);
+        var markers = geometry.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Missing>().ToArray();
+        Assert.IsTrue(markers.Any(marker => marker.Reference == reference && marker.KnownCell));
+        Assert.IsTrue(markers.Any(marker => marker.Reference == otherReference && marker.KnownCell));
         Assert.IsNull(grid.Find(new(2, 0, 0)));
         Assert.AreEqual(24, Meshes(geometry).Sum(mesh => mesh.TriangleIndices.Length / 3));
         Assert.IsTrue(Meshes(geometry).SelectMany(mesh => mesh.Vertices)
@@ -132,6 +181,9 @@ public sealed class GeometryTests
         var hit = ((ScenePick.Hit)frame.Pick(new(new(1.5f, 0.5f, -2), Vector3.UnitZ, 4))).Value;
         Assert.AreEqual(new GridPosition(1, 0, 0), hit.Cell);
         Assert.AreEqual(new PickSubject.WorldObject(SceneFixtures.Subject, SceneFixtures.Design, new(2)), hit.Subject);
+        var otherHit = ((ScenePick.Hit)frame.Pick(new(new(4.5f, 0.5f, -2), Vector3.UnitZ, 4))).Value;
+        Assert.AreEqual(new GridPosition(4, 0, 0), otherHit.Cell);
+        Assert.AreEqual(new PickSubject.WorldObject(SceneFixtures.Subject, SceneFixtures.Design, new(4)), otherHit.Subject);
         Assert.IsInstanceOfType<ScenePick.Miss>(frame.Pick(new(new(2.5f, 0.5f, -2), Vector3.UnitZ, 4)));
     }
 
@@ -144,9 +196,9 @@ public sealed class GeometryTests
         {
             var shaped = appearance == cube ? new VoxelShape("slope") : (VoxelShape?)null;
             var grid = new VoxelGrid([
-                new(new(0, 0, 0), VoxelOrientation.PxPy, cube, null, null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), []),
-                new(new(1, 0, 0), VoxelOrientation.PxPy, appearance, shaped, null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), []),
-                new(new(-1, 0, 0), VoxelOrientation.PxPy, cube, null, null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), [])]);
+                new(new(0, 0, 0), new(VoxelOrientation.PxPy, cube, null, null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), [])),
+                new(new(1, 0, 0), new(VoxelOrientation.PxPy, appearance, shaped, null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), [])),
+                new(new(-1, 0, 0), new(VoxelOrientation.PxPy, cube, null, null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), []))]);
             var vertices = DesignGeometry.Meshes(grid, false).OfType<SceneVisual.Geometry>()
                 .SelectMany(item => item.Mesh.Vertices).ToArray();
             Assert.IsTrue(vertices.Any(vertex => vertex.Normal == Vector3.UnitX && vertex.Position.X == 1));

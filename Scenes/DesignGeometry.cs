@@ -64,6 +64,7 @@ internal static class DesignGeometry
             var objectId = id(key);
             paths.Add(key, (objectId, composed));
             var cells = ImmutableArray.CreateBuilder<SceneCell>();
+            var terrainSubject = terrainLocation is null ? null : new PickSubject.Terrain(terrainLocation);
             foreach (var voxel in voxelGroups.GetValueOrDefault(key) ?? [])
             {
                 if (destroyed?.Contains(voxel.Number) == true) continue;
@@ -78,9 +79,10 @@ internal static class DesignGeometry
                 }
                 var reference = voxel.Missing || value is null
                     ? new ContentReference.Core(new CoreDefinitionReference.Voxel(voxel.Voxel)) : null;
-                PickSubject? pick = terrainLocation is not null ? new PickSubject.Terrain(terrainLocation) :
+                PickSubject? pick = terrainSubject is not null ? terrainSubject :
                     subject is null ? null : new PickSubject.WorldObject(subject, worldDesign ?? projection.Design, voxel.Number);
-                cells.Add(new(voxel.LocalAt, voxel.LocalOrientation, reference is null ? value : null, voxel.Shape, voxel.Paint, pick, path, reference));
+                cells.Add(new(voxel.LocalAt, new(voxel.LocalOrientation, reference is null ? value : null,
+                    voxel.Shape, voxel.Paint, pick, path, reference)));
                 if (reference is not null)
                 {
                     objects.Add(new(id(key + ":missing:" + voxel.LocalAt), objectId,
