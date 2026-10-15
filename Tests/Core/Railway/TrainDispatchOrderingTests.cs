@@ -71,7 +71,8 @@ public sealed class TrainDispatchOrderingTests
                 Position = t.Id.Value == 3
                     ? WorldFixture.Node(new(1), NodeTravelPhase.Docked, WorldFixture.ApproachLength + WorldFixture.PlatformLength / 2, platform: 1)
                     : t.Position,
-                Plan = plan, RemainingDwellSteps = t.Id.Value == 3 ? 1UL : 0UL }).ToImmutableArray();
+                Plan = plan, RemainingDwellSteps = t.Id.Value == 3 ? 1UL : 0UL,
+                AutomaticEvaluationRemainingSteps = t.Id.Value == 3 ? 0 : null }).ToImmutableArray();
             if (reversed) trains = trains.Reverse().ToImmutableArray();
             using var session = new CoreSession(state with { World = state.World with { Trains = trains } });
             Step(session);

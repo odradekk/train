@@ -39,7 +39,7 @@ internal static class SettlementQueries
         return new(world.Money, MarketRule(world, content),
             Rule(content, rules.Population, content.PopulationRules.SingleOrDefault(r => r.Id == rules.Population)?.Revision, "Population"),
             Rule(content, rules.Construction, content.ConstructionRules.SingleOrDefault(r => r.Id == rules.Construction)?.Revision, "Construction"),
-            UnassignedServicePayments: new(0), RecentRunReports: []);
+            UnassignedServicePayments: new(0), RecentRunReports: world.RecentRunReports);
     }
 
     private static RuleStatusView MarketRule(WorldState world, CoreContentProjection content)

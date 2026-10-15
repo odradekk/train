@@ -102,7 +102,8 @@ public sealed class TrainOperationTests
                 Trains = [state.World.Trains[0] with {
                     Position = WorldFixture.Node(new(1), NodeTravelPhase.Docked, ApproachLength + PlatformLength / 2, platform: 1),
                     Plan = new(true, [new PlanStop.Station(new(1), 1, []), new PlanStop.Waypoint(new(2))]),
-                    NextStopIndex = 0, Activity = TrainActivity.Servicing, RemainingDwellSteps = 1 }]
+                    NextStopIndex = 0, Activity = TrainActivity.Servicing, RemainingDwellSteps = 1,
+                    CurrentRun = new(state.Position, new(0), new(0), 0, 0, 0, []), AutomaticEvaluationRemainingSteps = 0 }]
             }
         });
         var result = session.Advance(1);
@@ -173,10 +174,12 @@ public sealed class TrainOperationTests
     {
         using var loaded = LoadedSession();
         var state = loaded.State;
-        var train = state.World.Trains[0] with { Activity = activity, Plan = Plan(2), NextStopIndex = 0 };
+        var train = state.World.Trains[0] with { Activity = activity, Plan = Plan(2), NextStopIndex = 0,
+            CurrentRun = new(state.Position, new(0), new(0), 0, 0, 0, []) };
         if (activity == TrainActivity.Servicing)
             train = train with { Position = WorldFixture.Node(new(1), NodeTravelPhase.Docked, ApproachLength + PlatformLength / 2, platform: 1),
-                Plan = new(false, [new PlanStop.Station(new(1), 3, [])]), RemainingDwellSteps = 2 };
+                Plan = new(false, [new PlanStop.Station(new(1), 3, [])]), RemainingDwellSteps = 2,
+                AutomaticEvaluationRemainingSteps = 0 };
         if (activity == TrainActivity.Running) train = train with { Position = WorldFixture.Node(new(1), NodeTravelPhase.Departing, ApproachLength + PlatformLength + DepartureLength, nextEdge: new(1)) };
         using var session = new CoreSession(state with { Content = state.Content with
             { Goods = state.Content.Goods.Where(g => g.Good != new GoodId.Voxel(Material)).ToImmutableArray() },
@@ -246,13 +249,13 @@ public sealed class TrainOperationTests
     }
 
     [TestMethod]
-    public void Automatic_goods_rules_throw_before_taking_a_command_number()
+    public void Invalid_automatic_goods_rules_throw_before_taking_a_command_number()
     {
         using var session = Session();
         var before = session.State;
         var plan = new RunPlan(false, [new PlanStop.Station(new(1), 1,
-            [new(new AutomaticGoodsAction.Load(), new GoodId.Voxel(Material), new(1), 1)])]);
-        Assert.ThrowsExactly<NotImplementedException>(() => session.Submit(new CoreCommand.ReplaceRunPlan(new(1), plan), CommandSource.AutomationTest));
+            [new(new AutomaticGoodsAction.Load(), new GoodId.Voxel(Material), new(1), -1)])]);
+        Assert.ThrowsExactly<ArgumentException>(() => session.Submit(new CoreCommand.ReplaceRunPlan(new(1), plan), CommandSource.AutomationTest));
         Assert.AreEqual(before, session.State);
         Assert.IsTrue(session.ReadRecording().Commands.IsEmpty);
     }
@@ -300,7 +303,7 @@ public sealed class TrainOperationTests
         var member = ((Lookup<InstanceView>.Found)session.Read().FindInstance(new InstanceId.Vehicle(new(1)))).Value;
         Assert.AreEqual(((TrainPosition.Edge)Train(session).Position).DistanceMeters, ((WorldLocation.Edge)member.Location).DistanceMeters);
         Assert.IsInstanceOfType<TrainPosition.Edge>(Train(session).Position);
-        Assert.IsNull(Train(session).CurrentRun);
+        Assert.IsNotNull(Train(session).CurrentRun);
         Assert.IsTrue(Train(session).RecentReports.IsEmpty);
         Assert.AreEqual(EncounterAction.Retreat, Train(session).Engagement.Encounter);
     }
@@ -522,7 +525,8 @@ public sealed class TrainOperationTests
         var state = State();
         return new(state with { World = state.World with { Trains = [state.World.Trains[0] with
         { Position = new TrainPosition.Edge(new(reverse ? 2UL : 1UL), 1, reverse ? TravelDirection.Reverse : TravelDirection.Forward, distance),
-            Plan = plan, NextStopIndex = 0, Activity = TrainActivity.Running, SpeedMetersPerSecond = speed }] } });
+            Plan = plan, NextStopIndex = 0, Activity = TrainActivity.Running, SpeedMetersPerSecond = speed,
+            CurrentRun = new(state.Position, new(0), new(0), 0, 0, 0, []) }] } });
     }
     private static RunPlan Plan(ulong node) => new(false, [new PlanStop.Waypoint(new(node))]);
     private static TrainView Train(CoreSession session) => ((Lookup<TrainView>.Found)session.Read().FindTrain(new(1))).Value;

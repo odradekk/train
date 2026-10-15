@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using Train.Core.Contracts;
 using Train.Core.Settlements;
+using Train.Core.Trading;
 
 namespace Train.Core.World;
 
@@ -20,6 +21,13 @@ internal static class WorldStateValidation
         Strings(world.DesignGoods, g => WorldReferences.GoodKey(g.Good), "/world/design_goods");
         Items(world.Instances, "/world/instances");
         Items(world.DefinitionDependencies, "/world/definition_dependencies");
+        Items(world.RecentRunReports, "/world/recent_run_reports");
+        foreach (var report in world.RecentRunReports)
+        {
+            Require(report.Train.Value > 0 && report.Train.Value < world.Next.Train && Enum.IsDefined(report.Reason), "/world/recent_run_reports");
+            RunTotals(report.Totals, "/world/recent_run_reports/totals");
+            Require(NotAfter(report.Totals.StartedAt, report.EndedAt), "/world/recent_run_reports/ended_at");
+        }
         var dependencies = world.DefinitionDependencies;
         Strings(dependencies, d => WorldReferences.DefinitionKey(d.Definition) + "\0" + d.Field,
             "/world/definition_dependencies");
@@ -384,7 +392,14 @@ internal static class WorldStateValidation
                 if (stop is PlanStop.Station station)
                 {
                     Items(station.GoodsRules, $"/world/trains/plan/stops/{index}/goods_rules");
-                    Require(station.GoodsRules.IsEmpty, $"/world/trains/plan/stops/{index}/goods_rules");
+                    var goods = new HashSet<GoodId>();
+                    foreach (var rule in station.GoodsRules)
+                    {
+                        var field = $"/world/trains/plan/stops/{index}/goods_rules";
+                        try { AutomaticGoodsOperations.Validate(rule); }
+                        catch (ArgumentException) { throw new CoreStateFormatException(field); }
+                        Require(goods.Add(rule.Good), field);
+                    }
                 }
             }
             Require(!plan.Loop || targets.Count >= 2, "/world/trains/plan");
@@ -394,6 +409,18 @@ internal static class WorldStateValidation
         }
         else Require(train.NextStopIndex is null, "/world/trains/next_stop_index");
         var unfinished = train.Plan is not null && train.NextStopIndex is not null;
+        Require((train.CurrentRun is not null) == unfinished, "/world/trains/current_run");
+        if (train.CurrentRun is { } run)
+        {
+            Require(run.SalesReceipts.Value >= 0 && run.PurchasePayments.Value >= 0 && run.TransportedUnits >= 0
+                && double.IsFinite(run.LoadedUnitsDistance) && run.LoadedUnitsDistance >= 0
+                && double.IsFinite(run.CapacityDistance) && run.CapacityDistance >= 0, "/world/trains/current_run");
+            RunTotals(RunReports.Read(run), "/world/trains/current_run");
+            foreach (var result in run.IncompleteRules)
+                Require(result.StopIndex < train.Plan!.Stops.Length && train.Plan.Stops[result.StopIndex] is PlanStop.Station station
+                    && result.RuleIndex < station.GoodsRules.Length && station.GoodsRules[result.RuleIndex].Good == result.Good,
+                    "/world/trains/current_run/incomplete_rules");
+        }
         var finishingStop = train.Plan is not null && train.NextStopIndex is null
             && train.Activity == TrainActivity.Running && train.StopRequested;
         Require(unfinished || finishingStop || train.Activity == TrainActivity.Stopped && train.RemainingDwellSteps == 0,
@@ -427,10 +454,51 @@ internal static class WorldStateValidation
                 break;
             default: throw new CoreStateFormatException("/world/trains/activity");
         }
+        Require(train.AutomaticEvaluationRemainingSteps is null || unfinished
+            && train.Position is TrainPosition.Node atStation
+            && train.Plan!.Stops[train.NextStopIndex!.Value] is PlanStop.Station current && current.Node == atStation.Id
+            && train.RemainingDwellSteps > 0 && train.Activity is TrainActivity.Servicing or TrainActivity.Stopped or TrainActivity.Waiting,
+            "/world/trains/automatic_evaluation_remaining_steps");
+        Require(train.Activity != TrainActivity.Servicing && train.RemainingDwellSteps == 0
+            || train.AutomaticEvaluationRemainingSteps is not null, "/world/trains/automatic_evaluation_remaining_steps");
     }
 
-    internal static void ValidateBoundary(WorldState world, ulong completedSteps)
+    private static bool NotAfter(SimulationPosition a, SimulationPosition b)
+        => a.CompletedSteps < b.CompletedSteps || a.CompletedSteps == b.CompletedSteps && a.Sequence <= b.Sequence;
+
+    private static void RunTotals(RunAccumulatorView totals, string field)
     {
+        Require(totals is not null && totals.SalesReceipts.Value >= 0 && totals.PurchasePayments.Value >= 0
+            && totals.ServicePayments.Value == 0 && totals.NetCashFlow == totals.SalesReceipts.Value - totals.PurchasePayments.Value
+            && totals.TransportedUnits >= 0 && double.IsFinite(totals.LoadedCapacityRatio) && totals.LoadedCapacityRatio >= 0, field);
+        Items(totals.IncompleteRules, field + "/incomplete_rules");
+        (int Stop, int Rule) previous = (-1, -1);
+        foreach (var result in totals.IncompleteRules)
+        {
+            Require(result.StopIndex >= 0 && result.RuleIndex >= 0 && (result.StopIndex, result.RuleIndex).CompareTo(previous) > 0
+                && Enum.IsDefined(result.Action) && result.RequestedQuantity >= 0 && result.CompletedQuantity >= 0
+                && result.CompletedQuantity <= result.RequestedQuantity && result.ActualAmount.Value >= 0, field + "/incomplete_rules");
+            Require(result.Action is TradeAction.Buy or TradeAction.Sell || result.ActualAmount.Value == 0,
+                field + "/incomplete_rules/actual_amount");
+            Good(result.Good, field + "/incomplete_rules/good");
+            Items(result.IncompleteReasons, field + "/incomplete_rules/incomplete_reasons");
+            Require(!result.IncompleteReasons.IsEmpty, field + "/incomplete_rules/incomplete_reasons");
+            foreach (var problem in result.IncompleteReasons)
+            {
+                Require(!string.IsNullOrEmpty(problem.Code) && problem.Field is not null, field + "/incomplete_rules/incomplete_reasons");
+                Items(problem.RelatedIdentities, field + "/incomplete_rules/incomplete_reasons/related_identities");
+            }
+            previous = (result.StopIndex, result.RuleIndex);
+        }
+    }
+
+    internal static void ValidateBoundary(WorldState world, SimulationPosition boundary)
+    {
+        var completedSteps = boundary.CompletedSteps;
+        foreach (var report in world.RecentRunReports)
+            Require(NotAfter(report.EndedAt, boundary), "/world/recent_run_reports/ended_at");
+        foreach (var train in world.Trains)
+            Require(train.CurrentRun is not { } run || NotAfter(run.StartedAt, boundary), "/world/trains/current_run/started_at");
         foreach (var state in world.ResourceRegenerations)
         {
             var interval = WorldResources.IntervalSteps(world.Source.Configuration.Resources.Single(e => e.Good == state.Good).RegenerationIntervalSeconds);

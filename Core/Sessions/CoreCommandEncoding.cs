@@ -118,11 +118,11 @@ internal static class CoreCommandEncoding
                                 break;
                             case PlanStop.Station station:
                                 if (station.GoodsRules.IsDefault) throw new ArgumentException("数组必须初始化。", nameof(command));
-                                if (!station.GoodsRules.IsEmpty) throw new NotImplementedException("自动货物规则尚未实现。");
                                 writer.WriteString("kind", "station");
                                 WriteIdentity(writer, "node", station.Node.Value);
                                 writer.WriteNumber("dwell_steps", station.DwellSteps);
                                 writer.WriteStartArray("goods_rules");
+                                foreach (var rule in station.GoodsRules) WriteGoodsRule(writer, rule);
                                 writer.WriteEndArray();
                                 break;
                             default: throw new ArgumentException("计划站点无效。", nameof(command));
@@ -268,6 +268,12 @@ internal static class CoreCommandEncoding
         WriteIdentity(writer, "train", train.Value);
         WriteIdentity(writer, "settlement", settlement.Value);
         WriteIdentity(writer, "local_inventory", inventory.Value);
+        WriteGood(writer, good);
+        WritePositive(writer, "quantity", quantity);
+    }
+
+    private static void WriteGood(Utf8JsonWriter writer, GoodId good)
+    {
         WorldInputs.ValidateGood(good);
         writer.WriteStartObject("good");
         writer.WriteString("kind", good switch { GoodId.Voxel => "voxel", GoodId.Composite => "composite", GoodId.Assembly => "assembly", _ => throw new ArgumentException("货物无效。", nameof(good)) });
@@ -278,16 +284,15 @@ internal static class CoreCommandEncoding
             case GoodId.Assembly assembly: writer.WriteString("composition", assembly.Composition.Value); break;
         }
         writer.WriteEndObject();
-        WritePositive(writer, "quantity", quantity);
     }
 
-    private static GoodId ReadGood(JsonElement value)
+    private static GoodId ReadGood(JsonElement value, string field = "/good")
     {
-        var kind = Text(Property(value, "kind", "/good", JsonValueKind.String), "/good/kind");
-        if (kind is not ("voxel" or "composite" or "assembly")) throw new InvalidField("/good/kind");
+        var kind = Text(Property(value, "kind", field, JsonValueKind.String), field + "/kind");
+        if (kind is not ("voxel" or "composite" or "assembly")) throw new InvalidField(field + "/kind");
         var name = kind == "assembly" ? "composition" : "definition";
-        Fields(value, "/good", ["kind", name]);
-        var identity = Text(Property(value, name, "/good", JsonValueKind.String), "/good/" + name);
+        Fields(value, field, ["kind", name]);
+        var identity = Text(Property(value, name, field, JsonValueKind.String), field + "/" + name);
         GoodId good = kind switch
         {
             "voxel" => new GoodId.Voxel(new(identity!)),
@@ -295,7 +300,7 @@ internal static class CoreCommandEncoding
             _ => new GoodId.Assembly(new(identity!))
         };
         try { WorldInputs.ValidateGood(good); }
-        catch (ArgumentException) { throw new InvalidField("/good/" + name); }
+        catch (ArgumentException) { throw new InvalidField(field + "/" + name); }
         return good;
     }
 
@@ -311,10 +316,10 @@ internal static class CoreCommandEncoding
         writer.WriteNumber(name, value);
     }
 
-    private static Money ReadMoney(JsonElement root, string name)
+    private static Money ReadMoney(JsonElement root, string name, string field = "")
     {
-        var value = Property(root, name, "", JsonValueKind.Number);
-        if (!value.TryGetInt64(out var money) || money < 0) throw new InvalidField("/" + name);
+        var value = Property(root, name, field, JsonValueKind.Number);
+        if (!value.TryGetInt64(out var money) || money < 0) throw new InvalidField(field + "/" + name);
         return new(money);
     }
 
@@ -341,12 +346,73 @@ internal static class CoreCommandEncoding
             else
             {
                 var dwell = Number(Property(stop, "dwell_steps", field, JsonValueKind.Number), field + "/dwell_steps");
-                if (Property(stop, "goods_rules", field, JsonValueKind.Array).GetArrayLength() != 0)
-                    throw new InvalidField(field + "/goods_rules");
-                stops.Add(new PlanStop.Station(node, dwell, []));
+                var rules = ImmutableArray.CreateBuilder<AutomaticGoodsRule>();
+                foreach (var rule in Property(stop, "goods_rules", field, JsonValueKind.Array).EnumerateArray())
+                    rules.Add(ReadGoodsRule(rule, $"{field}/goods_rules/{rules.Count}"));
+                stops.Add(new PlanStop.Station(node, dwell, rules.ToImmutable()));
             }
         }
         return new(loop.GetBoolean(), stops.ToImmutable());
+    }
+
+    private static void WriteGoodsRule(Utf8JsonWriter writer, AutomaticGoodsRule rule)
+    {
+        ArgumentNullException.ThrowIfNull(rule);
+        writer.WriteStartObject();
+        writer.WriteStartObject("action");
+        switch (rule.Action)
+        {
+            case AutomaticGoodsAction.Buy buy:
+                writer.WriteString("kind", "buy");
+                if (buy.MaximumUnitPrice is { } maximum) WriteMoney(writer, "maximum_unit_price", maximum.Value);
+                else writer.WriteNull("maximum_unit_price");
+                break;
+            case AutomaticGoodsAction.Sell sell:
+                writer.WriteString("kind", "sell");
+                if (sell.MinimumUnitPrice is { } minimum) WriteMoney(writer, "minimum_unit_price", minimum.Value);
+                else writer.WriteNull("minimum_unit_price");
+                break;
+            case AutomaticGoodsAction.Load: writer.WriteString("kind", "load"); break;
+            case AutomaticGoodsAction.Unload: writer.WriteString("kind", "unload"); break;
+            default: throw new ArgumentException("自动货物动作无效。", nameof(rule));
+        }
+        writer.WriteEndObject();
+        WriteGood(writer, rule.Good);
+        WriteIdentity(writer, "local_inventory", rule.LocalInventory.Value);
+        WriteMoney(writer, "target_quantity", rule.TargetQuantity);
+        writer.WriteEndObject();
+    }
+
+    private static AutomaticGoodsRule ReadGoodsRule(JsonElement value, string field)
+    {
+        Fields(value, field, ["action", "good", "local_inventory", "target_quantity"]);
+        var actionField = field + "/action";
+        var action = Property(value, "action", field, JsonValueKind.Object);
+        var kind = Text(Property(action, "kind", actionField, JsonValueKind.String), actionField + "/kind");
+        if (kind is not ("buy" or "sell" or "load" or "unload")) throw new InvalidField(actionField + "/kind");
+        Fields(action, actionField, kind switch
+        {
+            "buy" => ["kind", "maximum_unit_price"],
+            "sell" => ["kind", "minimum_unit_price"],
+            _ => ["kind"]
+        });
+        Money? price = null;
+        if (kind is "buy" or "sell")
+        {
+            var name = kind == "buy" ? "maximum_unit_price" : "minimum_unit_price";
+            if (!action.TryGetProperty(name, out var limit)) throw new InvalidField(actionField + "/" + name);
+            if (limit.ValueKind != JsonValueKind.Null) price = ReadMoney(action, name, actionField);
+        }
+        AutomaticGoodsAction decodedAction = kind switch
+        {
+            "buy" => new AutomaticGoodsAction.Buy(price),
+            "sell" => new AutomaticGoodsAction.Sell(price),
+            "load" => new AutomaticGoodsAction.Load(),
+            _ => new AutomaticGoodsAction.Unload()
+        };
+        var good = ReadGood(Property(value, "good", field, JsonValueKind.Object), field + "/good");
+        var inventory = new InventoryId(Identity(Property(value, "local_inventory", field, JsonValueKind.Number), field + "/local_inventory"));
+        return new(decodedAction, good, inventory, ReadMoney(value, "target_quantity", field).Value);
     }
 
     private static void Fields(JsonElement value, string field, string[] allowed)

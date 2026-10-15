@@ -18,7 +18,8 @@ public sealed class TrainDispatchValidationTests
         var train = state.World.Trains[0];
         var node = ((TrainPosition.Node)train.Position).Id;
         train = train with { Activity = TrainActivity.Waiting, QueueEnteredStep = 3,
-            Plan = new(false, [new PlanStop.Station(node, 10, [])]), RemainingDwellSteps = 5 };
+            Plan = new(false, [new PlanStop.Station(node, 10, [])]), RemainingDwellSteps = 5,
+            AutomaticEvaluationRemainingSteps = 0 };
         state = state with { World = state.World with { Trains = [train] } };
         var capture = RoundTrip(state);
         Assert.IsNull(CoreCapture.ValidateCheckpoint(capture.Checkpoint));
