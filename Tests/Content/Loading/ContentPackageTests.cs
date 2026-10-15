@@ -347,7 +347,7 @@ public sealed class ContentPackageTests
         var fixture = new ContentFixture();
         AddMod(fixture, "source", A);
         AddMod(fixture, "dependent", B, dependencies: [(A, "1.0.0")]);
-        if (unsupported) fixture.AddDirectory(ContentFixture.Mods, "source/resources/processes");
+        if (unsupported) fixture.AddDirectory(ContentFixture.Mods, "source/resources/lair-types");
         else fixture.AddFile(ContentFixture.Mods, "source/resources/voxels/bad.voxel.json", "{\"schema_version\":3}");
         using var candidate = fixture.Load();
         AssertRejected(candidate.Report.Packages, A, C.PackageState.Invalid, code);
@@ -359,7 +359,7 @@ public sealed class ContentPackageTests
     public void Unsupported_builtin_definition_directory_fails_the_entire_load()
     {
         var fixture = new ContentFixture();
-        fixture.AddDirectory(ContentFixture.BuiltIn, "resources/processes");
+        fixture.AddDirectory(ContentFixture.BuiltIn, "resources/lair-types");
         var result = fixture.Prepare();
         Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Failure>(result);
         Assert.IsTrue(((C.ContentResult<C.IContentCandidate>.Failure)result).Diagnostics.Any(d => d.Code == "unsupported_format"));

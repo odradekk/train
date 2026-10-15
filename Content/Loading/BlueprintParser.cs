@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using Train.Content.Designs;
+using static Train.Content.Loading.DefinitionJson;
 using C = Train.Content.Contracts;
 using K = Train.Core.Contracts;
 
@@ -213,13 +214,6 @@ internal sealed class BlueprintParser
     {
         Array(value, field, 2);
         return new(Integer(value[0], field + "/0"), Integer(value[1], field + "/1"));
-    }
-    private static T EnumValue<T>(JsonElement value, string field) where T : struct, Enum
-    {
-        var text = Text(value, field);
-        foreach (var candidate in Enum.GetValues<T>())
-            if (DesignEvaluator.Wire(candidate) == text) return candidate;
-        throw new DefinitionFormatException(field, "未知取值。", "invalid_field");
     }
     private static string Choice(JsonElement value, string field, string[] choices)
     {

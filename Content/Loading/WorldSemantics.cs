@@ -11,9 +11,10 @@ internal static class WorldSemantics
     internal static string Core(ImmutableArray<LoadedVoxel> voxels, WorldDefinitions world,
         ImmutableArray<C.BlueprintRecord> blueprints) => Hash(new
         {
-            encoding_version = 3,
+            encoding_version = 4,
             voxels = voxels.Select(v => new { id = v.Definition.Definition.Value, revision = v.Definition.Revision.Value }),
             rules = world.Rules.Select(r => new { id = r.Id.Value, revision = r.Revision.Value }),
+            processes = world.Processes.Select(p => new { id = p.Id, revision = p.Projection.Revision.Value }),
             types = world.Types.Select(t => new { id = t.Source.Core.Id.Value, revision = t.Source.Core.Revision.Value }),
             templates = world.Templates.Select(t => Template(t, blueprints))
         });
