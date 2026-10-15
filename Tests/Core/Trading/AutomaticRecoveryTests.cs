@@ -15,6 +15,36 @@ public sealed class AutomaticRecoveryTests
     public TestContext TestContext { get; set; } = null!;
 
     [TestMethod]
+    public void Historical_report_goods_remain_in_capture_references_after_plan_replacement_and_disbanding()
+    {
+        var good = new GoodId.Voxel(new("fixture:report-only"));
+        var content = InventoryTradeTests.Content();
+        content = content with { Goods = content.Goods.Add(content.Goods[0] with { Good = good }),
+            MarketRules = [content.MarketRules[0] with { RecentReportLimit = 10 }] };
+        using var session = InventoryTradeTests.Session(content);
+        var settlement = session.State.World.Settlements.Single();
+        InventoryFixture.Accept(session, new CoreCommand.StopTrain(new(1)));
+        InventoryFixture.Accept(session, new CoreCommand.ReplaceRunPlan(new(1), new(false,
+            [new PlanStop.Station(settlement.Node, 10, [new(new AutomaticGoodsAction.Buy(null), good, settlement.Inventory, 1)])])));
+        InventoryFixture.Accept(session, new CoreCommand.StartTrain(new(1)));
+        InventoryFixture.Accept(session, new CoreCommand.ReplaceRunPlan(new(1), new(false,
+            [new PlanStop.Station(settlement.Node, 10, [])])));
+        InventoryFixture.Accept(session, new CoreCommand.DisbandTrain(new(1)));
+
+        var capture = WorldFixture.Success(session.Capture(CapturePurpose.Save));
+        var reference = capture.References.Definitions.Single(d => d.Definition == new CoreDefinitionReference.Voxel(good.Definition));
+        Assert.IsTrue(reference.Field.StartsWith("World.RecentRunReports[", StringComparison.Ordinal));
+        var factory = CoreFactory.Create();
+        var decoded = WorldFixture.Success(factory.DecodeState(capture.Encode()));
+        using var candidate = WorldFixture.Success(factory.PrepareRestore(decoded, session.State.Content, WorldFixture.Options));
+        using var restored = candidate.Activate();
+        var report = restored.Read().Economy.RecentRunReports.Single(r => !r.Totals.IncompleteRules.IsEmpty);
+        Assert.AreEqual(good, report.Totals.IncompleteRules.Single().Good);
+        Assert.IsTrue(WorldFixture.Success(restored.Capture(CapturePurpose.Save)).References.Definitions
+            .Any(d => d.Definition == reference.Definition));
+    }
+
+    [TestMethod]
     [TestCategory("integration")]
     public async Task Servicing_save_resumes_in_another_process_with_identical_trades_reports_and_boundaries()
     {

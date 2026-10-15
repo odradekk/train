@@ -455,7 +455,7 @@ Buy/Sell 在前提检查后依次判断：
 
 | 决定 | 行为 |
 | --- | --- |
-| D1：持久化 | 核心状态格式为 12，命令输入格式和重放外壳格式均保持 2。计划规则保留数组顺序；规则、停靠重评剩余步数、运行累计和全局近期报告均参加捕获、恢复、检查点和严格重放。旧格式 2 命令中空 `goods_rules` 的解码含义不变。 |
+| D1：持久化 | 核心状态格式为 12，命令输入格式和重放外壳格式均保持 2。计划规则保留数组顺序；规则、停靠重评剩余步数、运行累计和全局近期报告均参加捕获、恢复、检查点和严格重放。引用清单包含当前规则和历史报告未完成规则中的货物，即使计划已替换或列车已解编仍保留。旧格式 2 命令中空 `goods_rules` 的解码含义不变。 |
 | D2：运行边界 | 接受 `ReplaceRunPlan` 时，已有累计先以 `PlanReplaced` 结束并出报告，再为新计划建立累计，`StartedAt` 为该命令边界，无论列车是否停车。循环计划最后一站消费并回到索引 0 时，出 `LoopCompleted` 报告并立即建立下一圈累计；单次完成出 `PlanCompleted` 报告，`CurrentRun` 变为 null；解编出 `TrainDisbanded` 报告。`StopTrain`／`StartTrain` 不结束或新建累计，已完成计划的启动返回 `plan_completed`。`AllVehiclesDestroyed` 当前没有生产触发路径，不增加结束分支。 |
 | D3：现金流 | 有 `CurrentRun` 时，该列车参与的手动与自动 Buy／Sell 金额记入本次累计，包括建立计划后、启动前的手动备货；Load／Unload 不记收支。现车买卖和租金没有列车身份，不归属任何运行。`ServicePayments` 当前恒为 0，`Economy.UnassignedServicePayments` 不在本票改变，仍由 #387 接入。报告表达净现金流，不是利润。 |
 | D4：运输件数 | `TransportedUnits` 累计运行期间该列车实际 Sell 和 Unload 的件数，包含手动与自动操作；装入不重复计数。 |

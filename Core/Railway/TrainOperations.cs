@@ -117,7 +117,7 @@ internal static class TrainOperations
                 train = MoveEdge(ref world, content, train, dispatch, events, checked(step + 1));
             else
             {
-                // Queue age uses the start of the step; reports belong to its committed boundary.
+                // 调度按本步开始时刻排队；报告记录完成本步后的提交边界。
                 train = ResolveNode(ref world, content, train, events, dispatch, step, new(checked(step + 1), 0));
                 if (train.Activity == TrainActivity.Running)
                     train = MoveNode(ref world, content, train, dispatch, events, checked(step + 1));
