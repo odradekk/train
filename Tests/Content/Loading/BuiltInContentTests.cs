@@ -26,6 +26,8 @@ public sealed class BuiltInContentTests
         using var candidate = ((C.ContentResult<C.IContentCandidate>.Success)result).Value;
         Assert.AreEqual(0, candidate.Report.Diagnostics.Length);
         var view = candidate.View;
+        CollectionAssert.AllItemsAreUnique(new[] { "plains", "forest", "desert", "mountains" }
+            .Select(id => Found(view.FindTerrain(new("core:" + id))).SurfaceVoxel).ToArray());
         var vehicles = new List<K.DesignHash>();
         foreach (var (id, size) in new[] { ("small-locomotive", K.SizeClass.Small),
                      ("medium-locomotive", K.SizeClass.Medium), ("extra-large-locomotive", K.SizeClass.ExtraLarge) })
