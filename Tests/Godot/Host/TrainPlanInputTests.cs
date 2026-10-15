@@ -8,6 +8,53 @@ namespace Train.Godot.Tests.Host;
 public sealed class TrainPlanInputTests
 {
     [TestMethod]
+    public void AutomaticRulesPreserveOrderPricesTargetsAndExactDwell()
+    {
+        GoodId ore = new GoodId.Voxel(new("test:ore"));
+        GoodId equipment = new GoodId.Composite(new("test:equipment"));
+        GoodId clothing = new GoodId.Voxel(new("test:clothing"));
+        GoodId wood = new GoodId.Voxel(new("test:wood"));
+        Assert.IsTrue(TrainPlanInput.TryPlan(new(7), true,
+            [new(new(2), true, "1.016667", 61, [
+                new(TradeAction.Unload, equipment, new(11), "0", "ignored"),
+                new(TradeAction.Buy, ore, new(12), "9007199254740993", "0"),
+                new(TradeAction.Sell, clothing, new(11), "9223372036854775807", "9223372036854775807"),
+                new(TradeAction.Load, wood, new(12), "1", "")])], out var command, out _));
+        var station = (PlanStop.Station)command!.Plan.Stops[0];
+        Assert.AreEqual(61UL, station.DwellSteps);
+        AutomaticGoodsRule[] expected = [
+            new(new AutomaticGoodsAction.Unload(), equipment, new(11), 0),
+            new(new AutomaticGoodsAction.Buy(new(0)), ore, new(12), 9007199254740993),
+            new(new AutomaticGoodsAction.Sell(new(long.MaxValue)), clothing, new(11), long.MaxValue),
+            new(new AutomaticGoodsAction.Load(), wood, new(12), 1)];
+        CollectionAssert.AreEqual(expected, station.GoodsRules.ToArray());
+        Assert.IsTrue(TrainPlanInput.TryPlan(new(7), false,
+            [new(new(2), true, "0", GoodsRules: [new(TradeAction.Buy, ore, new(1), "0", "")])],
+            out command, out _));
+        Assert.IsNull(((AutomaticGoodsAction.Buy)((PlanStop.Station)command!.Plan.Stops[0]).GoodsRules[0].Action).MaximumUnitPrice);
+    }
+
+    [TestMethod]
+    public void RuleNumbersRejectNegativeFractionalAndOverflowValuesWithoutPartialCommand()
+    {
+        GoodId ore = new GoodId.Voxel(new("test:ore"));
+        foreach (var text in new[] { "", "-1", "+1", "1.5", " 1", "9223372036854775808" })
+        {
+            Assert.IsFalse(TrainPlanInput.TryPlan(new(1), false,
+                [new(new(2), true, "0", GoodsRules: [new(TradeAction.Load, ore, new(1), text, "")])],
+                out var command, out _));
+            Assert.IsNull(command);
+            if (text.Length == 0) continue;
+            Assert.IsFalse(TrainPlanInput.TryPlan(new(1), false,
+                [new(new(2), true, "0", GoodsRules: [new(TradeAction.Sell, ore, new(1), "0", text)])],
+                out command, out _));
+            Assert.IsNull(command);
+        }
+        Assert.IsFalse(TrainPlanInput.TryPlan(new(1), false,
+            [new(new(2), false, "", GoodsRules: [new(TradeAction.Load, ore, new(1), "0", "")])], out _, out _));
+    }
+
+    [TestMethod]
     public void UneditedDwellPreservesFractionalSecondSteps()
     {
         Assert.IsTrue(TrainPlanInput.TryPlan(new(1), false, [new(new(2), true, "1.016667", 61)], out var command, out _));

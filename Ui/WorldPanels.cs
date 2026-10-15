@@ -253,6 +253,11 @@ public partial class WorldPanels : Control
                 });
             }
             else text.AppendLine("未设置计划");
+            text.AppendLine("\n当前运行累计");
+            text.AppendLine(value.CurrentRun is { } run ? EconomyPanels.RunText(run, _content) : "尚未开始或已结束，无当前运行累计。");
+            text.AppendLine("\n最近运行报告");
+            foreach (var report in value.RecentReports) text.AppendLine(EconomyPanels.ReportText(report, _content));
+            if (value.RecentReports.IsEmpty) text.AppendLine("暂无已结束的运行报告。");
         }
         else if (target is WorldObjectId.Instance instance && _view.FindInstance(instance.Id) is Lookup<InstanceView>.Found foundInstance)
         {

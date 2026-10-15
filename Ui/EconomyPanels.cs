@@ -73,6 +73,7 @@ internal partial class EconomyPanels : Control
         BuildTrade(Page(tabs, "市场"));
         BuildVehicles(Page(tabs, "现车"));
         BuildLeases(Page(tabs, "仓库租用"));
+        BuildProduction(Page(tabs, "生产")); BuildPopulation(Page(tabs, "人口"));
         Refresh(_binding, _view, _content);
     }
 
@@ -90,10 +91,11 @@ internal partial class EconomyPanels : Control
 
     internal void Close()
     {
-        RemoveWindow(_settlementPanel); RemoveWindow(_trainPanel);
+        RemoveWindow(_settlementPanel); RemoveWindow(_trainPanel); RemoveWindow(_reportsPanel);
+        _reportsPanel = null;
         _settlementPanel = _trainPanel = null; _settlementTarget = _trainTarget = null;
         _settlement = null; _locals.Clear(); _localOptions.Clear(); _tradeTrains.Clear(); _leaseIds.Clear();
-        _marketItems.Clear(); _vehicleItems.Clear(); _capacityItems.Clear(); _leaseItems.Clear();
+        _marketItems.Clear(); _vehicleItems.Clear(); _capacityItems.Clear(); _leaseItems.Clear(); _facilityRows.Clear();
         _tradeQuote = null; _vehicleQuote = null; _leaseQuote = null;
         if (_stockRows is not null) _stockRows.Goods.Clear();
         if (_trainRows is not null) _trainRows.Goods.Clear();
@@ -103,6 +105,7 @@ internal partial class EconomyPanels : Control
     internal void Refresh(HostBinding binding, ICoreReadView view, IContentView content)
     {
         _binding = binding; _view = view; _content = content;
+        RefreshReports();
         if (_settlementPanel?.Visible == true)
         {
             if (!Current(_settlementTarget)) Invalidate(_settlementBody, _state);
@@ -146,6 +149,7 @@ internal partial class EconomyPanels : Control
             id => _locals.First(local => local.Inventory.Id == id).Lease is { } lease
                 ? $"租用库存 {id.Value} · 租约 {lease.Id.Value}" : $"聚居地库存 {id.Value}");
         RenderLocal(); RefreshTrade(); RefreshVehicles(); RefreshLeases();
+        RefreshProduction(); RefreshPopulation();
     }
 
     private void AddInventory(InventoryId id, LeaseView? lease)
@@ -265,7 +269,7 @@ internal partial class EconomyPanels : Control
     private static void MissingSelection<T>(ref T? quote, Label label, string selection) where T : class =>
         ResetQuote(ref quote, label, $"已不存在：所选{selection}，请重新选择。");
 
-    private static void SyncChoices<T>(OptionButton choice, List<T?> options, IEnumerable<T> values, T? selected,
+    internal static void SyncChoices<T>(OptionButton choice, List<T?> options, IEnumerable<T> values, T? selected,
         Func<T, string> title, string? placeholder = null) where T : struct
     {
         var ids = values.Distinct().ToArray();

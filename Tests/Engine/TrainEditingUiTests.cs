@@ -73,24 +73,24 @@ public class TrainEditingUiTests(Node testScene) : TestClass(testScene)
             await _input.Activate(Find<Button>(panels, "EditPlan"));
             var editor = ui.GetNode<TrainPlanPanel>("Root/World/TrainPlanPanel");
             var rows = editor.GetNode<VBoxContainer>("Plan/Layout/Body/RowsScroll/Rows");
-            var station = rows.GetNode<HBoxContainer>("Row0");
-            await _input.Enter(station.GetNode<LineEdit>("DwellSeconds"), "2");
+            var station = rows.GetNode<VBoxContainer>("Row0");
+            await _input.Enter(station.GetNode<LineEdit>("Stop/DwellSeconds"), "2");
             await _input.Activate(Find<Button>(editor, "AddStop"));
-            var waypoint = rows.GetNode<HBoxContainer>("Row1");
-            await _input.Choose(waypoint.GetNode<OptionButton>("Node"), 1);
-            await _input.Choose(waypoint.GetNode<OptionButton>("Kind"), 1);
-            Require(waypoint.GetNode<OptionButton>("Node").Selected == 1 &&
-                waypoint.GetNode<OptionButton>("Kind").Selected == 1, "实际下拉输入没有选择节点和途经点。");
-            await _input.Activate(waypoint.GetNode<Button>("MoveUp"));
+            var waypoint = rows.GetNode<VBoxContainer>("Row1");
+            await _input.Choose(waypoint.GetNode<OptionButton>("Stop/Node"), 1);
+            await _input.Choose(waypoint.GetNode<OptionButton>("Stop/Kind"), 1);
+            Require(waypoint.GetNode<OptionButton>("Stop/Node").Selected == 1 &&
+                waypoint.GetNode<OptionButton>("Stop/Kind").Selected == 1, "实际下拉输入没有选择节点和途经点。");
+            await _input.Activate(waypoint.GetNode<Button>("Stop/MoveUp"));
             await _input.Activate(Find<Button>(editor, "AddStop"));
-            await _input.Activate(rows.GetNode<Button>("Row2/Remove"));
+            await _input.Activate(rows.GetNode<Button>("Row2/Stop/Remove"));
             await _input.Activate(editor.GetNode<CheckBox>("Plan/Layout/Body/Loop"));
             Require(rows.GetChildCount() == 2 && rows.GetChild(0) == waypoint &&
-                station.GetNode<LineEdit>("DwellSeconds").Text == "2", "计划行增删重排或秒输入未保留。");
+                station.GetNode<LineEdit>("Stop/DwellSeconds").Text == "2", "计划行增删重排或秒输入未保留。");
             var apply = Find<Button>(editor, "Apply");
             await _input.Activate(apply);
             Require(setup.Session.SubmitCount == 2 && editor.Visible && ui.ErrorText.Contains("no_route/train.plan") &&
-                rows.GetChild(0) == waypoint && station.GetNode<LineEdit>("DwellSeconds").Text == "2",
+                rows.GetChild(0) == waypoint && station.GetNode<LineEdit>("Stop/DwellSeconds").Text == "2",
                 "计划拒绝没有显示原因或保留原草稿顺序和输入。");
             await UiCapture.Capture(TestScene, "plan-rejected");
             await _input.Activate(apply);
