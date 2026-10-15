@@ -24,6 +24,7 @@
 - 读视图的 `Position`、`Revision`、`InputIdentity` 和 `Fault`。修订在每个 Completed 命令、完成步骤及新步骤故障时各增加一次；NotAccepted、查询和零步推进不增加。修订已达 `ulong.MaxValue` 时，故障仍写入并冻结，修订保持最大值；正常路径的递增仍使用 checked 算术。
 - `World`、`FindNode`、`FindEdge`、`FindLocation`、`FindInstance`、`FindTrain`，覆盖生成的图、占据者、资源、实例和运行列车；车辆位置随所属列车派生，轨道查询列出实际在轨列车。
 - `FindInventory`、`FindLease`、`QuoteLease`、`LoadGoods`、`UnloadGoods`、`AcquireLease` 及租约到期，按 [#325 的批准计划](https://github.com/odradekk/train/issues/325#issuecomment-6172428536)实现。库存预留参与容量和持久化；任务产生和释放预留仍归 #331/#332，具体规则见下文“库存与租约”。
+- `FindFacility` 的 `Production` 键、模板中的加工／回收计划、批次推进、输出缓冲及生产事件，按 [#381 的批准计划](https://github.com/odradekk/train/issues/381#issuecomment-6183793182)实现，具体范围见下文“加工与回收”。
 - `Capture`、`DecodeState` 和 `PrepareRestore`，覆盖当前真实世界状态；格式与恢复规则见下文“当前载荷”。公开 `PrepareNew` 路径有共享 `CaptureScenario` 及跨进程生成、保存恢复测试。
 - `ReadRecording`、`CaptureRecordingStart`、`ConfirmRecordingStart`、`PrepareReplay` 和 `CompareCheckpoints`，覆盖当前完整世界状态、`PublishContent`、五个铁路命令和 `DebugAddRailBreak`，包含正常业务拒绝。运行在线路上、停留及调度中的录制通过生产重放路径逐检查点比较。
 
@@ -37,6 +38,28 @@
 | 其余命令、其他 `Find*`、报价和预览 | 后续经济运输、制造与编辑、自有建设、战斗与生物领域任务 |
 
 旧 `Train.Core.Simulation` 及宿主入口已删除。`RandomKey`、`KeyedRandom`、`SplitMix64` 原算法迁到 `Core/World/`，作为内部实现保留；固定向量测试及独立 Python 参考工具位于 `Tests/Core/World/`。会话始终持有世界状态；内部会话测试也使用真实生成状态，拒绝与事件由内部测试体供给。列车运行、调度及后续领域任务须将各自新增权威字段补入捕获、恢复和检查点，不能把初始世界往返当作完整玩法恢复证据。
+
+#380 已实现内部建筑能力计算、聚居地共用燃料能量余量和单步资源仲裁。存储、发电、生产、开采、施工共用有效部件判断；设施请求在基本消费与改善消费之间，按 Priority、BuildingId、CapabilityKind 单次排序处理完整批次输入或联合用电／用工请求。只从聚居地自有库存取用货物和燃料，闲置发电不耗燃料，已取出的能量余量不随燃料规格更新而重算。#381 已将加工／回收的真实请求和仲裁结果接入 `Advance`；人口消费和劳动供给仍待 #382，模块证据不表示完整经济流程已运行。后续交接逐项如下：
+
+- #381 已接入真实批次输入、最大有用工作速率和批次推进，不在步内重启。
+- #382 生成人口基本／改善消费请求，提供可用劳动力；人口换算及停用时提供零劳动力由该票负责，本票只接收调用方传入的容量。
+- #486 将已有权威状态接入 `FindSettlement` 及其 `PowerPoolView` 等公开查询；加工／回收设施详情由 #381 提供，人口数据待 #382。
+- #384 实现潜在消耗、两轮备货及最低组合的共用燃料抵扣；本票只验证实际仲裁中的整件燃料与能量余量。
+- #299 验证上述真实模块路径及此前阶段路径；本票的内部仲裁、保存恢复与隔离证据不能替代阶段联调。
+
+### 加工与回收
+
+计划直接读取每座聚居地已保存的 `Template.ProductionPlans`，按地块的 `TemplateNumber` 定位建筑；没有第二份运行计划。源模板更新不改变该副本。`SetProductionPlan` 仍未实现，继续抛 `NotImplementedException`；玩家计划编辑归后续自有建设任务。本票不新增控制台命令。
+
+`FindFacility` 仅支持 `CapabilityKind.Production`，覆盖加工与回收。建筑不在聚居地地块上，或既无生产计划、设计也没有声明生产能力时返回 `Missing`。设备损坏或缺定义造成有效能力为零，不会使仍有计划或声明能力的设施消失。`Extraction`、`Construction` 键分别归 #383 与施工任务，当前抛出注明 `FindFacility` 和能力种类的 `NotImplementedException`。`PotentialConsumption` 暂为空，待 #384 接入；调用方不能把它解释为零需求。
+
+状态按流程缺失、停用、能力为零、不满足条件、出料阻塞、等待原料、运行中的顺序判断。锁定目前没有权威来源，由 #332、#343 接入，不能据当前七态的模块证据宣称八态完整通过。停用只阻止启动新批次；当前流程的 Tag／地貌要求不再满足时，状态为“不满足条件”，已有批次仍按冻结规格完成。能力为零或流程缺失时保留批次进度。流程补回后继续，不重新扣原料。
+
+启动步只原子投入完整原料并建立批次，下一步才工作。工作请求上限取当前有效能力与剩余工作量所需速率的较小值，使用冻结的工作量和电力／劳动系数。生产推进接收调用方提供的劳动容量；`CoreSession.Advance` 在 #382 接入前传零，需要劳动力的流程在此之前不会推进。人口换算、本期规则及缺规则时停用劳动力均归 #382。
+
+完成产出和已有缓冲在批次请求仲裁之后按计划优先级、建筑身份入库，同一批多输出按货物身份的 Ordinal 顺序。使用扣除租约和预留后的真实可用容量，不扩大超容；本步完成或步初缓冲非空的设施不在本步启动下一批。生产能力失效不阻止已完成货物的内部转入。仅冻结产出或缓冲货物定义缺失时，仍按件数转入库存并保留身份；已有库存规则将其标为缺失且排除原料和燃料使用。流程本身缺失则暂停执行，不用冻结参数替代缺失定义。
+
+`SettlementState.ProductionFacilities` 按建筑身份保存 `Batch`、`OutputBuffer` 和上一步的 `LastActualWorkPerSecond`、`LastLimits`、`LastPowerDemand`、`LastActualSupply`。批次保存流程、启动版本、冻结产出、总工作量、两项系数和进度。请求功率为本步最大有用速率乘冻结电力系数，实际供电为获分配速率乘该系数；无工作请求时四项结果归零／空。`ActualWorkPerSecond` 和 `Limits` 直接返回上一步结果，能力、主状态和规格差异按当前内容派生。内容发布不重算上一步结果；读档、旧读视图和检查点保留它们。`PowerPoolView.Demand/ActualSupply` 由每座聚居地的设施结果求和；#486 先合并时由 #381 接入查询，否则由 #486 接入，不另存重复汇总。
 
 ## 所有权与数值
 
@@ -264,7 +287,7 @@ Rent 要求非零聚居地身份和正容量，Renew 要求非零租约身份，
 
 ### 当前载荷
 
-#312 按[批准决定](https://github.com/odradekk/train/issues/312#issuecomment-6133949111)实现捕获边界，#309 扩展世界状态，#480 更新地块枚举，#325 增加租约、库存预留和下一租约编号。内部编码器 [CoreCapture](../../Core/Sessions/CoreCapture.cs) 当前使用独立的 `core_state_format_version = 4`，与宿主完整存档的 `SaveFormatVersion` 6 分开；不支持格式 1、2、3 或旧通用模拟框架载荷，旧版本返回 `unsupported_format`。#480 与 #325 各自的格式 3 布局不同，合并后使用格式 4 明确区分。诊断消息和堆栈不进入载荷。内部字段布局由编码器维护，宿主只通过公开契约取得所需资料。
+#312 按[批准决定](https://github.com/odradekk/train/issues/312#issuecomment-6133949111)实现捕获边界，#309 扩展世界状态，#480 更新地块枚举，#325 增加租约、库存预留和下一租约编号，#380 增加每座聚居地的 `fuel_energy_remaining`，#381 增加 `production_facilities`。内部编码器 [CoreCapture](../../Core/Sessions/CoreCapture.cs) 当前使用独立的 `core_state_format_version = 6`，与宿主完整存档的 `SaveFormatVersion` 6 分别演进；不支持格式 1–5 或旧通用模拟框架载荷，旧版本返回 `unsupported_format`。#480 与 #325 各自的格式 3 布局不同，合并后使用格式 4 明确区分；燃料余量使用格式 5，本次生产状态扩展使用格式 6。燃料余量必须为有限非负数，新局为零，保存、恢复、检查点、严格重放及内容发布保留其电量，不反推已消费燃料。生产状态保存完整冻结批次、输出缓冲和上一步结果；解码拒绝非法进度、系数、数量、排序、建筑／计划配对及同时存在批次与缓冲。诊断消息和堆栈不进入载荷。内部字段布局由编码器维护，宿主只通过公开契约取得所需资料。
 
 顶层载荷包含格式版本、位置、下一命令编号、修订、当前输入身份、故障、`world` 和 `references`。`world` 保存完整生成来源 `source`（含种子、生成器版本、生成内容语义修订、解析配置及开局输入）、图与资源、聚居地与生物聚落、聚居地模板业务副本和地块、实例耐久、列车、库存、资金、全部下一身份编号，以及实际设计投影和衍生货物。实例只保存 `DesignHash`，引用同一 `world.designs` 中的投影，不在每个实例重复设计。实例和库存位置由所有者派生，不进载荷。
 

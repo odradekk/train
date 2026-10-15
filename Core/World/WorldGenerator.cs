@@ -253,7 +253,11 @@ internal static class WorldGenerator
                     Invalid($"Content.SettlementTemplates[{template.Id.Value}].FoundingBuildings");
             foreach (var good in template.SpecialInitialInventory) CheckGood(good.Good, $"Content.SettlementTemplates[{template.Id.Value}].SpecialInitialInventory");
             foreach (var plan in template.ProductionPlans)
+            {
+                if (template.Plots.SingleOrDefault(p => p.Number == plan.PlotNumber)?.PrebuiltDesign is null)
+                    Invalid($"Content.SettlementTemplates[{template.Id.Value}].ProductionPlans");
                 Need(new CoreDefinitionReference.Process(plan.Process), $"Content.SettlementTemplates[{template.Id.Value}].ProductionPlans", content.Processes.Any(p => WorldReferences.Matches(p.Details, plan.Process)));
+            }
         }
         var commissionField = "Configuration.StartConstraints.RequiredAffordableCommissionDesign";
         if (FindDesign(config.StartConstraints.RequiredAffordableCommissionDesign, commissionField).Kind is not DesignKind.Vehicle) Invalid(commissionField);
