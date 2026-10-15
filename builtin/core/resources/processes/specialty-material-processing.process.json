@@ -1,0 +1,1 @@
+{"schema_version":1,"id":"specialty-material-processing","simulation":{"kind":"production","work_required":30,"power_per_work":2,"labor_per_work":1,"facility_tag":"metallurgy","inputs":[{"voxel":"rare-mineral","quantity":4}],"outputs":[{"voxel":"specialty-material","quantity":4}]},"display":{"name":"生产特种材料","description":"正式经济流程；批量、价值与速率为待用户试玩确认的第一版。"}}
