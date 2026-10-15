@@ -93,11 +93,9 @@ internal partial class EconomyPanels
             if (_leaseId is { } id)
             {
                 if (!_leaseItems.ContainsKey(id)) reason = "已不存在：所选租约";
-                else if (!_queries.TryRead(nameof(ICoreReadView.QuoteLease),
-                    () => _view.QuoteLease(new LeaseRequest.Renew(id, LeaseDurationSteps(index + 1))), out var result))
-                    reason = $"核心尚未提供：{_queries.MissingEntry}";
                 else
                 {
+                    var result = _view.QuoteLease(new LeaseRequest.Renew(id, LeaseDurationSteps(index + 1)));
                     reason = result switch
                     {
                         CoreResult<LeaseQuote>.Success success => Problems([.. success.Value.Blockers.Where(problem => problem.Field == "Request.DurationSteps")]),
@@ -144,7 +142,7 @@ internal partial class EconomyPanels
             { ResetQuote(ref _leaseQuote, _leaseDescription, "新租容量须为正整数。"); return; }
             request = new LeaseRequest.Rent(_settlementId, capacity, duration);
         }
-        _leaseQuote = ReadQuote(nameof(ICoreReadView.QuoteLease), () => _view.QuoteLease(request), _leaseDescription);
+        _leaseQuote = ReadQuote(_view.QuoteLease(request), _leaseDescription);
     }
 
     private void ConfirmLease()

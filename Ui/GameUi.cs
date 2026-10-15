@@ -111,7 +111,7 @@ public partial class GameUi : CanvasLayer
             _panels.FormationRequested += _formation.Open;
             _panels.PlanRequested += _plan.Open;
             _economy = new EconomyPanels { Name = "EconomyPanels" };
-            _economy.Initialize(_host, Submit, message => _logger.Warning("ui", "economic_query_unavailable", message), _icons);
+            _economy.Initialize(_host, Submit, _icons);
             _world.AddChild(_economy);
             _panels.SettlementRequested += _economy.OpenSettlement;
             _panels.InventoryRequested += _economy.OpenTrainInventory;
