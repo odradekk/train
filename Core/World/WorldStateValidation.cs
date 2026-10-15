@@ -152,7 +152,7 @@ internal static class WorldStateValidation
                 Require(parkedVehicles.Add(vehicle)
                     && instances.TryGetValue(new InstanceId.Vehicle(vehicle), out var parked)
                     && parked.Details is InstanceDetails.Vehicle { Train: null }
-                    && parked.Ownership == SettlementRelation.PlayerOwned, "/world/settlements/parked_vehicles");
+                    && (parked.Ownership == SettlementRelation.PlayerOwned || parked.Ownership == settlement.Relation), "/world/settlements/parked_vehicles");
             Require(nodes.TryGetValue(settlement.Node, out var node)
                 && node.Occupant == new NodeOccupant.Settlement(settlement.Id, settlement.Relation), "/world/settlements/node");
             Identity(settlement.Type.Value, "/world/settlements/type");

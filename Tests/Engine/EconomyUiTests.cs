@@ -100,38 +100,153 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Rent_and_renew_use_matching_market_rule_duration_and_preserve_core_amount()
+    public async Task Rent_and_renew_select_rule_multiples_and_preserve_core_price_across_revisions()
     {
-        var before = EconomyFixture.Create();
-        var changed = EconomyFixture.Create(2);
-        var rented = EconomyFixture.Create(3);
+        LeaseRequest rent = new LeaseRequest.Rent(new(1), 3, EconomyFixture.LeaseDuration * 2);
+        LeaseRequest renew = new LeaseRequest.Renew(new(1), EconomyFixture.LeaseDuration * 3);
+        var quotes = new Dictionary<LeaseRequest, CoreResult<LeaseQuote>>
+        {
+            [rent] = new CoreResult<LeaseQuote>.Success(new(rent, new(1), new(827), 3, [])),
+            [new LeaseRequest.Renew(new(1), EconomyFixture.LeaseDuration)] =
+                new CoreResult<LeaseQuote>.Success(new(new LeaseRequest.Renew(new(1), EconomyFixture.LeaseDuration), new(1), new(419), 3, [])),
+            [new LeaseRequest.Renew(new(1), EconomyFixture.LeaseDuration * 2)] =
+                new CoreResult<LeaseQuote>.Success(new(new LeaseRequest.Renew(new(1), EconomyFixture.LeaseDuration * 2), new(1), new(619), 3, [])),
+            [renew] = new CoreResult<LeaseQuote>.Success(new(renew, new(1), new(953), 3, []))
+        };
+        var before = EconomyFixture.Create(leaseQuotes: quotes);
+        var changed = EconomyFixture.Create(2, leaseQuotes: new Dictionary<LeaseRequest, CoreResult<LeaseQuote>>(quotes)
+        {
+            [rent] = new CoreResult<LeaseQuote>.Success(new(rent, new(2), new(109), 3, []))
+        });
+        var rented = EconomyFixture.Create(3, leaseQuotes: quotes);
         var renewed = EconomyFixture.Create(4);
         var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content());
         setup.Session.QueueAdvance(new(1, changed.Position, [], null, null), changed);
-        setup.Session.QueueSubmit(new CoreCommand.AcquireLease(new LeaseRequest.Rent(new(1), 3, EconomyFixture.LeaseDuration), new(419)),
+        setup.Session.QueueSubmit(new CoreCommand.AcquireLease(rent, new(827)),
             CommandSource.UserInterface, Completed(1, changed, rented, new CommandDecision.Accepted([], [])), rented);
-        setup.Session.QueueSubmit(new CoreCommand.AcquireLease(new LeaseRequest.Renew(new(1), EconomyFixture.LeaseDuration), new(419)),
+        setup.Session.QueueSubmit(new CoreCommand.AcquireLease(renew, new(953)),
             CommandSource.UserInterface, Completed(2, rented, renewed, new CommandDecision.Accepted([], [])), renewed);
         await Run(setup, async (ui, economy) =>
         {
             await Page(economy, 3);
             await _input.Enter(Find<LineEdit>(economy, "LeaseCapacity"), "3");
-            Require(Find<Label>(economy, "LeaseDuration").Text.Contains("60 模拟秒（3600 步）") &&
-                economy.FindChildren("LeaseSeconds", "LineEdit", true, false).Count == 0, "市场规则租期未只读显示。");
+            var multiple = Find<OptionButton>(economy, "LeaseMultiple");
+            Require(multiple.ItemCount == 3 && multiple.Selected == 0, "租期倍数没有使用规则上限或默认1倍。");
+            await _input.Choose(multiple, 1);
+            var duration = Find<Label>(economy, "LeaseDuration").Text;
+            Require(duration.Contains("1 游戏日") && duration.Contains("2 游戏日"), "固定租期与本次租期未以游戏日显示。");
             await _input.Activate(Find<Button>(economy, "QuoteLease"));
-            Require(Find<Label>(economy, "LeaseQuote").Text.Contains("总额：419"), "租赁未显示核心总额。");
+            Require(Find<Label>(economy, "LeaseQuote").Text.Contains("总额：827"), "租赁未保留核心哨兵总额。");
             await UiCapture.Capture(TestScene, "economy-lease");
             var host = ui.GetParent<Train.App.App>().Host!;
             await _input.ClickAcrossRevision(Find<Button>(economy, "ConfirmLease"), () =>
             {
                 Require(host.Step(1).Problem is null, "不能发布租赁确认修订。");
                 economy.Refresh(host.GetStatus()!.Binding, changed, host.Content!);
+                Require(ReferenceEquals(multiple, Find<OptionButton>(economy, "LeaseMultiple")) && multiple.Selected == 1 &&
+                    Find<Label>(economy, "LeaseQuote").Text.Contains("总额：827"), "普通修订重建倍数选择或替换旧报价。");
             });
             await _input.WaitUntil(() => ReferenceEquals(ui.View, rented));
             await _input.Choose(Find<OptionButton>(economy, "Lease"), 1);
+            Require(!Find<Label>(economy, "LeaseQuote").Text.Contains("827") && Find<Button>(economy, "ConfirmLease").Disabled,
+                "切换续租仍保留新租旧报价。");
+            await _input.Choose(Find<OptionButton>(economy, "LeaseMultiple"), 2);
+            Require(Find<Label>(economy, "LeaseDuration").Text.Contains("3 游戏日"), "续租未显示本次追加租期。");
+            await _input.Activate(Find<Button>(economy, "QuoteLease"));
+            Require(Find<Label>(economy, "LeaseQuote").Text.Contains("总额：953"), "续租总额未取核心报价。");
+            await _input.Choose(Find<OptionButton>(economy, "LeaseMultiple"), 1);
+            Require(!Find<Label>(economy, "LeaseQuote").Text.Contains("953") && Find<Button>(economy, "ConfirmLease").Disabled,
+                "改变租期倍数没有清除旧报价。");
+            await _input.Choose(Find<OptionButton>(economy, "LeaseMultiple"), 2);
             await _input.Activate(Find<Button>(economy, "QuoteLease"));
             await _input.Activate(Find<Button>(economy, "ConfirmLease"));
             await _input.WaitUntil(() => ReferenceEquals(ui.View, renewed));
+        });
+        setup.Session.AssertComplete();
+    }
+
+    [Test]
+    public async Task Renewal_rechecks_duration_blockers_and_keeps_disabled_selection_with_visible_failures()
+    {
+        LeaseRequest first = new LeaseRequest.Renew(new(1), EconomyFixture.LeaseDuration);
+        LeaseRequest second = new LeaseRequest.Renew(new(1), EconomyFixture.LeaseDuration * 2);
+        LeaseRequest third = new LeaseRequest.Renew(new(1), EconomyFixture.LeaseDuration * 3);
+        var before = EconomyFixture.Create();
+        var changed = EconomyFixture.Create(2, leaseQuotes: new Dictionary<LeaseRequest, CoreResult<LeaseQuote>>
+        {
+            [first] = new CoreResult<LeaseQuote>.Success(new(first, new(2), null, 3,
+                [new("insufficient_capacity", "Request.Capacity", null, ["fixture:capacity"])])),
+            [second] = new CoreResult<LeaseQuote>.Success(new(second, new(2), null, 3,
+                [new("invalid_state", "Request.DurationSteps", null, ["fixture:duration"])])),
+            [third] = new CoreResult<LeaseQuote>.Failure([new("invalid_state", "lease", null, ["fixture:failure"])])
+        });
+        var faulted = EconomyFixture.Create(3, leaseQuotes: new Dictionary<LeaseRequest, CoreResult<LeaseQuote>>
+        {
+            [first] = new CoreResult<LeaseQuote>.Success(new(first, new(3), new(251), 3, [])),
+            [second] = new CoreResult<LeaseQuote>.Faulted(new("fixture:fault", new(0, 3), "QuoteLease", "lease", null), null),
+            [third] = new CoreResult<LeaseQuote>.Success(new(third, new(3), new(503), 3, []))
+        });
+        var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content());
+        await Run(setup, async (ui, economy) =>
+        {
+            await Page(economy, 3);
+            await _input.Choose(Find<OptionButton>(economy, "Lease"), 1);
+            var multiple = Find<OptionButton>(economy, "LeaseMultiple");
+            await _input.Choose(multiple, 1);
+            await _input.Activate(Find<Button>(economy, "QuoteLease"));
+            var host = ui.GetParent<Train.App.App>().Host!;
+            void Advance(Train.Core.ContractSupport.FixedCoreReadView next)
+            {
+                setup.Session.QueueAdvance(new(1, next.Position, [], null, null), next);
+                Require(host.Step(1).Problem is null, "不能发布续租测试修订。");
+                economy.Refresh(host.GetStatus()!.Binding, next, host.Content!);
+            }
+            Advance(changed);
+            Require(ReferenceEquals(multiple, Find<OptionButton>(economy, "LeaseMultiple")) && multiple.Selected == 1 &&
+                !multiple.IsItemDisabled(0) && multiple.IsItemDisabled(1) && multiple.IsItemDisabled(2),
+                "续租未按新修订核心租期阻塞更新，或错误禁用了容量受阻选项。");
+            Require(Find<Button>(economy, "QuoteLease").Disabled && Find<Button>(economy, "ConfirmLease").Disabled,
+                "已选租期变不可用仍允许报价或确认。");
+            var problems = Find<Label>(economy, "LeaseTermProblems").Text;
+            Require(problems.Contains("续租后剩余租期不能超过最长租期 3 游戏日") &&
+                problems.Contains("Request.DurationSteps") && problems.Contains("fixture:duration") && problems.Contains("fixture:failure"),
+                "禁用租期没有显示核心阻塞和Failure原因。");
+            Advance(faulted);
+            Require(multiple.Selected == 1 && multiple.IsItemDisabled(1) && !multiple.IsItemDisabled(2) &&
+                Find<Label>(economy, "LeaseTermProblems").Text.Contains("fixture:fault"), "续租故障原因丢失或修订未恢复可选项。");
+            Require(setup.Session.SubmitCount == 0, "不可用续租提交了命令。");
+        });
+        setup.Session.AssertComplete();
+    }
+
+    [Test]
+    public async Task Renewal_groups_identical_duration_problems_and_explains_the_rule_limit()
+    {
+        var quotes = new Dictionary<LeaseRequest, CoreResult<LeaseQuote>>();
+        foreach (var multiple in new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 })
+        {
+            LeaseRequest request = new LeaseRequest.Renew(new(1), EconomyFixture.LeaseDuration * (ulong)multiple);
+            quotes.Add(request, new CoreResult<LeaseQuote>.Success(new(request, new(1), new(337), 3, [])));
+        }
+        foreach (var multiple in new[] { 11, 12 })
+        {
+            LeaseRequest request = new LeaseRequest.Renew(new(1), EconomyFixture.LeaseDuration * (ulong)multiple);
+            quotes.Add(request, new CoreResult<LeaseQuote>.Success(new(request, new(1), null, 3,
+                [new("invalid_state", "Request.DurationSteps", null, ["fixture:full-horizon"])])));
+        }
+        var setup = new HostSimulationTests.HostSetup(EconomyFixture.Create(leaseQuotes: quotes),
+            EconomyFixture.Content(maxLeaseMultiple: 12));
+        await Run(setup, async (_, economy) =>
+        {
+            await Page(economy, 3);
+            await _input.Choose(Find<OptionButton>(economy, "Lease"), 1);
+            var multiple = Find<OptionButton>(economy, "LeaseMultiple");
+            Require(multiple.ItemCount == 12 && !multiple.IsItemDisabled(9) && multiple.IsItemDisabled(10) && multiple.IsItemDisabled(11),
+                "未依据核心结果禁用超期倍数。");
+            var problems = Find<Label>(economy, "LeaseTermProblems").Text;
+            Require(problems.StartsWith("11、12 倍不可选：续租后剩余租期不能超过最长租期 12 游戏日") &&
+                problems.Contains("invalid_state/Request.DurationSteps") && problems.Contains("fixture:full-horizon") &&
+                problems.Split('\n').Length == 1, "相同超期原因未合并为一行，或遗漏规则上限和核心问题。");
         });
         setup.Session.AssertComplete();
     }
@@ -148,7 +263,7 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
             Require(text.Contains("市场规则缺失：fixture:economy") && text.Contains("content_missing/market.rule") &&
                 text.Contains("fixture:missing-market") && text.Contains("invalid_state/market.rule") &&
                 text.Contains("fixture:invalid-market"), "缺失市场规则的问题未完整显示。");
-            Require(Find<OptionButton>(economy, "Lease").Disabled && !Find<LineEdit>(economy, "LeaseCapacity").Editable &&
+            Require(Find<OptionButton>(economy, "Lease").Disabled && Find<OptionButton>(economy, "LeaseMultiple").Disabled && !Find<LineEdit>(economy, "LeaseCapacity").Editable &&
                 Find<Button>(economy, "QuoteLease").Disabled && Find<Button>(economy, "ConfirmLease").Disabled &&
                 Find<Label>(economy, "LeaseQuote").Text.Contains("市场规则缺失"), "缺失市场规则时仍允许租赁或未说明原因。");
             Require(setup.Session.SubmitCount == 0, "缺失市场规则时提交了租赁命令。");

@@ -26,6 +26,8 @@ public sealed class BuiltInContentTests
         using var candidate = ((C.ContentResult<C.IContentCandidate>.Success)result).Value;
         Assert.AreEqual(0, candidate.Report.Diagnostics.Length);
         var view = candidate.View;
+        CollectionAssert.AllItemsAreUnique(new[] { "plains", "forest", "desert", "mountains" }
+            .Select(id => Found(view.FindTerrain(new("core:" + id))).SurfaceVoxel).ToArray());
         var vehicles = new List<K.DesignHash>();
         foreach (var (id, size) in new[] { ("small-locomotive", K.SizeClass.Small),
                      ("medium-locomotive", K.SizeClass.Medium), ("extra-large-locomotive", K.SizeClass.ExtraLarge) })
@@ -51,7 +53,8 @@ public sealed class BuiltInContentTests
                      ("mining-town", ["extraction-site", "metallurgy-factory", "building-materials-factory"]),
                      ("forestry-town", ["extraction-site", "light-industry-factory"]),
                      ("oilfield-town", ["extraction-site", "chemical-factory"]),
-                     ("industrial-city", ["assembly-factory", "electronics-factory", "recovery-factory", "heavy-vehicle-factory"])
+                     ("industrial-city", ["assembly-factory", "electronics-factory", "recovery-factory", "heavy-vehicle-factory"]),
+                     ("core-city", ["assembly-factory", "electronics-factory", "recovery-factory", "heavy-vehicle-factory"])
                  })
         {
             var template = view.Core.SettlementTemplates.Single(item => item.Id.Value == "core:" + id);
@@ -81,6 +84,20 @@ public sealed class BuiltInContentTests
                 Assert.IsTrue(template.Plots.Any(plot => plot.Number == founding.PlotNumber), id);
             Assert.IsTrue(template.SpecialInitialInventory.IsEmpty, id);
             Assert.IsTrue(template.ProductionPlans.IsEmpty, id);
+        }
+        var city = view.Core.SettlementTemplates.Single(item => item.Id.Value == "core:core-city");
+        Assert.AreEqual(view.Core.SettlementTemplates.Single(item => item.Id.Value == "core:industrial-city").Type, city.Type);
+        foreach (var (id, kind) in new[] { ("core-city-hub", K.BuildingKind.Warehouse), ("bastion-fortress", K.BuildingKind.Defense) })
+        {
+            var design = Complete(view, id);
+            Assert.IsNotNull(design.Core);
+            var building = (K.DesignKind.Building)design.Core.Design.Kind;
+            Assert.AreEqual(K.PlotSize.Giant, building.PlotSize, id);
+            Assert.AreEqual(kind, building.Type, id);
+            var capabilities = design.Core.Design.Parts.SelectMany(part => part.Capabilities).ToArray();
+            Assert.IsTrue(capabilities.OfType<K.PartCapability.Storage>().Any(storage => storage.Capacity > 0), id);
+            Assert.IsTrue(capabilities.All(capability => capability is K.PartCapability.Storage), id);
+            Assert.IsTrue(city.Plots.Any(plot => plot.Size == K.PlotSize.Giant && plot.PrebuiltDesign == design.Design), id);
         }
         foreach (var (id, plotSize, maximumPlot, maximumVehicle, component) in new[]
                  {

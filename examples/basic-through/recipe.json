@@ -1,7 +1,7 @@
 {
   "format_version": 1,
   "generation_profile": "core:basic-through-world",
-  "seed": 1,
+  "seed": 40,
   "generator_version": "stage1-world-v1",
   "save": {
     "id": "75787871-0d94-4c50-8c4a-a3f673d7fdcc",

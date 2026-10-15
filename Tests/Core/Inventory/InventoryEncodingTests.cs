@@ -78,6 +78,26 @@ public sealed class InventoryEncodingTests
         Assert.AreEqual(field, failure.Problems.Single().Field);
     }
 
+    [TestMethod]
+    public void Invalid_trade_values_cannot_be_encoded()
+    {
+        var good = new GoodId.Voxel(new("fixture:ore"));
+        CoreCommand[] commands = [
+            new CoreCommand.BuyGoods(new(0), new(2), new(3), good, 1, new(0)),
+            new CoreCommand.BuyGoods(new(1), new(0), new(3), good, 1, new(0)),
+            new CoreCommand.SellGoods(new(1), new(2), new(0), good, 1, new(0)),
+            new CoreCommand.BuyGoods(new(1), new(2), new(3), good, 0, new(0)),
+            new CoreCommand.SellGoods(new(1), new(2), new(3), good, -1, new(0)),
+            new CoreCommand.BuyGoods(new(1), new(2), new(3), good, 1, new(-1)),
+            new CoreCommand.SellGoods(new(1), new(2), new(3), good, 1, new(-1)),
+            new CoreCommand.BuyVehicle(new(0), new(2), new(0)),
+            new CoreCommand.SellVehicle(new(1), new(0), new(0)),
+            new CoreCommand.BuyVehicle(new(1), new(2), new(-1)),
+            new CoreCommand.SellVehicle(new(1), new(2), new(-1))];
+        foreach (var command in commands)
+            Assert.ThrowsExactly<ArgumentException>(() => CoreCommandEncoding.Encode(command));
+    }
+
     private static void RoundTrip(CoreCommand command)
     {
         var payload = CoreCommandEncoding.Encode(command);

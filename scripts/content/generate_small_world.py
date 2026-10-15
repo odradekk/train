@@ -84,6 +84,11 @@ def grass_texture(x, y):
     return tint(GRASS, grain(x, y, 128, 0x502))
 
 
+def forest_ground_texture(x, y):
+    leaves = (x % 32 - 8) ** 2 + 4 * (y % 32 - 12) ** 2 < 25
+    return tint((92, 103, 56) if leaves else (43, 66, 54), grain(x, y, 128, 0x517))
+
+
 def roots_texture(x, y):
     variation = grain(x, y, 128, 0x503)
     return tint(SOIL if variation < 3 else tuple((a + b) // 2 for a, b in zip(SOIL, GRASS)), variation)
@@ -324,6 +329,70 @@ def small_locomotive():
     return value
 
 
+def building_shell(cells, origin, size):
+    x0, y0, z0 = origin
+    width, height, depth = size
+    x1, y1, z1 = x0 + width - 1, y0 + height - 1, z0 + depth - 1
+    for y in range(y0, y1 + 1):
+        belt = y in (y0, y1) or (y - y0) % 12 < 2
+        for x in range(x0, x1 + 1):
+            if belt or x in (x0, x1) or (x - x0) % 12 < 2:
+                for z in (z0, z1):
+                    cells[x, y, z] = 1 if belt else 0
+        for z in range(z0, z1 + 1):
+            if belt or z in (z0, z1) or (z - z0) % 12 < 2:
+                for x in (x0, x1):
+                    cells[x, y, z] = 1 if belt else 0
+
+
+def core_city_hub():
+    cells = {}
+    building_shell(cells, (-160, 0, -112), (320, 24, 224))
+    for x0 in (-144, 48):
+        building_shell(cells, (x0, 24, -32), (96, 48, 64))
+        building_shell(cells, (x0 + 16, 72, -24), (64, 48, 48))
+        cells.update({(x, 71, z): 1 for x in range(x0, x0 + 96) for z in range(-32, 32)})
+        cells.update({(x, 119, z): 1 for x in range(x0 + 16, x0 + 80) for z in range(-24, 24)})
+    building_shell(cells, (-28, 24, -24), (56, 144, 48))
+    building_shell(cells, (-16, 168, -16), (32, 64, 32))
+    cells.update({(x, 167, z): 1 for x in range(-28, 28) for z in range(-24, 24)})
+    cells.update({(x, 231, z): 1 for x in range(-16, 16) for z in range(-16, 16)})
+    # 基座的十字梁把塔楼、侧翼与外圈柱廊连成一体，不铺满巨型地块。
+    for y in (0, 23):
+        cells.update({(x, y, z): 1 for x in range(-160, 160) for z in range(-2, 2)})
+        cells.update({(x, y, z): 1 for x in range(-2, 2) for z in range(-112, 112)})
+    for x in range(-148, 141, 24):
+        for z in (-111, 110):
+            cells[x, 1, z] = 2
+    value = blueprint("core-city-hub", "核心城市中枢", "building",
+                      ["construction-material", "structural-metal", "storage-equipment"], cells,
+                      {"plot_size": "giant", "building_type": "warehouse", "facility_tags": []})
+    value["display"]["description"] = "320×224×232 格的城市仓储地标：长基座柱廊、两级侧翼与中央高塔；仓储来自实际货舱，外观待阶段试玩确认。"
+    return value
+
+
+def bastion_fortress():
+    cells = {(x, y, z): 0 for y in range(20) for x in range(-176, 176) for z in (-160, 159)}
+    cells.update({(x, y, z): 0 for y in range(20) for z in range(-160, 160) for x in (-176, 175)})
+    for x0 in (-176, 144):
+        for z0 in (-160, 128):
+            building_shell(cells, (x0, 0, z0), (32, 112, 32))
+            cells.update({(x, 111, z): 1 for x in range(x0, x0 + 32) for z in range(z0, z0 + 32)})
+            cells[x0 + 1, 1, z0 + 1] = 2
+            cells[x0 + 1, 2, z0 + 1] = 2
+    building_shell(cells, (-32, 0, 128), (64, 80, 32))
+    # 正面门洞通向内院；门楼两侧与城墙相连。
+    for x in range(-12, 12):
+        for y in range(16):
+            for z in (128, 159):
+                cells.pop((x, y, z), None)
+    value = blueprint("bastion-fortress", "棱堡要塞", "building",
+                      ["construction-material", "structural-metal", "storage-equipment"], cells,
+                      {"plot_size": "giant", "building_type": "defense", "facility_tags": []})
+    value["display"]["description"] = "352×320×112 格的围墙、四座角堡、门楼与内院；当前只由实际货舱提供仓储，不含武器，战斗用途待战斗阶段实现。"
+    return value
+
+
 def content_files():
     files = {}
 
@@ -387,6 +456,10 @@ def content_files():
     voxel("stone", "石料", "stone_soil", faces("shared/soil-face.png"), "shared/soil-icon.png", good(18, 0.042, raw=True))
     voxel("ground", "地表", "organic", faces("top.png", "side.png", "shared/subsoil.png"),
           "icon.png", tile_span=4, description=sample_description.format("地表"))
+    voxel("forest-ground", "森林地表占位", "organic", faces("top.png"),
+          "icon.png", tile_span=4, description="森林地表占位，正式地形美术归 #358。")
+    files["voxels/forest-ground/top.png"] = png(128, forest_ground_texture)
+    files["voxels/forest-ground/icon.png"] = png(128, forest_ground_texture)
     voxel("subsoil", "土层", "stone_soil", faces("shared/subsoil.png"),
           "icon.png", tile_span=4, description=sample_description.format("土层"))
     voxel("rock", "岩层", "stone_soil", faces("top.png"),
@@ -412,10 +485,17 @@ def content_files():
         for kind, name, cells in (("bridge", "桥梁", bridge), ("tunnel-portal", "隧道口", tunnel)):
             identity = f"{kind}-{tracks}"
             document("blueprints", "blueprint", identity, blueprint(identity, f"{tracks}轨{name}", "scene_model", ["rock"], cells))
-    for identity, name, local_amplitude in (("plains", "平原", 0.7), ("hills", "丘陵", 2.8)):
+    for identity, name, surface, local_amplitude in (
+        ("plains", "平原", "ground", 0.7), ("hills", "丘陵", "ground", 2.8),
+        ("forest", "森林", "forest-ground", 0.7), ("desert", "荒漠", "subsoil", 0.7),
+        ("mountains", "山地", "rock", 2.8),
+    ):
+        description = f"基础贯通{name}，提供局部起伏与铁路模型。"
+        if identity in ("forest", "desert", "mountains"):
+            description += "占位，正式地形美术归 #358。"
         document("terrain-types", "terrain-type", identity,
-                 {"schema_version": 1, "id": identity, "display": {"name": name, "description": f"基础贯通{name}，提供局部起伏与铁路模型。"},
-                  "surface_voxel": "ground", "subsurface_voxel": "subsoil", "rock_voxel": "rock",
+                 {"schema_version": 1, "id": identity, "display": {"name": name, "description": description},
+                  "surface_voxel": surface, "subsurface_voxel": "subsoil", "rock_voxel": "rock",
                   "local_height_noise": [{"scale_meters": 140, "amplitude": local_amplitude}],
                   "decorations": [], "decoration_target_per_square_meter": 0,
                   "railway_models": [{"tracks": n, "bridge": f"bridge-{n}", "tunnel_portal": f"tunnel-portal-{n}"} for n in (1, 2)]})
@@ -483,18 +563,18 @@ def content_files():
         document("blueprints", "blueprint", identity, value)
 
     settlements = (
-        ("agricultural-town", "农业镇", ("farm", "food-factory")),
-        ("mining-town", "矿业镇", ("extraction-site", "metallurgy-factory", "building-materials-factory")),
-        ("forestry-town", "林业镇", ("extraction-site", "light-industry-factory")),
-        ("oilfield-town", "油田镇", ("extraction-site", "chemical-factory")),
-        ("industrial-city", "工业城", ("assembly-factory", "electronics-factory", "recovery-factory", "heavy-vehicle-factory")),
+        ("agricultural-town", "农业镇", ("plains", "hills"), ("farm", "food-factory")),
+        ("mining-town", "矿业镇", ("mountains", "hills"), ("extraction-site", "metallurgy-factory", "building-materials-factory")),
+        ("forestry-town", "林业镇", ("forest",), ("extraction-site", "light-industry-factory")),
+        ("oilfield-town", "油田镇", ("desert",), ("extraction-site", "chemical-factory")),
+        ("industrial-city", "工业城", ("plains",), ("assembly-factory", "electronics-factory", "recovery-factory", "heavy-vehicle-factory")),
     )
-    for identity, name, major_buildings in settlements:
+    for identity, name, preferred_terrain, major_buildings in settlements:
         document("settlement-types", "settlement-type", identity,
                  {"schema_version": 3, "id": identity,
-                  "simulation": {"preferred_terrain": ["core:plains", "core:hills"], "weight": 3,
+                  "simulation": {"preferred_terrain": ["core:" + terrain for terrain in preferred_terrain], "weight": 3,
                                  "population_min": 120, "population_max": 360},
-                  "display": {"name": name, "description": "本阶段临时使用平原、丘陵偏好；完整地貌和生产配平随后接入。",
+                  "display": {"name": name, "description": "按 Demo 目录选择偏好地貌；生产配平待 #379。",
                               "map_symbol": "shared/agricultural-town.png", "major": identity == "industrial-city"}})
         plots = [{"id": 1, "size": "small_station", "at": [-104, 1, -176], "orientation": "px_py", "building": "small-station"},
                  {"id": 2, "size": "small_station", "at": [104, 1, -176], "orientation": "px_py"}]
@@ -520,6 +600,24 @@ def content_files():
                   "founding": [{"plot": 1, "building": "small-station"}, {"plot": 10, "building": "basic-shed"}],
                   "inventory": [], "production_plans": [],
                   "display": {"name": name + "基础布局", "description": "十地块布局，含两个站点地块与委托、仓储、供能设施；生产计划和库存待后续切片。"}})
+
+    for value in (core_city_hub(), bastion_fortress()):
+        document("blueprints", "blueprint", value["id"], value)
+    city = json.loads(files["settlement-templates/industrial-city.settlement-template.json"])
+    city.update(id="core-city", scene_model="core-city-ground")
+    city["plots"].extend([
+        {"id": 11, "size": "giant", "at": [-224, 1, 800], "orientation": "px_py", "building": "core-city-hub"},
+        {"id": 12, "size": "giant", "at": [224, 1, 800], "orientation": "px_py", "building": "bastion-fortress"},
+    ])
+    city["display"] = {"name": "核心城市", "description": "工业城的十二地块布局；两座巨型仓储建筑、重型车辆工厂与原有工业和公共设施。要塞战斗用途待战斗阶段实现。"}
+    document("settlement-templates", "settlement-template", "core-city", city)
+    ground = {(x, 0, z): 0 for x in range(-432, 432) for z in range(-2, 2)}
+    ground.update({(x, 0, z): 0 for x in range(-2, 2) for z in range(-232, 1000)})
+    for row in (224, 448, 800):
+        ground.update({(x, 0, z): 0 for x in range(-432, 432) for z in range(row - 2, row + 2)})
+    document("blueprints", "blueprint", "core-city-ground",
+             blueprint("core-city-ground", "核心城市地面", "scene_model", ["ground"], ground,
+                       appearance={"flatten": {"from": [-432, -232], "to": [431, 999], "height": 1}}))
 
     needs = ("food", "clothing", "improved_diet", "consumer_goods", "consumer_electronics", "medical_supplies")
     consumption = []
@@ -555,10 +653,18 @@ def content_files():
     document("combat-rules", "combat-rule", "basic-combat", {"schema_version": 1, "id": "basic-combat",
         "retreat_seconds": 24, "morale_damage_coefficient": 0.015, "weapon_destroyed_morale_loss": 0.18,
         "morale_recovery_per_second": 0.012, "surrender_threshold": 0.12, "new_lair_interval_seconds": 5400})
-    bands = [{"terrain": terrain, "minimum_elevation": -1, "maximum_elevation": 30,
-              "minimum_moisture": -1, "maximum_moisture": 2, "maximum_relief": relief,
+    # 阈值仅供示例验证，分布待配平。
+    # 非平原带的起伏上限均超过 18 米噪声总振幅；不同上限消除闭区间边界的并列匹配。
+    bands = [{"terrain": terrain, "minimum_elevation": low, "maximum_elevation": high,
+              "minimum_moisture": dry, "maximum_moisture": wet, "maximum_relief": relief,
               "detour_multiplier": detour, "maximum_tracks": 2}
-             for terrain, relief, detour in (("plains", 0.75, 1.12), ("hills", 100, 1.35))]
+             for terrain, low, high, dry, wet, relief, detour in (
+                 ("plains", -1, 10, 0.35, 0.65, 0.75, 1.12),
+                 ("hills", -1, 10, 0.35, 0.65, 100, 1.35),
+                 ("forest", -1, 30, 0.65, 2, 98, 1.35),
+                 ("desert", -1, 30, -1, 0.35, 97, 1.35),
+                 ("mountains", 10, 30, -1, 2, 96, 1.35),
+             )]
     document("generation-profiles", "generation-profile", "basic-through-world", {
         "schema_version": 2, "id": "basic-through-world",
         "display": {"name": "基础贯通小世界", "description": "真实三轨距机车、站点、非零噪声与环路；不是完整 Demo 默认开局，经济条件与生物聚落尚未验收。"},
