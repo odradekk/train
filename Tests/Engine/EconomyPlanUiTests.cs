@@ -110,6 +110,8 @@ public class EconomyPlanUiTests(Node testScene) : TestClass(testScene)
             var profilePath = Path.Combine(directory, "resources/generation-profiles/basic-through-world.generation-profile.json");
             var profile = JsonNode.Parse(File.ReadAllText(profilePath))!;
             profile["start"]!["trains"]![0]!["inventory"] = JsonNode.Parse("""[{"voxel":"staple-food","quantity":11}]""");
+            // 卖出情景需要 NPC 留有收购缺口，不能让开局库存先填满生活需求。
+            profile["configuration"]!["npc_initialization"]!["fill_inputs_and_living_targets"] = false;
             File.WriteAllText(profilePath, profile.ToJsonString());
             var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
             app.CreateHost = logger => ContentFixture.CreateHost(logger, directory, dispatcher);
