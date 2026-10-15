@@ -4,7 +4,7 @@
 
 **本轮未复现原始 TextureStorage／RD Texture／ObjectDB 退出泄漏。** 普通 follow-8x 为 0/32，verbose follow-8x 为 0/58；连同其他情景，共 109 个有效测量进程及 8 个启动对照。原始对象身份和根因仍未知，与 #477 天空改动的关联未被证实，也不能据此认定问题已修复。旧输入在本轮产品上不兼容，因此这些结果不能直接代表原版本、原输入的发生率。
 
-本票只诊断，不修复，按 [批准计划及决定 1–8](https://github.com/odradekk/train/issues/491#issuecomment-6190091359) 完成有效测量上限 109 次。失败和因协调窗口中止的运行另列，不计入分母。
+本工单只诊断，不修复，按 [批准计划及决定 1–8](https://github.com/odradekk/train/issues/491#issuecomment-6190091359) 完成有效测量上限 109 次。失败和因协调窗口中止的运行另列，不计入分母。
 
 本报告服务于阶段 2 验收 [#299](https://github.com/odradekk/train/issues/299)，只提供当前导出版退出行为的诊断证据，不构成阶段联调或性能验收。
 
@@ -25,13 +25,13 @@ WARNING: 8 RIDs of type "Texture" were leaked.
 WARNING: 4 ObjectDB instances were leaked at exit (run with `--verbose` for details).
 ```
 
-ObjectDB 告警数量为 4。这些原生退出诊断只在 `process.log` 中，`godot.log` 没有相应记录。因此退出码 0、completed 和 Godot 文件日志无 ERROR 均不足以排除该问题。日志没有 verbose 对象身份，无法把数量对应到资源、节点或 C# 调用点。前两轮共 150 个进程未出现、第三轮 9 个中 1 个出现，是 [#298 验收评论](https://github.com/odradekk/train/issues/298#issuecomment-6174311596) 的历史结论，本票没有重新逐一审计前 150 次日志。
+ObjectDB 告警数量为 4。这些原生退出诊断只在 `process.log` 中，`godot.log` 没有相应记录。因此退出码 0、completed 和 Godot 文件日志无 ERROR 均不足以排除该问题。日志没有 verbose 对象身份，无法把数量对应到资源、节点或 C# 调用点。前两轮共 150 个进程未出现、第三轮 9 个中 1 个出现，是 [#298 验收评论](https://github.com/odradekk/train/issues/298#issuecomment-6174311596) 的历史结论，本工单没有重新逐一审计前 150 次日志。
 
 捕获器先分别收完 stdout、stderr 再拼接；原生日志没有时间戳。不能从跨流行序推断精确退出时序或竞争。测量代码先报告再 Quit，引擎随后清理，足以确认需要检查退出阶段，尚不足以确定原因。
 
 原输入按归档 identity 的 SHA-256，从 Git 的 `e9f0961:examples/basic-through/save.json` 精确恢复。当前产品加载失败，报告 `host_restore_failed`、`Rejected`、`unsupported_format`，字段 `/core_state_format_version`。该次是兼容性试验，没有有效采样。按批准决定改用当前示例，两个输入不混合统计。
 
-`e9f0961..b0d499e` 之间 Rendering 全目录、WorldSceneView、WorldSceneController、Measurement、GodotAssetDecoder 没有变更，App 的退出顺序也未变；新增了经济 UI、GoodsIconCache 和离屏图标路径，录制格式与示例世界也已变化。本轮复测覆盖 b0d499e 产品路径，但不是原版本、原输入的完全重演；当前的 0/N 不能直接估计原条件发生率，也不能证明这段历史已经修复问题。
+`e9f0961..b0d499e` 之间 Rendering 全目录、WorldSceneView、WorldSceneController、Measurement、GodotAssetDecoder 没有变更，`App._ExitTree` 的释放顺序未变，但新增了 `GoodsIconCache` 子节点；新增了经济 UI、GoodsIconCache 和离屏图标路径，录制格式与示例世界也已变化。本轮复测覆盖 b0d499e 产品路径，但不是原版本、原输入的完全重演；当前的 0/N 不能直接估计原条件发生率，也不能证明这段历史已经修复问题。
 
 ## 产品、输入与环境身份
 
@@ -53,11 +53,11 @@ ObjectDB 告警数量为 4。这些原生退出诊断只在 `process.log` 中，
 
 交付分支的示例已随主线更新。重放本轮固定 b0d499e 导出须使用归档的 `inputs/current-b0d499e.save.json`，不能把交付分支的新示例传给旧导出；下文 `examples/basic-through/save.json` 指测量当时的 b0d499e 文件。Debug 配置为 ExportDebug，源码同为干净 b0d499e。两个输入的原始字节分别保留在 `inputs/historical-e9f0961.save.json`、`inputs/current-b0d499e.save.json`。本轮测量的 CoreInputId 为 `0F04DB44EA9AF31F6444AC9BF3716D1196702FEDEE81F2A9CBFCA07D498E5286`，world seed 1。
 
-环境为 Windows 10.0.26300 x64、Ryzen 9 5900HX（16 逻辑核）、RTX 3080 Laptop GPU、NVIDIA 32.0.15.9649；Godot 4.7.2 stable mono official `ed1daf0bf`，Vulkan 1.4.329、Forward+，1920×1080、VSync 开、MSAA4X、SDFGI/TAA 关；.NET 10.0.12、SDK 10.0.112、PowerShell 7.6.6。环境字段以真实游戏报告和 `environment.json` 为准。同机存在其他任务负载；每次保留 `external-load.jsonl`，内容是总 CPU 和 Godot*/dotnet 进程快照，不覆盖所有进程、GPU 或窗口状态，不能用于完整负载归因；本票不比较帧时间或评价性能。
+环境为 Windows 10.0.26300 x64、Ryzen 9 5900HX（16 逻辑核）、RTX 3080 Laptop GPU、NVIDIA 32.0.15.9649；Godot 4.7.2 stable mono official `ed1daf0bf`，Vulkan 1.4.329、Forward+，1920×1080、VSync 开、MSAA4X、SDFGI/TAA 关；.NET 10.0.12、SDK 10.0.112、PowerShell 7.6.6。环境字段以真实游戏报告和 `environment.json` 为准。同机存在其他任务负载；每次保留 `external-load.jsonl`，内容是总 CPU 和 Godot*/dotnet 进程快照，不覆盖所有进程、GPU 或窗口状态，不能用于完整负载归因；本工单不比较帧时间或评价性能。
 
-测量身份与交付身份分开：交付分支通过 `git merge --no-edit origin/master` 合入的实际 master 为 `960e3403278edd01fd38516dd94377e31b35c968`；其中包含整组契约基线 `9bafcee0a12d3da20bbb0809708899681b13ce47`，public-api blob 为 `32236034a41867535c124f1d56604cd38e0c4185`。本票不改公开面或存档／内容格式。上述 b0d499e 结果按验收条件 1 保留，未用新主线重新导出或混入统计；后续主线已改变 Core／Content、Scenes 和导出优化设置，不能把本轮结果当作该新 master 的运行验证。
+测量身份与交付身份分开：测量绑定 `b0d499e`，交付分支在合并前已同步 master，具体提交见 PR 和完成评论。整组契约基线为 `9bafcee0a12d3da20bbb0809708899681b13ce47`，public-api blob 为 `32236034a41867535c124f1d56604cd38e0c4185`。本工单不改公开面或存档／内容格式。上述 b0d499e 结果按验收条件 1 保留，未用新主线重新导出或混入统计；后续主线已改变 Core／Content、Scenes 和导出优化设置，不能把本轮结果当作该新 master 的运行验证。
 
-构建优化也需区分：对保留的 b0d499e Release 导出只读检查 `DebuggableAttribute`，`Train.dll` 不含 `DisableOptimizations`，Core／Content／Scenes 及其三个 Contracts 依赖均含该标志。这里的 Release 指导出模板和 ExportRelease 配置，并不表示所有托管依赖均已优化；七个程序集的标志和哈希在 `b0-export-debuggable-metadata.json`。新主线 #512 已为 ExportRelease 增加 `Optimize=true`，该变更不回写本轮导出，本票也不据两版推断退出泄漏的变化。
+构建优化也需区分：对保留的 b0d499e Release 导出只读检查 `DebuggableAttribute`，`Train.dll` 不含 `DisableOptimizations`，Core／Content／Scenes 及其三个 Contracts 依赖均含该标志。这里的 Release 指导出模板和 ExportRelease 配置，并不表示所有托管依赖均已优化；七个程序集的标志和哈希在 `b0-export-debuggable-metadata.json`。新主线 #512 已为 ExportRelease 增加 `Optimize=true`，该变更不回写本轮导出，本工单也不据两版推断退出泄漏的变化。
 
 ## 运行方法与结果
 
@@ -106,7 +106,7 @@ train.exe --headless --max-fps 60 --quit-after 1200 --log-file <run/godot.log>
 train.exe --windowed --resolution 1920x1080 --quit-after 1200 --log-file <run/godot.log> --verbose
 ```
 
-headless 使用 dummy 渲染器，不创建 RendererRD TextureStorage。其成功只能说明对应启动／冒烟路径，没有能力反证本票这类泄漏。依据固定官方版本的 [DisplayServerHeadless::create_func](https://github.com/godotengine/godot/blob/ed1daf0bf001b61586d9930840f2f1394092c079/servers/display/display_server_headless.cpp#L38) 与 [RasterizerDummy](https://github.com/godotengine/godot/blob/ed1daf0bf001b61586d9930840f2f1394092c079/servers/rendering/dummy/rasterizer_dummy.h#L60)。有窗口 Debug 覆盖真实 RendererRD 启动退出，但未执行 follow-8x 测量路径。原 smoke 不写逐进程 process.json，其成功由入口的退出码、超时、清理和行为断言确认；汇总对此明确标为入口派生结论。
+headless 使用 dummy 渲染器，不创建 RendererRD TextureStorage。其成功只能说明对应启动／冒烟路径，没有能力反证本工单这类泄漏。依据固定官方版本的 [DisplayServerHeadless::create_func](https://github.com/godotengine/godot/blob/ed1daf0bf001b61586d9930840f2f1394092c079/servers/display/display_server_headless.cpp#L38) 与 [RasterizerDummy](https://github.com/godotengine/godot/blob/ed1daf0bf001b61586d9930840f2f1394092c079/servers/rendering/dummy/rasterizer_dummy.h#L60)。有窗口 Debug 覆盖真实 RendererRD 启动退出，但未执行 follow-8x 测量路径。原 smoke 不写逐进程 process.json，其成功由入口的退出码、超时、清理和行为断言确认；汇总对此明确标为入口派生结论。
 
 | 对照 | 有效进程 | 目标／泄漏关键词命中 | 原生 ERROR |
 | --- | ---: | ---: | --- |
@@ -146,7 +146,7 @@ Release 首次导入日志记录缺失 `.fontdata`、Theme.tres 依赖加载/解
 | `App/Measurement/MeasurementRun.cs:202` Viewport.GetTexture().GetSize | 临时取得 ViewportTexture 包装引用，无显式 Dispose | [官方 getter](https://github.com/godotengine/godot/blob/ed1daf0bf001b61586d9930840f2f1394092c079/scene/main/viewport.cpp#L1416) 返回既有 default_texture，不能称每次新建原生纹理 |
 | `MeasurementRun.cs:272` 截图读回 | Image 用 using，ViewportTexture 包装对象无显式 Dispose | follow-8x 不走该截图分支，不能用此调用解释原阳性 |
 
-正常退出顺序：`MeasurementRun.cs:153–168` 等录制关闭、写报告、Quit；`App/App.cs:219–236` 依次释放 measurement、Development、Recording、Saves、WorldScenes、Host、dispatcher、logger。`WorldSceneController.cs:301–336` 先断开 Environment、释放 SceneDisplay、异步关闭纯 .NET 场景会话，再释放 View 和资源缓存。`SceneDisplay.cs:143–161` 退役节点与 PreparedVisual，`SceneResources.cs:73–80` 先 Free 节点，再逆序释放所持资源，材质先于纹理租约释放。异步会话关闭不等待，但仅凭此不能推导 Godot 纹理遗留。UI 缓存依赖各自 `_ExitTree`，本票没有确认这些回调与 App 父节点退出的精确相对顺序。
+正常退出顺序：`MeasurementRun.cs:153–168` 等录制关闭、写报告、Quit；`App/App.cs:219–236` 依次释放 measurement、Development、Recording、Saves、WorldScenes、Host、dispatcher、logger。`WorldSceneController.cs:301–336` 先断开 Environment、释放 SceneDisplay、异步关闭纯 .NET 场景会话，再释放 View 和资源缓存。`SceneDisplay.cs:143–161` 退役节点与 PreparedVisual，`SceneResources.cs:73–80` 先 Free 节点，再逆序释放所持资源，材质先于纹理租约释放。异步会话关闭不等待，但仅凭此不能推导 Godot 纹理遗留。UI 缓存依赖各自 `_ExitTree`，本工单没有确认这些回调与 App 父节点退出的精确相对顺序。
 
 未在所查 App、Ui、Rendering C# 发现 Texture2DArray 创建。`scene_material.gdshader` 的 base_texture 由 SceneResources 设置；`sky.gdshader` 和 `water.gdshader` 没有纹理 uniform。#477 改了天空材质并设置 FogSkyAffect=0，未改变释放代码；没有身份证据便不能默认归因天空，也不能只因无 uniform 就排除引擎内部天空纹理。
 
@@ -161,7 +161,7 @@ Release 首次导入日志记录缺失 `.fontdata`、Theme.tres 依赖加载/解
 
 ## 候选原因、修复方向与代价
 
-尚未确认根因。下表按可验证的持有／释放机制列候选，不作概率排名；代价是取得身份后调查及最小项目改动的工程估计，不包括上游引擎修复排期，本票不实施。
+尚未确认根因。下表按可验证的持有／释放机制列候选，不作概率排名；代价是取得身份后调查及最小项目改动的工程估计，不包括上游引擎修复排期，本工单不实施。
 
 | 候选 | 依据与尚缺证据 | 可能的修复方向与估计 |
 | --- | --- | --- |
@@ -173,15 +173,15 @@ Release 首次导入日志记录缺失 `.fontdata`、Theme.tres 依赖加载/解
 
 建议本轮停止继续重复当前输入，也不据这些静态候选改天空或释放顺序。当前没有阳性身份指导，本轮未做天空／Fog A/B 或生产插桩；没有基线阳性的 0/N 变体不足以归因原事件。与 #477 的关系仍未定。
 
-若再次自然出现同类诊断，值得继续追查：先保留两个日志及 verbose 的实例 ID、类名、资源路径／节点，再把身份对应到上述创建和退役路径。若必须回答原事件根因，单独恢复 e9f0961 与原输入，比继续当前新输入更有区分力；进一步插桩和天空／Fog 单变量实验仍应在独立副本完成。现有证据只覆盖退出诊断，本票没有验证运行中资源增长或玩家可见影响，不以未复现证明这些方面正常。
+若再次自然出现同类诊断，值得继续追查：先保留两个日志及 verbose 的实例 ID、类名、资源路径／节点，再把身份对应到上述创建和退役路径。若必须回答原事件根因，单独恢复 e9f0961 与原输入，比继续当前新输入更有区分力；进一步插桩和天空／Fog 单变量实验仍应在独立副本完成。现有证据只覆盖退出诊断，本工单没有验证运行中资源增长或玩家可见影响，不以未复现证明这些方面正常。
 
 ## 验证与证据索引
 
-基线 `dotnet build Train.csproj` 成功，0 警告、0 错误，34.623 秒。`pwsh -NoProfile -File scripts/test.ps1 -Project godot -Layer fast,integration` 首次 244 个用例通过，但入口因本票运行期间新建 scratch 脚本触发源码快照检查而失败；保留原结果，不记为入口通过。停止写文件后同命令重跑通过：156 fast、88 integration，入口 60.585 秒。两次目录分别为 `TestResults/fast-integration-20261015T104355876-b0d499e/`、`TestResults/fast-integration-20261015T104540109-b0d499e/`。这是 b0d499e 的基线结果，不声称在报告提交重新执行了这 244 个测试。
+基线 `dotnet build Train.csproj` 成功，0 警告、0 错误，34.623 秒。`pwsh -NoProfile -File scripts/test.ps1 -Project godot -Layer fast,integration` 首次 244 个用例通过，但入口因本工单运行期间新建 scratch 脚本触发源码快照检查而失败；保留原结果，不记为入口通过。停止写文件后同命令重跑通过：156 fast、88 integration，入口 60.585 秒。两次目录分别为 `TestResults/fast-integration-20261015T104355876-b0d499e/`、`TestResults/fast-integration-20261015T104540109-b0d499e/`。这是 b0d499e 的基线结果，不声称在报告提交重新执行了这 244 个测试。
 
-交付 head 的工程构建、按改动选择的检查及 Windows routine 结果记录在本票完成评论和对应 CI；上述 244 个用例及本轮运行结果仍绑定 b0d499e，未移作新主线的实测结果。
+交付 head 的工程构建、按改动选择的检查及 Windows routine 结果记录在本工单完成评论和对应 CI；上述 244 个用例及本轮运行结果仍绑定 b0d499e，未移作新主线的实测结果。
 
-本票按派工用 CLI 导出和运行，未启动常驻 MCP 编辑器、未通过 9083 进行 MCP 交互，也没有 Computer Use、人工视觉质量或交互验收。临时诊断驱动与扫描器只在忽略目录，未改 canonical 脚本；未创建生产源码插桩副本或临时生产补丁。
+本工单按派工用 CLI 导出和运行，未启动常驻 MCP 编辑器、未通过 9083 进行 MCP 交互，也没有 Computer Use、人工视觉质量或交互验收。临时诊断驱动与扫描器只在忽略目录，未改 canonical 脚本；未创建生产源码插桩副本或临时生产补丁。
 
 以下均相对于本工作树 `TestResults/issue-491/`，合并归档由协调者复制到 `D:/Code/train-validation-archive/issue-491-<时间>/`，保留目录结构：
 
