@@ -7,8 +7,12 @@ namespace Train.Core.Tests.Railway;
 
 internal static class TrainRecoveryFixture
 {
+    internal const int ConsumptionIntervalTicks = 120;
+    internal const int StatisticsPeriodTicks = 720;
     internal static CoreContentProjection Content => WorldFixture.Content with
     {
+        PopulationRules = [WorldFixture.PopulationRule() with
+            { ConsumptionIntervalTicks = ConsumptionIntervalTicks, StatisticsPeriodTicks = StatisticsPeriodTicks }],
         RailwayRules = [WorldFixture.Content.RailwayRules[0] with { BrakingDeceleration = 100 }],
         Designs = WorldFixture.Content.Designs.SetItem(0, WorldFixture.Content.Designs[0] with
         { Parts = [WorldFixture.Content.Designs[0].Parts[0] with
