@@ -15,6 +15,33 @@ public sealed class RailwayTerrainTests
     private static readonly VoxelDefinitionId ModelVoxel = new("test:model-voxel");
 
     [TestMethod]
+    public void EqualTerrainLayersPreserveColumnGeometryAndDifferentEdgeDistances()
+    {
+        var terrain = RailwayFixtures.TerrainAppearance with
+        { SurfaceVoxel = SceneFixtures.Voxel, SubsurfaceVoxel = SceneFixtures.Voxel, RockVoxel = SceneFixtures.Voxel };
+        var cells = ImmutableArray.CreateBuilder<SceneCell>();
+        foreach (var x in new[] { 0, 2 })
+        {
+            var subject = new PickSubject.Terrain(new WorldLocation.Edge(new(1), x + 0.25));
+            var layers = RailwayTerrain.PrepareLayers(terrain, _ => SceneFixtures.Cube, subject);
+            RailwayTerrain.FillColumn(cells, new(x, 0), 0, layers, layers!.Rock, 0, x == 0);
+        }
+        var grid = new VoxelGrid(cells.ToImmutable());
+        var meshes = DesignGeometry.Meshes(grid, false).OfType<SceneVisual.Geometry>().ToArray();
+        Assert.AreEqual(2 * (RailwayCoordinates.TerrainDepthCells * 8 + 4), meshes.Sum(mesh => mesh.Mesh.TriangleIndices.Length / 3));
+        var basis = SceneFixtures.Build(SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0))]));
+        var frame = SceneFixtures.Frame(basis with { Picking = [new(basis.Objects[0].Id, SceneFixtures.Identity, grid)] });
+        foreach (var x in new[] { 0, 2 })
+        {
+            var subject = new PickSubject.Terrain(new WorldLocation.Edge(new(1), x + 0.25));
+            Assert.AreEqual(SceneFixtures.Cube, grid.Find(new(x, 0, 0))?.Appearance);
+            var hit = ((ScenePick.Hit)frame.Pick(new(new(x + 0.5f, 2, 0.5f), -Vector3.UnitY, 4))).Value;
+            Assert.AreEqual(new GridPosition(x, 0, 0), hit.Cell);
+            Assert.AreEqual(subject, hit.Subject);
+        }
+    }
+
+    [TestMethod]
     [DataRow(9.5, true, true)]
     [DataRow(10.0, true, false)]
     [DataRow(10.5, true, false)]
@@ -27,8 +54,9 @@ public sealed class RailwayTerrainTests
         };
         var cells = ImmutableArray.CreateBuilder<SceneCell>();
         var height = RailwayTerrain.BedHeight(0, distance);
-        RailwayTerrain.FillColumn(cells, new(1, 2), height, terrain, terrain, distance, true,
-            id => SceneFixtures.Cube with { Definition = id }, new PickSubject.Terrain(new WorldLocation.Node(new(1))));
+        var layers = RailwayTerrain.PrepareLayers(terrain, id => SceneFixtures.Cube with { Definition = id },
+            new PickSubject.Terrain(new WorldLocation.Node(new(1))));
+        RailwayTerrain.FillColumn(cells, new(1, 2), height, layers, layers!.Rock, distance, true);
         Assert.AreEqual(firstRock ? terrain.RockVoxel : terrain.SurfaceVoxel, cells[0].Appearance!.Definition);
         Assert.AreEqual(secondRock ? terrain.RockVoxel : terrain.SubsurfaceVoxel, cells[1].Appearance!.Definition);
         Assert.AreEqual((int)height, cells[0].At.Y);
@@ -253,7 +281,7 @@ public sealed class RailwayTerrainTests
         var middle = path.Sample(middleArc).Position;
         var column = new GridColumn((int)Math.Floor(middle.X - segment.Origin.X), (int)Math.Floor(middle.Z - segment.Origin.Z));
         Assert.IsTrue(segment.Heights[column] > middle.Y + RailwayCoordinates.TunnelClearance, "The tunnel roof must survive trackbed cutting.");
-        var centerColumn = segment.Geometry.Picking.OrderByDescending(grid => grid.Grid.Cells.Length).First().Grid.Cells
+        var centerColumn = segment.Geometry.Picking.OrderByDescending(grid => grid.Grid.Cells.Count()).First().Grid.Cells
             .Where(cell => cell.At.X == column.X && cell.At.Z == column.Z).ToArray();
         Assert.IsTrue(centerColumn.Length > 0, "The ridge must retain real roof voxels.");
         Assert.IsTrue(centerColumn.All(cell => cell.At.Y < 0 || cell.At.Y >= RailwayCoordinates.TunnelClearance), "Tunnel clearance contains terrain voxels.");
@@ -366,11 +394,12 @@ public sealed class RailwayTerrainTests
     {
         var content = Content(RailwayFixtures.TerrainAppearance, missingGround: true);
         var segment = Build(Short(content, tracks: 0));
-        var cells = segment.Geometry.Picking.Single().Grid.Cells;
+        var grid = segment.Geometry.Picking.Single().Grid;
+        var cells = grid.Cells;
         var markers = segment.Geometry.Objects.Where(item => item.Parent is not null).ToArray();
-        Assert.AreEqual(cells.Length, markers.Length);
+        Assert.AreEqual(grid.Cells.Count(), markers.Length);
         var positions = markers.Select(item => item.Pose.Position).ToHashSet();
-        Assert.AreEqual(cells.Length, positions.Count);
+        Assert.AreEqual(grid.Cells.Count(), positions.Count);
         foreach (var cell in cells)
             Assert.IsTrue(positions.Contains(new(cell.At.X, cell.At.Y, cell.At.Z)));
         Assert.IsTrue(markers.All(item => item.Visuals.Single() is SceneVisual.Missing { KnownCell: true }));

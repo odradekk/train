@@ -6,45 +6,121 @@ using Train.Scenes.Contracts;
 
 namespace Train.Scenes;
 
-internal sealed record SceneCell(GridPosition At, VoxelOrientation Orientation, VoxelAppearanceProjection? Appearance,
-    VoxelShape? Shape, PaintColor? Paint, PickSubject? Subject, ImmutableArray<int> Path,
-    ContentReference? MissingReference = null)
+internal sealed class CellProperties(VoxelOrientation orientation, VoxelAppearanceProjection? appearance,
+    VoxelShape? shape, PaintColor? paint, PickSubject? subject, ImmutableArray<int> path,
+    ContentReference? missingReference = null) : IEquatable<CellProperties>
 {
-    internal bool Occludes => (Shape is null or { Name: "cube" }) && Appearance?.Presentation is VoxelPresentation.Cube;
+    internal VoxelOrientation Orientation { get; } = orientation;
+    internal VoxelAppearanceProjection? Appearance { get; } = appearance;
+    internal VoxelShape? Shape { get; } = shape;
+    internal PaintColor? Paint { get; } = paint;
+    internal PickSubject? Subject { get; } = subject;
+    internal ImmutableArray<int> Path { get; } = path;
+    internal ContentReference? MissingReference { get; } = missingReference;
+    internal bool Occludes { get; } = (shape is null or { Name: "cube" }) && appearance?.Presentation is VoxelPresentation.Cube;
+    private readonly int hashCode = Hash(orientation, appearance, shape, paint, subject, path, missingReference);
+
+    public bool Equals(CellProperties? other) => ReferenceEquals(this, other) || other is not null &&
+        Orientation == other.Orientation && Appearance == other.Appearance && Shape == other.Shape && Paint == other.Paint &&
+        Subject == other.Subject && MissingReference == other.MissingReference && Path.AsSpan().SequenceEqual(other.Path.AsSpan());
+    public override bool Equals(object? other) => other is CellProperties properties && Equals(properties);
+    public override int GetHashCode() => hashCode;
+
+    private static int Hash(VoxelOrientation orientation, VoxelAppearanceProjection? appearance, VoxelShape? shape,
+        PaintColor? paint, PickSubject? subject, ImmutableArray<int> path, ContentReference? missingReference)
+    {
+        var hash = new HashCode();
+        hash.Add(orientation); hash.Add(appearance?.Definition); hash.Add(shape); hash.Add(paint); hash.Add(subject); hash.Add(missingReference);
+        foreach (var index in path.AsSpan()) hash.Add(index);
+        return hash.ToHashCode();
+    }
+}
+
+internal readonly record struct SceneCell(GridPosition At, CellProperties Properties)
+{
+    internal VoxelOrientation Orientation => Properties.Orientation;
+    internal VoxelAppearanceProjection? Appearance => Properties.Appearance;
+    internal VoxelShape? Shape => Properties.Shape;
+    internal PaintColor? Paint => Properties.Paint;
+    internal PickSubject? Subject => Properties.Subject;
+    internal ImmutableArray<int> Path => Properties.Path;
+    internal ContentReference? MissingReference => Properties.MissingReference;
+    internal bool Occludes => Properties.Occludes;
 }
 
 internal sealed class VoxelGrid
 {
     internal const int ChunkSize = 32;
-    private readonly Dictionary<GridPosition, SceneCell?[]> chunks = [];
-    internal ImmutableArray<SceneCell> Cells { get; }
+    private readonly Dictionary<GridPosition, int[]> chunks = [];
+    private readonly ImmutableArray<CellProperties?> entries;
+    internal IEnumerable<SceneCell> Cells
+    {
+        get
+        {
+            foreach (var (key, values) in chunks)
+            for (var index = 0; index < values.Length; index++)
+                if (values[index] != 0)
+                    yield return new(new((key.X << 5) + (index & 31),
+                        (key.Y << 5) + ((index >> 5) & 31), (key.Z << 5) + (index >> 10)), entries[values[index]]!);
+        }
+    }
     internal SceneBounds? Bounds { get; }
     internal IEnumerable<GridPosition> Chunks => chunks.Keys;
 
     internal VoxelGrid(ImmutableArray<SceneCell> cells)
     {
         if (cells.IsDefault) throw new ArgumentException("Cells must be initialized.", nameof(cells));
-        Cells = cells;
-        if (cells.IsEmpty) return;
+        var properties = ImmutableArray.CreateBuilder<CellProperties?>();
+        properties.Add(null);
+        var ids = new Dictionary<CellProperties, int>();
         var minimum = new GridPosition(int.MaxValue, int.MaxValue, int.MaxValue);
         var maximum = new GridPosition(int.MinValue, int.MinValue, int.MinValue);
+        var previousChunk = default(GridPosition);
+        int[]? values = null;
+        CellProperties? previousProperties = null;
+        var previousId = 0;
         foreach (var cell in cells)
         {
             var key = Chunk(cell.At);
-            if (!chunks.TryGetValue(key, out var values))
-                chunks.Add(key, values = new SceneCell[ChunkSize * ChunkSize * ChunkSize]);
+            if (values is null || key != previousChunk)
+            {
+                if (!chunks.TryGetValue(key, out values))
+                    chunks.Add(key, values = new int[ChunkSize * ChunkSize * ChunkSize]);
+                previousChunk = key;
+            }
             var index = Index(cell.At);
-            if (values[index] is not null) throw new ArgumentException("Cells overlap.", nameof(cells));
-            values[index] = cell;
+            if (values[index] != 0) throw new ArgumentException("Cells overlap.", nameof(cells));
+            var id = previousId;
+            if (id == 0 || !ReferenceEquals(previousProperties, cell.Properties))
+            {
+                if (!ids.TryGetValue(cell.Properties, out id))
+                {
+                    id = properties.Count;
+                    ids.Add(cell.Properties, id);
+                    properties.Add(cell.Properties);
+                }
+                previousProperties = cell.Properties;
+                previousId = id;
+            }
+            values[index] = id;
             minimum = new(Math.Min(minimum.X, cell.At.X), Math.Min(minimum.Y, cell.At.Y), Math.Min(minimum.Z, cell.At.Z));
             maximum = new(Math.Max(maximum.X, cell.At.X), Math.Max(maximum.Y, cell.At.Y), Math.Max(maximum.Z, cell.At.Z));
         }
-        Bounds = new(new(minimum.X, minimum.Y, minimum.Z), new(maximum.X + 1f, maximum.Y + 1f, maximum.Z + 1f));
+        entries = properties.ToImmutable();
+        if (!cells.IsEmpty)
+            Bounds = new(new(minimum.X, minimum.Y, minimum.Z), new(maximum.X + 1f, maximum.Y + 1f, maximum.Z + 1f));
     }
 
     internal static GridPosition Chunk(GridPosition cell) => new(cell.X >> 5, cell.Y >> 5, cell.Z >> 5);
     private static int Index(GridPosition cell) => (cell.X & 31) + ChunkSize * ((cell.Y & 31) + ChunkSize * (cell.Z & 31));
-    internal SceneCell? Find(GridPosition cell) => chunks.TryGetValue(Chunk(cell), out var values) ? values[Index(cell)] : null;
+    private int EntryAt(GridPosition cell) => chunks.TryGetValue(Chunk(cell), out var values) ? values[Index(cell)] : 0;
+    internal SceneCell? Find(GridPosition cell)
+    {
+        var id = EntryAt(cell);
+        return id == 0 ? null : new(cell, entries[id]!);
+    }
+    internal bool Contains(GridPosition cell) => EntryAt(cell) != 0;
+    internal bool Occludes(GridPosition cell) => entries[EntryAt(cell)]?.Occludes ?? false;
 
     internal (SceneCell Cell, GridFace Face, double Distance)? Pick(SceneRay ray)
     {
@@ -59,7 +135,7 @@ internal sealed class VoxelGrid
         while (distance <= exit && distance <= ray.MaximumDistanceCells)
         {
             var cell = Find(new(x, y, z));
-            if (cell is not null) return (cell, face, distance);
+            if (cell is { } occupied) return (occupied, face, distance);
             var next = Math.Min(nextX, Math.Min(nextY, nextZ));
             if (!double.IsFinite(next)) return null;
             // Simultaneous crossings skip cells touched only at an edge or corner.
