@@ -11,9 +11,14 @@ internal sealed record ParsedSettlementType(K.SettlementTypeProjection Core, C.D
     string MapSymbol, bool Major, string Path);
 internal sealed record LoadedSettlementType(ParsedSettlementType Source, C.AssetRevision Symbol);
 internal sealed record ParsedTemplatePlot(int Number, K.PlotSize Size, C.BlueprintAddress? Building, string SourceField);
+internal sealed record ParsedFoundingBuilding(int PlotNumber, C.BlueprintAddress Building, string SourceField);
+internal sealed record ParsedTemplatePlan(int PlotNumber, K.CapabilityKind Capability, string Process,
+    bool Enabled, int Priority, string SourceField);
 internal sealed record ParsedSettlementTemplate(K.SettlementTemplateId Id, K.SettlementTypeId Type, int Weight,
     ImmutableArray<ParsedTemplatePlot> Plots, C.BlueprintAddress SceneModel,
-    ImmutableArray<C.SettlementPlotLayout> Layout, C.DisplayText Display, string Path);
+    ImmutableArray<C.SettlementPlotLayout> Layout, ImmutableArray<ParsedFoundingBuilding> Founding,
+    ImmutableArray<ParsedInventoryQuantity> Inventory, ImmutableArray<ParsedTemplatePlan> ProductionPlans,
+    C.DisplayText Display, string Path);
 internal sealed record LoadedSettlementTemplate(ParsedSettlementTemplate Source, K.SettlementTemplateProjection Core,
     C.SceneModelProjection SceneModel);
 
@@ -69,12 +74,6 @@ internal static class SettlementParser
             var json = new DefinitionJson(root, package, path, "settlement-template", 2);
             var id = new K.SettlementTemplateId(json.Id);
             subject = new C.ContentReference.Core(new K.CoreDefinitionReference.Template(id));
-            foreach (var key in new[] { "founding", "inventory", "production_plans" })
-                if (root.TryGetProperty(key, out var future))
-                {
-                    Array(future, "/" + key);
-                    if (future.GetArrayLength() > 0) Fail("/" + key, "当前尚未实现非空的 " + key + "。", "unsupported_format");
-                }
             var plots = ImmutableArray.CreateBuilder<ParsedTemplatePlot>();
             var layout = ImmutableArray.CreateBuilder<C.SettlementPlotLayout>();
             foreach (var (value, field) in Items(Required(root, "plots", ""), "/plots"))
@@ -88,11 +87,36 @@ internal static class SettlementParser
             }
             if (plots.Count == 0) Fail("/plots", "地块表不能为空。");
             Unique(plots.Select(p => p.Number), "/plots");
+            var founding = root.TryGetProperty("founding", out var buildings)
+                ? Items(buildings, "/founding").Select(item =>
+                {
+                    Object(item.Value, item.Field, "plot", "building");
+                    return new ParsedFoundingBuilding(Int32(Required(item.Value, "plot", item.Field), item.Field + "/plot", 1),
+                        new(C.BlueprintLibrary.Packages, new(json.Reference(Required(item.Value, "building", item.Field), item.Field + "/building"))),
+                        item.Field);
+                }).OrderBy(b => b.PlotNumber).ToImmutableArray() : [];
+            Unique(founding.Select(b => b.PlotNumber), "/founding");
+            var inventory = root.TryGetProperty("inventory", out var quantities)
+                ? GenerationProfileParser.Inventory(quantities, json, "/inventory") : [];
+            var plans = root.TryGetProperty("production_plans", out var productionPlans)
+                ? Items(productionPlans, "/production_plans").Select(item =>
+                {
+                    Object(item.Value, item.Field, "plot", "capability", "process", "enabled", "priority");
+                    var capability = EnumValue<K.CapabilityKind>(Required(item.Value, "capability", item.Field), item.Field + "/capability");
+                    if (capability is not (K.CapabilityKind.Production or K.CapabilityKind.Extraction))
+                        Fail(item.Field + "/capability", "初始计划只支持生产或开采能力。");
+                    return new ParsedTemplatePlan(Int32(Required(item.Value, "plot", item.Field), item.Field + "/plot", 1), capability,
+                        json.Reference(Required(item.Value, "process", item.Field), item.Field + "/process"),
+                        Boolean(Required(item.Value, "enabled", item.Field), item.Field + "/enabled"),
+                        Int32(Required(item.Value, "priority", item.Field), item.Field + "/priority"), item.Field);
+                }).OrderBy(p => p.PlotNumber).ThenBy(p => p.Capability).ToImmutableArray() : [];
+            Unique(plans.Select(p => (p.PlotNumber, p.Capability)), "/production_plans");
             return new(id, new(json.Reference(Required(root, "settlement_type", ""), "/settlement_type")),
                 root.TryGetProperty("weight", out var weight) ? Int32(weight, "/weight", 1) : 1,
                 plots.OrderBy(p => p.Number).ToImmutableArray(),
                 new(C.BlueprintLibrary.Packages, new(json.Reference(Required(root, "scene_model", ""), "/scene_model"))),
-                layout.OrderBy(p => p.Number).ToImmutableArray(), Display(Required(root, "display", "")), path);
+                layout.OrderBy(p => p.Number).ToImmutableArray(), founding, inventory, plans,
+                Display(Required(root, "display", "")), path);
         }
         catch (DefinitionFormatException error)
         {
