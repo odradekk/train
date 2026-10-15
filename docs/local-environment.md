@@ -39,12 +39,12 @@ VS Code uses the repository's `build`, `test` and `export-windows` tasks. `test`
 
 ## Agent 手动启动 Godot
 
-优先使用已有测试、导出或测量脚本，它们会隔离用户目录。手动导入、运行场景或单个引擎用例时，在待验证的源码目录执行下面的 PowerShell 7 片段，每次选择新的、被 Git 忽略的运行目录，只替换子进程内最后一条 Godot 调用及必要的测试环境变量：
+优先使用已有测试、导出或测量脚本，它们会隔离用户目录。手动导入、运行场景或单个引擎用例时，在待验证的源码目录执行下面的 PowerShell 7 片段，将 `<run>` 替换为新的运行名称，使用被 Git 忽略的目录，只替换子进程内最后一条 Godot 调用及必要的测试环境变量：
 
 ```powershell
 pwsh -NoProfile -Command {
     $ErrorActionPreference = 'Stop'
-    $run = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath('TestResults/manual-godot-506-import-1')
+    $run = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath('TestResults/manual-godot/<run>')
     $paths = if ($IsWindows) {
         @{ APPDATA = 'appdata'; LOCALAPPDATA = 'localappdata' }
     } else {
@@ -101,7 +101,13 @@ pwsh -NoProfile -File scripts/test.ps1 -All -Layer all,stage
 
 Linux 执行全部快速、集成、headless engine 和非 Windows 阶段检查，平台范围见[统一测试入口](run-tests.md#阶段检查与候选基准)。当前检查不需要渲染上下文，因此不使用 xvfb；headless Godot 使用 Dummy 音频。上述配置和命令是运行要求，执行证据以各次摘要、日志和 Issue 评论为准。
 
-For Windows cross-export, verify a writable Windows mount and choose a dedicated output directory. Use the [isolated child-process recipe](#agent-手动启动-godot), copy the required installed Windows export template into its isolated Godot template directory, and replace the Godot arguments with `--headless --path . --export-release 'Windows Desktop' '/mnt/windows-d/train-builds/<run>/train.exe'`. Keep the original template directory read-only.
+For Windows cross-export, verify a writable Windows mount and choose a dedicated output directory. For example, if `/mnt/windows-d` is mounted:
+
+```bash
+windows_build_dir='/mnt/windows-d/train-builds/local'
+mkdir -p "$windows_build_dir"
+"$GODOT" --headless --path . --export-release "Windows Desktop" "$windows_build_dir/train.exe"
+```
 
 A mounted Windows filesystem provides file access, not a Windows execution environment, so runtime validation still requires Windows.
 
