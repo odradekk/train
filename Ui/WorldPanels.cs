@@ -24,6 +24,8 @@ public partial class WorldPanels : Control
 
     internal event Action<PanelTarget, TrainView, ICoreReadView, IContentView>? PlanRequested;
     internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
+    internal event Action<PanelTarget, SettlementId>? SettlementRequested;
+    internal event Action<PanelTarget, TrainId>? InventoryRequested;
 
     internal void Initialize(HostCoordinator host,
         Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit, Action<string> reportError)
@@ -131,12 +133,21 @@ public partial class WorldPanels : Control
         scroll.AddChild(text); body.AddChild(scroll);
         List<Button> buttons = [];
         if (target is WorldObjectId.Node node)
+        {
             buttons.Add(UiStyle.Button("Form", "编组", () =>
             {
                 if (Available(bound)) FormationRequested?.Invoke(bound, node.Id, _view, _content);
             }, true));
+            if (_view.World.Nodes.FirstOrDefault(item => item.Id == node.Id)?.Occupant is NodeOccupant.Settlement settlement)
+                buttons.Add(UiStyle.Button("Economy", "库存、市场与服务…", () =>
+                {
+                    if (Available(bound)) SettlementRequested?.Invoke(bound, settlement.Id);
+                }));
+        }
         if (target is WorldObjectId.Train train)
         {
+            buttons.Add(UiStyle.Button("Inventory", "列车库存…", () =>
+            { if (Available(bound)) InventoryRequested?.Invoke(bound, train.Id); }));
             buttons.Add(UiStyle.Button("EditPlan", "编辑计划", () =>
             {
                 if (Available(bound) && _view.FindTrain(train.Id) is Lookup<TrainView>.Found found)
@@ -246,9 +257,7 @@ public partial class WorldPanels : Control
         else if (target is WorldObjectId.Instance instance && _view.FindInstance(instance.Id) is Lookup<InstanceView>.Found foundInstance)
         {
             var value = foundInstance.Value;
-            var location = value.Location switch
-            { WorldLocation.Node nodeLocation => NodeName(nodeLocation.Id),
-                WorldLocation.Edge edgeLocation => $"线路 {edgeLocation.Id.Value} · {edgeLocation.DistanceMeters:0.##} m", _ => "" };
+            var location = LocationText(value.Location, _view, _content);
             text.AppendLine($"位置：{location}\n归属：{Relation(value.Ownership)}\n结构耐久：{value.Structure.EffectiveCurrent} / {value.Structure.Maximum}\n");
             if (value.Details is InstanceDetails.Vehicle vehicle)
                 text.AppendLine(vehicle.Train is { } trainId ? $"编组：列车 {trainId.Value}" : "未编组");
@@ -260,13 +269,17 @@ public partial class WorldPanels : Control
         return text.ToString();
     }
 
-    private string GoodName(GoodId good) => _content.FindGood(good) is ContentLookup<GoodPresentation>.Found found
+    private string GoodName(GoodId good) => GoodName(good, _content);
+    internal static string GoodName(GoodId good, IContentView content) => content.FindGood(good) is ContentLookup<GoodPresentation>.Found found
         ? found.Value.Display.Text.Name : good switch
         { GoodId.Voxel voxel => voxel.Definition.Value, GoodId.Composite composite => composite.Definition.Value,
             GoodId.Assembly assembly => assembly.Composition.Value, _ => "未知货物" };
     private string PositionText(TrainPosition position) => position switch
     { TrainPosition.Node node => NodeName(node.Id), TrainPosition.Edge edge => $"线路 {edge.Id.Value} · {edge.DistanceMeters:0.##} m", _ => "" };
-    private static string Relation(SettlementRelation relation) => relation switch
+    internal static string LocationText(WorldLocation location, ICoreReadView view, IContentView content) => location switch
+    { WorldLocation.Node node => NodeName(node.Id, view, content),
+        WorldLocation.Edge edge => $"线路 {edge.Id.Value} · {edge.DistanceMeters:0.##} m", _ => "未知地点" };
+    internal static string Relation(SettlementRelation relation) => relation switch
     { SettlementRelation.PlayerOwned => "自有", SettlementRelation.NonHostile => "非敌对", _ => "敌对" };
     private static string Activity(TrainActivity activity) => activity switch
     { TrainActivity.Running => "运行", TrainActivity.Servicing => "装卸", TrainActivity.Waiting => "等待",

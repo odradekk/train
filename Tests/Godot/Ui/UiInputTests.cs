@@ -45,4 +45,39 @@ public sealed class UiInputTests
             Assert.IsFalse(target.IsAvailable(new(Guid.NewGuid()), generation, new FixedCoreReadView()));
         }
     }
+    [TestMethod]
+    public void EconomicTargetsRequireObjectsToRemainPresent()
+    {
+        var binding = new HostBinding(Guid.NewGuid());
+        var generation = new ContentGeneration(3);
+        var rule = new RuleStatusView(new("rule"), null, []);
+        var settlement = new SettlementView(new(1), new(1), new("town"), null,
+            SettlementRelation.PlayerOwned, new(2), [], [], 0, 0, 0, [], [], [],
+            new(0, 0, 0, 0), new(rule, 0, 0, 0, 0, new PopulationExecution.NotStarted([]), null, []),
+            new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [new(3)],
+            new(rule, new(0, 0, 0, 0, 0, 0, 0), []));
+        var inventory = new InventoryView(new(2), new InventoryOwner.Settlement(new(1)),
+            new WorldLocation.Node(new(1)), InventoryAccess.ReadWrite, 10, 0, 0, 10, 0, [], []);
+
+        FixedCoreReadView View(bool objectsExist) => new()
+        {
+            Settlements = new Dictionary<SettlementId, Lookup<SettlementView>>
+            {
+                [new(1)] = objectsExist ? new Lookup<SettlementView>.Found(settlement) : new Lookup<SettlementView>.Missing()
+            },
+            Inventories = new Dictionary<InventoryId, Lookup<InventoryView>>
+            {
+                [new(2)] = objectsExist ? new Lookup<InventoryView>.Found(inventory) : new Lookup<InventoryView>.Missing()
+            }
+        };
+        WorldObjectId[] objects = [new WorldObjectId.Settlement(new(1)), new WorldObjectId.Inventory(new(2))];
+        foreach (var obj in objects)
+        {
+            var target = new PanelTarget(binding, generation, obj);
+            Assert.IsTrue(target.IsAvailable(binding, generation, View(true)));
+            Assert.IsFalse(target.IsAvailable(binding, generation, View(false)));
+            Assert.IsFalse(target.IsAvailable(new(Guid.NewGuid()), generation, new FixedCoreReadView()));
+            Assert.IsFalse(target.IsAvailable(binding, new(4), new FixedCoreReadView()));
+        }
+    }
 }

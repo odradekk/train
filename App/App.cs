@@ -52,10 +52,15 @@ public partial class App : Node
             GetNode<MainMenu>("MainMenu").ConfigureSaves(Saves);
             GetNode<MainMenu>("MainMenu").ExampleRequested += () => StartExample();
             Recording = new RecordingService(Host, new FileSaveStore(userData));
-            WorldScenes = new(Host, CreateScenes?.Invoke() ?? HostComposition.CreateScenes(), _logger);
+            var scenesFactory = CreateScenes?.Invoke() ?? HostComposition.CreateScenes();
+            WorldScenes = new(Host, scenesFactory, _logger);
             AddChild(WorldScenes.View);
+            var icons = new GoodsIconCache { Name = "GoodsIcons" };
+            icons.Initialize(scenesFactory, _dispatcher);
+            icons.Diagnostic += message => _logger.Warning("ui", "goods_icon_unavailable", message);
+            AddChild(icons);
             var ui = new GameUi { Name = "GameUi" };
-            ui.Initialize(GetNode<MainMenu>("MainMenu"), Host, _logger, WorldScenes, Recording);
+            ui.Initialize(GetNode<MainMenu>("MainMenu"), Host, _logger, WorldScenes, Recording, icons);
             AddChild(ui);
             var console = new GameConsole();
             Action<IReadOnlyList<string>>? simulationCommands = null;

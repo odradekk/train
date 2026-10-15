@@ -30,7 +30,7 @@ internal sealed class ModelAsset(ArrayMesh mesh, ImmutableArray<ModelSurface> su
 
 internal sealed class AssetResourceCache(GodotMainThreadDispatcher dispatcher) : IDisposable
 {
-    private enum Use { FaceTexture, Model }
+    private enum Use { FaceTexture, Icon, Model }
     private sealed class Entry(object value, Action release)
     {
         internal object Value { get; } = value;
@@ -55,6 +55,14 @@ internal sealed class AssetResourceCache(GodotMainThreadDispatcher dispatcher) :
 
     internal AssetLease<ModelAsset> AcquireModel(ContentAsset asset) => dispatcher.Invoke(() =>
         Acquire(asset, Use.Model, () => CreateModel(asset), model => model.Dispose()));
+
+    internal AssetLease<ImageTexture> AcquireIcon(ContentAsset asset) => dispatcher.Invoke(() =>
+        Acquire(asset, Use.Icon, () =>
+        {
+            if (asset.Metadata is not AssetMetadata.Png) throw new ArgumentException("图标需要 PNG 资产。", nameof(asset));
+            using var image = GodotAssetDecoder.Png(asset.Bytes);
+            return ImageTexture.CreateFromImage(image);
+        }, texture => texture.Dispose()));
 
     private AssetLease<T> Acquire<T>(ContentAsset asset, Use use, Func<T> create, Action<T> release) where T : class
     {

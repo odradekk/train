@@ -24,6 +24,8 @@ internal sealed record PanelTarget(HostBinding Binding, ContentGeneration Genera
             WorldObjectId.Edge edge => view.World.Edges.Any(item => item.Id == edge.Id),
             WorldObjectId.Train train => view.World.Trains.Any(item => item.Id == train.Id),
             WorldObjectId.Instance instance => view.FindInstance(instance.Id) is Lookup<InstanceView>.Found,
+            WorldObjectId.Settlement settlement => view.FindSettlement(settlement.Id) is Lookup<SettlementView>.Found,
+            WorldObjectId.Inventory inventory => view.FindInventory(inventory.Id) is Lookup<InventoryView>.Found,
             _ => false
         };
     }

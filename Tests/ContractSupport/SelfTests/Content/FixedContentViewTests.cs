@@ -30,6 +30,7 @@ public sealed class FixedContentViewTests
         AssertUnconfigured(() => view.FindAsset(new AssetRevision("asset")));
         AssertUnconfigured(() => view.FindTerrain(new("terrain")));
         AssertUnconfigured(() => view.FindRailwayAppearance(new("railway")));
+        AssertUnconfigured(() => view.FindDefinitionDisplay(new CoreDefinitionReference.SettlementType(new("town"))));
     }
 
     [TestMethod]
@@ -87,6 +88,33 @@ public sealed class FixedContentViewTests
         Assert.AreSame(found, view.FindVoxelAppearance(id));
         Assert.AreSame(appearance, ((ContentLookup<VoxelAppearanceProjection>.Found)view.FindVoxelAppearance(id)).Value);
         AssertUnconfigured(() => view.FindVoxelAppearance(new("other")));
+    }
+
+    [TestMethod]
+    public void GoodsRetainExplicitResultsAndCopyConfiguration()
+    {
+        var id = new GoodId.Voxel(new("good"));
+        var found = new ContentLookup<GoodPresentation>.Found(new(id, new(new DisplayText("Good", ""), null, null, false), null, false));
+        var missing = new ContentLookup<GoodPresentation>.Missing([]);
+        var goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>> { [id] = found, [new GoodId.Voxel(new("missing"))] = missing };
+        var view = new FixedContentView { Goods = goods };
+        goods.Clear();
+        Assert.AreSame(found, view.FindGood(id));
+        Assert.AreSame(missing, view.FindGood(new GoodId.Voxel(new("missing"))));
+        AssertUnconfigured(() => view.FindGood(new GoodId.Voxel(new("other"))));
+        AssertUnconfigured(() => new FixedContentView().FindGood(id));
+    }
+
+    [TestMethod]
+    public void SettlementLayoutsCopyExplicitResultsAndRejectUnknownInputs()
+    {
+        var absent = new ContentLookup<SettlementLayoutProjection>.NotFound();
+        var layouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>> { [new(1)] = absent };
+        var view = new FixedContentView { SettlementLayouts = layouts };
+        layouts.Clear();
+        Assert.AreSame(absent, view.FindSettlementLayout(new(1)));
+        AssertUnconfigured(() => view.FindSettlementLayout(new(2)));
+        AssertUnconfigured(() => new FixedContentView().FindSettlementLayout(new(1)));
     }
 
     private static void AssertUnconfigured(Action operation)

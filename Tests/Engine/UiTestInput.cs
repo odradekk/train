@@ -14,6 +14,45 @@ internal sealed class UiTestInput(Node scene)
         await PressKey(Key.Space, window: window);
     }
 
+    internal async Task Choose(OptionButton choice, int index, Action? afterOpen = null)
+    {
+        Require(choice.IsVisibleInTree(), "下拉选择不可见。");
+        choice.GrabFocus();
+        await PressKey(Key.Space);
+        var popup = choice.GetPopup();
+        await WaitUntil(() => popup.Visible && popup.GetFocusedItem() >= 0);
+        afterOpen?.Invoke();
+        await Frames();
+        Require(popup.Visible, "修订变化关闭了正在操作的下拉框。");
+        var focused = popup.GetFocusedItem();
+        var direction = focused < index ? Key.Down : Key.Up;
+        for (var move = 0; move < Math.Abs(index - focused); move++) await PressKey(direction);
+        var beforeEnter = popup.GetFocusedItem();
+        await PressKey(Key.Enter);
+        Require(choice.Selected == index,
+            $"实际输入未选择目标选项：popupVisible={popup.Visible}，initialFocus={focused}，beforeEnterFocus={beforeEnter}，currentFocus={popup.GetFocusedItem()}，selected={choice.Selected}，target={index}。");
+    }
+
+    internal async Task Enter(LineEdit edit, string value)
+    {
+        Require(edit.IsVisibleInTree(), "输入框不可见。");
+        edit.GrabFocus(); await PressKey(Key.A, true);
+        foreach (var digit in value) await PressKey((Key)((long)Key.Key0 + digit - '0'), unicode: digit);
+    }
+
+    internal async Task ClickAcrossRevision(Button button, Action advance)
+    {
+        Require(button.IsVisibleInTree() && !button.Disabled, "鼠标目标按钮不可用。");
+        for (var parent = button.GetParent(); parent is not null; parent = parent.GetParent())
+            if (parent is ScrollContainer scroll) scroll.EnsureControlVisible(button);
+        await Frames(2);
+        var position = button.GetGlobalRect().GetCenter();
+        await MouseButton(position, Godot.MouseButton.Left, true);
+        advance();
+        await Frames();
+        await MouseButton(position, Godot.MouseButton.Left, false);
+    }
+
     internal static Button SaveButton(SavePanel panel, string text) =>
         panel.FindChildren("*", "Button", true, false).Cast<Button>()
             .Single(button => button.Text == text && button.GetWindow() == panel);

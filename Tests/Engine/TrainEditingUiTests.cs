@@ -74,11 +74,11 @@ public class TrainEditingUiTests(Node testScene) : TestClass(testScene)
             var editor = ui.GetNode<TrainPlanPanel>("Root/World/TrainPlanPanel");
             var rows = editor.GetNode<VBoxContainer>("Plan/Layout/Body/RowsScroll/Rows");
             var station = rows.GetNode<HBoxContainer>("Row0");
-            await EnterSeconds(station.GetNode<LineEdit>("DwellSeconds"), '2', Key.Key2);
+            await _input.Enter(station.GetNode<LineEdit>("DwellSeconds"), "2");
             await _input.Activate(Find<Button>(editor, "AddStop"));
             var waypoint = rows.GetNode<HBoxContainer>("Row1");
-            await SelectSecond(waypoint.GetNode<OptionButton>("Node"));
-            await SelectSecond(waypoint.GetNode<OptionButton>("Kind"));
+            await _input.Choose(waypoint.GetNode<OptionButton>("Node"), 1);
+            await _input.Choose(waypoint.GetNode<OptionButton>("Kind"), 1);
             Require(waypoint.GetNode<OptionButton>("Node").Selected == 1 &&
                 waypoint.GetNode<OptionButton>("Kind").Selected == 1, "实际下拉输入没有选择节点和途经点。");
             await _input.Activate(waypoint.GetNode<Button>("MoveUp"));
@@ -110,23 +110,6 @@ public class TrainEditingUiTests(Node testScene) : TestClass(testScene)
             setup.Session.AssertComplete();
         }
         finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
-    }
-
-    private static SubmissionResult Completed(ulong number, ICoreReadView before, ICoreReadView after, CommandDecision decision)
-        => new SubmissionResult.Completed(new(number, before.Position, after.Position, decision), [], null);
-
-    private static T Find<T>(Node root, string name) where T : Node
-        => root.FindChildren(name, typeof(T).Name, true, false).Cast<T>().Single();
-
-    private async Task SelectSecond(OptionButton button)
-    {
-        button.GrabFocus(); await _input.PressKey(Key.Space); await _input.PressKey(Key.Down); await _input.PressKey(Key.Enter);
-    }
-
-    private async Task EnterSeconds(LineEdit edit, char character, Key key)
-    {
-        edit.GrabFocus(); await _input.Frames(1); await _input.PressKey(Key.A, true);
-        await _input.PressKey(key, unicode: character);
     }
 
 }
