@@ -18,20 +18,44 @@
 
 ## 启动服务
 
-MCP 服务运行在 Godot 编辑器里，客户端只负责连接。先启动编辑器，再启动或重连客户端会话。在当前工作树执行：
+MCP 服务运行在 Godot 编辑器里，客户端只负责连接。任务编辑器由协调者启动，worker 不自行启动或重启；先启动编辑器，再启动或重连客户端会话。协调者在工作树中从正常环境启动独立 PowerShell 子进程，给每个工作树指定端口和独立日志目录。日志目录必须放在工作树外，因为完整入口的工作区快照会把树内新增或轮换的编辑器／游戏文件记为变化。下面的片段不依赖仓库外脚本；执行前将 `<run>` 替换为本次运行名称，并按派工设置端口：
 
 ```powershell
-& $env:GODOT --headless --editor --path . -- --mcp-server --mcp-port=9080
+pwsh -NoProfile -Command {
+    $ErrorActionPreference = 'Stop'
+    $worktree = (Get-Location).Path
+    $port = 9080
+    $logDir = Join-Path $env:TEMP 'train-mcp/<run>'
+    $userDir = Join-Path $logDir 'appdata/Godot/app_userdata/Train'
+    New-Item -ItemType Directory -Force -Path $userDir | Out-Null
+    $sharedUserDir = Join-Path $env:APPDATA 'Godot/app_userdata/Train'
+    foreach ($name in 'mcp_tool_state.cfg', 'mcp_settings.cfg') {
+        $source = Join-Path $sharedUserDir $name
+        if (Test-Path -LiteralPath $source) {
+            Copy-Item -LiteralPath $source -Destination $userDir -Force
+        }
+    }
+    $env:APPDATA = Join-Path $logDir 'appdata'
+    $editor = Start-Process -FilePath $env:GODOT -ArgumentList @(
+        '--headless', '--editor', '--path', ('"{0}"' -f $worktree),
+        '--', '--mcp-server', "--mcp-port=$port"
+    ) -WorkingDirectory $worktree -WindowStyle Hidden -PassThru `
+        -RedirectStandardOutput (Join-Path $logDir 'editor.out.log') `
+        -RedirectStandardError (Join-Path $logDir 'editor.err.log')
+    "pid=$($editor.Id)"
+}
 ```
+
+片段先创建 `<LogDir>/appdata/Godot/app_userdata/Train`，再从启动时的 `%APPDATA%/Godot/app_userdata/Train` 覆盖复制已有的 `mcp_tool_state.cfg`、`mcp_settings.cfg`。覆盖是为了恢复导入过程可能重置的工具开关。随后只把子进程的 `APPDATA` 改为 `<LogDir>/appdata`（`LOCALAPPDATA` 仍继承原环境），以 `--headless --editor --path <worktree> -- --mcp-server --mcp-port=<port>` 启动隐藏编辑器，标准输出和错误分别写入 `<LogDir>/editor.out.log`、`editor.err.log`。共享目录只读；通过独立 PowerShell 调用，不会改变协调者的终端环境。协调者本机的 `start-editor.ps1` 执行相同的步骤，可供本机调度使用；其他 agent 手动 Godot 命令使用[统一隔离片段](local-environment.md#agent-手动启动-godot)。
 
 - 必须带 `--mcp-server`。插件默认不自动启动服务，所以普通的 `--editor --import` 不会占用端口。需要图形界面时，可在编辑器的 MCP 面板中点击启动，端口保持 9080。
 - 本机实测服务约 6 秒就绪。客户端在会话开始时连接；如果当时服务未就绪，Claude Code 用 `/mcp` 重连，其他客户端重启会话。
 - 服务默认拒绝非本机请求，未启用认证。不要开启远程访问。
 - 一个端口同时只能由一个编辑器监听。仓库配置默认连接 9080，供主检出使用。并行任务时，每个工作树的编辑器用自己的端口启动；协调者在该工作树里把 `.mcp.json` 和 `.codex/config.toml` 中 `godot` 的端口改成同一个值，并执行 `git update-index --skip-worktree .mcp.json .codex/config.toml`，避免误提交。2026-10-12 实测两个工作树的编辑器可以同时完整使用，包括 `run_project` 和运行时工具；Paseo 启动的 Claude 和 Codex agent 都能连接各自的端口。
 - 编辑器运行游戏时还要监听调试端口：从 6007 开始，被占用时自动顺延，最多尝试 5 个，所以最多 5 个编辑器能同时运行游戏。
-- 各工作树的游戏共用同一个 `user://`（`%APPDATA%\Godotpp_userdata\Train`），包括存档、日志和 `get_runtime_screenshot` 的默认文件。截图时给 `save_path` 指定带工单号的文件名。
+- 按上述方式启动的编辑器及其游戏使用各自的 `user://`：`<LogDir>/appdata/Godot/app_userdata/Train`，存档、日志和 `get_runtime_screenshot` 的默认文件也在其中。截图时给 `save_path` 指定带工单号的文件名。未重定向的用户交互入口仍使用正常 `%APPDATA%/Godot/app_userdata/Train`。
 - 客户端连接的是端口，不是工作树。每次会话先调用 `get_project_info`，确认返回的 `project_path` 是当前工作树；不一致说明端口被其他工作树的编辑器占用，不要继续操作。
-- 编辑器 MCP 面板的设置保存在 `user://mcp_settings.cfg`，同名项目的各工作树共享这份文件。命令行参数优先于它，但 `--mcp-port` 会把端口写回这份文件，所以每次启动都显式传 `--mcp-port`。不要在其中开启自动启动。
+- 编辑器 MCP 面板的设置保存在各自隔离目录的 `user://mcp_settings.cfg`，启动时从共享目录复制初值，之后的修改只写本工作树的副本。命令行参数优先于它，但 `--mcp-port` 会把端口写回该副本，所以每次启动都显式传 `--mcp-port`。不要在其中开启自动启动。
 
 ## 客户端检查
 
@@ -71,7 +95,7 @@ MCP 服务运行在 Godot 编辑器里，客户端只负责连接。先启动编
 - 截图和日志只证明画面或输出，不代替断言。
 - 断点、单步等调试器工具只作用于 GDScript，本项目代码是 C#，不开启。
 
-开关状态保存在编辑器用户数据目录的 `mcp_tool_state.cfg`（Windows 为 `%APPDATA%\Godot\app_userdata\Train\`），同名项目的各工作树共享这份文件。文件带校验和，不要手改。新机器或状态丢失时，启动 MCP 编辑器后用 `execute_editor_script` 执行一次：
+开关状态保存在编辑器隔离用户数据目录的 `mcp_tool_state.cfg`（上述启动器为 `<LogDir>/appdata/Godot/app_userdata/Train/mcp_tool_state.cfg`）。协调者在每次启动前从共享用户目录覆盖复制初值，运行中的开关修改只影响该工作树副本；重启前需确认共享初值仍包含所需工具。文件带校验和，不要手改。新机器或状态丢失时，启动 MCP 编辑器后用 `execute_editor_script` 执行一次：
 
 ```gdscript
 var server = Engine.get_meta("GodotMCPPlugin")._native_server

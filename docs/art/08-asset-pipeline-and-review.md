@@ -105,9 +105,9 @@ builtin/core/resources/voxels/
 
 ```powershell
 dotnet build Train.csproj -c Debug
-& $env:GODOT --headless --path . --editor --import
-& $env:GODOT --path . --scene res://App/ArtCapture/ArtCapture.tscn -- --capture-save TestResults/art-input.save.json --capture-location edge:1 --capture-train 1 --capture-name issue-374
 ```
+
+资源导入及截图都按[隔离子进程片段](../local-environment.md#agent-手动启动-godot)启动。导入使用片段中的默认参数；截图时把 Godot 参数替换为 `--path . --scene res://App/ArtCapture/ArtCapture.tscn --log-file <本次原生日志> -- --capture-save TestResults/art-input.save.json --capture-location edge:1 --capture-train 1 --capture-name issue-374`。每次启动使用新的运行目录，用户目录重定向只在子进程内生效。
 
 用 [Train.Cli](../../examples/README.md) 的 `make` 制作配方目标位置的存档，或用 `save` 指定更早的步数。输入列车必须在所选场景中，并在接下来的 120 个模拟步内实际转向；已提交的 `basic-through/save.json` 包含停车命令，不能用它代替运动输入。下面从已启动、尚未停车的位置保存；正式美术检查应使用装有待检查素材的配方和存档。
 
