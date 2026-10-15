@@ -71,6 +71,8 @@ try {
     $binary = Join-Path $OutputDirectory 'train.exe'
     Invoke-MeasurementBuildStep 'export' $env:GODOT @('--headless', '--path', $repo,
         '--log-file', (Join-Path $OutputDirectory 'export-godot.log'), '--export-release', 'Windows Desktop', $binary)
+    Invoke-MeasurementBuildStep 'optimizations' (Join-Path $PSHOME 'pwsh.exe') @('-NoProfile', '-File',
+        (Join-Path $PSScriptRoot 'checks/check-export-optimizations.ps1'), '-ExportDirectory', $OutputDirectory)
     $afterCommit = & git -C $repo rev-parse HEAD
     if ($LASTEXITCODE -ne 0 -or $commit -ne $afterCommit) { throw '导出期间 HEAD 发生变化；此构建不能用于测量。' }
     $status = @(& git -C $repo status --porcelain)
