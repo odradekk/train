@@ -13,6 +13,26 @@ public sealed class CoreProcessTests
 
     [TestMethod]
     [TestCategory("integration")]
+    public async Task Initialized_npc_world_is_byte_identical_across_generation_and_disk_restore_processes()
+    {
+        var directory = CreateDirectory();
+        try
+        {
+            var first = await Run(directory, "npc-first", "npc-save");
+            var second = await Run(directory, "npc-second", "npc-new");
+            var restored = await Run(directory, "npc-restored", "npc-resume");
+            AssertIndependent(first, second);
+            AssertIndependent(second, restored);
+            AssertSamples(first.Samples, second.Samples);
+            AssertSamples(first.Samples, restored.Samples);
+            AssertCheckpoints(first.Samples, restored.Samples);
+            Assert.AreEqual(first.Samples[0].Payload, await File.ReadAllTextAsync(Path.Combine(directory, "state.json")));
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [TestMethod]
+    [TestCategory("integration")]
     public async Task World_save_in_one_process_restores_the_same_execution_in_another()
     {
         var directory = CreateDirectory();

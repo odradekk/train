@@ -1,5 +1,10 @@
 using System.Collections.Immutable;
+using System.Numerics;
 using Train.Core.Contracts;
+using Train.Core.Inventory;
+using Train.Core.Production;
+using Train.Core.Settlements;
+using Train.Core.Trading;
 
 namespace Train.Core.World;
 
@@ -15,10 +20,6 @@ internal static class WorldGenerator
         try
         {
             if (input.GeneratorVersion != "stage1-world-v1") Invalid("GeneratorVersion");
-            var npc = input.Configuration.NpcInitialization;
-            if (npc.FillInputsAndLivingTargets) Invalid("Configuration.NpcInitialization.FillInputsAndLivingTargets");
-            if (npc.OutputReserveHours > 0) Invalid("Configuration.NpcInitialization.OutputReserveHours");
-            if (npc.MaximumForSaleVehicles > 0) Invalid("Configuration.NpcInitialization.MaximumForSaleVehicles");
             var railway = input.Configuration.InitialRailway;
             if (railway.MinimumInitialTracks > 2) Invalid("Configuration.InitialRailway.MinimumInitialTracks");
             if (railway.MaximumInitialTracks < 1) Invalid("Configuration.InitialRailway.MaximumInitialTracks");
@@ -54,6 +55,7 @@ internal static class WorldGenerator
                         var tracks = WorldRailway.Build(nodes, edges, occupants, input, budget);
                         var start = Start(nodes, edges, occupants, tracks, input, budget);
                         var state = WorldState.Create(input, content, nodes, edges, occupants, resources, tracks, start);
+                        state = InitializeNpcs(state, content, nodes, budget);
                         return new CoreResult<GeneratedWorld>.Success(new(state, content));
                     }
                     catch (GenerationFailure failure) when (failure.Category == "constraint_unsatisfied") { last = failure; }
@@ -66,6 +68,127 @@ internal static class WorldGenerator
         {
             return new CoreResult<GeneratedWorld>.Faulted(new("internal_error", new(0, 0), "PrepareNew", budget.Stage, null),
                 new(exception.Message, exception.StackTrace));
+        }
+    }
+
+    private static WorldState InitializeNpcs(WorldState world, CoreContentProjection content,
+        ImmutableArray<CandidateNode> nodes, GenerationBudgetCounter budget)
+    {
+        var config = world.Source.Configuration.NpcInitialization;
+        if (!config.FillInputsAndLivingTargets && config.OutputReserveHours == 0 && config.MaximumForSaleVehicles == 0)
+            return world;
+
+        budget.Stage = "initialization";
+        // 补货可能首次引入组装体货物；计算时提供其投影，完成后只冻结实际使用的货物。
+        world = world with { DesignGoods = content.DesignGoods };
+        foreach (var settlement in world.Settlements.Where(s => s.Relation != SettlementRelation.PlayerOwned))
+        {
+            var cell = nodes[checked((int)settlement.Node.Value - 1)].Cell;
+            budget.Candidate = cell.ToString();
+            var inventory = world.Inventories.Single(i => i.Id == settlement.Inventory);
+            var stock = inventory.Goods.ToDictionary(g => g.Good, g => g.Quantity);
+            var available = InventoryStorage.Settlement(world, content, settlement, 0).Uncommitted;
+            if (config.FillInputsAndLivingTargets)
+                Fill(new MarketStockTargets(world, content, settlement, 0).Current
+                    .Select(g => (g.Good, new BigInteger(g.Quantity))));
+            if (config.OutputReserveHours > 0 && available > 0)
+            {
+                var outputs = ProductionQueries.Potential(world, content, settlement)
+                    .Where(p => p.View.State is ProductionState.Running or ProductionState.WaitingForInputs or ProductionState.OutputBlocked)
+                    .SelectMany(p => ProductionQueries.Outputs(p.Process!.Details)
+                        .Select(g => (g.Good, Rate: p.Rate / p.Process!.WorkRequired, g.Quantity)))
+                    .GroupBy(g => g.Good)
+                    .Select(g => (g.Key, ReserveQuantity(g.Select(p => (p.Rate, p.Quantity)), config.OutputReserveHours)));
+                Fill(outputs);
+            }
+            world = world with
+            {
+                Inventories = world.Inventories.Replace(inventory, inventory with
+                {
+                    Goods = stock.OrderBy(g => WorldReferences.GoodKey(g.Key), StringComparer.Ordinal)
+                        .Select(g => new GoodsQuantity(g.Key, g.Value)).ToImmutableArray()
+                })
+            };
+            if (config.MaximumForSaleVehicles > 0 && VehicleTrades.Supports(world, content, settlement, SizeClass.Small))
+            {
+                var candidates = config.ForSaleVehicleCandidates.Select(hash => world.Designs.Single(d => d.Design == hash))
+                    .Where(d => VehicleTrades.Supports(world, content, settlement, ((DesignKind.Vehicle)d.Kind).Size))
+                    .OrderBy(d => d.Design.Value, StringComparer.Ordinal).ToArray();
+                var rule = content.MarketRules.Single(r => r.Id == world.Source.Configuration.Rules.Market);
+                var slots = candidates.Select(d => ((DesignKind.Vehicle)d.Kind).Size).Distinct()
+                    .ToDictionary(size => size, size => rule.VehiclePurchaseLimits.FirstOrDefault(l => l.Size == size)?.MaximumForSale ?? 0);
+                var capacity = slots.Values.Sum(n => (long)n);
+                if (capacity < config.MinimumForSaleVehicles)
+                    Invalid("Configuration.NpcInitialization.MinimumForSaleVehicles");
+                var count = WorldRandom.Integer(Sample("count", 0), config.MinimumForSaleVehicles,
+                    Math.Min(config.MaximumForSaleVehicles, capacity));
+                var parked = settlement.ParkedVehicles.ToBuilder();
+                var instances = world.Instances.ToBuilder();
+                var next = world.Next.Vehicle;
+                for (long index = 0; index < count; index++)
+                {
+                    var eligible = candidates.Where(d => slots[((DesignKind.Vehicle)d.Kind).Size] > 0).ToArray();
+                    var design = eligible[(int)WorldRandom.Integer(Sample("choice", (ulong)index), 0, eligible.Length - 1)];
+                    var size = ((DesignKind.Vehicle)design.Kind).Size;
+                    var id = new VehicleId(next++);
+                    parked.Add(id);
+                    instances.Add(new(new InstanceId.Vehicle(id), design.Design, settlement.Relation,
+                        new InstanceDetails.Vehicle(size, null), design.MaxStructureDurability,
+                        design.Parts.Select(p => new PartDurability(p.Id, p.MaxDurability)).ToImmutableArray()));
+                    slots[size]--;
+                }
+                world = world with
+                {
+                    Settlements = world.Settlements.Replace(settlement, settlement with { ParkedVehicles = parked.ToImmutable() }),
+                    Instances = instances.ToImmutable(), Next = world.Next with { Vehicle = next }
+                };
+            }
+
+            void Fill(IEnumerable<(GoodId Good, BigInteger Quantity)> targets)
+            {
+                var additions = PopulationStockTargets.Allocate(targets.Select(g =>
+                    (g.Good, BigInteger.Max(0, g.Quantity - stock.GetValueOrDefault(g.Good)))), available);
+                foreach (var good in additions)
+                {
+                    stock[good.Good] = checked(stock.GetValueOrDefault(good.Good) + good.Quantity);
+                    available -= good.Quantity;
+                }
+            }
+
+            ulong Sample(string purpose, ulong index) => KeyedRandom.Sample(new(world.Source.WorldSeed,
+                "world.stage1.v1.npc.vehicle." + purpose, [cell.X, cell.Y, index]));
+        }
+        var goods = world.Inventories.SelectMany(i => i.Goods).Select(g => g.Good).ToHashSet();
+        goods.UnionWith(world.Designs.SelectMany(WorldReferences.DesignGoods).Select(g => g.Good));
+        world = world with { DesignGoods = content.DesignGoods.Where(g => goods.Contains(g.Good)).ToImmutableArray() };
+        return world with { DefinitionDependencies = WorldReferences.Dependencies(world, content) };
+    }
+
+    private static BigInteger ReserveQuantity(IEnumerable<(double Rate, long Quantity)> outputs, double hours)
+    {
+        var rates = outputs.ToArray();
+        var quantity = rates.Sum(p => p.Rate * p.Quantity) * hours * 3600;
+        if (double.IsFinite(quantity)) return new BigInteger(Math.Ceiling(quantity));
+        // 超大时长的中间乘积可能溢出；保留二进制比例供容量分配，而不是截断每种货物。
+        var (hourUnits, hourExponent) = Binary(hours);
+        var terms = rates.Select(p =>
+        {
+            var (rateUnits, rateExponent) = Binary(p.Rate);
+            return (Units: rateUnits * p.Quantity * hourUnits * 3600, Exponent: rateExponent + hourExponent);
+        }).ToArray();
+        var exponent = terms.Min(p => p.Exponent);
+        var numerator = terms.Aggregate(BigInteger.Zero, (sum, p) => sum + (p.Units << (p.Exponent - exponent)));
+        if (exponent >= 0) return numerator << exponent;
+        var denominator = BigInteger.One << -exponent;
+        return BigInteger.DivRem(numerator, denominator, out var remainder) + (remainder.IsZero ? 0 : 1);
+
+        static (BigInteger Units, int Exponent) Binary(double value)
+        {
+            if (!double.IsFinite(value)) throw new OverflowException("潜在产出速率必须有限。");
+            var bits = BitConverter.DoubleToUInt64Bits(value);
+            var exponent = (int)((bits >> 52) & 0x7ff);
+            var units = (bits & ((1UL << 52) - 1)) | (exponent == 0 ? 0 : 1UL << 52);
+            return (new BigInteger(units), exponent == 0 ? -1074 : exponent - 1075);
         }
     }
 
