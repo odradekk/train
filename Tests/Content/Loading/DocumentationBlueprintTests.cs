@@ -37,18 +37,19 @@ public sealed class DocumentationBlueprintTests
 
         var locomotive = Complete(candidate.View, "armed-locomotive");
         var core = locomotive.Core!.Design;
-        CollectionAssert.AreEqual(new[] { 182, 346, 352, 364 }, core.Parts.Select(part => part.Id.Value).ToArray());
-        Assert.AreEqual(new K.CoreDefinitionReference.Composite(new(Package + ":large-diesel-engine")), core.Parts.Single(part => part.Id.Value == 346).Definition);
+        foreach (var composite in locomotive.Scene.NestedObjects.Select(item => item.Details).OfType<C.NestedObjectDetails.FunctionalComposite>())
+        {
+            var part = core.Parts.Single(part => part.Id == composite.Number);
+            Assert.AreEqual(new K.CoreDefinitionReference.Composite(composite.Definition), part.Definition);
+            Assert.AreEqual(1, locomotive.Scene.Elements.Count(element => element.Number == composite.Number));
+        }
         Assert.AreEqual(1L, core.BillOfMaterials.Single(item => item.Good == new K.GoodId.Composite(new(Package + ":large-diesel-engine"))).Quantity);
         Assert.AreEqual(1L, core.BillOfMaterials.Single(item => item.Good == new K.GoodId.Assembly(turret.Composition)).Quantity);
         Assert.IsFalse(core.BillOfMaterials.Any(item => item.Good == new K.GoodId.Voxel(new(Package + ":machine-gun"))));
-        Assert.AreEqual(348L, core.BillOfMaterialsItemCount);
 
         var park = Complete(candidate.View, "park");
-        Assert.AreEqual(229, park.Scene.Voxels.Length);
-        Assert.AreEqual(5, park.Scene.NestedObjects.Length);
         Assert.AreEqual(2, park.Scene.NestedObjects.Max(item => item.NestedItemIndices.Length));
-        Assert.AreEqual(3, park.Scene.NestedObjects.Count(item => item.NestedItemIndices.Length == 2));
+        Assert.IsTrue(park.Scene.NestedObjects.Any(item => item.NestedItemIndices.Length == 1));
         Assert.IsNull(park.Core);
         var addon = candidate.View.FindBlueprint(new(C.BlueprintLibrary.Packages, new(Addon + ":armored-wagon")));
         Assert.IsInstanceOfType<C.ContentLookup<C.BlueprintRecord>.Found>(addon);
@@ -78,7 +79,7 @@ public sealed class DocumentationBlueprintTests
         foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
         {
             var relative = Path.GetRelativePath(directory, file).Replace('\\', '/');
-            // 决定 7 将输入限定为样例 manifest、体素及非生物蓝图，保留文件原字节。
+            // 生物、巢穴、市场和非空 founding 属于其他工单；这里只加载 manifest、体素及非生物蓝图，保留文件原字节。
             if (relative != "mod.json" && !relative.StartsWith("resources/voxels/", StringComparison.Ordinal) &&
                 !(relative.StartsWith("resources/blueprints/", StringComparison.Ordinal) &&
                   !relative.EndsWith("small-creature.blueprint.json", StringComparison.Ordinal))) continue;

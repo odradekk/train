@@ -28,20 +28,22 @@ internal static class DesignEvaluator
         void Invalid(string field, string message, int? cell = null) => diagnostics.Add(new(
             "design_invalid", C.ContentDiagnosticSeverity.Error, "evaluate", null, null, field,
             cell is null ? null : new C.DesignElementPath.Cell([], cell.Value), message));
-        if (depth > 4 || depth == 4 && !draft.Layout.NestedItems.IsEmpty)
-            Invalid("/layout/composites", "嵌套连同最外层最多 4 层。");
-        if (draft.Specification is C.DesignSpecification.FunctionalComposite && !draft.Layout.NestedItems.IsEmpty)
-            Invalid("/layout/composites", "功能复合体不能嵌套。");
-        if (draft.Layout.NestedItems.Select(DesignTraversal.At).Distinct().Count() != draft.Layout.NestedItems.Length)
-            Invalid("/layout/composites", "同一个宿主里 at 不能重复。");
-        var cells = draft.Layout.Cells.Select((cell, index) => (Cell: cell, Index: index))
-            .OrderBy(item => item.Cell.At.X).ThenBy(item => item.Cell.At.Y).ThenBy(item => item.Cell.At.Z).ToArray();
+        var cells = DesignTraversal.Cells(draft).ToArray();
         foreach (var item in cells)
         {
             if (item.Cell.PaletteIndex < 0 || item.Cell.PaletteIndex >= draft.Layout.Palette.Length)
                 Invalid($"/layout/cells/{item.Index}/3", "调色板序号超出范围。", item.Index);
         }
         if (diagnostics.Count > 0) return new C.DesignEvaluation.Failed(diagnostics.ToImmutable());
+        var anchors = new HashSet<C.GridPosition>();
+        foreach (var (item, index) in DesignTraversal.Items(draft))
+        {
+            var field = $"/layout/composites/{index}";
+            if (depth >= 4) Invalid(field, "嵌套连同最外层最多 4 层。");
+            if (draft.Specification is C.DesignSpecification.FunctionalComposite)
+                Invalid(field, "功能复合体不能嵌套。");
+            if (!anchors.Add(DesignTraversal.At(item))) Invalid(field + "/at", "同一个宿主里 at 不能重复。");
+        }
         var paletteCells = cells.ToLookup(item => item.Cell.PaletteIndex, item => item.Index);
         var missing = ImmutableArray.CreateBuilder<K.MissingCoreReference>();
         for (var index = 0; index < draft.Layout.Palette.Length; index++)
@@ -194,10 +196,10 @@ internal static class DesignEvaluator
             if (child is C.DesignEvaluation.Failed) return new C.DesignEvaluation.Failed(diagnostics.ToImmutable());
             var childScene = child is C.DesignEvaluation.Complete complete ? complete.Scene : ((C.DesignEvaluation.Partial)child).Scene;
             var childCore = child is C.DesignEvaluation.Complete full ? full.Core?.Design : ((C.DesignEvaluation.Partial)child).CorePlaceholder;
-            var childComposition = new K.CompositionHash(DesignTraversal.Hash(childDraft, true));
+            var childComposition = child is C.DesignEvaluation.Complete computed ? computed.Composition
+                : new K.CompositionHash(DesignTraversal.Hash(childDraft, true));
             var childGood = reference is not null ? (K.GoodId)new K.GoodId.Composite(reference.Definition) : new K.GoodId.Assembly(childComposition);
             var childParts = childCore?.Parts.Select(p => p with { Id = new(p.Id.Value + number.Value) }).ToImmutableArray() ?? [];
-            var totalValue = checked((childCore?.StructuralBaseValue.Value ?? 0) + (childCore?.Parts.Sum(p => p.BaseValue.Value) ?? 0));
             if (childCore is not null)
             {
                 mass += childCore.MassTons;
@@ -212,14 +214,14 @@ internal static class DesignEvaluator
                     foreach (var good in childCore.StructuralGoods)
                     { var id = ((K.GoodId.Voxel)good.Good).Definition; structuralGoods[id] = checked(structuralGoods.GetValueOrDefault(id) + good.Quantity); }
                     foreach (var good in (child as C.DesignEvaluation.Complete)?.Core?.AssemblyGoods ?? []) assemblyGoods[good.Good] = good;
-                    if (child is C.DesignEvaluation.Complete) assemblyGoods[childGood] = AssemblyGood(childComposition, childCore, totalValue);
+                    if (child is C.DesignEvaluation.Complete) assemblyGoods[childGood] = AssemblyGood(childComposition, childCore);
                 }
                 else
                 {
                     var capability = (C.DesignSpecification.FunctionalComposite)childDraft.Specification;
                     var durability = childCore.MaxStructureDurability;
                     parts.Add(new(number, new K.CoreDefinitionReference.Composite(reference.Definition), childGood, durability,
-                        childScene.Voxels.Count(v => !v.Missing), new(totalValue), capability.Behaviors, child is C.DesignEvaluation.Partial));
+                        childScene.Voxels.Count(v => !v.Missing), new(BaseValue(childCore)), capability.Behaviors, child is C.DesignEvaluation.Partial));
                     if (child is C.DesignEvaluation.Complete) structureDurability = checked(structureDurability + Contribution(durability));
                 }
                 returnUnits.Add(new(childGood, 1, reference is null ? childParts.Select(p => p.Id).ToImmutableArray() : [number],
@@ -261,14 +263,14 @@ internal static class DesignEvaluator
             if (envelope is not null && !Contains(envelope, voxel.At) && !voxel.ObjectPath.IsEmpty)
                 diagnostics.Add(new("design_invalid", C.ContentDiagnosticSeverity.Error, "evaluate", null, null,
                     ElementField(voxel.Element), voxel.Element, "嵌套对象超出尺寸包络。"));
-        if (!sceneOnly && occupied.Count > 0)
+        var occupancyComplete = !elements.Any(e => e.OccupiedCells is C.ComputedValue<ImmutableArray<C.GridPosition>>.Unknown);
+        if (!sceneOnly && occupancyComplete && occupied.Count > 0)
         {
             var connected = Connected(occupied, occupied.First());
             foreach (var voxel in sceneVoxels.Where(voxel => !connected.Contains(voxel.At)))
                 diagnostics.Add(new("design_invalid", C.ContentDiagnosticSeverity.Error, "evaluate", null, null,
                     ElementField(voxel.Element), voxel.Element, "体素未与设计其余部分六面连通。"));
         }
-        var occupancyComplete = !elements.Any(e => e.OccupiedCells is C.ComputedValue<ImmutableArray<C.GridPosition>>.Unknown);
         var rootRotation = draft.Specification switch { C.DesignSpecification.Assembly a => a.Rotation,
             C.DesignSpecification.FunctionalComposite f => f.Rotation, _ => null };
         if (rootRotation is not null)
@@ -287,7 +289,7 @@ internal static class DesignEvaluator
                     new C.ComputedValue<ImmutableArray<C.GridPosition>>.Known([])));
             }
         }
-        for (var index = 0; index < sweeps.Count; index++)
+        for (var index = 0; depth == 1 && index < sweeps.Count; index++)
         {
             var sweep = sweeps[index];
             var subtree = sceneVoxels.Where(v => StartsWith(v.ObjectPath, sweep.NestedItemIndices)).Select(v => v.At).ToHashSet();
@@ -308,9 +310,12 @@ internal static class DesignEvaluator
                 if (conflicts is C.ComputedValue<ImmutableArray<C.GridPosition>>.Known { Value.IsEmpty: false })
                 {
                     var path = sweep.NestedItemIndices;
-                    var element = new C.DesignElementPath.FunctionalComposite(path.RemoveAt(path.Length - 1), path[^1]);
+                    var nested = nestedObjects.Single(o => o.NestedItemIndices.SequenceEqual(path));
+                    C.DesignElementPath? element = nested.Details is C.NestedObjectDetails.FunctionalComposite
+                        ? new C.DesignElementPath.FunctionalComposite(path.RemoveAt(path.Length - 1), path[^1]) : null;
+                    var field = string.Concat(path.Select((item, level) => (level == 0 ? "" : "/design") + $"/layout/composites/{item}"));
                     diagnostics.Add(new("design_invalid", C.ContentDiagnosticSeverity.Error, "evaluate", null, null,
-                        ElementField(element), element, "转动扫过其他占格或超出尺寸包络。"));
+                        field, element, "转动扫过其他占格或超出尺寸包络。"));
                 }
             }
             sweeps[index] = sweep;
@@ -370,13 +375,17 @@ internal static class DesignEvaluator
     internal static string GoodKey(K.GoodId good) => good switch { K.GoodId.Voxel v => "0:" + v.Definition.Value,
         K.GoodId.Composite c => "1:" + c.Definition.Value, K.GoodId.Assembly a => "2:" + a.Composition.Value, _ => throw new ArgumentOutOfRangeException(nameof(good)) };
     private static long Contribution(long durability) => Math.Max(1, durability / 2 + durability % 2);
-    internal static K.GoodDefinitionProjection AssemblyGood(K.CompositionHash composition, K.DesignProjection design, long? value = null) =>
-        new(new K.GoodId.Assembly(composition), new(ContentHash.FromCanonicalJson(w => JsonSerializer.Serialize(w, new
+    internal static long BaseValue(K.DesignProjection design) => checked(design.StructuralBaseValue.Value + design.Parts.Sum(p => p.BaseValue.Value));
+    internal static K.GoodDefinitionProjection AssemblyGood(K.CompositionHash composition, K.DesignProjection design)
+    {
+        var value = BaseValue(design);
+        return new(new K.GoodId.Assembly(composition), new(ContentHash.FromCanonicalJson(w => JsonSerializer.Serialize(w, new
         { composition = composition.Value, design.MaxStructureDurability, design.StructureHitWeight, design.MassTons,
-            value = value ?? checked(design.StructuralBaseValue.Value + design.Parts.Sum(p => p.BaseValue.Value)),
+            value,
             parts = design.Parts.Select(p => new { p.Definition, p.MaxDurability, p.HitWeight, p.BaseValue, capabilities = DesignTraversal.Behaviors(p.Capabilities) }),
             bom = design.BillOfMaterials.Select(q => new { good = GoodKey(q.Good), q.Quantity }), design.ReturnUnits }))),
-            new(value ?? checked(design.StructuralBaseValue.Value + design.Parts.Sum(p => p.BaseValue.Value))), design.MassTons, false, null);
+            new(value), design.MassTons, false, null);
+    }
 
     private static bool StartsWith(ImmutableArray<int> path, ImmutableArray<int> prefix) => path.Length >= prefix.Length && path.AsSpan()[..prefix.Length].SequenceEqual(prefix.AsSpan());
     private static ImmutableArray<C.GridPosition> Sorted(IEnumerable<C.GridPosition> cells) => cells.Distinct().OrderBy(p => p.X).ThenBy(p => p.Y).ThenBy(p => p.Z).ToImmutableArray();

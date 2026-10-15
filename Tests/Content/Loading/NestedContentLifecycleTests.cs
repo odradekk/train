@@ -120,6 +120,35 @@ public sealed class NestedContentLifecycleTests
     }
 
     [TestMethod]
+    public void Expanded_composite_rotation_changes_input_identity_when_the_same_host_becomes_invalid()
+    {
+        var fixture = CompositeContent();
+        Change(fixture, "resources/blueprints/engine.blueprint.json", json =>
+        {
+            json["layout"]!["cells"] = JsonNode.Parse("""[[2,0,0,0]]""");
+            json["appearance"] = JsonNode.Parse("""{"behaviors":{"rotation":{"axis":"y","pivot":[0,0,0],"range":[0,15],"speed":20}}}""");
+        });
+        using var initial = fixture.Load();
+        var floor = (from x in Enumerable.Range(0, 3)
+                     from z in Enumerable.Range(-2, 3)
+                     select new C.LayoutCell(new(x, 0, z), 0)).Append(new(new(0, 1, -2), 0)).ToImmutableArray();
+        var draft = Host(new C.NestedDesignItem.FunctionalCompositeReference(new(0, 1, 0), C.VoxelOrientation.PxPy, new("core:engine"), null));
+        draft = draft with { Layout = draft.Layout with { Cells = floor } };
+        var before = DesignFixtures.Evaluate(initial.View, draft);
+        Assert.IsTrue(before.IsValid);
+        Change(fixture, "resources/blueprints/engine.blueprint.json", json =>
+            json["appearance"]!["behaviors"]!["rotation"]!["range"] = new JsonArray(0, 90));
+        using var expanded = fixture.Load();
+        var after = DesignFixtures.Evaluate(expanded.View, draft);
+        Assert.AreEqual(before.Design, after.Design);
+        Assert.IsFalse(after.IsValid);
+        Assert.IsFalse(after.Core!.Design.CanConstruct);
+        Assert.AreNotEqual(initial.View.Core.Identity, expanded.View.Core.Identity);
+        var conflict = ((C.ComputedValue<ImmutableArray<C.GridPosition>>.Known)after.Scene.RotationSweeps.Single().ConflictCells).Value;
+        Assert.Contains(new C.GridPosition(0, 1, -2), conflict);
+    }
+
+    [TestMethod]
     public void First_display_is_deterministic_and_survives_source_deletion_without_manifest_designs()
     {
         var fixture = DesignFixtures.Content();
@@ -137,7 +166,6 @@ public sealed class NestedContentLifecycleTests
         Assert.AreEqual("先引入", Found(initial.View.FindGood(good)).Display.Text.Name);
         var references = References(initial.View);
         fixture.RemoveEntry(ContentFixture.BuiltIn, "resources/blueprints/a-first.blueprint.json");
-        fixture.RemoveEntry(ContentFixture.BuiltIn, "resources/blueprints/z-last.blueprint.json");
         using var reloaded = Success(PrepareReload(fixture, initial.View, references));
         Assert.AreEqual("先引入", Found(reloaded.View.FindGood(good)).Display.Text.Name);
         Assert.IsInstanceOfType<C.ContentLookup<C.DesignEvaluation>.Found>(reloaded.View.FindDesign(chosen.Design));
@@ -168,7 +196,7 @@ public sealed class NestedContentLifecycleTests
     }
 
     [TestMethod]
-    public void Reload_registering_only_restored_library_displays_advances_generation_and_persistent_revision()
+    public void Restore_registers_new_compositions_and_capture_decodes_with_the_new_design_manifest()
     {
         var fixture = DesignFixtures.Content();
         using var initial = fixture.Load();
@@ -176,12 +204,47 @@ public sealed class NestedContentLifecycleTests
         var saved = Success(ContentFactory.Create().Capture(initial.View, references));
         AddAssembly(fixture, "introduced", "新增构成", "#abcdef");
         using var restored = Restore(fixture, saved, references);
-        Assert.AreEqual(0, restored.View.Core.DesignGoods.Length);
+        Assert.AreEqual(saved.Revision.Value + 1, restored.View.PersistentRevision.Value);
+        var introduced = Blueprint(restored.View, "introduced");
+        var good = new K.GoodId.Assembly(introduced.Composition);
+        Assert.AreEqual(introduced.Design, Found(restored.View.FindGood(good)).DisplayDesign);
+        var factory = ContentFactory.Create();
+        var currentReferences = References(restored.View, "introduced");
+        var captured = Success(factory.Capture(restored.View, currentReferences));
+        Assert.IsTrue(captured.Designs.Contains(introduced.Design));
+        var decoded = Success(factory.DecodeCapture(captured.Encode()));
+        Assert.AreEqual(captured.Encode(), decoded.Encode());
+        using var repeated = Restore(fixture, decoded, currentReferences);
+        Assert.AreEqual(restored.View.PersistentRevision, repeated.View.PersistentRevision);
+        Assert.AreEqual(introduced.Design, Found(repeated.View.FindGood(good)).DisplayDesign);
         using var reloaded = Success(PrepareReload(fixture, restored.View, references));
-        Assert.AreEqual(C.ContentChange.Persistent, reloaded.Changes);
-        Assert.AreEqual(restored.View.Generation.Value + 1, reloaded.View.Generation.Value);
-        Assert.AreEqual(restored.View.PersistentRevision.Value + 1, reloaded.View.PersistentRevision.Value);
+        Assert.AreEqual(C.ContentChange.None, reloaded.Changes);
+        Assert.AreEqual(restored.View.Generation, reloaded.View.Generation);
+        Assert.AreEqual(restored.View.PersistentRevision, reloaded.View.PersistentRevision);
         Assert.AreEqual(1, reloaded.View.Core.DesignGoods.Length);
+    }
+
+    [TestMethod]
+    public void Missing_composite_bridge_does_not_report_known_disconnection()
+    {
+        var fixture = CompositeContent();
+        Change(fixture, "resources/blueprints/engine.blueprint.json", json =>
+            json["layout"]!["cells"] = JsonNode.Parse("""[[0,0,0,0]]"""));
+        AddHost(fixture, "host");
+        Change(fixture, "resources/blueprints/host.blueprint.json", json =>
+            json["layout"]!["cells"] = JsonNode.Parse("""[[0,0,0,0],[0,0,2,0]]"""));
+        using var initial = fixture.Load();
+        var original = Blueprint(initial.View, "host");
+        Assert.IsTrue(original.IsValid);
+        var references = References(initial.View, "host");
+        var saved = Success(ContentFactory.Create().Capture(initial.View, references));
+        fixture.RemoveEntry(ContentFixture.BuiltIn, "resources/blueprints/host.blueprint.json");
+        fixture.RemoveEntry(ContentFixture.BuiltIn, "resources/blueprints/engine.blueprint.json");
+        using var restored = Restore(fixture, saved, references);
+        var partial = (C.DesignEvaluation.Partial)Found(restored.View.FindDesign(original.Design));
+        Assert.IsFalse(partial.Scene.OccupancyComplete);
+        Assert.IsFalse(partial.CorePlaceholder!.CanConstruct);
+        Assert.IsFalse(partial.Diagnostics.Any(d => d.Code == "design_invalid" && d.Message.Contains("六面连通", StringComparison.Ordinal)));
     }
 
     private static C.DesignEvaluation.Complete Blueprint(C.IContentView view, string id) =>

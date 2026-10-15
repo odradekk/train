@@ -92,11 +92,11 @@ internal sealed class ContentView : C.IContentView
         PersistentRevision = new(checked(basis.PersistentRevision.Value + 1));
     }
 
-    private ContentView(ContentView basis, ContentCapture capture, K.CoreReferenceManifest references, C.ContentGeneration generation, bool registerAssemblies)
+    private ContentView(ContentView basis, ContentCapture capture, K.CoreReferenceManifest references, C.ContentGeneration? generation, bool advanceGeneration)
     {
         capture.Validate(references);
         _voxels = basis._voxels; _assets = basis._assets; _blueprints = basis._blueprints; _world = basis._world;
-        Generation = generation; PersistentRevision = capture.Revision;
+        Generation = generation ?? basis.Generation; PersistentRevision = capture.Revision;
         SavedPackages = capture.ReferencedPackages; SavedDesigns = capture.Records; Source = basis.Source;
         Packages = basis.Packages; Voxels = basis.Voxels; Blueprints = basis.Blueprints; GenerationProfiles = basis.GenerationProfiles;
         var designs = basis._designs.ToDictionary();
@@ -108,11 +108,12 @@ internal sealed class ContentView : C.IContentView
         }
         _designs = designs.ToFrozenDictionary();
         var displays = capture.AssemblyDisplays.ToDictionary(d => d.Composition);
-        if (registerAssemblies)
-            foreach (var display in basis.AssemblyDisplays) displays.TryAdd(display.Composition, display);
+        foreach (var display in basis.AssemblyDisplays) displays.TryAdd(display.Composition, display);
         AssemblyDisplays = displays.Values.OrderBy(d => d.Composition.Value, StringComparer.Ordinal).ToImmutableArray();
         if (AssemblyDisplays.Length != capture.AssemblyDisplays.Length)
             PersistentRevision = new(checked(capture.Revision.Value + 1));
+        if (generation is not null && (advanceGeneration || PersistentRevision != capture.Revision))
+            Generation = new(checked(generation.Value.Value + 1));
         _layouts = capture.Copies.ToFrozenDictionary(t => t.Owner, t =>
         {
             var scene = _designs[t.SceneModel] switch
@@ -132,8 +133,8 @@ internal sealed class ContentView : C.IContentView
         };
     }
 
-    internal ContentView WithCapture(ContentCapture capture, K.CoreReferenceManifest references, C.ContentGeneration? generation = null, bool registerAssemblies = false) =>
-        new(this, capture, references, generation ?? Generation, registerAssemblies);
+    internal ContentView WithCapture(ContentCapture capture, K.CoreReferenceManifest references, C.ContentGeneration? generation = null, bool advanceGeneration = false) =>
+        new(this, capture, references, generation, advanceGeneration);
 
     private static ImmutableArray<K.DesignProjection> DesignProjections(Dictionary<K.DesignHash, C.DesignEvaluation> designs) =>
         designs.OrderBy(d => d.Key.Value, StringComparer.Ordinal).Select(d => d.Value switch
@@ -150,11 +151,15 @@ internal sealed class ContentView : C.IContentView
     {
         var design = ((C.DesignEvaluation.Complete)record.Evaluation).Core!.Design;
         var capability = (C.DesignSpecification.FunctionalComposite)record.Definition.Specification;
-        var value = checked(design.StructuralBaseValue.Value + design.Parts.Sum(p => p.BaseValue.Value));
+        var value = DesignEvaluator.BaseValue(design);
         var revision = ContentHash.FromCanonicalJson(w => JsonSerializer.Serialize(w, new
         {
             id = record.Address.Id.Value, design.MassTons, design.MaxStructureDurability, value,
             occupancy = DesignTraversal.Cells(record.Definition).Select(c => new[] { c.Cell.At.X, c.Cell.At.Y, c.Cell.At.Z }),
+            rotation = capability.Rotation is { } rotation ? new
+            {
+                rotation.Axis, rotation.Pivot, rotation.MinimumDegrees, rotation.MaximumDegrees
+            } : null,
             capabilities = DesignTraversal.Behaviors(capability.Behaviors),
             dependencies = DesignTraversal.References(record.Definition).Select(r => ((K.CoreDefinitionReference.Voxel)r.Reference).Id)
                 .Distinct().OrderBy(id => id.Value, StringComparer.Ordinal).Select(id => new { id = id.Value, revision = _voxels[id].Definition.Revision.Value }),
@@ -204,6 +209,12 @@ internal sealed class ContentView : C.IContentView
                 presentation = JsonSerializer.Serialize(v.Appearance.Presentation, v.Appearance.Presentation.GetType())
             }),
             terrains = _world.Terrains,
+            composites = _blueprints.Values.Where(b => b.Definition.Specification is C.DesignSpecification.FunctionalComposite)
+                .OrderBy(b => b.Address.Id.Value, StringComparer.Ordinal).Select(b => new
+                {
+                    b.Address.Id, b.Definition.Display, b.Definition.Layout,
+                    ((C.DesignSpecification.FunctionalComposite)b.Definition.Specification).Rotation
+                }),
             types = _world.Types.Select(t => new { t.Source.Core.Id, t.Source.Display, t.Source.Major, t.Symbol }),
             templates = _world.Templates.Select(t => new { t.Core.Id, t.Source.Display, t.Source.Layout, t.SceneModel.Design }),
             railways = _world.Rules.OfType<ParsedRule.Railway>().Select(r => r.Appearance),

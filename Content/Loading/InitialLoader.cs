@@ -37,7 +37,7 @@ internal sealed class InitialLoader
         PackageLoader.ExcludeDependents(packages);
         var assets = _assets.Freeze();
         var blueprints = new List<(LoadPackage Package, C.BlueprintRecord Blueprint)>();
-        // 功能定义没有嵌套，先求值它们，再解析宿主的引用。
+        // 功能复合体没有嵌套，先求值它们，再解析宿主的引用。
         foreach (var functional in new[] { true, false })
         {
             var evaluationView = new ContentView(loaded.Where(item => item.Package.State == C.PackageState.Available)

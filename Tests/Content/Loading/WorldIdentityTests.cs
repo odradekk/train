@@ -10,6 +10,54 @@ namespace Train.Content.Tests.Loading;
 public sealed class WorldIdentityTests
 {
     [TestMethod]
+    [DataRow("axis", true)]
+    [DataRow("pivot", true)]
+    [DataRow("range", true)]
+    [DataRow("speed", false)]
+    [DataRow("display", false)]
+    [DataRow("shape", false)]
+    [DataRow("paint", false)]
+    public void Composite_rotation_semantics_change_input_and_selected_generation_but_appearance_only_marks_presentation(string change, bool businessChange)
+    {
+        var fixture = WorldContentFixtures.Content();
+        var device = DesignFixtures.Blueprint("device");
+        device["category"] = "large_equipment";
+        device["simulation"] = JsonNode.Parse("""{"behaviors":{"storage":{"capacity":100}}}""");
+        device["appearance"] = JsonNode.Parse("""{"behaviors":{"rotation":{"axis":"y","pivot":[0,0,2],"range":[0,15],"speed":20}}}""");
+        AddBlueprint(fixture, device);
+        Change(fixture, "resources/blueprints/engine.blueprint.json", json =>
+            json["layout"]!["composites"] = JsonNode.Parse("""[{"at":[0,1,0],"blueprint":"device"}]"""));
+        using var initial = fixture.Load();
+        var before = (C.DesignEvaluation.Complete)Found(initial.View.FindBlueprint(new(C.BlueprintLibrary.Packages, new("core:engine")))).Evaluation;
+        Change(fixture, "resources/blueprints/device.blueprint.json", json =>
+        {
+            var rotation = json["appearance"]!["behaviors"]!["rotation"]!;
+            switch (change)
+            {
+                case "axis": rotation["axis"] = "x"; break;
+                case "pivot": rotation["pivot"] = new JsonArray(1, 0, 0); break;
+                case "range": rotation["range"] = new JsonArray(0, 30); break;
+                case "speed": rotation["speed"] = 40; break;
+                case "display": json["display"]!["name"] = "新显示名"; break;
+                case "shape": json["layout"]!["palette"]![0]!["shape"] = "wedge"; break;
+                case "paint": json["layout"]!["palette"]![0]!["paint"] = "#abcdef"; break;
+            }
+        });
+        var references = ContentCaptureTests.References(initial.View);
+        using var reloaded = ContentCaptureTests.Success(ContentFactory.Create().PrepareLoad(
+            new(fixture.Installation, new C.ContentLoadPurpose.Reload(initial.View, references)), fixture, fixture));
+        var after = (C.DesignEvaluation.Complete)Found(reloaded.View.FindBlueprint(new(C.BlueprintLibrary.Packages, new("core:engine")))).Evaluation;
+        Assert.AreEqual(before.Design, after.Design);
+        Assert.AreEqual(before.Composition, after.Composition);
+        var good = new K.GoodId.Composite(new("core:device"));
+        Assert.AreEqual(businessChange, initial.View.Core.Goods.Single(g => g.Good == good).Revision != reloaded.View.Core.Goods.Single(g => g.Good == good).Revision);
+        Assert.AreEqual(businessChange, initial.View.Core.Identity != reloaded.View.Core.Identity);
+        Assert.AreEqual(businessChange, World(initial.View).GenerationContentRevision != World(reloaded.View).GenerationContentRevision);
+        Assert.AreEqual(businessChange, reloaded.Changes.HasFlag(C.ContentChange.CoreInput));
+        Assert.IsTrue(reloaded.Changes.HasFlag(C.ContentChange.Presentation));
+    }
+
+    [TestMethod]
     public void Selected_assembly_internal_voxel_revision_changes_generation_without_changing_design_identity()
     {
         var fixture = WorldContentFixtures.Content();

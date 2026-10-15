@@ -42,46 +42,40 @@ internal sealed class BlueprintParser
         return ReadDesign(root, null);
     }
 
-    private static C.DesignDraft ReadDesign(JsonElement root, LoadPackage? package, int depth = 1, bool copied = false)
+    private static C.DesignDraft ReadDesign(JsonElement root, LoadPackage? package)
     {
         var category = Choice(Required(root, "category", ""), "/category", ["vehicle", "building", "large_equipment", "scene_model", "creature"]);
         if (category == "creature")
             Fail("/category", "当前不支持生物蓝图。", "unsupported_format");
         var layout = Required(root, "layout", "");
         Object(layout, "/layout", "palette", "cells", "composites");
-        if (depth > 4) Fail("/layout/composites", "嵌套连同最外层最多 4 层。");
         var nested = ImmutableArray.CreateBuilder<C.NestedDesignItem>();
         if (layout.TryGetProperty("composites", out var composites))
         {
             Array(composites, "/layout/composites");
-            var positions = new HashSet<C.GridPosition>();
             foreach (var item in composites.EnumerateArray())
             {
                 var field = "/layout/composites/" + nested.Count;
                 Object(item, field, "at", "orientation", "design", "blueprint", "paint");
                 var at = Position(Required(item, "at", field), field + "/at");
-                if (!positions.Add(at)) Fail(field + "/at", "同一个宿主里 at 不能重复。");
                 var orientation = item.TryGetProperty("orientation", out var o)
                     ? EnumValue<C.VoxelOrientation>(o, field + "/orientation") : C.VoxelOrientation.PxPy;
-                if (depth == 4) Fail(field, "嵌套连同最外层最多 4 层。");
                 if (item.TryGetProperty("design", out var design))
                 {
                     if (item.TryGetProperty("blueprint", out _) || item.TryGetProperty("paint", out _))
                         Fail(field, "复制设计不能带 blueprint 或 paint。");
                     Object(design, field + "/design", "category", "simulation", "layout", "appearance", "display");
                     C.DesignDraft child;
-                    try { child = ReadDesign(design, package, depth + 1, true); }
+                    try { child = ReadDesign(design, package); }
                     catch (DefinitionFormatException exception)
                     { throw new DefinitionFormatException(field + "/design" + exception.Field, exception.Message, exception.Code); }
-                    if (category == "scene_model" && child.Specification is C.DesignSpecification.SceneModel)
+                    if (category == "scene_model")
                         nested.Add(new C.NestedDesignItem.SceneModelCopy(at, orientation, child));
-                    else if (category != "scene_model" && child.Specification is C.DesignSpecification.Assembly)
+                    else
                         nested.Add(new C.NestedDesignItem.AssemblyCopy(at, orientation, child));
-                    else Fail(field + "/design/category", "宿主不允许嵌套此类别。");
                 }
                 else
                 {
-                    if (category == "scene_model") Fail(field, "场景模型只能嵌套场景模型副本。");
                     var reference = DefinitionJson.Reference(Required(item, "blueprint", field), field + "/blueprint", package);
                     C.PaintColor? paint = item.TryGetProperty("paint", out var p) ? new(Text(p, field + "/paint")) : null;
                     nested.Add(new C.NestedDesignItem.FunctionalCompositeReference(at, orientation, new(reference), paint));
@@ -119,11 +113,6 @@ internal sealed class BlueprintParser
             }
         }
         var specification = Specification(root, category);
-        if (specification is C.DesignSpecification.FunctionalComposite)
-        {
-            if (copied) Fail("/simulation/behaviors", "复制设计的任何一层都不能带功能性行为。");
-            if (nested.Count != 0) Fail("/layout/composites", "功能复合体不能嵌套复合体。");
-        }
         var display = Required(root, "display", "");
         Object(display, "/display", "name", "description");
         return new(new(Text(Required(display, "name", "/display"), "/display/name"),

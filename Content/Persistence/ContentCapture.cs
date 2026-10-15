@@ -9,17 +9,17 @@ using K = Train.Core.Contracts;
 
 namespace Train.Content.Persistence;
 
-internal sealed record CapturedDesign(K.DesignHash Hash, C.DesignDraft Definition, K.CompositeDefinitionId? Composite = null);
+internal sealed record CapturedDesign(K.DesignHash Hash, C.DesignDraft Definition, K.CompositeDefinitionId? Composite);
 internal sealed record CapturedAssembly(K.CompositionHash Composition, K.DesignHash Design);
 internal sealed record CapturedTemplate(K.SettlementId Owner, K.SettlementTemplateId Source,
     C.DisplayText Display, ImmutableArray<C.SettlementPlotLayout> Plots, K.DesignHash SceneModel);
 
 internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<CapturedDesign> designs,
     ImmutableArray<CapturedTemplate> templates, ImmutableArray<C.PackageMetadata> packages,
-    ImmutableArray<CapturedAssembly> assemblyDisplays = default) : C.IContentCapture
+    ImmutableArray<CapturedAssembly> assemblyDisplays) : C.IContentCapture
 {
     public C.ContentRevision Revision { get; } = revision;
-    internal ImmutableArray<CapturedAssembly> AssemblyDisplays { get; } = assemblyDisplays.IsDefault ? [] : assemblyDisplays;
+    internal ImmutableArray<CapturedAssembly> AssemblyDisplays { get; } = assemblyDisplays;
     internal ImmutableArray<CapturedDesign> Records { get; } = designs;
     internal ImmutableArray<CapturedTemplate> Copies { get; } = templates;
     public ImmutableArray<K.DesignHash> Designs { get; } = designs.Select(d => d.Hash).ToImmutableArray();

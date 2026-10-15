@@ -18,21 +18,38 @@ internal static class RotationSweep
         {
             var source = Plane(cell, rotation.Axis);
             double u = (double)source.U - pivot.U, v = (double)source.V - pivot.V;
+            var sourceDistance = DistanceRange((long)source.U - pivot.U, (long)source.V - pivot.V);
             var radius = Math.Sqrt(Math.Pow(Math.Abs(u) + .5, 2) + Math.Pow(Math.Abs(v) + .5, 2));
             var bound = (int)Math.Ceiling(radius + .5);
             for (var x = -bound; x <= bound; x++)
             for (var y = -bound; y <= bound; y++)
             {
-                if (!Intersects(u, v, x, y, minimum, maximum)) continue;
-                result.Add(rotation.Axis switch
+                var target = rotation.Axis switch
                 {
-                    C.RotationAxis.X => new(cell.X, pivot.U + x, pivot.V + y),
-                    C.RotationAxis.Y => new(pivot.V + y, cell.Y, pivot.U + x),
-                    _ => new(pivot.U + x, pivot.V + y, cell.Z)
-                });
+                    C.RotationAxis.X => new C.GridPosition(cell.X, pivot.U + x, pivot.V + y),
+                    C.RotationAxis.Y => new C.GridPosition(pivot.V + y, cell.Y, pivot.U + x),
+                    _ => new C.GridPosition(pivot.U + x, pivot.V + y, cell.Z)
+                };
+                if (result.Contains(target)) continue;
+                var targetDistance = DistanceRange(x, y);
+                // Rotation preserves radius; touching radial bounds cannot intersect cell interiors.
+                if (targetDistance.Maximum <= sourceDistance.Minimum
+                    || targetDistance.Minimum >= sourceDistance.Maximum) continue;
+                if (Intersects(u, v, x, y, minimum, maximum)) result.Add(target);
             }
         }
         return result.OrderBy(p => p.X).ThenBy(p => p.Y).ThenBy(p => p.Z).ToImmutableArray();
+    }
+
+    private static (Int128 Minimum, Int128 Maximum) DistanceRange(long u, long v)
+    {
+        // Twice the coordinates keep half-cell boundaries integral before squaring.
+        var twiceU = 2 * Math.Abs(u);
+        var twiceV = 2 * Math.Abs(v);
+        var nearU = Math.Max(twiceU - 1, 0);
+        var nearV = Math.Max(twiceV - 1, 0);
+        return ((Int128)nearU * nearU + (Int128)nearV * nearV,
+            (Int128)(twiceU + 1) * (twiceU + 1) + (Int128)(twiceV + 1) * (twiceV + 1));
     }
 
     private static (int U, int V) Plane(C.GridPosition p, C.RotationAxis axis) => axis switch
