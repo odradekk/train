@@ -15,6 +15,7 @@ internal static class ProductionOperations
         var plans = settlement.Template.ProductionPlans.Where(p => p.Capability == CapabilityKind.Production)
             .Select(p => (Plan: p, Building: settlement.Plots.Single(plot => plot.TemplateNumber == p.PlotNumber).Building))
             .Where(p => p.Building is not null).OrderBy(p => p.Plan.Priority).ThenBy(p => p.Building!.Value.Value).ToArray();
+        if (plans.Length == 0) return [];
         var facilities = settlement.ProductionFacilities.ToDictionary(f => f.Building);
         var requests = ImmutableArray.CreateBuilder<FacilityRequest>();
         foreach (var (plan, building) in plans)
