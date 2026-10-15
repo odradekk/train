@@ -43,7 +43,6 @@ public sealed class ResourceStateTests
     [TestMethod]
     [DataRow(false, "good")]
     [DataRow(false, "initial_quantity")]
-    [DataRow(false, "elapsed_steps")]
     [DataRow(false, "sequence")]
     [DataRow(true, "node")]
     [DataRow(true, "good")]
@@ -59,8 +58,6 @@ public sealed class ResourceStateTests
 
     [TestMethod]
     [DataRow("initial_quantity", "-1")]
-    [DataRow("elapsed_steps", "3")]
-    [DataRow("elapsed_steps", "1")]
     [DataRow("sequence", "1")]
     [DataRow("good", "{\"value\":\"fixture:absent\"}")]
     public void Invalid_regeneration_state_is_rejected(string property, string value)
@@ -68,16 +65,6 @@ public sealed class ResourceStateTests
         using var session = new CoreSession(State());
         var payload = JsonNode.Parse(Capture(session).Encode())!;
         payload["world"]!["resource_regenerations"]![0]![property] = JsonNode.Parse(value);
-        AssertRejected(payload);
-    }
-
-    [TestMethod]
-    public void Saved_check_progress_must_match_the_completed_boundary()
-    {
-        using var session = new CoreSession(State());
-        Step(session, 2);
-        var payload = JsonNode.Parse(Capture(session).Encode())!;
-        payload["world"]!["resource_regenerations"]![0]!["elapsed_steps"] = 1;
         AssertRejected(payload);
     }
 
@@ -148,7 +135,7 @@ public sealed class ResourceStateTests
         foreach (var changed in new[]
         {
             regeneration with { InitialQuantity = regeneration.InitialQuantity + 1 },
-            regeneration with { ElapsedSteps = 1 }, regeneration with { Sequence = 1 }
+            regeneration with { Sequence = 1 }
         })
         {
             using var session = new CoreSession(state with { World = state.World with { ResourceRegenerations = [changed] } });
@@ -268,7 +255,6 @@ public sealed class ResourceStateTests
         using var session = new CoreSession(Remaining(State(multipleNodes: true), 1, allNodes: true));
         Step(session, 6);
         Assert.AreEqual(0UL, session.State.World.ResourceRegenerations.Single().Sequence);
-        Assert.AreEqual(0UL, session.State.World.ResourceRegenerations.Single().ElapsedSteps);
     }
 
     [TestMethod]
@@ -308,16 +294,16 @@ public sealed class ResourceStateTests
             Source = state.World.Source with { Configuration = state.World.Source.Configuration with
                 { Resources = [entry with { Good = c, RegenerationIntervalSeconds = 1.0 / 60, GlobalRegenerationRemainingReserveRatio = 1 },
                     entry with { Good = b, RegenerationIntervalSeconds = 1.0 / 60, GlobalRegenerationRemainingReserveRatio = 1 }] } },
-            ResourceRegenerations = [new(c, 10, 0, 0), new(b, 10, 0, 0)]
+            ResourceRegenerations = [new(c, 10, 0), new(b, 10, 0)]
         };
         var committed = before with { Nodes = before.Nodes.Select(n => n with
             { Resources = [new(renewable, 0, new ResourceRenewal.Renewable(3, 60))] }).ToImmutableArray() };
-        var normal = WorldResources.Advance(before, committed);
+        var normal = WorldResources.Advance(before, committed, 0);
         var reversed = WorldResources.Advance(before with
         {
             Nodes = before.Nodes.Reverse().Select(n => n with { Resources = n.Resources.Reverse().ToImmutableArray() }).ToImmutableArray(),
             ResourceRegenerations = before.ResourceRegenerations.Reverse().ToImmutableArray()
-        }, committed with { Nodes = committed.Nodes.Reverse().ToImmutableArray() });
+        }, committed with { Nodes = committed.Nodes.Reverse().ToImmutableArray() }, 0);
         var expected = new CoreEvent[]
         {
             new CoreEvent.ResourceExhausted(new(1), Good, false),

@@ -62,10 +62,6 @@ internal static class WorldReferences
                     Good(good.Good, field + $".OutputBuffer[{GoodKey(good.Good)}]");
             }
         }
-        foreach (var state in world.ResourceRegenerations)
-            Good(new GoodId.Voxel(state.Good), $"World.ResourceRegenerations[{state.Good.Value}].Good");
-        foreach (var state in world.ResourceRecovery)
-            Good(state.Good, $"World.ResourceRecovery[{state.Node.Value}:{GoodKey(state.Good)}].Good");
         foreach (var lair in world.Lairs) Add(new CoreDefinitionReference.Lair(lair.Type), $"World.Lairs[{lair.Id.Value}].Type");
         foreach (var design in world.Designs)
         {

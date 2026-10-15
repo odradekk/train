@@ -43,8 +43,6 @@ public sealed class ExtractionProcessTests
             x.GetProperty("Remaining").GetDouble() is > 0 and < 1));
         using var buffered = JsonDocument.Parse(expected.Samples[3].Query);
         Assert.IsTrue(buffered.RootElement.GetProperty("Finite").GetProperty("OutputBuffer").GetArrayLength() > 0);
-        Assert.IsTrue(buffered.RootElement.GetProperty("ResourceRegenerations").EnumerateArray().Any(x =>
-            x.GetProperty("ElapsedSteps").GetUInt64() > 0));
         Assert.IsTrue(expected.Events.Any(e => e.Contains("\"Kind\":\"ResourceRegenerated\"", StringComparison.Ordinal)));
         Assert.IsTrue(expected.Events.Any(e => e.Contains("\"Kind\":\"ResourceRecovered\"", StringComparison.Ordinal)));
         Assert.IsTrue(expected.Samples[0].Payload != expected.Samples[^1].Payload);

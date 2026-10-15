@@ -5,14 +5,14 @@ using Train.Core.Contracts;
 namespace Train.Core.World;
 
 internal sealed record ResourceRegenerationState(VoxelDefinitionId Good, Int128 InitialQuantity,
-    ulong ElapsedSteps, ulong Sequence);
+    ulong Sequence);
 internal sealed record ResourceRecoveryState(NodeId Node, GoodId Good, double Remaining);
 
 internal static class WorldResources
 {
     internal static ImmutableArray<ResourceRegenerationState> Initial(ImmutableArray<ResourceGenerationEntry> entries,
         IEnumerable<NodeMapItem> nodes) => entries.Where(e => !e.Renewable).OrderBy(e => e.Good.Value, StringComparer.Ordinal).Select(e =>
-            new ResourceRegenerationState(e.Good, Total(nodes, new GoodId.Voxel(e.Good)), 0, 0)).ToImmutableArray();
+            new ResourceRegenerationState(e.Good, Total(nodes, new GoodId.Voxel(e.Good)), 0)).ToImmutableArray();
 
     internal static ulong? IntervalSteps(double seconds)
     {
@@ -33,52 +33,58 @@ internal static class WorldResources
         return (BigInteger)quantity << (exponent == 0 ? 1074 : 1075 - exponent) < (BigInteger)initial * significand;
     }
 
-    internal static (WorldState World, ImmutableArray<CoreEvent> Events) Advance(WorldState before, WorldState committed)
+    internal static (WorldState World, ImmutableArray<CoreEvent> Events) Advance(WorldState before, WorldState committed,
+        ulong completedSteps)
     {
-        var nodes = committed.Nodes.ToBuilder();
-        var exhausted = ImmutableArray.CreateBuilder<CoreEvent>();
-        var recovered = ImmutableArray.CreateBuilder<CoreEvent>();
-        var regenerated = ImmutableArray.CreateBuilder<CoreEvent>();
-        var recovery = ImmutableArray.CreateBuilder<ResourceRecoveryState>();
-        var remainders = before.ResourceRecovery.ToDictionary(r => (r.Node, r.Good), r => r.Remaining);
-        foreach (var index in Enumerable.Range(0, before.Nodes.Length).OrderBy(i => before.Nodes[i].Id.Value))
+        ImmutableArray<NodeMapItem>.Builder? nodes = null;
+        ImmutableArray<ResourceRecoveryState>.Builder? recovery = null;
+        Dictionary<(NodeId, GoodId), double>? remainders = null;
+        List<CoreEvent.ResourceExhausted>? exhausted = null;
+        List<CoreEvent.ResourceRecovered>? recovered = null;
+        List<CoreEvent.ResourceRegenerated>? regenerated = null;
+        for (var index = 0; index < before.Nodes.Length; index++)
         {
             var original = before.Nodes[index];
             if (original.Resources.IsEmpty) continue;
-            var node = nodes[index];
-            var resources = node.Resources.ToBuilder();
-            foreach (var resource in original.Resources.OrderBy(r => WorldReferences.GoodKey(r.Good), StringComparer.Ordinal))
+            var node = committed.Nodes[index];
+            ImmutableArray<NodeResourceView>.Builder? resources = null;
+            foreach (var resource in original.Resources)
             {
-                var current = resources.FirstOrDefault(r => r.Good == resource.Good);
+                var renewable = resource.Renewal as ResourceRenewal.Renewable;
+                if (original.Resources == node.Resources && (renewable is null || resource.Quantity == renewable.Maximum)) continue;
+                var current = node.Resources.FirstOrDefault(r => r.Good == resource.Good);
                 if (resource.Quantity > 0 && (current is null || current.Quantity == 0))
-                    exhausted.Add(new CoreEvent.ResourceExhausted(node.Id, resource.Good,
+                    (exhausted ??= []).Add(new CoreEvent.ResourceExhausted(node.Id, resource.Good,
                         resource.Renewal is ResourceRenewal.Renewable));
-                if (resource.Renewal is not ResourceRenewal.Renewable renewable) continue;
+                if (renewable is null || resource.Quantity == renewable.Maximum) continue;
+                recovery ??= ImmutableArray.CreateBuilder<ResourceRecoveryState>();
+                var previous = before.ResourceRecovery.IsEmpty ? 0 :
+                    (remainders ??= before.ResourceRecovery.ToDictionary(r => (r.Node, r.Good), r => r.Remaining))
+                        .GetValueOrDefault((node.Id, resource.Good));
                 var missing = renewable.Maximum - resource.Quantity;
-                var amount = renewable.UnitsPerSecond * SimulationTime.StepSeconds
-                    + remainders.GetValueOrDefault((node.Id, resource.Good));
+                var amount = renewable.UnitsPerSecond * SimulationTime.StepSeconds + previous;
                 var units = amount >= missing ? missing : (long)Math.Floor(amount);
                 var remainder = amount >= missing ? 0 : amount - units;
                 if (remainder > 0) recovery.Add(new(node.Id, resource.Good, remainder));
                 if (units == 0) continue;
                 var restored = current! with { Quantity = checked(current!.Quantity + units) };
+                resources ??= node.Resources.ToBuilder();
                 resources[resources.IndexOf(current)] = restored;
                 if (current.Quantity == 0)
-                    recovered.Add(new CoreEvent.ResourceRecovered(node.Id, resource.Good, restored.Quantity));
+                    (recovered ??= []).Add(new CoreEvent.ResourceRecovered(node.Id, resource.Good, restored.Quantity));
             }
-            if (!resources.SequenceEqual(node.Resources)) nodes[index] = node with { Resources = resources.ToImmutable() };
+            if (resources is not null)
+                (nodes ??= committed.Nodes.ToBuilder())[index] = node with { Resources = resources.ToImmutable() };
         }
 
-        var regenerations = before.ResourceRegenerations.OrderBy(r => r.Good.Value, StringComparer.Ordinal).ToImmutableArray().ToBuilder();
-        for (var index = 0; index < regenerations.Count; index++)
+        ImmutableArray<ResourceRegenerationState>.Builder? regenerations = null;
+        var nextStep = checked(completedSteps + 1);
+        for (var index = 0; index < before.ResourceRegenerations.Length; index++)
         {
-            var state = regenerations[index];
+            var state = before.ResourceRegenerations[index];
             var entry = before.Source.Configuration.Resources.Single(e => e.Good == state.Good);
-            var elapsed = checked(state.ElapsedSteps + 1);
             var interval = IntervalSteps(entry.RegenerationIntervalSeconds);
-            regenerations[index] = state with { ElapsedSteps = elapsed };
-            if (interval is not { } period || elapsed != period) continue;
-            regenerations[index] = state with { ElapsedSteps = 0 };
+            if (interval is not { } period || nextStep % period != 0) continue;
             var good = new GoodId.Voxel(state.Good);
             if (!BelowThreshold(Total(before.Nodes, good), state.InitialQuantity, entry.GlobalRegenerationRemainingReserveRatio)) continue;
             var candidates = before.Nodes.Where(n => entry.AllowedTerrainTypes.Contains(n.Terrain.TypeId)
@@ -88,16 +94,30 @@ internal static class WorldResources
                 0, candidates.Length - 1);
             var quantity = WorldRandom.Integer(Sample(before.Source.WorldSeed, state.Good, state.Sequence, true),
                 entry.MinimumReserve, entry.MaximumReserve);
-            regenerations[index] = regenerations[index] with { Sequence = checked(state.Sequence + 1) };
+            (regenerations ??= before.ResourceRegenerations.ToBuilder())[index] = state with { Sequence = checked(state.Sequence + 1) };
             if (quantity == 0) continue;
             var nodeIndex = before.Nodes.IndexOf(candidates[chosen]);
+            nodes ??= committed.Nodes.ToBuilder();
             var node = nodes[nodeIndex];
             nodes[nodeIndex] = node with { Resources = node.Resources.Add(new(good, quantity, new ResourceRenewal.NonRenewable()))
                 .OrderBy(r => WorldReferences.GoodKey(r.Good), StringComparer.Ordinal).ToImmutableArray() };
-            regenerated.Add(new CoreEvent.ResourceRegenerated(node.Id, good, quantity));
+            (regenerated ??= []).Add(new CoreEvent.ResourceRegenerated(node.Id, good, quantity));
         }
-        return (committed with { Nodes = nodes.ToImmutable(), ResourceRecovery = recovery.ToImmutable(),
-            ResourceRegenerations = regenerations.ToImmutable() }, exhausted.Concat(recovered).Concat(regenerated).ToImmutableArray());
+        var recoveryStates = recovery is null ? committed.ResourceRecovery : recovery.OrderBy(r => r.Node.Value)
+            .ThenBy(r => WorldReferences.GoodKey(r.Good), StringComparer.Ordinal).ToImmutableArray();
+        if (recovery is not null && recoveryStates.SequenceEqual(committed.ResourceRecovery)) recoveryStates = committed.ResourceRecovery;
+        var world = nodes is null && regenerations is null && recoveryStates == committed.ResourceRecovery ? committed : committed with
+        {
+            Nodes = nodes?.ToImmutable() ?? committed.Nodes,
+            ResourceRecovery = recoveryStates,
+            ResourceRegenerations = regenerations is null ? committed.ResourceRegenerations :
+                regenerations.OrderBy(r => r.Good.Value, StringComparer.Ordinal).ToImmutableArray()
+        };
+        if (exhausted is null && recovered is null && regenerated is null) return (world, []);
+        return (world, (exhausted ?? []).OrderBy(e => e.Node.Value)
+            .ThenBy(e => WorldReferences.GoodKey(e.Good), StringComparer.Ordinal).Cast<CoreEvent>()
+            .Concat((recovered ?? []).OrderBy(e => e.Node.Value).ThenBy(e => WorldReferences.GoodKey(e.Good), StringComparer.Ordinal))
+            .Concat((regenerated ?? []).OrderBy(e => WorldReferences.GoodKey(e.Good), StringComparer.Ordinal)).ToImmutableArray());
     }
 
     private static Int128 Total(IEnumerable<NodeMapItem> nodes, GoodId good) => nodes.SelectMany(n => n.Resources)

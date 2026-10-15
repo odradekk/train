@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
 using Train.Core.Sessions;
+using Train.Core.World;
 using static Train.Core.Tests.World.ResourceCycleFixture;
 
 namespace Train.Core.Tests.World;
@@ -9,6 +10,59 @@ namespace Train.Core.Tests.World;
 [TestClass]
 public sealed class ResourceCycleTests
 {
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Unchanged_resources_preserve_the_committed_world_and_nodes(bool renewable)
+    {
+        var before = State(renewable: renewable, multipleNodes: true).World;
+        var committed = before with { };
+        var result = WorldResources.Advance(before, committed, 0);
+        Assert.AreSame(committed, result.World);
+        Assert.AreEqual(committed.Nodes, result.World.Nodes);
+        Assert.IsEmpty(result.Events);
+    }
+
+    [TestMethod]
+    public void Regeneration_before_the_check_boundary_preserves_the_committed_world_and_nodes()
+    {
+        var before = Remaining(State(multipleNodes: true), 1).World;
+        var committed = before with { };
+        var result = WorldResources.Advance(before, committed, 1);
+        Assert.AreSame(committed, result.World);
+        Assert.AreEqual(committed.Nodes, result.World.Nodes);
+        Assert.IsEmpty(result.Events);
+    }
+
+    [TestMethod]
+    public void Due_regeneration_without_a_candidate_preserves_the_committed_world_and_nodes()
+    {
+        var before = Remaining(State(multipleNodes: true), 1, allNodes: true).World;
+        var committed = before with { };
+        var result = WorldResources.Advance(before, committed, 2);
+        Assert.AreSame(committed, result.World);
+        Assert.AreEqual(committed.Nodes, result.World.Nodes);
+        Assert.AreEqual(0UL, result.World.ResourceRegenerations.Single().Sequence);
+        Assert.IsEmpty(result.Events);
+    }
+
+    [TestMethod]
+    public void Recovery_replaces_only_the_node_whose_quantity_changes()
+    {
+        var full = State(renewable: true, rate: 60, multipleNodes: true).World;
+        var recovering = full.Nodes[0];
+        var before = full with { Nodes = full.Nodes.SetItem(0, recovering with
+            { Resources = [recovering.Resources.Single() with { Quantity = 0 }] }) };
+        var result = WorldResources.Advance(before, before, 0);
+        Assert.AreNotSame(before, result.World);
+        Assert.AreNotSame(before.Nodes[0], result.World.Nodes[0]);
+        Assert.AreEqual(1L, result.World.Nodes[0].Resources.Single().Quantity);
+        for (var index = 1; index < before.Nodes.Length; index++)
+            Assert.AreSame(before.Nodes[index], result.World.Nodes[index]);
+        CollectionAssert.AreEqual(new CoreEvent[] { new CoreEvent.ResourceRecovered(recovering.Id, Good, 1) },
+            result.Events.ToArray());
+    }
+
     [TestMethod]
     public void Recovery_accumulates_fractional_units_and_emits_only_the_zero_to_positive_transition()
     {

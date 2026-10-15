@@ -426,8 +426,8 @@ internal static class WorldStateValidation
         {
             var interval = WorldResources.IntervalSteps(world.Source.Configuration.Resources.Single(e => e.Good == state.Good).RegenerationIntervalSeconds);
             Require(interval is not { } period
-                ? state.ElapsedSteps == completedSteps && state.Sequence == 0
-                : state.ElapsedSteps == completedSteps % period && state.Sequence <= completedSteps / period,
+                ? state.Sequence == 0
+                : state.Sequence <= completedSteps / period,
                 "/world/resource_regenerations");
         }
         foreach (var train in world.Trains)
@@ -459,9 +459,7 @@ internal static class WorldStateValidation
         Require(world.ResourceRegenerations.Select(r => r.Good).SequenceEqual(entries.Select(e => e.Good)), regeneration);
         foreach (var state in world.ResourceRegenerations)
         {
-            var interval = WorldResources.IntervalSteps(entries.Single(e => e.Good == state.Good).RegenerationIntervalSeconds);
             Require(state.InitialQuantity >= 0, regeneration + "/initial_quantity");
-            Require(interval is null || state.ElapsedSteps < interval, regeneration + "/elapsed_steps");
         }
         const string recovery = "/world/resource_recovery";
         Items(world.ResourceRecovery, recovery);
