@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text;
 using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -11,6 +12,7 @@ internal static class InventoryProcessDriver
 {
     internal static async Task<int> RunAsync(string[] args)
     {
+        if (args[0].StartsWith("trade-", StringComparison.Ordinal)) return await Trades(args);
         try
         {
             var mode = args[0];
@@ -84,6 +86,83 @@ internal static class InventoryProcessDriver
                 await File.WriteAllTextAsync(output, JsonSerializer.Serialize(new InventoryProcessResult(Environment.ProcessId,
                     samples.ToArray(), prefixReceipts, prefixEvents, receipts.ToArray(), events.ToArray())), new UTF8Encoding(false));
             }
+            return 0;
+        }
+        catch (Exception exception) { Console.Error.WriteLine(exception); return 1; }
+    }
+
+    internal static CoreContentProjection TradeContent()
+    {
+        var content = InventoryTradeTests.Content(value: 1, prices: new(new(0), new(10000), new(10000), new(0)));
+        return content with
+        {
+            Designs = content.Designs.Select(d => d.Design == WorldFixture.Station ? d with
+            { Parts = d.Parts.Select(p => p with { Capabilities = p.Capabilities.Add(new PartCapability.Construction(1, PlotSize.Small, SizeClass.Small)) }).ToImmutableArray() } : d).ToImmutableArray(),
+            MarketRules = [content.MarketRules[0] with
+            { VehiclePurchaseLimits = [new(SizeClass.Small, 1)], VehicleBuyMultiplier = new(10000), VehicleSellMultiplier = new(10000) }]
+        };
+    }
+
+    internal static CoreSession TradeSession() => InventoryTradeTests.Session(TradeContent(),
+        local: [new(InventoryFixture.Voxel, 3)], cargo: [new(InventoryTradeTests.Clothing, 3)]);
+
+    private static async Task<int> Trades(string[] args)
+    {
+        try
+        {
+            var mode = args[0];
+            var factory = CoreFactory.Create();
+            using var candidate = mode == "trade-resume" ? WorldFixture.Success(factory.PrepareRestore(
+                WorldFixture.Success(factory.DecodeState(await File.ReadAllTextAsync(args[2]))), TradeContent(), WorldFixture.Options)) : null;
+            using var session = candidate is null ? TradeSession() : (CoreSession)candidate.Activate();
+            var receipts = new List<string>();
+            var events = new List<string>();
+            var samples = new List<InventoryProcessSample>();
+            var town = session.State.World.Settlements.Single();
+            void Submit(CoreCommand command, bool accepted = true)
+            {
+                var result = InventoryFixture.Submit(session, command);
+                if (accepted) Assert.IsInstanceOfType<CommandDecision.Accepted>(result.Receipt.Decision, result.Diagnostic?.Message);
+                else Assert.IsInstanceOfType<CommandDecision.Rejected>(result.Receipt.Decision);
+                receipts.Add(CoreCheckpoints.ReceiptText(result.Receipt));
+                events.AddRange(result.Events.Select(Event));
+            }
+            void Sample()
+            {
+                var capture = WorldFixture.Success(session.Capture(CapturePurpose.Save));
+                var settlement = ((Lookup<SettlementView>.Found)session.Read().FindSettlement(town.Id)).Value;
+                samples.Add(new(capture.Position, capture.Encode(), capture.Checkpoint.CanonicalText, capture.Checkpoint.Sha256,
+                    JsonSerializer.Serialize(new { settlement.VehiclesForSale, settlement.VehiclePurchaseCapacities,
+                        Goods = settlement.Market.Goods.Select(g => new { Good = Core.World.WorldReferences.GoodKey(g.Good),
+                            g.Stock, g.RestockTarget, g.SellableQuantity, g.ReceivableQuantity }), session.Read().Economy.Wallet })));
+            }
+            if (mode != "trade-resume")
+            {
+                Submit(new CoreCommand.BuyGoods(new(1), town.Id, town.Inventory, InventoryFixture.Voxel, 1, new(1)));
+                Submit(new CoreCommand.SellGoods(new(1), town.Id, town.Inventory, InventoryTradeTests.Clothing, 1, new(1)));
+                Submit(new CoreCommand.BuyGoods(new(1), town.Id, town.Inventory, InventoryFixture.Voxel, long.MaxValue, new(long.MaxValue)), false);
+                Submit(new CoreCommand.SellGoods(new(1), town.Id, town.Inventory, InventoryTradeTests.Clothing, 1000, new(0)), false);
+            }
+            Sample();
+            var prefixReceipts = receipts.ToArray();
+            var prefixEvents = events.ToArray();
+            receipts.Clear(); events.Clear();
+            if (mode == "trade-save") await File.WriteAllTextAsync(args[2], samples[0].Payload, new UTF8Encoding(false));
+            else
+            {
+                Submit(new CoreCommand.AcquireLease(new LeaseRequest.Rent(town.Id, 3, 3), new(1000)));
+                var lease = session.State.World.Leases.Single();
+                Submit(new CoreCommand.UnloadGoods(new(1), town.Id, lease.Inventory, InventoryFixture.Voxel, 1));
+                Submit(new CoreCommand.UnloadGoods(new(1), town.Id, lease.Inventory, InventoryTradeTests.Clothing, 2));
+                Submit(new CoreCommand.StopTrain(new(1)));
+                Submit(new CoreCommand.DisbandTrain(new(1)));
+                Submit(new CoreCommand.SellVehicle(town.Id, new(1), new(0))); Sample();
+                Submit(new CoreCommand.SellVehicle(town.Id, new(1), new(0)), false); Sample();
+                Submit(new CoreCommand.BuyVehicle(town.Id, new(1), new(1000))); Sample();
+                Submit(new CoreCommand.BuyVehicle(town.Id, new(1), new(1000)), false); Sample();
+            }
+            await File.WriteAllTextAsync(args[1], JsonSerializer.Serialize(new InventoryProcessResult(Environment.ProcessId,
+                samples.ToArray(), prefixReceipts, prefixEvents, receipts.ToArray(), events.ToArray())), new UTF8Encoding(false));
             return 0;
         }
         catch (Exception exception) { Console.Error.WriteLine(exception); return 1; }

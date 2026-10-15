@@ -79,9 +79,9 @@ public sealed class PopulationStockTargetsTests
     public void Basic_and_improvement_use_their_own_hours_and_capacity_budgets()
     {
         var rule = Rule(2, 2, 2);
-        AssertTargets(PopulationStockTargets.Calculate(rule, 2, 1, 2, [], [], PopulationNeedClass.Basic, 8),
+        AssertTargets(PopulationStockTargets.Calculate(rule, 2, 1, 2, 0, 0, [], PopulationNeedClass.Basic, 8),
             new(Staple, 4), new(Clothing, 4));
-        AssertTargets(PopulationStockTargets.Calculate(rule, 2, 1, 2, [],
+        AssertTargets(PopulationStockTargets.Calculate(rule, 2, 1, 2, 0, 0,
             [new(Consumer, 1), new(Electronics, 1), new(Medical, 1)], PopulationNeedClass.Improvement, 5),
             new GoodsQuantity(Prepared, 5));
         AssertTargets(Calculate(rule, 0));
@@ -106,7 +106,8 @@ public sealed class PopulationStockTargetsTests
         ImmutableArray<PopulationConsumptionRemainder> remainders = default,
         PopulationNeedClass needClass = PopulationNeedClass.Basic) =>
         PopulationStockTargets.Calculate(rule, 1, 1, 1,
-            inventory.IsDefault ? [] : inventory,
+            inventory.IsDefault ? 0 : inventory.Where(g => g.Good == Staple).Sum(g => g.Quantity),
+            inventory.IsDefault ? 0 : inventory.Where(g => g.Good == Prepared).Sum(g => g.Quantity),
             (remainders.IsDefault ? ImmutableArray<PopulationConsumptionRemainder>.Empty : remainders)
                 .AddRange(new PopulationConsumptionRemainder[] { new(Consumer, 1), new(Electronics, 1), new(Medical, 1) }), needClass, capacity);
 

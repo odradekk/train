@@ -20,6 +20,15 @@ internal sealed record SettlementResolution(WorldState World, ImmutableArray<lon
 
 internal static class SettlementResources
 {
+    internal static double GeneratedEnergy(WorldState world, CoreContentProjection content, SettlementState settlement)
+        => settlement.Plots.Where(p => p.Building is not null)
+            .Sum(p => BuildingCapabilities.Read(world, content, p.Building!.Value).Power) * SimulationTime.StepSeconds;
+
+    internal static IEnumerable<GoodDefinitionProjection> Fuels(WorldState world, CoreContentProjection content)
+        => content.Goods.Where(g => g.Good is GoodId.Voxel && g.FuelEnergyPerUnit is not null
+                && !WorldGoods.DefinitionMissing(world, content, g.Good))
+            .OrderBy(g => ((GoodId.Voxel)g.Good).Definition.Value, StringComparer.Ordinal);
+
     // Callers submit at most one request per facility capability and cap work at this step's useful rate.
     internal static SettlementResolution Resolve(WorldState world, CoreContentProjection content, SettlementId id,
         double availableLabor, ImmutableArray<GoodsQuantity> basic, ImmutableArray<FacilityRequest> facilities,
@@ -31,12 +40,9 @@ internal static class SettlementResources
         var node = world.Nodes.Single(n => n.Id == settlement.Node);
         var resources = node.Resources.ToDictionary(r => r.Good);
         var resourcesChanged = false;
-        var energyRemaining = settlement.Plots.Where(p => p.Building is not null)
-            .Sum(p => BuildingCapabilities.Read(world, content, p.Building!.Value).Power) * SimulationTime.StepSeconds;
+        var energyRemaining = GeneratedEnergy(world, content, settlement);
         var fuelRemaining = settlement.FuelEnergyRemaining;
-        var fuels = content.Goods.Where(g => g.Good is GoodId.Voxel && g.FuelEnergyPerUnit is not null
-                && !WorldGoods.DefinitionMissing(world, content, g.Good))
-            .OrderBy(g => ((GoodId.Voxel)g.Good).Definition.Value, StringComparer.Ordinal).ToArray();
+        var fuels = Fuels(world, content).ToArray();
         var batches = ImmutableArray.CreateBuilder<FacilityKey>();
         var work = ImmutableArray.CreateBuilder<WorkAllocation>();
         var basicGranted = Consume(basic);
@@ -62,23 +68,11 @@ internal static class SettlementResources
                     batches.Add(batch.Facility);
                     break;
                 case FacilityRequest.Work demand:
-                    var rate = demand.MaximumWorkPerSecond;
-                    var powerRate = double.PositiveInfinity;
-                    var laborRate = double.PositiveInfinity;
-                    if (demand.PowerPerWork > 0)
-                    {
-                        var fuelEnergy = fuelRemaining + fuels.Sum(f => Available(f.Good) * f.FuelEnergyPerUnit!.Value);
-                        powerRate = Math.Min(energyRemaining, fuelEnergy) / SimulationTime.StepSeconds / demand.PowerPerWork;
-                        rate = Math.Min(rate, powerRate);
-                    }
-                    if (demand.LaborPerWork > 0)
-                    {
-                        laborRate = availableLabor / demand.LaborPerWork;
-                        rate = Math.Min(rate, laborRate);
-                    }
-                    var limits = ImmutableArray.CreateBuilder<WorkLimit>();
-                    if (powerRate <= rate) limits.Add(WorkLimit.Power);
-                    if (laborRate <= rate) limits.Add(WorkLimit.Labor);
+                    var allocation = AllocateWork(demand, energyRemaining,
+                        demand.PowerPerWork > 0
+                            ? fuelRemaining + fuels.Sum(f => Available(f.Good) * f.FuelEnergyPerUnit!.Value)
+                            : 0, availableLabor);
+                    var rate = allocation.WorkPerSecond;
                     var energy = rate * demand.PowerPerWork * SimulationTime.StepSeconds;
                     foreach (var fuel in fuels)
                     {
@@ -92,7 +86,7 @@ internal static class SettlementResources
                     fuelRemaining = Math.Max(0, fuelRemaining - energy);
                     energyRemaining = Math.Max(0, energyRemaining - energy);
                     availableLabor = Math.Max(0, availableLabor - rate * demand.LaborPerWork);
-                    work.Add(new(demand.Facility, rate, limits.ToImmutable()));
+                    work.Add(allocation);
                     break;
             }
         }
@@ -126,5 +120,27 @@ internal static class SettlementResources
             }
             return granted.ToImmutable();
         }
+    }
+
+    internal static WorkAllocation AllocateWork(FacilityRequest.Work demand, double energyRemaining,
+        double fuelEnergy, double availableLabor)
+    {
+        var rate = demand.MaximumWorkPerSecond;
+        var powerRate = double.PositiveInfinity;
+        var laborRate = double.PositiveInfinity;
+        if (demand.PowerPerWork > 0)
+        {
+            powerRate = Math.Min(energyRemaining, fuelEnergy) / SimulationTime.StepSeconds / demand.PowerPerWork;
+            rate = Math.Min(rate, powerRate);
+        }
+        if (demand.LaborPerWork > 0)
+        {
+            laborRate = availableLabor / demand.LaborPerWork;
+            rate = Math.Min(rate, laborRate);
+        }
+        var limits = ImmutableArray.CreateBuilder<WorkLimit>();
+        if (powerRate <= rate) limits.Add(WorkLimit.Power);
+        if (laborRate <= rate) limits.Add(WorkLimit.Labor);
+        return new(demand.Facility, rate, limits.ToImmutable());
     }
 }

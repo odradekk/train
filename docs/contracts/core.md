@@ -32,6 +32,7 @@
 - 读视图的 `Position`、`Revision`、`InputIdentity` 和 `Fault`。修订在每个 Completed 命令、完成步骤及新步骤故障时各增加一次；NotAccepted、查询和零步推进不增加。修订已达 `ulong.MaxValue` 时，故障仍写入并冻结，修订保持最大值；正常路径的递增仍使用 checked 算术。
 - `World`、`FindNode`、`FindEdge`、`FindLocation`、`FindInstance`、`FindTrain`，覆盖生成的图、占据者、资源、实例和运行列车；车辆位置随所属列车派生，轨道查询列出实际在轨列车。
 - `FindInventory`、`FindLease`、`QuoteLease`、`LoadGoods`、`UnloadGoods`、`AcquireLease` 及租约到期，按 [#325 的批准计划](https://github.com/odradekk/train/issues/325#issuecomment-6172428536)实现。库存预留参与容量和持久化；任务产生和释放预留仍归 #331/#332，具体规则见下文“库存与租约”。
+- #384 接入 `QuoteTrade` 的四种动作、`BuyGoods`／`SellGoods`、`QuoteVehicle` 和 `BuyVehicle`／`SellVehicle`，以及补货目标、两轮备货、潜在消耗和现车名额；具体语义见下文“市场报价与手动交易”。自动交易和运行报告仍归 #385，NPC 初始库存与现车生成仍未实现。
 - `FindSettlement` 与 `Economy` 按 [#486 的批准计划](https://github.com/odradekk/train/issues/486#issuecomment-6190044442)接入已有状态：聚居地库存身份、地块、停放车辆、站台与占用、租约、仓储划分、加工、回收和开采设施、电力、人口、钱包和当前规则状态。尚未实现及暂定字段逐项见下文“聚居地与经济查询”。
 - `FindFacility` 的 `Production` 键、模板中的加工／回收计划、批次推进、输出缓冲及生产事件，按 [#381 的批准计划](https://github.com/odradekk/train/issues/381#issuecomment-6183793182)实现，具体范围见下文“加工与回收”。
 - `Extraction` 设施、开采批次、节点资源原地恢复与全局再生，按 [#383 的批准决定](https://github.com/odradekk/train/issues/383#issuecomment-6188092446)实现，使用同一批次运行时与资源仲裁；参数、时序及事件见下文“节点资源”。
@@ -53,10 +54,10 @@
 - #381 已接入真实批次输入、最大有用工作速率和批次推进，不在步内重启。
 - #382 的 `PopulationOperations.Begin` 在消费到期时生成基本消费请求并提供人数乘当前有效劳动比例的容量；`PopulationConsumption.PrepareImprovement` 使用基本消费实际授予量生成改善请求，`PopulationOperations.Complete` 在三段消费后回写状态与事件。基本消费预估与仲裁读取同一份库存。同一步每座聚居地最多调用一次 `SettlementResources.Resolve`，无到期消费及设施请求时跳过仲裁。人口请求和真实设施请求进入这同一次调用，使用人口提供的真实劳动容量；生产结果与人口结果保留在同一个提交世界中。本步产出下一步才可消费，期末人口变化下一步才影响请求和劳动力分配。
 - #486 已将已有权威状态接入 `FindSettlement` 及其 `PowerPoolView`、人口和仓储查询；加工、回收和开采设施详情与 `FindFacility` 使用同一查询实现。
-- #384 实现潜在消耗、两轮备货及最低组合的共用燃料抵扣；本票只验证实际仲裁中的整件燃料与能量余量。
+- #384 已接入潜在消耗、两轮备货及最低组合的共用燃料抵扣。潜在计算复用 `SettlementResources.AllocateWork` 的电力／劳动分配，实际运行仍由 `Resolve` 扣料和提交；查询不消费库存或燃料。
 - #299 验证上述真实模块路径及此前阶段路径；本票的内部仲裁、保存恢复与隔离证据不能替代阶段联调。
 
-#382 的居民备货计算为内部 `PopulationStockTargets.Calculate`。调用方传入实际本期规则（尚未开始时为当前规则，停用时传空）、人数、市场基本／改善备货时长、聚居地库存、物理消费余量、需求类别与该类容量预算，返回按货物身份排序的整数目标。目标包含应保留的现货，不是净采购缺口；加工食品共享基础与改善覆盖，物理余量抵扣后再逐项向上取整，预算不足时以标准库 `BigInteger` 保存整数目标及比例中间量，按整数目标比例和最大余数分配，最终数量转换为容量可表达的整数；平局按稳定货物身份。#384 按基本、生产、改善顺序提供预算并合并目标；基本目标已经压缩时，改善预算为零。该入口的内部模块测试不表示真实市场已接入。
+#382 的居民备货计算为内部 `PopulationStockTargets.Calculate`。调用方传入实际本期规则（尚未开始时为当前规则，停用时传空）、人数、市场基本／改善备货时长、主食与加工食品各自的库存数量、物理消费余量、需求类别与该类容量预算，返回按货物身份排序的整数目标。只有这两种替代食品的现货影响目标，其余现货只参与报价和可成交数量。目标包含应保留的现货，不是净采购缺口；加工食品共享基础与改善覆盖，物理余量抵扣后再逐项向上取整，预算不足时以标准库 `BigInteger` 保存整数目标及比例中间量，按整数目标比例和最大余数分配，最终数量转换为容量可表达的整数；平局按稳定货物身份。#384 的 `MarketStockTargets` 按基本、生产、改善顺序提供预算并合并目标；基本目标已经压缩时，后续预算为零。该内部入口及市场的模块证据不代替 #299 真实联调。
 
 #486 的人口查询接入使用已保存的 `SettlementState.Population` 与 `PopulationState`：本期规则及修订、有效步数、累计应需与满足量、六项短缺状态、上次可用性以及最近结算。周期进度保存 `ElapsedSteps` 与 `LastAdvancedStep` 时间锚点；可用时在当前边界加上距锚点的步数，停用时保持不动，恢复后重新锚定。非消费步不重建人口数组；应需与满足量仅在消费步同时累加同一区间的实际计算值，不从总步数反推累计值。消费物理余量和人口变化余量只用于模拟及持久化，不进入查询。当前有效劳动比例立即生效，本期消费、权重和增长参数保持冻结；可用性须结合当前投影及本期必需引用判断，上次可用性也用于冻结进度。`LastSettlement` 只保留最近一条；查询接入后 `RecentSettlements` 返回同一条，尚无结算时为空数组。结算原因按变化率的符号判断，整数变化为零也可以是增长或短缺流失；负变化率且结算后为一人时为 `MinimumReached`。
 
@@ -72,10 +73,10 @@
 
 | 字段 | 当前取值与后续责任 |
 | --- | --- |
-| `VehiclesForSale` | 当前没有产生待售车辆的机制，为空；#384 接入现车买卖及在售状态 |
+| `VehiclesForSale` | 当地 NPC 拥有的实际停放车辆，按身份排序；玩家卖出的原实例进入待售，世界生成仍未产生初始现车 |
 | `Surrendered` | 当前没有投降机制，为 `false`；#352 接入投降状态 |
 | `CommissionJobs`、`Economy.UnassignedServicePayments` | 当前没有委托任务和工钱支出，分别为空与零；#387 接入委托及全局未归属服务支出累计 |
-| `Market.Goods`、`VehiclePurchaseCapacities`、设施 `PotentialConsumption` | 暂为空，待 #384；调用方不能解释为没有货物、收购名额或潜在消耗 |
+| `Market.Goods`、`VehiclePurchaseCapacities`、设施 `PotentialConsumption` | #384 从当前真实库存、需求、能力和市场规则派生；字段定义见下文市场部分 |
 | `Economy.RecentRunReports` | 暂为空，待 #385；调用方不能解释为没有历史经营活动 |
 | `Facilities` 中的施工设施 | 当前返回已实现的加工、回收和开采设施；施工待 #331/#343，未列出不表示不存在对应能力 |
 | `ParkingCapacity` | `int.MaxValue` 表示 Demo 不限停放数量，不表示已实现有限停车容量 |
@@ -88,7 +89,7 @@
 
 计划直接读取每座聚居地已保存的 `Template.ProductionPlans`，按地块的 `TemplateNumber` 定位建筑；没有第二份运行计划。源模板更新不改变该副本。`SetProductionPlan` 仍未实现，继续抛 `NotImplementedException`；玩家计划编辑归后续自有建设任务。本票不新增控制台命令。
 
-`FindFacility` 支持 `CapabilityKind.Production`（加工与回收）及 `Extraction`（开采）。建筑不在聚居地地块上，或既无该能力的计划、设计也没有声明该能力时返回 `Missing`。设备损坏或缺定义造成有效能力为零，不会使仍有计划或声明能力的设施消失。`Construction` 键仍归施工任务，抛出注明 `FindFacility` 和能力种类的 `NotImplementedException`。`PotentialConsumption` 暂为空，待 #384 接入；调用方不能把它解释为零需求。
+`FindFacility` 支持 `CapabilityKind.Production`（加工与回收）及 `Extraction`（开采）。建筑不在聚居地地块上，或既无该能力的计划、设计也没有声明该能力时返回 `Missing`。设备损坏或缺定义造成有效能力为零，不会使仍有计划或声明能力的设施消失。`Construction` 键仍归施工任务，抛出注明 `FindFacility` 和能力种类的 `NotImplementedException`。`PotentialConsumption` 由全城同一次潜在电力／劳动分配换算为每秒原料与燃料消耗；与 `FindSettlement.Facilities` 使用同一计算。
 
 状态按流程缺失、停用、能力为零、不满足条件、出料阻塞、等待原料、运行中的顺序判断。锁定目前没有权威来源，由 #332、#343 接入，不能据当前七态的模块证据宣称八态完整通过。停用只阻止启动新批次；当前流程的 Tag／地貌要求不再满足时，状态为“不满足条件”，已有批次仍按冻结规格完成。能力为零或流程缺失时保留批次进度。流程补回后继续，不重新扣原料。
 
@@ -295,6 +296,82 @@ Rent 要求非零聚居地身份和正容量，Renew 要求非零租约身份，
 从完成步 n 推进到 n+1 时，期限落在该边界的租约按 LeaseId 升序发 LeaseExpired，事件排在同一步铁路事件之前。到期状态由完成步派生，恢复不重复发事件，空租约及其库存不自动删除。市场规则缺失不暂停到期，也不禁止其它条件合法的手动装卸。规则更新不追改已付金额、合同额度或到期步。
 
 预留随库存保存、恢复并参与检查点。解码检查正容量、合法正数返还及合计不超过容量、JobId 非零且全世界唯一；预计返还货物定义加入引用清单。不检查任务是否存在，不新增任务状态；创建、释放预留及任务交叉检查归 #331/#332。本票不新增控制台命令，单命令手册和索引更新不适用。
+
+## 市场报价与手动交易
+
+#384 按[批准决定 D1–D9](https://github.com/odradekk/train/issues/384#issuecomment-6194386767)实现本节。玩法公式见[市场与交易](../design/19-markets-and-trading.md)，本节明确报价、执行及当前阶段边界。没有新增持久字段：钱包、货物、实例所有权、设计与耐久和唯一停车归属沿用现有编码；核心状态格式仍为 11，命令和重放格式仍为 2。目标、留货、价格、待售列表和名额不另存。生成器三个经济初始化配置仍返回 `config_invalid`，本票不生成库存或车辆；现车可由玩家卖给当地形成。自动规则和报告仍归 #385，委托采购归 #387，真实经济内容及四模块交接归 #299。
+
+### 备货与查询
+
+每次查询或交易只计算一次全城潜在消耗。`Running`、`WaitingForInputs`、`OutputBlocked` 计划计入；停用、零能力、条件不满足、锁定、流程缺失不计入。假设原料和燃料齐全、产出不阻塞，按 Priority、BuildingId、CapabilityKind 顺序共用完好发电能力和当前有效劳动容量。每秒批次数为潜在工作速率除以当前流程工作量，原料率为批次数乘每批数量，燃料率为功率消耗除以燃料能量；燃料沿规范货物身份选择。实际批次、库存和资源仲裁不因查询推进。
+
+容量预算复用仓储划分，扣除有效租约完整额度及到期租库实际占位，依次安排基本生活、生产、改善。生产第一轮试算完整最低组合：当前批次原料已投入，不重复备料，燃料按冻结系数乘剩余工作量；无当前批次时保障下一完整批次。组合放不下就跳过，试算不消耗预算或共享燃料余量。第二轮仅处理最低组合成功的计划，补当前流程时长目标超出已安排组合的部分，按整数目标比例及最大余数压缩，平局按稳定货物身份。全城燃料余量只抵扣一次，整件燃料的富余供后项使用。
+
+目标函数的库存输入明确为主食和加工食品两个数量。只有食品需要随候选库存重算目标；其他货物的目标在一次查询或交易中固定，可售量为 `max(Stock-T,0)`，可收量为 `max(T-Stock,0)` 再受真实入库容量限制。居民目标计算和区间探测共用 `PopulationStockTargets.FoodTargets`，返回基本食品的两个整数需求 K。固定另一食品库存时，K 的两个分量各自单调，同一 K 的库存集合为连续区间；相同 K 决定相同的居民分配、生产预算和完整目标。数量计算在该区间内直接求连续可成交数量，计价只在跨区间时重算目标，金额仍逐件精确取整。边界搜索只探测 K，不假定最终目标单调；非有限探测值退回单点。K 变化但最终目标因压缩或合并恰巧相同的平台仍保守逐件处理。
+
+`Market.Goods` 是当前普通货物目录、世界保留的组装体货物与当地库存货物的并集，按规范身份排序，保留已有缺定义货物。字段含义如下：
+
+| 字段 | 含义 |
+| --- | --- |
+| `Stock` | 聚居地自身库存的实际数量，不含租库、消费物理余量或未来产物 |
+| `RestockTarget`、`ReservedForUse` | 同一个整数补货／出售保留目标，不是额外存储预留，也不是净采购缺口 |
+| `SellableQuantity` | 不考虑具体列车的连续可售数量；动态食品沿逐件当前目标判断 |
+| `ReceivableQuantity` | 不考虑具体列车的连续可收数量，同时受本地真实 `Available` 限制 |
+| `Blockers` | 自有 `invalid_state / Settlement`、敌对 `access_denied / LocalInventory`、缺规则 `content_missing / MarketRule`、缺货物定义 `content_missing / Good`；无用途或没有超额库存由数量 0 表达 |
+
+缺市场规则时目标为 0 占位且附缺失原因，可售／可收为 0，不表示真实需求为零。自有聚居地仍计算装载警告所需的目标。目标变化不删除货物，入库始终另查真实空间和预留。
+
+### 货物报价与执行
+
+`QuoteTrade` 覆盖 Buy、Sell、Load、Unload。输入须有非零身份、合法货物、正数量和有效动作，否则抛 `ArgumentException`；命令价格条件须非负，也在取得编号前检查。报价不锁货、锁价或锁容量，执行重新裁决。
+
+`CurrentlyExecutableQuantity` 不超过请求数量，表示当前可执行的连续前缀。资格失败为 0；数量或容量不足时给可执行前缀。Buy 足量物理条件满足但资金不足时给可支付前缀。手动命令仍整单接受或拒绝，不按该字段自动部分成交。Buy/Sell 的 `Total` 仅在完整请求数量、留货和容量条件满足后计算，钱包不足仍提供完整总价；其余拒绝时为空。Load/Unload 的 `Total` 始终为 0。`Blockers` 为按执行顺序得到的首个拒绝，成功为空。
+
+Load/Unload 沿用“库存与租约”的检查顺序。合法自有装载若扩大转移后补货缺口，`ShortageWarnings` 给出 `restock_shortage / LocalInventory.Goods` 及货物身份，不阻止装载。租库无本地需求，不套用留货。缺市场规则不阻止合法手动自有装卸；目标不可计算时不伪造短缺警告。
+
+Buy/Sell 在前提检查后依次判断：
+
+| 顺序 | 条件和拒绝（代码 / 字段） |
+| --- | --- |
+| 1 | 对象存在：`object_missing / Train`、`Settlement`、`LocalInventory` |
+| 2 | 列车全部车辆玩家自有：`not_owned / Train` |
+| 3 | 列车位于当地节点：`train_not_at_settlement / Train.Position` |
+| 4 | LocalInventory 是该聚居地直接拥有的库存；租库和其他库存拒绝 `invalid_state / LocalInventory`；自有聚居地拒绝 `invalid_state / Settlement` |
+| 5 | 非敌对：`access_denied / LocalInventory` |
+| 6 | 市场规则存在：`content_missing / MarketRule` |
+| 7 | Station 停留中、S 停稳、速度 0、持站台预约：`platform_required / Train.Position` |
+| 8 | 货物定义完整：`content_missing / Good` |
+| 9 | 来源足量：`insufficient_goods / Quantity`；Buy 的 NPC 留货不足同码；Sell 的 NPC 用途缺口不足为 `insufficient_demand / Quantity` |
+| 10 | 入库与全城预留空间足够：`insufficient_capacity / Train.Inventory.Capacity` 或 `LocalInventory.Capacity` |
+| 11 | 总额条件满足：`price_condition_failed / MaximumPayment` 或 `MinimumReceipt` |
+| 12 | Buy 钱包足够：`insufficient_money / Wallet` |
+
+数量裁决先受真实来源数量和容量约束，超量请求在计价循环前拒绝。动态食品的供需沿候选库存路径逐件判断，任何一步失败整单拒绝。成功原子转移双方库存和钱包，发一个 `GoodsTransferred`，携带实际动作、数量和金额；拒绝无成交事件，业务世界保持原值。
+
+货币中间运算使用 `BigInteger` 的整数分子／分母。中点保存为 `x2=成交前库存+成交后库存`，先 clamp 倍率，再乘价差，逐件 ceil 付款或 floor 收款、最低 1，最后累加。T=0 时不收购，出售按 `V·L·(1+s)` ceil，不除以零。参数直接使用万分比整数，未转换为 double。单件和总额转换、库存与钱包更新检查溢出；意外溢出走内部故障，不新增金额业务拒绝。报价故障返回 `CoreResult.Faulted`，不冻结活动会话；提交故障沿既有冻结语义。
+
+**计价 T 的端点约定（D3）**：NPC 库存 s 与 s−1 之间的同一条库存边，买卖都使用低库存端 s−1 的补货目标计价；能否成交仍按该件成交前的真实目标判断。动态食品沿候选库存序列判断资格及计价目标，可证明目标相同的区间共用结果，潜在消耗仍复用本次计算。拆单和合单经过相同库存序列并逐件取整；反向同边基础价一致，付款向上、收款向下及非负价差保证原路买入卖回不获利。条件不满足的反向操作照常拒绝。
+
+### 现车
+
+`VehiclesForSale` 是当地 NPC 拥有的停放车辆，损伤、缺定义或建造能力失效不使车辆消失。`VehiclePurchaseCapacities` 对非敌对 NPC 列出五个尺寸档位：`ForSale` 为真实待售数，`Limit` 为当前配置上限（未配置为 0），`Available` 为有该档有效建造能力时的 `max(0,Limit-ForSale)`，否则为 0。自有聚居地返回空待售和空名额数组；敌对聚居地保留待售数和配置上限，各档 Available 为 0；缺市场规则时名额数组为空，并由 Market.Rule 明确报告缺失。上限降低不删车，买走释放名额。
+
+报价与执行依次检查聚居地／车辆存在（`object_missing / Seller`、`Buyer` 或 `Vehicle`），关系（自有 `invalid_state`，敌对 `access_denied`，字段为 Seller/Buyer），方向所有权（Buy `not_for_sale / Vehicle`，Sell `not_owned / Vehicle`），同地（`vehicles_not_colocated / Vehicle.Location`），已解编（`vehicle_in_train / Vehicle.Details.Train`），定义完整（`content_missing / Vehicle`），市场规则（`content_missing / MarketRule`）。Sell 再检查 #501 的有效施工部件车辆档位（`capability_zero / Buyer`）和名额（`insufficient_capacity / Buyer.VehiclePurchaseCapacity`）。最后检查总限价及 Buy 钱包，代码和字段沿用货物交易。
+
+清空货物由既有 `DisbandTrain` 的非空货物／预留拒绝保证；未编组车辆没有单独库存。当前没有可触发的施工／战斗锁权威状态，不添加恒为假的锁分支；现车交易的锁定条件留待 #332/#343 接入。
+
+估值 A 按 `StructuralBaseValue × 有效结构耐久/结构上限 + Σ PartProjection.BaseValue × 有效部件耐久/部件上限` 精确汇总，有效耐久取历史绝对值与当前上限的较小值，被毁部件贡献 0，不重复计算部件对结构耐久的贡献。各项整数分数先汇总、再乘整车万分比倍率，付款只 ceil 一次，收款只 floor 一次，无最低 1。报价条件不足返回 Total 空；限价或钱包不足仍提供已算出的总价。成交只改变钱包与原实例所有权，发 `VehicleTraded`，车辆仍在原地、原停车列表、未编组，设计与损伤不变。
+
+四种新增命令仍用输入格式 2，规范输出字段顺序为：
+
+| kind | 字段顺序 |
+| --- | --- |
+| `market.buy_goods` | `input_format_version, kind, train, settlement, local_inventory, good, quantity, maximum_payment` |
+| `market.sell_goods` | `input_format_version, kind, train, settlement, local_inventory, good, quantity, minimum_receipt` |
+| `market.buy_vehicle` | `input_format_version, kind, seller, vehicle, maximum_payment` |
+| `market.sell_vehicle` | `input_format_version, kind, buyer, vehicle, minimum_receipt` |
+
+身份为非零 ulong，数量为正 long，金额条件为非负 long，good 沿用装卸的三种规范货物编码。解码接受字段换序，拒绝缺失、多余、重复字段及非法数值，返回相应 JSON Pointer 的 `invalid_state`；不支持的版本或种类为 `unsupported_format`。成功和正常拒绝都进入录制，普通恢复与严格重放沿同份状态和命令实现执行。
 
 ## 命令与执行
 

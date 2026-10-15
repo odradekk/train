@@ -5,6 +5,7 @@ using Train.Core.Railway;
 using Train.Core.Inventory;
 using Train.Core.Settlements;
 using Train.Core.Production;
+using Train.Core.Trading;
 
 namespace Train.Core.Sessions;
 
@@ -44,7 +45,13 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
                 throw new ArgumentException("发布内容的输入身份必须不同于当前身份。", nameof(command));
             return ExecuteCommand(publish, source, before => WorldContentPublication.Execute(State.World, before, publish.Content));
         }
-        if (command is CoreCommand.LoadGoods or CoreCommand.UnloadGoods or CoreCommand.AcquireLease)
+        if (command is CoreCommand.BuyVehicle or CoreCommand.SellVehicle)
+        {
+            VehicleTrades.Validate(command);
+            return ExecuteCommand(command, source, content => VehicleTrades.Execute(State.World, content, command));
+        }
+        if (command is CoreCommand.LoadGoods or CoreCommand.UnloadGoods or CoreCommand.AcquireLease
+            or CoreCommand.BuyGoods or CoreCommand.SellGoods)
         {
             InventoryCommands.Validate(command);
             return ExecuteCommand(command, source, content => InventoryCommands.Execute(State.World, content, command, State.Position.CompletedSteps));

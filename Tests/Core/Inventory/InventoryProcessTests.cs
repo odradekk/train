@@ -57,6 +57,27 @@ public sealed class InventoryProcessTests
         if (access == InventoryAccess.WithdrawOnly) Assert.AreEqual(0L, inventory.GetProperty("Available").GetInt64());
     }
 
+    [TestMethod]
+    public async Task Goods_and_original_vehicle_trades_restore_across_real_processes()
+    {
+        var directory = Path.Combine(TestContext.TestRunResultsDirectory!, "trade-process-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var complete = await Run(directory, "complete", "trade-complete");
+        var saved = await Run(directory, "save", "trade-save");
+        var resumed = await Run(directory, "resume", "trade-resume");
+        Assert.AreEqual(3, new[] { complete.ProcessId, saved.ProcessId, resumed.ProcessId }.Distinct().Count());
+        Assert.AreEqual(complete.Samples[0], saved.Samples.Single());
+        CollectionAssert.AreEqual(complete.PrefixReceipts, saved.PrefixReceipts);
+        CollectionAssert.AreEqual(complete.Samples, resumed.Samples);
+        CollectionAssert.AreEqual(complete.Receipts, resumed.Receipts);
+        CollectionAssert.AreEqual(complete.Events, resumed.Events);
+        using var final = JsonDocument.Parse(resumed.Samples[^1].Payload);
+        Assert.AreEqual(9999L, final.RootElement.GetProperty("world").GetProperty("money").GetInt64());
+        Assert.AreEqual(0, final.RootElement.GetProperty("world").GetProperty("trains").GetArrayLength());
+        Assert.AreEqual(2, resumed.Events.Count(e => e.Contains("\"Kind\":\"VehicleTraded\"", StringComparison.Ordinal)));
+        Directory.Delete(directory, recursive: true);
+    }
+
     private async Task<InventoryProcessResult> Run(string directory, string name, string mode)
     {
         var output = Path.Combine(directory, name + ".json");
