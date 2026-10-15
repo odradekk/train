@@ -73,6 +73,16 @@ public sealed class SettlementResourcesTests
     }
 
     [TestMethod]
+    public void Basic_consumption_takes_the_only_unit_before_a_batch_can_claim_it()
+    {
+        var result = Resolve(State([new(Material, 1)]), [Batch(1, 0, new GoodsQuantity(Material, 1))],
+            basic: [new(Material, 1)]);
+        Assert.AreEqual(1L, result.BasicGrantedUnits.Single());
+        Assert.IsEmpty(result.AcceptedBatches);
+        Assert.AreEqual(0L, Stock(result.World, Material));
+    }
+
+    [TestMethod]
     public void Consumption_is_partial_and_preserves_the_given_order()
     {
         var result = Resolve(State([new(Material, 3)]), [], basic: [new(Material, 2), new(Material, 2)],
