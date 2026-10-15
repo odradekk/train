@@ -134,6 +134,7 @@ public sealed class InventoryCapacityTests
             Instances = state.World.Instances.Select(i => i.Id is InstanceId.Vehicle ? i with
             { StructureDurability = 62, Parts = [new(new(0), 55), new(new(1), 75)] } : i).ToImmutableArray()
         } });
+        var originalInstance = ((Lookup<InstanceView>.Found)original.Read().FindInstance(new InstanceId.Vehicle(new(1)))).Value;
         var saved = WorldFixture.Success(original.Capture(CapturePurpose.Save));
         var payload = saved.Encode();
         var decoded = WorldFixture.Success(CoreFactory.Create().DecodeState(payload));
@@ -148,6 +149,13 @@ public sealed class InventoryCapacityTests
         Assert.AreEqual(40L, inventory.Capacity);
         Assert.AreEqual(30L, inventory.Used);
         Assert.AreEqual(10L, inventory.Available);
+        var instance = ((Lookup<InstanceView>.Found)session.Read().FindInstance(new InstanceId.Vehicle(new(1)))).Value;
+        Assert.AreEqual(new DurabilityView(62, 100), instance.Structure);
+        CollectionAssert.AreEqual(new PartDamageView[]
+        {
+            new(new(0), new(55, 100), true, false),
+            new(new(1), new(75, 100), false, false)
+        }, instance.Parts.ToArray());
         var adapted = WorldFixture.Success(session.Capture(CapturePurpose.Save));
         Assert.AreEqual(saved.Checkpoint, adapted.Checkpoint);
         Assert.AreEqual(payload, saved.Encode());
@@ -160,6 +168,10 @@ public sealed class InventoryCapacityTests
         Assert.AreEqual(10.0, repairedTrain.MaximumSpeedMetersPerSecond);
         Assert.IsEmpty(repairedTrain.Blockers);
         Assert.AreEqual(140L, ReadInventory(repaired, repairedTrain.Inventory).Capacity);
+        var repairedInstance = ((Lookup<InstanceView>.Found)repaired.Read().FindInstance(new InstanceId.Vehicle(new(1)))).Value;
+        Assert.AreEqual(originalInstance.Structure, repairedInstance.Structure);
+        Assert.IsTrue(repairedInstance.Parts.All(p => !p.DefinitionMissing));
+        CollectionAssert.AreEqual(originalInstance.Parts.ToArray(), repairedInstance.Parts.ToArray());
         Assert.AreEqual(saved.Checkpoint, WorldFixture.Success(repaired.Capture(CapturePurpose.Save)).Checkpoint);
     }
 }
