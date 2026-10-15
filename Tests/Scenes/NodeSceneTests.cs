@@ -17,73 +17,6 @@ public sealed class NodeSceneTests
     public TestContext TestContext { get; set; } = null!;
 
     [TestMethod]
-    public void GeneratedPlatformsHaveCapacityClearanceAndOnlyTrackSideRowsAreYellow()
-    {
-        var snapshot = NodeFixtures.Snapshot();
-        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
-        for (var station = 0; station < 2; station++)
-        {
-            var part = NodeScene.PlatformPart(layout, station, NodeFixtures.ConcreteCube);
-            var grid = part.Geometry.Geometry.Picking.Single().Grid;
-            var cells = grid.Cells;
-            Assert.IsTrue(cells.Max(cell => cell.At.Z) - cells.Min(cell => cell.At.Z) + 1 >= 104 + 24);
-            Assert.AreEqual(8, cells.Max(cell => cell.At.X) - cells.Min(cell => cell.At.X) + 1);
-            Assert.AreEqual(1, cells.Max(cell => cell.At.Y) + 1);
-            var center = station == 0 ? -20 : 20;
-            foreach (var cell in cells)
-            {
-                Assert.IsTrue(cell.At.X >= center + 16 && cell.At.X + 1 <= center + 24);
-                var yellow = cell.At.X == center + 16 || station == 0 && cell.At.X == center + 23;
-                Assert.AreEqual(yellow ? "#d9a62b" : null, cell.Paint?.Value);
-                Assert.AreEqual(MaterialCategory.Concrete, ((VoxelPresentation.Cube)cell.Appearance!.Presentation).Material);
-            }
-        }
-    }
-
-    [TestMethod]
-    public void MaterialSelectionIsStableByIdAndMissingMaterialIsAnExplicitDiagnostic()
-    {
-        var ids = new[] { new VoxelDefinitionId("z"), new VoxelDefinitionId("b"), new VoxelDefinitionId("a") };
-        var content = new FixedContentView
-        {
-            Voxels = ids.Select(id => new VoxelCatalogEntry(id, null)).ToImmutableArray(),
-            VoxelAppearances = ids.ToDictionary(id => id, id => (ContentLookup<VoxelAppearanceProjection>)new ContentLookup<VoxelAppearanceProjection>.Found(
-                NodeFixtures.ConcreteCube with { Definition = id, Presentation = id.Value == "a" ?
-                    ((VoxelPresentation.Cube)NodeFixtures.ConcreteCube.Presentation) with { Shapes = [new("slope")] } : NodeFixtures.ConcreteCube.Presentation }))
-        };
-        Assert.AreEqual(ids[1], NodeScene.Concrete(content)!.Definition);
-        Assert.IsNull(NodeScene.Concrete(NodeFixtures.Content(missing: true)));
-        var layout = NodeLayout.Build(NodeFixtures.Snapshot(), NodeFixtures.NodeId);
-        var part = NodeScene.PlatformPart(layout, 0, null);
-        Assert.IsTrue(part.Geometry.Geometry.Objects.IsEmpty);
-        Assert.AreEqual("content_missing", part.Geometry.Geometry.Diagnostics.Single().Code);
-    }
-
-    [TestMethod]
-    public async Task MissingConcreteDiagnosticDoesNotFogAnOtherwiseCompletedNode()
-    {
-        var snapshot = NodeFixtures.Snapshot(trains: [], content: NodeFixtures.Content(missing: true,
-            rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 }));
-        ulong next = 0;
-        await using var vehicles = new SceneVehicles();
-        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), _ => new(++next), vehicles,
-            (input, node, _, token) =>
-            {
-                var layout = NodeLayout.Build(input, node, token);
-                return new(layout, Enumerable.Range(0, layout.Platforms).ToImmutableDictionary(i => "platform:" + i,
-                    i => NodeScene.PlatformPart(layout, i, NodeScene.Concrete(input.Content))), []);
-            });
-        await scene.BuildWork!;
-        Assert.IsTrue(scene.PendingWork.Contains(scene.BuildWork!), "A completed build remains pending until Present attaches it.");
-        var frame = scene.Present(snapshot, new(1, null, SceneDebugLayer.None), new(new(Guid.NewGuid()), new(1), new(1), 1), null, default);
-        Assert.AreEqual(SceneReadiness.Ready, frame.Readiness);
-        Assert.IsTrue(frame.Update.Environment.FoggedRegions.IsEmpty);
-        Assert.IsTrue(frame.Diagnostics.All(problem => problem.Code == "content_missing"));
-        Assert.AreEqual(1, frame.Diagnostics.Length);
-        Assert.IsEmpty(scene.PendingWork);
-    }
-
-    [TestMethod]
     public void StaticRebindUsesValuesAndRebuildsOnlyTerrainWhenItsVoxelAppearanceChanges()
     {
         var snapshot = Isolated(NodeFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 }));
@@ -164,7 +97,6 @@ public sealed class NodeSceneTests
         var built = NodeScene.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
         Assert.IsTrue(built.Parts["entry:1"].Geometry.Geometry.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Any());
         Assert.IsTrue(built.Parts["station-tracks"].Geometry.Geometry.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Any());
-        Assert.IsTrue(built.Parts["platform:0"].Geometry.Geometry.Picking.Single().Grid.Cells.Any());
         foreach (var part in built.Parts.Values)
         {
             Assert.AreEqual(Math.Round(part.Origin.X), part.Origin.X);
@@ -226,7 +158,6 @@ public sealed class NodeSceneTests
         Assert.AreNotSame(same.Parts["boundary:1"], changed.Parts["boundary:1"]);
         Assert.AreSame(same.Parts["entry:1"], changed.Parts["entry:1"]);
         Assert.AreSame(same.Parts["station-tracks"], changed.Parts["station-tracks"]);
-        Assert.AreSame(same.Parts["platform:0"], changed.Parts["platform:0"]);
     }
 
     [TestMethod]
@@ -307,14 +238,10 @@ public sealed class NodeSceneTests
             Assert.IsTrue(compared > 30, $"Edge {entry.Edge.Value} must compare both track corridors.");
             seamColumns.Add(compared);
         }
-        var station = built.Layout.StationSample(0.5, 0.5).Position;
+        var stop = built.Layout.Stops[0];
+        var station = new ScenePoint(stop.Center.X + 0.5, stop.Center.Y, stop.Center.Z + 0.5);
         Assert.AreEqual(-1.0, heights[new((int)Math.Floor(station.X), (int)Math.Floor(station.Z))],
             "The station track bed must be carved independently of the raw node ground.");
-        var platform = built.Layout.StationSample(20.5, 0.5).Position;
-        Assert.AreEqual(-1.0, heights[new((int)Math.Floor(platform.X), (int)Math.Floor(platform.Z))],
-            "Terrain under the platform must be flattened to its supporting level.");
-        var ground = built.Layout.StationSample(30.5, 0.5).Position;
-        Assert.AreNotEqual(-1.0, heights[new((int)Math.Floor(ground.X), (int)Math.Floor(ground.Z))]);
 
         var keys = new Dictionary<SceneObjectId, string>();
         var ids = new Dictionary<string, SceneObjectId>();
@@ -335,6 +262,8 @@ public sealed class NodeSceneTests
         await scene.BuildWork!;
         var stamp = new SceneFrameStamp(new(Guid.NewGuid()), new(1), new(1), 1);
         var frame = scene.Present(snapshot, new(1, null, SceneDebugLayer.None), stamp, null, default);
+        await Task.WhenAll(scene.PendingWork);
+        frame = scene.Present(snapshot, new(1, null, SceneDebugLayer.None), stamp, null, default);
         Assert.AreEqual(SceneReadiness.Ready, frame.Readiness);
         Assert.IsTrue(frame.Objects.Length > 0);
         var queueHeights = snapshot.Core.World.Trains.Select(train =>
@@ -350,8 +279,6 @@ public sealed class NodeSceneTests
             SeamColumns = seamColumns,
             QueueHeights = queueHeights,
             StationHeight = heights[new((int)Math.Floor(station.X), (int)Math.Floor(station.Z))],
-            PlatformHeight = heights[new((int)Math.Floor(platform.X), (int)Math.Floor(platform.Z))],
-            GroundHeight = heights[new((int)Math.Floor(ground.X), (int)Math.Floor(ground.Z))],
             Objects = frame.Objects.Select(item => new { Key = keys[item.Id], Id = item.Id.Value, Parent = item.Parent?.Value }).ToArray()
         };
         await File.WriteAllTextAsync(output, JsonSerializer.Serialize(new { ProcessId = Environment.ProcessId, Observation = observation }));
@@ -363,10 +290,13 @@ public sealed class NodeSceneTests
         {
             Generation = new(1), Core = SceneFixtures.Content().Core,
             Voxels = [new(NodeFixtures.Concrete, null)],
+            SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>> { [new(1)] = new ContentLookup<SettlementLayoutProjection>.Found(NodeFixtures.Layout) },
+            Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>> { [NodeFixtures.StationDesign] = new ContentLookup<DesignEvaluation>.Found(NodeFixtures.StationEvaluation()) },
             Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
             { [RailwayFixtures.Terrain] = new ContentLookup<TerrainAppearanceProjection>.Missing([]) },
             VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
-            { [NodeFixtures.Concrete] = new ContentLookup<VoxelAppearanceProjection>.Found(NodeFixtures.ConcreteCube) },
+            { [NodeFixtures.Concrete] = new ContentLookup<VoxelAppearanceProjection>.Found(NodeFixtures.ConcreteCube),
+              [SceneFixtures.Voxel] = new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube) },
             RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>
             { [RailwayFixtures.Rule] = new ContentLookup<RailwayAppearanceProjection>.Found(RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 }) }
         };
@@ -377,9 +307,200 @@ public sealed class NodeSceneTests
             Position = snapshot.Core.Position, InputIdentity = snapshot.Core.InputIdentity,
             World = snapshot.Core.World with { Edges = [snapshot.Core.World.Edges[0]] },
             Nodes = snapshot.Core.World.Nodes.ToDictionary(node => node.Id, node => snapshot.Core.FindNode(node.Id)),
+            Settlements = new Dictionary<SettlementId, Lookup<SettlementView>> { [new(1)] = snapshot.Core.FindSettlement(new(1)) },
+            Instances = new Dictionary<InstanceId, Lookup<InstanceView>> { [new InstanceId.Building(new(1))] = snapshot.Core.FindInstance(new InstanceId.Building(new(1))) },
             Edges = new Dictionary<EdgeId, Lookup<EdgeView>> { [new(1)] = snapshot.Core.FindEdge(new(1)) }
         } };
         return snapshot;
+    }
+
+    [TestMethod]
+    public async Task CopiedSettlementIgnoresSourceTemplateAndBlueprintChanges()
+    {
+        var before = CopiedSettlement(1, terrain: false, stationPlots: false);
+        var after = CopiedSettlement(2, terrain: false, stationPlots: false);
+        var built = NodeScene.Build(before, NodeLayout.Build(before, NodeFixtures.NodeId));
+        var rebound = NodeScene.Build(after, NodeLayout.Build(after, NodeFixtures.NodeId), built);
+        foreach (var part in built.Parts) Assert.AreSame(part.Value, rebound.Parts[part.Key]);
+        var frames = new List<RenderedDesign>();
+        foreach (var snapshot in new[] { before, after })
+        {
+            await using var objects = new SettlementObjects(SceneFixtures.NextId());
+            RenderedDesign Present() => objects.Present(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId), default,
+                ImmutableArray.CreateBuilder<SceneFog>());
+            var frame = Present();
+            while (objects.PendingWork.Length > 0) { await Task.WhenAll(objects.PendingWork); frame = Present(); }
+            frames.Add(frame);
+        }
+        CollectionAssert.AreEqual(frames[0].Objects.Select(item => item.Pose).ToArray(), frames[1].Objects.Select(item => item.Pose).ToArray());
+        var meshes = frames.Select(frame => frame.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>()
+            .SelectMany(item => item.Mesh.Vertices).ToArray()).ToArray();
+        CollectionAssert.AreEqual(meshes[0], meshes[1]);
+    }
+
+    [TestMethod]
+    public async Task StationBlueprintOwnsPlatformsAndResourceChangesReuseTerrain()
+    {
+        var snapshot = CopiedSettlement(1, terrain: false);
+        await using var session = Open(snapshot);
+        session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location));
+        var before = await RailwayFixtures.Settled(session, new(1, null, SceneDebugLayer.None));
+        var station = new WorldObjectId.Instance(new InstanceId.Building(new(1)));
+        Assert.IsTrue(before.Objects.Where(item => item.Subject == station).SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Any());
+        Assert.IsFalse(before.Diagnostics.Any(problem => problem.Code == "content_missing" &&
+            problem.Content is not ContentReference.Core { Definition: CoreDefinitionReference.Terrain }));
+        var hit = (ScenePick.Hit)before.Pick(new(new(22.5f, 8, .5f), -Vector3.UnitY, 10));
+        Assert.AreEqual(station, ((PickSubject.WorldObject)hit.Value.Subject).Object);
+        var oldTerrain = before.Objects.Where(item => item.Subject is null).SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Select(v => v.Mesh).ToArray();
+        Assert.IsTrue(oldTerrain.Length > 0, "The copied scene model still supplies terrain meshes without a terrain appearance.");
+        var node = snapshot.Core.World.Nodes.Single() with
+        { Resources = [new(new GoodId.Voxel(SceneFixtures.Voxel), 10, new ResourceRenewal.Renewable(10, 1))] };
+        var changed = RailwayFixtures.ReplaceCore(snapshot, node: node);
+        session.Observe(changed, []);
+        var after = await RailwayFixtures.Settled(session, new(1, null, SceneDebugLayer.None));
+        var meshes = after.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Select(v => v.Mesh).ToArray();
+        foreach (var mesh in oldTerrain) Assert.IsTrue(meshes.Any(current => ReferenceEquals(mesh, current)), "Resource changes retain every existing terrain mesh.");
+        Assert.AreEqual(before.NodePanBounds, after.NodePanBounds);
+        var afterHit = ((ScenePick.Hit)after.Pick(new(new(22.5f, 8, .5f), -Vector3.UnitY, 10))).Value;
+        Assert.AreEqual(hit.Value with { Frame = afterHit.Frame }, afterHit);
+    }
+
+    [TestMethod]
+    public void TemplateModelEntersTerrainAndRailwayClearsItsCells()
+    {
+        var snapshot = CopiedSettlement(1, terrain: false);
+        var built = NodeScene.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+        var terrain = built.Parts.Where(part => part.Key.StartsWith("terrain:", StringComparison.Ordinal)).Select(part => part.Value).ToArray();
+        var cells = terrain.SelectMany(part => part.Geometry.Geometry.Picking).SelectMany(pick => pick.Grid.Cells).ToDictionary(cell => cell.At);
+        var paint = new PaintColor("#ff00ff");
+        Assert.AreEqual(paint, cells[new(5, 3, 5)].Paint, "Model cells belong to the terrain chunk's pick grid.");
+        Assert.IsTrue(terrain.SelectMany(part => part.Geometry.Geometry.Objects).SelectMany(item => item.Visuals)
+            .OfType<SceneVisual.Geometry>().Any(visual => visual.Mesh.Material is SceneMaterial.Voxel material && material.Paint == paint));
+        Assert.IsFalse(cells.TryGetValue(new(41, 0, 0), out var onTrack) && onTrack.Paint == paint,
+            "The railway corridor removes the model cell on its centerline.");
+        Assert.IsFalse(cells.TryGetValue(new(41, -2, 0), out var underTrack) && underTrack.Paint == paint,
+            "The lower bed layer also overrides model cells.");
+        Assert.AreEqual(1d, terrain.SelectMany(part => part.Heights).Single(item => item.Key == new GridColumn(0, 0)).Value,
+            "The actual ground is flattened before the scene model is placed.");
+        Assert.IsFalse(built.Parts.Values.SelectMany(part => part.Geometry.Geometry.Diagnostics).Any(problem => problem.Code == "build_failed"));
+    }
+
+    [TestMethod]
+    public async Task OutOfRangePlatformReportsTrainMismatchWithoutVehiclePose()
+    {
+        var snapshot = NodeFixtures.Snapshot(trains: [NodeFixtures.Train(platformNumber: 3)],
+            content: NodeFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 }));
+        // Keep the scene small while exercising the production train rendering path.
+        var basis = CopiedSettlement(1, terrain: false);
+        var map = snapshot.Core.World.Nodes[0];
+        snapshot = snapshot with { Core = new FixedCoreReadView
+        {
+            Position = snapshot.Core.Position, InputIdentity = snapshot.Core.InputIdentity,
+            World = snapshot.Core.World with { Nodes = [map], Edges = [] },
+            Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [map.Id] = new Lookup<NodeView>.Found(new(map, [], 80, 0, 80)) },
+            Trains = new Dictionary<TrainId, Lookup<TrainView>> { [new(1)] = snapshot.Core.FindTrain(new(1)) },
+            Settlements = new Dictionary<SettlementId, Lookup<SettlementView>> { [new(1)] = snapshot.Core.FindSettlement(new(1)) },
+            Instances = new Dictionary<InstanceId, Lookup<InstanceView>>
+            { [new InstanceId.Building(new(1))] = snapshot.Core.FindInstance(new InstanceId.Building(new(1))),
+              [new InstanceId.Vehicle(new(1))] = snapshot.Core.FindInstance(new InstanceId.Vehicle(new(1))) }
+        }, Content = basis.Content };
+        await using var session = Open(snapshot);
+        session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location));
+        var frame = await RailwayFixtures.Settled(session, new(1, null, SceneDebugLayer.None));
+        Assert.IsTrue(frame.Diagnostics.Any(problem => problem.Code == "station_platform_mismatch" &&
+            problem.Subject == new WorldObjectId.Train(new(1))));
+        Assert.IsNotInstanceOfType<Lookup<ScenePose>.Found>(frame.FindPose(new WorldObjectId.Instance(new InstanceId.Vehicle(new(1)))));
+    }
+
+    [TestMethod]
+    public async Task MissingSettlementCopyReportsMissingWithoutFallingBackToTemplate()
+    {
+        var basis = NodeFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 });
+        var content = new FixedContentView
+        {
+            Generation = basis.Generation, Core = basis.Core with
+            { SettlementTemplates = [new(NodeFixtures.Layout.SourceTemplate, new("test:type"), 1,
+                [new(1, PlotSize.SmallStation, NodeFixtures.StationDesign)], [], [], [], 96)] },
+            SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
+            { [new(1)] = new ContentLookup<SettlementLayoutProjection>.Missing([]) },
+            Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
+            { [RailwayFixtures.Terrain] = new ContentLookup<TerrainAppearanceProjection>.Missing([]) },
+            RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>
+            { [RailwayFixtures.Rule] = basis.FindRailwayAppearance(RailwayFixtures.Rule) }
+        };
+        var snapshot = Isolated(content);
+        var map = snapshot.Core.World.Nodes[0] with { Occupant = new NodeOccupant.Settlement(new(1), SettlementRelation.NonHostile) };
+        snapshot = snapshot with { Core = new FixedCoreReadView
+        {
+            Position = snapshot.Core.Position, InputIdentity = snapshot.Core.InputIdentity,
+            World = snapshot.Core.World with { Nodes = [map], Trains = [] },
+            Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [map.Id] = new Lookup<NodeView>.Found(new(map, [], 80, 0, 80)) },
+            Settlements = new Dictionary<SettlementId, Lookup<SettlementView>>
+            { [new(1)] = new Lookup<SettlementView>.Found(NodeFixtures.Settlement()) },
+            Instances = new Dictionary<InstanceId, Lookup<InstanceView>>
+            { [new InstanceId.Building(new(1))] = new Lookup<InstanceView>.Missing() }
+        } };
+        await using var session = Open(snapshot);
+        session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location));
+        var frame = await RailwayFixtures.Settled(session, new(1, null, SceneDebugLayer.None));
+        Assert.IsTrue(frame.Diagnostics.Any(problem => problem.Code == "content_missing" && problem.Subject == new WorldObjectId.Node(NodeFixtures.NodeId)));
+        Assert.IsFalse(frame.Objects.Any(item => item.Subject is WorldObjectId.Instance));
+        Assert.IsFalse(frame.Diagnostics.Any(problem => problem.Code == "railway_update_pending"));
+    }
+
+    [TestMethod]
+    public async Task SettlementCreatedAfterOpeningReportsPendingRailwayUpdateRatherThanMissingCopy()
+    {
+        var founded = CopiedSettlement(1, terrain: false);
+        var empty = RailwayFixtures.ReplaceCore(founded, node: founded.Core.World.Nodes[0] with
+            { Occupant = new NodeOccupant.Empty(), Platforms = 0 });
+        await using var session = Open(empty);
+        session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location));
+        await RailwayFixtures.Settled(session, new(1, null, SceneDebugLayer.None));
+        session.Observe(founded, []);
+        var frame = await RailwayFixtures.Settled(session, new(1, null, SceneDebugLayer.None));
+        Assert.IsTrue(frame.Diagnostics.Any(problem => problem.Code == "railway_update_pending" && problem.Detail.Contains("345")));
+        Assert.IsFalse(frame.Diagnostics.Any(problem => problem.Code == "content_missing" && problem.Detail.Contains("layout copy")));
+    }
+
+    private static SceneWorldSnapshot CopiedSettlement(ulong generation, bool terrain = true, bool stationPlots = true)
+    {
+        var basis = NodeFixtures.Content(generation, rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 });
+        var model = SceneFixtures.Projection([SceneFixtures.Cell(new(5, 3, 5)) with { Paint = new("#ff00ff") },
+            SceneFixtures.Cell(new(41, 0, 0), 2) with { Paint = new("#ff00ff") },
+            SceneFixtures.Cell(new(41, -2, 0), 3) with { Paint = new("#ff00ff") }]) with
+        { RootFlatten = new(new(-8, -8), new(48, 8), 1), OccupiedBounds = new(new(0, -2, 0), new(41, 3, 5)) };
+        var plotSize = stationPlots ? PlotSize.SmallStation : PlotSize.Small;
+        var plots = NodeFixtures.Layout.Plots.Select(plot => plot with { At = plot.At with { Y = 1 }, Size = plotSize }).ToImmutableArray().Add(new(99, PlotSize.Small, new(0, 1, 0), VoxelOrientation.PxPy));
+        var copy = NodeFixtures.Layout with { Plots = generation == 1 ? plots : plots.Reverse().ToImmutableArray(),
+            SceneModel = NodeFixtures.Layout.SceneModel with { Scene = model } };
+        var sourceHash = new DesignHash(generation == 1 ? "old-blueprint" : "new-blueprint");
+        var content = new FixedContentView
+        {
+            Generation = basis.Generation,
+            Core = basis.Core with { SettlementTemplates = [new(copy.SourceTemplate, new("test:type"), 1, [new(1, PlotSize.SmallStation, sourceHash)], [], [], [], generation == 1 ? 96 : 128)] },
+            SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>> { [new(1)] = new ContentLookup<SettlementLayoutProjection>.Found(copy) },
+            Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+            { [SceneFixtures.Design] = basis.FindDesign(SceneFixtures.Design), [NodeFixtures.StationDesign] = basis.FindDesign(NodeFixtures.StationDesign), [sourceHash] = new ContentLookup<DesignEvaluation>.Found(SceneFixtures.Evaluation(SceneFixtures.Projection([SceneFixtures.Cell(new((int)generation * 80, 0, 80))]))) },
+            VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>> { [SceneFixtures.Voxel] = basis.FindVoxelAppearance(SceneFixtures.Voxel) },
+            Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
+            { [RailwayFixtures.Terrain] = terrain ? basis.FindTerrain(RailwayFixtures.Terrain) : new ContentLookup<TerrainAppearanceProjection>.Missing([]) },
+            RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>> { [RailwayFixtures.Rule] = basis.FindRailwayAppearance(RailwayFixtures.Rule) }
+        };
+        var snapshot = NodeFixtures.Snapshot(trains: [], content: content);
+        var station = ((Lookup<InstanceView>.Found)snapshot.Core.FindInstance(new InstanceId.Building(new(1)))).Value;
+        var settlement = ((Lookup<SettlementView>.Found)snapshot.Core.FindSettlement(new(1))).Value;
+        station = station with { Details = new InstanceDetails.Building(new(1), plotSize) };
+        settlement = settlement with { Plots = settlement.Plots.Select(plot => plot with { Size = plotSize }).ToImmutableArray() };
+        var map = snapshot.Core.World.Nodes[0];
+        return snapshot with { Core = new FixedCoreReadView
+        {
+            Position = snapshot.Core.Position, InputIdentity = snapshot.Core.InputIdentity,
+            World = snapshot.Core.World with { Nodes = [map], Edges = [] },
+            Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [map.Id] = new Lookup<NodeView>.Found(new(map, [], 80, 0, 80)) },
+            Instances = new Dictionary<InstanceId, Lookup<InstanceView>> { [new InstanceId.Building(new(1))] = new Lookup<InstanceView>.Found(station) },
+            Settlements = new Dictionary<SettlementId, Lookup<SettlementView>> { [new(1)] = new Lookup<SettlementView>.Found(settlement) }
+        } };
     }
 
     private static SceneWorldSnapshot Isolated(IContentView content)

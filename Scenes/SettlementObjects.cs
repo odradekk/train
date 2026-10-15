@@ -1,0 +1,249 @@
+using System.Buffers.Binary;
+using System.Collections.Immutable;
+using System.Numerics;
+using System.Security.Cryptography;
+using System.Text;
+using Train.Content.Contracts;
+using Train.Core.Contracts;
+using Train.Scenes.Contracts;
+
+namespace Train.Scenes;
+
+internal sealed class SettlementObjects : IAsyncDisposable
+{
+    internal const int ParkedVehicleLimit = 8;
+    private readonly Dictionary<VoxelDefinitionId, (VoxelAppearanceProjection Appearance, ImmutableArray<SceneVisual> Visuals)> resourceVisuals = [];
+    private readonly Func<string, SceneObjectId> objectId;
+    private readonly SceneVehicles buildings;
+    private readonly SceneVehicles parked;
+    private readonly Dictionary<(VoxelDefinitionId Good, int Candidate), ScenePoint?> resourcePositions = [];
+
+    internal SettlementObjects(Func<string, SceneObjectId> objectId,
+        Func<IContentView, InstanceView, BuiltObject>? build = null,
+        SceneVehicles.Cache? buildingCache = null, SceneVehicles.Cache? parkedCache = null,
+        Func<IContentView, InstanceView, BuiltObject>? parkedBuild = null)
+    {
+        this.objectId = objectId;
+        buildings = new(buildingCache, build ?? ((content, instance) => WorldSceneSession.BuildObject(content, instance,
+            new(Vector3.Zero, Quaternion.Identity))));
+        parked = new(parkedCache, parkedBuild);
+    }
+
+    internal Task[] PendingWork => buildings.PendingWork.Concat(parked.PendingWork).ToArray();
+
+    private static Dictionary<BuildingId, (InstanceView Instance, SettlementPlotLayout Plot)> Buildings(
+        SceneWorldSnapshot snapshot, NodeLayout layout)
+    {
+        var result = new Dictionary<BuildingId, (InstanceView, SettlementPlotLayout)>();
+        if (Settlement(snapshot, layout) is { } settlement && layout.Template is { } template)
+            foreach (var plot in settlement.Plots)
+                if (plot.Occupant is PlotOccupant.Building building &&
+                    template.Plots.FirstOrDefault(item => item.Number == plot.TemplatePlotNumber) is { } placement &&
+                    snapshot.Core.FindInstance(new InstanceId.Building(building.Id)) is Lookup<InstanceView>.Found instance)
+                    result.Add(building.Id, (instance.Value, placement));
+        return result;
+    }
+
+    internal void Pump(SceneWorldSnapshot snapshot, NodeLayout layout)
+    {
+        var placed = Buildings(snapshot, layout);
+        buildings.Retain(placed.Values.Select(item => item.Instance.Id));
+        foreach (var item in placed.OrderBy(pair => pair.Key.Value)) buildings.Prepare(snapshot.Content, item.Value.Instance);
+        var vehicles = (Settlement(snapshot, layout)?.ParkedVehicles ?? []).OrderBy(id => id.Value).Take(ParkedVehicleLimit).ToArray();
+        parked.Retain(vehicles.Select(id => (InstanceId)new InstanceId.Vehicle(id)));
+        foreach (var id in vehicles)
+            if (snapshot.Core.FindInstance(new InstanceId.Vehicle(id)) is Lookup<InstanceView>.Found instance &&
+                snapshot.Content.FindDesign(instance.Value.Design) is ContentLookup<DesignEvaluation>.Found design &&
+                RailwayVehicles.Length(design.Value) is > 0)
+                parked.Prepare(snapshot.Content, instance.Value);
+    }
+
+    private static SettlementView? Settlement(SceneWorldSnapshot snapshot, NodeLayout layout)
+    {
+        var node = snapshot.Core.World.Nodes.Single(item => item.Id == layout.Node);
+        return node.Occupant is NodeOccupant.Settlement settlement &&
+            snapshot.Core.FindSettlement(settlement.Id) is Lookup<SettlementView>.Found found ? found.Value : null;
+    }
+
+    internal RenderedDesign Present(SceneWorldSnapshot snapshot, NodeLayout layout, ScenePoint origin,
+        ImmutableArray<SceneFog>.Builder fog)
+    {
+        var objects = ImmutableArray.CreateBuilder<SceneObject>();
+        var picking = ImmutableArray.CreateBuilder<PickGrid>();
+        var problems = ImmutableArray.CreateBuilder<SceneProblem>();
+        var settlement = Settlement(snapshot, layout);
+        Pump(snapshot, layout);
+        var placed = Buildings(snapshot, layout);
+        foreach (var pair in placed.OrderBy(pair => pair.Key.Value))
+        {
+            var (instance, plot) = pair.Value;
+            var placement = SceneGeometry.Placement(plot.At, plot.Orientation);
+            var pose = placement with { Position = placement.Position - RailwayCoordinates.Relative(origin, default) };
+            var body = buildings.Prepare(snapshot.Content, instance);
+            var hasBody = body is not null;
+            if (hasBody)
+                Add(SceneGeometry.Place(WorldSceneSession.Attach(body!.Geometry, "building:" + pair.Key.Value + ":", objectId).Geometry, pose));
+            else objects.Add(new(objectId("building:" + pair.Key.Value + ":"), null, pose, new WorldObjectId.Instance(instance.Id), [], [], []));
+            if (!hasBody || !WorldSceneSession.Matches(body!, instance))
+            {
+                if (snapshot.Content.FindDesign(instance.Design) is ContentLookup<DesignEvaluation>.Found evaluation &&
+                    evaluation.Value is not DesignEvaluation.Failed && DesignGeometry.Projection(evaluation.Value).OccupiedBounds is { } bounds)
+                    fog.Add(new(new(new(bounds.Minimum.X, bounds.Minimum.Y, bounds.Minimum.Z),
+                        new(bounds.Maximum.X + 1, bounds.Maximum.Y + 1, bounds.Maximum.Z + 1)), Pose: pose));
+            }
+        }
+
+        var vehicles = (settlement?.ParkedVehicles ?? []).OrderBy(id => id.Value).Take(ParkedVehicleLimit).ToArray();
+        parked.Retain(vehicles.Select(id => (InstanceId)new InstanceId.Vehicle(id)));
+        var used = new double[layout.Parking.Length];
+        foreach (var id in vehicles)
+        {
+            if (snapshot.Core.FindInstance(new InstanceId.Vehicle(id)) is not Lookup<InstanceView>.Found found) continue;
+            var instance = found.Value;
+            var lookup = snapshot.Content.FindDesign(instance.Design);
+            var length = RailwayVehicles.Length((lookup as ContentLookup<DesignEvaluation>.Found)?.Value);
+            if (lookup is not ContentLookup<DesignEvaluation>.Found design || design.Value is DesignEvaluation.Failed || length is not > 0)
+            {
+                // No placement can be inferred, but missing content must still be visible in diagnostics.
+                var unplaced = SceneVehicles.Unplaced(snapshot.Content, instance, lookup, length,
+                    new(RailwayCoordinates.Relative(default, origin), Quaternion.Identity), objectId);
+                problems.AddRange(unplaced.Diagnostics);
+                continue;
+            }
+            var lineIndex = 0;
+            while (lineIndex < layout.Parking.Length && used[lineIndex] + length.Value > layout.Parking[lineIndex].Length) lineIndex++;
+            if (lineIndex == layout.Parking.Length) continue;
+            var line = layout.Parking[lineIndex];
+            var center = RailwayCoordinates.Add(line.Start, line.Forward * (float)(used[lineIndex] + length.Value / 2.0));
+            used[lineIndex] += length.Value + 4;
+            var pose = new ScenePose(RailwayCoordinates.Relative(center, origin), RailwayCoordinates.Rotation(line.Forward));
+            if (parked.Reconcile(snapshot.Content, instance, objectId) is { } rendered)
+                Add(RailwayVehicles.Place(rendered, pose, 0));
+            else
+            {
+                var loading = SceneVehicles.Loading(instance, design.Value, pose, objectId);
+                objects.Add(loading.Object);
+                fog.Add(loading.Fog);
+            }
+        }
+        Resources(snapshot, layout, origin, objects, problems);
+        return new(objects.ToImmutable(), picking.ToImmutable(), problems.ToImmutable());
+
+        void Add(RenderedDesign rendered)
+        {
+            objects.AddRange(rendered.Objects);
+            picking.AddRange(rendered.Picking);
+            problems.AddRange(rendered.Diagnostics);
+        }
+    }
+
+    internal static ImmutableArray<NodeLayout.Stop> Platforms(SceneWorldSnapshot snapshot, NodeLayout layout,
+        ImmutableArray<SceneProblem>.Builder problems)
+    {
+        var stops = new HashSet<NodeLayout.Stop>();
+        var settlement = Settlement(snapshot, layout);
+        if (settlement is not null)
+            foreach (var plot in settlement.Plots)
+            {
+                if (plot.Size is not (PlotSize.SmallStation or PlotSize.LargeStation) ||
+                    plot.Occupant is not PlotOccupant.Building building ||
+                    snapshot.Core.FindInstance(new InstanceId.Building(building.Id)) is not Lookup<InstanceView>.Found instance ||
+                    snapshot.Content.FindDesign(instance.Value.Design) is not ContentLookup<DesignEvaluation>.Found found ||
+                    found.Value is DesignEvaluation.Failed || instance.Value.Structure.EffectiveCurrent <= 0) continue;
+                var parts = found.Value switch
+                {
+                    DesignEvaluation.Complete { Core: { } core } => core.Design.Parts,
+                    DesignEvaluation.Partial partial => partial.KnownSubtotal.Parts,
+                    _ => []
+                };
+                var scene = DesignGeometry.Projection(found.Value);
+                var destroyed = WorldSceneSession.Destroyed(instance.Value);
+                foreach (var part in parts.Where(part => !part.Missing && !destroyed.Contains(part.Id) &&
+                    instance.Value.Parts.Any(damage => damage.Part == part.Id && damage.Durability.EffectiveCurrent > 0) &&
+                    part.Capabilities.Any(capability => capability is PartCapability.Platform)))
+                {
+                    double? localZ = null;
+                    var element = scene.Elements.FirstOrDefault(item => item.Number == part.Id && !item.Missing);
+                    if (element?.OccupiedCells is ComputedValue<ImmutableArray<GridPosition>>.Known { Value.IsEmpty: false } cells)
+                        localZ = cells.Value.Average(cell => (double)cell.Z);
+                    else if (scene.Voxels.FirstOrDefault(voxel => voxel.Number == part.Id && !voxel.Missing) is { } voxel)
+                        localZ = voxel.At.Z;
+                    else if (scene.NestedObjects.FirstOrDefault(item => item.Details is NestedObjectDetails.FunctionalComposite composite && composite.Number == part.Id) is { } nested)
+                    {
+                        var pose = new ScenePose(Vector3.Zero, Quaternion.Identity);
+                        for (var depth = 1; depth <= nested.NestedItemIndices.Length; depth++)
+                        {
+                            var path = nested.NestedItemIndices.Take(depth);
+                            var parent = scene.NestedObjects.First(item => item.NestedItemIndices.SequenceEqual(path));
+                            pose = SceneGeometry.Compose(pose, SceneGeometry.Placement(parent.At, parent.Orientation));
+                        }
+                        localZ = pose.Position.Z;
+                    }
+                    if (localZ is null) continue;
+                    var stop = layout.Stops.Where(stop => stop.PlotNumber == plot.TemplatePlotNumber)
+                        .OrderBy(stop => Math.Abs(stop.LocalZ - localZ.Value)).ThenBy(stop => stop.LocalZ).FirstOrDefault();
+                    if (stop is not null) stops.Add(stop);
+                }
+            }
+        var expected = snapshot.Core.World.Nodes.Single(node => node.Id == layout.Node).Platforms;
+        if (stops.Count != expected)
+        {
+            problems.Add(new("station_platform_mismatch", SceneStage.Reconcile, new WorldObjectId.Node(layout.Node),
+                null, null, null, "Built station platform parts do not match the authoritative platform count."));
+            return [];
+        }
+        return stops.OrderBy(stop => stop.PlotNumber).ThenBy(stop => stop.LocalZ).ToImmutableArray();
+    }
+
+    private void Resources(SceneWorldSnapshot snapshot, NodeLayout layout, ScenePoint origin,
+        ImmutableArray<SceneObject>.Builder objects, ImmutableArray<SceneProblem>.Builder problems)
+    {
+        var node = snapshot.Core.World.Nodes.Single(item => item.Id == layout.Node);
+        foreach (var resource in node.Resources)
+        {
+            if (resource.Quantity <= 0 || resource.Good is not GoodId.Voxel good) continue;
+            var reference = new ContentReference.Core(new CoreDefinitionReference.Voxel(good.Definition));
+            var lookup = snapshot.Content.FindVoxelAppearance(good.Definition);
+            if (lookup is not ContentLookup<VoxelAppearanceProjection>.Found appearance)
+            {
+                RailwayTerrain.ReportMissing(reference, lookup is ContentLookup<VoxelAppearanceProjection>.Missing missing ? missing.Diagnostics : [],
+                    "Missing resource voxel appearance.", problems, new WorldObjectId.Node(layout.Node));
+                continue;
+            }
+            var count = resource.Renewal is ResourceRenewal.Renewable renewable
+                ? (int)Math.Ceiling(8 * Math.Clamp((double)resource.Quantity / Math.Max(1, renewable.Maximum), 0, 1)) : 8;
+            var key = BinaryPrimitives.ReadUInt64LittleEndian(SHA256.HashData(Encoding.UTF8.GetBytes(good.Definition.Value)));
+            for (var candidate = 0; candidate < count; candidate++)
+            {
+                var positionKey = (good.Definition, candidate);
+                if (!resourcePositions.TryGetValue(positionKey, out var position))
+                {
+                    var x = Math.Floor(layout.Bounds.Minimum.X + (layout.Bounds.Maximum.X - layout.Bounds.Minimum.X) *
+                        RailwayRandom.Unit(snapshot.Core.World.WorldSeed, node.Id.Value, candidate, key));
+                    var z = Math.Floor(layout.Bounds.Minimum.Y + (layout.Bounds.Maximum.Y - layout.Bounds.Minimum.Y) *
+                        RailwayRandom.Unit(snapshot.Core.World.WorldSeed, node.Id.Value, candidate, key ^ 0xCA013FACUL));
+                    var candidatePoint = new ScenePoint(x, 0, z);
+                    position = layout.ContainsPlot(candidatePoint) ||
+                        !layout.ClearOfTracks(candidatePoint, RailwayCoordinates.BedBaseHalfWidth + RailwayCoordinates.BedBlendWidth)
+                        ? null : candidatePoint with { Y = Math.Floor(RailwayTerrain.NodeGround(snapshot, node, candidatePoint, layout.Template)) + 1 };
+                    resourcePositions.Add(positionKey, position);
+                }
+                if (position is not { } point) continue;
+                if (!resourceVisuals.TryGetValue(good.Definition, out var cached) || cached.Appearance != appearance.Value)
+                {
+                    var grid = new VoxelGrid([new(new(0, 0, 0), new(VoxelOrientation.PxPy, appearance.Value, null, null, null, []))]);
+                    resourceVisuals[good.Definition] = cached = (appearance.Value, DesignGeometry.Meshes(grid, false));
+                }
+                objects.Add(new(objectId("resource:" + good.Definition.Value + ":" + candidate), null,
+                    new(RailwayCoordinates.Relative(point, origin), Quaternion.Identity), null,
+                    cached.Visuals, [], []));
+            }
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await buildings.DisposeAsync();
+        await parked.DisposeAsync();
+    }
+}
