@@ -87,6 +87,59 @@ public sealed class FixedCoreReadViewTests
         Assert.AreSame(instance, view.FindInstance(instanceId));
     }
 
+    [TestMethod]
+    public void EconomyLookupsCopyConfigurationAndRejectUnknownInputs()
+    {
+        var settlement = new Lookup<SettlementView>.Missing();
+        var inventory = new Lookup<InventoryView>.Missing();
+        var lease = new Lookup<LeaseView>.Missing();
+        var settlements = new Dictionary<SettlementId, Lookup<SettlementView>> { [new(1)] = settlement };
+        var inventories = new Dictionary<InventoryId, Lookup<InventoryView>> { [new(2)] = inventory };
+        var leases = new Dictionary<LeaseId, Lookup<LeaseView>> { [new(3)] = lease };
+        var rule = new RuleStatusView(new("rule"), null, []);
+        var economy = new EconomyView(new(42), rule, rule, rule, new(0), []);
+        var view = new FixedCoreReadView { Economy = economy, Settlements = settlements, Inventories = inventories, Leases = leases };
+        settlements.Clear();
+        inventories.Clear();
+        leases.Clear();
+        Assert.AreSame(economy, view.Economy);
+        Assert.AreSame(settlement, view.FindSettlement(new(1)));
+        Assert.AreSame(inventory, view.FindInventory(new(2)));
+        Assert.AreSame(lease, view.FindLease(new(3)));
+        AssertUnconfigured(() => _ = new FixedCoreReadView().Economy);
+        AssertUnconfigured(() => view.FindSettlement(new(9)));
+        AssertUnconfigured(() => view.FindInventory(new(9)));
+        AssertUnconfigured(() => view.FindLease(new(9)));
+    }
+
+    [TestMethod]
+    public void QuotesMatchTheWholeRequestAndCopyConfiguration()
+    {
+        var trade = new TradeQuoteRequest(new(1), new(2), new(3), TradeAction.Buy, new GoodId.Voxel(new("good")), 4);
+        var vehicle = new VehicleTradeQuoteRequest(new(2), new(3), VehicleTradeAction.Buy);
+        var lease = new LeaseRequest.Rent(new(2), 4, 5);
+        var tradeResult = new CoreResult<TradeQuote>.Success(new(trade, new(1), 4, new(8), [], []));
+        var vehicleResult = new CoreResult<VehicleTradeQuote>.Success(new(vehicle, new(1), new(8), []));
+        var leaseResult = new CoreResult<LeaseQuote>.Success(new(lease, new(1), new(8), 4, []));
+        var trades = new Dictionary<TradeQuoteRequest, CoreResult<TradeQuote>> { [trade] = tradeResult };
+        var vehicles = new Dictionary<VehicleTradeQuoteRequest, CoreResult<VehicleTradeQuote>> { [vehicle] = vehicleResult };
+        var leases = new Dictionary<LeaseRequest, CoreResult<LeaseQuote>> { [lease] = leaseResult };
+        var view = new FixedCoreReadView { TradeQuotes = trades, VehicleQuotes = vehicles, LeaseQuotes = leases };
+        trades.Clear();
+        vehicles.Clear();
+        leases.Clear();
+        Assert.AreSame(tradeResult, view.QuoteTrade(trade with { }));
+        Assert.AreSame(vehicleResult, view.QuoteVehicle(vehicle with { }));
+        Assert.AreSame(leaseResult, view.QuoteLease(lease with { }));
+        AssertUnconfigured(() => view.QuoteTrade(trade with { Quantity = 5 }));
+        AssertUnconfigured(() => view.QuoteVehicle(vehicle with { Action = VehicleTradeAction.Sell }));
+        AssertUnconfigured(() => view.QuoteLease(lease with { DurationSteps = 6 }));
+        var unconfigured = new FixedCoreReadView();
+        AssertUnconfigured(() => unconfigured.QuoteTrade(trade));
+        AssertUnconfigured(() => unconfigured.QuoteVehicle(vehicle));
+        AssertUnconfigured(() => unconfigured.QuoteLease(lease));
+    }
+
     private static void AssertUnconfigured(Action operation)
     {
         var error = Assert.ThrowsExactly<InvalidOperationException>(operation);

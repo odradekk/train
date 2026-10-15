@@ -41,8 +41,23 @@ internal static class CommandDiagnostics
             "content_changed" => "对象所属对局已更换，操作未提交。",
             "frozen" => "核心模拟已冻结，不能执行此操作。",
             "no_route" => "没有可达路径。",
-            _ => "操作被拒绝。"
+            "object_missing" => "对象已不存在。",
+            "content_missing" => "所需内容缺失。",
+            "invalid_state" => "状态不符合操作要求。",
+            "not_owned" => "对象不属于玩家。",
+            "access_denied" => "没有访问权限。",
+            "insufficient_goods" => "货物不足。",
+            "insufficient_capacity" => "可用容量不足。",
+            "insufficient_money" => "资金不足。",
+            "price_condition_failed" => "当前价格不满足已确认的总额条件。",
+            "identity_exhausted" => "对象或命令编号已耗尽。",
+            "unsupported_format" => "不支持此格式。",
+            "incompatible_replay" => "复现资料与当前运行环境不兼容。",
+            "generation_failed" => "世界生成失败。",
+            _ => ""
         };
-        return $"{explanation}（{problem.Code}/{problem.Field}）";
+        var subject = problem.Subject is null ? "" : $"；对象：{problem.Subject}";
+        var related = problem.RelatedIdentities.IsEmpty ? "" : $"；关联：{string.Join("、", problem.RelatedIdentities)}";
+        return $"{explanation}（{problem.Code}/{problem.Field}{subject}{related}）";
     }
 }

@@ -44,7 +44,12 @@ public sealed class FixedCoreReadView : ICoreReadView
         init => world = value;
     }
 
-    public EconomyView Economy => throw Unconfigured(nameof(Economy));
+    private EconomyView? economy;
+    public EconomyView Economy
+    {
+        get => economy ?? throw Unconfigured(nameof(Economy));
+        init => economy = value;
+    }
 
     private CoreFault? fault;
     private bool faultConfigured;
@@ -94,11 +99,29 @@ public sealed class FixedCoreReadView : ICoreReadView
     public Lookup<InstanceView> FindInstance(InstanceId id)
         => instances.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindInstance));
 
-    public Lookup<SettlementView> FindSettlement(SettlementId id) => throw Unconfigured(nameof(FindSettlement));
+    private ImmutableDictionary<SettlementId, Lookup<SettlementView>> settlements = ImmutableDictionary<SettlementId, Lookup<SettlementView>>.Empty;
+    public IReadOnlyDictionary<SettlementId, Lookup<SettlementView>> Settlements
+    {
+        init => settlements = value.ToImmutableDictionary();
+    }
+    public Lookup<SettlementView> FindSettlement(SettlementId id)
+        => settlements.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindSettlement));
 
-    public Lookup<InventoryView> FindInventory(InventoryId id) => throw Unconfigured(nameof(FindInventory));
+    private ImmutableDictionary<InventoryId, Lookup<InventoryView>> inventories = ImmutableDictionary<InventoryId, Lookup<InventoryView>>.Empty;
+    public IReadOnlyDictionary<InventoryId, Lookup<InventoryView>> Inventories
+    {
+        init => inventories = value.ToImmutableDictionary();
+    }
+    public Lookup<InventoryView> FindInventory(InventoryId id)
+        => inventories.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindInventory));
 
-    public Lookup<LeaseView> FindLease(LeaseId id) => throw Unconfigured(nameof(FindLease));
+    private ImmutableDictionary<LeaseId, Lookup<LeaseView>> leases = ImmutableDictionary<LeaseId, Lookup<LeaseView>>.Empty;
+    public IReadOnlyDictionary<LeaseId, Lookup<LeaseView>> Leases
+    {
+        init => leases = value.ToImmutableDictionary();
+    }
+    public Lookup<LeaseView> FindLease(LeaseId id)
+        => leases.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindLease));
 
     public Lookup<FacilityView> FindFacility(FacilityKey id) => throw Unconfigured(nameof(FindFacility));
 
@@ -118,9 +141,27 @@ public sealed class FixedCoreReadView : ICoreReadView
 
     public Lookup<LairView> FindLair(LairId id) => throw Unconfigured(nameof(FindLair));
 
-    public CoreResult<TradeQuote> QuoteTrade(TradeQuoteRequest request) => throw Unconfigured(nameof(QuoteTrade));
-    public CoreResult<VehicleTradeQuote> QuoteVehicle(VehicleTradeQuoteRequest request) => throw Unconfigured(nameof(QuoteVehicle));
-    public CoreResult<LeaseQuote> QuoteLease(LeaseRequest request) => throw Unconfigured(nameof(QuoteLease));
+    private ImmutableDictionary<TradeQuoteRequest, CoreResult<TradeQuote>> tradeQuotes = ImmutableDictionary<TradeQuoteRequest, CoreResult<TradeQuote>>.Empty;
+    public IReadOnlyDictionary<TradeQuoteRequest, CoreResult<TradeQuote>> TradeQuotes
+    {
+        init => tradeQuotes = value.ToImmutableDictionary();
+    }
+    public CoreResult<TradeQuote> QuoteTrade(TradeQuoteRequest request)
+        => tradeQuotes.TryGetValue(request, out var result) ? result : throw Unconfigured(nameof(QuoteTrade));
+    private ImmutableDictionary<VehicleTradeQuoteRequest, CoreResult<VehicleTradeQuote>> vehicleQuotes = ImmutableDictionary<VehicleTradeQuoteRequest, CoreResult<VehicleTradeQuote>>.Empty;
+    public IReadOnlyDictionary<VehicleTradeQuoteRequest, CoreResult<VehicleTradeQuote>> VehicleQuotes
+    {
+        init => vehicleQuotes = value.ToImmutableDictionary();
+    }
+    public CoreResult<VehicleTradeQuote> QuoteVehicle(VehicleTradeQuoteRequest request)
+        => vehicleQuotes.TryGetValue(request, out var result) ? result : throw Unconfigured(nameof(QuoteVehicle));
+    private ImmutableDictionary<LeaseRequest, CoreResult<LeaseQuote>> leaseQuotes = ImmutableDictionary<LeaseRequest, CoreResult<LeaseQuote>>.Empty;
+    public IReadOnlyDictionary<LeaseRequest, CoreResult<LeaseQuote>> LeaseQuotes
+    {
+        init => leaseQuotes = value.ToImmutableDictionary();
+    }
+    public CoreResult<LeaseQuote> QuoteLease(LeaseRequest request)
+        => leaseQuotes.TryGetValue(request, out var result) ? result : throw Unconfigured(nameof(QuoteLease));
     public CoreResult<JobQuote> GetJobQuote(JobRequest request, JobFunding funding) => throw Unconfigured(nameof(GetJobQuote));
     public CoreResult<SettlementFoundingPreview> PreviewSettlement(NodeId node) => throw Unconfigured(nameof(PreviewSettlement));
 
