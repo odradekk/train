@@ -9,17 +9,6 @@ internal static class InventoryStorage
     internal static long Used(InventoryState inventory) => inventory.Goods.Sum(g => g.Quantity);
     internal static long Reserved(InventoryState inventory) => inventory.Reservations.Sum(r => r.Capacity);
 
-    internal static bool DefinitionMissing(WorldState world, CoreContentProjection content, GoodId good)
-    {
-        if (WorldReferences.GoodReference(good) is { } reference
-            && content.MissingReferences.Any(m => m.Reference == reference)) return true;
-        return Definition(world, content, good) is null;
-    }
-
-    private static GoodDefinitionProjection? Definition(WorldState world, CoreContentProjection content, GoodId good)
-        => good is GoodId.Assembly ? world.DesignGoods.SingleOrDefault(g => g.Good == good)
-            : content.Goods.SingleOrDefault(g => g.Good == good);
-
     private static long InstanceCapacity(WorldState world, CoreContentProjection content, InstanceId id)
     {
         var instance = world.Instances.Single(i => i.Id == id);
@@ -99,9 +88,9 @@ internal static class InventoryStorage
             ? Math.Min(Math.Max(0, checked(capacity - used - reserved)), shared) : 0;
         double mass = 0;
         foreach (var stack in inventory.Goods)
-            if (!DefinitionMissing(world, content, stack.Good)) mass += Definition(world, content, stack.Good)!.MassTons * stack.Quantity;
+            if (!WorldGoods.DefinitionMissing(world, content, stack.Good)) mass += WorldGoods.Definition(world, content, stack.Good)!.MassTons * stack.Quantity;
         return new(inventory.Id, inventory.Owner, location, access, capacity, used, reserved, available, mass,
-            inventory.Goods.Select(g => new InventoryStackView(g.Good, g.Quantity, DefinitionMissing(world, content, g.Good))).ToImmutableArray(),
+            inventory.Goods.Select(g => new InventoryStackView(g.Good, g.Quantity, WorldGoods.DefinitionMissing(world, content, g.Good))).ToImmutableArray(),
             inventory.Reservations);
     }
 }

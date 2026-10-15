@@ -1,5 +1,4 @@
 using Train.Core.Contracts;
-using Train.Core.Inventory;
 
 namespace Train.Core.World;
 
@@ -19,7 +18,7 @@ internal static class InstanceCapabilities
                 _ => null
             };
             if (part.Missing || Math.Min(instance.Parts.Single(p => p.Id == part.Id).Current, part.MaxDurability) <= 0
-                || definitionGood is not null && InventoryStorage.DefinitionMissing(world, content, definitionGood)
+                || definitionGood is not null && WorldGoods.DefinitionMissing(world, content, definitionGood)
                 || current is not null && (current.MissingReferences.Any(m => m.Reference == part.Definition)
                     || current.Parts.Any(p => p.Id == part.Id && p.Missing))) continue;
             yield return part;

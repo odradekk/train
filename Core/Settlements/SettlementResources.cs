@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using Train.Core.Contracts;
-using Train.Core.Inventory;
 using Train.Core.World;
 
 namespace Train.Core.Settlements;
@@ -32,7 +31,7 @@ internal static class SettlementResources
             .Sum(p => BuildingCapabilities.Read(world, content, p.Building!.Value).Power) * SimulationTime.StepSeconds;
         var fuelRemaining = settlement.FuelEnergyRemaining;
         var fuels = content.Goods.Where(g => g.Good is GoodId.Voxel && g.FuelEnergyPerUnit is not null
-                && !InventoryStorage.DefinitionMissing(world, content, g.Good))
+                && !WorldGoods.DefinitionMissing(world, content, g.Good))
             .OrderBy(g => ((GoodId.Voxel)g.Good).Definition.Value, StringComparer.Ordinal).ToArray();
         var batches = ImmutableArray.CreateBuilder<FacilityKey>();
         var work = ImmutableArray.CreateBuilder<WorkAllocation>();
@@ -86,7 +85,7 @@ internal static class SettlementResources
         };
         return new(resolved, basicGranted, batches.ToImmutable(), work.ToImmutable(), improvementGranted);
 
-        long Available(GoodId good) => InventoryStorage.DefinitionMissing(world, content, good)
+        long Available(GoodId good) => WorldGoods.DefinitionMissing(world, content, good)
             ? 0 : quantities.GetValueOrDefault(good);
 
         ImmutableArray<long> Consume(ImmutableArray<GoodsQuantity> requests)
