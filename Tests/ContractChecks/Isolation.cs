@@ -6,6 +6,8 @@ namespace Train.ContractChecks;
 
 internal static class Isolation
 {
+    private const int SessionTimeoutSeconds = 270;
+
     internal static async Task<int> Run(string root, string configuration, string output,
         IReadOnlyDictionary<string, ProjectRule> projects, IReadOnlyList<string> tests)
     {
@@ -119,10 +121,19 @@ internal static class Isolation
                 }
                 using var facts = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(evidence, test + ".facts.json")));
                 var testAssembly = facts.RootElement.GetProperty("Properties").GetProperty("TargetPath").GetString()!;
-                await ToolProcess.Run("dotnet", ["test", "--test-modules", Path.GetRelativePath(isolated, testAssembly).Replace(Path.DirectorySeparatorChar, '/'),
-                    "--root-directory", isolated, "--results-directory", evidence, "--minimum-expected-tests", "1", "--",
-                    "--filter", "TestCategory!=stage", "--report-trx", "--report-trx-filename", "tests.trx", "--timeout", "115s",
-                    "--hangdump", "--hangdump-timeout", "110s"], isolated, Path.Combine(evidence, "tests.log"), 120);
+                var session = Stopwatch.StartNew();
+                var testLog = Path.Combine(evidence, "tests.log");
+                try
+                {
+                    await ToolProcess.Run("dotnet", ["test", "--test-modules", Path.GetRelativePath(isolated, testAssembly).Replace(Path.DirectorySeparatorChar, '/'),
+                        "--root-directory", isolated, "--results-directory", evidence, "--minimum-expected-tests", "1", "--",
+                        "--filter", "TestCategory!=stage", "--report-trx", "--report-trx-filename", "tests.trx", "--timeout", $"{SessionTimeoutSeconds - 5}s",
+                        "--hangdump", "--hangdump-timeout", $"{SessionTimeoutSeconds - 10}s"], isolated, testLog, SessionTimeoutSeconds);
+                }
+                catch (Exception exception) when (session.Elapsed.TotalSeconds >= SessionTimeoutSeconds - 10)
+                {
+                    throw new InvalidOperationException($"test session timed out after {session.Elapsed.TotalSeconds:F2}s (limit={SessionTimeoutSeconds}s); log={testLog}", exception);
+                }
                 Console.WriteLine($"isolation passed: {test}; evidence={evidence}");
 
                 void CopyConfiguration(string directory)
