@@ -11,42 +11,43 @@ namespace Train.Core.Tests.Inventory;
 public sealed class InventoryLeaseTests
 {
     [TestMethod]
-    public void Half_hour_quote_rounds_up_and_business_rejections_still_show_price()
+    [DataRow(1UL, 8L)]
+    [DataRow(3UL, 23L)]
+    [DataRow(12UL, 90L)]
+    public void Selected_duration_rounds_the_whole_rent_once_and_business_rejections_still_show_price(ulong multiple, long amount)
     {
         using var session = Session(Content(108000));
         var settlement = session.State.World.Settlements.Single().Id;
-        var request = new LeaseRequest.Rent(settlement, 3, 108000);
+        var request = new LeaseRequest.Rent(settlement, 3, 108000 * multiple);
         var quote = WorldFixture.Success(session.Read().QuoteLease(request));
-        Assert.AreEqual(new Money(8), quote.Total);
+        Assert.AreEqual(new Money(amount), quote.Total);
         Assert.IsTrue(quote.Blockers.IsEmpty);
-        RejectWithoutWorldChange(session, new CoreCommand.AcquireLease(request, new(7)), "price_condition_failed");
-        var accepted = Accept(session, new CoreCommand.AcquireLease(request, new(8)));
-        Assert.AreEqual(new Money(8), accepted.Events.Select(e => e.Event).OfType<CoreEvent.LeaseAcquired>().Single().ActualPayment);
-        var tooLarge = WorldFixture.Success(session.Read().QuoteLease(new LeaseRequest.Rent(settlement, 100, 108000)));
+        RejectWithoutWorldChange(session, new CoreCommand.AcquireLease(request, new(amount - 1)), "price_condition_failed");
+        var acquired = Accept(session, new CoreCommand.AcquireLease(request, new(amount)))
+            .Events.Select(e => e.Event).OfType<CoreEvent.LeaseAcquired>().Single();
+        Assert.AreEqual(new Money(amount), acquired.ActualPayment);
+        Assert.AreEqual(request.DurationSteps, acquired.Lease.ExpiresAtStep);
+        var tooLarge = WorldFixture.Success(session.Read().QuoteLease(new LeaseRequest.Rent(settlement, 100, request.DurationSteps)));
         Assert.IsNull(tooLarge.Total);
         Assert.AreEqual("insufficient_capacity", tooLarge.Blockers.Single().Code);
     }
 
     [TestMethod]
-    public void Invalid_duration_and_missing_market_rule_cannot_be_priced()
+    public void Missing_market_rule_precedes_invalid_duration_and_cannot_be_priced()
     {
         using var original = Session();
         var settlement = original.State.World.Settlements.Single().Id;
-        var wrong = new LeaseRequest.Rent(settlement, 3, 4);
-        var quote = WorldFixture.Success(original.Read().QuoteLease(wrong));
-        Assert.IsNull(quote.Total);
-        Assert.AreEqual("invalid_state", quote.Blockers.Single().Code);
-        Assert.AreEqual("Request.DurationSteps", quote.Blockers.Single().Field);
-        RejectWithoutWorldChange(original, new CoreCommand.AcquireLease(wrong, new(1000)), "invalid_state");
         var saved = WorldFixture.Success(original.Capture(CapturePurpose.Save));
         var missing = Changed(Content(), '9') with { MarketRules = [] };
         using var candidate = WorldFixture.Success(CoreFactory.Create().PrepareRestore(saved, missing, WorldFixture.Options));
         using var restored = (CoreSession)candidate.Activate();
-        var request = new LeaseRequest.Rent(settlement, 3, 3);
+        var request = new LeaseRequest.Rent(settlement, 3, 4);
         var missingQuote = WorldFixture.Success(restored.Read().QuoteLease(request));
         Assert.IsNull(missingQuote.Total);
         Assert.IsFalse(missingQuote.Blockers.IsEmpty);
-        RejectWithoutWorldChange(restored, new CoreCommand.AcquireLease(request, new(1000)));
+        Assert.AreEqual("content_missing", missingQuote.Blockers.Single().Code);
+        Assert.AreEqual("MarketRule", missingQuote.Blockers.Single().Field);
+        RejectWithoutWorldChange(restored, new CoreCommand.AcquireLease(request, new(1000)), "content_missing", "MarketRule");
     }
 
     [TestMethod]

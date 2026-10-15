@@ -13,15 +13,21 @@ public sealed class InventoryReplayTests
     public void Public_commands_replay_success_rejection_renewal_and_commandless_expiration_tail()
     {
         using var session = Session();
-        var lease = Rent(session);
+        var lease = Rent(session, duration: 6);
         Service(session);
         Accept(session, new CoreCommand.UnloadGoods(new(1), lease.Settlement, lease.Inventory, Composite, 2));
         var samples = new List<ICoreCapture> { WorldFixture.Success(session.Capture(CapturePurpose.Save)) };
         RejectWithoutWorldChange(session, new CoreCommand.LoadGoods(new(1), lease.Settlement, lease.Inventory, Composite, 3));
         samples.Add(WorldFixture.Success(session.Capture(CapturePurpose.Save)));
+        foreach (var duration in new[] { 4UL, 39UL, 36UL })
+        {
+            RejectWithoutWorldChange(session, new CoreCommand.AcquireLease(new LeaseRequest.Renew(lease.Id, duration), new(1000)),
+                "invalid_state", "Request.DurationSteps");
+            samples.Add(WorldFixture.Success(session.Capture(CapturePurpose.Save)));
+        }
         Accept(session, new CoreCommand.AcquireLease(new LeaseRequest.Renew(lease.Id, 3), new(1000)));
         samples.Add(WorldFixture.Success(session.Capture(CapturePurpose.Save)));
-        while (session.Read().Position.CompletedSteps < 6)
+        while (session.Read().Position.CompletedSteps < 9)
         {
             Step(session);
             samples.Add(WorldFixture.Success(session.Capture(CapturePurpose.Save)));

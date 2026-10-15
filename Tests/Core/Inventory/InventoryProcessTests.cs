@@ -42,7 +42,7 @@ public sealed class InventoryProcessTests
         AssertAccess(resumed.Samples[1], InventoryAccess.WithdrawOnly);
         AssertAccess(resumed.Samples[5], InventoryAccess.ReadWrite);
         AssertAccess(resumed.Samples[^1], InventoryAccess.WithdrawOnly);
-        Assert.AreEqual(2, resumed.Receipts.Count(receipt => receipt.Contains("\"Kind\":\"rejected\"", StringComparison.Ordinal)));
+        Assert.AreEqual(5, resumed.Receipts.Count(receipt => receipt.Contains("\"Kind\":\"rejected\"", StringComparison.Ordinal)));
         Assert.AreEqual(2, resumed.Events.Count(value => value.Contains("\"Kind\":\"LeaseExpired\"", StringComparison.Ordinal)));
         Assert.AreEqual(2, resumed.Events.Count(value => value.Contains("\"Kind\":\"GoodsTransferred\"", StringComparison.Ordinal)));
         Assert.AreEqual(1, resumed.Events.Count(value => value.Contains("\"Kind\":\"LeaseAcquired\"", StringComparison.Ordinal)));
