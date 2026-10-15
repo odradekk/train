@@ -51,7 +51,9 @@ internal static class InventoryCommands
         if (settlement.Relation == SettlementRelation.Hostile) return Reject("access_denied", "LocalInventory", new WorldObjectId.Inventory(inventoryId));
         if (lease is null && settlement.Relation != SettlementRelation.PlayerOwned) return Reject("not_owned", "LocalInventory", new WorldObjectId.Inventory(inventoryId));
         if (!load && lease is not null && step >= lease.ExpiresAtStep) return Reject("access_denied", "LocalInventory", new WorldObjectId.Inventory(inventoryId));
-        if (!TrainDispatch.HoldsPlatform(world, train)) return Reject("platform_required", "Train.Position", new WorldObjectId.Train(trainId));
+        if (!TrainDispatch.HoldsPlatform(world, train) || train.Activity != TrainActivity.Servicing
+            || train.Position is not TrainPosition.Node { Phase: NodeTravelPhase.Docked } || train.SpeedMetersPerSecond != 0)
+            return Reject("platform_required", "Train.Position", new WorldObjectId.Train(trainId));
         if (WorldGoods.DefinitionMissing(world, content, good)) return Reject("content_missing", "Good", new WorldObjectId.Inventory(inventoryId));
         var cargo = world.Inventories.Single(i => i.Id == train.Inventory);
         var source = load ? local : cargo;

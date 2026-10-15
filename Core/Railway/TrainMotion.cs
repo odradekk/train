@@ -14,6 +14,10 @@ internal static class TrainMotion
         var time = SimulationTime.StepSeconds;
         var distance = 0.0;
 
+        if (speed > maximumSpeed && Move((speed - maximumSpeed) / brakingDeceleration,
+                -brakingDeceleration, maximumSpeed))
+            return (distance, speed, true);
+
         if (stopDistanceAfterEndpoint is not { } distanceAfterEndpoint)
         {
             if (acceleration > 0 && Move(Math.Max(0, (maximumSpeed - speed) / acceleration), acceleration, maximumSpeed))
@@ -22,7 +26,7 @@ internal static class TrainMotion
             return (distance, speed, arrived);
         }
 
-        var stoppingDistance = remainingDistance + distanceAfterEndpoint;
+        var stoppingDistance = remainingDistance - distance + distanceAfterEndpoint;
         if (stoppingDistance <= speed * speed / (2 * brakingDeceleration))
         {
             var arrived = Move(speed / brakingDeceleration, -brakingDeceleration, 0);

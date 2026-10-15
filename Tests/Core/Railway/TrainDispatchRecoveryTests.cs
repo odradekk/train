@@ -1,3 +1,4 @@
+using Train.Core.Tests.World;
 using System.Collections.Immutable;
 using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -92,17 +93,17 @@ internal static class TrainDispatchRecoveryScenario
         {
             case "queue":
                 world = world with { Trains = [first with { Position = new TrainPosition.Edge(new(1), 1, TravelDirection.Forward, 10),
-                    Transit = null, Activity = TrainActivity.Running }, world.Trains[1] with { Activity = TrainActivity.Waiting, QueueEnteredStep = 3 }] };
+                    Activity = TrainActivity.Running }, world.Trains[1] with { Activity = TrainActivity.Waiting, QueueEnteredStep = 3 }] };
                 break;
             case "handoff":
                 world = world with { TrackHandoffs = [new(new(1), 1, TravelDirection.Reverse)],
-                    Trains = [first with { Position = new TrainPosition.Node(new(2)), Activity = TrainActivity.Waiting,
-                        QueueEnteredStep = 3, Transit = new(new(1), null), Plan = new(false, [new PlanStop.Waypoint(new(1))]) }] };
+                    Trains = [first with { Position = WorldFixture.Node(new(2), NodeTravelPhase.Departing, WorldFixture.ApproachLength + WorldFixture.DepartureLength, enteredFrom: new(1), nextEdge: new(1)), Activity = TrainActivity.Waiting,
+                        QueueEnteredStep = 3, Plan = new(false, [new PlanStop.Waypoint(new(1))]) }] };
                 break;
             case "returning":
                 world = world with { Edges = world.Edges.SetItem(0, world.Edges[0] with { Breaks = [new(new(1), 1, 15)] }),
                     Next = world.Next with { Break = 2 }, Trains = [first with { Position = new TrainPosition.Edge(new(1), 1, TravelDirection.Reverse, 10),
-                        Transit = null, Activity = TrainActivity.Running, ReturningFromBreak = new(1), OrderFacing = TrainOrderFacing.LastEndLeading }] };
+                        Activity = TrainActivity.Running, ReturningFromBreak = new(1), OrderFacing = TrainOrderFacing.LastEndLeading }] };
                 break;
             default: throw new ArgumentException("未知调度边界。", nameof(boundary));
         }
@@ -134,7 +135,7 @@ internal static class TrainDispatchRecoveryScenario
         return JsonSerializer.Serialize(new { Nodes = read.World.Nodes.Select(n => new { n.Id, n.Platforms, n.OccupiedPlatforms }),
             Trains = read.World.Trains.Select(t => ((Lookup<TrainView>.Found)read.FindTrain(t.Id)).Value)
                 .Select(t => new { t.Id, Position = TrainRecoveryFixture.Position(t.Position), t.Activity,
-                    t.SpeedMetersPerSecond, t.OrderFacing, t.RemainingDwellSteps, t.NodeTransit, t.Blockers }),
+                    t.SpeedMetersPerSecond, t.OrderFacing, t.RemainingDwellSteps, t.Blockers }),
             Edges = read.World.Edges.Select(e => new { e.Id, e.Breaks }) });
     }
 }

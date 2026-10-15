@@ -32,7 +32,10 @@ public sealed class ProductionRecoveryTests
         using var session = candidate.Activate();
         Accept(new CoreCommand.ReplaceRunPlan(new(1), new(false, [new PlanStop.Station(settlement.Node, 100, [])])));
         Accept(new CoreCommand.StartTrain(new(1)));
-        Step(session);
+        for (var step = 0; step < 100
+            && ((Lookup<TrainView>.Found)session.Read().FindTrain(new(1))).Value.Activity != TrainActivity.Servicing; step++)
+            Step(session);
+        Assert.AreEqual(TrainActivity.Servicing, ((Lookup<TrainView>.Found)session.Read().FindTrain(new(1))).Value.Activity);
         var old = session.Read();
         Assert.AreEqual(ProductionState.WaitingForInputs, Read(old).State);
         var unloaded = Accept(new CoreCommand.UnloadGoods(new(1), Settlement, LocalInventory, Input, 1));

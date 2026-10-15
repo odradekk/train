@@ -379,7 +379,7 @@ public sealed class NodeSceneTests
         {
             Position = snapshot.Core.Position, InputIdentity = snapshot.Core.InputIdentity,
             World = snapshot.Core.World with { Nodes = [map], Edges = [] },
-            Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [map.Id] = new Lookup<NodeView>.Found(new(map, [])) }
+            Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [map.Id] = new Lookup<NodeView>.Found(new(map, [], 80, 0, 80)) }
         } };
     }
 

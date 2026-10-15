@@ -87,7 +87,7 @@ public partial class InspectionLightingPreview : Node
         var edge = new EdgeMapItem(Edge, first.Id, last.Id, 256, terrain, 1, 1, [], []);
         var train = new TrainView(new(1), new TrainPosition.Edge(Edge, 1, TravelDirection.Forward, 128),
             TrainActivity.Running, [new(1)], new(1), 0, 6, 1, 1, 1, 10, null, null, 0,
-            new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0), [], null, [], null, TrainOrderFacing.FirstEndLeading);
+            new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0), [], null, [], TrainOrderFacing.FirstEndLeading);
         var instance = new InstanceView(new InstanceId.Vehicle(new(1)), Design, new("preview-composition"),
             new WorldLocation.Edge(Edge, 128), SettlementRelation.PlayerOwned, new InstanceDetails.Vehicle(SizeClass.Small, train.Id),
             InstanceLock.None, new(100, 100), [], []);
@@ -95,7 +95,7 @@ public partial class InspectionLightingPreview : Node
         {
             World = new(3, Rule, 256, 256, [first, last], [edge], [new(train.Id, train.Position, train.Activity)], [], []),
             Nodes = new Dictionary<NodeId, Lookup<NodeView>>
-            { [first.Id] = new Lookup<NodeView>.Found(new(first, [Edge])), [last.Id] = new Lookup<NodeView>.Found(new(last, [Edge])) },
+            { [first.Id] = new Lookup<NodeView>.Found(new(first, [Edge], 80, 0, 80)), [last.Id] = new Lookup<NodeView>.Found(new(last, [Edge], 80, 0, 80)) },
             Edges = new Dictionary<EdgeId, Lookup<EdgeView>> { [Edge] = new Lookup<EdgeView>.Found(new(edge, [new(1, null, [train.Id])], null)) },
             Trains = new Dictionary<TrainId, Lookup<TrainView>> { [train.Id] = new Lookup<TrainView>.Found(train) },
             Instances = new Dictionary<InstanceId, Lookup<InstanceView>> { [instance.Id] = new Lookup<InstanceView>.Found(instance) }
