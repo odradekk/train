@@ -30,9 +30,9 @@ public sealed class NodePlacementTests
         await using var sceneVehicles = new SceneVehicles();
         await using var scene = Controlled(snapshot, sceneVehicles);
         var before = await Settled(scene, snapshot);
-        AssertPosition(before, 3, new(20, 0, 0));
-        AssertPosition(before, 7, new(-20, 0, 0));
-        Assert.IsTrue(Pose(before, 2).Position.Z < -64);
+        AssertPosition(before, 3, new(-39, 0, 0));
+        AssertPosition(before, 7, new(41, 0, 0));
+        Assert.IsTrue(Pose(before, 2).Position.Z < 0);
         Assert.IsTrue(Pose(before, 9).Position.Z < Pose(before, 2).Position.Z,
             "The unreserved train joins the incoming queue behind the lower TrainId stopped train.");
 
@@ -65,8 +65,8 @@ public sealed class NodePlacementTests
         await using var sceneVehicles = new SceneVehicles();
         await using var scene = Controlled(snapshot, sceneVehicles);
         var before = await Settled(scene, snapshot);
-        Assert.IsTrue(Pose(before, 1).Position.Z > 64);
-        Assert.IsTrue(Pose(before, 2).Position.Z < -64);
+        Assert.IsTrue(Pose(before, 1).Position.X > 0);
+        Assert.IsTrue(Pose(before, 2).Position.Z < 0);
 
         var changedPlans = trains.Select(train => train with
         {
@@ -91,6 +91,7 @@ public sealed class NodePlacementTests
                 Nodes = world.Nodes.ToDictionary(item => item.Id, item => snapshot.Core.FindNode(item.Id)),
                 Edges = world.Edges.ToDictionary(item => item.Id, item => snapshot.Core.FindEdge(item.Id)),
                 Trains = world.Trains.ToDictionary(item => item.Id, item => snapshot.Core.FindTrain(item.Id)),
+                Settlements = new Dictionary<SettlementId, Lookup<SettlementView>> { [new(1)] = snapshot.Core.FindSettlement(new(1)) },
                 Instances = new Dictionary<InstanceId, Lookup<InstanceView>>
                 { [new InstanceId.Vehicle(new(1))] = snapshot.Core.FindInstance(new InstanceId.Vehicle(new(1))) }
             }
@@ -132,7 +133,7 @@ public sealed class NodePlacementTests
         var members = new ulong[] { 3, 1, 2 };
         for (var i = 0; i < members.Length; i++)
         {
-            AssertPosition(frame, members[i], new(0, 0, expected[i]));
+            AssertPosition(frame, members[i], new(servicing ? 41 : 0, 0, expected[i]));
             var forward = Vector3.Transform(Vector3.UnitZ, Pose(frame, members[i]).Rotation);
             Assert.IsTrue(Vector3.Distance(positive ? Vector3.UnitZ : -Vector3.UnitZ, forward) < 1e-4);
         }
@@ -146,9 +147,9 @@ public sealed class NodePlacementTests
         await using var sceneVehicles = new SceneVehicles();
         await using var scene = Controlled(snapshot, sceneVehicles);
         var frame = await Settled(scene, snapshot);
-        AssertPosition(frame, 1, new(-20, 0, 104));
-        AssertPosition(frame, 2, new(-20, 0, 0));
-        AssertPosition(frame, 3, new(-20, 0, -104));
+        AssertPosition(frame, 1, new(41, 0, 104));
+        AssertPosition(frame, 2, new(41, 0, 0));
+        AssertPosition(frame, 3, new(41, 0, -104));
         Assert.IsTrue(Pose(frame, 1).Position.Z > 80 && Pose(frame, 3).Position.Z < -80);
     }
 
@@ -210,7 +211,7 @@ public sealed class NodePlacementTests
         var reference = new ContentReference.Design(hash);
         var diagnostic = new ContentDiagnostic("missing_node_design", ContentDiagnosticSeverity.Error, "lookup", reference,
             new(new PackageId("vehicle-package"), "vehicles.json"), "design", null, "The vehicle design is unavailable.");
-        var content = RailwayFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 },
+        var content = NodeFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 },
             design: RailwayFixtures.Vehicle(), designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
             { [hash] = new ContentLookup<DesignEvaluation>.Missing([diagnostic]) });
         var snapshot = NodeFixtures.Snapshot(platforms: 1, content: content,

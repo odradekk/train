@@ -39,6 +39,7 @@ internal sealed class NodeScene : IAsyncDisposable
     private readonly Func<string, SceneObjectId> objectId;
     private readonly CancellationTokenSource cancellation = new();
     private readonly SceneVehicles vehicles;
+    private readonly SettlementObjects settlement;
     private readonly ImmutableDictionary<EdgeId, int> openingTracks;
     private readonly Dictionary<string, BuiltGeometry> attached = [];
     private readonly Task<Built>? pending;
@@ -48,7 +49,7 @@ internal sealed class NodeScene : IAsyncDisposable
     internal NodeId Node { get; }
     internal NodeLayout? Layout => layout;
     internal Task? BuildWork => pending;
-    internal Task[] PendingWork => (pending is not null && built is null && failure is null ? new Task[] { pending } : []).Concat(vehicles.PendingWork).ToArray();
+    internal Task[] PendingWork => (pending is not null && built is null && failure is null ? new Task[] { pending } : []).Concat(vehicles.PendingWork).Concat(settlement.PendingWork).ToArray();
     internal bool Failed => failure is not null;
 
     internal NodeScene(SceneWorldSnapshot initial, NodeId node, Cache cache, Func<string, SceneObjectId> objectId, SceneVehicles vehicles,
@@ -56,6 +57,7 @@ internal sealed class NodeScene : IAsyncDisposable
     {
         Node = node; this.cache = cache; this.objectId = objectId; owner = cache.Open(node);
         this.vehicles = vehicles;
+        settlement = new(objectId);
         openingTracks = initial.Core.World.Edges.Where(edge => edge.Start == node || edge.End == node).ToImmutableDictionary(edge => edge.Id, edge => edge.Tracks);
         try { layout = NodeLayout.Build(initial, node); }
         catch (RailwayBuildException error) { Fail(error); return; }
@@ -92,10 +94,21 @@ internal sealed class NodeScene : IAsyncDisposable
             fog.Add(new(new SceneBounds(new((float)(-size - origin.X), (float)(-128 - origin.Y), (float)(-size - origin.Z)),
                 new((float)(size - origin.X), (float)(128 - origin.Y), (float)(size - origin.Z)))));
         }
-        if (layout is not null) RenderTrains(snapshot, origin, objects, picking, problems, fog);
+        if (layout is not null)
+        {
+            problems.AddRange(layout.Problems);
+            if (layout.Template is null && snapshot.Core.World.Nodes.Single(item => item.Id == Node).Occupant is NodeOccupant.Settlement owner)
+            {
+                var lookup = snapshot.Content.FindSettlementLayout(owner.Id);
+                if (lookup is ContentLookup<SettlementLayoutProjection>.Missing missing) DesignGeometry.AddDiagnostics(missing.Diagnostics, problems, new WorldObjectId.Node(Node));
+                problems.Add(new("content_missing", SceneStage.Input, new WorldObjectId.Node(Node), null, null, null, "The settlement layout copy is missing."));
+            }
+            Add(settlement.Present(snapshot, layout, origin, fog));
+            RenderTrains(snapshot, origin, objects, picking, problems, fog);
+        }
         if (failure is not null) problems.Add(failure);
         return new(stamp, origin, snapshot.Core.Position.CompletedSteps * SimulationTime.StepSeconds,
-            failure is not null ? SceneReadiness.Failed : built is null ? SceneReadiness.Loading : fog.Count > 0 ? SceneReadiness.Partial : SceneReadiness.Ready,
+            failure is not null ? SceneReadiness.Failed : built is null ? SceneReadiness.Loading : fog.Count > 0 || settlement.PendingWork.Length > 0 ? SceneReadiness.Partial : SceneReadiness.Ready,
             objects.ToImmutable(), picking.ToImmutable(), fog.ToImmutable(), RailwayTerrain.UniqueProblems(problems), displayed,
             node: layout, nodeParts: built?.Parts.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => item.Value).ToImmutableArray() ?? [],
             debugLayers: request.DebugLayers, nodeTracks: openingTracks, pickRay: request.PickRay);
@@ -115,15 +128,19 @@ internal sealed class NodeScene : IAsyncDisposable
         if (terrain is not null)
             foreach (var id in new[] { terrain.SurfaceVoxel, terrain.SubsurfaceVoxel, terrain.RockVoxel }.Distinct())
                 appearances[id] = (snapshot.Content.FindVoxelAppearance(id) as ContentLookup<VoxelAppearanceProjection>.Found)?.Value;
-        var concrete = layout.Platforms > 0 ? Concrete(snapshot.Content) : null;
+        var model = layout.Template?.SceneModel.Scene.Voxels ?? [];
+        foreach (var voxel in model.Select(v => v.Voxel).Distinct())
+            appearances[voxel] = (snapshot.Content.FindVoxelAppearance(voxel) as ContentLookup<VoxelAppearanceProjection>.Found)?.Value;
+        var modelChunks = model.GroupBy(v => new GridColumn((int)Math.Floor((double)v.At.X / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize,
+            (int)Math.Floor((double)v.At.Z / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize)).ToDictionary(g => g.Key, g => g.ToImmutableArray());
         var parts = ImmutableDictionary.CreateBuilder<string, Part>();
         var diagnostics = ImmutableArray.CreateBuilder<SceneProblem>();
-        var bed = new Dictionary<GridColumn, double>();
+        var bed = new Dictionary<GridColumn, RailBed>();
         var boundaryColumns = new HashSet<GridColumn>();
         var boundaries = ImmutableDictionary.CreateBuilder<EdgeId, RailwayTerrain.BoundaryData>();
         var boundaryOwners = new Dictionary<GridColumn, (EdgeId Edge, double Distance)>();
         var terrainInputs = RailwayDependencies.Values(new object?[] { snapshot.Core.World.WorldSeed, map.Position, map.Terrain.TypeId,
-            map.Terrain.Relief, TerrainInputs(snapshot.Content, map.Terrain.TypeId) });
+            map.Terrain.Relief, TerrainInputs(snapshot.Content, map.Terrain.TypeId), NodeSettlement.Inputs(layout.Template) });
         foreach (var entry in layout.Entries)
         {
             var path = new RailwayPath(snapshot, entry.Edge, token);
@@ -171,28 +188,28 @@ internal sealed class NodeScene : IAsyncDisposable
         foreach (var route in layout.StationRoutes(anyTracks))
             AddRoute(route.Sample, route.Length, stationMeshes, needsStationMesh);
         Put("station-tracks", stationKey, () => MeshPart(stationMeshes.ToImmutable()));
+        var parkingMeshes = ImmutableArray.CreateBuilder<SceneMesh>();
+        foreach (var line in layout.Parking)
+            AddRoute(arc => new(RailwayCoordinates.Add(line.Start, line.Forward * (float)arc), line.Forward,
+                Vector3.Cross(Vector3.UnitY, line.Forward)), line.Length, parkingMeshes, true);
+        Put("parking-tracks", layout.Inputs, () => MeshPart(parkingMeshes.ToImmutable()));
         GridColumn Chunk(GridColumn at) => new((int)Math.Floor((double)at.X / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize,
             (int)Math.Floor((double)at.Z / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize);
         var bedChunks = bed.GroupBy(item => Chunk(item.Key)).ToDictionary(group => group.Key, group => group.ToDictionary());
         var boundaryChunks = boundaryColumns.GroupBy(Chunk).ToDictionary(group => group.Key, group => group.ToHashSet());
-        var size = checked((int)layout.HalfSize);
-        for (var z = -size; z < size; z += VoxelGrid.ChunkSize)
-        for (var x = -size; x < size; x += VoxelGrid.ChunkSize)
+        for (var z = (int)layout.Bounds.Minimum.Y; z < layout.Bounds.Maximum.Y; z += VoxelGrid.ChunkSize)
+        for (var x = (int)layout.Bounds.Minimum.X; x < layout.Bounds.Maximum.X; x += VoxelGrid.ChunkSize)
         {
             token.ThrowIfCancellationRequested();
             var from = new GridColumn(x, z);
             var chunkBed = bedChunks.GetValueOrDefault(from) ?? [];
             var chunkBoundary = boundaryChunks.GetValueOrDefault(from) ?? [];
-            var chunkInputs = RailwayDependencies.Values(new object[] { terrainInputs,
+            var chunkModel = modelChunks.GetValueOrDefault(from, []);
+            var chunkInputs = RailwayDependencies.Values(new object[] { terrainInputs, chunkModel,
+                chunkModel.Select(v => v.Voxel).Distinct().Select(id => appearances[id]).ToArray(),
                 chunkBed.OrderBy(item => item.Key.X).ThenBy(item => item.Key.Z).ToArray(),
                 chunkBoundary.OrderBy(item => item.X).ThenBy(item => item.Z).ToArray() });
-            Put("terrain:" + x + ":" + z, chunkInputs, () => TerrainPart(snapshot, map, layout, terrain, appearances, chunkBed, chunkBoundary, from, token));
-        }
-        for (var station = 0; station < layout.Platforms; station++)
-        {
-            var index = station;
-            var inputs = RailwayDependencies.Values(new object?[] { layout.Platforms, layout.StationForward, concrete });
-            Put("platform:" + index, inputs, () => PlatformPart(layout, index, concrete));
+            Put("terrain:" + x + ":" + z, chunkInputs, () => TerrainPart(snapshot, map, layout, terrain, appearances, chunkBed, chunkBoundary, chunkModel, from, token));
         }
         if (terrain is null)
             RailwayTerrain.ReportMissing(new ContentReference.Core(new CoreDefinitionReference.Terrain(map.Terrain.TypeId)),
@@ -228,7 +245,7 @@ internal sealed class NodeScene : IAsyncDisposable
                     var at = RailwayCoordinates.Add(point.Position, point.Right * (float)offset);
                     var column = new GridColumn((int)Math.Floor(at.X), (int)Math.Floor(at.Z));
                     var distance = Math.Abs(offset);
-                    if (!bed.TryGetValue(column, out var old) || distance < old) bed[column] = distance;
+                    if (!bed.TryGetValue(column, out var old) || distance < old.Distance) bed[column] = new(distance, point.Position.Y);
                 }
                 if (arc == length) break;
             }
@@ -245,46 +262,16 @@ internal sealed class NodeScene : IAsyncDisposable
                 .Select(voxel => content.FindVoxelAppearance(voxel)).ToArray() };
     }
 
-    internal static VoxelAppearanceProjection? Concrete(IContentView content)
-    {
-        foreach (var item in content.Voxels.OrderBy(item => item.Definition.Value, StringComparer.Ordinal))
-            if (content.FindVoxelAppearance(item.Definition) is ContentLookup<VoxelAppearanceProjection>.Found
-                { Value.Presentation: VoxelPresentation.Cube { Material: MaterialCategory.Concrete } cube } found &&
-                (cube.Shapes.IsEmpty || cube.Shapes.Any(shape => shape.Name == "cube"))) return found.Value;
-        return null;
-    }
-
     private static Part MeshPart(ImmutableArray<SceneMesh> meshes) => new("", WorldSceneSession.BuildGeometry(id =>
         new([new(id(""), null, new(Vector3.Zero, Quaternion.Identity), null,
             meshes.Select(mesh => (SceneVisual)new SceneVisual.Geometry(mesh, new(false, 0, 0, false))).ToImmutableArray(), [], [])], [], [])),
         ImmutableDictionary<GridColumn, double>.Empty);
 
-    internal static Part PlatformPart(NodeLayout layout, int station, VoxelAppearanceProjection? concrete)
-    {
-        if (concrete is null)
-            return new("", WorldSceneSession.BuildGeometry(_ => new([], [], [new("content_missing", SceneStage.Build,
-                new WorldObjectId.Node(layout.Node), null, null, null, "No usable concrete cube voxel is available for node platforms.")])),
-                ImmutableDictionary<GridColumn, double>.Empty);
-        var left = (int)NodeLayout.StationX(station, layout.Platforms) + NodeLayout.PlatformClearance;
-        var cells = ImmutableArray.CreateBuilder<SceneCell>();
-        var subject = new PickSubject.Terrain(new WorldLocation.Node(layout.Node));
-        VoxelShape? shape = ((VoxelPresentation.Cube)concrete.Presentation).Shapes.IsEmpty ? null : new("cube");
-        var plain = new CellProperties(VoxelOrientation.PxPy, concrete, shape, null, subject, []);
-        var warning = new CellProperties(VoxelOrientation.PxPy, concrete, shape, new("#d9a62b"), subject, []);
-        for (var z = -NodeLayout.PlatformLength / 2; z < NodeLayout.PlatformLength / 2; z++)
-        for (var x = left; x < left + NodeLayout.PlatformWidth; x++)
-        for (var y = -1; y <= 0; y++)
-        {
-            var yellow = x == left || station + 1 < layout.Platforms && x == left + NodeLayout.PlatformWidth - 1;
-            var at = layout.StationSample(x + .5, z + .5).Position;
-            cells.Add(new(new((int)Math.Floor(at.X), y, (int)Math.Floor(at.Z)), yellow ? warning : plain));
-        }
-        return GridPart(cells.ToImmutable(), ImmutableDictionary<GridColumn, double>.Empty, []);
-    }
-
+    private sealed record RailBed(double Distance, double Height);
     private static Part TerrainPart(SceneWorldSnapshot snapshot, NodeMapItem node, NodeLayout layout,
         TerrainAppearanceProjection? terrain, Dictionary<VoxelDefinitionId, VoxelAppearanceProjection?> appearances,
-        Dictionary<GridColumn, double> bed, HashSet<GridColumn> boundaryColumns, GridColumn from, CancellationToken token)
+        Dictionary<GridColumn, RailBed> bed, HashSet<GridColumn> boundaryColumns, ImmutableArray<SceneVoxelProjection> model,
+        GridColumn from, CancellationToken token)
     {
         var cellCount = terrain is null ? 0 :
             (VoxelGrid.ChunkSize * VoxelGrid.ChunkSize - boundaryColumns.Count) * RailwayCoordinates.TerrainDepthCells;
@@ -302,24 +289,29 @@ internal sealed class NodeScene : IAsyncDisposable
             heights.Add(column, height + 1);
             RailwayTerrain.FillColumn(cells, column, height, layers, layers?.Rock, distance, double.IsFinite(distance));
         }
-        return GridPart(cells.DrainToImmutable(), heights.ToImmutable(), []);
+        var modelCells = ImmutableArray.CreateBuilder<SceneCell>();
+        foreach (var voxel in model)
+        {
+            var column = new GridColumn(voxel.At.X, voxel.At.Z);
+            if (bed.TryGetValue(column, out var rail) && rail.Distance < RailwayCoordinates.DecorationVoxelClearance &&
+                voxel.At.Y >= rail.Height - 2 && voxel.At.Y < rail.Height + 42) continue;
+            var appearance = appearances.GetValueOrDefault(voxel.Voxel);
+            var missing = voxel.Missing || appearance is null ? new ContentReference.Core(new CoreDefinitionReference.Voxel(voxel.Voxel)) : null;
+            modelCells.Add(new(voxel.At, new(voxel.Orientation, appearance, voxel.Shape, voxel.Paint, subject, [], missing)));
+        }
+        var occupied = modelCells.Select(cell => cell.At).ToHashSet();
+        return GridPart(cells.Where(cell => !occupied.Contains(cell.At)).Concat(modelCells).ToImmutableArray(), heights.ToImmutable(), []);
 
         (int Height, double Distance) Column(GridColumn column)
         {
             var raw = RailwayTerrain.NodeGround(snapshot, node, new(column.X + 0.5, 0, column.Z + 0.5));
-            var distance = bed.GetValueOrDefault(column, double.PositiveInfinity);
-            if (double.IsFinite(distance))
+            var rail = bed.GetValueOrDefault(column);
+            var distance = rail?.Distance ?? double.PositiveInfinity;
+            if (rail is not null)
             {
                 var blend = Math.Clamp((distance - RailwayCoordinates.BedBaseHalfWidth) / RailwayCoordinates.BedBlendWidth, 0, 1);
-                raw = RailwayTerrain.BedHeight(0, distance) * (1 - blend) + raw * blend;
+                raw = RailwayTerrain.BedHeight(rail.Height, distance) * (1 - blend) + raw * blend;
             }
-            var point = new Vector3(column.X + .5f, 0, column.Z + .5f);
-            var u = Vector3.Dot(point, Vector3.Cross(Vector3.UnitY, layout.StationForward));
-            var v = Vector3.Dot(point, layout.StationForward);
-            if (layout.Platforms > 0 && Math.Abs(v) < NodeLayout.PlatformLength / 2.0)
-                for (var p = 0; p < layout.Platforms; p++)
-                    if (u >= NodeLayout.StationX(p, layout.Platforms) + NodeLayout.PlatformClearance &&
-                        u < NodeLayout.StationX(p, layout.Platforms) + NodeLayout.PlatformClearance + NodeLayout.PlatformWidth) raw = RailwayTerrain.BedHeight(0, 0);
             return ((int)Math.Floor(raw), distance);
         }
     }
@@ -344,11 +336,11 @@ internal sealed class NodeScene : IAsyncDisposable
     private void RenderTrains(SceneWorldSnapshot snapshot, ScenePoint origin, ImmutableArray<SceneObject>.Builder objects,
         ImmutableArray<PickGrid>.Builder picking, ImmutableArray<SceneProblem>.Builder problems, ImmutableArray<SceneFog>.Builder fog)
     {
-        var map = snapshot.Core.World.Nodes.Single(item => item.Id == Node);
         var trains = snapshot.Core.World.Trains.Where(item => item.Position is TrainPosition.Node position && position.Id == Node)
             .Select(item => snapshot.Core.FindTrain(item.Id)).OfType<Lookup<TrainView>.Found>()
             .Select(item => item.Value).OrderBy(train => train.Id.Value).ToArray();
         var queues = new Dictionary<EdgeId, double>();
+        var platforms = SettlementObjects.Platforms(snapshot, layout!, problems);
         foreach (var train in trains)
         {
             var members = train.Vehicles.Select(id => ((Lookup<InstanceView>.Found)snapshot.Core.FindInstance(new InstanceId.Vehicle(id))).Value).ToArray();
@@ -364,9 +356,16 @@ internal sealed class NodeScene : IAsyncDisposable
             double center;
             if (station >= 0)
             {
-                var u = NodeLayout.StationX(station, layout!.Platforms);
-                sample = arc => layout.StationSample(u, arc);
-                positive = (Vector3.Dot(entry?.Outward ?? layout.StationForward, layout.StationForward) < 0) == positive;
+                if (station >= platforms.Length)
+                {
+                    problems.Add(new("station_platform_mismatch", SceneStage.Reconcile, new WorldObjectId.Train(train.Id),
+                        null, null, null, "The assigned platform has no matching station slot."));
+                    continue;
+                }
+                var stop = platforms[station];
+                sample = arc => new(RailwayCoordinates.Add(stop.Center, stop.Forward * (float)arc), stop.Forward,
+                    Vector3.Cross(Vector3.UnitY, stop.Forward));
+                positive = (Vector3.Dot(entry?.Outward ?? stop.Forward, stop.Forward) < 0) == positive;
                 center = 0;
             }
             else if (entry is not null)
@@ -386,10 +385,10 @@ internal sealed class NodeScene : IAsyncDisposable
                 queues[default] = queued + total + NodeLayout.QueueGap;
             }
             var available = station >= 0 || entry is null || openingTracks.GetValueOrDefault(entry.Edge) > 0;
-            var changed = !available || map.Platforms != layout!.Platforms || entry is not null &&
+            var changed = !available || entry is not null &&
                 snapshot.Core.World.Edges.FirstOrDefault(edge => edge.Id == entry.Edge)?.Tracks != openingTracks.GetValueOrDefault(entry.Edge);
             if (changed) problems.Add(new("railway_update_pending", SceneStage.Reconcile, new WorldObjectId.Train(train.Id),
-                null, null, null, "Node tracks and platform counts use the opening snapshot; updates are implemented by Issue #345."));
+                null, null, null, "Node track counts use the opening snapshot; updates are implemented by Issue #345."));
             var consumed = 0.0;
             for (var i = 0; i < members.Length; i++)
             {
@@ -420,6 +419,7 @@ internal sealed class NodeScene : IAsyncDisposable
         cancellation.Cancel();
         try { if (pending is not null) await pending.ConfigureAwait(false); }
         catch (Exception) { /* Retired scene work cannot be attached or published. */ }
+        await settlement.DisposeAsync();
         cancellation.Dispose();
     }
 }

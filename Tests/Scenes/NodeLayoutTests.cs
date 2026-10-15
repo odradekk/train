@@ -13,7 +13,7 @@ public sealed class NodeLayoutTests
     public TestContext TestContext { get; set; } = null!;
 
     [TestMethod]
-    public void TrackCountAndTrainChangesDoNotMoveEntriesButCapacityChangesCan()
+    public void TrackCountAndCoreCapacityChangesDoNotMoveEntries()
     {
         var basis = RailwayFixtures.Snapshot(tracks: 1, trackLimit: 3);
         var layout = NodeLayout.Build(basis, new(1));
@@ -21,8 +21,8 @@ public sealed class NodeLayoutTests
         Assert.AreEqual(layout.Inputs, NodeLayout.Build(moreTracks, new(1)).Inputs);
         Assert.AreEqual(layout.EntryPoint(RailwayFixtures.Edge), NodeLayout.Build(moreTracks, new(1)).EntryPoint(RailwayFixtures.Edge));
         var station = RailwayFixtures.ReplaceCore(basis, node: basis.Core.World.Nodes[0] with { Platforms = 4 });
-        Assert.AreNotEqual(layout.Inputs, NodeLayout.Build(station, new(1)).Inputs);
-        Assert.IsTrue(NodeLayout.Build(station, new(1)).HalfSize >= layout.HalfSize);
+        Assert.AreEqual(layout.Inputs, NodeLayout.Build(station, new(1)).Inputs);
+        Assert.AreEqual(layout.EntryPoint(RailwayFixtures.Edge), NodeLayout.Build(station, new(1)).EntryPoint(RailwayFixtures.Edge));
     }
 
     [TestMethod]
@@ -39,7 +39,7 @@ public sealed class NodeLayoutTests
         var layout = NodeLayout.Build(snapshot, new(1));
         var entry = layout.EntryFor(RailwayFixtures.Edge);
         Assert.AreEqual(layout.HalfSize, Math.Max(Math.Abs(entry.Point.X), Math.Abs(entry.Point.Z)), 0.5);
-        for (var station = 0; station < Math.Max(1, platforms); station++)
+        for (var station = 0; station < Math.Max(1, layout.Platforms); station++)
         foreach (var offset in new[] { -17.0, 0, 17 })
         {
             var curve = layout.Connection(entry.Edge, offset, station);
@@ -57,16 +57,6 @@ public sealed class NodeLayoutTests
                 {
                     var curvature = 2 * Math.Abs(a.X * b.Y - a.Y * b.X) / (a.Length() * b.Length() * (a + b).Length());
                     Assert.IsTrue(curvature <= 1 / 80.0 + 0.0001, $"Curvature {curvature}");
-                }
-                for (var p = 0; p < platforms; p++)
-                {
-                    var local = RailwayCoordinates.Relative(point, default);
-                    var u = Vector3.Dot(local, layout.StationSample(0, 0).Right);
-                    var v = Vector3.Dot(local, layout.StationForward);
-                    var left = 40 * (p - (platforms - 1) / 2.0) + 16;
-                    var dx = Math.Max(left - u, Math.Max(0, u - left - 8));
-                    var dz = Math.Max(0, Math.Abs(v) - 64);
-                    Assert.IsTrue(dx * dx + dz * dz >= 256 - 0.01);
                 }
                 before = previous; previous = point;
             }
@@ -101,7 +91,7 @@ public sealed class NodeLayoutTests
             var lateral = alongX ? -side * direction.Y : side * direction.X;
             return (Side: side, Turn: lateral >= 0 ? 1 : -1);
         }).GroupBy(group => group).Max(group => group.Count());
-        var platforms = snapshot.Core.World.Nodes.Single(node => node.Id == new NodeId(1)).Platforms;
+        var platforms = layout.Platforms;
         var trackLimit = snapshot.Core.World.Edges.Max(edge => edge.TrackLimit);
         var stationHalfExtent = 40 * Math.Max(0, platforms - 1) / 2.0;
         var outermostLaneOffset = 34 * Math.Max(0, trackLimit - 1) / 2.0;
@@ -122,11 +112,11 @@ public sealed class NodeLayoutTests
             Assert.AreEqual(Math.Round(entry.Point.X - endpoint.X), entry.Point.X - endpoint.X, 1e-8);
             Assert.AreEqual(Math.Round(entry.Point.Z - endpoint.Z), entry.Point.Z - endpoint.Z, 1e-8);
             foreach (var slot in new[] { -1, 0, 1 })
-            for (var station = 0; station < platforms; station++)
+            for (var station = 0; station < Math.Max(1, platforms); station++)
             {
                 var track = layout.Connection(entry.Edge, slot, station);
                 var end = track.Sample(track.Length);
-                var expected = layout.StationSample(NodeLayout.StationX(station, platforms), entry.Side * 80).Position;
+                var expected = layout.StationSample(0, entry.Side * 16).Position;
                 Assert.IsTrue(Vector3.Distance(RailwayCoordinates.Relative(end.Position, expected), Vector3.Zero) < .002,
                     $"{name} entry={entry.Edge} slot={slot} station={station}: end={end.Position}, expected={expected}");
                 for (var arc = 0.0; arc <= track.Length; arc += 2)
@@ -149,7 +139,7 @@ public sealed class NodeLayoutTests
         var snapshot = Junction([angle, 180]);
         var layout = NodeLayout.Build(snapshot, new(1));
         foreach (var entry in layout.Entries)
-        for (var station = 0; station < 2; station++)
+        for (var station = 0; station < Math.Max(1, layout.Platforms); station++)
         {
             var track = layout.Connection(entry.Edge, 0, station);
             Assert.IsTrue(double.IsFinite(track.Length) && track.Length < 2000);

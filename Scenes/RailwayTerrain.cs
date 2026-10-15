@@ -118,7 +118,8 @@ internal static class RailwayTerrain
         var terrain = snapshot.Content.FindTerrain(node.Terrain.TypeId) is ContentLookup<TerrainAppearanceProjection>.Found found ? found.Value : null;
         var origin = RailwayCoordinates.NodePoint(node);
         var point = new ScenePoint(origin.X + localPoint.X, origin.Y + localPoint.Y, origin.Z + localPoint.Z);
-        return Ground(snapshot.Core.World.WorldSeed, node.Id.Value, node.Terrain, terrain, point);
+        var raw = Ground(snapshot.Core.World.WorldSeed, node.Id.Value, node.Terrain, terrain, point);
+        return NodeSettlement.Read(snapshot, node.Id) is { } template ? NodeSettlement.FlattenGround(template, localPoint, raw) : raw;
     }
 
     private static double Ground(ulong seed, ulong key, TerrainView view, TerrainAppearanceProjection? terrain, ScenePoint point)
@@ -564,9 +565,10 @@ internal static class RailwayTerrain
         {
             var mapOrigin = RailwayCoordinates.NodePoint(node);
             var entry = node.Id == path.Start.Id ? startEntry : endEntry;
-            return Ground(path.Seed, node.Id.Value, node.Terrain, terrains[node.Terrain.TypeId],
-            new(mapOrigin.X + entry.X + point.X - endpoint.X, mapOrigin.Y + entry.Y + point.Y - endpoint.Y,
-                mapOrigin.Z + entry.Z + point.Z - endpoint.Z));
+            var local = new ScenePoint(entry.X + point.X - endpoint.X, entry.Y + point.Y - endpoint.Y, entry.Z + point.Z - endpoint.Z);
+            var raw = Ground(path.Seed, node.Id.Value, node.Terrain, terrains[node.Terrain.TypeId],
+                new(mapOrigin.X + local.X, mapOrigin.Y + local.Y, mapOrigin.Z + local.Z));
+            return NodeSettlement.Read(snapshot, node.Id) is { } template ? NodeSettlement.FlattenGround(template, local, raw) : raw;
         }
     }
 }

@@ -11,6 +11,96 @@ namespace Train.Scenes.Tests;
 public sealed class PreviewTests
 {
     [TestMethod]
+    [DataRow(8, false)]
+    [DataRow(16, false)]
+    [DataRow(8, true)]
+    [DataRow(16, true)]
+    public void LargeEquipmentGoodUsesRealReadOnlyPreview(int halfWidth, bool nested)
+    {
+        var composite = new CompositeDefinitionId("test:crane");
+        var good = new GoodId.Composite(composite);
+        var cells = Enumerable.Range(-halfWidth, halfWidth * 2 + 1)
+            .Select(x => new GridPosition(x, 7, 0))
+            .Concat(Enumerable.Range(0, 7).SelectMany(y => new[]
+                { new GridPosition(-halfWidth, y, 0), new GridPosition(halfWidth, y, 0) }))
+            .Select((at, index) => SceneFixtures.Cell(at, index + 1)).ToImmutableArray();
+        var projection = SceneFixtures.Projection(nested
+            ? cells.Select(cell => cell with
+            {
+                ObjectPath = [0], At = new(10, cell.At.Y + 3, cell.At.X + 20),
+                Orientation = VoxelOrientation.PzPy, Number = new(1),
+                Element = new DesignElementPath.FunctionalComposite([], 0)
+            }).ToImmutableArray()
+            : cells, nested
+                ? [new NestedObjectProjection([0], new(10, 3, 20), VoxelOrientation.PzPy,
+                    new NestedObjectDetails.FunctionalComposite(composite, new(1), null))]
+                : []);
+        if (nested) projection = projection with
+        {
+            Elements = [new(new(1), new DesignElementPath.FunctionalComposite([], 0),
+                new ComputedValue<ImmutableArray<GridPosition>>.Known(projection.Voxels.Select(cell => cell.At).ToImmutableArray()), true, false)]
+        };
+        var evaluation = SceneFixtures.Evaluation(projection) with
+        {
+            Definition = SceneFixtures.Draft with
+            {
+                Specification = nested ? new DesignSpecification.Assembly(null)
+                    : new DesignSpecification.FunctionalComposite([], null)
+            }
+        };
+        var content = new Train.Content.ContractSupport.FixedContentView
+        {
+            Generation = new(1),
+            Goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>>
+            {
+                [good] = new ContentLookup<GoodPresentation>.Found(new(good,
+                    new(new("Crane", ""), null, null, false), evaluation.Design, false))
+            },
+            Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+                { [evaluation.Design] = new ContentLookup<DesignEvaluation>.Found(evaluation) },
+            VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
+                { [SceneFixtures.Voxel] = new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube) }
+        };
+        var presentation = ((ContentLookup<GoodPresentation>.Found)content.FindGood(good)).Value;
+        Assert.IsFalse(presentation.Missing);
+        var design = ((ContentLookup<DesignEvaluation>.Found)content.FindDesign(presentation.DisplayDesign!.Value)).Value;
+        var preview = ((SceneResult<IDesignPreview>.Success)ScenesFactory.Create().PreviewDesign(content, design)).Value;
+        var frame = ((SceneResult<ISceneFrame>.Success)preview.Present()).Value;
+        preview.Dispose();
+
+        Assert.AreEqual(SceneReadiness.Ready, frame.Readiness);
+        Assert.IsEmpty(frame.Diagnostics);
+        Assert.IsNull(frame.Update.Base);
+        Assert.AreEqual(0d, frame.SimulationSeconds);
+        Assert.IsFalse(frame.Update.Upserts.SelectMany(item => item.Visuals).OfType<SceneVisual.Missing>().Any());
+        var body = frame.Update.Upserts.Single(item => item.Visuals.OfType<SceneVisual.Geometry>().Any());
+        var vertices = body.Visuals.OfType<SceneVisual.Geometry>().SelectMany(item => item.Mesh.Vertices)
+            .Select(vertex => vertex.Position).ToArray();
+        Assert.AreEqual((float)-halfWidth, vertices.Min(point => point.X));
+        Assert.AreEqual((float)halfWidth + 1, vertices.Max(point => point.X));
+        Assert.AreEqual(0f, vertices.Min(point => point.Y));
+        Assert.AreEqual(8f, vertices.Max(point => point.Y));
+        foreach (var x in new[] { -halfWidth, halfWidth })
+        {
+            Assert.IsTrue(vertices.Contains(new Vector3(x, 0, 0)), "Both pillars must reach ground level.");
+            Assert.IsTrue(vertices.Contains(new Vector3(x, 8, 0)), "The top beam must span both pillars.");
+        }
+        if (nested)
+        {
+            Assert.IsNotNull(body.Parent);
+            var world = vertices.Select(point => Vector3.Transform(point, body.Pose.Rotation) + body.Pose.Position).ToArray();
+            Assert.AreEqual(10f, world.Min(point => point.X), 0.0001f);
+            Assert.AreEqual(11f, world.Max(point => point.X), 0.0001f);
+            Assert.AreEqual(3f, world.Min(point => point.Y), 0.0001f);
+            Assert.AreEqual(11f, world.Max(point => point.Y), 0.0001f);
+            Assert.AreEqual(20f - halfWidth, world.Min(point => point.Z), 0.0001f);
+            Assert.AreEqual(21f + halfWidth, world.Max(point => point.Z), 0.0001f);
+        }
+        else Assert.IsNull(body.Parent);
+        Assert.IsInstanceOfType<ScenePick.Miss>(frame.Pick(new(new(-100, 0.5f, 0.5f), Vector3.UnitX, 200)));
+    }
+
+    [TestMethod]
     public void CompletePreviewIsReadOnlyAndRetainedFrameSurvivesDisposal()
     {
         var evaluation = SceneFixtures.Evaluation(SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0))]));

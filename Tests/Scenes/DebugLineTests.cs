@@ -77,8 +77,11 @@ public sealed class DebugLineTests
             var centerline = Present(SceneDebugLayer.Centerline).DebugLines;
             CollectionAssert.AreEqual(loading.DebugLines.ToArray(), centerline.ToArray());
             var points = centerline.SelectMany(line => new[] { line.From, line.To }).ToArray();
-            Assert.IsTrue(points.Contains(new(0, 0, -80)) && points.Contains(new(0, 0, 80)),
-                "The one station track includes its two clearance ends.");
+            var routes = scene.Layout!.StationRoutes(true).ToArray();
+            Assert.IsTrue(routes.All(route => points.Any(point => Vector3.Distance(point,
+                RailwayCoordinates.Relative(route.Sample(0).Position, default)) < .001f) && points.Any(point => Vector3.Distance(point,
+                RailwayCoordinates.Relative(route.Sample(route.Length).Position, default)) < .001f)),
+                "Centerlines include both ends of each template through-line.");
         }
         finally { release.Set(); }
     }
