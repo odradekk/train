@@ -239,7 +239,7 @@ NPC 现车使用独立的 `KeyedRandom` 版本 1，不消费上述阶段的随�
 
 ### 当前列车运行
 
-列车能力来自有序成员的保存设计及当前耐久。长度为各车 `LengthCells × 0.5` 米之和，质量为车辆设计质量与已知库存货物质量之和；耐久大于零且定义未缺失的部件提供完整能力。牵引相加，最高速度取有效动力部件额定速度的最小值，加速度为牵引除以质量。定义型货物使用当前 `Goods`，组装体货物使用世界保存的衍生投影。库存定义缺失时，`MassTons`、`Acceleration` 只表示已知部分，`Blockers` 必含 `content_missing / Train.Inventory`，主体为列车；相关身份使用 `assembly:`、`composite:`、`voxel:` 前缀并按 Ordinal 排序，不能把这些数值当作完整质量和加速度。
+列车能力来自有序成员的保存设计及当前耐久。长度为各车 `LengthCells × 0.5` 米之和，质量为车辆设计质量与已知库存货物质量之和；耐久大于零且定义未缺失的部件提供完整能力。部件定义是否缺失按当前内容判断，与库存容量采用同一规则；恢复不改写保存设计。牵引相加，最高速度取有效动力部件额定速度的最小值，加速度为牵引除以质量。定义型货物使用当前 `Goods`，组装体货物使用世界保存的衍生投影。库存定义缺失时，`MassTons`、`Acceleration` 只表示已知部分，`Blockers` 必含 `content_missing / Train.Inventory`，主体为列车；相关身份使用 `assembly:`、`composite:`、`voxel:` 前缀并按 Ordinal 排序，不能把这些数值当作完整质量和加速度。
 
 每次从静止出发共用检查，依次返回 `control_missing / Train.Vehicles`、`traction_missing / Train.TractionKilonewtons`、`content_missing / Train.Inventory`、`overloaded / Train.Acceleration`。加速度等于规则下限允许出发。手动启动不满足时拒绝；停留后不满足时为 `Waiting`，每步重试。已经行驶的列车按已知质量继续到下一个停车点。铁路规则按 `WorldSummary.RailwayRule` 从当前投影读取，不保存另一个规则副本或添加缺失兜底；引用与普通恢复适配责任沿用世界生成路径。
 
@@ -273,7 +273,7 @@ NPC 现车使用独立的 `KeyedRandom` 版本 1，不消费上述阶段的随�
 | --- | --- |
 | `FormTrain` | 有序成员非空且唯一：`composition_empty`、`vehicle_duplicate / OrderedVehicles`；车辆存在、玩家自有、未编组、在同一非敌对聚居地停放：`object_missing`、`not_owned`、`vehicle_in_train`、`vehicles_not_colocated`、`access_denied / OrderedVehicles`；新列车或库存编号耗尽为 `identity_exhausted / World.Next`。成功在 W 创建阶段 Waiting、活动 Stopped、无线路引用和站台号的列车及空库存，回执给出二者身份，保留车辆输入顺序 |
 | `DisbandTrain` | 在节点且速度为零：`train_not_stationary_at_node / Train.Position`；节点不是聚居地：`settlement_unavailable / Train.Position`，聚居地敌对：`access_denied / Train.Position`；库存必须为空：`inventory_not_empty / Train.Inventory`。停留、等待、无路的静止列车也可解编；删除列车、计划和库存，成员原地停放，身份不复用 |
-| `ReplaceRunPlan` | 非空：`plan_empty / Plan.Stops`；目标存在：`object_missing / Plan.Stops[i].Node`，主体为该节点；循环目标不能全部相同：`plan_degenerate / Plan.Stops`。Station 可设在任何现存节点，空节点、敌对聚居地及生物聚落均照常停留计时。非空 GoodsRules 在编号前抛 `NotImplementedException`。索引置 0，放弃剩余停留，保持启停意图；运行在线路上先到前方节点，保留节点内位置和预约，进站可重选下一线路、出站保持已定线路；出站阶段（含停在 L）依序消费新计划开头指向当前节点的途经点，本站 Station 仍先驶出再返回；其余途经目标越 S 才消费，停车列车保持停车 |
+| `ReplaceRunPlan` | 非空：`plan_empty / Plan.Stops`；目标存在：`object_missing / Plan.Stops[i].Node`，主体为该节点；循环目标不能全部相同：`plan_degenerate / Plan.Stops`。Station 可设在任何现存节点，空节点、敌对聚居地及生物聚落均照常停留计时。同一 Station 内同一货物重复是业务拒绝 `plan_duplicate_good`，字段为 `Plan.Stops[i].GoodsRules[j].Good`；与目标存在检查一起按停靠点顺序进行，每站先检查目标存在，再检查重复货物，均在 `plan_degenerate` 之前。索引置 0，放弃剩余停留，保持启停意图；运行在线路上先到前方节点，保留节点内位置和预约，进站可重选下一线路、出站保持已定线路；出站阶段（含停在 L）依序消费新计划开头指向当前节点的途经点，本站 Station 仍先驶出再返回；其余途经目标越 S 才消费，停车列车保持停车 |
 | `StartTrain` | 先对所有列车检查计划存在且未完成（`plan_missing / Train.Plan`、`plan_completed / Train.NextStopIndex`）；随后非 `Stopped` 时接受并清除尚未完成的停车请求，其余业务状态保持不变；仅在 `Stopped` 时检查上述静止出发条件。暂停停留沿用已有预约恢复余时，否则沿正常节点阶段继续；缺预约时申请，不足则等待 |
 | `DebugAddRailBreak` | 调用前提：线路身份非零、轨号为正 `int`、距离为有限非负米数，否则在取得编号前抛 `ArgumentException`。线路不存在拒绝 `object_missing / Edge`；轨号超过现有铁轨数或距离超过线路长度拒绝 `invalid_state / Break`，两者主体均为线路；断点编号耗尽拒绝 `identity_exhausted / World.Next.Break`。成功增加断点、推进编号并发出 `RailBroken`，同轨未兑现交让清除 |
 | `StopTrain` | 静止时原地停车并暂停停留；进站制动到 S，来不及则强制停车；已过 S 继续驶出并在下一节点停车；在线路上请求停在前方节点 S。重复请求保持同样业务状态 |
