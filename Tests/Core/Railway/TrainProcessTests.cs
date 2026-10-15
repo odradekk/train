@@ -14,6 +14,10 @@ public sealed class TrainProcessTests
     public TestContext TestContext { get; set; } = null!;
 
     [TestMethod]
+    [DataRow("approaching")]
+    [DataRow("waiting")]
+    [DataRow("docked")]
+    [DataRow("departing")]
     [DataRow("edge")]
     [DataRow("servicing")]
     [DataRow("pending-stop")]
@@ -53,6 +57,9 @@ public sealed class TrainProcessTests
         }
         else Assert.IsTrue(query.RootElement.GetProperty("Position").GetString()!.Contains("DistanceMeters", StringComparison.Ordinal));
         using var payload = JsonDocument.Parse(prefix.Samples[0].Payload);
+        if (Enum.TryParse<NodeTravelPhase>(boundary, ignoreCase: true, out var phase))
+            Assert.AreEqual((int)phase, payload.RootElement.GetProperty("world").GetProperty("trains")[0]
+                .GetProperty("position").GetProperty("phase").GetInt32());
         Assert.AreEqual(boundary == "pending-stop", payload.RootElement.GetProperty("world")
             .GetProperty("trains")[0].GetProperty("stop_requested").GetBoolean());
         Directory.Delete(directory, recursive: true);

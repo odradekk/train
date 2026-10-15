@@ -200,7 +200,7 @@ try {
                         foreach ($value in @($threshold.baseline.baselineStepsPerSecond, $threshold.baseline.maximumSlowdown, $threshold.measurement.stepsPerSecond)) {
                             if (($value -isnot [long] -and $value -isnot [double]) -or -not [double]::IsFinite($value)) { throw 'Benchmark numeric values are invalid.' }
                         }
-                        if ($threshold.baseline.workload -ne 'core-train-loop-v1' -or $threshold.baseline.workload -ne $threshold.measurement.workload -or
+                        if ($threshold.baseline.workload -ne 'core-train-loop-v2' -or $threshold.baseline.workload -ne $threshold.measurement.workload -or
                             $threshold.baseline.baselineStepsPerSecond -le 0 -or $threshold.baseline.maximumSlowdown -lt 1 -or $threshold.measurement.stepsPerSecond -le 0) { throw 'Benchmark workload or numeric values are invalid.' }
                         $threshold.measurementRatio = $threshold.measurement.stepsPerSecond / $threshold.baseline.baselineStepsPerSecond
                         if ($threshold.measurement.stepsPerSecond * $threshold.baseline.maximumSlowdown -lt $threshold.baseline.baselineStepsPerSecond) { throw 'Benchmark slowdown exceeds the candidate limit.' }

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using Train.Core.Contracts;
 using Train.Core.Tests.World;
@@ -9,17 +10,28 @@ internal static class TrainRecoveryFixture
 {
     internal static CoreContentProjection Content => WorldFixture.Content with
     {
-        RailwayRules = [WorldFixture.Content.RailwayRules[0] with { BrakingDeceleration = 100 }],
+        RailwayRules = [WorldFixture.Content.RailwayRules[0] with { BrakingDeceleration = 100, ApproachLengthMeters = 1, DepartureLengthMeters = 1 }],
+        SettlementTemplates = WorldFixture.Content.SettlementTemplates.Select(t => t with { PlatformLengthMeters = 2 }).ToImmutableArray(),
         Designs = WorldFixture.Content.Designs.SetItem(0, WorldFixture.Content.Designs[0] with
         { Parts = [WorldFixture.Content.Designs[0].Parts[0] with
             { Capabilities = [new PartCapability.Control(), new PartCapability.Propulsion(100, 30), new PartCapability.Storage(100)] }] })
     };
     internal static RuntimeIdentity Runtime => WorldFixture.Options.Runtime;
-    internal static ICoreSession New(RuntimeIdentity? runtime = null)
+    internal static CoreContentProjection ContentFor(string? boundary) => boundary == "waiting" ? Content with
+    {
+        Identity = new(new string('E', 64)),
+        Designs = Content.Designs.Select(design => design.Design == WorldFixture.Station ? design with
+        { Parts = design.Parts.Select(part => part with
+            { Capabilities = part.Capabilities.Where(c => c is not PartCapability.Platform).ToImmutableArray() }).ToImmutableArray() }
+            : design).ToImmutableArray()
+    } : Content;
+
+    internal static ICoreSession New(RuntimeIdentity? runtime = null, string? boundary = null)
     {
         var input = Input with { Configuration = Input.Configuration with
-        { WidthMeters = 40, HeightMeters = 20, SettlementRatio = 1, LairRatio = 0, HostileSettlementRatio = 0 } };
-        using var candidate = Success(CoreFactory.Create().PrepareNew(input, Content, new(runtime ?? Runtime, false, 32)));
+        { WidthMeters = 40, HeightMeters = 20, SettlementRatio = 1, LairRatio = 0, HostileSettlementRatio = 0,
+            StartConstraints = Input.Configuration.StartConstraints with { RequireStation = boundary != "waiting" } } };
+        using var candidate = Success(CoreFactory.Create().PrepareNew(input, ContentFor(boundary), new(runtime ?? Runtime, false, 32)));
         return candidate.Activate();
     }
 
@@ -63,7 +75,15 @@ internal static class TrainRecoveryFixture
         for (var step = 0; step < 1000; step++)
         {
             var train = Train(session);
-            if (boundary == "servicing" ? train.Activity == TrainActivity.Servicing : train.Position is TrainPosition.Edge)
+            var reached = boundary switch
+            {
+                "approaching" => train.Position is TrainPosition.Node { Phase: NodeTravelPhase.Approaching, EnteredFrom: not null },
+                "waiting" => train.Position is TrainPosition.Node { Phase: NodeTravelPhase.Waiting } && train.Activity == TrainActivity.Waiting,
+                "docked" or "servicing" => train.Position is TrainPosition.Node { Phase: NodeTravelPhase.Docked } && train.Activity == TrainActivity.Servicing,
+                "departing" => train.Position is TrainPosition.Node { Phase: NodeTravelPhase.Departing, EnteredFrom: not null },
+                _ => train.Position is TrainPosition.Edge
+            };
+            if (reached)
             {
                 if (boundary == "pending-stop") Submit(session, new CoreCommand.StopTrain(train.Id), events);
                 return;
@@ -87,7 +107,7 @@ internal static class TrainRecoveryFixture
         return JsonSerializer.Serialize(new { Position = Position(train.Position), train.Activity,
             train.SpeedMetersPerSecond, train.NextStopIndex, train.RemainingDwellSteps, train.OrderFacing,
             train.LengthMeters, train.MassTons, train.TractionKilonewtons, train.Acceleration,
-            train.MaximumSpeedMetersPerSecond, train.NodeTransit, train.Vehicles, train.Inventory,
+            train.MaximumSpeedMetersPerSecond, train.Vehicles, train.Inventory,
             Location = ((Lookup<LocationView>.Found)session.Read().FindLocation(location)).Value.Trains,
             Instances = instances.Select(instance => new { instance.Id, Location = JsonSerializer.Serialize(instance.Location, instance.Location.GetType()),
                 Details = JsonSerializer.Serialize(instance.Details, instance.Details.GetType()) }).ToArray(),

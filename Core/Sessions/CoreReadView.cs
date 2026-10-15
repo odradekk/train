@@ -13,7 +13,7 @@ internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Re
     public Lookup<NodeView> FindNode(NodeId id)
     {
         if (id.Value == 0) throw new ArgumentException("节点编号必须非零。", nameof(id));
-        return Lookup(State.FindNode(id));
+        return Lookup(State.FindNode(id, Content));
     }
     public Lookup<EdgeView> FindEdge(EdgeId id)
     {

@@ -16,7 +16,7 @@ internal static partial class RuleParser
         try
         {
             var root = document.RootElement;
-            var json = new DefinitionJson(root, package, path, kind + "-rule", 1);
+            var json = new DefinitionJson(root, package, path, kind + "-rule", kind == "railway" ? 2 : 1);
             var id = new K.RuleDefinitionId(json.Id);
             subject = new C.ContentReference.Core(new K.CoreDefinitionReference.Rule(id));
             return kind switch
@@ -108,11 +108,13 @@ internal static partial class RuleParser
     private static ParsedRule.Railway Railway(JsonElement root, DefinitionJson json, K.RuleDefinitionId id, string path)
     {
         Object(root, "", "schema_version", "id", "braking_deceleration", "minimum_acceleration", "minimum_gap_meters",
-            "rail_units_per_meter", "build_seconds_per_meter", "repair_seconds_per_break", "rail_good", "repair_rail_units_per_break", "appearance");
+            "rail_units_per_meter", "build_seconds_per_meter", "repair_seconds_per_break", "rail_good", "repair_rail_units_per_break", "appearance",
+            "approach_length_meters", "departure_length_meters", "node_speed_limit_meters_per_second");
         var good = new K.VoxelDefinitionId(json.Reference(Required(root, "rail_good", ""), "/rail_good"));
         var projection = new K.RailwayRuleProjection(id, default, N("braking_deceleration"), N("minimum_acceleration"),
             N("minimum_gap_meters"), good, N("rail_units_per_meter"), N("build_seconds_per_meter"),
-            Int64(Required(root, "repair_rail_units_per_break", ""), "/repair_rail_units_per_break", 1), N("repair_seconds_per_break"));
+            Int64(Required(root, "repair_rail_units_per_break", ""), "/repair_rail_units_per_break", 1), N("repair_seconds_per_break"),
+            N("approach_length_meters"), N("departure_length_meters"), N("node_speed_limit_meters_per_second"));
         var appearance = Required(root, "appearance", "");
         Object(appearance, "/appearance", "minimum_curve_radius_meters", "maximum_grade");
         return new(projection with { Revision = RuleSemantics.Revision(projection) },

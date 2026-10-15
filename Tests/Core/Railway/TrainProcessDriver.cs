@@ -22,10 +22,10 @@ internal static class TrainProcessDriver
             {
                 var factory = CoreFactory.Create();
                 using var candidate = Success(factory.PrepareRestore(Success(factory.DecodeState(await File.ReadAllTextAsync(statePath))),
-                    TrainRecoveryFixture.Content, new(runtime, false, 32)));
+                    TrainRecoveryFixture.ContentFor(boundary), new(runtime, false, 32)));
                 session = candidate.Activate();
             }
-            else session = TrainRecoveryFixture.New(runtime);
+            else session = TrainRecoveryFixture.New(runtime, boundary);
             using (session)
             {
                 var events = new List<string>();
@@ -47,6 +47,8 @@ internal static class TrainProcessDriver
                 if (mode == "save") await File.WriteAllTextAsync(statePath, samples[0].Payload, new UTF8Encoding(false));
                 else
                 {
+                    if (boundary == "waiting")
+                        TrainRecoveryFixture.Submit(session, new CoreCommand.PublishContent(TrainRecoveryFixture.Content), events);
                     // 所有分支从同一个保存边界执行同一后缀，含停车后恢复运行。
                     if (boundary != "pending-stop")
                         TrainRecoveryFixture.Submit(session, new CoreCommand.StopTrain(TrainRecoveryFixture.Train(session).Id), events);

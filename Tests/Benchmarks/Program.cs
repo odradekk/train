@@ -32,10 +32,22 @@ try
 
     var result = new
     {
-        workload = "core-train-loop-v1",
+        workload = "core-train-loop-v2",
         measuredAtUtc = DateTimeOffset.UtcNow,
         trainCount = TrainLoopBenchmark.TrainCount,
+        seed = TrainLoopBenchmark.Seed,
+        generatorVersion = TrainLoopBenchmark.GeneratorVersion,
         stepsPerBatch = TrainLoopBenchmark.StepsPerBatch,
+        approachLengthMeters = TrainLoopBenchmark.ApproachLengthMeters,
+        platformLengthMeters = TrainLoopBenchmark.PlatformLengthMeters,
+        departureLengthMeters = TrainLoopBenchmark.DepartureLengthMeters,
+        nodeSpeedLimitMetersPerSecond = TrainLoopBenchmark.NodeSpeedLimitMetersPerSecond,
+        brakingDecelerationMetersPerSecondSquared = TrainLoopBenchmark.BrakingDeceleration,
+        worldWidthMeters = TrainLoopBenchmark.WorldWidthMeters,
+        worldHeightMeters = TrainLoopBenchmark.WorldHeightMeters,
+        propulsionKilonewtons = 100,
+        vehicleMaximumSpeedMetersPerSecond = 30,
+        stationDwellSteps = new[] { 4, 3, 2 },
         meanNanosecondsPerStep = statistics.Mean,
         standardDeviationNanosecondsPerStep = statistics.StandardDeviation,
         sampleCount = statistics.N,

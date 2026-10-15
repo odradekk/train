@@ -25,22 +25,52 @@ internal static class TrainOperations
         _ => throw new InvalidOperationException("停靠点种类无效。")
     };
 
+    internal static PlanStop.Station? StationAt(TrainState train, NodeId node)
+    {
+        for (var count = 0; count < (train.Plan?.Stops.Length ?? 0) && train.NextStopIndex is { } index
+             && Target(train.Plan!.Stops[index]) == node; count++)
+        {
+            if (train.Plan.Stops[index] is PlanStop.Station station) return station;
+            train = Consume(train);
+        }
+        return null;
+    }
+
+    private static TrainState AfterLocalStops(TrainState train, NodeId node)
+    {
+        for (var count = 0; count < (train.Plan?.Stops.Length ?? 0) && train.NextStopIndex is { } index
+             && Target(train.Plan!.Stops[index]) == node; count++) train = Consume(train);
+        return train;
+    }
+
+    private static EdgeId? Departure(WorldState world, CoreContentProjection content, TrainState train, NodeId node)
+    {
+        train = AfterLocalStops(train, node);
+        if (train.NextStopIndex is not { } index) return null;
+        var route = TrainRouting.FindRoute(world.Nodes, world.Edges, node, Target(train.Plan!.Stops[index]),
+            Capabilities(world, content, train).MaximumSpeedMetersPerSecond);
+        return route is { } found && !found.Edges.IsEmpty ? found.Edges[0] : null;
+    }
+
+    private static bool MustStop(TrainState train, TrainPosition.Node position)
+        => train.StopRequested || StationAt(train, position.Id) is not null
+            || AfterLocalStops(train, position.Id).NextStopIndex is null
+            || position.NextEdge is null || position.NextEdge == position.EnteredFrom;
+
     internal static TrainView Read(WorldState world, CoreContentProjection content, TrainState train)
     {
         var capabilities = Capabilities(world, content, train);
         var blockers = ImmutableArray.CreateBuilder<CoreProblem>();
         var problem = capabilities.DepartureProblem(train.Id, Rule(world, content).MinimumAcceleration);
         if (problem is not null) blockers.Add(problem);
-        if (capabilities.MissingProblem(train.Id) is { } missing && problem?.Code != missing.Code)
-            blockers.Add(missing);
+        if (capabilities.MissingProblem(train.Id) is { } missing && problem?.Code != missing.Code) blockers.Add(missing);
         if (train.Activity == TrainActivity.NoRoute) blockers.Add(NoRoute(train));
-        if (train.Activity == TrainActivity.Waiting && train.QueueEnteredStep is not null)
+        if (train.QueueEnteredStep is not null && train.Position is TrainPosition.Node position)
         {
-            if (train.NextStopIndex is { } index && train.Plan!.Stops[index] is PlanStop.Station station
-                && train.Position is TrainPosition.Node node && station.Node == node.Id)
-                blockers.Add(TrainDispatch.PlatformWait(train));
-            else if (TrainDispatch.RequestedEdge(world, content, train) is { } edge)
-                blockers.Add(TrainDispatch.TrackWait(train, edge.Id));
+            if (position.Phase != NodeTravelPhase.Departing && TrainDispatch.NeedsPlatform(world, train)
+                && position.PlatformNumber is null) blockers.Add(TrainDispatch.PlatformWait(train));
+            else if (position.Phase == NodeTravelPhase.Departing && position.NextEdge is { } edge)
+                blockers.Add(TrainDispatch.TrackWait(train, edge));
         }
         var armed = train.Vehicles.Any(id =>
         {
@@ -54,7 +84,7 @@ internal static class TrainOperations
             capabilities.TractionKilonewtons, capabilities.Acceleration, capabilities.MaximumSpeedMetersPerSecond,
             train.Plan, train.NextStopIndex, train.RemainingDwellSteps,
             new(TargetPriority.ArmedFirst, TargetScope.ArmedOnly, armed ? EncounterAction.Engage : EncounterAction.Retreat, 0),
-            blockers.ToImmutable(), null, [], train.Transit, train.OrderFacing);
+            blockers.ToImmutable(), null, [], train.OrderFacing);
     }
 
     internal static (WorldState World, ImmutableArray<CoreEvent> Events) Advance(WorldState world, CoreContentProjection content, ulong step)
@@ -62,67 +92,70 @@ internal static class TrainOperations
         var events = ImmutableArray.CreateBuilder<CoreEvent>();
         var dispatch = new TrainDispatch(world, content);
         var trains = world.Trains.ToDictionary(t => t.Id);
-        var arrivals = new List<TrainId>();
-        foreach (var train in world.Trains.OrderBy(t => t.Id.Value))
+        foreach (var original in world.Trains.OrderBy(t => t.QueueEnteredStep ?? step).ThenBy(t => t.Id.Value))
         {
+            var train = original;
+            if (train.Activity == TrainActivity.Stopped) continue;
             if (train.Activity == TrainActivity.Servicing)
             {
-                var serviced = train with { RemainingDwellSteps = train.RemainingDwellSteps - 1 };
-                if (serviced.RemainingDwellSteps == 0)
-                { serviced = Consume(serviced); arrivals.Add(train.Id); }
-                trains[train.Id] = serviced;
+                train = train with { RemainingDwellSteps = train.RemainingDwellSteps - 1 };
+                if (train.RemainingDwellSteps == 0)
+                    train = ResolveNode(world, content, Consume(train), events, dispatch, checked(step + 1));
             }
             else if (train.Position is TrainPosition.Edge)
+                train = MoveEdge(world, content, train, dispatch, events, checked(step + 1));
+            else
             {
-                trains[train.Id] = Move(world, content, train, dispatch, events);
-                if (trains[train.Id].Position is TrainPosition.Node) arrivals.Add(train.Id);
-            }
-        }
-        foreach (var original in world.Trains.Where(t => t.Position is TrainPosition.Node
-                     && t.Activity is not (TrainActivity.Stopped or TrainActivity.Servicing))
-                     .OrderBy(t => t.QueueEnteredStep ?? step).ThenBy(t => t.Id.Value))
-        {
-            var train = ResolveNode(world, content, original, events, dispatch, step);
-            if (train.Activity == TrainActivity.Running && train.Transit!.NextEdge is { } edgeId)
-            {
-                var edge = world.Edges.Single(e => e.Id == edgeId);
-                if (dispatch.Enter(train, edge, true) is { } track)
-                {
-                    var direction = TrainDispatch.Direction(edge, ((TrainPosition.Node)train.Position).Id);
-                    train = train with
-                    {
-                        Position = new TrainPosition.Edge(edgeId, track, direction,
-                            direction == TravelDirection.Forward ? 0 : edge.LengthMeters),
-                        OrderFacing = train.Transit.EnteredFrom == edgeId ? OppositeFacing(train.OrderFacing) : train.OrderFacing,
-                        Transit = null, QueueEnteredStep = null
-                    };
-                    train = Move(world, content, train, dispatch, events);
-                    if (train.Position is TrainPosition.Node) arrivals.Add(train.Id);
-                }
+                train = ResolveNode(world, content, train, events, dispatch, step);
+                if (train.Activity == TrainActivity.Running)
+                    train = MoveNode(world, content, train, dispatch, events, checked(step + 1));
             }
             trains[train.Id] = train;
         }
-        foreach (var id in arrivals.OrderBy(id => id.Value))
-            trains[id] = ResolveNode(world, content, trains[id], events, dispatch, checked(step + 1), !trains[id].StopRequested);
+
+        var exits = trains.Values.Where(t => t.Position is TrainPosition.Node
+                { Phase: NodeTravelPhase.Departing, NextEdge: not null } p
+            && t.Activity is TrainActivity.Running or TrainActivity.Waiting
+            && p.DistanceMeters >= NodeDimensions.Read(world, content, p.Id).Length
+            && (t.SpeedMetersPerSecond > 0 || dispatch.Capabilities(t).DepartureProblem(t.Id,
+                Rule(world, content).MinimumAcceleration) is null)).ToArray();
+        dispatch.RegisterExits(exits);
+        foreach (var train in exits.OrderBy(t => t.QueueEnteredStep ?? checked(step + 1)).ThenBy(t => t.Id.Value))
+        {
+            var position = (TrainPosition.Node)train.Position;
+            var edge = world.Edges.Single(e => e.Id == position.NextEdge);
+            if (dispatch.Enter(train, edge, true) is { } track)
+            {
+                var direction = TrainDispatch.Direction(edge, position.Id);
+                trains[train.Id] = ChangeActivity(train with
+                {
+                    Position = new TrainPosition.Edge(edge.Id, track, direction,
+                        direction == TravelDirection.Forward ? 0 : edge.LengthMeters), QueueEnteredStep = null
+                }, TrainActivity.Running, events);
+            }
+            else trains[train.Id] = Wait(train, checked(step + 1), TrainDispatch.TrackWait(train, edge.Id), events);
+        }
         return (dispatch.Finish(world with { Trains = world.Trains.Select(t => trains[t.Id]).ToImmutableArray() }), events.ToImmutable());
     }
 
-    private static TrainState Move(WorldState world, CoreContentProjection content, TrainState train,
-        TrainDispatch dispatch, ImmutableArray<CoreEvent>.Builder events)
+    private static TrainState MoveEdge(WorldState world, CoreContentProjection content, TrainState train,
+        TrainDispatch dispatch, ImmutableArray<CoreEvent>.Builder events, ulong step)
     {
         var position = (TrainPosition.Edge)train.Position;
         var edge = world.Edges.Single(e => e.Id == position.Id);
         var forward = position.Direction == TravelDirection.Forward ? edge.End : edge.Start;
-        var remaining = position.Direction == TravelDirection.Forward
-            ? edge.LengthMeters - position.DistanceMeters : position.DistanceMeters;
+        var remaining = position.Direction == TravelDirection.Forward ? edge.LengthMeters - position.DistanceMeters : position.DistanceMeters;
         var capabilities = dispatch.Capabilities(train);
-        var stopAfterEndpoint = train.StopRequested ? 0 : TrainRouting.PredictStopDistance(world.Nodes, world.Edges,
-            forward, train.Plan!, train.NextStopIndex!.Value, capabilities.MaximumSpeedMetersPerSecond);
+        var rule = Rule(world, content);
+        var stopAfterEndpoint = PredictStopDistance(world, content, train, forward, edge.Id, dispatch, step);
+        // A nonzero boundary speed is the same braking parabola as a virtual stop beyond the boundary.
+        var target = Math.Min(stopAfterEndpoint ?? double.PositiveInfinity,
+            Math.Pow(Math.Min(capabilities.MaximumSpeedMetersPerSecond, rule.NodeSpeedLimitMetersPerSecond), 2)
+                / (2 * rule.BrakingDeceleration));
         var limit = dispatch.Limit(train);
         var distance = Math.Abs(limit.Position - position.DistanceMeters);
-        var motion = TrainMotion.Advance(limit.Endpoint ? remaining : distance, limit.Endpoint ? stopAfterEndpoint : 0,
-            train.SpeedMetersPerSecond, capabilities.Acceleration, Rule(world, content).BrakingDeceleration,
-            capabilities.MaximumSpeedMetersPerSecond);
+        var motion = TrainMotion.Advance(limit.Endpoint ? remaining : distance, limit.Endpoint ? target : 0,
+            train.SpeedMetersPerSecond, capabilities.Acceleration, rule.BrakingDeceleration, capabilities.MaximumSpeedMetersPerSecond);
         if (!limit.Endpoint || !motion.Arrived)
         {
             var moved = position.DistanceMeters + (position.Direction == TravelDirection.Forward ? motion.DistanceMeters : -motion.DistanceMeters);
@@ -130,55 +163,187 @@ internal static class TrainOperations
             { DistanceMeters = position.Direction == TravelDirection.Forward ? Math.Min(moved, limit.Position) : Math.Max(moved, limit.Position) } };
         }
         events.Add(new CoreEvent.TrainArrived(train.Id, forward));
-        return train with { SpeedMetersPerSecond = motion.SpeedMetersPerSecond,
-            Position = new TrainPosition.Node(forward), Transit = new(position.Id, null), ReturningFromBreak = null };
+        train = train with { SpeedMetersPerSecond = motion.SpeedMetersPerSecond,
+            Position = new TrainPosition.Node(forward, position.Id, null, NodeTravelPhase.Approaching, 0, null), ReturningFromBreak = null };
+        return ResolveNode(world, content, train, events, dispatch, step);
     }
 
-    private static TrainOrderFacing OppositeFacing(TrainOrderFacing facing) => facing == TrainOrderFacing.FirstEndLeading
-        ? TrainOrderFacing.LastEndLeading : TrainOrderFacing.FirstEndLeading;
+    internal static double? PredictStopDistance(WorldState world, CoreContentProjection content, TrainState train,
+        NodeId node, EdgeId? enteredFrom, TrainDispatch dispatch, ulong step)
+    {
+        var distance = 0.0;
+        var visited = new HashSet<(NodeId, EdgeId?, int?)>();
+        while (visited.Add((node, enteredFrom, train.NextStopIndex)))
+        {
+            var dimensions = NodeDimensions.Read(world, content, node);
+            var position = new TrainPosition.Node(node, enteredFrom, Departure(world, content, train, node),
+                NodeTravelPhase.Approaching, 0, null);
+            train = train with { Position = position };
+            if (MustStop(train, position))
+                return distance + (dispatch.PredictPlatform(train, step) ? dimensions.Stop : dimensions.Approach);
+            var edge = world.Edges.Single(e => e.Id == position.NextEdge);
+            if (dispatch.Enter(train, edge, false) is null) return distance + dimensions.Length;
+            distance += dimensions.Length + edge.LengthMeters;
+            train = AfterLocalStops(train, node);
+            node = edge.Start == node ? edge.End : edge.Start;
+            enteredFrom = edge.Id;
+        }
+        return null;
+    }
+
+    private static TrainState MoveNode(WorldState world, CoreContentProjection content, TrainState train,
+        TrainDispatch dispatch, ImmutableArray<CoreEvent>.Builder events, ulong step)
+    {
+        var position = (TrainPosition.Node)train.Position;
+        var dimensions = NodeDimensions.Read(world, content, position.Id);
+        var rule = Rule(world, content);
+        var capabilities = dispatch.Capabilities(train);
+        var mustStop = position.Phase is not (NodeTravelPhase.Departing or NodeTravelPhase.Docked) && MustStop(train, position);
+        var endpoint = mustStop
+            ? TrainDispatch.NeedsPlatform(world, train) && position.PlatformNumber is null && position.DistanceMeters <= dimensions.Approach
+                ? dimensions.Approach : dimensions.Stop
+            : dimensions.Length;
+        var target = double.PositiveInfinity;
+        if (mustStop) target = 0;
+        else if (position.NextEdge is { } next)
+        {
+            var edge = world.Edges.Single(e => e.Id == next);
+            if (dispatch.Enter(train, edge, false) is null) target = 0;
+            else
+            {
+                var after = position.Phase == NodeTravelPhase.Departing ? train : AfterLocalStops(train, position.Id);
+                var node = edge.Start == position.Id ? edge.End : edge.Start;
+                target = edge.LengthMeters + (PredictStopDistance(world, content, after, node, edge.Id, dispatch, step) ?? double.PositiveInfinity);
+            }
+        }
+        var motion = TrainMotion.Advance(Math.Max(0, endpoint - position.DistanceMeters),
+            double.IsPositiveInfinity(target) ? null : target, train.SpeedMetersPerSecond,
+            capabilities.Acceleration, rule.BrakingDeceleration, Math.Min(capabilities.MaximumSpeedMetersPerSecond, rule.NodeSpeedLimitMetersPerSecond));
+        var moved = Math.Min(endpoint, position.DistanceMeters + motion.DistanceMeters);
+        train = train with { SpeedMetersPerSecond = motion.SpeedMetersPerSecond, Position = position with { DistanceMeters = moved } };
+        if (mustStop && motion.Arrived)
+        {
+            var phase = endpoint == dimensions.Stop ? NodeTravelPhase.Docked : NodeTravelPhase.Waiting;
+            train = train with { Position = ((TrainPosition.Node)train.Position) with { Phase = phase }, SpeedMetersPerSecond = 0 };
+            if (train.StopRequested)
+                return ChangeActivity(train with { StopRequested = false, QueueEnteredStep = null }, TrainActivity.Stopped, events);
+            return ResolveNode(world, content, train, events, dispatch, step);
+        }
+        if (position.Phase != NodeTravelPhase.Departing && moved >= dimensions.Stop && motion.DistanceMeters > 0)
+        {
+            if (position.NextEdge == position.EnteredFrom)
+                train = train with { OrderFacing = OppositeFacing(train.OrderFacing) };
+            while (train.NextStopIndex is { } index && train.Plan!.Stops[index] is PlanStop.Waypoint waypoint && waypoint.Node == position.Id)
+                train = Consume(train);
+            train = train with { Position = ((TrainPosition.Node)train.Position) with { Phase = NodeTravelPhase.Departing } };
+        }
+        return train;
+    }
 
     internal static TrainState ResolveNode(WorldState world, CoreContentProjection content, TrainState train,
         ImmutableArray<CoreEvent>.Builder events, TrainDispatch dispatch, ulong step, bool running = true)
     {
-        var node = ((TrainPosition.Node)train.Position).Id;
-        while (train.NextStopIndex is { } index && Target(train.Plan!.Stops[index]) == node)
+        var position = (TrainPosition.Node)train.Position;
+        if (position.Phase == NodeTravelPhase.Departing && train.Activity == TrainActivity.Waiting
+            && train.QueueEnteredStep is not null)
         {
-            if (train.Plan.Stops[index] is PlanStop.Station station)
+            if (dispatch.Capabilities(train).DepartureProblem(train.Id, Rule(world, content).MinimumAcceleration) is { } blocked)
+                return ChangeActivity(train with { QueueEnteredStep = null }, TrainActivity.Waiting, events, [blocked]);
+            return train;
+        }
+        if (position.Phase != NodeTravelPhase.Departing)
+        {
+            position = position with { NextEdge = Departure(world, content, train, position.Id) };
+            train = train with { Position = position };
+            if (TrainDispatch.NeedsPlatform(world, train) && position.PlatformNumber is null)
             {
-                train = train with { SpeedMetersPerSecond = 0 };
-                if (running && !dispatch.TakePlatform(train, step))
-                    return Wait(train, step, TrainDispatch.PlatformWait(train), events);
-                if (train.RemainingDwellSteps > 0 || station.DwellSteps > 0)
+                if (dispatch.TakePlatform(train, step) is { } platform)
                 {
-                    train = train with { RemainingDwellSteps = train.RemainingDwellSteps > 0
-                        ? train.RemainingDwellSteps : station.DwellSteps, Transit = train.Transit! with { NextEdge = null }, StopRequested = false, QueueEnteredStep = null };
-                    return ChangeActivity(train, running ? TrainActivity.Servicing : TrainActivity.Stopped, events);
+                    position = position with { PlatformNumber = platform };
+                    train = train with { Position = position, QueueEnteredStep = null };
+                }
+                else
+                {
+                    train = train with { QueueEnteredStep = train.QueueEnteredStep ?? step };
+                    if (train.SpeedMetersPerSecond == 0 && position.Phase is NodeTravelPhase.Waiting or NodeTravelPhase.Docked)
+                        return Wait(train, step, TrainDispatch.PlatformWait(train), events);
                 }
             }
-            train = Consume(train);
+            else train = train with { QueueEnteredStep = null };
+            if (!running) return ChangeActivity(train, TrainActivity.Stopped, events);
+            if (position.Phase == NodeTravelPhase.Waiting)
+            {
+                if (position.NextEdge is null && StationAt(train, position.Id) is null
+                    && AfterLocalStops(train, position.Id).NextStopIndex is not null)
+                    return ChangeActivity(train, TrainActivity.NoRoute, events, [NoRoute(train)]);
+                position = position with { Phase = NodeTravelPhase.Approaching };
+                train = train with { Position = position };
+            }
+            if (position.Phase == NodeTravelPhase.Docked)
+            {
+                while (train.NextStopIndex is { } index && Target(train.Plan!.Stops[index]) == position.Id)
+                {
+                    if (train.Plan.Stops[index] is PlanStop.Station station)
+                    {
+                        if (train.RemainingDwellSteps > 0 || station.DwellSteps > 0)
+                            return ChangeActivity(train with { RemainingDwellSteps = train.RemainingDwellSteps > 0
+                                ? train.RemainingDwellSteps : station.DwellSteps, StopRequested = false }, TrainActivity.Servicing, events);
+                        train = Consume(train);
+                    }
+                    else if (StationAt(train, position.Id) is not null || AfterLocalStops(train, position.Id).NextStopIndex is null)
+                        train = Consume(train);
+                    else break;
+                }
+                if (train.NextStopIndex is null)
+                    return ChangeActivity(train with { StopRequested = false, QueueEnteredStep = null,
+                        Position = position with { NextEdge = null } }, TrainActivity.Stopped, events);
+                position = position with { NextEdge = Departure(world, content, train, position.Id) };
+                train = train with { Position = position };
+                if (position.NextEdge is null)
+                {
+                    if (dispatch.Capabilities(train).DepartureProblem(train.Id, Rule(world, content).MinimumAcceleration) is { } blocker)
+                        return ChangeActivity(train, TrainActivity.Waiting, events, [blocker]);
+                    return ChangeActivity(train, TrainActivity.NoRoute, events, [NoRoute(train)]);
+                }
+            }
         }
-        train = train with { StopRequested = false, Transit = train.Transit! with { NextEdge = null } };
-        if (!running || train.NextStopIndex is null)
-            return ChangeActivity(train with { SpeedMetersPerSecond = 0, QueueEnteredStep = null }, TrainActivity.Stopped, events);
-        var capabilities = dispatch.Capabilities(train);
-        if (train.SpeedMetersPerSecond == 0 && capabilities.DepartureProblem(train.Id,
-            Rule(world, content).MinimumAcceleration) is { } problem)
-            return ChangeActivity(train with { QueueEnteredStep = null, Transit = train.Transit! with { NextEdge = null } }, TrainActivity.Waiting, events, [problem]);
-        var target = Target(train.Plan!.Stops[train.NextStopIndex.Value]);
-        var route = TrainRouting.FindRoute(world.Nodes, world.Edges, node, target, capabilities.MaximumSpeedMetersPerSecond);
-        if (route is null)
-            return ChangeActivity(train with { SpeedMetersPerSecond = 0, QueueEnteredStep = null }, TrainActivity.NoRoute, events, [NoRoute(train)]);
-        var edge = world.Edges.Single(e => e.Id == route.Value.Edges[0]);
-        if (dispatch.Enter(train, edge, false) is null)
-            return Wait(train, step, TrainDispatch.TrackWait(train, edge.Id), events);
-        return ChangeActivity(train with { Transit = train.Transit with { NextEdge = edge.Id }, QueueEnteredStep = null },
-            TrainActivity.Running, events);
+        if (train.SpeedMetersPerSecond == 0 && dispatch.Capabilities(train).DepartureProblem(train.Id,
+                Rule(world, content).MinimumAcceleration) is { } problem)
+            return ChangeActivity(train, TrainActivity.Waiting, events, [problem]);
+        return ChangeActivity(train, TrainActivity.Running, events);
     }
 
+    internal static WorldState AdaptNodes(WorldState world, CoreContentProjection content)
+        => world with { Trains = world.Trains.Select(train =>
+        {
+            if (train.Position is not TrainPosition.Node position) return train;
+            var dimensions = NodeDimensions.Read(world, content, position.Id);
+            var distance = train.SpeedMetersPerSecond == 0 ? position.Phase switch
+            {
+                NodeTravelPhase.Waiting => dimensions.Approach,
+                NodeTravelPhase.Docked => dimensions.Stop,
+                NodeTravelPhase.Departing => dimensions.Length,
+                _ => Math.Min(position.DistanceMeters, dimensions.Length)
+            } : Math.Min(position.DistanceMeters, dimensions.Length);
+            if (position.Phase == NodeTravelPhase.Approaching && distance > dimensions.Stop)
+            {
+                if (MustStop(train, position))
+                { distance = dimensions.Stop; train = train with { SpeedMetersPerSecond = 0 }; position = position with { Phase = NodeTravelPhase.Docked }; }
+                else
+                {
+                    train = AfterLocalStops(train, position.Id);
+                    position = position with { Phase = NodeTravelPhase.Departing };
+                }
+            }
+            return train with { Position = position with { DistanceMeters = distance } };
+        }).ToImmutableArray() };
+
     private static TrainState Wait(TrainState train, ulong step, CoreProblem reason, ImmutableArray<CoreEvent>.Builder events)
-        => ChangeActivity(train with { SpeedMetersPerSecond = 0, StopRequested = false,
-            Transit = train.Transit! with { NextEdge = null }, QueueEnteredStep = train.QueueEnteredStep ?? step },
+        => ChangeActivity(train with { SpeedMetersPerSecond = 0, QueueEnteredStep = train.QueueEnteredStep ?? step },
             TrainActivity.Waiting, events, [reason]);
+
+    private static TrainOrderFacing OppositeFacing(TrainOrderFacing facing) => facing == TrainOrderFacing.FirstEndLeading
+        ? TrainOrderFacing.LastEndLeading : TrainOrderFacing.FirstEndLeading;
 
     internal static TrainState Consume(TrainState train)
     {
@@ -196,5 +361,5 @@ internal static class TrainOperations
     }
 
     private static CoreProblem NoRoute(TrainState train) => new("no_route", "Train.Plan", new WorldObjectId.Train(train.Id),
-        train.NextStopIndex is { } index ? [Target(train.Plan!.Stops[index]).Value.ToString(System.Globalization.CultureInfo.InvariantCulture)] : []);
+        train.NextStopIndex is { } index ? [Target(train.Plan!.Stops[train.NextStopIndex.Value]).Value.ToString(System.Globalization.CultureInfo.InvariantCulture)] : []);
 }

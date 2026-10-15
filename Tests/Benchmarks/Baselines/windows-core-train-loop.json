@@ -1,5 +1,6 @@
 {
-  "workload": "core-train-loop-v1",
-  "baselineStepsPerSecond": 190000,
+  "workload": "core-train-loop-v2",
+  "status": "candidate-awaiting-user-confirmation",
+  "baselineStepsPerSecond": 130000,
   "maximumSlowdown": 3
 }

@@ -64,7 +64,9 @@ internal static class RuleSemantics
         braking_deceleration = rule.BrakingDeceleration, minimum_acceleration = rule.MinimumAcceleration,
         minimum_gap_meters = rule.MinimumGapMeters, rail_good = rule.RailGood.Value, rail_units_per_meter = rule.RailUnitsPerMeter,
         build_seconds_per_meter = rule.BuildSecondsPerMeter, repair_rail_units_per_break = rule.RepairRailUnitsPerBreak,
-        repair_seconds_per_break = rule.RepairSecondsPerBreak
+        repair_seconds_per_break = rule.RepairSecondsPerBreak,
+        approach_length_meters = rule.ApproachLengthMeters, departure_length_meters = rule.DepartureLengthMeters,
+        node_speed_limit_meters_per_second = rule.NodeSpeedLimitMetersPerSecond
     });
 
     internal static K.SemanticRevision Revision(K.CombatRuleProjection rule) => Semantic("combat-rule", rule.Id.Value, new

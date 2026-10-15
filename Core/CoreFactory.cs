@@ -42,7 +42,8 @@ internal sealed class CoreSessionFactory : ICoreFactory
         ImmutableArray<CoreProblem> report = capture.InputIdentity == content.Identity
             ? [] : [new("content_changed", "InputIdentity", null, [capture.InputIdentity.Value, content.Identity.Value])];
         return new CoreResult<ICoreSessionCandidate>.Success(new CoreSessionCandidate(
-            new(capture.Position, capture.NextCommandNumber, capture.Revision, content, World: capture.World),
+            new(capture.Position, capture.NextCommandNumber, capture.Revision, content,
+                World: Railway.TrainOperations.AdaptNodes(capture.World, content)),
             options.RetainedRecordingStarts, report));
     }
 

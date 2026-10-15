@@ -26,7 +26,7 @@ public sealed class TrainOperationTests
         CollectionAssert.AreEqual(new WorldObjectId[] { new WorldObjectId.Train(new(2)), new WorldObjectId.Inventory(new(3)) }, created.ToArray());
         var composed = ((Lookup<TrainView>.Found)session.Read().FindTrain(new(2))).Value;
         Assert.AreEqual(TrainActivity.Stopped, composed.Activity);
-        Assert.AreEqual(new NodeTransitView(null, null), composed.NodeTransit);
+        Assert.AreEqual(WorldFixture.Node(new(1)), composed.Position);
         CollectionAssert.AreEqual(new VehicleId[] { new(1) }, ((CoreEvent.TrainCompositionChanged)form.Events.Single().Event).Vehicles.ToArray());
         Assert.IsTrue(session.State.World.Settlements[0].ParkedVehicles.IsEmpty);
     }
@@ -99,8 +99,9 @@ public sealed class TrainOperationTests
                 Inventories = state.World.Inventories.Select(i => i.Owner is InventoryOwner.Train
                     ? i with { Goods = [new(new GoodId.Voxel(Material), 1)] } : i).ToImmutableArray(),
                 Edges = state.World.Edges.Select(e => e with { Tracks = 0 }).ToImmutableArray(),
-                Trains = [state.World.Trains[0] with { Plan = new(true,
-                    [new PlanStop.Station(new(1), 1, []), new PlanStop.Waypoint(new(2))]),
+                Trains = [state.World.Trains[0] with {
+                    Position = WorldFixture.Node(new(1), NodeTravelPhase.Docked, ApproachLength + PlatformLength / 2, platform: 1),
+                    Plan = new(true, [new PlanStop.Station(new(1), 1, []), new PlanStop.Waypoint(new(2))]),
                     NextStopIndex = 0, Activity = TrainActivity.Servicing, RemainingDwellSteps = 1 }]
             }
         });
@@ -135,7 +136,7 @@ public sealed class TrainOperationTests
         Accepted(session, new CoreCommand.ReplaceRunPlan(new(1), new(false, [new PlanStop.Station(target, 3, [])])));
         Accepted(session, new CoreCommand.StartTrain(new(1)));
         AdvanceUntil(session, t => t.Activity == TrainActivity.Servicing);
-        Assert.AreEqual(new TrainPosition.Node(target), Train(session).Position);
+        Assert.AreEqual(WorldFixture.Node(target, NodeTravelPhase.Docked, ApproachLength + (hostile ? PlatformLength / 2 : 0), enteredFrom: hostile ? null : new(1)), Train(session).Position);
         Assert.AreEqual(3UL, Train(session).RemainingDwellSteps);
         var capture = Success(session.Capture(CapturePurpose.Save));
         Assert.AreEqual(capture.Checkpoint, Success(CoreFactory.Create().DecodeState(capture.Encode())).Checkpoint);
@@ -158,7 +159,7 @@ public sealed class TrainOperationTests
         Assert.AreEqual(before with { StopRequested = false }, session.State.World.Trains[0]);
         Assert.IsTrue(result.Events.IsEmpty);
         session.Advance(1);
-        Assert.AreEqual(new TrainPosition.Node(new(2)), Train(session).Position);
+        Assert.AreEqual(WorldFixture.Node(new(2), NodeTravelPhase.Approaching, 0, enteredFrom: new(1), nextEdge: new(2)), Train(session).Position);
         Assert.AreEqual(TrainActivity.Running, Train(session).Activity);
         Assert.AreEqual(Math.Sqrt(6), Train(session).SpeedMetersPerSecond, 1e-12);
     }
@@ -174,8 +175,9 @@ public sealed class TrainOperationTests
         var state = loaded.State;
         var train = state.World.Trains[0] with { Activity = activity, Plan = Plan(2), NextStopIndex = 0 };
         if (activity == TrainActivity.Servicing)
-            train = train with { Plan = new(false, [new PlanStop.Station(new(1), 3, [])]), RemainingDwellSteps = 2 };
-        if (activity == TrainActivity.Running) train = train with { Transit = new(null, new(1)) };
+            train = train with { Position = WorldFixture.Node(new(1), NodeTravelPhase.Docked, ApproachLength + PlatformLength / 2, platform: 1),
+                Plan = new(false, [new PlanStop.Station(new(1), 3, [])]), RemainingDwellSteps = 2 };
+        if (activity == TrainActivity.Running) train = train with { Position = WorldFixture.Node(new(1), NodeTravelPhase.Departing, ApproachLength + PlatformLength + DepartureLength, nextEdge: new(1)) };
         using var session = new CoreSession(state with { Content = state.Content with { Goods = [] },
             World = state.World with { Trains = [train] } });
         var result = Accepted(session, new CoreCommand.StartTrain(new(1)));
@@ -205,7 +207,7 @@ public sealed class TrainOperationTests
         Rejected(hostileParked, new CoreCommand.FormTrain([new(1)]), "access_denied", "OrderedVehicles", new WorldObjectId.Settlement(new(1)));
         var state = State();
         using var emptyNode = new CoreSession(state with { World = state.World with
-        { Trains = [state.World.Trains[0] with { Position = new TrainPosition.Node(new(2)) }] } });
+        { Trains = [state.World.Trains[0] with { Position = WorldFixture.Node(new(2)) }] } });
         Rejected(emptyNode, new CoreCommand.DisbandTrain(new(1)), "settlement_unavailable", "Train.Position", new WorldObjectId.Train(new(1)));
     }
 
@@ -261,10 +263,11 @@ public sealed class TrainOperationTests
         Accepted(session, new CoreCommand.ReplaceRunPlan(new(1), new(false,
             [new PlanStop.Waypoint(new(1)), new PlanStop.Waypoint(new(1)), new PlanStop.Waypoint(new(2)), new PlanStop.Waypoint(new(2))])));
         Assert.AreEqual(0, Train(session).NextStopIndex);
-        var start = Accepted(session, new CoreCommand.StartTrain(new(1)));
+        Accepted(session, new CoreCommand.StartTrain(new(1)));
+        var startEvents = AdvanceUntil(session, t => t.Position is TrainPosition.Edge { Id.Value: 1 });
         Assert.AreEqual(2, Train(session).NextStopIndex);
-        Assert.AreEqual(new EdgeId(1), Train(session).NodeTransit!.NextEdge);
-        Assert.AreEqual(1, start.Events.Length);
+        Assert.AreEqual(TravelDirection.Forward, ((TrainPosition.Edge)Train(session).Position).Direction);
+        Assert.IsFalse(startEvents.Any(e => e is CoreEvent.TrainArrived));
         var arrivals = AdvanceUntil(session, t => t.Activity == TrainActivity.Stopped);
         CollectionAssert.AreEqual(new NodeId[] { new(2) }, arrivals.OfType<CoreEvent.TrainArrived>().Select(e => e.Node).ToArray());
         Assert.AreEqual(0.0, Train(session).SpeedMetersPerSecond);
@@ -280,20 +283,21 @@ public sealed class TrainOperationTests
         var old = session.Read();
         var result = session.Advance(1);
         Assert.IsNull(result.Fault);
-        Assert.AreEqual(new TrainPosition.Node(new(2)), Train(session).Position);
+        Assert.AreEqual(WorldFixture.Node(new(2), NodeTravelPhase.Approaching, 0, enteredFrom: new(1), nextEdge: new(2)), Train(session).Position);
         Assert.AreEqual(Math.Sqrt(6), Train(session).SpeedMetersPerSecond, 1e-12);
-        Assert.AreEqual(new NodeTransitView(new(1), new(2)), Train(session).NodeTransit);
+        Assert.AreEqual(new EdgeId(1), ((TrainPosition.Node)Train(session).Position).EnteredFrom);
+        Assert.AreEqual(NodeTravelPhase.Approaching, ((TrainPosition.Node)Train(session).Position).Phase);
         Assert.AreEqual(1, result.Events.Length);
         Assert.IsInstanceOfType<CoreEvent.TrainArrived>(result.Events[0].Event);
         Assert.IsInstanceOfType<TrainPosition.Edge>(((Lookup<TrainView>.Found)old.FindTrain(new(1))).Value.Position);
-        session.Advance(1);
+        AdvanceUntil(session, t => t.Position is TrainPosition.Edge { Id.Value: 2 });
         Assert.AreEqual(new EdgeId(2), ((TrainPosition.Edge)Train(session).Position).Id);
         var location = ((Lookup<LocationView>.Found)session.Read().FindLocation(new WorldLocation.Edge(new(2), 0))).Value;
         CollectionAssert.AreEqual(new TrainId[] { new(1) }, location.Trains.ToArray());
         CollectionAssert.AreEqual(new InstanceId[] { new InstanceId.Vehicle(new(1)) }, location.Instances.ToArray());
         var member = ((Lookup<InstanceView>.Found)session.Read().FindInstance(new InstanceId.Vehicle(new(1)))).Value;
         Assert.AreEqual(((TrainPosition.Edge)Train(session).Position).DistanceMeters, ((WorldLocation.Edge)member.Location).DistanceMeters);
-        Assert.IsNull(Train(session).NodeTransit);
+        Assert.IsInstanceOfType<TrainPosition.Edge>(Train(session).Position);
         Assert.IsNull(Train(session).CurrentRun);
         Assert.IsTrue(Train(session).RecentReports.IsEmpty);
         Assert.AreEqual(EncounterAction.Retreat, Train(session).Engagement.Encounter);
@@ -304,25 +308,27 @@ public sealed class TrainOperationTests
     [DataRow(true)]
     public void Braking_for_station_beyond_waypoint_preserves_hand_calculated_speed_in_both_directions(bool reverse)
     {
-        // b=1，起始速度 √40，停车距离20；减速走过10米后 v²=40-2×1×10=20。
+        // b=1，从初速 √40 制动驶过10米后 v²=20；节点有长度使制动起点略后移。
         using var session = Moving(Plan(reverse ? 1UL : 3UL), reverse ? 10 : 0, Math.Sqrt(40), reverse);
         Accepted(session, new CoreCommand.ReplaceRunPlan(new(1), new(false,
             [new PlanStop.Waypoint(new(2)), new PlanStop.Station(new(reverse ? 1UL : 3UL), 3, [])])));
-        AdvanceUntil(session, t => t.Position == new TrainPosition.Node(new(2)));
-        Assert.AreEqual(Math.Sqrt(20), Train(session).SpeedMetersPerSecond, 1e-11);
+        AdvanceUntil(session, t => t.Position is TrainPosition.Node { Id.Value: 2, Phase: NodeTravelPhase.Approaching });
+        var addedDistance = ApproachLength + DepartureLength + ApproachLength + (reverse ? PlatformLength / 2 : 0);
+        Assert.AreEqual(Math.Sqrt(20 + 2 * addedDistance), Train(session).SpeedMetersPerSecond, 1e-11);
         Assert.AreEqual(TrainActivity.Running, Train(session).Activity);
+        AdvanceUntil(session, t => t.Position is TrainPosition.Edge { } edge && edge.Id == new EdgeId(reverse ? 1UL : 2UL));
         Assert.AreEqual(1, Train(session).NextStopIndex);
-        Assert.AreEqual(new EdgeId(reverse ? 1UL : 2UL), Train(session).NodeTransit!.NextEdge);
+        Assert.AreEqual(reverse ? TravelDirection.Reverse : TravelDirection.Forward, ((TrainPosition.Edge)Train(session).Position).Direction);
     }
 
     [TestMethod]
     public void Returning_on_the_entering_edge_flips_facing_only_when_it_really_enters()
     {
         using var session = Moving(new(false, [new PlanStop.Station(new(1), 2, [])]), 9.99, 2);
-        session.Advance(1);
-        Assert.AreEqual(new EdgeId(1), Train(session).NodeTransit!.NextEdge);
+        AdvanceUntil(session, t => t.Position is TrainPosition.Node { Phase: NodeTravelPhase.Docked });
+        Assert.AreEqual(0d, Train(session).SpeedMetersPerSecond);
         Assert.AreEqual(TrainOrderFacing.FirstEndLeading, Train(session).OrderFacing);
-        session.Advance(1);
+        AdvanceUntil(session, t => t.Position is TrainPosition.Edge { Direction: TravelDirection.Reverse });
         Assert.AreEqual(TrainOrderFacing.LastEndLeading, Train(session).OrderFacing);
         Assert.AreEqual(TravelDirection.Reverse, ((TrainPosition.Edge)Train(session).Position).Direction);
     }
@@ -333,13 +339,12 @@ public sealed class TrainOperationTests
         using var session = Moving(Plan(3), 9.99, 2);
         Rejected(session, new CoreCommand.DisbandTrain(new(1)), "train_not_stationary_at_node");
         Accepted(session, new CoreCommand.StopTrain(new(1)));
-        var result = session.Advance(1);
-        Assert.AreEqual(new TrainPosition.Node(new(2)), Train(session).Position);
+        var events = AdvanceUntil(session, t => t.Activity == TrainActivity.Stopped);
+        Assert.AreEqual(WorldFixture.Node(new(2), NodeTravelPhase.Docked, ApproachLength, enteredFrom: new(1), nextEdge: new(2)), Train(session).Position);
         Assert.AreEqual(TrainActivity.Stopped, Train(session).Activity);
         Assert.AreEqual(0.0, Train(session).SpeedMetersPerSecond);
-        Assert.AreEqual(2, result.Events.Length);
-        Assert.IsInstanceOfType<CoreEvent.TrainArrived>(result.Events[0].Event);
-        Assert.IsInstanceOfType<CoreEvent.TrainActivityChanged>(result.Events[1].Event);
+        Assert.AreEqual(1, events.OfType<CoreEvent.TrainArrived>().Count());
+        Assert.AreEqual(1, events.OfType<CoreEvent.TrainActivityChanged>().Count());
     }
 
     [TestMethod]
@@ -349,8 +354,8 @@ public sealed class TrainOperationTests
         Accepted(session, new CoreCommand.ReplaceRunPlan(new(1), Plan(2)));
         Assert.IsInstanceOfType<TrainPosition.Edge>(Train(session).Position);
         Assert.AreEqual(TrainActivity.Running, Train(session).Activity);
-        session.Advance(1);
-        Assert.AreEqual(new TrainPosition.Node(new(2)), Train(session).Position);
+        AdvanceUntil(session, t => t.Activity == TrainActivity.Stopped);
+        Assert.AreEqual(WorldFixture.Node(new(2), NodeTravelPhase.Docked, ApproachLength, enteredFrom: new(1)), Train(session).Position);
         Assert.AreEqual(TrainActivity.Stopped, Train(session).Activity);
         Assert.AreEqual(0.0, Train(session).SpeedMetersPerSecond);
         Assert.IsNull(Train(session).NextStopIndex);
@@ -363,7 +368,7 @@ public sealed class TrainOperationTests
         Accepted(session, new CoreCommand.ReplaceRunPlan(new(1), new(false,
             [new PlanStop.Station(new(1), 3, []), new PlanStop.Waypoint(new(2))])));
         Accepted(session, new CoreCommand.StartTrain(new(1)));
-        Assert.AreEqual(TrainActivity.Servicing, Train(session).Activity);
+        AdvanceUntil(session, t => t.Activity == TrainActivity.Servicing);
         session.Advance(1);
         Assert.AreEqual(2UL, Train(session).RemainingDwellSteps);
         Accepted(session, new CoreCommand.StopTrain(new(1)));
@@ -375,6 +380,8 @@ public sealed class TrainOperationTests
         Assert.AreEqual(TrainActivity.Running, Train(session).Activity);
         Assert.AreEqual(0UL, Train(session).RemainingDwellSteps);
         Assert.AreEqual(0, Train(session).NextStopIndex);
+        Assert.AreEqual(1, session.Read().World.Nodes.Single(n => n.Id == new NodeId(1)).OccupiedPlatforms);
+        AdvanceUntil(session, t => t.Position is TrainPosition.Edge);
         Assert.IsTrue(session.Read().World.Nodes.All(n => n.OccupiedPlatforms == 0));
     }
 
@@ -413,15 +420,15 @@ public sealed class TrainOperationTests
         var state = moving.State;
         using var session = new CoreSession(state with { World = state.World with
         { Edges = state.World.Edges.Select(e => e.Id == new EdgeId(2) ? e with { Tracks = 0 } : e).ToImmutableArray() } });
-        var result = session.Advance(1);
-        Assert.IsNull(result.Fault);
-        Assert.AreEqual(new TrainPosition.Node(new(2)), Train(session).Position);
+        var events = AdvanceUntil(session, t => t.Activity == TrainActivity.NoRoute);
+        Assert.AreEqual(new NodeId(2), ((TrainPosition.Node)Train(session).Position).Id);
+        Assert.AreEqual(0d, Train(session).SpeedMetersPerSecond);
         Assert.AreEqual(TrainActivity.NoRoute, Train(session).Activity);
         Assert.AreEqual(0.0, Train(session).SpeedMetersPerSecond);
-        Assert.AreEqual(new NodeTransitView(new(1), null), Train(session).NodeTransit);
-        Assert.AreEqual(2, result.Events.Length);
-        Assert.IsInstanceOfType<CoreEvent.TrainArrived>(result.Events[0].Event);
-        var activity = (CoreEvent.TrainActivityChanged)result.Events[1].Event;
+        Assert.AreEqual(new EdgeId(1), ((TrainPosition.Node)Train(session).Position).EnteredFrom);
+        Assert.IsNull(((TrainPosition.Node)Train(session).Position).NextEdge);
+        Assert.AreEqual(1, events.OfType<CoreEvent.TrainArrived>().Count());
+        var activity = events.OfType<CoreEvent.TrainActivityChanged>().Single();
         Assert.AreEqual(TrainActivity.Running, activity.Before);
         Assert.AreEqual(TrainActivity.NoRoute, activity.After);
         Assert.AreEqual("no_route", activity.Reasons.Single().Code);
@@ -458,7 +465,7 @@ public sealed class TrainOperationTests
     {
         using var original = LoadedSession();
         Accepted(original, new CoreCommand.ReplaceRunPlan(new(1), new(true,
-            [new PlanStop.Waypoint(new(2)), new PlanStop.Station(new(1), 2, [])])));
+            [new PlanStop.Station(new(2), 2, []), new PlanStop.Waypoint(new(3))])));
         Accepted(original, new CoreCommand.StartTrain(new(1)));
         original.Advance(1);
         Assert.IsInstanceOfType<TrainPosition.Edge>(Train(original).Position);
@@ -510,7 +517,7 @@ public sealed class TrainOperationTests
     {
         var state = State();
         return new(state with { World = state.World with { Trains = [state.World.Trains[0] with
-        { Position = new TrainPosition.Edge(new(reverse ? 2UL : 1UL), 1, reverse ? TravelDirection.Reverse : TravelDirection.Forward, distance), Transit = null,
+        { Position = new TrainPosition.Edge(new(reverse ? 2UL : 1UL), 1, reverse ? TravelDirection.Reverse : TravelDirection.Forward, distance),
             Plan = plan, NextStopIndex = 0, Activity = TrainActivity.Running, SpeedMetersPerSecond = speed }] } });
     }
     private static RunPlan Plan(ulong node) => new(false, [new PlanStop.Waypoint(new(node))]);

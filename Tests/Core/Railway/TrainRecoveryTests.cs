@@ -9,6 +9,57 @@ namespace Train.Core.Tests.Railway;
 public sealed class TrainRecoveryTests
 {
     [TestMethod]
+    [DataRow("approaching", NodeTravelPhase.Approaching)]
+    [DataRow("waiting", NodeTravelPhase.Waiting)]
+    [DataRow("docked", NodeTravelPhase.Docked)]
+    [DataRow("departing", NodeTravelPhase.Departing)]
+    public void Node_phase_capture_restores_and_strictly_replays_the_same_continuation(string boundary, NodeTravelPhase phase)
+    {
+        using var continuous = TrainRecoveryFixture.New(boundary: boundary);
+        TrainRecoveryFixture.Configure(continuous);
+        TrainRecoveryFixture.Boundary(continuous, boundary);
+        Assert.AreEqual(phase, ((TrainPosition.Node)TrainRecoveryFixture.Train(continuous).Position).Phase);
+        var capture = Success(continuous.Capture(CapturePurpose.Save));
+        var decoded = Success(CoreFactory.Create().DecodeState(capture.Encode()));
+        Assert.AreEqual(capture.Encode(), decoded.Encode());
+        using var candidate = Success(CoreFactory.Create().PrepareRestore(decoded, TrainRecoveryFixture.ContentFor(boundary), Options));
+        using var resumed = candidate.Activate();
+        Assert.AreEqual(TrainRecoveryFixture.Query(continuous), TrainRecoveryFixture.Query(resumed));
+        var events = new List<string>();
+        var resumedEvents = new List<string>();
+        if (boundary == "waiting")
+        {
+            TrainRecoveryFixture.Submit(continuous, new CoreCommand.PublishContent(TrainRecoveryFixture.Content), events);
+            TrainRecoveryFixture.Submit(resumed, new CoreCommand.PublishContent(TrainRecoveryFixture.Content), resumedEvents);
+        }
+        for (var step = 0; step < 24; step++)
+        {
+            TrainRecoveryFixture.Advance(continuous, events);
+            TrainRecoveryFixture.Advance(resumed, resumedEvents);
+            Assert.AreEqual(TrainRecoveryFixture.Query(continuous), TrainRecoveryFixture.Query(resumed));
+            Assert.AreEqual(Success(continuous.Capture(CapturePurpose.Save)).Checkpoint,
+                Success(resumed.Capture(CapturePurpose.Save)).Checkpoint);
+        }
+        CollectionAssert.AreEqual(events, resumedEvents);
+        var end = Success(continuous.Capture(CapturePurpose.Save));
+        var recording = continuous.ReadRecording();
+        var input = new CoreReplayInput(2, TrainRecoveryFixture.Runtime, recording.Starts[0].State.Encode(), recording.Commands,
+            [capture.Checkpoint, end.Checkpoint], recording.EndPosition, null);
+        ImmutableArray<CoreContentProjection> history = boundary == "waiting"
+            ? [TrainRecoveryFixture.ContentFor(boundary), TrainRecoveryFixture.Content] : [TrainRecoveryFixture.Content];
+        using var replay = Success(CoreFactory.Create().PrepareReplay(input, TrainRecoveryFixture.Runtime, history));
+        var prefix = replay.Advance(2000, capture.Position);
+        Assert.IsNull(prefix.Difference);
+        Assert.IsNull(prefix.Fault);
+        Assert.AreEqual(capture.Checkpoint, replay.CaptureBoundary().Checkpoint);
+        var suffix = replay.Advance(24, end.Position);
+        Assert.IsNull(suffix.Difference);
+        Assert.IsNull(suffix.Fault);
+        Assert.AreEqual(end.Checkpoint, replay.CaptureBoundary().Checkpoint);
+        CollectionAssert.AreEqual(events, suffix.Events.Select(TrainRecoveryFixture.Event).ToList());
+    }
+
+    [TestMethod]
     public void Five_train_commands_replay_real_running_and_servicing_checkpoints()
     {
         var (input, _, events) = Record();

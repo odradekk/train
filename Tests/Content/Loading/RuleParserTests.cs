@@ -59,6 +59,35 @@ public sealed class RuleParserTests
     }
 
     [TestMethod]
+    [DataRow("approach_length_meters")]
+    [DataRow("departure_length_meters")]
+    [DataRow("node_speed_limit_meters_per_second")]
+    public void Node_rules_are_required_projected_and_part_of_business_revision(string field)
+    {
+        var json = Railway();
+        var original = (ParsedRule.Railway)Parse("railway", json)!;
+        Assert.AreEqual(80, original.Projection.ApproachLengthMeters);
+        Assert.AreEqual(80, original.Projection.DepartureLengthMeters);
+        Assert.AreEqual(15, original.Projection.NodeSpeedLimitMetersPerSecond);
+        json[field] = 25;
+        Assert.AreNotEqual(original.Revision, Parse("railway", json)!.Revision);
+        json.Remove(field);
+        var package = Package();
+        Assert.IsNull(Parse("railway", json, package));
+        Assert.AreEqual("/" + field, package.Diagnostics.Single().Field);
+    }
+
+    [TestMethod]
+    public void Version_one_railway_rules_are_rejected()
+    {
+        var json = Railway();
+        json["schema_version"] = 1;
+        var package = Package();
+        Assert.IsNull(Parse("railway", json, package));
+        Assert.AreEqual("unsupported_format", package.Diagnostics.Single().Code);
+    }
+
+    [TestMethod]
     public void Railway_appearance_changes_do_not_change_business_revision()
     {
         var json = Railway();
@@ -87,6 +116,9 @@ public sealed class RuleParserTests
     [DataRow("market", "/simulation/default_goods_prices/maximum_multiplier_basis_points", "1")]
     [DataRow("market", "/simulation/rentable_capacity_ratio_basis_points", "10001")]
     [DataRow("market", "/simulation/lease_duration_ticks", "0")]
+    [DataRow("railway", "/approach_length_meters", "0")]
+    [DataRow("railway", "/departure_length_meters", "-1")]
+    [DataRow("railway", "/node_speed_limit_meters_per_second", "1e999")]
     [DataRow("railway", "/minimum_gap_meters", "0")]
     [DataRow("railway", "/appearance/maximum_grade", "0")]
     [DataRow("combat", "/surrender_threshold", "1.1")]
@@ -182,7 +214,7 @@ public sealed class RuleParserTests
         "refit_work_per_changed_item":2,"deconstruction_work_per_item":3,"repair_work_per_damaged_part":4,"power_per_work":0,"labor_per_work":0}}
         """)!.AsObject();
     internal static JsonObject Railway() => JsonNode.Parse("""
-        {"schema_version":1,"id":"test","braking_deceleration":1,"minimum_acceleration":2,"minimum_gap_meters":3,
+        {"schema_version":2,"id":"test","approach_length_meters":80,"departure_length_meters":80,"node_speed_limit_meters_per_second":15,"braking_deceleration":1,"minimum_acceleration":2,"minimum_gap_meters":3,
         "rail_units_per_meter":4,"build_seconds_per_meter":5,"repair_seconds_per_break":6,"rail_good":"rail",
         "repair_rail_units_per_break":7,"appearance":{"minimum_curve_radius_meters":20,"maximum_grade":0.1}}
         """)!.AsObject();

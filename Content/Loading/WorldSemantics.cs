@@ -60,6 +60,7 @@ internal static class WorldSemantics
     private static object Template(LoadedSettlementTemplate template, ImmutableArray<C.BlueprintRecord> blueprints) => new
     {
         id = template.Core.Id.Value, type = template.Core.Type.Value, weight = template.Core.Weight,
+        platform_length_meters = template.Core.PlatformLengthMeters,
         plots = template.Source.Plots.OrderBy(p => p.Number).Select(p => new
         {
             number = p.Number, size = DesignEvaluator.Wire(p.Size), building = p.Building?.Id.Value,

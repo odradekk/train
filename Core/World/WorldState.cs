@@ -33,7 +33,7 @@ internal sealed record InstanceState(InstanceId Id, DesignHash Design,
         }).ToImmutableArray(), []);
 }
 internal sealed record TrainState(TrainId Id, TrainPosition Position, ImmutableArray<VehicleId> Vehicles,
-    InventoryId Inventory, NodeTransitView? Transit, TrainOrderFacing OrderFacing,
+    InventoryId Inventory, TrainOrderFacing OrderFacing,
     TrainActivity Activity, double SpeedMetersPerSecond, RunPlan? Plan, int? NextStopIndex,
     ulong RemainingDwellSteps, bool StopRequested, ulong? QueueEnteredStep, BreakId? ReturningFromBreak);
 internal sealed record TrackHandoff(EdgeId Edge, int Track, TravelDirection Direction);
@@ -142,8 +142,10 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
             }
             var inventory = new InventoryId(inventoryNumber++);
             inventories.Add(new(inventory, new InventoryOwner.Train(trainId), initial.Inventory, []));
-            trains.Add(new(trainId, new TrainPosition.Node(startNode), vehicles.ToImmutable(), inventory,
-                new(null, null), TrainOrderFacing.FirstEndLeading, TrainActivity.Stopped, 0, null, null, 0, false, null, null));
+            trains.Add(new(trainId, new TrainPosition.Node(startNode, null, null, NodeTravelPhase.Waiting,
+                content.RailwayRules.Single(r => r.Id == input.Configuration.Rules.Railway).ApproachLengthMeters, null),
+                vehicles.ToImmutable(), inventory, TrainOrderFacing.FirstEndLeading, TrainActivity.Stopped,
+                0, null, null, 0, false, null, null));
         }
         var designs = content.Designs.Where(d => designHashes.Contains(d.Design)).ToImmutableArray();
         var goods = new HashSet<GoodId>(inventories.SelectMany(i => i.Goods).Select(g => g.Good));
@@ -164,15 +166,17 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
         }
     }
 
-    internal NodeView? FindNode(NodeId id)
+    internal NodeView? FindNode(NodeId id, CoreContentProjection content)
     {
         var node = Nodes.FirstOrDefault(n => n.Id == id);
-        return node is null ? null : new(ReadNode(node), Edges.Where(e => e.Start == id || e.End == id).Select(e => e.Id).ToImmutableArray());
+        if (node is null) return null;
+        var dimensions = Railway.NodeDimensions.Read(this, content, id);
+        return new(ReadNode(node), Edges.Where(e => e.Start == id || e.End == id).Select(e => e.Id).ToImmutableArray(),
+            dimensions.Approach, dimensions.Platform, dimensions.Departure);
     }
 
-    internal int OccupiedPlatforms(NodeId node) => Trains.Count(t => t.Activity == TrainActivity.Servicing
-        && t.Position is TrainPosition.Node position && position.Id == node
-        && Nodes.Single(n => n.Id == node).Occupant is NodeOccupant.Settlement { Relation: not SettlementRelation.Hostile });
+    internal int OccupiedPlatforms(NodeId node) => Trains.Count(t =>
+        t.Position is TrainPosition.Node { PlatformNumber: not null } position && position.Id == node);
 
     private NodeMapItem ReadNode(NodeMapItem node) => node with { OccupiedPlatforms = OccupiedPlatforms(node.Id) };
 
@@ -188,7 +192,7 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
 
     internal LocationView? FindLocation(WorldLocation location)
     {
-        var occupant = location is WorldLocation.Node node ? FindNode(node.Id)?.Map.Occupant : null;
+        var occupant = location is WorldLocation.Node node ? Nodes.FirstOrDefault(n => n.Id == node.Id)?.Occupant : null;
         if (location is WorldLocation.Node && occupant is null) return null;
         if (location is WorldLocation.Edge edge)
         {

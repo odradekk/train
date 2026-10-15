@@ -15,11 +15,14 @@
     "repair_seconds_per_break",
     "rail_good",
     "repair_rail_units_per_break",
-    "appearance"
+    "appearance",
+    "approach_length_meters",
+    "departure_length_meters",
+    "node_speed_limit_meters_per_second"
   ],
   "properties": {
     "schema_version": {
-      "const": 1
+      "const": 2
     },
     "id": {
       "$ref": "common.schema.json#/$defs/localId"
@@ -73,6 +76,18 @@
           "exclusiveMinimum": 0
         }
       }
+    },
+    "approach_length_meters": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "departure_length_meters": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "node_speed_limit_meters_per_second": {
+      "type": "number",
+      "exclusiveMinimum": 0
     }
   }
 }

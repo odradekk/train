@@ -89,8 +89,7 @@ internal static class TrainCommands
                     return Reject("plan_degenerate", "Plan.Stops", subject);
                 train = train with { Plan = replace.Plan, NextStopIndex = 0, RemainingDwellSteps = 0, QueueEnteredStep = null };
                 if (train.Position is TrainPosition.Node && train.Activity != TrainActivity.Stopped)
-                    train = TrainOperations.ResolveNode(world, content, train, events,
-                        new TrainDispatch(world with { Trains = world.Trains.Select(t => t.Id == id ? t with { Activity = TrainActivity.Stopped } : t).ToImmutableArray() }, content), step);
+                    train = TrainOperations.ResolveNode(world, content, train, events, new TrainDispatch(world, content), step);
                 break;
             case CoreCommand.StartTrain:
                 if (train.Activity != TrainActivity.Stopped)
@@ -103,12 +102,12 @@ internal static class TrainCommands
                 if (TrainOperations.Capabilities(world, content, train).DepartureProblem(id,
                     TrainOperations.Rule(world, content).MinimumAcceleration) is { } problem)
                     return new CommandEffect.Rejected([problem]);
-                train = TrainOperations.ResolveNode(world, content, train, events, new TrainDispatch(world, content), step);
+                train = TrainOperations.ResolveNode(world, content, train with { StopRequested = false }, events, new TrainDispatch(world, content), step);
                 break;
             case CoreCommand.StopTrain:
-                if (train.Position is TrainPosition.Edge) train = train with { StopRequested = true };
+                if (train.SpeedMetersPerSecond > 0 || train.Position is TrainPosition.Edge) train = train with { StopRequested = true };
                 else train = TrainOperations.ChangeActivity(train with { SpeedMetersPerSecond = 0,
-                    Transit = train.Transit! with { NextEdge = null }, QueueEnteredStep = null }, TrainActivity.Stopped, events);
+                    StopRequested = false, QueueEnteredStep = null }, TrainActivity.Stopped, events);
                 break;
         }
         return new CommandEffect.Accepted(content, events.ToImmutable(), world with
@@ -138,8 +137,9 @@ internal static class TrainCommands
             return Reject("identity_exhausted", "World.Next");
         var train = new TrainId(world.Next.Train);
         var inventory = new InventoryId(world.Next.Inventory);
-        var added = new TrainState(train, new TrainPosition.Node(settlement.Node), command.OrderedVehicles, inventory,
-            new(null, null), TrainOrderFacing.FirstEndLeading, TrainActivity.Stopped, 0, null, null, 0, false, null, null);
+        var added = new TrainState(train, new TrainPosition.Node(settlement.Node, null, null, NodeTravelPhase.Waiting,
+            TrainOperations.Rule(world, content).ApproachLengthMeters, null), command.OrderedVehicles, inventory,
+            TrainOrderFacing.FirstEndLeading, TrainActivity.Stopped, 0, null, null, 0, false, null, null);
         return new CommandEffect.Accepted(content, [new CoreEvent.TrainCompositionChanged(train, command.OrderedVehicles)], world with
         {
             Trains = world.Trains.Add(added), Inventories = world.Inventories.Add(new(inventory, new InventoryOwner.Train(train), [], [])),

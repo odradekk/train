@@ -192,6 +192,9 @@ internal static class WorldStateValidation
         foreach (var track in world.Trains.Select(t => t.Position).OfType<TrainPosition.Edge>()
             .GroupBy(p => (p.Id, p.Track)))
             Require(track.Select(p => p.Direction).Distinct().Count() == 1, "/world/trains/position/direction");
+        foreach (var node in world.Trains.Select(t => t.Position).OfType<TrainPosition.Node>()
+            .Where(p => p.PlatformNumber is not null).GroupBy(p => p.Id))
+            Require(node.Select(p => p.PlatformNumber).Distinct().Count() == node.Count(), "/world/trains/position/platform_number");
         Items(world.TrackHandoffs, "/world/track_handoffs");
         (ulong Edge, int Track) previousHandoff = (0, 0);
         foreach (var handoff in world.TrackHandoffs)
@@ -278,7 +281,7 @@ internal static class WorldStateValidation
         Require(Enum.IsDefined(train.OrderFacing) && double.IsFinite(train.SpeedMetersPerSecond)
             && train.SpeedMetersPerSecond >= 0, "/world/trains");
         Require(train.QueueEnteredStep is null || train.Position is TrainPosition.Node
-            && train.Activity == TrainActivity.Waiting, "/world/trains/queue_entered_step");
+            && train.Activity is TrainActivity.Waiting or TrainActivity.Running, "/world/trains/queue_entered_step");
         Require(train.ReturningFromBreak is null || train.Position is TrainPosition.Edge returning
             && train.Activity == TrainActivity.Running && edges.TryGetValue(returning.Id, out var returningEdge)
             && returningEdge.Breaks.Any(b => b.Id == train.ReturningFromBreak && b.Track == returning.Track),
@@ -286,19 +289,22 @@ internal static class WorldStateValidation
         switch (train.Position)
         {
             case TrainPosition.Node node:
-                Require(nodes.ContainsKey(node.Id), "/world/trains/position");
-                Require(train.Transit is not null, "/world/trains/transit");
-                foreach (var edgeId in new[] { train.Transit.EnteredFrom, train.Transit.NextEdge })
+                Require(Enum.IsDefined(node.Phase), "/world/trains/position/phase");
+                Require(nodes.ContainsKey(node.Id)
+                    && double.IsFinite(node.DistanceMeters) && node.DistanceMeters >= 0
+                    && node.PlatformNumber is null or > 0, "/world/trains/position");
+                foreach (var edgeId in new[] { node.EnteredFrom, node.NextEdge })
                     if (edgeId is { } id) Require(edges.TryGetValue(id, out var adjacentEdge)
-                        && (adjacentEdge.Start == node.Id || adjacentEdge.End == node.Id), "/world/trains/transit");
-                Require(train.Transit.NextEdge is null || train.Activity == TrainActivity.Running, "/world/trains/transit");
+                        && (adjacentEdge.Start == node.Id || adjacentEdge.End == node.Id), "/world/trains/position");
+                Require(node.Phase != NodeTravelPhase.Departing || node.NextEdge is not null, "/world/trains/position");
+                Require(node.Phase is not (NodeTravelPhase.Waiting or NodeTravelPhase.Docked)
+                    || train.SpeedMetersPerSecond == 0, "/world/trains/position");
                 break;
             case TrainPosition.Edge position:
                 Require(edges.TryGetValue(position.Id, out var edge)
                     && position.Track >= 1 && position.Track <= edge.Tracks
                     && Enum.IsDefined(position.Direction) && double.IsFinite(position.DistanceMeters)
                     && position.DistanceMeters >= 0 && position.DistanceMeters <= edge.LengthMeters, "/world/trains/position");
-                Require(train.Transit is null, "/world/trains/transit");
                 break;
             default: throw new CoreStateFormatException("/world/trains/position");
         }
@@ -333,7 +339,7 @@ internal static class WorldStateValidation
         var unfinished = train.Plan is not null && train.NextStopIndex is not null;
         Require(unfinished || train.Activity == TrainActivity.Stopped && train.RemainingDwellSteps == 0,
             "/world/trains/activity");
-        Require(!train.StopRequested || train.Position is TrainPosition.Edge && train.Activity == TrainActivity.Running,
+        Require(!train.StopRequested || train.Activity is TrainActivity.Running or TrainActivity.Waiting,
             "/world/trains/stop_requested");
         if (train.RemainingDwellSteps > 0)
             Require(unfinished && train.Position is TrainPosition.Node dwellNode
@@ -343,14 +349,13 @@ internal static class WorldStateValidation
         switch (train.Activity)
         {
             case TrainActivity.Stopped:
-                Require(train.Position is TrainPosition.Node && train.SpeedMetersPerSecond == 0
-                    && train.Transit!.NextEdge is null, "/world/trains/activity");
+                Require(train.Position is TrainPosition.Node && train.SpeedMetersPerSecond == 0, "/world/trains/activity");
                 break;
             case TrainActivity.Running:
                 Require(unfinished && train.RemainingDwellSteps == 0, "/world/trains/activity");
                 break;
             case TrainActivity.Servicing:
-                Require(unfinished && train.Position is TrainPosition.Node && train.SpeedMetersPerSecond == 0
+                Require(unfinished && train.Position is TrainPosition.Node { Phase: NodeTravelPhase.Docked } && train.SpeedMetersPerSecond == 0
                     && train.RemainingDwellSteps > 0, "/world/trains/activity");
                 break;
             case TrainActivity.Waiting:
