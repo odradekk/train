@@ -205,23 +205,28 @@ internal static class GenerationProfileParser
             var vehicles = Items(Required(item.Value, "vehicles", item.Field), item.Field + "/vehicles")
                 .Select(vehicle => Blueprint(json, vehicle.Value, vehicle.Field)).ToImmutableArray();
             if (vehicles.IsEmpty) Fail(item.Field + "/vehicles", "列车至少需要一辆车辆。");
-            var inventory = Items(Required(item.Value, "inventory", item.Field), item.Field + "/inventory").Select(entry =>
-            {
-                Object(entry.Value, entry.Field, "voxel", "blueprint", "quantity");
-                var voxel = entry.Value.TryGetProperty("voxel", out var reference);
-                var blueprint = entry.Value.TryGetProperty("blueprint", out var blueprintReference);
-                if (voxel == blueprint) Fail(entry.Field, "库存项必须且只能指定 voxel 或 blueprint。");
-                var id = json.Reference(voxel ? reference : blueprintReference, entry.Field + (voxel ? "/voxel" : "/blueprint"));
-                ParsedInventoryReference parsedReference = voxel ? new ParsedInventoryReference.Voxel(new(id))
-                    : new ParsedInventoryReference.Blueprint(new(C.BlueprintLibrary.Packages, new(id)));
-                return new ParsedInventoryQuantity(parsedReference, Int64(Required(entry.Value, "quantity", entry.Field), entry.Field + "/quantity", 1));
-            }).OrderBy(x => x.Reference is ParsedInventoryReference.Voxel ? 0 : 1)
-                .ThenBy(x => x.Reference is ParsedInventoryReference.Voxel v ? v.Id.Value : ((ParsedInventoryReference.Blueprint)x.Reference).Address.Id.Value,
-                    StringComparer.Ordinal).ToImmutableArray();
-            Unique(inventory.Select(x => x.Reference), item.Field + "/inventory");
-            return new ParsedStartingTrain(vehicles, inventory);
+            return new ParsedStartingTrain(vehicles, Inventory(Required(item.Value, "inventory", item.Field), json, item.Field + "/inventory"));
         }).ToImmutableArray();
         return new(new(Int64(Required(value, "initial_money", field), field + "/initial_money", 0)), trains);
+    }
+
+    internal static ImmutableArray<ParsedInventoryQuantity> Inventory(JsonElement value, DefinitionJson json, string field)
+    {
+        var inventory = Items(value, field).Select(entry =>
+        {
+            Object(entry.Value, entry.Field, "voxel", "blueprint", "quantity");
+            var voxel = entry.Value.TryGetProperty("voxel", out var reference);
+            var blueprint = entry.Value.TryGetProperty("blueprint", out var blueprintReference);
+            if (voxel == blueprint) Fail(entry.Field, "库存项必须且只能指定 voxel 或 blueprint。");
+            var id = json.Reference(voxel ? reference : blueprintReference, entry.Field + (voxel ? "/voxel" : "/blueprint"));
+            ParsedInventoryReference parsedReference = voxel ? new ParsedInventoryReference.Voxel(new(id))
+                : new ParsedInventoryReference.Blueprint(new(C.BlueprintLibrary.Packages, new(id)));
+            return new ParsedInventoryQuantity(parsedReference, Int64(Required(entry.Value, "quantity", entry.Field), entry.Field + "/quantity", 1));
+        }).OrderBy(x => x.Reference is ParsedInventoryReference.Voxel ? 0 : 1)
+            .ThenBy(x => x.Reference is ParsedInventoryReference.Voxel v ? v.Id.Value : ((ParsedInventoryReference.Blueprint)x.Reference).Address.Id.Value,
+                StringComparer.Ordinal).ToImmutableArray();
+        Unique(inventory.Select(x => x.Reference), field);
+        return inventory;
     }
 
     private static C.BlueprintAddress Blueprint(DefinitionJson json, JsonElement value, string field) =>

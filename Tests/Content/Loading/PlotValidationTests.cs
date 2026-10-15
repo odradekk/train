@@ -10,6 +10,14 @@ namespace Train.Content.Tests.Loading;
 public sealed class PlotValidationTests
 {
     [TestMethod]
+    public void Duplicate_plot_numbers_reject_otherwise_separate_plots()
+    {
+        var fixture = WorldContentFixtures.Content();
+        Change(fixture, TemplatePath, json => json["plots"]![1]!["id"] = 7);
+        Assert.IsTrue(Failure(fixture.Prepare()).Diagnostics.Any(d => d.Code == "invalid_field" && d.Field == "/plots"));
+    }
+
+    [TestMethod]
     [DataRow("medium", "medium", 0d)]
     [DataRow("small_station", "medium", 96d)]
     [DataRow("small_station", "large_station", 128d)]

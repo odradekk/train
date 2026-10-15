@@ -149,21 +149,77 @@ public sealed class WorldContentTests
     }
 
     [TestMethod]
-    [DataRow("founding")]
-    [DataRow("inventory")]
-    [DataRow("production_plans")]
-    public void Nonempty_later_stage_template_fields_reject_the_package(string field)
+    [DataRow("production")]
+    [DataRow("extraction")]
+    [DataRow("recovery")]
+    public void Template_initialization_resolves_buildings_three_good_kinds_and_typed_plans_in_replay(string kind)
     {
-        var fixture = WorldContentFixtures.Content();
-        var template = WorldContentFixtures.Template();
-        template[field] = new JsonArray(new JsonObject());
-        fixture.AddFile(ContentFixture.BuiltIn, WorldContentFixtures.TemplatePath, template.ToJsonString());
-        var failure = Failure(fixture.Prepare());
-        Assert.IsTrue(failure.Diagnostics.Any(diagnostic => diagnostic.Code == "unsupported_format" && diagnostic.Field == "/" + field));
+        var fixture = InitializedTemplate(kind);
+        using var candidate = fixture.Load();
+        var view = candidate.View;
+        var template = view.Core.SettlementTemplates.Single();
+        CollectionAssert.AreEqual(new[] { new K.FoundingBuildingProjection(7, Design(view, "station")),
+            new K.FoundingBuildingProjection(11, Design(view, "workshop")) }, template.FoundingBuildings.ToArray());
+        Assert.AreEqual(new K.GoodsQuantity(new K.GoodId.Voxel(new("core:block")), 11),
+            template.SpecialInitialInventory.Single(q => q.Good is K.GoodId.Voxel));
+        Assert.AreEqual(new K.GoodsQuantity(new K.GoodId.Composite(new("core:device")), 2),
+            template.SpecialInitialInventory.Single(q => q.Good is K.GoodId.Composite));
+        var frame = (C.DesignEvaluation.Complete)Found(view.FindDesign(Design(view, "frame")));
+        Assert.AreEqual(new K.GoodsQuantity(new K.GoodId.Assembly(frame.Composition), 3),
+            template.SpecialInitialInventory.Single(q => q.Good is K.GoodId.Assembly));
+        K.ProcessRef process = kind == "recovery" ? new K.ProcessRef.Recovery(new("core:test")) : new K.ProcessRef.Production(new("core:test"));
+        Assert.AreEqual(new K.TemplateProductionPlan(11, kind == "extraction" ? K.CapabilityKind.Extraction : K.CapabilityKind.Production,
+            process, false, -5), template.ProductionPlans.Single());
+        var factory = ContentFactory.Create();
+        var replay = ContentCaptureTests.Success(factory.CaptureReplay([view], new([], [], [], [view.Core.Identity])));
+        var historical = ContentCaptureTests.Success(factory.DecodeReplay(replay.Encode())).History.Single().Core.SettlementTemplates.Single();
+        CollectionAssert.AreEqual(template.FoundingBuildings.ToArray(), historical.FoundingBuildings.ToArray());
+        CollectionAssert.AreEqual(template.SpecialInitialInventory.ToArray(), historical.SpecialInitialInventory.ToArray());
+        CollectionAssert.AreEqual(template.ProductionPlans.ToArray(), historical.ProductionPlans.ToArray());
     }
 
     [TestMethod]
-    public void Ordinary_building_can_use_a_larger_plot_and_empty_future_arrays_are_accepted()
+    [DataRow("missing-founding-plot", "/founding/0/plot", "invalid_field")]
+    [DataRow("founding-fit", "/founding/0/building", "invalid_field")]
+    [DataRow("inventory-vehicle", "/inventory", "reference_wrong_kind")]
+    [DataRow("inventory-alias", "/inventory", "invalid_field")]
+    [DataRow("empty-plan-plot", "/production_plans/0/plot", "invalid_field")]
+    [DataRow("missing-capability", "/production_plans/0/capability", "invalid_field")]
+    [DataRow("wrong-process-kind", "/production_plans/0/process", "invalid_field")]
+    [DataRow("wrong-facility-tag", "/production_plans/0/process", "invalid_field")]
+    [DataRow("duplicate-plan", "/production_plans", "invalid_field")]
+    public void Invalid_initialization_rejects_the_package_with_a_field_diagnostic(string change, string field, string code)
+    {
+        var fixture = InitializedTemplate();
+        Change(fixture, TemplatePath, json =>
+        {
+            switch (change)
+            {
+                case "missing-founding-plot": json["founding"]![0]!["plot"] = 99; break;
+                case "founding-fit": json["founding"]![0]!["building"] = "station"; break;
+                case "inventory-vehicle": json["inventory"]![1]!["blueprint"] = "engine"; break;
+                case "inventory-alias": json["inventory"]!.AsArray().Add(new JsonObject { ["blueprint"] = "frame-alias", ["quantity"] = 1 }); break;
+                case "empty-plan-plot": json["plots"]![1]!.AsObject().Remove("building"); break;
+                case "wrong-process-kind": json["production_plans"]![0]!["capability"] = "extraction"; break;
+                case "duplicate-plan": json["production_plans"]!.AsArray().Add(json["production_plans"]![0]!.DeepClone()); break;
+            }
+        });
+        if (change == "inventory-alias")
+        {
+            var alias = DesignFixtures.Blueprint("frame-alias");
+            alias["category"] = "large_equipment";
+            alias.Remove("simulation");
+            AddBlueprint(fixture, alias);
+        }
+        if (change == "missing-capability")
+            Change(fixture, "resources/voxels/machine.voxel.json", json => json["simulation"]!["behaviors"]!.AsObject().Remove("production"));
+        if (change == "wrong-facility-tag")
+            Change(fixture, "resources/blueprints/workshop.blueprint.json", json => json["simulation"]!["facility_tags"] = new JsonArray());
+        Assert.IsTrue(Failure(fixture.Prepare()).Diagnostics.Any(d => d.Code == code && d.Field == field));
+    }
+
+    [TestMethod]
+    public void Ordinary_building_can_use_a_larger_plot_and_empty_initialization_arrays_are_accepted()
     {
         var fixture = WorldContentFixtures.Content();
         var template = WorldContentFixtures.Template();
