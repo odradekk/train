@@ -1,7 +1,10 @@
 using System.Collections.Immutable;
+using System.Numerics;
 using Train.Core.Contracts;
 using Train.Core.Railway;
 using Train.Core.Sessions;
+using Train.Core.Settlements;
+using Train.Core.Trading;
 using Train.Core.World;
 
 namespace Train.Core.Inventory;
@@ -13,71 +16,163 @@ internal static class InventoryCommands
         if (command is CoreCommand.AcquireLease acquire)
         {
             InventoryLeases.Validate(acquire.Request);
-            if (acquire.MaximumPayment.Value < 0)
-                throw new ArgumentException("付款上限必须非负。", nameof(command));
+            if (acquire.MaximumPayment.Value < 0) throw new ArgumentException("付款上限必须非负。", nameof(command));
             return;
         }
-        var (train, settlement, inventory, good, quantity, _) = Transfer(command);
-        if (train.Value == 0 || settlement.Value == 0 || inventory.Value == 0 || quantity <= 0)
-            throw new ArgumentException("装卸须提供非零身份与正数量。", nameof(command));
-        WorldInputs.ValidateGood(good);
+        var (request, condition) = Request(command);
+        Validate(request);
+        if (condition is { Value: < 0 }) throw new ArgumentException("价格条件必须非负。", nameof(command));
     }
 
-    private static (TrainId Train, SettlementId Settlement, InventoryId Inventory, GoodId Good, long Quantity, bool Load)
-        Transfer(CoreCommand command) => command switch
+    internal static void Validate(TradeQuoteRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Train.Value == 0 || request.Settlement.Value == 0 || request.LocalInventory.Value == 0
+            || request.Quantity <= 0 || !Enum.IsDefined(request.Action))
+            throw new ArgumentException("货物操作须提供非零身份、正数量和有效动作。", nameof(request));
+        WorldInputs.ValidateGood(request.Good);
+    }
+
+    private static (TradeQuoteRequest Request, Money? Condition) Request(CoreCommand command) => command switch
+    {
+        CoreCommand.LoadGoods c => (new(c.Train, c.Settlement, c.LocalInventory, TradeAction.Load, c.Good, c.Quantity), null),
+        CoreCommand.UnloadGoods c => (new(c.Train, c.Settlement, c.LocalInventory, TradeAction.Unload, c.Good, c.Quantity), null),
+        CoreCommand.BuyGoods c => (new(c.Train, c.Settlement, c.LocalInventory, TradeAction.Buy, c.Good, c.Quantity), c.MaximumPayment),
+        CoreCommand.SellGoods c => (new(c.Train, c.Settlement, c.LocalInventory, TradeAction.Sell, c.Good, c.Quantity), c.MinimumReceipt),
+        _ => throw new InvalidOperationException("货物操作无效。")
+    };
+
+    internal static TradeQuote Quote(WorldState world, CoreContentProjection content, ulong step,
+        CoreRevision revision, TradeQuoteRequest request, Money? condition = null)
+    {
+        var trade = request.Action is TradeAction.Buy or TradeAction.Sell;
+        var incoming = request.Action is TradeAction.Buy or TradeAction.Load;
+        Money? total = trade ? null : new(0);
+        long executable = 0;
+        var train = world.Trains.FirstOrDefault(t => t.Id == request.Train);
+        var settlement = world.Settlements.FirstOrDefault(s => s.Id == request.Settlement);
+        var local = world.Inventories.FirstOrDefault(i => i.Id == request.LocalInventory);
+        if (train is null) return Reject("object_missing", "Train", new WorldObjectId.Train(request.Train));
+        if (settlement is null) return Reject("object_missing", "Settlement", new WorldObjectId.Settlement(request.Settlement));
+        if (local is null) return Reject("object_missing", "LocalInventory", new WorldObjectId.Inventory(request.LocalInventory));
+        if (train.Vehicles.Any(v => world.Instances.Single(i => i.Id == new InstanceId.Vehicle(v)).Ownership != SettlementRelation.PlayerOwned))
+            return Reject("not_owned", "Train", new WorldObjectId.Train(train.Id));
+        if (train.Position is not TrainPosition.Node position || position.Id != settlement.Node)
+            return Reject("train_not_at_settlement", "Train.Position", new WorldObjectId.Train(train.Id));
+        var lease = local.Owner is InventoryOwner.Lease l ? world.Leases.Single(x => x.Id == l.Id) : null;
+        if (local.Owner != new InventoryOwner.Settlement(settlement.Id) && (trade || lease?.Settlement != settlement.Id))
+            return Reject("invalid_state", "LocalInventory", new WorldObjectId.Inventory(local.Id));
+        if (trade && settlement.Relation == SettlementRelation.PlayerOwned)
+            return Reject("invalid_state", "Settlement", new WorldObjectId.Settlement(settlement.Id));
+        if (settlement.Relation == SettlementRelation.Hostile)
+            return Reject("access_denied", "LocalInventory", new WorldObjectId.Inventory(local.Id));
+        if (!trade && lease is null && settlement.Relation != SettlementRelation.PlayerOwned)
+            return Reject("not_owned", "LocalInventory", new WorldObjectId.Inventory(local.Id));
+        if (!trade && !incoming && lease is not null && step >= lease.ExpiresAtStep)
+            return Reject("access_denied", "LocalInventory", new WorldObjectId.Inventory(local.Id));
+        var rule = MarketPrices.Rule(world, content);
+        if (trade && rule is null) return Reject("content_missing", "MarketRule");
+        if (!TrainDispatch.HoldsPlatform(world, train) || train.Activity != TrainActivity.Servicing
+            || train.Position is not TrainPosition.Node { Phase: NodeTravelPhase.Docked } || train.SpeedMetersPerSecond != 0)
+            return Reject("platform_required", "Train.Position", new WorldObjectId.Train(train.Id));
+        if (WorldGoods.DefinitionMissing(world, content, request.Good))
+            return Reject("content_missing", "Good", new WorldObjectId.Inventory(local.Id));
+        var cargo = world.Inventories.Single(i => i.Id == train.Inventory);
+        var source = incoming ? local : cargo;
+        var destination = incoming ? cargo : local;
+        var stock = source.Goods.FirstOrDefault(g => g.Good == request.Good)?.Quantity ?? 0;
+        var space = InventoryStorage.Read(world, content, step, destination).Available;
+        var localStock = local.Goods.FirstOrDefault(g => g.Good == request.Good)?.Quantity ?? 0;
+        MarketStockTargets? market = trade ? new(world, content, settlement, step) : null;
+        var marketQuantity = market?.Quantity(request.Good, localStock, Math.Min(request.Quantity, stock), incoming)
+            ?? Math.Min(request.Quantity, stock);
+        executable = Math.Min(marketQuantity, space);
+        if (stock < request.Quantity) return Reject("insufficient_goods", "Quantity", new WorldObjectId.Inventory(source.Id));
+        if (marketQuantity < request.Quantity)
+            return Reject(incoming ? "insufficient_goods" : "insufficient_demand", "Quantity", new WorldObjectId.Inventory(local.Id));
+        if (space < request.Quantity)
+            return Reject("insufficient_capacity", incoming ? "Train.Inventory.Capacity" : "LocalInventory.Capacity",
+                new WorldObjectId.Inventory(destination.Id));
+        if (trade)
         {
-            CoreCommand.LoadGoods c => (c.Train, c.Settlement, c.LocalInventory, c.Good, c.Quantity, true),
-            CoreCommand.UnloadGoods c => (c.Train, c.Settlement, c.LocalInventory, c.Good, c.Quantity, false),
-            _ => throw new InvalidOperationException("装卸命令无效。")
-        };
+            var prices = rule!.GoodPrices.SingleOrDefault(p => p.Good == request.Good)?.Parameters ?? rule.DefaultGoodsPrices;
+            var value = WorldGoods.Definition(world, content, request.Good)!.BaseValue;
+            var range = market!.TargetRange(request.Good, incoming ? localStock - 1 : localStock);
+            long amount = 0, affordable = 0;
+            for (long i = 0; i < request.Quantity; i++)
+            {
+                var lowerStock = incoming ? localStock - i - 1 : checked(localStock + i);
+                if (lowerStock < range.Minimum || lowerStock > range.Maximum)
+                    range = market.TargetRange(request.Good, lowerStock);
+                var price = MarketPrices.Good(value, prices, range.Target, (BigInteger)lowerStock * 2 + 1, incoming);
+                amount = checked(amount + price.Value);
+                if (amount <= world.Money.Value) affordable++;
+            }
+            total = new(amount);
+            if (condition is { } limit && (incoming ? amount > limit.Value : amount < limit.Value))
+                return Reject("price_condition_failed", incoming ? "MaximumPayment" : "MinimumReceipt");
+            if (incoming && amount > world.Money.Value)
+            {
+                executable = affordable;
+                return Reject("insufficient_money", "Wallet");
+            }
+            if (!incoming) _ = checked(world.Money.Value + amount);
+        }
+        var warnings = ImmutableArray.CreateBuilder<CoreProblem>();
+        if (request.Action == TradeAction.Load && lease is null && rule is not null)
+        {
+            market = new(world, content, settlement, step);
+            var after = market.Calculate(request.Good == market.Staple ? localStock - request.Quantity : market.StapleStock,
+                request.Good == market.Prepared ? localStock - request.Quantity : market.PreparedStock);
+            foreach (var target in after)
+            {
+                var beforeStock = local.Goods.Where(g => g.Good == target.Good).Sum(g => g.Quantity);
+                var afterStock = beforeStock - (target.Good == request.Good ? request.Quantity : 0);
+                var beforeTarget = market.Current.Where(g => g.Good == target.Good).Sum(g => g.Quantity);
+                if (Math.Max(0, target.Quantity - afterStock) > Math.Max(0, beforeTarget - beforeStock))
+                    warnings.Add(new("restock_shortage", "LocalInventory.Goods", new WorldObjectId.Inventory(local.Id), [WorldReferences.GoodKey(target.Good)]));
+            }
+        }
+        return new(request, revision, request.Quantity, total, [], warnings.ToImmutable());
+
+        TradeQuote Reject(string code, string field, WorldObjectId? subject = null)
+            => new(request, revision, executable, total, [new(code, field, subject, [])], []);
+    }
 
     internal static CommandEffect Execute(WorldState world, CoreContentProjection content, CoreCommand command, ulong step)
     {
         if (command is CoreCommand.AcquireLease acquire) return InventoryLeases.Execute(world, content, acquire, step);
-        var (trainId, settlementId, inventoryId, good, quantity, load) = Transfer(command);
-        var train = world.Trains.FirstOrDefault(t => t.Id == trainId);
-        var settlement = world.Settlements.FirstOrDefault(s => s.Id == settlementId);
-        var local = world.Inventories.FirstOrDefault(i => i.Id == inventoryId);
-        if (train is null) return Reject("object_missing", "Train", new WorldObjectId.Train(trainId));
-        if (settlement is null) return Reject("object_missing", "Settlement", new WorldObjectId.Settlement(settlementId));
-        if (local is null) return Reject("object_missing", "LocalInventory", new WorldObjectId.Inventory(inventoryId));
-        if (train.Vehicles.Any(v => world.Instances.Single(i => i.Id == new InstanceId.Vehicle(v)).Ownership != SettlementRelation.PlayerOwned))
-            return Reject("not_owned", "Train", new WorldObjectId.Train(trainId));
-        if (train.Position is not TrainPosition.Node position || position.Id != settlement.Node)
-            return Reject("train_not_at_settlement", "Train.Position", new WorldObjectId.Train(trainId));
-        var lease = local.Owner is InventoryOwner.Lease l ? world.Leases.Single(x => x.Id == l.Id) : null;
-        if (local.Owner != new InventoryOwner.Settlement(settlementId) && lease?.Settlement != settlementId)
-            return Reject("invalid_state", "LocalInventory", new WorldObjectId.Inventory(inventoryId));
-        if (settlement.Relation == SettlementRelation.Hostile) return Reject("access_denied", "LocalInventory", new WorldObjectId.Inventory(inventoryId));
-        if (lease is null && settlement.Relation != SettlementRelation.PlayerOwned) return Reject("not_owned", "LocalInventory", new WorldObjectId.Inventory(inventoryId));
-        if (!load && lease is not null && step >= lease.ExpiresAtStep) return Reject("access_denied", "LocalInventory", new WorldObjectId.Inventory(inventoryId));
-        if (!TrainDispatch.HoldsPlatform(world, train) || train.Activity != TrainActivity.Servicing
-            || train.Position is not TrainPosition.Node { Phase: NodeTravelPhase.Docked } || train.SpeedMetersPerSecond != 0)
-            return Reject("platform_required", "Train.Position", new WorldObjectId.Train(trainId));
-        if (WorldGoods.DefinitionMissing(world, content, good)) return Reject("content_missing", "Good", new WorldObjectId.Inventory(inventoryId));
-        var cargo = world.Inventories.Single(i => i.Id == train.Inventory);
-        var source = load ? local : cargo;
-        var destination = load ? cargo : local;
-        if ((source.Goods.FirstOrDefault(g => g.Good == good)?.Quantity ?? 0) < quantity)
-            return Reject("insufficient_goods", "Quantity", new WorldObjectId.Inventory(source.Id));
-        if (InventoryStorage.Read(world, content, step, destination).Available < quantity)
-            return Reject("insufficient_capacity", load ? "Train.Inventory.Capacity" : "LocalInventory.Capacity", new WorldObjectId.Inventory(destination.Id));
-        var after = world with { Inventories = world.Inventories.Select(i => i.Id == source.Id ? Move(i, -quantity)
-            : i.Id == destination.Id ? Move(i, quantity) : i).ToImmutableArray() };
+        var (request, condition) = Request(command);
+        var quote = Quote(world, content, step, new(0), request, condition);
+        if (!quote.Blockers.IsEmpty) return new CommandEffect.Rejected(quote.Blockers);
+        var train = world.Trains.Single(t => t.Id == request.Train);
+        var incoming = request.Action is TradeAction.Buy or TradeAction.Load;
+        var source = incoming ? request.LocalInventory : train.Inventory;
+        var destination = incoming ? train.Inventory : request.LocalInventory;
+        var amount = quote.Total!.Value;
+        var money = request.Action switch
+        {
+            TradeAction.Buy => checked(world.Money.Value - amount.Value),
+            TradeAction.Sell => checked(world.Money.Value + amount.Value),
+            _ => world.Money.Value
+        };
+        var after = world with
+        {
+            Money = new(money),
+            Inventories = world.Inventories.Select(i => i.Id == source ? Move(i, -request.Quantity)
+                : i.Id == destination ? Move(i, request.Quantity) : i).ToImmutableArray()
+        };
         after = after with { DefinitionDependencies = WorldReferences.Dependencies(after, content) };
         return new CommandEffect.Accepted(content,
-            [new CoreEvent.GoodsTransferred(load ? TradeAction.Load : TradeAction.Unload, good, quantity,
-                source.Id, destination.Id, new(0), trainId, settlementId)], after);
+            [new CoreEvent.GoodsTransferred(request.Action, request.Good, request.Quantity,
+                source, destination, amount, train.Id, request.Settlement)], after);
 
-        InventoryState Move(InventoryState inventory, long amount)
+        InventoryState Move(InventoryState inventory, long difference)
         {
-            var count = checked((inventory.Goods.FirstOrDefault(g => g.Good == good)?.Quantity ?? 0) + amount);
-            var goods = inventory.Goods.Where(g => g.Good != good);
-            if (count > 0) goods = goods.Append(new(good, count));
+            var quantity = checked((inventory.Goods.FirstOrDefault(g => g.Good == request.Good)?.Quantity ?? 0) + difference);
+            var goods = inventory.Goods.Where(g => g.Good != request.Good);
+            if (quantity > 0) goods = goods.Append(new(request.Good, quantity));
             return inventory with { Goods = goods.OrderBy(g => WorldReferences.GoodKey(g.Good), StringComparer.Ordinal).ToImmutableArray() };
         }
     }
-
-    private static CommandEffect.Rejected Reject(string code, string field, WorldObjectId subject)
-        => new([new(code, field, subject, [])]);
 }

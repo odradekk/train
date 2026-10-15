@@ -3,6 +3,7 @@ using Train.Core.Contracts;
 using Train.Core.Inventory;
 using Train.Core.Production;
 using Train.Core.World;
+using Train.Core.Trading;
 
 namespace Train.Core.Settlements;
 
@@ -10,6 +11,8 @@ internal static class SettlementQueries
 {
     internal static SettlementView Read(WorldState world, CoreContentProjection content, SettlementState settlement, ulong step)
     {
+        var targets = new MarketStockTargets(world, content, settlement, step);
+        var potential = targets.Facilities.ToDictionary(f => f.Key);
         var plots = settlement.Plots.Select(p => new PlotView(p.Id, p.TemplateNumber, p.Size,
             p.Size is PlotSize.SmallStation or PlotSize.LargeStation ? [BuildingKind.Station]
                 : Enum.GetValues<BuildingKind>().Where(k => k != BuildingKind.Station).ToImmutableArray(),
@@ -17,14 +20,14 @@ internal static class SettlementQueries
         var buildings = settlement.Plots.Where(p => p.Building is not null).Select(p => p.Building!.Value).OrderBy(b => b.Value).ToArray();
         var facilities = buildings.SelectMany(b => new[] { CapabilityKind.Production, CapabilityKind.Extraction }
                 .Select(c => ProductionQueries.Find(world, content, new(b, c))))
-            .OfType<FacilityView>().ToImmutableArray();
+            .OfType<FacilityView>().Select(view => potential.GetValueOrDefault(view.Key) ?? view).ToImmutableArray();
         var power = new PowerPoolView(buildings.Sum(b => BuildingCapabilities.Read(world, content, b).Power),
             settlement.ProductionFacilities.Sum(f => f.LastPowerDemand), settlement.ProductionFacilities.Sum(f => f.LastActualSupply),
             settlement.FuelEnergyRemaining);
-        var market = new MarketView(MarketRule(world, content), InventoryStorage.Settlement(world, content, settlement, step).View, Goods: []);
+        var market = new MarketView(MarketRule(world, content), InventoryStorage.Settlement(world, content, settlement, step).View, targets.Goods(world, content));
         return new(settlement.Id, settlement.Node, settlement.Type, settlement.Template.Id, settlement.Relation, settlement.Inventory,
             plots, settlement.ParkedVehicles, ParkingCapacity: int.MaxValue, world.Nodes.Single(n => n.Id == settlement.Node).Platforms,
-            world.OccupiedPlatforms(settlement.Node), VehiclesForSale: [], VehiclePurchaseCapacities: [],
+            world.OccupiedPlatforms(settlement.Node), VehicleTrades.ForSale(world, settlement), VehicleTrades.PurchaseCapacities(world, content, settlement),
             facilities, power, PopulationQueries.Read(world, content, settlement, step),
             Engagement: new(TargetPriority.ArmedFirst, TargetScope.All), MoraleRatio: 1, Surrendered: false, CommissionJobs: [],
             world.Leases.Where(l => l.Settlement == settlement.Id).Select(l => l.Id).ToImmutableArray(), market);

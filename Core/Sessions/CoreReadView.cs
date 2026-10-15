@@ -4,6 +4,7 @@ using Train.Core.Railway;
 using Train.Core.Inventory;
 using Train.Core.Production;
 using Train.Core.Settlements;
+using Train.Core.Trading;
 
 namespace Train.Core.Sessions;
 
@@ -62,7 +63,13 @@ internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Re
         var lease = State.Leases.FirstOrDefault(l => l.Id == id);
         return Lookup(lease is null ? null : InventoryLeases.Read(lease, Position.CompletedSteps));
     }
-    public Lookup<FacilityView> FindFacility(FacilityKey key) => Lookup(ProductionQueries.Find(State, Content, key));
+    public Lookup<FacilityView> FindFacility(FacilityKey key)
+    {
+        var view = ProductionQueries.Find(State, Content, key);
+        if (view is null) return new Lookup<FacilityView>.Missing();
+        var settlement = State.Settlements.Single(s => s.Plots.Any(p => p.Building == key.Building));
+        return Lookup(ProductionQueries.Potential(State, Content, settlement).Select(p => p.View).SingleOrDefault(v => v.Key == key) ?? view);
+    }
     public Lookup<JobView> FindJob(JobId id) => throw new NotImplementedException("FindJob 尚未实现。");
     public Lookup<CombatView> FindCombat(CombatId id) => throw new NotImplementedException("FindCombat 尚未实现。");
     public Lookup<CreatureGroupView> FindCreatureGroup(CreatureGroupId id)
@@ -70,9 +77,25 @@ internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Re
     public Lookup<CreatureView> FindCreature(CreatureId id) => throw new NotImplementedException("FindCreature 尚未实现。");
     public Lookup<LairView> FindLair(LairId id) => throw new NotImplementedException("FindLair 尚未实现。");
     public CoreResult<TradeQuote> QuoteTrade(TradeQuoteRequest request)
-        => throw new NotImplementedException("QuoteTrade 尚未实现。");
+    {
+        InventoryCommands.Validate(request);
+        try { return new CoreResult<TradeQuote>.Success(InventoryCommands.Quote(State, Content, Position.CompletedSteps, Revision, request)); }
+        catch (Exception exception)
+        {
+            return new CoreResult<TradeQuote>.Faulted(new("internal_error", Position, nameof(QuoteTrade), "", null),
+                new(exception.Message, exception.StackTrace));
+        }
+    }
     public CoreResult<VehicleTradeQuote> QuoteVehicle(VehicleTradeQuoteRequest request)
-        => throw new NotImplementedException("QuoteVehicle 尚未实现。");
+    {
+        VehicleTrades.Validate(request);
+        try { return new CoreResult<VehicleTradeQuote>.Success(VehicleTrades.Quote(State, Content, Revision, request)); }
+        catch (Exception exception)
+        {
+            return new CoreResult<VehicleTradeQuote>.Faulted(new("internal_error", Position, nameof(QuoteVehicle), "", null),
+                new(exception.Message, exception.StackTrace));
+        }
+    }
     public CoreResult<LeaseQuote> QuoteLease(LeaseRequest request)
     {
         InventoryLeases.Validate(request);
