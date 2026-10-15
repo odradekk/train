@@ -261,6 +261,7 @@ public sealed class WorldCaptureTests
         using var restored = restoredCandidate.Activate();
         var beforeView = session.Read();
         var afterView = restored.Read();
+        AssertQueries(beforeView, afterView, p => p with { DefinitionMissing = true });
         foreach (var node in beforeView.World.Nodes)
         {
             var location = ((Lookup<LocationView>.Found)beforeView.FindLocation(new WorldLocation.Node(node.Id))).Value;
@@ -342,7 +343,8 @@ public sealed class WorldCaptureTests
             [WorldFixture.Content.Identity]);
     }
 
-    private static void AssertQueries(ICoreReadView expected, ICoreReadView actual)
+    private static void AssertQueries(ICoreReadView expected, ICoreReadView actual,
+        Func<PartDamageView, PartDamageView>? expectedPart = null)
     {
         Assert.AreEqual(JsonSerializer.Serialize(expected.World), JsonSerializer.Serialize(actual.World));
         foreach (var node in expected.World.Nodes)
@@ -362,7 +364,8 @@ public sealed class WorldCaptureTests
                 Assert.AreEqual(before.Design, after.Design);
                 Assert.AreEqual(before.Details, after.Details);
                 Assert.AreEqual(before.Structure, after.Structure);
-                CollectionAssert.AreEqual(before.Parts.ToArray(), after.Parts.ToArray());
+                var expectedParts = expectedPart is null ? before.Parts.ToArray() : before.Parts.Select(expectedPart).ToArray();
+                CollectionAssert.AreEqual(expectedParts, after.Parts.ToArray());
             }
         }
         foreach (var edge in expected.World.Edges) EqualLookup(expected.FindEdge(edge.Id), actual.FindEdge(edge.Id));
