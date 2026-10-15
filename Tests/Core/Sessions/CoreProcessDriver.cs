@@ -19,6 +19,23 @@ internal static class CoreProcessDriver
             var output = args[1];
             var payloadPath = args[2];
             var runtime = Identity();
+            if (mode.StartsWith("npc-", StringComparison.Ordinal))
+            {
+                var factory = CoreFactory.Create();
+                var (input, content) = NpcInitializationFixture.RandomVehicles();
+                input = input with { Configuration = input.Configuration with { NpcInitialization = input.Configuration.NpcInitialization with
+                    { MinimumForSaleVehicles = 1 } } };
+                using var candidate = mode == "npc-resume"
+                    ? Success(factory.PrepareRestore(Success(factory.DecodeState(await File.ReadAllTextAsync(payloadPath))), content, new(runtime, false, 1)))
+                    : Success(factory.PrepareNew(input, content, new(runtime, false, 1)));
+                using var npcSession = candidate.Activate();
+                var capture = Success(npcSession.Capture(CapturePurpose.Save));
+                if (mode == "npc-save") await File.WriteAllTextAsync(payloadPath, capture.Encode(), new UTF8Encoding(false));
+                var sample = new CoreProcessSample(capture.Position, capture.Revision, capture.InputIdentity.Value,
+                    capture.Encode(), capture.Checkpoint.CanonicalText, capture.Checkpoint.Sha256);
+                await File.WriteAllTextAsync(output, JsonSerializer.Serialize(new CoreProcessResult(Environment.ProcessId, runtime, [sample], [])), new UTF8Encoding(false));
+                return 0;
+            }
             if (mode == "replay")
                 return await Replay(output, payloadPath, runtime);
             ICoreSession session;

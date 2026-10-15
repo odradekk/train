@@ -108,7 +108,7 @@ internal static class VehicleTrades
             });
     }
 
-    private static bool Supports(WorldState world, CoreContentProjection content, SettlementState settlement, SizeClass size)
+    internal static bool Supports(WorldState world, CoreContentProjection content, SettlementState settlement, SizeClass size)
         => settlement.Plots.Where(p => p.Building is not null).Any(p => InstanceCapabilities.EffectiveParts(world, content,
                 world.Instances.Single(i => i.Id == new InstanceId.Building(p.Building!.Value)))
             .SelectMany(part => part.Capabilities).OfType<PartCapability.Construction>()
