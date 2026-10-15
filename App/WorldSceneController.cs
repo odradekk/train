@@ -183,7 +183,7 @@ internal sealed class WorldSceneController : IDisposable
             if (_awaitingRequest)
             {
                 _awaitingRequest = false;
-                if (frame.Readiness == SceneReadiness.Loading) View.SetLoading(true);
+                if (frame.Readiness == SceneReadiness.Loading) View.SetLoading(_display!.DisplayedFrame is null);
             }
             if (frame.Update.Base is { } baseline && baseline != displayed?.Update.Frame)
             { _fullReplacement = true; return; }
@@ -208,6 +208,7 @@ internal sealed class WorldSceneController : IDisposable
         var result = _session!.RequestView(target);
         if (result is SceneResult<SceneRequestId>.Success success)
         {
+            _display!.CancelPreparation();
             _target = target;
             _request = success.Value;
             _pickRay = null;

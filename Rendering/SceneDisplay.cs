@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Godot;
 using Train.App.Assets;
 using Train.Content.Contracts;
@@ -13,7 +14,13 @@ internal sealed class SceneDisplay : IDisposable
     private Dictionary<SceneObjectId, DisplayObject> _objects = [];
     private FogGroup? _fog;
     private DebugLineGroup? _debugLines;
+    private FogGroup? _pendingFog;
+    private DebugLineGroup? _pendingDebugLines;
     private bool _disposed;
+    private readonly Dictionary<(SceneObjectId Object, int Index), PreparedVisual> _pendingVisuals = [];
+    private readonly Dictionary<SceneObjectId, Node3D> _pendingRoots = [];
+    private static readonly TimeSpan PreparationBudget = TimeSpan.FromMilliseconds(2);
+    internal Func<long> Timestamp { get; set; } = Stopwatch.GetTimestamp;
 
     internal Node3D Root { get; } = new() { Name = "SceneDisplay" };
     internal ISceneFrame? DisplayedFrame { get; private set; }
@@ -30,21 +37,63 @@ internal sealed class SceneDisplay : IDisposable
         _cache.RequireMainThread();
         if (frame.Readiness == SceneReadiness.Loading ||
             frame.Update.Base is { } baseline && baseline != DisplayedFrame?.Update.Frame)
+        {
+            CancelPreparation();
             return null;
+        }
+        var started = Timestamp();
+        var preparedResource = false;
         var update = frame.Update;
+        var sources = update.Upserts.ToDictionary(source => source.Id);
+        bool ReusesDisplayedVisual(SceneObject source, int index) =>
+            _objects.TryGetValue(source.Id, out var previous) && index < previous.Visuals.Length &&
+            previous.Visuals[index].CanUpdate(source.Visuals[index]);
+        var missingGeometry = new Dictionary<SceneMesh, Queue<(SceneObjectId Object, int Index)>>(ReferenceEqualityComparer.Instance);
+        foreach (var source in update.Upserts)
+            for (var index = 0; index < source.Visuals.Length; index++)
+                if (!ReusesDisplayedVisual(source, index) && source.Visuals[index] is SceneVisual.Geometry geometry &&
+                    (!_pendingVisuals.TryGetValue((source.Id, index), out var pending) || !pending.CanUpdate(geometry)))
+                {
+                    if (!missingGeometry.TryGetValue(geometry.Mesh, out var keys))
+                        missingGeometry.Add(geometry.Mesh, keys = new());
+                    keys.Enqueue((source.Id, index));
+                }
+        var abandoned = new List<PreparedVisual>();
+        foreach (var (key, visual) in _pendingVisuals.ToArray())
+            if (!sources.TryGetValue(key.Object, out var source) || key.Index >= source.Visuals.Length ||
+                !visual.CanUpdate(source.Visuals[key.Index]) || ReusesDisplayedVisual(source, key.Index))
+            {
+                _pendingVisuals.Remove(key);
+                abandoned.Add(visual);
+            }
+        foreach (var visual in abandoned)
+            if (visual.Visual is SceneVisual.Geometry geometry &&
+                missingGeometry.TryGetValue(geometry.Mesh, out var keys) && keys.TryDequeue(out var replacement))
+                _pendingVisuals.Add(replacement, visual);
+            else visual.Dispose();
+        foreach (var (id, root) in _pendingRoots.ToArray())
+            if (!sources.ContainsKey(id))
+            {
+                root.Free();
+                _pendingRoots.Remove(id);
+            }
         var next = update.Base is null ? new Dictionary<SceneObjectId, DisplayObject>() : new(_objects);
-        var created = new List<PreparedVisual>();
-        var roots = new List<Node3D>();
-        FogGroup? fog = null;
-        DebugLineGroup? debugLines = null;
+
+        if (_pendingFog is not null && !_pendingFog.Regions.SequenceEqual(update.Environment.FoggedRegions))
+        { _pendingFog.Dispose(); _pendingFog = null; }
+        if (_pendingDebugLines is not null && !_pendingDebugLines.Lines.SequenceEqual(frame.DebugLines))
+        { _pendingDebugLines.Dispose(); _pendingDebugLines = null; }
+        bool BudgetExpired() => preparedResource &&
+            Stopwatch.GetElapsedTime(started, Timestamp()) >= PreparationBudget;
         try
         {
             foreach (var id in update.Removed) next.Remove(id);
             foreach (var source in update.Upserts)
             {
                 _objects.TryGetValue(source.Id, out var previous);
-                var root = previous?.Root ?? new Node3D { Name = $"Object{source.Id.Value}" };
-                if (previous is null) roots.Add(root);
+                if (previous is null && !_pendingRoots.ContainsKey(source.Id))
+                    _pendingRoots.Add(source.Id, new Node3D { Name = $"Object{source.Id.Value}" });
+                var root = previous?.Root ?? _pendingRoots[source.Id];
                 var visuals = new PreparedVisual[source.Visuals.Length];
                 for (var i = 0; i < visuals.Length; i++)
                 {
@@ -53,8 +102,16 @@ internal sealed class SceneDisplay : IDisposable
                         visuals[i] = previous.Visuals[i];
                     else
                     {
-                        visuals[i] = _resources.Prepare(source.Visuals[i]);
-                        created.Add(visuals[i]);
+                        var key = (source.Id, i);
+                        if (!_pendingVisuals.TryGetValue(key, out var visual))
+                        {
+                            if (BudgetExpired())
+                                return null;
+                            visual = _resources.Prepare(source.Visuals[i]);
+                            _pendingVisuals.Add(key, visual);
+                            preparedResource = true;
+                        }
+                        visuals[i] = visual;
                     }
                 }
                 next[source.Id] = new(source, root, visuals);
@@ -62,22 +119,45 @@ internal sealed class SceneDisplay : IDisposable
             foreach (var item in next.Values)
                 if (item.Source.Parent is { } parent && !next.ContainsKey(parent))
                     throw new InvalidOperationException("显示对象的父对象不存在。");
-            if (_fog is null || !_fog.Regions.SequenceEqual(update.Environment.FoggedRegions))
-                fog = new(update.Environment.FoggedRegions);
-            if (!frame.DebugLines.IsEmpty &&
+            if (_pendingFog is null && (_fog is null || !_fog.Regions.SequenceEqual(update.Environment.FoggedRegions)))
+            {
+                if (BudgetExpired()) return null;
+                _pendingFog = new(update.Environment.FoggedRegions);
+                preparedResource = true;
+            }
+            if (_pendingDebugLines is null && !frame.DebugLines.IsEmpty &&
                 (_debugLines is null || !_debugLines.Lines.SequenceEqual(frame.DebugLines)))
-                debugLines = new(frame.DebugLines);
-            return new(this, frame, next, created, roots, fog ?? _fog!, fog is not null,
-                frame.DebugLines.IsEmpty ? null : debugLines ?? _debugLines, debugLines is not null);
+            {
+                if (BudgetExpired()) return null;
+                _pendingDebugLines = new(frame.DebugLines);
+            }
+            var prepared = new PreparedFrame(this, frame, next, [.. _pendingVisuals.Values],
+                [.. _pendingRoots.Values], _pendingFog ?? _fog!, _pendingFog is not null,
+                frame.DebugLines.IsEmpty ? null : _pendingDebugLines ?? _debugLines, _pendingDebugLines is not null);
+            _pendingFog = null;
+            _pendingDebugLines = null;
+            _pendingVisuals.Clear();
+            _pendingRoots.Clear();
+            return prepared;
         }
         catch
         {
-            foreach (var visual in created) visual.Dispose();
-            foreach (var root in roots) root.Free();
-            fog?.Dispose();
-            debugLines?.Dispose();
+            CancelPreparation();
             throw;
         }
+    }
+
+    internal void CancelPreparation()
+    {
+        _cache.RequireMainThread();
+        foreach (var visual in _pendingVisuals.Values) visual.Dispose();
+        foreach (var root in _pendingRoots.Values) root.Free();
+        _pendingVisuals.Clear();
+        _pendingRoots.Clear();
+        _pendingFog?.Dispose();
+        _pendingFog = null;
+        _pendingDebugLines?.Dispose();
+        _pendingDebugLines = null;
     }
 
     private void Commit(PreparedFrame prepared)
@@ -145,6 +225,7 @@ internal sealed class SceneDisplay : IDisposable
         _cache.RequireMainThread();
         if (_disposed) return;
         _disposed = true;
+        CancelPreparation();
         foreach (var item in _objects.Values) item.Root.GetParent()?.RemoveChild(item.Root);
         foreach (var item in _objects.Values)
         {

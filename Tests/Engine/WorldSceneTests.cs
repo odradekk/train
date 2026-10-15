@@ -22,6 +22,75 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
     private static readonly SceneSessionId SceneId = new(Guid.Parse("00000000-0000-0000-0000-000000000319"));
 
     [Test]
+    public async Task Map_open_keeps_overlay_hidden_and_commits_near_partial_frame()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var partial = Frame(2, readiness: SceneReadiness.Partial, pick: new ScenePick.Miss());
+        FixedDisplaySession? session = null;
+        try
+        {
+            var app = await Ready(fixture, new Setup(), Factory(binding => session = Session(binding,
+                [Success(Frame(1, readiness: SceneReadiness.Loading)), Success(partial)])));
+            var world = app.WorldScenes!;
+            world.Open(Target);
+            world.Display!.Timestamp = () => 0;
+            var controls = world.View.GetChildren().OfType<CanvasLayer>().Single().GetChildren().OfType<Control>().ToArray();
+            Require(controls.Length == 1 && controls[0] is Label &&
+                controls[0].MouseFilter == Control.MouseFilterEnum.Ignore && controls[0].AnchorRight == 0 &&
+                controls[0].AnchorBottom == 0, "打开地图节点只能显示不阻挡输入的局部提示，不得创建全屏罩。");
+            world.ProcessFrame(0, false);
+            Require(world.View.Loading && world.Display!.DisplayedFrame is null, "首帧前应保留局部加载提示。");
+            world.ProcessFrame(0, false);
+            Require(world.View.Interactive && !world.View.Loading && ReferenceEquals(world.Display!.DisplayedFrame, partial),
+                "近处可操作的Partial必须接入，无需等待远处Ready。");
+            world.Pick(TestScene.GetViewport().GetVisibleRect().Size / 2);
+            Require(partial.LastPickRay is not null && session!.PresentCalls.Count == 2,
+                "已接入的Partial必须支持拾取。");
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
+    [Test]
+    public async Task Preparation_spans_frames_and_preserves_committed_frame()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var first = Frame(1, pick: new ScenePick.Miss());
+        var candidates = Enumerable.Range(2, 3).Select(revision =>
+            Frame((ulong)revision, first.Update.Frame, objects:
+                [Object((ulong)(revision * 3)), Object((ulong)(revision * 3 + 1)), Object((ulong)(revision * 3 + 2))])).ToArray();
+        FixedDisplaySession? session = null;
+        try
+        {
+            var app = await Ready(fixture, new Setup(), Factory(binding => session = Session(binding,
+                [Success(first), .. candidates.Select(Success)])));
+            var world = app.WorldScenes!;
+            world.Open(Target);
+            world.Display!.Timestamp = () => 0;
+            world.ProcessFrame(0, false);
+            long timestamp = 0;
+            world.Display!.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
+            var root = world.Display.Objects[new(1)].Root;
+            for (var i = 0; i < 2; i++)
+            {
+                world.ProcessFrame(0, false);
+                Require(ReferenceEquals(world.Display.DisplayedFrame, first) &&
+                    ReferenceEquals(world.Display.Objects[new(1)].Root, root) && world.View.Interactive,
+                    "预算耗尽后必须继续显示已提交帧且保留交互。");
+                world.Pick(TestScene.GetViewport().GetVisibleRect().Size / 2);
+                Require(first.LastPickRay is not null && candidates[i].LastPickRay is null,
+                    "准备期间拾取只能查询已提交帧。");
+            }
+            world.ProcessFrame(0, false);
+            Require(ReferenceEquals(world.Display.DisplayedFrame, candidates[^1]) && world.Display.Objects.Count == 4,
+                "跨帧资源必须复用，并原子提交最新候选而非最初候选。");
+            Require(session!.PresentCalls.Count == 4 && session.PresentCalls.Skip(1).All(call =>
+                ReferenceEquals(call.DisplayedFrame, first) && ReferenceEquals(call.Request.Camera!.Frame, first)),
+                "准备期间每帧必须继续Present，相机和显示边界均来自旧提交帧。");
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
+    [Test]
     public async Task Debug_flags_are_requested_and_regeneration_retires_only_the_scene_session()
     {
         var fixture = new Fixture(TestScene.GetTree());
@@ -41,6 +110,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             Require(world.Regenerate()?.Code == "no_scene", "地图状态应拒绝重新生成。");
             world.DebugLayers = SceneDebugLayer.Chunks | SceneDebugLayer.Centerline;
             world.Open(Target);
+            world.Display!.Timestamp = () => 0;
             world.ProcessFrame(0, false);
             Require(sessions[0].PresentCalls.Single().Request.DebugLayers == world.DebugLayers,
                 "所选调试图层没有传给Scenes。");
@@ -59,6 +129,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             Require(sessions[1].RequestCalls.Single() == Target && factory.OpenCalls[1].Snapshot.Core == status.View &&
                 app.Host.GetStatus()!.Binding == status.Binding && setup.Session.DisposeCount == 0,
                 "重新生成应复用当前目标与核心读视图，不得替换核心会话。");
+            world.Display!.Timestamp = () => 0;
             world.ProcessFrame(0, false);
             Require(sessions[1].PresentCalls.Single().Request.DebugLayers == world.DebugLayers,
                 "重新生成丢失调试图层选择。");
@@ -87,7 +158,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             await fixture.AddToRoot(app);
             await Until(() => app.Host!.GetStatus() is not null);
             app.WorldScenes!.Open(Target);
-            Require(app.WorldScenes.View.Loading && !app.WorldScenes.View.Interactive, "首帧接入之前必须加载且禁止交互。");
+            Require(app.WorldScenes.View.Loading && !app.WorldScenes.View.Interactive, "首帧接入之前必须显示局部加载提示且禁止场景交互。");
             Require(app.IsProcessing(), "App未启用_Process。");
             await Until(() => app.WorldScenes.Display?.DisplayedFrame is not null);
             app.SetProcess(false);
@@ -119,6 +190,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
                 [Success(first), Success(loading), Success(badBase), Success(replacement)])));
             var world = app.WorldScenes!;
             world.Open(Target);
+            world.Display!.Timestamp = () => 0;
             world.ProcessFrame(0, false);
             var root = world.Display!.Root;
             var oldObject = world.Display.Objects[new(1)].Root;
@@ -185,6 +257,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
                 var world = app.WorldScenes!;
                 world.ReturnedToMap += value => reason = value;
                 world.Open(Target);
+                world.Display!.Timestamp = () => 0;
                 world.ProcessFrame(0, false);
                 var oldRoot = world.Display!.Root;
                 world.ProcessFrame(0, false);
@@ -203,6 +276,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
                         Equals(logged.Attributes["content"], problem.Content!.ToString()), "诊断没有保留Code、Content、Package和原始Detail。");
                 }
                 world.Open(Target);
+                world.Display!.Timestamp = () => 0;
                 world.ProcessFrame(0, false);
                 Require(world.Display?.DisplayedFrame is not null && !closeGate.Task.IsCompleted,
                     "重开被旧会话关闭等待阻塞。");
@@ -236,6 +310,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             var selected = 0;
             world.Selected += _ => selected++;
             world.Open(Target);
+            world.Display!.Timestamp = () => 0;
             world.ProcessFrame(0, false);
             var center = TestScene.GetViewport().GetVisibleRect().Size / 2;
             world.Pick(center);
@@ -284,6 +359,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             var app = await Ready(fixture, setup, factory);
             var world = app.WorldScenes!;
             world.Open(railway);
+            world.Display!.Timestamp = () => 0;
             world.ProcessFrame(0, false);
             var old = world.Display!.DisplayedFrame;
             var selected = 0;
@@ -308,6 +384,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             world.Pick(Vector2.Zero);
             Require(selected == 0 && sessions[0].ResolveCalls.Count == 0 && factory.OpenCalls[0].Binding != factory.OpenCalls[1].Binding,
                 "旧绑定仍可拾取或新会话沿用了旧绑定。");
+            world.Display!.Timestamp = () => 0;
             world.ProcessFrame(0, false);
             Require(world.Display!.DisplayedFrame != old && world.View.Interactive, "重载后的新帧未接入。");
         }
@@ -323,6 +400,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             var app = await Ready(fixture, new Setup(), Factory(binding => Session(binding, [Success(Frame(1, pick: new ScenePick.Miss()))])));
             var world = app.WorldScenes!;
             world.Open(Target);
+            world.Display!.Timestamp = () => 0;
             world.ProcessFrame(0, false);
             app.GetNode<Control>("MainMenu").Hide();
             app.GetNode<Control>("GameUi/Root").Hide();
@@ -369,6 +447,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             var app = await Ready(fixture, setup, factory);
             var world = app.WorldScenes!;
             world.Open(Target);
+            world.Display!.Timestamp = () => 0;
             world.ProcessFrame(0, false);
             var returned = 0;
             SceneProblem? reason = null;
@@ -383,6 +462,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             Require(world.Display is null && !world.View.Visible && factory.OpenCalls.Count == 1,
                 "宿主绑定切换仍重开了旧观察目标。");
             world.Open(Target);
+            world.Display!.Timestamp = () => 0;
             Require(factory.OpenCalls.Count == 2 && factory.OpenCalls[0].Binding != factory.OpenCalls[1].Binding,
                 "新宿主绑定再次打开世界没有分配新SceneBinding。");
         }
@@ -406,9 +486,11 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             var app = await Ready(fixture, new Setup(), factory);
             var world = app.WorldScenes!;
             world.Open(Target);
+            world.Display!.Timestamp = () => 0;
             world.ProcessFrame(0, false);
             world.ReturnToMap();
             world.Open(Target);
+            world.Display!.Timestamp = () => 0;
             world.ProcessFrame(0, false);
             Require(sessions.Count == 2 && sessions[0].IsDisposed && world.View.Interactive,
                 "回地图后必须可以新开场景会话。");
@@ -443,13 +525,15 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             var app = await Ready(fixture, new Setup(), factory);
             var world = app.WorldScenes!;
             world.Open(Target);
+            world.Display!.Timestamp = () => 0;
             world.ProcessFrame(0, false);
             world.Open(railway);
+            world.Display!.Timestamp = () => 0;
             Require(factory.OpenCalls.Count == 1 && !session!.IsDisposed && !world.View.Loading && !world.View.Interactive,
                 "打开另一目标必须复用会话，等待首帧时不能直接显示加载罩。");
             world.ProcessFrame(0, false);
-            Require(world.View.Loading && ReferenceEquals(world.Display!.DisplayedFrame, first),
-                "新请求的Loading首帧应显示加载罩并保留旧画面。");
+            Require(!world.View.Loading && ReferenceEquals(world.Display!.DisplayedFrame, first),
+                "新请求的Loading首帧应保留旧画面，不显示加载提示。");
             world.ProcessFrame(0, false);
             Require(world.View.Interactive && !world.View.Loading && ReferenceEquals(world.Display!.DisplayedFrame, next),
                 "新请求Ready没有接入。");
@@ -458,6 +542,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             Require(world.View.CameraRig.Focus == focus + new Vector3(8, 0, -12),
                 "线路地点应允许没有节点边界的自由平移。");
             world.Open(rejected);
+            world.Display!.Timestamp = () => 0;
             Require(world.View.Interactive && !world.View.Loading && !session!.IsDisposed && world.Display!.DisplayedFrame == next,
                 "失败的目标请求改变了活动场景。");
             world.ProcessFrame(0, false);
@@ -485,6 +570,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             Require(!world.View.CameraRig.Camera.Current && environment.Environment is null,
                 "地图状态仍启用了世界相机或环境。");
             world.Open(Target);
+            world.Display!.Timestamp = () => 0;
             Require(world.View.CameraRig.Camera.Current && environment.Environment is not null,
                 "打开世界未启用相机和环境。");
             host.SetPaused(false);
@@ -517,6 +603,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             var returned = 0;
             world.ReturnedToMap += _ => returned++;
             world.Open(Target);
+            world.Display!.Timestamp = () => 0;
             app._Process(0);
             Require(world.View.Interactive && world.Display?.DisplayedFrame is not null, "离开前场景未接入。");
             var oldRoot = world.Display!.Root;

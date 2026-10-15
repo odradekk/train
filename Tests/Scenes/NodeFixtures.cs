@@ -9,6 +9,21 @@ namespace Train.Scenes.Tests;
 
 internal static class NodeFixtures
 {
+    internal static NodeScene.Built Build(SceneWorldSnapshot snapshot, NodeLayout layout,
+        NodeScene.Built? previous = null, CancellationToken token = default)
+    {
+        var prepared = NodeScene.Prepare(snapshot, layout, previous, token);
+        var parts = prepared.Global.Parts.ToBuilder();
+        for (var z = (int)layout.Bounds.Minimum.Y; z < layout.Bounds.Maximum.Y; z += VoxelGrid.ChunkSize)
+        for (var x = (int)layout.Bounds.Minimum.X; x < layout.Bounds.Maximum.X; x += VoxelGrid.ChunkSize)
+        {
+            var from = new GridColumn(x, z);
+            var key = NodeScene.ChunkKey(from);
+            parts[key] = prepared.BuildChunk(from, previous?.Parts.GetValueOrDefault(key), token);
+        }
+        return prepared.Global with { Parts = parts.ToImmutable() };
+    }
+
     internal static readonly NodeId NodeId = new(1);
     internal static readonly VoxelDefinitionId Concrete = new("test:concrete");
     internal static readonly WorldLocation Location = new WorldLocation.Node(NodeId);

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Numerics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
@@ -147,12 +148,106 @@ public sealed class SettlementPrebuildTests
             second.Objects.Where(item => item.Subject is null).Select(item => item.Pose).ToArray());
     }
 
-    private static SceneWorldSnapshot Snapshot(IContentView? content = null)
+    [TestMethod]
+    public async Task SettlementObjectsDoNotBuildFarInstancesAndEvictBeyondRetention()
+    {
+        var snapshot = Snapshot(StreamingContent());
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        var buildingCache = new SceneVehicles.Cache();
+        var parkedCache = new SceneVehicles.Cache();
+        await using var objects = new SettlementObjects(Ids(), buildingCache: buildingCache, parkedCache: parkedCache);
+        var far = new NodeRange(new(10000, 0, 10000), NodeStreaming.PrefetchCells);
+        objects.Pump(snapshot, layout, far);
+        Assert.AreEqual(0, objects.PendingWork.Length, "Far buildings and parked vehicles must not start work.");
+        var near = new NodeRange(default, NodeStreaming.PrefetchCells);
+        await Settle(near);
+        var first = Present(near);
+        var building = new WorldObjectId.Instance(new InstanceId.Building(new(1)));
+        var mesh = Mesh(first, building);
+        var retained = Present(new(new(180, 0, 0), 1));
+        Assert.AreSame(mesh, Mesh(retained, building), "An entered building remains until its bounds leave retention.");
+        var unloaded = Present(far);
+        Assert.IsFalse(unloaded.Objects.Any(item => item.Subject == building));
+        await Settle(near);
+        Assert.AreNotSame(mesh, Mesh(Present(near), building), "Reentry after eviction rebuilds the released body.");
+
+        RenderedDesign Present(NodeRange range) => objects.Present(snapshot, layout, default,
+            ImmutableArray.CreateBuilder<SceneFog>(), range);
+        async Task Settle(NodeRange range)
+        {
+            for (var pass = 0; pass < 8; pass++)
+            {
+                objects.Pump(snapshot, layout, range);
+                if (objects.PendingWork.Length == 0) return;
+                await Task.WhenAll(objects.PendingWork);
+            }
+            Assert.Fail("Settlement work did not settle.");
+        }
+        static SceneMesh Mesh(RenderedDesign rendered, WorldObjectId subject) => rendered.Objects
+            .Where(item => item.Subject == subject).SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().First().Mesh;
+    }
+
+    [TestMethod]
+    public async Task RotatedBuildingCrossingRangeBoundaryKeepsObjectFogWhilePending()
+    {
+        var snapshot = Snapshot(StreamingContent(250), parked: false);
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        var plot = layout.Template!.Plots[0];
+        var placement = SceneGeometry.Placement(plot.At, plot.Orientation);
+        var edge = Vector3.Transform(new Vector3(0, 0, 240), placement.Rotation) + placement.Position;
+        var range = new NodeRange(new(edge.X, edge.Y, edge.Z), 8);
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var objects = new SettlementObjects(Ids(), build: (content, instance) =>
+        {
+            entered.TrySetResult();
+            release.Wait();
+            return WorldSceneSession.BuildObject(content, instance, SceneFixtures.Identity);
+        });
+        try
+        {
+            objects.Pump(snapshot, layout, range);
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            var fog = ImmutableArray.CreateBuilder<SceneFog>();
+            var rendered = objects.Present(snapshot, layout, default, fog, range);
+            Assert.IsTrue(rendered.Objects.Any(item => item.Subject == new WorldObjectId.Instance(new InstanceId.Building(new(1)))));
+            Assert.AreEqual(1, fog.Count, "Only the intersecting pending object contributes fog.");
+            Assert.AreEqual(placement, fog[0].Pose);
+            Assert.IsTrue(range.Intersects(fog[0].Bounds, fog[0].Pose!));
+        }
+        finally { release.Set(); }
+    }
+
+    [TestMethod]
+    public async Task ParkedVehiclePlacementDoesNotChangeWithFocus()
+    {
+        var snapshot = Snapshot(StreamingContent());
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        await using var objects = new SettlementObjects(Ids());
+        var first = objects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>());
+        await Task.WhenAll(objects.PendingWork);
+        var parked = new WorldObjectId.Instance(new InstanceId.Vehicle(new(2)));
+        var pose = first.Objects.Single(item => item.Subject == parked).Pose;
+        var focus = new ScenePoint(pose.Position.X + 1, 0, pose.Position.Z + 1);
+        var second = objects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>(), new(focus, 8));
+        Assert.AreEqual(pose, second.Objects.First(item => item.Subject == parked).Pose);
+    }
+
+    private static IContentView StreamingContent(int halfLength = 1)
+    {
+        var station = NodeFixtures.StationEvaluation();
+        station = station with { Scene = station.Scene with
+        { OccupiedBounds = new(new(-1, 0, -halfLength), new(1, 1, halfLength)) } };
+        return NodeFixtures.Content(designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+        { [NodeFixtures.StationDesign] = new ContentLookup<DesignEvaluation>.Found(station) });
+    }
+
+    private static SceneWorldSnapshot Snapshot(IContentView? content = null, bool parked = true)
     {
         var snapshot = NodeFixtures.Snapshot(trains: [], content: content);
         var basis = (FixedCoreReadView)snapshot.Core;
         var node = snapshot.Core.World.Nodes[0];
-        var settlement = NodeFixtures.Settlement() with { ParkedVehicles = [new(2)] };
+        var settlement = NodeFixtures.Settlement() with { ParkedVehicles = parked ? [new(2)] : [] };
         var instances = new[] { NodeFixtures.Station(2), RailwayFixtures.Instance(2) with { Location = NodeFixtures.Location } };
         return snapshot with { Core = new FixedCoreReadView
         {

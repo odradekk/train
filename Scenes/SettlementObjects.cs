@@ -17,6 +17,8 @@ internal sealed class SettlementObjects : IAsyncDisposable
     private readonly SceneVehicles buildings;
     private readonly SceneVehicles parked;
     private readonly Dictionary<(VoxelDefinitionId Good, int Candidate), ScenePoint?> resourcePositions = [];
+    private readonly HashSet<InstanceId> retainedBuildings = [];
+    private readonly HashSet<InstanceId> retainedParked = [];
 
     internal SettlementObjects(Func<string, SceneObjectId> objectId,
         Func<IContentView, InstanceView, BuiltObject>? build = null,
@@ -44,18 +46,71 @@ internal sealed class SettlementObjects : IAsyncDisposable
         return result;
     }
 
-    internal void Pump(SceneWorldSnapshot snapshot, NodeLayout layout)
+    private sealed record Placement(InstanceView Instance, ScenePose Pose, SceneBounds? Bounds,
+        ContentLookup<DesignEvaluation> Design, int? Length = null);
+
+    private static SceneBounds? BuildingBounds(ContentLookup<DesignEvaluation> design) =>
+        design is ContentLookup<DesignEvaluation>.Found found && found.Value is not DesignEvaluation.Failed &&
+        DesignGeometry.Projection(found.Value).OccupiedBounds is { } bounds
+            ? new(new(bounds.Minimum.X, bounds.Minimum.Y, bounds.Minimum.Z),
+                new(bounds.Maximum.X + 1, bounds.Maximum.Y + 1, bounds.Maximum.Z + 1)) : null;
+
+    private static Placement[] BuildingPlacements(SceneWorldSnapshot snapshot, NodeLayout layout) =>
+        Buildings(snapshot, layout).OrderBy(pair => pair.Key.Value).Select(pair =>
+        {
+            var design = snapshot.Content.FindDesign(pair.Value.Instance.Design);
+            return new Placement(pair.Value.Instance, SceneGeometry.Placement(pair.Value.Plot.At, pair.Value.Plot.Orientation),
+                BuildingBounds(design), design);
+        }).ToArray();
+
+    private static Placement[] ParkedPlacements(SceneWorldSnapshot snapshot, NodeLayout layout)
     {
-        var placed = Buildings(snapshot, layout);
-        buildings.Retain(placed.Values.Select(item => item.Instance.Id));
-        foreach (var item in placed.OrderBy(pair => pair.Key.Value)) buildings.Prepare(snapshot.Content, item.Value.Instance);
-        var vehicles = (Settlement(snapshot, layout)?.ParkedVehicles ?? []).OrderBy(id => id.Value).Take(ParkedVehicleLimit).ToArray();
-        parked.Retain(vehicles.Select(id => (InstanceId)new InstanceId.Vehicle(id)));
-        foreach (var id in vehicles)
-            if (snapshot.Core.FindInstance(new InstanceId.Vehicle(id)) is Lookup<InstanceView>.Found instance &&
-                snapshot.Content.FindDesign(instance.Value.Design) is ContentLookup<DesignEvaluation>.Found design &&
-                RailwayVehicles.Length(design.Value) is > 0)
-                parked.Prepare(snapshot.Content, instance.Value);
+        var result = new List<Placement>();
+        var used = new double[layout.Parking.Length];
+        foreach (var id in (Settlement(snapshot, layout)?.ParkedVehicles ?? []).OrderBy(id => id.Value).Take(ParkedVehicleLimit))
+        {
+            if (snapshot.Core.FindInstance(new InstanceId.Vehicle(id)) is not Lookup<InstanceView>.Found found) continue;
+            var instance = found.Value;
+            var lookup = snapshot.Content.FindDesign(instance.Design);
+            var length = RailwayVehicles.Length((lookup as ContentLookup<DesignEvaluation>.Found)?.Value);
+            if (lookup is not ContentLookup<DesignEvaluation>.Found design || design.Value is DesignEvaluation.Failed || length is not > 0)
+            {
+                result.Add(new(instance, new(Vector3.Zero, Quaternion.Identity), null, lookup, length));
+                continue;
+            }
+            var lineIndex = 0;
+            while (lineIndex < layout.Parking.Length && used[lineIndex] + length.Value > layout.Parking[lineIndex].Length) lineIndex++;
+            if (lineIndex == layout.Parking.Length) continue;
+            var line = layout.Parking[lineIndex];
+            var center = RailwayCoordinates.Add(line.Start, line.Forward * (float)(used[lineIndex] + length.Value / 2.0));
+            used[lineIndex] += length.Value + 4;
+            var pose = new ScenePose(RailwayCoordinates.Relative(center, default), RailwayCoordinates.Rotation(line.Forward));
+            result.Add(new(instance, pose, SceneVehicles.VehicleBounds(DesignGeometry.Projection(design.Value),
+                (InstanceDetails.Vehicle)instance.Details), lookup, length));
+        }
+        return result.ToArray();
+    }
+
+    private static Placement[] Select(Placement[] placements, HashSet<InstanceId> retained, NodeRange? range)
+    {
+        var selected = placements.Where(item => range is null || item.Bounds is not { } bounds ||
+            range.Value.Intersects(bounds, item.Pose) || retained.Contains(item.Instance.Id) &&
+            range.Value.Around(NodeStreaming.RetainCells).Intersects(bounds, item.Pose)).ToArray();
+        retained.Clear();
+        retained.UnionWith(selected.Select(item => item.Instance.Id));
+        return selected.OrderBy(item => range is { } area
+            ? Math.Pow(item.Pose.Position.X - area.Focus.X, 2) + Math.Pow(item.Pose.Position.Z - area.Focus.Z, 2) : 0).ToArray();
+    }
+
+    internal void Pump(SceneWorldSnapshot snapshot, NodeLayout layout, NodeRange? range = null)
+    {
+        var placed = Select(BuildingPlacements(snapshot, layout), retainedBuildings, range);
+        buildings.Retain(placed.Select(item => item.Instance.Id));
+        foreach (var item in placed) buildings.Prepare(snapshot.Content, item.Instance);
+        var vehicles = Select(ParkedPlacements(snapshot, layout), retainedParked, range);
+        parked.Retain(vehicles.Select(item => item.Instance.Id));
+        foreach (var item in vehicles)
+            if (item.Bounds is not null) parked.Prepare(snapshot.Content, item.Instance);
     }
 
     private static SettlementView? Settlement(SceneWorldSnapshot snapshot, NodeLayout layout)
@@ -66,24 +121,23 @@ internal sealed class SettlementObjects : IAsyncDisposable
     }
 
     internal RenderedDesign Present(SceneWorldSnapshot snapshot, NodeLayout layout, ScenePoint origin,
-        ImmutableArray<SceneFog>.Builder fog)
+        ImmutableArray<SceneFog>.Builder fog, NodeRange? range = null)
     {
         var objects = ImmutableArray.CreateBuilder<SceneObject>();
         var picking = ImmutableArray.CreateBuilder<PickGrid>();
         var problems = ImmutableArray.CreateBuilder<SceneProblem>();
-        var settlement = Settlement(snapshot, layout);
-        Pump(snapshot, layout);
-        var placed = Buildings(snapshot, layout);
-        foreach (var pair in placed.OrderBy(pair => pair.Key.Value))
+        Pump(snapshot, layout, range);
+        var placed = Select(BuildingPlacements(snapshot, layout), retainedBuildings, range);
+        foreach (var item in placed)
         {
-            var (instance, plot) = pair.Value;
-            var placement = SceneGeometry.Placement(plot.At, plot.Orientation);
-            var pose = placement with { Position = placement.Position - RailwayCoordinates.Relative(origin, default) };
+            var instance = item.Instance;
+            var buildingId = ((InstanceId.Building)instance.Id).Id;
+            var pose = item.Pose with { Position = item.Pose.Position - RailwayCoordinates.Relative(origin, default) };
             var body = buildings.Prepare(snapshot.Content, instance);
             var hasBody = body is not null;
             if (hasBody)
-                Add(SceneGeometry.Place(WorldSceneSession.Attach(body!.Geometry, "building:" + pair.Key.Value + ":", objectId).Geometry, pose));
-            else objects.Add(new(objectId("building:" + pair.Key.Value + ":"), null, pose, new WorldObjectId.Instance(instance.Id), [], [], []));
+                Add(SceneGeometry.Place(WorldSceneSession.Attach(body!.Geometry, "building:" + buildingId.Value + ":", objectId).Geometry, pose));
+            else objects.Add(new(objectId("building:" + buildingId.Value + ":"), null, pose, new WorldObjectId.Instance(instance.Id), [], [], []));
             if (!hasBody || !WorldSceneSession.Matches(body!, instance))
             {
                 if (snapshot.Content.FindDesign(instance.Design) is ContentLookup<DesignEvaluation>.Found evaluation &&
@@ -93,30 +147,18 @@ internal sealed class SettlementObjects : IAsyncDisposable
             }
         }
 
-        var vehicles = (settlement?.ParkedVehicles ?? []).OrderBy(id => id.Value).Take(ParkedVehicleLimit).ToArray();
-        parked.Retain(vehicles.Select(id => (InstanceId)new InstanceId.Vehicle(id)));
-        var used = new double[layout.Parking.Length];
-        foreach (var id in vehicles)
+        var vehicles = Select(ParkedPlacements(snapshot, layout), retainedParked, range);
+        foreach (var item in vehicles)
         {
-            if (snapshot.Core.FindInstance(new InstanceId.Vehicle(id)) is not Lookup<InstanceView>.Found found) continue;
-            var instance = found.Value;
-            var lookup = snapshot.Content.FindDesign(instance.Design);
-            var length = RailwayVehicles.Length((lookup as ContentLookup<DesignEvaluation>.Found)?.Value);
-            if (lookup is not ContentLookup<DesignEvaluation>.Found design || design.Value is DesignEvaluation.Failed || length is not > 0)
+            var instance = item.Instance;
+            var pose = item.Pose with { Position = item.Pose.Position - RailwayCoordinates.Relative(origin, default) };
+            if (item.Bounds is null)
             {
-                // No placement can be inferred, but missing content must still be visible in diagnostics.
-                var unplaced = SceneVehicles.Unplaced(snapshot.Content, instance, lookup, length,
-                    new(RailwayCoordinates.Relative(default, origin), Quaternion.Identity), objectId);
+                var unplaced = SceneVehicles.Unplaced(snapshot.Content, instance, item.Design, item.Length, pose, objectId);
                 problems.AddRange(unplaced.Diagnostics);
                 continue;
             }
-            var lineIndex = 0;
-            while (lineIndex < layout.Parking.Length && used[lineIndex] + length.Value > layout.Parking[lineIndex].Length) lineIndex++;
-            if (lineIndex == layout.Parking.Length) continue;
-            var line = layout.Parking[lineIndex];
-            var center = RailwayCoordinates.Add(line.Start, line.Forward * (float)(used[lineIndex] + length.Value / 2.0));
-            used[lineIndex] += length.Value + 4;
-            var pose = new ScenePose(RailwayCoordinates.Relative(center, origin), RailwayCoordinates.Rotation(line.Forward));
+            var design = (ContentLookup<DesignEvaluation>.Found)item.Design;
             if (parked.Reconcile(snapshot.Content, instance, objectId) is { } rendered)
                 Add(RailwayVehicles.Place(rendered, pose, 0));
             else

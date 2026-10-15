@@ -10,14 +10,10 @@ internal enum InspectionLighting { Game, Daylight, Overcast, Night }
 internal partial class WorldSceneView : Node3D
 {
     private readonly CanvasLayer _overlay = new() { Layer = 5 };
-    private readonly ColorRect _loading = new()
-    {
-        Color = new Color(0.06f, 0.08f, 0.1f, 0.85f), MouseFilter = Control.MouseFilterEnum.Stop
-    };
-    private readonly Label _message = new() { Text = "正在加载场景…", HorizontalAlignment = HorizontalAlignment.Center,
-        VerticalAlignment = VerticalAlignment.Center, MouseFilter = Control.MouseFilterEnum.Ignore };
+    private readonly Label _message = new() { Text = "正在加载场景…",
+        Position = new(16, 16), MouseFilter = Control.MouseFilterEnum.Ignore };
     internal WorldCamera CameraRig { get; } = new() { Name = "WorldCamera" };
-    internal bool Loading => _loading.Visible;
+    internal bool Loading => _message.Visible;
     internal bool Interactive { get; set; }
     internal InspectionLighting Lighting { get; private set; }
     internal event Action<Vector2>? PickRequested;
@@ -66,10 +62,7 @@ internal partial class WorldSceneView : Node3D
         _workLights.AddChild(new OmniLight3D { Position = new(10, 9, -12), LightColor = new Color("ffd9a0"),
             LightEnergy = 16, OmniRange = 80, ShadowEnabled = true });
         AddChild(_overlay);
-        _overlay.AddChild(_loading);
-        _loading.AddChild(_message);
-        _loading.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-        _message.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _overlay.AddChild(_message);
     }
 
     public override void _Ready()
@@ -79,7 +72,7 @@ internal partial class WorldSceneView : Node3D
         GetViewport().UseDebanding = true;
     }
 
-    internal void SetLoading(bool loading) => _loading.Visible = loading;
+    internal void SetLoading(bool loading) => _message.Visible = loading;
     internal bool SdfgiEnabled => _environment.SdfgiEnabled;
     internal void SetMeasurementEffects(bool sdfgi, bool taa)
     {
