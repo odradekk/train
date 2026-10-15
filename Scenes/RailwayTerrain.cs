@@ -9,7 +9,7 @@ namespace Train.Scenes;
 internal static class RailwayTerrain
 {
     internal sealed record BoundaryData(RailwayDependencies Dependencies,
-        ImmutableArray<SceneCell> Cells, ImmutableDictionary<GridColumn, double> Heights,
+        VoxelGrid Grid, ImmutableDictionary<GridColumn, double> Heights,
         ScenePoint Origin, ImmutableArray<SceneProblem> Problems);
     private const double BedTopBelowRailCells = 1;
     private const double TunnelPortalLookbackCells = 2;
@@ -23,26 +23,78 @@ internal static class RailwayTerrain
     internal static double BedHeight(double railHeight, double distance) =>
         railHeight - BedTopBelowRailCells - (distance <= RailwayCoordinates.BedTopHalfWidth ? 1 : 2);
 
+    internal sealed record Layers(CellProperties? Surface, CellProperties? Subsurface, CellProperties? Rock);
+
+    internal static Layers? PrepareLayers(TerrainAppearanceProjection? terrain,
+        Func<VoxelDefinitionId, VoxelAppearanceProjection?> appearance, PickSubject subject)
+    {
+        if (terrain is null) return null;
+        var surface = PrepareVoxel(terrain.SurfaceVoxel, appearance, subject);
+        var subsurface = terrain.SubsurfaceVoxel == terrain.SurfaceVoxel ? surface : PrepareVoxel(terrain.SubsurfaceVoxel, appearance, subject);
+        var rock = terrain.RockVoxel == terrain.SurfaceVoxel ? surface : terrain.RockVoxel == terrain.SubsurfaceVoxel ? subsurface :
+            PrepareVoxel(terrain.RockVoxel, appearance, subject);
+        return new(surface, subsurface, rock);
+    }
+
+    private static CellProperties PrepareVoxel(VoxelDefinitionId voxel,
+        Func<VoxelDefinitionId, VoxelAppearanceProjection?> appearance, PickSubject subject)
+    {
+        var projection = appearance(voxel);
+        return new(VoxelOrientation.PxPy, projection, null, null, subject, [], projection is null ?
+            new ContentReference.Core(new CoreDefinitionReference.Voxel(voxel)) : null);
+    }
+
+    private static (Layers? Terrain, CellProperties? BedRock) PrepareColumn(TerrainAppearanceProjection? terrain,
+        TerrainAppearanceProjection? bedTerrain, double height, double distance, bool hasBed,
+        (double From, double To)? excludedY, Func<VoxelDefinitionId, CellProperties> property)
+    {
+        // Prepare only emitted column layers: Appearance() records voxelReads and reports missing diagnostics.
+        CellProperties? surface = null, subsurface = null, rock = null, bedRock = null;
+        for (var depth = 0; depth < RailwayCoordinates.TerrainDepthCells; depth++)
+        {
+            var y = height - depth;
+            if (excludedY is { } excluded && y >= excluded.From && y < excluded.To) continue;
+            var bed = hasBed && BedLayer(depth, distance);
+            if (bed)
+            {
+                if (bedTerrain is not null) bedRock ??= Property(bedTerrain.RockVoxel);
+            }
+            else if (terrain is not null)
+            {
+                if (depth == 0) surface ??= Property(terrain.SurfaceVoxel);
+                else if (depth < 3) subsurface ??= Property(terrain.SubsurfaceVoxel);
+                else rock ??= Property(terrain.RockVoxel);
+            }
+        }
+        return (terrain is null ? null : new(surface, subsurface, rock), bedRock);
+
+        CellProperties Property(VoxelDefinitionId id)
+        {
+            if (surface is not null && terrain!.SurfaceVoxel == id) return surface;
+            if (subsurface is not null && terrain!.SubsurfaceVoxel == id) return subsurface;
+            if (rock is not null && terrain!.RockVoxel == id) return rock;
+            if (bedRock is not null && bedTerrain!.RockVoxel == id) return bedRock;
+            return property(id);
+        }
+    }
+
     internal static void FillColumn(ImmutableArray<SceneCell>.Builder cells, GridColumn column, double height,
-        TerrainAppearanceProjection? terrain, TerrainAppearanceProjection? bedTerrain, double trackDistance,
-        bool hasBed, Func<VoxelDefinitionId, VoxelAppearanceProjection?> appearance, PickSubject subject,
+        Layers? terrain, CellProperties? bedRock, double trackDistance, bool hasBed,
         double originY = 0, (double From, double To)? excludedY = null)
     {
         for (var depth = 0; depth < RailwayCoordinates.TerrainDepthCells; depth++)
         {
             var y = height - depth;
             if (excludedY is { } excluded && y >= excluded.From && y < excluded.To) continue;
-            var bed = hasBed && (depth == 0 && trackDistance <= RailwayCoordinates.BedBaseHalfWidth ||
-                depth == 1 && trackDistance <= RailwayCoordinates.BedTopHalfWidth);
-            if (bed ? bedTerrain is null : terrain is null) continue;
-            var voxel = bed ? bedTerrain!.RockVoxel : depth == 0 ? terrain!.SurfaceVoxel :
-                depth < 3 ? terrain!.SubsurfaceVoxel : terrain!.RockVoxel;
-            var projection = appearance(voxel);
-            cells.Add(new(new(column.X, checked((int)(y - originY)), column.Z), VoxelOrientation.PxPy,
-                projection, null, null, subject, [], projection is null ?
-                    new ContentReference.Core(new CoreDefinitionReference.Voxel(voxel)) : null));
+            var bed = hasBed && BedLayer(depth, trackDistance);
+            var properties = bed ? bedRock : depth == 0 ? terrain?.Surface : depth < 3 ? terrain?.Subsurface : terrain?.Rock;
+            if (properties is not null)
+                cells.Add(new(new(column.X, checked((int)(y - originY)), column.Z), properties));
         }
     }
+
+    private static bool BedLayer(int depth, double distance) => depth == 0 && distance <= RailwayCoordinates.BedBaseHalfWidth ||
+        depth == 1 && distance <= RailwayCoordinates.BedTopHalfWidth;
 
     internal static void ReportMissing(ContentReference reference, ImmutableArray<ContentDiagnostic> sourceDiagnostics,
         string detail, ImmutableArray<SceneProblem>.Builder diagnostics, WorldObjectId? subject = null)
@@ -268,6 +320,8 @@ internal static class RailwayTerrain
             var radius = NodeLayout.GroundMargin + halfWidth + RailwayCoordinates.BoundaryGridMargin;
             var cells = ImmutableArray.CreateBuilder<SceneCell>();
             var heights = ImmutableDictionary.CreateBuilder<GridColumn, double>();
+            var subject = new PickSubject.Terrain(new WorldLocation.Node(node));
+            var properties = new Dictionary<VoxelDefinitionId, CellProperties>();
             for (var z = (int)Math.Floor(endpoint.Z - radius); z <= endpoint.Z + radius; z++)
             for (var x = (int)Math.Floor(endpoint.X - radius); x <= endpoint.X + radius; x++)
             {
@@ -283,13 +337,19 @@ internal static class RailwayTerrain
                 var value = Column(center, new((int)(x - origin.X), (int)(z - origin.Z)), arc, lineLateral);
                 heights.Add(new(x, z), value.Height + 1);
                 var distance = TrackDistance(lineLateral);
-                var bedTerrain = terrains[path.Edge.Terrain.TypeId];
-                FillColumn(cells, new(x, z), value.Height, value.Terrain, bedTerrain, distance,
-                    path.Edge.Tracks > 0 && !value.Water && !value.Tunnel, Appearance,
-                    new PickSubject.Terrain(new WorldLocation.Node(node)));
+                var hasBed = path.Edge.Tracks > 0 && !value.Water && !value.Tunnel;
+                var layers = PrepareColumn(value.Terrain, terrains[path.Edge.Terrain.TypeId], value.Height, distance, hasBed, null, Property);
+                FillColumn(cells, new(x, z), value.Height, layers.Terrain, layers.BedRock, distance, hasBed);
             }
             return new(RailwayDependencies.Capture(snapshot, path, index, terrainReads, modelReads, models, voxelReads,
-                readsStartTerrain, readsEndTerrain), cells.ToImmutable(), heights.ToImmutable(), shift, diagnostics.ToImmutable());
+                readsStartTerrain, readsEndTerrain), new(cells.ToImmutable()), heights.ToImmutable(), shift, diagnostics.ToImmutable());
+
+            CellProperties Property(VoxelDefinitionId id)
+            {
+                if (!properties.TryGetValue(id, out var value))
+                    properties.Add(id, value = PrepareVoxel(id, Appearance, subject));
+                return value;
+            }
         }
 
         private void PlaceModels(Dictionary<GridColumn, TerrainColumn> columns)
@@ -339,11 +399,13 @@ internal static class RailwayTerrain
                 var trackDistance = TrackDistance(value.Offset);
                 var isTunnel = value.Tunnel;
                 heights.Add(column, value.Height + 1);
-                FillColumn(cells, column, value.Height, value.Terrain, bedTerrain, trackDistance,
-                    path.Edge.Tracks > 0 && !value.Water && !isTunnel, Appearance,
-                    new PickSubject.Terrain(new WorldLocation.Edge(path.Edge.Id, value.Arc / RailwayCoordinates.CellsPerMeter)),
-                    origin.Y, isTunnel && trackDistance < RailwayCoordinates.BedBlendWidth ?
-                        (rail.Position.Y, rail.Position.Y + RailwayCoordinates.TunnelClearance) : null);
+                var subject = new PickSubject.Terrain(new WorldLocation.Edge(path.Edge.Id, value.Arc / RailwayCoordinates.CellsPerMeter));
+                var hasBed = path.Edge.Tracks > 0 && !value.Water && !isTunnel;
+                (double From, double To)? excluded = isTunnel && trackDistance < RailwayCoordinates.BedBlendWidth ?
+                    (rail.Position.Y, rail.Position.Y + RailwayCoordinates.TunnelClearance) : null;
+                var layers = PrepareColumn(value.Terrain, bedTerrain, value.Height, trackDistance, hasBed, excluded,
+                    id => PrepareVoxel(id, Appearance, subject));
+                FillColumn(cells, column, value.Height, layers.Terrain, layers.BedRock, trackDistance, hasBed, origin.Y, excluded);
                 if (value.Water)
                 {
                     var y = (float)(WaterLevel(value.Arc) - origin.Y);
