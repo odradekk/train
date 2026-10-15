@@ -361,7 +361,12 @@ internal sealed class BlueprintParser
             case K.PartCapability.Storage s: writer.WriteNumber("capacity", s.Capacity); break;
             case K.PartCapability.Production p: writer.WriteNumber("work_rate", p.WorkPerSecond); break;
             case K.PartCapability.Extraction e: writer.WriteNumber("work_rate", e.WorkPerSecond); break;
-            case K.PartCapability.Construction c: writer.WriteNumber("work_rate", c.WorkPerSecond); writer.WriteString("max_size_class", DesignEvaluator.Wire(c.MaximumVehicleSize)); break;
+            case K.PartCapability.Construction c:
+                writer.WriteNumber("work_rate", c.WorkPerSecond);
+                writer.WriteString("max_plot_size", DesignEvaluator.Wire(c.MaximumBuildingPlotSize));
+                if (c.MaximumVehicleSize is { } maximumVehicleSize)
+                    writer.WriteString("max_size_class", DesignEvaluator.Wire(maximumVehicleSize));
+                break;
             case K.PartCapability.Power p: writer.WriteNumber("output", p.EnergyPerSecond); break;
             case K.PartCapability.Weapon w: writer.WriteNumber("damage", w.Damage); writer.WriteNumber("interval", w.IntervalSeconds); break;
         }

@@ -91,7 +91,7 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
     internal void Write(Utf8JsonWriter writer)
     {
         writer.WriteStartObject();
-        writer.WriteNumber("format_version", 3);
+        writer.WriteNumber("format_version", 4);
         writer.WriteNumber("revision", Revision.Value);
         writer.WriteStartArray("packages");
         foreach (var package in ReferencedPackages.OrderBy(p => p.Id.Value, StringComparer.Ordinal))
@@ -158,8 +158,8 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
 
     internal static ContentCapture Read(JsonElement root, string field = "")
     {
-        if (Int32(Required(root, "format_version", field), field + "/format_version") != 3)
-            Fail(field + "/format_version", "内容载荷只支持版本 3。", "unsupported_format");
+        if (Int32(Required(root, "format_version", field), field + "/format_version") != 4)
+            Fail(field + "/format_version", "内容载荷只支持版本 4。", "unsupported_format");
         Object(root, field, "format_version", "revision", "packages", "designs", "templates", "assembly_displays");
         var revision = new C.ContentRevision(UInt64(Required(root, "revision", field), field + "/revision"));
         var packages = Items(Required(root, "packages", field), field + "/packages").Select(item => ReadPackage(item.Value, item.Field)).ToImmutableArray();

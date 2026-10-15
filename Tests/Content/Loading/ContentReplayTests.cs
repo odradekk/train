@@ -12,12 +12,14 @@ namespace Train.Content.Tests.Loading;
 public sealed class ContentReplayTests
 {
     [TestMethod]
-    public void Version_one_replay_content_with_plot_sizes_is_rejected()
+    [DataRow(1)]
+    [DataRow(3)]
+    public void Previous_replay_content_formats_are_rejected(int version)
     {
         using var candidate = WorldContentFixtures.Content().Load();
         var factory = ContentFactory.Create();
         var json = JsonNode.Parse(Success(factory.CaptureReplay([candidate.View], References(candidate.View, "engine"))).Encode())!;
-        json["format_version"] = 1;
+        json["format_version"] = version;
         var result = factory.DecodeReplay(json.ToJsonString());
         Failure(result, "unsupported_format");
         Assert.IsTrue(((C.ContentResult<C.IContentReplayCapture>.Failure)result).Diagnostics.Any(d => d.Field == "/format_version"));
