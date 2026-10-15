@@ -45,9 +45,9 @@ Debug 有窗口显示帧预览复用生产 `App._Process`，以固定内容和�
 
 ```powershell
 dotnet build Tests/Engine/Train.Engine.Tests.csproj -c Debug
-& $env:GODOT --headless --path . --editor --import
-& $env:GODOT --path . --scene res://Tests/Engine/Bootstrap/ScenePreview.tscn
 ```
+
+导入和启动预览均使用[隔离子进程片段](local-environment.md#agent-手动启动-godot)，Godot 参数分别为 `--headless --path . --editor --import` 和 `--path . --scene res://Tests/Engine/Bootstrap/ScenePreview.tscn`；保留片段中的 `--log-file`，每次使用新的运行目录。
 
 入口先显示预览选择，选择“显示帧预览”使用上述固定显示帧。“进入”打开跟随场景；“下一情景”依次切换原点移动、部分就绪与空间变更；“切换车辆”在同列车的两个跟随目标间切换；“节点”和“线路”用于比较中键平移范围；“退出”或 Escape 返回验证地图。“最小化”设置真实窗口模式，从任务栏恢复。状态栏显示模拟步数、Present／Observe 次数、Session／Request、对象根与雾组实例 ID、根节点退出树次数及 Camera／Environment 激活状态，可检查连续帧、目标切换、稳定节点身份与最小化期间模拟推进。这是人工观察入口，不生成 JUnit，也不代表真实体素工厂或完整玩法验收。
 
@@ -148,6 +148,6 @@ Core 集成层的回放语料位于 `Tests/Core/Sessions/ReplayCorpus/`：这组
 
 隔离工具在所有结局下删除自己拥有的隔离树，删除失败判失败，保留清单和日志。普通运行通过后只保留摘要；阶段运行还保留 `benchmark/` 下的吞吐 JSON、BDN 日志和报告，Windows 另保留 `screenshot/` 下的实际 PNG、渲染身份和差异 JSON，以及 `stage-screenshot.junit.xml`。Windows 阶段或 `-ExportWindows` 另保留日志、`*.process.json`、探针耗时记录和 `asset-export/probe-data/`（含 `build-inputs/`），以及本次隔离的 `inputs.json`、`first-party-assemblies.json` 和 `isolation-summary.json`，供复核断言结果、输入清单、实际解析程序集和总耗时。导出二进制、`asset-export/staging/` 及隔离环境目录删除。失败保留 TRX、JUnit、日志、输入和转储等全部证据，其中引擎结果为 `engine-godot.junit.xml`，原生日志为 `engine-godot-native.log`。入口只保留最近 10 个符合命名规则的运行目录；入口持有该工作树的命名互斥锁时，没有 `summary.json` 的运行目录一律视为崩溃遗留并清理。未取得互斥锁则拒绝同工作树新运行。`TestResults/` 下其他目录不清理。结果只有通过或失败；必需检查失败、缺少环境或未完成时返回退出码 1；人工、目标硬件和尚未实现的验证另行报告。
 
-定位单个引擎用例时，先构建 `dotnet build Tests/Engine/Train.Engine.Tests.csproj -c Debug` 并完成资源导入；设置 `TRAIN_ENGINE_TEST_ASSEMBLY` 为 `.godot/mono/temp/bin/Debug/Train.Engine.Tests.dll` 的绝对路径，`TRAIN_ENGINE_REPORT` 为要保存的 JUnit 文件绝对路径。然后运行 `& $env:GODOT --headless --path . --scene res://Tests/Engine/Bootstrap/Runner.tscn -- --run-tests=<类>[.<方法>] --quit-on-finish`，将选择表达式替换为类名或类名加方法名；此直接运行不执行统一入口的最低用例数、目录隔离与快照检查。
+定位单个引擎用例时，先构建 `dotnet build Tests/Engine/Train.Engine.Tests.csproj -c Debug` 并按[隔离子进程片段](local-environment.md#agent-手动启动-godot)完成资源导入。在运行用例的隔离子进程内设置 `TRAIN_ENGINE_TEST_ASSEMBLY` 为 `.godot/mono/temp/bin/Debug/Train.Engine.Tests.dll` 的绝对路径，`TRAIN_ENGINE_REPORT` 为本次目录内 JUnit 文件的绝对路径，并设置 `TRAIN_ENGINE_SCREENSHOT=0`。Godot 参数使用 `--headless --path . --scene res://Tests/Engine/Bootstrap/Runner.tscn --log-file <本次原生日志> -- --run-tests=<类>[.<方法>] --quit-on-finish`，将选择表达式替换为类名或类名加方法名；此手动运行有用户目录隔离，但不执行统一入口的最低用例数与快照检查。
 
-单独重新采集截图时复用上述 Bootstrap：先将 `APPDATA`、`LOCALAPPDATA` 指向本次采集的独立目录，设置 `TRAIN_ENGINE_SCREENSHOT=1`、`TRAIN_SCREENSHOT_OUTPUT` 为证据目录，并去掉 `--headless`。运行截图套件后从该目录取得 `actual.png`、`rendering.json` 和已有基准下的 `comparison.json`；缺少基准时仍保存实际 PNG，然后按预期失败。每次采集使用新的进程和用户目录；采集结束恢复环境变量并清理自己创建的用户目录。普通无界面用例使用 `TRAIN_ENGINE_SCREENSHOT=0`。
+单独重新采集截图时复用上述 Bootstrap 和[隔离子进程片段](local-environment.md#agent-手动启动-godot)：在子进程内设置 `TRAIN_ENGINE_SCREENSHOT=1`、`TRAIN_SCREENSHOT_OUTPUT` 为证据目录，并去掉 `--headless`。运行截图套件后从该目录取得 `actual.png`、`rendering.json` 和已有基准下的 `comparison.json`；缺少基准时仍保存实际 PNG，然后按预期失败。每次采集使用新的进程和用户目录，采集后只清理自己创建的用户目录；调用终端的环境保持原值。普通无界面用例使用 `TRAIN_ENGINE_SCREENSHOT=0`。

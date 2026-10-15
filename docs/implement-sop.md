@@ -19,6 +19,8 @@ Ignored leftovers inside the worktree, such as old build outputs, go away with t
 
 For Godot scene, resource, editor or runtime work, use the project's Godot MCP Native plugin (`addons/godot_mcp/`) under [Godot MCP validation](#godot-mcp-validation).
 
+Every Godot process an agent starts must use isolated user data, including imports, exports, editors and games. For manual commands, follow the [isolated child-process recipe](local-environment.md#agent-手动启动-godot); keep redirection inside the child process so a later test run still finds the real export templates. For exports from another source checkout, use `scripts/export-measurement.ps1 -SourceDirectory <checkout> -OutputDirectory <new-output-directory>`. The source checkout must be clean; the summary records its HEAD. The coordinator starts MCP editors through the [documented editor launcher](godot-mcp.md#启动服务).
+
 ## 0. Prepare
 
 Read the coordinator's dispatch comment, the Issue body and all comments, `AGENTS.md`, the referenced design docs, ADRs and contracts, and the [Testing standard](#testing-standard). Verify the worktree path, branch, baseline and MCP assignment in the dispatch comment. Before environment setup, validation or export, read [Local validation and Windows builds](local-environment.md).
