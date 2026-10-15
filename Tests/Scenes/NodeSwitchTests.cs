@@ -452,7 +452,7 @@ public sealed class NodeSwitchTests
         var boundary = RailwayTerrain.NodeBoundary(snapshot, new(snapshot, entry.Edge), node, entry, token);
         var geometry = WorldSceneSession.BuildGeometry(id =>
         {
-            var grid = new VoxelGrid(boundary.Cells); var root = id("");
+            var grid = boundary.Grid; var root = id("");
             var pose = new ScenePose(RailwayCoordinates.Relative(boundary.Origin, default), Quaternion.Identity);
             return new([new(root, null, pose, null, DesignGeometry.Meshes(grid, false), [], [])], [new(root, pose, grid)], boundary.Problems);
         });

@@ -160,7 +160,7 @@ internal sealed class NodeScene : IAsyncDisposable
             var inputs = RailwayDependencies.Values(new object[] { layout.Inputs, boundary.Dependencies.Key,
                 boundary.Heights.Keys.Where(column => !allowed.Contains(column)).OrderBy(column => column.X).ThenBy(column => column.Z).ToArray() });
             Put("boundary:" + entry.Edge.Value, inputs, () => GridPart(
-                boundary.Cells.Where(cell => allowed.Contains(new(cell.At.X, cell.At.Z))).ToImmutableArray(),
+                boundary.Grid.Cells.Where(cell => allowed.Contains(new(cell.At.X, cell.At.Z))).ToImmutableArray(),
                 boundary.Heights.Where(item => allowed.Contains(item.Key)).ToImmutableDictionary(), [], boundary.Origin));
             foreach (var column in allowed) boundaryColumns.Add(Global(column));
         }

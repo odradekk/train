@@ -153,7 +153,7 @@ public sealed class NodeSceneTests
         var built = NodeScene.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
         Assert.IsTrue(built.Parts["entry:1"].Geometry.Geometry.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Any());
         Assert.IsTrue(built.Parts["station-tracks"].Geometry.Geometry.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Any());
-        Assert.IsFalse(built.Parts["platform:0"].Geometry.Geometry.Picking.Single().Grid.Cells.IsEmpty);
+        Assert.IsTrue(built.Parts["platform:0"].Geometry.Geometry.Picking.Single().Grid.Cells.Any());
         foreach (var part in built.Parts.Values)
         {
             Assert.AreEqual(Math.Round(part.Origin.X), part.Origin.X);

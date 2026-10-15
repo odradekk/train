@@ -9,7 +9,7 @@ namespace Train.Scenes;
 internal static class RailwayTerrain
 {
     internal sealed record BoundaryData(RailwayDependencies Dependencies,
-        ImmutableArray<SceneCell> Cells, ImmutableDictionary<GridColumn, double> Heights,
+        VoxelGrid Grid, ImmutableDictionary<GridColumn, double> Heights,
         ScenePoint Origin, ImmutableArray<SceneProblem> Problems);
     private const double BedTopBelowRailCells = 1;
     private const double TunnelPortalLookbackCells = 2;
@@ -289,7 +289,7 @@ internal static class RailwayTerrain
                     new PickSubject.Terrain(new WorldLocation.Node(node)));
             }
             return new(RailwayDependencies.Capture(snapshot, path, index, terrainReads, modelReads, models, voxelReads,
-                readsStartTerrain, readsEndTerrain), cells.ToImmutable(), heights.ToImmutable(), shift, diagnostics.ToImmutable());
+                readsStartTerrain, readsEndTerrain), new(cells.ToImmutable()), heights.ToImmutable(), shift, diagnostics.ToImmutable());
         }
 
         private void PlaceModels(Dictionary<GridColumn, TerrainColumn> columns)

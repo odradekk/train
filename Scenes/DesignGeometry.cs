@@ -135,7 +135,7 @@ internal static class DesignGeometry
             {
                 var normal = SceneGeometry.Normal(face);
                 var at = cell.At;
-                if (grid.Find(new(at.X + (int)normal.X, at.Y + (int)normal.Y, at.Z + (int)normal.Z))?.Occludes == true) continue;
+                if (grid.Occludes(new(at.X + (int)normal.X, at.Y + (int)normal.Y, at.Z + (int)normal.Z))) continue;
                 var front = normal == axes.Forward && cube.Front != cube.Side;
                 var texture = normal == axes.Up ? cube.Top : normal == -axes.Up ? cube.Bottom : front ? cube.Front : cube.Side;
                 var imageUp = normal == axes.Up || normal == -axes.Up ? axes.Forward : axes.Up;
@@ -166,7 +166,7 @@ internal static class DesignGeometry
                     group.Vertices.Add(new(position, normal, textureUv, uv, edges, Math.Clamp(height, 0, 1), 0));
                 }
                 group.Indices.AddRange([first, first + 1, first + 2, first, first + 2, first + 3]);
-                bool Empty(Vector3 offset) => grid.Find(new(at.X + (int)offset.X, at.Y + (int)offset.Y, at.Z + (int)offset.Z)) is null;
+                bool Empty(Vector3 offset) => !grid.Contains(new(at.X + (int)offset.X, at.Y + (int)offset.Y, at.Z + (int)offset.Z));
             }
         }
         return groups.Select(group => (SceneVisual)new SceneVisual.Geometry(
