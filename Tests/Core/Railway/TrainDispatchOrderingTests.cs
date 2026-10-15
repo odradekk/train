@@ -1,3 +1,4 @@
+using Train.Core.Tests.World;
 using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
@@ -23,7 +24,8 @@ public sealed class TrainDispatchOrderingTests
         Assert.AreEqual(TrainActivity.Waiting, View(session, 3).Activity);
         Step(session);
         Assert.IsInstanceOfType<TrainPosition.Edge>(View(session, 3).Position);
-        Assert.AreEqual(new TrainPosition.Node(new(1)), View(session, 2).Position);
+        Assert.AreEqual(WorldFixture.Node(new(1), NodeTravelPhase.Departing,
+                    WorldFixture.ApproachLength + WorldFixture.PlatformLength + WorldFixture.DepartureLength, nextEdge: new(1)), View(session, 2).Position);
         Assert.AreEqual(TrainActivity.Waiting, View(session, 2).Activity);
     }
 
@@ -48,7 +50,8 @@ public sealed class TrainDispatchOrderingTests
         var remaining = (TrainPosition.Edge)View(session, 2).Position;
         Assert.AreEqual(2, remaining.Track);
         Assert.AreEqual(TravelDirection.Reverse, remaining.Direction);
-        Assert.AreEqual(new TrainPosition.Node(new(1)), View(session, 3).Position);
+        Assert.AreEqual(WorldFixture.Node(new(1), NodeTravelPhase.Departing,
+                    WorldFixture.ApproachLength + WorldFixture.PlatformLength + WorldFixture.DepartureLength, nextEdge: new(1)), View(session, 3).Position);
         Assert.AreEqual(TrainActivity.Waiting, View(session, 3).Activity);
         for (var step = 0; step < 1000 && View(session, 3).Position is TrainPosition.Node; step++) Step(session);
         Assert.IsInstanceOfType<TrainPosition.Edge>(View(session, 3).Position);
@@ -65,6 +68,9 @@ public sealed class TrainDispatchOrderingTests
             var state = State();
             var plan = new RunPlan(false, [new PlanStop.Station(new(1), 2, []), new PlanStop.Waypoint(new(2))]);
             var trains = state.World.Trains.Select(t => t with { Activity = t.Id.Value == 3 ? TrainActivity.Servicing : TrainActivity.Running,
+                Position = t.Id.Value == 3
+                    ? WorldFixture.Node(new(1), NodeTravelPhase.Docked, WorldFixture.ApproachLength + WorldFixture.PlatformLength / 2, platform: 1)
+                    : t.Position,
                 Plan = plan, RemainingDwellSteps = t.Id.Value == 3 ? 1UL : 0UL }).ToImmutableArray();
             if (reversed) trains = trains.Reverse().ToImmutableArray();
             using var session = new CoreSession(state with { World = state.World with { Trains = trains } });
@@ -73,9 +79,10 @@ public sealed class TrainDispatchOrderingTests
             Assert.AreEqual(TrainActivity.Waiting, View(session, 2).Activity);
             Assert.AreEqual("platform_wait", View(session, 1).Blockers.Single().Code);
             Assert.AreEqual("platform_wait", View(session, 2).Blockers.Single().Code);
+            Assert.AreEqual(1, session.Read().World.Nodes[0].OccupiedPlatforms);
+            Until(session, () => View(session, 3).Position is TrainPosition.Edge);
             Assert.AreEqual(0, session.Read().World.Nodes[0].OccupiedPlatforms);
-            Step(session);
-            Assert.AreEqual(TrainActivity.Servicing, View(session, 1).Activity);
+            Until(session, () => View(session, 1).Activity == TrainActivity.Servicing);
             Assert.AreEqual(2UL, View(session, 1).RemainingDwellSteps);
             Assert.AreEqual(TrainActivity.Waiting, View(session, 2).Activity);
             Assert.AreEqual(1, session.Read().World.Nodes[0].OccupiedPlatforms);
@@ -83,11 +90,13 @@ public sealed class TrainDispatchOrderingTests
     }
 
     private static TrainState OnEdge(TrainState train, int track, double distance, double speed, bool reverse = false) => train with
-    { Position = new TrainPosition.Edge(new(1), track, reverse ? TravelDirection.Reverse : TravelDirection.Forward, distance), Transit = null,
+    { Position = new TrainPosition.Edge(new(1), track, reverse ? TravelDirection.Reverse : TravelDirection.Forward, distance),
         Activity = TrainActivity.Running, SpeedMetersPerSecond = speed,
         Plan = new(false, [new PlanStop.Waypoint(new(reverse ? 1UL : 2UL))]) };
 
     private static TrainState Queued(TrainState train, ulong node, ulong age, ulong target) => train with
-    { Position = new TrainPosition.Node(new(node)), Activity = TrainActivity.Waiting, QueueEnteredStep = age,
+    { Position = WorldFixture.Node(new(node), NodeTravelPhase.Departing,
+            WorldFixture.ApproachLength + (node == 1 ? WorldFixture.PlatformLength : 0) + WorldFixture.DepartureLength,
+            nextEdge: new(1)), Activity = TrainActivity.Waiting, QueueEnteredStep = age,
         Plan = new(false, [new PlanStop.Waypoint(new(target))]) };
 }

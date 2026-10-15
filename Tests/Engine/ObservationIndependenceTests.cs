@@ -147,10 +147,12 @@ public class ObservationIndependenceTests(Node testScene) : TestClass(testScene)
                 var view = host.GetStatus()!.View;
                 var previous = scenes.Display?.DisplayedFrame?.Update.Frame;
                 var train = ((Lookup<TrainView>.Found)view.FindTrain(new(1))).Value;
+                // 跟随可能仍在节点内，先观察列车所在节点，避免正确性用例重复冷建两个节点。
                 scenes.Open(step switch
                 {
                     30 => new WorldSceneTarget.Location(new WorldLocation.Edge(view.World.Edges[0].Id, 1)),
-                    60 => new WorldSceneTarget.Location(new WorldLocation.Node(view.World.Nodes[0].Id)),
+                    60 => new WorldSceneTarget.Location(new WorldLocation.Node(train.Position is TrainPosition.Node atNode
+                        ? atNode.Id : view.World.Nodes[0].Id)),
                     _ => new WorldSceneTarget.Follow(train.Id, train.Vehicles[0])
                 });
                 stopAt = new(step + 30, 0);

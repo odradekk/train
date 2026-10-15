@@ -41,8 +41,8 @@ internal static class RailwayFixtures
                 trains.Select(train => new TrainMapItem(train.Id, train.Position, train.Activity)).ToImmutableArray(), [], []),
             Nodes = new Dictionary<NodeId, Lookup<NodeView>>
             {
-                [first.Id] = new Lookup<NodeView>.Found(new(first, [Edge])),
-                [last.Id] = new Lookup<NodeView>.Found(new(last, [Edge]))
+                [first.Id] = new Lookup<NodeView>.Found(new(first, [Edge], 80, 0, 80)),
+                [last.Id] = new Lookup<NodeView>.Found(new(last, [Edge], 80, 0, 80))
             },
             Edges = new Dictionary<EdgeId, Lookup<EdgeView>> { [Edge] = new Lookup<EdgeView>.Found(new(edge, trackViews, null)) },
             Trains = trains.ToDictionary(train => train.Id, train => (Lookup<TrainView>)new Lookup<TrainView>.Found(train))
@@ -204,6 +204,6 @@ internal static class RailwayFixtures
         TrainOrderFacing facing = TrainOrderFacing.FirstEndLeading, double speed = 0) => new(new(trainId),
         new TrainPosition.Edge(Edge, track, direction, distanceMeters), TrainActivity.Running,
         vehicles.IsDefault ? [new(1)] : vehicles, new(trainId), speed, 4, 1, 1, 1, 10, null, null, 0,
-        new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0), [], null, [], null, facing);
+        new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0), [], null, [], facing);
 
 }

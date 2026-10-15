@@ -462,8 +462,9 @@ def content_files():
     document("rules", "construction-rule", "basic-construction", {"schema_version": 1, "id": "basic-construction", "simulation": {
         "founding_duration_ticks": 2400, "construction_work_per_item": 8, "refit_work_per_changed_item": 5,
         "deconstruction_work_per_item": 3, "repair_work_per_damaged_part": 4, "power_per_work": 0.4, "labor_per_work": 0.25}})
-    document("railway-rules", "railway-rule", "basic-railway", {"schema_version": 1, "id": "basic-railway",
+    document("railway-rules", "railway-rule", "basic-railway", {"schema_version": 2, "id": "basic-railway",
         "braking_deceleration": 0.7, "minimum_acceleration": 0.15, "minimum_gap_meters": 28,
+        "approach_length_meters": 80, "departure_length_meters": 80, "node_speed_limit_meters_per_second": 15,
         "rail_units_per_meter": 0.7, "build_seconds_per_meter": 3, "repair_seconds_per_break": 48,
         "rail_good": "structural-metal", "repair_rail_units_per_break": 18,
         "appearance": {"minimum_curve_radius_meters": 80, "maximum_grade": 0.08}})

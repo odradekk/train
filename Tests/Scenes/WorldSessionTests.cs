@@ -42,7 +42,7 @@ public sealed class WorldSessionTests
             Instances = new Dictionary<InstanceId, Lookup<InstanceView>>
             { [Vehicle] = removed ? new Lookup<InstanceView>.Missing() : new Lookup<InstanceView>.Found(instance ?? Instance) }
         }, content ?? SceneFixtures.Content(Evaluation));
-    private static NodeView Node(ulong id) => new(new(new(id), new(0, 0), new(new("test:terrain"), 0, []), new NodeOccupant.Empty(), [], 0, 0, null), []);
+    private static NodeView Node(ulong id) => new(new(new(id), new(0, 0), new(new("test:terrain"), 0, []), new NodeOccupant.Empty(), [], 0, 0, null), [], 80, 0, 80);
     private static WorldSceneContent Terrain() => new([
         new(new(0, 0, 0), VoxelOrientation.PxPy, SceneFixtures.Cube, null, null, new PickSubject.Terrain(Location), [])], [], [], [], []);
     private static WorldSceneContent ObjectContent() => new([], [new(Vehicle, SceneFixtures.Identity)], [], [], []);
@@ -529,10 +529,10 @@ public sealed class WorldSessionTests
     [TestMethod]
     public async Task FollowVehicleMustBelongToRequestedTrain()
     {
-        var train = new TrainView(new(1), new TrainPosition.Node(new(1)), TrainActivity.Stopped,
+        var train = new TrainView(new(1), new TrainPosition.Node(new(1), null, null, NodeTravelPhase.Waiting, 80, null), TrainActivity.Stopped,
             [new(2)], new(1), 0, 0, 0, 0, 0, 0, null, null, 0,
             new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0),
-            [], null, [], null, TrainOrderFacing.FirstEndLeading);
+            [], null, [], TrainOrderFacing.FirstEndLeading);
         var snapshot = Snapshot() with
         {
             Core = new FixedCoreReadView

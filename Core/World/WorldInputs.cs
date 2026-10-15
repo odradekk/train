@@ -120,7 +120,11 @@ internal static class WorldInputs
         Unique(Items(content.ConstructionRules), x => x.Id.Value);
         foreach (var rule in content.ConstructionRules) Identity(rule.Id.Value);
         Unique(Items(content.RailwayRules), x => x.Id.Value);
-        foreach (var rule in content.RailwayRules) { Identity(rule.Id.Value); Identity(rule.RailGood.Value); }
+        foreach (var rule in content.RailwayRules)
+        {
+            Identity(rule.Id.Value); Identity(rule.RailGood.Value);
+            Positive(rule.ApproachLengthMeters); Positive(rule.DepartureLengthMeters); Positive(rule.NodeSpeedLimitMetersPerSecond);
+        }
         Unique(Items(content.CombatRules), x => x.Id.Value);
         foreach (var rule in content.CombatRules) Identity(rule.Id.Value);
         Unique(Items(content.SettlementTypes), x => x.Id.Value);
@@ -232,6 +236,9 @@ internal static class WorldInputs
         ArgumentNullException.ThrowIfNull(template);
         Identity(template.Id.Value); Identity(template.Type.Value); Require(template.Weight > 0, "Templates.Weight");
         Unique(Items(template.Plots), x => x.Number);
+        Nonnegative(template.PlatformLengthMeters);
+        Require((template.PlatformLengthMeters > 0) == template.Plots.Any(p =>
+            p.Size is PlotSize.SmallStation or PlotSize.LargeStation), "Templates.PlatformLengthMeters");
         foreach (var plot in template.Plots)
         { Require(plot.Number > 0, "Plots.Number"); EnumValue(plot.Size); if (plot.PrebuiltDesign is { } design) Hash(design.Value); }
         Unique(Items(template.FoundingBuildings), x => x.PlotNumber);

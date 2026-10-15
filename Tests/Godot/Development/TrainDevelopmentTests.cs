@@ -69,7 +69,7 @@ public sealed class TrainDevelopmentTests
     private static FixedCoreReadView View(SimulationPosition position)
     {
         var node = new NodeView(new(new(7), new(1, 2), new(new("fixture:terrain"), 0, []),
-            new NodeOccupant.Empty(), [], 0, 1, null), []);
+            new NodeOccupant.Empty(), [], 0, 1, null), [], 80, 0, 80);
         return new(position, HostCoreScenario.Input)
         {
             World = new(1, new("fixture:railway"), 100, 100, [], [], [], [], []),

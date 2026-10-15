@@ -15,7 +15,7 @@ public sealed class InspectorDataTests
     {
         var id = new WorldObjectId.Node(new(7));
         var node = new NodeView(new(new(7), new(1, 2), new(new("test:terrain"), 0, []),
-            new NodeOccupant.Settlement(new(9), SettlementRelation.PlayerOwned), [], 0, 1, null), []);
+            new NodeOccupant.Settlement(new(9), SettlementRelation.PlayerOwned), [], 0, 1, null), [], 80, 0, 80);
         var view = new FixedCoreReadView
         {
             Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [id.Id] = new Lookup<NodeView>.Found(node) }

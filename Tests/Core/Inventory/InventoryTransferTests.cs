@@ -56,6 +56,24 @@ public sealed class InventoryTransferTests
     }
 
     [TestMethod]
+    public void Retained_platform_reservation_does_not_allow_transfers_while_service_is_paused()
+    {
+        using var session = Session();
+        var lease = Rent(session);
+        Service(session);
+        Accept(session, new CoreCommand.UnloadGoods(new(1), lease.Settlement, lease.Inventory, Voxel, 1));
+        Accept(session, new CoreCommand.StopTrain(new(1)));
+        var train = ((Lookup<TrainView>.Found)session.Read().FindTrain(new(1))).Value;
+        Assert.AreEqual(TrainActivity.Stopped, train.Activity);
+        Assert.AreEqual(1, ((TrainPosition.Node)train.Position).PlatformNumber);
+        Assert.AreEqual(1, session.Read().World.Nodes.Single().OccupiedPlatforms);
+        RejectWithoutWorldChange(session, new CoreCommand.UnloadGoods(train.Id, lease.Settlement, lease.Inventory, Voxel, 1), "platform_required");
+        RejectWithoutWorldChange(session, new CoreCommand.LoadGoods(train.Id, lease.Settlement, lease.Inventory, Voxel, 1), "platform_required");
+        Accept(session, new CoreCommand.StartTrain(train.Id));
+        Accept(session, new CoreCommand.LoadGoods(train.Id, lease.Settlement, lease.Inventory, Voxel, 1));
+    }
+
+    [TestMethod]
     public void Nonhostile_npc_inventory_is_unfrozen_but_player_cannot_transfer_directly()
     {
         using var session = Session(Content(localStock: 5));

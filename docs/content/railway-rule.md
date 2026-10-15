@@ -1,6 +1,6 @@
 # 铁路规则
 
-文件为 `resources/railway-rules/<local id>.railway-rule.json`，`schema_version` 为 1。遵循 [通用规则](README.md)：一文件一份定义、严格 JSON、命名空间引用和包依赖。Schema 见 [对应 Schema](schemas/railway-rule.schema.json)。样例只展示格式，不冻结配平数值。
+文件为 `resources/railway-rules/<local id>.railway-rule.json`，`schema_version` 为 2。遵循 [通用规则](README.md)：一文件一份定义、严格 JSON、命名空间引用和包依赖。Schema 见 [对应 Schema](schemas/railway-rule.schema.json)。样例只展示格式，不冻结配平数值。
 
 一局使用的规则由生成配置 `rules.railway` 选择，解析成核心 `RailwayRuleProjection`。加载器检查 `rail_good` 引用存在且是货物。内容不执行列车运行或施工。
 
@@ -12,6 +12,9 @@
 | --- | --- |
 | `braking_deceleration` | 正数，m/s²。 |
 | `minimum_acceleration` | 正数，启动加速度下限，m/s²。 |
+| `approach_length_meters` | 正数，节点进站段长度，米；初值 80。 |
+| `departure_length_meters` | 正数，节点出站段长度，米；初值 80。 |
+| `node_speed_limit_meters_per_second` | 正数，节点站区限速，米/秒；初值 15。 |
 | `minimum_gap_meters` | 正数，最小跟车间距，米。 |
 | `rail_units_per_meter` | 正数，件/米。 |
 | `build_seconds_per_meter` | 正数，模拟秒/米。 |

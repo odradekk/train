@@ -172,8 +172,8 @@ public sealed class NodeSwitchTests
         var physical = oldPath.Sample(arc, 17).Position;
         var display = RailwayCoordinates.Relative(physical, line.Origin);
         var hit = (ScenePick.Hit)line.Pick(new(display + new Vector3(0.5f, 20, 0.5f), -Vector3.UnitY, 50));
-        var atNode = onEdge with { Position = new TrainPosition.Node(endpoint), Activity = activity,
-            NodeTransit = new(RailwayFixtures.Edge, RailwayFixtures.Edge) };
+        var atNode = onEdge with { Position = new TrainPosition.Node(endpoint, RailwayFixtures.Edge, RailwayFixtures.Edge,
+                activity == TrainActivity.Running ? NodeTravelPhase.Departing : NodeTravelPhase.Docked, 80, null), Activity = activity };
         session.Observe(Snapshot(atNode, 1), []);
         var firstNode = Present(session, line);
         var expectedOrigin = SceneFrame.SwitchOrigin(line, NodeLayout.Build(Snapshot(atNode, 1), endpoint, default), null);
@@ -254,13 +254,13 @@ public sealed class NodeSwitchTests
         await RailwayFixtures.Settled(session, Request);
         Assert.AreEqual(new WorldLocation.Node(new(2)), session.PrebuiltLocation);
         await Task.WhenAll(session.PendingPrebuilds);
-        var atNode = RailwayFixtures.Train() with { Position = new TrainPosition.Node(new(2)), NodeTransit = new(RailwayFixtures.Edge, null) };
+        var atNode = RailwayFixtures.Train() with { Position = new TrainPosition.Node(new(2), RailwayFixtures.Edge, null, NodeTravelPhase.Approaching, 0, null) };
         session.Observe(RailwayFixtures.Snapshot(4, 4, 0, content: content, steps: 2, trains: [atNode], instances: [RailwayFixtures.Instance()]), []);
         var node = await RailwayFixtures.Settled(session, Request);
         Assert.AreEqual(new NodeId(2), node.Node!.Node);
         Assert.IsNull(session.PrebuiltLocation);
         session.Observe(RailwayFixtures.Snapshot(4, 4, 0, content: content, steps: 3,
-            trains: [atNode with { NodeTransit = new(RailwayFixtures.Edge, RailwayFixtures.Edge) }], instances: [RailwayFixtures.Instance()]), []);
+            trains: [atNode with { Position = ((TrainPosition.Node)atNode.Position) with { NextEdge = RailwayFixtures.Edge } }], instances: [RailwayFixtures.Instance()]), []);
         session.Present(Request, node);
         Assert.IsInstanceOfType<WorldLocation.Edge>(session.PrebuiltLocation);
     }
@@ -277,7 +277,7 @@ public sealed class NodeSwitchTests
         session.RequestView(new WorldSceneTarget.Follow(new(1), new(1)));
         await RailwayFixtures.Settled(session, Request);
         Assert.IsNull(session.PrebuiltLocation, "Even with multiple neighbors and a run plan, a missing NextEdge must not guess a route.");
-        session.Observe(ShortNodeSnapshot(train with { NodeTransit = new(new(1), new(2)) }, content, 1), []);
+        session.Observe(ShortNodeSnapshot(train with { Position = ((TrainPosition.Node)train.Position) with { EnteredFrom = new(1), NextEdge = new(2) } }, content, 1), []);
         Present(session);
         Assert.AreEqual(new WorldLocation.Edge(new(2), 4), session.PrebuiltLocation);
     }
@@ -333,7 +333,7 @@ public sealed class NodeSwitchTests
             session.RequestView(new WorldSceneTarget.Follow(new(1), new(1)));
             var line = await RailwayFixtures.Settled(session, Request);
             Assert.AreEqual(-256d, line.Origin.Y);
-            var inNode = train with { Position = new TrainPosition.Node(new(2)), NodeTransit = new(RailwayFixtures.Edge, null) };
+            var inNode = train with { Position = new TrainPosition.Node(new(2), RailwayFixtures.Edge, null, NodeTravelPhase.Approaching, 0, null) };
             var snapshot = Snapshot(inNode, 1, seed);
             session.Observe(snapshot, []);
             var first = Present(session, line);
