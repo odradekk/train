@@ -1,4 +1,4 @@
-using System.Collections.Immutable;
+﻿using System.Collections.Immutable;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
 using Train.Core.Contracts;
@@ -10,14 +10,15 @@ internal static class EconomyFixture
 {
     internal enum VehicleState { ForSale, Owned, Formed }
     internal const long LargeQuantity = 9007199254740993;
-    internal const ulong LeaseDuration = 3600;
+    internal const ulong LeaseDuration = Train.Ui.UiInput.StepsPerDay;
     internal static GoodId Food { get; } = new GoodId.Voxel(new("core:staple-food"));
     internal static GoodId Equipment { get; } = new GoodId.Composite(new("fixture:equipment"));
 
     internal static FixedCoreReadView Create(ulong revision = 1,
         VehicleState vehicle = VehicleState.ForSale, int forSale = 1, int purchaseAvailable = 1,
         bool blocked = false, bool shortage = false, long foodQuantity = 4, long tradeTotal = 731, long? executableQuantity = null,
-        bool missingMarketRule = false)
+        bool missingMarketRule = false,
+        IReadOnlyDictionary<LeaseRequest, CoreResult<LeaseQuote>>? leaseQuotes = null)
     {
         var location = new WorldLocation.Node(new(1));
         var rule = new RuleStatusView(new("fixture:economy"), null, []);
@@ -73,7 +74,9 @@ internal static class EconomyFixture
             vehicles.Add(request, new CoreResult<VehicleTradeQuote>.Success(new(request, new(revision), new(917), blockers)));
         }
         var leases = new Dictionary<LeaseRequest, CoreResult<LeaseQuote>>();
-        LeaseRequest[] leaseRequests = [new LeaseRequest.Rent(new(1), 3, LeaseDuration), new LeaseRequest.Renew(new(1), LeaseDuration)];
+        LeaseRequest[] leaseRequests = [new LeaseRequest.Rent(new(1), 3, LeaseDuration),
+            new LeaseRequest.Renew(new(1), LeaseDuration), new LeaseRequest.Renew(new(1), LeaseDuration * 2),
+            new LeaseRequest.Renew(new(1), LeaseDuration * 3)];
         foreach (var request in leaseRequests)
             leases.Add(request, new CoreResult<LeaseQuote>.Success(new(request, new(revision), new(419), 3, blockers)));
         return new(new(0, revision), HostCoreScenario.Input, revision: new(revision))
@@ -123,18 +126,18 @@ internal static class EconomyFixture
                 [new(1)] = new Lookup<LeaseView>.Found(new(new(1), new(1), new(11), 20, LeaseDuration, new(419), false)),
                 [new(2)] = new Lookup<LeaseView>.Missing()
             },
-            TradeQuotes = trades, VehicleQuotes = vehicles, LeaseQuotes = leases
+            TradeQuotes = trades, VehicleQuotes = vehicles, LeaseQuotes = leaseQuotes ?? leases
         };
     }
 
-    internal static FixedContentView Content(ulong generation = 1, bool missingMarketRule = false)
+    internal static FixedContentView Content(ulong generation = 1, bool missingMarketRule = false, int maxLeaseMultiple = 3)
     {
         var icon = new AssetRevision("fixture-food-png");
         var bytes = ImmutableArray.CreateRange(Convert.FromBase64String(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNoOODwHwAFxAKAPuJ4AwAAAABJRU5ErkJggg=="));
         var market = new MarketRuleProjection(new("fixture:economy"), new("fixture-market-v1"), 1, 1, 1,
             new(new(10000), new(10000), new(10000), new(0)), [], new(10000), new(10000), [],
-            60, 10, new(1), new(1), new(10000), (long)LeaseDuration, 12);
+            60, 10, new(1), new(1), new(10000), (long)LeaseDuration, maxLeaseMultiple);
         var projection = HostContentScenario.CreateProjection(HostCoreScenario.Input) with
         {
             MarketRules = missingMarketRule ? [] : [market with { Id = new("fixture:another-market"), LeaseDurationTicks = 120 }, market]
