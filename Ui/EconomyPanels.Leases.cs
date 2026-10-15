@@ -86,7 +86,7 @@ internal partial class EconomyPanels
         var count = _leaseRule?.MaximumLeaseDurationMultiple ?? 0;
         while (_leaseMultipleChoice.ItemCount > count) _leaseMultipleChoice.RemoveItem(_leaseMultipleChoice.ItemCount - 1);
         while (_leaseMultipleChoice.ItemCount < count) _leaseMultipleChoice.AddItem("");
-        var reasons = new List<string>();
+        var reasons = new List<(int Multiple, string Reason)>();
         for (var index = 0; index < count; index++)
         {
             var reason = "";
@@ -96,22 +96,28 @@ internal partial class EconomyPanels
                 else if (!_queries.TryRead(nameof(ICoreReadView.QuoteLease),
                     () => _view.QuoteLease(new LeaseRequest.Renew(id, LeaseDurationSteps(index + 1))), out var result))
                     reason = $"核心尚未提供：{_queries.MissingEntry}";
-                else reason = result switch
+                else
                 {
-                    CoreResult<LeaseQuote>.Success success => Problems([.. success.Value.Blockers.Where(problem => problem.Field == "Request.DurationSteps")]),
-                    CoreResult<LeaseQuote>.Failure failure => "报价被拒绝：\n" + Problems(failure.Problems),
-                    CoreResult<LeaseQuote>.Faulted fault => CommandDiagnostics.Describe(fault.Fault),
-                    _ => throw new InvalidOperationException("未知报价结果。")
-                };
+                    reason = result switch
+                    {
+                        CoreResult<LeaseQuote>.Success success => Problems([.. success.Value.Blockers.Where(problem => problem.Field == "Request.DurationSteps")]),
+                        CoreResult<LeaseQuote>.Failure failure => "报价被拒绝：\n" + Problems(failure.Problems),
+                        CoreResult<LeaseQuote>.Faulted fault => CommandDiagnostics.Describe(fault.Fault),
+                        _ => throw new InvalidOperationException("未知报价结果。")
+                    };
+                    if (result is CoreResult<LeaseQuote>.Success && reason.Length > 0)
+                        reason = $"续租后剩余租期不能超过最长租期 {LeaseDurationSteps(count) / (decimal)UiInput.StepsPerDay:0.#########} 游戏日。" + reason;
+                }
             }
             var title = $"{index + 1} 倍" + (reason.Length == 0 ? "" : "（不可选）");
             if (_leaseMultipleChoice.GetItemText(index) != title) _leaseMultipleChoice.SetItemText(index, title);
             _leaseMultipleChoice.SetItemDisabled(index, reason.Length > 0);
-            if (reason.Length > 0) reasons.Add($"{index + 1} 倍不可选：{reason}");
+            if (reason.Length > 0) reasons.Add((index + 1, reason));
         }
         var selected = _leaseMultiple <= count ? _leaseMultiple - 1 : -1;
         if (_leaseMultipleChoice.Selected != selected) _leaseMultipleChoice.Select(selected);
-        _leaseTermProblems.Text = string.Join("\n", reasons);
+        _leaseTermProblems.Text = string.Join("\n", reasons.GroupBy(item => item.Reason)
+            .Select(group => $"{string.Join("、", group.Select(item => item.Multiple))} 倍不可选：{group.Key}"));
         _leaseTermProblems.Visible = reasons.Count > 0;
         RefreshLeaseDuration();
     }

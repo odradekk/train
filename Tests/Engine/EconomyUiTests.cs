@@ -1,4 +1,4 @@
-﻿using Chickensoft.GoDotTest;
+using Chickensoft.GoDotTest;
 using Chickensoft.GodotTestDriver;
 using Godot;
 using Train.App;
@@ -208,7 +208,8 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
             Require(Find<Button>(economy, "QuoteLease").Disabled && Find<Button>(economy, "ConfirmLease").Disabled,
                 "已选租期变不可用仍允许报价或确认。");
             var problems = Find<Label>(economy, "LeaseTermProblems").Text;
-            Require(problems.Contains("Request.DurationSteps") && problems.Contains("fixture:duration") && problems.Contains("fixture:failure"),
+            Require(problems.Contains("续租后剩余租期不能超过最长租期 3 游戏日") &&
+                problems.Contains("Request.DurationSteps") && problems.Contains("fixture:duration") && problems.Contains("fixture:failure"),
                 "禁用租期没有显示核心阻塞和Failure原因。");
             Advance(faulted);
             Require(multiple.Selected == 1 && multiple.IsItemDisabled(1) && !multiple.IsItemDisabled(2) &&
@@ -219,17 +220,20 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Renewal_at_full_horizon_disables_twelfth_multiple_from_core_duration_problem()
+    public async Task Renewal_groups_identical_duration_problems_and_explains_the_rule_limit()
     {
         var quotes = new Dictionary<LeaseRequest, CoreResult<LeaseQuote>>();
-        foreach (var multiple in new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 })
+        foreach (var multiple in new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 })
         {
             LeaseRequest request = new LeaseRequest.Renew(new(1), EconomyFixture.LeaseDuration * (ulong)multiple);
             quotes.Add(request, new CoreResult<LeaseQuote>.Success(new(request, new(1), new(337), 3, [])));
         }
-        LeaseRequest last = new LeaseRequest.Renew(new(1), EconomyFixture.LeaseDuration * 12);
-        quotes.Add(last, new CoreResult<LeaseQuote>.Success(new(last, new(1), null, 3,
-            [new("invalid_state", "Request.DurationSteps", null, ["fixture:full-horizon"])])));
+        foreach (var multiple in new[] { 11, 12 })
+        {
+            LeaseRequest request = new LeaseRequest.Renew(new(1), EconomyFixture.LeaseDuration * (ulong)multiple);
+            quotes.Add(request, new CoreResult<LeaseQuote>.Success(new(request, new(1), null, 3,
+                [new("invalid_state", "Request.DurationSteps", null, ["fixture:full-horizon"])])));
+        }
         var setup = new HostSimulationTests.HostSetup(EconomyFixture.Create(leaseQuotes: quotes),
             EconomyFixture.Content(maxLeaseMultiple: 12));
         await Run(setup, async (_, economy) =>
@@ -237,9 +241,12 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
             await Page(economy, 3);
             await _input.Choose(Find<OptionButton>(economy, "Lease"), 1);
             var multiple = Find<OptionButton>(economy, "LeaseMultiple");
-            Require(multiple.ItemCount == 12 && !multiple.IsItemDisabled(10) && multiple.IsItemDisabled(11) &&
-                Find<Label>(economy, "LeaseTermProblems").Text.Contains("fixture:full-horizon"),
-                "满额租约未依据核心结果禁用12倍并显示原因。");
+            Require(multiple.ItemCount == 12 && !multiple.IsItemDisabled(9) && multiple.IsItemDisabled(10) && multiple.IsItemDisabled(11),
+                "未依据核心结果禁用超期倍数。");
+            var problems = Find<Label>(economy, "LeaseTermProblems").Text;
+            Require(problems.StartsWith("11、12 倍不可选：续租后剩余租期不能超过最长租期 12 游戏日") &&
+                problems.Contains("invalid_state/Request.DurationSteps") && problems.Contains("fixture:full-horizon") &&
+                problems.Split('\n').Length == 1, "相同超期原因未合并为一行，或遗漏规则上限和核心问题。");
         });
         setup.Session.AssertComplete();
     }
