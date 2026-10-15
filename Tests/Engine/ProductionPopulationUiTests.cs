@@ -37,6 +37,8 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
             var population = economy.GetNode<Label>("Settlement/Layout/Body/Pages/人口/Body/Population");
             Require(population.Text.Contains("尚未开始") && population.Text.Contains("未结算") &&
                 !population.Text.Contains("满足率 0"), "尚未开始的人口被显示为零满足率。");
+            Require(!population.Text.Contains("累计应需") && !population.Text.Contains("实际满足"),
+                "尚未开始的人口显示了不存在的本期累计值。");
             Require(population.Text.Contains("主食") && population.Text.Contains("衣物") &&
                 population.Text.Contains("改善饮食") && population.Text.Contains("日用品") &&
                 population.Text.Contains("消费电子") && population.Text.Contains("医疗用品"), "人口页遗漏六类需求。");

@@ -32,23 +32,28 @@ internal partial class TrainPlanPanel
         { AutomaticGoodsAction.Sell => 1, AutomaticGoodsAction.Load => 2, AutomaticGoodsAction.Unload => 3, _ => 0 });
         first.AddChild(action);
         var second = new HBoxContainer(); box.AddChild(second);
-        var inventory = new OptionButton { Name = "Inventory", SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        var inventory = new OptionButton { Name = "Inventory", SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ShrinkEnd };
         List<InventoryId?> inventories = [];
         if (value is not null) { inventories.Add(value.LocalInventory); inventory.AddItem(""); inventory.Select(0); }
         second.AddChild(inventory);
+        var targetColumn = new VBoxContainer(); second.AddChild(targetColumn);
+        targetColumn.AddChild(new Label { Name = "TargetQuantityLabel", Text = "目标持有量" });
         var target = new LineEdit { Name = "TargetQuantity", Text = (value?.TargetQuantity ?? 0).ToString(CultureInfo.InvariantCulture),
             PlaceholderText = "目标持有量", CustomMinimumSize = new(170, 0), TooltipText = "列车目标持有量（非负整数）" };
-        second.AddChild(target);
+        targetColumn.AddChild(target);
+        var priceColumn = new VBoxContainer(); second.AddChild(priceColumn);
+        var priceLabel = new Label { Name = "UnitPriceLabel" }; priceColumn.AddChild(priceLabel);
         var price = new LineEdit { Name = "UnitPrice", Text = (value?.Action switch
             { AutomaticGoodsAction.Buy buy => buy.MaximumUnitPrice, AutomaticGoodsAction.Sell sell => sell.MinimumUnitPrice, _ => null })?.Value.ToString(CultureInfo.InvariantCulture) ?? "",
-            CustomMinimumSize = new(220, 0) };
-        second.AddChild(price);
+            PlaceholderText = "空为不限价", CustomMinimumSize = new(220, 0) };
+        priceColumn.AddChild(price);
         var row = new RuleRow(box, action, good, goods, inventory, inventories, target, price);
         void PriceInput()
         {
-            price.Visible = action.Selected < 2;
-            price.PlaceholderText = action.Selected == 0 ? "最高单价（空为不限价）" : "最低单价（空为不限价）";
-            price.TooltipText = price.PlaceholderText;
+            priceColumn.Visible = action.Selected < 2;
+            priceLabel.Text = action.Selected == 0 ? "最高单价" : "最低单价";
+            price.TooltipText = priceLabel.Text + "（空为不限价）";
         }
         action.ItemSelected += _ => PriceInput(); PriceInput();
         var buttons = new HBoxContainer(); box.AddChild(buttons);

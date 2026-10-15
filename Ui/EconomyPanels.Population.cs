@@ -37,14 +37,18 @@ internal partial class EconomyPanels
         if (period is not null)
         {
             lines.Add($"本期执行规则 {period.ExecutionRule.Value} · 修订 {period.ExecutionRevision.Value}\n统计进度 {period.ElapsedEffectiveSteps}/{period.PeriodSteps} 有效步\n基本满足率 {Ratio(period.BasicSatisfaction)} · 改善满足率 {Ratio(period.ImprovementSatisfaction)}");
-            lines.Add("本期按开始时的消费与增长参数完成，更新从下一期生效；劳动比例使用当前有效规则。");
+            lines.Add(current.PublishedRevision is null ? "当前发布规则缺失，无法与本期执行规则比较。" :
+                current.Rule == period.ExecutionRule && current.PublishedRevision == period.ExecutionRevision
+                    ? "本期执行规则与当前发布规则相同。" : "本期执行规则与当前发布规则不同，下一期起使用当前规则。");
+            lines.Add("本期按开始时的消费与增长参数完成；劳动比例使用当前有效规则。");
         }
         foreach (var kind in Enum.GetValues<PopulationNeed>())
         {
             var need = needs.FirstOrDefault(item => item.Kind == kind);
             var name = kind switch
             { PopulationNeed.Food => "主食", PopulationNeed.Clothing => "衣物", PopulationNeed.ImprovedDiet => "改善饮食", PopulationNeed.ConsumerGoods => "日用品", PopulationNeed.ConsumerElectronics => "消费电子", PopulationNeed.MedicalSupplies => "医疗用品", _ => kind.ToString() };
-            lines.Add(need is null ? $"{name}：暂无消费统计" : $"{name}：需求 {need.RequiredPerSecond:0.###}/秒 · 累计应需 {need.AccumulatedRequired:0.###} · 实际满足 {need.AccumulatedSatisfied:0.###} · 满足率 {Ratio(need.SatisfactionRatio)}");
+            lines.Add(need is null ? $"{name}：暂无消费统计" : $"{name}：需求 {need.RequiredPerSecond:0.###}/秒" +
+                (period is null ? "" : $" · 累计应需 {need.AccumulatedRequired:0.###} · 实际满足 {need.AccumulatedSatisfied:0.###} · 满足率 {Ratio(need.SatisfactionRatio)}"));
         }
         lines.Add(population.LastSettlement is { } last ? "最近结算：\n" + PopulationReportText(last) : "最近结算：尚未结算");
         _population.Text = string.Join("\n", lines);
