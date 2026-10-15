@@ -28,8 +28,7 @@ internal static class PopulationQueries
                 basic, improvement);
             if (basic is { } satisfaction)
             {
-                var rate = satisfaction < 1 ? -period.Rule.MaximumLossPerSecond * (1 - satisfaction)
-                    : period.Rule.BaseGrowthPerSecond + period.Rule.ImprovementGrowthPerSecond * improvement!.Value;
+                var rate = PopulationOperations.ChangeRate(period.Rule, satisfaction, improvement!.Value);
                 trend = rate < 0 ? settlement.Population == 1 ? PopulationTrend.AtMinimum : PopulationTrend.Declining
                     : rate > 0 ? PopulationTrend.Growing : PopulationTrend.Stable;
             }

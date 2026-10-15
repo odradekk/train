@@ -21,11 +21,12 @@ internal static class SettlementQueries
         var power = new PowerPoolView(buildings.Sum(b => BuildingCapabilities.Read(world, content, b).Power),
             settlement.ProductionFacilities.Sum(f => f.LastPowerDemand), settlement.ProductionFacilities.Sum(f => f.LastActualSupply),
             settlement.FuelEnergyRemaining);
-        var market = new MarketView(MarketRule(world, content), InventoryStorage.Settlement(world, content, settlement, step).View, []);
+        var market = new MarketView(MarketRule(world, content), InventoryStorage.Settlement(world, content, settlement, step).View, Goods: []);
         return new(settlement.Id, settlement.Node, settlement.Type, settlement.Template.Id, settlement.Relation, settlement.Inventory,
-            plots, settlement.ParkedVehicles, int.MaxValue, world.Nodes.Single(n => n.Id == settlement.Node).Platforms,
-            world.OccupiedPlatforms(settlement.Node), [], [], facilities, power, PopulationQueries.Read(world, content, settlement, step),
-            new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [],
+            plots, settlement.ParkedVehicles, ParkingCapacity: int.MaxValue, world.Nodes.Single(n => n.Id == settlement.Node).Platforms,
+            world.OccupiedPlatforms(settlement.Node), VehiclesForSale: [], VehiclePurchaseCapacities: [],
+            facilities, power, PopulationQueries.Read(world, content, settlement, step),
+            Engagement: new(TargetPriority.ArmedFirst, TargetScope.All), MoraleRatio: 1, Surrendered: false, CommissionJobs: [],
             world.Leases.Where(l => l.Settlement == settlement.Id).Select(l => l.Id).ToImmutableArray(), market);
     }
 
@@ -35,7 +36,7 @@ internal static class SettlementQueries
         return new(world.Money, MarketRule(world, content),
             Rule(content, rules.Population, content.PopulationRules.SingleOrDefault(r => r.Id == rules.Population)?.Revision, "Population"),
             Rule(content, rules.Construction, content.ConstructionRules.SingleOrDefault(r => r.Id == rules.Construction)?.Revision, "Construction"),
-            new(0), []);
+            UnassignedServicePayments: new(0), RecentRunReports: []);
     }
 
     private static RuleStatusView MarketRule(WorldState world, CoreContentProjection content)

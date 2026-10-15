@@ -86,8 +86,7 @@ internal static class PopulationOperations
             {
                 var basic = Satisfaction(period, PopulationNeedClass.Basic);
                 var improvement = Satisfaction(period, PopulationNeedClass.Improvement);
-                var rate = basic < 1 ? -period.Rule.MaximumLossPerSecond * (1 - basic)
-                    : period.Rule.BaseGrowthPerSecond + period.Rule.ImprovementGrowthPerSecond * improvement;
+                var rate = ChangeRate(period.Rule, basic, improvement);
                 var change = Finite(residents * rate * SimulationTime.StepSeconds * period.Rule.StatisticsPeriodTicks + state.ChangeRemaining);
                 var whole = change <= 1d - residents ? 0 : checked((long)Math.Truncate(change));
                 var after = change <= 1d - residents ? 1 : checked(residents + whole);
@@ -124,6 +123,10 @@ internal static class PopulationOperations
                         new WorldObjectId.Settlement(settlement.Id), [WorldReferences.GoodKey(good.Good)]));
         return problems.ToImmutable();
     }
+
+    internal static double ChangeRate(PopulationRuleProjection rule, double basicSatisfaction, double improvementSatisfaction)
+        => basicSatisfaction < 1 ? -rule.MaximumLossPerSecond * (1 - basicSatisfaction)
+            : rule.BaseGrowthPerSecond + rule.ImprovementGrowthPerSecond * improvementSatisfaction;
 
     internal static double Satisfaction(PopulationPeriodState period, PopulationNeedClass category)
     {
