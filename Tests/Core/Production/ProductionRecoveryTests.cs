@@ -61,7 +61,7 @@ public sealed class ProductionRecoveryTests
     public void Last_allocation_round_trips_and_publication_does_not_recalculate_it()
     {
         var content = Content(stock: [new(Input, 2), new(Fuel, 2)], work: 4, rate: 120,
-            powerPerWork: 2, power: 30);
+            powerPerWork: 2, laborPerWork: .1, power: 30);
         using var candidate = Prepare(content);
         using var session = (CoreSession)candidate.Activate();
         Step(session, 2);
@@ -70,6 +70,7 @@ public sealed class ProductionRecoveryTests
         Assert.AreEqual(15d, runtime.LastActualWorkPerSecond);
         Assert.AreEqual(240d, runtime.LastPowerDemand);
         Assert.AreEqual(30d, runtime.LastActualSupply);
+        Assert.AreEqual(1.5, runtime.LastAllocatedLabor);
         CollectionAssert.AreEqual(new[] { WorkLimit.Power }, runtime.LastLimits.ToArray());
         var saved = WorldFixture.Success(session.Capture(CapturePurpose.Save));
         var decoded = WorldFixture.Success(CoreFactory.Create().DecodeState(saved.Encode()));
@@ -80,6 +81,7 @@ public sealed class ProductionRecoveryTests
         CollectionAssert.AreEqual(Read(old).Limits.ToArray(), Read(restored).Limits.ToArray());
         Assert.AreEqual(runtime.LastPowerDemand, restored.State.World.Settlements.Single().ProductionFacilities.Single().LastPowerDemand);
         Assert.AreEqual(runtime.LastActualSupply, restored.State.World.Settlements.Single().ProductionFacilities.Single().LastActualSupply);
+        Assert.AreEqual(1.5, restored.State.World.Settlements.Single().ProductionFacilities.Single().LastAllocatedLabor);
         Step(session);
         Step(restored);
         Assert.AreEqual(WorldFixture.Success(session.Capture(CapturePurpose.Save)).Encode(),
@@ -215,6 +217,8 @@ public sealed class ProductionRecoveryTests
     [DataRow("last_actual_work_per_second", "-1")]
     [DataRow("last_power_demand", "1e999")]
     [DataRow("last_actual_supply", "999")]
+    [DataRow("last_allocated_labor", "-1")]
+    [DataRow("last_allocated_labor", "1e999")]
     [DataRow("last_limits", "[1,1]")]
     [DataRow("last_limits", "[99]")]
     [DataRow("building", "{\"value\":999}")]

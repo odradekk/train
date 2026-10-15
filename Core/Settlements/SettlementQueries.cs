@@ -1,0 +1,50 @@
+using System.Collections.Immutable;
+using Train.Core.Contracts;
+using Train.Core.Inventory;
+using Train.Core.Production;
+using Train.Core.World;
+
+namespace Train.Core.Settlements;
+
+internal static class SettlementQueries
+{
+    internal static SettlementView Read(WorldState world, CoreContentProjection content, SettlementState settlement, ulong step)
+    {
+        var plots = settlement.Plots.Select(p => new PlotView(p.Id, p.TemplateNumber, p.Size,
+            p.Size is PlotSize.SmallStation or PlotSize.LargeStation ? [BuildingKind.Station]
+                : Enum.GetValues<BuildingKind>().Where(k => k != BuildingKind.Station).ToImmutableArray(),
+            p.Building is { } building ? new PlotOccupant.Building(building) : new PlotOccupant.Empty())).ToImmutableArray();
+        var buildings = settlement.Plots.Where(p => p.Building is not null).Select(p => p.Building!.Value).OrderBy(b => b.Value).ToArray();
+        var facilities = buildings.Select(b => ProductionQueries.Find(world, content, new(b, CapabilityKind.Production)))
+            .OfType<FacilityView>().ToImmutableArray();
+        var power = new PowerPoolView(buildings.Sum(b => BuildingCapabilities.Read(world, content, b).Power),
+            settlement.ProductionFacilities.Sum(f => f.LastPowerDemand), settlement.ProductionFacilities.Sum(f => f.LastActualSupply),
+            settlement.FuelEnergyRemaining);
+        var market = new MarketView(MarketRule(world, content), InventoryStorage.Settlement(world, content, settlement, step).View, []);
+        return new(settlement.Id, settlement.Node, settlement.Type, settlement.Template.Id, settlement.Relation, settlement.Inventory,
+            plots, settlement.ParkedVehicles, int.MaxValue, world.Nodes.Single(n => n.Id == settlement.Node).Platforms,
+            world.OccupiedPlatforms(settlement.Node), [], [], facilities, power, PopulationQueries.Read(world, content, settlement, step),
+            new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [],
+            world.Leases.Where(l => l.Settlement == settlement.Id).Select(l => l.Id).ToImmutableArray(), market);
+    }
+
+    internal static EconomyView Economy(WorldState world, CoreContentProjection content)
+    {
+        var rules = world.Source.Configuration.Rules;
+        return new(world.Money, MarketRule(world, content),
+            Rule(content, rules.Population, content.PopulationRules.SingleOrDefault(r => r.Id == rules.Population)?.Revision, "Population"),
+            Rule(content, rules.Construction, content.ConstructionRules.SingleOrDefault(r => r.Id == rules.Construction)?.Revision, "Construction"),
+            new(0), []);
+    }
+
+    private static RuleStatusView MarketRule(WorldState world, CoreContentProjection content)
+    {
+        var id = world.Source.Configuration.Rules.Market;
+        return Rule(content, id, content.MarketRules.SingleOrDefault(r => r.Id == id)?.Revision, "Market");
+    }
+
+    internal static RuleStatusView Rule(CoreContentProjection content, RuleDefinitionId id, SemanticRevision? revision, string field)
+        => revision is null || content.MissingReferences.Any(m => m.Reference == new CoreDefinitionReference.Rule(id))
+            ? new(id, null, [new("content_missing", $"Configuration.Rules.{field}", null, [id.Value])])
+            : new(id, revision, []);
+}

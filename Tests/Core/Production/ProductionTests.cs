@@ -131,12 +131,17 @@ public sealed class ProductionTests
         var batch = limited.Settlements.Single().ProductionFacilities.Single().Batch!;
         Assert.AreEqual(.25, batch.ProgressWork, 1e-12);
         Assert.AreEqual(15d, limited.Settlements.Single().ProductionFacilities.Single().LastActualWorkPerSecond, 1e-12);
+        Assert.AreEqual(30d, limited.Settlements.Single().ProductionFacilities.Single().LastAllocatedLabor);
         CollectionAssert.AreEqual(new[] { WorkLimit.Labor }, limited.Settlements.Single().ProductionFacilities.Single().LastLimits.ToArray());
         var paused = AdvanceProduction(limited, state.Content, Settlement, 0, 3).World;
         Assert.AreEqual(.25, paused.Settlements.Single().ProductionFacilities.Single().Batch!.ProgressWork, 1e-12);
+        Assert.AreEqual(0d, paused.Settlements.Single().ProductionFacilities.Single().LastAllocatedLabor);
         var finished = AdvanceProduction(paused, state.Content, Settlement, 240, 4).World;
         Assert.IsNull(finished.Settlements.Single().ProductionFacilities.Single().Batch);
+        Assert.AreEqual(210d, finished.Settlements.Single().ProductionFacilities.Single().LastAllocatedLabor);
         Assert.AreEqual(3L, finished.Inventories.Single(i => i.Id == LocalInventory).Goods.Single(g => g.Good == Product).Quantity);
+        var idle = AdvanceProduction(finished, state.Content, Settlement, 240, 5).World;
+        Assert.AreEqual(0d, idle.Settlements.Single().ProductionFacilities.Single().LastAllocatedLabor);
     }
 
     [TestMethod]

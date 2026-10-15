@@ -109,7 +109,7 @@ internal static class PopulationOperations
         }, events.ToImmutable());
     }
 
-    private static ImmutableArray<CoreProblem> Problems(WorldState world, SettlementState settlement, PopulationInputs inputs)
+    internal static ImmutableArray<CoreProblem> Problems(WorldState world, SettlementState settlement, PopulationInputs inputs)
     {
         if (!inputs.RuleMissing && inputs.MissingGoods.IsEmpty) return [];
         var problems = ImmutableArray.CreateBuilder<CoreProblem>();
@@ -125,7 +125,7 @@ internal static class PopulationOperations
         return problems.ToImmutable();
     }
 
-    private static double Satisfaction(PopulationPeriodState period, PopulationNeedClass category)
+    internal static double Satisfaction(PopulationPeriodState period, PopulationNeedClass category)
     {
         var maximumWeight = period.Rule.Needs.Where(n => n.Class == category).Max(n => n.Weight);
         double sum = 0, weights = 0;

@@ -46,7 +46,8 @@ internal static class ProductionOperations
         var world = resolution.World;
         var settlement = world.Settlements.Single(s => s.Id == id);
         if (requests.IsEmpty && settlement.ProductionFacilities.All(f => f.OutputBuffer.IsEmpty
-            && f.LastActualWorkPerSecond == 0 && f.LastLimits.IsEmpty && f.LastPowerDemand == 0 && f.LastActualSupply == 0))
+            && f.LastActualWorkPerSecond == 0 && f.LastLimits.IsEmpty && f.LastPowerDemand == 0 && f.LastActualSupply == 0
+            && f.LastAllocatedLabor == 0))
             return (world, []);
         var plans = settlement.Template.ProductionPlans.Where(p => p.Capability == CapabilityKind.Production)
             .Select(p => (Plan: p, Building: settlement.Plots.Single(plot => plot.TemplateNumber == p.PlotNumber).Building))
@@ -62,7 +63,7 @@ internal static class ProductionOperations
             var key = new FacilityKey(building!.Value, CapabilityKind.Production);
             var runtime = facilities[building.Value] with
             {
-                LastActualWorkPerSecond = 0, LastLimits = [], LastPowerDemand = 0, LastActualSupply = 0
+                LastActualWorkPerSecond = 0, LastLimits = [], LastPowerDemand = 0, LastActualSupply = 0, LastAllocatedLabor = 0
             };
             if (accepted.Contains(key))
             {
@@ -85,7 +86,8 @@ internal static class ProductionOperations
                     Batch = batch with { ProgressWork = progress },
                     LastActualWorkPerSecond = allocation.WorkPerSecond, LastLimits = limits,
                     LastPowerDemand = request.MaximumWorkPerSecond * batch.FrozenPowerPerWork,
-                    LastActualSupply = allocation.WorkPerSecond * batch.FrozenPowerPerWork
+                    LastActualSupply = allocation.WorkPerSecond * batch.FrozenPowerPerWork,
+                    LastAllocatedLabor = allocation.WorkPerSecond * batch.FrozenLaborPerWork
                 };
                 if (progress >= batch.FrozenWorkRequired)
                 {
