@@ -114,11 +114,16 @@ internal static class RailwayTerrain
             ? (object)reference : problem).ToImmutableArray();
 
     internal static double NodeGround(SceneWorldSnapshot snapshot, NodeMapItem node, ScenePoint localPoint)
+        => NodeGround(snapshot, node, localPoint, NodeSettlement.Read(snapshot, node.Id));
+
+    internal static double NodeGround(SceneWorldSnapshot snapshot, NodeMapItem node, ScenePoint localPoint,
+        SettlementLayoutProjection? template)
     {
         var terrain = snapshot.Content.FindTerrain(node.Terrain.TypeId) is ContentLookup<TerrainAppearanceProjection>.Found found ? found.Value : null;
         var origin = RailwayCoordinates.NodePoint(node);
         var point = new ScenePoint(origin.X + localPoint.X, origin.Y + localPoint.Y, origin.Z + localPoint.Z);
-        return Ground(snapshot.Core.World.WorldSeed, node.Id.Value, node.Terrain, terrain, point);
+        var raw = Ground(snapshot.Core.World.WorldSeed, node.Id.Value, node.Terrain, terrain, point);
+        return template is not null ? NodeSettlement.FlattenGround(template, localPoint, raw) : raw;
     }
 
     private static double Ground(ulong seed, ulong key, TerrainView view, TerrainAppearanceProjection? terrain, ScenePoint point)
@@ -191,8 +196,8 @@ internal static class RailwayTerrain
             endpointBlend = Math.Min(RailwayCoordinates.NodeTransitionCells, path.LengthCells / 2);
             startPoint = path.Sample(0).Position;
             endPoint = path.Sample(path.LengthCells).Position;
-            startEntry = NodeLayout.Build(snapshot, path.Start.Id).EntryPoint(path.Edge.Id);
-            endEntry = NodeLayout.Build(snapshot, path.End.Id).EntryPoint(path.Edge.Id);
+            startEntry = path.StartLayout.EntryPoint(path.Edge.Id);
+            endEntry = path.EndLayout.EntryPoint(path.Edge.Id);
             waterRegions = WaterFeatures().Select(feature =>
             {
                 var first = Math.Max(0, feature.Center - feature.HalfWidth);
@@ -564,9 +569,11 @@ internal static class RailwayTerrain
         {
             var mapOrigin = RailwayCoordinates.NodePoint(node);
             var entry = node.Id == path.Start.Id ? startEntry : endEntry;
-            return Ground(path.Seed, node.Id.Value, node.Terrain, terrains[node.Terrain.TypeId],
-            new(mapOrigin.X + entry.X + point.X - endpoint.X, mapOrigin.Y + entry.Y + point.Y - endpoint.Y,
-                mapOrigin.Z + entry.Z + point.Z - endpoint.Z));
+            var local = new ScenePoint(entry.X + point.X - endpoint.X, entry.Y + point.Y - endpoint.Y, entry.Z + point.Z - endpoint.Z);
+            var raw = Ground(path.Seed, node.Id.Value, node.Terrain, terrains[node.Terrain.TypeId],
+                new(mapOrigin.X + local.X, mapOrigin.Y + local.Y, mapOrigin.Z + local.Z));
+            var template = node.Id == path.Start.Id ? path.StartLayout.Template : path.EndLayout.Template;
+            return template is not null ? NodeSettlement.FlattenGround(template, local, raw) : raw;
         }
     }
 }

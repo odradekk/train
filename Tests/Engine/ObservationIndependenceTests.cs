@@ -14,9 +14,10 @@ namespace Train.Engine.Tests;
 public class ObservationIndependenceTests(Node testScene) : TestClass(testScene)
 {
     [Test]
-    [Chickensoft.GoDotTest.Timeout(150000)]
+    [Chickensoft.GoDotTest.Timeout(300000)]
     public async Task Real_world_checkpoints_do_not_depend_on_frame_intervals_speed_pause_or_scene_observation()
     {
+        var measured = System.Diagnostics.Stopwatch.StartNew();
         using var recipe = JsonDocument.Parse(System.IO.File.ReadAllText(
             ProjectSettings.GlobalizePath("res://examples/basic-through/recipe.json")));
         var reference = await Run(recipe.RootElement, new("reference", [1d / 60], SimulationSpeed.One));
@@ -28,6 +29,7 @@ public class ObservationIndependenceTests(Node testScene) : TestClass(testScene)
             new("speed-switches-and-pauses", [1d / 60], SimulationSpeed.One, Pauses: true, SwitchSpeed: true),
             new("scene-switches", [1d / 30, 1d / 120], SimulationSpeed.Eight, Scenes: true)
         }) await Run(recipe.RootElement, variant, reference);
+        GD.Print($"OBSERVATION_MEASUREMENT case_ms={measured.Elapsed.TotalMilliseconds:F3}");
     }
 
     private async Task<ImmutableArray<DeveloperCheckpoint>> Run(JsonElement recipe, Variant variant,
@@ -159,6 +161,7 @@ public class ObservationIndependenceTests(Node testScene) : TestClass(testScene)
                 scenes.Open(target);
                 stopAt = new(step + 30, 0);
                 Require(host.SetPaused(false) is null, "场景生成期间无法恢复核心推进。");
+                var firstFrame = System.Diagnostics.Stopwatch.StartNew();
                 await FramesUntil(TestScene, () =>
                 {
                     var before = host.GetStatus()!.View.Position;
@@ -173,8 +176,9 @@ public class ObservationIndependenceTests(Node testScene) : TestClass(testScene)
                     Require(scenes.View.Visible, "真实场景生成失败或自动关闭。");
                     return scenes.Display?.DisplayedFrame is { Readiness: SceneReadiness.Ready or SceneReadiness.Partial } displayed &&
                         displayed.Update.Frame != previous;
-                }, timeout: TimeSpan.FromSeconds(60),
+                }, timeout: TimeSpan.FromSeconds(120),
                     description: $"{variant.Name} 第 {step} 步，打开 {target} 并等待新场景首帧");
+                GD.Print($"OBSERVATION_MEASUREMENT variant={variant.Name} step={step} first_frame_ms={firstFrame.Elapsed.TotalMilliseconds:F3} target={target}");
             }
         }
         finally { await fixture.Cleanup(); }

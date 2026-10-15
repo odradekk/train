@@ -19,6 +19,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     private readonly RailwayCache railwayCache;
     private readonly NodeScene.Cache nodeCache;
     private readonly SceneVehicles vehicles;
+    private readonly Dictionary<NodeId, (SceneVehicles.Cache Buildings, SceneVehicles.Cache Parked)> settlementCaches = [];
     private RailwayScene? railway;
     private NodeScene? node;
     private sealed record Candidate(WorldLocation Location, Dictionary<string, SceneObjectId> Ids, NodeScene? Node = null, RailwayScene? Railway = null);
@@ -123,7 +124,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         }
         if (value is not WorldSceneTarget.Combat && CurrentLocation(snapshot, value) is WorldLocation.Node location)
         {
-            node = new(snapshot, location.Id, nodeCache, ObjectId, vehicles, nodeBuild);
+            node = OpenNode(location.Id, ObjectId);
             pending = null;
             PruneCaches();
             return new SceneResult<SceneRequestId>.Success(request);
@@ -322,7 +323,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             CancelCandidate(); ids = [];
             var map = ids;
             if (location is WorldLocation.Edge edge) railway = new(snapshot, edge.Id, railwayCache, key => AssignId(map, key), vehicles: vehicles);
-            else if (location is WorldLocation.Node atNode) node = new(snapshot, atNode.Id, nodeCache, key => AssignId(map, key), vehicles, nodeBuild);
+            else if (location is WorldLocation.Node atNode) node = OpenNode(atNode.Id, key => AssignId(map, key));
             else throw new ArgumentException("Invalid follow location.");
         }
         sceneOrigin = displayed is null ? null : SceneFrame.SwitchOrigin(displayed, node?.Layout, railway?.Path);
@@ -338,6 +339,14 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     {
         nodeCache.Retain(node?.Node, candidate?.Node?.Node);
         railwayCache.Retain(railway?.Edge, candidate?.Railway?.Edge);
+        foreach (var id in settlementCaches.Keys.Where(id => id != node?.Node && id != candidate?.Node?.Node).ToArray())
+            settlementCaches.Remove(id);
+    }
+    private NodeScene OpenNode(NodeId id, Func<string, SceneObjectId> objectId)
+    {
+        if (!settlementCaches.TryGetValue(id, out var caches))
+            settlementCaches.Add(id, caches = (new(), new()));
+        return new(snapshot, id, nodeCache, objectId, vehicles, nodeBuild, caches.Buildings, caches.Parked);
     }
     private void Prebuild()
     {
@@ -355,12 +364,12 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         {
             var map = new Dictionary<string, SceneObjectId>();
             candidate = wanted is WorldLocation.Node atNode
-                ? new(wanted, map, Node: new(snapshot, atNode.Id, nodeCache, key => AssignId(map, key), vehicles, nodeBuild))
+                ? new(wanted, map, Node: OpenNode(atNode.Id, key => AssignId(map, key)))
                 : new(wanted, map, Railway: new(snapshot, ((WorldLocation.Edge)wanted).Id, railwayCache, key => AssignId(map, key), vehicles: vehicles));
         }
         try
         {
-            candidate?.Node?.Pump();
+            candidate?.Node?.Pump(snapshot);
             if (wanted is WorldLocation.Edge atEdge) candidate?.Railway?.Pump(snapshot, atEdge);
             if (candidate?.Node?.Failed == true || candidate?.Railway?.Failed == true)
             { rejectedCandidate = wanted; CancelCandidate(); }

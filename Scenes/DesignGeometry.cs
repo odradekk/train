@@ -127,7 +127,8 @@ internal static class DesignGeometry
 
     internal static ImmutableArray<SceneVisual> Meshes(VoxelGrid grid, bool wear)
     {
-        var groups = new Dictionary<(GridPosition Chunk, SceneMaterial Material), (List<SceneVertex> Vertices, List<int> Indices)>();
+        var groups = new Dictionary<(GridPosition Chunk, SceneMaterial Material),
+            (List<SceneVertex> Vertices, List<int> Indices, Dictionary<FacePlane, uint[]> Planes)>();
         foreach (var cell in grid.Cells)
         {
             if (!cell.Occludes) continue;
@@ -146,35 +147,101 @@ internal static class DesignGeometry
                 var span = front ? 1 : cube.TileSpan;
                 var material = new SceneMaterial.Voxel(texture, cube.Material, cell.Paint);
                 var key = (VoxelGrid.Chunk(at), (SceneMaterial)material);
-                if (!groups.TryGetValue(key, out var group)) groups.Add(key, group = ([], []));
-                var u = face is GridFace.NegativeY or GridFace.PositiveY ? Vector3.UnitX :
-                    face is GridFace.NegativeX or GridFace.PositiveX ? Vector3.UnitZ : Vector3.UnitX;
+                if (!groups.TryGetValue(key, out var group)) groups.Add(key, group = ([], [], []));
+                var u = normal.X != 0 ? Vector3.UnitZ : Vector3.UnitX;
                 var v = Vector3.Cross(normal, u);
-                var center = new Vector3(0.5f) + normal * 0.5f;
-                var first = group.Vertices.Count;
+                var plane = new FacePlane(face, normal.X != 0 ? at.X : normal.Y != 0 ? at.Y : at.Z,
+                    textureU, textureV, span);
+                if (!wear)
+                {
+                    if (!group.Planes.TryGetValue(plane, out var rows))
+                        group.Planes.Add(plane, rows = new uint[VoxelGrid.ChunkSize]);
+                    var column = (u.X != 0 ? at.X : at.Z) & 31;
+                    var row = (v.Y != 0 ? at.Y : at.Z) & 31;
+                    if (v.Y + v.Z < 0) row = 31 - row;
+                    rows[row] |= 1u << column;
+                    continue;
+                }
                 var edges = ExposedFaceEdges.None;
                 if (Empty(-u)) edges |= ExposedFaceEdges.MinimumU;
                 if (Empty(u)) edges |= ExposedFaceEdges.MaximumU;
                 if (Empty(-v)) edges |= ExposedFaceEdges.MinimumV;
                 if (Empty(v)) edges |= ExposedFaceEdges.MaximumV;
-                foreach (var uv in new Vector2[] { new(0, 0), new(1, 0), new(1, 1), new(0, 1) })
-                {
-                    var corner = center + u * (uv.X - 0.5f) + v * (uv.Y - 0.5f);
-                    var position = new Vector3(at.X, at.Y, at.Z) + corner;
-                    var textureUv = new Vector2(TextureCoordinate(at, corner, textureU, span),
-                        TextureCoordinate(at, corner, textureV, span));
-                    var bounds = grid.Bounds!;
-                    var height = (position.Y - bounds.Minimum.Y) / (bounds.Maximum.Y - bounds.Minimum.Y);
-                    group.Vertices.Add(new(position, normal, textureUv, uv, edges, Math.Clamp(height, 0, 1), 0));
-                }
-                group.Indices.AddRange([first, first + 1, first + 2, first, first + 2, first + 3]);
+                AddQuad(group.Vertices, group.Indices, at, plane, 1, 1, edges);
                 bool Empty(Vector3 offset) => !grid.Contains(new(at.X + (int)offset.X, at.Y + (int)offset.Y, at.Z + (int)offset.Z));
+            }
+        }
+        foreach (var (key, group) in groups)
+        foreach (var (plane, rows) in group.Planes)
+        {
+            var normal = SceneGeometry.Normal(plane.Face);
+            var u = normal.X != 0 ? Vector3.UnitZ : Vector3.UnitX;
+            var v = Vector3.Cross(normal, u);
+            for (var row = 0; row < rows.Length; row++)
+            while (rows[row] != 0)
+            {
+                var column = BitOperations.TrailingZeroCount(rows[row]);
+                var width = 1;
+                while (column + width < VoxelGrid.ChunkSize && (rows[row] & (1u << (column + width))) != 0) width++;
+                var mask = (uint.MaxValue >> (VoxelGrid.ChunkSize - width)) << column;
+                var height = 1;
+                while (row + height < rows.Length && (rows[row + height] & mask) == mask) height++;
+                for (var next = row; next < row + height; next++) rows[next] &= ~mask;
+                var alongV = v.Y + v.Z < 0 ? 31 - row : row;
+                var chunk = key.Chunk;
+                var at = normal.X != 0 ? new GridPosition(plane.Layer, (chunk.Y << 5) + alongV, (chunk.Z << 5) + column) :
+                    normal.Y != 0 ? new GridPosition((chunk.X << 5) + column, plane.Layer, (chunk.Z << 5) + alongV) :
+                    new GridPosition((chunk.X << 5) + column, (chunk.Y << 5) + alongV, plane.Layer);
+                AddQuad(group.Vertices, group.Indices, at, plane, width, height, ExposedFaceEdges.None);
             }
         }
         return groups.Select(group => (SceneVisual)new SceneVisual.Geometry(
             new(group.Key.Material, group.Value.Vertices.ToImmutableArray(), group.Value.Indices.ToImmutableArray()),
             new(wear, 0, 0, false))).ToImmutableArray();
+
+        void AddQuad(List<SceneVertex> vertices, List<int> indices, GridPosition at, FacePlane plane,
+            int width, int height, ExposedFaceEdges edges)
+        {
+            var normal = SceneGeometry.Normal(plane.Face);
+            var u = normal.X != 0 ? Vector3.UnitZ : Vector3.UnitX;
+            var v = Vector3.Cross(normal, u);
+            var center = new Vector3(0.5f) + normal * 0.5f;
+            var first = vertices.Count;
+            if (width == 1 && height == 1)
+            {
+                AddVertex(0, 0); AddVertex(1, 0); AddVertex(1, 1); AddVertex(0, 1);
+                indices.AddRange([first, first + 1, first + 2, first, first + 2, first + 3]);
+                return;
+            }
+            // Unit border segments share endpoints across rectangles, materials and chunk boundaries.
+            AddVertex(width / 2f, height / 2f);
+            for (var along = 0; along < width; along++) AddVertex(along, 0);
+            for (var along = 0; along < height; along++) AddVertex(width, along);
+            for (var along = width; along > 0; along--) AddVertex(along, height);
+            for (var along = height; along > 0; along--) AddVertex(0, along);
+            var perimeter = 2 * (width + height);
+            for (var edge = 0; edge < perimeter; edge++)
+            {
+                indices.Add(first);
+                indices.Add(first + 1 + edge);
+                indices.Add(first + 1 + (edge + 1) % perimeter);
+            }
+
+            void AddVertex(float alongU, float alongV)
+            {
+                var uv = new Vector2(alongU / width, alongV / height);
+                var corner = center + u * (alongU - 0.5f) + v * (alongV - 0.5f);
+                var position = new Vector3(at.X, at.Y, at.Z) + corner;
+                var textureUv = new Vector2(TextureCoordinate(at, corner, plane.TextureU, plane.Span),
+                    TextureCoordinate(at, corner, plane.TextureV, plane.Span));
+                var bounds = grid.Bounds!;
+                var relativeHeight = (position.Y - bounds.Minimum.Y) / (bounds.Maximum.Y - bounds.Minimum.Y);
+                vertices.Add(new(position, normal, textureUv, uv, edges, Math.Clamp(relativeHeight, 0, 1), 0));
+            }
+        }
     }
+
+    private readonly record struct FacePlane(GridFace Face, int Layer, Vector3 TextureU, Vector3 TextureV, int Span);
 
     private static float TextureCoordinate(GridPosition at, Vector3 corner, Vector3 axis, int span)
     {

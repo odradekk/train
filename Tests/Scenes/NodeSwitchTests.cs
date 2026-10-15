@@ -4,6 +4,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
 using Train.Core.Contracts;
+using Train.Core.ContractSupport;
 using Train.Scenes.Contracts;
 
 namespace Train.Scenes.Tests;
@@ -140,14 +141,29 @@ public sealed class NodeSwitchTests
                     Location = train.Position is TrainPosition.Node atNode ? new WorldLocation.Node(atNode.Id) :
                         new WorldLocation.Edge(((TrainPosition.Edge)train.Position).Id, ((TrainPosition.Edge)train.Position).DistanceMeters)
                 }]);
-            foreach (var map in value.Core.World.Nodes)
-                value = RailwayFixtures.ReplaceCore(value, node: map with
+            var core = value.Core;
+            var nodes = core.World.Nodes.Select(map => map with
+            {
+                Terrain = map.Terrain with { Relief = 3 },
+                Platforms = map.Id == endpoint && activity == TrainActivity.Servicing ? 2 : 0,
+                Occupant = map.Id == endpoint && activity == TrainActivity.Servicing
+                    ? new NodeOccupant.Settlement(new(1), SettlementRelation.NonHostile) : map.Occupant
+            }).ToImmutableArray();
+            value = value with { Core = new FixedCoreReadView
+            {
+                Position = core.Position, InputIdentity = core.InputIdentity, World = core.World with { Nodes = nodes },
+                Nodes = nodes.ToDictionary(map => map.Id, map => (Lookup<NodeView>)new Lookup<NodeView>.Found(
+                    ((Lookup<NodeView>.Found)core.FindNode(map.Id)).Value with { Map = map })),
+                Edges = core.World.Edges.ToDictionary(edge => edge.Id, edge => core.FindEdge(edge.Id)),
+                Trains = new Dictionary<TrainId, Lookup<TrainView>> { [train.Id] = core.FindTrain(train.Id) },
+                Settlements = new Dictionary<SettlementId, Lookup<SettlementView>>
+                    { [new(1)] = new Lookup<SettlementView>.Found(NodeFixtures.Settlement() with { Node = endpoint }) },
+                Instances = new Dictionary<InstanceId, Lookup<InstanceView>>
                 {
-                    Terrain = map.Terrain with { Relief = 3 },
-                    Platforms = map.Id == endpoint && activity == TrainActivity.Servicing ? 2 : 0,
-                    Occupant = map.Id == endpoint && activity == TrainActivity.Servicing
-                        ? new NodeOccupant.Settlement(new(1), SettlementRelation.NonHostile) : map.Occupant
-                });
+                    [new InstanceId.Vehicle(new(1))] = core.FindInstance(new InstanceId.Vehicle(new(1))),
+                    [new InstanceId.Building(new(1))] = new Lookup<InstanceView>.Found(NodeFixtures.Station(2) with { Location = new WorldLocation.Node(endpoint) })
+                }
+            } };
             return value;
         }
         var initial = Snapshot(onEdge, 0);

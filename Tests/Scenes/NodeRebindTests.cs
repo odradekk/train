@@ -28,7 +28,7 @@ public sealed class NodeRebindTests
         for (ulong generation = 1; generation <= 3; generation++)
         {
             var evaluation = secondDesign with { Diagnostics = generation == 2 ? [diagnostic] : [] };
-            var content = RailwayFixtures.Content(generation: generation,
+            var content = NodeFixtures.Content(generation: generation,
                 rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 }, design: firstDesign,
                 designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
                 { [otherHash] = new ContentLookup<DesignEvaluation>.Found(evaluation) });
