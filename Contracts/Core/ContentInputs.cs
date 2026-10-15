@@ -95,7 +95,7 @@ public abstract record PartCapability
     public sealed record Storage(long Capacity) : PartCapability;
     public sealed record Production(double WorkPerSecond) : PartCapability;
     public sealed record Extraction(double WorkPerSecond) : PartCapability;
-    public sealed record Construction(double WorkPerSecond, SizeClass MaximumVehicleSize) : PartCapability;
+    public sealed record Construction(double WorkPerSecond, PlotSize MaximumBuildingPlotSize, SizeClass? MaximumVehicleSize) : PartCapability;
     public sealed record Power(double EnergyPerSecond) : PartCapability;
     public sealed record Weapon(long Damage, double IntervalSeconds) : PartCapability;
     public sealed record Platform : PartCapability;

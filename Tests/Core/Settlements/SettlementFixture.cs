@@ -24,7 +24,7 @@ internal static class SettlementFixture
             {
                 Parts = d.Parts.Select(p => p with { Capabilities = [..p.Capabilities,
                     new PartCapability.Storage(100), new PartCapability.Production(300), new PartCapability.Extraction(400),
-                    new PartCapability.Construction(500, SizeClass.Small), new PartCapability.Power(power)] }).ToImmutableArray()
+                    new PartCapability.Construction(500, PlotSize.Medium, SizeClass.Small), new PartCapability.Power(power)] }).ToImmutableArray()
             }).ToImmutableArray(),
             SettlementTemplates = [original.SettlementTemplates[0] with
             {

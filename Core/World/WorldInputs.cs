@@ -329,7 +329,7 @@ internal static class WorldInputs
         PartCapability.Storage p => (2, 0, 0, p.Capacity, 0),
         PartCapability.Production p => (3, p.WorkPerSecond, 0, 0, 0),
         PartCapability.Extraction p => (4, p.WorkPerSecond, 0, 0, 0),
-        PartCapability.Construction p => (5, p.WorkPerSecond, 0, 0, (int)p.MaximumVehicleSize),
+        PartCapability.Construction p => (5, p.WorkPerSecond, (int)p.MaximumBuildingPlotSize, 0, p.MaximumVehicleSize is { } size ? (int)size : -1),
         PartCapability.Power p => (6, p.EnergyPerSecond, 0, 0, 0),
         PartCapability.Weapon p => (7, p.IntervalSeconds, 0, p.Damage, 0),
         PartCapability.Platform => (8, 0, 0, 0, 0),
@@ -457,7 +457,11 @@ internal static class WorldInputs
             case PartCapability.Storage p: Require(p.Capacity > 0, "Storage.Capacity"); break;
             case PartCapability.Production p: Positive(p.WorkPerSecond); break;
             case PartCapability.Extraction p: Positive(p.WorkPerSecond); break;
-            case PartCapability.Construction p: Positive(p.WorkPerSecond); EnumValue(p.MaximumVehicleSize); break;
+            case PartCapability.Construction p:
+                Positive(p.WorkPerSecond);
+                Require(p.MaximumBuildingPlotSize is PlotSize.Small or PlotSize.Medium or PlotSize.Large or PlotSize.Giant, "Construction.MaximumBuildingPlotSize");
+                if (p.MaximumVehicleSize is { } size) EnumValue(size);
+                break;
             case PartCapability.Power p: Positive(p.EnergyPerSecond); break;
             case PartCapability.Weapon p: Require(p.Damage > 0, "Weapon.Damage"); Positive(p.IntervalSeconds); break;
             case PartCapability.Control or PartCapability.Platform: break;

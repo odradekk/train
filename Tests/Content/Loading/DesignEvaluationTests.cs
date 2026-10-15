@@ -160,7 +160,7 @@ public sealed class DesignEvaluationTests
         Assert.IsFalse(part.Missing);
         CollectionAssert.AreEquivalent(new K.PartCapability[] { new K.PartCapability.Propulsion(25, 20), new K.PartCapability.Control(),
             new K.PartCapability.Storage(100), new K.PartCapability.Production(2), new K.PartCapability.Extraction(3),
-            new K.PartCapability.Construction(4, K.SizeClass.Titan), new K.PartCapability.Power(5), new K.PartCapability.Weapon(6, 0.5), new K.PartCapability.Platform() }, part.Capabilities.ToArray());
+            new K.PartCapability.Construction(4, K.PlotSize.Large, null), new K.PartCapability.Power(5), new K.PartCapability.Weapon(6, 0.5), new K.PartCapability.Platform() }, part.Capabilities.ToArray());
         var scene = result.Scene;
         Assert.AreEqual(result.Design, scene.Design);
         Assert.AreEqual(new C.GridBounds(new(0, 0, -1), new(0, 0, 1)), scene.OccupiedBounds);
