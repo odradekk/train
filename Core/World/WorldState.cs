@@ -22,7 +22,7 @@ internal sealed record ProductionBatchState(ProcessRef Process, SemanticRevision
     double FrozenLaborPerWork, double ProgressWork);
 internal sealed record ProductionFacilityState(FacilityKey Facility, ProductionBatchState? Batch,
     ImmutableArray<GoodsQuantity> OutputBuffer, double LastActualWorkPerSecond,
-    ImmutableArray<WorkLimit> LastLimits, double LastPowerDemand, double LastActualSupply);
+    ImmutableArray<WorkLimit> LastLimits, double LastPowerDemand, double LastActualSupply, double LastAllocatedLabor);
 internal sealed record PlotState(PlotId Id, int TemplateNumber, PlotSize Size, BuildingId? Building);
 internal sealed record LairState(LairId Id, NodeId Node, LairTypeId Type);
 internal sealed record PartDurability(PartId Id, long Current);
@@ -126,7 +126,7 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
                     settlement.Template.ProductionPlans.Where(p => p.Capability is CapabilityKind.Production or CapabilityKind.Extraction)
                         .Select(p => (Plan: p, Building: plots.Single(plot => plot.TemplateNumber == p.PlotNumber).Building))
                         .Where(p => p.Building is not null).OrderBy(p => p.Building!.Value.Value).ThenBy(p => p.Plan.Capability)
-                        .Select(p => new ProductionFacilityState(new(p.Building!.Value, p.Plan.Capability), null, [], 0, [], 0, 0))
+                        .Select(p => new ProductionFacilityState(new(p.Building!.Value, p.Plan.Capability), null, [], 0, [], 0, 0, 0))
                         .ToImmutableArray(), PopulationState.Initial));
             }
             else if (occupants[index] is GeneratedOccupant.Lair lair)
