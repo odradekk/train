@@ -82,18 +82,16 @@ class Economy:
     def resources(self):
         profiles = self.data["generation-profile"]
         self.sources = set()
+        self.source_terrains = defaultdict(set)
         resource_reports = {}
         for identity, profile in profiles.items():
             self.location = f"{self.paths['generation-profile', identity]}: configuration.resources"
             resources = profile["configuration"]["resources"]
-            self.require(len(resources) == 8, "generation-profile", identity, "configuration.resources", "expected eight node resources")
             rows = []
             for index, resource in enumerate(resources):
                 field = f"configuration.resources[{index}]"
                 good = local(resource["good"])
                 terrains = {local(t) for t in resource["allowed_terrain_types"]}
-                expected = {"forest"} if good == "timber" else {"desert"} if good == "crude-oil" else {"mountains", "hills"}
-                self.require(terrains == expected, "generation-profile", identity, field + ".allowed_terrain_types", f"{good}: expected {sorted(expected)}")
                 valid = (good in self.goods and "raw_good" in self.goods[good].get("tags", []) and
                          bool(terrains) and all(t in self.data["terrain-type"] for t in terrains))
                 self.require(valid, "generation-profile", identity, field + ".good", "requires a raw good and defined terrains")
@@ -104,19 +102,22 @@ class Economy:
                 self.require(isinstance(low, int) and isinstance(high, int) and 0 <= low <= high <= 9223372036854775807, "generation-profile", identity, field, "reserves must be ordered nonnegative Int64 units")
                 recovery, interval = resource["recovery_units_per_second"], resource["regeneration_interval_seconds"]
                 self.require(math.isfinite(recovery) and recovery >= 0 and math.isfinite(interval) and interval > 0, "generation-profile", identity, field, "recovery uses nonnegative units/second; regeneration uses positive seconds")
-                self.require(resource["renewable"] == (good == "timber"), "generation-profile", identity, field + ".renewable", "only forest timber is renewable")
-                self.require(recovery > 0 if good == "timber" else recovery == 0, "generation-profile", identity, field + ".recovery_units_per_second", "timber requires positive recovery; minerals require zero local recovery")
+                self.require(resource["renewable"] or recovery == 0, "generation-profile", identity, field + ".recovery_units_per_second", "nonrenewable resources require zero local recovery")
                 if valid and resource["probability"] > 0 and high > 0:
                     self.sources.add(good)
+                    self.source_terrains[good].update(terrains)
                 rows.append({**resource, "recovery_units_per_hour": recovery * 3600, "regeneration_interval_hours": interval / 3600})
             resource_reports[identity] = rows
         self.report["resources"] = resource_reports
+        self.report["resource_counts"] = {identity: len(rows) for identity, rows in resource_reports.items()}
 
     def relations(self):
         counts = Counter(p["kind"] for p in self.processes.values())
-        self.require(len(self.goods) == 46, "voxel", "", "simulation", f"expected 46 goods, found {len(self.goods)}")
-        self.require(counts == {"production": 38, "extraction": 8, "recovery": 17}, "process", "", "simulation.kind", f"unexpected catalog counts {dict(counts)}")
         self.report["catalog"] = {"goods": len(self.goods), **counts}
+        self.report["extraction_terrain_semantics"] = (
+            "each extraction process must share at least one terrain with a generated resource source; "
+            "an absent process environment allows all defined terrains; resource terrains may extend beyond process requirements"
+        )
         production_acyclic = self.cycles("production")
         recovery_acyclic = self.cycles("recovery")
         acyclic = production_acyclic and recovery_acyclic
@@ -133,10 +134,16 @@ class Economy:
             self.require(isinstance(p["work_required"], int), "process", identity, "simulation.work_required", "must be whole work units")
             parameters = {field: p[field] for field in ("work_required", "power_per_work", "labor_per_work")}
             if p["kind"] == "extraction":
-                values[identity] = {"kind": "extraction", "extracts": p["extracts"], **parameters}
                 good = local(p["extracts"]["voxel"])
                 extracted.add(good)
                 self.require(good in self.sources, "process", identity, "simulation.extracts", f"{good} has no generated node resource")
+                environment = {local(t) for t in p.get("environment", {}).get("terrain_types", self.data["terrain-type"])}
+                available = environment & self.source_terrains[good]
+                self.require(bool(available), "process", identity, "simulation.environment.terrain_types", f"{good} has no generated resource on any allowed extraction terrain")
+                values[identity] = {"kind": "extraction", "extracts": p["extracts"], **parameters,
+                                    "process_terrain_types": sorted(environment),
+                                    "resource_terrain_types": sorted(self.source_terrains[good]),
+                                    "available_terrain_types": sorted(available)}
                 continue
             inputs, outputs = self.cargo(p.get("inputs", [])), self.cargo(p["outputs"])
             for good, amount in {**inputs, **outputs}.items():

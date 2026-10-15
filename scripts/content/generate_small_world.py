@@ -630,7 +630,7 @@ def content_files():
         files[f"voxels/shared/{material}-icon.png"] = png(128, lambda x, y: color)
     files["settlement-types/shared/agricultural-town.png"] = png(48, lambda x, y: (226, 236, 220, 255))
 
-    def voxel(identity, name, material, face_paths, icon_path, simulation=None, wheelset=False,
+    def voxel(identity, name, material, face_paths, icon_path, simulation=None, wheelset=False, light=False,
               tile_span=None, description=None):
         value = {"schema_version": 3, "id": identity,
                  "appearance": {"allowed_orientations": "four_way",
@@ -647,6 +647,8 @@ def content_files():
                 ["cube", "plate"] if identity == "glass" else ["cube"])
         if wheelset:
             value["appearance"]["behaviors"] = {"wheelset": {}}
+        if light:
+            value["appearance"].setdefault("behaviors", {})["light"] = {}
         document("voxels", "voxel", identity, value)
         voxel_definitions[identity] = value
 
@@ -746,11 +748,8 @@ def content_files():
                                                    "interval": MACHINE_GUN_INTERVAL_SECONDS * factor}}
         material = "glass" if identity == "glass" else "concrete" if identity == "construction-block" else {
             "soil": "stone_soil", "organic": "organic", "equipment": "painted_metal"}[texture]
-        voxel(identity, name, material, faces(f"shared/{texture}-face.png"), f"shared/{texture}-icon.png", simulation)
-        if identity == "lamp":
-            value = voxel_definitions[identity]
-            value["appearance"]["behaviors"] = {"light": {}}
-            document("voxels", "voxel", identity, value)
+        voxel(identity, name, material, faces(f"shared/{texture}-face.png"), f"shared/{texture}-icon.png", simulation,
+              light=identity == "lamp")
 
     for identity, simulation in processes.items():
         item = simulation["extracts"] if simulation["kind"] == "extraction" else (
