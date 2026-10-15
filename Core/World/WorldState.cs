@@ -20,7 +20,7 @@ internal sealed record SettlementState(SettlementId Id, NodeId Node, SettlementT
 internal sealed record ProductionBatchState(ProcessRef Process, SemanticRevision StartedFromRevision,
     ImmutableArray<GoodsQuantity> FrozenOutputs, long FrozenWorkRequired, double FrozenPowerPerWork,
     double FrozenLaborPerWork, double ProgressWork);
-internal sealed record ProductionFacilityState(BuildingId Building, ProductionBatchState? Batch,
+internal sealed record ProductionFacilityState(FacilityKey Facility, ProductionBatchState? Batch,
     ImmutableArray<GoodsQuantity> OutputBuffer, double LastActualWorkPerSecond,
     ImmutableArray<WorkLimit> LastLimits, double LastPowerDemand, double LastActualSupply);
 internal sealed record PlotState(PlotId Id, int TemplateNumber, PlotSize Size, BuildingId? Building);
@@ -57,7 +57,8 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
     ImmutableArray<InventoryState> Inventories, ImmutableArray<DesignProjection> Designs,
     ImmutableArray<GoodDefinitionProjection> DesignGoods, Money Money, WorldIdentities Next,
     ImmutableArray<RequiredDefinition> DefinitionDependencies, ImmutableArray<TrackHandoff> TrackHandoffs,
-    ImmutableArray<LeaseState> Leases)
+    ImmutableArray<LeaseState> Leases, ImmutableArray<ResourceRegenerationState> ResourceRegenerations,
+    ImmutableArray<ResourceRecoveryState> ResourceRecovery)
 {
     internal WorldSummary Map => new(Source.WorldSeed, Source.Configuration.Rules.Railway,
         Source.Configuration.WidthMeters, Source.Configuration.HeightMeters, Nodes.Select(ReadNode).ToImmutableArray(), Edges,
@@ -122,10 +123,11 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
                 inventories.Add(new(inventory, new InventoryOwner.Settlement(settlementId), settlement.Template.SpecialInitialInventory, []));
                 settlements.Add(new(settlementId, id, settlement.Type.Id, settlement.Relation, settlement.Population,
                     settlement.Template, plots.ToImmutable(), inventory, [], 0,
-                    settlement.Template.ProductionPlans.Where(p => p.Capability == CapabilityKind.Production)
-                        .Select(p => plots.Single(plot => plot.TemplateNumber == p.PlotNumber).Building)
-                        .Where(b => b is not null).OrderBy(b => b!.Value.Value)
-                        .Select(b => new ProductionFacilityState(b!.Value, null, [], 0, [], 0, 0)).ToImmutableArray(), PopulationState.Initial));
+                    settlement.Template.ProductionPlans.Where(p => p.Capability is CapabilityKind.Production or CapabilityKind.Extraction)
+                        .Select(p => (Plan: p, Building: plots.Single(plot => plot.TemplateNumber == p.PlotNumber).Building))
+                        .Where(p => p.Building is not null).OrderBy(p => p.Building!.Value.Value).ThenBy(p => p.Plan.Capability)
+                        .Select(p => new ProductionFacilityState(new(p.Building!.Value, p.Plan.Capability), null, [], 0, [], 0, 0))
+                        .ToImmutableArray(), PopulationState.Initial));
             }
             else if (occupants[index] is GeneratedOccupant.Lair lair)
             {
@@ -162,7 +164,8 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
         var state = new WorldState(input, mapNodes.ToImmutable(), mapEdges, settlements.ToImmutable(), lairs.ToImmutable(), instances.ToImmutable(), trains.ToImmutable(),
             inventories.ToImmutable(), designs, content.DesignGoods.Where(g => goods.Contains(g.Good)).ToImmutableArray(),
             input.Start.InitialMoney, new((ulong)nodes.Length + 1, (ulong)edges.Length + 1, settlementNumber, lairNumber,
-                plotNumber, buildingNumber, trainNumber, vehicleNumber, inventoryNumber, 1, 1), [], [], []);
+                plotNumber, buildingNumber, trainNumber, vehicleNumber, inventoryNumber, 1, 1), [], [], [],
+            WorldResources.Initial(input.Configuration.Resources, mapNodes), []);
         return state with { DefinitionDependencies = WorldReferences.Dependencies(state, content) };
 
         InstanceState CreateInstance(InstanceId id, DesignHash hash,

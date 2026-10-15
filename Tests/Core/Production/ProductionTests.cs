@@ -357,7 +357,7 @@ public sealed class ProductionTests
         using var session = candidate.Activate();
         Assert.IsInstanceOfType<Lookup<FacilityView>.Missing>(session.Read().FindFacility(new(new(999), CapabilityKind.Production)));
         Assert.IsInstanceOfType<Lookup<FacilityView>.Missing>(session.Read().FindFacility(new(new(1), CapabilityKind.Production)));
-        Assert.ThrowsExactly<NotImplementedException>(() => session.Read().FindFacility(Facility with { Capability = CapabilityKind.Extraction }));
+        Assert.IsInstanceOfType<Lookup<FacilityView>.Missing>(session.Read().FindFacility(Facility with { Capability = CapabilityKind.Extraction }));
         Assert.ThrowsExactly<NotImplementedException>(() => session.Read().FindFacility(Facility with { Capability = CapabilityKind.Construction }));
         Assert.ThrowsExactly<NotImplementedException>(() => session.Submit(new CoreCommand.SetProductionPlan(Facility, Process, false, 1), CommandSource.AutomationTest));
     }

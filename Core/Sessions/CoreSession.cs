@@ -146,6 +146,9 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
                 world = result.World;
                 events = events.AddRange(result.Events);
             }
+            var resources = WorldResources.Advance(before.World, world);
+            world = resources.World;
+            events = events.AddRange(resources.Events);
             events = events.AddRange(world.Settlements.Where(s => !s.ProductionFacilities.IsEmpty).SelectMany(s =>
                 ProductionQueries.StateChanges(before.World, before.Content, world, before.Content, s.Id)));
             return (before.Content, world, InventoryLeases.ExpirationEvents(before.World, before.Position.CompletedSteps).AddRange(events));
