@@ -1,0 +1,157 @@
+{
+  "format_version": 1,
+  "generation_profile": "core:basic-through-world",
+  "seed": 40,
+  "generator_version": "stage1-world-v1",
+  "save": {
+    "id": "71bb1135-1382-4640-9a9e-2d6823fe11b1",
+    "name": "租用库存到期",
+    "saved_at": "2026-10-16T00:00:00Z"
+  },
+  "commands": [
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 0
+      },
+      "kind": "lease.acquire",
+      "request": {
+        "kind": "rent",
+        "settlement": 6,
+        "capacity": 1,
+        "duration_steps": 5184000
+      },
+      "maximum_payment": 24
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 1
+      },
+      "kind": "train.replace_run_plan",
+      "train": 1,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 14,
+            "dwell_steps": 1000,
+            "goods_rules": []
+          }
+        ]
+      }
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 2
+      },
+      "kind": "train.start",
+      "train": 1
+    },
+    {
+      "at": {
+        "completed_steps": 718,
+        "sequence": 0
+      },
+      "kind": "train.replace_run_plan",
+      "train": 1,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 14,
+            "dwell_steps": 5184060,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:staple-food"
+                },
+                "local_inventory": 6,
+                "target_quantity": 2
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "at": {
+        "completed_steps": 718,
+        "sequence": 1
+      },
+      "kind": "inventory.unload_goods",
+      "train": 1,
+      "settlement": 6,
+      "local_inventory": 10,
+      "good": {
+        "kind": "voxel",
+        "definition": "core:staple-food"
+      },
+      "quantity": 1
+    },
+    {
+      "at": {
+        "completed_steps": 718,
+        "sequence": 2
+      },
+      "kind": "train.replace_run_plan",
+      "train": 1,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 14,
+            "dwell_steps": 5184060,
+            "goods_rules": []
+          }
+        ]
+      }
+    },
+    {
+      "at": {
+        "completed_steps": 5184000,
+        "sequence": 0
+      },
+      "kind": "inventory.unload_goods",
+      "train": 1,
+      "settlement": 6,
+      "local_inventory": 10,
+      "good": {
+        "kind": "voxel",
+        "definition": "core:staple-food"
+      },
+      "quantity": 1
+    },
+    {
+      "at": {
+        "completed_steps": 5184000,
+        "sequence": 1
+      },
+      "kind": "inventory.load_goods",
+      "train": 1,
+      "settlement": 6,
+      "local_inventory": 10,
+      "good": {
+        "kind": "voxel",
+        "definition": "core:staple-food"
+      },
+      "quantity": 1
+    }
+  ],
+  "target": {
+    "completed_steps": 5184001,
+    "sequence": 0
+  },
+  "checkpoint_steps": [
+    5183999
+  ]
+}

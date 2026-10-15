@@ -1,0 +1,101 @@
+{
+  "format_version": 1,
+  "generation_profile": "core:basic-through-world",
+  "seed": 40,
+  "generator_version": "stage1-world-v1",
+  "save": {
+    "id": "0f3cbd28-a389-483a-b550-e302443edd07",
+    "name": "起步燃料贸易",
+    "saved_at": "2026-10-16T00:00:00Z"
+  },
+  "commands": [
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 0
+      },
+      "kind": "train.replace_run_plan",
+      "train": 1,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 12,
+            "dwell_steps": 1000,
+            "goods_rules": []
+          }
+        ]
+      }
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 1
+      },
+      "kind": "train.start",
+      "train": 1
+    },
+    {
+      "at": {
+        "completed_steps": 6517,
+        "sequence": 0
+      },
+      "kind": "train.replace_run_plan",
+      "train": 1,
+      "plan": {
+        "loop": true,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 12,
+            "dwell_steps": 300,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:fuel"
+                },
+                "local_inventory": 4,
+                "target_quantity": 1
+              }
+            ]
+          },
+          {
+            "kind": "station",
+            "node": 13,
+            "dwell_steps": 300,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "sell",
+                  "minimum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:fuel"
+                },
+                "local_inventory": 5,
+                "target_quantity": 0
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "target": {
+    "completed_steps": 864000,
+    "sequence": 0
+  },
+  "checkpoint_steps": [
+    216000,
+    432000,
+    648000,
+    864000
+  ]
+}

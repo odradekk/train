@@ -1,17 +1,10 @@
 using System.Collections.Immutable;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.App.Saves;
 
 namespace Train.Cli;
-
-internal sealed record RunOutput(int ProcessId,
-    [property: JsonRequired] RuntimeIdentity Runtime,
-    [property: JsonRequired] CoreInputId InputIdentity,
-    [property: JsonRequired] ImmutableArray<CoreCheckpoint> Checkpoints, int AcceptedCommands, int RejectedCommands,
-    bool ReplayVerified);
 
 internal sealed class CliRunner(ICoreFactory core, IContentFactory content, RuntimeIdentity runtime)
 {
@@ -119,21 +112,32 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
         if (Order(target, start) < 0 || Order(target, recipe.Target) > 0)
             throw new InvalidDataException("目标位置不在配方的剩余运行范围内。");
         var checkpoints = ImmutableArray.CreateBuilder<CoreCheckpoint>();
+        var observations = ImmutableArray.CreateBuilder<EconomySample>();
+        var receipts = ImmutableArray.CreateBuilder<RecipeReceipt>();
+        var checkpointSteps = recipe.CheckpointSteps.IsDefault ? [] : recipe.CheckpointSteps;
         var accepted = 0;
         var rejected = 0;
         Sample();
-        foreach (var command in recipe.Commands)
+        for (var index = 0; index < recipe.Commands.Length; index++)
         {
+            var command = recipe.Commands[index];
             if (Order(command.At, start) < 0) continue;
             if (Order(command.At, target) >= 0) break;
             AdvanceTo(command.At);
-            switch (session.Submit(command.Parse(), CommandSource.Console))
+            var parsed = command.Parse();
+            long? quotedTotal = parsed is CoreCommand.BuyVehicle buy
+                && session.Read().QuoteVehicle(new(buy.Seller, buy.Vehicle, VehicleTradeAction.Buy))
+                    is CoreResult<VehicleTradeQuote>.Success quote ? quote.Value.Total?.Value : null;
+            switch (session.Submit(parsed, CommandSource.Console))
             {
                 case SubmissionResult.Completed { Receipt.Decision: CommandDecision.Accepted }:
                     accepted++;
+                    receipts.Add(new(index, command.Kind, "accepted", [], quotedTotal));
                     break;
-                case SubmissionResult.Completed { Receipt.Decision: CommandDecision.Rejected }:
+                case SubmissionResult.Completed { Receipt.Decision: CommandDecision.Rejected decision }:
                     rejected++;
+                    receipts.Add(new(index, command.Kind, "rejected",
+                        decision.Problems.Select(ProblemSample.From).ToImmutableArray(), quotedTotal));
                     break;
                 case SubmissionResult.Completed { Receipt.Decision: CommandDecision.Faulted fault }:
                     throw new InvalidDataException($"命令故障：{fault.Fault.Code} {fault.Fault.Field}。");
@@ -145,15 +149,22 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
         AdvanceTo(target);
         var samples = checkpoints.ToImmutable();
         if (verifyReplay) VerifyReplay(session.ReadRecording(), prepared.Content, samples);
-        return new(Environment.ProcessId, runtime, prepared.InputIdentity, samples, accepted, rejected, verifyReplay);
+        return new(Environment.ProcessId, runtime, prepared.InputIdentity, samples, accepted, rejected, verifyReplay,
+            observations.ToImmutable(), receipts.ToImmutable());
 
-        void Sample() => checkpoints.Add(Require(session.Capture(CapturePurpose.Save)).Checkpoint);
+        void Sample()
+        {
+            checkpoints.Add(Require(session.Capture(CapturePurpose.Save)).Checkpoint);
+            observations.Add(EconomySample.Read(session.Read()));
+        }
         void AdvanceTo(SimulationPosition target)
         {
             var position = session.Read().Position;
             while (position.CompletedSteps < target.CompletedSteps)
             {
-                var steps = (uint)Math.Min(uint.MaxValue, target.CompletedSteps - position.CompletedSteps);
+                var next = checkpointSteps.FirstOrDefault(step => step > position.CompletedSteps
+                    && step < target.CompletedSteps, target.CompletedSteps);
+                var steps = (uint)Math.Min(uint.MaxValue, next - position.CompletedSteps);
                 var result = session.Advance(steps);
                 if (result.Fault is not null || result.CompletedSteps != steps)
                     throw new InvalidDataException($"推进失败：{result.Fault?.Code} {result.Fault?.Field}。");
