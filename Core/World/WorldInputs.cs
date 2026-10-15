@@ -109,12 +109,7 @@ internal static class WorldInputs
             { ValidateGood(good); Require(good is GoodId.Voxel, "Processes.Goods"); }
         }
         Unique(Items(content.PopulationRules), x => x.Id.Value);
-        foreach (var rule in content.PopulationRules)
-        {
-            Identity(rule.Id.Value);
-            Unique(Items(rule.ConsumptionGoods), x => GoodKey(x.Good));
-            foreach (var good in rule.ConsumptionGoods) ValidateGood(good.Good);
-        }
+        foreach (var rule in content.PopulationRules) ValidatePopulationRule(rule);
         Unique(Items(content.MarketRules), x => x.Id.Value);
         foreach (var rule in content.MarketRules)
         {
@@ -125,7 +120,11 @@ internal static class WorldInputs
         Unique(Items(content.ConstructionRules), x => x.Id.Value);
         foreach (var rule in content.ConstructionRules) Identity(rule.Id.Value);
         Unique(Items(content.RailwayRules), x => x.Id.Value);
-        foreach (var rule in content.RailwayRules) { Identity(rule.Id.Value); Identity(rule.RailGood.Value); }
+        foreach (var rule in content.RailwayRules)
+        {
+            Identity(rule.Id.Value); Identity(rule.RailGood.Value);
+            Positive(rule.ApproachLengthMeters); Positive(rule.DepartureLengthMeters); Positive(rule.NodeSpeedLimitMetersPerSecond);
+        }
         Unique(Items(content.CombatRules), x => x.Id.Value);
         foreach (var rule in content.CombatRules) Identity(rule.Id.Value);
         Unique(Items(content.SettlementTypes), x => x.Id.Value);
@@ -149,6 +148,44 @@ internal static class WorldInputs
         Unique(content.PopulationRules.Select(x => x.Id).Concat(content.MarketRules.Select(x => x.Id))
             .Concat(content.ConstructionRules.Select(x => x.Id)).Concat(content.RailwayRules.Select(x => x.Id))
             .Concat(content.CombatRules.Select(x => x.Id)), x => x.Value);
+    }
+
+    internal static void ValidatePopulationRule(PopulationRuleProjection rule)
+    {
+        ArgumentNullException.ThrowIfNull(rule);
+        Identity(rule.Id.Value); Hash(rule.Revision.Value);
+        Unique(Items(rule.Needs), n => n.Need);
+        Require(rule.Needs.Length == 6, "PopulationRules.Needs");
+        foreach (var need in rule.Needs)
+        {
+            EnumValue(need.Need);
+            Require(need.Class == (need.Need is PopulationNeed.Food or PopulationNeed.Clothing
+                ? PopulationNeedClass.Basic : PopulationNeedClass.Improvement), "PopulationRules.Needs.Class");
+            Positive(need.AmountPerPersonSecond); Positive(need.Weight);
+        }
+        Unique(Items(rule.ConsumptionGoods), g => GoodKey(g.Good));
+        Unique(rule.ConsumptionGoods, g => g.SelectionOrder);
+        Require(rule.ConsumptionGoods.Length == 6, "PopulationRules.ConsumptionGoods");
+        foreach (var good in rule.ConsumptionGoods)
+        {
+            ValidateGood(good.Good); Require(good.SelectionOrder >= 0, "PopulationRules.SelectionOrder");
+            Unique(Items(good.Satisfies), c => c.Need);
+            Require(!good.Satisfies.IsEmpty, "PopulationRules.Satisfies");
+            foreach (var conversion in good.Satisfies) { EnumValue(conversion.Need); Positive(conversion.AmountPerGoodUnit); }
+        }
+        var singleNeeds = rule.ConsumptionGoods.Where(g => g.Satisfies.Length == 1).Select(g => g.Satisfies[0].Need).Order();
+        Require(singleNeeds.SequenceEqual([PopulationNeed.Food, PopulationNeed.Clothing, PopulationNeed.ConsumerGoods,
+            PopulationNeed.ConsumerElectronics, PopulationNeed.MedicalSupplies])
+            && rule.ConsumptionGoods.Any(g => g.Satisfies.Select(c => c.Need).Order()
+                .SequenceEqual([PopulationNeed.Food, PopulationNeed.ImprovedDiet])),
+            "PopulationRules.ConsumptionGoods.Roles");
+        var staple = rule.ConsumptionGoods.Single(g => g.Satisfies.Length == 1 && g.Satisfies[0].Need == PopulationNeed.Food);
+        var prepared = rule.ConsumptionGoods.Single(g => g.Satisfies.Length == 2);
+        Require(staple.SelectionOrder < prepared.SelectionOrder, "PopulationRules.SelectionOrder");
+        Ratio(rule.LaborRatio);
+        Require(rule.ConsumptionIntervalTicks > 0 && rule.StatisticsPeriodTicks > rule.ConsumptionIntervalTicks
+            && rule.StatisticsPeriodTicks % rule.ConsumptionIntervalTicks == 0, "PopulationRules.StatisticsPeriodTicks");
+        Nonnegative(rule.BaseGrowthPerSecond); Nonnegative(rule.ImprovementGrowthPerSecond); Nonnegative(rule.MaximumLossPerSecond);
     }
 
     internal static void ValidateDesignGood(GoodDefinitionProjection good)
@@ -199,6 +236,9 @@ internal static class WorldInputs
         ArgumentNullException.ThrowIfNull(template);
         Identity(template.Id.Value); Identity(template.Type.Value); Require(template.Weight > 0, "Templates.Weight");
         Unique(Items(template.Plots), x => x.Number);
+        Nonnegative(template.PlatformLengthMeters);
+        Require((template.PlatformLengthMeters > 0) == template.Plots.Any(p =>
+            p.Size is PlotSize.SmallStation or PlotSize.LargeStation), "Templates.PlatformLengthMeters");
         foreach (var plot in template.Plots)
         { Require(plot.Number > 0, "Plots.Number"); EnumValue(plot.Size); if (plot.PrebuiltDesign is { } design) Hash(design.Value); }
         Unique(Items(template.FoundingBuildings), x => x.PlotNumber);
@@ -237,7 +277,7 @@ internal static class WorldInputs
             DesignGoods = Sorted(content.DesignGoods, x => GoodKey(x.Good)).Select(x => x with { MassTons = Zero(x.MassTons) }).ToImmutableArray(),
             Designs = Sorted(content.Designs, x => x.Design.Value).Select(NormalizeDesign).ToImmutableArray(),
             Processes = Sorted(content.Processes, x => ProcessKey(x.Details)),
-            PopulationRules = Sorted(content.PopulationRules, x => x.Id.Value),
+            PopulationRules = Sorted(content.PopulationRules, x => x.Id.Value).Select(NormalizePopulationRule).ToImmutableArray(),
             MarketRules = Sorted(content.MarketRules, x => x.Id.Value),
             ConstructionRules = Sorted(content.ConstructionRules, x => x.Id.Value),
             RailwayRules = Sorted(content.RailwayRules, x => x.Id.Value),
@@ -249,6 +289,15 @@ internal static class WorldInputs
             LairTypes = Sorted(content.LairTypes, x => x.Id.Value).Select(x => x with
                 { Members = Sorted(x.Members, m => m.Creature.Value) }).ToImmutableArray()
         };
+
+    internal static PopulationRuleProjection NormalizePopulationRule(PopulationRuleProjection rule) => rule with
+    {
+        Needs = rule.Needs.OrderBy(n => n.Need).ToImmutableArray(),
+        ConsumptionGoods = rule.ConsumptionGoods.OrderBy(g => GoodKey(g.Good), StringComparer.Ordinal)
+            .Select(g => g with { Satisfies = g.Satisfies.OrderBy(c => c.Need).ToImmutableArray() }).ToImmutableArray(),
+        LaborRatio = Zero(rule.LaborRatio), BaseGrowthPerSecond = Zero(rule.BaseGrowthPerSecond),
+        ImprovementGrowthPerSecond = Zero(rule.ImprovementGrowthPerSecond), MaximumLossPerSecond = Zero(rule.MaximumLossPerSecond)
+    };
 
     internal static SettlementTemplateProjection NormalizeTemplate(SettlementTemplateProjection template) => template with
     {

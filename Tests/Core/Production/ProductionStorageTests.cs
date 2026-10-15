@@ -10,6 +10,28 @@ namespace Train.Core.Tests.Production;
 public sealed class ProductionStorageTests
 {
     [TestMethod]
+    [DataRow(0L)]
+    [DataRow(3L)]
+    public void Residents_wait_for_food_to_leave_output_buffer_and_for_the_next_step(long freeCapacity)
+    {
+        var food = new GoodId.Voxel(new("fixture:food"));
+        var content = Content(stock: freeCapacity == 0 ? [new(Input, 2), new(OtherProduct, 3)] : [new(Input, 2)],
+            work: 1, capacity: 3, outputs: [new(food, 3)]);
+        content = content with { PopulationRules = [WorldFixture.PopulationRule() with { StatisticsPeriodTicks = 2 }] };
+        using var candidate = Prepare(content);
+        using var session = candidate.Activate();
+        var produced = Step(session, 2);
+        Assert.AreEqual(0, produced.Events.Select(e => e.Event).OfType<CoreEvent.PopulationSettled>().Single().Report.BasicSatisfaction);
+        Assert.AreEqual(freeCapacity, Stock(session, food));
+        Assert.AreEqual(3 - freeCapacity, Read(session).OutputBuffer.Sum(g => g.Quantity));
+        var later = Step(session, 2);
+        Assert.AreEqual(freeCapacity == 0 ? 0 : .5,
+            later.Events.Select(e => e.Event).OfType<CoreEvent.PopulationSettled>().Single().Report.BasicSatisfaction);
+        Assert.AreEqual(freeCapacity == 0 ? 0 : 2, Stock(session, food));
+        Assert.AreEqual(3 - freeCapacity, Read(session).OutputBuffer.Sum(g => g.Quantity));
+    }
+
+    [TestMethod]
     [DataRow(0, false)]
     [DataRow(1, true)]
     public void Shared_storage_fills_by_priority_then_building_id(int secondPriority, bool firstWins)

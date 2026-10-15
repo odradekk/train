@@ -53,7 +53,8 @@ public sealed record EdgeMapItem(EdgeId Id, NodeId Start, NodeId End, double Len
 public sealed record TrainMapItem(TrainId Id, TrainPosition Position, TrainActivity Activity);
 public sealed record CreatureGroupMapItem(CreatureGroupId Id, WorldLocation Location, CreatureActivity Activity);
 public sealed record CombatMapItem(CombatId Id, WorldLocation Location);
-public sealed record NodeView(NodeMapItem Map, ImmutableArray<EdgeId> AdjacentEdges);
+public sealed record NodeView(NodeMapItem Map, ImmutableArray<EdgeId> AdjacentEdges,
+    double ApproachLengthMeters, double PlatformLengthMeters, double DepartureLengthMeters);
 public sealed record EdgeView(EdgeMapItem Map, ImmutableArray<TrackView> Tracks, SettlementId? AutoRepairMaterialSource);
 public sealed record TrackView(int Number, TravelDirection? DirectionLock, ImmutableArray<TrainId> Trains);
 public sealed record TrackBreakView(BreakId Id, int Track, double DistanceMeters);
@@ -91,7 +92,6 @@ public enum EncounterAction { Engage, Retreat }
 public sealed record TrainEngagementRules(TargetPriority Priority, TargetScope Scope,
     EncounterAction Encounter, double RetreatStructureRatio);
 public sealed record SettlementEngagementRules(TargetPriority Priority, TargetScope Scope);
-public sealed record NodeTransitView(EdgeId? EnteredFrom, EdgeId? NextEdge);
 public enum TrainOrderFacing { FirstEndLeading, LastEndLeading }
 public sealed record TrainView(TrainId Id, TrainPosition Position, TrainActivity Activity,
     ImmutableArray<VehicleId> Vehicles, InventoryId Inventory, double SpeedMetersPerSecond,
@@ -99,7 +99,7 @@ public sealed record TrainView(TrainId Id, TrainPosition Position, TrainActivity
     double MaximumSpeedMetersPerSecond, RunPlan? Plan, int? NextStopIndex, ulong RemainingDwellSteps,
     TrainEngagementRules Engagement,
     ImmutableArray<CoreProblem> Blockers, RunAccumulatorView? CurrentRun, ImmutableArray<RunReport> RecentReports,
-    NodeTransitView? NodeTransit, TrainOrderFacing OrderFacing);
+    TrainOrderFacing OrderFacing);
 
 [System.Flags]
 public enum InstanceLock { None = 0, UnderRefit = 1, UnderRepair = 2, UnderDeconstruction = 4, Combat = 8 }

@@ -33,7 +33,7 @@ public sealed class WorldQueryTests
         var train = world.Trains[0];
         Assert.AreEqual(new TrainId(1), train.Id);
         Assert.AreEqual(TrainActivity.Stopped, train.Activity);
-        Assert.AreEqual(new TrainPosition.Node(new(1)), train.Position);
+        Assert.AreEqual(WorldFixture.Node(new(1)), train.Position);
 
         var location = ((Lookup<LocationView>.Found)view.FindLocation(new WorldLocation.Node(new(1)))).Value;
         CollectionAssert.AreEqual(new[] { new TrainId(1) }, location.Trains.ToArray());

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using Train.Core.Contracts;
+using Train.Core.Settlements;
 
 namespace Train.Core.World;
 
@@ -52,6 +53,7 @@ internal static class WorldStateValidation
             designs.TryGetValue(hash, out var design) && design.Kind is DesignKind.Vehicle)), "/world/source/start/trains/vehicles");
         foreach (var settlement in world.Settlements)
         {
+            ValidatePopulation(settlement, world.Source.Configuration.Rules.Population);
             Require(double.IsFinite(settlement.FuelEnergyRemaining) && settlement.FuelEnergyRemaining >= 0,
                 "/world/settlements/fuel_energy_remaining");
             try { WorldInputs.ValidateTemplate(settlement.Template); }
@@ -116,6 +118,7 @@ internal static class WorldStateValidation
                     "/world/nodes/resources/renewal");
             }
         }
+        ValidateResources(world, nodes);
         var pairs = new HashSet<(NodeId, NodeId)>();
         var breakIds = new HashSet<ulong>();
         foreach (var edge in world.Edges)
@@ -193,6 +196,9 @@ internal static class WorldStateValidation
         foreach (var track in world.Trains.Select(t => t.Position).OfType<TrainPosition.Edge>()
             .GroupBy(p => (p.Id, p.Track)))
             Require(track.Select(p => p.Direction).Distinct().Count() == 1, "/world/trains/position/direction");
+        foreach (var node in world.Trains.Select(t => t.Position).OfType<TrainPosition.Node>()
+            .Where(p => p.PlatformNumber is not null).GroupBy(p => p.Id))
+            Require(node.Select(p => p.PlatformNumber).Distinct().Count() == node.Count(), "/world/trains/position/platform_number");
         Items(world.TrackHandoffs, "/world/track_handoffs");
         (ulong Edge, int Track) previousHandoff = (0, 0);
         foreach (var handoff in world.TrackHandoffs)
@@ -276,11 +282,14 @@ internal static class WorldStateValidation
     private static void ValidateProduction(SettlementState settlement)
     {
         const string field = "/world/settlements/production_facilities";
-        Ordered(settlement.ProductionFacilities, f => f.Building.Value, field);
-        var expected = settlement.Template.ProductionPlans.Where(p => p.Capability == CapabilityKind.Production)
-            .Select(p => settlement.Plots.SingleOrDefault(plot => plot.TemplateNumber == p.PlotNumber)?.Building)
-            .Where(b => b is not null).Select(b => b!.Value).OrderBy(b => b.Value);
-        Require(settlement.ProductionFacilities.Select(f => f.Building).SequenceEqual(expected), field + "/building");
+        Items(settlement.ProductionFacilities, field);
+        Require(settlement.ProductionFacilities.All(f => f.Facility is not null
+            && f.Facility.Building.Value != 0 && f.Facility.Capability is CapabilityKind.Production or CapabilityKind.Extraction), field + "/facility");
+        var expected = settlement.Template.ProductionPlans.Where(p => p.Capability is CapabilityKind.Production or CapabilityKind.Extraction)
+            .Select(p => (Plan: p, Building: settlement.Plots.SingleOrDefault(plot => plot.TemplateNumber == p.PlotNumber)?.Building))
+            .Where(p => p.Building is not null).Select(p => new FacilityKey(p.Building!.Value, p.Plan.Capability))
+            .OrderBy(f => f.Building.Value).ThenBy(f => f.Capability).ToArray();
+        Require(settlement.ProductionFacilities.Select(f => f.Facility).SequenceEqual(expected), field + "/facility");
         foreach (var facility in settlement.ProductionFacilities)
         {
             Require(double.IsFinite(facility.LastActualWorkPerSecond) && facility.LastActualWorkPerSecond >= 0,
@@ -295,9 +304,9 @@ internal static class WorldStateValidation
             ProductionGoods(facility.OutputBuffer, field + "/output_buffer");
             if (facility.Batch is not { } batch) continue;
             Require(facility.OutputBuffer.IsEmpty, field + "/output_buffer");
-            var plot = settlement.Plots.Single(p => p.Building == facility.Building);
+            var plot = settlement.Plots.Single(p => p.Building == facility.Facility.Building);
             var plan = settlement.Template.ProductionPlans.Single(p => p.PlotNumber == plot.TemplateNumber
-                && p.Capability == CapabilityKind.Production);
+                && p.Capability == facility.Facility.Capability);
             Require(batch.Process == plan.Process, field + "/batch/process");
             Require(WorldFormat.IsHash(batch.StartedFromRevision.Value), field + "/batch/started_from_revision");
             Require(batch.FrozenWorkRequired > 0 && double.IsFinite(batch.ProgressWork)
@@ -327,7 +336,7 @@ internal static class WorldStateValidation
         Require(Enum.IsDefined(train.OrderFacing) && double.IsFinite(train.SpeedMetersPerSecond)
             && train.SpeedMetersPerSecond >= 0, "/world/trains");
         Require(train.QueueEnteredStep is null || train.Position is TrainPosition.Node
-            && train.Activity == TrainActivity.Waiting, "/world/trains/queue_entered_step");
+            && train.Activity is TrainActivity.Waiting or TrainActivity.Running, "/world/trains/queue_entered_step");
         Require(train.ReturningFromBreak is null || train.Position is TrainPosition.Edge returning
             && train.Activity == TrainActivity.Running && edges.TryGetValue(returning.Id, out var returningEdge)
             && returningEdge.Breaks.Any(b => b.Id == train.ReturningFromBreak && b.Track == returning.Track),
@@ -335,19 +344,22 @@ internal static class WorldStateValidation
         switch (train.Position)
         {
             case TrainPosition.Node node:
-                Require(nodes.ContainsKey(node.Id), "/world/trains/position");
-                Require(train.Transit is not null, "/world/trains/transit");
-                foreach (var edgeId in new[] { train.Transit.EnteredFrom, train.Transit.NextEdge })
+                Require(Enum.IsDefined(node.Phase), "/world/trains/position/phase");
+                Require(nodes.ContainsKey(node.Id)
+                    && double.IsFinite(node.DistanceMeters) && node.DistanceMeters >= 0
+                    && node.PlatformNumber is null or > 0, "/world/trains/position");
+                foreach (var edgeId in new[] { node.EnteredFrom, node.NextEdge })
                     if (edgeId is { } id) Require(edges.TryGetValue(id, out var adjacentEdge)
-                        && (adjacentEdge.Start == node.Id || adjacentEdge.End == node.Id), "/world/trains/transit");
-                Require(train.Transit.NextEdge is null || train.Activity == TrainActivity.Running, "/world/trains/transit");
+                        && (adjacentEdge.Start == node.Id || adjacentEdge.End == node.Id), "/world/trains/position");
+                Require(node.Phase != NodeTravelPhase.Departing || node.NextEdge is not null, "/world/trains/position");
+                Require(node.Phase is not (NodeTravelPhase.Waiting or NodeTravelPhase.Docked)
+                    || train.SpeedMetersPerSecond == 0, "/world/trains/position");
                 break;
             case TrainPosition.Edge position:
                 Require(edges.TryGetValue(position.Id, out var edge)
                     && position.Track >= 1 && position.Track <= edge.Tracks
                     && Enum.IsDefined(position.Direction) && double.IsFinite(position.DistanceMeters)
                     && position.DistanceMeters >= 0 && position.DistanceMeters <= edge.LengthMeters, "/world/trains/position");
-                Require(train.Transit is null, "/world/trains/transit");
                 break;
             default: throw new CoreStateFormatException("/world/trains/position");
         }
@@ -380,9 +392,11 @@ internal static class WorldStateValidation
         }
         else Require(train.NextStopIndex is null, "/world/trains/next_stop_index");
         var unfinished = train.Plan is not null && train.NextStopIndex is not null;
-        Require(unfinished || train.Activity == TrainActivity.Stopped && train.RemainingDwellSteps == 0,
+        var finishingStop = train.Plan is not null && train.NextStopIndex is null
+            && train.Activity == TrainActivity.Running && train.StopRequested;
+        Require(unfinished || finishingStop || train.Activity == TrainActivity.Stopped && train.RemainingDwellSteps == 0,
             "/world/trains/activity");
-        Require(!train.StopRequested || train.Position is TrainPosition.Edge && train.Activity == TrainActivity.Running,
+        Require(!train.StopRequested || train.Activity is TrainActivity.Running or TrainActivity.Waiting,
             "/world/trains/stop_requested");
         if (train.RemainingDwellSteps > 0)
             Require(unfinished && train.Position is TrainPosition.Node dwellNode
@@ -392,14 +406,13 @@ internal static class WorldStateValidation
         switch (train.Activity)
         {
             case TrainActivity.Stopped:
-                Require(train.Position is TrainPosition.Node && train.SpeedMetersPerSecond == 0
-                    && train.Transit!.NextEdge is null, "/world/trains/activity");
+                Require(train.Position is TrainPosition.Node && train.SpeedMetersPerSecond == 0, "/world/trains/activity");
                 break;
             case TrainActivity.Running:
-                Require(unfinished && train.RemainingDwellSteps == 0, "/world/trains/activity");
+                Require((unfinished || finishingStop) && train.RemainingDwellSteps == 0, "/world/trains/activity");
                 break;
             case TrainActivity.Servicing:
-                Require(unfinished && train.Position is TrainPosition.Node && train.SpeedMetersPerSecond == 0
+                Require(unfinished && train.Position is TrainPosition.Node { Phase: NodeTravelPhase.Docked } && train.SpeedMetersPerSecond == 0
                     && train.RemainingDwellSteps > 0, "/world/trains/activity");
                 break;
             case TrainActivity.Waiting:
@@ -414,11 +427,102 @@ internal static class WorldStateValidation
         }
     }
 
-    internal static void ValidateQueueSteps(WorldState world, ulong completedSteps)
+    internal static void ValidateBoundary(WorldState world, ulong completedSteps)
     {
+        foreach (var state in world.ResourceRegenerations)
+        {
+            var interval = WorldResources.IntervalSteps(world.Source.Configuration.Resources.Single(e => e.Good == state.Good).RegenerationIntervalSeconds);
+            Require(interval is not { } period
+                ? state.Sequence == 0
+                : state.Sequence <= completedSteps / period,
+                "/world/resource_regenerations");
+        }
         foreach (var train in world.Trains)
             Require(train.QueueEnteredStep is null || train.QueueEnteredStep <= completedSteps,
                 "/world/trains/queue_entered_step");
+        foreach (var settlement in world.Settlements)
+        {
+            Require(settlement.PopulationState.LastSettlement is not { } report || report.Position.CompletedSteps <= completedSteps,
+                "/world/settlements/population_state/last_settlement/position");
+            var previousSettlement = settlement.PopulationState.LastSettlement?.Position.CompletedSteps ?? 0;
+            if (settlement.PopulationState.Period is not { } period) continue;
+            const string field = "/world/settlements/population_state/period";
+            Require(period.LastAdvancedStep >= previousSettlement && period.LastAdvancedStep <= completedSteps,
+                field + "/last_advanced_step");
+            var sinceAnchor = settlement.PopulationState.Available ? completedSteps - period.LastAdvancedStep : 0;
+            Require(sinceAnchor < (ulong)(period.Rule.StatisticsPeriodTicks - period.ElapsedSteps), field + "/elapsed_steps");
+            var elapsed = (ulong)period.ElapsedSteps + sinceAnchor;
+            Require(elapsed > 0 && elapsed <= completedSteps - previousSettlement, field + "/elapsed_steps");
+            if (elapsed < (ulong)period.Rule.ConsumptionIntervalTicks)
+                Require(period.Required.All(r => r == 0) && period.Satisfied.All(s => s == 0), field);
+        }
+    }
+
+    private static void ValidateResources(WorldState world, IReadOnlyDictionary<NodeId, NodeMapItem> nodes)
+    {
+        const string regeneration = "/world/resource_regenerations";
+        Strings(world.ResourceRegenerations, r => r.Good.Value, regeneration);
+        var entries = world.Source.Configuration.Resources.Where(e => !e.Renewable).ToArray();
+        Require(world.ResourceRegenerations.Select(r => r.Good).SequenceEqual(entries.Select(e => e.Good)), regeneration);
+        foreach (var state in world.ResourceRegenerations)
+        {
+            Require(state.InitialQuantity >= 0, regeneration + "/initial_quantity");
+        }
+        const string recovery = "/world/resource_recovery";
+        Items(world.ResourceRecovery, recovery);
+        var keys = world.ResourceRecovery.Select(r => (r.Node.Value, Good: WorldReferences.GoodKey(r.Good))).ToArray();
+        Require(keys.SequenceEqual(keys.Distinct().OrderBy(k => k.Value).ThenBy(k => k.Good, StringComparer.Ordinal)), recovery);
+        foreach (var state in world.ResourceRecovery)
+        {
+            Good(state.Good, recovery + "/good");
+            Require(nodes.TryGetValue(state.Node, out var node) && node.Resources.Any(r => r.Good == state.Good
+                && r.Renewal is ResourceRenewal.Renewable renewable && r.Quantity < renewable.Maximum), recovery);
+            Require(double.IsFinite(state.Remaining) && state.Remaining is > 0 and < 1, recovery + "/remaining");
+        }
+    }
+
+    private static void ValidatePopulation(SettlementState settlement, RuleDefinitionId selectedRule)
+    {
+        const string field = "/world/settlements/population_state";
+        var state = settlement.PopulationState;
+        Require(state is not null, field);
+        Require(double.IsFinite(state.ChangeRemaining) && state.ChangeRemaining is > -1 and < 1
+            && (settlement.Population > 1 || state.ChangeRemaining >= 0), field + "/change_remaining");
+        Items(state.Shortages, field + "/shortages");
+        Require(state.Shortages.Length == 6, field + "/shortages");
+        Strings(state.ConsumptionRemaining, r => WorldReferences.GoodKey(r.Good), field + "/consumption_remaining");
+        foreach (var remainder in state.ConsumptionRemaining)
+        {
+            Good(remainder.Good, field + "/consumption_remaining/good");
+            Require(double.IsFinite(remainder.Units) && remainder.Units is > 0 and <= 1, field + "/consumption_remaining/units");
+        }
+        if (state.Period is { } period)
+        {
+            try { WorldInputs.ValidatePopulationRule(period.Rule); }
+            catch (ArgumentException) { throw new CoreStateFormatException(field + "/period/rule"); }
+            Require(period.Rule.Id == selectedRule, field + "/period/rule/id");
+            Require(period.ElapsedSteps >= 0 && period.ElapsedSteps < period.Rule.StatisticsPeriodTicks,
+                field + "/period/elapsed_steps");
+            Items(period.Required, field + "/period/required"); Items(period.Satisfied, field + "/period/satisfied");
+            Require(period.Required.Length == 6 && period.Satisfied.Length == 6, field + "/period");
+            for (var i = 0; i < 6; i++)
+            {
+                Require(double.IsFinite(period.Required[i]) && period.Required[i] >= 0,
+                    field + "/period/required");
+                Require(double.IsFinite(period.Satisfied[i]) && period.Satisfied[i] >= 0 && period.Satisfied[i] <= period.Required[i],
+                    field + "/period/satisfied");
+            }
+        }
+        if (state.LastSettlement is { } report)
+        {
+            Require(report.Before >= 1 && report.After == settlement.Population && report.Change == report.After - report.Before,
+                field + "/last_settlement");
+            Require(report.Position.CompletedSteps > 0 && report.Position.Sequence == 0 && WorldFormat.IsHash(report.ExecutionRevision.Value),
+                field + "/last_settlement/position");
+            Require(double.IsFinite(report.BasicSatisfaction) && report.BasicSatisfaction is >= 0 and <= 1
+                && double.IsFinite(report.ImprovementSatisfaction) && report.ImprovementSatisfaction is >= 0 and <= 1
+                && Enum.IsDefined(report.Reason), field + "/last_settlement");
+        }
     }
 
     private static void Terrain(TerrainView terrain, string field)

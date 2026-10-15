@@ -63,6 +63,8 @@ internal static class WorldContentPublication
         var references = Create(adapted, content).Definitions;
         foreach (var reference in references)
         {
+            // Retired consumption remains physical state; only current or executing goods must still exist.
+            if (reference.Field.EndsWith(".PopulationState.ConsumptionRemaining", StringComparison.Ordinal)) continue;
             if (reference.WasMissing
                 ? !alreadyMissing.Contains((reference.Definition, reference.Field))
                 : !Exists(reference, content))
@@ -88,7 +90,7 @@ internal static class WorldContentPublication
         {
             Nodes = adapted.Nodes.Select(n => platforms.TryGetValue(n.Id, out var count) ? n with { Platforms = count } : n).ToImmutableArray()
         };
-        return new CommandEffect.Accepted(content, [], adapted);
+        return new CommandEffect.Accepted(content, [], Railway.TrainOperations.AdaptNodes(adapted, content));
 
         void Problem(string code, string field, string identity) => problems.Add(new(code, field, Subject(field), [identity]));
     }

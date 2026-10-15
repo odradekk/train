@@ -15,7 +15,8 @@ internal static class InventoryFixture
 
     internal static CoreContentProjection Content(ulong duration = 3, long rate = 5, long localStock = 0) => WorldFixture.Content with
     {
-        Goods = Goods.Where(g => g is not GoodId.Assembly).Select(g => WorldFixture.Content.Goods[0] with { Good = g }).ToImmutableArray(),
+        Goods = WorldFixture.Content.Goods.AddRange(Goods.Where(g => g is not GoodId.Assembly && g != Voxel)
+            .Select(g => WorldFixture.Content.Goods[0] with { Good = g })),
         DesignGoods = Goods.Where(g => g is GoodId.Assembly).Select(g => WorldFixture.Content.Goods[0] with { Good = g }).ToImmutableArray(),
         Designs = WorldFixture.Content.Designs.Select(d => d.Design == WorldFixture.Station ? d with
         {
@@ -33,7 +34,20 @@ internal static class InventoryFixture
         { Trains = Enumerable.Range(0, trains).Select(_ => new StartingTrainProjection([WorldFixture.Vehicle],
             Goods.Select(g => new GoodsQuantity(g, 10)).ToImmutableArray())).ToImmutableArray() } };
         using var candidate = WorldFixture.Prepare(input, content ?? Content());
-        return (CoreSession)candidate.Activate();
+        using var generated = (CoreSession)candidate.Activate();
+        var state = generated.State;
+        var rule = state.Content.RailwayRules.Single(r => r.Id == state.World.Source.Configuration.Rules.Railway);
+        return new(state with { World = state.World with
+        {
+            Trains = state.World.Trains.Select(train =>
+            {
+                var position = (TrainPosition.Node)train.Position;
+                var template = state.World.Settlements.Single(settlement => settlement.Node == position.Id).Template;
+                return train with { Position = position with
+                    { Phase = NodeTravelPhase.Docked, DistanceMeters = rule.ApproachLengthMeters + template.PlatformLengthMeters / 2 },
+                    SpeedMetersPerSecond = 0 };
+            }).ToImmutableArray()
+        } });
     }
 
     internal static SubmissionResult.Completed Submit(ICoreSession session, CoreCommand command)

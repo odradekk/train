@@ -55,7 +55,12 @@ internal static class Isolation
                         CopyConfiguration(parent.FullName);
                 }
                 CopyConfiguration(root);
-                if (test == "Train.Content.Tests") CopyDirectory(Path.Combine(root, "builtin", "core"));
+                if (test == "Train.Content.Tests")
+                {
+                    CopyDirectory(Path.Combine(root, "builtin", "core"));
+                    CopyDirectory(Path.Combine(root, "docs", "content", "examples", "example-pack"));
+                    CopyDirectory(Path.Combine(root, "docs", "content", "examples", "example-addon"));
+                }
                 if (test == "Train.Godot.Tests")
                 {
                     var projectPath = Path.Combine(isolated, "Train.csproj");

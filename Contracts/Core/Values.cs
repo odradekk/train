@@ -89,10 +89,13 @@ public abstract record WorldLocation
 public abstract record TrainPosition
 {
     private TrainPosition() { }
-    public sealed record Node(NodeId Id) : TrainPosition;
+    public sealed record Node(NodeId Id, EdgeId? EnteredFrom, EdgeId? NextEdge,
+        NodeTravelPhase Phase, double DistanceMeters, int? PlatformNumber) : TrainPosition;
     public sealed record Edge(EdgeId Id, int Track, TravelDirection Direction,
         double DistanceMeters) : TrainPosition;
 }
+
+public enum NodeTravelPhase { Approaching, Waiting, Docked, Departing }
 
 public sealed record CoreProblem(string Code, string Field, WorldObjectId? Subject,
     ImmutableArray<string> RelatedIdentities);

@@ -258,7 +258,7 @@ public sealed class DeveloperToolsTests
         CoreFault? fault = null, bool missing = false)
     {
         var node = new NodeView(new(new(7), new(1, 2), new(new("fixture:terrain"), 0, []),
-            new NodeOccupant.Empty(), [], 0, 1, null), []);
+            new NodeOccupant.Empty(), [], 0, 1, null), [], 80, 0, 80);
         return new(new(step, 0), input ?? HostCoreScenario.Input, fault)
         {
             World = new(seed, new("fixture:railway"), 100, 100, [], [], [], [], []),

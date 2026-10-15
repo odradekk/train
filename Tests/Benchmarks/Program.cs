@@ -1,12 +1,18 @@
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Jobs;
+using BenchmarkDotNet.Loggers;
 using BenchmarkDotNet.Running;
+using BenchmarkDotNet.Toolchains;
+using BenchmarkDotNet.Toolchains.CsProj;
 using Train.Benchmarks;
+using Train.Core.Tests.Railway;
 
-if (args.Length != 2 || args[0] != "--artifacts")
+var dryRun = args.Length == 4 && args[2] == "--job" && args[3] == "Dry";
+if ((args.Length != 2 && !dryRun) || args[0] != "--artifacts")
 {
-    Console.Error.WriteLine("Usage: dotnet run -c Release --project Tests/Benchmarks/Train.Benchmarks.csproj -- --artifacts <directory>");
+    Console.Error.WriteLine("Usage (from Tests/Benchmarks): dotnet run -c Release --no-build -- --artifacts <directory> [--job Dry]");
     return 1;
 }
 
@@ -17,9 +23,12 @@ try
     var resultPath = Path.Combine(artifacts, "throughput.json");
     // A failed rerun must not leave the preceding successful measurement available to the gate.
     File.Delete(resultPath);
+    var job = dryRun ? Job.Dry : Job.Default.WithWarmupCount(3).WithIterationCount(15);
+    var toolchain = CsProjCoreToolchain.NetCoreApp10_0;
     var config = ManualConfig.Create(DefaultConfig.Instance)
         .WithArtifactsPath(artifacts)
-        .AddJob(Job.Default.WithLaunchCount(1).WithWarmupCount(3).WithIterationCount(15)
+        .AddJob(job.WithToolchain(new Toolchain(toolchain.Name, new BenchmarkProjectGenerator(), toolchain.Builder, toolchain.Executor))
+            .WithLaunchCount(1)
             .WithInvocationCount(1).WithUnrollFactor(1));
     var summary = BenchmarkRunner.Run<TrainLoopBenchmark>(config);
     var report = summary.Reports.SingleOrDefault();
@@ -32,12 +41,25 @@ try
 
     var result = new
     {
-        workload = "core-train-loop-v1",
+        workload = "core-train-loop-v2",
+        dryRun,
         measuredAtUtc = DateTimeOffset.UtcNow,
         trainCount = TrainLoopBenchmark.TrainCount,
+        seed = TrainLoopBenchmark.Seed,
+        generatorVersion = TrainLoopBenchmark.GeneratorVersion,
         stepsPerBatch = TrainLoopBenchmark.StepsPerBatch,
+        approachLengthMeters = TrainLoopBenchmark.ApproachLengthMeters,
+        platformLengthMeters = TrainLoopBenchmark.PlatformLengthMeters,
+        departureLengthMeters = TrainLoopBenchmark.DepartureLengthMeters,
+        nodeSpeedLimitMetersPerSecond = TrainLoopBenchmark.NodeSpeedLimitMetersPerSecond,
+        brakingDecelerationMetersPerSecondSquared = TrainLoopBenchmark.BrakingDeceleration,
+        worldWidthMeters = TrainLoopBenchmark.WorldWidthMeters,
+        worldHeightMeters = TrainLoopBenchmark.WorldHeightMeters,
+        populationConsumptionIntervalTicks = TrainRecoveryFixture.ConsumptionIntervalTicks,
+        populationStatisticsPeriodTicks = TrainRecoveryFixture.StatisticsPeriodTicks,
         meanNanosecondsPerStep = statistics.Mean,
-        standardDeviationNanosecondsPerStep = statistics.StandardDeviation,
+        standardDeviationNanosecondsPerStep = double.IsFinite(statistics.StandardDeviation)
+            ? (double?)statistics.StandardDeviation : null,
         sampleCount = statistics.N,
         stepsPerSecond = 1_000_000_000 / statistics.Mean
     };
@@ -48,4 +70,15 @@ catch (Exception error)
 {
     Console.Error.WriteLine(error);
     return 1;
+}
+
+// BDN's default solution-wide search includes retained isolation evidence with the same project name.
+sealed class BenchmarkProjectGenerator([CallerFilePath] string sourcePath = "") : CsProjGenerator("net10.0", null!, null!, null!)
+{
+    protected override FileInfo GetProjectFilePath(Type benchmarkTarget, ILogger logger)
+    {
+        var project = new FileInfo(Path.Combine(Path.GetDirectoryName(sourcePath)!, "Train.Benchmarks.csproj"));
+        logger.WriteLineInfo($"Benchmark project (explicit, no recursive search): {project.FullName}");
+        return project;
+    }
 }

@@ -155,7 +155,8 @@ public sealed record ConstructionRuleProjection(RuleDefinitionId Id, SemanticRev
 public sealed record RailwayRuleProjection(RuleDefinitionId Id, SemanticRevision Revision,
     double BrakingDeceleration, double MinimumAcceleration, double MinimumGapMeters,
     VoxelDefinitionId RailGood, double RailUnitsPerMeter, double BuildSecondsPerMeter,
-    long RepairRailUnitsPerBreak, double RepairSecondsPerBreak);
+    long RepairRailUnitsPerBreak, double RepairSecondsPerBreak,
+    double ApproachLengthMeters, double DepartureLengthMeters, double NodeSpeedLimitMetersPerSecond);
 public sealed record CombatRuleProjection(RuleDefinitionId Id, SemanticRevision Revision,
     double RetreatSeconds, double MoraleDamageCoefficient, double WeaponDestroyedMoraleLoss,
     double MoraleRecoveryPerSecond, double SurrenderThreshold, double NewLairIntervalSeconds);
@@ -171,7 +172,7 @@ public sealed record SettlementTemplateProjection(SettlementTemplateId Id,
     SettlementTypeId Type, int Weight, ImmutableArray<TemplatePlotProjection> Plots,
     ImmutableArray<FoundingBuildingProjection> FoundingBuildings,
     ImmutableArray<GoodsQuantity> SpecialInitialInventory,
-    ImmutableArray<TemplateProductionPlan> ProductionPlans);
+    ImmutableArray<TemplateProductionPlan> ProductionPlans, double PlatformLengthMeters);
 
 public sealed record CreatureProjection(CreatureDefinitionId Id, SemanticRevision Revision,
     long HitPoints, double SpeedMetersPerSecond, double RetreatLossRatio,

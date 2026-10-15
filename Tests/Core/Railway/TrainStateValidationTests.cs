@@ -20,13 +20,13 @@ public sealed class TrainStateValidationTests
         var train = world.Trains[0] with
         {
             Position = new TrainPosition.Edge(edge.Id, 1, TravelDirection.Forward, edge.LengthMeters / 2),
-            Transit = null, Activity = TrainActivity.Running, SpeedMetersPerSecond = 2, StopRequested = true
+            Activity = TrainActivity.Running, SpeedMetersPerSecond = 2, StopRequested = true
         };
         RoundTrip(state with { World = world with { Trains = [train] } });
         var station = world.Settlements[0];
         train = train with
         {
-            Position = new TrainPosition.Node(station.Node), Transit = new(null, null),
+            Position = WorldFixture.Node(station.Node, NodeTravelPhase.Docked, WorldFixture.ApproachLength + WorldFixture.PlatformLength / 2, platform: 1),
             Activity = TrainActivity.Stopped, SpeedMetersPerSecond = 0, StopRequested = false,
             Plan = new(false, [new PlanStop.Station(station.Node, 10, [])]), RemainingDwellSteps = 5
         };
@@ -58,7 +58,7 @@ public sealed class TrainStateValidationTests
         else target = world.Nodes.First(node => node.Occupant is NodeOccupant.Empty).Id;
         var train = world.Trains[0] with
         {
-            Position = new TrainPosition.Node(target), Transit = new(null, null),
+            Position = WorldFixture.Node(target, NodeTravelPhase.Docked, WorldFixture.ApproachLength + (hostile ? WorldFixture.PlatformLength / 2 : 0)),
             Plan = new(false, [new PlanStop.Station(target, 10, [])]),
             Activity = TrainActivity.Servicing, RemainingDwellSteps = 5
         };
@@ -70,7 +70,7 @@ public sealed class TrainStateValidationTests
     [DataRow("invalid_track", "/world/trains/position")]
     [DataRow("invalid_distance", "/world/trains/position")]
     [DataRow("invalid_direction", "/world/trains/position")]
-    [DataRow("edge_transit", "/world/trains/transit")]
+    [DataRow("invalid_node_phase", "/world/trains/position/phase")]
     [DataRow("unsupported_activity", "/world/trains/activity")]
     [DataRow("stopped_on_edge", "/world/trains/activity")]
     [DataRow("missing_plan", "/world/trains/activity")]
@@ -86,12 +86,12 @@ public sealed class TrainStateValidationTests
         var original = state.World.Trains[0] with
         {
             Position = new TrainPosition.Edge(edge.Id, 1, TravelDirection.Forward, edge.LengthMeters / 2),
-            Transit = null, Activity = TrainActivity.Running, SpeedMetersPerSecond = 2
+            Activity = TrainActivity.Running, SpeedMetersPerSecond = 2
         };
         if (corruption == "invalid_dwell")
             original = original with
             {
-                Position = new TrainPosition.Node(state.World.Settlements[0].Node), Transit = new(null, null),
+                Position = WorldFixture.Node(state.World.Settlements[0].Node, NodeTravelPhase.Docked, WorldFixture.ApproachLength + WorldFixture.PlatformLength / 2, platform: 1),
                 Activity = TrainActivity.Stopped, SpeedMetersPerSecond = 0,
                 Plan = new(false, [new PlanStop.Station(state.World.Settlements[0].Node, 10, [])]),
                 RemainingDwellSteps = 10
@@ -105,7 +105,7 @@ public sealed class TrainStateValidationTests
             case "invalid_track": train["position"]!["track"] = 0; break;
             case "invalid_distance": train["position"]!["distance_meters"] = edge.LengthMeters + 1; break;
             case "invalid_direction": train["position"]!["direction"] = 99; break;
-            case "edge_transit": train["transit"] = JsonNode.Parse("{\"entered_from\":null,\"next_edge\":null}"); break;
+            case "invalid_node_phase": train["position"] = JsonNode.Parse("{\"$kind\":\"node\",\"id\":{\"value\":1},\"entered_from\":null,\"next_edge\":null,\"phase\":99,\"distance_meters\":0,\"platform_number\":null}"); break;
             case "unsupported_activity": train["activity"] = (int)TrainActivity.Combat; break;
             case "stopped_on_edge": train["activity"] = (int)TrainActivity.Stopped; train["speed_meters_per_second"] = 0; break;
             case "missing_plan": train["plan"] = null; train["next_stop_index"] = null; break;
@@ -152,6 +152,33 @@ public sealed class TrainStateValidationTests
         var duplicate = CoreFactory.Create().DecodeState(root.ToJsonString());
         Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Failure>(duplicate);
         Assert.AreEqual("/world/settlements/parked_vehicles", ((CoreResult<ICoreCapture>.Failure)duplicate).Problems.Single().Field);
+    }
+
+    [TestMethod]
+    [DataRow(true, false, TrainActivity.Running)]
+    [DataRow(false, true, TrainActivity.Running)]
+    [DataRow(true, true, TrainActivity.Waiting)]
+    [DataRow(true, true, TrainActivity.Servicing)]
+    [DataRow(true, true, TrainActivity.NoRoute)]
+    public void Completed_plan_requires_stopped_activity_unless_running_with_a_pending_stop(
+        bool hasPlan, bool stopRequested, TrainActivity activity)
+    {
+        var state = StateWithPlan();
+        var edge = state.World.Edges[0];
+        var train = state.World.Trains[0] with
+        {
+            Position = activity == TrainActivity.Running
+                ? new TrainPosition.Edge(edge.Id, 1, TravelDirection.Forward, edge.LengthMeters / 2)
+                : WorldFixture.Node(edge.Start, NodeTravelPhase.Departing, nextEdge: edge.Id),
+            Activity = activity, SpeedMetersPerSecond = activity == TrainActivity.Running ? 2 : 0,
+            Plan = hasPlan ? state.World.Trains[0].Plan : null, NextStopIndex = null, StopRequested = stopRequested
+        };
+        var capture = new CoreCapture(state with { World = state.World with { Trains = [train] } });
+        var result = CoreFactory.Create().DecodeState(capture.Encode());
+        Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Failure>(result);
+        var problem = ((CoreResult<ICoreCapture>.Failure)result).Problems.Single();
+        Assert.AreEqual("invalid_state", problem.Code);
+        Assert.AreEqual("/world/trains/activity", problem.Field);
     }
 
     private static CoreState StateWithPlan(bool emptyNodes = false)

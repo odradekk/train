@@ -38,6 +38,16 @@ internal static class TrainDispatchFixture
         return result;
     }
 
+    internal static void Until(ICoreSession session, Func<bool> condition)
+    {
+        for (var step = 0; step < 1000; step++)
+        {
+            if (condition()) return;
+            Step(session);
+        }
+        Assert.Fail("未在限定步数内到达铁路测试边界。");
+    }
+
     internal static void Step(ICoreSession session)
     {
         var result = session.Advance(1);

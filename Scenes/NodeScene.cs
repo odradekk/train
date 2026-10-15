@@ -348,8 +348,6 @@ internal sealed class NodeScene : IAsyncDisposable
         var trains = snapshot.Core.World.Trains.Where(item => item.Position is TrainPosition.Node position && position.Id == Node)
             .Select(item => snapshot.Core.FindTrain(item.Id)).OfType<Lookup<TrainView>.Found>()
             .Select(item => item.Value).OrderBy(train => train.Id.Value).ToArray();
-        var serving = (map.Occupant is NodeOccupant.Settlement { Relation: not SettlementRelation.Hostile }
-            ? trains.Where(train => train.Activity == TrainActivity.Servicing).Take(layout!.Platforms) : []).Select(train => train.Id).ToArray();
         var queues = new Dictionary<EdgeId, double>();
         foreach (var train in trains)
         {
@@ -358,8 +356,8 @@ internal sealed class NodeScene : IAsyncDisposable
             var lengths = evaluations.Select(value => RailwayVehicles.Length((value as ContentLookup<DesignEvaluation>.Found)?.Value)).ToArray();
             var known = lengths.All(length => length is > 0);
             var total = known ? lengths.Sum(length => length!.Value) : 0;
-            var station = Array.IndexOf(serving, train.Id);
-            var entry = train.NodeTransit?.EnteredFrom is { } entered ? layout!.Entries.FirstOrDefault(item => item.Edge == entered) :
+            var station = ((TrainPosition.Node)train.Position).PlatformNumber is { } number ? number - 1 : -1;
+            var entry = (train.Position as TrainPosition.Node)?.EnteredFrom is { } entered ? layout!.Entries.FirstOrDefault(item => item.Edge == entered) :
                 layout!.Entries.FirstOrDefault(item => openingTracks.GetValueOrDefault(item.Edge) > 0);
             var positive = train.OrderFacing == TrainOrderFacing.FirstEndLeading;
             Func<double, RailwaySample> sample;

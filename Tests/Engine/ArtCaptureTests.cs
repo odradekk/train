@@ -172,8 +172,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
             new(new("fixture:terrain"), 0, []), 1, 1, [], []);
         var train = new TrainView(new(1), new TrainPosition.Edge(new(trainEdge), 1, TravelDirection.Forward, 10),
             TrainActivity.Running, [new(1)], new(1), 0, 6, 1, 1, 1, 10, null, null, 0,
-            new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0), [], null, [], null,
-            TrainOrderFacing.FirstEndLeading);
+            new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0), [], null, [], TrainOrderFacing.FirstEndLeading);
         return new(new(0, 0), HostCoreScenario.Input)
         {
             Edges = new Dictionary<EdgeId, Lookup<EdgeView>>

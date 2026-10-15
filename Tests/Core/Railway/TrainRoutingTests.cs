@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
 using Train.Core.Railway;
+using Train.Core.Tests.World;
 
 namespace Train.Core.Tests.Railway;
 
@@ -21,8 +22,6 @@ public sealed class TrainRoutingTests
         AssertRoute(TrainRouting.FindRoute(nodes, edges, new(2), new(2), 2), 0);
         var blockedEdges = edges.SetItem(1, edges[1] with { Tracks = 0 });
         AssertRoute(TrainRouting.FindRoute(nodes, blockedEdges, new(1), new(3), 2), 12, 10);
-        Assert.AreEqual(7.0, TrainRouting.PredictStopDistance(nodes, edges, new(1),
-            new(false, [Station(3)]), 0, 2));
     }
 
     [TestMethod]
@@ -118,12 +117,12 @@ public sealed class TrainRoutingTests
         ImmutableArray<EdgeMapItem> edges = [Edge(1, 1, 2, 2), Edge(2, 2, 3, 3), Edge(3, 3, 4, 4)];
         var plan = new RunPlan(false, [Waypoint(2), Waypoint(3), Station(4)]);
 
-        Assert.AreEqual(9.0, TrainRouting.PredictStopDistance(nodes, edges, new(1), plan, 0, 2));
-        Assert.AreEqual(7.0, TrainRouting.PredictStopDistance(nodes, edges, new(2), plan, 1, 2));
-        Assert.AreEqual(9.0, TrainRouting.PredictStopDistance(nodes, edges, new(1),
-            new(false, [Waypoint(2), Waypoint(3), Waypoint(4)]), 0, 2));
-        Assert.AreEqual(2.0, TrainRouting.PredictStopDistance(nodes, edges, new(1),
-            new(true, [Station(2), Waypoint(4)]), 0, 2));
+        Assert.AreEqual(19.0, Predict(nodes, edges, new(1), plan, 0));
+        Assert.AreEqual(14.0, Predict(nodes, edges, new(2), plan, 1));
+        Assert.AreEqual(19.0, Predict(nodes, edges, new(1),
+            new(false, [Waypoint(2), Waypoint(3), Waypoint(4)]), 0));
+        Assert.AreEqual(6.0, Predict(nodes, edges, new(1),
+            new(true, [Station(2), Waypoint(4)]), 0));
     }
 
     [TestMethod]
@@ -132,24 +131,23 @@ public sealed class TrainRoutingTests
         ImmutableArray<NodeMapItem> nodes = [Node(1), Node(2), Node(3)];
         ImmutableArray<EdgeMapItem> edges = [Edge(1, 1, 2, 2), Edge(2, 2, 3, 3)];
 
-        Assert.AreEqual(3.0, TrainRouting.PredictStopDistance(nodes, edges, new(3),
-            new(true, [Station(2), Waypoint(3)]), 1, 2));
-        Assert.AreEqual(5.0, TrainRouting.PredictStopDistance(nodes, edges, new(1),
-            new(false, [Waypoint(1), Waypoint(2), Waypoint(2), Station(3)]), 0, 2));
-        Assert.AreEqual(0.0, TrainRouting.PredictStopDistance(nodes, edges, new(1),
-            new(false, [Station(1)]), 0, 2));
+        Assert.AreEqual(7.0, Predict(nodes, edges, new(3),
+            new(true, [Station(2), Waypoint(3)]), 1));
+        Assert.AreEqual(12.0, Predict(nodes, edges, new(1),
+            new(false, [Waypoint(1), Waypoint(2), Waypoint(2), Station(3)]), 0));
+        Assert.AreEqual(1.0, Predict(nodes, edges, new(1), new(false, [Station(1)]), 0));
     }
 
     [TestMethod]
-    public void Reachable_waypoint_only_loop_has_no_required_stop()
+    public void Waypoint_only_loop_stops_at_reversal_but_not_on_a_cycle()
     {
         ImmutableArray<NodeMapItem> nodes = [Node(1), Node(2), Node(3)];
         ImmutableArray<EdgeMapItem> edges = [Edge(1, 1, 2, 2), Edge(2, 2, 3, 3)];
 
-        Assert.IsNull(TrainRouting.PredictStopDistance(nodes, edges, new(1),
-            new(true, [Waypoint(2), Waypoint(3)]), 0, 2));
-        Assert.IsNull(TrainRouting.PredictStopDistance(nodes, edges, new(3),
-            new(true, [Waypoint(2), Waypoint(3)]), 1, 2));
+        Assert.AreEqual(12.0, Predict(nodes, edges, new(1), new(true, [Waypoint(2), Waypoint(3)]), 0));
+        Assert.AreEqual(7.0, Predict(nodes, edges, new(3), new(true, [Waypoint(2), Waypoint(3)]), 1));
+        Assert.IsNull(Predict(nodes, edges.Add(Edge(3, 3, 1, 4)), new(1),
+            new(true, [Waypoint(2), Waypoint(3), Waypoint(1)]), 0));
     }
 
     [TestMethod]
@@ -158,28 +156,20 @@ public sealed class TrainRoutingTests
         ImmutableArray<NodeMapItem> nodes = [Node(1), Node(2), Node(3)];
         ImmutableArray<EdgeMapItem> edges = [Edge(1, 1, 2, 2)];
 
-        Assert.AreEqual(2.0, TrainRouting.PredictStopDistance(nodes, edges, new(1),
-            new(false, [Waypoint(2), Station(3)]), 0, 2));
-        Assert.AreEqual(2.0, TrainRouting.PredictStopDistance(nodes, edges, new(1),
-            new(true, [Waypoint(2), Waypoint(3)]), 0, 2));
-        Assert.AreEqual(0.0, TrainRouting.PredictStopDistance(nodes, edges, new(1),
-            new(false, [Station(3)]), 0, 2));
+        Assert.AreEqual(6.0, Predict(nodes, edges, new(1), new(false, [Waypoint(2), Station(3)]), 0));
+        Assert.AreEqual(6.0, Predict(nodes, edges, new(1), new(true, [Waypoint(2), Waypoint(3)]), 0));
+        Assert.AreEqual(1.0, Predict(nodes, edges, new(1), new(false, [Station(3)]), 0));
     }
 
-    [TestMethod]
-    public void Prediction_checks_the_closing_leg_of_a_waypoint_loop()
+    private static double? Predict(ImmutableArray<NodeMapItem> nodes, ImmutableArray<EdgeMapItem> edges,
+        NodeId start, RunPlan plan, int index)
     {
-        ImmutableArray<NodeMapItem> nodes =
-            [Node(1), Node(2, new NodeOccupant.Settlement(new(1), SettlementRelation.Hostile)), Node(3)];
-        ImmutableArray<EdgeMapItem> edges = [Edge(1, 1, 2, 1), Edge(2, 2, 3, 1)];
-
-        Assert.AreEqual(2.0, TrainRouting.PredictStopDistance(nodes, edges, new(1),
-            new(true, [Waypoint(1), Waypoint(2), Waypoint(3)]), 0, 2));
-
-        nodes = [Node(1), Node(2), Node(3, new NodeOccupant.Settlement(new(1), SettlementRelation.Hostile)), Node(4)];
-        edges = [Edge(1, 1, 2, 2), Edge(2, 2, 3, 0.1), Edge(3, 3, 4, 0.1)];
-        Assert.AreEqual(2.2, TrainRouting.PredictStopDistance(nodes, edges, new(1),
-            new(true, [Waypoint(2), Waypoint(3), Waypoint(4)]), 0, 2));
+        var state = WorldFixture.State();
+        var content = state.Content with { RailwayRules = [state.Content.RailwayRules[0] with
+            { ApproachLengthMeters = 1, DepartureLengthMeters = 2 }] };
+        var train = state.World.Trains[0] with { Position = WorldFixture.Node(start), Plan = plan, NextStopIndex = index };
+        var world = state.World with { Nodes = nodes, Edges = edges, Settlements = [], Trains = [train] };
+        return TrainOperations.PredictStopDistance(world, content, train, start, null, new TrainDispatch(world, content), 0);
     }
 
     private static NodeMapItem Node(ulong id, NodeOccupant? occupant = null) =>
