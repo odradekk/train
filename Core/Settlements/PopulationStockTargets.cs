@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Numerics;
 using Train.Core.Contracts;
 using Train.Core.World;
 
@@ -47,24 +48,25 @@ internal static class PopulationStockTargets
         }
 
         var integerTargets = targets.OrderBy(t => WorldReferences.GoodKey(t.Key), StringComparer.Ordinal)
-            .Select(t => new GoodsQuantity(t.Key, checked((long)Math.Ceiling(t.Value)))).Where(t => t.Quantity > 0).ToArray();
-        UInt128 total = 0;
-        foreach (var target in integerTargets) total = checked(total + (UInt128)target.Quantity);
-        if (total <= (UInt128)capacityBudget) return integerTargets.ToImmutableArray();
+            .Select(t => (Good: t.Key, Quantity: new BigInteger(Math.Ceiling(t.Value)))).Where(t => t.Quantity > 0).ToArray();
+        BigInteger total = 0;
+        foreach (var target in integerTargets) total += target.Quantity;
+        if (total <= capacityBudget)
+            return integerTargets.Select(t => new GoodsQuantity(t.Good, (long)t.Quantity)).ToImmutableArray();
 
         var scaled = new long[integerTargets.Length];
-        var fractions = new UInt128[integerTargets.Length];
+        var fractions = new BigInteger[integerTargets.Length];
         long allocated = 0;
         for (var i = 0; i < integerTargets.Length; i++)
         {
-            var numerator = checked((UInt128)integerTargets[i].Quantity * (UInt128)capacityBudget);
+            var numerator = integerTargets[i].Quantity * capacityBudget;
             scaled[i] = checked((long)(numerator / total));
             fractions[i] = numerator % total;
             allocated = checked(allocated + scaled[i]);
         }
         foreach (var index in Enumerable.Range(0, scaled.Length).OrderByDescending(i => fractions[i])
             .ThenBy(i => i).Take(checked((int)(capacityBudget - allocated)))) scaled[index]++;
-        return integerTargets.Select((t, i) => t with { Quantity = scaled[i] }).Where(t => t.Quantity > 0).ToImmutableArray();
+        return integerTargets.Select((t, i) => new GoodsQuantity(t.Good, scaled[i])).Where(t => t.Quantity > 0).ToImmutableArray();
 
         double Required(PopulationNeed need, double hours) => rule.Needs.Single(n => n.Need == need)
             .AmountPerPersonSecond * residents * (hours * 3600);

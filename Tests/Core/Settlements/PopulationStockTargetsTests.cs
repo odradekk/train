@@ -86,6 +86,12 @@ public sealed class PopulationStockTargetsTests
         AssertTargets(result, new(Staple, 500_000_000_000_001), new(Clothing, 500_000_000_000_000));
     }
 
+    [TestMethod]
+    public void Targets_larger_than_long_are_compressed_before_converting_to_inventory_quantities()
+    {
+        AssertTargets(Calculate(Rule(1e24, 1e24), 10), new(Staple, 5), new(Clothing, 5));
+    }
+
     private static ImmutableArray<GoodsQuantity> Calculate(PopulationRuleProjection? rule, long capacity,
         ImmutableArray<GoodsQuantity> inventory = default,
         ImmutableArray<PopulationConsumptionRemainder> remainders = default,
