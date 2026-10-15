@@ -2,6 +2,7 @@ using Train.Core.Contracts;
 using Train.Core.World;
 using Train.Core.Railway;
 using Train.Core.Inventory;
+using Train.Core.Production;
 
 namespace Train.Core.Sessions;
 
@@ -56,7 +57,7 @@ internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Re
         var lease = State.Leases.FirstOrDefault(l => l.Id == id);
         return Lookup(lease is null ? null : InventoryLeases.Read(lease, Position.CompletedSteps));
     }
-    public Lookup<FacilityView> FindFacility(FacilityKey key) => throw new NotImplementedException("FindFacility 尚未实现。");
+    public Lookup<FacilityView> FindFacility(FacilityKey key) => Lookup(ProductionQueries.Find(State, Content, key));
     public Lookup<JobView> FindJob(JobId id) => throw new NotImplementedException("FindJob 尚未实现。");
     public Lookup<CombatView> FindCombat(CombatId id) => throw new NotImplementedException("FindCombat 尚未实现。");
     public Lookup<CreatureGroupView> FindCreatureGroup(CreatureGroupId id)

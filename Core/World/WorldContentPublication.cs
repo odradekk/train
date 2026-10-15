@@ -62,10 +62,20 @@ internal static class WorldContentPublication
         var alreadyMissing = oldReferences.Where(d => d.WasMissing).Select(d => (d.Definition, d.Field)).ToHashSet();
         var references = Create(adapted, content).Definitions;
         foreach (var reference in references)
+        {
             if (reference.WasMissing
                 ? !alreadyMissing.Contains((reference.Definition, reference.Field))
                 : !Exists(reference, content))
                 Problem("content_missing", reference.Field, DefinitionKey(reference.Definition));
+            if (reference.Definition is CoreDefinitionReference.Process process)
+            {
+                var old = before.Processes.SingleOrDefault(p => Matches(p.Details, process.Id));
+                var current = content.Processes.SingleOrDefault(p => Matches(p.Details, process.Id));
+                if (old is not null && current is not null
+                    && (old.Details is ProcessDetails.Extraction) != (current.Details is ProcessDetails.Extraction))
+                    Problem("content_missing", reference.Field, DefinitionKey(reference.Definition));
+            }
+        }
 
         if (problems.Count != 0)
             return new CommandEffect.Rejected(problems.OrderBy(p => p.Field, StringComparer.Ordinal)

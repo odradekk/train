@@ -39,7 +39,7 @@ internal sealed class CoreCapture : ICoreCapture
     public string Encode() => Format(writer =>
     {
         writer.WriteStartObject();
-        writer.WriteNumber("core_state_format_version", 6);
+        writer.WriteNumber("core_state_format_version", 7);
         writer.WritePropertyName("position");
         WritePosition(writer, Position);
         writer.WriteNumber("next_command_number", NextCommandNumber);
@@ -64,7 +64,7 @@ internal sealed class CoreCapture : ICoreCapture
             if (root.ValueKind != JsonValueKind.Object)
                 return new CoreResult<ICoreCapture>.Failure([new("unsupported_format", "", null, [])]);
             if (!root.TryGetProperty("core_state_format_version", out var version)
-                || version.ValueKind != JsonValueKind.Number || !version.TryGetUInt64(out var numberVersion) || numberVersion != 6)
+                || version.ValueKind != JsonValueKind.Number || !version.TryGetUInt64(out var numberVersion) || numberVersion != 7)
                 return new CoreResult<ICoreCapture>.Failure([new("unsupported_format", "/core_state_format_version", null, [])]);
             Object(root, "", "core_state_format_version", "position", "next_command_number",
                 "revision", "input_identity", "fault", "world", "references");
