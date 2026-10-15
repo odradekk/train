@@ -18,14 +18,14 @@
 
 ## 启动服务
 
-MCP 服务运行在 Godot 编辑器里，客户端只负责连接。任务编辑器由协调者启动，worker 不自行启动或重启；先启动编辑器，再启动或重连客户端会话。协调者在工作树中从正常环境启动独立 PowerShell 子进程，给每个工作树指定端口和独立日志目录。下面的片段不依赖仓库外脚本；执行前将 `<run>` 替换为本次运行名称，并按派工设置端口：
+MCP 服务运行在 Godot 编辑器里，客户端只负责连接。任务编辑器由协调者启动，worker 不自行启动或重启；先启动编辑器，再启动或重连客户端会话。协调者在工作树中从正常环境启动独立 PowerShell 子进程，给每个工作树指定端口和独立日志目录。日志目录必须放在工作树外，因为完整入口的工作区快照会把树内新增或轮换的编辑器／游戏文件记为变化。下面的片段不依赖仓库外脚本；执行前将 `<run>` 替换为本次运行名称，并按派工设置端口：
 
 ```powershell
 pwsh -NoProfile -Command {
     $ErrorActionPreference = 'Stop'
     $worktree = (Get-Location).Path
     $port = 9080
-    $logDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath('TestResults/mcp/<run>')
+    $logDir = Join-Path $env:TEMP 'train-mcp/<run>'
     $userDir = Join-Path $logDir 'appdata/Godot/app_userdata/Train'
     New-Item -ItemType Directory -Force -Path $userDir | Out-Null
     $sharedUserDir = Join-Path $env:APPDATA 'Godot/app_userdata/Train'
