@@ -54,6 +54,51 @@ public sealed class BuiltInContentTests
         foreach (var vehicle in vehicles) Assert.IsTrue(world.Start.Trains.Any(train => train.Vehicles.Contains(vehicle)));
     }
 
+    [TestMethod]
+    public void Process_mod_load_and_reload_use_current_disk_bytes()
+    {
+        var repository = new DirectoryInfo(AppContext.BaseDirectory);
+        while (repository != null && !File.Exists(Path.Combine(repository.FullName, "global.json"))) repository = repository.Parent;
+        Assert.IsNotNull(repository);
+        var directory = Path.Combine(Path.GetTempPath(), "process-mod-" + Guid.NewGuid().ToString("N"));
+        const string package = "11111111-1111-4111-8111-111111111111";
+        try
+        {
+            var processDirectory = Path.Combine(directory, "farm", "resources", "processes");
+            Directory.CreateDirectory(processDirectory);
+            File.WriteAllText(Path.Combine(directory, "farm", "mod.json"), $$$"""
+                {"schema_version":2,"id":"{{{package}}}","name":"农场流程","version":"1.0.0","authors":["测试"]}
+                """);
+            var process = ProcessLoadingTests.Process("production");
+            process["simulation"]!.AsObject().Remove("inputs");
+            process["simulation"]!["outputs"]![0]!["voxel"] = "core:staple-food";
+            var file = Path.Combine(processDirectory, "test.process.json");
+            File.WriteAllText(file, process.ToJsonString());
+            var factory = ContentFactory.Create();
+            var installation = new C.ContentInstallation(new(Path.Combine(repository.FullName, "builtin", "core")), new(directory), null, "0.0.56", [new(package)]);
+            var files = new DiskFiles();
+            var inspector = new PngHeaderInspector();
+            using var initial = ContentCaptureTests.Success(factory.PrepareLoad(new(installation, new C.ContentLoadPurpose.Initial()), files, inspector));
+            var original = initial.View.Core.Processes.Single();
+            Assert.AreEqual(new K.GoodsQuantity(new K.GoodId.Voxel(new("core:staple-food")), 2),
+                ((K.ProcessDetails.Production)original.Details).Outputs.Single());
+            process["simulation"]!["work_required"] = 31;
+            File.WriteAllText(file, process.ToJsonString());
+            var references = new K.CoreReferenceManifest([], [],
+                [new(new K.CoreDefinitionReference.Process(new K.ProcessRef.Production(new(package + ":test"))), original.Revision, "facility.process", false)],
+                [initial.View.Core.Identity]);
+            using var reloaded = ContentCaptureTests.Success(factory.PrepareLoad(new(installation,
+                new C.ContentLoadPurpose.Reload(initial.View, references)), files, inspector));
+            Assert.AreEqual(31L, reloaded.View.Core.Processes.Single().WorkRequired);
+            Assert.AreNotEqual(original.Revision, reloaded.View.Core.Processes.Single().Revision);
+            Assert.AreEqual(17L, original.WorkRequired);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private static C.DesignEvaluation.Complete Complete(C.IContentView view, string id)
     {
         var evaluation = Found(view.FindBlueprint(new(C.BlueprintLibrary.Packages, new("core:" + id)))).Evaluation;

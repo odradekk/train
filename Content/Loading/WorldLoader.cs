@@ -9,9 +9,9 @@ internal sealed record LoadedGenerationProfile(C.GenerationProfileId Id, C.Displ
     K.ResolvedGenerationConfiguration Configuration, K.NewGameStartInput Start);
 internal sealed record WorldDefinitions(ImmutableArray<C.TerrainAppearanceProjection> Terrains,
     ImmutableArray<LoadedSettlementType> Types, ImmutableArray<LoadedSettlementTemplate> Templates,
-    ImmutableArray<ParsedRule> Rules, ImmutableArray<LoadedGenerationProfile> Profiles)
+    ImmutableArray<ParsedRule> Rules, ImmutableArray<LoadedGenerationProfile> Profiles, ImmutableArray<ParsedProcess> Processes)
 {
-    internal static WorldDefinitions Empty { get; } = new([], [], [], [], []);
+    internal static WorldDefinitions Empty { get; } = new([], [], [], [], [], []);
 }
 
 internal sealed class WorldLoader
@@ -21,15 +21,16 @@ internal sealed class WorldLoader
     private readonly List<(LoadPackage Package, ParsedSettlementTemplate Value)> _templates = [];
     private readonly List<(LoadPackage Package, ParsedRule Value)> _rules = [];
     private readonly List<(LoadPackage Package, ParsedGenerationProfile Value)> _profiles = [];
+    private readonly List<(LoadPackage Package, ParsedProcess Value)> _processes = [];
 
     internal static bool Directory(string name) => name is "terrain-types" or "settlement-types" or "settlement-templates"
-        or "generation-profiles" or "rules" or "railway-rules" or "combat-rules";
+        or "generation-profiles" or "rules" or "railway-rules" or "combat-rules" or "processes";
 
     internal static string? Kind(string directory, string file) => directory switch
     {
         "terrain-types" => "terrain-type", "settlement-types" => "settlement-type",
         "settlement-templates" => "settlement-template", "generation-profiles" => "generation-profile",
-        "railway-rules" => "railway-rule", "combat-rules" => "combat-rule",
+        "railway-rules" => "railway-rule", "combat-rules" => "combat-rule", "processes" => "process",
         "rules" => new[] { "population-rule", "market-rule", "construction-rule" }
             .FirstOrDefault(kind => file.EndsWith("." + kind + ".json", StringComparison.Ordinal)),
         _ => null
@@ -42,6 +43,7 @@ internal sealed class WorldLoader
             case "terrain-type": Add(TerrainParser.Parse(bytes, package, path), _terrains); break;
             case "settlement-template": Add(SettlementParser.Template(bytes, package, path), _templates); break;
             case "generation-profile": Add(GenerationProfileParser.Parse(bytes, package, path), _profiles); break;
+            case "process": Add(ProcessParser.Parse(bytes, package, path), _processes); break;
             case "settlement-type":
                 var type = SettlementParser.Type(bytes, package, path);
                 if (type is null) break;
@@ -67,6 +69,7 @@ internal sealed class WorldLoader
         RejectDuplicates(_templates, t => t.Id.Value, t => t.Path);
         RejectDuplicates(_rules, r => r.Id.Value, r => r.Path);
         RejectDuplicates(_profiles, p => p.Id.Value, p => p.Path);
+        RejectDuplicates(_processes, p => p.Id, p => p.Path);
         var resolvedTerrains = new Dictionary<K.TerrainTypeId, C.TerrainAppearanceProjection>();
         var resolvedTemplates = new Dictionary<K.SettlementTemplateId, LoadedSettlementTemplate>();
         var resolvedProfiles = new Dictionary<C.GenerationProfileId, LoadedGenerationProfile>();
@@ -84,6 +87,7 @@ internal sealed class WorldLoader
             var known = voxelIndex.Keys.Select(k => k.Value).Concat(blueprintIndex.Keys)
                 .Concat(terrainIndex.Keys.Select(k => k.Value)).Concat(typeIndex.Keys.Select(k => k.Value))
                 .Concat(ruleIndex.Keys.Select(k => k.Value)).Concat(_templates.Where(t => Active(t.Package)).Select(t => t.Value.Id.Value))
+                .Concat(_processes.Where(p => Active(p.Package)).Select(p => p.Value.Id))
                 .Concat(_profiles.Where(p => Active(p.Package)).Select(p => p.Value.Id.Value)).ToHashSet(StringComparer.Ordinal);
             var references = new References(voxelIndex, blueprintIndex, known);
             foreach (var (package, terrain) in _terrains.Where(t => Active(t.Package)))
@@ -97,6 +101,18 @@ internal sealed class WorldLoader
                         terrain.Value, terrainIndex.ContainsKey(terrain), "/simulation/preferred_terrain");
             foreach (var (package, rule) in _rules.Where(r => Active(r.Package)))
                 ResolveRule(package, rule, references);
+            foreach (var (package, process) in _processes.Where(p => Active(p.Package)))
+            {
+                var subject = new C.ContentReference.Core(new K.CoreDefinitionReference.Process(process.Reference));
+                foreach (var good in process.Goods)
+                    references.Good(package, process.Path, subject, good.Id, good.Field);
+                if (process.Projection.Details is K.ProcessDetails.Extraction extraction &&
+                    voxelIndex.TryGetValue(((K.GoodId.Voxel)extraction.Extracts.Good).Definition, out var voxel) &&
+                    voxel.Voxel.Definition.Good is { RawGood: false })
+                    package.Reject("invalid_field", process.Path, "/simulation/extracts/voxel", "开采货物必须带 raw_good 标签。", subject);
+                foreach (var terrain in process.Terrains)
+                    references.Need(package, process.Path, subject, terrain.Id.Value, terrainIndex.ContainsKey(terrain.Id), terrain.Field);
+            }
             foreach (var (package, source) in _templates.Where(t => Active(t.Package)))
             {
                 var loaded = ResolveTemplate(package, source, references, typeIndex.ContainsKey(source.Type));
@@ -114,7 +130,8 @@ internal sealed class WorldLoader
             _types.Where(t => Active(t.Package)).Select(t => t.Value).OrderBy(t => t.Source.Core.Id.Value, StringComparer.Ordinal).ToImmutableArray(),
             _templates.Where(t => Active(t.Package)).Select(t => resolvedTemplates[t.Value.Id]).OrderBy(t => t.Core.Id.Value, StringComparer.Ordinal).ToImmutableArray(),
             _rules.Where(r => Active(r.Package)).Select(r => r.Value).OrderBy(r => r.Id.Value, StringComparer.Ordinal).ToImmutableArray(),
-            _profiles.Where(p => Active(p.Package)).Select(p => resolvedProfiles[p.Value.Id]).OrderBy(p => p.Id.Value, StringComparer.Ordinal).ToImmutableArray());
+            _profiles.Where(p => Active(p.Package)).Select(p => resolvedProfiles[p.Value.Id]).OrderBy(p => p.Id.Value, StringComparer.Ordinal).ToImmutableArray(),
+            _processes.Where(p => Active(p.Package)).Select(p => p.Value).OrderBy(p => p.Id, StringComparer.Ordinal).ToImmutableArray());
     }
 
     private static C.TerrainAppearanceProjection? ResolveTerrain(LoadPackage package, ParsedTerrain source, References references)
