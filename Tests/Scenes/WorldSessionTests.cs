@@ -44,7 +44,7 @@ public sealed class WorldSessionTests
         }, content ?? SceneFixtures.Content(Evaluation));
     private static NodeView Node(ulong id) => new(new(new(id), new(0, 0), new(new("test:terrain"), 0, []), new NodeOccupant.Empty(), [], 0, 0, null), [], 80, 0, 80);
     private static WorldSceneContent Terrain() => new([
-        new(new(0, 0, 0), VoxelOrientation.PxPy, SceneFixtures.Cube, null, null, new PickSubject.Terrain(Location), [])], [], [], [], []);
+        new(new(0, 0, 0), new(VoxelOrientation.PxPy, SceneFixtures.Cube, null, null, new PickSubject.Terrain(Location), []))], [], [], [], []);
     private static WorldSceneContent ObjectContent() => new([], [new(Vehicle, SceneFixtures.Identity)], [], [], []);
     private static WorldSceneSession Session(SceneWorldSnapshot snapshot, WorldSceneContent? content = null) => new(
         new(Guid.NewGuid()), snapshot, (_, _, _) => content ?? Terrain(), new(), new());
@@ -180,7 +180,7 @@ public sealed class WorldSessionTests
         await using var session = new WorldSceneSession(new(Guid.NewGuid()), Snapshot(), (_, value, _) =>
         {
             if (value == Target) { entered.SetResult(); release.Wait(); return Terrain(); }
-            return Terrain() with { Terrain = [new(new(5, 0, 0), VoxelOrientation.PxPy, SceneFixtures.Cube, null, null, new PickSubject.Terrain(new WorldLocation.Node(new(2))), [])] };
+            return Terrain() with { Terrain = [new(new(5, 0, 0), new(VoxelOrientation.PxPy, SceneFixtures.Cube, null, null, new PickSubject.Terrain(new WorldLocation.Node(new(2))), []))] };
         }, new(), new());
         try
         {
@@ -446,6 +446,7 @@ public sealed class WorldSessionTests
             Assert.AreEqual(SceneReadiness.Ready, settled.Readiness);
             if (changeDesign) Assert.AreEqual(oldHit.Cell, Hit(settled).Cell);
             else Assert.IsInstanceOfType<ScenePick.Miss>(settled.Pick(Ray));
+            Assert.AreEqual(oldHit, Hit(first));
         }
         finally
         {
@@ -498,7 +499,7 @@ public sealed class WorldSessionTests
         var problem = new SceneProblem("content_missing", SceneStage.Build, null, reference, null, null, "Unknown extent.");
         var generated = Terrain() with
         {
-            Terrain = [new(new(0, 0, 6), VoxelOrientation.PxPy, SceneFixtures.Cube, null, null, new PickSubject.Terrain(Location), [])],
+            Terrain = [new(new(0, 0, 6), new(VoxelOrientation.PxPy, SceneFixtures.Cube, null, null, new PickSubject.Terrain(Location), []))],
             BuiltInMeshes = meshes,
             MissingMarkers = [new(new(new(0, 0, 5), Quaternion.Identity), reference, problem)],
             FoggedRegions = [new(new(2, 0, 1), new(3, 1, 2))]
@@ -518,7 +519,7 @@ public sealed class WorldSessionTests
     public async Task GeneratedTerrainWithoutSubjectFaultsBeforeItCanHideOtherCells()
     {
         await using var session = Session(Snapshot(), Terrain() with
-        { Terrain = [new(new(0, 0, 0), VoxelOrientation.PxPy, SceneFixtures.Cube, null, null, null, [])] });
+        { Terrain = [new(new(0, 0, 0), new(VoxelOrientation.PxPy, SceneFixtures.Cube, null, null, null, []))] });
         session.RequestView(Target);
         await Assert.ThrowsExactlyAsync<ArgumentException>(async () => await session.PendingBuild!);
         var result = (SceneResult<ISceneFrame>.Faulted)session.Present(FrameRequest, null);
