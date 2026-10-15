@@ -378,13 +378,19 @@ public sealed class NodeTraversalTests
             { Parts = d.Parts.Select(p => p with { Capabilities = p.Capabilities.Where(c => c is not PartCapability.Propulsion).ToImmutableArray() }).ToImmutableArray() }).ToImmutableArray() };
         Accepted(session, new CoreCommand.PublishContent(unpowered));
         Until(session, () => Train(session).SpeedMetersPerSecond == 0, checkBraking: true);
-        Step(session);
-        Assert.AreEqual(TrainActivity.Stopped, Train(session).Activity);
-        Assert.IsFalse(session.State.World.Trains[0].StopRequested);
+        Assert.IsTrue(Train(session).Position is TrainPosition.Node
+            { Id.Value: 1, Phase: NodeTravelPhase.Departing, DistanceMeters: > 128 and < 256 });
+        Assert.AreEqual(TrainActivity.Running, Train(session).Activity);
+        Assert.IsTrue(session.State.World.Trains[0].StopRequested);
         using var restored = Restore(Success(session.Capture(CapturePurpose.Save)), unpowered);
+        Assert.AreEqual(Train(session).Position, Train(restored).Position);
+        Step(session);
         Step(restored);
         Assert.AreEqual(TrainActivity.Stopped, Train(restored).Activity);
+        Assert.IsFalse(restored.State.World.Trains[0].StopRequested);
         Assert.AreEqual(Train(session).Position, Train(restored).Position);
+        Assert.AreEqual(Success(session.Capture(CapturePurpose.Save)).Checkpoint,
+            Success(restored.Capture(CapturePurpose.Save)).Checkpoint);
     }
 
     [TestMethod]
@@ -435,25 +441,29 @@ public sealed class NodeTraversalTests
     }
 
     [TestMethod]
-    [DataRow(NodeTravelPhase.Waiting, 80.0, 0.0, false, 20.0, NodeTravelPhase.Waiting)]
-    [DataRow(NodeTravelPhase.Docked, 128.0, 0.0, false, 68.0, NodeTravelPhase.Docked)]
-    [DataRow(NodeTravelPhase.Departing, 256.0, 0.0, false, 146.0, NodeTravelPhase.Departing)]
-    [DataRow(NodeTravelPhase.Approaching, 100.0, 5.0, true, 68.0, NodeTravelPhase.Docked)]
-    [DataRow(NodeTravelPhase.Approaching, 100.0, 5.0, false, 100.0, NodeTravelPhase.Departing)]
-    [DataRow(NodeTravelPhase.Departing, 250.0, 5.0, false, 146.0, NodeTravelPhase.Departing)]
+    [DataRow(NodeTravelPhase.Waiting, 80.0, 0.0, false, TrainActivity.Stopped, 30.0, 20.0, NodeTravelPhase.Waiting)]
+    [DataRow(NodeTravelPhase.Docked, 128.0, 0.0, false, TrainActivity.Stopped, 30.0, 68.0, NodeTravelPhase.Docked)]
+    [DataRow(NodeTravelPhase.Departing, 256.0, 0.0, false, TrainActivity.Stopped, 30.0, 146.0, NodeTravelPhase.Departing)]
+    [DataRow(NodeTravelPhase.Approaching, 100.0, 5.0, true, TrainActivity.Running, 30.0, 68.0, NodeTravelPhase.Docked)]
+    [DataRow(NodeTravelPhase.Approaching, 100.0, 5.0, false, TrainActivity.Running, 30.0, 100.0, NodeTravelPhase.Departing)]
+    [DataRow(NodeTravelPhase.Departing, 250.0, 5.0, false, TrainActivity.Running, 30.0, 146.0, NodeTravelPhase.Departing)]
+    [DataRow(NodeTravelPhase.Departing, 168.0, 0.0, false, TrainActivity.Stopped, 190.0, 168.0, NodeTravelPhase.Departing)]
+    [DataRow(NodeTravelPhase.Departing, 256.0, 0.0, false, TrainActivity.Waiting, 190.0, 306.0, NodeTravelPhase.Departing)]
     public void Publication_and_restore_adapt_node_positions_without_rejecting_scale_changes(
-        NodeTravelPhase phase, double distance, double speed, bool station, double expected, NodeTravelPhase expectedPhase)
+        NodeTravelPhase phase, double distance, double speed, bool station, TrainActivity activity,
+        double departureLength, double expected, NodeTravelPhase expectedPhase)
     {
         var state = State(station);
         var train = state.World.Trains[0] with
         {
             Position = new TrainPosition.Node(new(1), new(1), new(2), phase, distance, station ? 1 : null),
-            SpeedMetersPerSecond = speed, Activity = speed == 0 ? TrainActivity.Stopped : TrainActivity.Running
+            SpeedMetersPerSecond = speed, Activity = activity,
+            QueueEnteredStep = activity == TrainActivity.Waiting ? 0UL : null
         };
         using var session = new CoreSession(state with { World = state.World with { Trains = [train] } });
         var saved = Success(session.Capture(CapturePurpose.Save));
         var changed = state.Content with { Identity = new(new string('E', 64)), RailwayRules = [state.Content.RailwayRules[0] with
-            { ApproachLengthMeters = 20, DepartureLengthMeters = 30 }],
+            { ApproachLengthMeters = 20, DepartureLengthMeters = departureLength }],
             SettlementTemplates = [state.Content.SettlementTemplates[0] with { PlatformLengthMeters = 128 }] };
         Accepted(session, new CoreCommand.PublishContent(changed));
         using var candidate = Success(CoreFactory.Create().PrepareRestore(Success(CoreFactory.Create().DecodeState(saved.Encode())), changed, Options));
@@ -469,7 +479,7 @@ public sealed class NodeTraversalTests
             var node = ((Lookup<NodeView>.Found)view.FindNode(new(1))).Value;
             Assert.AreEqual(20.0, node.ApproachLengthMeters);
             Assert.AreEqual(96.0, node.PlatformLengthMeters);
-            Assert.AreEqual(30.0, node.DepartureLengthMeters);
+            Assert.AreEqual(departureLength, node.DepartureLengthMeters);
         }
     }
 

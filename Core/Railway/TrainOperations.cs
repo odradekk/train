@@ -320,18 +320,17 @@ internal static class TrainOperations
         return ChangeActivity(train, TrainActivity.Running, events);
     }
 
-    internal static WorldState AdaptNodes(WorldState world, CoreContentProjection content, CoreContentProjection? previous)
+    internal static WorldState AdaptNodes(WorldState world, CoreContentProjection content)
         => world with { Trains = world.Trains.Select(train =>
         {
             if (train.Position is not TrainPosition.Node position) return train;
             var dimensions = NodeDimensions.Read(world, content, position.Id);
-            var previousDimensions = previous is null ? (NodeDimensions?)null : NodeDimensions.Read(world, previous, position.Id);
             var distance = train.SpeedMetersPerSecond == 0 ? position.Phase switch
             {
                 NodeTravelPhase.Waiting => dimensions.Approach,
                 NodeTravelPhase.Docked => dimensions.Stop,
-                NodeTravelPhase.Departing when previousDimensions is null
-                    || position.DistanceMeters == previousDimensions.Value.Length => dimensions.Length,
+                NodeTravelPhase.Departing when train.Activity == TrainActivity.Waiting
+                    && train.QueueEnteredStep is not null => dimensions.Length,
                 _ => Math.Min(position.DistanceMeters, dimensions.Length)
             } : Math.Min(position.DistanceMeters, dimensions.Length);
             if (position.Phase == NodeTravelPhase.Approaching && distance > dimensions.Stop)

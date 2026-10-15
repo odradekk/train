@@ -88,7 +88,7 @@ internal static class WorldContentPublication
         {
             Nodes = adapted.Nodes.Select(n => platforms.TryGetValue(n.Id, out var count) ? n with { Platforms = count } : n).ToImmutableArray()
         };
-        return new CommandEffect.Accepted(content, [], Railway.TrainOperations.AdaptNodes(adapted, content, before));
+        return new CommandEffect.Accepted(content, [], Railway.TrainOperations.AdaptNodes(adapted, content));
 
         void Problem(string code, string field, string identity) => problems.Add(new(code, field, Subject(field), [identity]));
     }

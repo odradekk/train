@@ -43,8 +43,7 @@ internal sealed class CoreSessionFactory : ICoreFactory
             ? [] : [new("content_changed", "InputIdentity", null, [capture.InputIdentity.Value, content.Identity.Value])];
         return new CoreResult<ICoreSessionCandidate>.Success(new CoreSessionCandidate(
             new(capture.Position, capture.NextCommandNumber, capture.Revision, content,
-                World: Railway.TrainOperations.AdaptNodes(capture.World, content,
-                    capture.InputIdentity == content.Identity ? content : null)),
+                World: Railway.TrainOperations.AdaptNodes(capture.World, content)),
             options.RetainedRecordingStarts, report));
     }
 

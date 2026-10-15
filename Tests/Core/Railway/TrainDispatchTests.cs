@@ -333,6 +333,8 @@ public sealed class TrainDispatchTests
         Assert.AreEqual(TrainActivity.Waiting, View(session, 2).Activity);
         Assert.AreEqual(0, session.Read().World.Nodes[0].OccupiedPlatforms);
         Submit(session, new CoreCommand.PublishContent(WorldFixture.Content));
+        Step(session);
+        Assert.AreEqual(1, ((TrainPosition.Node)View(session, 2).Position).PlatformNumber);
         Until(session, () => View(session, 2).Activity == TrainActivity.Servicing);
         Assert.AreEqual(2UL, View(session, 2).RemainingDwellSteps);
     }
