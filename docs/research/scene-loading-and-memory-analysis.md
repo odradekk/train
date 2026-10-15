@@ -25,6 +25,8 @@
 
 开发机为 Windows 11 x64（10.0.26300）、Ryzen 9 5900HX、16 逻辑核、32 GiB、RTX 3080 Laptop GPU，驱动 32.0.15.9649；SDK 10.0.112、.NET 10.0.12、PowerShell 7.6.6、Godot `4.7.2.stable.mono.official.ed1daf0bf`。构建配置为 `ExportRelease`，1920×1080 真窗口、Forward+，录制开启、自动存档 300 秒。界面驱动暂停世界，不覆盖运行中 8×、跨节点自动跟随交接。
 
+本报告通过 `ExportRelease` 游戏导出取得的实测数字来自构建修复前：其中 Core、Content、Scenes 类库带有 `DebuggableAttribute.DisableOptimizations`，未开启 JIT 优化。历史数字保留其原有构建和输入身份；优化设置的独立前后对照见 [#512 对照结果](https://github.com/odradekk/train/issues/512#issuecomment-6193430083)。
+
 未插桩导出使用 `scripts/export-measurement.ps1`；`scripts/measure.ps1` 在新进程读档后直接执行节点/跟随首开，含 5 秒预热及 30 秒帧采样。它没有界面点击和首次输入响应，首显/就绪采用原工具定义，只与同工具历史结果比较。
 
 完整界面路径使用仅本地提交的临时驱动。地图打开调用 `GameUi.OpenScene(WorldObjectId)`，即 `MacroMap.ObjectClicked` 绑定的处理方法；关闭发送“返回地图”按钮信号；读档选择独立用户目录中的同一存档，再发送 `SavePanel` 的“读取选中存档”按钮信号。输入通过 `WorldSceneView._UnhandledInput` 注入固定右拖事件。它经过真实界面处理链、生产实现与绘制，没有替换场景模块；不验证桌面鼠标命中或主观操作体验。

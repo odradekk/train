@@ -38,6 +38,8 @@
 | 特效 | 除对应 on 情景外，SDFGI/TAA 关闭；逐报告核对开关 |
 | 引擎时钟 | 时间倍率1，物理频率60Hz，每帧最多8物理步，抖动约束0.5，delta平滑开启，物理插值关闭 |
 
+本报告通过 `ExportRelease` 游戏导出取得的实测数字来自构建修复前：其中 Core、Content、Scenes 类库带有 `DebuggableAttribute.DisableOptimizations`，未开启 JIT 优化。历史数字保留其原有构建和输入身份；优化设置的独立前后对照见 [#512 对照结果](https://github.com/odradekk/train/issues/512#issuecomment-6193430083)。
+
 两构建均在干净提交上经 `scripts/export-measurement.ps1` 导出，再由原样 `scripts/measure.ps1` 运行。最终 D7 构建在正式窗口前完成预演；正式 24 份插桩均为同一最终 SHA。两份完整导出各有 199 文件清单，分别位于忽略目录的 `baseline-release/` 与 `probe-release-d7/`，不能只复制 exe 复现。
 
 入口固定为 f660f8e 版本，整个最终矩阵前后核对 Git blob：
