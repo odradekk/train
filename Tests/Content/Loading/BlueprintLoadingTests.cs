@@ -103,8 +103,8 @@ public sealed class BlueprintLoadingTests
     [DataRow("duplicate_cell", "design_invalid")]
     [DataRow("unrepresentable_length", "design_invalid")]
     [DataRow("used_packages", "invalid_field")]
-    [DataRow("nested", "unsupported_format")]
-    [DataRow("equipment", "unsupported_format")]
+    [DataRow("nested", "reference_missing")]
+    [DataRow("equipment", "invalid_field")]
     [DataRow("creature", "unsupported_format")]
     public void Invalid_builtin_blueprint_rejects_initial_load_with_source(string problem, string code)
     {

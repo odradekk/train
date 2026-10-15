@@ -295,16 +295,14 @@ public sealed class DesignEvaluationTests
     }
 
     [TestMethod]
-    public void Unsupported_nested_categories_and_partial_inputs_throw_directly()
+    public void Unsupported_functional_root_identity_creatures_and_partial_inputs_throw_directly()
     {
         using var candidate = DesignFixtures.Content().Load();
         var draft = DesignFixtures.Vehicle();
         var factory = ContentFactory.Create();
-        foreach (var specification in new C.DesignSpecification[] { new C.DesignSpecification.Assembly(null),
-            new C.DesignSpecification.FunctionalComposite([], null), new C.DesignSpecification.Creature(null, null), new C.DesignSpecification.Vehicle(null),
+        foreach (var specification in new C.DesignSpecification[] { new C.DesignSpecification.FunctionalComposite([], null), new C.DesignSpecification.Creature(null, null), new C.DesignSpecification.Vehicle(null),
             new C.DesignSpecification.Building(null, K.BuildingKind.Warehouse, []) })
             Assert.ThrowsExactly<NotImplementedException>(() => factory.EvaluateDesign(candidate.View, draft with { Specification = specification }));
-        Assert.ThrowsExactly<NotImplementedException>(() => factory.EvaluateDesign(candidate.View, draft with { Layout = draft.Layout with { NestedItems = [new C.NestedDesignItem.AssemblyCopy(new(0, 0, 0), C.VoxelOrientation.PxPy, draft)] } }));
         Assert.ThrowsExactly<NotImplementedException>(() => factory.EvaluateDesign(candidate.View, draft with { Layout = draft.Layout with { Palette = [DesignFixtures.Entry("absent"), DesignFixtures.Entry()] } }));
         Assert.ThrowsExactly<NotImplementedException>(() => factory.EvaluateDesign(candidate.View, draft with { Layout = draft.Layout with { Palette = [draft.Layout.Palette[0], draft.Layout.Palette[1], DesignFixtures.Entry("absent")] } }));
     }

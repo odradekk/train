@@ -9,14 +9,17 @@ using K = Train.Core.Contracts;
 
 namespace Train.Content.Persistence;
 
-internal sealed record CapturedDesign(K.DesignHash Hash, C.DesignDraft Definition);
+internal sealed record CapturedDesign(K.DesignHash Hash, C.DesignDraft Definition, K.CompositeDefinitionId? Composite = null);
+internal sealed record CapturedAssembly(K.CompositionHash Composition, K.DesignHash Design);
 internal sealed record CapturedTemplate(K.SettlementId Owner, K.SettlementTemplateId Source,
     C.DisplayText Display, ImmutableArray<C.SettlementPlotLayout> Plots, K.DesignHash SceneModel);
 
 internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<CapturedDesign> designs,
-    ImmutableArray<CapturedTemplate> templates, ImmutableArray<C.PackageMetadata> packages) : C.IContentCapture
+    ImmutableArray<CapturedTemplate> templates, ImmutableArray<C.PackageMetadata> packages,
+    ImmutableArray<CapturedAssembly> assemblyDisplays = default) : C.IContentCapture
 {
     public C.ContentRevision Revision { get; } = revision;
+    internal ImmutableArray<CapturedAssembly> AssemblyDisplays { get; } = assemblyDisplays.IsDefault ? [] : assemblyDisplays;
     internal ImmutableArray<CapturedDesign> Records { get; } = designs;
     internal ImmutableArray<CapturedTemplate> Copies { get; } = templates;
     public ImmutableArray<K.DesignHash> Designs { get; } = designs.Select(d => d.Hash).ToImmutableArray();
@@ -51,7 +54,7 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
             return new CapturedTemplate(layout.Owner, layout.SourceTemplate, layout.Display, layout.Plots, layout.SceneModel.Design);
         }).OrderBy(t => t.Owner.Value).ToImmutableArray();
         Unique(layouts.Select(t => t.Owner), "/templates");
-        var records = references.Designs.Concat(layouts.Select(t => t.SceneModel)).Distinct()
+        var records = references.Designs.Concat(layouts.Select(t => t.SceneModel)).Concat(view.AssemblyDisplays.Select(d => d.Design)).Distinct()
             .OrderBy(hash => hash.Value, StringComparer.Ordinal).Select(hash =>
             {
                 if (view.FindDesign(hash) is not C.ContentLookup<C.DesignEvaluation>.Found found)
@@ -65,14 +68,22 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
                     C.DesignEvaluation.Partial partial => partial.Definition,
                     _ => throw new InvalidOperationException("固定视图不能保存无法计算的设计。")
                 };
-                return new CapturedDesign(hash, draft);
+                var kind = found.Value switch
+                {
+                    C.DesignEvaluation.Complete complete => complete.Core?.Design.Kind,
+                    C.DesignEvaluation.Partial partial => partial.CorePlaceholder?.Kind,
+                    _ => null
+                };
+                var composite = kind is K.DesignKind.LargeEquipment { ManufacturedGood: K.GoodId.Composite good } ? good.Definition : (K.CompositeDefinitionId?)null;
+                return new CapturedDesign(hash, draft, composite);
             }).ToImmutableArray();
-        var usedPackages = records.SelectMany(d => d.Definition.Layout.Palette.Select(p => p.Voxel.Value.Split(':')[0]))
+        var usedPackages = records.SelectMany(d => DesignTraversal.References(d.Definition).Select(r => ContentView.DefinitionId(r.Reference).Split(':')[0]))
+            .Concat(records.Where(d => d.Composite is not null).Select(d => d.Composite!.Value.Value.Split(':')[0]))
             .Concat(layouts.Select(t => t.Source.Value.Split(':')[0]))
             .Concat(references.Definitions.Select(d => ContentView.DefinitionId(d.Definition).Split(':')[0])).ToHashSet(StringComparer.Ordinal);
         var metadata = view.Packages.Select(p => p.Metadata).OfType<C.PackageMetadata>().Concat(view.SavedPackages)
             .DistinctBy(p => p.Id).Where(p => usedPackages.Contains(p.Id.Value)).OrderBy(p => p.Id.Value, StringComparer.Ordinal).ToImmutableArray();
-        return new(view.PersistentRevision, records, layouts, metadata);
+        return new(view.PersistentRevision, records, layouts, metadata, view.AssemblyDisplays);
     }
 
     public string Encode() => Encode(Write);
@@ -80,7 +91,7 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
     internal void Write(Utf8JsonWriter writer)
     {
         writer.WriteStartObject();
-        writer.WriteNumber("format_version", 2);
+        writer.WriteNumber("format_version", 3);
         writer.WriteNumber("revision", Revision.Value);
         writer.WriteStartArray("packages");
         foreach (var package in ReferencedPackages.OrderBy(p => p.Id.Value, StringComparer.Ordinal))
@@ -109,9 +120,19 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
         {
             writer.WriteStartObject();
             writer.WriteString("hash", design.Hash.Value);
+            if (design.Composite is { } composite) writer.WriteString("composite", composite.Value);
             writer.WriteStartObject("definition");
             BlueprintParser.WriteDesign(writer, design.Definition);
             writer.WriteEndObject();
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+        writer.WriteStartArray("assembly_displays");
+        foreach (var display in AssemblyDisplays.OrderBy(d => d.Composition.Value, StringComparer.Ordinal))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("composition", display.Composition.Value);
+            writer.WriteString("design", display.Design.Value);
             writer.WriteEndObject();
         }
         writer.WriteEndArray();
@@ -137,15 +158,15 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
 
     internal static ContentCapture Read(JsonElement root, string field = "")
     {
-        if (Int32(Required(root, "format_version", field), field + "/format_version") != 2)
-            Fail(field + "/format_version", "内容载荷只支持版本 2。", "unsupported_format");
-        Object(root, field, "format_version", "revision", "packages", "designs", "templates");
+        if (Int32(Required(root, "format_version", field), field + "/format_version") != 3)
+            Fail(field + "/format_version", "内容载荷只支持版本 3。", "unsupported_format");
+        Object(root, field, "format_version", "revision", "packages", "designs", "templates", "assembly_displays");
         var revision = new C.ContentRevision(UInt64(Required(root, "revision", field), field + "/revision"));
         var packages = Items(Required(root, "packages", field), field + "/packages").Select(item => ReadPackage(item.Value, item.Field)).ToImmutableArray();
         Unique(packages.Select(p => p.Id), field + "/packages");
         var designs = Items(Required(root, "designs", field), field + "/designs").Select(item =>
         {
-            Object(item.Value, item.Field, "hash", "definition");
+            Object(item.Value, item.Field, "hash", "definition", "composite");
             var hash = new K.DesignHash(ReadHash(Required(item.Value, "hash", item.Field), item.Field + "/hash"));
             var definition = Required(item.Value, "definition", item.Field);
             C.DesignDraft draft;
@@ -155,9 +176,29 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
                 throw new DefinitionFormatException(item.Field + "/definition" + exception.Field, exception.Message, exception.Code);
             }
             if (DesignEvaluator.Identity(draft) != hash) Inconsistent(item.Field + "/hash", "设计哈希与正文不一致。");
-            return new CapturedDesign(hash, draft);
+            K.CompositeDefinitionId? composite = item.Value.TryGetProperty("composite", out var compositeValue)
+                ? new(Reference(compositeValue, item.Field + "/composite", null)) : null;
+            if ((draft.Specification is C.DesignSpecification.FunctionalComposite) != (composite is not null))
+                Inconsistent(item.Field + "/composite", "根功能复合体必须记录定义身份，其他设计不能携带定义身份。");
+            return new CapturedDesign(hash, draft, composite);
         }).OrderBy(d => d.Hash.Value, StringComparer.Ordinal).ToImmutableArray();
         Unique(designs.Select(d => d.Hash), field + "/designs");
+        var displays = Items(Required(root, "assembly_displays", field), field + "/assembly_displays").Select(item =>
+        {
+            Object(item.Value, item.Field, "composition", "design");
+            var composition = new K.CompositionHash(ReadHash(Required(item.Value, "composition", item.Field), item.Field + "/composition"));
+            var design = new K.DesignHash(ReadHash(Required(item.Value, "design", item.Field), item.Field + "/design"));
+            var record = designs.FirstOrDefault(d => d.Hash == design);
+            if (record is null || record.Definition.Specification is not C.DesignSpecification.Assembly ||
+                DesignTraversal.Hash(record.Definition, true) != composition.Value)
+                Inconsistent(item.Field, "显示记录必须指向构成哈希一致的组装体设计。");
+            return new CapturedAssembly(composition, design);
+        }).OrderBy(d => d.Composition.Value, StringComparer.Ordinal).ToImmutableArray();
+        Unique(displays.Select(d => d.Composition), field + "/assembly_displays");
+        foreach (var design in designs)
+            foreach (var assembly in DesignTraversal.Assemblies(design.Definition))
+                if (!displays.Any(d => d.Composition.Value == DesignTraversal.Hash(assembly, true)))
+                    Inconsistent(field + "/assembly_displays", "捕获设计中的组装体缺少显示记录。");
         var templates = Items(Required(root, "templates", field), field + "/templates").Select(item =>
         {
             Object(item.Value, item.Field, "owner", "source", "scene_model", "display", "plots");
@@ -173,7 +214,7 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
             return new CapturedTemplate(owner, source, display, plots, scene);
         }).OrderBy(t => t.Owner.Value).ToImmutableArray();
         Unique(templates.Select(t => t.Owner), field + "/templates");
-        return new(revision, designs, templates, packages);
+        return new(revision, designs, templates, packages, displays);
     }
 
     private static C.PackageMetadata ReadPackage(JsonElement value, string field)

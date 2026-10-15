@@ -28,6 +28,7 @@ internal sealed class ContentView : C.IContentView
     public ImmutableArray<C.GenerationProfileSummary> GenerationProfiles { get; }
     internal ImmutableArray<C.PackageMetadata> SavedPackages { get; } = [];
     internal ImmutableArray<CapturedDesign> SavedDesigns { get; } = [];
+    internal ImmutableArray<CapturedAssembly> AssemblyDisplays { get; } = [];
     internal ContentSourceSnapshot? Source { get; }
 
     internal ContentView(ImmutableArray<LoadedVoxel> voxels, ImmutableArray<C.PackageStatus> packages,
@@ -42,7 +43,9 @@ internal sealed class ContentView : C.IContentView
         _assets = assets.ToFrozenDictionary(asset => asset.Revision);
         Packages = packages;
         Voxels = voxels.Select(voxel => new C.VoxelCatalogEntry(voxel.Definition.Definition, voxel.Definition.Good)).ToImmutableArray();
-        var identity = WorldSemantics.Core(voxels, _world, blueprints);
+        var compositeGoods = blueprints.Where(b => b.Definition.Specification is C.DesignSpecification.FunctionalComposite)
+            .Select(CompositeGood).OrderBy(g => DesignEvaluator.GoodKey(g.Good), StringComparer.Ordinal).ToImmutableArray();
+        var identity = WorldSemantics.Core(voxels, _world, blueprints, compositeGoods);
         var records = blueprints.OrderBy(blueprint => blueprint.Address.Id.Value, StringComparer.Ordinal)
             .Select(blueprint => blueprint.Evaluation is C.DesignEvaluation.Complete { Core: { } core } complete
                 ? blueprint with { Evaluation = complete with { Core = core with { InputIdentity = new(identity) } } } : blueprint).ToImmutableArray();
@@ -55,7 +58,7 @@ internal sealed class ContentView : C.IContentView
             ((C.DesignEvaluation.Complete)blueprint.Evaluation).IsValid,
             ((C.DesignEvaluation.Complete)blueprint.Evaluation).Diagnostics)).ToImmutableArray();
         Core = new(Identity: new(identity), Goods: voxels.Where(voxel => voxel.Definition.Good is not null)
-            .Select(voxel => voxel.Definition.Good!).ToImmutableArray(), Designs: designs.Where(design => design.Core is not null)
+            .Select(voxel => voxel.Definition.Good!).Concat(compositeGoods).ToImmutableArray(), Designs: designs.Where(design => design.Core is not null)
                 .Select(design => design.Core!.Design).ToImmutableArray(), DesignGoods: [], Processes: _world.Processes.Select(p => p.Projection).ToImmutableArray(),
             PopulationRules: _world.Rules.OfType<ParsedRule.Population>().Select(r => r.Projection).ToImmutableArray(),
             MarketRules: _world.Rules.OfType<ParsedRule.Market>().Select(r => r.Projection).ToImmutableArray(),
@@ -65,18 +68,31 @@ internal sealed class ContentView : C.IContentView
             SettlementTypes: _world.Types.Select(t => t.Source.Core).ToImmutableArray(),
             SettlementTemplates: _world.Templates.Select(t => t.Core).ToImmutableArray(), Creatures: [], LairTypes: [], MissingReferences: []);
         GenerationProfiles = _world.Profiles.Select(p => new C.GenerationProfileSummary(p.Id, p.Display)).ToImmutableArray();
+        var allDesigns = _designs.ToDictionary();
+        var displays = new Dictionary<K.CompositionHash, CapturedAssembly>();
+        foreach (var record in records.OrderBy(r => r.Address.Library).ThenBy(r => r.Address.Id.Value, StringComparer.Ordinal))
+            foreach (var assembly in DesignTraversal.Assemblies(record.Definition))
+            {
+                var evaluated = (C.DesignEvaluation.Complete)DesignEvaluator.Evaluate(this, assembly);
+                allDesigns[evaluated.Design] = evaluated;
+                displays.TryAdd(evaluated.Composition, new(evaluated.Composition, evaluated.Design));
+            }
+        _designs = allDesigns.ToFrozenDictionary();
+        AssemblyDisplays = displays.Values.OrderBy(d => d.Composition.Value, StringComparer.Ordinal).ToImmutableArray();
+        Core = Core with { Designs = DesignProjections(allDesigns), DesignGoods = AssemblyProjections(allDesigns, AssemblyDisplays) };
     }
 
     private ContentView(ContentView basis, FrozenDictionary<K.SettlementId, C.SettlementLayoutProjection> layouts)
     {
         _voxels = basis._voxels; _assets = basis._assets; _blueprints = basis._blueprints; _designs = basis._designs;
         _world = basis._world; _layouts = layouts;
+        AssemblyDisplays = basis.AssemblyDisplays;
         Generation = basis.Generation; SavedPackages = basis.SavedPackages; SavedDesigns = basis.SavedDesigns; Source = basis.Source;
         Core = basis.Core; Packages = basis.Packages; Voxels = basis.Voxels; Blueprints = basis.Blueprints; GenerationProfiles = basis.GenerationProfiles;
         PersistentRevision = new(checked(basis.PersistentRevision.Value + 1));
     }
 
-    private ContentView(ContentView basis, ContentCapture capture, K.CoreReferenceManifest references, C.ContentGeneration generation)
+    private ContentView(ContentView basis, ContentCapture capture, K.CoreReferenceManifest references, C.ContentGeneration generation, bool registerAssemblies)
     {
         capture.Validate(references);
         _voxels = basis._voxels; _assets = basis._assets; _blueprints = basis._blueprints; _world = basis._world;
@@ -86,11 +102,17 @@ internal sealed class ContentView : C.IContentView
         var designs = basis._designs.ToDictionary();
         foreach (var record in capture.Records)
         {
-            designs[record.Hash] = DesignEvaluator.Evaluate(basis, record.Definition, allowMissing: true);
+            designs[record.Hash] = DesignEvaluator.Evaluate(basis, record.Definition, allowMissing: true, compositeIdentity: record.Composite);
             if (designs[record.Hash] is C.DesignEvaluation.Failed)
                 ContentCapture.Inconsistent("/designs", "内嵌设计无法形成计算结果。");
         }
         _designs = designs.ToFrozenDictionary();
+        var displays = capture.AssemblyDisplays.ToDictionary(d => d.Composition);
+        if (registerAssemblies)
+            foreach (var display in basis.AssemblyDisplays) displays.TryAdd(display.Composition, display);
+        AssemblyDisplays = displays.Values.OrderBy(d => d.Composition.Value, StringComparer.Ordinal).ToImmutableArray();
+        if (AssemblyDisplays.Length != capture.AssemblyDisplays.Length)
+            PersistentRevision = new(checked(capture.Revision.Value + 1));
         _layouts = capture.Copies.ToFrozenDictionary(t => t.Owner, t =>
         {
             var scene = _designs[t.SceneModel] switch
@@ -104,19 +126,41 @@ internal sealed class ContentView : C.IContentView
         });
         Core = basis.Core with
         {
-            Designs = designs.OrderBy(d => d.Key.Value, StringComparer.Ordinal).Select(d => d.Value switch
-            {
-                C.DesignEvaluation.Complete complete => complete.Core?.Design,
-                C.DesignEvaluation.Partial partial => partial.CorePlaceholder,
-                _ => null
-            }).OfType<K.DesignProjection>().ToImmutableArray(),
+            Designs = DesignProjections(designs), DesignGoods = AssemblyProjections(designs, AssemblyDisplays),
             MissingReferences = Missing(references).Select(m => new K.MissingCoreReference(
                 ((C.ContentReference.Core)m.Reference).Definition, m.Field)).ToImmutableArray()
         };
     }
 
-    internal ContentView WithCapture(ContentCapture capture, K.CoreReferenceManifest references, C.ContentGeneration? generation = null) =>
-        new(this, capture, references, generation ?? Generation);
+    internal ContentView WithCapture(ContentCapture capture, K.CoreReferenceManifest references, C.ContentGeneration? generation = null, bool registerAssemblies = false) =>
+        new(this, capture, references, generation ?? Generation, registerAssemblies);
+
+    private static ImmutableArray<K.DesignProjection> DesignProjections(Dictionary<K.DesignHash, C.DesignEvaluation> designs) =>
+        designs.OrderBy(d => d.Key.Value, StringComparer.Ordinal).Select(d => d.Value switch
+        { C.DesignEvaluation.Complete c => c.Core?.Design, C.DesignEvaluation.Partial p => p.CorePlaceholder, _ => null }).OfType<K.DesignProjection>().ToImmutableArray();
+
+    private static ImmutableArray<K.GoodDefinitionProjection> AssemblyProjections(Dictionary<K.DesignHash, C.DesignEvaluation> designs, ImmutableArray<CapturedAssembly> displays) =>
+        displays.Select(display => designs[display.Design] switch
+        {
+            C.DesignEvaluation.Complete { Core: { } core } => DesignEvaluator.AssemblyGood(display.Composition, core.Design),
+            _ => null
+        }).OfType<K.GoodDefinitionProjection>().ToImmutableArray();
+
+    private K.GoodDefinitionProjection CompositeGood(C.BlueprintRecord record)
+    {
+        var design = ((C.DesignEvaluation.Complete)record.Evaluation).Core!.Design;
+        var capability = (C.DesignSpecification.FunctionalComposite)record.Definition.Specification;
+        var value = checked(design.StructuralBaseValue.Value + design.Parts.Sum(p => p.BaseValue.Value));
+        var revision = ContentHash.FromCanonicalJson(w => JsonSerializer.Serialize(w, new
+        {
+            id = record.Address.Id.Value, design.MassTons, design.MaxStructureDurability, value,
+            capabilities = capability.Behaviors.Select(b => JsonSerializer.Serialize(b, b.GetType())),
+            dependencies = DesignTraversal.References(record.Definition).Select(r => ((K.CoreDefinitionReference.Voxel)r.Reference).Id)
+                .Distinct().OrderBy(id => id.Value, StringComparer.Ordinal).Select(id => new { id = id.Value, revision = _voxels[id].Definition.Revision.Value }),
+            returns = design.BillOfMaterials.Select(q => new { good = DesignEvaluator.GoodKey(q.Good), q.Quantity })
+        }));
+        return new(new K.GoodId.Composite(new(record.Address.Id.Value)), new(revision), new(value), design.MassTons, false, null);
+    }
 
     internal K.CoreReferenceManifest PersistentReferences => new(
         SavedDesigns.Select(d => d.Hash).ToImmutableArray(),
@@ -176,8 +220,7 @@ internal sealed class ContentView : C.IContentView
     internal ImmutableArray<C.MissingContentReference> Missing(K.CoreReferenceManifest references, string stage = "restore")
     {
         var required = references.Definitions.Select(d => (d.Definition, d.Field))
-            .Concat(SavedDesigns.SelectMany(d => d.Definition.Layout.Palette.Select((p, index) =>
-                ((K.CoreDefinitionReference)new K.CoreDefinitionReference.Voxel(p.Voxel), $"Designs[{d.Hash.Value}]/layout/palette/{index}/voxel"))));
+            .Concat(SavedDesigns.SelectMany(d => DesignTraversal.References(d.Definition, $"Designs[{d.Hash.Value}]")));
         return required.Where(r => !HasDefinition(r.Item1)).Distinct()
             .OrderBy(r => DefinitionId(r.Item1), StringComparer.Ordinal).ThenBy(r => r.Item2, StringComparer.Ordinal)
             .Select(r =>
@@ -192,6 +235,7 @@ internal sealed class ContentView : C.IContentView
     private bool HasDefinition(K.CoreDefinitionReference definition) => definition switch
     {
         K.CoreDefinitionReference.Voxel voxel => _voxels.ContainsKey(voxel.Id),
+        K.CoreDefinitionReference.Composite composite => FindComposite(composite.Id) is not null,
         K.CoreDefinitionReference.Rule rule => _world.Rules.Any(r => r.Id == rule.Id),
         K.CoreDefinitionReference.Process process => FindProcess(process.Id) is not null,
         K.CoreDefinitionReference.SettlementType type => _world.Types.Any(t => t.Source.Core.Id == type.Id),
@@ -231,6 +275,8 @@ internal sealed class ContentView : C.IContentView
     }
 
     internal LoadedVoxel? FindVoxel(K.VoxelDefinitionId definition) => _voxels.GetValueOrDefault(definition);
+    internal C.BlueprintRecord? FindComposite(K.CompositeDefinitionId definition) =>
+        _blueprints.GetValueOrDefault(new(C.BlueprintLibrary.Packages, new(definition.Value))) is { Definition.Specification: C.DesignSpecification.FunctionalComposite } record ? record : null;
     internal ParsedProcess? FindProcess(K.ProcessRef id) => _world.Processes.FirstOrDefault(p => p.Reference == id);
     internal ParsedProcess? FindProcess(string id) => _world.Processes.FirstOrDefault(p => p.Id == id);
 
@@ -255,6 +301,8 @@ internal sealed class ContentView : C.IContentView
         _voxels.TryGetValue(definition, out var voxel) ? new C.ContentLookup<C.VoxelDisplayProjection>.Found(voxel.Display) : Absent<C.VoxelDisplayProjection>(new K.CoreDefinitionReference.Voxel(definition));
     public C.ContentLookup<C.ContentDisplay> FindDefinitionDisplay(K.CoreDefinitionReference definition)
     {
+        if (definition is K.CoreDefinitionReference.Composite composite && FindComposite(composite.Id) is { } compositeRecord)
+            return new C.ContentLookup<C.ContentDisplay>.Found(new(compositeRecord.Definition.Display, null, null, false));
         if (definition is K.CoreDefinitionReference.Process process && FindProcess(process.Id) is { } flow)
             return new C.ContentLookup<C.ContentDisplay>.Found(new(flow.Display, null, null, false));
         if (definition is K.CoreDefinitionReference.Voxel reference && _voxels.TryGetValue(reference.Id, out var voxel))
@@ -267,11 +315,20 @@ internal sealed class ContentView : C.IContentView
             return new C.ContentLookup<C.ContentDisplay>.Found(new(source.Source.Display, null, null, false));
         return Absent<C.ContentDisplay>(definition);
     }
-    public C.ContentLookup<C.GoodPresentation> FindGood(K.GoodId good) =>
-        good is K.GoodId.Voxel reference && _voxels.TryGetValue(reference.Definition, out var voxel) && voxel.Definition.Good is not null
-            ? new C.ContentLookup<C.GoodPresentation>.Found(new(good, new(voxel.Display.Display, voxel.Display.Icon, null, false), null, false))
-            : good is K.GoodId.Voxel missing ? Absent<C.GoodPresentation>(new K.CoreDefinitionReference.Voxel(missing.Definition))
-                : new C.ContentLookup<C.GoodPresentation>.NotFound();
+    public C.ContentLookup<C.GoodPresentation> FindGood(K.GoodId good)
+    {
+        if (good is K.GoodId.Voxel reference && _voxels.TryGetValue(reference.Definition, out var voxel) && voxel.Definition.Good is not null)
+            return new C.ContentLookup<C.GoodPresentation>.Found(new(good, new(voxel.Display.Display, voxel.Display.Icon, null, false), null, false));
+        if (good is K.GoodId.Composite composite && FindComposite(composite.Definition) is { } record)
+            return new C.ContentLookup<C.GoodPresentation>.Found(new(good, new(record.Definition.Display, null, null, false), ((C.DesignEvaluation.Complete)record.Evaluation).Design, false));
+        if (good is K.GoodId.Assembly assembly && AssemblyDisplays.FirstOrDefault(d => d.Composition == assembly.Composition) is { } display && _designs.TryGetValue(display.Design, out var design))
+        {
+            var draft = design is C.DesignEvaluation.Complete c ? c.Definition : ((C.DesignEvaluation.Partial)design).Definition;
+            return new C.ContentLookup<C.GoodPresentation>.Found(new(good, new(draft.Display, null, null, false), display.Design, design is C.DesignEvaluation.Partial));
+        }
+        return good switch { K.GoodId.Voxel missing => Absent<C.GoodPresentation>(new K.CoreDefinitionReference.Voxel(missing.Definition)),
+            K.GoodId.Composite missing => Absent<C.GoodPresentation>(new K.CoreDefinitionReference.Composite(missing.Definition)), _ => new C.ContentLookup<C.GoodPresentation>.NotFound() };
+    }
     private C.ContentLookup<T> Absent<T>(K.CoreDefinitionReference definition) where T : notnull
     {
         var diagnostics = Core.MissingReferences.Where(m => m.Reference == definition).Select(m => new C.ContentDiagnostic(

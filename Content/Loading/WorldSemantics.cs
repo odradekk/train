@@ -9,7 +9,9 @@ namespace Train.Content.Loading;
 internal static class WorldSemantics
 {
     internal static string Core(ImmutableArray<LoadedVoxel> voxels, WorldDefinitions world,
-        ImmutableArray<C.BlueprintRecord> blueprints) => Hash(new
+        ImmutableArray<C.BlueprintRecord> blueprints, ImmutableArray<K.GoodDefinitionProjection> composites)
+    {
+        var value = JsonSerializer.SerializeToNode(new
         {
             encoding_version = 4,
             voxels = voxels.Select(v => new { id = v.Definition.Definition.Value, revision = v.Definition.Revision.Value }),
@@ -17,7 +19,11 @@ internal static class WorldSemantics
             processes = world.Processes.Select(p => new { id = p.Id, revision = p.Projection.Revision.Value }),
             types = world.Types.Select(t => new { id = t.Source.Core.Id.Value, revision = t.Source.Core.Revision.Value }),
             templates = world.Templates.Select(t => Template(t, blueprints))
-        });
+        })!;
+        if (!composites.IsEmpty) value["composites"] = JsonSerializer.SerializeToNode(composites.Select(g => new
+        { id = ((K.GoodId.Composite)g.Good).Definition.Value, revision = g.Revision.Value }));
+        return Hash(value);
+    }
 
     internal static K.SemanticRevision Generation(LoadedGenerationProfile profile, WorldDefinitions world,
         ImmutableArray<LoadedVoxel> voxels, ImmutableArray<C.BlueprintRecord> blueprints)
@@ -36,7 +42,7 @@ internal static class WorldSemantics
             .Concat(profile.Start.Trains.SelectMany(t => t.Inventory).Select(q => ((K.GoodId.Voxel)q.Good).Definition))
             .Concat(blueprints.Where(b => designs.Contains(((C.DesignEvaluation.Complete)b.Evaluation).Design))
                 .SelectMany(b => ((C.DesignEvaluation.Complete)b.Evaluation).Core!.Design.BillOfMaterials)
-                .Select(q => ((K.GoodId.Voxel)q.Good).Definition)).ToHashSet();
+                .Select(q => q.Good).OfType<K.GoodId.Voxel>().Select(g => g.Definition)).ToHashSet();
         var terrainIds = configuration.TerrainBands.Select(b => b.Terrain)
             .Concat(configuration.Resources.SelectMany(r => r.AllowedTerrainTypes))
             .Concat(types.SelectMany(t => t.Source.Core.PreferredTerrain)).Distinct().OrderBy(t => t.Value, StringComparer.Ordinal);

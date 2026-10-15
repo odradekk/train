@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using Train.Content.Designs;
 using Train.Content.Persistence;
 using C = Train.Content.Contracts;
+using K = Train.Core.Contracts;
 
 namespace Train.Content.Loading;
 
@@ -35,40 +36,49 @@ internal sealed class InitialLoader
         }
         PackageLoader.ExcludeDependents(packages);
         var assets = _assets.Freeze();
-        var evaluationView = new ContentView(loaded.Where(item => item.Package.State == C.PackageState.Available)
-            .Select(item => item.Voxel).OrderBy(voxel => voxel.Definition.Definition.Value, StringComparer.Ordinal).ToImmutableArray(), [], assets, []);
         var blueprints = new List<(LoadPackage Package, C.BlueprintRecord Blueprint)>();
-        foreach (var package in packages)
+        // 功能定义没有嵌套，先求值它们，再解析宿主的引用。
+        foreach (var functional in new[] { true, false })
         {
-            PackageLoader.ExcludeDependents(packages);
-            if (package.State != C.PackageState.Available) continue;
-            foreach (var (_, blueprint) in parsedBlueprints.Where(item => item.Package == package))
+            var evaluationView = new ContentView(loaded.Where(item => item.Package.State == C.PackageState.Available)
+                .Select(item => item.Voxel).OrderBy(voxel => voxel.Definition.Definition.Value, StringComparer.Ordinal).ToImmutableArray(), [], assets,
+                blueprints.Where(item => item.Package.State == C.PackageState.Available).Select(item => item.Blueprint).ToImmutableArray());
+            foreach (var package in packages)
             {
-                var subject = new C.ContentReference.Blueprint(blueprint.Address);
-                var missing = false;
-                for (var index = 0; index < blueprint.Definition.Layout.Palette.Length; index++)
+                PackageLoader.ExcludeDependents(packages);
+                if (package.State != C.PackageState.Available) continue;
+                foreach (var (_, blueprint) in parsedBlueprints.Where(item => item.Package == package &&
+                    (item.Blueprint.Definition.Specification is C.DesignSpecification.FunctionalComposite) == functional))
                 {
-                    var reference = blueprint.Definition.Layout.Palette[index].Voxel;
-                    if (evaluationView.FindVoxel(reference) is not null) continue;
-                    var wrongKind = parsedBlueprints.Any(item => item.Blueprint.Address.Id.Value == reference.Value);
-                    package.Reject(wrongKind ? "reference_wrong_kind" : "reference_missing", blueprint.Path,
-                        $"/layout/palette/{index}/voxel", $"体素引用不可用：{reference.Value}。", subject);
-                    missing = true;
+                    var subject = new C.ContentReference.Blueprint(blueprint.Address);
+                    var missing = false;
+                    foreach (var (reference, field) in DesignTraversal.References(blueprint.Definition))
+                    {
+                        var id = ContentView.DefinitionId(reference);
+                        var found = reference switch { K.CoreDefinitionReference.Voxel v => evaluationView.FindVoxel(v.Id) is not null,
+                            K.CoreDefinitionReference.Composite c => evaluationView.FindComposite(c.Id) is not null, _ => false };
+                        if (found) continue;
+                        var wrongKind = parsedBlueprints.Any(item => item.Blueprint.Address.Id.Value == id) || loaded.Any(item => item.Voxel.Definition.Definition.Value == id);
+                        package.Reject(wrongKind ? "reference_wrong_kind" : "reference_missing", blueprint.Path,
+                            field, $"引用不可用：{id}。", subject);
+                        missing = true;
+                    }
+                    if (missing) continue;
+                    var result = DesignEvaluator.Evaluate(evaluationView, blueprint.Definition,
+                        compositeIdentity: functional ? new K.CompositeDefinitionId(blueprint.Address.Id.Value) : null);
+                    if (result is not C.DesignEvaluation.Complete evaluation || !evaluation.IsValid)
+                    {
+                        var failures = result is C.DesignEvaluation.Failed failed
+                            ? failed.Diagnostics : ((C.DesignEvaluation.Complete)result).Diagnostics;
+                        foreach (var diagnostic in failures)
+                            package.Reject(diagnostic.Code, blueprint.Path, diagnostic.Field, diagnostic.Message, subject, diagnostic.Element);
+                        continue;
+                    }
+                    var usedPackages = DesignTraversal.References(blueprint.Definition).Select(entry => ContentView.DefinitionId(entry.Reference).Split(':')[0])
+                        .Append(package.Metadata!.Id.Value).Distinct().Order(StringComparer.Ordinal)
+                        .Select(id => packages.Single(p => p.Metadata?.Id.Value == id).Metadata!).ToImmutableArray();
+                    blueprints.Add((package, new(blueprint.Address, evaluation.Definition, usedPackages, evaluation)));
                 }
-                if (missing) continue;
-                var result = DesignEvaluator.Evaluate(evaluationView, blueprint.Definition);
-                if (result is not C.DesignEvaluation.Complete evaluation || !evaluation.IsValid)
-                {
-                    var failures = result is C.DesignEvaluation.Failed failed
-                        ? failed.Diagnostics : ((C.DesignEvaluation.Complete)result).Diagnostics;
-                    foreach (var diagnostic in failures)
-                        package.Reject(diagnostic.Code, blueprint.Path, diagnostic.Field, diagnostic.Message, subject, diagnostic.Element);
-                    continue;
-                }
-                var usedPackages = blueprint.Definition.Layout.Palette.Select(entry => entry.Voxel.Value.Split(':')[0])
-                    .Append(package.Metadata!.Id.Value).Distinct().Order(StringComparer.Ordinal)
-                    .Select(id => packages.Single(p => p.Metadata?.Id.Value == id).Metadata!).ToImmutableArray();
-                blueprints.Add((package, new(blueprint.Address, evaluation.Definition, usedPackages, evaluation)));
             }
         }
         PackageLoader.ExcludeDependents(packages);
