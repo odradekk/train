@@ -154,6 +154,7 @@ internal sealed class ContentView : C.IContentView
         var revision = ContentHash.FromCanonicalJson(w => JsonSerializer.Serialize(w, new
         {
             id = record.Address.Id.Value, design.MassTons, design.MaxStructureDurability, value,
+            occupancy = DesignTraversal.Cells(record.Definition).Select(c => new[] { c.Cell.At.X, c.Cell.At.Y, c.Cell.At.Z }),
             capabilities = DesignTraversal.Behaviors(capability.Behaviors),
             dependencies = DesignTraversal.References(record.Definition).Select(r => ((K.CoreDefinitionReference.Voxel)r.Reference).Id)
                 .Distinct().OrderBy(id => id.Value, StringComparer.Ordinal).Select(id => new { id = id.Value, revision = _voxels[id].Definition.Revision.Value }),

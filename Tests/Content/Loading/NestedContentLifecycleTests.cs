@@ -92,6 +92,34 @@ public sealed class NestedContentLifecycleTests
     }
 
     [TestMethod]
+    public void Moving_composite_cells_changes_input_identity_but_presentation_does_not()
+    {
+        var fixture = CompositeContent();
+        using var initial = fixture.Load();
+        var draft = Host(new C.NestedDesignItem.FunctionalCompositeReference(new(0, 0, 1), C.VoxelOrientation.PxPy, new("core:engine"), null));
+        var before = DesignFixtures.Evaluate(initial.View, draft);
+        Assert.IsTrue(before.IsValid);
+        Change(fixture, "resources/blueprints/engine.blueprint.json", json =>
+            json["layout"]!["cells"] = JsonNode.Parse("""[[0,0,-1,0],[0,0,0,0]]"""));
+        using var moved = fixture.Load();
+        var after = DesignFixtures.Evaluate(moved.View, draft);
+        Assert.AreEqual(before.Design, after.Design);
+        Assert.IsFalse(after.IsValid);
+        var good = new K.GoodId.Composite(new("core:engine"));
+        Assert.AreNotEqual(initial.View.Core.Goods.Single(g => g.Good == good).Revision, moved.View.Core.Goods.Single(g => g.Good == good).Revision);
+        Assert.AreNotEqual(initial.View.Core.Identity, moved.View.Core.Identity);
+        Change(fixture, "resources/blueprints/engine.blueprint.json", json =>
+        {
+            json["display"]!["name"] = "只改显示";
+            json["layout"]!["palette"]![0]!["shape"] = "wedge";
+            json["layout"]!["palette"]![0]!["paint"] = "#abcdef";
+        });
+        using var repainted = fixture.Load();
+        Assert.AreEqual(moved.View.Core.Identity, repainted.View.Core.Identity);
+        Assert.AreEqual(moved.View.Core.Goods.Single(g => g.Good == good).Revision, repainted.View.Core.Goods.Single(g => g.Good == good).Revision);
+    }
+
+    [TestMethod]
     public void First_display_is_deterministic_and_survives_source_deletion_without_manifest_designs()
     {
         var fixture = DesignFixtures.Content();
