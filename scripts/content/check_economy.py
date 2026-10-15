@@ -227,6 +227,37 @@ class Economy:
                     queue.append(supplier)
         return {"node_resource_units": dict(sorted(demand.items())), "primary_production_units": dict(sorted(primary_units.items())), "whole_batches": batches, "surplus_units": {g: q for g, q in sorted(surplus.items()) if q}, "cost_allocation": "none; joint refinery batches, no single-product cost allocation"}
 
+    def fuel_energy(self):
+        extraction = defaultdict(list)
+        for identity, process in self.processes.items():
+            if process["kind"] == "extraction":
+                extraction[local(process["extracts"]["voxel"])].append((identity, process))
+        rows = {}
+        for identity, process in self.processes.items():
+            if process["kind"] != "production":
+                continue
+            produced = sum(quantity * self.goods[good].get("fuel_energy", 0)
+                           for good, quantity in self.cargo(process["outputs"]).items())
+            if produced <= 0:
+                continue
+            upstream, indirect = {}, []
+            for good, quantity in self.cargo(process.get("inputs", [])).items():
+                options = [(source, ((quantity + p["extracts"]["quantity"] - 1) // p["extracts"]["quantity"])
+                            * p["work_required"] * p["power_per_work"]) for source, p in extraction[good]]
+                if options:
+                    source, energy = min(options, key=lambda item: (item[1], item[0]))
+                    upstream[source] = energy
+                else:
+                    indirect.append(good)
+            own = process["work_required"] * process["power_per_work"]
+            consumed = own + sum(upstream.values())
+            self.require(produced > consumed, "process", identity, "simulation.outputs",
+                         f"fuel energy must exceed production and direct upstream extraction: produced={produced}, consumed={consumed}")
+            rows[identity] = {"produced_energy_per_batch": produced, "own_energy_per_batch": own,
+                              "direct_extraction_energy": upstream, "inputs_without_direct_extraction": indirect,
+                              "net_energy_per_batch": produced - consumed}
+        self.report["fuel_energy_checks"] = {"extraction_route": "least energy direct extraction, whole batches", "processes": rows}
+
     def capability(self, identity, active=()):
         identity = local(identity)
         if identity in active:
@@ -305,6 +336,16 @@ class Economy:
             rows[identity] = row
         for row in rows.values():
             row["imports_without_enabled_supplier"] = sorted(set(row["import_dependencies"]) - enabled_outputs)
+            inputs, outputs = Counter(), Counter()
+            for plan in row["plans"]:
+                inputs.update(plan["inputs_per_second"])
+                outputs.update(plan["outputs_per_second"])
+            row["local_goods_balance_per_second"] = {
+                good: {"input": inputs[good], "output": outputs[good], "net": outputs[good] - inputs[good]}
+                for good in sorted(inputs.keys() & outputs.keys())}
+            generated = sum(quantity * self.goods[good].get("fuel_energy", 0) for good, quantity in outputs.items())
+            row["fuel_energy_per_second"] = {"produced": generated, "power_demand": row["power_demand"],
+                                             "net": generated - row["power_demand"]}
         self.report["templates"] = rows
         npc = {}
         for identity, profile in self.data["generation-profile"].items():
@@ -320,6 +361,7 @@ class Economy:
     def run(self):
         self.resources()
         self.relations()
+        self.fuel_energy()
         self.templates()
         self.report["passed"] = not self.errors
         self.report["errors"] = self.errors

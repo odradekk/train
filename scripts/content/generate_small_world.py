@@ -45,8 +45,12 @@ GLOBAL_REGEN_RATIO = 0.25
 SECONDS_PER_HOUR = 3600
 HOURS_PER_DAY = 24
 TICKS_PER_SECOND = 60
-BASIC_RESERVE_HOURS = 8
+BASIC_RESERVE_HOURS = 4
 PRODUCTION_RESERVE_HOURS = BASIC_RESERVE_HOURS / 2
+IMPROVEMENT_RESERVE_HOURS = BASIC_RESERVE_HOURS / 4
+LOCAL_FOOD_SHARE = 0.25
+WAREHOUSE_HEADROOM = 2
+WAREHOUSE_ROW_WIDTH = 8
 NPC_FILL_INPUTS_AND_LIVING_TARGETS = True
 NPC_MINIMUM_FOR_SALE_VEHICLES = 1
 NPC_MAXIMUM_FOR_SALE_VEHICLES = 2
@@ -61,7 +65,6 @@ MAXIMUM_LEASE_MULTIPLE = 7
 AUTOMATIC_EVALUATION_SECONDS = 5
 RECENT_REPORT_LIMIT = 24
 VEHICLE_PURCHASE_LIMIT = 3
-NEED_UNITS_PER_PERSON_HOUR = 1
 LABOR_RATIO = 0.5
 CONSUMPTION_SECONDS = 1
 STATISTICS_SECONDS = 10
@@ -76,9 +79,9 @@ CANNON_FACTOR = 4
 # 每批基准秒数、电量/工作量、劳动力/(工作量/秒)。
 PROCESS_PROFILES = {
     "agriculture": (60, 0, 1), "extraction": (30, 1, 1),
-    "metallurgy": (30, 2, 1), "building_materials": (20, 1, 1),
-    "light_industry": (20, 1, 1), "chemical": (30, 2, 1),
-    "food_processing": (15, 1, 1), "assembly": (40, 1, 1),
+    "metallurgy": (30, 2, 1), "building_materials": (30, 1, 1),
+    "light_industry": (30, 1, 1), "chemical": (30, 2, 1),
+    "food_processing": (60, 1, 1), "assembly": (40, 1, 1),
     "electronics": (40, 1, 1), "recovery": (20, 1, 1),
 }
 FARM_TERRAINS = ("plains", "hills")
@@ -884,12 +887,14 @@ def content_files():
                 if (behavior := voxel_definitions[layout["palette"][index]["voxel"]]
                     .get("simulation", {}).get("behaviors", {}).get(capability)) is not None]
 
-    per_generator_outputs = []
+    per_generator_outputs, template_estimates = [], []
     for template in template_definitions.values():
         buildings_by_plot = {plot["id"]: plot["building"] for plot in template["plots"] if "building" in plot}
-        demand = sum(sum(behavior["work_rate"] for behavior in voxel_behaviors(buildings_by_plot[plan["plot"]], plan["capability"]))
-                     * processes[plan["process"]]["power_per_work"]
-                     for plan in template["production_plans"] if plan["enabled"])
+        plans = [(processes[plan["process"]], sum(behavior["work_rate"] for behavior in
+                  voxel_behaviors(buildings_by_plot[plan["plot"]], plan["capability"])))
+                 for plan in template["production_plans"] if plan["enabled"]]
+        demand = sum(rate * process["power_per_work"] for process, rate in plans)
+        template_estimates.append((template, plans, demand))
         generator_count = sum(len(voxel_behaviors(building, "power")) for building in buildings_by_plot.values())
         per_generator_outputs.append(ceil(demand * POWER_HEADROOM / generator_count))
     output = max(per_generator_outputs)
@@ -900,6 +905,45 @@ def content_files():
     document("voxels", "voxel", "fuel", voxel_definitions["fuel"])
 
     needs = ("food", "clothing", "improved_diet", "consumer_goods", "consumer_electronics", "medical_supplies")
+    settlement_types = {}
+    for path, data in files.items():
+        if path.endswith(".settlement-type.json"):
+            value = json.loads(data)
+            settlement_types[value["id"]] = value["simulation"]
+    maximum_population = max(value["population_max"] for value in settlement_types.values())
+    farm_rate = sum(behavior["work_rate"] for behavior in voxel_behaviors("farm", "production"))
+    grain = processes["grain-farming"]
+    grain_per_hour = farm_rate * grain["outputs"][0]["quantity"] / grain["work_required"] * SECONDS_PER_HOUR
+    need_units_per_person_hour = grain_per_hour * LOCAL_FOOD_SHARE / maximum_population
+
+    # 建筑规模估算：计入生活、全部投入和产出的毛量，故意不抵扣重叠货物。
+    # 这不是核心补货目标，也不模拟食物替代、共享容量分配或初始化。
+    warehouse_budgets = []
+    reserve_seconds = PRODUCTION_RESERVE_HOURS * SECONDS_PER_HOUR
+    for template, plans, demand in template_estimates:
+        residents = settlement_types[template["settlement_type"]]["population_max"]
+        living = residents * need_units_per_person_hour * (
+            2 * BASIC_RESERVE_HOURS + (len(needs) - 2) * IMPROVEMENT_RESERVE_HOURS)
+        material_units, lines = 0, len(goods)
+        for process, rate in plans:
+            outputs = [process["extracts"]] if process["kind"] == "extraction" else process["outputs"]
+            entries = process.get("inputs", []) + outputs
+            material_units += sum(entry["quantity"] for entry in entries) * rate / process["work_required"] * reserve_seconds
+            lines += len(entries) + (process["power_per_work"] > 0)
+        fuel_units = ceil(demand * reserve_seconds / fuel["fuel_energy"])
+        warehouse_budgets.append(ceil(living + material_units + fuel_units) + lines * BATCH_UNITS)
+    storage = voxel_definitions["storage-equipment"]["simulation"]["behaviors"]["storage"]["capacity"]
+    storage_count = WAREHOUSE_ROW_WIDTH * ceil(
+        max(warehouse_budgets) * WAREHOUSE_HEADROOM / (storage * WAREHOUSE_ROW_WIDTH))
+    warehouse = blueprint_definitions["small-warehouse"]
+    warehouse["layout"]["cells"] = sorted(
+        [cell for cell in warehouse["layout"]["cells"] if cell[3] != 1] +
+        [[index % WAREHOUSE_ROW_WIDTH - WAREHOUSE_ROW_WIDTH // 2, 1,
+          index // WAREHOUSE_ROW_WIDTH - ceil(storage_count / WAREHOUSE_ROW_WIDTH) // 2, 1]
+         for index in range(storage_count)])
+    warehouse["display"]["description"] = "仓储规模按生活、生产和产出毛量估算；容量及租赁影响待用户试玩确认。"
+    document("blueprints", "blueprint", "small-warehouse", warehouse)
+
     consumption = []
     for order, (identity, _, _) in enumerate(goods):
         roles = ("food", "improved_diet") if identity == "prepared-food" else (needs[order],)
@@ -908,7 +952,7 @@ def content_files():
     document("rules", "population-rule", "basic-population",
              {"schema_version": 1, "id": "basic-population", "simulation": {
                  "needs": {need: {"class": "basic" if need in ("food", "clothing") else "improvement",
-                                  "amount_per_person_second": NEED_UNITS_PER_PERSON_HOUR / SECONDS_PER_HOUR,
+                                  "amount_per_person_second": need_units_per_person_hour / SECONDS_PER_HOUR,
                                   "weight": 1} for need in needs},
                  "consumption_goods": consumption, "labor_ratio": LABOR_RATIO,
                  "consumption_interval_ticks": CONSUMPTION_SECONDS * TICKS_PER_SECOND,
@@ -918,7 +962,7 @@ def content_files():
                  "maximum_loss_per_second": DAILY_MAXIMUM_LOSS / (HOURS_PER_DAY * SECONDS_PER_HOUR)}})
     document("rules", "market-rule", "basic-market", {"schema_version": 2, "id": "basic-market", "simulation": {
         "basic_reserve_hours": BASIC_RESERVE_HOURS, "production_reserve_hours": PRODUCTION_RESERVE_HOURS,
-        "improvement_reserve_hours": BASIC_RESERVE_HOURS / 4,
+        "improvement_reserve_hours": IMPROVEMENT_RESERVE_HOURS,
         "default_goods_prices": {"sensitivity_basis_points": round(MARKET_SENSITIVITY * BASIS_POINTS),
                                  "minimum_multiplier_basis_points": round(MARKET_MULTIPLIER_LIMITS[0] * BASIS_POINTS),
                                  "maximum_multiplier_basis_points": round(MARKET_MULTIPLIER_LIMITS[1] * BASIS_POINTS),

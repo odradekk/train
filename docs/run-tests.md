@@ -37,6 +37,8 @@ Scenes 快速层验证会话生命周期、不可变帧、立方体网格及其�
 
 快速层运行未标记 `integration` 或 `stage` 的 MSTest；集成层运行真实文件读写和子进程用例，并按下述规则选择独立检查。Scenes 集成层最低 1 个用例：宿主测试进程与一个独立子进程各构建同面双入口节点，逐列核对生产地形的接缝道床、站内道床和站台地面，并比较部件键与帧内对象身份、顺序。子进程结果和日志写入本次运行目录下的临时目录，成功后删除该临时目录，失败时保留诊断。Schema 需要 Python 3 与 `jsonschema`（CI 固定为 Python 3.11、`jsonschema==4.25.1`）；示例 Schema 不验证跨文件引用；正式经济检查读取关联 JSON，但不替代生产加载器测试。
 
+正式经济检查还要求燃料生产每批产出的燃料能量大于该流程及直接上游开采的耗电；同时报告模板本地吞吐与满速燃料能量收支。仓库规模预算仅由生成器推导，不在检查器复算。静态关系通过不证明新局可交易或能持续生产，这些结论需要真实核心的市场查询与推进证据。
+
 引擎层在真实 Godot 中运行 `Tests/Engine/Train.Engine.Tests.csproj` 的当前 App 集成用例，需要 `GODOT`。独立测试程序集固定使用 Chickensoft.GoDotTest 2.0.47 和 GodotTestDriver 3.1.83；根项目仅在 Debug 编译 `Tests/Engine/Bootstrap/Runner.tscn` 的启动代码，加载外部测试 DLL 并生成 JUnit；当前无界面引擎最低用例数由脚本中的项目表维护。Release、ExportDebug 和 ExportRelease 排除测试代码、启动场景和测试依赖。这些用例不证明目标四模块的隔离装配。显式导出选择另用 `scripts/checks/run-export-smoke.ps1` 执行一个导出冒烟检查，对同一次 Windows 导出运行两次 `--smoke`，需要 Windows 和匹配的导出模板。Benchmark、长测、额外平台和人工观察不在 `all` 中。
 
 `-ExportWindows` 还运行资产导出探针：从空构建目录链接 `App/Assets/` 同份生产源码及 `GlbFixture.cs`，编译探针入口，仅引用 Core／Content 契约，记录实际编译输入、引用和加载程序集，并在导出程序中核对 PCK／Mod 的原始字节、Keep File 原名及失败注入。探针同时核对真实游戏 PCK 的内置 PNG 字节，并包含隐藏项扫描本次 PCK：出现 `.mcp.json`、`global.json`、`addons/` 下任何条目或 `App/ArtCapture/` 时判失败；原有 `art-source`／`.blend` 扫描保留，仓库没有这类源文件输入夹具，这次内容扫描不能证明源文件排除规则有效。行为断言集中在 `Tests/AssetExport/ProbeRunner.cs`，脚本只编排构建、导出和运行；真实解码、线程与缓存用例仍由现有引擎 runner 执行。探针在 `asset-export/staging/` 独立构建，导出到 `asset-export/export/asset-probe.exe`，运行时检查自己的 PCK 和真实游戏 PCK。它不替代独立宿主隔离或完整四模块联调。接入和所有权见[资产端口](godot-assets.md)。
