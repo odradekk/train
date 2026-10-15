@@ -23,6 +23,7 @@ public sealed class NodeLifecycleTests
         content = new()
         {
             Generation = content.Generation, Core = content.Core, Voxels = content.Voxels,
+            SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>> { [new(1)] = new ContentLookup<SettlementLayoutProjection>.Found(NodeFixtures.Layout) },
             Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
             { [SceneFixtures.Design] = content.FindDesign(SceneFixtures.Design) },
             Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
@@ -91,7 +92,7 @@ public sealed class NodeLifecycleTests
     [DataRow(true, 1)]
     [DataRow(false, 1)]
     [DataRow(false, 0)]
-    public async Task CountChangesPreserveOpeningGeometryAndReportPendingTrain(bool platforms, int openingTracks)
+    public async Task CountChangesPreserveGeometryAndOnlyTrackChangesReportPendingTrain(bool platforms, int openingTracks)
     {
         var train = NodeFixtures.Train(enteredFrom: new(1),
             activity: platforms ? TrainActivity.Servicing : TrainActivity.Waiting);
@@ -101,24 +102,26 @@ public sealed class NodeLifecycleTests
         {
             Interlocked.Increment(ref builds);
             var layout = NodeLayout.Build(input, node, token);
-            return new(layout, ImmutableDictionary<string, NodeScene.Part>.Empty.Add("platform:0",
-                NodeScene.PlatformPart(layout, 0, NodeFixtures.ConcreteCube)), []);
+            return new(layout, ImmutableDictionary<string, NodeScene.Part>.Empty.Add("test-ground",
+                new("fixed", WorldSceneSession.BuildGeometry(id => DesignGeometry.Build(input.Content,
+                    SceneFixtures.Evaluation(SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0))])),
+                    null, SceneFixtures.Identity, id)), ImmutableDictionary<GridColumn, double>.Empty)), []);
         });
         session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location));
         var before = await RailwayFixtures.Settled(session, Request);
         Assert.AreEqual(SceneReadiness.Ready, before.Readiness);
-        var geometry = before.Update.Upserts.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Select(item => item.Mesh).ToArray();
+        var geometry = before.Update.Upserts.Where(item => item.Subject is null).SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Select(item => item.Mesh).ToArray();
         Assert.IsTrue(geometry.Length > 0);
         var changed = NodeFixtures.Snapshot(platforms: platforms ? 2 : 1, tracks: platforms ? 1 : openingTracks + 1,
             trackLimit: 2, trains: [train], steps: 1);
         session.Observe(changed, []);
-        var after = Present(session);
+        var after = await RailwayFixtures.Settled(session, Request);
         Assert.AreEqual(SceneReadiness.Ready, after.Readiness);
         Assert.AreEqual(1, builds);
-        var afterGeometry = after.Update.Upserts.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Select(item => item.Mesh).ToArray();
+        var afterGeometry = after.Update.Upserts.Where(item => item.Subject is null).SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Select(item => item.Mesh).ToArray();
         Assert.AreEqual(geometry.Length, afterGeometry.Length);
         for (var index = 0; index < geometry.Length; index++) Assert.AreSame(geometry[index], afterGeometry[index]);
-        Assert.IsTrue(after.Diagnostics.Any(problem => problem.Code == "railway_update_pending"));
+        Assert.AreEqual(!platforms, after.Diagnostics.Any(problem => problem.Code == "railway_update_pending"));
         Assert.AreEqual(before.NodePanBounds, after.NodePanBounds);
         if (openingTracks == 0)
         {

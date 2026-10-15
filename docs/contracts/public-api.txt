@@ -1150,7 +1150,7 @@ Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneSessionId|public readonl
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneSpaceId|public readonly record struct SceneSpaceId(ulong Value);
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneStage|public enum SceneStage
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneUpdate|public sealed record SceneUpdate(SceneFrameStamp? Base, SceneFrameStamp Frame, Vector3 ShiftExistingRoots, ImmutableArray<SceneObject> Upserts, ImmutableArray<SceneObjectId> Removed, SceneEnvironment Environment, ImmutableArray<SceneEffectCue> Effects);
-Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneVertex|public sealed record SceneVertex(Vector3 Position, Vector3 Normal, Vector2 TextureUv, Vector2 FaceUv, ExposedFaceEdges ExposedEdges, float RelativeHeight, float Damage);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneVertex|public readonly record struct SceneVertex(Vector3 Position, Vector3 Normal, Vector2 TextureUv, Vector2 FaceUv, ExposedFaceEdges ExposedEdges, float RelativeHeight, float Damage);
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneVisual.Geometry|public sealed record Geometry(SceneMesh Mesh, SurfaceState Surface) : SceneVisual;
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneVisual.Missing|public sealed record Missing(ContentReference Reference, bool KnownCell) : SceneVisual;
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneVisual.Model|public sealed record Model(AssetRevision Asset, ImmutableArray<MaterialCategory> Materials, PaintColor? Paint, SurfaceState Surface, Vector4 RelativeHeightPlane) : SceneVisual;

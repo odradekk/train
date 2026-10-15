@@ -12,6 +12,33 @@ internal static class NodeFixtures
     internal static readonly NodeId NodeId = new(1);
     internal static readonly VoxelDefinitionId Concrete = new("test:concrete");
     internal static readonly WorldLocation Location = new WorldLocation.Node(NodeId);
+    internal static readonly DesignHash StationDesign = new("test-station");
+    internal static SettlementLayoutProjection Layout => new(new(1), new("test:town"),
+        new(new("test-ground"), SceneFixtures.Projection([]), new("Ground", "")),
+        [new(1, PlotSize.SmallStation, new(0, 0, 0), VoxelOrientation.PzPy)], new("Town", ""));
+
+    internal static SettlementView Settlement(int platforms = 2) => new(new(1), NodeId, new("test:town"), new("test:town"),
+        SettlementRelation.NonHostile, new(1),
+        [new(new(1), 1, PlotSize.SmallStation, [BuildingKind.Station], platforms > 0 ? new PlotOccupant.Building(new(1)) : new PlotOccupant.Empty())],
+        [], 0, platforms, 0, [], [], [], new(0, 0, 0, 0),
+        new(new(new("test:population"), null, []), 0, 0, 0, 0, new PopulationExecution.NotStarted([]), null, []),
+        new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [],
+        new(new(new("test:market"), null, []), new(0, 0, 0, 0, 0, 0, 0), []));
+
+    internal static InstanceView Station(int platforms) => new(new InstanceId.Building(new(1)), StationDesign, new("station"),
+        Location, SettlementRelation.NonHostile, new InstanceDetails.Building(new(1), PlotSize.SmallStation), InstanceLock.None,
+        new(100, 100), Enumerable.Range(1, 2).Select(number => new PartDamageView(new(number), new(number <= platforms ? 100 : 0, 100), false, number > platforms)).ToImmutableArray(), []);
+
+    internal static DesignEvaluation.Complete StationEvaluation()
+    {
+        var cells = new[] { -22, 22 }.Select((z, index) => SceneFixtures.Cell(new(0, 0, z), index + 1)).ToImmutableArray();
+        var core = new DesignProjection(StationDesign, new("station"), new DesignKind.Building(PlotSize.SmallStation, BuildingKind.Station, []),
+            cells.Select(cell => new PartProjection(cell.Number, new CoreDefinitionReference.Voxel(SceneFixtures.Voxel),
+                new GoodId.Voxel(SceneFixtures.Voxel), 100, 1, new(1), [new PartCapability.Platform()], false)).ToImmutableArray(),
+            100, 100, 1, new(1), [], [], 0, [], true, []);
+        return new(StationDesign, core.Composition, SceneFixtures.Draft with { Specification = new DesignSpecification.Building(PlotSize.SmallStation, BuildingKind.Station, []) },
+            new(new("scenes-test"), core, []), SceneFixtures.Projection(cells) with { Design = StationDesign }, true, []);
+    }
     internal static VoxelAppearanceProjection ConcreteCube => SceneFixtures.Cube with
     {
         Definition = Concrete,
@@ -50,6 +77,7 @@ internal static class NodeFixtures
                         new WorldLocation.Edge(((TrainPosition.Edge)train.Position).Id, ((TrainPosition.Edge)train.Position).DistanceMeters)
                 })).ToImmutableArray();
         var node = Node(platforms);
+        if (platforms > 0) instances = instances.Add(Station(platforms));
         var neighbors = new[]
         {
             node with { Id = new(2), Position = new(600, 0), Occupant = new NodeOccupant.Empty(), Platforms = 0 },
@@ -69,21 +97,30 @@ internal static class NodeFixtures
                     trains.Where(train => train.Position is TrainPosition.Edge position && position.Id == item.Id && position.Track == number)
                         .Select(train => train.Id).ToImmutableArray())).ToImmutableArray(), null))),
             Trains = trains.ToDictionary(train => train.Id, train => (Lookup<TrainView>)new Lookup<TrainView>.Found(train)),
+            Settlements = new Dictionary<SettlementId, Lookup<SettlementView>> { [new(1)] = new Lookup<SettlementView>.Found(Settlement(platforms)) },
             Instances = instances.ToDictionary(instance => instance.Id, instance => (Lookup<InstanceView>)new Lookup<InstanceView>.Found(instance))
         }, content ?? Content());
     }
 
     internal static FixedContentView Content(ulong generation = 1, VoxelAppearanceProjection? concrete = null,
         bool missing = false, DesignEvaluation? design = null, TerrainAppearanceProjection? terrain = null,
-        RailwayAppearanceProjection? rules = null, VoxelAppearanceProjection? voxel = null)
+        RailwayAppearanceProjection? rules = null, VoxelAppearanceProjection? voxel = null,
+        IReadOnlyDictionary<DesignHash, ContentLookup<DesignEvaluation>>? designs = null)
     {
         design ??= RailwayFixtures.Vehicle();
         var hash = design is DesignEvaluation.Complete complete ? complete.Design : SceneFixtures.Design;
+        var evaluations = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+        {
+            [hash] = new ContentLookup<DesignEvaluation>.Found(design),
+            [StationDesign] = new ContentLookup<DesignEvaluation>.Found(StationEvaluation())
+        };
+        foreach (var item in designs ?? ImmutableDictionary<DesignHash, ContentLookup<DesignEvaluation>>.Empty) evaluations[item.Key] = item.Value;
         return new()
         {
             Generation = new(generation), Core = SceneFixtures.Content().Core,
             Voxels = [new(Concrete, null), new(SceneFixtures.Voxel, null)],
-            Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>> { [hash] = new ContentLookup<DesignEvaluation>.Found(design) },
+            Designs = evaluations,
+            SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>> { [new(1)] = new ContentLookup<SettlementLayoutProjection>.Found(Layout) },
             VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
             {
                 [SceneFixtures.Voxel] = new ContentLookup<VoxelAppearanceProjection>.Found(voxel ?? SceneFixtures.Cube),

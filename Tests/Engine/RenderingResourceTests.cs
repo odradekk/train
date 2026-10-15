@@ -280,7 +280,7 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
     private static SceneMesh Triangle(SceneMaterial material) => new(material,
         [new(NVector3.Zero, NVector3.UnitZ, new NVector2(0.1f, 0.2f), NVector2.Zero, ExposedFaceEdges.MinimumU, 0.125f, 0.25f),
          new(NVector3.UnitX, NVector3.UnitZ, new NVector2(0.4f, 0.3f), NVector2.UnitX, ExposedFaceEdges.MaximumU, 0.5f, 0.375f),
-         new(NVector3.UnitY, NVector3.UnitZ, new NVector2(0.3f, 0.8f), NVector2.UnitY, ExposedFaceEdges.MinimumV | ExposedFaceEdges.MaximumV, 0.875f, 0.75f)], [0, 1, 2]);
+         new(NVector3.UnitY, NVector3.UnitZ, new NVector2(3.3f, -2.2f), NVector2.UnitY, ExposedFaceEdges.MinimumV | ExposedFaceEdges.MaximumV, 0.875f, 0.75f)], [0, 1, 2]);
 
     private static MeshInstance3D Instance(PreparedVisual visual) => visual.Node.GetChildren().OfType<MeshInstance3D>().Single();
     private static ShaderMaterial Material(PreparedVisual visual) => (ShaderMaterial)Instance(visual).MaterialOverride;
