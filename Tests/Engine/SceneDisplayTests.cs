@@ -18,7 +18,7 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
     private static readonly SceneSessionId Session = new(Guid.Parse("7dd364aa-df8f-4144-b345-fc130ea11ca9"));
 
     [Test]
-    public void Superseded_preparation_releases_resources_absent_from_the_latest_frame()
+    public void Cancelled_preparation_releases_resources_without_touching_committed_frame()
     {
         using var dispatcher = new GodotMainThreadDispatcher();
         using var cache = new AssetResourceCache(dispatcher);
@@ -41,11 +41,12 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         Require(display.Prepare(candidate) is null, "候选必须在第一个资源后耗尽预算。");
         lease.Dispose();
         Require(GodotObject.IsInstanceValid(texture), "尚在准备的候选必须持有纹理租约。");
+        display.CancelPreparation();
         var latest = Frame(3, [], first.Update.Frame);
         using var prepared = display.Prepare(latest);
         Require(prepared is not null && !GodotObject.IsInstanceValid(texture) &&
             ReferenceEquals(display.DisplayedFrame, first),
-            "最新候选不再引用的资源必须及时释放，同时旧显示帧不变。");
+            "取消的候选必须在主线程释放其独占资源，同时旧显示帧不变。");
         prepared!.Commit();
         Require(ReferenceEquals(display.DisplayedFrame, latest) && display.Objects.Count == 1,
             "必须提交最新候选，不能接入已被取代的对象。");

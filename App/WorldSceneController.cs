@@ -185,12 +185,13 @@ internal sealed class WorldSceneController : IDisposable
                 _awaitingRequest = false;
                 if (frame.Readiness == SceneReadiness.Loading) View.SetLoading(_display!.DisplayedFrame is null);
             }
-            if (frame.Update.Base is { } baseline && baseline != displayed?.Update.Frame)
+            if (!_display!.IsPreparing && frame.Update.Base is { } baseline && baseline != displayed?.Update.Frame)
             { _fullReplacement = true; return; }
             using var prepared = _display!.Prepare(frame);
             if (prepared is not null)
             {
                 prepared.Commit();
+                frame = prepared.Frame;
                 if (_pickRay is { } sample && sample.Frame.Update.Frame.Space != frame.Update.Frame.Space) _pickRay = null;
                 _fullReplacement = false;
                 View.ShowFrame(frame, FollowSubject(), _target is WorldSceneTarget.Location { Value: WorldLocation.Edge });

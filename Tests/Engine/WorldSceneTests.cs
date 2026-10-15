@@ -57,12 +57,14 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
         var first = Frame(1, pick: new ScenePick.Miss());
         var candidates = Enumerable.Range(2, 3).Select(revision =>
             Frame((ulong)revision, first.Update.Frame, objects:
-                [Object((ulong)(revision * 3)), Object((ulong)(revision * 3 + 1)), Object((ulong)(revision * 3 + 2))])).ToArray();
+                [Object((ulong)(revision * 3)), Object((ulong)(revision * 3 + 1)), Object((ulong)(revision * 3 + 2))],
+                readiness: revision == 2 ? SceneReadiness.Partial : SceneReadiness.Ready)).ToArray();
+        var next = Frame(5, candidates[0].Update.Frame, objects: [Object(20)]);
         FixedDisplaySession? session = null;
         try
         {
             var app = await Ready(fixture, new Setup(), Factory(binding => session = Session(binding,
-                [Success(first), .. candidates.Select(Success)])));
+                [Success(first), .. candidates.Select(Success), Success(next)])));
             var world = app.WorldScenes!;
             world.Open(Target);
             world.Display!.Timestamp = () => 0;
@@ -81,11 +83,17 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
                     "准备期间拾取只能查询已提交帧。");
             }
             world.ProcessFrame(0, false);
-            Require(ReferenceEquals(world.Display.DisplayedFrame, candidates[^1]) && world.Display.Objects.Count == 4,
-                "跨帧资源必须复用，并原子提交最新候选而非最初候选。");
+            Require(ReferenceEquals(world.Display.DisplayedFrame, candidates[0]) && world.Display.Objects.Count == 4,
+                "必须完成并提交固定的Partial候选，不得被持续到达的Ready帧取代。");
             Require(session!.PresentCalls.Count == 4 && session.PresentCalls.Skip(1).All(call =>
                 ReferenceEquals(call.DisplayedFrame, first) && ReferenceEquals(call.Request.Camera!.Frame, first)),
                 "准备期间每帧必须继续Present，相机和显示边界均来自旧提交帧。");
+            world.Display.Timestamp = () => 0;
+            world.ProcessFrame(0, false);
+            Require(ReferenceEquals(world.Display.DisplayedFrame, next) &&
+                ReferenceEquals(session.PresentCalls[^1].DisplayedFrame, candidates[0]) &&
+                ReferenceEquals(session.PresentCalls[^1].Request.Camera!.Frame, candidates[0]),
+                "提交后的下一轮必须从新的已提交帧开始。");
         }
         finally { await fixture.Cleanup(); }
     }

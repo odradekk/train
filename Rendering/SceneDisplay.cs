@@ -16,6 +16,7 @@ internal sealed class SceneDisplay : IDisposable
     private DebugLineGroup? _debugLines;
     private FogGroup? _pendingFog;
     private DebugLineGroup? _pendingDebugLines;
+    private ISceneFrame? _preparingFrame;
     private bool _disposed;
     private readonly Dictionary<(SceneObjectId Object, int Index), PreparedVisual> _pendingVisuals = [];
     private readonly Dictionary<SceneObjectId, Node3D> _pendingRoots = [];
@@ -24,6 +25,7 @@ internal sealed class SceneDisplay : IDisposable
 
     internal Node3D Root { get; } = new() { Name = "SceneDisplay" };
     internal ISceneFrame? DisplayedFrame { get; private set; }
+    internal bool IsPreparing => _preparingFrame is not null;
     internal IReadOnlyDictionary<SceneObjectId, DisplayObject> Objects => _objects;
 
     internal SceneDisplay(AssetResourceCache cache, IContentView content)
@@ -35,54 +37,18 @@ internal sealed class SceneDisplay : IDisposable
     internal PreparedFrame? Prepare(ISceneFrame frame)
     {
         _cache.RequireMainThread();
+        frame = _preparingFrame ?? frame;
         if (frame.Readiness == SceneReadiness.Loading ||
             frame.Update.Base is { } baseline && baseline != DisplayedFrame?.Update.Frame)
         {
             CancelPreparation();
             return null;
         }
+        _preparingFrame = frame;
         var started = Timestamp();
         var preparedResource = false;
         var update = frame.Update;
-        var sources = update.Upserts.ToDictionary(source => source.Id);
-        bool ReusesDisplayedVisual(SceneObject source, int index) =>
-            _objects.TryGetValue(source.Id, out var previous) && index < previous.Visuals.Length &&
-            previous.Visuals[index].CanUpdate(source.Visuals[index]);
-        var missingGeometry = new Dictionary<SceneMesh, Queue<(SceneObjectId Object, int Index)>>(ReferenceEqualityComparer.Instance);
-        foreach (var source in update.Upserts)
-            for (var index = 0; index < source.Visuals.Length; index++)
-                if (!ReusesDisplayedVisual(source, index) && source.Visuals[index] is SceneVisual.Geometry geometry &&
-                    (!_pendingVisuals.TryGetValue((source.Id, index), out var pending) || !pending.CanUpdate(geometry)))
-                {
-                    if (!missingGeometry.TryGetValue(geometry.Mesh, out var keys))
-                        missingGeometry.Add(geometry.Mesh, keys = new());
-                    keys.Enqueue((source.Id, index));
-                }
-        var abandoned = new List<PreparedVisual>();
-        foreach (var (key, visual) in _pendingVisuals.ToArray())
-            if (!sources.TryGetValue(key.Object, out var source) || key.Index >= source.Visuals.Length ||
-                !visual.CanUpdate(source.Visuals[key.Index]) || ReusesDisplayedVisual(source, key.Index))
-            {
-                _pendingVisuals.Remove(key);
-                abandoned.Add(visual);
-            }
-        foreach (var visual in abandoned)
-            if (visual.Visual is SceneVisual.Geometry geometry &&
-                missingGeometry.TryGetValue(geometry.Mesh, out var keys) && keys.TryDequeue(out var replacement))
-                _pendingVisuals.Add(replacement, visual);
-            else visual.Dispose();
-        foreach (var (id, root) in _pendingRoots.ToArray())
-            if (!sources.ContainsKey(id))
-            {
-                root.Free();
-                _pendingRoots.Remove(id);
-            }
         var next = update.Base is null ? new Dictionary<SceneObjectId, DisplayObject>() : new(_objects);
-
-        if (_pendingFog is not null && !_pendingFog.Regions.SequenceEqual(update.Environment.FoggedRegions))
-        { _pendingFog.Dispose(); _pendingFog = null; }
-        if (_pendingDebugLines is not null && !_pendingDebugLines.Lines.SequenceEqual(frame.DebugLines))
-        { _pendingDebugLines.Dispose(); _pendingDebugLines = null; }
         bool BudgetExpired() => preparedResource &&
             Stopwatch.GetElapsedTime(started, Timestamp()) >= PreparationBudget;
         try
@@ -138,6 +104,7 @@ internal sealed class SceneDisplay : IDisposable
             _pendingDebugLines = null;
             _pendingVisuals.Clear();
             _pendingRoots.Clear();
+            _preparingFrame = null;
             return prepared;
         }
         catch
@@ -150,6 +117,7 @@ internal sealed class SceneDisplay : IDisposable
     internal void CancelPreparation()
     {
         _cache.RequireMainThread();
+        _preparingFrame = null;
         foreach (var visual in _pendingVisuals.Values) visual.Dispose();
         foreach (var root in _pendingRoots.Values) root.Free();
         _pendingVisuals.Clear();
@@ -259,6 +227,7 @@ internal sealed class SceneDisplay : IDisposable
         public void Dispose()
         {
             if (Transferred || _disposed) return;
+            owner._cache.RequireMainThread();
             _disposed = true;
             foreach (var visual in visuals) visual.Dispose();
             foreach (var root in roots) if (GodotObject.IsInstanceValid(root)) root.Free();
