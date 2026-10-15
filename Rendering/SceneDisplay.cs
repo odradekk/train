@@ -20,7 +20,7 @@ internal sealed class SceneDisplay : IDisposable
     private bool _disposed;
     private readonly Dictionary<(SceneObjectId Object, int Index), PreparedVisual> _pendingVisuals = [];
     private readonly Dictionary<SceneObjectId, Node3D> _pendingRoots = [];
-    private static readonly TimeSpan PreparationBudget = TimeSpan.FromMilliseconds(2);
+    private static readonly TimeSpan PreparationBudget = TimeSpan.FromMilliseconds(4);
     internal Func<long> Timestamp { get; set; } = Stopwatch.GetTimestamp;
 
     internal Node3D Root { get; } = new() { Name = "SceneDisplay" };
