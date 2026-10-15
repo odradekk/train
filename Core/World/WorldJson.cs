@@ -23,7 +23,12 @@ internal static class WorldJson
             foreach (var design in world.Designs)
                 if (!SameValue(design, WorldInputs.NormalizeDesign(design))) throw new CoreStateFormatException("/world/designs");
             foreach (var settlement in world.Settlements)
+            {
                 if (!SameValue(settlement.Template, WorldInputs.NormalizeTemplate(settlement.Template))) throw new CoreStateFormatException("/world/settlements/template");
+                if (settlement.PopulationState.Period is { } period
+                    && !SameValue(period.Rule, WorldInputs.NormalizePopulationRule(period.Rule)))
+                    throw new CoreStateFormatException("/world/settlements/population_state/period/rule");
+            }
             return world;
         }
         catch (Exception error) when (error is JsonException or NotSupportedException or ArgumentException)

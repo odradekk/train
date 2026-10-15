@@ -12,12 +12,51 @@ namespace Train.Core.Tests.Production;
 public sealed class ProductionTests
 {
     [TestMethod]
+    public void Session_work_uses_current_population_labor_and_new_residents_only_on_the_next_step()
+    {
+        var food = new GoodId.Voxel(new("fixture:food"));
+        var clothing = new GoodId.Voxel(new("fixture:clothing"));
+        var content = Content(stock: [new(Input, 2), new(food, 10), new(clothing, 10)],
+            work: 10, rate: 120, laborPerWork: 2);
+        content = content with { PopulationRules = [WorldFixture.PopulationRule() with
+        {
+            StatisticsPeriodTicks = 2, BaseGrowthPerSecond = 3, LaborRatio = .4
+        }] };
+        using var referenceCandidate = Prepare(content);
+        using var reference = referenceCandidate.Activate();
+        Step(reference, 2);
+        Assert.AreEqual(2, Read(reference).ActualWorkPerSecond, 1e-12);
+        using var candidate = Prepare(content);
+        using var session = candidate.Activate();
+        Step(session);
+        var changed = Changed(content) with { PopulationRules = [content.PopulationRules[0] with { LaborRatio = .8 }] };
+        Publish(session, changed);
+        var settled = Step(session);
+        var report = settled.Events.Select(e => e.Event).OfType<CoreEvent.PopulationSettled>().Single().Report;
+        Assert.AreEqual(10L, report.Before);
+        Assert.AreEqual(11L, report.After);
+        Assert.AreEqual(4, Read(session).ActualWorkPerSecond, 1e-12);
+        Assert.AreEqual(4d / 60, Read(session).Batch!.ProgressWork, 1e-12);
+        CollectionAssert.Contains(Read(session).Limits.ToArray(), WorkLimit.Labor);
+        Step(session);
+        Assert.AreEqual(4.4, Read(session).ActualWorkPerSecond, 1e-12);
+        Assert.AreEqual(8.4 / 60, Read(session).Batch!.ProgressWork, 1e-12);
+        Assert.AreEqual(0L, Stock(session, Input));
+    }
+
+    [TestMethod]
     public void Incomplete_batch_keeps_all_inputs_and_waits()
     {
-        using var candidate = Prepare(Content(stock: [new(Input, 7), new(OtherProduct, 1)],
-            inputs: [new(Input, 2), new(OtherProduct, 2)]));
-        using var session = candidate.Activate();
-        Step(session, 3);
+        var content = Content(stock: [new(Input, 7), new(OtherProduct, 1)], inputs: [new(Input, 2), new(OtherProduct, 2)]);
+        content = content with { PopulationRules = [content.PopulationRules[0] with
+            { ConsumptionIntervalTicks = 120, StatisticsPeriodTicks = 720 }] };
+        using var candidate = Prepare(content);
+        using var session = (CoreSession)candidate.Activate();
+        Step(session);
+        var waiting = session.State.World;
+        Step(session, 2);
+        Assert.AreEqual(waiting.Settlements, session.State.World.Settlements);
+        Assert.AreEqual(waiting.Inventories, session.State.World.Inventories);
         Assert.AreEqual(7L, Stock(session, Input));
         Assert.AreEqual(1L, Stock(session, OtherProduct));
         Assert.AreEqual(ProductionState.WaitingForInputs, Read(session).State);
@@ -87,15 +126,15 @@ public sealed class ProductionTests
     public void Labor_limits_work_and_releasing_the_limit_preserves_progress()
     {
         var state = State(Content(work: 2, rate: 120, laborPerWork: 2));
-        var start = ProductionOperations.Advance(state.World, state.Content, Settlement, 30, 1).World;
-        var limited = ProductionOperations.Advance(start, state.Content, Settlement, 30, 2).World;
+        var start = AdvanceProduction(state.World, state.Content, Settlement, 30, 1).World;
+        var limited = AdvanceProduction(start, state.Content, Settlement, 30, 2).World;
         var batch = limited.Settlements.Single().ProductionFacilities.Single().Batch!;
         Assert.AreEqual(.25, batch.ProgressWork, 1e-12);
         Assert.AreEqual(15d, limited.Settlements.Single().ProductionFacilities.Single().LastActualWorkPerSecond, 1e-12);
         CollectionAssert.AreEqual(new[] { WorkLimit.Labor }, limited.Settlements.Single().ProductionFacilities.Single().LastLimits.ToArray());
-        var paused = ProductionOperations.Advance(limited, state.Content, Settlement, 0, 3).World;
+        var paused = AdvanceProduction(limited, state.Content, Settlement, 0, 3).World;
         Assert.AreEqual(.25, paused.Settlements.Single().ProductionFacilities.Single().Batch!.ProgressWork, 1e-12);
-        var finished = ProductionOperations.Advance(paused, state.Content, Settlement, 240, 4).World;
+        var finished = AdvanceProduction(paused, state.Content, Settlement, 240, 4).World;
         Assert.IsNull(finished.Settlements.Single().ProductionFacilities.Single().Batch);
         Assert.AreEqual(3L, finished.Inventories.Single(i => i.Id == LocalInventory).Goods.Single(g => g.Good == Product).Quantity);
     }
@@ -107,8 +146,8 @@ public sealed class ProductionTests
     {
         var state = State(Content(stock: [new(Input, 2), new(Fuel, 2)], work: 4, rate: 120,
             powerPerWork: 2, laborPerWork: 2, power: 30));
-        var started = ProductionOperations.Advance(state.World, state.Content, Settlement, labor, 0).World;
-        var advanced = ProductionOperations.Advance(started, state.Content, Settlement, labor, 1).World;
+        var started = AdvanceProduction(state.World, state.Content, Settlement, labor, 0).World;
+        var advanced = AdvanceProduction(started, state.Content, Settlement, labor, 1).World;
         var runtime = advanced.Settlements.Single().ProductionFacilities.Single();
         Assert.AreEqual(expectedRate, runtime.LastActualWorkPerSecond, 1e-12);
         Assert.AreEqual(expectedRate / 60, runtime.Batch!.ProgressWork, 1e-12);
@@ -178,6 +217,7 @@ public sealed class ProductionTests
     public void Active_batch_keeps_frozen_power_and_labor_intensities()
     {
         var content = Content(stock: [new(Input, 4), new(Fuel, 2)], powerPerWork: 1);
+        content = content with { PopulationRules = [content.PopulationRules[0] with { LaborRatio = 0 }] };
         using var candidate = Prepare(content);
         using var session = candidate.Activate();
         Step(session, 2);
@@ -229,7 +269,7 @@ public sealed class ProductionTests
     public void Output_does_not_use_reserved_or_overcapacity_storage(int reserved, int extraStock)
     {
         var state = State(Content(stock: [new(Input, 2)], work: 1, capacity: 1));
-        var started = ProductionOperations.Advance(state.World, state.Content, Settlement, 0, 1).World;
+        var started = AdvanceProduction(state.World, state.Content, Settlement, 0, 1).World;
         var world = started with { Inventories = started.Inventories.Select(i => i.Id != LocalInventory ? i : i with
         {
             Goods = extraStock == 0 ? [] : [new(OtherProduct, extraStock)],

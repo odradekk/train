@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Train.Core.Settlements;
 using Train.Core.Contracts;
 
 namespace Train.Core.World;
@@ -15,7 +16,7 @@ internal abstract record GeneratedOccupant
 internal sealed record SettlementState(SettlementId Id, NodeId Node, SettlementTypeId Type,
     SettlementRelation Relation, long Population, SettlementTemplateProjection Template,
     ImmutableArray<PlotState> Plots, InventoryId Inventory, ImmutableArray<VehicleId> ParkedVehicles,
-    double FuelEnergyRemaining, ImmutableArray<ProductionFacilityState> ProductionFacilities);
+    double FuelEnergyRemaining, ImmutableArray<ProductionFacilityState> ProductionFacilities, PopulationState PopulationState);
 internal sealed record ProductionBatchState(ProcessRef Process, SemanticRevision StartedFromRevision,
     ImmutableArray<GoodsQuantity> FrozenOutputs, long FrozenWorkRequired, double FrozenPowerPerWork,
     double FrozenLaborPerWork, double ProgressWork);
@@ -124,7 +125,7 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
                     settlement.Template.ProductionPlans.Where(p => p.Capability == CapabilityKind.Production)
                         .Select(p => plots.Single(plot => plot.TemplateNumber == p.PlotNumber).Building)
                         .Where(b => b is not null).OrderBy(b => b!.Value.Value)
-                        .Select(b => new ProductionFacilityState(b!.Value, null, [], 0, [], 0, 0)).ToImmutableArray()));
+                        .Select(b => new ProductionFacilityState(b!.Value, null, [], 0, [], 0, 0)).ToImmutableArray(), PopulationState.Initial));
             }
             else if (occupants[index] is GeneratedOccupant.Lair lair)
             {
