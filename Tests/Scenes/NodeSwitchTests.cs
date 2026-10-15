@@ -57,6 +57,10 @@ public sealed class NodeSwitchTests
         var expected = new NodeRange(entry, NodeStreaming.PrefetchCells).Chunks(retained.Layout)
             .Select(NodeScene.ChunkKey).ToArray();
         CollectionAssert.AreEquivalent(expected, retained.Parts.Keys.Where(key => key.StartsWith("terrain:", StringComparison.Ordinal)).ToArray());
+        var railSegments = NodeScene.Prepare(initial, retained.Layout).Rails;
+        var entryRange = new NodeRange(entry, NodeStreaming.PrefetchCells);
+        CollectionAssert.AreEquivalent(railSegments.Values.Where(segment => entryRange.Intersects(segment.Bounds)).Select(segment => segment.Key).ToArray(),
+            retained.Parts.Keys.Where(railSegments.ContainsKey).ToArray());
         var wholeCount = (retained.Layout.Bounds.Maximum.X - retained.Layout.Bounds.Minimum.X) / VoxelGrid.ChunkSize *
             (retained.Layout.Bounds.Maximum.Y - retained.Layout.Bounds.Minimum.Y) / VoxelGrid.ChunkSize;
         Assert.IsTrue(expected.Length < wholeCount, "The candidate must leave distant node chunks unbuilt.");
@@ -109,10 +113,11 @@ public sealed class NodeSwitchTests
         Assert.IsTrue(built.Parts.Keys.Any(key => key.StartsWith("terrain:", StringComparison.Ordinal)));
         var visibleMeshes = node.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>()
             .Select(visual => visual.Mesh).ToHashSet(ReferenceEqualityComparer.Instance);
-        foreach (var key in new[] { "entry:1", "entry:2", "station-tracks" })
+        foreach (var prefix in new[] { "entry:1:", "entry:2:", "station-tracks:" })
         {
-            var meshes = built.Parts[key].Geometry.Geometry.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().ToArray();
-            Assert.IsTrue(meshes.Length > 0 && meshes.All(visual => visibleMeshes.Contains(visual.Mesh)), key);
+            var meshes = built.Parts.Where(part => part.Key.StartsWith(prefix, StringComparison.Ordinal))
+                .SelectMany(part => part.Value.Geometry.Geometry.Objects).SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().ToArray();
+            Assert.IsTrue(meshes.Length > 0 && meshes.All(visual => visibleMeshes.Contains(visual.Mesh)), prefix);
         }
         Assert.IsTrue(built.Parts.Where(part => part.Key.StartsWith("terrain:", StringComparison.Ordinal))
             .SelectMany(part => part.Value.Geometry.Geometry.Objects).SelectMany(item => item.Visuals)

@@ -15,12 +15,12 @@ internal static class RailwayMeshes
         return Build(path.Sample, start, end, origin, path.Edge.Tracks);
     }
 
-    internal static ImmutableArray<SceneMesh> Build(Func<double, RailwaySample> sample, double length, ScenePoint origin) =>
+    internal static ImmutableArray<SceneMesh> Build(Func<double, RailwaySample> sample, double start, double end, ScenePoint origin) =>
         Build((arc, offset) =>
         {
             var at = sample(arc);
             return at with { Position = RailwayCoordinates.Add(at.Position, at.Right * (float)offset) };
-        }, 0, length, origin, 1);
+        }, start, end, origin, 1);
 
     private static ImmutableArray<SceneMesh> Build(Func<double, double, RailwaySample> sampleAt,
         double start, double end, ScenePoint origin, int tracks)

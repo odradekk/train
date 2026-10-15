@@ -68,10 +68,10 @@ internal readonly record struct NodeRange(ScenePoint Focus, double RadiusCells)
         }
     }
 
-    internal double DistanceSquared(GridColumn from)
+    internal double DistanceSquared(SceneBounds bounds)
     {
-        var dx = from.X + VoxelGrid.ChunkSize / 2.0 - Focus.X;
-        var dz = from.Z + VoxelGrid.ChunkSize / 2.0 - Focus.Z;
+        var dx = (bounds.Minimum.X + bounds.Maximum.X) / 2.0 - Focus.X;
+        var dz = (bounds.Minimum.Z + bounds.Maximum.Z) / 2.0 - Focus.Z;
         return dx * dx + dz * dz;
     }
 }

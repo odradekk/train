@@ -95,8 +95,8 @@ public sealed class NodeSceneTests
     {
         var snapshot = DiagonalSnapshot();
         var built = NodeFixtures.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
-        Assert.IsTrue(built.Parts["entry:1"].Geometry.Geometry.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Any());
-        Assert.IsTrue(built.Parts["station-tracks"].Geometry.Geometry.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Any());
+        Assert.IsTrue(built.Parts.Where(part => part.Key.StartsWith("entry:1:", StringComparison.Ordinal)).SelectMany(part => part.Value.Geometry.Geometry.Objects).SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Any());
+        Assert.IsTrue(built.Parts.Where(part => part.Key.StartsWith("station-tracks:", StringComparison.Ordinal)).SelectMany(part => part.Value.Geometry.Geometry.Objects).SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Any());
         foreach (var part in built.Parts.Values)
         {
             Assert.AreEqual(Math.Round(part.Origin.X), part.Origin.X);
@@ -156,8 +156,9 @@ public sealed class NodeSceneTests
         var changed = NodeFixtures.Build(relief, NodeLayout.Build(relief, NodeFixtures.NodeId), same);
         Assert.AreNotSame(same.Boundaries[new(1)], changed.Boundaries[new(1)], "Relief is read from the rebound snapshot.");
         Assert.AreNotSame(same.Parts["boundary:1"], changed.Parts["boundary:1"]);
-        Assert.AreSame(same.Parts["entry:1"], changed.Parts["entry:1"]);
-        Assert.AreSame(same.Parts["station-tracks"], changed.Parts["station-tracks"]);
+        foreach (var part in same.Parts.Where(part => part.Key.StartsWith("entry:", StringComparison.Ordinal) ||
+            part.Key.StartsWith("station-tracks:", StringComparison.Ordinal)))
+            Assert.AreSame(part.Value, changed.Parts[part.Key]);
     }
 
     [TestMethod]
