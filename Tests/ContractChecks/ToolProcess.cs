@@ -20,6 +20,7 @@ internal static class ToolProcess
         info.Environment["UseSharedCompilation"] = "false";
         info.Environment["MSBUILDDISABLENODEREUSE"] = "1";
         using var process = new Process { StartInfo = info };
+        var watch = Stopwatch.StartNew();
         process.Start();
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();
@@ -34,11 +35,12 @@ internal static class ToolProcess
         }
         var output = await stdout;
         var errors = await stderr;
+        watch.Stop();
         Directory.CreateDirectory(Path.GetDirectoryName(log)!);
         await File.WriteAllTextAsync(log, JsonSerializer.Serialize(new
         {
             program, arguments = info.ArgumentList, directory, timeoutSeconds,
-            exitCode = process.ExitCode, timedOut
+            exitCode = process.ExitCode, timedOut, seconds = watch.Elapsed.TotalSeconds
         }) + Environment.NewLine + output + errors);
         if (timedOut || process.ExitCode != 0)
             throw new InvalidOperationException($"process failed: {program} (exit={process.ExitCode}, timeout={timedOut}); log={log}\n{output}{errors}");
