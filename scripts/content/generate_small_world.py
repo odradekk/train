@@ -7,7 +7,7 @@ python scripts/content/generate_small_world.py --output-dir TestResults/reproduc
 脚本独占输出目录 resources/；校验模式拒绝缺失、多余或字节不同的文件，
 并按仓库 Schema 检查 JSON（校验需要 jsonschema）。生成只用 Python 标准库。
 地形与小型机车使用第一阶段风格样稿，其余美术仍为占位；数值待配平，
-数值和画面待用户试玩确认；NPC 初始化待 #528，车队待 #340。
+数值和画面待用户试玩确认；NPC 库存与现车初始化已启用，车队待 #340。
 校验同时检查正式内容的经济关系；不生成生物聚落或存档。
 """
 
@@ -46,6 +46,11 @@ SECONDS_PER_HOUR = 3600
 HOURS_PER_DAY = 24
 TICKS_PER_SECOND = 60
 BASIC_RESERVE_HOURS = 8
+PRODUCTION_RESERVE_HOURS = BASIC_RESERVE_HOURS / 2
+NPC_FILL_INPUTS_AND_LIVING_TARGETS = True
+NPC_MINIMUM_FOR_SALE_VEHICLES = 1
+NPC_MAXIMUM_FOR_SALE_VEHICLES = 2
+NPC_FOR_SALE_VEHICLE_CANDIDATES = tuple(spec[0] for spec in VEHICLES)
 MARKET_MARGIN = 0.1
 MARKET_SENSITIVITY = 0.25
 MARKET_MULTIPLIER_LIMITS = (0.5, 2)
@@ -851,7 +856,7 @@ def content_files():
                   "production_plans": [{"plot": plot, "capability": capability, "process": process,
                                         "enabled": enabled, "priority": INITIAL_PLAN_PRIORITY}
                                        for plot, capability, process, enabled in TEMPLATE_PLANS[identity]],
-                  "display": {"name": name + "经济布局", "description": "十地块布局，含两个站点地块与真实生产计划；特殊库存为空，普通初始化待核心生成器支持。"}})
+                  "display": {"name": name + "经济布局", "description": "十地块布局，含两个站点地块与真实生产计划；特殊库存为空，普通库存与现车由核心按生成配置初始化。"}})
 
     for value in (core_city_hub(), bastion_fortress()):
         document("blueprints", "blueprint", value["id"], value)
@@ -912,7 +917,7 @@ def content_files():
                  "improvement_growth_per_second": DAILY_GROWTH / (HOURS_PER_DAY * SECONDS_PER_HOUR),
                  "maximum_loss_per_second": DAILY_MAXIMUM_LOSS / (HOURS_PER_DAY * SECONDS_PER_HOUR)}})
     document("rules", "market-rule", "basic-market", {"schema_version": 2, "id": "basic-market", "simulation": {
-        "basic_reserve_hours": BASIC_RESERVE_HOURS, "production_reserve_hours": BASIC_RESERVE_HOURS / 2,
+        "basic_reserve_hours": BASIC_RESERVE_HOURS, "production_reserve_hours": PRODUCTION_RESERVE_HOURS,
         "improvement_reserve_hours": BASIC_RESERVE_HOURS / 4,
         "default_goods_prices": {"sensitivity_basis_points": round(MARKET_SENSITIVITY * BASIS_POINTS),
                                  "minimum_multiplier_basis_points": round(MARKET_MULTIPLIER_LIMITS[0] * BASIS_POINTS),
@@ -968,7 +973,7 @@ def content_files():
     initial_money = ceil(START_BUDGET_MULTIPLIER * (cargo_capacity * max(values[good] for good, _, _ in goods) + small_base_value))
     document("generation-profiles", "generation-profile", "basic-through-world", {
         "schema_version": 2, "id": "basic-through-world",
-        "display": {"name": "经济运输验证世界", "description": "真实货物、流程和六份模板计划；数值待试玩。NPC 库存和现车初始化待 #528，车队待 #340，真实起步贸易待 #386。"},
+        "display": {"name": "经济运输验证世界", "description": "真实货物、流程和六份模板计划；数值待试玩。NPC 库存和现车初始化已启用，车队待 #340，真实起步贸易待 #386。"},
         "configuration": {"width_meters": 1800, "height_meters": 1200, "minimum_node_spacing_meters": 300,
             "candidate_probability": 0.9, "elevation_noise": [{"scale_meters": 780, "amplitude": 14}, {"scale_meters": 260, "amplitude": 4}],
             "moisture_noise": [{"scale_meters": 600, "amplitude": 1}], "river_noise": [{"scale_meters": 900, "amplitude": 1}],
@@ -978,8 +983,11 @@ def content_files():
             "resources": resources,
             "initial_railway": {"maximum_tracks": 2, "minimum_initial_tracks": 1, "maximum_initial_tracks": 2, "additional_cycle_edges": 1},
             "budget": {"maximum_stage_retries": 4, "maximum_world_retries": 4, "maximum_candidates": 50000, "maximum_search_work": 4000000},
-            "npc_initialization": {"fill_inputs_and_living_targets": False, "output_reserve_hours": 0,
-                                   "minimum_for_sale_vehicles": 0, "maximum_for_sale_vehicles": 0, "for_sale_vehicle_candidates": []},
+            "npc_initialization": {"fill_inputs_and_living_targets": NPC_FILL_INPUTS_AND_LIVING_TARGETS,
+                                   "output_reserve_hours": PRODUCTION_RESERVE_HOURS,
+                                   "minimum_for_sale_vehicles": NPC_MINIMUM_FOR_SALE_VEHICLES,
+                                   "maximum_for_sale_vehicles": NPC_MAXIMUM_FOR_SALE_VEHICLES,
+                                   "for_sale_vehicle_candidates": NPC_FOR_SALE_VEHICLE_CANDIDATES},
             "start_constraints": {"minimum_reachable_non_hostile_settlements": 2, "minimum_reachable_empty_nodes": 1,
                                   "require_station": True, "exclude_adjacent_lairs": True, "fully_loaded_purchase_rounds_per_train": 1,
                                   "required_affordable_commission_design": "small-locomotive"},

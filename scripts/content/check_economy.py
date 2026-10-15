@@ -309,14 +309,12 @@ class Economy:
         npc = {}
         for identity, profile in self.data["generation-profile"].items():
             parameters = profile["configuration"]["npc_initialization"]
-            deferred = (
-                not parameters["fill_inputs_and_living_targets"]
-                and parameters["output_reserve_hours"] == 0
-                and parameters["minimum_for_sale_vehicles"] == 0
-                and parameters["maximum_for_sale_vehicles"] == 0
-                and not parameters["for_sale_vehicle_candidates"]
+            enabled = (
+                parameters["fill_inputs_and_living_targets"]
+                or parameters["output_reserve_hours"] > 0
+                or parameters["maximum_for_sale_vehicles"] > 0
             )
-            npc[identity] = {"status": "deferred" if deferred else "configured", "parameters": parameters}
+            npc[identity] = {"status": "enabled" if enabled else "disabled", "parameters": parameters}
         self.report["npc_initialization"] = npc
 
     def run(self):
