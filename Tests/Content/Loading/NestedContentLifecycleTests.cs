@@ -139,6 +139,23 @@ public sealed class NestedContentLifecycleTests
         Assert.AreEqual(before, Success(ContentFactory.Create().Capture(initial.View, references)).Encode());
     }
 
+    [TestMethod]
+    public void Reload_registering_only_restored_library_displays_advances_generation_and_persistent_revision()
+    {
+        var fixture = DesignFixtures.Content();
+        using var initial = fixture.Load();
+        var references = References(initial.View);
+        var saved = Success(ContentFactory.Create().Capture(initial.View, references));
+        AddAssembly(fixture, "introduced", "新增构成", "#abcdef");
+        using var restored = Restore(fixture, saved, references);
+        Assert.AreEqual(0, restored.View.Core.DesignGoods.Length);
+        using var reloaded = Success(PrepareReload(fixture, restored.View, references));
+        Assert.AreEqual(C.ContentChange.Persistent, reloaded.Changes);
+        Assert.AreEqual(restored.View.Generation.Value + 1, reloaded.View.Generation.Value);
+        Assert.AreEqual(restored.View.PersistentRevision.Value + 1, reloaded.View.PersistentRevision.Value);
+        Assert.AreEqual(1, reloaded.View.Core.DesignGoods.Length);
+    }
+
     private static C.DesignEvaluation.Complete Blueprint(C.IContentView view, string id) =>
         (C.DesignEvaluation.Complete)Found(view.FindBlueprint(new(C.BlueprintLibrary.Packages, new("core:" + id)))).Evaluation;
 
@@ -156,7 +173,7 @@ public sealed class NestedContentLifecycleTests
         var good = new K.GoodId.Assembly(before.Composition);
         var factory = ContentFactory.Create();
         Change(fixture, "resources/blueprints/engine.blueprint.json", json =>
-            json["simulation"]!["behaviors"] = JsonNode.Parse("""{"storage":{"capacity":50}}"""));
+            json["simulation"]!["behaviors"] = JsonNode.Parse("""{"platform":{}}"""));
         using var reloaded = Success(PrepareReload(fixture, initial.View, References(initial.View)));
         Assert.AreNotEqual(initial.View.Core.Identity, reloaded.View.Core.Identity);
         var references = References(reloaded.View) with { Inputs = [initial.View.Core.Identity, reloaded.View.Core.Identity] };
@@ -170,7 +187,7 @@ public sealed class NestedContentLifecycleTests
             Assert.AreEqual(index == 0 ? initial.View.Core.Identity : reloaded.View.Core.Identity, view.Core.Identity);
             Assert.AreEqual(before.Design, Found(view.FindGood(good)).DisplayDesign);
             var projection = ((C.DesignEvaluation.Complete)Found(view.FindDesign(before.Design))).Core!.Design;
-            Assert.IsInstanceOfType(projection.Parts.Single().Capabilities.Single(), index == 0 ? typeof(K.PartCapability.Control) : typeof(K.PartCapability.Storage));
+            Assert.IsInstanceOfType(projection.Parts.Single().Capabilities.Single(), index == 0 ? typeof(K.PartCapability.Control) : typeof(K.PartCapability.Platform));
         }
     }
 

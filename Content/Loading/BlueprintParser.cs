@@ -196,15 +196,8 @@ internal sealed class BlueprintParser
         foreach (var item in draft.Layout.NestedItems)
         {
             writer.WriteStartObject();
-            var (at, orientation) = item switch
-            {
-                C.NestedDesignItem.AssemblyCopy a => (a.At, a.Orientation),
-                C.NestedDesignItem.SceneModelCopy m => (m.At, m.Orientation),
-                C.NestedDesignItem.FunctionalCompositeReference f => (f.At, f.Orientation),
-                _ => throw new InvalidOperationException()
-            };
-            WritePosition(writer, "at", at);
-            writer.WriteString("orientation", DesignEvaluator.Wire(orientation));
+            WritePosition(writer, "at", DesignTraversal.At(item));
+            writer.WriteString("orientation", DesignEvaluator.Wire(DesignTraversal.Orientation(item)));
             if (item is C.NestedDesignItem.FunctionalCompositeReference reference)
             {
                 writer.WriteString("blueprint", reference.Definition.Value);
@@ -213,7 +206,7 @@ internal sealed class BlueprintParser
             else
             {
                 writer.WriteStartObject("design");
-                WriteDesign(writer, item is C.NestedDesignItem.AssemblyCopy assembly ? assembly.Design : ((C.NestedDesignItem.SceneModelCopy)item).Design);
+                WriteDesign(writer, DesignTraversal.Copy(item)!);
                 writer.WriteEndObject();
             }
             writer.WriteEndObject();

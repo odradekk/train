@@ -12,14 +12,6 @@ internal readonly record struct DesignPlacement(C.GridPosition At, C.VoxelOrient
             checked(At.Z + right.Z * local.X + up.Z * local.Y + forward.Z * local.Z));
     }
 
-    internal C.GridPosition Unmap(C.GridPosition world)
-    {
-        var (right, up, forward) = Axes(Orientation);
-        var x = checked(world.X - At.X); var y = checked(world.Y - At.Y); var z = checked(world.Z - At.Z);
-        return new(checked(x * right.X + y * right.Y + z * right.Z), checked(x * up.X + y * up.Y + z * up.Z),
-            checked(x * forward.X + y * forward.Y + z * forward.Z));
-    }
-
     internal C.VoxelOrientation Rotate(C.VoxelOrientation local)
     {
         var (right, up, _) = Axes(local);

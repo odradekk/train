@@ -154,7 +154,7 @@ internal sealed class ContentView : C.IContentView
         var revision = ContentHash.FromCanonicalJson(w => JsonSerializer.Serialize(w, new
         {
             id = record.Address.Id.Value, design.MassTons, design.MaxStructureDurability, value,
-            capabilities = capability.Behaviors.Select(b => JsonSerializer.Serialize(b, b.GetType())),
+            capabilities = DesignTraversal.Behaviors(capability.Behaviors),
             dependencies = DesignTraversal.References(record.Definition).Select(r => ((K.CoreDefinitionReference.Voxel)r.Reference).Id)
                 .Distinct().OrderBy(id => id.Value, StringComparer.Ordinal).Select(id => new { id = id.Value, revision = _voxels[id].Definition.Revision.Value }),
             returns = design.BillOfMaterials.Select(q => new { good = DesignEvaluator.GoodKey(q.Good), q.Quantity })
@@ -270,7 +270,7 @@ internal sealed class ContentView : C.IContentView
                 null, "", null, "生成配置不存在。")]);
         var revision = WorldSemantics.Generation(profile, _world,
             _voxels.Values.OrderBy(v => v.Definition.Definition.Value, StringComparer.Ordinal).ToImmutableArray(),
-            _blueprints.Values.OrderBy(b => b.Address.Id.Value, StringComparer.Ordinal).ToImmutableArray());
+            _blueprints.Values.OrderBy(b => b.Address.Id.Value, StringComparer.Ordinal).ToImmutableArray(), Core.Goods);
         return new C.ContentResult<K.WorldGenerationInput>.Success(new(seed, version, revision, profile.Configuration, profile.Start));
     }
 

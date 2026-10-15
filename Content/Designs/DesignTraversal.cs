@@ -19,6 +19,21 @@ internal static class DesignTraversal
         _ => throw new ArgumentOutOfRangeException(nameof(item))
     };
 
+    internal static C.VoxelOrientation Orientation(C.NestedDesignItem item) => item switch
+    {
+        C.NestedDesignItem.AssemblyCopy copy => copy.Orientation,
+        C.NestedDesignItem.FunctionalCompositeReference reference => reference.Orientation,
+        C.NestedDesignItem.SceneModelCopy copy => copy.Orientation,
+        _ => throw new ArgumentOutOfRangeException(nameof(item))
+    };
+
+    internal static C.DesignDraft? Copy(C.NestedDesignItem item) => item switch
+    {
+        C.NestedDesignItem.AssemblyCopy copy => copy.Design,
+        C.NestedDesignItem.SceneModelCopy copy => copy.Design,
+        _ => null
+    };
+
     internal static IEnumerable<(C.NestedDesignItem Item, int Index)> Items(C.DesignDraft draft) =>
         draft.Layout.NestedItems.Select((item, index) => (Item: item, Index: index))
             .OrderBy(item => At(item.Item).X).ThenBy(item => At(item.Item).Y).ThenBy(item => At(item.Item).Z);
@@ -44,7 +59,7 @@ internal static class DesignTraversal
             if (item is C.NestedDesignItem.FunctionalCompositeReference reference)
                 yield return (new K.CoreDefinitionReference.Composite(reference.Definition), nested + "/blueprint");
             else
-                foreach (var dependency in References(item is C.NestedDesignItem.AssemblyCopy copy ? copy.Design : ((C.NestedDesignItem.SceneModelCopy)item).Design, nested + "/design"))
+                foreach (var dependency in References(Copy(item)!, nested + "/design"))
                     yield return dependency;
         }
     }
@@ -54,8 +69,7 @@ internal static class DesignTraversal
         if (draft.Specification is C.DesignSpecification.Assembly) yield return draft;
         foreach (var (item, _) in Items(draft))
         {
-            var child = item switch { C.NestedDesignItem.AssemblyCopy copy => copy.Design,
-                C.NestedDesignItem.SceneModelCopy copy => copy.Design, _ => null };
+            var child = Copy(item);
             if (child is not null)
                 foreach (var assembly in Assemblies(child)) yield return assembly;
         }
@@ -75,13 +89,11 @@ internal static class DesignTraversal
         }).ToArray();
         var nested = Items(draft).Select(item =>
         {
-            var orientation = item.Item switch { C.NestedDesignItem.AssemblyCopy copy => copy.Orientation,
-                C.NestedDesignItem.SceneModelCopy copy => copy.Orientation, C.NestedDesignItem.FunctionalCompositeReference functional => functional.Orientation,
-                _ => throw new ArgumentOutOfRangeException() };
+            var orientation = Orientation(item.Item);
             var value = Map(("at", Position(At(item.Item))), ("orientation", DesignEvaluator.Wire(orientation)));
             if (item.Item is C.NestedDesignItem.FunctionalCompositeReference reference)
             { value["blueprint"] = reference.Definition.Value; if (!composition) value["paint"] = reference.Paint?.Value; }
-            else value["design"] = Canonical(item.Item is C.NestedDesignItem.AssemblyCopy copy ? copy.Design : ((C.NestedDesignItem.SceneModelCopy)item.Item).Design, composition);
+            else value["design"] = Canonical(Copy(item.Item)!, composition);
             return value;
         }).ToArray();
         var result = Map(("layout", Map(("cells", cells), ("composites", nested))),
@@ -111,7 +123,7 @@ internal static class DesignTraversal
     }
 
     private static int[] Position(C.GridPosition at) => [at.X, at.Y, at.Z];
-    private static JsonElement Behaviors(ImmutableArray<K.PartCapability> capabilities)
+    internal static JsonElement Behaviors(ImmutableArray<K.PartCapability> capabilities)
     {
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream))

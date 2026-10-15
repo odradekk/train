@@ -89,6 +89,16 @@ public sealed class NestedDesignTests
     }
 
     [TestMethod]
+    public void Scene_model_copy_variant_cannot_install_an_assembly_in_a_vehicle()
+    {
+        using var content = DesignFixtures.Content().Load();
+        var result = DesignFixtures.Evaluate(content.View, Host(new C.NestedDesignItem.SceneModelCopy(new(0, 0, 1), C.VoxelOrientation.PxPy, Assembly())));
+        Assert.IsFalse(result.IsValid);
+        Assert.IsFalse(result.Core!.Design.CanConstruct);
+        Assert.IsTrue(result.Diagnostics.Any(d => d.Field == "/layout/composites/0/design/category"));
+    }
+
+    [TestMethod]
     public void Child_sweep_does_not_include_ancestor_rotation_and_paths_keep_nested_prefix()
     {
         using var content = DesignFixtures.Content().Load();

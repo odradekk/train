@@ -159,14 +159,11 @@ internal static class DesignEvaluator
             var path = ImmutableArray.Create(index);
             var element = new C.DesignElementPath.FunctionalComposite([], index);
             var at = DesignTraversal.At(item);
-            var orientation = item switch { C.NestedDesignItem.AssemblyCopy a => a.Orientation,
-                C.NestedDesignItem.SceneModelCopy s => s.Orientation, C.NestedDesignItem.FunctionalCompositeReference f => f.Orientation,
-                _ => throw new ArgumentOutOfRangeException() };
+            var orientation = DesignTraversal.Orientation(item);
             if (!Enum.IsDefined(orientation)) { Invalid(field + "/orientation", "未知朝向。"); continue; }
             var placement = new DesignPlacement(at, orientation);
             var reference = item as C.NestedDesignItem.FunctionalCompositeReference;
-            var childDraft = item switch { C.NestedDesignItem.AssemblyCopy a => a.Design,
-                C.NestedDesignItem.SceneModelCopy s => s.Design, _ => content.FindComposite(reference!.Definition)?.Definition };
+            var childDraft = DesignTraversal.Copy(item) ?? content.FindComposite(reference!.Definition)?.Definition;
             var number = new K.PartId(elements.Count);
             var missingStart = missing.Count;
             if (reference is not null && reference.Paint is { } paint && !Regex.IsMatch(paint.Value, "\\A#[0-9a-f]{6}\\z", RegexOptions.CultureInvariant))
@@ -186,8 +183,9 @@ internal static class DesignEvaluator
                 sweeps.Add(new(path, new C.ComputedValue<ImmutableArray<C.GridPosition>>.Unknown([reason]), new C.ComputedValue<ImmutableArray<C.GridPosition>>.Unknown([reason])));
                 continue;
             }
-            if (sceneOnly != (childDraft.Specification is C.DesignSpecification.SceneModel) ||
-                reference is null && childDraft.Specification is not (C.DesignSpecification.Assembly or C.DesignSpecification.SceneModel))
+            if (sceneOnly != (item is C.NestedDesignItem.SceneModelCopy) ||
+                item is C.NestedDesignItem.AssemblyCopy && childDraft.Specification is not C.DesignSpecification.Assembly ||
+                item is C.NestedDesignItem.SceneModelCopy && childDraft.Specification is not C.DesignSpecification.SceneModel)
             { Invalid(field + "/design/category", "宿主不允许此复制设计或其中的功能参数。"); continue; }
             var child = Evaluate(content, childDraft, allowMissing, reference?.Definition, depth + 1);
             ImmutableArray<C.ContentDiagnostic> childDiagnostics = child switch { C.DesignEvaluation.Complete c => c.Diagnostics,
@@ -376,7 +374,7 @@ internal static class DesignEvaluator
         new(new K.GoodId.Assembly(composition), new(ContentHash.FromCanonicalJson(w => JsonSerializer.Serialize(w, new
         { composition = composition.Value, design.MaxStructureDurability, design.StructureHitWeight, design.MassTons,
             value = value ?? checked(design.StructuralBaseValue.Value + design.Parts.Sum(p => p.BaseValue.Value)),
-            parts = design.Parts.Select(p => new { p.Definition, p.MaxDurability, p.HitWeight, p.BaseValue, capabilities = p.Capabilities.Select(c => JsonSerializer.Serialize(c, c.GetType())) }),
+            parts = design.Parts.Select(p => new { p.Definition, p.MaxDurability, p.HitWeight, p.BaseValue, capabilities = DesignTraversal.Behaviors(p.Capabilities) }),
             bom = design.BillOfMaterials.Select(q => new { good = GoodKey(q.Good), q.Quantity }), design.ReturnUnits }))),
             new(value ?? checked(design.StructuralBaseValue.Value + design.Parts.Sum(p => p.BaseValue.Value))), design.MassTons, false, null);
 
