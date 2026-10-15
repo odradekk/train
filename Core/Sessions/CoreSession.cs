@@ -3,6 +3,7 @@ using Train.Core.Contracts;
 using Train.Core.World;
 using Train.Core.Railway;
 using Train.Core.Inventory;
+using Train.Core.Production;
 
 namespace Train.Core.Sessions;
 
@@ -77,7 +78,10 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
                 _ => throw new InvalidOperationException("命令结果无效。")
             };
             var events = effect is CommandEffect.Accepted accepted
-                ? Envelopes(position, accepted.Events) : ImmutableArray<EventEnvelope>.Empty;
+                ? Envelopes(position, accepted.Events.AddRange((accepted.World ?? before.World).Settlements.SelectMany(s =>
+                    ProductionQueries.StateChanges(before.World, before.Content,
+                        accepted.World ?? before.World, accepted.Content, s.Id))))
+                : ImmutableArray<EventEnvelope>.Empty;
             after = before with
             {
                 Position = position,
@@ -112,6 +116,12 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
     public AdvanceResult Advance(uint steps) => AdvanceWorld(steps, before =>
     {
         var (world, events) = TrainOperations.Advance(before.World, before.Content, before.Position.CompletedSteps);
+        foreach (var settlement in world.Settlements)
+        {
+            var production = ProductionOperations.Advance(world, before.Content, settlement.Id, 0, before.Position.CompletedSteps);
+            world = production.World;
+            events = events.AddRange(production.Events);
+        }
         return (before.Content, world, InventoryLeases.ExpirationEvents(before.World, before.Position.CompletedSteps).AddRange(events));
     });
 

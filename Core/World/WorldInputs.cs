@@ -90,13 +90,23 @@ internal static class WorldInputs
         {
             switch (process.Details)
             {
-                case ProcessDetails.Production p: Identity(p.Id.Value); Items(p.Inputs); Items(p.Outputs); break;
-                case ProcessDetails.Recovery p: Identity(p.Id.Value); Items(p.Inputs); Items(p.Outputs); break;
-                case ProcessDetails.Extraction p: Identity(p.Id.Value); Require(p.Extracts is not null, "Processes.Extracts"); break;
+                case ProcessDetails.Production p:
+                    Identity(p.Id.Value); Quantities(p.Inputs); Quantities(p.Outputs);
+                    Require(!p.Outputs.IsEmpty, "Processes.Outputs"); break;
+                case ProcessDetails.Recovery p:
+                    Identity(p.Id.Value); Quantities(p.Inputs); Quantities(p.Outputs);
+                    Require(!p.Inputs.IsEmpty && !p.Outputs.IsEmpty, "Processes"); break;
+                case ProcessDetails.Extraction p:
+                    Identity(p.Id.Value); Require(p.Extracts is not null, "Processes.Extracts"); Quantity(p.Extracts!); break;
                 default: throw new ArgumentException("Invalid process details.");
             }
             Identities(process.AllowedTerrainTypes);
-            foreach (var good in WorldReferences.ProcessGoods(process.Details)) ValidateGood(good);
+            Hash(process.Revision.Value);
+            Require(process.WorkRequired > 0, "Processes.WorkRequired");
+            Nonnegative(process.PowerPerWork); Nonnegative(process.LaborPerWork);
+            EnumValue(process.RequiredFacilityTag);
+            foreach (var good in WorldReferences.ProcessGoods(process.Details))
+            { ValidateGood(good); Require(good is GoodId.Voxel, "Processes.Goods"); }
         }
         Unique(Items(content.PopulationRules), x => x.Id.Value);
         foreach (var rule in content.PopulationRules)
