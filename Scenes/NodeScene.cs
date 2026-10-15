@@ -294,7 +294,7 @@ internal sealed class NodeScene : IAsyncDisposable
         {
             var column = new GridColumn(voxel.At.X, voxel.At.Z);
             if (bed.TryGetValue(column, out var rail) && rail.Distance < RailwayCoordinates.DecorationVoxelClearance &&
-                voxel.At.Y >= rail.Height - 2 && voxel.At.Y < rail.Height + 42) continue;
+                voxel.At.Y >= Math.Floor(rail.Height) - 3 && voxel.At.Y < rail.Height + 42) continue;
             var appearance = appearances.GetValueOrDefault(voxel.Voxel);
             var missing = voxel.Missing || appearance is null ? new ContentReference.Core(new CoreDefinitionReference.Voxel(voxel.Voxel)) : null;
             modelCells.Add(new(voxel.At, new(voxel.Orientation, appearance, voxel.Shape, voxel.Paint, subject, [], missing)));

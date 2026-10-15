@@ -375,6 +375,8 @@ public sealed class NodeSceneTests
             .OfType<SceneVisual.Geometry>().Any(visual => visual.Mesh.Material is SceneMaterial.Voxel material && material.Paint == paint));
         Assert.IsFalse(cells.TryGetValue(new(41, 0, 0), out var onTrack) && onTrack.Paint == paint,
             "The railway corridor removes the model cell on its centerline.");
+        Assert.IsFalse(cells.TryGetValue(new(41, -2, 0), out var underTrack) && underTrack.Paint == paint,
+            "The lower bed layer also overrides model cells.");
         Assert.AreEqual(1d, terrain.SelectMany(part => part.Heights).Single(item => item.Key == new GridColumn(0, 0)).Value,
             "The actual ground is flattened before the scene model is placed.");
         Assert.IsFalse(built.Parts.Values.SelectMany(part => part.Geometry.Geometry.Diagnostics).Any(problem => problem.Code == "build_failed"));
@@ -384,8 +386,9 @@ public sealed class NodeSceneTests
     {
         var basis = NodeFixtures.Content(generation, rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 });
         var model = SceneFixtures.Projection([SceneFixtures.Cell(new(5, 3, 5)) with { Paint = new("#ff00ff") },
-            SceneFixtures.Cell(new(41, 0, 0), 2) with { Paint = new("#ff00ff") }]) with
-        { RootFlatten = new(new(-56, -96), new(124, 96), 1), OccupiedBounds = new(new(-56, 0, -96), new(124, 3, 96)) };
+            SceneFixtures.Cell(new(41, 0, 0), 2) with { Paint = new("#ff00ff") },
+            SceneFixtures.Cell(new(41, -2, 0), 3) with { Paint = new("#ff00ff") }]) with
+        { RootFlatten = new(new(-56, -96), new(124, 96), 1), OccupiedBounds = new(new(-56, -2, -96), new(124, 3, 96)) };
         var plots = NodeFixtures.Layout.Plots.Select(plot => plot with { At = plot.At with { Y = 1 } }).ToImmutableArray().Add(new(99, PlotSize.Small, new(100, 1, 0), VoxelOrientation.PxPy));
         var copy = NodeFixtures.Layout with { Plots = generation == 1 ? plots : plots.Reverse().ToImmutableArray(),
             SceneModel = NodeFixtures.Layout.SceneModel with { Scene = model } };
