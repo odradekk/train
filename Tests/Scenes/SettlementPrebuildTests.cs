@@ -221,16 +221,25 @@ public sealed class SettlementPrebuildTests
     [TestMethod]
     public async Task ParkedVehiclePlacementDoesNotChangeWithFocus()
     {
-        var snapshot = Snapshot(StreamingContent());
+        var snapshot = Snapshot(StreamingContent(), parkedCount: 2);
         var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
-        await using var objects = new SettlementObjects(Ids());
-        var first = objects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>());
-        await Task.WhenAll(objects.PendingWork);
-        var parked = new WorldObjectId.Instance(new InstanceId.Vehicle(new(2)));
-        var pose = first.Objects.Single(item => item.Subject == parked).Pose;
-        var focus = new ScenePoint(pose.Position.X + 1, 0, pose.Position.Z + 1);
-        var second = objects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>(), new(focus, 8));
-        Assert.AreEqual(pose, second.Objects.First(item => item.Subject == parked).Pose);
+        await using var allObjects = new SettlementObjects(Ids());
+        var full = allObjects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>());
+        var first = new WorldObjectId.Instance(new InstanceId.Vehicle(new(2)));
+        var second = new WorldObjectId.Instance(new InstanceId.Vehicle(new(3)));
+        var firstPose = full.Objects.Single(item => item.Subject == first).Pose;
+        var secondPose = full.Objects.Single(item => item.Subject == second).Pose;
+        var line = layout.Parking[0];
+        var length = RailwayVehicles.Length(RailwayFixtures.Vehicle())!.Value;
+        Assert.IsTrue(line.Length >= length * 2 + 4);
+        Assert.IsTrue(Vector3.Distance(firstPose.Position + line.Forward * (length + 4), secondPose.Position) < .001f,
+            "Both vehicles must occupy consecutive positions on the same parking line.");
+        await using var focusedObjects = new SettlementObjects(Ids());
+        var focus = new ScenePoint(secondPose.Position.X, secondPose.Position.Y, secondPose.Position.Z);
+        var focused = focusedObjects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>(), new(focus, 1));
+        Assert.IsFalse(focused.Objects.Any(item => item.Subject == first));
+        Assert.AreEqual(secondPose, focused.Objects.Single(item => item.Subject == second).Pose,
+            "Culling the first vehicle must preserve the second vehicle's global parking position.");
     }
 
     private static IContentView StreamingContent(int halfLength = 1)
@@ -242,13 +251,14 @@ public sealed class SettlementPrebuildTests
         { [NodeFixtures.StationDesign] = new ContentLookup<DesignEvaluation>.Found(station) });
     }
 
-    private static SceneWorldSnapshot Snapshot(IContentView? content = null, bool parked = true)
+    private static SceneWorldSnapshot Snapshot(IContentView? content = null, bool parked = true, int parkedCount = 1)
     {
         var snapshot = NodeFixtures.Snapshot(trains: [], content: content);
         var basis = (FixedCoreReadView)snapshot.Core;
         var node = snapshot.Core.World.Nodes[0];
-        var settlement = NodeFixtures.Settlement() with { ParkedVehicles = parked ? [new(2)] : [] };
-        var instances = new[] { NodeFixtures.Station(2), RailwayFixtures.Instance(2) with { Location = NodeFixtures.Location } };
+        var settlement = NodeFixtures.Settlement() with { ParkedVehicles = Enumerable.Range(2, parked ? parkedCount : 0).Select(id => new VehicleId((ulong)id)).ToImmutableArray() };
+        var instances = new[] { NodeFixtures.Station(2) }.Concat(Enumerable.Range(2, parkedCount)
+            .Select(id => RailwayFixtures.Instance((ulong)id) with { Location = NodeFixtures.Location }));
         return snapshot with { Core = new FixedCoreReadView
         {
             InputIdentity = basis.InputIdentity, Position = basis.Position,

@@ -24,7 +24,8 @@ public sealed class NodeStreamingTests
         var instance = ((Lookup<InstanceView>.Found)snapshot.Core.FindInstance(new InstanceId.Vehicle(new(1)))).Value;
         vehicles.Prepare(snapshot.Content, instance);
         await Task.WhenAll(vehicles.PendingWork);
-        await using var scene = Open(snapshot, vehicles, build: (data, from, old, token) =>
+        var cache = new NodeScene.Cache();
+        await using var scene = Open(snapshot, vehicles, cache, build: (data, from, old, token) =>
         {
             if (!new NodeRange(default, NodeStreaming.NearCells).Intersects(from))
             { entered.TrySetResult(); release.Wait(token); }
@@ -40,7 +41,7 @@ public sealed class NodeStreamingTests
             }
             var frame = Present(scene, snapshot);
             Assert.AreEqual(SceneReadiness.Partial, frame.Readiness);
-            var hit = (ScenePick.Hit)frame.Pick(Ray(scene.RetainedChunks.Keys.First()));
+            var hit = (ScenePick.Hit)frame.Pick(Ray(Chunks(cache).Keys.First()));
             Assert.AreEqual(new PickSubject.Terrain(NodeFixtures.Location), hit.Value.Subject);
             var subject = new WorldObjectId.Instance(instance.Id);
             var pose = ((Lookup<ScenePose>.Found)frame.FindPose(subject)).Value;
@@ -56,9 +57,10 @@ public sealed class NodeStreamingTests
     {
         var snapshot = Snapshot(true);
         await using var vehicles = new SceneVehicles();
-        await using var scene = Open(snapshot, vehicles);
+        var cache = new NodeScene.Cache();
+        await using var scene = Open(snapshot, vehicles, cache);
         await Settle(scene, default);
-        var loaded = scene.RetainedChunks.Keys.First();
+        var loaded = Chunks(cache).Keys.First();
         var frame = Present(scene, snapshot);
         Assert.IsInstanceOfType<ScenePick.Hit>(frame.Pick(Ray(loaded)));
         Assert.IsInstanceOfType<ScenePick.NotReady>(frame.Pick(Ray(new(288, 288))));
@@ -78,14 +80,12 @@ public sealed class NodeStreamingTests
         await using var vehicles = new SceneVehicles();
         await using var scene = Open(snapshot, vehicles, cache);
         await Settle(scene, default);
-        var before = scene.RetainedChunks;
+        var before = Chunks(cache);
         var focus = new ScenePoint(288, 0, 288);
         await Settle(scene, focus);
         var retention = new NodeRange(focus, NodeStreaming.RetainCells);
         Assert.IsTrue(before.Keys.Any(from => !retention.Intersects(from)));
-        Assert.IsTrue(scene.RetainedChunks.Keys.All(retention.Intersects));
-        Assert.AreEqual(scene.RetainedChunks.Count,
-            cache.Read(NodeFixtures.NodeId)!.Parts.Keys.Count(key => key.StartsWith("terrain:", StringComparison.Ordinal)));
+        Assert.IsTrue(Chunks(cache).Keys.All(retention.Intersects));
     }
 
     [TestMethod]
@@ -95,12 +95,13 @@ public sealed class NodeStreamingTests
         var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
         var reference = NodeFixtures.Build(snapshot, layout);
         await using var vehicles = new SceneVehicles();
-        await using var scene = Open(snapshot, vehicles, build: (data, from, old, token) => data.BuildChunk(from, old, token));
+        var cache = new NodeScene.Cache();
+        await using var scene = Open(snapshot, vehicles, cache, build: (data, from, old, token) => data.BuildChunk(from, old, token));
         var collected = new Dictionary<GridColumn, NodeScene.Part>();
         foreach (var focus in new[] { new ScenePoint(-16, 0, -16), new ScenePoint(16, 0, 16) })
         {
             await Settle(scene, focus);
-            foreach (var part in scene.RetainedChunks) collected[part.Key] = part.Value;
+            foreach (var part in Chunks(cache)) collected[part.Key] = part.Value;
         }
         Assert.AreEqual(reference.Parts.Keys.Count(key => key.StartsWith("terrain:", StringComparison.Ordinal)), collected.Count);
         foreach (var (from, part) in collected)
@@ -132,13 +133,14 @@ public sealed class NodeStreamingTests
             .ToDictionary(item => item.Key, item => item.Value.Build());
         Assert.IsTrue(reference.Count > 0);
         await using var vehicles = new SceneVehicles();
-        await using var scene = Open(snapshot, vehicles);
+        var cache = new NodeScene.Cache();
+        await using var scene = Open(snapshot, vehicles, cache);
         var collected = new Dictionary<string, NodeScene.Part>();
         foreach (var segment in prepared.Rails.Values.OrderBy(segment => segment.Key, StringComparer.Ordinal))
         {
             var center = (segment.Bounds.Minimum + segment.Bounds.Maximum) / 2;
             await Settle(scene, new(center.X, center.Y, center.Z));
-            foreach (var part in scene.RetainedRails) collected[part.Key] = part.Value;
+            foreach (var part in Rails(cache)) collected[part.Key] = part.Value;
         }
         CollectionAssert.AreEquivalent(reference.Keys.ToArray(), collected.Keys.ToArray());
         foreach (var (key, part) in collected)
@@ -183,8 +185,7 @@ public sealed class NodeStreamingTests
         finally { release.Set(); }
         await Task.WhenAll(pending);
         scene.Pump();
-        Assert.IsFalse(scene.RetainedChunks.ContainsKey(blocked));
-        Assert.IsFalse(cache.Read(NodeFixtures.NodeId)!.Parts.ContainsKey(NodeScene.ChunkKey(blocked)));
+        Assert.IsFalse(Chunks(cache).ContainsKey(blocked));
     }
 
     [TestMethod]
@@ -198,13 +199,107 @@ public sealed class NodeStreamingTests
         {
             await Settle(scene, default);
             await Settle(scene, new(288, 0, 288));
-            retained = scene.RetainedChunks;
+            retained = Chunks(cache);
         }
         await using var reopened = Open(snapshot, vehicles, cache);
         await reopened.BuildWork!;
         reopened.Pump(focus: new(288, 0, 288));
-        Assert.AreEqual(retained.Count, reopened.RetainedChunks.Count);
-        foreach (var (from, part) in retained) Assert.AreSame(part, reopened.RetainedChunks[from]);
+        Assert.AreEqual(retained.Count, Chunks(cache).Count);
+        foreach (var (from, part) in retained) Assert.AreSame(part, Chunks(cache)[from]);
+    }
+
+    [TestMethod]
+    public void Range_prioritizes_nearest_bounds_instead_of_their_centers()
+    {
+        var range = new NodeRange(default, 8);
+        var longNear = new SceneBounds(new(4, 0, -1), new(200, 1, 1));
+        var shortFar = new SceneBounds(new(12, 0, -1), new(14, 1, 1));
+        Assert.IsTrue(range.DistanceSquared(longNear) < range.DistanceSquared(shortFar));
+        Assert.IsTrue(range.Intersects(longNear));
+        Assert.IsFalse(range.Intersects(shortFar));
+    }
+
+    [TestMethod]
+    public async Task Reopen_rebuilds_retained_chunks_when_terrain_inputs_change()
+    {
+        var snapshot = Snapshot(true);
+        var cache = new NodeScene.Cache();
+        await using var vehicles = new SceneVehicles();
+        ImmutableDictionary<GridColumn, NodeScene.Part> retained;
+        await using (var scene = Open(snapshot, vehicles, cache))
+        {
+            await Settle(scene, default);
+            retained = Chunks(cache);
+        }
+        var changed = Snapshot(true, relief: 2);
+        await using var reopened = Open(changed, vehicles, cache);
+        await Settle(reopened, default);
+        var rebuilt = Chunks(cache);
+        CollectionAssert.AreEquivalent(retained.Keys.ToArray(), rebuilt.Keys.ToArray());
+        Assert.IsTrue(retained.Count > 0);
+        foreach (var (from, old) in retained)
+        {
+            Assert.AreNotSame(old, rebuilt[from]);
+            Assert.AreNotEqual(old.Inputs, rebuilt[from].Inputs);
+        }
+    }
+
+    [TestMethod]
+    public async Task Present_follow_uses_vehicle_node_coordinates_with_nonzero_origin()
+    {
+        var snapshot = Snapshot(true, nearVehicle: true);
+        var cache = new NodeScene.Cache();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles, cache);
+        await scene.BuildWork!;
+        var origin = new ScenePoint(-288, 0, -288);
+        var stamp = new SceneFrameStamp(new(Guid.Empty), new(1), new(1), 1);
+        SceneFrame frame;
+        do
+        {
+            frame = scene.Present(snapshot, Request, stamp, null, origin, new WorldSceneTarget.Follow(new(1), new(1)));
+            await Task.WhenAll(scene.PendingWork);
+        } while (scene.PendingWork.Length > 0);
+        var pose = ((Lookup<ScenePose>.Found)frame.FindPose(new WorldObjectId.Instance(new InstanceId.Vehicle(new(1))))).Value;
+        var nodePosition = RailwayCoordinates.Add(origin, pose.Position);
+        Assert.IsTrue(new NodeRange(nodePosition, NodeStreaming.PrefetchCells).Chunks(scene.Layout!).All(Chunks(cache).ContainsKey));
+        Assert.IsFalse(Chunks(cache).ContainsKey(new(288, 288)), "The displayed vehicle position must not become a node-space focus.");
+    }
+
+    [TestMethod]
+    [DataRow("")]
+    [DataRow("session")]
+    [DataRow("request")]
+    [DataRow("space")]
+    public async Task Present_location_uses_camera_origin_and_focus_only_for_matching_stamp(string stalePart)
+    {
+        var snapshot = Snapshot(true);
+        var cache = new NodeScene.Cache();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles, cache);
+        await scene.BuildWork!;
+        var stamp = new SceneFrameStamp(new(Guid.Empty), new(1), new(1), 2);
+        var stale = stalePart.Length > 0;
+        var cameraStamp = stamp with { Revision = 1 };
+        cameraStamp = stalePart switch
+        {
+            "session" => cameraStamp with { Session = new(Guid.NewGuid()) },
+            "request" => cameraStamp with { Request = new(2) },
+            "space" => cameraStamp with { Space = new(2) },
+            _ => cameraStamp
+        };
+        var camera = new SceneFrame(cameraStamp, new(256, 0, 256), 0, SceneReadiness.Ready, [], [], [], []);
+        var request = Request with { Camera = new(camera, new(32, 0, 32)) };
+        do
+        {
+            scene.Present(snapshot, request, stamp, null, default, new WorldSceneTarget.Location(NodeFixtures.Location));
+            await Task.WhenAll(scene.PendingWork);
+        } while (scene.PendingWork.Length > 0);
+        var bounds = scene.Layout!.PanBounds(default);
+        var focus = stale ? new ScenePoint((bounds.Minimum.X + bounds.Maximum.X) / 2, 0,
+            (bounds.Minimum.Y + bounds.Maximum.Y) / 2) : new ScenePoint(288, 0, 288);
+        Assert.IsTrue(new NodeRange(focus, NodeStreaming.PrefetchCells).Chunks(scene.Layout!).All(Chunks(cache).ContainsKey));
+        Assert.IsFalse(Chunks(cache).ContainsKey(stale ? new(288, 288) : new(0, 0)));
     }
 
     [TestMethod]
@@ -227,8 +322,7 @@ public sealed class NodeStreamingTests
         var closing = scene.DisposeAsync().AsTask();
         try { Assert.IsFalse(closing.IsCompleted); }
         finally { release.Set(); await closing; }
-        Assert.IsFalse(scene.RetainedChunks.ContainsKey(blocked));
-        Assert.IsFalse(cache.Read(NodeFixtures.NodeId)!.Parts.ContainsKey(NodeScene.ChunkKey(blocked)));
+        Assert.IsFalse(Chunks(cache).ContainsKey(blocked));
     }
 
     [TestMethod]
@@ -236,7 +330,8 @@ public sealed class NodeStreamingTests
     {
         var snapshot = Snapshot(true);
         await using var vehicles = new SceneVehicles();
-        await using var scene = Open(snapshot, vehicles);
+        var cache = new NodeScene.Cache();
+        await using var scene = Open(snapshot, vehicles, cache);
         await scene.BuildWork!;
         for (var i = 0; i < 20; i++)
         {
@@ -244,7 +339,7 @@ public sealed class NodeStreamingTests
             var frame = Present(scene, snapshot);
             var prepared = NodeScene.Prepare(snapshot, scene.Layout!);
             var range = new NodeRange(new(i % 2 == 0 ? -288 : 288, 0, 0), NodeStreaming.PrefetchCells);
-            var railBounds = prepared.Rails.Values.Where(segment => range.Intersects(segment.Bounds) && !scene.RetainedRails.ContainsKey(segment.Key))
+            var railBounds = prepared.Rails.Values.Where(segment => range.Intersects(segment.Bounds) && !Rails(cache).ContainsKey(segment.Key))
                 .Select(segment => segment.Bounds).ToArray();
             var railFog = railBounds.Length;
             foreach (var bounds in railBounds)
@@ -368,26 +463,24 @@ public sealed class NodeStreamingTests
         {
             await Settle(scene, currentFocus);
             AssertStartedWithinPrefetch(currentFocus);
-            var before = scene.RetainedRails;
+            var before = Rails(cache);
             Assert.IsTrue(before.Count > 0);
             var oldFrame = Present(scene, snapshot);
             var focus = RailwayCoordinates.Add(line.Start, line.Forward * (float)(line.Length - 64));
             currentFocus = focus;
             await Settle(scene, focus);
             AssertStartedWithinPrefetch(focus);
-            retained = scene.RetainedRails;
+            retained = Rails(cache);
             Assert.IsTrue(retained.Count > 0);
             var retention = new NodeRange(focus, NodeStreaming.RetainCells);
             Assert.IsTrue(before.Keys.Any(key => !retention.Intersects(prepared.Rails[key].Bounds)));
             Assert.IsTrue(retained.Keys.All(key => retention.Intersects(prepared.Rails[key].Bounds)));
-            CollectionAssert.AreEquivalent(retained.Keys.ToArray(), cache.Read(NodeFixtures.NodeId)!.Parts.Keys
-                .Where(prepared.Rails.ContainsKey).ToArray());
             Assert.IsTrue(Present(scene, snapshot, oldFrame).Update.Removed.Length > 0);
         }
         await using var reopened = Open(snapshot, vehicles, cache);
         await reopened.BuildWork!;
         reopened.Pump(focus: currentFocus);
-        foreach (var (key, part) in retained) Assert.AreSame(part, reopened.RetainedRails[key]);
+        foreach (var (key, part) in retained) Assert.AreSame(part, Rails(cache)[key]);
 
         void AssertStartedWithinPrefetch(ScenePoint focus)
         {
@@ -456,8 +549,7 @@ public sealed class NodeStreamingTests
             await Task.WhenAll(pending);
             if (closing is not null) await closing;
             else scene.Pump(focus: new(10000, 0, 10000));
-            Assert.IsFalse(scene.RetainedRails.ContainsKey(blocked.Key));
-            Assert.IsFalse(cache.Read(NodeFixtures.NodeId)!.Parts.ContainsKey(blocked.Key));
+            Assert.IsFalse(Rails(cache).ContainsKey(blocked.Key));
         }
         finally
         {
@@ -494,7 +586,7 @@ public sealed class NodeStreamingTests
         });
     }
 
-    private static SceneWorldSnapshot Snapshot(bool large, bool nearVehicle = false)
+    private static SceneWorldSnapshot Snapshot(bool large, bool nearVehicle = false, double relief = 0)
     {
         var source = NodeFixtures.Content();
         var layout = NodeFixtures.Layout with
@@ -522,6 +614,7 @@ public sealed class NodeStreamingTests
         };
         var original = NodeFixtures.Snapshot(platforms: 0, trains: [], instances: [], content: content);
         var node = original.Core.World.Nodes.Single(item => item.Id == NodeFixtures.NodeId);
+        node = node with { Terrain = node.Terrain with { Relief = relief } };
         var train = NodeFixtures.Train();
         var vehicle = RailwayFixtures.Instance(train: train.Id) with { Location = NodeFixtures.Location };
         return new(new FixedCoreReadView
@@ -537,6 +630,20 @@ public sealed class NodeStreamingTests
             { [new(1)] = new Lookup<SettlementView>.Found(NodeFixtures.Settlement(0) with { Plots = [] }) }
         }, content);
     }
+
+    private static ImmutableDictionary<GridColumn, NodeScene.Part> Chunks(NodeScene.Cache cache) =>
+        cache.Read(NodeFixtures.NodeId)!.Parts.Where(item => item.Key.StartsWith("terrain:", StringComparison.Ordinal))
+            .ToImmutableDictionary(item =>
+            {
+                var coordinates = item.Key.Split(':');
+                return new GridColumn(int.Parse(coordinates[1]), int.Parse(coordinates[2]));
+            }, item => item.Value);
+
+    private static ImmutableDictionary<string, NodeScene.Part> Rails(NodeScene.Cache cache) =>
+        cache.Read(NodeFixtures.NodeId)!.Parts.Where(item =>
+            item.Key.StartsWith("entry:", StringComparison.Ordinal) ||
+            item.Key.StartsWith("station-tracks:", StringComparison.Ordinal) ||
+            item.Key.StartsWith("parking-tracks:", StringComparison.Ordinal)).ToImmutableDictionary();
 
     private static NodeScene Open(SceneWorldSnapshot snapshot, SceneVehicles vehicles, NodeScene.Cache? cache = null,
         Func<NodeScene.Preparation, GridColumn, NodeScene.Part?, CancellationToken, NodeScene.Part>? build = null,

@@ -11,7 +11,7 @@ internal partial class WorldSceneView : Node3D
 {
     private readonly CanvasLayer _overlay = new() { Layer = 5 };
     private readonly Label _message = new() { Text = "正在加载场景…",
-        Position = new(16, 16), MouseFilter = Control.MouseFilterEnum.Ignore };
+        Position = new(16, 64), MouseFilter = Control.MouseFilterEnum.Ignore };
     internal WorldCamera CameraRig { get; } = new() { Name = "WorldCamera" };
     internal bool Loading => _message.Visible;
     internal bool Interactive { get; set; }

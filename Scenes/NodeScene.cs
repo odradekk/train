@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Diagnostics;
 using System.Numerics;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
@@ -97,9 +96,7 @@ internal sealed class NodeScene : IAsyncDisposable
     private readonly Func<Preparation, RailSegment, Part?, CancellationToken, Part> buildRail;
     private Preparation? prepared;
     private NodeRange range;
-    internal double PreparationSeconds { get; private set; }
-    internal ImmutableDictionary<GridColumn, Part> RetainedChunks => chunks.ToImmutableDictionary();
-    internal ImmutableDictionary<string, Part> RetainedRails => rails.ToImmutableDictionary();
+    private bool nearCompleted;
     private readonly NodeLayout? layout;
     private Built? built;
     private SceneProblem? failure;
@@ -124,22 +121,16 @@ internal sealed class NodeScene : IAsyncDisposable
         snapshot = initial;
         settlement = new(objectId, buildingCache: buildingCache, parkedCache: parkedCache);
         openingTracks = initial.Core.World.Edges.Where(edge => edge.Start == node || edge.End == node).ToImmutableDictionary(edge => edge.Id, edge => edge.Tracks);
-        var layoutStarted = Stopwatch.GetTimestamp();
         try { layout = NodeLayout.Build(initial, node); }
         catch (RailwayBuildException error) { Fail(error); return; }
-        var layoutSeconds = Stopwatch.GetElapsedTime(layoutStarted).TotalSeconds;
-        range = new(new((layout.Bounds.Minimum.X + layout.Bounds.Maximum.X) / 2, 0,
-            (layout.Bounds.Minimum.Y + layout.Bounds.Maximum.Y) / 2), NodeStreaming.PrefetchCells);
+        var panBounds = layout.PanBounds(default);
+        range = new(new((panBounds.Minimum.X + panBounds.Maximum.X) / 2, 0,
+            (panBounds.Minimum.Y + panBounds.Maximum.Y) / 2), NodeStreaming.PrefetchCells);
         var previous = cache.Read(node);
         pending = Task.Run(() =>
         {
-            var started = Stopwatch.GetTimestamp();
-            try
-            {
-                return generate is null ? Prepare(initial, layout, previous, cancellation.Token) :
-                    new Preparation(initial, generate(initial, node, previous, cancellation.Token), null, [], [], [], [], "", [], false);
-            }
-            finally { PreparationSeconds = layoutSeconds + Stopwatch.GetElapsedTime(started).TotalSeconds; }
+            return generate is null ? Prepare(initial, layout, previous, cancellation.Token) :
+                new Preparation(initial, generate(initial, node, previous, cancellation.Token), null, [], [], [], [], "", [], false);
         }, cancellation.Token);
     }
     internal void Pump(SceneWorldSnapshot? current = null, ScenePoint? focus = null)
@@ -254,7 +245,8 @@ internal sealed class NodeScene : IAsyncDisposable
         if (layout is not null && prepared?.HasChunks != false) TerrainFog(origin, terrainFog);
         fog.AddRange(terrainFog);
         if (prepared is not null)
-            foreach (var segment in prepared.Rails.Values.Where(segment => !rails.ContainsKey(segment.Key) && range.Intersects(segment.Bounds)))
+            foreach (var segment in prepared.Rails.Values.Where(segment => !rails.ContainsKey(segment.Key) &&
+                (range.Intersects(segment.Bounds) || NodeStreaming.OverlapsTerrain(segment.Bounds, chunks.Keys))))
                 fog.Add(new(new(segment.Bounds.Minimum - RailwayCoordinates.Relative(origin, default),
                     segment.Bounds.Maximum - RailwayCoordinates.Relative(origin, default))));
         fog.AddRange(trainFog);
@@ -273,7 +265,7 @@ internal sealed class NodeScene : IAsyncDisposable
                     problems.Add(new("content_missing", SceneStage.Input, new WorldObjectId.Node(Node), null, null, null, "The settlement layout copy is missing."));
                 }
             }
-            Add(settlement.Present(snapshot, layout, origin, fog, range));
+            Add(settlement.Present(snapshot, layout, origin, fog, range, chunks.Keys));
         }
         if (failure is not null) problems.Add(failure);
         bool Complete(double radius)
@@ -285,7 +277,8 @@ internal sealed class NodeScene : IAsyncDisposable
             var relative = new NodeRange(RailwayCoordinates.Add(needed.Focus, -RailwayCoordinates.Relative(origin, default)), radius);
             return !fog.Skip(terrainFog.Count).Any(region => relative.Intersects(region.WorldBounds));
         }
-        var readiness = failure is not null ? SceneReadiness.Failed : !Complete(NodeStreaming.NearCells) ? SceneReadiness.Loading :
+        if (!nearCompleted) nearCompleted = Complete(NodeStreaming.NearCells);
+        var readiness = failure is not null ? SceneReadiness.Failed : !nearCompleted ? SceneReadiness.Loading :
             Complete(NodeStreaming.ViewCells) ? SceneReadiness.Ready : SceneReadiness.Partial;
         return new(stamp, origin, snapshot.Core.Position.CompletedSteps * SimulationTime.StepSeconds, readiness,
             objects.ToImmutable(), picking.ToImmutable(), fog.ToImmutable(), RailwayTerrain.UniqueProblems(problems), displayed,
@@ -438,22 +431,17 @@ internal sealed class NodeScene : IAsyncDisposable
                 var maximum = new Vector3(float.MinValue);
                 var steps = (int)Math.Ceiling(end - begin);
                 for (var step = 0; step <= steps; step++) Include(begin + (end - begin) * step / steps);
-                for (var sleeper = (long)Math.Ceiling(begin / 1.5); sleeper * 1.5 < end; sleeper++) Include(sleeper * 1.5);
                 var key = route + ":" + index;
-                // Mesh corner arithmetic can round one ULP beyond the summed axis extents.
-                var rounding = new Vector3(.001f);
-                rails.Add(key, new(key, sample, begin, end, new(minimum - rounding, maximum + rounding),
+                // One-cell arc sampling plus a bed-width margin encloses the track profile and its end caps.
+                var margin = new Vector3((float)RailwayCoordinates.BedBaseHalfWidth);
+                rails.Add(key, new(key, sample, begin, end, new(minimum - margin, maximum + margin),
                     RailwayDependencies.Values(new object[] { inputs, route, begin, end })));
 
                 void Include(double arc)
                 {
                     var at = sample(arc);
                     var point = RailwayCoordinates.Relative(at.Position, default);
-                    var up = Vector3.Normalize(Vector3.Cross(at.Forward, at.Right));
-                    // Include rail profiles and sleeper corners in the local track axes, also on ramps.
-                    var extent = Vector3.Abs(at.Right) * (float)RailwayCoordinates.BedTopHalfWidth +
-                        Vector3.Abs(up) + Vector3.Abs(at.Forward) * .3f;
-                    minimum = Vector3.Min(minimum, point - extent); maximum = Vector3.Max(maximum, point + extent);
+                    minimum = Vector3.Min(minimum, point); maximum = Vector3.Max(maximum, point);
                 }
             }
             for (var arc = 0.0; arc <= length; arc = Math.Min(length, arc + 0.5))

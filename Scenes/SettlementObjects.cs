@@ -121,13 +121,15 @@ internal sealed class SettlementObjects : IAsyncDisposable
     }
 
     internal RenderedDesign Present(SceneWorldSnapshot snapshot, NodeLayout layout, ScenePoint origin,
-        ImmutableArray<SceneFog>.Builder fog, NodeRange? range = null)
+        ImmutableArray<SceneFog>.Builder fog, NodeRange? range = null, IReadOnlyCollection<GridColumn>? terrainChunks = null)
     {
         var objects = ImmutableArray.CreateBuilder<SceneObject>();
         var picking = ImmutableArray.CreateBuilder<PickGrid>();
         var problems = ImmutableArray.CreateBuilder<SceneProblem>();
         Pump(snapshot, layout, range);
-        var placed = Select(BuildingPlacements(snapshot, layout), retainedBuildings, range);
+        var allBuildings = BuildingPlacements(snapshot, layout);
+        var placed = Select(allBuildings, retainedBuildings, range);
+        FogExcluded(allBuildings, placed);
         foreach (var item in placed)
         {
             var instance = item.Instance;
@@ -147,7 +149,9 @@ internal sealed class SettlementObjects : IAsyncDisposable
             }
         }
 
-        var vehicles = Select(ParkedPlacements(snapshot, layout), retainedParked, range);
+        var allParked = ParkedPlacements(snapshot, layout);
+        var vehicles = Select(allParked, retainedParked, range);
+        FogExcluded(allParked, vehicles);
         foreach (var item in vehicles)
         {
             var instance = item.Instance;
@@ -170,6 +174,19 @@ internal sealed class SettlementObjects : IAsyncDisposable
         }
         Resources(snapshot, layout, origin, objects, problems);
         return new(objects.ToImmutable(), picking.ToImmutable(), problems.ToImmutable());
+
+        void FogExcluded(Placement[] all, Placement[] selected)
+        {
+            if (terrainChunks is null || terrainChunks.Count == 0) return;
+            var ids = selected.Select(item => item.Instance.Id).ToHashSet();
+            foreach (var item in all.Where(item => !ids.Contains(item.Instance.Id) && item.Bounds is not null))
+            {
+                var region = new SceneFog(item.Bounds!, Pose: item.Pose);
+                if (NodeStreaming.OverlapsTerrain(region.WorldBounds, terrainChunks))
+                    fog.Add(region with { Pose = item.Pose with
+                    { Position = item.Pose.Position - RailwayCoordinates.Relative(origin, default) } });
+            }
+        }
 
         void Add(RenderedDesign rendered)
         {

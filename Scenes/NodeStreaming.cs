@@ -12,6 +12,10 @@ internal static class NodeStreaming
     internal const double PrefetchCells = 80 * RailwayCoordinates.CellsPerMeter;
     internal const double RetainCells = 96 * RailwayCoordinates.CellsPerMeter;
     internal const int MaximumTerrainFogRegions = 102;
+
+    internal static bool OverlapsTerrain(SceneBounds bounds, IEnumerable<GridColumn> chunks) => chunks.Any(from =>
+        bounds.Minimum.X < from.X + VoxelGrid.ChunkSize && bounds.Maximum.X > from.X &&
+        bounds.Minimum.Z < from.Z + VoxelGrid.ChunkSize && bounds.Maximum.Z > from.Z);
 }
 
 internal readonly record struct NodeRange(ScenePoint Focus, double RadiusCells)
@@ -20,9 +24,7 @@ internal readonly record struct NodeRange(ScenePoint Focus, double RadiusCells)
 
     internal bool Intersects(SceneBounds bounds)
     {
-        var dx = Math.Max(bounds.Minimum.X - Focus.X, Math.Max(0, Focus.X - bounds.Maximum.X));
-        var dz = Math.Max(bounds.Minimum.Z - Focus.Z, Math.Max(0, Focus.Z - bounds.Maximum.Z));
-        return dx * dx + dz * dz <= RadiusCells * RadiusCells;
+        return DistanceSquared(bounds) <= RadiusCells * RadiusCells;
     }
 
     internal bool Intersects(SceneBounds bounds, ScenePose pose)
@@ -70,8 +72,8 @@ internal readonly record struct NodeRange(ScenePoint Focus, double RadiusCells)
 
     internal double DistanceSquared(SceneBounds bounds)
     {
-        var dx = (bounds.Minimum.X + bounds.Maximum.X) / 2.0 - Focus.X;
-        var dz = (bounds.Minimum.Z + bounds.Maximum.Z) / 2.0 - Focus.Z;
+        var dx = Math.Max(bounds.Minimum.X - Focus.X, Math.Max(0, Focus.X - bounds.Maximum.X));
+        var dz = Math.Max(bounds.Minimum.Z - Focus.Z, Math.Max(0, Focus.Z - bounds.Maximum.Z));
         return dx * dx + dz * dz;
     }
 }
