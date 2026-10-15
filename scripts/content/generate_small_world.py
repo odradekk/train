@@ -1,4 +1,4 @@
-"""生成基础贯通小世界的正式内置内容（不是完整 Demo 默认开局）。
+"""生成经济运输验证世界的正式内置内容。
 
 python scripts/content/generate_small_world.py
 python scripts/content/generate_small_world.py --check
@@ -7,14 +7,17 @@ python scripts/content/generate_small_world.py --output-dir TestResults/reproduc
 脚本独占输出目录 resources/；校验模式拒绝缺失、多余或字节不同的文件，
 并按仓库 Schema 检查 JSON（校验需要 jsonschema）。生成只用 Python 标准库。
 地形与小型机车使用第一阶段风格样稿，其余美术仍为占位；数值待配平，
-本批画面待用户阶段试玩确认。不生成流程、生物聚落或存档。
+数值和画面待用户试玩确认；NPC 初始化待 #528，车队待 #340。
+校验同时检查正式内容的经济关系；不生成生物聚落或存档。
 """
 
 import argparse
 import hashlib
 import json
+from math import ceil
 from pathlib import Path
 import struct
+import subprocess
 import sys
 import zlib
 
@@ -26,6 +29,215 @@ VEHICLES = (
     ("medium-locomotive", "中型机车", "medium", 64, 10, 13, 7, 2, 3, 6),
     ("extra-large-locomotive", "超大型机车", "extra_large", 104, 20, 26, 15, 4, 5, 10),
 )
+
+# 这些是内容初值，不是报价、补货或运行规则；全部待用户试玩确认。
+BATCH_UNITS = 4
+SOURCE_UNIT_VALUE = 10
+VALUE_MARKUP = 1.25
+REFERENCE_WORK_RATE = 1
+POWER_HEADROOM = 2
+FUEL_UNIT_SECONDS = 60
+RESOURCE_RESERVE_HOURS = (4, 8)
+RESOURCE_PROBABILITY = 1
+FOREST_RECOVERY_SHARE = 0.5
+GLOBAL_CHECK_MINUTES = 10
+GLOBAL_REGEN_RATIO = 0.25
+SECONDS_PER_HOUR = 3600
+HOURS_PER_DAY = 24
+TICKS_PER_SECOND = 60
+BASIC_RESERVE_HOURS = 8
+MARKET_MARGIN = 0.1
+MARKET_SENSITIVITY = 0.25
+MARKET_MULTIPLIER_LIMITS = (0.5, 2)
+BASIS_POINTS = 10000
+RENTABLE_CAPACITY_SHARE = 0.5
+LEASE_DAYS = 1
+MAXIMUM_LEASE_MULTIPLE = 7
+AUTOMATIC_EVALUATION_SECONDS = 5
+RECENT_REPORT_LIMIT = 24
+VEHICLE_PURCHASE_LIMIT = 3
+NEED_UNITS_PER_PERSON_HOUR = 1
+LABOR_RATIO = 0.5
+CONSUMPTION_SECONDS = 1
+STATISTICS_SECONDS = 10
+DAILY_GROWTH = 0.01
+DAILY_MAXIMUM_LOSS = 0.02
+START_BUDGET_MULTIPLIER = 2
+INITIAL_PLAN_PRIORITY = 0
+WEAPON_DAMAGE_SHARE = 0.1
+MACHINE_GUN_INTERVAL_SECONDS = 1
+CANNON_FACTOR = 4
+
+# 每批基准秒数、电量/工作量、劳动力/(工作量/秒)。
+PROCESS_PROFILES = {
+    "agriculture": (60, 0, 1), "extraction": (30, 1, 1),
+    "metallurgy": (30, 2, 1), "building_materials": (20, 1, 1),
+    "light_industry": (20, 1, 1), "chemical": (30, 2, 1),
+    "food_processing": (15, 1, 1), "assembly": (40, 1, 1),
+    "electronics": (40, 1, 1), "recovery": (20, 1, 1),
+}
+FARM_TERRAINS = ("plains", "hills")
+MINING_TERRAINS = ("mountains", "hills")
+RESOURCE_PROFILES = (
+    ("ferrous-mining", "ferrous-ore", MINING_TERRAINS),
+    ("conductive-mining", "conductive-ore", MINING_TERRAINS),
+    ("rare-mineral-mining", "rare-mineral", MINING_TERRAINS),
+    ("stone-quarrying", "stone", MINING_TERRAINS),
+    ("silica-mining", "silica", MINING_TERRAINS),
+    ("coal-mining", "coal", MINING_TERRAINS),
+    ("crude-oil-extraction", "crude-oil", ("desert",)),
+    ("timber-harvesting", "timber", ("forest",)),
+)
+RAW_GOODS = {row[1] for row in RESOURCE_PROFILES} | {"grain", "produce", "animal-products", "natural-fiber"}
+ALL_SHAPES = ["cube", "half", "plate", "wedge", "corner-wedge", "beam", "cylinder"]
+
+# id、显示名、质量/耐久对照的已有货物、共享占位图族。
+# 只复制这两个物理字段，不继承对照货物的功能或经济身份。
+NEW_GOODS = (
+    ("ferrous-ore", "铁矿石", "staple-food", "soil"),
+    ("conductive-ore", "导电金属矿", "staple-food", "soil"),
+    ("rare-mineral", "稀有矿物", "staple-food", "soil"),
+    ("silica", "硅砂", "staple-food", "soil"),
+    ("coal", "煤", "staple-food", "soil"),
+    ("crude-oil", "原油", "staple-food", "organic"),
+    ("grain", "谷物", "staple-food", "organic"),
+    ("produce", "果蔬", "staple-food", "organic"),
+    ("animal-products", "畜产品", "staple-food", "organic"),
+    ("timber", "原木", "staple-food", "organic"),
+    ("natural-fiber", "天然纤维", "staple-food", "organic"),
+    ("conductive-metal", "导电金属", "consumer-goods", "equipment"),
+    ("specialty-material", "特种材料", "consumer-goods", "equipment"),
+    ("glass", "玻璃", "consumer-goods", "equipment"),
+    ("chemical-feedstock", "化工原料", "consumer-goods", "organic"),
+    ("polymer", "聚合物", "consumer-goods", "organic"),
+    ("lumber", "木材", "consumer-goods", "organic"),
+    ("textile", "纺织品", "consumer-goods", "organic"),
+    ("mechanical-components", "机械部件", "consumer-electronics", "equipment"),
+    ("electrical-components", "电气部件", "consumer-electronics", "equipment"),
+    ("electronic-components", "电子部件", "consumer-electronics", "equipment"),
+    ("structural-block", "结构块", "structural-metal", "equipment"),
+    ("construction-block", "混凝土块", "structural-metal", "soil"),
+    ("rail", "铁轨", "structural-metal", "equipment"),
+    ("lamp", "灯具", "control-equipment", "equipment"),
+    ("machine-gun", "机枪", "propulsion-equipment", "equipment"),
+    ("cannon", "火炮", "propulsion-equipment", "equipment"),
+)
+
+# id、设施标签、投入种类、产出种类；批量只按 BATCH_UNITS 推导。
+PRODUCTION = (
+    ("grain-farming", "agriculture", (), ("grain",)),
+    ("produce-farming", "agriculture", (), ("produce",)),
+    ("livestock-production", "agriculture", ("grain",), ("animal-products",)),
+    ("fiber-farming", "agriculture", (), ("natural-fiber",)),
+    ("structural-metal-smelting", "metallurgy", ("ferrous-ore", "coal"), ("structural-metal",)),
+    ("conductive-metal-smelting", "metallurgy", ("conductive-ore",), ("conductive-metal",)),
+    ("specialty-material-processing", "metallurgy", ("rare-mineral",), ("specialty-material",)),
+    ("construction-material-processing", "building_materials", ("stone",), ("construction-material",)),
+    ("glass-making", "building_materials", ("silica",), ("glass",)),
+    ("lumber-processing", "light_industry", ("timber",), ("lumber",)),
+    ("textile-making", "light_industry", ("natural-fiber",), ("textile",)),
+    ("oil-refining", "chemical", ("crude-oil",), ("fuel", "chemical-feedstock")),
+    ("coal-fuel-production", "chemical", ("coal",), ("fuel",)),
+    ("polymer-production", "chemical", ("chemical-feedstock",), ("polymer",)),
+    ("mechanical-components-assembly", "assembly", ("structural-metal", "polymer"), ("mechanical-components",)),
+    ("electrical-components-assembly", "assembly", ("conductive-metal", "structural-metal"), ("electrical-components",)),
+    ("electronic-components-assembly", "electronics", ("electrical-components", "specialty-material", "glass", "polymer"), ("electronic-components",)),
+    ("staple-food-processing", "food_processing", ("grain",), ("staple-food",)),
+    ("prepared-food-processing", "food_processing", ("grain", "produce", "animal-products"), ("prepared-food",)),
+    ("clothing-making", "light_industry", ("textile",), ("clothing",)),
+    ("consumer-goods-making", "light_industry", ("lumber", "polymer", "structural-metal", "glass"), ("consumer-goods",)),
+    ("consumer-electronics-assembly", "electronics", ("electronic-components", "polymer", "glass"), ("consumer-electronics",)),
+    ("medical-supplies-production", "chemical", ("chemical-feedstock", "textile", "polymer"), ("medical-supplies",)),
+    ("structural-block-making", "metallurgy", ("structural-metal",), ("structural-block",)),
+    ("construction-block-making", "building_materials", ("construction-material",), ("construction-block",)),
+    ("rail-making", "metallurgy", ("structural-metal",), ("rail",)),
+    ("industrial-machinery-assembly", "assembly", ("structural-metal", "mechanical-components", "electrical-components"), ("industrial-machinery",)),
+    ("storage-equipment-assembly", "assembly", ("structural-metal", "mechanical-components"), ("storage-equipment",)),
+    ("power-equipment-assembly", "assembly", ("structural-metal", "mechanical-components", "electrical-components"), ("power-equipment",)),
+    ("extraction-equipment-assembly", "assembly", ("structural-metal", "mechanical-components", "electrical-components"), ("extraction-equipment",)),
+    ("construction-equipment-assembly", "assembly", ("structural-metal", "mechanical-components", "electrical-components"), ("construction-equipment",)),
+    ("propulsion-equipment-assembly", "assembly", ("structural-metal", "mechanical-components", "electrical-components"), ("propulsion-equipment",)),
+    ("control-equipment-assembly", "assembly", ("electronic-components", "electrical-components"), ("control-equipment",)),
+    ("bogie-assembly", "assembly", ("structural-metal", "mechanical-components"), ("bogie",)),
+    ("platform-equipment-assembly", "assembly", ("structural-metal", "electrical-components"), ("platform-equipment",)),
+    ("lamp-assembly", "assembly", ("electrical-components", "glass"), ("lamp",)),
+    ("machine-gun-assembly", "assembly", ("structural-metal", "mechanical-components"), ("machine-gun",)),
+    ("cannon-assembly", "assembly", ("structural-metal", "mechanical-components", "electrical-components"), ("cannon",)),
+)
+RECOVERY = (
+    ("structural-block", ("structural-metal",)),
+    ("construction-block", ("construction-material",)),
+    ("rail", ("structural-metal",)),
+    ("mechanical-components", ("structural-metal", "polymer")),
+    ("electrical-components", ("conductive-metal", "structural-metal")),
+    ("electronic-components", ("electrical-components", "specialty-material", "polymer")),
+    ("industrial-machinery", ("mechanical-components", "electrical-components", "structural-metal")),
+    ("storage-equipment", ("mechanical-components", "structural-metal")),
+    ("power-equipment", ("mechanical-components", "electrical-components", "structural-metal")),
+    ("extraction-equipment", ("mechanical-components", "electrical-components", "structural-metal")),
+    ("construction-equipment", ("mechanical-components", "electrical-components", "structural-metal")),
+    ("propulsion-equipment", ("mechanical-components", "electrical-components", "structural-metal")),
+    ("control-equipment", ("electronic-components", "electrical-components")),
+    ("bogie", ("structural-metal", "mechanical-components")),
+    ("platform-equipment", ("structural-metal", "electrical-components")),
+    ("machine-gun", ("structural-metal", "mechanical-components")),
+    ("cannon", ("structural-metal", "mechanical-components")),
+)
+TEMPLATE_PLANS = {
+    "agricultural-town": ((6, "production", "grain-farming", True), (7, "production", "staple-food-processing", True)),
+    "mining-town": ((6, "extraction", "stone-quarrying", True), (7, "production", "structural-metal-smelting", True),
+                    (8, "production", "construction-material-processing", True)),
+    "forestry-town": ((6, "extraction", "timber-harvesting", True), (7, "production", "lumber-processing", True)),
+    "oilfield-town": ((6, "extraction", "crude-oil-extraction", True), (7, "production", "oil-refining", True)),
+    "industrial-city": ((6, "production", "electrical-components-assembly", True),
+                        (7, "production", "electronic-components-assembly", True),
+                        (8, "production", "recover-electronic-components", False)),
+}
+
+
+def process_definitions():
+    processes = {}
+
+    def add(identity, kind, tag, inputs=(), outputs=(), extracts=None, terrains=()):
+        seconds, power, labor = PROCESS_PROFILES[tag]
+        simulation = {"kind": kind, "work_required": ceil(REFERENCE_WORK_RATE * seconds),
+                      "power_per_work": power, "labor_per_work": labor, "facility_tag": tag}
+        if kind == "extraction":
+            simulation["extracts"] = {"voxel": extracts, "quantity": BATCH_UNITS}
+        else:
+            simulation["inputs"] = [{"voxel": good, "quantity": BATCH_UNITS} for good in inputs]
+            output_quantity = 1 if kind == "recovery" else BATCH_UNITS * (2 if identity == "coal-fuel-production" else 1)
+            simulation["outputs"] = [{"voxel": good, "quantity": output_quantity} for good in outputs]
+        if terrains:
+            simulation["environment"] = {"terrain_types": list(terrains)}
+        processes[identity] = simulation
+
+    for identity, tag, inputs, outputs in PRODUCTION:
+        add(identity, "production", tag, inputs, outputs, terrains=FARM_TERRAINS if tag == "agriculture" else ())
+    for identity, good, terrains in RESOURCE_PROFILES:
+        add(identity, "extraction", "extraction", extracts=good, terrains=terrains)
+    for good, outputs in RECOVERY:
+        add("recover-" + good, "recovery", "recovery", (good,), outputs)
+    return processes
+
+
+def good_values(processes):
+    values = {good: SOURCE_UNIT_VALUE for _, good, _ in RESOURCE_PROFILES}
+    producers = {output["voxel"]: process for identity, process in processes.items()
+                 if process["kind"] == "production" and identity != "coal-fuel-production"
+                 for output in process["outputs"]}
+
+    def value(good):
+        if good not in values:
+            process = producers[good]
+            cost = sum(item["quantity"] * value(item["voxel"]) for item in process["inputs"])
+            # 联产品的内容初价按总件数均分；报告成本仍保留整批，不宣称单品实际成本。
+            values[good] = ceil(cost * VALUE_MARKUP / sum(item["quantity"] for item in process["outputs"])) if cost else SOURCE_UNIT_VALUE
+        return values[good]
+
+    for good in producers:
+        value(good)
+    return values
 
 
 def png(size, pixel):
@@ -395,12 +607,21 @@ def bastion_fortress():
 
 def content_files():
     files = {}
+    processes = process_definitions()
+    values = good_values(processes)
+    voxel_definitions = {}
+    blueprint_definitions = {}
+    template_definitions = {}
 
     def document(directory, kind, identity, value):
         data = (json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
         if len(data) > JSON_LIMIT:
             raise ValueError(f"{identity}: {len(data)} bytes exceeds {JSON_LIMIT}")
         files[f"{directory}/{identity}.{kind}.json"] = data
+        if kind == "blueprint":
+            blueprint_definitions[identity] = value
+        elif kind == "settlement-template":
+            template_definitions[identity] = value
 
     colors = {"soil": (125, 107, 76, 255),
               "organic": (99, 143, 81, 255), "equipment": (194, 148, 60, 255)}
@@ -421,39 +642,44 @@ def content_files():
             value["appearance"]["presentation"]["tile_span"] = tile_span
         if simulation is not None:
             value["simulation"] = simulation
+            value["appearance"]["presentation"]["shapes"] = (
+                ALL_SHAPES if identity in ("structural-block", "construction-block") else
+                ["cube", "plate"] if identity == "glass" else ["cube"])
         if wheelset:
             value["appearance"]["behaviors"] = {"wheelset": {}}
         document("voxels", "voxel", identity, value)
+        voxel_definitions[identity] = value
 
-    def good(value, mass, durability=180, behaviors=None, raw=False):
-        simulation = {"value": value, "mass": mass, "max_durability": durability, "tags": ["raw_good"] if raw else []}
+    def good(identity, mass, durability=180, behaviors=None):
+        simulation = {"value": values[identity], "mass": mass, "max_durability": durability,
+                      "tags": ["raw_good"] if identity in RAW_GOODS else []}
         if behaviors is not None:
             simulation["behaviors"] = behaviors
         return simulation
 
     sample_description = "{}的第一阶段风格样稿；数值待配平，画面待用户阶段试玩确认。"
     voxel("structural-metal", "结构金属", "painted_metal", faces("top.png", "side.png", "shared/vehicle-underside.png"),
-          "icon.png", good(64, 0.028, 260), tile_span=4, description=sample_description.format("结构金属"))
-    voxel("construction-material", "建材", "concrete", faces("shared/soil-face.png"),
-          "shared/soil-icon.png", good(38, 0.046, 220))
+          "icon.png", good("structural-metal", 0.028, 260), tile_span=4, description=sample_description.format("结构金属"))
+    voxel("construction-material", "建筑材料", "concrete", faces("shared/soil-face.png"),
+          "shared/soil-icon.png", good("construction-material", 0.046, 220))
     voxel("bogie", "转向架", "bare_metal", faces("top.png", "side.png", "shared/bogie-underside.png"),
-          "icon.png", good(156, 0.034, 240), wheelset=True, tile_span=2, description=sample_description.format("转向架"))
+          "icon.png", good("bogie", 0.034, 240), wheelset=True, tile_span=2, description=sample_description.format("转向架"))
     voxel("platform-equipment", "站台设备", "painted_metal", faces("shared/equipment-face.png"),
-          "shared/equipment-icon.png", good(218, 0.024, behaviors={"platform": {}}))
+          "shared/equipment-icon.png", good("platform-equipment", 0.024, behaviors={"platform": {}}))
     voxel("propulsion-equipment", "柴油机组", "painted_metal", faces("top.png", "side.png", "shared/equipment-underside.png"),
-          "icon.png", good(860, 1.12, behaviors={"propulsion": {"traction": 240, "rated_speed": 22}}),
+          "icon.png", good("propulsion-equipment", 1.12, behaviors={"propulsion": {"traction": 240, "rated_speed": 22}}),
           tile_span=1, description=sample_description.format("柴油机组"))
     voxel("control-equipment", "驾驶台", "painted_metal", faces("top.png", "side.png", "shared/equipment-underside.png"),
-          "icon.png", good(420, 0.018, behaviors={"control": {}}), tile_span=1, description=sample_description.format("驾驶台"))
+          "icon.png", good("control-equipment", 0.018, behaviors={"control": {}}), tile_span=1, description=sample_description.format("驾驶台"))
     voxel("storage-equipment", "货舱", "painted_metal", faces("top.png", "side.png", "shared/equipment-underside.png"),
-          "icon.png", good(126, 0.016, behaviors={"storage": {"capacity": 180}}),
+          "icon.png", good("storage-equipment", 0.016, behaviors={"storage": {"capacity": 180}}),
           tile_span=1, description=sample_description.format("货舱"))
-    goods = (("staple-food", "主食", 12, 0.7), ("clothing", "衣物", 46, 0.8),
-             ("prepared-food", "加工食品", 34, 0.6), ("consumer-goods", "日用品", 58, 1.4),
-             ("consumer-electronics", "消费电子", 176, 1.6), ("medical-supplies", "医疗用品", 94, 0.4))
-    for identity, name, value, mass in goods:
-        voxel(identity, name, "organic", faces("shared/organic-face.png"), "shared/organic-icon.png", good(value, mass))
-    voxel("stone", "石料", "stone_soil", faces("shared/soil-face.png"), "shared/soil-icon.png", good(18, 0.042, raw=True))
+    goods = (("staple-food", "主食", 0.7), ("clothing", "衣物", 0.8),
+             ("prepared-food", "加工食品", 0.6), ("consumer-goods", "日用品", 1.4),
+             ("consumer-electronics", "消费电子", 1.6), ("medical-supplies", "医疗用品", 0.4))
+    for identity, name, mass in goods:
+        voxel(identity, name, "organic", faces("shared/organic-face.png"), "shared/organic-icon.png", good(identity, mass))
+    voxel("stone", "石料", "stone_soil", faces("shared/soil-face.png"), "shared/soil-icon.png", good("stone", 0.042))
     voxel("ground", "地表", "organic", faces("top.png", "side.png", "shared/subsoil.png"),
           "icon.png", tile_span=4, description=sample_description.format("地表"))
     voxel("forest-ground", "森林地表占位", "organic", faces("top.png"),
@@ -499,18 +725,42 @@ def content_files():
                   "local_height_noise": [{"scale_meters": 140, "amplitude": local_amplitude}],
                   "decorations": [], "decoration_target_per_square_meter": 0,
                   "railway_models": [{"tracks": n, "bridge": f"bridge-{n}", "tunnel_portal": f"tunnel-portal-{n}"} for n in (1, 2)]})
-    # 本批只提供设施能力，不引入生产流程或 NPC 初始化库存。
     for identity, name, behavior in (
-        ("industrial-machinery", "机床", {"production": {"work_rate": 1}}),
-        ("extraction-equipment", "钻头", {"extraction": {"work_rate": 1}}),
+        ("industrial-machinery", "机床", {"production": {"work_rate": REFERENCE_WORK_RATE}}),
+        ("extraction-equipment", "钻头", {"extraction": {"work_rate": REFERENCE_WORK_RATE}}),
         ("construction-equipment", "基础吊机", {"construction": {"work_rate": 1, "max_plot_size": "medium"}}),
-        ("power-equipment", "发电机", {"power": {"output": 100}}),
+        # 额定功率在模板和建筑布局就绪后统一推导。
+        ("power-equipment", "发电机", {"power": {}}),
     ):
         voxel(identity, name, "painted_metal", faces("shared/equipment-face.png"),
-              "shared/equipment-icon.png", good(240, 0.08, behaviors=behavior))
-    fuel = good(24, 0.7)
-    fuel["fuel_energy"] = 100
+              "shared/equipment-icon.png", good(identity, 0.08, behaviors=behavior))
+    fuel = good("fuel", 0.7)
     voxel("fuel", "燃料", "organic", faces("shared/organic-face.png"), "shared/organic-icon.png", fuel)
+
+    for identity, name, physical_source, texture in NEW_GOODS:
+        source = voxel_definitions[physical_source]["simulation"]
+        simulation = good(identity, source["mass"], source["max_durability"])
+        if identity in ("machine-gun", "cannon"):
+            factor = CANNON_FACTOR if identity == "cannon" else 1
+            simulation["behaviors"] = {"weapon": {"damage": ceil(source["max_durability"] * WEAPON_DAMAGE_SHARE) * factor,
+                                                   "interval": MACHINE_GUN_INTERVAL_SECONDS * factor}}
+        material = "glass" if identity == "glass" else "concrete" if identity == "construction-block" else {
+            "soil": "stone_soil", "organic": "organic", "equipment": "painted_metal"}[texture]
+        voxel(identity, name, material, faces(f"shared/{texture}-face.png"), f"shared/{texture}-icon.png", simulation)
+        if identity == "lamp":
+            value = voxel_definitions[identity]
+            value["appearance"]["behaviors"] = {"light": {}}
+            document("voxels", "voxel", identity, value)
+
+    for identity, simulation in processes.items():
+        item = simulation["extracts"] if simulation["kind"] == "extraction" else (
+            simulation["inputs"][0] if simulation["kind"] == "recovery" else simulation["outputs"][0])
+        operation = {"production": "生产", "extraction": "开采", "recovery": "回收"}[simulation["kind"]]
+        name = voxel_definitions[item["voxel"]]["display"]["name"]
+        document("processes", "process", identity,
+                 {"schema_version": 1, "id": identity, "simulation": simulation,
+                  "display": {"name": operation + name,
+                              "description": "正式经济流程；批量、价值与速率为待用户试玩确认的第一版。"}})
 
     # 吊机是独立货物；建筑只引用它，不手写汇总施工能力。
     for identity, name, span, plot_limit, vehicle_limit in (
@@ -574,7 +824,7 @@ def content_files():
                  {"schema_version": 3, "id": identity,
                   "simulation": {"preferred_terrain": ["core:" + terrain for terrain in preferred_terrain], "weight": 3,
                                  "population_min": 120, "population_max": 360},
-                  "display": {"name": name, "description": "按 Demo 目录选择偏好地貌；生产配平待 #379。",
+                  "display": {"name": name, "description": "按 Demo 目录选择偏好地貌；经济参数待用户试玩确认。",
                               "map_symbol": "shared/agricultural-town.png", "major": identity == "industrial-city"}})
         plots = [{"id": 1, "size": "small_station", "at": [-104, 1, -176], "orientation": "px_py", "building": "small-station"},
                  {"id": 2, "size": "small_station", "at": [104, 1, -176], "orientation": "px_py"}]
@@ -598,8 +848,11 @@ def content_files():
                  {"schema_version": 2, "id": identity, "settlement_type": identity, "weight": 3,
                   "scene_model": identity + "-ground", "plots": plots,
                   "founding": [{"plot": 1, "building": "small-station"}, {"plot": 10, "building": "basic-shed"}],
-                  "inventory": [], "production_plans": [],
-                  "display": {"name": name + "基础布局", "description": "十地块布局，含两个站点地块与委托、仓储、供能设施；生产计划和库存待后续切片。"}})
+                  "inventory": [],
+                  "production_plans": [{"plot": plot, "capability": capability, "process": process,
+                                        "enabled": enabled, "priority": INITIAL_PLAN_PRIORITY}
+                                       for plot, capability, process, enabled in TEMPLATE_PLANS[identity]],
+                  "display": {"name": name + "经济布局", "description": "十地块布局，含两个站点地块与真实生产计划；特殊库存为空，普通初始化待核心生成器支持。"}})
 
     for value in (core_city_hub(), bastion_fortress()):
         document("blueprints", "blueprint", value["id"], value)
@@ -619,28 +872,63 @@ def content_files():
              blueprint("core-city-ground", "核心城市地面", "scene_model", ["ground"], ground,
                        appearance={"flatten": {"from": [-432, -232], "to": [431, 999], "height": 1}}))
 
+    def voxel_behaviors(blueprint_id, capability):
+        # 本批生产建筑、发电站和起始机车的相应设备均是直接体素。
+        # 这里只数制备中的实际格子，不求通用设计 BOM 或复制核心分配规则。
+        layout = blueprint_definitions[blueprint_id]["layout"]
+        return [behavior for *_, index in layout["cells"]
+                if (behavior := voxel_definitions[layout["palette"][index]["voxel"]]
+                    .get("simulation", {}).get("behaviors", {}).get(capability)) is not None]
+
+    per_generator_outputs = []
+    for template in template_definitions.values():
+        buildings_by_plot = {plot["id"]: plot["building"] for plot in template["plots"] if "building" in plot}
+        demand = sum(sum(behavior["work_rate"] for behavior in voxel_behaviors(buildings_by_plot[plan["plot"]], plan["capability"]))
+                     * processes[plan["process"]]["power_per_work"]
+                     for plan in template["production_plans"] if plan["enabled"])
+        generator_count = sum(len(voxel_behaviors(building, "power")) for building in buildings_by_plot.values())
+        per_generator_outputs.append(ceil(demand * POWER_HEADROOM / generator_count))
+    output = max(per_generator_outputs)
+    power = voxel_definitions["power-equipment"]
+    power["simulation"]["behaviors"]["power"]["output"] = output
+    document("voxels", "voxel", "power-equipment", power)
+    fuel["fuel_energy"] = output * FUEL_UNIT_SECONDS
+    document("voxels", "voxel", "fuel", voxel_definitions["fuel"])
+
     needs = ("food", "clothing", "improved_diet", "consumer_goods", "consumer_electronics", "medical_supplies")
     consumption = []
-    for order, (identity, _, _, _) in enumerate(goods):
+    for order, (identity, _, _) in enumerate(goods):
         roles = ("food", "improved_diet") if identity == "prepared-food" else (needs[order],)
         consumption.append({"good": identity, "selection_order": order,
-                            "satisfies": [{"need": role, "amount_per_good_unit": 1.4 if role == "food" else 1.1} for role in roles]})
+                            "satisfies": [{"need": role, "amount_per_good_unit": 1} for role in roles]})
     document("rules", "population-rule", "basic-population",
              {"schema_version": 1, "id": "basic-population", "simulation": {
                  "needs": {need: {"class": "basic" if need in ("food", "clothing") else "improvement",
-                                  "amount_per_person_second": 0.00016, "weight": 1.2} for need in needs},
-                 "consumption_goods": consumption, "labor_ratio": 0.58, "consumption_interval_ticks": 120,
-                 "statistics_period_ticks": 720, "base_growth_per_second": 0.000002,
-                 "improvement_growth_per_second": 0.000001, "maximum_loss_per_second": 0.000004}})
+                                  "amount_per_person_second": NEED_UNITS_PER_PERSON_HOUR / SECONDS_PER_HOUR,
+                                  "weight": 1} for need in needs},
+                 "consumption_goods": consumption, "labor_ratio": LABOR_RATIO,
+                 "consumption_interval_ticks": CONSUMPTION_SECONDS * TICKS_PER_SECOND,
+                 "statistics_period_ticks": STATISTICS_SECONDS * TICKS_PER_SECOND,
+                 "base_growth_per_second": DAILY_GROWTH / (HOURS_PER_DAY * SECONDS_PER_HOUR),
+                 "improvement_growth_per_second": DAILY_GROWTH / (HOURS_PER_DAY * SECONDS_PER_HOUR),
+                 "maximum_loss_per_second": DAILY_MAXIMUM_LOSS / (HOURS_PER_DAY * SECONDS_PER_HOUR)}})
     document("rules", "market-rule", "basic-market", {"schema_version": 2, "id": "basic-market", "simulation": {
-        "basic_reserve_hours": 12, "production_reserve_hours": 6, "improvement_reserve_hours": 4,
-        "default_goods_prices": {"sensitivity_basis_points": 1800, "minimum_multiplier_basis_points": 5500,
-                                 "maximum_multiplier_basis_points": 23000, "spread_basis_points": 1200},
-        "good_prices": [], "vehicle_buy_multiplier_basis_points": 8500, "vehicle_sell_multiplier_basis_points": 11500,
-        "vehicle_purchase_limits": [{"size": size, "maximum_for_sale": 3} for size in ("small", "medium", "large", "extra_large", "titan")],
-        "automatic_evaluation_interval_ticks": 240, "recent_report_limit": 24, "commission_money_per_work": 2,
-        "rent_money_per_capacity_hour": 1, "rentable_capacity_ratio_basis_points": 4500, "lease_duration_ticks": 5184000,
-        "maximum_lease_duration_multiple": 12}})
+        "basic_reserve_hours": BASIC_RESERVE_HOURS, "production_reserve_hours": BASIC_RESERVE_HOURS / 2,
+        "improvement_reserve_hours": BASIC_RESERVE_HOURS / 4,
+        "default_goods_prices": {"sensitivity_basis_points": round(MARKET_SENSITIVITY * BASIS_POINTS),
+                                 "minimum_multiplier_basis_points": round(MARKET_MULTIPLIER_LIMITS[0] * BASIS_POINTS),
+                                 "maximum_multiplier_basis_points": round(MARKET_MULTIPLIER_LIMITS[1] * BASIS_POINTS),
+                                 "spread_basis_points": round(MARKET_MARGIN * BASIS_POINTS)},
+        "good_prices": [], "vehicle_buy_multiplier_basis_points": round((1 - MARKET_MARGIN) * BASIS_POINTS),
+        "vehicle_sell_multiplier_basis_points": round((1 + MARKET_MARGIN) * BASIS_POINTS),
+        "vehicle_purchase_limits": [{"size": size, "maximum_for_sale": VEHICLE_PURCHASE_LIMIT}
+                                    for size in ("small", "medium", "large", "extra_large", "titan")],
+        "automatic_evaluation_interval_ticks": AUTOMATIC_EVALUATION_SECONDS * TICKS_PER_SECOND,
+        "recent_report_limit": RECENT_REPORT_LIMIT, "commission_money_per_work": 2,
+        "rent_money_per_capacity_hour": max(1, ceil(SOURCE_UNIT_VALUE / 10)),
+        "rentable_capacity_ratio_basis_points": round(RENTABLE_CAPACITY_SHARE * BASIS_POINTS),
+        "lease_duration_ticks": LEASE_DAYS * HOURS_PER_DAY * SECONDS_PER_HOUR * TICKS_PER_SECOND,
+        "maximum_lease_duration_multiple": MAXIMUM_LEASE_MULTIPLE}})
     document("rules", "construction-rule", "basic-construction", {"schema_version": 1, "id": "basic-construction", "simulation": {
         "founding_duration_ticks": 2400, "construction_work_per_item": 8, "refit_work_per_changed_item": 5,
         "deconstruction_work_per_item": 3, "repair_work_per_damaged_part": 4, "power_per_work": 0.4, "labor_per_work": 0.25}})
@@ -648,7 +936,7 @@ def content_files():
         "braking_deceleration": 0.7, "minimum_acceleration": 0.15, "minimum_gap_meters": 28,
         "approach_length_meters": 80, "departure_length_meters": 80, "node_speed_limit_meters_per_second": 15,
         "rail_units_per_meter": 0.7, "build_seconds_per_meter": 3, "repair_seconds_per_break": 48,
-        "rail_good": "structural-metal", "repair_rail_units_per_break": 18,
+        "rail_good": "rail", "repair_rail_units_per_break": 18,
         "appearance": {"minimum_curve_radius_meters": 80, "maximum_grade": 0.08}})
     document("combat-rules", "combat-rule", "basic-combat", {"schema_version": 1, "id": "basic-combat",
         "retreat_seconds": 24, "morale_damage_coefficient": 0.015, "weapon_destroyed_morale_loss": 0.18,
@@ -665,19 +953,30 @@ def content_files():
                  ("desert", -1, 30, -1, 0.35, 97, 1.35),
                  ("mountains", 10, 30, -1, 2, 96, 1.35),
              )]
+    extraction_rate = BATCH_UNITS * REFERENCE_WORK_RATE / processes["stone-quarrying"]["work_required"]
+    resources = [{"good": good, "allowed_terrain_types": list(terrains), "probability": RESOURCE_PROBABILITY,
+                  "minimum_reserve": ceil(extraction_rate * RESOURCE_RESERVE_HOURS[0] * SECONDS_PER_HOUR),
+                  "maximum_reserve": ceil(extraction_rate * RESOURCE_RESERVE_HOURS[1] * SECONDS_PER_HOUR),
+                  "renewable": good == "timber",
+                  "recovery_units_per_second": extraction_rate * FOREST_RECOVERY_SHARE if good == "timber" else 0,
+                  "regeneration_interval_seconds": GLOBAL_CHECK_MINUTES * 60,
+                  "global_regeneration_remaining_reserve_ratio": GLOBAL_REGEN_RATIO}
+                 for _, good, terrains in RESOURCE_PROFILES]
+    cargo_capacity = sum(behavior["capacity"] for spec in VEHICLES for behavior in voxel_behaviors(spec[0], "storage"))
+    small = blueprint_definitions["small-locomotive"]["layout"]
+    small_base_value = sum(values[small["palette"][index]["voxel"]] for *_, index in small["cells"])
+    # 只估算满舱采购与造一台机车的预算，不计算核心委托报价。
+    initial_money = ceil(START_BUDGET_MULTIPLIER * (cargo_capacity * max(values[good] for good, _, _ in goods) + small_base_value))
     document("generation-profiles", "generation-profile", "basic-through-world", {
         "schema_version": 2, "id": "basic-through-world",
-        "display": {"name": "基础贯通小世界", "description": "真实三轨距机车、站点、非零噪声与环路；不是完整 Demo 默认开局，经济条件与生物聚落尚未验收。"},
+        "display": {"name": "经济运输验证世界", "description": "真实货物、流程和六份模板计划；数值待试玩。NPC 库存和现车初始化待 #528，车队待 #340，真实起步贸易待 #386。"},
         "configuration": {"width_meters": 1800, "height_meters": 1200, "minimum_node_spacing_meters": 300,
             "candidate_probability": 0.9, "elevation_noise": [{"scale_meters": 780, "amplitude": 14}, {"scale_meters": 260, "amplitude": 4}],
             "moisture_noise": [{"scale_meters": 600, "amplitude": 1}], "river_noise": [{"scale_meters": 900, "amplitude": 1}],
             "lake_elevation_threshold": 4, "river_band_half_width": 0.045, "terrain_bands": bands,
             "terrain_sample_spacing_meters": 60, "settlement_ratio": 0.45, "lair_ratio": 0,
             "hostile_settlement_ratio": 0, "lair_weights": [],
-            "resources": [{"good": "stone", "allowed_terrain_types": ["plains", "hills"], "probability": 0.55,
-                           "minimum_reserve": 1800, "maximum_reserve": 5600, "renewable": False,
-                           "recovery_units_per_second": 0, "regeneration_interval_seconds": 7200,
-                           "global_regeneration_remaining_reserve_ratio": 0.3}],
+            "resources": resources,
             "initial_railway": {"maximum_tracks": 2, "minimum_initial_tracks": 1, "maximum_initial_tracks": 2, "additional_cycle_edges": 1},
             "budget": {"maximum_stage_retries": 4, "maximum_world_retries": 4, "maximum_candidates": 50000, "maximum_search_work": 4000000},
             "npc_initialization": {"fill_inputs_and_living_targets": False, "output_reserve_hours": 0,
@@ -687,7 +986,7 @@ def content_files():
                                   "required_affordable_commission_design": "small-locomotive"},
             "rules": {"population": "basic-population", "market": "basic-market", "construction": "basic-construction",
                       "railway": "basic-railway", "combat": "basic-combat"}},
-        "start": {"initial_money": 600000, "trains": [{"vehicles": [spec[0]], "inventory": []} for spec in VEHICLES]}})
+        "start": {"initial_money": initial_money, "trains": [{"vehicles": [spec[0]], "inventory": []} for spec in VEHICLES]}})
     for path in list(files):
         if path.endswith(".png"):
             files[path + ".import"] = keep_import(path)
@@ -729,6 +1028,9 @@ def main():
                 print(f"字节不同：{path}", file=sys.stderr)
             return 1
         check_schemas(files)
+        result = subprocess.run([sys.executable, str(ROOT / "scripts/content/check_economy.py"), str(args.output_dir)])
+        if result.returncode:
+            return result.returncode
     else:
         for path, data in files.items():
             target = resources / path

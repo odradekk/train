@@ -1,0 +1,1 @@
+{"schema_version":1,"id":"crude-oil-extraction","simulation":{"kind":"extraction","work_required":30,"power_per_work":1,"labor_per_work":1,"facility_tag":"extraction","extracts":{"voxel":"crude-oil","quantity":4},"environment":{"terrain_types":["desert"]}},"display":{"name":"开采原油","description":"正式经济流程；批量、价值与速率为待用户试玩确认的第一版。"}}

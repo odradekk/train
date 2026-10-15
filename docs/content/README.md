@@ -4,7 +4,7 @@
 
 `ContentFactory` 的 Initial 加载已支持 manifest v2、voxel v3、车辆／建筑／组装体／功能复合体／场景模型蓝图 v3、流程 v1（生产、开采、回收）、地貌 v1、聚居地类型 v3、聚居地模板 v2、五类规则和生成配置 v2（含 NPC 初始化参数），并使用宿主文件与资产检查端口提供的固定字节和事实。工厂提供新局输入、流程核心投影与显示查询、铁路表现参数及按最终所有者固定的模板副本和布局查询；租赁参数归市场规则。模板的 `founding`、`inventory`、`production_plans` 已支持解析、引用与约束校验及核心投影；特殊库存支持 voxel、功能复合体和组装体货物。NPC 初始化执行仍由核心负责，生物聚落与生物仍待后续任务，完整示例包尚不能加载。当前范围的捕获、恢复、重载和复现已接入，详见[内容契约](../contracts/content.md)；游戏宿主已通过 `App/Composition/` 接入真实工厂，旧内容加载路径在 [#452](https://github.com/odradekk/train/issues/452) 退役。当前目标是完整 Demo；聚居地类型版本 3 已移除临时供需、恢复量和站台数，保留的临时市场表及其 Schema、样例仅是历史记录。实施按[工单重组](https://github.com/odradekk/train/issues/294)获准的六阶段方案推进，各阶段交付当期所需的真实内容与验证配方；全部正式内容在第六阶段核对，不能要求早期任务提前完成全目录。
 
-当前 builtin 提供五类聚居地类型、模板及场景模型，每份模板至少八个地块和两个站点，并包含所需建筑与吊车。地貌包含 plains、hills、forest、desert、mountains，生成阈值为示例验证临时值；三种新地貌使用占位地表，正式地形美术归 #358。内置生产计划和特殊库存暂为空，NPC 初始化参数不变；正式流程、资源与生产配平归 #379，样机验证归 #390。这些内容定义不表示 NPC 初始化或四模块联调已通过。
+当前 builtin 提供五类聚居地类型、模板及场景模型，每份模板至少八个地块和两个站点，并包含所需建筑与吊车。地貌包含 plains、hills、forest、desert、mountains，生成阈值为示例验证临时值；三种新地貌使用占位地表，正式地形美术归 #358。内置正式货物与流程、资源生成参数和模板生产计划由 #379 交付；特殊库存仍为空，NPC 初始化执行与动态供应链验收待 #528，样机验证归 #390。这些内容定义不表示 NPC 初始化或四模块联调已通过。
 
 实施验收仍要求加载器能完整加载更新后的 Demo 示例，且示例通过对应 Schema 校验；一个包里只要有一份定义无效，整个包都无效。不能以加载旧的首切片子集或让临时样例通过 Schema 代替完整 Demo 内容验收。
 
@@ -33,24 +33,25 @@
 
 这个目录里有 `.gdignore`，Godot 编辑器不会导入这里的图片。
 
-## 基础贯通正式内容
+## 经济运输正式内容
 
-`builtin/core/resources/` 当前提供基础贯通小世界的正式输入，由 [generate_small_world.py](../../scripts/content/generate_small_world.py) 独占生成：三种轨距的小型／中型／超大型机车、小站点和站台设备、农业镇类型与八地块模板、平原与丘陵及桥隧模型、五类规则和 `core:basic-through-world` 生成配置。PNG 的唯一可编辑源也是该脚本，附带确定 UID 的 Keep File `.import`；改图后须重制。
+`builtin/core/resources/` 当前提供经济运输切片的正式输入，由 [generate_small_world.py](../../scripts/content/generate_small_world.py) 独占生成：三种轨距的小型／中型／超大型机车、小站点和站台设备、五类聚居地与六份模板、五种地貌及桥隧模型、五类规则和 `core:basic-through-world` 生成配置。PNG 的唯一可编辑源也是该脚本，附带确定 UID 的 Keep File `.import`；改图后须重制。
 
 第一阶段风格样稿覆盖 `ground`、`subsoil`、`rock` 和小型机车使用的五种货物体素：`structural-metal`、`bogie`、`propulsion-equipment`、`control-equipment`、`storage-equipment`。面贴图每格 32 px，图标 128×128、透明底；土层图与车辆底面放在 `voxels/shared/` 复用。小型机车采用驾驶室、机器间、两侧检修走廊和端部平台的外形，轮对格位与体素数量沿用原内容。中型、超大型蓝图保持原模板，共用的体素表现会随本批素材更新；其余资产仍为占位。本批样稿不代表完整 Demo 美术完成，画面待用户阶段试玩确认。
 
-这是基础贯通小世界，**不是完整 Demo 默认开局**。配置使用非零噪声和成环线路，起始车队每种轨距各一台机车；数值另起，尚未完成经济配平、全目录制作或正式美术。`lair_ratio=0`，不启用生产计划、自动库存和现车初始化。含生物聚落的预算未测量：生物聚落会占用节点，影响起点检查、初始铁路和选路，需要在内容接入后重测。
+这是基础贯通小世界，**不是完整 Demo 默认开局**。配置使用非零噪声和成环线路，起始车队每种轨距各一台机车；正式经济目录包含 46 种货物和 63 个流程（38 生产、8 开采、17 回收），模板包含真实生产计划。检查器直接读取正式 JSON，分别检查生产与回收关系、人口消费品的静态可达性、两条燃料路线的整批原料需求与余量，以及真实蓝图设备支持的满速供电和劳动估算；炼油联产品不分摊单品成本。模板报告列出跨模板进口和未被启用计划供应的中间品，静态全包可达不表示 NPC 能动态闭合运行。正式美术仍未完成。`lair_ratio=0`，自动库存和现车初始化保持关闭，待 #528 接入 NPC 初始化。含生物聚落的预算未测量：生物聚落会占用节点，影响起点检查、初始铁路和选路，需要在内容接入后重测。
 
 在仓库根目录重制和检查：
 
 ```powershell
 python scripts/content/generate_small_world.py
 python scripts/content/generate_small_world.py --check
+python scripts/content/check_economy.py
 python scripts/content/generate_small_world.py --output-dir TestResults/content-reproduction
 pwsh -NoProfile -File scripts/test.ps1 -Project content -Layer fast,integration
 ```
 
-`--check` 比较全部文件清单与字节并校验 Schema；目录中多出、缺少或手改任何文件都会失败。生成时也拒绝多余文件，避免覆盖未归脚本所有的内容。修改正式内容应修改生成脚本，再重制；每份 JSON 必须在现有 1 MiB 单文件上限内。新 PNG 的 `.import` 已设置 `importer="keep"`，无头导入后应保持不变。
+`--check` 比较全部文件清单与字节、校验 Schema，并调用独立经济检查器；目录中多出、缺少或手改任何文件都会失败。生成时也拒绝多余文件，避免覆盖未归脚本所有的内容。修改正式内容应修改生成脚本，再重制；每份 JSON 必须在现有 1 MiB 单文件上限内。新 PNG 的 `.import` 已设置 `importer="keep"`，无头导入后应保持不变。
 
 真实内容加载测试只验证 Content 的解析、引用和设计投影。世界测量及固定种子的节点／线路定位记录见 [#372](https://github.com/odradekk/train/issues/372) 测量评论；三维弯坡、轮轨表现与看图确认归 #298，依赖 PR #431 合并。游戏已不加载 `builtin/legacy-host/`；该目录仅保留资产导出探针与 `ContentPortsTests` 使用的 PNG 夹具。宿主已在 #424 接入真实工厂，导出规则清理归 #377。
 
