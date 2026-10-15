@@ -9,6 +9,23 @@ namespace Train.Scenes.Tests;
 
 internal static class NodeFixtures
 {
+    internal static NodeScene.Built Build(SceneWorldSnapshot snapshot, NodeLayout layout,
+        NodeScene.Built? previous = null, CancellationToken token = default)
+    {
+        var prepared = NodeScene.Prepare(snapshot, layout, previous, token);
+        var parts = prepared.Global.Parts.ToBuilder();
+        foreach (var (key, segment) in prepared.Rails)
+            parts[key] = segment.Build(previous?.Parts.GetValueOrDefault(key), token);
+        for (var z = (int)layout.Bounds.Minimum.Y; z < layout.Bounds.Maximum.Y; z += VoxelGrid.ChunkSize)
+        for (var x = (int)layout.Bounds.Minimum.X; x < layout.Bounds.Maximum.X; x += VoxelGrid.ChunkSize)
+        {
+            var from = new GridColumn(x, z);
+            var key = NodeScene.ChunkKey(from);
+            parts[key] = prepared.BuildChunk(from, previous?.Parts.GetValueOrDefault(key), token);
+        }
+        return prepared.Global with { Parts = parts.ToImmutable() };
+    }
+
     internal static readonly NodeId NodeId = new(1);
     internal static readonly VoxelDefinitionId Concrete = new("test:concrete");
     internal static readonly WorldLocation Location = new WorldLocation.Node(NodeId);
@@ -105,7 +122,8 @@ internal static class NodeFixtures
     internal static FixedContentView Content(ulong generation = 1, VoxelAppearanceProjection? concrete = null,
         bool missing = false, DesignEvaluation? design = null, TerrainAppearanceProjection? terrain = null,
         RailwayAppearanceProjection? rules = null, VoxelAppearanceProjection? voxel = null,
-        IReadOnlyDictionary<DesignHash, ContentLookup<DesignEvaluation>>? designs = null)
+        IReadOnlyDictionary<DesignHash, ContentLookup<DesignEvaluation>>? designs = null,
+        SettlementLayoutProjection? layout = null)
     {
         design ??= RailwayFixtures.Vehicle();
         var hash = design is DesignEvaluation.Complete complete ? complete.Design : SceneFixtures.Design;
@@ -120,7 +138,7 @@ internal static class NodeFixtures
             Generation = new(generation), Core = SceneFixtures.Content().Core,
             Voxels = [new(Concrete, null), new(SceneFixtures.Voxel, null)],
             Designs = evaluations,
-            SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>> { [new(1)] = new ContentLookup<SettlementLayoutProjection>.Found(Layout) },
+            SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>> { [new(1)] = new ContentLookup<SettlementLayoutProjection>.Found(layout ?? Layout) },
             VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
             {
                 [SceneFixtures.Voxel] = new ContentLookup<VoxelAppearanceProjection>.Found(voxel ?? SceneFixtures.Cube),

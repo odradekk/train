@@ -18,6 +18,63 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
     private static readonly SceneSessionId Session = new(Guid.Parse("7dd364aa-df8f-4144-b345-fc130ea11ca9"));
 
     [Test]
+    public void Cancelled_preparation_releases_resources_without_touching_committed_frame()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        var asset = Png("superseded-texture");
+        var content = new FixedContentView
+        {
+            Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>>
+                { [asset.Revision] = new ContentLookup<ContentAsset>.Found(asset) }
+        };
+        using var display = Attach(cache, content);
+        var first = Frame(1, [Object(1, Mesh())]);
+        Commit(display, first);
+        using var lease = cache.AcquireFaceTexture(asset);
+        var texture = lease.Value;
+        long timestamp = 0;
+        display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
+        var candidate = Frame(2,
+            [Object(2, Mesh(new SceneMaterial.Voxel(asset.Revision, MaterialCategory.BareMetal, null))), Object(3, Mesh())],
+            first.Update.Frame);
+        Require(display.Prepare(candidate) is null, "候选必须在第一个资源后耗尽预算。");
+        lease.Dispose();
+        Require(GodotObject.IsInstanceValid(texture), "尚在准备的候选必须持有纹理租约。");
+        display.CancelPreparation();
+        var latest = Frame(3, [], first.Update.Frame);
+        using var prepared = display.Prepare(latest);
+        Require(prepared is not null && !GodotObject.IsInstanceValid(texture) &&
+            ReferenceEquals(display.DisplayedFrame, first),
+            "取消的候选必须在主线程释放其独占资源，同时旧显示帧不变。");
+        prepared!.Commit();
+        Require(ReferenceEquals(display.DisplayedFrame, latest) && display.Objects.Count == 1,
+            "必须提交最新候选，不能接入已被取代的对象。");
+    }
+
+    [Test]
+    public void Full_replacement_uses_the_same_preparation_budget()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView());
+        var first = Frame(1, [Object(1, Mesh())]);
+        Commit(display, first);
+        var oldRoot = display.Objects[new(1)].Root;
+        var replacement = Frame(2, [Object(2, Mesh()), Object(3, Mesh())]);
+        long timestamp = 0;
+        display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
+        Require(display.Prepare(replacement) is null && ReferenceEquals(display.DisplayedFrame, first) &&
+            GodotObject.IsInstanceValid(oldRoot), "完整替换必须遵守同一预算，准备未完成时保留旧显示。");
+        using var prepared = display.Prepare(replacement);
+        Require(prepared is not null && ReferenceEquals(display.DisplayedFrame, first),
+            "第二帧必须复用已准备资源，且提交前不得发布候选。");
+        prepared!.Commit();
+        Require(ReferenceEquals(display.DisplayedFrame, replacement) && display.Objects.Count == 2 &&
+            !GodotObject.IsInstanceValid(oldRoot), "完整替换必须一次发布全部新对象并释放旧对象。");
+    }
+
+    [Test]
     public void Debug_lines_use_committed_frame_coordinates_and_release_replaced_resources()
     {
         using var dispatcher = new GodotMainThreadDispatcher();
@@ -284,7 +341,7 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
 
     private SceneDisplay Attach(AssetResourceCache cache, FixedContentView content)
     {
-        var display = new SceneDisplay(cache, content);
+        var display = new SceneDisplay(cache, content) { Timestamp = () => 0 };
         TestScene.AddChild(display.Root);
         return display;
     }

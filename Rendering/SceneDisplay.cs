@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Godot;
 using Train.App.Assets;
 using Train.Content.Contracts;
@@ -13,10 +14,18 @@ internal sealed class SceneDisplay : IDisposable
     private Dictionary<SceneObjectId, DisplayObject> _objects = [];
     private FogGroup? _fog;
     private DebugLineGroup? _debugLines;
+    private FogGroup? _pendingFog;
+    private DebugLineGroup? _pendingDebugLines;
+    private ISceneFrame? _preparingFrame;
     private bool _disposed;
+    private readonly Dictionary<(SceneObjectId Object, int Index), PreparedVisual> _pendingVisuals = [];
+    private readonly Dictionary<SceneObjectId, Node3D> _pendingRoots = [];
+    private static readonly TimeSpan PreparationBudget = TimeSpan.FromMilliseconds(4);
+    internal Func<long> Timestamp { get; set; } = Stopwatch.GetTimestamp;
 
     internal Node3D Root { get; } = new() { Name = "SceneDisplay" };
     internal ISceneFrame? DisplayedFrame { get; private set; }
+    internal bool IsPreparing => _preparingFrame is not null;
     internal IReadOnlyDictionary<SceneObjectId, DisplayObject> Objects => _objects;
 
     internal SceneDisplay(AssetResourceCache cache, IContentView content)
@@ -28,23 +37,29 @@ internal sealed class SceneDisplay : IDisposable
     internal PreparedFrame? Prepare(ISceneFrame frame)
     {
         _cache.RequireMainThread();
+        frame = _preparingFrame ?? frame;
         if (frame.Readiness == SceneReadiness.Loading ||
             frame.Update.Base is { } baseline && baseline != DisplayedFrame?.Update.Frame)
+        {
+            CancelPreparation();
             return null;
+        }
+        _preparingFrame = frame;
+        var started = Timestamp();
+        var preparedResource = false;
         var update = frame.Update;
         var next = update.Base is null ? new Dictionary<SceneObjectId, DisplayObject>() : new(_objects);
-        var created = new List<PreparedVisual>();
-        var roots = new List<Node3D>();
-        FogGroup? fog = null;
-        DebugLineGroup? debugLines = null;
+        bool BudgetExpired() => preparedResource &&
+            Stopwatch.GetElapsedTime(started, Timestamp()) >= PreparationBudget;
         try
         {
             foreach (var id in update.Removed) next.Remove(id);
             foreach (var source in update.Upserts)
             {
                 _objects.TryGetValue(source.Id, out var previous);
-                var root = previous?.Root ?? new Node3D { Name = $"Object{source.Id.Value}" };
-                if (previous is null) roots.Add(root);
+                if (previous is null && !_pendingRoots.ContainsKey(source.Id))
+                    _pendingRoots.Add(source.Id, new Node3D { Name = $"Object{source.Id.Value}" });
+                var root = previous?.Root ?? _pendingRoots[source.Id];
                 var visuals = new PreparedVisual[source.Visuals.Length];
                 for (var i = 0; i < visuals.Length; i++)
                 {
@@ -53,8 +68,16 @@ internal sealed class SceneDisplay : IDisposable
                         visuals[i] = previous.Visuals[i];
                     else
                     {
-                        visuals[i] = _resources.Prepare(source.Visuals[i]);
-                        created.Add(visuals[i]);
+                        var key = (source.Id, i);
+                        if (!_pendingVisuals.TryGetValue(key, out var visual))
+                        {
+                            if (BudgetExpired())
+                                return null;
+                            visual = _resources.Prepare(source.Visuals[i]);
+                            _pendingVisuals.Add(key, visual);
+                            preparedResource = true;
+                        }
+                        visuals[i] = visual;
                     }
                 }
                 next[source.Id] = new(source, root, visuals);
@@ -62,22 +85,47 @@ internal sealed class SceneDisplay : IDisposable
             foreach (var item in next.Values)
                 if (item.Source.Parent is { } parent && !next.ContainsKey(parent))
                     throw new InvalidOperationException("显示对象的父对象不存在。");
-            if (_fog is null || !_fog.Regions.SequenceEqual(update.Environment.FoggedRegions))
-                fog = new(update.Environment.FoggedRegions);
-            if (!frame.DebugLines.IsEmpty &&
+            if (_pendingFog is null && (_fog is null || !_fog.Regions.SequenceEqual(update.Environment.FoggedRegions)))
+            {
+                if (BudgetExpired()) return null;
+                _pendingFog = new(update.Environment.FoggedRegions);
+                preparedResource = true;
+            }
+            if (_pendingDebugLines is null && !frame.DebugLines.IsEmpty &&
                 (_debugLines is null || !_debugLines.Lines.SequenceEqual(frame.DebugLines)))
-                debugLines = new(frame.DebugLines);
-            return new(this, frame, next, created, roots, fog ?? _fog!, fog is not null,
-                frame.DebugLines.IsEmpty ? null : debugLines ?? _debugLines, debugLines is not null);
+            {
+                if (BudgetExpired()) return null;
+                _pendingDebugLines = new(frame.DebugLines);
+            }
+            var prepared = new PreparedFrame(this, frame, next, [.. _pendingVisuals.Values],
+                [.. _pendingRoots.Values], _pendingFog ?? _fog!, _pendingFog is not null,
+                frame.DebugLines.IsEmpty ? null : _pendingDebugLines ?? _debugLines, _pendingDebugLines is not null);
+            _pendingFog = null;
+            _pendingDebugLines = null;
+            _pendingVisuals.Clear();
+            _pendingRoots.Clear();
+            _preparingFrame = null;
+            return prepared;
         }
         catch
         {
-            foreach (var visual in created) visual.Dispose();
-            foreach (var root in roots) root.Free();
-            fog?.Dispose();
-            debugLines?.Dispose();
+            CancelPreparation();
             throw;
         }
+    }
+
+    internal void CancelPreparation()
+    {
+        _cache.RequireMainThread();
+        _preparingFrame = null;
+        foreach (var visual in _pendingVisuals.Values) visual.Dispose();
+        foreach (var root in _pendingRoots.Values) root.Free();
+        _pendingVisuals.Clear();
+        _pendingRoots.Clear();
+        _pendingFog?.Dispose();
+        _pendingFog = null;
+        _pendingDebugLines?.Dispose();
+        _pendingDebugLines = null;
     }
 
     private void Commit(PreparedFrame prepared)
@@ -145,6 +193,7 @@ internal sealed class SceneDisplay : IDisposable
         _cache.RequireMainThread();
         if (_disposed) return;
         _disposed = true;
+        CancelPreparation();
         foreach (var item in _objects.Values) item.Root.GetParent()?.RemoveChild(item.Root);
         foreach (var item in _objects.Values)
         {
@@ -178,6 +227,7 @@ internal sealed class SceneDisplay : IDisposable
         public void Dispose()
         {
             if (Transferred || _disposed) return;
+            owner._cache.RequireMainThread();
             _disposed = true;
             foreach (var visual in visuals) visual.Dispose();
             foreach (var root in roots) if (GodotObject.IsInstanceValid(root)) root.Free();

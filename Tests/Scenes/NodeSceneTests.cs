@@ -20,7 +20,7 @@ public sealed class NodeSceneTests
     public void StaticRebindUsesValuesAndRebuildsOnlyTerrainWhenItsVoxelAppearanceChanges()
     {
         var snapshot = Isolated(NodeFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 }));
-        var before = NodeScene.Build(snapshot, NodeLayout.Build(snapshot, new(1)));
+        var before = NodeFixtures.Build(snapshot, NodeLayout.Build(snapshot, new(1)));
         var oldGeometry = before.Parts.OrderBy(part => part.Key, StringComparer.Ordinal)
             .First(part => part.Key.StartsWith("terrain:", StringComparison.Ordinal) &&
                 !part.Value.Geometry.Geometry.Picking.IsEmpty).Value.Geometry.Geometry;
@@ -32,12 +32,12 @@ public sealed class NodeSceneTests
         var oldHit = ((ScenePick.Hit)oldFrame.Pick(ray)).Value;
         var equivalent = Isolated(NodeFixtures.Content(generation: 2, rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 },
             terrain: RailwayFixtures.TerrainAppearance with { Display = new("new label", "new description"), LocalHeightNoise = [], Decorations = [] }));
-        var same = NodeScene.Build(equivalent, NodeLayout.Build(equivalent, new(1)), before);
+        var same = NodeFixtures.Build(equivalent, NodeLayout.Build(equivalent, new(1)), before);
         foreach (var part in before.Parts) Assert.AreSame(part.Value, same.Parts[part.Key]);
         var appearance = SceneFixtures.Cube with { Presentation = ((VoxelPresentation.Cube)SceneFixtures.Cube.Presentation) with { Side = new("changed") } };
         var changedSnapshot = Isolated(NodeFixtures.Content(generation: 3,
             rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 }, voxel: appearance));
-        var changed = NodeScene.Build(changedSnapshot, NodeLayout.Build(changedSnapshot, new(1)), same);
+        var changed = NodeFixtures.Build(changedSnapshot, NodeLayout.Build(changedSnapshot, new(1)), same);
         foreach (var part in before.Parts)
             if (part.Key.StartsWith("terrain:", StringComparison.Ordinal)) Assert.AreNotSame(part.Value, changed.Parts[part.Key]);
             else Assert.AreSame(part.Value, changed.Parts[part.Key]);
@@ -94,9 +94,9 @@ public sealed class NodeSceneTests
     public void ProductionDiagonalNodeHasNoMissingOrDuplicateSeamColumns()
     {
         var snapshot = DiagonalSnapshot();
-        var built = NodeScene.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
-        Assert.IsTrue(built.Parts["entry:1"].Geometry.Geometry.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Any());
-        Assert.IsTrue(built.Parts["station-tracks"].Geometry.Geometry.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Any());
+        var built = NodeFixtures.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+        Assert.IsTrue(built.Parts.Where(part => part.Key.StartsWith("entry:1:", StringComparison.Ordinal)).SelectMany(part => part.Value.Geometry.Geometry.Objects).SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Any());
+        Assert.IsTrue(built.Parts.Where(part => part.Key.StartsWith("station-tracks:", StringComparison.Ordinal)).SelectMany(part => part.Value.Geometry.Geometry.Objects).SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Any());
         foreach (var part in built.Parts.Values)
         {
             Assert.AreEqual(Math.Round(part.Origin.X), part.Origin.X);
@@ -147,17 +147,18 @@ public sealed class NodeSceneTests
     public void ProductionNodeRebindPreservesRailsAndPlatformsWhileRefreshingReliefDependencies()
     {
         var snapshot = DiagonalSnapshot();
-        var built = NodeScene.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
-        var same = NodeScene.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId), built);
+        var built = NodeFixtures.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+        var same = NodeFixtures.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId), built);
         Assert.AreSame(built.Boundaries[new(1)], same.Boundaries[new(1)], "Unchanged inputs reuse strip samples.");
         foreach (var part in built.Parts) Assert.AreSame(part.Value, same.Parts[part.Key]);
         var relief = RailwayFixtures.ReplaceCore(snapshot, node: snapshot.Core.World.Nodes[0] with
         { Terrain = snapshot.Core.World.Nodes[0].Terrain with { Relief = 2 } });
-        var changed = NodeScene.Build(relief, NodeLayout.Build(relief, NodeFixtures.NodeId), same);
+        var changed = NodeFixtures.Build(relief, NodeLayout.Build(relief, NodeFixtures.NodeId), same);
         Assert.AreNotSame(same.Boundaries[new(1)], changed.Boundaries[new(1)], "Relief is read from the rebound snapshot.");
         Assert.AreNotSame(same.Parts["boundary:1"], changed.Parts["boundary:1"]);
-        Assert.AreSame(same.Parts["entry:1"], changed.Parts["entry:1"]);
-        Assert.AreSame(same.Parts["station-tracks"], changed.Parts["station-tracks"]);
+        foreach (var part in same.Parts.Where(part => part.Key.StartsWith("entry:", StringComparison.Ordinal) ||
+            part.Key.StartsWith("station-tracks:", StringComparison.Ordinal)))
+            Assert.AreSame(part.Value, changed.Parts[part.Key]);
     }
 
     [TestMethod]
@@ -209,7 +210,7 @@ public sealed class NodeSceneTests
             content: NodeFixtures.Content(design: RailwayFixtures.Vehicle(lengthCells: 104),
                 rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 }));
         snapshot = RailwayFixtures.ReplaceCore(snapshot, node: snapshot.Core.World.Nodes[2] with { Position = new(700, 0) });
-        var built = NodeScene.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+        var built = NodeFixtures.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
         var heights = built.Parts.Values.SelectMany(part => part.Heights.Select(item => new KeyValuePair<GridColumn, double>(
             new((int)Math.Round(item.Key.X + part.Origin.X), (int)Math.Round(item.Key.Z + part.Origin.Z)), item.Value + part.Origin.Y))).ToDictionary();
         var seamColumns = new List<int>();
@@ -319,8 +320,8 @@ public sealed class NodeSceneTests
     {
         var before = CopiedSettlement(1, terrain: false, stationPlots: false);
         var after = CopiedSettlement(2, terrain: false, stationPlots: false);
-        var built = NodeScene.Build(before, NodeLayout.Build(before, NodeFixtures.NodeId));
-        var rebound = NodeScene.Build(after, NodeLayout.Build(after, NodeFixtures.NodeId), built);
+        var built = NodeFixtures.Build(before, NodeLayout.Build(before, NodeFixtures.NodeId));
+        var rebound = NodeFixtures.Build(after, NodeLayout.Build(after, NodeFixtures.NodeId), built);
         foreach (var part in built.Parts) Assert.AreSame(part.Value, rebound.Parts[part.Key]);
         var frames = new List<RenderedDesign>();
         foreach (var snapshot in new[] { before, after })
@@ -369,7 +370,7 @@ public sealed class NodeSceneTests
     public void TemplateModelEntersTerrainAndRailwayClearsItsCells()
     {
         var snapshot = CopiedSettlement(1, terrain: false);
-        var built = NodeScene.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+        var built = NodeFixtures.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
         var terrain = built.Parts.Where(part => part.Key.StartsWith("terrain:", StringComparison.Ordinal)).Select(part => part.Value).ToArray();
         var cells = terrain.SelectMany(part => part.Geometry.Geometry.Picking).SelectMany(pick => pick.Grid.Cells).ToDictionary(cell => cell.At);
         var paint = new PaintColor("#ff00ff");
