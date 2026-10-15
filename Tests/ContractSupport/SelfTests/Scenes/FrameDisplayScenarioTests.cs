@@ -32,6 +32,28 @@ public sealed class FrameDisplayScenarioTests
         await closing;
     }
 
+    [TestMethod]
+    public void DesignPreviewRequiresConfigurationAndPassesExactInputs()
+    {
+        var content = new Train.Content.ContractSupport.FixedContentView();
+        var design = new Train.Content.Contracts.DesignEvaluation.Failed([]);
+        var result = new SceneResult<IDesignPreview>.Failure([]);
+        var factory = new FixedDisplayFactory
+        {
+            PreviewDesignCall = (actualContent, actualDesign) =>
+            {
+                Assert.AreSame(content, actualContent);
+                Assert.AreSame(design, actualDesign);
+                return result;
+            }
+        };
+        Assert.AreSame(result, factory.PreviewDesign(content, design));
+        Assert.AreEqual(1, factory.PreviewCalls.Count);
+        Assert.AreSame(content, factory.PreviewCalls[0].Content);
+        Assert.AreSame(design, factory.PreviewCalls[0].Initial);
+        AssertUnconfigured(() => new FixedDisplayFactory().PreviewDesign(content, design));
+    }
+
     private static FixedSceneFrame Frame(SceneUpdate update) => new() { Update = update };
     private static void AssertUnconfigured(Action action)
     {

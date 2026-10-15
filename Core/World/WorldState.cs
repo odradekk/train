@@ -14,7 +14,8 @@ internal abstract record GeneratedOccupant
 
 internal sealed record SettlementState(SettlementId Id, NodeId Node, SettlementTypeId Type,
     SettlementRelation Relation, long Population, SettlementTemplateProjection Template,
-    ImmutableArray<PlotState> Plots, InventoryId Inventory, ImmutableArray<VehicleId> ParkedVehicles);
+    ImmutableArray<PlotState> Plots, InventoryId Inventory, ImmutableArray<VehicleId> ParkedVehicles,
+    double FuelEnergyRemaining);
 internal sealed record PlotState(PlotId Id, int TemplateNumber, PlotSize Size, BuildingId? Building);
 internal sealed record LairState(LairId Id, NodeId Node, LairTypeId Type);
 internal sealed record PartDurability(PartId Id, long Current);
@@ -113,7 +114,7 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
                 var inventory = new InventoryId(inventoryNumber++);
                 inventories.Add(new(inventory, new InventoryOwner.Settlement(settlementId), settlement.Template.SpecialInitialInventory, []));
                 settlements.Add(new(settlementId, id, settlement.Type.Id, settlement.Relation, settlement.Population,
-                    settlement.Template, plots.ToImmutable(), inventory, []));
+                    settlement.Template, plots.ToImmutable(), inventory, [], 0));
             }
             else if (occupants[index] is GeneratedOccupant.Lair lair)
             {
