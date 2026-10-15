@@ -62,23 +62,11 @@ internal static class SettlementResources
                     batches.Add(batch.Facility);
                     break;
                 case FacilityRequest.Work demand:
-                    var rate = demand.MaximumWorkPerSecond;
-                    var powerRate = double.PositiveInfinity;
-                    var laborRate = double.PositiveInfinity;
-                    if (demand.PowerPerWork > 0)
-                    {
-                        var fuelEnergy = fuelRemaining + fuels.Sum(f => Available(f.Good) * f.FuelEnergyPerUnit!.Value);
-                        powerRate = Math.Min(energyRemaining, fuelEnergy) / SimulationTime.StepSeconds / demand.PowerPerWork;
-                        rate = Math.Min(rate, powerRate);
-                    }
-                    if (demand.LaborPerWork > 0)
-                    {
-                        laborRate = availableLabor / demand.LaborPerWork;
-                        rate = Math.Min(rate, laborRate);
-                    }
-                    var limits = ImmutableArray.CreateBuilder<WorkLimit>();
-                    if (powerRate <= rate) limits.Add(WorkLimit.Power);
-                    if (laborRate <= rate) limits.Add(WorkLimit.Labor);
+                    var allocation = AllocateWork(demand, energyRemaining,
+                        demand.PowerPerWork > 0
+                            ? fuelRemaining + fuels.Sum(f => Available(f.Good) * f.FuelEnergyPerUnit!.Value)
+                            : 0, availableLabor);
+                    var rate = allocation.WorkPerSecond;
                     var energy = rate * demand.PowerPerWork * SimulationTime.StepSeconds;
                     foreach (var fuel in fuels)
                     {
@@ -92,7 +80,7 @@ internal static class SettlementResources
                     fuelRemaining = Math.Max(0, fuelRemaining - energy);
                     energyRemaining = Math.Max(0, energyRemaining - energy);
                     availableLabor = Math.Max(0, availableLabor - rate * demand.LaborPerWork);
-                    work.Add(new(demand.Facility, rate, limits.ToImmutable()));
+                    work.Add(allocation);
                     break;
             }
         }
@@ -126,5 +114,27 @@ internal static class SettlementResources
             }
             return granted.ToImmutable();
         }
+    }
+
+    internal static WorkAllocation AllocateWork(FacilityRequest.Work demand, double energyRemaining,
+        double fuelEnergy, double availableLabor)
+    {
+        var rate = demand.MaximumWorkPerSecond;
+        var powerRate = double.PositiveInfinity;
+        var laborRate = double.PositiveInfinity;
+        if (demand.PowerPerWork > 0)
+        {
+            powerRate = Math.Min(energyRemaining, fuelEnergy) / SimulationTime.StepSeconds / demand.PowerPerWork;
+            rate = Math.Min(rate, powerRate);
+        }
+        if (demand.LaborPerWork > 0)
+        {
+            laborRate = availableLabor / demand.LaborPerWork;
+            rate = Math.Min(rate, laborRate);
+        }
+        var limits = ImmutableArray.CreateBuilder<WorkLimit>();
+        if (powerRate <= rate) limits.Add(WorkLimit.Power);
+        if (laborRate <= rate) limits.Add(WorkLimit.Labor);
+        return new(demand.Facility, rate, limits.ToImmutable());
     }
 }

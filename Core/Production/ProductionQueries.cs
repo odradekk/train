@@ -63,6 +63,46 @@ internal static class ProductionQueries
         return key.Capability == CapabilityKind.Extraction ? capabilities.Extraction : capabilities.Production;
     }
 
+    internal static ImmutableArray<(FacilityView View, ProcessProjection? Process, double Rate)> Potential(
+        WorldState world, CoreContentProjection content, SettlementState settlement)
+    {
+        var inputs = PopulationOperations.ReadInputs(world, content);
+        var labor = PopulationOperations.Problems(world, settlement, inputs).IsEmpty
+            ? settlement.Population * inputs.Current!.LaborRatio : 0;
+        var energy = settlement.Plots.Where(p => p.Building is not null)
+            .Sum(p => BuildingCapabilities.Read(world, content, p.Building!.Value).Power) * SimulationTime.StepSeconds;
+        var fuel = content.Goods.Where(g => g.Good is GoodId.Voxel && g.FuelEnergyPerUnit is not null
+                && !WorldGoods.DefinitionMissing(world, content, g.Good))
+            .OrderBy(g => WorldReferences.GoodKey(g.Good), StringComparer.Ordinal).FirstOrDefault();
+        var result = ImmutableArray.CreateBuilder<(FacilityView, ProcessProjection?, double)>();
+        foreach (var runtime in settlement.ProductionFacilities.Select(f => (Runtime: f, View: Find(world, content, f.Facility)!))
+            .OrderBy(f => f.View.Priority).ThenBy(f => f.View.Key.Building.Value).ThenBy(f => f.View.Key.Capability))
+        {
+            var view = runtime.View;
+            var process = view.Process is null ? null : Process(content, view.Process);
+            double rate = 0;
+            if (view.State is ProductionState.Running or ProductionState.WaitingForInputs or ProductionState.OutputBlocked)
+            {
+                var demand = new FacilityRequest.Work(view.Key, view.Priority, view.CapabilityWorkPerSecond,
+                    process!.PowerPerWork, process.LaborPerWork);
+                rate = SettlementResources.AllocateWork(demand, energy, double.PositiveInfinity, labor).WorkPerSecond;
+                energy = Math.Max(0, energy - rate * process.PowerPerWork * SimulationTime.StepSeconds);
+                labor = Math.Max(0, labor - rate * process.LaborPerWork);
+            }
+            var consumption = ImmutableArray.CreateBuilder<GoodsRateView>();
+            if (rate > 0)
+            {
+                consumption.AddRange(Inputs(process!.Details).Select(g => new GoodsRateView(g.Good, rate / process.WorkRequired * g.Quantity)));
+                if (fuel is not null && process.PowerPerWork > 0)
+                    consumption.Add(new(fuel.Good, rate * process.PowerPerWork / fuel.FuelEnergyPerUnit!.Value));
+            }
+            var rates = consumption.GroupBy(g => g.Good).OrderBy(g => WorldReferences.GoodKey(g.Key), StringComparer.Ordinal)
+                .Select(g => new GoodsRateView(g.Key, g.Sum(r => r.UnitsPerSecond))).ToImmutableArray();
+            result.Add((view with { PotentialConsumption = rates }, process, rate));
+        }
+        return result.ToImmutable();
+    }
+
     internal static ProcessProjection? Process(CoreContentProjection content, ProcessRef reference)
         => content.MissingReferences.Any(m => m.Reference == new CoreDefinitionReference.Process(reference))
             ? null : content.Processes.SingleOrDefault(p => WorldReferences.Matches(p.Details, reference));
