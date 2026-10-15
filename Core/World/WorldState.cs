@@ -31,13 +31,13 @@ internal sealed record InstanceState(InstanceId Id, DesignHash Design,
     SettlementRelation Ownership, InstanceDetails Details, long StructureDurability,
     ImmutableArray<PartDurability> Parts)
 {
-    internal InstanceView Read(WorldLocation location, DesignProjection design) => new(Id, design.Design, design.Composition, location, Ownership, Details,
+    internal InstanceView Read(WorldState world, CoreContentProjection content, WorldLocation location, DesignProjection design) => new(Id, design.Design, design.Composition, location, Ownership, Details,
         InstanceLock.None, new(Math.Min(StructureDurability, design.MaxStructureDurability), design.MaxStructureDurability),
         Parts.Select(p =>
         {
             var specification = design.Parts.Single(d => d.Id == p.Id);
             return new PartDamageView(p.Id, new(Math.Min(p.Current, specification.MaxDurability), specification.MaxDurability),
-                specification.Missing, p.Current == 0);
+                InstanceCapabilities.DefinitionMissing(world, content, design.Design, specification), p.Current == 0);
         }).ToImmutableArray(), []);
 }
 internal sealed record TrainState(TrainId Id, TrainPosition Position, ImmutableArray<VehicleId> Vehicles,
@@ -237,10 +237,10 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
         _ => false
     };
 
-    internal InstanceView? FindInstance(InstanceId id)
+    internal InstanceView? FindInstance(InstanceId id, CoreContentProjection content)
     {
         var instance = Instances.FirstOrDefault(i => i.Id == id);
-        return instance?.Read(Location(instance), Designs.Single(d => d.Design == instance.Design));
+        return instance?.Read(this, content, Location(instance), Designs.Single(d => d.Design == instance.Design));
     }
 
     private WorldLocation Location(InstanceState instance) => instance.Details switch
