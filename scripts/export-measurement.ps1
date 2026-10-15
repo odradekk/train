@@ -1,12 +1,14 @@
 #Requires -Version 7.0
 [CmdletBinding()]
-param([Parameter(Mandatory)][string] $OutputDirectory)
+param(
+    [Parameter(Mandatory)][string] $OutputDirectory,
+    [string] $SourceDirectory = (Split-Path $PSScriptRoot -Parent)
+)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'checks/Invoke-HiddenProcess.ps1')
 
-$repo = Split-Path $PSScriptRoot -Parent
 $originalDirectory = Get-Location
 $environment = @{}
 foreach ($name in @('APPDATA', 'LOCALAPPDATA')) {
@@ -31,6 +33,7 @@ function Invoke-MeasurementBuildStep([string] $Name, [string] $FilePath, [string
 
 try {
     if (-not $IsWindows) { throw '测量构建只支持 Windows Release 导出。' }
+    $repo = (Resolve-Path -LiteralPath $SourceDirectory).Path
     $commit = & git -C $repo rev-parse HEAD
     if ($LASTEXITCODE -ne 0) { throw '无法读取构建提交。' }
     $status = @(& git -C $repo status --porcelain)
@@ -95,7 +98,7 @@ finally {
         catch { $failure = $_.Exception.Message }
     }
     if ($null -ne $summaryPath) {
-        [ordered]@{ succeeded = $null -eq $failure; error = $failure; build_commit = $commit; steps = $steps.ToArray() } |
+        [ordered]@{ succeeded = $null -eq $failure; error = $failure; source_directory = $repo; build_commit = $commit; steps = $steps.ToArray() } |
             ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $summaryPath -Encoding utf8
     }
 }
