@@ -174,9 +174,9 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
         var before = EconomyFixture.Create();
         var changed = EconomyFixture.Create(2, leaseQuotes: new Dictionary<LeaseRequest, CoreResult<LeaseQuote>>
         {
-            [first] = new CoreResult<LeaseQuote>.Success(new(first, new(2), new(251), 3,
-                [new("insufficient_money", "wallet", null, ["fixture:wallet"])])),
-            [second] = new CoreResult<LeaseQuote>.Success(new(second, new(2), new(401), 3,
+            [first] = new CoreResult<LeaseQuote>.Success(new(first, new(2), null, 3,
+                [new("insufficient_capacity", "Request.Capacity", null, ["fixture:capacity"])])),
+            [second] = new CoreResult<LeaseQuote>.Success(new(second, new(2), null, 3,
                 [new("invalid_state", "Request.DurationSteps", null, ["fixture:duration"])])),
             [third] = new CoreResult<LeaseQuote>.Failure([new("invalid_state", "lease", null, ["fixture:failure"])])
         });
@@ -204,7 +204,7 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
             Advance(changed);
             Require(ReferenceEquals(multiple, Find<OptionButton>(economy, "LeaseMultiple")) && multiple.Selected == 1 &&
                 !multiple.IsItemDisabled(0) && multiple.IsItemDisabled(1) && multiple.IsItemDisabled(2),
-                "续租未按新修订核心租期阻塞更新，或错误禁用了钱包受阻选项。");
+                "续租未按新修订核心租期阻塞更新，或错误禁用了容量受阻选项。");
             Require(Find<Button>(economy, "QuoteLease").Disabled && Find<Button>(economy, "ConfirmLease").Disabled,
                 "已选租期变不可用仍允许报价或确认。");
             var problems = Find<Label>(economy, "LeaseTermProblems").Text;
@@ -228,7 +228,7 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
             quotes.Add(request, new CoreResult<LeaseQuote>.Success(new(request, new(1), new(337), 3, [])));
         }
         LeaseRequest last = new LeaseRequest.Renew(new(1), EconomyFixture.LeaseDuration * 12);
-        quotes.Add(last, new CoreResult<LeaseQuote>.Success(new(last, new(1), new(337), 3,
+        quotes.Add(last, new CoreResult<LeaseQuote>.Success(new(last, new(1), null, 3,
             [new("invalid_state", "Request.DurationSteps", null, ["fixture:full-horizon"])])));
         var setup = new HostSimulationTests.HostSetup(EconomyFixture.Create(leaseQuotes: quotes),
             EconomyFixture.Content(maxLeaseMultiple: 12));
