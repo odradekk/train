@@ -12,7 +12,7 @@ internal abstract record FacilityRequest(FacilityKey Facility, int Priority)
         double PowerPerWork, double LaborPerWork) : FacilityRequest(Facility, Priority);
 }
 
-internal sealed record WorkAllocation(FacilityKey Facility, double WorkPerSecond);
+internal sealed record WorkAllocation(FacilityKey Facility, double WorkPerSecond, ImmutableArray<WorkLimit> Limits);
 internal sealed record SettlementResolution(WorldState World, ImmutableArray<long> BasicGrantedUnits,
     ImmutableArray<FacilityKey> AcceptedBatches, ImmutableArray<WorkAllocation> Work,
     ImmutableArray<long> ImprovementGrantedUnits);
@@ -49,12 +49,22 @@ internal static class SettlementResources
                     break;
                 case FacilityRequest.Work demand:
                     var rate = demand.MaximumWorkPerSecond;
+                    var powerRate = double.PositiveInfinity;
+                    var laborRate = double.PositiveInfinity;
                     if (demand.PowerPerWork > 0)
                     {
                         var fuelEnergy = fuelRemaining + fuels.Sum(f => Available(f.Good) * f.FuelEnergyPerUnit!.Value);
-                        rate = Math.Min(rate, Math.Min(energyRemaining, fuelEnergy) / SimulationTime.StepSeconds / demand.PowerPerWork);
+                        powerRate = Math.Min(energyRemaining, fuelEnergy) / SimulationTime.StepSeconds / demand.PowerPerWork;
+                        rate = Math.Min(rate, powerRate);
                     }
-                    if (demand.LaborPerWork > 0) rate = Math.Min(rate, availableLabor / demand.LaborPerWork);
+                    if (demand.LaborPerWork > 0)
+                    {
+                        laborRate = availableLabor / demand.LaborPerWork;
+                        rate = Math.Min(rate, laborRate);
+                    }
+                    var limits = ImmutableArray.CreateBuilder<WorkLimit>();
+                    if (powerRate <= rate) limits.Add(WorkLimit.Power);
+                    if (laborRate <= rate) limits.Add(WorkLimit.Labor);
                     var energy = rate * demand.PowerPerWork * SimulationTime.StepSeconds;
                     foreach (var fuel in fuels)
                     {
@@ -68,7 +78,7 @@ internal static class SettlementResources
                     fuelRemaining = Math.Max(0, fuelRemaining - energy);
                     energyRemaining = Math.Max(0, energyRemaining - energy);
                     availableLabor = Math.Max(0, availableLabor - rate * demand.LaborPerWork);
-                    work.Add(new(demand.Facility, rate));
+                    work.Add(new(demand.Facility, rate, limits.ToImmutable()));
                     break;
             }
         }
