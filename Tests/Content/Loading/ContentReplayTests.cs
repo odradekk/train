@@ -133,7 +133,7 @@ public sealed class ContentReplayTests
             var json = JsonNode.Parse(payload)!;
             switch (mutation)
             {
-                case "version": json["format_version"] = 3; json["future_field"] = true; break;
+                case "version": json["format_version"] = 2; json["future_field"] = true; break;
                 case "input": json["history"]![0]!["input"] = new string('A', 64); break;
                 case "hash": json["blobs"]![0]!["hash"] = new string('A', 64); break;
                 case "bytes": json["blobs"]![0]!["bytes"] = Convert.ToBase64String([255, 254]); break;

@@ -165,4 +165,4 @@ Schema 之外，加载器按[设计文档 03 的设计合法性](../design/03-ve
 
 ## 和现有代码的差别
 
-当前宿主通过真实 `ContentFactory` 加载本文版本 3 的 `.blueprint.json`，支持无嵌套的车辆、建筑和场景模型，保留类别、形状、涂装与场景模型平整区域，并计算设计属性、车辆长度及适用的连通与尺寸包络校验。嵌套、大型设备、生物设计、用户蓝图库加载及编辑仍待后续工单。旧版本 2 的 `.composites.json` 加载实现已在 [#452](https://github.com/odradekk/train/issues/452) 退役。当前范围见[内容契约](../contracts/content.md)，行为覆盖见[蓝图加载测试](../../Tests/Content/Loading/BlueprintLoadingTests.cs)与[设计评估测试](../../Tests/Content/Loading/DesignEvaluationTests.cs)。
+当前宿主通过真实 `ContentFactory` 加载本文版本 3 的 `.blueprint.json`，支持车辆、建筑、组装体、功能复合体和场景模型，包含四层设计复制、功能复合体身份引用、24 向朝向、稳定编号、整件设备 BOM 和行为全角度转动扫格，保留形状、涂装及场景模型平整区域。生物设计、用户蓝图库加载及编辑仍待后续工单。公开草稿求值尚不能提供根功能复合体的定义身份，该入口仍明确拒绝；包加载不受此限制。旧版本 2 的 `.composites.json` 加载实现已在 [#452](https://github.com/odradekk/train/issues/452) 退役。当前范围见[内容契约](../contracts/content.md)，行为覆盖见[蓝图加载测试](../../Tests/Content/Loading/BlueprintLoadingTests.cs)、[设计评估测试](../../Tests/Content/Loading/DesignEvaluationTests.cs)、[嵌套设计测试](../../Tests/Content/Loading/NestedDesignTests.cs)、[嵌套内容生命周期测试](../../Tests/Content/Loading/NestedContentLifecycleTests.cs)及[文档蓝图测试](../../Tests/Content/Loading/DocumentationBlueprintTests.cs)。

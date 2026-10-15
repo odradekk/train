@@ -70,8 +70,8 @@ internal sealed class InitialContentFactory : C.IContentFactory
                 var saved = ContentCapture.Create(basis, reload.References);
                 var installed = (ContentView)initial.View;
                 var changes = installed.ChangesFrom(basis);
-                var generation = changes == C.ContentChange.None ? basis.Generation : new C.ContentGeneration(checked(basis.Generation.Value + 1));
-                var view = installed.WithCapture(saved, reload.References, generation);
+                var view = installed.WithCapture(saved, reload.References, basis.Generation, advanceGeneration: changes != C.ContentChange.None);
+                if (view.PersistentRevision != saved.Revision) changes |= C.ContentChange.Persistent;
                 var missing = view.Missing(reload.References, "reload");
                 var previousMissing = basis.Missing(reload.References).Select(m => ((C.ContentReference.Core)m.Reference).Definition).ToHashSet();
                 var forbidden = missing.Where(m =>
