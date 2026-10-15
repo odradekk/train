@@ -239,7 +239,7 @@ NPC 现车使用独立的 `KeyedRandom` 版本 1，不消费上述阶段的随�
 
 ### 当前列车运行
 
-列车能力来自有序成员的保存设计及当前耐久。长度为各车 `LengthCells × 0.5` 米之和，质量为车辆设计质量与已知库存货物质量之和；耐久大于零且定义未缺失的部件提供完整能力。牵引相加，最高速度取有效动力部件额定速度的最小值，加速度为牵引除以质量。定义型货物使用当前 `Goods`，组装体货物使用世界保存的衍生投影。库存定义缺失时，`MassTons`、`Acceleration` 只表示已知部分，`Blockers` 必含 `content_missing / Train.Inventory`，主体为列车；相关身份使用 `assembly:`、`composite:`、`voxel:` 前缀并按 Ordinal 排序，不能把这些数值当作完整质量和加速度。
+列车能力来自有序成员的保存设计及当前耐久。长度为各车 `LengthCells × 0.5` 米之和，质量为车辆设计质量与已知库存货物质量之和；耐久大于零且定义未缺失的部件提供完整能力。部件定义是否缺失按当前内容判断，与库存容量采用同一规则；恢复不改写保存设计。牵引相加，最高速度取有效动力部件额定速度的最小值，加速度为牵引除以质量。定义型货物使用当前 `Goods`，组装体货物使用世界保存的衍生投影。库存定义缺失时，`MassTons`、`Acceleration` 只表示已知部分，`Blockers` 必含 `content_missing / Train.Inventory`，主体为列车；相关身份使用 `assembly:`、`composite:`、`voxel:` 前缀并按 Ordinal 排序，不能把这些数值当作完整质量和加速度。
 
 每次从静止出发共用检查，依次返回 `control_missing / Train.Vehicles`、`traction_missing / Train.TractionKilonewtons`、`content_missing / Train.Inventory`、`overloaded / Train.Acceleration`。加速度等于规则下限允许出发。手动启动不满足时拒绝；停留后不满足时为 `Waiting`，每步重试。已经行驶的列车按已知质量继续到下一个停车点。铁路规则按 `WorldSummary.RailwayRule` 从当前投影读取，不保存另一个规则副本或添加缺失兜底；引用与普通恢复适配责任沿用世界生成路径。
 

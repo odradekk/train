@@ -10,6 +10,17 @@ namespace Train.Core.Tests.Railway;
 [TestClass]
 public sealed class TrainOperationTests
 {
+    private static readonly VoxelDefinitionId TrainPart = new("fixture:train-part");
+    private static CoreContentProjection Content => WorldFixture.Content with
+    {
+        Goods = WorldFixture.Content.Goods.Add(WorldFixture.Content.Goods[0] with { Good = new GoodId.Voxel(TrainPart) }),
+        Designs = WorldFixture.Content.Designs.Select(d => d.Design == Vehicle ? d with
+        {
+            Parts = d.Parts.Select(p => p with
+            { Definition = new CoreDefinitionReference.Voxel(TrainPart), RepairGood = new GoodId.Voxel(TrainPart) }).ToImmutableArray()
+        } : d).ToImmutableArray()
+    };
+
     [TestMethod]
     public void Disband_and_form_preserve_member_order_and_never_reuse_train_or_inventory_identity()
     {
@@ -491,7 +502,7 @@ public sealed class TrainOperationTests
 
     private static CoreState State()
     {
-        var state = WorldFixture.State();
+        var state = WorldFixture.State(content: Content);
         var node = state.World.Nodes[0] with { Position = new(0, 0) };
         return state with { World = state.World with
         {

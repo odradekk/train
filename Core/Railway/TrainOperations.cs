@@ -7,13 +7,7 @@ namespace Train.Core.Railway;
 internal static class TrainOperations
 {
     internal static TrainCapabilities Capabilities(WorldState world, CoreContentProjection content, TrainState train)
-        => TrainCapabilities.Calculate(train.Vehicles.Select(id =>
-        {
-            var instance = world.Instances.Single(i => i.Id == new InstanceId.Vehicle(id));
-            return (world.Designs.Single(d => d.Design == instance.Design),
-                instance.Parts.Select(p => (p.Id, p.Current)).ToImmutableArray());
-        }).ToImmutableArray(), world.Inventories.Single(i => i.Id == train.Inventory).Goods,
-            content.Goods.AddRange(world.DesignGoods.Where(g => g.Good is GoodId.Assembly)));
+        => TrainCapabilities.Calculate(world, content, train);
 
     internal static RailwayRuleProjection Rule(WorldState world, CoreContentProjection content)
         => content.RailwayRules.Single(r => r.Id == world.Source.Configuration.Rules.Railway);
@@ -75,7 +69,8 @@ internal static class TrainOperations
         var armed = train.Vehicles.Any(id =>
         {
             var instance = world.Instances.Single(i => i.Id == new InstanceId.Vehicle(id));
-            return world.Designs.Single(d => d.Design == instance.Design).Parts.Any(p => !p.Missing
+            return world.Designs.Single(d => d.Design == instance.Design).Parts.Any(p =>
+                !InstanceCapabilities.DefinitionMissing(world, content, instance.Design, p)
                 && Math.Min(p.MaxDurability, instance.Parts.Single(d => d.Id == p.Id).Current) > 0
                 && p.Capabilities.Any(c => c is PartCapability.Weapon));
         });
