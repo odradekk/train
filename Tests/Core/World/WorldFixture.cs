@@ -75,7 +75,7 @@ internal static partial class WorldFixture
                 [new(1, PlotSize.SmallStation, Station), new(2, PlotSize.Small, FactoryBuilding),
                     new(3, PlotSize.Small, null), new(4, PlotSize.Small, null)],
                 [new(3, FactoryBuilding), new(4, FactoryBuilding)], InitialGoods(3, 4),
-                [new(2, CapabilityKind.Production, production, true, 0), new(2, CapabilityKind.Extraction, extraction, false, 1)]);
+                [new(2, CapabilityKind.Production, production, true, 0), new(2, CapabilityKind.Extraction, extraction, false, 1)], PlatformLength);
             var creatureA = new CreatureProjection(new("fixture:creature-a"), Revision, 10, 1, .1, 2, new(1, 1));
             var creatureB = creatureA with { Id = new("fixture:creature-b"), HitPoints = 20 };
             var lairA = new LairTypeProjection(new("fixture:lair-a"), Revision, 1,
@@ -109,6 +109,12 @@ internal static partial class WorldFixture
     private static ImmutableArray<GoodsQuantity> InitialGoods(long material, long ore) =>
         [new(new GoodId.Voxel(Material), material), new(new GoodId.Voxel(Ore), ore)];
 
+    public const double ApproachLength = 0.001;
+    public const double PlatformLength = 0.002;
+    public const double DepartureLength = 0.001;
+    public static TrainPosition.Node Node(NodeId id, NodeTravelPhase phase = NodeTravelPhase.Waiting,
+        double distance = ApproachLength, EdgeId? enteredFrom = null, EdgeId? nextEdge = null, int? platform = null) =>
+        new(id, enteredFrom, nextEdge, phase, distance, platform);
     public static PopulationRuleProjection PopulationRule() => new(Rules.Population, Revision,
         Enum.GetValues<PopulationNeed>().Select(need => new PopulationNeedProjection(need,
             need is PopulationNeed.Food or PopulationNeed.Clothing ? PopulationNeedClass.Basic : PopulationNeedClass.Improvement,
@@ -140,10 +146,10 @@ internal static partial class WorldFixture
         [new(Rules.Market, Revision, 0, 0, 0, new(new(0), new(10000), new(10000), new(0)),
             [], new(10000), new(10000), [], 1, 10, new(0), new(0), new(0), 1)],
         [new(Rules.Construction, Revision, 1, 1, 1, 1, 1, 0, 0)],
-        [new(Rules.Railway, Revision, 1, 1, 1, Material, 1, 1, 1, 1)],
+        [new(Rules.Railway, Revision, 1, 1, 1, Material, 1, 1, 1, 1, ApproachLength, DepartureLength, 15)],
         [new(Rules.Combat, Revision, 1, 0, 0, 0, 0, 1)],
         [new(new("fixture:town"), Revision, 1, [Plain], 10, 10)],
-        [new(new("fixture:town-template"), new("fixture:town"), 1, [new(1, PlotSize.SmallStation, Station)], [], [], [])],
+        [new(new("fixture:town-template"), new("fixture:town"), 1, [new(1, PlotSize.SmallStation, Station)], [], [], [], PlatformLength)],
         [], [], []);
 
     private static DesignProjection Design(DesignHash hash, DesignKind kind,

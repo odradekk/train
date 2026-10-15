@@ -12,8 +12,8 @@ internal sealed class TrainDispatch
     private readonly Dictionary<TrainId, TrainCapabilities> _capabilities;
     private readonly Dictionary<(EdgeId Edge, int Track), List<TrainState>> _tracks;
     private readonly Dictionary<TrainId, (EdgeId Edge, TravelDirection Direction)> _requests = [];
-    private readonly Dictionary<NodeId, int> _platforms;
-    private readonly HashSet<TrainId> _platformHolders;
+    private readonly Dictionary<NodeId, HashSet<int>> _platforms;
+    private readonly Dictionary<TrainId, int> _platformHolders;
     private readonly HashSet<(EdgeId, int)> _usedHandoffs = [];
 
     internal TrainDispatch(WorldState world, CoreContentProjection content)
@@ -24,9 +24,11 @@ internal sealed class TrainDispatch
         _tracks = world.Trains.Where(t => t.Position is TrainPosition.Edge)
             .GroupBy(t => { var p = (TrainPosition.Edge)t.Position; return (p.Id, p.Track); })
             .ToDictionary(g => g.Key, g => g.ToList());
-        _platforms = world.Nodes.ToDictionary(n => n.Id, n => world.OccupiedPlatforms(n.Id));
+        _platforms = world.Nodes.ToDictionary(n => n.Id, n => world.Trains
+            .Select(t => t.Position).OfType<TrainPosition.Node>()
+            .Where(p => p.Id == n.Id && p.PlatformNumber is not null).Select(p => p.PlatformNumber!.Value).ToHashSet());
         _platformHolders = world.Trains.Where(t => HoldsPlatform(world, t))
-            .Select(t => t.Id).ToHashSet();
+            .ToDictionary(t => t.Id, t => ((TrainPosition.Node)t.Position).PlatformNumber!.Value);
         foreach (var train in world.Trains)
             if (RequestedEdge(world, content, train, _capabilities[train.Id]) is { } edge)
                 _requests.Add(train.Id, (edge.Id, Direction(edge, ((TrainPosition.Node)train.Position).Id)));
@@ -39,53 +41,67 @@ internal sealed class TrainDispatch
 
     internal static bool NeedsPlatform(WorldState world, TrainState train)
         => train.Position is TrainPosition.Node node
+            && node.Phase != NodeTravelPhase.Departing
+            && TrainOperations.StationAt(train, node.Id) is not null
             && world.Nodes.Single(n => n.Id == node.Id).Occupant is NodeOccupant.Settlement { Relation: not SettlementRelation.Hostile };
 
     internal static bool HoldsPlatform(WorldState world, TrainState train)
-        => train.Activity == TrainActivity.Servicing && NeedsPlatform(world, train);
+        => train.Position is TrainPosition.Node { PlatformNumber: not null };
 
-    internal bool TakePlatform(TrainState train, ulong step)
+    internal bool PredictPlatform(TrainState train, ulong step)
     {
-        if (!NeedsPlatform(_world, train)) return true;
-        if (_platformHolders.Contains(train.Id)) return true;
+        if (!NeedsPlatform(_world, train) || HoldsPlatform(_world, train)) return true;
         var node = ((TrainPosition.Node)train.Position).Id;
-        if (_world.Trains.Any(t => t.Id != train.Id && !_platformHolders.Contains(t.Id)
-            && t.Activity == TrainActivity.Waiting && t.Position is TrainPosition.Node p && p.Id == node
-            && t.NextStopIndex is { } index && t.Plan!.Stops[index] is PlanStop.Station station && station.Node == node
-            && t.QueueEnteredStep is { } age && (age < (train.QueueEnteredStep ?? step)
-                || age == (train.QueueEnteredStep ?? step) && t.Id.Value < train.Id.Value))) return false;
-        if (_platforms[node] >= _world.Nodes.Single(n => n.Id == node).Platforms) return false;
-        _platforms[node]++;
-        _platformHolders.Add(train.Id);
-        return true;
+        var ahead = _world.Trains.Count(t => EarlierPlatformRequest(t, train, node, step));
+        return _world.Nodes.Single(n => n.Id == node).Platforms - _world.OccupiedPlatforms(node) > ahead;
+    }
+
+    private bool EarlierPlatformRequest(TrainState other, TrainState train, NodeId node, ulong step)
+        => other.Id != train.Id && !HoldsPlatform(_world, other) && NeedsPlatform(_world, other)
+            && other.Position is TrainPosition.Node p && p.Id == node
+            && other.Activity != TrainActivity.Stopped && other.QueueEnteredStep is { } age
+            && (age < (train.QueueEnteredStep ?? step) || age == (train.QueueEnteredStep ?? step) && other.Id.Value < train.Id.Value);
+
+    internal int? TakePlatform(TrainState train, ulong step)
+    {
+        if (_platformHolders.TryGetValue(train.Id, out var held)) return held;
+        if (!NeedsPlatform(_world, train)) return null;
+        var node = ((TrainPosition.Node)train.Position).Id;
+        if (_world.Trains.Any(t => !_platformHolders.ContainsKey(t.Id) && EarlierPlatformRequest(t, train, node, step))) return null;
+        var capacity = _world.Nodes.Single(n => n.Id == node).Platforms;
+        if (_platforms[node].Count >= capacity) return null;
+        var number = Enumerable.Range(1, capacity).First(n => !_platforms[node].Contains(n));
+        _platforms[node].Add(number);
+        _platformHolders.Add(train.Id, number);
+        return number;
     }
 
     internal static EdgeMapItem? RequestedEdge(WorldState world, CoreContentProjection content, TrainState train,
         TrainCapabilities? knownCapabilities = null)
     {
-        if (train.Position is not TrainPosition.Node node || train.Activity is TrainActivity.Stopped or TrainActivity.Servicing)
+        if (train.Position is not TrainPosition.Node { Phase: NodeTravelPhase.Departing, NextEdge: { } edge }
+            || train.Activity != TrainActivity.Waiting || train.QueueEnteredStep is null)
             return null;
-        while (train.NextStopIndex is { } index && TrainOperations.Target(train.Plan!.Stops[index]) == node.Id)
-        {
-            if (train.Plan.Stops[index] is PlanStop.Station station
-                && (NeedsPlatform(world, train) || station.DwellSteps > 0 || train.RemainingDwellSteps > 0)) return null;
-            train = TrainOperations.Consume(train);
-        }
-        if (train.NextStopIndex is null) return null;
-        var capabilities = knownCapabilities ?? TrainOperations.Capabilities(world, content, train);
-        if (train.SpeedMetersPerSecond == 0 && capabilities.DepartureProblem(train.Id,
+        if ((knownCapabilities ?? TrainOperations.Capabilities(world, content, train)).DepartureProblem(train.Id,
             TrainOperations.Rule(world, content).MinimumAcceleration) is not null) return null;
-        var route = TrainRouting.FindRoute(world.Nodes, world.Edges, node.Id,
-            TrainOperations.Target(train.Plan!.Stops[train.NextStopIndex.Value]), capabilities.MaximumSpeedMetersPerSecond);
-        return route is null ? null : world.Edges.Single(e => e.Id == route.Value.Edges[0]);
+        return world.Edges.Single(e => e.Id == edge);
+    }
+
+    internal void RegisterExits(IEnumerable<TrainState> trains)
+    {
+        foreach (var train in trains)
+        {
+            var position = (TrainPosition.Node)train.Position;
+            var edge = _world.Edges.Single(e => e.Id == position.NextEdge);
+            _requests[train.Id] = (edge.Id, Direction(edge, position.Id));
+        }
     }
 
     internal int? Enter(TrainState train, EdgeMapItem edge, bool reserve)
     {
         var direction = Direction(edge, ((TrainPosition.Node)train.Position).Id);
         var opposite = Opposite(direction);
-        _requests[train.Id] = (edge.Id, direction);
-        var opposing = _requests.Values.Any(r => r.Edge == edge.Id && r.Direction == opposite);
+        var opposing = _requests.Any(r => r.Key != train.Id && r.Value.Edge == edge.Id && r.Value.Direction == opposite);
         var handoffs = _world.TrackHandoffs.Where(h => h.Edge == edge.Id && !_usedHandoffs.Contains((h.Edge, h.Track)))
             .Where(h => _requests.Values.Any(r => r.Edge == h.Edge && r.Direction == h.Direction)).ToArray();
         int? selected = null;
@@ -115,7 +131,7 @@ internal sealed class TrainDispatch
                 direction == TravelDirection.Forward ? 0 : edge.LengthMeters);
             if (!_tracks.TryGetValue((edge.Id, number), out var trains))
                 _tracks.Add((edge.Id, number), trains = []);
-            trains.Add(train with { Position = position, Transit = null });
+            trains.Add(train with { Position = position });
             _usedHandoffs.Add((edge.Id, number));
         }
         return selected;

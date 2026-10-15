@@ -186,7 +186,9 @@ public sealed class PopulationTests
         var lease = rent.Events.Select(e => e.Event).OfType<CoreEvent.LeaseAcquired>().Single().Lease;
         session.Submit(new CoreCommand.ReplaceRunPlan(new(1), new(false, [new PlanStop.Station(new(1), 100, [])])), CommandSource.AutomationTest);
         session.Submit(new CoreCommand.StartTrain(new(1)), CommandSource.AutomationTest);
-        Advance(session, 1);
+        for (var step = 0; step < 100 && session.State.World.Trains.Single().Activity != TrainActivity.Servicing; step++)
+            Advance(session, 1);
+        Assert.AreEqual(TrainActivity.Servicing, session.State.World.Trains.Single().Activity);
         var unloaded = (SubmissionResult.Completed)session.Submit(new CoreCommand.UnloadGoods(new(1), new(1), lease.Inventory, Food, 3), CommandSource.AutomationTest);
         Assert.IsInstanceOfType<CommandDecision.Accepted>(unloaded.Receipt.Decision);
         var report = Reports(Advance(session, 2)).Single();

@@ -239,7 +239,7 @@ public sealed class NodeLayoutTests
             Position = basis.Core.Position, InputIdentity = basis.Core.InputIdentity,
             World = basis.Core.World with { Nodes = nodes.ToImmutable(), Edges = edges.ToImmutable() },
             Nodes = nodes.ToDictionary(node => node.Id, node => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(node,
-                edges.Where(edge => edge.Start == node.Id || edge.End == node.Id).Select(edge => edge.Id).ToImmutableArray()))),
+                edges.Where(edge => edge.Start == node.Id || edge.End == node.Id).Select(edge => edge.Id).ToImmutableArray(), 80, 0, 80))),
             Edges = edges.ToDictionary(edge => edge.Id, edge => (Lookup<EdgeView>)new Lookup<EdgeView>.Found(new(edge, [], null)))
         } };
     }

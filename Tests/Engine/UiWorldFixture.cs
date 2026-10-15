@@ -41,7 +41,7 @@ internal static class UiWorldFixture
             0, scenario == Scenario.Map ? 0 : 1, null);
         var second = first with { Id = new(2), Position = new(750, 300) };
         var edge = new EdgeMapItem(new(1), first.Id, second.Id, 600, terrain, 1, 1, [], []);
-        var position = new TrainPosition.Node(first.Id);
+        var position = new TrainPosition.Node(first.Id, null, null, NodeTravelPhase.Waiting, 80, null);
         // Save 情景保留一辆未编组车辆；Scene 情景需一辆可跟随的车；Formation 检查两辆车的顺序。
         ImmutableArray<VehicleId> ordered = scenario switch
         {
@@ -51,8 +51,7 @@ internal static class UiWorldFixture
         };
         var train = new TrainView(new(7), position, TrainActivity.Stopped, ordered, new(1),
             0, 20, 10, 100, 0, 30, plan, null, 0,
-            new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, .2), [], null, [], null,
-            TrainOrderFacing.FirstEndLeading);
+            new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, .2), [], null, [], TrainOrderFacing.FirstEndLeading);
         InstanceId.Vehicle[] vehicles = scenario switch
         {
             Scenario.Save => [new(new(1))],
@@ -78,8 +77,8 @@ internal static class UiWorldFixture
                 scenario == Scenario.Scene ? [edge] : [], formed ? [new(train.Id, position, train.Activity)] : [], [], []),
             Nodes = new Dictionary<NodeId, Lookup<NodeView>>
             {
-                [first.Id] = new Lookup<NodeView>.Found(new(first, connected)),
-                [second.Id] = new Lookup<NodeView>.Found(new(second, connected))
+                [first.Id] = new Lookup<NodeView>.Found(new(first, connected, 80, 0, 80)),
+                [second.Id] = new Lookup<NodeView>.Found(new(second, connected, 80, 0, 80))
             },
             Edges = scenario == Scenario.Scene
                 ? new Dictionary<EdgeId, Lookup<EdgeView>> { [edge.Id] = new Lookup<EdgeView>.Found(new(edge, [], null)) }

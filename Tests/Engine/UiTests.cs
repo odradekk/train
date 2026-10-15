@@ -46,7 +46,7 @@ public class UiTests(Node testScene) : TestClass(testScene)
         var view = new FixedCoreReadView(default, HostCoreScenario.Input)
         {
             World = original.World with { Nodes = nodes, Trains = [] },
-            Nodes = nodes.ToDictionary(node => node.Id, node => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(node, []))),
+            Nodes = nodes.ToDictionary(node => node.Id, node => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(node, [], 80, 0, 80))),
             Locations = nodes.ToDictionary(node => (WorldLocation)new WorldLocation.Node(node.Id), node =>
                 (Lookup<LocationView>)new Lookup<LocationView>.Found(new(new WorldLocation.Node(node.Id), [], [], [], [], node.Occupant)))
         };

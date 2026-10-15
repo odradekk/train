@@ -10,6 +10,22 @@ namespace Train.Content.Tests.Loading;
 public sealed class PlotValidationTests
 {
     [TestMethod]
+    [DataRow("medium", "medium", 0d)]
+    [DataRow("small_station", "medium", 96d)]
+    [DataRow("small_station", "large_station", 128d)]
+    public void Template_projects_longest_station_plot_even_without_buildings(string first, string second, double expected)
+    {
+        var fixture = WorldContentFixtures.Content();
+        var template = Template();
+        template["plots"] = new JsonArray(
+            new JsonObject { ["id"] = 7, ["size"] = first, ["at"] = new JsonArray(-200, 0, 0), ["orientation"] = "pz_py" },
+            new JsonObject { ["id"] = 11, ["size"] = second, ["at"] = new JsonArray(200, 0, 0) });
+        fixture.AddFile(ContentFixture.BuiltIn, TemplatePath, template.ToJsonString());
+        using var candidate = fixture.Load();
+        Assert.AreEqual(expected, candidate.View.Core.SettlementTemplates.Single().PlatformLengthMeters);
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void Deleted_station_token_is_rejected_in_current_content_schema(bool blueprint)
