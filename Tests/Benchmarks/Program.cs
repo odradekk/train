@@ -1,7 +1,11 @@
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Jobs;
+using BenchmarkDotNet.Loggers;
 using BenchmarkDotNet.Running;
+using BenchmarkDotNet.Toolchains;
+using BenchmarkDotNet.Toolchains.CsProj;
 using Train.Benchmarks;
 using Train.Core.Tests.Railway;
 
@@ -20,9 +24,11 @@ try
     // A failed rerun must not leave the preceding successful measurement available to the gate.
     File.Delete(resultPath);
     var job = dryRun ? Job.Dry : Job.Default.WithWarmupCount(3).WithIterationCount(15);
+    var toolchain = CsProjCoreToolchain.NetCoreApp10_0;
     var config = ManualConfig.Create(DefaultConfig.Instance)
         .WithArtifactsPath(artifacts)
-        .AddJob(job.WithLaunchCount(1)
+        .AddJob(job.WithToolchain(new Toolchain(toolchain.Name, new BenchmarkProjectGenerator(), toolchain.Builder, toolchain.Executor))
+            .WithLaunchCount(1)
             .WithInvocationCount(1).WithUnrollFactor(1));
     var summary = BenchmarkRunner.Run<TrainLoopBenchmark>(config);
     var report = summary.Reports.SingleOrDefault();
@@ -64,4 +70,15 @@ catch (Exception error)
 {
     Console.Error.WriteLine(error);
     return 1;
+}
+
+// BDN's default solution-wide search includes retained isolation evidence with the same project name.
+sealed class BenchmarkProjectGenerator([CallerFilePath] string sourcePath = "") : CsProjGenerator("net10.0", null!, null!, null!)
+{
+    protected override FileInfo GetProjectFilePath(Type benchmarkTarget, ILogger logger)
+    {
+        var project = new FileInfo(Path.Combine(Path.GetDirectoryName(sourcePath)!, "Train.Benchmarks.csproj"));
+        logger.WriteLineInfo($"Benchmark project (explicit, no recursive search): {project.FullName}");
+        return project;
+    }
 }
