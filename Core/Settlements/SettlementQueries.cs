@@ -15,7 +15,8 @@ internal static class SettlementQueries
                 : Enum.GetValues<BuildingKind>().Where(k => k != BuildingKind.Station).ToImmutableArray(),
             p.Building is { } building ? new PlotOccupant.Building(building) : new PlotOccupant.Empty())).ToImmutableArray();
         var buildings = settlement.Plots.Where(p => p.Building is not null).Select(p => p.Building!.Value).OrderBy(b => b.Value).ToArray();
-        var facilities = buildings.Select(b => ProductionQueries.Find(world, content, new(b, CapabilityKind.Production)))
+        var facilities = buildings.SelectMany(b => new[] { CapabilityKind.Production, CapabilityKind.Extraction }
+                .Select(c => ProductionQueries.Find(world, content, new(b, c))))
             .OfType<FacilityView>().ToImmutableArray();
         var power = new PowerPoolView(buildings.Sum(b => BuildingCapabilities.Read(world, content, b).Power),
             settlement.ProductionFacilities.Sum(f => f.LastPowerDemand), settlement.ProductionFacilities.Sum(f => f.LastActualSupply),

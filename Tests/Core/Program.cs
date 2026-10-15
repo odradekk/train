@@ -25,6 +25,9 @@ if (args.Length > 0 && string.Equals(args[0], "--inventory-process", StringCompa
 if (args.Length > 0 && string.Equals(args[0], "--production-process", StringComparison.Ordinal))
     return await ProductionProcessDriver.RunAsync(args[1..]);
 
+if (args.Length > 0 && string.Equals(args[0], "--extraction-process", StringComparison.Ordinal))
+    return await ExtractionProcessDriver.RunAsync(args[1..]);
+
 var builder = await TestApplication.CreateBuilderAsync(args);
 builder.AddSelfRegisteredExtensions(args);
 using var application = await builder.BuildAsync();

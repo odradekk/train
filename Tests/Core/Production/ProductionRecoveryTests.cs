@@ -221,7 +221,8 @@ public sealed class ProductionRecoveryTests
     [DataRow("last_allocated_labor", "1e999")]
     [DataRow("last_limits", "[1,1]")]
     [DataRow("last_limits", "[99]")]
-    [DataRow("building", "{\"value\":999}")]
+    [DataRow("facility", "{\"building\":{\"value\":999},\"capability\":0}")]
+    [DataRow("facility", "{\"building\":{\"value\":2},\"capability\":2}")]
     public void Invalid_saved_allocation_is_rejected(string field, string value)
     {
         using var candidate = Prepare(Content(stock: [new(Input, 2), new(Fuel, 2)], powerPerWork: 1));

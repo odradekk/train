@@ -100,6 +100,36 @@ public sealed class SettlementQueryTests
     }
 
     [TestMethod]
+    public void Production_and_extraction_on_one_building_both_contribute_to_settlement_resource_totals()
+    {
+        var content = ExtractionFixture.Content(dual: true, work: 100, powerPerWork: 2, laborPerWork: 1);
+        content = content with
+        {
+            Designs = content.Designs.Select(design => design.Design != WorldFixture.FactoryBuilding ? design : design with
+            {
+                Parts = design.Parts.Select(part => part with
+                { Capabilities = [new PartCapability.Production(2), new PartCapability.Extraction(60)] }).ToImmutableArray()
+            }).ToImmutableArray()
+        };
+        using var candidate = ExtractionFixture.Prepare(content);
+        using var session = candidate.Activate();
+        ProductionFixture.Step(session, 2);
+        var actual = Find(session.Read(), ProductionFixture.Settlement);
+        CollectionAssert.AreEquivalent(new[] { ProductionFixture.Facility, ExtractionFixture.Facility },
+            actual.Facilities.Select(f => f.Key).ToArray());
+        // Five labor supplies production's two work/s first and extraction's remaining three work/s.
+        Assert.AreEqual(2d, actual.Facilities.Single(f => f.Key == ProductionFixture.Facility).ActualWorkPerSecond);
+        Assert.AreEqual(3d, actual.Facilities.Single(f => f.Key == ExtractionFixture.Facility).ActualWorkPerSecond);
+        Assert.AreEqual(60d, actual.Power.GenerationCapacity);
+        Assert.AreEqual(124d, actual.Power.Demand);
+        Assert.AreEqual(10d, actual.Power.ActualSupply);
+        Assert.AreEqual(1 - 10d / 60, actual.Power.FuelEnergyRemaining, 1e-12);
+        Assert.AreEqual(5d, actual.Population.AvailableLabor);
+        Assert.AreEqual(5d, actual.Population.AllocatedLabor);
+        Assert.AreEqual(0d, actual.Population.IdleLabor);
+    }
+
+    [TestMethod]
     public void Completed_batch_still_reports_the_labor_actually_allocated_in_its_last_step()
     {
         using var candidate = ProductionFixture.Prepare(ProductionFixture.Content(work: 1, laborPerWork: .1));
