@@ -35,7 +35,7 @@ internal sealed class ContentReplayCapture(ImmutableArray<C.IContentView> histor
         var blobs = views.SelectMany(view => view.Source!.FileBytes)
             .GroupBy(bytes => ContentHash.FromBytes(bytes.AsSpan())).OrderBy(group => group.Key, StringComparer.Ordinal);
         writer.WriteStartObject();
-        writer.WriteNumber("format_version", 4);
+        writer.WriteNumber("format_version", 5);
         writer.WriteStartArray("blobs");
         foreach (var blob in blobs)
         {
@@ -74,8 +74,8 @@ internal sealed class ContentReplayCapture(ImmutableArray<C.IContentView> histor
 
     internal static ContentReplayCapture Read(JsonElement root)
     {
-        if (Int32(Required(root, "format_version", ""), "/format_version") != 4)
-            Fail("/format_version", "复现内容载荷只支持版本 4。", "unsupported_format");
+        if (Int32(Required(root, "format_version", ""), "/format_version") != 5)
+            Fail("/format_version", "复现内容载荷只支持版本 5。", "unsupported_format");
         Object(root, "", "format_version", "blobs", "history");
         var blobs = new Dictionary<string, ImmutableArray<byte>>(StringComparer.Ordinal);
         foreach (var (value, field) in Items(Required(root, "blobs", ""), "/blobs"))

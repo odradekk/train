@@ -8,7 +8,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": 1
+      "const": 2
     },
     "id": {
       "$ref": "common.schema.json#/$defs/localId"
@@ -30,7 +30,8 @@
         "commission_money_per_work",
         "rent_money_per_capacity_hour",
         "rentable_capacity_ratio_basis_points",
-        "lease_duration_ticks"
+        "lease_duration_ticks",
+        "maximum_lease_duration_multiple"
       ],
       "properties": {
         "basic_reserve_hours": {
@@ -187,6 +188,11 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 9223372036854775807
+        },
+        "maximum_lease_duration_multiple": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
         }
       }
     }

@@ -145,7 +145,7 @@ public sealed record MarketRuleProjection(RuleDefinitionId Id, SemanticRevision 
     ImmutableArray<VehiclePurchaseLimit> VehiclePurchaseLimits,
     int AutomaticEvaluationIntervalTicks, int RecentReportLimit,
     Money CommissionMoneyPerWork, Money RentMoneyPerCapacityHour,
-    BasisPoints RentableCapacityRatio, long LeaseDurationTicks);
+    BasisPoints RentableCapacityRatio, long LeaseDurationTicks, int MaximumLeaseDurationMultiple);
 
 public sealed record ConstructionRuleProjection(RuleDefinitionId Id, SemanticRevision Revision,
     ulong FoundingDurationTicks,

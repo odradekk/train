@@ -3,6 +3,7 @@ using Train.Core.World;
 using Train.Core.Railway;
 using Train.Core.Inventory;
 using Train.Core.Production;
+using Train.Core.Settlements;
 
 namespace Train.Core.Sessions;
 
@@ -10,7 +11,7 @@ internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Re
     CoreInputId InputIdentity, CoreFault? Fault, WorldState State, CoreContentProjection Content) : ICoreReadView
 {
     public WorldSummary World { get; } = State.Map;
-    public EconomyView Economy => throw new NotImplementedException("Economy 尚未实现。");
+    public EconomyView Economy => SettlementQueries.Economy(State, Content);
     public Lookup<NodeView> FindNode(NodeId id)
     {
         if (id.Value == 0) throw new ArgumentException("节点编号必须非零。", nameof(id));
@@ -44,7 +45,11 @@ internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Re
     private static Lookup<T> Lookup<T>(T? value) where T : class
         => value is null ? new Lookup<T>.Missing() : new Lookup<T>.Found(value);
     public Lookup<SettlementView> FindSettlement(SettlementId id)
-        => throw new NotImplementedException("FindSettlement 尚未实现。");
+    {
+        if (id.Value == 0) throw new ArgumentException("聚居地编号必须非零。", nameof(id));
+        var settlement = State.Settlements.FirstOrDefault(s => s.Id == id);
+        return Lookup(settlement is null ? null : SettlementQueries.Read(State, Content, settlement, Position.CompletedSteps));
+    }
     public Lookup<InventoryView> FindInventory(InventoryId id)
     {
         if (id.Value == 0) throw new ArgumentException("库存编号必须非零。", nameof(id));

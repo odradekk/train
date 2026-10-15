@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "id": "demo-market",
   "simulation": {
     "basic_reserve_hours": 1,
@@ -51,6 +51,7 @@
     "commission_money_per_work": 5,
     "rent_money_per_capacity_hour": 5,
     "rentable_capacity_ratio_basis_points": 2000,
-    "lease_duration_ticks": 108000
+    "lease_duration_ticks": 5184000,
+    "maximum_lease_duration_multiple": 12
   }
 }

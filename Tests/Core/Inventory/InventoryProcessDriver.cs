@@ -73,9 +73,13 @@ internal static class InventoryProcessDriver
                     Submit(new CoreCommand.UnloadGoods(train.Id, settlement.Id, leaseInventory, InventoryFixture.Voxel, 1), accepted: false); Sample();
                     Submit(new CoreCommand.LoadGoods(train.Id, settlement.Id, leaseInventory, InventoryFixture.Voxel, 1)); Sample();
                     Submit(new CoreCommand.AcquireLease(new LeaseRequest.Renew(leaseId, 3), new(0)), accepted: false); Sample();
-                    Submit(new CoreCommand.AcquireLease(new LeaseRequest.Renew(leaseId, 3), new(1000))); Sample();
+                    Submit(new CoreCommand.AcquireLease(new LeaseRequest.Renew(leaseId, 6), new(1000))); Sample();
+                    foreach (var duration in new[] { 4UL, 39UL, 36UL })
+                    {
+                        Submit(new CoreCommand.AcquireLease(new LeaseRequest.Renew(leaseId, duration), new(1000)), accepted: false); Sample();
+                    }
                     Submit(new CoreCommand.UnloadGoods(train.Id, settlement.Id, leaseInventory, InventoryFixture.Voxel, 1)); Sample();
-                    for (var step = 0; step < 3; step++) { Step(); Sample(); }
+                    for (var step = 0; step < 6; step++) { Step(); Sample(); }
                 }
                 await File.WriteAllTextAsync(output, JsonSerializer.Serialize(new InventoryProcessResult(Environment.ProcessId,
                     samples.ToArray(), prefixReceipts, prefixEvents, receipts.ToArray(), events.ToArray())), new UTF8Encoding(false));

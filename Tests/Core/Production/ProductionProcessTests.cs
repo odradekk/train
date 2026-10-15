@@ -42,6 +42,7 @@ public sealed class ProductionProcessTests
         Assert.AreEqual(.5, batch.GetProperty("ProgressWork").GetDouble(), 1e-12);
         Assert.IsTrue(batch.GetProperty("CurrentSpecificationDiffers").GetBoolean());
         Assert.AreEqual(30d, frozen.RootElement.GetProperty("Facility").GetProperty("ActualWorkPerSecond").GetDouble());
+        Assert.AreEqual(3d, frozen.RootElement.GetProperty("LastAllocatedLabor").GetDouble());
         using var blocked = JsonDocument.Parse(bufferResumed.Samples[0].Query);
         var facility = blocked.RootElement.GetProperty("Facility");
         Assert.AreEqual((int)ProductionState.OutputBlocked, facility.GetProperty("State").GetInt32());
