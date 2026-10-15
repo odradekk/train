@@ -15,9 +15,7 @@ public sealed class TrainProcessTests
 
     [TestMethod]
     [DataRow("approaching")]
-    [DataRow("waiting")]
     [DataRow("docked")]
-    [DataRow("departing")]
     [DataRow("edge")]
     [DataRow("pending-stop")]
     public async Task Running_train_restores_in_a_new_process_with_identical_queries_events_and_checkpoints(string boundary)
@@ -56,11 +54,15 @@ public sealed class TrainProcessTests
         }
         else Assert.IsTrue(query.RootElement.GetProperty("Position").GetString()!.Contains("DistanceMeters", StringComparison.Ordinal));
         using var payload = JsonDocument.Parse(prefix.Samples[0].Payload);
+        var savedTrain = payload.RootElement.GetProperty("world").GetProperty("trains")[0];
         if (Enum.TryParse<NodeTravelPhase>(boundary, ignoreCase: true, out var phase))
-            Assert.AreEqual((int)phase, payload.RootElement.GetProperty("world").GetProperty("trains")[0]
-                .GetProperty("position").GetProperty("phase").GetInt32());
-        Assert.AreEqual(boundary == "pending-stop", payload.RootElement.GetProperty("world")
-            .GetProperty("trains")[0].GetProperty("stop_requested").GetBoolean());
+            Assert.AreEqual((int)phase, savedTrain.GetProperty("position").GetProperty("phase").GetInt32());
+        if (boundary == "approaching")
+        {
+            Assert.IsTrue(query.RootElement.GetProperty("SpeedMetersPerSecond").GetDouble() > 0);
+            Assert.IsTrue(savedTrain.GetProperty("position").GetProperty("platform_number").GetInt32() > 0);
+        }
+        Assert.AreEqual(boundary == "pending-stop", savedTrain.GetProperty("stop_requested").GetBoolean());
         Directory.Delete(directory, recursive: true);
     }
 

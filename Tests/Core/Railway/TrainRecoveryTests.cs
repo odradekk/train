@@ -106,7 +106,8 @@ public sealed class TrainRecoveryTests
         TrainRecoveryFixture.Boundary(session, "edge", events);
         Checkpoint();
         var prefix = Success(session.Capture(CapturePurpose.Save));
-        TrainRecoveryFixture.Boundary(session, "servicing", events);
+        TrainRecoveryFixture.Boundary(session, "docked", events);
+        Assert.AreEqual(TrainActivity.Servicing, TrainRecoveryFixture.Train(session).Activity);
         Checkpoint();
         TrainRecoveryFixture.Submit(session, new CoreCommand.StopTrain(TrainRecoveryFixture.Train(session).Id), events);
         Checkpoint();

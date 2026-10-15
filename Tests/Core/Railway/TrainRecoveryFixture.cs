@@ -29,7 +29,7 @@ internal static class TrainRecoveryFixture
     internal static ICoreSession New(RuntimeIdentity? runtime = null, string? boundary = null)
     {
         var input = Input with { Configuration = Input.Configuration with
-        { WidthMeters = 40, HeightMeters = 20, SettlementRatio = 1, LairRatio = 0, HostileSettlementRatio = 0,
+        { WidthMeters = 8, HeightMeters = 2, MinimumNodeSpacingMeters = 2, SettlementRatio = 1, LairRatio = 0, HostileSettlementRatio = 0,
             StartConstraints = Input.Configuration.StartConstraints with { RequireStation = boundary != "waiting" } } };
         using var candidate = Success(CoreFactory.Create().PrepareNew(input, ContentFor(boundary), new(runtime ?? Runtime, false, 32)));
         return candidate.Activate();
@@ -81,7 +81,8 @@ internal static class TrainRecoveryFixture
                 "waiting" => train.Position is TrainPosition.Node { Phase: NodeTravelPhase.Waiting } && train.Activity == TrainActivity.Waiting,
                 "docked" => train.Position is TrainPosition.Node { Phase: NodeTravelPhase.Docked } && train.Activity == TrainActivity.Servicing,
                 "departing" => train.Position is TrainPosition.Node { Phase: NodeTravelPhase.Departing, EnteredFrom: not null },
-                _ => train.Position is TrainPosition.Edge
+                "edge" or "pending-stop" => train.Position is TrainPosition.Edge,
+                _ => throw new ArgumentOutOfRangeException(nameof(boundary), boundary, "未知恢复边界。")
             };
             if (reached)
             {
