@@ -305,7 +305,8 @@ public sealed class NodeStreamingTests
             foreach (var vertex in vertices)
                 Assert.IsTrue(vertex.X >= segment.Bounds.Minimum.X && vertex.X <= segment.Bounds.Maximum.X &&
                     vertex.Y >= segment.Bounds.Minimum.Y && vertex.Y <= segment.Bounds.Maximum.Y &&
-                    vertex.Z >= segment.Bounds.Minimum.Z && vertex.Z <= segment.Bounds.Maximum.Z, key);
+                    vertex.Z >= segment.Bounds.Minimum.Z && vertex.Z <= segment.Bounds.Maximum.Z,
+                    $"{key}: vertex {vertex}, bounds {segment.Bounds}");
             Assert.AreSame(part, segment.Build(part));
         }
     }

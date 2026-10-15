@@ -440,7 +440,9 @@ internal sealed class NodeScene : IAsyncDisposable
                 for (var step = 0; step <= steps; step++) Include(begin + (end - begin) * step / steps);
                 for (var sleeper = (long)Math.Ceiling(begin / 1.5); sleeper * 1.5 < end; sleeper++) Include(sleeper * 1.5);
                 var key = route + ":" + index;
-                rails.Add(key, new(key, sample, begin, end, new(minimum, maximum),
+                // Mesh corner arithmetic can round one ULP beyond the summed axis extents.
+                var rounding = new Vector3(.001f);
+                rails.Add(key, new(key, sample, begin, end, new(minimum - rounding, maximum + rounding),
                     RailwayDependencies.Values(new object[] { inputs, route, begin, end })));
 
                 void Include(double arc)
