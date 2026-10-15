@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Train.Core.Contracts;
 using Train.Core.World;
+using Train.Core.Trading;
 
 namespace Train.Core.Railway;
 
@@ -84,7 +85,8 @@ internal static class TrainOperations
             capabilities.TractionKilonewtons, capabilities.Acceleration, capabilities.MaximumSpeedMetersPerSecond,
             train.Plan, train.NextStopIndex, train.RemainingDwellSteps,
             new(TargetPriority.ArmedFirst, TargetScope.ArmedOnly, armed ? EncounterAction.Engage : EncounterAction.Retreat, 0),
-            blockers.ToImmutable(), null, [], train.OrderFacing);
+            blockers.ToImmutable(), train.CurrentRun is { } run ? RunReports.Read(run) : null,
+            world.RecentRunReports.Where(r => r.Train == train.Id).ToImmutableArray(), train.OrderFacing);
     }
 
     internal static (WorldState World, ImmutableArray<CoreEvent> Events) Advance(WorldState world, CoreContentProjection content, ulong step)
@@ -100,17 +102,28 @@ internal static class TrainOperations
             {
                 train = train with { RemainingDwellSteps = train.RemainingDwellSteps - 1 };
                 if (train.RemainingDwellSteps == 0)
-                    train = ResolveNode(world, content, Consume(train), events, dispatch, checked(step + 1));
+                {
+                    var boundary = new SimulationPosition(checked(step + 1), 0);
+                    train = ConsumeStop(ref world, content, train, boundary, events);
+                    train = ResolveNode(ref world, content, train, events, dispatch, boundary.CompletedSteps, boundary);
+                }
+                else
+                {
+                    train = AutomaticGoodsOperations.Advance(ref world, content, train, checked(step + 1), true, events);
+                    dispatch.RefreshCapabilities(world, train);
+                }
             }
             else if (train.Position is TrainPosition.Edge)
-                train = MoveEdge(world, content, train, dispatch, events, checked(step + 1));
+                train = MoveEdge(ref world, content, train, dispatch, events, checked(step + 1));
             else
             {
-                train = ResolveNode(world, content, train, events, dispatch, step);
+                // 调度按本步开始时刻排队；报告记录完成本步后的提交边界。
+                train = ResolveNode(ref world, content, train, events, dispatch, step, new(checked(step + 1), 0));
                 if (train.Activity == TrainActivity.Running)
-                    train = MoveNode(world, content, train, dispatch, events, checked(step + 1));
+                    train = MoveNode(ref world, content, train, dispatch, events, checked(step + 1));
             }
             trains[train.Id] = train;
+            world = world with { Trains = world.Trains.Select(t => t.Id == train.Id ? train : t).ToImmutableArray() };
         }
 
         var exits = trains.Values.Where(t => t.Position is TrainPosition.Node
@@ -127,7 +140,7 @@ internal static class TrainOperations
             if (dispatch.Enter(train, edge, true) is { } track)
             {
                 var direction = TrainDispatch.Direction(edge, position.Id);
-                trains[train.Id] = ChangeActivity(train with
+                trains[train.Id] = ChangeActivity(RunReports.EnteredEdge(world, content, train, edge, checked(step + 1)) with
                 {
                     Position = new TrainPosition.Edge(edge.Id, track, direction,
                         direction == TravelDirection.Forward ? 0 : edge.LengthMeters), QueueEnteredStep = null
@@ -141,7 +154,7 @@ internal static class TrainOperations
         return (dispatch.Finish(world with { Trains = world.Trains.Select(t => trains[t.Id]).ToImmutableArray() }), events.ToImmutable());
     }
 
-    private static TrainState MoveEdge(WorldState world, CoreContentProjection content, TrainState train,
+    private static TrainState MoveEdge(ref WorldState world, CoreContentProjection content, TrainState train,
         TrainDispatch dispatch, ImmutableArray<CoreEvent>.Builder events, ulong step)
     {
         var position = (TrainPosition.Edge)train.Position;
@@ -168,7 +181,7 @@ internal static class TrainOperations
         events.Add(new CoreEvent.TrainArrived(train.Id, forward));
         train = train with { SpeedMetersPerSecond = motion.SpeedMetersPerSecond,
             Position = new TrainPosition.Node(forward, position.Id, null, NodeTravelPhase.Approaching, 0, null), ReturningFromBreak = null };
-        return ResolveNode(world, content, train, events, dispatch, step);
+        return ResolveNode(ref world, content, train, events, dispatch, step, new(step, 0));
     }
 
     internal static double? PredictStopDistance(WorldState world, CoreContentProjection content, TrainState train,
@@ -194,7 +207,7 @@ internal static class TrainOperations
         return null;
     }
 
-    private static TrainState MoveNode(WorldState world, CoreContentProjection content, TrainState train,
+    private static TrainState MoveNode(ref WorldState world, CoreContentProjection content, TrainState train,
         TrainDispatch dispatch, ImmutableArray<CoreEvent>.Builder events, ulong step)
     {
         var position = (TrainPosition.Node)train.Position;
@@ -230,21 +243,21 @@ internal static class TrainOperations
             train = train with { Position = ((TrainPosition.Node)train.Position) with { Phase = phase }, SpeedMetersPerSecond = 0 };
             if (train.StopRequested)
                 return ChangeActivity(train with { StopRequested = false, QueueEnteredStep = null }, TrainActivity.Stopped, events);
-            return ResolveNode(world, content, train, events, dispatch, step);
+            return ResolveNode(ref world, content, train, events, dispatch, step, new(step, 0));
         }
         if (position.Phase != NodeTravelPhase.Departing && moved >= dimensions.Stop && motion.DistanceMeters > 0)
         {
             if (position.NextEdge == position.EnteredFrom)
                 train = train with { OrderFacing = OppositeFacing(train.OrderFacing) };
             while (train.NextStopIndex is { } index && train.Plan!.Stops[index] is PlanStop.Waypoint waypoint && waypoint.Node == position.Id)
-                train = Consume(train);
+                train = ConsumeStop(ref world, content, train, new(step, 0), events);
             train = train with { Position = ((TrainPosition.Node)train.Position) with { Phase = NodeTravelPhase.Departing } };
         }
         return train;
     }
 
-    internal static TrainState ResolveNode(WorldState world, CoreContentProjection content, TrainState train,
-        ImmutableArray<CoreEvent>.Builder events, TrainDispatch dispatch, ulong step, bool running = true)
+    internal static TrainState ResolveNode(ref WorldState world, CoreContentProjection content, TrainState train,
+        ImmutableArray<CoreEvent>.Builder events, TrainDispatch dispatch, ulong step, SimulationPosition boundary, bool running = true)
     {
         var position = (TrainPosition.Node)train.Position;
         if (position.Phase == NodeTravelPhase.Departing && train.Activity == TrainActivity.Waiting
@@ -288,13 +301,20 @@ internal static class TrainOperations
                 {
                     if (train.Plan.Stops[index] is PlanStop.Station station)
                     {
-                        if (train.RemainingDwellSteps > 0 || station.DwellSteps > 0)
+                        if (!station.GoodsRules.IsEmpty && train.AutomaticEvaluationRemainingSteps is null)
+                        {
+                            train = ChangeActivity(train with { RemainingDwellSteps = station.DwellSteps,
+                                AutomaticEvaluationRemainingSteps = 0, StopRequested = false }, TrainActivity.Servicing, events);
+                            train = AutomaticGoodsOperations.Advance(ref world, content, train, boundary.CompletedSteps, false, events);
+                            dispatch.RefreshCapabilities(world, train);
+                        }
+                        if (train.RemainingDwellSteps > 0 || station.GoodsRules.IsEmpty && station.DwellSteps > 0)
                             return ChangeActivity(train with { RemainingDwellSteps = train.RemainingDwellSteps > 0
                                 ? train.RemainingDwellSteps : station.DwellSteps, StopRequested = false }, TrainActivity.Servicing, events);
-                        train = Consume(train);
+                        train = ConsumeStop(ref world, content, train, boundary, events);
                     }
                     else if (StationAt(train, position.Id) is not null || AfterLocalStops(train, position.Id).NextStopIndex is null)
-                        train = Consume(train);
+                        train = ConsumeStop(ref world, content, train, boundary, events);
                     else break;
                 }
                 if (train.NextStopIndex is null)
@@ -320,10 +340,15 @@ internal static class TrainOperations
         return ChangeActivity(train, TrainActivity.Running, events);
     }
 
-    internal static WorldState AdaptNodes(WorldState world, CoreContentProjection content)
-        => world with { Trains = world.Trains.Select(train =>
+    internal static (WorldState World, ImmutableArray<CoreEvent> Events) AdaptNodes(WorldState world,
+        CoreContentProjection content, SimulationPosition boundary)
+    {
+        var events = ImmutableArray.CreateBuilder<CoreEvent>();
+        var trains = ImmutableArray.CreateBuilder<TrainState>();
+        foreach (var original in world.Trains)
         {
-            if (train.Position is not TrainPosition.Node position) return train;
+            var train = original;
+            if (train.Position is not TrainPosition.Node position) { trains.Add(train); continue; }
             var dimensions = NodeDimensions.Read(world, content, position.Id);
             var distance = train.SpeedMetersPerSecond == 0 ? position.Phase switch
             {
@@ -339,12 +364,16 @@ internal static class TrainOperations
                 { distance = dimensions.Stop; train = train with { SpeedMetersPerSecond = 0 }; position = position with { Phase = NodeTravelPhase.Docked }; }
                 else
                 {
-                    train = AfterLocalStops(train, position.Id);
+                    for (var count = 0; count < (train.Plan?.Stops.Length ?? 0) && train.NextStopIndex is { } index
+                        && Target(train.Plan!.Stops[index]) == position.Id; count++)
+                        train = ConsumeStop(ref world, content, train, boundary, events);
                     position = position with { Phase = NodeTravelPhase.Departing };
                 }
             }
-            return train with { Position = position with { DistanceMeters = distance } };
-        }).ToImmutableArray() };
+            trains.Add(train with { Position = position with { DistanceMeters = distance } });
+        }
+        return (world with { Trains = trains.ToImmutable() }, events.ToImmutable());
+    }
 
     private static TrainState Wait(TrainState train, ulong step, CoreProblem reason, ImmutableArray<CoreEvent>.Builder events)
         => ChangeActivity(train with { SpeedMetersPerSecond = 0, QueueEnteredStep = train.QueueEnteredStep ?? step },
@@ -357,6 +386,19 @@ internal static class TrainOperations
     {
         var next = train.NextStopIndex!.Value + 1;
         return train with { NextStopIndex = next < train.Plan!.Stops.Length ? next : train.Plan.Loop ? 0 : null };
+    }
+
+    internal static TrainState ConsumeStop(ref WorldState world, CoreContentProjection content, TrainState train,
+        SimulationPosition boundary, ImmutableArray<CoreEvent>.Builder events)
+    {
+        train = Consume(train) with { AutomaticEvaluationRemainingSteps = null };
+        if (train.NextStopIndex is null || train.NextStopIndex == 0)
+        {
+            train = RunReports.End(ref world, content, train, boundary,
+                train.NextStopIndex is null ? RunEndReason.PlanCompleted : RunEndReason.LoopCompleted, events);
+            if (train.NextStopIndex == 0) train = train with { CurrentRun = RunReports.Begin(boundary) };
+        }
+        return train;
     }
 
     internal static TrainState ChangeActivity(TrainState train, TrainActivity activity,

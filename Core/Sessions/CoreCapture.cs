@@ -39,7 +39,7 @@ internal sealed class CoreCapture : ICoreCapture
     public string Encode() => Format(writer =>
     {
         writer.WriteStartObject();
-        writer.WriteNumber("core_state_format_version", 11);
+        writer.WriteNumber("core_state_format_version", 12);
         writer.WritePropertyName("position");
         WritePosition(writer, Position);
         writer.WriteNumber("next_command_number", NextCommandNumber);
@@ -64,7 +64,7 @@ internal sealed class CoreCapture : ICoreCapture
             if (root.ValueKind != JsonValueKind.Object)
                 return new CoreResult<ICoreCapture>.Failure([new("unsupported_format", "", null, [])]);
             if (!root.TryGetProperty("core_state_format_version", out var version)
-                || version.ValueKind != JsonValueKind.Number || !version.TryGetUInt64(out var numberVersion) || numberVersion != 11)
+                || version.ValueKind != JsonValueKind.Number || !version.TryGetUInt64(out var numberVersion) || numberVersion != 12)
                 return new CoreResult<ICoreCapture>.Failure([new("unsupported_format", "/core_state_format_version", null, [])]);
             Object(root, "", "core_state_format_version", "position", "next_command_number",
                 "revision", "input_identity", "fault", "world", "references");
@@ -76,7 +76,7 @@ internal sealed class CoreCapture : ICoreCapture
                 throw new CoreStateFormatException("/input_identity");
             var fault = ReadFault(root.GetProperty("fault"));
             var world = WorldJson.Read(root.GetProperty("world"));
-            WorldStateValidation.ValidateBoundary(world, position.CompletedSteps);
+            WorldStateValidation.ValidateBoundary(world, position);
             var references = WorldJson.ReadReferences(root.GetProperty("references"));
             var knownMissing = references.Definitions.Where(d => d.WasMissing)
                 .Select(d => new MissingCoreReference(d.Definition, d.Field)).ToImmutableArray();
@@ -123,7 +123,7 @@ internal sealed class CoreCapture : ICoreCapture
             Unsigned(root.GetProperty("next_command_number"), "/next_command_number", nonzero: true);
             ReadFault(root.GetProperty("fault"));
             var world = WorldJson.Read(root.GetProperty("world"));
-            WorldStateValidation.ValidateBoundary(world, checkpoint.Position.CompletedSteps);
+            WorldStateValidation.ValidateBoundary(world, checkpoint.Position);
             if (Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(checkpoint.CanonicalText))) != checkpoint.Sha256)
                 return new("invalid_state", "Sha256", null, []);
             return null;

@@ -154,6 +154,9 @@ internal sealed class TrainDispatch
 
     internal TrainCapabilities Capabilities(TrainState train) => _capabilities[train.Id];
 
+    internal void RefreshCapabilities(WorldState world, TrainState train)
+        => _capabilities[train.Id] = TrainOperations.Capabilities(world, _content, train);
+
     internal (double Position, bool Endpoint) Limit(TrainState train)
     {
         var position = (TrainPosition.Edge)train.Position;

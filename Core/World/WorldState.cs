@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using Train.Core.Settlements;
 using Train.Core.Contracts;
 
@@ -42,7 +43,14 @@ internal sealed record InstanceState(InstanceId Id, DesignHash Design,
 internal sealed record TrainState(TrainId Id, TrainPosition Position, ImmutableArray<VehicleId> Vehicles,
     InventoryId Inventory, TrainOrderFacing OrderFacing,
     TrainActivity Activity, double SpeedMetersPerSecond, RunPlan? Plan, int? NextStopIndex,
-    ulong RemainingDwellSteps, bool StopRequested, ulong? QueueEnteredStep, BreakId? ReturningFromBreak);
+    ulong RemainingDwellSteps, bool StopRequested, ulong? QueueEnteredStep, BreakId? ReturningFromBreak)
+{
+    [JsonRequired] public ulong? AutomaticEvaluationRemainingSteps { get; init; }
+    [JsonRequired] public RunAccumulatorState? CurrentRun { get; init; }
+}
+internal sealed record RunAccumulatorState(SimulationPosition StartedAt, Money SalesReceipts, Money PurchasePayments,
+    long TransportedUnits, double LoadedUnitsDistance, double CapacityDistance,
+    ImmutableArray<AutomaticRuleResult> IncompleteRules);
 internal sealed record TrackHandoff(EdgeId Edge, int Track, TravelDirection Direction);
 internal sealed record InventoryState(InventoryId Id, InventoryOwner Owner,
     ImmutableArray<GoodsQuantity> Goods, ImmutableArray<StorageReservationView> Reservations);
@@ -60,6 +68,8 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
     ImmutableArray<LeaseState> Leases, ImmutableArray<ResourceRegenerationState> ResourceRegenerations,
     ImmutableArray<ResourceRecoveryState> ResourceRecovery)
 {
+    [JsonRequired] public ImmutableArray<RunReport> RecentRunReports { get; init; } = [];
+
     internal WorldSummary Map => new(Source.WorldSeed, Source.Configuration.Rules.Railway,
         Source.Configuration.WidthMeters, Source.Configuration.HeightMeters, Nodes.Select(ReadNode).ToImmutableArray(), Edges,
         Trains.Select(t => new TrainMapItem(t.Id, t.Position, t.Activity)).ToImmutableArray(), [], []);

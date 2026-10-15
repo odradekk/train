@@ -40,7 +40,8 @@ public sealed class WorldPublicationTests
         var result = (SubmissionResult.Completed)session.ExecuteCommand(new CoreCommand.PublishContent(proposed),
             CommandSource.AutomationTest, _ =>
             {
-                computed = WorldContentPublication.Execute(session.State.World, content, proposed);
+                computed = WorldContentPublication.Execute(session.State.World, content, proposed,
+                    new(session.State.Position.CompletedSteps, checked(session.State.Position.Sequence + 1)));
                 throw new InvalidOperationException("publication transaction fault");
             });
         Assert.IsInstanceOfType<CommandEffect.Accepted>(computed);
