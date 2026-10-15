@@ -339,6 +339,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     {
         nodeCache.Retain(node?.Node, candidate?.Node?.Node);
         railwayCache.Retain(railway?.Edge, candidate?.Railway?.Edge);
+        foreach (var id in settlementCaches.Keys.Where(id => id != node?.Node && id != candidate?.Node?.Node).ToArray())
+            settlementCaches.Remove(id);
     }
     private NodeScene OpenNode(NodeId id, Func<string, SceneObjectId> objectId)
     {

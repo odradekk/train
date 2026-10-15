@@ -12,6 +12,49 @@ namespace Train.Scenes.Tests;
 public sealed class SettlementPrebuildTests
 {
     [TestMethod]
+    public async Task SettlementBodyCachesExpireOutsideCurrentAndCandidateNodes()
+    {
+        var snapshot = Snapshot();
+        var other = NodeFixtures.Node(0, new NodeOccupant.Empty()) with { Id = new(2) };
+        var basis = (FixedCoreReadView)snapshot.Core;
+        snapshot = snapshot with { Core = new FixedCoreReadView
+        {
+            InputIdentity = basis.InputIdentity, Position = basis.Position,
+            World = basis.World with { Nodes = basis.World.Nodes.Add(other) },
+            Nodes = basis.World.Nodes.ToDictionary(item => item.Id, item => basis.FindNode(item.Id))
+                .Append(new(other.Id, new Lookup<NodeView>.Found(new(other, [], 80, 0, 80)))).ToDictionary(),
+            Settlements = new Dictionary<SettlementId, Lookup<SettlementView>> { [new(1)] = basis.FindSettlement(new(1)) },
+            Instances = new Dictionary<InstanceId, Lookup<InstanceView>>
+            {
+                [new InstanceId.Building(new(1))] = basis.FindInstance(new InstanceId.Building(new(1))),
+                [new InstanceId.Vehicle(new(2))] = basis.FindInstance(new InstanceId.Vehicle(new(2)))
+            }
+        } };
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), snapshot,
+            WorldSceneSession.Generate, new(), new(), RailwayFixtures.EmptyNode);
+        var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
+        var first = await Open(NodeFixtures.NodeId);
+        var retained = await Open(NodeFixtures.NodeId);
+        foreach (var instance in new InstanceId[] { new InstanceId.Building(new(1)), new InstanceId.Vehicle(new(2)) })
+            Assert.AreSame(Mesh(first, instance), Mesh(retained, instance), "The current node retains both body caches.");
+
+        await Open(other.Id);
+        Assert.IsNull(session.PrebuiltLocation);
+        var returned = await Open(NodeFixtures.NodeId);
+        foreach (var instance in new InstanceId[] { new InstanceId.Building(new(1)), new InstanceId.Vehicle(new(2)) })
+            Assert.AreNotSame(Mesh(first, instance), Mesh(returned, instance), "An evicted node must rebuild its bodies.");
+
+        async Task<SceneFrame> Open(NodeId id)
+        {
+            session.RequestView(new WorldSceneTarget.Location(new WorldLocation.Node(id)));
+            return await RailwayFixtures.Settled(session, request);
+        }
+        static SceneMesh Mesh(SceneFrame frame, InstanceId id) => frame.Objects
+            .Where(item => item.Subject == new WorldObjectId.Instance(id)).SelectMany(item => item.Visuals)
+            .OfType<SceneVisual.Geometry>().First().Mesh;
+    }
+
+    [TestMethod]
     public async Task CandidatePumpBuildsBuildingsAndParkedVehiclesBeforePresentAndReusesBodies()
     {
         var snapshot = Snapshot();
