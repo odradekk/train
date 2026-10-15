@@ -14,6 +14,7 @@ public sealed class ContentReplayTests
     [TestMethod]
     [DataRow(1)]
     [DataRow(3)]
+    [DataRow(4)]
     public void Previous_replay_content_formats_are_rejected(int version)
     {
         using var candidate = WorldContentFixtures.Content().Load();
@@ -41,6 +42,7 @@ public sealed class ContentReplayTests
         var saved = Success(factory.Capture(original, references)).Encode();
         var process = original.Core.Processes.Single();
         var replay = Success(factory.CaptureReplay([original], references));
+        Assert.AreEqual(5, JsonNode.Parse(replay.Encode())!["format_version"]!.GetValue<int>());
         fixture.RemoveEntry(ContentFixture.BuiltIn, ProcessLoadingTests.Path);
         Change(fixture, "resources/voxels/machine.voxel.json", json => json["simulation"]!["max_durability"] = 2);
         fixture.RemoveEntry(ContentFixture.BuiltIn, TemplatePath);
