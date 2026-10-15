@@ -284,7 +284,9 @@ internal sealed class NodeScene : IAsyncDisposable
         TerrainAppearanceProjection? terrain, Dictionary<VoxelDefinitionId, VoxelAppearanceProjection?> appearances,
         Dictionary<GridColumn, double> bed, HashSet<GridColumn> boundaryColumns, GridColumn from, CancellationToken token)
     {
-        var cells = ImmutableArray.CreateBuilder<SceneCell>();
+        var cellCount = terrain is null ? 0 :
+            (VoxelGrid.ChunkSize * VoxelGrid.ChunkSize - boundaryColumns.Count) * RailwayCoordinates.TerrainDepthCells;
+        var cells = ImmutableArray.CreateBuilder<SceneCell>(cellCount);
         var heights = ImmutableDictionary.CreateBuilder<GridColumn, double>();
         for (var z = from.Z; z < from.Z + VoxelGrid.ChunkSize; z++)
         for (var x = from.X; x < from.X + VoxelGrid.ChunkSize; x++)
@@ -297,7 +299,7 @@ internal sealed class NodeScene : IAsyncDisposable
             RailwayTerrain.FillColumn(cells, column, height, terrain, terrain, distance, double.IsFinite(distance),
                 id => appearances.GetValueOrDefault(id), new PickSubject.Terrain(new WorldLocation.Node(node.Id)));
         }
-        return GridPart(cells.ToImmutable(), heights.ToImmutable(), []);
+        return GridPart(cells.DrainToImmutable(), heights.ToImmutable(), []);
 
         (int Height, double Distance) Column(GridColumn column)
         {
