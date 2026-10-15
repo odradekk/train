@@ -28,6 +28,31 @@ public sealed class BuiltInContentTests
         var view = candidate.View;
         CollectionAssert.AllItemsAreUnique(new[] { "plains", "forest", "desert", "mountains" }
             .Select(id => Found(view.FindTerrain(new("core:" + id))).SurfaceVoxel).ToArray());
+        foreach (var summary in view.Blueprints)
+        {
+            var blueprint = Found(view.FindBlueprint(summary.Address));
+            C.DesignEvaluation evaluation;
+            if (summary.Address.Id.Value is "core:workshop-crane" or "core:gantry-crane")
+                evaluation = blueprint.Evaluation;
+            else
+            {
+                var evaluated = factory.EvaluateDesign(view, blueprint.Definition);
+                Assert.IsInstanceOfType<C.ContentResult<C.DesignEvaluation>.Success>(evaluated, summary.Address.ToString());
+                evaluation = ((C.ContentResult<C.DesignEvaluation>.Success)evaluated).Value;
+            }
+            Assert.IsInstanceOfType<C.DesignEvaluation.Complete>(evaluation, summary.Address.ToString());
+            var complete = (C.DesignEvaluation.Complete)evaluation;
+            Assert.IsTrue(complete.IsValid, summary.Address.ToString());
+            Assert.AreEqual(0, complete.Diagnostics.Length, summary.Address.ToString());
+            if (complete.Core is not { } core) continue;
+            Assert.IsFalse(core.Design.BillOfMaterials.IsEmpty, summary.Address.ToString());
+            foreach (var item in core.Design.BillOfMaterials)
+            {
+                Assert.IsTrue(item.Quantity > 0, summary.Address.ToString());
+                Assert.IsFalse(Found(view.FindGood(item.Good)).Missing, item.Good.ToString());
+            }
+        }
+        var processes = view.Core.Processes.ToDictionary(process => ProcessReference(process.Details));
         var vehicles = new List<K.DesignHash>();
         foreach (var (id, size) in new[] { ("small-locomotive", K.SizeClass.Small),
                      ("medium-locomotive", K.SizeClass.Medium), ("extra-large-locomotive", K.SizeClass.ExtraLarge) })
@@ -82,8 +107,30 @@ public sealed class BuiltInContentTests
                 template.FoundingBuildings.Select(building => building.Design).ToArray(), id);
             foreach (var founding in template.FoundingBuildings)
                 Assert.IsTrue(template.Plots.Any(plot => plot.Number == founding.PlotNumber), id);
-            Assert.IsTrue(template.SpecialInitialInventory.IsEmpty, id);
-            Assert.IsTrue(template.ProductionPlans.IsEmpty, id);
+            Assert.IsFalse(template.ProductionPlans.IsEmpty, id);
+            CollectionAssert.AllItemsAreUnique(template.ProductionPlans
+                .Select(plan => (plan.PlotNumber, plan.Capability)).ToArray(), id);
+            foreach (var plan in template.ProductionPlans)
+            {
+                Assert.IsTrue(processes.TryGetValue(plan.Process, out var process), id);
+                Assert.IsNotNull(process, id);
+                var plot = template.Plots.Single(plot => plot.Number == plan.PlotNumber);
+                Assert.IsNotNull(plot.PrebuiltDesign, id);
+                var evaluation = Found(view.FindDesign(plot.PrebuiltDesign.Value));
+                Assert.IsInstanceOfType<C.DesignEvaluation.Complete>(evaluation, id);
+                var building = ((C.DesignEvaluation.Complete)evaluation).Core!.Design;
+                Assert.IsInstanceOfType<K.DesignKind.Building>(building.Kind, id);
+                Assert.IsTrue(((K.DesignKind.Building)building.Kind).FacilityTags.Contains(process.RequiredFacilityTag), id);
+                var capabilities = building.Parts.SelectMany(part => part.Capabilities);
+                Assert.IsTrue(plan.Capability switch
+                {
+                    K.CapabilityKind.Production => capabilities.OfType<K.PartCapability.Production>().Any(),
+                    K.CapabilityKind.Extraction => capabilities.OfType<K.PartCapability.Extraction>().Any(),
+                    _ => false
+                }, id);
+                Assert.AreEqual(plan.Capability == K.CapabilityKind.Extraction,
+                    process.Details is K.ProcessDetails.Extraction, id);
+            }
         }
         var city = view.Core.SettlementTemplates.Single(item => item.Id.Value == "core:core-city");
         Assert.AreEqual(view.Core.SettlementTemplates.Single(item => item.Id.Value == "core:industrial-city").Type, city.Type);
@@ -149,7 +196,7 @@ public sealed class BuiltInContentTests
             var files = new DiskFiles();
             var inspector = new PngHeaderInspector();
             using var initial = ContentCaptureTests.Success(factory.PrepareLoad(new(installation, new C.ContentLoadPurpose.Initial()), files, inspector));
-            var original = initial.View.Core.Processes.Single();
+            var original = initial.View.Core.Processes.Single(process => ProcessReference(process.Details) == new K.ProcessRef.Production(new(package + ":test")));
             Assert.AreEqual(new K.GoodsQuantity(new K.GoodId.Voxel(new("core:staple-food")), 2),
                 ((K.ProcessDetails.Production)original.Details).Outputs.Single());
             process["simulation"]!["work_required"] = 31;
@@ -159,8 +206,9 @@ public sealed class BuiltInContentTests
                 [initial.View.Core.Identity]);
             using var reloaded = ContentCaptureTests.Success(factory.PrepareLoad(new(installation,
                 new C.ContentLoadPurpose.Reload(initial.View, references)), files, inspector));
-            Assert.AreEqual(31L, reloaded.View.Core.Processes.Single().WorkRequired);
-            Assert.AreNotEqual(original.Revision, reloaded.View.Core.Processes.Single().Revision);
+            var updated = reloaded.View.Core.Processes.Single(process => ProcessReference(process.Details) == new K.ProcessRef.Production(new(package + ":test")));
+            Assert.AreEqual(31L, updated.WorkRequired);
+            Assert.AreNotEqual(original.Revision, updated.Revision);
             Assert.AreEqual(17L, original.WorkRequired);
         }
         finally
@@ -168,6 +216,14 @@ public sealed class BuiltInContentTests
             if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
         }
     }
+
+    private static K.ProcessRef ProcessReference(K.ProcessDetails details) => details switch
+    {
+        K.ProcessDetails.Production production => new K.ProcessRef.Production(production.Id),
+        K.ProcessDetails.Extraction extraction => new K.ProcessRef.Production(extraction.Id),
+        K.ProcessDetails.Recovery recovery => new K.ProcessRef.Recovery(recovery.Id),
+        _ => throw new ArgumentOutOfRangeException(nameof(details))
+    };
 
     private static C.DesignEvaluation.Complete Complete(C.IContentView view, string id)
     {

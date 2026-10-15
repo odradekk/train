@@ -48,6 +48,7 @@ function Get-TestSelection {
         if (@($contractPatterns | Where-Object { $file -like $_ }).Count) { $selection.contracts = $true }
         if (@($isolationPatterns | Where-Object { $file -like $_ }).Count) { $selection.isolation = $true }
         if ($file -like 'docs/content/*') { $selection.schema = $true }
+        if ($file -like 'builtin/core/*' -or $file -like 'scripts/content/*') { $selection.schema = $true }
     }
 
     $arguments = @('affected', '-p', $root, '--filter-file-path', (Join-Path $root 'Train.sln'),
