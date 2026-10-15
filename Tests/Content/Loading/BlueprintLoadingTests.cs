@@ -204,6 +204,38 @@ public sealed class BlueprintLoadingTests
     }
 
     [TestMethod]
+    public void Composite_reference_to_plain_assembly_excludes_its_whole_package_at_the_reference()
+    {
+        const string mod = "11111111-1111-4111-8111-111111111111";
+        var fixture = DesignFixtures.Content();
+        AddMod(fixture, "pack", mod, null);
+        var assembly = DesignFixtures.Blueprint("assembly");
+        assembly["category"] = "large_equipment";
+        assembly.Remove("simulation");
+        assembly["layout"]!["palette"]![0]!["voxel"] = "core:block";
+        fixture.AddFile(ContentFixture.Mods, "pack/resources/blueprints/assembly.blueprint.json", assembly.ToJsonString());
+        using (var valid = fixture.Load())
+        {
+            var record = ((C.ContentLookup<C.BlueprintRecord>.Found)valid.View.FindBlueprint(
+                new(C.BlueprintLibrary.Packages, new(mod + ":assembly")))).Value;
+            Assert.IsInstanceOfType<C.DesignSpecification.Assembly>(record.Definition.Specification);
+        }
+
+        var host = DesignFixtures.Blueprint("host");
+        host["layout"]!["palette"]![0]!["voxel"] = "core:block";
+        host["layout"]!["composites"] = JsonNode.Parse("""[{"at":[1,0,0],"blueprint":"assembly"}]""");
+        fixture.AddFile(ContentFixture.Mods, "pack/resources/blueprints/host.blueprint.json", host.ToJsonString());
+        using var candidate = fixture.Load();
+        var package = candidate.Report.Packages.Single(p => p.Metadata?.Id.Value == mod);
+        Assert.AreEqual(C.PackageState.Invalid, package.State);
+        var diagnostic = package.Diagnostics.Single(d => d.Code == "reference_wrong_kind");
+        Assert.AreEqual("/layout/composites/0/blueprint", diagnostic.Field);
+        Assert.AreEqual(new C.ContentSourceLocation(new(mod), "pack/resources/blueprints/host.blueprint.json"), diagnostic.Source);
+        Assert.AreEqual(0, candidate.View.Blueprints.Length);
+        Assert.AreEqual(0, candidate.View.Core.Designs.Length);
+    }
+
+    [TestMethod]
     public void Display_whitespace_normalizes_identically_for_drafts_and_package_blueprints()
     {
         var fixture = DesignFixtures.Content();
