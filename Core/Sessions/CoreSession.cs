@@ -4,6 +4,7 @@ using Train.Core.World;
 using Train.Core.Railway;
 using Train.Core.Inventory;
 using Train.Core.Settlements;
+using Train.Core.Production;
 
 namespace Train.Core.Sessions;
 
@@ -78,7 +79,10 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
                 _ => throw new InvalidOperationException("命令结果无效。")
             };
             var events = effect is CommandEffect.Accepted accepted
-                ? Envelopes(position, accepted.Events) : ImmutableArray<EventEnvelope>.Empty;
+                ? Envelopes(position, accepted.Events.AddRange((accepted.World ?? before.World).Settlements.SelectMany(s =>
+                    ProductionQueries.StateChanges(before.World, before.Content,
+                        accepted.World ?? before.World, accepted.Content, s.Id))))
+                : ImmutableArray<EventEnvelope>.Empty;
             after = before with
             {
                 Position = position,
@@ -117,13 +121,18 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
         {
             var population = PopulationOperations.Begin(before.World, before.Content, settlement.Id);
             var consumption = population.Consumption;
+            var requests = ProductionOperations.Requests(before.World, before.Content, settlement.Id);
             var resolution = SettlementResources.Resolve(world, before.Content, settlement.Id, population.AvailableLabor,
-                consumption?.BasicRequests ?? [], [], granted => consumption?.PrepareImprovement(granted) ?? []);
-            var result = PopulationOperations.Complete(resolution.World, settlement.Id, population,
+                consumption?.BasicRequests ?? [], requests, granted => consumption?.PrepareImprovement(granted) ?? []);
+            var production = ProductionOperations.Complete(before.World, before.Content, settlement.Id,
+                requests, resolution, before.Position.CompletedSteps);
+            var result = PopulationOperations.Complete(production.World, settlement.Id, population,
                 resolution.ImprovementGrantedUnits, new(checked(before.Position.CompletedSteps + 1), 0));
             world = result.World;
-            events = events.AddRange(result.Events);
+            events = events.AddRange(production.Events).AddRange(result.Events);
         }
+        events = events.AddRange(world.Settlements.SelectMany(s =>
+            ProductionQueries.StateChanges(before.World, before.Content, world, before.Content, s.Id)));
         return (before.Content, world, InventoryLeases.ExpirationEvents(before.World, before.Position.CompletedSteps).AddRange(events));
     });
 

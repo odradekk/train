@@ -69,6 +69,14 @@ internal static class WorldContentPublication
                 ? !alreadyMissing.Contains((reference.Definition, reference.Field))
                 : !Exists(reference, content))
                 Problem("content_missing", reference.Field, DefinitionKey(reference.Definition));
+            if (reference.Definition is CoreDefinitionReference.Process process)
+            {
+                var old = before.Processes.SingleOrDefault(p => Matches(p.Details, process.Id));
+                var current = content.Processes.SingleOrDefault(p => Matches(p.Details, process.Id));
+                if (old is not null && current is not null
+                    && (old.Details is ProcessDetails.Extraction) != (current.Details is ProcessDetails.Extraction))
+                    Problem("content_missing", reference.Field, DefinitionKey(reference.Definition));
+            }
         }
 
         if (problems.Count != 0)
