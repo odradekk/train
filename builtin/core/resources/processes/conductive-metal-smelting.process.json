@@ -1,0 +1,1 @@
+{"schema_version":1,"id":"conductive-metal-smelting","simulation":{"kind":"production","work_required":30,"power_per_work":2,"labor_per_work":1,"facility_tag":"metallurgy","inputs":[{"voxel":"conductive-ore","quantity":4}],"outputs":[{"voxel":"conductive-metal","quantity":4}]},"display":{"name":"生产导电金属","description":"正式经济流程；批量、价值与速率为待用户试玩确认的第一版。"}}

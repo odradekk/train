@@ -35,7 +35,9 @@ pwsh -NoProfile -File scripts/test.ps1 -All -Layer all,stage
 
 Scenes 快速层验证会话生命周期、不可变帧、立方体网格及其贴图方向与跨格平铺、拾取、只读预览、线路与节点生成规则、列车摆放和线路—节点切换。#326 的模块用例覆盖模板原坐标与地块号联结、站点槽位及贯通线、核心站台号映射与数量不符诊断、建筑身份与未变网格复用及迟到结果拒收、两条停车线的排序和容量上限、资源数量变化与独立对象身份、缺失内容来源。Core／Content 使用固定读视图，几何使用生产构造和独立采样，会话时序使用受控后台门控；部分摆放夹具省略地形。资源对象网格复用或静态布局输入不变的断言本身不证明真实地形重建行为。生产线路 A → 空节点 → 线路 B 的跟随、停留与首帧坐标交接在进程内异步验证，并检查空节点没有站台或混凝土读取。快速层不提供大型真实样例的首建和重绑定成本、真实四模块联调或 Godot 纹理与画面证据；core-city 的完整内容和真实引擎表现、#299 阶段验收仍需后续验证。Scenes 已接入实际隔离入口，单次是否通过以运行日志与摘要为准；实现范围见[体素契约](contracts/scenes.md)。
 
-快速层运行未标记 `integration` 或 `stage` 的 MSTest；集成层运行真实文件读写和子进程用例，并按下述规则选择独立检查。Scenes 集成层最低 1 个用例：宿主测试进程与一个独立子进程各构建同面双入口节点，逐列核对生产地形的接缝道床、站内道床和站线轨床和排队引入线地面，并比较部件键与帧内对象身份、顺序。子进程结果和日志写入本次运行目录下的临时目录，成功后删除该临时目录，失败时保留诊断。Schema 需要 Python 3 与 `jsonschema`（CI 固定为 Python 3.11、`jsonschema==4.25.1`）；它不验证跨文件引用或生产加载器行为。
+快速层运行未标记 `integration` 或 `stage` 的 MSTest；集成层运行真实文件读写和子进程用例，并按下述规则选择独立检查。Scenes 集成层最低 1 个用例：宿主测试进程与一个独立子进程各构建同面双入口节点，逐列核对生产地形的接缝道床、站内道床和站线轨床和排队引入线地面，并比较部件键与帧内对象身份、顺序。子进程结果和日志写入本次运行目录下的临时目录，成功后删除该临时目录，失败时保留诊断。Schema 需要 Python 3 与 `jsonschema`（CI 固定为 Python 3.11、`jsonschema==4.25.1`）；示例 Schema 不验证跨文件引用；正式经济检查读取关联 JSON，但不替代生产加载器测试。
+
+正式经济检查还要求燃料生产每批产出的燃料能量大于该流程及直接上游开采的耗电；同时报告模板本地吞吐与满速燃料能量收支。仓库规模预算仅由生成器推导，不在检查器复算。静态关系通过不证明新局可交易或能持续生产，这些结论需要真实核心的市场查询与推进证据。
 
 引擎层在真实 Godot 中运行 `Tests/Engine/Train.Engine.Tests.csproj` 的当前 App 集成用例，需要 `GODOT`。独立测试程序集固定使用 Chickensoft.GoDotTest 2.0.47 和 GodotTestDriver 3.1.83；根项目仅在 Debug 编译 `Tests/Engine/Bootstrap/Runner.tscn` 的启动代码，加载外部测试 DLL 并生成 JUnit；当前无界面引擎最低用例数由脚本中的项目表维护。Release、ExportDebug 和 ExportRelease 排除测试代码、启动场景和测试依赖。这些用例不证明目标四模块的隔离装配。显式导出选择另用 `scripts/checks/run-export-smoke.ps1` 执行一个导出冒烟检查，对同一次 Windows 导出运行两次 `--smoke`，需要 Windows 和匹配的导出模板。Benchmark、长测、额外平台和人工观察不在 `all` 中。
 
@@ -129,7 +131,7 @@ CLI 及其项目依赖的源码改动由 dotnet-affected 沿引用图选择。`e
 
 引擎路径规则复用上述整体构建与测试入口条目，但不包含 `docs/content/schemas/**` 和 `Tests/ContractSupport/**`；另外包含 `Tests/Engine/**`、`project.godot`、`export_presets.cfg`、`builtin/**`、`addons/**`，以及 `archive/`、`docs/`、`prototypes/`、`Tests/` 之外的 `*.tscn`、`*.tres`、`*.uid`、`*.import`。`Tests/Engine/` 内的资源已由该目录规则覆盖。普通宿主 MSTest 被选中不表示引擎也被选中。
 
-集成层的契约结构、公开面和调用样例检查，在 `Contracts/**`、任意 `*.csproj`、任意层级的 `Directory.Build.*`、`Train.sln`、`prototypes/**`、`Tests/ContractChecks/**`、`scripts/checks/project-boundaries.json` 或 `docs/contracts/public-api.txt` 改动时进入默认选择；`builtin/**` PNG／GLB 及其 `.import` 改动也选择该检查，由 C# 工具要求全部内置资产使用 Keep File。内容示例 Schema 检查只在 `docs/content/**` 改动时进入默认选择。隔离重建在任意 `*.csproj`、任意层级 `Directory.Build.*`、`Train.sln`、`scripts/checks/project-boundaries.json` 或 `Tests/ContractChecks/**` 改动时进入默认选择。`-All` 选择结构、公开面、隔离和 Schema 独立检查。
+集成层的契约结构、公开面和调用样例检查，在 `Contracts/**`、任意 `*.csproj`、任意层级的 `Directory.Build.*`、`Train.sln`、`prototypes/**`、`Tests/ContractChecks/**`、`scripts/checks/project-boundaries.json` 或 `docs/contracts/public-api.txt` 改动时进入默认选择；`builtin/**` PNG／GLB 及其 `.import` 改动也选择该检查，由 C# 工具要求全部内置资产使用 Keep File。内容 Schema 检查在 `docs/content/**`、`builtin/core/**` 或 `scripts/content/**` 改动时进入默认选择；同一任务依次检查示例 Schema、正式数据可重制性与 Schema，以及正式经济关系和静态供电估算。隔离重建在任意 `*.csproj`、任意层级 `Directory.Build.*`、`Train.sln`、`scripts/checks/project-boundaries.json` 或 `Tests/ContractChecks/**` 改动时进入默认选择。`-All` 选择结构、公开面、隔离和 Schema 独立检查。
 
 dotnet-affected 退出码 166 表示空项目集合；其他非零退出码、120 秒分析超时或进程清理失败均使入口失败。工具输出写入本次运行目录。仓库路径保留 Git 返回的大小写，再用 `Path.GetFullPath` 转为原生完整路径与分隔符，避免工具的路径前缀匹配漏选。
 
@@ -137,7 +139,7 @@ dotnet-affected 退出码 166 表示空项目集合；其他非零退出码、12
 
 ## 执行与边界
 
-选中 MSTest 项目、契约或隔离检查、引擎层或阶段层时，入口构建一次 `Train.sln`，MSTest 使用 SDK 的 `dotnet test --test-modules <相对 DLL 路径> --root-directory <根目录>` 运行已构建程序集，不重复构建。单独的 Schema 检查只调用 Python，不构建。C# 工具随解决方案构建；structure 通过工具生成的遍历项目，在一个 MSBuild 进程内采集全部登记项目的引用、编译项、友元和输出路径。四组调用样例在该进程内恢复、重新求值并构建，使用 `BuildProjectReferences=false` 和 `RestoreRecursive=false` 避免重复构建共享契约；样例仍不加入解决方案。引用采集、样例构建、隔离构建与工具自测的夹具构建均使用 `-maxCpuCount:1` 和 `UseSharedCompilation=false`，限制并发任务内的 MSBuild 节点数并禁用共享编译服务器。verify 检查公开面和类型归属，isolate 按[矩阵选择规则](contracts/testing.md#实际隔离与结构检查)选择模块，串行复制独立输入、冷构建、独立查询 MSBuild 事实并运行各自非阶段用例，首个失败后停止；已构建的隔离测试 DLL 同样由 SDK 的 `dotnet test --test-modules` 运行，引用判定与 structure 共用。隔离重建排除 `stage` 类别，由阶段入口单独运行这些用例。阶段层始终依次执行这三个命令，再执行确定性用例和 Benchmark；混选集成层和阶段层时，各自执行所需检查。
+选中 MSTest 项目、契约或隔离检查、引擎层或阶段层时，入口构建一次 `Train.sln`，MSTest 使用 SDK 的 `dotnet test --test-modules <相对 DLL 路径> --root-directory <根目录>` 运行已构建程序集，不重复构建。单独的 Schema 任务只调用 Python，不构建；正式经济检查也可独立运行 `python scripts/content/check_economy.py [content-root]`，默认读取 `builtin/core`，标准输出为 JSON 报告。C# 工具随解决方案构建；structure 通过工具生成的遍历项目，在一个 MSBuild 进程内采集全部登记项目的引用、编译项、友元和输出路径。四组调用样例在该进程内恢复、重新求值并构建，使用 `BuildProjectReferences=false` 和 `RestoreRecursive=false` 避免重复构建共享契约；样例仍不加入解决方案。引用采集、样例构建、隔离构建与工具自测的夹具构建均使用 `-maxCpuCount:1` 和 `UseSharedCompilation=false`，限制并发任务内的 MSBuild 节点数并禁用共享编译服务器。verify 检查公开面和类型归属，isolate 按[矩阵选择规则](contracts/testing.md#实际隔离与结构检查)选择模块，串行复制独立输入、冷构建、独立查询 MSBuild 事实并运行各自非阶段用例，首个失败后停止；已构建的隔离测试 DLL 同样由 SDK 的 `dotnet test --test-modules` 运行，引用判定与 structure 共用。隔离重建排除 `stage` 类别，由阶段入口单独运行这些用例。阶段层始终依次执行这三个命令，再执行确定性用例和 Benchmark；混选集成层和阶段层时，各自执行所需检查。
 
 各隔离测试会话的进程上限 N 为 270 秒，由 `Isolation.SessionTimeoutSeconds` 定义；挂起转储在 N−10 秒触发，MTP 在 N−5 秒中止会话，外层 ToolProcess 在 N 秒终止进程。三者任一结束会话时，隔离失败信息均标明超时、模块、实际耗时、上限 N 和日志路径。
 
