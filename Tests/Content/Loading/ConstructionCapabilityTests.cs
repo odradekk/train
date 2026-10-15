@@ -134,11 +134,16 @@ public sealed class ConstructionCapabilityTests
     }
 
     [TestMethod]
-    public void Functional_composite_limits_survive_design_capture_and_strict_replay()
+    [DataRow(null)]
+    [DataRow(K.SizeClass.Titan)]
+    public void Functional_composite_limits_survive_design_capture_and_strict_replay(K.SizeClass? vehicle)
     {
         var fixture = NestedDesignTests.CompositeContent();
         WorldContentFixtures.Change(fixture, "resources/blueprints/engine.blueprint.json", json =>
-            json["simulation"]!["behaviors"] = JsonNode.Parse("""{"construction":{"work_rate":4,"max_plot_size":"giant","max_size_class":"titan"}}"""));
+        {
+            json["simulation"]!["behaviors"] = JsonNode.Parse("""{"construction":{"work_rate":4,"max_plot_size":"giant","max_size_class":"titan"}}""");
+            if (vehicle is null) json["simulation"]!["behaviors"]!["construction"]!.AsObject().Remove("max_size_class");
+        });
         using var content = fixture.Load();
         var factory = ContentFactory.Create();
         var references = References(content.View, "engine");
@@ -152,7 +157,7 @@ public sealed class ConstructionCapabilityTests
         {
             var blueprint = ((C.ContentLookup<C.BlueprintRecord>.Found)view.FindBlueprint(new(C.BlueprintLibrary.Packages, new("core:engine")))).Value;
             var specification = (C.DesignSpecification.FunctionalComposite)((C.DesignEvaluation.Complete)blueprint.Evaluation).Definition.Specification;
-            Assert.AreEqual(new K.PartCapability.Construction(4, K.PlotSize.Giant, K.SizeClass.Titan), specification.Behaviors.Single());
+            Assert.AreEqual(new K.PartCapability.Construction(4, K.PlotSize.Giant, vehicle), specification.Behaviors.Single());
         }
         Assert.AreEqual(content.View.Core.Identity, history.Core.Identity);
     }
