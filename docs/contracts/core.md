@@ -32,7 +32,7 @@
 - 读视图的 `Position`、`Revision`、`InputIdentity` 和 `Fault`。修订在每个 Completed 命令、完成步骤及新步骤故障时各增加一次；NotAccepted、查询和零步推进不增加。修订已达 `ulong.MaxValue` 时，故障仍写入并冻结，修订保持最大值；正常路径的递增仍使用 checked 算术。
 - `World`、`FindNode`、`FindEdge`、`FindLocation`、`FindInstance`、`FindTrain`，覆盖生成的图、占据者、资源、实例和运行列车；车辆位置随所属列车派生，轨道查询列出实际在轨列车。
 - `FindInventory`、`FindLease`、`QuoteLease`、`LoadGoods`、`UnloadGoods`、`AcquireLease` 及租约到期，按 [#325 的批准计划](https://github.com/odradekk/train/issues/325#issuecomment-6172428536)实现。库存预留参与容量和持久化；任务产生和释放预留仍归 #331/#332，具体规则见下文“库存与租约”。
-- #384 接入 `QuoteTrade` 的四种动作、`BuyGoods`／`SellGoods`、`QuoteVehicle` 和 `BuyVehicle`／`SellVehicle`，以及补货目标、两轮备货、潜在消耗和现车名额；具体语义见下文“市场报价与手动交易”。自动交易和运行报告仍归 #385，NPC 初始库存与现车生成仍未实现。
+- #384 接入 `QuoteTrade` 的四种动作、`BuyGoods`／`SellGoods`、`QuoteVehicle` 和 `BuyVehicle`／`SellVehicle`，以及补货目标、两轮备货、潜在消耗和现车名额；具体语义见下文“市场报价与手动交易”。#528 接入按配置计算的 NPC 初始库存和有限现车，见下文“阶段一生成器”。自动交易和运行报告仍归 #385。
 - `FindSettlement` 与 `Economy` 按 [#486 的批准计划](https://github.com/odradekk/train/issues/486#issuecomment-6190044442)接入已有状态：聚居地库存身份、地块、停放车辆、站台与占用、租约、仓储划分、加工、回收和开采设施、电力、人口、钱包和当前规则状态。尚未实现及暂定字段逐项见下文“聚居地与经济查询”。
 - `FindFacility` 的 `Production` 键、模板中的加工／回收计划、批次推进、输出缓冲及生产事件，按 [#381 的批准计划](https://github.com/odradekk/train/issues/381#issuecomment-6183793182)实现，具体范围见下文“加工与回收”。
 - `Extraction` 设施、开采批次、节点资源原地恢复与全局再生，按 [#383 的批准决定](https://github.com/odradekk/train/issues/383#issuecomment-6188092446)实现，使用同一批次运行时与资源仲裁；参数、时序及事件见下文“节点资源”。
@@ -73,7 +73,7 @@
 
 | 字段 | 当前取值与后续责任 |
 | --- | --- |
-| `VehiclesForSale` | 当地 NPC 拥有的实际停放车辆，按身份排序；玩家卖出的原实例进入待售，世界生成仍未产生初始现车 |
+| `VehiclesForSale` | 当地 NPC 拥有的实际停放车辆，按身份排序；来源包括世界生成的初始现车和玩家卖给当地的原实例 |
 | `Surrendered` | 当前没有投降机制，为 `false`；#352 接入投降状态 |
 | `CommissionJobs`、`Economy.UnassignedServicePayments` | 当前没有委托任务和工钱支出，分别为空与零；#387 接入委托及全局未归属服务支出累计 |
 | `Market.Goods`、`VehiclePurchaseCapacities`、设施 `PotentialConsumption` | #384 从当前真实库存、需求、能力和市场规则派生；字段定义见下文市场部分 |
@@ -156,11 +156,19 @@
 
 ### 阶段一生成器
 
-[#309 的批准计划](https://github.com/odradekk/train/issues/309#issuecomment-6134702996)落实为内部 [WorldGenerator](../../Core/World/WorldGenerator.cs)，只接受生成器版本 `stage1-world-v1`。七阶段依次生成地貌、节点、非交叉连通图、占据者、资源、初始铁路及有效起点。无模板的聚居地类型不参选；优先从偏好当前节点地貌或没有地貌偏好的类型中按权重选择，若没有这样的类型，则从全部有模板的类型中选择。类型和模板按规范身份排序后抽取，人口取类型闭区间。模板业务字段复制到聚居地内，库存和生产计划保存但不执行；生物聚落仅保存类型、节点和身份，不生成生物群。地貌特征身份固定为 `lake`、`river`。
+[#309 的批准计划](https://github.com/odradekk/train/issues/309#issuecomment-6134702996)落实为内部 [WorldGenerator](../../Core/World/WorldGenerator.cs)，只接受生成器版本 `stage1-world-v1`。七阶段依次生成地貌、节点、非交叉连通图、占据者、资源、初始铁路及有效起点。无模板的聚居地类型不参选；优先从偏好当前节点地貌或没有地貌偏好的类型中按权重选择，若没有这样的类型，则从全部有模板的类型中选择。类型和模板按规范身份排序后抽取，人口取类型闭区间。模板业务字段复制到聚居地内，特殊库存和生产计划进入初始状态；生物聚落仅保存类型、节点和身份，不生成生物群。地貌特征身份固定为 `lake`、`river`。
 
 初始铁路只用铁轨数范围有效且不经过生物聚落的线路。先检查包含全部聚居地的连通分量能否满足环数与可达空节点数，再按格子 `(y,x)` 顺序尝试删除空节点；仅在诱导子图仍连通、环数及空节点数仍足够时删除，重复整轮直到没有删除。每轮检查计入预算，结果为“包含意义上最少”：去掉任一空节点都会破坏条件，不保证全局最少。精确枚举所有空节点子集的搜索呈指数增长，已在目标规模耗尽预算，因此采用批准决定 12 的删点规则。剩余集合上按长度、身份做 Kruskal，再按随机分数增加成环边；初始铁轨数取配置、线路铁轨上限与 `[1,2]` 的交集。
 
-起点验证非敌对、站点、已建铁路可达的非敌对聚居地和空节点数量，以及是否排除相邻生物聚落。`FullyLoadedPurchaseRoundsPerTrain`、`RequiredAffordableCommissionDesign` 只检查取值、车辆设计种类和引用，不评估经济条件。`FillInputsAndLivingTargets=true`、`OutputReserveHours>0`、`MaximumForSaleVehicles>0` 都返回 `config_invalid`；生成成功不证明经济或战斗开局可玩。初始车队按输入顺序在起点创建，车辆归玩家、满耐久，列车停着且不占站台，`EnteredFrom` 为空。实例和库存不另存位置，查询从所属列车或聚居地派生。
+起点验证非敌对、站点、已建铁路可达的非敌对聚居地和空节点数量，以及是否排除相邻生物聚落。`FullyLoadedPurchaseRoundsPerTrain`、`RequiredAffordableCommissionDesign` 只检查取值、车辆设计种类和引用，不评估经济条件；生成成功不证明经济或战斗开局可玩。初始车队按输入顺序在起点创建，车辆归玩家、满耐久，列车停着且不占站台，`EnteredFrom` 为空。实例和库存不另存位置，查询从所属列车或聚居地派生。
+
+NPC 初始化按 [#528 的批准决定](https://github.com/odradekk/train/issues/528#issuecomment-6198284367)作用于全部非玩家聚居地，包括敌对聚居地。先保留模板特殊库存；`FillInputsAndLivingTargets=true` 时，按当时库存计算一次运行时市场补货目标并补缺口，包含既有食品替代、生产两轮备货与共享容量预算。补货缺口超过真实剩余空间时，按整数缺口同比分配，先向下取整，再按最大余数分配余量，同余数按稳定货物身份顺序；不删除已有库存，不因空间不足重试。
+
+随后按 `OutputReserveHours` 预存产出：设施筛选和潜在速率与市场补货相同，采用 `ProductionQueries.Potential` 中 `Running`、`WaitingForInputs`、`OutputBlocked` 的设施，按货物汇总潜在产量后向上取整，扣除该货物已有库存，只补不足。产出缺口共用补货之后的真实剩余空间，容量不足时沿用上述整数分配。很大的预存时长使用大整数保留比例，避免中间乘积溢出。预存是开局直接放入库存，不推进模拟、不执行生产批次、不消耗原料或扣除节点资源。
+
+`MaximumForSaleVehicles>0` 时，有有效车辆车间的 NPC 聚居地生成满耐久待售实例，所有权等于当地关系，车辆停放当地且未编组。候选先按车间支持档位和市场规则 `VehiclePurchaseLimits.MaximumForSale` 的剩余名额筛选，再按 DesignHash 排序，有放回等概率抽取；每辆占用对应档位名额。可生成名额是车间支持且有候选的各档位上限之和，数量在 `[MinimumForSaleVehicles, min(MaximumForSaleVehicles, 可生成名额)]` 内均匀抽取。没有车间时为零辆；有车间但名额低于最低数量时，立即返回 `config_invalid`，字段为 `Configuration.NpcInitialization.MinimumForSaleVehicles`，不做约束重试。敌对关系的交易访问限制不影响初始生成，也不使用运行时的可收购数作为生成名额。
+
+初始化不是搜索，不增加候选或搜索工作量计数。三项关闭时保留原生成路径、随机键和预算结果；生成器版本仍为 `stage1-world-v1`，核心状态格式仍为 11，命令格式仍为 2。新增库存和车辆使用既有权威状态、引用、捕获、恢复和重放协议。
 
 违反契约取值范围的输入（包括空地貌带）抛 `ArgumentException`；没有带模板的聚居地类型在重试前返回 `config_invalid`；初始铁轨范围与 `[1,2]` 没有交集时，在 `configuration` 阶段返回 `config_invalid`，不消耗候选数或搜索工作量：`MinimumInitialTracks>2` 指向 `Configuration.InitialRailway.MinimumInitialTracks`，`MaximumInitialTracks<1` 指向 `Configuration.InitialRailway.MaximumInitialTracks`；不支持的版本、缺少引用或无法唯一匹配的地貌带返回配置失败。失败用一条 `CoreProblem("generation_failed", 字段路径, null, [类别, 阶段, 候选身份, 世界重试序号, 已用候选数, 已用搜索工作量])` 表达，六项都是字符串，计数使用不变区域十进制；类别为 `config_invalid`、`constraint_unsatisfied`、`budget_exhausted`。同步入口没有中断类别，也没有成功报告字段。预算跨整次准备累计，起点 BFS 与相邻生物聚落的线路扫描也计入搜索工作量；进入阶段时清空候选身份。配置失败和预算耗尽立即返回，约束失败有界重试，失败不消耗正式身份。最大阶段／世界重试数表示首次之外的次数。
 
@@ -175,6 +183,7 @@
 | `resources` | 5 | `cell:x,y:namespace:good-id` |
 | `railway` | 6 | 删除空节点时为 `rail:remove:cell:x,y`；尚未检查具体候选时为空字符串 |
 | `validation` | 7 | `cell:x,y`；尚未检查起点时为空字符串 |
+| `initialization` | 生成后的 NPC 初始化，不计搜索预算 | 聚居地所在的 `cell:x,y` |
 
 随机使用 `KeyedRandom` 版本 1：`RandomKey(WorldSeed, "world.stage1.v1.<用途>", [阶段编号, 世界重试序号, 阶段重试序号, 候选分量…])`。无序输入规范排序，车队和编组保持输入顺序；不以正式编号或枚举次序作为候选身份。各用途的候选分量如下，阶段 3 的图算法没有随机键。
 
@@ -187,6 +196,8 @@
 | 5 | `resource.presence`、`resource.reserve` | 0；格子 x/y、资源货物身份的 UTF-8 字节数及逐字节数值 |
 | 6 | `rail.cycle`、`rail.tracks` | 0；按端点身份排列的两端格子 x/y |
 | 7 | `start.rank` | 0；格子 x/y |
+
+NPC 现车使用独立的 `KeyedRandom` 版本 1，不消费上述阶段的随机流。聚居地身份采用其生成格子坐标：数量键为 `RandomKey(WorldSeed, "world.stage1.v1.npc.vehicle.count", [x, y, 0])`；第 i 辆候选选择键为 `RandomKey(WorldSeed, "world.stage1.v1.npc.vehicle.choice", [x, y, i])`，i 从 0 起。键不依赖正式编号、集合枚举顺序或初始化的调用次序。
 
 新局调用 `PrepareNew`，输入固定种子、生成器版本、完整解析配置、开局资料和核心内容投影。成功返回独立候选；阶段约束不满足或预算耗尽返回阶段、相关字段和失败原因。失败不会替换活动会话。配置中的平衡值来自内容，不以声明中的字段为默认数值或生成算法实现。
 
@@ -299,7 +310,7 @@ Rent 要求非零聚居地身份和正容量，Renew 要求非零租约身份，
 
 ## 市场报价与手动交易
 
-#384 按[批准决定 D1–D9](https://github.com/odradekk/train/issues/384#issuecomment-6194386767)实现本节。玩法公式见[市场与交易](../design/19-markets-and-trading.md)，本节明确报价、执行及当前阶段边界。没有新增持久字段：钱包、货物、实例所有权、设计与耐久和唯一停车归属沿用现有编码；核心状态格式仍为 11，命令和重放格式仍为 2。目标、留货、价格、待售列表和名额不另存。生成器三个经济初始化配置仍返回 `config_invalid`，本票不生成库存或车辆；现车可由玩家卖给当地形成。自动规则和报告仍归 #385，委托采购归 #387，真实经济内容及四模块交接归 #299。
+#384 按[批准决定 D1–D9](https://github.com/odradekk/train/issues/384#issuecomment-6194386767)实现本节。玩法公式见[市场与交易](../design/19-markets-and-trading.md)，本节明确报价、执行及当前阶段边界。没有新增持久字段：钱包、货物、实例所有权、设计与耐久和唯一停车归属沿用现有编码；核心状态格式仍为 11，命令和重放格式仍为 2。目标、留货、价格、待售列表和名额不另存。#528 已接入三个经济初始化配置，生成初始库存和有限现车；初始化规则见上文“阶段一生成器”。现车也可由玩家卖给当地形成。自动规则和报告仍归 #385，委托采购归 #387，真实经济内容及四模块交接归 #299。
 
 ### 备货与查询
 
