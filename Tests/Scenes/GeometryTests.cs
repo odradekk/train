@@ -80,7 +80,7 @@ public sealed class GeometryTests
             null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), []));
         ImmutableArray<SceneCell> cells = [first, first with { At = new(32, 0, 0) }, first with { At = new(1, 0, 0) }];
         var grid = new VoxelGrid(cells);
-        Assert.AreEqual(cells.Length, grid.Count);
+        Assert.AreEqual(cells.Length, grid.Cells.Count());
         foreach (var cell in cells) Assert.AreEqual(cell, grid.Find(cell.At));
         Assert.ThrowsExactly<ArgumentException>(() => new VoxelGrid([.. cells, first]));
     }
@@ -94,7 +94,8 @@ public sealed class GeometryTests
             new(new(2, 0, 0), new(first.Orientation, first.Appearance, first.Shape, new("#0000ff"), first.Subject, first.Path)),
             new(new(4, 0, 0), new(first.Orientation, first.Appearance, first.Shape, first.Paint,
                 new PickSubject.WorldObject(SceneFixtures.Subject, SceneFixtures.Design, new(2)), first.Path)),
-            new(new(6, 0, 0), new(first.Orientation, first.Appearance, first.Shape, first.Paint, first.Subject, [2]))];
+            new(new(6, 0, 0), new(first.Orientation, first.Appearance, first.Shape, first.Paint, first.Subject, [2])),
+            new(new(8, 0, 0), new(VoxelOrientation.NxPy, first.Appearance, first.Shape, first.Paint, first.Subject, first.Path))];
         var grid = new VoxelGrid([.. cells]);
         var meshes = DesignGeometry.Meshes(grid, false).OfType<SceneVisual.Geometry>().Select(item => item.Mesh).ToArray();
         Assert.HasCount(2, meshes);
@@ -110,6 +111,7 @@ public sealed class GeometryTests
         var frame = SceneFixtures.Frame(geometry with { Picking = [new(geometry.Objects[0].Id, SceneFixtures.Identity, grid)] });
         foreach (var cell in cells)
         {
+            Assert.AreEqual(cell.Orientation, grid.Find(cell.At)?.Orientation);
             Assert.AreEqual(cell.Paint, grid.Find(cell.At)?.Paint);
             var hit = ((ScenePick.Hit)frame.Pick(new(new(cell.At.X + 0.5f, -2, 0.5f), Vector3.UnitY, 4))).Value;
             Assert.AreEqual(cell.At, hit.Cell);

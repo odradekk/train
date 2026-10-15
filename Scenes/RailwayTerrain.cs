@@ -48,6 +48,7 @@ internal static class RailwayTerrain
         TerrainAppearanceProjection? bedTerrain, double height, double distance, bool hasBed,
         (double From, double To)? excludedY, Func<VoxelDefinitionId, CellProperties> property)
     {
+        // Prepare only emitted column layers: Appearance() records voxelReads and reports missing diagnostics.
         CellProperties? surface = null, subsurface = null, rock = null, bedRock = null;
         for (var depth = 0; depth < RailwayCoordinates.TerrainDepthCells; depth++)
         {

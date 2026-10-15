@@ -281,7 +281,7 @@ public sealed class RailwayTerrainTests
         var middle = path.Sample(middleArc).Position;
         var column = new GridColumn((int)Math.Floor(middle.X - segment.Origin.X), (int)Math.Floor(middle.Z - segment.Origin.Z));
         Assert.IsTrue(segment.Heights[column] > middle.Y + RailwayCoordinates.TunnelClearance, "The tunnel roof must survive trackbed cutting.");
-        var centerColumn = segment.Geometry.Picking.OrderByDescending(grid => grid.Grid.Count).First().Grid.Cells
+        var centerColumn = segment.Geometry.Picking.OrderByDescending(grid => grid.Grid.Cells.Count()).First().Grid.Cells
             .Where(cell => cell.At.X == column.X && cell.At.Z == column.Z).ToArray();
         Assert.IsTrue(centerColumn.Length > 0, "The ridge must retain real roof voxels.");
         Assert.IsTrue(centerColumn.All(cell => cell.At.Y < 0 || cell.At.Y >= RailwayCoordinates.TunnelClearance), "Tunnel clearance contains terrain voxels.");
@@ -397,9 +397,9 @@ public sealed class RailwayTerrainTests
         var grid = segment.Geometry.Picking.Single().Grid;
         var cells = grid.Cells;
         var markers = segment.Geometry.Objects.Where(item => item.Parent is not null).ToArray();
-        Assert.AreEqual(grid.Count, markers.Length);
+        Assert.AreEqual(grid.Cells.Count(), markers.Length);
         var positions = markers.Select(item => item.Pose.Position).ToHashSet();
-        Assert.AreEqual(grid.Count, positions.Count);
+        Assert.AreEqual(grid.Cells.Count(), positions.Count);
         foreach (var cell in cells)
             Assert.IsTrue(positions.Contains(new(cell.At.X, cell.At.Y, cell.At.Z)));
         Assert.IsTrue(markers.All(item => item.Visuals.Single() is SceneVisual.Missing { KnownCell: true }));

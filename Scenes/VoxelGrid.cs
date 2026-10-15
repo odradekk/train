@@ -53,7 +53,6 @@ internal sealed class VoxelGrid
     internal const int ChunkSize = 32;
     private readonly Dictionary<GridPosition, int[]> chunks = [];
     private readonly ImmutableArray<CellProperties?> entries;
-    internal int Count { get; }
     internal IEnumerable<SceneCell> Cells
     {
         get
@@ -71,7 +70,6 @@ internal sealed class VoxelGrid
     internal VoxelGrid(ImmutableArray<SceneCell> cells)
     {
         if (cells.IsDefault) throw new ArgumentException("Cells must be initialized.", nameof(cells));
-        Count = cells.Length;
         var properties = ImmutableArray.CreateBuilder<CellProperties?>();
         properties.Add(null);
         var ids = new Dictionary<CellProperties, int>();
