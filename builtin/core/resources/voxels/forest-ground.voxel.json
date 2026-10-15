@@ -1,0 +1,1 @@
+{"schema_version":3,"id":"forest-ground","appearance":{"allowed_orientations":"four_way","presentation":{"kind":"cube","material":"organic","faces":{"top":"top.png","side":"top.png","bottom":"top.png"},"tile_span":4}},"display":{"name":"森林地表占位","description":"森林地表占位，正式地形美术归 #358。","icon":"icon.png"}}

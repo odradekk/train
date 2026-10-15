@@ -26,6 +26,33 @@ public sealed class BuiltInContentTests
         using var candidate = ((C.ContentResult<C.IContentCandidate>.Success)result).Value;
         Assert.AreEqual(0, candidate.Report.Diagnostics.Length);
         var view = candidate.View;
+        foreach (var (id, surface) in new[] { ("forest", "forest-ground"), ("desert", "subsoil"), ("mountains", "rock") })
+        {
+            var terrain = Found(view.FindTerrain(new("core:" + id)));
+            Assert.AreEqual(new K.VoxelDefinitionId("core:" + surface), terrain.SurfaceVoxel, id);
+            foreach (var voxel in new[] { terrain.SurfaceVoxel, terrain.SubsurfaceVoxel, terrain.RockVoxel })
+            {
+                Found(view.FindVoxelAppearance(voxel));
+                Assert.IsNull(view.Voxels.Single(item => item.Definition == voxel).Good, id);
+            }
+            CollectionAssert.AreEquivalent(new[] { 1, 2 }, terrain.RailwayModels.Select(model => model.Tracks).ToArray(), id);
+            foreach (var model in terrain.RailwayModels)
+                foreach (var hash in new[] { model.Bridge, model.TunnelPortal })
+                {
+                    var evaluation = Found(view.FindDesign(hash));
+                    Assert.IsInstanceOfType<C.DesignEvaluation.Complete>(evaluation, id);
+                    Assert.IsTrue(((C.DesignEvaluation.Complete)evaluation).IsValid, id);
+                    Assert.IsNull(((C.DesignEvaluation.Complete)evaluation).Core, id);
+                }
+        }
+        foreach (var (id, preferred) in new (string, string[])[]
+                 {
+                     ("forestry-town", ["core:forest"]), ("oilfield-town", ["core:desert"]),
+                     ("mining-town", ["core:mountains", "core:hills"]), ("industrial-city", ["core:plains"]),
+                     ("agricultural-town", ["core:plains", "core:hills"])
+                 })
+            CollectionAssert.AreEquivalent(preferred, view.Core.SettlementTypes.Single(type => type.Id.Value == "core:" + id)
+                .PreferredTerrain.Select(terrain => terrain.Value).ToArray(), id);
         var vehicles = new List<K.DesignHash>();
         foreach (var (id, size) in new[] { ("small-locomotive", K.SizeClass.Small),
                      ("medium-locomotive", K.SizeClass.Medium), ("extra-large-locomotive", K.SizeClass.ExtraLarge) })
