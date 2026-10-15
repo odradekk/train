@@ -16,7 +16,8 @@ public sealed class SettlementObjectsTests
     public void PlatformNumbersUseCoreCapacityAndReportMismatch()
     {
         var evaluation = NodeFixtures.StationEvaluation();
-        evaluation = evaluation with { Scene = evaluation.Scene with
+        evaluation = evaluation with { Core = evaluation.Core! with { Design = evaluation.Core.Design with
+        { Parts = evaluation.Core.Design.Parts.Reverse().ToImmutableArray() } }, Scene = evaluation.Scene with
         { Elements = evaluation.Scene.Elements.Reverse().ToImmutableArray(), Voxels = evaluation.Scene.Voxels.Reverse().ToImmutableArray() } };
         var snapshot = Snapshot(content: NodeFixtures.Content(designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
         { [NodeFixtures.StationDesign] = new ContentLookup<DesignEvaluation>.Found(evaluation) }));
@@ -29,6 +30,54 @@ public sealed class SettlementObjectsTests
         Assert.IsTrue(SettlementObjects.Platforms(mismatch, layout, problems).IsEmpty);
         Assert.AreEqual("station_platform_mismatch", problems.Single().Code);
         Assert.AreEqual(new WorldObjectId.Node(NodeFixtures.NodeId), problems.Single().Subject);
+    }
+
+    [TestMethod]
+    public void PlatformAtEqualDistanceChoosesSmallerLocalZ()
+    {
+        var evaluation = NodeFixtures.StationEvaluation();
+        evaluation = evaluation with
+        {
+            Core = evaluation.Core! with { Design = evaluation.Core.Design with { Parts = [evaluation.Core.Design.Parts[0]] } },
+            Scene = SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0), 1)])
+        };
+        var snapshot = Snapshot(node: NodeFixtures.Node(1), station: NodeFixtures.Station(1),
+            content: NodeFixtures.Content(designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+            { [NodeFixtures.StationDesign] = new ContentLookup<DesignEvaluation>.Found(evaluation) }));
+        var problems = ImmutableArray.CreateBuilder<SceneProblem>();
+        var stops = SettlementObjects.Platforms(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId), problems);
+        Assert.AreEqual(-40d, stops.Single().LocalZ);
+        Assert.AreEqual(0, problems.Count);
+    }
+
+    [TestMethod]
+    public void PlatformNumbersSortTemplatePlotNumbersBeforeLocalZ()
+    {
+        var template = NodeFixtures.Layout with { Plots =
+            [new(20, PlotSize.SmallStation, new(0, 0, 300), VoxelOrientation.PzPy), NodeFixtures.Layout.Plots[0]] };
+        var settlement = NodeFixtures.Settlement() with { Plots =
+            [NodeFixtures.Settlement().Plots[0] with { Id = new(2), TemplatePlotNumber = 20,
+                Occupant = new PlotOccupant.Building(new(2)) }, NodeFixtures.Settlement().Plots[0]] };
+        var snapshot = Snapshot(content: Content(template), node: NodeFixtures.Node(4), settlement: settlement,
+            vehicles: [NodeFixtures.Station(2) with { Id = new InstanceId.Building(new(2)) }]);
+        var problems = ImmutableArray.CreateBuilder<SceneProblem>();
+        var stops = SettlementObjects.Platforms(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId), problems);
+        CollectionAssert.AreEqual(new[] { 1, 1, 20, 20 }, stops.Select(stop => stop.PlotNumber).ToArray());
+        CollectionAssert.AreEqual(new[] { -40d, 40d, -40d, 40d }, stops.Select(stop => stop.LocalZ).ToArray());
+        Assert.AreEqual(0, problems.Count);
+    }
+
+    [TestMethod]
+    public async Task ConstructionPlotsRemainEmptyWithoutReadingJobs()
+    {
+        // FixedCoreReadView.FindJob throws, so any attempt to inspect the job fails this test.
+        var settlement = NodeFixtures.Settlement() with { Plots =
+            [NodeFixtures.Settlement().Plots[0] with { Occupant = new PlotOccupant.Construction(new(77)) }] };
+        var snapshot = Snapshot(settlement: settlement, node: NodeFixtures.Node(0));
+        await using var objects = new SettlementObjects(StableIds());
+        var rendered = await Settle(objects, snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+        Assert.AreEqual(0, rendered.Objects.Length);
+        Assert.AreEqual(0, rendered.Diagnostics.Length);
     }
 
     [TestMethod]
@@ -106,9 +155,16 @@ public sealed class SettlementObjectsTests
         {
             Assert.AreEqual(before[item.Id].Pose, item.Pose);
             Assert.AreSame(((SceneVisual.Geometry)before[item.Id].Visuals[0]).Mesh, ((SceneVisual.Geometry)item.Visuals[0]).Mesh);
-            var point = new ScenePoint(item.Pose.Position.X, item.Pose.Position.Y, item.Pose.Position.Z);
-            Assert.IsFalse(layout.ContainsPlot(point));
-            Assert.IsTrue(layout.ClearOfTracks(point, 17));
+            var x = item.Pose.Position.X;
+            var z = item.Pose.Position.Z;
+            // PzPy rotates the 192 x 112 station plot onto X=[-56,56), Z=[-96,96).
+            Assert.IsFalse(x >= -56 && x < 56 && z >= -96 && z < 96);
+            // The model spans [-500,500], so station lines span Z=±532 and parking is X=532,572.
+            foreach (var centerline in new[] { -40, 40, 532, 572 })
+            {
+                var dz = Math.Max(0, Math.Abs(z) - (Math.Abs(centerline) == 40 ? 532 : 500));
+                Assert.IsTrue(Math.Sqrt(Math.Pow(x - centerline, 2) + dz * dz) >= 22.5);
+            }
         }
         Assert.IsFalse(Present(objects, empty, layout).Objects.Any(item => item.Subject is null));
         Assert.AreEqual(NodeLayout.ReadInputs(full, NodeFixtures.NodeId), NodeLayout.ReadInputs(half, NodeFixtures.NodeId));
@@ -165,6 +221,42 @@ public sealed class SettlementObjectsTests
         }
         Assert.IsTrue(rendered.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Wheelset>().Any());
         if (expected == 2) Assert.IsTrue(used.All(value => value > 0));
+    }
+
+    [TestMethod]
+    public async Task CompletedParkedVehicleWorkIsNotPendingAfterVehicleLeavesParking()
+    {
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var content = NodeFixtures.Content(design: RailwayFixtures.Vehicle(lengthCells: 8),
+            voxel: SceneFixtures.Cube with { Behaviors = new(true, null) });
+        var parked = Snapshot(content: content, settlement: NodeFixtures.Settlement() with { ParkedVehicles = [new(1)] },
+            vehicles: [RailwayFixtures.Instance(1) with { Location = NodeFixtures.Location }]);
+        var departed = Snapshot(content: content);
+        var layout = NodeLayout.Build(parked, NodeFixtures.NodeId);
+        await using var objects = new SettlementObjects(StableIds(), parkedBuild: (view, instance) =>
+        {
+            if (instance.Id is InstanceId.Vehicle)
+            {
+                entered.TrySetResult();
+                release.Wait();
+            }
+            return WorldSceneSession.BuildObject(view, instance, SceneFixtures.Identity);
+        });
+        try
+        {
+            Present(objects, parked, layout);
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var pending = objects.PendingWork;
+            Present(objects, departed, layout);
+            release.Set();
+            await Task.WhenAll(pending).WaitAsync(TimeSpan.FromSeconds(5));
+            var fog = ImmutableArray.CreateBuilder<SceneFog>();
+            objects.Present(departed, layout, default, fog);
+            Assert.AreEqual(0, objects.PendingWork.Length);
+            Assert.AreEqual(0, fog.Count);
+        }
+        finally { release.Set(); }
     }
 
     private static RenderedDesign Present(SettlementObjects objects, SceneWorldSnapshot snapshot, NodeLayout layout) =>

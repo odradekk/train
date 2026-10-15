@@ -77,11 +77,18 @@ public sealed class DebugLineTests
             var centerline = Present(SceneDebugLayer.Centerline).DebugLines;
             CollectionAssert.AreEqual(loading.DebugLines.ToArray(), centerline.ToArray());
             var points = centerline.SelectMany(line => new[] { line.From, line.To }).ToArray();
-            var routes = scene.Layout!.StationRoutes(true).ToArray();
-            Assert.IsTrue(routes.All(route => points.Any(point => Vector3.Distance(point,
-                RailwayCoordinates.Relative(route.Sample(0).Position, default)) < .001f) && points.Any(point => Vector3.Distance(point,
-                RailwayCoordinates.Relative(route.Sample(route.Length).Position, default)) < .001f)),
-                "Centerlines include both ends of each template through-line.");
+            // The rotated 192-cell station plot spans z=-96..96; the through-lines
+            // extend another 32 cells at both ends, at x=1 +/- 40.
+            var stationLines = centerline.Where(line =>
+                (Math.Abs(line.From.X + 39) < .001f || Math.Abs(line.From.X - 41) < .001f) &&
+                Math.Abs(line.To.X - line.From.X) < .001f && Math.Abs(line.From.Y) < .001f && Math.Abs(line.To.Y) < .001f &&
+                line.From.Z >= -128.001f && line.To.Z <= 128.001f && line.To.Z > line.From.Z).ToArray();
+            Assert.HasCount(512, stationLines);
+            foreach (var x in new[] { -39f, 41f })
+            {
+                Assert.IsTrue(points.Any(point => Vector3.Distance(point, new(x, 0, -128)) < .001f));
+                Assert.IsTrue(points.Any(point => Vector3.Distance(point, new(x, 0, 128)) < .001f));
+            }
         }
         finally { release.Set(); }
     }

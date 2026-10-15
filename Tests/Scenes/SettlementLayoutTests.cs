@@ -111,12 +111,15 @@ public sealed class SettlementLayoutTests
     public void BuiltInEntryRoutesAvoidPlotsAndKeepBoundarySeams(string name)
     {
         var template = BuiltIn(name);
+        // Relative neighbor positions from Core/Content basic-through-world, stage1-world-v1, seed 1 unless noted.
         var directions = name switch
         {
             "agricultural-town" => new[] { (-265.3085649692, -182.1578229789, 2), (-81.0690387397, 510.6881578092, 1) },
             "forestry-town" => [(-60.9718018707, -381.0477076283, 2), (358.5731750499, 121.6423645788, 1), (-324.3229181812, 321.9691101042, 1)],
-            // The example's node 6 now uses core-city; industrial-city retains the same representative bearings.
-            "industrial-city" or "core-city" => [(-358.5731750499, -121.6423645788, 1), (176.5248729302, 270.6175196155, 1)],
+            // Core/Content basic-through-world, stage1-world-v1: seed 3 node 7,
+            // neighbor positions minus node position (edge 4, then edge 11).
+            "industrial-city" => [(-148.38793418295586, -488.0024821802351, 0), (160.36416210039397, 268.20095053938314, 1)],
+            "core-city" => [(-358.5731750499, -121.6423645788, 1), (176.5248729302, 270.6175196155, 1)],
             "mining-town" => [(-170.2681302793, -363.7352263776, 2)],
             _ => [(-325.113162602, -37.2153213957, 1), (423.301398003, 71.3265811644, 1)]
         };
@@ -134,7 +137,7 @@ public sealed class SettlementLayoutTests
             Assert.AreEqual(Math.Round(entry.Point.Z - endpoint.Position.Z), entry.Point.Z - endpoint.Position.Z, 0.0001);
             Assert.IsTrue(Vector3.Distance(entry.Outward, endpoint.Forward) < 0.0001f);
             var routes = layout.EntryRoutes(entry, edge.Tracks).ToArray();
-            var routesPerTrack = routes.Length / edge.Tracks;
+            var routesPerTrack = routes.Length / Math.Max(1, edge.Tracks);
             for (var number = 1; number <= edge.Tracks; number++)
             {
                 var start = routes[(number - 1) * routesPerTrack].Sample(0);
@@ -145,7 +148,43 @@ public sealed class SettlementLayoutTests
                 Assert.AreEqual(start.Position.X - entry.Point.X, line.X - endpoint.Position.X, 0.0001);
                 Assert.AreEqual(start.Position.Z - entry.Point.Z, line.Z - endpoint.Position.Z, 0.0001);
             }
-            foreach (var route in routes)
+            var radius = RailwayFixtures.Rules.MinimumCurveRadiusMeters * 2;
+            for (var lane = 1 - edge.TrackLimit; lane < edge.TrackLimit; lane++)
+            for (var station = 0; station < 2; station++)
+            {
+                var curve = layout.Connection(entry.Edge, lane, station);
+                var end = curve.Sample(curve.Length);
+                // Both station plots share x-directed lines at -176 +/- 40.
+                // Ground bounds extend by 32 cells to the connection targets.
+                var expectedX = entry.Side * (name == "core-city" ? 464 : 360);
+                var expected = new ScenePoint(expectedX, 1, -216 + station * 80);
+                Assert.IsTrue(Vector3.Distance(RailwayCoordinates.Relative(end.Position, expected), Vector3.Zero) < .002f,
+                    $"{name} edge {entry.Edge.Value} lane {lane}: endpoint {end.Position}, expected {expected}");
+                Assert.IsTrue(Vector3.Distance(end.Forward, -entry.Side * Vector3.UnitX) < .0001f);
+                var previous = curve.Sample(0);
+                var before = previous;
+                var steps = (int)Math.Ceiling(curve.Length / .5);
+                for (var step = 1; step <= steps; step++)
+                {
+                    var sample = curve.Sample(curve.Length * step / steps);
+                    var delta = RailwayCoordinates.Relative(sample.Position, previous.Position);
+                    var horizontal = Math.Sqrt(delta.X * delta.X + delta.Z * delta.Z);
+                    Assert.IsTrue(Math.Abs(delta.Y) / horizontal <= RailwayFixtures.Rules.MaximumGrade + 1e-5);
+                    Assert.IsTrue(Math.Abs(sample.Forward.Y) / Math.Sqrt(sample.Forward.X * sample.Forward.X +
+                        sample.Forward.Z * sample.Forward.Z) <= RailwayFixtures.Rules.MaximumGrade + 1e-5);
+                    if (step > 1)
+                    {
+                        var a = new Vector2((float)(previous.Position.X - before.Position.X), (float)(previous.Position.Z - before.Position.Z));
+                        var b = new Vector2(delta.X, delta.Z);
+                        var curvature = 2 * Math.Abs(a.X * b.Y - a.Y * b.X) / (a.Length() * b.Length() * (a + b).Length());
+                        Assert.IsTrue(curvature <= 1 / radius + .0001, $"{name}: curvature {curvature}");
+                    }
+                    before = previous; previous = sample;
+                }
+            }
+            var reservedRoutes = Enumerable.Range(1 - edge.TrackLimit, 2 * edge.TrackLimit - 1)
+                .SelectMany(lane => Enumerable.Range(0, 2).Select(station => layout.Connection(entry.Edge, lane, station)));
+            foreach (var route in reservedRoutes)
             for (var arc = 0.0; arc <= route.Length + 0.5; arc += 0.5)
             {
                 var point = route.Sample(Math.Min(arc, route.Length)).Position;
@@ -154,7 +193,7 @@ public sealed class SettlementLayoutTests
                     var half = plot.Size switch { PlotSize.Small => 24, PlotSize.Medium => 48, PlotSize.Large => 96, PlotSize.Giant => 192, _ => throw new AssertFailedException("Unexpected ordinary plot size.") };
                     var dx = Math.Max(0, Math.Abs(point.X - plot.At.X) - half);
                     var dz = Math.Max(0, Math.Abs(point.Z - plot.At.Z) - half);
-                    Assert.IsTrue(dx * dx + dz * dz >= 15.75 * 15.75,
+                    Assert.IsTrue(dx * dx + dz * dz >= 16 * 16,
                         $"{name}, edge {entry.Edge.Value}, plot {plot.Number}: corridor at {point} violates sixteen-cell clearance.");
                 }
             }

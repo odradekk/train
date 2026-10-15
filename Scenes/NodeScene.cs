@@ -40,6 +40,7 @@ internal sealed class NodeScene : IAsyncDisposable
     private readonly CancellationTokenSource cancellation = new();
     private readonly SceneVehicles vehicles;
     private readonly SettlementObjects settlement;
+    private SceneWorldSnapshot snapshot;
     private readonly ImmutableDictionary<EdgeId, int> openingTracks;
     private readonly Dictionary<string, BuiltGeometry> attached = [];
     private readonly Task<Built>? pending;
@@ -53,20 +54,25 @@ internal sealed class NodeScene : IAsyncDisposable
     internal bool Failed => failure is not null;
 
     internal NodeScene(SceneWorldSnapshot initial, NodeId node, Cache cache, Func<string, SceneObjectId> objectId, SceneVehicles vehicles,
-        Func<SceneWorldSnapshot, NodeId, Built?, CancellationToken, Built>? generate = null)
+        Func<SceneWorldSnapshot, NodeId, Built?, CancellationToken, Built>? generate = null,
+        SceneVehicles.Cache? buildingCache = null, SceneVehicles.Cache? parkedCache = null)
     {
         Node = node; this.cache = cache; this.objectId = objectId; owner = cache.Open(node);
         this.vehicles = vehicles;
-        settlement = new(objectId);
+        snapshot = initial;
+        settlement = new(objectId, buildingCache: buildingCache, parkedCache: parkedCache);
         openingTracks = initial.Core.World.Edges.Where(edge => edge.Start == node || edge.End == node).ToImmutableDictionary(edge => edge.Id, edge => edge.Tracks);
         try { layout = NodeLayout.Build(initial, node); }
         catch (RailwayBuildException error) { Fail(error); return; }
+        settlement.Pump(initial, layout);
         var previous = cache.Read(node);
         pending = Task.Run(() => generate is null ? Build(initial, layout, previous, cancellation.Token) :
             generate(initial, node, previous, cancellation.Token), cancellation.Token);
     }
-    internal void Pump()
+    internal void Pump(SceneWorldSnapshot? current = null)
     {
+        if (current is not null) snapshot = current;
+        if (!cancellation.IsCancellationRequested && layout is not null) settlement.Pump(snapshot, layout);
         if (cancellation.IsCancellationRequested || built is not null || failure is not null || pending?.IsCompleted != true) return;
         try
         {
@@ -81,7 +87,7 @@ internal sealed class NodeScene : IAsyncDisposable
     internal SceneFrame Present(SceneWorldSnapshot snapshot, SceneFrameRequest request, SceneFrameStamp stamp,
         SceneFrame? displayed, ScenePoint origin)
     {
-        Pump();
+        Pump(snapshot);
         var objects = ImmutableArray.CreateBuilder<SceneObject>();
         var picking = ImmutableArray.CreateBuilder<PickGrid>();
         var problems = ImmutableArray.CreateBuilder<SceneProblem>();
@@ -100,15 +106,21 @@ internal sealed class NodeScene : IAsyncDisposable
             if (layout.Template is null && snapshot.Core.World.Nodes.Single(item => item.Id == Node).Occupant is NodeOccupant.Settlement owner)
             {
                 var lookup = snapshot.Content.FindSettlementLayout(owner.Id);
-                if (lookup is ContentLookup<SettlementLayoutProjection>.Missing missing) DesignGeometry.AddDiagnostics(missing.Diagnostics, problems, new WorldObjectId.Node(Node));
-                problems.Add(new("content_missing", SceneStage.Input, new WorldObjectId.Node(Node), null, null, null, "The settlement layout copy is missing."));
+                if (lookup is ContentLookup<SettlementLayoutProjection>.Found)
+                    problems.Add(new("railway_update_pending", SceneStage.Reconcile, new WorldObjectId.Node(Node), null, null, null,
+                        "The settlement was founded after this layout opened; railway updates are implemented by Issue #345."));
+                else
+                {
+                    if (lookup is ContentLookup<SettlementLayoutProjection>.Missing missing) DesignGeometry.AddDiagnostics(missing.Diagnostics, problems, new WorldObjectId.Node(Node));
+                    problems.Add(new("content_missing", SceneStage.Input, new WorldObjectId.Node(Node), null, null, null, "The settlement layout copy is missing."));
+                }
             }
             Add(settlement.Present(snapshot, layout, origin, fog));
             RenderTrains(snapshot, origin, objects, picking, problems, fog);
         }
         if (failure is not null) problems.Add(failure);
         return new(stamp, origin, snapshot.Core.Position.CompletedSteps * SimulationTime.StepSeconds,
-            failure is not null ? SceneReadiness.Failed : built is null ? SceneReadiness.Loading : fog.Count > 0 || settlement.PendingWork.Length > 0 ? SceneReadiness.Partial : SceneReadiness.Ready,
+            failure is not null ? SceneReadiness.Failed : built is null ? SceneReadiness.Loading : fog.Count > 0 || settlement.PendingWork.Any(work => !work.IsCompleted) ? SceneReadiness.Partial : SceneReadiness.Ready,
             objects.ToImmutable(), picking.ToImmutable(), fog.ToImmutable(), RailwayTerrain.UniqueProblems(problems), displayed,
             node: layout, nodeParts: built?.Parts.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => item.Value).ToImmutableArray() ?? [],
             debugLayers: request.DebugLayers, nodeTracks: openingTracks, pickRay: request.PickRay);
@@ -205,7 +217,7 @@ internal sealed class NodeScene : IAsyncDisposable
             var chunkBed = bedChunks.GetValueOrDefault(from) ?? [];
             var chunkBoundary = boundaryChunks.GetValueOrDefault(from) ?? [];
             var chunkModel = modelChunks.GetValueOrDefault(from, []);
-            var chunkInputs = RailwayDependencies.Values(new object[] { terrainInputs, chunkModel,
+            var chunkInputs = RailwayDependencies.Values(new object?[] { terrainInputs, layout.Template?.SceneModel.Design, from,
                 chunkModel.Select(v => v.Voxel).Distinct().Select(id => appearances[id]).ToArray(),
                 chunkBed.OrderBy(item => item.Key.X).ThenBy(item => item.Key.Z).ToArray(),
                 chunkBoundary.OrderBy(item => item.X).ThenBy(item => item.Z).ToArray() });
@@ -304,7 +316,7 @@ internal sealed class NodeScene : IAsyncDisposable
 
         (int Height, double Distance) Column(GridColumn column)
         {
-            var raw = RailwayTerrain.NodeGround(snapshot, node, new(column.X + 0.5, 0, column.Z + 0.5));
+            var raw = RailwayTerrain.NodeGround(snapshot, node, new(column.X + 0.5, 0, column.Z + 0.5), layout.Template);
             var rail = bed.GetValueOrDefault(column);
             var distance = rail?.Distance ?? double.PositiveInfinity;
             if (rail is not null)

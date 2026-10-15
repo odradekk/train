@@ -291,7 +291,11 @@ internal sealed class NodeLayout
             var theta = Math.Abs(entry.Angle); var phi = Math.Abs(entry.BendAngle); var turn = Math.Sign(entry.BendAngle);
             var spans = ArcSpans(theta, phi, radius);
             var middle = (turn * Vector3.Dot(delta, right) - spans.Lateral) / Math.Sin(phi);
+            if (middle < -ConnectionTolerance) throw new RailwayBuildException("The node entry corridor cannot reach its station tracks.");
+            middle = Math.Max(0, middle);
             var final = Vector3.Dot(delta, forward) - spans.Forward - middle * Math.Cos(phi);
+            if (final < -ConnectionTolerance) throw new RailwayBuildException("The node entry corridor cannot reach its station tracks.");
+            final = Math.Max(0, final);
             return new(stemStart, forward, right, entry.Angle, [(entry.StraightLength, 0), (radius * (phi - theta), turn / radius),
                 (middle, 0), (radius * phi, -turn / radius), (final, 0)], target.Y);
         }

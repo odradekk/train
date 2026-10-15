@@ -32,7 +32,9 @@ public sealed class NodePlacementTests
         var before = await Settled(scene, snapshot);
         AssertPosition(before, 3, new(-39, 0, 0));
         AssertPosition(before, 7, new(41, 0, 0));
-        Assert.IsTrue(Pose(before, 2).Position.Z < 0);
+        // The rotated small station plot ends at z=-96. The queued eight-cell
+        // vehicle, including its front end, must remain outside that plot.
+        Assert.IsTrue(Pose(before, 2).Position.Z + 4 < -96);
         Assert.IsTrue(Pose(before, 9).Position.Z < Pose(before, 2).Position.Z,
             "The unreserved train joins the incoming queue behind the lower TrainId stopped train.");
 

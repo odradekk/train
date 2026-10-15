@@ -14,21 +14,49 @@ internal sealed class SettlementObjects : IAsyncDisposable
     internal const int ParkedVehicleLimit = 8;
     private readonly Dictionary<VoxelDefinitionId, (VoxelAppearanceProjection Appearance, ImmutableArray<SceneVisual> Visuals)> resourceVisuals = [];
     private readonly Func<string, SceneObjectId> objectId;
-    private readonly Func<IContentView, InstanceView, BuiltObject> build;
-    private readonly Dictionary<BuildingId, BuiltObject> ready = [];
-    private readonly Dictionary<BuildingId, Task<BuiltObject>> pending = [];
-    private readonly SceneVehicles parked = new();
-    private readonly CancellationTokenSource cancellation = new();
+    private readonly SceneVehicles buildings;
+    private readonly SceneVehicles parked;
+    private readonly Dictionary<(VoxelDefinitionId Good, int Candidate), ScenePoint?> resourcePositions = [];
 
     internal SettlementObjects(Func<string, SceneObjectId> objectId,
-        Func<IContentView, InstanceView, BuiltObject>? build = null)
+        Func<IContentView, InstanceView, BuiltObject>? build = null,
+        SceneVehicles.Cache? buildingCache = null, SceneVehicles.Cache? parkedCache = null,
+        Func<IContentView, InstanceView, BuiltObject>? parkedBuild = null)
     {
         this.objectId = objectId;
-        this.build = build ?? ((content, instance) => WorldSceneSession.BuildObject(content, instance,
-            new(Vector3.Zero, Quaternion.Identity)));
+        buildings = new(buildingCache, build ?? ((content, instance) => WorldSceneSession.BuildObject(content, instance,
+            new(Vector3.Zero, Quaternion.Identity))));
+        parked = new(parkedCache, parkedBuild);
     }
 
-    internal Task[] PendingWork => pending.Values.Cast<Task>().Concat(parked.PendingWork).ToArray();
+    internal Task[] PendingWork => buildings.PendingWork.Concat(parked.PendingWork).ToArray();
+
+    private static Dictionary<BuildingId, (InstanceView Instance, SettlementPlotLayout Plot)> Buildings(
+        SceneWorldSnapshot snapshot, NodeLayout layout)
+    {
+        var result = new Dictionary<BuildingId, (InstanceView, SettlementPlotLayout)>();
+        if (Settlement(snapshot, layout) is { } settlement && layout.Template is { } template)
+            foreach (var plot in settlement.Plots)
+                if (plot.Occupant is PlotOccupant.Building building &&
+                    template.Plots.FirstOrDefault(item => item.Number == plot.TemplatePlotNumber) is { } placement &&
+                    snapshot.Core.FindInstance(new InstanceId.Building(building.Id)) is Lookup<InstanceView>.Found instance)
+                    result.Add(building.Id, (instance.Value, placement));
+        return result;
+    }
+
+    internal void Pump(SceneWorldSnapshot snapshot, NodeLayout layout)
+    {
+        var placed = Buildings(snapshot, layout);
+        buildings.Retain(placed.Values.Select(item => item.Instance.Id));
+        foreach (var item in placed.OrderBy(pair => pair.Key.Value)) buildings.Prepare(snapshot.Content, item.Value.Instance);
+        var vehicles = (Settlement(snapshot, layout)?.ParkedVehicles ?? []).OrderBy(id => id.Value).Take(ParkedVehicleLimit).ToArray();
+        parked.Retain(vehicles.Select(id => (InstanceId)new InstanceId.Vehicle(id)));
+        foreach (var id in vehicles)
+            if (snapshot.Core.FindInstance(new InstanceId.Vehicle(id)) is Lookup<InstanceView>.Found instance &&
+                snapshot.Content.FindDesign(instance.Value.Design) is ContentLookup<DesignEvaluation>.Found design &&
+                RailwayVehicles.Length(design.Value) is > 0)
+                parked.Prepare(snapshot.Content, instance.Value);
+    }
 
     private static SettlementView? Settlement(SceneWorldSnapshot snapshot, NodeLayout layout)
     {
@@ -44,37 +72,19 @@ internal sealed class SettlementObjects : IAsyncDisposable
         var picking = ImmutableArray.CreateBuilder<PickGrid>();
         var problems = ImmutableArray.CreateBuilder<SceneProblem>();
         var settlement = Settlement(snapshot, layout);
-        var buildings = new Dictionary<BuildingId, (InstanceView Instance, SettlementPlotLayout Plot)>();
-        if (settlement is not null && layout.Template is { } template)
-            foreach (var plot in settlement.Plots)
-                if (plot.Occupant is PlotOccupant.Building building &&
-                    template.Plots.FirstOrDefault(item => item.Number == plot.TemplatePlotNumber) is { } placement &&
-                    snapshot.Core.FindInstance(new InstanceId.Building(building.Id)) is Lookup<InstanceView>.Found instance)
-                    buildings.Add(building.Id, (instance.Value, placement));
-
-        foreach (var id in ready.Keys.Where(id => !buildings.ContainsKey(id)).ToArray()) ready.Remove(id);
-        foreach (var pair in pending.Where(pair => pair.Value.IsCompleted).ToArray())
-        {
-            pending.Remove(pair.Key);
-            var body = pair.Value.GetAwaiter().GetResult();
-            if (buildings.TryGetValue(pair.Key, out var current) && WorldSceneSession.Matches(body, current.Instance))
-                ready[pair.Key] = body;
-        }
-        foreach (var pair in buildings.OrderBy(pair => pair.Key.Value))
+        Pump(snapshot, layout);
+        var placed = Buildings(snapshot, layout);
+        foreach (var pair in placed.OrderBy(pair => pair.Key.Value))
         {
             var (instance, plot) = pair.Value;
             var placement = SceneGeometry.Placement(plot.At, plot.Orientation);
             var pose = placement with { Position = placement.Position - RailwayCoordinates.Relative(origin, default) };
-            var hasBody = ready.TryGetValue(pair.Key, out var body);
+            var body = buildings.Prepare(snapshot.Content, instance);
+            var hasBody = body is not null;
             if (hasBody)
                 Add(SceneGeometry.Place(WorldSceneSession.Attach(body!.Geometry, "building:" + pair.Key.Value + ":", objectId).Geometry, pose));
             else objects.Add(new(objectId("building:" + pair.Key.Value + ":"), null, pose, new WorldObjectId.Instance(instance.Id), [], [], []));
-            if ((!hasBody || !WorldSceneSession.Matches(body!, instance)) && !pending.ContainsKey(pair.Key) && pending.Count < RailwayCoordinates.MaxConcurrentBuilds)
-            {
-                var content = snapshot.Content;
-                pending.Add(pair.Key, Task.Run(() => build(content, instance), cancellation.Token));
-            }
-            if (!ready.TryGetValue(pair.Key, out var shown) || !WorldSceneSession.Matches(shown, instance))
+            if (!hasBody || !WorldSceneSession.Matches(body!, instance))
             {
                 if (snapshot.Content.FindDesign(instance.Design) is ContentLookup<DesignEvaluation>.Found evaluation &&
                     evaluation.Value is not DesignEvaluation.Failed && DesignGeometry.Projection(evaluation.Value).OccupiedBounds is { } bounds)
@@ -90,19 +100,26 @@ internal sealed class SettlementObjects : IAsyncDisposable
         {
             if (snapshot.Core.FindInstance(new InstanceId.Vehicle(id)) is not Lookup<InstanceView>.Found found) continue;
             var instance = found.Value;
-            if (snapshot.Content.FindDesign(instance.Design) is not ContentLookup<DesignEvaluation>.Found design ||
-                RailwayVehicles.Length(design.Value) is not > 0) continue;
-            var length = RailwayVehicles.Length(design.Value)!.Value;
+            var lookup = snapshot.Content.FindDesign(instance.Design);
+            var length = RailwayVehicles.Length((lookup as ContentLookup<DesignEvaluation>.Found)?.Value);
+            if (lookup is not ContentLookup<DesignEvaluation>.Found design || design.Value is DesignEvaluation.Failed || length is not > 0)
+            {
+                // No placement can be inferred, but missing content must still be visible in diagnostics.
+                var unplaced = SceneVehicles.Unplaced(snapshot.Content, instance, lookup, length,
+                    new(RailwayCoordinates.Relative(default, origin), Quaternion.Identity), objectId);
+                problems.AddRange(unplaced.Diagnostics);
+                continue;
+            }
             var lineIndex = 0;
-            while (lineIndex < layout.Parking.Length && used[lineIndex] + length > layout.Parking[lineIndex].Length) lineIndex++;
+            while (lineIndex < layout.Parking.Length && used[lineIndex] + length.Value > layout.Parking[lineIndex].Length) lineIndex++;
             if (lineIndex == layout.Parking.Length) continue;
             var line = layout.Parking[lineIndex];
-            var center = RailwayCoordinates.Add(line.Start, line.Forward * (float)(used[lineIndex] + length / 2.0));
-            used[lineIndex] += length + 4;
+            var center = RailwayCoordinates.Add(line.Start, line.Forward * (float)(used[lineIndex] + length.Value / 2.0));
+            used[lineIndex] += length.Value + 4;
             var pose = new ScenePose(RailwayCoordinates.Relative(center, origin), RailwayCoordinates.Rotation(line.Forward));
             if (parked.Reconcile(snapshot.Content, instance, objectId) is { } rendered)
                 Add(RailwayVehicles.Place(rendered, pose, 0));
-            else if (design.Value is not DesignEvaluation.Failed)
+            else
             {
                 var loading = SceneVehicles.Loading(instance, design.Value, pose, objectId);
                 objects.Add(loading.Object);
@@ -198,13 +215,20 @@ internal sealed class SettlementObjects : IAsyncDisposable
             var key = BinaryPrimitives.ReadUInt64LittleEndian(SHA256.HashData(Encoding.UTF8.GetBytes(good.Definition.Value)));
             for (var candidate = 0; candidate < count; candidate++)
             {
-                var x = Math.Floor(layout.Bounds.Minimum.X + (layout.Bounds.Maximum.X - layout.Bounds.Minimum.X) *
-                    RailwayRandom.Unit(snapshot.Core.World.WorldSeed, node.Id.Value, candidate, key));
-                var z = Math.Floor(layout.Bounds.Minimum.Y + (layout.Bounds.Maximum.Y - layout.Bounds.Minimum.Y) *
-                    RailwayRandom.Unit(snapshot.Core.World.WorldSeed, node.Id.Value, candidate, key ^ 0xCA013FACUL));
-                var point = new ScenePoint(x, 0, z);
-                if (layout.ContainsPlot(point) || !layout.ClearOfTracks(point, 17)) continue;
-                point = point with { Y = Math.Floor(RailwayTerrain.NodeGround(snapshot, node, point)) + 1 };
+                var positionKey = (good.Definition, candidate);
+                if (!resourcePositions.TryGetValue(positionKey, out var position))
+                {
+                    var x = Math.Floor(layout.Bounds.Minimum.X + (layout.Bounds.Maximum.X - layout.Bounds.Minimum.X) *
+                        RailwayRandom.Unit(snapshot.Core.World.WorldSeed, node.Id.Value, candidate, key));
+                    var z = Math.Floor(layout.Bounds.Minimum.Y + (layout.Bounds.Maximum.Y - layout.Bounds.Minimum.Y) *
+                        RailwayRandom.Unit(snapshot.Core.World.WorldSeed, node.Id.Value, candidate, key ^ 0xCA013FACUL));
+                    var candidatePoint = new ScenePoint(x, 0, z);
+                    position = layout.ContainsPlot(candidatePoint) ||
+                        !layout.ClearOfTracks(candidatePoint, RailwayCoordinates.BedBaseHalfWidth + RailwayCoordinates.BedBlendWidth)
+                        ? null : candidatePoint with { Y = Math.Floor(RailwayTerrain.NodeGround(snapshot, node, candidatePoint, layout.Template)) + 1 };
+                    resourcePositions.Add(positionKey, position);
+                }
+                if (position is not { } point) continue;
                 if (!resourceVisuals.TryGetValue(good.Definition, out var cached) || cached.Appearance != appearance.Value)
                 {
                     var grid = new VoxelGrid([new(new(0, 0, 0), new(VoxelOrientation.PxPy, appearance.Value, null, null, null, []))]);
@@ -219,10 +243,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        cancellation.Cancel();
-        try { await Task.WhenAll(pending.Values); }
-        catch (Exception) { /* Observe owned work when closing. */ }
+        await buildings.DisposeAsync();
         await parked.DisposeAsync();
-        cancellation.Dispose();
     }
 }
