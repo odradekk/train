@@ -362,11 +362,30 @@ public sealed class NodeSceneTests
         Assert.AreEqual(hit.Value, ((ScenePick.Hit)before.Pick(new(new(22.5f, 8, .5f), -Vector3.UnitY, 10))).Value);
     }
 
-    private static SceneWorldSnapshot CopiedSettlement(ulong generation)
+    [TestMethod]
+    public void TemplateModelEntersTerrainAndRailwayClearsItsCells()
+    {
+        var snapshot = CopiedSettlement(1, terrain: false);
+        var built = NodeScene.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+        var terrain = built.Parts.Where(part => part.Key.StartsWith("terrain:", StringComparison.Ordinal)).Select(part => part.Value).ToArray();
+        var cells = terrain.SelectMany(part => part.Geometry.Geometry.Picking).SelectMany(pick => pick.Grid.Cells).ToDictionary(cell => cell.At);
+        var paint = new PaintColor("#ff00ff");
+        Assert.AreEqual(paint, cells[new(5, 3, 5)].Paint, "Model cells belong to the terrain chunk's pick grid.");
+        Assert.IsTrue(terrain.SelectMany(part => part.Geometry.Geometry.Objects).SelectMany(item => item.Visuals)
+            .OfType<SceneVisual.Geometry>().Any(visual => visual.Mesh.Material is SceneMaterial.Voxel material && material.Paint == paint));
+        Assert.IsFalse(cells.TryGetValue(new(41, 0, 0), out var onTrack) && onTrack.Paint == paint,
+            "The railway corridor removes the model cell on its centerline.");
+        Assert.AreEqual(1d, terrain.SelectMany(part => part.Heights).Single(item => item.Key == new GridColumn(0, 0)).Value,
+            "The actual ground is flattened before the scene model is placed.");
+        Assert.IsFalse(built.Parts.Values.SelectMany(part => part.Geometry.Geometry.Diagnostics).Any(problem => problem.Code == "build_failed"));
+    }
+
+    private static SceneWorldSnapshot CopiedSettlement(ulong generation, bool terrain = true)
     {
         var basis = NodeFixtures.Content(generation, rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 });
-        var model = SceneFixtures.Projection([SceneFixtures.Cell(new(5, 0, 5))]) with
-        { RootFlatten = new(new(-56, -96), new(124, 96), 1), OccupiedBounds = new(new(-56, 0, -96), new(124, 0, 96)) };
+        var model = SceneFixtures.Projection([SceneFixtures.Cell(new(5, 3, 5)) with { Paint = new("#ff00ff") },
+            SceneFixtures.Cell(new(41, 0, 0), 2) with { Paint = new("#ff00ff") }]) with
+        { RootFlatten = new(new(-56, -96), new(124, 96), 1), OccupiedBounds = new(new(-56, 0, -96), new(124, 3, 96)) };
         var plots = NodeFixtures.Layout.Plots.Select(plot => plot with { At = plot.At with { Y = 1 } }).ToImmutableArray().Add(new(99, PlotSize.Small, new(100, 1, 0), VoxelOrientation.PxPy));
         var copy = NodeFixtures.Layout with { Plots = generation == 1 ? plots : plots.Reverse().ToImmutableArray(),
             SceneModel = NodeFixtures.Layout.SceneModel with { Scene = model } };
@@ -379,7 +398,8 @@ public sealed class NodeSceneTests
             Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
             { [NodeFixtures.StationDesign] = basis.FindDesign(NodeFixtures.StationDesign), [sourceHash] = new ContentLookup<DesignEvaluation>.Found(SceneFixtures.Evaluation(SceneFixtures.Projection([SceneFixtures.Cell(new((int)generation * 80, 0, 80))]))) },
             VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>> { [SceneFixtures.Voxel] = basis.FindVoxelAppearance(SceneFixtures.Voxel) },
-            Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>> { [RailwayFixtures.Terrain] = basis.FindTerrain(RailwayFixtures.Terrain) },
+            Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
+            { [RailwayFixtures.Terrain] = terrain ? basis.FindTerrain(RailwayFixtures.Terrain) : new ContentLookup<TerrainAppearanceProjection>.Missing([]) },
             RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>> { [RailwayFixtures.Rule] = basis.FindRailwayAppearance(RailwayFixtures.Rule) }
         };
         var snapshot = NodeFixtures.Snapshot(trains: [], content: content);

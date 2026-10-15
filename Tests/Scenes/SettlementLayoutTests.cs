@@ -13,6 +13,22 @@ namespace Train.Scenes.Tests;
 public sealed class SettlementLayoutTests
 {
     [TestMethod]
+    [DataRow(true, 4.0, 7.0)]
+    [DataRow(false, 2.0, 6.0)]
+    public void TemplateGroundFlattensOccupiedAreaAndBlendsOverEightCells(bool explicitRegion, double inside, double halfway)
+    {
+        var scene = SceneFixtures.Projection([]) with
+        {
+            OccupiedBounds = new(new(0, 3, 0), new(7, 9, 7)),
+            RootFlatten = explicitRegion ? new(new(0, 0), new(7, 7), 5) : null
+        };
+        var template = NodeFixtures.Layout with { SceneModel = NodeFixtures.Layout.SceneModel with { Scene = scene } };
+        Assert.AreEqual(inside, NodeSettlement.FlattenGround(template, new(4, 0, 4), 10));
+        Assert.AreEqual(halfway, NodeSettlement.FlattenGround(template, new(12, 0, 4), 10));
+        Assert.AreEqual(10d, NodeSettlement.FlattenGround(template, new(16, 0, 4), 10));
+    }
+
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
     [DataRow(true, false)]
