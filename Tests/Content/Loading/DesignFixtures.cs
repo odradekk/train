@@ -14,7 +14,7 @@ internal static class DesignFixtures
         AddVoxel(fixture, "machine", behaviors: """
             {"propulsion":{"traction":25,"rated_speed":20},"control":{},"storage":{"capacity":100},
              "production":{"work_rate":2},"extraction":{"work_rate":3},
-             "construction":{"work_rate":4,"max_size_class":"titan"},"power":{"output":5},
+             "construction":{"work_rate":4,"max_plot_size":"large"},"power":{"output":5},
              "weapon":{"damage":6,"interval":0.5},"platform":{}}
             """);
         AddVoxel(fixture, "scenery", scene: true);

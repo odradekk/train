@@ -47,6 +47,19 @@ public sealed class DocumentationBlueprintTests
         Assert.AreEqual(1L, core.BillOfMaterials.Single(item => item.Good == new K.GoodId.Assembly(turret.Composition)).Quantity);
         Assert.IsFalse(core.BillOfMaterials.Any(item => item.Good == new K.GoodId.Voxel(new(Package + ":machine-gun"))));
 
+        foreach (var (id, plot, vehicle) in new[]
+        {
+            ("workshop-crane", K.PlotSize.Large, (K.SizeClass?)K.SizeClass.Large),
+            ("gantry-crane", K.PlotSize.Giant, (K.SizeClass?)K.SizeClass.Titan)
+        })
+        {
+            var crane = Complete(candidate.View, id);
+            var specification = (C.DesignSpecification.FunctionalComposite)crane.Definition.Specification;
+            var capability = specification.Behaviors.OfType<K.PartCapability.Construction>().Single();
+            Assert.AreEqual(plot, capability.MaximumBuildingPlotSize);
+            Assert.AreEqual(vehicle, capability.MaximumVehicleSize);
+        }
+
         var park = Complete(candidate.View, "park");
         Assert.AreEqual(2, park.Scene.NestedObjects.Max(item => item.NestedItemIndices.Length));
         Assert.IsTrue(park.Scene.NestedObjects.Any(item => item.NestedItemIndices.Length == 1));

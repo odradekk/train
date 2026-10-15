@@ -1,0 +1,51 @@
+{
+  "schema_version": 3,
+  "id": "gantry-crane",
+  "category": "large_equipment",
+  "simulation": {
+    "behaviors": {
+      "construction": {
+        "work_rate": 1,
+        "max_plot_size": "giant",
+        "max_size_class": "titan"
+      }
+    }
+  },
+  "layout": {
+    "palette": [
+      {
+        "voxel": "hull-plate"
+      }
+    ],
+    "cells": [
+      [
+        0,
+        0,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        1,
+        0,
+        0
+      ],
+      [
+        1,
+        1,
+        0,
+        0
+      ]
+    ]
+  },
+  "display": {
+    "name": "龙门吊",
+    "description": "施工功能复合体参数样例：建筑上限 giant，车辆上限 titan；占位布局不是正式工厂资产。"
+  }
+}

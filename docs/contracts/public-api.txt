@@ -813,7 +813,7 @@ Train.Core.Contracts|type|Train.Core.Contracts.NodeView|public sealed record Nod
 Train.Core.Contracts|type|Train.Core.Contracts.NoiseOctave|public sealed record NoiseOctave(double ScaleMeters, double Amplitude);
 Train.Core.Contracts|type|Train.Core.Contracts.NpcInitializationConfiguration|public sealed record NpcInitializationConfiguration(bool FillInputsAndLivingTargets, double OutputReserveHours, int MinimumForSaleVehicles, int MaximumForSaleVehicles, ImmutableArray<DesignHash> ForSaleVehicleCandidates);
 Train.Core.Contracts|type|Train.Core.Contracts.OwnedSettlementTemplateReference|public sealed record OwnedSettlementTemplateReference(SettlementId Owner, SettlementTemplateId SourceTemplate, ImmutableArray<TemplatePlotReference> Plots);
-Train.Core.Contracts|type|Train.Core.Contracts.PartCapability.Construction|public sealed record Construction(double WorkPerSecond, SizeClass MaximumVehicleSize) : PartCapability;
+Train.Core.Contracts|type|Train.Core.Contracts.PartCapability.Construction|public sealed record Construction(double WorkPerSecond, PlotSize MaximumBuildingPlotSize, SizeClass? MaximumVehicleSize) : PartCapability;
 Train.Core.Contracts|type|Train.Core.Contracts.PartCapability.Control|public sealed record Control : PartCapability;
 Train.Core.Contracts|type|Train.Core.Contracts.PartCapability.Extraction|public sealed record Extraction(double WorkPerSecond) : PartCapability;
 Train.Core.Contracts|type|Train.Core.Contracts.PartCapability.Platform|public sealed record Platform : PartCapability;
