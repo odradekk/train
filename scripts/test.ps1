@@ -181,7 +181,7 @@ try {
             if (-not $selected) { Write-Host "LAYER=$current not selected"; continue }
             if ($current -eq 'stage') {
                 if (-not $IsWindows) {
-                    foreach ($name in @('stage-export', 'stage-export-runtime', 'stage-asset-export', 'stage-screenshot', 'benchmark-threshold')) {
+                    foreach ($name in @('stage-export', 'stage-export-optimizations', 'stage-export-runtime', 'stage-asset-export', 'stage-screenshot', 'benchmark-threshold')) {
                         $summary.checks += [pscustomobject]@{ name = $name; layer = $current; status = 'not-executed'; reason = 'Windows required'; total = 0; executed = 0; passed = 0; failed = 0; skipped = 0 }
                     }
                 }
