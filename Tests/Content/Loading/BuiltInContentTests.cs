@@ -48,9 +48,9 @@ public sealed class BuiltInContentTests
         foreach (var (id, productionBuildings) in new (string, string[])[]
                  {
                      ("agricultural-town", ["farm", "food-factory"]),
-                     ("mining-town", ["mining-site", "metallurgy-factory", "building-materials-factory"]),
-                     ("forestry-town", ["logging-site", "light-industry-factory"]),
-                     ("oilfield-town", ["oil-extraction-site", "chemical-factory"]),
+                     ("mining-town", ["extraction-site", "metallurgy-factory", "building-materials-factory"]),
+                     ("forestry-town", ["extraction-site", "light-industry-factory"]),
+                     ("oilfield-town", ["extraction-site", "chemical-factory"]),
                      ("industrial-city", ["assembly-factory", "electronics-factory", "recovery-factory", "heavy-vehicle-factory"])
                  })
         {
@@ -71,7 +71,7 @@ public sealed class BuiltInContentTests
                     "vehicle-workshop" or "heavy-vehicle-factory" => capabilities.OfType<K.PartCapability.Construction>().Any(),
                     "small-warehouse" => capabilities.OfType<K.PartCapability.Storage>().Any(storage => storage.Capacity > 0),
                     "power-station" => capabilities.OfType<K.PartCapability.Power>().Any(power => power.EnergyPerSecond > 0),
-                    "mining-site" or "logging-site" or "oil-extraction-site" => capabilities.OfType<K.PartCapability.Extraction>().Any(extraction => extraction.WorkPerSecond > 0),
+                    "extraction-site" => capabilities.OfType<K.PartCapability.Extraction>().Any(extraction => extraction.WorkPerSecond > 0),
                     _ => capabilities.OfType<K.PartCapability.Production>().Any(production => production.WorkPerSecond > 0)
                 }, building);
             }

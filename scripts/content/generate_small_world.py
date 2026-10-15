@@ -451,12 +451,10 @@ def content_files():
         ("power-station", "发电站", "medium", "power", None, "power-equipment"),
         ("farm", "农场", "medium", "production", "agriculture", "industrial-machinery"),
         ("food-factory", "食品厂", "small", "production", "food_processing", "industrial-machinery"),
-        ("mining-site", "矿物开采场", "medium", "production", "extraction", "extraction-equipment"),
+        ("extraction-site", "开采场", "medium", "production", "extraction", "extraction-equipment"),
         ("metallurgy-factory", "冶金厂", "large", "production", "metallurgy", "industrial-machinery"),
         ("building-materials-factory", "建材厂", "medium", "production", "building_materials", "industrial-machinery"),
-        ("logging-site", "木材开采场", "medium", "production", "extraction", "extraction-equipment"),
         ("light-industry-factory", "轻工厂", "medium", "production", "light_industry", "industrial-machinery"),
-        ("oil-extraction-site", "原油开采场", "medium", "production", "extraction", "extraction-equipment"),
         ("chemical-factory", "化工厂", "large", "production", "chemical", "industrial-machinery"),
         ("assembly-factory", "装配厂", "large", "production", "assembly", "industrial-machinery"),
         ("electronics-factory", "电子厂", "medium", "production", "electronics", "industrial-machinery"),
@@ -486,9 +484,9 @@ def content_files():
 
     settlements = (
         ("agricultural-town", "农业镇", ("farm", "food-factory")),
-        ("mining-town", "矿业镇", ("mining-site", "metallurgy-factory", "building-materials-factory")),
-        ("forestry-town", "林业镇", ("logging-site", "light-industry-factory")),
-        ("oilfield-town", "油田镇", ("oil-extraction-site", "chemical-factory")),
+        ("mining-town", "矿业镇", ("extraction-site", "metallurgy-factory", "building-materials-factory")),
+        ("forestry-town", "林业镇", ("extraction-site", "light-industry-factory")),
+        ("oilfield-town", "油田镇", ("extraction-site", "chemical-factory")),
         ("industrial-city", "工业城", ("assembly-factory", "electronics-factory", "recovery-factory", "heavy-vehicle-factory")),
     )
     for identity, name, major_buildings in settlements:

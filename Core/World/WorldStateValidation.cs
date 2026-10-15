@@ -298,6 +298,8 @@ internal static class WorldStateValidation
                 field + "/last_power_demand");
             Require(double.IsFinite(facility.LastActualSupply) && facility.LastActualSupply >= 0
                 && facility.LastActualSupply <= facility.LastPowerDemand, field + "/last_actual_supply");
+            Require(double.IsFinite(facility.LastAllocatedLabor) && facility.LastAllocatedLabor >= 0,
+                field + "/last_allocated_labor");
             Items(facility.LastLimits, field + "/last_limits");
             Require(facility.LastLimits.All(l => Enum.IsDefined(l))
                 && facility.LastLimits.SequenceEqual(facility.LastLimits.Distinct().Order()), field + "/last_limits");

@@ -12,7 +12,7 @@ namespace Train.Core.Tests.Production;
 
 internal static class ProductionProcessDriver
 {
-    internal static CoreContentProjection Original => Content(rate: 30, capacity: 10);
+    internal static CoreContentProjection Original => Content(rate: 30, laborPerWork: .1, capacity: 10);
     internal static CoreContentProjection Updated => Changed(Original) with
     {
         Processes = [Original.Processes[0] with
@@ -124,7 +124,7 @@ internal static class ProductionProcessDriver
         var inventory = ((Lookup<InventoryView>.Found)view.FindInventory(LocalInventory)).Value;
         return new(capture.Position, capture.Encode(), capture.Checkpoint.CanonicalText, capture.Checkpoint.Sha256,
             JsonSerializer.Serialize(new { Facility = facility, runtime.LastActualWorkPerSecond, runtime.LastLimits,
-                runtime.LastPowerDemand, runtime.LastActualSupply, inventory.Used, inventory.Reserved, inventory.Available,
+                runtime.LastPowerDemand, runtime.LastActualSupply, runtime.LastAllocatedLabor, inventory.Used, inventory.Reserved, inventory.Available,
                 Stacks = inventory.Stacks.Select(s => new { Good = JsonSerializer.Serialize(s.Good, s.Good.GetType()), s.Quantity, s.DefinitionMissing }) }));
     }
 
