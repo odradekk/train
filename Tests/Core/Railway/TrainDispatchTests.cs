@@ -243,6 +243,9 @@ public sealed class TrainDispatchTests
         Assert.AreEqual(0, session.Read().World.Nodes[0].OccupiedPlatforms);
         Assert.AreEqual(1, occupied.OccupiedPlatforms);
         Assert.AreEqual(TrainActivity.Waiting, View(session, 2).Activity);
+        Assert.IsNull(((TrainPosition.Node)View(session, 2).Position).PlatformNumber);
+        Step(session);
+        Assert.AreEqual(reservation, ((TrainPosition.Node)View(session, 2).Position).PlatformNumber);
         Until(session, () => View(session, 2).Activity == TrainActivity.Servicing);
         Assert.AreEqual(2UL, View(session, 2).RemainingDwellSteps);
     }
@@ -275,6 +278,9 @@ public sealed class TrainDispatchTests
         if (competitor)
         {
             Assert.AreEqual(TrainActivity.Waiting, View(session, 2).Activity);
+            Assert.IsNull(((TrainPosition.Node)View(session, 2).Position).PlatformNumber);
+            Step(session);
+            Assert.AreEqual(platform, ((TrainPosition.Node)View(session, 2).Position).PlatformNumber);
             Until(session, () => View(session, 2).Activity == TrainActivity.Servicing);
         }
     }

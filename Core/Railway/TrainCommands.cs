@@ -88,6 +88,10 @@ internal static class TrainCommands
                 if (replace.Plan.Loop && replace.Plan.Stops.Select(TrainOperations.Target).Distinct().Count() == 1)
                     return Reject("plan_degenerate", "Plan.Stops", subject);
                 train = train with { Plan = replace.Plan, NextStopIndex = 0, RemainingDwellSteps = 0, QueueEnteredStep = null };
+                if (train.Position is TrainPosition.Node { Phase: NodeTravelPhase.Departing } departing)
+                    while (train.NextStopIndex is { } index && replace.Plan.Stops[index] is PlanStop.Waypoint waypoint
+                        && waypoint.Node == departing.Id)
+                        train = TrainOperations.Consume(train);
                 if (train.Position is TrainPosition.Node && train.Activity != TrainActivity.Stopped)
                     train = TrainOperations.ResolveNode(world, content, train, events, new TrainDispatch(world, content), step);
                 break;

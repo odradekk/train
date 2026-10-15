@@ -79,7 +79,7 @@ internal static class TrainRecoveryFixture
             {
                 "approaching" => train.Position is TrainPosition.Node { Phase: NodeTravelPhase.Approaching, EnteredFrom: not null },
                 "waiting" => train.Position is TrainPosition.Node { Phase: NodeTravelPhase.Waiting } && train.Activity == TrainActivity.Waiting,
-                "docked" or "servicing" => train.Position is TrainPosition.Node { Phase: NodeTravelPhase.Docked } && train.Activity == TrainActivity.Servicing,
+                "docked" => train.Position is TrainPosition.Node { Phase: NodeTravelPhase.Docked } && train.Activity == TrainActivity.Servicing,
                 "departing" => train.Position is TrainPosition.Node { Phase: NodeTravelPhase.Departing, EnteredFrom: not null },
                 _ => train.Position is TrainPosition.Edge
             };

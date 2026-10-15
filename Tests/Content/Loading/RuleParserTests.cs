@@ -67,7 +67,7 @@ public sealed class RuleParserTests
         var json = Railway();
         var original = (ParsedRule.Railway)Parse("railway", json)!;
         Assert.AreEqual(80, original.Projection.ApproachLengthMeters);
-        Assert.AreEqual(80, original.Projection.DepartureLengthMeters);
+        Assert.AreEqual(90, original.Projection.DepartureLengthMeters);
         Assert.AreEqual(15, original.Projection.NodeSpeedLimitMetersPerSecond);
         json[field] = 25;
         Assert.AreNotEqual(original.Revision, Parse("railway", json)!.Revision);
@@ -214,7 +214,7 @@ public sealed class RuleParserTests
         "refit_work_per_changed_item":2,"deconstruction_work_per_item":3,"repair_work_per_damaged_part":4,"power_per_work":0,"labor_per_work":0}}
         """)!.AsObject();
     internal static JsonObject Railway() => JsonNode.Parse("""
-        {"schema_version":2,"id":"test","approach_length_meters":80,"departure_length_meters":80,"node_speed_limit_meters_per_second":15,"braking_deceleration":1,"minimum_acceleration":2,"minimum_gap_meters":3,
+        {"schema_version":2,"id":"test","approach_length_meters":80,"departure_length_meters":90,"node_speed_limit_meters_per_second":15,"braking_deceleration":1,"minimum_acceleration":2,"minimum_gap_meters":3,
         "rail_units_per_meter":4,"build_seconds_per_meter":5,"repair_seconds_per_break":6,"rail_good":"rail",
         "repair_rail_units_per_break":7,"appearance":{"minimum_curve_radius_meters":20,"maximum_grade":0.1}}
         """)!.AsObject();

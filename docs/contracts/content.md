@@ -158,9 +158,11 @@ Restore、Reload、Capture 及 CaptureReplay 使用本内容实现产生的视�
 
 历史数组按视图产生的先后顺序传入并保持该顺序。同一 `CoreInputId` 可以有多个持久修订和设计集合；不能只按输入身份去重而丢掉后来引入的设计或实例副本。命令拒绝／故障所引用的目标及新局起点的实际设计同样保留；不能因候选未激活而遗漏。捕获必须覆盖录制引用清单中的全部模板所有者，缺任一必需副本即失败。重放读取布局时，在当前核心输入身份对应的历史中使用包含该所有者的最后一个视图，不跨核心输入取布局，也不调用 WithSettlementCopies 重新生成。严格复现保证原核心输入与固定副本，不承诺还原纯表现发布的逐帧时间线。
 
+`SettlementTemplateProjection.PlatformLengthMeters` 由 Content 按设计 16 的站点包络，取模板内站点地块沿轨长度的最大值；有站点地块时为正有限值，没有时为 0。建立聚居地时，该值随模板业务副本保存，作为节点站台段长度。
+
 ## 规则格式与验证责任
 
-内容解析[人口](../content/population-rule.md)、[市场](../content/market-rule.md)、[施工](../content/construction-rule.md)、[铁路](../content/railway-rule.md)、[战斗](../content/combat-rule.md)、[聚落](../content/lair-type.md)、[生成配置](../content/generation-profile.md)和[地貌](../content/terrain-type.md)，直接生成核心已有输入及场景投影。每类独立 Schema；未知字段、重复身份、错类引用和依赖未声明都拒绝。临时市场表仅作历史格式记录，目标聚居地类型移除临时供需和站台数。生产计划由模板表达，生成器执行库存与现车初始化；内容不计算运行库存目标、报价、消费满足率或当前劳动力。
+内容解析[人口](../content/population-rule.md)、[市场](../content/market-rule.md)、[施工](../content/construction-rule.md)、[铁路](../content/railway-rule.md)、[战斗](../content/combat-rule.md)、[聚落](../content/lair-type.md)、[生成配置](../content/generation-profile.md)和[地貌](../content/terrain-type.md)，直接生成核心已有输入及场景投影。铁路规则使用 `schema_version = 2`，向核心提供 `ApproachLengthMeters`、`DepartureLengthMeters`、`NodeSpeedLimitMetersPerSecond`，均为正有限值，初值分别为 80 米、80 米、15 米/秒。每类独立 Schema；未知字段、重复身份、错类引用和依赖未声明都拒绝。临时市场表仅作历史格式记录，目标聚居地类型移除临时供需和站台数。生产计划由模板表达，生成器执行库存与现车初始化；内容不计算运行库存目标、报价、消费满足率或当前劳动力。
 
 六项人口需求率均为有限正数，六类生活货物各指定一种，只有加工食品具有已定的食物／改善饮食双换算。价格参数使用万分比整数，金额与费率用整数；超出字段表示范围是无效文件，不增加运行中金额越界的业务分支。按合法输入计算时发生意外溢出属于内部故障，不能伪装为设计不合法。
 

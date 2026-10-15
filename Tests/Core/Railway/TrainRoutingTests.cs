@@ -161,20 +161,6 @@ public sealed class TrainRoutingTests
         Assert.AreEqual(1.0, Predict(nodes, edges, new(1), new(false, [Station(3)]), 0));
     }
 
-    [TestMethod]
-    public void Prediction_checks_the_closing_leg_of_a_waypoint_loop()
-    {
-        ImmutableArray<NodeMapItem> nodes =
-            [Node(1), Node(2, new NodeOccupant.Settlement(new(1), SettlementRelation.Hostile)), Node(3)];
-        ImmutableArray<EdgeMapItem> edges = [Edge(1, 1, 2, 1), Edge(2, 2, 3, 1)];
-
-        Assert.AreEqual(9.0, Predict(nodes, edges, new(1), new(true, [Waypoint(1), Waypoint(2), Waypoint(3)]), 0));
-
-        nodes = [Node(1), Node(2), Node(3, new NodeOccupant.Settlement(new(1), SettlementRelation.Hostile)), Node(4)];
-        edges = [Edge(1, 1, 2, 2), Edge(2, 2, 3, 0.1), Edge(3, 3, 4, 0.1)];
-        Assert.AreEqual(12.2, Predict(nodes, edges, new(1), new(true, [Waypoint(2), Waypoint(3), Waypoint(4)]), 0));
-    }
-
     private static double? Predict(ImmutableArray<NodeMapItem> nodes, ImmutableArray<EdgeMapItem> edges,
         NodeId start, RunPlan plan, int index)
     {

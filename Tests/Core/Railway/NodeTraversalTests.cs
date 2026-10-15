@@ -29,7 +29,7 @@ public sealed class NodeTraversalTests
             var location = (Lookup<LocationView>.Found)session.Read().FindLocation(new WorldLocation.Node(new(1)));
             CollectionAssert.Contains(location.Value.Trains.ToArray(), train.Id);
             Assert.IsTrue(((Lookup<EdgeView>.Found)session.Read().FindEdge(new(1))).Value.Tracks.All(t => !t.Trains.Contains(train.Id)));
-        });
+        }, checkBraking: true);
         Assert.IsTrue(entered);
         Assert.IsTrue(departed);
         Assert.AreEqual(TrainOrderFacing.FirstEndLeading, Train(session).OrderFacing);
@@ -101,7 +101,8 @@ public sealed class NodeTraversalTests
     public void Station_reservation_precedes_service_and_survives_stop_plan_change_and_departure()
     {
         using var session = new CoreSession(State(station: true));
-        Until(session, () => Train(session).Activity == TrainActivity.Servicing, () =>
+        Until(session, () => Train(session).Position is TrainPosition.Node { Id.Value: 1 }
+            && Train(session).SpeedMetersPerSecond == 0, () =>
         {
             var train = Train(session);
             if (train.Position is TrainPosition.Node { Id.Value: 1 } node)
@@ -112,6 +113,8 @@ public sealed class NodeTraversalTests
             }
         });
         Assert.AreEqual(128.0, ((TrainPosition.Node)Train(session).Position).DistanceMeters);
+        Assert.AreEqual(NodeTravelPhase.Docked, ((TrainPosition.Node)Train(session).Position).Phase);
+        Assert.AreEqual(TrainActivity.Servicing, Train(session).Activity);
         Assert.AreEqual(0.0, Train(session).SpeedMetersPerSecond);
         Assert.AreEqual(4UL, Train(session).RemainingDwellSteps);
         Step(session);
@@ -154,6 +157,36 @@ public sealed class NodeTraversalTests
         Until(session, () => Train(session).Activity == TrainActivity.Servicing);
         Assert.AreEqual(1, ((TrainPosition.Node)Train(session).Position).PlatformNumber);
         Assert.AreEqual(128.0, ((TrainPosition.Node)Train(session).Position).DistanceMeters);
+    }
+
+    [TestMethod]
+    public void Earlier_waiter_claims_the_last_free_platform_so_the_arriving_train_brakes_to_the_waiting_point()
+    {
+        var state = State(station: true, blocker: true);
+        var arriving = state.World.Trains[0] with
+        {
+            Position = new TrainPosition.Edge(new(1), 1, TravelDirection.Reverse, 60),
+            SpeedMetersPerSecond = 14
+        };
+        var earlier = state.World.Trains[1] with
+        {
+            Position = new TrainPosition.Node(new(1), null, null, NodeTravelPhase.Waiting, 80, null),
+            Activity = TrainActivity.Waiting, QueueEnteredStep = 0,
+            Plan = new(false, [new PlanStop.Station(new(1), 50000, [])]), NextStopIndex = 0
+        };
+        using var session = new CoreSession(state with { World = state.World with { Trains = [arriving, earlier] } });
+        Assert.AreEqual(1, session.Read().World.Nodes[0].Platforms);
+        Assert.AreEqual(0, session.Read().World.Nodes[0].OccupiedPlatforms);
+        Step(session);
+        Assert.AreEqual(14 - 0.7 / 60, Train(session).SpeedMetersPerSecond, 1e-10);
+        Assert.AreEqual(1, ((TrainPosition.Node)((Lookup<TrainView>.Found)session.Read().FindTrain(new(2))).Value.Position).PlatformNumber);
+        Until(session, () => Train(session).Position is TrainPosition.Node { Phase: NodeTravelPhase.Waiting },
+            checkBraking: true);
+        var waiting = (TrainPosition.Node)Train(session).Position;
+        Assert.AreEqual(80.0, waiting.DistanceMeters);
+        Assert.IsNull(waiting.PlatformNumber);
+        Assert.AreEqual(0.0, Train(session).SpeedMetersPerSecond);
+        Assert.AreEqual("platform_wait", Train(session).Blockers.Single().Code);
     }
 
     [TestMethod]
@@ -217,6 +250,36 @@ public sealed class NodeTraversalTests
         Assert.AreEqual(new NodeId(1), ((TrainPosition.Node)Train(session).Position).Id);
         Assert.AreEqual(1, ((TrainPosition.Node)Train(session).Position).PlatformNumber);
         Assert.AreEqual(4UL, Train(session).RemainingDwellSteps);
+    }
+
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public void Departing_plan_change_consumes_leading_local_waypoints_but_defers_a_local_station(
+        bool waitingAtExit, bool station)
+    {
+        var state = State();
+        var position = new TrainPosition.Node(new(1), new(1), new(2), NodeTravelPhase.Departing,
+            waitingAtExit ? 256 : 150, null);
+        var train = state.World.Trains[0] with
+        {
+            Position = position, SpeedMetersPerSecond = waitingAtExit ? 0 : 5,
+            Activity = waitingAtExit ? TrainActivity.Waiting : TrainActivity.Running,
+            NextStopIndex = 1, QueueEnteredStep = waitingAtExit ? 0UL : null
+        };
+        using var session = new CoreSession(state with { World = state.World with { Trains = [train] } });
+        Accepted(session, new CoreCommand.ReplaceRunPlan(new(1), new(false,
+            station ? [Waypoint(1), Waypoint(1), Station(1), Waypoint(3)]
+                : [Waypoint(1), Waypoint(1), Waypoint(3)])));
+        Assert.AreEqual(position, Train(session).Position);
+        Assert.AreEqual(2, Train(session).NextStopIndex);
+        Until(session, () => Train(session).Position is TrainPosition.Edge { Id.Value: 2 }, () =>
+        {
+            Assert.AreEqual(2, Train(session).NextStopIndex);
+            Assert.AreEqual(0, session.Read().World.Nodes.Single(n => n.Id.Value == 1).OccupiedPlatforms);
+        });
     }
 
     [TestMethod]

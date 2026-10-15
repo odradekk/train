@@ -19,7 +19,6 @@ public sealed class TrainProcessTests
     [DataRow("docked")]
     [DataRow("departing")]
     [DataRow("edge")]
-    [DataRow("servicing")]
     [DataRow("pending-stop")]
     public async Task Running_train_restores_in_a_new_process_with_identical_queries_events_and_checkpoints(string boundary)
     {
@@ -50,7 +49,7 @@ public sealed class TrainProcessTests
         foreach (var sample in resumed.Samples)
             Assert.AreEqual(CoreProcessDriver.Sha256(sample.CanonicalText), sample.Sha256);
         using var query = JsonDocument.Parse(prefix.Samples[0].Query);
-        if (boundary == "servicing")
+        if (boundary == "docked")
         {
             Assert.AreEqual((int)TrainActivity.Servicing, query.RootElement.GetProperty("Activity").GetInt32());
             Assert.IsTrue(query.RootElement.GetProperty("RemainingDwellSteps").GetUInt64() > 0);
