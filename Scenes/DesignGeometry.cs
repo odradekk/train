@@ -207,10 +207,30 @@ internal static class DesignGeometry
             var v = Vector3.Cross(normal, u);
             var center = new Vector3(0.5f) + normal * 0.5f;
             var first = vertices.Count;
-            for (var cornerIndex = 0; cornerIndex < 4; cornerIndex++)
+            if (width == 1 && height == 1)
             {
-                var uv = new Vector2(cornerIndex is 1 or 2 ? 1 : 0, cornerIndex >= 2 ? 1 : 0);
-                var corner = center + u * (uv.X * width - 0.5f) + v * (uv.Y * height - 0.5f);
+                AddVertex(0, 0); AddVertex(1, 0); AddVertex(1, 1); AddVertex(0, 1);
+                indices.AddRange([first, first + 1, first + 2, first, first + 2, first + 3]);
+                return;
+            }
+            // Unit border segments share endpoints across rectangles, materials and chunk boundaries.
+            AddVertex(width / 2f, height / 2f);
+            for (var along = 0; along < width; along++) AddVertex(along, 0);
+            for (var along = 0; along < height; along++) AddVertex(width, along);
+            for (var along = width; along > 0; along--) AddVertex(along, height);
+            for (var along = height; along > 0; along--) AddVertex(0, along);
+            var perimeter = 2 * (width + height);
+            for (var edge = 0; edge < perimeter; edge++)
+            {
+                indices.Add(first);
+                indices.Add(first + 1 + edge);
+                indices.Add(first + 1 + (edge + 1) % perimeter);
+            }
+
+            void AddVertex(float alongU, float alongV)
+            {
+                var uv = new Vector2(alongU / width, alongV / height);
+                var corner = center + u * (alongU - 0.5f) + v * (alongV - 0.5f);
                 var position = new Vector3(at.X, at.Y, at.Z) + corner;
                 var textureUv = new Vector2(TextureCoordinate(at, corner, plane.TextureU, plane.Span),
                     TextureCoordinate(at, corner, plane.TextureV, plane.Span));
@@ -218,7 +238,6 @@ internal static class DesignGeometry
                 var relativeHeight = (position.Y - bounds.Minimum.Y) / (bounds.Maximum.Y - bounds.Minimum.Y);
                 vertices.Add(new(position, normal, textureUv, uv, edges, Math.Clamp(relativeHeight, 0, 1), 0));
             }
-            indices.AddRange([first, first + 1, first + 2, first, first + 2, first + 3]);
         }
     }
 

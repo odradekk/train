@@ -97,7 +97,7 @@ Base 不匹配、资源尚未准备好或适配失败时，不部分应用更新
 
 Top、Bottom、Side 沿贴图轴以对象网格的整数坐标作向下取整的取模，按跨度 1／2／4／8 选取图中的子块；负坐标沿用同一规则。Front 与 Side 的资产修订不同时，Front 使用跨度 1；相同时视为没有 Front，局部 +Z 使用 Side 并参与平铺。内容侧在缺省 Front 时须保持 Front = Side。单格面仍使用原坐标；合并矩形从首格的整数取模相位连续增加 `TextureUv`，可超出 `[0,1]`，由宿主重复采样衔接，不能先将远坐标转成低精度浮点再取模。
 
-[#495 批准决定](https://github.com/odradekk/train/issues/495#issuecomment-6195218048)将 `SceneVertex` 从 `sealed record` 改为上述值类型，`SceneMesh` 的 `ImmutableArray` 及跨更新保留所有权不变。无磨损合并面的 `FaceUv` 为矩形四角的 0／1，`ExposedEdges` 为 None；这两个通道仅在 `WearEnabled=true` 时参与着色，有磨损面保持逐格坐标与外露边。合并范围和不可合并条件见[区块面合并](../design/01-voxel-engine-and-scenes.md#区块面合并)。这是本票的受控变更，新的整组契约基线待验证合并后由协调者登记。
+[#495 批准决定](https://github.com/odradekk/train/issues/495#issuecomment-6195218048)将 `SceneVertex` 从 `sealed record` 改为上述值类型，`SceneMesh` 的 `ImmutableArray` 及跨更新保留所有权不变。无磨损合并矩形的四边在单位格点分段，以中心扇形三角化；1×1 面保留四顶点、两三角形。`TextureUv`、`FaceUv` 和 `RelativeHeight` 在矩形内仿射插值，四角 `FaceUv` 为 0／1，`ExposedEdges` 为 None；`FaceUv` 与 `ExposedEdges` 仅在 `WearEnabled=true` 时参与着色，有磨损面保持逐格坐标与外露边。合并范围和不可合并条件见[区块面合并](../design/01-voxel-engine-and-scenes.md#区块面合并)。
 
 体素只生成标准形状、铁路等自己的几何，不接收像素或导入模型几何。模型纹理、材质、磨损图案、粒子实现和缺失标记外观归 Godot，见[资产交接](README.md#表现资产的交接)。
 
