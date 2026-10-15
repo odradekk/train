@@ -23,8 +23,8 @@ internal static class SettlementFixture
             Designs = original.Designs.Select(d => d.Design != WorldFixture.Station ? d : d with
             {
                 Parts = d.Parts.Select(p => p with { Capabilities = [..p.Capabilities,
-                    new PartCapability.Storage(100), new PartCapability.Production(10), new PartCapability.Extraction(20),
-                    new PartCapability.Construction(5, SizeClass.Small), new PartCapability.Power(power)] }).ToImmutableArray()
+                    new PartCapability.Storage(100), new PartCapability.Production(300), new PartCapability.Extraction(400),
+                    new PartCapability.Construction(500, SizeClass.Small), new PartCapability.Power(power)] }).ToImmutableArray()
             }).ToImmutableArray(),
             SettlementTemplates = [original.SettlementTemplates[0] with
             {

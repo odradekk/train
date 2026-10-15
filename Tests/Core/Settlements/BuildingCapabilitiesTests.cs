@@ -28,7 +28,7 @@ public sealed class BuildingCapabilitiesTests
             Instances = world.Instances.Select(i => i.Id is InstanceId.Building ? i with
                 { Parts = i.Parts.Add(new(new(1), 1)) } : i).ToImmutableArray()
         };
-        Assert.AreEqual(new BuildingCapabilities(20, 40, 10, 60), BuildingCapabilities.Read(world, state.Content, new(1)));
+        Assert.AreEqual(new BuildingCapabilities(600, 800, 1000, 60), BuildingCapabilities.Read(world, state.Content, new(1)));
         world = world with { Designs = world.Designs.Select(d => d.Design == design.Design ? d with
             { Parts = d.Parts.Select(p => p with { Capabilities = [] }).ToImmutableArray() } : d).ToImmutableArray() };
         Assert.AreEqual(new BuildingCapabilities(0, 0, 0, 0), BuildingCapabilities.Read(world, state.Content, new(1)));
