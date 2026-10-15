@@ -7,7 +7,7 @@ namespace Train.Scenes.Contracts;
 
 [Flags]
 public enum ExposedFaceEdges { None = 0, MinimumU = 1, MaximumU = 2, MinimumV = 4, MaximumV = 8 }
-public sealed record SceneVertex(Vector3 Position, Vector3 Normal, Vector2 TextureUv,
+public readonly record struct SceneVertex(Vector3 Position, Vector3 Normal, Vector2 TextureUv,
     Vector2 FaceUv, ExposedFaceEdges ExposedEdges, float RelativeHeight, float Damage);
 public enum BuiltInMaterial { RailSteel, Sleeper, Water, Construction }
 public abstract record SceneMaterial
