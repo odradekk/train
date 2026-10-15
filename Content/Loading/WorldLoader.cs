@@ -84,6 +84,7 @@ internal sealed class WorldLoader
             var terrainIndex = _terrains.Where(t => Active(t.Package)).ToDictionary(t => t.Value.Id, t => t.Value);
             var typeIndex = _types.Where(t => Active(t.Package)).ToDictionary(t => t.Value.Source.Core.Id);
             var ruleIndex = _rules.Where(r => Active(r.Package)).ToDictionary(r => r.Value.Id, r => r.Value);
+            var processIndex = _processes.Where(p => Active(p.Package)).ToDictionary(p => p.Value.Id, p => p.Value, StringComparer.Ordinal);
             var known = voxelIndex.Keys.Select(k => k.Value).Concat(blueprintIndex.Keys)
                 .Concat(terrainIndex.Keys.Select(k => k.Value)).Concat(typeIndex.Keys.Select(k => k.Value))
                 .Concat(ruleIndex.Keys.Select(k => k.Value)).Concat(_templates.Where(t => Active(t.Package)).Select(t => t.Value.Id.Value))
@@ -115,7 +116,7 @@ internal sealed class WorldLoader
             }
             foreach (var (package, source) in _templates.Where(t => Active(t.Package)))
             {
-                var loaded = ResolveTemplate(package, source, references, typeIndex.ContainsKey(source.Type));
+                var loaded = ResolveTemplate(package, source, references, typeIndex.ContainsKey(source.Type), processIndex);
                 if (loaded is not null) resolvedTemplates[source.Id] = loaded;
             }
             foreach (var (package, source) in _profiles.Where(p => Active(p.Package)))
@@ -175,23 +176,60 @@ internal sealed class WorldLoader
     }
 
     private static LoadedSettlementTemplate? ResolveTemplate(LoadPackage package, ParsedSettlementTemplate source,
-        References references, bool typePresent)
+        References references, bool typePresent, Dictionary<string, ParsedProcess> processes)
     {
         var subject = new C.ContentReference.Core(new K.CoreDefinitionReference.Template(source.Id));
         references.Need(package, source.Path, subject, source.Type.Value, typePresent, "/settlement_type");
         var scene = references.Scene(package, source.Path, subject, source.SceneModel, "/scene_model");
         if (scene is not null) ValidatePlotSpace(package, source, scene.Scene, subject);
         var plots = ImmutableArray.CreateBuilder<K.TemplatePlotProjection>();
+        var prebuilt = new Dictionary<int, C.DesignEvaluation.Complete>();
         foreach (var plot in source.Plots)
         {
             if (plot.Building is not { } address) { plots.Add(new(plot.Number, plot.Size, null)); continue; }
             var design = references.Design(package, source.Path, subject, address, "/plots", vehicle: false);
             if (design?.Core?.Design.Kind is K.DesignKind.Building building && !PlotRules.Fits(building.PlotSize, plot.Size))
                 package.Reject("invalid_field", source.Path, "/plots", "建筑类型或尺寸不能放入地块。", subject);
-            if (design is not null) plots.Add(new(plot.Number, plot.Size, design.Design));
+            if (design is not null)
+            {
+                plots.Add(new(plot.Number, plot.Size, design.Design));
+                prebuilt.Add(plot.Number, design);
+            }
+        }
+        var founding = ImmutableArray.CreateBuilder<K.FoundingBuildingProjection>();
+        foreach (var building in source.Founding)
+        {
+            var plot = source.Plots.SingleOrDefault(p => p.Number == building.PlotNumber);
+            if (plot is null)
+                package.Reject("invalid_field", source.Path, building.SourceField + "/plot", "起始建筑的地块不存在。", subject);
+            var design = references.Design(package, source.Path, subject, building.Building, building.SourceField + "/building", vehicle: false);
+            if (plot is not null && design?.Core?.Design.Kind is K.DesignKind.Building kind && !PlotRules.Fits(kind.PlotSize, plot.Size))
+                package.Reject("invalid_field", source.Path, building.SourceField + "/building", "起始建筑类型或尺寸不能放入地块。", subject);
+            if (design is not null) founding.Add(new(building.PlotNumber, design.Design));
+        }
+        var inventory = references.Inventory(package, source.Path, subject, source.Inventory, "/inventory");
+        var plans = ImmutableArray.CreateBuilder<K.TemplateProductionPlan>();
+        foreach (var plan in source.ProductionPlans)
+        {
+            references.Need(package, source.Path, subject, plan.Process, processes.ContainsKey(plan.Process), plan.SourceField + "/process");
+            if (!prebuilt.TryGetValue(plan.PlotNumber, out var design))
+            {
+                package.Reject("invalid_field", source.Path, plan.SourceField + "/plot", "初始计划必须引用有预建建筑的地块。", subject);
+                continue;
+            }
+            if (!processes.TryGetValue(plan.Process, out var process)) continue;
+            var capabilities = design.Core!.Design.Parts.SelectMany(p => p.Capabilities);
+            if (plan.Capability == K.CapabilityKind.Production
+                    ? !capabilities.OfType<K.PartCapability.Production>().Any()
+                    : !capabilities.OfType<K.PartCapability.Extraction>().Any())
+                package.Reject("invalid_field", source.Path, plan.SourceField + "/capability", "预建建筑不具备计划指定的能力。", subject);
+            if ((plan.Capability == K.CapabilityKind.Extraction) != (process.Projection.Details is K.ProcessDetails.Extraction)
+                || !((K.DesignKind.Building)design.Core.Design.Kind).FacilityTags.Contains(process.Projection.RequiredFacilityTag))
+                package.Reject("invalid_field", source.Path, plan.SourceField + "/process", "流程种类或设施标签与预建建筑不兼容。", subject);
+            plans.Add(new(plan.PlotNumber, plan.Capability, process.Reference, plan.Enabled, plan.Priority));
         }
         return Active(package) && scene is not null
-            ? new(source, new(source.Id, source.Type, source.Weight, plots.ToImmutable(), [], [], [],
+            ? new(source, new(source.Id, source.Type, source.Weight, plots.ToImmutable(), founding.ToImmutable(), inventory, plans.ToImmutable(),
                 PlotRules.PlatformLengthMeters(source.Plots.Select(p => p.Size))), scene) : null;
     }
 
@@ -309,6 +347,30 @@ internal sealed class WorldLoader
             Need(package, path, subject, id.Value, voxels.ContainsKey(id), field);
             if (voxels.TryGetValue(id, out var voxel) && voxel.Voxel.Definition.Good is null)
                 package.Reject("reference_wrong_kind", path, field, "引用必须是可库存货物。", subject);
+        }
+        internal ImmutableArray<K.GoodsQuantity> Inventory(LoadPackage package, string path, C.ContentReference subject,
+            ImmutableArray<ParsedInventoryQuantity> quantities, string field)
+        {
+            var result = ImmutableArray.CreateBuilder<K.GoodsQuantity>();
+            foreach (var quantity in quantities)
+                switch (quantity.Reference)
+                {
+                    case ParsedInventoryReference.Voxel voxel:
+                        Good(package, path, subject, voxel.Id, field);
+                        result.Add(new(new K.GoodId.Voxel(voxel.Id), quantity.Quantity));
+                        break;
+                    case ParsedInventoryReference.Blueprint reference:
+                        Need(package, path, subject, reference.Address.Id.Value, blueprints.ContainsKey(reference.Address.Id.Value), field);
+                        if (!blueprints.TryGetValue(reference.Address.Id.Value, out var blueprint)) break;
+                        var design = (C.DesignEvaluation.Complete)blueprint.Evaluation;
+                        if (design.Core?.Design.Kind is K.DesignKind.LargeEquipment equipment)
+                            result.Add(new(equipment.ManufacturedGood, quantity.Quantity));
+                        else package.Reject("reference_wrong_kind", path, field, "库存蓝图必须是大型设备。", subject);
+                        break;
+                }
+            if (result.Select(q => q.Good).Distinct().Count() != result.Count)
+                package.Reject("invalid_field", path, field, "库存引用解析后不能包含重复货物。", subject);
+            return result.OrderBy(q => DesignEvaluator.GoodKey(q.Good), StringComparer.Ordinal).ToImmutableArray();
         }
         internal C.DesignEvaluation.Complete? Design(LoadPackage package, string path, C.ContentReference subject,
             C.BlueprintAddress address, string field, bool vehicle)
