@@ -41,6 +41,8 @@ Scenes 快速层验证会话生命周期、不可变帧、立方体网格及其�
 
 `-ExportWindows` 还运行资产导出探针：从空构建目录链接 `App/Assets/` 同份生产源码及 `GlbFixture.cs`，编译探针入口，仅引用 Core／Content 契约，记录实际编译输入、引用和加载程序集，并在导出程序中核对 PCK／Mod 的原始字节、Keep File 原名及失败注入。探针同时核对真实游戏 PCK 的内置 PNG 字节，并包含隐藏项扫描本次 PCK：出现 `.mcp.json`、`global.json`、`addons/` 下任何条目或 `App/ArtCapture/` 时判失败；原有 `art-source`／`.blend` 扫描保留，仓库没有这类源文件输入夹具，这次内容扫描不能证明源文件排除规则有效。行为断言集中在 `Tests/AssetExport/ProbeRunner.cs`，脚本只编排构建、导出和运行；真实解码、线程与缓存用例仍由现有引擎 runner 执行。探针在 `asset-export/staging/` 独立构建，导出到 `asset-export/export/asset-probe.exe`，运行时检查自己的 PCK 和真实游戏 PCK。它不替代独立宿主隔离或完整四模块联调。接入和所有权见[资产端口](godot-assets.md)。
 
+Windows 主游戏导出后，独立的 `export-optimizations` 检查（阶段层为 `stage-export-optimizations`）读取全部托管 DLL 的元数据，跳过原生 DLL；任何托管 DLL 带 `DisableOptimizations`，或缺少 Train／Core／Content／Scenes 程序集，均判失败。
+
 Debug 有窗口显示帧预览复用生产 `App._Process`，以固定内容和有限情景替身检查渲染、输入和最小化接线。先构建并导入，再启动预览：
 
 ```powershell
@@ -60,6 +62,8 @@ dotnet build Tests/Engine/Train.Engine.Tests.csproj -c Debug
 `ObservationIndependenceTests` 由引擎层执行，使用默认 App 的真实 Core／Content／Scenes 装配和 `examples/basic-through/recipe.json`。参考运行使用 60 Hz、1×、不打开局部场景；五组变体覆盖 30／120 Hz、不规则间隔、2×／4×／8×、运行中切换倍速、暂停中连续命令，以及线路／节点／跟随场景的打开、切换和关闭。间隔由测试注入生产帧驱动，不依赖机器实际 FPS；在 `BoundaryCompleted` 请求完整边界暂停。每条命令前后及目标位置先核对位置、种子、运行身份和 `CoreInputId`，再委托核心比较检查点并定位首个字段差异。它提供真实模块的观察无关证据，不提供窗口性能或完整 Demo 验收。
 
 `scripts/export-measurement.ps1` 为测量生成并保留 Windows Release 导出，先读[本地 Windows 环境要求](local-environment.md#windows-export-and-runtime-validation)。它拒绝脏工作树，导出结束后确认 HEAD 未变且工作树仍干净。它隔离用户目录，只复制已安装的 Windows Release 模板并在结束时清理该副本。构建和测量的输出都须使用新目录或空目录；仓库内构建目录须被 Git 忽略，推荐 `TestResults/`。统一测试入口会删除自己的导出二进制；测量需要另行保留完整导出。
+
+测量导出同样执行共享的程序集优化检查，结果记入 `export-summary.json` 的 `optimizations` 步骤；检查失败时拒绝该构建。
 
 `scripts/measure.ps1` 复用这个已有导出，不重新构建。保留完整导出目录中的 EXE、旁置 PCK 和唯一的 `Train.dll`；输入为普通存档：
 

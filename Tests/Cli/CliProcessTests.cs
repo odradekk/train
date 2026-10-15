@@ -43,6 +43,28 @@ public sealed partial class CliProcessTests
             var actual = JsonSerializer.Deserialize<CoreCheckpoint[]>(
                 secondOutput.RootElement.GetProperty("checkpoints").GetRawText(), Recipe.Json)!;
             CollectionAssert.AreEqual(expected, actual);
+            using var initial = JsonDocument.Parse(expected[0].CanonicalText);
+            var world = initial.RootElement.GetProperty("world");
+            var terrainByNode = world.GetProperty("nodes").EnumerateArray().ToDictionary(
+                node => node.GetProperty("id").GetProperty("value").GetUInt64(),
+                node => node.GetProperty("terrain").GetProperty("type_id").GetProperty("value").GetString()!);
+            CollectionAssert.AreEquivalent(new[] { "core:plains", "core:hills", "core:forest", "core:desert", "core:mountains" },
+                terrainByNode.Values.Distinct().ToArray());
+            var settlements = world.GetProperty("settlements").EnumerateArray().ToArray();
+            CollectionAssert.AreEquivalent(new[] { "core:agricultural-town", "core:industrial-city", "core:forestry-town",
+                    "core:oilfield-town", "core:mining-town" },
+                settlements.Select(settlement => settlement.GetProperty("type").GetProperty("value").GetString()!).Distinct().ToArray());
+            foreach (var (type, preferred) in new (string, string[])[]
+                     {
+                         ("core:forestry-town", ["core:forest"]), ("core:oilfield-town", ["core:desert"]),
+                         ("core:mining-town", ["core:mountains", "core:hills"])
+                     })
+            {
+                var matching = settlements.Where(settlement => settlement.GetProperty("type").GetProperty("value").GetString() == type).ToArray();
+                Assert.IsTrue(matching.Length > 0, type);
+                foreach (var settlement in matching)
+                    CollectionAssert.Contains(preferred, terrainByNode[settlement.GetProperty("node").GetProperty("value").GetUInt64()], type);
+            }
             Assert.AreEqual(3, firstOutput.RootElement.GetProperty("accepted_commands").GetInt32());
             Assert.AreEqual(0, firstOutput.RootElement.GetProperty("rejected_commands").GetInt32());
             await Run(directory, "compare", "compare", first, second);

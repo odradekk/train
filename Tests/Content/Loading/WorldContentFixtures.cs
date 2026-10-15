@@ -40,6 +40,34 @@ internal static class WorldContentFixtures
     internal static void AddBlueprint(ContentFixture fixture, JsonObject json) =>
         fixture.AddFile(ContentFixture.BuiltIn, "resources/blueprints/" + json["id"]!.GetValue<string>() + ".blueprint.json", json.ToJsonString());
 
+    internal static ContentFixture InitializedTemplate(string kind = "production")
+    {
+        var fixture = Content();
+        ProcessLoadingTests.Add(fixture, ProcessLoadingTests.Process(kind));
+        Change(fixture, "resources/blueprints/workshop.blueprint.json", json =>
+            json["simulation"]!["facility_tags"] = new JsonArray(kind == "extraction" ? "extraction" : "metallurgy"));
+        var device = DesignFixtures.Blueprint("device");
+        device["category"] = "large_equipment";
+        device["simulation"] = JsonNode.Parse("""{"behaviors":{"storage":{"capacity":25}}}""");
+        AddBlueprint(fixture, device);
+        var frame = DesignFixtures.Blueprint("frame");
+        frame["category"] = "large_equipment";
+        frame.Remove("simulation");
+        AddBlueprint(fixture, frame);
+        Change(fixture, TemplatePath, json =>
+        {
+            json["plots"]![1]!["building"] = "workshop";
+            json["founding"] = JsonNode.Parse("""[{"plot":11,"building":"workshop"},{"plot":7,"building":"station"}]""");
+            json["inventory"] = JsonNode.Parse("""[{"voxel":"block","quantity":11},{"blueprint":"device","quantity":2},{"blueprint":"frame","quantity":3}]""");
+            json["production_plans"] = new JsonArray(new JsonObject
+            {
+                ["plot"] = 11, ["capability"] = kind == "extraction" ? "extraction" : "production",
+                ["process"] = "test", ["enabled"] = false, ["priority"] = -5
+            });
+        });
+        return fixture;
+    }
+
     private static void AddRule(ContentFixture fixture, JsonObject json, string id, string kind, string directory)
     {
         json["id"] = id;

@@ -10,6 +10,72 @@ namespace Train.Content.Tests.Loading;
 public sealed class WorldIdentityTests
 {
     [TestMethod]
+    [DataRow("founding")]
+    [DataRow("inventory")]
+    [DataRow("production_plans")]
+    public void Template_initialization_values_change_core_and_generation_identities(string field)
+    {
+        var fixture = InitializedTemplate();
+        using var first = fixture.Load();
+        Change(fixture, TemplatePath, json =>
+        {
+            if (field == "founding") json[field]!.AsArray().RemoveAt(0);
+            else json[field]![0]![field == "inventory" ? "quantity" : "priority"] = 12;
+        });
+        using var second = fixture.Load();
+        Assert.AreNotEqual(first.View.Core.Identity, second.View.Core.Identity);
+        Assert.AreNotEqual(World(first.View).GenerationContentRevision, World(second.View).GenerationContentRevision);
+    }
+
+    [TestMethod]
+    [DataRow("founding")]
+    [DataRow("inventory-voxel")]
+    [DataRow("inventory-assembly")]
+    [DataRow("inventory-composite")]
+    [DataRow("plan-process")]
+    public void Dependencies_reached_only_through_template_initialization_change_generation(string dependency)
+    {
+        var fixture = InitializedTemplate();
+        if (dependency is "founding" or "inventory-voxel" or "inventory-assembly")
+        {
+            DesignFixtures.AddVoxel(fixture, "initial-only");
+            if (dependency == "founding")
+            {
+                var building = Building("initial-building", "small", "production");
+                building["layout"]!["palette"]![0]!["voxel"] = "initial-only";
+                AddBlueprint(fixture, building);
+                Change(fixture, TemplatePath, json => json["founding"]![0]!["building"] = "initial-building");
+            }
+            else if (dependency == "inventory-voxel")
+                Change(fixture, TemplatePath, json => json["inventory"]![0]!["voxel"] = "initial-only");
+            else Change(fixture, "resources/blueprints/frame.blueprint.json", json => json["layout"]!["palette"]![0]!["voxel"] = "initial-only");
+        }
+        using var first = fixture.Load();
+        if (dependency == "inventory-composite")
+            Change(fixture, "resources/blueprints/device.blueprint.json", json => json["simulation"]!["behaviors"]!["storage"]!["capacity"] = 50);
+        else if (dependency == "plan-process")
+            Change(fixture, ProcessLoadingTests.Path, json => json["simulation"]!["work_required"] = 19);
+        else Change(fixture, "resources/voxels/initial-only.voxel.json", json => json["simulation"]!["max_durability"] = 9);
+        using var second = fixture.Load();
+        Assert.AreNotEqual(first.View.Core.Identity, second.View.Core.Identity);
+        Assert.AreNotEqual(World(first.View).GenerationContentRevision, World(second.View).GenerationContentRevision);
+    }
+
+    [TestMethod]
+    public void Initialization_display_changes_preserve_business_identities()
+    {
+        var fixture = InitializedTemplate();
+        using var first = fixture.Load();
+        foreach (var id in new[] { "workshop", "frame", "device" })
+            Change(fixture, $"resources/blueprints/{id}.blueprint.json", json => json["display"]!["name"] = "新显示名称");
+        using var second = fixture.Load();
+        Assert.AreNotEqual(first.View.Core.SettlementTemplates.Single().FoundingBuildings[1].Design,
+            second.View.Core.SettlementTemplates.Single().FoundingBuildings[1].Design);
+        Assert.AreEqual(first.View.Core.Identity, second.View.Core.Identity);
+        Assert.AreEqual(World(first.View).GenerationContentRevision, World(second.View).GenerationContentRevision);
+    }
+
+    [TestMethod]
     [DataRow("axis", true)]
     [DataRow("pivot", true)]
     [DataRow("range", true)]

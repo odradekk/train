@@ -88,6 +88,15 @@ public sealed class NodeSceneTests
     {
         var snapshot = Isolated(NodeFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 }));
         var before = NodeScene.Build(snapshot, NodeLayout.Build(snapshot, new(1)));
+        var oldGeometry = before.Parts.OrderBy(part => part.Key, StringComparer.Ordinal)
+            .First(part => part.Key.StartsWith("terrain:", StringComparison.Ordinal) &&
+                !part.Value.Geometry.Geometry.Picking.IsEmpty).Value.Geometry.Geometry;
+        var oldGrid = oldGeometry.Picking.Single();
+        var top = oldGrid.Grid.Cells.MaxBy(cell => cell.At.Y);
+        var ray = new SceneRay(new Vector3(top.At.X + 0.5f, top.At.Y + 2, top.At.Z + 0.5f) + oldGrid.Pose.Position,
+            -Vector3.UnitY, 4);
+        var oldFrame = SceneFixtures.Frame(oldGeometry);
+        var oldHit = ((ScenePick.Hit)oldFrame.Pick(ray)).Value;
         var equivalent = Isolated(NodeFixtures.Content(generation: 2, rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 },
             terrain: RailwayFixtures.TerrainAppearance with { Display = new("new label", "new description"), LocalHeightNoise = [], Decorations = [] }));
         var same = NodeScene.Build(equivalent, NodeLayout.Build(equivalent, new(1)), before);
@@ -99,6 +108,8 @@ public sealed class NodeSceneTests
         foreach (var part in before.Parts)
             if (part.Key.StartsWith("terrain:", StringComparison.Ordinal)) Assert.AreNotSame(part.Value, changed.Parts[part.Key]);
             else Assert.AreSame(part.Value, changed.Parts[part.Key]);
+        Assert.AreEqual(oldHit, ((ScenePick.Hit)oldFrame.Pick(ray)).Value);
+        Assert.AreEqual(top, oldGrid.Grid.Find(top.At));
     }
 
     [TestMethod]
@@ -153,7 +164,7 @@ public sealed class NodeSceneTests
         var built = NodeScene.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
         Assert.IsTrue(built.Parts["entry:1"].Geometry.Geometry.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Any());
         Assert.IsTrue(built.Parts["station-tracks"].Geometry.Geometry.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Any());
-        Assert.IsFalse(built.Parts["platform:0"].Geometry.Geometry.Picking.Single().Grid.Cells.IsEmpty);
+        Assert.IsTrue(built.Parts["platform:0"].Geometry.Geometry.Picking.Single().Grid.Cells.Any());
         foreach (var part in built.Parts.Values)
         {
             Assert.AreEqual(Math.Round(part.Origin.X), part.Origin.X);

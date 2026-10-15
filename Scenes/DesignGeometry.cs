@@ -64,6 +64,7 @@ internal static class DesignGeometry
             var objectId = id(key);
             paths.Add(key, (objectId, composed));
             var cells = ImmutableArray.CreateBuilder<SceneCell>();
+            var terrainSubject = terrainLocation is null ? null : new PickSubject.Terrain(terrainLocation);
             foreach (var voxel in voxelGroups.GetValueOrDefault(key) ?? [])
             {
                 if (destroyed?.Contains(voxel.Number) == true) continue;
@@ -78,9 +79,10 @@ internal static class DesignGeometry
                 }
                 var reference = voxel.Missing || value is null
                     ? new ContentReference.Core(new CoreDefinitionReference.Voxel(voxel.Voxel)) : null;
-                PickSubject? pick = terrainLocation is not null ? new PickSubject.Terrain(terrainLocation) :
+                PickSubject? pick = terrainSubject is not null ? terrainSubject :
                     subject is null ? null : new PickSubject.WorldObject(subject, worldDesign ?? projection.Design, voxel.Number);
-                cells.Add(new(voxel.LocalAt, voxel.LocalOrientation, reference is null ? value : null, voxel.Shape, voxel.Paint, pick, path, reference));
+                cells.Add(new(voxel.LocalAt, new(voxel.LocalOrientation, reference is null ? value : null,
+                    voxel.Shape, voxel.Paint, pick, path, reference)));
                 if (reference is not null)
                 {
                     objects.Add(new(id(key + ":missing:" + voxel.LocalAt), objectId,
@@ -135,7 +137,7 @@ internal static class DesignGeometry
             {
                 var normal = SceneGeometry.Normal(face);
                 var at = cell.At;
-                if (grid.Find(new(at.X + (int)normal.X, at.Y + (int)normal.Y, at.Z + (int)normal.Z))?.Occludes == true) continue;
+                if (grid.Occludes(new(at.X + (int)normal.X, at.Y + (int)normal.Y, at.Z + (int)normal.Z))) continue;
                 var front = normal == axes.Forward && cube.Front != cube.Side;
                 var texture = normal == axes.Up ? cube.Top : normal == -axes.Up ? cube.Bottom : front ? cube.Front : cube.Side;
                 var imageUp = normal == axes.Up || normal == -axes.Up ? axes.Forward : axes.Up;
@@ -166,7 +168,7 @@ internal static class DesignGeometry
                     group.Vertices.Add(new(position, normal, textureUv, uv, edges, Math.Clamp(height, 0, 1), 0));
                 }
                 group.Indices.AddRange([first, first + 1, first + 2, first, first + 2, first + 3]);
-                bool Empty(Vector3 offset) => grid.Find(new(at.X + (int)offset.X, at.Y + (int)offset.Y, at.Z + (int)offset.Z)) is null;
+                bool Empty(Vector3 offset) => !grid.Contains(new(at.X + (int)offset.X, at.Y + (int)offset.Y, at.Z + (int)offset.Z));
             }
         }
         return groups.Select(group => (SceneVisual)new SceneVisual.Geometry(

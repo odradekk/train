@@ -12,7 +12,7 @@ namespace Train.Content.Tests.Loading;
 public sealed class BuiltInContentTests
 {
     [TestMethod]
-    public void Builtin_core_loads_valid_running_vehicles_and_template_station_into_world_input()
+    public void Builtin_core_loads_running_vehicles_and_economic_templates_with_real_facilities()
     {
         var repository = new DirectoryInfo(AppContext.BaseDirectory);
         while (repository != null && !File.Exists(Path.Combine(repository.FullName, "global.json"))) repository = repository.Parent;
@@ -26,6 +26,8 @@ public sealed class BuiltInContentTests
         using var candidate = ((C.ContentResult<C.IContentCandidate>.Success)result).Value;
         Assert.AreEqual(0, candidate.Report.Diagnostics.Length);
         var view = candidate.View;
+        CollectionAssert.AllItemsAreUnique(new[] { "plains", "forest", "desert", "mountains" }
+            .Select(id => Found(view.FindTerrain(new("core:" + id))).SurfaceVoxel).ToArray());
         var vehicles = new List<K.DesignHash>();
         foreach (var (id, size) in new[] { ("small-locomotive", K.SizeClass.Small),
                      ("medium-locomotive", K.SizeClass.Medium), ("extra-large-locomotive", K.SizeClass.ExtraLarge) })
@@ -44,10 +46,78 @@ public sealed class BuiltInContentTests
         Assert.IsNotNull(station.Core);
         Assert.IsTrue(station.Core.Design.Parts.Any(part => part.Definition is K.CoreDefinitionReference.Voxel &&
             part.Capabilities.OfType<K.PartCapability.Platform>().Any()));
-        var template = view.Core.SettlementTemplates.Single(item => item.Id.Value == "core:agricultural-town");
-        Assert.IsTrue(template.Plots.Any(plot => plot.PrebuiltDesign == station.Design));
-        Assert.IsTrue(view.Core.Designs.Single(design => design.Design == station.Design).Parts
-            .SelectMany(part => part.Capabilities).OfType<K.PartCapability.Platform>().Any());
+        Assert.AreEqual(2, station.Core.Design.Parts.Count(part => part.Capabilities.OfType<K.PartCapability.Platform>().Any()));
+        foreach (var (id, productionBuildings) in new (string, string[])[]
+                 {
+                     ("agricultural-town", ["farm", "food-factory"]),
+                     ("mining-town", ["extraction-site", "metallurgy-factory", "building-materials-factory"]),
+                     ("forestry-town", ["extraction-site", "light-industry-factory"]),
+                     ("oilfield-town", ["extraction-site", "chemical-factory"]),
+                     ("industrial-city", ["assembly-factory", "electronics-factory", "recovery-factory", "heavy-vehicle-factory"]),
+                     ("core-city", ["assembly-factory", "electronics-factory", "recovery-factory", "heavy-vehicle-factory"])
+                 })
+        {
+            var template = view.Core.SettlementTemplates.Single(item => item.Id.Value == "core:" + id);
+            Assert.IsTrue(view.Core.SettlementTypes.Any(type => type.Id == template.Type), id);
+            Assert.IsTrue(template.Plots.Length >= 8, id);
+            Assert.IsTrue(template.Plots.Count(plot => plot.Size == K.PlotSize.SmallStation) >= 2, id);
+            Complete(view, id + "-ground");
+            foreach (var building in productionBuildings.Concat(["small-station", "vehicle-workshop", "small-warehouse", "power-station"]))
+            {
+                var design = Complete(view, building);
+                Assert.IsNotNull(design.Core);
+                Assert.IsTrue(template.Plots.Any(plot => plot.PrebuiltDesign == design.Design), id + ":" + building);
+                var capabilities = design.Core.Design.Parts.SelectMany(part => part.Capabilities).ToArray();
+                Assert.IsTrue(building switch
+                {
+                    "small-station" => capabilities.OfType<K.PartCapability.Platform>().Any(),
+                    "vehicle-workshop" or "heavy-vehicle-factory" => capabilities.OfType<K.PartCapability.Construction>().Any(),
+                    "small-warehouse" => capabilities.OfType<K.PartCapability.Storage>().Any(storage => storage.Capacity > 0),
+                    "power-station" => capabilities.OfType<K.PartCapability.Power>().Any(power => power.EnergyPerSecond > 0),
+                    "extraction-site" => capabilities.OfType<K.PartCapability.Extraction>().Any(extraction => extraction.WorkPerSecond > 0),
+                    _ => capabilities.OfType<K.PartCapability.Production>().Any(production => production.WorkPerSecond > 0)
+                }, building);
+            }
+            CollectionAssert.AreEquivalent(new[] { station.Design, Complete(view, "basic-shed").Design },
+                template.FoundingBuildings.Select(building => building.Design).ToArray(), id);
+            foreach (var founding in template.FoundingBuildings)
+                Assert.IsTrue(template.Plots.Any(plot => plot.Number == founding.PlotNumber), id);
+            Assert.IsTrue(template.SpecialInitialInventory.IsEmpty, id);
+            Assert.IsTrue(template.ProductionPlans.IsEmpty, id);
+        }
+        var city = view.Core.SettlementTemplates.Single(item => item.Id.Value == "core:core-city");
+        Assert.AreEqual(view.Core.SettlementTemplates.Single(item => item.Id.Value == "core:industrial-city").Type, city.Type);
+        foreach (var (id, kind) in new[] { ("core-city-hub", K.BuildingKind.Warehouse), ("bastion-fortress", K.BuildingKind.Defense) })
+        {
+            var design = Complete(view, id);
+            Assert.IsNotNull(design.Core);
+            var building = (K.DesignKind.Building)design.Core.Design.Kind;
+            Assert.AreEqual(K.PlotSize.Giant, building.PlotSize, id);
+            Assert.AreEqual(kind, building.Type, id);
+            var capabilities = design.Core.Design.Parts.SelectMany(part => part.Capabilities).ToArray();
+            Assert.IsTrue(capabilities.OfType<K.PartCapability.Storage>().Any(storage => storage.Capacity > 0), id);
+            Assert.IsTrue(capabilities.All(capability => capability is K.PartCapability.Storage), id);
+            Assert.IsTrue(city.Plots.Any(plot => plot.Size == K.PlotSize.Giant && plot.PrebuiltDesign == design.Design), id);
+        }
+        foreach (var (id, plotSize, maximumPlot, maximumVehicle, component) in new[]
+                 {
+                     ("basic-shed", K.PlotSize.Small, K.PlotSize.Medium, (K.SizeClass?)null, "construction-equipment"),
+                     ("vehicle-workshop", K.PlotSize.Medium, K.PlotSize.Large, (K.SizeClass?)K.SizeClass.Large, "workshop-crane"),
+                     ("heavy-vehicle-factory", K.PlotSize.Large, K.PlotSize.Giant, (K.SizeClass?)K.SizeClass.Titan, "gantry-crane")
+                 })
+        {
+            var building = Complete(view, id).Core!.Design;
+            Assert.AreEqual(plotSize, ((K.DesignKind.Building)building.Kind).PlotSize, id);
+            var part = building.Parts.Single(part => part.Capabilities.OfType<K.PartCapability.Construction>().Any());
+            if (maximumVehicle == null)
+                Assert.AreEqual(new K.CoreDefinitionReference.Voxel(new("core:" + component)), part.Definition, id);
+            else
+                Assert.AreEqual(new K.CoreDefinitionReference.Composite(new("core:" + component)), part.Definition, id);
+            var construction = part.Capabilities.OfType<K.PartCapability.Construction>().Single();
+            Assert.IsTrue(construction.WorkPerSecond > 0, id);
+            Assert.AreEqual(maximumPlot, construction.MaximumBuildingPlotSize, id);
+            Assert.AreEqual(maximumVehicle, construction.MaximumVehicleSize, id);
+        }
         var worldResult = factory.CreateWorldInput(view, new("core:basic-through-world"), 1, "stage1-world-v1");
         Assert.IsInstanceOfType<C.ContentResult<K.WorldGenerationInput>.Success>(worldResult, worldResult.ToString());
         var world = ((C.ContentResult<K.WorldGenerationInput>.Success)worldResult).Value;

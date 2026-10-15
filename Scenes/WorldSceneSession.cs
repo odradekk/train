@@ -394,7 +394,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             if (input.Core.FindInstance(item.Instance) is Lookup<InstanceView>.Found found)
                 objects.Add(item.Instance, BuildObject(input.Content, found.Value, item.Pose));
         }
-        return new(content, scenery, objects.ToImmutable());
+        return new(content with { Terrain = [] }, scenery, objects.ToImmutable());
     }
 
     internal static ImmutableHashSet<PartId> Destroyed(InstanceView instance) =>
