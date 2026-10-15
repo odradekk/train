@@ -15,7 +15,8 @@ internal static class InventoryFixture
 
     internal static CoreContentProjection Content(ulong duration = 3, long rate = 5, long localStock = 0) => WorldFixture.Content with
     {
-        Goods = Goods.Where(g => g is not GoodId.Assembly).Select(g => WorldFixture.Content.Goods[0] with { Good = g }).ToImmutableArray(),
+        Goods = WorldFixture.Content.Goods.AddRange(Goods.Where(g => g is not GoodId.Assembly && g != Voxel)
+            .Select(g => WorldFixture.Content.Goods[0] with { Good = g })),
         DesignGoods = Goods.Where(g => g is GoodId.Assembly).Select(g => WorldFixture.Content.Goods[0] with { Good = g }).ToImmutableArray(),
         Designs = WorldFixture.Content.Designs.Select(d => d.Design == WorldFixture.Station ? d with
         {

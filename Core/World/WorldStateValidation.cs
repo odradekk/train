@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using Train.Core.Contracts;
+using Train.Core.Settlements;
 
 namespace Train.Core.World;
 
@@ -52,6 +53,7 @@ internal static class WorldStateValidation
             designs.TryGetValue(hash, out var design) && design.Kind is DesignKind.Vehicle)), "/world/source/start/trains/vehicles");
         foreach (var settlement in world.Settlements)
         {
+            ValidatePopulation(settlement, world.Source.Configuration.Rules.Population);
             Require(double.IsFinite(settlement.FuelEnergyRemaining) && settlement.FuelEnergyRemaining >= 0,
                 "/world/settlements/fuel_energy_remaining");
             try { WorldInputs.ValidateTemplate(settlement.Template); }
@@ -421,11 +423,71 @@ internal static class WorldStateValidation
         }
     }
 
-    internal static void ValidateQueueSteps(WorldState world, ulong completedSteps)
+    internal static void ValidateBoundary(WorldState world, ulong completedSteps)
     {
         foreach (var train in world.Trains)
             Require(train.QueueEnteredStep is null || train.QueueEnteredStep <= completedSteps,
                 "/world/trains/queue_entered_step");
+        foreach (var settlement in world.Settlements)
+        {
+            Require(settlement.PopulationState.LastSettlement is not { } report || report.Position.CompletedSteps <= completedSteps,
+                "/world/settlements/population_state/last_settlement/position");
+            var previousSettlement = settlement.PopulationState.LastSettlement?.Position.CompletedSteps ?? 0;
+            if (settlement.PopulationState.Period is not { } period) continue;
+            const string field = "/world/settlements/population_state/period";
+            Require(period.LastAdvancedStep >= previousSettlement && period.LastAdvancedStep <= completedSteps,
+                field + "/last_advanced_step");
+            var sinceAnchor = settlement.PopulationState.Available ? completedSteps - period.LastAdvancedStep : 0;
+            Require(sinceAnchor < (ulong)(period.Rule.StatisticsPeriodTicks - period.ElapsedSteps), field + "/elapsed_steps");
+            var elapsed = (ulong)period.ElapsedSteps + sinceAnchor;
+            Require(elapsed > 0 && elapsed <= completedSteps - previousSettlement, field + "/elapsed_steps");
+            if (elapsed < (ulong)period.Rule.ConsumptionIntervalTicks)
+                Require(period.Required.All(r => r == 0) && period.Satisfied.All(s => s == 0), field);
+        }
+    }
+
+    private static void ValidatePopulation(SettlementState settlement, RuleDefinitionId selectedRule)
+    {
+        const string field = "/world/settlements/population_state";
+        var state = settlement.PopulationState;
+        Require(state is not null, field);
+        Require(double.IsFinite(state.ChangeRemaining) && state.ChangeRemaining is > -1 and < 1
+            && (settlement.Population > 1 || state.ChangeRemaining >= 0), field + "/change_remaining");
+        Items(state.Shortages, field + "/shortages");
+        Require(state.Shortages.Length == 6, field + "/shortages");
+        Strings(state.ConsumptionRemaining, r => WorldReferences.GoodKey(r.Good), field + "/consumption_remaining");
+        foreach (var remainder in state.ConsumptionRemaining)
+        {
+            Good(remainder.Good, field + "/consumption_remaining/good");
+            Require(double.IsFinite(remainder.Units) && remainder.Units is > 0 and <= 1, field + "/consumption_remaining/units");
+        }
+        if (state.Period is { } period)
+        {
+            try { WorldInputs.ValidatePopulationRule(period.Rule); }
+            catch (ArgumentException) { throw new CoreStateFormatException(field + "/period/rule"); }
+            Require(period.Rule.Id == selectedRule, field + "/period/rule/id");
+            Require(period.ElapsedSteps >= 0 && period.ElapsedSteps < period.Rule.StatisticsPeriodTicks,
+                field + "/period/elapsed_steps");
+            Items(period.Required, field + "/period/required"); Items(period.Satisfied, field + "/period/satisfied");
+            Require(period.Required.Length == 6 && period.Satisfied.Length == 6, field + "/period");
+            for (var i = 0; i < 6; i++)
+            {
+                Require(double.IsFinite(period.Required[i]) && period.Required[i] >= 0,
+                    field + "/period/required");
+                Require(double.IsFinite(period.Satisfied[i]) && period.Satisfied[i] >= 0 && period.Satisfied[i] <= period.Required[i],
+                    field + "/period/satisfied");
+            }
+        }
+        if (state.LastSettlement is { } report)
+        {
+            Require(report.Before >= 1 && report.After == settlement.Population && report.Change == report.After - report.Before,
+                field + "/last_settlement");
+            Require(report.Position.CompletedSteps > 0 && report.Position.Sequence == 0 && WorldFormat.IsHash(report.ExecutionRevision.Value),
+                field + "/last_settlement/position");
+            Require(double.IsFinite(report.BasicSatisfaction) && report.BasicSatisfaction is >= 0 and <= 1
+                && double.IsFinite(report.ImprovementSatisfaction) && report.ImprovementSatisfaction is >= 0 and <= 1
+                && Enum.IsDefined(report.Reason), field + "/last_settlement");
+        }
     }
 
     private static void Terrain(TerrainView terrain, string field)

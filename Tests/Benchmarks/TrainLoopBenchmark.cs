@@ -31,7 +31,7 @@ public class TrainLoopBenchmark
             WidthMeters = WorldWidthMeters, HeightMeters = WorldHeightMeters,
             SettlementRatio = 1, LairRatio = 0, HostileSettlementRatio = 0
         } };
-        var source = WorldFixture.Content;
+        var source = TrainRecoveryFixture.Content;
         var content = source with
         {
             RailwayRules = [source.RailwayRules[0] with

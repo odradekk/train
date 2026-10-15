@@ -63,6 +63,8 @@ internal static class WorldContentPublication
         var references = Create(adapted, content).Definitions;
         foreach (var reference in references)
         {
+            // Retired consumption remains physical state; only current or executing goods must still exist.
+            if (reference.Field.EndsWith(".PopulationState.ConsumptionRemaining", StringComparison.Ordinal)) continue;
             if (reference.WasMissing
                 ? !alreadyMissing.Contains((reference.Definition, reference.Field))
                 : !Exists(reference, content))

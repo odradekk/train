@@ -80,13 +80,7 @@ internal static partial class WorldFixture
             var creatureB = creatureA with { Id = new("fixture:creature-b"), HitPoints = 20 };
             var lairA = new LairTypeProjection(new("fixture:lair-a"), Revision, 1,
                 [new(creatureA.Id, 1), new(creatureB.Id, 2)], 3, 10, 20, 1, 2, 5, new(10));
-            var population = content.PopulationRules[0] with
-            {
-                Needs = [new(PopulationNeed.Food, PopulationNeedClass.Basic, 1, 1),
-                    new(PopulationNeed.Clothing, PopulationNeedClass.Basic, 1, 2)],
-                ConsumptionGoods = [new(material, [new(PopulationNeed.Food, 1), new(PopulationNeed.Clothing, 2)], 0),
-                    new(ore, [new(PopulationNeed.Clothing, 1), new(PopulationNeed.Food, 2)], 1)]
-            };
+            var population = content.PopulationRules[0];
             var market = content.MarketRules[0] with
             {
                 GoodPrices = [new(material, content.MarketRules[0].DefaultGoodsPrices), new(ore, content.MarketRules[0].DefaultGoodsPrices)],
@@ -121,6 +115,17 @@ internal static partial class WorldFixture
     public static TrainPosition.Node Node(NodeId id, NodeTravelPhase phase = NodeTravelPhase.Waiting,
         double distance = ApproachLength, EdgeId? enteredFrom = null, EdgeId? nextEdge = null, int? platform = null) =>
         new(id, enteredFrom, nextEdge, phase, distance, platform);
+    public static PopulationRuleProjection PopulationRule() => new(Rules.Population, Revision,
+        Enum.GetValues<PopulationNeed>().Select(need => new PopulationNeedProjection(need,
+            need is PopulationNeed.Food or PopulationNeed.Clothing ? PopulationNeedClass.Basic : PopulationNeedClass.Improvement,
+            1, 1)).ToImmutableArray(),
+        [new(new GoodId.Voxel(new("fixture:food")), [new(PopulationNeed.Food, 1)], 0),
+            new(new GoodId.Voxel(new("fixture:clothing")), [new(PopulationNeed.Clothing, 1)], 1),
+            new(new GoodId.Voxel(new("fixture:prepared-food")), [new(PopulationNeed.Food, 1), new(PopulationNeed.ImprovedDiet, 1)], 2),
+            new(new GoodId.Voxel(new("fixture:consumer-goods")), [new(PopulationNeed.ConsumerGoods, 1)], 3),
+            new(new GoodId.Voxel(new("fixture:consumer-electronics")), [new(PopulationNeed.ConsumerElectronics, 1)], 4),
+            new(new GoodId.Voxel(new("fixture:medical-supplies")), [new(PopulationNeed.MedicalSupplies, 1)], 5)],
+        .5, 1, 10, 0, 0, 0);
 
     public static WorldGenerationInput Input => new(42, "stage1-world-v1", Revision,
         new(10, 10, 10, 1, [], [], [], -1, 0,
@@ -130,13 +135,14 @@ internal static partial class WorldFixture
         new(new(1000), [new([Vehicle], [])]));
 
     public static CoreContentProjection Content => new(new(new string('D', 64)),
-        [new(new GoodId.Voxel(Material), Revision, new(1), 1, true, null)],
+        [new(new GoodId.Voxel(Material), Revision, new(1), 1, true, null),
+            .. PopulationRule().ConsumptionGoods.Select(good => new GoodDefinitionProjection(good.Good, Revision, new(1), 1, true, null))],
         [Design(Vehicle, new DesignKind.Vehicle(SizeClass.Small, 1),
             [new PartCapability.Control(), new PartCapability.Propulsion(100, 10), new PartCapability.Storage(100)]),
          Design(Station, new DesignKind.Building(PlotSize.SmallStation, BuildingKind.Station, []),
             [new PartCapability.Platform()])],
         [], [],
-        [new(Rules.Population, Revision, [], [], 0.5, 1, 10, 0, 0, 0)],
+        [PopulationRule()],
         [new(Rules.Market, Revision, 0, 0, 0, new(new(0), new(10000), new(10000), new(0)),
             [], new(10000), new(10000), [], 1, 10, new(0), new(0), new(0), 1)],
         [new(Rules.Construction, Revision, 1, 1, 1, 1, 1, 0, 0)],

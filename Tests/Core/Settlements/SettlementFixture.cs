@@ -45,7 +45,7 @@ internal static class SettlementFixture
     internal static SettlementResolution Resolve(CoreState state, ImmutableArray<FacilityRequest> facilities,
         double labor = 100, ImmutableArray<GoodsQuantity> basic = default, ImmutableArray<GoodsQuantity> improvement = default)
         => SettlementResources.Resolve(state.World, state.Content, state.World.Settlements.Single().Id, labor,
-            basic.IsDefault ? [] : basic, facilities, improvement.IsDefault ? [] : improvement);
+            basic.IsDefault ? [] : basic, facilities, _ => improvement.IsDefault ? [] : improvement);
 
     internal static long Stock(WorldState world, GoodId good)
         => world.Inventories.Single(i => i.Id == world.Settlements.Single().Inventory).Goods

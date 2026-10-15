@@ -41,9 +41,10 @@ internal sealed class CoreSessionFactory : ICoreFactory
             return new CoreResult<ICoreSessionCandidate>.Failure([new("frozen", "Fault", null, [])]);
         ImmutableArray<CoreProblem> report = capture.InputIdentity == content.Identity
             ? [] : [new("content_changed", "InputIdentity", null, [capture.InputIdentity.Value, content.Identity.Value])];
+        var world = WorldReferences.RestorePopulationDependencies(capture.World, content);
         return new CoreResult<ICoreSessionCandidate>.Success(new CoreSessionCandidate(
             new(capture.Position, capture.NextCommandNumber, capture.Revision, content,
-                World: Railway.TrainOperations.AdaptNodes(capture.World, content)),
+                World: Railway.TrainOperations.AdaptNodes(world, content)),
             options.RetainedRecordingStarts, report));
     }
 

@@ -83,8 +83,8 @@ public sealed class WorldCaptureTests
     {
         using var candidate = Prepare();
         using var session = candidate.Activate();
-        var references = MinimalReferences();
-        CaptureScenario.AssertContract(session, WorldFixture.Content.Identity, references, references);
+        CaptureScenario.AssertContract(session, WorldFixture.Content.Identity,
+            MinimalReferences(false), MinimalReferences(true));
     }
 
     [TestMethod]
@@ -252,7 +252,7 @@ public sealed class WorldCaptureTests
         using var session = candidate.Activate();
         var captured = Capture(session);
         var saved = Success(CoreFactory.Create().DecodeState(captured.Encode()));
-        var content = WorldFixture.Content with { Goods = [], MissingReferences =
+        var content = WorldFixture.Content with { Goods = WorldFixture.Content.Goods.Where(g => g.Good != new GoodId.Voxel(WorldFixture.Material)).ToImmutableArray(), MissingReferences =
             [new(new CoreDefinitionReference.Voxel(WorldFixture.Material), "Content.Goods")] };
         using var restoredCandidate = Success(CoreFactory.Create().PrepareRestore(saved, content, WorldFixture.Options));
         Assert.IsTrue(restoredCandidate.MissingReferences.Any(m => m.Reference == new CoreDefinitionReference.Voxel(WorldFixture.Material)
@@ -282,7 +282,7 @@ public sealed class WorldCaptureTests
         Assert.AreEqual(captured.Encode(), Success(CoreFactory.Create().DecodeState(captured.Encode())).Encode());
     }
 
-    private static CoreReferenceManifest MinimalReferences()
+    private static CoreReferenceManifest MinimalReferences(bool advanced)
     {
         var definitions = new List<RequiredDefinition>
         {
@@ -301,8 +301,27 @@ public sealed class WorldCaptureTests
             foreach (var field in new[] { "Definition", "RepairGood" })
                 definitions.Add(new(new CoreDefinitionReference.Voxel(WorldFixture.Material), null,
                     $"World.Designs[{hash.Value}].Parts[0].{field}", false));
+        foreach (var good in WorldFixture.PopulationRule().ConsumptionGoods)
+        {
+            var reference = new CoreDefinitionReference.Voxel(((GoodId.Voxel)good.Good).Definition);
+            definitions.Add(new(reference, null, "Content.PopulationRules[fixture:population].ConsumptionGoods", false));
+            if (advanced)
+                definitions.Add(new(reference, null, "World.Settlements[1].PopulationState.Period.Rule.ConsumptionGoods", false));
+        }
+        if (advanced)
+            definitions.Add(new(new CoreDefinitionReference.Rule(WorldFixture.Rules.Population), WorldFixture.Revision,
+                "World.Settlements[1].PopulationState.Period.Rule", false));
         return new([WorldFixture.Vehicle, WorldFixture.Station],
-            [new(new(1), new("fixture:town-template"), [new(1, PlotSize.SmallStation)])], definitions.ToImmutableArray(), [WorldFixture.Content.Identity]);
+            [new(new(1), new("fixture:town-template"), [new(1, PlotSize.SmallStation)])],
+            definitions.OrderBy(d => d.Definition switch
+            {
+                CoreDefinitionReference.Rule r => "rule:" + r.Id.Value,
+                CoreDefinitionReference.SettlementType s => "settlement:" + s.Id.Value,
+                CoreDefinitionReference.Terrain t => "terrain:" + t.Id.Value,
+                CoreDefinitionReference.Voxel v => "voxel:" + v.Id.Value,
+                _ => throw new InvalidOperationException("Unexpected fixture reference.")
+            }, StringComparer.Ordinal).ThenBy(d => d.Field, StringComparer.Ordinal).ToImmutableArray(),
+            [WorldFixture.Content.Identity]);
     }
 
     private static void AssertQueries(ICoreReadView expected, ICoreReadView actual)
