@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using Godot;
 using Train.App.Assets;
 using Train.Core.Contracts;
@@ -17,14 +18,16 @@ internal static class Assertions
     }
 
     internal static async Task FramesUntil(Node testScene, Func<bool> completed,
-        GodotMainThreadDispatcher? dispatcher = null)
+        GodotMainThreadDispatcher? dispatcher = null, TimeSpan? timeout = null,
+        [CallerArgumentExpression(nameof(completed))] string? description = null)
     {
+        var limit = timeout ?? TimeSpan.FromSeconds(30);
         var watch = Stopwatch.StartNew();
-        while (!completed() && watch.Elapsed < TimeSpan.FromSeconds(30))
+        while (!completed() && watch.Elapsed < limit)
         {
             dispatcher?.Pump();
             await testScene.ToSignal(testScene.GetTree(), SceneTree.SignalName.ProcessFrame);
         }
-        Require(completed(), "真实 Godot 帧未完成模块交接。");
+        Require(completed(), $"真实 Godot 帧等待超时：{description}；已等待 {watch.Elapsed.TotalSeconds:F3} 秒，上限 {limit.TotalSeconds:F3} 秒。");
     }
 }
