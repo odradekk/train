@@ -8,7 +8,7 @@ namespace Train.Core.World;
 
 internal static class WorldContentPublication
 {
-    internal static CommandEffect Execute(WorldState world, CoreContentProjection before, CoreContentProjection content)
+    internal static CommandEffect Execute(WorldState world, CoreContentProjection before, CoreContentProjection content, SimulationPosition boundary)
     {
         var problems = ImmutableArray.CreateBuilder<CoreProblem>();
         var normalized = WorldInputs.NormalizeContent(content);
@@ -90,7 +90,8 @@ internal static class WorldContentPublication
         {
             Nodes = adapted.Nodes.Select(n => platforms.TryGetValue(n.Id, out var count) ? n with { Platforms = count } : n).ToImmutableArray()
         };
-        return new CommandEffect.Accepted(content, [], Railway.TrainOperations.AdaptNodes(adapted, content));
+        var result = Railway.TrainOperations.AdaptNodes(adapted, content, boundary);
+        return new CommandEffect.Accepted(content, result.Events, result.World);
 
         void Problem(string code, string field, string identity) => problems.Add(new(code, field, Subject(field), [identity]));
     }

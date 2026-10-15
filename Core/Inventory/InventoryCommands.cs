@@ -43,7 +43,7 @@ internal static class InventoryCommands
     };
 
     internal static TradeQuote Quote(WorldState world, CoreContentProjection content, ulong step,
-        CoreRevision revision, TradeQuoteRequest request, Money? condition = null)
+        CoreRevision revision, TradeQuoteRequest request, Money? condition = null, AutomaticGoodsAction? automatic = null)
     {
         var trade = request.Action is TradeAction.Buy or TradeAction.Sell;
         var incoming = request.Action is TradeAction.Buy or TradeAction.Load;
@@ -83,10 +83,50 @@ internal static class InventoryCommands
         var stock = source.Goods.FirstOrDefault(g => g.Good == request.Good)?.Quantity ?? 0;
         var space = InventoryStorage.Read(world, content, step, destination).Available;
         var localStock = local.Goods.FirstOrDefault(g => g.Good == request.Good)?.Quantity ?? 0;
-        MarketStockTargets? market = trade ? new(world, content, settlement, step) : null;
+        MarketStockTargets? market = trade || automatic is AutomaticGoodsAction.Load && lease is null
+            ? new(world, content, settlement, step) : null;
         var marketQuantity = market?.Quantity(request.Good, localStock, Math.Min(request.Quantity, stock), incoming)
             ?? Math.Min(request.Quantity, stock);
         executable = Math.Min(marketQuantity, space);
+        if (automatic is not null)
+        {
+            CoreProblem? incomplete = null;
+            if (stock < request.Quantity)
+                incomplete = new("insufficient_goods", "Quantity", new WorldObjectId.Inventory(source.Id), []);
+            if (marketQuantity < Math.Min(request.Quantity, stock))
+                incomplete = new(incoming ? "insufficient_goods" : "insufficient_demand", "Quantity", new WorldObjectId.Inventory(local.Id), []);
+            if (space < marketQuantity)
+                incomplete = new("insufficient_capacity", incoming ? "Train.Inventory.Capacity" : "LocalInventory.Capacity",
+                    new WorldObjectId.Inventory(destination.Id), []);
+            long amount = 0, completed = 0;
+            if (trade)
+            {
+                var limit = automatic switch
+                {
+                    AutomaticGoodsAction.Buy buy => buy.MaximumUnitPrice,
+                    AutomaticGoodsAction.Sell sell => sell.MinimumUnitPrice,
+                    _ => null
+                };
+                foreach (var price in UnitPrices(world, content, request, market!, localStock, executable))
+                {
+                    if (limit is { } unitLimit && (incoming ? price.Value > unitLimit.Value : price.Value < unitLimit.Value))
+                    {
+                        incomplete = new("price_condition_failed", incoming ? "MaximumUnitPrice" : "MinimumUnitPrice", null, []);
+                        break;
+                    }
+                    if (incoming && price.Value > world.Money.Value - amount)
+                    {
+                        incomplete = new("insufficient_money", "Wallet", null, []);
+                        break;
+                    }
+                    amount = checked(amount + price.Value);
+                    completed++;
+                }
+                if (!incoming) _ = checked(world.Money.Value + amount);
+            }
+            else completed = executable;
+            return new(request, revision, completed, new(amount), incomplete is null ? [] : [incomplete], []);
+        }
         if (stock < request.Quantity) return Reject("insufficient_goods", "Quantity", new WorldObjectId.Inventory(source.Id));
         if (marketQuantity < request.Quantity)
             return Reject(incoming ? "insufficient_goods" : "insufficient_demand", "Quantity", new WorldObjectId.Inventory(local.Id));
@@ -95,16 +135,9 @@ internal static class InventoryCommands
                 new WorldObjectId.Inventory(destination.Id));
         if (trade)
         {
-            var prices = rule!.GoodPrices.SingleOrDefault(p => p.Good == request.Good)?.Parameters ?? rule.DefaultGoodsPrices;
-            var value = WorldGoods.Definition(world, content, request.Good)!.BaseValue;
-            var range = market!.TargetRange(request.Good, incoming ? localStock - 1 : localStock);
             long amount = 0, affordable = 0;
-            for (long i = 0; i < request.Quantity; i++)
+            foreach (var price in UnitPrices(world, content, request, market!, localStock, request.Quantity))
             {
-                var lowerStock = incoming ? localStock - i - 1 : checked(localStock + i);
-                if (lowerStock < range.Minimum || lowerStock > range.Maximum)
-                    range = market.TargetRange(request.Good, lowerStock);
-                var price = MarketPrices.Good(value, prices, range.Target, (BigInteger)lowerStock * 2 + 1, incoming);
                 amount = checked(amount + price.Value);
                 if (amount <= world.Money.Value) affordable++;
             }
@@ -145,11 +178,32 @@ internal static class InventoryCommands
         var (request, condition) = Request(command);
         var quote = Quote(world, content, step, new(0), request, condition);
         if (!quote.Blockers.IsEmpty) return new CommandEffect.Rejected(quote.Blockers);
+        return Apply(world, content, request, quote.Total!.Value);
+    }
+
+    private static IEnumerable<Money> UnitPrices(WorldState world, CoreContentProjection content,
+        TradeQuoteRequest request, MarketStockTargets market, long localStock, long count)
+    {
+        if (count == 0) yield break;
+        var incoming = request.Action == TradeAction.Buy;
+        var rule = market.Rule!;
+        var prices = rule.GoodPrices.SingleOrDefault(p => p.Good == request.Good)?.Parameters ?? rule.DefaultGoodsPrices;
+        var value = WorldGoods.Definition(world, content, request.Good)!.BaseValue;
+        var range = market.TargetRange(request.Good, incoming ? localStock - 1 : localStock);
+        for (long i = 0; i < count; i++)
+        {
+            var lowerStock = incoming ? localStock - i - 1 : checked(localStock + i);
+            if (lowerStock < range.Minimum || lowerStock > range.Maximum) range = market.TargetRange(request.Good, lowerStock);
+            yield return MarketPrices.Good(value, prices, range.Target, (BigInteger)lowerStock * 2 + 1, incoming);
+        }
+    }
+
+    internal static CommandEffect.Accepted Apply(WorldState world, CoreContentProjection content, TradeQuoteRequest request, Money amount)
+    {
         var train = world.Trains.Single(t => t.Id == request.Train);
         var incoming = request.Action is TradeAction.Buy or TradeAction.Load;
         var source = incoming ? request.LocalInventory : train.Inventory;
         var destination = incoming ? train.Inventory : request.LocalInventory;
-        var amount = quote.Total!.Value;
         var money = request.Action switch
         {
             TradeAction.Buy => checked(world.Money.Value - amount.Value),
@@ -159,6 +213,7 @@ internal static class InventoryCommands
         var after = world with
         {
             Money = new(money),
+            Trains = world.Trains.Select(t => t.Id == train.Id ? RunReports.Transferred(t, request.Action, request.Quantity, amount) : t).ToImmutableArray(),
             Inventories = world.Inventories.Select(i => i.Id == source ? Move(i, -request.Quantity)
                 : i.Id == destination ? Move(i, request.Quantity) : i).ToImmutableArray()
         };

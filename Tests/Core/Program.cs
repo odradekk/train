@@ -6,6 +6,7 @@ using Train.Core.Tests.Railway;
 using Train.Core.Tests.Inventory;
 using Train.Core.Tests.Settlements;
 using Train.Core.Tests.Production;
+using Train.Core.Tests.Trading;
 
 if (args.Length > 0 && string.Equals(args[0], "--population-process", StringComparison.Ordinal))
     return await PopulationProcessDriver.RunAsync(args[1..]);
@@ -27,6 +28,9 @@ if (args.Length > 0 && string.Equals(args[0], "--production-process", StringComp
 
 if (args.Length > 0 && string.Equals(args[0], "--extraction-process", StringComparison.Ordinal))
     return await ExtractionProcessDriver.RunAsync(args[1..]);
+
+if (args.Length > 0 && string.Equals(args[0], "--automatic-process", StringComparison.Ordinal))
+    return await AutomaticProcessDriver.RunAsync(args[1..]);
 
 var builder = await TestApplication.CreateBuilderAsync(args);
 builder.AddSelfRegisteredExtensions(args);

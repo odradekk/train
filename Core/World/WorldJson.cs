@@ -76,6 +76,12 @@ internal static class WorldJson
                 var t when t == typeof(InventoryOwner) => [new(typeof(InventoryOwner.Settlement), "settlement"), new(typeof(InventoryOwner.Train), "train"), new(typeof(InventoryOwner.Lease), "lease")],
                 var t when t == typeof(TrainPosition) => [new(typeof(TrainPosition.Node), "node"), new(typeof(TrainPosition.Edge), "edge")],
                 var t when t == typeof(PlanStop) => [new(typeof(PlanStop.Waypoint), "waypoint"), new(typeof(PlanStop.Station), "station")],
+                var t when t == typeof(AutomaticGoodsAction) => [new(typeof(AutomaticGoodsAction.Buy), "buy"), new(typeof(AutomaticGoodsAction.Sell), "sell"),
+                    new(typeof(AutomaticGoodsAction.Load), "load"), new(typeof(AutomaticGoodsAction.Unload), "unload")],
+                var t when t == typeof(WorldObjectId) => [new(typeof(WorldObjectId.Node), "node"), new(typeof(WorldObjectId.Edge), "edge"),
+                    new(typeof(WorldObjectId.Train), "train"), new(typeof(WorldObjectId.Instance), "instance"), new(typeof(WorldObjectId.Settlement), "settlement"),
+                    new(typeof(WorldObjectId.Inventory), "inventory"), new(typeof(WorldObjectId.Job), "job"), new(typeof(WorldObjectId.Combat), "combat"),
+                    new(typeof(WorldObjectId.Creature), "creature"), new(typeof(WorldObjectId.CreatureGroup), "creature_group"), new(typeof(WorldObjectId.Lair), "lair")],
                 _ => []
             };
             if (variants.Length == 0) return;
