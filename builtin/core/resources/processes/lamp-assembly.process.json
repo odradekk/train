@@ -1,0 +1,1 @@
+{"schema_version":1,"id":"lamp-assembly","simulation":{"kind":"production","work_required":40,"power_per_work":1,"labor_per_work":1,"facility_tag":"assembly","inputs":[{"voxel":"electrical-components","quantity":4},{"voxel":"glass","quantity":4}],"outputs":[{"voxel":"lamp","quantity":4}]},"display":{"name":"生产灯具","description":"正式经济流程；批量、价值与速率为待用户试玩确认的第一版。"}}

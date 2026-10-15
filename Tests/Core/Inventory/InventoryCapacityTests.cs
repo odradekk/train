@@ -96,14 +96,70 @@ public sealed class InventoryCapacityTests
     {
         using var original = Session();
         var saved = WorldFixture.Success(original.Capture(CapturePurpose.Save));
+        var decoded = WorldFixture.Success(CoreFactory.Create().DecodeState(saved.Encode()));
         var content = Changed(Content(), '5') with { Goods = Content().Goods.Where(g => g.Good != Voxel).ToImmutableArray() };
-        using var candidate = WorldFixture.Success(CoreFactory.Create().PrepareRestore(saved, content, WorldFixture.Options));
+        using var candidate = WorldFixture.Success(CoreFactory.Create().PrepareRestore(decoded, content, WorldFixture.Options));
         using var session = candidate.Activate();
-        var trainInventory = original.State.World.Trains.Single().Inventory;
-        var inventory = ReadInventory(session, trainInventory);
+        var train = ((Lookup<TrainView>.Found)session.Read().FindTrain(new(1))).Value;
+        Assert.AreEqual(0.0, train.TractionKilonewtons);
+        Assert.AreEqual(0.0, train.MaximumSpeedMetersPerSecond);
+        Assert.IsTrue(train.Blockers.Any(p => p.Code == "control_missing"));
+        var inventory = ReadInventory(session, train.Inventory);
         Assert.AreEqual(0L, inventory.Capacity);
         Assert.AreEqual(30L, inventory.Used);
         Assert.AreEqual(0L, inventory.Available);
         Assert.IsTrue(inventory.Stacks.Single(s => s.Good == Voxel).DefinitionMissing);
+    }
+
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, true)]
+    public void Restored_missing_parts_preserve_other_capabilities_and_saved_damage(bool composite, bool survivingControl)
+    {
+        var content = Content();
+        var missingGood = composite ? Composite : Voxel;
+        var knownGood = composite ? Voxel : Composite;
+        content = content with { Designs = content.Designs.Select(d => d.Design == WorldFixture.Vehicle ? d with
+        {
+            Parts = [d.Parts[0] with { Definition = WorldReferences.GoodReference(missingGood)!, RepairGood = missingGood },
+                d.Parts[0] with { Id = new(1), Definition = WorldReferences.GoodReference(knownGood)!, RepairGood = knownGood,
+                    Capabilities = survivingControl
+                        ? [new PartCapability.Control(), new PartCapability.Propulsion(30, 20), new PartCapability.Storage(40)]
+                        : [new PartCapability.Propulsion(30, 20), new PartCapability.Storage(40)] }]
+        } : d).ToImmutableArray() };
+        using var generated = Session(content);
+        var state = generated.State;
+        using var original = new CoreSession(state with { World = state.World with
+        {
+            Instances = state.World.Instances.Select(i => i.Id is InstanceId.Vehicle ? i with
+            { StructureDurability = 62, Parts = [new(new(0), 55), new(new(1), 75)] } : i).ToImmutableArray()
+        } });
+        var saved = WorldFixture.Success(original.Capture(CapturePurpose.Save));
+        var payload = saved.Encode();
+        var decoded = WorldFixture.Success(CoreFactory.Create().DecodeState(payload));
+        var missing = Changed(content, '5') with { Goods = content.Goods.Where(g => g.Good != missingGood).ToImmutableArray() };
+        using var candidate = WorldFixture.Success(CoreFactory.Create().PrepareRestore(decoded, missing, WorldFixture.Options));
+        using var session = candidate.Activate();
+        var train = ((Lookup<TrainView>.Found)session.Read().FindTrain(new(1))).Value;
+        Assert.AreEqual(30.0, train.TractionKilonewtons);
+        Assert.AreEqual(20.0, train.MaximumSpeedMetersPerSecond);
+        Assert.AreEqual(!survivingControl, train.Blockers.Any(p => p.Code == "control_missing"));
+        var inventory = ReadInventory(session, train.Inventory);
+        Assert.AreEqual(40L, inventory.Capacity);
+        Assert.AreEqual(30L, inventory.Used);
+        Assert.AreEqual(10L, inventory.Available);
+        var adapted = WorldFixture.Success(session.Capture(CapturePurpose.Save));
+        Assert.AreEqual(saved.Checkpoint, adapted.Checkpoint);
+        Assert.AreEqual(payload, saved.Encode());
+        Assert.AreEqual(payload, decoded.Encode());
+        var placeholder = WorldFixture.Success(CoreFactory.Create().DecodeState(adapted.Encode()));
+        using var repairedCandidate = WorldFixture.Success(CoreFactory.Create().PrepareRestore(placeholder, content, WorldFixture.Options));
+        using var repaired = repairedCandidate.Activate();
+        var repairedTrain = ((Lookup<TrainView>.Found)repaired.Read().FindTrain(new(1))).Value;
+        Assert.AreEqual(130.0, repairedTrain.TractionKilonewtons);
+        Assert.AreEqual(10.0, repairedTrain.MaximumSpeedMetersPerSecond);
+        Assert.IsEmpty(repairedTrain.Blockers);
+        Assert.AreEqual(140L, ReadInventory(repaired, repairedTrain.Inventory).Capacity);
+        Assert.AreEqual(saved.Checkpoint, WorldFixture.Success(repaired.Capture(CapturePurpose.Save)).Checkpoint);
     }
 }

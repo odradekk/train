@@ -1,1 +1,1 @@
-{"schema_version":3,"id":"industrial-city","simulation":{"preferred_terrain":["core:plains"],"weight":3,"population_min":120,"population_max":360},"display":{"name":"工业城","description":"按 Demo 目录选择偏好地貌；生产配平待 #379。","map_symbol":"shared/agricultural-town.png","major":true}}
+{"schema_version":3,"id":"industrial-city","simulation":{"preferred_terrain":["core:plains"],"weight":3,"population_min":120,"population_max":360},"display":{"name":"工业城","description":"按 Demo 目录选择偏好地貌；经济参数待用户试玩确认。","map_symbol":"shared/agricultural-town.png","major":true}}

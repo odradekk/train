@@ -1,0 +1,1 @@
+{"schema_version":1,"id":"recover-construction-block","simulation":{"kind":"recovery","work_required":20,"power_per_work":1,"labor_per_work":1,"facility_tag":"recovery","inputs":[{"voxel":"construction-block","quantity":4}],"outputs":[{"voxel":"construction-material","quantity":1}]},"display":{"name":"回收混凝土块","description":"正式经济流程；批量、价值与速率为待用户试玩确认的第一版。"}}

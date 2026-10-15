@@ -179,7 +179,7 @@ public class AppTests(Node testScene) : TestClass(testScene)
                 "Production composition did not enable the installed Mod.");
             var path = Path.Combine(directory, "resources/voxels/engine-food.voxel.json");
             var definition = JsonNode.Parse(File.ReadAllText(path))!;
-            definition["simulation"]!["value"] = 13;
+            definition["simulation"]!["value"] = definition["simulation"]!["value"]!.GetValue<int>() + 1;
             File.WriteAllText(path, definition.ToJsonString());
             Require(InputMap.HasAction(Train.App.App.ReloadContentAction), "reload_content input action is missing.");
             using var input = new InputEventAction { Action = Train.App.App.ReloadContentAction, Pressed = true };

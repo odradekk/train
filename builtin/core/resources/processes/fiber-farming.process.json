@@ -1,0 +1,1 @@
+{"schema_version":1,"id":"fiber-farming","simulation":{"kind":"production","work_required":60,"power_per_work":0,"labor_per_work":1,"facility_tag":"agriculture","inputs":[],"outputs":[{"voxel":"natural-fiber","quantity":4}],"environment":{"terrain_types":["plains","hills"]}},"display":{"name":"生产天然纤维","description":"正式经济流程；批量、价值与速率为待用户试玩确认的第一版。"}}
