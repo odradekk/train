@@ -106,8 +106,16 @@ internal static class RailwayFixtures
                     ? new Lookup<EdgeView>.Found(((Lookup<EdgeView>.Found)snapshot.Core.FindEdge(item.Id)).Value with { Map = item })
                     : snapshot.Core.FindEdge(item.Id)),
                 Trains = world.Trains.ToDictionary(item => item.Id, item => snapshot.Core.FindTrain(item.Id)),
+                Settlements = world.Nodes.Select(item => item.Occupant).OfType<NodeOccupant.Settlement>()
+                    .ToDictionary(item => item.Id, item => snapshot.Core.FindSettlement(item.Id)),
                 Instances = world.Trains.SelectMany(item => ((Lookup<TrainView>.Found)snapshot.Core.FindTrain(item.Id)).Value.Vehicles)
-                .Select(id => new InstanceId.Vehicle(id)).Distinct().ToDictionary(id => (InstanceId)id, id => snapshot.Core.FindInstance(id))
+                .Select(id => (InstanceId)new InstanceId.Vehicle(id))
+                .Concat(world.Nodes.Select(item => item.Occupant).OfType<NodeOccupant.Settlement>()
+                    .Select(item => snapshot.Core.FindSettlement(item.Id)).OfType<Lookup<SettlementView>.Found>()
+                    .SelectMany(item => item.Value.Plots.Select(plot => plot.Occupant).OfType<PlotOccupant.Building>()
+                        .Select(building => (InstanceId)new InstanceId.Building(building.Id))
+                        .Concat(item.Value.ParkedVehicles.Select(vehicle => (InstanceId)new InstanceId.Vehicle(vehicle)))))
+                .Distinct().ToDictionary(id => id, id => snapshot.Core.FindInstance(id))
             }
         };
     }

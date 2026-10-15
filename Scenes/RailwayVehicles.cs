@@ -66,6 +66,7 @@ internal static class RailwayVehicles
 internal sealed class SceneVehicles : IAsyncDisposable
 {
     private readonly Dictionary<InstanceId, BuiltObject> ready = [];
+    private readonly Dictionary<InstanceId, InstanceView> current = [];
     internal sealed class Cache
     {
         private readonly object gate = new();
@@ -112,27 +113,46 @@ internal sealed class SceneVehicles : IAsyncDisposable
         live = instances.ToHashSet();
         cache.Retain(owner, live);
         foreach (var id in ready.Keys.Where(id => !live.Contains(id)).ToArray()) ready.Remove(id);
+        foreach (var id in current.Keys.Where(id => !live.Contains(id)).ToArray()) current.Remove(id);
+        Drain();
         // In-flight work remains owned and counted until completion; removed instances cannot republish to the cache.
     }
 
     internal RenderedDesign? Reconcile(IContentView content, InstanceView instance, Func<string, SceneObjectId> objectId)
     {
-        foreach (var pair in pending.Where(pair => pair.Value.IsCompleted).ToArray())
-        {
-            pending.Remove(pair.Key);
-            var built = pair.Value.GetAwaiter().GetResult();
-            if (live is null || live.Contains(pair.Key)) ready[pair.Key] = built.Body;
-            cache.Publish(owner, pair.Key, built.Key, built.Body);
-        }
+        var body = Prepare(content, instance);
+        return body is not null && WorldSceneSession.Matches(body, instance)
+            ? WorldSceneSession.Attach(body.Geometry, "vehicle:" + instance.Id + ":", objectId).Geometry : null;
+    }
+
+    internal BuiltObject? Prepare(IContentView content, InstanceView instance)
+    {
+        current[instance.Id] = instance;
+        Drain();
         if (ready.TryGetValue(instance.Id, out var body) && WorldSceneSession.Matches(body, instance))
-            return WorldSceneSession.Attach(body.Geometry, "vehicle:" + instance.Id + ":", objectId).Geometry;
+            return body;
         if (!pending.ContainsKey(instance.Id) && pending.Count < RailwayCoordinates.MaxConcurrentBuilds)
             pending.Add(instance.Id, Task.Run(() =>
             {
                 var key = Inputs(content, instance);
                 return (key, cache.Find(key) ?? build(content, instance));
             }, cancellation.Token));
-        return null;
+        return body;
+    }
+
+    private void Drain()
+    {
+        foreach (var pair in pending.Where(pair => pair.Value.IsCompleted).ToArray())
+        {
+            pending.Remove(pair.Key);
+            var built = pair.Value.GetAwaiter().GetResult();
+            if ((live is null || live.Contains(pair.Key)) && current.TryGetValue(pair.Key, out var wanted) &&
+                WorldSceneSession.Matches(built.Body, wanted))
+            {
+                ready[pair.Key] = built.Body;
+                cache.Publish(owner, pair.Key, built.Key, built.Body);
+            }
+        }
     }
 
     private static string Inputs(IContentView content, InstanceView instance)
@@ -141,7 +161,8 @@ internal sealed class SceneVehicles : IAsyncDisposable
         if (lookup is not ContentLookup<DesignEvaluation>.Found found || found.Value is DesignEvaluation.Failed)
             return RailwayDependencies.Values(new object[] { instance.Id, instance.Design, lookup });
         var scene = DesignGeometry.Projection(found.Value);
-        return RailwayDependencies.Values(new object[] { instance.Id, instance.Design, ((InstanceDetails.Vehicle)instance.Details).Size,
+        return RailwayDependencies.Values(new object?[] { instance.Id, instance.Design,
+            instance.Details is InstanceDetails.Vehicle vehicle ? (object)vehicle.Size : null,
             WorldSceneSession.Destroyed(instance).OrderBy(part => part.Value).ToArray(), scene,
             found.Value is DesignEvaluation.Complete complete ? complete.Diagnostics : ((DesignEvaluation.Partial)found.Value).Diagnostics,
             scene.Voxels.Select(voxel => voxel.Voxel).Distinct().OrderBy(id => id.Value, StringComparer.Ordinal)
@@ -198,7 +219,7 @@ internal sealed class SceneVehicles : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         cancellation.Cancel();
-        try { await Task.WhenAll(PendingWork); }
+        try { await Task.WhenAll(pending.Values); }
         catch (Exception) { /* Closing observes owned build failures. */ }
         cancellation.Dispose();
     }

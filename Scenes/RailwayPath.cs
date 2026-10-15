@@ -85,6 +85,10 @@ internal sealed class RailwayPath
     internal NodeMapItem End { get; }
     internal ulong Seed { get; }
     internal RailwayAppearanceProjection Rules { get; }
+    private readonly Lazy<NodeLayout> startLayout;
+    private readonly Lazy<NodeLayout> endLayout;
+    internal NodeLayout StartLayout => startLayout.Value;
+    internal NodeLayout EndLayout => endLayout.Value;
     internal double LengthCells { get; }
     internal int SegmentCount => checked((int)Math.Ceiling(LengthCells / RailwayCoordinates.SegmentLengthCells));
     private readonly ScenePoint start;
@@ -109,6 +113,8 @@ internal sealed class RailwayPath
             throw new RailwayBuildException("The start node is missing.");
         End = snapshot.Core.FindNode(Edge.End) is Lookup<NodeView>.Found last ? last.Value.Map :
             throw new RailwayBuildException("The end node is missing.");
+        startLayout = new(() => NodeLayout.Build(snapshot, Start.Id, cancellation));
+        endLayout = new(() => NodeLayout.Build(snapshot, End.Id, cancellation));
         Seed = snapshot.Core.World.WorldSeed;
         Rules = snapshot.Content.FindRailwayAppearance(snapshot.Core.World.RailwayRule) is ContentLookup<RailwayAppearanceProjection>.Found rules
             ? rules.Value : throw new RailwayBuildException("The railway appearance is missing.");
