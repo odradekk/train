@@ -92,7 +92,7 @@ Base 不匹配、资源尚未准备好或适配失败时，不部分应用更新
 | 数据 | 格式与责任 |
 | --- | --- |
 | `SceneMesh` | 对象局部格坐标，顶点法线归一化，三角形索引合法且个数为三的倍数，从外侧看逆时针；Godot 转换引擎绕序 |
-| `SceneVertex` | TextureUv 为已计算的贴图坐标；FaceUv、外露边标志、相对高度、损伤供着色器使用；比例在 `[0,1]` |
+| `SceneVertex` | `readonly record struct`，字段及顺序保持 Position、Normal、TextureUv、FaceUv、ExposedEdges、RelativeHeight、Damage；TextureUv 为已计算的贴图坐标，可超出 `[0,1]`；FaceUv、外露边标志、相对高度、损伤供着色器使用，高度与损伤比例在 `[0,1]` |
 | `SceneMaterial` | 面贴图只含资产修订、材质类别及可选涂装；钢轨、轨枕、水面和施工表现使用项目自带材质 |
 | `SceneVisual.Model` | 一格一个原始模型引用，材质次序沿用内容元数据；对象 Pose 已包含格放置和绕格中心的朝向。Godot 只将模型米坐标换为格，不额外适配尺寸。相对高度平面把模型局部格坐标换成所属对象高度比例，用于积灰 |
 | `Wheelset` | 体素给出位置、轴向、尺寸和转角，Godot 提供轮对模型；轴为对象局部 X，转角为弧度，尺寸为正数格 |
@@ -103,7 +103,9 @@ Base 不匹配、资源尚未准备好或适配失败时，不部分应用更新
 
 立方体贴图按体素的 24 种局部朝向选面：局部 +Y、-Y 分别用 Top、Bottom；局部 +Z 在 Front 与 Side 的 `AssetRevision` 不同时用 Front，其余面用 Side。侧面和 Front 的图像上方朝局部 +Y，顶面、底面朝局部 +Z。`TextureUv` 的 `(0,0)` 是图像左上角，U 沿「图像上方 × 外法线」增大，V 沿图像上方的反方向增大，从面外看图像不镜像。
 
-Top、Bottom、Side 沿贴图轴以对象网格的整数坐标作向下取整的取模，按跨度 1／2／4／8 选取图中的子块，每格 `TextureUv` 均在 `[0,1]` 内。同一周期中相邻格的共边坐标相等，周期边界从 1 回到 0，由宿主重复采样衔接；负坐标沿用同一规则。Front 与 Side 的资产修订不同时，Front 使用单格 `[0,1]` 且不平铺；相同时视为没有 Front，局部 +Z 使用 Side 并参与平铺。内容侧在缺省 Front 时须保持 Front = Side。平铺只影响 `TextureUv`，`FaceUv` 和外露边标志仍使用相互一致的单面坐标。真实 Godot 纹理采样由 #298 联调验证。
+Top、Bottom、Side 沿贴图轴以对象网格的整数坐标作向下取整的取模，按跨度 1／2／4／8 选取图中的子块；负坐标沿用同一规则。Front 与 Side 的资产修订不同时，Front 使用跨度 1；相同时视为没有 Front，局部 +Z 使用 Side 并参与平铺。内容侧在缺省 Front 时须保持 Front = Side。单格面仍使用原坐标；合并矩形从首格的整数取模相位连续增加 `TextureUv`，可超出 `[0,1]`，由宿主重复采样衔接，不能先将远坐标转成低精度浮点再取模。
+
+[#495 批准决定](https://github.com/odradekk/train/issues/495#issuecomment-6195218048)将 `SceneVertex` 从 `sealed record` 改为上述值类型，`SceneMesh` 的 `ImmutableArray` 及跨更新保留所有权不变。无磨损合并矩形的四边在单位格点分段，以中心扇形三角化；1×1 面保留四顶点、两三角形。`TextureUv`、`FaceUv` 和 `RelativeHeight` 在矩形内仿射插值，四角 `FaceUv` 为 0／1，`ExposedEdges` 为 None；`FaceUv` 与 `ExposedEdges` 仅在 `WearEnabled=true` 时参与着色，有磨损面保持逐格坐标与外露边。合并范围和不可合并条件见[区块面合并](../design/01-voxel-engine-and-scenes.md#区块面合并)。
 
 体素只生成标准形状、铁路等自己的几何，不接收像素或导入模型几何。模型纹理、材质、磨损图案、粒子实现和缺失标记外观归 Godot，见[资产交接](README.md#表现资产的交接)。
 
