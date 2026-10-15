@@ -324,6 +324,70 @@ def small_locomotive():
     return value
 
 
+def building_shell(cells, origin, size):
+    x0, y0, z0 = origin
+    width, height, depth = size
+    x1, y1, z1 = x0 + width - 1, y0 + height - 1, z0 + depth - 1
+    for y in range(y0, y1 + 1):
+        belt = y in (y0, y1) or (y - y0) % 12 < 2
+        for x in range(x0, x1 + 1):
+            if belt or x in (x0, x1) or (x - x0) % 12 < 2:
+                for z in (z0, z1):
+                    cells[x, y, z] = 1 if belt else 0
+        for z in range(z0, z1 + 1):
+            if belt or z in (z0, z1) or (z - z0) % 12 < 2:
+                for x in (x0, x1):
+                    cells[x, y, z] = 1 if belt else 0
+
+
+def core_city_hub():
+    cells = {}
+    building_shell(cells, (-160, 0, -112), (320, 24, 224))
+    for x0 in (-144, 48):
+        building_shell(cells, (x0, 24, -32), (96, 48, 64))
+        building_shell(cells, (x0 + 16, 72, -24), (64, 48, 48))
+        cells.update({(x, 71, z): 1 for x in range(x0, x0 + 96) for z in range(-32, 32)})
+        cells.update({(x, 119, z): 1 for x in range(x0 + 16, x0 + 80) for z in range(-24, 24)})
+    building_shell(cells, (-28, 24, -24), (56, 144, 48))
+    building_shell(cells, (-16, 168, -16), (32, 64, 32))
+    cells.update({(x, 167, z): 1 for x in range(-28, 28) for z in range(-24, 24)})
+    cells.update({(x, 231, z): 1 for x in range(-16, 16) for z in range(-16, 16)})
+    # 基座的十字梁把塔楼、侧翼与外圈柱廊连成一体，不铺满巨型地块。
+    for y in (0, 23):
+        cells.update({(x, y, z): 1 for x in range(-160, 160) for z in range(-2, 2)})
+        cells.update({(x, y, z): 1 for x in range(-2, 2) for z in range(-112, 112)})
+    for x in range(-148, 141, 24):
+        for z in (-111, 110):
+            cells[x, 1, z] = 2
+    value = blueprint("core-city-hub", "核心城市中枢", "building",
+                      ["construction-material", "structural-metal", "storage-equipment"], cells,
+                      {"plot_size": "giant", "building_type": "warehouse", "facility_tags": []})
+    value["display"]["description"] = "320×224×232 格的城市仓储地标：长基座柱廊、两级侧翼与中央高塔；仓储来自实际货舱，外观待阶段试玩确认。"
+    return value
+
+
+def bastion_fortress():
+    cells = {(x, y, z): 0 for y in range(20) for x in range(-176, 176) for z in (-160, 159)}
+    cells.update({(x, y, z): 0 for y in range(20) for z in range(-160, 160) for x in (-176, 175)})
+    for x0 in (-176, 144):
+        for z0 in (-160, 128):
+            building_shell(cells, (x0, 0, z0), (32, 112, 32))
+            cells.update({(x, 111, z): 1 for x in range(x0, x0 + 32) for z in range(z0, z0 + 32)})
+            cells[x0 + 1, 1, z0 + 1] = 2
+            cells[x0 + 1, 2, z0 + 1] = 2
+    building_shell(cells, (-32, 0, 128), (64, 80, 32))
+    # 正面门洞通向内院；门楼两侧与城墙相连。
+    for x in range(-12, 12):
+        for y in range(16):
+            for z in (128, 159):
+                cells.pop((x, y, z), None)
+    value = blueprint("bastion-fortress", "棱堡要塞", "building",
+                      ["construction-material", "structural-metal", "storage-equipment"], cells,
+                      {"plot_size": "giant", "building_type": "defense", "facility_tags": []})
+    value["display"]["description"] = "352×320×112 格的围墙、四座角堡、门楼与内院；当前只由实际货舱提供仓储，不含武器，战斗用途待战斗阶段实现。"
+    return value
+
+
 def content_files():
     files = {}
 
@@ -520,6 +584,24 @@ def content_files():
                   "founding": [{"plot": 1, "building": "small-station"}, {"plot": 10, "building": "basic-shed"}],
                   "inventory": [], "production_plans": [],
                   "display": {"name": name + "基础布局", "description": "十地块布局，含两个站点地块与委托、仓储、供能设施；生产计划和库存待后续切片。"}})
+
+    for value in (core_city_hub(), bastion_fortress()):
+        document("blueprints", "blueprint", value["id"], value)
+    city = json.loads(files["settlement-templates/industrial-city.settlement-template.json"])
+    city.update(id="core-city", scene_model="core-city-ground")
+    city["plots"].extend([
+        {"id": 11, "size": "giant", "at": [-224, 1, 800], "orientation": "px_py", "building": "core-city-hub"},
+        {"id": 12, "size": "giant", "at": [224, 1, 800], "orientation": "px_py", "building": "bastion-fortress"},
+    ])
+    city["display"] = {"name": "核心城市", "description": "工业城的十二地块布局；两座巨型仓储建筑、重型车辆工厂与原有工业和公共设施。要塞战斗用途待战斗阶段实现。"}
+    document("settlement-templates", "settlement-template", "core-city", city)
+    ground = {(x, 0, z): 0 for x in range(-432, 432) for z in range(-2, 2)}
+    ground.update({(x, 0, z): 0 for x in range(-2, 2) for z in range(-232, 1000)})
+    for row in (224, 448, 800):
+        ground.update({(x, 0, z): 0 for x in range(-432, 432) for z in range(row - 2, row + 2)})
+    document("blueprints", "blueprint", "core-city-ground",
+             blueprint("core-city-ground", "核心城市地面", "scene_model", ["ground"], ground,
+                       appearance={"flatten": {"from": [-432, -232], "to": [431, 999], "height": 1}}))
 
     needs = ("food", "clothing", "improved_diet", "consumer_goods", "consumer_electronics", "medical_supplies")
     consumption = []
