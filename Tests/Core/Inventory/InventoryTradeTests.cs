@@ -304,6 +304,22 @@ public sealed class InventoryTradeTests
         Accept(session, Command(request, 100000));
     }
 
+    [TestMethod]
+    public void Large_food_surplus_uses_the_constant_target_range_without_scanning_each_unit()
+    {
+        const long stock = 1_000_000_000_000;
+        foreach (var good in new[] { new GoodId.Voxel(new("fixture:food")), PreparedFood })
+        {
+            using var session = Session(Content(capacity: stock), local: [new(good, stock)]);
+            var settlement = ((Lookup<SettlementView>.Found)session.Read().FindSettlement(new(1))).Value;
+            var row = settlement.Market.Goods.Single(g => g.Good == good);
+            // Ten residents, one food unit/person/second and one second of basic reserve.
+            Assert.AreEqual(10L, row.RestockTarget);
+            Assert.AreEqual(stock - 10, row.SellableQuantity);
+            Assert.IsTrue(row.Blockers.IsEmpty);
+        }
+    }
+
     private static void AssertOverflow(CoreSession session, TradeQuoteRequest request)
     {
         var before = session.State;

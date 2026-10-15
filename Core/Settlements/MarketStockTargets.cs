@@ -132,11 +132,23 @@ internal sealed class MarketStockTargets
             var target = Target(good, stock);
             return Math.Min(limit, buy ? Math.Max(0, stock - target) : Math.Max(0, target - stock));
         }
+        var conversion = _population!.ConsumptionGoods.Single(g => g.Good == good).Satisfies.Single(c => c.Need == PopulationNeed.Food).AmountPerGoodUnit;
+        var foodUnits = new BigInteger(Math.Ceiling(_population.Needs.Single(n => n.Need == PopulationNeed.Food)
+            .AmountPerPersonSecond * _settlement.Population * (Rule!.BasicReserveHours * 3600) / conversion));
+        var boundary = checked((long)BigInteger.Min(_capacity, foodUnits));
         long count = 0;
         while (count < limit)
         {
             var current = buy ? stock - count : checked(stock + count);
             var target = Target(good, current);
+            // Above food coverage targets are constant; above capacity every target is bounded by capacity.
+            if (!buy && current >= boundary)
+                return checked(count + Math.Min(limit - count, Math.Max(0, target - current)));
+            if (buy && current > boundary)
+            {
+                var surplus = Math.Min(limit - count, current - Math.Max(boundary, target));
+                if (surplus > 0) { count += surplus; continue; }
+            }
             if (buy ? current <= target : current >= target) break;
             count++;
         }
