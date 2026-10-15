@@ -340,7 +340,8 @@ public sealed class NodeTraversalTests
             {
                 Position = new TrainPosition.Edge(new(2), 1, TravelDirection.Reverse, 5000),
                 Activity = TrainActivity.Running, SpeedMetersPerSecond = 1,
-                Plan = new(false, [Waypoint(1)]), NextStopIndex = 0
+                Plan = new(false, [Waypoint(1)]), NextStopIndex = 0,
+                CurrentRun = new(state.Position, new(0), new(0), 0, 0, 0, [])
             })
         };
         using var session = new CoreSession(state with { World = world });
@@ -421,7 +422,8 @@ public sealed class NodeTraversalTests
         {
             Position = new TrainPosition.Edge(new(2), 1, TravelDirection.Reverse, 5000),
             SpeedMetersPerSecond = 1, Activity = TrainActivity.Running,
-            Plan = new(false, [Waypoint(1)]), NextStopIndex = 0
+            Plan = new(false, [Waypoint(1)]), NextStopIndex = 0,
+            CurrentRun = new(state.Position, new(0), new(0), 0, 0, 0, [])
         };
         using var session = new CoreSession(state with { World = world with
         {
@@ -517,7 +519,8 @@ public sealed class NodeTraversalTests
         var town = world.Nodes[0];
         var arriving = world.Trains[0] with { Position = new TrainPosition.Edge(new(1), 1, TravelDirection.Reverse, 200),
             Activity = TrainActivity.Running, SpeedMetersPerSecond = 15.1,
-            Plan = new(false, station ? [Station(1), Waypoint(3)] : [Waypoint(1), Waypoint(3)]), NextStopIndex = 0 };
+            Plan = new(false, station ? [Station(1), Waypoint(3)] : [Waypoint(1), Waypoint(3)]), NextStopIndex = 0,
+            CurrentRun = new(state.Position, new(0), new(0), 0, 0, 0, []) };
         world = world with
         {
             Nodes = [town, town with { Id = new(2), Position = new(1, 0), Occupant = new NodeOccupant.Empty(), Platforms = 0 },

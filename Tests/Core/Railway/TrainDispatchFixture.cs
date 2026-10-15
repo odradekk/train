@@ -23,7 +23,8 @@ internal static class TrainDispatchFixture
             Source = world.Source with { Configuration = world.Source.Configuration with { WidthMeters = Math.Max(20, length) } },
             Nodes = [node, node with { Id = new(2), Position = new(Math.Min(20, length), 0), Occupant = new NodeOccupant.Empty(), Platforms = 0 }],
             Edges = [new(new(1), new(1), new(2), length, node.Terrain, tracks, 2, [], [])],
-            Trains = world.Trains.Select(t => t with { Plan = new(false, [new PlanStop.Waypoint(new(2))]), NextStopIndex = 0 }).ToImmutableArray(),
+            Trains = world.Trains.Select(t => t with { Plan = new(false, [new PlanStop.Waypoint(new(2))]), NextStopIndex = 0,
+                CurrentRun = new(state.Position, new(0), new(0), 0, 0, 0, []) }).ToImmutableArray(),
             Next = world.Next with { Node = 3, Edge = 2 }
         };
         WorldStateValidation.Validate(world);

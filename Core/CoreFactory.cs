@@ -44,7 +44,7 @@ internal sealed class CoreSessionFactory : ICoreFactory
         var world = WorldReferences.RestorePopulationDependencies(capture.World, content);
         return new CoreResult<ICoreSessionCandidate>.Success(new CoreSessionCandidate(
             new(capture.Position, capture.NextCommandNumber, capture.Revision, content,
-                World: Railway.TrainOperations.AdaptNodes(world, content)),
+                World: Railway.TrainOperations.AdaptNodes(world, content, capture.Position).World),
             options.RetainedRecordingStarts, report));
     }
 
