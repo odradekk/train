@@ -69,11 +69,8 @@ internal static class ProductionQueries
         var inputs = PopulationOperations.ReadInputs(world, content);
         var labor = PopulationOperations.Problems(world, settlement, inputs).IsEmpty
             ? settlement.Population * inputs.Current!.LaborRatio : 0;
-        var energy = settlement.Plots.Where(p => p.Building is not null)
-            .Sum(p => BuildingCapabilities.Read(world, content, p.Building!.Value).Power) * SimulationTime.StepSeconds;
-        var fuel = content.Goods.Where(g => g.Good is GoodId.Voxel && g.FuelEnergyPerUnit is not null
-                && !WorldGoods.DefinitionMissing(world, content, g.Good))
-            .OrderBy(g => WorldReferences.GoodKey(g.Good), StringComparer.Ordinal).FirstOrDefault();
+        var energy = SettlementResources.GeneratedEnergy(world, content, settlement);
+        var fuel = SettlementResources.Fuels(world, content).FirstOrDefault();
         var result = ImmutableArray.CreateBuilder<(FacilityView, ProcessProjection?, double)>();
         foreach (var runtime in settlement.ProductionFacilities.Select(f => (Runtime: f, View: Find(world, content, f.Facility)!))
             .OrderBy(f => f.View.Priority).ThenBy(f => f.View.Key.Building.Value).ThenBy(f => f.View.Key.Capability))

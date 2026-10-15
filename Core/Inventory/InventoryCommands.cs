@@ -70,9 +70,7 @@ internal static class InventoryCommands
             return Reject("not_owned", "LocalInventory", new WorldObjectId.Inventory(local.Id));
         if (!trade && !incoming && lease is not null && step >= lease.ExpiresAtStep)
             return Reject("access_denied", "LocalInventory", new WorldObjectId.Inventory(local.Id));
-        var ruleId = world.Source.Configuration.Rules.Market;
-        var rule = content.MissingReferences.Any(m => m.Reference == new CoreDefinitionReference.Rule(ruleId))
-            ? null : content.MarketRules.SingleOrDefault(r => r.Id == ruleId);
+        var rule = MarketPrices.Rule(world, content);
         if (trade && rule is null) return Reject("content_missing", "MarketRule");
         if (!TrainDispatch.HoldsPlatform(world, train) || train.Activity != TrainActivity.Servicing
             || train.Position is not TrainPosition.Node { Phase: NodeTravelPhase.Docked } || train.SpeedMetersPerSecond != 0)

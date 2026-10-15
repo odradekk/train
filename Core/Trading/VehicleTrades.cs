@@ -29,7 +29,7 @@ internal static class VehicleTrades
     internal static ImmutableArray<VehiclePurchaseCapacity> PurchaseCapacities(WorldState world,
         CoreContentProjection content, SettlementState settlement)
     {
-        var rule = Rule(world, content);
+        var rule = MarketPrices.Rule(world, content);
         if (settlement.Relation == SettlementRelation.PlayerOwned || rule is null) return [];
         var forSale = ForSale(world, settlement);
         return Enum.GetValues<SizeClass>().Select(size =>
@@ -70,7 +70,7 @@ internal static class VehicleTrades
             || design.ReturnUnits.Any(u => !u.MissingReferences.IsEmpty)
             || WorldReferences.DesignGoods(design).Any(g => WorldGoods.DefinitionMissing(world, content, g.Good)))
             return Reject("content_missing", "Vehicle");
-        var rule = Rule(world, content);
+        var rule = MarketPrices.Rule(world, content);
         if (rule is null) return Reject("content_missing", "MarketRule", null);
         if (!buy)
         {
@@ -113,13 +113,6 @@ internal static class VehicleTrades
                 world.Instances.Single(i => i.Id == new InstanceId.Building(p.Building!.Value)))
             .SelectMany(part => part.Capabilities).OfType<PartCapability.Construction>()
             .Any(c => c.WorkPerSecond > 0 && c.MaximumVehicleSize is { } maximum && maximum >= size));
-
-    private static MarketRuleProjection? Rule(WorldState world, CoreContentProjection content)
-    {
-        var id = world.Source.Configuration.Rules.Market;
-        return content.MissingReferences.Any(m => m.Reference == new CoreDefinitionReference.Rule(id))
-            ? null : content.MarketRules.SingleOrDefault(r => r.Id == id);
-    }
 
     private static (VehicleTradeQuoteRequest Request, Money Condition) Request(CoreCommand command) => command switch
     {

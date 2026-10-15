@@ -3,6 +3,7 @@ using System.Numerics;
 using Train.Core.Contracts;
 using Train.Core.Inventory;
 using Train.Core.Production;
+using Train.Core.Trading;
 using Train.Core.World;
 
 namespace Train.Core.Settlements;
@@ -27,9 +28,7 @@ internal sealed class MarketStockTargets
     internal MarketStockTargets(WorldState world, CoreContentProjection content, SettlementState settlement, ulong step)
     {
         _settlement = settlement;
-        var id = world.Source.Configuration.Rules.Market;
-        Rule = content.MissingReferences.Any(m => m.Reference == new CoreDefinitionReference.Rule(id))
-            ? null : content.MarketRules.SingleOrDefault(r => r.Id == id);
+        Rule = MarketPrices.Rule(world, content);
         var inputs = PopulationOperations.ReadInputs(world, content);
         _population = PopulationOperations.Problems(world, settlement, inputs).IsEmpty
             ? settlement.PopulationState.Period?.Rule ?? inputs.Current : null;
@@ -42,9 +41,7 @@ internal sealed class MarketStockTargets
         PreparedStock = Prepared is null ? 0 : _stock.GetValueOrDefault(Prepared);
         _capacity = InventoryStorage.Settlement(world, content, settlement, step).View.NpcCapacity;
         _available = InventoryStorage.Read(world, content, step, inventory).Available;
-        _fuel = content.Goods.Where(g => g.Good is GoodId.Voxel && g.FuelEnergyPerUnit is not null
-                && !WorldGoods.DefinitionMissing(world, content, g.Good))
-            .OrderBy(g => WorldReferences.GoodKey(g.Good), StringComparer.Ordinal).FirstOrDefault();
+        _fuel = SettlementResources.Fuels(world, content).FirstOrDefault();
         _production = ProductionQueries.Potential(world, content, settlement);
         Current = Calculate(StapleStock, PreparedStock);
     }

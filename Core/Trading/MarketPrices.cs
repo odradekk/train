@@ -6,6 +6,13 @@ namespace Train.Core.Trading;
 
 internal static class MarketPrices
 {
+    internal static MarketRuleProjection? Rule(WorldState world, CoreContentProjection content)
+    {
+        var id = world.Source.Configuration.Rules.Market;
+        return content.MissingReferences.Any(m => m.Reference == new CoreDefinitionReference.Rule(id))
+            ? null : content.MarketRules.SingleOrDefault(r => r.Id == id);
+    }
+
     internal static Money Good(Money value, GoodsPriceParameters parameters, long target, BigInteger twiceStock, bool buy)
     {
         BigInteger numerator;

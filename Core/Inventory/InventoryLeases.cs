@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Train.Core.Contracts;
 using Train.Core.Sessions;
+using Train.Core.Trading;
 using Train.Core.World;
 
 namespace Train.Core.Inventory;
@@ -27,8 +28,7 @@ internal static class InventoryLeases
         var capacity = request is LeaseRequest.Rent r ? r.Capacity : lease?.Capacity;
         var duration = request is LeaseRequest.Rent rental ? rental.DurationSteps : ((LeaseRequest.Renew)request).DurationSteps;
         var ruleId = world.Source.Configuration.Rules.Market;
-        var rule = content.MissingReferences.Any(m => m.Reference == new CoreDefinitionReference.Rule(ruleId))
-            ? null : content.MarketRules.SingleOrDefault(r => r.Id == ruleId);
+        var rule = MarketPrices.Rule(world, content);
         long rentable = 0;
         var occupancyFits = true;
         if (settlement is not null && rule is not null)
