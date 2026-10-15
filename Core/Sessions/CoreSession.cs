@@ -43,7 +43,8 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
             WorldInputs.ValidateContent(publish.Content);
             if (publish.Content.Identity == State.Content.Identity)
                 throw new ArgumentException("发布内容的输入身份必须不同于当前身份。", nameof(command));
-            return ExecuteCommand(publish, source, before => WorldContentPublication.Execute(State.World, before, publish.Content));
+            return ExecuteCommand(publish, source, before => WorldContentPublication.Execute(State.World, before, publish.Content,
+                new(State.Position.CompletedSteps, checked(State.Position.Sequence + 1))));
         }
         if (command is CoreCommand.BuyVehicle or CoreCommand.SellVehicle)
         {
@@ -57,7 +58,8 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
             return ExecuteCommand(command, source, content => InventoryCommands.Execute(State.World, content, command, State.Position.CompletedSteps));
         }
         TrainCommands.Validate(command);
-        return ExecuteCommand(command, source, content => TrainCommands.Execute(State.World, content, command, State.Position.CompletedSteps));
+        return ExecuteCommand(command, source, content => TrainCommands.Execute(State.World, content, command,
+            new(State.Position.CompletedSteps, checked(State.Position.Sequence + 1))));
     }
 
     internal SubmissionResult ExecuteCommand(CoreCommand command, CommandSource source,

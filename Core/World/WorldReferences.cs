@@ -63,6 +63,14 @@ internal static class WorldReferences
             }
         }
         foreach (var lair in world.Lairs) Add(new CoreDefinitionReference.Lair(lair.Type), $"World.Lairs[{lair.Id.Value}].Type");
+        foreach (var train in world.Trains)
+        {
+            if (train.Plan is not { } plan) continue;
+            for (var index = 0; index < plan.Stops.Length; index++)
+                if (plan.Stops[index] is PlanStop.Station station)
+                    for (var ruleIndex = 0; ruleIndex < station.GoodsRules.Length; ruleIndex++)
+                        Good(station.GoodsRules[ruleIndex].Good, $"World.Trains[{train.Id.Value}].Plan.Stops[{index}].GoodsRules[{ruleIndex}].Good");
+        }
         foreach (var design in world.Designs)
         {
             var path = $"World.Designs[{design.Design.Value}]";

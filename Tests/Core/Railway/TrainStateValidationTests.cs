@@ -108,7 +108,7 @@ public sealed class TrainStateValidationTests
             case "invalid_node_phase": train["position"] = JsonNode.Parse("{\"$kind\":\"node\",\"id\":{\"value\":1},\"entered_from\":null,\"next_edge\":null,\"phase\":99,\"distance_meters\":0,\"platform_number\":null}"); break;
             case "unsupported_activity": train["activity"] = (int)TrainActivity.Combat; break;
             case "stopped_on_edge": train["activity"] = (int)TrainActivity.Stopped; train["speed_meters_per_second"] = 0; break;
-            case "missing_plan": train["plan"] = null; train["next_stop_index"] = null; break;
+            case "missing_plan": train["plan"] = null; train["next_stop_index"] = null; train["current_run"] = null; break;
             case "invalid_index": train["next_stop_index"] = 20; break;
             case "empty_plan": train["plan"]!["stops"]!.AsArray().Clear(); break;
             case "single_target_loop": train["plan"]!["loop"] = true; break;
@@ -171,7 +171,8 @@ public sealed class TrainStateValidationTests
                 ? new TrainPosition.Edge(edge.Id, 1, TravelDirection.Forward, edge.LengthMeters / 2)
                 : WorldFixture.Node(edge.Start, NodeTravelPhase.Departing, nextEdge: edge.Id),
             Activity = activity, SpeedMetersPerSecond = activity == TrainActivity.Running ? 2 : 0,
-            Plan = hasPlan ? state.World.Trains[0].Plan : null, NextStopIndex = null, StopRequested = stopRequested
+            Plan = hasPlan ? state.World.Trains[0].Plan : null, NextStopIndex = null, StopRequested = stopRequested,
+            CurrentRun = null
         };
         var capture = new CoreCapture(state with { World = state.World with { Trains = [train] } });
         var result = CoreFactory.Create().DecodeState(capture.Encode());
@@ -192,7 +193,8 @@ public sealed class TrainStateValidationTests
         var state = session.State;
         var train = state.World.Trains[0] with
         {
-            Plan = new(false, [new PlanStop.Waypoint(state.World.Nodes[^1].Id)]), NextStopIndex = 0
+            Plan = new(false, [new PlanStop.Waypoint(state.World.Nodes[^1].Id)]), NextStopIndex = 0,
+            CurrentRun = new(state.Position, new(0), new(0), 0, 0, 0, [])
         };
         return state with { World = state.World with { Trains = [train] } };
     }

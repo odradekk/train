@@ -126,7 +126,7 @@ public sealed class CoreCommandEncodingTests
 
     [TestMethod]
     [DataRow("{\"kind\":\"station\",\"node\":1,\"dwell_steps\":0}", "/goods_rules")]
-    [DataRow("{\"kind\":\"station\",\"node\":1,\"dwell_steps\":0,\"goods_rules\":[{}]}", "/goods_rules")]
+    [DataRow("{\"kind\":\"station\",\"node\":1,\"dwell_steps\":0,\"goods_rules\":[{}]}", "/goods_rules/0/action")]
     [DataRow("{\"kind\":\"waypoint\",\"node\":1,\"node\":2}", "/node")]
     [DataRow("{\"kind\":\"waypoint\",\"node\":1,\"goods_rules\":[]}", "/goods_rules")]
     [DataRow("{\"kind\":\"unknown\",\"node\":1}", "/kind")]
@@ -149,13 +149,73 @@ public sealed class CoreCommandEncodingTests
     }
 
     [TestMethod]
-    public void Automatic_goods_rules_remain_unimplemented_in_recorded_inputs()
+    public void Automatic_goods_rules_preserve_order_and_have_canonical_vectors()
     {
-        var rule = new AutomaticGoodsRule(new AutomaticGoodsAction.Load(),
-            new GoodId.Voxel(new("test:ore")), new(1), 1);
-        var command = new CoreCommand.ReplaceRunPlan(new(1),
-            new(false, [new PlanStop.Station(new(1), 0, [rule])]));
-        Assert.ThrowsExactly<NotImplementedException>(() => CoreCommandEncoding.Encode(command));
+        var good = new GoodId.Voxel(new("test:ore"));
+        AutomaticGoodsRule[] rules = [
+            new(new AutomaticGoodsAction.Buy(new(7)), good, new(2), 0),
+            new(new AutomaticGoodsAction.Sell(null), new GoodId.Composite(new("test:steel")), new(3), long.MaxValue),
+            new(new AutomaticGoodsAction.Load(), new GoodId.Assembly(new(new string('A', 64))), new(4), 9),
+            new(new AutomaticGoodsAction.Unload(), good, new(5), 1)];
+        var command = new CoreCommand.ReplaceRunPlan(new(1), new(false, [new PlanStop.Station(new(1), 0, [.. rules])]));
+        var payload = CoreCommandEncoding.Encode(command);
+        StringAssert.Contains(payload, "\"action\":{\"kind\":\"buy\",\"maximum_unit_price\":7}");
+        StringAssert.Contains(payload, "\"action\":{\"kind\":\"sell\",\"minimum_unit_price\":null}");
+        StringAssert.Contains(payload, "\"action\":{\"kind\":\"load\"}");
+        StringAssert.Contains(payload, "\"action\":{\"kind\":\"unload\"}");
+        var decoded = (CoreCommand.ReplaceRunPlan)Decode(payload);
+        CollectionAssert.AreEqual(rules, ((PlanStop.Station)decoded.Plan.Stops[0]).GoodsRules.ToArray());
+        Assert.AreEqual(payload, CoreCommandEncoding.Encode(decoded));
+        foreach (var action in new AutomaticGoodsAction[] { new AutomaticGoodsAction.Buy(null), new AutomaticGoodsAction.Sell(new(0)) })
+        {
+            var rule = rules[0] with { Action = action };
+            var input = command with { Plan = new(false, [new PlanStop.Station(new(1), 0, [rule])]) };
+            var output = (CoreCommand.ReplaceRunPlan)Decode(CoreCommandEncoding.Encode(input));
+            Assert.AreEqual(rule, ((PlanStop.Station)output.Plan.Stops[0]).GoodsRules[0]);
+        }
+    }
+
+    [TestMethod]
+    public void Automatic_goods_rule_has_a_fixed_vector_and_accepts_reordered_nested_fields()
+    {
+        const string payload = """{"input_format_version":2,"kind":"train.replace_run_plan","train":1,"plan":{"loop":false,"stops":[{"kind":"station","node":2,"dwell_steps":0,"goods_rules":[{"action":{"kind":"buy","maximum_unit_price":0},"good":{"kind":"voxel","definition":"test:ore"},"local_inventory":3,"target_quantity":0}]}]}}""";
+        const string reordered = """{"input_format_version":2,"kind":"train.replace_run_plan","train":1,"plan":{"stops":[{"goods_rules":[{"target_quantity":0,"local_inventory":3,"good":{"definition":"test:ore","kind":"voxel"},"action":{"maximum_unit_price":0,"kind":"buy"}}],"dwell_steps":0,"node":2,"kind":"station"}],"loop":false}}""";
+        var rule = new AutomaticGoodsRule(new AutomaticGoodsAction.Buy(new(0)), new GoodId.Voxel(new("test:ore")), new(3), 0);
+        var command = new CoreCommand.ReplaceRunPlan(new(1), new(false, [new PlanStop.Station(new(2), 0, [rule])]));
+        Assert.AreEqual(payload, CoreCommandEncoding.Encode(command));
+        Assert.AreEqual(payload, CoreCommandEncoding.Encode(Decode(reordered)));
+    }
+
+    [TestMethod]
+    public void Invalid_automatic_goods_rules_cannot_be_encoded()
+    {
+        var valid = new AutomaticGoodsRule(new AutomaticGoodsAction.Load(), new GoodId.Voxel(new("test:ore")), new(1), 0);
+        foreach (var rule in new[] { valid with { Action = null! }, valid with { Good = new GoodId.Voxel(new("bad id")) },
+            valid with { LocalInventory = new(0) }, valid with { TargetQuantity = -1 },
+            valid with { Action = new AutomaticGoodsAction.Buy(new(-1)) }, valid with { Action = new AutomaticGoodsAction.Sell(new(-1)) } })
+            Assert.ThrowsExactly<ArgumentException>(() => CoreCommandEncoding.Encode(new CoreCommand.ReplaceRunPlan(new(1),
+                new(false, [new PlanStop.Station(new(1), 0, [rule])]))));
+    }
+
+    [TestMethod]
+    [DataRow("\"action\":{\"kind\":\"buy\",\"maximum_unit_price\":null}", "\"action\":{\"kind\":\"buy\"}", "/action/maximum_unit_price")]
+    [DataRow("\"maximum_unit_price\":null", "\"maximum_unit_price\":-1", "/action/maximum_unit_price")]
+    [DataRow("\"maximum_unit_price\":null", "\"maximum_unit_price\":1.5", "/action/maximum_unit_price")]
+    [DataRow("\"maximum_unit_price\":null", "\"maximum_unit_price\":9223372036854775808", "/action/maximum_unit_price")]
+    [DataRow("\"kind\":\"buy\"", "\"kind\":\"unknown\"", "/action/kind")]
+    [DataRow("\"maximum_unit_price\":null", "\"maximum_unit_price\":null,\"extra\":0", "/action/extra")]
+    [DataRow("\"maximum_unit_price\":null", "\"maximum_unit_price\":null,\"maximum_unit_price\":0", "/action/maximum_unit_price")]
+    [DataRow("\"local_inventory\":1", "\"local_inventory\":0", "/local_inventory")]
+    [DataRow("\"target_quantity\":0", "\"target_quantity\":-1", "/target_quantity")]
+    [DataRow("\"target_quantity\":0", "\"target_quantity\":0,\"extra\":0", "/extra")]
+    [DataRow("\"definition\":\"test:ore\"", "\"definition\":\"bad id\"", "/good/definition")]
+    public void Automatic_goods_rule_fields_are_strict(string from, string to, string field)
+    {
+        const string rule = "{\"action\":{\"kind\":\"buy\",\"maximum_unit_price\":null},\"good\":{\"kind\":\"voxel\",\"definition\":\"test:ore\"},\"local_inventory\":1,\"target_quantity\":0}";
+        var payload = "{\"input_format_version\":2,\"kind\":\"train.replace_run_plan\",\"train\":1,\"plan\":{\"loop\":false,\"stops\":[{\"kind\":\"station\",\"node\":1,\"dwell_steps\":0,\"goods_rules\":[" + rule.Replace(from, to, StringComparison.Ordinal) + "]}]}}";
+        var failure = (CoreResult<DecodedCommand>.Failure)CoreCommandEncoding.Decode(payload);
+        Assert.AreEqual("invalid_state", failure.Problems.Single().Code);
+        Assert.AreEqual("/plan/stops/0/goods_rules/0" + field, failure.Problems.Single().Field);
     }
 
     [TestMethod]
