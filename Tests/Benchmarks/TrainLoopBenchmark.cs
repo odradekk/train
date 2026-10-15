@@ -1,6 +1,8 @@
 using BenchmarkDotNet.Attributes;
+using Train.Core;
 using Train.Core.Contracts;
 using Train.Core.Tests.Railway;
+using Train.Core.Tests.World;
 
 namespace Train.Benchmarks;
 
@@ -8,13 +10,22 @@ public class TrainLoopBenchmark
 {
     public const int StepsPerBatch = 65_536;
     public const int TrainCount = 1;
+    internal const int ConsumptionIntervalTicks = 120;
+    internal const int StatisticsPeriodTicks = 720;
     private ICoreSession _session = null!;
     private AdvanceResult _result = null!;
 
     [IterationSetup]
     public void Reset()
     {
-        _session = TrainRecoveryFixture.New();
+        var content = TrainRecoveryFixture.Content;
+        // Match the builtin population cadence without slowing the shared unit-test fixture.
+        content = content with { PopulationRules = [content.PopulationRules[0] with
+            { ConsumptionIntervalTicks = ConsumptionIntervalTicks, StatisticsPeriodTicks = StatisticsPeriodTicks }] };
+        var input = WorldFixture.Input with { Configuration = WorldFixture.Input.Configuration with
+            { WidthMeters = 40, HeightMeters = 20, SettlementRatio = 1, LairRatio = 0, HostileSettlementRatio = 0 } };
+        using var candidate = WorldFixture.Success(CoreFactory.Create().PrepareNew(input, content, new(TrainRecoveryFixture.Runtime, false, 32)));
+        _session = candidate.Activate();
         TrainRecoveryFixture.Configure(_session);
         var train = TrainRecoveryFixture.Train(_session);
         TrainRecoveryFixture.Submit(_session,

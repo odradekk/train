@@ -12,6 +12,7 @@ internal static class ProductionOperations
         CoreContentProjection content, SettlementId id)
     {
         var settlement = world.Settlements.Single(s => s.Id == id);
+        if (settlement.Template.ProductionPlans.IsEmpty) return [];
         var plans = settlement.Template.ProductionPlans.Where(p => p.Capability == CapabilityKind.Production)
             .Select(p => (Plan: p, Building: settlement.Plots.Single(plot => plot.TemplateNumber == p.PlotNumber).Building))
             .Where(p => p.Building is not null).OrderBy(p => p.Plan.Priority).ThenBy(p => p.Building!.Value.Value).ToArray();
@@ -44,6 +45,9 @@ internal static class ProductionOperations
     {
         var world = resolution.World;
         var settlement = world.Settlements.Single(s => s.Id == id);
+        if (requests.IsEmpty && settlement.ProductionFacilities.All(f => f.OutputBuffer.IsEmpty
+            && f.LastActualWorkPerSecond == 0 && f.LastLimits.IsEmpty && f.LastPowerDemand == 0 && f.LastActualSupply == 0))
+            return (world, []);
         var plans = settlement.Template.ProductionPlans.Where(p => p.Capability == CapabilityKind.Production)
             .Select(p => (Plan: p, Building: settlement.Plots.Single(plot => plot.TemplateNumber == p.PlotNumber).Building))
             .Where(p => p.Building is not null).OrderBy(p => p.Plan.Priority).ThenBy(p => p.Building!.Value.Value).ToArray();

@@ -84,11 +84,14 @@ public sealed class PopulationRecoveryTests
         };
 
     [TestMethod]
-    [DataRow(true)]
-    [DataRow(false)]
-    public void Midperiod_save_preserves_consumption_and_signed_population_fractions(bool growth)
+    [DataRow(true, 1)]
+    [DataRow(false, 1)]
+    [DataRow(true, 2)]
+    [DataRow(false, 2)]
+    public void Midperiod_save_preserves_consumption_and_signed_population_fractions(bool growth, int interval)
     {
-        var content = Content(Rule() with { BaseGrowthPerSecond = 1, MaximumLossPerSecond = 1 }, growth ? Stock(100, 100) : []);
+        var content = Content(Rule() with { BaseGrowthPerSecond = 1, MaximumLossPerSecond = 1,
+            ConsumptionIntervalTicks = interval, StatisticsPeriodTicks = interval * 2 }, growth ? Stock(100, 100) : []);
         using var continuous = Start(content);
         Advance(continuous, 3);
         var saved = Capture(continuous);
@@ -131,13 +134,17 @@ public sealed class PopulationRecoveryTests
     }
 
     [TestMethod]
-    [DataRow(true)]
-    [DataRow(false)]
-    public void Missing_rule_or_frozen_good_disables_population_and_repair_resumes_the_same_period(bool missingRule)
+    [DataRow(true, 1)]
+    [DataRow(false, 1)]
+    [DataRow(true, 2)]
+    [DataRow(false, 2)]
+    public void Missing_rule_or_frozen_good_disables_population_and_repair_resumes_the_same_period(bool missingRule, int interval)
     {
-        var content = Content(Rule() with { StatisticsPeriodTicks = 4 }, Stock(100, 100));
+        var content = Content(Rule() with { ConsumptionIntervalTicks = interval, StatisticsPeriodTicks = interval * 4 }, Stock(100, 100));
         using var original = Start(content);
-        Advance(original, 1);
+        var prefix = interval == 1 ? 1u : 3u;
+        var remaining = (uint)(interval * 4) - prefix;
+        Advance(original, prefix);
         var missingReference = missingRule ? (CoreDefinitionReference)new CoreDefinitionReference.Rule(WorldFixture.Rules.Population)
             : new CoreDefinitionReference.Voxel(((GoodId.Voxel)Food).Definition);
         var missing = content with { Identity = Identity('A'), PopulationRules = missingRule ? [] : content.PopulationRules,
@@ -145,7 +152,7 @@ public sealed class PopulationRecoveryTests
             MissingReferences = [new(missingReference, "fixture")] };
         using var candidate = WorldFixture.Success(CoreFactory.Create().PrepareRestore(Capture(original), missing, WorldFixture.Options));
         using var restored = (CoreSession)candidate.Activate();
-        Assert.AreEqual(0, PopulationOperations.Begin(restored.State.World, missing, new(1)).AvailableLabor);
+        Assert.AreEqual(0, PopulationOperations.Begin(restored.State.World, missing, new(1), restored.Read().Position.CompletedSteps).AvailableLabor);
         var stock = Quantity(restored.Read(), Food);
         var disabled = Advance(restored, 8);
         Assert.IsEmpty(Reports(disabled));
@@ -154,12 +161,12 @@ public sealed class PopulationRecoveryTests
         Assert.AreEqual(stock, Quantity(restored.Read(), Food));
         var repaired = content with { Identity = Identity('B') };
         Publish(restored, repaired);
-        var repairedEvents = Advance(restored, 2);
+        var repairedEvents = Advance(restored, remaining - 1);
         Assert.IsEmpty(Reports(repairedEvents));
         Assert.AreEqual(1, repairedEvents.OfType<CoreEvent.PopulationAvailabilityChanged>().Count(e => e.Available));
         var resumed = Advance(restored, 1);
         Assert.AreEqual(1, Reports(resumed).Length);
-        var expected = Reports(Advance(original, 3)).Single();
+        var expected = Reports(Advance(original, remaining)).Single();
         var actual = Reports(resumed).Single();
         Assert.AreEqual(expected.Before, actual.Before);
         Assert.AreEqual(expected.After, actual.After);
@@ -176,15 +183,52 @@ public sealed class PopulationRecoveryTests
         var replacement = Good("replacement-food");
         var next = content with { Identity = Identity('A'),
             Goods = content.Goods.Where(g => g.Good != Food).Append(content.Goods[0] with { Good = replacement }).ToImmutableArray(),
-            PopulationRules = [Rule() with { ConsumptionGoods = Rule().ConsumptionGoods.Select(g => g.Good == Food ? g with { Good = replacement } : g).ToImmutableArray() }] };
-        var before = Capture(session);
+            PopulationRules = [Rule() with { Revision = new(new string('F', 64)),
+                ConsumptionGoods = Rule().ConsumptionGoods.Select(g => g.Good == Food ? g with { Good = replacement } : g).ToImmutableArray() }] };
+        var before = session.State;
         var result = (SubmissionResult.Completed)session.Submit(new CoreCommand.PublishContent(next), CommandSource.AutomationTest);
         var rejected = (CommandDecision.Rejected)result.Receipt.Decision;
         Assert.IsTrue(rejected.Problems.Any(p => p.Code == "content_missing"));
         Assert.AreEqual(content.Identity, session.Read().InputIdentity);
         Assert.IsEmpty(result.Events);
-        Assert.AreEqual(before.References.Definitions.Length, Capture(session).References.Definitions.Length);
+        AssertRejectedBoundary(before, session, result);
         Assert.AreEqual(WorldFixture.Revision, Reports(Advance(session, 3)).Single().ExecutionRevision);
+    }
+
+    [TestMethod]
+    public void Publication_cannot_remove_the_current_rule_during_a_period_started_under_an_older_revision()
+    {
+        var content = Content(Rule() with { StatisticsPeriodTicks = 4 }, []);
+        using var session = Start(content);
+        Advance(session, 1);
+        var current = content with { Identity = Identity('A'), PopulationRules = [content.PopulationRules[0] with
+            { Revision = new(new string('F', 64)), StatisticsPeriodTicks = 2 }] };
+        Publish(session, current);
+        var before = session.State;
+        var removed = current with { Identity = Identity('B'), PopulationRules = [] };
+        var result = (SubmissionResult.Completed)session.Submit(new CoreCommand.PublishContent(removed), CommandSource.AutomationTest);
+        var rejected = (CommandDecision.Rejected)result.Receipt.Decision;
+        Assert.IsTrue(rejected.Problems.Any(p => p.Code == "content_missing" && p.Field == "Configuration.Rules.Population"));
+        AssertRejectedBoundary(before, session, result);
+        Assert.IsEmpty(Reports(Advance(session, 2)));
+        Assert.AreEqual(WorldFixture.Revision, Reports(Advance(session, 1)).Single().ExecutionRevision);
+        Assert.AreEqual(current.PopulationRules[0].Revision, Reports(Advance(session, 2)).Single().ExecutionRevision);
+    }
+
+    private static void AssertRejectedBoundary(CoreState before, CoreSession session, SubmissionResult.Completed result)
+    {
+        var expected = before with
+        {
+            Position = before.Position with { Sequence = checked(before.Position.Sequence + 1) },
+            NextCommandNumber = checked(before.NextCommandNumber + 1),
+            Revision = new(checked(before.Revision.Value + 1))
+        };
+        Assert.IsInstanceOfType<CommandDecision.Rejected>(result.Receipt.Decision);
+        Assert.AreEqual(before.NextCommandNumber, result.Receipt.Number);
+        Assert.AreEqual(before.Position, result.Receipt.Before);
+        Assert.AreEqual(expected.Position, result.Receipt.After);
+        Assert.IsEmpty(result.Events);
+        Assert.AreEqual(new CoreCapture(expected).Encode(), Capture(session).Encode());
     }
 
     [TestMethod]

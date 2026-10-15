@@ -18,10 +18,19 @@ public sealed class PopulationStockTargetsTests
     [TestMethod]
     public void Fractional_needs_round_up_before_capacity_ties_use_stable_goods_order()
     {
-        var rule = Rule(.1, .9);
-        AssertTargets(Calculate(rule, 2), new(Staple, 1), new(Clothing, 1));
-        AssertTargets(Calculate(rule, 1), new GoodsQuantity(Staple, 1));
-        AssertTargets(Calculate(rule with { ConsumptionGoods = rule.ConsumptionGoods.Reverse().ToImmutableArray() }, 1), new GoodsQuantity(Staple, 1));
+        var staple = Good("z-staple");
+        var clothing = Good("a-clothing");
+        var original = Rule(.1, .9);
+        var rule = original with
+        {
+            ConsumptionGoods = original.ConsumptionGoods.Select(g => g with
+            {
+                Good = g.Good == Staple ? staple : g.Good == Clothing ? clothing : g.Good
+            }).ToImmutableArray()
+        };
+        AssertTargets(Calculate(rule, 2), new(clothing, 1), new(staple, 1));
+        AssertTargets(Calculate(rule, 1), new GoodsQuantity(clothing, 1));
+        AssertTargets(Calculate(rule with { ConsumptionGoods = rule.ConsumptionGoods.Reverse().ToImmutableArray() }, 1), new GoodsQuantity(clothing, 1));
     }
 
     [TestMethod]

@@ -114,27 +114,43 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
         return result;
     }
 
-    public AdvanceResult Advance(uint steps) => AdvanceWorld(steps, before =>
+    public AdvanceResult Advance(uint steps)
     {
-        var (world, events) = TrainOperations.Advance(before.World, before.Content, before.Position.CompletedSteps);
-        foreach (var settlement in before.World.Settlements)
+        PopulationInputs? inputs = null;
+        return AdvanceWorld(steps, before =>
         {
-            var population = PopulationOperations.Begin(before.World, before.Content, settlement.Id);
-            var consumption = population.Consumption;
-            var requests = ProductionOperations.Requests(before.World, before.Content, settlement.Id);
-            var resolution = SettlementResources.Resolve(world, before.Content, settlement.Id, population.AvailableLabor,
-                consumption?.BasicRequests ?? [], requests, granted => consumption?.PrepareImprovement(granted) ?? []);
-            var production = ProductionOperations.Complete(before.World, before.Content, settlement.Id,
-                requests, resolution, before.Position.CompletedSteps);
-            var result = PopulationOperations.Complete(production.World, settlement.Id, population,
-                resolution.ImprovementGrantedUnits, new(checked(before.Position.CompletedSteps + 1), 0));
-            world = result.World;
-            events = events.AddRange(production.Events).AddRange(result.Events);
-        }
-        events = events.AddRange(world.Settlements.SelectMany(s =>
-            ProductionQueries.StateChanges(before.World, before.Content, world, before.Content, s.Id)));
-        return (before.Content, world, InventoryLeases.ExpirationEvents(before.World, before.Position.CompletedSteps).AddRange(events));
-    });
+            var (world, events) = TrainOperations.Advance(before.World, before.Content, before.Position.CompletedSteps);
+            // Content and definitions cannot change within this public Advance call.
+            inputs ??= PopulationOperations.ReadInputs(world, before.Content);
+            foreach (var settlement in before.World.Settlements)
+            {
+                var population = PopulationOperations.Begin(world, before.Content, settlement.Id, before.Position.CompletedSteps, inputs);
+                var consumption = population.Consumption;
+                var requests = ProductionOperations.Requests(world, before.Content, settlement.Id);
+                SettlementResolution? resolution = null;
+                if (consumption is not null || !requests.IsEmpty)
+                {
+                    resolution = SettlementResources.Resolve(world, before.Content, settlement.Id, population.AvailableLabor,
+                        consumption?.BasicRequests ?? [], requests, granted => consumption?.PrepareImprovement(granted) ?? []);
+                    world = resolution.World;
+                }
+                if (!settlement.ProductionFacilities.IsEmpty)
+                {
+                    var production = ProductionOperations.Complete(world, before.Content, settlement.Id,
+                        requests, resolution ?? new(world, [], [], [], []), before.Position.CompletedSteps);
+                    world = production.World;
+                    events = events.AddRange(production.Events);
+                }
+                var result = PopulationOperations.Complete(world, settlement.Id, population,
+                    resolution?.ImprovementGrantedUnits ?? [], new(checked(before.Position.CompletedSteps + 1), 0));
+                world = result.World;
+                events = events.AddRange(result.Events);
+            }
+            events = events.AddRange(world.Settlements.Where(s => !s.ProductionFacilities.IsEmpty).SelectMany(s =>
+                ProductionQueries.StateChanges(before.World, before.Content, world, before.Content, s.Id)));
+            return (before.Content, world, InventoryLeases.ExpirationEvents(before.World, before.Position.CompletedSteps).AddRange(events));
+        });
+    }
 
     internal AdvanceResult Advance(uint steps,
         Func<CoreContentProjection, (CoreContentProjection Content, ImmutableArray<CoreEvent> Events)> stepBody)

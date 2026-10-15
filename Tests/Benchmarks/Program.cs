@@ -36,6 +36,8 @@ try
         measuredAtUtc = DateTimeOffset.UtcNow,
         trainCount = TrainLoopBenchmark.TrainCount,
         stepsPerBatch = TrainLoopBenchmark.StepsPerBatch,
+        populationConsumptionIntervalTicks = TrainLoopBenchmark.ConsumptionIntervalTicks,
+        populationStatisticsPeriodTicks = TrainLoopBenchmark.StatisticsPeriodTicks,
         meanNanosecondsPerStep = statistics.Mean,
         standardDeviationNanosecondsPerStep = statistics.StandardDeviation,
         sampleCount = statistics.N,

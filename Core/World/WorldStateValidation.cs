@@ -426,8 +426,16 @@ internal static class WorldStateValidation
             Require(settlement.PopulationState.LastSettlement is not { } report || report.Position.CompletedSteps <= completedSteps,
                 "/world/settlements/population_state/last_settlement/position");
             var previousSettlement = settlement.PopulationState.LastSettlement?.Position.CompletedSteps ?? 0;
-            Require(settlement.PopulationState.Period is not { } period || (ulong)period.ElapsedSteps <= completedSteps - previousSettlement,
-                "/world/settlements/population_state/period/elapsed_steps");
+            if (settlement.PopulationState.Period is not { } period) continue;
+            const string field = "/world/settlements/population_state/period";
+            Require(period.LastAdvancedStep >= previousSettlement && period.LastAdvancedStep <= completedSteps,
+                field + "/last_advanced_step");
+            var sinceAnchor = settlement.PopulationState.Available ? completedSteps - period.LastAdvancedStep : 0;
+            Require(sinceAnchor < (ulong)(period.Rule.StatisticsPeriodTicks - period.ElapsedSteps), field + "/elapsed_steps");
+            var elapsed = (ulong)period.ElapsedSteps + sinceAnchor;
+            Require(elapsed > 0 && elapsed <= completedSteps - previousSettlement, field + "/elapsed_steps");
+            if (elapsed < (ulong)period.Rule.ConsumptionIntervalTicks)
+                Require(period.Required.All(r => r == 0) && period.Satisfied.All(s => s == 0), field);
         }
     }
 
@@ -451,20 +459,15 @@ internal static class WorldStateValidation
             try { WorldInputs.ValidatePopulationRule(period.Rule); }
             catch (ArgumentException) { throw new CoreStateFormatException(field + "/period/rule"); }
             Require(period.Rule.Id == selectedRule, field + "/period/rule/id");
-            Require(period.ElapsedSteps > 0 && period.ElapsedSteps < period.Rule.StatisticsPeriodTicks,
+            Require(period.ElapsedSteps >= 0 && period.ElapsedSteps < period.Rule.StatisticsPeriodTicks,
                 field + "/period/elapsed_steps");
             Items(period.Required, field + "/period/required"); Items(period.Satisfied, field + "/period/satisfied");
             Require(period.Required.Length == 6 && period.Satisfied.Length == 6, field + "/period");
             for (var i = 0; i < 6; i++)
             {
-                var expected = settlement.Population * period.Rule.Needs[i].AmountPerPersonSecond
-                    * SimulationTime.StepSeconds * period.ElapsedSteps;
-                Require(double.IsFinite(period.Required[i]) && period.Required[i] >= 0 && period.Required[i] == expected,
+                Require(double.IsFinite(period.Required[i]) && period.Required[i] >= 0,
                     field + "/period/required");
-                var consumedSteps = period.ElapsedSteps / period.Rule.ConsumptionIntervalTicks * period.Rule.ConsumptionIntervalTicks;
-                var maximumSatisfied = settlement.Population * period.Rule.Needs[i].AmountPerPersonSecond
-                    * SimulationTime.StepSeconds * consumedSteps;
-                Require(double.IsFinite(period.Satisfied[i]) && period.Satisfied[i] >= 0 && period.Satisfied[i] <= maximumSatisfied,
+                Require(double.IsFinite(period.Satisfied[i]) && period.Satisfied[i] >= 0 && period.Satisfied[i] <= period.Required[i],
                     field + "/period/satisfied");
             }
         }

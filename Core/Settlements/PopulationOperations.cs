@@ -4,37 +4,55 @@ using Train.Core.World;
 
 namespace Train.Core.Settlements;
 
-internal sealed record PopulationStep(PopulationState State, double AvailableLabor,
+internal readonly record struct PopulationStep(PopulationState State, int ElapsedSteps, double AvailableLabor,
     PopulationConsumption? Consumption, ImmutableArray<CoreEvent> Events);
+
+internal sealed record PopulationInputs(PopulationRuleProjection? Current, bool RuleMissing,
+    ImmutableHashSet<GoodId> MissingGoods);
 
 internal static class PopulationOperations
 {
-    internal static PopulationStep Begin(WorldState world, CoreContentProjection content, SettlementId id)
+    internal static PopulationInputs ReadInputs(WorldState world, CoreContentProjection content)
+    {
+        var selected = world.Source.Configuration.Rules.Population;
+        var current = content.PopulationRules.FirstOrDefault(r => r.Id == selected);
+        var goods = world.Settlements.SelectMany(s => s.PopulationState.Period?.Rule.ConsumptionGoods ?? [])
+            .Concat(current?.ConsumptionGoods ?? []).Select(g => g.Good).Distinct();
+        return new(current, current is null || content.MissingReferences.Any(m => m.Reference == new CoreDefinitionReference.Rule(selected)),
+            goods.Where(g => WorldGoods.DefinitionMissing(world, content, g)).ToImmutableHashSet());
+    }
+
+    internal static PopulationStep Begin(WorldState world, CoreContentProjection content, SettlementId id,
+        ulong completedSteps, PopulationInputs? inputs = null)
     {
         var settlement = world.Settlements.Single(s => s.Id == id);
         var state = settlement.PopulationState;
-        var current = content.PopulationRules.FirstOrDefault(r => r.Id == world.Source.Configuration.Rules.Population);
-        var problems = Problems(world, content, settlement, current);
+        inputs ??= ReadInputs(world, content);
+        var current = inputs.Current;
+        var problems = Problems(world, settlement, inputs);
         var available = problems.IsEmpty;
         ImmutableArray<CoreEvent> events = state.Available == available ? []
             : [new CoreEvent.PopulationAvailabilityChanged(id, available, problems)];
-        state = state with { Available = available };
-        if (!available) return new(state, 0, null, events);
+        if (state.Available != available)
+        {
+            var paused = state.Period;
+            if (paused is not null) paused = paused with
+            {
+                ElapsedSteps = checked(paused.ElapsedSteps + (state.Available ? (int)(completedSteps - paused.LastAdvancedStep) : 0)),
+                LastAdvancedStep = completedSteps
+            };
+            state = state with { Available = available, Period = paused };
+        }
+        if (!available) return new(state, state.Period?.ElapsedSteps ?? 0, 0, null, events);
 
         var period = state.Period ?? new PopulationPeriodState(WorldInputs.NormalizePopulationRule(current!),
-            0, [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0]);
-        var elapsed = checked(period.ElapsedSteps + 1);
-        period = period with
-        {
-            ElapsedSteps = elapsed,
-            Required = period.Rule.Needs.Select(n => Finite(settlement.Population * n.AmountPerPersonSecond
-                * SimulationTime.StepSeconds * elapsed)).ToImmutableArray()
-        };
-        state = state with { Period = period };
+            0, completedSteps, [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0]);
+        var elapsed = checked(period.ElapsedSteps + (int)(completedSteps - period.LastAdvancedStep) + 1);
+        if (state.Period is null) state = state with { Period = period };
         var consumption = elapsed % period.Rule.ConsumptionIntervalTicks == 0
             ? new PopulationConsumption(period.Rule, settlement.Population,
                 world.Inventories.Single(i => i.Id == settlement.Inventory).Goods, state.ConsumptionRemaining) : null;
-        return new(state, Finite(settlement.Population * current!.LaborRatio), consumption, events);
+        return new(state, elapsed, Finite(settlement.Population * current!.LaborRatio), consumption, events);
     }
 
     internal static (WorldState World, ImmutableArray<CoreEvent> Events) Complete(WorldState world,
@@ -42,27 +60,27 @@ internal static class PopulationOperations
     {
         var settlement = world.Settlements.Single(s => s.Id == id);
         var state = step.State;
+        if (step.Consumption is null && ReferenceEquals(state, settlement.PopulationState)) return (world, step.Events);
         var residents = settlement.Population;
         var events = step.Events.ToBuilder();
         if (step.Consumption is { } consumption)
         {
             consumption.Complete(improvementGranted);
             var period = state.Period!;
+            var required = period.Required.ToBuilder();
             var satisfied = period.Satisfied.ToBuilder();
             var shortages = state.Shortages.ToBuilder();
             for (var i = 0; i < period.Rule.Needs.Length; i++)
             {
-                var previousRequired = residents * period.Rule.Needs[i].AmountPerPersonSecond * SimulationTime.StepSeconds
-                    * (period.ElapsedSteps - period.Rule.ConsumptionIntervalTicks);
-                // Full intervals stay exactly full; multiplying conversions must not create a rounding shortage.
-                satisfied[i] = period.Satisfied[i] == previousRequired && consumption.Satisfied[i] == consumption.Required[i]
-                    ? period.Required[i] : Math.Min(period.Required[i], period.Satisfied[i] + consumption.Satisfied[i]);
+                required[i] = Finite(required[i] + consumption.Required[i]);
+                satisfied[i] = Finite(satisfied[i] + consumption.Satisfied[i]);
                 var shortage = consumption.Satisfied[i] < consumption.Required[i];
                 if (shortages[i] != shortage)
                     events.Add(new CoreEvent.PopulationShortageChanged(id, period.Rule.Needs[i].Need, shortage));
                 shortages[i] = shortage;
             }
-            period = period with { Satisfied = satisfied.ToImmutable() };
+            period = period with { ElapsedSteps = step.ElapsedSteps, LastAdvancedStep = position.CompletedSteps,
+                Required = required.ToImmutable(), Satisfied = satisfied.ToImmutable() };
             state = state with { Period = period, ConsumptionRemaining = consumption.Remaining(), Shortages = shortages.ToImmutable() };
             if (period.ElapsedSteps == period.Rule.StatisticsPeriodTicks)
             {
@@ -91,17 +109,17 @@ internal static class PopulationOperations
         }, events.ToImmutable());
     }
 
-    private static ImmutableArray<CoreProblem> Problems(WorldState world, CoreContentProjection content,
-        SettlementState settlement, PopulationRuleProjection? current)
+    private static ImmutableArray<CoreProblem> Problems(WorldState world, SettlementState settlement, PopulationInputs inputs)
     {
+        if (!inputs.RuleMissing && inputs.MissingGoods.IsEmpty) return [];
         var problems = ImmutableArray.CreateBuilder<CoreProblem>();
         var selected = world.Source.Configuration.Rules.Population;
-        if (current is null || content.MissingReferences.Any(m => m.Reference == new CoreDefinitionReference.Rule(selected)))
+        if (inputs.RuleMissing)
             problems.Add(new("content_missing", "Configuration.Rules.Population", new WorldObjectId.Settlement(settlement.Id), [selected.Value]));
-        var execution = settlement.PopulationState.Period?.Rule ?? current;
+        var execution = settlement.PopulationState.Period?.Rule ?? inputs.Current;
         if (execution is not null)
             foreach (var good in execution.ConsumptionGoods)
-                if (WorldGoods.DefinitionMissing(world, content, good.Good))
+                if (inputs.MissingGoods.Contains(good.Good))
                     problems.Add(new("content_missing", $"World.Settlements[{settlement.Id.Value}].PopulationState.Period.Rule.ConsumptionGoods",
                         new WorldObjectId.Settlement(settlement.Id), [WorldReferences.GoodKey(good.Good)]));
         return problems.ToImmutable();

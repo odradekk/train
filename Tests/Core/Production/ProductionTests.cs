@@ -47,10 +47,16 @@ public sealed class ProductionTests
     [TestMethod]
     public void Incomplete_batch_keeps_all_inputs_and_waits()
     {
-        using var candidate = Prepare(Content(stock: [new(Input, 7), new(OtherProduct, 1)],
-            inputs: [new(Input, 2), new(OtherProduct, 2)]));
-        using var session = candidate.Activate();
-        Step(session, 3);
+        var content = Content(stock: [new(Input, 7), new(OtherProduct, 1)], inputs: [new(Input, 2), new(OtherProduct, 2)]);
+        content = content with { PopulationRules = [content.PopulationRules[0] with
+            { ConsumptionIntervalTicks = 120, StatisticsPeriodTicks = 720 }] };
+        using var candidate = Prepare(content);
+        using var session = (CoreSession)candidate.Activate();
+        Step(session);
+        var waiting = session.State.World;
+        Step(session, 2);
+        Assert.AreEqual(waiting.Settlements, session.State.World.Settlements);
+        Assert.AreEqual(waiting.Inventories, session.State.World.Inventories);
         Assert.AreEqual(7L, Stock(session, Input));
         Assert.AreEqual(1L, Stock(session, OtherProduct));
         Assert.AreEqual(ProductionState.WaitingForInputs, Read(session).State);

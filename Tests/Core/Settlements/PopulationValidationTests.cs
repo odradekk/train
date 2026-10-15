@@ -72,7 +72,7 @@ public sealed class PopulationValidationTests
     }
 
     [TestMethod]
-    [DataRow("period/elapsed_steps", "0", "/period/elapsed_steps")]
+    [DataRow("period/elapsed_steps", "-1", "/period/elapsed_steps")]
     [DataRow("period/elapsed_steps", "2", "/period/elapsed_steps")]
     [DataRow("period/required", "[]", "/period")]
     [DataRow("period/satisfied", "[]", "/period")]
@@ -110,7 +110,54 @@ public sealed class PopulationValidationTests
     {
         var payload = MidperiodPayload();
         payload["position"]!["completed_steps"] = 0;
-        AssertDecodeFailure(payload, "invalid_state", "/world/settlements/population_state/period/elapsed_steps");
+        AssertDecodeFailure(payload, "invalid_state");
+    }
+
+    [TestMethod]
+    public void Frozen_period_anchor_cannot_be_after_the_saved_boundary()
+    {
+        var payload = MidperiodPayload();
+        Population(payload)["period"]!["last_advanced_step"] = 2;
+        AssertDecodeFailure(payload, "invalid_state");
+    }
+
+    [TestMethod]
+    public void Derived_effective_progress_cannot_reach_the_unsettled_period_end()
+    {
+        var payload = MidperiodPayload();
+        var period = Population(payload)["period"]!;
+        payload["position"]!["completed_steps"] = 2;
+        period["last_advanced_step"] = 1;
+        period["elapsed_steps"] = 1;
+        AssertDecodeFailure(payload, "invalid_state");
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Before_the_first_consumption_both_accumulated_arrays_must_remain_zero(bool satisfied)
+    {
+        using var session = Start(Content(Rule() with { ConsumptionIntervalTicks = 2, StatisticsPeriodTicks = 4 }, Stock()));
+        Advance(session, 1);
+        var capture = Capture(session);
+        Assert.AreEqual(capture.Encode(), WorldFixture.Success(CoreFactory.Create().DecodeState(capture.Encode())).Encode());
+        var payload = JsonNode.Parse(capture.Encode())!;
+        var period = Population(payload)["period"]!;
+        period["required"]![0] = .1;
+        if (satisfied) period["satisfied"]![0] = .1;
+        AssertDecodeFailure(payload, "invalid_state");
+    }
+
+    [TestMethod]
+    public void Accumulated_demand_is_validated_as_saved_state_rather_than_rederived_by_multiplication()
+    {
+        var payload = MidperiodPayload();
+        var period = Population(payload)["period"]!;
+        period["required"]![0] = .1;
+        period["satisfied"]![0] = .1;
+        var decoded = WorldFixture.Success(CoreFactory.Create().DecodeState(payload.ToJsonString()));
+        var roundTrip = WorldFixture.Success(CoreFactory.Create().DecodeState(decoded.Encode()));
+        Assert.AreEqual(decoded.Encode(), roundTrip.Encode());
     }
 
     [TestMethod]
@@ -166,12 +213,12 @@ public sealed class PopulationValidationTests
         else root[parts[^1]] = value;
     }
 
-    private static void AssertDecodeFailure(JsonNode payload, string code, string field)
+    private static void AssertDecodeFailure(JsonNode payload, string code, string? field = null)
     {
         var result = CoreFactory.Create().DecodeState(payload.ToJsonString());
         Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Failure>(result);
         var problem = ((CoreResult<ICoreCapture>.Failure)result).Problems.Single();
         Assert.AreEqual(code, problem.Code);
-        Assert.AreEqual(field, problem.Field);
+        if (field is not null) Assert.AreEqual(field, problem.Field);
     }
 }

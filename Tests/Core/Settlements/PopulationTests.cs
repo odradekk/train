@@ -89,12 +89,17 @@ public sealed class PopulationTests
     [TestMethod]
     public void Minimum_discards_negative_debt_and_only_reports_arrival_once()
     {
-        var starving = Content(Rule() with { MaximumLossPerSecond = 60 }, []);
+        var starving = Content(Rule() with { MaximumLossPerSecond = 1 }, []);
         using var session = Start(starving);
-        var events = Advance(session, 8);
+        Assert.AreEqual(10L, Reports(Advance(session, 2)).Single().After);
+        // 首期余量为 -1/3；下一期流失 53/6，只有计入旧余量才会触底。
+        var rapidLoss = starving with { Identity = Identity('A'), PopulationRules = [Rule() with { MaximumLossPerSecond = 26.5 }] };
+        Publish(session, rapidLoss);
+        var events = Advance(session, 4);
         Assert.AreEqual(1, events.OfType<CoreEvent.PopulationMinimumReached>().Count());
         Assert.IsTrue(Reports(events).All(r => r.After == 1));
-        var fed = starving with { Identity = Identity('A'), PopulationRules = [Rule() with { BaseGrowthPerSecond = 30 }] };
+        Assert.IsTrue(Reports(events).All(r => r.Reason == PopulationSettlementReason.MinimumReached));
+        var fed = starving with { Identity = Identity('B'), PopulationRules = [Rule()] };
         Publish(session, fed);
         // Trade is not implemented for NPC settlements yet; seed restored supply while retaining all population history.
         var state = session.State;
@@ -103,25 +108,38 @@ public sealed class PopulationTests
             Inventories = state.World.Inventories.Select(i => i.Id == PopulationFixture.Inventory(session.Read()) ? i with
                 { Goods = Stock(20, 20) } : i).ToImmutableArray()
         } });
+        var stableEvents = Advance(replenished, 2);
+        var stable = Reports(stableEvents).Single();
+        Assert.AreEqual(PopulationSettlementReason.Stable, stable.Reason);
+        Assert.AreEqual(1L, stable.After);
+        Publish(replenished, fed with { Identity = Identity('C'), PopulationRules = [Rule() with { BaseGrowthPerSecond = 30 }] });
         var recovery = Advance(replenished, 2);
         Assert.AreEqual(2L, Reports(recovery).Single().After);
+        Assert.AreEqual(PopulationSettlementReason.Growth, Reports(recovery).Single().Reason);
         CollectionAssert.AreEquivalent(new[] { PopulationNeed.Food, PopulationNeed.Clothing },
-            recovery.OfType<CoreEvent.PopulationShortageChanged>().Where(e => !e.Shortage).Select(e => e.Need).ToArray());
+            stableEvents.OfType<CoreEvent.PopulationShortageChanged>().Where(e => !e.Shortage).Select(e => e.Need).ToArray());
     }
 
     [TestMethod]
     public void Prepared_food_is_taken_once_and_small_consumption_reuses_purchased_units()
     {
-        using var prepared = Start(Content(Rule(), [new(PreparedFood, 1), new(Clothing, 1)]));
+        var rule = Rule() with { Needs = Rule().Needs.Select(n => n with { AmountPerPersonSecond = 6 }).ToImmutableArray() };
+        using var prepared = Start(Content(rule, [new(PreparedFood, 10), new(Clothing, 10)]));
         var retained = prepared.Read();
         var first = Advance(prepared, 1);
-        Assert.AreEqual(0L, Quantity(prepared.Read(), PreparedFood));
-        Assert.AreEqual(1L, Quantity(retained, PreparedFood));
+        Assert.AreEqual(9L, Quantity(prepared.Read(), PreparedFood));
+        Assert.AreEqual(10L, Quantity(retained, PreparedFood));
         Assert.IsFalse(first.OfType<CoreEvent.PopulationShortageChanged>().Any(e => e.Need is PopulationNeed.Food or PopulationNeed.ImprovedDiet));
-        var report = Reports(Advance(prepared, 1)).Single();
-        Assert.AreEqual(1, report.BasicSatisfaction, 1e-12);
-        Assert.AreEqual(0L, Quantity(prepared.Read(), PreparedFood));
-        Assert.AreEqual(.25, report.ImprovementSatisfaction, 1e-12);
+        var reports = Reports(Advance(prepared, 3));
+        Assert.IsTrue(reports.All(report => report.BasicSatisfaction == 1));
+        Assert.AreEqual(6L, Quantity(prepared.Read(), PreparedFood));
+        Assert.IsTrue(reports.All(report => Math.Abs(report.ImprovementSatisfaction - .25) < 1e-12));
+
+        using var small = Start(Content(Rule(), [new(PreparedFood, 10), new(Clothing, 10)]));
+        Advance(small, 4);
+        Assert.AreEqual(9L, Quantity(small.Read(), PreparedFood));
+        Advance(small, 4);
+        Assert.AreEqual(8L, Quantity(small.Read(), PreparedFood));
     }
 
     [TestMethod]
@@ -135,6 +153,24 @@ public sealed class PopulationTests
         Assert.AreEqual(6, events.OfType<CoreEvent.PopulationShortageChanged>().Count());
         Assert.IsTrue(events.OfType<CoreEvent.PopulationShortageChanged>().All(e => e.Shortage));
         Assert.AreEqual(3, Reports(events).Length);
+    }
+
+    [TestMethod]
+    public void Nonconsumption_steps_preserve_started_population_and_inventory_arrays_and_emit_no_shortages()
+    {
+        using var session = Start(Content(Rule() with { ConsumptionIntervalTicks = 2, StatisticsPeriodTicks = 4 }, []));
+        Assert.IsEmpty(Advance(session, 1).OfType<CoreEvent.PopulationShortageChanged>().ToArray());
+        Assert.AreEqual(6, Advance(session, 1).OfType<CoreEvent.PopulationShortageChanged>().Count());
+        var before = session.State.World;
+        Assert.IsNotNull(before.Settlements.Single().PopulationState.Period);
+        var skipped = Advance(session, 1);
+        Assert.IsEmpty(skipped.OfType<CoreEvent.PopulationShortageChanged>().ToArray());
+        Assert.IsEmpty(Reports(skipped));
+        Assert.AreEqual(before.Settlements, session.State.World.Settlements);
+        Assert.AreEqual(before.Inventories, session.State.World.Inventories);
+        var settled = Advance(session, 1);
+        Assert.AreEqual(1, Reports(settled).Length);
+        Assert.IsEmpty(settled.OfType<CoreEvent.PopulationShortageChanged>().ToArray());
     }
 
     [TestMethod]
@@ -180,23 +216,27 @@ public sealed class PopulationTests
     }
 
     [TestMethod]
-    public void Current_labor_changes_immediately_but_started_period_keeps_its_duration()
+    [DataRow(2)]
+    [DataRow(8)]
+    public void Current_labor_changes_immediately_but_started_period_keeps_its_duration(int length)
     {
-        var original = Content(Rule() with { StatisticsPeriodTicks = 4 }, Stock(100, 100));
+        var original = Content(Rule() with { StatisticsPeriodTicks = 4, BaseGrowthPerSecond = 6 }, Stock(100, 100));
         using var session = Start(original);
         Advance(session, 1);
-        foreach (var length in new[] { 2, 8 })
-        {
-            var next = original with { Identity = Identity(length == 2 ? 'A' : 'B'), PopulationRules = [Rule() with
-                { StatisticsPeriodTicks = length, LaborRatio = .8, Revision = new(new string('F', 64)) }] };
-            Publish(session, next);
-            Assert.AreEqual(8, PopulationOperations.Begin(session.State.World, next, new(1)).AvailableLabor);
-        }
+        var next = original with { Identity = Identity('A'), PopulationRules = [Rule() with
+            { StatisticsPeriodTicks = length, LaborRatio = .8, Revision = new(new string('F', 64)) }] };
+        Publish(session, next);
+        Assert.AreEqual(8, PopulationOperations.Begin(session.State.World, next, new(1), session.Read().Position.CompletedSteps).AvailableLabor);
         Assert.IsEmpty(Reports(Advance(session, 2)));
         var frozen = Reports(Advance(session, 1)).Single();
         Assert.AreEqual(WorldFixture.Revision, frozen.ExecutionRevision);
-        Assert.IsEmpty(Reports(Advance(session, 7)));
-        Assert.AreEqual(new SemanticRevision(new string('F', 64)), Reports(Advance(session, 1)).Single().ExecutionRevision);
+        Assert.AreEqual(14L, frozen.After);
+        Assert.AreEqual(4UL, frozen.Position.CompletedSteps);
+        Assert.IsEmpty(Reports(Advance(session, (uint)length - 1)));
+        var updated = Reports(Advance(session, 1)).Single();
+        Assert.AreEqual(new SemanticRevision(new string('F', 64)), updated.ExecutionRevision);
+        Assert.AreEqual((ulong)(4 + length), updated.Position.CompletedSteps);
+        Assert.AreEqual(PopulationSettlementReason.Stable, updated.Reason);
     }
 
     [TestMethod]
@@ -205,7 +245,7 @@ public sealed class PopulationTests
         var content = Content(Rule(), [new(Food, 1), new(PreparedFood, 1), new(Clothing, 1)]);
         using var session = Start(content);
         var world = session.State.World;
-        var population = PopulationOperations.Begin(world, content, new(1));
+        var population = PopulationOperations.Begin(world, content, new(1), session.Read().Position.CompletedSteps);
         FacilityRequest[] facilities = [new FacilityRequest.Batch(new(new(1), CapabilityKind.Production), 0,
             [new(Food, 1)]), new FacilityRequest.Batch(new(new(1), CapabilityKind.Extraction), 1, [new(PreparedFood, 1)]),
             new FacilityRequest.Work(new(new(1), CapabilityKind.Construction), 2, 20, 0, 2)];
