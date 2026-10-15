@@ -243,8 +243,8 @@ public partial class GameUi : CanvasLayer
             ShowError(CommandDiagnostics.Describe(fault));
         _map.SetView(view, content, _binding != binding);
         _icons.Bind(binding, content);
+        // 边界内 IsBusy 为 true；面板在 _Process 消费此视图，避免禁用按钮打断当前点击。
         _binding = binding; _view = view; _content = content;
-        _economy!.Refresh(binding, view, content);
         _menu.Hide(); _world.Show();
     }
 
