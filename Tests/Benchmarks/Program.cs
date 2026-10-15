@@ -3,6 +3,7 @@ using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Running;
 using Train.Benchmarks;
+using Train.Core.Tests.Railway;
 
 if (args.Length != 2 || args[0] != "--artifacts")
 {
@@ -36,6 +37,8 @@ try
         measuredAtUtc = DateTimeOffset.UtcNow,
         trainCount = TrainLoopBenchmark.TrainCount,
         stepsPerBatch = TrainLoopBenchmark.StepsPerBatch,
+        populationConsumptionIntervalTicks = TrainRecoveryFixture.ConsumptionIntervalTicks,
+        populationStatisticsPeriodTicks = TrainRecoveryFixture.StatisticsPeriodTicks,
         meanNanosecondsPerStep = statistics.Mean,
         standardDeviationNanosecondsPerStep = statistics.StandardDeviation,
         sampleCount = statistics.N,

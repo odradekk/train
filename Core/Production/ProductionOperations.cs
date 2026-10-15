@@ -8,15 +8,15 @@ namespace Train.Core.Production;
 
 internal static class ProductionOperations
 {
-    internal static (WorldState World, ImmutableArray<CoreEvent> Events) Advance(WorldState world,
-        CoreContentProjection content, SettlementId id, double availableLabor, ulong step)
+    internal static ImmutableArray<FacilityRequest> Requests(WorldState world,
+        CoreContentProjection content, SettlementId id)
     {
-        var before = world;
         var settlement = world.Settlements.Single(s => s.Id == id);
+        if (settlement.Template.ProductionPlans.IsEmpty) return [];
         var plans = settlement.Template.ProductionPlans.Where(p => p.Capability == CapabilityKind.Production)
             .Select(p => (Plan: p, Building: settlement.Plots.Single(plot => plot.TemplateNumber == p.PlotNumber).Building))
             .Where(p => p.Building is not null).OrderBy(p => p.Plan.Priority).ThenBy(p => p.Building!.Value.Value).ToArray();
-        if (plans.Length == 0) return (world, []);
+        if (plans.Length == 0) return [];
         var facilities = settlement.ProductionFacilities.ToDictionary(f => f.Building);
         var requests = ImmutableArray.CreateBuilder<FacilityRequest>();
         foreach (var (plan, building) in plans)
@@ -36,8 +36,23 @@ internal static class ProductionOperations
                 requests.Add(new FacilityRequest.Batch(key, plan.Priority, ProductionQueries.Inputs(process!.Details)));
         }
 
-        var resolution = SettlementResources.Resolve(world, content, id, availableLabor, [], requests.ToImmutable(), []);
-        world = resolution.World;
+        return requests.ToImmutable();
+    }
+
+    internal static (WorldState World, ImmutableArray<CoreEvent> Events) Complete(WorldState before,
+        CoreContentProjection content, SettlementId id, ImmutableArray<FacilityRequest> requests,
+        SettlementResolution resolution, ulong step)
+    {
+        var world = resolution.World;
+        var settlement = world.Settlements.Single(s => s.Id == id);
+        if (requests.IsEmpty && settlement.ProductionFacilities.All(f => f.OutputBuffer.IsEmpty
+            && f.LastActualWorkPerSecond == 0 && f.LastLimits.IsEmpty && f.LastPowerDemand == 0 && f.LastActualSupply == 0))
+            return (world, []);
+        var plans = settlement.Template.ProductionPlans.Where(p => p.Capability == CapabilityKind.Production)
+            .Select(p => (Plan: p, Building: settlement.Plots.Single(plot => plot.TemplateNumber == p.PlotNumber).Building))
+            .Where(p => p.Building is not null).OrderBy(p => p.Plan.Priority).ThenBy(p => p.Building!.Value.Value).ToArray();
+        if (plans.Length == 0) return (world, []);
+        var facilities = settlement.ProductionFacilities.ToDictionary(f => f.Building);
         var accepted = resolution.AcceptedBatches.ToHashSet();
         var allocations = resolution.Work.ToDictionary(a => a.Facility.Building);
         var workRequests = requests.OfType<FacilityRequest.Work>().ToDictionary(r => r.Facility.Building);

@@ -2,6 +2,9 @@ using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
 using Train.Core.Sessions;
+using Train.Core.Production;
+using Train.Core.Settlements;
+using Train.Core.World;
 using Train.Core.Tests.World;
 
 namespace Train.Core.Tests.Production;
@@ -35,7 +38,7 @@ internal static class ProductionFixture
         var batchOutputs = outputs.IsDefault ? ImmutableArray.Create(new GoodsQuantity(Product, 3)) : outputs;
         return original with
         {
-            Goods = [original.Goods[0], original.Goods[0] with { Good = Product },
+            Goods = [..original.Goods, original.Goods[0] with { Good = Product },
                 original.Goods[0] with { Good = OtherProduct },
                 original.Goods[0] with { Good = Fuel, FuelEnergyPerUnit = 1 }],
             Designs = original.Designs.Select(d => d.Design != WorldFixture.Station ? d : d with
@@ -59,6 +62,14 @@ internal static class ProductionFixture
         => WorldFixture.Prepare(content: content ?? Content());
 
     internal static CoreState State(CoreContentProjection? content = null) => WorldFixture.State(content: content ?? Content());
+
+    internal static (WorldState World, ImmutableArray<CoreEvent> Events) AdvanceProduction(WorldState world,
+        CoreContentProjection content, SettlementId id, double availableLabor, ulong step)
+    {
+        var requests = ProductionOperations.Requests(world, content, id);
+        var resolution = SettlementResources.Resolve(world, content, id, availableLabor, [], requests, _ => []);
+        return ProductionOperations.Complete(world, content, id, requests, resolution, step);
+    }
 
     internal static FacilityView Read(ICoreReadView view) => ((Lookup<FacilityView>.Found)view.FindFacility(Facility)).Value;
     internal static FacilityView Read(ICoreSession session) => Read(session.Read());
