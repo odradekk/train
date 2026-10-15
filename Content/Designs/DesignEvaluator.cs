@@ -340,6 +340,17 @@ internal static class DesignEvaluator
             C.DesignSpecification.FunctionalComposite => new K.DesignKind.LargeEquipment(new K.GoodId.Composite(compositeIdentity!.Value)),
             _ => null
         };
+        if (draft.Specification is C.DesignSpecification.Building &&
+            parts.SelectMany(p => p.Capabilities).OfType<K.PartCapability.Construction>()
+                .Select(c => c.MaximumVehicleSize).Max() is { } maximumVehicleSize)
+        {
+            var (width, vehicleDepth, height) = VehicleDimensions(maximumVehicleSize);
+            var plotWidth = envelope!.Maximum.X - envelope.Minimum.X + 1;
+            var plotDepth = envelope.Maximum.Z - envelope.Minimum.Z + 1;
+            var plotHeight = envelope.Maximum.Y - envelope.Minimum.Y + 1;
+            if (height > plotHeight || !(width <= plotWidth && vehicleDepth <= plotDepth || vehicleDepth <= plotWidth && width <= plotDepth))
+                Invalid("/simulation/plot_size", "建筑地块无法容纳施工部件支持的最高车辆档位。");
+        }
         var valid = diagnostics.Count == 0;
         var projection = kind is null ? null : new K.DesignProjection(
             design, composition, kind, parts.ToImmutable(), structureDurability, structuralCount,
@@ -411,20 +422,18 @@ internal static class DesignEvaluator
     private static C.GridBounds? Envelope(C.DesignSpecification specification)
     {
         if (specification is C.DesignSpecification.Building building) return PlotRules.Envelope(building.PlotSize!.Value);
-        var dimensions = specification switch
-        {
-            C.DesignSpecification.Vehicle vehicle => vehicle.Size switch
-            {
-                K.SizeClass.Small => (7, 52, 9), K.SizeClass.Medium => (10, 64, 13),
-                K.SizeClass.Large => (14, 80, 18), K.SizeClass.ExtraLarge => (20, 104, 26),
-                K.SizeClass.Titan => (30, 136, 38), _ => throw new ArgumentOutOfRangeException(nameof(specification))
-            },
-            _ => (0, 0, 0)
-        };
-        var (width, depth, height) = dimensions;
-        return width == 0 ? null : new(new(-width / 2, 0, -depth / 2),
+        if (specification is not C.DesignSpecification.Vehicle vehicle) return null;
+        var (width, depth, height) = VehicleDimensions(vehicle.Size!.Value);
+        return new(new(-width / 2, 0, -depth / 2),
             new(width - width / 2 - 1, height - 1, depth - depth / 2 - 1));
     }
+
+    private static (int Width, int Depth, int Height) VehicleDimensions(K.SizeClass size) => size switch
+    {
+        K.SizeClass.Small => (7, 52, 9), K.SizeClass.Medium => (10, 64, 13),
+        K.SizeClass.Large => (14, 80, 18), K.SizeClass.ExtraLarge => (20, 104, 26),
+        K.SizeClass.Titan => (30, 136, 38), _ => throw new ArgumentOutOfRangeException(nameof(size))
+    };
 
     private static bool Contains(C.GridBounds bounds, C.GridPosition at) =>
         at.X >= bounds.Minimum.X && at.X <= bounds.Maximum.X &&

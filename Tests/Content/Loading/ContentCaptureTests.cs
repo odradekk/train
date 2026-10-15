@@ -10,14 +10,16 @@ namespace Train.Content.Tests.Loading;
 public sealed class ContentCaptureTests
 {
     [TestMethod]
-    public void Version_one_capture_with_plot_sizes_is_rejected()
+    [DataRow(1)]
+    [DataRow(3)]
+    public void Previous_capture_formats_are_rejected(int version)
     {
         using var candidate = WorldContentFixtures.Content().Load();
         var factory = ContentFactory.Create();
         var owned = factory.WithSettlementCopies(candidate.View, [Template(41)]);
         var json = JsonNode.Parse(Success(factory.Capture(owned,
             References(owned, "engine") with { Templates = [Template(41)] })).Encode())!;
-        json["format_version"] = 1;
+        json["format_version"] = version;
         var result = factory.DecodeCapture(json.ToJsonString());
         Failure(result, "unsupported_format");
         Assert.IsTrue(((C.ContentResult<C.IContentCapture>.Failure)result).Diagnostics.Any(d => d.Field == "/format_version"));

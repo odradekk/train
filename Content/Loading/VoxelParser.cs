@@ -143,16 +143,27 @@ internal sealed class VoxelParser
                             case "production": Object(b, field, "work_rate"); capabilities.Add(new K.PartCapability.Production(Number("work_rate"))); break;
                             case "extraction": Object(b, field, "work_rate"); capabilities.Add(new K.PartCapability.Extraction(Number("work_rate"))); break;
                             case "construction":
-                                Object(b, field, "work_rate", "max_size_class");
+                                Object(b, field, "work_rate", "max_plot_size", "max_size_class");
                                 var workRate = Number("work_rate");
-                                var size = Choice(Required(b, "max_size_class", field), field + "/max_size_class", ["small", "medium", "large", "extra_large", "titan"]);
-                                data["max_size_class"] = size;
-                                capabilities.Add(new K.PartCapability.Construction(workRate, size switch
+                                var plot = Choice(Required(b, "max_plot_size", field), field + "/max_plot_size", ["small", "medium", "large", "giant"]);
+                                data["max_plot_size"] = plot;
+                                K.SizeClass? maximumVehicleSize = null;
+                                if (b.TryGetProperty("max_size_class", out var vehicleSize))
                                 {
-                                    "small" => K.SizeClass.Small, "medium" => K.SizeClass.Medium,
-                                    "large" => K.SizeClass.Large, "extra_large" => K.SizeClass.ExtraLarge,
-                                    _ => K.SizeClass.Titan
-                                }));
+                                    var size = Choice(vehicleSize, field + "/max_size_class", ["small", "medium", "large", "extra_large", "titan"]);
+                                    data["max_size_class"] = size;
+                                    maximumVehicleSize = size switch
+                                    {
+                                        "small" => K.SizeClass.Small, "medium" => K.SizeClass.Medium,
+                                        "large" => K.SizeClass.Large, "extra_large" => K.SizeClass.ExtraLarge,
+                                        _ => K.SizeClass.Titan
+                                    };
+                                }
+                                capabilities.Add(new K.PartCapability.Construction(workRate, plot switch
+                                {
+                                    "small" => K.PlotSize.Small, "medium" => K.PlotSize.Medium,
+                                    "large" => K.PlotSize.Large, _ => K.PlotSize.Giant
+                                }, maximumVehicleSize));
                                 break;
                             case "power": Object(b, field, "output"); capabilities.Add(new K.PartCapability.Power(Number("output"))); break;
                             case "weapon": Object(b, field, "damage", "interval"); capabilities.Add(new K.PartCapability.Weapon(Int("damage"), Number("interval"))); break;

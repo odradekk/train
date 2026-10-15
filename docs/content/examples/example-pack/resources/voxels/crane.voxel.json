@@ -6,7 +6,7 @@
     "mass": 8,
     "max_durability": 300,
     "behaviors": {
-      "construction": { "work_rate": 1, "max_size_class": "medium" }
+      "construction": { "work_rate": 1, "max_plot_size": "medium" }
     }
   },
   "appearance": {
@@ -19,5 +19,5 @@
       "light": {}
     }
   },
-  "display": { "name": "吊机", "description": "施工设备，提供施工能力，最多能建造中型车辆；带一盏工作灯。", "icon": "icon.png" }
+  "display": { "name": "基础吊机", "description": "基础工棚的单格施工设备：最高施工中地块建筑，不能造车；带一盏工作灯。", "icon": "icon.png" }
 }

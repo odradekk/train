@@ -2,6 +2,14 @@
 
 本页落实[核心模拟层公开契约：命令、查询、事件与复现](https://github.com/odradekk/train/issues/287)，并经[契约审计修订](https://github.com/odradekk/train/issues/296)收窄，与[公共约定](conventions.md)、[跨层事务](transactions.md)和[编辑协议](editing.md)一起使用。玩法以设计文档为准，本页说明调用方法及其责任。
 
+## 施工能力输入与执行交接（#501）
+
+`PartCapability.Construction(double WorkPerSecond, PlotSize MaximumBuildingPlotSize, SizeClass? MaximumVehicleSize)` 的三个参数均无默认值；调用方显式传 `null` 表示没有车辆施工能力。`WorkPerSecond` 为正有限值，建筑上限只接受 `Small`、`Medium`、`Large`、`Giant`，Core 输入校验拒绝站点档位与非法枚举；非空车辆上限必须是有效的车辆档位。能力来自完好部件，工作速率相加，两个上限分别取完好施工部件的最大值；不新增无调用方的公开汇总接口。
+
+- #343：在建筑建造、改装、修理的命令边界检查目标设计的地块档位不超过设施建筑上限；小站点按大、大站点按巨型归档。改装／修理范围与站点归档按批准计划记录，阶段验收时待用户确认。
+- #331：在车辆建造、改装、修理的命令边界检查设施车辆上限；`null` 一律拒绝，非空时目标车辆档位不得超过上限。不能把存在施工工作速率解释为能够造车。
+- 拆解和制造大型设备只要求施工能力，不检查上述档位。此票交付表达、输入校验、持久化和交接，不提前实现这些命令。
+
 ## 交付状态与入口
 
 已提供独立的 [Train.Core.Contracts](../../Contracts/Core/Train.Core.Contracts.csproj) 声明和[可编译消费样例](../../prototypes/core-contract/ConsumerExamples.cs)。当前实现了核心工厂、候选与会话生命周期、阶段一小世界生成、同步内容发布、列车编组及计划运行、方向锁与跟车、对向公平、站台排队、断点掉头及 `DebugAddRailBreak`、不可变世界查询，以及当前世界状态的捕获、编码、解码、普通恢复、默认录制、起点确认与裁剪、固定故障片段、严格重放和检查点比较。其他领域行为仍待交付；模块证据不代表 #298 的真实四模块联调或完整 Demo 已通过，调用样例和旧原型也不构成生产行为证据。
@@ -317,7 +325,7 @@ Rent 要求非零聚居地身份和正容量，Renew 要求非零租约身份，
 
 ### 当前载荷
 
-#312 按[批准决定](https://github.com/odradekk/train/issues/312#issuecomment-6133949111)实现捕获边界，#309 扩展世界状态，#480 更新地块枚举，#325 增加租约、库存预留和下一租约编号，#380 增加每座聚居地的 `fuel_energy_remaining`，#381 增加 `production_facilities`，#382 增加 `population_state`，#481 更新节点权威位置，#383 将设施状态改为能力键并增加 `resource_regenerations`、`resource_recovery`。内部编码器 [CoreCapture](../../Core/Sessions/CoreCapture.cs) 当前使用独立的 `core_state_format_version = 9`，与宿主完整存档的 `SaveFormatVersion` 6 分别演进；不支持格式 1–8 或旧通用模拟框架载荷，旧版本返回 `unsupported_format`。#480 与 #325 各自的格式 3 布局不同，合并后使用格式 4 明确区分；燃料余量使用格式 5，生产状态使用格式 6，人口状态使用格式 7，#481 的节点权威位置布局使用格式 8，#383 的开采与资源周期状态使用格式 9。
+#312 按[批准决定](https://github.com/odradekk/train/issues/312#issuecomment-6133949111)实现捕获边界，#309 扩展世界状态，#480 更新地块枚举，#325 增加租约、库存预留和下一租约编号，#380 增加每座聚居地的 `fuel_energy_remaining`，#381 增加 `production_facilities`，#382 增加 `population_state`，#481 更新节点权威位置，#383 将设施状态改为能力键并增加 `resource_regenerations`、`resource_recovery`。内部编码器 [CoreCapture](../../Core/Sessions/CoreCapture.cs) 当前使用独立的 `core_state_format_version = 10`，与宿主完整存档的 `SaveFormatVersion` 6 分别演进；不支持格式 1–9 或旧通用模拟框架载荷，旧版本返回 `unsupported_format`。#480 与 #325 各自的格式 3 布局不同，合并后使用格式 4 明确区分；燃料余量使用格式 5，生产状态使用格式 6，人口状态使用格式 7，#481 的节点权威位置布局使用格式 8，#383 的开采与资源周期状态使用格式 9，#501 扩展施工部件能力后使用格式 10。
 
 人口状态保存精确执行参数、有效进度、累计应需与满足量、按货物身份保留的消费剩余量、人口变化余量、短缺与可用性状态及最近一次结算；普通恢复和严格重放使用同一份生产推进。当前规则缺失或本期必需货物缺失时停用人口，保留这些状态；新局仍须有有效规则。燃料余量必须为有限非负数，新局为零，保存、恢复、检查点、严格重放及内容发布保留其电量，不反推已消费燃料。生产状态保存完整冻结批次、输出缓冲和上一步结果；解码拒绝非法进度、系数、数量、排序、建筑／计划配对及同时存在批次与缓冲。诊断消息和堆栈不进入载荷。内部字段布局由编码器维护，宿主只通过公开契约取得所需资料。
 
