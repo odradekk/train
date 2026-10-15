@@ -46,7 +46,7 @@ public sealed class AutomaticTradingTests
     [TestMethod]
     [DataRow(55L, 2L, "insufficient_money")]
     [DataRow(1000L, 1L, "insufficient_goods")]
-    public void Same_step_trains_trade_by_queue_then_identity_and_reports_filter_by_train(long money, long stock, string blocker)
+    public void Same_step_trains_trade_by_identity_and_reports_filter_by_train(long money, long stock, string blocker)
     {
         var content = InventoryTradeTests.Content();
         using var original = InventoryFixture.Session(content, trains: 2);
@@ -83,7 +83,7 @@ public sealed class AutomaticTradingTests
         foreach (var id in new TrainId[] { new(1), new(2) })
         {
             var train = ((Lookup<TrainView>.Found)session.Read().FindTrain(id)).Value;
-            CollectionAssert.AreEqual(reports.Where(r => r.Train == id).ToArray(), train.RecentReports.ToArray());
+            AssertReports(reports.Where(r => r.Train == id).ToImmutableArray(), train.RecentReports);
         }
     }
 
@@ -104,7 +104,8 @@ public sealed class AutomaticTradingTests
         Assert.AreEqual(2L, results[0].CompletedQuantity);
         Assert.IsTrue(results[0].IncompleteReasons.IsEmpty);
         Assert.AreEqual(0L, results[1].CompletedQuantity);
-        Assert.IsFalse(results[1].IncompleteReasons.IsEmpty);
+        Assert.AreEqual("access_denied", results[1].IncompleteReasons.Single().Code);
+        Assert.AreEqual("LocalInventory", results[1].IncompleteReasons.Single().Field);
         Assert.AreEqual(2L, Quantity(session, Voxel));
         Assert.AreEqual(1L, Quantity(session, Composite));
         Assert.IsTrue(ReadInventory(session, lease.Inventory).Stacks.IsEmpty);
@@ -146,15 +147,16 @@ public sealed class AutomaticTradingTests
         Assert.AreEqual(18000L, Quantity(session, staple));
         Assert.AreEqual(9000L, ReadInventory(session, session.State.World.Settlements.Single().Inventory)
             .Stacks.Single(s => s.Good == staple).Quantity);
-        Assert.IsTrue(result.ActualAmount.Value > 0);
-        Assert.AreEqual(new Money(1_000_000_000 - result.ActualAmount.Value), session.Read().Economy.Wallet);
+        // 全部中点库存都超过压缩目标，单价固定为 100 × 50% × 110% = 55，总额为 18000 × 55 = 990000。
+        Assert.AreEqual(new Money(990000), result.ActualAmount);
+        Assert.AreEqual(new Money(999010000), session.Read().Economy.Wallet);
     }
 
     [TestMethod]
     public void Buy_limit_checks_each_unit_and_keeps_the_affordable_prefix()
     {
         using var session = InventoryTradeTests.Session(local: [new(Clothing, 13)]);
-        var result = Evaluate(session, [Rule(session, new AutomaticGoodsAction.Buy(new(102)), Clothing, 3)]).Results.Single();
+        var result = Evaluate(session, [Rule(session, new AutomaticGoodsAction.Buy(new(103)), Clothing, 3)]).Results.Single();
         Assert.AreEqual(3L, result.RequestedQuantity);
         Assert.AreEqual(2L, result.CompletedQuantity);
         Assert.AreEqual(new Money(199), result.ActualAmount);
@@ -219,13 +221,17 @@ public sealed class AutomaticTradingTests
     [TestMethod]
     public void Owned_load_preserves_restock_target_and_unload_is_free()
     {
-        using var session = InventoryTradeTests.Session(local: [new(Clothing, 13)], cargo: [new(Voxel, 2)],
+        using var session = InventoryTradeTests.Session(local: [new(Clothing, 13)], cargo: [new(Voxel, 4), new(Clothing, 2)],
             relation: SettlementRelation.PlayerOwned);
         var results = Evaluate(session,
             [Rule(session, new AutomaticGoodsAction.Load(), Clothing, 10),
-             Rule(session, new AutomaticGoodsAction.Unload(), Voxel, 0)]).Results;
+             Rule(session, new AutomaticGoodsAction.Unload(), Voxel, 2)]).Results;
+        Assert.AreEqual(8L, results[0].RequestedQuantity);
         Assert.AreEqual(3L, results[0].CompletedQuantity);
+        Assert.AreEqual(2L, results[1].RequestedQuantity);
         Assert.AreEqual(2L, results[1].CompletedQuantity);
+        Assert.AreEqual(5L, Quantity(session, Clothing));
+        Assert.AreEqual(2L, Quantity(session, Voxel));
         Assert.IsTrue(results.All(r => r.ActualAmount == new Money(0)));
         Assert.AreEqual(new Money(10000), session.Read().Economy.Wallet);
         var run = Train(session).CurrentRun!;
@@ -263,7 +269,7 @@ public sealed class AutomaticTradingTests
         var run = Train(session).CurrentRun;
         Accept(session, new CoreCommand.StopTrain(new(1)));
         Assert.IsFalse(session.Advance(10).Events.Any(e => e.Event is CoreEvent.AutomaticTradeEvaluated or CoreEvent.RunReported));
-        Assert.AreEqual(run, Train(session).CurrentRun);
+        AssertRun(run!, Train(session).CurrentRun!);
         var start = Accept(session, new CoreCommand.StartTrain(new(1)));
         Assert.IsFalse(start.Events.Any(e => e.Event is CoreEvent.RunReported));
         Assert.AreEqual(0L, NextEvaluation(session).Results.Single().CompletedQuantity);
@@ -303,13 +309,15 @@ public sealed class AutomaticTradingTests
         var disband = Accept(session, new CoreCommand.DisbandTrain(new(1)));
         var final = disband.Events.Select(e => e.Event).OfType<CoreEvent.RunReported>().Single().Report;
         Assert.AreEqual(RunEndReason.TrainDisbanded, final.Reason);
-        Assert.AreEqual(final, session.Read().Economy.RecentRunReports.Last());
+        AssertReports([final], [session.Read().Economy.RecentRunReports.Last()]);
     }
 
     [TestMethod]
     public void Missing_market_freezes_even_free_rules_and_resumes_the_same_stop()
     {
-        using var original = InventoryTradeTests.Session(local: [new(Voxel, 10)], relation: SettlementRelation.PlayerOwned);
+        var input = InventoryTradeTests.Content();
+        input = input with { MarketRules = input.MarketRules.Select(r => r with { AutomaticEvaluationIntervalTicks = 4 }).ToImmutableArray() };
+        using var original = InventoryTradeTests.Session(input, local: [new(Voxel, 10)], relation: SettlementRelation.PlayerOwned);
         Accept(original, new CoreCommand.StopTrain(new(1)));
         Accept(original, new CoreCommand.ReplaceRunPlan(new(1), Plan(original,
             [Rule(original, new AutomaticGoodsAction.Load(), Voxel, 1)])));
@@ -319,7 +327,161 @@ public sealed class AutomaticTradingTests
         Assert.IsFalse(session.Advance(3).Events.Any(e => e.Event is CoreEvent.AutomaticTradeEvaluated));
         Assert.AreEqual(0L, Quantity(session, Voxel));
         Accept(session, new CoreCommand.PublishContent(Changed(content, 'F')));
-        Assert.AreEqual(1L, NextEvaluation(session).Results.Single().CompletedQuantity);
+        Assert.AreEqual(1L, Step(session).Events.Select(e => e.Event).OfType<CoreEvent.AutomaticTradeEvaluated>()
+            .Single().Results.Single().CompletedQuantity);
+    }
+
+    [TestMethod]
+    public void Sell_keeps_the_nonzero_target_holding()
+    {
+        using var session = InventoryTradeTests.Session(local: [new(Clothing, 7)], cargo: [new(Clothing, 3)]);
+        var result = Evaluate(session, [Rule(session, new AutomaticGoodsAction.Sell(null), Clothing, 1)]).Results.Single();
+        Assert.AreEqual(2L, result.RequestedQuantity);
+        Assert.AreEqual(2L, result.CompletedQuantity);
+        Assert.AreEqual(new Money(197), result.ActualAmount);
+        Assert.IsTrue(result.IncompleteReasons.IsEmpty);
+        Assert.AreEqual(1L, Quantity(session, Clothing));
+    }
+
+    [TestMethod]
+    public void Moving_arrivals_evaluate_immediately_and_each_new_stop_resets_the_interval()
+    {
+        var content = InventoryTradeTests.Content();
+        content = content with { MarketRules = content.MarketRules.Select(r => r with { AutomaticEvaluationIntervalTicks = 10 }).ToImmutableArray() };
+        using var original = InventoryTradeTests.Session(content, local: [new(Voxel, 10)]);
+        using var session = WithRailway(original);
+        var home = session.State.World.Settlements.Single().Node;
+        Accept(session, new CoreCommand.StopTrain(new(1)));
+        Accept(session, new CoreCommand.ReplaceRunPlan(new(1), new(false,
+            [new PlanStop.Waypoint(new(2)), new PlanStop.Station(home, 1,
+                [Rule(session, new AutomaticGoodsAction.Buy(null), Voxel, 1)]),
+             new PlanStop.Waypoint(new(2)), new PlanStop.Station(home, 100,
+                [Rule(session, new AutomaticGoodsAction.Buy(null), Voxel, 2)])])));
+        var start = Accept(session, new CoreCommand.StartTrain(new(1)));
+        Assert.IsFalse(start.Events.Any(e => e.Event is CoreEvent.AutomaticTradeEvaluated));
+        var first = AdvanceToService(session, 1).OfType<CoreEvent.AutomaticTradeEvaluated>().Single();
+        Assert.AreEqual(1L, first.Results.Single().CompletedQuantity);
+        var departure = Step(session);
+        Assert.AreNotEqual(TrainActivity.Servicing, Train(session).Activity);
+        Assert.IsFalse(departure.Events.Any(e => e.Event is CoreEvent.AutomaticTradeEvaluated));
+        var second = AdvanceToService(session, 3).OfType<CoreEvent.AutomaticTradeEvaluated>().Single();
+        Assert.AreEqual(1L, second.Results.Single().RequestedQuantity);
+        Assert.AreEqual(1L, second.Results.Single().CompletedQuantity);
+        Assert.AreEqual(2L, Quantity(session, Voxel));
+    }
+
+    [TestMethod]
+    [DataRow(0UL)]
+    [DataRow(2UL)]
+    public void Empty_station_rules_preserve_activity_events_and_never_evaluate(ulong dwell)
+    {
+        using var original = InventoryTradeTests.Session();
+        using var session = WithRailway(original);
+        Accept(session, new CoreCommand.StopTrain(new(1)));
+        Accept(session, new CoreCommand.ReplaceRunPlan(new(1), new(false,
+            [new PlanStop.Station(session.State.World.Settlements.Single().Node, dwell, []), new PlanStop.Waypoint(new(2))])));
+        var events = Accept(session, new CoreCommand.StartTrain(new(1))).Events.Select(e => e.Event).ToList();
+        Assert.IsNull(session.State.World.Trains.Single().AutomaticEvaluationRemainingSteps);
+        for (ulong i = 0; i < dwell; i++) events.AddRange(Step(session).Events.Select(e => e.Event));
+        Assert.IsFalse(events.OfType<CoreEvent.AutomaticTradeEvaluated>().Any());
+        var changes = events.OfType<CoreEvent.TrainActivityChanged>().Select(e => (e.Before, e.After)).ToArray();
+        CollectionAssert.AreEqual(dwell == 0
+            ? new[] { (TrainActivity.Stopped, TrainActivity.Running) }
+            : new[] { (TrainActivity.Stopped, TrainActivity.Servicing), (TrainActivity.Servicing, TrainActivity.Running) }, changes);
+        Assert.IsNull(session.State.World.Trains.Single().AutomaticEvaluationRemainingSteps);
+    }
+
+    [TestMethod]
+    public void Platform_wait_entry_uses_the_completed_step_when_the_lease_expires()
+    {
+        using var original = InventoryFixture.Session(InventoryTradeTests.Content(), trains: 2);
+        var state = original.State;
+        var firstInventory = state.World.Trains.Single(t => t.Id.Value == 1).Inventory;
+        using var session = new CoreSession(state with { World = state.World with
+        { Inventories = state.World.Inventories.Select(i => i.Owner is InventoryOwner.Train
+            ? i with { Goods = i.Id == firstInventory ? [] : [new(Voxel, 1)] } : i).ToImmutableArray() } });
+        Service(session);
+        var lease = Rent(session);
+        var home = session.State.World.Settlements.Single().Node;
+        Accept(session, new CoreCommand.ReplaceRunPlan(new(2), new(false,
+            [new PlanStop.Station(home, 100, [new(new AutomaticGoodsAction.Unload(), Voxel, lease.Inventory, 0)])])));
+        Accept(session, new CoreCommand.StartTrain(new(2)));
+        var waiting = ((Lookup<TrainView>.Found)session.Read().FindTrain(new(2))).Value;
+        Assert.AreEqual(TrainActivity.Waiting, waiting.Activity);
+        Assert.AreEqual("platform_wait", waiting.Blockers.Single().Code);
+        while (session.Read().Position.CompletedSteps + 1 < lease.ExpiresAtStep) Step(session);
+        Accept(session, new CoreCommand.DisbandTrain(new(1)));
+        var events = Step(session).Events.Select(e => e.Event).ToArray();
+        var result = events.OfType<CoreEvent.AutomaticTradeEvaluated>().Single().Results.Single();
+        Assert.AreEqual(0L, result.CompletedQuantity);
+        Assert.AreEqual("access_denied", result.IncompleteReasons.Single().Code);
+        Assert.AreEqual("LocalInventory", result.IncompleteReasons.Single().Field);
+        Assert.IsFalse(events.OfType<CoreEvent.GoodsTransferred>().Any());
+        Assert.AreEqual(lease.Id, events.OfType<CoreEvent.LeaseExpired>().Single().Lease);
+        Assert.IsTrue(Array.FindIndex(events, e => e is CoreEvent.LeaseExpired)
+            < Array.FindIndex(events, e => e is CoreEvent.AutomaticTradeEvaluated));
+        Assert.IsTrue(ReadInventory(session, lease.Inventory).Stacks.IsEmpty);
+    }
+
+    private static CoreSession WithRailway(CoreSession original)
+    {
+        var state = original.State;
+        var node = state.World.Nodes.Single(n => n.Id == state.World.Settlements.Single().Node);
+        return new(state with { World = state.World with
+        {
+            Nodes = [node with { Position = new(0, 0) },
+                node with { Id = new(2), Position = new(1, 0), Occupant = new NodeOccupant.Empty(), Platforms = 0 }],
+            Edges = [new(new(1), node.Id, new(2), 10, node.Terrain, 1, 2, [], [])],
+            Next = state.World.Next with { Node = 3, Edge = 2 }
+        } });
+    }
+
+    private static ImmutableArray<CoreEvent> AdvanceToService(CoreSession session, int stopIndex)
+    {
+        for (var i = 0; i < 5000; i++)
+        {
+            var events = Step(session).Events.Select(e => e.Event).ToImmutableArray();
+            if (Train(session).Activity == TrainActivity.Servicing && Train(session).NextStopIndex == stopIndex)
+                return events;
+            Assert.IsFalse(events.OfType<CoreEvent.AutomaticTradeEvaluated>().Any());
+        }
+        Assert.Fail("5000 步内未到达指定停站。");
+        return [];
+    }
+
+    [TestMethod]
+    public void Missing_market_mid_countdown_freezes_the_remaining_interval()
+    {
+        var content = InventoryTradeTests.Content();
+        content = content with { MarketRules = content.MarketRules.Select(r => r with { AutomaticEvaluationIntervalTicks = 4 }).ToImmutableArray() };
+        using var original = InventoryTradeTests.Session(content, local: [new(Voxel, 10)]);
+        Evaluate(original, [Rule(original, new AutomaticGoodsAction.Buy(null), Voxel, 1)]);
+        AssertNoEvaluation(original);
+        using var session = new CoreSession(original.State with { Content = content with { MarketRules = [] } });
+        Assert.IsFalse(session.Advance(5).Events.Any(e => e.Event is CoreEvent.AutomaticTradeEvaluated));
+        Accept(session, new CoreCommand.PublishContent(Changed(content, 'F')));
+        AssertNoEvaluation(session);
+        AssertNoEvaluation(session);
+        Assert.AreEqual(1, Step(session).Events.Count(e => e.Event is CoreEvent.AutomaticTradeEvaluated));
+    }
+
+    [TestMethod]
+    public void Missing_market_appends_reports_without_trimming_until_the_next_report_with_rules()
+    {
+        var content = InventoryTradeTests.Content();
+        content = content with { MarketRules = content.MarketRules.Select(r => r with { RecentReportLimit = 2 }).ToImmutableArray() };
+        using var original = InventoryTradeTests.Session(content);
+        using var session = new CoreSession(original.State with { Content = content with { MarketRules = [] } });
+        var expected = session.Read().Economy.RecentRunReports.ToList();
+        for (var i = 0; i < 4; i++)
+            expected.Add(Accept(session, new CoreCommand.ReplaceRunPlan(new(1), Plan(session, [])))
+                .Events.Select(e => e.Event).OfType<CoreEvent.RunReported>().Single().Report);
+        AssertReports(expected.ToImmutableArray(), session.Read().Economy.RecentRunReports);
+        Accept(session, new CoreCommand.PublishContent(Changed(content, 'F')));
+        AssertReports(expected.ToImmutableArray(), session.Read().Economy.RecentRunReports);
+        expected.Add(Accept(session, new CoreCommand.ReplaceRunPlan(new(1), Plan(session, [])))
+            .Events.Select(e => e.Event).OfType<CoreEvent.RunReported>().Single().Report);
+        AssertReports(expected.TakeLast(2).ToImmutableArray(), session.Read().Economy.RecentRunReports);
     }
 
     [TestMethod]
@@ -362,12 +524,15 @@ public sealed class AutomaticTradingTests
         var content = InventoryTradeTests.Content();
         content = content with { MarketRules = content.MarketRules.Select(r => r with { RecentReportLimit = 2 }).ToImmutableArray() };
         using var session = InventoryTradeTests.Session(content);
+        var generated = new List<RunReport>();
         for (var i = 0; i < 4; i++)
-            Accept(session, new CoreCommand.ReplaceRunPlan(new(1), Plan(session, [])));
+            generated.Add(Accept(session, new CoreCommand.ReplaceRunPlan(new(1), Plan(session, [])))
+                .Events.Select(e => e.Event).OfType<CoreEvent.RunReported>().Single().Report);
         var reports = session.Read().Economy.RecentRunReports;
         Assert.AreEqual(2, reports.Length);
         Assert.IsTrue(reports.All(r => r.Reason == RunEndReason.PlanReplaced));
-        CollectionAssert.AreEqual(reports.ToArray(), Train(session).RecentReports.ToArray());
+        AssertReports(generated.TakeLast(2).ToImmutableArray(), reports);
+        AssertReports(reports, Train(session).RecentReports);
         Assert.IsTrue(reports[0].EndedAt.Sequence < reports[1].EndedAt.Sequence);
     }
 
@@ -470,6 +635,52 @@ public sealed class AutomaticTradingTests
 
     private static void AssertNoEvaluation(CoreSession session)
         => Assert.IsFalse(Step(session).Events.Any(e => e.Event is CoreEvent.AutomaticTradeEvaluated));
+
+    private static void AssertReports(ImmutableArray<RunReport> expected, ImmutableArray<RunReport> actual)
+    {
+        Assert.AreEqual(expected.Length, actual.Length);
+        for (var i = 0; i < expected.Length; i++)
+        {
+            Assert.AreEqual(expected[i].Train, actual[i].Train);
+            Assert.AreEqual(expected[i].EndedAt, actual[i].EndedAt);
+            Assert.AreEqual(expected[i].Reason, actual[i].Reason);
+            AssertRun(expected[i].Totals, actual[i].Totals);
+        }
+    }
+
+    private static void AssertRun(RunAccumulatorView expected, RunAccumulatorView actual)
+    {
+        Assert.AreEqual(expected.StartedAt, actual.StartedAt);
+        Assert.AreEqual(expected.SalesReceipts, actual.SalesReceipts);
+        Assert.AreEqual(expected.PurchasePayments, actual.PurchasePayments);
+        Assert.AreEqual(expected.ServicePayments, actual.ServicePayments);
+        Assert.AreEqual(expected.NetCashFlow, actual.NetCashFlow);
+        Assert.AreEqual(expected.TransportedUnits, actual.TransportedUnits);
+        Assert.AreEqual(expected.LoadedCapacityRatio, actual.LoadedCapacityRatio);
+        Assert.AreEqual(expected.IncompleteRules.Length, actual.IncompleteRules.Length);
+        for (var i = 0; i < expected.IncompleteRules.Length; i++)
+        {
+            var left = expected.IncompleteRules[i];
+            var right = actual.IncompleteRules[i];
+            Assert.AreEqual(left.StopIndex, right.StopIndex);
+            Assert.AreEqual(left.RuleIndex, right.RuleIndex);
+            Assert.AreEqual(left.Action, right.Action);
+            Assert.AreEqual(left.Good, right.Good);
+            Assert.AreEqual(left.RequestedQuantity, right.RequestedQuantity);
+            Assert.AreEqual(left.CompletedQuantity, right.CompletedQuantity);
+            Assert.AreEqual(left.ActualAmount, right.ActualAmount);
+            Assert.AreEqual(left.IncompleteReasons.Length, right.IncompleteReasons.Length);
+            for (var j = 0; j < left.IncompleteReasons.Length; j++)
+            {
+                var a = left.IncompleteReasons[j];
+                var b = right.IncompleteReasons[j];
+                Assert.AreEqual(a.Code, b.Code);
+                Assert.AreEqual(a.Field, b.Field);
+                Assert.AreEqual(a.Subject, b.Subject);
+                CollectionAssert.AreEqual(a.RelatedIdentities.ToArray(), b.RelatedIdentities.ToArray());
+            }
+        }
+    }
 
     private static AutomaticGoodsRule Rule(CoreSession session, AutomaticGoodsAction action, GoodId good, long target)
         => new(action, good, session.State.World.Settlements.Single().Inventory, target);

@@ -103,7 +103,7 @@ public sealed class TrainOperationTests
                     Position = WorldFixture.Node(new(1), NodeTravelPhase.Docked, ApproachLength + PlatformLength / 2, platform: 1),
                     Plan = new(true, [new PlanStop.Station(new(1), 1, []), new PlanStop.Waypoint(new(2))]),
                     NextStopIndex = 0, Activity = TrainActivity.Servicing, RemainingDwellSteps = 1,
-                    CurrentRun = new(state.Position, new(0), new(0), 0, 0, 0, []), AutomaticEvaluationRemainingSteps = 0 }]
+                    CurrentRun = new(state.Position, new(0), new(0), 0, 0, 0, []) }]
             }
         });
         var result = session.Advance(1);
@@ -178,8 +178,7 @@ public sealed class TrainOperationTests
             CurrentRun = new(state.Position, new(0), new(0), 0, 0, 0, []) };
         if (activity == TrainActivity.Servicing)
             train = train with { Position = WorldFixture.Node(new(1), NodeTravelPhase.Docked, ApproachLength + PlatformLength / 2, platform: 1),
-                Plan = new(false, [new PlanStop.Station(new(1), 3, [])]), RemainingDwellSteps = 2,
-                AutomaticEvaluationRemainingSteps = 0 };
+                Plan = new(false, [new PlanStop.Station(new(1), 3, [])]), RemainingDwellSteps = 2 };
         if (activity == TrainActivity.Running) train = train with { Position = WorldFixture.Node(new(1), NodeTravelPhase.Departing, ApproachLength + PlatformLength + DepartureLength, nextEdge: new(1)) };
         using var session = new CoreSession(state with { Content = state.Content with
             { Goods = state.Content.Goods.Where(g => g.Good != new GoodId.Voxel(Material)).ToImmutableArray() },
@@ -303,7 +302,6 @@ public sealed class TrainOperationTests
         var member = ((Lookup<InstanceView>.Found)session.Read().FindInstance(new InstanceId.Vehicle(new(1)))).Value;
         Assert.AreEqual(((TrainPosition.Edge)Train(session).Position).DistanceMeters, ((WorldLocation.Edge)member.Location).DistanceMeters);
         Assert.IsInstanceOfType<TrainPosition.Edge>(Train(session).Position);
-        Assert.IsNotNull(Train(session).CurrentRun);
         Assert.IsTrue(Train(session).RecentReports.IsEmpty);
         Assert.AreEqual(EncounterAction.Retreat, Train(session).Engagement.Encounter);
     }

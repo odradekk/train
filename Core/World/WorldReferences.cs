@@ -71,9 +71,6 @@ internal static class WorldReferences
                     for (var ruleIndex = 0; ruleIndex < station.GoodsRules.Length; ruleIndex++)
                         Good(station.GoodsRules[ruleIndex].Good, $"World.Trains[{train.Id.Value}].Plan.Stops[{index}].GoodsRules[{ruleIndex}].Good");
         }
-        for (var index = 0; index < world.RecentRunReports.Length; index++)
-            foreach (var result in world.RecentRunReports[index].Totals.IncompleteRules)
-                Good(result.Good, $"World.RecentRunReports[{index}].Totals.IncompleteRules[{result.StopIndex},{result.RuleIndex}].Good");
         foreach (var design in world.Designs)
         {
             var path = $"World.Designs[{design.Design.Value}]";

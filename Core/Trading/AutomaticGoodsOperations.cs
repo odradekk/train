@@ -21,12 +21,13 @@ internal static class AutomaticGoodsOperations
     internal static TrainState Advance(ref WorldState world, CoreContentProjection content, TrainState train,
         ulong step, bool elapsed, ImmutableArray<CoreEvent>.Builder events)
     {
+        var index = train.NextStopIndex!.Value;
+        var station = (PlanStop.Station)train.Plan!.Stops[index];
+        if (station.GoodsRules.IsEmpty) return train;
         if (MarketPrices.Rule(world, content) is not { } marketRule) return train;
         var remaining = train.AutomaticEvaluationRemainingSteps!.Value;
         if (elapsed && remaining > 0) remaining--;
         if (remaining > 0) return train with { AutomaticEvaluationRemainingSteps = remaining };
-        var index = train.NextStopIndex!.Value;
-        var station = (PlanStop.Station)train.Plan!.Stops[index];
         var settlement = world.Settlements.SingleOrDefault(s => s.Node == station.Node);
         var results = ImmutableArray.CreateBuilder<AutomaticRuleResult>();
         world = world with { Trains = world.Trains.Select(t => t.Id == train.Id ? train : t).ToImmutableArray() };

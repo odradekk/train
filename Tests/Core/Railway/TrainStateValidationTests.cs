@@ -28,8 +28,7 @@ public sealed class TrainStateValidationTests
         {
             Position = WorldFixture.Node(station.Node, NodeTravelPhase.Docked, WorldFixture.ApproachLength + WorldFixture.PlatformLength / 2, platform: 1),
             Activity = TrainActivity.Stopped, SpeedMetersPerSecond = 0, StopRequested = false,
-            Plan = new(false, [new PlanStop.Station(station.Node, 10, [])]), RemainingDwellSteps = 5,
-            AutomaticEvaluationRemainingSteps = 0
+            Plan = new(false, [new PlanStop.Station(station.Node, 10, [])]), RemainingDwellSteps = 5
         };
         RoundTrip(state with { World = world with { Trains = [train] } });
     }
@@ -61,7 +60,7 @@ public sealed class TrainStateValidationTests
         {
             Position = WorldFixture.Node(target, NodeTravelPhase.Docked, WorldFixture.ApproachLength + (hostile ? WorldFixture.PlatformLength / 2 : 0)),
             Plan = new(false, [new PlanStop.Station(target, 10, [])]),
-            Activity = TrainActivity.Servicing, RemainingDwellSteps = 5, AutomaticEvaluationRemainingSteps = 0
+            Activity = TrainActivity.Servicing, RemainingDwellSteps = 5
         };
         RoundTrip(state with { World = world with { Trains = [train] } });
     }
@@ -95,7 +94,7 @@ public sealed class TrainStateValidationTests
                 Position = WorldFixture.Node(state.World.Settlements[0].Node, NodeTravelPhase.Docked, WorldFixture.ApproachLength + WorldFixture.PlatformLength / 2, platform: 1),
                 Activity = TrainActivity.Stopped, SpeedMetersPerSecond = 0,
                 Plan = new(false, [new PlanStop.Station(state.World.Settlements[0].Node, 10, [])]),
-                RemainingDwellSteps = 10, AutomaticEvaluationRemainingSteps = 0
+                RemainingDwellSteps = 10
             };
         var capture = new CoreCapture(state with { World = state.World with { Trains = [original] } });
         var root = JsonNode.Parse(capture.Encode())!;

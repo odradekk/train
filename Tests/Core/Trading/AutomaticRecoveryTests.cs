@@ -15,33 +15,53 @@ public sealed class AutomaticRecoveryTests
     public TestContext TestContext { get; set; } = null!;
 
     [TestMethod]
-    public void Historical_report_goods_remain_in_capture_references_after_plan_replacement_and_disbanding()
+    public void Report_only_goods_can_be_removed_by_publication_and_restore_without_losing_history()
     {
         var good = new GoodId.Voxel(new("fixture:report-only"));
+        var reference = new CoreDefinitionReference.Voxel(good.Definition);
         var content = InventoryTradeTests.Content();
         content = content with { Goods = content.Goods.Add(content.Goods[0] with { Good = good }),
             MarketRules = [content.MarketRules[0] with { RecentReportLimit = 10 }] };
-        using var session = InventoryTradeTests.Session(content);
+        using var session = InventoryTradeTests.Session(content, local: [new(InventoryTradeTests.Clothing, 13)]);
         var settlement = session.State.World.Settlements.Single();
         InventoryFixture.Accept(session, new CoreCommand.StopTrain(new(1)));
         InventoryFixture.Accept(session, new CoreCommand.ReplaceRunPlan(new(1), new(false,
             [new PlanStop.Station(settlement.Node, 10, [new(new AutomaticGoodsAction.Buy(null), good, settlement.Inventory, 1)])])));
+        Assert.IsTrue(WorldFixture.Success(session.Capture(CapturePurpose.Save)).References.Definitions
+            .Any(d => d.Definition == reference));
         InventoryFixture.Accept(session, new CoreCommand.StartTrain(new(1)));
+        InventoryFixture.Accept(session, new CoreCommand.BuyGoods(new(1), settlement.Id, settlement.Inventory,
+            InventoryTradeTests.Clothing, 1, new(97)));
+        var lease = InventoryFixture.Rent(session);
+        InventoryFixture.Accept(session, new CoreCommand.UnloadGoods(new(1), settlement.Id, lease.Inventory,
+            InventoryTradeTests.Clothing, 1));
         InventoryFixture.Accept(session, new CoreCommand.ReplaceRunPlan(new(1), new(false,
             [new PlanStop.Station(settlement.Node, 10, [])])));
         InventoryFixture.Accept(session, new CoreCommand.DisbandTrain(new(1)));
+        var original = session.Read().Economy.RecentRunReports.Single(r => !r.Totals.IncompleteRules.IsEmpty);
+        Assert.AreEqual(new Money(97), original.Totals.PurchasePayments);
 
+        var removed = content with { Identity = new(new string('D', 64)),
+            Goods = content.Goods.Where(g => g.Good != good).ToImmutableArray() };
         var capture = WorldFixture.Success(session.Capture(CapturePurpose.Save));
-        var reference = capture.References.Definitions.Single(d => d.Definition == new CoreDefinitionReference.Voxel(good.Definition));
-        Assert.IsTrue(reference.Field.StartsWith("World.RecentRunReports[", StringComparison.Ordinal));
+        InventoryFixture.Accept(session, new CoreCommand.PublishContent(removed));
+        AssertHistory(session);
         var factory = CoreFactory.Create();
         var decoded = WorldFixture.Success(factory.DecodeState(capture.Encode()));
-        using var candidate = WorldFixture.Success(factory.PrepareRestore(decoded, session.State.Content, WorldFixture.Options));
+        using var candidate = WorldFixture.Success(factory.PrepareRestore(decoded, removed, WorldFixture.Options));
+        Assert.IsTrue(candidate.MissingReferences.IsEmpty);
         using var restored = candidate.Activate();
-        var report = restored.Read().Economy.RecentRunReports.Single(r => !r.Totals.IncompleteRules.IsEmpty);
-        Assert.AreEqual(good, report.Totals.IncompleteRules.Single().Good);
-        Assert.IsTrue(WorldFixture.Success(restored.Capture(CapturePurpose.Save)).References.Definitions
-            .Any(d => d.Definition == reference.Definition));
+        AssertHistory(restored);
+
+        void AssertHistory(ICoreSession current)
+        {
+            var report = current.Read().Economy.RecentRunReports.Single(r => !r.Totals.IncompleteRules.IsEmpty);
+            Assert.AreEqual(good, report.Totals.IncompleteRules.Single().Good);
+            Assert.AreEqual(original.Totals.PurchasePayments, report.Totals.PurchasePayments);
+            Assert.AreEqual(JsonSerializer.Serialize(original), JsonSerializer.Serialize(report));
+            Assert.IsFalse(WorldFixture.Success(current.Capture(CapturePurpose.Save)).References.Definitions
+                .Any(d => d.Definition == reference));
+        }
     }
 
     [TestMethod]
@@ -138,6 +158,7 @@ public sealed class AutomaticRecoveryTests
                 Assert.AreEqual(1, rules.Count);
                 var earlier = rules[0]!.DeepClone();
                 earlier["rule_index"] = 0;
+                earlier["good"] = world["trains"]![0]!["plan"]!["stops"]![0]!["goods_rules"]![0]!["good"]!.DeepClone();
                 rules.Add(earlier);
                 field += "/incomplete_rules";
                 break;

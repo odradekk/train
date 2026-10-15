@@ -301,15 +301,16 @@ internal static class TrainOperations
                 {
                     if (train.Plan.Stops[index] is PlanStop.Station station)
                     {
-                        if (train.AutomaticEvaluationRemainingSteps is null)
+                        if (!station.GoodsRules.IsEmpty && train.AutomaticEvaluationRemainingSteps is null)
                         {
                             train = ChangeActivity(train with { RemainingDwellSteps = station.DwellSteps,
                                 AutomaticEvaluationRemainingSteps = 0, StopRequested = false }, TrainActivity.Servicing, events);
-                            train = AutomaticGoodsOperations.Advance(ref world, content, train, step, false, events);
+                            train = AutomaticGoodsOperations.Advance(ref world, content, train, boundary.CompletedSteps, false, events);
                             dispatch.RefreshCapabilities(world, train);
                         }
-                        if (train.RemainingDwellSteps > 0)
-                            return ChangeActivity(train with { StopRequested = false }, TrainActivity.Servicing, events);
+                        if (train.RemainingDwellSteps > 0 || station.GoodsRules.IsEmpty && station.DwellSteps > 0)
+                            return ChangeActivity(train with { RemainingDwellSteps = train.RemainingDwellSteps > 0
+                                ? train.RemainingDwellSteps : station.DwellSteps, StopRequested = false }, TrainActivity.Servicing, events);
                         train = ConsumeStop(ref world, content, train, boundary, events);
                     }
                     else if (StationAt(train, position.Id) is not null || AfterLocalStops(train, position.Id).NextStopIndex is null)

@@ -457,10 +457,13 @@ internal static class WorldStateValidation
         Require(train.AutomaticEvaluationRemainingSteps is null || unfinished
             && train.Position is TrainPosition.Node atStation
             && train.Plan!.Stops[train.NextStopIndex!.Value] is PlanStop.Station current && current.Node == atStation.Id
+            && !current.GoodsRules.IsEmpty
             && train.RemainingDwellSteps > 0 && train.Activity is TrainActivity.Servicing or TrainActivity.Stopped or TrainActivity.Waiting,
             "/world/trains/automatic_evaluation_remaining_steps");
-        Require(train.Activity != TrainActivity.Servicing && train.RemainingDwellSteps == 0
-            || train.AutomaticEvaluationRemainingSteps is not null, "/world/trains/automatic_evaluation_remaining_steps");
+        Require(train.AutomaticEvaluationRemainingSteps is not null
+            || train.Activity != TrainActivity.Servicing && train.RemainingDwellSteps == 0
+            || unfinished && train.Plan!.Stops[train.NextStopIndex!.Value] is PlanStop.Station { GoodsRules.IsEmpty: true },
+            "/world/trains/automatic_evaluation_remaining_steps");
     }
 
     private static bool NotAfter(SimulationPosition a, SimulationPosition b)

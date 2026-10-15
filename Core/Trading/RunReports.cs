@@ -43,7 +43,6 @@ internal static class RunReports
         var inventory = world.Inventories.Single(i => i.Id == train.Inventory);
         var loaded = run.LoadedUnitsDistance + InventoryStorage.Used(inventory) * edge.LengthMeters;
         var capacity = run.CapacityDistance + InventoryStorage.Read(world, content, step, inventory).Capacity * edge.LengthMeters;
-        if (!double.IsFinite(loaded) || !double.IsFinite(capacity)) throw new OverflowException("运行载货距离累计溢出。");
         return train with { CurrentRun = run with { LoadedUnitsDistance = loaded, CapacityDistance = capacity } };
     }
 }
