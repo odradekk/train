@@ -91,7 +91,7 @@ internal sealed class VoxelGrid
         public override int GetHashCode()
         {
             var hash = new HashCode();
-            hash.Add(Orientation); hash.Add(Appearance); hash.Add(Shape); hash.Add(Paint); hash.Add(Subject); hash.Add(MissingReference);
+            hash.Add(Orientation); hash.Add(Appearance?.Definition); hash.Add(Shape); hash.Add(Paint); hash.Add(Subject); hash.Add(MissingReference);
             foreach (var index in Path.AsSpan()) hash.Add(index);
             return hash.ToHashCode();
         }
