@@ -84,6 +84,11 @@ def grass_texture(x, y):
     return tint(GRASS, grain(x, y, 128, 0x502))
 
 
+def forest_ground_texture(x, y):
+    leaves = (x % 32 - 8) ** 2 + 4 * (y % 32 - 12) ** 2 < 25
+    return tint((92, 103, 56) if leaves else (43, 66, 54), grain(x, y, 128, 0x517))
+
+
 def roots_texture(x, y):
     variation = grain(x, y, 128, 0x503)
     return tint(SOIL if variation < 3 else tuple((a + b) // 2 for a, b in zip(SOIL, GRASS)), variation)
@@ -451,6 +456,10 @@ def content_files():
     voxel("stone", "石料", "stone_soil", faces("shared/soil-face.png"), "shared/soil-icon.png", good(18, 0.042, raw=True))
     voxel("ground", "地表", "organic", faces("top.png", "side.png", "shared/subsoil.png"),
           "icon.png", tile_span=4, description=sample_description.format("地表"))
+    voxel("forest-ground", "森林地表占位", "organic", faces("top.png"),
+          "icon.png", tile_span=4, description="森林地表占位，正式地形美术归 #358。")
+    files["voxels/forest-ground/top.png"] = png(128, forest_ground_texture)
+    files["voxels/forest-ground/icon.png"] = png(128, forest_ground_texture)
     voxel("subsoil", "土层", "stone_soil", faces("shared/subsoil.png"),
           "icon.png", tile_span=4, description=sample_description.format("土层"))
     voxel("rock", "岩层", "stone_soil", faces("top.png"),
@@ -476,10 +485,17 @@ def content_files():
         for kind, name, cells in (("bridge", "桥梁", bridge), ("tunnel-portal", "隧道口", tunnel)):
             identity = f"{kind}-{tracks}"
             document("blueprints", "blueprint", identity, blueprint(identity, f"{tracks}轨{name}", "scene_model", ["rock"], cells))
-    for identity, name, local_amplitude in (("plains", "平原", 0.7), ("hills", "丘陵", 2.8)):
+    for identity, name, surface, local_amplitude in (
+        ("plains", "平原", "ground", 0.7), ("hills", "丘陵", "ground", 2.8),
+        ("forest", "森林", "forest-ground", 0.7), ("desert", "荒漠", "subsoil", 0.7),
+        ("mountains", "山地", "rock", 2.8),
+    ):
+        description = f"基础贯通{name}，提供局部起伏与铁路模型。"
+        if identity in ("forest", "desert", "mountains"):
+            description += "占位，正式地形美术归 #358。"
         document("terrain-types", "terrain-type", identity,
-                 {"schema_version": 1, "id": identity, "display": {"name": name, "description": f"基础贯通{name}，提供局部起伏与铁路模型。"},
-                  "surface_voxel": "ground", "subsurface_voxel": "subsoil", "rock_voxel": "rock",
+                 {"schema_version": 1, "id": identity, "display": {"name": name, "description": description},
+                  "surface_voxel": surface, "subsurface_voxel": "subsoil", "rock_voxel": "rock",
                   "local_height_noise": [{"scale_meters": 140, "amplitude": local_amplitude}],
                   "decorations": [], "decoration_target_per_square_meter": 0,
                   "railway_models": [{"tracks": n, "bridge": f"bridge-{n}", "tunnel_portal": f"tunnel-portal-{n}"} for n in (1, 2)]})
@@ -547,18 +563,18 @@ def content_files():
         document("blueprints", "blueprint", identity, value)
 
     settlements = (
-        ("agricultural-town", "农业镇", ("farm", "food-factory")),
-        ("mining-town", "矿业镇", ("extraction-site", "metallurgy-factory", "building-materials-factory")),
-        ("forestry-town", "林业镇", ("extraction-site", "light-industry-factory")),
-        ("oilfield-town", "油田镇", ("extraction-site", "chemical-factory")),
-        ("industrial-city", "工业城", ("assembly-factory", "electronics-factory", "recovery-factory", "heavy-vehicle-factory")),
+        ("agricultural-town", "农业镇", ("plains", "hills"), ("farm", "food-factory")),
+        ("mining-town", "矿业镇", ("mountains", "hills"), ("extraction-site", "metallurgy-factory", "building-materials-factory")),
+        ("forestry-town", "林业镇", ("forest",), ("extraction-site", "light-industry-factory")),
+        ("oilfield-town", "油田镇", ("desert",), ("extraction-site", "chemical-factory")),
+        ("industrial-city", "工业城", ("plains",), ("assembly-factory", "electronics-factory", "recovery-factory", "heavy-vehicle-factory")),
     )
-    for identity, name, major_buildings in settlements:
+    for identity, name, preferred_terrain, major_buildings in settlements:
         document("settlement-types", "settlement-type", identity,
                  {"schema_version": 3, "id": identity,
-                  "simulation": {"preferred_terrain": ["core:plains", "core:hills"], "weight": 3,
+                  "simulation": {"preferred_terrain": ["core:" + terrain for terrain in preferred_terrain], "weight": 3,
                                  "population_min": 120, "population_max": 360},
-                  "display": {"name": name, "description": "本阶段临时使用平原、丘陵偏好；完整地貌和生产配平随后接入。",
+                  "display": {"name": name, "description": "按 Demo 目录选择偏好地貌；生产配平待 #379。",
                               "map_symbol": "shared/agricultural-town.png", "major": identity == "industrial-city"}})
         plots = [{"id": 1, "size": "small_station", "at": [-104, 1, -176], "orientation": "px_py", "building": "small-station"},
                  {"id": 2, "size": "small_station", "at": [104, 1, -176], "orientation": "px_py"}]
@@ -637,10 +653,18 @@ def content_files():
     document("combat-rules", "combat-rule", "basic-combat", {"schema_version": 1, "id": "basic-combat",
         "retreat_seconds": 24, "morale_damage_coefficient": 0.015, "weapon_destroyed_morale_loss": 0.18,
         "morale_recovery_per_second": 0.012, "surrender_threshold": 0.12, "new_lair_interval_seconds": 5400})
-    bands = [{"terrain": terrain, "minimum_elevation": -1, "maximum_elevation": 30,
-              "minimum_moisture": -1, "maximum_moisture": 2, "maximum_relief": relief,
+    # 阈值仅供示例验证，分布待配平。
+    # 非平原带的起伏上限均超过 18 米噪声总振幅；不同上限消除闭区间边界的并列匹配。
+    bands = [{"terrain": terrain, "minimum_elevation": low, "maximum_elevation": high,
+              "minimum_moisture": dry, "maximum_moisture": wet, "maximum_relief": relief,
               "detour_multiplier": detour, "maximum_tracks": 2}
-             for terrain, relief, detour in (("plains", 0.75, 1.12), ("hills", 100, 1.35))]
+             for terrain, low, high, dry, wet, relief, detour in (
+                 ("plains", -1, 10, 0.35, 0.65, 0.75, 1.12),
+                 ("hills", -1, 10, 0.35, 0.65, 100, 1.35),
+                 ("forest", -1, 30, 0.65, 2, 98, 1.35),
+                 ("desert", -1, 30, -1, 0.35, 97, 1.35),
+                 ("mountains", 10, 30, -1, 2, 96, 1.35),
+             )]
     document("generation-profiles", "generation-profile", "basic-through-world", {
         "schema_version": 2, "id": "basic-through-world",
         "display": {"name": "基础贯通小世界", "description": "真实三轨距机车、站点、非零噪声与环路；不是完整 Demo 默认开局，经济条件与生物聚落尚未验收。"},
