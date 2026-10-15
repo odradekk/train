@@ -202,10 +202,15 @@ public sealed class InventoryTradeTests
     }
 
     [TestMethod]
-    public void Dynamic_prepared_food_targets_keep_split_orders_equal_and_prevent_buy_sell_profit()
+    public void Dynamic_prepared_food_targets_keep_split_orders_equal_and_use_before_stock_eligibility()
     {
         using var whole = Session(Content(capacity: 12), local: [new(PreparedFood, 12)]);
         using var split = Session(Content(capacity: 12), local: [new(PreparedFood, 12)]);
+        var market = ((Lookup<SettlementView>.Found)whole.Read().FindSettlement(new(1))).Value.Market;
+        Assert.AreEqual(11L, market.Goods.Single(g => g.Good == PreparedFood).SellableQuantity);
+        var tooMany = Request(whole, TradeAction.Buy, PreparedFood, 12);
+        Assert.AreEqual("insufficient_goods", Quote(whole, tooMany).Blockers.Single().Code);
+        RejectWithoutWorldChange(whole, Command(tooMany, 10000), "insufficient_goods");
         var wholeRequest = Request(whole, TradeAction.Buy, PreparedFood, 7);
         var total = Quote(whole, wholeRequest).Total!.Value.Value;
         // Low-end targets are 6,6,5,5,4,4,3; unit payments are 60,69,61,72,62,76,65.
@@ -224,6 +229,89 @@ public sealed class InventoryTradeTests
         var resale = Quote(whole, wholeRequest with { Action = TradeAction.Sell });
         Assert.AreEqual("insufficient_demand", resale.Blockers.Single().Code);
         RejectWithoutWorldChange(whole, Command(wholeRequest with { Action = TradeAction.Sell }, 0), "insufficient_demand");
+    }
+
+    [TestMethod]
+    public void Market_rows_report_relation_blockers_and_limit_receipts_by_available_space()
+    {
+        foreach (var relation in new[] { SettlementRelation.NonHostile, SettlementRelation.PlayerOwned, SettlementRelation.Hostile })
+        {
+            using var session = Session(Content(capacity: 30), local: [new(Clothing, 9), new(Voxel, 20)], relation: relation);
+            var settlement = ((Lookup<SettlementView>.Found)session.Read().FindSettlement(new(1))).Value;
+            var clothing = settlement.Market.Goods.Single(g => g.Good == Clothing);
+            var food = settlement.Market.Goods.Single(g => g.Good == new GoodId.Voxel(new("fixture:food")));
+            Assert.AreEqual(9L, clothing.Stock);
+            Assert.AreEqual(10L, clothing.RestockTarget);
+            Assert.IsTrue(settlement.Market.Goods.All(g => g.ReservedForUse == g.RestockTarget));
+            Assert.AreEqual(0L, clothing.SellableQuantity);
+            if (relation == SettlementRelation.NonHostile)
+            {
+                Assert.AreEqual(1L, ReadInventory(session, settlement.Inventory).Available);
+                Assert.AreEqual(1L, clothing.ReceivableQuantity);
+                Assert.AreEqual(10L, food.RestockTarget);
+                Assert.AreEqual(1L, food.ReceivableQuantity);
+                Assert.AreEqual(20L, settlement.Market.Goods.Single(g => g.Good == Voxel).SellableQuantity);
+                Assert.IsTrue(settlement.Market.Goods.All(g => g.Blockers.IsEmpty));
+            }
+            else
+            {
+                var code = relation == SettlementRelation.PlayerOwned ? "invalid_state" : "access_denied";
+                var field = relation == SettlementRelation.PlayerOwned ? "Settlement" : "LocalInventory";
+                foreach (var row in settlement.Market.Goods)
+                {
+                    Assert.AreEqual(0L, row.SellableQuantity);
+                    Assert.AreEqual(0L, row.ReceivableQuantity);
+                    Assert.AreEqual(code, row.Blockers.Single().Code);
+                    Assert.AreEqual(field, row.Blockers.Single().Field);
+                }
+            }
+        }
+    }
+
+    [TestMethod]
+    public void Dynamic_food_receipts_recalculate_targets_for_each_before_stock()
+    {
+        var content = Content(capacity: 25);
+        content = content with { MarketRules = [content.MarketRules[0] with { ImprovementReserveHours = 1d / 3600 }] };
+        using var session = Session(content, local: [new(PreparedFood, 5)], cargo: [new(PreparedFood, 3)]);
+        var settlement = ((Lookup<SettlementView>.Found)session.Read().FindSettlement(new(1))).Value;
+        var row = settlement.Market.Goods.Single(g => g.Good == PreparedFood);
+        // Basic needs use 20 slots. The five improvement slots give prepared food one at stocks 5 and 6,
+        // and none at stock 7: targets 6, 7, 7 allow two receipts, despite the initial deficit of one.
+        Assert.AreEqual(5L, row.Stock);
+        Assert.AreEqual(6L, row.RestockTarget);
+        Assert.AreEqual(6L, row.ReservedForUse);
+        Assert.AreEqual(0L, row.SellableQuantity);
+        Assert.AreEqual(2L, row.ReceivableQuantity);
+        Assert.IsTrue(row.Blockers.IsEmpty);
+        var request = Request(session, TradeAction.Sell, PreparedFood, 3);
+        Assert.AreEqual(2L, Quote(session, request).CurrentlyExecutableQuantity);
+        Assert.AreEqual("insufficient_demand", Quote(session, request).Blockers.Single().Code);
+    }
+
+    [TestMethod]
+    public void Price_condition_precedes_wallet_and_demand_precedes_capacity()
+    {
+        using var poor = Session(local: [new(Clothing, 13)], money: 96);
+        var buy = Request(poor, TradeAction.Buy, Clothing, 1);
+        RejectWithoutWorldChange(poor, Command(buy, 96), "price_condition_failed", "MaximumPayment");
+        RejectWithoutWorldChange(poor, Command(buy, 97), "insufficient_money", "Wallet");
+        using var full = Session(local: [new(Clothing, 9), new(Voxel, 991)], cargo: [new(Clothing, 2)]);
+        var sell = Request(full, TradeAction.Sell, Clothing, 2);
+        RejectWithoutWorldChange(full, Command(sell, 0), "insufficient_demand", "Quantity");
+        RejectWithoutWorldChange(full, Command(sell with { Quantity = 1 }, 0), "insufficient_capacity", "LocalInventory.Capacity");
+    }
+
+    [TestMethod]
+    public void Executable_quantity_reports_the_affordable_prefix_of_a_whole_order()
+    {
+        using var session = Session(local: [new(Clothing, 13)], money: 199);
+        var request = Request(session, TradeAction.Buy, Clothing, 3);
+        var quote = Quote(session, request);
+        Assert.AreEqual(new Money(307), quote.Total);
+        Assert.AreEqual(2L, quote.CurrentlyExecutableQuantity);
+        Assert.AreEqual("insufficient_money", quote.Blockers.Single().Code);
+        RejectWithoutWorldChange(session, Command(request, 307), "insufficient_money");
     }
 
     [TestMethod]

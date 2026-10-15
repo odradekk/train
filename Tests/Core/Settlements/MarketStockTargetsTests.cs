@@ -94,6 +94,25 @@ public sealed class MarketStockTargetsTests
     }
 
     [TestMethod]
+    public void Midperiod_potential_consumption_uses_current_labor_instead_of_frozen_ratio()
+    {
+        var content = Content(rate: 10, laborPerWork: 1);
+        content = content with { PopulationRules = [content.PopulationRules[0] with
+        { LaborRatio = .5, ConsumptionIntervalTicks = 120, StatisticsPeriodTicks = 720 }] };
+        using var candidate = Prepare(content);
+        using var session = (CoreSession)candidate.Activate();
+        Step(session);
+        var frozen = session.State.World.Settlements.Single().PopulationState.Period!.Rule;
+        var changed = Changed(content) with { PopulationRules = [content.PopulationRules[0] with
+        { Revision = new(new string('A', 64)), LaborRatio = .8 }] };
+        Publish(session, changed);
+        Assert.AreEqual(.5, frozen.LaborRatio);
+        Assert.AreEqual(frozen, session.State.World.Settlements.Single().PopulationState.Period!.Rule);
+        // Ten residents supply eight labor: eight work/second consumes eight inputs/second.
+        Assert.AreEqual(8d, Read(session).PotentialConsumption.Single(g => g.Good == Input).UnitsPerSecond, 1e-12);
+    }
+
+    [TestMethod]
     public void Missing_inputs_and_blocked_outputs_keep_targets_but_disabled_plans_do_not()
     {
         var content = Market(Content(stock: []));
@@ -122,13 +141,13 @@ public sealed class MarketStockTargetsTests
     {
         var content = Market(Content(work: 20, powerPerWork: 1));
         content = content with { Goods = content.Goods.Select(g => g.Good == Fuel
-            ? g with { FuelEnergyPerUnit = 10 } : g).ToImmutableArray() };
+            ? g with { FuelEnergyPerUnit = 4 } : g).ToImmutableArray() };
         var world = State(content).World;
         var settlement = world.Settlements.Single();
         settlement = settlement with { ProductionFacilities = settlement.ProductionFacilities.Select(f => f with
         { Batch = new(Process, WorldFixture.Revision, [new(Product, 3)], 10, 3, 0, 6) }).ToImmutableArray() };
-        // The frozen batch needs (10 - 6) * 3 = 12 energy, hence two fuel units.
-        AssertTargets(Calculate(Replace(world, settlement), content), new GoodsQuantity(Fuel, 2));
+        // The frozen batch needs (10 - 6) * 3 = 12 energy, hence three fuel units.
+        AssertTargets(Calculate(Replace(world, settlement), content), new GoodsQuantity(Fuel, 3));
     }
 
     [TestMethod]
@@ -158,6 +177,42 @@ public sealed class MarketStockTargetsTests
         // At one work/second and two work/batch, four seconds require four materials.
         // The first pass reserves two each; only one extra unit fits for the first plan.
         AssertTargets(Calculate(State(content).World, content), new(Input, 3), new(OtherProduct, 2));
+    }
+
+    [TestMethod]
+    public void Extra_reserves_subtract_minimum_batches_when_capacity_is_sufficient()
+    {
+        var content = TwoPlans(capacity: 10, firstInputs: 2, secondInputs: 2);
+        content = content with { MarketRules = [content.MarketRules[0] with { ProductionReserveHours = 1d / 900 }] };
+        // Four seconds at one work/second consume two batches, or four inputs per plan.
+        AssertTargets(Calculate(State(content).World, content), new(Input, 4), new(OtherProduct, 4));
+    }
+
+    [TestMethod]
+    public void Extra_material_fuel_does_not_supply_energy_to_the_next_plan()
+    {
+        var content = TwoPlans(capacity: 100, firstInputs: 2, secondInputs: 2, powerPerWork: 3);
+        content = content with
+        {
+            Processes = content.Processes.Select(p => p.Details is ProcessDetails.Production details && details.Inputs.Any(g => g.Good == Input)
+                ? p with { Details = details with { Inputs = [new(Fuel, 2)] } } : p).ToImmutableArray(),
+            MarketRules = [content.MarketRules[0] with { ProductionReserveHours = 1d / 900 }]
+        };
+        // Minimum batches burn two fuel and leave eight energy; the first extra batch
+        // consumes six energy and two material fuel. The next needs one more fuel.
+        // Four material fuel plus three burned fuel; the second plan needs four inputs.
+        AssertTargets(Calculate(State(content).World, content), new(Fuel, 7), new(OtherProduct, 4));
+    }
+
+    [TestMethod]
+    public void Extra_reserves_carry_whole_fuel_surplus_to_the_next_plan()
+    {
+        var content = TwoPlans(capacity: 100, firstInputs: 0, secondInputs: 0, powerPerWork: 3);
+        content = content with { MarketRules = [content.MarketRules[0] with { ProductionReserveHours = 1d / 600 }] };
+        // Minimum batches consume twelve energy and leave eight from two fuel.
+        // Each extra reserve needs twelve: the first buys one fuel and leaves six,
+        // so the second also buys only one. Total thirty-six energy needs four fuel.
+        AssertTargets(Calculate(State(content).World, content), new GoodsQuantity(Fuel, 4));
     }
 
     [TestMethod]

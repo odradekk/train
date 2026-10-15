@@ -106,9 +106,8 @@ public sealed class PopulationStockTargetsTests
         ImmutableArray<PopulationConsumptionRemainder> remainders = default,
         PopulationNeedClass needClass = PopulationNeedClass.Basic) =>
         PopulationStockTargets.Calculate(rule, 1, 1, 1,
-            inventory.IsDefault ? 0 : inventory.Where(g => g.Good == rule?.ConsumptionGoods.Single(g => g.Satisfies.Any(c => c.Need == PopulationNeed.Food)
-                && !g.Satisfies.Any(c => c.Need == PopulationNeed.ImprovedDiet)).Good).Sum(g => g.Quantity),
-            inventory.IsDefault ? 0 : inventory.Where(g => g.Good == rule?.ConsumptionGoods.Single(g => g.Satisfies.Any(c => c.Need == PopulationNeed.ImprovedDiet)).Good).Sum(g => g.Quantity),
+            inventory.IsDefault ? 0 : inventory.Where(g => g.Good == Staple).Sum(g => g.Quantity),
+            inventory.IsDefault ? 0 : inventory.Where(g => g.Good == Prepared).Sum(g => g.Quantity),
             (remainders.IsDefault ? ImmutableArray<PopulationConsumptionRemainder>.Empty : remainders)
                 .AddRange(new PopulationConsumptionRemainder[] { new(Consumer, 1), new(Electronics, 1), new(Medical, 1) }), needClass, capacity);
 

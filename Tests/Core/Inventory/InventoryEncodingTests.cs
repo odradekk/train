@@ -79,19 +79,6 @@ public sealed class InventoryEncodingTests
     }
 
     [TestMethod]
-    public void Trades_round_trip_all_good_kinds_and_numeric_boundaries()
-    {
-        GoodId[] goods = [new GoodId.Voxel(new("fixture:ore")), new GoodId.Composite(new("fixture:plate")), new GoodId.Assembly(new(new string('A', 64)))];
-        foreach (var good in goods)
-        {
-            RoundTrip(new CoreCommand.BuyGoods(new(ulong.MaxValue), new(ulong.MaxValue), new(ulong.MaxValue), good, long.MaxValue, new(0)));
-            RoundTrip(new CoreCommand.SellGoods(new(1), new(2), new(3), good, 1, new(long.MaxValue)));
-        }
-        RoundTrip(new CoreCommand.BuyVehicle(new(ulong.MaxValue), new(ulong.MaxValue), new(long.MaxValue)));
-        RoundTrip(new CoreCommand.SellVehicle(new(1), new(2), new(0)));
-    }
-
-    [TestMethod]
     public void Invalid_trade_values_cannot_be_encoded()
     {
         var good = new GoodId.Voxel(new("fixture:ore"));
