@@ -23,22 +23,9 @@ internal static class InventoryStorage
     private static long InstanceCapacity(WorldState world, CoreContentProjection content, InstanceId id)
     {
         var instance = world.Instances.Single(i => i.Id == id);
-        var design = world.Designs.Single(d => d.Design == instance.Design);
-        if (Math.Min(instance.StructureDurability, design.MaxStructureDurability) <= 0) return 0;
-        var current = content.Designs.SingleOrDefault(d => d.Design == design.Design);
         long capacity = 0;
-        foreach (var part in design.Parts)
+        foreach (var part in InstanceCapabilities.EffectiveParts(world, content, instance))
         {
-            GoodId? definitionGood = part.Definition switch
-            {
-                CoreDefinitionReference.Voxel v => new GoodId.Voxel(v.Id),
-                CoreDefinitionReference.Composite c => new GoodId.Composite(c.Id),
-                _ => null
-            };
-            if (part.Missing || Math.Min(instance.Parts.Single(p => p.Id == part.Id).Current, part.MaxDurability) <= 0
-                || definitionGood is not null && DefinitionMissing(world, content, definitionGood)
-                || current is not null && (current.MissingReferences.Any(m => m.Reference == part.Definition)
-                    || current.Parts.Any(p => p.Id == part.Id && p.Missing))) continue;
             foreach (var storage in part.Capabilities.OfType<PartCapability.Storage>())
                 capacity = checked(capacity + storage.Capacity);
         }

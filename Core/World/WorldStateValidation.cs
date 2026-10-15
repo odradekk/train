@@ -52,6 +52,8 @@ internal static class WorldStateValidation
             designs.TryGetValue(hash, out var design) && design.Kind is DesignKind.Vehicle)), "/world/source/start/trains/vehicles");
         foreach (var settlement in world.Settlements)
         {
+            Require(double.IsFinite(settlement.FuelEnergyRemaining) && settlement.FuelEnergyRemaining >= 0,
+                "/world/settlements/fuel_energy_remaining");
             try { WorldInputs.ValidateTemplate(settlement.Template); }
             catch (ArgumentException) { throw new CoreStateFormatException("/world/settlements/template"); }
             Require(settlement.Template.Plots.All(p => p.PrebuiltDesign is not { } hash ||

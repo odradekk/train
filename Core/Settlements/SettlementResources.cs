@@ -1,0 +1,104 @@
+using System.Collections.Immutable;
+using Train.Core.Contracts;
+using Train.Core.Inventory;
+using Train.Core.World;
+
+namespace Train.Core.Settlements;
+
+internal abstract record FacilityRequest(FacilityKey Facility, int Priority)
+{
+    internal sealed record Batch(FacilityKey Facility, int Priority, ImmutableArray<GoodsQuantity> Inputs)
+        : FacilityRequest(Facility, Priority);
+    internal sealed record Work(FacilityKey Facility, int Priority, double MaximumWorkPerSecond,
+        double PowerPerWork, double LaborPerWork) : FacilityRequest(Facility, Priority);
+}
+
+internal sealed record WorkAllocation(FacilityKey Facility, double WorkPerSecond);
+internal sealed record SettlementResolution(WorldState World, ImmutableArray<long> BasicGrantedUnits,
+    ImmutableArray<FacilityKey> AcceptedBatches, ImmutableArray<WorkAllocation> Work,
+    ImmutableArray<long> ImprovementGrantedUnits);
+
+internal static class SettlementResources
+{
+    // Callers submit at most one request per facility capability and cap work at this step's useful rate.
+    internal static SettlementResolution Resolve(WorldState world, CoreContentProjection content, SettlementId id,
+        double availableLabor, ImmutableArray<GoodsQuantity> basic, ImmutableArray<FacilityRequest> facilities,
+        ImmutableArray<GoodsQuantity> improvement)
+    {
+        var settlement = world.Settlements.Single(s => s.Id == id);
+        var inventory = world.Inventories.Single(i => i.Id == settlement.Inventory);
+        var quantities = inventory.Goods.ToDictionary(g => g.Good, g => g.Quantity);
+        var energyRemaining = settlement.Plots.Where(p => p.Building is not null)
+            .Sum(p => BuildingCapabilities.Read(world, content, p.Building!.Value).Power) * SimulationTime.StepSeconds;
+        var fuelRemaining = settlement.FuelEnergyRemaining;
+        var fuels = content.Goods.Where(g => g.Good is GoodId.Voxel && g.FuelEnergyPerUnit is not null
+                && !InventoryStorage.DefinitionMissing(world, content, g.Good))
+            .OrderBy(g => ((GoodId.Voxel)g.Good).Definition.Value, StringComparer.Ordinal).ToArray();
+        var batches = ImmutableArray.CreateBuilder<FacilityKey>();
+        var work = ImmutableArray.CreateBuilder<WorkAllocation>();
+        var basicGranted = Consume(basic);
+
+        foreach (var request in facilities.OrderBy(r => r.Priority).ThenBy(r => r.Facility.Building.Value)
+            .ThenBy(r => r.Facility.Capability))
+        {
+            switch (request)
+            {
+                case FacilityRequest.Batch batch:
+                    if (!batch.Inputs.All(g => Available(g.Good) >= g.Quantity)) break;
+                    foreach (var input in batch.Inputs) quantities[input.Good] -= input.Quantity;
+                    batches.Add(batch.Facility);
+                    break;
+                case FacilityRequest.Work demand:
+                    var rate = demand.MaximumWorkPerSecond;
+                    if (demand.PowerPerWork > 0)
+                    {
+                        var fuelEnergy = fuelRemaining + fuels.Sum(f => Available(f.Good) * f.FuelEnergyPerUnit!.Value);
+                        rate = Math.Min(rate, Math.Min(energyRemaining, fuelEnergy) / SimulationTime.StepSeconds / demand.PowerPerWork);
+                    }
+                    if (demand.LaborPerWork > 0) rate = Math.Min(rate, availableLabor / demand.LaborPerWork);
+                    var energy = rate * demand.PowerPerWork * SimulationTime.StepSeconds;
+                    foreach (var fuel in fuels)
+                    {
+                        if (fuelRemaining >= energy) break;
+                        var needed = Math.Ceiling((energy - fuelRemaining) / fuel.FuelEnergyPerUnit!.Value);
+                        var available = Available(fuel.Good);
+                        var units = needed < available ? checked((long)needed) : available;
+                        quantities[fuel.Good] = available - units;
+                        fuelRemaining += units * fuel.FuelEnergyPerUnit.Value;
+                    }
+                    fuelRemaining = Math.Max(0, fuelRemaining - energy);
+                    energyRemaining = Math.Max(0, energyRemaining - energy);
+                    availableLabor = Math.Max(0, availableLabor - rate * demand.LaborPerWork);
+                    work.Add(new(demand.Facility, rate));
+                    break;
+            }
+        }
+
+        var improvementGranted = Consume(improvement);
+        var resolved = world with
+        {
+            Settlements = world.Settlements.Select(s => s.Id == id ? s with { FuelEnergyRemaining = fuelRemaining } : s).ToImmutableArray(),
+            Inventories = world.Inventories.Select(i => i.Id == inventory.Id ? i with
+            {
+                Goods = quantities.Where(g => g.Value > 0).OrderBy(g => WorldReferences.GoodKey(g.Key), StringComparer.Ordinal)
+                    .Select(g => new GoodsQuantity(g.Key, g.Value)).ToImmutableArray()
+            } : i).ToImmutableArray()
+        };
+        return new(resolved, basicGranted, batches.ToImmutable(), work.ToImmutable(), improvementGranted);
+
+        long Available(GoodId good) => InventoryStorage.DefinitionMissing(world, content, good)
+            ? 0 : quantities.GetValueOrDefault(good);
+
+        ImmutableArray<long> Consume(ImmutableArray<GoodsQuantity> requests)
+        {
+            var granted = ImmutableArray.CreateBuilder<long>();
+            foreach (var request in requests)
+            {
+                var units = Math.Min(request.Quantity, Available(request.Good));
+                if (units > 0) quantities[request.Good] -= units;
+                granted.Add(units);
+            }
+            return granted.ToImmutable();
+        }
+    }
+}
