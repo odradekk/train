@@ -106,6 +106,22 @@ public sealed class FixedContentViewTests
     }
 
     [TestMethod]
+    public void DefinitionDisplaysRetainExplicitResultsAndCopyConfiguration()
+    {
+        var id = new CoreDefinitionReference.Process(new ProcessRef.Production(new("process")));
+        var missingId = new CoreDefinitionReference.Process(new ProcessRef.Production(new("missing")));
+        var found = new ContentLookup<ContentDisplay>.Found(new(new("Process", ""), null, null, false));
+        var missing = new ContentLookup<ContentDisplay>.Missing([]);
+        var displays = new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>> { [id] = found, [missingId] = missing };
+        var view = new FixedContentView { DefinitionDisplays = displays };
+        displays.Clear();
+        Assert.AreSame(found, view.FindDefinitionDisplay(id));
+        Assert.AreSame(missing, view.FindDefinitionDisplay(missingId));
+        AssertUnconfigured(() => view.FindDefinitionDisplay(new CoreDefinitionReference.Process(new ProcessRef.Production(new("other")))));
+        AssertUnconfigured(() => new FixedContentView().FindDefinitionDisplay(id));
+    }
+
+    [TestMethod]
     public void SettlementLayoutsCopyExplicitResultsAndRejectUnknownInputs()
     {
         var absent = new ContentLookup<SettlementLayoutProjection>.NotFound();
