@@ -1,0 +1,79 @@
+{
+  "format_version": 1,
+  "generation_profile": "core:basic-through-world",
+  "seed": 40,
+  "generator_version": "stage1-world-v1",
+  "save": {
+    "id": "2f22d3c9-787f-4a15-b519-eaa38efcf813",
+    "name": "起步货舱容量紧张",
+    "saved_at": "2026-10-16T00:00:00Z"
+  },
+  "commands": [
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 0
+      },
+      "kind": "train.replace_run_plan",
+      "train": 1,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 14,
+            "dwell_steps": 1000,
+            "goods_rules": []
+          }
+        ]
+      }
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 1
+      },
+      "kind": "train.start",
+      "train": 1
+    },
+    {
+      "at": {
+        "completed_steps": 718,
+        "sequence": 0
+      },
+      "kind": "train.replace_run_plan",
+      "train": 1,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 14,
+            "dwell_steps": 1000,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:staple-food"
+                },
+                "local_inventory": 6,
+                "target_quantity": 181
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "target": {
+    "completed_steps": 719,
+    "sequence": 0
+  },
+  "checkpoint_steps": [
+    718
+  ]
+}
