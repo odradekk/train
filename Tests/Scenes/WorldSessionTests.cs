@@ -383,19 +383,20 @@ public sealed class WorldSessionTests
     }
 
     [TestMethod]
-    public async Task InitialObjectGeometryBuildRunsBeforePresentAndLoadingDoesNotWait()
+    public async Task PresentDispatchesInitialObjectGeometryBuildWithoutWaiting()
     {
         using var gated = new SceneFixtures.BlockedAppearanceView(SceneFixtures.Content(Evaluation));
         await using var session = Session(Snapshot(content: gated), ObjectContent());
         session.RequestView(Target);
         try
         {
-            await gated.Entered.Task.WaitAsync(TimeSpan.FromSeconds(1));
-            var loading = Present(session);
-            Assert.AreEqual(SceneReadiness.Loading, loading.Readiness);
-            Assert.IsTrue(loading.Update.Upserts.IsEmpty);
-            gated.Release.Set();
             await session.PendingBuild!;
+            var loading = Present(session);
+            Assert.AreEqual(SceneReadiness.Partial, loading.Readiness);
+            Assert.IsTrue(loading.Update.Upserts.IsEmpty);
+            await gated.Entered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+            gated.Release.Set();
+            await Task.WhenAll(session.PendingObjectBuilds);
             var ready = Present(session, loading);
             Assert.AreEqual(SceneReadiness.Ready, ready.Readiness);
             Assert.AreEqual(new GridPosition(0, 0, 0), Hit(ready).Cell);

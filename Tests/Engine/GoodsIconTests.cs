@@ -20,6 +20,46 @@ public class GoodsIconTests(Node testScene) : TestClass(testScene)
     private static readonly GoodId Second = new GoodId.Assembly(new("icon:second"));
 
     [Test]
+    public async Task Different_design_icons_share_preparation_budget_and_finish_their_captures()
+    {
+        await new UiTestInput(TestScene).Frames(2);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        var previews = new List<Preview>();
+        var factory = Factory(previews);
+        long timestamp = 0;
+        var cache = new GoodsIconCache { Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency };
+        cache.Initialize(factory, dispatcher);
+        TestScene.AddChild(cache);
+        cache.Bind(new(Guid.NewGuid()), Content(1, differentDesigns: true));
+        var controls = new List<GoodIcon>();
+        try
+        {
+            var processFrame = Godot.Engine.GetProcessFrames();
+            controls.Add(cache.Create(First, null));
+            cache.Timestamp = () => 0;
+            controls.Add(cache.Create(Second, null));
+            foreach (var icon in controls) TestScene.AddChild(icon);
+            Require(Godot.Engine.GetProcessFrames() == processFrame && cache.GetChildCount() == 0 &&
+                controls.All(icon => Texture(icon) is null && icon.TooltipText == "图标正在生成"),
+                "不同设计必须共用同帧预算，后请求不能获得另一份完整准备额度。");
+            await FramesUntil(TestScene, () => cache.GetChildCount() == 2);
+            Require(factory.PreviewCalls.Count == 2 && previews.All(preview => preview.PresentCalls == 1) &&
+                cache.GetChildren().OfType<SubViewport>().All(viewport =>
+                    viewport.GetCamera3D() is not null && viewport.FindChildren("*", "MeshInstance3D", true, false).Count == 1),
+                "两份不同设计必须继续各自原预览，最终提交完整截图视口。");
+            cache.Bind(new(Guid.NewGuid()), Content(2));
+            Require(previews.All(preview => preview.DisposeCalls == 1) && cache.GetChildCount() == 0 &&
+                controls.All(icon => Texture(icon) is null), "切换绑定必须释放两份截图资源且不发布旧纹理。");
+        }
+        finally
+        {
+            cache.Free();
+            foreach (var icon in controls) icon.Free();
+        }
+        await new UiTestInput(TestScene).Frames(2);
+    }
+
+    [Test]
     public async Task Preparation_yields_and_reuses_the_shared_preview_frame()
     {
         using var dispatcher = new GodotMainThreadDispatcher();
@@ -381,18 +421,21 @@ public class GoodsIconTests(Node testScene) : TestClass(testScene)
         }
     };
 
-    private static FixedContentView Content(ulong generation)
+    private static FixedContentView Content(ulong generation, bool differentDesigns = false)
     {
         var definition = new DesignDraft(new("图标测试", ""), new DesignSpecification.SceneModel(null), new([], [], []));
         var evaluation = new DesignEvaluation.Complete(Design, new("icon-composition"), definition, null,
             new(Design, null, null, true, null, null, [], [], [], [], []), true, []);
         ContentLookup<GoodPresentation> Good(GoodId id) => new ContentLookup<GoodPresentation>.Found(
-            new(id, new(new("图标测试", ""), null, null, false), Design, false));
+            new(id, new(new("图标测试", ""), null, null, false),
+                differentDesigns && id == Second ? new("icon-other-design") : Design, false));
         return new() { Generation = new(generation),
             Goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>> { [First] = Good(First), [Second] = Good(Second) },
             Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>>
                 { [new("unavailable-texture")] = new ContentLookup<ContentAsset>.NotFound() },
-            Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>> { [Design] = new ContentLookup<DesignEvaluation>.Found(evaluation) } };
+            Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>> {
+                [Design] = new ContentLookup<DesignEvaluation>.Found(evaluation),
+                [new("icon-other-design")] = new ContentLookup<DesignEvaluation>.Found(evaluation with { Design = new("icon-other-design") }) } };
     }
 
     private sealed class Preview(ContentGeneration content, bool empty = false, bool fault = false,

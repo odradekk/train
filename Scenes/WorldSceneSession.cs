@@ -58,8 +58,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         .Concat(retiringCandidate is { IsCompleted: false } ? [retiringCandidate] : []).ToArray();
     internal WorldLocation? PrebuiltLocation => candidate?.Location;
 
-    private sealed record BuiltWorld(WorldSceneContent Content, BuiltGeometry Scenery,
-        ImmutableDictionary<InstanceId, BuiltObject> Objects);
+    private sealed record BuiltWorld(WorldSceneContent Content, BuiltGeometry Scenery);
 
     internal WorldSceneSession(SceneBinding binding, SceneWorldSnapshot initial,
         Func<SceneWorldSnapshot, WorldSceneTarget, CancellationToken, WorldSceneContent> generate, RailwayCache railwayCache,
@@ -249,9 +248,6 @@ internal sealed class WorldSceneSession : IWorldSceneSession
                 pending = null;
                 content = built.Content;
                 scenery = Attach(built.Scenery, "", ObjectId).Geometry;
-                foreach (var item in built.Objects)
-                    if (snapshot.Core.FindInstance(item.Key) is Lookup<InstanceView>.Found current && Matches(item.Value, current.Value))
-                        Accept(item.Key, item.Value);
             }
             var objects = ImmutableArray.CreateBuilder<SceneObject>();
             var picking = ImmutableArray.CreateBuilder<PickGrid>();
@@ -401,14 +397,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     {
         var content = generate(input, target, cancellation);
         var scenery = BuildGeometry(id => BuildScenery(content, id));
-        var objects = ImmutableDictionary.CreateBuilder<InstanceId, BuiltObject>();
-        foreach (var item in content.Objects)
-        {
-            cancellation.ThrowIfCancellationRequested();
-            if (input.Core.FindInstance(item.Instance) is Lookup<InstanceView>.Found found)
-                objects.Add(item.Instance, BuildObject(input.Content, found.Value, item.Pose));
-        }
-        return new(content with { Terrain = [] }, scenery, objects.ToImmutable());
+        return new(content with { Terrain = [] }, scenery);
     }
 
     internal static ImmutableHashSet<PartId> Destroyed(InstanceView instance) =>

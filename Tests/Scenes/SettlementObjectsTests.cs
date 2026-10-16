@@ -46,7 +46,7 @@ public sealed class SettlementObjectsTests
     }
 
     [TestMethod]
-    public void PlatformNumbersUseCoreCapacityAndReportMismatch()
+    public async Task PlatformNumbersUseCoreCapacityAndReportMismatch()
     {
         var evaluation = NodeFixtures.StationEvaluation();
         evaluation = evaluation with { Core = evaluation.Core! with { Design = evaluation.Core.Design with
@@ -56,17 +56,18 @@ public sealed class SettlementObjectsTests
         { [NodeFixtures.StationDesign] = new ContentLookup<DesignEvaluation>.Found(evaluation) }));
         var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
         var problems = ImmutableArray.CreateBuilder<SceneProblem>();
-        var platforms = SettlementObjects.Platforms(snapshot, layout, problems);
+        await using var objects = new SettlementObjects(StableIds());
+        var platforms = objects.Platforms(snapshot, layout, problems);
         CollectionAssert.AreEqual(new[] { -40.0, 40.0 }, platforms.Select(stop => stop.LocalZ).ToArray());
         Assert.AreEqual(0, problems.Count);
         var mismatch = Snapshot(node: NodeFixtures.Node() with { Platforms = 1 });
-        Assert.IsTrue(SettlementObjects.Platforms(mismatch, layout, problems).IsEmpty);
+        Assert.IsTrue(objects.Platforms(mismatch, layout, problems).IsEmpty);
         Assert.AreEqual("station_platform_mismatch", problems.Single().Code);
         Assert.AreEqual(new WorldObjectId.Node(NodeFixtures.NodeId), problems.Single().Subject);
     }
 
     [TestMethod]
-    public void PlatformAtEqualDistanceChoosesSmallerLocalZ()
+    public async Task PlatformAtEqualDistanceChoosesSmallerLocalZ()
     {
         var evaluation = NodeFixtures.StationEvaluation();
         evaluation = evaluation with
@@ -78,13 +79,14 @@ public sealed class SettlementObjectsTests
             content: NodeFixtures.Content(designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
             { [NodeFixtures.StationDesign] = new ContentLookup<DesignEvaluation>.Found(evaluation) }));
         var problems = ImmutableArray.CreateBuilder<SceneProblem>();
-        var stops = SettlementObjects.Platforms(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId), problems);
+        await using var objects = new SettlementObjects(StableIds());
+        var stops = objects.Platforms(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId), problems);
         Assert.AreEqual(-40d, stops.Single().LocalZ);
         Assert.AreEqual(0, problems.Count);
     }
 
     [TestMethod]
-    public void PlatformNumbersSortTemplatePlotNumbersBeforeLocalZ()
+    public async Task PlatformNumbersSortTemplatePlotNumbersBeforeLocalZ()
     {
         var template = NodeFixtures.Layout with { Plots =
             [new(20, PlotSize.SmallStation, new(0, 0, 300), VoxelOrientation.PzPy), NodeFixtures.Layout.Plots[0]] };
@@ -94,7 +96,8 @@ public sealed class SettlementObjectsTests
         var snapshot = Snapshot(content: Content(template), node: NodeFixtures.Node(4), settlement: settlement,
             vehicles: [NodeFixtures.Station(2) with { Id = new InstanceId.Building(new(2)) }]);
         var problems = ImmutableArray.CreateBuilder<SceneProblem>();
-        var stops = SettlementObjects.Platforms(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId), problems);
+        await using var objects = new SettlementObjects(StableIds());
+        var stops = objects.Platforms(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId), problems);
         CollectionAssert.AreEqual(new[] { 1, 1, 20, 20 }, stops.Select(stop => stop.PlotNumber).ToArray());
         CollectionAssert.AreEqual(new[] { -40d, 40d, -40d, 40d }, stops.Select(stop => stop.LocalZ).ToArray());
         Assert.AreEqual(0, problems.Count);
