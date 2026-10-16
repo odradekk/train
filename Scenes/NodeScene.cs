@@ -84,8 +84,8 @@ internal sealed class NodeScene : IAsyncDisposable
     private readonly SceneVehicles vehicles;
     private readonly SettlementObjects settlement;
     private SceneWorldSnapshot snapshot;
-    private readonly ImmutableDictionary<EdgeId, int> openingTracks;
     private readonly Dictionary<string, BuiltGeometry> attached = [];
+    private readonly Dictionary<EdgeId, RailwayPath> adjacentRailways = [];
     private readonly Task<Preparation>? pending;
     private sealed record PartWork(Task<Part> Task, CancellationTokenSource Cancellation, SceneBounds Bounds, GridColumn? Chunk);
     private readonly Dictionary<GridColumn, Part> chunks = [];
@@ -104,6 +104,12 @@ internal sealed class NodeScene : IAsyncDisposable
     private SceneProblem? failure;
     internal NodeId Node { get; }
     internal NodeLayout? Layout => layout;
+    private RailwayPath AdjacentRailway(EdgeId edge)
+    {
+        if (!adjacentRailways.TryGetValue(edge, out var railway))
+            adjacentRailways.Add(edge, railway = new RailwayPath(snapshot, edge));
+        return railway;
+    }
     internal Task? BuildWork => pending;
     internal Task[] PendingWork
     {
@@ -128,7 +134,6 @@ internal sealed class NodeScene : IAsyncDisposable
         this.buildRail = buildRail ?? ((data, segment, old, token) => segment.Build(old, token));
         snapshot = initial;
         settlement = new(objectId, buildingCache: buildingCache, parkedCache: parkedCache);
-        openingTracks = initial.Core.World.Edges.Where(edge => edge.Start == node || edge.End == node).ToImmutableDictionary(edge => edge.Id, edge => edge.Tracks);
         try { layout = NodeLayout.Build(initial, node); }
         catch (RailwayBuildException error) { Fail(error); return; }
         var panBounds = layout.PanBounds(default);
@@ -247,15 +252,16 @@ internal sealed class NodeScene : IAsyncDisposable
     internal SceneFrame Present(SceneWorldSnapshot snapshot, SceneFrameRequest request, SceneFrameStamp stamp,
         SceneFrame? displayed, ScenePoint origin, WorldSceneTarget? target = null, SceneWorldSnapshot? previous = null)
     {
-        var adjacent = previous is not null && previous.Core.Position.CompletedSteps + 1 == snapshot.Core.Position.CompletedSteps;
-        var seconds = (adjacent ? previous!.Core.Position.CompletedSteps + request.Interpolation :
-            snapshot.Core.Position.CompletedSteps) * SimulationTime.StepSeconds;
+#if DEBUG
+        using var measurement = new NodePresentDiagnostics.Measurement(Node.Value);
+#endif
+        var (start, seconds) = SceneFrame.SampleTime(snapshot, previous, request.Interpolation);
         var objects = ImmutableArray.CreateBuilder<SceneObject>();
         var picking = ImmutableArray.CreateBuilder<PickGrid>();
         var problems = ImmutableArray.CreateBuilder<SceneProblem>();
         var fog = ImmutableArray.CreateBuilder<SceneFog>();
         var trainFog = ImmutableArray.CreateBuilder<SceneFog>();
-        if (layout is not null) RenderTrains(snapshot, adjacent ? previous : null, request.Interpolation, origin, objects, picking, problems, trainFog);
+        if (layout is not null) RenderTrains(snapshot, start, request.Interpolation, origin, objects, picking, problems, trainFog);
         ScenePoint? focus = null;
         if (target is WorldSceneTarget.Follow follow && objects.FirstOrDefault(item => item.Parent is null &&
             item.Subject == new WorldObjectId.Instance(new InstanceId.Vehicle(follow.Vehicle))) is { } vehicle)
@@ -311,7 +317,7 @@ internal sealed class NodeScene : IAsyncDisposable
             node: layout, nodeParts: built is null ? [] : built.Parts.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => item.Value)
                 .Concat(chunks.OrderBy(item => item.Key.Z).ThenBy(item => item.Key.X).Select(item => item.Value))
                 .Concat(rails.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => item.Value)).ToImmutableArray(),
-            debugLayers: request.DebugLayers, nodeTracks: openingTracks, pickRay: request.PickRay);
+            debugLayers: request.DebugLayers, nodeTracks: layout?.EntryTracks, pickRay: request.PickRay);
 
         void Add(RenderedDesign geometry)
         { objects.AddRange(geometry.Objects); picking.AddRange(geometry.Picking); problems.AddRange(geometry.Diagnostics); }
@@ -605,7 +611,8 @@ internal sealed class NodeScene : IAsyncDisposable
                     null, null, null, "The assigned platform has no matching station slot."));
                 continue;
             }
-            var path = new NodeTrainPath(layout, dimensions, position, station >= 0 ? platforms[station] : layout.Bypass);
+            var path = new NodeTrainPath(layout, dimensions, position, station >= 0 ? platforms[station] : layout.Bypass,
+                train.LengthMeters * RailwayCoordinates.CellsPerMeter, AdjacentRailway);
             var queue = queues.GetValueOrDefault(train.Id);
             var distance = position.DistanceMeters;
             if (oldTrains.FirstOrDefault(item => item.Id == train.Id) is { } old &&
@@ -613,14 +620,15 @@ internal sealed class NodeScene : IAsyncDisposable
                 oldQueues.GetValueOrDefault(train.Id) == queue && old.Position is TrainPosition.Node before &&
                 before.PlatformNumber == position.PlatformNumber && station < oldPlatforms.Length)
             {
-                var oldPath = new NodeTrainPath(layout, dimensions, before, station >= 0 ? oldPlatforms[station] : layout.Bypass);
+                var oldPath = new NodeTrainPath(layout, dimensions, before, station >= 0 ? oldPlatforms[station] : layout.Bypass,
+                    old.LengthMeters * RailwayCoordinates.CellsPerMeter, AdjacentRailway);
                 if (path.SameRoute(oldPath, before.DistanceMeters, distance))
                     distance = before.DistanceMeters + (distance - before.DistanceMeters) * interpolation;
             }
-            var center = path.Arc(distance, queue.Offset, queue.AtStop);
-            var available = station >= 0 || entry is null || openingTracks.GetValueOrDefault(entry.Edge) > 0;
+            var center = path.Arc(distance, queue);
+            var available = station >= 0 || entry is null || layout.EntryTracks.GetValueOrDefault(entry.Edge) > 0;
             var changed = !available || entry is not null &&
-                snapshot.Core.World.Edges.FirstOrDefault(edge => edge.Id == entry.Edge)?.Tracks != openingTracks.GetValueOrDefault(entry.Edge);
+                snapshot.Core.World.Edges.FirstOrDefault(edge => edge.Id == entry.Edge)?.Tracks != layout.EntryTracks.GetValueOrDefault(entry.Edge);
             if (changed) problems.Add(new("railway_update_pending", SceneStage.Reconcile, new WorldObjectId.Train(train.Id),
                 null, null, null, "Node track counts use the opening snapshot; updates are implemented by Issue #345."));
             var consumed = 0.0;
@@ -648,33 +656,36 @@ internal sealed class NodeScene : IAsyncDisposable
         { objects.AddRange(geometry.Objects); picking.AddRange(geometry.Picking); problems.AddRange(geometry.Diagnostics); }
     }
 
-    private Dictionary<TrainId, (double Offset, bool AtStop)> QueuePositions(TrainView[] trains, NodeView dimensions)
+    private Dictionary<TrainId, double> QueuePositions(TrainView[] trains, NodeView dimensions)
     {
-        var result = new Dictionary<TrainId, (double, bool)>();
+        var result = new Dictionary<TrainId, double>();
         var waiting = dimensions.ApproachLengthMeters;
-        var stop = waiting + dimensions.PlatformLengthMeters / 2;
         var queued = trains.Where(train => train.Position is TrainPosition.Node { PlatformNumber: null } position &&
             (train.PlatformQueueEnteredStep is not null && position.DistanceMeters <= waiting ||
-             train.SpeedMetersPerSecond == 0 &&
-             (position.Phase == NodeTravelPhase.Waiting && position.DistanceMeters == waiting ||
-              position.Phase == NodeTravelPhase.Docked && position.DistanceMeters == stop)));
+             train.SpeedMetersPerSecond == 0 && position.Phase == NodeTravelPhase.Waiting && position.DistanceMeters == waiting));
         foreach (var group in queued.GroupBy(train =>
-            (((TrainPosition.Node)train.Position).Phase == NodeTravelPhase.Docked || dimensions.PlatformLengthMeters == 0
-                ? null : layout!.TrainEntry(((TrainPosition.Node)train.Position).EnteredFrom)?.Edge,
-             AtStop: dimensions.PlatformLengthMeters > 0 && ((TrainPosition.Node)train.Position).Phase == NodeTravelPhase.Docked)))
+            layout!.TrainEntry(((TrainPosition.Node)train.Position).EnteredFrom)?.Edge))
         {
-            var ordered = group.OrderBy(train => train.PlatformQueueEnteredStep is null)
+            var ordered = group.OrderBy(train => train.PlatformQueueEnteredStep is not null)
                 .ThenBy(train => train.PlatformQueueEnteredStep).ThenBy(train => train.Id.Value).ToArray();
             var consumed = 0.0;
+            var headWaiting = Waiting(ordered[0]);
             foreach (var train in ordered)
             {
-                var offset = consumed + (train.LengthMeters - ordered[0].LengthMeters) / 2;
-                result.Add(train.Id, (offset * RailwayCoordinates.CellsPerMeter,
-                    ((TrainPosition.Node)train.Position).Phase == NodeTravelPhase.Docked));
+                var offset = (consumed + (train.LengthMeters - ordered[0].LengthMeters) / 2) * RailwayCoordinates.CellsPerMeter +
+                    Waiting(train) - headWaiting;
+                result.Add(train.Id, offset);
                 consumed += train.LengthMeters;
             }
         }
         return result;
+
+        double Waiting(TrainView train)
+        {
+            var entry = layout!.TrainEntry(((TrainPosition.Node)train.Position).EnteredFrom);
+            var inlet = entry is null ? waiting * RailwayCoordinates.CellsPerMeter : layout.Approach(entry, layout.Bypass).Inlet.Length;
+            return NodeTrainPath.WaitingPoint(inlet, dimensions.PlatformLengthMeters > 0 ? train.LengthMeters * RailwayCoordinates.CellsPerMeter / 2 : 0);
+        }
     }
 
     public async ValueTask DisposeAsync()

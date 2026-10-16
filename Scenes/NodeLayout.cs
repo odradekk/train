@@ -27,22 +27,23 @@ internal sealed partial class NodeLayout
     internal ImmutableArray<Stop> Stops { get; private init; } = [];
     internal ImmutableArray<ParkingLine> Parking { get; private init; } = [];
     internal ImmutableArray<SceneProblem> Problems { get; private init; } = [];
-    internal ScenePanBounds Bounds { get; private set; }
+    // Both build paths finish the geometry before assigning the final bounds and publishing the layout.
+    internal ScenePanBounds Bounds { get; private set; } = null!;
     private ImmutableArray<Stop> routeStops = [];
     private readonly Dictionary<(EdgeId, int, int), Track> connections = [];
     private ImmutableArray<RailwaySample> samples = [];
     internal int Platforms { get; }
-    internal double HalfSize { get; private set; }
+    internal double HalfSize => Math.Max(Math.Max(Math.Abs(Bounds.Minimum.X), Math.Abs(Bounds.Minimum.Y)),
+        Math.Max(Math.Abs(Bounds.Maximum.X), Math.Abs(Bounds.Maximum.Y)));
     internal string Inputs { get; }
-    internal ImmutableArray<Entry> Entries { get; }
+    internal ImmutableArray<Entry> Entries { get; private set; }
     internal Vector3 StationForward { get; }
     private readonly double radius;
-    private NodeLayout(NodeId node, int platforms, double halfSize, string inputs,
+    private NodeLayout(NodeId node, int platforms, string inputs,
         ImmutableArray<Entry> entries, Vector3 stationForward, double radius)
     {
-        Node = node; Platforms = platforms; HalfSize = halfSize; Inputs = inputs;
+        Node = node; Platforms = platforms; Inputs = inputs;
         Entries = entries; StationForward = stationForward; this.radius = radius;
-        Bounds = new(new((float)-halfSize), new((float)halfSize));
     }
 
     internal static NodeLayout Build(SceneWorldSnapshot snapshot, NodeId id, CancellationToken cancellation = default)
@@ -121,6 +122,20 @@ internal sealed partial class NodeLayout
                 Math.Max(Math.Abs(bounds.Minimum.Y), Math.Abs(bounds.Maximum.Y))));
         }
         var halfSize = Math.Ceiling((extent + corridor + GroundMargin + (directions.Length > 0 ? RailwayCoordinates.CellFootprintMargin : 0)) / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize;
+        var result = new NodeLayout(id, 0, ReadInputs(snapshot, id),
+            entries.Select(item => item.Entry).OrderBy(entry => entry.Edge.Value).ToImmutableArray(), axis, radius)
+            { Template = template, Bypass = new(0, 0, new(0, 0, 0), axis) };
+        result.ReadEntryTracks(snapshot);
+        var turnEnvelope = new ScenePanBounds(new((float)-halfSize), new((float)halfSize));
+        result.PrepareTurns(turnEnvelope, rules.MaximumGrade);
+        foreach (var route in result.turnRails)
+        for (var arc = 0.0; arc < route.Length + 4; arc += 4)
+        {
+            var point = route.Sample(Math.Min(arc, route.Length)).Position;
+            halfSize = Math.Max(halfSize, Math.Ceiling((Math.Max(Math.Abs(point.X), Math.Abs(point.Z)) +
+                RailwayCoordinates.BedBaseHalfWidth + RailwayCoordinates.BedBlendWidth + GroundMargin) / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize);
+        }
+        result.Bounds = new(new((float)-halfSize), new((float)halfSize));
         for (var i = 0; i < entries.Count; i++)
         {
             var (entry, grid, separation) = entries[i];
@@ -131,10 +146,10 @@ internal sealed partial class NodeLayout
             entries[i] = (entry with { Point = new(grid.X + Math.Round(desired.X - grid.X), 0,
                 grid.Z + Math.Round(desired.Z - grid.Z)), StraightLength = stem }, grid, separation);
         }
-        var result = new NodeLayout(id, 0, halfSize, ReadInputs(snapshot, id),
-            entries.Select(item => item.Entry).OrderBy(entry => entry.Edge.Value).ToImmutableArray(), axis, radius)
-            { Template = template };
-        result.PrepareTrainRoutes(snapshot);
+        result.Entries = entries.Select(item => item.Entry).OrderBy(entry => entry.Edge.Value).ToImmutableArray();
+        // Boundary snapping slightly shifts the entry fan; reuse its final geometry exactly.
+        result.PrepareTurns(turnEnvelope, rules.MaximumGrade);
+        result.PrepareTrainRoutes();
         result.CaptureSamples(snapshot);
         return result;
     }
@@ -226,7 +241,7 @@ internal sealed partial class NodeLayout
                 ApproachStraight * Vector3.Dot(inward, right) - offset * Vector3.Dot(laneRight, right)) - spans.Lateral) / Math.Sin(phi);
             var u = targets.Min(p => lanes.Min(offset => Vector3.Dot(RailwayCoordinates.Relative(p, default), forward) -
                 ApproachStraight * Vector3.Dot(inward, forward) - offset * Vector3.Dot(laneRight, forward) - spans.Forward -
-                Middle(p, offset) * Math.Cos(phi) - Math.Max(ApproachStraight, 1.5 * Math.Abs(p.Y) / rule.MaximumGrade))) - ConnectionSnapMargin;
+                Middle(p, offset) * Math.Cos(phi) - RampLength(p.Y, rule.MaximumGrade))) - ConnectionSnapMargin;
             var desired = forward * (float)u + right * (float)v;
             var grid = RailwayPath.Endpoint(snapshot, edge.Id, id);
             var point = new ScenePoint(grid.X + Math.Round(desired.X - grid.X), 0, grid.Z + Math.Round(desired.Z - grid.Z));
@@ -255,6 +270,18 @@ internal sealed partial class NodeLayout
             for (var arc = 0.0; arc < track.Length + 4; arc += 4)
                 Include(track.Sample(Math.Min(arc, track.Length)).Position, RailwayCoordinates.TerrainHalfWidth(entry.TrackLimit) + GroundMargin);
         }
+        var result = new NodeLayout(id, stops.Count, ReadInputs(snapshot, id), entries.ToImmutableArray(), axis, radius)
+        { Template = template, Stops = stops.ToImmutable(), Parking = parking, Problems = problems.ToImmutable(), routeStops = lines, Bypass = bypass };
+        result.ReadEntryTracks(snapshot);
+        foreach (var entry in entries)
+        for (var lane = 1 - entry.TrackLimit; lane < entry.TrackLimit; lane++)
+        for (var line = 0; line < lines.Length; line++) result.connections.Add((entry.Edge, lane, line), Connect(entry, lane, lines[line]));
+        var turnEnvelope = new ScenePanBounds(minimum, maximum);
+        result.PrepareTurns(turnEnvelope, rule.MaximumGrade);
+        foreach (var route in result.turnRails)
+        for (var arc = 0.0; arc < route.Length + 4; arc += 4)
+            Include(route.Sample(Math.Min(arc, route.Length)).Position,
+                RailwayCoordinates.BedBaseHalfWidth + RailwayCoordinates.BedBlendWidth + GroundMargin);
         minimum = new(MathF.Floor(minimum.X / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize, MathF.Floor(minimum.Y / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize);
         maximum = new(MathF.Ceiling(maximum.X / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize, MathF.Ceiling(maximum.Y / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize);
         for (var i = 0; i < entries.Count; i++)
@@ -269,13 +296,14 @@ internal sealed partial class NodeLayout
             var actualStem = Vector3.Dot(RailwayCoordinates.Relative(point, entry.Point), entry.Outward);
             entries[i] = entry with { Point = point, StraightLength = actualStem };
         }
-        var result = new NodeLayout(id, stops.Count, Math.Max(Math.Max(Math.Abs(minimum.X), Math.Abs(maximum.X)), Math.Max(Math.Abs(minimum.Y), Math.Abs(maximum.Y))),
-            ReadInputs(snapshot, id), entries.ToImmutableArray(), axis, radius)
-        { Template = template, Stops = stops.ToImmutable(), Parking = parking, Problems = problems.ToImmutable(), Bounds = new(minimum, maximum), routeStops = lines, Bypass = bypass };
+        result.Entries = entries.ToImmutableArray();
+        result.Bounds = new(minimum, maximum);
+        result.connections.Clear();
         foreach (var entry in result.Entries)
         for (var lane = 1 - entry.TrackLimit; lane < entry.TrackLimit; lane++)
         for (var line = 0; line < lines.Length; line++) result.connections.Add((entry.Edge, lane, line), Connect(entry, lane, lines[line]));
-        result.PrepareTrainRoutes(snapshot);
+        result.PrepareTurns(turnEnvelope, rule.MaximumGrade);
+        result.PrepareTrainRoutes();
         result.CaptureSamples(snapshot);
         return result;
 
@@ -395,11 +423,6 @@ internal sealed partial class NodeLayout
     }
     internal Track Connection(EdgeId edge, double offset, int station) => Connection(edge, (int)Math.Round(offset * 2 / RailwayCoordinates.TrackSpacing), station);
     internal ScenePoint EntryPoint(EdgeId edge) => EntryFor(edge).Point;
-    internal RailwaySample QueueSample(Entry entry, double distance, double offset = 0)
-    {
-        var forward = -entry.Outward; var right = Vector3.Cross(Vector3.UnitY, forward);
-        return new(RailwayCoordinates.Add(entry.Point, forward * (float)(ApproachStraight + entry.StraightLength - distance) + right * (float)offset), forward, right);
-    }
     internal ScenePanBounds PanBounds(ScenePoint origin)
     {
         var minimum = Bounds.Minimum;

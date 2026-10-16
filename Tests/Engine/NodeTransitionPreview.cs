@@ -18,7 +18,7 @@ public partial class NodeTransitionPreview : Node
     private AssetResourceCache? _cache;
     private IWorldSceneSession? _session;
     private bool _running;
-    private readonly string _directory = ProjectSettings.GlobalizePath("res://.godot/validation/issue-443-frames");
+    private readonly string _directory = ProjectSettings.GlobalizePath($"res://.godot/validation/node-transition-preview-{DateTime.UtcNow:yyyyMMddTHHmmssfff}");
 
     public static void Start(Node root) => root.AddChild(new NodeTransitionPreview { Name = "NodeTransitionPreview" });
 
@@ -105,8 +105,8 @@ public partial class NodeTransitionPreview : Node
             await Sample("13-same-side-216", Position(NodeTravelPhase.Departing, 216, 1, 3));
             await Sample("13-same-side-240", Position(NodeTravelPhase.Departing, 240, 1, 3));
             await Sample("13-same-side-L-256", Position(NodeTravelPhase.Departing, 256, 1, 3));
-            _status.Text += "\n完成；最后一帧保留。证据位于 .godot/validation/issue-443-frames";
-            GD.Print("ISSUE-443 NODE FRAMES COMPLETE: " + _directory);
+            _status.Text += "\n完成；最后一帧保留。证据位于 " + _directory;
+            GD.Print("NODE FRAMES COMPLETE: " + _directory);
         }
         catch (Exception exception)
         {

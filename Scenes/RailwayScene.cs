@@ -66,15 +66,13 @@ internal sealed class RailwayScene : IAsyncDisposable
     internal SceneFrame Present(SceneWorldSnapshot snapshot, SceneWorldSnapshot? previous, WorldSceneTarget target,
         SceneFrameRequest request, SceneFrameStamp stamp, SceneFrame? displayed, ScenePoint? switchedOrigin = null)
     {
-        var adjacent = previous is not null && previous.Core.Position.CompletedSteps + 1 == snapshot.Core.Position.CompletedSteps;
-        var seconds = (adjacent ? previous!.Core.Position.CompletedSteps + request.Interpolation :
-            snapshot.Core.Position.CompletedSteps) * SimulationTime.StepSeconds;
+        var (start, seconds) = SceneFrame.SampleTime(snapshot, previous, request.Interpolation);
         if (path is null)
             return new(stamp, switchedOrigin ?? default, seconds, failure is null ? SceneReadiness.Loading : SceneReadiness.Failed,
                 [], [], [new(new SceneBounds(new(float.MinValue), new(float.MaxValue)))], failure is null ? [] : [failure], displayed,
                 debugLayers: request.DebugLayers, pickRay: request.PickRay);
 
-        var trains = PlaceTrains(snapshot, adjacent ? previous : null, request.Interpolation);
+        var trains = PlaceTrains(snapshot, start, request.Interpolation);
         var followed = target is WorldSceneTarget.Follow follow ? trains.First(item => item.Train.Id == follow.Train) : null;
         var focal = Focal(target, followed);
         var camera = request.Camera;
@@ -273,7 +271,7 @@ internal sealed class RailwayScene : IAsyncDisposable
             }
             foreach (var member in train.Members)
             {
-                var pose = RailwayVehicles.Pose(path!.Sample(member.CenterArc, train.Offset), origin, train.Positive);
+                var pose = RailwayVehicles.Pose(path!.SampleWithNodes(member.CenterArc, train.Offset), origin, train.Positive);
                 if (!train.LengthsKnown)
                 {
                     frame.Add(SceneVehicles.Unplaced(content, member.Instance, member.Design, member.Length, pose, objectId));

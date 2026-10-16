@@ -18,12 +18,9 @@ public sealed class NodeTrainGeometryTests
         var layout = NodeLayout.Build(NodeFixtures.Snapshot(content: NodeFixtures.Content(layout: template)), NodeFixtures.NodeId);
         foreach (var entry in layout.Entries)
         {
-            var shared = layout.Approach(entry, layout.Bypass).Inlet;
             foreach (var stop in layout.Stops.Append(layout.Bypass))
             {
                 var path = layout.Approach(entry, stop);
-                foreach (var fraction in new[] { 0.0, .3, 1.0 })
-                    Near(shared.Sample(shared.Length * fraction).Position, path.Inlet.Sample(path.Inlet.Length * fraction).Position);
                 Near(path.Inlet.Sample(path.Inlet.Length).Position, path.Branch.Sample(0).Position);
                 Near(path.Branch.Sample(path.Branch.Length).Position, stop.Center);
                 Assert.IsTrue(Vector3.Distance(path.Branch.Sample(path.Branch.Length).Forward, -entry.Side * layout.StationForward) < .0001);
@@ -51,9 +48,50 @@ public sealed class NodeTrainGeometryTests
             for (var arc = 2.0; arc < turn.Length - 2; arc += 2)
             {
                 var before = turn.Sample(arc - 1); var after = turn.Sample(arc + 1);
+                Assert.IsTrue(Vector3.Distance(RailwayCoordinates.Relative(after.Position, before.Position), Vector3.Zero) <= 2.003,
+                    $"Turn position discontinuity at {arc}");
                 var bend = Math.Acos(Math.Clamp(Vector3.Dot(before.Forward, after.Forward), -1, 1));
                 Assert.IsTrue(bend <= 2 / (RailwayFixtures.Rules.MinimumCurveRadiusMeters * RailwayCoordinates.CellsPerMeter) + .001);
             }
+        }
+    }
+
+    [TestMethod]
+    public void BothEndsOfAMultitrackLineConnectToItsFirstTrack()
+    {
+        var snapshot = RailwayFixtures.Snapshot(tracks: 3, trackLimit: 3);
+        var line = new RailwayPath(snapshot, RailwayFixtures.Edge);
+        var edge = snapshot.Core.World.Edges.Single();
+        foreach (var (node, arc) in new[] { (edge.Start, 0.0), (edge.End, line.LengthCells) })
+        {
+            var layout = NodeLayout.Build(snapshot, node);
+            var boundary = layout.TrainBoundary(layout.EntryFor(edge.Id));
+            var lateral = RailwayCoordinates.Relative(line.Sample(arc, RailwayCoordinates.TrackOffset(1, 3)).Position,
+                line.Sample(arc).Position);
+            Near(RailwayCoordinates.Add(layout.EntryPoint(edge.Id), lateral), boundary.Position);
+        }
+    }
+
+    [TestMethod]
+    public void FallbackEntryAndItsTurnaroundDependOnlyOnLayoutInputs()
+    {
+        var snapshot = RailwayFixtures.Snapshot(tracks: 0, trackLimit: 3);
+        var opened = RailwayFixtures.ReplaceCore(snapshot, edge: snapshot.Core.World.Edges[0] with { Tracks = 3 });
+        foreach (var node in snapshot.Core.World.Nodes)
+        {
+            var layout = NodeLayout.Build(snapshot, node.Id);
+            var changed = NodeLayout.Build(opened, node.Id);
+            Assert.AreEqual(snapshot.Core.World.Edges[0].Id, layout.TrainEntry(null)!.Edge);
+            Assert.AreEqual(layout.TrainEntry(null)!.Edge, changed.TrainEntry(null)!.Edge);
+            Assert.IsTrue(layout.TurnRoutes().Any());
+            Assert.AreEqual(layout.Inputs, changed.Inputs);
+            Assert.AreEqual(layout.Bounds, changed.Bounds);
+            CollectionAssert.AreEqual(layout.Entries.ToArray(), changed.Entries.ToArray());
+            var exit = layout.TrainEntry(null)!;
+            var turn = layout.TurnExit(-exit.Side, layout.Bypass, exit);
+            Near(layout.StationTail(layout.Bypass, -exit.Side).Sample(0).Position,
+                layout.Bypass.Center);
+            Near(layout.TrainBoundary(exit).Position, turn.Sample(turn.Length).Position);
         }
     }
 

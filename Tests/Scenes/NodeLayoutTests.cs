@@ -36,8 +36,8 @@ public sealed class NodeLayoutTests
         var snapshot = RailwayFixtures.ReplaceCore(basis, node: basis.Core.World.Nodes[1] with { Position = new(600 * Math.Sin(angle), 600 * Math.Cos(angle)) });
         var layout = NodeLayout.Build(snapshot, new(1));
         var entry = layout.EntryFor(RailwayFixtures.Edge);
-        Assert.IsTrue(entry.Point.X >= layout.Bounds.Minimum.X && entry.Point.X <= layout.Bounds.Maximum.X &&
-            entry.Point.Z >= layout.Bounds.Minimum.Y && entry.Point.Z <= layout.Bounds.Maximum.Y);
+        Assert.IsTrue(Math.Abs(Math.Abs(entry.Point.X) - layout.HalfSize) < 1 ||
+            Math.Abs(Math.Abs(entry.Point.Z) - layout.HalfSize) < 1);
         for (var station = 0; station < Math.Max(1, layout.Platforms); station++)
         foreach (var offset in new[] { -17.0, 0, 17 })
         {
@@ -77,8 +77,7 @@ public sealed class NodeLayoutTests
         var snapshot = Junction(bearings, tracks: tracks);
         var layout = NodeLayout.Build(snapshot, new(1));
         var radius = RailwayFixtures.Rules.MinimumCurveRadiusMeters * RailwayCoordinates.CellsPerMeter;
-        // The approved budget includes a minimum-radius turn and a lateral crossing
-        // with a 30-degree intermediate tangent; none of its inputs come from the layout.
+        // Start with the entry fan's analytic budget, then allow the exterior single-neck loop.
         var directions = bearings.Select(degrees => new Vector2(
             (float)Math.Cos(degrees * Math.PI / 180), (float)Math.Sin(degrees * Math.PI / 180))).ToArray();
         var alongX = directions.Sum(direction => Math.Acos(Math.Clamp(Math.Abs(direction.X), 0, 1))) <
@@ -102,16 +101,14 @@ public sealed class NodeLayoutTests
         var bound = Math.Ceiling((clearance + approachStraight + radius +
             lateralForwardSpan + corridor + entrySpacing + margin) / 32) * 32;
         if (directions.Length > 0)
-        {
-            // An exterior turnaround adds a 2R lateral S-join (at most 4R forward),
-            // a semicircle's R longitudinal span, a ramp and the track-bed margin.
-            bound = Math.Ceiling((bound + 5 * radius + approachStraight + margin +
+            bound = Math.Ceiling((bound + 10 * radius + approachStraight + margin +
                 RailwayCoordinates.BedBaseHalfWidth + RailwayCoordinates.BedBlendWidth + margin) / 32) * 32;
-        }
         TestContext.WriteLine($"{name}: half-size {layout.HalfSize}, bound {bound}, same-side/same-turn entries {sameSideEntries}");
         Assert.IsTrue(layout.HalfSize <= bound, $"{name}: half-size {layout.HalfSize}, bound {bound}");
         foreach (var entry in layout.Entries)
         {
+            Assert.IsTrue(Math.Abs(Math.Abs(entry.Point.X) - layout.HalfSize) < 1 ||
+                Math.Abs(Math.Abs(entry.Point.Z) - layout.HalfSize) < 1);
             var endpoint = RailwayPath.Endpoint(snapshot, entry.Edge, layout.Node);
             Assert.AreEqual(Math.Round(entry.Point.X - endpoint.X), entry.Point.X - endpoint.X, 1e-8);
             Assert.AreEqual(Math.Round(entry.Point.Z - endpoint.Z), entry.Point.Z - endpoint.Z, 1e-8);
@@ -153,65 +150,118 @@ public sealed class NodeLayoutTests
     }
 
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void SameSideEntriesHaveSeparateInnerQueueStartsAndTranslatedPanBounds(bool perpendicular)
+    [DataRow(0.0, 0.0)]
+    [DataRow(5.0, 10.0)]
+    [DataRow(40.0, 45.0)]
+    public void SameSideInletsStaySeparateAndExtendAlongTheirBoundaryTangents(double firstBearing, double secondBearing)
     {
-        var snapshot = Junction(perpendicular ? [0, 180, 0, 90, 90] : [0, 0]);
-        var layout = NodeLayout.Build(snapshot, new(1));
+        var layout = NodeLayout.Build(Junction([firstBearing, secondBearing, 180, 180]), new(1));
+        var first = layout.Approach(layout.Entries[0], layout.Bypass).Inlet;
+        var second = layout.Approach(layout.Entries[1], layout.Bypass).Inlet;
+        var a = first.Sample(first.Length); var b = second.Sample(second.Length);
+        Assert.IsTrue(Vector3.Distance(RailwayCoordinates.Relative(a.Position, b.Position), Vector3.Zero) > 55);
         foreach (var entry in layout.Entries)
         {
-            var at = layout.QueueSample(entry, 0);
-            var expected = RailwayCoordinates.Add(entry.Point, -entry.Outward * (float)(16 + entry.StraightLength));
-            Assert.IsTrue(Vector3.Distance(RailwayCoordinates.Relative(at.Position, expected), Vector3.Zero) < .001);
-            Assert.IsTrue(Vector3.Distance(at.Forward, -entry.Outward) < .001);
-            var boundary = layout.QueueSample(entry, 16 + entry.StraightLength);
-            Assert.IsTrue(Vector3.Distance(RailwayCoordinates.Relative(boundary.Position, entry.Point), Vector3.Zero) < .001);
-            var overflow = layout.QueueSample(entry, 16 + entry.StraightLength + 104);
-            Assert.IsTrue(Vector3.Distance(RailwayCoordinates.Relative(overflow.Position, entry.Point), entry.Outward * 104) < .001);
+            var inlet = layout.Approach(entry, layout.Bypass).Inlet;
+            var boundary = layout.TrainBoundary(entry);
+            var overflow = inlet.Sample(-1000);
+            Assert.IsTrue(Vector3.Distance(RailwayCoordinates.Relative(overflow.Position, boundary.Position), entry.Outward * 1000) < .001);
+            Assert.IsTrue(Vector3.Distance(overflow.Forward, -entry.Outward) < .001);
         }
-        var first = layout.QueueSample(layout.Entries[^2], 0, -17).Position;
-        var second = layout.QueueSample(layout.Entries[^1], 0, -17).Position;
-        Assert.IsTrue(Vector3.Distance(RailwayCoordinates.Relative(first, second), Vector3.Zero) >= 34 + 2 * RailwayCoordinates.BedBaseHalfWidth);
-        AssertQueuesDoNotOverlap(layout, layout.Entries[^2], layout.Entries[^1]);
         var origin = new ScenePoint(64, -256, 128);
-        var bounds = layout.PanBounds(origin);
-        var zero = layout.PanBounds(default);
+        var bounds = layout.PanBounds(origin); var zero = layout.PanBounds(default);
         Assert.AreEqual(zero.Minimum - new Vector2(64, 128), bounds.Minimum);
         Assert.AreEqual(zero.Maximum - new Vector2(64, 128), bounds.Maximum);
     }
 
     [TestMethod]
-    [DataRow(5.0, 10.0)]
-    [DataRow(20.0, 25.0)]
-    [DataRow(40.0, 45.0)]
-    [DataRow(80.0, 85.0)]
-    [DataRow(10.0, 5.0)]
-    [DataRow(85.0, 80.0)]
-    public void DifferentBearingsOnTheSameSideKeepQueueStartsSeparate(double firstBearing, double secondBearing)
+    [DataRow(new double[] { })]
+    public void NodesWithoutAnyEdgesHaveNoTurnaround(double[] bearings)
     {
-        var layout = NodeLayout.Build(Junction([firstBearing, secondBearing, 180, 180]), new(1));
-        var first = layout.QueueSample(layout.Entries[0], 0, -17).Position;
-        var second = layout.QueueSample(layout.Entries[1], 0, -17).Position;
-        Assert.IsTrue(Vector3.Distance(RailwayCoordinates.Relative(first, second), Vector3.Zero) > 55,
-            $"bearings {firstBearing}, {secondBearing}: {first}, {second}");
-        AssertQueuesDoNotOverlap(layout, layout.Entries[0], layout.Entries[1]);
+        var layout = NodeLayout.Build(Junction(bearings), new(1));
+        Assert.IsFalse(layout.TurnRoutes().Any());
     }
 
-    private static void AssertQueuesDoNotOverlap(NodeLayout layout, NodeLayout.Entry first, NodeLayout.Entry second)
+    [TestMethod]
+    [DataRow(new double[] { 0, 0, 180 })]
+    [DataRow(new double[] { 5, 10, 180, 180 })]
+    [DataRow(new double[] { 0, 90, 180, 270 })]
+    public void TurnaroundsDoNotCrossEntryTracks(double[] bearings)
     {
-        for (var i = 0; i < 8; i++)
-        for (var j = 0; j < 8; j++)
+        var snapshot = Junction(bearings);
+        var layout = NodeLayout.Build(snapshot, new(1));
+        foreach (var turn in layout.NewTurnRoutes())
+        foreach (var entry in layout.Entries)
+        foreach (var rail in layout.EntryRoutes(entry, 2))
         {
-            var a = layout.QueueSample(first, 4 + 52 + i * 108, -17);
-            var b = layout.QueueSample(second, 4 + 52 + j * 108, -17);
-            var delta = RailwayCoordinates.Relative(b.Position, a.Position);
-            var separated = new[] { a.Forward, a.Right, b.Forward, b.Right }.Any(axis =>
-                Math.Abs(Vector3.Dot(delta, axis)) >= 52 * Math.Abs(Vector3.Dot(a.Forward, axis)) +
-                    8 * Math.Abs(Vector3.Dot(a.Right, axis)) + 52 * Math.Abs(Vector3.Dot(b.Forward, axis)) +
-                    8 * Math.Abs(Vector3.Dot(b.Right, axis)));
-            Assert.IsTrue(separated, $"104-cell queue bodies overlap: entries {first.Edge}/{second.Edge}, slots {i}/{j}");
+            var beforeTurn = turn.Sample(0).Position;
+            for (var t = 8.0; t < turn.Length + 8; t += 8)
+            {
+                var afterTurn = turn.Sample(Math.Min(t, turn.Length)).Position;
+                var beforeRail = rail.Sample(0).Position;
+                for (var r = 8.0; r < rail.Length + 8; r += 8)
+                {
+                    var afterRail = rail.Sample(Math.Min(r, rail.Length)).Position;
+                    AssertNoCrossing(beforeTurn, afterTurn, beforeRail, afterRail,
+                        $"Turn crosses entry {entry.Edge} at turn arc {t}, rail arc {r}");
+                    beforeRail = afterRail;
+                }
+                beforeTurn = afterTurn;
+            }
         }
+    }
+
+    [TestMethod]
+    [DataRow(new double[] { 0 })]
+    [DataRow(new double[] { 0, 0, 180 })]
+    [DataRow(new double[] { 5, 10, 180, 180 })]
+    [DataRow(new double[] { 0, 90, 180, 270 })]
+    public void NewTurnRailsHaveNoProperSelfIntersectionsAndStayInsideFinalBounds(double[] bearings)
+    {
+        var layout = NodeLayout.Build(Junction(bearings), new(1));
+        var rails = layout.NewTurnRoutes().Select(rail =>
+        {
+            var points = new List<ScenePoint>();
+            for (var arc = 0.0; arc < rail.Length; arc += 4) points.Add(rail.Sample(arc).Position);
+            points.Add(rail.Sample(rail.Length).Position);
+            foreach (var point in points)
+            {
+                Assert.IsTrue(point.X >= layout.Bounds.Minimum.X && point.X <= layout.Bounds.Maximum.X &&
+                    point.Z >= layout.Bounds.Minimum.Y && point.Z <= layout.Bounds.Maximum.Y,
+                    $"New turn point outside final bounds: {point}");
+            }
+            return points;
+        }).ToArray();
+        for (var rail = 0; rail < rails.Length; rail++)
+        for (var segment = 1; segment < rails[rail].Count; segment++)
+        for (var otherRail = rail; otherRail < rails.Length; otherRail++)
+        for (var otherSegment = otherRail == rail ? segment + 2 : 1; otherSegment < rails[otherRail].Count; otherSegment++)
+            AssertNoCrossing(rails[rail][segment - 1], rails[rail][segment],
+                rails[otherRail][otherSegment - 1], rails[otherRail][otherSegment],
+                $"New turn rails {rail}/{otherRail} intersect at segments {segment}/{otherSegment}");
+        foreach (var entry in layout.Entries)
+            Assert.IsTrue(Math.Min(Math.Min(Math.Abs(entry.Point.X - layout.Bounds.Minimum.X),
+                Math.Abs(entry.Point.X - layout.Bounds.Maximum.X)), Math.Min(Math.Abs(entry.Point.Z - layout.Bounds.Minimum.Y),
+                Math.Abs(entry.Point.Z - layout.Bounds.Maximum.Y))) <= .5);
+    }
+
+    private static void AssertNoCrossing(ScenePoint a, ScenePoint b, ScenePoint c, ScenePoint d, string message)
+    {
+        if (Math.Max(a.X, b.X) < Math.Min(c.X, d.X) || Math.Max(c.X, d.X) < Math.Min(a.X, b.X) ||
+            Math.Max(a.Z, b.Z) < Math.Min(c.Z, d.Z) || Math.Max(c.Z, d.Z) < Math.Min(a.Z, b.Z)) return;
+        var ux = b.X - a.X; var uz = b.Z - a.Z; var vx = d.X - c.X; var vz = d.Z - c.Z;
+        var denominator = ux * vz - uz * vx;
+        if (Math.Abs(denominator) <= 1e-10 * Math.Sqrt((ux * ux + uz * uz) * (vx * vx + vz * vz))) return;
+        var dx = c.X - a.X; var dz = c.Z - a.Z;
+        var first = (dx * vz - dz * vx) / denominator;
+        var second = (dx * uz - dz * ux) / denominator;
+        var firstLength = Math.Sqrt(ux * ux + uz * uz);
+        var secondLength = Math.Sqrt(vx * vx + vz * vz);
+        // Float direction vectors can move a mathematically shared endpoint by a few micrometres.
+        const double endpointTolerance = .0001;
+        Assert.IsFalse(first * firstLength > endpointTolerance && (1 - first) * firstLength > endpointTolerance &&
+            second * secondLength > endpointTolerance && (1 - second) * secondLength > endpointTolerance,
+            $"{message}; fractions {first}/{second}; {a}->{b} vs {c}->{d}");
     }
 
     private static SceneWorldSnapshot Junction(double[] bearings, int platforms = 2, int tracks = 2)

@@ -55,8 +55,10 @@ public sealed class NodeSwitchTests
         } while (session.PendingPrebuilds.Length > 0);
         var retained = cache.Read(NodeFixtures.NodeId)!;
         var inlet = retained.Layout.EntryFor(new(1));
-        var entry = RailwayCoordinates.Add(inlet.Point,
-            Vector3.Cross(Vector3.UnitY, -inlet.Outward) * (float)RailwayCoordinates.TrackOffset(1, 2));
+        var railway = new RailwayPath(initial, inlet.Edge);
+        var endpoint = railway.Start.Id == retained.Layout.Node ? 0 : railway.LengthCells;
+        var entry = RailwayCoordinates.Add(inlet.Point, RailwayCoordinates.Relative(
+            railway.Sample(endpoint, RailwayCoordinates.TrackOffset(1, 2)).Position, railway.Sample(endpoint).Position));
         var expected = new NodeRange(entry, NodeStreaming.PrefetchCells).Chunks(retained.Layout)
             .Select(NodeScene.ChunkKey).ToArray();
         CollectionAssert.AreEquivalent(expected, retained.Parts.Keys.Where(key => key.StartsWith("terrain:", StringComparison.Ordinal)).ToArray());

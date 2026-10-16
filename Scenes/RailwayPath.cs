@@ -214,6 +214,34 @@ internal sealed class RailwayPath
         return new(point, tangent, right);
     }
 
+    internal RailwaySample SampleFromNode(NodeId node, RailwaySample boundary, double inwardArc)
+    {
+        var direction = node == Edge.End ? 1 : -1;
+        var endpoint = direction > 0 ? LengthCells : 0;
+        var offset = RailwayCoordinates.TrackOffset(1, Math.Max(1, Edge.Tracks));
+        var end = Sample(endpoint, offset);
+        var arc = TrackArc(endpoint, offset) + direction * inwardArc;
+        var sample = Sample(CenterArc(arc, offset), offset);
+        return new(RailwayCoordinates.Add(boundary.Position, RailwayCoordinates.Relative(sample.Position, end.Position)),
+            direction * sample.Forward, direction * sample.Right);
+    }
+
+    internal RailwaySample SampleWithNodes(double distanceCells, double offsetCells)
+    {
+        if (distanceCells >= 0 && distanceCells <= LengthCells) return Sample(distanceCells, offsetCells);
+        var atStart = distanceCells < 0;
+        var layout = atStart ? StartLayout : EndLayout;
+        var entry = layout.EntryFor(Edge.Id);
+        var inlet = layout.Approach(entry, layout.Bypass).Inlet;
+        var inwardArc = atStart ? -distanceCells : distanceCells - LengthCells;
+        var sample = inlet.Sample(inwardArc);
+        var boundary = inlet.Sample(0);
+        var endpoint = Sample(atStart ? 0 : LengthCells, offsetCells);
+        var direction = atStart ? -1 : 1;
+        return new(RailwayCoordinates.Add(endpoint.Position, RailwayCoordinates.Relative(sample.Position, boundary.Position)),
+            direction * sample.Forward, direction * sample.Right);
+    }
+
     internal double Locate(ScenePoint point)
     {
         var dx = point.X - start.X;

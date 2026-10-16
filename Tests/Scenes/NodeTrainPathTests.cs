@@ -19,9 +19,9 @@ public sealed class NodeTrainPathTests
         { ApproachLengthMeters = a, PlatformLengthMeters = 96, DepartureLengthMeters = d };
         var entry = layout.Entries[0]; var exit = layout.Entries[1]; var stop = layout.Stops[0];
         var position = new TrainPosition.Node(layout.Node, entry.Edge, exit.Edge, NodeTravelPhase.Approaching, 0, 1);
-        var path = new NodeTrainPath(layout, dimensions, position, stop);
+        var path = new NodeTrainPath(layout, dimensions, position, stop, 8);
         Near(layout.TrainBoundary(entry).Position, path.Sample(path.Arc(0)).Position);
-        var waiting = RailwayCoordinates.Add(layout.TrainBoundary(entry).Position, -entry.Outward * (float)(16 + entry.StraightLength));
+        var waiting = RailwayCoordinates.Add(layout.TrainBoundary(entry).Position, -entry.Outward * (float)(16 + entry.StraightLength - 4));
         Near(waiting, path.Sample(path.Arc(a)).Position);
         Near(stop.Center, path.Sample(path.Arc(a + 48)).Position);
         var tail = layout.StationTail(stop, -entry.Side);
@@ -93,8 +93,8 @@ public sealed class NodeTrainPathTests
         { ApproachLengthMeters = 51, PlatformLengthMeters = 96, DepartureLengthMeters = 137 };
         var entry = layout.Entries[0]; var stop = layout.Stops[0];
         var position = new TrainPosition.Node(layout.Node, entry.Edge, entry.Edge, NodeTravelPhase.Docked, 99, 1);
-        var before = new NodeTrainPath(layout, dimensions, position, stop);
-        var after = new NodeTrainPath(layout, dimensions, position with { Phase = NodeTravelPhase.Departing }, stop);
+        var before = new NodeTrainPath(layout, dimensions, position, stop, 8);
+        var after = new NodeTrainPath(layout, dimensions, position with { Phase = NodeTravelPhase.Departing }, stop, 8);
         Near(stop.Center, after.Sample(after.Arc(99)).Position);
         Near(before.Sample(before.Arc(51)).Position, after.Sample(after.Arc(147)).Position);
         Near(layout.TrainBoundary(entry).Position, after.Sample(after.Arc(284)).Position);
@@ -104,6 +104,35 @@ public sealed class NodeTrainPathTests
             var newPose = RailwayVehicles.Pose(after.Sample(after.Arc(99) - memberOffset), default, false);
             Assert.IsTrue(Vector3.Distance(oldPose.Position, newPose.Position) < .003);
             Assert.IsTrue(Math.Abs(Quaternion.Dot(oldPose.Rotation, newPose.Rotation)) > .99999);
+        }
+    }
+
+    [TestMethod]
+    public void OversizedConsistsKeepPositiveApproachProgressAndOnlyChangeMembersBeyondTheForkOnGrant()
+    {
+        var snapshot = NodeFixtures.Snapshot();
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(NodeFixtures.NodeId)).Value;
+        var entry = layout.EntryFor(new(1));
+        var inlet = layout.Approach(entry, layout.Bypass).Inlet.Length;
+        var position = new TrainPosition.Node(layout.Node, entry.Edge, new(2), NodeTravelPhase.Waiting,
+            dimensions.ApproachLengthMeters, null);
+        foreach (var halfLength in new[] { inlet, inlet + 52 })
+        {
+            var waiting = new NodeTrainPath(layout, dimensions, position, layout.Bypass, 2 * halfLength);
+            var granted = new NodeTrainPath(layout, dimensions, position with { PlatformNumber = 1 }, layout.Stops[0], 2 * halfLength);
+            Assert.AreEqual(inlet, waiting.WaitingArc, .000001);
+            Assert.AreEqual(0, waiting.Arc(0), .000001);
+            Assert.AreEqual(inlet / 2, waiting.Arc(dimensions.ApproachLengthMeters / 2), .000001);
+            foreach (var arc in new[] { 0, inlet / 2, inlet })
+            {
+                var before = waiting.Sample(arc); var after = granted.Sample(arc);
+                Near(before.Position, after.Position);
+                Assert.IsTrue(Vector3.Distance(before.Forward, after.Forward) < .0001);
+            }
+            Assert.IsTrue(Vector3.Distance(RailwayCoordinates.Relative(waiting.Sample(inlet + 52).Position,
+                granted.Sample(inlet + 52).Position), Vector3.Zero) > .01,
+                "The accepted oversized-consist limitation must affect only members beyond the shared inlet.");
         }
     }
 
