@@ -19,10 +19,12 @@ internal sealed partial class MeasurementRun
     private Transform3D _sceneBeforeDrag;
     private long _sceneDrawCount, _sceneDragDraw;
     private object? _sceneProbeDetail, _sceneFirstNearDetail;
+    private ProbeState? _sceneLoggedProbeState;
     private double _sceneObserverSeconds;
     private readonly List<SceneProbeCost> _sceneProbeCosts = [];
     private sealed record SceneProbeCost(string Operation, long Draw, double Started, double Ended,
-        double FrameFogSeconds, double PointSeconds, double BusinessSeconds, double LoggingSeconds, double OtherSeconds);
+        double FrameFogSeconds, double PointSeconds, double BusinessSeconds, double LoggingSeconds, double OtherSeconds,
+        double StatusSeconds, double UiSeconds, double ProcessSeconds, double RenderingSeconds, double ReadySnapshotSeconds);
     private readonly List<double> _sceneOpeningFrames = [];
     private readonly List<(double Started, double Ended)> _sceneChecks = [];
     private readonly Queue<SceneSample> _sceneRecent = new();
@@ -40,7 +42,7 @@ internal sealed partial class MeasurementRun
 
     private sealed record SceneSample(double At, string Phase, double FrameSeconds, ulong Steps,
         string Speed, bool Paused, string? Request, string? Space, string? Readiness,
-        bool NearAvailable, bool DragIssued, bool LoadingLabel, bool Overlay,
+        bool? NearAvailable, bool DragIssued, bool LoadingLabel, bool Overlay,
         string[] BlockingControls, bool ModalWindow, int Picks, double CheckSeconds,
         double PreviousObserverSeconds, object? Probe, object? Presented, long Draw, long PrivateBytes, long WorkingSetBytes,
         long PeakPrivateBytes, long PeakWorkingSetBytes, ulong BufferBytes, ulong TextureBytes, ulong VideoBytes);
@@ -193,16 +195,16 @@ internal sealed partial class MeasurementRun
         if (!File.Exists(copy)) File.Copy(_input, copy);
         menu.OpenSaves();
         var panel = menu.GetChildren().OfType<SavePanel>().Single();
-        var list = SceneDescendants(panel).OfType<ItemList>().Single();
+        var list = SceneUiDescendants(panel).OfType<ItemList>().Single();
         var entries = panel.Entries;
         var index = entries.Select((entry, index) => (entry, index)).Single(pair => pair.entry.Path == copy).index;
         list.Select(index);
-        var button = SceneDescendants(panel).OfType<Button>().Single(item => item.Text == "读取选中存档");
+        var button = SceneUiDescendants(panel).OfType<Button>().Single(item => item.Text == "读取选中存档");
         _sceneLoadButton = Seconds();
         button.EmitSignal(BaseButton.SignalName.Pressed);
         await Wait(() =>
         {
-            if (SceneDescendants(panel).OfType<ConfirmationDialog>()
+            if (SceneUiDescendants(panel).OfType<ConfirmationDialog>()
                     .FirstOrDefault(dialog => dialog.Title == "未保存的更改") is { Visible: true } leave &&
                 _app.Saves!.Leaving is { Waiting: false })
                 leave.EmitSignal(AcceptDialog.SignalName.CustomAction, "discard");
@@ -230,6 +232,8 @@ internal sealed partial class MeasurementRun
         _sceneNearAvailable = _sceneDragIssued = false;
         _sceneCapturedPartial = false;
         _sceneProbeDetail = _sceneFirstNearDetail = null;
+        _sceneLoggedProbeState = null;
+        _probeState = new("no_frame", null, 0, 0, 0, 0, 0, 0, false);
         _sceneOpeningFrames.Clear(); _sceneChecks.Clear(); _sceneProbeCosts.Clear();
         var before = SceneCacheState();
         _sceneTarget = target;
@@ -264,7 +268,13 @@ internal sealed partial class MeasurementRun
             return _sceneReady > 0 && _sceneLastDraw >= _sceneReady + (_scenario == "scene-reference" ? 10 : 5);
         });
         var end = Seconds();
+        if (_app.WorldScenes!.Display?.DisplayedFrame is { Readiness: SceneReadiness.Ready } readyFrame)
+            RecordReadyGeometry(readyFrame, _sceneLastDraw);
         _sceneOperation = null;
+        // Validate the immutable Ready snapshot after the observation, without charging far-content evaluation to UI latency.
+        var validationStarted = Seconds();
+        if (_scenario != "scene-reference") ValidateReadyReference();
+        var validationSeconds = Seconds() - validationStarted;
         foreach (var cost in _sceneProbeCosts) _sceneCostTrace!.WriteLine(JsonSerializer.Serialize(cost, SceneJson));
         _sceneCostTrace!.Flush();
         _sceneCompletedOperations++;
@@ -285,10 +295,18 @@ internal sealed partial class MeasurementRun
                 click_to_operable = _sceneOperable > 0 ? (double?)FrameMeasurements.SumOverlap(_sceneChecks, _sceneClick, _sceneOperable) : null,
                 operable_to_ready = _sceneOperable > 0 ? (double?)FrameMeasurements.SumOverlap(_sceneChecks, _sceneOperable, _sceneReady) : null
             },
+            probe_cost_seconds = new
+            {
+                click_to_operable = _sceneOperable > 0 ? ProbeCosts(_sceneClick, _sceneOperable) : null,
+                operable_to_ready = _sceneOperable > 0 ? ProbeCosts(_sceneOperable, _sceneReady) : null
+            },
             first_near = _sceneFirstNearDetail, last_probe = _sceneProbeDetail, cache_at_click = before,
             peak_watermark_before = peakBefore, steady = SceneSteady(), load = SceneLoadCounts(),
             empty_interaction = _sceneOperable == 0, ui_opened_detail = false,
             reference_validation = _probeReferenceValidation,
+            reference_validation_seconds = validationSeconds,
+            reference_snapshot = _probeReadySnapshot is { } snapshot ? new { at = snapshot.At,
+                frame = snapshot.Frame.ToString(), position = snapshot.Core.Position } : null,
             sample_valid = _probeReferenceValidation?.Valid == true,
             partial_capture_observed = _sceneCapturedPartial
         };
@@ -296,6 +314,20 @@ internal sealed partial class MeasurementRun
         _sceneOperationTrace.Flush();
         if (_scenario == "scene-capture") await CaptureSceneImage(name + "-ready");
         ResetSceneProbe();
+    }
+
+    private object ProbeCosts(double start, double end)
+    {
+        var costs = _sceneProbeCosts.Where(cost => cost.Started < end && cost.Ended > start).ToArray();
+        object? Distribution(Func<SceneProbeCost, double> value) => costs.Length == 0 ? null : FrameMeasurements.Distribution(costs.Select(value));
+        return new { frames = costs.Length,
+            frame_fog = Distribution(cost => cost.FrameFogSeconds), points = Distribution(cost => cost.PointSeconds),
+            business = Distribution(cost => cost.BusinessSeconds), logging = Distribution(cost => cost.LoggingSeconds),
+            other = Distribution(cost => cost.OtherSeconds), total = Distribution(cost => cost.Ended - cost.Started),
+            status = Distribution(cost => cost.StatusSeconds), ui = Distribution(cost => cost.UiSeconds),
+            process = Distribution(cost => cost.ProcessSeconds), rendering = Distribution(cost => cost.RenderingSeconds),
+            ready_snapshot = Distribution(cost => cost.ReadySnapshotSeconds),
+            contribution_upper_bound_seconds = FrameMeasurements.SumOverlap(_sceneProbeCosts.Select(cost => (cost.Started, cost.Ended)), start, end) };
     }
 
     private async Task ReturnSceneMap()
@@ -321,13 +353,15 @@ internal sealed partial class MeasurementRun
         var observerStarted = Seconds();
         var operation = _sceneOperation;
         var loggingSeconds = 0d;
-        _probeFogSeconds = _probePointSeconds = _probeBusinessSeconds = 0;
+        var statusSeconds = 0d; var uiSeconds = 0d; var processSeconds = 0d; var renderingSeconds = 0d;
+        _probeFogSeconds = _probePointSeconds = _probeBusinessSeconds = _probeSnapshotSeconds = 0;
         try
         {
             var host = _app.Host!;
             if (host.GetStatus() is not { } status || _sceneTrace is null) return;
             if (status.IsFrozen) throw new InvalidOperationException("测量期间核心冻结。");
             if (_app.GetWindow().Mode == Window.ModeEnum.Minimized) throw new InvalidOperationException("测量窗口被最小化。");
+            statusSeconds = Seconds() - observerStarted;
             var now = Seconds();
             var interval = _sceneLastDraw == 0 ? 0 : now - _sceneLastDraw;
             _sceneDrawCount++;
@@ -339,8 +373,10 @@ internal sealed partial class MeasurementRun
             if (interaction is not null && interaction.Update.Frame.Request != _app.WorldScenes.CurrentRequest) interaction = null;
             _probeFogSeconds += Seconds() - frameLookupStarted;
             var checkSeconds = 0d;
+            var checkedNear = false;
             var picksBefore = _scenePickCount;
             _sceneNearAvailable = false;
+            _probeState = new(_sceneOperable > 0 ? "not_checked_operable" : "no_frame", null, 0, 0, 0, 0, 0, 0, false);
             if (_sceneOperation is not null && (_sceneReady == 0 || _sceneOperable == 0 || now <= Math.Max(_sceneReady, _sceneOperable)))
                 _sceneOpeningFrames.Add(interval);
             if (frame is not null && _sceneOperation is not null)
@@ -349,11 +385,13 @@ internal sealed partial class MeasurementRun
                 if (frame.Readiness == SceneReadiness.Ready && _sceneReady == 0)
                 {
                     _sceneReady = now;
-                    RecordReadyGeometry(frame, now);
                 }
             }
-            if (interaction is not null && _sceneOperation is not null)
+            if (interaction is not null && _sceneOperation is not null && _sceneOperable > 0)
+                CaptureReadyReference(interaction, _subject);
+            if (interaction is not null && _sceneOperation is not null && (_sceneOperable == 0 || _scenario == "scene-reference"))
             {
+                checkedNear = true;
                 var checking = Seconds();
                 _sceneNearAvailable = CheckNearArea(interaction, _subject, out var detail);
                 var checkedAt = Seconds();
@@ -365,31 +403,49 @@ internal sealed partial class MeasurementRun
                     _app.WorldScenes.View.CameraRig.Camera.Transform != _sceneBeforeDrag && _sceneOperable == 0)
                     _sceneOperable = Seconds();
             }
+            else if (_sceneOperable > 0)
+                _probeState = new("not_checked_operable", null, 0, 0, 0, 0, 0, 0, false);
             if (now - _sceneLastProcessRead >= .2)
             {
+                var processStarted = Seconds();
                 _process.Refresh();
                 _scenePrivate = _process.PrivateMemorySize64; _sceneWorking = _process.WorkingSet64;
                 _scenePeakPrivate = _process.PeakPagedMemorySize64; _scenePeakWorking = _process.PeakWorkingSet64;
                 _sceneLastProcessRead = now;
+                processSeconds = Seconds() - processStarted;
             }
             var view = _app.WorldScenes.View;
+            var uiStarted = Seconds();
+            var blocking = SceneBlockingControls();
+            var modal = SceneUiDescendants(_app).OfType<Window>()
+                .Any(window => window != _app.GetWindow() && window.Visible && window.Exclusive);
+            uiSeconds = Seconds() - uiStarted;
+            var renderingStarted = Seconds();
+            var bufferBytes = RenderingServer.GetRenderingInfo(RenderingServer.RenderingInfo.BufferMemUsed);
+            var textureBytes = RenderingServer.GetRenderingInfo(RenderingServer.RenderingInfo.TextureMemUsed);
+            var videoBytes = RenderingServer.GetRenderingInfo(RenderingServer.RenderingInfo.VideoMemUsed);
+            renderingSeconds = Seconds() - renderingStarted;
             var sample = new SceneSample(now, _scenePhase, interval, status.View.Position.CompletedSteps,
                 status.Speed.ToString(), status.IsPaused, frame?.Update.Frame.Request.ToString(), frame?.Update.Frame.Space.ToString(),
-                frame?.Readiness.ToString(), _sceneNearAvailable, _sceneDragIssued, view.Loading && view.Visible,
-                view.LoadingOverlayVisible && view.Visible, SceneBlockingControls(), SceneDescendants(_app).OfType<Window>()
-                    .Any(window => window != _app.GetWindow() && window.Visible && window.Exclusive),
+                frame?.Readiness.ToString(), checkedNear ? _sceneNearAvailable : null, _sceneDragIssued, view.Loading && view.Visible,
+                view.LoadingOverlayVisible && view.Visible, blocking, modal,
                 _scenePickCount - picksBefore, checkSeconds, _sceneObserverSeconds,
-                _sceneOperation is null ? null : _sceneProbeDetail, _scenePresented, _sceneDrawCount,
+                _sceneOperation is null ? null : _probeState, _scenePresented, _sceneDrawCount,
                 _scenePrivate, _sceneWorking, _scenePeakPrivate, _scenePeakWorking,
-                RenderingServer.GetRenderingInfo(RenderingServer.RenderingInfo.BufferMemUsed),
-                RenderingServer.GetRenderingInfo(RenderingServer.RenderingInfo.TextureMemUsed),
-                RenderingServer.GetRenderingInfo(RenderingServer.RenderingInfo.VideoMemUsed));
+                bufferBytes, textureBytes, videoBytes);
             _sceneRecent.Enqueue(sample);
             while (_sceneRecent.TryPeek(out var old) && old.At < now - 6) _sceneRecent.Dequeue();
             var loggingStarted = Seconds();
             _sceneTrace.WriteLine(JsonSerializer.Serialize(sample, SceneJson));
+            if (_sceneOperation is not null && _sceneLoggedProbeState != _probeState)
+            {
+                _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(new { kind = "probe-state", operation = _sceneOperation,
+                    draw = _sceneDrawCount, at = now, state = _probeState,
+                    detail = checkedNear ? _sceneProbeDetail : null }, SceneJson));
+                _sceneLoggedProbeState = _probeState;
+            }
             loggingSeconds += Seconds() - loggingStarted;
-            if (now - _sceneLastLoadSample >= 1)
+            if (now - _sceneLastLoadSample >= 1 && (_sceneOperation is null || _sceneOperable > 0 || _scenario == "scene-reference"))
             {
                 var loadRecord = new { kind = "active-load", phase = _scenePhase, load = SceneLoadCounts() };
                 loggingStarted = Seconds();
@@ -423,7 +479,8 @@ internal sealed partial class MeasurementRun
                 var ended = Seconds();
                 _sceneProbeCosts.Add(new(operation, _sceneDrawCount, observerStarted, ended,
                     _probeFogSeconds, _probePointSeconds, _probeBusinessSeconds, loggingSeconds,
-                    Math.Max(0, ended - observerStarted - _probeFogSeconds - _probePointSeconds - _probeBusinessSeconds - loggingSeconds)));
+                    Math.Max(0, ended - observerStarted - _probeFogSeconds - _probePointSeconds - _probeBusinessSeconds - loggingSeconds),
+                    statusSeconds, uiSeconds, processSeconds, renderingSeconds, _probeSnapshotSeconds));
             }
         }
     }
@@ -490,7 +547,7 @@ internal sealed partial class MeasurementRun
     private string[] SceneBlockingControls()
     {
         var size = _app.GetViewport().GetVisibleRect().Size;
-        return SceneDescendants(_app).OfType<Control>().Where(control => control.IsVisibleInTree() &&
+        return SceneUiDescendants(_app).OfType<Control>().Where(control => control.IsVisibleInTree() &&
             control.MouseFilter != Control.MouseFilterEnum.Ignore && control.GetGlobalRect().Size.X >= size.X &&
             control.GetGlobalRect().Size.Y >= size.Y && control is not MacroMap).Select(control => control.GetPath().ToString()).ToArray();
     }
@@ -531,9 +588,9 @@ internal sealed partial class MeasurementRun
         var terrain = meshes.Where(mesh => mesh.Material is not SceneMaterial.BuiltIn).ToArray();
         _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(new
         {
-            kind = "ready-geometry", operation = _sceneOperation, at, frame = frame.Update.Frame.ToString(),
+            kind = "ready-geometry", operation = _sceneOperation, at, first_ready = _sceneReady, frame = frame.Update.Frame.ToString(),
             label = "替代读数，不是 N／C／F",
-            scope = "first drawn Ready; Parent=null, Subject=null, non-BuiltIn Geometry; includes authored ground; counts per published object, not whole node or unique GPU allocations",
+            scope = "drawn Ready at observation end; counted outside the timing interval; Parent=null, Subject=null, non-BuiltIn Geometry; includes authored ground; per published object, not whole node or unique GPU allocations",
             terrain_meshes = terrain.Length, terrain_vertices = terrain.Sum(mesh => (long)mesh.Vertices.Length),
             terrain_triangles = terrain.Sum(mesh => (long)mesh.TriangleIndices.Length / 3),
             built_in = meshes.Where(mesh => mesh.Material is SceneMaterial.BuiltIn)
@@ -544,9 +601,13 @@ internal sealed partial class MeasurementRun
         }, SceneJson));
     }
 
-    private static IEnumerable<Node> SceneDescendants(Node node)
+    private static IEnumerable<Node> SceneUiDescendants(Node node)
     {
         foreach (var child in node.GetChildren())
-        { yield return child; foreach (var descendant in SceneDescendants(child)) yield return descendant; }
+        {
+            if (child is Node3D) continue;
+            yield return child;
+            foreach (var descendant in SceneUiDescendants(child)) yield return descendant;
+        }
     }
 }

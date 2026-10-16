@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Collections.Immutable;
 using System.Text.Json;
 using Godot;
 using Train.Content.Contracts;
@@ -14,7 +15,10 @@ namespace Train.App.Measurement;
 internal sealed partial class MeasurementRun
 {
     private int _scenePickCount;
-    private double _probeFogSeconds, _probePointSeconds, _probeBusinessSeconds;
+    private double _probeFogSeconds, _probePointSeconds, _probeBusinessSeconds, _probeSnapshotSeconds;
+    private ProbeState _probeState;
+    private readonly record struct ProbeState(string Stage, SceneSpaceId? Space, int FogRegions,
+        int PointsPassed, int BusinessCount, int BusinessPassed, int RailCount, int RailPassed, bool FollowedPicked);
     private readonly Dictionary<ulong, Vector3[]> _probeMeshPoints = [];
     private readonly string? _sceneReferencePath;
     private WorldObjectId? _sceneTarget;
@@ -23,16 +27,23 @@ internal sealed partial class MeasurementRun
     private readonly Dictionary<ProbeReferenceView, HashSet<(int, int)>> _probeTerrainBands = [];
     private readonly List<ProbeReferenceView> _probeRecordedViews = [];
     private bool _probeReadyChecked;
+    private ProbeReadySnapshot? _probeReadySnapshot;
+    private ImmutableArray<SceneBounds> _probeFogRegions;
+    private SceneProbeFogIndex? _probeFogIndex;
     private readonly Dictionary<SceneSpaceId, NVector> _probeReferenceCenters = [];
     private sealed record ProbeExpected(string Key, string Subject, SceneBounds Bounds);
     private sealed record ProbeReference(string BuildCommit, string InputSha256, ProbeReferenceView[] Views);
     private sealed record ProbeReferenceView(string Target, int? Node, int? Edge, double? ArcMeters,
-        double[] Center, ProbeReferenceObject[] Objects, int[][] Terrain);
+        double[] Center, ProbeReferenceObject[] Objects, int[][] Terrain, ProbeReferenceBuilding[] Buildings);
+    private sealed record ProbeReferenceBuilding(string Subject, double[] Bounds);
     private sealed record ProbeReferenceObject(string? Subject, string[] Decorations, double[] Position,
         double[] Rotation, double[] Bounds);
     private sealed record ProbePick(bool Visible, bool Picked, string? Resolved, object Evidence);
     private sealed record ProbeValidation(bool Valid, ProbeReferenceObject[]? Expected,
-        ProbeReferenceObject[] Actual, double PoseBoundsToleranceCells, string? Reason);
+        ProbeReferenceObject[] Actual, double PoseBoundsToleranceCells, string? Reason,
+        ProbeReferenceBuilding[]? ExpectedBuildings, ProbeReferenceBuilding[] ActualBuildings);
+    private sealed record ProbeReadySnapshot(ProbeReferenceView? Reference, int? Node, NVector Center,
+        ProbeReferenceObject[] Objects, ICoreReadView Core, IContentView Content, double At, SceneFrameStamp Frame);
 
     private void LoadSceneReference()
     {
@@ -56,6 +67,9 @@ internal sealed partial class MeasurementRun
     {
         _probeMeshPoints.Clear();
         _probeReadyChecked = false;
+        _probeReadySnapshot = null;
+        _probeFogRegions = default;
+        _probeFogIndex = null;
         _probeReferenceCenters.Clear();
         _probeReferenceValidation = null;
         _scenePickCount = 0;
@@ -98,6 +112,7 @@ internal sealed partial class MeasurementRun
                 _probeRecordedViews.Add(CaptureSceneReference(frame, center, node, edge));
             }
             detail = new { frame = frame.Update.Frame.ToString(), referenceOnly = true };
+            _probeState = new("reference", frame.Update.Frame.Space, 0, 0, 0, 0, 0, 0, false);
             return false;
         }
         var pointPositions = new List<NVector> { center };
@@ -123,10 +138,25 @@ internal sealed partial class MeasurementRun
             return new(transformed.X, transformed.Y, transformed.Z);
         }
         var fogRegions = display.DisplayedFrame!.Update.Environment.FoggedRegions;
-        var intersectingFog = fogRegions.Count(bounds => node is not null
+        if (_probeFogIndex is null || !_probeFogRegions.Equals(fogRegions))
+        {
+            _probeFogRegions = fogRegions;
+            _probeFogIndex = new(fogRegions);
+        }
+        var fogPoints = pointPositions.Select(FogPoint).ToArray();
+        var minimum = fogPoints.Aggregate(NVector.Min);
+        var maximum = fogPoints.Aggregate(NVector.Max);
+        if (node is not null)
+        {
+            minimum = FogPoint(center) - new NVector(64, 0, 64);
+            maximum = FogPoint(center) + new NVector(64, 0, 64);
+        }
+        var nearbyFog = _probeFogIndex.Query(new(minimum, maximum)).ToArray();
+        var intersectingFog = nearbyFog.Count(bounds => node is not null
             ? ProbeFogOverlaps(FogPoint(center), 64, bounds) : pointPositions.Any(point => ProbeFogContains(FogPoint(point), bounds)));
         if (intersectingFog > 0)
         {
+            _probeState = new("near_fog", frame.Update.Frame.Space, intersectingFog, 0, 0, 0, 0, 0, false);
             detail = new { focus = new { x = center.X, y = center.Y, z = center.Z }, radiusMeters = 32,
                 frame = frame.Update.Frame.ToString(), location = location?.ToString(),
                 samplingDomain = node is not null ? "node-circle" : "railway-reference-terrain-band",
@@ -135,24 +165,18 @@ internal sealed partial class MeasurementRun
             return false;
         }
         _probeFogSeconds += Seconds() - stageStarted;
+        CaptureReadyReference(frame, follow);
         stageStarted = Seconds();
-        var actualReferenceObjects = ReferenceObjects(frame, center, 64).ToArray();
-        if (readyGeometry && !_probeReadyChecked)
-        {
-            _probeReadyChecked = true;
-            var expected = reference?.Objects.Where(item => ProbeDistance(absolute, ReferenceBounds(item)) <= 64).ToArray();
-            _probeReferenceValidation = new(expected is not null && expected.Length == actualReferenceObjects.Length &&
-                expected.All(item => expected.Count(other => ReferenceMatches(item, other)) ==
-                    actualReferenceObjects.Count(other => ReferenceMatches(item, other))),
-                expected, actualReferenceObjects, .001, reference is null ? "reference_missing" : null);
-        }
+        var actualReferenceObjects = reference?.Objects.Any(item => item.Decorations.Length > 0 &&
+            ProbeDistance(absolute, ReferenceBounds(item)) <= 64) == true
+            ? ReferenceObjects(frame, center, 64).ToArray() : [];
         _probeBusinessSeconds += Seconds() - stageStarted;
         stageStarted = Seconds();
         var points = new List<object>();
         var samplesPassed = 0;
         foreach (var point in pointPositions)
         {
-            var fogged = fogRegions.Any(bounds => ProbeFogContains(FogPoint(point), bounds));
+            var fogged = nearbyFog.Any(bounds => ProbeFogContains(FogPoint(point), bounds));
             var terrain = frame.TerrainHeight(point.X, point.Z);
             _scenePickCount++;
             var inspection = controller.InspectPick(new SceneRay(point + new NVector(0, 4096, 0), -NVector.UnitY, 8192));
@@ -173,7 +197,8 @@ internal sealed partial class MeasurementRun
         }
         _probePointSeconds += Seconds() - stageStarted;
         stageStarted = Seconds();
-        var expectedBusiness = node is not null ? ExpectedBuildings(frame, new((ulong)node.Value)).ToList() : [];
+        var expectedBusiness = (reference?.Buildings ?? []).Select(item => new ProbeExpected(item.Subject, item.Subject,
+            new(ReferenceBounds(item.Bounds).Minimum - ProbeOrigin(frame), ReferenceBounds(item.Bounds).Maximum - ProbeOrigin(frame)))).ToList();
         if (reference is not null)
             expectedBusiness.AddRange(reference.Objects.Where(item => item.Subject is not null)
                 .Select((item, index) => new ProbeExpected("reference:" + index,
@@ -190,10 +215,12 @@ internal sealed partial class MeasurementRun
         var nearBusiness = expectedBusiness.Where(item => ProbeDistance(center, item.Bounds) <= 64).ToArray();
         var results = new List<object>();
         var businessPassed = true;
+        var businessPassedCount = 0;
         foreach (var expected in nearBusiness)
         {
             var result = ProbeBusiness(frame, display, expected);
             businessPassed &= result.Visible && result.Picked;
+            if (result.Visible && result.Picked) businessPassedCount++;
             results.Add(new { expected.Key, expected = expected.Subject, bounds = new[] { expected.Bounds.Minimum.X,
                 expected.Bounds.Minimum.Y, expected.Bounds.Minimum.Z, expected.Bounds.Maximum.X, expected.Bounds.Maximum.Y,
                 expected.Bounds.Maximum.Z }, result.Visible, result.Picked, result.Resolved, result.Evidence });
@@ -201,6 +228,8 @@ internal sealed partial class MeasurementRun
         ProbePick? followed = follow is not null ? ProbeBusiness(frame, display,
             new("follow", follow.ToString()!, new(center, center))) : null;
         var fogClear = intersectingFog == 0;
+        _probeState = new("near_check", frame.Update.Frame.Space, 0, samplesPassed, nearBusiness.Length,
+            businessPassedCount, railGeometry.Length, railGeometry.Count(item => item.ready), followed?.Picked == true);
         detail = new { focus = new { x = center.X, y = center.Y, z = center.Z }, radiusMeters = 32,
             cameraFocus = new { x = camera.Focus.X, y = camera.Focus.Y, z = camera.Focus.Z },
             frame = frame.Update.Frame.ToString(), origin = frame.Origin, simulationSeconds = frame.SimulationSeconds,
@@ -242,9 +271,56 @@ internal sealed partial class MeasurementRun
                         terrain.Add([x, z]);
             }
         }
+        var buildings = node is not null ? ExpectedBuildings(_app.Host!.GetStatus()!.View, _app.Host.Content!, new((ulong)node.Value))
+            .Where(item => ProbeDistance(center + origin, item.Bounds) <= 128).Select(ReferenceBuilding).ToArray() : [];
         return new(_sceneTarget!.ToString()!, node, edge is null ? null : (int)edge.Id.Value, edge?.DistanceMeters,
-            [center.X + origin.X, center.Y + origin.Y, center.Z + origin.Z], [.. ReferenceObjects(frame, center, 128)], [.. terrain]);
+            [center.X + origin.X, center.Y + origin.Y, center.Z + origin.Z], [.. ReferenceObjects(frame, center, 128)], [.. terrain], buildings);
     }
+
+    private void CaptureReadyReference(ISceneFrame frame, WorldObjectId? follow)
+    {
+        if (_scenario == "scene-reference" || _probeReadyChecked || frame.Readiness != SceneReadiness.Ready ||
+            _app.WorldScenes!.Display?.DisplayedFrame is not { Readiness: SceneReadiness.Ready } drawn ||
+            drawn.Update.Frame.Space != frame.Update.Frame.Space) return;
+        var started = Seconds();
+        var focus = _app.WorldScenes.View.CameraRig.Focus;
+        var center = follow is not null && frame.FindPose(follow) is Lookup<ScenePose>.Found pose
+            ? pose.Value.Position : new NVector(focus.X, focus.Y, focus.Z);
+        var absolute = center + ProbeOrigin(frame);
+        var location = frame.Locate(center) is Lookup<WorldLocation>.Found found ? found.Value : null;
+        var node = location is WorldLocation.Node n ? (int?)n.Id.Value : null;
+        var edge = location as WorldLocation.Edge;
+        var reference = _probeReference?.Views.FirstOrDefault(view =>
+            NVector.Distance(absolute, new((float)view.Center[0], (float)view.Center[1], (float)view.Center[2])) <= 64 &&
+            (node is not null ? view.Node == node : edge is not null && view.Edge == (int)edge.Id.Value &&
+                Math.Abs(view.ArcMeters!.Value - edge.DistanceMeters) <= 64));
+        _probeReadySnapshot = new(reference, node, absolute, ReferenceObjects(frame, center, 64).ToArray(),
+            _app.Host!.GetStatus()!.View, _app.Host.Content!, started, frame.Update.Frame);
+        _probeReadyChecked = true;
+        _probeSnapshotSeconds += Seconds() - started;
+    }
+
+    private void ValidateReadyReference()
+    {
+        if (_probeReadySnapshot is not { } snapshot)
+        {
+            _probeReferenceValidation = new(false, null, [], .001, "ready_snapshot_missing", null, []);
+            return;
+        }
+        var expected = snapshot.Reference?.Objects.Where(item => ProbeDistance(snapshot.Center, ReferenceBounds(item)) <= 64).ToArray();
+        var buildings = snapshot.Reference?.Buildings.Where(item => ProbeDistance(snapshot.Center, ReferenceBounds(item.Bounds)) <= 64).ToArray();
+        var actualBuildings = snapshot.Node is { } node ? ExpectedBuildings(snapshot.Core, snapshot.Content, new((ulong)node))
+            .Where(item => ProbeDistance(snapshot.Center, item.Bounds) <= 64).Select(ReferenceBuilding).ToArray() : [];
+        var objectsValid = expected is not null && expected.Length == snapshot.Objects.Length && expected.All(item =>
+            expected.Count(other => ReferenceMatches(item, other)) == snapshot.Objects.Count(other => ReferenceMatches(item, other)));
+        var buildingsValid = buildings is not null && buildings.Length == actualBuildings.Length && buildings.All(item =>
+            actualBuildings.Any(actual => item.Subject == actual.Subject && item.Bounds.Zip(actual.Bounds).All(pair => Math.Abs(pair.First - pair.Second) <= .001)));
+        _probeReferenceValidation = new(objectsValid && buildingsValid, expected, snapshot.Objects, .001,
+            snapshot.Reference is null ? "reference_missing" : null, buildings, actualBuildings);
+    }
+
+    private static ProbeReferenceBuilding ReferenceBuilding(ProbeExpected item) => new(item.Subject,
+        [item.Bounds.Minimum.X, item.Bounds.Minimum.Y, item.Bounds.Minimum.Z, item.Bounds.Maximum.X, item.Bounds.Maximum.Y, item.Bounds.Maximum.Z]);
 
     private IEnumerable<ProbeReferenceObject> ReferenceObjects(ISceneFrame frame, NVector center, double radius)
     {
@@ -274,7 +350,9 @@ internal sealed partial class MeasurementRun
     }
 
     private static SceneBounds ReferenceBounds(ProbeReferenceObject item) =>
-        new(new((float)item.Bounds[0], (float)item.Bounds[1], (float)item.Bounds[2]), new((float)item.Bounds[3], (float)item.Bounds[4], (float)item.Bounds[5]));
+        ReferenceBounds(item.Bounds);
+    private static SceneBounds ReferenceBounds(double[] bounds) =>
+        new(new((float)bounds[0], (float)bounds[1], (float)bounds[2]), new((float)bounds[3], (float)bounds[4], (float)bounds[5]));
     private static bool ReferenceMatches(ProbeReferenceObject left, ProbeReferenceObject right) =>
         left.Subject == right.Subject && left.Decorations.SequenceEqual(right.Decorations) &&
         left.Position.Concat(left.Rotation).Concat(left.Bounds).Zip(right.Position.Concat(right.Rotation).Concat(right.Bounds))
@@ -295,10 +373,8 @@ internal sealed partial class MeasurementRun
         return new(min, max);
     }
 
-    private IEnumerable<ProbeExpected> ExpectedBuildings(ISceneFrame frame, NodeId nodeId)
+    private static IEnumerable<ProbeExpected> ExpectedBuildings(ICoreReadView core, IContentView content, NodeId nodeId)
     {
-        var core = _app.Host!.GetStatus()!.View;
-        var content = _app.Host.Content!;
         if (core.World.Nodes.Single(item => item.Id == nodeId).Occupant is not NodeOccupant.Settlement owner ||
             core.FindSettlement(owner.Id) is not Lookup<SettlementView>.Found settlement ||
             content.FindSettlementLayout(owner.Id) is not ContentLookup<SettlementLayoutProjection>.Found template) yield break;
@@ -314,7 +390,7 @@ internal sealed partial class MeasurementRun
             var bounds = new SceneBounds(new(occupied.Minimum.X, occupied.Minimum.Y, occupied.Minimum.Z),
                 new(occupied.Maximum.X + 1, occupied.Maximum.Y + 1, occupied.Maximum.Z + 1));
             var subject = new WorldObjectId.Instance(instance.Id).ToString();
-            yield return new(subject!, subject!, ProbeTransformBounds(bounds, ProbePlacement(placed.At, placed.Orientation), ProbeOrigin(frame)));
+            yield return new(subject!, subject!, ProbeTransformBounds(bounds, ProbePlacement(placed.At, placed.Orientation), NVector.Zero));
         }
     }
 

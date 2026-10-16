@@ -10,6 +10,25 @@ namespace Train.Godot.Tests.Measurement;
 public sealed class MeasurementGeometryTests
 {
     [TestMethod]
+    public void FogIndexQueriesClosedHorizontalBounds()
+    {
+        var near = new SceneBounds(new(-2, 100, -2), new(2, 110, 2));
+        var touching = new SceneBounds(new(2, -10, 2), new(4, -5, 4));
+        var negative = new SceneBounds(new(-40, 0, -30), new(-20, 1, -10));
+        var far = new SceneBounds(new(1000, 0, 1000), new(1010, 1, 1010));
+        var index = new SceneProbeFogIndex([far, touching, negative, near]);
+
+        CollectionAssert.AreEquivalent(new[] { near, touching },
+            index.Query(new(new(-2, 0, -2), new(2, 1, 2))).ToArray());
+        CollectionAssert.AreEquivalent(new[] { negative },
+            index.Query(new(new(-35, 0, -25), new(-25, 1, -15))).ToArray());
+        CollectionAssert.AreEquivalent(new[] { far },
+            index.Query(new(new(1005, 0, 1005), new(1020, 1, 1020))).ToArray());
+        Assert.AreEqual(0, index.Query(new(new(10, 0, 10), new(20, 1, 20))).Count());
+        Assert.AreEqual(0, new SceneProbeFogIndex([]).Query(new(Vector3.Zero, Vector3.One)).Count());
+    }
+
+    [TestMethod]
     public void FogExcludesMaximumBoundaryAndItsTangencyWithTheNearArea()
     {
         var fog = new SceneBounds(new(-288, -128, 440), new(-256, 128, 472));
