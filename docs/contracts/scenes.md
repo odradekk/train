@@ -78,7 +78,7 @@ Follow 单候选的布局和准备在后台完成。当前场景仍有等待中�
 1. `OpenWorld(binding, snapshot)` 轻量创建，不等待场景生成。随后 `RequestView` 选择地点、指定列车中的车辆或战斗。地点可含线路弧长，用作初始观察中心；不是要求生成一个单独世界位置。跟随车辆必须属于指定列车。
 2. 宿主在命令或模拟完成后串行 `Observe(snapshot, newEvents)`，交入本次新事件。它不触发同步大场景构建，也不接受倒退的模拟位置。事件必须有序、不重复，且不晚于输入边界。绑定、内容世代或业务输入身份不匹配、模拟位置倒退以及事件乱序、重复或超出边界均违反接口前提，必须在接入前检查并抛出 ArgumentException，保留原输入，不返回业务失败码。
 3. 体素自行安排首次构建、线路分段与至多一个下一场景预建。宿主逐显示帧调用 `Present`，取得当前可显示部分、加载状态与诊断；核心继续推进，不等待构建。
-4. Godot 准备最新帧需要的资产与资源，在帧之间完整应用资源更新，成功后才把它记为网格基准帧。准备期间旧几何按最新帧更新姿态，相机和拾取也使用最新帧；下一次 `Present` 的网格基准仍是最后完整接入帧，具体限制见[Godot 契约](godot.md#显示帧相机与输入)。
+4. Godot 准备最新帧需要的资产与资源，在帧之间完整应用资源更新，成功后才把它记为网格基准帧。以 D 请求的准备期间旧几何按最新帧更新姿态，相机和拾取也使用最新帧；传 null 时旧画面和相机保持不变直到提交，样本仍使用 D；下一次 `Present` 的网格基准仍是最后完整接入帧，具体限制见[Godot 契约](godot.md#显示帧相机与输入)。
 5. 观察目标切换调用 `RequestView`。新目标无效时返回 Failure，旧请求保持；成功产生新身份，即便目标值相同也使旧请求失去接入资格。跟随中的边、节点切换由体素处理，不要求宿主发区块命令。
 6. 不再显示或活动绑定更换时关闭会话。`DisposeAsync` 调用即撤销输入与交互资格，然后等待内部任务退出；可先打开新会话，不能为了旧任务退出暂停新核心。
 
@@ -90,13 +90,13 @@ Follow 单候选的布局和准备在后台完成。当前场景仍有等待中�
 
 ## 显示更新与资源
 
-`ISceneFrame` 是可保留的不可变显示边界，包含同一时刻的姿态、拾取、空间映射和显示更新。帧身份统一使用 `Update.Frame`。`Present` 的 `displayedFrame` 必须是已经完整接入 Godot 的最后一帧 D，作为网格基准；不能传仅计算或准备过的帧。准备期间姿态、相机和拾取使用最新返回帧 P，不使 P 成为网格基准。`Update.Base=null` 唯一表示完整替换：首次、传 null 或空间变更时返回该帧的全部对象。增量更新的 Base 必须等于 D 的 `Update.Frame`。
+`ISceneFrame` 是可保留的不可变显示边界，包含同一时刻的姿态、拾取、空间映射和显示更新。帧身份统一使用 `Update.Frame`。`Present` 的 `displayedFrame` 必须是已经完整接入 Godot 的最后一帧 D，作为网格基准；不能传仅计算或准备过的帧。以 D 请求的准备期间姿态、相机和拾取使用最新返回帧 P，不使 P 成为网格基准；传 null 时保持旧画面和相机直到提交，样本仍使用 D。`Update.Base=null` 唯一表示完整替换：首次、传 null 或空间变更时返回该帧的全部对象。增量更新的 Base 必须等于 D 的 `Update.Frame`。
 
 Godot 按以下语义准备并一次接入资源更新：完整替换时移除旧场景；增量相对 D 给现存根加 `ShiftExistingRoots`，再删除 Removed、加入或替换 Upserts，最后替换 Environment。准备期间已显示对象可先按 P 更新姿态，提交不能重复叠加平移，规则见[Godot 契约](godot.md#显示帧相机与输入)。Upserts、Environment、效果和调试线已经使用新原点；父子关系无环，每个存活对象的父对象必须存在。移除包含不再存在的子对象，Godot 不猜测级联业务语义。同一更新内 ID 不重复且不同时出现在删除与更新中。
 
-浮动原点平移不重建网格；运动只更新姿态并复用原不可变几何。`FindPose` 返回合成到当前根空间的显示姿态，相机与渲染共用它。`SceneCameraSample` 携带焦点所在的来源帧及焦点；准备期间为 P 和 P 根坐标中的焦点，不要求来源帧等于网格基准 D。体素负责转到稳定空间并沿线路定位。线路 `Location` 帧没有同空间相机样本时，`Origin` 为请求点在线路空间中的位置。`Locate` 给出业务地点，`TerrainHeight` 返回相对本帧原点的格高度，尚无几何映射时为 Missing。
+浮动原点平移不重建网格；运动只更新姿态并复用原不可变几何。`FindPose` 返回合成到当前根空间的显示姿态，相机与渲染共用它。`SceneCameraSample` 携带焦点所在的来源帧及焦点；以 D 请求的准备期间为 P 和 P 根坐标中的焦点，传 null 时仍为 D 和 D 根坐标中的焦点，不要求来源帧等于网格基准 D。体素负责转到稳定空间并沿线路定位。线路 `Location` 帧没有同空间相机样本时，`Origin` 为请求点在线路空间中的位置。`Locate` 给出业务地点，`TerrainHeight` 返回相对本帧原点的格高度，尚无几何映射时为 Missing。
 
-世界请求的 `SceneFrameRequest.PickRay` 为可选 `ScenePickRaySample`，携带最近一次实际传给 `ISceneFrame.Pick` 的帧（准备期间为 P）和射线；命中、未命中及 NotReady 都可提供样本。射线使用来源帧根坐标，不依赖 `Present` 的 displayedFrame，因此完整替换时仍可提供。仅开启 PickRay 且来源与新帧的 Session、Request、Space 都相同时，DebugLines 中输出一条射线：起点为来源 Origin 加射线 Origin 再减新帧 Origin，方向不变，长度为 MaximumDistanceCells；不额外执行拾取，不按命中距离截短。未开启、无样本或旧 Request／Space 时不输出射线。外会话样本或非法射线在修改会话前抛 ArgumentException；数值沿用有限、单位方向和正有限长度的射线前提。宿主在目标请求、会话或显示空间切换时清空旧样本。样本及调试线不改变 Pick 的只读语义，已返回帧仍不可变。
+世界请求的 `SceneFrameRequest.PickRay` 为可选 `ScenePickRaySample`，携带最近一次实际传给 `ISceneFrame.Pick` 的帧（以 D 请求的准备期间为 P，传 null 时仍为 D）和射线；命中、未命中及 NotReady 都可提供样本。射线使用来源帧根坐标，不依赖 `Present` 的 displayedFrame，因此完整替换时仍可提供。仅开启 PickRay 且来源与新帧的 Session、Request、Space 都相同时，DebugLines 中输出一条射线：起点为来源 Origin 加射线 Origin 再减新帧 Origin，方向不变，长度为 MaximumDistanceCells；不额外执行拾取，不按命中距离截短。未开启、无样本或旧 Request／Space 时不输出射线。外会话样本或非法射线在修改会话前抛 ArgumentException；数值沿用有限、单位方向和正有限长度的射线前提。宿主在目标请求、会话或显示空间切换时清空旧样本。样本及调试线不改变 Pick 的只读语义，已返回帧仍不可变。
 
 `NodePanBounds` 由体素给出节点场景完整的水平相机范围，分量为本帧根空间的 X、Z 格坐标，随浮动原点一起换算；不是当前已生成网格的包围盒。节点的 Partial／Ready 帧必须提供，Loading 尚未确定时可为 null；非节点帧为 null。Godot 只限制节点自由环绕的焦点，同空间后续帧范围缺失时保留焦点，不猜边界；跟随相机继续使用显示对象姿态。此字段由[Godot 宿主契约](https://github.com/odradekk/train/issues/290)补齐已有的相机规则，不冻结具体场景尺寸。
 
