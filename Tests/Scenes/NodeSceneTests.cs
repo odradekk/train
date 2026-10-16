@@ -210,7 +210,35 @@ public sealed class NodeSceneTests
             content: NodeFixtures.Content(design: RailwayFixtures.Vehicle(lengthCells: 104),
                 rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 }));
         snapshot = RailwayFixtures.ReplaceCore(snapshot, node: snapshot.Core.World.Nodes[2] with { Position = new(700, 0) });
-        var built = NodeFixtures.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        var reference = NodeFixtures.Build(snapshot, layout);
+        var prepared = NodeScene.Prepare(snapshot, layout, reference);
+        var builds = new List<(string Key, Func<NodeScene.Part> Build)>();
+        for (var z = (int)layout.Bounds.Minimum.Y; z < layout.Bounds.Maximum.Y; z += VoxelGrid.ChunkSize)
+        for (var x = (int)layout.Bounds.Minimum.X; x < layout.Bounds.Maximum.X; x += VoxelGrid.ChunkSize)
+        {
+            var from = new GridColumn(x, z);
+            builds.Add((NodeScene.ChunkKey(from), () => prepared.BuildChunk(from)));
+        }
+        // The first gated pair shares preparation data across terrain and rail construction.
+        foreach (var segment in prepared.Rails.Values) builds.Insert(1, (segment.Key, () => segment.Build()));
+        using var pair = new Barrier(RailwayCoordinates.MaxConcurrentBuilds);
+        var started = 0;
+        var collected = prepared.Global.Parts.ToBuilder();
+        foreach (var batch in builds.Chunk(RailwayCoordinates.MaxConcurrentBuilds))
+        {
+            var parts = await Task.WhenAll(batch.Select(item => Task.Run(() =>
+            {
+                if (Interlocked.Increment(ref started) <= RailwayCoordinates.MaxConcurrentBuilds) pair.SignalAndWait();
+                return (item.Key, Part: item.Build());
+            })));
+            foreach (var (key, part) in parts) collected.Add(key, part);
+        }
+        Assert.IsTrue(prepared.Rails.Count > 0);
+        Assert.IsTrue(builds.Any(item => item.Key.StartsWith("terrain:", StringComparison.Ordinal)));
+        var built = prepared.Global with { Parts = collected.ToImmutable() };
+        CollectionAssert.AreEquivalent(reference.Parts.Keys.ToArray(), built.Parts.Keys.ToArray());
+        foreach (var (key, part) in built.Parts) NodeFixtures.AssertPartEqual(reference.Parts[key], part);
         var heights = built.Parts.Values.SelectMany(part => part.Heights.Select(item => new KeyValuePair<GridColumn, double>(
             new((int)Math.Round(item.Key.X + part.Origin.X), (int)Math.Round(item.Key.Z + part.Origin.Z)), item.Value + part.Origin.Y))).ToDictionary();
         var seamColumns = new List<int>();

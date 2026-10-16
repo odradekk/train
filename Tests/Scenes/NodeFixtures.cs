@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
 using Train.Core.Contracts;
@@ -24,6 +25,48 @@ internal static class NodeFixtures
             parts[key] = prepared.BuildChunk(from, previous?.Parts.GetValueOrDefault(key), token);
         }
         return prepared.Global with { Parts = parts.ToImmutable() };
+    }
+
+    internal static void AssertPartEqual(NodeScene.Part expected, NodeScene.Part actual)
+    {
+        Assert.AreEqual(expected.Inputs, actual.Inputs);
+        Assert.AreEqual(expected.Origin, actual.Origin);
+        CollectionAssert.AreEquivalent(expected.Heights.ToArray(), actual.Heights.ToArray());
+        var before = expected.Geometry;
+        var after = actual.Geometry;
+        CollectionAssert.AreEqual(before.Geometry.Diagnostics.ToArray(), after.Geometry.Diagnostics.ToArray());
+        CollectionAssert.AreEqual(before.Geometry.Objects.Select(item => before.Keys[item.Id]).ToArray(),
+            after.Geometry.Objects.Select(item => after.Keys[item.Id]).ToArray());
+        for (var index = 0; index < before.Geometry.Objects.Length; index++)
+        {
+            var a = before.Geometry.Objects[index];
+            var b = after.Geometry.Objects[index];
+            Assert.AreEqual(a.Parent is { } parentA ? before.Keys[parentA] : null, b.Parent is { } parentB ? after.Keys[parentB] : null);
+            Assert.AreEqual(a.Pose, b.Pose);
+            Assert.AreEqual(a.Subject, b.Subject);
+            CollectionAssert.AreEqual(a.Lights.ToArray(), b.Lights.ToArray());
+            CollectionAssert.AreEqual(a.Effects.ToArray(), b.Effects.ToArray());
+            Assert.AreEqual(a.Visuals.Length, b.Visuals.Length);
+            for (var visual = 0; visual < a.Visuals.Length; visual++)
+                if (a.Visuals[visual] is SceneVisual.Geometry mesh)
+                {
+                    var other = (SceneVisual.Geometry)b.Visuals[visual];
+                    Assert.AreEqual(mesh.Surface, other.Surface);
+                    Assert.AreEqual(mesh.Mesh.Material, other.Mesh.Material);
+                    Assert.IsTrue(mesh.Mesh.Vertices.AsSpan().SequenceEqual(other.Mesh.Vertices.AsSpan()), "Mesh vertices differ.");
+                    Assert.IsTrue(mesh.Mesh.TriangleIndices.AsSpan().SequenceEqual(other.Mesh.TriangleIndices.AsSpan()), "Mesh indices differ.");
+                }
+                else Assert.AreEqual(a.Visuals[visual], b.Visuals[visual]);
+        }
+        CollectionAssert.AreEqual(before.Geometry.Picking.Select(item => before.Keys[item.Object]).ToArray(),
+            after.Geometry.Picking.Select(item => after.Keys[item.Object]).ToArray());
+        for (var index = 0; index < before.Geometry.Picking.Length; index++)
+        {
+            var a = before.Geometry.Picking[index];
+            var b = after.Geometry.Picking[index];
+            Assert.AreEqual(a.Pose, b.Pose);
+            Assert.IsTrue(a.Grid.Cells.SequenceEqual(b.Grid.Cells), "Picking cells differ.");
+        }
     }
 
     internal static readonly NodeId NodeId = new(1);
