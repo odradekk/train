@@ -115,6 +115,7 @@ public partial class NodeTransitionPreview : Node
             if (candidate is not null)
             {
                 candidate.Commit();
+                frame = candidate.Frame;
                 _view.ShowFrame(frame, NodeTransitionFixture.Subject);
                 if (frame.FindPose(NodeTransitionFixture.Subject) is Lookup<ScenePose>.Found && frame.Readiness == SceneReadiness.Ready) break;
             }
@@ -129,7 +130,7 @@ public partial class NodeTransitionPreview : Node
         var expected = new Vector3(pose.Position.X, pose.Position.Y, pose.Position.Z);
         var rotation = new Quaternion(pose.Rotation.X, pose.Rotation.Y, pose.Rotation.Z, pose.Rotation.W);
         Assertions.Require(root.GlobalPosition.DistanceTo(expected) < .003f && root.GlobalBasis.GetRotationQuaternion().AngleTo(rotation) < .003f,
-            "真实 Godot 车辆节点姿态必须与 FindPose 一致。");
+            $"真实 Godot 车辆节点姿态必须与 FindPose 一致：node={root.GlobalTransform}, expected={pose}, frame={frame.Update.Frame}。");
         _view.CameraRig.Update(1d / 60);
         _status.Text = $"{name} alpha={alpha} readiness={frame.Readiness} loading={_view.Loading}\n受控 Core 公开快照；真实 Scenes / Godot 节点和相机；不是生产 Core 时序证据。\nNode3D == FindPose：通过";
         await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
