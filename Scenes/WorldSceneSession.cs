@@ -233,7 +233,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             {
                 var stamp = new SceneFrameStamp(Id, request, space, ++revision);
                 var frame = node is not null
-                    ? node.Present(snapshot, frameRequest, stamp, displayedFrame as SceneFrame, sceneOrigin ?? default)
+                    ? node.Present(snapshot, frameRequest, stamp, displayedFrame as SceneFrame, sceneOrigin ?? default, target)
                     : railway!.Present(snapshot, interpolationStart, target, frameRequest, stamp, displayedFrame as SceneFrame, sceneOrigin);
                 if (railway is not null) sceneOrigin = null;
                 var liveIds = frame.Objects.Select(item => item.Id).ToHashSet();
@@ -369,7 +369,11 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         }
         try
         {
-            candidate?.Node?.Pump(snapshot);
+            if (candidate?.Node is { } candidateNode)
+            {
+                var entry = candidateNode.Layout?.Entries.FirstOrDefault(item => item.Edge == railway?.Edge);
+                candidateNode.Pump(snapshot, entry?.Point);
+            }
             if (wanted is WorldLocation.Edge atEdge) candidate?.Railway?.Pump(snapshot, atEdge);
             if (candidate?.Node?.Failed == true || candidate?.Railway?.Failed == true)
             { rejectedCandidate = wanted; CancelCandidate(); }

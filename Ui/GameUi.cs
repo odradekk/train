@@ -113,6 +113,7 @@ public partial class GameUi : CanvasLayer
             _economy = new EconomyPanels { Name = "EconomyPanels" };
             _economy.Initialize(_host, Submit, _icons);
             _world.AddChild(_economy);
+            _bar.AddChild(UiStyle.Button("EconomyReports", "经营报告", _economy.OpenReports));
             _panels.SettlementRequested += _economy.OpenSettlement;
             _panels.InventoryRequested += _economy.OpenTrainInventory;
             _economy.FormationRequested += _formation.Open;
@@ -242,6 +243,7 @@ public partial class GameUi : CanvasLayer
             ShowError(CommandDiagnostics.Describe(fault));
         _map.SetView(view, content, _binding != binding);
         _icons.Bind(binding, content);
+        // 边界内 IsBusy 为 true；面板在 _Process 消费此视图，避免禁用按钮打断当前点击。
         _binding = binding; _view = view; _content = content;
         _menu.Hide(); _world.Show();
     }

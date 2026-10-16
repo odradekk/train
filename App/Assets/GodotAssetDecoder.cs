@@ -12,6 +12,7 @@ internal sealed class GodotAssetDecoder : IDisposable
     private readonly GltfDocument _document = new();
     private readonly GltfState _state = new() { HandleBinaryImageMode = GltfState.HandleBinaryImageModeEnum.EmbedAsUncompressed };
     private readonly HashSet<Texture2D> _transferredImages = new();
+    private readonly HashSet<GltfTexture> _textureReferences = new();
     private GltfNode[] _nodes = [];
     private GltfMesh[] _meshes = [];
     private Texture2D[] _images = [];
@@ -116,6 +117,7 @@ internal sealed class GodotAssetDecoder : IDisposable
             !pbr.TryGetProperty("baseColorTexture", out var texture)) return null;
         using var textures = (Godot.Collections.Array)_state.GetTextures();
         var reference = textures[texture.GetProperty("index").GetInt32()].As<GltfTexture>();
+        _textureReferences.Add(reference);
         var result = _images[reference.SrcImage];
         if (!_transferredImages.Contains(result))
         {
@@ -134,6 +136,7 @@ internal sealed class GodotAssetDecoder : IDisposable
 
     public void Dispose()
     {
+        foreach (var reference in _textureReferences) reference.Dispose();
         foreach (var image in _images)
             if (image is not null && !_transferredImages.Contains(image)) image.Dispose();
         foreach (var mesh in _meshes) { mesh.Mesh?.Dispose(); mesh.Dispose(); }

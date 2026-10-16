@@ -259,7 +259,24 @@ public sealed class WorldCaptureTests
             && m.FieldPath.Contains("World.Designs", StringComparison.Ordinal)));
         Assert.AreEqual(0, restoredCandidate.AdaptationReport.Length);
         using var restored = restoredCandidate.Activate();
-        AssertQueries(session.Read(), restored.Read());
+        var beforeView = session.Read();
+        var afterView = restored.Read();
+        AssertQueries(beforeView, afterView, p => p with { DefinitionMissing = true });
+        foreach (var node in beforeView.World.Nodes)
+        {
+            var location = ((Lookup<LocationView>.Found)beforeView.FindLocation(new WorldLocation.Node(node.Id))).Value;
+            foreach (var id in location.Instances)
+            {
+                var original = ((Lookup<InstanceView>.Found)beforeView.FindInstance(id)).Value;
+                var current = ((Lookup<InstanceView>.Found)afterView.FindInstance(id)).Value;
+                Assert.IsTrue(original.Parts.All(p => !p.DefinitionMissing));
+                Assert.IsTrue(current.Parts.All(p => p.DefinitionMissing));
+                Assert.AreEqual(JsonSerializer.Serialize(original with
+                {
+                    Parts = original.Parts.Select(p => p with { DefinitionMissing = true }).ToImmutableArray()
+                }), JsonSerializer.Serialize(current));
+            }
+        }
         using var before = JsonDocument.Parse(captured.Encode());
         using var after = JsonDocument.Parse(Capture(restored).Encode());
         Assert.AreEqual(before.RootElement.GetProperty("world").GetRawText(), after.RootElement.GetProperty("world").GetRawText());
@@ -278,6 +295,8 @@ public sealed class WorldCaptureTests
         Assert.IsTrue(restoredCandidate.MissingReferences.Any(m => m.FieldPath ==
             $"World.Designs[{WorldFixture.Vehicle.Value}].Parts[0].Definition"));
         using var restored = restoredCandidate.Activate();
+        var vehicle = ((Lookup<InstanceView>.Found)restored.Read().FindInstance(new InstanceId.Vehicle(new(1)))).Value;
+        Assert.IsTrue(vehicle.Parts.All(p => p.DefinitionMissing));
         var captured = Capture(restored);
         Assert.AreEqual(captured.Encode(), Success(CoreFactory.Create().DecodeState(captured.Encode())).Encode());
     }
@@ -324,7 +343,8 @@ public sealed class WorldCaptureTests
             [WorldFixture.Content.Identity]);
     }
 
-    private static void AssertQueries(ICoreReadView expected, ICoreReadView actual)
+    private static void AssertQueries(ICoreReadView expected, ICoreReadView actual,
+        Func<PartDamageView, PartDamageView>? expectedPart = null)
     {
         Assert.AreEqual(JsonSerializer.Serialize(expected.World), JsonSerializer.Serialize(actual.World));
         foreach (var node in expected.World.Nodes)
@@ -344,7 +364,8 @@ public sealed class WorldCaptureTests
                 Assert.AreEqual(before.Design, after.Design);
                 Assert.AreEqual(before.Details, after.Details);
                 Assert.AreEqual(before.Structure, after.Structure);
-                CollectionAssert.AreEqual(before.Parts.ToArray(), after.Parts.ToArray());
+                var expectedParts = expectedPart is null ? before.Parts.ToArray() : before.Parts.Select(expectedPart).ToArray();
+                CollectionAssert.AreEqual(expectedParts, after.Parts.ToArray());
             }
         }
         foreach (var edge in expected.World.Edges) EqualLookup(expected.FindEdge(edge.Id), actual.FindEdge(edge.Id));

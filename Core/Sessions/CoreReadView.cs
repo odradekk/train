@@ -41,7 +41,7 @@ internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Re
         ArgumentNullException.ThrowIfNull(id);
         if (id is InstanceId.Vehicle { Id.Value: 0 } or InstanceId.Building { Id.Value: 0 })
             throw new ArgumentException("实例编号必须非零。", nameof(id));
-        return Lookup(State.FindInstance(id));
+        return Lookup(State.FindInstance(id, Content));
     }
     private static Lookup<T> Lookup<T>(T? value) where T : class
         => value is null ? new Lookup<T>.Missing() : new Lookup<T>.Found(value);

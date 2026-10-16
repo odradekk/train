@@ -15,6 +15,58 @@ public sealed class NodeSwitchTests
     private static readonly SceneFrameRequest Request = new(1, null, SceneDebugLayer.None);
 
     [TestMethod]
+    public async Task Follow_candidate_prebuilds_only_handover_range()
+    {
+        var source = NodeFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 });
+        var layout = NodeFixtures.Layout with
+        {
+            Plots = [],
+            SceneModel = NodeFixtures.Layout.SceneModel with
+            {
+                Scene = SceneFixtures.Projection([SceneFixtures.Cell(new(-96, 0, -96)), SceneFixtures.Cell(new(95, 0, 95), 2)]) with
+                { OccupiedBounds = new(new(-96, 0, -96), new(95, 0, 95)) }
+            }
+        };
+        var content = new FixedContentView
+        {
+            Generation = source.Generation, Core = source.Core, Voxels = source.Voxels,
+            Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+            { [SceneFixtures.Design] = source.FindDesign(SceneFixtures.Design) },
+            VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
+            { [SceneFixtures.Voxel] = source.FindVoxelAppearance(SceneFixtures.Voxel) },
+            Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
+            { [RailwayFixtures.Terrain] = new ContentLookup<TerrainAppearanceProjection>.Missing([]) },
+            RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>
+            { [RailwayFixtures.Rule] = source.FindRailwayAppearance(RailwayFixtures.Rule) },
+            SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
+            { [new(1)] = new ContentLookup<SettlementLayoutProjection>.Found(layout) }
+        };
+        var initial = NodeFixtures.Snapshot(platforms: 0, trains: [RailwayFixtures.Train(0, direction: TravelDirection.Reverse)], content: content);
+        var cache = new NodeScene.Cache();
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), initial, WorldSceneSession.Generate, new(), cache);
+        session.RequestView(new WorldSceneTarget.Follow(new(1), new(1)));
+        var displayed = await RailwayFixtures.Settled(session, Request);
+        Assert.AreEqual(new WorldLocation.Node(NodeFixtures.NodeId), session.PrebuiltLocation);
+        do
+        {
+            await Task.WhenAll(session.PendingPrebuilds);
+            displayed = Present(session, displayed);
+        } while (session.PendingPrebuilds.Length > 0);
+        var retained = cache.Read(NodeFixtures.NodeId)!;
+        var entry = retained.Layout.EntryPoint(new(1));
+        var expected = new NodeRange(entry, NodeStreaming.PrefetchCells).Chunks(retained.Layout)
+            .Select(NodeScene.ChunkKey).ToArray();
+        CollectionAssert.AreEquivalent(expected, retained.Parts.Keys.Where(key => key.StartsWith("terrain:", StringComparison.Ordinal)).ToArray());
+        var railSegments = NodeScene.Prepare(initial, retained.Layout).Rails;
+        var entryRange = new NodeRange(entry, NodeStreaming.PrefetchCells);
+        CollectionAssert.AreEquivalent(railSegments.Values.Where(segment => entryRange.Intersects(segment.Bounds)).Select(segment => segment.Key).ToArray(),
+            retained.Parts.Keys.Where(railSegments.ContainsKey).ToArray());
+        var wholeCount = (retained.Layout.Bounds.Maximum.X - retained.Layout.Bounds.Minimum.X) / VoxelGrid.ChunkSize *
+            (retained.Layout.Bounds.Maximum.Y - retained.Layout.Bounds.Minimum.Y) / VoxelGrid.ChunkSize;
+        Assert.IsTrue(expected.Length < wholeCount, "The candidate must leave distant node chunks unbuilt.");
+    }
+
+    [TestMethod]
     public async Task ProductionFollowCrossesEmptyNodeBetweenTwoDifferentLines()
     {
         var content = new FixedContentView
@@ -61,10 +113,11 @@ public sealed class NodeSwitchTests
         Assert.IsTrue(built.Parts.Keys.Any(key => key.StartsWith("terrain:", StringComparison.Ordinal)));
         var visibleMeshes = node.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>()
             .Select(visual => visual.Mesh).ToHashSet(ReferenceEqualityComparer.Instance);
-        foreach (var key in new[] { "entry:1", "entry:2", "station-tracks" })
+        foreach (var prefix in new[] { "entry:1:", "entry:2:", "station-tracks:" })
         {
-            var meshes = built.Parts[key].Geometry.Geometry.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().ToArray();
-            Assert.IsTrue(meshes.Length > 0 && meshes.All(visual => visibleMeshes.Contains(visual.Mesh)), key);
+            var meshes = built.Parts.Where(part => part.Key.StartsWith(prefix, StringComparison.Ordinal))
+                .SelectMany(part => part.Value.Geometry.Geometry.Objects).SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().ToArray();
+            Assert.IsTrue(meshes.Length > 0 && meshes.All(visual => visibleMeshes.Contains(visual.Mesh)), prefix);
         }
         Assert.IsTrue(built.Parts.Where(part => part.Key.StartsWith("terrain:", StringComparison.Ordinal))
             .SelectMany(part => part.Value.Geometry.Geometry.Objects).SelectMany(item => item.Visuals)
