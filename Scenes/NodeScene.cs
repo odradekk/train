@@ -192,7 +192,8 @@ internal sealed class NodeScene : IAsyncDisposable
         get
         {
             lock (workGate) return !Failed && prepared is null || waitingParts.Count > 0 ||
-                pendingParts.Values.Concat(retiring).Any(work => !work.Task.IsCompleted) || settlement.HasPendingBuilds;
+                pendingParts.Values.Concat(retiring).Any(work => !work.Task.IsCompleted) ||
+                vehicles.HasPendingBuilds || settlement.HasPendingBuilds;
         }
     }
     internal void SetBuildAllowed(bool allowed) { lock (workGate) buildAllowed = allowed; }

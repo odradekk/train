@@ -50,26 +50,32 @@ public sealed class NodePrebuildTests
     }
 
     [TestMethod]
-    public async Task Current_scene_builds_prevent_starting_a_follow_candidate()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Current_scene_builds_prevent_starting_a_follow_candidate(bool atNode)
     {
         using var content = new SceneFixtures.BlockedAppearanceView(NodeFixtures.Content(
             rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 }));
-        var snapshot = RailwayFixtures.Snapshot(4, 4, 0, content: content,
-            trains: [RailwayFixtures.Train(0, direction: TravelDirection.Reverse, speed: 10)],
-            instances: [RailwayFixtures.Instance()]);
+        var snapshot = atNode
+            ? NodeFixtures.Snapshot(platforms: 0, trains: [NodeFixtures.Train(nextEdge: new(1), speed: 10)], content: content)
+            : RailwayFixtures.Snapshot(4, 4, 0, content: content,
+                trains: [RailwayFixtures.Train(0, direction: TravelDirection.Reverse, speed: 10)],
+                instances: [RailwayFixtures.Instance()]);
         await using var session = new WorldSceneSession(new(Guid.NewGuid()), snapshot,
             WorldSceneSession.Generate, new(), new(), RailwayFixtures.EmptyNode);
         var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
         try
         {
             session.RequestView(new WorldSceneTarget.Follow(new(1), new(1)));
+            if (atNode) await session.PendingBuild!;
             session.Present(request, null);
             await content.Entered.Task;
             Assert.IsNull(session.PrebuiltLocation);
             Assert.AreEqual(0, session.PendingPrebuilds.Length);
             content.Release.Set();
             await RailwayFixtures.Settled(session, request);
-            Assert.AreEqual(new WorldLocation.Node(new(1)), session.PrebuiltLocation);
+            WorldLocation expected = atNode ? new WorldLocation.Edge(new(1), 0) : new WorldLocation.Node(new(1));
+            Assert.AreEqual(expected, session.PrebuiltLocation);
         }
         finally { content.Release.Set(); }
     }
