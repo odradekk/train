@@ -34,25 +34,27 @@ internal partial class WorldCamera : Node3D
         AddChild(Camera);
     }
 
-    public void DisplayedFrame(ISceneFrame frame, WorldObjectId? follow, bool railwayPan = false)
+    public void DisplayedFrame(ISceneFrame frame, WorldObjectId? follow, bool railwayPan = false,
+        Vector3? coordinateShift = null)
     {
         var previous = _frame;
         var sameSpace = previous is not null && previous.Update.Frame.Session == frame.Update.Frame.Session
             && previous.Update.Frame.Space == frame.Update.Frame.Space;
         var pose = follow is { } subject && frame.FindPose(subject) is Lookup<ScenePose>.Found found
             ? found.Value : null;
-        if (sameSpace)
+        if (sameSpace || previous is not null && previous.Update.Frame.Session == frame.Update.Frame.Session &&
+            previous.Update.Frame.Request == frame.Update.Frame.Request &&
+            (coordinateShift is not null || pose is not null && _hasFollowPose))
         {
-            var shift = frame.Update.Base is not null
-                ? ToGodot(frame.Update.ShiftExistingRoots)
-                : new Vector3((float)(previous!.Origin.X - frame.Origin.X),
-                    (float)(previous.Origin.Y - frame.Origin.Y), (float)(previous.Origin.Z - frame.Origin.Z));
+            // 同会话的空间交接保持边界显示坐标；准备期间的平移由显示组给出。
+            var shift = coordinateShift ?? (sameSpace ? new Vector3((float)(previous!.Origin.X - frame.Origin.X),
+                (float)(previous.Origin.Y - frame.Origin.Y), (float)(previous.Origin.Z - frame.Origin.Z)) : Vector3.Zero);
             Focus += shift;
             _targetPosition += shift;
         }
         else if (pose is not null && _hasFollowPose)
         {
-            // 不同空间没有共同绝对坐标；按目标局部坐标保留跟随的平滑余量。
+            // 新会话重开时，保留相对于目标的跟随余量和观察方位。
             var yawChange = Mathf.Wrap(Heading(pose) - _targetYaw, -Mathf.Pi, Mathf.Pi);
             Focus = ToGodot(pose.Position) + (Focus - _targetPosition).Rotated(Vector3.Up, yawChange);
             _bodyYaw += yawChange;

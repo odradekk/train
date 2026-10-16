@@ -160,7 +160,8 @@ internal sealed class WorldSceneController : IDisposable
             if (minimized) return;
             var actual = _display!.DisplayedFrame;
             var displayed = _fullReplacement ? null : actual;
-            var camera = actual is null ? null : new SceneCameraSample(actual, ToNumerics(View.CameraRig.Focus));
+            var camera = _display.PoseFrame is not { } poseFrame ? null :
+                new SceneCameraSample(poseFrame, ToNumerics(View.CameraRig.Focus));
             var interpolation = status.Remainder / SimulationTime.StepSeconds;
             var result = _session.Present(new(Math.Clamp(interpolation, 0, 1), camera, DebugLayers, _pickRay), displayed);
             if (result is SceneResult<ISceneFrame>.Failure { Problems: var problems } &&
@@ -185,17 +186,21 @@ internal sealed class WorldSceneController : IDisposable
                 _awaitingRequest = false;
                 if (frame.Readiness == SceneReadiness.Loading) View.SetLoading(_display!.DisplayedFrame is null);
             }
-            if (!_display!.IsPreparing && frame.Update.Base is { } baseline && baseline != displayed?.Update.Frame)
+            if (frame.Update.Base is { } baseline && baseline != displayed?.Update.Frame)
             { _fullReplacement = true; return; }
+            var shift = _display.UpdatePoses(frame);
+            if (_pickRay is { } sample && sample.Frame.Update.Frame.Space != frame.Update.Frame.Space) _pickRay = null;
             using var prepared = _display!.Prepare(frame);
             if (prepared is not null)
             {
                 prepared.Commit();
-                frame = prepared.Frame;
-                if (_pickRay is { } sample && sample.Frame.Update.Frame.Space != frame.Update.Frame.Space) _pickRay = null;
                 _fullReplacement = false;
-                View.ShowFrame(frame, FollowSubject(), _target is WorldSceneTarget.Location { Value: WorldLocation.Edge });
+                View.SetLoading(false);
+                View.Interactive = true;
             }
+            if (_display.DisplayedFrame is not null)
+                View.CameraRig.DisplayedFrame(frame, FollowSubject(),
+                    _target is WorldSceneTarget.Location { Value: WorldLocation.Edge }, shift);
             View.CameraRig.Update(delta);
         }
         catch (Exception exception) { AdapterFailed(exception, SceneStage.Present); }
@@ -241,17 +246,17 @@ internal sealed class WorldSceneController : IDisposable
     internal void Pick(Vector2 screenPoint)
     {
         _dispatcher.RequireMainThread();
-        if (!View.Interactive || _session is null || _display?.DisplayedFrame is not { } frame) return;
+        if (!View.Interactive || _session is null || _display?.PoseFrame is not { } frame) return;
         try
         {
             var camera = View.CameraRig.Camera;
-            var inverse = _display.Root.GlobalTransform.AffineInverse();
+            var inverse = View.GlobalTransform.AffineInverse();
             var origin = inverse * camera.ProjectRayOrigin(screenPoint);
             var direction = (inverse.Basis * camera.ProjectRayNormal(screenPoint)).Normalized();
             var ray = new SceneRay(ToNumerics(origin), ToNumerics(direction), camera.Far);
             var picked = frame.Pick(ray);
             _pickRay = new(frame, ray);
-            if (picked is not ScenePick.Hit hit) return;
+            if (picked is not ScenePick.Hit hit || !_display.CanSelect(hit.Value)) return;
             var result = _session.Resolve(hit.Value);
             if (result is SceneResult<PickSubject>.Success selected) Selected?.Invoke(selected.Value);
             else if (result is SceneResult<PickSubject>.Failure rejected)

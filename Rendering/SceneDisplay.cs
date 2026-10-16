@@ -17,6 +17,8 @@ internal sealed class SceneDisplay : IDisposable
     private FogGroup? _pendingFog;
     private DebugLineGroup? _pendingDebugLines;
     private ISceneFrame? _preparingFrame;
+    private ScenePoint _spaceOrigin;
+    private HashSet<SceneObjectId> _posedObjects = [];
     private bool _disposed;
     private readonly Dictionary<(SceneObjectId Object, int Index), PreparedVisual> _pendingVisuals = [];
     private readonly Dictionary<SceneObjectId, Node3D> _pendingRoots = [];
@@ -27,6 +29,7 @@ internal sealed class SceneDisplay : IDisposable
 
     internal Node3D Root { get; } = new() { Name = "SceneDisplay" };
     internal ISceneFrame? DisplayedFrame { get; private set; }
+    internal ISceneFrame? PoseFrame { get; private set; }
     internal bool IsPreparing => _preparingFrame is not null;
     internal IReadOnlyDictionary<SceneObjectId, DisplayObject> Objects => _objects;
 
@@ -39,13 +42,18 @@ internal sealed class SceneDisplay : IDisposable
     internal PreparedFrame? Prepare(ISceneFrame frame)
     {
         _cache.RequireMainThread();
-        frame = _preparingFrame ?? frame;
         if (frame.Readiness == SceneReadiness.Loading ||
             frame.Update.Base is { } baseline && baseline != DisplayedFrame?.Update.Frame)
         {
             CancelPreparation();
             return null;
         }
+        if (_preparingFrame is { } previousFrame &&
+            (previousFrame.Update.Base != frame.Update.Base ||
+             previousFrame.Update.Frame.Session != frame.Update.Frame.Session ||
+             previousFrame.Update.Frame.Request != frame.Update.Frame.Request ||
+             previousFrame.Update.Frame.Space != frame.Update.Frame.Space))
+            CancelPreparation();
         _preparingFrame = frame;
         var processFrame = Engine.GetProcessFrames();
         if (_budgetFrame != processFrame)
@@ -57,10 +65,41 @@ internal sealed class SceneDisplay : IDisposable
         var preparedResource = false;
         var update = frame.Update;
         var next = update.Base is null ? new Dictionary<SceneObjectId, DisplayObject>() : new(_objects);
+        var sources = update.Upserts.ToDictionary(item => item.Id);
         bool BudgetExpired() => preparedResource &&
             _preparationTime + Stopwatch.GetElapsedTime(started, Timestamp()) >= PreparationBudget;
         try
         {
+            foreach (var (key, visual) in _pendingVisuals.ToArray())
+                if (!sources.TryGetValue(key.Object, out var source) || key.Index >= source.Visuals.Length ||
+                    !visual.CanUpdate(source.Visuals[key.Index]) ||
+                    _objects.TryGetValue(key.Object, out var displayed) && key.Index < displayed.Visuals.Length &&
+                    displayed.Visuals[key.Index].CanUpdate(source.Visuals[key.Index]))
+                {
+                    visual.Dispose();
+                    _pendingVisuals.Remove(key);
+                }
+            foreach (var (id, root) in _pendingRoots.ToArray())
+                if (!sources.ContainsKey(id))
+                {
+                    root.Free();
+                    _pendingRoots.Remove(id);
+                }
+            if (_pendingFog is not null && !_pendingFog.Regions.SequenceEqual(update.Environment.FoggedRegions))
+            {
+                _pendingFog.Dispose();
+                _pendingFog = null;
+            }
+            if (_pendingDebugLines is not null && !_pendingDebugLines.Lines.SequenceEqual(frame.DebugLines))
+            {
+                _pendingDebugLines.Dispose();
+                _pendingDebugLines = null;
+            }
+            if (update.Base is not null && update.ShiftExistingRoots != System.Numerics.Vector3.Zero)
+                foreach (var item in _objects.Values)
+                    if (item.Source.Parent is null)
+                        next[item.Source.Id] = item with { Source = item.Source with
+                        { Pose = item.Source.Pose with { Position = item.Source.Pose.Position + update.ShiftExistingRoots } } };
             foreach (var id in update.Removed) next.Remove(id);
             foreach (var source in update.Upserts)
             {
@@ -126,6 +165,60 @@ internal sealed class SceneDisplay : IDisposable
         }
     }
 
+    internal Vector3 UpdatePoses(ISceneFrame frame)
+    {
+        _cache.RequireMainThread();
+        if (DisplayedFrame is not { } displayed) return Vector3.Zero;
+        if (PoseFrame is null || PoseFrame.Update.Frame.Space != frame.Update.Frame.Space ||
+            PoseFrame.Update.Frame.Request != frame.Update.Frame.Request)
+            _spaceOrigin = frame.Origin;
+        var origin = displayed.Update.Frame.Space == frame.Update.Frame.Space ? displayed.Origin : _spaceOrigin;
+        var shift = frame.Update.Base is not null ? ToGodot(frame.Update.ShiftExistingRoots) :
+            new Vector3((float)(origin.X - frame.Origin.X), (float)(origin.Y - frame.Origin.Y),
+                (float)(origin.Z - frame.Origin.Z));
+        var delta = shift - Root.Position;
+        if (delta != Vector3.Zero) Root.Position = shift;
+        var posed = new HashSet<SceneObjectId>();
+        if (frame.Update.Base is not null)
+        {
+            foreach (var source in frame.Update.Upserts)
+                if (_objects.TryGetValue(source.Id, out var item) && item.Source.Parent == source.Parent)
+                    Apply(item, source.Parent is null ? source.Pose with
+                    { Position = source.Pose.Position - new System.Numerics.Vector3(shift.X, shift.Y, shift.Z) } : source.Pose);
+        }
+        else
+            foreach (var item in _objects.Values)
+                if (item.Source.Parent is null && item.Source.Subject is { } subject &&
+                    frame.FindPose(subject) is Train.Core.Contracts.Lookup<ScenePose>.Found found)
+                    Apply(item, found.Value with
+                    { Position = found.Value.Position - new System.Numerics.Vector3(shift.X, shift.Y, shift.Z) });
+        foreach (var id in _posedObjects)
+            _objects[id].Root.Transform = ToTransform(_objects[id].Source.Pose);
+        _posedObjects = posed;
+        PoseFrame = frame;
+        return delta;
+
+        void Apply(DisplayObject item, ScenePose pose)
+        {
+            if (pose == item.Source.Pose) return;
+            item.Root.Transform = ToTransform(pose);
+            posed.Add(item.Source.Id);
+            _posedObjects.Remove(item.Source.Id);
+        }
+    }
+
+    internal bool CanSelect(SceneHit hit)
+    {
+        if (PoseFrame is not { } frame || hit.Object is not { } id || !_objects.TryGetValue(id, out var item))
+            return false;
+        if (ReferenceEquals(frame, DisplayedFrame)) return true;
+        if (frame.Update.Base != DisplayedFrame?.Update.Frame || frame.Update.Base is null ||
+            frame.Update.Removed.Contains(id)) return false;
+        var source = frame.Update.Upserts.FirstOrDefault(source => source.Id == id);
+        return source is null || source.Parent == item.Source.Parent && source.Visuals.Select((visual, index) =>
+            index < item.Visuals.Length && item.Visuals[index].CanUpdate(visual)).All(compatible => compatible);
+    }
+
     internal void CancelPreparation()
     {
         _cache.RequireMainThread();
@@ -153,13 +246,14 @@ internal sealed class SceneDisplay : IDisposable
                 item.Root.GetParent()?.RemoveChild(item.Root);
         }
         var upserts = update.Upserts.Select(item => item.Id).ToHashSet();
+        Root.Position = Vector3.Zero;
         foreach (var item in next.Values)
         {
+            if (upserts.Contains(item.Source.Id) || _posedObjects.Contains(item.Source.Id) ||
+                item.Source.Parent is null && update.ShiftExistingRoots != System.Numerics.Vector3.Zero)
+                item.Root.Transform = ToTransform(item.Source.Pose);
             if (upserts.Contains(item.Source.Id))
             {
-                var pose = item.Source.Pose;
-                item.Root.Transform = new(new Basis(new Quaternion(pose.Rotation.X, pose.Rotation.Y,
-                    pose.Rotation.Z, pose.Rotation.W)), ToGodot(pose.Position));
                 for (var i = 0; i < item.Visuals.Length; i++)
                 {
                     var visual = item.Visuals[i];
@@ -167,7 +261,6 @@ internal sealed class SceneDisplay : IDisposable
                     if (visual.Node.GetParent() is null) item.Root.AddChild(visual.Node);
                 }
             }
-            else if (item.Source.Parent is null) item.Root.Position += ToGodot(update.ShiftExistingRoots);
         }
         foreach (var item in next.Values)
             if (item.Root.GetParent() is null)
@@ -197,6 +290,9 @@ internal sealed class SceneDisplay : IDisposable
         }
         if (!ReferenceEquals(oldFog, _fog)) oldFog?.Dispose();
         DisplayedFrame = prepared.Frame;
+        PoseFrame = prepared.Frame;
+        _spaceOrigin = prepared.Frame.Origin;
+        _posedObjects.Clear();
         Root.Visible = true;
     }
 
@@ -220,6 +316,7 @@ internal sealed class SceneDisplay : IDisposable
         Root.Free();
         _resources.Dispose();
         DisplayedFrame = null;
+        PoseFrame = null;
     }
 
     internal sealed class PreparedFrame(SceneDisplay owner, ISceneFrame frame,
@@ -322,4 +419,6 @@ internal sealed class SceneDisplay : IDisposable
     }
 
     private static Vector3 ToGodot(System.Numerics.Vector3 value) => new(value.X, value.Y, value.Z);
+    private static Transform3D ToTransform(ScenePose pose) => new(new Basis(new Quaternion(pose.Rotation.X,
+        pose.Rotation.Y, pose.Rotation.Z, pose.Rotation.W)), ToGodot(pose.Position));
 }
