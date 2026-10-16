@@ -85,7 +85,7 @@ public sealed class NodePlacementTests
     }
 
     [TestMethod]
-    public async Task MissingEnteredFromUsesTheSmallestLayoutEdgeRegardlessOfWorldEdgeOrderOrConstruction()
+    public async Task MissingEnteredFromUsesTheSmallestBuiltEdgeRegardlessOfWorldEdgeOrder()
     {
         var snapshot = Snapshot([NodeFixtures.Train(nextEdge: new(2))], platforms: 0);
         var world = snapshot.Core.World;
@@ -114,7 +114,7 @@ public sealed class NodePlacementTests
         await using var reopenedVehicles = new SceneVehicles();
         await using var reopened = Controlled(unbuiltFirst, reopenedVehicles);
         var unbuiltFrame = await Settled(reopened, unbuiltFirst);
-        var expectedEntry = reopened.Layout!.EntryFor(new(1));
+        var expectedEntry = reopened.Layout!.EntryFor(new(2));
         AssertPosition(unbuiltFrame, 1, RailwayCoordinates.Relative(reopened.Layout.TrainBoundary(expectedEntry).Position, default) -
             expectedEntry.Outward * (float)(16 + expectedEntry.StraightLength - 4));
     }
@@ -130,7 +130,7 @@ public sealed class NodePlacementTests
             enteredFrom: servicing ? new EdgeId(2) : null, nextEdge: new(2),
             activity: servicing ? TrainActivity.Servicing : TrainActivity.Stopped, facing: facing,
             platformNumber: servicing ? 1 : null) with { LengthMeters = 12 };
-        var snapshot = Snapshot([train], platforms: servicing ? 1 : 0, tracks: servicing ? 1 : 0);
+        var snapshot = Snapshot([train], platforms: servicing ? 1 : 0, tracks: 1);
         await using var sceneVehicles = new SceneVehicles();
         await using var scene = Controlled(snapshot, sceneVehicles);
         var frame = await Settled(scene, snapshot);
