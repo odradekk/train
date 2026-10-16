@@ -261,7 +261,7 @@ public sealed record JobMaterialSourceView(InventoryId Inventory, ImmutableArray
 public sealed record AutomaticRuleResult(int StopIndex, int RuleIndex, TradeAction Action, GoodId Good,
     long RequestedQuantity, long CompletedQuantity, Money ActualAmount, ImmutableArray<CoreProblem> IncompleteReasons);
 public sealed record RunAccumulatorView(SimulationPosition StartedAt, Money SalesReceipts, Money PurchasePayments,
-    Money ServicePayments, long NetCashFlow, long TransportedUnits, double LoadedCapacityRatio,
+    Money ServicePayments, long NetCashFlow, long TransportedUnits, double? LoadedCapacityRatio,
     ImmutableArray<AutomaticRuleResult> IncompleteRules);
 public enum RunEndReason { PlanCompleted, LoopCompleted, PlanReplaced, TrainDisbanded, AllVehiclesDestroyed }
 public sealed record RunReport(TrainId Train, SimulationPosition EndedAt, RunEndReason Reason, RunAccumulatorView Totals);

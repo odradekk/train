@@ -31,7 +31,7 @@ internal sealed record GoodSample(string Kind, string? Definition = null, string
 internal sealed record RuleSample(int StopIndex, int RuleIndex, string Action, GoodSample Good,
     long RequestedQuantity, long CompletedQuantity, long ActualAmount, ImmutableArray<ProblemSample> IncompleteReasons);
 internal sealed record RunTotalsSample(SimulationPosition StartedAt, long SalesReceipts, long PurchasePayments,
-    long ServicePayments, long NetCashFlow, long TransportedUnits, double LoadedCapacityRatio,
+    long ServicePayments, long NetCashFlow, long TransportedUnits, double? LoadedCapacityRatio,
     ImmutableArray<RuleSample> IncompleteRules)
 {
     internal static RunTotalsSample From(RunAccumulatorView run) => new(run.StartedAt,

@@ -473,7 +473,8 @@ internal static class WorldStateValidation
     {
         Require(totals is not null && totals.SalesReceipts.Value >= 0 && totals.PurchasePayments.Value >= 0
             && totals.ServicePayments.Value == 0 && totals.NetCashFlow == totals.SalesReceipts.Value - totals.PurchasePayments.Value
-            && totals.TransportedUnits >= 0 && double.IsFinite(totals.LoadedCapacityRatio) && totals.LoadedCapacityRatio >= 0, field);
+            && totals.TransportedUnits >= 0
+            && (totals.LoadedCapacityRatio is not { } ratio || double.IsFinite(ratio) && ratio >= 0), field);
         Items(totals.IncompleteRules, field + "/incomplete_rules");
         (int Stop, int Rule) previous = (-1, -1);
         foreach (var result in totals.IncompleteRules)

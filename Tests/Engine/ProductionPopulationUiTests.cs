@@ -15,6 +15,50 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
     private readonly UiTestInput _input = new(testScene);
 
     [Test]
+    public async Task Run_reports_distinguish_undefined_empty_and_overloaded_capacity()
+    {
+        var original = EconomyFixture.Create();
+        var content = EconomyFixture.Content();
+        var setup = new HostSimulationTests.HostSetup(original, content);
+        var fixture = new Fixture(TestScene.GetTree());
+        try
+        {
+            var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
+            app.CreateHost = logger => setup.Create(logger);
+            await fixture.AddToRoot(app);
+            await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
+            var binding = app.Host!.GetStatus()!.Binding;
+            var economy = app.GetNode<EconomyPanels>("GameUi/Root/World/EconomyPanels");
+            economy.OpenReports();
+            ulong revision = 2;
+            foreach (var (ratio, expected) in new (double? Ratio, string Expected)[]
+            {
+                (null, "—（未进入线路，或进入时没有载货容量）"),
+                (0, "0.0%"),
+                (1.5, "150.0%")
+            })
+            {
+                var totals = new RunAccumulatorView(new(0, 0), new(0), new(0), new(0), 0, 0, ratio, []);
+                var view = new FixedCoreReadView(original.Position, original.InputIdentity, revision: new(revision++))
+                {
+                    World = original.World,
+                    Economy = original.Economy with
+                    {
+                        RecentRunReports = [new(new(7), original.Position, RunEndReason.PlanReplaced, totals)]
+                    }
+                };
+                economy.Refresh(binding, view, content);
+                var text = economy.GetNode<Label>("EconomyReports/Layout/Body/ReportsScroll/Reports/ReportsText").Text;
+                Require(text.Contains("载运率 " + expected), "经营报告未区分未定义、空载和超载的载运率。");
+                Require(ratio is null || !text.Contains("未进入线路"), "有数值的载运率被显示为未定义。");
+            }
+            Require(setup.Session.SubmitCount == 0, "只读经营报告提交了命令。");
+        }
+        finally { await fixture.Cleanup(); }
+        setup.Session.AssertComplete();
+    }
+
+    [Test]
     public async Task Population_without_statistics_and_global_reports_preserve_unknown_and_ownership()
     {
         var original = EconomyFixture.Create();

@@ -176,6 +176,9 @@ public class EconomyPlanUiTests(Node testScene) : TestClass(testScene)
             var description = Find<Label>(panels, "Description").Text;
             Require(description.Contains("销售收入 " + train.CurrentRun!.SalesReceipts.Value) && description.Contains("运输数量 10"),
                 "列车详情没有显示真实交易后的运行累计。");
+            Require(train.CurrentRun!.LoadedCapacityRatio is null &&
+                description.Contains("载运率 —（未进入线路，或进入时没有载货容量）"),
+                "尚未进入线路的列车累计没有显示未定义载运率。");
             var originalPlan = train.Plan!;
             var originalStop = (PlanStop.Station)originalPlan.Stops.Single();
             Require(originalStop.DwellSteps == 60001 && originalStop.GoodsRules.Length == 2,
@@ -195,6 +198,9 @@ public class EconomyPlanUiTests(Node testScene) : TestClass(testScene)
             var reportText = Find<Label>(economy, "ReportsText").Text;
             Require(reportText.Contains("采购支出") && reportText.Contains("销售收入 " + report.Totals.SalesReceipts.Value) &&
                 reportText.Contains("运输数量 10"), "真实运行报告没有出现在经营报告面板。");
+            Require(report.Totals.LoadedCapacityRatio is null &&
+                reportText.Contains("载运率 —（未进入线路，或进入时没有载货容量）"),
+                "尚未进入线路的历史报告没有显示未定义载运率。");
             await UiCapture.Capture(TestScene, "economy-run-report");
         }
         finally

@@ -39,6 +39,7 @@ public sealed class AutomaticTradingTests
         Assert.AreEqual(started, report.Totals.StartedAt);
         Assert.AreEqual(report.EndedAt, Train(session).CurrentRun!.StartedAt);
         Assert.AreEqual(0L, Train(session).CurrentRun!.TransportedUnits);
+        Assert.AreEqual(0d, report.Totals.LoadedCapacityRatio);
         Assert.AreEqual(0d, Train(session).CurrentRun!.LoadedCapacityRatio);
         Assert.AreEqual(0, Train(session).NextStopIndex);
     }
@@ -303,6 +304,7 @@ public sealed class AutomaticTradingTests
         Assert.AreEqual(RunEndReason.PlanReplaced, report.Reason);
         Assert.AreEqual(started, report.Totals.StartedAt);
         Assert.AreEqual(new Money(199), report.Totals.PurchasePayments);
+        Assert.IsNull(report.Totals.LoadedCapacityRatio);
         Assert.AreEqual(new Money(0), Train(session).CurrentRun!.PurchasePayments);
         var lease = Rent(session);
         Accept(session, new CoreCommand.UnloadGoods(new(1), lease.Settlement, lease.Inventory, Clothing, 2));
@@ -563,7 +565,9 @@ public sealed class AutomaticTradingTests
     }
 
     [TestMethod]
-    public void Loaded_ratio_weights_capacity_by_edge_length_and_entry_capacity()
+    [DataRow(2000L, 2d / 7)]
+    [DataRow(250L, 8d / 7)]
+    public void Loaded_ratio_weights_capacity_by_edge_length_and_entry_capacity(long capacity, double expected)
     {
         var input = InventoryTradeTests.Content();
         input = input with { Goods = input.Goods.Select(g => g with { MassTons = .001 }).ToImmutableArray() };
@@ -581,21 +585,21 @@ public sealed class AutomaticTradingTests
         } });
         Accept(session, new CoreCommand.StopTrain(new(1)));
         Accept(session, new CoreCommand.ReplaceRunPlan(new(1), new(false, [new PlanStop.Waypoint(new(3))])));
+        Assert.IsNull(Train(session).CurrentRun!.LoadedCapacityRatio);
         Accept(session, new CoreCommand.StartTrain(new(1)));
         AdvanceUntil(session, t => t.Position is TrainPosition.Node { Id.Value: 2 });
-        Assert.AreEqual(.5, Train(session).CurrentRun!.LoadedCapacityRatio, 1e-12);
+        Assert.AreEqual(.5, Train(session).CurrentRun!.LoadedCapacityRatio!.Value, 1e-12);
         var content = session.State.Content;
         Accept(session, new CoreCommand.PublishContent(Changed(content with
         {
             Designs = content.Designs.Select(d => d.Kind is DesignKind.Vehicle ? d with
             {
                 Parts = d.Parts.Select(p => p with { Capabilities = p.Capabilities.Select(c =>
-                    c is PartCapability.Storage ? new PartCapability.Storage(2000) : c).ToImmutableArray() }).ToImmutableArray()
+                    c is PartCapability.Storage ? new PartCapability.Storage(capacity) : c).ToImmutableArray() }).ToImmutableArray()
             } : d).ToImmutableArray()
         }, 'F')));
         AdvanceUntil(session, t => t.Position is TrainPosition.Edge { Id.Value: 2 });
-        // 500 × (10 + 30) / (1000 × 10 + 2000 × 30).
-        Assert.AreEqual(2d / 7, Train(session).CurrentRun!.LoadedCapacityRatio, 1e-12);
+        Assert.AreEqual(expected, Train(session).CurrentRun!.LoadedCapacityRatio!.Value, 1e-12);
     }
 
     private static void AdvanceUntil(CoreSession session, Func<TrainView, bool> reached)
