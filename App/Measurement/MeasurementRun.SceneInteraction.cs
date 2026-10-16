@@ -16,10 +16,10 @@ internal sealed partial class MeasurementRun
     private int _scenePickCount;
     private readonly Dictionary<ulong, Vector3[]> _probeMeshPoints = [];
     private List<ProbeExpected>? _probeExpected;
-    private ProbeExpected? _probeNearest;
-    private double? _probeNearestPicked;
-    private ProbeExpected? _probeElectronics;
-    private double? _probeElectronicsPicked;
+    private object? _probeNode, _probeLayout;
+    private SceneSpaceId? _probeSpace;
+    private ScenePoint? _probeOrigin;
+    private readonly Dictionary<(WorldObjectId? Subject, string Key), double> _probeFirstPicks = [];
     private sealed record ProbeExpected(string Key, WorldObjectId? Subject, SceneBounds Bounds, bool Rail);
     private static readonly BindingFlags ProbeFlags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
     private static object? ProbeRead(object? owner, string name) => owner is null ? null :
@@ -29,10 +29,10 @@ internal sealed partial class MeasurementRun
     {
         _probeMeshPoints.Clear();
         _probeExpected = null;
-        _probeNearest = null;
-        _probeNearestPicked = null;
-        _probeElectronics = null;
-        _probeElectronicsPicked = null;
+        _probeNode = _probeLayout = null;
+        _probeSpace = null;
+        _probeOrigin = null;
+        _probeFirstPicks.Clear();
         _scenePickCount = 0;
     }
 
@@ -43,7 +43,24 @@ internal sealed partial class MeasurementRun
         var session = (IWorldSceneSession?)ProbeRead(controller, "_session");
         var camera = controller.View.CameraRig;
         var center = new NVector(camera.Focus.X, camera.Focus.Y, camera.Focus.Z);
+        if (follow is not null)
+        {
+            if (frame.FindPose(follow) is not Lookup<ScenePose>.Found pose)
+            {
+                detail = new { focusTarget = follow.ToString(), reason = "follow_pose_missing" };
+                return false;
+            }
+            center = pose.Value.Position;
+        }
         var node = ProbeRead(session, "node");
+        var layout = ProbeRead(node, "layout");
+        if (!ReferenceEquals(node, _probeNode) || !ReferenceEquals(layout, _probeLayout) ||
+            _probeSpace != frame.Update.Frame.Space || _probeOrigin != frame.Origin)
+        {
+            _probeExpected = null;
+            _probeNode = node; _probeLayout = layout;
+            _probeSpace = frame.Update.Frame.Space; _probeOrigin = frame.Origin;
+        }
         var points = new List<object>();
         var clear = session is not null;
         var pointPositions = new List<NVector> { center };
@@ -72,10 +89,12 @@ internal sealed partial class MeasurementRun
         }
         var intersectingFog = frame.Update.Environment.FoggedRegions.Count(bounds => ProbeDistance(center, bounds) <= 64);
         clear &= intersectingFog == 0;
-        var expectedKnown = node is null || ProbePrepareExpected(node, frame, center);
+        var expectedKnown = node is null || ProbePrepareExpected(node, frame);
         clear &= expectedKnown;
+        var allBusiness = _probeExpected ?? [];
+        var nearBusiness = allBusiness.Where(item => ProbeDistance(center, item.Bounds) <= 64).ToArray();
         var results = new List<object>();
-        foreach (var expected in _probeExpected ?? [])
+        foreach (var expected in nearBusiness)
         {
             var result = ProbeBusiness(frame, session, display, expected);
             clear &= result.Visible && result.Picked;
@@ -86,22 +105,21 @@ internal sealed partial class MeasurementRun
                 visible = result.Visible, picked = result.Picked, resolved = result.Resolved });
         }
         object? nearestBusiness = null;
-        if (_probeNearest is { } nearest)
+        if (allBusiness.OrderBy(item => ProbeDistance(center, item.Bounds)).FirstOrDefault() is { } nearest)
         {
             var result = ProbeBusiness(frame, session, display, nearest);
-            if (result.Picked) _probeNearestPicked ??= Seconds();
             nearestBusiness = new { nearest.Key, expected = nearest.Subject?.ToString(), visible = result.Visible,
-                picked = result.Picked, resolved = result.Resolved, pickedAtSeconds = _probeNearestPicked };
+                picked = result.Picked, resolved = result.Resolved, pickedAtSeconds = ProbeFirstPick(nearest) };
         }
         object? electronics = null;
-        if (_probeElectronics is { } factory)
+        if (allBusiness.FirstOrDefault(item => item.Subject ==
+            new WorldObjectId.Instance(new InstanceId.Building(new(6)))) is { } factory)
         {
             var result = ProbeBusiness(frame, session, display, factory);
-            if (result.Picked) _probeElectronicsPicked ??= Seconds();
             electronics = new { factory.Key, expected = factory.Subject?.ToString(),
                 distanceMeters = ProbeDistance(center, factory.Bounds) / 2,
                 visible = result.Visible, picked = result.Picked, resolved = result.Resolved,
-                pickedAtSeconds = _probeElectronicsPicked };
+                pickedAtSeconds = ProbeFirstPick(factory) };
         }
         object? followed = null;
         if (follow is not null)
@@ -112,13 +130,14 @@ internal sealed partial class MeasurementRun
             followed = new { expected = follow.ToString(), visible = result.Visible, picked = result.Picked, resolved = result.Resolved };
         }
         detail = new { focus = new { x = center.X, y = center.Y, z = center.Z }, radiusMeters = 32,
+            cameraFocus = new { x = camera.Focus.X, y = camera.Focus.Y, z = camera.Focus.Z },
             samples = points, intersectingFog, expectedKnown,
-            business = results, emptyBusinessArea = expectedKnown && _probeExpected is { Count: 0 }, followed,
+            business = results, emptyBusinessArea = expectedKnown && nearBusiness.Length == 0, followed,
             nearestBusiness, electronics };
         return clear;
     }
 
-    private bool ProbePrepareExpected(object node, ISceneFrame frame, NVector center)
+    private bool ProbePrepareExpected(object node, ISceneFrame frame)
     {
         if (_probeExpected is not null) return true;
         var layout = ProbeRead(node, "layout");
@@ -182,9 +201,6 @@ internal sealed partial class MeasurementRun
                     ProbeTransformBounds(bounds, new(centerAt, rotation), origin), false));
             }
         }
-        _probeNearest = all.OrderBy(item => ProbeDistance(center, item.Bounds)).FirstOrDefault();
-        _probeElectronics = all.FirstOrDefault(item => item.Subject ==
-            new WorldObjectId.Instance(new InstanceId.Building(new(6))));
         foreach (var pair in (IEnumerable)ProbeRead(prepared, "Rails")!)
         {
             var rail = ProbeRead(pair, "Value")!;
@@ -192,9 +208,12 @@ internal sealed partial class MeasurementRun
             all.Add(new((string)ProbeRead(rail, "Key")!, new WorldObjectId.Node((NodeId)ProbeRead(node, "Node")!),
                 new(bounds.Minimum - origin, bounds.Maximum - origin), true));
         }
-        _probeExpected = all.Where(item => ProbeDistance(center, item.Bounds) <= 64).ToList();
+        _probeExpected = all;
         return true;
     }
+
+    private double? ProbeFirstPick(ProbeExpected expected) =>
+        _probeFirstPicks.TryGetValue((expected.Subject, expected.Key), out var at) ? at : null;
 
     private DesignEvaluation ProbeDesign(DesignHash hash) =>
         _app.Host!.Content!.FindDesign(hash) is ContentLookup<DesignEvaluation>.Found found
@@ -283,7 +302,10 @@ internal sealed partial class MeasurementRun
                     expected.Subject is WorldObjectId.Node expectedNode && nodeLocation.Id == expectedNode.Id &&
                     ProbeInside(hit.Value.Point, expected.Bounds, 1) :
                     success.Value is PickSubject.WorldObject subject && subject.Object == expected.Subject)
+                {
+                    _probeFirstPicks.TryAdd((expected.Subject, expected.Key), Seconds());
                     return (true, true, resolved);
+                }
             }
         }
         return (visible, false, resolved);
