@@ -54,6 +54,7 @@ internal sealed class SceneDisplay : IDisposable
              previousFrame.Update.Frame.Request != frame.Update.Frame.Request ||
              previousFrame.Update.Frame.Space != frame.Update.Frame.Space))
             CancelPreparation();
+        frame = _preparingFrame ?? frame;
         _preparingFrame = frame;
         var processFrame = Engine.GetProcessFrames();
         if (_budgetFrame != processFrame)
@@ -65,36 +66,10 @@ internal sealed class SceneDisplay : IDisposable
         var preparedResource = false;
         var update = frame.Update;
         var next = update.Base is null ? new Dictionary<SceneObjectId, DisplayObject>() : new(_objects);
-        var sources = update.Upserts.ToDictionary(item => item.Id);
         bool BudgetExpired() => preparedResource &&
             _preparationTime + Stopwatch.GetElapsedTime(started, Timestamp()) >= PreparationBudget;
         try
         {
-            foreach (var (key, visual) in _pendingVisuals.ToArray())
-                if (!sources.TryGetValue(key.Object, out var source) || key.Index >= source.Visuals.Length ||
-                    !visual.CanUpdate(source.Visuals[key.Index]) ||
-                    _objects.TryGetValue(key.Object, out var displayed) && key.Index < displayed.Visuals.Length &&
-                    displayed.Visuals[key.Index].CanUpdate(source.Visuals[key.Index]))
-                {
-                    visual.Dispose();
-                    _pendingVisuals.Remove(key);
-                }
-            foreach (var (id, root) in _pendingRoots.ToArray())
-                if (!sources.ContainsKey(id))
-                {
-                    root.Free();
-                    _pendingRoots.Remove(id);
-                }
-            if (_pendingFog is not null && !_pendingFog.Regions.SequenceEqual(update.Environment.FoggedRegions))
-            {
-                _pendingFog.Dispose();
-                _pendingFog = null;
-            }
-            if (_pendingDebugLines is not null && !_pendingDebugLines.Lines.SequenceEqual(frame.DebugLines))
-            {
-                _pendingDebugLines.Dispose();
-                _pendingDebugLines = null;
-            }
             if (update.Base is not null && update.ShiftExistingRoots != System.Numerics.Vector3.Zero)
                 foreach (var item in _objects.Values)
                     if (item.Source.Parent is null)
@@ -173,13 +148,14 @@ internal sealed class SceneDisplay : IDisposable
             PoseFrame.Update.Frame.Request != frame.Update.Frame.Request)
             _spaceOrigin = frame.Origin;
         var origin = displayed.Update.Frame.Space == frame.Update.Frame.Space ? displayed.Origin : _spaceOrigin;
-        var shift = frame.Update.Base is not null ? ToGodot(frame.Update.ShiftExistingRoots) :
+        var incremental = frame.Update.Base == displayed.Update.Frame;
+        var shift = incremental ? ToGodot(frame.Update.ShiftExistingRoots) :
             new Vector3((float)(origin.X - frame.Origin.X), (float)(origin.Y - frame.Origin.Y),
                 (float)(origin.Z - frame.Origin.Z));
         var delta = shift - Root.Position;
         if (delta != Vector3.Zero) Root.Position = shift;
         var posed = new HashSet<SceneObjectId>();
-        if (frame.Update.Base is not null)
+        if (incremental)
         {
             foreach (var source in frame.Update.Upserts)
                 if (_objects.TryGetValue(source.Id, out var item) && item.Source.Parent == source.Parent)
@@ -212,10 +188,15 @@ internal sealed class SceneDisplay : IDisposable
         if (PoseFrame is not { } frame || hit.Object is not { } id || !_objects.TryGetValue(id, out var item))
             return false;
         if (ReferenceEquals(frame, DisplayedFrame)) return true;
-        if (frame.Update.Base != DisplayedFrame?.Update.Frame || frame.Update.Base is null ||
+        var displayed = DisplayedFrame!;
+        if (frame.Update.Base is null ||
+            frame.Update.Base != displayed.Update.Frame && frame.Update.Base != displayed.Update.Base ||
             frame.Update.Removed.Contains(id)) return false;
         var source = frame.Update.Upserts.FirstOrDefault(source => source.Id == id);
-        return source is null || source.Parent == item.Source.Parent && source.Visuals.Select((visual, index) =>
+        // 较早候选刚提交时P仍引用旧D；两帧都未更新的对象才可继承同一描述。
+        if (source is null) return frame.Update.Base == displayed.Update.Frame ||
+            !displayed.Update.Upserts.Any(source => source.Id == id);
+        return source.Parent == item.Source.Parent && source.Visuals.Select((visual, index) =>
             index < item.Visuals.Length && item.Visuals[index].CanUpdate(visual)).All(compatible => compatible);
     }
 

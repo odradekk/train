@@ -195,6 +195,9 @@ internal sealed class WorldSceneController : IDisposable
             if (prepared is not null)
             {
                 prepared.Commit();
+                // 提交会重设根坐标；恢复P姿态，避免较早候选使画面倒退。
+                // 相机仍使用提交前算出的整帧平移，不能再叠加这次根重设。
+                _display.UpdatePoses(frame);
                 _fullReplacement = false;
                 View.SetLoading(false);
                 View.Interactive = true;
