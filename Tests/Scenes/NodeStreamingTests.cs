@@ -103,13 +103,19 @@ public sealed class NodeStreamingTests
     {
         using var content = new SceneFixtures.BlockedAppearanceView(NodeFixtures.Content(), blockRailway: true);
         var snapshot = NodeFixtures.Snapshot(platforms: 0, trains: [], content: content);
-        var callerThread = Environment.CurrentManagedThreadId;
         var unblock = Task.Run(async () => { await content.Entered.Task; content.Release.Set(); });
         await using var vehicles = new SceneVehicles();
-        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), SceneFixtures.NextId(),
-            vehicles, RailwayFixtures.EmptyNode, background: true);
+        // A pool caller could be reused by the background task after this test awaits.
+        var caller = await Task.Factory.StartNew(() =>
+        {
+            var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), SceneFixtures.NextId(),
+                vehicles, RailwayFixtures.EmptyNode, background: true);
+            scene.Pump(allowBuild: false);
+            return (Scene: scene, Thread: Environment.CurrentManagedThreadId);
+        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        await using var scene = caller.Scene;
         await unblock;
-        Assert.AreNotEqual(callerThread, content.ReadThread);
+        Assert.AreNotEqual(caller.Thread, content.ReadThread);
         await scene.BuildWork!;
         scene.Pump(allowBuild: false);
         Assert.IsNotNull(scene.Layout);
