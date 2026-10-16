@@ -89,7 +89,7 @@ public sealed class NodeStreamingTests
             await filled.Task;
             scene.SetBuildAllowed(false);
             release.Set();
-            await Task.WhenAll(scene.PendingWork);
+            await SceneFixtures.AwaitPendingWork(scene.PendingWork);
             scene.Pump(allowBuild: false);
             Assert.AreEqual(RailwayCoordinates.MaxConcurrentBuilds, started);
             Assert.IsTrue(scene.HasPendingBuilds, "Unstarted nearby parts still give the current scene priority.");
@@ -239,7 +239,7 @@ public sealed class NodeStreamingTests
             CollectionAssert.AreEquivalent(retiring, scene.PendingWork);
             Assert.AreEqual(RailwayCoordinates.MaxConcurrentBuilds, Volatile.Read(ref started));
             release.Set();
-            await Task.WhenAll(retiring);
+            await SceneFixtures.AwaitPendingWork(retiring);
             await replenished.Task.WaitAsync(TimeSpan.FromMilliseconds(500));
             scene.Pump();
             Assert.IsTrue(Chunks(cache).IsEmpty, "Cancelled results must not commit even when their builders ignore cancellation.");
@@ -260,7 +260,7 @@ public sealed class NodeStreamingTests
         await using var vehicles = new SceneVehicles();
         var instance = ((Lookup<InstanceView>.Found)snapshot.Core.FindInstance(new InstanceId.Vehicle(new(1)))).Value;
         vehicles.Prepare(snapshot.Content, instance);
-        await Task.WhenAll(vehicles.PendingWork);
+        await SceneFixtures.AwaitPendingWork(vehicles.PendingWork);
         var cache = new NodeScene.Cache();
         await using var scene = Open(snapshot, vehicles, cache, build: (data, from, old, token) =>
         {
@@ -423,8 +423,7 @@ public sealed class NodeStreamingTests
         var pending = scene.PendingWork;
         try { scene.Pump(focus: new(288, 0, 288)); }
         finally { release.Set(); }
-        try { await Task.WhenAll(pending); }
-        catch (OperationCanceledException) { }
+        await SceneFixtures.AwaitPendingWork(pending);
         scene.Pump();
         Assert.IsFalse(Chunks(cache).ContainsKey(blocked));
     }
@@ -499,7 +498,7 @@ public sealed class NodeStreamingTests
         do
         {
             frame = scene.Present(snapshot, Request, stamp, null, origin, new WorldSceneTarget.Follow(new(1), new(1)));
-            await Task.WhenAll(scene.PendingWork);
+            await SceneFixtures.AwaitPendingWork(scene.PendingWork);
         } while (scene.PendingWork.Length > 0);
         var pose = ((Lookup<ScenePose>.Found)frame.FindPose(new WorldObjectId.Instance(new InstanceId.Vehicle(new(1))))).Value;
         var nodePosition = RailwayCoordinates.Add(origin, pose.Position);
@@ -534,7 +533,7 @@ public sealed class NodeStreamingTests
         do
         {
             scene.Present(snapshot, request, stamp, null, default, new WorldSceneTarget.Location(NodeFixtures.Location));
-            await Task.WhenAll(scene.PendingWork);
+            await SceneFixtures.AwaitPendingWork(scene.PendingWork);
         } while (scene.PendingWork.Length > 0);
         var bounds = scene.Layout!.PanBounds(default);
         var focus = stale ? new ScenePoint((bounds.Minimum.X + bounds.Maximum.X) / 2, 0,
@@ -588,8 +587,7 @@ public sealed class NodeStreamingTests
             Assert.IsTrue(frame.Update.Environment.FoggedRegions.Length - railFog <= NodeStreaming.MaximumTerrainFogRegions);
             Assert.IsTrue(frame.Update.Environment.FoggedRegions.Length >= railFog);
             // Moving the focus also retires unfinished work outside the new range.
-            try { await Task.WhenAll(scene.PendingWork); }
-            catch (OperationCanceledException) { }
+            await SceneFixtures.AwaitPendingWork(scene.PendingWork);
         }
     }
 
@@ -789,8 +787,7 @@ public sealed class NodeStreamingTests
                 else scene.Pump(focus: new(10000, 0, 10000));
             }
             finally { release.Set(); }
-            try { await Task.WhenAll(pending); }
-            catch (OperationCanceledException) { }
+            await SceneFixtures.AwaitPendingWork(pending);
             if (closing is not null) await closing;
             else scene.Pump(focus: new(10000, 0, 10000));
             Assert.IsFalse(Rails(cache).ContainsKey(blocked.Key));
@@ -922,7 +919,7 @@ public sealed class NodeStreamingTests
         do
         {
             scene.Pump(focus: focus);
-            await Task.WhenAll(scene.PendingWork);
+            await SceneFixtures.AwaitPendingWork(scene.PendingWork);
             scene.Pump(focus: focus);
         } while (scene.PendingWork.Length > 0);
     }

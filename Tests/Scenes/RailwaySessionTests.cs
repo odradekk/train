@@ -196,7 +196,7 @@ public sealed class RailwaySessionTests
         { entered.TrySetResult(); release.Wait(token); return RailwayFixtures.EmptySegment(input, path, index, token); });
         try
         {
-            await Task.WhenAll(scene.PendingWork);
+            await SceneFixtures.AwaitPendingWork(scene.PendingWork);
             var target = new WorldSceneTarget.Location(new WorldLocation.Edge(RailwayFixtures.Edge, 1));
             scene.Present(snapshot, null, target, Request, Stamp(1), null);
             await entered.Task;
@@ -224,7 +224,7 @@ public sealed class RailwaySessionTests
         var invalid = RailwayFixtures.Snapshot(10, 20);
         await using var failed = Open(invalid);
         failed.RequestView(new WorldSceneTarget.Location(new WorldLocation.Edge(RailwayFixtures.Edge, 0)));
-        await Task.WhenAll(failed.PendingRailwayBuilds);
+        await SceneFixtures.AwaitPendingWork(failed.PendingRailwayBuilds);
         var rejected = Present(failed);
         Assert.AreEqual(SceneReadiness.Failed, rejected.Readiness);
         Assert.IsTrue(rejected.Diagnostics.Any(problem => problem.Code == "build_failed"));

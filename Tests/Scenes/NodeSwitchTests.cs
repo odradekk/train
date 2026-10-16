@@ -49,7 +49,7 @@ public sealed class NodeSwitchTests
         Assert.AreEqual(new WorldLocation.Node(NodeFixtures.NodeId), session.PrebuiltLocation);
         do
         {
-            await Task.WhenAll(session.PendingPrebuilds);
+            await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
             displayed = Present(session, displayed);
         } while (session.PendingPrebuilds.Length > 0);
         var retained = cache.Read(NodeFixtures.NodeId)!;
@@ -132,7 +132,7 @@ public sealed class NodeSwitchTests
         Assert.AreEqual(NodeFixtures.Location, ((Lookup<WorldLocation>.Found)node.Locate(stoppedPose.Position)).Value);
         Assert.IsInstanceOfType<Lookup<double>.Found>(node.TerrainHeight(stoppedPose.Position.X, stoppedPose.Position.Z));
         Assert.AreEqual(new WorldLocation.Edge(new(2), 4), session.PrebuiltLocation);
-        await Task.WhenAll(session.PendingPrebuilds);
+        await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
         session.Observe(Snapshot(stopped with { Activity = TrainActivity.Servicing }, 2), []);
         var servicing = await RailwayFixtures.Settled(session, Request, node);
         Assert.AreEqual(SceneReadiness.Ready, servicing.Readiness);
@@ -235,7 +235,7 @@ public sealed class NodeSwitchTests
         if (candidateReady)
         {
             Assert.AreEqual(new WorldLocation.Node(endpoint), session.PrebuiltLocation);
-            await Task.WhenAll(session.PendingPrebuilds);
+            await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
         }
         var oldPath = line.Railway!;
         var arc = reverse ? 0 : oldPath.LengthCells;
@@ -323,7 +323,7 @@ public sealed class NodeSwitchTests
         session.Observe(Snapshot(3, 10, 1), []);
         await RailwayFixtures.Settled(session, Request);
         Assert.AreEqual(new WorldLocation.Node(new(2)), session.PrebuiltLocation);
-        await Task.WhenAll(session.PendingPrebuilds);
+        await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
         var atNode = RailwayFixtures.Train() with { Position = new TrainPosition.Node(new(2), RailwayFixtures.Edge, null, NodeTravelPhase.Approaching, 0, null) };
         session.Observe(RailwayFixtures.Snapshot(4, 4, 0, content: content, steps: 2, trains: [atNode], instances: [RailwayFixtures.Instance()]), []);
         var node = await RailwayFixtures.Settled(session, Request);
@@ -479,7 +479,7 @@ public sealed class NodeSwitchTests
             Assert.IsNull(session.PrebuiltLocation);
             Assert.AreEqual(SceneReadiness.Ready, replacement.Readiness);
             release.SetResult();
-            await Task.WhenAll(session.PendingPrebuilds);
+            await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
             var afterRelease = Present(session, replacement);
             Assert.IsNull(session.PrebuiltLocation);
             Assert.IsNull(afterRelease.Node);

@@ -148,7 +148,7 @@ internal static class RailwayFixtures
         var frame = scene.Present(snapshot, previous, target, request, stamp, displayed);
         while (scene.PendingWork.Length > 0)
         {
-            await Task.WhenAll(scene.PendingWork);
+            await SceneFixtures.AwaitPendingWork(scene.PendingWork);
             stamp = stamp with { Revision = stamp.Revision + 1 };
             frame = scene.Present(snapshot, previous, target, request, stamp, displayed);
         }
@@ -161,7 +161,7 @@ internal static class RailwayFixtures
         var frame = Present();
         while (Work().Length > 0)
         {
-            await Task.WhenAll(Work());
+            await SceneFixtures.AwaitPendingWork(Work());
             frame = Present();
         }
         return frame;

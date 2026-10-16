@@ -62,10 +62,10 @@ public sealed class SceneVehiclePoolTests
         });
         current.Retain([instance.Id]);
         release.Set();
-        await Task.WhenAll(old.PendingWork);
+        await SceneFixtures.AwaitPendingWork(old.PendingWork);
         old.Reconcile(content, instance, Id);
         Assert.IsNull(current.Reconcile(content, instance, Id));
-        await Task.WhenAll(current.PendingWork);
+        await SceneFixtures.AwaitPendingWork(current.PendingWork);
         Assert.AreEqual(1, builds, "A late old binding must not publish a body into the new binding cache.");
     }
 
@@ -94,7 +94,7 @@ public sealed class SceneVehiclePoolTests
         await using (var first = new SceneVehicles(cache))
         {
             Assert.IsNull(first.Reconcile(content, instance, Id));
-            await Task.WhenAll(first.PendingWork);
+            await SceneFixtures.AwaitPendingWork(first.PendingWork);
             var ready = first.Reconcile(content, instance, Id);
             Assert.IsNotNull(ready);
             Assert.IsNotNull(first.Reconcile(content, instance, Id));
@@ -103,7 +103,7 @@ public sealed class SceneVehiclePoolTests
         await using var rebound = new SceneVehicles(cache, (_, _) => throw new AssertFailedException("Equal content must reuse the built body."));
         var reboundContent = RailwayFixtures.Content(design: RailwayFixtures.Vehicle(), generation: 2);
         Assert.IsNull(rebound.Reconcile(reboundContent, instance, Id));
-        await Task.WhenAll(rebound.PendingWork);
+        await SceneFixtures.AwaitPendingWork(rebound.PendingWork);
         Assert.IsNotNull(rebound.Reconcile(reboundContent, instance, Id));
         Assert.AreEqual(0, rebound.PendingWork.Length);
     }
@@ -125,7 +125,7 @@ public sealed class SceneVehiclePoolTests
             Assert.AreEqual(RailwayCoordinates.MaxConcurrentBuilds, pool.PendingWork.Length);
         }
         finally { release.Set(); }
-        await Task.WhenAll(pool.PendingWork);
+        await SceneFixtures.AwaitPendingWork(pool.PendingWork);
     }
 
     [TestMethod]
@@ -136,7 +136,7 @@ public sealed class SceneVehiclePoolTests
         await using (var first = new SceneVehicles(cache))
         {
             first.Reconcile(RailwayFixtures.Content(design: RailwayFixtures.Vehicle(lengthCells: 8)), instance, Id);
-            await Task.WhenAll(first.PendingWork);
+            await SceneFixtures.AwaitPendingWork(first.PendingWork);
             Assert.IsNotNull(first.Reconcile(RailwayFixtures.Content(design: RailwayFixtures.Vehicle(lengthCells: 8)), instance, Id));
         }
         var builds = 0;
@@ -147,7 +147,7 @@ public sealed class SceneVehiclePoolTests
         });
         var changed = RailwayFixtures.Content(design: RailwayFixtures.Vehicle(lengthCells: 16));
         Assert.IsNull(rebound.Reconcile(changed, instance, Id));
-        await Task.WhenAll(rebound.PendingWork);
+        await SceneFixtures.AwaitPendingWork(rebound.PendingWork);
         Assert.IsNotNull(rebound.Reconcile(changed, instance, Id));
         Assert.AreEqual(1, builds, "A changed projection must rebuild even when the design hash remains the same.");
     }

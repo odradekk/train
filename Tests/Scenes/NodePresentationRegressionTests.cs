@@ -142,7 +142,7 @@ public sealed class NodePresentationRegressionTests
     private static async Task Settle(NodeScene scene, ScenePoint focus)
     {
         await scene.BuildWork!;
-        do { scene.Pump(focus: focus); await Task.WhenAll(scene.PendingWork); scene.Pump(focus: focus); }
+        do { scene.Pump(focus: focus); await SceneFixtures.AwaitPendingWork(scene.PendingWork); scene.Pump(focus: focus); }
         while (scene.PendingWork.Length > 0);
     }
 

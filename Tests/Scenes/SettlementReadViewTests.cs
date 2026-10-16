@@ -41,7 +41,7 @@ public sealed class SettlementReadViewTests
         {
             objects.Pump(snapshot, layout);
             objects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>());
-            await Task.WhenAll(objects.PendingWork);
+            await SceneFixtures.AwaitPendingWork(objects.PendingWork);
         }
         Assert.AreEqual(1, view.SettlementQueries[new(1)], "A fixed read view must materialize its settlement only once.");
         Assert.AreEqual(1, view.InstanceQueries[station.Id], "Building reads must be reused across Pump and Present.");
