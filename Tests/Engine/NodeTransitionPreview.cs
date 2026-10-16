@@ -86,6 +86,22 @@ public partial class NodeTransitionPreview : Node
             await Sample("13-same-side-departure", Position(NodeTravelPhase.Departing, 150, 1, 3));
             await Sample("13-same-side-T-176", Position(NodeTravelPhase.Departing, 176, 1, 3));
             await Sample("13-same-side-190", Position(NodeTravelPhase.Departing, 190, 1, 3));
+            // This fixture's connecting S-bends keep the Z tangent's sign; the half-turn changes it.
+            var low = 176d;
+            var high = 256d;
+            for (var i = 0; i < 30; i++)
+            {
+                var distance = (low + high) / 2;
+                var snapshot = NodeTransitionFixture.Snapshot(content, Position(NodeTravelPhase.Departing, distance, 1, 3), ++step);
+                if (_session.Observe(snapshot, []) is not SceneResult<SimulationPosition>.Success)
+                    throw new InvalidOperationException("回转线取样输入被拒绝。");
+                var frame = ((SceneResult<ISceneFrame>.Success)_session.Present(new(1, null, SceneDebugLayer.None), _display.DisplayedFrame)).Value;
+                var pose = ((Lookup<ScenePose>.Found)frame.FindPose(NodeTransitionFixture.Subject)).Value;
+                var forward = System.Numerics.Vector3.Transform(System.Numerics.Vector3.UnitZ, pose.Rotation);
+                if (forward.Z > 0) low = distance;
+                else high = distance;
+            }
+            await Sample("13-same-side-turn-midpoint", Position(NodeTravelPhase.Departing, (low + high) / 2, 1, 3));
             await Sample("13-same-side-216", Position(NodeTravelPhase.Departing, 216, 1, 3));
             await Sample("13-same-side-240", Position(NodeTravelPhase.Departing, 240, 1, 3));
             await Sample("13-same-side-L-256", Position(NodeTravelPhase.Departing, 256, 1, 3));
