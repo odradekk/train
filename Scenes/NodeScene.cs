@@ -12,7 +12,7 @@ internal sealed class NodeScene : IAsyncDisposable
     internal sealed record Part(string Inputs, BuiltGeometry Geometry, ImmutableDictionary<GridColumn, double> Heights,
         ScenePoint Origin = default, SceneBounds? Bounds = null)
     {
-        internal long ArrayBytes => Geometry.Geometry.Objects.Sum(item => (long)IntPtr.Size *
+        internal long ArrayBytes { get; } = Geometry.Geometry.Objects.Sum(item => (long)IntPtr.Size *
             (1 + item.Visuals.Length + item.Lights.Length + item.Effects.Length) + item.Visuals.OfType<SceneVisual.Geometry>()
                 .Select(visual => visual.Mesh).Distinct<SceneMesh>(ReferenceEqualityComparer.Instance)
                 .Sum(mesh => (long)mesh.Vertices.Length * Unsafe.SizeOf<SceneVertex>() + (long)mesh.TriangleIndices.Length * sizeof(int))) +
@@ -38,7 +38,7 @@ internal sealed class NodeScene : IAsyncDisposable
         {
             token.ThrowIfCancellationRequested();
             if (previous?.Inputs == Inputs) return previous;
-            var part = MeshPart(RailwayMeshes.Build(Sample, Begin, End, default)) with { Inputs = Inputs, Bounds = Bounds };
+            var part = MeshPart(RailwayMeshes.Build(Sample, Begin, End, default)) with { Inputs = Inputs };
             token.ThrowIfCancellationRequested();
             return part;
         }
@@ -70,8 +70,7 @@ internal sealed class NodeScene : IAsyncDisposable
             return previous?.Inputs == inputs ? previous : TerrainPart(Snapshot,
                 Snapshot.Core.World.Nodes.Single(node => node.Id == Global.Layout.Node), Global.Layout, Terrain, Appearances,
                 BedChunks.GetValueOrDefault(from) ?? [], BoundaryChunks.GetValueOrDefault(from) ?? [],
-                ModelChunks.GetValueOrDefault(from, []), from, token) with { Inputs = inputs,
-                    Bounds = new(new(from.X, -128, from.Z), new(from.X + VoxelGrid.ChunkSize, 128, from.Z + VoxelGrid.ChunkSize)) };
+                ModelChunks.GetValueOrDefault(from, []), from, token) with { Inputs = inputs };
         }
     }
 
@@ -81,10 +80,10 @@ internal sealed class NodeScene : IAsyncDisposable
         private readonly object gate = new();
         private readonly long idleBudget;
         private ulong next;
-        private sealed record Entry(ulong Owner, Cached? Built, bool Active, ulong Left = 0);
+        private sealed record Entry(ulong Owner, Cached? Built, bool Active, ulong Left = 0, long IdleBytes = 0);
         private readonly Dictionary<NodeId, Entry> nodes = [];
         internal Cache(long idleBudget = DefaultIdleBudget) => this.idleBudget = idleBudget;
-        internal long IdleBytes { get { lock (gate) return nodes.Values.Where(entry => !entry.Active).Sum(entry => Bytes(entry.Built!)); } }
+        internal long IdleBytes { get { lock (gate) return nodes.Values.Sum(entry => entry.IdleBytes); } }
         internal ulong Open(NodeId node)
         {
             lock (gate)
@@ -107,14 +106,14 @@ internal sealed class NodeScene : IAsyncDisposable
                 if (!nodes.TryGetValue(node, out var old) || old.Owner != owner || !old.Active) return;
                 if (old.Built is null || old.Built.Parts.IsEmpty && old.Built.Boundaries.IsEmpty)
                 { nodes.Remove(node); return; }
-                nodes[node] = old with { Active = false, Left = ++next };
+                nodes[node] = old with { Active = false, Left = ++next, IdleBytes = Bytes(old.Built) };
                 var idle = nodes.Where(pair => !pair.Value.Active).OrderBy(pair => pair.Value.Left).ToArray();
-                var bytes = idle.Sum(pair => Bytes(pair.Value.Built!));
+                var bytes = idle.Sum(pair => pair.Value.IdleBytes);
                 foreach (var pair in idle)
                 {
                     if (bytes <= idleBudget) break;
                     var built = pair.Value.Built!;
-                    var size = Bytes(built);
+                    var size = pair.Value.IdleBytes;
                     bytes -= size;
                     if (pair.Key != idle[^1].Key) { nodes.Remove(pair.Key); continue; }
                     var fixedBytes = FixedBytes(built);
@@ -131,7 +130,7 @@ internal sealed class NodeScene : IAsyncDisposable
                         parts.Add(part.Key, part.Value); retained += partBytes;
                     }
                     if (parts.Count == 0 && built.Boundaries.IsEmpty) nodes.Remove(pair.Key);
-                    else nodes[pair.Key] = pair.Value with { Built = built with { Parts = parts.ToImmutable() } };
+                    else nodes[pair.Key] = pair.Value with { Built = built with { Parts = parts.ToImmutable() }, IdleBytes = retained };
                     bytes += retained;
                 }
             }
