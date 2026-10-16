@@ -77,6 +77,8 @@ internal partial class WorldCamera : Node3D
         PlaceCamera();
     }
 
+    internal void ReleaseFrame() => _frame = null;
+
     public void Update(double realDelta)
     {
         if (_frame is null)

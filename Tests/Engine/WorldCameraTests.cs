@@ -80,7 +80,12 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public void Space_transition_maps_follow_lag_and_preserves_relative_view()
+    public void Space_transition_maps_follow_lag_and_preserves_relative_view() => CheckFollowTransition(closed: false);
+
+    [Test]
+    public void Closing_and_reopening_a_follow_camera_preserves_pose_and_smoothing() => CheckFollowTransition(closed: true);
+
+    private void CheckFollowTransition(bool closed)
     {
         var camera = AttachCamera();
         try
@@ -93,8 +98,16 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
             var lag = camera.Focus - oldTarget;
             var offset = camera.Camera.Position - camera.Focus;
             var forward = camera.Camera.Basis.Z;
+            if (closed)
+            {
+                camera.ReleaseFrame();
+                Near(camera.Focus, oldTarget + lag);
+                Near(camera.Camera.Position - camera.Focus, offset);
+                Near(camera.Camera.Basis.Z, forward);
+            }
             var newTarget = new Vector3(-700, 5, 900);
-            camera.DisplayedFrame(Frame(space: 2, revision: 3,
+            camera.DisplayedFrame(Frame(space: closed ? 1UL : 2UL, revision: 3,
+                session: closed ? new SceneSessionId(Guid.NewGuid()) : null,
                 poses: Poses((First, Pose(-700, 5, 900, Mathf.Pi / 2)))), First);
             Near(camera.Focus, newTarget + lag.Rotated(Vector3.Up, Mathf.Pi / 2));
             Near(camera.Camera.Position - camera.Focus, offset.Rotated(Vector3.Up, Mathf.Pi / 2));
