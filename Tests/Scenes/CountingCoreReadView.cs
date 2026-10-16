@@ -6,7 +6,6 @@ internal sealed class CountingCoreReadView(ICoreReadView inner) : ICoreReadView
 {
     internal Dictionary<SettlementId, int> SettlementQueries { get; } = [];
     internal Dictionary<InstanceId, int> InstanceQueries { get; } = [];
-    internal Action? InstanceRead { get; init; }
 
     public Lookup<SettlementView> FindSettlement(SettlementId id)
     {
@@ -16,7 +15,6 @@ internal sealed class CountingCoreReadView(ICoreReadView inner) : ICoreReadView
 
     public Lookup<InstanceView> FindInstance(InstanceId id)
     {
-        InstanceRead?.Invoke();
         InstanceQueries[id] = InstanceQueries.GetValueOrDefault(id) + 1;
         return inner.FindInstance(id);
     }
