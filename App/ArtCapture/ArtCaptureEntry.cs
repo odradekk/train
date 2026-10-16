@@ -58,12 +58,13 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         if (DisplayServer.GetName() == "headless") throw new InvalidOperationException("截图需要真实渲染窗口，不能使用 --headless。");
         Directory.CreateDirectory(_output!);
         var scene = input.Location is WorldLocation.Edge edge ? $"edge-{edge.Id.Value}" : $"node-{((WorldLocation.Node)input.Location).Id.Value}";
+        var farDistance = input.Location is WorldLocation.Node ? WorldCamera.NodeMaximumDistance : WorldCamera.MaximumDistance;
         foreach (var lighting in new[] { InspectionLighting.Daylight, InspectionLighting.Overcast, InspectionLighting.Night })
         {
             World!.View.SetLighting(lighting);
             foreach (var distance in new[] { "near", "follow", "far" })
             {
-                PlaceCamera(distance, 0);
+                PlaceCamera(distance, 0, farDistance);
                 await SaveImageAsync($"{scene}_{distance}_{lighting.ToString().ToLowerInvariant()}_0000.png");
             }
         }
@@ -71,13 +72,13 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         for (var frame = 0; frame < 60; frame++)
         {
             await AdvanceTurnFrameAsync();
-            PlaceCamera("follow", 0);
+            PlaceCamera("follow", 0, farDistance);
             await SaveImageAsync($"{scene}_turn_daylight_{frame:D4}.png");
         }
         RequireTurn();
         for (var frame = 0; frame < 60; frame++)
         {
-            PlaceCamera("follow", Mathf.Tau * frame / 60);
+            PlaceCamera("follow", Mathf.Tau * frame / 60, farDistance);
             await SaveImageAsync($"{scene}_orbit_daylight_{frame:D4}.png");
         }
         var commit = typeof(ArtCaptureEntry).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!
@@ -158,7 +159,7 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         return System.Numerics.Vector3.Transform(System.Numerics.Vector3.UnitZ, pose.Rotation);
     }
 
-    private void PlaceCamera(string distance, float orbit)
+    private void PlaceCamera(string distance, float orbit, float farDistance)
     {
         var display = World!.Display!;
         var vehicle = display.Objects.Values.Single(item => item.Source.Subject == _subject && item.Source.Parent is null);
@@ -178,7 +179,7 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         var front = vehicle.Root.GlobalBasis * Vector3.Back;
         var yaw = Mathf.Atan2(front.X, front.Z) + orbit + (distance == "near" ? Mathf.Atan2(box.Size.X, box.Size.Z) : 0);
         var pitch = distance == "near" ? 0.2f : 0.55f;
-        var range = distance == "far" ? WorldCamera.MaximumDistance : WorldCamera.DefaultDistance;
+        var range = distance == "far" ? farDistance : WorldCamera.DefaultDistance;
         if (distance == "near")
         {
             var direction = vehicle.Root.GlobalBasis.Inverse() * new Vector3(Mathf.Sin(yaw) * Mathf.Cos(pitch),
