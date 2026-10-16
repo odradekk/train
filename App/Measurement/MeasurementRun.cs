@@ -10,7 +10,7 @@ using Train.Scenes.Contracts;
 
 namespace Train.App.Measurement;
 
-internal sealed class MeasurementRun : IDisposable
+internal sealed partial class MeasurementRun : IDisposable
 {
     private readonly App _app;
     private readonly string _scenario;
@@ -47,13 +47,20 @@ internal sealed class MeasurementRun : IDisposable
         for (var i = 0; i < arguments.Count; i++)
         {
             if (arguments[i].StartsWith("--measure=", StringComparison.Ordinal)) continue;
-            if (arguments[i] is not ("--measure-input" or "--measure-output" or "--measure-identity") ||
+            if (arguments[i] is not ("--measure-input" or "--measure-output" or "--measure-identity" or "--measure-duration") ||
                 ++i >= arguments.Count) throw new ArgumentException("测量需要情景、输入存档、输出报告和构建身份路径。");
             values.Add(arguments[i - 1], arguments[i]);
         }
         _scenario = values["scenario"];
         if (_scenario is not ("map-1x" or "map-8x" or "follow-1x" or "follow-8x" or "node-1x" or "node-8x" or
-            "sdfgi-off" or "sdfgi-on" or "taa-off" or "taa-on")) throw new ArgumentException("未知测量情景。");
+            "sdfgi-off" or "sdfgi-on" or "taa-off" or "taa-on" or "scene-node" or "scene-node-first" or
+            "scene-edge" or "scene-follow" or "scene-follow-8x" or "scene-memory" or "scene-capture" or "scene-map"))
+            throw new ArgumentException("未知测量情景。");
+        if (values.TryGetValue("--measure-duration", out var duration))
+        {
+            if (!int.TryParse(duration, out _sceneDuration) || _sceneDuration < 0)
+                throw new ArgumentException("测量时长必须是非负整数秒。");
+        }
         _input = Path.GetFullPath(values["--measure-input"]);
         _output = Path.GetFullPath(values["--measure-output"]);
         if (File.Exists(_output)) throw new IOException("测量报告已存在。");
@@ -72,6 +79,11 @@ internal sealed class MeasurementRun : IDisposable
         try
         {
             if (DisplayServer.GetName() == "headless") throw new InvalidOperationException("测量需要真实绘制窗口。");
+            if (_scenario.StartsWith("scene-", StringComparison.Ordinal))
+            {
+                await RunSceneBudget();
+                return;
+            }
             await Timed("first-load", async () =>
             {
                 using var stream = File.OpenRead(_input);
@@ -224,6 +236,11 @@ internal sealed class MeasurementRun : IDisposable
     private void OnDraw()
     {
         if (_disposed || _app.Host!.GetStatus() is not { } status) return;
+        if (_scenario.StartsWith("scene-", StringComparison.Ordinal))
+        {
+            OnSceneDraw();
+            return;
+        }
         try
         {
             var now = Seconds();

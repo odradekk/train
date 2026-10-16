@@ -91,6 +91,36 @@ SDFGI 情景必须在采样窗口观察到原点变化，跟随／TAA 情景必�
 
 这些结果只对应阶段一小世界、开发机和当前占位内容。外部采样每秒记录总 CPU 占用与其他 Godot／dotnet 进程，不要求暂停同机任务；并发负载可能影响数值，不能作为可比性能基线。5 ms／8× 与尾部、内存、等待数值交用户阶段试玩确认；完整混合负载、目标实机和两项完整长测仍由后续阶段承担。
 
+### 场景打开、退役与规模测量
+
+`scene-*` 情景复用同一 Release 导出和 `--measure` 入口，用当前阶段真实负载补测场景打开与内存。主输入为 `examples/starting-trade/save.json`；规模输入由公开内容与 CLI 制作在 `TestResults/`，保留生成配方和哈希，不修改存档载荷。结果不代表完整标准混合负载或目标配置验收，预算及达标判断只写在研究报告中。
+
+```powershell
+# 常态负载预演；正式重复次数由测量计划指定
+pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/starting-trade/save.json -OutputDirectory TestResults/scene-node-preview -Scenario scene-node -Repeat 2
+# 内存循环的短预演；默认 DurationSeconds=0 时运行两小时
+pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/starting-trade/save.json -OutputDirectory TestResults/scene-memory-preview -Scenario scene-memory -Repeat 2 -DurationSeconds 30
+```
+
+| 情景 | 实际路径 |
+| --- | --- |
+| `scene-map` | 同存档的新进程地图内存基线，不打开场景 |
+| `scene-node` | 地图首次打开节点 2、返回地图后重开、节点→线路 11、线路→节点、读档回地图后立即再开节点 |
+| `scene-node-first` | 只测地图首次打开节点 2，用于规模点 |
+| `scene-edge` | 地图首次打开线路 11、返回地图后重开、读档回地图后立即再开线路 |
+| `scene-follow` | 地图首次点击列车 1，跟随车辆 1 |
+| `scene-follow-8x` | 经同一 UI 路径进入跟随，切 8×、预热 5 秒后采样 120 秒；可用 `DurationSeconds` 改为短预演 |
+| `scene-memory` | 重复打开节点、返回并等待退役；每 10 轮及结束后执行完整 GC；默认两小时，不使用其时延作正式性能证据 |
+| `scene-capture` | 单独记录部分就绪、Ready 画面及雾区拾取；截图回读与编码使该进程不能作时延或内存性能证据 |
+
+`Repeat` 控制每情景的新进程数量，默认仍是 3；原有十个情景及默认选择不变。首次点击在地图可操作且绘制后立即进行，不等场景预生成。计时从 `GameUi.OpenScene` 或返回／读取按钮信号之前开始，经过生产 UI 链；不从场景接口另开观察目标。业务拾取通过同一帧的 `Pick` 与会话 `Resolve` 只解析身份，不发出选择事件或打开详情。
+
+新情景在报告 `identity.scene_budget` 引用 `scene-frames.jsonl`、`scene-operations.jsonl` 和 `scene-collections.jsonl`。逐帧记录请求、空间、Readiness、输入检查耗时和拾取次数、加载提示、遮挡控件、渲染缓冲区／纹理／总分配；进程当前内存每 200 ms 更新，OS 峰值覆盖进程生涯，不能当作可重置的单次操作峰值。外部文件另记可用物理内存、页面输入和读取速率。操作记录包含实际活跃负载、缓存／预生成状态、三个显示信号、最长帧、最后检查详情，以及自动存档写入时间线。
+
+近处检查保留焦点和 17 个固定采样点，不投影或缩小到已加载区域。节点业务对象按占用范围与近处圆相交确定；远处最近业务对象的可拾取时刻另记。业务探针使用实际可见网格上有限的候选射线，因此未命中保留原始原因，不等于证明对象不存在。节点轨道的现有拾取契约只提供节点位置身份，报告明确这一身份粒度。
+
+稳态读取当前请求 Ready 实际绘制帧之后第 5 秒末尾一秒的中位数；地图也等待 5 秒。观测窗内未出现可操作信号时保留 `null` 和最后的检查详情，不替换为 Ready，不作通过判断。每帧检查与记录开销包含在实测时间内，并单独记录；原始逐帧数据流式写盘，内存只保留最近 6 秒。非 8× 情景的报告 `timing` 为最后地图保持窗口，打开分布应读取操作记录。两小时循环每轮记录自然私有字节，再按周期读取 GC 后存活堆；它不得与正式空闲测量窗口重叠。
+
 ## 阶段检查与候选基准
 
 `stage` 在所有平台始终运行 structure、verify、Core/Content/Scenes/Godot 隔离重建、两项生产 Core 确定性用例和独立 Release Benchmark。确定性用例通过生产命令日志与回放接口，在新进程逐检查点比较回放，以及每步写盘、读盘、恢复后与连续运行比较。它们属于阶段层，快速层和集成层不包含这些用例。

@@ -49,7 +49,7 @@ internal sealed class FrameMeasurements(double startedSeconds, ulong initialComp
             _frames.ToImmutableArray());
     }
 
-    private static TimingDistribution Distribution(IEnumerable<double> samples)
+    internal static TimingDistribution Distribution(IEnumerable<double> samples)
     {
         var sorted = samples.Order().ToArray();
         // Nearest-rank：取排序后第 ceil(p × N) 个样本，不插值。

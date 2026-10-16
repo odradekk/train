@@ -1,0 +1,445 @@
+using System.Collections;
+using System.Reflection;
+using System.Text.Json;
+using Godot;
+using Train.App.Saves;
+using Train.Core.Contracts;
+using Train.Scenes.Contracts;
+using Train.Ui;
+
+namespace Train.App.Measurement;
+
+internal sealed partial class MeasurementRun
+{
+    private int _sceneDuration;
+    private string _scenePhase = "startup";
+    private string? _sceneOperation;
+    private double _sceneClick, _sceneVisible, _sceneReady, _sceneOperable;
+    private double _sceneLastDraw, _sceneLastProcessRead;
+    private long _scenePrivate, _sceneWorking, _scenePeakPrivate, _scenePeakWorking;
+    private bool _sceneNearAvailable, _sceneDragIssued;
+    private Transform3D _sceneBeforeDrag;
+    private long _sceneDrawCount, _sceneDragDraw;
+    private object? _sceneProbeDetail, _sceneFirstNearDetail;
+    private double _sceneObserverSeconds;
+    private readonly List<double> _sceneOpeningFrames = [], _sceneCheckTimes = [];
+    private readonly Queue<SceneSample> _sceneRecent = new();
+    private readonly Dictionary<string, object?> _sceneEvidence = [];
+    private StreamWriter? _sceneTrace, _sceneOperationTrace, _sceneCollectionTrace;
+    private FrameMeasurements? _sceneTiming;
+    private Action<WorldObjectId> _sceneUiOpen = null!;
+    private double _sceneLoadButton;
+    private int _sceneCompletedOperations;
+    private double _sceneLastLoadSample;
+    private bool _sceneCapturedPartial;
+    private static readonly JsonSerializerOptions SceneJson = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
+
+    private sealed record SceneSample(double At, string Phase, double FrameSeconds, ulong Steps,
+        string Speed, bool Paused, string? Request, string? Space, string? Readiness,
+        bool NearAvailable, bool DragIssued, bool LoadingLabel, bool Overlay,
+        string[] BlockingControls, bool ModalWindow, int Picks, double CheckSeconds,
+        double PreviousObserverSeconds, long PrivateBytes, long WorkingSetBytes,
+        long PeakPrivateBytes, long PeakWorkingSetBytes, ulong BufferBytes, ulong TextureBytes, ulong VideoBytes);
+
+    private async Task RunSceneBudget()
+    {
+        var directory = Path.GetDirectoryName(_output)!;
+        using var frames = new StreamWriter(Path.Combine(directory, "scene-frames.jsonl"));
+        using var operations = new StreamWriter(Path.Combine(directory, "scene-operations.jsonl"));
+        using var collections = new StreamWriter(Path.Combine(directory, "scene-collections.jsonl"));
+        _sceneTrace = frames; _sceneOperationTrace = operations; _sceneCollectionTrace = collections;
+        _app.Saves!.Changed += OnSceneSaveChanged;
+        _identity["scene_budget"] = _sceneEvidence;
+        _sceneEvidence["frames"] = "scene-frames.jsonl";
+        _sceneEvidence["operations"] = "scene-operations.jsonl";
+        _sceneEvidence["collections"] = "scene-collections.jsonl";
+        _sceneEvidence["clock"] = "Stopwatch.GetTimestamp / Stopwatch.Frequency; absolute monotonic seconds";
+        _sceneEvidence["scope"] = "current implemented stage load; not the complete standard mixed load";
+        _sceneEvidence["readiness_scope"] = "node: 64 metre circle rounded to chunks; railway: focal 64 metre segment and two segments on each side";
+        _sceneEvidence["memory_scope"] = "RenderingServer each drawn frame; current process memory every 200ms; OS peak counters cover process lifetime and cannot be reset per operation";
+        _sceneEvidence["steady_scope"] = "median of final second, five seconds after Ready drawn frame; map uses five seconds after map drawn frame";
+        _sceneEvidence["observer_scope"] = "checks and observer overhead included, never subtracted; previous_observer_seconds includes trace serialization";
+        _sceneEvidence["capture_only"] = _scenario == "scene-capture";
+        _sceneEvidence["frame_time_threshold"] = "pending user confirmation";
+        _sceneEvidence["reload_total_wait_limit"] = "not confirmed";
+        var ui = _app.GetNode<GameUi>("GameUi");
+        // Bind the actual MacroMap handler without adding a measurement port to the UI.
+        _sceneUiOpen = typeof(GameUi).GetMethod("OpenScene", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .CreateDelegate<Action<WorldObjectId>>(ui);
+        try
+        {
+            var host = _app.Host!;
+            host.AutoPauseOnFocusLoss = false;
+            await LoadSceneInput();
+            _identity["warmup_seconds"] = _scenario == "scene-follow-8x" ? 5 : 0;
+            _identity["sample_seconds"] = _scenario == "scene-follow-8x" ? 120 : 0;
+            _sceneEvidence["initial_load"] = new { button = _sceneLoadButton, map_drawn = _sceneLastDraw };
+            _sceneEvidence["initial_load_counts"] = SceneLoadCounts();
+            // First clicks happen before the steady-map hold. They never wait for a prebuild.
+            if (_scenario is "scene-node" or "scene-node-first" or "scene-capture")
+            {
+                await OpenSceneMeasured("map-node", new WorldObjectId.Node(new(2)));
+                if (_scenario == "scene-node")
+                {
+                    await ReturnSceneMap();
+                    await OpenSceneMeasured("node-reopen", new WorldObjectId.Node(new(2)));
+                    await OpenSceneMeasured("node-to-edge", new WorldObjectId.Edge(new(11)));
+                    await OpenSceneMeasured("edge-to-node", new WorldObjectId.Node(new(2)));
+                    await ReturnSceneMap();
+                    await LoadSceneInput();
+                    await OpenSceneMeasured("reload-node", new WorldObjectId.Node(new(2)), _sceneLoadButton);
+                }
+            }
+            else if (_scenario == "scene-edge")
+            {
+                await OpenSceneMeasured("map-edge", new WorldObjectId.Edge(new(11)));
+                await ReturnSceneMap();
+                await OpenSceneMeasured("edge-reopen", new WorldObjectId.Edge(new(11)));
+                await ReturnSceneMap();
+                await LoadSceneInput();
+                await OpenSceneMeasured("reload-edge", new WorldObjectId.Edge(new(11)), _sceneLoadButton);
+            }
+            else if (_scenario is "scene-follow" or "scene-follow-8x")
+            {
+                await OpenSceneMeasured("map-follow", new WorldObjectId.Train(new(1)));
+                if (_scenario == "scene-follow-8x")
+                {
+                    host.SetSpeed(SimulationSpeed.Eight);
+                    host.SetPaused(false);
+                    _scenePhase = "follow-8x-warmup";
+                    var warming = Seconds();
+                    await Wait(() => Seconds() - warming >= 5);
+                    _scenePhase = "follow-8x-sample";
+                    _sceneTiming = new(_sceneLastDraw, host.GetStatus()!.View.Position.CompletedSteps);
+                    var started = Seconds();
+                    await Wait(() => Seconds() - started >= (_sceneDuration > 0 ? _sceneDuration : 120));
+                    _timing = _sceneTiming.Summarize();
+                    _sceneTiming = null;
+                }
+            }
+            else if (_scenario == "scene-memory")
+            {
+                await HoldSceneMap("initial-map");
+                CollectSceneHeap(0, "initial-map");
+                var started = Seconds();
+                var cycle = 0;
+                do
+                {
+                    await OpenSceneMeasured("memory-node", new WorldObjectId.Node(new(2)));
+                    await ReturnSceneMap();
+                    await HoldSceneMap("retired-map");
+                    cycle++;
+                    _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(new
+                    { kind = "natural-map", cycle, at = Seconds(), memory = SceneSteady(), load = SceneLoadCounts() }, SceneJson));
+                    if (cycle % 10 == 0) CollectSceneHeap(cycle, "retired-map");
+                } while (Seconds() - started < (_sceneDuration > 0 ? _sceneDuration : 7200));
+                CollectSceneHeap(cycle, "final-map");
+                _sceneEvidence["cycles"] = cycle;
+                _sceneEvidence["memory_loop_seconds"] = Seconds() - started;
+            }
+            ReadIdentity(new TrainId(1), _scenario == "scene-follow-8x" ? SimulationSpeed.Eight : SimulationSpeed.One);
+            _identity["warmup_seconds"] = _scenario == "scene-follow-8x" ? 5 : 0;
+            _identity["sample_seconds"] = _scenario == "scene-follow-8x" ? 120 : 0;
+            if (_app.WorldScenes!.View.Visible) await ReturnSceneMap();
+            await HoldSceneMap("final-map");
+            _sceneEvidence["final_map"] = SceneSteady();
+            _sceneEvidence["final_load_counts"] = SceneLoadCounts();
+            _sceneEvidence["completed_operations"] = _sceneCompletedOperations;
+            frames.Flush(); operations.Flush(); collections.Flush();
+            File.WriteAllText(_output, MeasurementReport.Serialize(_scenario, _identity, _timing, _memory, _operations));
+            GD.Print($"MEASUREMENT_REPORT={_output} outcome=completed");
+            _app.GetTree().Quit();
+        }
+        finally
+        {
+            _app.Saves!.Changed -= OnSceneSaveChanged;
+            _sceneTrace = _sceneOperationTrace = _sceneCollectionTrace = null;
+            ResetSceneProbe();
+        }
+    }
+
+    private async Task LoadSceneInput()
+    {
+        _scenePhase = "load";
+        var menu = _app.GetNode<MainMenu>("MainMenu");
+        using var input = File.OpenRead(_input);
+        var header = SaveContainer.ReadHeader(input);
+        var store = new FileSaveStore(OS.GetUserDataDir());
+        Directory.CreateDirectory(store.DirectoryFor(header.Id));
+        var copy = store.PathFor(header.Id);
+        if (!File.Exists(copy)) File.Copy(_input, copy);
+        menu.OpenSaves();
+        var panel = menu.GetChildren().OfType<SavePanel>().Single();
+        var list = SceneDescendants(panel).OfType<ItemList>().Single();
+        var entries = (IReadOnlyList<SaveEntry>)SceneMember(panel, "_entries")!;
+        var index = entries.Select((entry, index) => (entry, index)).Single(pair => pair.entry.Path == copy).index;
+        list.Select(index);
+        var button = SceneDescendants(panel).OfType<Button>().Single(item => item.Text == "读取选中存档");
+        var previousDraw = _sceneDrawCount;
+        _sceneLoadButton = Seconds();
+        button.EmitSignal(BaseButton.SignalName.Pressed);
+        await Wait(() => !_app.Saves!.IsBusy && _app.Host!.GetStatus() is not null);
+        panel.EmitSignal(Window.SignalName.CloseRequested);
+        if (_app.Host!.SetSpeed(SimulationSpeed.One) is not null || _app.Host.SetPaused(false) is not null)
+            throw new InvalidOperationException("不能启动测量负载。");
+        await Wait(() => _sceneDrawCount > previousDraw &&
+            _app.GetNode<MacroMap>("GameUi/Root/World/MacroMap").IsVisibleInTree() && !_app.WorldScenes!.View.Visible);
+        if (_app.Host!.GetStatus()!.IsReplay) throw new InvalidDataException("测量输入不能是重放。");
+    }
+
+    private async Task OpenSceneMeasured(string name, WorldObjectId target, double? loadButton = null)
+    {
+        ResetSceneProbe();
+        _scenePhase = name;
+        _sceneOperation = name;
+        _sceneVisible = _sceneReady = _sceneOperable = 0;
+        _sceneNearAvailable = _sceneDragIssued = false;
+        _sceneCapturedPartial = false;
+        _sceneProbeDetail = _sceneFirstNearDetail = null;
+        _sceneOpeningFrames.Clear(); _sceneCheckTimes.Clear();
+        var before = SceneCacheState();
+        var peakBefore = new { private_bytes = _scenePeakPrivate, working_set_bytes = _scenePeakWorking };
+        var follow = target is WorldObjectId.Train ? new WorldObjectId.Instance(new InstanceId.Vehicle(new(1))) : null;
+        _subject = follow;
+        _sceneClick = Seconds();
+        _sceneUiOpen(target);
+        await Wait(() =>
+        {
+            if (_sceneNearAvailable && !_sceneDragIssued)
+            {
+                var camera = _app.WorldScenes!.View.CameraRig.Camera;
+                _sceneBeforeDrag = camera.Transform;
+                _sceneDragDraw = _sceneDrawCount;
+                var point = _app.GetViewport().GetVisibleRect().Size / 2;
+                Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex = MouseButton.Right, Pressed = true, Position = point });
+                Input.ParseInputEvent(new InputEventMouseMotion { Position = point + new Vector2(8, 0), Relative = new(8, 0), ButtonMask = MouseButtonMask.Right });
+                Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex = MouseButton.Right, Pressed = false, Position = point + new Vector2(8, 0) });
+                _sceneDragIssued = true;
+            }
+            // The observation window ends after the same Ready hold used for memory.
+            // Missing interaction remains a null observation, never a successful signal.
+            return _sceneReady > 0 && _sceneLastDraw >= _sceneReady + 5;
+        });
+        var end = Seconds();
+        _sceneOperation = null;
+        _sceneCompletedOperations++;
+        var record = new
+        {
+            kind = "open", name, target = target.ToString(), click = _sceneClick,
+            first_visible = _sceneVisible > 0 ? (double?)_sceneVisible : null,
+            first_operable = _sceneOperable > 0 ? (double?)_sceneOperable : null,
+            ready = _sceneReady, observation_ended = end,
+            click_to_operable_seconds = _sceneOperable > 0 ? (double?)(_sceneOperable - _sceneClick) : null,
+            operable_to_ready_seconds = _sceneOperable > 0 ? (double?)Math.Max(0, _sceneReady - _sceneOperable) : null,
+            load_button = loadButton,
+            load_button_to_operable_seconds = loadButton is { } start && _sceneOperable > 0 ? (double?)(_sceneOperable - start) : null,
+            opening_frames = _sceneOpeningFrames.Count > 0 ? FrameMeasurements.Distribution(_sceneOpeningFrames) : null,
+            check_seconds = _sceneCheckTimes.Count > 0 ? FrameMeasurements.Distribution(_sceneCheckTimes) : null,
+            first_near = _sceneFirstNearDetail, last_probe = _sceneProbeDetail, cache_at_click = before,
+            peak_watermark_before = peakBefore, steady = SceneSteady(), load = SceneLoadCounts(),
+            empty_interaction = _sceneOperable == 0, ui_opened_detail = false,
+            partial_capture_observed = _sceneCapturedPartial
+        };
+        _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(record, SceneJson));
+        _sceneOperationTrace.Flush();
+        if (_scenario == "scene-capture") await CaptureSceneImage(name + "-ready");
+        ResetSceneProbe();
+    }
+
+    private async Task ReturnSceneMap()
+    {
+        _scenePhase = "return-map";
+        var before = _sceneDrawCount;
+        _app.GetNode<Button>("GameUi/Root/World/Bar/TopBar/ReturnToMap").EmitSignal(BaseButton.SignalName.Pressed);
+        await Wait(() => !_app.WorldScenes!.View.Visible && _sceneDrawCount > before);
+    }
+
+    private async Task HoldSceneMap(string phase)
+    {
+        _scenePhase = phase;
+        var started = _sceneLastDraw;
+        if (_timing is null) _sceneTiming = new(started, _app.Host!.GetStatus()!.View.Position.CompletedSteps);
+        await Wait(() => _sceneLastDraw >= started + 5);
+        if (_sceneTiming is not null)
+        { _timing = _sceneTiming.Summarize(); _sceneTiming = null; }
+    }
+
+    private void OnSceneDraw()
+    {
+        var observerStarted = Seconds();
+        try
+        {
+            var host = _app.Host!;
+            if (host.GetStatus() is not { } status || _sceneTrace is null) return;
+            if (status.IsFrozen) throw new InvalidOperationException("测量期间核心冻结。");
+            if (_app.GetWindow().Mode == Window.ModeEnum.Minimized) throw new InvalidOperationException("测量窗口被最小化。");
+            var now = Seconds();
+            var interval = _sceneLastDraw == 0 ? 0 : now - _sceneLastDraw;
+            _sceneDrawCount++;
+            var frame = _app.WorldScenes!.View.Visible ? _app.WorldScenes.Display?.DisplayedFrame : null;
+            if (frame is not null && frame.Update.Frame.Request !=
+                (SceneRequestId)SceneMember(_app.WorldScenes, "_request")!) frame = null;
+            var checkSeconds = 0d;
+            var picksBefore = _scenePickCount;
+            if (frame is not null && _sceneOperation is not null)
+            {
+                _sceneVisible = _sceneVisible == 0 ? now : _sceneVisible;
+                if (frame.Readiness == SceneReadiness.Ready && _sceneReady == 0) _sceneReady = now;
+                var checking = Seconds();
+                _sceneNearAvailable = CheckNearArea(frame, _subject, out var detail);
+                checkSeconds = Seconds() - checking;
+                _sceneProbeDetail = detail;
+                if (_sceneNearAvailable) _sceneFirstNearDetail ??= detail;
+                _sceneCheckTimes.Add(checkSeconds);
+                if (_sceneDragIssued && _sceneNearAvailable && _sceneDrawCount > _sceneDragDraw &&
+                    _app.WorldScenes.View.CameraRig.Camera.Transform != _sceneBeforeDrag && _sceneOperable == 0)
+                    _sceneOperable = Seconds();
+                if (_sceneReady == 0 || _sceneOperable == 0 || now <= Math.Max(_sceneReady, _sceneOperable))
+                    _sceneOpeningFrames.Add(interval);
+            }
+            if (now - _sceneLastProcessRead >= .2)
+            {
+                _process.Refresh();
+                _scenePrivate = _process.PrivateMemorySize64; _sceneWorking = _process.WorkingSet64;
+                _scenePeakPrivate = _process.PeakPagedMemorySize64; _scenePeakWorking = _process.PeakWorkingSet64;
+                _sceneLastProcessRead = now;
+            }
+            var view = _app.WorldScenes.View;
+            var overlay = (CanvasLayer)SceneMember(view, "_overlay")!;
+            var sample = new SceneSample(now, _scenePhase, interval, status.View.Position.CompletedSteps,
+                status.Speed.ToString(), status.IsPaused, frame?.Update.Frame.Request.ToString(), frame?.Update.Frame.Space.ToString(),
+                frame?.Readiness.ToString(), _sceneNearAvailable, _sceneDragIssued, view.Loading && view.Visible,
+                overlay.Visible && view.Visible, SceneBlockingControls(), SceneDescendants(_app).OfType<Window>()
+                    .Any(window => window != _app.GetWindow() && window.Visible && window.Exclusive),
+                _scenePickCount - picksBefore, checkSeconds, _sceneObserverSeconds,
+                _scenePrivate, _sceneWorking, _scenePeakPrivate, _scenePeakWorking,
+                RenderingServer.GetRenderingInfo(RenderingServer.RenderingInfo.BufferMemUsed),
+                RenderingServer.GetRenderingInfo(RenderingServer.RenderingInfo.TextureMemUsed),
+                RenderingServer.GetRenderingInfo(RenderingServer.RenderingInfo.VideoMemUsed));
+            _sceneRecent.Enqueue(sample);
+            while (_sceneRecent.TryPeek(out var old) && old.At < now - 6) _sceneRecent.Dequeue();
+            _sceneTrace.WriteLine(JsonSerializer.Serialize(sample, SceneJson));
+            if (now - _sceneLastLoadSample >= 1)
+            {
+                _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(new { kind = "active-load", phase = _scenePhase, load = SceneLoadCounts() }, SceneJson));
+                _sceneLastLoadSample = now;
+            }
+            if (_scenario == "scene-capture" && frame is not null && !_sceneCapturedPartial && frame.Readiness == SceneReadiness.Partial)
+            {
+                _sceneCapturedPartial = true;
+                using var image = _app.GetViewport().GetTexture().GetImage();
+                if (image.SavePng(Path.Combine(Path.GetDirectoryName(_output)!, "partial.png")) != Error.Ok)
+                    throw new IOException("部分就绪截图保存失败。");
+                _sceneEvidence["fog_samples"] = frame.Update.Environment.FoggedRegions.Take(3).Select(bounds =>
+                {
+                    var point = (bounds.Minimum + bounds.Maximum) / 2;
+                    var pick = frame.Pick(new(new(point.X, 4096, point.Z), -System.Numerics.Vector3.UnitY, 8192));
+                    return new { x = point.X, z = point.Z, pick = pick.GetType().Name };
+                }).ToArray();
+            }
+            _sceneTiming?.AddFrame(now, status.View.Position.CompletedSteps, _simulationWork, status.Speed, status.IsPaused);
+            _simulationWork = 0;
+            _sceneLastDraw = now;
+            _sceneObserverSeconds = Seconds() - observerStarted;
+        }
+        catch (Exception error) { _drawFailure = error; }
+    }
+
+    private object SceneSteady()
+    {
+        var samples = _sceneRecent.Where(sample => sample.At >= _sceneLastDraw - 1).ToArray();
+        double Median(Func<SceneSample, double> value) => samples.Length == 0 ? double.NaN :
+            FrameMeasurements.Distribution(samples.Select(value)).P50;
+        return new { at = _sceneLastDraw, samples = samples.Length, private_bytes = Median(item => item.PrivateBytes),
+            working_set_bytes = Median(item => item.WorkingSetBytes), buffer_bytes = Median(item => item.BufferBytes),
+            texture_bytes = Median(item => item.TextureBytes), video_bytes = Median(item => item.VideoBytes),
+            peak_private_bytes = _scenePeakPrivate, peak_working_set_bytes = _scenePeakWorking };
+    }
+
+    private void CollectSceneHeap(int cycle, string phase)
+    {
+        ResetSceneProbe();
+        _sceneProbeDetail = _sceneFirstNearDetail = null;
+        _sceneRecent.Clear();
+        var natural = new { private_bytes = _scenePrivate, working_set_bytes = _sceneWorking };
+        var started = Seconds();
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+        var heap = GC.GetGCMemoryInfo();
+        _sceneCollectionTrace!.WriteLine(JsonSerializer.Serialize(new { cycle, phase, at = Seconds(),
+            seconds = Seconds() - started, natural, managed_live_bytes = GC.GetTotalMemory(false),
+            heap_bytes = heap.HeapSizeBytes, fragmented_bytes = heap.FragmentedBytes,
+            committed_bytes = heap.TotalCommittedBytes }, SceneJson));
+        _sceneCollectionTrace.Flush();
+    }
+
+    private object SceneLoadCounts()
+    {
+        var core = _app.Host!.GetStatus()!.View;
+        var trains = core.World.Trains.Select(item => ((Lookup<TrainView>.Found)core.FindTrain(item.Id)).Value).ToArray();
+        var settlements = core.World.Nodes.Where(item => item.Occupant is NodeOccupant.Settlement)
+            .Select(item => ((NodeOccupant.Settlement)item.Occupant!).Id)
+            .Select(id => ((Lookup<SettlementView>.Found)core.FindSettlement(id)).Value).ToArray();
+        return new { at = Seconds(), position = core.Position, nodes = core.World.Nodes.Length, edges = core.World.Edges.Length,
+            trains = trains.Length, train_vehicles = trains.Sum(train => train.Vehicles.Length),
+            train_states = trains.Select(train => new { id = train.Id.Value, activity = train.Activity.ToString(),
+                speed = train.SpeedMetersPerSecond, has_plan = train.Plan is not null }),
+            settlements = settlements.Length, buildings = settlements.Sum(settlement => settlement.Plots.Count(plot => plot.Occupant is PlotOccupant.Building)),
+            parked_vehicles = settlements.Sum(settlement => settlement.ParkedVehicles.Length),
+            active_facilities = settlements.Sum(settlement => settlement.Facilities.Count(facility => facility.ActualWorkPerSecond > 0)),
+            facilities = settlements.SelectMany(settlement => settlement.Facilities)
+                .Select(facility => new { key = facility.Key.ToString(), enabled = facility.Enabled,
+                    state = facility.State.ToString(), actual_work_per_second = facility.ActualWorkPerSecond }).ToArray() };
+    }
+
+    private object SceneCacheState()
+    {
+        var controller = _app.WorldScenes!;
+        var session = SceneMember(controller, "_session");
+        var factory = SceneMember(controller, "_factory");
+        var cache = SceneMember(factory, "nodeCache");
+        return new { at = Seconds(), session_exists = session is not null,
+            prebuild_tasks = (SceneMember(session, "PendingPrebuilds") as Array)?.Length ?? 0,
+            node_cache_entries = (SceneMember(cache, "nodes") as ICollection)?.Count,
+            displayed = controller.Display?.DisplayedFrame?.Update.Frame.ToString() };
+    }
+
+    private string[] SceneBlockingControls()
+    {
+        var size = _app.GetViewport().GetVisibleRect().Size;
+        return SceneDescendants(_app).OfType<Control>().Where(control => control.IsVisibleInTree() &&
+            control.MouseFilter != Control.MouseFilterEnum.Ignore && control.GetGlobalRect().Size.X >= size.X &&
+            control.GetGlobalRect().Size.Y >= size.Y && control is not MacroMap).Select(control => control.GetPath().ToString()).ToArray();
+    }
+
+    private async Task CaptureSceneImage(string name)
+    {
+        await _app.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+        using var image = _app.GetViewport().GetTexture().GetImage();
+        if (image.SavePng(Path.Combine(Path.GetDirectoryName(_output)!, name + ".png")) != Error.Ok)
+            throw new IOException("测量截图保存失败。");
+    }
+
+    private static object? SceneMember(object? target, string name)
+    {
+        if (target is null) return null;
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        return target.GetType().GetField(name, flags)?.GetValue(target) ?? target.GetType().GetProperty(name, flags)?.GetValue(target);
+    }
+
+    private void OnSceneSaveChanged()
+    {
+        if (_sceneOperationTrace is null) return;
+        var writes = (IEnumerable)SceneMember(_app.Saves, "_writes")!;
+        _sceneOperationTrace.WriteLine(JsonSerializer.Serialize(new { kind = "save-state", at = Seconds(),
+            busy = _app.Saves!.IsBusy, pending_writes = writes.Cast<object>().Select(write => new
+            { kind = SceneMember(write, "Kind")?.ToString(), path = SceneMember(write, "Path")?.ToString() }).ToArray() }, SceneJson));
+    }
+
+    private static IEnumerable<Node> SceneDescendants(Node node)
+    {
+        foreach (var child in node.GetChildren())
+        { yield return child; foreach (var descendant in SceneDescendants(child)) yield return descendant; }
+    }
+}
