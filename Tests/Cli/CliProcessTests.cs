@@ -56,6 +56,8 @@ public sealed partial class CliProcessTests
                 settlements.Select(settlement => settlement.GetProperty("type").GetProperty("value").GetString()!).Distinct().ToArray());
             foreach (var (type, preferred) in new (string, string[])[]
                      {
+                         ("core:agricultural-town", ["core:plains", "core:hills"]),
+                         ("core:industrial-city", ["core:plains"]),
                          ("core:forestry-town", ["core:forest"]), ("core:oilfield-town", ["core:desert"]),
                          ("core:mining-town", ["core:mountains", "core:hills"])
                      })

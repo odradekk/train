@@ -989,17 +989,16 @@ def content_files():
     document("combat-rules", "combat-rule", "basic-combat", {"schema_version": 1, "id": "basic-combat",
         "retreat_seconds": 24, "morale_damage_coefficient": 0.015, "weapon_destroyed_morale_loss": 0.18,
         "morale_recovery_per_second": 0.012, "surrender_threshold": 0.12, "new_lair_interval_seconds": 5400})
-    # 阈值仅供示例验证，分布待配平。
-    # 非平原带的起伏上限均超过 18 米噪声总振幅；不同上限消除闭区间边界的并列匹配。
+    # 初值待试玩；丘陵兜底所有有限起伏，不同上限保证交集处唯一匹配。
     bands = [{"terrain": terrain, "minimum_elevation": low, "maximum_elevation": high,
               "minimum_moisture": dry, "maximum_moisture": wet, "maximum_relief": relief,
-              "detour_multiplier": detour, "maximum_tracks": 2}
-             for terrain, low, high, dry, wet, relief, detour in (
-                 ("plains", -1, 10, 0.35, 0.65, 0.75, 1.12),
-                 ("hills", -1, 10, 0.35, 0.65, 100, 1.35),
-                 ("forest", -1, 30, 0.65, 2, 98, 1.35),
-                 ("desert", -1, 30, -1, 0.35, 97, 1.35),
-                 ("mountains", 10, 30, -1, 2, 96, 1.35),
+              "detour_multiplier": detour, "maximum_tracks": tracks}
+             for terrain, low, high, dry, wet, relief, detour, tracks in (
+                 ("plains", 0, 18, 0.2, 0.75, 1.4, 1.12, 2),
+                 ("hills", 0, 18, 0, 1, sys.float_info.max, 1.40, 2),
+                 ("forest", 0, 18, 0.65, 1, 18, 1.25, 2),
+                 ("desert", 0, 18, 0, 0.2, 19, 1.25, 2),
+                 ("mountains", 11, 18, 0, 1, 20, 1.65, 1),
              )]
     extraction_rate = BATCH_UNITS * REFERENCE_WORK_RATE / processes["stone-quarrying"]["work_required"]
     resources = [{"good": good, "allowed_terrain_types": list(terrains), "probability": RESOURCE_PROBABILITY,
