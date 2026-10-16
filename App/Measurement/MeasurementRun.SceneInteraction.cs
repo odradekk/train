@@ -324,7 +324,10 @@ internal sealed partial class MeasurementRun
                 var ray = new SceneRay(new(start.X, start.Y, start.Z), new(direction.X, direction.Y, direction.Z), camera.Far);
                 var pick = frame.Pick(ray);
                 var result = pick is ScenePick.Hit hit ? session.Resolve(hit.Value) : null;
-                var outcome = pick.GetType().Name + "/" + result?.GetType().Name;
+                var problems = result switch { SceneResult<PickSubject>.Failure failure => failure.Problems.ToArray(),
+                    SceneResult<PickSubject>.Faulted fault => [fault.Problem], _ => Array.Empty<SceneProblem>() };
+                var outcome = pick.GetType().Name + "/" + result?.GetType().Name +
+                    (problems.Length == 0 ? "" : ":" + string.Join(',', problems.Select(problem => problem.Code)));
                 outcomes[outcome] = outcomes.GetValueOrDefault(outcome) + 1;
                 if (result is SceneResult<PickSubject>.Success success)
                 {
@@ -343,7 +346,12 @@ internal sealed partial class MeasurementRun
                 firstFailure ??= new { screen = new { screen.X, screen.Y }, point = new { point.X, point.Y, point.Z },
                     ray = new { start = new { start.X, start.Y, start.Z }, direction = new { direction.X, direction.Y, direction.Z } },
                     pick = pick.ToString(), resolution = result?.ToString(), source = item.Source.Id.ToString(),
+                    problems,
                     displayedPose = item.Source.Pose.ToString(), worldTransform = mesh.GlobalTransform.ToString() };
+                if (problems.Length > 0 && _scenePresentedStamp is { } presented &&
+                    (presented.Session != frame.Update.Frame.Session || presented.Request != frame.Update.Frame.Request ||
+                     presented.Space != frame.Update.Frame.Space))
+                    return new(visible, false, resolved, Evidence());
             }
         }
         return new(visible, false, resolved, Evidence());

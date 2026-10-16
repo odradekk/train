@@ -31,6 +31,7 @@ internal sealed partial class MeasurementRun
     private double _sceneLastLoadSample;
     private bool _sceneCapturedPartial;
     private object? _scenePresented;
+    private SceneFrameStamp? _scenePresentedStamp;
     private static readonly JsonSerializerOptions SceneJson = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
     private sealed record SceneSample(double At, string Phase, double FrameSeconds, ulong Steps,
@@ -460,6 +461,7 @@ internal sealed partial class MeasurementRun
     private void OnScenePresented(ISceneFrame frame)
     {
         var started = Seconds();
+        _scenePresentedStamp = frame.Update.Frame;
         var followPose = _subject is not null && frame.FindPose(_subject) is Lookup<ScenePose>.Found pose
             ? pose.Value.ToString() : null;
         _scenePresented = new { at = started, stamp = frame.Update.Frame.ToString(), readiness = frame.Readiness.ToString(),
