@@ -23,6 +23,7 @@ internal sealed partial class MeasurementRun
     private readonly Dictionary<ProbeReferenceView, HashSet<(int, int)>> _probeTerrainBands = [];
     private readonly List<ProbeReferenceView> _probeRecordedViews = [];
     private bool _probeReadyChecked;
+    private readonly HashSet<SceneSpaceId> _probeReferenceSpaces = [];
     private sealed record ProbeExpected(string Key, string? Subject, SceneBounds Bounds, bool Rail);
     private sealed record ProbeReference(string BuildCommit, string InputSha256, ProbeReferenceView[] Views);
     private sealed record ProbeReferenceView(string Target, int? Node, int? Edge, double? ArcMeters,
@@ -56,6 +57,7 @@ internal sealed partial class MeasurementRun
         _probeMeshPoints.Clear();
         _probeFirstPicks.Clear();
         _probeReadyChecked = false;
+        _probeReferenceSpaces.Clear();
         _probeReferenceValidation = null;
         _scenePickCount = 0;
     }
@@ -82,7 +84,8 @@ internal sealed partial class MeasurementRun
         var absolute = center + ProbeOrigin(frame);
         var reference = _probeReference?.Views.FirstOrDefault(view => node is not null ? view.Node == node :
             edge is not null && view.Edge == (int)edge.Id.Value && Math.Abs(view.ArcMeters!.Value - edge.DistanceMeters) <= 64);
-        if (!_probeReadyChecked && frame.Readiness == SceneReadiness.Ready)
+        if (frame.Readiness == SceneReadiness.Ready && (_scenario == "scene-reference"
+            ? _probeReferenceSpaces.Add(frame.Update.Frame.Space) : !_probeReadyChecked))
         {
             _probeReadyChecked = true;
             if (_scenario == "scene-reference") _probeRecordedViews.Add(CaptureSceneReference(frame, center, node, edge));

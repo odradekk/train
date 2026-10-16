@@ -192,9 +192,8 @@ internal sealed partial class MeasurementRun
         {
             if (SceneDescendants(panel).OfType<ConfirmationDialog>()
                     .FirstOrDefault(dialog => dialog.Title == "未保存的更改") is { Visible: true } leave &&
-                SceneDescendants(leave).OfType<Button>()
-                    .FirstOrDefault(item => item.Text == "不保存") is { Disabled: false } discard)
-                discard.EmitSignal(BaseButton.SignalName.Pressed);
+                _app.Saves!.Leaving is { Waiting: false })
+                leave.EmitSignal(AcceptDialog.SignalName.CustomAction, "discard");
             return !_app.Saves!.IsBusy && _app.Host!.GetStatus() is not null;
         });
         _sceneLoadCompleted = Seconds();
@@ -222,10 +221,17 @@ internal sealed partial class MeasurementRun
         var follow = target is WorldObjectId.Train ? new WorldObjectId.Instance(new InstanceId.Vehicle(new(1))) : null;
         _subject = follow;
         _sceneClick = Seconds();
+        if (_scenario == "scene-reference") _app.Host!.SetPaused(true);
         _app.GetNode<MacroMap>("GameUi/Root/World/MacroMap").RaiseObjectClicked(target);
         _sceneOpenedTargets.Add(target.ToString()!);
+        var referenceResumed = false;
         await Wait(() =>
         {
+            if (_scenario == "scene-reference" && _sceneReady > 0 && !referenceResumed)
+            {
+                _app.Host!.SetPaused(false);
+                referenceResumed = true;
+            }
             if (_sceneNearAvailable && !_sceneDragIssued)
             {
                 var camera = _app.WorldScenes!.View.CameraRig.Camera;
@@ -239,7 +245,7 @@ internal sealed partial class MeasurementRun
             }
             // The observation window ends after the same Ready hold used for memory.
             // Missing interaction remains a null observation, never a successful signal.
-            return _sceneReady > 0 && _sceneLastDraw >= _sceneReady + 5;
+            return _sceneReady > 0 && _sceneLastDraw >= _sceneReady + (_scenario == "scene-reference" ? 10 : 5);
         });
         var end = Seconds();
         _sceneOperation = null;

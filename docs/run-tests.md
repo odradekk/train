@@ -110,7 +110,7 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 
 | 情景 | 实际路径 |
 | --- | --- |
-| `scene-reference` | 独立参考运行，在各目标第一次 Ready 记录公开对象和地形，输出运行目录下的 `scene-reference.json`，不作性能样本 |
+| `scene-reference` | 独立参考运行，暂停至初始 Ready 后恢复仿真，再观察 10 秒；各空间首次 Ready 记录公开对象和地形，输出 `scene-reference.json`，不作性能样本 |
 | `scene-map` | 同存档的新进程地图内存基线，不打开场景 |
 | `scene-node` | 地图首次打开节点 2、返回地图后重开、节点→线路 11、线路→节点、读档回地图后立即再开节点 |
 | `scene-node-first` | 只测地图首次打开节点 2，用于规模点 |
