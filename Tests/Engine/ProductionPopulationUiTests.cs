@@ -4,7 +4,6 @@ using Chickensoft.GodotTestDriver;
 using Godot;
 using Train.App;
 using Train.Content.Contracts;
-using Train.Content.ContractSupport;
 using Train.Core.Contracts;
 using Train.Core.ContractSupport;
 using Train.Ui;
@@ -20,35 +19,18 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
     public async Task Production_names_and_missing_identifiers_preserve_frozen_batches_and_short_revisions()
     {
         var original = EconomyFixture.Create();
-        var basis = EconomyFixture.Content();
-        var food = ((ContentLookup<GoodPresentation>.Found)basis.FindGood(EconomyFixture.Food)).Value;
         var process = new ProcessRef.Production(new("fixture:press"));
         var missing = new ProcessRef.Production(new("fixture:missing"));
         var removed = new ProcessRef.Production(new("fixture:removed"));
-        var content = new FixedContentView(basis.Core with
-        {
-            Processes = [new(new ProcessDetails.Production(process.Definition, [], [new(EconomyFixture.Food, 2)]),
-                new("v2"), 10, 1, 1, FacilityTag.FoodProcessing, [])]
-        }, basis.Generation)
-        {
-            DefinitionDisplays = new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
+        var content = EconomyFixture.Content(
+            processes: [new(new ProcessDetails.Production(process.Definition, [], [new(EconomyFixture.Food, 2)]),
+                new("v2"), 10, 1, 1, FacilityTag.FoodProcessing, [])],
+            definitionDisplays: new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
             {
                 [new CoreDefinitionReference.Process(process)] = new ContentLookup<ContentDisplay>.Found(new(new("固定生产流程", ""), null, null, false)),
                 [new CoreDefinitionReference.Process(missing)] = new ContentLookup<ContentDisplay>.Missing([]),
                 [new CoreDefinitionReference.Process(removed)] = new ContentLookup<ContentDisplay>.NotFound()
-            },
-            Goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>>
-            {
-                [EconomyFixture.Food] = new ContentLookup<GoodPresentation>.Found(food),
-                [EconomyFixture.Equipment] = basis.FindGood(EconomyFixture.Equipment)
-            },
-            Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>>
-                { [food.Display.Icon!.Value] = basis.FindAsset(food.Display.Icon.Value) },
-            SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
-                { [new(1)] = basis.FindSettlementLayout(new(1)) },
-            Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
-                { [new("fixture-vehicle")] = basis.FindDesign(new("fixture-vehicle")) }
-        };
+            });
         ImmutableArray<FacilityView> facilities =
         [
             new(new(new(1), CapabilityKind.Production), process, true, 0, ProductionState.Running, 1, 1, [],
