@@ -131,7 +131,12 @@ public partial class NodeTransitionPreview : Node
         var rotation = new Quaternion(pose.Rotation.X, pose.Rotation.Y, pose.Rotation.Z, pose.Rotation.W);
         Assertions.Require(root.GlobalPosition.DistanceTo(expected) < .003f && root.GlobalBasis.GetRotationQuaternion().AngleTo(rotation) < .003f,
             $"真实 Godot 车辆节点姿态必须与 FindPose 一致：node={root.GlobalTransform}, expected={pose}, frame={frame.Update.Frame}。");
-        _view.CameraRig.Update(1d / 60);
+        // Inputs are separate keyframes; let the normal follow camera catch up after their deliberate jumps.
+        for (var i = 0; i < 60; i++)
+        {
+            _view.CameraRig.Update(1d / 60);
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        }
         _status.Text = $"{name} alpha={alpha} readiness={frame.Readiness} loading={_view.Loading}\n受控 Core 公开快照；真实 Scenes / Godot 节点和相机；不是生产 Core 时序证据。\nNode3D == FindPose：通过";
         await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
         var filename = $"{name}-{alpha:0.00}";
@@ -139,7 +144,7 @@ public partial class NodeTransitionPreview : Node
         if (image.SavePng(Path.Combine(_directory, filename + ".png")) != Error.Ok) throw new IOException("截图保存失败。");
         static float[] V(Vector3 v) => [v.X, v.Y, v.Z];
         static float[] Q(Quaternion q) => [q.X, q.Y, q.Z, q.W];
-        var row = new { name, alpha, corePosition = snapshot.Core.Position.ToString(), trainPosition = snapshot.Core.World.Trains[0].Position.ToString(),
+        var row = new { name, alpha, cameraSettlingFrames = 60, corePosition = snapshot.Core.Position.ToString(), trainPosition = snapshot.Core.World.Trains[0].Position.ToString(),
             evidence = "controlled public Core snapshot; real ScenesFactory + SceneDisplay + WorldCamera; no production Core advancement",
             frame.SimulationSeconds, readiness = frame.Readiness.ToString(), loading = _view.Loading, attempts,
             displayedPosition = V(root.GlobalPosition), displayedRotation = Q(root.GlobalBasis.GetRotationQuaternion()),
