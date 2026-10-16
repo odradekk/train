@@ -107,6 +107,8 @@ internal sealed class SceneVehicles : IAsyncDisposable
     }
     private readonly CancellationTokenSource cancellation = new();
     internal Task[] PendingWork => pending.Values.Cast<Task>().ToArray();
+    internal bool HasPendingBuilds => pending.Values.Any(task => !task.IsCompleted) || current.Any(pair =>
+        !ready.TryGetValue(pair.Key, out var body) || !WorldSceneSession.Matches(body, pair.Value));
 
     internal void Retain(IEnumerable<InstanceId> instances)
     {
@@ -125,13 +127,13 @@ internal sealed class SceneVehicles : IAsyncDisposable
             ? WorldSceneSession.Attach(body.Geometry, "vehicle:" + instance.Id + ":", objectId).Geometry : null;
     }
 
-    internal BuiltObject? Prepare(IContentView content, InstanceView instance)
+    internal BuiltObject? Prepare(IContentView content, InstanceView instance, bool allowBuild = true)
     {
         current[instance.Id] = instance;
         Drain();
         if (ready.TryGetValue(instance.Id, out var body) && WorldSceneSession.Matches(body, instance))
             return body;
-        if (!pending.ContainsKey(instance.Id) && pending.Count < RailwayCoordinates.MaxConcurrentBuilds)
+        if (allowBuild && !pending.ContainsKey(instance.Id) && pending.Count < RailwayCoordinates.MaxConcurrentBuilds)
             pending.Add(instance.Id, Task.Run(() =>
             {
                 var key = Inputs(content, instance);

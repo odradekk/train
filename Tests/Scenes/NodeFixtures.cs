@@ -13,7 +13,7 @@ internal static class NodeFixtures
     internal static NodeScene.Built Build(SceneWorldSnapshot snapshot, NodeLayout layout,
         NodeScene.Built? previous = null, CancellationToken token = default)
     {
-        var prepared = NodeScene.Prepare(snapshot, layout, previous, token);
+        var prepared = NodeScene.Prepare(snapshot, layout, previous is null ? null : NodeScene.Cached.From(previous), token);
         var parts = prepared.Global.Parts.ToBuilder();
         foreach (var (key, segment) in prepared.Rails)
             parts[key] = segment.Build(previous?.Parts.GetValueOrDefault(key), token);

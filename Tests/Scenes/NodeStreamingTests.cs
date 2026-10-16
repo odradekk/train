@@ -16,6 +16,107 @@ public sealed class NodeStreamingTests
     private static readonly SceneFrameRequest Request = new(1, null, SceneDebugLayer.None);
 
     [TestMethod]
+    [DataRow(false, false, false)]
+    [DataRow(false, true, false)]
+    [DataRow(true, true, false)]
+    [DataRow(false, true, true)]
+    public async Task Cached_parts_match_an_independent_cold_build_after_rebinding(bool changeTerrain, bool changeGeneration, bool changeAppearance)
+    {
+        var original = Snapshot(false);
+        var cache = new NodeScene.Cache();
+        await using var vehicles = new SceneVehicles();
+        ImmutableDictionary<string, NodeScene.Part> before;
+        await using (var first = Open(original, vehicles, cache, (data, from, old, token) => data.BuildChunk(from, old, token)))
+        {
+            await Settle(first, default);
+            before = cache.Read(NodeFixtures.NodeId)!.Parts;
+        }
+        var input = Snapshot(false, relief: changeTerrain ? 2 : 0);
+        if (changeGeneration)
+        {
+            var content = (FixedContentView)input.Content;
+            input = input with { Content = new FixedContentView
+            {
+                Generation = new(2), Core = content.Core, Voxels = content.Voxels,
+                Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+                { [SceneFixtures.Design] = content.FindDesign(SceneFixtures.Design) },
+                VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
+                { [SceneFixtures.Voxel] = changeAppearance ? new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube with
+                    { Presentation = ((VoxelPresentation.Cube)SceneFixtures.Cube.Presentation) with { Top = new("changed-top") } }) :
+                    content.FindVoxelAppearance(SceneFixtures.Voxel) },
+                Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
+                { [RailwayFixtures.Terrain] = content.FindTerrain(RailwayFixtures.Terrain) },
+                RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>
+                { [RailwayFixtures.Rule] = content.FindRailwayAppearance(RailwayFixtures.Rule) },
+                SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
+                { [new(1)] = content.FindSettlementLayout(new(1)) }
+            } };
+        }
+        await using var warm = Open(input, vehicles, cache, (data, from, old, token) => data.BuildChunk(from, old, token));
+        await Settle(warm, default);
+        var reused = cache.Read(NodeFixtures.NodeId)!.Parts;
+        var coldCache = new NodeScene.Cache();
+        await using var cold = Open(input, vehicles, coldCache, (data, from, old, token) => data.BuildChunk(from, old, token));
+        await Settle(cold, default);
+        var expected = coldCache.Read(NodeFixtures.NodeId)!.Parts;
+        CollectionAssert.AreEquivalent(expected.Keys.ToArray(), reused.Keys.ToArray());
+        foreach (var (key, part) in reused)
+        {
+            NodeFixtures.AssertPartEqual(expected[key], part);
+            if (!changeTerrain && !changeAppearance) Assert.AreSame(before[key], part, "Generation alone does not invalidate unchanged values.");
+        }
+        if (changeTerrain || changeAppearance) Assert.IsTrue(reused.Any(pair => before[pair.Key].Inputs != pair.Value.Inputs));
+    }
+
+    [TestMethod]
+    public async Task Pausing_a_candidate_allows_inflight_parts_to_finish_without_refilling_slots()
+    {
+        var snapshot = Snapshot(true);
+        var started = 0;
+        using var release = new ManualResetEventSlim();
+        var filled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var vehicles = new SceneVehicles();
+        var scene = Open(snapshot, vehicles, build: (data, from, old, token) =>
+        {
+            if (Interlocked.Increment(ref started) == RailwayCoordinates.MaxConcurrentBuilds) filled.TrySetResult();
+            release.Wait();
+            return SmallPart(data, from, old, token);
+        });
+        try
+        {
+            await scene.BuildWork!;
+            scene.Pump();
+            await filled.Task;
+            scene.SetBuildAllowed(false);
+            release.Set();
+            await Task.WhenAll(scene.PendingWork);
+            scene.Pump(allowBuild: false);
+            Assert.AreEqual(RailwayCoordinates.MaxConcurrentBuilds, started);
+            Assert.IsTrue(scene.HasPendingBuilds, "Unstarted nearby parts still give the current scene priority.");
+            Assert.AreEqual(0, scene.PendingWork.Length);
+        }
+        finally { release.Set(); await scene.DisposeAsync(); }
+    }
+
+    [TestMethod]
+    public async Task Background_layout_reads_do_not_run_on_the_pump_thread()
+    {
+        using var content = new SceneFixtures.BlockedAppearanceView(NodeFixtures.Content(), blockRailway: true);
+        var snapshot = NodeFixtures.Snapshot(platforms: 0, trains: [], content: content);
+        var callerThread = Environment.CurrentManagedThreadId;
+        var unblock = Task.Run(async () => { await content.Entered.Task; content.Release.Set(); });
+        await using var vehicles = new SceneVehicles();
+        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), SceneFixtures.NextId(),
+            vehicles, RailwayFixtures.EmptyNode, background: true);
+        await unblock;
+        Assert.AreNotEqual(callerThread, content.ReadThread);
+        await scene.BuildWork!;
+        scene.Pump(allowBuild: false);
+        Assert.IsNotNull(scene.Layout);
+        Assert.AreEqual(NodeLayout.Build(snapshot, NodeFixtures.NodeId).PanBounds(default), scene.Layout.PanBounds(default));
+    }
+
+    [TestMethod]
     public async Task Completed_builders_refill_slots_without_another_pump()
     {
         var snapshot = Snapshot(true);

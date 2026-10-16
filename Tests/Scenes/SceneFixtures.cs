@@ -58,14 +58,20 @@ internal static class SceneFixtures
         ulong id = 0;
         return _ => new(++id);
     }
-    internal sealed class BlockedAppearanceView(IContentView inner) : IContentView, IDisposable
+    internal sealed class BlockedAppearanceView(IContentView inner, bool blockRailway = false) : IContentView, IDisposable
     {
         internal TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal ManualResetEventSlim Release { get; } = new();
-        public ContentLookup<VoxelAppearanceProjection> FindVoxelAppearance(VoxelDefinitionId id)
+        internal int ReadThread { get; private set; }
+        private void Block()
         {
+            ReadThread = Environment.CurrentManagedThreadId;
             Entered.TrySetResult();
             Release.Wait();
+        }
+        public ContentLookup<VoxelAppearanceProjection> FindVoxelAppearance(VoxelDefinitionId id)
+        {
+            if (!blockRailway) Block();
             return inner.FindVoxelAppearance(id);
         }
         public ContentGeneration Generation => inner.Generation;
@@ -86,7 +92,11 @@ internal static class SceneFixtures
         public ContentLookup<CreatureAppearanceProjection> FindCreature(CreatureDefinitionId id) => inner.FindCreature(id);
         public ContentLookup<LairAppearanceProjection> FindLair(LairTypeId id) => inner.FindLair(id);
         public ContentLookup<TerrainAppearanceProjection> FindTerrain(TerrainTypeId id) => inner.FindTerrain(id);
-        public ContentLookup<RailwayAppearanceProjection> FindRailwayAppearance(RuleDefinitionId id) => inner.FindRailwayAppearance(id);
+        public ContentLookup<RailwayAppearanceProjection> FindRailwayAppearance(RuleDefinitionId id)
+        {
+            if (blockRailway) Block();
+            return inner.FindRailwayAppearance(id);
+        }
         public void Dispose() => Release.Dispose();
     }
 }
