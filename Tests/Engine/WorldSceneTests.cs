@@ -52,22 +52,41 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Preparation_spans_frames_and_preserves_committed_frame()
+    public async Task Locked_candidate_commits_during_streaming_without_rewinding_pose_or_camera()
     {
+        await new UiTestInput(TestScene).Frames(2);
         var fixture = new Fixture(TestScene.GetTree());
-        var first = Frame(1, pick: new ScenePick.Miss());
+        var target = new WorldSceneTarget.Follow(new(1), new(1));
+        var subject = new WorldObjectId.Instance(new InstanceId.Vehicle(new(1)));
+        SceneObject Moving(float x) => Object(1) with { Subject = subject,
+            Pose = new(new(x, 0, 0), System.Numerics.Quaternion.Identity) };
+        ImmutableDictionary<WorldObjectId, Lookup<ScenePose>> Poses(float x) =>
+            ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty.Add(subject,
+                new Lookup<ScenePose>.Found(Moving(x).Pose));
+        var first = Frame(1, objects: [Moving(0)], poses: Poses(0), pick: new ScenePick.Miss());
+        var hit = new SceneHit(Stamp(4), new(1), new PickSubject.Terrain(new WorldLocation.Node(new(1))),
+            default, GridFace.PositiveY, default, NVector3.UnitY, 1, []);
+        SceneObject[] streamed = [Object(6), Object(7), Object(8), Object(9), Object(10)];
         var candidates = Enumerable.Range(2, 3).Select(revision =>
             Frame((ulong)revision, first.Update.Frame, objects:
-                [Object((ulong)(revision * 3)), Object((ulong)(revision * 3 + 1)), Object((ulong)(revision * 3 + 2))],
+                [Moving(revision * 10 - (revision - 1) * 100), .. streamed.Take(revision + 1)],
+                origin: new((revision - 1) * 100, 0, 0), shift: new(-(revision - 1) * 100, 0, 0),
+                poses: Poses(revision * 10 - (revision - 1) * 100),
+                pick: revision == 4 ? new ScenePick.Hit(hit) : new ScenePick.Miss(),
                 readiness: revision == 2 ? SceneReadiness.Partial : SceneReadiness.Ready)).ToArray();
-        var next = Frame(5, candidates[0].Update.Frame, objects: [Object(20)]);
+        var next = Frame(5, candidates[0].Update.Frame, objects: [Moving(-350), Object(20)],
+            origin: new(400, 0, 0), shift: new(-300, 0, 0), poses: Poses(-350));
         FixedDisplaySession? session = null;
         try
         {
             var app = await Ready(fixture, new Setup(), Factory(binding => session = Session(binding,
-                [Success(first), .. candidates.Select(Success), Success(next)])));
+                [Success(first), .. candidates.Select(Success), Success(next)], target: target,
+                resolve: ImmutableDictionary<SceneHit, SceneResult<PickSubject>>.Empty.Add(hit,
+                    new SceneResult<PickSubject>.Success(hit.Subject)))));
             var world = app.WorldScenes!;
-            world.Open(Target);
+            var selected = 0;
+            world.Selected += _ => selected++;
+            world.Open(target);
             world.Display!.Timestamp = () => 0;
             world.ProcessFrame(0, false);
             long timestamp = 0;
@@ -75,28 +94,269 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             var root = world.Display.Objects[new(1)].Root;
             for (var i = 0; i < 2; i++)
             {
-                world.ProcessFrame(0, false);
+                var oldFocus = world.View.CameraRig.Focus.X + (i == 0 ? 0 : candidates[i - 1].Origin.X);
+                world.ProcessFrame(0.1, false);
                 Require(ReferenceEquals(world.Display.DisplayedFrame, first) &&
                     ReferenceEquals(world.Display.Objects[new(1)].Root, root) && world.View.Interactive,
-                    "预算耗尽后必须继续显示已提交帧且保留交互。");
+                    "预算耗尽后必须保留已提交网格和交互。");
+                Require(Math.Abs(root.GlobalPosition.X + candidates[i].Origin.X - (i + 2) * 10) < 0.001 &&
+                    world.View.CameraRig.Focus.X + candidates[i].Origin.X > oldFocus &&
+                    world.View.CameraRig.Focus.X < root.GlobalPosition.X,
+                    "准备未完成时真实节点必须更新到最新姿态，跟随焦点也必须持续推进。");
                 world.Pick(TestScene.GetViewport().GetVisibleRect().Size / 2);
-                Require(first.LastPickRay is not null && candidates[i].LastPickRay is null,
-                    "准备期间拾取只能查询已提交帧。");
+                Require(first.LastPickRay is null && candidates[i].LastPickRay is not null,
+                    "准备期间拾取必须查询最新姿态帧。");
             }
-            world.ProcessFrame(0, false);
+            var beforeCommit = world.View.CameraRig.Focus.X + candidates[1].Origin.X;
+            world.ProcessFrame(0.1, false);
             Require(ReferenceEquals(world.Display.DisplayedFrame, candidates[0]) && world.Display.Objects.Count == 4,
-                "必须完成并提交固定的Partial候选，不得被持续到达的Ready帧取代。");
+                "持续新增对象不能推迟锁定候选的提交。");
+            Require(ReferenceEquals(world.Display.PoseFrame, candidates[^1]) &&
+                Math.Abs(root.GlobalPosition.X + candidates[^1].Origin.X - 40) < 0.001 &&
+                world.View.CameraRig.Focus.X + candidates[^1].Origin.X > beforeCommit &&
+                world.View.CameraRig.Focus.X < root.GlobalPosition.X &&
+                Math.Abs(world.Display.Objects[new(6)].Root.GlobalPosition.X + 200) < 0.001,
+                "较早候选提交时必须立即显示最新姿态，物体和相机的原点变化只施加一次。");
+            world.Pick(TestScene.GetViewport().GetVisibleRect().Size / 2);
+            Require(selected == 1 && session!.ResolveCalls.Count == 1,
+                "较早候选提交的同一帧，最新P命中的兼容已显示对象仍须可选中。");
             Require(session!.PresentCalls.Count == 4 && session.PresentCalls.Skip(1).All(call =>
-                ReferenceEquals(call.DisplayedFrame, first) && ReferenceEquals(call.Request.Camera!.Frame, first)),
-                "准备期间每帧必须继续Present，相机和显示边界均来自旧提交帧。");
+                ReferenceEquals(call.DisplayedFrame, first)) &&
+                ReferenceEquals(session.PresentCalls[2].Request.Camera!.Frame, candidates[0]) &&
+                ReferenceEquals(session.PresentCalls[3].Request.Camera!.Frame, candidates[1]),
+                "Present网格基准必须保持完整提交帧，相机样本则跟随实际最新姿态帧。");
             world.Display.Timestamp = () => 0;
             world.ProcessFrame(0, false);
             Require(ReferenceEquals(world.Display.DisplayedFrame, next) &&
                 ReferenceEquals(session.PresentCalls[^1].DisplayedFrame, candidates[0]) &&
-                ReferenceEquals(session.PresentCalls[^1].Request.Camera!.Frame, candidates[0]),
+                ReferenceEquals(session.PresentCalls[^1].Request.Camera!.Frame, candidates[^1]),
                 "提交后的下一轮必须从新的已提交帧开始。");
         }
-        finally { await fixture.Cleanup(); }
+        finally { await fixture.Cleanup(); await new UiTestInput(TestScene).Frames(2); }
+    }
+
+    [Test]
+    public async Task Space_handoff_converts_pending_origin_shift_for_objects_camera_and_sample()
+    {
+        await new UiTestInput(TestScene).Frames(2);
+        var fixture = new Fixture(TestScene.GetTree());
+        var target = new WorldSceneTarget.Follow(new(1), new(1));
+        var subject = new WorldObjectId.Instance(new InstanceId.Vehicle(new(1)));
+        SceneObject Body(ulong id, float x) => Object(id) with { Subject = subject,
+            Pose = new(new(x, 0, 0), System.Numerics.Quaternion.Identity) };
+        ImmutableDictionary<WorldObjectId, Lookup<ScenePose>> Poses(float x) =>
+            ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty.Add(subject,
+                new Lookup<ScenePose>.Found(Body(1, x).Pose));
+        var scenery = Object(2) with { Pose = new(new(30, 0, 0), System.Numerics.Quaternion.Identity) };
+        var first = Frame(1, objects: [Body(1, 10), scenery], poses: Poses(10));
+        var shifted = Frame(2, first.Update.Frame, objects: [Body(1, 5), Object(3), Object(4)],
+            shift: new(-10, 0, 0), origin: new(10, 0, 0), poses: Poses(5));
+        var loading = Frame(3, readiness: SceneReadiness.Loading, objects: [Body(11, 15)],
+            origin: new(1000, 0, 0), space: 2, poses: Poses(15));
+        SceneObject[] replacementObjects = [Body(11, -85), scenery with { Id = new(22),
+            Pose = new(new(-70, 0, 0), System.Numerics.Quaternion.Identity) }, Object(23)];
+        var pending = Frame(4, objects: [.. replacementObjects], origin: new(1100, 0, 0), space: 2, poses: Poses(-85));
+        var latest = Frame(5, objects: [.. replacementObjects], origin: new(1100, 0, 0), space: 2, poses: Poses(-85));
+        FixedDisplaySession? session = null;
+        try
+        {
+            var app = await Ready(fixture, new Setup(), Factory(binding => session = Session(binding,
+                [Success(first), Success(shifted), Success(loading), Success(pending), Success(latest)], target: target)));
+            var world = app.WorldScenes!;
+            world.Open(target);
+            world.Display!.Timestamp = () => 0;
+            world.ProcessFrame(0, false);
+            long timestamp = 0;
+            world.Display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
+            world.ProcessFrame(0, false);
+            Require(world.Display.IsPreparing && Math.Abs(world.View.CameraRig.Focus.X) < 0.001 &&
+                Math.Abs(world.Display.Objects[new(1)].Root.GlobalPosition.X - 5) < 0.001,
+                "切换前必须建立未提交的原点平移和跟随余量。");
+            world.ProcessFrame(0, false);
+            Require(Math.Abs(world.View.CameraRig.Focus.X - 10) < 0.001 &&
+                Math.Abs(world.Display.Objects[new(1)].Root.GlobalPosition.X - 15) < 0.001 &&
+                Math.Abs(world.Display.Objects[new(2)].Root.GlobalPosition.X - 30) < 0.001,
+                "新空间交接坐标相对D对齐，旧叠加平移必须与相机一起换算，不能重复保留。");
+            world.ProcessFrame(0, false);
+            Require(world.Display.IsPreparing && ReferenceEquals(world.Display.DisplayedFrame, first) &&
+                Math.Abs(world.Display.Objects[new(1)].Root.GlobalPosition.X + 85) < 0.001 &&
+                Math.Abs(world.Display.Objects[new(2)].Root.GlobalPosition.X + 70) < 0.001 &&
+                Math.Abs(world.View.CameraRig.Focus.X + 90) < 0.001,
+                "Loading锚点后的原点变化必须同时换算旧对象和相机，保持跟随余量。");
+            Require(ReferenceEquals(session!.PresentCalls[^1].Request.Camera!.Frame, loading) &&
+                Math.Abs(session.PresentCalls[^1].Request.Camera!.Focus.X - 10) < 0.001,
+                "相机样本的来源帧和焦点坐标必须配对。");
+            await new UiTestInput(TestScene).Frames(2);
+            world.Display.Timestamp = () => 0;
+            world.ProcessFrame(0, false);
+            Require(ReferenceEquals(world.Display.DisplayedFrame, pending) &&
+                Math.Abs(world.Display.Objects[new(11)].Root.GlobalPosition.X + 85) < 0.001 &&
+                Math.Abs(world.View.CameraRig.Focus.X + 90) < 0.001,
+                "完整替换提交不得再次施加原点变化或重置跟随余量。");
+        }
+        finally { await fixture.Cleanup(); await new UiTestInput(TestScene).Frames(2); }
+    }
+
+    [Test]
+    public async Task Replacement_without_a_displayed_base_freezes_the_old_view_until_commit()
+    {
+        await new UiTestInput(TestScene).Frames(2);
+        foreach (var cause in new[] { "target", "base" })
+        {
+            var fixture = new Fixture(TestScene.GetTree());
+            var target = new WorldSceneTarget.Follow(new(1), new(1));
+            var nextTarget = new WorldSceneTarget.Follow(new(1), new(2));
+            var subject = new WorldObjectId.Instance(new InstanceId.Vehicle(new(1)));
+            var nextSubject = new WorldObjectId.Instance(new InstanceId.Vehicle(new(2)));
+            SceneObject Body(ulong id, WorldObjectId value, float x) => Object(id) with
+                { Subject = value, Pose = new(new(x, 0, 0), System.Numerics.Quaternion.Identity) };
+            ImmutableDictionary<WorldObjectId, Lookup<ScenePose>> Poses(float x, float nextX = -500) =>
+                ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty
+                    .Add(subject, new Lookup<ScenePose>.Found(Body(1, subject, x).Pose))
+                    .Add(nextSubject, new Lookup<ScenePose>.Found(Body(12, nextSubject, nextX).Pose));
+            var first = Frame(1, objects: [Body(1, subject, 10)], poses: Poses(10), pick: new ScenePick.Miss());
+            var oldPending = Frame(2, first.Update.Frame, objects: [Body(1, subject, 5), Object(6), Object(7)],
+                shift: new(-10, 0, 0), origin: new(10, 0, 0), poses: Poses(5));
+            var request = cause == "target" ? 2UL : 1UL;
+            var loading = Frame(4, readiness: SceneReadiness.Loading, origin: new(1000, 0, 0),
+                request: request, space: 2, poses: Poses(5000));
+            SceneObject[] objects = [Body(11, subject, 5000), Body(12, nextSubject, -500), Object(13)];
+            var pending = Frame(5, objects: [.. objects], origin: new(1000, 0, 0),
+                request: request, space: 2, poses: Poses(5000), pick: new ScenePick.Miss());
+            var hit = new SceneHit(Stamp(6) with { Request = new(request), Space = new(2) }, new(11),
+                new PickSubject.Terrain(new WorldLocation.Node(new(1))), default, GridFace.PositiveY,
+                default, NVector3.UnitY, 1, []);
+            var latest = Frame(6, objects: [.. objects, Object(14)], origin: new(1000, 0, 0),
+                request: request, space: 2, poses: Poses(5000), pick: new ScenePick.Hit(hit));
+            FixedDisplaySession? session = null;
+            try
+            {
+                var app = await Ready(fixture, new Setup(), Factory(binding => session = new()
+                {
+                    Id = SceneId, Binding = binding,
+                    RequestResults = ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>>.Empty
+                        .Add(target, new SceneResult<SceneRequestId>.Success(new(1)))
+                        .Add(nextTarget, new SceneResult<SceneRequestId>.Success(new(2))),
+                    ResolveResults = ImmutableDictionary<SceneHit, SceneResult<PickSubject>>.Empty
+                        .Add(hit, new SceneResult<PickSubject>.Success(hit.Subject)),
+                    PresentResults = [Success(first), Success(oldPending),
+                        .. cause == "base" ? new[] { Success(Frame(3, Stamp(99))) } : [],
+                        Success(loading), Success(pending), Success(latest)]
+                }));
+                var world = app.WorldScenes!;
+                var selected = 0;
+                world.Selected += _ => selected++;
+                world.Open(target);
+                world.Display!.Timestamp = () => 0;
+                world.ProcessFrame(0, false);
+                long timestamp = 0;
+                world.Display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
+                world.ProcessFrame(0.1, false);
+                Require(world.Display.IsPreparing && ReferenceEquals(world.Display.DisplayedFrame, first),
+                    "切换前必须有未提交的姿态和原点平移。");
+                var root = world.Display.Objects[new(1)].Root;
+                var position = root.GlobalPosition;
+                var focus = world.View.CameraRig.Focus;
+                var camera = world.View.CameraRig.Camera.GlobalTransform;
+                if (cause == "target") world.Open(nextTarget);
+                else world.ProcessFrame(0.1, false);
+                foreach (var candidate in new[] { loading, pending })
+                {
+                    world.ProcessFrame(0.1, false);
+                    Require(root.GlobalPosition.DistanceTo(position) < 0.001 &&
+                        world.View.CameraRig.Focus.DistanceTo(focus) < 0.001 &&
+                        world.View.CameraRig.Camera.GlobalTransform == camera &&
+                        ReferenceEquals(world.Display.DisplayedFrame, first),
+                        $"{cause}完整替换提交前不能移动旧画面或相机。");
+                    var call = session!.PresentCalls[^1];
+                    Require(call.DisplayedFrame is null && ReferenceEquals(call.Request.Camera!.Frame, first),
+                        "没有D基准的Present必须继续用D采样相机。");
+                    Require(NVector3.Distance(call.Request.Camera!.Focus, new(focus.X + 10, focus.Y, focus.Z)) < 0.001,
+                        "冻结期间的相机样本必须把焦点换回D的原点。");
+                    world.Pick(TestScene.GetViewport().GetVisibleRect().Size / 2);
+                    Require(candidate.LastPickRay is null, "完整替换期间不能用新目标帧拾取旧画面。");
+                }
+                Require(world.Display.IsPreparing, "确定性预算必须让新目标准备跨帧。");
+                if (cause == "base") Require(first.LastPickRay is not null,
+                    "Base恢复期间保留的拾取资格只能查询D。");
+                await new UiTestInput(TestScene).Frames(2);
+                world.Display.Timestamp = () => 0;
+                world.ProcessFrame(0.1, false);
+                Require(ReferenceEquals(world.Display.DisplayedFrame, pending) && world.View.Interactive &&
+                    !world.Display.Objects.ContainsKey(new(1)) && world.Display.Objects.ContainsKey(new(11)),
+                    "资源就绪后才应切换到新场景。");
+                Require(world.View.CameraRig.Focus != focus, "提交后相机必须接入新目标帧。");
+                world.Pick(TestScene.GetViewport().GetVisibleRect().Size / 2);
+                Require(selected == 1 && session!.ResolveCalls.SequenceEqual(new[] { hit }) &&
+                    latest.LastPickRay is not null && !world.Display.Objects.ContainsKey(new(14)),
+                    "较早完整候选提交当帧，最新P命中的已显示兼容对象必须可选，新对象仍等待资源。");
+            }
+            finally { await fixture.Cleanup(); await new UiTestInput(TestScene).Frames(2); }
+        }
+    }
+
+    [Test]
+    public async Task Pending_picks_only_select_existing_objects_without_visual_or_parent_changes()
+    {
+        await new UiTestInput(TestScene).Frames(2);
+        foreach (var scenario in new[] { "moving", "new", "null", "parent", "visual", "removed", "replacement" })
+        {
+            var fixture = new Fixture(TestScene.GetTree());
+            var first = Frame(1, objects: [Object(1), Object(2)], pick: new ScenePick.Miss());
+            var changed = Object(1) with { Pose = new(new(-70, 0, 0), System.Numerics.Quaternion.Identity) };
+            if (scenario == "parent") changed = changed with { Parent = new(2) };
+            if (scenario == "visual") changed = changed with { Visuals =
+                [new SceneVisual.Geometry(Mesh with { TriangleIndices = ImmutableArray.Create(0, 1, 2) }, new(false, 0, 0, false))] };
+            var hit = new SceneHit(Stamp(2), scenario == "null" ? null : new SceneObjectId(scenario == "new" ? 20UL : 1UL),
+                new PickSubject.Terrain(new WorldLocation.Node(new(1))), default, GridFace.PositiveY, default, NVector3.UnitY, 1, []);
+            var pending = new FixedSceneFrame
+            {
+                Update = new(scenario == "replacement" ? null : first.Update.Frame, Stamp(2), new(-100, 0, 0),
+                    scenario == "removed" ? [Object(20), Object(21), Object(22)] :
+                        [changed, Object(20), Object(21), Object(22)],
+                    scenario == "removed" ? [new(1)] : [], new([], []), []),
+                Origin = new(100, 0, 0),
+                PickResult = scenario == "removed" ? new ScenePick.Miss() : new ScenePick.Hit(hit),
+                TerrainHeightResult = new Lookup<double>.Missing()
+            };
+            FixedDisplaySession? session = null;
+            try
+            {
+                var app = await Ready(fixture, new Setup(), Factory(binding => session = Session(binding,
+                    [Success(first), Success(pending), Success(pending)], resolve:
+                    ImmutableDictionary<SceneHit, SceneResult<PickSubject>>.Empty.Add(hit,
+                        new SceneResult<PickSubject>.Success(hit.Subject)))));
+                var world = app.WorldScenes!;
+                var selected = 0;
+                world.Selected += _ => selected++;
+                world.Open(Target);
+                world.Display!.Timestamp = () => 0;
+                world.ProcessFrame(0, false);
+                var center = TestScene.GetViewport().GetVisibleRect().Size / 2;
+                world.Pick(center);
+                var originalRay = first.LastPickRay!;
+                long timestamp = 0;
+                world.Display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
+                world.ProcessFrame(0, false);
+                Require(world.Display.IsPreparing && ReferenceEquals(world.Display.DisplayedFrame, first) &&
+                    world.Display.Objects.ContainsKey(new(1)), $"{scenario}没有保持跨帧准备及旧对象。");
+                world.Pick(center);
+                Require(selected == (scenario == "moving" ? 1 : 0) &&
+                    session!.ResolveCalls.Count == selected, $"{scenario}的准备期选择资格错误。");
+                if (scenario == "moving")
+                {
+                    Require(Math.Abs(world.Display.Objects[new(1)].Root.GlobalPosition.X + 70) < 0.001,
+                        "已显示对象没有采用最新姿态。");
+                    Require(NVector3.Distance(pending.LastPickRay!.Origin, originalRay.Origin + new NVector3(-100, 0, 0)) < 0.01f,
+                        "准备期间相机与拾取没有使用相同的新原点。");
+                    world.ProcessFrame(0, false);
+                    Require(ReferenceEquals(session!.PresentCalls[^1].Request.Camera!.Frame, pending) &&
+                        ReferenceEquals(session.PresentCalls[^1].Request.PickRay!.Frame, pending),
+                        "下一轮相机与拾取样本必须携带最新姿态帧。");
+                }
+            }
+            finally { await fixture.Cleanup(); await new UiTestInput(TestScene).Frames(2); }
+        }
     }
 
     [Test]
@@ -209,13 +469,14 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             world.ProcessFrame(0, false);
             Require(ReferenceEquals(world.Display!.DisplayedFrame, first), "Loading替换了旧显示帧。");
             world.Pick(TestScene.GetViewport().GetVisibleRect().Size / 2);
-            Require(first.LastPickRay is not null && loading.LastPickRay is null, "Loading期间拾取必须只查询已显示首帧。");
-            Require(world.View.CameraRig.Camera.Position.Y > 100 && world.View.CameraRig.Camera.Position.Y < 200,
-                "Loading候选帧改变了已显示地形高度约束。");
+            Require(first.LastPickRay is null && loading.LastPickRay is not null,
+                "Loading期间仍必须使用最新姿态帧查询拾取，未就绪不能产生选择。");
+            Require(world.View.CameraRig.Camera.Position.Y > 200,
+                "准备期间相机必须使用最新帧同坐标系的地形高度。");
             world.ProcessFrame(0, false);
             Require(session!.PresentCalls[^1].Request.PickRay is { } missSample &&
-                ReferenceEquals(missSample.Frame, first) && ReferenceEquals(missSample.Ray, first.LastPickRay),
-                "未命中的拾取没有携带实际显示帧和实际拾取射线传给下一次Present。");
+                ReferenceEquals(missSample.Frame, loading) && ReferenceEquals(missSample.Ray, loading.LastPickRay),
+                "未就绪拾取没有携带最新姿态帧和实际射线传给下一次Present。");
             Require(ReferenceEquals(world.Display.DisplayedFrame, first), "Base不符部分接入了更新。");
             Require(ReferenceEquals(world.Display.Root, root) && world.Display.Objects.Count == 1 &&
                 ReferenceEquals(world.Display.Objects[new(1)].Root, oldObject) && oldObject.Transform == oldTransform,
@@ -705,12 +966,14 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
         SceneReadiness readiness = SceneReadiness.Ready, ImmutableArray<SceneObject> objects = default,
         ScenePoint origin = default, NVector3 shift = default, ScenePick? pick = null,
         ImmutableArray<SceneProblem> diagnostics = default, SceneSessionId? session = null,
-        Lookup<double>? height = null, ulong request = 1, ImmutableArray<SceneDebugLine> debugLines = default) => new()
+        Lookup<double>? height = null, ulong request = 1, ImmutableArray<SceneDebugLine> debugLines = default,
+        ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>? poses = null, ulong space = 1) => new()
     {
-        Update = new(baseline, Stamp(revision, session) with { Request = new(request) }, shift, objects.IsDefault ? [Object(1)] : objects, [], new([], []), []),
+        Update = new(baseline, Stamp(revision, session) with { Request = new(request), Space = new(space) }, shift, objects.IsDefault ? [Object(1)] : objects, [], new([], []), []),
         Origin = origin, Readiness = readiness, PickResult = pick,
         DebugLines = debugLines.IsDefault ? [] : debugLines,
         Diagnostics = diagnostics.IsDefault ? [] : diagnostics,
+        Poses = poses ?? ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty,
         TerrainHeightResult = height ?? new Lookup<double>.Missing()
     };
 

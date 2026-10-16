@@ -170,12 +170,32 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public void Space_transition_maps_follow_lag_and_preserves_relative_view() => CheckFollowTransition(closed: false);
+    public void Space_transition_preserves_aligned_display_coordinates_and_follow_lag()
+    {
+        var camera = AttachCamera();
+        try
+        {
+            camera.DisplayedFrame(Frame(poses: Poses((First, Pose(0, 0, 0)))), First);
+            camera.DisplayedFrame(Frame(revision: 2, poses: Poses((First, Pose(30, 0, 10)))), First);
+            camera.Update(0.05);
+            camera.Orbit(90, 20);
+            var focus = camera.Focus;
+            var position = camera.Camera.Position;
+            var forward = camera.Camera.Basis.Z;
+            camera.DisplayedFrame(Frame(space: 2, revision: 3, origin: new(1000, 0, 0),
+                poses: Poses((First, Pose(35, 0, 10)))), First);
+            Near(camera.Focus, focus);
+            Near(camera.Camera.Position, position);
+            Near(camera.Camera.Basis.Z, forward);
+            camera.Update(0.05);
+            Require(camera.Focus.X > focus.X && camera.Focus.X < 35,
+                "空间交接已保持显示坐标，后续运动必须继续平滑，不能在交接时重定位。");
+        }
+        finally { camera.Free(); }
+    }
 
     [Test]
-    public void Closing_and_reopening_a_follow_camera_preserves_pose_and_smoothing() => CheckFollowTransition(closed: true);
-
-    private void CheckFollowTransition(bool closed)
+    public void Closing_and_reopening_a_follow_camera_preserves_pose_and_smoothing()
     {
         var camera = AttachCamera();
         try
@@ -188,16 +208,12 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
             var lag = camera.Focus - oldTarget;
             var offset = camera.Camera.Position - camera.Focus;
             var forward = camera.Camera.Basis.Z;
-            if (closed)
-            {
-                camera.ReleaseFrame();
-                Near(camera.Focus, oldTarget + lag);
-                Near(camera.Camera.Position - camera.Focus, offset);
-                Near(camera.Camera.Basis.Z, forward);
-            }
+            camera.ReleaseFrame();
+            Near(camera.Focus, oldTarget + lag);
+            Near(camera.Camera.Position - camera.Focus, offset);
+            Near(camera.Camera.Basis.Z, forward);
             var newTarget = new Vector3(-700, 5, 900);
-            camera.DisplayedFrame(Frame(space: closed ? 1UL : 2UL, revision: 3,
-                session: closed ? new SceneSessionId(Guid.NewGuid()) : null,
+            camera.DisplayedFrame(Frame(revision: 3, session: new SceneSessionId(Guid.NewGuid()),
                 poses: Poses((First, Pose(-700, 5, 900, Mathf.Pi / 2)))), First);
             Near(camera.Focus, newTarget + lag.Rotated(Vector3.Up, Mathf.Pi / 2));
             Near(camera.Camera.Position - camera.Focus, offset.Rotated(Vector3.Up, Mathf.Pi / 2));
