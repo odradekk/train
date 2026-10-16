@@ -69,7 +69,7 @@ public sealed class RailwayGenerationTests
         var stamp = new SceneFrameStamp(new(Guid.NewGuid()), new(1), new(1), 1);
         try
         {
-            await Task.WhenAll(scene.PendingWork);
+            await SceneFixtures.AwaitPendingWork(scene.PendingWork);
             scene.Present(snapshot, null, target, request, stamp, null);
             // Only the target segment may finish before the assertion, regardless of the concurrency limit.
             await Task.WhenAny(scene.PendingWork);

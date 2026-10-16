@@ -70,7 +70,7 @@ public sealed class DebugLineTests
             var before = Present(SceneDebugLayer.None);
             while (scene.PendingWork.Length > 0)
             {
-                await Task.WhenAll(scene.PendingWork);
+                await SceneFixtures.AwaitPendingWork(scene.PendingWork);
                 before = Present(SceneDebugLayer.None);
             }
             AssertLayers(before, Present, SceneDebugLayer.RailwaySegments);
