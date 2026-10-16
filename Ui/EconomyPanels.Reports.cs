@@ -53,10 +53,12 @@ internal partial class EconomyPanels
 
     internal static string RunText(RunAccumulatorView run, IContentView content)
     {
+        var loadedCapacity = run.LoadedCapacityRatio is { } ratio
+            ? ratio.ToString("P1") : "—（未进入线路，或进入时没有载货容量）";
         var lines = new List<string>
         {
             $"从第 {run.StartedAt.CompletedSteps} 步开始 · 销售收入 {run.SalesReceipts.Value} · 采购支出 {run.PurchasePayments.Value}",
-            $"服务费用：未接入 · 净现金流 {run.NetCashFlow} · 运输数量 {run.TransportedUnits} · 载运率 {run.LoadedCapacityRatio:P1}"
+            $"服务费用：未接入 · 净现金流 {run.NetCashFlow} · 运输数量 {run.TransportedUnits} · 载运率 {loadedCapacity}"
         };
         foreach (var rule in run.IncompleteRules)
             lines.Add($"未完成规则：停靠站 {rule.StopIndex + 1} / 规则 {rule.RuleIndex + 1} · " +

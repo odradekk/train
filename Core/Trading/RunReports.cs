@@ -11,7 +11,7 @@ internal static class RunReports
 
     internal static RunAccumulatorView Read(RunAccumulatorState run) => new(run.StartedAt,
         run.SalesReceipts, run.PurchasePayments, new(0), checked(run.SalesReceipts.Value - run.PurchasePayments.Value),
-        run.TransportedUnits, run.CapacityDistance == 0 ? 0 : run.LoadedUnitsDistance / run.CapacityDistance, run.IncompleteRules);
+        run.TransportedUnits, run.CapacityDistance == 0 ? null : run.LoadedUnitsDistance / run.CapacityDistance, run.IncompleteRules);
 
     internal static TrainState End(ref WorldState world, CoreContentProjection content, TrainState train,
         SimulationPosition position, RunEndReason reason, ImmutableArray<CoreEvent>.Builder events)

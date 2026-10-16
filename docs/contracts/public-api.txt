@@ -883,7 +883,7 @@ Train.Core.Contracts|type|Train.Core.Contracts.ResourceRenewal|public abstract r
 Train.Core.Contracts|type|Train.Core.Contracts.RuleDefinitionId|public readonly record struct RuleDefinitionId(string Value);
 Train.Core.Contracts|type|Train.Core.Contracts.RuleSelection|public sealed record RuleSelection(RuleDefinitionId Population, RuleDefinitionId Market, RuleDefinitionId Construction, RuleDefinitionId Railway, RuleDefinitionId Combat);
 Train.Core.Contracts|type|Train.Core.Contracts.RuleStatusView|public sealed record RuleStatusView(RuleDefinitionId Rule, SemanticRevision? PublishedRevision, ImmutableArray<CoreProblem> Problems);
-Train.Core.Contracts|type|Train.Core.Contracts.RunAccumulatorView|public sealed record RunAccumulatorView(SimulationPosition StartedAt, Money SalesReceipts, Money PurchasePayments, Money ServicePayments, long NetCashFlow, long TransportedUnits, double LoadedCapacityRatio, ImmutableArray<AutomaticRuleResult> IncompleteRules);
+Train.Core.Contracts|type|Train.Core.Contracts.RunAccumulatorView|public sealed record RunAccumulatorView(SimulationPosition StartedAt, Money SalesReceipts, Money PurchasePayments, Money ServicePayments, long NetCashFlow, long TransportedUnits, double? LoadedCapacityRatio, ImmutableArray<AutomaticRuleResult> IncompleteRules);
 Train.Core.Contracts|type|Train.Core.Contracts.RunEndReason|public enum RunEndReason
 Train.Core.Contracts|type|Train.Core.Contracts.RunPlan|public sealed record RunPlan(bool Loop, ImmutableArray<PlanStop> Stops);
 Train.Core.Contracts|type|Train.Core.Contracts.RunReport|public sealed record RunReport(TrainId Train, SimulationPosition EndedAt, RunEndReason Reason, RunAccumulatorView Totals);
