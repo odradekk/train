@@ -59,6 +59,32 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public void Reopening_a_closed_camera_applies_node_zoom_limit_on_the_first_frame()
+    {
+        var camera = AttachCamera();
+        try
+        {
+            camera.DisplayedFrame(Frame(), null, railwayPan: true);
+            camera.Zoom(-100);
+            Require(camera.Camera.Position.DistanceTo(camera.Focus) > 128, "关闭前必须处于远距离视角。");
+            var focus = camera.Focus;
+            var transform = camera.Camera.Transform;
+            camera.ReleaseFrame();
+            camera.Update(1);
+            camera.Pan(new(1000, 0, 1000));
+            Near(camera.Focus, focus);
+            Near(camera.Camera.Position, transform.Origin);
+            Near(camera.Camera.Basis.Z, transform.Basis.Z);
+
+            camera.DisplayedFrame(Frame(session: new(Guid.NewGuid()),
+                bounds: new(new(-200, -200), new(200, 200))), null);
+            Require(camera.Camera.Position.DistanceTo(camera.Focus) < 128,
+                "新会话节点首帧必须重新应用自由相机缩放上限。");
+        }
+        finally { camera.Free(); }
+    }
+
+    [Test]
     public void Railway_follow_and_frames_without_node_bounds_keep_existing_zoom_range()
     {
         var camera = AttachCamera();
