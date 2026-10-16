@@ -30,8 +30,56 @@ $repo = Split-Path $PSScriptRoot -Parent
 $runs = [System.Collections.Generic.List[object]]::new()
 $summaryPath = $null
 $failure = $null
+$displayAwake = $null
+$displayAwakeState = @{ acquired = $false; restored = $false }
 try {
     if (-not $IsWindows) { throw '测量入口需要 Windows Release 导出与真实窗口。' }
+    # 执行状态属于原生线程；专用线程持有到 finally，不能依赖 PowerShell 的运行线程。
+    if (-not ('MeasurementDisplayAwake' -as [type])) {
+        Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using System.Threading;
+public sealed class MeasurementDisplayAwake : IDisposable
+{
+    [DllImport("kernel32.dll")]
+    private static extern uint SetThreadExecutionState(uint flags);
+    private readonly ManualResetEventSlim ready = new ManualResetEventSlim();
+    private readonly ManualResetEventSlim stop = new ManualResetEventSlim();
+    private readonly Thread thread;
+    private string error;
+    public MeasurementDisplayAwake()
+    {
+        thread = new Thread(Hold) { IsBackground = true };
+        thread.Start();
+        ready.Wait();
+        if (error != null) { thread.Join(); throw new InvalidOperationException(error); }
+    }
+    private void Hold()
+    {
+        uint previous = SetThreadExecutionState(0x80000002);
+        if (previous == 0) { error = "SetThreadExecutionState 无法保持显示器唤醒。"; ready.Set(); return; }
+        ready.Set();
+        try { stop.Wait(); }
+        finally
+        {
+            if (SetThreadExecutionState(previous) == 0)
+                error = "SetThreadExecutionState 无法恢复原先执行状态。";
+        }
+    }
+    public void Dispose()
+    {
+        stop.Set();
+        thread.Join();
+        ready.Dispose();
+        stop.Dispose();
+        if (error != null) throw new InvalidOperationException(error);
+    }
+}
+"@
+    }
+    $displayAwake = [MeasurementDisplayAwake]::new()
+    $displayAwakeState.acquired = $true
     if ($Scenario.Count -eq 0) { throw '至少选择一个情景。' }
     $ExecutablePath = (Resolve-Path -LiteralPath $ExecutablePath).Path
     $InputPath = (Resolve-Path -LiteralPath $InputPath).Path
@@ -133,9 +181,40 @@ try {
                 if ($ReferencePath) { $arguments += @('--measure-reference', $ReferencePath) }
                 $result = Invoke-HiddenProcess -FilePath $ExecutablePath -TimeoutSeconds $timeout -ArgumentList $arguments
                 $result.Output | Set-Content -LiteralPath (Join-Path $runDirectory 'process.log') -Encoding utf8
+                # 相同诊断跨来源取最大次数，既保留仅 stderr 的行，也不把日志副本双算。
+                $godotLog = Join-Path $runDirectory 'godot.log'
+                $godotLines = @(if (Test-Path -LiteralPath $godotLog -PathType Leaf) {
+                    Get-Content -LiteralPath $godotLog | Where-Object { $_ -match '(?i)WASAPI|AUDCLNT_E_DEVICE_INVALIDATED' }
+                })
+                $processLines = @($result.Output -split '\r?\n' |
+                    Where-Object { $_ -match '(?i)WASAPI|AUDCLNT_E_DEVICE_INVALIDATED' })
+                $godotGroups = [System.Collections.Hashtable]::new([StringComparer]::Ordinal)
+                $processGroups = [System.Collections.Hashtable]::new([StringComparer]::Ordinal)
+                $godotLines | Group-Object -CaseSensitive | ForEach-Object { $godotGroups[$_.Name] = $_.Count }
+                $processLines | Group-Object -CaseSensitive | ForEach-Object { $processGroups[$_.Name] = $_.Count }
+                $diagnosticLines = @(@($godotLines + $processLines) | Select-Object -Unique |
+                    ForEach-Object {
+                        $count = [Math]::Max([int]$godotGroups[$_], [int]$processGroups[$_])
+                        for ($copy = 0; $copy -lt $count; $copy++) { $_ }
+                    })
+                $diagnostics = @{
+                    source_message_counts = @{ 'godot.log' = $godotLines.Count; 'process.log' = $processLines.Count }
+                    wasapi_message_count = $diagnosticLines.Count
+                    wasapi_messages = $diagnosticLines
+                    wasapi_error_count = @($diagnosticLines | Where-Object { $_ -match '(?i)error|failed|failure' }).Count
+                    wasapi_warning_count = @($diagnosticLines | Where-Object { $_ -match '(?i)warning|warn' }).Count
+                    wasapi_device_invalidated_count = @($diagnosticLines | Where-Object { $_ -match '(?i)DEVICE_INVALIDATED|device.*invalid|invalid.*device' }).Count
+                }
+                $run.process_diagnostics = $diagnostics
                 Write-Json (Join-Path $runDirectory 'process.json') @{
                     exit_code = $result.ExitCode; timed_out = $result.TimedOut
                     cleanup_succeeded = $result.CleanupSucceeded; duration_ms = $result.DurationMs
+                    process_diagnostics = $diagnostics
+                }
+                if (Test-Path -LiteralPath $reportPath -PathType Leaf) {
+                    $processReport = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json -AsHashtable
+                    $processReport.process_diagnostics = $diagnostics
+                    Write-Json $reportPath $processReport
                 }
                 if ($result.ExitCode -ne 0 -or $result.TimedOut -or -not $result.CleanupSucceeded) { throw "$name/$iteration 进程失败或超时。" }
                 if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw "$name/$iteration 未生成报告。" }
@@ -165,9 +244,14 @@ try {
 }
 catch { $failure = $_.Exception.Message }
 finally {
+    if ($null -ne $displayAwake) {
+        try { $displayAwake.Dispose(); $displayAwakeState.restored = $true }
+        catch { $failure = @($failure, $_.Exception.Message) | Where-Object { $_ } | Join-String -Separator '; ' }
+    }
     if ($null -ne $summaryPath) {
         Write-Json $summaryPath @{
             succeeded = $null -eq $failure; error = $failure; runs = @($runs.ToArray())
+            display_awake = $displayAwakeState
             scope = @{
                 final_performance = $false
                 warmup_seconds = 5; sample_seconds = 30; repetitions = $Repeat

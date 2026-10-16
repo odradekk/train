@@ -14,6 +14,7 @@ namespace Train.App.Measurement;
 internal sealed partial class MeasurementRun
 {
     private int _scenePickCount;
+    private double _probeFogSeconds, _probePointSeconds, _probeBusinessSeconds;
     private readonly Dictionary<ulong, Vector3[]> _probeMeshPoints = [];
     private readonly string? _sceneReferencePath;
     private WorldObjectId? _sceneTarget;
@@ -62,6 +63,7 @@ internal sealed partial class MeasurementRun
 
     private bool CheckNearArea(ISceneFrame frame, WorldObjectId? follow, out object detail)
     {
+        var stageStarted = Seconds();
         var controller = _app.WorldScenes!;
         var display = controller.Display!;
         var camera = controller.View.CameraRig;
@@ -129,8 +131,11 @@ internal sealed partial class MeasurementRun
                 frame = frame.Update.Frame.ToString(), location = location?.ToString(),
                 samplingDomain = node is not null ? "node-circle" : "railway-reference-terrain-band",
                 intersectingFog, fogClear = false, expectedKnown = known, checksSkipped = "near_fog" };
+            _probeFogSeconds += Seconds() - stageStarted;
             return false;
         }
+        _probeFogSeconds += Seconds() - stageStarted;
+        stageStarted = Seconds();
         var actualReferenceObjects = ReferenceObjects(frame, center, 64).ToArray();
         if (readyGeometry && !_probeReadyChecked)
         {
@@ -141,6 +146,8 @@ internal sealed partial class MeasurementRun
                     actualReferenceObjects.Count(other => ReferenceMatches(item, other))),
                 expected, actualReferenceObjects, .001, reference is null ? "reference_missing" : null);
         }
+        _probeBusinessSeconds += Seconds() - stageStarted;
+        stageStarted = Seconds();
         var points = new List<object>();
         var samplesPassed = 0;
         foreach (var point in pointPositions)
@@ -164,6 +171,8 @@ internal sealed partial class MeasurementRun
             points.Add(new { x = point.X, z = point.Z, fogged, terrain = terrain.GetType().Name,
                 pick = pick?.GetType().Name, resolved, passed });
         }
+        _probePointSeconds += Seconds() - stageStarted;
+        stageStarted = Seconds();
         var expectedBusiness = node is not null ? ExpectedBuildings(frame, new((ulong)node.Value)).ToList() : [];
         if (reference is not null)
             expectedBusiness.AddRange(reference.Objects.Where(item => item.Subject is not null)
@@ -200,6 +209,7 @@ internal sealed partial class MeasurementRun
             intersectingFog, fogClear, expectedKnown = known, railGeometryPassed, railGeometry,
             businessPassed, business = results, emptyBusinessArea = known && nearBusiness.Length == 0,
             followed };
+        _probeBusinessSeconds += Seconds() - stageStarted;
         return known && samplesPassed == 17 && fogClear && railGeometryPassed && businessPassed &&
             (followed is null || followed.Visible && followed.Picked);
     }

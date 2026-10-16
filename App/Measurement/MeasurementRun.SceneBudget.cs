@@ -20,11 +20,14 @@ internal sealed partial class MeasurementRun
     private long _sceneDrawCount, _sceneDragDraw;
     private object? _sceneProbeDetail, _sceneFirstNearDetail;
     private double _sceneObserverSeconds;
+    private readonly List<SceneProbeCost> _sceneProbeCosts = [];
+    private sealed record SceneProbeCost(string Operation, long Draw, double Started, double Ended,
+        double FrameFogSeconds, double PointSeconds, double BusinessSeconds, double LoggingSeconds, double OtherSeconds);
     private readonly List<double> _sceneOpeningFrames = [];
     private readonly List<(double Started, double Ended)> _sceneChecks = [];
     private readonly Queue<SceneSample> _sceneRecent = new();
     private readonly Dictionary<string, object?> _sceneEvidence = [];
-    private StreamWriter? _sceneTrace, _sceneOperationTrace, _sceneCollectionTrace;
+    private StreamWriter? _sceneTrace, _sceneOperationTrace, _sceneCollectionTrace, _sceneCostTrace;
     private FrameMeasurements? _sceneTiming;
     private double _sceneLoadButton, _sceneLoadCompleted;
     private readonly HashSet<string> _sceneOpenedTargets = new(StringComparer.Ordinal);
@@ -48,13 +51,16 @@ internal sealed partial class MeasurementRun
         using var frames = new StreamWriter(Path.Combine(directory, "scene-frames.jsonl"));
         using var operations = new StreamWriter(Path.Combine(directory, "scene-operations.jsonl"));
         using var collections = new StreamWriter(Path.Combine(directory, "scene-collections.jsonl"));
+        using var costs = new StreamWriter(Path.Combine(directory, "scene-probe-costs.jsonl"));
         _sceneTrace = frames; _sceneOperationTrace = operations; _sceneCollectionTrace = collections;
+        _sceneCostTrace = costs;
         _app.Saves!.Changed += OnSceneSaveChanged;
         _app.WorldScenes!.FramePresented += OnScenePresented;
         _identity["scene_budget"] = _sceneEvidence;
         _sceneEvidence["frames"] = "scene-frames.jsonl";
         _sceneEvidence["operations"] = "scene-operations.jsonl";
         _sceneEvidence["collections"] = "scene-collections.jsonl";
+        _sceneEvidence["probe_costs"] = "scene-probe-costs.jsonl; per-frame stage timings buffered and written after the operation observation window";
         _sceneEvidence["clock"] = "Stopwatch.GetTimestamp / Stopwatch.Frequency; absolute monotonic seconds";
         _sceneEvidence["scope"] = "current implemented stage load; not the complete standard mixed load";
         _sceneEvidence["readiness_scope"] = "node: 64 metre circle rounded to chunks; railway: focal 64 metre segment and two segments on each side";
@@ -224,7 +230,7 @@ internal sealed partial class MeasurementRun
         _sceneNearAvailable = _sceneDragIssued = false;
         _sceneCapturedPartial = false;
         _sceneProbeDetail = _sceneFirstNearDetail = null;
-        _sceneOpeningFrames.Clear(); _sceneChecks.Clear();
+        _sceneOpeningFrames.Clear(); _sceneChecks.Clear(); _sceneProbeCosts.Clear();
         var before = SceneCacheState();
         _sceneTarget = target;
         var peakBefore = new { private_bytes = _scenePeakPrivate, working_set_bytes = _scenePeakWorking };
@@ -259,6 +265,8 @@ internal sealed partial class MeasurementRun
         });
         var end = Seconds();
         _sceneOperation = null;
+        foreach (var cost in _sceneProbeCosts) _sceneCostTrace!.WriteLine(JsonSerializer.Serialize(cost, SceneJson));
+        _sceneCostTrace!.Flush();
         _sceneCompletedOperations++;
         var record = new
         {
@@ -311,6 +319,9 @@ internal sealed partial class MeasurementRun
     private void OnSceneDraw()
     {
         var observerStarted = Seconds();
+        var operation = _sceneOperation;
+        var loggingSeconds = 0d;
+        _probeFogSeconds = _probePointSeconds = _probeBusinessSeconds = 0;
         try
         {
             var host = _app.Host!;
@@ -320,11 +331,13 @@ internal sealed partial class MeasurementRun
             var now = Seconds();
             var interval = _sceneLastDraw == 0 ? 0 : now - _sceneLastDraw;
             _sceneDrawCount++;
+            var frameLookupStarted = Seconds();
             var frame = _app.WorldScenes!.View.Visible ? _app.WorldScenes.Display?.DisplayedFrame : null;
             if (frame is not null && frame.Update.Frame.Request !=
                 _app.WorldScenes.CurrentRequest) frame = null;
             var interaction = _app.WorldScenes.InteractionFrame;
             if (interaction is not null && interaction.Update.Frame.Request != _app.WorldScenes.CurrentRequest) interaction = null;
+            _probeFogSeconds += Seconds() - frameLookupStarted;
             var checkSeconds = 0d;
             var picksBefore = _scenePickCount;
             _sceneNearAvailable = false;
@@ -373,10 +386,15 @@ internal sealed partial class MeasurementRun
                 RenderingServer.GetRenderingInfo(RenderingServer.RenderingInfo.VideoMemUsed));
             _sceneRecent.Enqueue(sample);
             while (_sceneRecent.TryPeek(out var old) && old.At < now - 6) _sceneRecent.Dequeue();
+            var loggingStarted = Seconds();
             _sceneTrace.WriteLine(JsonSerializer.Serialize(sample, SceneJson));
+            loggingSeconds += Seconds() - loggingStarted;
             if (now - _sceneLastLoadSample >= 1)
             {
-                _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(new { kind = "active-load", phase = _scenePhase, load = SceneLoadCounts() }, SceneJson));
+                var loadRecord = new { kind = "active-load", phase = _scenePhase, load = SceneLoadCounts() };
+                loggingStarted = Seconds();
+                _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(loadRecord, SceneJson));
+                loggingSeconds += Seconds() - loggingStarted;
                 _sceneLastLoadSample = now;
             }
             if (_scenario == "scene-capture" && frame is not null && !_sceneCapturedPartial && frame.Readiness == SceneReadiness.Partial)
@@ -398,6 +416,16 @@ internal sealed partial class MeasurementRun
             _sceneObserverSeconds = Seconds() - observerStarted;
         }
         catch (Exception error) { _drawFailure = error; }
+        finally
+        {
+            if (operation is not null)
+            {
+                var ended = Seconds();
+                _sceneProbeCosts.Add(new(operation, _sceneDrawCount, observerStarted, ended,
+                    _probeFogSeconds, _probePointSeconds, _probeBusinessSeconds, loggingSeconds,
+                    Math.Max(0, ended - observerStarted - _probeFogSeconds - _probePointSeconds - _probeBusinessSeconds - loggingSeconds)));
+            }
+        }
     }
 
     private object SceneSteady()
