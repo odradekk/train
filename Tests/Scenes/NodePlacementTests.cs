@@ -32,16 +32,20 @@ public sealed class NodePlacementTests
         var before = await Settled(scene, snapshot);
         AssertPosition(before, 3, new(-39, 0, 0));
         AssertPosition(before, 7, new(41, 0, 0));
-        // The rotated small station plot ends at z=-96. The queued eight-cell
-        // vehicle, including its front end, must remain outside that plot.
-        Assert.IsTrue(Pose(before, 2).Position.Z + 4 < -96);
-        Assert.IsTrue(Pose(before, 9).Position.Z < Pose(before, 2).Position.Z,
-            "The unreserved train joins the incoming queue behind the lower TrainId stopped train.");
+        var entry = scene.Layout!.EntryFor(new(2));
+        var waiting = RailwayCoordinates.Relative(scene.Layout.TrainBoundary(entry).Position, default) -
+            entry.Outward * (float)(16 + entry.StraightLength - 4);
+        AssertPosition(before, 2, waiting);
+        AssertPosition(before, 9, waiting + entry.Outward * 8);
 
         var reordered = Snapshot(trains.Reverse().ToImmutableArray(),
             occupant: new NodeOccupant.Settlement(new(1), relation));
         var after = await Settled(scene, reordered);
         foreach (var train in trains) Assert.AreEqual(Pose(before, train.Id.Value), Pose(after, train.Id.Value));
+        var freedFirstPlatform = await Settled(scene, Snapshot(trains.Where(train => train.Id.Value != 7).ToImmutableArray(),
+            occupant: new NodeOccupant.Settlement(new(1), relation)));
+        Assert.AreEqual(Pose(before, 3), Pose(freedFirstPlatform, 3),
+            "Freeing platform 1 must not move a train still assigned to platform 2.");
     }
 
     public enum NonStationOccupant { HostileSettlement, Empty, Lair }
@@ -67,8 +71,9 @@ public sealed class NodePlacementTests
         await using var sceneVehicles = new SceneVehicles();
         await using var scene = Controlled(snapshot, sceneVehicles);
         var before = await Settled(scene, snapshot);
-        Assert.IsTrue(Pose(before, 1).Position.X > 0);
-        Assert.IsTrue(Pose(before, 2).Position.Z < 0);
+        AssertPosition(before, 1, RailwayCoordinates.Relative(scene.Layout!.Bypass.Center, default));
+        Assert.IsTrue(Vector3.Distance(Pose(before, 1).Position, Pose(before, 2).Position) < .001,
+            "Unreserved docked trains stay at S, even when another train stops there.");
 
         var changedPlans = trains.Select(train => train with
         {
@@ -108,10 +113,10 @@ public sealed class NodePlacementTests
         var unbuiltFirst = RailwayFixtures.ReplaceCore(snapshot, edge: world.Edges[0] with { Tracks = 0 });
         await using var reopenedVehicles = new SceneVehicles();
         await using var reopened = Controlled(unbuiltFirst, reopenedVehicles);
-        var secondEdge = await Settled(reopened, unbuiltFirst);
+        var unbuiltFrame = await Settled(reopened, unbuiltFirst);
         var expectedEntry = reopened.Layout!.EntryFor(new(2));
-        AssertPosition(secondEdge, 1, RailwayCoordinates.Relative(expectedEntry.Point, default) -
-            expectedEntry.Outward * (float)(16 + expectedEntry.StraightLength - 8));
+        AssertPosition(unbuiltFrame, 1, RailwayCoordinates.Relative(reopened.Layout.TrainBoundary(expectedEntry).Position, default) -
+            expectedEntry.Outward * (float)(16 + expectedEntry.StraightLength - 4));
     }
 
     [TestMethod]
@@ -119,25 +124,30 @@ public sealed class NodePlacementTests
     [DataRow(false, TrainOrderFacing.LastEndLeading)]
     [DataRow(true, TrainOrderFacing.FirstEndLeading)]
     [DataRow(true, TrainOrderFacing.LastEndLeading)]
-    public async Task MemberOrderAndFacingArePreservedOnPlatformsAndThePositiveZFallback(bool servicing, TrainOrderFacing facing)
+    public async Task MemberOrderAndFacingArePreservedOnPlatformsAndTheFallbackInlet(bool servicing, TrainOrderFacing facing)
     {
         var train = NodeFixtures.Train(vehicles: [new(3), new(1), new(2)],
             enteredFrom: servicing ? new EdgeId(2) : null, nextEdge: new(2),
             activity: servicing ? TrainActivity.Servicing : TrainActivity.Stopped, facing: facing,
-            platformNumber: servicing ? 1 : null);
-        var snapshot = Snapshot([train], platforms: servicing ? 1 : 0, tracks: servicing ? 1 : 0);
+            platformNumber: servicing ? 1 : null) with { LengthMeters = 12 };
+        var snapshot = Snapshot([train], platforms: servicing ? 1 : 0, tracks: 1);
         await using var sceneVehicles = new SceneVehicles();
         await using var scene = Controlled(snapshot, sceneVehicles);
         var frame = await Settled(scene, snapshot);
         var positive = facing == TrainOrderFacing.FirstEndLeading;
-        var expected = servicing ? new[] { 8f, 0f, -8f } : new[] { -4f, -12f, -20f };
+        var entry = scene.Layout!.TrainEntry(null)!;
+        var center = servicing ? new Vector3(41, 0, 0) :
+            RailwayCoordinates.Relative(scene.Layout.TrainBoundary(entry).Position, default) -
+                entry.Outward * (float)(scene.Layout.Approach(entry, scene.Layout.Bypass).Inlet.Length - 12);
+        var forwardAxis = servicing ? Vector3.UnitZ : -entry.Outward;
+        var expected = new[] { 8f, 0f, -8f };
         if (!positive) Array.Reverse(expected);
         var members = new ulong[] { 3, 1, 2 };
         for (var i = 0; i < members.Length; i++)
         {
-            AssertPosition(frame, members[i], new(servicing ? 41 : 0, 0, expected[i]));
+            AssertPosition(frame, members[i], center + forwardAxis * expected[i]);
             var forward = Vector3.Transform(Vector3.UnitZ, Pose(frame, members[i]).Rotation);
-            Assert.IsTrue(Vector3.Distance(positive ? Vector3.UnitZ : -Vector3.UnitZ, forward) < 1e-4);
+            Assert.IsTrue(Vector3.Distance(positive ? forwardAxis : -forwardAxis, forward) < 1e-4);
         }
     }
 
@@ -156,7 +166,7 @@ public sealed class NodePlacementTests
     }
 
     [TestMethod]
-    public async Task LongIncomingQueueExtendsAlongTheEntryTangentAndRetainsMemberLengthsAndGaps()
+    public async Task LongQueueOnAStraightAdjacentTrackKeepsConsistsTouching()
     {
         var trains = Enumerable.Range(1, 6).Reverse()
             .Select(id => NodeFixtures.Train((ulong)id, enteredFrom: new(2))).ToImmutableArray();
@@ -165,19 +175,19 @@ public sealed class NodePlacementTests
         await using var scene = Controlled(snapshot, sceneVehicles);
         var frame = await Settled(scene, snapshot);
         var entry = scene.Layout!.EntryFor(new(2));
-        var innerEnd = RailwayCoordinates.Relative(entry.Point, default) -
-            entry.Outward * (float)(16 + entry.StraightLength);
+        var waiting = RailwayCoordinates.Relative(scene.Layout.TrainBoundary(entry).Position, default) -
+            entry.Outward * (float)(16 + entry.StraightLength - 32);
         for (ulong id = 1; id <= 6; id++)
         {
-            var expected = innerEnd + entry.Outward * (32 + 4 + ((float)id - 1) * 68);
+            var expected = waiting + entry.Outward * (((float)id - 1) * 64);
             AssertPosition(frame, id, expected);
             Assert.IsTrue(Vector3.Distance(Vector3.UnitZ, Vector3.Transform(Vector3.UnitZ, Pose(frame, id).Rotation)) < 1e-4);
             var front = Pose(frame, id).Position - entry.Outward * 32;
-            Assert.AreEqual(4 + ((float)id - 1) * 68, Vector3.Dot(front - innerEnd, entry.Outward), .001f);
+            Assert.AreEqual(-32 + ((float)id - 1) * 64, Vector3.Dot(front - waiting, entry.Outward), .001f);
             if (id > 1)
             {
                 var previousTail = Pose(frame, id - 1).Position + entry.Outward * 32;
-                Assert.AreEqual(4f, Vector3.Dot(front - previousTail, entry.Outward), .001f);
+                Assert.AreEqual(0f, Vector3.Dot(front - previousTail, entry.Outward), .001f);
             }
         }
         Assert.IsTrue(Vector3.Dot(Pose(frame, 1).Position - RailwayCoordinates.Relative(entry.Point, default), entry.Outward) < 0,
@@ -187,7 +197,7 @@ public sealed class NodePlacementTests
     }
 
     [TestMethod]
-    public async Task EvenTrackCountQueuesUseABuiltApproachTrackAndExtendAlongItsTangent()
+    public async Task EvenTrackCountQueuesKeepTheFirstTrackAcrossAStraightBoundary()
     {
         var trains = Enumerable.Range(1, 6).Select(id => NodeFixtures.Train((ulong)id, enteredFrom: new(2))).ToImmutableArray();
         var snapshot = Snapshot(trains, platforms: 0, tracks: 2, length: 64);
@@ -202,8 +212,8 @@ public sealed class NodePlacementTests
         Assert.AreEqual(-17f, Vector3.Dot(fifth - at, right), .001f);
         Assert.AreEqual(-17f, Vector3.Dot(sixth - at, right), .001f);
         Assert.IsTrue(fifth.Z < scene.Layout!.EntryFor(new(2)).Point.Z);
-        Assert.AreEqual(new Vector3(0, 0, -68), sixth - fifth);
-        AssertPosition(frame, 1, at - entry.Outward * (float)(16 + entry.StraightLength - 36) - right * 17);
+        Assert.AreEqual(new Vector3(0, 0, -64), sixth - fifth);
+        AssertPosition(frame, 1, at - entry.Outward * (float)(16 + entry.StraightLength - 32) - right * 17);
     }
 
     [TestMethod]
@@ -239,11 +249,37 @@ public sealed class NodePlacementTests
     private static SceneWorldSnapshot Snapshot(ImmutableArray<TrainView> trains, int platforms = 2,
         NodeOccupant? occupant = null, int tracks = 1, int length = 8)
     {
-        var snapshot = NodeFixtures.Snapshot(platforms: platforms, trains: trains, tracks: tracks,
+        var noPlatformSegment = occupant is NodeOccupant.Empty or NodeOccupant.Lair;
+        var snapshot = NodeFixtures.Snapshot(platforms: platforms,
+            trains: trains.Select(train => train with
+            {
+                LengthMeters = train.Vehicles.Length * length / 2.0,
+                Position = noPlatformSegment && train.Position is TrainPosition.Node position
+                    ? position with { DistanceMeters = Math.Min(position.DistanceMeters, 80) } : train.Position
+            }).ToImmutableArray(), tracks: tracks,
             content: NodeFixtures.Content(design: RailwayFixtures.Vehicle(lengthCells: length),
                 rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 }));
-        return occupant is null ? snapshot : RailwayFixtures.ReplaceCore(snapshot,
+        if (occupant is null) return snapshot;
+        snapshot = RailwayFixtures.ReplaceCore(snapshot,
             node: snapshot.Core.World.Nodes.Single(item => item.Id == NodeFixtures.NodeId) with { Occupant = occupant });
+        if (!noPlatformSegment) return snapshot;
+        var world = snapshot.Core.World;
+        return snapshot with
+        {
+            Core = new FixedCoreReadView
+            {
+                Position = snapshot.Core.Position, InputIdentity = snapshot.Core.InputIdentity, World = world,
+                Nodes = world.Nodes.ToDictionary(item => item.Id, item => item.Id == NodeFixtures.NodeId
+                    ? new Lookup<NodeView>.Found(((Lookup<NodeView>.Found)snapshot.Core.FindNode(item.Id)).Value with
+                        { PlatformLengthMeters = 0 }) : snapshot.Core.FindNode(item.Id)),
+                Edges = world.Edges.ToDictionary(item => item.Id, item => snapshot.Core.FindEdge(item.Id)),
+                Trains = world.Trains.ToDictionary(item => item.Id, item => snapshot.Core.FindTrain(item.Id)),
+                Settlements = new Dictionary<SettlementId, Lookup<SettlementView>> { [new(1)] = snapshot.Core.FindSettlement(new(1)) },
+                Instances = trains.SelectMany(train => train.Vehicles).Select(vehicle => (InstanceId)new InstanceId.Vehicle(vehicle))
+                    .Concat(platforms > 0 ? new InstanceId[] { new InstanceId.Building(new(1)) } : [])
+                    .ToDictionary(id => id, id => snapshot.Core.FindInstance(id))
+            }
+        };
     }
 
     private static NodeScene Controlled(SceneWorldSnapshot snapshot, SceneVehicles vehicles)

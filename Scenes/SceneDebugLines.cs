@@ -69,7 +69,9 @@ internal static class SceneDebugLines
             foreach (var entry in node.Entries)
                 foreach (var route in node.EntryRoutes(entry, nodeTracks![entry.Edge]))
                     Polyline(route.Sample, 0, route.Length);
-            foreach (var route in node.StationRoutes(nodeTracks!.Values.Any(count => count > 0)))
+            var anyTracks = nodeTracks!.Values.Any(count => count > 0);
+            foreach (var route in node.StationRoutes(anyTracks)
+                .Concat(anyTracks ? node.TurnRoutes() : []))
                 Polyline(route.Sample, 0, route.Length);
         }
         if ((layers & SceneDebugLayer.PickRay) != 0 && pickRay is { } sample &&
