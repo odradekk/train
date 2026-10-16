@@ -58,7 +58,7 @@ public sealed class NodeTrainPresentationTests
     [TestMethod]
     public async Task PlatformGrantAtWDoesNotMoveTheWaitingTrain()
     {
-        var waiting = NodeFixtures.Train(enteredFrom: new(2));
+        var waiting = NodeFixtures.Train(enteredFrom: new(2)) with { PlatformQueueEnteredStep = 1 };
         var old = NodeFixtures.Snapshot(trains: [waiting], steps: 1);
         var granted = Approaching(80) with { SpeedMetersPerSecond = 0 };
         var current = NodeFixtures.Snapshot(trains: [granted], steps: 2);
@@ -67,6 +67,59 @@ public sealed class NodeTrainPresentationTests
         var before = await Frame(scene, old);
         var after = await Frame(scene, current, old, .5);
         Assert.AreEqual(Pose(before, 1), Pose(after, 1));
+    }
+
+    [TestMethod]
+    public async Task ApplicantsUseCoreAgeThenIdAndArriveAtTheirQueuePositionContinuously()
+    {
+        var first = NodeFixtures.Train(9, enteredFrom: new(2)) with { PlatformQueueEnteredStep = 3 };
+        var second = NodeFixtures.Train(2, enteredFrom: new(2)) with { PlatformQueueEnteredStep = 4 };
+        var third = NodeFixtures.Train(3, enteredFrom: new(2)) with { PlatformQueueEnteredStep = 4 };
+        var generated = NodeFixtures.Train(1, enteredFrom: new(2));
+        var arriving = second with
+        {
+            SpeedMetersPerSecond = 1,
+            Position = ((TrainPosition.Node)second.Position) with { Phase = NodeTravelPhase.Approaching, DistanceMeters = 79.999999 }
+        };
+        var old = NodeFixtures.Snapshot(trains: [third, generated, arriving, first], steps: 5);
+        var current = NodeFixtures.Snapshot(trains: [generated, third, first, second], steps: 6);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Controlled(old, vehicles);
+        var before = await Frame(scene, old);
+        var after = await Frame(scene, current, old, 1);
+        var entry = scene.Layout!.EntryFor(new(2));
+        var head = Pose(after, 9).Position;
+        Assert.IsTrue(Vector3.Distance(head + entry.Outward * 8, Pose(after, 2).Position) < .003);
+        Assert.IsTrue(Vector3.Distance(head + entry.Outward * 16, Pose(after, 3).Position) < .003);
+        Assert.IsTrue(Vector3.Distance(head + entry.Outward * 24, Pose(after, 1).Position) < .003);
+        Assert.IsTrue(Vector3.Distance(Pose(before, 2).Position, Pose(after, 2).Position) < .003,
+            "Becoming Waiting must not introduce a new queue offset.");
+        await using var reopenedVehicles = new SceneVehicles();
+        await using var reopened = Controlled(current, reopenedVehicles);
+        var restored = await Frame(reopened, current);
+        foreach (var id in new ulong[] { 1, 2, 3, 9 }) Assert.AreEqual(Pose(after, id), Pose(restored, id));
+    }
+
+    [TestMethod]
+    public async Task ThroughTrainHasNoQueueOffsetAndMixedConsistsCompressByHalfLengths()
+    {
+        var head = NodeFixtures.Train(9, enteredFrom: new(2)) with { PlatformQueueEnteredStep = 1 };
+        var following = NodeFixtures.Train(2, vehicles: [new(2), new(20)], enteredFrom: new(2)) with
+        { PlatformQueueEnteredStep = 2, LengthMeters = 8 };
+        var through = NodeFixtures.Train(3, enteredFrom: new(2), speed: 10) with
+        { Position = new TrainPosition.Node(NodeFixtures.NodeId, new(2), new(1), NodeTravelPhase.Approaching, 40, null) };
+        var old = NodeFixtures.Snapshot(trains: [following, head, through], steps: 1);
+        var current = NodeFixtures.Snapshot(trains: [following, through], steps: 2);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Controlled(old, vehicles);
+        var before = await Frame(scene, old);
+        var after = await Frame(scene, current, old, 0);
+        Vector3 Center(SceneFrame frame) => (Pose(frame, 2).Position + Pose(frame, 20).Position) / 2;
+        var entry = scene.Layout!.EntryFor(new(2));
+        Assert.IsTrue(Vector3.Distance(Pose(before, 9).Position + entry.Outward * 12, Center(before)) < .003);
+        Assert.IsTrue(Vector3.Distance(Pose(before, 20).Position - entry.Outward * 12, Pose(after, 20).Position) < .003,
+            "Grant/removal advances the next train by the two half lengths, without interpolation.");
+        Assert.AreEqual(Pose(before, 3), Pose(after, 3), "A through train must not inherit the waiting queue's offset.");
     }
 
     [TestMethod]

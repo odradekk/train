@@ -12,7 +12,6 @@ internal sealed partial class NodeLayout
     internal const int StationTrackSpacing = 40;
     internal const int GroundMargin = 32;
     internal const int ApproachStraight = 16;
-    internal const int QueueGap = 4;
     internal const int EntryLateralGap = 4;
     // Two grid snaps contribute at most 0.5 + 0.5 = 1 cell per axis.
     // The first snap is included in forwardShift; the final snap can shorten the last straight by

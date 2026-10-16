@@ -480,7 +480,9 @@ public sealed class NodeStreamingTests
                 Assert.AreEqual(railBounds.Count(item => item == bounds), frame.Update.Environment.FoggedRegions.Count(item => item == bounds));
             Assert.IsTrue(frame.Update.Environment.FoggedRegions.Length - railFog <= NodeStreaming.MaximumTerrainFogRegions);
             Assert.IsTrue(frame.Update.Environment.FoggedRegions.Length >= railFog);
-            await Task.WhenAll(scene.PendingWork);
+            var pending = scene.PendingWork;
+            try { await Task.WhenAll(pending); }
+            catch (OperationCanceledException) when (pending.All(task => !task.IsFaulted)) { }
         }
     }
 
@@ -510,6 +512,8 @@ public sealed class NodeStreamingTests
         }
         foreach (var (route, number) in layout.StationRoutes(true).Select((route, number) => (route, number)))
             expectedRoutes.Add($"station-tracks:{number}", route.Length);
+        foreach (var (route, number) in layout.TurnRoutes().Select((route, number) => (route, number)))
+            expectedRoutes.Add($"turnaround:{number}", route.Length);
         foreach (var (line, number) in layout.Parking.Select((line, number) => (line, number)))
             expectedRoutes.Add($"parking-tracks:{number}", line.Length);
         var actualRoutes = prepared.Rails.Values.GroupBy(segment => segment.Key[..segment.Key.LastIndexOf(':')]).ToArray();
@@ -747,7 +751,7 @@ public sealed class NodeStreamingTests
             SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
             { [new(1)] = new ContentLookup<SettlementLayoutProjection>.Found(layout) }
         };
-        var original = NodeFixtures.Snapshot(platforms: 0, trains: [], instances: [], content: content);
+        var original = NodeFixtures.Snapshot(platforms: 0, trains: [], instances: [], content: content, platformLengthMeters: 0);
         var node = original.Core.World.Nodes.Single(item => item.Id == NodeFixtures.NodeId);
         node = node with { Terrain = node.Terrain with { Relief = relief } };
         var train = NodeFixtures.Train();
@@ -755,6 +759,11 @@ public sealed class NodeStreamingTests
         return new(new FixedCoreReadView
         {
             Position = original.Core.Position, InputIdentity = original.Core.InputIdentity,
+            Nodes = new Dictionary<NodeId, Lookup<NodeView>>
+            {
+                [node.Id] = new Lookup<NodeView>.Found(
+                    ((Lookup<NodeView>.Found)original.Core.FindNode(node.Id)).Value with { Map = node })
+            },
             World = original.Core.World with { Nodes = [node], Edges = [],
                 Trains = nearVehicle ? [new(train.Id, train.Position, train.Activity)] : [] },
             Trains = nearVehicle ? new Dictionary<TrainId, Lookup<TrainView>>
@@ -778,6 +787,7 @@ public sealed class NodeStreamingTests
         cache.Read(NodeFixtures.NodeId)!.Parts.Where(item =>
             item.Key.StartsWith("entry:", StringComparison.Ordinal) ||
             item.Key.StartsWith("station-tracks:", StringComparison.Ordinal) ||
+            item.Key.StartsWith("turnaround:", StringComparison.Ordinal) ||
             item.Key.StartsWith("parking-tracks:", StringComparison.Ordinal)).ToImmutableDictionary();
 
     private static NodeScene Open(SceneWorldSnapshot snapshot, SceneVehicles vehicles, NodeScene.Cache? cache = null,

@@ -50,6 +50,41 @@ public sealed class NodeTrainPathTests
     }
 
     [TestMethod]
+    public void LongIncomingMembersUseTheCurrentExitOnlyBeyondT()
+    {
+        var snapshot = NodeFixtures.Snapshot();
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(NodeFixtures.NodeId)).Value;
+        var entry = layout.EntryFor(new(2));
+        var stop = layout.Stops[0];
+        var distance = dimensions.ApproachLengthMeters + dimensions.PlatformLengthMeters / 2 - 1;
+        var position = new TrainPosition.Node(layout.Node, entry.Edge, null, NodeTravelPhase.Approaching, distance, 1);
+        var unchanged = new NodeTrainPath(layout, dimensions, position, stop);
+        foreach (var next in new EdgeId?[] { null, layout.EntryFor(new(1)).Edge, entry.Edge })
+        {
+            var changed = new NodeTrainPath(layout, dimensions, position with { NextEdge = next }, stop);
+            var center = unchanged.Arc(distance);
+            foreach (var memberOffset in new[] { -400.0, 0, unchanged.PlatformEndArc - center, 400 })
+            {
+                var arc = center + memberOffset;
+                var before = RailwayVehicles.Pose(unchanged.Sample(arc), default, true);
+                var after = RailwayVehicles.Pose(changed.Sample(arc), default, true);
+                if (arc <= unchanged.PlatformEndArc || next is null || next == entry.Edge)
+                {
+                    Assert.IsTrue(Vector3.Distance(before.Position, after.Position) < .003);
+                    Assert.IsTrue(Math.Abs(Quaternion.Dot(before.Rotation, after.Rotation)) > .99999);
+                }
+                else Assert.IsTrue(Vector3.Distance(before.Position, after.Position) > 1,
+                    "A front member beyond T follows the selected exit rather than extending straight.");
+
+                var moved = changed.Sample(changed.Arc(distance + .000001) + memberOffset);
+                Assert.IsTrue(Vector3.Distance(after.Position, RailwayCoordinates.Relative(moved.Position, default)) < .003,
+                    "With the same exit, an arbitrarily small progress change must stay continuous.");
+            }
+        }
+    }
+
+    [TestMethod]
     public void ReturnUsesTheSameLineBackThroughWWithIndependentDepartureScale()
     {
         var snapshot = NodeFixtures.Snapshot();

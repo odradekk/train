@@ -42,6 +42,10 @@ public sealed class NodePlacementTests
             occupant: new NodeOccupant.Settlement(new(1), relation));
         var after = await Settled(scene, reordered);
         foreach (var train in trains) Assert.AreEqual(Pose(before, train.Id.Value), Pose(after, train.Id.Value));
+        var freedFirstPlatform = await Settled(scene, Snapshot(trains.Where(train => train.Id.Value != 7).ToImmutableArray(),
+            occupant: new NodeOccupant.Settlement(new(1), relation)));
+        Assert.AreEqual(Pose(before, 3), Pose(freedFirstPlatform, 3),
+            "Freeing platform 1 must not move a train still assigned to platform 2.");
     }
 
     public enum NonStationOccupant { HostileSettlement, Empty, Lair }
