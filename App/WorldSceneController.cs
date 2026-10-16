@@ -318,6 +318,7 @@ internal sealed class WorldSceneController : IDisposable
         _pickRay = null;
         View.Interactive = false;
         View.SetActive(false);
+        View.CameraRig.ReleaseFrame();
         View.SetLoading(false);
         try { _display?.Dispose(); }
         catch (Exception exception) { LogAdapterFailure(exception, SceneStage.Close); }

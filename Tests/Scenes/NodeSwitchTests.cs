@@ -54,20 +54,21 @@ public sealed class NodeSwitchTests
             displayed = Present(session, displayed);
         } while (session.PendingPrebuilds.Length > 0);
         var retained = cache.Read(NodeFixtures.NodeId)!;
-        var inlet = retained.Layout.EntryFor(new(1));
+        var expectedLayout = NodeLayout.Build(initial, NodeFixtures.NodeId);
+        var inlet = expectedLayout.EntryFor(new(1));
         var railway = new RailwayPath(initial, inlet.Edge);
-        var endpoint = railway.Start.Id == retained.Layout.Node ? 0 : railway.LengthCells;
+        var endpoint = railway.Start.Id == expectedLayout.Node ? 0 : railway.LengthCells;
         var entry = RailwayCoordinates.Add(inlet.Point, RailwayCoordinates.Relative(
             railway.Sample(endpoint, RailwayCoordinates.TrackOffset(1, 2)).Position, railway.Sample(endpoint).Position));
-        var expected = new NodeRange(entry, NodeStreaming.PrefetchCells).Chunks(retained.Layout)
+        var expected = new NodeRange(entry, NodeStreaming.PrefetchCells).Chunks(expectedLayout)
             .Select(NodeScene.ChunkKey).ToArray();
         CollectionAssert.AreEquivalent(expected, retained.Parts.Keys.Where(key => key.StartsWith("terrain:", StringComparison.Ordinal)).ToArray());
-        var railSegments = NodeScene.Prepare(initial, retained.Layout).Rails;
+        var railSegments = NodeScene.Prepare(initial, expectedLayout).Rails;
         var entryRange = new NodeRange(entry, NodeStreaming.PrefetchCells);
         CollectionAssert.AreEquivalent(railSegments.Values.Where(segment => entryRange.Intersects(segment.Bounds)).Select(segment => segment.Key).ToArray(),
             retained.Parts.Keys.Where(railSegments.ContainsKey).ToArray());
-        var wholeCount = (retained.Layout.Bounds.Maximum.X - retained.Layout.Bounds.Minimum.X) / VoxelGrid.ChunkSize *
-            (retained.Layout.Bounds.Maximum.Y - retained.Layout.Bounds.Minimum.Y) / VoxelGrid.ChunkSize;
+        var wholeCount = (expectedLayout.Bounds.Maximum.X - expectedLayout.Bounds.Minimum.X) / VoxelGrid.ChunkSize *
+            (expectedLayout.Bounds.Maximum.Y - expectedLayout.Bounds.Minimum.Y) / VoxelGrid.ChunkSize;
         Assert.IsTrue(expected.Length < wholeCount, "The candidate must leave distant node chunks unbuilt.");
     }
 
@@ -556,9 +557,9 @@ public sealed class NodeSwitchTests
     }
 
     private static WorldSceneSession Open(SceneWorldSnapshot snapshot,
-        Func<SceneWorldSnapshot, NodeId, NodeScene.Built?, CancellationToken, NodeScene.Built> generate,
+        Func<SceneWorldSnapshot, NodeId, NodeScene.Cached?, CancellationToken, NodeScene.Built> generate,
         NodeScene.Cache? cache = null) => new(new(Guid.NewGuid()), snapshot, WorldSceneSession.Generate, new(), cache ?? new(), generate);
-    private static NodeScene.Built Boundary(SceneWorldSnapshot snapshot, NodeId node, NodeScene.Built? previous,
+    private static NodeScene.Built Boundary(SceneWorldSnapshot snapshot, NodeId node, NodeScene.Cached? previous,
         CancellationToken token)
     {
         var layout = NodeLayout.Build(snapshot, node, token);

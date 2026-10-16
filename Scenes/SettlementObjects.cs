@@ -32,6 +32,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
     }
 
     internal Task[] PendingWork => buildings.PendingWork.Concat(parked.PendingWork).ToArray();
+    internal bool HasPendingBuilds => buildings.HasPendingBuilds || parked.HasPendingBuilds;
 
     private static Dictionary<BuildingId, (InstanceView Instance, SettlementPlotLayout Plot)> Buildings(
         SceneWorldSnapshot snapshot, NodeLayout layout)
@@ -102,15 +103,15 @@ internal sealed class SettlementObjects : IAsyncDisposable
             ? Math.Pow(item.Pose.Position.X - area.Focus.X, 2) + Math.Pow(item.Pose.Position.Z - area.Focus.Z, 2) : 0).ToArray();
     }
 
-    internal void Pump(SceneWorldSnapshot snapshot, NodeLayout layout, NodeRange? range = null)
+    internal void Pump(SceneWorldSnapshot snapshot, NodeLayout layout, NodeRange? range = null, bool allowBuild = true)
     {
         var placed = Select(BuildingPlacements(snapshot, layout), retainedBuildings, range);
         buildings.Retain(placed.Select(item => item.Instance.Id));
-        foreach (var item in placed) buildings.Prepare(snapshot.Content, item.Instance);
+        foreach (var item in placed) buildings.Prepare(snapshot.Content, item.Instance, allowBuild);
         var vehicles = Select(ParkedPlacements(snapshot, layout), retainedParked, range);
         parked.Retain(vehicles.Select(item => item.Instance.Id));
         foreach (var item in vehicles)
-            if (item.Bounds is not null) parked.Prepare(snapshot.Content, item.Instance);
+            if (item.Bounds is not null) parked.Prepare(snapshot.Content, item.Instance, allowBuild);
     }
 
     private static SettlementView? Settlement(SceneWorldSnapshot snapshot, NodeLayout layout)

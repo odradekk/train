@@ -130,7 +130,9 @@ internal static class EconomyFixture
         };
     }
 
-    internal static FixedContentView Content(ulong generation = 1, bool missingMarketRule = false, int maxLeaseMultiple = 3)
+    internal static FixedContentView Content(ulong generation = 1, bool missingMarketRule = false, int maxLeaseMultiple = 3,
+        ImmutableArray<ProcessProjection> processes = default,
+        IReadOnlyDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>? definitionDisplays = null)
     {
         var icon = new AssetRevision("fixture-food-png");
         var bytes = ImmutableArray.CreateRange(Convert.FromBase64String(
@@ -140,10 +142,12 @@ internal static class EconomyFixture
             60, 10, new(1), new(1), new(10000), (long)LeaseDuration, maxLeaseMultiple);
         var projection = HostContentScenario.CreateProjection(HostCoreScenario.Input) with
         {
-            MarketRules = missingMarketRule ? [] : [market with { Id = new("fixture:another-market"), LeaseDurationTicks = 120 }, market]
+            MarketRules = missingMarketRule ? [] : [market with { Id = new("fixture:another-market"), LeaseDurationTicks = 120 }, market],
+            Processes = processes.IsDefault ? [] : processes
         };
         return new(projection, new(generation))
         {
+            DefinitionDisplays = definitionDisplays ?? ImmutableDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>.Empty,
             SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
             {
                 [new(1)] = new ContentLookup<SettlementLayoutProjection>.NotFound()

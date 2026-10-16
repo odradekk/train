@@ -13,6 +13,39 @@ namespace Train.Scenes.Tests;
 public sealed class SettlementPrebuildTests
 {
     [TestMethod]
+    public async Task Candidate_gate_blocks_new_buildings_and_parked_bodies_but_drains_existing_work()
+    {
+        var snapshot = Snapshot();
+        var started = 0;
+        using var release = new ManualResetEventSlim();
+        var filled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        BuiltObject Build(IContentView content, InstanceView instance)
+        {
+            if (Interlocked.Increment(ref started) == 2) filled.TrySetResult();
+            release.Wait();
+            return WorldSceneSession.BuildObject(content, instance, SceneFixtures.Identity);
+        }
+        await using var objects = new SettlementObjects(Ids(), build: Build, parkedBuild: Build);
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        try
+        {
+            objects.Pump(snapshot, layout, allowBuild: false);
+            Assert.AreEqual(0, started);
+            Assert.AreEqual(0, objects.PendingWork.Length);
+            Assert.IsTrue(objects.HasPendingBuilds);
+            objects.Pump(snapshot, layout);
+            await filled.Task;
+            objects.Pump(snapshot, layout, allowBuild: false);
+            release.Set();
+            await Task.WhenAll(objects.PendingWork);
+            objects.Pump(snapshot, layout, allowBuild: false);
+            Assert.AreEqual(2, started);
+            Assert.IsFalse(objects.HasPendingBuilds);
+        }
+        finally { release.Set(); }
+    }
+
+    [TestMethod]
     public async Task SettlementBodyCachesExpireOutsideCurrentAndCandidateNodes()
     {
         var snapshot = Snapshot();

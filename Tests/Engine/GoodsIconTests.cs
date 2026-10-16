@@ -20,6 +20,156 @@ public class GoodsIconTests(Node testScene) : TestClass(testScene)
     private static readonly GoodId Second = new GoodId.Assembly(new("icon:second"));
 
     [Test]
+    public async Task Preparation_yields_and_reuses_the_shared_preview_frame()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        var previews = new List<Preview>();
+        var factory = Factory(previews);
+        long timestamp = 0;
+        var cache = new GoodsIconCache { Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency };
+        cache.Initialize(factory, dispatcher);
+        TestScene.AddChild(cache);
+        cache.Bind(new(Guid.NewGuid()), Content(1));
+        var controls = new List<GoodIcon>();
+        var diagnostics = new List<string>();
+        cache.Diagnostic += diagnostics.Add;
+        try
+        {
+            foreach (var good in new[] { First, Second })
+            {
+                var icon = cache.Create(good, null);
+                controls.Add(icon);
+                TestScene.AddChild(icon);
+            }
+            Require(controls.All(icon => Texture(icon) is null && icon.TooltipText == "图标正在生成") &&
+                cache.GetChildCount() == 0 && previews[0].DisposeCalls == 0 && diagnostics.Count == 0,
+                "预算让步必须保留预览并显示生成中，不能创建只含部分资源的截图视口。");
+            await FramesUntil(TestScene, () => cache.GetChildCount() != 0);
+            var viewport = cache.GetChildren().OfType<SubViewport>().Single();
+            Require(viewport.FindChildren("*", "MeshInstance3D", true, false).Count == 1 &&
+                viewport.GetCamera3D() is not null && controls.All(icon => Texture(icon) is null),
+                "后续主线程帧准备完成后必须提交完整网格与相机，再等待真实绘制。");
+            Require(factory.PreviewCalls.Count == 1 && previews[0].PresentCalls == 1 && diagnostics.Count == 0,
+                "预算让步后同设计货物必须继续使用同一份预览帧，不得重新Present。");
+        }
+        finally
+        {
+            cache.Free();
+            foreach (var icon in controls) icon.Free();
+        }
+    }
+
+    [Test]
+    public async Task Preparing_capture_is_retired_without_publishing_resources()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        var previews = new List<Preview>();
+        var factory = Factory(previews);
+        long timestamp = 0;
+        var cache = new GoodsIconCache { Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency };
+        cache.Initialize(factory, dispatcher);
+        TestScene.AddChild(cache);
+        cache.Bind(new(Guid.NewGuid()), Content(1));
+        var controls = new List<GoodIcon>();
+        try
+        {
+            // C#绑定的Array<int>会截断64位实例ID，改从原始Variant读取。
+            using var beforeNodes = (Godot.Collections.Array)Node.GetOrphanNodeIds();
+            var before = beforeNodes.Select(id => id.AsUInt64()).ToHashSet();
+            foreach (var good in new[] { First, Second })
+            {
+                var icon = cache.Create(good, null);
+                controls.Add(icon);
+                TestScene.AddChild(icon);
+            }
+            // 预算让步时待用节点尚未挂树，通过引擎的孤立节点查询观察真实资源释放。
+            using var orphanNodes = (Godot.Collections.Array)Node.GetOrphanNodeIds();
+            var orphans = orphanNodes.Select(id => id.AsUInt64()).Except(before)
+                .Select(GodotObject.InstanceFromId).OfType<Node>().ToArray();
+            var roots = orphans.OfType<Node3D>()
+                .Where(node => node.GetParent() is null).ToArray();
+            var meshes = roots.SelectMany(node => node.FindChildren("*", "MeshInstance3D", true, false)
+                .Cast<MeshInstance3D>()).ToArray();
+            Require(meshes.Length == 1, $"准备中必须只有一个待用网格；孤立节点：{string.Join('；', orphans.Select(node => $"{node.Name}:{node.GetClass()}:{node.GetParent()?.Name}"))}。");
+            var mesh = meshes[0].Mesh;
+            Require(cache.GetChildCount() == 0 && GodotObject.IsInstanceValid(mesh) && previews[0].DisposeCalls == 0,
+                "释放情景必须已有待用网格且仍在准备，不能只取消已创建的截图视口。");
+            cache.Bind(new(Guid.NewGuid()), Content(1));
+            Require(previews[0].DisposeCalls == 1 && roots.All(node => !GodotObject.IsInstanceValid(node)) &&
+                !GodotObject.IsInstanceValid(mesh) && controls.All(icon => icon.TooltipText == "图标绑定已失效"),
+                "Clear必须只关闭一次准备中预览，并释放所有待用节点与独占网格。");
+            await new UiTestInput(TestScene).Frames(3);
+            Require(previews[0].PresentCalls == 1 && previews[0].DisposeCalls == 1 && cache.GetChildCount() == 0 &&
+                controls.All(icon => Texture(icon) is null), "取消后真实帧不得再生成视口或发布旧图标。");
+        }
+        finally
+        {
+            cache.Free();
+            foreach (var icon in controls) icon.Free();
+        }
+    }
+
+    [Test]
+    public async Task Failed_continuation_retires_capture_and_updates_shared_controls()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        var preview = new Preview(new(1), unavailableAsset: true);
+        var factory = new FixedDisplayFactory { PreviewDesignCall = (_, _) => new SceneResult<IDesignPreview>.Success(preview) };
+        long timestamp = 0;
+        var cache = new GoodsIconCache { Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency };
+        cache.Initialize(factory, dispatcher);
+        TestScene.AddChild(cache);
+        cache.Bind(new(Guid.NewGuid()), Content(1));
+        var controls = new List<GoodIcon>();
+        var diagnostics = new List<string>();
+        cache.Diagnostic += diagnostics.Add;
+        try
+        {
+            foreach (var good in new[] { First, Second })
+            {
+                var icon = cache.Create(good, null);
+                controls.Add(icon);
+                TestScene.AddChild(icon);
+            }
+            Require(controls.All(icon => icon.TooltipText == "图标正在生成") && preview.DisposeCalls == 0,
+                "后续失败情景必须先把共享条目作为Pending交给控件。");
+            await FramesUntil(TestScene, () => preview.DisposeCalls != 0);
+            Require(preview.DisposeCalls == 1 && diagnostics.Count == 1 && diagnostics[0].Contains("显示资产未就绪") &&
+                controls.All(icon => Texture(icon) is null && icon.TooltipText == diagnostics[0]) && cache.GetChildCount() == 0,
+                "继续准备失败必须清理capture、更新所有共享控件并发出诊断，不能一直显示生成中。");
+            var cached = cache.Create(Second, null);
+            controls.Add(cached);
+            TestScene.AddChild(cached);
+            await new UiTestInput(TestScene).Frames(3);
+            Require(cached.TooltipText == diagnostics[0] && factory.PreviewCalls.Count == 1 &&
+                preview.PresentCalls == 1 && preview.DisposeCalls == 1 && diagnostics.Count == 1,
+                "失败条目必须保留明确原因，后续帧和缓存命中不得重复准备、释放或诊断。");
+
+            var failure = diagnostics[0];
+            cache.Bind(new(Guid.NewGuid()), Content(1));
+            preview = new Preview(new(1), unavailableAsset: true);
+            cache.Timestamp = () => 0;
+            diagnostics.Clear();
+            var immediate = cache.Create(First, null);
+            var shared = cache.Create(Second, null);
+            controls.Add(immediate); controls.Add(shared);
+            TestScene.AddChild(immediate); TestScene.AddChild(shared);
+            Require(Texture(immediate) is null && immediate.TooltipText == failure && shared.TooltipText == failure &&
+                diagnostics.Count == 1 && diagnostics[0] == failure && cache.GetChildCount() == 0 &&
+                preview.PresentCalls == 1 && preview.DisposeCalls == 1,
+                "不让步的准备失败不能从Create抛出，必须与后续帧失败显示相同原因并只诊断、释放一次。");
+            await new UiTestInput(TestScene).Frames(3);
+            Require(preview.DisposeCalls == 1 && diagnostics.Count == 1 && factory.PreviewCalls.Count == 2,
+                "同步失败条目也不得在后续帧重复释放或诊断。");
+        }
+        finally
+        {
+            cache.Free();
+            foreach (var icon in controls) icon.Free();
+        }
+    }
+
+    [Test]
     public void Failed_or_throwing_previews_release_their_capture_once()
     {
         using var dispatcher = new GodotMainThreadDispatcher();
@@ -111,7 +261,7 @@ public class GoodsIconTests(Node testScene) : TestClass(testScene)
         using var dispatcher = new GodotMainThreadDispatcher();
         var previews = new List<Preview>();
         var factory = Factory(previews);
-        var cache = new GoodsIconCache();
+        var cache = new GoodsIconCache { Timestamp = () => 0 };
         cache.Initialize(factory, dispatcher);
         TestScene.AddChild(cache);
         var binding = new HostBinding(Guid.NewGuid());
@@ -162,7 +312,8 @@ public class GoodsIconTests(Node testScene) : TestClass(testScene)
         using var dispatcher = new GodotMainThreadDispatcher();
         var previews = new List<Preview>();
         var factory = Factory(previews);
-        var cache = new GoodsIconCache();
+        long timestamp = 0;
+        var cache = new GoodsIconCache { Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency };
         cache.Initialize(factory, dispatcher);
         var layer = new CanvasLayer();
         var panel = new ColorRect { Color = new("30363e"), Position = new(80, 80), Size = new(600, 390) };
@@ -239,10 +390,13 @@ public class GoodsIconTests(Node testScene) : TestClass(testScene)
             new(id, new(new("图标测试", ""), null, null, false), Design, false));
         return new() { Generation = new(generation),
             Goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>> { [First] = Good(First), [Second] = Good(Second) },
+            Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>>
+                { [new("unavailable-texture")] = new ContentLookup<ContentAsset>.NotFound() },
             Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>> { [Design] = new ContentLookup<DesignEvaluation>.Found(evaluation) } };
     }
 
-    private sealed class Preview(ContentGeneration content, bool empty = false, bool fault = false) : IDesignPreview
+    private sealed class Preview(ContentGeneration content, bool empty = false, bool fault = false,
+        bool unavailableAsset = false) : IDesignPreview
     {
         public ContentGeneration Content => content;
         internal int PresentCalls { get; private set; }
@@ -256,8 +410,13 @@ public class GoodsIconTests(Node testScene) : TestClass(testScene)
                 [new(new(-1, -1, 0), NVector3.UnitZ, new(0, 0), new(0, 0), ExposedFaceEdges.None, 0, 0),
                  new(new(1, -1, 0), NVector3.UnitZ, new(1, 0), new(1, 0), ExposedFaceEdges.None, 0, 0),
                  new(new(0, 1, 0), NVector3.UnitZ, new(0.5f, 1), new(0.5f, 1), ExposedFaceEdges.None, 1, 0)], [0, 1, 2]);
+            var visuals = System.Collections.Immutable.ImmutableArray.Create<SceneVisual>(
+                new SceneVisual.Geometry(mesh, new(false, 0, 0, false)));
+            if (unavailableAsset) visuals = visuals.Add(new SceneVisual.Geometry(
+                mesh with { Material = new SceneMaterial.Voxel(new("unavailable-texture"), MaterialCategory.BareMetal, null) },
+                new(false, 0, 0, false)));
             var obj = new SceneObject(new(1), null, new(NVector3.Zero, System.Numerics.Quaternion.Identity), null,
-                [new SceneVisual.Geometry(mesh, new(false, 0, 0, false))], [], []);
+                visuals, [], []);
             var frame = new FixedSceneFrame { Update = new(null,
                 new(new(Guid.NewGuid()), new(1), new(1), 1), NVector3.Zero, empty ? [] : [obj], [], new([], []), []) };
             return new SceneResult<ISceneFrame>.Success(frame);
