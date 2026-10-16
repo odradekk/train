@@ -40,12 +40,14 @@ internal sealed class RailwayScene : IAsyncDisposable
     private readonly SceneVehicles vehicles;
     private RailwayPath? path;
     private SceneProblem? failure;
+    private bool waitingSegments;
     private double lastRealSeconds = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
     private double lastSimulationSeconds;
     private double displayRate = 1;
     internal EdgeId Edge { get; }
     internal RailwayPath? Path => path;
     internal bool Failed => failure is not null;
+    internal bool HasPendingBuilds => waitingSegments || PendingWork.Any(task => !task.IsCompleted) || vehicles.HasPendingBuilds;
     internal Task[] PendingWork => pendingSegments.Values.Select(item => (Task)item.Task).Concat(vehicles.PendingWork)
         .Concat(retiredSegments.Where(item => !item.Task.IsCompleted).Select(item => item.Task)).ToArray();
 
@@ -104,11 +106,11 @@ internal sealed class RailwayScene : IAsyncDisposable
             segments.Values.Select(item => item.Source).ToImmutableArray(), debugLayers: request.DebugLayers, pickRay: request.PickRay);
     }
 
-    internal void Pump(SceneWorldSnapshot snapshot, WorldLocation.Edge location)
+    internal void Pump(SceneWorldSnapshot snapshot, WorldLocation.Edge location, bool allowBuild = true)
     {
         if (path is null) return;
         var focal = location.DistanceMeters * RailwayCoordinates.CellsPerMeter;
-        ScheduleSegments(snapshot, focal, null, snapshot.Core.Position.CompletedSteps * SimulationTime.StepSeconds);
+        ScheduleSegments(snapshot, focal, null, snapshot.Core.Position.CompletedSteps * SimulationTime.StepSeconds, allowBuild);
         RetireCompletedWork();
     }
 
@@ -116,12 +118,12 @@ internal sealed class RailwayScene : IAsyncDisposable
         ? followed.Members.First(item => item.Id == new InstanceId.Vehicle(((WorldSceneTarget.Follow)target).Vehicle)).CenterArc
         : ((WorldLocation.Edge)((WorldSceneTarget.Location)target).Value).DistanceMeters * RailwayCoordinates.CellsPerMeter;
 
-    private (int Middle, int Minimum, int Maximum) ScheduleSegments(SceneWorldSnapshot snapshot, double focal, TrainView? followed, double seconds)
+    private (int Middle, int Minimum, int Maximum) ScheduleSegments(SceneWorldSnapshot snapshot, double focal, TrainView? followed, double seconds, bool allowBuild = true)
     {
         var middle = Math.Clamp((int)(focal / RailwayCoordinates.SegmentLengthCells), 0, path!.SegmentCount - 1);
         UpdateDisplayRate(seconds);
         var (minimum, maximum) = NeededRange(middle, followed);
-        ReconcileSegments(snapshot, middle, minimum, maximum);
+        ReconcileSegments(snapshot, middle, minimum, maximum, allowBuild);
         return (middle, minimum, maximum);
     }
 
@@ -159,7 +161,7 @@ internal sealed class RailwayScene : IAsyncDisposable
             ? new(position.Direction == TravelDirection.Forward ? edge.End : edge.Start) : null;
     }
 
-    private void ReconcileSegments(SceneWorldSnapshot snapshot, int middle, int minimum, int maximum)
+    private void ReconcileSegments(SceneWorldSnapshot snapshot, int middle, int minimum, int maximum, bool allowBuild)
     {
         foreach (var index in pendingSegments.Keys.Where(index => index < minimum || index > maximum).ToArray())
         {
@@ -180,13 +182,14 @@ internal sealed class RailwayScene : IAsyncDisposable
         {
             if (segments.ContainsKey(index) || pendingSegments.ContainsKey(index)) continue;
             if (cache.Find(snapshot, path!, index) is { } cached) Connect(cached);
-            else if (failure is null && pendingSegments.Count + retiredSegments.Count(work => !work.Task.IsCompleted) < RailwayCoordinates.MaxConcurrentBuilds)
+            else if (allowBuild && failure is null && pendingSegments.Count + retiredSegments.Count(work => !work.Task.IsCompleted) < RailwayCoordinates.MaxConcurrentBuilds)
             {
                 var currentPath = path!;
                 var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
                 pendingSegments.Add(index, new(Task.Run(() => build(snapshot, currentPath, index, stop.Token), stop.Token), stop));
             }
         }
+        waitingSegments = Enumerable.Range(minimum, maximum - minimum + 1).Any(index => !segments.ContainsKey(index));
         cache.Publish(Edge, owner, segments.Values.Select(item => item.Source));
     }
 

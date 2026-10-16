@@ -212,7 +212,7 @@ public sealed class NodeSceneTests
         snapshot = RailwayFixtures.ReplaceCore(snapshot, node: snapshot.Core.World.Nodes[2] with { Position = new(700, 0) });
         var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
         var reference = NodeFixtures.Build(snapshot, layout);
-        var prepared = NodeScene.Prepare(snapshot, layout, reference);
+        var prepared = NodeScene.Prepare(snapshot, layout, NodeScene.Cached.From(reference));
         var builds = new List<(string Key, Func<NodeScene.Part> Build)>();
         for (var z = (int)layout.Bounds.Minimum.Y; z < layout.Bounds.Maximum.Y; z += VoxelGrid.ChunkSize)
         for (var x = (int)layout.Bounds.Minimum.X; x < layout.Bounds.Maximum.X; x += VoxelGrid.ChunkSize)

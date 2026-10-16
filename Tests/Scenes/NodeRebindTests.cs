@@ -104,7 +104,8 @@ public sealed class NodeRebindTests
         await Task.WhenAll(session.PendingPrebuilds);
         second = await RailwayFixtures.Settled(session, Request, second);
         Assert.AreEqual(new WorldLocation.Node(new(3)), session.PrebuiltLocation);
-        Assert.IsNull(nodeCache.Read(new(1)), "The departed node cannot remain beside the current edge and candidate node.");
+        Assert.IsNull(nodeCache.Read(new(1)), "This fixture has no reusable node parts.");
+        Assert.IsTrue(nodeCache.IdleBytes <= NodeScene.Cache.DefaultIdleBudget);
         Assert.IsNotNull(nodeCache.Read(new(3)));
         Assert.IsNull(railwayCache.Find(last, new(last, new(1)), 0));
         Assert.IsNotNull(railwayCache.Find(last, new(last, new(2)), 0));
@@ -115,7 +116,8 @@ public sealed class NodeRebindTests
         await Task.WhenAll(session.PendingPrebuilds);
         await RailwayFixtures.Settled(session, Request, second);
         Assert.IsNull(session.PrebuiltLocation);
-        Assert.IsNull(nodeCache.Read(new(3)), "Canceling the candidate also releases its immutable cache.");
+        Assert.IsNull(nodeCache.Read(new(3)), "An empty candidate leaves no idle cache entry.");
+        Assert.IsTrue(nodeCache.IdleBytes <= NodeScene.Cache.DefaultIdleBudget);
         Assert.IsNotNull(railwayCache.Find(stopped, new(stopped, new(2)), 0));
     }
 

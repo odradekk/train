@@ -126,7 +126,7 @@ internal static class RailwayFixtures
             RailwayDependencies.Capture(snapshot, path, index, [], [], [], [], false, false), []);
 
     internal static NodeScene.Built EmptyNode(SceneWorldSnapshot snapshot, NodeId node,
-        NodeScene.Built? previous, CancellationToken token) =>
+        NodeScene.Cached? previous, CancellationToken token) =>
         new(NodeLayout.Build(snapshot, node, token), ImmutableDictionary<string, NodeScene.Part>.Empty, []);
 
     internal static RailwayScene Controlled(SceneWorldSnapshot snapshot, SceneVehicles vehicles,

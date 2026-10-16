@@ -66,6 +66,15 @@ internal sealed class VoxelGrid
     }
     internal SceneBounds? Bounds { get; }
     internal IEnumerable<GridPosition> Chunks => chunks.Keys;
+    internal long ArrayBytes => chunks.Values.Sum(values => (long)values.Length * sizeof(int)) +
+        (long)entries.Length * IntPtr.Size + entries.Sum(entry => (long)(entry?.Path.Length ?? 0) * sizeof(int)) +
+        entries.Where(entry => entry?.Appearance is not null).Select(entry => entry!.Appearance!).Distinct()
+            .Sum(appearance => appearance.Presentation switch
+            {
+                VoxelPresentation.Cube cube => (long)cube.Shapes.Length * IntPtr.Size,
+                VoxelPresentation.Mesh mesh => (long)mesh.SurfaceMaterials.Length * sizeof(MaterialCategory),
+                _ => 0
+            });
 
     internal VoxelGrid(ImmutableArray<SceneCell> cells)
     {

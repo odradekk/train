@@ -13,6 +13,39 @@ namespace Train.Scenes.Tests;
 public sealed class SettlementObjectsTests
 {
     [TestMethod]
+    public async Task Destroyed_building_parts_match_a_cold_build_after_cached_geometry_is_replaced()
+    {
+        var original = Snapshot();
+        var layout = NodeLayout.Build(original, NodeFixtures.NodeId);
+        await using var warm = new SettlementObjects(StableIds());
+        var before = await Settle(warm, original, layout);
+        var damaged = NodeFixtures.Station(2) with
+        {
+            Parts = NodeFixtures.Station(2).Parts.Select(part => part.Part == new PartId(1)
+                ? part with { Durability = new(0, part.Durability.Maximum), Destroyed = true } : part).ToImmutableArray()
+        };
+        var changed = Snapshot(station: damaged);
+        var actual = await Settle(warm, changed, layout);
+        await using var cold = new SettlementObjects(StableIds());
+        var expected = await Settle(cold, changed, layout);
+        CollectionAssert.AreEqual(expected.Diagnostics.ToArray(), actual.Diagnostics.ToArray());
+        CollectionAssert.AreEqual(expected.Picking.SelectMany(pick => pick.Grid.Cells).ToArray(),
+            actual.Picking.SelectMany(pick => pick.Grid.Cells).ToArray());
+        var expectedMeshes = expected.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().ToArray();
+        var actualMeshes = actual.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().ToArray();
+        Assert.AreEqual(expectedMeshes.Length, actualMeshes.Length);
+        for (var index = 0; index < expectedMeshes.Length; index++)
+        {
+            var a = expectedMeshes[index]; var b = actualMeshes[index];
+            Assert.AreEqual(a.Surface, b.Surface);
+            Assert.AreEqual(a.Mesh.Material, b.Mesh.Material);
+            Assert.IsTrue(a.Mesh.Vertices.AsSpan().SequenceEqual(b.Mesh.Vertices.AsSpan()));
+            Assert.IsTrue(a.Mesh.TriangleIndices.AsSpan().SequenceEqual(b.Mesh.TriangleIndices.AsSpan()));
+        }
+        Assert.AreNotSame(before.Picking.Single().Grid, actual.Picking.Single().Grid);
+    }
+
+    [TestMethod]
     public void PlatformNumbersUseCoreCapacityAndReportMismatch()
     {
         var evaluation = NodeFixtures.StationEvaluation();

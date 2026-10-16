@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -48,6 +49,9 @@ internal sealed class RailwayDependencies
     private readonly ImmutableArray<RailwayModelRead> slots;
     private readonly ImmutableArray<DesignHash> models;
     private readonly ImmutableArray<VoxelDefinitionId> voxels;
+    internal long ArrayBytes => (long)terrains.Length * Unsafe.SizeOf<TerrainTypeId>() +
+        (long)slots.Length * Unsafe.SizeOf<RailwayModelRead>() + (long)models.Length * Unsafe.SizeOf<DesignHash>() +
+        (long)voxels.Length * Unsafe.SizeOf<VoxelDefinitionId>();
     private readonly string value;
     internal string Key => value;
     private readonly bool startTerrain;
