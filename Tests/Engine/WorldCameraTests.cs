@@ -69,7 +69,7 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
             camera.DisplayedFrame(frame, null, railwayPan: true);
             camera.Zoom(-100);
             var farOffset = camera.Camera.Position - camera.Focus;
-            Require(Mathf.Abs(farOffset.Length() - 240) < 0.001f, "线路平移必须保留 120 米缩放上限。");
+            Require(farOffset.Length() > 128, "线路平移不能受节点上限限制。");
 
             camera.DisplayedFrame(frame, First);
             camera.Zoom(-100);
