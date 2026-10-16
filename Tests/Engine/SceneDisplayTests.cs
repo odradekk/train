@@ -4,6 +4,7 @@ using Godot;
 using Train.App.Assets;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
+using Train.Core.Contracts;
 using Train.Rendering;
 using Train.Scenes.Contracts;
 using Train.Scenes.ContractSupport;
@@ -16,6 +17,154 @@ namespace Train.Engine.Tests;
 public class SceneDisplayTests(Node testScene) : TestClass(testScene)
 {
     private static readonly SceneSessionId Session = new(Guid.Parse("7dd364aa-df8f-4144-b345-fc130ea11ca9"));
+
+    [Test]
+    public async Task Locked_candidate_finishes_before_new_objects_and_uses_latest_pose_after_commit()
+    {
+        await new UiTestInput(TestScene).Frames(2);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView());
+        var first = Frame(1, [Object(1, Mesh(), new(10, 0, 0))]);
+        Commit(display, first);
+        var mesh = Mesh();
+        var subject = new WorldObjectId.Instance(new InstanceId.Vehicle(new(2)));
+        long timestamp = 0;
+        display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
+        var candidate = Frame(2, [Object(2, mesh) with { Subject = subject }, Object(3, mesh)], first.Update.Frame);
+        Require(display.Prepare(candidate) is null, "锁定候选必须在第一个资源后暂停。");
+        var latest = Frame(3,
+            [Object(2, mesh, new(-70, 0, 0)) with { Subject = subject }, Object(4, mesh)],
+            first.Update.Frame, new(-100, 0, 0), new(100, 0, 0),
+            poses: ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty.Add(subject,
+                new Lookup<ScenePose>.Found(new(new(-70, 0, 0), NQuaternion.Identity))));
+        display.UpdatePoses(latest);
+        using var prepared = display.Prepare(latest);
+        Require(prepared is not null, "第二次调用必须完成锁定候选，不能等待最新帧追加的对象。");
+        Require(ReferenceEquals(display.PoseFrame, latest) && ReferenceEquals(display.DisplayedFrame, first),
+            "准备期间姿态帧必须更新，网格基准必须保持最后完整帧。");
+        prepared!.Commit();
+        display.UpdatePoses(latest);
+        Require(ReferenceEquals(display.DisplayedFrame, candidate) && ReferenceEquals(display.PoseFrame, latest),
+            "提交锁定候选后必须恢复最新姿态帧。");
+        Require(!display.Objects.ContainsKey(new(4)), "最新帧追加的对象不得混入锁定候选。");
+        Near(display.Objects[new(2)].Root.GlobalPosition, new(-70, 0, 0));
+        Near(display.Objects[new(1)].Root.GlobalPosition, new(-90, 0, 0));
+        SceneHit Hit(ulong id) => new(latest.Update.Frame, new(id),
+            new PickSubject.Terrain(new WorldLocation.Node(new(1))), default, GridFace.PositiveY,
+            default, NVector3.UnitY, 1, []);
+        Require(display.CanSelect(Hit(2)), "最新帧中与已显示对象兼容的命中必须可选。");
+        Require(display.CanSelect(Hit(1)), "候选和最新帧均未更新的继承对象必须可选。");
+        Require(!display.CanSelect(Hit(4)), "最新帧新增但尚未显示的对象不得可选。");
+        Require(!display.CanSelect(Hit(3)), "候选更新而最新帧省略的对象无法证明兼容，不得可选。");
+        await new UiTestInput(TestScene).Frames(2);
+    }
+
+    [Test]
+    public async Task Changed_preparation_scope_releases_pending_textures_before_budget_return()
+    {
+        await new UiTestInput(TestScene).Frames(2);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        var asset = Png("obsolete-pending-texture");
+        var content = new FixedContentView
+        {
+            Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>>
+                { [asset.Revision] = new ContentLookup<ContentAsset>.Found(asset) }
+        };
+        using var display = Attach(cache, content);
+        var first = Frame(1, []);
+        Commit(display, first);
+        var textured = Mesh(new SceneMaterial.Voxel(asset.Revision, MaterialCategory.BareMetal, null));
+        foreach (var changed in new[] { "base", "session", "request", "space" })
+        {
+            using var observer = cache.AcquireFaceTexture(asset);
+            var texture = observer.Value;
+            long timestamp = 0;
+            display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
+            Require(display.Prepare(Frame(2, [Object(2, textured), Object(3, Mesh())])) is null,
+                "纹理对象准备后必须暂停。");
+            observer.Dispose();
+            Require(GodotObject.IsInstanceValid(texture), "待用资源必须持有纹理。");
+            var latest = Frame(3, [Object(2, textured), Object(3, Mesh())],
+                @base: changed == "base" ? first.Update.Frame : null,
+                space: changed == "space" ? 2UL : 1UL,
+                session: changed == "session" ? new SceneSessionId(Guid.Parse("248c5802-f435-49f4-84fa-2dc3777779a0")) : null,
+                request: changed == "request" ? 2UL : 1UL);
+            Require(display.Prepare(latest) is null, "范围变化后的新候选仍须遵守单项推进预算。");
+            Require(!GodotObject.IsInstanceValid(texture),
+                $"{changed} 变化必须在预算提前返回前释放旧候选的待用纹理。");
+            display.CancelPreparation();
+        }
+        Require(ReferenceEquals(display.DisplayedFrame, first) && display.Objects.Count == 0,
+            "候选替换和清理不能发布部分对象。");
+        await new UiTestInput(TestScene).Frames(2);
+    }
+
+    [Test]
+    public async Task Pose_overlay_restores_baseline_and_commit_does_not_repeat_origin_shift()
+    {
+        await new UiTestInput(TestScene).Frames(2);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView());
+        var mesh = Mesh();
+        var first = Frame(1, [Object(1, mesh, new(10, 0, 0)), Object(2, mesh, new(2, 0, 0), new(1))]);
+        Commit(display, first);
+        var moving = Frame(2, [Object(1, mesh, new(-70, 0, 0)), Object(2, mesh, new(4, 0, 0), new(1))],
+            first.Update.Frame, new(-100, 0, 0), new(100, 0, 0));
+        Near(display.UpdatePoses(moving), new(-100, 0, 0));
+        Near(display.Objects[new(1)].Root.GlobalPosition, new(-70, 0, 0));
+        Near(display.Objects[new(2)].Root.GlobalPosition, new(-66, 0, 0));
+        var restored = Frame(3, [], first.Update.Frame, new(-200, 0, 0), new(200, 0, 0));
+        Near(display.UpdatePoses(restored), new(-100, 0, 0));
+        Near(display.Root.Position, new(-200, 0, 0));
+        Near(display.Objects[new(1)].Root.Position, new(10, 0, 0));
+        Near(display.Objects[new(2)].Root.Position, new(2, 0, 0));
+        Near(display.Objects[new(2)].Root.GlobalPosition, new(-188, 0, 0));
+        Commit(display, restored);
+        Near(display.Root.Position, Vector3.Zero);
+        Near(display.Objects[new(1)].Root.GlobalPosition, new(-190, 0, 0));
+        var subsequent = Frame(4, [], restored.Update.Frame, new(-50, 0, 0), new(250, 0, 0));
+        Near(display.UpdatePoses(subsequent), new(-50, 0, 0));
+        Near(display.Objects[new(2)].Root.GlobalPosition, new(-238, 0, 0));
+        Commit(display, subsequent);
+        Near(display.Objects[new(2)].Root.GlobalPosition, new(-238, 0, 0));
+        await new UiTestInput(TestScene).Frames(2);
+    }
+
+    [Test]
+    public async Task Cross_space_loading_anchors_old_geometry_and_subject_moves_its_children()
+    {
+        await new UiTestInput(TestScene).Frames(2);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView());
+        var subject = new WorldObjectId.Instance(new InstanceId.Vehicle(new(1)));
+        var mesh = Mesh();
+        var first = Frame(1, [Object(1, mesh, new(10, 0, 0)) with { Subject = subject },
+            Object(2, mesh, new(2, 0, 0), new(1)), Object(3, mesh, new(30, 0, 0))]);
+        Commit(display, first);
+        var loading = Frame(2, [], origin: new(1000, 0, 0), readiness: SceneReadiness.Loading, space: 2,
+            poses: ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty.Add(subject,
+                new Lookup<ScenePose>.Found(new(new(10, 0, 0), NQuaternion.Identity))));
+        Near(display.UpdatePoses(loading), Vector3.Zero);
+        Require(display.Prepare(loading) is null, "新空间 Loading 不得提交。");
+        Near(display.Objects[new(3)].Root.GlobalPosition, new(30, 0, 0));
+        var latest = Frame(3, [Object(4, mesh), Object(5, mesh)], origin: new(1100, 0, 0), space: 2,
+            poses: ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty.Add(subject,
+                new Lookup<ScenePose>.Found(new(new(-60, 0, 0), NQuaternion.Identity))));
+        Near(display.UpdatePoses(latest), new(-100, 0, 0));
+        Near(display.Objects[new(1)].Root.GlobalPosition, new(-60, 0, 0));
+        Near(display.Objects[new(2)].Root.GlobalPosition, new(-58, 0, 0));
+        Near(display.Objects[new(3)].Root.GlobalPosition, new(-70, 0, 0));
+        long timestamp = 0;
+        display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
+        Require(display.Prepare(latest) is null && ReferenceEquals(display.DisplayedFrame, first),
+            "完整替换准备期间必须保留旧网格基准。");
+        Require(ReferenceEquals(display.PoseFrame, latest), "旧几何必须使用最新完整替换帧的姿态。");
+        await new UiTestInput(TestScene).Frames(2);
+    }
 
     [Test]
     public async Task Displays_share_the_process_frame_budget_and_each_call_still_progresses()
@@ -399,12 +548,15 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
     private static FixedSceneFrame Frame(ulong revision, ImmutableArray<SceneObject> objects,
         SceneFrameStamp? @base = null, NVector3 shift = default, ScenePoint origin = default,
         SceneReadiness readiness = SceneReadiness.Ready, ImmutableArray<SceneObjectId> removed = default,
-        ImmutableArray<SceneBounds> fog = default, ImmutableArray<SceneDebugLine> debugLines = default) => new()
+        ImmutableArray<SceneBounds> fog = default, ImmutableArray<SceneDebugLine> debugLines = default,
+        ulong space = 1, ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>? poses = null,
+        SceneSessionId? session = null, ulong request = 1) => new()
     {
         Origin = origin,
         Readiness = readiness,
         DebugLines = debugLines.IsDefault ? [] : debugLines,
-        Update = new(@base, new(Session, new(1), new(1), revision), shift, objects,
+        Poses = poses ?? ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty,
+        Update = new(@base, new(session ?? Session, new(request), new(space), revision), shift, objects,
             removed.IsDefault ? [] : removed, new(fog.IsDefault ? [] : fog, []), [])
     };
 
