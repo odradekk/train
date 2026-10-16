@@ -581,7 +581,9 @@ public sealed class NodeStreamingTests
                 Assert.AreEqual(railBounds.Count(item => item == bounds), frame.Update.Environment.FoggedRegions.Count(item => item == bounds));
             Assert.IsTrue(frame.Update.Environment.FoggedRegions.Length - railFog <= NodeStreaming.MaximumTerrainFogRegions);
             Assert.IsTrue(frame.Update.Environment.FoggedRegions.Length >= railFog);
-            await Task.WhenAll(scene.PendingWork);
+            // Moving the focus also retires unfinished work outside the new range.
+            try { await Task.WhenAll(scene.PendingWork); }
+            catch (OperationCanceledException) { }
         }
     }
 
