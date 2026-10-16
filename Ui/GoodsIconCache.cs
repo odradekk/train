@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Godot;
 using Train.App;
 using Train.App.Assets;
@@ -20,10 +21,11 @@ internal partial class GoodsIconCache : Node
     }
     private sealed class Capture(IDesignPreview preview) : IDisposable
     {
+        internal ISceneFrame Frame { get; set; } = null!;
         internal SceneDisplay? Display { get; set; }
         internal SubViewport? Viewport { get; set; }
         internal Godot.Environment? Environment { get; set; }
-        internal int CreatedFrame { get; } = Engine.GetFramesDrawn();
+        internal int CreatedFrame { get; set; }
         private bool _disposed;
         public void Dispose()
         {
@@ -47,6 +49,7 @@ internal partial class GoodsIconCache : Node
     private HostBinding _binding;
     private IContentView? _content;
     private bool _drawn;
+    internal Func<long> Timestamp { get; set; } = Stopwatch.GetTimestamp;
     internal event Action<string>? Diagnostic;
 
     internal void Initialize(IScenesFactory factory, GodotMainThreadDispatcher dispatcher)
@@ -122,43 +125,9 @@ internal partial class GoodsIconCache : Node
                 return Missing("图标只读预览未返回完整可显示帧。");
             }
             foreach (var problem in frame.Value.Diagnostics) Diagnostic?.Invoke($"图标：{problem.Code}：{problem.Detail}");
-            var display = capture.Display = new(_assets, content);
-            using (var prepared = display.Prepare(frame.Value))
-            {
-                if (prepared is null) throw new InvalidOperationException("只读图标预览没有返回完整替换帧。");
-                prepared.Commit();
-            }
-            var viewport = capture.Viewport = new SubViewport() { Size = new(128, 128), TransparentBg = true, OwnWorld3D = true,
-                RenderTargetUpdateMode = SubViewport.UpdateMode.Once, Msaa3D = Viewport.Msaa.Msaa4X };
-            viewport.AddChild(display.Root);
-            var environment = capture.Environment = new Godot.Environment() { BackgroundMode = Godot.Environment.BGMode.Color, BackgroundColor = Colors.Transparent,
-                AmbientLightSource = Godot.Environment.AmbientSource.Color, AmbientLightColor = Colors.White,
-                AmbientLightEnergy = 0.65f, ReflectedLightSource = Godot.Environment.ReflectionSource.Disabled };
-            viewport.AddChild(new WorldEnvironment { Environment = environment });
-            viewport.AddChild(new DirectionalLight3D { RotationDegrees = new(-40, -30, 0), LightEnergy = 1.1f });
-            AddChild(viewport);
-            Aabb? bounds = null;
-            void Include(Node node)
-            {
-                if (node is MeshInstance3D mesh && mesh.Mesh is not null)
-                {
-                    var box = mesh.GlobalTransform * mesh.GetAabb();
-                    bounds = bounds is { } previous ? previous.Merge(box) : box;
-                }
-                foreach (var child in node.GetChildren()) Include(child);
-            }
-            Include(display.Root);
-            if (bounds is null)
-            {
-                return Missing("图标预览没有可显示的网格。");
-            }
-            var center = bounds.Value.GetCenter();
-            var radius = Math.Max(bounds.Value.Size.Length() / 2, 0.5f);
-            var camera = new Camera3D { Projection = Camera3D.ProjectionType.Orthogonal,
-                Size = radius * 2.2f, Near = 0.01f, Far = radius * 8 + 10,
-                Position = center + new Vector3(1, 0.8f, 1).Normalized() * (radius * 3 + 1), Current = true };
-            viewport.AddChild(camera);
-            camera.LookAt(center, Vector3.Up);
+            capture.Frame = frame.Value;
+            capture.Display = new(_assets, content) { Timestamp = Timestamp };
+            if (PrepareCapture(capture) is { } failure) return Missing(failure);
             transferred = true;
             return new() { Pending = capture };
         }
@@ -166,6 +135,46 @@ internal partial class GoodsIconCache : Node
         {
             if (!transferred) capture.Dispose();
         }
+    }
+
+    private string? PrepareCapture(Capture capture)
+    {
+        var display = capture.Display!;
+        using (var prepared = display.Prepare(capture.Frame))
+        {
+            if (prepared is null) return null;
+            prepared.Commit();
+        }
+        var viewport = capture.Viewport = new SubViewport() { Size = new(128, 128), TransparentBg = true, OwnWorld3D = true,
+            RenderTargetUpdateMode = SubViewport.UpdateMode.Once, Msaa3D = Viewport.Msaa.Msaa4X };
+        viewport.AddChild(display.Root);
+        var environment = capture.Environment = new Godot.Environment() { BackgroundMode = Godot.Environment.BGMode.Color, BackgroundColor = Colors.Transparent,
+            AmbientLightSource = Godot.Environment.AmbientSource.Color, AmbientLightColor = Colors.White,
+            AmbientLightEnergy = 0.65f, ReflectedLightSource = Godot.Environment.ReflectionSource.Disabled };
+        viewport.AddChild(new WorldEnvironment { Environment = environment });
+        viewport.AddChild(new DirectionalLight3D { RotationDegrees = new(-40, -30, 0), LightEnergy = 1.1f });
+        AddChild(viewport);
+        Aabb? bounds = null;
+        void Include(Node node)
+        {
+            if (node is MeshInstance3D mesh && mesh.Mesh is not null)
+            {
+                var box = mesh.GlobalTransform * mesh.GetAabb();
+                bounds = bounds is { } previous ? previous.Merge(box) : box;
+            }
+            foreach (var child in node.GetChildren()) Include(child);
+        }
+        Include(display.Root);
+        if (bounds is null) return "图标预览没有可显示的网格。";
+        var center = bounds.Value.GetCenter();
+        var radius = Math.Max(bounds.Value.Size.Length() / 2, 0.5f);
+        var camera = new Camera3D { Projection = Camera3D.ProjectionType.Orthogonal,
+            Size = radius * 2.2f, Near = 0.01f, Far = radius * 8 + 10,
+            Position = center + new Vector3(1, 0.8f, 1).Normalized() * (radius * 3 + 1), Current = true };
+        viewport.AddChild(camera);
+        camera.LookAt(center, Vector3.Up);
+        capture.CreatedFrame = Engine.GetFramesDrawn();
+        return null;
     }
 
     private Entry Missing(string message)
@@ -186,19 +195,28 @@ internal partial class GoodsIconCache : Node
 
     public override void _Process(double delta)
     {
-        if (!_drawn) return;
+        var drawn = _drawn;
         _drawn = false;
         foreach (var entry in _designs.Values)
         {
-            if (entry.Pending is not { } capture || Engine.GetFramesDrawn() <= capture.CreatedFrame) continue;
+            if (entry.Pending is not { } capture) continue;
             try
             {
+                if (capture.Viewport is null)
+                {
+                    if (PrepareCapture(capture) is { } failure) throw new InvalidOperationException(failure);
+                    continue;
+                }
+                if (!drawn || Engine.GetFramesDrawn() <= capture.CreatedFrame) continue;
                 using var image = capture.Viewport!.GetTexture().GetImage();
                 if (image.IsEmpty()) throw new InvalidOperationException("图标离屏渲染返回空图像。");
                 entry.Texture = ImageTexture.CreateFromImage(image);
-                foreach (var control in entry.Controls) control.SetTexture(entry.Texture);
             }
-            finally { capture.Dispose(); entry.Pending = null; }
+            catch (Exception exception) { entry.Failure = $"图标生成失败：{exception.Message}"; }
+            capture.Dispose();
+            entry.Pending = null;
+            foreach (var control in entry.Controls) control.SetTexture(entry.Texture, entry.Failure);
+            if (entry.Failure is { } message) Diagnostic?.Invoke(message);
         }
     }
 
