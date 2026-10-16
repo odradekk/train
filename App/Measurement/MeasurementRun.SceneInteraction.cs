@@ -18,6 +18,8 @@ internal sealed partial class MeasurementRun
     private List<ProbeExpected>? _probeExpected;
     private ProbeExpected? _probeNearest;
     private double? _probeNearestPicked;
+    private ProbeExpected? _probeElectronics;
+    private double? _probeElectronicsPicked;
     private sealed record ProbeExpected(string Key, WorldObjectId? Subject, SceneBounds Bounds, bool Rail);
     private static readonly BindingFlags ProbeFlags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
     private static object? ProbeRead(object? owner, string name) => owner is null ? null :
@@ -29,6 +31,8 @@ internal sealed partial class MeasurementRun
         _probeExpected = null;
         _probeNearest = null;
         _probeNearestPicked = null;
+        _probeElectronics = null;
+        _probeElectronicsPicked = null;
         _scenePickCount = 0;
     }
 
@@ -89,6 +93,16 @@ internal sealed partial class MeasurementRun
             nearestBusiness = new { nearest.Key, expected = nearest.Subject?.ToString(), visible = result.Visible,
                 picked = result.Picked, resolved = result.Resolved, pickedAtSeconds = _probeNearestPicked };
         }
+        object? electronics = null;
+        if (_probeElectronics is { } factory)
+        {
+            var result = ProbeBusiness(frame, session, display, factory);
+            if (result.Picked) _probeElectronicsPicked ??= Seconds();
+            electronics = new { factory.Key, expected = factory.Subject?.ToString(),
+                distanceMeters = ProbeDistance(center, factory.Bounds) / 2,
+                visible = result.Visible, picked = result.Picked, resolved = result.Resolved,
+                pickedAtSeconds = _probeElectronicsPicked };
+        }
         object? followed = null;
         if (follow is not null)
         {
@@ -100,7 +114,7 @@ internal sealed partial class MeasurementRun
         detail = new { focus = new { x = center.X, y = center.Y, z = center.Z }, radiusMeters = 32,
             samples = points, intersectingFog, expectedKnown,
             business = results, emptyBusinessArea = expectedKnown && _probeExpected is { Count: 0 }, followed,
-            nearestBusiness };
+            nearestBusiness, electronics };
         return clear;
     }
 
@@ -169,6 +183,8 @@ internal sealed partial class MeasurementRun
             }
         }
         _probeNearest = all.OrderBy(item => ProbeDistance(center, item.Bounds)).FirstOrDefault();
+        _probeElectronics = all.FirstOrDefault(item => item.Subject ==
+            new WorldObjectId.Instance(new InstanceId.Building(new(6))));
         foreach (var pair in (IEnumerable)ProbeRead(prepared, "Rails")!)
         {
             var rail = ProbeRead(pair, "Value")!;
