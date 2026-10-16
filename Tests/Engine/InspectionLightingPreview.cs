@@ -87,7 +87,7 @@ public partial class InspectionLightingPreview : Node
         var edge = new EdgeMapItem(Edge, first.Id, last.Id, 256, terrain, 1, 1, [], []);
         var train = new TrainView(new(1), new TrainPosition.Edge(Edge, 1, TravelDirection.Forward, 128),
             TrainActivity.Running, [new(1)], new(1), 0, 6, 1, 1, 1, 10, null, null, 0,
-            new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0), [], null, [], TrainOrderFacing.FirstEndLeading);
+            new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0), [], null, [], TrainOrderFacing.FirstEndLeading, null);
         var instance = new InstanceView(new InstanceId.Vehicle(new(1)), Design, new("preview-composition"),
             new WorldLocation.Edge(Edge, 128), SettlementRelation.PlayerOwned, new InstanceDetails.Vehicle(SizeClass.Small, train.Id),
             InstanceLock.None, new(100, 100), [], []);

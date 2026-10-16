@@ -10,6 +10,43 @@ namespace Train.Scenes.Tests;
 public sealed class SettlementReadViewTests
 {
     [TestMethod]
+    public async Task Previous_platform_mapping_does_not_invalidate_current_settlement_or_instance_reads()
+    {
+        var previous = NodeFixtures.Snapshot();
+        var parked = RailwayFixtures.Instance(7) with { Location = NodeFixtures.Location };
+        var basis = NodeFixtures.Snapshot(steps: 1,
+            instances: [RailwayFixtures.Instance(train: new(1)), parked]);
+        var core = (FixedCoreReadView)basis.Core;
+        var view = new CountingCoreReadView(new FixedCoreReadView
+        {
+            Position = core.Position, InputIdentity = core.InputIdentity, World = core.World,
+            Nodes = core.World.Nodes.ToDictionary(item => item.Id, item => core.FindNode(item.Id)),
+            Edges = core.World.Edges.ToDictionary(item => item.Id, item => core.FindEdge(item.Id)),
+            Trains = core.World.Trains.ToDictionary(item => item.Id, item => core.FindTrain(item.Id)),
+            Instances = new InstanceId[] { new InstanceId.Vehicle(new(1)), parked.Id, new InstanceId.Building(new(1)) }
+                .ToDictionary(id => id, id => core.FindInstance(id)),
+            Settlements = new Dictionary<SettlementId, Lookup<SettlementView>>
+            {
+                [new(1)] = new Lookup<SettlementView>.Found(NodeFixtures.Settlement() with { ParkedVehicles = [new(7)] })
+            }
+        });
+        var oldView = new CountingCoreReadView(previous.Core);
+        Assert.AreNotSame(oldView, view);
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), previous with { Core = oldView },
+            WorldSceneSession.Generate, new(), new(), RailwayFixtures.EmptyNode);
+        session.Observe(basis with { Core = view }, []);
+        session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location));
+        var request = new SceneFrameRequest(.5, null, SceneDebugLayer.None);
+        var frame = await RailwayFixtures.Settled(session, request);
+        for (var pass = 0; pass < 3; pass++)
+            Assert.IsInstanceOfType<SceneResult<ISceneFrame>.Success>(session.Present(request, frame));
+        Assert.AreEqual(1, oldView.SettlementQueries[new(1)], "The previous platform mapping must be exercised.");
+        Assert.AreEqual(1, view.SettlementQueries[new(1)]);
+        Assert.AreEqual(1, view.InstanceQueries[new InstanceId.Building(new(1))]);
+        Assert.AreEqual(1, view.InstanceQueries[parked.Id]);
+    }
+
+    [TestMethod]
     public async Task Node_frames_share_building_queries_with_train_platform_reconciliation()
     {
         var basis = NodeFixtures.Snapshot();

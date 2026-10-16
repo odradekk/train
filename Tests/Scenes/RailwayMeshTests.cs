@@ -9,6 +9,21 @@ namespace Train.Scenes.Tests;
 public sealed class RailwayMeshTests
 {
     [TestMethod]
+    [DataRow(129d, false)]
+    [DataRow(129.25d, true)]
+    public void ShortRailSegmentsOnlyPublishDrawableMeshes(double end, bool hasSleeper)
+    {
+        var meshes = RailwayMeshes.Build(arc => new(new(0, 0, arc), Vector3.UnitZ, Vector3.UnitX), 128, end, default);
+        Assert.IsTrue(meshes.Any(mesh => mesh.Material is SceneMaterial.BuiltIn { Kind: BuiltInMaterial.RailSteel }));
+        Assert.AreEqual(hasSleeper, meshes.Any(mesh => mesh.Material is SceneMaterial.BuiltIn { Kind: BuiltInMaterial.Sleeper }));
+        foreach (var mesh in meshes)
+        {
+            Assert.IsFalse(mesh.Vertices.IsEmpty, "Published railway meshes must be drawable by the host.");
+            Assert.IsFalse(mesh.TriangleIndices.IsEmpty);
+        }
+    }
+
+    [TestMethod]
     public void NodeRailAdapterKeepsTheSameThreeGaugesAtTheLineBoundary()
     {
         var path = new RailwayPath(RailwayFixtures.Snapshot(8, 8, 0), new(1));

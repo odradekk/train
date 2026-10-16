@@ -76,7 +76,8 @@ public sealed class ReadViewInvalidationTests
     private static SceneWorldSnapshot Snapshot(IContentView content, bool changed)
     {
         var train = NodeFixtures.Train(enteredFrom: new(2),
-            activity: changed ? TrainActivity.Servicing : TrainActivity.Stopped, platformNumber: changed ? 1 : 2);
+            activity: TrainActivity.Servicing, platformNumber: changed ? 1 : 2) with
+        { Activity = changed ? TrainActivity.Servicing : TrainActivity.Stopped };
         var vehicle = RailwayFixtures.Instance(train: train.Id) with
         {
             Location = NodeFixtures.Location,

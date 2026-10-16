@@ -234,7 +234,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
                 candidate?.Node?.SetBuildAllowed(false);
                 var stamp = new SceneFrameStamp(Id, request, space, ++revision);
                 var frame = node is not null
-                    ? node.Present(snapshot, frameRequest, stamp, displayedFrame as SceneFrame, sceneOrigin ?? default, target)
+                    ? node.Present(snapshot, frameRequest, stamp, displayedFrame as SceneFrame, sceneOrigin ?? default, target, interpolationStart)
                     : railway!.Present(snapshot, interpolationStart, target, frameRequest, stamp, displayedFrame as SceneFrame, sceneOrigin);
                 if (railway is not null) sceneOrigin = null;
                 var liveIds = frame.Objects.Select(item => item.Id).ToHashSet();
@@ -373,7 +373,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             if (candidate?.Node is { } candidateNode)
             {
                 var entry = candidateNode.Layout?.Entries.FirstOrDefault(item => item.Edge == railway?.Edge);
-                candidateNode.Pump(snapshot, entry?.Point, allowBuild, railway?.Edge);
+                candidateNode.Pump(snapshot, entry is null ? null : candidateNode.Layout!.TrainBoundary(entry).Position,
+                    allowBuild, railway?.Edge);
             }
             if (wanted is WorldLocation.Edge atEdge) candidate?.Railway?.Pump(snapshot, atEdge, allowBuild);
             if (candidate?.Node?.Failed == true || candidate?.Railway?.Failed == true)

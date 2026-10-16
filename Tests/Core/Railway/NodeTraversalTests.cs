@@ -139,6 +139,8 @@ public sealed class NodeTraversalTests
     public void Full_station_brakes_before_entry_waits_inside_and_frees_the_incoming_track()
     {
         using var session = new CoreSession(State(station: true, blocker: true));
+        Assert.IsNull(Train(session).PlatformQueueEnteredStep);
+        ulong? enteredStep = null;
         Until(session, () => Train(session).Position is TrainPosition.Node { Phase: NodeTravelPhase.Waiting }, () =>
         {
             var train = Train(session);
@@ -146,9 +148,17 @@ public sealed class NodeTraversalTests
             {
                 Assert.IsTrue(train.SpeedMetersPerSecond <= Math.Sqrt(2 * 0.7 * 80) + 1e-8);
                 Assert.IsNull(node.PlatformNumber);
+                if (node.Phase == NodeTravelPhase.Approaching && train.Blockers.Any(problem => problem.Code == "platform_wait"))
+                {
+                    Assert.IsNotNull(train.PlatformQueueEnteredStep);
+                    enteredStep ??= train.PlatformQueueEnteredStep;
+                    Assert.AreEqual(enteredStep, train.PlatformQueueEnteredStep);
+                }
             }
         }, checkBraking: true);
+        Assert.IsNotNull(enteredStep, "The station request is visible while the train is still approaching.");
         var waiting = Train(session);
+        Assert.AreEqual(enteredStep, waiting.PlatformQueueEnteredStep);
         Assert.AreEqual(80.0, ((TrainPosition.Node)waiting.Position).DistanceMeters);
         Assert.AreEqual(0.0, waiting.SpeedMetersPerSecond);
         Assert.AreEqual("platform_wait", waiting.Blockers.Single().Code);
@@ -156,6 +166,7 @@ public sealed class NodeTraversalTests
         Accepted(session, new CoreCommand.DisbandTrain(new(2)));
         Until(session, () => Train(session).Activity == TrainActivity.Servicing);
         Assert.AreEqual(1, ((TrainPosition.Node)Train(session).Position).PlatformNumber);
+        Assert.IsNull(Train(session).PlatformQueueEnteredStep);
         Assert.AreEqual(128.0, ((TrainPosition.Node)Train(session).Position).DistanceMeters);
     }
 
@@ -440,6 +451,7 @@ public sealed class NodeTraversalTests
         Assert.AreEqual(256.0, ((TrainPosition.Node)Train(session).Position).DistanceMeters);
         Assert.AreEqual(0.0, Train(session).SpeedMetersPerSecond);
         Assert.AreEqual(session.Read().Position.CompletedSteps, session.State.World.Trains[0].QueueEnteredStep);
+        Assert.IsNull(Train(session).PlatformQueueEnteredStep, "An outgoing track request is not a platform request.");
     }
 
     [TestMethod]

@@ -28,7 +28,7 @@ internal static class EconomyFixture
         var train = new TrainView(new(7), new TrainPosition.Node(new(1), null, null, NodeTravelPhase.Waiting, 80, null), TrainActivity.Stopped,
             [new(10)], new(12), 0, 20, 10, 100, 0, 30,
             null, null, 0, new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, .2),
-            [], null, [], TrainOrderFacing.FirstEndLeading);
+            [], null, [], TrainOrderFacing.FirstEndLeading, null);
         var purchasedTrain = train with { Id = new(8), Vehicles = [new(9)], Inventory = new(13) };
         var existingVehicleId = new InstanceId.Vehicle(new(10));
         var existingVehicle = new InstanceView(existingVehicleId, new("fixture-vehicle"), new("fixture-composition"), location,

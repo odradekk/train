@@ -69,6 +69,34 @@ public sealed class NodeStreamingTests
     }
 
     [TestMethod]
+    public void Rebound_turnaround_mesh_matches_a_cold_build_after_outer_tracks_switch_ends()
+    {
+        var original = WithOuterTracks(new(1));
+        var changed = WithOuterTracks(new(2));
+        var before = NodeScene.Prepare(original, NodeLayout.Build(original, NodeFixtures.NodeId));
+        var rebound = NodeScene.Prepare(changed, NodeLayout.Build(changed, NodeFixtures.NodeId));
+        var moved = rebound.Rails.Values.FirstOrDefault(segment =>
+            segment.Key.StartsWith("turnaround:", StringComparison.Ordinal) &&
+            before.Rails.TryGetValue(segment.Key, out var previous) &&
+            segment.Begin == previous.Begin && segment.End == previous.End &&
+            segment.Sample(segment.Begin).Position != previous.Sample(previous.Begin).Position);
+        Assert.IsNotNull(moved, "Switching the built outer tracks must change geometry under a retained turnaround key.");
+        var old = before.Rails[moved.Key].Build();
+        var reused = moved.Build(old);
+        var expected = moved.Build();
+        NodeFixtures.AssertPartEqual(expected, reused);
+
+        static SceneWorldSnapshot WithOuterTracks(EdgeId built)
+        {
+            var snapshot = NodeFixtures.Snapshot(platforms: 0, platformLengthMeters: 0, tracks: 1, trackLimit: 2, trains: [],
+                content: NodeFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 },
+                    layout: NodeFixtures.Layout with { Plots = [] }));
+            var edge = snapshot.Core.World.Edges.Single(item => item.Id == built);
+            return RailwayFixtures.ReplaceCore(snapshot, edge: edge with { Tracks = 2 });
+        }
+    }
+
+    [TestMethod]
     public async Task Pausing_a_candidate_allows_inflight_parts_to_finish_without_refilling_slots()
     {
         var snapshot = Snapshot(true);
@@ -617,6 +645,8 @@ public sealed class NodeStreamingTests
         }
         foreach (var (route, number) in layout.StationRoutes(true).Select((route, number) => (route, number)))
             expectedRoutes.Add($"station-tracks:{number}", route.Length);
+        foreach (var (route, number) in layout.TurnRoutes().Select((route, number) => (route, number)))
+            expectedRoutes.Add($"turnaround:{number}", route.Length);
         foreach (var (line, number) in layout.Parking.Select((line, number) => (line, number)))
             expectedRoutes.Add($"parking-tracks:{number}", line.Length);
         var actualRoutes = prepared.Rails.Values.GroupBy(segment => segment.Key[..segment.Key.LastIndexOf(':')]).ToArray();
@@ -853,7 +883,7 @@ public sealed class NodeStreamingTests
             SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
             { [new(1)] = new ContentLookup<SettlementLayoutProjection>.Found(layout) }
         };
-        var original = NodeFixtures.Snapshot(platforms: 0, trains: [], instances: [], content: content);
+        var original = NodeFixtures.Snapshot(platforms: 0, trains: [], instances: [], content: content, platformLengthMeters: 0);
         var node = original.Core.World.Nodes.Single(item => item.Id == NodeFixtures.NodeId);
         node = node with { Terrain = node.Terrain with { Relief = relief } };
         var train = NodeFixtures.Train();
@@ -861,6 +891,11 @@ public sealed class NodeStreamingTests
         return new(new FixedCoreReadView
         {
             Position = original.Core.Position, InputIdentity = original.Core.InputIdentity,
+            Nodes = new Dictionary<NodeId, Lookup<NodeView>>
+            {
+                [node.Id] = new Lookup<NodeView>.Found(
+                    ((Lookup<NodeView>.Found)original.Core.FindNode(node.Id)).Value with { Map = node })
+            },
             World = original.Core.World with { Nodes = [node], Edges = [],
                 Trains = nearVehicle ? [new(train.Id, train.Position, train.Activity)] : [] },
             Trains = nearVehicle ? new Dictionary<TrainId, Lookup<TrainView>>
@@ -884,6 +919,7 @@ public sealed class NodeStreamingTests
         cache.Read(NodeFixtures.NodeId)!.Parts.Where(item =>
             item.Key.StartsWith("entry:", StringComparison.Ordinal) ||
             item.Key.StartsWith("station-tracks:", StringComparison.Ordinal) ||
+            item.Key.StartsWith("turnaround:", StringComparison.Ordinal) ||
             item.Key.StartsWith("parking-tracks:", StringComparison.Ordinal)).ToImmutableDictionary();
 
     private static NodeScene Open(SceneWorldSnapshot snapshot, SceneVehicles vehicles, NodeScene.Cache? cache = null,
