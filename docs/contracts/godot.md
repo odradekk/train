@@ -17,7 +17,7 @@ Godot 消费其他三个模块的契约，并实现内容要求的宿主端口�
 | 新局、恢复、核心命令与录制 | [ICoreFactory、ICoreSession](../../Contracts/Core/Lifecycle.cs)；写入口只由宿主协调处调用 |
 | 地图、面板和报价 | [ICoreReadView](../../Contracts/Core/Queries.cs)，直接查询同一份读视图，不绕体素层 |
 | 世界、编辑和模板预览 | [IScenesFactory](../../Contracts/Scenes/World.cs)、[编辑会话](../../Contracts/Scenes/Editing.cs)、[模板预览](../../Contracts/Scenes/Authoring.cs) |
-| 渲染、相机和拾取 | [ISceneFrame、SceneUpdate](../../Contracts/Scenes/Rendering.cs)；接入成功的帧才成为显示及交互基准 |
+| 渲染、相机和拾取 | [ISceneFrame、SceneUpdate](../../Contracts/Scenes/Rendering.cs)；最后完整接入帧是网格基准，准备期间姿态、相机和拾取使用最新帧，限制见下文 |
 
 [HostConsumer](../../prototypes/godot-contract/HostConsumer.cs)给出装配数据、候选准备、查询、命令和逐步推进的实际调用签名；[ResourceConsumer](../../prototypes/godot-contract/ResourceConsumer.cs)给出 Godot 资源转换调用。样例中的 `HostComposition` 和 `IFrameDisplay` 只说明宿主内部接入位置，不是下层模块的新依赖，也不把它们冻结成生产类名。
 
@@ -68,13 +68,15 @@ Godot 消费其他三个模块的契约，并实现内容要求的宿主端口�
 
 ## 显示帧、相机与输入
 
-`Present` 的输入是实际显示帧，返回值只是待接入帧。先区分调用的 Failure／Faulted，以及 Success 内的 `Readiness.Failed`：三者都按故障入口处理，Failed 帧不能成为显示或拾取基准。正常帧先检查 Base／绑定和完整资源依赖，再在不被渲染观察到中间状态的阶段应用整个更新；成功才替换 displayedFrame。资源尚在准备时保留上一完整帧；明确准备失败或实际接入异常则立即隐藏并停止该场景交互，按故障入口处理，不能展示半帧或把它记为成功。
+`Present` 的网格基准是最后完整接入帧 D，返回的最新帧记为 P；需要完整替换时仍传 null。先区分调用的 Failure／Faulted，以及 Success 内的 `Readiness.Failed`：三者都按故障入口处理，Failed 帧不能成为显示或拾取基准。正常帧先检查 Base／绑定和完整资源依赖，再在不被渲染观察到中间状态的阶段应用整个资源更新；成功才替换 D。资源尚在准备时保留旧几何；本次 `Present` 收到 D 时，已显示对象的姿态、相机和拾取按下文使用 P；传 null 时旧画面和相机保持不变直到提交，相机与拾取样本仍使用 D 的坐标；新对象等待资源就绪后显示。准备开始时锁定候选 C，保留已准备的工作；Base、Session、Request 或 Space 任一变化即取消，Loading 或基准失配仍取消。全部依赖就绪后原子提交 C，并在同一帧内立即重施最新 P 姿态。明确准备失败或实际接入异常则立即隐藏并停止该场景交互，按故障入口处理，不能把未完整接入帧记为 D。
 
-浮动原点变化同步作用于现存根、相机焦点和跟随状态；新 Upserts 已在新坐标中，不重复平移。空间变化时不直接插值旧空间位置。无跟随且无 `NodePanBounds` 的新空间首帧，焦点取本帧根零点。相机跟随取 `FindPose`，节点自由环绕用 `NodePanBounds` 限制水平焦点；节点范围尚不可用时不平移。防穿地形查询用同帧 `TerrainHeight`，不能用下一帧未显示的高度约束当前画面。
+准备期间，同空间增量（`P.Update.Base == D.Update.Frame`）始终从 D 计算：Upserts 中同 ID、同父的已显示对象使用 P 的局部姿态；其余根使用基准姿态加 `ShiftExistingRoots`，子对象保持基准局部姿态；Removed 和换父对象保持原样到提交。同一请求以 D 为基准的跟随空间切换即使返回完整替换，旧显示树中带 Subject 的顶层对象也使用 `P.FindPose(subject)`，子对象随父移动；同 Space 的旧几何平移为 `D.Origin - P.Origin`，跨 Space 则以新 Space 首帧（含 Loading）的 Origin 为 E，交接时旧几何不移动，之后平移为 `E - P.Origin`。每次切换重新记录 E，不直接插值不同空间位置。C 提交后若 `P.Update.Base != D.Update.Frame`，同空间也按 Subject／`P.FindPose` 更新顶层对象，以新 D 的 `Origin - P.Origin` 平移旧几何，不能使用相对旧 D 的 Upserts 或 `ShiftExistingRoots`。提交时不能重复叠加已施加的平移。
+
+浮动原点变化同步作用于现存根、相机焦点和跟随状态；新 Upserts 已在新坐标中，不重复平移。以 D 为基准的准备期间每帧更新相机，焦点只加整帧前后显示坐标之间的平移差，包含 C 提交重设基准和重施 P 姿态的效果，不能再次累加根节点重设的平移；下一次 `Present` 传 `SceneCameraSample(P, focusInP)`，网格基准仍为 D。无跟随且无 `NodePanBounds` 的新空间首帧，焦点取本帧根零点。相机跟随取 P 的 `FindPose`，节点自由环绕用 P 的 `NodePanBounds` 限制水平焦点；节点范围尚不可用时不平移。防穿地形查询用同帧 P 的 `TerrainHeight`。首次打开仍等待首次完整提交后才进入可操作状态。
 
 坐标与[体素契约](scenes.md#坐标与身份)一致：一格为一个 Godot 单位，物理意义是 0.5 米。SceneMesh 和 Pose 不再乘 0.5；GLB 原始米坐标统一乘 2，随后使用体素给定的格放置及朝向，不重新适配尺寸。保持 +X 右、+Y 上、+Z 为内容正面；Godot 相机自身的朝前轴不改写内容约定。体素三角形从外侧看逆时针，转换 Godot 网格时交换两个索引，法线保持外向。引擎绕序依据 [ArrayMesh](https://docs.godotengine.org/en/4.7/classes/class_arraymesh.html)。
 
-鼠标射线从当前相机换入 displayedFrame 根空间后调用 `Pick`；命中再由 `Resolve` 核对当前目标。UI 遮挡处不发世界选择，NotReady 不能当作空地穿透。铁路、水面和粒子不新增引擎物理拾取旁路。编辑命中另外核对编辑会话及修订；模板预览按固定表单修订使用返回下标。按住拖动时，UI 将明确采样到的格交给体素编辑操作，不在 Godot 重写占格、锁定或撤销规则。
+鼠标射线从当前相机换入所用帧的根空间后调用 `Pick`：以 D 请求 `Present` 时使用 P，传 null 时仍使用 D。原始命中再由 `Resolve` 核对当前目标。完整替换准备期间不产生新选择，按未就绪处理。同空间增量准备期间，仅当 `hit.Object` 非 null、为已显示的同 ID 同父对象且该对象没有待准备的视觉资源时才调用 `Resolve`；其余命中按未就绪处理，不穿透选择后方对象。新对象、新区块尚未显示时不能选中；Removed 对象虽暂留旧画面，P 没有命中就不产生选择。UI 遮挡处不发世界选择，NotReady 不能当作空地穿透。铁路、水面和粒子不新增引擎物理拾取旁路。编辑命中另外核对编辑会话及修订；模板预览按固定表单修订使用返回下标。按住拖动时，UI 将明确采样到的格交给体素编辑操作，不在 Godot 重写占格、锁定或撤销规则。
 
 ## 运行资源与退役
 
