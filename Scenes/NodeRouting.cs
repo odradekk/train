@@ -107,8 +107,7 @@ internal sealed partial class NodeLayout
         var extent = AxisRange(Bounds, StationForward);
         var across = Vector3.Cross(Vector3.UnitY, StationForward);
         var returnAcross = Vector3.Dot(RailwayCoordinates.Relative(Bypass.Center, default), across);
-        foreach (var side in Entries.Where(entry => entryTracks[entry.Edge] > 0).GroupBy(entry => entry.Side)
-            .Where(group => group.Count() > 1).Select(group => -group.Key))
+        foreach (var side in Entries.Select(entry => -entry.Side).Distinct())
         {
             var outward = side * StationForward;
             var right = Vector3.Cross(Vector3.UnitY, outward);

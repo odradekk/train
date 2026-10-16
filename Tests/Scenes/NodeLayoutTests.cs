@@ -36,7 +36,8 @@ public sealed class NodeLayoutTests
         var snapshot = RailwayFixtures.ReplaceCore(basis, node: basis.Core.World.Nodes[1] with { Position = new(600 * Math.Sin(angle), 600 * Math.Cos(angle)) });
         var layout = NodeLayout.Build(snapshot, new(1));
         var entry = layout.EntryFor(RailwayFixtures.Edge);
-        Assert.AreEqual(layout.HalfSize, Math.Max(Math.Abs(entry.Point.X), Math.Abs(entry.Point.Z)), 0.5);
+        Assert.IsTrue(entry.Point.X >= layout.Bounds.Minimum.X && entry.Point.X <= layout.Bounds.Maximum.X &&
+            entry.Point.Z >= layout.Bounds.Minimum.Y && entry.Point.Z <= layout.Bounds.Maximum.Y);
         for (var station = 0; station < Math.Max(1, layout.Platforms); station++)
         foreach (var offset in new[] { -17.0, 0, 17 })
         {
@@ -100,7 +101,7 @@ public sealed class NodeLayoutTests
         const double clearance = 16, approachStraight = 16, margin = 32;
         var bound = Math.Ceiling((clearance + approachStraight + radius +
             lateralForwardSpan + corridor + entrySpacing + margin) / 32) * 32;
-        if (directions.GroupBy(direction => (alongX ? direction.X : direction.Y) >= 0).Any(group => group.Count() > 1))
+        if (directions.Length > 0)
         {
             // An exterior turnaround adds a 2R lateral S-join (at most 4R forward),
             // a semicircle's R longitudinal span, a ramp and the track-bed margin.

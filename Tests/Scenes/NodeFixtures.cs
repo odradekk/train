@@ -121,12 +121,13 @@ internal static class NodeFixtures
         {
             Position = new TrainPosition.Node(NodeId, enteredFrom, nextEdge,
                 activity == TrainActivity.Servicing ? NodeTravelPhase.Docked :
-                activity == TrainActivity.Running ? NodeTravelPhase.Departing : NodeTravelPhase.Waiting, 80, platformNumber), Activity = activity
+                activity == TrainActivity.Running ? NodeTravelPhase.Departing : NodeTravelPhase.Waiting,
+                activity is TrainActivity.Servicing or TrainActivity.Running ? 128 : 80, platformNumber), Activity = activity
         };
 
     internal static SceneWorldSnapshot Snapshot(int platforms = 2, ImmutableArray<TrainView> trains = default,
         ImmutableArray<InstanceView> instances = default, IContentView? content = null,
-        ulong steps = 0, ulong sequence = 0, int tracks = 1, int? trackLimit = null)
+        ulong steps = 0, ulong sequence = 0, int tracks = 1, int? trackLimit = null, double platformLengthMeters = 96)
     {
         if (trains.IsDefault) trains = [Train()];
         if (instances.IsDefault)
@@ -151,7 +152,8 @@ internal static class NodeFixtures
             World = new(3, RailwayFixtures.Rule, 1200, 1200, nodes, edges,
                 trains.Select(train => new TrainMapItem(train.Id, train.Position, train.Activity)).ToImmutableArray(), [], []),
             Nodes = nodes.ToDictionary(item => item.Id, item => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(item,
-                edges.Where(edge => edge.Start == item.Id || edge.End == item.Id).Select(edge => edge.Id).ToImmutableArray(), 80, 0, 80))),
+                edges.Where(edge => edge.Start == item.Id || edge.End == item.Id).Select(edge => edge.Id).ToImmutableArray(),
+                80, item.Id == NodeId ? platformLengthMeters : 0, 80))),
             Edges = edges.ToDictionary(item => item.Id, item => (Lookup<EdgeView>)new Lookup<EdgeView>.Found(new(item,
                 Enumerable.Range(1, item.Tracks).Select(number => new TrackView(number, null,
                     trains.Where(train => train.Position is TrainPosition.Edge position && position.Id == item.Id && position.Track == number)
