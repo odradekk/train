@@ -120,7 +120,7 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 | `scene-memory` | 重复打开节点、返回并等待退役；每 10 轮及结束后执行完整 GC；默认两小时，不使用其时延作正式性能证据 |
 | `scene-capture` | 单独记录部分就绪、Ready 画面及雾区拾取；截图回读与编码使该进程不能作时延或内存性能证据 |
 
-`Repeat` 控制每情景的新进程数量，默认仍是 3；原有十个情景及默认选择不变。首次点击在地图可操作且绘制后立即进行，不等场景预生成。计时从 `MacroMap.ObjectClicked` 或返回／读取按钮信号之前开始，经过生产 UI 链；不从场景接口另开观察目标。业务拾取通过同一帧的 `Pick` 与会话 `Resolve` 只解析身份，不发出选择事件或打开详情。
+`Repeat` 控制每情景的新进程数量，默认仍是 3；原有十个情景及默认选择不变。首次点击在地图可操作且绘制后立即进行，不等场景预生成。计时从 `MacroMap.ObjectClicked` 或返回／读取按钮信号之前开始，经过生产 UI 链；不从场景接口另开观察目标。拾取复用 `WorldSceneController.InspectPick`：与 UI 共用当前姿态帧、射线坐标、已显示对象兼容检查及 `Resolve`，但不记录 UI 调试射线、不发出选择事件或打开详情。几何 Ready 信号仍取实际提交绘制的帧；近处中心与射线使用交互姿态帧，屏上雾区通过显示根变换到同一坐标判断，不能混用两个帧的原点。
 
 除 `scene-reference` 和 `scene-map` 外，所有 `scene-*` 情景必须传 `-ReferencePath`；脚本通过 `--measure-reference` 传给应用，参考数据须匹配输入 SHA 和 HEAD。参考从公开 `SceneObject` 记录轨道、停放车辆的 Subject、位姿和可见几何范围，以公开 `TerrainHeight` 定义线路可操作地形带，不读取私有生成或缓存状态。
 

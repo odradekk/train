@@ -64,7 +64,6 @@ internal sealed partial class MeasurementRun
     {
         var controller = _app.WorldScenes!;
         var display = controller.Display!;
-        var session = controller.Session!;
         var camera = controller.View.CameraRig;
         var center = new NVector(camera.Focus.X, camera.Focus.Y, camera.Focus.Z);
         if (follow is not null)
@@ -80,13 +79,16 @@ internal sealed partial class MeasurementRun
         var node = location is WorldLocation.Node n ? (int?)n.Id.Value : null;
         var edge = location as WorldLocation.Edge;
         var absolute = center + ProbeOrigin(frame);
+        var displayed = display.DisplayedFrame!;
+        var readyGeometry = displayed.Readiness == SceneReadiness.Ready &&
+            displayed.Update.Frame.Space == frame.Update.Frame.Space && frame.Readiness == SceneReadiness.Ready;
         var reference = _probeReference?.Views.FirstOrDefault(view =>
             NVector.Distance(absolute, new((float)view.Center[0], (float)view.Center[1], (float)view.Center[2])) <= 64 &&
             (node is not null ? view.Node == node : edge is not null && view.Edge == (int)edge.Id.Value &&
                 Math.Abs(view.ArcMeters!.Value - edge.DistanceMeters) <= 64));
         if (_scenario == "scene-reference")
         {
-            if (frame.Readiness == SceneReadiness.Ready &&
+            if (readyGeometry &&
                 (!_probeReferenceCenters.TryGetValue(frame.Update.Frame.Space, out var recordedCenter) ||
                     NVector.Distance(absolute, recordedCenter) >= 32))
             {
@@ -112,8 +114,15 @@ internal sealed partial class MeasurementRun
                 pointPositions.Add(center + new NVector(MathF.Cos(angle * MathF.PI / 4) * radius, 0,
                     MathF.Sin(angle * MathF.PI / 4) * radius));
         }
-        var intersectingFog = frame.Update.Environment.FoggedRegions.Count(bounds => node is not null
-            ? ProbeFogOverlaps(center, 64, bounds) : pointPositions.Any(point => ProbeFogContains(point, bounds)));
+        var fogTransform = display.Root.GlobalTransform.AffineInverse() * controller.View.GlobalTransform;
+        NVector FogPoint(NVector point)
+        {
+            var transformed = fogTransform * new Vector3(point.X, point.Y, point.Z);
+            return new(transformed.X, transformed.Y, transformed.Z);
+        }
+        var fogRegions = display.DisplayedFrame!.Update.Environment.FoggedRegions;
+        var intersectingFog = fogRegions.Count(bounds => node is not null
+            ? ProbeFogOverlaps(FogPoint(center), 64, bounds) : pointPositions.Any(point => ProbeFogContains(FogPoint(point), bounds)));
         if (intersectingFog > 0)
         {
             detail = new { focus = new { x = center.X, y = center.Y, z = center.Z }, radiusMeters = 32,
@@ -123,7 +132,7 @@ internal sealed partial class MeasurementRun
             return false;
         }
         var actualReferenceObjects = ReferenceObjects(frame, center, 64).ToArray();
-        if (frame.Readiness == SceneReadiness.Ready && !_probeReadyChecked)
+        if (readyGeometry && !_probeReadyChecked)
         {
             _probeReadyChecked = true;
             var expected = reference?.Objects.Where(item => ProbeDistance(absolute, ReferenceBounds(item)) <= 64).ToArray();
@@ -136,15 +145,16 @@ internal sealed partial class MeasurementRun
         var samplesPassed = 0;
         foreach (var point in pointPositions)
         {
-            var fogged = frame.Update.Environment.FoggedRegions.Any(bounds => ProbeFogContains(point, bounds));
+            var fogged = fogRegions.Any(bounds => ProbeFogContains(FogPoint(point), bounds));
             var terrain = frame.TerrainHeight(point.X, point.Z);
             _scenePickCount++;
-            var pick = frame.Pick(new(point + new NVector(0, 4096, 0), -NVector.UnitY, 8192));
-            var hit = pick is ScenePick.Hit;
+            var inspection = controller.InspectPick(new SceneRay(point + new NVector(0, 4096, 0), -NVector.UnitY, 8192));
+            var pick = inspection?.Pick;
+            var hit = inspection is { Pick: ScenePick.Hit, Resolution: SceneResult<PickSubject>.Success };
             string? resolved = null;
             if (points.Count == 0 && _sceneTarget is WorldObjectId.Edge expectedEdge)
             {
-                var subject = pick is ScenePick.Hit actual && session.Resolve(actual.Value) is SceneResult<PickSubject>.Success success
+                var subject = inspection?.Resolution is SceneResult<PickSubject>.Success success
                     ? success.Value : null;
                 resolved = subject?.ToString();
                 hit &= subject is PickSubject.Terrain { Location: WorldLocation.Edge actualEdge } && actualEdge.Id == expectedEdge.Id;
@@ -152,7 +162,7 @@ internal sealed partial class MeasurementRun
             var passed = !fogged && hit && terrain is Lookup<double>.Found;
             if (passed) samplesPassed++;
             points.Add(new { x = point.X, z = point.Z, fogged, terrain = terrain.GetType().Name,
-                pick = pick.GetType().Name, resolved, passed });
+                pick = pick?.GetType().Name, resolved, passed });
         }
         var expectedBusiness = node is not null ? ExpectedBuildings(frame, new((ulong)node.Value)).ToList() : [];
         if (reference is not null)
@@ -173,13 +183,13 @@ internal sealed partial class MeasurementRun
         var businessPassed = true;
         foreach (var expected in nearBusiness)
         {
-            var result = ProbeBusiness(frame, session, display, expected);
+            var result = ProbeBusiness(frame, display, expected);
             businessPassed &= result.Visible && result.Picked;
             results.Add(new { expected.Key, expected = expected.Subject, bounds = new[] { expected.Bounds.Minimum.X,
                 expected.Bounds.Minimum.Y, expected.Bounds.Minimum.Z, expected.Bounds.Maximum.X, expected.Bounds.Maximum.Y,
                 expected.Bounds.Maximum.Z }, result.Visible, result.Picked, result.Resolved, result.Evidence });
         }
-        ProbePick? followed = follow is not null ? ProbeBusiness(frame, session, display,
+        ProbePick? followed = follow is not null ? ProbeBusiness(frame, display,
             new("follow", follow.ToString()!, new(center, center))) : null;
         var fogClear = intersectingFog == 0;
         detail = new { focus = new { x = center.X, y = center.Y, z = center.Z }, radiusMeters = 32,
@@ -246,7 +256,7 @@ internal sealed partial class MeasurementRun
             var minimum = bounds.Select(bound => bound.Minimum).Aggregate(NVector.Min);
             var maximum = bounds.Select(bound => bound.Maximum).Aggregate(NVector.Max);
             if (ProbeDistance(center + ProbeOrigin(frame), new(minimum, maximum)) > radius) continue;
-            var transform = _app.WorldScenes.Display.Root.GlobalTransform.AffineInverse() * item.Root.GlobalTransform;
+            var transform = _app.WorldScenes.View.GlobalTransform.AffineInverse() * item.Root.GlobalTransform;
             var at = transform.Origin; var rotation = transform.Basis.GetRotationQuaternion(); var origin = ProbeOrigin(frame);
             yield return new(item.Source.Subject?.ToString(), decorations, [at.X + origin.X, at.Y + origin.Y, at.Z + origin.Z],
                 [rotation.X, rotation.Y, rotation.Z, rotation.W], [minimum.X, minimum.Y, minimum.Z, maximum.X, maximum.Y, maximum.Z]);
@@ -264,7 +274,7 @@ internal sealed partial class MeasurementRun
     private SceneBounds MeshBounds(MeshInstance3D mesh, ISceneFrame frame)
     {
         var aabb = mesh.Mesh!.GetAabb();
-        var transform = _app.WorldScenes!.Display!.Root.GlobalTransform.AffineInverse() * mesh.GlobalTransform;
+        var transform = _app.WorldScenes!.View.GlobalTransform.AffineInverse() * mesh.GlobalTransform;
         var min = new NVector(float.PositiveInfinity); var max = new NVector(float.NegativeInfinity);
         for (var index = 0; index < 8; index++)
         {
@@ -298,7 +308,7 @@ internal sealed partial class MeasurementRun
         }
     }
 
-    private ProbePick ProbeBusiness(ISceneFrame frame, IWorldSceneSession session, SceneDisplay display, ProbeExpected expected)
+    private ProbePick ProbeBusiness(ISceneFrame frame, SceneDisplay display, ProbeExpected expected)
     {
         var candidates = display.Objects.Values.Where(item => item.Source.Subject?.ToString() == expected.Subject).ToArray();
         var visible = false; string? resolved = null;
@@ -329,16 +339,13 @@ internal sealed partial class MeasurementRun
                 var screen = camera.UnprojectPosition(point);
                 if (!camera.GetViewport().GetVisibleRect().HasPoint(screen)) { offscreen++; continue; }
                 visible = true;
-                var inverse = display.Root.GlobalTransform.AffineInverse();
-                var start = inverse * camera.ProjectRayOrigin(screen);
-                var direction = (inverse.Basis * camera.ProjectRayNormal(screen)).Normalized();
                 _scenePickCount++; rays++;
-                var ray = new SceneRay(new(start.X, start.Y, start.Z), new(direction.X, direction.Y, direction.Z), camera.Far);
-                var pick = frame.Pick(ray);
-                var result = pick is ScenePick.Hit hit ? session.Resolve(hit.Value) : null;
+                var inspection = _app.WorldScenes.InspectPick(screen);
+                var pick = inspection?.Pick;
+                var result = inspection?.Resolution;
                 var problems = result switch { SceneResult<PickSubject>.Failure failure => failure.Problems.ToArray(),
                     SceneResult<PickSubject>.Faulted fault => [fault.Problem], _ => Array.Empty<SceneProblem>() };
-                var outcome = pick.GetType().Name + "/" + result?.GetType().Name +
+                var outcome = pick?.GetType().Name + "/" + result?.GetType().Name +
                     (problems.Length == 0 ? "" : ":" + string.Join(',', problems.Select(problem => problem.Code)));
                 outcomes[outcome] = outcomes.GetValueOrDefault(outcome) + 1;
                 if (result is SceneResult<PickSubject>.Success success)
@@ -350,8 +357,8 @@ internal sealed partial class MeasurementRun
                     }
                 }
                 firstFailure ??= new { screen = new { screen.X, screen.Y }, point = new { point.X, point.Y, point.Z },
-                    ray = new { start = new { start.X, start.Y, start.Z }, direction = new { direction.X, direction.Y, direction.Z } },
-                    pick = pick.ToString(), resolution = result?.ToString(), source = item.Source.Id.ToString(),
+                    ray = inspection?.Ray,
+                    pick = pick?.ToString(), resolution = result?.ToString(), source = item.Source.Id.ToString(),
                     problems,
                     displayedPose = item.Source.Pose.ToString(), worldTransform = mesh.GlobalTransform.ToString() };
                 if (problems.Length > 0 && _scenePresentedStamp is { } presented &&

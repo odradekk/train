@@ -35,6 +35,8 @@ internal sealed class WorldSceneController : IDisposable
     internal SceneDisplay? Display => _display;
     internal IWorldSceneSession? Session => _session;
     internal SceneRequestId CurrentRequest => _request;
+    internal ISceneFrame? InteractionFrame => View.Interactive && !_fullReplacement ? _display?.PoseFrame : null;
+    internal readonly record struct PickInspection(ISceneFrame Frame, SceneRay Ray, ScenePick Pick, SceneResult<PickSubject>? Resolution);
     internal SceneDebugLayer DebugLayers { get; set; }
     internal event Action<SceneProblem?>? ReturnedToMap;
     internal event Action<PickSubject>? Selected;
@@ -255,25 +257,43 @@ internal sealed class WorldSceneController : IDisposable
     internal void Pick(Vector2 screenPoint)
     {
         _dispatcher.RequireMainThread();
-        var frame = _fullReplacement ? _display?.DisplayedFrame : _display?.PoseFrame;
-        if (!View.Interactive || _session is null || frame is null) return;
         try
         {
-            var camera = View.CameraRig.Camera;
-            var inverse = (_fullReplacement ? _display!.Root.GlobalTransform : View.GlobalTransform).AffineInverse();
-            var origin = inverse * camera.ProjectRayOrigin(screenPoint);
-            var direction = (inverse.Basis * camera.ProjectRayNormal(screenPoint)).Normalized();
-            var ray = new SceneRay(ToNumerics(origin), ToNumerics(direction), camera.Far);
-            var picked = frame.Pick(ray);
-            _pickRay = new(frame, ray);
-            if (picked is not ScenePick.Hit hit || _fullReplacement || !_display!.CanSelect(hit.Value)) return;
-            var result = _session.Resolve(hit.Value);
+            if (InspectPick(screenPoint) is not { } inspection) return;
+            _pickRay = new(inspection.Frame, inspection.Ray);
+            if (inspection.Resolution is not { } result) return;
             if (result is SceneResult<PickSubject>.Success selected) Selected?.Invoke(selected.Value);
             else if (result is SceneResult<PickSubject>.Failure rejected)
                 foreach (var problem in rejected.Problems) Report(problem);
             else Fail(result);
         }
         catch (Exception exception) { AdapterFailed(exception, SceneStage.Pick); }
+    }
+
+    internal PickInspection? InspectPick(Vector2 screenPoint)
+    {
+        _dispatcher.RequireMainThread();
+        var frame = _fullReplacement ? _display?.DisplayedFrame : _display?.PoseFrame;
+        if (!View.Interactive || _session is null || frame is null) return null;
+        var camera = View.CameraRig.Camera;
+        var inverse = (_fullReplacement ? _display!.Root.GlobalTransform : View.GlobalTransform).AffineInverse();
+        var origin = inverse * camera.ProjectRayOrigin(screenPoint);
+        var direction = (inverse.Basis * camera.ProjectRayNormal(screenPoint)).Normalized();
+        return InspectPick(frame, new(ToNumerics(origin), ToNumerics(direction), camera.Far));
+    }
+
+    internal PickInspection? InspectPick(SceneRay ray)
+    {
+        _dispatcher.RequireMainThread();
+        return InteractionFrame is { } frame && _session is not null ? InspectPick(frame, ray) : null;
+    }
+
+    private PickInspection InspectPick(ISceneFrame frame, SceneRay ray)
+    {
+        var picked = frame.Pick(ray);
+        var resolution = picked is ScenePick.Hit hit && !_fullReplacement && _display!.CanSelect(hit.Value)
+            ? _session!.Resolve(hit.Value) : null;
+        return new(frame, ray, picked, resolution);
     }
 
     internal void ReturnToMap()

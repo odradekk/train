@@ -120,6 +120,10 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             world.Pick(TestScene.GetViewport().GetVisibleRect().Size / 2);
             Require(selected == 1 && session!.ResolveCalls.Count == 1,
                 "较早候选提交的同一帧，最新P命中的兼容已显示对象仍须可选中。");
+            var inspected = world.InspectPick(TestScene.GetViewport().GetVisibleRect().Size / 2);
+            Require(inspected is { Pick: ScenePick.Hit, Resolution: SceneResult<PickSubject>.Success } picked &&
+                ReferenceEquals(picked.Frame, candidates[^1]) && selected == 1 && session.ResolveCalls.Count == 2,
+                "只读探针必须复用UI的最新姿态帧及解析，不能再次触发选择事件。");
             Require(session!.PresentCalls.Count == 4 && session.PresentCalls.Skip(1).All(call =>
                 ReferenceEquals(call.DisplayedFrame, first)) &&
                 ReferenceEquals(session.PresentCalls[2].Request.Camera!.Frame, candidates[0]) &&

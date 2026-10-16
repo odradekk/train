@@ -65,6 +65,7 @@ internal sealed partial class MeasurementRun
         _sceneEvidence["supplementary_picks"] = "cancelled: nearest business object and building 6 are outside the acceptance gate and add per-frame overhead";
         _sceneEvidence["rail_geometry_scope"] = "Subject=null RailSteel/Sleeper: match Ready reference geometry, pose and bounds; no picking of non-pickable decorations; near terrain picks reported separately";
         _sceneEvidence["pick_visibility_scope"] = "onscreen candidate success is positive evidence; triangle candidates behind camera or outside viewport do not prove the whole object invisible";
+        _sceneEvidence["interaction_scope"] = "production UI InteractionFrame and InspectPick without selection or debug-ray changes; readiness from drawn DisplayedFrame; fog from displayed geometry transformed to interaction coordinates";
         _sceneEvidence["capture_only"] = _scenario == "scene-capture";
         _sceneEvidence["reference_only"] = _scenario == "scene-reference";
         _sceneEvidence["frame_time_threshold"] = "pending user confirmation";
@@ -322,6 +323,8 @@ internal sealed partial class MeasurementRun
             var frame = _app.WorldScenes!.View.Visible ? _app.WorldScenes.Display?.DisplayedFrame : null;
             if (frame is not null && frame.Update.Frame.Request !=
                 _app.WorldScenes.CurrentRequest) frame = null;
+            var interaction = _app.WorldScenes.InteractionFrame;
+            if (interaction is not null && interaction.Update.Frame.Request != _app.WorldScenes.CurrentRequest) interaction = null;
             var checkSeconds = 0d;
             var picksBefore = _scenePickCount;
             _sceneNearAvailable = false;
@@ -335,8 +338,11 @@ internal sealed partial class MeasurementRun
                     _sceneReady = now;
                     RecordReadyGeometry(frame, now);
                 }
+            }
+            if (interaction is not null && _sceneOperation is not null)
+            {
                 var checking = Seconds();
-                _sceneNearAvailable = CheckNearArea(frame, _subject, out var detail);
+                _sceneNearAvailable = CheckNearArea(interaction, _subject, out var detail);
                 var checkedAt = Seconds();
                 checkSeconds = checkedAt - checking;
                 _sceneProbeDetail = detail;
