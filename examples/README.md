@@ -9,7 +9,7 @@
 | `storage-tight` | 列车 1 在起点农业镇自动买入 181 份主食，容量 180 截断成交，719 步 | Debug |
 | `lease-expiry` | 租用 1 点仓储、存入主食，越过一天租期后卸货被拒、取货成功，5,184,001 步 | Release |
 
-经济配方使用相同的种子 40、`core:basic-through-world` 与 `stage1-world-v1`。新例子的存档元数据固定；`basic-through` 的原配方和存档保持不变。剩余购买货车条件待阶段三 #340 补验。
+四个配方共用种子 40、`core:basic-through-world` 与 `stage1-world-v1`，存档元数据固定。剩余购买货车条件待阶段三 #340 补验。
 
 ## 基础贯通
 
