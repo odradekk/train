@@ -20,7 +20,8 @@ internal sealed partial class MeasurementRun
     private long _sceneDrawCount, _sceneDragDraw;
     private object? _sceneProbeDetail, _sceneFirstNearDetail;
     private double _sceneObserverSeconds;
-    private readonly List<double> _sceneOpeningFrames = [], _sceneCheckTimes = [];
+    private readonly List<double> _sceneOpeningFrames = [];
+    private readonly List<(double Started, double Ended)> _sceneChecks = [];
     private readonly Queue<SceneSample> _sceneRecent = new();
     private readonly Dictionary<string, object?> _sceneEvidence = [];
     private StreamWriter? _sceneTrace, _sceneOperationTrace, _sceneCollectionTrace;
@@ -60,6 +61,8 @@ internal sealed partial class MeasurementRun
         _sceneEvidence["memory_scope"] = "RenderingServer each drawn frame; current process memory every 200ms; OS peak counters cover process lifetime and cannot be reset per operation";
         _sceneEvidence["steady_scope"] = "median of final second, five seconds after Ready drawn frame; map uses five seconds after map drawn frame";
         _sceneEvidence["observer_scope"] = "checks and observer overhead included, never subtracted; previous_observer_seconds includes trace serialization";
+        _sceneEvidence["check_contribution_scope"] = "upper bound from measured check-time overlaps with [click, operable] and [operable, Ready]; null without operable, zero for an empty interval; never subtracted";
+        _sceneEvidence["supplementary_picks"] = "cancelled: nearest business object and building 6 are outside the acceptance gate and add per-frame overhead";
         _sceneEvidence["rail_geometry_scope"] = "Subject=null RailSteel/Sleeper: match Ready reference geometry, pose and bounds; no picking of non-pickable decorations; near terrain picks reported separately";
         _sceneEvidence["pick_visibility_scope"] = "onscreen candidate success is positive evidence; triangle candidates behind camera or outside viewport do not prove the whole object invisible";
         _sceneEvidence["capture_only"] = _scenario == "scene-capture";
@@ -220,7 +223,7 @@ internal sealed partial class MeasurementRun
         _sceneNearAvailable = _sceneDragIssued = false;
         _sceneCapturedPartial = false;
         _sceneProbeDetail = _sceneFirstNearDetail = null;
-        _sceneOpeningFrames.Clear(); _sceneCheckTimes.Clear();
+        _sceneOpeningFrames.Clear(); _sceneChecks.Clear();
         var before = SceneCacheState();
         _sceneTarget = target;
         var peakBefore = new { private_bytes = _scenePeakPrivate, working_set_bytes = _scenePeakWorking };
@@ -267,7 +270,12 @@ internal sealed partial class MeasurementRun
             load_button = loadButton,
             load_button_to_operable_seconds = loadButton is { } start && _sceneOperable > 0 ? (double?)(_sceneOperable - start) : null,
             opening_frames = _sceneOpeningFrames.Count > 0 ? FrameMeasurements.Distribution(_sceneOpeningFrames) : null,
-            check_seconds = _sceneCheckTimes.Count > 0 ? FrameMeasurements.Distribution(_sceneCheckTimes) : null,
+            check_seconds = _sceneChecks.Count > 0 ? FrameMeasurements.Distribution(_sceneChecks.Select(check => check.Ended - check.Started)) : null,
+            check_contribution_upper_bound_seconds = new
+            {
+                click_to_operable = _sceneOperable > 0 ? (double?)FrameMeasurements.SumOverlap(_sceneChecks, _sceneClick, _sceneOperable) : null,
+                operable_to_ready = _sceneOperable > 0 ? (double?)FrameMeasurements.SumOverlap(_sceneChecks, _sceneOperable, _sceneReady) : null
+            },
             first_near = _sceneFirstNearDetail, last_probe = _sceneProbeDetail, cache_at_click = before,
             peak_watermark_before = peakBefore, steady = SceneSteady(), load = SceneLoadCounts(),
             empty_interaction = _sceneOperable == 0, ui_opened_detail = false,
@@ -316,6 +324,7 @@ internal sealed partial class MeasurementRun
                 _app.WorldScenes.CurrentRequest) frame = null;
             var checkSeconds = 0d;
             var picksBefore = _scenePickCount;
+            _sceneNearAvailable = false;
             if (_sceneOperation is not null && (_sceneReady == 0 || _sceneOperable == 0 || now <= Math.Max(_sceneReady, _sceneOperable)))
                 _sceneOpeningFrames.Add(interval);
             if (frame is not null && _sceneOperation is not null)
@@ -328,10 +337,11 @@ internal sealed partial class MeasurementRun
                 }
                 var checking = Seconds();
                 _sceneNearAvailable = CheckNearArea(frame, _subject, out var detail);
-                checkSeconds = Seconds() - checking;
+                var checkedAt = Seconds();
+                checkSeconds = checkedAt - checking;
                 _sceneProbeDetail = detail;
                 if (_sceneNearAvailable) _sceneFirstNearDetail ??= detail;
-                _sceneCheckTimes.Add(checkSeconds);
+                _sceneChecks.Add((checking, checkedAt));
                 if (_sceneDragIssued && _sceneNearAvailable && _sceneDrawCount > _sceneDragDraw &&
                     _app.WorldScenes.View.CameraRig.Camera.Transform != _sceneBeforeDrag && _sceneOperable == 0)
                     _sceneOperable = Seconds();

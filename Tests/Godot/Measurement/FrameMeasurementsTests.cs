@@ -48,6 +48,22 @@ public sealed class FrameMeasurementsTests
     }
 
     [TestMethod]
+    public void CheckCostsAreClippedToEachMeasuredIntervalWithoutDoubleCounting()
+    {
+        (double Started, double Ended)[] checks = [(0.9, 1.2), (1.8, 2.1), (2.8, 3.2), (3.9, 4.1)];
+
+        var beforeOperable = FrameMeasurements.SumOverlap(checks, 1, 2);
+        var afterOperable = FrameMeasurements.SumOverlap(checks, 2, 3);
+
+        Assert.AreEqual(0.4, beforeOperable, 1e-12);
+        Assert.AreEqual(0.3, afterOperable, 1e-12);
+        Assert.AreEqual(FrameMeasurements.SumOverlap(checks, 1, 3), beforeOperable + afterOperable, 1e-12);
+        Assert.AreEqual(0d, FrameMeasurements.SumOverlap(checks, 2, 2));
+        Assert.AreEqual(0d, FrameMeasurements.SumOverlap(checks, 3, 2));
+        Assert.AreEqual(0d, FrameMeasurements.SumOverlap([], 1, 3));
+    }
+
+    [TestMethod]
     public void MissingFramesAndDecreasingStepCountsCannotProduceSuccessfulMeasurements()
     {
         var measurements = new FrameMeasurements(10, 100);
