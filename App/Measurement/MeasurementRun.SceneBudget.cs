@@ -192,6 +192,7 @@ internal sealed partial class MeasurementRun
         }
         finally
         {
+            FlushSceneProbeEvents();
             _app.Saves!.Changed -= OnSceneSaveChanged;
             _app.WorldScenes!.FramePresented -= OnScenePresented;
             _sceneTrace = _sceneOperationTrace = _sceneCollectionTrace = null;
@@ -292,8 +293,7 @@ internal sealed partial class MeasurementRun
         var validationStarted = Seconds();
         if (_scenario != "scene-reference") ValidateReadyReference();
         var validationSeconds = Seconds() - validationStarted;
-        foreach (var state in _sceneProbeEvents) _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(state, SceneJson));
-        _sceneProbeEvents.Clear();
+        FlushSceneProbeEvents();
         foreach (var cost in _sceneProbeCosts) _sceneCostTrace!.WriteLine(JsonSerializer.Serialize(cost, SceneJson));
         _sceneCostTrace!.Flush();
         _sceneCompletedOperations++;
@@ -333,6 +333,12 @@ internal sealed partial class MeasurementRun
         _sceneOperationTrace.Flush();
         if (_scenario == "scene-capture") await CaptureSceneImage(name + "-ready");
         ResetSceneProbe();
+    }
+
+    private void FlushSceneProbeEvents()
+    {
+        foreach (var state in _sceneProbeEvents) _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(state, SceneJson));
+        _sceneProbeEvents.Clear();
     }
 
     private object ProbeCosts(double start, double end)
