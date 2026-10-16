@@ -204,19 +204,19 @@ internal sealed class NodeScene : IAsyncDisposable
             try { work.Task.GetAwaiter().GetResult(); } catch (Exception) { }
             work.Cancellation.Dispose(); retiring.Remove(work);
         }
-        if (failure is not null || pendingParts.Count + retiring.Count > 0) return;
-        var terrain = prepared!.HasChunks ? range.Chunks(layout!).Where(from => !chunks.ContainsKey(from))
+        if (failure is not null) return;
+        var terrain = prepared!.HasChunks ? range.Chunks(layout!).Where(from => !chunks.ContainsKey(from) && !pendingParts.ContainsKey(ChunkKey(from)))
             .Select(from => (Key: ChunkKey(from), Bounds: new SceneBounds(new(from.X, -128, from.Z),
                 new(from.X + VoxelGrid.ChunkSize, 128, from.Z + VoxelGrid.ChunkSize)), Chunk: (GridColumn?)from)) : [];
-        var tracks = prepared.Rails.Values.Where(segment => !rails.ContainsKey(segment.Key) && range.Intersects(segment.Bounds))
+        var tracks = prepared.Rails.Values.Where(segment => !rails.ContainsKey(segment.Key) && !pendingParts.ContainsKey(segment.Key) && range.Intersects(segment.Bounds))
             .Select(segment => (segment.Key, segment.Bounds, Chunk: (GridColumn?)null));
         foreach (var item in terrain.Concat(tracks).OrderBy(item => range.DistanceSquared(item.Bounds)).ThenBy(item => item.Key, StringComparer.Ordinal))
         {
+            if (pendingParts.Count + retiring.Count >= RailwayCoordinates.MaxConcurrentBuilds) break;
             var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
             var data = prepared;
             pendingParts.Add(item.Key, new(Task.Run(() => item.Chunk is { } from ? buildChunk(data, from, null, stop.Token) :
                 buildRail(data, data.Rails[item.Key], null, stop.Token), stop.Token), stop, item.Bounds, item.Chunk));
-            break;
         }
     }
     private void Fail(RailwayBuildException error) => failure = new("build_failed", SceneStage.Build, new WorldObjectId.Node(Node), null, null, null, error.Message);

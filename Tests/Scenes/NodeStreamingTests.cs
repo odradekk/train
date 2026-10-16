@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Numerics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -13,6 +14,124 @@ namespace Train.Scenes.Tests;
 public sealed class NodeStreamingTests
 {
     private static readonly SceneFrameRequest Request = new(1, null, SceneDebugLayer.None);
+
+    [TestMethod]
+    public async Task Parts_fill_available_slots_in_priority_order_and_commit_without_waiting_for_the_batch()
+    {
+        var snapshot = Snapshot(true);
+        var cache = new NodeScene.Cache();
+        var started = new ConcurrentQueue<GridColumn>();
+        var filled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var replenished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var first = new ManualResetEventSlim();
+        using var others = new ManualResetEventSlim();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles, cache, (data, from, old, token) =>
+        {
+            started.Enqueue(from);
+            if (started.Count == RailwayCoordinates.MaxConcurrentBuilds) filled.TrySetResult();
+            if (started.Count > RailwayCoordinates.MaxConcurrentBuilds) replenished.TrySetResult();
+            (from == new GridColumn(0, 0) ? first : others).Wait(token);
+            return SmallPart(data, from, old, token);
+        });
+        try
+        {
+            await scene.BuildWork!;
+            scene.Pump(focus: new(16, 0, 16));
+            var pending = scene.PendingWork;
+            Assert.AreEqual(RailwayCoordinates.MaxConcurrentBuilds, pending.Length);
+            await filled.Task;
+            CollectionAssert.AreEquivalent(new[] { new GridColumn(0, 0), new(-32, 0) }, started.ToArray());
+            scene.Pump();
+            Assert.AreEqual(pending.Length, started.Count, "Pumping a full queue must not start duplicate work.");
+
+            others.Set();
+            await Task.WhenAny(pending);
+            scene.Pump();
+            await replenished.Task;
+            Assert.IsTrue(Chunks(cache).ContainsKey(new(-32, 0)), "A completed part must commit while the nearest part is blocked.");
+            Assert.IsFalse(Chunks(cache).ContainsKey(new(0, 0)));
+            Assert.AreEqual(RailwayCoordinates.MaxConcurrentBuilds, scene.PendingWork.Length);
+        }
+        finally { first.Set(); others.Set(); }
+        await Settle(scene, new(16, 0, 16));
+        var prepared = NodeScene.Prepare(snapshot, scene.Layout!);
+        CollectionAssert.AreEquivalent(new NodeRange(new(16, 0, 16), NodeStreaming.PrefetchCells).Chunks(scene.Layout!).ToArray(), Chunks(cache).Keys.ToArray());
+        foreach (var (from, part) in Chunks(cache)) AssertPartEqual(SmallPart(prepared, from, null, default), part);
+    }
+
+    [TestMethod]
+    public async Task Cancelled_builders_keep_their_slots_until_they_exit()
+    {
+        var snapshot = Snapshot(true);
+        var started = 0;
+        var filled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        await using var vehicles = new SceneVehicles();
+        var cache = new NodeScene.Cache();
+        await using var scene = Open(snapshot, vehicles, cache, (data, from, old, _) =>
+        {
+            if (Interlocked.Increment(ref started) == RailwayCoordinates.MaxConcurrentBuilds) filled.TrySetResult();
+            release.Wait();
+            return SmallPart(data, from, old, default);
+        });
+        try
+        {
+            await scene.BuildWork!;
+            scene.Pump(focus: new(-288, 0, -288));
+            await filled.Task;
+            var retiring = scene.PendingWork;
+            scene.Pump(focus: new(288, 0, 288));
+            scene.Pump();
+            CollectionAssert.AreEquivalent(retiring, scene.PendingWork);
+            Assert.AreEqual(RailwayCoordinates.MaxConcurrentBuilds, Volatile.Read(ref started));
+            release.Set();
+            await Task.WhenAll(retiring);
+            scene.Pump();
+            Assert.IsTrue(Chunks(cache).IsEmpty, "Cancelled results must not commit even when their builders ignore cancellation.");
+            Assert.AreEqual(RailwayCoordinates.MaxConcurrentBuilds, scene.PendingWork.Length);
+            await Task.WhenAll(scene.PendingWork);
+            scene.Pump();
+            Assert.IsTrue(Chunks(cache).Keys.All(new NodeRange(new(288, 0, 288), NodeStreaming.PrefetchCells).Intersects));
+        }
+        finally { release.Set(); }
+    }
+
+    [TestMethod]
+    public async Task Real_parallel_builders_match_serial_reference_for_every_chunk_and_rail_segment()
+    {
+        var snapshot = RailwayFixtures.Snapshot(lengthMeters: 32, directMeters: 20, relief: 0,
+            content: RailwayFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 }));
+        snapshot = RailwayFixtures.ReplaceCore(snapshot, node: snapshot.Core.World.Nodes[1] with { Position = new(12, 12) });
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        var prepared = NodeScene.Prepare(snapshot, layout);
+        var builds = new List<(string Key, Func<NodeScene.Part> Build)>();
+        for (var z = (int)layout.Bounds.Minimum.Y; z < layout.Bounds.Maximum.Y; z += VoxelGrid.ChunkSize)
+        for (var x = (int)layout.Bounds.Minimum.X; x < layout.Bounds.Maximum.X; x += VoxelGrid.ChunkSize)
+        {
+            var from = new GridColumn(x, z);
+            builds.Add((NodeScene.ChunkKey(from), () => prepared.BuildChunk(from)));
+        }
+        // The first gated pair shares preparation data across terrain and rail construction.
+        foreach (var segment in prepared.Rails.Values) builds.Insert(1, (segment.Key, () => segment.Build()));
+        var reference = builds.ToDictionary(item => item.Key, item => item.Build());
+        using var pair = new Barrier(RailwayCoordinates.MaxConcurrentBuilds);
+        var started = 0;
+        var collected = new Dictionary<string, NodeScene.Part>();
+        foreach (var batch in builds.Chunk(RailwayCoordinates.MaxConcurrentBuilds))
+        {
+            var parts = await Task.WhenAll(batch.Select(item => Task.Run(() =>
+            {
+                if (Interlocked.Increment(ref started) <= RailwayCoordinates.MaxConcurrentBuilds) pair.SignalAndWait();
+                return (item.Key, Part: item.Build());
+            })));
+            foreach (var (key, part) in parts) collected.Add(key, part);
+        }
+        Assert.IsTrue(prepared.Rails.Count > 0);
+        Assert.IsTrue(collected.Keys.Any(key => key.StartsWith("terrain:", StringComparison.Ordinal)));
+        CollectionAssert.AreEquivalent(reference.Keys.ToArray(), collected.Keys.ToArray());
+        foreach (var (key, part) in collected) AssertPartEqual(reference[key], part);
+    }
 
     [TestMethod]
     public async Task Near_parts_are_interactive_while_far_work_is_blocked()
@@ -34,11 +153,14 @@ public sealed class NodeStreamingTests
         try
         {
             await scene.BuildWork!;
-            while (!entered.Task.IsCompleted)
+            scene.Pump();
+            var near = new NodeRange(default, NodeStreaming.NearCells).Chunks(scene.Layout!).ToArray();
+            while (!near.All(Chunks(cache).ContainsKey))
             {
                 scene.Pump();
-                if (!entered.Task.IsCompleted) await Task.WhenAny(Task.WhenAll(scene.PendingWork), entered.Task);
+                if (!near.All(Chunks(cache).ContainsKey)) await Task.WhenAny(scene.PendingWork);
             }
+            await entered.Task;
             var frame = Present(scene, snapshot);
             Assert.AreEqual(SceneReadiness.Partial, frame.Readiness);
             var hit = (ScenePick.Hit)frame.Pick(Ray(Chunks(cache).Keys.First()));
@@ -453,11 +575,11 @@ public sealed class NodeStreamingTests
         ImmutableDictionary<string, NodeScene.Part> retained;
         var line = prepared.Global.Layout.Parking.First();
         var currentFocus = RailwayCoordinates.Add(line.Start, line.Forward * 64);
-        var started = new List<(ScenePoint Focus, string Key)>();
+        var started = new ConcurrentQueue<(ScenePoint Focus, string Key)>();
         await using var vehicles = new SceneVehicles();
         await using (var scene = Open(snapshot, vehicles, cache, buildRail: (_, segment, old, token) =>
         {
-            started.Add((currentFocus, segment.Key));
+            started.Enqueue((currentFocus, segment.Key));
             return segment.Build(old, token);
         }))
         {
@@ -504,16 +626,16 @@ public sealed class NodeStreamingTests
         using var release = new ManualResetEventSlim();
         var entered = new TaskCompletionSource<NodeScene.RailSegment>(TaskCreationOptions.RunContinuationsAsynchronously);
         var activeBuilds = 0;
-        var concurrentBuilds = 0;
+        var overBudget = 0;
         await using var vehicles = new SceneVehicles();
         var scene = Open(snapshot, vehicles, cache, build: (data, from, old, token) =>
         {
-            if (Interlocked.Increment(ref activeBuilds) != 1) Interlocked.Exchange(ref concurrentBuilds, 1);
+            if (Interlocked.Increment(ref activeBuilds) > RailwayCoordinates.MaxConcurrentBuilds) Interlocked.Exchange(ref overBudget, 1);
             try { return SmallPart(data, from, old, token); }
             finally { Interlocked.Decrement(ref activeBuilds); }
         }, buildRail: (data, segment, old, token) =>
         {
-            if (Interlocked.Increment(ref activeBuilds) != 1) Interlocked.Exchange(ref concurrentBuilds, 1);
+            if (Interlocked.Increment(ref activeBuilds) > RailwayCoordinates.MaxConcurrentBuilds) Interlocked.Exchange(ref overBudget, 1);
             try
             {
                 entered.TrySetResult(segment);
@@ -540,8 +662,8 @@ public sealed class NodeStreamingTests
             var pending = scene.PendingWork;
             try
             {
-                Assert.AreEqual(0, concurrentBuilds, "Terrain and rail builders must not run concurrently.");
-                Assert.AreEqual(1, pending.Length, "Terrain and rails share one serial build queue.");
+                Assert.AreEqual(0, overBudget, "Terrain and rail builders must share the concurrency limit.");
+                Assert.IsTrue(pending.Length <= RailwayCoordinates.MaxConcurrentBuilds);
                 if (close) { closing = scene.DisposeAsync().AsTask(); Assert.IsFalse(closing.IsCompleted); }
                 else scene.Pump(focus: new(10000, 0, 10000));
             }
@@ -644,6 +766,48 @@ public sealed class NodeStreamingTests
             item.Key.StartsWith("entry:", StringComparison.Ordinal) ||
             item.Key.StartsWith("station-tracks:", StringComparison.Ordinal) ||
             item.Key.StartsWith("parking-tracks:", StringComparison.Ordinal)).ToImmutableDictionary();
+
+    private static void AssertPartEqual(NodeScene.Part expected, NodeScene.Part actual)
+    {
+        Assert.AreEqual(expected.Inputs, actual.Inputs);
+        Assert.AreEqual(expected.Origin, actual.Origin);
+        CollectionAssert.AreEquivalent(expected.Heights.ToArray(), actual.Heights.ToArray());
+        var before = expected.Geometry;
+        var after = actual.Geometry;
+        CollectionAssert.AreEqual(before.Geometry.Diagnostics.ToArray(), after.Geometry.Diagnostics.ToArray());
+        CollectionAssert.AreEqual(before.Geometry.Objects.Select(item => before.Keys[item.Id]).ToArray(),
+            after.Geometry.Objects.Select(item => after.Keys[item.Id]).ToArray());
+        for (var index = 0; index < before.Geometry.Objects.Length; index++)
+        {
+            var a = before.Geometry.Objects[index];
+            var b = after.Geometry.Objects[index];
+            Assert.AreEqual(a.Parent is { } parentA ? before.Keys[parentA] : null, b.Parent is { } parentB ? after.Keys[parentB] : null);
+            Assert.AreEqual(a.Pose, b.Pose);
+            Assert.AreEqual(a.Subject, b.Subject);
+            CollectionAssert.AreEqual(a.Lights.ToArray(), b.Lights.ToArray());
+            CollectionAssert.AreEqual(a.Effects.ToArray(), b.Effects.ToArray());
+            Assert.AreEqual(a.Visuals.Length, b.Visuals.Length);
+            for (var visual = 0; visual < a.Visuals.Length; visual++)
+                if (a.Visuals[visual] is SceneVisual.Geometry mesh)
+                {
+                    var other = (SceneVisual.Geometry)b.Visuals[visual];
+                    Assert.AreEqual(mesh.Surface, other.Surface);
+                    Assert.AreEqual(mesh.Mesh.Material, other.Mesh.Material);
+                    Assert.IsTrue(mesh.Mesh.Vertices.AsSpan().SequenceEqual(other.Mesh.Vertices.AsSpan()), "Mesh vertices differ.");
+                    Assert.IsTrue(mesh.Mesh.TriangleIndices.AsSpan().SequenceEqual(other.Mesh.TriangleIndices.AsSpan()), "Mesh indices differ.");
+                }
+                else Assert.AreEqual(a.Visuals[visual], b.Visuals[visual]);
+        }
+        CollectionAssert.AreEqual(before.Geometry.Picking.Select(item => before.Keys[item.Object]).ToArray(),
+            after.Geometry.Picking.Select(item => after.Keys[item.Object]).ToArray());
+        for (var index = 0; index < before.Geometry.Picking.Length; index++)
+        {
+            var a = before.Geometry.Picking[index];
+            var b = after.Geometry.Picking[index];
+            Assert.AreEqual(a.Pose, b.Pose);
+            Assert.IsTrue(a.Grid.Cells.SequenceEqual(b.Grid.Cells), "Picking cells differ.");
+        }
+    }
 
     private static NodeScene Open(SceneWorldSnapshot snapshot, SceneVehicles vehicles, NodeScene.Cache? cache = null,
         Func<NodeScene.Preparation, GridColumn, NodeScene.Part?, CancellationToken, NodeScene.Part>? build = null,
