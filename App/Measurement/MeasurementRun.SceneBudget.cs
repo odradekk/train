@@ -333,7 +333,8 @@ internal sealed partial class MeasurementRun
 
     private object ProbeCosts(double start, double end)
     {
-        var costs = _sceneProbeCosts.Where(cost => cost.Started < end && cost.Ended > start).ToArray();
+        SceneProbeCost[] costs = end <= start ? [] :
+            _sceneProbeCosts.Where(cost => cost.Started < end && cost.Ended > start).ToArray();
         object? Distribution(Func<SceneProbeCost, double> value) => costs.Length == 0 ? null : FrameMeasurements.Distribution(costs.Select(value));
         return new { frames = costs.Length,
             frame_fog = Distribution(cost => cost.FrameFogSeconds), points = Distribution(cost => cost.PointSeconds),
