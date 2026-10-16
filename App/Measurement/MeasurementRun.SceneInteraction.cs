@@ -15,7 +15,8 @@ namespace Train.App.Measurement;
 internal sealed partial class MeasurementRun
 {
     private int _scenePickCount;
-    private double _probeFogSeconds, _probePointSeconds, _probeBusinessSeconds, _probeSnapshotSeconds;
+    private double _probeFogSeconds, _probePointSeconds, _probeBusinessSeconds, _probeSnapshotSeconds, _probeFogIndexSeconds;
+    private int _probeFogRegionCount;
     private ProbeState _probeState;
     private readonly record struct ProbeState(string Stage, SceneSpaceId? Space, int FogRegions,
         int PointsPassed, int BusinessCount, int BusinessPassed, int RailCount, int RailPassed, bool FollowedPicked);
@@ -138,10 +139,13 @@ internal sealed partial class MeasurementRun
             return new(transformed.X, transformed.Y, transformed.Z);
         }
         var fogRegions = display.DisplayedFrame!.Update.Environment.FoggedRegions;
+        _probeFogRegionCount = fogRegions.Length;
         if (_probeFogIndex is null || !_probeFogRegions.Equals(fogRegions))
         {
+            var indexStarted = Seconds();
             _probeFogRegions = fogRegions;
             _probeFogIndex = new(fogRegions);
+            _probeFogIndexSeconds += Seconds() - indexStarted;
         }
         var fogPoints = pointPositions.Select(FogPoint).ToArray();
         var minimum = fogPoints.Aggregate(NVector.Min);

@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Runtime.InteropServices;
+using System.ComponentModel;
 using Godot;
 using Train.App.Saves;
 using Train.Core.Contracts;
@@ -22,9 +24,20 @@ internal sealed partial class MeasurementRun
     private ProbeState? _sceneLoggedProbeState;
     private double _sceneObserverSeconds;
     private readonly List<SceneProbeCost> _sceneProbeCosts = [];
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ProcessMemoryCounters
+    {
+        internal uint Size, PageFaultCount;
+        internal nuint PeakWorkingSet, WorkingSet, QuotaPeakPagedPool, QuotaPagedPool,
+            QuotaPeakNonPagedPool, QuotaNonPagedPool, PagefileUsage, PeakPagefileUsage, PrivateUsage;
+    }
+    [DllImport("kernel32.dll", EntryPoint = "K32GetProcessMemoryInfo", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetProcessMemoryInfo(IntPtr process, out ProcessMemoryCounters counters, uint size);
     private sealed record SceneProbeCost(string Operation, long Draw, double Started, double Ended,
         double FrameFogSeconds, double PointSeconds, double BusinessSeconds, double LoggingSeconds, double OtherSeconds,
-        double StatusSeconds, double UiSeconds, double ProcessSeconds, double RenderingSeconds, double ReadySnapshotSeconds);
+        double StatusSeconds, double UiSeconds, double ProcessSeconds, double RenderingSeconds, double ReadySnapshotSeconds,
+        double FogIndexSeconds, int FogRegionCount);
     private readonly List<double> _sceneOpeningFrames = [];
     private readonly List<(double Started, double Ended)> _sceneChecks = [];
     private readonly Queue<SceneSample> _sceneRecent = new();
@@ -69,6 +82,8 @@ internal sealed partial class MeasurementRun
         _sceneEvidence["memory_scope"] = "RenderingServer each drawn frame; current process memory every 200ms; OS peak counters cover process lifetime and cannot be reset per operation";
         _sceneEvidence["steady_scope"] = "median of final second, five seconds after Ready drawn frame; map uses five seconds after map drawn frame";
         _sceneEvidence["observer_scope"] = "checks and observer overhead included, never subtracted; previous_observer_seconds includes trace serialization";
+        _sceneEvidence["fog_index_scope"] = "spatial query uses nearby bounds; rebuilding an index for a changed public unordered fog array reads the whole array synchronously; separately timed, not claimed to be bounded by nearby content";
+        _sceneEvidence["process_memory_scope"] = "K32GetProcessMemoryInfo: PrivateUsage, WorkingSetSize, PeakPagefileUsage, PeakWorkingSetSize; current values sampled every 200 ms, peaks cover process lifetime";
         _sceneEvidence["check_contribution_scope"] = "upper bound from measured check-time overlaps with [click, operable] and [operable, Ready]; null without operable, zero for an empty interval; never subtracted";
         _sceneEvidence["supplementary_picks"] = "cancelled: nearest business object and building 6 are outside the acceptance gate and add per-frame overhead";
         _sceneEvidence["rail_geometry_scope"] = "Subject=null RailSteel/Sleeper: match Ready reference geometry, pose and bounds; no picking of non-pickable decorations; near terrain picks reported separately";
@@ -327,6 +342,7 @@ internal sealed partial class MeasurementRun
             status = Distribution(cost => cost.StatusSeconds), ui = Distribution(cost => cost.UiSeconds),
             process = Distribution(cost => cost.ProcessSeconds), rendering = Distribution(cost => cost.RenderingSeconds),
             ready_snapshot = Distribution(cost => cost.ReadySnapshotSeconds),
+            fog_index = Distribution(cost => cost.FogIndexSeconds),
             contribution_upper_bound_seconds = FrameMeasurements.SumOverlap(_sceneProbeCosts.Select(cost => (cost.Started, cost.Ended)), start, end) };
     }
 
@@ -354,7 +370,8 @@ internal sealed partial class MeasurementRun
         var operation = _sceneOperation;
         var loggingSeconds = 0d;
         var statusSeconds = 0d; var uiSeconds = 0d; var processSeconds = 0d; var renderingSeconds = 0d;
-        _probeFogSeconds = _probePointSeconds = _probeBusinessSeconds = _probeSnapshotSeconds = 0;
+        _probeFogSeconds = _probePointSeconds = _probeBusinessSeconds = _probeSnapshotSeconds = _probeFogIndexSeconds = 0;
+        _probeFogRegionCount = 0;
         try
         {
             var host = _app.Host!;
@@ -408,9 +425,10 @@ internal sealed partial class MeasurementRun
             if (now - _sceneLastProcessRead >= .2)
             {
                 var processStarted = Seconds();
-                _process.Refresh();
-                _scenePrivate = _process.PrivateMemorySize64; _sceneWorking = _process.WorkingSet64;
-                _scenePeakPrivate = _process.PeakPagedMemorySize64; _scenePeakWorking = _process.PeakWorkingSet64;
+                if (!GetProcessMemoryInfo(_process.Handle, out var memory, (uint)Marshal.SizeOf<ProcessMemoryCounters>()))
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                _scenePrivate = (long)memory.PrivateUsage; _sceneWorking = (long)memory.WorkingSet;
+                _scenePeakPrivate = (long)memory.PeakPagefileUsage; _scenePeakWorking = (long)memory.PeakWorkingSet;
                 _sceneLastProcessRead = now;
                 processSeconds = Seconds() - processStarted;
             }
@@ -480,7 +498,8 @@ internal sealed partial class MeasurementRun
                 _sceneProbeCosts.Add(new(operation, _sceneDrawCount, observerStarted, ended,
                     _probeFogSeconds, _probePointSeconds, _probeBusinessSeconds, loggingSeconds,
                     Math.Max(0, ended - observerStarted - _probeFogSeconds - _probePointSeconds - _probeBusinessSeconds - loggingSeconds),
-                    statusSeconds, uiSeconds, processSeconds, renderingSeconds, _probeSnapshotSeconds));
+                    statusSeconds, uiSeconds, processSeconds, renderingSeconds, _probeSnapshotSeconds,
+                    _probeFogIndexSeconds, _probeFogRegionCount));
             }
         }
     }
