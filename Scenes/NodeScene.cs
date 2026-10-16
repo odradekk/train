@@ -86,6 +86,8 @@ internal sealed class NodeScene : IAsyncDisposable
     private SceneWorldSnapshot snapshot;
     private readonly Dictionary<string, BuiltGeometry> attached = [];
     private readonly Dictionary<EdgeId, RailwayPath> adjacentRailways = [];
+    private sealed record PlatformMap(ImmutableArray<NodeLayout.Stop> Stops, ImmutableArray<SceneProblem> Problems);
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<SceneWorldSnapshot, PlatformMap> platformMaps = new();
     private readonly Task<Preparation>? pending;
     private sealed record PartWork(Task<Part> Task, CancellationTokenSource Cancellation, SceneBounds Bounds, GridColumn? Chunk);
     private readonly Dictionary<GridColumn, Part> chunks = [];
@@ -590,10 +592,12 @@ internal sealed class NodeScene : IAsyncDisposable
         if (trains.Length == 0) return;
         var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(Node)).Value;
         var queues = QueuePositions(trains, dimensions);
-        var platforms = SettlementObjects.Platforms(snapshot, layout!, problems);
+        var mapping = Platforms(snapshot);
+        problems.AddRange(mapping.Problems);
+        var platforms = mapping.Stops;
         var oldTrains = previous is null ? [] : NodeTrains(previous);
         var oldQueues = QueuePositions(oldTrains, dimensions);
-        var oldPlatforms = previous is null ? [] : SettlementObjects.Platforms(previous, layout!, ImmutableArray.CreateBuilder<SceneProblem>());
+        var oldPlatforms = previous is null ? [] : Platforms(previous).Stops;
         foreach (var train in trains)
         {
             var members = train.Vehicles.Select(id => ((Lookup<InstanceView>.Found)snapshot.Core.FindInstance(new InstanceId.Vehicle(id))).Value).ToArray();
@@ -655,6 +659,13 @@ internal sealed class NodeScene : IAsyncDisposable
         void Add(RenderedDesign geometry)
         { objects.AddRange(geometry.Objects); picking.AddRange(geometry.Picking); problems.AddRange(geometry.Diagnostics); }
     }
+
+    private PlatformMap Platforms(SceneWorldSnapshot input) => platformMaps.GetValue(input, value =>
+    {
+        var problems = ImmutableArray.CreateBuilder<SceneProblem>();
+        var stops = SettlementObjects.Platforms(value, layout!, problems);
+        return new(stops, problems.ToImmutable());
+    });
 
     private Dictionary<TrainId, double> QueuePositions(TrainView[] trains, NodeView dimensions)
     {

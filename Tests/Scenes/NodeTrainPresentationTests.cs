@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Numerics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
 
@@ -11,6 +12,28 @@ public sealed class NodeTrainPresentationTests
 {
     private static TrainView Approaching(double distance) => NodeFixtures.Train(speed: 10) with
     { Position = new TrainPosition.Node(NodeFixtures.NodeId, new(2), new(1), NodeTravelPhase.Approaching, distance, 1) };
+
+    [TestMethod]
+    public async Task ContentSnapshotsAtTheSameStepKeepTheirPlatformMappingAndDiagnostics()
+    {
+        var valid = NodeFixtures.Snapshot(platforms: 1, trains: [Approaching(100)]);
+        var missing = valid with { Content = NodeFixtures.Content(generation: 2,
+            designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+            { [NodeFixtures.StationDesign] = new ContentLookup<DesignEvaluation>.Missing([]) }) };
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Controlled(valid, vehicles);
+        var before = await Frame(scene, valid);
+        for (var i = 0; i < 2; i++)
+        {
+            var frame = await Frame(scene, missing, valid, .5);
+            Assert.IsTrue(frame.Diagnostics.Any(problem => problem.Code == "station_platform_mismatch" &&
+                problem.Subject == new WorldObjectId.Node(NodeFixtures.NodeId)));
+            Assert.IsNotInstanceOfType<Lookup<ScenePose>.Found>(frame.FindPose(
+                new WorldObjectId.Instance(new InstanceId.Vehicle(new(1)))));
+        }
+        var restored = await Frame(scene, valid);
+        Assert.AreEqual(Pose(before, 1), Pose(restored, 1), "Retaining another content snapshot must not replace the old mapping.");
+    }
 
     [TestMethod]
     public async Task AdjacentNodeStepsInterpolateProgressAndShareTheRenderedPickPose()
