@@ -6,7 +6,7 @@ using Train.Scenes.Contracts;
 
 namespace Train.Scenes;
 
-internal sealed class NodeLayout
+internal sealed partial class NodeLayout
 {
     internal const int PlatformClearance = 16;
     internal const int StationTrackSpacing = 40;
@@ -33,7 +33,7 @@ internal sealed class NodeLayout
     private readonly Dictionary<(EdgeId, int, int), Track> connections = [];
     private ImmutableArray<RailwaySample> samples = [];
     internal int Platforms { get; }
-    internal double HalfSize { get; }
+    internal double HalfSize { get; private set; }
     internal string Inputs { get; }
     internal ImmutableArray<Entry> Entries { get; }
     internal Vector3 StationForward { get; }
@@ -135,6 +135,7 @@ internal sealed class NodeLayout
         var result = new NodeLayout(id, 0, halfSize, ReadInputs(snapshot, id),
             entries.Select(item => item.Entry).OrderBy(entry => entry.Edge.Value).ToImmutableArray(), axis, radius)
             { Template = template };
+        result.PrepareTrainRoutes(snapshot);
         result.CaptureSamples(snapshot);
         return result;
     }
@@ -189,11 +190,13 @@ internal sealed class NodeLayout
                 stops.Add(new(plot.Number, z, new(center.X, center.Y, center.Z), forward));
             }
         }
-        var lines = stops.GroupBy(stop => (Along: Math.Round(Vector3.Dot(RailwayCoordinates.Relative(stop.Center, default), across), 4),
-            Height: stop.Center.Y)).Select(group => group.First()).ToImmutableArray();
         var templateBounds = NodeSettlement.Bounds(template);
         var along = AxisRange(templateBounds, axis);
         var lateral = AxisRange(templateBounds, across);
+        var bypassPoint = axis * (float)((along.Min + along.Max) / 2) + across * (float)(lateral.Max + StationTrackSpacing);
+        var bypass = new Stop(0, 0, new(bypassPoint.X, firstPose.Position.Y, bypassPoint.Z), axis);
+        var lines = stops.GroupBy(stop => (Along: Math.Round(Vector3.Dot(RailwayCoordinates.Relative(stop.Center, default), across), 4),
+            Height: stop.Center.Y)).Select(group => group.First()).Append(bypass).ToImmutableArray();
         var parking = Enumerable.Range(0, 2).Select(index =>
         {
             var at = axis * (float)along.Min + across * (float)(lateral.Min - GroundMargin - index * StationTrackSpacing);
@@ -269,10 +272,11 @@ internal sealed class NodeLayout
         }
         var result = new NodeLayout(id, stops.Count, Math.Max(Math.Max(Math.Abs(minimum.X), Math.Abs(maximum.X)), Math.Max(Math.Abs(minimum.Y), Math.Abs(maximum.Y))),
             ReadInputs(snapshot, id), entries.ToImmutableArray(), axis, radius)
-        { Template = template, Stops = stops.ToImmutable(), Parking = parking, Problems = problems.ToImmutable(), Bounds = new(minimum, maximum), routeStops = lines };
+        { Template = template, Stops = stops.ToImmutable(), Parking = parking, Problems = problems.ToImmutable(), Bounds = new(minimum, maximum), routeStops = lines, Bypass = bypass };
         foreach (var entry in result.Entries)
         for (var lane = 1 - entry.TrackLimit; lane < entry.TrackLimit; lane++)
         for (var line = 0; line < lines.Length; line++) result.connections.Add((entry.Edge, lane, line), Connect(entry, lane, lines[line]));
+        result.PrepareTrainRoutes(snapshot);
         result.CaptureSamples(snapshot);
         return result;
 
@@ -307,7 +311,7 @@ internal sealed class NodeLayout
     {
         var points = ImmutableArray.CreateBuilder<RailwaySample>();
         var routes = Entries.SelectMany(entry => EntryRoutes(entry, snapshot.Core.World.Edges.Single(e => e.Id == entry.Edge).Tracks))
-            .Concat(StationRoutes(true)).Concat(Parking.Select(line => ((Func<double, RailwaySample>)(arc => new(RailwayCoordinates.Add(line.Start, line.Forward * (float)arc), line.Forward,
+            .Concat(StationRoutes(true)).Concat(TurnRoutes()).Concat(Parking.Select(line => ((Func<double, RailwaySample>)(arc => new(RailwayCoordinates.Add(line.Start, line.Forward * (float)arc), line.Forward,
                 Vector3.Cross(Vector3.UnitY, line.Forward))), line.Length)));
         foreach (var (sample, length) in routes)
             for (var arc = 0.0; arc < length + 2; arc += 2) points.Add(sample(Math.Min(arc, length)));
@@ -422,19 +426,42 @@ internal sealed class NodeLayout
         private readonly (double Length, double Curvature)[] pieces;
         private readonly double endHeight;
         private readonly double rampStart;
+        private readonly double planarLength;
+        private readonly double[] rampArcs;
         internal double Length { get; }
         internal Track(ScenePoint start, Vector3 forward, Vector3 right, double angle,
             (double Length, double Curvature)[] pieces, double endHeight = 0)
         {
             this.start = start; this.forward = forward; this.right = right; this.angle = angle;
             this.pieces = pieces.Where(piece => piece.Length > 1e-8).ToArray();
-            Length = this.pieces.Sum(piece => piece.Length);
+            planarLength = this.pieces.Sum(piece => piece.Length);
             this.endHeight = endHeight;
-            rampStart = Length - this.pieces.LastOrDefault().Length;
+            rampStart = planarLength - this.pieces.LastOrDefault().Length;
+            var rampLength = planarLength - rampStart;
+            var count = endHeight == start.Y || rampLength <= 0 ? 0 : Math.Max(1, (int)Math.Ceiling(rampLength));
+            rampArcs = new double[count + 1];
+            for (var i = 1; i <= count; i++)
+            {
+                var begin = (double)(i - 1) / count;
+                var end = (double)i / count;
+                double Speed(double t) => Math.Sqrt(1 + Math.Pow((endHeight - start.Y) * 6 * t * (1 - t) / rampLength, 2));
+                rampArcs[i] = rampArcs[i - 1] + rampLength / count * (Speed(begin) + 4 * Speed((begin + end) / 2) + Speed(end)) / 6;
+            }
+            Length = count == 0 ? planarLength : rampStart + rampArcs[^1];
         }
         internal RailwaySample Sample(double arc)
         {
-            var remaining = Math.Clamp(arc, 0, Length); var heading = angle; var u = 0.0; var v = 0.0;
+            var planarArc = Math.Clamp(arc, 0, Length);
+            if (rampArcs.Length > 1 && planarArc > rampStart)
+            {
+                var rampArc = planarArc - rampStart;
+                var index = Array.BinarySearch(rampArcs, rampArc);
+                if (index < 0) index = Math.Clamp(~index - 1, 0, rampArcs.Length - 2);
+                else index = Math.Min(index, rampArcs.Length - 2);
+                var fraction = (rampArc - rampArcs[index]) / (rampArcs[index + 1] - rampArcs[index]);
+                planarArc = rampStart + (index + fraction) / (rampArcs.Length - 1) * (planarLength - rampStart);
+            }
+            var remaining = planarArc; var heading = angle; var u = 0.0; var v = 0.0;
             foreach (var piece in pieces)
             {
                 var distance = Math.Min(remaining, piece.Length);
@@ -448,10 +475,10 @@ internal sealed class NodeLayout
             var extension = arc - Math.Clamp(arc, 0, Length);
             var point = new ScenePoint(start.X + forward.X * v + right.X * u + tangent.X * extension, start.Y,
                 start.Z + forward.Z * v + right.Z * u + tangent.Z * extension);
-            var t = Math.Clamp((arc - rampStart) / Math.Max(Length - rampStart, 1e-9), 0, 1);
+            var t = Math.Clamp((planarArc - rampStart) / Math.Max(planarLength - rampStart, 1e-9), 0, 1);
             var rise = endHeight - start.Y;
             point = point with { Y = start.Y + rise * t * t * (3 - 2 * t) };
-            var slope = t > 0 && t < 1 ? rise * 6 * t * (1 - t) / (Length - rampStart) : 0;
+            var slope = t > 0 && t < 1 ? rise * 6 * t * (1 - t) / (planarLength - rampStart) : 0;
             tangent = Vector3.Normalize(tangent + Vector3.UnitY * (float)slope);
             return new(point, tangent, Vector3.Normalize(Vector3.Cross(Vector3.UnitY, tangent)));
         }

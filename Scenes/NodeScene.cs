@@ -412,6 +412,9 @@ internal sealed class NodeScene : IAsyncDisposable
         var stationNumber = 0;
         foreach (var route in layout.StationRoutes(anyTracks))
             AddRoute("station-tracks:" + stationNumber++, stationKey, route.Sample, route.Length);
+        var turnNumber = 0;
+        foreach (var route in layout.TurnRoutes())
+            AddRoute("turnaround:" + turnNumber++, stationKey, route.Sample, route.Length);
         var parkingNumber = 0;
         foreach (var line in layout.Parking)
             AddRoute("parking-tracks:" + parkingNumber++, layout.Inputs,

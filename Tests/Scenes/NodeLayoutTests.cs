@@ -100,6 +100,13 @@ public sealed class NodeLayoutTests
         const double clearance = 16, approachStraight = 16, margin = 32;
         var bound = Math.Ceiling((clearance + approachStraight + radius +
             lateralForwardSpan + corridor + entrySpacing + margin) / 32) * 32;
+        if (directions.GroupBy(direction => (alongX ? direction.X : direction.Y) >= 0).Any(group => group.Count() > 1))
+        {
+            // An exterior turnaround adds a 2R lateral S-join (at most 4R forward),
+            // a semicircle's R longitudinal span, a ramp and the track-bed margin.
+            bound = Math.Ceiling((bound + 5 * radius + approachStraight + margin +
+                RailwayCoordinates.BedBaseHalfWidth + RailwayCoordinates.BedBlendWidth + margin) / 32) * 32;
+        }
         TestContext.WriteLine($"{name}: half-size {layout.HalfSize}, bound {bound}, same-side/same-turn entries {sameSideEntries}");
         Assert.IsTrue(layout.HalfSize <= bound, $"{name}: half-size {layout.HalfSize}, bound {bound}");
         foreach (var entry in layout.Entries)
