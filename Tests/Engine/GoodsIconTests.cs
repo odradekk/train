@@ -144,6 +144,23 @@ public class GoodsIconTests(Node testScene) : TestClass(testScene)
             Require(cached.TooltipText == diagnostics[0] && factory.PreviewCalls.Count == 1 &&
                 preview.PresentCalls == 1 && preview.DisposeCalls == 1 && diagnostics.Count == 1,
                 "失败条目必须保留明确原因，后续帧和缓存命中不得重复准备、释放或诊断。");
+
+            var failure = diagnostics[0];
+            cache.Bind(new(Guid.NewGuid()), Content(1));
+            preview = new Preview(new(1), unavailableAsset: true);
+            cache.Timestamp = () => 0;
+            diagnostics.Clear();
+            var immediate = cache.Create(First, null);
+            var shared = cache.Create(Second, null);
+            controls.Add(immediate); controls.Add(shared);
+            TestScene.AddChild(immediate); TestScene.AddChild(shared);
+            Require(Texture(immediate) is null && immediate.TooltipText == failure && shared.TooltipText == failure &&
+                diagnostics.Count == 1 && diagnostics[0] == failure && cache.GetChildCount() == 0 &&
+                preview.PresentCalls == 1 && preview.DisposeCalls == 1,
+                "不让步的准备失败不能从Create抛出，必须与后续帧失败显示相同原因并只诊断、释放一次。");
+            await new UiTestInput(TestScene).Frames(3);
+            Require(preview.DisposeCalls == 1 && diagnostics.Count == 1 && factory.PreviewCalls.Count == 2,
+                "同步失败条目也不得在后续帧重复释放或诊断。");
         }
         finally
         {
