@@ -14,6 +14,7 @@ internal partial class WorldSceneView : Node3D
         Position = new(16, 64), MouseFilter = Control.MouseFilterEnum.Ignore };
     internal WorldCamera CameraRig { get; } = new() { Name = "WorldCamera" };
     internal bool Loading => _message.Visible;
+    internal bool LoadingOverlayVisible => _overlay.Visible;
     internal bool Interactive { get; set; }
     internal InspectionLighting Lighting { get; private set; }
     internal event Action<Vector2>? PickRequested;

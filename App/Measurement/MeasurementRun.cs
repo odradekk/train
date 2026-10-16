@@ -47,14 +47,14 @@ internal sealed partial class MeasurementRun : IDisposable
         for (var i = 0; i < arguments.Count; i++)
         {
             if (arguments[i].StartsWith("--measure=", StringComparison.Ordinal)) continue;
-            if (arguments[i] is not ("--measure-input" or "--measure-output" or "--measure-identity" or "--measure-duration") ||
+            if (arguments[i] is not ("--measure-input" or "--measure-output" or "--measure-identity" or "--measure-duration" or "--measure-reference") ||
                 ++i >= arguments.Count) throw new ArgumentException("测量需要情景、输入存档、输出报告和构建身份路径。");
             values.Add(arguments[i - 1], arguments[i]);
         }
         _scenario = values["scenario"];
         if (_scenario is not ("map-1x" or "map-8x" or "follow-1x" or "follow-8x" or "node-1x" or "node-8x" or
             "sdfgi-off" or "sdfgi-on" or "taa-off" or "taa-on" or "scene-node" or "scene-node-first" or
-            "scene-edge" or "scene-follow" or "scene-follow-8x" or "scene-memory" or "scene-capture" or "scene-map"))
+            "scene-edge" or "scene-follow" or "scene-follow-8x" or "scene-memory" or "scene-capture" or "scene-map" or "scene-reference"))
             throw new ArgumentException("未知测量情景。");
         if (values.TryGetValue("--measure-duration", out var duration))
         {
@@ -62,6 +62,7 @@ internal sealed partial class MeasurementRun : IDisposable
                 throw new ArgumentException("测量时长必须是非负整数秒。");
         }
         _input = Path.GetFullPath(values["--measure-input"]);
+        _sceneReferencePath = values.TryGetValue("--measure-reference", out var reference) ? Path.GetFullPath(reference) : null;
         _output = Path.GetFullPath(values["--measure-output"]);
         if (File.Exists(_output)) throw new IOException("测量报告已存在。");
         _identity = JsonSerializer.Deserialize<Dictionary<string, object?>>(File.ReadAllText(values["--measure-identity"]))

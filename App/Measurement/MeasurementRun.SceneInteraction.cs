@@ -1,5 +1,5 @@
-using System.Collections;
-using System.Reflection;
+using System.Security.Cryptography;
+using System.Text.Json;
 using Godot;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
@@ -15,24 +15,48 @@ internal sealed partial class MeasurementRun
 {
     private int _scenePickCount;
     private readonly Dictionary<ulong, Vector3[]> _probeMeshPoints = [];
-    private List<ProbeExpected>? _probeExpected;
-    private object? _probeNode, _probeLayout;
-    private SceneSpaceId? _probeSpace;
-    private ScenePoint? _probeOrigin;
-    private readonly Dictionary<(WorldObjectId? Subject, string Key), double> _probeFirstPicks = [];
-    private sealed record ProbeExpected(string Key, WorldObjectId? Subject, SceneBounds Bounds, bool Rail);
-    private static readonly BindingFlags ProbeFlags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-    private static object? ProbeRead(object? owner, string name) => owner is null ? null :
-        owner.GetType().GetField(name, ProbeFlags)?.GetValue(owner) ?? owner.GetType().GetProperty(name, ProbeFlags)?.GetValue(owner);
+    private readonly Dictionary<string, double> _probeFirstPicks = [];
+    private readonly string? _sceneReferencePath;
+    private WorldObjectId? _sceneTarget;
+    private ProbeReference? _probeReference;
+    private ProbeValidation? _probeReferenceValidation;
+    private readonly Dictionary<ProbeReferenceView, HashSet<(int, int)>> _probeTerrainBands = [];
+    private readonly List<ProbeReferenceView> _probeRecordedViews = [];
+    private bool _probeReadyChecked;
+    private sealed record ProbeExpected(string Key, string? Subject, SceneBounds Bounds, bool Rail);
+    private sealed record ProbeReference(string BuildCommit, string InputSha256, ProbeReferenceView[] Views);
+    private sealed record ProbeReferenceView(string Target, int? Node, int? Edge, double? ArcMeters,
+        double[] Center, ProbeReferenceObject[] Objects, int[][] Terrain);
+    private sealed record ProbeReferenceObject(string? Subject, bool Rail, double[] Position,
+        double[] Rotation, double[] Bounds);
+    private sealed record ProbePick(bool Visible, bool Picked, string? Resolved, object Evidence);
+    private sealed record ProbeValidation(bool Valid, ProbeReferenceObject[]? Expected,
+        ProbeReferenceObject[] Actual, double PoseBoundsToleranceCells, string? Reason);
+
+    private void LoadSceneReference()
+    {
+        if (_scenario is "scene-reference" or "scene-map") return;
+        if (_sceneReferencePath is null) throw new ArgumentException("场景测量需要 --measure-reference；先单独运行 scene-reference。");
+        _probeReference = JsonSerializer.Deserialize<ProbeReference>(File.ReadAllText(_sceneReferencePath), SceneJson)
+            ?? throw new InvalidDataException("参考运行数据缺失。");
+        if (_probeReference.BuildCommit != _identity["build_commit"]?.ToString() ||
+            _probeReference.InputSha256 != SceneInputHash()) throw new InvalidDataException("参考运行与本次 HEAD 或输入不同。");
+        foreach (var view in _probeReference.Views)
+            _probeTerrainBands.Add(view, view.Terrain.Select(cell => (cell[0], cell[1])).ToHashSet());
+        _sceneEvidence["reference"] = new { path = _sceneReferencePath, sha256 =
+            Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(_sceneReferencePath))).ToLowerInvariant() };
+    }
+
+    private string SceneInputHash() => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(_input))).ToLowerInvariant();
+    private void WriteSceneReference() => File.WriteAllText(Path.Combine(Path.GetDirectoryName(_output)!, "scene-reference.json"),
+        JsonSerializer.Serialize(new ProbeReference(_identity["build_commit"]!.ToString()!, SceneInputHash(), [.. _probeRecordedViews]), SceneJson));
 
     private void ResetSceneProbe()
     {
         _probeMeshPoints.Clear();
-        _probeExpected = null;
-        _probeNode = _probeLayout = null;
-        _probeSpace = null;
-        _probeOrigin = null;
         _probeFirstPicks.Clear();
+        _probeReadyChecked = false;
+        _probeReferenceValidation = null;
         _scenePickCount = 0;
     }
 
@@ -40,7 +64,7 @@ internal sealed partial class MeasurementRun
     {
         var controller = _app.WorldScenes!;
         var display = controller.Display!;
-        var session = (IWorldSceneSession?)ProbeRead(controller, "_session");
+        var session = controller.Session!;
         var camera = controller.View.CameraRig;
         var center = new NVector(camera.Focus.X, camera.Focus.Y, camera.Focus.Z);
         if (follow is not null)
@@ -52,228 +76,228 @@ internal sealed partial class MeasurementRun
             }
             center = pose.Value.Position;
         }
-        var node = ProbeRead(session, "node");
-        var layout = ProbeRead(node, "layout");
-        if (!ReferenceEquals(node, _probeNode) || !ReferenceEquals(layout, _probeLayout) ||
-            _probeSpace != frame.Update.Frame.Space || _probeOrigin != frame.Origin)
+        var location = frame.Locate(center) is Lookup<WorldLocation>.Found found ? found.Value : null;
+        var node = location is WorldLocation.Node n ? (int?)n.Id.Value : null;
+        var edge = location as WorldLocation.Edge;
+        var absolute = center + ProbeOrigin(frame);
+        var reference = _probeReference?.Views.FirstOrDefault(view => node is not null ? view.Node == node :
+            edge is not null && view.Edge == (int)edge.Id.Value && Math.Abs(view.ArcMeters!.Value - edge.DistanceMeters) <= 64);
+        if (!_probeReadyChecked && frame.Readiness == SceneReadiness.Ready)
         {
-            _probeExpected = null;
-            _probeNode = node; _probeLayout = layout;
-            _probeSpace = frame.Update.Frame.Space; _probeOrigin = frame.Origin;
+            _probeReadyChecked = true;
+            if (_scenario == "scene-reference") _probeRecordedViews.Add(CaptureSceneReference(frame, center, node, edge));
+            else
+            {
+                var actual = ReferenceObjects(frame, center, 64).ToArray();
+                var expected = reference?.Objects.Where(item => ProbeDistance(absolute, ReferenceBounds(item)) <= 64).ToArray();
+                _probeReferenceValidation = new(expected is not null &&
+                    expected.All(item => actual.Any(other => ReferenceMatches(item, other))) &&
+                    actual.All(item => expected.Any(other => ReferenceMatches(item, other))),
+                    expected, actual, .001, reference is null ? "reference_missing" : null);
+            }
         }
-        var points = new List<object>();
-        var clear = session is not null;
         var pointPositions = new List<NVector> { center };
+        var terrainBand = reference is not null ? _probeTerrainBands.GetValueOrDefault(reference) : null;
+        var known = node is not null ? reference is not null && NVector.Distance(absolute, new((float)reference.Center[0],
+            (float)reference.Center[1], (float)reference.Center[2])) <= 64 : edge is not null && terrainBand is not null &&
+            terrainBand.Contains(((int)Math.Floor(absolute.X), (int)Math.Floor(absolute.Z)));
         foreach (var radius in new[] { 32f, 64f })
-            for (var angle = 0; angle < 8; angle++)
+        {
+            if (edge is not null && terrainBand is not null)
+            {
+                var ring = ProbeBandRing(absolute, radius, terrainBand);
+                known &= ring.Length == 8;
+                pointPositions.AddRange(ring.Select(point => point - ProbeOrigin(frame)));
+            }
+            else for (var angle = 0; angle < 8; angle++)
                 pointPositions.Add(center + new NVector(MathF.Cos(angle * MathF.PI / 4) * radius, 0,
                     MathF.Sin(angle * MathF.PI / 4) * radius));
+        }
+        var points = new List<object>();
+        var samplesPassed = 0;
         foreach (var point in pointPositions)
         {
             var fogged = frame.Update.Environment.FoggedRegions.Any(bounds => ProbeInside(point, bounds));
-            var terrainHeight = frame.TerrainHeight(point.X, point.Z);
+            var terrain = frame.TerrainHeight(point.X, point.Z);
             _scenePickCount++;
             var pick = frame.Pick(new(point + new NVector(0, 4096, 0), -NVector.UnitY, 8192));
             var hit = pick is ScenePick.Hit;
             string? resolved = null;
-            if (points.Count == 0 && follow is null && ProbeRead(session, "target") is WorldSceneTarget.Location { Value: WorldLocation.Edge expectedEdge })
+            if (points.Count == 0 && _sceneTarget is WorldObjectId.Edge expectedEdge)
             {
-                var subject = pick is ScenePick.Hit actual && session?.Resolve(actual.Value) is SceneResult<PickSubject>.Success success
+                var subject = pick is ScenePick.Hit actual && session.Resolve(actual.Value) is SceneResult<PickSubject>.Success success
                     ? success.Value : null;
                 resolved = subject?.ToString();
                 hit &= subject is PickSubject.Terrain { Location: WorldLocation.Edge actualEdge } && actualEdge.Id == expectedEdge.Id;
             }
-            clear &= !fogged && hit && terrainHeight is Lookup<double>.Found;
-            points.Add(new { x = point.X, z = point.Z, fogged, terrain = terrainHeight.GetType().Name,
-                pick = pick.GetType().Name, resolved });
+            var passed = !fogged && hit && terrain is Lookup<double>.Found;
+            if (passed) samplesPassed++;
+            points.Add(new { x = point.X, z = point.Z, fogged, terrain = terrain.GetType().Name,
+                pick = pick.GetType().Name, resolved, passed });
         }
-        var intersectingFog = frame.Update.Environment.FoggedRegions.Count(bounds => ProbeDistance(center, bounds) <= 64);
-        clear &= intersectingFog == 0;
-        var expectedKnown = node is null || ProbePrepareExpected(node, frame);
-        clear &= expectedKnown;
-        var allBusiness = _probeExpected ?? [];
-        var nearBusiness = allBusiness.Where(item => ProbeDistance(center, item.Bounds) <= 64).ToArray();
+        var intersectingFog = frame.Update.Environment.FoggedRegions.Count(bounds => node is not null
+            ? ProbeDistance(center, bounds) <= 64 : pointPositions.Any(point => ProbeInside(point, bounds)));
+        var expectedBusiness = node is not null ? ExpectedBuildings(frame, new((ulong)node.Value)).ToList() : [];
+        if (reference is not null)
+            expectedBusiness.AddRange(reference.Objects.Select((item, index) => new ProbeExpected("reference:" + index,
+                item.Subject, new(ReferenceBounds(item).Minimum - ProbeOrigin(frame), ReferenceBounds(item).Maximum - ProbeOrigin(frame)), item.Rail)));
+        var nearBusiness = expectedBusiness.Where(item => ProbeDistance(center, item.Bounds) <= 64).ToArray();
         var results = new List<object>();
+        var businessPassed = true;
         foreach (var expected in nearBusiness)
         {
             var result = ProbeBusiness(frame, session, display, expected);
-            clear &= result.Visible && result.Picked;
-            results.Add(new { expected.Key, expected = expected.Subject?.ToString() ?? "Terrain(node): position identity only",
-                pickContract = expected.Rail ? "Terrain(node): position identity only" : "WorldObject: exact instance identity",
-                bounds = new { minX = expected.Bounds.Minimum.X, minZ = expected.Bounds.Minimum.Z,
-                    maxX = expected.Bounds.Maximum.X, maxZ = expected.Bounds.Maximum.Z },
-                visible = result.Visible, picked = result.Picked, resolved = result.Resolved });
+            businessPassed &= result.Visible && result.Picked;
+            results.Add(new { expected.Key, expected = expected.Subject, bounds = new[] { expected.Bounds.Minimum.X,
+                expected.Bounds.Minimum.Y, expected.Bounds.Minimum.Z, expected.Bounds.Maximum.X, expected.Bounds.Maximum.Y,
+                expected.Bounds.Maximum.Z }, expected.Rail, result.Visible, result.Picked, result.Resolved, result.Evidence });
         }
-        object? nearestBusiness = null;
-        if (allBusiness.OrderBy(item => ProbeDistance(center, item.Bounds)).FirstOrDefault() is { } nearest)
-        {
-            var result = ProbeBusiness(frame, session, display, nearest);
-            nearestBusiness = new { nearest.Key, expected = nearest.Subject?.ToString(), visible = result.Visible,
-                picked = result.Picked, resolved = result.Resolved, pickedAtSeconds = ProbeFirstPick(nearest) };
-        }
-        object? electronics = null;
-        if (allBusiness.FirstOrDefault(item => item.Subject ==
-            new WorldObjectId.Instance(new InstanceId.Building(new(6)))) is { } factory)
-        {
-            var result = ProbeBusiness(frame, session, display, factory);
-            electronics = new { factory.Key, expected = factory.Subject?.ToString(),
-                distanceMeters = ProbeDistance(center, factory.Bounds) / 2,
-                visible = result.Visible, picked = result.Picked, resolved = result.Resolved,
-                pickedAtSeconds = ProbeFirstPick(factory) };
-        }
-        object? followed = null;
-        if (follow is not null)
-        {
-            var result = ProbeBusiness(frame, session, display, new("follow", follow,
-                new(center, center), false));
-            clear &= result.Visible && result.Picked;
-            followed = new { expected = follow.ToString(), visible = result.Visible, picked = result.Picked, resolved = result.Resolved };
-        }
+        object? nearestBusiness = null, electronics = null;
+        if (expectedBusiness.OrderBy(item => ProbeDistance(center, item.Bounds)).FirstOrDefault() is { } nearest)
+            nearestBusiness = Supplement(nearest);
+        if (expectedBusiness.FirstOrDefault(item => item.Subject ==
+            new WorldObjectId.Instance(new InstanceId.Building(new(6))).ToString()) is { } factory) electronics = Supplement(factory);
+        ProbePick? followed = follow is not null ? ProbeBusiness(frame, session, display,
+            new("follow", follow.ToString(), new(center, center), false)) : null;
+        var fogClear = intersectingFog == 0;
         detail = new { focus = new { x = center.X, y = center.Y, z = center.Z }, radiusMeters = 32,
             cameraFocus = new { x = camera.Focus.X, y = camera.Focus.Y, z = camera.Focus.Z },
-            samples = points, intersectingFog, expectedKnown,
-            business = results, emptyBusinessArea = expectedKnown && nearBusiness.Length == 0, followed,
-            nearestBusiness, electronics };
-        return clear;
+            frame = frame.Update.Frame.ToString(), origin = frame.Origin, simulationSeconds = frame.SimulationSeconds,
+            location = location?.ToString(), samplingDomain = node is not null ? "node-circle" : "railway-reference-terrain-band",
+            samples = points, samplesPassed, intersectingFog, fogClear, expectedKnown = known,
+            businessPassed, business = results, emptyBusinessArea = known && nearBusiness.Length == 0,
+            followed, nearestBusiness, electronics };
+        return known && samplesPassed == 17 && fogClear && businessPassed && (followed is null || followed.Visible && followed.Picked);
+
+        object Supplement(ProbeExpected item)
+        {
+            var result = ProbeBusiness(frame, session, display, item);
+            return new { item.Key, expected = item.Subject, distanceMeters = ProbeDistance(center, item.Bounds) / 2,
+                result.Visible, result.Picked, result.Resolved,
+                pickedAtSeconds = _probeFirstPicks.TryGetValue(item.Key, out var at) ? (double?)at : null };
+        }
     }
 
-    private bool ProbePrepareExpected(object node, ISceneFrame frame)
+    internal static NVector[] ProbeBandRing(NVector center, float radius, HashSet<(int, int)> terrain)
     {
-        if (_probeExpected is not null) return true;
-        var layout = ProbeRead(node, "layout");
-        var prepared = ProbeRead(node, "prepared");
-        if (layout is null || prepared is null) return false;
-        var all = new List<ProbeExpected>();
+        // Only the independent Ready reference defines eligibility; loading holes cannot shorten the check.
+        var eligible = Enumerable.Range(0, 1024).Select(index => center + new NVector(
+            MathF.Cos(index * MathF.PI / 512) * radius, 0, MathF.Sin(index * MathF.PI / 512) * radius))
+            .Where(point => terrain.Contains(((int)Math.Floor(point.X), (int)Math.Floor(point.Z)))).ToArray();
+        return eligible.Length < 8 ? [] : Enumerable.Range(0, 8).Select(index => eligible[index * eligible.Length / 8]).ToArray();
+    }
+
+    private ProbeReferenceView CaptureSceneReference(ISceneFrame frame, NVector center, int? node, WorldLocation.Edge? edge)
+    {
+        var terrain = new List<int[]>();
+        var origin = ProbeOrigin(frame);
+        if (edge is not null)
+        {
+            var meshes = _app.WorldScenes!.Display!.Objects.Values.Where(item => item.Source.Subject is null)
+                .SelectMany(item => ProbeMeshes(item.Root)).Where(item => item.Mesh is not null).ToArray();
+            if (meshes.Length > 0)
+            {
+                var bounds = meshes.Select(mesh => MeshBounds(mesh, frame)).ToArray();
+                var min = bounds.Select(item => item.Minimum).Aggregate(NVector.Min);
+                var max = bounds.Select(item => item.Maximum).Aggregate(NVector.Max);
+                for (var z = (int)Math.Floor(min.Z); z < max.Z; z++)
+                for (var x = (int)Math.Floor(min.X); x < max.X; x++)
+                    if (frame.TerrainHeight(x + .5 - origin.X, z + .5 - origin.Z) is Lookup<double>.Found)
+                        terrain.Add([x, z]);
+            }
+        }
+        return new(_sceneTarget!.ToString()!, node, edge is null ? null : (int)edge.Id.Value, edge?.DistanceMeters,
+            [center.X + origin.X, center.Y + origin.Y, center.Z + origin.Z], [.. ReferenceObjects(frame, center, 128)], [.. terrain]);
+    }
+
+    private IEnumerable<ProbeReferenceObject> ReferenceObjects(ISceneFrame frame, NVector center, double radius)
+    {
+        var core = _app.Host!.GetStatus()!.View;
+        var parked = core.World.Nodes.Where(item => item.Occupant is NodeOccupant.Settlement)
+            .SelectMany(item => ((Lookup<SettlementView>.Found)core.FindSettlement(((NodeOccupant.Settlement)item.Occupant!).Id)).Value.ParkedVehicles)
+            .Select(id => new WorldObjectId.Instance(new InstanceId.Vehicle(id)).ToString()).ToHashSet();
+        foreach (var item in _app.WorldScenes!.Display!.Objects.Values)
+        {
+            var rail = item.Source.Visuals.OfType<SceneVisual.Geometry>().Any(visual =>
+                visual.Mesh.Material is SceneMaterial.BuiltIn { Kind: BuiltInMaterial.RailSteel });
+            if (!rail && (item.Source.Subject?.ToString() is not { } subject || !parked.Contains(subject) || item.Source.Parent is not null)) continue;
+            var meshes = ProbeMeshes(item.Root).Where(mesh => mesh.Mesh is not null).ToArray();
+            if (meshes.Length == 0) continue;
+            var bounds = meshes.Select(mesh => MeshBounds(mesh, frame)).ToArray();
+            var minimum = bounds.Select(bound => bound.Minimum).Aggregate(NVector.Min);
+            var maximum = bounds.Select(bound => bound.Maximum).Aggregate(NVector.Max);
+            if (ProbeDistance(center + ProbeOrigin(frame), new(minimum, maximum)) > radius) continue;
+            var transform = _app.WorldScenes.Display.Root.GlobalTransform.AffineInverse() * item.Root.GlobalTransform;
+            var at = transform.Origin; var rotation = transform.Basis.GetRotationQuaternion(); var origin = ProbeOrigin(frame);
+            yield return new(item.Source.Subject?.ToString(), rail, [at.X + origin.X, at.Y + origin.Y, at.Z + origin.Z],
+                [rotation.X, rotation.Y, rotation.Z, rotation.W], [minimum.X, minimum.Y, minimum.Z, maximum.X, maximum.Y, maximum.Z]);
+        }
+    }
+
+    private static SceneBounds ReferenceBounds(ProbeReferenceObject item) =>
+        new(new((float)item.Bounds[0], (float)item.Bounds[1], (float)item.Bounds[2]), new((float)item.Bounds[3], (float)item.Bounds[4], (float)item.Bounds[5]));
+    private static bool ReferenceMatches(ProbeReferenceObject left, ProbeReferenceObject right) =>
+        left.Subject == right.Subject && left.Rail == right.Rail &&
+        left.Position.Concat(left.Rotation).Concat(left.Bounds).Zip(right.Position.Concat(right.Rotation).Concat(right.Bounds))
+            .All(pair => Math.Abs(pair.First - pair.Second) <= .001);
+    private static NVector ProbeOrigin(ISceneFrame frame) => new((float)frame.Origin.X, (float)frame.Origin.Y, (float)frame.Origin.Z);
+
+    private SceneBounds MeshBounds(MeshInstance3D mesh, ISceneFrame frame)
+    {
+        var aabb = mesh.Mesh!.GetAabb();
+        var transform = _app.WorldScenes!.Display!.Root.GlobalTransform.AffineInverse() * mesh.GlobalTransform;
+        var min = new NVector(float.PositiveInfinity); var max = new NVector(float.NegativeInfinity);
+        for (var index = 0; index < 8; index++)
+        {
+            var point = transform * aabb.GetEndpoint(index);
+            var at = new NVector(point.X, point.Y, point.Z) + ProbeOrigin(frame);
+            min = NVector.Min(min, at); max = NVector.Max(max, at);
+        }
+        return new(min, max);
+    }
+
+    private IEnumerable<ProbeExpected> ExpectedBuildings(ISceneFrame frame, NodeId nodeId)
+    {
         var core = _app.Host!.GetStatus()!.View;
         var content = _app.Host.Content!;
-        var origin = new NVector((float)frame.Origin.X, (float)frame.Origin.Y, (float)frame.Origin.Z);
-        var nodeId = (NodeId)ProbeRead(node, "Node")!;
-        if (core.World.Nodes.Single(item => item.Id == nodeId).Occupant is NodeOccupant.Settlement owner &&
-            core.FindSettlement(owner.Id) is Lookup<SettlementView>.Found settlement &&
-            content.FindSettlementLayout(owner.Id) is ContentLookup<SettlementLayoutProjection>.Found template)
+        if (core.World.Nodes.Single(item => item.Id == nodeId).Occupant is not NodeOccupant.Settlement owner ||
+            core.FindSettlement(owner.Id) is not Lookup<SettlementView>.Found settlement ||
+            content.FindSettlementLayout(owner.Id) is not ContentLookup<SettlementLayoutProjection>.Found template) yield break;
+        foreach (var plot in settlement.Value.Plots)
         {
-            foreach (var plot in settlement.Value.Plots)
-            {
-                if (plot.Occupant is not PlotOccupant.Building building) continue;
-                var instance = ((Lookup<InstanceView>.Found)core.FindInstance(new InstanceId.Building(building.Id))).Value;
-                var placed = template.Value.Plots.Single(item => item.Number == plot.TemplatePlotNumber);
-                var bounds = ProbeBounds(ProbeDesign(instance.Design));
-                all.Add(new(instance.Id.ToString()!, new WorldObjectId.Instance(instance.Id),
-                    ProbeTransformBounds(bounds, ProbePlacement(placed.At, placed.Orientation), origin), false));
-            }
-            var parking = ((IEnumerable)ProbeRead(layout, "Parking")!).Cast<object>().ToArray();
-            var used = new double[parking.Length];
-            var settlementState = ProbeRead(node, "settlement")!;
-            var limit = (int)settlementState.GetType().GetField("ParkedVehicleLimit",
-                BindingFlags.Static | BindingFlags.NonPublic)!.GetRawConstantValue()!;
-            foreach (var id in settlement.Value.ParkedVehicles.OrderBy(item => item.Value).Take(limit))
-            {
-                var instance = ((Lookup<InstanceView>.Found)core.FindInstance(new InstanceId.Vehicle(id))).Value;
-                var design = ProbeDesign(instance.Design);
-                var length = design switch
-                {
-                    DesignEvaluation.Complete { Core.Design.Kind: DesignKind.Vehicle vehicle } => vehicle.LengthCells,
-                    DesignEvaluation.Partial { Metrics.VehicleLengthCells: ComputedValue<int>.Known known } => known.Value,
-                    _ => throw new InvalidDataException("测量输入的停放车辆没有已知长度。")
-                };
-                var index = 0;
-                while (index < parking.Length && used[index] + length > (double)ProbeRead(parking[index], "Length")!) index++;
-                if (index == parking.Length) continue;
-                var start = (ScenePoint)ProbeRead(parking[index], "Start")!;
-                var forward = (NVector)ProbeRead(parking[index], "Forward")!;
-                var centerAt = new NVector((float)start.X, (float)start.Y, (float)start.Z) + forward * (float)(used[index] + length / 2.0);
-                used[index] += length + 4;
-                var right = NVector.Normalize(NVector.Cross(NVector.UnitY, forward));
-                var up = NVector.Cross(forward, right);
-                var rotation = NQuaternion.CreateFromRotationMatrix(new NMatrix(right.X, right.Y, right.Z, 0,
-                    up.X, up.Y, up.Z, 0, forward.X, forward.Y, forward.Z, 0, 0, 0, 0, 1));
-                var bounds = ProbeBounds(design);
-                var coordinates = node.GetType().Assembly.GetType("Train.Scenes.RailwayCoordinates")!;
-                var dimensions = (Array)coordinates.GetField("WheelDimensions", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
-                var size = ((InstanceDetails.Vehicle)instance.Details).Size;
-                var wheel = (System.Runtime.CompilerServices.ITuple)dimensions.GetValue(size == SizeClass.Small ? 0 :
-                    size is SizeClass.Medium or SizeClass.Large ? 1 : 2)!;
-                var radius = (float)(double)wheel[2]!;
-                var halfWidth = (float)((double)wheel[0]! / 2 + (double)wheel[3]!);
-                bounds = new(NVector.Min(bounds.Minimum, new(-halfWidth, 0, bounds.Minimum.Z - radius)),
-                    NVector.Max(bounds.Maximum, new(halfWidth, 2 * radius, bounds.Maximum.Z + radius)));
-                all.Add(new(instance.Id.ToString()!, new WorldObjectId.Instance(instance.Id),
-                    ProbeTransformBounds(bounds, new(centerAt, rotation), origin), false));
-            }
+            if (plot.Occupant is not PlotOccupant.Building building) continue;
+            var instance = ((Lookup<InstanceView>.Found)core.FindInstance(new InstanceId.Building(building.Id))).Value;
+            var placed = template.Value.Plots.Single(item => item.Number == plot.TemplatePlotNumber);
+            var design = ((ContentLookup<DesignEvaluation>.Found)content.FindDesign(instance.Design)).Value;
+            var projection = design switch { DesignEvaluation.Complete complete => complete.Scene,
+                DesignEvaluation.Partial partial => partial.Scene, _ => throw new InvalidDataException("业务设计无法求值。") };
+            var occupied = projection.OccupiedBounds ?? throw new InvalidDataException("业务对象缺少占用范围。");
+            var bounds = new SceneBounds(new(occupied.Minimum.X, occupied.Minimum.Y, occupied.Minimum.Z),
+                new(occupied.Maximum.X + 1, occupied.Maximum.Y + 1, occupied.Maximum.Z + 1));
+            var subject = new WorldObjectId.Instance(instance.Id).ToString();
+            yield return new(subject!, subject, ProbeTransformBounds(bounds, ProbePlacement(placed.At, placed.Orientation), ProbeOrigin(frame)), false);
         }
-        foreach (var pair in (IEnumerable)ProbeRead(prepared, "Rails")!)
-        {
-            var rail = ProbeRead(pair, "Value")!;
-            var bounds = (SceneBounds)ProbeRead(rail, "Bounds")!;
-            all.Add(new((string)ProbeRead(rail, "Key")!, new WorldObjectId.Node((NodeId)ProbeRead(node, "Node")!),
-                new(bounds.Minimum - origin, bounds.Maximum - origin), true));
-        }
-        _probeExpected = all;
-        return true;
     }
 
-    private double? ProbeFirstPick(ProbeExpected expected) =>
-        _probeFirstPicks.TryGetValue((expected.Subject, expected.Key), out var at) ? at : null;
-
-    private DesignEvaluation ProbeDesign(DesignHash hash) =>
-        _app.Host!.Content!.FindDesign(hash) is ContentLookup<DesignEvaluation>.Found found
-            ? found.Value : throw new InvalidDataException("测量输入的业务设计缺失。");
-
-    private static SceneBounds ProbeBounds(DesignEvaluation design)
+    private ProbePick ProbeBusiness(ISceneFrame frame, IWorldSceneSession session, SceneDisplay display, ProbeExpected expected)
     {
-        var projection = design switch
-        {
-            DesignEvaluation.Complete complete => complete.Scene,
-            DesignEvaluation.Partial partial => partial.Scene,
-            _ => throw new InvalidDataException("测量输入的业务设计无法求值。")
-        };
-        var bounds = projection.OccupiedBounds ?? throw new InvalidDataException("测量输入的业务对象没有已知占用范围。");
-        return new(new(bounds.Minimum.X, bounds.Minimum.Y, bounds.Minimum.Z),
-            new(bounds.Maximum.X + 1, bounds.Maximum.Y + 1, bounds.Maximum.Z + 1));
-    }
-
-    internal static ScenePose ProbePlacement(GridPosition at, VoxelOrientation orientation)
-    {
-        static NVector Axis(string name) => name switch
-        {
-            "Px" => NVector.UnitX, "Nx" => -NVector.UnitX, "Py" => NVector.UnitY,
-            "Ny" => -NVector.UnitY, "Pz" => NVector.UnitZ, "Nz" => -NVector.UnitZ,
-            _ => throw new ArgumentException("Invalid orientation.", nameof(orientation))
-        };
-        var axes = orientation.ToString();
-        var right = Axis(axes[..2]); var up = Axis(axes[2..]); var forward = NVector.Cross(right, up);
-        var rotation = NQuaternion.CreateFromRotationMatrix(new NMatrix(right.X, right.Y, right.Z, 0,
-            up.X, up.Y, up.Z, 0, forward.X, forward.Y, forward.Z, 0, 0, 0, 0, 1));
-        var center = new NVector(.5f);
-        return new(new NVector(at.X, at.Y, at.Z) + center - NVector.Transform(center, rotation), rotation);
-    }
-
-    private (bool Visible, bool Picked, string? Resolved) ProbeBusiness(ISceneFrame frame,
-        IWorldSceneSession? session, SceneDisplay display, ProbeExpected expected)
-    {
-        var objects = (Dictionary<SceneObjectId, SceneDisplay.DisplayObject>)ProbeRead(display, "_objects")!;
-        var railIds = expected.Rail && ProbeRead(session, "ids") is Dictionary<string, SceneObjectId> ids
-            ? ids.Where(pair => pair.Key.StartsWith("node:" + expected.Key + ":", StringComparison.Ordinal)).Select(pair => pair.Value).ToHashSet()
-            : null;
-        var candidates = objects.Values.Where(item => expected.Rail
-            ? railIds!.Contains(item.Source.Id) && item.Source.Visuals.OfType<SceneVisual.Geometry>().Any(visual => visual.Mesh.Material is SceneMaterial.BuiltIn { Kind: BuiltInMaterial.RailSteel })
-            : item.Source.Subject == expected.Subject).ToArray();
-        var visible = false;
-        string? resolved = null;
+        var candidates = display.Objects.Values.Where(item => expected.Rail
+            ? item.Source.Visuals.OfType<SceneVisual.Geometry>().Any(visual => visual.Mesh.Material is SceneMaterial.BuiltIn { Kind: BuiltInMaterial.RailSteel }) &&
+                ProbeMeshes(item.Root).Any(mesh => mesh.Mesh is not null && ProbeDistance((expected.Bounds.Minimum + expected.Bounds.Maximum) / 2,
+                    new(MeshBounds(mesh, frame).Minimum - ProbeOrigin(frame), MeshBounds(mesh, frame).Maximum - ProbeOrigin(frame))) <= 1)
+            : item.Source.Subject?.ToString() == expected.Subject).ToArray();
+        var visible = false; string? resolved = null;
+        var behind = 0; var offscreen = 0; var rays = 0; var points = 0;
+        var outcomes = new Dictionary<string, int>(); object? firstFailure = null;
         foreach (var item in candidates)
-        foreach (var mesh in expected.Rail
-            ? item.Source.Visuals.Select((visual, index) => (visual, index))
-                .Where(pair => pair.visual is SceneVisual.Geometry { Mesh.Material: SceneMaterial.BuiltIn { Kind: BuiltInMaterial.RailSteel } })
-                .SelectMany(pair => ProbeMeshes(item.Visuals[pair.index].Node))
-            : ProbeMeshes(item.Root))
+        foreach (var mesh in ProbeMeshes(item.Root))
         {
             if (!mesh.IsVisibleInTree() || mesh.Mesh is null) continue;
             var key = mesh.Mesh.GetInstanceId();
             if (!_probeMeshPoints.TryGetValue(key, out var candidatesOnMesh))
             {
-                var faces = mesh.Mesh.GetFaces();
-                var triangles = faces.Length / 3;
-                candidatesOnMesh = new Vector3[Math.Min(24, triangles)];
+                var faces = mesh.Mesh.GetFaces(); var triangles = faces.Length / 3;
+                candidatesOnMesh = new Vector3[Math.Min(48, triangles)];
                 for (var index = 0; index < candidatesOnMesh.Length; index++)
                 {
                     var face = index * triangles / candidatesOnMesh.Length * 3;
@@ -283,59 +307,76 @@ internal sealed partial class MeasurementRun
             }
             foreach (var candidate in candidatesOnMesh)
             {
+                points++;
                 var point = mesh.GlobalTransform * candidate;
-                var relative = display.Root.GlobalTransform.AffineInverse() * point;
-                if (expected.Rail && !ProbeInside(new(relative.X, relative.Y, relative.Z), expected.Bounds, 1)) continue;
-                visible = true;
                 var camera = _app.WorldScenes!.View.CameraRig.Camera;
-                if (camera.IsPositionBehind(point)) continue;
+                if (camera.IsPositionBehind(point)) { behind++; continue; }
                 var screen = camera.UnprojectPosition(point);
-                if (!camera.GetViewport().GetVisibleRect().HasPoint(screen)) continue;
+                if (!camera.GetViewport().GetVisibleRect().HasPoint(screen)) { offscreen++; continue; }
+                visible = true;
                 var inverse = display.Root.GlobalTransform.AffineInverse();
                 var start = inverse * camera.ProjectRayOrigin(screen);
                 var direction = (inverse.Basis * camera.ProjectRayNormal(screen)).Normalized();
-                _scenePickCount++;
-                if (frame.Pick(new(new(start.X, start.Y, start.Z), new(direction.X, direction.Y, direction.Z), camera.Far)) is not ScenePick.Hit hit ||
-                    session?.Resolve(hit.Value) is not SceneResult<PickSubject>.Success success) continue;
-                resolved = success.Value.ToString();
-                if (expected.Rail ? success.Value is PickSubject.Terrain { Location: WorldLocation.Node nodeLocation } &&
-                    expected.Subject is WorldObjectId.Node expectedNode && nodeLocation.Id == expectedNode.Id &&
-                    ProbeInside(hit.Value.Point, expected.Bounds, 1) :
-                    success.Value is PickSubject.WorldObject subject && subject.Object == expected.Subject)
+                _scenePickCount++; rays++;
+                var ray = new SceneRay(new(start.X, start.Y, start.Z), new(direction.X, direction.Y, direction.Z), camera.Far);
+                var pick = frame.Pick(ray);
+                var result = pick is ScenePick.Hit hit ? session.Resolve(hit.Value) : null;
+                var outcome = pick.GetType().Name + "/" + result?.GetType().Name;
+                outcomes[outcome] = outcomes.GetValueOrDefault(outcome) + 1;
+                if (result is SceneResult<PickSubject>.Success success)
                 {
-                    _probeFirstPicks.TryAdd((expected.Subject, expected.Key), Seconds());
-                    return (true, true, resolved);
+                    resolved = success.Value.ToString();
+                    if (expected.Rail ? pick is ScenePick.Hit railHit && (railHit.Value.Object == item.Source.Id ||
+                        success.Value is PickSubject.Terrain { Location: WorldLocation.Edge pickedEdge } &&
+                        frame.Locate((expected.Bounds.Minimum + expected.Bounds.Maximum) / 2) is Lookup<WorldLocation>.Found
+                            { Value: WorldLocation.Edge expectedEdge } && pickedEdge.Id == expectedEdge.Id &&
+                        ProbeInside(railHit.Value.Point, expected.Bounds)) :
+                        success.Value is PickSubject.WorldObject subject && subject.Object.ToString() == expected.Subject)
+                    {
+                        _probeFirstPicks.TryAdd(expected.Key, Seconds());
+                        return new(true, true, resolved, Evidence());
+                    }
                 }
+                firstFailure ??= new { screen = new { screen.X, screen.Y }, point = new { point.X, point.Y, point.Z },
+                    ray = new { start = new { start.X, start.Y, start.Z }, direction = new { direction.X, direction.Y, direction.Z } },
+                    pick = pick.ToString(), resolution = result?.ToString(), source = item.Source.Id.ToString(),
+                    displayedPose = item.Source.Pose.ToString(), worldTransform = mesh.GlobalTransform.ToString() };
             }
         }
-        return (visible, false, resolved);
+        return new(visible, false, resolved, Evidence());
+        object Evidence() => new { candidates = candidates.Length, points, behind, offscreen, rays, outcomes, firstFailure };
     }
 
     private static IEnumerable<MeshInstance3D> ProbeMeshes(Node node)
     {
         if (node is MeshInstance3D mesh) yield return mesh;
-        foreach (var child in node.GetChildren())
-            foreach (var nested in ProbeMeshes(child)) yield return nested;
+        foreach (var child in node.GetChildren()) foreach (var nested in ProbeMeshes(child)) yield return nested;
     }
-    private static bool ProbeInside(NVector point, SceneBounds bounds, float padding = 0) =>
-        point.X >= bounds.Minimum.X - padding && point.X <= bounds.Maximum.X + padding &&
-        point.Z >= bounds.Minimum.Z - padding && point.Z <= bounds.Maximum.Z + padding;
+    private static bool ProbeInside(NVector point, SceneBounds bounds) => point.X >= bounds.Minimum.X && point.X <= bounds.Maximum.X &&
+        point.Z >= bounds.Minimum.Z && point.Z <= bounds.Maximum.Z;
     internal static double ProbeDistance(NVector point, SceneBounds bounds) => Math.Sqrt(
         Math.Pow(Math.Max(Math.Max(bounds.Minimum.X - point.X, 0), point.X - bounds.Maximum.X), 2) +
         Math.Pow(Math.Max(Math.Max(bounds.Minimum.Z - point.Z, 0), point.Z - bounds.Maximum.Z), 2));
+    internal static ScenePose ProbePlacement(GridPosition at, VoxelOrientation orientation)
+    {
+        static NVector Axis(string name) => name switch { "Px" => NVector.UnitX, "Nx" => -NVector.UnitX, "Py" => NVector.UnitY,
+            "Ny" => -NVector.UnitY, "Pz" => NVector.UnitZ, "Nz" => -NVector.UnitZ, _ => throw new ArgumentException("Invalid orientation.") };
+        var axes = orientation.ToString(); var right = Axis(axes[..2]); var up = Axis(axes[2..]); var forward = NVector.Cross(right, up);
+        var rotation = NQuaternion.CreateFromRotationMatrix(new NMatrix(right.X, right.Y, right.Z, 0, up.X, up.Y, up.Z, 0,
+            forward.X, forward.Y, forward.Z, 0, 0, 0, 0, 1));
+        var center = new NVector(.5f);
+        return new(new NVector(at.X, at.Y, at.Z) + center - NVector.Transform(center, rotation), rotation);
+    }
     internal static SceneBounds ProbeTransformBounds(SceneBounds bounds, ScenePose pose, NVector origin)
     {
-        var minimum = new NVector(float.PositiveInfinity);
-        var maximum = new NVector(float.NegativeInfinity);
+        var minimum = new NVector(float.PositiveInfinity); var maximum = new NVector(float.NegativeInfinity);
         foreach (var x in new[] { bounds.Minimum.X, bounds.Maximum.X })
         foreach (var y in new[] { bounds.Minimum.Y, bounds.Maximum.Y })
         foreach (var z in new[] { bounds.Minimum.Z, bounds.Maximum.Z })
         {
             var point = NVector.Transform(new(x, y, z), pose.Rotation) + pose.Position - origin;
-            minimum = NVector.Min(minimum, point);
-            maximum = NVector.Max(maximum, point);
+            minimum = NVector.Min(minimum, point); maximum = NVector.Max(maximum, point);
         }
         return new(minimum, maximum);
     }
 }
-

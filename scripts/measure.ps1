@@ -6,11 +6,12 @@ param(
     [Parameter(Mandatory)][string] $OutputDirectory,
     [ValidateSet('map-1x', 'map-8x', 'follow-1x', 'follow-8x', 'node-1x', 'node-8x',
         'sdfgi-off', 'sdfgi-on', 'taa-off', 'taa-on', 'scene-node', 'scene-node-first',
-        'scene-edge', 'scene-follow', 'scene-follow-8x', 'scene-memory', 'scene-capture', 'scene-map')]
+        'scene-edge', 'scene-follow', 'scene-follow-8x', 'scene-memory', 'scene-capture', 'scene-map', 'scene-reference')]
     [string[]] $Scenario = @('map-1x', 'map-8x', 'follow-1x', 'follow-8x', 'node-1x', 'node-8x',
         'sdfgi-off', 'sdfgi-on', 'taa-off', 'taa-on'),
     [ValidateRange(1, 2147483647)][int] $Repeat = 3,
-    [ValidateRange(0, 2146878)][int] $DurationSeconds = 0
+    [ValidateRange(0, 2146878)][int] $DurationSeconds = 0,
+    [string] $ReferencePath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,6 +35,7 @@ try {
     if ($Scenario.Count -eq 0) { throw '至少选择一个情景。' }
     $ExecutablePath = (Resolve-Path -LiteralPath $ExecutablePath).Path
     $InputPath = (Resolve-Path -LiteralPath $InputPath).Path
+    if ($ReferencePath) { $ReferencePath = (Resolve-Path -LiteralPath $ReferencePath).Path }
     if (-not (Test-Path -LiteralPath $ExecutablePath -PathType Leaf) -or
         -not (Test-Path -LiteralPath $InputPath -PathType Leaf)) { throw '可执行文件与输入存档必须是文件。' }
     $OutputDirectory = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputDirectory)
@@ -128,6 +130,7 @@ try {
                     '--windowed', '--resolution', '1920x1080', '--log-file', (Join-Path $runDirectory 'godot.log'), '--',
                     "--measure=$name", '--measure-input', $InputPath, '--measure-output', $reportPath, '--measure-identity', $identityPath)
                 if ($isScene) { $arguments += @('--measure-duration', $DurationSeconds.ToString([Globalization.CultureInfo]::InvariantCulture)) }
+                if ($ReferencePath) { $arguments += @('--measure-reference', $ReferencePath) }
                 $result = Invoke-HiddenProcess -FilePath $ExecutablePath -TimeoutSeconds $timeout -ArgumentList $arguments
                 $result.Output | Set-Content -LiteralPath (Join-Path $runDirectory 'process.log') -Encoding utf8
                 Write-Json (Join-Path $runDirectory 'process.json') @{

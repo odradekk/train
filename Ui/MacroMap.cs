@@ -27,6 +27,8 @@ public partial class MacroMap : Control
     internal event Action<WorldObjectId>? ObjectClicked;
     internal event Action<string>? DisplayFailed;
 
+    internal void RaiseObjectClicked(WorldObjectId target) => ObjectClicked?.Invoke(target);
+
     public override void _Ready()
     {
         MouseFilter = MouseFilterEnum.Stop;
@@ -93,7 +95,7 @@ public partial class MacroMap : Control
                 QueueRedraw();
             }
             else if (button.Pressed && button.ButtonIndex == MouseButton.Left && HitTest(button.Position) is { } hit)
-                ObjectClicked?.Invoke(hit);
+                RaiseObjectClicked(hit);
             AcceptEvent();
         }
         else if (input is InputEventMouseMotion motion && _dragging)

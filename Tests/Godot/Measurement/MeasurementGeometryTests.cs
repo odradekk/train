@@ -10,6 +10,23 @@ namespace Train.Godot.Tests.Measurement;
 public sealed class MeasurementGeometryTests
 {
     [TestMethod]
+    public void RailwaySamplesKeepRingRadiusAndDistinctPositionsInsideReferenceTerrain()
+    {
+        var terrain = new HashSet<(int, int)>();
+        for (var x = -80; x <= 80; x++) for (var z = -4; z <= 4; z++) terrain.Add((x, z));
+        foreach (var radius in new[] { 32f, 64f })
+        {
+            var points = MeasurementRun.ProbeBandRing(Vector3.Zero, radius, terrain);
+            Assert.AreEqual(8, points.Length);
+            Assert.AreEqual(8, points.Distinct().Count());
+            Assert.IsTrue(points.All(point => Math.Abs(point.Length() - radius) < 1e-4));
+            Assert.IsTrue(points.All(point => terrain.Contains(((int)Math.Floor(point.X), (int)Math.Floor(point.Z)))));
+            Assert.IsTrue(points.Any(point => point.X < 0) && points.Any(point => point.X > 0));
+        }
+        Assert.AreEqual(0, MeasurementRun.ProbeBandRing(Vector3.Zero, 64, []).Length);
+    }
+
+    [TestMethod]
     public void NearAreaUsesHorizontalDistanceToOccupiedBounds()
     {
         var bounds = new SceneBounds(new(60, 100, 10), new(70, 120, 20));

@@ -33,9 +33,12 @@ internal sealed class WorldSceneController : IDisposable
 
     internal WorldSceneView View { get; } = new();
     internal SceneDisplay? Display => _display;
+    internal IWorldSceneSession? Session => _session;
+    internal SceneRequestId CurrentRequest => _request;
     internal SceneDebugLayer DebugLayers { get; set; }
     internal event Action<SceneProblem?>? ReturnedToMap;
     internal event Action<PickSubject>? Selected;
+    internal event Action<ISceneFrame>? FramePresented;
 
     internal WorldSceneController(HostCoordinator host, IScenesFactory factory, TrainLogger logger)
     {
@@ -171,6 +174,7 @@ internal sealed class WorldSceneController : IDisposable
             }
             if (result is not SceneResult<ISceneFrame>.Success success) { Fail(result); return; }
             var frame = success.Value;
+            FramePresented?.Invoke(frame);
             foreach (var diagnostic in frame.Diagnostics) Report(diagnostic);
             if (frame.Readiness == SceneReadiness.Failed) { Fail(frame.Diagnostics); return; }
             if (frame.Diagnostics.Any(problem => problem.Code == "target_missing"))

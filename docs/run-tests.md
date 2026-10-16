@@ -100,14 +100,17 @@ SDFGI 情景必须在采样窗口观察到原点变化，跟随／TAA 情景必�
 `scene-*` 情景复用同一 Release 导出和 `--measure` 入口，用当前阶段真实负载补测场景打开与内存。主输入为 `examples/starting-trade/save.json`；规模输入由公开内容与 CLI 制作在 `TestResults/`，保留生成配方和哈希，不修改存档载荷。结果不代表完整标准混合负载或目标配置验收，预算及达标判断只写在研究报告中。
 
 ```powershell
+# 同一 HEAD、同一输入先生成参考；参考运行不计入性能样本
+pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/starting-trade/save.json -OutputDirectory TestResults/scene-reference -Scenario scene-reference -Repeat 1
 # 常态负载预演；正式重复次数由测量计划指定
-pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/starting-trade/save.json -OutputDirectory TestResults/scene-node-preview -Scenario scene-node -Repeat 2
+pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/starting-trade/save.json -OutputDirectory TestResults/scene-node-preview -Scenario scene-node -ReferencePath TestResults/scene-reference/scene-reference-1/scene-reference.json -Repeat 2
 # 内存循环的短预演；默认 DurationSeconds=0 时运行两小时
-pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/starting-trade/save.json -OutputDirectory TestResults/scene-memory-preview -Scenario scene-memory -Repeat 2 -DurationSeconds 30
+pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/starting-trade/save.json -OutputDirectory TestResults/scene-memory-preview -Scenario scene-memory -ReferencePath TestResults/scene-reference/scene-reference-1/scene-reference.json -Repeat 2 -DurationSeconds 30
 ```
 
 | 情景 | 实际路径 |
 | --- | --- |
+| `scene-reference` | 独立参考运行，在各目标第一次 Ready 记录公开对象和地形，输出运行目录下的 `scene-reference.json`，不作性能样本 |
 | `scene-map` | 同存档的新进程地图内存基线，不打开场景 |
 | `scene-node` | 地图首次打开节点 2、返回地图后重开、节点→线路 11、线路→节点、读档回地图后立即再开节点 |
 | `scene-node-first` | 只测地图首次打开节点 2，用于规模点 |
@@ -117,11 +120,15 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 | `scene-memory` | 重复打开节点、返回并等待退役；每 10 轮及结束后执行完整 GC；默认两小时，不使用其时延作正式性能证据 |
 | `scene-capture` | 单独记录部分就绪、Ready 画面及雾区拾取；截图回读与编码使该进程不能作时延或内存性能证据 |
 
-`Repeat` 控制每情景的新进程数量，默认仍是 3；原有十个情景及默认选择不变。首次点击在地图可操作且绘制后立即进行，不等场景预生成。计时从 `GameUi.OpenScene` 或返回／读取按钮信号之前开始，经过生产 UI 链；不从场景接口另开观察目标。业务拾取通过同一帧的 `Pick` 与会话 `Resolve` 只解析身份，不发出选择事件或打开详情。
+`Repeat` 控制每情景的新进程数量，默认仍是 3；原有十个情景及默认选择不变。首次点击在地图可操作且绘制后立即进行，不等场景预生成。计时从 `MacroMap.ObjectClicked` 或返回／读取按钮信号之前开始，经过生产 UI 链；不从场景接口另开观察目标。业务拾取通过同一帧的 `Pick` 与会话 `Resolve` 只解析身份，不发出选择事件或打开详情。
 
-新情景在报告 `identity.scene_budget` 引用 `scene-frames.jsonl`、`scene-operations.jsonl` 和 `scene-collections.jsonl`。逐帧记录请求、空间、Readiness、输入检查耗时和拾取次数、加载提示、遮挡控件、渲染缓冲区／纹理／总分配；进程当前内存每 200 ms 更新，OS 峰值覆盖进程生涯，不能当作可重置的单次操作峰值。外部文件另记可用物理内存、页面输入和读取速率。操作记录包含实际活跃负载、缓存／预生成状态、三个显示信号、最长帧、最后检查详情，以及自动存档写入时间线。
+除 `scene-reference` 和 `scene-map` 外，所有 `scene-*` 情景必须传 `-ReferencePath`；脚本通过 `--measure-reference` 传给应用，参考数据须匹配输入 SHA 和 HEAD。参考从公开 `SceneObject` 记录轨道、停放车辆的 Subject、位姿和可见几何范围，以公开 `TerrainHeight` 定义线路可操作地形带，不读取私有生成或缓存状态。
 
-近处检查保留焦点和 17 个固定采样点，不投影或缩小到已加载区域；跟随中心取当前显示帧中的车辆姿态，相机平滑位置另记。节点业务对象每帧按占用范围与近处圆相交筛选，候选缓存绑定节点布局、空间和帧原点；最近业务对象及电子厂实例 6 的可拾取时刻另记，补充记录不增加门槛。业务探针使用实际可见网格上有限的候选射线，因此未命中保留原始原因，不等于证明对象不存在。节点轨道的现有拾取契约只提供节点位置身份，报告明确这一身份粒度。
+新情景在报告 `identity.scene_budget` 引用 `scene-frames.jsonl`、`scene-operations.jsonl` 和 `scene-collections.jsonl`。打开区间的每次 draw 记录全部 Probe 检查及 presented 帧的 stamp、Readiness，保留 Loading／Partial／Ready 时间线；另记输入检查耗时、拾取次数、加载提示、遮挡控件、渲染缓冲区／纹理／总分配。8× 专项的预热和采样期只记录帧时间等逐帧读数，不重复首个可操作探针。进程当前内存每 200 ms 更新，OS 峰值覆盖进程生涯，不能当作可重置的单次操作峰值。外部文件另记可用物理内存、页面输入和读取速率。操作记录包含实际活跃负载、三个显示信号、最长帧、最后检查详情及自动存档写入时间线；公开接口不能观测的预生成／缓存状态标为不可观测。
+
+近处检查使用中心及 16／32 m 两圈共 17 点，节点保留完整圆。线路在每圈与参考 Ready 地形带相交的弧段中均匀取 8 个不同点，保留两圈半径，不按正式运行当前加载区域缩小。跟随中心取当前显示帧中的车辆姿态，相机平滑位置另记。参考记录 64 m 内静态对象，正式门槛为 32 m；跟随中心相对参考中心移动不超过参考 32 m 覆盖范围时为 known，超出则样本无效。正式每个样本到达 Ready 时核对参考近处对象集合，不一致记录 `sample_valid=false`。
+
+节点业务对象按公开占用范围与近处圆相交筛选；最近业务对象及电子厂实例 6 的可拾取时刻另记，补充记录不增加门槛。业务探针使用实际可见网格上的有限候选射线，未命中保留原始原因，不等于证明对象不存在。节点轨道的现有拾取契约只提供节点位置身份，报告明确这一身份粒度。
 
 稳态读取当前请求 Ready 实际绘制帧之后第 5 秒末尾一秒的中位数；地图也等待 5 秒。观测窗内未出现可操作信号时保留 `null` 和最后的检查详情，不替换为 Ready，不作通过判断。每帧检查与记录开销包含在实测时间内，并单独记录；原始逐帧数据流式写盘，内存只保留最近 6 秒。非 8× 情景的报告 `timing` 为最后地图保持窗口，打开分布应读取操作记录。两小时循环每轮记录自然私有字节，再按周期读取 GC 后存活堆；它不得与正式空闲测量窗口重叠。
 
