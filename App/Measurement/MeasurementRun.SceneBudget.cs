@@ -178,7 +178,13 @@ internal sealed partial class MeasurementRun
         var previousDraw = _sceneDrawCount;
         _sceneLoadButton = Seconds();
         button.EmitSignal(BaseButton.SignalName.Pressed);
-        await Wait(() => !_app.Saves!.IsBusy && _app.Host!.GetStatus() is not null);
+        await Wait(() =>
+        {
+            if (SceneMember(panel, "_leave") is ConfirmationDialog { Visible: true } &&
+                SceneMember(panel, "_discard") is Button { Disabled: false } discard)
+                discard.EmitSignal(BaseButton.SignalName.Pressed);
+            return !_app.Saves!.IsBusy && _app.Host!.GetStatus() is not null;
+        });
         panel.EmitSignal(Window.SignalName.CloseRequested);
         if (_app.Host!.SetSpeed(SimulationSpeed.One) is not null || _app.Host.SetPaused(false) is not null)
             throw new InvalidOperationException("不能启动测量负载。");
@@ -281,9 +287,11 @@ internal sealed partial class MeasurementRun
                 (SceneRequestId)SceneMember(_app.WorldScenes, "_request")!) frame = null;
             var checkSeconds = 0d;
             var picksBefore = _scenePickCount;
+            if (_sceneOperation is not null && (_sceneReady == 0 || _sceneOperable == 0 || now <= Math.Max(_sceneReady, _sceneOperable)))
+                _sceneOpeningFrames.Add(interval);
             if (frame is not null && _sceneOperation is not null)
             {
-                _sceneVisible = _sceneVisible == 0 ? now : _sceneVisible;
+                if (_sceneVisible == 0 && frame.Update.Upserts.Any(item => !item.Visuals.IsEmpty)) _sceneVisible = now;
                 if (frame.Readiness == SceneReadiness.Ready && _sceneReady == 0) _sceneReady = now;
                 var checking = Seconds();
                 _sceneNearAvailable = CheckNearArea(frame, _subject, out var detail);
@@ -294,8 +302,6 @@ internal sealed partial class MeasurementRun
                 if (_sceneDragIssued && _sceneNearAvailable && _sceneDrawCount > _sceneDragDraw &&
                     _app.WorldScenes.View.CameraRig.Camera.Transform != _sceneBeforeDrag && _sceneOperable == 0)
                     _sceneOperable = Seconds();
-                if (_sceneReady == 0 || _sceneOperable == 0 || now <= Math.Max(_sceneReady, _sceneOperable))
-                    _sceneOpeningFrames.Add(interval);
             }
             if (now - _sceneLastProcessRead >= .2)
             {

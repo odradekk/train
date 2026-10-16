@@ -1,10 +1,13 @@
 using System.Collections;
 using System.Reflection;
 using Godot;
+using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Rendering;
 using Train.Scenes.Contracts;
 using NVector = System.Numerics.Vector3;
+using NQuaternion = System.Numerics.Quaternion;
+using NMatrix = System.Numerics.Matrix4x4;
 
 namespace Train.App.Measurement;
 
@@ -106,21 +109,63 @@ internal sealed partial class MeasurementRun
         if (_probeExpected is not null) return true;
         var layout = ProbeRead(node, "layout");
         var prepared = ProbeRead(node, "prepared");
-        var settlement = ProbeRead(node, "settlement");
-        if (layout is null || prepared is null || settlement is null) return false;
+        if (layout is null || prepared is null) return false;
         var all = new List<ProbeExpected>();
-        var snapshot = new SceneWorldSnapshot(_app.Host!.GetStatus()!.View, _app.Host.Content!);
+        var core = _app.Host!.GetStatus()!.View;
+        var content = _app.Host.Content!;
         var origin = new NVector((float)frame.Origin.X, (float)frame.Origin.Y, (float)frame.Origin.Z);
-        foreach (var method in new[] { "BuildingPlacements", "ParkedPlacements" })
+        var nodeId = (NodeId)ProbeRead(node, "Node")!;
+        if (core.World.Nodes.Single(item => item.Id == nodeId).Occupant is NodeOccupant.Settlement owner &&
+            core.FindSettlement(owner.Id) is Lookup<SettlementView>.Found settlement &&
+            content.FindSettlementLayout(owner.Id) is ContentLookup<SettlementLayoutProjection>.Found template)
         {
-            var placements = (IEnumerable)settlement.GetType().GetMethod(method, ProbeFlags)!.Invoke(settlement, [snapshot, layout])!;
-            foreach (var placement in placements)
+            foreach (var plot in settlement.Value.Plots)
             {
-                if (ProbeRead(placement, "Bounds") is not SceneBounds bounds) continue;
-                var instance = (InstanceView)ProbeRead(placement, "Instance")!;
-                var pose = (ScenePose)ProbeRead(placement, "Pose")!;
-                var transformed = ProbeTransformBounds(bounds, pose, origin);
-                all.Add(new(instance.Id.ToString()!, new WorldObjectId.Instance(instance.Id), transformed, false));
+                if (plot.Occupant is not PlotOccupant.Building building) continue;
+                var instance = ((Lookup<InstanceView>.Found)core.FindInstance(new InstanceId.Building(building.Id))).Value;
+                var placed = template.Value.Plots.Single(item => item.Number == plot.TemplatePlotNumber);
+                var bounds = ProbeBounds(ProbeDesign(instance.Design));
+                all.Add(new(instance.Id.ToString()!, new WorldObjectId.Instance(instance.Id),
+                    ProbeTransformBounds(bounds, ProbePlacement(placed.At, placed.Orientation), origin), false));
+            }
+            var parking = ((IEnumerable)ProbeRead(layout, "Parking")!).Cast<object>().ToArray();
+            var used = new double[parking.Length];
+            var settlementState = ProbeRead(node, "settlement")!;
+            var limit = (int)settlementState.GetType().GetField("ParkedVehicleLimit",
+                BindingFlags.Static | BindingFlags.NonPublic)!.GetRawConstantValue()!;
+            foreach (var id in settlement.Value.ParkedVehicles.OrderBy(item => item.Value).Take(limit))
+            {
+                var instance = ((Lookup<InstanceView>.Found)core.FindInstance(new InstanceId.Vehicle(id))).Value;
+                var design = ProbeDesign(instance.Design);
+                var length = design switch
+                {
+                    DesignEvaluation.Complete { Core.Design.Kind: DesignKind.Vehicle vehicle } => vehicle.LengthCells,
+                    DesignEvaluation.Partial { Metrics.VehicleLengthCells: ComputedValue<int>.Known known } => known.Value,
+                    _ => throw new InvalidDataException("测量输入的停放车辆没有已知长度。")
+                };
+                var index = 0;
+                while (index < parking.Length && used[index] + length > (double)ProbeRead(parking[index], "Length")!) index++;
+                if (index == parking.Length) continue;
+                var start = (ScenePoint)ProbeRead(parking[index], "Start")!;
+                var forward = (NVector)ProbeRead(parking[index], "Forward")!;
+                var centerAt = new NVector((float)start.X, (float)start.Y, (float)start.Z) + forward * (float)(used[index] + length / 2.0);
+                used[index] += length + 4;
+                var right = NVector.Normalize(NVector.Cross(NVector.UnitY, forward));
+                var up = NVector.Cross(forward, right);
+                var rotation = NQuaternion.CreateFromRotationMatrix(new NMatrix(right.X, right.Y, right.Z, 0,
+                    up.X, up.Y, up.Z, 0, forward.X, forward.Y, forward.Z, 0, 0, 0, 0, 1));
+                var bounds = ProbeBounds(design);
+                var coordinates = node.GetType().Assembly.GetType("Train.Scenes.RailwayCoordinates")!;
+                var dimensions = (Array)coordinates.GetField("WheelDimensions", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
+                var size = ((InstanceDetails.Vehicle)instance.Details).Size;
+                var wheel = (System.Runtime.CompilerServices.ITuple)dimensions.GetValue(size == SizeClass.Small ? 0 :
+                    size is SizeClass.Medium or SizeClass.Large ? 1 : 2)!;
+                var radius = (float)(double)wheel[2]!;
+                var halfWidth = (float)((double)wheel[0]! / 2 + (double)wheel[3]!);
+                bounds = new(NVector.Min(bounds.Minimum, new(-halfWidth, 0, bounds.Minimum.Z - radius)),
+                    NVector.Max(bounds.Maximum, new(halfWidth, 2 * radius, bounds.Maximum.Z + radius)));
+                all.Add(new(instance.Id.ToString()!, new WorldObjectId.Instance(instance.Id),
+                    ProbeTransformBounds(bounds, new(centerAt, rotation), origin), false));
             }
         }
         _probeNearest = all.OrderBy(item => ProbeDistance(center, item.Bounds)).FirstOrDefault();
@@ -133,6 +178,39 @@ internal sealed partial class MeasurementRun
         }
         _probeExpected = all.Where(item => ProbeDistance(center, item.Bounds) <= 64).ToList();
         return true;
+    }
+
+    private DesignEvaluation ProbeDesign(DesignHash hash) =>
+        _app.Host!.Content!.FindDesign(hash) is ContentLookup<DesignEvaluation>.Found found
+            ? found.Value : throw new InvalidDataException("测量输入的业务设计缺失。");
+
+    private static SceneBounds ProbeBounds(DesignEvaluation design)
+    {
+        var projection = design switch
+        {
+            DesignEvaluation.Complete complete => complete.Scene,
+            DesignEvaluation.Partial partial => partial.Scene,
+            _ => throw new InvalidDataException("测量输入的业务设计无法求值。")
+        };
+        var bounds = projection.OccupiedBounds ?? throw new InvalidDataException("测量输入的业务对象没有已知占用范围。");
+        return new(new(bounds.Minimum.X, bounds.Minimum.Y, bounds.Minimum.Z),
+            new(bounds.Maximum.X + 1, bounds.Maximum.Y + 1, bounds.Maximum.Z + 1));
+    }
+
+    internal static ScenePose ProbePlacement(GridPosition at, VoxelOrientation orientation)
+    {
+        static NVector Axis(string name) => name switch
+        {
+            "Px" => NVector.UnitX, "Nx" => -NVector.UnitX, "Py" => NVector.UnitY,
+            "Ny" => -NVector.UnitY, "Pz" => NVector.UnitZ, "Nz" => -NVector.UnitZ,
+            _ => throw new ArgumentException("Invalid orientation.", nameof(orientation))
+        };
+        var axes = orientation.ToString();
+        var right = Axis(axes[..2]); var up = Axis(axes[2..]); var forward = NVector.Cross(right, up);
+        var rotation = NQuaternion.CreateFromRotationMatrix(new NMatrix(right.X, right.Y, right.Z, 0,
+            up.X, up.Y, up.Z, 0, forward.X, forward.Y, forward.Z, 0, 0, 0, 0, 1));
+        var center = new NVector(.5f);
+        return new(new NVector(at.X, at.Y, at.Z) + center - NVector.Transform(center, rotation), rotation);
     }
 
     private (bool Visible, bool Picked, string? Resolved) ProbeBusiness(ISceneFrame frame,
@@ -222,5 +300,4 @@ internal sealed partial class MeasurementRun
         return new(minimum, maximum);
     }
 }
-
 
