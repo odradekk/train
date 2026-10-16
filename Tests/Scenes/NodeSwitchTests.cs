@@ -41,7 +41,8 @@ public sealed class NodeSwitchTests
             SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
             { [new(1)] = new ContentLookup<SettlementLayoutProjection>.Found(layout) }
         };
-        var initial = NodeFixtures.Snapshot(platforms: 0, trains: [RailwayFixtures.Train(0, direction: TravelDirection.Reverse)], content: content);
+        var initial = NodeFixtures.Snapshot(platforms: 0, trains: [RailwayFixtures.Train(0, direction: TravelDirection.Reverse)], content: content,
+            tracks: 2, trackLimit: 2, platformLengthMeters: 0);
         var cache = new NodeScene.Cache();
         await using var session = new WorldSceneSession(new(Guid.NewGuid()), initial, WorldSceneSession.Generate, new(), cache);
         session.RequestView(new WorldSceneTarget.Follow(new(1), new(1)));
@@ -54,7 +55,11 @@ public sealed class NodeSwitchTests
         } while (session.PendingPrebuilds.Length > 0);
         var retained = cache.Read(NodeFixtures.NodeId)!;
         var expectedLayout = NodeLayout.Build(initial, NodeFixtures.NodeId);
-        var entry = expectedLayout.EntryPoint(new(1));
+        var inlet = expectedLayout.EntryFor(new(1));
+        var railway = new RailwayPath(initial, inlet.Edge);
+        var endpoint = railway.Start.Id == expectedLayout.Node ? 0 : railway.LengthCells;
+        var entry = RailwayCoordinates.Add(inlet.Point, RailwayCoordinates.Relative(
+            railway.Sample(endpoint, RailwayCoordinates.TrackOffset(1, 2)).Position, railway.Sample(endpoint).Position));
         var expected = new NodeRange(entry, NodeStreaming.PrefetchCells).Chunks(expectedLayout)
             .Select(NodeScene.ChunkKey).ToArray();
         CollectionAssert.AreEquivalent(expected, retained.Parts.Keys.Where(key => key.StartsWith("terrain:", StringComparison.Ordinal)).ToArray());
@@ -65,6 +70,47 @@ public sealed class NodeSwitchTests
         var wholeCount = (expectedLayout.Bounds.Maximum.X - expectedLayout.Bounds.Minimum.X) / VoxelGrid.ChunkSize *
             (expectedLayout.Bounds.Maximum.Y - expectedLayout.Bounds.Minimum.Y) / VoxelGrid.ChunkSize;
         Assert.IsTrue(expected.Length < wholeCount, "The candidate must leave distant node chunks unbuilt.");
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task SingleTrackEntryKeepsVehiclePoseAndDoesNotInterpolateAcrossSpaces(bool reverse)
+    {
+        var endpoint = reverse ? new NodeId(1) : new NodeId(2);
+        var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle(),
+            rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 });
+        var onEdge = RailwayFixtures.Train(reverse ? 0 : 4,
+            direction: reverse ? TravelDirection.Reverse : TravelDirection.Forward);
+        SceneWorldSnapshot Snapshot(TrainView train, ulong step) => RailwayFixtures.Snapshot(4, 4, 0,
+            steps: step, content: content, trains: [train], instances: [RailwayFixtures.Instance() with
+            {
+                Location = train.Position is TrainPosition.Node ? new WorldLocation.Node(endpoint) :
+                    new WorldLocation.Edge(RailwayFixtures.Edge, ((TrainPosition.Edge)train.Position).DistanceMeters)
+            }]);
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), Snapshot(onEdge, 0),
+            WorldSceneSession.Generate, new(), new());
+        session.RequestView(new WorldSceneTarget.Follow(onEdge.Id, onEdge.Vehicles[0]));
+        var line = await RailwayFixtures.Settled(session, Request);
+        var subject = new WorldObjectId.Instance(new InstanceId.Vehicle(onEdge.Vehicles[0]));
+        var before = ((Lookup<ScenePose>.Found)line.FindPose(subject)).Value;
+        var entering = onEdge with
+        {
+            Position = new TrainPosition.Node(endpoint, RailwayFixtures.Edge, null, NodeTravelPhase.Approaching, 0, null)
+        };
+        session.Observe(Snapshot(entering, 1), []);
+        var first = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(Request with { Interpolation = 0 }, line)).Value;
+        var node = await RailwayFixtures.Settled(session, Request, first);
+        var atStart = ((Lookup<ScenePose>.Found)first.FindPose(subject)).Value;
+        var atEnd = ((Lookup<ScenePose>.Found)node.FindPose(subject)).Value;
+        Assert.IsTrue(Vector3.Distance(before.Position, atStart.Position) < .001);
+        Assert.IsTrue(Vector3.Distance(atStart.Position, atEnd.Position) < .001,
+            "A space transition must use the current node boundary at every interpolation value.");
+        var forward = Vector3.Transform(Vector3.UnitZ, before.Rotation);
+        Assert.IsTrue(Vector3.Distance(forward, Vector3.Transform(Vector3.UnitZ, atStart.Rotation)) < .001);
+        var hit = (ScenePick.Hit)node.Pick(new(atEnd.Position + Vector3.Transform(new Vector3(.5f, 20, .5f), atEnd.Rotation),
+            -Vector3.UnitY, 50));
+        Assert.AreEqual(subject, ((PickSubject.WorldObject)hit.Value.Subject).Object);
     }
 
     [TestMethod]
@@ -124,8 +170,7 @@ public sealed class NodeSwitchTests
             .SelectMany(part => part.Value.Geometry.Geometry.Objects).SelectMany(item => item.Visuals)
             .OfType<SceneVisual.Geometry>().Any(visual => visibleMeshes.Contains(visual.Mesh)), "The node frame displays its generated terrain.");
         Assert.IsFalse(built.Parts.Keys.Any(key => key.StartsWith("platform:", StringComparison.Ordinal)));
-        var innerEnd = RailwayCoordinates.Add(entryA.Point, -entryA.Outward * (float)(16 + entryA.StraightLength));
-        var expectedQueueCenter = RailwayCoordinates.Add(innerEnd, entryA.Outward * 8);
+        var expectedQueueCenter = node.Node!.Bypass.Center;
         var subject = new WorldObjectId.Instance(new InstanceId.Vehicle(new(1)));
         var stoppedPose = ((Lookup<ScenePose>.Found)node.FindPose(subject)).Value;
         Assert.IsTrue(Vector3.Distance(RailwayCoordinates.Relative(expectedQueueCenter, node.Origin), stoppedPose.Position) < .001);
@@ -491,7 +536,7 @@ public sealed class NodeSwitchTests
 
     private static SceneWorldSnapshot ShortNodeSnapshot(TrainView train, Train.Content.Contracts.IContentView content, ulong steps)
     {
-        var snapshot = NodeFixtures.Snapshot(platforms: 0, trains: [train], content: content, steps: steps);
+        var snapshot = NodeFixtures.Snapshot(platforms: 0, trains: [train], content: content, steps: steps, platformLengthMeters: 0);
         foreach (var node in snapshot.Core.World.Nodes)
             snapshot = RailwayFixtures.ReplaceCore(snapshot, node: node with { Position = new(node.Position.X / 200, node.Position.Y / 200) });
         foreach (var edge in snapshot.Core.World.Edges)

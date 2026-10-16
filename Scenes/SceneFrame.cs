@@ -30,6 +30,14 @@ internal sealed record SceneFog(SceneBounds Bounds, RailwayArcRange? Arc = null,
 
 internal sealed class SceneFrame : ISceneFrame
 {
+    internal static (SceneWorldSnapshot? Previous, double Seconds) SampleTime(SceneWorldSnapshot snapshot,
+        SceneWorldSnapshot? previous, double interpolation)
+    {
+        if (previous is null || previous.Core.Position.CompletedSteps + 1 != snapshot.Core.Position.CompletedSteps)
+            return (null, snapshot.Core.Position.CompletedSteps * SimulationTime.StepSeconds);
+        return (previous, (previous.Core.Position.CompletedSteps + interpolation) * SimulationTime.StepSeconds);
+    }
+
     private readonly ImmutableArray<PickGrid> picking;
     private readonly ImmutableDictionary<WorldObjectId, ScenePose> poses;
     private readonly RailwayPath? railway;

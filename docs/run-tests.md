@@ -57,6 +57,10 @@ dotnet build Tests/Engine/Train.Engine.Tests.csproj -c Debug
 
 选择“检查光照预览”启动 `InspectionLightingPreview`。该手动预览通过真实 `ScenesFactory.Create()` 生成一条线路和一列小型列车，复用生产 App、世界视图、相机和渲染；Core/Content 使用 ContractSupport 的固定读视图与明确的线路、车辆及素材输入，并保持暂停。按反引号打开控制台，执行 [`lighting`](console/lighting.md) 切换三种检查光照或恢复；“线路 / 重新进入”支持线路平移及重入，“跟随列车”切换跟随目标。它提供真实 Scenes 生成、真实 Godot 渲染的窗口检查入口，不生成截图或 JUnit，不证明完整四模块联调或 Godot 完整隔离；后两者分别归 #298 和 #424。自动截图使用[美术检查截图入口](art/08-asset-pipeline-and-review.md#检查人与记录)，从普通存档恢复真实编组，证据放在工作树 `.godot/validation/<名称>/`。预览代码仅在 Debug 可用，导出构建不包含此入口。
 
+选择“节点列车帧序列”启动 `NodeTransitionPreview`，以固定 Core/Content 读视图和真实 Scenes 工厂，覆盖进站、W 等候与获站台、停靠、出站、途经、原路返回和同侧回转。它记录关键模拟状态及插值采样的车辆姿态、相机和加载状态，输出至 `.godot/validation/node-transition-preview-<时间戳>/`；受控关键帧不能替代生产游戏连续行驶的证据。
+
+选择“生产 App 逐帧取证”启动 `ProductionNodeCapture`，通过正常 UI 创建或载入游戏并安排计划，选择列车后点击“跟随并记录”；seed=40 的 Demo 可点“Demo 停靠 / 途经计划”，由既有列车命令解析与提交路径设置停靠 13、途经 8、停靠 5 的计划并启动列车，再用正常模拟速度按钮开始运行。它使用生产装配，在每个实际绘制帧后记录核心位置、车辆显示姿态、FindPose、相机、Origin 和加载状态，阶段改变时截图，输出至 `.godot/validation/production-node-capture-<时间戳>/`。验收时需检查相邻帧相机与车辆位移，并结合边界两侧 Origin 区分坐标平移与真实跳动；该入口本身不生成 JUnit 或自动验收结论。
+
 选择“开发检查预览”启动 `DeveloperToolsPreview`，仍使用同份生产 App、开发窗口、协调器和文件流程；Core、Content、Scenes 为界面列明的有限契约替身。普通会话只支持运行到步 2，重放验证顺序为单步到 `1:0`、推进到 `2:0`、导出普通存档、通过存档面板导入并读取副本。预览启动时在 `TestResults/developer-tools-preview/` 写入固定复现包，窗口或辅助按钮可执行这些操作；场景图层开关请求替身提供彩色线。它不验证真实 Core 重放、生产 Scenes 图层生成、完整 Godot 隔离或四模块联调。
 
 ## 观察无关检查与窗口测量

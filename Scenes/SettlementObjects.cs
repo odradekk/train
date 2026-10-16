@@ -125,20 +125,22 @@ internal sealed class SettlementObjects : IAsyncDisposable
         instances.Clear();
     }
 
-    private Lookup<InstanceView> Instance(ICoreReadView core, InstanceId id)
+    private Lookup<InstanceView> Instance(ICoreReadView core, InstanceId id, bool cacheProjections = true)
     {
+        if (!cacheProjections) return core.FindInstance(id);
         Observe(core);
         if (!instances.TryGetValue(id, out var instance))
             instances.Add(id, instance = core.FindInstance(id));
         return instance;
     }
 
-    private SettlementView? Settlement(SceneWorldSnapshot snapshot, NodeLayout layout)
+    private SettlementView? Settlement(SceneWorldSnapshot snapshot, NodeLayout layout, bool cacheProjections = true)
     {
-        Observe(snapshot.Core);
+        if (cacheProjections) Observe(snapshot.Core);
         var node = snapshot.Core.World.Nodes.Single(item => item.Id == layout.Node);
         return node.Occupant is NodeOccupant.Settlement owner &&
-            (settlement ??= snapshot.Core.FindSettlement(owner.Id)) is Lookup<SettlementView>.Found found ? found.Value : null;
+            (cacheProjections ? (settlement ??= snapshot.Core.FindSettlement(owner.Id)) : snapshot.Core.FindSettlement(owner.Id))
+                is Lookup<SettlementView>.Found found ? found.Value : null;
     }
 
     internal RenderedDesign Present(SceneWorldSnapshot snapshot, NodeLayout layout, ScenePoint origin,
@@ -218,16 +220,16 @@ internal sealed class SettlementObjects : IAsyncDisposable
     }
 
     internal ImmutableArray<NodeLayout.Stop> Platforms(SceneWorldSnapshot snapshot, NodeLayout layout,
-        ImmutableArray<SceneProblem>.Builder problems)
+        ImmutableArray<SceneProblem>.Builder problems, bool cacheProjections = true)
     {
         var stops = new HashSet<NodeLayout.Stop>();
-        var settlement = Settlement(snapshot, layout);
+        var settlement = Settlement(snapshot, layout, cacheProjections);
         if (settlement is not null)
             foreach (var plot in settlement.Plots)
             {
                 if (plot.Size is not (PlotSize.SmallStation or PlotSize.LargeStation) ||
                     plot.Occupant is not PlotOccupant.Building building ||
-                    Instance(snapshot.Core, new InstanceId.Building(building.Id)) is not Lookup<InstanceView>.Found instance ||
+                    Instance(snapshot.Core, new InstanceId.Building(building.Id), cacheProjections) is not Lookup<InstanceView>.Found instance ||
                     snapshot.Content.FindDesign(instance.Value.Design) is not ContentLookup<DesignEvaluation>.Found found ||
                     found.Value is DesignEvaluation.Failed || instance.Value.Structure.EffectiveCurrent <= 0) continue;
                 var parts = found.Value switch
