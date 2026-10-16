@@ -83,8 +83,13 @@ public sealed class FixedContentView : IContentView
 
     public ContentLookup<VoxelDisplayProjection> FindVoxelDisplay(VoxelDefinitionId id) => throw Unconfigured(nameof(FindVoxelDisplay));
 
+    private ImmutableDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>> definitionDisplays = ImmutableDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>.Empty;
+    public IReadOnlyDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>> DefinitionDisplays
+    {
+        init => definitionDisplays = value.ToImmutableDictionary();
+    }
     public ContentLookup<ContentDisplay> FindDefinitionDisplay(CoreDefinitionReference id)
-        => throw Unconfigured(nameof(FindDefinitionDisplay));
+        => definitionDisplays.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindDefinitionDisplay));
 
     private ImmutableDictionary<GoodId, ContentLookup<GoodPresentation>> goods = ImmutableDictionary<GoodId, ContentLookup<GoodPresentation>>.Empty;
     public IReadOnlyDictionary<GoodId, ContentLookup<GoodPresentation>> Goods

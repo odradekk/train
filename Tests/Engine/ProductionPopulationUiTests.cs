@@ -3,6 +3,8 @@ using Chickensoft.GoDotTest;
 using Chickensoft.GodotTestDriver;
 using Godot;
 using Train.App;
+using Train.Content.Contracts;
+using Train.Content.ContractSupport;
 using Train.Core.Contracts;
 using Train.Core.ContractSupport;
 using Train.Ui;
@@ -13,6 +15,79 @@ namespace Train.Engine.Tests;
 public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
 {
     private readonly UiTestInput _input = new(testScene);
+
+    [Test]
+    public async Task Production_names_and_missing_identifiers_preserve_frozen_batches_and_short_revisions()
+    {
+        var original = EconomyFixture.Create();
+        var basis = EconomyFixture.Content();
+        var food = ((ContentLookup<GoodPresentation>.Found)basis.FindGood(EconomyFixture.Food)).Value;
+        var process = new ProcessRef.Production(new("fixture:press"));
+        var missing = new ProcessRef.Production(new("fixture:missing"));
+        var removed = new ProcessRef.Production(new("fixture:removed"));
+        var content = new FixedContentView(basis.Core with
+        {
+            Processes = [new(new ProcessDetails.Production(process.Definition, [], [new(EconomyFixture.Food, 2)]),
+                new("v2"), 10, 1, 1, FacilityTag.FoodProcessing, [])]
+        }, basis.Generation)
+        {
+            DefinitionDisplays = new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
+            {
+                [new CoreDefinitionReference.Process(process)] = new ContentLookup<ContentDisplay>.Found(new(new("固定生产流程", ""), null, null, false)),
+                [new CoreDefinitionReference.Process(missing)] = new ContentLookup<ContentDisplay>.Missing([]),
+                [new CoreDefinitionReference.Process(removed)] = new ContentLookup<ContentDisplay>.NotFound()
+            },
+            Goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>>
+            {
+                [EconomyFixture.Food] = new ContentLookup<GoodPresentation>.Found(food),
+                [EconomyFixture.Equipment] = basis.FindGood(EconomyFixture.Equipment)
+            },
+            Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>>
+                { [food.Display.Icon!.Value] = basis.FindAsset(food.Display.Icon.Value) },
+            SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
+                { [new(1)] = basis.FindSettlementLayout(new(1)) },
+            Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+                { [new("fixture-vehicle")] = basis.FindDesign(new("fixture-vehicle")) }
+        };
+        ImmutableArray<FacilityView> facilities =
+        [
+            new(new(new(1), CapabilityKind.Production), process, true, 0, ProductionState.Running, 1, 1, [],
+                new(process, new("v1"), 10, 3, .3, [new(EconomyFixture.Food, 2)], true), [], [], []),
+            new(new(new(2), CapabilityKind.Production), missing, true, 0, ProductionState.ProcessMissing, 1, 0, [],
+                new(removed, new("v0"), 17, 4, 4.0 / 17, [new(EconomyFixture.Food, 4)], true), [], [], [])
+        ];
+        var view = View(original, 2, new PopulationExecution.NotStarted([]), facilities);
+        var setup = new HostSimulationTests.HostSetup(original, content);
+        var fixture = new Fixture(TestScene.GetTree());
+        try
+        {
+            var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
+            app.CreateHost = logger => setup.Create(logger);
+            await fixture.AddToRoot(app);
+            await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
+            var binding = app.Host!.GetStatus()!.Binding;
+            var economy = app.GetNode<EconomyPanels>("GameUi/Root/World/EconomyPanels");
+            economy.OpenSettlement(new(binding, content.Generation, new WorldObjectId.Settlement(new(1))), new(1));
+            economy.Refresh(binding, view, content);
+            var specifications = economy.FindChildren("CurrentSpecification", "Label", true, false).Cast<Label>().ToArray();
+            var found = specifications.Single(label => label.Text.Contains("固定生产流程"));
+            var foundBatch = Find<Label>(found.GetParent(), "Batch").Text;
+            Require(found.Text.StartsWith("当前定义：固定生产流程 · 修订 v2\n") &&
+                foundBatch.StartsWith("进行中批次：固定生产流程 · 启动修订 v1\n"),
+                "生产页未展示名称，或短于八位的修订未原样保留。");
+            var absent = specifications.Single(label => label.Text.Contains("定义标识：fixture:missing"));
+            var absentBatch = Find<Label>(absent.GetParent(), "Batch").Text;
+            Require(absent.Text.StartsWith("当前定义：流程定义缺失") &&
+                absentBatch.StartsWith("进行中批次：流程定义缺失") && absentBatch.Contains("定义标识：fixture:removed"),
+                "当前计划或冻结批次未明确显示定义缺失及各自的定义标识。");
+            Require(absentBatch.Contains("启动修订 v0\n冻结工作量 17") &&
+                Find<VBoxContainer>(absent.GetParent(), "FrozenOutputs").Visible,
+                "流程缺失后冻结批次的修订、工作量或产出被隐藏。");
+            Require(setup.Session.SubmitCount == 0, "生产只读页面提交了命令。");
+        }
+        finally { await fixture.Cleanup(); }
+        setup.Session.AssertComplete();
+    }
 
     [Test]
     public async Task Population_without_statistics_and_global_reports_preserve_unknown_and_ownership()
@@ -66,7 +141,8 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
         setup.Session.AssertComplete();
     }
 
-    private static FixedCoreReadView View(FixedCoreReadView source, ulong revision, PopulationExecution execution)
+    private static FixedCoreReadView View(FixedCoreReadView source, ulong revision, PopulationExecution execution,
+        ImmutableArray<FacilityView>? facilities = null)
     {
         var settlement = ((Lookup<SettlementView>.Found)source.FindSettlement(new(1))).Value;
         PopulationSettlementReport Report(long before, long after) => new(new(12, 0), new("settled-v1"),
@@ -74,6 +150,7 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
         var owned = settlement with
         {
             Relation = SettlementRelation.PlayerOwned,
+            Facilities = facilities ?? settlement.Facilities,
             Population = settlement.Population with
             {
                 CurrentRule = new(new("fixture:population"), new("published-v2"), []),
