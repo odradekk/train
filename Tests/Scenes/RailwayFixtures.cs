@@ -126,7 +126,7 @@ internal static class RailwayFixtures
             RailwayDependencies.Capture(snapshot, path, index, [], [], [], [], false, false), []);
 
     internal static NodeScene.Built EmptyNode(SceneWorldSnapshot snapshot, NodeId node,
-        NodeScene.Built? previous, CancellationToken token) =>
+        NodeScene.Cached? previous, CancellationToken token) =>
         new(NodeLayout.Build(snapshot, node, token), ImmutableDictionary<string, NodeScene.Part>.Empty, []);
 
     internal static RailwayScene Controlled(SceneWorldSnapshot snapshot, SceneVehicles vehicles,
@@ -148,7 +148,7 @@ internal static class RailwayFixtures
         var frame = scene.Present(snapshot, previous, target, request, stamp, displayed);
         while (scene.PendingWork.Length > 0)
         {
-            await Task.WhenAll(scene.PendingWork);
+            await SceneFixtures.AwaitPendingWork(scene.PendingWork);
             stamp = stamp with { Revision = stamp.Revision + 1 };
             frame = scene.Present(snapshot, previous, target, request, stamp, displayed);
         }
@@ -161,7 +161,7 @@ internal static class RailwayFixtures
         var frame = Present();
         while (Work().Length > 0)
         {
-            await Task.WhenAll(Work());
+            await SceneFixtures.AwaitPendingWork(Work());
             frame = Present();
         }
         return frame;
@@ -212,6 +212,6 @@ internal static class RailwayFixtures
         TrainOrderFacing facing = TrainOrderFacing.FirstEndLeading, double speed = 0) => new(new(trainId),
         new TrainPosition.Edge(Edge, track, direction, distanceMeters), TrainActivity.Running,
         vehicles.IsDefault ? [new(1)] : vehicles, new(trainId), speed, 4, 1, 1, 1, 10, null, null, 0,
-        new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0), [], null, [], facing);
+        new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0), [], null, [], facing, null);
 
 }

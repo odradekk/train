@@ -103,7 +103,7 @@ internal static class RailwayMeshes
                 }
             }
         }
-        return [rails.Build(), sleepers.Build()];
+        return new[] { rails.Build(), sleepers.Build() }.Where(mesh => !mesh.Vertices.IsEmpty).ToImmutableArray();
     }
 
     private sealed class MeshBuilder(BuiltInMaterial material)

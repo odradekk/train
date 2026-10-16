@@ -13,7 +13,40 @@ namespace Train.Scenes.Tests;
 public sealed class SettlementObjectsTests
 {
     [TestMethod]
-    public void PlatformNumbersUseCoreCapacityAndReportMismatch()
+    public async Task Destroyed_building_parts_match_a_cold_build_after_cached_geometry_is_replaced()
+    {
+        var original = Snapshot();
+        var layout = NodeLayout.Build(original, NodeFixtures.NodeId);
+        await using var warm = new SettlementObjects(StableIds());
+        var before = await Settle(warm, original, layout);
+        var damaged = NodeFixtures.Station(2) with
+        {
+            Parts = NodeFixtures.Station(2).Parts.Select(part => part.Part == new PartId(1)
+                ? part with { Durability = new(0, part.Durability.Maximum), Destroyed = true } : part).ToImmutableArray()
+        };
+        var changed = Snapshot(station: damaged);
+        var actual = await Settle(warm, changed, layout);
+        await using var cold = new SettlementObjects(StableIds());
+        var expected = await Settle(cold, changed, layout);
+        CollectionAssert.AreEqual(expected.Diagnostics.ToArray(), actual.Diagnostics.ToArray());
+        CollectionAssert.AreEqual(expected.Picking.SelectMany(pick => pick.Grid.Cells).ToArray(),
+            actual.Picking.SelectMany(pick => pick.Grid.Cells).ToArray());
+        var expectedMeshes = expected.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().ToArray();
+        var actualMeshes = actual.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().ToArray();
+        Assert.AreEqual(expectedMeshes.Length, actualMeshes.Length);
+        for (var index = 0; index < expectedMeshes.Length; index++)
+        {
+            var a = expectedMeshes[index]; var b = actualMeshes[index];
+            Assert.AreEqual(a.Surface, b.Surface);
+            Assert.AreEqual(a.Mesh.Material, b.Mesh.Material);
+            Assert.IsTrue(a.Mesh.Vertices.AsSpan().SequenceEqual(b.Mesh.Vertices.AsSpan()));
+            Assert.IsTrue(a.Mesh.TriangleIndices.AsSpan().SequenceEqual(b.Mesh.TriangleIndices.AsSpan()));
+        }
+        Assert.AreNotSame(before.Picking.Single().Grid, actual.Picking.Single().Grid);
+    }
+
+    [TestMethod]
+    public async Task PlatformNumbersUseCoreCapacityAndReportMismatch()
     {
         var evaluation = NodeFixtures.StationEvaluation();
         evaluation = evaluation with { Core = evaluation.Core! with { Design = evaluation.Core.Design with
@@ -23,17 +56,18 @@ public sealed class SettlementObjectsTests
         { [NodeFixtures.StationDesign] = new ContentLookup<DesignEvaluation>.Found(evaluation) }));
         var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
         var problems = ImmutableArray.CreateBuilder<SceneProblem>();
-        var platforms = SettlementObjects.Platforms(snapshot, layout, problems);
+        await using var objects = new SettlementObjects(StableIds());
+        var platforms = objects.Platforms(snapshot, layout, problems);
         CollectionAssert.AreEqual(new[] { -40.0, 40.0 }, platforms.Select(stop => stop.LocalZ).ToArray());
         Assert.AreEqual(0, problems.Count);
         var mismatch = Snapshot(node: NodeFixtures.Node() with { Platforms = 1 });
-        Assert.IsTrue(SettlementObjects.Platforms(mismatch, layout, problems).IsEmpty);
+        Assert.IsTrue(objects.Platforms(mismatch, layout, problems).IsEmpty);
         Assert.AreEqual("station_platform_mismatch", problems.Single().Code);
         Assert.AreEqual(new WorldObjectId.Node(NodeFixtures.NodeId), problems.Single().Subject);
     }
 
     [TestMethod]
-    public void PlatformAtEqualDistanceChoosesSmallerLocalZ()
+    public async Task PlatformAtEqualDistanceChoosesSmallerLocalZ()
     {
         var evaluation = NodeFixtures.StationEvaluation();
         evaluation = evaluation with
@@ -45,13 +79,14 @@ public sealed class SettlementObjectsTests
             content: NodeFixtures.Content(designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
             { [NodeFixtures.StationDesign] = new ContentLookup<DesignEvaluation>.Found(evaluation) }));
         var problems = ImmutableArray.CreateBuilder<SceneProblem>();
-        var stops = SettlementObjects.Platforms(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId), problems);
+        await using var objects = new SettlementObjects(StableIds());
+        var stops = objects.Platforms(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId), problems);
         Assert.AreEqual(-40d, stops.Single().LocalZ);
         Assert.AreEqual(0, problems.Count);
     }
 
     [TestMethod]
-    public void PlatformNumbersSortTemplatePlotNumbersBeforeLocalZ()
+    public async Task PlatformNumbersSortTemplatePlotNumbersBeforeLocalZ()
     {
         var template = NodeFixtures.Layout with { Plots =
             [new(20, PlotSize.SmallStation, new(0, 0, 300), VoxelOrientation.PzPy), NodeFixtures.Layout.Plots[0]] };
@@ -61,7 +96,8 @@ public sealed class SettlementObjectsTests
         var snapshot = Snapshot(content: Content(template), node: NodeFixtures.Node(4), settlement: settlement,
             vehicles: [NodeFixtures.Station(2) with { Id = new InstanceId.Building(new(2)) }]);
         var problems = ImmutableArray.CreateBuilder<SceneProblem>();
-        var stops = SettlementObjects.Platforms(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId), problems);
+        await using var objects = new SettlementObjects(StableIds());
+        var stops = objects.Platforms(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId), problems);
         CollectionAssert.AreEqual(new[] { 1, 1, 20, 20 }, stops.Select(stop => stop.PlotNumber).ToArray());
         CollectionAssert.AreEqual(new[] { -40d, 40d, -40d, 40d }, stops.Select(stop => stop.LocalZ).ToArray());
         Assert.AreEqual(0, problems.Count);
@@ -119,7 +155,7 @@ public sealed class SettlementObjectsTests
             var current = Present(objects, snapshot, layout);
             Assert.AreSame(first.Picking.Single().Grid, current.Picking.Single().Grid);
             release.Set();
-            await Task.WhenAll(objects.PendingWork).WaitAsync(TimeSpan.FromSeconds(5));
+            await SceneFixtures.AwaitPendingWork(objects.PendingWork).WaitAsync(TimeSpan.FromSeconds(5));
             var afterLate = Present(objects, snapshot, layout);
             Assert.AreEqual(2, builds);
             Assert.AreSame(first.Picking.Single().Grid, afterLate.Picking.Single().Grid);
@@ -250,7 +286,7 @@ public sealed class SettlementObjectsTests
             var pending = objects.PendingWork;
             Present(objects, departed, layout);
             release.Set();
-            await Task.WhenAll(pending).WaitAsync(TimeSpan.FromSeconds(5));
+            await SceneFixtures.AwaitPendingWork(pending).WaitAsync(TimeSpan.FromSeconds(5));
             var fog = ImmutableArray.CreateBuilder<SceneFog>();
             objects.Present(departed, layout, default, fog);
             Assert.AreEqual(0, objects.PendingWork.Length);
@@ -278,7 +314,7 @@ public sealed class SettlementObjectsTests
         {
             var result = Present(objects, snapshot, layout);
             if (objects.PendingWork.Length == 0) return result;
-            await Task.WhenAll(objects.PendingWork).WaitAsync(TimeSpan.FromSeconds(5));
+            await SceneFixtures.AwaitPendingWork(objects.PendingWork).WaitAsync(TimeSpan.FromSeconds(5));
         }
         Assert.Fail("Settlement object builds did not settle.");
         throw new InvalidOperationException();

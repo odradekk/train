@@ -51,7 +51,7 @@ internal static class UiWorldFixture
         };
         var train = new TrainView(new(7), position, TrainActivity.Stopped, ordered, new(1),
             0, 20, 10, 100, 0, 30, plan, null, 0,
-            new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, .2), [], null, [], TrainOrderFacing.FirstEndLeading);
+            new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, .2), [], null, [], TrainOrderFacing.FirstEndLeading, null);
         InstanceId.Vehicle[] vehicles = scenario switch
         {
             Scenario.Save => [new(new(1))],

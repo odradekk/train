@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
 using Chickensoft.GoDotTest;
 using Chickensoft.GodotTestDriver;
 using Godot;
@@ -475,6 +476,35 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
                 "新宿主绑定再次打开世界没有分配新SceneBinding。");
         }
         finally { await fixture.Cleanup(); }
+    }
+
+    [Test]
+    public async Task Returning_to_map_releases_the_displayed_cpu_frame()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        try
+        {
+            var app = await Ready(fixture, new Setup(), Factory(binding => Session(binding, [Success(Frame(1))])));
+            var frame = OpenAndCloseFrame(app.WorldScenes!);
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+            GC.WaitForPendingFinalizers();
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+            Require(!frame.IsAlive, "回到地图后宿主仍持有旧CPU帧。");
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
+    // Keep Debug JIT locals containing the frame out of the collecting test's stack.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference OpenAndCloseFrame(WorldSceneController world)
+    {
+        world.Open(Target);
+        world.Display!.Timestamp = () => 0;
+        world.ProcessFrame(0, false);
+        Require(world.View.Interactive && world.Display.DisplayedFrame is not null, "离开前场景未接入。");
+        var frame = new WeakReference(world.Display.DisplayedFrame);
+        world.ReturnToMap();
+        return frame;
     }
 
     [Test]

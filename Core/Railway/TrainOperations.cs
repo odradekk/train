@@ -56,6 +56,7 @@ internal static class TrainOperations
     {
         var capabilities = Capabilities(world, content, train);
         var blockers = ImmutableArray.CreateBuilder<CoreProblem>();
+        ulong? platformQueueEnteredStep = null;
         var problem = capabilities.DepartureProblem(train.Id, Rule(world, content).MinimumAcceleration);
         if (problem is not null) blockers.Add(problem);
         if (capabilities.MissingProblem(train.Id) is { } missing && problem?.Code != missing.Code) blockers.Add(missing);
@@ -63,7 +64,11 @@ internal static class TrainOperations
         if (train.QueueEnteredStep is not null && train.Position is TrainPosition.Node position)
         {
             if (position.Phase != NodeTravelPhase.Departing && TrainDispatch.NeedsPlatform(world, train)
-                && position.PlatformNumber is null) blockers.Add(TrainDispatch.PlatformWait(train));
+                && position.PlatformNumber is null)
+            {
+                blockers.Add(TrainDispatch.PlatformWait(train));
+                platformQueueEnteredStep = train.QueueEnteredStep;
+            }
             else if (position.Phase == NodeTravelPhase.Departing && position.NextEdge is { } edge)
                 blockers.Add(TrainDispatch.TrackWait(train, edge));
         }
@@ -81,7 +86,7 @@ internal static class TrainOperations
             train.Plan, train.NextStopIndex, train.RemainingDwellSteps,
             new(TargetPriority.ArmedFirst, TargetScope.ArmedOnly, armed ? EncounterAction.Engage : EncounterAction.Retreat, 0),
             blockers.ToImmutable(), train.CurrentRun is { } run ? RunReports.Read(run) : null,
-            world.RecentRunReports.Where(r => r.Train == train.Id).ToImmutableArray(), train.OrderFacing);
+            world.RecentRunReports.Where(r => r.Train == train.Id).ToImmutableArray(), train.OrderFacing, platformQueueEnteredStep);
     }
 
     internal static (WorldState World, ImmutableArray<CoreEvent> Events) Advance(WorldState world, CoreContentProjection content, ulong step)
