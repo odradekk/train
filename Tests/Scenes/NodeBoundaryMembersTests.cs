@@ -35,6 +35,8 @@ public sealed class NodeBoundaryMembersTests
                 new(node, entry.Edge, entry.Edge, NodeTravelPhase.Departing, 0, null), layout.Bypass,
                 count * 52, _ => railway);
             var inlet = layout.Approach(entry, layout.Bypass).Inlet;
+            Assert.IsTrue(inlet.Length > 52,
+                $"Fixture inlet must cover at least one 26 m member offset; length was {inlet.Length} cells.");
             foreach (var member in Enumerable.Range(0, count / 2 + 1))
             {
                 var delta = member * 52.0; // 26 m vehicles, at two cells per metre.

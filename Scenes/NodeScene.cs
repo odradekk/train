@@ -695,7 +695,7 @@ internal sealed class NodeScene : IAsyncDisposable
         var platforms = mapping.Stops;
         var oldTrains = previous is null ? [] : NodeTrains(previous);
         var oldQueues = QueuePositions(oldTrains, dimensions);
-        var oldPlatforms = previous is null ? [] : Platforms(previous).Stops;
+        var oldPlatforms = previous is null ? [] : Platforms(previous, cacheProjections: false).Stops;
         foreach (var train in trains)
         {
             var members = train.Vehicles.Select(id => ((Lookup<InstanceView>.Found)snapshot.Core.FindInstance(new InstanceId.Vehicle(id))).Value).ToArray();
@@ -758,10 +758,10 @@ internal sealed class NodeScene : IAsyncDisposable
         { objects.AddRange(geometry.Objects); picking.AddRange(geometry.Picking); problems.AddRange(geometry.Diagnostics); }
     }
 
-    private PlatformMap Platforms(SceneWorldSnapshot input) => platformMaps.GetValue(input, value =>
+    private PlatformMap Platforms(SceneWorldSnapshot input, bool cacheProjections = true) => platformMaps.GetValue(input, value =>
     {
         var problems = ImmutableArray.CreateBuilder<SceneProblem>();
-        var stops = settlement.Platforms(value, layout!, problems);
+        var stops = settlement.Platforms(value, layout!, problems, cacheProjections);
         return new(stops, problems.ToImmutable());
     });
 
