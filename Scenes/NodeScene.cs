@@ -90,6 +90,8 @@ internal sealed class NodeScene : IAsyncDisposable
     private sealed record PartWork(Task<Part> Task, CancellationTokenSource Cancellation, SceneBounds Bounds, GridColumn? Chunk);
     private readonly Dictionary<GridColumn, Part> chunks = [];
     private readonly Dictionary<string, Part> rails = [];
+    private readonly object workGate = new();
+    private Queue<(string Key, SceneBounds Bounds, GridColumn? Chunk)> waitingParts = [];
     private readonly Dictionary<string, PartWork> pendingParts = [];
     private readonly List<PartWork> retiring = [];
     private readonly Func<Preparation, GridColumn, Part?, CancellationToken, Part> buildChunk;
@@ -103,9 +105,15 @@ internal sealed class NodeScene : IAsyncDisposable
     internal NodeId Node { get; }
     internal NodeLayout? Layout => layout;
     internal Task? BuildWork => pending;
-    internal Task[] PendingWork => (pending is not null && prepared is null && failure is null ? new Task[] { pending } : [])
-        .Concat(pendingParts.Values.Select(work => work.Task)).Concat(retiring.Select(work => work.Task))
-        .Concat(vehicles.PendingWork).Concat(settlement.PendingWork).ToArray();
+    internal Task[] PendingWork
+    {
+        get
+        {
+            lock (workGate) return (pending is not null && prepared is null && failure is null ? new Task[] { pending } : [])
+                .Concat(pendingParts.Values.Select(work => work.Task)).Concat(retiring.Select(work => work.Task))
+                .Concat(vehicles.PendingWork).Concat(settlement.PendingWork).ToArray();
+        }
+    }
     internal bool Failed => failure is not null;
 
     internal NodeScene(SceneWorldSnapshot initial, NodeId node, Cache cache, Func<string, SceneObjectId> objectId, SceneVehicles vehicles,
@@ -163,7 +171,7 @@ internal sealed class NodeScene : IAsyncDisposable
             catch (RailwayBuildException error) { Fail(error); return; }
         }
         if (prepared is null) return;
-        ReconcileParts();
+        lock (workGate) ReconcileParts();
         cache.Publish(Node, owner, built! with
         { Parts = prepared.Global.Parts.SetItems(chunks.Select(item => new KeyValuePair<string, Part>(ChunkKey(item.Key), item.Value))).SetItems(rails) });
     }
@@ -204,22 +212,37 @@ internal sealed class NodeScene : IAsyncDisposable
             try { work.Task.GetAwaiter().GetResult(); } catch (Exception) { }
             work.Cancellation.Dispose(); retiring.Remove(work);
         }
-        if (failure is not null || pendingParts.Count + retiring.Count > 0) return;
-        var terrain = prepared!.HasChunks ? range.Chunks(layout!).Where(from => !chunks.ContainsKey(from))
+        if (failure is not null) return;
+        var terrain = prepared!.HasChunks ? range.Chunks(layout!).Where(from => !chunks.ContainsKey(from) && !pendingParts.ContainsKey(ChunkKey(from)))
             .Select(from => (Key: ChunkKey(from), Bounds: new SceneBounds(new(from.X, -128, from.Z),
                 new(from.X + VoxelGrid.ChunkSize, 128, from.Z + VoxelGrid.ChunkSize)), Chunk: (GridColumn?)from)) : [];
-        var tracks = prepared.Rails.Values.Where(segment => !rails.ContainsKey(segment.Key) && range.Intersects(segment.Bounds))
+        var tracks = prepared.Rails.Values.Where(segment => !rails.ContainsKey(segment.Key) && !pendingParts.ContainsKey(segment.Key) && range.Intersects(segment.Bounds))
             .Select(segment => (segment.Key, segment.Bounds, Chunk: (GridColumn?)null));
-        foreach (var item in terrain.Concat(tracks).OrderBy(item => range.DistanceSquared(item.Bounds)).ThenBy(item => item.Key, StringComparer.Ordinal))
+        waitingParts = new(terrain.Concat(tracks).OrderBy(item => range.DistanceSquared(item.Bounds)).ThenBy(item => item.Key, StringComparer.Ordinal));
+        StartParts();
+    }
+
+    // Caller holds workGate; only Pump replaces the priority order and consumes results.
+    private void StartParts()
+    {
+        if (cancellation.IsCancellationRequested || failure is not null || pendingParts.Values.Any(work => work.Task.IsFaulted)) return;
+        while (waitingParts.Count > 0 && pendingParts.Values.Count(work => !work.Task.IsCompleted) +
+            retiring.Count(work => !work.Task.IsCompleted) < RailwayCoordinates.MaxConcurrentBuilds)
         {
+            var item = waitingParts.Dequeue();
             var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
-            var data = prepared;
-            pendingParts.Add(item.Key, new(Task.Run(() => item.Chunk is { } from ? buildChunk(data, from, null, stop.Token) :
-                buildRail(data, data.Rails[item.Key], null, stop.Token), stop.Token), stop, item.Bounds, item.Chunk));
-            break;
+            var data = prepared!;
+            var task = Task.Run(() => item.Chunk is { } from ? buildChunk(data, from, null, stop.Token) :
+                buildRail(data, data.Rails[item.Key], null, stop.Token), stop.Token);
+            pendingParts.Add(item.Key, new(task, stop, item.Bounds, item.Chunk));
+            _ = task.ContinueWith(_ => { lock (workGate) StartParts(); }, CancellationToken.None,
+                TaskContinuationOptions.None, TaskScheduler.Default);
         }
     }
-    private void Fail(RailwayBuildException error) => failure = new("build_failed", SceneStage.Build, new WorldObjectId.Node(Node), null, null, null, error.Message);
+    private void Fail(RailwayBuildException error)
+    {
+        lock (workGate) failure = new("build_failed", SceneStage.Build, new WorldObjectId.Node(Node), null, null, null, error.Message);
+    }
 
     internal SceneFrame Present(SceneWorldSnapshot snapshot, SceneFrameRequest request, SceneFrameStamp stamp,
         SceneFrame? displayed, ScenePoint origin, WorldSceneTarget? target = null)
@@ -625,13 +648,19 @@ internal sealed class NodeScene : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        cancellation.Cancel();
-        foreach (var work in pendingParts.Values) work.Cancellation.Cancel();
-        var ownedWork = (pending is null ? Array.Empty<Task>() : [pending])
-            .Concat(pendingParts.Values.Select(item => item.Task)).Concat(retiring.Select(item => item.Task));
+        PartWork[] parts;
+        Task[] ownedWork;
+        lock (workGate)
+        {
+            cancellation.Cancel();
+            waitingParts.Clear();
+            parts = pendingParts.Values.Concat(retiring).ToArray();
+            foreach (var work in parts) work.Cancellation.Cancel();
+            ownedWork = (pending is null ? Array.Empty<Task>() : [pending]).Concat(parts.Select(item => item.Task)).ToArray();
+        }
         try { await Task.WhenAll(ownedWork).ConfigureAwait(false); }
         catch (Exception) { /* Retired scene work cannot be attached or published. */ }
-        foreach (var work in pendingParts.Values.Concat(retiring)) work.Cancellation.Dispose();
+        lock (workGate) foreach (var work in parts) work.Cancellation.Dispose();
         await settlement.DisposeAsync();
         cancellation.Dispose();
     }

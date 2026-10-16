@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Numerics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -13,6 +14,135 @@ namespace Train.Scenes.Tests;
 public sealed class NodeStreamingTests
 {
     private static readonly SceneFrameRequest Request = new(1, null, SceneDebugLayer.None);
+
+    [TestMethod]
+    public async Task Completed_builders_refill_slots_without_another_pump()
+    {
+        var snapshot = Snapshot(true);
+        var cache = new NodeScene.Cache();
+        var started = new ConcurrentQueue<GridColumn>();
+        var filled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var replenished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var first = new ManualResetEventSlim();
+        using var others = new ManualResetEventSlim();
+        await using var vehicles = new SceneVehicles();
+        var scene = Open(snapshot, vehicles, cache, (data, from, old, _) =>
+        {
+            started.Enqueue(from);
+            if (started.Count == RailwayCoordinates.MaxConcurrentBuilds) filled.TrySetResult();
+            if (started.Count > RailwayCoordinates.MaxConcurrentBuilds) replenished.TrySetResult();
+            (from == new GridColumn(0, 0) ? first : others).Wait();
+            return SmallPart(data, from, old, default);
+        });
+        Task? closing = null;
+        try
+        {
+            await scene.BuildWork!;
+            scene.Pump(focus: new(16, 0, 16));
+            await filled.Task;
+            first.Set();
+            await replenished.Task.WaitAsync(TimeSpan.FromMilliseconds(500));
+            CollectionAssert.AreEquivalent(new[] { new GridColumn(0, 0), new(-32, 0), new(0, -32) }, started.ToArray());
+            Assert.AreEqual(RailwayCoordinates.MaxConcurrentBuilds, scene.PendingWork.Count(work => !work.IsCompleted));
+            Assert.IsTrue(Chunks(cache).IsEmpty, "Background completion must not publish parts before Pump.");
+            closing = scene.DisposeAsync().AsTask();
+            Assert.IsFalse(closing.IsCompleted, "Closing must wait for builders started outside Pump.");
+        }
+        finally
+        {
+            first.Set(); others.Set();
+            await (closing ?? scene.DisposeAsync().AsTask());
+        }
+        Assert.AreEqual(3, started.Count, "Closing must stop automatic dispatch.");
+    }
+
+    [TestMethod]
+    public async Task Parts_fill_available_slots_in_priority_order_and_commit_without_waiting_for_the_batch()
+    {
+        var snapshot = Snapshot(true);
+        var cache = new NodeScene.Cache();
+        var started = new ConcurrentQueue<GridColumn>();
+        var filled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var replenished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var first = new ManualResetEventSlim();
+        using var second = new ManualResetEventSlim();
+        using var others = new ManualResetEventSlim();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles, cache, (data, from, old, token) =>
+        {
+            started.Enqueue(from);
+            if (started.Count == RailwayCoordinates.MaxConcurrentBuilds) filled.TrySetResult();
+            if (started.Count > RailwayCoordinates.MaxConcurrentBuilds) replenished.TrySetResult();
+            (from == new GridColumn(0, 0) ? first : from == new GridColumn(-32, 0) ? second : others).Wait(token);
+            return SmallPart(data, from, old, token);
+        });
+        try
+        {
+            await scene.BuildWork!;
+            scene.Pump(focus: new(16, 0, 16));
+            var pending = scene.PendingWork;
+            Assert.AreEqual(RailwayCoordinates.MaxConcurrentBuilds, pending.Length);
+            await filled.Task;
+            CollectionAssert.AreEquivalent(new[] { new GridColumn(0, 0), new(-32, 0) }, started.ToArray());
+            scene.Pump();
+            Assert.AreEqual(pending.Length, started.Count, "Pumping a full queue must not start duplicate work.");
+
+            second.Set();
+            await Task.WhenAny(pending);
+            scene.Pump();
+            await replenished.Task;
+            Assert.IsTrue(Chunks(cache).ContainsKey(new(-32, 0)), "A completed part must commit while the nearest part is blocked.");
+            Assert.IsFalse(Chunks(cache).ContainsKey(new(0, 0)));
+            Assert.AreEqual(RailwayCoordinates.MaxConcurrentBuilds, scene.PendingWork.Count(work => !work.IsCompleted));
+        }
+        finally { first.Set(); second.Set(); others.Set(); }
+        await Settle(scene, new(16, 0, 16));
+        var prepared = NodeScene.Prepare(snapshot, scene.Layout!);
+        CollectionAssert.AreEquivalent(new NodeRange(new(16, 0, 16), NodeStreaming.PrefetchCells).Chunks(scene.Layout!).ToArray(), Chunks(cache).Keys.ToArray());
+        foreach (var (from, part) in Chunks(cache)) NodeFixtures.AssertPartEqual(SmallPart(prepared, from, null, default), part);
+    }
+
+    [TestMethod]
+    public async Task Cancelled_builders_keep_their_slots_until_they_exit()
+    {
+        var snapshot = Snapshot(true);
+        var started = 0;
+        var filled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var replenished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        using var newRange = new ManualResetEventSlim();
+        await using var vehicles = new SceneVehicles();
+        var cache = new NodeScene.Cache();
+        await using var scene = Open(snapshot, vehicles, cache, (data, from, old, _) =>
+        {
+            var count = Interlocked.Increment(ref started);
+            if (count == RailwayCoordinates.MaxConcurrentBuilds) filled.TrySetResult();
+            if (count == RailwayCoordinates.MaxConcurrentBuilds * 2) replenished.TrySetResult();
+            (count <= RailwayCoordinates.MaxConcurrentBuilds ? release : newRange).Wait();
+            return SmallPart(data, from, old, default);
+        });
+        try
+        {
+            await scene.BuildWork!;
+            scene.Pump(focus: new(-288, 0, -288));
+            await filled.Task;
+            var retiring = scene.PendingWork;
+            scene.Pump(focus: new(288, 0, 288));
+            scene.Pump();
+            CollectionAssert.AreEquivalent(retiring, scene.PendingWork);
+            Assert.AreEqual(RailwayCoordinates.MaxConcurrentBuilds, Volatile.Read(ref started));
+            release.Set();
+            await Task.WhenAll(retiring);
+            await replenished.Task.WaitAsync(TimeSpan.FromMilliseconds(500));
+            scene.Pump();
+            Assert.IsTrue(Chunks(cache).IsEmpty, "Cancelled results must not commit even when their builders ignore cancellation.");
+            Assert.AreEqual(RailwayCoordinates.MaxConcurrentBuilds, scene.PendingWork.Count(work => !work.IsCompleted));
+            newRange.Set();
+            await Settle(scene, new(288, 0, 288));
+            Assert.IsTrue(Chunks(cache).Keys.All(new NodeRange(new(288, 0, 288), NodeStreaming.PrefetchCells).Intersects));
+        }
+        finally { release.Set(); newRange.Set(); }
+    }
 
     [TestMethod]
     public async Task Near_parts_are_interactive_while_far_work_is_blocked()
@@ -34,11 +164,14 @@ public sealed class NodeStreamingTests
         try
         {
             await scene.BuildWork!;
-            while (!entered.Task.IsCompleted)
+            scene.Pump();
+            var near = new NodeRange(default, NodeStreaming.NearCells).Chunks(scene.Layout!).ToArray();
+            while (!near.All(Chunks(cache).ContainsKey))
             {
                 scene.Pump();
-                if (!entered.Task.IsCompleted) await Task.WhenAny(Task.WhenAll(scene.PendingWork), entered.Task);
+                if (!near.All(Chunks(cache).ContainsKey)) await Task.WhenAny(scene.PendingWork);
             }
+            await entered.Task;
             var frame = Present(scene, snapshot);
             Assert.AreEqual(SceneReadiness.Partial, frame.Readiness);
             var hit = (ScenePick.Hit)frame.Pick(Ray(Chunks(cache).Keys.First()));
@@ -183,7 +316,8 @@ public sealed class NodeStreamingTests
         var pending = scene.PendingWork;
         try { scene.Pump(focus: new(288, 0, 288)); }
         finally { release.Set(); }
-        await Task.WhenAll(pending);
+        try { await Task.WhenAll(pending); }
+        catch (OperationCanceledException) { }
         scene.Pump();
         Assert.IsFalse(Chunks(cache).ContainsKey(blocked));
     }
@@ -453,11 +587,11 @@ public sealed class NodeStreamingTests
         ImmutableDictionary<string, NodeScene.Part> retained;
         var line = prepared.Global.Layout.Parking.First();
         var currentFocus = RailwayCoordinates.Add(line.Start, line.Forward * 64);
-        var started = new List<(ScenePoint Focus, string Key)>();
+        var started = new ConcurrentQueue<(ScenePoint Focus, string Key)>();
         await using var vehicles = new SceneVehicles();
         await using (var scene = Open(snapshot, vehicles, cache, buildRail: (_, segment, old, token) =>
         {
-            started.Add((currentFocus, segment.Key));
+            started.Enqueue((currentFocus, segment.Key));
             return segment.Build(old, token);
         }))
         {
@@ -504,16 +638,16 @@ public sealed class NodeStreamingTests
         using var release = new ManualResetEventSlim();
         var entered = new TaskCompletionSource<NodeScene.RailSegment>(TaskCreationOptions.RunContinuationsAsynchronously);
         var activeBuilds = 0;
-        var concurrentBuilds = 0;
+        var overBudget = 0;
         await using var vehicles = new SceneVehicles();
         var scene = Open(snapshot, vehicles, cache, build: (data, from, old, token) =>
         {
-            if (Interlocked.Increment(ref activeBuilds) != 1) Interlocked.Exchange(ref concurrentBuilds, 1);
+            if (Interlocked.Increment(ref activeBuilds) > RailwayCoordinates.MaxConcurrentBuilds) Interlocked.Exchange(ref overBudget, 1);
             try { return SmallPart(data, from, old, token); }
             finally { Interlocked.Decrement(ref activeBuilds); }
         }, buildRail: (data, segment, old, token) =>
         {
-            if (Interlocked.Increment(ref activeBuilds) != 1) Interlocked.Exchange(ref concurrentBuilds, 1);
+            if (Interlocked.Increment(ref activeBuilds) > RailwayCoordinates.MaxConcurrentBuilds) Interlocked.Exchange(ref overBudget, 1);
             try
             {
                 entered.TrySetResult(segment);
@@ -540,13 +674,14 @@ public sealed class NodeStreamingTests
             var pending = scene.PendingWork;
             try
             {
-                Assert.AreEqual(0, concurrentBuilds, "Terrain and rail builders must not run concurrently.");
-                Assert.AreEqual(1, pending.Length, "Terrain and rails share one serial build queue.");
+                Assert.AreEqual(0, overBudget, "Terrain and rail builders must share the concurrency limit.");
+                Assert.IsTrue(pending.Count(work => !work.IsCompleted) <= RailwayCoordinates.MaxConcurrentBuilds);
                 if (close) { closing = scene.DisposeAsync().AsTask(); Assert.IsFalse(closing.IsCompleted); }
                 else scene.Pump(focus: new(10000, 0, 10000));
             }
             finally { release.Set(); }
-            await Task.WhenAll(pending);
+            try { await Task.WhenAll(pending); }
+            catch (OperationCanceledException) { }
             if (closing is not null) await closing;
             else scene.Pump(focus: new(10000, 0, 10000));
             Assert.IsFalse(Rails(cache).ContainsKey(blocked.Key));
