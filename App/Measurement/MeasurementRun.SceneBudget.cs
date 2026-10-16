@@ -60,6 +60,8 @@ internal sealed partial class MeasurementRun
         _sceneEvidence["memory_scope"] = "RenderingServer each drawn frame; current process memory every 200ms; OS peak counters cover process lifetime and cannot be reset per operation";
         _sceneEvidence["steady_scope"] = "median of final second, five seconds after Ready drawn frame; map uses five seconds after map drawn frame";
         _sceneEvidence["observer_scope"] = "checks and observer overhead included, never subtracted; previous_observer_seconds includes trace serialization";
+        _sceneEvidence["rail_geometry_scope"] = "Subject=null RailSteel/Sleeper: match Ready reference geometry, pose and bounds; no picking of non-pickable decorations; near terrain picks reported separately";
+        _sceneEvidence["pick_visibility_scope"] = "onscreen candidate success is positive evidence; triangle candidates behind camera or outside viewport do not prove the whole object invisible";
         _sceneEvidence["capture_only"] = _scenario == "scene-capture";
         _sceneEvidence["reference_only"] = _scenario == "scene-reference";
         _sceneEvidence["frame_time_threshold"] = "pending user confirmation";
