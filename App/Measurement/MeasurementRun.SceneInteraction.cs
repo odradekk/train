@@ -82,8 +82,10 @@ internal sealed partial class MeasurementRun
         var node = location is WorldLocation.Node n ? (int?)n.Id.Value : null;
         var edge = location as WorldLocation.Edge;
         var absolute = center + ProbeOrigin(frame);
-        var reference = _probeReference?.Views.FirstOrDefault(view => node is not null ? view.Node == node :
-            edge is not null && view.Edge == (int)edge.Id.Value && Math.Abs(view.ArcMeters!.Value - edge.DistanceMeters) <= 64);
+        var reference = _probeReference?.Views.FirstOrDefault(view =>
+            NVector.Distance(absolute, new((float)view.Center[0], (float)view.Center[1], (float)view.Center[2])) <= 64 &&
+            (node is not null ? view.Node == node : edge is not null && view.Edge == (int)edge.Id.Value &&
+                Math.Abs(view.ArcMeters!.Value - edge.DistanceMeters) <= 64));
         if (frame.Readiness == SceneReadiness.Ready && (_scenario == "scene-reference"
             ? _probeReferenceSpaces.Add(frame.Update.Frame.Space) : !_probeReadyChecked))
         {
@@ -101,8 +103,7 @@ internal sealed partial class MeasurementRun
         }
         var pointPositions = new List<NVector> { center };
         var terrainBand = reference is not null ? _probeTerrainBands.GetValueOrDefault(reference) : null;
-        var known = node is not null ? reference is not null && NVector.Distance(absolute, new((float)reference.Center[0],
-            (float)reference.Center[1], (float)reference.Center[2])) <= 64 : edge is not null && terrainBand is not null &&
+        var known = node is not null ? reference is not null : edge is not null && terrainBand is not null &&
             terrainBand.Contains(((int)Math.Floor(absolute.X), (int)Math.Floor(absolute.Z)));
         foreach (var radius in new[] { 32f, 64f })
         {
