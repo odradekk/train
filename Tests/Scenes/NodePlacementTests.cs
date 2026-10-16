@@ -301,7 +301,7 @@ public sealed class NodePlacementTests
         Present();
         while (scene.PendingWork.Length > 0)
         {
-            await Task.WhenAll(scene.PendingWork);
+            await SceneFixtures.AwaitPendingWork(scene.PendingWork);
             Present();
         }
         var frame = Present();

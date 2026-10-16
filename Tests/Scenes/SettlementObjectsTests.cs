@@ -152,7 +152,7 @@ public sealed class SettlementObjectsTests
             var current = Present(objects, snapshot, layout);
             Assert.AreSame(first.Picking.Single().Grid, current.Picking.Single().Grid);
             release.Set();
-            await Task.WhenAll(objects.PendingWork).WaitAsync(TimeSpan.FromSeconds(5));
+            await SceneFixtures.AwaitPendingWork(objects.PendingWork).WaitAsync(TimeSpan.FromSeconds(5));
             var afterLate = Present(objects, snapshot, layout);
             Assert.AreEqual(2, builds);
             Assert.AreSame(first.Picking.Single().Grid, afterLate.Picking.Single().Grid);
@@ -283,7 +283,7 @@ public sealed class SettlementObjectsTests
             var pending = objects.PendingWork;
             Present(objects, departed, layout);
             release.Set();
-            await Task.WhenAll(pending).WaitAsync(TimeSpan.FromSeconds(5));
+            await SceneFixtures.AwaitPendingWork(pending).WaitAsync(TimeSpan.FromSeconds(5));
             var fog = ImmutableArray.CreateBuilder<SceneFog>();
             objects.Present(departed, layout, default, fog);
             Assert.AreEqual(0, objects.PendingWork.Length);
@@ -311,7 +311,7 @@ public sealed class SettlementObjectsTests
         {
             var result = Present(objects, snapshot, layout);
             if (objects.PendingWork.Length == 0) return result;
-            await Task.WhenAll(objects.PendingWork).WaitAsync(TimeSpan.FromSeconds(5));
+            await SceneFixtures.AwaitPendingWork(objects.PendingWork).WaitAsync(TimeSpan.FromSeconds(5));
         }
         Assert.Fail("Settlement object builds did not settle.");
         throw new InvalidOperationException();
