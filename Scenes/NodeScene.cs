@@ -761,7 +761,7 @@ internal sealed class NodeScene : IAsyncDisposable
     private PlatformMap Platforms(SceneWorldSnapshot input) => platformMaps.GetValue(input, value =>
     {
         var problems = ImmutableArray.CreateBuilder<SceneProblem>();
-        var stops = SettlementObjects.Platforms(value, layout!, problems);
+        var stops = settlement.Platforms(value, layout!, problems);
         return new(stops, problems.ToImmutable());
     });
 
