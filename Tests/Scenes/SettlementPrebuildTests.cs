@@ -37,7 +37,7 @@ public sealed class SettlementPrebuildTests
             await filled.Task;
             objects.Pump(snapshot, layout, allowBuild: false);
             release.Set();
-            await Task.WhenAll(objects.PendingWork);
+            await SceneFixtures.AwaitPendingWork(objects.PendingWork);
             objects.Pump(snapshot, layout, allowBuild: false);
             Assert.AreEqual(2, started);
             Assert.IsFalse(objects.HasPendingBuilds);
@@ -120,7 +120,7 @@ public sealed class SettlementPrebuildTests
         {
             for (var pass = 0; pass < 8; pass++)
             {
-                await Task.WhenAll(scene.PendingWork);
+                await SceneFixtures.AwaitPendingWork(scene.PendingWork);
                 scene.Pump();
                 if (scene.PendingWork.Length == 0) return;
             }
@@ -212,7 +212,7 @@ public sealed class SettlementPrebuildTests
             {
                 objects.Pump(snapshot, layout, range);
                 if (objects.PendingWork.Length == 0) return;
-                await Task.WhenAll(objects.PendingWork);
+                await SceneFixtures.AwaitPendingWork(objects.PendingWork);
             }
             Assert.Fail("Settlement work did not settle.");
         }

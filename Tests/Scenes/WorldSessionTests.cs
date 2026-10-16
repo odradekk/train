@@ -59,7 +59,7 @@ public sealed class WorldSessionTests
         var frame = Present(session, displayed);
         while (session.PendingObjectBuilds.Length > 0)
         {
-            await Task.WhenAll(session.PendingObjectBuilds);
+            await SceneFixtures.AwaitPendingWork(session.PendingObjectBuilds);
             frame = Present(session, displayed);
         }
         return frame;
@@ -438,7 +438,7 @@ public sealed class WorldSessionTests
             var latestContent = changeDesign ? SceneFixtures.Content(Evaluation) : SceneFixtures.Content(evaluation, hash);
             session.Observe(Snapshot(2, instance: latest, content: latestContent), []);
             gated.Release.Set();
-            await Task.WhenAll(session.PendingObjectBuilds);
+            await SceneFixtures.AwaitPendingWork(session.PendingObjectBuilds);
             var discarded = Present(session, during);
             Assert.AreEqual(oldHit.Cell, Hit(discarded).Cell);
             Assert.IsInstanceOfType<ScenePick.Miss>(discarded.Pick(Ray with { Origin = new(3.5f, 0.5f, -2) }));
