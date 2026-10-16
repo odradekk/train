@@ -128,7 +128,7 @@ internal sealed class DeveloperToolsFixture
         var node = new NodeView(new(new(1), new(0, 0), new(new("fixture:terrain"), 0, []), new NodeOccupant.Empty(), [], 0, 1, null), [], 80, 0, 80);
         var train = new TrainView(new(1), new TrainPosition.Node(new(1), null, null, NodeTravelPhase.Waiting, 80, null), TrainActivity.Stopped, [], new(1),
             0, 0, 0, 0, 0, 0, null, null, 0, new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0),
-            [], null, [], TrainOrderFacing.FirstEndLeading);
+            [], null, [], TrainOrderFacing.FirstEndLeading, null);
         return new(new(step, 0), HostCoreScenario.Input, revision: new(step))
         {
             World = new(1, new("fixture:railway"), 100, 100, [node.Map], [], [new(new(1), train.Position, train.Activity)], [], []),

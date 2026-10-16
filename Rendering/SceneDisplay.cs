@@ -21,6 +21,8 @@ internal sealed class SceneDisplay : IDisposable
     private readonly Dictionary<(SceneObjectId Object, int Index), PreparedVisual> _pendingVisuals = [];
     private readonly Dictionary<SceneObjectId, Node3D> _pendingRoots = [];
     private static readonly TimeSpan PreparationBudget = TimeSpan.FromMilliseconds(4);
+    private static ulong _budgetFrame;
+    private static TimeSpan _preparationTime;
     internal Func<long> Timestamp { get; set; } = Stopwatch.GetTimestamp;
 
     internal Node3D Root { get; } = new() { Name = "SceneDisplay" };
@@ -45,12 +47,18 @@ internal sealed class SceneDisplay : IDisposable
             return null;
         }
         _preparingFrame = frame;
+        var processFrame = Engine.GetProcessFrames();
+        if (_budgetFrame != processFrame)
+        {
+            _budgetFrame = processFrame;
+            _preparationTime = TimeSpan.Zero;
+        }
         var started = Timestamp();
         var preparedResource = false;
         var update = frame.Update;
         var next = update.Base is null ? new Dictionary<SceneObjectId, DisplayObject>() : new(_objects);
         bool BudgetExpired() => preparedResource &&
-            Stopwatch.GetElapsedTime(started, Timestamp()) >= PreparationBudget;
+            _preparationTime + Stopwatch.GetElapsedTime(started, Timestamp()) >= PreparationBudget;
         try
         {
             foreach (var id in update.Removed) next.Remove(id);
@@ -111,6 +119,10 @@ internal sealed class SceneDisplay : IDisposable
         {
             CancelPreparation();
             throw;
+        }
+        finally
+        {
+            _preparationTime += Stopwatch.GetElapsedTime(started, Timestamp());
         }
     }
 

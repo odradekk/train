@@ -56,8 +56,25 @@ internal static class CommandDiagnostics
             "generation_failed" => "世界生成失败。",
             _ => ""
         };
-        var subject = problem.Subject is null ? "" : $"；对象：{problem.Subject}";
+        var subject = problem.Subject is null ? "" : $"；对象：{DescribeSubject(problem.Subject)}";
         var related = problem.RelatedIdentities.IsEmpty ? "" : $"；关联：{string.Join("、", problem.RelatedIdentities)}";
         return $"{explanation}（{problem.Code}/{problem.Field}{subject}{related}）";
     }
+
+    private static string DescribeSubject(WorldObjectId subject) => subject switch
+    {
+        WorldObjectId.Node node => $"节点 {node.Id.Value}",
+        WorldObjectId.Edge edge => $"线路 {edge.Id.Value}",
+        WorldObjectId.Train train => $"列车 {train.Id.Value}",
+        WorldObjectId.Instance { Id: InstanceId.Vehicle vehicle } => $"车辆 {vehicle.Id.Value}",
+        WorldObjectId.Instance { Id: InstanceId.Building building } => $"建筑 {building.Id.Value}",
+        WorldObjectId.Settlement settlement => $"聚居地 {settlement.Id.Value}",
+        WorldObjectId.Inventory inventory => $"库存 {inventory.Id.Value}",
+        WorldObjectId.Job job => $"任务 {job.Id.Value}",
+        WorldObjectId.Combat combat => $"战斗 {combat.Id.Value}",
+        WorldObjectId.Creature creature => $"生物 {creature.Id.Value}",
+        WorldObjectId.CreatureGroup group => $"生物群 {group.Id.Value}",
+        WorldObjectId.Lair lair => $"巢穴 {lair.Id.Value}",
+        _ => "未知对象"
+    };
 }

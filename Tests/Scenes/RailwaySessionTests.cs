@@ -4,6 +4,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
 using Train.Core.Contracts;
+using Train.Core.ContractSupport;
 using Train.Scenes.Contracts;
 
 namespace Train.Scenes.Tests;
@@ -196,7 +197,7 @@ public sealed class RailwaySessionTests
         { entered.TrySetResult(); release.Wait(token); return RailwayFixtures.EmptySegment(input, path, index, token); });
         try
         {
-            await Task.WhenAll(scene.PendingWork);
+            await SceneFixtures.AwaitPendingWork(scene.PendingWork);
             var target = new WorldSceneTarget.Location(new WorldLocation.Edge(RailwayFixtures.Edge, 1));
             scene.Present(snapshot, null, target, Request, Stamp(1), null);
             await entered.Task;
@@ -212,6 +213,40 @@ public sealed class RailwaySessionTests
     }
 
     [TestMethod]
+    public async Task EndpointNodeLayoutFailureUsesBuildFailedDiagnostic()
+    {
+        var snapshot = RailwayFixtures.Snapshot(4, 4, 0, content: Content(RailwayFixtures.Vehicle()),
+            trains: [RailwayFixtures.Train(0, [new(1), new(2)])],
+            instances: [RailwayFixtures.Instance(), RailwayFixtures.Instance(2)]);
+        var world = snapshot.Core.World;
+        var coincident = world.Nodes[0] with { Id = new(3) };
+        var invalidEntry = world.Edges[0] with { Id = new(2), End = coincident.Id };
+        snapshot = snapshot with
+        {
+            Core = new FixedCoreReadView
+            {
+                Position = snapshot.Core.Position,
+                InputIdentity = snapshot.Core.InputIdentity,
+                World = world with { Nodes = world.Nodes.Add(coincident), Edges = world.Edges.Add(invalidEntry) },
+                Nodes = world.Nodes.ToDictionary(node => node.Id, node => snapshot.Core.FindNode(node.Id)),
+                Edges = world.Edges.ToDictionary(edge => edge.Id, edge => snapshot.Core.FindEdge(edge.Id)),
+                Trains = world.Trains.ToDictionary(train => train.Id, train => snapshot.Core.FindTrain(train.Id)),
+                Instances = new[] { new InstanceId.Vehicle(new(1)), new InstanceId.Vehicle(new(2)) }
+                    .ToDictionary(id => (InstanceId)id, id => snapshot.Core.FindInstance(id))
+            }
+        };
+        await using var session = Open(snapshot);
+        session.RequestView(new WorldSceneTarget.Follow(new(1), new(1)));
+
+        var frame = Present(session);
+
+        Assert.AreEqual(SceneReadiness.Failed, frame.Readiness);
+        Assert.IsTrue(frame.Diagnostics.Any(problem => problem.Code == "build_failed" &&
+            problem.Detail == "The node entry bearing is invalid."));
+        Assert.IsFalse(frame.Diagnostics.Any(problem => problem.Code == "scene_internal_fault"));
+    }
+
+    [TestMethod]
     public async Task UnknownVehicleLengthUsesMarkersAndBuildFailureHasItsOwnDiagnostic()
     {
         var evaluation = RailwayFixtures.Vehicle() with { Core = null };
@@ -224,7 +259,7 @@ public sealed class RailwaySessionTests
         var invalid = RailwayFixtures.Snapshot(10, 20);
         await using var failed = Open(invalid);
         failed.RequestView(new WorldSceneTarget.Location(new WorldLocation.Edge(RailwayFixtures.Edge, 0)));
-        await Task.WhenAll(failed.PendingRailwayBuilds);
+        await SceneFixtures.AwaitPendingWork(failed.PendingRailwayBuilds);
         var rejected = Present(failed);
         Assert.AreEqual(SceneReadiness.Failed, rejected.Readiness);
         Assert.IsTrue(rejected.Diagnostics.Any(problem => problem.Code == "build_failed"));

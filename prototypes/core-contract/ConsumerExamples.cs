@@ -30,6 +30,9 @@ public static class ConsumerExamples
         return (view.World, view.FindLocation(location), view.FindTrain(train));
     }
 
+    public static ulong? ReadPlatformQueueEnteredStep(TrainView train)
+        => train.PlatformQueueEnteredStep;
+
     public static SubmissionResult BuyGoods(ICoreSession session, TradeQuoteRequest request, Money maximum)
         => session.Submit(new CoreCommand.BuyGoods(request.Train, request.Settlement,
             request.LocalInventory, request.Good, request.Quantity, maximum), CommandSource.UserInterface);

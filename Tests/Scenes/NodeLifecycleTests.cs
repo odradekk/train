@@ -13,7 +13,7 @@ public sealed class NodeLifecycleTests
     private static SceneFrame Present(WorldSceneSession session, ISceneFrame? displayed = null) =>
         (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(Request, displayed)).Value;
     private static WorldSceneSession Open(SceneWorldSnapshot snapshot,
-        Func<SceneWorldSnapshot, NodeId, NodeScene.Built?, CancellationToken, NodeScene.Built>? build = null) =>
+        Func<SceneWorldSnapshot, NodeId, NodeScene.Cached?, CancellationToken, NodeScene.Built>? build = null) =>
         new(new(Guid.NewGuid()), snapshot, WorldSceneSession.Generate, new(), new(), build);
 
     [TestMethod]

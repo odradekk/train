@@ -70,9 +70,16 @@ public class EconomyPlanUiTests(Node testScene) : TestClass(testScene)
             UiCapture.ConfigureWindowIfNeeded(TestScene.GetTree().Root);
             economy.OpenSettlement(new(status.Binding, host.Content!.Generation, new WorldObjectId.Settlement(settlementId)), settlementId);
             var specificationLabel = economy.FindChildren("CurrentSpecification", "Label", true, false).Cast<Label>()
-                .Single(label => label.Text.Contains("core:test"));
+                .Single(label => label.Text.Contains("界面验证流程"));
             var specification = specificationLabel.Text;
             var batchText = Find<Label>(specificationLabel.GetParent(), "Batch").Text;
+            var revision = host.Content.Core.Processes.Single(item => item.Details is ProcessDetails.Production { Id.Value: "core:test" }).Revision.Value;
+            Require(specification.StartsWith($"当前定义：界面验证流程 · 修订 {revision[..8]}\n") &&
+                batchText.StartsWith($"进行中批次：界面验证流程 · 启动修订 {batch!.StartedFromRevision.Value[..8]}\n"),
+                "生产页未展示流程名称和八位短修订。");
+            Require(!specification.Contains("core:test") && !batchText.Contains("core:test") &&
+                !specification.Contains(revision) && !batchText.Contains(batch!.StartedFromRevision.Value),
+                "生产页将定义标识用作名称，或仍显示完整修订。");
             var populationText = Find<Label>(economy, "Population").Text;
             Require(specification.Contains("100001") && batchText.Contains("100000") && batchText.Contains("不同"),
                 "生产页未区分当前工作量与进行中批次冻结工作量。");

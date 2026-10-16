@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Godot;
+using Train.Content.Contracts;
 using Train.Core.Contracts;
 
 namespace Train.Ui;
@@ -61,8 +62,9 @@ internal partial class EconomyPanels
                 (ProcessRef.Recovery p, ProcessDetails.Recovery d) => p.Definition == d.Id,
                 _ => false
             });
-            row.CurrentSpecification.Text = facility.Process is null ? "当前计划：未选择流程" : process is null ? "当前流程定义缺失" :
-                $"当前定义：{ProcessName(facility.Process)} · 修订 {process.Revision.Value}\n工作量 {process.WorkRequired} · 每工作电力 {process.PowerPerWork:0.###} · 劳动 {process.LaborPerWork:0.###}";
+            row.CurrentSpecification.Text = facility.Process is null ? "当前计划：未选择流程" : $"当前定义：{ProcessName(facility.Process)}";
+            if (process is not null)
+                row.CurrentSpecification.Text += $" · 修订 {ShortRevision(process.Revision)}\n工作量 {process.WorkRequired} · 每工作电力 {process.PowerPerWork:0.###} · 劳动 {process.LaborPerWork:0.###}";
             ImmutableArray<GoodsQuantity> outputs = process?.Details switch
             {
                 ProcessDetails.Production p => p.Outputs, ProcessDetails.Recovery p => p.Outputs,
@@ -71,7 +73,7 @@ internal partial class EconomyPanels
             row.CurrentOutputs.Visible = process is not null;
             RefreshProductionGoods(row.Outputs, outputs);
             row.Batch.Text = facility.Batch is { } batch
-                ? $"进行中批次：{ProcessName(batch.Process)} · 启动修订 {batch.StartedFromRevision.Value}\n冻结工作量 {batch.FrozenWorkRequired} · 已完成 {batch.ProgressWork:0.###} · 进度 {batch.Progress:P1}\n{(batch.CurrentSpecificationDiffers ? "当前规格与批次冻结规格不同" : "当前规格与批次冻结规格一致")}\n本批次按冻结规格完成，下一批使用当前定义。\n冻结产出："
+                ? $"进行中批次：{ProcessName(batch.Process)} · 启动修订 {ShortRevision(batch.StartedFromRevision)}\n冻结工作量 {batch.FrozenWorkRequired} · 已完成 {batch.ProgressWork:0.###} · 进度 {batch.Progress:P1}\n{(batch.CurrentSpecificationDiffers ? "当前规格与批次冻结规格不同" : "当前规格与批次冻结规格一致")}\n本批次按冻结规格完成，下一批使用当前定义。\n冻结产出："
                 : "没有进行中批次。";
             RefreshProductionGoods(row.FrozenOutputs, facility.Batch?.FrozenOutputs ?? []);
             row.OutputBuffer.Text = facility.OutputBuffer.IsEmpty ? "输出缓冲：空" : "输出缓冲（尚未入库）：";
@@ -106,6 +108,14 @@ internal partial class EconomyPanels
         rows.Control.Visible = !goods.IsEmpty;
     }
 
-    private static string ProcessName(ProcessRef process) => process switch
-    { ProcessRef.Production p => p.Definition.Value, ProcessRef.Recovery p => p.Definition.Value, _ => process.ToString()! };
+    private string ProcessName(ProcessRef process)
+    {
+        if (_content.FindDefinitionDisplay(new CoreDefinitionReference.Process(process)) is ContentLookup<ContentDisplay>.Found found)
+            return found.Value.Text.Name;
+        var definition = process switch
+        { ProcessRef.Production p => p.Definition.Value, ProcessRef.Recovery p => p.Definition.Value, _ => process.ToString()! };
+        return $"流程定义缺失（定义标识：{definition}）";
+    }
+
+    private static string ShortRevision(SemanticRevision revision) => revision.Value[..Math.Min(8, revision.Value.Length)];
 }

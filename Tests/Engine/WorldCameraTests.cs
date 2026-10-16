@@ -18,6 +18,96 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
     private static readonly WorldObjectId Second = new WorldObjectId.Instance(new InstanceId.Vehicle(new(2)));
 
     [Test]
+    public void Node_free_camera_at_farthest_zoom_and_lowest_pitch_stays_inside_display_radius()
+    {
+        var camera = AttachCamera();
+        try
+        {
+            camera.DisplayedFrame(Frame(bounds: new(new(-200, -200), new(200, 200))), null);
+            camera.Orbit(90, -1000);
+            camera.Zoom(-100);
+            var offset = camera.Camera.Position - camera.Focus;
+            Require(new Vector2(offset.X, offset.Z).Length() < 128,
+                "节点自由相机最远最低时必须留在 64 米显示半径内。");
+        }
+        finally { camera.Free(); }
+    }
+
+    [Test]
+    public void Node_frames_pull_in_far_camera_from_railway_and_same_space_follow()
+    {
+        var camera = AttachCamera();
+        try
+        {
+            var bounds = new ScenePanBounds(new(-200, -200), new(200, 200));
+            camera.DisplayedFrame(Frame(), null, railwayPan: true);
+            camera.Zoom(-100);
+            Require(camera.Camera.Position.DistanceTo(camera.Focus) > 128, "必须先拉远线路相机。");
+            camera.DisplayedFrame(Frame(space: 2, revision: 2, bounds: bounds), null);
+            Require(camera.Camera.Position.DistanceTo(camera.Focus) < 128,
+                "切入节点自由相机的第一帧必须收回已有远距离。");
+
+            camera.DisplayedFrame(Frame(space: 2, revision: 3, bounds: bounds,
+                poses: Poses((First, Pose(0, 0, 0)))), First);
+            camera.Zoom(-100);
+            Require(camera.Camera.Position.DistanceTo(camera.Focus) > 128, "节点内跟随必须仍能拉远。");
+            camera.DisplayedFrame(Frame(space: 2, revision: 4, bounds: bounds), null);
+            Require(camera.Camera.Position.DistanceTo(camera.Focus) < 128,
+                "同一节点内从跟随转为自由相机也必须立即收回距离。");
+        }
+        finally { camera.Free(); }
+    }
+
+    [Test]
+    public void Reopening_a_closed_camera_applies_node_zoom_limit_on_the_first_frame()
+    {
+        var camera = AttachCamera();
+        try
+        {
+            camera.DisplayedFrame(Frame(), null, railwayPan: true);
+            camera.Zoom(-100);
+            Require(camera.Camera.Position.DistanceTo(camera.Focus) > 128, "关闭前必须处于远距离视角。");
+            var focus = camera.Focus;
+            var transform = camera.Camera.Transform;
+            camera.ReleaseFrame();
+            camera.Update(1);
+            camera.Pan(new(1000, 0, 1000));
+            Near(camera.Focus, focus);
+            Near(camera.Camera.Position, transform.Origin);
+            Near(camera.Camera.Basis.Z, transform.Basis.Z);
+
+            camera.DisplayedFrame(Frame(session: new(Guid.NewGuid()),
+                bounds: new(new(-200, -200), new(200, 200))), null);
+            Require(camera.Camera.Position.DistanceTo(camera.Focus) < 128,
+                "新会话节点首帧必须重新应用自由相机缩放上限。");
+        }
+        finally { camera.Free(); }
+    }
+
+    [Test]
+    public void Railway_follow_and_frames_without_node_bounds_keep_existing_zoom_range()
+    {
+        var camera = AttachCamera();
+        try
+        {
+            var frame = Frame(bounds: new(new(-200, -200), new(200, 200)),
+                poses: Poses((First, Pose(0, 0, 0))));
+            camera.DisplayedFrame(frame, null, railwayPan: true);
+            camera.Zoom(-100);
+            var farOffset = camera.Camera.Position - camera.Focus;
+            Require(farOffset.Length() > 128, "线路平移不能受节点上限限制。");
+
+            camera.DisplayedFrame(frame, First);
+            camera.Zoom(-100);
+            Near(camera.Camera.Position - camera.Focus, farOffset);
+            camera.DisplayedFrame(Frame(revision: 2), null);
+            camera.Zoom(-100);
+            Near(camera.Camera.Position - camera.Focus, farOffset);
+        }
+        finally { camera.Free(); }
+    }
+
+    [Test]
     public void Node_pan_clamps_to_declared_bounds_and_missing_bounds_disable_pan()
     {
         var camera = AttachCamera();
@@ -80,7 +170,12 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public void Space_transition_maps_follow_lag_and_preserves_relative_view()
+    public void Space_transition_maps_follow_lag_and_preserves_relative_view() => CheckFollowTransition(closed: false);
+
+    [Test]
+    public void Closing_and_reopening_a_follow_camera_preserves_pose_and_smoothing() => CheckFollowTransition(closed: true);
+
+    private void CheckFollowTransition(bool closed)
     {
         var camera = AttachCamera();
         try
@@ -93,8 +188,16 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
             var lag = camera.Focus - oldTarget;
             var offset = camera.Camera.Position - camera.Focus;
             var forward = camera.Camera.Basis.Z;
+            if (closed)
+            {
+                camera.ReleaseFrame();
+                Near(camera.Focus, oldTarget + lag);
+                Near(camera.Camera.Position - camera.Focus, offset);
+                Near(camera.Camera.Basis.Z, forward);
+            }
             var newTarget = new Vector3(-700, 5, 900);
-            camera.DisplayedFrame(Frame(space: 2, revision: 3,
+            camera.DisplayedFrame(Frame(space: closed ? 1UL : 2UL, revision: 3,
+                session: closed ? new SceneSessionId(Guid.NewGuid()) : null,
                 poses: Poses((First, Pose(-700, 5, 900, Mathf.Pi / 2)))), First);
             Near(camera.Focus, newTarget + lag.Rotated(Vector3.Up, Mathf.Pi / 2));
             Near(camera.Camera.Position - camera.Focus, offset.Rotated(Vector3.Up, Mathf.Pi / 2));

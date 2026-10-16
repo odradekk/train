@@ -235,6 +235,8 @@ NPC 现车使用独立的 `KeyedRandom` 版本 1，不消费上述阶段的随�
 
 场景从 `WorldSummary.WorldSeed` 取得当前世界的原始种子，普通读档与严格重放均保留它，不要求宿主解析核心载荷。`WorldSummary.RailwayRule` 是本局所选铁路规则身份，体素据此查询内容的曲线半径与坡度资料，不从规则目录猜选项。`SimulationTime` 公开既定的每秒 60 步及每步秒数，这是构建常量，不是可配置的另一套时钟。以上查询和下述列车显示状态由[体素公开契约](https://github.com/odradekk/train/issues/289)补齐。
 
+`TrainView.PlatformQueueEnteredStep` 为当前有效站台申请首次入队的模拟步，可空。仅当列车位于节点、尚未进入 Departing、当前计划需要友方站台、尚未持有站台预约且已有申请队龄时非空；此条件与查询中的 `platform_wait` 阻塞一致，包含尚在 Approaching 的申请者。站台分配依次按该值、`TrainId.Value` 升序决定；不同入口共享同一节点的站台申请顺序。出线等待、已获站台及未申请列车返回空。该字段投影已有存档队龄，不新增权威状态或改变存档格式。
+
 `TrainPosition.Node(NodeId Id, EdgeId? EnteredFrom, EdgeId? NextEdge, NodeTravelPhase Phase, double DistanceMeters, int? PlatformNumber)` 是节点内唯一权威位置；`NodeTravelPhase` 为 `Approaching / Waiting / Docked / Departing`。删除 `NodeTransitView` 和 `TrainView.NodeTransit`，内部也不另存转场。`EnteredFrom` 为实际进入线路，无进入历史时为空；`NextEdge` 为已决定的下一线路，不承诺预留铁轨，体素只能消费它而不重算路径。`DistanceMeters` 为中心沿节点路径的米数，`PlatformNumber` 为可空预约站台号。`NodeView` 仅增加 `ApproachLengthMeters`、`PlatformLengthMeters`、`DepartureLengthMeters`，不公开限速、总长或停站点；三段尺度和阶段转换见[节点与站台](../design/06-railway.md#节点与站台)。
 
 `TrainPosition.Edge.DistanceMeters` 表示整列长度中心，`TrainView.OrderFacing` 表示车辆列表哪一端沿最近实际行驶方向在前。编组默认首端在前，线路上倒车及节点原路返回时切换标记；节点驶入其他线路时保持，等待中保留最近实际状态。两项均随存档恢复，场景不自行记一份持久朝向。标记不参与牵引、选路或战斗计算；中心间距、成员被毁后的收拢及整列在节点切换的规则见[铁路位置](../design/06-railway.md#位置)。

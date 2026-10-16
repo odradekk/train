@@ -19,6 +19,9 @@ internal sealed class SettlementObjects : IAsyncDisposable
     private readonly Dictionary<(VoxelDefinitionId Good, int Candidate), ScenePoint?> resourcePositions = [];
     private readonly HashSet<InstanceId> retainedBuildings = [];
     private readonly HashSet<InstanceId> retainedParked = [];
+    private ICoreReadView? readView;
+    private Lookup<SettlementView>? settlement;
+    private readonly Dictionary<InstanceId, Lookup<InstanceView>> instances = [];
 
     internal SettlementObjects(Func<string, SceneObjectId> objectId,
         Func<IContentView, InstanceView, BuiltObject>? build = null,
@@ -32,8 +35,9 @@ internal sealed class SettlementObjects : IAsyncDisposable
     }
 
     internal Task[] PendingWork => buildings.PendingWork.Concat(parked.PendingWork).ToArray();
+    internal bool HasPendingBuilds => buildings.HasPendingBuilds || parked.HasPendingBuilds;
 
-    private static Dictionary<BuildingId, (InstanceView Instance, SettlementPlotLayout Plot)> Buildings(
+    private Dictionary<BuildingId, (InstanceView Instance, SettlementPlotLayout Plot)> Buildings(
         SceneWorldSnapshot snapshot, NodeLayout layout)
     {
         var result = new Dictionary<BuildingId, (InstanceView, SettlementPlotLayout)>();
@@ -41,7 +45,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
             foreach (var plot in settlement.Plots)
                 if (plot.Occupant is PlotOccupant.Building building &&
                     template.Plots.FirstOrDefault(item => item.Number == plot.TemplatePlotNumber) is { } placement &&
-                    snapshot.Core.FindInstance(new InstanceId.Building(building.Id)) is Lookup<InstanceView>.Found instance)
+                    Instance(snapshot.Core, new InstanceId.Building(building.Id)) is Lookup<InstanceView>.Found instance)
                     result.Add(building.Id, (instance.Value, placement));
         return result;
     }
@@ -55,7 +59,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
             ? new(new(bounds.Minimum.X, bounds.Minimum.Y, bounds.Minimum.Z),
                 new(bounds.Maximum.X + 1, bounds.Maximum.Y + 1, bounds.Maximum.Z + 1)) : null;
 
-    private static Placement[] BuildingPlacements(SceneWorldSnapshot snapshot, NodeLayout layout) =>
+    private Placement[] BuildingPlacements(SceneWorldSnapshot snapshot, NodeLayout layout) =>
         Buildings(snapshot, layout).OrderBy(pair => pair.Key.Value).Select(pair =>
         {
             var design = snapshot.Content.FindDesign(pair.Value.Instance.Design);
@@ -63,13 +67,13 @@ internal sealed class SettlementObjects : IAsyncDisposable
                 BuildingBounds(design), design);
         }).ToArray();
 
-    private static Placement[] ParkedPlacements(SceneWorldSnapshot snapshot, NodeLayout layout)
+    private Placement[] ParkedPlacements(SceneWorldSnapshot snapshot, NodeLayout layout)
     {
         var result = new List<Placement>();
         var used = new double[layout.Parking.Length];
         foreach (var id in (Settlement(snapshot, layout)?.ParkedVehicles ?? []).OrderBy(id => id.Value).Take(ParkedVehicleLimit))
         {
-            if (snapshot.Core.FindInstance(new InstanceId.Vehicle(id)) is not Lookup<InstanceView>.Found found) continue;
+            if (Instance(snapshot.Core, new InstanceId.Vehicle(id)) is not Lookup<InstanceView>.Found found) continue;
             var instance = found.Value;
             var lookup = snapshot.Content.FindDesign(instance.Design);
             var length = RailwayVehicles.Length((lookup as ContentLookup<DesignEvaluation>.Found)?.Value);
@@ -102,22 +106,41 @@ internal sealed class SettlementObjects : IAsyncDisposable
             ? Math.Pow(item.Pose.Position.X - area.Focus.X, 2) + Math.Pow(item.Pose.Position.Z - area.Focus.Z, 2) : 0).ToArray();
     }
 
-    internal void Pump(SceneWorldSnapshot snapshot, NodeLayout layout, NodeRange? range = null)
+    internal void Pump(SceneWorldSnapshot snapshot, NodeLayout layout, NodeRange? range = null, bool allowBuild = true)
     {
         var placed = Select(BuildingPlacements(snapshot, layout), retainedBuildings, range);
         buildings.Retain(placed.Select(item => item.Instance.Id));
-        foreach (var item in placed) buildings.Prepare(snapshot.Content, item.Instance);
+        foreach (var item in placed) buildings.Prepare(snapshot.Content, item.Instance, allowBuild);
         var vehicles = Select(ParkedPlacements(snapshot, layout), retainedParked, range);
         parked.Retain(vehicles.Select(item => item.Instance.Id));
         foreach (var item in vehicles)
-            if (item.Bounds is not null) parked.Prepare(snapshot.Content, item.Instance);
+            if (item.Bounds is not null) parked.Prepare(snapshot.Content, item.Instance, allowBuild);
     }
 
-    private static SettlementView? Settlement(SceneWorldSnapshot snapshot, NodeLayout layout)
+    private void Observe(ICoreReadView core)
     {
+        if (ReferenceEquals(readView, core)) return;
+        readView = core;
+        settlement = null;
+        instances.Clear();
+    }
+
+    private Lookup<InstanceView> Instance(ICoreReadView core, InstanceId id, bool cacheProjections = true)
+    {
+        if (!cacheProjections) return core.FindInstance(id);
+        Observe(core);
+        if (!instances.TryGetValue(id, out var instance))
+            instances.Add(id, instance = core.FindInstance(id));
+        return instance;
+    }
+
+    private SettlementView? Settlement(SceneWorldSnapshot snapshot, NodeLayout layout, bool cacheProjections = true)
+    {
+        if (cacheProjections) Observe(snapshot.Core);
         var node = snapshot.Core.World.Nodes.Single(item => item.Id == layout.Node);
-        return node.Occupant is NodeOccupant.Settlement settlement &&
-            snapshot.Core.FindSettlement(settlement.Id) is Lookup<SettlementView>.Found found ? found.Value : null;
+        return node.Occupant is NodeOccupant.Settlement owner &&
+            (cacheProjections ? (settlement ??= snapshot.Core.FindSettlement(owner.Id)) : snapshot.Core.FindSettlement(owner.Id))
+                is Lookup<SettlementView>.Found found ? found.Value : null;
     }
 
     internal RenderedDesign Present(SceneWorldSnapshot snapshot, NodeLayout layout, ScenePoint origin,
@@ -196,17 +219,17 @@ internal sealed class SettlementObjects : IAsyncDisposable
         }
     }
 
-    internal static ImmutableArray<NodeLayout.Stop> Platforms(SceneWorldSnapshot snapshot, NodeLayout layout,
-        ImmutableArray<SceneProblem>.Builder problems)
+    internal ImmutableArray<NodeLayout.Stop> Platforms(SceneWorldSnapshot snapshot, NodeLayout layout,
+        ImmutableArray<SceneProblem>.Builder problems, bool cacheProjections = true)
     {
         var stops = new HashSet<NodeLayout.Stop>();
-        var settlement = Settlement(snapshot, layout);
+        var settlement = Settlement(snapshot, layout, cacheProjections);
         if (settlement is not null)
             foreach (var plot in settlement.Plots)
             {
                 if (plot.Size is not (PlotSize.SmallStation or PlotSize.LargeStation) ||
                     plot.Occupant is not PlotOccupant.Building building ||
-                    snapshot.Core.FindInstance(new InstanceId.Building(building.Id)) is not Lookup<InstanceView>.Found instance ||
+                    Instance(snapshot.Core, new InstanceId.Building(building.Id), cacheProjections) is not Lookup<InstanceView>.Found instance ||
                     snapshot.Content.FindDesign(instance.Value.Design) is not ContentLookup<DesignEvaluation>.Found found ||
                     found.Value is DesignEvaluation.Failed || instance.Value.Structure.EffectiveCurrent <= 0) continue;
                 var parts = found.Value switch
@@ -302,6 +325,9 @@ internal sealed class SettlementObjects : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        readView = null;
+        settlement = null;
+        instances.Clear();
         await buildings.DisposeAsync();
         await parked.DisposeAsync();
     }

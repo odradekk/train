@@ -89,7 +89,7 @@ public sealed class NodeRebindTests
         var middle = Snapshot(atNode, 1);
         session.Observe(middle, []);
         var node = await RailwayFixtures.Settled(session, Request, first);
-        await Task.WhenAll(session.PendingPrebuilds);
+        await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
         node = await RailwayFixtures.Settled(session, Request, node);
         Assert.AreEqual(new WorldLocation.Edge(new(2), 4), session.PrebuiltLocation);
         Assert.IsNotNull(nodeCache.Read(new(1)));
@@ -101,10 +101,11 @@ public sealed class NodeRebindTests
         var last = Snapshot(onSecondEdge, 2);
         session.Observe(last, []);
         var second = await RailwayFixtures.Settled(session, Request, node);
-        await Task.WhenAll(session.PendingPrebuilds);
+        await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
         second = await RailwayFixtures.Settled(session, Request, second);
         Assert.AreEqual(new WorldLocation.Node(new(3)), session.PrebuiltLocation);
-        Assert.IsNull(nodeCache.Read(new(1)), "The departed node cannot remain beside the current edge and candidate node.");
+        Assert.IsNull(nodeCache.Read(new(1)), "This fixture has no reusable node parts.");
+        Assert.IsTrue(nodeCache.IdleBytes <= NodeScene.Cache.DefaultIdleBudget);
         Assert.IsNotNull(nodeCache.Read(new(3)));
         Assert.IsNull(railwayCache.Find(last, new(last, new(1)), 0));
         Assert.IsNotNull(railwayCache.Find(last, new(last, new(2)), 0));
@@ -112,10 +113,11 @@ public sealed class NodeRebindTests
         var stopped = Snapshot(onSecondEdge with { SpeedMetersPerSecond = 0 }, 3);
         session.Observe(stopped, []);
         await RailwayFixtures.Settled(session, Request, second);
-        await Task.WhenAll(session.PendingPrebuilds);
+        await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
         await RailwayFixtures.Settled(session, Request, second);
         Assert.IsNull(session.PrebuiltLocation);
-        Assert.IsNull(nodeCache.Read(new(3)), "Canceling the candidate also releases its immutable cache.");
+        Assert.IsNull(nodeCache.Read(new(3)), "An empty candidate leaves no idle cache entry.");
+        Assert.IsTrue(nodeCache.IdleBytes <= NodeScene.Cache.DefaultIdleBudget);
         Assert.IsNotNull(railwayCache.Find(stopped, new(stopped, new(2)), 0));
     }
 

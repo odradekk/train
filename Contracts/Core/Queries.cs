@@ -99,7 +99,7 @@ public sealed record TrainView(TrainId Id, TrainPosition Position, TrainActivity
     double MaximumSpeedMetersPerSecond, RunPlan? Plan, int? NextStopIndex, ulong RemainingDwellSteps,
     TrainEngagementRules Engagement,
     ImmutableArray<CoreProblem> Blockers, RunAccumulatorView? CurrentRun, ImmutableArray<RunReport> RecentReports,
-    TrainOrderFacing OrderFacing);
+    TrainOrderFacing OrderFacing, ulong? PlatformQueueEnteredStep);
 
 [System.Flags]
 public enum InstanceLock { None = 0, UnderRefit = 1, UnderRepair = 2, UnderDeconstruction = 4, Combat = 8 }

@@ -212,7 +212,7 @@ public sealed class NodeSceneTests
         snapshot = RailwayFixtures.ReplaceCore(snapshot, node: snapshot.Core.World.Nodes[2] with { Position = new(700, 0) });
         var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
         var reference = NodeFixtures.Build(snapshot, layout);
-        var prepared = NodeScene.Prepare(snapshot, layout, reference);
+        var prepared = NodeScene.Prepare(snapshot, layout, NodeScene.Cached.From(reference));
         var builds = new List<(string Key, Func<NodeScene.Part> Build)>();
         for (var z = (int)layout.Bounds.Minimum.Y; z < layout.Bounds.Maximum.Y; z += VoxelGrid.ChunkSize)
         for (var x = (int)layout.Bounds.Minimum.X; x < layout.Bounds.Maximum.X; x += VoxelGrid.ChunkSize)
@@ -286,12 +286,12 @@ public sealed class NodeSceneTests
         foreach (var train in snapshot.Core.World.Trains)
             vehicles.Reconcile(snapshot.Content, ((Lookup<InstanceView>.Found)snapshot.Core.FindInstance(
                 new InstanceId.Vehicle(new(train.Id.Value)))).Value, ObjectId);
-        await Task.WhenAll(vehicles.PendingWork);
+        await SceneFixtures.AwaitPendingWork(vehicles.PendingWork);
         await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), ObjectId, vehicles, (_, _, _, _) => built);
         await scene.BuildWork!;
         var stamp = new SceneFrameStamp(new(Guid.NewGuid()), new(1), new(1), 1);
         var frame = scene.Present(snapshot, new(1, null, SceneDebugLayer.None), stamp, null, default);
-        await Task.WhenAll(scene.PendingWork);
+        await SceneFixtures.AwaitPendingWork(scene.PendingWork);
         frame = scene.Present(snapshot, new(1, null, SceneDebugLayer.None), stamp, null, default);
         Assert.AreEqual(SceneReadiness.Ready, frame.Readiness);
         Assert.IsTrue(frame.Objects.Length > 0);
@@ -358,7 +358,7 @@ public sealed class NodeSceneTests
             RenderedDesign Present() => objects.Present(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId), default,
                 ImmutableArray.CreateBuilder<SceneFog>());
             var frame = Present();
-            while (objects.PendingWork.Length > 0) { await Task.WhenAll(objects.PendingWork); frame = Present(); }
+            while (objects.PendingWork.Length > 0) { await SceneFixtures.AwaitPendingWork(objects.PendingWork); frame = Present(); }
             frames.Add(frame);
         }
         CollectionAssert.AreEqual(frames[0].Objects.Select(item => item.Pose).ToArray(), frames[1].Objects.Select(item => item.Pose).ToArray());

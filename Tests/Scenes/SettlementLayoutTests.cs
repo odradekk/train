@@ -42,7 +42,7 @@ public sealed class SettlementLayoutTests
         var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
         var slots = large ? new[] { -80, -40, 40, 80 } : new[] { -40, 40 };
         CollectionAssert.AreEqual(slots.Select(z => (double)z).ToArray(), layout.Stops.Select(stop => stop.LocalZ).ToArray());
-        Assert.AreEqual(slots.Length, layout.StationRoutes(false).Count(), "Empty station plots still determine railway topology.");
+        Assert.AreEqual(slots.Length + 1, layout.StationRoutes(false).Count(), "Empty station plots retain their station lines and the fixed bypass.");
         Assert.AreEqual(2, layout.Parking.Length);
         var length = large ? 256 : 192;
         var halfWidth = large ? 104 : 56;
@@ -88,7 +88,7 @@ public sealed class SettlementLayoutTests
         var template = BuiltIn("agricultural-town");
         var layout = NodeLayout.Build(Snapshot(template, [(600, 0, 1)]), NodeFixtures.NodeId);
         Assert.AreEqual(4, layout.Stops.Length);
-        Assert.AreEqual(2, layout.StationRoutes(false).Count());
+        Assert.AreEqual(3, layout.StationRoutes(false).Count());
         foreach (var plot in template.Plots.Take(2))
         foreach (var localZ in new[] { -40, 40 })
         {
@@ -127,7 +127,7 @@ public sealed class SettlementLayoutTests
         var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
         Assert.IsEmpty(layout.Problems);
         Assert.AreEqual(4, layout.Stops.Length);
-        Assert.AreEqual(2, layout.StationRoutes(false).Count());
+        Assert.AreEqual(3, layout.StationRoutes(false).Count());
         foreach (var entry in layout.Entries)
         {
             var edge = snapshot.Core.World.Edges.Single(item => item.Id == entry.Edge);

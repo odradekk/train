@@ -18,8 +18,43 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
     private static readonly SceneSessionId Session = new(Guid.Parse("7dd364aa-df8f-4144-b345-fc130ea11ca9"));
 
     [Test]
-    public void Cancelled_preparation_releases_resources_without_touching_committed_frame()
+    public async Task Displays_share_the_process_frame_budget_and_each_call_still_progresses()
     {
+        await new UiTestInput(TestScene).Frames(2);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var first = Attach(cache, new FixedContentView());
+        using var second = Attach(cache, new FixedContentView());
+        long timestamp = 0;
+        first.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
+        var processFrame = Godot.Engine.GetProcessFrames();
+        Require(first.Prepare(Frame(1, [Object(1, Mesh()), Object(2, Mesh())])) is null,
+            "先调用的显示器必须先耗尽当前进程帧的预算。");
+        var candidate = Frame(2, [Object(1, Mesh()), Object(2, Mesh()), Object(3, Mesh())]);
+        for (var call = 0; call < 3; call++)
+        {
+            using var partial = second.Prepare(candidate);
+            Require(partial is null,
+                "同一进程帧的后调用者必须共用已耗尽预算，每次只推进一个资源。");
+        }
+        using (var prepared = second.Prepare(candidate))
+        {
+            Require(prepared is not null, "耗尽预算后仍必须逐项推进并最终完成，包含雾资源。");
+            prepared!.Commit();
+        }
+        Require(Godot.Engine.GetProcessFrames() == processFrame, "共享预算断言必须发生在同一真实进程帧。");
+        first.CancelPreparation();
+        await new UiTestInput(TestScene).Frames(2);
+        Require(Godot.Engine.GetProcessFrames() > processFrame, "重置预算前必须经过真实进程帧。");
+        first.Timestamp = () => 0;
+        using var next = first.Prepare(candidate);
+        Require(next is not null, "下一进程帧必须恢复共享额度，让零耗时资源一次完成。");
+    }
+
+    [Test]
+    public async Task Cancelled_preparation_releases_resources_without_touching_committed_frame()
+    {
+        await new UiTestInput(TestScene).Frames(2);
         using var dispatcher = new GodotMainThreadDispatcher();
         using var cache = new AssetResourceCache(dispatcher);
         var asset = Png("superseded-texture");
@@ -50,11 +85,13 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         prepared!.Commit();
         Require(ReferenceEquals(display.DisplayedFrame, latest) && display.Objects.Count == 1,
             "必须提交最新候选，不能接入已被取代的对象。");
+        await new UiTestInput(TestScene).Frames(2);
     }
 
     [Test]
-    public void Full_replacement_uses_the_same_preparation_budget()
+    public async Task Full_replacement_uses_the_same_preparation_budget()
     {
+        await new UiTestInput(TestScene).Frames(2);
         using var dispatcher = new GodotMainThreadDispatcher();
         using var cache = new AssetResourceCache(dispatcher);
         using var display = Attach(cache, new FixedContentView());
@@ -72,6 +109,7 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         prepared!.Commit();
         Require(ReferenceEquals(display.DisplayedFrame, replacement) && display.Objects.Count == 2 &&
             !GodotObject.IsInstanceValid(oldRoot), "完整替换必须一次发布全部新对象并释放旧对象。");
+        await new UiTestInput(TestScene).Frames(2);
     }
 
     [Test]

@@ -28,7 +28,7 @@ internal static class EconomyFixture
         var train = new TrainView(new(7), new TrainPosition.Node(new(1), null, null, NodeTravelPhase.Waiting, 80, null), TrainActivity.Stopped,
             [new(10)], new(12), 0, 20, 10, 100, 0, 30,
             null, null, 0, new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, .2),
-            [], null, [], TrainOrderFacing.FirstEndLeading);
+            [], null, [], TrainOrderFacing.FirstEndLeading, null);
         var purchasedTrain = train with { Id = new(8), Vehicles = [new(9)], Inventory = new(13) };
         var existingVehicleId = new InstanceId.Vehicle(new(10));
         var existingVehicle = new InstanceView(existingVehicleId, new("fixture-vehicle"), new("fixture-composition"), location,
@@ -130,7 +130,9 @@ internal static class EconomyFixture
         };
     }
 
-    internal static FixedContentView Content(ulong generation = 1, bool missingMarketRule = false, int maxLeaseMultiple = 3)
+    internal static FixedContentView Content(ulong generation = 1, bool missingMarketRule = false, int maxLeaseMultiple = 3,
+        ImmutableArray<ProcessProjection> processes = default,
+        IReadOnlyDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>? definitionDisplays = null)
     {
         var icon = new AssetRevision("fixture-food-png");
         var bytes = ImmutableArray.CreateRange(Convert.FromBase64String(
@@ -140,10 +142,12 @@ internal static class EconomyFixture
             60, 10, new(1), new(1), new(10000), (long)LeaseDuration, maxLeaseMultiple);
         var projection = HostContentScenario.CreateProjection(HostCoreScenario.Input) with
         {
-            MarketRules = missingMarketRule ? [] : [market with { Id = new("fixture:another-market"), LeaseDurationTicks = 120 }, market]
+            MarketRules = missingMarketRule ? [] : [market with { Id = new("fixture:another-market"), LeaseDurationTicks = 120 }, market],
+            Processes = processes.IsDefault ? [] : processes
         };
         return new(projection, new(generation))
         {
+            DefinitionDisplays = definitionDisplays ?? ImmutableDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>.Empty,
             SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
             {
                 [new(1)] = new ContentLookup<SettlementLayoutProjection>.NotFound()
