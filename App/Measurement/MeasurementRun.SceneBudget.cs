@@ -22,6 +22,7 @@ internal sealed partial class MeasurementRun
     private long _sceneDrawCount, _sceneDragDraw;
     private object? _sceneProbeDetail, _sceneFirstNearDetail;
     private ProbeState? _sceneLoggedProbeState;
+    private readonly List<object> _sceneProbeEvents = [];
     private double _sceneObserverSeconds;
     private readonly List<SceneProbeCost> _sceneProbeCosts = [];
     [StructLayout(LayoutKind.Sequential)]
@@ -57,7 +58,7 @@ internal sealed partial class MeasurementRun
         string Speed, bool Paused, string? Request, string? Space, string? Readiness,
         bool? NearAvailable, bool DragIssued, bool LoadingLabel, bool Overlay,
         string[] BlockingControls, bool ModalWindow, int Picks, double CheckSeconds,
-        double PreviousObserverSeconds, object? Probe, object? Presented, long Draw, long PrivateBytes, long WorkingSetBytes,
+        double PreviousObserverSeconds, ProbeState? Probe, object? Presented, long Draw, long PrivateBytes, long WorkingSetBytes,
         long PeakPrivateBytes, long PeakWorkingSetBytes, ulong BufferBytes, ulong TextureBytes, ulong VideoBytes);
 
     private async Task RunSceneBudget()
@@ -248,6 +249,7 @@ internal sealed partial class MeasurementRun
         _sceneCapturedPartial = false;
         _sceneProbeDetail = _sceneFirstNearDetail = null;
         _sceneLoggedProbeState = null;
+        _sceneProbeEvents.Clear();
         _probeState = new("no_frame", null, 0, 0, 0, 0, 0, 0, false);
         _sceneOpeningFrames.Clear(); _sceneChecks.Clear(); _sceneProbeCosts.Clear();
         var before = SceneCacheState();
@@ -290,6 +292,8 @@ internal sealed partial class MeasurementRun
         var validationStarted = Seconds();
         if (_scenario != "scene-reference") ValidateReadyReference();
         var validationSeconds = Seconds() - validationStarted;
+        foreach (var state in _sceneProbeEvents) _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(state, SceneJson));
+        _sceneProbeEvents.Clear();
         foreach (var cost in _sceneProbeCosts) _sceneCostTrace!.WriteLine(JsonSerializer.Serialize(cost, SceneJson));
         _sceneCostTrace!.Flush();
         _sceneCompletedOperations++;
@@ -458,13 +462,13 @@ internal sealed partial class MeasurementRun
             _sceneTrace.WriteLine(JsonSerializer.Serialize(sample, SceneJson));
             if (_sceneOperation is not null && _sceneLoggedProbeState != _probeState)
             {
-                _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(new { kind = "probe-state", operation = _sceneOperation,
+                _sceneProbeEvents.Add(new { kind = "probe-state", operation = _sceneOperation,
                     draw = _sceneDrawCount, at = now, state = _probeState,
-                    detail = checkedNear ? _sceneProbeDetail : null }, SceneJson));
+                    detail = checkedNear ? _sceneProbeDetail : null });
                 _sceneLoggedProbeState = _probeState;
             }
             loggingSeconds += Seconds() - loggingStarted;
-            if (now - _sceneLastLoadSample >= 1 && (_sceneOperation is null || _sceneOperable > 0 || _scenario == "scene-reference"))
+            if (now - _sceneLastLoadSample >= 1 && (_sceneOperation is null || _scenario == "scene-reference"))
             {
                 var loadRecord = new { kind = "active-load", phase = _scenePhase, load = SceneLoadCounts() };
                 loggingStarted = Seconds();
