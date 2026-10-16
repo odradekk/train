@@ -60,6 +60,9 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
             await _input.WaitUntil(() => setup.Session.SubmitCount == 1);
             Require(ui.ErrorText.Contains("insufficient_money/wallet") && ui.ErrorText.Contains("insufficient_capacity/inventory") &&
                 ui.ErrorText.Contains("reason-a") && ui.ErrorText.Contains("reason-b"), "拒绝原因未完整显示。");
+            Require(ui.ErrorText.Contains("聚居地 1") && ui.ErrorText.Contains("库存 10") && !ui.ErrorText.Contains("{"),
+                "拒绝提示中的对象未按可读种类和编号显示。");
+            await UiCapture.Capture(TestScene, "economy-command-rejection");
             Require(Find<LineEdit>(economy, "Quantity").Text == "1", "拒绝丢失数量输入。");
             await _input.Frames(3);
             Require(setup.Session.SubmitCount == 1, "拒绝后自动重提命令。");

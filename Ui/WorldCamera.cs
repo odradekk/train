@@ -8,6 +8,7 @@ internal partial class WorldCamera : Node3D
 {
     internal const float DefaultDistance = 48f;
     internal const float MaximumDistance = 240f;
+    internal const float NodeMaximumDistance = 96f;
     private const float OrbitSensitivity = 0.006f;
     private const float MinimumPitch = 0.15f;
     private const float MaximumPitch = 1.35f;
@@ -23,6 +24,7 @@ internal partial class WorldCamera : Node3D
     private float _pitch = 0.55f;
     private float _distance = DefaultDistance;
     private bool _hasFollowPose;
+    private ScenePanBounds? NodePanBounds => _follow is null && !_railwayPan ? _frame?.NodePanBounds : null;
 
     public Vector3 Focus { get; private set; }
     public Camera3D Camera { get; } = new() { Fov = 60f, Near = 0.1f, Far = 4000f };
@@ -73,7 +75,7 @@ internal partial class WorldCamera : Node3D
                 _bodyYaw = _targetYaw;
         }
         _hasFollowPose = pose is not null;
-        ClampFocus();
+        ClampNodeView();
         PlaceCamera();
     }
 
@@ -101,7 +103,8 @@ internal partial class WorldCamera : Node3D
 
     public void Zoom(float amount)
     {
-        _distance = Mathf.Clamp(_distance * Mathf.Exp(-amount * 0.15f), 8f, MaximumDistance);
+        _distance = Mathf.Clamp(_distance * Mathf.Exp(-amount * 0.15f), 8f,
+            NodePanBounds is null ? MaximumDistance : NodeMaximumDistance);
         PlaceCamera();
     }
 
@@ -122,15 +125,18 @@ internal partial class WorldCamera : Node3D
         if (_frame is null || _follow is not null || !_railwayPan && _frame.NodePanBounds is null)
             return;
         Focus += new Vector3(horizontal.X, 0f, horizontal.Z);
-        ClampFocus();
+        ClampNodeView();
         PlaceCamera();
     }
 
-    private void ClampFocus()
+    private void ClampNodeView()
     {
-        if (_follow is null && !_railwayPan && _frame?.NodePanBounds is { } bounds)
+        if (NodePanBounds is { } bounds)
+        {
             Focus = new Vector3(Mathf.Clamp(Focus.X, bounds.Minimum.X, bounds.Maximum.X),
                 Focus.Y, Mathf.Clamp(Focus.Z, bounds.Minimum.Y, bounds.Maximum.Y));
+            _distance = Mathf.Min(_distance, NodeMaximumDistance);
+        }
     }
 
     private void PlaceCamera()

@@ -18,6 +18,70 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
     private static readonly WorldObjectId Second = new WorldObjectId.Instance(new InstanceId.Vehicle(new(2)));
 
     [Test]
+    public void Node_free_camera_at_farthest_zoom_and_lowest_pitch_stays_inside_display_radius()
+    {
+        var camera = AttachCamera();
+        try
+        {
+            camera.DisplayedFrame(Frame(bounds: new(new(-200, -200), new(200, 200))), null);
+            camera.Orbit(90, -1000);
+            camera.Zoom(-100);
+            var offset = camera.Camera.Position - camera.Focus;
+            Require(new Vector2(offset.X, offset.Z).Length() < 128,
+                "节点自由相机最远最低时必须留在 64 米显示半径内。");
+        }
+        finally { camera.Free(); }
+    }
+
+    [Test]
+    public void Node_frames_pull_in_far_camera_from_railway_and_same_space_follow()
+    {
+        var camera = AttachCamera();
+        try
+        {
+            var bounds = new ScenePanBounds(new(-200, -200), new(200, 200));
+            camera.DisplayedFrame(Frame(), null, railwayPan: true);
+            camera.Zoom(-100);
+            Require(camera.Camera.Position.DistanceTo(camera.Focus) > 128, "必须先拉远线路相机。");
+            camera.DisplayedFrame(Frame(space: 2, revision: 2, bounds: bounds), null);
+            Require(camera.Camera.Position.DistanceTo(camera.Focus) < 128,
+                "切入节点自由相机的第一帧必须收回已有远距离。");
+
+            camera.DisplayedFrame(Frame(space: 2, revision: 3, bounds: bounds,
+                poses: Poses((First, Pose(0, 0, 0)))), First);
+            camera.Zoom(-100);
+            Require(camera.Camera.Position.DistanceTo(camera.Focus) > 128, "节点内跟随必须仍能拉远。");
+            camera.DisplayedFrame(Frame(space: 2, revision: 4, bounds: bounds), null);
+            Require(camera.Camera.Position.DistanceTo(camera.Focus) < 128,
+                "同一节点内从跟随转为自由相机也必须立即收回距离。");
+        }
+        finally { camera.Free(); }
+    }
+
+    [Test]
+    public void Railway_follow_and_frames_without_node_bounds_keep_existing_zoom_range()
+    {
+        var camera = AttachCamera();
+        try
+        {
+            var frame = Frame(bounds: new(new(-200, -200), new(200, 200)),
+                poses: Poses((First, Pose(0, 0, 0))));
+            camera.DisplayedFrame(frame, null, railwayPan: true);
+            camera.Zoom(-100);
+            var farOffset = camera.Camera.Position - camera.Focus;
+            Require(farOffset.Length() > 128, "线路平移不能受节点上限限制。");
+
+            camera.DisplayedFrame(frame, First);
+            camera.Zoom(-100);
+            Near(camera.Camera.Position - camera.Focus, farOffset);
+            camera.DisplayedFrame(Frame(revision: 2), null);
+            camera.Zoom(-100);
+            Near(camera.Camera.Position - camera.Focus, farOffset);
+        }
+        finally { camera.Free(); }
+    }
+
+    [Test]
     public void Node_pan_clamps_to_declared_bounds_and_missing_bounds_disable_pan()
     {
         var camera = AttachCamera();
