@@ -22,7 +22,7 @@ internal sealed class NodeTrainPath
     internal double Length => returnsToEntry ? 2 * StopArc : path.Length;
 
     internal NodeTrainPath(NodeLayout layout, NodeView dimensions, TrainPosition.Node position, NodeLayout.Stop stop,
-        double trainLengthCells = 0, Func<EdgeId, RailwayPath>? adjacent = null)
+        double trainLengthCells, Func<EdgeId, RailwayPath>? adjacent)
     {
         this.layout = layout; this.adjacent = adjacent;
         a = dimensions.ApproachLengthMeters; p = dimensions.PlatformLengthMeters; d = dimensions.DepartureLengthMeters;

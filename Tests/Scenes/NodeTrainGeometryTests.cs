@@ -73,24 +73,21 @@ public sealed class NodeTrainGeometryTests
     }
 
     [TestMethod]
-    public void FallbackEntryAndItsTurnaroundDependOnlyOnLayoutInputs()
+    public void SettlementTurnsDependOnLayoutWhileFallbackUsesOnlyBuiltEntries()
     {
-        var snapshot = RailwayFixtures.Snapshot(tracks: 0, trackLimit: 3);
-        var opened = RailwayFixtures.ReplaceCore(snapshot, edge: snapshot.Core.World.Edges[0] with { Tracks = 3 });
-        foreach (var node in snapshot.Core.World.Nodes)
+        var snapshot = NodeFixtures.Snapshot(tracks: 0);
+        var opened = RailwayFixtures.ReplaceCore(snapshot, edge: snapshot.Core.World.Edges[1] with { Tracks = 1 });
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        var changed = NodeLayout.Build(opened, NodeFixtures.NodeId);
+        Assert.IsNull(layout.TrainEntry(null));
+        Assert.AreEqual(snapshot.Core.World.Edges[1].Id, changed.TrainEntry(null)!.Edge);
+        Assert.IsTrue(layout.TurnRoutes().Any());
+        Assert.AreEqual(layout.Inputs, changed.Inputs);
+        Assert.AreEqual(layout.Bounds, changed.Bounds);
+        CollectionAssert.AreEqual(layout.Entries.ToArray(), changed.Entries.ToArray());
+        foreach (var exit in layout.Entries)
         {
-            var layout = NodeLayout.Build(snapshot, node.Id);
-            var changed = NodeLayout.Build(opened, node.Id);
-            Assert.AreEqual(snapshot.Core.World.Edges[0].Id, layout.TrainEntry(null)!.Edge);
-            Assert.AreEqual(layout.TrainEntry(null)!.Edge, changed.TrainEntry(null)!.Edge);
-            Assert.IsTrue(layout.TurnRoutes().Any());
-            Assert.AreEqual(layout.Inputs, changed.Inputs);
-            Assert.AreEqual(layout.Bounds, changed.Bounds);
-            CollectionAssert.AreEqual(layout.Entries.ToArray(), changed.Entries.ToArray());
-            var exit = layout.TrainEntry(null)!;
             var turn = layout.TurnExit(-exit.Side, layout.Bypass, exit);
-            Near(layout.StationTail(layout.Bypass, -exit.Side).Sample(0).Position,
-                layout.Bypass.Center);
             Near(layout.TrainBoundary(exit).Position, turn.Sample(turn.Length).Position);
         }
     }

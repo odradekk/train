@@ -33,17 +33,16 @@ internal sealed partial class NodeLayout
     private readonly Dictionary<(EdgeId, int, int), Track> connections = [];
     private ImmutableArray<RailwaySample> samples = [];
     internal int Platforms { get; }
-    internal double HalfSize => Math.Max(Math.Max(Math.Abs(Bounds.Minimum.X), Math.Abs(Bounds.Minimum.Y)),
-        Math.Max(Math.Abs(Bounds.Maximum.X), Math.Abs(Bounds.Maximum.Y)));
     internal string Inputs { get; }
     internal ImmutableArray<Entry> Entries { get; private set; }
     internal Vector3 StationForward { get; }
     private readonly double radius;
+    private readonly bool hasSettlement;
     private NodeLayout(NodeId node, int platforms, string inputs,
-        ImmutableArray<Entry> entries, Vector3 stationForward, double radius)
+        ImmutableArray<Entry> entries, Vector3 stationForward, double radius, bool hasSettlement)
     {
         Node = node; Platforms = platforms; Inputs = inputs;
-        Entries = entries; StationForward = stationForward; this.radius = radius;
+        Entries = entries; StationForward = stationForward; this.radius = radius; this.hasSettlement = hasSettlement;
     }
 
     internal static NodeLayout Build(SceneWorldSnapshot snapshot, NodeId id, CancellationToken cancellation = default)
@@ -123,28 +122,24 @@ internal sealed partial class NodeLayout
         }
         var halfSize = Math.Ceiling((extent + corridor + GroundMargin + (directions.Length > 0 ? RailwayCoordinates.CellFootprintMargin : 0)) / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize;
         var result = new NodeLayout(id, 0, ReadInputs(snapshot, id),
-            entries.Select(item => item.Entry).OrderBy(entry => entry.Edge.Value).ToImmutableArray(), axis, radius)
+            entries.Select(item => item.Entry).OrderBy(entry => entry.Edge.Value).ToImmutableArray(), axis, radius,
+            node.Occupant is NodeOccupant.Settlement)
             { Template = template, Bypass = new(0, 0, new(0, 0, 0), axis) };
         result.ReadEntryTracks(snapshot);
         var turnEnvelope = new ScenePanBounds(new((float)-halfSize), new((float)halfSize));
         result.PrepareTurns(turnEnvelope, rules.MaximumGrade);
-        foreach (var route in result.turnRails)
-        for (var arc = 0.0; arc < route.Length + 4; arc += 4)
-        {
-            var point = route.Sample(Math.Min(arc, route.Length)).Position;
-            halfSize = Math.Max(halfSize, Math.Ceiling((Math.Max(Math.Abs(point.X), Math.Abs(point.Z)) +
-                RailwayCoordinates.BedBaseHalfWidth + RailwayCoordinates.BedBlendWidth + GroundMargin) / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize);
-        }
-        result.Bounds = new(new((float)-halfSize), new((float)halfSize));
+        result.Bounds = result.IncludeTurns(turnEnvelope);
         for (var i = 0; i < entries.Count; i++)
         {
             var (entry, grid, separation) = entries[i];
-            double ToFace(double coordinate, float outward) => Math.Abs(outward) < 1e-8 ? double.PositiveInfinity :
-                (Math.CopySign(halfSize, outward) - coordinate) / outward;
-            var stem = Math.Min(ToFace(entry.Point.X, entry.Outward.X), ToFace(entry.Point.Z, entry.Outward.Z));
+            double Face(double coordinate, float direction, double min, double max) => Math.Abs(direction) < 1e-8 ? double.PositiveInfinity :
+                ((direction > 0 ? max : min) - coordinate) / direction;
+            var stem = Math.Min(Face(entry.Point.X, entry.Outward.X, result.Bounds.Minimum.X, result.Bounds.Maximum.X),
+                Face(entry.Point.Z, entry.Outward.Z, result.Bounds.Minimum.Y, result.Bounds.Maximum.Y));
             var desired = RailwayCoordinates.Add(entry.Point, entry.Outward * (float)stem);
-            entries[i] = (entry with { Point = new(grid.X + Math.Round(desired.X - grid.X), 0,
-                grid.Z + Math.Round(desired.Z - grid.Z)), StraightLength = stem }, grid, separation);
+            var point = new ScenePoint(grid.X + Math.Round(desired.X - grid.X), 0, grid.Z + Math.Round(desired.Z - grid.Z));
+            entries[i] = (entry with { Point = point,
+                StraightLength = Vector3.Dot(RailwayCoordinates.Relative(point, entry.Point), entry.Outward) }, grid, separation);
         }
         result.Entries = entries.Select(item => item.Entry).OrderBy(entry => entry.Edge.Value).ToImmutableArray();
         // Boundary snapping slightly shifts the entry fan; reuse its final geometry exactly.
@@ -159,7 +154,8 @@ internal sealed partial class NodeLayout
         var world = snapshot.Core.World;
         var node = world.Nodes.Single(item => item.Id == id);
         var rule = snapshot.Content.FindRailwayAppearance(world.RailwayRule);
-        return RailwayDependencies.Values(new object[] { id, node.Position, NodeSettlement.Inputs(NodeSettlement.Read(snapshot, id)),
+        return RailwayDependencies.Values(new object[] { id, node.Position, node.Occupant is NodeOccupant.Settlement,
+            NodeSettlement.Inputs(NodeSettlement.Read(snapshot, id)),
             world.Edges.Where(edge => edge.Start == id || edge.End == id).OrderBy(edge => edge.Id.Value)
                 .Select(edge => new object[] { edge.Id, edge.TrackLimit, edge.LengthMeters, edge.Terrain.Relief,
                     world.Nodes.Single(other => other.Id == (edge.Start == id ? edge.End : edge.Start)).Position }).ToArray(),
@@ -262,28 +258,18 @@ internal sealed partial class NodeLayout
         var maximum = templateBounds.Maximum + new Vector2(GroundMargin);
         foreach (var line in parking)
         { Include(line.Start, GroundMargin); Include(RailwayCoordinates.Add(line.Start, line.Forward * (float)line.Length), GroundMargin); }
-        foreach (var entry in entries)
-        for (var lane = 1 - entry.TrackLimit; lane < entry.TrackLimit; lane++)
-        for (var line = 0; line < lines.Length; line++)
-        {
-            var track = Connect(entry, lane, lines[line]);
-            for (var arc = 0.0; arc < track.Length + 4; arc += 4)
-                Include(track.Sample(Math.Min(arc, track.Length)).Position, RailwayCoordinates.TerrainHalfWidth(entry.TrackLimit) + GroundMargin);
-        }
-        var result = new NodeLayout(id, stops.Count, ReadInputs(snapshot, id), entries.ToImmutableArray(), axis, radius)
+        var result = new NodeLayout(id, stops.Count, ReadInputs(snapshot, id), entries.ToImmutableArray(), axis, radius, true)
         { Template = template, Stops = stops.ToImmutable(), Parking = parking, Problems = problems.ToImmutable(), routeStops = lines, Bypass = bypass };
         result.ReadEntryTracks(snapshot);
-        foreach (var entry in entries)
-        for (var lane = 1 - entry.TrackLimit; lane < entry.TrackLimit; lane++)
-        for (var line = 0; line < lines.Length; line++) result.connections.Add((entry.Edge, lane, line), Connect(entry, lane, lines[line]));
+        ConnectEntries();
+        foreach (var (key, track) in result.connections)
+        for (var arc = 0.0; arc < track.Length + 4; arc += 4)
+            Include(track.Sample(Math.Min(arc, track.Length)).Position,
+                RailwayCoordinates.TerrainHalfWidth(entries.Single(entry => entry.Edge == key.Item1).TrackLimit) + GroundMargin);
         var turnEnvelope = new ScenePanBounds(minimum, maximum);
         result.PrepareTurns(turnEnvelope, rule.MaximumGrade);
-        foreach (var route in result.turnRails)
-        for (var arc = 0.0; arc < route.Length + 4; arc += 4)
-            Include(route.Sample(Math.Min(arc, route.Length)).Position,
-                RailwayCoordinates.BedBaseHalfWidth + RailwayCoordinates.BedBlendWidth + GroundMargin);
-        minimum = new(MathF.Floor(minimum.X / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize, MathF.Floor(minimum.Y / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize);
-        maximum = new(MathF.Ceiling(maximum.X / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize, MathF.Ceiling(maximum.Y / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize);
+        var finalBounds = result.IncludeTurns(turnEnvelope);
+        minimum = finalBounds.Minimum; maximum = finalBounds.Maximum;
         for (var i = 0; i < entries.Count; i++)
         {
             var entry = entries[i];
@@ -298,15 +284,20 @@ internal sealed partial class NodeLayout
         }
         result.Entries = entries.ToImmutableArray();
         result.Bounds = new(minimum, maximum);
-        result.connections.Clear();
-        foreach (var entry in result.Entries)
-        for (var lane = 1 - entry.TrackLimit; lane < entry.TrackLimit; lane++)
-        for (var line = 0; line < lines.Length; line++) result.connections.Add((entry.Edge, lane, line), Connect(entry, lane, lines[line]));
+        ConnectEntries();
         result.PrepareTurns(turnEnvelope, rule.MaximumGrade);
         result.PrepareTrainRoutes();
         result.CaptureSamples(snapshot);
         return result;
 
+        void ConnectEntries()
+        {
+            result.connections.Clear();
+            foreach (var entry in result.Entries)
+            for (var lane = 1 - entry.TrackLimit; lane < entry.TrackLimit; lane++)
+            for (var line = 0; line < lines.Length; line++)
+                result.connections.Add((entry.Edge, lane, line), Connect(entry, lane, lines[line]));
+        }
         ScenePoint Target(Stop stop, int side)
         {
             var projection = Vector3.Dot(RailwayCoordinates.Relative(stop.Center, default), axis);
@@ -332,6 +323,21 @@ internal sealed partial class NodeLayout
         }
         void Include(ScenePoint p, double margin)
         { var at = new Vector2((float)p.X, (float)p.Z); minimum = Vector2.Min(minimum, at - new Vector2((float)margin)); maximum = Vector2.Max(maximum, at + new Vector2((float)margin)); }
+    }
+
+    private ScenePanBounds IncludeTurns(ScenePanBounds bounds)
+    {
+        var minimum = bounds.Minimum; var maximum = bounds.Maximum;
+        var margin = new Vector2((float)(RailwayCoordinates.BedBaseHalfWidth + RailwayCoordinates.BedBlendWidth + GroundMargin));
+        foreach (var route in turnRails)
+        for (var arc = 0.0; arc < route.Length + 4; arc += 4)
+        {
+            var point = route.Sample(Math.Min(arc, route.Length)).Position;
+            var at = new Vector2((float)point.X, (float)point.Z);
+            minimum = Vector2.Min(minimum, at - margin); maximum = Vector2.Max(maximum, at + margin);
+        }
+        return new(new(MathF.Floor(minimum.X / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize, MathF.Floor(minimum.Y / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize),
+            new(MathF.Ceiling(maximum.X / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize, MathF.Ceiling(maximum.Y / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize));
     }
 
     private void CaptureSamples(SceneWorldSnapshot snapshot)

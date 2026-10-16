@@ -352,9 +352,6 @@ internal sealed class NodeScene : IAsyncDisposable
     internal SceneFrame Present(SceneWorldSnapshot snapshot, SceneFrameRequest request, SceneFrameStamp stamp,
         SceneFrame? displayed, ScenePoint origin, WorldSceneTarget? target = null, SceneWorldSnapshot? previous = null)
     {
-#if DEBUG
-        using var measurement = new NodePresentDiagnostics.Measurement(Node.Value);
-#endif
         if (layout is null && pending?.IsCompleted == true) Pump(snapshot, allowBuild: false);
         var (start, seconds) = SceneFrame.SampleTime(snapshot, previous, request.Interpolation);
         var objects = ImmutableArray.CreateBuilder<SceneObject>();
@@ -522,9 +519,11 @@ internal sealed class NodeScene : IAsyncDisposable
         var stationNumber = 0;
         foreach (var route in layout.StationRoutes(anyTracks))
             AddRoute("station-tracks:" + stationNumber++, stationKey, route.Sample, route.Length);
+        var turnKey = RailwayDependencies.Values(new object[] { layout.Inputs, anyTracks,
+            layout.Entries.Select(entry => layout.EntryTracks[entry.Edge]).ToArray() });
         var turnNumber = 0;
         foreach (var route in anyTracks ? layout.TurnRoutes() : [])
-            AddRoute("turnaround:" + turnNumber++, stationKey, route.Sample, route.Length);
+            AddRoute("turnaround:" + turnNumber++, turnKey, route.Sample, route.Length);
         var parkingNumber = 0;
         foreach (var line in layout.Parking)
             AddRoute("parking-tracks:" + parkingNumber++, layout.Inputs,
@@ -792,9 +791,8 @@ internal sealed class NodeScene : IAsyncDisposable
 
         double Waiting(TrainView train)
         {
-            var entry = layout!.TrainEntry(((TrainPosition.Node)train.Position).EnteredFrom);
-            var inlet = entry is null ? waiting * RailwayCoordinates.CellsPerMeter : layout.Approach(entry, layout.Bypass).Inlet.Length;
-            return NodeTrainPath.WaitingPoint(inlet, dimensions.PlatformLengthMeters > 0 ? train.LengthMeters * RailwayCoordinates.CellsPerMeter / 2 : 0);
+            return new NodeTrainPath(layout!, dimensions, (TrainPosition.Node)train.Position, layout!.Bypass,
+                train.LengthMeters * RailwayCoordinates.CellsPerMeter, AdjacentRailway).WaitingArc;
         }
     }
 

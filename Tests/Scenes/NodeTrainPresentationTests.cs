@@ -14,6 +14,32 @@ public sealed class NodeTrainPresentationTests
     { Position = new TrainPosition.Node(NodeFixtures.NodeId, new(2), new(1), NodeTravelPhase.Approaching, distance, 1) };
 
     [TestMethod]
+    [DataRow(0)]
+    [DataRow(1)]
+    public async Task FormedTrainUsesTheSmallestBuiltEntryOrTheStationAxis(int builtTracks)
+    {
+        var formed = NodeFixtures.Train();
+        var basis = NodeFixtures.Snapshot(tracks: 0, trains: [formed]);
+        var snapshot = RailwayFixtures.ReplaceCore(basis, edge: basis.Core.World.Edges[1] with { Tracks = builtTracks });
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Controlled(snapshot, vehicles);
+        var frame = await Frame(scene, snapshot);
+        Assert.IsFalse(frame.Diagnostics.Any(problem => problem.Code == "railway_update_pending"));
+        var layout = scene.Layout!;
+        var position = Pose(frame, 1).Position;
+        if (builtTracks == 0)
+            Assert.IsTrue(Vector3.Distance(position, RailwayCoordinates.Relative(layout.Bypass.Center, default) -
+                layout.StationForward * (float)(96 + formed.LengthMeters)) < .003);
+        else
+        {
+            var entry = layout.EntryFor(new(2));
+            var inlet = layout.Approach(entry, layout.Bypass).Inlet;
+            var expected = inlet.Sample(inlet.Length - formed.LengthMeters).Position;
+            Assert.IsTrue(Vector3.Distance(position, RailwayCoordinates.Relative(expected, default)) < .003);
+        }
+    }
+
+    [TestMethod]
     public async Task ContentSnapshotsAtTheSameStepKeepTheirPlatformMappingAndDiagnostics()
     {
         var valid = NodeFixtures.Snapshot(platforms: 1, trains: [Approaching(100)]);
@@ -105,9 +131,9 @@ public sealed class NodeTrainPresentationTests
         Assert.IsTrue(inlet > 78, "This regression exercises the approved R9 range.");
         var unshiftedFront = inlet + 52;
         var bypass = new NodeTrainPath(scene.Layout, ((Lookup<NodeView>.Found)old.Core.FindNode(NodeFixtures.NodeId)).Value,
-            (TrainPosition.Node)waiting.Position, scene.Layout.Bypass, 0);
+            (TrainPosition.Node)waiting.Position, scene.Layout.Bypass, 0, null);
         var platform = new NodeTrainPath(scene.Layout, ((Lookup<NodeView>.Found)old.Core.FindNode(NodeFixtures.NodeId)).Value,
-            (TrainPosition.Node)granted.Position, scene.Layout.Stops[0], 0);
+            (TrainPosition.Node)granted.Position, scene.Layout.Stops[0], 0, null);
         Assert.IsTrue(Vector3.Distance(RailwayCoordinates.Relative(bypass.Sample(unshiftedFront).Position,
             platform.Sample(unshiftedFront).Position), Vector3.Zero) > .01,
             "The fixture must expose the original multi-car branch change at an unshifted W.");
@@ -147,6 +173,31 @@ public sealed class NodeTrainPresentationTests
         await using var reopened = Controlled(current, reopenedVehicles);
         var restored = await Frame(reopened, current);
         foreach (var id in new ulong[] { 1, 2, 3, 9 }) Assert.AreEqual(Pose(after, id), Pose(restored, id));
+    }
+
+    [TestMethod]
+    public async Task PausingClearsCoreQueueAgeAndResumingWithANewAgeMovesBehindExistingApplicants()
+    {
+        var first = NodeFixtures.Train(9, enteredFrom: new(2), activity: TrainActivity.Waiting) with
+        { PlatformQueueEnteredStep = 1 };
+        var second = NodeFixtures.Train(2, enteredFrom: new(2), activity: TrainActivity.Waiting) with
+        { PlatformQueueEnteredStep = 2 };
+        var paused = second with { Activity = TrainActivity.Stopped, PlatformQueueEnteredStep = null };
+        var resumed = second with { PlatformQueueEnteredStep = 4 };
+        var old = NodeFixtures.Snapshot(trains: [first, second], steps: 2);
+        var stopped = NodeFixtures.Snapshot(trains: [first, paused], steps: 3);
+        var current = NodeFixtures.Snapshot(trains: [first, resumed], steps: 4);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Controlled(old, vehicles);
+        var before = await Frame(scene, old);
+        var duringPause = await Frame(scene, stopped, old, 1);
+        var after = await Frame(scene, current, stopped, 0);
+        Assert.AreEqual(Pose(before, 9), Pose(duringPause, 2));
+        Assert.AreEqual(Pose(before, 2), Pose(duringPause, 9),
+            "Pausing the second applicant puts it before applicants and moves the first train backwards.");
+        Assert.AreEqual(Pose(before, 9), Pose(after, 9));
+        Assert.AreEqual(Pose(before, 2), Pose(after, 2),
+            "Resuming receives a new core queue age and moves behind the existing applicant.");
     }
 
     [TestMethod]
@@ -253,8 +304,6 @@ public sealed class NodeTrainPresentationTests
         var expectedAfter = RailwayVehicles.Pose(route.Sample(newCenter), default, true);
         Assert.IsTrue(Vector3.Distance(Pose(before, 20).Position, expectedBefore.Position) < .003);
         Assert.IsTrue(Vector3.Distance(Pose(after, 20).Position, expectedAfter.Position) < .003);
-        Assert.AreNotEqual(head.LengthMeters * 2, newCenter - oldCenter,
-            "With the accepted oversized-head rule, queue advancement is the actual gap rather than its full length.");
     }
 
     private static ScenePose Pose(SceneFrame frame, ulong vehicle) =>

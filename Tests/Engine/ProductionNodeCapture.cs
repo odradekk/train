@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Reflection;
 using Godot;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
@@ -18,7 +17,6 @@ public partial class ProductionNodeCapture : Node
     private ulong _draw;
     private string? _lastPhase;
     private bool _worldRecorded;
-    private FieldInfo[] _presentFields = [];
 
     public static void Start(Node root) => root.AddChild(new ProductionNodeCapture { Name = "ProductionNodeCapture" });
 
@@ -29,10 +27,6 @@ public partial class ProductionNodeCapture : Node
         _frames = new(Path.Combine(_directory, "frames.jsonl")) { AutoFlush = true };
         _app = GD.Load<PackedScene>("res://App/App.tscn").Instantiate<Train.App.App>();
         AddChild(_app);
-        var diagnostics = AppDomain.CurrentDomain.GetAssemblies().Single(a => a.GetName().Name == "Train.Scenes")
-            .GetType("Train.Scenes.NodePresentDiagnostics", throwOnError: true)!;
-        _presentFields = new[] { "Calls", "Ticks", "LastTicks", "LastNode" }.Select(name =>
-            diagnostics.GetField(name, BindingFlags.Static | BindingFlags.NonPublic)!).ToArray();
         var layer = new CanvasLayer { Layer = 120 };
         AddChild(layer);
         var bar = new HBoxContainer { Position = new(16, 8) };
@@ -106,10 +100,6 @@ public partial class ProductionNodeCapture : Node
         _frames.WriteLine(JsonSerializer.Serialize(new
         {
             draw = ++_draw, usec = Time.GetTicksUsec(), engineDraw = Godot.Engine.GetFramesDrawn(),
-            stopwatchFrequency = System.Diagnostics.Stopwatch.Frequency,
-            nodePresent = _presentFields.Select(field => field.GetValue(null)).ToArray(),
-            prepareCalls = world?.DiagnosticPrepareCalls, prepareTicks = world?.DiagnosticPrepareTicks,
-            prepareLastTicks = world?.DiagnosticPrepareLastTicks,
             train = (ulong)_train.Value, subject = _subject?.ToString(), phase, corePosition = status?.View.Position,
             trainPosition = train?.Position.ToString(), plan, planLoop = train?.Plan?.Loop, nextStop = train?.NextStopIndex, dwellSteps = train?.RemainingDwellSteps, activity = train?.Activity.ToString(), speed = train?.SpeedMetersPerSecond,
             paused = status?.IsPaused, remainder = status?.Remainder, interpolation = status is null ? (double?)null : Math.Clamp(status.Remainder / SimulationTime.StepSeconds, 0, 1), frame = frame?.Update.Frame,

@@ -17,17 +17,16 @@ internal sealed partial class NodeLayout
     private ImmutableDictionary<EdgeId, int> entryTracks = ImmutableDictionary<EdgeId, int>.Empty;
     internal ImmutableDictionary<EdgeId, int> EntryTracks => entryTracks;
     internal Stop Bypass { get; private set; } = null!;
-    internal IEnumerable<(Func<double, RailwaySample> Sample, double Length)> NewTurnRoutes() =>
-        turnRails.Select(route => ((Func<double, RailwaySample>)route.Sample, route.Length));
     internal IEnumerable<(Func<double, RailwaySample> Sample, double Length)> TurnRoutes() =>
-        NewTurnRoutes().Concat(sharedTurnRails.Where(rail => !Enumerable.Range(1, entryTracks.GetValueOrDefault(rail.Edge))
+        turnRails.Select(route => ((Func<double, RailwaySample>)route.Sample, route.Length))
+        .Concat(sharedTurnRails.Where(rail => !Enumerable.Range(1, entryTracks.GetValueOrDefault(rail.Edge))
             .Any(number => Math.Abs(RailwayCoordinates.TrackOffset(number, entryTracks[rail.Edge]) * 2 /
                 RailwayCoordinates.TrackSpacing - rail.Lane) < ConnectionTolerance))
             .Select(rail => ((Func<double, RailwaySample>)rail.Path.Sample, rail.Path.Length)));
 
     internal Entry? TrainEntry(EdgeId? enteredFrom) => enteredFrom is { } edge
         ? Entries.FirstOrDefault(entry => entry.Edge == edge)
-        : Entries.MinBy(entry => entry.Edge.Value);
+        : Entries.Where(entry => entryTracks.GetValueOrDefault(entry.Edge) > 0).MinBy(entry => entry.Edge.Value);
 
     internal RailwaySample TrainBoundary(Entry entry)
     {
@@ -126,9 +125,8 @@ internal sealed partial class NodeLayout
         turnRails.Clear();
         sharedTurnRails.Clear();
         var stops = Stops.Append(Bypass).Distinct().ToArray();
-        var fallback = TrainEntry(null);
         foreach (var side in Entries.GroupBy(entry => entry.Side)
-            .Where(group => group.Count() >= 2 || group.Any(entry => entry == fallback)).Select(group => -group.Key))
+            .Where(group => group.Count() >= 2 || hasSettlement).Select(group => -group.Key))
         {
             var outward = side * StationForward;
             var right = Vector3.Cross(Vector3.UnitY, outward);

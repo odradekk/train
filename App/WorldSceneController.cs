@@ -12,11 +12,6 @@ namespace Train.App;
 
 internal sealed class WorldSceneController : IDisposable
 {
-#if DEBUG
-    internal long DiagnosticPrepareCalls;
-    internal long DiagnosticPrepareTicks;
-    internal long DiagnosticPrepareLastTicks;
-#endif
     private readonly HostCoordinator _host;
     private readonly IScenesFactory _factory;
     private readonly TrainLogger _logger;
@@ -192,15 +187,7 @@ internal sealed class WorldSceneController : IDisposable
             }
             if (!_display!.IsPreparing && frame.Update.Base is { } baseline && baseline != displayed?.Update.Frame)
             { _fullReplacement = true; return; }
-#if DEBUG
-            var prepareStarted = System.Diagnostics.Stopwatch.GetTimestamp();
-#endif
             using var prepared = _display!.Prepare(frame);
-#if DEBUG
-            DiagnosticPrepareLastTicks = System.Diagnostics.Stopwatch.GetTimestamp() - prepareStarted;
-            DiagnosticPrepareTicks += DiagnosticPrepareLastTicks;
-            DiagnosticPrepareCalls++;
-#endif
             if (prepared is not null)
             {
                 prepared.Commit();

@@ -69,6 +69,34 @@ public sealed class NodeStreamingTests
     }
 
     [TestMethod]
+    public void Rebound_turnaround_mesh_matches_a_cold_build_after_outer_tracks_switch_ends()
+    {
+        var original = WithOuterTracks(new(1));
+        var changed = WithOuterTracks(new(2));
+        var before = NodeScene.Prepare(original, NodeLayout.Build(original, NodeFixtures.NodeId));
+        var rebound = NodeScene.Prepare(changed, NodeLayout.Build(changed, NodeFixtures.NodeId));
+        var moved = rebound.Rails.Values.FirstOrDefault(segment =>
+            segment.Key.StartsWith("turnaround:", StringComparison.Ordinal) &&
+            before.Rails.TryGetValue(segment.Key, out var previous) &&
+            segment.Begin == previous.Begin && segment.End == previous.End &&
+            segment.Sample(segment.Begin).Position != previous.Sample(previous.Begin).Position);
+        Assert.IsNotNull(moved, "Switching the built outer tracks must change geometry under a retained turnaround key.");
+        var old = before.Rails[moved.Key].Build();
+        var reused = moved.Build(old);
+        var expected = moved.Build();
+        NodeFixtures.AssertPartEqual(expected, reused);
+
+        static SceneWorldSnapshot WithOuterTracks(EdgeId built)
+        {
+            var snapshot = NodeFixtures.Snapshot(platforms: 0, platformLengthMeters: 0, tracks: 1, trackLimit: 2, trains: [],
+                content: NodeFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 },
+                    layout: NodeFixtures.Layout with { Plots = [] }));
+            var edge = snapshot.Core.World.Edges.Single(item => item.Id == built);
+            return RailwayFixtures.ReplaceCore(snapshot, edge: edge with { Tracks = 2 });
+        }
+    }
+
+    [TestMethod]
     public async Task Pausing_a_candidate_allows_inflight_parts_to_finish_without_refilling_slots()
     {
         var snapshot = Snapshot(true);

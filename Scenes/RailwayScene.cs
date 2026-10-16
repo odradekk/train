@@ -92,7 +92,9 @@ internal sealed class RailwayScene : IAsyncDisposable
         var (middle, minimum, maximum) = ScheduleSegments(snapshot, focal, followed?.Train, seconds);
         var frame = new FrameContents();
         RenderSegments(origin, minimum, maximum, frame);
-        var waiting = RenderTrains(snapshot.Content, trains, origin, frame);
+        var waiting = false;
+        try { waiting = RenderTrains(snapshot.Content, trains, origin, frame); }
+        catch (RailwayBuildException error) { Fail(error); }
         if (failure is not null) frame.Problems.Add(failure);
         RetireCompletedWork();
         var radius = RailwayCoordinates.ViewRadiusSegments;
