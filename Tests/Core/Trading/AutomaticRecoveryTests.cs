@@ -40,6 +40,7 @@ public sealed class AutomaticRecoveryTests
         InventoryFixture.Accept(session, new CoreCommand.DisbandTrain(new(1)));
         var original = session.Read().Economy.RecentRunReports.Single(r => !r.Totals.IncompleteRules.IsEmpty);
         Assert.AreEqual(new Money(97), original.Totals.PurchasePayments);
+        Assert.IsNull(original.Totals.LoadedCapacityRatio);
 
         var removed = content with { Identity = new(new string('F', 64)),
             Goods = content.Goods.Where(g => g.Good != good).ToImmutableArray() };
@@ -48,6 +49,9 @@ public sealed class AutomaticRecoveryTests
         AssertHistory(session);
         var factory = CoreFactory.Create();
         var decoded = WorldFixture.Success(factory.DecodeState(capture.Encode()));
+        Assert.AreEqual(capture.Encode(), decoded.Encode());
+        Assert.IsInstanceOfType<CheckpointComparison.Equal>(WorldFixture.Success(
+            factory.CompareCheckpoints(capture.Checkpoint, decoded.Checkpoint)));
         using var candidate = WorldFixture.Success(factory.PrepareRestore(decoded, removed, WorldFixture.Options));
         Assert.IsTrue(candidate.MissingReferences.IsEmpty);
         using var restored = candidate.Activate();
@@ -79,6 +83,8 @@ public sealed class AutomaticRecoveryTests
         CollectionAssert.AreEqual(complete.Samples, resumed.Samples);
         CollectionAssert.AreEqual(complete.Events, resumed.Events);
         using var prefix = JsonDocument.Parse(saved.Samples.Single().Query);
+        Assert.AreEqual(JsonValueKind.Null, prefix.RootElement.GetProperty("RecentRunReports")[0]
+            .GetProperty("Totals").GetProperty("LoadedCapacityRatio").ValueKind);
         Assert.AreEqual((int)TrainActivity.Servicing, prefix.RootElement.GetProperty("Activity").GetInt32());
         Assert.AreEqual(307L, prefix.RootElement.GetProperty("CurrentRun").GetProperty("PurchasePayments").GetProperty("Value").GetInt64());
         Assert.AreEqual(1, prefix.RootElement.GetProperty("CurrentRun").GetProperty("IncompleteRules").GetArrayLength());
@@ -113,7 +119,9 @@ public sealed class AutomaticRecoveryTests
             Assert.IsNull(result.Fault);
             Assert.AreEqual(capture.Encode(), replay.CaptureBoundary().Encode());
         }
-        Assert.IsTrue(session.Read().Economy.RecentRunReports.Length > 0);
+        var reports = session.Read().Economy.RecentRunReports;
+        Assert.IsTrue(reports.Length > 0);
+        Assert.IsTrue(reports.All(report => report.Totals.LoadedCapacityRatio is null));
     }
 
     [TestMethod]
@@ -139,6 +147,7 @@ public sealed class AutomaticRecoveryTests
     [DataRow("out_of_range_stop")]
     [DataRow("future_start")]
     [DataRow("future_report")]
+    [DataRow("negative_ratio")]
     public void Automatic_state_corruption_is_rejected_without_activating_a_session(string corruption)
     {
         using var session = AutomaticProcessDriver.Session();
@@ -175,12 +184,21 @@ public sealed class AutomaticRecoveryTests
                 field += "/started_at";
                 break;
             case "future_report":
+            case "negative_ratio":
                 for (var step = 0; step < 10; step++) InventoryFixture.Step(session);
                 root = JsonNode.Parse(WorldFixture.Success(session.Capture(CapturePurpose.Save)).Encode())!;
                 var reports = root["world"]!["recent_run_reports"]!.AsArray();
                 Assert.IsTrue(reports.Count > 0);
-                reports[reports.Count - 1]!["ended_at"]!["completed_steps"] = ulong.MaxValue;
-                field = "/world/recent_run_reports/ended_at";
+                if (corruption == "future_report")
+                {
+                    reports[reports.Count - 1]!["ended_at"]!["completed_steps"] = ulong.MaxValue;
+                    field = "/world/recent_run_reports/ended_at";
+                }
+                else
+                {
+                    reports[reports.Count - 1]!["totals"]!["loaded_capacity_ratio"] = -1;
+                    field = "/world/recent_run_reports/totals";
+                }
                 break;
         }
         AssertInvalid(root, field);
