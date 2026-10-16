@@ -218,7 +218,7 @@ public class WorldSceneTargetTests(Node testScene) : TestClass(testScene)
             [Train] = new Lookup<TrainView>.Found(new(Train, new TrainPosition.Node(new(1), null, null, NodeTravelPhase.Waiting, 80, null), TrainActivity.Stopped,
                 [new(3), new(2), new(1)], new(1), 0, 30, 10, 0, 0, 0, null, null, 0,
                 new(TargetPriority.ArmedFirst, TargetScope.ArmedOnly, EncounterAction.Engage, 0.2),
-                [], null, [], TrainOrderFacing.FirstEndLeading))
+                [], null, [], TrainOrderFacing.FirstEndLeading, null))
         },
         Instances = Enumerable.Range(1, 3).ToDictionary(index => (InstanceId)new InstanceId.Vehicle(new((ulong)index)),
             index => initial && index == 3 || alternatives && index < 3

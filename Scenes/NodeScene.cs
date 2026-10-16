@@ -581,11 +581,12 @@ internal sealed class NodeScene : IAsyncDisposable
         ImmutableArray<PickGrid>.Builder picking, ImmutableArray<SceneProblem>.Builder problems, ImmutableArray<SceneFog>.Builder fog)
     {
         var trains = NodeTrains(snapshot);
+        if (trains.Length == 0) return;
         var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(Node)).Value;
-        var queues = StationaryQueues(trains, dimensions);
+        var queues = QueuePositions(trains, dimensions);
         var platforms = SettlementObjects.Platforms(snapshot, layout!, problems);
         var oldTrains = previous is null ? [] : NodeTrains(previous);
-        var oldQueues = StationaryQueues(oldTrains, dimensions);
+        var oldQueues = QueuePositions(oldTrains, dimensions);
         var oldPlatforms = previous is null ? [] : SettlementObjects.Platforms(previous, layout!, ImmutableArray.CreateBuilder<SceneProblem>());
         foreach (var train in trains)
         {
@@ -647,26 +648,29 @@ internal sealed class NodeScene : IAsyncDisposable
         { objects.AddRange(geometry.Objects); picking.AddRange(geometry.Picking); problems.AddRange(geometry.Diagnostics); }
     }
 
-    private Dictionary<TrainId, (double Offset, bool AtStop)> StationaryQueues(TrainView[] trains, NodeView dimensions)
+    private Dictionary<TrainId, (double Offset, bool AtStop)> QueuePositions(TrainView[] trains, NodeView dimensions)
     {
         var result = new Dictionary<TrainId, (double, bool)>();
         var waiting = dimensions.ApproachLengthMeters;
         var stop = waiting + dimensions.PlatformLengthMeters / 2;
-        var queued = trains.Where(train => train.SpeedMetersPerSecond == 0 &&
-            train.Position is TrainPosition.Node { PlatformNumber: null } position &&
-            (position.Phase == NodeTravelPhase.Waiting && position.DistanceMeters == waiting &&
-                !train.Blockers.Any(problem => problem.Code == "platform_wait") ||
-             position.Phase == NodeTravelPhase.Docked && position.DistanceMeters == stop));
+        var queued = trains.Where(train => train.Position is TrainPosition.Node { PlatformNumber: null } position &&
+            (train.PlatformQueueEnteredStep is not null && position.DistanceMeters <= waiting ||
+             train.SpeedMetersPerSecond == 0 &&
+             (position.Phase == NodeTravelPhase.Waiting && position.DistanceMeters == waiting ||
+              position.Phase == NodeTravelPhase.Docked && position.DistanceMeters == stop)));
         foreach (var group in queued.GroupBy(train =>
-            (((TrainPosition.Node)train.Position).Phase == NodeTravelPhase.Docked ? null : layout!.TrainEntry(((TrainPosition.Node)train.Position).EnteredFrom)?.Edge,
-             AtStop: ((TrainPosition.Node)train.Position).Phase == NodeTravelPhase.Docked)))
+            (((TrainPosition.Node)train.Position).Phase == NodeTravelPhase.Docked || dimensions.PlatformLengthMeters == 0
+                ? null : layout!.TrainEntry(((TrainPosition.Node)train.Position).EnteredFrom)?.Edge,
+             AtStop: dimensions.PlatformLengthMeters > 0 && ((TrainPosition.Node)train.Position).Phase == NodeTravelPhase.Docked)))
         {
-            var ordered = group.OrderBy(train => train.Id.Value).ToArray();
+            var ordered = group.OrderBy(train => train.PlatformQueueEnteredStep is null)
+                .ThenBy(train => train.PlatformQueueEnteredStep).ThenBy(train => train.Id.Value).ToArray();
             var consumed = 0.0;
             foreach (var train in ordered)
             {
                 var offset = consumed + (train.LengthMeters - ordered[0].LengthMeters) / 2;
-                result.Add(train.Id, (offset * RailwayCoordinates.CellsPerMeter, group.Key.AtStop));
+                result.Add(train.Id, (offset * RailwayCoordinates.CellsPerMeter,
+                    ((TrainPosition.Node)train.Position).Phase == NodeTravelPhase.Docked));
                 consumed += train.LengthMeters;
             }
         }

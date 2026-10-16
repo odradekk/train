@@ -212,6 +212,6 @@ internal static class RailwayFixtures
         TrainOrderFacing facing = TrainOrderFacing.FirstEndLeading, double speed = 0) => new(new(trainId),
         new TrainPosition.Edge(Edge, track, direction, distanceMeters), TrainActivity.Running,
         vehicles.IsDefault ? [new(1)] : vehicles, new(trainId), speed, 4, 1, 1, 1, 10, null, null, 0,
-        new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0), [], null, [], facing);
+        new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0), [], null, [], facing, null);
 
 }
