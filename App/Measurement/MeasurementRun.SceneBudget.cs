@@ -72,7 +72,7 @@ internal sealed partial class MeasurementRun
             await LoadSceneInput();
             _identity["warmup_seconds"] = _scenario == "scene-follow-8x" ? 5 : 0;
             _identity["sample_seconds"] = _scenario == "scene-follow-8x" ? 120 : 0;
-            _sceneEvidence["initial_load"] = new { button = _sceneLoadButton, map_drawn = _sceneLastDraw };
+            _sceneEvidence["initial_load"] = new { button = _sceneLoadButton, completed = _sceneLoadCompleted, map_drawn = _sceneLastDraw };
             _sceneEvidence["initial_load_counts"] = SceneLoadCounts();
             // First clicks happen before the steady-map hold. They never wait for a prebuild.
             if (_scenario == "scene-reference")
@@ -186,7 +186,6 @@ internal sealed partial class MeasurementRun
         var index = entries.Select((entry, index) => (entry, index)).Single(pair => pair.entry.Path == copy).index;
         list.Select(index);
         var button = SceneDescendants(panel).OfType<Button>().Single(item => item.Text == "读取选中存档");
-        var previousDraw = _sceneDrawCount;
         _sceneLoadButton = Seconds();
         button.EmitSignal(BaseButton.SignalName.Pressed);
         await Wait(() =>
@@ -201,8 +200,12 @@ internal sealed partial class MeasurementRun
         panel.EmitSignal(Window.SignalName.CloseRequested);
         if (_app.Host!.SetSpeed(SimulationSpeed.One) is not null || _app.Host.SetPaused(false) is not null)
             throw new InvalidOperationException("不能启动测量负载。");
+        var previousDraw = _sceneDrawCount;
         await Wait(() => _sceneDrawCount > previousDraw &&
-            _app.GetNode<MacroMap>("GameUi/Root/World/MacroMap").IsVisibleInTree() && !_app.WorldScenes!.View.Visible);
+            _app.GetNode<MacroMap>("GameUi/Root/World/MacroMap").IsVisibleInTree() && !_app.WorldScenes!.View.Visible &&
+            !panel.Visible && !_app.Saves!.IsBusy);
+        _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(new { kind = "load-map", button = _sceneLoadButton,
+            completed = _sceneLoadCompleted, map_drawn = _sceneLastDraw }, SceneJson));
         if (_app.Host!.GetStatus()!.IsReplay) throw new InvalidDataException("测量输入不能是重放。");
     }
 
