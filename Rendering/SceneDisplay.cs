@@ -227,7 +227,7 @@ internal sealed class SceneDisplay : IDisposable
                 item.Root.GetParent()?.RemoveChild(item.Root);
         }
         var upserts = update.Upserts.Select(item => item.Id).ToHashSet();
-        Root.Position = Vector3.Zero;
+        if (Root.Position != Vector3.Zero) Root.Position = Vector3.Zero;
         foreach (var item in next.Values)
         {
             if (upserts.Contains(item.Source.Id) || _posedObjects.Contains(item.Source.Id) ||
