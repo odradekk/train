@@ -189,8 +189,12 @@ internal sealed class SceneDisplay : IDisposable
             return false;
         if (ReferenceEquals(frame, DisplayedFrame)) return true;
         var displayed = DisplayedFrame!;
-        if (frame.Update.Base is null ||
-            frame.Update.Base != displayed.Update.Frame && frame.Update.Base != displayed.Update.Base ||
+        // 较早完整候选刚提交时P仍无Base，同一范围内已就绪的对象无需再等一帧。
+        if (frame.Update.Base is null && (IsPreparing ||
+            frame.Update.Frame.Session != displayed.Update.Frame.Session ||
+            frame.Update.Frame.Request != displayed.Update.Frame.Request ||
+            frame.Update.Frame.Space != displayed.Update.Frame.Space)) return false;
+        if (frame.Update.Base != displayed.Update.Frame && frame.Update.Base != displayed.Update.Base ||
             frame.Update.Removed.Contains(id)) return false;
         var source = frame.Update.Upserts.FirstOrDefault(source => source.Id == id);
         // 较早候选刚提交时P仍引用旧D；两帧都未更新的对象才可继承同一描述。

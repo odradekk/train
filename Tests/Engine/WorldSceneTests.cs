@@ -223,8 +223,11 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             SceneObject[] objects = [Body(11, subject, 5000), Body(12, nextSubject, -500), Object(13)];
             var pending = Frame(5, objects: [.. objects], origin: new(1000, 0, 0),
                 request: request, space: 2, poses: Poses(5000), pick: new ScenePick.Miss());
-            var latest = Frame(6, objects: [.. objects], origin: new(1000, 0, 0),
-                request: request, space: 2, poses: Poses(5000));
+            var hit = new SceneHit(Stamp(6) with { Request = new(request), Space = new(2) }, new(11),
+                new PickSubject.Terrain(new WorldLocation.Node(new(1))), default, GridFace.PositiveY,
+                default, NVector3.UnitY, 1, []);
+            var latest = Frame(6, objects: [.. objects, Object(14)], origin: new(1000, 0, 0),
+                request: request, space: 2, poses: Poses(5000), pick: new ScenePick.Hit(hit));
             FixedDisplaySession? session = null;
             try
             {
@@ -234,11 +237,15 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
                     RequestResults = ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>>.Empty
                         .Add(target, new SceneResult<SceneRequestId>.Success(new(1)))
                         .Add(nextTarget, new SceneResult<SceneRequestId>.Success(new(2))),
+                    ResolveResults = ImmutableDictionary<SceneHit, SceneResult<PickSubject>>.Empty
+                        .Add(hit, new SceneResult<PickSubject>.Success(hit.Subject)),
                     PresentResults = [Success(first), Success(oldPending),
                         .. cause == "base" ? new[] { Success(Frame(3, Stamp(99))) } : [],
                         Success(loading), Success(pending), Success(latest)]
                 }));
                 var world = app.WorldScenes!;
+                var selected = 0;
+                world.Selected += _ => selected++;
                 world.Open(target);
                 world.Display!.Timestamp = () => 0;
                 world.ProcessFrame(0, false);
@@ -279,6 +286,10 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
                     !world.Display.Objects.ContainsKey(new(1)) && world.Display.Objects.ContainsKey(new(11)),
                     "资源就绪后才应切换到新场景。");
                 Require(world.View.CameraRig.Focus != focus, "提交后相机必须接入新目标帧。");
+                world.Pick(TestScene.GetViewport().GetVisibleRect().Size / 2);
+                Require(selected == 1 && session!.ResolveCalls.SequenceEqual(new[] { hit }) &&
+                    latest.LastPickRay is not null && !world.Display.Objects.ContainsKey(new(14)),
+                    "较早完整候选提交当帧，最新P命中的已显示兼容对象必须可选，新对象仍等待资源。");
             }
             finally { await fixture.Cleanup(); await new UiTestInput(TestScene).Frames(2); }
         }
