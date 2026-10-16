@@ -124,6 +124,8 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 
 除 `scene-reference` 和 `scene-map` 外，所有 `scene-*` 情景必须传 `-ReferencePath`；脚本通过 `--measure-reference` 传给应用，参考数据须匹配输入 SHA 和 HEAD。参考从公开 `SceneObject` 记录轨道、停放车辆的 Subject、位姿和可见几何范围，以公开 `TerrainHeight` 定义线路可操作地形带，不读取私有生成或缓存状态。
 
+每次打开的首个实际绘制 `Ready` 帧另写 `ready-geometry`：从公开 `SceneObject` 按实例汇总 `Parent=null`、`Subject=null` 的非 `BuiltIn` 几何网格顶点数和三角形数（含 authored 地面），内建材质另列。读数标明「替代读数，不是 N／C／F」，只代表该帧已发布内容，不代表整个节点或去重后的 GPU 分配。规模报告同时列输入地面范围及相对 1× 的面积倍数、authored 地面 N／C／F；公开 `NodePanBounds` 是导航范围，另列其口径，不冒称生成地面的精确边界。
+
 新情景在报告 `identity.scene_budget` 引用 `scene-frames.jsonl`、`scene-operations.jsonl` 和 `scene-collections.jsonl`。打开区间的每次 draw 记录全部 Probe 检查及 presented 帧的 stamp、Readiness，保留 Loading／Partial／Ready 时间线；另记输入检查耗时、拾取次数、加载提示、遮挡控件、渲染缓冲区／纹理／总分配。8× 专项的预热和采样期只记录帧时间等逐帧读数，不重复首个可操作探针。进程当前内存每 200 ms 更新，OS 峰值覆盖进程生涯，不能当作可重置的单次操作峰值。外部文件另记可用物理内存、页面输入和读取速率。操作记录包含实际活跃负载、三个显示信号、最长帧、最后检查详情及自动存档写入时间线；公开接口不能观测的预生成／缓存状态标为不可观测。
 
 近处检查使用中心及 16／32 m 两圈共 17 点，节点保留完整圆。线路在每圈与参考 Ready 地形带相交的弧段中均匀取 8 个不同点，保留两圈半径，不按正式运行当前加载区域缩小。跟随中心取当前显示帧中的车辆姿态，相机平滑位置另记。参考记录 64 m 内静态对象，正式门槛为 32 m；跟随中心相对参考中心移动不超过参考 32 m 覆盖范围时为 known，超出则样本无效。正式每个样本到达 Ready 时核对参考近处对象集合，不一致记录 `sample_valid=false`。

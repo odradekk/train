@@ -319,7 +319,11 @@ internal sealed partial class MeasurementRun
             if (frame is not null && _sceneOperation is not null)
             {
                 if (_sceneVisible == 0 && frame.Update.Upserts.Any(item => !item.Visuals.IsEmpty)) _sceneVisible = now;
-                if (frame.Readiness == SceneReadiness.Ready && _sceneReady == 0) _sceneReady = now;
+                if (frame.Readiness == SceneReadiness.Ready && _sceneReady == 0)
+                {
+                    _sceneReady = now;
+                    RecordReadyGeometry(frame, now);
+                }
                 var checking = Seconds();
                 _sceneNearAvailable = CheckNearArea(frame, _subject, out var detail);
                 checkSeconds = Seconds() - checking;
@@ -470,6 +474,28 @@ internal sealed partial class MeasurementRun
         _scenePresented = new { at = started, stamp = frame.Update.Frame.ToString(), readiness = frame.Readiness.ToString(),
             origin = frame.Origin, simulation_seconds = frame.SimulationSeconds, follow_pose = followPose,
             observer_seconds = Seconds() - started };
+    }
+
+    private void RecordReadyGeometry(ISceneFrame frame, double at)
+    {
+        var started = Seconds();
+        var meshes = _app.WorldScenes!.Display!.Objects.Values.Select(item => item.Source)
+            .Where(item => item.Parent is null && item.Subject is null)
+            .SelectMany(item => item.Visuals.OfType<SceneVisual.Geometry>()).Select(item => item.Mesh).ToArray();
+        var terrain = meshes.Where(mesh => mesh.Material is not SceneMaterial.BuiltIn).ToArray();
+        _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(new
+        {
+            kind = "ready-geometry", operation = _sceneOperation, at, frame = frame.Update.Frame.ToString(),
+            label = "替代读数，不是 N／C／F",
+            scope = "first drawn Ready; Parent=null, Subject=null, non-BuiltIn Geometry; includes authored ground; counts per published object, not whole node or unique GPU allocations",
+            terrain_meshes = terrain.Length, terrain_vertices = terrain.Sum(mesh => (long)mesh.Vertices.Length),
+            terrain_triangles = terrain.Sum(mesh => (long)mesh.TriangleIndices.Length / 3),
+            built_in = meshes.Where(mesh => mesh.Material is SceneMaterial.BuiltIn)
+                .GroupBy(mesh => ((SceneMaterial.BuiltIn)mesh.Material).Kind).Select(group => new
+                { material = group.Key.ToString(), meshes = group.Count(), vertices = group.Sum(mesh => (long)mesh.Vertices.Length),
+                    triangles = group.Sum(mesh => (long)mesh.TriangleIndices.Length / 3) }).ToArray(),
+            count_seconds = Seconds() - started
+        }, SceneJson));
     }
 
     private static IEnumerable<Node> SceneDescendants(Node node)
