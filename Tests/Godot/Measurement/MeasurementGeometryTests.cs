@@ -10,6 +10,19 @@ namespace Train.Godot.Tests.Measurement;
 public sealed class MeasurementGeometryTests
 {
     [TestMethod]
+    public void FogExcludesMaximumBoundaryAndItsTangencyWithTheNearArea()
+    {
+        var fog = new SceneBounds(new(-288, -128, 440), new(-256, 128, 472));
+        Assert.IsTrue(MeasurementRun.ProbeFogContains(new(-288, 0, 450), fog));
+        Assert.IsFalse(MeasurementRun.ProbeFogContains(new(-256, 0, 450), fog));
+        Assert.IsFalse(MeasurementRun.ProbeFogContains(new(-270, 0, 472), fog));
+        Assert.IsFalse(MeasurementRun.ProbeFogOverlaps(new(-192, 0, 459.2434f), 64, fog));
+        Assert.IsTrue(MeasurementRun.ProbeFogOverlaps(new(-192.01f, 0, 459.2434f), 64, fog));
+        Assert.IsTrue(MeasurementRun.ProbeFogOverlaps(new(-352, 0, 450), 64, fog));
+        Assert.IsFalse(MeasurementRun.ProbeFogOverlaps(new(-352.01f, 0, 450), 64, fog));
+    }
+
+    [TestMethod]
     public void RailwaySamplesKeepRingRadiusAndDistinctPositionsInsideReferenceTerrain()
     {
         var terrain = new HashSet<(int, int)>();

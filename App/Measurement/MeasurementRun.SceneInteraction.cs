@@ -120,7 +120,7 @@ internal sealed partial class MeasurementRun
         var samplesPassed = 0;
         foreach (var point in pointPositions)
         {
-            var fogged = frame.Update.Environment.FoggedRegions.Any(bounds => ProbeInside(point, bounds));
+            var fogged = frame.Update.Environment.FoggedRegions.Any(bounds => ProbeFogContains(point, bounds));
             var terrain = frame.TerrainHeight(point.X, point.Z);
             _scenePickCount++;
             var pick = frame.Pick(new(point + new NVector(0, 4096, 0), -NVector.UnitY, 8192));
@@ -139,7 +139,7 @@ internal sealed partial class MeasurementRun
                 pick = pick.GetType().Name, resolved, passed });
         }
         var intersectingFog = frame.Update.Environment.FoggedRegions.Count(bounds => node is not null
-            ? ProbeDistance(center, bounds) <= 64 : pointPositions.Any(point => ProbeInside(point, bounds)));
+            ? ProbeFogOverlaps(center, 64, bounds) : pointPositions.Any(point => ProbeFogContains(point, bounds)));
         var expectedBusiness = node is not null ? ExpectedBuildings(frame, new((ulong)node.Value)).ToList() : [];
         if (reference is not null)
             expectedBusiness.AddRange(reference.Objects.Select((item, index) => new ProbeExpected("reference:" + index,
@@ -365,6 +365,15 @@ internal sealed partial class MeasurementRun
     }
     private static bool ProbeInside(NVector point, SceneBounds bounds) => point.X >= bounds.Minimum.X && point.X <= bounds.Maximum.X &&
         point.Z >= bounds.Minimum.Z && point.Z <= bounds.Maximum.Z;
+    // A vertical pick on a fog box's maximum face belongs to the adjacent loaded area.
+    internal static bool ProbeFogContains(NVector point, SceneBounds bounds) => point.X >= bounds.Minimum.X && point.X < bounds.Maximum.X &&
+        point.Z >= bounds.Minimum.Z && point.Z < bounds.Maximum.Z;
+    internal static bool ProbeFogOverlaps(NVector center, double radius, SceneBounds bounds)
+    {
+        var nearest = NVector.Clamp(center, bounds.Minimum, bounds.Maximum);
+        var distance = ProbeDistance(center, bounds);
+        return distance < radius || distance == radius && ProbeFogContains(nearest, bounds);
+    }
     internal static double ProbeDistance(NVector point, SceneBounds bounds) => Math.Sqrt(
         Math.Pow(Math.Max(Math.Max(bounds.Minimum.X - point.X, 0), point.X - bounds.Maximum.X), 2) +
         Math.Pow(Math.Max(Math.Max(bounds.Minimum.Z - point.Z, 0), point.Z - bounds.Maximum.Z), 2));
