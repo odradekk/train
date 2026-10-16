@@ -670,7 +670,7 @@ internal sealed class NodeScene : IAsyncDisposable
             .Select(item => snapshot.Core.FindTrain(item.Id)).OfType<Lookup<TrainView>.Found>()
             .Select(item => item.Value).OrderBy(train => train.Id.Value).ToArray();
         var queues = new Dictionary<EdgeId, double>();
-        var platforms = SettlementObjects.Platforms(snapshot, layout!, problems);
+        var platforms = settlement.Platforms(snapshot, layout!, problems);
         foreach (var train in trains)
         {
             var members = train.Vehicles.Select(id => ((Lookup<InstanceView>.Found)snapshot.Core.FindInstance(new InstanceId.Vehicle(id))).Value).ToArray();
