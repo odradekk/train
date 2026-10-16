@@ -5,7 +5,7 @@
   "generator_version": "stage1-world-v1",
   "save": {
     "id": "0f3cbd28-a389-483a-b550-e302443edd07",
-    "name": "起步燃料贸易",
+    "name": "起步车队贸易",
     "saved_at": "2026-10-16T00:00:00Z"
   },
   "commands": [
@@ -17,13 +17,83 @@
       "kind": "train.replace_run_plan",
       "train": 1,
       "plan": {
-        "loop": false,
+        "loop": true,
         "stops": [
           {
             "kind": "station",
-            "node": 12,
-            "dwell_steps": 1000,
-            "goods_rules": []
+            "node": 14,
+            "dwell_steps": 300,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:staple-food"
+                },
+                "local_inventory": 6,
+                "target_quantity": 40
+              }
+            ]
+          },
+          {
+            "kind": "station",
+            "node": 2,
+            "dwell_steps": 300,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "sell",
+                  "minimum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:staple-food"
+                },
+                "local_inventory": 1,
+                "target_quantity": 0
+              }
+            ]
+          },
+          {
+            "kind": "station",
+            "node": 5,
+            "dwell_steps": 300,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "sell",
+                  "minimum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:staple-food"
+                },
+                "local_inventory": 2,
+                "target_quantity": 0
+              }
+            ]
+          },
+          {
+            "kind": "station",
+            "node": 8,
+            "dwell_steps": 300,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "sell",
+                  "minimum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:staple-food"
+                },
+                "local_inventory": 3,
+                "target_quantity": 0
+              }
+            ]
           }
         ]
       }
@@ -38,19 +108,81 @@
     },
     {
       "at": {
-        "completed_steps": 6517,
+        "completed_steps": 1800,
         "sequence": 0
       },
       "kind": "train.replace_run_plan",
-      "train": 1,
+      "train": 2,
       "plan": {
         "loop": true,
         "stops": [
           {
             "kind": "station",
+            "node": 14,
+            "dwell_steps": 300,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "sell",
+                  "minimum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:fuel"
+                },
+                "local_inventory": 6,
+                "target_quantity": 0
+              },
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:staple-food"
+                },
+                "local_inventory": 6,
+                "target_quantity": 20
+              }
+            ]
+          },
+          {
+            "kind": "station",
+            "node": 13,
+            "dwell_steps": 300,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "sell",
+                  "minimum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:staple-food"
+                },
+                "local_inventory": 5,
+                "target_quantity": 0
+              }
+            ]
+          },
+          {
+            "kind": "station",
             "node": 12,
             "dwell_steps": 300,
             "goods_rules": [
+              {
+                "action": {
+                  "kind": "sell",
+                  "minimum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:staple-food"
+                },
+                "local_inventory": 4,
+                "target_quantity": 0
+              },
               {
                 "action": {
                   "kind": "buy",
@@ -61,7 +193,7 @@
                   "definition": "core:fuel"
                 },
                 "local_inventory": 4,
-                "target_quantity": 1
+                "target_quantity": 10
               }
             ]
           },
@@ -86,6 +218,142 @@
           }
         ]
       }
+    },
+    {
+      "at": {
+        "completed_steps": 1800,
+        "sequence": 1
+      },
+      "kind": "train.start",
+      "train": 2
+    },
+    {
+      "at": {
+        "completed_steps": 3600,
+        "sequence": 0
+      },
+      "kind": "train.replace_run_plan",
+      "train": 3,
+      "plan": {
+        "loop": true,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 12,
+            "dwell_steps": 300,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:fuel"
+                },
+                "local_inventory": 4,
+                "target_quantity": 15
+              }
+            ]
+          },
+          {
+            "kind": "station",
+            "node": 13,
+            "dwell_steps": 300,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:structural-metal"
+                },
+                "local_inventory": 5,
+                "target_quantity": 100
+              }
+            ]
+          },
+          {
+            "kind": "station",
+            "node": 2,
+            "dwell_steps": 300,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "sell",
+                  "minimum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:structural-metal"
+                },
+                "local_inventory": 1,
+                "target_quantity": 0
+              },
+              {
+                "action": {
+                  "kind": "sell",
+                  "minimum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:fuel"
+                },
+                "local_inventory": 1,
+                "target_quantity": 0
+              }
+            ]
+          },
+          {
+            "kind": "station",
+            "node": 5,
+            "dwell_steps": 300,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "sell",
+                  "minimum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:fuel"
+                },
+                "local_inventory": 2,
+                "target_quantity": 0
+              }
+            ]
+          },
+          {
+            "kind": "station",
+            "node": 8,
+            "dwell_steps": 300,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "sell",
+                  "minimum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:fuel"
+                },
+                "local_inventory": 3,
+                "target_quantity": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "at": {
+        "completed_steps": 3600,
+        "sequence": 1
+      },
+      "kind": "train.start",
+      "train": 3
     }
   ],
   "target": {
@@ -93,9 +361,21 @@
     "sequence": 0
   },
   "checkpoint_steps": [
+    54000,
+    108000,
+    162000,
     216000,
+    270000,
+    324000,
+    378000,
     432000,
+    486000,
+    540000,
+    594000,
     648000,
+    702000,
+    756000,
+    810000,
     864000
   ]
 }
