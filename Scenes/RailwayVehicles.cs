@@ -67,6 +67,7 @@ internal sealed class SceneVehicles : IAsyncDisposable
 {
     private readonly Dictionary<InstanceId, BuiltObject> ready = [];
     private readonly Dictionary<InstanceId, InstanceView> current = [];
+    private readonly HashSet<InstanceId> requested = [];
     internal sealed class Cache
     {
         private readonly object gate = new();
@@ -107,11 +108,12 @@ internal sealed class SceneVehicles : IAsyncDisposable
     }
     private readonly CancellationTokenSource cancellation = new();
     internal Task[] PendingWork => pending.Values.Cast<Task>().ToArray();
-    internal bool HasPendingBuilds => pending.Values.Any(task => !task.IsCompleted) || current.Any(pair =>
-        !ready.TryGetValue(pair.Key, out var body) || !WorldSceneSession.Matches(body, pair.Value));
+    internal bool HasPendingBuilds => pending.Values.Any(task => !task.IsCompleted) || requested.Any(id =>
+        !ready.TryGetValue(id, out var body) || !WorldSceneSession.Matches(body, current[id]));
 
     internal void Retain(IEnumerable<InstanceId> instances)
     {
+        requested.Clear();
         live = instances.ToHashSet();
         cache.Retain(owner, live);
         foreach (var id in ready.Keys.Where(id => !live.Contains(id)).ToArray()) ready.Remove(id);
@@ -129,6 +131,7 @@ internal sealed class SceneVehicles : IAsyncDisposable
 
     internal BuiltObject? Prepare(IContentView content, InstanceView instance, bool allowBuild = true)
     {
+        requested.Add(instance.Id);
         current[instance.Id] = instance;
         Drain();
         if (ready.TryGetValue(instance.Id, out var body) && WorldSceneSession.Matches(body, instance))

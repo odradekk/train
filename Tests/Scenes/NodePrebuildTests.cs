@@ -8,6 +8,48 @@ namespace Train.Scenes.Tests;
 public sealed class NodePrebuildTests
 {
     [TestMethod]
+    public async Task A_vehicle_that_leaves_the_scene_without_a_ready_body_does_not_block_follow_prebuilding()
+    {
+        using var content = new SceneFixtures.BlockedAppearanceView(RailwayFixtures.Content(
+            rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 }, design: RailwayFixtures.Vehicle()));
+        var followed = RailwayFixtures.Train(0, direction: TravelDirection.Reverse, speed: 10);
+        var second = RailwayFixtures.Train(1, vehicles: [new(2)], trainId: 2);
+        var leaving = RailwayFixtures.Train(2, vehicles: [new(3)], trainId: 3);
+        var instances = new[] { RailwayFixtures.Instance(), RailwayFixtures.Instance(2), RailwayFixtures.Instance(3) };
+        var initial = RailwayFixtures.Snapshot(4, 4, 0, content: content,
+            trains: [followed, second, leaving], instances: [.. instances]);
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), initial,
+            WorldSceneSession.Generate, new(), new(), RailwayFixtures.EmptyNode);
+        var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
+        try
+        {
+            session.RequestView(new WorldSceneTarget.Follow(new(1), new(1)));
+            var first = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(request, null)).Value;
+            await content.Entered.Task;
+            Assert.AreEqual(RailwayCoordinates.MaxConcurrentBuilds, session.PendingObjectBuilds.Length);
+            Assert.IsTrue(first.Objects.Any(item => item.Subject == new WorldObjectId.Instance(new InstanceId.Vehicle(new(3))) &&
+                item.Visuals.IsEmpty), "The third visible vehicle must wait for a body build slot.");
+            Assert.IsNull(session.PrebuiltLocation);
+
+            var moved = leaving with
+            {
+                Position = new TrainPosition.Node(new(2), RailwayFixtures.Edge, null, NodeTravelPhase.Approaching, 0, null)
+            };
+            var current = RailwayFixtures.Snapshot(4, 4, 0, steps: 1, content: content,
+                trains: [followed, second, moved], instances: [.. instances]);
+            session.Observe(current, []);
+            content.Release.Set();
+            var ready = await RailwayFixtures.Settled(session, request);
+
+            Assert.AreEqual(SceneReadiness.Ready, ready.Readiness);
+            Assert.IsInstanceOfType<Lookup<InstanceView>.Found>(current.Core.FindInstance(new InstanceId.Vehicle(new(3))));
+            Assert.AreEqual(new WorldLocation.Node(new(1)), session.PrebuiltLocation,
+                "A living vehicle outside the current scene must not leave a stale unstarted body request blocking the candidate.");
+        }
+        finally { content.Release.Set(); }
+    }
+
+    [TestMethod]
     public async Task Current_scene_builds_prevent_starting_a_follow_candidate()
     {
         using var content = new SceneFixtures.BlockedAppearanceView(NodeFixtures.Content(
