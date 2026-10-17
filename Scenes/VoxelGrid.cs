@@ -182,6 +182,9 @@ internal sealed class VoxelGrid
 
 internal static class SceneGeometry
 {
+    private static readonly (Vector3 Right, Vector3 Up, Vector3 Forward)[] OrientationAxes =
+        Enum.GetValues<VoxelOrientation>().Select(CreateAxes).ToArray();
+
     internal static RenderedDesign Place(RenderedDesign geometry, ScenePose pose) => geometry with
     {
         Objects = geometry.Objects.Select(item => item.Parent is null
@@ -228,7 +231,11 @@ internal static class SceneGeometry
     }
     internal static (Vector3 Right, Vector3 Up, Vector3 Forward) Axes(VoxelOrientation orientation)
     {
-        if (!Enum.IsDefined(orientation)) throw new ArgumentException("Invalid orientation.", nameof(orientation));
+        if ((uint)orientation >= OrientationAxes.Length) throw new ArgumentException("Invalid orientation.", nameof(orientation));
+        return OrientationAxes[(int)orientation];
+    }
+    private static (Vector3 Right, Vector3 Up, Vector3 Forward) CreateAxes(VoxelOrientation orientation)
+    {
         var name = orientation.ToString();
         var right = Axis(name[..2]);
         var up = Axis(name[2..]);
