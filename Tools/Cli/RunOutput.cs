@@ -64,7 +64,8 @@ internal sealed record TrainPositionSample(string Kind, ulong Id, double Distanc
 
 internal sealed record TrainSample(ulong Id, TrainPositionSample Position, string Activity, ulong Inventory, RunTotalsSample? CurrentRun,
     ImmutableArray<RunReportSample> RecentReports);
-internal sealed record SettlementSample(ulong Id, ulong Node, ulong Inventory, ImmutableArray<ulong> VehiclesForSale);
+internal sealed record SettlementSample(ulong Id, ulong Node, ulong Inventory, ImmutableArray<ulong> VehiclesForSale,
+    ImmutableArray<ulong> CommissionJobs);
 internal sealed record LeaseSample(ulong Id, ulong Settlement, ulong Inventory, ulong ExpiresAtStep, bool Expired);
 internal sealed record GoodsSample(GoodSample Good, long Quantity);
 internal sealed record InventorySample(ulong Id, long Capacity, long Used, long Available, string Access,
@@ -72,7 +73,7 @@ internal sealed record InventorySample(ulong Id, long Capacity, long Used, long 
 
 internal sealed record EconomySample(SimulationPosition Position, long Wallet, ImmutableArray<TrainSample> Trains,
     ImmutableArray<SettlementSample> Settlements, ImmutableArray<LeaseSample> Leases,
-    ImmutableArray<InventorySample> Inventories)
+    ImmutableArray<InventorySample> Inventories, long UnassignedServicePayments)
 {
     internal static EconomySample Read(ICoreReadView view)
     {
@@ -90,13 +91,14 @@ internal sealed record EconomySample(SimulationPosition Position, long Wallet, I
                 train.CurrentRun is { } run ? RunTotalsSample.From(run) : null,
                 train.RecentReports.Select(RunReportSample.From).ToImmutableArray())).ToImmutableArray(),
             settlements.Select(settlement => new SettlementSample(settlement.Id.Value, settlement.Node.Value,
-                settlement.Inventory.Value, settlement.VehiclesForSale.Select(vehicle => vehicle.Value).ToImmutableArray())).ToImmutableArray(),
+                settlement.Inventory.Value, settlement.VehiclesForSale.Select(vehicle => vehicle.Value).ToImmutableArray(),
+                settlement.CommissionJobs.Select(job => job.Value).ToImmutableArray())).ToImmutableArray(),
             leases.Select(lease => new LeaseSample(lease.Id.Value, lease.Settlement.Value, lease.Inventory.Value,
                 lease.ExpiresAtStep, lease.Expired)).ToImmutableArray(),
             inventories.Select(inventory => new InventorySample(inventory.Id.Value, inventory.Capacity,
                 inventory.Used, inventory.Available, inventory.Access.ToString(),
                 inventory.Stacks.Select(stack => new GoodsSample(GoodSample.From(stack.Good), stack.Quantity)).ToImmutableArray()))
-                .ToImmutableArray());
+                .ToImmutableArray(), view.Economy.UnassignedServicePayments.Value);
     }
 
     private static T Found<T>(Lookup<T> lookup) where T : notnull => lookup is Lookup<T>.Found found

@@ -7,9 +7,10 @@
 | `basic-through` | 基础铁路贯通，200 步 | Debug |
 | `starting-trade` | 种子 40、三台起始机车，分线运输主食、燃料和结构金属，运行 4 游戏小时 | Release |
 | `storage-tight` | 列车 1 在起点农业镇自动买入 181 份主食，容量 180 截断成交，719 步 | Debug |
+| `commission-shortage` | 起始车队满载采购后，以空材料来源委托车辆，真实缺货拒绝；同一步的钱包、库存和委托任务不变 | Debug |
 | `lease-expiry` | 租用 1 点仓储、存入主食，越过一天租期后卸货被拒、取货成功，5,184,001 步 | Release |
 
-四个配方共用种子 40、`core:basic-through-world` 与 `stage1-world-v1`，存档元数据固定。满载采购后仍够委托货车的配平条件由 #387 的委托分支配方和阶段三 #300 验收核实。
+这些配方共用种子 40、`core:basic-through-world` 与 `stage1-world-v1`，存档元数据固定。满载采购后仍够委托货车的配平条件由 #387 的委托分支配方和阶段三 #300 验收核实。
 
 ## 基础贯通
 
@@ -57,13 +58,16 @@ Station 的形状为 `{kind:"station",node,dwell_steps,goods_rules}`，省略后
 | `lease.acquire` | `request:{kind:"rent",settlement,capacity,duration_steps}`, `maximum_payment` | 租约示例、短测试 |
 | `inventory.unload_goods`／`inventory.load_goods` | `train,settlement,local_inventory,good,quantity` | 租约示例、短测试 |
 | `market.buy_vehicle` | `seller,vehicle,maximum_payment` | 仅测试专用短配方 |
+| `construction.commission_vehicle_work` | `facility,blueprint,sources,maximum_payment` | 委托材料不足分支 |
+
+CLI 委托目前只支持制造车辆。`facility` 是执行施工的建筑编号，能力固定为 `Construction`；`blueprint` 是内置包中的车辆蓝图身份，由内容模块交出完整设计输入。`sources` 是按消费顺序排列的库存编号数组，必须显式给出，空数组表示整份 BOM 都从当地 NPC 补购。`maximum_payment` 为非负整数。任务优先级为 0；改装和修理的 CLI 配方入口尚未增加，核心修理另由模块用例验证。
 
 租期必须是正式规则一天（5,184,000 步）的整数倍；配方不能借缩短租期加速验证。不支持本票未使用的续租、卖车、手动货物买卖或自动装卸。这些是 CLI 配方能力，没有新增游戏控制台命令，单命令手册不适用。
 
 `run`／`replay`／`resume` 的 JSON 另外包含：
 
-- `samples[]`：位置、钱包，全部列车的位置／活动／库存身份／当前运行累计／近期报告，全部聚居地的库存身份与待售车辆，全部租约的到期状态，以及这些对象引用的库存容量、已用、可用、权限和全部货物。数据直接来自公开查询；报告与当前累计保留 Core 给出的收付款、净现金流、运量、载运率和未完成规则，不重算。近期报告有核心规则规定的保留上限。
-- `command_receipts[]`：配方中的零基 `command_index`、`kind`、`decision`（accepted／rejected）、`problems[{code,field}]`、`quoted_total`。只有现车购买提供执行前的公开报价总额，其他命令为 null；报价不预留交易条件。
+- `samples[]`：位置、钱包、全局未归属委托工钱，全部列车的位置／活动／库存身份／当前运行累计／近期报告，全部聚居地的库存身份、待售车辆与委托任务编号，全部租约的到期状态，以及这些对象引用的库存容量、已用、可用、权限和全部货物。数据直接来自公开查询；报告与当前累计保留 Core 给出的收付款、净现金流、运量、载运率和未完成规则，不重算。近期报告有核心规则规定的保留上限。
+- `command_receipts[]`：配方中的零基 `command_index`、`kind`、`decision`（accepted／rejected）、`problems[{code,field}]`、`quoted_total`。现车购买使用执行前的公开 `QuoteVehicle.Total`，车辆委托使用 `GetJobQuote.TotalPayment`；启动条件不足时为空，单纯资金不足时仍有已计算总额。其他命令为 null；报价不预留交易条件。
 
 现金流按同一运行中钱包余额的差计算，不统计成交笔数。起步例子只使用三台初始机车和货物买卖，不卖车、不租仓、不委托。三车分别在 0、1800、3600 步启动，每站停靠 300 步，按下表循环。买入目标表示车上该货物的目标存量，已有货物只补到目标；卖出目标均为 0，实际成交受目的地可收量限制。
 
@@ -77,9 +81,23 @@ Station 的形状为 `{kind:"station",node,dwell_steps,goods_rules}`，省略后
 
 容量例子要求列车 1 库存 `available == 0`，未完成规则为 `insufficient_capacity / Train.Inventory.Capacity`。租约例子在到期前关闭买入规则，停靠等待；到期后的卸货回执为 `access_denied / LocalInventory`，随后取货回执为 accepted，货物与权限由同位置查询核对。
 
+## 委托缺货分支
+
+`commission-shortage/recipe.json` 使用种子 40 和当前内置起始车队，先真实采购到满载，再于 `4000:0` 向起点农业镇（节点 14、聚居地 6、施工建筑 37）提交 `core:small-locomotive` 制造委托。材料来源为空，总付款上限为 Int64 最大值；设备货物在当地没有可售库存，回执为 `insufficient_goods / Sources`，执行前公开报价的 `TotalPayment` 为空，因此 `quoted_total` 为 null。
+
+| 列车 | 采购地点与货物 | 实际数量／容量 | 实际货款 |
+| --- | --- | --- | --- |
+| 1 | 农业镇 14，主食 | 180／180 | 1,440 |
+| 2 | 农业镇 14，主食 | 180／180 | 1,771 |
+| 3 | 矿镇 13，结构金属 | 180／180 | 2,520 |
+
+共支付 5,731，钱包由 245,780 减至 240,049。委托拒绝前后的 `4000:0` 与 `4000:1` 查询仅命令序号不同：钱包、全部库存及委托任务不变，工钱累计仍为零。保存位置为 `4000:1`；在 `4000:0` 保存并恢复时，拒绝命令仍正常执行，严格重放及检查点后缀与连续运行一致。示例不修改内容、不注入货物，也不证明委托成功受理。
+
+“前面材料可用、最后一项不足仍完全不扣”的场景由 Core 受控用例覆盖；真实配方保留现有内容的缺货结果。满载采购后成功委托小货车及余额验证，等待 #340 的一次性初始库存进入主线后，以最终起始车队和指定设计重做；本分支不替代 #300 阶段联调。
+
 ## 重制与长验证
 
-同一份存档使用同一种构建配置制作和检查。日常测试只运行短经济命令、现车和容量例子；起步四小时与租约一天的完整验证留在交付前执行，不能放进 450 秒的集成层。
+同一份存档使用同一种构建配置制作和检查。日常测试只运行短经济命令、现车和容量例子；起步四小时与租约一天的完整验证留在交付前执行，不能放进日常集成层。
 
 [长示例脚本](../scripts/checks/run-long-example.ps1)构建一次 Release，然后并行执行三组：A 连续运行并严格重放；B 保存退出后由独立进程恢复；C 制作普通存档再从零按配方检查。保存边界为起步贸易 **432000**、租约到期 **5183999**。`replay` 的输出作为连续基准，最后比较恢复后的完整检查点后缀，不额外运行一次 `run`。脚本创建独立运行目录，每条命令完成即保留退出码、耗时和日志，任何失败或未执行均非零退出。runner 触发与下载方法见[远端检查](../docs/run-tests.md#远端检查)。
 
