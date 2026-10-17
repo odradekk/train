@@ -5,7 +5,7 @@ namespace Train.Content.Loading;
 
 internal sealed class AssetLoader(C.IContentFiles files, C.IAssetInspector inspector)
 {
-    private const long MaximumBytes = 4 * 1024 * 1024;
+    internal const long MaximumBytes = 4 * 1024 * 1024;
     private readonly Dictionary<C.ContentPath, C.ContentAsset> _read = [];
     private readonly List<(LoadPackage Package, C.ContentAsset Asset)> _used = [];
 
