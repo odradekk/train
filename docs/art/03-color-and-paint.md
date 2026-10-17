@@ -67,17 +67,22 @@
 - [#339](https://github.com/odradekk/train/issues/339) 负责 Godot 着色，落实[玩家涂装](#玩家涂装)中的材质类别限制、立方体 Alpha 权重和模型表面分区。当前渲染层对所有材质类别都乘涂装色，尚未落实这些规则。
 - [#583](https://github.com/odradekk/train/issues/583) 负责资产与内容迁移：重绘现有 26 个 `painted_metal`／`concrete` 体素定义的可涂贴图，为内置蓝图、场景生成放置的可涂体素和示例存档补默认 `paint`；`tunnel-portal-*` 现有的 `concrete` 加 `#000000` 涂黑必须保持。贴图从各自唯一源重新生成，现有车辆及共用面贴图的唯一源仍是 `scripts/content/generate_small_world.py`，共用图继续引用同一 PNG。#338 的临时样例不成为正式资产源。
 
-下表规定内置车辆设计迁移时写入 `paint` 的默认色；其余内置设计在 #583 中按原有默认外观补色。固定颜色不写作涂装色，按下表单独保留。
+每个可涂体素定义只有一个默认色，就是它现有贴图可涂部分所用的基色。这些基色由 `scripts/content/generate_small_world.py` 中的基色常量确定，例如下表车辆体素使用的 `BLUE`、`RED`，以及 `concrete` 使用的 `CONCRETE`（`#a8a59e`）。
+
+默认色只在生成器里维护一份。[#583](https://github.com/odradekk/train/issues/583) 从这里给每一份内置设计中该体素尚未写 `paint` 的调色板项补默认色，包括 [#340](https://github.com/odradekk/train/issues/340) 新增的 9 个车辆蓝图。同一体素在所有内置设计里使用同一个默认色。#583 不按车辆另定涂装方案；已经显式写入的 `paint` 保持不变，包括 `tunnel-portal-*` 的 `#000000`。
+
+按[用途倾向](#用途倾向)给具体设计换涂装方案，由制作该设计的美术工单（如 [#391](https://github.com/odradekk/train/issues/391)）在它自己的蓝图里修改。
 
 ### 车辆：蓝灰车头、暗红货车
 
-| 内置车辆设计中的用途 | 默认 `paint` |
+| 体素定义 | 默认 `paint` |
 | --- | --- |
-| 车体结构：底架、驾驶室下部和车顶、货车车顶 | `#5a6b78` 蓝灰 |
-| 动力部件 | `#5a6b78` 蓝灰 |
-| 货舱部件 | `#7b3a2c` 暗红 |
+| `structural-metal` | `#5a6b78` 蓝灰（`BLUE`） |
+| `propulsion-equipment` | `#5a6b78` 蓝灰（`BLUE`） |
+| `control-equipment` | `#5a6b78` 蓝灰（`BLUE`） |
+| `storage-equipment` | `#7b3a2c` 暗红（`RED`） |
 
-车体结构同时用于车头和货车；各自设计里的底架和车顶都写蓝灰。固定颜色如下，保留区的画法见[玩家涂装](#玩家涂装)：
+固定颜色不写作涂装色，仍按下表保留；保留区的画法见[玩家涂装](#玩家涂装)：
 
 | 用途 | 固定色值 |
 | --- | --- |
