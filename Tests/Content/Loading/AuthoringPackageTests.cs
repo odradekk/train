@@ -50,11 +50,14 @@ public sealed class AuthoringPackageTests
     public void Edited_voxel_patch_loads_through_the_ordinary_reload_boundary()
     {
         var fixture = DesignFixtures.Content();
+        WorldContentFixtures.Change(fixture, "resources/voxels/block.voxel.json",
+            json => json["appearance"]!["allowed_orientations"] = "all_24");
         using var initial = fixture.Load();
         var package = Open(fixture);
         var voxel = (C.DefinitionDraft.Voxel)Read(package, C.DefinitionKind.Voxel, "block");
         Assert.AreEqual(7L, voxel.Value.Simulation!.BaseValue);
         Assert.AreEqual(3d, voxel.Value.Simulation.MassTons);
+        Assert.AreEqual(C.AllowedVoxelOrientations.All24, voxel.Value.Orientations);
         var presentation = (C.AuthoringVoxelPresentation.Cube)voxel.Value.Presentation!;
         Assert.AreEqual(new C.AuthoringAssetPath("tile.png"), presentation.Top);
         CollectionAssert.AreEqual(new[] { new C.VoxelShape("cube"), new C.VoxelShape("wedge") }, presentation.Shapes.ToArray());
@@ -152,6 +155,28 @@ public sealed class AuthoringPackageTests
             Assert.IsInstanceOfType<C.ContentLookup<C.DefinitionDraft>.Missing>(lookup);
             Assert.IsTrue(((C.ContentLookup<C.DefinitionDraft>.Missing)lookup).Diagnostics.Any(d => d.Field == "/inventory/0"));
         }
+    }
+
+    [TestMethod]
+    public void Recovery_plan_reference_survives_template_read_and_external_draft_round_trip()
+    {
+        var fixture = WorldContentFixtures.Content();
+        fixture.AddFile(ContentFixture.BuiltIn, "resources/processes/recover.process.json",
+            ProcessLoadingTests.Process("recovery", "recover").ToJsonString());
+        WorldContentFixtures.Change(fixture, WorldContentFixtures.TemplatePath,
+            json => json["production_plans"] = JsonNode.Parse("""[{"plot":1,"capability":"production","process":"recover","enabled":true,"priority":0}]"""));
+        var definition = (C.DefinitionDraft.SettlementTemplate)Read(Open(fixture), C.DefinitionKind.SettlementTemplate, "farm-start");
+        var reference = new K.ProcessRef.Recovery(new("core:recover"));
+        Assert.AreEqual(reference, definition.Value.ProductionPlans.Single().Process);
+        var saved = new C.SavedContentDraft(new(Guid.NewGuid()), new(1),
+            new C.DraftTarget.PackageDefinition(new("core"), C.DefinitionKind.SettlementTemplate, "farm-start", new("source")), new C.DraftPayload.Definition(definition));
+        var restored = Success(ContentFactory.Create().DecodeDraft(Success(ContentFactory.Create().EncodeDraft(saved))));
+        var actual = (C.DefinitionDraft.SettlementTemplate)((C.DraftPayload.Definition)restored.Payload).Value;
+        Assert.AreEqual(reference, actual.Value.ProductionPlans.Single().Process);
+        var patch = Plan(Open(fixture), new C.PackageEdit.WriteDefinition(actual));
+        var plan = Json(patch.Changes.Single())["production_plans"]![0]!;
+        Assert.AreEqual("core:recover", plan["process"]!.GetValue<string>());
+        Assert.IsNull(plan["process_kind"]);
     }
 
     [TestMethod]

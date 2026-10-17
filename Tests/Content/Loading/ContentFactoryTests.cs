@@ -56,7 +56,6 @@ public sealed class ContentFactoryTests
             new(fixture.Installation with { UserLibrary = new C.ContentRoot("library") }, new C.ContentLoadPurpose.Restore(null!, null!)), fixture, fixture));
         Assert.ThrowsExactly<ArgumentNullException>(() => factory.PrepareLoad(
             new(fixture.Installation with { UserLibrary = new C.ContentRoot("library") }, new C.ContentLoadPurpose.Reload(candidate.View, null!)), fixture, fixture));
-        Assert.ThrowsExactly<NotImplementedException>(() => factory.OpenAuthoringPackage(ContentFixture.BuiltIn, new("core"), new("unused"), fixture));
     }
 
     [TestMethod]

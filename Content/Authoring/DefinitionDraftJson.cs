@@ -69,7 +69,7 @@ internal static class DefinitionDraftJson
                     sim["behaviors"] = Behaviors(simulation.Behaviors);
                     root["simulation"] = sim;
                 }
-                var appearance = new JsonObject { ["allowed_orientations"] = DesignEvaluator.Wire(v.Orientations), ["collision"] = Collision(v.Collision) };
+                var appearance = new JsonObject { ["allowed_orientations"] = v.Orientations == C.AllowedVoxelOrientations.All24 ? "all_24" : DesignEvaluator.Wire(v.Orientations), ["collision"] = Collision(v.Collision) };
                 if (v.Presentation is { } presentation) appearance["presentation"] = Presentation(presentation);
                 var visual = new JsonObject();
                 if (v.AppearanceBehaviors.Wheelset) visual["wheelset"] = new JsonObject();
@@ -165,7 +165,11 @@ internal static class DefinitionDraftJson
                 }
                 var a = Required(root, "appearance", "");
                 Object(a, "/appearance", "allowed_orientations", "collision", "presentation", "behaviors");
-                var orientations = a.TryGetProperty("allowed_orientations", out var o) ? EnumValue<C.AllowedVoxelOrientations>(o, "/appearance/allowed_orientations") : C.AllowedVoxelOrientations.None;
+                var orientations = a.TryGetProperty("allowed_orientations", out var o) ? Text(o, "/appearance/allowed_orientations") switch
+                {
+                    "none" => C.AllowedVoxelOrientations.None, "four_way" => C.AllowedVoxelOrientations.FourWay, "all_24" => C.AllowedVoxelOrientations.All24,
+                    _ => throw new DefinitionFormatException("/appearance/allowed_orientations", "未知允许朝向。", "invalid_field")
+                } : C.AllowedVoxelOrientations.None;
                 var collision = a.TryGetProperty("collision", out var c) ? ReadCollision(c) : new C.VoxelCollision.FullBox();
                 var presentation = a.TryGetProperty("presentation", out var present) ? ReadPresentation(present) : null;
                 var wheelset = false;

@@ -113,7 +113,8 @@ internal sealed class AuthoringPackage : C.IAuthoringPackage
         var path = "resources/processes/" + reference[prefix.Length..] + ".process.json";
         if (!_files.TryGetValue(path, out var bytes)) return false;
         using var document = Parse(bytes, path);
-        return document.RootElement.TryGetProperty("kind", out var kind) && kind.GetString() == "recovery";
+        var simulation = Required(document.RootElement, "simulation", "");
+        return Text(Required(simulation, "kind", "/simulation"), "/simulation/kind") == "recovery";
     }
 
     internal C.ContentResult<C.PackageWritePlan> Prepare(ImmutableArray<C.PackageEdit> edits)
