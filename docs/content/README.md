@@ -37,7 +37,7 @@
 
 `builtin/core/resources/` 当前提供经济运输切片的正式输入：三种轨距的小型／中型／超大型机车、小站点和站台设备、五类聚居地与六份模板、五种地貌及桥隧模型、五类规则和 `core:basic-through-world` 生成配置。除下述手绘图标外，JSON 和 PNG 由 [generate_small_world.py](../../scripts/content/generate_small_world.py) 生成，该脚本是生成贴图的唯一可编辑源。所有 PNG 的 Keep File `.import` 由脚本生成，UID 由路径确定。
 
-可涂体素的默认色也只在该脚本维护：面图使用中性纹样，内置蓝图的调色板补默认 `paint`，已有涂装保持。Scenes 直接放置的可涂原料另生成到 `Scenes/BuiltInResourcePaints.g.cs`，当前只有原油资源堆；`--check` 同时核对该文件。指定 `--output-dir` 时，这份 C# 文件写入指定目录，不改工作树的 Scenes 源码。图标保留原色，面图的 Alpha 按[美术 03](../art/03-color-and-paint.md#玩家涂装)表示可涂权重；当前着色器对保色区的处理仍待 #339。
+可涂体素的默认色也只在该脚本维护：面图使用中性纹样，内置蓝图的调色板补默认 `paint`，已有涂装保持。Scenes 直接放置的可涂原料另生成到 `Scenes/BuiltInResourcePaints.g.cs`，当前只有原油资源堆；`--check` 同时核对该文件。指定 `--output-dir` 时，这份 C# 文件写入指定目录，不改工作树的 Scenes 源码。图标保留原色，面图的 Alpha 按[美术 03](../art/03-color-and-paint.md#玩家涂装)表示可涂权重。
 
 自然与铁路素材由同一脚本生成：13 种基础场景体素（包含路灯和道床碎石，不含站台边缘）、三种树、两种岩石、1–3 轨桥隧和两类工地。工地另复用三种专用场景体素 `site-fence`、`road-barrier`、`rail-stack`；轨枕堆和灯柱复用混凝土。场景体素不新增物品图标，必填的 `display.icon` 复用 128 px 面图或原有共用图标。面图保持 32 px/格，土层图放在 `voxels/shared/` 复用。道床由铁路规则的必填 `appearance.ballast_voxel` 指定，不随地貌岩层变化。
 

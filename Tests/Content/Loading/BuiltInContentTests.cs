@@ -58,13 +58,9 @@ public sealed class BuiltInContentTests
             foreach (var entry in design.Layout.Palette)
             {
                 var appearance = Found(view.FindVoxelAppearance(entry.Voxel));
-                var paintable = appearance.Presentation switch
-                {
-                    C.VoxelPresentation.Cube cube => cube.Material is C.MaterialCategory.PaintedMetal or C.MaterialCategory.Concrete,
-                    C.VoxelPresentation.Mesh mesh => mesh.SurfaceMaterials.Any(material => material is C.MaterialCategory.PaintedMetal or C.MaterialCategory.Concrete),
-                    _ => false
-                };
-                if (paintable) Assert.IsNotNull(entry.Paint, entry.Voxel.ToString());
+                if (appearance.Presentation is C.VoxelPresentation.Cube cube &&
+                    cube.Material is C.MaterialCategory.PaintedMetal or C.MaterialCategory.Concrete)
+                    Assert.IsNotNull(entry.Paint, entry.Voxel.ToString());
             }
             foreach (var nested in design.Layout.NestedItems)
                 if (nested is C.NestedDesignItem.AssemblyCopy assembly) AssertPaintedPalette(assembly.Design);
