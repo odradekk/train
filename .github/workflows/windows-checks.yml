@@ -189,6 +189,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Prepare locked .NET SDK
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          global-json-file: global.json
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.tool_cache }}/dotnet
+
       - name: Record runner environment
         shell: pwsh
         run: |
@@ -206,6 +213,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "dotnet=$(dotnet --version)" | Add-Content TestResults/ci/environment.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "DOTNET_ROOT=$env:DOTNET_ROOT" | Add-Content TestResults/ci/environment.txt
           "godot=$(& $env:GODOT --headless --version)" | Add-Content TestResults/ci/environment.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Get-Command python, python3 -ErrorAction SilentlyContinue |

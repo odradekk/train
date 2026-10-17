@@ -25,7 +25,7 @@ $commands = [ordered]@{
     resume = @{ arguments = @($cli, 'resume', $root, $recipe, $prefix, $resumed); requires = @('save') }
     make = @{ arguments = @($cli, 'make', $root, $recipe, $remade); requires = @('build') }
     check = @{ arguments = @($cli, 'check', $root, $recipe, $remade); requires = @('make') }
-    compare = @{ arguments = @($cli, 'compare', $continuous, $resumed); requires = @('replay', 'resume', 'check') }
+    compare = @{ arguments = @($cli, 'compare', $continuous, $resumed); requires = @('replay', 'resume') }
 }
 $records = [ordered]@{}
 foreach ($name in $commands.Keys) {

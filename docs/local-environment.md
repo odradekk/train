@@ -94,7 +94,7 @@ Verify Windows runtime behavior on Windows and record the build's tested commit,
 
 Linux 同样使用 `global.json` 固定的 .NET SDK 10.0.112、PowerShell 7.6.6 和 Godot 4.7.2 stable .NET **官方 Linux x86_64 构建**：从[官方发布](https://github.com/godotengine/godot/releases/tag/4.7.2-stable)下载 `Godot_v4.7.2-stable_mono_linux_x86_64.zip`，按同一发布的 `SHA512-SUMS.txt` 核对后安装；版本输出应含 `official`。Schema 使用 Python 3 与 `jsonschema==4.25.1`。在仓库目录核对 `dotnet --version`、`pwsh --version`、`"$GODOT" --headless --version`、`python3 --version` 和 `python -c "import jsonschema, referencing"`。当前 Schema 入口调用 `python`，因此提供 python3 的虚拟环境也须在 PATH 上提供 `python`。
 
-局域网夜间 runner `lan-linux-nightly` 由 systemd 服务运行。主机的 `.env` 提供 `DOTNET_ROOT` 和不含参数的 `GODOT` 可执行文件路径，`.path` 将 dotnet、pwsh 与 Python 虚拟环境加入服务 PATH。安装位置属于主机配置，不写入 workflow；变更环境后重启 runner 服务，让新进程取得配置，并在 Actions 的环境记录中核对实际路径与版本。
+局域网夜间 runner `lan-linux-nightly` 由 systemd 服务运行。主机提供 PowerShell、Godot 和 Python：`.env` 提供不含参数的 `GODOT` 可执行文件路径，`.path` 将 pwsh 与 Python 虚拟环境加入服务 PATH。SDK 由 job 按 `global.json` 准备，其安装目录和 `DOTNET_ROOT` 由工作流设置，见[Linux CI](ci.md#linux-夜间运行)。主机工具的安装位置不写入 workflow；变更主机环境后重启 runner 服务，让新进程取得配置，并在 Actions 的环境记录中核对实际版本及 SDK 来源。
 
 ```bash
 dotnet tool restore
