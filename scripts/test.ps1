@@ -24,7 +24,7 @@ $projects = @(
     @{ name = 'core'; path = 'Tests/Core/Train.Core.Tests.csproj'; fast = 481; integration = $(if ($IsWindows) { 10 } else { 7 }) },
     @{ name = 'content'; path = 'Tests/Content/Train.Content.Tests.csproj'; fast = 426; integration = 1 },
     @{ name = 'scenes'; path = 'Tests/Scenes/Train.Scenes.Tests.csproj'; fast = 251; integration = 1 },
-    @{ name = 'godot'; path = 'Tests/Godot/Train.Godot.Tests.csproj'; fast = 145; integration = $(if ($IsWindows) { 85 } else { 77 }); engine = 104 },
+    @{ name = 'godot'; path = 'Tests/Godot/Train.Godot.Tests.csproj'; fast = 145; integration = $(if ($IsWindows) { 85 } else { 77 }); engine = 98 },
     @{ name = 'contract-support'; path = 'Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj'; fast = 40; integration = 0 },
     @{ name = 'contract-checks'; path = 'Tests/ContractChecks.Tests/Train.ContractChecks.Tests.csproj'; fast = 9; integration = 4 },
     @{ name = 'cli'; path = 'Tests/Cli/Train.Cli.Tests.csproj'; fast = 4; integration = $(if ($IsWindows) { 7 } else { 3 }) }
@@ -95,7 +95,7 @@ function Add-CheckResult([string] $Name, [string] $Group, [string] $Program, [st
             $check.report = $junit
         }
         $summary.checks += [pscustomobject] $check
-        $minimum = if ($Name -eq 'stage-screenshot') { 1 } else { $engineProject.engine }
+        $minimum = if ($Name -eq 'stage-screenshot') { 7 } else { $engineProject.engine }
         if (-not (Test-Path $junit) -or $check.executed -lt $minimum -or $check.failed -or $result.ExitCode -ne 0 -or $result.TimedOut -or -not $result.CleanupSucceeded) {
             throw "$Name failed (exit=$($result.ExitCode), timeout=$($result.TimedOut), executed=$($check.executed), minimum=$minimum, failed=$($check.failed)); evidence: $run"
         }
