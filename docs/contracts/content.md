@@ -6,7 +6,7 @@
 
 [Train.Content.Contracts](../../Contracts/Content/Train.Content.Contracts.csproj) 只引用核心契约，并提供[可编译消费样例](../../prototypes/content-contract/ConsumerExamples.cs)。`Content/Train.Content.csproj` 已实现真实工厂的 `Discover` 与 `PrepareLoad(Initial/Restore/Reload)`：manifest v2、依赖、voxel v3、固定资产字节、资产规则、只读投影及候选生命周期；包内 blueprint v3 支持车辆、建筑、组装体、功能复合体与场景模型，包含最多四层的设计复制和功能复合体引用。Initial 还支持地貌 v1、聚居地类型 v3、聚居地模板 v2、五类规则与生成配置 v2，包含 NPC 初始化参数；铁路表现参数通过 `FindRailwayAppearance` 提供；`RailwayAppearanceProjection` 的必填 `BallastVoxel` 对应 `appearance.ballast_voxel`，必须引用不含 `simulation` 的场景体素，供线路和节点道床使用，没有地貌岩层回退。该投影不含模拟字段，表现字段不进入核心铁路规则或业务语义修订。`CreateWorldInput` 交出已解析的新局输入，`WithSettlementCopies` 按最终所有者固定模板副本，`FindSettlementLayout` 读取所有者的布局。模板的 `founding`、`inventory`、`production_plans` 支持非空数组，内容层解析、校验引用及地块和能力约束并交出核心投影；特殊库存支持 voxel、功能复合体标识及组装体构成哈希货物。NPC 补货、产出预存和现车生成由核心执行，不属于本次内容交付。初始化后的经营状态由核心持有，不写入内容布局副本。Restore 从内嵌设计与实例模板副本重算当前投影，Reload 保留清单仍引用的原设计与副本；源蓝图、源模板的删改不改写已有实例布局。
 
-`EvaluateDesign` 在真实工厂产生的固定视图上计算车辆、建筑、组装体及场景模型的身份、合法性和嵌套投影；包加载还为功能复合体传入定义身份。车辆、建筑及两类大型设备提供 `DesignInput`。流程 v1 已支持生产、开采和回收的解析、引用校验、核心投影与显示查询；租赁参数沿用市场规则。流程业务参数参与语义修订和核心输入身份，显示变化只标记 `Presentation`；货物和地貌数组按引用身份的 Ordinal 顺序规范化。`Capture/DecodeCapture` 与 `CaptureReplay/DecodeReplay` 已实现当前范围的普通内容往返和仅凭载荷重建历史视图。恢复报告被引用流程的缺失；重载拒绝原有效引用新增缺失及流程种类变化，允许原缺失保留或恢复。恢复／重载对已保存设计和模板副本中的缺失定义提供部分计算、占位和锁资料；损伤、进度和批次冻结参数仍由核心保存。生物聚落和生物尚未支持。新设计草稿支持缺定义和缺必填规格的部分计算；设计草稿编解码、本局草稿保存和删除、本局库及用户库编辑、用户库加载、设计比较、建造目标和实例目标准备已有实现。定义草稿编解码、包定义目标编解码和开发创作入口仍留给 #330，相关入口抛 `NotImplementedException`；本局草稿保存遇到这些目标或载荷时返回 `invalid_field`。上述模块实现不表示完整存档容器、核心经济运行或真实四模块联调已经通过；阶段一真实交接归 #298，经济运输交接归 #299；生产宿主已通过 `App/Composition/` 接入真实工厂。共享用例与替身的行为验证由[契约原型](https://github.com/odradekk/train/issues/292)完成。
+`EvaluateDesign` 在真实工厂产生的固定视图上计算车辆、建筑、组装体及场景模型的身份、合法性和嵌套投影；包加载还为功能复合体传入定义身份。车辆、建筑及两类大型设备提供 `DesignInput`。流程 v1 已支持生产、开采和回收的解析、引用校验、核心投影与显示查询；租赁参数沿用市场规则。流程业务参数参与语义修订和核心输入身份，显示变化只标记 `Presentation`；货物和地貌数组按引用身份的 Ordinal 顺序规范化。`Capture/DecodeCapture` 与 `CaptureReplay/DecodeReplay` 已实现当前范围的普通内容往返和仅凭载荷重建历史视图。恢复报告被引用流程的缺失；重载拒绝原有效引用新增缺失及流程种类变化，允许原缺失保留或恢复。恢复／重载对已保存设计和模板副本中的缺失定义提供部分计算、占位和锁资料；损伤、进度和批次冻结参数仍由核心保存。生物聚落和生物尚未支持。新设计草稿支持缺定义和缺必填规格的部分计算；设计草稿编解码、本局草稿保存和删除、本局库及用户库编辑、用户库加载、设计比较、建造目标和实例目标准备已有实现。定义草稿与包定义目标编解码、固定创作包读取及逐文件补丁编码已有实现；生物聚落表单尚不支持，相关写入、删除与草稿编解码返回 `invalid_field`，待 #349 补齐。生物类别蓝图支持创作读取与编码，普通加载与求值仍待战斗阶段。本局草稿保存遇到包定义目标或定义载荷时继续返回 `invalid_field`。上述模块实现不表示完整存档容器、核心经济运行或真实四模块联调已经通过；阶段一真实交接归 #298，经济运输交接归 #299；生产宿主已通过 `App/Composition/` 接入真实工厂。共享用例与替身的行为验证由[契约原型](https://github.com/odradekk/train/issues/292)完成。
 
 | 声明 | 作用 |
 | --- | --- |
@@ -130,7 +130,7 @@ Mod 缺依赖、版本不够、依赖循环、未知行为／字段、定义或�
 - InstanceTarget 准备立即应用／改装的目标和差额，DesignChangeProjection.Target 携带同类 DesignInput，不混入定义更新；准备回执不另存目标哈希，统一从 Difference.Core.Target.Design.Design 读取。两种目标均不改变 CoreInputId；宿主同步 Submit 后仅接受时激活候选，不先把目标当作成功写入本局。
 - 拒绝或故障属于已经录制的 Completed，宿主仍保留所提交候选的固定视图作为录制依赖；它不成为活动内容或普通保存中的成功修改。NotAccepted 不制造命令记录。
 
-`EncodeDraft`／`DecodeDraft` 当前只支持 `DraftPayload.Design`，目标为 `Instance`、`LocalBlueprint` 或 `UserBlueprint`；`DraftPayload.Definition` 和 `DraftTarget.PackageDefinition` 继续抛 `NotImplementedException`，由 #330 补齐。编解码允许规格为空及玩法上不合法的布局，保留调用方的 `EditRevision`，内容不自增修订，也不把它当锁。
+`EncodeDraft`／`DecodeDraft` 支持 `DraftPayload.Design`（目标为 `Instance`、`LocalBlueprint` 或 `UserBlueprint`），以及配对的 `DraftPayload.Definition` 与 `DraftTarget.PackageDefinition`。定义的种类和本地 ID 必须与目标一致。编解码允许规格为空及玩法上不合法的布局，保留调用方的 `EditRevision`，内容不自增修订，也不把它当锁。
 
 Initial、Restore、Reload 都独立读取当前 `UserLibrary` 根下的 `<UUID>.blueprint.json`。读取、JSON、格式、正文身份与文件名不符、设计不合法或引用缺失只令该条目 `Usable=false` 并附诊断，不令整次加载失败，也不排除包。文件名不是规范 UUID 时，只在加载报告中诊断，不列入蓝图目录；引用缺失另列入 `AuthoringMissing`。Reload 的用户库文件变化或任一库条目的摘要变化（含可用性和诊断）标记 `Library`；用户库文件不嵌入普通存档。有效用户库设计和包库一样，按来源库、规范蓝图身份及规范嵌套路径顺序登记首次组装体显示记录；Restore 优先保留原记录，因此新增记录时持久修订增加 1。
 
@@ -142,7 +142,15 @@ Initial、Restore、Reload 都独立读取当前 `UserLibrary` 根下的 `<UUID>
 
 开发模式用 `OpenAuthoringPackage` 取得源包的固定表单输入与来源基准。公开表单只覆盖既定的体素定义、蓝图行为、聚居地类型、生物聚落类型和模板；其他配置继续手写文件，不扩成通用表单系统。能力依据代码提供的行为推导，不能提交手写聚合能力替代计算。
 
+当前实现提供体素、蓝图（含场景模型与生物类别）、聚居地类型和已有模板；生物聚落类型暂不列入 `EditableDefinitions`，读取、写入、删除和草稿编解码明确返回 `invalid_field`，不提供空成功。该项表单与普通加载、校验、投影留给 #349。
+
+打开时一次枚举并读取源包目录和文件，之后 `Read` 与 `PreparePackageWrite` 只使用固定字节，不再访问文件端口，也不要求依赖包已安装。`SourceVersion` 是宿主提供的不透明字符串，原样回显。Mod 元数据来自固定 `mod.json`；没有 manifest 的 core 使用只读的创作元数据（ID／名称为 `core`，版本为 `0.0.0`，作者和依赖为空），这个版本不表示游戏版本或来源身份。
+
+模板草稿当前没有显示文本：写回已有文件时保留其 `display` 值；新建模板返回 `/display` 的 `invalid_field`。库存的 `voxel` 与 `GoodId.Voxel` 互转；只有固定源包中能确认为功能复合体的 `blueprint` 才映射为 `GoodId.Composite`。组装体或无法确认类别的蓝图使该模板的 `Read` 返回 `Missing`，诊断定位 `/inventory/<i>`，提示手工编辑；写入 `GoodId.Assembly` 同样拒绝。后续需补齐模板显示文本和保留库存蓝图来源的契约，才能支持这些编辑。
+
 `PreparePackageWrite` 把指定草稿、资产和 manifest 变更编码成确定的文件补丁。包 ID 不可通过这次操作修改；删除定义自己的目录时明确列出关联文件，不顺手删除 shared。补丁不包含未编辑文件的重写，也不表示整包已经合法。
+
+补丁按包内相对路径的 Ordinal 顺序返回，字节与固定源文件相同的写入项不列入补丁。定义删除包括该定义文件、其同名目录在快照中的全部文件（包括 `.import`），以及定义文件自身的 `.import`。没有 manifest 的 core 拒绝 `Manifest`；资产编辑不能代替 manifest 编辑，manifest 的原描述字段保留。越出包根的路径、同次编辑重复指向同一文件或无法编码的编辑使整次准备失败，不返回部分可写补丁。PNG／GLB 的 Godot 导入声明由宿主负责。
 
 宿主在单一写入者约定下复核源基准，按[包写入与重载](editing.md#创作模式包写入与重载)逐文件临时写后替换或执行明确删除，再调用普通 PrepareLoad／Submit／Activate。未知、未编辑文件原样保留。写入前发现外部修改拒绝覆盖并保留草稿；中途失败可能已有文件更新，报告本次已知完成项并由开发者修复，不承诺整包回滚或启动恢复。
 
@@ -157,6 +165,8 @@ Initial、Restore、Reload 都独立读取当前 `UserLibrary` 根下的 `<UUID>
 当前普通内容载荷为版本 5；其他版本返回 `unsupported_format`。顶层字段固定为 `format_version`、`revision`、`packages`、`designs`、`assembly_displays`、`templates`、`local_blueprints`、`local_drafts`。包按身份、设计按哈希、首次显示记录按构成哈希、模板副本按所有者排序；本局蓝图按 UUID 的 Ordinal 顺序，草稿按 `DraftId` 排序。它不嵌入市场等外部规则定义或用户库文件。引用包元数据也覆盖本局库及草稿的定义引用。设计捕获覆盖核心清单、模板场景、全部已登记组装体显示记录及已有本局保存设计；蓝图库条目本身不因此加入运行设计目录。
 
 设计条目包含 `hash`、`definition`，根功能复合体还必须带 `composite` 定义身份，其他设计不得携带该字段。设计正文复用 blueprint v3，引用全限定；模板副本复用模板 v2 的地块布局字段，场景模型原设计按设计哈希入档。本局蓝图使用玩家蓝图 v3，字段为 `schema_version`、`id`、`used_packages` 及设计正文；解码只读取结构，恢复时按当前定义重算求值。本局草稿内嵌独立的草稿 v1 对象，字段固定为 `format_version`、`id`、`revision`、`target`、`payload`；`target.kind` 为 `instance`、`local_blueprint` 或外部草稿才可用的 `user_blueprint`，`payload.kind` 为 `design`，`payload.value` 保存设计草稿。实例目标用 `target.instance` 的 `kind`（`vehicle`／`building`）和数值 `id` 表示；库目标用可为空的 UUID `target.id`。`payload.value` 复用 blueprint v3 的 `category`、`simulation`、`layout`、`appearance`、`display` 设计字段，仅允许省略 `size_class`、`plot_size`、`building_type` 以及调色板序号越界；未知字段、非 snake_case 枚举和非有限数值仍拒绝。UUID 只接受规范小写写法，实例身份必须非零。普通载荷的 `local_drafts` 只接受实例及本局库目标；重复草稿身份、同一实例多份草稿或损坏草稿返回 `inconsistent_capture`。
+
+外部包草稿同用草稿 v1：`target` 字段固定为 `kind="package_definition"`、`package`、`definition_kind`、`local_id`、`source_version`。包 ID 为 `core` 或规范 UUID；`source_version` 不修剪、不解析，空字符串、空白和换行均原样往返。`payload` 固定为 `kind="definition"`、`definition_kind`、`value`，定义种类使用 `voxel`、`blueprint`、`settlement_type`、`settlement_template`，两处种类和 `value.id` 必须与目标配对；`lair_type` 返回 `invalid_field`。`value` 复用对应定义文件的字段及 `schema_version`，体素／蓝图／聚居地类型为 3，模板为 2；引用保持原身份，未完成的可空字段以省略表示，显示文本不修剪。模板草稿不含 `display`；草稿生产计划额外用 `process_kind`（`production`／`recovery`）保存工序引用种类，输出有效包时移除该字段。生物蓝图允许缺少 creature 行为的未完成草稿，完整行为使用 `hp`、`speed`、`retreat_threshold`、`raid_duration`，可选 weapon 使用 `damage`、`interval`。这类外部草稿不进入普通存档、检查点或核心命令记录。
 
 正文哈希与键不一致、缺内嵌设计、缺副本、地块不配对、组装体缺显示记录或显示记录构成不配对，均返回 `inconsistent_capture`；JSON 损坏返回 `invalid_json`。Restore 优先使用捕获中的全部组装体显示记录，再按与 Initial／Reload 相同的稳定顺序登记当前新增构成；没有新增记录时持久修订取捕获值，有新增时增加修订。运行引用缺失列入 `RuntimeMissing`；本局库、用户库和已保存草稿的缺失引用列入 `AuthoringMissing`。
 

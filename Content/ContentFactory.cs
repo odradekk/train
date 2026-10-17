@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using Train.Content.Loading;
 using Train.Content.Designs;
 using Train.Content.Persistence;
+using Train.Content.Authoring;
 using System.Text.Json;
 using C = Train.Content.Contracts;
 using K = Train.Core.Contracts;
@@ -262,6 +263,15 @@ internal sealed class InitialContentFactory : C.IContentFactory
         return EditResult(() => new C.ContentResult<C.SavedContentDraft>.Success(ContentDraftCodec.Decode(payload)));
     }
 
-    public C.ContentResult<C.IAuthoringPackage> OpenAuthoringPackage(C.ContentRoot source, C.PackageId package, C.PackageSourceVersion sourceVersion, C.IContentFiles files) => throw new NotImplementedException();
-    public C.ContentResult<C.PackageWritePlan> PreparePackageWrite(C.IAuthoringPackage basis, ImmutableArray<C.PackageEdit> edits) => throw new NotImplementedException();
+    public C.ContentResult<C.IAuthoringPackage> OpenAuthoringPackage(C.ContentRoot source, C.PackageId package, C.PackageSourceVersion sourceVersion, C.IContentFiles files)
+    {
+        ArgumentNullException.ThrowIfNull(files);
+        return EditResult(() => AuthoringPackage.Open(source, package, sourceVersion, files));
+    }
+    public C.ContentResult<C.PackageWritePlan> PreparePackageWrite(C.IAuthoringPackage basis, ImmutableArray<C.PackageEdit> edits)
+    {
+        ArgumentNullException.ThrowIfNull(basis);
+        if (basis is not AuthoringPackage package) throw new ArgumentException("需要本内容实现产生的固定源包。", nameof(basis));
+        return EditResult(() => package.Prepare(edits));
+    }
 }
