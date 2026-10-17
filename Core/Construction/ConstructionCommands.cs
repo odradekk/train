@@ -193,11 +193,16 @@ internal static class ConstructionCommands
             }
             if (taken.Count > 0) consumption.Add(new(inventory.Id, taken.ToImmutable()));
         }
-        if (funding == JobFunding.OwnInventory && needed.Any(g => g.Value > 0))
-            return Reject("insufficient_goods", "Sources");
+        if (funding == JobFunding.OwnInventory)
+        {
+            var missing = needed.Where(g => g.Value > 0).OrderBy(g => WorldReferences.GoodKey(g.Key), StringComparer.Ordinal)
+                .Select(g => WorldReferences.GoodKey(g.Key)).ToImmutableArray();
+            if (!missing.IsEmpty) return Result([new("insufficient_goods", "Sources", null, missing)]);
+        }
         if (funding == JobFunding.NpcCommission)
         {
             var pricingWorld = Consume(prepared, consumption);
+            var unavailable = ImmutableArray.CreateBuilder<string>();
             long payment = 0;
             foreach (var good in needed.Where(g => g.Value > 0).OrderBy(g => WorldReferences.GoodKey(g.Key), StringComparer.Ordinal))
             {
@@ -205,13 +210,18 @@ internal static class ConstructionCommands
                 var stock = inventory.Goods.SingleOrDefault(g => g.Good == good.Key)?.Quantity ?? 0;
                 var market = new MarketStockTargets(pricingWorld, content, settlement, step);
                 if (market.Quantity(good.Key, stock, Math.Min(stock, good.Value), true) < good.Value)
-                    return Reject("insufficient_goods", "Sources");
+                {
+                    unavailable.Add(WorldReferences.GoodKey(good.Key));
+                    continue;
+                }
                 foreach (var price in MarketPrices.Goods(pricingWorld, content, good.Key, true, market, stock, good.Value))
                     payment = checked(payment + price.Value);
                 var purchase = new GoodsQuantity(good.Key, good.Value);
                 purchases.Add(purchase);
                 pricingWorld = Consume(pricingWorld, [new(settlement.Inventory, [purchase])]);
             }
+            if (unavailable.Count > 0)
+                return Result([new("insufficient_goods", "Sources", null, unavailable.ToImmutable())]);
             materialPayment = new(payment);
             servicePayment = new(checked(work * marketRule!.CommissionMoneyPerWork.Value));
         }

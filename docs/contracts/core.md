@@ -38,6 +38,7 @@
 - `FindFacility` 的 `Production` 键、模板中的加工／回收计划、批次推进、输出缓冲及生产事件，按 [#381 的批准计划](https://github.com/odradekk/train/issues/381#issuecomment-6183793182)实现，具体范围见下文“加工与回收”。
 - `Extraction` 设施、开采批次、节点资源原地恢复与全局再生，按 [#383 的批准决定](https://github.com/odradekk/train/issues/383#issuecomment-6188092446)实现，使用同一批次运行时与资源仲裁；参数、时序及事件见下文“节点资源”。
 - #331 接入 `StartOwnedJob` 的 `BuildVehicle` 和车辆 `Repair`、`FindJob`、施工事件与修理锁；施工与生产、开采、人口共用单步资源仲裁，具体范围见下文“自有车辆施工”。
+- #387 接入两种资金来源的车辆制造／修理 `GetJobQuote`、`CommissionVehicleWork`、原子补购收费及按设施 FIFO 委托队列；全局工钱、查询、事件和保存重放见下文“NPC 车辆委托与施工报价”。
 - `Capture`、`DecodeState` 和 `PrepareRestore`，覆盖当前真实世界状态；格式与恢复规则见下文“当前载荷”。公开 `PrepareNew` 路径有共享 `CaptureScenario` 及跨进程生成、保存恢复测试。
 - `ReadRecording`、`CaptureRecordingStart`、`ConfirmRecordingStart`、`PrepareReplay` 和 `CompareCheckpoints`，覆盖当前完整世界状态、`PublishContent`、五个铁路命令和 `DebugAddRailBreak`，包含正常业务拒绝。运行在线路上、停留及调度中的录制通过生产重放路径逐检查点比较。
 - #382 将人口消费与结算接入 `Advance`：六类生活需求、主食优先与加工食品共享满足、整数取用后的物理余量、分类加权、人口变化余量和最低一人。每次消费全部完成后判断各项短缺，仅在状态变化时发 `PopulationShortageChanged`；结算发 `PopulationSettled`，从多于一人降至一人时发 `PopulationMinimumReached`。停用与恢复使用 `PopulationAvailabilityChanged`，停用期间不消费、不累计周期、不判断短缺，劳动力为零。
@@ -46,10 +47,10 @@
 
 | 未实现成员 | 交付责任 |
 | --- | --- |
-| 委托改装的 `GetJobQuote`、`CommissionVehicleWork` | #332；车辆制造／修理及其两种资金来源的报价已由 #387 接入 |
+| `NpcCommission` 下改装的 `GetJobQuote`、`CommissionVehicleWork` | #332；车辆制造／修理及其两种资金来源的报价已由 #387 接入 |
 | `FindFacility` 的 `Construction` 键、`SetJobPriority` | 后续施工查询与调度任务 |
-| `StartOwnedJob` 的建筑建造、大型设备制造、建筑修理 | #343 |
-| `StartOwnedJob` 的改装、拆解 | #332 |
+| `OwnInventory` 下建筑建造、大型设备制造、建筑修理的 `GetJobQuote` 及对应的 `StartOwnedJob` | #343 |
+| `OwnInventory` 下改装、拆解的 `GetJobQuote` 及对应的 `StartOwnedJob` | #332 |
 | 其余命令、其他 `Find*`、报价和预览 | 后续经济运输、制造与编辑、自有建设、战斗与生物领域任务 |
 
 旧 `Train.Core.Simulation` 及宿主入口已删除。`RandomKey`、`KeyedRandom`、`SplitMix64` 原算法迁到 `Core/World/`，作为内部实现保留；固定向量测试及独立 Python 参考工具位于 `Tests/Core/World/`。会话始终持有世界状态；内部会话测试也使用真实生成状态，拒绝与事件由内部测试体供给。列车运行、调度及后续领域任务须将各自新增权威字段补入捕获、恢复和检查点，不能把初始世界往返当作完整玩法恢复证据。
@@ -128,10 +129,10 @@
 3. 设施存在、归属、结构未毁、档位资格和完好施工能力；自有任务检查设施空闲，委托允许排队。设施及目标其余拒绝沿用上节。
 4. 施工规则存在（`content_missing / ConstructionRule`），委托还须有市场规则（`content_missing / MarketRule`）；计算工作量及材料，无可修工作量时 `invalid_state / Instance.Durability`。
 5. 按数组顺序检查每个来源的重复、存在和访问权限。自有任务沿用当地自有库存／当地列车来源；委托仅允许当地玩家列车库存及该聚居地的玩家租用库存，到期租约仍可取出。列车来源复用装载的归属、同节点、停站、站台、零速及修理锁检查。NPC 库存不能作为玩家来源，返回 `access_denied / Sources[i]`；其他来源拒绝也定位到 `Sources[i]`。
-6. 先分配玩家来源，再按货物稳定身份顺序从当地真实可售库存补购缺额，复用市场留货及逐件边际价格。任一材料不足返回 `insufficient_goods / Sources`。补购直接投入施工，不经列车货舱，不受玩家货舱容量限制；不会先买半份材料，也不建立等待供货的任务。
+6. 先分配玩家来源，再按货物稳定身份顺序从当地真实可售库存补购缺额，复用市场留货及逐件边际价格。两种资金来源均检查全部货物后才报告缺料；`insufficient_goods / Sources` 的 `RelatedIdentities` 按货物键的 Ordinal 顺序列出所有缺货身份，编码与 `restock_shortage` 相同。补购直接投入施工，不经列车货舱，不受玩家货舱容量限制；不会先买半份材料，也不建立等待供货的任务。
 7. 任务编号可用；计算材料款、工钱和总额后依次检查总限价（`price_condition_failed / MaximumPayment`）和钱包（`insufficient_money / Wallet`）。
 
-`RequiredGoods` 是整份需求，`SourceConsumption` 仅为玩家来源，`NpcPurchases` 是缺额补购。`OwnInventory` 的补购为空，`MaterialPayment` 与 `ServicePayment` 为零。启动条件不足时 `TotalPayment` 为空；仅限价或钱包不足时仍保留已算出的总额。工钱为冻结总工作量乘市场规则的 `CommissionMoneyPerWork`，无最低费用。接受时一次提交全部玩家材料消费、NPC 补购、总付款、工钱累计及任务建立，发 `ConstructionStarted`，携带资金来源和两项实际付款。材料款只影响钱包及事件；只有工钱计入 `Economy.UnassignedServicePayments`，不计入任何列车运行的 `ServicePayments`。
+`RequiredGoods` 是整份需求，`SourceConsumption` 仅为玩家来源，`NpcPurchases` 是缺额补购。拒绝时，`SourceConsumption` 和 `NpcPurchases` 只包含到失败检查为止算出的部分分配，仅供诊断参考，不能据此消费材料或执行补购。`OwnInventory` 的补购为空，`MaterialPayment` 与 `ServicePayment` 为零。启动条件不足时 `TotalPayment` 为空；仅限价或钱包不足时仍保留已算出的总额。工钱为冻结总工作量乘市场规则的 `CommissionMoneyPerWork`，无最低费用。接受时一次提交全部玩家材料消费、NPC 补购、总付款、工钱累计及任务建立，发 `ConstructionStarted`，携带资金来源和两项实际付款。材料款只影响钱包及事件；只有工钱计入 `Economy.UnassignedServicePayments`，不计入任何列车运行的 `ServicePayments`。
 
 每个 `FacilityKey` 以 `JobId` 派生严格 FIFO，不保存第二套队列。队首未结束时，后续任务为 `Queued`，进度和速率为零，不请求资源，即使队首为 `ResourceBlocked` 也不跳队。不同设施可并行；请求 `Priority` 仅参与当地资源仲裁，不影响队列顺序。队首完成或失败后，下一步才处理后继任务，开工通过既有 `ConstructionStateChanged` 可见。排队任务同样检查设施被毁、失去归属或资格、目标消失或被毁的失败条件，不退款。修理从受理起取得锁，排队期间也禁止第二个任务、运行和贸易。
 

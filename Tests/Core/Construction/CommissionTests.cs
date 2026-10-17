@@ -146,6 +146,65 @@ public sealed class CommissionTests
     }
 
     [TestMethod]
+    [DataRow(JobFunding.OwnInventory, false)]
+    [DataRow(JobFunding.NpcCommission, false)]
+    [DataRow(JobFunding.OwnInventory, true)]
+    [DataRow(JobFunding.NpcCommission, true)]
+    public void Missing_goods_quote_lists_every_shortage_in_key_order_without_consuming_partial_allocations(JobFunding funding, bool lastOnly)
+    {
+        GoodId first = new GoodId.Voxel(new("fixture:aa-first"));
+        GoodId last = new GoodId.Voxel(new("fixture:zz-last"));
+        var baseline = CommissionFixture.Content();
+        var content = baseline with
+        {
+            Goods = [..baseline.Goods, baseline.Goods[0] with { Good = first }, baseline.Goods[0] with { Good = last }],
+            Designs = baseline.Designs.Select(d => d.Design != WorldFixture.Vehicle ? d : d with
+                { BillOfMaterials = [new(last, 1), new(Material, 2), new(first, 1)], BillOfMaterialsItemCount = 4 }).ToImmutableArray()
+        };
+        using var original = funding == JobFunding.OwnInventory ? Session(content) : CommissionFixture.Session(content);
+        var cargo = ImmutableArray.Create(new GoodsQuantity(Material, funding == JobFunding.OwnInventory ? 2 : 1));
+        if (funding == JobFunding.OwnInventory && lastOnly) cargo = cargo.Add(new(first, 1));
+        using var session = new CoreSession(original.State with { World = original.State.World with
+        {
+            Inventories = original.State.World.Inventories.Select(i => i.Id == Cargo ? i with { Goods = cargo }
+                : i.Id == Local ? i with { Goods = lastOnly ? [new(Material, 10), new(first, 1)] : [new(Material, 10)] } : i).ToImmutableArray(),
+            Trains = original.State.World.Trains.Select(t => t with { Activity = TrainActivity.Servicing,
+                Plan = new(false, [new PlanStop.Station(original.State.World.Settlements.Single().Node, 100, [])]),
+                NextStopIndex = 0, RemainingDwellSteps = 100,
+                CurrentRun = Train.Core.Trading.RunReports.Begin(original.State.Position) }).ToImmutableArray()
+        } });
+        var request = CommissionFixture.BuildRequest(content, Cargo);
+        var before = session.State;
+        var quote = WorldFixture.Success(session.Read().GetJobQuote(request, funding));
+        Assert.AreEqual(before, session.State);
+        Assert.IsNull(quote.TotalPayment);
+        var blocker = quote.Blockers.Single();
+        Assert.AreEqual("insufficient_goods", blocker.Code);
+        Assert.AreEqual("Sources", blocker.Field);
+        var expected = lastOnly ? new[] { "voxel:fixture:zz-last" }
+            : new[] { "voxel:fixture:aa-first", "voxel:fixture:zz-last" };
+        CollectionAssert.AreEqual(expected, blocker.RelatedIdentities.ToArray());
+        Assert.AreEqual(Cargo, quote.SourceConsumption.Single().Inventory);
+        if (funding == JobFunding.NpcCommission)
+            Assert.IsTrue(quote.NpcPurchases.Contains(new GoodsQuantity(Material, 1)));
+        else
+        {
+            Assert.IsEmpty(quote.NpcPurchases);
+            Assert.AreEqual(new Money(0), quote.MaterialPayment);
+            Assert.AreEqual(new Money(0), quote.ServicePayment);
+        }
+        CoreCommand command = funding == JobFunding.OwnInventory ? new CoreCommand.StartOwnedJob(request)
+            : new CoreCommand.CommissionVehicleWork(request, new(long.MaxValue));
+        var result = Submit(session, command);
+        var rejected = (CommandDecision.Rejected)result.Receipt.Decision;
+        Assert.AreEqual(blocker.Code, rejected.Problems.Single().Code);
+        Assert.AreEqual(blocker.Field, rejected.Problems.Single().Field);
+        CollectionAssert.AreEqual(expected, rejected.Problems.Single().RelatedIdentities.ToArray());
+        Assert.AreEqual(before.World, session.State.World);
+        Assert.IsEmpty(result.Events);
+    }
+
+    [TestMethod]
     public void Wallet_and_limit_failures_preserve_computed_quote_and_leave_all_goods_and_jobs_unchanged()
     {
         var content = CommissionFixture.Content();
@@ -191,6 +250,7 @@ public sealed class CommissionTests
         Assert.IsNull(quote.TotalPayment);
         var blocker = quote.Blockers.Single();
         Assert.AreEqual("Sources[0]", blocker.Field);
+        Assert.AreEqual("platform_required", blocker.Code);
         Reject(session, new CoreCommand.CommissionVehicleWork(request, new(long.MaxValue)), blocker.Field, blocker.Code);
     }
 
@@ -220,10 +280,24 @@ public sealed class CommissionTests
         using var session = CommissionFixture.Session(content);
         var first = Start(session, CommissionFixture.Commission(content));
         var second = Start(session, CommissionFixture.Commission(content));
-        var events = Step(session, 5).Events.Select(e => e.Event).ToArray();
-        CollectionAssert.AreEqual(new[] { first.Id, second.Id }, events.OfType<CoreEvent.ConstructionCompleted>().Select(e => e.Job).ToArray());
-        Assert.IsTrue(events.OfType<CoreEvent.ConstructionStateChanged>().Any(e => e.Job == second.Id
+        var events = Step(session, 2).Events.Select(e => e.Event).ToArray();
+        var completed = events.OfType<CoreEvent.ConstructionCompleted>().Single();
+        Assert.AreEqual(first.Id, completed.Job);
+        Assert.AreEqual(ConstructionState.Queued, Job(session.Read(), second.Id).State);
+        Assert.AreEqual(0d, Job(session.Read(), second.Id).ProgressWork);
+        Assert.IsFalse(events.OfType<CoreEvent.ConstructionStateChanged>().Any(e => e.Job == second.Id));
+        var vehicle = ((InstanceId.Vehicle)completed.CreatedInstance!).Id;
+        var instance = ((Lookup<InstanceView>.Found)session.Read().FindInstance(new InstanceId.Vehicle(vehicle))).Value;
+        Assert.AreEqual(SettlementRelation.PlayerOwned, instance.Ownership);
+        var settlement = ((Lookup<SettlementView>.Found)session.Read().FindSettlement(first.Settlement)).Value;
+        CollectionAssert.Contains(settlement.ParkedVehicles.ToArray(), vehicle);
+        CollectionAssert.DoesNotContain(settlement.VehiclesForSale.ToArray(), vehicle);
+
+        var nextEvents = Step(session).Events.Select(e => e.Event).ToArray();
+        Assert.IsTrue(nextEvents.OfType<CoreEvent.ConstructionStateChanged>().Any(e => e.Job == second.Id
             && e.Before == ConstructionState.Queued && e.After == ConstructionState.Working));
+        Assert.AreEqual(ConstructionState.Working, Job(session.Read(), second.Id).State);
+        Assert.AreEqual(second.Id, Step(session).Events.Select(e => e.Event).OfType<CoreEvent.ConstructionCompleted>().Single().Job);
     }
 
     [TestMethod]
@@ -290,6 +364,27 @@ public sealed class CommissionTests
         Assert.AreEqual(code, quote.Blockers.Single().Code);
         Assert.AreEqual(field, quote.Blockers.Single().Field);
         Reject(session, CommissionFixture.Commission(content), field, code);
+    }
+
+    [TestMethod]
+    public void Lease_at_another_settlement_cannot_supply_commission_materials()
+    {
+        var content = CommissionFixture.Content() with
+        { MarketRules = [CommissionFixture.Content().MarketRules[0] with { RentableCapacityRatio = new(10000) }] };
+        var input = WorldFixture.Input;
+        using var candidate = WorldFixture.Prepare(input with { Configuration = input.Configuration with
+            { WidthMeters = 30, HeightMeters = 30 } }, content);
+        using var session = (CoreSession)candidate.Activate();
+        var local = session.State.World.Settlements[0];
+        var other = session.State.World.Settlements[1];
+        var lease = Accept(session, new CoreCommand.AcquireLease(new LeaseRequest.Rent(other.Id, 2, 1), new(0)))
+            .Events.Select(e => e.Event).OfType<CoreEvent.LeaseAcquired>().Single().Lease;
+        var request = CommissionFixture.BuildRequest(content, lease.Inventory) with
+        { Facility = new(local.Plots.Single().Building!.Value, CapabilityKind.Construction) };
+        var quote = WorldFixture.Success(session.Read().GetJobQuote(request, JobFunding.NpcCommission));
+        Assert.AreEqual("access_denied", quote.Blockers.Single().Code);
+        Assert.AreEqual("Sources[0]", quote.Blockers.Single().Field);
+        Reject(session, new CoreCommand.CommissionVehicleWork(request, new(long.MaxValue)), "Sources[0]", "access_denied");
     }
 
     [TestMethod]

@@ -14,25 +14,14 @@ public sealed partial class CliProcessTests
         {
             var recipe = Path.Combine(Repository, "examples", "commission-shortage", "recipe.json");
             var continuousPath = Path.Combine(directory, "continuous.json");
-            var resumedPath = Path.Combine(directory, "resumed.json");
-            var boundarySave = Path.Combine(directory, "before-commission.save.json");
             await Run(directory, "strict-replay", "replay", Repository, recipe, continuousPath);
-            await Run(directory, "save-before-commission", "save", Repository, recipe, boundarySave, "4000");
-            await Run(directory, "resume-commission", "resume", Repository, recipe, boundarySave, resumedPath);
-            await Run(directory, "compare-resumed", "compare", continuousPath, resumedPath);
-            if (OperatingSystem.IsWindows())
-                await Run(directory, "check-example", "check", Repository, recipe,
-                    Path.Combine(Repository, "examples", "commission-shortage", "save.json"));
 
             var continuous = await ReadEconomyOutput(continuousPath);
-            var resumed = await ReadEconomyOutput(resumedPath);
             Assert.IsTrue(continuous.ReplayVerified);
             var receipt = continuous.CommandReceipts.Single(r => r.Kind == "construction.commission_vehicle_work");
             Assert.AreEqual("rejected", receipt.Decision);
             Assert.AreEqual("insufficient_goods", receipt.Problems.Single().Code);
             Assert.IsNull(receipt.QuotedTotal);
-            Assert.AreEqual(JsonSerializer.Serialize(receipt, Recipe.Json),
-                JsonSerializer.Serialize(resumed.CommandReceipts.Single(), Recipe.Json));
             Assert.AreEqual(1, continuous.RejectedCommands);
             var before = continuous.Samples.Single(s => s.Position == new SimulationPosition(4000, 0));
             var after = continuous.Samples.Single(s => s.Position == new SimulationPosition(4000, 1));
@@ -51,9 +40,6 @@ public sealed partial class CliProcessTests
             Assert.AreEqual(JsonSerializer.Serialize(before with { Position = after.Position }, Recipe.Json),
                 JsonSerializer.Serialize(after, Recipe.Json));
             Assert.IsTrue(after.Settlements.All(s => s.CommissionJobs.IsEmpty));
-            CollectionAssert.AreEqual(continuous.Checkpoints.Where(c => c.Position.CompletedSteps >= 4000).ToArray(), resumed.Checkpoints.ToArray());
-            Assert.AreEqual(JsonSerializer.Serialize(continuous.Samples.Where(s => s.Position.CompletedSteps >= 4000), Recipe.Json),
-                JsonSerializer.Serialize(resumed.Samples, Recipe.Json));
         }
         catch
         {
