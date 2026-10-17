@@ -64,6 +64,19 @@ Station 的形状为 `{kind:"station",node,dwell_steps,goods_rules}`，省略后
 
 - `samples[]`：位置、钱包，全部列车的位置／活动／库存身份／当前运行累计／近期报告，全部聚居地的库存身份与待售车辆，全部租约的到期状态，以及这些对象引用的库存容量、已用、可用、权限和全部货物。数据直接来自公开查询；报告与当前累计保留 Core 给出的收付款、净现金流、运量、载运率和未完成规则，不重算。近期报告有核心规则规定的保留上限。
 - `command_receipts[]`：配方中的零基 `command_index`、`kind`、`decision`（accepted／rejected）、`problems[{code,field}]`、`quoted_total`。只有现车购买提供执行前的公开报价总额，其他命令为 null；报价不预留交易条件。
+- `samples[].settlements[]` 另含公开查询中的 `market_goods`（库存、补货目标、留用、可售／可收量及阻塞）、`facilities`（流程、状态、实际工作速率、限制、输出缓冲、潜在消耗及阻塞）、`residents` 和 `population_needs`。潜在消耗不是实际消耗。
+- `goods_transfers[]`、`production_completions[]`、`production_state_changes[]` 保留命令提交和推进返回的三类公开事件，含实际模拟位置和事件序号。成交记录含列车、聚居地、货物、数量及实际金额；生产完成量包含仍在输出缓冲中的货物。
+
+需要按小时调查起步贸易时，只运行一次 Release `run`，再用 Python 3 标准库脚本汇总：
+
+```powershell
+dotnet build Tools/Cli/Train.Cli.csproj -c Release
+New-Item -ItemType Directory -Force TestResults/trade-diagnostics | Out-Null
+dotnet Tools/Cli/bin/Release/net10.0/Train.Cli.dll run . examples/starting-trade/recipe.json TestResults/trade-diagnostics/run.json
+python Tools/Cli/summarize_starting_trade.py TestResults/trade-diagnostics/run.json TestResults/trade-diagnostics/summary
+```
+
+脚本只接受完整四小时 `starting-trade` 输出，写出逐笔成交和小时列车、市场、设施、人口需求及设施状态变化 CSV。按实际事件位置划分小时，以成交金额除以数量计算实际均价，无成交时标“无成交”，不计算定价公式。实际消费由库存、完成产量、输出缓冲和转运收支守恒推导，包含居民、批次投入及燃料的合计，不拆分用途。脚本逐小时核对成交净额与钱包变化，并跨采样去重运行报告、检查报告连续性，将每列车的报告收付款与成交累计核对；失败返回非零。该入口不适用于带租金或现车买卖的配方。
 
 现金流按同一运行中钱包余额的差计算，不统计成交笔数。起步例子只使用两列初始列车和货物买卖，不卖车、不租仓、不委托。两列车分别在 0、1800 步启动，每站停靠 300 步，按下表循环。买入目标表示车上该货物的目标存量，已有货物只补到目标；卖出目标均为 0，实际成交受目的地可收量限制。
 
