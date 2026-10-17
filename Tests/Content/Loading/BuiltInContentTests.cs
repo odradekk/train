@@ -32,6 +32,7 @@ public sealed class BuiltInContentTests
         foreach (var summary in view.Blueprints)
         {
             var blueprint = Found(view.FindBlueprint(summary.Address));
+            AssertPaintedPalette(blueprint.Definition);
             C.DesignEvaluation evaluation;
             if (summary.Address.Id.Value is "core:workshop-crane" or "core:gantry-crane")
                 evaluation = blueprint.Evaluation;
@@ -53,6 +54,19 @@ public sealed class BuiltInContentTests
                 Assert.IsTrue(item.Quantity > 0, summary.Address.ToString());
                 Assert.IsFalse(Found(view.FindGood(item.Good)).Missing, item.Good.ToString());
             }
+        }
+        void AssertPaintedPalette(C.DesignDraft design)
+        {
+            foreach (var entry in design.Layout.Palette)
+            {
+                var appearance = Found(view.FindVoxelAppearance(entry.Voxel));
+                if (appearance.Presentation is C.VoxelPresentation.Cube cube &&
+                    cube.Material is C.MaterialCategory.PaintedMetal or C.MaterialCategory.Concrete)
+                    Assert.IsNotNull(entry.Paint, entry.Voxel.ToString());
+            }
+            foreach (var nested in design.Layout.NestedItems)
+                if (nested is C.NestedDesignItem.AssemblyCopy assembly) AssertPaintedPalette(assembly.Design);
+                else if (nested is C.NestedDesignItem.SceneModelCopy scene) AssertPaintedPalette(scene.Design);
         }
         var processes = view.Core.Processes.ToDictionary(process => ProcessReference(process.Details));
         foreach (var sizes in new K.SizeClass[][]

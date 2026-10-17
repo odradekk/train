@@ -383,11 +383,17 @@ public sealed class NodeSceneTests
         var oldTerrain = before.Objects.Where(item => item.Subject is null).SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Select(v => v.Mesh).ToArray();
         Assert.IsTrue(oldTerrain.Length > 0, "The copied scene model still supplies terrain meshes without a terrain appearance.");
         var node = snapshot.Core.World.Nodes.Single() with
-        { Resources = [new(new GoodId.Voxel(SceneFixtures.Voxel), 10, new ResourceRenewal.Renewable(10, 1))] };
+        { Resources = [new(new GoodId.Voxel(new("core:crude-oil")), 10, new ResourceRenewal.Renewable(10, 1))] };
         var changed = RailwayFixtures.ReplaceCore(snapshot, node: node);
         session.Observe(changed, []);
         var after = await RailwayFixtures.Settled(session, new(1, null, SceneDebugLayer.None));
         var meshes = after.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Select(v => v.Mesh).ToArray();
+        var resourceMaterials = meshes.Select(mesh => mesh.Material).OfType<SceneMaterial.Voxel>()
+            .Where(material => material.Texture == new AssetRevision("crude-oil")).ToArray();
+        Assert.IsTrue(resourceMaterials.Length > 0, "The updated node renders its crude-oil resource pile.");
+        var defaultPaint = BuiltInResourcePaints.For(new("core:crude-oil"));
+        Assert.IsNotNull(defaultPaint);
+        foreach (var material in resourceMaterials) Assert.AreEqual(defaultPaint, material.Paint);
         foreach (var mesh in oldTerrain) Assert.IsTrue(meshes.Any(current => ReferenceEquals(mesh, current)), "Resource changes retain every existing terrain mesh.");
         Assert.AreEqual(before.NodePanBounds, after.NodePanBounds);
         var afterHit = ((ScenePick.Hit)after.Pick(new(new(22.5f, 8, .5f), -Vector3.UnitY, 10))).Value;
@@ -517,7 +523,13 @@ public sealed class NodeSceneTests
             { [SceneFixtures.Design] = basis.FindDesign(SceneFixtures.Design), [NodeFixtures.StationDesign] = basis.FindDesign(NodeFixtures.StationDesign), [sourceHash] = new ContentLookup<DesignEvaluation>.Found(SceneFixtures.Evaluation(SceneFixtures.Projection([SceneFixtures.Cell(new((int)generation * 80, 0, 80))]))) },
             VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
             { [SceneFixtures.Voxel] = basis.FindVoxelAppearance(SceneFixtures.Voxel),
-              [NodeFixtures.Concrete] = basis.FindVoxelAppearance(NodeFixtures.Concrete) },
+              [NodeFixtures.Concrete] = basis.FindVoxelAppearance(NodeFixtures.Concrete),
+              [new("core:crude-oil")] = new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube with
+              {
+                  Definition = new("core:crude-oil"),
+                  Presentation = new VoxelPresentation.Cube([], MaterialCategory.PaintedMetal, 1,
+                      new("crude-oil"), new("crude-oil"), new("crude-oil"), new("crude-oil"))
+              }) },
             Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
             { [RailwayFixtures.Terrain] = terrain ? basis.FindTerrain(RailwayFixtures.Terrain) : new ContentLookup<TerrainAppearanceProjection>.Missing([]) },
             RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>> { [RailwayFixtures.Rule] = basis.FindRailwayAppearance(RailwayFixtures.Rule) }

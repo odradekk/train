@@ -43,10 +43,10 @@ internal sealed class BlueprintParser
         return ReadDesign(root, null, draft);
     }
 
-    private static C.DesignDraft ReadDesign(JsonElement root, LoadPackage? package, bool draft = false)
+    internal static C.DesignDraft ReadDesign(JsonElement root, LoadPackage? package, bool draft = false)
     {
         var category = Choice(Required(root, "category", ""), "/category", ["vehicle", "building", "large_equipment", "scene_model", "creature"]);
-        if (category == "creature")
+        if (category == "creature" && !draft)
             Fail("/category", "当前不支持生物蓝图。", "unsupported_format");
         var layout = Required(root, "layout", "");
         Object(layout, "/layout", "palette", "cells", "composites");
@@ -162,6 +162,23 @@ internal sealed class BlueprintParser
             case C.DesignSpecification.SceneModel:
                 writer.WriteString("category", "scene_model");
                 break;
+            case C.DesignSpecification.Creature creature when incomplete:
+                writer.WriteString("category", "creature");
+                writer.WriteStartObject("simulation");
+                writer.WriteStartObject("behaviors");
+                if (creature.Behavior is { } behavior)
+                {
+                    writer.WriteStartObject("creature");
+                    writer.WriteNumber("hp", behavior.HitPoints);
+                    writer.WriteNumber("speed", behavior.SpeedMetersPerSecond);
+                    writer.WriteNumber("retreat_threshold", behavior.RetreatThreshold);
+                    writer.WriteNumber("raid_duration", behavior.RaidDurationSeconds);
+                    writer.WriteEndObject();
+                }
+                if (creature.Weapon is { } weapon) WriteBehavior(writer, weapon);
+                writer.WriteEndObject();
+                writer.WriteEndObject();
+                break;
             default:
                 Fail("/category", "当前只支持完整的车辆、建筑或场景模型设计。", "unsupported_format");
                 break;
@@ -259,6 +276,33 @@ internal sealed class BlueprintParser
 
     private static C.DesignSpecification Specification(JsonElement root, string category, bool draft)
     {
+        if (category == "creature")
+        {
+            if (root.TryGetProperty("appearance", out var appearance)) Object(appearance, "/appearance");
+            var simulation = Required(root, "simulation", "");
+            Object(simulation, "/simulation", "behaviors");
+            var behaviors = Required(simulation, "behaviors", "/simulation");
+            Object(behaviors, "/simulation/behaviors", "creature", "weapon");
+            C.CreatureBehavior? creature = null;
+            if (behaviors.TryGetProperty("creature", out var c))
+            {
+                const string field = "/simulation/behaviors/creature";
+                Object(c, field, "hp", "speed", "retreat_threshold", "raid_duration");
+                creature = new(Int64(Required(c, "hp", field), field + "/hp"),
+                    Number(Required(c, "speed", field), field + "/speed"),
+                    Number(Required(c, "retreat_threshold", field), field + "/retreat_threshold"),
+                    Number(Required(c, "raid_duration", field), field + "/raid_duration"));
+            }
+            K.PartCapability.Weapon? weapon = null;
+            if (behaviors.TryGetProperty("weapon", out var w))
+            {
+                const string field = "/simulation/behaviors/weapon";
+                Object(w, field, "damage", "interval");
+                weapon = new(Int64(Required(w, "damage", field), field + "/damage"),
+                    Number(Required(w, "interval", field), field + "/interval"));
+            }
+            return new C.DesignSpecification.Creature(creature, weapon);
+        }
         if (category == "scene_model")
         {
             if (root.TryGetProperty("simulation", out _)) Fail("/simulation", "场景模型不能有 simulation。");

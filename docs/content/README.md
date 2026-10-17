@@ -37,6 +37,8 @@
 
 `builtin/core/resources/` 当前提供经济运输切片的正式输入：覆盖三种轨距、五档尺寸的 11 份车辆蓝图、小站点和站台设备、五类聚居地与六份模板、五种地貌及桥隧模型、五类规则和 `core:basic-through-world` 生成配置。除下述手绘图标外，JSON 和 PNG 由 [generate_small_world.py](../../scripts/content/generate_small_world.py) 生成，该脚本是生成贴图的唯一可编辑源。所有 PNG 的 Keep File `.import` 由脚本生成，UID 由路径确定。
 
+可涂体素的默认色也只在该脚本维护：面图使用中性纹样，内置蓝图的调色板补默认 `paint`，已有涂装保持。Scenes 直接放置的可涂原料另生成到 `Scenes/BuiltInResourcePaints.g.cs`，当前只有原油资源堆；`--check` 同时核对该文件。指定 `--output-dir` 时，这份 C# 文件写入指定目录，不改工作树的 Scenes 源码。图标保留原色，面图的 Alpha 按[美术 03](../art/03-color-and-paint.md#玩家涂装)表示可涂权重。
+
 自然与铁路素材由同一脚本生成：13 种基础场景体素（包含路灯和道床碎石，不含站台边缘）、三种树、两种岩石、1–3 轨桥隧和两类工地。工地另复用三种专用场景体素 `site-fence`、`road-barrier`、`rail-stack`；轨枕堆和灯柱复用混凝土。场景体素不新增物品图标，必填的 `display.icon` 复用 128 px 面图或原有共用图标。面图保持 32 px/格，土层图放在 `voxels/shared/` 复用。道床由铁路规则的必填 `appearance.ballast_voxel` 指定，不随地貌岩层变化。
 
 森林装饰密度为每平方米 0.002 株，三种树权重为 2/2/1；丘陵与山地每平方米 0.0007 块岩石，两种岩石权重为 3/1。现有摆放不按坡度筛选。工地尚未接入施工或断轨状态，灯光效果、三轨桥隧的真实流程留给后续 #345／#344／#305 验证；六份聚居地底景归 #361。画面由用户在阶段试玩中确认。
@@ -70,6 +72,8 @@ pwsh -NoProfile -File scripts/test.ps1 -Project content -Layer fast,integration
 手绘清单是生成器 `RAW_GOODS_ART` 推出的 `HAND_DRAWN_ICONS`，列出 `builtin/core/resources/voxels/<id>/icon.png`。这些图由图像模型生成，整理后的最终 PNG 本身就是唯一源，不在 `art-source/` 留副本，也不提交整理脚本。后续直接编辑内容目录内的 PNG，在运行中的 Debug 构建中用 `reload` 或 Ctrl+Shift+R 检查。贴图仍修改生成脚本后重制，不能用图标代替面贴图。
 
 生成器保留手绘 PNG，`--check` 在缺图时失败；对应的 Keep File `.png.import` 仍由生成器生成。新增 #393、#394 图标时在 `RAW_GOODS_ART` 登记，沿用下述提示词、整理步骤和同用途规则。
+
+创作模式维护的文件在生成器 `HAND_DRAWN_ICONS` 旁的 `AUTHORED_FILES` 登记（初始为空，由 #391 填写）。每项与 `HAND_DRAWN_ICONS` 一样，是相对 `resources/` 的精确文件路径，可登记 JSON、PNG、GLB 和 `.import`，例如 `voxels/stone.voxel.json`；关联文件须逐一登记，不按目录或扩展名放行。登记后以创作模式写入的磁盘文件为准，生成器不生成、不覆盖这些文件，生成规则变化也不会更新它们。`--check` 检查登记文件存在，JSON 使用实际磁盘字节做 Schema 校验，跳过生成字节比较；未登记的多余文件仍失败。向空的 `--output-dir` 重制时也需自行提供全部登记文件。
 
 共用提示词模板：
 
