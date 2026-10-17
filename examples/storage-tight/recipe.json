@@ -21,7 +21,7 @@
         "stops": [
           {
             "kind": "station",
-            "node": 13,
+            "node": 5,
             "dwell_steps": 10000,
             "goods_rules": [
               {
@@ -31,9 +31,9 @@
                 },
                 "good": {
                   "kind": "voxel",
-                  "definition": "core:structural-metal"
+                  "definition": "core:lumber"
                 },
-                "local_inventory": 5,
+                "local_inventory": 2,
                 "target_quantity": 2400
               },
               {
@@ -43,9 +43,9 @@
                 },
                 "good": {
                   "kind": "voxel",
-                  "definition": "core:construction-material"
+                  "definition": "core:timber"
                 },
-                "local_inventory": 5,
+                "local_inventory": 2,
                 "target_quantity": 2400
               }
             ]

@@ -170,6 +170,19 @@ public sealed class BuiltInContentTests
         var worldResult = factory.CreateWorldInput(view, new("core:basic-through-world"), 1, "stage1-world-v1");
         Assert.IsInstanceOfType<C.ContentResult<K.WorldGenerationInput>.Success>(worldResult, worldResult.ToString());
         var world = ((C.ContentResult<K.WorldGenerationInput>.Success)worldResult).Value;
+        var commission = view.Core.Designs.Single(design =>
+            design.Design == world.Configuration.StartConstraints.RequiredAffordableCommissionDesign);
+        foreach (var template in view.Core.SettlementTemplates.Where(template => template.Plots
+                     .Where(plot => plot.PrebuiltDesign != null)
+                     .Select(plot => view.Core.Designs.Single(design => design.Design == plot.PrebuiltDesign))
+                     .SelectMany(design => design.Parts).SelectMany(part => part.Capabilities)
+                     .OfType<K.PartCapability.Construction>()
+                     .Any(construction => construction.MaximumVehicleSize >= K.SizeClass.Small)))
+        {
+            foreach (var item in commission.BillOfMaterials)
+                Assert.IsTrue(template.SpecialInitialInventory.Where(stock => stock.Good == item.Good)
+                    .Sum(stock => stock.Quantity) >= item.Quantity, template.Id + ":" + item.Good);
+        }
         Assert.AreEqual(2, world.Start.Trains.Length);
         CollectionAssert.AreEqual(new[] { "small-locomotive", "small-freight-wagon", "small-freight-wagon", "small-freight-wagon" }
             .Select(id => Complete(view, id).Design).ToArray(), world.Start.Trains[0].Vehicles.ToArray());

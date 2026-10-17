@@ -13,6 +13,7 @@ python scripts/content/generate_small_world.py --output-dir TestResults/reproduc
 """
 
 import argparse
+from collections import Counter
 import hashlib
 import json
 from math import ceil, cos, pi, sin
@@ -69,6 +70,7 @@ NPC_FILL_INPUTS_AND_LIVING_TARGETS = True
 NPC_MINIMUM_FOR_SALE_VEHICLES = 1
 NPC_MAXIMUM_FOR_SALE_VEHICLES = 2
 NPC_FOR_SALE_VEHICLE_CANDIDATES = tuple(spec[0] for spec in VEHICLES)
+INITIAL_SMALL_VEHICLE_MATERIAL_SETS = 1
 MARKET_MARGIN = 0.1
 MARKET_SENSITIVITY = 0.25
 MARKET_MULTIPLIER_LIMITS = (0.5, 2)
@@ -1186,7 +1188,7 @@ def content_files():
                   "production_plans": [{"plot": plot, "capability": capability, "process": process,
                                         "enabled": enabled, "priority": INITIAL_PLAN_PRIORITY}
                                        for plot, capability, process, enabled in TEMPLATE_PLANS[identity]],
-                  "display": {"name": name + "经济布局", "description": "十地块布局，含两个站点地块与真实生产计划；特殊库存为空，普通库存与现车由核心按生成配置初始化。"}})
+                  "display": {"name": name + "经济布局", "description": "十地块布局，含两个站点地块与真实生产计划；普通库存与现车由核心按生成配置初始化。"}})
 
     for value in (core_city_hub(), bastion_fortress()):
         document("blueprints", "blueprint", value["id"], value)
@@ -1206,23 +1208,41 @@ def content_files():
              blueprint("core-city-ground", "核心城市地面", "scene_model", ["ground"], ground,
                        appearance={"flatten": {"from": [-432, -232], "to": [431, 999], "height": 1}}))
 
-    def voxel_behaviors(blueprint_id, capability):
-        # 本批生产建筑、发电站和起始机车的相应设备均是直接体素。
-        # 这里只数制备中的实际格子，不求通用设计 BOM 或复制核心分配规则。
-        layout = blueprint_definitions[blueprint_id]["layout"]
-        return [behavior for *_, index in layout["cells"]
-                if (behavior := voxel_definitions[layout["palette"][index]["voxel"]]
-                    .get("simulation", {}).get("behaviors", {}).get(capability)) is not None]
+    def blueprint_behaviors(blueprint_id, capability):
+        definition = blueprint_definitions[blueprint_id]
+        layout = definition["layout"]
+        behaviors = [behavior for *_, index in layout["cells"]
+                     if (behavior := voxel_definitions[layout["palette"][index]["voxel"]]
+                         .get("simulation", {}).get("behaviors", {}).get(capability)) is not None]
+        if (behavior := definition.get("simulation", {}).get("behaviors", {}).get(capability)) is not None:
+            behaviors.append(behavior)
+        for composite in layout.get("composites", []):
+            behaviors.extend(blueprint_behaviors(composite["blueprint"], capability))
+        return behaviors
+
+    small_vehicle_materials = Counter()
+    for identity, _, _, size, *_ in VEHICLES:
+        if size == "small":
+            layout = blueprint_definitions[identity]["layout"]
+            small_vehicle_materials |= Counter(layout["palette"][index]["voxel"] for *_, index in layout["cells"])
+    for template in list(template_definitions.values()):
+        if any(behavior.get("max_size_class") is not None
+               for plot in template["plots"] if "building" in plot
+               for behavior in blueprint_behaviors(plot["building"], "construction")):
+            template["inventory"] = [{"voxel": good, "quantity": quantity * INITIAL_SMALL_VEHICLE_MATERIAL_SETS}
+                                     for good, quantity in sorted(small_vehicle_materials.items())]
+            template["display"]["description"] += "一次性备有小型车辆材料，用完不补货。"
+            document("settlement-templates", "settlement-template", template["id"], template)
 
     per_generator_outputs, template_estimates = [], []
     for template in template_definitions.values():
         buildings_by_plot = {plot["id"]: plot["building"] for plot in template["plots"] if "building" in plot}
         plans = [(processes[plan["process"]], sum(behavior["work_rate"] for behavior in
-                  voxel_behaviors(buildings_by_plot[plan["plot"]], plan["capability"])))
+                  blueprint_behaviors(buildings_by_plot[plan["plot"]], plan["capability"])))
                  for plan in template["production_plans"] if plan["enabled"]]
         demand = sum(rate * process["power_per_work"] for process, rate in plans)
         template_estimates.append((template, plans, demand))
-        generator_count = sum(len(voxel_behaviors(building, "power")) for building in buildings_by_plot.values())
+        generator_count = sum(len(blueprint_behaviors(building, "power")) for building in buildings_by_plot.values())
         per_generator_outputs.append(ceil(demand * POWER_HEADROOM / generator_count))
     output = max(per_generator_outputs)
     power = voxel_definitions["power-equipment"]
@@ -1238,7 +1258,7 @@ def content_files():
             value = json.loads(data)
             settlement_types[value["id"]] = value["simulation"]
     maximum_population = max(value["population_max"] for value in settlement_types.values())
-    farm_rate = sum(behavior["work_rate"] for behavior in voxel_behaviors("farm", "production"))
+    farm_rate = sum(behavior["work_rate"] for behavior in blueprint_behaviors("farm", "production"))
     grain = processes["grain-farming"]
     grain_per_hour = farm_rate * grain["outputs"][0]["quantity"] / grain["work_required"] * SECONDS_PER_HOUR
     need_units_per_person_hour = grain_per_hour * LOCAL_FOOD_SHARE / maximum_population
@@ -1337,7 +1357,7 @@ def content_files():
                   "global_regeneration_remaining_reserve_ratio": GLOBAL_REGEN_RATIO}
                  for _, good, terrains in RESOURCE_PROFILES]
     cargo_capacity = sum(behavior["capacity"] for train in START_TRAINS for identity in train
-                         for behavior in voxel_behaviors(identity, "storage"))
+                         for behavior in blueprint_behaviors(identity, "storage"))
     freight = blueprint_definitions["small-freight-wagon"]["layout"]
     freight_base_value = sum(values[freight["palette"][index]["voxel"]] for *_, index in freight["cells"])
     # 只估算两列起始车队满舱采购与小型货车组成的预算，不计算核心委托报价。
