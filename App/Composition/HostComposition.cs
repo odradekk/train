@@ -19,8 +19,8 @@ internal static class HostComposition
         var userLibrary = new ContentRoot("user-library");
         var files = new ContentFiles(dispatcher, new Dictionary<ContentRoot, ContentRootLocation>
         {
-            [builtin] = new ContentRootLocation.Resource("res://builtin/core"),
-            [mods] = new ContentRootLocation.Disk(Path.Combine(userData, "mods")),
+            [builtin] = new ContentRootLocation.Resource(AuthoringPaths.BuiltInCoreResourceDirectory),
+            [mods] = new ContentRootLocation.Disk(AuthoringPaths.ModsDirectory(userData)),
             [userLibrary] = new ContentRootLocation.Disk(AuthoringPaths.UserLibraryDirectory(userData))
         });
         var content = Train.Content.ContentFactory.Create();

@@ -23,6 +23,20 @@ public partial class Runner : Node
             try
             {
                 var assembly = context.LoadFromAssemblyPath(path);
+                var arguments = OS.GetCmdlineUserArgs();
+                var childType = arguments.FirstOrDefault() switch
+                {
+                    "--package-restart-child" => "Train.Engine.Tests.PackageRestartTests",
+                    "--authoring-core-probe" => "Train.Engine.Tests.AuthoringCoreProbe",
+                    _ => null
+                };
+                if (childType is not null)
+                {
+                    var entry = assembly.GetType(childType, throwOnError: true)!.GetMethod("Run", BindingFlags.Public | BindingFlags.Static)!;
+                    var exitCode = await (Task<int>)entry.Invoke(null, [this])!;
+                    GetTree().Quit(exitCode);
+                    return;
+                }
                 GoTest.Adapter = new ReportAdapter(System.Environment.GetEnvironmentVariable("TRAIN_ENGINE_REPORT")!);
                 GoTest.TimeoutMilliseconds = 60000;
                 var screenshot = System.Environment.GetEnvironmentVariable("TRAIN_ENGINE_SCREENSHOT") == "1";
