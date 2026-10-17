@@ -61,6 +61,14 @@ public sealed class RuleParserTests
     }
 
     [TestMethod]
+    public void Equal_vehicle_buy_and_sell_multipliers_are_allowed()
+    {
+        var json = Market();
+        json["simulation"]!["vehicle_buy_multiplier_basis_points"] = 5000;
+        Assert.IsNotNull(Parse("market", json));
+    }
+
+    [TestMethod]
     [DataRow(1)]
     [DataRow(int.MaxValue)]
     public void Market_lease_multiple_is_required_projected_and_part_of_business_revision(int multiple)
@@ -145,6 +153,7 @@ public sealed class RuleParserTests
     [DataRow("population", "/simulation/needs/food/class", "\"improvement\"")]
     [DataRow("market", "/simulation/default_goods_prices/spread_basis_points", "10000")]
     [DataRow("market", "/simulation/default_goods_prices/maximum_multiplier_basis_points", "1")]
+    [DataRow("market", "/simulation/vehicle_buy_multiplier_basis_points", "4999")]
     [DataRow("market", "/simulation/rentable_capacity_ratio_basis_points", "10001")]
     [DataRow("market", "/simulation/lease_duration_ticks", "0")]
     [DataRow("market", "/simulation/maximum_lease_duration_multiple", "0")]

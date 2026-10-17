@@ -1,4 +1,4 @@
-[gd_resource type="Theme" load_steps=12 format=3]
+[gd_resource type="Theme" load_steps=13 format=3]
 
 [ext_resource type="FontFile" path="res://Ui/Fonts/NotoSansSC-Regular.otf" id="1"]
 [ext_resource type="FontFile" path="res://Ui/Fonts/NotoSansSC-Bold.otf" id="2"]
@@ -21,9 +21,9 @@ corner_radius_bottom_left = 4
 
 [sub_resource type="StyleBoxFlat" id="TopBar"]
 content_margin_left = 12.0
-content_margin_top = 5.0
+content_margin_top = 3.0
 content_margin_right = 12.0
-content_margin_bottom = 5.0
+content_margin_bottom = 3.0
 bg_color = Color(0.0941176, 0.1098039, 0.1294118, 0.92)
 border_width_left = 1
 border_width_top = 1
@@ -147,6 +147,10 @@ corner_radius_top_right = 4
 corner_radius_bottom_right = 4
 corner_radius_bottom_left = 4
 
+[sub_resource type="StyleBoxLine" id="Separator"]
+color = Color(0.172549, 0.2, 0.231373, 1)
+thickness = 1
+
 [resource]
 default_font = ExtResource("1")
 default_font_size = 14
@@ -166,6 +170,7 @@ CheckBox/colors/font_color = Color(0.9019608, 0.9137255, 0.9254902, 1)
 LineEdit/fonts/font = ExtResource("1")
 LineEdit/colors/font_color = Color(0.9019608, 0.9137255, 0.9254902, 1)
 ItemList/fonts/font = ExtResource("1")
+ItemList/constants/v_separation = 12
 ItemList/colors/font_color = Color(0.9019608, 0.9137255, 0.9254902, 1)
 PopupMenu/fonts/font = ExtResource("1")
 PopupMenu/colors/font_color = Color(0.9019608, 0.9137255, 0.9254902, 1)
@@ -173,6 +178,7 @@ RichTextLabel/fonts/normal_font = ExtResource("1")
 RichTextLabel/fonts/bold_font = ExtResource("2")
 Button/colors/font_disabled_color = Color(0.6039216, 0.6392157, 0.6784314, 1)
 PanelContainer/styles/panel = SubResource("Panel")
+HSeparator/styles/separator = SubResource("Separator")
 TopBar/base_type = &"PanelContainer"
 TopBar/styles/panel = SubResource("TopBar")
 Button/styles/normal = SubResource("Secondary")
