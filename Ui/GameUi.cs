@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using Godot;
 using Train.App;
+using Train.App.Editing;
 using Train.App.Logging;
 using Train.App.Recording;
 using Train.Content.Contracts;
@@ -12,6 +13,9 @@ namespace Train.Ui;
 
 public partial class GameUi : CanvasLayer
 {
+    private EditorService? _editor;
+    private DesignEditorPanel? _editorPanel;
+    private BlueprintLibraryPanel? _library;
     private HostCoordinator? _host;
     private WorldSceneController? _scenes;
     private RecordingService? _recording;
@@ -47,8 +51,8 @@ public partial class GameUi : CanvasLayer
     internal string ErrorText => _error.Text;
 
     internal void Initialize(MainMenu menu, HostCoordinator? host, TrainLogger logger,
-        WorldSceneController? scenes, RecordingService? recording, GoodsIconCache icons)
-    { _menu = menu; _host = host; _logger = logger; _scenes = scenes; _recording = recording; _icons = icons; }
+        WorldSceneController? scenes, RecordingService? recording, GoodsIconCache icons, EditorService? editor = null)
+    { _menu = menu; _host = host; _logger = logger; _scenes = scenes; _recording = recording; _icons = icons; _editor = editor; }
 
     public override void _Ready()
     {
@@ -137,6 +141,19 @@ public partial class GameUi : CanvasLayer
         _settings.Initialize(_host, _logger, ShowError, _recording);
         _root.AddChild(_settings);
         _bar.AddChild(UiStyle.Button("Settings", "设置", _settings.Show));
+        if (_editor is not null)
+        {
+            _library = new BlueprintLibraryPanel { Name = "BlueprintLibrary" }; _library.Initialize(_editor); _root.AddChild(_library);
+            _editorPanel = new DesignEditorPanel { Name = "DesignEditor" }; _editorPanel.Initialize(_editor); _editorPanel.LibraryRequested += _library.Open; _root.AddChild(_editorPanel);
+            _bar.AddChild(UiStyle.Button("NewDesign", "新建设计…", _library.NewDraft));
+            _bar.AddChild(UiStyle.Button("BlueprintLibrary", "蓝图库…", _library.Open));
+            var menuEditor = new HBoxContainer { Position = new(24, 24) };
+            _menu.AddChild(menuEditor);
+            menuEditor.AddChild(UiStyle.Button("MenuNewDesign", "新建设计…", _library.NewDraft));
+            menuEditor.AddChild(UiStyle.Button("MenuBlueprintLibrary", "蓝图库…", _library.Open));
+            if (_panels is not null) _panels.RefitRequested += _editor.OpenInstance;
+            _editor.Changed += OnEditorChanged;
+        }
         _menu.SetHostAvailable(_host is not null);
         _menu.NewGameRequested += OpenNewGame;
         _menu.SettingsRequested += _settings.Show;
@@ -153,7 +170,13 @@ public partial class GameUi : CanvasLayer
     {
         var showingScene = _scenes?.View.Visible == true;
         var status = _host?.GetStatus();
-        _map.Visible = status is not null && !showingScene;
+        var editing = _editor?.IsOpen == true;
+        _map.Visible = status is not null && !showingScene && !editing;
+        if (_panels is not null) _panels.Visible = !editing;
+        if (_formation is not null) _formation.Visible = !editing && _formation.Visible;
+        if (_plan is not null) _plan.Visible = !editing && _plan.Visible;
+        if (_economy is not null) _economy.Visible = !editing && _economy.Visible;
+        if (editing) _editorPanel?.MoveToFront();
         _returnToMap?.SetVisible(showingScene);
         if (_newOperation != 0 && _host?.MissingConfirmation is { } missing &&
             missing.Operation == _newOperation && _reportedMissing != missing.Operation)
@@ -173,7 +196,7 @@ public partial class GameUi : CanvasLayer
             _clock.Text = $"{UiInput.FormatTime(status.View.Position.CompletedSteps)}   {(status.IsPaused ? "已暂停" : "运行中")}   实际 {status.ActualSpeed:0.00}×";
             foreach (var (speed, button) in _speeds)
             {
-                button.Disabled = _host!.IsBusy;
+                button.Disabled = _host!.IsBusy || editing;
                 button.SetPressedNoSignal(speed == (status.PlayerPaused ? null : (SimulationSpeed?)status.Speed));
             }
             if (_view is not null && _content is not null)
@@ -197,6 +220,11 @@ public partial class GameUi : CanvasLayer
             _menu.Show();
         }
         _menu.SetGameStartEnabled(_host?.SessionOptions is not null && !_host.IsBusy && _host.Content is not null);
+    }
+
+    private void OnEditorChanged()
+    {
+        if (_editor is { IsOpen: false, HasError: true, Message: { Length: > 0 } message }) ShowError(message);
     }
 
     private void Report(CoreProblem? problem)
@@ -333,6 +361,8 @@ public partial class GameUi : CanvasLayer
             if (!ulong.TryParse(seed.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var value))
             { _newGameError.Text = "种子必须是 0 至 18446744073709551615 的整数。"; return; }
             if (profile.Selected < 0) return;
+            void Start()
+            {
             var result = _host.BeginNewGame(profiles[profile.Selected].Id, value, "stage1-world-v1", _host.SessionOptions);
             if (result.Problem is { } problem)
             {
@@ -346,6 +376,8 @@ public partial class GameUi : CanvasLayer
             _confirmMissing!.Hide();
             _newGameError.Text = "正在创建对局，可取消。";
             _createNewGame!.Disabled = true;
+            }
+            if (_editor is not null) _editor.RequestClose(Start); else Start();
         }, true);
         create.Disabled = profiles.IsEmpty;
         body.AddChild(create);
@@ -393,6 +425,7 @@ public partial class GameUi : CanvasLayer
 
     public override void _ExitTree()
     {
+        if (_editor is not null) _editor.Changed -= OnEditorChanged;
         if (_scenes is not null)
         { _scenes.ReturnedToMap -= OnReturnedToMap; _scenes.Selected -= OnSelected; }
         if (_host is not null)

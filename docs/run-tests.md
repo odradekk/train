@@ -63,6 +63,8 @@ dotnet build Tests/Engine/Train.Engine.Tests.csproj -c Debug
 
 选择“开发检查预览”启动 `DeveloperToolsPreview`，仍使用同份生产 App、开发窗口、协调器和文件流程；Core、Content、Scenes 为界面列明的有限契约替身。普通会话只支持运行到步 2，重放验证顺序为单步到 `1:0`、推进到 `2:0`、导出普通存档、通过存档面板导入并读取副本。预览启动时在 `TestResults/developer-tools-preview/` 写入固定复现包，窗口或辅助按钮可执行这些操作；场景图层开关请求替身提供彩色线。它不验证真实 Core 重放、生产 Scenes 图层生成、完整 Godot 隔离或四模块联调。
 
+选择“玩家编辑器预览”启动 `EditorPreview`，使用同份生产 App、编辑协调、界面和渲染，Core／Content／Scenes 为明确的有限情景替身。引擎 `EditorUiTests` 检查同帧拾取、当前转动线框、嵌套输入坐标和失败后手动重试；设置 `TRAIN_UI_CAPTURE_DIR` 后有窗口运行该类会保存 `player-editor.png` 与渲染身份。它不验证尚未接入的真实编辑会话、用户库生产装配或阶段 3 的完整设计与委托闭环。
+
 ## 观察无关检查与窗口测量
 
 `ObservationIndependenceTests` 由引擎层执行，使用默认 App 的真实 Core／Content／Scenes 装配和 `examples/basic-through/recipe.json`。参考运行使用 60 Hz、1×、不打开局部场景；五组变体覆盖 30／120 Hz、不规则间隔、2×／4×／8×、运行中切换倍速、暂停中连续命令，以及线路／节点／跟随场景的打开、切换和关闭。间隔由测试注入生产帧驱动，不依赖机器实际 FPS；在 `BoundaryCompleted` 请求完整边界暂停。每条命令前后及目标位置先核对位置、种子、运行身份和 `CoreInputId`，再委托核心比较检查点并定位首个字段差异。它提供真实模块的观察无关证据，不提供窗口性能或完整 Demo 验收。

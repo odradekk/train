@@ -29,6 +29,10 @@ public sealed class ScriptedContentFactory : IContentFactory
     public Func<IContentView, CoreReferenceManifest, ContentResult<IContentCapture>>? CaptureCall { get; init; }
     public Func<ImmutableArray<IContentView>, CoreReferenceManifest, ContentResult<IContentReplayCapture>>? CaptureReplayCall { get; init; }
     public Func<string, ContentResult<IContentReplayCapture>>? DecodeReplayCall { get; set; }
+    public Func<IContentView, DesignDraft, ContentResult<DesignEvaluation>>? EvaluateDesignCall { get; set; }
+    public Func<IContentView, ContentEdit, ContentResult<IContentCandidate>>? PrepareEditCall { get; set; }
+    public Func<SavedContentDraft, ContentResult<string>>? EncodeDraftCall { get; set; }
+    public Func<string, ContentResult<SavedContentDraft>>? DecodeDraftCall { get; set; }
     public int CaptureCount { get; private set; }
     public Func<IContentView, ImmutableArray<OwnedSettlementTemplateReference>, IContentView>? WithSettlementCopiesCall { get; init; }
 
@@ -44,9 +48,9 @@ public sealed class ScriptedContentFactory : IContentFactory
         (WithSettlementCopiesCall ?? throw Unconfigured())(basis, copies);
 
     public ContentResult<ImmutableArray<PackageStatus>> Discover(ContentInstallation installation, IContentFiles files) => throw Unconfigured();
-    public ContentResult<DesignEvaluation> EvaluateDesign(IContentView content, DesignDraft draft) => throw Unconfigured();
+    public ContentResult<DesignEvaluation> EvaluateDesign(IContentView content, DesignDraft draft) => (EvaluateDesignCall ?? throw Unconfigured())(content, draft);
     public ContentResult<DesignChangeEvaluation> CompareDesigns(IContentView content, DesignHash current, DesignDraft target) => throw Unconfigured();
-    public ContentResult<IContentCandidate> PrepareEdit(IContentView basis, ContentEdit edit) => throw Unconfigured();
+    public ContentResult<IContentCandidate> PrepareEdit(IContentView basis, ContentEdit edit) => (PrepareEditCall ?? throw Unconfigured())(basis, edit);
     public ContentResult<IContentCapture> Capture(IContentView content, CoreReferenceManifest references)
     {
         var call = CaptureCall ?? throw Unconfigured();
@@ -57,8 +61,8 @@ public sealed class ScriptedContentFactory : IContentFactory
         => (CaptureReplayCall ?? throw Unconfigured())(history, references);
     public ContentResult<IContentReplayCapture> DecodeReplay(string payload) =>
         (DecodeReplayCall ?? throw Unconfigured())(payload);
-    public ContentResult<string> EncodeDraft(SavedContentDraft draft) => throw Unconfigured();
-    public ContentResult<SavedContentDraft> DecodeDraft(string payload) => throw Unconfigured();
+    public ContentResult<string> EncodeDraft(SavedContentDraft draft) => (EncodeDraftCall ?? throw Unconfigured())(draft);
+    public ContentResult<SavedContentDraft> DecodeDraft(string payload) => (DecodeDraftCall ?? throw Unconfigured())(payload);
     public ContentResult<IAuthoringPackage> OpenAuthoringPackage(ContentRoot source, PackageId package,
         PackageSourceVersion sourceVersion, IContentFiles files) => throw Unconfigured();
     public ContentResult<PackageWritePlan> PreparePackageWrite(IAuthoringPackage basis, ImmutableArray<PackageEdit> edits) => throw Unconfigured();
@@ -77,8 +81,11 @@ public sealed class ScriptedContentCandidate : IContentCandidate
     private bool _disposed;
 
     public ScriptedContentCandidate(IContentView view, IContentView? basis = null,
-        ContentChange changes = ContentChange.CoreInput, ContentPreparationReport? report = null)
+        ContentChange changes = ContentChange.CoreInput, ContentPreparationReport? report = null,
+        PreparedContentEdit? edit = null, ImmutableArray<ExternalContentWrite> requiredWrites = default)
     {
+        Edit = edit;
+        RequiredWrites = requiredWrites.IsDefault ? [] : requiredWrites;
         View = view;
         Basis = basis;
         Changes = changes;
@@ -89,8 +96,8 @@ public sealed class ScriptedContentCandidate : IContentCandidate
     public IContentView View { get; }
     public ContentChange Changes { get; }
     public ContentPreparationReport Report { get; }
-    public PreparedContentEdit? Edit => null;
-    public ImmutableArray<ExternalContentWrite> RequiredWrites => [];
+    public PreparedContentEdit? Edit { get; }
+    public ImmutableArray<ExternalContentWrite> RequiredWrites { get; }
     public int Activations { get; private set; }
     public int Disposals { get; private set; }
 

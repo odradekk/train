@@ -18,6 +18,8 @@
 
 默认 App 通过 `App/Composition/` 装配真实工厂，使用 `HostCoordinator` 与契约命令。模拟控制及内容重载行为见 [`sim`](sim.md) 和 [`reload`](reload.md)。
 
+设计编辑期间，模拟修改、单步、暂停和倍速请求统一拒绝并报告 `editing_active`，只读查询仍可用。`reload` 和 `quit` 先处理编辑器的关闭保护；选择取消会终止整个操作。
+
 ## 输入规则
 
 - 按反引号键（通常与 `~` 共用）打开控制台；打开后按 `Esc` 关闭，按 `Enter` 执行当前行。

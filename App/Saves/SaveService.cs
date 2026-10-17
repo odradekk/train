@@ -40,6 +40,7 @@ internal sealed class SaveService : IDisposable
     }
 
     internal event Action? Changed;
+    internal Action<Action>? CloseEditor { get; set; }
     internal SaveStatus? Status => _host.GetSaveStatus();
     internal ImmutableArray<(string Kind, string Path)> PendingWrites =>
         _writes.Select(write => (write.Kind.ToString(), write.Path)).ToImmutableArray();
@@ -179,6 +180,11 @@ internal sealed class SaveService : IDisposable
     internal SaveFailure? RequestLeave(Action continuation) => RequestLeave(continuation, closesSession: false);
     private SaveFailure? RequestLeave(Action continuation, bool closesSession)
     {
+        if (_host.IsEditing && CloseEditor is { } close)
+        {
+            close(() => RequestLeave(continuation, closesSession));
+            return null;
+        }
         if (_leave is not null || _read is not null || _import is { Published: null } || _restore is not null)
             return Fail("busy", "正在处理其他操作，请先完成或取消。");
         if (_host.LockLeaving() is not null) return Fail("busy", "正在处理其他操作，请先完成或取消。");

@@ -9,6 +9,7 @@ using Train.Core.Contracts;
 using Train.App.Recording;
 using Train.App.Development;
 using Train.App.Measurement;
+using Train.App.Editing;
 using Train.Ui;
 
 namespace Train.App;
@@ -33,6 +34,7 @@ public partial class App : Node
     internal SaveService? Saves { get; private set; }
     internal RecordingService? Recording { get; private set; }
     internal DeveloperTools? Development { get; private set; }
+    internal EditorService? Editor { get; private set; }
 
     public App() => QuitAction = () => GetTree().Quit();
 
@@ -53,14 +55,20 @@ public partial class App : Node
             GetNode<MainMenu>("MainMenu").ExampleRequested += () => StartExample();
             Recording = new RecordingService(Host, new FileSaveStore(userData));
             var scenesFactory = CreateScenes?.Invoke() ?? HostComposition.CreateScenes();
+            Editor = new(Host, scenesFactory, new FileSaveStore(userData), _logger);
+            Saves.CloseEditor = Editor.RequestClose;
             WorldScenes = new(Host, scenesFactory, _logger);
+            Editor.Changed += () =>
+            {
+                if (Editor.IsOpen && WorldScenes.View.Visible) WorldScenes.ReturnToMap();
+            };
             AddChild(WorldScenes.View);
             var icons = new GoodsIconCache { Name = "GoodsIcons" };
             icons.Initialize(scenesFactory, _dispatcher);
             icons.Diagnostic += message => _logger.Warning("ui", "goods_icon_unavailable", message);
             AddChild(icons);
             var ui = new GameUi { Name = "GameUi" };
-            ui.Initialize(GetNode<MainMenu>("MainMenu"), Host, _logger, WorldScenes, Recording, icons);
+            ui.Initialize(GetNode<MainMenu>("MainMenu"), Host, _logger, WorldScenes, Recording, icons, Editor);
             AddChild(ui);
             var console = new GameConsole();
             Action<IReadOnlyList<string>>? simulationCommands = null;
@@ -149,9 +157,14 @@ public partial class App : Node
 
     private void ReloadContent(CommandSource source)
     {
-        if (Host!.BeginReload(source).Problem is { Code: "busy" } problem)
-            _logger!.Warning("content", "content_reload_failed", problem.Code,
-                new Dictionary<string, object?> { ["code"] = problem.Code, ["field"] = problem.Field });
+        void Reload()
+        {
+            if (Host!.BeginReload(source).Problem is { } problem)
+                _logger!.Warning("content", "content_reload_failed", CommandDiagnostics.Describe(problem),
+                    new Dictionary<string, object?> { ["code"] = problem.Code, ["field"] = problem.Field });
+        }
+        if (Editor is { IsOpen: true }) Editor.RequestClose(Reload);
+        else Reload();
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -169,6 +182,7 @@ public partial class App : Node
         _dispatcher?.Pump();
         Saves?.Process();
         Host?.ProcessFrame(delta);
+        Editor?.Process();
         _measurement?.OnSimulationFrame(Host!.SimulationFrameSeconds);
         Development?.Process();
         Recording?.Process();
@@ -224,6 +238,8 @@ public partial class App : Node
         Development = null;
         Recording?.Dispose();
         Recording = null;
+        Editor?.Dispose();
+        Editor = null;
         Saves?.Dispose();
         Saves = null;
         WorldScenes?.Dispose();
