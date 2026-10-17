@@ -41,6 +41,8 @@ internal sealed class SaveService : IDisposable
 
     internal event Action? Changed;
     internal SaveStatus? Status => _host.GetSaveStatus();
+    internal ImmutableArray<(string Kind, string Path)> PendingWrites =>
+        _writes.Select(write => (write.Kind.ToString(), write.Path)).ToImmutableArray();
     internal string? LastMessage { get; private set; }
     internal string? ListMessage { get; private set; }
     internal LeavePrompt? Leaving { get; private set; }

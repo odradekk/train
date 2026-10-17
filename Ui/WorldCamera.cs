@@ -28,6 +28,8 @@ internal partial class WorldCamera : Node3D
 
     public Vector3 Focus { get; private set; }
     public Camera3D Camera { get; } = new() { Fov = 60f, Near = 0.1f, Far = 4000f };
+    internal float OrbitYawRadians => _orbitYaw;
+    internal float OrbitPitchRadians => _pitch;
 
     public WorldCamera()
     {

@@ -5,9 +5,14 @@ param(
     [Parameter(Mandatory)][string] $InputPath,
     [Parameter(Mandatory)][string] $OutputDirectory,
     [ValidateSet('map-1x', 'map-8x', 'follow-1x', 'follow-8x', 'node-1x', 'node-8x',
-        'sdfgi-off', 'sdfgi-on', 'taa-off', 'taa-on')]
+        'sdfgi-off', 'sdfgi-on', 'taa-off', 'taa-on', 'scene-node', 'scene-node-first',
+        'scene-edge', 'scene-follow', 'scene-follow-8x', 'scene-memory', 'scene-capture', 'scene-map', 'scene-reference')]
     [string[]] $Scenario = @('map-1x', 'map-8x', 'follow-1x', 'follow-8x', 'node-1x', 'node-8x',
-        'sdfgi-off', 'sdfgi-on', 'taa-off', 'taa-on')
+        'sdfgi-off', 'sdfgi-on', 'taa-off', 'taa-on'),
+    [ValidateRange(1, 2147483647)][int] $Repeat = 3,
+    # 启动器超时上限 2147478 秒，扣除 scene-memory 的 600 秒退出余量。
+    [ValidateRange(0, 2146878)][int] $DurationSeconds = 0,
+    [string] $ReferencePath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -26,11 +31,60 @@ $repo = Split-Path $PSScriptRoot -Parent
 $runs = [System.Collections.Generic.List[object]]::new()
 $summaryPath = $null
 $failure = $null
+$displayAwake = $null
+$displayAwakeState = @{ acquired = $false; restored = $false }
 try {
     if (-not $IsWindows) { throw '测量入口需要 Windows Release 导出与真实窗口。' }
+    # 执行状态属于原生线程；专用线程持有到 finally，不能依赖 PowerShell 的运行线程。
+    if (-not ('MeasurementDisplayAwake' -as [type])) {
+        Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using System.Threading;
+public sealed class MeasurementDisplayAwake : IDisposable
+{
+    [DllImport("kernel32.dll")]
+    private static extern uint SetThreadExecutionState(uint flags);
+    private readonly ManualResetEventSlim ready = new ManualResetEventSlim();
+    private readonly ManualResetEventSlim stop = new ManualResetEventSlim();
+    private readonly Thread thread;
+    private string error;
+    public MeasurementDisplayAwake()
+    {
+        thread = new Thread(Hold) { IsBackground = true };
+        thread.Start();
+        ready.Wait();
+        if (error != null) { thread.Join(); throw new InvalidOperationException(error); }
+    }
+    private void Hold()
+    {
+        uint previous = SetThreadExecutionState(0x80000002);
+        if (previous == 0) { error = "SetThreadExecutionState 无法保持显示器唤醒。"; ready.Set(); return; }
+        ready.Set();
+        try { stop.Wait(); }
+        finally
+        {
+            if (SetThreadExecutionState(previous) == 0)
+                error = "SetThreadExecutionState 无法恢复原先执行状态。";
+        }
+    }
+    public void Dispose()
+    {
+        stop.Set();
+        thread.Join();
+        ready.Dispose();
+        stop.Dispose();
+        if (error != null) throw new InvalidOperationException(error);
+    }
+}
+"@
+    }
+    $displayAwake = [MeasurementDisplayAwake]::new()
+    $displayAwakeState.acquired = $true
     if ($Scenario.Count -eq 0) { throw '至少选择一个情景。' }
     $ExecutablePath = (Resolve-Path -LiteralPath $ExecutablePath).Path
     $InputPath = (Resolve-Path -LiteralPath $InputPath).Path
+    if ($ReferencePath) { $ReferencePath = (Resolve-Path -LiteralPath $ReferencePath).Path }
     if (-not (Test-Path -LiteralPath $ExecutablePath -PathType Leaf) -or
         -not (Test-Path -LiteralPath $InputPath -PathType Leaf)) { throw '可执行文件与输入存档必须是文件。' }
     $OutputDirectory = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputDirectory)
@@ -68,11 +122,21 @@ try {
         pck = Get-FileIdentity $pck
         assembly = Get-FileIdentity $assemblies[0].FullName
         input = Get-FileIdentity $InputPath
+        system = @{
+            os = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
+            processors = @(Get-CimInstance Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors)
+            physical_memory_bytes = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
+            display_adapters = @(Get-CimInstance Win32_VideoController | Select-Object Name, DriverVersion, PNPDeviceID)
+        }
     }
 
     foreach ($name in ($Scenario | Select-Object -Unique)) {
-        foreach ($repeat in 1..3) {
-            $runDirectory = Join-Path $OutputDirectory "$name-$repeat"
+        $isScene = $name.StartsWith('scene-', [StringComparison]::Ordinal)
+        $timeout = if ($name -eq 'scene-memory') {
+            if ($DurationSeconds -eq 0) { 7800 } else { $DurationSeconds + 600 }
+        } elseif ($isScene) { 600 } else { 180 }
+        for ($iteration = 1; $iteration -le $Repeat; $iteration++) {
+            $runDirectory = Join-Path $OutputDirectory "$name-$iteration"
             [System.IO.Directory]::CreateDirectory($runDirectory) | Out-Null
             $reportPath = Join-Path $runDirectory 'report.json'
             $identityPath = Join-Path $runDirectory 'identity.json'
@@ -80,7 +144,7 @@ try {
             $stopPath = Join-Path $runDirectory 'sampler.stop'
             $readyPath = Join-Path $runDirectory 'sampler.ready'
             Write-Json $identityPath $identity
-            $run = @{ scenario = $name; repeat = $repeat; report = $reportPath; external_load = $loadPath; succeeded = $false }
+            $run = @{ scenario = $name; repeat = $iteration; report = $reportPath; external_load = $loadPath; succeeded = $false }
             $runs.Add($run)
             $previousAppData = $env:APPDATA
             $previousLocalAppData = $env:LOCALAPPDATA
@@ -95,9 +159,12 @@ try {
                     $ErrorActionPreference = 'Stop'
                     while (-not (Test-Path -LiteralPath $stopPath)) {
                         $cpu = Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'"
+                        $memory = Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory
                         $processes = @(Get-Process | Where-Object { $_.ProcessName -like 'Godot*' -or $_.ProcessName -eq 'dotnet' } |
                             ForEach-Object { @{ pid = $_.Id; name = $_.ProcessName; cpu_seconds = $_.CPU; working_set_bytes = $_.WorkingSet64 } })
-                        @{ utc = [DateTime]::UtcNow.ToString('O'); total_cpu_percent = $cpu.PercentProcessorTime; processes = $processes } |
+                        @{ utc = [DateTime]::UtcNow.ToString('O'); total_cpu_percent = $cpu.PercentProcessorTime; processes = $processes
+                            available_bytes = $memory.AvailableBytes; pages_input_per_sec = $memory.PagesInputPerSec
+                            page_reads_per_sec = $memory.PageReadsPerSec } |
                             ConvertTo-Json -Depth 5 -Compress | Add-Content -LiteralPath $loadPath -Encoding utf8
                         [System.IO.File]::WriteAllText($readyPath, '')
                         Start-Sleep -Seconds 1
@@ -108,20 +175,30 @@ try {
                     if ($job.State -eq 'Failed' -or [DateTime]::UtcNow -gt $readyDeadline) { throw '外部负载采样未能启动。' }
                     Start-Sleep -Milliseconds 100
                 }
-                $result = Invoke-HiddenProcess -FilePath $ExecutablePath -TimeoutSeconds 180 -ArgumentList @(
+                $arguments = @(
                     '--windowed', '--resolution', '1920x1080', '--log-file', (Join-Path $runDirectory 'godot.log'), '--',
                     "--measure=$name", '--measure-input', $InputPath, '--measure-output', $reportPath, '--measure-identity', $identityPath)
+                if ($isScene) { $arguments += @('--measure-duration', $DurationSeconds.ToString([Globalization.CultureInfo]::InvariantCulture)) }
+                if ($ReferencePath) { $arguments += @('--measure-reference', $ReferencePath) }
+                $result = Invoke-HiddenProcess -FilePath $ExecutablePath -TimeoutSeconds $timeout -ArgumentList $arguments
                 $result.Output | Set-Content -LiteralPath (Join-Path $runDirectory 'process.log') -Encoding utf8
+                $godotLog = Join-Path $runDirectory 'godot.log'
+                $godotLines = @(if (Test-Path -LiteralPath $godotLog -PathType Leaf) {
+                    Get-Content -LiteralPath $godotLog | Where-Object { $_ -match '(?i)WASAPI|AUDCLNT_E_DEVICE_INVALIDATED' }
+                })
+                $processLines = @($result.Output -split '\r?\n' |
+                    Where-Object { $_ -match '(?i)WASAPI|AUDCLNT_E_DEVICE_INVALIDATED' })
                 Write-Json (Join-Path $runDirectory 'process.json') @{
                     exit_code = $result.ExitCode; timed_out = $result.TimedOut
                     cleanup_succeeded = $result.CleanupSucceeded; duration_ms = $result.DurationMs
+                    process_diagnostics = @{ 'godot.log' = $godotLines; 'process.log' = $processLines }
                 }
-                if ($result.ExitCode -ne 0 -or $result.TimedOut -or -not $result.CleanupSucceeded) { throw "$name/$repeat 进程失败或超时。" }
-                if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw "$name/$repeat 未生成报告。" }
+                if ($result.ExitCode -ne 0 -or $result.TimedOut -or -not $result.CleanupSucceeded) { throw "$name/$iteration 进程失败或超时。" }
+                if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw "$name/$iteration 未生成报告。" }
                 $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
                 if ($report.outcome -ne 'completed' -or $report.identity.build_configuration -ne 'ExportRelease' -or
                     @($report.timing.frames).Count -eq 0 -or $null -eq $report.timing.frames -or
-                    $report.scope.final_performance -ne $false) { throw "$name/$repeat 报告未完成、不是 Release 或缺少真实绘制帧。" }
+                    $report.scope.final_performance -ne $false) { throw "$name/$iteration 报告未完成、不是 Release 或缺少真实绘制帧。" }
             }
             finally {
                 $env:APPDATA = $previousAppData
@@ -138,19 +215,26 @@ try {
                 }
             }
             $run.succeeded = $true
-            Write-Host "$name/$repeat 完成：$reportPath"
+            Write-Host "$name/$iteration 完成：$reportPath"
         }
     }
 }
 catch { $failure = $_.Exception.Message }
 finally {
+    if ($null -ne $displayAwake) {
+        try { $displayAwake.Dispose(); $displayAwakeState.restored = $true }
+        catch { $failure = @($failure, $_.Exception.Message) | Where-Object { $_ } | Join-String -Separator '; ' }
+    }
     if ($null -ne $summaryPath) {
         Write-Json $summaryPath @{
             succeeded = $null -eq $failure; error = $failure; runs = @($runs.ToArray())
+            display_awake = $displayAwakeState
             scope = @{
                 final_performance = $false
-                warmup_seconds = 5; sample_seconds = 30; repetitions = 3
-                external_load = '每秒记录总 CPU 与 Godot/dotnet 的 PID、名称、累计 CPU 秒、工作集；保留并发负载，不要求暂停其他任务。'
+                warmup_seconds = 5; sample_seconds = 30; repetitions = $Repeat
+                scene_duration_seconds_argument = $DurationSeconds
+                scene_timing = '新 scene 情景的预热、采样和运行时长以各运行报告为准；DurationSeconds=0 使用情景默认值。'
+                external_load = '每秒记录总 CPU、可用物理内存、页面输入与读取速率及 Godot/dotnet 的 PID、名称、累计 CPU 秒、工作集；保留并发负载，不要求暂停其他任务。'
                 limitation = '开发机真实窗口测量，仅用于重复采样与证据核对，不代表目标硬件最终性能。'
             }
         }

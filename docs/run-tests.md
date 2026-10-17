@@ -95,6 +95,44 @@ SDFGI 情景必须在采样窗口观察到原点变化，跟随／TAA 情景必�
 
 这些结果只对应阶段一小世界、开发机和当前占位内容。外部采样每秒记录总 CPU 占用与其他 Godot／dotnet 进程，不要求暂停同机任务；并发负载可能影响数值，不能作为可比性能基线。5 ms／8× 与尾部、内存、等待数值交用户阶段试玩确认；完整混合负载、目标实机和两项完整长测仍由后续阶段承担。
 
+### 场景打开、离开节点与规模测量
+
+```powershell
+# 同一 HEAD、同一输入先生成参考；参考运行不计入性能样本
+pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/starting-trade/save.json -OutputDirectory TestResults/scene-reference -Scenario scene-reference -Repeat 1
+# 常态负载预演；正式重复次数由测量计划指定
+pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/starting-trade/save.json -OutputDirectory TestResults/scene-node-preview -Scenario scene-node -ReferencePath TestResults/scene-reference/scene-reference-1/scene-reference.json -Repeat 2
+# 内存循环的短预演；默认 DurationSeconds=0 时运行两小时
+pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/starting-trade/save.json -OutputDirectory TestResults/scene-memory-preview -Scenario scene-memory -ReferencePath TestResults/scene-reference/scene-reference-1/scene-reference.json -Repeat 2 -DurationSeconds 30
+```
+
+| 情景 | 实际路径 |
+| --- | --- |
+| `scene-reference` | 独立参考运行，暂停至初始 Ready 后恢复仿真，再观察 10 秒；各空间首次 Ready 及焦点再移动 16 m 后的 Ready 帧记录公开对象和地形，输出 `scene-reference.json`，不作性能样本 |
+| `scene-map` | 同存档的新进程地图内存基线，不打开场景 |
+| `scene-node` | 地图首次打开节点 2、返回地图后重开、节点→线路 11、线路→节点、读档回地图后立即再开节点 |
+| `scene-node-first` | 只测地图首次打开节点 2，用于规模点 |
+| `scene-edge` | 地图首次打开线路 11、返回地图后重开、读档回地图后立即再开线路 |
+| `scene-follow` | 地图首次点击列车 1，跟随车辆 1 |
+| `scene-follow-8x` | 经同一 UI 路径进入跟随，切 8×、预热 5 秒后采样 120 秒；可用 `DurationSeconds` 改为短预演 |
+| `scene-memory` | 重复打开节点并返回地图；每 10 轮及结束后执行完整 GC；默认两小时，不使用其时延作正式性能证据 |
+| `scene-capture` | 单独记录部分就绪、Ready 画面及雾区拾取；截图回读与编码使该进程不能作时延或内存性能证据 |
+
+`Repeat` 控制每情景的新进程数量，默认是 3；`DurationSeconds=0` 使用情景默认时长。`scene-follow-8x` 的 `DurationSeconds`（应用参数 `--measure-duration`）只能缩短默认的 120 秒采样窗口。输入规模及测量、探针和判定方法见[场景预算验证报告](research/scene-budget-verification.md)。
+
+除 `scene-reference` 和 `scene-map` 外，所有 `scene-*` 情景必须传 `-ReferencePath`，指向同一构建提交、同一输入 SHA 的 `scene-reference.json`；参考运行不计入性能样本。
+
+输出目录保留 `summary.json`，每个进程的子目录保留以下文件：
+
+| 文件 | 内容 |
+| --- | --- |
+| `identity.json`、`report.json` | 构建与输入身份、游戏生成的运行报告；编排脚本不改写 `report.json`。`scene-follow-8x` 的 `timing` 是 8× 采样窗口，`scene-memory` 是初始地图窗口，其他非参考情景是最后地图保持窗口；打开过程读取操作记录 |
+| `process.json`、`process.log`、`godot.log` | 进程结果与原始日志；`process.json.process_diagnostics` 分别保留两个日志来源匹配 WASAPI／AUDCLNT_E_DEVICE_INVALIDATED 的原始行 |
+| `external-load.jsonl` | 外部系统负载采样 |
+| `scene-frames.jsonl`、`scene-operations.jsonl`、`scene-collections.jsonl`、`scene-probe-costs.jsonl` | 逐帧状态、打开操作、GC 和全过程探针耗时记录（含读档）；路径由报告 `identity.scene_budget` 引用 |
+| `scene-reference.json` | 仅参考情景生成的参考数据 |
+| `measured.save.json`、截图 | 对应情景生成的存档副本或画面 |
+
 ## 阶段检查与候选基准
 
 `stage` 在所有平台始终运行 structure、verify、Core/Content/Scenes/Godot 隔离重建、两项生产 Core 确定性用例和独立 Release Benchmark。确定性用例通过生产命令日志与回放接口，在新进程逐检查点比较回放，以及每步写盘、读盘、恢复后与连续运行比较。它们属于阶段层，快速层和集成层不包含这些用例。

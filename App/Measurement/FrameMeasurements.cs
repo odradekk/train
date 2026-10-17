@@ -49,11 +49,14 @@ internal sealed class FrameMeasurements(double startedSeconds, ulong initialComp
             _frames.ToImmutableArray());
     }
 
-    private static TimingDistribution Distribution(IEnumerable<double> samples)
+    internal static TimingDistribution Distribution(IEnumerable<double> samples)
     {
         var sorted = samples.Order().ToArray();
         // Nearest-rank：取排序后第 ceil(p × N) 个样本，不插值。
         double At(double fraction) => sorted[(int)Math.Ceiling(fraction * sorted.Length) - 1];
         return new(At(0.50), At(0.95), At(0.99), sorted[^1]);
     }
+
+    internal static double SumOverlap(IEnumerable<(double Started, double Ended)> samples, double start, double end) =>
+        samples.Sum(sample => Math.Max(0, Math.Min(end, sample.Ended) - Math.Max(start, sample.Started)));
 }

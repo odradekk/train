@@ -146,6 +146,38 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public void Orbit_state_changes_with_input_but_not_follow_smoothing_or_origin_shift()
+    {
+        var camera = AttachCamera();
+        try
+        {
+            camera.DisplayedFrame(Frame(poses: Poses((First, Pose(0, 0, 0)))), First);
+            camera.Orbit(40, 10);
+            var yaw = camera.OrbitYawRadians;
+            var pitch = camera.OrbitPitchRadians;
+            camera.DisplayedFrame(Frame(revision: 2,
+                poses: Poses((First, Pose(30, 0, 10, Mathf.Pi / 2)))), First);
+            var beforeFollow = camera.Camera.Transform;
+            camera.Update(0.05);
+            Require(camera.Camera.Transform != beforeFollow, "跟随插值必须实际改变相机变换。");
+            Require(camera.OrbitYawRadians == yaw && camera.OrbitPitchRadians == pitch,
+                "跟随位置和车体朝向变化不能算作环绕输入响应。");
+
+            var beforeShift = camera.Camera.Transform;
+            camera.DisplayedFrame(Frame(revision: 3, origin: new(100, 0, -200),
+                poses: Poses((First, Pose(-70, 0, 210, Mathf.Pi / 2)))), First);
+            Require(camera.Camera.Transform != beforeShift, "原点平移必须实际改变相机变换。");
+            Require(camera.OrbitYawRadians == yaw && camera.OrbitPitchRadians == pitch,
+                "原点平移不能算作环绕输入响应。");
+
+            camera.Orbit(20, 15);
+            Require(camera.OrbitYawRadians != yaw && camera.OrbitPitchRadians != pitch,
+                "真实环绕输入必须改变偏航和俯仰状态。");
+        }
+        finally { camera.Free(); }
+    }
+
+    [Test]
     public void Origin_shift_moves_focus_camera_and_follow_lag_together()
     {
         var camera = AttachCamera();
