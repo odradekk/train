@@ -191,7 +191,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
                 Math.Abs(session.PresentCalls[^1].Request.Camera!.Focus.X - 10) < 0.001,
                 "相机样本的来源帧和焦点坐标必须配对。");
             await new UiTestInput(TestScene).Frames(2);
-            world.Display.Timestamp = () => 0;
+            world.Display.Timestamp = () => timestamp;
             world.ProcessFrame(0, false);
             Require(ReferenceEquals(world.Display.DisplayedFrame, pending) &&
                 Math.Abs(world.Display.Objects[new(11)].Root.GlobalPosition.X + 85) < 0.001 &&
@@ -284,7 +284,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
                 if (cause == "base") Require(first.LastPickRay is not null,
                     "Base恢复期间保留的拾取资格只能查询D。");
                 await new UiTestInput(TestScene).Frames(2);
-                world.Display.Timestamp = () => 0;
+                world.Display.Timestamp = () => timestamp;
                 world.ProcessFrame(0.1, false);
                 Require(ReferenceEquals(world.Display.DisplayedFrame, pending) && world.View.Interactive &&
                     !world.Display.Objects.ContainsKey(new(1)) && world.Display.Objects.ContainsKey(new(11)),
