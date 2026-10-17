@@ -65,6 +65,34 @@ dotnet build Tests/Engine/Train.Engine.Tests.csproj -c Debug
 
 选择“玩家编辑器预览”启动 `EditorPreview`，使用同份生产 App、编辑协调、界面和渲染，Core／Content／Scenes 为明确的有限情景替身。引擎 `EditorUiTests` 检查同帧拾取、当前转动线框、嵌套输入坐标和失败后手动重试；设置 `TRAIN_UI_CAPTURE_DIR` 后有窗口运行该类会保存 `player-editor.png` 与渲染身份。它不验证尚未接入的真实编辑会话、用户库生产装配或阶段 3 的完整设计与委托闭环。
 
+## 远端检查
+
+推送自己的任务分支后，可把完整回归交给 Linux runner。工作流选择、事件白名单与 job 上限见[CI](ci.md#linux-夜间运行)；长示例的平台分工见[示例手册](../examples/README.md#重制与长验证)。
+
+```powershell
+# 分支全量检查：全部正确性层和 Linux 阶段检查
+gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=nightly
+# 两份长示例各自触发，不进入日常测试层
+gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=lease-expiry
+gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=starting-trade
+# 阶段验收：工作流使用 master，代码使用固定的完整 40 位提交 SHA
+gh workflow run windows-checks.yml --repo odradekk/train --ref master -f selection=long-example -f example=lease-expiry -f commit=<完整 SHA>
+# 显式请求 Windows 常规或完整正确性检查
+gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=routine
+gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=correctness
+
+# 找到本次运行，核对 headSha、事件、选择及时间
+gh run list --repo odradekk/train --workflow windows-checks.yml --branch <分支> --limit 10 --json databaseId,headSha,event,displayTitle,status,conclusion
+gh run watch <run_id> --repo odradekk/train --exit-status
+gh run view <run_id> --repo odradekk/train
+# 下载该次所有 artifact；使用新的本地证据目录
+gh run download <run_id> --repo odradekk/train --dir TestResults/remote-<run_id>
+```
+
+Actions 页面和 job 摘要也可查看结果、逐条命令退出码与耗时，并下载 artifact。排队和运行时间不表示通过；必须核对结论、被测提交和摘要中的实际检查。失败或未完成的命令不能作为成功证据。工作流取自 `--ref`，可选 `commit` 指定被测代码；留空时二者使用触发的 ref。核对 artifact 中 `ci/environment.txt` 的 `head=`（被测提交）、`workflow=`（工作流版本），以及摘要中的 commit；Actions 的 `headSha` 对应工作流版本，不能代替实际被测提交。编排脚本取自工作流版本，CLI、配方、SDK 配置及全量检查入口取自被测提交。工作流文件已在默认分支，手动 dispatch 可使用任务分支上的版本；上述 master 命令须等新输入合并后使用。
+
+Linux 全量结果可承担同份代码的完整回归，但不替代真实窗口交互／截图、目标实机性能、Windows 导出及导出后运行、已提交 Windows 示例的重制比较，以及 Windows 固定重放语料等平台限定检查。上述检查仍在相应本机环境运行，按[Testing standard](implement-sop.md#testing-standard)判断证据是否适用；最终 PR head 的 Windows routine CI 仍须通过。Linux CLI 长示例不提供 Godot、Scenes 或完整阶段联调证据。
+
 ## 观察无关检查与窗口测量
 
 `ObservationIndependenceTests` 由引擎层执行，使用默认 App 的真实 Core／Content／Scenes 装配和 `examples/basic-through/recipe.json`。参考运行使用 60 Hz、1×、不打开局部场景；五组变体覆盖 30／120 Hz、不规则间隔、2×／4×／8×、运行中切换倍速、暂停中连续命令，以及线路／节点／跟随场景的打开、切换和关闭。间隔由测试注入生产帧驱动，不依赖机器实际 FPS；在 `BoundaryCompleted` 请求完整边界暂停。每条命令前后及目标位置先核对位置、种子、运行身份和 `CoreInputId`，再委托核心比较检查点并定位首个字段差异。它提供真实模块的观察无关证据，不提供窗口性能或完整 Demo 验收。

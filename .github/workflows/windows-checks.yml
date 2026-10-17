@@ -1,7 +1,9 @@
 name: Windows checks
-run-name: ${{ (github.event_name == 'schedule' || inputs.selection == 'nightly') && 'Linux' || 'Windows' }} ${{ github.event_name == 'schedule' && 'nightly' || inputs.selection || (github.event.action == 'labeled' && github.event.label.name == 'ci:correctness' && 'correctness') || (github.event.action == 'labeled' && 'unrelated-label') || 'routine' }} · ${{ github.event.pull_request.head.sha || github.sha }}
+run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'push' || inputs.selection == 'nightly' || inputs.selection == 'long-example') && 'Linux' || 'Windows' }} ${{ github.event_name == 'push' && 'post-merge' || github.event_name == 'schedule' && 'nightly' || inputs.selection || (github.event.action == 'labeled' && github.event.label.name == 'ci:correctness' && 'correctness') || (github.event.action == 'labeled' && 'unrelated-label') || 'routine' }} ${{ inputs.selection == 'long-example' && inputs.example || '' }} · ${{ github.event.pull_request.head.sha || inputs.commit || github.sha }}
 
 on:
+  push:
+    branches: [master]
   schedule:
     - cron: '23 20 * * *' # 04:23 Asia/Shanghai
   pull_request:
@@ -12,8 +14,17 @@ on:
       selection:
         description: Check selection
         type: choice
-        options: [routine, correctness, nightly]
+        options: [routine, correctness, nightly, long-example]
         default: routine
+      example:
+        description: Long example (used only by long-example)
+        type: choice
+        options: [starting-trade, lease-expiry]
+        default: starting-trade
+      commit:
+        description: 要测试的完整 40 位提交 SHA，留空则测试触发的 ref
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -22,7 +33,7 @@ jobs:
   checks:
     name: Windows ${{ inputs.selection || (github.event.action == 'labeled' && github.event.label.name == 'ci:correctness' && 'correctness') || (github.event.action == 'labeled' && 'unrelated-label') || 'routine' }}
     # A label is a one-shot request; leaving it on a PR does not make pushes heavy.
-    if: github.event_name != 'schedule' && inputs.selection != 'nightly' && (github.event.action != 'labeled' || github.event.label.name == 'ci:correctness')
+    if: (github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'ci:correctness')) || (github.event_name == 'workflow_dispatch' && (inputs.selection == 'routine' || inputs.selection == 'correctness'))
     runs-on: windows-2025
     timeout-minutes: 30
     env:
@@ -32,7 +43,7 @@ jobs:
         id: checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || inputs.commit || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -48,6 +59,7 @@ jobs:
           event=$env:GITHUB_EVENT_NAME
           selection=$env:CI_SELECTION
           head=$(git rev-parse HEAD)
+          workflow=$env:GITHUB_SHA
           runner=$env:RUNNER_OS/$env:RUNNER_ARCH
           image=$env:ImageOS/$env:ImageVersion
           "@ | Set-Content TestResults/ci/environment.txt
@@ -165,19 +177,29 @@ jobs:
           retention-days: 14
 
   nightly:
-    name: Linux nightly
-    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.selection == 'nightly')
+    name: Linux ${{ github.event_name == 'push' && 'post-merge' || inputs.selection || 'nightly' }} ${{ inputs.selection == 'long-example' && inputs.example || '' }}
+    if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/master') || (github.event_name == 'workflow_dispatch' && (inputs.selection == 'nightly' || inputs.selection == 'long-example'))
     runs-on: [self-hosted, linux, nightly]
-    timeout-minutes: 60
+    timeout-minutes: ${{ inputs.selection == 'long-example' && (inputs.example == 'lease-expiry' && 485 || 105) || 60 }}
     permissions:
       contents: read
+    env:
+      CI_SELECTION: ${{ inputs.selection || 'nightly' }}
+      LONG_EXAMPLE: ${{ inputs.example }}
     steps:
       - name: Checkout tested head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.commit || github.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Prepare locked .NET SDK
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          global-json-file: global.json
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.tool_cache }}/dotnet
 
       - name: Record runner environment
         shell: pwsh
@@ -188,7 +210,8 @@ jobs:
           run=$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID
           attempt=$env:GITHUB_RUN_ATTEMPT
           event=$env:GITHUB_EVENT_NAME
-          selection=nightly
+          selection=$env:CI_SELECTION
+          workflow=$env:GITHUB_SHA
           runner=$env:RUNNER_OS/$env:RUNNER_ARCH
           powershell=$($PSVersionTable.PSVersion)
           "@ | Set-Content TestResults/ci/environment.txt
@@ -196,6 +219,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "dotnet=$(dotnet --version)" | Add-Content TestResults/ci/environment.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "DOTNET_ROOT=$env:DOTNET_ROOT" | Add-Content TestResults/ci/environment.txt
           "godot=$(& $env:GODOT --headless --version)" | Add-Content TestResults/ci/environment.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Get-Command python, python3 -ErrorAction SilentlyContinue |
@@ -206,13 +230,29 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Restore locked .NET tools
+        if: env.CI_SELECTION == 'nightly'
         shell: pwsh
         run: dotnet tool restore
 
       - name: All correctness and stage checks
+        if: env.CI_SELECTION == 'nightly'
         shell: pwsh
         run: |
           pwsh -NoProfile -File scripts/test.ps1 -All -Layer all,stage
+          exit $LASTEXITCODE
+
+      - name: Long example validation
+        if: env.CI_SELECTION == 'long-example'
+        shell: pwsh
+        run: |
+          $directory = Join-Path $env:RUNNER_TEMP 'long-example'
+          New-Item -ItemType Directory -Path $directory -Force | Out-Null
+          foreach ($name in @('run-long-example.ps1', 'Invoke-HiddenProcess.ps1')) {
+            $source = git show "$($env:GITHUB_SHA):scripts/checks/$name"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $source | Set-Content -LiteralPath (Join-Path $directory $name) -Encoding utf8
+          }
+          pwsh -NoProfile -File (Join-Path $directory 'run-long-example.ps1') -Example $env:LONG_EXAMPLE -Root $env:GITHUB_WORKSPACE
           exit $LASTEXITCODE
 
       - name: Publish available reports
@@ -235,7 +275,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: linux-nightly-${{ github.run_id }}-${{ github.run_attempt }}
+          name: linux-${{ github.event_name == 'push' && 'post-merge' || env.CI_SELECTION }}${{ inputs.selection == 'long-example' && format('-{0}', inputs.example) || '' }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: TestResults/
           include-hidden-files: true
           if-no-files-found: warn
