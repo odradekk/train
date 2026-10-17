@@ -9,6 +9,26 @@ internal static class ProductionQueries
 {
     internal static FacilityView? Find(WorldState world, CoreContentProjection content, FacilityKey key)
     {
+        if (Evaluate(world, content, key) is not { } result) return null;
+        var (plan, runtime, capability, process, state, problem) = result;
+        var batch = runtime?.Batch;
+        return new(key, plan?.Process, plan?.Enabled ?? false, plan?.Priority ?? 0, state, capability,
+            runtime?.LastActualWorkPerSecond ?? 0, runtime?.LastLimits ?? [],
+            batch is null ? null : new(batch.Process, batch.StartedFromRevision, batch.FrozenWorkRequired,
+                batch.ProgressWork, batch.ProgressWork / batch.FrozenWorkRequired, batch.FrozenOutputs,
+                process is not null && (process.Revision != batch.StartedFromRevision
+                    || process.WorkRequired != batch.FrozenWorkRequired || process.PowerPerWork != batch.FrozenPowerPerWork
+                    || process.LaborPerWork != batch.FrozenLaborPerWork
+                    || !Outputs(process.Details).OrderBy(g => WorldReferences.GoodKey(g.Good), StringComparer.Ordinal).SequenceEqual(batch.FrozenOutputs))),
+            runtime?.OutputBuffer ?? [], [], Blockers(key, problem));
+    }
+
+    private readonly record struct FacilityEvaluation(TemplateProductionPlan? Plan, ProductionFacilityState? Runtime,
+        double Capability, ProcessProjection? Process, ProductionState State, string? Problem);
+
+    private static FacilityEvaluation? Evaluate(WorldState world, CoreContentProjection content, FacilityKey key,
+        double? knownCapability = null)
+    {
         ArgumentNullException.ThrowIfNull(key);
         if (key.Building.Value == 0 || !Enum.IsDefined(key.Capability))
             throw new ArgumentException("设施须提供非零建筑编号和有效能力种类。", nameof(key));
@@ -16,7 +36,8 @@ internal static class ProductionQueries
             throw new NotImplementedException($"FindFacility {key.Capability} 尚未实现。");
         var settlement = world.Settlements.FirstOrDefault(s => s.Plots.Any(p => p.Building == key.Building));
         if (settlement is null) return null;
-        var instance = world.Instances.Single(i => i.Id == new InstanceId.Building(key.Building));
+        var id = new InstanceId.Building(key.Building);
+        var instance = world.Instances.Single(i => i.Id == id);
         var design = world.Designs.Single(d => d.Design == instance.Design);
         var plot = settlement.Plots.Single(p => p.Building == key.Building);
         var plan = settlement.Template.ProductionPlans.SingleOrDefault(p => p.PlotNumber == plot.TemplateNumber
@@ -24,7 +45,7 @@ internal static class ProductionQueries
         if (plan is null && !design.Parts.Any(p => p.Capabilities.Any(c => key.Capability == CapabilityKind.Production
             ? c is PartCapability.Production : c is PartCapability.Extraction))) return null;
         var runtime = settlement.ProductionFacilities.SingleOrDefault(f => f.Facility == key);
-        var capability = Capability(world, content, key);
+        var capability = knownCapability ?? Capability(world, content, key);
         var process = plan is null ? null : Process(content, plan.Process);
         var state = ProductionState.Running;
         string? problem = null;
@@ -44,18 +65,11 @@ internal static class ProductionQueries
                     || !world.Nodes.Single(n => n.Id == settlement.Node).Resources.Any(r =>
                         r.Good == extraction.Extracts.Good && r.Quantity >= extraction.Extracts.Quantity))))
         { state = ProductionState.WaitingForInputs; problem = "inputs_missing"; }
-        var batch = runtime?.Batch;
-        return new(key, plan?.Process, plan?.Enabled ?? false, plan?.Priority ?? 0, state, capability,
-            runtime?.LastActualWorkPerSecond ?? 0, runtime?.LastLimits ?? [],
-            batch is null ? null : new(batch.Process, batch.StartedFromRevision, batch.FrozenWorkRequired,
-                batch.ProgressWork, batch.ProgressWork / batch.FrozenWorkRequired, batch.FrozenOutputs,
-                process is not null && (process.Revision != batch.StartedFromRevision
-                    || process.WorkRequired != batch.FrozenWorkRequired || process.PowerPerWork != batch.FrozenPowerPerWork
-                    || process.LaborPerWork != batch.FrozenLaborPerWork
-                    || !Outputs(process.Details).OrderBy(g => WorldReferences.GoodKey(g.Good), StringComparer.Ordinal).SequenceEqual(batch.FrozenOutputs))),
-            runtime?.OutputBuffer ?? [], [], problem is null ? []
-                : [new(problem, "Facility", new WorldObjectId.Instance(new InstanceId.Building(key.Building)), [])]);
+        return new(plan, runtime, capability, process, state, problem);
     }
+
+    private static ImmutableArray<CoreProblem> Blockers(FacilityKey key, string? problem) => problem is null ? []
+        : [new(problem, "Facility", new WorldObjectId.Instance(new InstanceId.Building(key.Building)), [])];
 
     internal static double Capability(WorldState world, CoreContentProjection content, FacilityKey key)
     {
@@ -124,14 +138,25 @@ internal static class ProductionQueries
     {
         var settlement = after.Settlements.Single(s => s.Id == id);
         var events = ImmutableArray.CreateBuilder<CoreEvent>();
-        foreach (var key in settlement.Plots.Where(p => p.Building is not null).OrderBy(p => p.Building!.Value.Value)
-            .SelectMany(p => new[] { new FacilityKey(p.Building!.Value, CapabilityKind.Production),
-                new FacilityKey(p.Building!.Value, CapabilityKind.Extraction) }))
+        // 不可变输入仍是同一份时，边界两侧的能力相同；只在本次比较中复用。
+        var sameCapabilities = ReferenceEquals(beforeContent, afterContent) && before.Instances == after.Instances
+            && before.Designs == after.Designs && before.DesignGoods == after.DesignGoods;
+        foreach (var plot in settlement.Plots.Where(p => p.Building is not null).OrderBy(p => p.Building!.Value.Value))
         {
-            var old = Find(before, beforeContent, key);
-            var current = Find(after, afterContent, key);
-            if (old is not null && current is not null && old.State != current.State)
-                events.Add(new CoreEvent.ProductionStateChanged(key, old.State, current.State, current.Blockers));
+            var previousSettlement = before.Settlements.FirstOrDefault(s => s.Plots.Any(p => p.Building == plot.Building));
+            var previousPlot = previousSettlement?.Plots.Single(p => p.Building == plot.Building);
+            foreach (var capability in new[] { CapabilityKind.Production, CapabilityKind.Extraction })
+            {
+                // 两边都没有计划时，设施只可能不存在或为 Disabled，不会产生状态变化。
+                if (!settlement.Template.ProductionPlans.Any(p => p.PlotNumber == plot.TemplateNumber && p.Capability == capability)
+                    && previousSettlement?.Template.ProductionPlans.Any(p => p.PlotNumber == previousPlot!.TemplateNumber
+                        && p.Capability == capability) != true) continue;
+                var key = new FacilityKey(plot.Building!.Value, capability);
+                var old = Evaluate(before, beforeContent, key);
+                var current = Evaluate(after, afterContent, key, sameCapabilities ? old?.Capability : null);
+                if (old is { } previous && current is { } next && previous.State != next.State)
+                    events.Add(new CoreEvent.ProductionStateChanged(key, previous.State, next.State, Blockers(key, next.Problem)));
+            }
         }
         return events.ToImmutable();
     }

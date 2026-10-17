@@ -105,19 +105,21 @@ public partial class InspectionLightingPreview : Node
     private static FixedContentView CreateContent()
     {
         var assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>>();
-        AssetRevision Texture(string name)
+        AssetRevision Texture(string name, byte[] bytes)
         {
             var revision = new AssetRevision("preview-" + name);
-            var bytes = Godot.FileAccess.GetFileAsBytes($"res://builtin/core/resources/voxels/shared/{name}-face.png");
             using var image = new Image();
             if (image.LoadPngFromBuffer(bytes) != Error.Ok) throw new InvalidOperationException("预览 PNG 读取失败。");
             var asset = new ContentAsset(revision, ImmutableArray.CreateRange(bytes), new AssetMetadata.Png(image.GetWidth(), image.GetHeight()), []);
             assets.Add(revision, new ContentLookup<ContentAsset>.Found(asset));
             return revision;
         }
-        var metal = Texture("metal");
-        var soil = Texture("soil");
-        var equipment = Texture("equipment");
+        // 中性面图让涂装和光照检查不依赖正式素材的默认色迁移。
+        using var neutral = Image.CreateEmpty(32, 32, false, Image.Format.Rgba8);
+        neutral.Fill(Colors.White);
+        var metal = Texture("metal", neutral.SavePngToBuffer());
+        var soil = Texture("soil", Godot.FileAccess.GetFileAsBytes("res://builtin/core/resources/voxels/shared/soil-face.png"));
+        var equipment = Texture("equipment", Godot.FileAccess.GetFileAsBytes("res://builtin/core/resources/voxels/shared/equipment-face.png"));
         var body = new VoxelDefinitionId("preview:body");
         var glass = new VoxelDefinitionId("preview:glass");
         var wheel = new VoxelDefinitionId("preview:wheel");
@@ -132,7 +134,8 @@ public partial class InspectionLightingPreview : Node
             var window = z >= 8 && y == 3 && (x != 0 || z == 11);
             var id = window ? glass : y == 1 && x == 0 && z is 2 or 9 ? wheel : body;
             var number = cells.Count + 1;
-            cells.Add(new(at, id, VoxelOrientation.PxPy, null, window ? null : new PaintColor("#b54832"),
+            var paint = new PaintColor(z < 4 ? "#b54832" : z < 8 ? "#5a6b78" : "#ff00cc");
+            cells.Add(new(at, id, VoxelOrientation.PxPy, null, window ? null : paint,
                 new(number), new DesignElementPath.Cell([], number - 1), [], at, VoxelOrientation.PxPy, false));
         }
         var scene = new DesignSceneProjection(Design, null, null, true, null, null, cells.ToImmutable(), [], [], [], []);

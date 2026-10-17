@@ -73,7 +73,13 @@ public sealed class FixedContentView : IContentView
         init => generationProfiles = value;
     }
 
-    public ContentLookup<BlueprintRecord> FindBlueprint(BlueprintAddress address) => throw Unconfigured(nameof(FindBlueprint));
+    private ImmutableDictionary<BlueprintAddress, ContentLookup<BlueprintRecord>> blueprintRecords = ImmutableDictionary<BlueprintAddress, ContentLookup<BlueprintRecord>>.Empty;
+    public IReadOnlyDictionary<BlueprintAddress, ContentLookup<BlueprintRecord>> BlueprintRecords
+    {
+        init => blueprintRecords = value.ToImmutableDictionary();
+    }
+    public ContentLookup<BlueprintRecord> FindBlueprint(BlueprintAddress address)
+        => blueprintRecords.TryGetValue(address, out var result) ? result : throw Unconfigured(nameof(FindBlueprint));
 
     private ImmutableDictionary<DesignHash, ContentLookup<DesignEvaluation>> designs = ImmutableDictionary<DesignHash, ContentLookup<DesignEvaluation>>.Empty;
     public IReadOnlyDictionary<DesignHash, ContentLookup<DesignEvaluation>> Designs

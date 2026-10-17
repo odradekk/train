@@ -37,6 +37,8 @@ internal sealed partial class MeasurementRun : IDisposable
     private int _movingFrames;
     private Exception? _drawFailure;
     private bool _disposed;
+    private TrainId? _measuredTrain;
+    private int SampleSeconds => _sceneDuration > 0 ? _sceneDuration : 30;
 
     internal MeasurementRun(App app, IReadOnlyList<string> arguments)
     {
@@ -102,6 +104,7 @@ internal sealed partial class MeasurementRun : IDisposable
                     .Select(item => ((Lookup<TrainView>.Found)view.FindTrain(item.Id)).Value)
                     .FirstOrDefault(item => !item.Vehicles.IsEmpty)
                     ?? throw new InvalidDataException("存档中没有非空编组列车可供测量。");
+                _measuredTrain = train.Id;
                 _subject = new WorldObjectId.Instance(new InstanceId.Vehicle(train.Vehicles[0]));
                 var submitted = host.Submit(host.GetStatus()!.Binding, new CoreCommand.StartTrain(train.Id), CommandSource.AutomationTest);
                 if (submitted is not SubmissionResult.Completed { Receipt.Decision: CommandDecision.Accepted })
@@ -135,7 +138,7 @@ internal sealed partial class MeasurementRun : IDisposable
                 _sampleStarted = _lastDraw;
                 _samples = new(_lastDraw, _lastDrawSteps);
                 _simulationWork = 0;
-                await Wait(() => _timing is not null);
+                await Wait(() => _timing is not null, SampleSeconds + 30);
                 // Process 读取可能枚举系统进程；只在最后一个计时帧之后采集。
                 _process.Refresh();
                 var video = Performance.GetMonitor(Performance.Monitor.RenderVideoMemUsed);
@@ -231,7 +234,8 @@ internal sealed partial class MeasurementRun : IDisposable
         _identity["retained_recording_starts"] = host.SessionOptions!.RetainedRecordingStarts;
         _identity["auto_save_seconds"] = _app.Saves!.AutoSaveInterval?.TotalSeconds;
         _identity["warmup_seconds"] = 5;
-        _identity["sample_seconds"] = 30;
+        _identity["sample_seconds"] = SampleSeconds;
+        _identity["speed_window_method"] = "连续目标秒后的首个绘制帧作为窗口边界；窗口共享边界帧，不插值；末尾不足目标秒部分仅计入整段";
         _identity["percentile_method"] = "nearest-rank";
         _identity["simulation_work_scope"] = "frame-driver advancement, including boundary consumers; excludes candidate preparation and render submission";
         _identity["cache_scope"] = "fresh process and user data; OS file and driver shader caches are not cleared";
@@ -267,8 +271,22 @@ internal sealed partial class MeasurementRun : IDisposable
             }
             if (_samples is not null)
             {
-                _samples.AddFrame(now, status.View.Position.CompletedSteps, _simulationWork, status.Speed, status.IsPaused);
-                if (now - _sampleStarted >= 30) { _timing = _samples.Summarize(); _samples = null; }
+                FollowFrame? follow = null;
+                if (_scenario.StartsWith("follow-", StringComparison.Ordinal) && _measuredTrain is { } trainId)
+                {
+                    TrainPosition? position = null;
+                    foreach (var train in status.View.World.Trains)
+                        if (train.Id == trainId) { position = train.Position; break; }
+                    var (kind, id) = position switch
+                    {
+                        TrainPosition.Edge edge => ("Edge", edge.Id.Value),
+                        TrainPosition.Node node => ("Node", node.Id.Value),
+                        _ => throw new InvalidOperationException("未知列车位置。")
+                    };
+                    follow = new(trainId.Value, kind, id, _app.WorldScenes!.Display?.DisplayedFrame?.Update.Frame.Space.Value);
+                }
+                _samples.AddFrame(now, status.View.Position.CompletedSteps, _simulationWork, status.Speed, status.IsPaused, follow);
+                if (now - _sampleStarted >= SampleSeconds) { _timing = _samples.Summarize(includeSpeedWindows: true); _samples = null; }
             }
             _lastDraw = now;
             _lastDrawSteps = status.View.Position.CompletedSteps;
@@ -313,7 +331,7 @@ internal sealed partial class MeasurementRun : IDisposable
         { _operations.Add(new(name, requested - _created, Seconds() - requested, false, error.Message)); throw; }
     }
 
-    private async Task Wait(Func<bool> ready)
+    private async Task Wait(Func<bool> ready, double timeoutSeconds = 120)
     {
         var started = Seconds();
         while (!ready())
@@ -321,7 +339,7 @@ internal sealed partial class MeasurementRun : IDisposable
             if (_disposed) throw new OperationCanceledException();
             if (_drawFailure is not null) throw _drawFailure;
             if (_app.Host!.MissingConfirmation is not null) throw new InvalidDataException("测量存档依赖缺失。");
-            if (Seconds() - started > 120) throw new TimeoutException("测量阶段等待超过 120 秒。");
+            if (Seconds() - started > timeoutSeconds) throw new TimeoutException($"测量阶段等待超过 {timeoutSeconds} 秒。");
             await _app.ToSignal(_app.GetTree(), SceneTree.SignalName.ProcessFrame);
         }
         if (_drawFailure is not null) throw _drawFailure;
