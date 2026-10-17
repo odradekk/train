@@ -9,6 +9,7 @@ namespace Train.Scenes.ContractSupport;
 public sealed class EditorScenes : IScenesFactory
 {
     public Func<IContentView, DesignEvaluation, SceneResult<IDesignEditSession>>? OpenEditorCall { get; set; }
+    public Func<IContentView, SettlementTemplateDraft, EditRevision, SceneResult<ITemplatePreview>>? PreviewTemplateCall { get; set; }
     public Action<EditorSession>? ConfigureSession { get; set; }
     public EditorSession? Session => Sessions.LastOrDefault();
     public List<EditorSession> Sessions { get; } = [];
@@ -24,7 +25,8 @@ public sealed class EditorScenes : IScenesFactory
     }
     public SceneResult<IWorldSceneSession> OpenWorld(SceneBinding binding, SceneWorldSnapshot initial) => throw Unconfigured();
     public SceneResult<IDesignPreview> PreviewDesign(IContentView content, DesignEvaluation initial) => throw Unconfigured();
-    public SceneResult<ITemplatePreview> PreviewTemplate(IContentView content, SettlementTemplateDraft draft, EditRevision revision) => throw Unconfigured();
+    public SceneResult<ITemplatePreview> PreviewTemplate(IContentView content, SettlementTemplateDraft draft, EditRevision revision) =>
+        PreviewTemplateCall?.Invoke(content, draft, revision) ?? throw Unconfigured();
     private static InvalidOperationException Unconfigured() => new("UNCONFIGURED: 场景入口。");
 }
 
@@ -164,4 +166,21 @@ public sealed record FixedEditPreview(EditStamp Basis, EditOperation Operation, 
     public bool CanApply { get; init; } = true;
     public ImmutableArray<EditConflict> Conflicts { get; init; } = [];
     public ImmutableArray<GridPosition> HighlightCells { get; init; } = [];
+}
+
+public sealed class FixedTemplatePreview(ContentGeneration content, EditRevision revision) : ITemplatePreview
+{
+    public ContentGeneration Content => content;
+    public EditRevision Revision => revision;
+    private ISceneFrame? _frame;
+    public ISceneFrame Frame { get => _frame ?? throw new InvalidOperationException("UNCONFIGURED: template frame"); init => _frame = value; }
+    public ImmutableArray<TemplatePlotPreview> Plots { get; init; } = [];
+    public ImmutableArray<SceneProblem> Diagnostics => [];
+    public Lookup<int>? PickResult { get; init; }
+    public List<SceneRay> Rays { get; } = [];
+    public Lookup<int> PickPlot(SceneRay ray)
+    {
+        Rays.Add(ray);
+        return PickResult ?? throw new InvalidOperationException("UNCONFIGURED: template pick");
+    }
 }

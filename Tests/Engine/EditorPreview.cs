@@ -30,6 +30,7 @@ public partial class EditorPreview : Node
     };
     internal EditorSceneController Controller => App.FindChildren("DesignEditor", "", true, false).OfType<DesignEditorPanel>().Single().Scene;
     internal EditorService Editor => App.Editor!;
+    internal FixedContentView? Content { get; init; }
     private bool _opened;
     public static void Start(Node root) => root.AddChild(new EditorPreview { Name = "EditorPreview" });
     public override void _Ready()
@@ -37,7 +38,7 @@ public partial class EditorPreview : Node
         App = GD.Load<PackedScene>("res://App/App.tscn").Instantiate<Train.App.App>();
         App.CreateHost = logger =>
         {
-            var content = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1))
+            var content = Content ?? new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1))
             { Blueprints = [], LocalDrafts = [], Voxels = [], GenerationProfiles = [] };
             var host = WorldSceneFixture.CreateHost(new ScriptedCoreSession(WorldSceneFixture.EmptyWorld(new(0, 0))), content, logger);
             ((ScriptedContentFactory)host.ContentFactory).EvaluateDesignCall = (_, draft) => new ContentResult<DesignEvaluation>.Success(EditorPreviewSession.Evaluate(draft));

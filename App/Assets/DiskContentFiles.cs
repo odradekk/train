@@ -20,7 +20,7 @@ internal sealed class DiskContentFiles : IContentFiles
         var path = Resolve(directory, allowEmpty: true);
         try
         {
-            if (HasLinkedSegment(path))
+            if (HasLinkedSegment(_directory, path))
                 return new ContentIoResult<ImmutableArray<ContentFileEntry>>.Failure(
                     ContentIoFailure.LinkedPath, path);
             var entries = ImmutableArray.CreateBuilder<ContentFileEntry>();
@@ -46,7 +46,7 @@ internal sealed class DiskContentFiles : IContentFiles
         var path = Resolve(file, allowEmpty: false);
         try
         {
-            if (HasLinkedSegment(path))
+            if (HasLinkedSegment(_directory, path))
                 return new ContentIoResult<ImmutableArray<byte>>.Failure(ContentIoFailure.LinkedPath, path);
             using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
             return ReadBounded(input, maximumBytes);
@@ -83,26 +83,32 @@ internal sealed class DiskContentFiles : IContentFiles
         ArgumentNullException.ThrowIfNull(path.RelativePath);
         if (allowEmpty && path.RelativePath.Length == 0)
             return _directory;
-        var segments = path.RelativePath.Split('/');
-        if (segments.Any(segment => segment.Length == 0 || segment is "." or ".."
+        ValidateRelativePath(path.RelativePath);
+        return Path.Combine(_directory, Path.Combine(path.RelativePath.Split('/')));
+    }
+
+    internal static void ValidateRelativePath(string relative)
+    {
+        ArgumentNullException.ThrowIfNull(relative);
+        if (relative.Split('/').Any(segment => segment.Length == 0 || segment is "." or ".."
                 || segment.EndsWith('.') || segment.EndsWith(' ')
                 || segment.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
                 || segment.Contains('\\')))
-            throw new ArgumentException("内容路径必须使用 / 分隔的有效相对路径。", nameof(path));
-        return Path.Combine(_directory, Path.Combine(segments));
+            throw new ArgumentException("内容路径必须使用 / 分隔的有效相对路径。", nameof(relative));
     }
 
-    private bool HasLinkedSegment(string path)
+    internal static bool HasLinkedSegment(string directory, string path)
     {
-        var current = _directory;
+        var current = directory;
         if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
             return true;
-        var relative = Path.GetRelativePath(_directory, path);
+        var relative = Path.GetRelativePath(directory, path);
         if (relative == ".") return false;
         foreach (var segment in relative.Split(Path.DirectorySeparatorChar,
                      StringSplitOptions.RemoveEmptyEntries))
         {
             current = Path.Combine(current, segment);
+            if (!Path.Exists(current)) break;
             if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
                 return true;
         }
