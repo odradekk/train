@@ -365,7 +365,7 @@ internal sealed partial class MeasurementRun
 
     private void OnSceneDraw()
     {
-        if (IsRouteMeasurement && _routeRecording) { OnRouteDraw(); return; }
+        if (IsRouteMeasurement) { OnRouteDraw(); return; }
         var observerStarted = Seconds();
         var operation = _sceneOperation;
         var loggingSeconds = 0d;

@@ -12,7 +12,6 @@ internal sealed class RouteRangeRecorder
     private sealed record CachedObject(ScenePoint Position, Quaternion Rotation, Dictionary<int, CachedVisual> Visuals);
     private readonly ConditionalWeakTable<SceneMesh, LocalBounds> meshBounds = new();
     private Dictionary<ulong, CachedObject> current = [];
-    private Dictionary<ulong, CachedObject> scratch = [];
     private (SceneSessionId Session, SceneRequestId Request, SceneSpaceId Space, SceneSpaceId Coordinates)? identity;
     private RouteBounds[] fog = [];
     private ImmutableArray<SceneBounds> inputFog = [];
@@ -26,8 +25,7 @@ internal sealed class RouteRangeRecorder
         var nextIdentity = (stamp.Session, stamp.Request, stamp.Space, coordinates);
         var reset = identity != nextIdentity;
         if (reset) current.Clear();
-        var next = scratch;
-        next.Clear();
+        var next = new Dictionary<ulong, CachedObject>();
         var terrain = new List<RouteRange>();
         var rails = new List<RouteRange>();
         var removed = new HashSet<RouteRangeKey>();
@@ -46,10 +44,8 @@ internal sealed class RouteRangeRecorder
             Dictionary<int, CachedVisual>? visuals = null;
             for (var index = 0; index < item.Visuals.Length; index++)
             {
-                if (item.Visuals[index] is not SceneVisual.Geometry geometry || geometry.Mesh.Vertices.IsEmpty) continue;
-                var mesh = geometry.Mesh;
+                if (RecordedMesh(item.Visuals[index]) is not { } mesh) continue;
                 var rail = mesh.Material is SceneMaterial.BuiltIn { Kind: BuiltInMaterial.RailSteel };
-                if (!rail && mesh.Material is SceneMaterial.BuiltIn) continue;
                 var previous = old?.Visuals.GetValueOrDefault(index);
                 var range = samePose && previous is not null && ReferenceEquals(previous.Mesh, mesh) ? previous.Range :
                     new RouteRange(item.Id.Value, index, Transform(meshBounds.GetValue(mesh, Bounds), position, item.Pose.Rotation));
@@ -81,9 +77,7 @@ internal sealed class RouteRangeRecorder
         var fogChanged = reset || !fog.AsSpan().SequenceEqual(nextFog);
         inputFog = nextInputFog;
         fogTranslation = translation;
-        scratch = current;
         current = next;
-        scratch.Clear();
         identity = nextIdentity;
         if (!reset && terrain.Count == 0 && rails.Count == 0 && removed.Count == 0 && !fogChanged) return null;
         var change = new RouteRangeChange(nextId, reset ? null : Id, stamp, coordinates,
@@ -98,13 +92,15 @@ internal sealed class RouteRangeRecorder
         var count = 0;
         for (var index = 0; index < item.Visuals.Length; index++)
         {
-            if (item.Visuals[index] is not SceneVisual.Geometry geometry || geometry.Mesh.Vertices.IsEmpty) continue;
-            if (geometry.Mesh.Material is SceneMaterial.BuiltIn { Kind: not BuiltInMaterial.RailSteel }) continue;
-            if (!previous.Visuals.TryGetValue(index, out var visual) || !ReferenceEquals(visual.Mesh, geometry.Mesh)) return false;
+            if (RecordedMesh(item.Visuals[index]) is not { } mesh) continue;
+            if (!previous.Visuals.TryGetValue(index, out var visual) || !ReferenceEquals(visual.Mesh, mesh)) return false;
             count++;
         }
         return count == previous.Visuals.Count;
     }
+
+    private static SceneMesh? RecordedMesh(SceneVisual visual) => visual is SceneVisual.Geometry { Mesh: var mesh } &&
+        !mesh.Vertices.IsEmpty && mesh.Material is not SceneMaterial.BuiltIn { Kind: not BuiltInMaterial.RailSteel } ? mesh : null;
 
     private static LocalBounds Bounds(SceneMesh mesh)
     {

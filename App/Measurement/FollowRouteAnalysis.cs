@@ -12,9 +12,12 @@ internal static class FollowRouteAnalysis
     internal sealed record FrameResult(long Draw, bool FirstInSpace, Coverage Scenes, Coverage Displayed,
         bool DecisionEligible = true, string? ExcludedReason = null);
     internal sealed record Summary(double? MinimumScenesAheadMeters, double? MinimumDisplayedAheadMeters,
-        int UnknownScenesFrames, int UnknownDisplayedFrames, int MissingDisplayedCenterFrames,
+        int MissingDisplayedCenterFrames,
         int MissingDisplayedSampledBodyFrames, int UnknownScenesBodyFrames, int UnknownDisplayedBodyFrames,
-        int ExcludedPreoperableFrames);
+        int ExcludedPreoperableFrames, int ObservationLimitedScenesFrames, int ObservationLimitedDisplayedFrames,
+        double? MinimumScenesAheadLowerBoundMeters, double? MinimumDisplayedAheadLowerBoundMeters,
+        int UnknownScenes32MetersFrames, int UnknownDisplayed32MetersFrames,
+        int UnknownScenes64MetersFrames, int UnknownDisplayed64MetersFrames);
     internal sealed record Report(string Scope, double MaximumSampleSpacingMeters, FrameResult[] Frames, Summary Summary);
     private sealed record PathPoint(ScenePoint? Head, ScenePoint Offset, int History, string Reason,
         double Arc, ScenePoint? Center, double CenterArc, double TargetArc, int Start, int End);
@@ -34,13 +37,6 @@ internal static class FollowRouteAnalysis
         var states = new Dictionary<long, RouteRanges>();
         foreach (var line in lines.Where(line => !string.IsNullOrWhiteSpace(line)))
         {
-            using var document = JsonDocument.Parse(line);
-            if (!document.RootElement.TryGetProperty("delta", out var delta) || !delta.GetBoolean())
-            {
-                var full = JsonSerializer.Deserialize<RouteRanges>(line, Json)!;
-                states.Add(full.Id, full);
-                continue;
-            }
             var change = JsonSerializer.Deserialize<RouteRangeChange>(line, Json)!;
             var previous = change.Base is { } baseline ? states[baseline] : null;
             var terrain = previous?.Terrain.ToDictionary(item => new RouteRangeKey(item.Object, item.Visual)) ?? [];
@@ -57,7 +53,10 @@ internal static class FollowRouteAnalysis
     internal static Report Analyze(RouteFrame[] frames, IReadOnlyDictionary<long, RouteRanges> ranges)
     {
         var paths = new[] { BuildPath(frames, false), BuildPath(frames, true) };
-        var boundaryRemaining = paths.Select(path => RemainingToBoundary(frames, path)).ToArray();
+        var spaceEnds = new int[frames.Length];
+        for (var index = frames.Length - 1; index >= 0; index--)
+            spaceEnds[index] = index + 1 < frames.Length && SameCoordinates(frames[index], frames[index + 1])
+                ? spaceEnds[index + 1] : index;
         var aheadCache = new Dictionary<(long Range, bool Displayed, int Index), Ahead>();
         var firstOperable = Array.FindIndex(frames, frame => frame.Operable);
         var results = frames.Select((frame, index) => new FrameResult(frame.Draw,
@@ -68,13 +67,23 @@ internal static class FollowRouteAnalysis
         double? Minimum(Func<FrameResult, Coverage> select) => eligible.Select(select)
             .Where(value => !value.BoundaryLimited && !value.ObservationLimited && value.AheadMeters.HasValue)
             .Select(value => value.AheadMeters).DefaultIfEmpty(null).Min();
+        int UnknownAt(Func<FrameResult, Coverage> select, double target) => eligible.Select(select).Count(value =>
+            value.AheadMeters is null || (!value.BoundaryLimited && value.ObservationLimited && value.AheadMeters < target));
+        int Limited(Func<FrameResult, Coverage> select) => eligible.Select(select)
+            .Count(value => !value.BoundaryLimited && value.ObservationLimited && value.AheadMeters.HasValue);
+        double? LowerBound(Func<FrameResult, Coverage> select) => eligible.Select(select)
+            .Where(value => !value.BoundaryLimited && value.ObservationLimited && value.AheadMeters.HasValue)
+            .Select(value => value.AheadMeters).DefaultIfEmpty(null).Min();
         return new("XZ AABB coverage estimate. Body follows stitched observed head history for the full train length; " +
             "centers are diagnostic only. Forward distance uses same-space future head polylines. Unknown or truncated observations are not passes.", .5,
             results, new(Minimum(item => item.Scenes), Minimum(item => item.Displayed),
-                eligible.Count(item => item.Scenes.AheadMeters is null), eligible.Count(item => item.Displayed.AheadMeters is null),
                 eligible.Count(item => item.Displayed.VehicleCentersCovered == false), eligible.Count(item => item.Displayed.SampledBodyCovered == false),
                 eligible.Count(item => item.Scenes.SampledBodyCovered is null), eligible.Count(item => item.Displayed.SampledBodyCovered is null),
-                results.Count(item => item.ExcludedReason == "initial_preoperable")));
+                results.Count(item => item.ExcludedReason == "initial_preoperable"),
+                Limited(item => item.Scenes), Limited(item => item.Displayed),
+                LowerBound(item => item.Scenes), LowerBound(item => item.Displayed),
+                UnknownAt(item => item.Scenes, 32), UnknownAt(item => item.Displayed, 32),
+                UnknownAt(item => item.Scenes, 64), UnknownAt(item => item.Displayed, 64)));
 
         Coverage Measure(int index, bool displayed)
         {
@@ -92,9 +101,9 @@ internal static class FollowRouteAnalysis
                 return new(null, centers, null, false, true, reason, null, reason);
             }
             var body = Body(index, path, range);
+            if (ObservedSpaceEnd(index, path) is { } observedEnd && path[index].TargetArc > observedEnd)
+                return new(0, centers, body.Covered, false, true, "boundary_position_unknown", null, body.Unknown);
             var ahead = Forward(index, displayed, range, path);
-            if (boundaryRemaining[displayed ? 1 : 0][index] is <= 1)
-                ahead = ahead with { Boundary = true };
             return new(ahead.Cells / 2, centers, body.Covered, ahead.Boundary, ahead.Observation, ahead.Missing, ahead.Point, body.Unknown);
         }
 
@@ -106,6 +115,20 @@ internal static class FollowRouteAnalysis
             foreach (var point in ArcSamples(path, index, path[index].TargetArc - length, path[index].TargetArc))
                 if (Missing(Subtract(point, path[index].Offset), range) is not null) return (false, null);
             return (true, null);
+        }
+
+        double? ObservedSpaceEnd(int index, PathPoint[] path)
+        {
+            var end = spaceEnds[index];
+            if (end + 1 >= frames.Length || !IsSpaceChange(frames[end], frames[end + 1]) ||
+                path[end].History != path[index].History) return null;
+            var vehicles = path == paths[1] ? frames[end].DisplayedVehicles : frames[end].Vehicles;
+            var leading = vehicles.Length == 0 ? null : frames[end].FirstEndLeading ? vehicles[0] : vehicles[^1];
+            // A leading center can already be across the physical boundary while Core still references the old space.
+            // Retreat to the last observed train reference center; this is an observation cutoff, not a boundary.
+            if (frames[end].TrainLengthMeters is not > 0 || leading?.LengthCells is not > 0)
+                return double.NegativeInfinity;
+            return path[end].CenterArc - (frames[end].TrainLengthMeters!.Value * 2 - leading.LengthCells.Value) / 2;
         }
 
         Ahead Forward(int index, bool displayed, RouteRanges range, PathPoint[] path)
@@ -120,44 +143,38 @@ internal static class FollowRouteAnalysis
                 var head = Subtract(path[cursor].Head!.Value, path[cursor].Offset);
                 if (Missing(head, range) is { } missing)
                 {
-                    result = boundaryRemaining[displayed ? 1 : 0][cursor] is <= 1
-                        ? new(0, true, false, null, null) : new(0, false, false, missing, head);
+                    result = new(0, false, false, missing, head);
                     break;
                 }
-                if (boundaryRemaining[displayed ? 1 : 0][cursor] is <= 0)
-                { result = new(0, true, false, null, null); break; }
                 var next = cursor + 1;
                 if (next == frames.Length) { result = new(0, false, true, null, null); break; }
+                // Transition origins align coordinates; they do not identify the physical boundary.
                 if (IsSpaceChange(frames[cursor], frames[next]))
-                { result = new(0, true, false, null, null); break; }
+                { result = new(0, false, true, "boundary_position_unknown", null); break; }
                 if (!SameCoordinates(frames[cursor], frames[next]))
                 { result = new(0, false, true, "future_coordinate_context_changed", null); break; }
                 if (path[cursor].History != path[next].History)
                 { result = new(0, false, true, "future_path_changed", null); break; }
                 if (path[next].Head is null) { result = new(0, false, true, "future_center_history_insufficient", null); break; }
                 var endArc = path[next].TargetArc;
-                var stopsAtBoundary = boundaryRemaining[displayed ? 1 : 0][cursor] is { } rest &&
-                    endArc - path[cursor].TargetArc >= rest;
-                if (stopsAtBoundary) endArc = path[cursor].TargetArc + boundaryRemaining[displayed ? 1 : 0][cursor]!.Value;
+                var observedEnd = ObservedSpaceEnd(cursor, path);
+                var observationClipped = observedEnd is { } limit && endArc > limit;
+                if (observationClipped) endArc = observedEnd!.Value;
                 var length = 0d;
                 var previous = head;
-                string? reason = null; ScenePoint? missingPoint = null; var clippedGap = false;
+                string? reason = null; ScenePoint? missingPoint = null;
                 foreach (var unified in ArcSamples(path, cursor, path[cursor].TargetArc, endArc).Skip(1))
                 {
                     var point = Subtract(unified, path[cursor].Offset);
                     if (Missing(point, range) is { } gap)
                     {
-                        if (boundaryRemaining[displayed ? 1 : 0][cursor] is { } boundaryDistance &&
-                            boundaryDistance - length - Distance(previous, point) <= 1 + 1e-8)
-                            clippedGap = true;
-                        else { reason = gap; missingPoint = point; }
+                        reason = gap; missingPoint = point;
                         break;
                     }
                     length += Distance(previous, point); previous = point;
                 }
-                if (clippedGap) { result = new(length, true, false, null, null); break; }
                 if (reason is not null) { result = new(length, false, false, reason, missingPoint); break; }
-                if (stopsAtBoundary) { result = new(length, true, false, null, null); break; }
+                if (observationClipped) { result = new(length, false, true, "boundary_position_unknown", null); break; }
                 pending.Add((cursor, length)); cursor = next;
             }
             Cache(cursor, result);
@@ -234,23 +251,6 @@ internal static class FollowRouteAnalysis
             start = end + 1;
         }
         return result;
-    }
-
-    private static double?[] RemainingToBoundary(RouteFrame[] frames, PathPoint[] path)
-    {
-        var remaining = new double?[frames.Length];
-        for (var index = frames.Length - 2; index >= 0; index--)
-        {
-            if (path[index].Center is not { } center) continue;
-            if (IsSpaceChange(frames[index], frames[index + 1]) && frames[index + 1].Transition is not null &&
-                path[index + 1].Center is { } firstNew)
-                remaining[index] = path[index].CenterArc + Distance(center, firstNew);
-            else if (SameCoordinates(frames[index], frames[index + 1]) && path[index].History == path[index + 1].History &&
-                remaining[index + 1] is { } boundary) remaining[index] = boundary;
-        }
-        for (var index = 0; index < remaining.Length; index++)
-            if (remaining[index] is { } boundary) remaining[index] = Math.Max(0, boundary - path[index].TargetArc);
-        return remaining;
     }
 
     private static ScenePoint? AtArc(PathPoint[] path, int index, double arc)

@@ -18,7 +18,6 @@ internal sealed partial class MeasurementRun
         _ when _scenario.EndsWith("8x", StringComparison.Ordinal) => SimulationSpeed.Eight,
         _ => SimulationSpeed.One
     };
-    private bool _routeRecording;
     private readonly List<RouteFrame> _routeSamples = [];
     private readonly List<RouteRangeChange> _routeRangeChanges = [];
     private ISceneFrame? _routeSceneFrame;
@@ -33,8 +32,7 @@ internal sealed partial class MeasurementRun
     private long _routeDecisionEndDraw;
     private TimeSpan? _routeOperableGcPause;
     private int[]? _routeOperableGcCollections;
-    private double _routeStarted, _routeLastDraw, _routeLastCapture, _routePresentedCost;
-    private ulong _routeLastSteps;
+    private double _routeStarted, _routeLastCapture, _routePresentedCost;
     private SceneSpaceId? _routeLastSpace;
     private int _routeCaptureBurst;
     private bool _routeSampling;
@@ -42,7 +40,6 @@ internal sealed partial class MeasurementRun
     private async Task RunFollowRoute()
     {
         var directory = Path.GetDirectoryName(_output)!;
-        _routeRecording = true;
         var traceWritten = false;
         void WriteTrace()
         {
@@ -66,11 +63,10 @@ internal sealed partial class MeasurementRun
                 is not SubmissionResult.Completed { Receipt.Decision: CommandDecision.Accepted })
                 throw new InvalidOperationException("无法启动测量列车。");
             _app.GetNode<MacroMap>("GameUi/Root/World/MacroMap").RaiseObjectClicked(_sceneTarget);
-            _routeStarted = _routeLastDraw = Seconds();
-            _routeLastSteps = host.GetStatus()!.View.Position.CompletedSteps;
+            _routeStarted = Seconds();
             var gcPause = GC.GetTotalPauseDuration();
             var gcCollections = Enumerable.Range(0, 3).Select(GC.CollectionCount).ToArray();
-            _sceneTiming = new(_routeStarted, _routeLastSteps);
+            _sceneTiming = new(_routeStarted, host.GetStatus()!.View.Position.CompletedSteps);
             _routeSampling = true;
             EdgeId? first = null, second = null;
             NodeId? middle = null, finalNode = null;
@@ -161,7 +157,7 @@ internal sealed partial class MeasurementRun
         }
         finally
         {
-            _routeSampling = _routeRecording = false;
+            _routeSampling = false;
             if (!traceWritten) WriteTrace();
         }
     }
@@ -216,8 +212,8 @@ internal sealed partial class MeasurementRun
             var status = _app.Host!.GetStatus()!;
             if (status.IsFrozen) throw new InvalidOperationException("路线测量期间核心冻结。");
             if (_app.GetWindow().Mode == Window.ModeEnum.Minimized) throw new InvalidOperationException("测量窗口被最小化。");
-            var now = Seconds(); var interval = now - _routeLastDraw;
-            var completed = status.View.Position.CompletedSteps; var stepDelta = completed - _routeLastSteps;
+            var now = Seconds();
+            var completed = status.View.Position.CompletedSteps;
             var frame = _routeSceneFrame; var display = _app.WorldScenes!.Display;
             var train = ((Lookup<TrainView>.Found)status.View.FindTrain(new(1))).Value;
             var vehicles = new List<RouteVehicle>(); var displayedVehicles = new List<RouteVehicle>();
@@ -239,16 +235,14 @@ internal sealed partial class MeasurementRun
                     var subject = new WorldObjectId.Instance(new InstanceId.Vehicle(id));
                     if (frame.FindPose(subject) is Lookup<ScenePose>.Found pose)
                     {
-                        var rotation = pose.Value.Rotation;
-                        vehicles.Add(new(id.Value, RouteAbsolute(pose.Value.Position, frame.Origin), [rotation.X, rotation.Y, rotation.Z, rotation.W], length));
+                        vehicles.Add(new(id.Value, RouteAbsolute(pose.Value.Position, frame.Origin), length));
                     }
                     var shown = display?.Objects.Values.FirstOrDefault(item => item.Source.Parent is null && item.Source.Subject == subject);
                     if (shown is not null && display!.PoseFrame?.Update.Frame.Space == frame.Update.Frame.Space)
                     {
                         var transform = _app.WorldScenes.View.GlobalTransform.AffineInverse() * shown.Root.GlobalTransform;
-                        var rotation = transform.Basis.GetRotationQuaternion();
                         displayedVehicles.Add(new(id.Value, RouteAbsolute(new(transform.Origin.X, transform.Origin.Y, transform.Origin.Z), frame.Origin),
-                            [rotation.X, rotation.Y, rotation.Z, rotation.W], length));
+                            length));
                     }
                 }
                 if (display?.DisplayedFrame is { } drawn)
@@ -273,11 +267,11 @@ internal sealed partial class MeasurementRun
                 _routeOperableGcPause = GC.GetTotalPauseDuration();
                 _routeOperableGcCollections = Enumerable.Range(0, 3).Select(GC.CollectionCount).ToArray();
             }
-            var sample = new RouteFrame(++_routeFrames, now - _routeStarted, interval, completed, stepDelta, status.Speed.ToString(),
-                frame?.Update.Frame, display?.DisplayedFrame?.Update.Frame, display?.PoseFrame?.Update.Frame,
+            var sample = new RouteFrame(++_routeFrames, now - _routeStarted, completed,
+                frame?.Update.Frame, display?.DisplayedFrame?.Update.Frame,
                 _routeBuilt, _routeShown, vehicles.ToArray(), displayedVehicles.ToArray(), train.OrderFacing == TrainOrderFacing.FirstEndLeading,
-                JsonSerializer.SerializeToElement(train.Position, train.Position.GetType(), SceneJson), _simulationWork, Seconds() - started + _routePresentedCost,
-                train.Vehicles.Select(id => id.Value).ToArray(), frame?.Origin, train.LengthMeters,
+                JsonSerializer.SerializeToElement(train.Position, train.Position.GetType(), SceneJson), Seconds() - started + _routePresentedCost,
+                train.Vehicles.Select(id => id.Value).ToArray(), train.LengthMeters,
                 operable, _routeTransition, _routeDecisionEndDraw == 0);
             _routeSamples.Add(sample);
             _routeTransition = null;
@@ -291,7 +285,7 @@ internal sealed partial class MeasurementRun
                 _routeLastCapture = now; _routeCaptureBurst--;
             }
             _sceneTiming!.AddFrame(now, completed, _simulationWork, status.Speed, status.IsPaused);
-            _simulationWork = 0; _routeLastSteps = completed; _routeLastDraw = now;
+            _simulationWork = 0;
         }
         catch (Exception error) { _drawFailure = error; }
         finally
