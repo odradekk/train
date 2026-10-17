@@ -29,6 +29,7 @@ internal sealed class DesignEditSession : IDesignEditSession
     private readonly Dictionary<EditElementId, ElementLock> locks = [];
     private readonly Dictionary<ulong, DesignDraft> captures = [];
     private readonly Dictionary<EditElementId, SceneObjectId> objectIds = [];
+    private readonly Dictionary<(SceneObjectId Parent, GridPosition Cell), SceneObjectId> modelIds = [];
     private readonly SceneSessionId frameSession = new(Guid.NewGuid());
     private EditObject root;
     private DesignDraft saved;
@@ -383,7 +384,7 @@ internal sealed class DesignEditSession : IDesignEditSession
         if (displayedFrame is not null && displayedFrame.Update.Frame.Session != frameSession)
             throw new ArgumentException("Displayed frame belongs to another session.", nameof(displayedFrame));
         var path = EnteredPath;
-        var geometry = EditGeometry.Build(EditLayout.At(root, path), content, Id, new(revision), options.HighestVisibleY, ObjectId, path);
+        var geometry = EditGeometry.Build(EditLayout.At(root, path), content, Id, new(revision), options.HighestVisibleY, ObjectId, ModelId, path);
         var selectedPaths = selection.IsEmpty ? ImmutableArray.Create(path) : Elements.Where(element => selection.Contains(element.Id) && element.Kind != EditElementKind.Cell)
             .Select(element => element.ObjectPath).ToImmutableArray();
         var pose = new ScenePose(Vector3.Zero, Quaternion.Identity);
@@ -402,6 +403,11 @@ internal sealed class DesignEditSession : IDesignEditSession
     private SceneObjectId ObjectId(EditElementId id)
     {
         if (!objectIds.TryGetValue(id, out var value)) objectIds.Add(id, value = new(++nextObject));
+        return value;
+    }
+    private SceneObjectId ModelId(SceneObjectId parent, GridPosition cell)
+    {
+        if (!modelIds.TryGetValue((parent, cell), out var value)) modelIds.Add((parent, cell), value = new(++nextObject));
         return value;
     }
 
