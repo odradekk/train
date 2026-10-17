@@ -6,7 +6,7 @@ python scripts/content/generate_small_world.py --output-dir TestResults/reproduc
 
 脚本生成 resources/，手绘图标按 HAND_DRAWN_ICONS 保留；校验模式拒绝缺失、多余或生成字节不同的文件，
 并按仓库 Schema 检查 JSON（校验需要 jsonschema）。生成只用 Python 标准库。
-地形与小型机车使用第一阶段风格样稿，其余美术仍为占位；数值待配平，
+地形与小型机车使用第一阶段风格样稿，十二种原料货物已有正式美术，其余仍为占位；数值待配平，
 数值和画面待用户试玩确认；NPC 库存与现车初始化已启用，车队待 #340。
 校验同时检查正式内容的经济关系；不生成生物聚落或存档。
 """
@@ -98,23 +98,6 @@ RESOURCE_PROFILES = (
 )
 RAW_GOODS = {row[1] for row in RESOURCE_PROFILES} | {"grain", "produce", "animal-products", "natural-fiber"}
 ALL_SHAPES = ["cube", "half", "plate", "wedge", "corner-wedge", "beam", "cylinder"]
-
-RAW_GOODS_ART = {
-    "ferrous-ore": ("stone_soil", 2, None, None),
-    "conductive-ore": ("stone_soil", 2, None, None),
-    "rare-mineral": ("stone_soil", 2, None, None),
-    "stone": ("stone_soil", 2, None, None),
-    "silica": ("stone_soil", 2, None, None),
-    "coal": ("stone_soil", 2, None, None),
-    "crude-oil": ("painted_metal", 1, "side.png", None),
-    "grain": ("organic", 1, "side.png", None),
-    "produce": ("organic", 1, "side.png", "shared/crate-bottom.png"),
-    "animal-products": ("organic", 1, "side.png", "shared/crate-bottom.png"),
-    "timber": ("organic", 1, "side.png", None),
-    "natural-fiber": ("organic", 1, "side.png", None),
-}
-# 表中货物的 icon.png 是唯一源，生成器只生成 Keep File 导入声明。
-HAND_DRAWN_ICONS = tuple(f"voxels/{identity}/icon.png" for identity in RAW_GOODS_ART)
 
 # id、显示名、质量/耐久对照的已有货物、共享占位图族。
 # 只复制这两个物理字段，不继承对照货物的功能或经济身份。
@@ -378,12 +361,14 @@ def stone_texture(x, y):
 
 
 def silica_texture(x, y):
-    speckle = (x * 17 ^ y * 37 ^ x * y) % 5 - 2
-    return mineral_texture(x, y, (205 + speckle, 191 + speckle, 155 + speckle))
+    particles = (x * 17 ^ y * 37 ^ (x // 2) * (y // 2) * 13) % 9 - 4
+    return tint((205, 191, 155), particles + grain(x, y, 64, 0x606))
 
 
 def crude_oil_texture(x, y, side=False):
     if side:
+        if x in (0, 31):
+            return tint((31, 38, 44))
         band = y % 16 in (3, 4, 5)
         return tint((58, 67, 75), 15 if band else grain(x, y, 32, 0x607) // 2)
     radius = ((x - 15.5) ** 2 + (y - 15.5) ** 2) ** .5
@@ -420,11 +405,15 @@ def crate_side_texture(x, y, wood, contents):
 def produce_texture(x, y, side=False):
     if side:
         return crate_side_texture(x, y, (128, 98, 63), (66, 93, 49))
-    a, b = sorted((min(x, 31 - x), min(y, 31 - y)))
-    if a < 2:
-        return tint((128, 98, 63), grain(a, b, 32, 0x610))
-    carrot = (a - 10) ** 2 + (b - 12) ** 2 < 14
-    return tint((179, 110, 47) if carrot else (79, 112, 53), grain(a, b, 32, 0x611))
+    if x < 2 or x > 29 or y < 2 or y > 29:
+        return tint((128, 98, 63), grain(x, y, 32, 0x610))
+    for cx, cy, radius, tone in ((7, 8, 5, 8), (20, 6, 4, -5), (25, 18, 5, 3),
+                                (14, 16, 6, -10), (7, 25, 4, 6), (21, 26, 4, -3)):
+        if (x - cx) ** 2 + (y - cy) ** 2 < radius ** 2:
+            return tint((79, 112, 53), tone + grain(x, y, 32, 0x611))
+    root = (((x - 7) / 2) ** 2 + ((y - 16) / 4) ** 2 < 1
+            or ((x - 23) / 4) ** 2 + ((y - 12) / 2) ** 2 < 1)
+    return tint((179, 110, 47) if root else (56, 79, 41), grain(x, y, 32, 0x611))
 
 
 def animal_products_texture(x, y, side=False):
@@ -462,6 +451,24 @@ def natural_fiber_texture(x, y, side=False):
         x, y = min(x, 31 - x), min(y, 31 - y)
         strap = x >= 14 or y >= 14
     return tint((67, 77, 76) if strap else (226, 218, 192), grain(min(x, y), max(x, y), 32, 0x617) // 2)
+
+
+RAW_GOODS_ART = {
+    "ferrous-ore": ("stone_soil", 2, None, None, ferrous_ore_texture),
+    "conductive-ore": ("stone_soil", 2, None, None, conductive_ore_texture),
+    "rare-mineral": ("stone_soil", 2, None, None, rare_mineral_texture),
+    "stone": ("stone_soil", 2, None, None, stone_texture),
+    "silica": ("stone_soil", 2, None, None, silica_texture),
+    "coal": ("stone_soil", 2, None, None, coal_texture),
+    "crude-oil": ("painted_metal", 1, "side.png", None, crude_oil_texture),
+    "grain": ("organic", 1, "side.png", None, grain_texture),
+    "produce": ("organic", 1, "side.png", "shared/crate-bottom.png", produce_texture),
+    "animal-products": ("organic", 1, "side.png", "shared/crate-bottom.png", animal_products_texture),
+    "timber": ("organic", 1, "side.png", None, timber_texture),
+    "natural-fiber": ("organic", 1, "side.png", None, natural_fiber_texture),
+}
+# 表中货物的 icon.png 是唯一源，生成器只生成 Keep File 导入声明。
+HAND_DRAWN_ICONS = tuple(f"voxels/{identity}/icon.png" for identity in RAW_GOODS_ART)
 
 
 def plate_texture(x, y):
@@ -808,6 +815,7 @@ def content_files():
         return simulation
 
     sample_description = "{}的第一阶段风格样稿；数值待配平，画面待用户阶段试玩确认。"
+    raw_description = "{}的正式美术；数值待配平，画面待用户阶段试玩确认。"
     voxel("structural-metal", "结构金属", "painted_metal", faces("top.png", "side.png", "shared/vehicle-underside.png"),
           "icon.png", good("structural-metal", 0.028, 260), tile_span=4, description=sample_description.format("结构金属"))
     voxel("construction-material", "建筑材料", "concrete", faces("shared/soil-face.png"),
@@ -829,9 +837,9 @@ def content_files():
              ("consumer-electronics", "消费电子", 1.6), ("medical-supplies", "医疗用品", 0.4))
     for identity, name, mass in goods:
         voxel(identity, name, "organic", faces("shared/organic-face.png"), "shared/organic-icon.png", good(identity, mass))
-    material, tile_span, side, bottom = RAW_GOODS_ART["stone"]
+    material, tile_span, side, bottom, _ = RAW_GOODS_ART["stone"]
     voxel("stone", "石料", material, faces("top.png", side, bottom), "icon.png", good("stone", 0.042),
-          tile_span=tile_span, description="石料的正式美术；数值待配平，画面待用户阶段试玩确认。")
+          tile_span=tile_span, description=raw_description.format("石料"))
     voxel("ground", "地表", "organic", faces("top.png", "side.png", "shared/subsoil.png"),
           "icon.png", tile_span=4, description=sample_description.format("地表"))
     voxel("forest-ground", "森林地表占位", "organic", faces("top.png"),
@@ -843,15 +851,11 @@ def content_files():
     voxel("rock", "岩层", "stone_soil", faces("top.png"),
           "icon.png", tile_span=4, description=sample_description.format("岩层"))
     style_assets(files)
-    for identity, texture in (("ferrous-ore", ferrous_ore_texture), ("conductive-ore", conductive_ore_texture),
-                              ("rare-mineral", rare_mineral_texture), ("stone", stone_texture),
-                              ("silica", silica_texture), ("coal", coal_texture)):
-        files[f"voxels/{identity}/top.png"] = png(64, texture)
-    for identity, texture in (("crude-oil", crude_oil_texture), ("grain", grain_texture),
-                              ("produce", produce_texture), ("animal-products", animal_products_texture),
-                              ("timber", timber_texture), ("natural-fiber", natural_fiber_texture)):
-        files[f"voxels/{identity}/top.png"] = png(32, texture)
-        files[f"voxels/{identity}/side.png"] = png(32, lambda x, y: texture(x, y, side=True))
+    for identity, (_, tile_span, side, _, texture) in RAW_GOODS_ART.items():
+        size = 32 * tile_span
+        files[f"voxels/{identity}/top.png"] = png(size, texture)
+        if side is not None:
+            files[f"voxels/{identity}/{side}"] = png(size, lambda x, y: texture(x, y, side=True))
     files["voxels/shared/crate-bottom.png"] = png(32, crate_bottom_texture)
 
     for spec in VEHICLES:
@@ -911,9 +915,9 @@ def content_files():
         face_paths, icon_path = faces(f"shared/{texture}-face.png"), f"shared/{texture}-icon.png"
         tile_span, description = None, None
         if identity in RAW_GOODS_ART:
-            material, tile_span, side, bottom = RAW_GOODS_ART[identity]
+            material, tile_span, side, bottom, _ = RAW_GOODS_ART[identity]
             face_paths, icon_path = faces("top.png", side, bottom), "icon.png"
-            description = f"{name}的正式美术；数值待配平，画面待用户阶段试玩确认。"
+            description = raw_description.format(name)
         voxel(identity, name, material, face_paths, icon_path, simulation,
               light=identity == "lamp", tile_span=tile_span, description=description)
 

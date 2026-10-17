@@ -37,7 +37,7 @@
 
 `builtin/core/resources/` 当前提供经济运输切片的正式输入：三种轨距的小型／中型／超大型机车、小站点和站台设备、五类聚居地与六份模板、五种地貌及桥隧模型、五类规则和 `core:basic-through-world` 生成配置。除下述手绘图标外，JSON 和 PNG 由 [generate_small_world.py](../../scripts/content/generate_small_world.py) 生成，该脚本是生成贴图的唯一可编辑源。所有 PNG 的 Keep File `.import` 由脚本生成，UID 由路径确定。
 
-第一阶段风格样稿覆盖 `ground`、`subsoil`、`rock` 和小型机车使用的五种货物体素：`structural-metal`、`bogie`、`propulsion-equipment`、`control-equipment`、`storage-equipment`。面贴图每格 32 px，图标 128×128、透明底；土层图与车辆底面放在 `voxels/shared/` 复用。小型机车采用驾驶室、机器间、两侧检修走廊和端部平台的外形，轮对格位与体素数量沿用原内容。中型、超大型蓝图保持原模板，共用体素表现随素材更新。#359 补齐下表十二种原料的正式美术；未列出的其他资产仍待各自美术任务制作，不代表完整 Demo 美术完成，画面待用户阶段试玩确认。
+第一阶段风格样稿覆盖 `ground`、`subsoil`、`rock` 和小型机车使用的五种货物体素：`structural-metal`、`bogie`、`propulsion-equipment`、`control-equipment`、`storage-equipment`。面贴图每格 32 px，图标 128×128、透明底；土层图与车辆底面放在 `voxels/shared/` 复用。小型机车采用驾驶室、机器间、两侧检修走廊和端部平台的外形，轮对格位与体素数量沿用原内容。中型、超大型蓝图保持原模板，共用体素表现随素材更新。#359 补齐十二种原料的正式美术；其他资产仍待各自美术任务制作，不代表完整 Demo 美术完成，画面待用户阶段试玩确认。
 
 这是经济运输验证世界，**不是完整 Demo 默认开局**。配置使用非零噪声和成环线路，起始车队每种轨距各一台机车；正式经济目录包含 46 种货物和 63 个流程（38 生产、8 开采、17 回收），模板包含真实生产计划。检查器直接读取正式 JSON，分别检查生产与回收关系、人口消费品的静态可达性、两条燃料路线的整批原料需求与余量，以及真实蓝图设备支持的满速供电和劳动估算；燃料批次的产出能量须高于自身及直接上游开采的耗电，炼油联产品不分摊单品成本。模板报告给出本地吞吐和燃料能量收支，以及跨模板进口和未被启用计划供应的中间品，静态全包可达不表示 NPC 能动态闭合运行。正式美术仍未完成。`lair_ratio=0`；NPC 按核心补货目标初始化输入原料和生活物资，预存 2 小时潜在产出，并按车间档位和市场名额生成 1–2 辆现车，容量不足时由核心按比例补入。这不表示动态供应链或真实起步贸易已验收。含生物聚落的预算未测量：生物聚落会占用节点，影响起点检查、初始铁路和选路，需要在内容接入后重测。
 
@@ -63,26 +63,9 @@ pwsh -NoProfile -File scripts/test.ps1 -Project content -Layer fast,integration
 
 ### 手绘货物图标
 
-下表每种货物的 `resources/voxels/<id>/icon.png`（相对 `builtin/core/`）是手绘源。它们由图像模型生成，整理后的最终 PNG 本身就是唯一源，不在 `art-source/` 留副本，也不提交整理脚本。后续直接编辑内容目录内的 PNG，在运行中的 Debug 构建中用 `reload` 或 Ctrl+Shift+R 检查。贴图仍修改生成脚本后重制。
+手绘清单是生成器 `RAW_GOODS_ART` 推出的 `HAND_DRAWN_ICONS`，列出 `builtin/core/resources/voxels/<id>/icon.png`。这些图由图像模型生成，整理后的最终 PNG 本身就是唯一源，不在 `art-source/` 留副本，也不提交整理脚本。后续直接编辑内容目录内的 PNG，在运行中的 Debug 构建中用 `reload` 或 Ctrl+Shift+R 检查。贴图仍修改生成脚本后重制，不能用图标代替面贴图。
 
-| ID | 面图跨度／边长 | 顶面／侧面／底面绑定 | 表现材质与图标 |
-| --- | --- | --- | --- |
-| `ferrous-ore` | 2／64 px | 三面均为 `top.png` | `stone_soil`；锈红矿块堆 |
-| `conductive-ore` | 2／64 px | 三面均为 `top.png` | `stone_soil`；铜褐灰绿矿块堆 |
-| `rare-mineral` | 2／64 px | 三面均为 `top.png` | `stone_soil`；灰紫矿块堆 |
-| `stone` | 2／64 px | 三面均为 `top.png` | `stone_soil`；灰色石料堆 |
-| `silica` | 2／64 px | 三面均为 `top.png` | `stone_soil`；浅色细砂堆 |
-| `coal` | 2／64 px | 三面均为 `top.png` | `stone_soil`；深灰煤块堆 |
-| `crude-oil` | 1／32 px | `top.png`／`side.png`／`top.png` | `painted_metal`；直立储油桶 |
-| `grain` | 1／32 px | `top.png`／`side.png`／`top.png` | `organic`；麻袋与麦穗 |
-| `produce` | 1／32 px | `top.png`／`side.png`／`shared/crate-bottom.png` | `organic`；果蔬筐 |
-| `animal-products` | 1／32 px | `top.png`／`side.png`／`shared/crate-bottom.png` | `organic`；蛋奶筐 |
-| `timber` | 1／32 px | `top.png`／`side.png`／`top.png` | `organic`；原木捆，贴图按原木竖放绘制 |
-| `natural-fiber` | 1／32 px | `top.png`／`side.png`／`top.png` | `organic`；带捆带的浅色纤维包 |
-
-三面只绑定贴图，图标不参与面图生成或绑定。固体原料采用环面 Voronoi 碎块、深色间隙与块面固有色差，不把光照方向烘进贴图；其余顶面图案保持四向均衡，侧面上方朝上。共用筐底只有 `shared/crate-bottom.png` 一份，由同一生成脚本绘制。
-
-生成器的 `RAW_GOODS_ART` 逐项登记这批货物的表现绑定，原料创建处查表并把实际值传给 `voxel()`；`HAND_DRAWN_ICONS` 从同一张表推导出固定的源 PNG 路径，不使用目录或扩展名通配。生成器不写、不复制这些图；生成和检查都允许它们存在，`--check` 在缺图时失败；对应 `.png.import` 仍生成。新增 #393、#394 图标时同步扩充表现表和本节路径表，其余文件的拒绝规则保持不变。
+生成器保留手绘 PNG，`--check` 在缺图时失败；对应的 Keep File `.png.import` 仍由生成器生成。新增 #393、#394 图标时在 `RAW_GOODS_ART` 登记，沿用下述提示词、整理步骤和同用途规则。
 
 共用提示词模板：
 
