@@ -122,7 +122,7 @@ internal sealed class PackageLoader(C.ContentInstallation installation, C.IConte
         package.State = C.PackageState.DependencyUnavailable;
     }
 
-    private static void ParseManifest(byte[] bytes, LoadPackage package, string path)
+    internal static void ParseManifest(byte[] bytes, LoadPackage package, string path)
     {
         using var document = ContentDocument.Parse(bytes, package, path);
         if (document is null) return;
