@@ -12,10 +12,10 @@ internal static class NodeSettlement
         snapshot.Core.World.Nodes.Single(item => item.Id == node).Occupant is NodeOccupant.Settlement owner &&
         snapshot.Content.FindSettlementLayout(owner.Id) is ContentLookup<SettlementLayoutProjection>.Found found ? found.Value : null;
 
-    internal static (int X, int Z) Size(PlotSize size) => size switch
+    internal static (int X, int Z, int Y) Size(PlotSize size) => size switch
     {
-        PlotSize.Small => (48, 48), PlotSize.Medium => (96, 96), PlotSize.Large => (192, 192),
-        PlotSize.Giant => (384, 384), PlotSize.SmallStation => (192, 112), PlotSize.LargeStation => (256, 208),
+        PlotSize.Small => (48, 48, 48), PlotSize.Medium => (96, 96, 80), PlotSize.Large => (192, 192, 128),
+        PlotSize.Giant => (384, 384, 256), PlotSize.SmallStation => (192, 112, 48), PlotSize.LargeStation => (256, 208, 64),
         _ => throw new ArgumentException("Unknown plot size.", nameof(size))
     };
 
@@ -24,7 +24,7 @@ internal static class NodeSettlement
         pose.Position + Vector3.Transform(new((float)x, (float)y, (float)z), pose.Rotation);
     internal static Vector3[] Corners(SettlementPlotLayout plot)
     {
-        var (x, z) = Size(plot.Size);
+        var (x, z, _) = Size(plot.Size);
         var pose = SceneGeometry.Placement(plot.At, plot.Orientation);
         return [Point(pose, -x / 2, 0, -z / 2), Point(pose, x / 2, 0, -z / 2),
             Point(pose, -x / 2, 0, z / 2), Point(pose, x / 2, 0, z / 2)];
@@ -79,7 +79,7 @@ internal static class NodeSettlement
     {
         var pose = SceneGeometry.Placement(plot.At, plot.Orientation);
         var p = Vector3.Transform(new Vector3((float)point.X, (float)point.Y, (float)point.Z) - pose.Position, Quaternion.Conjugate(pose.Rotation));
-        var (x, z) = Size(plot.Size);
+        var (x, z, _) = Size(plot.Size);
         return p.X >= -x / 2 && p.X < x / 2 && p.Z >= -z / 2 && p.Z < z / 2;
     });
 

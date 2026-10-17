@@ -28,10 +28,12 @@ public class ContentTests(Node testScene) : TestClass(testScene)
             host.BeginNewGame(new("core:basic-through-world"), 40, "stage1-world-v1", host.SessionOptions!);
             await FramesUntil(TestScene, () => !host.IsBusy);
             var before = host.GetStatus()!;
-            var buy = host.Submit(before.Binding, new CoreCommand.BuyVehicle(new(6), new(11), new(long.MaxValue)),
+            var vehicle = before.View.FindSettlement(new(6)) is Lookup<SettlementView>.Found settlement
+                ? settlement.Value.VehiclesForSale.First() : throw new InvalidOperationException("缺少农业镇。");
+            var buy = host.Submit(before.Binding, new CoreCommand.BuyVehicle(new(6), vehicle, new(long.MaxValue)),
                 CommandSource.AutomationTest);
             Require(buy is SubmissionResult.Completed { Receipt.Decision: CommandDecision.Accepted }, "现车买入被拒绝。");
-            var sell = host.Submit(before.Binding, new CoreCommand.SellVehicle(new(6), new(11), new(0)),
+            var sell = host.Submit(before.Binding, new CoreCommand.SellVehicle(new(6), vehicle, new(0)),
                 CommandSource.AutomationTest);
             Require(sell is SubmissionResult.Completed { Receipt.Decision: CommandDecision.Accepted }, "现车卖回被拒绝。");
             Require(host.GetStatus()!.View.Economy.Wallet.Value < before.View.Economy.Wallet.Value,
@@ -57,8 +59,8 @@ public class ContentTests(Node testScene) : TestClass(testScene)
                 "真实新局请求被拒绝。");
             await FramesUntil(TestScene, () => !host.IsBusy);
             var created = host.GetStatus();
-            Require(created is { PlayerPaused: true } && created.View.World.Nodes.Length > 0 && created.View.World.Trains.Length == 3,
-                "正式内容没有生成暂停的小世界与三列初始列车。");
+            Require(created is { PlayerPaused: true } && created.View.World.Nodes.Length > 0 && created.View.World.Trains.Length == 2,
+                "正式内容没有生成暂停的小世界与两列初始列车。");
             Require(created!.View.InputIdentity == host.Content!.Core.Identity, "新局的核心与内容没有配对。");
             var runtime = host.Runtime!;
             Require(runtime.OperatingSystem == (OperatingSystem.IsWindows() ? "Windows" : RuntimeInformation.OSDescription),
