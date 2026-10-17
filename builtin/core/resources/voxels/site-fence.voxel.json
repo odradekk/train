@@ -1,0 +1,1 @@
+{"schema_version":3,"id":"site-fence","appearance":{"allowed_orientations":"four_way","presentation":{"kind":"cube","material":"painted_metal","faces":{"top":"top.png","side":"top.png","bottom":"top.png"},"tile_span":1}},"display":{"name":"工地围挡","description":"用于自然环境和铁路场景的工地围挡。","icon":"shared/equipment-icon.png"}}

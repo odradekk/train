@@ -1,0 +1,1 @@
+{"schema_version":3,"id":"sandstone","appearance":{"allowed_orientations":"four_way","presentation":{"kind":"cube","material":"stone_soil","faces":{"top":"top.png","side":"side.png","bottom":"top.png"},"tile_span":4}},"display":{"name":"砂岩","description":"用于自然环境和铁路场景的砂岩。","icon":"top.png"}}

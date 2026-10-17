@@ -397,7 +397,7 @@ public sealed class NodeSceneTests
     [TestMethod]
     public void TemplateModelEntersTerrainAndRailwayClearsItsCells()
     {
-        var snapshot = CopiedSettlement(1, terrain: false);
+        var snapshot = CopiedSettlement(1, ballast: NodeFixtures.Concrete);
         var built = NodeFixtures.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
         var terrain = built.Parts.Where(part => part.Key.StartsWith("terrain:", StringComparison.Ordinal)).Select(part => part.Value).ToArray();
         var cells = terrain.SelectMany(part => part.Geometry.Geometry.Picking).SelectMany(pick => pick.Grid.Cells).ToDictionary(cell => cell.At);
@@ -409,6 +409,8 @@ public sealed class NodeSceneTests
             "The railway corridor removes the model cell on its centerline.");
         Assert.IsFalse(cells.TryGetValue(new(41, -2, 0), out var underTrack) && underTrack.Paint == paint,
             "The lower bed layer also overrides model cells.");
+        Assert.AreEqual(NodeFixtures.Concrete, cells[new(41, -2, 0)].Appearance!.Definition,
+            "The node bed uses the railway rule voxel rather than the terrain rock.");
         Assert.AreEqual(1d, terrain.SelectMany(part => part.Heights).Single(item => item.Key == new GridColumn(0, 0)).Value,
             "The actual ground is flattened before the scene model is placed.");
         Assert.IsFalse(built.Parts.Values.SelectMany(part => part.Geometry.Geometry.Diagnostics).Any(problem => problem.Code == "build_failed"));
@@ -492,9 +494,11 @@ public sealed class NodeSceneTests
         Assert.IsFalse(frame.Diagnostics.Any(problem => problem.Code == "content_missing" && problem.Detail.Contains("layout copy")));
     }
 
-    private static SceneWorldSnapshot CopiedSettlement(ulong generation, bool terrain = true, bool stationPlots = true)
+    private static SceneWorldSnapshot CopiedSettlement(ulong generation, bool terrain = true, bool stationPlots = true,
+        VoxelDefinitionId? ballast = null)
     {
-        var basis = NodeFixtures.Content(generation, rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 });
+        var basis = NodeFixtures.Content(generation, rules: RailwayFixtures.Rules with
+        { MinimumCurveRadiusMeters = 1, BallastVoxel = ballast ?? RailwayFixtures.Rules.BallastVoxel });
         var model = SceneFixtures.Projection([SceneFixtures.Cell(new(5, 3, 5)) with { Paint = new("#ff00ff") },
             SceneFixtures.Cell(new(41, 0, 0), 2) with { Paint = new("#ff00ff") },
             SceneFixtures.Cell(new(41, -2, 0), 3) with { Paint = new("#ff00ff") }]) with
@@ -511,7 +515,9 @@ public sealed class NodeSceneTests
             SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>> { [new(1)] = new ContentLookup<SettlementLayoutProjection>.Found(copy) },
             Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
             { [SceneFixtures.Design] = basis.FindDesign(SceneFixtures.Design), [NodeFixtures.StationDesign] = basis.FindDesign(NodeFixtures.StationDesign), [sourceHash] = new ContentLookup<DesignEvaluation>.Found(SceneFixtures.Evaluation(SceneFixtures.Projection([SceneFixtures.Cell(new((int)generation * 80, 0, 80))]))) },
-            VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>> { [SceneFixtures.Voxel] = basis.FindVoxelAppearance(SceneFixtures.Voxel) },
+            VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
+            { [SceneFixtures.Voxel] = basis.FindVoxelAppearance(SceneFixtures.Voxel),
+              [NodeFixtures.Concrete] = basis.FindVoxelAppearance(NodeFixtures.Concrete) },
             Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
             { [RailwayFixtures.Terrain] = terrain ? basis.FindTerrain(RailwayFixtures.Terrain) : new ContentLookup<TerrainAppearanceProjection>.Missing([]) },
             RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>> { [RailwayFixtures.Rule] = basis.FindRailwayAppearance(RailwayFixtures.Rule) }

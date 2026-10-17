@@ -10,6 +10,7 @@
   "rail_good": "hull-plate",
   "repair_rail_units_per_break": 1,
   "appearance": {
+    "ballast_voxel": "grassland",
     "minimum_curve_radius_meters": 100,
     "maximum_grade": 0.05
   },

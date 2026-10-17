@@ -165,6 +165,14 @@ internal sealed class WorldLoader
         var subject = new C.ContentReference.Core(new K.CoreDefinitionReference.Rule(rule.Id));
         foreach (var good in rule.Goods)
             references.Good(package, rule.Path, subject, good.Id, good.Field);
+        if (rule is ParsedRule.Railway railway)
+        {
+            var ballast = railway.Appearance.BallastVoxel;
+            const string field = "/appearance/ballast_voxel";
+            references.Need(package, rule.Path, subject, ballast.Value, references.Voxels.ContainsKey(ballast), field);
+            if (references.Voxels.TryGetValue(ballast, out var voxel) && voxel.Voxel.Definition.Good is not null)
+                package.Reject("reference_wrong_kind", rule.Path, field, "道床必须引用场景体素。", subject);
+        }
         if (rule is not ParsedRule.Population population) return;
         foreach (var consumption in population.Projection.ConsumptionGoods.Where(g => g.Satisfies.Any(c => c.Need == K.PopulationNeed.Food)))
         {
