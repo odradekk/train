@@ -8,6 +8,27 @@ namespace Train.Content.Tests.Loading;
 public sealed class DesignEvaluationTests
 {
     [TestMethod]
+    public void Multiple_weapons_keep_their_own_part_capabilities()
+    {
+        var fixture = DesignFixtures.Content();
+        DesignFixtures.AddVoxel(fixture, "cannon", behaviors: """{"weapon":{"damage":20,"interval":2}}""");
+        using var candidate = fixture.Load();
+        var draft = DesignFixtures.Vehicle() with
+        {
+            Layout = new([DesignFixtures.Entry("machine"), DesignFixtures.Entry("cannon")],
+                [new(new(0, 0, 0), 0), new(new(0, 0, 1), 1)], [])
+        };
+        var evaluation = DesignFixtures.Evaluate(candidate.View, draft);
+        Assert.IsTrue(evaluation.IsValid);
+        var parts = evaluation.Core!.Design.Parts;
+        Assert.AreEqual(2, parts.Select(p => p.Id).Distinct().Count());
+        Assert.AreEqual(new K.PartCapability.Weapon(6, 0.5),
+            parts.Single(p => p.Definition == new K.CoreDefinitionReference.Voxel(new("core:machine"))).Capabilities.OfType<K.PartCapability.Weapon>().Single());
+        Assert.AreEqual(new K.PartCapability.Weapon(20, 2),
+            parts.Single(p => p.Definition == new K.CoreDefinitionReference.Voxel(new("core:cannon"))).Capabilities.OfType<K.PartCapability.Weapon>().Single());
+    }
+
+    [TestMethod]
     [DataRow(0, 0)]
     [DataRow(int.MinValue, 0)]
     [DataRow(-int.MaxValue, 0)]
@@ -295,16 +316,13 @@ public sealed class DesignEvaluationTests
     }
 
     [TestMethod]
-    public void Unsupported_functional_root_identity_creatures_and_partial_inputs_throw_directly()
+    public void Unsupported_functional_root_identity_and_creatures_throw_directly()
     {
         using var candidate = DesignFixtures.Content().Load();
         var draft = DesignFixtures.Vehicle();
         var factory = ContentFactory.Create();
-        foreach (var specification in new C.DesignSpecification[] { new C.DesignSpecification.FunctionalComposite([], null), new C.DesignSpecification.Creature(null, null), new C.DesignSpecification.Vehicle(null),
-            new C.DesignSpecification.Building(null, K.BuildingKind.Warehouse, []) })
+        foreach (var specification in new C.DesignSpecification[] { new C.DesignSpecification.FunctionalComposite([], null), new C.DesignSpecification.Creature(null, null) })
             Assert.ThrowsExactly<NotImplementedException>(() => factory.EvaluateDesign(candidate.View, draft with { Specification = specification }));
-        Assert.ThrowsExactly<NotImplementedException>(() => factory.EvaluateDesign(candidate.View, draft with { Layout = draft.Layout with { Palette = [DesignFixtures.Entry("absent"), DesignFixtures.Entry()] } }));
-        Assert.ThrowsExactly<NotImplementedException>(() => factory.EvaluateDesign(candidate.View, draft with { Layout = draft.Layout with { Palette = [draft.Layout.Palette[0], draft.Layout.Palette[1], DesignFixtures.Entry("absent")] } }));
     }
 
     [TestMethod]

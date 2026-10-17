@@ -58,8 +58,10 @@ public sealed class ContentRestoreTests
         Assert.AreEqual(before.Core.Design.Parts.Single().MaxDurability, complete.Core.Design.Parts.Single().MaxDurability);
         Assert.AreEqual(before.Core.Design.Parts.Single().Id, complete.Core.Design.Parts.Single().Id);
         Assert.AreEqual(saved.Encode(), resaved.Encode());
-        Assert.ThrowsExactly<NotImplementedException>(() => factory.EvaluateDesign(restored.View,
+        var newDraft = Success(factory.EvaluateDesign(restored.View,
             record.Definition with { Specification = new C.DesignSpecification.Vehicle(null) }));
+        Assert.IsInstanceOfType<C.DesignEvaluation.Partial>(newDraft);
+        Assert.IsNull(((C.DesignEvaluation.Partial)newDraft).CorePlaceholder);
     }
 
     [TestMethod]

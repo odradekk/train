@@ -21,7 +21,7 @@ public sealed class AssemblyCaptureTests
         var capture = Success(factory.Capture(candidate.View, EmptyReferences(candidate.View)));
         CollectionAssert.Contains(capture.Designs.ToArray(), evaluation.Design);
         var json = JsonNode.Parse(capture.Encode())!;
-        Assert.AreEqual(4, json["format_version"]!.GetValue<int>());
+        Assert.AreEqual(5, json["format_version"]!.GetValue<int>());
         Assert.AreEqual(evaluation.Composition.Value, json["assembly_displays"]![0]!["composition"]!.GetValue<string>());
         Assert.AreEqual(evaluation.Design.Value, json["assembly_displays"]![0]!["design"]!.GetValue<string>());
         Assert.AreEqual(capture.Encode(), Success(factory.DecodeCapture(capture.Encode())).Encode());

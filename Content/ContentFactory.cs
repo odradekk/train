@@ -37,8 +37,6 @@ internal sealed class InitialContentFactory : C.IContentFactory
         ArgumentNullException.ThrowIfNull(request.Purpose);
         ArgumentNullException.ThrowIfNull(files);
         ArgumentNullException.ThrowIfNull(inspector);
-        if (request.Installation.UserLibrary is not null)
-            throw new NotImplementedException("用户蓝图库尚未实现。");
         switch (request.Purpose)
         {
             case C.ContentLoadPurpose.Restore restore:
@@ -69,8 +67,8 @@ internal sealed class InitialContentFactory : C.IContentFactory
                 var basis = (ContentView)reload.Basis;
                 var saved = ContentCapture.Create(basis, reload.References);
                 var installed = (ContentView)initial.View;
-                var changes = installed.ChangesFrom(basis);
-                var view = installed.WithCapture(saved, reload.References, basis.Generation, advanceGeneration: changes != C.ContentChange.None);
+                var view = installed.WithCapture(saved, reload.References, basis.Generation, reloadBasis: basis);
+                var changes = view.ChangesFrom(basis);
                 if (view.PersistentRevision != saved.Revision) changes |= C.ContentChange.Persistent;
                 var missing = view.Missing(reload.References, "reload");
                 var previousMissing = basis.Missing(reload.References).Select(m => ((C.ContentReference.Core)m.Reference).Definition).ToHashSet();
@@ -85,16 +83,19 @@ internal sealed class InitialContentFactory : C.IContentFactory
                 var failures = forbidden.SelectMany(m => m.Diagnostics)
                     .Where(d => !kindChanges.Any(change => change.Subject == d.Subject && change.Field == d.Field))
                     .Concat(kindChanges).ToImmutableArray();
+                var previousDraftMissing = basis.InstanceDraftMissing().Select(m => ((C.ContentReference.Core)m.Reference).Definition).ToHashSet();
+                failures = failures.AddRange(view.InstanceDraftMissing().Where(m =>
+                    !previousDraftMissing.Contains(((C.ContentReference.Core)m.Reference).Definition)).SelectMany(m => m.Diagnostics));
                 if (!failures.IsEmpty)
                     return new C.ContentResult<C.IContentCandidate>.Failure(failures);
                 return new C.ContentResult<C.IContentCandidate>.Success(new ContentCandidate(changes == C.ContentChange.None ? basis : view,
-                    initial.Report with { RuntimeMissing = missing }, basis, changes));
+                    initial.Report with { RuntimeMissing = missing, AuthoringMissing = view.AuthoringMissing("reload") }, basis, changes));
             }
             var restore = (C.ContentLoadPurpose.Restore)request.Purpose;
             var decoded = (ContentCapture)restore.Saved;
             var restored = ((ContentView)initial.View).WithCapture(decoded, restore.References);
             return new C.ContentResult<C.IContentCandidate>.Success(new ContentCandidate(restored,
-                initial.Report with { RuntimeMissing = restored.Missing(restore.References) }));
+                initial.Report with { RuntimeMissing = restored.Missing(restore.References), AuthoringMissing = restored.AuthoringMissing() }));
         }
         catch (DefinitionFormatException exception)
         {
@@ -131,8 +132,37 @@ internal sealed class InitialContentFactory : C.IContentFactory
             return new C.ContentResult<C.DesignEvaluation>.Faulted("content_fault", exception.Message, exception.StackTrace);
         }
     }
-    public C.ContentResult<C.DesignChangeEvaluation> CompareDesigns(C.IContentView content, K.DesignHash current, C.DesignDraft target) => throw new NotImplementedException();
-    public C.ContentResult<C.IContentCandidate> PrepareEdit(C.IContentView basis, C.ContentEdit edit) => throw new NotImplementedException();
+    public C.ContentResult<C.DesignChangeEvaluation> CompareDesigns(C.IContentView content, K.DesignHash current, C.DesignDraft target)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentNullException.ThrowIfNull(target);
+        if (content is not ContentView view) throw new ArgumentException("需要本工厂产生的固定内容视图。", nameof(content));
+        return EditResult(() => DesignComparer.Compare(view, current, target));
+    }
+    public C.ContentResult<C.IContentCandidate> PrepareEdit(C.IContentView basis, C.ContentEdit edit)
+    {
+        ArgumentNullException.ThrowIfNull(basis);
+        ArgumentNullException.ThrowIfNull(edit);
+        if (basis is not ContentView view) throw new ArgumentException("需要本工厂产生的固定内容视图。", nameof(basis));
+        return EditResult(() => ContentEditor.Prepare(view, edit));
+    }
+
+    private static C.ContentResult<T> EditResult<T>(Func<C.ContentResult<T>> action) where T : notnull
+    {
+        try { return action(); }
+        catch (DefinitionFormatException exception)
+        {
+            return new C.ContentResult<T>.Failure([new(exception.Code, C.ContentDiagnosticSeverity.Error,
+                "edit", null, null, exception.Field, null, exception.Message)]);
+        }
+        catch (JsonException exception)
+        {
+            return new C.ContentResult<T>.Failure([new("invalid_json", C.ContentDiagnosticSeverity.Error,
+                "edit", null, null, exception.Path ?? "", null, exception.Message)]);
+        }
+        catch (NotImplementedException) { throw; }
+        catch (Exception exception) { return new C.ContentResult<T>.Faulted("content_fault", exception.Message, exception.StackTrace); }
+    }
     public C.IContentView WithSettlementCopies(C.IContentView basis, ImmutableArray<K.OwnedSettlementTemplateReference> copies)
     {
         ArgumentNullException.ThrowIfNull(basis);
@@ -217,8 +247,21 @@ internal sealed class InitialContentFactory : C.IContentFactory
             return ContentReplayCapture.Read(document.RootElement);
         });
     }
-    public C.ContentResult<string> EncodeDraft(C.SavedContentDraft draft) => throw new NotImplementedException();
-    public C.ContentResult<C.SavedContentDraft> DecodeDraft(string payload) => throw new NotImplementedException();
+    public C.ContentResult<string> EncodeDraft(C.SavedContentDraft draft)
+    {
+        ArgumentNullException.ThrowIfNull(draft);
+        return EditResult(() =>
+        {
+            try { return new C.ContentResult<string>.Success(ContentDraftCodec.Encode(draft)); }
+            catch (JsonException exception) { throw new DefinitionFormatException("/payload", exception.Message, "invalid_field"); }
+        });
+    }
+    public C.ContentResult<C.SavedContentDraft> DecodeDraft(string payload)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        return EditResult(() => new C.ContentResult<C.SavedContentDraft>.Success(ContentDraftCodec.Decode(payload)));
+    }
+
     public C.ContentResult<C.IAuthoringPackage> OpenAuthoringPackage(C.ContentRoot source, C.PackageId package, C.PackageSourceVersion sourceVersion, C.IContentFiles files) => throw new NotImplementedException();
     public C.ContentResult<C.PackageWritePlan> PreparePackageWrite(C.IAuthoringPackage basis, ImmutableArray<C.PackageEdit> edits) => throw new NotImplementedException();
 }
