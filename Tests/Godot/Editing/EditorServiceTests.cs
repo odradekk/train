@@ -172,26 +172,39 @@ public sealed class EditorServiceTests
     [TestMethod]
     [TestCategory("integration")]
     [OSCondition(OperatingSystems.Windows)]
-    public void Locked_user_draft_preserves_valid_saved_file_and_leaves_current_edit_dirty()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Locked_external_draft_preserves_saved_file_and_leaves_current_edit_dirty(bool package)
     {
         using var fixture = new EditingFixture();
         var encoded = new Dictionary<string, SavedContentDraft>();
         fixture.Host.Factory.EncodeDraftCall = draft =>
         {
-            var payload = ((DraftPayload.Design)draft.Payload).Value.Display.Name;
+            var payload = draft.Payload switch
+            {
+                DraftPayload.Design value => value.Value.Display.Name,
+                DraftPayload.Definition { Value: DefinitionDraft.Blueprint value } => value.Value.Display.Name,
+                _ => throw new AssertFailedException("unexpected payload")
+            };
             encoded[payload] = draft;
             return new ContentResult<string>.Success(payload);
         };
         fixture.Host.Factory.DecodeDraftCall = payload => new ContentResult<SavedContentDraft>.Success(encoded[payload]);
-        fixture.Editor.OpenDraft(new(new(Guid.NewGuid()), new(0), new DraftTarget.UserBlueprint(null),
-            new DraftPayload.Design(Draft("initial user draft"))));
+        DraftTarget targetDefinition = package ? new DraftTarget.PackageDefinition(new("core"), DefinitionKind.Blueprint, "test", new("source"))
+            : new DraftTarget.UserBlueprint(null);
+        DraftPayload initialPayload = package ? new DraftPayload.Definition(new DefinitionDraft.Blueprint("test", Draft("initial user draft")))
+            : new DraftPayload.Design(Draft("initial user draft"));
+        var savedEvents = 0;
+        fixture.Editor.PackageDraftSaved += _ => savedEvents++;
+        fixture.Editor.OpenDraft(new(new(Guid.NewGuid()), new(0), targetDefinition, initialPayload));
         fixture.PumpUntil(() => fixture.Editor.IsOpen && !fixture.Editor.IsBusy);
         fixture.Session.Change(Draft("valid saved draft"));
         fixture.Editor.Process();
         fixture.Editor.SaveDraft();
         fixture.PumpUntil(() => !fixture.Editor.IsBusy);
         var target = Directory.GetFiles(fixture.Root, "*", SearchOption.AllDirectories).Single();
-        Assert.AreEqual(AuthoringPaths.UserDraftsDirectory(fixture.Root), Path.GetDirectoryName(target));
+        Assert.AreEqual(package ? AuthoringPaths.PackageDraftsDirectory(fixture.Root, new("core"))
+            : AuthoringPaths.UserDraftsDirectory(fixture.Root), Path.GetDirectoryName(target));
         var original = File.ReadAllBytes(target);
         Assert.IsFalse(fixture.Editor.State!.IsDirty);
         fixture.Session.Change(Draft("cannot replace locked file"));
@@ -202,10 +215,19 @@ public sealed class EditorServiceTests
             fixture.PumpUntil(() => !fixture.Editor.IsBusy);
         }
         CollectionAssert.AreEqual(original, File.ReadAllBytes(target));
-        Assert.AreEqual("valid saved draft", ((DraftPayload.Design)encoded[File.ReadAllText(target)].Payload).Value.Display.Name);
+        Assert.AreEqual("valid saved draft", File.ReadAllText(target));
+        Assert.AreEqual(package ? 1 : 0, savedEvents);
         Assert.IsTrue(fixture.Editor.State!.IsDirty);
         Assert.AreEqual(1, fixture.Session.Saved.Count);
         CollectionAssert.AreEqual(new[] { target }, Directory.GetFiles(fixture.Root, "*", SearchOption.AllDirectories));
+        var savedDraft = package ? fixture.Editor.PackageDrafts(new("core")).Single() : fixture.Editor.UserDrafts().Single();
+        fixture.Editor.RequestClose(() => { });
+        fixture.Editor.ResolveClose(LeaveChoice.Discard);
+        fixture.Editor.OpenDraft(savedDraft);
+        fixture.PumpUntil(() => !fixture.Editor.IsBusy);
+        Assert.AreEqual("valid saved draft", fixture.Editor.State!.Snapshot.Draft.Display.Name);
+        Assert.AreEqual(targetDefinition, fixture.Editor.Target);
+        Assert.IsFalse(fixture.Editor.IsDirty);
     }
     [TestMethod]
     [TestCategory("integration")]
@@ -400,6 +422,18 @@ public sealed class EditorServiceTests
     }
 
     [TestMethod]
+    public void Clearing_feedback_removes_old_message_and_error_without_closing_the_editor()
+    {
+        using var fixture = new EditingFixture();
+        fixture.Open();
+        fixture.Editor.Report("old failure");
+        fixture.Editor.ClearFeedback();
+        Assert.IsNull(fixture.Editor.Message);
+        Assert.IsFalse(fixture.Editor.HasError);
+        Assert.IsTrue(fixture.Editor.IsOpen);
+    }
+
+    [TestMethod]
     public void Object_capture_reports_complete_problem_and_exception_and_respects_scene_guard()
     {
         using var fixture = new EditingFixture();
@@ -580,6 +614,59 @@ public sealed class EditorServiceTests
         Assert.AreEqual(1, reads);
         Assert.AreSame(updated, fixture.Editor.State);
         Assert.IsTrue(fixture.Editor.IsDirty);
+    }
+
+    [TestMethod]
+    public void Form_close_runs_after_grid_close_and_can_cancel_fail_or_continue()
+    {
+        using var fixture = new EditingFixture();
+        var continued = 0;
+        Action? pending = null;
+        fixture.Editor.CloseForm = after => { pending = after; return null; };
+        Assert.IsNull(fixture.Editor.RequestClose(() => continued++));
+        Assert.AreEqual(0, continued);
+        pending = null; // Form cancellation drops its continuation.
+        fixture.Editor.CloseForm = _ => new("form_failed", "form save failed");
+        Assert.AreEqual("form_failed", fixture.Editor.RequestClose(() => continued++)!.Code);
+        fixture.Open();
+        fixture.Session.Change(Draft("dirty"));
+        fixture.Editor.Process();
+        fixture.Editor.RequestClose(() => continued++);
+        fixture.Editor.ResolveClose(LeaveChoice.Discard);
+        Assert.IsFalse(fixture.Editor.IsOpen);
+        StringAssert.Contains(fixture.Editor.Message!, "form save failed");
+        Assert.AreEqual(0, continued);
+        fixture.Editor.CloseForm = after => { after(); return null; };
+        Assert.IsNull(fixture.Editor.RequestClose(() => continued++));
+        Assert.AreEqual(1, continued);
+    }
+
+    [TestMethod]
+    [TestCategory("integration")]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Passive_draft_refresh_preserves_external_save_failure(bool package)
+    {
+        using var fixture = new EditingFixture();
+        var packageId = new PackageId("core");
+        DraftTarget target = package ? new DraftTarget.PackageDefinition(packageId, DefinitionKind.Blueprint, "test", new("source"))
+            : new DraftTarget.UserBlueprint(null);
+        fixture.Editor.Open(Draft("unsaved"), target, unsaved: true);
+        fixture.PumpUntil(() => !fixture.Editor.IsBusy);
+        fixture.Host.Factory.EncodeDraftCall = _ => new ContentResult<string>.Faulted("save_failed", "草稿保存失败", null);
+        var wasBusy = false;
+        fixture.Editor.Changed += () =>
+        {
+            if (wasBusy && !fixture.Editor.IsBusy) fixture.Editor.PackageDrafts(packageId);
+            wasBusy = fixture.Editor.IsBusy;
+        };
+        fixture.Editor.SaveDraft();
+        fixture.PumpUntil(() => !fixture.Editor.IsBusy);
+        StringAssert.Contains(fixture.Editor.Message!, "草稿保存失败");
+        Assert.IsTrue(fixture.Editor.HasError);
+        Assert.IsTrue(fixture.Editor.IsDirty);
+        fixture.Editor.UserDrafts();
+        StringAssert.Contains(fixture.Editor.Message!, "草稿保存失败");
     }
 
     private sealed class EditingFixture : IDisposable
