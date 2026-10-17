@@ -43,7 +43,7 @@
                 },
                 "good": {
                   "kind": "voxel",
-                  "definition": "core:timber"
+                  "definition": "core:structural-metal"
                 },
                 "local_inventory": 2,
                 "target_quantity": 2400
@@ -63,10 +63,10 @@
     }
   ],
   "target": {
-    "completed_steps": 4000,
+    "completed_steps": 10000,
     "sequence": 0
   },
   "checkpoint_steps": [
-    3600
+    8000
   ]
 }
