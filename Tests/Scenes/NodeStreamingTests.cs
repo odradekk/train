@@ -17,6 +17,32 @@ public sealed class NodeStreamingTests
     private static readonly SceneFrameRequest Request = new(1, null, SceneDebugLayer.None);
 
     [TestMethod]
+    public async Task Dispatch_starts_the_earliest_path_crossing_before_later_zero_distance_parts()
+    {
+        var started = new ConcurrentQueue<GridColumn>();
+        var filled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(Snapshot(true), vehicles, build: (data, from, old, token) =>
+        {
+            started.Enqueue(from);
+            if (started.Count == RailwayCoordinates.MaxConcurrentBuilds) filled.TrySetResult();
+            release.Wait(token);
+            return SmallPart(data, from, old, token);
+        });
+        try
+        {
+            await scene.BuildWork!;
+            scene.Pump(focus: default(ScenePoint), priorityPath: [new(112, 200, 0), new(-112, 200, 0)]);
+            await filled.Task;
+            CollectionAssert.AreEquivalent(new[] { new GridColumn(96, -32), new GridColumn(96, 0) }, started.ToArray(),
+                "Both build slots must serve the first path point before the lexically earlier parts at the later point.");
+            scene.SetBuildAllowed(false);
+        }
+        finally { release.Set(); }
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task Dispatch_uses_the_path_when_following_and_the_focus_otherwise(bool following)

@@ -14,6 +14,35 @@ namespace Train.Scenes.Tests;
 public sealed class NodeAdmissionTests
 {
     [TestMethod]
+    public async Task A_critical_path_batch_excludes_later_path_points_until_the_displayed_receipt()
+    {
+        await using var run = new AdmissionRun(_ => (12000, 1), Snapshot(followedTrain: true));
+        await run.BuildAt(new(-192, 0, 0));
+        while (run.Scene.HasPendingBuilds) run.Displayed = run.Present();
+        await run.BuildAt(new(0, 0, 96));
+        var target = new WorldSceneTarget.Follow(new(1), new(1));
+        var offered = run.Present(target);
+        var queued = run.Completed.Keys.Where(from => !run.Admitted.ContainsKey(from)).ToHashSet();
+        var earlier = new GridColumn(0, 32);
+        var later = new GridColumn(0, 128);
+        Assert.IsTrue(queued.Contains(earlier) && queued.Contains(later));
+        var frozen = run.Admitted.Keys.ToHashSet();
+        run.Present(target);
+        CollectionAssert.AreEquivalent(frozen.ToArray(), run.Admitted.Keys.ToArray());
+
+        run.Displayed = offered;
+        var critical = run.Present(target);
+        var added = run.Admitted.Keys.Where(from => !frozen.Contains(from)).ToArray();
+        // The 52m train spans Z44..148; its first sampled point intersects both sides of X0 in Z32.
+        CollectionAssert.AreEquivalent(new[] { new GridColumn(-32, 32), earlier }, added);
+        Assert.IsFalse(added.Contains(later), "A later path point must not enlarge the critical atomic target.");
+        Assert.IsInstanceOfType<Lookup<WorldLocation>.Found>(critical.Locate(new(earlier.X + .5f, 1, earlier.Z + .5f)));
+        Assert.IsInstanceOfType<Lookup<WorldLocation>.Missing>(critical.Locate(new(later.X + .5f, 1, later.Z + .5f)));
+        Assert.IsTrue(added.Length * 12000 < NodeStreaming.AdmissionVertexLimit && added.Length < NodeStreaming.AdmissionVisualLimit,
+            "The path boundary, rather than a resource limit, must end this batch.");
+    }
+
+    [TestMethod]
     public async Task Partial_admission_prioritizes_the_path_and_still_waits_for_a_displayed_receipt()
     {
         await using var run = new AdmissionRun(_ => (24000, 1));
@@ -209,7 +238,7 @@ public sealed class NodeAdmissionTests
 
     private sealed class AdmissionRun : IAsyncDisposable
     {
-        private readonly SceneWorldSnapshot snapshot = Snapshot();
+        private readonly SceneWorldSnapshot snapshot;
         private readonly SceneVehicles vehicles = new();
         private ulong revision;
         internal readonly NodeScene.Cache Cache = new();
@@ -224,11 +253,12 @@ public sealed class NodeAdmissionTests
                 return new GridColumn(int.Parse(parts[1]), int.Parse(parts[2]));
             }, pair => pair.Value);
 
-        internal AdmissionRun(Func<GridColumn, (int Vertices, int Visuals)> size)
+        internal AdmissionRun(Func<GridColumn, (int Vertices, int Visuals)> size, SceneWorldSnapshot? snapshot = null)
         {
+            this.snapshot = snapshot ?? Snapshot();
             ulong next = 0;
             var ids = new Dictionary<string, SceneObjectId>();
-            Scene = new(snapshot, NodeFixtures.NodeId, Cache, key =>
+            Scene = new(this.snapshot, NodeFixtures.NodeId, Cache, key =>
             {
                 if (!ids.TryGetValue(key, out var id)) ids[key] = id = new(++next);
                 return id;
@@ -255,8 +285,8 @@ public sealed class NodeAdmissionTests
             }
         }
 
-        internal SceneFrame Present() => Scene.Present(snapshot, new(1, null, SceneDebugLayer.None),
-            new(new(Guid.Empty), new(1), new(1), ++revision), Displayed, default);
+        internal SceneFrame Present(WorldSceneTarget? target = null) => Scene.Present(snapshot, new(1, null, SceneDebugLayer.None),
+            new(new(Guid.Empty), new(1), new(1), ++revision), Displayed, default, target);
 
         public async ValueTask DisposeAsync()
         {
@@ -287,9 +317,9 @@ public sealed class NodeAdmissionTests
         return new(data.ChunkInputs(from), geometry, ImmutableDictionary<GridColumn, double>.Empty.Add(from, 1));
     }
 
-    private static SceneWorldSnapshot Snapshot()
+    private static SceneWorldSnapshot Snapshot(bool followedTrain = false)
     {
-        var source = NodeFixtures.Content();
+        var source = NodeFixtures.Content(design: followedTrain ? RailwayFixtures.Vehicle(lengthCells: 104) : null);
         var layout = NodeFixtures.Layout with { Plots = [], SceneModel = NodeFixtures.Layout.SceneModel with
         { Scene = SceneFixtures.Projection([]) with { OccupiedBounds = new(new(-320, 0, -320), new(319, 0, 319)) } } };
         var content = new FixedContentView
@@ -306,13 +336,19 @@ public sealed class NodeAdmissionTests
             SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
             { [new(1)] = new ContentLookup<SettlementLayoutProjection>.Found(layout) }
         };
-        var original = NodeFixtures.Snapshot(platforms: 0, trains: [], instances: [], content: content, platformLengthMeters: 0);
+        ImmutableArray<TrainView> trains = followedTrain
+            ? [NodeFixtures.Train(activity: TrainActivity.Running) with { LengthMeters = 52 }]
+            : [];
+        var original = NodeFixtures.Snapshot(platforms: 0, trains: trains, content: content, platformLengthMeters: 0);
         var node = original.Core.World.Nodes.Single(item => item.Id == NodeFixtures.NodeId);
         return new(new FixedCoreReadView
         {
             Position = original.Core.Position, InputIdentity = original.Core.InputIdentity,
             Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [node.Id] = original.Core.FindNode(node.Id) },
-            World = original.Core.World with { Nodes = [node], Edges = [], Trains = [] },
+            World = original.Core.World with { Nodes = [node], Edges = [] },
+            Trains = trains.ToDictionary(train => train.Id, train => original.Core.FindTrain(train.Id)),
+            Instances = trains.SelectMany(train => train.Vehicles).ToDictionary(vehicle => (InstanceId)new InstanceId.Vehicle(vehicle),
+                vehicle => original.Core.FindInstance(new InstanceId.Vehicle(vehicle))),
             Settlements = new Dictionary<SettlementId, Lookup<SettlementView>>
             { [new(1)] = new Lookup<SettlementView>.Found(NodeFixtures.Settlement(0) with { Plots = [] }) }
         }, content);

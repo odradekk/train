@@ -356,18 +356,22 @@ internal sealed class NodeScene : IAsyncDisposable
         var tracks = prepared.Rails.Values.Where(segment => !rails.ContainsKey(segment.Key) && !pendingParts.ContainsKey(segment.Key) &&
                 !completedParts.ContainsKey(segment.Key) && (range.Intersects(segment.Bounds) || prefetch.Intersects(segment.Bounds)))
             .Select(segment => (segment.Key, segment.Bounds, Chunk: (GridColumn?)null));
-        waitingParts = new(terrain.Concat(tracks).OrderBy(item => PriorityDistanceSquared(item.Bounds)).ThenBy(item => item.Key, StringComparer.Ordinal));
+        waitingParts = new(terrain.Concat(tracks).OrderBy(item => Priority(item.Bounds)).ThenBy(item => item.Key, StringComparer.Ordinal));
         StartParts();
     }
 
-    private double PriorityDistanceSquared(SceneBounds bounds) => priorityPath.Count == 0
-        ? range.DistanceSquared(bounds) : PathDistanceSquared(bounds, priorityPath);
+    private (double Distance, int Progress) Priority(SceneBounds bounds) => priorityPath.Count == 0
+        ? (range.DistanceSquared(bounds), 0) : PathPriority(bounds, priorityPath);
 
-    private static double PathDistanceSquared(SceneBounds bounds, IReadOnlyList<ScenePoint> path)
+    private static (double Distance, int Progress) PathPriority(SceneBounds bounds, IReadOnlyList<ScenePoint> path)
     {
         var distance = double.PositiveInfinity;
-        for (var i = 0; i < path.Count; i++) distance = Math.Min(distance, new NodeRange(path[i], 0).DistanceSquared(bounds));
-        return distance;
+        for (var i = 0; i < path.Count; i++)
+        {
+            distance = Math.Min(distance, new NodeRange(path[i], 0).DistanceSquared(bounds));
+            if (distance == 0) return (0, i);
+        }
+        return (distance, 0);
     }
 
     private static SceneBounds ChunkBounds(GridColumn from) => new(new(from.X, -128, from.Z),
@@ -380,21 +384,26 @@ internal sealed class NodeScene : IAsyncDisposable
         long vertices = 0;
         var visuals = 0;
         var count = 0;
+        (double Distance, int Progress)? firstPriority = null;
         const double pathMargin = 16 * RailwayCoordinates.CellsPerMeter;
-        foreach (var (key, ready) in completedParts.OrderBy(item => PriorityDistanceSquared(item.Value.Bounds))
-            .ThenBy(item => item.Key, StringComparer.Ordinal).ToArray())
+        foreach (var (key, ready, priority) in completedParts
+            .Select(item => (item.Key, item.Value, Priority: Priority(item.Value.Bounds)))
+            .OrderBy(item => item.Priority).ThenBy(item => item.Key, StringComparer.Ordinal).ToArray())
         {
-            if (!nearCompleted && !near.Intersects(ready.Bounds) && PathDistanceSquared(ready.Bounds, loadingPath) >
+            if (!nearCompleted && !near.Intersects(ready.Bounds) && PathPriority(ready.Bounds, loadingPath).Distance >
                 pathMargin * pathMargin) continue;
             // One indivisible part may exceed the batch target, but must never block the queue.
+            // Later path crossings must not delay this atomic display target.
             if (nearCompleted && count > 0 && (vertices + ready.Vertices > NodeStreaming.AdmissionVertexLimit ||
-                visuals + ready.Visuals > NodeStreaming.AdmissionVisualLimit)) break;
+                visuals + ready.Visuals > NodeStreaming.AdmissionVisualLimit ||
+                priorityPath.Count > 0 && firstPriority is { Distance: 0 } && priority != firstPriority.Value)) break;
             if (ready.Chunk is { } from) chunks.Add(from, ready.Part);
             else rails.Add(key, ready.Part);
             Attach(key, ready.Part);
             completedParts.Remove(key);
             vertices += ready.Vertices;
             visuals += ready.Visuals;
+            firstPriority ??= priority;
             count++;
         }
         if (nearCompleted && count > 0) awaitingDisplay = true;
