@@ -22,7 +22,7 @@
 
 | 资产 | 交付物 |
 | --- | --- |
-| 立方体体素 | 各面 PNG，边长为 32 px × 平铺跨度；可选的正面图；`icon.png`，128×128（[07](07-icons-and-ui.md#物品图标)）；`.voxel.json` 中的表现字段：`faces`、`tile_span`、`material`，写法见[体素定义的格式](../content/voxel.md)；`.png.import`，导入方式改为 Keep File（`importer=keep`） |
+| 立方体体素 | 各面 PNG，边长为 32 px × 平铺跨度；可选的正面图；面图 Alpha 按 [03 的玩家涂装](03-color-and-paint.md#玩家涂装)制作；`icon.png`，128×128（[07](07-icons-and-ui.md#物品图标)）；`.voxel.json` 中的表现字段：`faces`、`tile_span`、`material`，写法见[体素定义的格式](../content/voxel.md)；`.png.import`，导入方式改为 Keep File（`importer=keep`） |
 | 形状 | 内置目录随代码提供，不按体素交付文件；美术只检查贴图投影到形状上的效果（[01](01-construction-language.md#形状)） |
 | 自定义模型 | 通过 Blender MCP 操作 Blender 制作；源文件 `.blend`；导出的 `model.glb`，贴图嵌在文件里；每个表面的材质类别（[02](02-materials-and-textures.md#形状与自定义模型)）；`.glb.import`，导入方式改为 Keep File（`importer=keep`）。单位、原点、轴和文件内容的限制见[模型文件的约定](../content/voxel.md#模型文件的约定) |
 | 场景模型、样机 | 内容文件：场景模型和样机都是蓝图 `.blueprint.json`，写法见[蓝图的格式](../content/blueprint.md)。设计编辑器和创作模式能用之前手写 |
@@ -75,6 +75,7 @@ builtin/core/resources/voxels/
 - 平铺：同种体素铺成至少 3 倍跨度宽的一片，看不出接缝；在任意位置切开，图案仍然均匀（[02 的贴图画法](02-materials-and-textures.md#贴图画法)）。
 - 像素大小和相邻体素一致（32 px/格）。
 - 材质类别填对。
+- 按 [03 的玩家涂装](03-color-and-paint.md#玩家涂装)检查面图 Alpha、保留区 RGB 和模型表面分区；导出、过滤和 Mipmap 后仍符合该规则。
 - 图标放进外框缩到 32 px 后仍认得出（[07](07-icons-and-ui.md#物品图标)）。
 
 **装到对象上之后**（在游戏里查）：
@@ -84,7 +85,7 @@ builtin/core/resources/voxels/
 - 光照：三种检查光照（[05](05-lighting-and-readability.md#检查光照)）。
 - 可读性：先认出整体和用途，再看细部（[05](05-lighting-and-readability.md#可读性)）。
 - 轮对排布、旋转与车体匹配，转向架贴图不画车轮（[06 的动画](06-wear-damage-and-motion.md#动画)）。
-- 第三阶段起检查涂装只改可涂装的材质类别（[03](03-color-and-paint.md#玩家涂装)）；磨损叠加和损伤符合 [06](06-wear-damage-and-motion.md)。
+- 第三阶段起按 [03 的玩家涂装](03-color-and-paint.md#玩家涂装)检查涂装与保色区域，并检查内置设计的默认外观；磨损叠加和损伤符合 [06](06-wear-damage-and-motion.md)。
 
 性能不属于美术检查，按设计文档 [00 的本阶段性能目标](../design/00-product-and-core-loop.md#本阶段性能目标)。
 
@@ -137,7 +138,7 @@ dotnet Tools/Cli/bin/Debug/net10.0/Train.Cli.dll save . examples/basic-through/r
 | 阶段 | 美术交付与检查 |
 | --- | --- |
 | 第一阶段 | 基础场景与小型列车风格样稿，在真实场景里检查 |
-| 第三阶段 | 大型民用机车、泰坦武装重型车辆、重型车辆工厂三台样机，以及模型、六张推荐色卡与四种磨损叠加样稿；涂装编码先由设计任务确定 |
+| 第三阶段 | 大型民用机车、泰坦武装重型车辆、重型车辆工厂三台样机，以及模型、六张推荐色卡与四种磨损叠加样稿；涂装按 [03 的目标规则与实施分工](03-color-and-paint.md#本阶段)接入与迁移 |
 | 第五阶段 | 生物、损伤与战斗视觉样稿 |
 | 第六阶段 | 分批完成全部正式贴图、图标、模型、车辆、建筑、自然环境、工地、生物与特效，并核对完整目录 |
 
