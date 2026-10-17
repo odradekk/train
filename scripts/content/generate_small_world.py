@@ -571,6 +571,31 @@ def blueprint(identity, name, category, palette, cells, simulation=None, appeara
     return value
 
 
+def natural_models():
+    for identity, name, height, radius, crown_height, trunk_width in (
+        ("tree-small", "小树", 6, 3, 2, 1),
+        ("tree-medium", "中树", 10, 4, 3, 2),
+        ("tree-large", "大树", 14, 5, 4, 2),
+    ):
+        cells = {(x, y, z): 1 for x in range(-radius, radius + 1)
+                 for z in range(-radius, radius + 1) for y in range(height - crown_height, height + crown_height + 1)
+                 if (x * x + z * z) / (radius * radius) + (y - height) ** 2 / (crown_height * crown_height)
+                 <= 1 + ((x * 37 ^ y * 71 ^ z * 97) % 7 - 3) * .04}
+        for x in range(-(trunk_width // 2), trunk_width - trunk_width // 2):
+            for z in range(-(trunk_width // 2), trunk_width - trunk_width // 2):
+                cells.update({(x, y, z): 0 for y in range(height + 1)})
+        model = blueprint(identity, name, "scene_model", ["tree-trunk", "foliage"], cells)
+        model["display"]["description"] = f"{name}，树干支撑成团树冠，供森林装饰使用。"
+        yield model
+    for identity, name, rx, ry, rz in (("rock-small", "小岩石", 4, 2, 3), ("rock-large", "大岩石", 7, 4, 5)):
+        cells = {(x, y, z): 0 for x in range(-rx, rx + 1) for y in range(ry + 1) for z in range(-rz, rz + 1)
+                 if x * x / (rx * rx) + y * y / (ry * ry) + z * z / (rz * rz)
+                 <= 1 + ((x * 31 ^ y * 67 ^ z * 89) % 5 - 2) * .05}
+        model = blueprint(identity, name, "scene_model", ["rock"], cells)
+        model["display"]["description"] = f"{name}，由灰岩组成的自然露头。"
+        yield model
+
+
 def locomotive(spec):
     identity, name, size, length, width, height, gauge, frame_height, axle_spacing, end_margin = spec
     x0, z0 = -(width // 2), -(length // 2)
@@ -786,6 +811,8 @@ def content_files():
         for kind, name, cells in (("bridge", "桥梁", bridge), ("tunnel-portal", "隧道口", tunnel)):
             identity = f"{kind}-{tracks}"
             document("blueprints", "blueprint", identity, blueprint(identity, f"{tracks}轨{name}", "scene_model", ["rock"], cells))
+    for model in natural_models():
+        document("blueprints", "blueprint", model["id"], model)
     for identity, name, surface, subsurface, rock, local_amplitude in (
         ("plains", "平原", "ground", "subsoil", "rock", 0.7),
         ("hills", "丘陵", "dry-grass", "subsoil", "rock", 2.8),
@@ -794,11 +821,17 @@ def content_files():
         ("mountains", "山地", "gravel", "rock", "rock", 2.8),
     ):
         description = f"{name}地表、下层与岩层，以及铁路沿线的局部起伏。"
+        decorations, density = [], 0
+        if identity == "forest":
+            decorations, density = [("tree-small", 2), ("tree-medium", 2), ("tree-large", 1)], .002
+        elif identity in ("hills", "mountains"):
+            decorations, density = [("rock-small", 3), ("rock-large", 1)], .0007
         document("terrain-types", "terrain-type", identity,
                  {"schema_version": 1, "id": identity, "display": {"name": name, "description": description},
                   "surface_voxel": surface, "subsurface_voxel": subsurface, "rock_voxel": rock,
                   "local_height_noise": [{"scale_meters": 140, "amplitude": local_amplitude}],
-                  "decorations": [], "decoration_target_per_square_meter": 0,
+                  "decorations": [{"scene_model": model, "weight": weight} for model, weight in decorations],
+                  "decoration_target_per_square_meter": density,
                   "railway_models": [{"tracks": n, "bridge": f"bridge-{n}", "tunnel_portal": f"tunnel-portal-{n}"} for n in (1, 2)]})
     for identity, name, behavior in (
         ("industrial-machinery", "机床", {"production": {"work_rate": REFERENCE_WORK_RATE}}),
