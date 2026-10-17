@@ -5,6 +5,7 @@ using Chickensoft.GodotTestDriver;
 using Godot;
 using Train.App;
 using Train.App.Development;
+using Train.App.Saves;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
 using static Train.Engine.Tests.Assertions;
@@ -32,8 +33,55 @@ public class ObservationIndependenceTests(Node testScene) : TestClass(testScene)
         GD.Print($"OBSERVATION_MEASUREMENT case_ms={measured.Elapsed.TotalMilliseconds:F3}");
     }
 
+    [Test]
+    public async Task Same_saved_world_has_identical_checkpoints_at_one_and_eight_times_speed()
+    {
+        using var recipe = JsonDocument.Parse(System.IO.File.ReadAllText(
+            ProjectSettings.GlobalizePath("res://examples/basic-through/recipe.json")));
+        var owned = new HashSet<Guid>();
+        try
+        {
+            SaveEntry saved;
+            var fixture = new Fixture(TestScene.GetTree());
+            try
+            {
+                var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
+                await FramesUntil(TestScene, () => !app.Host!.IsBusy);
+                app.SetProcess(false);
+                var host = app.Host!;
+                var saves = app.Saves!;
+                saves.SetAutoSaveInterval(null);
+                Require(host.BeginNewGame(new(recipe.RootElement.GetProperty("generation_profile").GetString()!),
+                    recipe.RootElement.GetProperty("seed").GetUInt64(),
+                    recipe.RootElement.GetProperty("generator_version").GetString()!,
+                    host.SessionOptions!).Problem is null, "无法生成测试自己的存档世界。");
+                await FramesUntil(TestScene, () => { app._Process(0); return !host.IsBusy; });
+                var identity = saves.Status!.Identity;
+                owned.Add(identity.Id);
+                Require(saves.Save() is null, "无法通过生产存档路径保存测试世界。");
+                await FramesUntil(TestScene, () => { app._Process(0); return !saves.HasPendingWork; });
+                var store = new FileSaveStore(OS.GetUserDataDir());
+                var path = store.PathFor(identity.Id);
+                saved = new(path, store.ReadHeader(path), false);
+                Require(!saves.Status!.Unsaved && saved.Header.Id == identity.Id,
+                    "测试存档未完成发布或身份不符。");
+            }
+            finally { await fixture.Cleanup(); }
+
+            var savedBytes = System.IO.File.ReadAllBytes(saved.Path);
+            var reference = await Run(recipe.RootElement,
+                new("saved-1x", [1d / 60], SimulationSpeed.One), saved: saved);
+            await Run(recipe.RootElement, new("saved-8x", [1d / 60], SimulationSpeed.Eight), reference, saved);
+            await Run(recipe.RootElement,
+                new("saved-irregular-8x", [0.1, 0.005, 0.023, 1d / 60, 0.04], SimulationSpeed.Eight), reference, saved);
+            Require(savedBytes.SequenceEqual(System.IO.File.ReadAllBytes(saved.Path)),
+                "倍速变体改写了共同的起始存档。");
+        }
+        finally { UiTestInput.DeleteSaves(owned); }
+    }
+
     private async Task<ImmutableArray<DeveloperCheckpoint>> Run(JsonElement recipe, Variant variant,
-        ImmutableArray<DeveloperCheckpoint> expected = default)
+        ImmutableArray<DeveloperCheckpoint> expected = default, SaveEntry? saved = null)
     {
         var fixture = new Fixture(TestScene.GetTree());
         try
@@ -44,10 +92,20 @@ public class ObservationIndependenceTests(Node testScene) : TestClass(testScene)
             app.SetProcess(false);
             var host = app.Host!;
             host.AutoPauseOnFocusLoss = false;
-            Require(host.BeginNewGame(new(recipe.GetProperty("generation_profile").GetString()!),
-                recipe.GetProperty("seed").GetUInt64(), recipe.GetProperty("generator_version").GetString()!,
-                host.SessionOptions!).Problem is null, "真实装配不能开始示例新局。");
-            await FramesUntil(TestScene, () => { app._Process(0); return !host.IsBusy; });
+            if (saved is null)
+                Require(host.BeginNewGame(new(recipe.GetProperty("generation_profile").GetString()!),
+                    recipe.GetProperty("seed").GetUInt64(), recipe.GetProperty("generator_version").GetString()!,
+                    host.SessionOptions!).Problem is null, "真实装配不能开始示例新局。");
+            else
+            {
+                app.Saves!.SetAutoSaveInterval(null);
+                Require(app.Saves.Load(saved) is null, "无法通过生产存档路径读取同一测试存档。");
+            }
+            await FramesUntil(TestScene, () =>
+            {
+                app._Process(0);
+                return !host.IsBusy && !app.Saves!.HasPendingWork;
+            });
             Require(host.GetStatus() is { PlayerPaused: true, IsFrozen: false }, "示例新局未成功激活。");
             Require(host.SetSpeed(variant.Speed) is null, "无法设置测试倍速。");
 
