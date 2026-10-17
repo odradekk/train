@@ -65,10 +65,14 @@ internal static partial class RuleParser
                 Int32(Required(value, "maximum_for_sale", itemField), itemField + "/maximum_for_sale", 0)));
         }
         Unique(limits.Select(limit => limit.Size), field + "/vehicle_purchase_limits");
+        var buyMultiplier = I("vehicle_buy_multiplier_basis_points", 1);
+        var sellMultiplier = I("vehicle_sell_multiplier_basis_points", 1);
+        if (buyMultiplier < sellMultiplier)
+            Fail(field + "/vehicle_buy_multiplier_basis_points", "现车买入倍率不能低于卖出倍率。");
         var projection = new K.MarketRuleProjection(id, default, N("basic_reserve_hours"), N("production_reserve_hours"),
             N("improvement_reserve_hours"), Price(Required(sim, "default_goods_prices", field), field + "/default_goods_prices"),
             prices.OrderBy(price => ((K.GoodId.Voxel)price.Good).Definition.Value, StringComparer.Ordinal).ToImmutableArray(),
-            new(I("vehicle_buy_multiplier_basis_points", 1)), new(I("vehicle_sell_multiplier_basis_points", 1)),
+            new(buyMultiplier), new(sellMultiplier),
             limits.OrderBy(limit => limit.Size).ToImmutableArray(), I("automatic_evaluation_interval_ticks", 1), I("recent_report_limit", 1),
             new(L("commission_money_per_work", 0)), new(L("rent_money_per_capacity_hour", 0)),
             new(I("rentable_capacity_ratio_basis_points", 0, 10000)), L("lease_duration_ticks", 1), I("maximum_lease_duration_multiple", 1));

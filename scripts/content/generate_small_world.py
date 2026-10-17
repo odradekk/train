@@ -1021,8 +1021,8 @@ def content_files():
                                  "minimum_multiplier_basis_points": round(MARKET_MULTIPLIER_LIMITS[0] * BASIS_POINTS),
                                  "maximum_multiplier_basis_points": round(MARKET_MULTIPLIER_LIMITS[1] * BASIS_POINTS),
                                  "spread_basis_points": round(MARKET_MARGIN * BASIS_POINTS)},
-        "good_prices": [], "vehicle_buy_multiplier_basis_points": round((1 - MARKET_MARGIN) * BASIS_POINTS),
-        "vehicle_sell_multiplier_basis_points": round((1 + MARKET_MARGIN) * BASIS_POINTS),
+        "good_prices": [], "vehicle_buy_multiplier_basis_points": round((1 + MARKET_MARGIN) * BASIS_POINTS),
+        "vehicle_sell_multiplier_basis_points": round((1 - MARKET_MARGIN) * BASIS_POINTS),
         "vehicle_purchase_limits": [{"size": size, "maximum_for_sale": VEHICLE_PURCHASE_LIMIT}
                                     for size in ("small", "medium", "large", "extra_large", "titan")],
         "automatic_evaluation_interval_ticks": AUTOMATIC_EVALUATION_SECONDS * TICKS_PER_SECOND,

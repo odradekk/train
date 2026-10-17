@@ -17,6 +17,30 @@ namespace Train.Engine.Tests;
 public class ContentTests(Node testScene) : TestClass(testScene)
 {
     [Test]
+    public async Task Builtin_vehicle_buy_then_sell_at_the_same_step_reduces_the_wallet()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        try
+        {
+            var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
+            await FramesUntil(TestScene, () => !app.Host!.IsBusy);
+            var host = app.Host!;
+            host.BeginNewGame(new("core:basic-through-world"), 40, "stage1-world-v1", host.SessionOptions!);
+            await FramesUntil(TestScene, () => !host.IsBusy);
+            var before = host.GetStatus()!;
+            var buy = host.Submit(before.Binding, new CoreCommand.BuyVehicle(new(6), new(11), new(long.MaxValue)),
+                CommandSource.AutomationTest);
+            Require(buy is SubmissionResult.Completed { Receipt.Decision: CommandDecision.Accepted }, "现车买入被拒绝。");
+            var sell = host.Submit(before.Binding, new CoreCommand.SellVehicle(new(6), new(11), new(0)),
+                CommandSource.AutomationTest);
+            Require(sell is SubmissionResult.Completed { Receipt.Decision: CommandDecision.Accepted }, "现车卖回被拒绝。");
+            Require(host.GetStatus()!.View.Economy.Wallet.Value < before.View.Economy.Wallet.Value,
+                "内置规则下同一步买入再卖回现车必须减少钱包余额。");
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
+    [Test]
     public async Task Production_new_game_save_restore_and_railway_scene_use_real_modules()
     {
         var fixture = new Fixture(TestScene.GetTree());
