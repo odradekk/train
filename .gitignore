@@ -3,6 +3,7 @@
 .godot/
 bin/
 obj/
+__pycache__/
 builds/
 TestResults/
 !/TestResults/

@@ -6,7 +6,8 @@ python scripts/content/generate_small_world.py --output-dir TestResults/reproduc
 
 脚本生成 resources/，手绘图标按 HAND_DRAWN_ICONS 保留；校验模式拒绝缺失、多余或生成字节不同的文件，
 并按仓库 Schema 检查 JSON（校验需要 jsonschema）。生成只用 Python 标准库。
-地形与小型机车使用第一阶段风格样稿，十二种原料货物已有正式美术，其余仍为占位；数值待配平，
+地形与小型机车使用第一阶段风格样稿，十二种原料货物已有正式美术，聚居地符号来自 ui_symbols；
+其余仍为占位，数值待配平，
 数值和画面待用户试玩确认；NPC 库存与现车初始化已启用，车队待 #340。
 校验同时检查正式内容的经济关系；不生成生物聚落或存档。
 """
@@ -16,10 +17,10 @@ import hashlib
 import json
 from math import ceil
 from pathlib import Path
-import struct
 import subprocess
 import sys
-import zlib
+
+from ui_symbols import SETTLEMENT_SYMBOLS, png, symbol_png
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -246,15 +247,6 @@ def good_values(processes):
     for good in producers:
         value(good)
     return values
-
-
-def png(size, pixel):
-    def chunk(kind, data):
-        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
-
-    rows = b"".join(b"\0" + b"".join(bytes(pixel(x, y)) for x in range(size)) for y in range(size))
-    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
-            + chunk(b"IDAT", zlib.compress(rows, 9)) + chunk(b"IEND", b""))
 
 
 BLUE = (0x5a, 0x6b, 0x78)
@@ -783,7 +775,8 @@ def content_files():
     for material, color in colors.items():
         files[f"voxels/shared/{material}-face.png"] = png(32, lambda x, y: color)
         files[f"voxels/shared/{material}-icon.png"] = png(128, lambda x, y: color)
-    files["settlement-types/shared/agricultural-town.png"] = png(48, lambda x, y: (226, 236, 220, 255))
+    for name in SETTLEMENT_SYMBOLS:
+        files[f"settlement-types/{name}/symbol.png"] = symbol_png(name)
 
     def voxel(identity, name, material, face_paths, icon_path, simulation=None, wheelset=False, light=False,
               tile_span=None, description=None):
@@ -994,7 +987,7 @@ def content_files():
                   "simulation": {"preferred_terrain": ["core:" + terrain for terrain in preferred_terrain], "weight": 3,
                                  "population_min": 120, "population_max": 360},
                   "display": {"name": name, "description": "按 Demo 目录选择偏好地貌；经济参数待用户试玩确认。",
-                              "map_symbol": "shared/agricultural-town.png", "major": identity == "industrial-city"}})
+                              "map_symbol": "symbol.png", "major": identity == "industrial-city"}})
         plots = [{"id": 1, "size": "small_station", "at": [-104, 1, -176], "orientation": "px_py", "building": "small-station"},
                  {"id": 2, "size": "small_station", "at": [104, 1, -176], "orientation": "px_py"}]
         prebuilt = ("vehicle-workshop", "small-warehouse", "power-station") + major_buildings
