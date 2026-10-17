@@ -1,5 +1,5 @@
 name: Windows checks
-run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'push' || inputs.selection == 'nightly' || inputs.selection == 'long-example') && 'Linux' || 'Windows' }} ${{ github.event_name == 'push' && 'post-merge' || github.event_name == 'schedule' && 'nightly' || inputs.selection || (github.event.action == 'labeled' && github.event.label.name == 'ci:correctness' && 'correctness') || (github.event.action == 'labeled' && 'unrelated-label') || 'routine' }} ${{ inputs.selection == 'long-example' && inputs.example || '' }} · ${{ github.event.pull_request.head.sha || github.sha }}
+run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'push' || inputs.selection == 'nightly' || inputs.selection == 'long-example') && 'Linux' || 'Windows' }} ${{ github.event_name == 'push' && 'post-merge' || github.event_name == 'schedule' && 'nightly' || inputs.selection || (github.event.action == 'labeled' && github.event.label.name == 'ci:correctness' && 'correctness') || (github.event.action == 'labeled' && 'unrelated-label') || 'routine' }} ${{ inputs.selection == 'long-example' && inputs.example || '' }} · ${{ github.event.pull_request.head.sha || inputs.commit || github.sha }}
 
 on:
   push:
@@ -21,6 +21,10 @@ on:
         type: choice
         options: [starting-trade, lease-expiry]
         default: starting-trade
+      commit:
+        description: 要测试的完整 40 位提交 SHA，留空则测试触发的 ref
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -39,7 +43,7 @@ jobs:
         id: checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || inputs.commit || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -55,6 +59,7 @@ jobs:
           event=$env:GITHUB_EVENT_NAME
           selection=$env:CI_SELECTION
           head=$(git rev-parse HEAD)
+          workflow=$env:GITHUB_SHA
           runner=$env:RUNNER_OS/$env:RUNNER_ARCH
           image=$env:ImageOS/$env:ImageVersion
           "@ | Set-Content TestResults/ci/environment.txt
@@ -185,7 +190,7 @@ jobs:
       - name: Checkout tested head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.commit || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -206,6 +211,7 @@ jobs:
           attempt=$env:GITHUB_RUN_ATTEMPT
           event=$env:GITHUB_EVENT_NAME
           selection=$env:CI_SELECTION
+          workflow=$env:GITHUB_SHA
           runner=$env:RUNNER_OS/$env:RUNNER_ARCH
           powershell=$($PSVersionTable.PSVersion)
           "@ | Set-Content TestResults/ci/environment.txt
@@ -239,7 +245,14 @@ jobs:
         if: env.CI_SELECTION == 'long-example'
         shell: pwsh
         run: |
-          pwsh -NoProfile -File scripts/checks/run-long-example.ps1 -Example $env:LONG_EXAMPLE
+          $directory = Join-Path $env:RUNNER_TEMP 'long-example'
+          New-Item -ItemType Directory -Path $directory -Force | Out-Null
+          foreach ($name in @('run-long-example.ps1', 'Invoke-HiddenProcess.ps1')) {
+            $source = git show "$($env:GITHUB_SHA):scripts/checks/$name"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $source | Set-Content -LiteralPath (Join-Path $directory $name) -Encoding utf8
+          }
+          pwsh -NoProfile -File (Join-Path $directory 'run-long-example.ps1') -Example $env:LONG_EXAMPLE -Root $env:GITHUB_WORKSPACE
           exit $LASTEXITCODE
 
       - name: Publish available reports

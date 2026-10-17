@@ -73,6 +73,8 @@ gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selec
 # 两份长示例各自触发，不进入日常测试层
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=lease-expiry
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=starting-trade
+# 阶段验收：工作流使用 master，代码使用固定的完整 40 位提交 SHA
+gh workflow run windows-checks.yml --repo odradekk/train --ref master -f selection=long-example -f example=lease-expiry -f commit=<完整 SHA>
 # 显式请求 Windows 常规或完整正确性检查
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=routine
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=correctness
@@ -85,7 +87,7 @@ gh run view <run_id> --repo odradekk/train
 gh run download <run_id> --repo odradekk/train --dir TestResults/remote-<run_id>
 ```
 
-Actions 页面和 job 摘要也可查看结果、逐条命令退出码与耗时，并下载 artifact。排队和运行时间不表示通过；必须核对结论、被测提交和摘要中的实际检查。失败或未完成的命令不能作为成功证据。工作流文件已在默认分支，手动 dispatch 可检出任务分支上的版本。
+Actions 页面和 job 摘要也可查看结果、逐条命令退出码与耗时，并下载 artifact。排队和运行时间不表示通过；必须核对结论、被测提交和摘要中的实际检查。失败或未完成的命令不能作为成功证据。工作流取自 `--ref`，可选 `commit` 指定被测代码；留空时二者使用触发的 ref。核对 artifact 中 `ci/environment.txt` 的 `head=`（被测提交）、`workflow=`（工作流版本），以及摘要中的 commit；Actions 的 `headSha` 对应工作流版本，不能代替实际被测提交。编排脚本取自工作流版本，CLI、配方、SDK 配置及全量检查入口取自被测提交。工作流文件已在默认分支，手动 dispatch 可使用任务分支上的版本；上述 master 命令须等新输入合并后使用。
 
 Linux 全量结果可承担同份代码的完整回归，但不替代真实窗口交互／截图、目标实机性能、Windows 导出及导出后运行、已提交 Windows 示例的重制比较，以及 Windows 固定重放语料等平台限定检查。上述检查仍在相应本机环境运行，按[Testing standard](implement-sop.md#testing-standard)判断证据是否适用；最终 PR head 的 Windows routine CI 仍须通过。Linux CLI 长示例不提供 Godot、Scenes 或完整阶段联调证据。
 

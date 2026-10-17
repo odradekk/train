@@ -13,6 +13,8 @@ pwsh -NoProfile -File scripts/test.ps1 -Layer engine
 
 YAML 只传递明确选择并发布入口摘要，不复制游戏断言或推断路径影响。CI 不改变仓库设置、required checks 或分支保护。具体用例数、跳过数和耗时以每次摘要为准；CI 通过不表示人工、性能或全仓目标责任都已验证。
 
+手动触发的可选 `commit` 输入为完整 40 位提交 SHA，所有选择均检出该提交，留空则检出触发的 ref；固定提交的运行与身份核对方法见[远端检查](run-tests.md#远端检查)。
+
 ## 显式较重运行
 
 合并前可在 PR 上添加 `ci:correctness` 标签，请求对**添加标签时的 PR head**执行一次：

@@ -1,12 +1,16 @@
 param(
     [Parameter(Mandatory = $true)]
     [ValidateSet('starting-trade', 'lease-expiry')]
-    [string] $Example
+    [string] $Example,
+    [string] $Root = (Join-Path $PSScriptRoot '../..')
 )
 
 $ErrorActionPreference = 'Stop'
-$root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
+$root = [IO.Path]::GetFullPath($Root)
 Set-Location $root
+# Native child processes must also resolve global.json in the tested checkout.
+[Environment]::CurrentDirectory = $root
+$processHelper = Join-Path $PSScriptRoot 'Invoke-HiddenProcess.ps1'
 $commit = (git rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Cannot identify tested commit.' }
 $run = Join-Path $root "TestResults/long-example-$([DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfff'))-$($commit.Substring(0, 7))"
@@ -46,7 +50,7 @@ foreach ($batch in @(
 )) {
     $batch.groups | ForEach-Object -Parallel {
         $ErrorActionPreference = 'Stop'
-        . (Join-Path $using:root 'scripts/checks/Invoke-HiddenProcess.ps1')
+        . $using:processHelper
         $shared = $using:state
         $definitions = $using:commands
         $directory = $using:run
