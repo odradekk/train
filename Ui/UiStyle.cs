@@ -4,6 +4,7 @@ namespace Train.Ui;
 
 internal static class UiStyle
 {
+    internal static readonly Color Foreground = new("e6e9ec");
     internal static readonly Color Error = new("c9423a");
     internal static readonly Color Warning = new("d8962a");
     internal static readonly Color Success = new("2f9e5c");

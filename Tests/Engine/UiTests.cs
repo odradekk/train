@@ -126,7 +126,7 @@ public class UiTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Lair_node_draws_an_ordinary_marker_without_a_content_error()
+    public async Task Lair_node_draws_a_hostile_marker_without_a_content_error()
     {
         var fixture = new Fixture(TestScene.GetTree());
         var original = UiWorldFixture.Map();
@@ -146,8 +146,9 @@ public class UiTests(Node testScene) : TestClass(testScene)
             map.QueueRedraw();
             await _input.WaitUntil(() => drawn);
             Require(ui.ErrorText.Length == 0 && !ui.GetNode<Control>("Root/ErrorPanel").Visible &&
-                map.HitTest(map.MapToScreen(lair.Position)) == new WorldObjectId.Node(lair.Id),
-                "生物聚落标记导致内容错误或无法选中。");
+                map.HitTest(map.MapToScreen(lair.Position) + new Vector2(0, 15)) == new WorldObjectId.Node(lair.Id) &&
+                map.HitTest(map.MapToScreen(lair.Position) + new Vector2(0, 17)) is null,
+                "生物聚落标记导致内容错误，或命中区域未匹配聚居地标记半径。");
         }
         finally { await fixture.Cleanup(); }
     }

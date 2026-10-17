@@ -41,6 +41,9 @@ public partial class SavePanel : Window
         Exclusive = true;
         Visible = false;
         CloseRequested += Hide;
+        var background = new PanelContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+        background.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        AddChild(background);
         var margin = new MarginContainer();
         margin.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         foreach (var side in new[] { "left", "top", "right", "bottom" })
