@@ -184,7 +184,7 @@ internal sealed class DesignEditSession : IDesignEditSession
                     if (!invalid.IsEmpty) return Failure<IEditPreview>(invalid);
                 }
                 var own = current.Cells.ToLookup(cell => cell.At);
-                var all = occupied.Cells.ToLookup(cell => cell.At);
+                var all = Occupied(root).Cells.Select(cell => (At: EditLayout.ToLocal(root, path, cell.At), cell.Id)).ToLookup(cell => cell.At);
                 var changed = current.Cells.ToDictionary(cell => cell.Id);
                 var palette = current.Palette;
                 foreach (var at in footprint)

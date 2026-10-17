@@ -259,6 +259,33 @@ public sealed class EditingReviewRegressionTests
         Assert.AreEqual(1, session.Capture().Draft.Layout.Cells.Length);
     }
 
+    [TestMethod]
+    public void AddCannotSkipOwnCellThatAlsoOverlapsHost()
+    {
+        var child = EditingFixtures.Draft(new GridPosition(0, 0, 0)) with { Specification = new DesignSpecification.Assembly(null) };
+        var draft = EditingFixtures.Draft(new GridPosition(4, 0, 0)) with
+        {
+            Layout = new([EditingFixtures.Cube], [new(new(4, 0, 0), 0)],
+                [new NestedDesignItem.AssemblyCopy(new(4, 0, 0), VoxelOrientation.PxPy, child)])
+        };
+        using var session = EditingFixtures.Value(ScenesFactory.Create().OpenEditor(SceneFixtures.Content(),
+            EditingFixtures.Evaluation(draft) with { IsValid = false }));
+        var blocker = session.Read().Elements.Single(e => e.Parent is null && e.Kind == EditElementKind.Cell).Id;
+        EditingFixtures.Value(session.Enter(session.Read().Elements.Single(e => e.Kind == EditElementKind.Assembly).Id));
+        var before = session.Capture();
+        var preview = EditingFixtures.Preview(session, new EditOperation.Cells(
+            new EditFootprint.Stroke([new(0, 0, 0), new(1, 0, 0)], 1), new CellEdit.Add(EditingFixtures.Cube)));
+        Assert.IsFalse(preview.CanApply);
+        var conflict = preview.Conflicts.Single();
+        Assert.AreEqual(new GridPosition(0, 0, 0), conflict.Cell);
+        Assert.AreEqual(blocker, conflict.Element);
+        Assert.AreEqual(0, preview.SkippedCells);
+        Assert.AreEqual("occupancy_conflict", EditingFixtures.Code(session.Apply(preview, true)));
+        Assert.AreEqual(before.Stamp, session.Capture().Stamp);
+        Assert.IsFalse(session.Read().CanUndo);
+        Assert.IsFalse(session.Read().IsDirty);
+    }
+
     private static IEnumerable<DesignSceneProjection> MalformedScenes()
     {
         var scene = SceneFixtures.Projection([]);
