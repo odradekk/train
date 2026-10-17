@@ -23,7 +23,9 @@ public sealed class BlueprintLoadingTests
         scene["appearance"] = JsonNode.Parse("""{"flatten":{"from":[-1,-2],"to":[1,2],"height":3}}""");
         fixture.AddFile(ContentFixture.BuiltIn, "resources/blueprints/scene.blueprint.json", scene.ToJsonString());
         using var candidate = fixture.Load();
-        var design = candidate.View.Core.Designs.Single();
+        var buildingRecord = ((C.ContentLookup<C.BlueprintRecord>.Found)candidate.View.FindBlueprint(
+            new(C.BlueprintLibrary.Packages, new("core:building")))).Value;
+        var design = ((C.DesignEvaluation.Complete)buildingRecord.Evaluation).Core!.Design;
         var kind = (K.DesignKind.Building)design.Kind;
         Assert.AreEqual(K.PlotSize.Medium, kind.PlotSize);
         Assert.AreEqual(K.BuildingKind.Production, kind.Type);
@@ -35,7 +37,7 @@ public sealed class BlueprintLoadingTests
     }
 
     [TestMethod]
-    public void Package_blueprints_publish_lookups_and_sorted_deduplicated_designs_without_changing_core_identity()
+    public void Package_blueprints_publish_lookups_without_becoming_runtime_designs_or_changing_core_identity()
     {
         var fixture = DesignFixtures.Content();
         using var withoutBlueprints = fixture.Load();
@@ -59,8 +61,8 @@ public sealed class BlueprintLoadingTests
         Assert.AreEqual(withoutBlueprints.View.Core.Identity, normal.View.Core.Identity);
         Assert.AreEqual(4, normal.View.Blueprints.Length);
         Assert.IsTrue(normal.View.Blueprints.All(b => b.Usable && b.Diagnostics.IsEmpty));
-        Assert.AreEqual(2, normal.View.Core.Designs.Length);
-        CollectionAssert.AreEqual(normal.View.Core.Designs.Select(d => d.Design.Value).Order(StringComparer.Ordinal).ToArray(), normal.View.Core.Designs.Select(d => d.Design.Value).ToArray());
+        Assert.AreEqual(0, normal.View.Core.Designs.Length);
+        Assert.AreEqual(0, normal.View.Core.DesignGoods.Length);
         CollectionAssert.AreEqual(normal.View.Blueprints.Select(b => b.Address).ToArray(), reversed.View.Blueprints.Select(b => b.Address).ToArray());
         CollectionAssert.AreEqual(normal.View.Core.Designs.Select(d => d.Design).ToArray(), reversed.View.Core.Designs.Select(d => d.Design).ToArray());
         var record = ((C.ContentLookup<C.BlueprintRecord>.Found)normal.View.FindBlueprint(new(C.BlueprintLibrary.Packages, new("core:first")))).Value;

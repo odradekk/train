@@ -1,6 +1,7 @@
 using System.Collections.Frozen;
 using System.Collections.Immutable;
 using System.Text.Json;
+using System.Text;
 using Train.Content.Designs;
 using Train.Content.Loading;
 using static Train.Content.Loading.DefinitionJson;
@@ -58,6 +59,25 @@ internal sealed class ContentSourceSnapshot(C.ContentInstallation installation,
     : C.IContentFiles, C.IAssetInspector
 {
     internal C.ContentInstallation Installation { get; } = installation;
+
+    internal ContentSourceSnapshot WithUserBlueprint(C.BlueprintId id, C.BlueprintRecord? blueprint)
+    {
+        var key = "$user-library";
+        while (key == Installation.BuiltIn.Key || key == Installation.Mods.Key) key += "$";
+        var root = Installation.UserLibrary ?? new C.ContentRoot(key);
+        var path = new C.ContentPath(root, id.Value + ".blueprint.json");
+        var directory = new C.ContentPath(root, "");
+        var nextDirectories = directories.ToDictionary();
+        var entries = directories.GetValueOrDefault(directory) is C.ContentIoResult<ImmutableArray<C.ContentFileEntry>>.Success found
+            ? found.Value.Where(e => e.Name != path.RelativePath).ToImmutableArray() : [];
+        if (blueprint is not null) entries = entries.Add(new(path.RelativePath, C.ContentEntryKind.File));
+        nextDirectories[directory] = new C.ContentIoResult<ImmutableArray<C.ContentFileEntry>>.Success(entries);
+        var nextFiles = files.Where(f => f.Key.Path != path).ToDictionary();
+        if (blueprint is not null)
+            nextFiles[(path, ContentLimits.JsonFileMaxBytes)] = new C.ContentIoResult<ImmutableArray<byte>>.Success(
+                Encoding.UTF8.GetBytes(PlayerBlueprint.Encode(blueprint)).ToImmutableArray());
+        return new(Installation with { UserLibrary = root }, nextDirectories.ToFrozenDictionary(), nextFiles.ToFrozenDictionary(), inspections);
+    }
     internal IEnumerable<ImmutableArray<byte>> FileBytes => files.Values
         .OfType<C.ContentIoResult<ImmutableArray<byte>>.Success>().Select(result => result.Value);
 
@@ -77,6 +97,7 @@ internal sealed class ContentSourceSnapshot(C.ContentInstallation installation,
         writer.WriteStartObject("installation");
         writer.WriteString("built_in", Installation.BuiltIn.Key);
         writer.WriteString("mods", Installation.Mods.Key);
+        writer.WriteString("user_library", Installation.UserLibrary?.Key);
         writer.WriteString("game_version", Installation.GameVersion);
         writer.WriteStartArray("enabled_mods");
         foreach (var mod in Installation.EnabledMods.Distinct().OrderBy(m => m.Value, StringComparer.Ordinal)) writer.WriteStringValue(mod.Value);
@@ -160,12 +181,14 @@ internal sealed class ContentSourceSnapshot(C.ContentInstallation installation,
     {
         Object(root, "/source", "installation", "directories", "files", "inspections");
         var install = Required(root, "installation", "/source");
-        Object(install, "/source/installation", "built_in", "mods", "game_version", "enabled_mods");
+        Object(install, "/source/installation", "built_in", "mods", "user_library", "game_version", "enabled_mods");
         var enabled = Items(Required(install, "enabled_mods", "/source/installation"), "/source/installation/enabled_mods")
             .Select(item => new C.PackageId(Text(item.Value, item.Field))).ToImmutableArray();
         Unique(enabled, "/source/installation/enabled_mods");
         var installation = new C.ContentInstallation(new(Text(Required(install, "built_in", "/source/installation"), "/source/installation/built_in")),
-            new(Text(Required(install, "mods", "/source/installation"), "/source/installation/mods")), null,
+            new(Text(Required(install, "mods", "/source/installation"), "/source/installation/mods")),
+            Required(install, "user_library", "/source/installation").ValueKind == JsonValueKind.Null ? null :
+                new C.ContentRoot(Text(install.GetProperty("user_library"), "/source/installation/user_library")),
             Text(Required(install, "game_version", "/source/installation"), "/source/installation/game_version"), enabled);
         var directories = new Dictionary<C.ContentPath, C.ContentIoResult<ImmutableArray<C.ContentFileEntry>>>();
         foreach (var (value, field) in Items(Required(root, "directories", "/source"), "/source/directories"))

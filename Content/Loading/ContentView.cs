@@ -10,7 +10,7 @@ namespace Train.Content.Loading;
 
 internal sealed record LoadedVoxel(ParsedVoxel Definition, C.VoxelAppearanceProjection Appearance, C.VoxelDisplayProjection Display);
 
-internal sealed class ContentView : C.IContentView
+internal sealed partial class ContentView : C.IContentView
 {
     private readonly FrozenDictionary<K.VoxelDefinitionId, LoadedVoxel> _voxels;
     private readonly FrozenDictionary<C.AssetRevision, C.ContentAsset> _assets;
@@ -24,7 +24,11 @@ internal sealed class ContentView : C.IContentView
     public ImmutableArray<C.PackageStatus> Packages { get; }
     public ImmutableArray<C.VoxelCatalogEntry> Voxels { get; }
     public ImmutableArray<C.BlueprintSummary> Blueprints { get; }
-    public ImmutableArray<C.SavedContentDraft> LocalDrafts => [];
+    public ImmutableArray<C.SavedContentDraft> LocalDrafts { get; } = [];
+    internal ImmutableArray<C.BlueprintSummary> UnreadableBlueprints { get; } = [];
+    internal string UserLibraryFingerprint { get; } = "";
+    internal ImmutableArray<C.BlueprintRecord> LocalBlueprints => _blueprints.Values.Where(b => b.Address.Library == C.BlueprintLibrary.Local)
+        .OrderBy(b => b.Address.Id.Value, StringComparer.Ordinal).ToImmutableArray();
     public ImmutableArray<C.GenerationProfileSummary> GenerationProfiles { get; }
     internal ImmutableArray<C.PackageMetadata> SavedPackages { get; } = [];
     internal ImmutableArray<CapturedDesign> SavedDesigns { get; } = [];
@@ -79,7 +83,9 @@ internal sealed class ContentView : C.IContentView
             }
         _designs = allDesigns.ToFrozenDictionary();
         AssemblyDisplays = displays.Values.OrderBy(d => d.Composition.Value, StringComparer.Ordinal).ToImmutableArray();
-        Core = Core with { Designs = DesignProjections(allDesigns), DesignGoods = AssemblyProjections(allDesigns, AssemblyDisplays) };
+        var seeds = SeedDesigns();
+        Core = Core with { Designs = DesignProjections(allDesigns.Where(d => seeds.Contains(d.Key)).ToDictionary()),
+            DesignGoods = SeedAssemblyGoods(allDesigns, seeds) };
     }
 
     private ContentView(ContentView basis, FrozenDictionary<K.SettlementId, C.SettlementLayoutProjection> layouts)
@@ -90,16 +96,26 @@ internal sealed class ContentView : C.IContentView
         Generation = basis.Generation; SavedPackages = basis.SavedPackages; SavedDesigns = basis.SavedDesigns; Source = basis.Source;
         Core = basis.Core; Packages = basis.Packages; Voxels = basis.Voxels; Blueprints = basis.Blueprints; GenerationProfiles = basis.GenerationProfiles;
         PersistentRevision = new(checked(basis.PersistentRevision.Value + 1));
+        LocalDrafts = basis.LocalDrafts; UnreadableBlueprints = basis.UnreadableBlueprints; UserLibraryFingerprint = basis.UserLibraryFingerprint;
     }
 
     private ContentView(ContentView basis, ContentCapture capture, K.CoreReferenceManifest references, C.ContentGeneration? generation, bool advanceGeneration)
     {
         capture.Validate(references);
-        _voxels = basis._voxels; _assets = basis._assets; _blueprints = basis._blueprints; _world = basis._world;
+        _voxels = basis._voxels; _assets = basis._assets; _world = basis._world;
         Generation = generation ?? basis.Generation; PersistentRevision = capture.Revision;
         SavedPackages = capture.ReferencedPackages; SavedDesigns = capture.Records; Source = basis.Source;
-        Packages = basis.Packages; Voxels = basis.Voxels; Blueprints = basis.Blueprints; GenerationProfiles = basis.GenerationProfiles;
+        Packages = basis.Packages; Voxels = basis.Voxels; GenerationProfiles = basis.GenerationProfiles;
+        LocalDrafts = capture.LocalDrafts;
+        UnreadableBlueprints = basis.UnreadableBlueprints; UserLibraryFingerprint = basis.UserLibraryFingerprint;
+        _blueprints = basis._blueprints.Values.Where(b => b.Address.Library != C.BlueprintLibrary.Local)
+            .Concat(capture.LocalBlueprints.Select(b => new C.BlueprintRecord(b.Address, b.Definition, b.UsedPackages,
+                PlayerBlueprint.Evaluate(basis, b.Definition))))
+            .ToFrozenDictionary(b => b.Address);
+        Blueprints = Summaries(_blueprints.Values, UnreadableBlueprints);
         var designs = basis._designs.ToDictionary();
+        foreach (var blueprint in _blueprints.Values.Where(b => b.Address.Library == C.BlueprintLibrary.Local))
+            if (blueprint.Evaluation is C.DesignEvaluation.Complete complete) designs[complete.Design] = complete;
         foreach (var record in capture.Records)
         {
             designs[record.Hash] = DesignEvaluator.Evaluate(basis, record.Definition, allowMissing: true, compositeIdentity: record.Composite);
@@ -125,9 +141,11 @@ internal sealed class ContentView : C.IContentView
             var definition = capture.Records.Single(d => d.Hash == t.SceneModel).Definition;
             return new C.SettlementLayoutProjection(t.Owner, t.Source, new(t.SceneModel, scene, definition.Display), t.Plots, t.Display);
         });
+        var requiredDesigns = references.Designs.Concat(SeedDesigns()).ToHashSet();
         Core = basis.Core with
         {
-            Designs = DesignProjections(designs), DesignGoods = AssemblyProjections(designs, AssemblyDisplays),
+            Designs = DesignProjections(designs.Where(d => requiredDesigns.Contains(d.Key)).ToDictionary()),
+            DesignGoods = SeedAssemblyGoods(designs, requiredDesigns),
             MissingReferences = Missing(references).Select(m => new K.MissingCoreReference(
                 ((C.ContentReference.Core)m.Reference).Definition, m.Field)).ToImmutableArray()
         };
@@ -185,10 +203,13 @@ internal sealed class ContentView : C.IContentView
     private string Library() => ContentCapture.Encode(writer =>
     {
         writer.WriteStartArray();
-        foreach (var record in _blueprints.Values.OrderBy(b => b.Address.Id.Value, StringComparer.Ordinal))
+        writer.WriteStringValue(UserLibraryFingerprint);
+        foreach (var record in _blueprints.Values.Where(b => b.Address.Library != C.BlueprintLibrary.Local)
+            .OrderBy(b => b.Address.Library).ThenBy(b => b.Address.Id.Value, StringComparer.Ordinal))
         {
             writer.WriteStartObject();
             writer.WriteString("id", record.Address.Id.Value);
+            writer.WriteString("library", record.Address.Library.ToString());
             writer.WriteStartObject("definition");
             BlueprintParser.WriteDesign(writer, record.Definition);
             writer.WriteEndObject();
@@ -232,7 +253,9 @@ internal sealed class ContentView : C.IContentView
     internal ImmutableArray<C.MissingContentReference> Missing(K.CoreReferenceManifest references, string stage = "restore")
     {
         var required = references.Definitions.Select(d => (d.Definition, d.Field))
-            .Concat(SavedDesigns.SelectMany(d => DesignTraversal.References(d.Definition, $"Designs[{d.Hash.Value}]")));
+            .Concat(SavedDesigns.Where(d => references.Designs.Contains(d.Hash) || references.Templates.Any(t =>
+                _layouts.TryGetValue(t.Owner, out var layout) && layout.SceneModel.Design == d.Hash))
+                .SelectMany(d => DesignTraversal.References(d.Definition, $"Designs[{d.Hash.Value}]")));
         return required.Where(r => !HasDefinition(r.Item1)).Distinct()
             .OrderBy(r => DefinitionId(r.Item1), StringComparer.Ordinal).ThenBy(r => r.Item2, StringComparer.Ordinal)
             .Select(r =>
@@ -351,7 +374,9 @@ internal sealed class ContentView : C.IContentView
     public C.ContentLookup<C.ContentAsset> FindAsset(C.AssetRevision revision) =>
         _assets.TryGetValue(revision, out var asset) ? new C.ContentLookup<C.ContentAsset>.Found(asset) : new C.ContentLookup<C.ContentAsset>.NotFound();
     public C.ContentLookup<C.BlueprintRecord> FindBlueprint(C.BlueprintAddress address) =>
-        _blueprints.TryGetValue(address, out var blueprint) ? new C.ContentLookup<C.BlueprintRecord>.Found(blueprint) : new C.ContentLookup<C.BlueprintRecord>.NotFound();
+        _blueprints.TryGetValue(address, out var blueprint) ? new C.ContentLookup<C.BlueprintRecord>.Found(blueprint) :
+        UnreadableBlueprints.FirstOrDefault(b => b.Address == address) is { } unavailable
+            ? new C.ContentLookup<C.BlueprintRecord>.Missing(unavailable.Diagnostics) : new C.ContentLookup<C.BlueprintRecord>.NotFound();
     public C.ContentLookup<C.DesignEvaluation> FindDesign(K.DesignHash hash) =>
         _designs.TryGetValue(hash, out var design) ? new C.ContentLookup<C.DesignEvaluation>.Found(design) : new C.ContentLookup<C.DesignEvaluation>.NotFound();
     public C.ContentLookup<C.SettlementLayoutProjection> FindSettlementLayout(K.SettlementId settlement) =>
