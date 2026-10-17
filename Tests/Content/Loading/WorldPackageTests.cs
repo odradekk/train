@@ -111,6 +111,7 @@ public sealed class WorldPackageTests
     [DataRow("duplicate-rule", "/id")]
     [DataRow("invalid-symbol", "/display/map_symbol")]
     [DataRow("wrong-terrain-voxel", "/surface_voxel")]
+    [DataRow("wrong-ballast-voxel", "/appearance/ballast_voxel")]
     public void Wrong_reference_kinds_duplicate_rule_ids_and_invalid_symbols_reject_the_package(string mutation, string expectedField)
     {
         var fixture = WorldContentFixtures.Content();
@@ -121,6 +122,9 @@ public sealed class WorldPackageTests
                 break;
             case "scene-good":
                 WorldContentFixtures.Change(fixture, "resources/railway-rules/rail.railway-rule.json", j => j["rail_good"] = "scenery");
+                break;
+            case "wrong-ballast-voxel":
+                WorldContentFixtures.Change(fixture, "resources/railway-rules/rail.railway-rule.json", j => j["appearance"]!["ballast_voxel"] = "rail");
                 break;
             case "duplicate-rule":
                 var rule = RuleParserTests.Combat(); rule["id"] = "rail";
@@ -137,6 +141,18 @@ public sealed class WorldPackageTests
         Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Failure>(result, result.ToString());
         var code = mutation == "duplicate-rule" ? "duplicate_identity" : mutation == "invalid-symbol" ? "asset_rule_failed" : "reference_wrong_kind";
         Assert.IsTrue(((C.ContentResult<C.IContentCandidate>.Failure)result).Diagnostics.Any(d => d.Code == code && d.Field == expectedField));
+    }
+
+    [TestMethod]
+    public void Missing_ballast_voxel_rejects_the_package_at_its_field()
+    {
+        var fixture = WorldContentFixtures.Content();
+        const string path = "resources/railway-rules/rail.railway-rule.json";
+        WorldContentFixtures.Change(fixture, path, json => json["appearance"]!.AsObject().Remove("ballast_voxel"));
+        var result = fixture.Prepare();
+        Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Failure>(result);
+        Assert.IsTrue(((C.ContentResult<C.IContentCandidate>.Failure)result).Diagnostics.Any(d =>
+            d.Code == "invalid_field" && d.Source?.Path == path && d.Field == "/appearance/ballast_voxel"));
     }
 
     [TestMethod]

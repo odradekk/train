@@ -1,0 +1,1 @@
+{"schema_version":3,"id":"concrete","appearance":{"allowed_orientations":"four_way","presentation":{"kind":"cube","material":"concrete","faces":{"top":"top.png","side":"top.png","bottom":"top.png"},"tile_span":4}},"display":{"name":"混凝土","description":"用于自然环境和铁路场景的混凝土。","icon":"top.png"}}

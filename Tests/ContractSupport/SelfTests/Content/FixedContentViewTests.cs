@@ -40,7 +40,7 @@ public sealed class FixedContentViewTests
         var railwayId = new RuleDefinitionId("railway");
         var terrain = new ContentLookup<TerrainAppearanceProjection>.Found(new(terrainId,
             new("surface"), new("subsurface"), new("rock"), [], [], 0, [], new("Terrain", "")));
-        var railway = new ContentLookup<RailwayAppearanceProjection>.Found(new(railwayId, 100, 0.05));
+        var railway = new ContentLookup<RailwayAppearanceProjection>.Found(new(railwayId, new("rock"), 100, 0.05));
         var missing = new ContentLookup<TerrainAppearanceProjection>.Missing([]);
         var terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
         {
