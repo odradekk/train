@@ -16,6 +16,18 @@ public sealed class NodeSwitchTests
     private static readonly SceneFrameRequest Request = new(1, null, SceneDebugLayer.None);
 
     [TestMethod]
+    [DataRow(0d, 8d, 0d)]
+    [DataRow(20d, 1d, 10d)]
+    [DataRow(20d, 8d, 80d)]
+    [DataRow(80d, 8d, 320d)]
+    [DataRow(200d, 8d, 320d)]
+    public void Node_prefetch_lead_uses_mapped_speed_and_display_rate_without_exceeding_its_cap(
+        double mappedSpeedCells, double rate, double expectedCells)
+    {
+        Assert.AreEqual(expectedCells, NodeStreaming.AdvanceCells(mappedSpeedCells, rate), 1e-9);
+    }
+
+    [TestMethod]
     public async Task Follow_candidate_prebuilds_only_handover_range()
     {
         var source = NodeFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 });

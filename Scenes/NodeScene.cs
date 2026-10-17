@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using Train.Content.Contracts;
@@ -178,6 +179,11 @@ internal sealed class NodeScene : IAsyncDisposable
     private readonly Func<Preparation, RailSegment, Part?, CancellationToken, Part> buildRail;
     private Preparation? prepared;
     private NodeRange range;
+    private NodeRange prefetch;
+    private long? rateWindowStart;
+    private double lastSimulationSeconds;
+    private double displayRate = 1;
+    internal Func<long> Timestamp { get; set; } = Stopwatch.GetTimestamp;
     private bool nearCompleted;
     private bool awaitingDisplay;
     private SceneFrameStamp? admissionFrame;
@@ -246,15 +252,18 @@ internal sealed class NodeScene : IAsyncDisposable
         var bounds = value.PanBounds(default);
         range = new(new((bounds.Minimum.X + bounds.Maximum.X) / 2, 0,
             (bounds.Minimum.Y + bounds.Maximum.Y) / 2), NodeStreaming.PrefetchCells);
+        prefetch = range;
     }
-    internal void Pump(SceneWorldSnapshot? current = null, ScenePoint? focus = null, bool allowBuild = true, EdgeId? enteringEdge = null)
+    internal void Pump(SceneWorldSnapshot? current = null, ScenePoint? focus = null, bool allowBuild = true, EdgeId? enteringEdge = null,
+        ScenePoint? prefetchFocus = null)
     {
         SetBuildAllowed(allowBuild);
         if (current is not null) snapshot = current;
         if (focus is { } requestedFocus) range = new(requestedFocus, NodeStreaming.PrefetchCells);
+        prefetch = new(prefetchFocus ?? range.Focus, NodeStreaming.PrefetchCells);
         if (cancellation.IsCancellationRequested || failure is not null) return;
         var hadLayout = layout is not null;
-        if (hadLayout) settlement.Pump(snapshot, layout!, range, allowBuild);
+        if (hadLayout) settlement.Pump(snapshot, layout!, range, allowBuild, prefetch);
         if (prepared is null && pending?.IsCompleted == true)
         {
             try
@@ -284,8 +293,9 @@ internal sealed class NodeScene : IAsyncDisposable
             catch (RailwayBuildException error) { Fail(error); return; }
         }
         if (focus is { } point) range = new(point, NodeStreaming.PrefetchCells);
+        prefetch = new(prefetchFocus ?? range.Focus, NodeStreaming.PrefetchCells);
         if (prepared is null) return;
-        if (!hadLayout) settlement.Pump(snapshot, layout!, range, allowBuild);
+        if (!hadLayout) settlement.Pump(snapshot, layout!, range, allowBuild, prefetch);
         lock (workGate) ReconcileParts();
         cache.Publish(Node, owner, built! with
         { Parts = prepared.Global.Parts.SetItems(chunks.Select(item => new KeyValuePair<string, Part>(ChunkKey(item.Key), item.Value))).SetItems(rails) });
@@ -297,16 +307,19 @@ internal sealed class NodeScene : IAsyncDisposable
     private void ReconcileParts()
     {
         var retention = range.Around(NodeStreaming.RetainCells);
-        foreach (var key in completedParts.Keys.Where(key => !retention.Intersects(completedParts[key].Bounds)).ToArray())
+        foreach (var key in completedParts.Keys.Where(key => !retention.Intersects(completedParts[key].Bounds) &&
+            !prefetch.Intersects(completedParts[key].Bounds)).ToArray())
             completedParts.Remove(key);
-        foreach (var key in pendingParts.Keys.Where(key => !range.Intersects(pendingParts[key].Bounds)).ToArray())
+        foreach (var key in pendingParts.Keys.Where(key => !range.Intersects(pendingParts[key].Bounds) &&
+            !prefetch.Intersects(pendingParts[key].Bounds)).ToArray())
         {
             var work = pendingParts[key];
             work.Cancellation.Cancel(); retiring.Add(work); pendingParts.Remove(key);
         }
-        foreach (var from in chunks.Keys.Where(from => !retention.Intersects(from)).ToArray())
+        foreach (var from in chunks.Keys.Where(from => !retention.Intersects(from) && !prefetch.Intersects(from)).ToArray())
         { chunks.Remove(from); attached.Remove(ChunkKey(from)); }
-        foreach (var key in rails.Keys.Where(key => !retention.Intersects(prepared!.Rails[key].Bounds)).ToArray())
+        foreach (var key in rails.Keys.Where(key => !retention.Intersects(prepared!.Rails[key].Bounds) &&
+            !prefetch.Intersects(prepared.Rails[key].Bounds)).ToArray())
         { rails.Remove(key); attached.Remove(key); }
         foreach (var key in pendingParts.Where(pair => pair.Value.Task.IsCompleted).Select(pair => pair.Key).ToArray())
         {
@@ -329,11 +342,13 @@ internal sealed class NodeScene : IAsyncDisposable
         }
         if (failure is not null) return;
         AdmitCompletedParts();
-        var terrain = prepared!.HasChunks ? range.Chunks(layout!).Where(from => !chunks.ContainsKey(from) &&
+        var neededChunks = range.Chunks(layout!);
+        if (prefetch.Focus != range.Focus) neededChunks = neededChunks.Concat(prefetch.Chunks(layout!)).Distinct();
+        var terrain = prepared!.HasChunks ? neededChunks.Where(from => !chunks.ContainsKey(from) &&
                 !pendingParts.ContainsKey(ChunkKey(from)) && !completedParts.ContainsKey(ChunkKey(from)))
             .Select(from => (Key: ChunkKey(from), Bounds: ChunkBounds(from), Chunk: (GridColumn?)from)) : [];
         var tracks = prepared.Rails.Values.Where(segment => !rails.ContainsKey(segment.Key) && !pendingParts.ContainsKey(segment.Key) &&
-                !completedParts.ContainsKey(segment.Key) && range.Intersects(segment.Bounds))
+                !completedParts.ContainsKey(segment.Key) && (range.Intersects(segment.Bounds) || prefetch.Intersects(segment.Bounds)))
             .Select(segment => (segment.Key, segment.Bounds, Chunk: (GridColumn?)null));
         waitingParts = new(terrain.Concat(tracks).OrderBy(item => range.DistanceSquared(item.Bounds)).ThenBy(item => item.Key, StringComparer.Ordinal));
         StartParts();
@@ -402,12 +417,14 @@ internal sealed class NodeScene : IAsyncDisposable
         }
         if (layout is null && pending?.IsCompleted == true) Pump(snapshot, allowBuild: false);
         var (start, seconds) = SceneFrame.SampleTime(snapshot, previous, request.Interpolation);
+        UpdateDisplayRate(seconds);
         var objects = ImmutableArray.CreateBuilder<SceneObject>();
         var picking = ImmutableArray.CreateBuilder<PickGrid>();
         var problems = ImmutableArray.CreateBuilder<SceneProblem>();
         var fog = ImmutableArray.CreateBuilder<SceneFog>();
         var trainFog = ImmutableArray.CreateBuilder<SceneFog>();
-        if (layout is not null) RenderTrains(snapshot, start, request.Interpolation, origin, objects, picking, problems, trainFog);
+        var prefetchFocus = layout is null ? null : RenderTrains(snapshot, start, request.Interpolation, origin, objects,
+            picking, problems, trainFog, (target as WorldSceneTarget.Follow)?.Vehicle);
         ScenePoint? focus = null;
         if (target is WorldSceneTarget.Follow follow && objects.FirstOrDefault(item => item.Parent is null &&
             item.Subject == new WorldObjectId.Instance(new InstanceId.Vehicle(follow.Vehicle))) is { } vehicle)
@@ -416,7 +433,7 @@ internal sealed class NodeScene : IAsyncDisposable
             camera.Frame.Update.Frame.Session == stamp.Session && camera.Frame.Update.Frame.Request == stamp.Request &&
             camera.Frame.Update.Frame.Space == stamp.Space)
             focus = RailwayCoordinates.Add(camera.Frame.Origin, camera.Focus);
-        Pump(snapshot, focus);
+        Pump(snapshot, focus, prefetchFocus: prefetchFocus);
         var shift = new ScenePose(RailwayCoordinates.Relative(default, origin), Quaternion.Identity);
         foreach (var part in attached.OrderBy(item => item.Key, StringComparer.Ordinal)) Add(SceneGeometry.Place(part.Value.Geometry, shift));
         var terrainFog = ImmutableArray.CreateBuilder<SceneFog>();
@@ -443,7 +460,7 @@ internal sealed class NodeScene : IAsyncDisposable
                     problems.Add(new("content_missing", SceneStage.Input, new WorldObjectId.Node(Node), null, null, null, "The settlement layout copy is missing."));
                 }
             }
-            Add(settlement.Present(snapshot, layout, origin, fog, range, chunks.Keys));
+            Add(settlement.Present(snapshot, layout, origin, fog, range, chunks.Keys, prefetch));
         }
         if (failure is not null) problems.Add(failure);
         bool Complete(double radius)
@@ -480,7 +497,12 @@ internal sealed class NodeScene : IAsyncDisposable
         var maximum = layout.Bounds.Maximum;
         if (prepared is null)
         { Add(minimum.X, maximum.X, minimum.Y, maximum.Y); return; }
-        var (left, right, back, front) = range.Around(NodeStreaming.RetainCells).Window(layout);
+        var retained = range.Around(NodeStreaming.RetainCells).Window(layout);
+        var ahead = prefetch.Window(layout);
+        var left = Math.Min(retained.Left, ahead.Left);
+        var right = Math.Max(retained.Right, ahead.Right);
+        var back = Math.Min(retained.Back, ahead.Back);
+        var front = Math.Max(retained.Front, ahead.Front);
         Add(minimum.X, left, minimum.Y, maximum.Y);
         Add(right, maximum.X, minimum.Y, maximum.Y);
         Add(left, right, minimum.Y, back);
@@ -743,12 +765,26 @@ internal sealed class NodeScene : IAsyncDisposable
         .Select(item => snapshot.Core.FindTrain(item.Id)).OfType<Lookup<TrainView>.Found>()
         .Select(item => item.Value).OrderBy(train => train.Id.Value).ToArray();
 
-    private void RenderTrains(SceneWorldSnapshot snapshot, SceneWorldSnapshot? previous, double interpolation,
+    private void UpdateDisplayRate(double seconds)
+    {
+        var now = Timestamp();
+        if (rateWindowStart is not { } start)
+        { rateWindowStart = now; lastSimulationSeconds = seconds; return; }
+        var elapsed = Stopwatch.GetElapsedTime(start, now).TotalSeconds;
+        if (elapsed < 1) return;
+        displayRate = Math.Clamp((seconds - lastSimulationSeconds) / elapsed, 1, RailwayCoordinates.MaximumDisplayRate);
+        lastSimulationSeconds = seconds;
+        rateWindowStart = now;
+    }
+
+    private ScenePoint? RenderTrains(SceneWorldSnapshot snapshot, SceneWorldSnapshot? previous, double interpolation,
         ScenePoint origin, ImmutableArray<SceneObject>.Builder objects,
-        ImmutableArray<PickGrid>.Builder picking, ImmutableArray<SceneProblem>.Builder problems, ImmutableArray<SceneFog>.Builder fog)
+        ImmutableArray<PickGrid>.Builder picking, ImmutableArray<SceneProblem>.Builder problems, ImmutableArray<SceneFog>.Builder fog,
+        VehicleId? followedVehicle)
     {
         var trains = NodeTrains(snapshot);
-        if (trains.Length == 0) return;
+        if (trains.Length == 0) return null;
+        ScenePoint? prefetchFocus = null;
         var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(Node)).Value;
         var queues = QueuePositions(trains, dimensions);
         var mapping = Platforms(snapshot);
@@ -801,6 +837,13 @@ internal sealed class NodeScene : IAsyncDisposable
                 var arc = center + (positive ? 1 : -1) * (known ? total / 2.0 - consumed - lengths[i]!.Value / 2.0 : 0);
                 consumed += lengths[i] ?? 0;
                 var pose = RailwayVehicles.Pose(path.Sample(arc), origin, positive);
+                if (member.Id is InstanceId.Vehicle vehicleId && vehicleId.Id == followedVehicle)
+                {
+                    var speed = (path.Arc(distance + train.SpeedMetersPerSecond * SimulationTime.StepSeconds, queue) - center)
+                        / SimulationTime.StepSeconds;
+                    var ahead = NodeStreaming.AdvanceCells(speed, displayRate);
+                    prefetchFocus = path.Sample(Math.Clamp(arc + ahead, 0, path.Length)).Position;
+                }
                 if (!known || !available)
                 {
                     Add(SceneVehicles.Unplaced(snapshot.Content, member, evaluations[i], lengths[i], pose, objectId));
@@ -815,6 +858,7 @@ internal sealed class NodeScene : IAsyncDisposable
                 }
             }
         }
+        return prefetchFocus;
         void Add(RenderedDesign geometry)
         { objects.AddRange(geometry.Objects); picking.AddRange(geometry.Picking); problems.AddRange(geometry.Diagnostics); }
     }

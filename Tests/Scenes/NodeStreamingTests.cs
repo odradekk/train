@@ -17,6 +17,62 @@ public sealed class NodeStreamingTests
     private static readonly SceneFrameRequest Request = new(1, null, SceneDebugLayer.None);
 
     [TestMethod]
+    public async Task Ahead_circle_builds_and_retains_parts_beyond_the_train_retention_circle()
+    {
+        var snapshot = Snapshot(true);
+        var cache = new NodeScene.Cache();
+        var ahead = new ScenePoint(288, 0, 0);
+        var started = new ConcurrentQueue<GridColumn>();
+        HashSet<GridColumn>? expected = null;
+        var completed = 0;
+        var blocked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles, cache, build: (data, from, old, token) =>
+        {
+            if (expected is not null)
+            {
+                started.Enqueue(from);
+                if (started.Count == RailwayCoordinates.MaxConcurrentBuilds) blocked.TrySetResult();
+                release.Wait(token);
+            }
+            var geometry = WorldSceneSession.BuildGeometry(id =>
+                new([new(id(""), null, SceneFixtures.Identity, null, [], [], [])], [], []));
+            var part = new NodeScene.Part(data.ChunkInputs(from), geometry,
+                ImmutableDictionary<GridColumn, double>.Empty.Add(from, 1));
+            if (expected is not null && Interlocked.Increment(ref completed) == expected.Count) allCompleted.TrySetResult();
+            return part;
+        });
+        try
+        {
+            await Settle(scene, snapshot, default);
+            var original = Chunks(cache).Keys.ToHashSet();
+            expected = new NodeRange(ahead, NodeStreaming.PrefetchCells).Chunks(scene.Layout!)
+                .Where(from => !original.Contains(from)).ToHashSet();
+            Assert.IsTrue(expected.Any(from => !new NodeRange(default, NodeStreaming.RetainCells).Intersects(from)));
+            scene.Pump(focus: default(ScenePoint), prefetchFocus: ahead);
+            await blocked.Task;
+            Assert.AreEqual(RailwayCoordinates.MaxConcurrentBuilds, started.Count,
+                "Predictive work must keep the existing bounded build slots.");
+            release.Set();
+            await allCompleted.Task;
+            await SceneFixtures.AwaitPendingWork(scene.PendingWork);
+            scene.Pump(focus: default(ScenePoint), prefetchFocus: ahead);
+            scene.Pump(focus: default(ScenePoint), prefetchFocus: ahead);
+
+            CollectionAssert.AreEquivalent(expected.ToArray(), started.ToArray());
+            var retained = Chunks(cache);
+            Assert.IsTrue(expected.All(retained.ContainsKey),
+                "Completed predictive parts must survive both queued-result and admitted-part retirement.");
+            Assert.IsTrue(original.All(retained.ContainsKey), "The original prefetch circle remains covered.");
+            Assert.IsTrue(retained.Keys.All(from => new NodeRange(default, NodeStreaming.RetainCells).Intersects(from) ||
+                new NodeRange(ahead, NodeStreaming.PrefetchCells).Intersects(from)));
+        }
+        finally { release.Set(); }
+    }
+
+    [TestMethod]
     [DataRow(false, false, false)]
     [DataRow(false, true, false)]
     [DataRow(true, true, false)]
