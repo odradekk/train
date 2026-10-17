@@ -1,0 +1,1 @@
+{"schema_version":3,"id":"tree-trunk","appearance":{"allowed_orientations":"four_way","presentation":{"kind":"cube","material":"organic","faces":{"top":"top.png","side":"top.png","bottom":"top.png"},"tile_span":1}},"display":{"name":"树皮","description":"用于自然环境和铁路场景的树皮。","icon":"shared/organic-icon.png"}}

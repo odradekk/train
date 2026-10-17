@@ -1,0 +1,1 @@
+{"schema_version":3,"id":"street-lamp","appearance":{"allowed_orientations":"four_way","presentation":{"kind":"cube","material":"painted_metal","faces":{"top":"top.png","side":"top.png","bottom":"top.png"},"tile_span":1},"behaviors":{"light":{}}},"display":{"name":"路灯","description":"用于自然环境和铁路场景的路灯。","icon":"shared/equipment-icon.png"}}

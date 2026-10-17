@@ -63,10 +63,14 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "ballast_voxel",
         "minimum_curve_radius_meters",
         "maximum_grade"
       ],
       "properties": {
+        "ballast_voxel": {
+          "$ref": "common.schema.json#/$defs/definitionRef"
+        },
         "minimum_curve_radius_meters": {
           "type": "number",
           "exclusiveMinimum": 0

@@ -44,7 +44,7 @@ internal sealed class NodeScene : IAsyncDisposable
         }
     }
     internal sealed record Preparation(SceneWorldSnapshot Snapshot, Built Global,
-        TerrainAppearanceProjection? Terrain,
+        TerrainAppearanceProjection? Terrain, VoxelDefinitionId BallastVoxel,
         Dictionary<VoxelDefinitionId, VoxelAppearanceProjection?> Appearances,
         Dictionary<GridColumn, ImmutableArray<SceneVoxelProjection>> ModelChunks,
         Dictionary<GridColumn, Dictionary<GridColumn, RailBed>> BedChunks,
@@ -68,7 +68,7 @@ internal sealed class NodeScene : IAsyncDisposable
             token.ThrowIfCancellationRequested();
             var inputs = ChunkInputs(from);
             return previous?.Inputs == inputs ? previous : TerrainPart(Snapshot,
-                Snapshot.Core.World.Nodes.Single(node => node.Id == Global.Layout.Node), Global.Layout, Terrain, Appearances,
+                Snapshot.Core.World.Nodes.Single(node => node.Id == Global.Layout.Node), Global.Layout, Terrain, BallastVoxel, Appearances,
                 BedChunks.GetValueOrDefault(from) ?? [], BoundaryChunks.GetValueOrDefault(from) ?? [],
                 ModelChunks.GetValueOrDefault(from, []), from, token) with { Inputs = inputs };
         }
@@ -229,7 +229,7 @@ internal sealed class NodeScene : IAsyncDisposable
         {
             var currentLayout = layout ?? NodeLayout.Build(initial, node, cancellation.Token);
             return generate is null ? Prepare(initial, currentLayout, previous, cancellation.Token) :
-                new Preparation(initial, generate(initial, node, previous, cancellation.Token), null, [], [], [], [], "", [], false);
+                new Preparation(initial, generate(initial, node, previous, cancellation.Token), null, default, [], [], [], [], "", [], false);
         }, cancellation.Token);
     }
     private void InitializeRange(NodeLayout value)
@@ -458,6 +458,8 @@ internal sealed class NodeScene : IAsyncDisposable
         var map = snapshot.Core.World.Nodes.Single(item => item.Id == node);
         var terrainLookup = snapshot.Content.FindTerrain(map.Terrain.TypeId);
         var terrain = (terrainLookup as ContentLookup<TerrainAppearanceProjection>.Found)?.Value;
+        var ballastVoxel = snapshot.Content.FindRailwayAppearance(snapshot.Core.World.RailwayRule) is ContentLookup<RailwayAppearanceProjection>.Found rules
+            ? rules.Value.BallastVoxel : throw new RailwayBuildException("The railway appearance is missing.");
         var appearances = new Dictionary<VoxelDefinitionId, VoxelAppearanceProjection?>();
         if (terrain is not null)
             foreach (var id in new[] { terrain.SurfaceVoxel, terrain.SubsurfaceVoxel, terrain.RockVoxel }.Distinct())
@@ -533,6 +535,11 @@ internal sealed class NodeScene : IAsyncDisposable
             (int)Math.Floor((double)at.Z / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize);
         var bedChunks = bed.GroupBy(item => Chunk(item.Key)).ToDictionary(group => group.Key, group => group.ToDictionary());
         var boundaryChunks = boundaryColumns.GroupBy(Chunk).ToDictionary(group => group.Key, group => group.ToHashSet());
+        if (bed.Count > 0)
+        {
+            appearances[ballastVoxel] = (snapshot.Content.FindVoxelAppearance(ballastVoxel) as ContentLookup<VoxelAppearanceProjection>.Found)?.Value;
+            terrainInputs = RailwayDependencies.Values(new object?[] { terrainInputs, ballastVoxel, appearances[ballastVoxel] });
+        }
         if (terrain is null)
             RailwayTerrain.ReportMissing(new ContentReference.Core(new CoreDefinitionReference.Terrain(map.Terrain.TypeId)),
                 terrainLookup is ContentLookup<TerrainAppearanceProjection>.Missing missingTerrain ? missingTerrain.Diagnostics : [],
@@ -547,7 +554,7 @@ internal sealed class NodeScene : IAsyncDisposable
         var uniqueProblems = RailwayTerrain.UniqueProblems(diagnostics);
         var problemInputs = RailwayDependencies.Values(uniqueProblems);
         Put("diagnostics", problemInputs, () => GridPart([], ImmutableDictionary<GridColumn, double>.Empty, uniqueProblems));
-        return new(snapshot, new(layout, parts.ToImmutable(), boundaries.ToImmutable()), terrain,
+        return new(snapshot, new(layout, parts.ToImmutable(), boundaries.ToImmutable()), terrain, ballastVoxel,
             appearances, modelChunks, bedChunks, boundaryChunks, terrainInputs, rails.ToImmutable());
 
         void Put(string name, string inputs, Func<Part> create)
@@ -613,7 +620,7 @@ internal sealed class NodeScene : IAsyncDisposable
 
     internal sealed record RailBed(double Distance, double Height);
     private static Part TerrainPart(SceneWorldSnapshot snapshot, NodeMapItem node, NodeLayout layout,
-        TerrainAppearanceProjection? terrain, Dictionary<VoxelDefinitionId, VoxelAppearanceProjection?> appearances,
+        TerrainAppearanceProjection? terrain, VoxelDefinitionId ballastVoxel, Dictionary<VoxelDefinitionId, VoxelAppearanceProjection?> appearances,
         Dictionary<GridColumn, RailBed> bed, HashSet<GridColumn> boundaryColumns, ImmutableArray<SceneVoxelProjection> model,
         GridColumn from, CancellationToken token)
     {
@@ -623,6 +630,7 @@ internal sealed class NodeScene : IAsyncDisposable
         var heights = ImmutableDictionary.CreateBuilder<GridColumn, double>();
         var subject = new PickSubject.Terrain(new WorldLocation.Node(node.Id));
         var layers = RailwayTerrain.PrepareLayers(terrain, id => appearances.GetValueOrDefault(id), subject);
+        var ballast = bed.Count > 0 ? RailwayTerrain.PrepareVoxel(ballastVoxel, id => appearances.GetValueOrDefault(id), subject) : null;
         for (var z = from.Z; z < from.Z + VoxelGrid.ChunkSize; z++)
         for (var x = from.X; x < from.X + VoxelGrid.ChunkSize; x++)
         {
@@ -631,7 +639,7 @@ internal sealed class NodeScene : IAsyncDisposable
             if (boundaryColumns.Contains(column)) continue;
             var (height, distance) = Column(column);
             heights.Add(column, height + 1);
-            RailwayTerrain.FillColumn(cells, column, height, layers, layers?.Rock, distance, double.IsFinite(distance));
+            RailwayTerrain.FillColumn(cells, column, height, layers, ballast, distance, double.IsFinite(distance));
         }
         var modelCells = ImmutableArray.CreateBuilder<SceneCell>();
         foreach (var voxel in model)

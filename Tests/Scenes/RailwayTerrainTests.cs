@@ -53,7 +53,7 @@ public sealed class RailwayTerrainTests
     [DataRow(10.0, true, false)]
     [DataRow(10.5, true, false)]
     [DataRow(11.5, false, false)]
-    public void SharedColumnUsesTheSameBedLayersAtTrackShoulder(double distance, bool firstRock, bool secondRock)
+    public void SharedColumnUsesTheSameBedLayersAtTrackShoulder(double distance, bool firstBallast, bool secondBallast)
     {
         var terrain = RailwayFixtures.TerrainAppearance with
         {
@@ -63,9 +63,12 @@ public sealed class RailwayTerrainTests
         var height = RailwayTerrain.BedHeight(0, distance);
         var layers = RailwayTerrain.PrepareLayers(terrain, id => SceneFixtures.Cube with { Definition = id },
             new PickSubject.Terrain(new WorldLocation.Node(new(1))));
-        RailwayTerrain.FillColumn(cells, new(1, 2), height, layers, layers!.Rock, distance, true);
-        Assert.AreEqual(firstRock ? terrain.RockVoxel : terrain.SurfaceVoxel, cells[0].Appearance!.Definition);
-        Assert.AreEqual(secondRock ? terrain.RockVoxel : terrain.SubsurfaceVoxel, cells[1].Appearance!.Definition);
+        var ballastId = new VoxelDefinitionId("test:ballast");
+        var ballast = RailwayTerrain.PrepareVoxel(ballastId, id => SceneFixtures.Cube with { Definition = id },
+            new PickSubject.Terrain(new WorldLocation.Node(new(1))));
+        RailwayTerrain.FillColumn(cells, new(1, 2), height, layers, ballast, distance, true);
+        Assert.AreEqual(firstBallast ? ballastId : terrain.SurfaceVoxel, cells[0].Appearance!.Definition);
+        Assert.AreEqual(secondBallast ? ballastId : terrain.SubsurfaceVoxel, cells[1].Appearance!.Definition);
         Assert.AreEqual((int)height, cells[0].At.Y);
         Assert.AreEqual(RailwayCoordinates.TerrainDepthCells, cells.Count);
     }
@@ -244,8 +247,9 @@ public sealed class RailwayTerrainTests
     }
 
     [TestMethod]
-    public void NodeMaterialTransitionDoesNotReplaceTheLineRockInTrackbed()
+    public void TrackbedUsesRuleBallastAcrossNodeAndLineMaterialTransitions()
     {
+        var ballastId = new VoxelDefinitionId("test:ballast");
         var nodeType = new TerrainTypeId("test:node-terrain");
         var lineTerrain = RailwayFixtures.TerrainAppearance;
         var nodeTerrain = lineTerrain with
@@ -255,11 +259,14 @@ public sealed class RailwayTerrainTests
             SubsurfaceVoxel = ModelVoxel,
             RockVoxel = ModelVoxel
         };
-        var content = RailwayFixtures.Content(terrain: lineTerrain,
+        var content = RailwayFixtures.Content(terrain: lineTerrain, rules: RailwayFixtures.Rules with { BallastVoxel = ballastId },
             terrains: new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
             { [nodeTerrain.Id] = new ContentLookup<TerrainAppearanceProjection>.Found(nodeTerrain) },
             voxels: new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
-            { [ModelVoxel] = new ContentLookup<VoxelAppearanceProjection>.Found(ModelAppearance("node-rock")) });
+            {
+                [ModelVoxel] = new ContentLookup<VoxelAppearanceProjection>.Found(ModelAppearance("node-rock")),
+                [ballastId] = new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube with { Definition = ballastId })
+            });
         var snapshot = Short(content);
         foreach (var node in snapshot.Core.World.Nodes)
             snapshot = RailwayFixtures.ReplaceCore(snapshot, node with { Terrain = node.Terrain with { TypeId = nodeType } });
@@ -271,8 +278,8 @@ public sealed class RailwayTerrainTests
         var trackbed = cells.Where(cell => Math.Abs(cell.At.X + 0.5) < RailwayCoordinates.BedTopHalfWidth && cell.At.Y + segment.Origin.Y < 0 &&
             cell.At.Y + segment.Origin.Y >= segment.Heights[new(cell.At.X, cell.At.Z)] - 2).ToArray();
         Assert.IsTrue(trackbed.Length > 0);
-        Assert.IsTrue(trackbed.All(cell => cell.Appearance?.Definition == SceneFixtures.Voxel),
-            "Trackbed must retain the line rock even where node rock differs.");
+        Assert.IsTrue(trackbed.All(cell => cell.Appearance?.Definition == ballastId),
+            "Trackbed must use the rule's ballast instead of either terrain's rock.");
     }
 
     [TestMethod]
