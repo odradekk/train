@@ -14,6 +14,7 @@ internal sealed partial class MeasurementRun
     private const float InnerSampleRadiusCells = 32; // 16 米
     private const float NearAreaRadiusCells = 64; // 32 米，也是参考匹配半径
     private const float ReferenceCaptureRadiusCells = 128; // 64 米
+    private const float ReferenceSpacingCells = 32; // 16 米，小于 32 米参考匹配半径
     private const double ReferenceMatchRadiusMeters = 32;
     private double _probeFogSeconds, _probePointSeconds, _probeBusinessSeconds;
     private int _probeFogRegionCount;
@@ -76,17 +77,12 @@ internal sealed partial class MeasurementRun
         var controller = _app.WorldScenes!;
         var display = controller.Display!;
         var camera = controller.View.CameraRig;
-        var center = new NVector(camera.Focus.X, camera.Focus.Y, camera.Focus.Z);
-        if (follow is not null)
+        var (center, location, followedFound) = LocateProbeFocus(frame, follow);
+        if (!followedFound)
         {
-            if (frame.FindPose(follow) is not Lookup<ScenePose>.Found pose)
-            {
-                detail = new { focusTarget = follow.ToString(), reason = "follow_pose_missing" };
-                return false;
-            }
-            center = pose.Value.Position;
+            detail = new { focusTarget = follow!.ToString(), reason = "follow_pose_missing" };
+            return false;
         }
-        var location = frame.Locate(center) is Lookup<WorldLocation>.Found found ? found.Value : null;
         var node = location is WorldLocation.Node n ? (int?)n.Id.Value : null;
         var edge = location as WorldLocation.Edge;
         var absolute = center + ProbeOrigin(frame);
@@ -98,7 +94,7 @@ internal sealed partial class MeasurementRun
         {
             if (readyGeometry &&
                 (!_probeReferenceCenters.TryGetValue(frame.Update.Frame.Space, out var recordedCenter) ||
-                    NVector.Distance(absolute, recordedCenter) >= InnerSampleRadiusCells))
+                    NVector.Distance(absolute, recordedCenter) >= ReferenceSpacingCells))
             {
                 _probeReferenceCenters[frame.Update.Frame.Space] = absolute;
                 _probeRecordedViews.Add(CaptureSceneReference(frame, center, node, edge));
@@ -208,7 +204,6 @@ internal sealed partial class MeasurementRun
         }
         ProbePick? followed = follow is not null ? ProbeBusiness(frame, display,
             new("follow", follow.ToString()!, new(center, center))) : null;
-        var fogClear = intersectingFog == 0;
         _probeState = new("near_check", frame.Update.Frame.Space, 0, samplesPassed, nearBusiness.Length,
             businessPassedCount, railGeometry.Length, railGeometry.Count(item => item.ready), followed?.Picked == true);
         detail = new { focus = new { x = center.X, y = center.Y, z = center.Z }, radiusMeters = 32,
@@ -216,11 +211,11 @@ internal sealed partial class MeasurementRun
             frame = frame.Update.Frame.ToString(), origin = frame.Origin, simulationSeconds = frame.SimulationSeconds,
             location = location?.ToString(), samplingDomain = node is not null ? "node-circle" : "railway-reference-terrain-band",
             samples = points, samplesPassed, nearPointsPassed = samplesPassed == 17,
-            intersectingFog, fogClear, expectedKnown = known, railGeometryPassed, railGeometry,
+            intersectingFog, expectedKnown = known, railGeometryPassed, railGeometry,
             businessPassed, business = results, emptyBusinessArea = known && nearBusiness.Length == 0,
             followed };
         _probeBusinessSeconds += Seconds() - stageStarted;
-        return known && samplesPassed == 17 && fogClear && railGeometryPassed && businessPassed &&
+        return known && samplesPassed == 17 && railGeometryPassed && businessPassed &&
             (followed is null || followed.Visible && followed.Picked);
     }
 
@@ -264,17 +259,28 @@ internal sealed partial class MeasurementRun
                 location is WorldLocation.Edge edge && view.Edge == (int)edge.Id.Value &&
                 view.ArcMeters is { } arc && Math.Abs(arc - edge.DistanceMeters) <= ReferenceMatchRadiusMeters));
 
+    private (NVector Center, WorldLocation? Location, bool FollowedFound) LocateProbeFocus(ISceneFrame frame, WorldObjectId? follow)
+    {
+        var focus = _app.WorldScenes!.View.CameraRig.Focus;
+        var center = new NVector(focus.X, focus.Y, focus.Z);
+        var followedFound = follow is null;
+        if (follow is not null && frame.FindPose(follow) is Lookup<ScenePose>.Found pose)
+        {
+            center = pose.Value.Position;
+            followedFound = true;
+        }
+        var location = frame.Locate(center) is Lookup<WorldLocation>.Found found ? found.Value : null;
+        return (center, location, followedFound);
+    }
+
     private void CaptureReadyReference(ISceneFrame frame, WorldObjectId? follow)
     {
         if (_scenario == "scene-reference" || _probeReadyChecked || frame.Readiness != SceneReadiness.Ready ||
             _app.WorldScenes!.Display?.DisplayedFrame is not { Readiness: SceneReadiness.Ready } drawn ||
             drawn.Update.Frame.Space != frame.Update.Frame.Space) return;
         var started = Seconds();
-        var focus = _app.WorldScenes.View.CameraRig.Focus;
-        var center = follow is not null && frame.FindPose(follow) is Lookup<ScenePose>.Found pose
-            ? pose.Value.Position : new NVector(focus.X, focus.Y, focus.Z);
+        var (center, location, _) = LocateProbeFocus(frame, follow);
         var absolute = center + ProbeOrigin(frame);
-        var location = frame.Locate(center) is Lookup<WorldLocation>.Found found ? found.Value : null;
         _probeReadySnapshot = new(FindSceneReference(absolute, location), absolute,
             ReferenceObjects(frame, center, NearAreaRadiusCells).ToArray(), started, frame.Update.Frame,
             _app.Host!.GetStatus()!.View.Position);
@@ -324,9 +330,8 @@ internal sealed partial class MeasurementRun
     }
 
     private static SceneBounds ReferenceBounds(ProbeReferenceObject item) =>
-        ReferenceBounds(item.Bounds);
-    private static SceneBounds ReferenceBounds(double[] bounds) =>
-        new(new((float)bounds[0], (float)bounds[1], (float)bounds[2]), new((float)bounds[3], (float)bounds[4], (float)bounds[5]));
+        new(new((float)item.Bounds[0], (float)item.Bounds[1], (float)item.Bounds[2]),
+            new((float)item.Bounds[3], (float)item.Bounds[4], (float)item.Bounds[5]));
     private static bool ReferenceMatches(ProbeReferenceObject left, ProbeReferenceObject right) =>
         left.Subject == right.Subject && left.Decorations.SequenceEqual(right.Decorations) &&
         left.Position.Concat(left.Rotation).Concat(left.Bounds).Zip(right.Position.Concat(right.Rotation).Concat(right.Bounds))

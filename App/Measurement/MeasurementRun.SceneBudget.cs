@@ -224,7 +224,6 @@ internal sealed partial class MeasurementRun
 
     private async Task OpenSceneMeasured(string name, WorldObjectId target, double? loadButton = null)
     {
-        FlushSceneProbeCosts();
         ResetSceneProbe();
         _scenePhase = name;
         _sceneOperation = name;
