@@ -35,7 +35,7 @@
 
 ## 经济运输正式内容
 
-`builtin/core/resources/` 当前提供经济运输切片的正式输入，由 [generate_small_world.py](../../scripts/content/generate_small_world.py) 独占生成：三种轨距的小型／中型／超大型机车、小站点和站台设备、五类聚居地与六份模板、五种地貌及桥隧模型、五类规则和 `core:basic-through-world` 生成配置。PNG 的唯一可编辑源也是该脚本，附带确定 UID 的 Keep File `.import`；改图后须重制。
+`builtin/core/resources/` 当前提供经济运输切片的正式输入：三种轨距的小型／中型／超大型机车、小站点和站台设备、五类聚居地与六份模板、五种地貌及桥隧模型、五类规则和 `core:basic-through-world` 生成配置。除下述手绘图标外，JSON 和 PNG 由 [generate_small_world.py](../../scripts/content/generate_small_world.py) 生成，该脚本是生成贴图的唯一可编辑源。所有 PNG 的 Keep File `.import` 由脚本生成，UID 由路径确定。
 
 第一阶段风格样稿覆盖 `ground`、`subsoil`、`rock` 和小型机车使用的五种货物体素：`structural-metal`、`bogie`、`propulsion-equipment`、`control-equipment`、`storage-equipment`。面贴图每格 32 px，图标 128×128、透明底；土层图与车辆底面放在 `voxels/shared/` 复用。小型机车采用驾驶室、机器间、两侧检修走廊和端部平台的外形，轮对格位与体素数量沿用原内容。中型、超大型蓝图保持原模板，共用的体素表现会随本批素材更新；其余资产仍为占位。本批样稿不代表完整 Demo 美术完成，画面待用户阶段试玩确认。
 
@@ -59,7 +59,21 @@ python scripts/content/generate_small_world.py --output-dir TestResults/content-
 pwsh -NoProfile -File scripts/test.ps1 -Project content -Layer fast,integration
 ```
 
-`--check` 比较全部文件清单与字节、校验 Schema，并调用独立经济检查器；目录中多出、缺少或手改任何文件都会失败。生成时也拒绝多余文件，避免覆盖未归脚本所有的内容。修改正式内容应修改生成脚本，再重制；每份 JSON 必须在现有 1 MiB 单文件上限内。新 PNG 的 `.import` 已设置 `importer="keep"`，无头导入后应保持不变。
+`--check` 核对全部文件清单、比较生成文件字节、校验 Schema，并调用独立经济检查器；缺少文件、生成文件字节不同或出现未登记文件均失败。生成模式也拒绝未登记文件。修改生成内容应改脚本后重制；每份 JSON 必须在现有 1 MiB 单文件上限内。PNG 的 `.import` 为 `importer="keep"`，无头导入后应保持不变。使用空的 `--output-dir` 重制时，需另行提供手绘清单中的源 PNG 才能通过该目录的 `--check`；生成器不会复制它们。
+
+### 手绘货物图标
+
+当前手绘源为 `resources/voxels/coal/icon.png` 和 `resources/voxels/grain/icon.png`，相对 `builtin/core/`。它们由图像模型生成，整理后的最终 PNG 本身就是唯一源，不在 `art-source/` 留副本，也不提交整理脚本。后续直接编辑内容目录内的 PNG，在运行中的 Debug 构建中用 `reload` 或 Ctrl+Shift+R 检查。贴图仍修改生成脚本后重制。
+
+生成器的 `RAW_GOODS_ART` 逐项登记这批货物的表现绑定，原料创建处查表并把实际值传给 `voxel()`；`HAND_DRAWN_ICONS` 从同一张表推导出固定的源 PNG 路径，不使用目录或扩展名通配。生成器不写、不复制这些图；生成和检查都允许它们存在，`--check` 在缺图时失败；对应 `.png.import` 仍生成。新增 #393、#394 图标时同步扩充表现表和本节路径表，其余文件的拒绝规则保持不变。
+
+共用提示词模板：
+
+> 为《Train》绘制单个「{货物名称}」物品图标。近未来工业题材的克制手绘 2D 插画，四分之三视角，光从左上方来，深色外轮廓。构图遵循「{组别统一画法}」，物品为「{本项物品形状与包装}」，固有色与块形为「{本项特征}」。只画物品，居中，四周留边，透明背景；无文字、数量、外框、底板、水印或场景。缩小后仍以大形和固有色辨识。
+
+同用途资产沿用同一种构图：六种固体矿物与化石原料均为居中的低矮货堆，主堆与前方散落物的位置一致，用固有色、块形和粒度区分；硅砂为平滑砂堆。原油用储油桶；农畜产品用常见包装与内容物；原木成捆，纤维压成方包。后续批次先确定各用途的统一画法，再套用逐项特征。
+
+模型输出只整理一次：检查透明度，裁去透明空边并清除背景残留；保留透明度，使用预乘透明度重采样，等比缩放到最大边约 100 px；居中放入透明的 128×128 画布，保存为最终 `icon.png`。检查浅底、深底上的白边与残色。再放进美术 07 的外框（`#e3e7ea`→`#c2c9d0` 渐变底、`#6b7580` 边框、物品区域占边长的 78%），以 32、48、64 px 检查辨识，并在真实游戏 UI 查看。实际模型、逐项提示词、整理步骤和截图记录在工单完成评论。
 
 真实内容加载测试只验证 Content 的解析、引用和设计投影。世界测量及固定种子的节点／线路定位记录见 [#372](https://github.com/odradekk/train/issues/372) 测量评论；三维弯坡、轮轨表现与看图确认归 #298，依赖 PR #431 合并。游戏已不加载 `builtin/legacy-host/`；该目录仅保留资产导出探针与 `ContentPortsTests` 使用的 PNG 夹具。宿主已在 #424 接入真实工厂，导出规则清理归 #377。
 

@@ -4,7 +4,7 @@ python scripts/content/generate_small_world.py
 python scripts/content/generate_small_world.py --check
 python scripts/content/generate_small_world.py --output-dir TestResults/reproduction
 
-脚本独占输出目录 resources/；校验模式拒绝缺失、多余或字节不同的文件，
+脚本生成 resources/，手绘图标按 HAND_DRAWN_ICONS 保留；校验模式拒绝缺失、多余或生成字节不同的文件，
 并按仓库 Schema 检查 JSON（校验需要 jsonschema）。生成只用 Python 标准库。
 地形与小型机车使用第一阶段风格样稿，其余美术仍为占位；数值待配平，
 数值和画面待用户试玩确认；NPC 库存与现车初始化已启用，车队待 #340。
@@ -98,6 +98,13 @@ RESOURCE_PROFILES = (
 )
 RAW_GOODS = {row[1] for row in RESOURCE_PROFILES} | {"grain", "produce", "animal-products", "natural-fiber"}
 ALL_SHAPES = ["cube", "half", "plate", "wedge", "corner-wedge", "beam", "cylinder"]
+
+RAW_GOODS_ART = {
+    "coal": ("stone_soil", 2, None, None),
+    "grain": ("organic", 1, "side.png", None),
+}
+# 表中货物的 icon.png 是唯一源，生成器只生成 Keep File 导入声明。
+HAND_DRAWN_ICONS = tuple(f"voxels/{identity}/icon.png" for identity in RAW_GOODS_ART)
 
 # id、显示名、质量/耐久对照的已有货物、共享占位图族。
 # 只复制这两个物理字段，不继承对照货物的功能或经济身份。
@@ -290,6 +297,11 @@ SOIL_PEBBLES = ((1, 24, 3), (15, 61, 2), (19, 109, 3), (29, 16, 2), (34, 85, 2),
                 (88, 36, 2), (100, 66, 3), (112, 114, 2), (120, 46, 2), (126, 91, 2))
 ROCK_BLOCKS = ((7, 18, -8), (13, 85, 9), (37, 49, 3), (43, 117, -4),
                (61, 15, 11), (70, 84, -11), (87, 48, -3), (104, 113, 5), (120, 13, -6))
+MINERAL_FRAGMENTS = ((3, 4, -4), (21, 2, 9), (35, 8, -1), (57, 3, 6), (12, 17, 0),
+                     (27, 19, -8), (47, 18, 11), (61, 24, -5), (5, 31, 6), (18, 33, -3),
+                     (35, 32, 12), (48, 35, 0), (59, 43, 8), (7, 48, -8), (25, 46, 7),
+                     (38, 53, -2), (51, 59, -5), (17, 62, 11), (29, 58, -10), (50, 6, -6),
+                     (3, 57, 4), (33, 42, -6), (44, 46, 4), (16, 8, 2))
 
 
 def soil_texture(x, y):
@@ -322,6 +334,39 @@ def rock_texture(x, y):
                        for cx, cy, shade in ROCK_BLOCKS)
     change = -26 if distances[1][0] - distances[0][0] < 45 else distances[0][1]
     return tint(ROCK, change + grain(x, y, 128, 0x506) // 2)
+
+
+def mineral_texture(x, y, color):
+    # 不规则取样点在 64 px 环面上分块，边界跨贴图连续；块面色差没有光照方向。
+    distances = sorted(((((x - cx + 32) % 64 - 32) ** 2 + ((y - cy + 32) % 64 - 32) ** 2) ** .5, shade)
+                       for cx, cy, shade in MINERAL_FRAGMENTS)
+    change = -27 if distances[1][0] - distances[0][0] < 1.1 else distances[0][1]
+    return tint(color, change + grain(x, y, 64, 0x601) // 2)
+
+
+def coal_texture(x, y):
+    return mineral_texture(x, y, (50, 54, 58))
+
+
+def grain_texture(x, y, side=False):
+    if not side:
+        x, y = min(x, 31 - x), min(y, 31 - y)
+    weave = 3 if (x + y) % 2 == 0 else -2
+    variation = grain(min(x, y), max(x, y), 32, 0x602) // 2
+    if side:
+        body = ((x - 15.5) / 12) ** 2 + ((y - 19) / 12) ** 2
+        mouth = 1 <= y <= 5 and abs(x - 15.5) <= 6 - y / 2
+        tie = 6 <= y <= 8 and 11 <= x <= 20 or 8 <= y <= 12 and x == 29 - y
+        if tie:
+            return tint((105, 82, 47), variation)
+        if mouth:
+            return tint((168, 143, 99), weave + variation - (12 if x in (13, 17) else 0))
+        if y >= 9 and body < 1:
+            seam = body > .8 and (x < 8 or x > 23 or y > 26)
+            stitch = 11 <= y <= 26 and x == 23 and y % 3 != 0
+            return tint((168, 143, 99), weave + variation - (13 if seam else 22 if stitch else 0))
+        return tint((91, 74, 48), grain(x, y, 32, 0x603) // 2)
+    return tint((168, 143, 99), weave + variation)
 
 
 def plate_texture(x, y):
@@ -701,6 +746,9 @@ def content_files():
     voxel("rock", "岩层", "stone_soil", faces("top.png"),
           "icon.png", tile_span=4, description=sample_description.format("岩层"))
     style_assets(files)
+    files["voxels/coal/top.png"] = png(64, coal_texture)
+    files["voxels/grain/top.png"] = png(32, grain_texture)
+    files["voxels/grain/side.png"] = png(32, lambda x, y: grain_texture(x, y, side=True))
 
     for spec in VEHICLES:
         value = small_locomotive() if spec[0] == "small-locomotive" else locomotive(spec)
@@ -756,8 +804,14 @@ def content_files():
                                                    "interval": MACHINE_GUN_INTERVAL_SECONDS * factor}}
         material = "glass" if identity == "glass" else "concrete" if identity == "construction-block" else {
             "soil": "stone_soil", "organic": "organic", "equipment": "painted_metal"}[texture]
-        voxel(identity, name, material, faces(f"shared/{texture}-face.png"), f"shared/{texture}-icon.png", simulation,
-              light=identity == "lamp")
+        face_paths, icon_path = faces(f"shared/{texture}-face.png"), f"shared/{texture}-icon.png"
+        tile_span, description = None, None
+        if identity in RAW_GOODS_ART:
+            material, tile_span, side, bottom = RAW_GOODS_ART[identity]
+            face_paths, icon_path = faces("top.png", side, bottom), "icon.png"
+            description = f"{name}的正式美术；数值待配平，画面待用户阶段试玩确认。"
+        voxel(identity, name, material, face_paths, icon_path, simulation,
+              light=identity == "lamp", tile_span=tile_span, description=description)
 
     for identity, simulation in processes.items():
         item = simulation["extracts"] if simulation["kind"] == "extraction" else (
@@ -1037,7 +1091,7 @@ def content_files():
             "rules": {"population": "basic-population", "market": "basic-market", "construction": "basic-construction",
                       "railway": "basic-railway", "combat": "basic-combat"}},
         "start": {"initial_money": initial_money, "trains": [{"vehicles": [spec[0]], "inventory": []} for spec in VEHICLES]}})
-    for path in list(files):
+    for path in list(files) + list(HAND_DRAWN_ICONS):
         if path.endswith(".png"):
             files[path + ".import"] = keep_import(path)
     return files
@@ -1064,8 +1118,9 @@ def main():
     files = content_files()
     resources = args.output_dir / "resources"
     actual = {path.relative_to(resources).as_posix() for path in resources.rglob("*") if path.is_file()}
-    extra = actual - files.keys()
-    missing = files.keys() - actual
+    expected = files.keys() | set(HAND_DRAWN_ICONS)
+    extra = actual - expected
+    missing = expected - actual
     if extra or (args.check and missing):
         for label, paths in (("多余", extra), ("缺少", missing if args.check else set())):
             for path in sorted(paths):
