@@ -254,6 +254,7 @@ internal sealed class EditorSceneController : IDisposable
         _retrying = false;
         _overlay.Visible = false;
         View.SetActive(false);
+        View.SetLoading(false);
     }
     public void Dispose()
     {
