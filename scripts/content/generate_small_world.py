@@ -6,7 +6,7 @@ python scripts/content/generate_small_world.py --output-dir TestResults/reproduc
 
 脚本独占输出目录 resources/；校验模式拒绝缺失、多余或字节不同的文件，
 并按仓库 Schema 检查 JSON（校验需要 jsonschema）。生成只用 Python 标准库。
-地形与小型机车使用第一阶段风格样稿，其余美术仍为占位；数值待配平，
+自然地形使用正式素材，小型机车保留第一阶段风格样稿，其余美术仍待制作；数值待配平，
 数值和画面待用户试玩确认；NPC 库存与现车初始化已启用，车队待 #340。
 校验同时检查正式内容的经济关系；不生成生物聚落或存档。
 """
@@ -14,7 +14,7 @@ python scripts/content/generate_small_world.py --output-dir TestResults/reproduc
 import argparse
 import hashlib
 import json
-from math import ceil
+from math import ceil, cos, pi, sin
 from pathlib import Path
 import struct
 import subprocess
@@ -264,6 +264,9 @@ RED = (0x7b, 0x3a, 0x2c)
 SOIL = (0x76, 0x59, 0x3f)
 ROCK = (0x7f, 0x7c, 0x76)
 GRASS = (0x6f, 0x8f, 0x4a)
+DRY_GRASS = (0xa3, 0x9a, 0x5c)
+FOREST = (0x55, 0x68, 0x3a)
+CONCRETE = (0xa8, 0xa5, 0x9e)
 STEEL = (0x8e, 0x93, 0x98)
 YELLOW = (0xd9, 0xa6, 0x2b)
 
@@ -288,8 +291,8 @@ def grain(x, y, size, seed):
 SOIL_PEBBLES = ((1, 24, 3), (15, 61, 2), (19, 109, 3), (29, 16, 2), (34, 85, 2),
                 (47, 45, 3), (51, 122, 2), (64, 73, 2), (71, 7, 3), (80, 101, 2),
                 (88, 36, 2), (100, 66, 3), (112, 114, 2), (120, 46, 2), (126, 91, 2))
-ROCK_BLOCKS = ((7, 18, -8), (13, 85, 9), (37, 49, 3), (43, 117, -4),
-               (61, 15, 11), (70, 84, -11), (87, 48, -3), (104, 113, 5), (120, 13, -6))
+ROCK_CRACKS = ((5, 21, 27, 34), (27, 34, 43, 32), (94, 99, 111, 110),
+               (111, 110, 130, 109), (-6, 61, 12, 55), (12, 55, 19, 43))
 
 
 def soil_texture(x, y):
@@ -300,28 +303,77 @@ def soil_texture(x, y):
     return tint(SOIL, grain(x, y, 128, 0x501))
 
 
-def grass_texture(x, y):
-    return tint(GRASS, grain(x, y, 128, 0x502))
+def grass_texture(x, y, color=GRASS):
+    blades = -3 if (x * 13 + y * 7) % 31 < 2 else 0
+    return tint(color, grain(x, y, 128, 0x502) + grain(x // 4, y // 4, 32, 0x518) + blades)
 
 
 def forest_ground_texture(x, y):
-    leaves = (x % 32 - 8) ** 2 + 4 * (y % 32 - 12) ** 2 < 25
-    return tint((92, 103, 56) if leaves else (43, 66, 54), grain(x, y, 128, 0x517))
+    for cx, cy, radius in SOIL_PEBBLES:
+        dx, dy = (x - cx + 64) % 128 - 64, (y - cy + 64) % 128 - 64
+        if dx * dx + 3 * dy * dy < radius * radius:
+            return tint((0x76, 0x59, 0x36), grain(x, y, 128, 0x517))
+    return grass_texture(x, y, FOREST)
 
 
-def roots_texture(x, y):
+def roots_texture(x, y, grass=GRASS):
     variation = grain(x, y, 128, 0x503)
-    return tint(SOIL if variation < 3 else tuple((a + b) // 2 for a, b in zip(SOIL, GRASS)), variation)
+    return tint(SOIL if variation < 2 else tuple((a + b) // 2 for a, b in zip(SOIL, grass)), variation)
 
 
 def rock_texture(x, y):
-    # 环面上的不规则石块边界形成裂纹；块面只改变固有色，不画方向性光影。
-    px, py = x + grain(x, y, 128, 0x504) / 2, y + grain(x, y, 128, 0x505) / 2
-    distances = sorted((((px - cx + 64) % 128 - 64) ** 2
-                        + ((py - cy + 64) % 128 - 64) ** 2, shade)
-                       for cx, cy, shade in ROCK_BLOCKS)
-    change = -26 if distances[1][0] - distances[0][0] < 45 else distances[0][1]
-    return tint(ROCK, change + grain(x, y, 128, 0x506) // 2)
+    # 裂纹只画局部断续分支，不把整张岩层切成铺路石块。
+    change = grain(x // 4, y // 4, 32, 0x504) + grain(x, y, 128, 0x506) // 2
+    for ax, ay, bx, by in ROCK_CRACKS:
+        dx, dy = (x - ax + 64) % 128 - 64, (y - ay + 64) % 128 - 64
+        ex, ey = bx - ax, by - ay
+        along = (dx * ex + dy * ey) / (ex * ex + ey * ey)
+        if 0 < along < 1 and abs(dx * ey - dy * ex) < 18:
+            change -= 17
+            break
+    return tint(ROCK, change)
+
+
+def sand_texture(x, y):
+    return tint((0xd4, 0xbe, 0x8c), grain(x // 4, y // 4, 32, 0x519) // 2
+                + grain(x * 4, y * 4, 512, 0x520) // 2)
+
+
+def sandstone_texture(x, y, side=False):
+    bedding = round(4 * sin(2 * pi * y / 32 + .3 * sin(2 * pi * x / 128))) if side else 0
+    return tint((0xb8, 0x8c, 0x60), grain(x, y, 128, 0x521) + bedding)
+
+
+def gravel_texture(x, y):
+    stones = []
+    for row in range(y // 8 - 1, y // 8 + 2):
+        for column in range(x // 8 - 1, x // 8 + 2):
+            key = (column % 16) * 73856093 ^ (row % 16) * 19349663
+            key = (key ^ (key >> 13)) * 1274126177
+            key ^= key >> 16
+            cx, cy = column * 8 + key % 8, row * 8 + (key // 11) % 8
+            stones.append(((x - cx) ** 2 + (y - cy) ** 2, (key // 31) % 17 - 8))
+    stones.sort()
+    shade = -20 if stones[1][0] - stones[0][0] < 8 else stones[0][1]
+    return tint((0x8d, 0x88, 0x80), shade + grain(x, y, 128, 0x522) // 2)
+
+
+def concrete_texture(x, y):
+    seam = -3 if x in (0, 127) else 0
+    return tint(CONCRETE, grain(x, y, 128, 0x523) // 2 + seam)
+
+
+def bark_texture(x, y):
+    grooves = round(6 * cos(2 * pi * x / 8 + .3 * sin(2 * pi * y / 32)))
+    return tint((0x5b, 0x46, 0x32), grooves + grain(x, y, 32, 0x524) // 2)
+
+
+def foliage_texture(x, y):
+    return tint((0x46, 0x66, 0x3a), 2 * grain(x, y, 64, 0x525))
+
+
+def street_lamp_texture(x, y):
+    return tint((0xe1, 0xd4, 0xac) if 5 <= x < 27 and 5 <= y < 27 else GRAPHITE)
 
 
 def plate_texture(x, y):
@@ -407,13 +459,7 @@ def icon(identity):
         polygon([(x+width,y),(x+width+depth,y-depth),(x+width+depth,y+height-depth),(x+width,y+height)], tint(color, -16)[:3])
         polygon([(x,y),(x+width,y),(x+width,y+height),(x,y+height)], color)
 
-    if identity in ("ground", "subsoil", "rock"):
-        color = SOIL if identity != "rock" else ROCK
-        box(22, 55, 62, 42, 22, color)
-        polygon([(22,55),(44,33),(106,33),(84,55)], GRASS if identity == "ground" else tint(color, 18)[:3])
-        for a, b in (((31,75),(42,71)), ((59,85),(70,81)), ((72,65),(80,65))):
-            line(a, b, tint(color, -12)[:3], 3)
-    elif identity == "structural-metal":
+    if identity == "structural-metal":
         box(22, 39, 64, 14, 19, BLUE)
         box(43, 53, 19, 39, 19, BLUE)
         box(22, 88, 64, 13, 19, BLUE)
@@ -452,10 +498,7 @@ def icon(identity):
 def style_assets(files):
     for name, size in (("vehicle-underside", 128), ("equipment-underside", 32), ("bogie-underside", 64)):
         files[f"voxels/shared/{name}.png"] = png(size, underside_texture)
-    files["voxels/shared/subsoil.png"] = png(128, soil_texture)
     for identity, size, top, side in (
-        ("ground", 128, grass_texture, roots_texture),
-        ("rock", 128, rock_texture, None),
         ("structural-metal", 128, tread_texture, plate_texture),
         ("bogie", 64, bogie_top_texture, bogie_side_texture),
         ("propulsion-equipment", 32, grille_texture, engine_texture),
@@ -465,9 +508,38 @@ def style_assets(files):
         files[f"voxels/{identity}/top.png"] = png(size, top)
         if side is not None:
             files[f"voxels/{identity}/side.png"] = png(size, side)
-    for identity in ("ground", "subsoil", "rock", "structural-metal", "bogie", "propulsion-equipment",
+    for identity in ("structural-metal", "bogie", "propulsion-equipment",
                      "control-equipment", "storage-equipment"):
         files[f"voxels/{identity}/icon.png"] = icon(identity)
+
+
+def scene_assets(files, voxel):
+    for identity, name, material, span, top, side in (
+        ("ground", "草地", "organic", 4, grass_texture, roots_texture),
+        ("dry-grass", "干草地", "organic", 4, lambda x, y: grass_texture(x, y, DRY_GRASS),
+         lambda x, y: roots_texture(x, y, DRY_GRASS)),
+        ("forest-ground", "林地", "organic", 4, forest_ground_texture,
+         lambda x, y: roots_texture(x, y, FOREST)),
+        ("subsoil", "土", "stone_soil", 4, soil_texture, None),
+        ("rock", "灰岩", "stone_soil", 4, rock_texture, None),
+        ("sand", "沙", "stone_soil", 4, sand_texture, None),
+        ("sandstone", "砂岩", "stone_soil", 4, sandstone_texture,
+         lambda x, y: sandstone_texture(x, y, side=True)),
+        ("gravel", "碎石", "stone_soil", 4, gravel_texture, None),
+        ("concrete", "混凝土", "concrete", 4, concrete_texture, None),
+        ("tree-trunk", "树皮", "organic", 1, bark_texture, None),
+        ("foliage", "树叶", "organic", 2, foliage_texture, None),
+        ("street-lamp", "路灯", "painted_metal", 1, street_lamp_texture, None),
+    ):
+        top_path = "shared/subsoil.png" if identity == "subsoil" else "top.png"
+        texture_path = f"voxels/{top_path}" if identity == "subsoil" else f"voxels/{identity}/{top_path}"
+        files[texture_path] = png(32 * span, top)
+        if side is not None:
+            files[f"voxels/{identity}/side.png"] = png(32 * span, side)
+        bottom = "shared/subsoil.png" if identity in ("ground", "dry-grass", "forest-ground") else top_path
+        icon_path = top_path if span == 4 else f"shared/{'organic' if material == 'organic' else 'equipment'}-icon.png"
+        voxel(identity, name, material, faces(top_path, "side.png" if side else top_path, bottom), icon_path,
+              tile_span=span, light=identity == "street-lamp", description=f"用于自然环境和铁路场景的{name}。")
 
 
 def faces(top, side=None, bottom=None):
@@ -690,16 +762,7 @@ def content_files():
     for identity, name, mass in goods:
         voxel(identity, name, "organic", faces("shared/organic-face.png"), "shared/organic-icon.png", good(identity, mass))
     voxel("stone", "石料", "stone_soil", faces("shared/soil-face.png"), "shared/soil-icon.png", good("stone", 0.042))
-    voxel("ground", "地表", "organic", faces("top.png", "side.png", "shared/subsoil.png"),
-          "icon.png", tile_span=4, description=sample_description.format("地表"))
-    voxel("forest-ground", "森林地表占位", "organic", faces("top.png"),
-          "icon.png", tile_span=4, description="森林地表占位，正式地形美术归 #358。")
-    files["voxels/forest-ground/top.png"] = png(128, forest_ground_texture)
-    files["voxels/forest-ground/icon.png"] = png(128, forest_ground_texture)
-    voxel("subsoil", "土层", "stone_soil", faces("shared/subsoil.png"),
-          "icon.png", tile_span=4, description=sample_description.format("土层"))
-    voxel("rock", "岩层", "stone_soil", faces("top.png"),
-          "icon.png", tile_span=4, description=sample_description.format("岩层"))
+    scene_assets(files, voxel)
     style_assets(files)
 
     for spec in VEHICLES:

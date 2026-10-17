@@ -1,0 +1,1 @@
+{"schema_version":3,"id":"foliage","appearance":{"allowed_orientations":"four_way","presentation":{"kind":"cube","material":"organic","faces":{"top":"top.png","side":"top.png","bottom":"top.png"},"tile_span":2}},"display":{"name":"树叶","description":"用于自然环境和铁路场景的树叶。","icon":"shared/organic-icon.png"}}
