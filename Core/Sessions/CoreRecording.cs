@@ -124,6 +124,21 @@ internal sealed class CoreRecording
     {
         var manifests = starts.Select(start => start.State.References)
             .Concat(faults.Select(fault => fault.RequiredReferences)).ToArray();
+        var decoded = commands.Select(command => ((CoreResult<DecodedCommand>.Success)CoreCommandEncoding.Decode(command.CanonicalPayload)).Value).ToArray();
+        var designs = decoded.Select(command => command.Command).OfType<CoreCommand.StartOwnedJob>()
+            .Select(command => command.Request).OfType<JobRequest.BuildVehicle>().Select(request => request.Design).ToArray();
+        var commandDefinitions = designs.SelectMany(input =>
+        {
+            var path = $"Recording.Designs[{input.Design.Design.Value}]";
+            var missing = input.Design.MissingReferences.Select(reference => reference.Reference).ToHashSet();
+            return input.Design.Parts.Select(part => new RequiredDefinition(part.Definition, null,
+                    path + $".Parts[{part.Id.Value}].Definition", part.Missing || missing.Contains(part.Definition)))
+                .Concat(WorldReferences.DesignGoods(input.Design)
+                    .Concat(input.AssemblyGoods.Select(good => (good.Good, ".AssemblyGoods")))
+                    .Where(item => WorldReferences.GoodReference(item.Good) is not null)
+                    .Select(item => new RequiredDefinition(WorldReferences.GoodReference(item.Good)!, null,
+                        path + item.Item2, missing.Contains(WorldReferences.GoodReference(item.Good)!))));
+        });
         var inputs = manifests.SelectMany(manifest => manifest.Inputs)
             .Concat(commands.SelectMany(command =>
             {
@@ -132,13 +147,14 @@ internal sealed class CoreRecording
                     ? new[] { command.InputBefore, command.InputAfter, identity }
                     : [command.InputBefore, command.InputAfter];
             }))
+            .Concat(designs.Select(input => input.InputIdentity))
             .Distinct().OrderBy(input => input.Value, StringComparer.Ordinal).ToImmutableArray();
         return new(
-            manifests.SelectMany(manifest => manifest.Designs).Distinct()
+            manifests.SelectMany(manifest => manifest.Designs).Concat(designs.Select(input => input.Design.Design)).Distinct()
                 .OrderBy(design => design.Value, StringComparer.Ordinal).ToImmutableArray(),
             manifests.SelectMany(manifest => manifest.Templates).DistinctBy(template => template.Owner)
                 .OrderBy(template => template.Owner.Value).ToImmutableArray(),
-            manifests.SelectMany(manifest => manifest.Definitions).Distinct()
+            manifests.SelectMany(manifest => manifest.Definitions).Concat(commandDefinitions).Distinct()
                 .OrderBy(definition => WorldReferences.DefinitionKey(definition.Definition), StringComparer.Ordinal)
                 .ThenBy(definition => definition.Field, StringComparer.Ordinal).ToImmutableArray(), inputs);
     }

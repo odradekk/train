@@ -25,6 +25,8 @@
 
 ### Cube Voxel Rendering
 
+面贴图的涂装目标规则见[美术 03](../art/03-color-and-paint.md#玩家涂装)，实现与资产迁移责任见[本阶段分工](../art/03-color-and-paint.md#本阶段)。
+
 - Demo：Chunk → Face Culling → Chunk Surface Mesh，只生成未被视觉完全遮挡的面；是否占格或有碰撞盒不等于完全遮挡。非满格 Custom Mesh 和镂空材质默认不遮住整个邻面，不能从占格或碰撞盒推断视觉上完全遮挡。不使用 one MeshInstance per voxel。
 - 阶段 2 接入无磨损立方体面的有界 Greedy Meshing，不改变 World、Chunk 或逐格拾取语义；范围及材质／涂装、贴图资产、UV 轴／跨度、法线／平面、透明／损坏和拾取边界条件统一见 [01 的区块面合并](01-voxel-engine-and-scenes.md#区块面合并)。当前 Glass 不透明，独立 Front 使用跨度 1，二者不另行排除；透明路径仍不在本次合并范围。
 - 合并矩形四边按单位格点分段，以中心扇形三角化；单格面保持四顶点、两三角形。边界和中心顶点沿用矩形内的仿射插值，避免 T 接缝并保持贴图、面内坐标及相对高度连续，具体规则同上。
@@ -33,6 +35,8 @@
 - 磨损叠加：着色器在面贴图上叠加和部位有关的磨损：按体素在所在对象中的高度给下部积灰，朝上的面落尘，外露的棱边掉漆，再加一层低频杂色，随机种子取实例身份。高度按对象网格计算，车辆和建筑用自身网格，场景模型用它摆放时的范围；外露的棱边由网格构建时按相邻格写入每个面。Custom Mesh 只叠加下部积灰和杂色。不属于场景模型的场景体素（地形、道床）不叠加磨损；铁轨断点范围内的道床和地面叠加焦黑，见[美术 06](../art/06-wear-damage-and-motion.md#铁轨断点与修复中的工地)。表面损伤用同样的方式叠加共用的损伤图案（[01](01-voxel-engine-and-scenes.md#场景中的结构破损)）。画法见[美术 06](../art/06-wear-damage-and-motion.md#磨损的画法)。
 
 ### Custom Static Mesh
+
+模型涂装的目标规则同样见[美术 03](../art/03-color-and-paint.md#玩家涂装)。
 
 - Demo 的 Custom Static Mesh 支持静态模型、基础颜色与贴图、正常光照和阴影，以及不透明和镂空裁剪材质。模型是 `.glb`，单位为米，原点在格的底面中心，+Y 向上、正面朝 +Z，见[体素定义的格式](../content/voxel.md#模型文件的约定)；体素按定义允许的正交朝向放置，24 个朝向都绕格中心旋转。
 - Custom Mesh Voxel 按 Chunk + Mesh + Material 进行局部批处理或实例化。体素引擎层只交出模型实例的列表（模型的 Asset Revision、所在格和朝向），不读取模型几何；Godot 解析模型并决定怎样批处理。Demo 只要求 LOD0；未来 Custom Mesh LOD 属于 Presentation Asset Metadata，而不属于 Gameplay Definition。

@@ -7,6 +7,10 @@ using Train.Core.Tests.Inventory;
 using Train.Core.Tests.Settlements;
 using Train.Core.Tests.Production;
 using Train.Core.Tests.Trading;
+using Train.Core.Tests.Construction;
+
+if (args.Length > 0 && string.Equals(args[0], "--construction-process", StringComparison.Ordinal))
+    return await ConstructionProcessDriver.RunAsync(args[1..]);
 
 if (args.Length > 0 && string.Equals(args[0], "--population-process", StringComparison.Ordinal))
     return await PopulationProcessDriver.RunAsync(args[1..]);
