@@ -10,12 +10,14 @@ internal partial class DesignEditorPanel
     private void EditSpecification()
     {
         var draft = _scene.EnteredDraft;
-        if (draft?.Specification is not DesignSpecification.Vehicle && draft?.Specification is not DesignSpecification.Building)
-        { _service.Report("当前对象没有车辆或建筑规格。大型设备不设包络。"); return; }
+        if (draft?.Specification is not DesignSpecification.Vehicle && draft?.Specification is not DesignSpecification.Building && draft?.Specification is not DesignSpecification.SceneModel)
+        { _service.Report("当前对象没有可编辑规格。大型设备不设包络。"); return; }
         var dialog = new AcceptDialog { Title = "设计规格", OkButtonText = "预览修改" }; AddChild(dialog);
         var body = new VBoxContainer(); dialog.AddChild(body);
         OptionButton? size = null, plot = null, kind = null;
         LineEdit? tags = null;
+        CheckButton? flatten = null;
+        SpinBox? fromX = null, fromZ = null, toX = null, toZ = null, height = null;
         if (draft.Specification is DesignSpecification.Vehicle vehicle)
         {
             body.AddChild(UiStyle.Label("车辆尺寸档位")); size = Choice(body, DesignEditorLabels.VehicleSizes);
@@ -28,10 +30,22 @@ internal partial class DesignEditorPanel
             body.AddChild(UiStyle.Label("设施兼容标签（逗号分隔）"));
             tags = new LineEdit { Text = string.Join(",", building.FacilityTags), PlaceholderText = string.Join(",", Enum.GetNames<FacilityTag>()) }; body.AddChild(tags);
         }
+        else if (draft.Specification is DesignSpecification.SceneModel sceneModel)
+        {
+            flatten = new CheckButton { Text = "启用地形平整范围", ButtonPressed = sceneModel.Flatten is not null }; body.AddChild(flatten);
+            fromX = Number(body, "起点 X", -4096, 4096, sceneModel.Flatten?.From.X ?? 0);
+            fromZ = Number(body, "起点 Z", -4096, 4096, sceneModel.Flatten?.From.Z ?? 0);
+            toX = Number(body, "终点 X", -4096, 4096, sceneModel.Flatten?.To.X ?? 0);
+            toZ = Number(body, "终点 Z", -4096, 4096, sceneModel.Flatten?.To.Z ?? 0);
+            height = Number(body, "平整高度", -4096, 4096, sceneModel.Flatten?.Height ?? 0);
+        }
         dialog.Confirmed += () =>
         {
             DesignSpecification specification;
             if (size is not null) specification = new DesignSpecification.Vehicle(DesignEditorLabels.VehicleSizeValues[size.Selected]);
+            else if (flatten is not null)
+                specification = new DesignSpecification.SceneModel(flatten.ButtonPressed
+                    ? new FlattenRegion(new((int)fromX!.Value, (int)fromZ!.Value), new((int)toX!.Value, (int)toZ!.Value), (int)height!.Value) : null);
             else
             {
                 var values = tags!.Text.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
