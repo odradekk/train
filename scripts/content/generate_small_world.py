@@ -8,7 +8,7 @@ python scripts/content/generate_small_world.py --output-dir TestResults/reproduc
 并按仓库 Schema 检查 JSON（校验需要 jsonschema）。生成只用 Python 标准库。
 自然地形与十二种原料货物已有正式美术，小型机车保留第一阶段风格样稿，聚居地符号来自 ui_symbols；
 其余美术仍待制作，数值待配平，
-数值和画面待用户试玩确认；NPC 库存与现车初始化已启用，车队待 #340。
+数值和画面待用户试玩确认；十一种车辆与两列小型起始车队已接入。
 校验同时检查正式内容的经济关系；不生成生物聚落或存档。
 """
 
@@ -26,9 +26,22 @@ from ui_symbols import SETTLEMENT_SYMBOLS, png, symbol_png
 ROOT = Path(__file__).resolve().parents[2]
 JSON_LIMIT = 1024 * 1024
 VEHICLES = (
-    ("small-locomotive", "小型机车", "small", 52, 7, 9, 3, 1, 2, 4),
-    ("medium-locomotive", "中型机车", "medium", 64, 10, 13, 7, 2, 3, 6),
-    ("extra-large-locomotive", "超大型机车", "extra_large", 104, 20, 26, 15, 4, 5, 10),
+    # id、名称、角色、档位、长宽高、轨距、转向架高度、轴距、端距、设备组数。
+    ("small-locomotive", "小型机车", "locomotive", "small", 52, 7, 9, 3, 1, 2, 4, 1),
+    ("small-freight-wagon", "小型货车", "freight", "small", 52, 7, 9, 3, 1, 2, 4, 1),
+    ("small-armed-wagon", "小型武装车", "armed", "small", 52, 7, 9, 3, 1, 2, 4, 1),
+    ("medium-locomotive", "中型机车", "locomotive", "medium", 64, 10, 13, 7, 2, 3, 6, 2),
+    ("medium-freight-wagon", "中型货车", "freight", "medium", 64, 10, 13, 7, 2, 3, 6, 2),
+    ("medium-armed-wagon", "中型武装车", "armed", "medium", 64, 10, 13, 7, 2, 3, 6, 2),
+    ("large-locomotive", "大型机车", "locomotive", "large", 80, 14, 18, 7, 2, 3, 8, 3),
+    ("large-freight-wagon", "大型货车", "freight", "large", 80, 14, 18, 7, 2, 3, 8, 3),
+    ("extra-large-locomotive", "超大型机车", "locomotive", "extra_large", 104, 20, 26, 15, 4, 5, 10, 4),
+    ("extra-large-freight-wagon", "超大型货车", "freight", "extra_large", 104, 20, 26, 15, 4, 5, 10, 4),
+    ("titan-armed-vehicle", "泰坦武装重型车辆", "armed", "titan", 136, 30, 38, 15, 4, 5, 14, 6),
+)
+START_TRAINS = (
+    ("small-locomotive", "small-freight-wagon", "small-freight-wagon", "small-freight-wagon"),
+    ("small-locomotive", "small-freight-wagon", "small-freight-wagon", "small-armed-wagon"),
 )
 
 # 这些是内容初值，不是报价、补货或运行规则；全部待用户试玩确认。
@@ -801,13 +814,21 @@ def construction_models():
     yield model
 
 
-def locomotive(spec):
-    identity, name, size, length, width, height, gauge, frame_height, axle_spacing, end_margin = spec
+def vehicle(spec):
+    identity, name, role, size, length, width, height, gauge, frame_height, axle_spacing, end_margin, units = spec
     x0, z0 = -(width // 2), -(length // 2)
     x1, z1 = x0 + width - 1, z0 + length - 1
-    cells = {(x, y, z): 0 for x in range(x0, x1 + 1) for y in range(frame_height, height)
-             for z in range(z0, z1 + 1)
-             if x in (x0, x1) or y in (frame_height, height - 1) or z in (z0, z1)}
+    if size == "small" and role == "locomotive":
+        volume = {(x, 1, z) for x in range(-3, 4) for z in range(-26, 26)}
+        volume |= {(x, y, z) for x in range(-3, 4) for y in range(2, 9) for z in range(16, 24)}
+        volume |= {(x, y, z) for x in range(-2, 3) for y in range(2, 8) for z in range(-24, 16)}
+        directions = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
+        cells = {at: 0 for at in volume
+                 if any(tuple(at[i] + delta[i] for i in range(3)) not in volume for delta in directions)}
+    else:
+        cells = {(x, y, z): 0 for x in range(x0, x1 + 1) for y in range(frame_height, height)
+                 for z in range(z0, z1 + 1)
+                 if x in (x0, x1) or y in (frame_height, height - 1) or z in (z0, z1)}
     left, right = -(gauge + 1) // 2, (gauge - 1) // 2
     for first, last in ((z0 + end_margin, z0 + end_margin + axle_spacing),
                         (z1 - end_margin - axle_spacing, z1 - end_margin)):
@@ -817,39 +838,31 @@ def locomotive(spec):
                     cells[x, y, z] = 1 if z in (first, last) else 0
             for x in range(left, right + 1):
                 cells[x, frame_height - 1, z] = 1 if z in (first, last) else 0
-    for z in (-2, 0, 2):
-        cells[0, frame_height + 1, z] = 2
-    cells[0, frame_height + 1, z1 - 1] = 3
-    cells[1, frame_height + 1, 0] = 4
-    return blueprint(identity, name, "vehicle",
-                     ["structural-metal", "bogie", "propulsion-equipment", "control-equipment", "storage-equipment"],
-                     cells, {"size_class": size})
-
-
-def small_locomotive():
-    volume = {(x, 1, z) for x in range(-3, 4) for z in range(-26, 26)}
-    volume |= {(x, y, z) for x in range(-3, 4) for y in range(2, 9) for z in range(16, 24)}
-    volume |= {(x, y, z) for x in range(-2, 3) for y in range(2, 8) for z in range(-24, 16)}
-    directions = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
-    shell = {at for at in volume if any(tuple(at[i] + delta[i] for i in range(3)) not in volume for delta in directions)}
-    cells = {at: 0 for at in shell}
-    for z in (-22, -20, 19, 21):
-        for x in range(-2, 2):
-            cells[x, 0, z] = 1
-    for z in (-21, 20):
-        for x in range(-2, 2):
-            cells[x, 0, z] = 0
-    cells.update({(0, 6, 23): 3, (2, 5, 5): 2, (2, 5, 1): 2, (2, 5, -3): 2, (-2, 3, -20): 4})
-    # 外形调整不改变本批的价值、质量或能力；差额从底部向上填入内部。
-    fill = 1420 - sum(index == 0 for index in cells.values())
-    interior = sorted(volume - shell, key=lambda at: (at[1], at[2], at[0]))
-    if not 0 <= fill <= len(interior):
-        raise ValueError(f"小型机车外形放不下既定体素数量：内部需要 {fill} 格，可用 {len(interior)} 格")
-    cells.update((at, 0) for at in interior[:fill])
-    value = blueprint("small-locomotive", "小型机车", "vehicle",
+    if size == "small" and role == "locomotive":
+        cells.update({(0, 6, 23): 3, (2, 5, 5): 2, (2, 5, 1): 2, (2, 5, -3): 2, (-2, 3, -20): 4})
+    else:
+        if role == "locomotive" or size == "titan":
+            for z in range(-3 * units, 3 * units, 2):
+                cells[0, frame_height + 1, z] = 2
+            cells[0, frame_height + 1, z1 - 1] = 3
+        storage_count = {"locomotive": 1, "freight": 2 * units, "armed": units}[role]
+        for index in range(storage_count):
+            cells[1, frame_height + 1, 2 * index] = 4
+        if role == "armed":
+            for index in range(units):
+                cells[x0, frame_height + 2, 4 * index] = 5
+    value = blueprint(identity, name, "vehicle",
                       ["structural-metal", "bogie", "propulsion-equipment", "control-equipment", "storage-equipment"],
-                      cells, {"size_class": "small"})
-    value["display"]["description"] = "第一阶段铁路机车风格样稿：驾驶室、机器间、检修走廊和端部平台；画面待用户阶段试玩确认。"
+                      cells, {"size_class": size})
+    if role == "armed":
+        value["layout"]["palette"].append({"voxel": "cannon" if size == "titan" else "machine-gun"})
+    value["display"]["description"] = f"{name}：能力和价值来自实际部件，数值与外观待试玩确认。"
+    if size == "small" and role == "locomotive":
+        value["display"]["description"] = "第一阶段铁路机车风格样稿：驾驶室、机器间、检修走廊和端部平台；画面待用户阶段试玩确认。"
+    if role == "armed":
+        value["display"]["description"] += " 静态武器只提供合法设计输入，战斗行为待战斗阶段验证。"
+    if identity in ("large-locomotive", "titan-armed-vehicle"):
+        value["display"]["description"] += " 正式样机规格由 #390 使用同一 id 替换；当前仅使用单格货物。"
     return value
 
 
@@ -1008,7 +1021,7 @@ def content_files():
     files["voxels/shared/crate-bottom.png"] = png(32, crate_bottom_texture)
 
     for spec in VEHICLES:
-        value = small_locomotive() if spec[0] == "small-locomotive" else locomotive(spec)
+        value = vehicle(spec)
         document("blueprints", "blueprint", value["id"], value)
     station = {(x, 0, z): 0 for x in range(-96, 96)
                for z in (*range(-24, -20), *range(20, 24))}
@@ -1323,14 +1336,15 @@ def content_files():
                   "regeneration_interval_seconds": GLOBAL_CHECK_MINUTES * 60,
                   "global_regeneration_remaining_reserve_ratio": GLOBAL_REGEN_RATIO}
                  for _, good, terrains in RESOURCE_PROFILES]
-    cargo_capacity = sum(behavior["capacity"] for spec in VEHICLES for behavior in voxel_behaviors(spec[0], "storage"))
-    small = blueprint_definitions["small-locomotive"]["layout"]
-    small_base_value = sum(values[small["palette"][index]["voxel"]] for *_, index in small["cells"])
-    # 只估算满舱采购与造一台机车的预算，不计算核心委托报价。
-    initial_money = ceil(START_BUDGET_MULTIPLIER * (cargo_capacity * max(values[good] for good, _, _ in goods) + small_base_value))
+    cargo_capacity = sum(behavior["capacity"] for train in START_TRAINS for identity in train
+                         for behavior in voxel_behaviors(identity, "storage"))
+    freight = blueprint_definitions["small-freight-wagon"]["layout"]
+    freight_base_value = sum(values[freight["palette"][index]["voxel"]] for *_, index in freight["cells"])
+    # 只估算两列起始车队满舱采购与小型货车组成的预算，不计算核心委托报价。
+    initial_money = ceil(START_BUDGET_MULTIPLIER * (cargo_capacity * max(values[good] for good, _, _ in goods) + freight_base_value))
     document("generation-profiles", "generation-profile", "basic-through-world", {
         "schema_version": 2, "id": "basic-through-world",
-        "display": {"name": "经济运输验证世界", "description": "真实货物、流程和六份模板计划；数值待试玩。NPC 库存和现车初始化已启用，车队待 #340，真实起步贸易待 #386。"},
+        "display": {"name": "经济运输验证世界", "description": "真实货物、流程和六份模板计划；两列小型车队、十一种车辆与 NPC 现车已接入。数值待试玩，起始资金的委托可负担性待 #387 验证。"},
         "configuration": {"width_meters": 1800, "height_meters": 1200, "minimum_node_spacing_meters": 300,
             "candidate_probability": 0.9, "elevation_noise": [{"scale_meters": 780, "amplitude": 14}, {"scale_meters": 260, "amplitude": 4}],
             "moisture_noise": [{"scale_meters": 600, "amplitude": 1}], "river_noise": [{"scale_meters": 900, "amplitude": 1}],
@@ -1347,10 +1361,10 @@ def content_files():
                                    "for_sale_vehicle_candidates": NPC_FOR_SALE_VEHICLE_CANDIDATES},
             "start_constraints": {"minimum_reachable_non_hostile_settlements": 2, "minimum_reachable_empty_nodes": 1,
                                   "require_station": True, "exclude_adjacent_lairs": True, "fully_loaded_purchase_rounds_per_train": 1,
-                                  "required_affordable_commission_design": "small-locomotive"},
+                                  "required_affordable_commission_design": "small-freight-wagon"},
             "rules": {"population": "basic-population", "market": "basic-market", "construction": "basic-construction",
                       "railway": "basic-railway", "combat": "basic-combat"}},
-        "start": {"initial_money": initial_money, "trains": [{"vehicles": [spec[0]], "inventory": []} for spec in VEHICLES]}})
+        "start": {"initial_money": initial_money, "trains": [{"vehicles": train, "inventory": []} for train in START_TRAINS]}})
     for path in list(files) + list(HAND_DRAWN_ICONS):
         if path.endswith(".png"):
             files[path + ".import"] = keep_import(path)

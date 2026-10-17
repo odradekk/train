@@ -213,54 +213,7 @@
                 },
                 "local_inventory": 5,
                 "target_quantity": 0
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "at": {
-        "completed_steps": 1800,
-        "sequence": 1
-      },
-      "kind": "train.start",
-      "train": 2
-    },
-    {
-      "at": {
-        "completed_steps": 3600,
-        "sequence": 0
-      },
-      "kind": "train.replace_run_plan",
-      "train": 3,
-      "plan": {
-        "loop": true,
-        "stops": [
-          {
-            "kind": "station",
-            "node": 12,
-            "dwell_steps": 300,
-            "goods_rules": [
-              {
-                "action": {
-                  "kind": "buy",
-                  "maximum_unit_price": null
-                },
-                "good": {
-                  "kind": "voxel",
-                  "definition": "core:fuel"
-                },
-                "local_inventory": 4,
-                "target_quantity": 15
-              }
-            ]
-          },
-          {
-            "kind": "station",
-            "node": 13,
-            "dwell_steps": 300,
-            "goods_rules": [
+              },
               {
                 "action": {
                   "kind": "buy",
@@ -349,11 +302,11 @@
     },
     {
       "at": {
-        "completed_steps": 3600,
+        "completed_steps": 1800,
         "sequence": 1
       },
       "kind": "train.start",
-      "train": 3
+      "train": 2
     }
   ],
   "target": {
