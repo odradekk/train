@@ -95,7 +95,7 @@ SDFGI 情景必须在采样窗口观察到原点变化，跟随／TAA 情景必�
 
 这些结果只对应阶段一小世界、开发机和当前占位内容。外部采样每秒记录总 CPU 占用与其他 Godot／dotnet 进程，不要求暂停同机任务；并发负载可能影响数值，不能作为可比性能基线。5 ms／8× 与尾部、内存、等待数值交用户阶段试玩确认；完整混合负载、目标实机和两项完整长测仍由后续阶段承担。
 
-### 场景打开、退役与规模测量
+### 场景打开、离开节点与规模测量
 
 ```powershell
 # 同一 HEAD、同一输入先生成参考；参考运行不计入性能样本
@@ -115,7 +115,7 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 | `scene-edge` | 地图首次打开线路 11、返回地图后重开、读档回地图后立即再开线路 |
 | `scene-follow` | 地图首次点击列车 1，跟随车辆 1 |
 | `scene-follow-8x` | 经同一 UI 路径进入跟随，切 8×、预热 5 秒后采样 120 秒；可用 `DurationSeconds` 改为短预演 |
-| `scene-memory` | 重复打开节点、返回并等待退役；每 10 轮及结束后执行完整 GC；默认两小时，不使用其时延作正式性能证据 |
+| `scene-memory` | 重复打开节点并返回地图；每 10 轮及结束后执行完整 GC；默认两小时，不使用其时延作正式性能证据 |
 | `scene-capture` | 单独记录部分就绪、Ready 画面及雾区拾取；截图回读与编码使该进程不能作时延或内存性能证据 |
 
 `Repeat` 控制每情景的新进程数量，默认是 3；`DurationSeconds=0` 使用情景默认时长。`scene-follow-8x` 的 `DurationSeconds`（应用参数 `--measure-duration`）只能缩短默认的 120 秒采样窗口。输入规模及测量、探针和判定方法见[场景预算验证报告](research/scene-budget-verification.md)。
