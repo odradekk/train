@@ -90,7 +90,8 @@ internal sealed partial class MeasurementRun
             _routeSampling = false;
             _timing = _sceneTiming.Summarize();
             _sceneTiming = null;
-            frames.Flush(); ranges.Flush();
+            frames.Dispose(); ranges.Dispose();
+            _routeTrace = _routeRanges = null;
             _sceneEvidence["route"] = new
             {
                 train = train.Id.Value, vehicle = train.Vehicles[0].Value, first_edge = first?.Value, middle_node = middle?.Value,
@@ -158,7 +159,9 @@ internal sealed partial class MeasurementRun
         }
         var fog = frame.Update.Environment.FoggedRegions.Select(bounds => new RouteBounds(
             RouteAbsolute(bounds.Minimum + shift, origin), RouteAbsolute(bounds.Maximum + shift, origin))).ToArray();
-        if (previous is not null && previous.Coordinates == coordinates && previous.Terrain.SequenceEqual(terrain) &&
+        if (previous is not null && previous.Coordinates == coordinates &&
+            previous.Frame.Session == frame.Update.Frame.Session && previous.Frame.Request == frame.Update.Frame.Request &&
+            previous.Frame.Space == frame.Update.Frame.Space && previous.Terrain.SequenceEqual(terrain) &&
             previous.Rails.SequenceEqual(rails) && previous.Fog.SequenceEqual(fog)) return previous;
         var state = new RouteRanges(++_routeStateId, frame.Update.Frame, coordinates, terrain.ToArray(), rails.ToArray(), fog);
         _routeRanges!.WriteLine(JsonSerializer.Serialize(state, SceneJson));
