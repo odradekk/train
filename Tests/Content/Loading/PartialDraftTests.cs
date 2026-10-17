@@ -160,4 +160,3 @@ public sealed class PartialDraftTests
         return (C.DesignEvaluation.Partial)evaluation;
     }
 }
-
