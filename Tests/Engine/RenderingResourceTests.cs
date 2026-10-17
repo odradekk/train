@@ -17,6 +17,39 @@ namespace Train.Engine.Tests;
 public class RenderingResourceTests(Node testScene) : TestClass(testScene)
 {
     [Test]
+    public void Followed_vehicle_fog_exemption_preserves_material_state_and_mesh_and_can_be_removed()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var resources = new SceneResources(cache, new FixedContentView());
+        var source = new SceneVisual.Geometry(Triangle(new SceneMaterial.BuiltIn(BuiltInMaterial.RailSteel)),
+            new(true, 17, 0.25f, false));
+        using var followed = resources.Prepare(source);
+        using var other = resources.Prepare(source);
+        var instance = Instance(followed);
+        var mesh = instance.Mesh;
+        var material = Material(followed);
+        var originalShader = material.Shader;
+
+        resources.ExemptConstructionFog(followed, true);
+
+        Require(material.Shader != originalShader && Material(other).Shader == originalShader,
+            "雾豁免只能改变被跟随车辆的材质。");
+        Require(ReferenceEquals(instance.Mesh, mesh), "雾豁免不应重建车辆网格。");
+        AssertSurface(material, source.Surface);
+        Require(material.GetShaderParameter("rail_steel").AsBool(), "切换着色器不能丢失材质参数。");
+        var next = source with { Surface = new(false, 31, 0.75f, true) };
+        followed.Update(next);
+        AssertSurface(material, next.Surface);
+
+        resources.ExemptConstructionFog(followed, false);
+
+        Require(material.Shader == originalShader, "离开跟随目标后必须恢复普通构建雾遮挡。");
+        AssertSurface(material, next.Surface);
+        Require(ReferenceEquals(instance.Mesh, mesh), "移除豁免不应重建车辆网格。");
+    }
+
+    [Test]
     public void Geometry_uploads_outward_faces_and_all_vertex_and_surface_channels()
     {
         using var dispatcher = new GodotMainThreadDispatcher();

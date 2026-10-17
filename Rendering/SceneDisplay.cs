@@ -229,20 +229,13 @@ internal sealed class SceneDisplay : IDisposable
     internal void UpdateConstructionFog(System.Collections.Immutable.ImmutableArray<VehicleId> vehicles)
     {
         _cache.RequireMainThread();
-        if (_fog is null) return;
         _followedVehicles.Clear();
         foreach (var vehicle in vehicles) _followedVehicles.Add(vehicle);
-        Aabb? bounds = null;
-        if (_followedVehicles.Count > 0)
-            foreach (var item in _objects.Values)
-                if (BelongsToFollowedTrain(item.Source, _objects, _followedVehicles))
-                    foreach (var visual in item.Visuals)
-                        if (visual.Bounds is { } local)
-                        {
-                            var world = visual.Node.GlobalTransform * local;
-                            bounds = bounds?.Merge(world) ?? world;
-                        }
-        _fog.ShowTrain(bounds);
+        foreach (var item in _objects.Values)
+        {
+            var followed = BelongsToFollowedTrain(item.Source, _objects, _followedVehicles);
+            foreach (var visual in item.Visuals) _resources.ExemptConstructionFog(visual, followed);
+        }
     }
 
     internal static bool BelongsToFollowedTrain(SceneObject source,
@@ -439,13 +432,6 @@ internal sealed class SceneDisplay : IDisposable
                     Position = ToGodot((region.Minimum + region.Maximum) / 2)
                 });
             }
-        }
-        internal void ShowTrain(Aabb? bounds)
-        {
-            _material.SetShaderParameter("train_visible", bounds.HasValue);
-            if (bounds is not { } box) return;
-            _material.SetShaderParameter("train_minimum", box.Position);
-            _material.SetShaderParameter("train_maximum", box.End);
         }
         public void Dispose()
         {
