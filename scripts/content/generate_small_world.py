@@ -4,9 +4,9 @@ python scripts/content/generate_small_world.py
 python scripts/content/generate_small_world.py --check
 python scripts/content/generate_small_world.py --output-dir TestResults/reproduction
 
-脚本独占输出目录 resources/；校验模式拒绝缺失、多余或字节不同的文件，
+脚本生成 resources/，手绘图标按 HAND_DRAWN_ICONS 保留；校验模式拒绝缺失、多余或生成字节不同的文件，
 并按仓库 Schema 检查 JSON（校验需要 jsonschema）。生成只用 Python 标准库。
-自然地形使用正式素材，小型机车保留第一阶段风格样稿，聚居地符号来自 ui_symbols；
+自然地形与十二种原料货物已有正式美术，小型机车保留第一阶段风格样稿，聚居地符号来自 ui_symbols；
 其余美术仍待制作，数值待配平，
 数值和画面待用户试玩确认；NPC 库存与现车初始化已启用，车队待 #340。
 校验同时检查正式内容的经济关系；不生成生物聚落或存档。
@@ -285,6 +285,11 @@ SOIL_PEBBLES = ((1, 24, 3), (15, 61, 2), (19, 109, 3), (29, 16, 2), (34, 85, 2),
                 (88, 36, 2), (100, 66, 3), (112, 114, 2), (120, 46, 2), (126, 91, 2))
 ROCK_CRACKS = ((5, 21, 27, 34), (27, 34, 43, 32), (94, 99, 111, 110),
                (111, 110, 130, 109), (-6, 61, 12, 55), (12, 55, 19, 43))
+MINERAL_FRAGMENTS = ((3, 4, -4), (21, 2, 9), (35, 8, -1), (57, 3, 6), (12, 17, 0),
+                     (27, 19, -8), (47, 18, 11), (61, 24, -5), (5, 31, 6), (18, 33, -3),
+                     (35, 32, 12), (48, 35, 0), (59, 43, 8), (7, 48, -8), (25, 46, 7),
+                     (38, 53, -2), (51, 59, -5), (17, 62, 11), (29, 58, -10), (50, 6, -6),
+                     (3, 57, 4), (33, 42, -6), (44, 46, 4), (16, 8, 2))
 
 
 def soil_texture(x, y):
@@ -378,6 +383,148 @@ def road_barrier_texture(x, y):
 
 def rail_stack_texture(x, y):
     return tint(STEEL if x % 8 in (2, 3) else (0x5e, 0x44, 0x34))
+
+
+def mineral_texture(x, y, color):
+    # 不规则取样点在 64 px 环面上分块，边界跨贴图连续；块面色差没有光照方向。
+    distances = sorted(((((x - cx + 32) % 64 - 32) ** 2 + ((y - cy + 32) % 64 - 32) ** 2) ** .5, shade)
+                       for cx, cy, shade in MINERAL_FRAGMENTS)
+    change = -27 if distances[1][0] - distances[0][0] < 1.1 else distances[0][1]
+    return tint(color, change + grain(x, y, 64, 0x601) // 2)
+
+
+def coal_texture(x, y):
+    return mineral_texture(x, y, (50, 54, 58))
+
+
+def ferrous_ore_texture(x, y):
+    color = (147, 87, 53) if grain(x, y, 64, 0x604) > 1 else (120, 65, 46)
+    return mineral_texture(x, y, color)
+
+
+def conductive_ore_texture(x, y):
+    color = (90, 125, 108) if grain(x, y, 64, 0x605) > 0 else (137, 94, 66)
+    return mineral_texture(x, y, color)
+
+
+def rare_mineral_texture(x, y):
+    color = (137, 130, 146) if grain(x, y, 64, 0x606) > 3 else (107, 96, 119)
+    return mineral_texture(x, y, color)
+
+
+def stone_texture(x, y):
+    return mineral_texture(x, y, (129, 131, 127))
+
+
+def silica_texture(x, y):
+    particles = (x * 17 ^ y * 37 ^ (x // 2) * (y // 2) * 13) % 9 - 4
+    return tint((205, 191, 155), particles + grain(x, y, 64, 0x606))
+
+
+def crude_oil_texture(x, y, side=False):
+    if side:
+        if x in (0, 31):
+            return tint((31, 38, 44))
+        band = y % 16 in (3, 4, 5)
+        return tint((58, 67, 75), 15 if band else grain(x, y, 32, 0x607) // 2)
+    radius = ((x - 15.5) ** 2 + (y - 15.5) ** 2) ** .5
+    return tint((58, 67, 75), 16 if 12 <= radius < 14 or radius < 2 else -13 if radius >= 14 else 0)
+
+
+def grain_texture(x, y, side=False):
+    if not side:
+        x, y = min(x, 31 - x), min(y, 31 - y)
+    weave = 3 if (x + y) % 2 == 0 else -2
+    variation = grain(min(x, y), max(x, y), 32, 0x602) // 2
+    if side:
+        body = ((x - 15.5) / 12) ** 2 + ((y - 19) / 12) ** 2
+        mouth = 1 <= y <= 5 and abs(x - 15.5) <= 6 - y / 2
+        tie = 6 <= y <= 8 and 11 <= x <= 20 or 8 <= y <= 12 and x == 29 - y
+        if tie:
+            return tint((105, 82, 47), variation)
+        if mouth:
+            return tint((168, 143, 99), weave + variation - (12 if x in (13, 17) else 0))
+        if y >= 9 and body < 1:
+            seam = body > .8 and (x < 8 or x > 23 or y > 26)
+            stitch = 11 <= y <= 26 and x == 23 and y % 3 != 0
+            return tint((168, 143, 99), weave + variation - (13 if seam else 22 if stitch else 0))
+        return tint((91, 74, 48), grain(x, y, 32, 0x603) // 2)
+    return tint((168, 143, 99), weave + variation)
+
+
+def crate_side_texture(x, y, wood, contents):
+    if 3 <= x <= 28 and y % 8 < 3:
+        return tint(contents, grain(x, y, 32, 0x608) // 2)
+    return tint(wood, -10 if x in (2, 29) else grain(x, y, 32, 0x609))
+
+
+def produce_texture(x, y, side=False):
+    if side:
+        return crate_side_texture(x, y, (128, 98, 63), (66, 93, 49))
+    if x < 2 or x > 29 or y < 2 or y > 29:
+        return tint((128, 98, 63), grain(x, y, 32, 0x610))
+    for cx, cy, radius, tone in ((7, 8, 5, 8), (20, 6, 4, -5), (25, 18, 5, 3),
+                                (14, 16, 6, -10), (7, 25, 4, 6), (21, 26, 4, -3)):
+        if (x - cx) ** 2 + (y - cy) ** 2 < radius ** 2:
+            return tint((79, 112, 53), tone + grain(x, y, 32, 0x611))
+    root = (((x - 7) / 2) ** 2 + ((y - 16) / 4) ** 2 < 1
+            or ((x - 23) / 4) ** 2 + ((y - 12) / 2) ** 2 < 1)
+    return tint((179, 110, 47) if root else (56, 79, 41), grain(x, y, 32, 0x611))
+
+
+def animal_products_texture(x, y, side=False):
+    if side:
+        return crate_side_texture(x, y, (164, 137, 94), (198, 181, 132))
+    a, b = sorted((min(x, 31 - x), min(y, 31 - y)))
+    if a < 2:
+        return tint((164, 137, 94), grain(a, b, 32, 0x612))
+    egg = ((a - 8) / 5) ** 2 + ((b - 9) / 6) ** 2 < 1
+    return tint((231, 222, 195) if egg else (165, 143, 90), grain(a, b, 32, 0x613) // 2)
+
+
+def crate_bottom_texture(x, y):
+    a, b = sorted((min(x, 31 - x), min(y, 31 - y)))
+    weave = 5 if (a // 3 + b // 3) % 2 == 0 else -5
+    return tint((132, 105, 69), weave + grain(a, b, 32, 0x614) // 2)
+
+
+def timber_texture(x, y, side=False):
+    if side:
+        furrow = min(abs((x - center + 16) % 32 - 16) for center in (3, 11, 18, 27))
+        change = -23 if furrow < 1.2 else grain(x, y, 32, 0x615)
+        return tint((110, 78, 48), change)
+    a, b = sorted((min(x, 31 - x), min(y, 31 - y)))
+    radius = ((a - 15.5) ** 2 + (b - 15.5) ** 2) ** .5
+    if radius > 14:
+        return tint((110, 78, 48))
+    return tint((178, 142, 91), -18 if int(radius) % 4 == 0 else grain(a, b, 32, 0x616) // 2)
+
+
+def natural_fiber_texture(x, y, side=False):
+    if side:
+        strap = 14 <= x <= 17
+    else:
+        x, y = min(x, 31 - x), min(y, 31 - y)
+        strap = x >= 14 or y >= 14
+    return tint((67, 77, 76) if strap else (226, 218, 192), grain(min(x, y), max(x, y), 32, 0x617) // 2)
+
+
+RAW_GOODS_ART = {
+    "ferrous-ore": ("stone_soil", 2, None, None, ferrous_ore_texture),
+    "conductive-ore": ("stone_soil", 2, None, None, conductive_ore_texture),
+    "rare-mineral": ("stone_soil", 2, None, None, rare_mineral_texture),
+    "stone": ("stone_soil", 2, None, None, stone_texture),
+    "silica": ("stone_soil", 2, None, None, silica_texture),
+    "coal": ("stone_soil", 2, None, None, coal_texture),
+    "crude-oil": ("painted_metal", 1, "side.png", None, crude_oil_texture),
+    "grain": ("organic", 1, "side.png", None, grain_texture),
+    "produce": ("organic", 1, "side.png", "shared/crate-bottom.png", produce_texture),
+    "animal-products": ("organic", 1, "side.png", "shared/crate-bottom.png", animal_products_texture),
+    "timber": ("organic", 1, "side.png", None, timber_texture),
+    "natural-fiber": ("organic", 1, "side.png", None, natural_fiber_texture),
+}
+# 表中货物的 icon.png 是唯一源，生成器只生成 Keep File 导入声明。
+HAND_DRAWN_ICONS = tuple(f"voxels/{identity}/icon.png" for identity in RAW_GOODS_ART)
 
 
 def plate_texture(x, y):
@@ -826,6 +973,7 @@ def content_files():
         return simulation
 
     sample_description = "{}的第一阶段风格样稿；数值待配平，画面待用户阶段试玩确认。"
+    raw_description = "{}的正式美术；数值待配平，画面待用户阶段试玩确认。"
     voxel("structural-metal", "结构金属", "painted_metal", faces("top.png", "side.png", "shared/vehicle-underside.png"),
           "icon.png", good("structural-metal", 0.028, 260), tile_span=4, description=sample_description.format("结构金属"))
     voxel("construction-material", "建筑材料", "concrete", faces("shared/soil-face.png"),
@@ -847,9 +995,17 @@ def content_files():
              ("consumer-electronics", "消费电子", 1.6), ("medical-supplies", "医疗用品", 0.4))
     for identity, name, mass in goods:
         voxel(identity, name, "organic", faces("shared/organic-face.png"), "shared/organic-icon.png", good(identity, mass))
-    voxel("stone", "石料", "stone_soil", faces("shared/soil-face.png"), "shared/soil-icon.png", good("stone", 0.042))
+    material, tile_span, side, bottom, _ = RAW_GOODS_ART["stone"]
+    voxel("stone", "石料", material, faces("top.png", side, bottom), "icon.png", good("stone", 0.042),
+          tile_span=tile_span, description=raw_description.format("石料"))
     scene_assets(files, voxel)
     style_assets(files)
+    for identity, (_, tile_span, side, _, texture) in RAW_GOODS_ART.items():
+        size = 32 * tile_span
+        files[f"voxels/{identity}/top.png"] = png(size, texture)
+        if side is not None:
+            files[f"voxels/{identity}/{side}"] = png(size, lambda x, y: texture(x, y, side=True))
+    files["voxels/shared/crate-bottom.png"] = png(32, crate_bottom_texture)
 
     for spec in VEHICLES:
         value = small_locomotive() if spec[0] == "small-locomotive" else locomotive(spec)
@@ -908,8 +1064,14 @@ def content_files():
                                                    "interval": MACHINE_GUN_INTERVAL_SECONDS * factor}}
         material = "glass" if identity == "glass" else "concrete" if identity == "construction-block" else {
             "soil": "stone_soil", "organic": "organic", "equipment": "painted_metal"}[texture]
-        voxel(identity, name, material, faces(f"shared/{texture}-face.png"), f"shared/{texture}-icon.png", simulation,
-              light=identity == "lamp")
+        face_paths, icon_path = faces(f"shared/{texture}-face.png"), f"shared/{texture}-icon.png"
+        tile_span, description = None, None
+        if identity in RAW_GOODS_ART:
+            material, tile_span, side, bottom, _ = RAW_GOODS_ART[identity]
+            face_paths, icon_path = faces("top.png", side, bottom), "icon.png"
+            description = raw_description.format(name)
+        voxel(identity, name, material, face_paths, icon_path, simulation,
+              light=identity == "lamp", tile_span=tile_span, description=description)
 
     for identity, simulation in processes.items():
         item = simulation["extracts"] if simulation["kind"] == "extraction" else (
@@ -1189,7 +1351,7 @@ def content_files():
             "rules": {"population": "basic-population", "market": "basic-market", "construction": "basic-construction",
                       "railway": "basic-railway", "combat": "basic-combat"}},
         "start": {"initial_money": initial_money, "trains": [{"vehicles": [spec[0]], "inventory": []} for spec in VEHICLES]}})
-    for path in list(files):
+    for path in list(files) + list(HAND_DRAWN_ICONS):
         if path.endswith(".png"):
             files[path + ".import"] = keep_import(path)
     return files
@@ -1216,8 +1378,9 @@ def main():
     files = content_files()
     resources = args.output_dir / "resources"
     actual = {path.relative_to(resources).as_posix() for path in resources.rglob("*") if path.is_file()}
-    extra = actual - files.keys()
-    missing = files.keys() - actual
+    expected = files.keys() | set(HAND_DRAWN_ICONS)
+    extra = actual - expected
+    missing = expected - actual
     if extra or (args.check and missing):
         for label, paths in (("多余", extra), ("缺少", missing if args.check else set())):
             for path in sorted(paths):
