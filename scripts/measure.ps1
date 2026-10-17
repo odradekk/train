@@ -178,7 +178,7 @@ public sealed class MeasurementDisplayAwake : IDisposable
                 $arguments = @(
                     '--windowed', '--resolution', '1920x1080', '--log-file', (Join-Path $runDirectory 'godot.log'), '--',
                     "--measure=$name", '--measure-input', $InputPath, '--measure-output', $reportPath, '--measure-identity', $identityPath)
-                if ($isScene) { $arguments += @('--measure-duration', $DurationSeconds.ToString([Globalization.CultureInfo]::InvariantCulture)) }
+                if ($isScene -or $DurationSeconds -gt 0) { $arguments += @('--measure-duration', $DurationSeconds.ToString([Globalization.CultureInfo]::InvariantCulture)) }
                 if ($ReferencePath) { $arguments += @('--measure-reference', $ReferencePath) }
                 $result = Invoke-HiddenProcess -FilePath $ExecutablePath -TimeoutSeconds $timeout -ArgumentList $arguments
                 $result.Output | Set-Content -LiteralPath (Join-Path $runDirectory 'process.log') -Encoding utf8
@@ -231,7 +231,7 @@ finally {
             display_awake = $displayAwakeState
             scope = @{
                 final_performance = $false
-                warmup_seconds = 5; sample_seconds = 30; repetitions = $Repeat
+                warmup_seconds = 5; sample_seconds = $(if ($DurationSeconds -gt 0) { $DurationSeconds } else { 30 }); repetitions = $Repeat
                 scene_duration_seconds_argument = $DurationSeconds
                 scene_timing = '新 scene 情景的预热、采样和运行时长以各运行报告为准；DurationSeconds=0 使用情景默认值。'
                 external_load = '每秒记录总 CPU、可用物理内存、页面输入与读取速率及 Godot/dotnet 的 PID、名称、累计 CPU 秒、工作集；保留并发负载，不要求暂停其他任务。'
