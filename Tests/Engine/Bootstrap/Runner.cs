@@ -27,7 +27,7 @@ public partial class Runner : Node
                 GoTest.TimeoutMilliseconds = 60000;
                 var screenshot = System.Environment.GetEnvironmentVariable("TRAIN_ENGINE_SCREENSHOT") == "1";
                 await GoTest.RunTests(assembly, this, TestEnvironment.From(OS.GetCmdlineUserArgs()),
-                    predicate: operation => (operation.Suite.TestClassType.Name == "ScreenshotTests") == screenshot);
+                    predicate: operation => (operation.Suite.TestClassType.Name is "ScreenshotTests" or "SceneMaterialPixelTests") == screenshot);
             }
             finally { context.Resolving -= Resolve; }
         }
