@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Train.Content.Loading;
@@ -9,6 +11,7 @@ namespace Train.Content.Authoring;
 
 internal sealed class AuthoringPackage : C.IAuthoringPackage
 {
+    private static readonly JsonSerializerOptions FileJson = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
     private readonly ImmutableDictionary<string, ImmutableArray<byte>> _files;
     private readonly LoadPackage _package;
     public C.PackageId Package => Metadata.Id;
@@ -46,14 +49,17 @@ internal sealed class AuthoringPackage : C.IAuthoringPackage
             }
             foreach (var entry in ((C.ContentIoResult<ImmutableArray<C.ContentFileEntry>>.Success)result).Value.OrderBy(e => e.Name, StringComparer.Ordinal))
             {
+                if (directory.Length == 0 && entry.Name != "resources" && !string.Equals(entry.Name, "mod.json", StringComparison.OrdinalIgnoreCase)) continue;
                 var path = directory.Length == 0 ? entry.Name : directory + "/" + entry.Name;
                 if (!ContentDocument.SafeEntry(entry.Name) || entry.Kind == C.ContentEntryKind.Link)
                 { package.Reject("linked_path", path, "", "源包包含无效路径或链接。"); continue; }
+                if (directory.Length == 0 && (entry.Name == "resources" ? entry.Kind != C.ContentEntryKind.Directory : entry.Kind != C.ContentEntryKind.File))
+                { package.Reject("invalid_field", path, "", "resources 必须是目录，manifest 必须是文件。"); continue; }
                 if (entry.Kind == C.ContentEntryKind.Directory) { Scan(path); continue; }
-                var read = source.Read(new(root, path), path.EndsWith(".json", StringComparison.Ordinal) ? ContentLimits.JsonFileMaxBytes : 4 * 1024 * 1024);
+                var read = source.Read(new(root, path), path.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ? ContentLimits.JsonFileMaxBytes : AssetLoader.MaximumBytes);
                 if (read is C.ContentIoResult<ImmutableArray<byte>>.Failure readFailure)
                     package.Reject(ContentDocument.IoCode(readFailure.Kind), path, "", readFailure.Diagnostic);
-                else files.Add(path, ((C.ContentIoResult<ImmutableArray<byte>>.Success)read).Value);
+                else files.Add(directory.Length == 0 ? "mod.json" : path, ((C.ContentIoResult<ImmutableArray<byte>>.Success)read).Value);
             }
         }
         Scan("");
@@ -120,7 +126,7 @@ internal sealed class AuthoringPackage : C.IAuthoringPackage
     internal C.ContentResult<C.PackageWritePlan> Prepare(ImmutableArray<C.PackageEdit> edits)
     {
         if (edits.IsDefault || edits.Any(edit => edit is null)) throw new ArgumentException("编辑数组必须初始化且不能含空项。", nameof(edits));
-        var changes = new Dictionary<string, ImmutableArray<byte>?>(StringComparer.Ordinal);
+        var changes = new Dictionary<string, ImmutableArray<byte>?>(StringComparer.OrdinalIgnoreCase);
         void Change(string path, ImmutableArray<byte>? bytes)
         {
             CheckPath(path);
@@ -139,10 +145,14 @@ internal sealed class AuthoringPackage : C.IAuthoringPackage
                         using var document = Parse(original, path);
                         display = JsonNode.Parse(Required(document.RootElement, "display", "").GetRawText());
                     }
-                    var node = DefinitionDraftJson.Write(write.Draft, display);
-                    using (var document = JsonDocument.Parse(node.ToJsonString()))
-                        DefinitionDraftJson.Read(document.RootElement, address.Kind);
-                    Change(path, JsonSerializer.SerializeToUtf8Bytes(node).ToImmutableArray());
+                    try
+                    {
+                        var bytes = Encode(DefinitionDraftJson.Write(write.Draft, display));
+                        using (var document = JsonDocument.Parse(bytes))
+                            DefinitionDraftJson.Read(document.RootElement, address.Kind, isComposite: IsComposite);
+                        Change(path, bytes.ToImmutableArray());
+                    }
+                    catch (ArgumentException exception) { Fail("/value", exception.Message); }
                     break;
                 case C.PackageEdit.DeleteDefinition delete:
                     var definitionPath = DefinitionDraftJson.Path(delete.Definition);
@@ -154,11 +164,11 @@ internal sealed class AuthoringPackage : C.IAuthoringPackage
                     break;
                 case C.PackageEdit.WriteAsset asset:
                     if (asset.Bytes.IsDefault) Fail("/bytes", "资产字节必须初始化。");
-                    if (asset.PackageRelativePath == "mod.json") Fail("/path", "manifest 必须通过 Manifest 编辑。");
+                    if (string.Equals(asset.PackageRelativePath, "mod.json", StringComparison.OrdinalIgnoreCase)) Fail("/path", "manifest 必须通过 Manifest 编辑。");
                     Change(asset.PackageRelativePath, asset.Bytes);
                     break;
                 case C.PackageEdit.DeleteAsset asset:
-                    if (asset.PackageRelativePath == "mod.json") Fail("/path", "不能通过资产编辑删除 manifest。");
+                    if (string.Equals(asset.PackageRelativePath, "mod.json", StringComparison.OrdinalIgnoreCase)) Fail("/path", "不能通过资产编辑删除 manifest。");
                     Change(asset.PackageRelativePath, null);
                     break;
                 case C.PackageEdit.Manifest manifest:
@@ -170,8 +180,17 @@ internal sealed class AuthoringPackage : C.IAuthoringPackage
                         root["name"] = manifest.Value.Name;
                         root["version"] = manifest.Value.Version;
                         root["authors"] = new JsonArray(manifest.Value.Authors.Select(a => (JsonNode?)JsonValue.Create(a)).ToArray());
-                        root["dependencies"] = new JsonArray(manifest.Value.Dependencies.Select(d => (JsonNode?)new JsonObject { ["id"] = d.Package.Value, ["min_version"] = d.MinimumVersion }).ToArray());
-                        var bytes = JsonSerializer.SerializeToUtf8Bytes(root);
+                        var originalDependencies = root["dependencies"]?.AsArray().ToDictionary(d => d!["id"]!.GetValue<string>(), StringComparer.Ordinal);
+                        var implicitCore = _package.ImplicitCoreDependency ? Metadata.Dependencies.Single(d => d.Package.Value == "core") : null;
+                        var dependencies = new JsonArray(manifest.Value.Dependencies.Where(d => d != implicitCore).Select(d =>
+                        {
+                            var dependency = originalDependencies is not null && originalDependencies.TryGetValue(d.Package.Value, out var originalDependency)
+                                ? originalDependency!.DeepClone().AsObject() : new JsonObject { ["id"] = d.Package.Value };
+                            dependency["min_version"] = d.MinimumVersion;
+                            return (JsonNode?)dependency;
+                        }).ToArray());
+                        if (root.ContainsKey("dependencies") || dependencies.Count > 0) root["dependencies"] = dependencies;
+                        var bytes = Encode(root);
                         var parsed = new LoadPackage(_package.Root, "", false);
                         PackageLoader.ParseManifest(bytes, parsed, "mod.json");
                         if (parsed.Diagnostics.Count > 0) return new C.ContentResult<C.PackageWritePlan>.Failure(parsed.Diagnostics.ToImmutableArray());
@@ -185,6 +204,8 @@ internal sealed class AuthoringPackage : C.IAuthoringPackage
             changes.Where(c => c.Value is { } bytes ? !_files.TryGetValue(c.Key, out var original) || !bytes.AsSpan().SequenceEqual(original.AsSpan()) : _files.ContainsKey(c.Key))
                 .OrderBy(c => c.Key, StringComparer.Ordinal).Select(c => new C.PackageFileChange(c.Key, c.Value)).ToImmutableArray(), []));
     }
+
+    private static byte[] Encode(JsonObject root) => Encoding.UTF8.GetBytes(root.ToJsonString(FileJson) + "\n");
 
     private static void CheckPath(string path)
     {

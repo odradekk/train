@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text;
 using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using C = Train.Content.Contracts;
@@ -62,7 +63,11 @@ public sealed class AuthoringPackageTests
         Assert.AreEqual(new C.AuthoringAssetPath("tile.png"), presentation.Top);
         CollectionAssert.AreEqual(new[] { new C.VoxelShape("cube"), new C.VoxelShape("wedge") }, presentation.Shapes.ToArray());
         var edited = voxel with { Value = voxel.Value with { Display = new("重载后的方块", "说明") } };
-        Apply(fixture, Plan(package, new C.PackageEdit.WriteDefinition(edited)));
+        var plan = Plan(package, new C.PackageEdit.WriteDefinition(edited));
+        var bytes = plan.Changes.Single().Bytes!.Value;
+        Assert.IsTrue(bytes.AsSpan().IndexOf(Encoding.UTF8.GetBytes(edited.Value.Display.Name)) >= 0);
+        Assert.AreEqual((byte)'\n', bytes[^1]);
+        Apply(fixture, plan);
         using var reloaded = Success(ContentFactory.Create().PrepareLoad(new(fixture.Installation,
             new C.ContentLoadPurpose.Reload(initial.View, new([], [], [], [initial.View.Core.Identity]))), fixture, fixture));
         var display = WorldContentFixtures.Found(reloaded.View.FindVoxelDisplay(new("core:block")));
@@ -147,6 +152,11 @@ public sealed class AuthoringPackageTests
         {
             Value = template.Value with { Inventory = [new(new K.GoodId.Assembly(new("opaque-composition")), 1)] }
         })]), "/inventory/0");
+        foreach (var id in new[] { "core:frame", "core:unknown", "11111111-1111-4111-8111-111111111111:device" })
+            Rejected(ContentFactory.Create().PreparePackageWrite(package, [new C.PackageEdit.WriteDefinition(template with
+            {
+                Value = template.Value with { Inventory = [new(new K.GoodId.Composite(new(id)), 1)] }
+            })]), "/inventory/0", "invalid_field");
         foreach (var id in new[] { "frame", "unknown" })
         {
             WorldContentFixtures.Change(fixture, WorldContentFixtures.TemplatePath,
@@ -214,9 +224,9 @@ public sealed class AuthoringPackageTests
         var voxel = (C.DefinitionDraft.Voxel)Read(package, C.DefinitionKind.Voxel, "block");
         var edits = new C.PackageEdit[]
         {
-            new C.PackageEdit.WriteAsset("shared/z.bin", [1]),
+            new C.PackageEdit.WriteAsset("resources/shared/z.bin", [1]),
             new C.PackageEdit.WriteDefinition(voxel with { Value = voxel.Value with { Display = new("修改", "") } }),
-            new C.PackageEdit.WriteAsset("shared/a.bin", [2])
+            new C.PackageEdit.WriteAsset("resources/shared/a.bin", [2])
         };
         var plan = Plan(package, edits);
         CollectionAssert.AreEqual(plan.Changes.Select(c => c.RelativePath).Order(StringComparer.Ordinal).ToArray(),
@@ -237,7 +247,7 @@ public sealed class AuthoringPackageTests
     {
         var fixture = DesignFixtures.Content();
         fixture.AddFile(ContentFixture.BuiltIn, "resources/voxels/block/tile.png.import", "import settings");
-        fixture.AddFile(ContentFixture.BuiltIn, "shared/tile.png.import", "shared settings");
+        fixture.AddFile(ContentFixture.BuiltIn, "resources/voxels/shared/tile.png.import", "shared settings");
         var plan = Plan(Open(fixture), new C.PackageEdit.DeleteDefinition(new(C.DefinitionKind.Voxel, "block")));
         CollectionAssert.AreEquivalent(new[]
         {
@@ -257,12 +267,16 @@ public sealed class AuthoringPackageTests
             new C.PackageEdit.Manifest(package.Metadata with { Id = new("changed") }),
             new C.PackageEdit.WriteAsset("../outside.bin", [1]),
             new C.PackageEdit.WriteAsset("mod.json", [1]),
+            new C.PackageEdit.WriteAsset("MOD.JSON", [1]),
             new C.PackageEdit.DeleteAsset("mod.json"),
+            new C.PackageEdit.DeleteAsset("MOD.JSON"),
             new C.PackageEdit.DeleteAsset("resources/../../outside.bin"),
             new C.PackageEdit.WriteDefinition(new C.DefinitionDraft.Blueprint("../outside", DesignFixtures.Vehicle()))
         })
             Rejected(ContentFactory.Create().PreparePackageWrite(package,
-                [new C.PackageEdit.WriteAsset("shared/valid.bin", [1]), edit]));
+                [new C.PackageEdit.WriteAsset("resources/shared/valid.bin", [1]), edit]));
+        Rejected(ContentFactory.Create().PreparePackageWrite(package,
+            [new C.PackageEdit.WriteAsset("resources/shared/a.png", [1]), new C.PackageEdit.WriteAsset("resources/shared/A.png", [2])]));
 
         const string id = "11111111-1111-4111-8111-111111111111";
         var fixture = new ContentFixture();
@@ -272,6 +286,80 @@ public sealed class AuthoringPackageTests
         var mod = Success(ContentFactory.Create().OpenAuthoringPackage(root, new(id), new("snapshot"), fixture));
         Rejected(ContentFactory.Create().PreparePackageWrite(mod,
             [new C.PackageEdit.Manifest(mod.Metadata with { Id = new("22222222-2222-4222-8222-222222222222") })]));
+    }
+
+    [TestMethod]
+    public void Manifest_edits_preserve_dependency_names_without_publishing_implicit_core()
+    {
+        const string id = "11111111-1111-4111-8111-111111111111";
+        const string dependencyId = "22222222-2222-4222-8222-222222222222";
+        var fixture = new ContentFixture();
+        var root = new C.ContentRoot("mod-source");
+        fixture.AddFile(root, "mod.json", $$"""{"schema_version":2,"id":"{{id}}","name":"测试包","version":"1.0.0","authors":["作者"],"description":"保留说明","dependencies":[{"id":"{{dependencyId}}","name":"基础扩展","min_version":"1.0.0"}]}""");
+        fixture.AddDirectory(root, "resources");
+        var package = Success(ContentFactory.Create().OpenAuthoringPackage(root, new(id), new("source"), fixture));
+        var metadata = package.Metadata with { Name = "新的包名称", Version = "1.1.0" };
+        var change = Plan(package, new C.PackageEdit.Manifest(metadata)).Changes.Single();
+        var json = Json(change);
+        Assert.AreEqual(metadata.Name, json["name"]!.GetValue<string>());
+        Assert.AreEqual(metadata.Version, json["version"]!.GetValue<string>());
+        Assert.AreEqual("保留说明", json["description"]!.GetValue<string>());
+        var dependency = json["dependencies"]!.AsArray().Single()!;
+        Assert.AreEqual(dependencyId, dependency["id"]!.GetValue<string>());
+        Assert.AreEqual("基础扩展", dependency["name"]!.GetValue<string>());
+        var bytes = change.Bytes!.Value;
+        Assert.IsTrue(bytes.AsSpan().IndexOf(Encoding.UTF8.GetBytes(metadata.Name)) >= 0);
+        Assert.AreEqual((byte)'\n', bytes[^1]);
+        var changedDependencies = metadata.Dependencies.Select(d => d.Package.Value == dependencyId ? d with { MinimumVersion = "2.0.0" } : d)
+            .Append(new C.PackageDependency(new("33333333-3333-4333-8333-333333333333"), "1.0.0")).ToImmutableArray();
+        var changed = Json(Plan(package, new C.PackageEdit.Manifest(metadata with { Dependencies = changedDependencies })).Changes.Single())["dependencies"]!.AsArray();
+        Assert.AreEqual(2, changed.Count);
+        Assert.AreEqual("基础扩展", changed[0]!["name"]!.GetValue<string>());
+        Assert.AreEqual("2.0.0", changed[0]!["min_version"]!.GetValue<string>());
+        var removed = Json(Plan(package, new C.PackageEdit.Manifest(metadata with { Dependencies = [] })).Changes.Single());
+        Assert.AreEqual(0, removed["dependencies"]!.AsArray().Count);
+    }
+
+    [TestMethod]
+    public void Mod_open_ignores_git_and_source_files_outside_resources()
+    {
+        const string id = "11111111-1111-4111-8111-111111111111";
+        var fixture = new ContentFixture();
+        var root = new C.ContentRoot("mod-source");
+        fixture.AddFile(root, "mod.json", $$"""{"schema_version":2,"id":"{{id}}","name":"测试包","version":"1.0.0","authors":["作者"]}""");
+        fixture.AddDirectory(root, "resources");
+        fixture.SetReadFailure(root, ".git/large.pack", C.ContentIoFailure.LimitExceeded);
+        fixture.SetEnumerationFailure(root, ".git", C.ContentIoFailure.Inaccessible);
+        fixture.SetReadFailure(root, "model.blend", C.ContentIoFailure.LimitExceeded);
+        fixture.AddFile(root, "resources/voxels/block.voxel.json", ContentFixture.VoxelJson);
+        var package = Success(ContentFactory.Create().OpenAuthoringPackage(root, new(id), new("source"), fixture));
+        Assert.AreEqual(new C.PackageId(id), package.Package);
+        Assert.IsInstanceOfType<C.ContentLookup<C.DefinitionDraft>.Found>(package.Read(new(C.DefinitionKind.Voxel, "block")));
+    }
+
+    [TestMethod]
+    public void Nonfinite_form_values_are_field_failures_for_package_and_external_draft_encoding()
+    {
+        var package = Open(DesignFixtures.Content());
+        var voxel = ((C.DefinitionDraft.Voxel)Read(package, C.DefinitionKind.Voxel, "block")).Value;
+        foreach (var number in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity })
+        foreach (var value in new[]
+        {
+            voxel with { Simulation = voxel.Simulation! with { MassTons = number } },
+            voxel with { Simulation = voxel.Simulation! with { FuelEnergyPerUnit = number } },
+            voxel with { Collision = new C.VoxelCollision.LocalBox(new(number, 0, 0), new(0.5, 0.5, 0.5)) },
+            voxel with { Collision = new C.VoxelCollision.LocalBox(new(0, 0, 0), new(number, 0.5, 0.5)) },
+            voxel with { AppearanceBehaviors = new(false, new(new("#ffffff"), number)) }
+        })
+        {
+            var definition = new C.DefinitionDraft.Voxel(value);
+            Rejected(ContentFactory.Create().PreparePackageWrite(package, [new C.PackageEdit.WriteDefinition(definition)]), "/value", "invalid_field");
+            var saved = new C.SavedContentDraft(new(Guid.NewGuid()), new(1),
+                new C.DraftTarget.PackageDefinition(package.Package, C.DefinitionKind.Voxel, value.LocalId, package.SourceVersion), new C.DraftPayload.Definition(definition));
+            var result = ContentFactory.Create().EncodeDraft(saved);
+            Assert.IsInstanceOfType<C.ContentResult<string>.Failure>(result);
+            Assert.IsTrue(((C.ContentResult<string>.Failure)result).Diagnostics.Any(d => d.Code == "invalid_field" && d.Field == "/payload/value"));
+        }
     }
 
     private static C.IAuthoringPackage Open(ContentFixture fixture) => Success(ContentFactory.Create().OpenAuthoringPackage(

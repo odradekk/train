@@ -144,13 +144,13 @@ Initial、Restore、Reload 都独立读取当前 `UserLibrary` 根下的 `<UUID>
 
 当前实现提供体素、蓝图（含场景模型与生物类别）、聚居地类型和已有模板；生物聚落类型暂不列入 `EditableDefinitions`，读取、写入、删除和草稿编解码明确返回 `invalid_field`，不提供空成功。该项表单与普通加载、校验、投影留给 #349。
 
-打开时一次枚举并读取源包目录和文件，之后 `Read` 与 `PreparePackageWrite` 只使用固定字节，不再访问文件端口，也不要求依赖包已安装。`SourceVersion` 是宿主提供的不透明字符串，原样回显。Mod 元数据来自固定 `mod.json`；没有 manifest 的 core 使用只读的创作元数据（ID／名称为 `core`，版本为 `0.0.0`，作者和依赖为空），这个版本不表示游戏版本或来源身份。
+打开时只固定 `mod.json` 与 `resources/` 的文件和目录，不读取包根下的 `.git`、模型源文件或其他资料；资源文件沿用加载器的大小上限。之后 `Read` 与 `PreparePackageWrite` 只使用固定字节，不再访问文件端口，也不要求依赖包已安装。`SourceVersion` 是宿主提供的不透明字符串，原样回显。Mod 元数据来自固定 `mod.json`；没有 manifest 的 core 使用只读的创作元数据（ID／名称为 `core`，版本为 `0.0.0`，作者和依赖为空），这个版本不表示游戏版本或来源身份。
 
 模板草稿当前没有显示文本：写回已有文件时保留其 `display` 值；新建模板返回 `/display` 的 `invalid_field`。库存的 `voxel` 与 `GoodId.Voxel` 互转；只有固定源包中能确认为功能复合体的 `blueprint` 才映射为 `GoodId.Composite`。组装体或无法确认类别的蓝图使该模板的 `Read` 返回 `Missing`，诊断定位 `/inventory/<i>`，提示手工编辑；写入 `GoodId.Assembly` 同样拒绝。后续需补齐模板显示文本和保留库存蓝图来源的契约，才能支持这些编辑。
 
 `PreparePackageWrite` 把指定草稿、资产和 manifest 变更编码成确定的文件补丁。包 ID 不可通过这次操作修改；删除定义自己的目录时明确列出关联文件，不顺手删除 shared。补丁不包含未编辑文件的重写，也不表示整包已经合法。
 
-补丁按包内相对路径的 Ordinal 顺序返回，字节与固定源文件相同的写入项不列入补丁。定义删除包括该定义文件、其同名目录在快照中的全部文件（包括 `.import`），以及定义文件自身的 `.import`。没有 manifest 的 core 拒绝 `Manifest`；资产编辑不能代替 manifest 编辑，manifest 的原描述字段保留。越出包根的路径、同次编辑重复指向同一文件或无法编码的编辑使整次准备失败，不返回部分可写补丁。PNG／GLB 的 Godot 导入声明由宿主负责。
+补丁按包内相对路径的 Ordinal 顺序返回，字节与固定源文件相同的写入项不列入补丁。定义和 manifest 输出紧凑 UTF-8 JSON，中文不转成 Unicode 转义，末尾带换行。定义删除包括该定义文件、其同名目录在快照中的全部文件（包括 `.import`），以及定义文件自身的 `.import`。没有 manifest 的 core 拒绝 `Manifest`；资产编辑不能代替 manifest 编辑（不区分大小写），manifest 的原描述和依赖 `name` 保留，只按依赖 ID 增删或调整最低版本，不输出未改动的隐式 core 依赖。模板写入的 Composite 库存也须在固定源包中确认为本包功能复合体，否则在 `/inventory/<i>` 拒绝。越出包根的路径、同次编辑重复指向同一文件（不区分大小写）或无法编码的编辑使整次准备失败，不返回部分可写补丁；非有限表单数值返回 `invalid_field`，不当作内容内部故障。PNG／GLB 的 Godot 导入声明由宿主负责。
 
 宿主在单一写入者约定下复核源基准，按[包写入与重载](editing.md#创作模式包写入与重载)逐文件临时写后替换或执行明确删除，再调用普通 PrepareLoad／Submit／Activate。未知、未编辑文件原样保留。写入前发现外部修改拒绝覆盖并保留草稿；中途失败可能已有文件更新，报告本次已知完成项并由开发者修复，不承诺整包回滚或启动恢复。
 

@@ -55,7 +55,8 @@ internal static class ContentDraftCodec
                 writer.WriteString("kind", "definition");
                 writer.WriteString("definition_kind", DesignEvaluator.Wire(DefinitionDraftJson.Address(definition.Value).Kind));
                 writer.WritePropertyName("value");
-                DefinitionDraftJson.Write(definition.Value, incomplete: true).WriteTo(writer);
+                try { DefinitionDraftJson.Write(definition.Value, incomplete: true).WriteTo(writer); }
+                catch (ArgumentException exception) { throw new DefinitionFormatException("/payload/value", exception.Message, "invalid_field"); }
             }
             else
             {
