@@ -100,8 +100,18 @@ RAW_GOODS = {row[1] for row in RESOURCE_PROFILES} | {"grain", "produce", "animal
 ALL_SHAPES = ["cube", "half", "plate", "wedge", "corner-wedge", "beam", "cylinder"]
 
 RAW_GOODS_ART = {
+    "ferrous-ore": ("stone_soil", 2, None, None),
+    "conductive-ore": ("stone_soil", 2, None, None),
+    "rare-mineral": ("stone_soil", 2, None, None),
+    "stone": ("stone_soil", 2, None, None),
+    "silica": ("stone_soil", 2, None, None),
     "coal": ("stone_soil", 2, None, None),
+    "crude-oil": ("painted_metal", 1, "side.png", None),
     "grain": ("organic", 1, "side.png", None),
+    "produce": ("organic", 1, "side.png", "shared/crate-bottom.png"),
+    "animal-products": ("organic", 1, "side.png", "shared/crate-bottom.png"),
+    "timber": ("organic", 1, "side.png", None),
+    "natural-fiber": ("organic", 1, "side.png", None),
 }
 # 表中货物的 icon.png 是唯一源，生成器只生成 Keep File 导入声明。
 HAND_DRAWN_ICONS = tuple(f"voxels/{identity}/icon.png" for identity in RAW_GOODS_ART)
@@ -348,6 +358,38 @@ def coal_texture(x, y):
     return mineral_texture(x, y, (50, 54, 58))
 
 
+def ferrous_ore_texture(x, y):
+    color = (147, 87, 53) if grain(x, y, 64, 0x604) > 1 else (120, 65, 46)
+    return mineral_texture(x, y, color)
+
+
+def conductive_ore_texture(x, y):
+    color = (90, 125, 108) if grain(x, y, 64, 0x605) > 0 else (137, 94, 66)
+    return mineral_texture(x, y, color)
+
+
+def rare_mineral_texture(x, y):
+    color = (137, 130, 146) if grain(x, y, 64, 0x606) > 3 else (107, 96, 119)
+    return mineral_texture(x, y, color)
+
+
+def stone_texture(x, y):
+    return mineral_texture(x, y, (129, 131, 127))
+
+
+def silica_texture(x, y):
+    speckle = (x * 17 ^ y * 37 ^ x * y) % 5 - 2
+    return mineral_texture(x, y, (205 + speckle, 191 + speckle, 155 + speckle))
+
+
+def crude_oil_texture(x, y, side=False):
+    if side:
+        band = y % 16 in (3, 4, 5)
+        return tint((58, 67, 75), 15 if band else grain(x, y, 32, 0x607) // 2)
+    radius = ((x - 15.5) ** 2 + (y - 15.5) ** 2) ** .5
+    return tint((58, 67, 75), 16 if 12 <= radius < 14 or radius < 2 else -13 if radius >= 14 else 0)
+
+
 def grain_texture(x, y, side=False):
     if not side:
         x, y = min(x, 31 - x), min(y, 31 - y)
@@ -367,6 +409,59 @@ def grain_texture(x, y, side=False):
             return tint((168, 143, 99), weave + variation - (13 if seam else 22 if stitch else 0))
         return tint((91, 74, 48), grain(x, y, 32, 0x603) // 2)
     return tint((168, 143, 99), weave + variation)
+
+
+def crate_side_texture(x, y, wood, contents):
+    if 3 <= x <= 28 and y % 8 < 3:
+        return tint(contents, grain(x, y, 32, 0x608) // 2)
+    return tint(wood, -10 if x in (2, 29) else grain(x, y, 32, 0x609))
+
+
+def produce_texture(x, y, side=False):
+    if side:
+        return crate_side_texture(x, y, (128, 98, 63), (66, 93, 49))
+    a, b = sorted((min(x, 31 - x), min(y, 31 - y)))
+    if a < 2:
+        return tint((128, 98, 63), grain(a, b, 32, 0x610))
+    carrot = (a - 10) ** 2 + (b - 12) ** 2 < 14
+    return tint((179, 110, 47) if carrot else (79, 112, 53), grain(a, b, 32, 0x611))
+
+
+def animal_products_texture(x, y, side=False):
+    if side:
+        return crate_side_texture(x, y, (164, 137, 94), (198, 181, 132))
+    a, b = sorted((min(x, 31 - x), min(y, 31 - y)))
+    if a < 2:
+        return tint((164, 137, 94), grain(a, b, 32, 0x612))
+    egg = ((a - 8) / 5) ** 2 + ((b - 9) / 6) ** 2 < 1
+    return tint((231, 222, 195) if egg else (165, 143, 90), grain(a, b, 32, 0x613) // 2)
+
+
+def crate_bottom_texture(x, y):
+    a, b = sorted((min(x, 31 - x), min(y, 31 - y)))
+    weave = 5 if (a // 3 + b // 3) % 2 == 0 else -5
+    return tint((132, 105, 69), weave + grain(a, b, 32, 0x614) // 2)
+
+
+def timber_texture(x, y, side=False):
+    if side:
+        furrow = min(abs((x - center + 16) % 32 - 16) for center in (3, 11, 18, 27))
+        change = -23 if furrow < 1.2 else grain(x, y, 32, 0x615)
+        return tint((110, 78, 48), change)
+    a, b = sorted((min(x, 31 - x), min(y, 31 - y)))
+    radius = ((a - 15.5) ** 2 + (b - 15.5) ** 2) ** .5
+    if radius > 14:
+        return tint((110, 78, 48))
+    return tint((178, 142, 91), -18 if int(radius) % 4 == 0 else grain(a, b, 32, 0x616) // 2)
+
+
+def natural_fiber_texture(x, y, side=False):
+    if side:
+        strap = 14 <= x <= 17
+    else:
+        x, y = min(x, 31 - x), min(y, 31 - y)
+        strap = x >= 14 or y >= 14
+    return tint((67, 77, 76) if strap else (226, 218, 192), grain(min(x, y), max(x, y), 32, 0x617) // 2)
 
 
 def plate_texture(x, y):
@@ -734,7 +829,9 @@ def content_files():
              ("consumer-electronics", "消费电子", 1.6), ("medical-supplies", "医疗用品", 0.4))
     for identity, name, mass in goods:
         voxel(identity, name, "organic", faces("shared/organic-face.png"), "shared/organic-icon.png", good(identity, mass))
-    voxel("stone", "石料", "stone_soil", faces("shared/soil-face.png"), "shared/soil-icon.png", good("stone", 0.042))
+    material, tile_span, side, bottom = RAW_GOODS_ART["stone"]
+    voxel("stone", "石料", material, faces("top.png", side, bottom), "icon.png", good("stone", 0.042),
+          tile_span=tile_span, description="石料的正式美术；数值待配平，画面待用户阶段试玩确认。")
     voxel("ground", "地表", "organic", faces("top.png", "side.png", "shared/subsoil.png"),
           "icon.png", tile_span=4, description=sample_description.format("地表"))
     voxel("forest-ground", "森林地表占位", "organic", faces("top.png"),
@@ -746,9 +843,16 @@ def content_files():
     voxel("rock", "岩层", "stone_soil", faces("top.png"),
           "icon.png", tile_span=4, description=sample_description.format("岩层"))
     style_assets(files)
-    files["voxels/coal/top.png"] = png(64, coal_texture)
-    files["voxels/grain/top.png"] = png(32, grain_texture)
-    files["voxels/grain/side.png"] = png(32, lambda x, y: grain_texture(x, y, side=True))
+    for identity, texture in (("ferrous-ore", ferrous_ore_texture), ("conductive-ore", conductive_ore_texture),
+                              ("rare-mineral", rare_mineral_texture), ("stone", stone_texture),
+                              ("silica", silica_texture), ("coal", coal_texture)):
+        files[f"voxels/{identity}/top.png"] = png(64, texture)
+    for identity, texture in (("crude-oil", crude_oil_texture), ("grain", grain_texture),
+                              ("produce", produce_texture), ("animal-products", animal_products_texture),
+                              ("timber", timber_texture), ("natural-fiber", natural_fiber_texture)):
+        files[f"voxels/{identity}/top.png"] = png(32, texture)
+        files[f"voxels/{identity}/side.png"] = png(32, lambda x, y: texture(x, y, side=True))
+    files["voxels/shared/crate-bottom.png"] = png(32, crate_bottom_texture)
 
     for spec in VEHICLES:
         value = small_locomotive() if spec[0] == "small-locomotive" else locomotive(spec)
