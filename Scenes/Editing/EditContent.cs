@@ -47,9 +47,10 @@ internal sealed class EditContent(IContentView content)
                     projection.Voxels.Select(cell => cell.LocalAt).Distinct().Count() == projection.Voxels.Length;
                 if (complete)
                 {
-                    problems = projection.Voxels.SelectMany(cell => MissingProblems(Appearance(cell.Voxel),
+                    var missingAppearances = projection.Voxels.SelectMany(cell => MissingProblems(Appearance(cell.Voxel),
                         new ContentReference.Core(new CoreDefinitionReference.Voxel(cell.Voxel)))).ToImmutableArray();
-                    if (problems.IsEmpty) cells = projection.Voxels;
+                    problems = problems.AddRange(missingAppearances);
+                    if (missingAppearances.IsEmpty) cells = projection.Voxels;
                     else { complete = false; missing = true; }
                 }
             }

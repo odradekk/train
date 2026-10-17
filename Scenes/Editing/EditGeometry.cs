@@ -47,9 +47,9 @@ internal static class EditGeometry
                 }
                 var composite = (NestedDesignItem.FunctionalCompositeReference)child.Item;
                 var cached = content.Composite(composite.Definition);
-                problems.AddRange(cached.Problems);
                 var childId = objectId(child.Id);
                 var elementPath = new DesignElementPath.FunctionalComposite(path, i);
+                problems.AddRange(cached.Problems.Select(problem => problem with { Element = elementPath }));
                 if (!cached.Complete)
                 {
                     var reference = new ContentReference.Core(new CoreDefinitionReference.Composite(composite.Definition));

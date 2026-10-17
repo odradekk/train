@@ -135,6 +135,57 @@ public sealed class EditingBoundaryTests
             EditingFixtures.Evaluation(draft with { Specification = invalid })));
     }
     [TestMethod]
+    public void MissingCompositeDiagnosticsLocateEachInstanceAfterEarlierNestedItemIsRemoved()
+    {
+        var definition = new CompositeDefinitionId("test:missing-instances");
+        var good = new GoodId.Composite(definition);
+        var reference = new ContentReference.Core(new CoreDefinitionReference.Composite(definition));
+        var package = new PackageId("instance-source");
+        var diagnostic = new ContentDiagnostic("missing", ContentDiagnosticSeverity.Error, "test", reference,
+            new(package, "composite.json"), "", null, "Unavailable composite");
+        var content = new FixedContentView
+        {
+            Generation = new(1), Core = SceneFixtures.Content().Core,
+            Goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>>
+            { [good] = new ContentLookup<GoodPresentation>.Missing([diagnostic]) }
+        };
+        var empty = EditingFixtures.Draft() with
+        { Specification = new DesignSpecification.Assembly(null), Layout = new([], [], []) };
+        var draft = EditingFixtures.Draft() with
+        {
+            Layout = new([], [], [
+                new NestedDesignItem.AssemblyCopy(new(0, 0, 0), VoxelOrientation.PxPy, empty),
+                new NestedDesignItem.FunctionalCompositeReference(new(3, 0, 0), VoxelOrientation.PxPy, definition, null),
+                new NestedDesignItem.FunctionalCompositeReference(new(6, 0, 0), VoxelOrientation.PxPy, definition, null)])
+        };
+        using var session = EditingFixtures.Open(draft, content: content);
+        var initial = session.Read();
+        var composites = initial.Elements.Where(e => e.Kind == EditElementKind.FunctionalComposite).OrderBy(e => e.At.X).ToArray();
+        AssertDiagnostics(1);
+        var assembly = initial.Elements.Single(e => e.Kind == EditElementKind.Assembly);
+        EditingFixtures.Value(session.Select(new EditSelection.Elements([assembly.Id])));
+        EditingFixtures.Apply(session, new EditOperation.RemoveSelection());
+        CollectionAssert.AreEqual(composites.Select(e => e.Id).ToArray(),
+            session.Read().Elements.Where(e => e.Kind == EditElementKind.FunctionalComposite).OrderBy(e => e.At.X).Select(e => e.Id).ToArray());
+        AssertDiagnostics(0);
+
+        void AssertDiagnostics(int firstIndex)
+        {
+            var state = session.Read();
+            var problems = EditingFixtures.Frame(session).Diagnostics.Where(p => p.Code == "content_missing" && p.Content == reference).ToArray();
+            Assert.AreEqual(2, problems.Length);
+            for (var i = 0; i < composites.Length; i++)
+            {
+                var expectedIndex = firstIndex + i;
+                var problem = problems.Single(p => p.Element is DesignElementPath.FunctionalComposite path &&
+                    path.NestedItemIndices.IsEmpty && path.NestedItemIndex == expectedIndex);
+                Assert.AreEqual(package, problem.Package);
+                Assert.AreEqual(reference, problem.Content);
+                Assert.AreEqual(composites[i].Id, EditingFixtures.Value(session.Locate(state.Snapshot.Stamp, problem.Element!)));
+            }
+        }
+    }
+    [TestMethod]
     public void DeferredBatchOperationsRemainExplicitlyUnimplemented()
     {
         using var session = EditingFixtures.Open(EditingFixtures.Draft());
