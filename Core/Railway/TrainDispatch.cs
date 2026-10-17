@@ -24,14 +24,18 @@ internal sealed class TrainDispatch
         _tracks = world.Trains.Where(t => t.Position is TrainPosition.Edge)
             .GroupBy(t => { var p = (TrainPosition.Edge)t.Position; return (p.Id, p.Track); })
             .ToDictionary(g => g.Key, g => g.ToList());
-        _platforms = world.Nodes.ToDictionary(n => n.Id, n => world.Trains
-            .Select(t => t.Position).OfType<TrainPosition.Node>()
-            .Where(p => p.Id == n.Id && p.PlatformNumber is not null).Select(p => p.PlatformNumber!.Value).ToHashSet());
-        _platformHolders = world.Trains.Where(t => HoldsPlatform(world, t))
-            .ToDictionary(t => t.Id, t => ((TrainPosition.Node)t.Position).PlatformNumber!.Value);
+        _platforms = world.Nodes.ToDictionary(n => n.Id, _ => new HashSet<int>());
+        _platformHolders = [];
         foreach (var train in world.Trains)
+        {
+            if (train.Position is TrainPosition.Node { PlatformNumber: { } platform } position)
+            {
+                _platforms[position.Id].Add(platform);
+                _platformHolders.Add(train.Id, platform);
+            }
             if (RequestedEdge(world, content, train, _capabilities[train.Id]) is { } edge)
                 _requests.Add(train.Id, (edge.Id, Direction(edge, ((TrainPosition.Node)train.Position).Id)));
+        }
     }
 
     internal static TravelDirection Direction(EdgeMapItem edge, NodeId node)

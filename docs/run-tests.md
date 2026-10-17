@@ -97,6 +97,8 @@ Linux 全量结果可承担同份代码的完整回归，但不替代真实窗�
 
 `ObservationIndependenceTests` 由引擎层执行，使用默认 App 的真实 Core／Content／Scenes 装配和 `examples/basic-through/recipe.json`。参考运行使用 60 Hz、1×、不打开局部场景；五组变体覆盖 30／120 Hz、不规则间隔、2×／4×／8×、运行中切换倍速、暂停中连续命令，以及线路／节点／跟随场景的打开、切换和关闭。间隔由测试注入生产帧驱动，不依赖机器实际 FPS；在 `BoundaryCompleted` 请求完整边界暂停。每条命令前后及目标位置先核对位置、种子、运行身份和 `CoreInputId`，再委托核心比较检查点并定位首个字段差异。它提供真实模块的观察无关证据，不提供窗口性能或完整 Demo 验收。
 
+同存档变体先生成测试自己的世界，经生产 `SaveService.Save` 发布临时存档，再由三个独立 App 经 `SaveService.Load` 读取同一文件，分别以 1×、固定 8× 和不规则帧间隔 8× 执行相同配方，复用上述完整边界检查点比较，并核对起始存档字节未变。
+
 `scripts/export-measurement.ps1` 为测量生成并保留 Windows Release 导出，先读[本地 Windows 环境要求](local-environment.md#windows-export-and-runtime-validation)。它拒绝脏工作树，导出结束后确认 HEAD 未变且工作树仍干净。它隔离用户目录，只复制已安装的 Windows Release 模板并在结束时清理该副本。构建和测量的输出都须使用新目录或空目录；仓库内构建目录须被 Git 忽略，推荐 `TestResults/`。统一测试入口会删除自己的导出二进制；测量需要另行保留完整导出。
 
 测量导出同样执行共享的程序集优化检查，结果记入 `export-summary.json` 的 `optimizations` 步骤；检查失败时拒绝该构建。
@@ -116,6 +118,10 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 报告的 `identity.game_build` 和 `identity.build_commit` 来自实际加载程序集的 `AssemblyInformationalVersion`。脚本从该构建提交计算 `git rev-parse <commit>:docs/contracts/public-api.txt`，记录为 `identity.public_api_git_blob`；提交须存在于本地仓库。脚本同时记录实际 EXE／PCK／`Train.dll` 与输入哈希，不以当前工作树 HEAD 代替二进制来源。
 
 默认情景为 `map-1x`、`map-8x`、`follow-1x`、`follow-8x`、`node-1x`、`node-8x`、`sdfgi-off`、`sdfgi-on`、`taa-off`、`taa-on`。每组串行启动三个进程，各暖机 5 秒、采样至少 30 秒。脚本将输入、报告和身份路径传给生产 `--measure=<情景>`，不使用测试 Bootstrap、控制台命令或新增 UI。测量加载普通存档、启动其第一列非空编组列车并保留已有计划；节点情景观察首个节点，其他局部情景跟随该列车首车。SDFGI／TAA 情景均以 8× 运行，只切换对应效果，其余使用当前游戏画质。
+
+所有非 `scene-*` 情景（地图、跟随、节点及 SDFGI／TAA）都可通过 `-DurationSeconds` 指定 1–120 秒采样时长（应用参数 `--measure-duration`），例如 `-DurationSeconds 120`；省略或设为 0 时仍为 30 秒。非 scene 进程超时按采样时长加 40 秒估算启动和收尾成本，取 1.5 倍并向上取整到 30 秒，且不低于 180 秒；120 秒样本的进程超时为 240 秒。
+
+`timing.actual_speed` 保留整段实际倍速；`speed_windows` 按从采样起点开始的连续目标秒，取每个目标秒后的首个绘制帧作为边界，记录实际耗时及完成步数，不插值、不重叠计算步数。`window_median_actual_speed` 和 `window_minimum_actual_speed` 分别报告各窗口倍速的中位数与最小值；120 秒样本形成 120 个窗口，末尾超出最后目标秒的部分仅计入整段。单帧跨越多个目标秒而无法形成非零窗口时测量失败。帧间隔 p50／p99／maximum 使用全部绘制帧，不丢弃卡顿帧。跟随情景的原始 `frames` 追加 `follow`，包含列车编号、`Edge`／`Node` 位置种类与编号、已显示帧的空间编号；这些字段读取已有状态，不额外调用核心查询。
 
 各次运行保留 `identity.json`、`report.json`、进程日志、`external-load.jsonl` 和新的 `measured.save.json`，原输入不变。报告核对当前加载程序集的 SHA-256 与构建提交，记录实际窗口／viewport、GPU／驱动、录制和自动保存设置。`timing.frames` 保存每个 `FramePostDraw` 间的单调时间、绝对完成步数、请求倍速、暂停状态和模拟工作时间。时间单位为秒，内存单位为字节；分位数使用 nearest-rank，不插值，实际倍速按完成步数除以 60 和实际采样秒数计算。模拟工作时间覆盖帧驱动推进及边界消费者，排除候选准备和渲染提交；5 ms 预算触及次数单列，不作为失败阈值。首次进程读档、场景首个实际绘制帧、Ready 帧和保存的耗时及成败分别记录，OS 文件缓存和驱动着色器缓存未清空。
 
@@ -171,7 +177,7 @@ Windows 阶段层还执行 Windows 导出、空用户目录与有效 Mod 的导�
 
 发布导出冒烟保留生产内容、PNG 和有效 Mod 检查，同时从 PCK 的 `res://examples/basic-through/save.json` 经过正常恢复流程打开示例，不执行配方。它检查原身份与新身份均为有效且不同的 UUID、位置 200:0、暂停、未保存，以及玩家菜单隐藏示例入口；不保存副本或读回。副本保存到新 UUID 目录且原件不变由宿主测试在临时目录使用真实文件 I/O 验证。开发编辑器的可见入口由引擎测试覆盖；调试导出另做人工验证，命令、日志和截图记录在 Issue 交付评论，不加入 `test.ps1`。这些检查不替代 #298 四模块联调验收。
 
-截图复用引擎测试程序集、Bootstrap 和 JUnit，仅在 Windows 有窗口运行中执行。普通 headless engine 在执行前排除截图套件，不把它计为跳过。输入为 [windows-main-menu.png](../Tests/Engine/Baselines/windows-main-menu.png) 与 [windows-main-menu.json](../Tests/Engine/Baselines/windows-main-menu.json)，通过物理路径读取；`Tests/.gdignore` 阻止编辑器为测试 PNG 生成导入文件。比较先转为 RGBA8。候选值为 `MaxChannelDelta=32`、`MaxDifferentPixelFraction=0.00002`：任一通道差大于 32 的像素计为明显差异，明显差异像素数除以总像素数大于 0.00002 才失败。`comparison.json` 每次记录任意差异像素数、明显差异像素数及比例、最大通道差；`difference.png` 用红色区分明显差异、黄色区分轻微差异，通过时也保留。尺寸不一致、缺少基准或容差均失败。
+截图复用引擎测试程序集、Bootstrap 和 JUnit，仅在 Windows 有窗口运行中执行。`stage-screenshot` 设置 `TRAIN_ENGINE_SCREENSHOT=1`，一起执行 `ScreenshotTests` 和 `SceneMaterialPixelTests`，最低 7 例：主菜单截图、5 个材质像素用例和模型实例绘制调用测量。后者分别采样 1 与 64 实例的 5 个已完成帧，要求调用数稳定、非零且相等，原始数值输出到 Godot 日志。普通 headless engine 在执行前排除这两个窗口套件，不把它们计为通过或跳过。输入为 [windows-main-menu.png](../Tests/Engine/Baselines/windows-main-menu.png) 与 [windows-main-menu.json](../Tests/Engine/Baselines/windows-main-menu.json)，通过物理路径读取；`Tests/.gdignore` 阻止编辑器为测试 PNG 生成导入文件。比较先转为 RGBA8。候选值为 `MaxChannelDelta=32`、`MaxDifferentPixelFraction=0.00002`：任一通道差大于 32 的像素计为明显差异，明显差异像素数除以总像素数大于 0.00002 才失败。`comparison.json` 每次记录任意差异像素数、明显差异像素数及比例、最大通道差；`difference.png` 用红色区分明显差异、黄色区分轻微差异，通过时也保留。尺寸不一致、缺少基准或容差均失败。
 
 吞吐输入为 [windows-core-train-loop.json](../Tests/Benchmarks/Baselines/windows-core-train-loop.json)。BenchmarkDotNet 以独立 Release 构建测量 `core-train-loop-v2`：复用 Core 世界夹具并显式固定种子 42、生成器 `stage1-world-v1`、40×20 米世界、80 米进站段、96 米站台段、80 米出站段、15 米/秒节点限速和 0.7 米/秒²制动减速度，通过真实 `CoreFactory` 创建 `ICoreSession`，一辆牵引力 100 kN、最高速度 30 米/秒的列车持续循环经过三个车站，依次停留 4／3／2 步，每批 65,536 个完整模拟步。每次迭代在计时外重建会话并设置循环计划，计时仅覆盖 `ICoreSession.Advance`；结束时在计时外核对实际完成步数、无故障、循环计划仍活动，以及每个计划车站至少两次真实到达，并释放会话。`throughput.json` 保存负载身份、种子、生成器、世界尺寸、节点三段长度、节点限速、制动减速度、列车数、批次步数、每步耗时及标准差、样本数和步/秒，BDN 日志和报告保留原始测量。它只测量该固定列车运行负载的核心吞吐，不提供帧耗时或完整游戏 8× 运行证据。v2 的 Windows 候选规则为 `baselineStepsPerSecond=130000`、`maximumSlowdown=3`；基线取三次独立完整测量中的最低吞吐，向下取整至每秒一万步，仍等待用户确认，仅当实测步/秒乘以 3 小于候选基线时失败；摘要记录实测值、基线和实测除以基线的比值。缺少基准、负载身份不符或无效数字仍失败。Linux 只记录结果，不应用 Windows 阈值。
 
@@ -239,4 +245,4 @@ Core 集成层的回放语料位于 `Tests/Core/Sessions/ReplayCorpus/`：这组
 
 定位单个引擎用例时，先构建 `dotnet build Tests/Engine/Train.Engine.Tests.csproj -c Debug` 并按[隔离子进程片段](local-environment.md#agent-手动启动-godot)完成资源导入。在运行用例的隔离子进程内设置 `TRAIN_ENGINE_TEST_ASSEMBLY` 为 `.godot/mono/temp/bin/Debug/Train.Engine.Tests.dll` 的绝对路径，`TRAIN_ENGINE_REPORT` 为本次目录内 JUnit 文件的绝对路径，并设置 `TRAIN_ENGINE_SCREENSHOT=0`。Godot 参数使用 `--headless --path . --scene res://Tests/Engine/Bootstrap/Runner.tscn --log-file <本次原生日志> -- --run-tests=<类>[.<方法>] --quit-on-finish`，将选择表达式替换为类名或类名加方法名；此手动运行有用户目录隔离，但不执行统一入口的最低用例数与快照检查。
 
-单独重新采集截图时复用上述 Bootstrap 和[隔离子进程片段](local-environment.md#agent-手动启动-godot)：在子进程内设置 `TRAIN_ENGINE_SCREENSHOT=1`、`TRAIN_SCREENSHOT_OUTPUT` 为证据目录，并去掉 `--headless`。运行截图套件后从该目录取得 `actual.png`、`rendering.json` 和已有基准下的 `comparison.json`；缺少基准时仍保存实际 PNG，然后按预期失败。每次采集使用新的进程和用户目录，采集后只清理自己创建的用户目录；调用终端的环境保持原值。普通无界面用例使用 `TRAIN_ENGINE_SCREENSHOT=0`。
+单独重新采集截图时复用上述 Bootstrap 和[隔离子进程片段](local-environment.md#agent-手动启动-godot)：在子进程内设置 `TRAIN_ENGINE_SCREENSHOT=1`、`TRAIN_SCREENSHOT_OUTPUT` 为证据目录，并去掉 `--headless`。这会选中截图与材质窗口套件；只重新采集主菜单时可用 `--run-tests=ScreenshotTests` 限定选择。运行截图套件后从该目录取得 `actual.png`、`rendering.json` 和已有基准下的 `comparison.json`；缺少基准时仍保存实际 PNG，然后按预期失败。每次采集使用新的进程和用户目录，采集后只清理自己创建的用户目录；调用终端的环境保持原值。普通无界面用例使用 `TRAIN_ENGINE_SCREENSHOT=0`。

@@ -32,7 +32,8 @@ internal sealed class PreparedVisual : IDisposable
                 (SceneMaterial.BuiltIn left, SceneMaterial.BuiltIn right) => left.Kind == right.Kind,
                 _ => false
             }),
-        (SceneVisual.Model old, SceneVisual.Model next) => old.Asset == next.Asset && old.Materials.SequenceEqual(next.Materials),
+        (SceneVisual.Model old, SceneVisual.Model next) => old.Asset == next.Asset && old.Paint == next.Paint &&
+            old.Surface == next.Surface && old.Materials.SequenceEqual(next.Materials),
         (SceneVisual.Wheelset old, SceneVisual.Wheelset next) => old.GaugeCells == next.GaugeCells &&
             old.RadiusCells == next.RadiusCells && old.WidthCells == next.WidthCells,
         (SceneVisual.Missing old, SceneVisual.Missing next) => old == next,
@@ -55,13 +56,9 @@ internal sealed class PreparedVisual : IDisposable
                 }
                 break;
             case SceneVisual.Model model:
-                foreach (var material in _materials)
-                {
-                    SceneResources.SetSurface(material, model.Surface);
-                    SceneResources.SetPaint(material, model.Paint);
-                    material.SetShaderParameter("relative_height_plane", new Vector4(model.RelativeHeightPlane.X,
-                        model.RelativeHeightPlane.Y, model.RelativeHeightPlane.Z, model.RelativeHeightPlane.W));
-                }
+                Node.GetChild<MeshInstance3D>(0).SetInstanceShaderParameter("relative_height_plane",
+                    new Vector4(model.RelativeHeightPlane.X, model.RelativeHeightPlane.Y,
+                        model.RelativeHeightPlane.Z, model.RelativeHeightPlane.W));
                 break;
             case SceneVisual.Wheelset wheelset:
                 Node.Rotation = new((float)wheelset.RotationRadians, 0, 0);
@@ -89,11 +86,21 @@ internal sealed class SceneResources : IDisposable
         internal int Users { get; set; }
     }
 
+    private readonly record struct ModelMaterialKey(AssetRevision Asset, int Surface,
+        MaterialCategory Category, PaintColor? Paint, SurfaceState State);
+
+    private sealed class ModelMaterialResource(ShaderMaterial material)
+    {
+        internal ShaderMaterial Material { get; } = material;
+        internal int Users { get; set; }
+    }
+
     private readonly AssetResourceCache _cache;
     private readonly IContentView _content;
     private readonly Shader _surfaceShader;
     private readonly Shader _waterShader;
     private readonly Dictionary<SceneMesh, GeometryResource> _geometry = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<ModelMaterialKey, ModelMaterialResource> _modelMaterials = [];
     private bool _disposed;
 
     internal SceneResources(AssetResourceCache cache, IContentView content)
@@ -134,17 +141,11 @@ internal sealed class SceneResources : IDisposable
                     result.Node.AddChild(instance);
                     for (var index = 0; index < asset.Surfaces.Length; index++)
                     {
-                        var source = asset.Surfaces[index];
-                        var surface = result.Material(SurfaceMaterial(model.Materials[index], source.BaseColorFactor,
-                            source.BaseColorTexture, model.Paint));
-                        SetSurface(surface, model.Surface);
-                        surface.SetShaderParameter("model_height", true);
-                        surface.SetShaderParameter("relative_height_plane", new Vector4(model.RelativeHeightPlane.X,
-                            model.RelativeHeightPlane.Y, model.RelativeHeightPlane.Z, model.RelativeHeightPlane.W));
-                        surface.SetShaderParameter("alpha_cutout", source.AlphaMode == AssetAlphaMode.Mask);
-                        surface.SetShaderParameter("alpha_cutoff", source.AlphaCutoff);
+                        var surface = result.Own(AcquireModelMaterial(model, index, asset.Surfaces[index])).Value;
                         instance.SetSurfaceOverrideMaterial(index, surface);
                     }
+                    instance.SetInstanceShaderParameter("relative_height_plane", new Vector4(model.RelativeHeightPlane.X,
+                        model.RelativeHeightPlane.Y, model.RelativeHeightPlane.Z, model.RelativeHeightPlane.W));
                     break;
                 case SceneVisual.Wheelset wheelset:
                     var wheelMaterial = result.Material(SurfaceMaterial(MaterialCategory.BareMetal, new Color(0.26f, 0.28f, 0.30f)));
@@ -189,6 +190,33 @@ internal sealed class SceneResources : IDisposable
 
     private ContentAsset Asset(AssetRevision revision) => _content.FindAsset(revision) is ContentLookup<ContentAsset>.Found found
         ? found.Value : throw new InvalidOperationException($"显示资产未就绪：{revision}。");
+
+    private AssetLease<ShaderMaterial> AcquireModelMaterial(SceneVisual.Model model, int index, ModelSurface source)
+    {
+        var key = new ModelMaterialKey(model.Asset, index, model.Materials[index], model.Paint, model.Surface);
+        if (!_modelMaterials.TryGetValue(key, out var entry))
+        {
+            var material = SurfaceMaterial(key.Category, source.BaseColorFactor, source.BaseColorTexture, key.Paint);
+            try
+            {
+                SetSurface(material, key.State);
+                material.SetShaderParameter("model_height", true);
+                material.SetShaderParameter("alpha_cutout", source.AlphaMode == AssetAlphaMode.Mask);
+                material.SetShaderParameter("alpha_cutoff", source.AlphaCutoff);
+            }
+            catch { material.Dispose(); throw; }
+            entry = new(material);
+            _modelMaterials.Add(key, entry);
+        }
+        entry.Users++;
+        return new(entry.Material, () =>
+        {
+            _cache.RequireMainThread();
+            if (--entry.Users != 0) return;
+            _modelMaterials.Remove(key);
+            entry.Material.Dispose();
+        });
+    }
 
     private AssetLease<ArrayMesh> AcquireGeometry(SceneMesh source)
     {
@@ -253,7 +281,9 @@ internal sealed class SceneResources : IDisposable
         if (material is SceneMaterial.Voxel voxel)
         {
             var texture = owner.Own(_cache.AcquireFaceTexture(Asset(voxel.Texture)));
-            return owner.Material(SurfaceMaterial(voxel.Category, Colors.White, texture.Value, voxel.Paint));
+            var surface = owner.Material(SurfaceMaterial(voxel.Category, Colors.White, texture.Value, voxel.Paint));
+            surface.SetShaderParameter("voxel_paint_mask", true);
+            return surface;
         }
         if (material is not SceneMaterial.BuiltIn builtIn) throw new ArgumentOutOfRangeException(nameof(material));
         var preparedMaterial = owner.Material(builtIn.Kind switch
@@ -294,6 +324,7 @@ internal sealed class SceneResources : IDisposable
             material.SetShaderParameter("material_roughness", roughness);
             material.SetShaderParameter("material_metallic", metallic);
             material.SetShaderParameter("material_specular", specular);
+            material.SetShaderParameter("material_category", (int)category);
             SetPaint(material, paint);
             return material;
         }
@@ -319,7 +350,8 @@ internal sealed class SceneResources : IDisposable
     {
         _cache.RequireMainThread();
         if (_disposed) return;
-        if (_geometry.Count != 0) throw new InvalidOperationException("场景显示资源仍在使用。");
+        if (_geometry.Count != 0 || _modelMaterials.Count != 0)
+            throw new InvalidOperationException("场景显示资源仍在使用。");
         _disposed = true;
         _surfaceShader.Dispose();
         _waterShader.Dispose();

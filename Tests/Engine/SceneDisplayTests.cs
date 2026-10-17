@@ -5,6 +5,7 @@ using Train.App.Assets;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
 using Train.Core.Contracts;
+using Train.Engine.Tests.Assets;
 using Train.Rendering;
 using Train.Scenes.Contracts;
 using Train.Scenes.ContractSupport;
@@ -526,6 +527,98 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
             "空完整帧也必须清除旧显示组并释放独占网格。");
     }
 
+    [Test]
+    public void Model_meter_coordinates_and_bottom_center_origin_compose_with_the_supplied_pose()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        var asset = Glb(dispatcher, "model-coordinates");
+        using var display = Attach(cache, new FixedContentView
+        {
+            Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>>
+            { [asset.Revision] = new ContentLookup<ContentAsset>.Found(asset) }
+        });
+        var model = new SceneVisual.Model(asset.Revision,
+            [MaterialCategory.PaintedMetal, MaterialCategory.Concrete, MaterialCategory.Glass],
+            null, new(false, 0, 0, false), new(0, 1, 0, 0));
+        var source = new SceneObject(new(1), null, new(NVector3.Zero, NQuaternion.Identity),
+            null, [model], [], []);
+        var first = Frame(1, [source]);
+        Commit(display, first);
+        var instance = display.Objects[source.Id].Visuals[0].Node.GetChild<MeshInstance3D>(0);
+        var mesh = instance.Mesh;
+        using var arrays = mesh.SurfaceGetArrays(0);
+        var vertices = arrays[(int)Godot.Mesh.ArrayType.Vertex].AsVector3Array();
+        Near(vertices[0], new(-0.5f, 0, -0.25f));
+        Near(vertices[1], new(0.25f, 0, -0.25f));
+        Near(vertices[2], new(-0.5f, 0.8f, -0.15f));
+        using var frontArrays = mesh.SurfaceGetArrays(2);
+        Near(frontArrays[(int)Godot.Mesh.ArrayType.Vertex].AsVector3Array()[2], new(-0.5f, 0.8f, 0.15f));
+        Near(instance.GlobalPosition, Vector3.Zero);
+        Near(instance.GlobalTransform * vertices[2], new(-0.5f, 0.8f, -0.15f));
+        Commit(display, Frame(2, [source with
+        {
+            Pose = new(new(7, -3, 11), NQuaternion.CreateFromAxisAngle(NVector3.UnitY, MathF.PI / 2))
+        }], first.Update.Frame));
+        Require(instance.Mesh.GetInstanceId() == mesh.GetInstanceId(), "模型姿态变化重建了网格。");
+        Near(instance.GlobalPosition, new(7, -3, 11));
+        Near(instance.GlobalTransform * vertices[0], new(6.75f, -3, 11.5f));
+        Near(instance.GlobalTransform * vertices[2], new(6.85f, -2.2f, 11.5f));
+    }
+
+    [Test]
+    public void Model_material_leases_follow_candidate_cancellation_removal_and_asset_reload()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        var oldAsset = Glb(dispatcher, "old-model");
+        var reloadedAsset = Glb(dispatcher, "reloaded-model", 0.5f);
+        using var display = Attach(cache, new FixedContentView
+        {
+            Assets = new[] { oldAsset, reloadedAsset }.ToDictionary(asset => asset.Revision,
+                asset => (ContentLookup<ContentAsset>)new ContentLookup<ContentAsset>.Found(asset))
+        });
+        var model = new SceneVisual.Model(oldAsset.Revision,
+            [MaterialCategory.PaintedMetal, MaterialCategory.Concrete, MaterialCategory.Glass],
+            new("#204080"), new(true, 17, 0, false), new(0, 1, 0, 0));
+        SceneObject Source(ulong id, SceneVisual.Model value) => new(new(id), null,
+            new(NVector3.Zero, NQuaternion.Identity), null, [value], [], []);
+        ShaderMaterial Material(SceneDisplay.DisplayObject value) =>
+            (ShaderMaterial)value.Visuals[0].Node.GetChild<MeshInstance3D>(0).GetSurfaceOverrideMaterial(0);
+        var first = Frame(1, [Source(1, model), Source(2, model)]);
+        Commit(display, first);
+        var shared = Material(display.Objects[new(1)]);
+        var mesh = display.Objects[new(1)].Visuals[0].Node.GetChild<MeshInstance3D>(0).Mesh;
+        Require(shared.GetInstanceId() == Material(display.Objects[new(2)]).GetInstanceId(),
+            "同资产和表面状态没有共享模型材质。");
+        var repainted = model with { Paint = new("#803020") };
+        var changedSurface = model with { Surface = new(true, 18, 0, false) };
+        var pending = Prepare(display, Frame(2, [Source(1, repainted), Source(3, changedSurface)], first.Update.Frame));
+        var pendingPaint = Material(pending.Objects[new(1)]);
+        var pendingSurface = Material(pending.Objects[new(3)]);
+        Require(pendingPaint.GetInstanceId() != shared.GetInstanceId() &&
+            pendingSurface.GetInstanceId() != shared.GetInstanceId() &&
+            pendingPaint.GetInstanceId() != pendingSurface.GetInstanceId(), "涂装或种子变化污染了共享材质。");
+        pending.Dispose();
+        Require(!GodotObject.IsInstanceValid(pendingPaint) && !GodotObject.IsInstanceValid(pendingSurface) &&
+            GodotObject.IsInstanceValid(shared), "取消候选没有退役新材质，或错误释放了活动材质。");
+        var second = Frame(2, [Source(1, repainted)], first.Update.Frame);
+        Commit(display, second);
+        var painted = Material(display.Objects[new(1)]);
+        Require(GodotObject.IsInstanceValid(shared), "改涂一个实例释放了仍被另一实例使用的材质。");
+        var third = Frame(3, [], second.Update.Frame, removed: [new(2)]);
+        Commit(display, third);
+        Require(!GodotObject.IsInstanceValid(shared) && GodotObject.IsInstanceValid(painted),
+            "删除最后旧材质使用者没有单独退役该材质。");
+        var fourth = Frame(4, [Source(1, repainted with { Asset = reloadedAsset.Revision })], third.Update.Frame);
+        Commit(display, fourth);
+        var reloaded = Material(display.Objects[new(1)]);
+        Require(!GodotObject.IsInstanceValid(painted) && !GodotObject.IsInstanceValid(mesh) &&
+            GodotObject.IsInstanceValid(reloaded), "资产重载没有退役旧模型和旧材质。");
+        Commit(display, Frame(5, []));
+        Require(!GodotObject.IsInstanceValid(reloaded), "空完整帧没有释放最后模型材质。");
+    }
+
     private SceneDisplay Attach(AssetResourceCache cache, FixedContentView content)
     {
         var display = new SceneDisplay(cache, content) { Timestamp = () => 0 };
@@ -577,6 +670,14 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         using var image = Image.CreateEmpty(4, 4, false, Image.Format.Rgba8);
         image.Fill(Colors.Red);
         return new(new(revision), ImmutableArray.CreateRange(image.SavePngToBuffer()), new AssetMetadata.Png(4, 4), []);
+    }
+
+    private static ContentAsset Glb(GodotMainThreadDispatcher dispatcher, string revision, float tint = 1)
+    {
+        var bytes = GlbFixture.Create(feature: "cell", baseColorFactor: [tint, tint, tint, 1]);
+        var result = new GodotAssetInspector(dispatcher).Inspect(AssetKind.Glb, new(revision), bytes);
+        Require(result is AssetInspection.Success, "模型夹具无法解码。");
+        return new(new(revision), bytes, ((AssetInspection.Success)result).Metadata, []);
     }
 
     private static void Near(Vector3 actual, Vector3 expected) => Require(actual.DistanceTo(expected) < 0.001,

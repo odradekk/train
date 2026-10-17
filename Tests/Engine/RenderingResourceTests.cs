@@ -84,7 +84,7 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
             [MaterialCategory.Concrete, MaterialCategory.PaintedMetal, MaterialCategory.Glass],
             new("#abcdef"), new(true, 0x8000000100000001UL, 0.25f, true), new(0.1f, 0.2f, 0.3f, 0.4f));
         using var first = resources.Prepare(source);
-        using var second = resources.Prepare(source);
+        using var second = resources.Prepare(source with { RelativeHeightPlane = new(0, 1, 0, -1) });
         var instance = Instance(first);
         var mesh = instance.Mesh;
         Require(mesh.GetInstanceId() == Instance(second).Mesh.GetInstanceId(), "显示实例绕过了模型缓存。");
@@ -93,7 +93,9 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
             var material = (ShaderMaterial)instance.GetSurfaceOverrideMaterial(index);
             AssertSurface(material, source.Surface);
             Require(material.GetShaderParameter("model_height").AsBool(), "模型高度平面没有启用。");
-            Require(material.GetShaderParameter("relative_height_plane").AsVector4().IsEqualApprox(new Vector4(0.1f, 0.2f, 0.3f, 0.4f)), "模型相对高度平面丢失。");
+            Require(instance.GetInstanceShaderParameter("relative_height_plane").AsVector4().IsEqualApprox(new Vector4(0.1f, 0.2f, 0.3f, 0.4f)), "模型相对高度平面丢失。");
+            Require(material.GetInstanceId() == Instance(second).GetSurfaceOverrideMaterial(index).GetInstanceId(),
+                "不同高度平面的实例没有共享相同表面材质。");
             Require(material.GetShaderParameter("paint_color").AsColor().IsEqualApprox(Color.FromHtml("#abcdef")), "模型涂装丢失。");
             Require(material.GetShaderParameter("alpha_cutout").AsBool() == (index == 1), "模型 alpha mask 与表面次序不对应。");
         }
@@ -103,15 +105,21 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         var texture = mask.GetShaderParameter("base_texture").As<Texture2D>();
         using (var mipmapped = texture.GetImage()) Require(mipmapped.HasMipmaps(), "模型内嵌纹理没有 mipmap。");
         Require(texture.GetInstanceId() == ((ShaderMaterial)instance.GetSurfaceOverrideMaterial(2)).GetShaderParameter("base_texture").As<Texture2D>().GetInstanceId(), "同模型内嵌图片没有共享。");
-        var next = source with { Paint = null, Surface = new(false, ulong.MaxValue, 0.5f, false), RelativeHeightPlane = new(0, 1, 0, -2) };
+        Require(!first.CanUpdate(source with { Paint = null }) &&
+            !first.CanUpdate(source with { Surface = new(false, ulong.MaxValue, 0.5f, false) }),
+            "涂装或表面状态变化必须重新准备共享材质。");
+        var next = source with { RelativeHeightPlane = new(0, 1, 0, -2) };
+        Require(first.CanUpdate(next), "高度平面变化不应重建网格或材质。");
         first.Update(next);
-        AssertSurface(mask, next.Surface);
-        Require(!mask.GetShaderParameter("has_paint").AsBool(), "取消模型涂装没有更新。");
-        Require(mask.GetShaderParameter("relative_height_plane").AsVector4().IsEqualApprox(new Vector4(0, 1, 0, -2)), "模型高度平面没有更新。");
+        Require(instance.GetInstanceShaderParameter("relative_height_plane").AsVector4().IsEqualApprox(new Vector4(0, 1, 0, -2)), "模型高度平面没有更新。");
+        Require(Instance(second).GetInstanceShaderParameter("relative_height_plane").AsVector4().IsEqualApprox(new Vector4(0, 1, 0, -1)),
+            "更新实例高度影响了另一实例。");
         first.Dispose();
-        Require(GodotObject.IsInstanceValid(mesh) && GodotObject.IsInstanceValid(texture), "释放一个模型实例销毁了另一实例的资源。");
+        Require(GodotObject.IsInstanceValid(mesh) && GodotObject.IsInstanceValid(texture) && GodotObject.IsInstanceValid(mask),
+            "释放一个模型实例销毁了另一实例的资源。");
         second.Dispose();
-        Require(!GodotObject.IsInstanceValid(mesh) && !GodotObject.IsInstanceValid(texture), "最后模型显示实例没有释放模型网格和内嵌纹理。");
+        Require(!GodotObject.IsInstanceValid(mesh) && !GodotObject.IsInstanceValid(texture) && !GodotObject.IsInstanceValid(mask),
+            "最后模型显示实例没有释放共享材质、模型网格和内嵌纹理。");
     }
 
     [Test]
