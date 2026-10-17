@@ -19,8 +19,17 @@ public static class ScenesFactory
             WorldSceneSession.ValidateSnapshot(initial);
             return new SceneResult<IWorldSceneSession>.Success(new WorldSceneSession(binding, initial, WorldSceneSession.Generate, railwayCache, nodeCache, vehicleCache: vehicleCache));
         }
-        public SceneResult<IDesignEditSession> OpenEditor(IContentView content, DesignEvaluation initial) =>
-            throw new NotImplementedException("Design editing is implemented by Issue #333.");
+        public SceneResult<IDesignEditSession> OpenEditor(IContentView content, DesignEvaluation initial)
+        {
+            ArgumentNullException.ThrowIfNull(content);
+            ArgumentNullException.ThrowIfNull(initial);
+            if (initial is DesignEvaluation.Failed failed)
+                return new SceneResult<IDesignEditSession>.Failure(failed.Diagnostics.IsEmpty
+                    ? [new("invalid_operation", SceneStage.Input, null, null, null, null, "The evaluation has no draft.")]
+                    : failed.Diagnostics.Select(problem => new SceneProblem(problem.Code, SceneStage.Input, null,
+                        problem.Subject, problem.Source?.Package, problem.Element, problem.Message)).ToImmutableArray());
+            return new SceneResult<IDesignEditSession>.Success(new Editing.DesignEditSession(content, initial));
+        }
         public SceneResult<ITemplatePreview> PreviewTemplate(IContentView content, SettlementTemplateDraft draft, EditRevision revision) =>
             throw new NotImplementedException("Template previews are implemented by Issue #389.");
         public SceneResult<IDesignPreview> PreviewDesign(IContentView content, DesignEvaluation initial)
