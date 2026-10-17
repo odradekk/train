@@ -716,12 +716,14 @@ public sealed class NodeStreamingTests
         var origin = new ScenePoint(-288, 0, -288);
         SceneFrame? displayed = null;
         SceneFrame frame;
+        int previousObjects;
         do
         {
+            previousObjects = displayed?.Objects.Length ?? -1;
             frame = scene.Present(snapshot, Request, NodeFixtures.NextStamp(scene), displayed, origin, new WorldSceneTarget.Follow(new(1), new(1)));
             if (frame.Readiness is not SceneReadiness.Loading and not SceneReadiness.Failed) displayed = frame;
             await SceneFixtures.AwaitPendingWork(scene.PendingWork);
-        } while (scene.PendingWork.Length > 0 || scene.HasPendingBuilds);
+        } while (scene.PendingWork.Length > 0 || scene.HasPendingBuilds || frame.Objects.Length != previousObjects);
         var pose = ((Lookup<ScenePose>.Found)frame.FindPose(new WorldObjectId.Instance(new InstanceId.Vehicle(new(1))))).Value;
         var nodePosition = RailwayCoordinates.Add(origin, pose.Position);
         Assert.IsTrue(new NodeRange(nodePosition, NodeStreaming.PrefetchCells).Chunks(scene.Layout!).All(Chunks(cache).ContainsKey));
@@ -752,17 +754,25 @@ public sealed class NodeStreamingTests
         };
         var camera = new SceneFrame(cameraStamp, new(256, 0, 256), 0, SceneReadiness.Ready, [], [], [], []);
         var request = Request with { Camera = new(camera, new(32, 0, 32)) };
-        SceneFrame? displayed = null;
-        do
-        {
-            var frame = scene.Present(snapshot, request, NodeFixtures.NextStamp(scene), displayed, default, new WorldSceneTarget.Location(NodeFixtures.Location));
-            if (frame.Readiness is not SceneReadiness.Loading and not SceneReadiness.Failed) displayed = frame;
-            await SceneFixtures.AwaitPendingWork(scene.PendingWork);
-        } while (scene.PendingWork.Length > 0 || scene.HasPendingBuilds);
         var bounds = scene.Layout!.PanBounds(default);
         var focus = stale ? new ScenePoint((bounds.Minimum.X + bounds.Maximum.X) / 2, 0,
             (bounds.Minimum.Y + bounds.Maximum.Y) / 2) : new ScenePoint(288, 0, 288);
-        Assert.IsTrue(new NodeRange(focus, NodeStreaming.PrefetchCells).Chunks(scene.Layout!).All(Chunks(cache).ContainsKey));
+        var demanded = new NodeRange(focus, NodeStreaming.PrefetchCells).Chunks(scene.Layout!).ToArray();
+        SceneFrame? displayed = null;
+        var previousRemaining = int.MaxValue;
+        int remaining;
+        do
+        {
+            var pending = scene.PendingWork;
+            var frame = scene.Present(snapshot, request, NodeFixtures.NextStamp(scene), displayed, default, new WorldSceneTarget.Location(NodeFixtures.Location));
+            if (frame.Readiness is not SceneReadiness.Loading and not SceneReadiness.Failed) displayed = frame;
+            await SceneFixtures.AwaitPendingWork(scene.PendingWork);
+            remaining = demanded.Count(from => !Chunks(cache).ContainsKey(from));
+            Assert.IsTrue(remaining < previousRemaining || pending.Length > 0 || scene.HasPendingBuilds,
+                "Displaying the current demand must admit geometry or await real build work.");
+            previousRemaining = remaining;
+        } while (remaining > 0 || scene.HasPendingBuilds);
+        Assert.IsTrue(demanded.All(Chunks(cache).ContainsKey));
         Assert.IsFalse(Chunks(cache).ContainsKey(stale ? new(288, 288) : new(0, 0)));
     }
 
