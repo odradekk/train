@@ -1,5 +1,7 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Numerics;
+using System.Security.Cryptography;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
@@ -21,9 +23,11 @@ internal static class DesignGeometry
 
     internal static RenderedDesign Build(IContentView content, DesignEvaluation evaluation,
         WorldObjectId? subject, ScenePose rootPose, Func<string, SceneObjectId> id,
-        ImmutableHashSet<PartId>? destroyed = null, DesignHash? worldDesign = null, WorldLocation? terrainLocation = null)
+        ImmutableHashSet<PartId>? destroyed = null, DesignHash? worldDesign = null, WorldLocation? terrainLocation = null,
+        ulong wearSeed = 0)
     {
         SceneGeometry.Validate(rootPose);
+        if (subject is WorldObjectId.Instance instance) wearSeed = InstanceWearSeed(instance.Id);
         var projection = Projection(evaluation);
         if (projection.Voxels.IsDefault || projection.NestedObjects.IsDefault || projection.Elements.IsDefault)
             throw new ArgumentException("Design collections must be initialized.", nameof(evaluation));
@@ -100,7 +104,11 @@ internal static class DesignGeometry
                 visuals = [new SceneVisual.Missing(reference, false)];
                 AddMissing(reference, new DesignElementPath.FunctionalComposite(path.RemoveAt(path.Length - 1), path[^1]));
             }
-            else visuals = Meshes(grid, true);
+            else
+            {
+                visuals = Meshes(grid, true, wearSeed);
+                objects.AddRange(Models(grid, objectId, subject, cell => id(key + ":model:" + cell.At), true, wearSeed));
+            }
             objects.Add(new(objectId, parent, pose, subject, visuals, [], []));
             if (cells.Count > 0 && (subject is not null || terrainLocation is not null)) picking.Add(new(objectId, composed, grid));
         }
@@ -116,6 +124,53 @@ internal static class DesignGeometry
 
     internal static string Key(ImmutableArray<int> path) => string.Join('/', path);
 
+    private static ulong InstanceWearSeed(InstanceId instance)
+    {
+        Span<byte> identity = stackalloc byte[9];
+        var (kind, value) = instance switch
+        {
+            InstanceId.Vehicle vehicle => ((byte)1, vehicle.Id.Value),
+            InstanceId.Building building => ((byte)2, building.Id.Value),
+            _ => throw new ArgumentException("Unknown instance kind.", nameof(instance))
+        };
+        identity[0] = kind;
+        BinaryPrimitives.WriteUInt64LittleEndian(identity[1..], value);
+        return BinaryPrimitives.ReadUInt64LittleEndian(SHA256.HashData(identity));
+    }
+
+    internal static ulong PlacementWearSeed(EdgeId edge, ScenePoint position)
+    {
+        Span<byte> identity = stackalloc byte[33];
+        identity[0] = 3;
+        BinaryPrimitives.WriteUInt64LittleEndian(identity[1..], edge.Value);
+        BinaryPrimitives.WriteDoubleLittleEndian(identity[9..], position.X);
+        BinaryPrimitives.WriteDoubleLittleEndian(identity[17..], position.Y);
+        BinaryPrimitives.WriteDoubleLittleEndian(identity[25..], position.Z);
+        return BinaryPrimitives.ReadUInt64LittleEndian(SHA256.HashData(identity));
+    }
+
+    internal static IEnumerable<SceneObject> Models(VoxelGrid grid, SceneObjectId parent, WorldObjectId? subject,
+        Func<SceneCell, SceneObjectId> id, bool wear, ulong wearSeed = 0)
+    {
+        foreach (var cell in grid.Cells)
+        {
+            if (cell.Appearance?.Presentation is not VoxelPresentation.Mesh mesh) continue;
+            var placement = SceneGeometry.Placement(cell.At, cell.Orientation);
+            var pose = placement with
+            {
+                Position = placement.Position + Vector3.Transform(new Vector3(.5f, 0, .5f), placement.Rotation)
+            };
+            var bounds = grid.Bounds!;
+            var height = bounds.Maximum.Y - bounds.Minimum.Y;
+            var up = new Vector3(Vector3.Transform(Vector3.UnitX, pose.Rotation).Y,
+                Vector3.Transform(Vector3.UnitY, pose.Rotation).Y, Vector3.Transform(Vector3.UnitZ, pose.Rotation).Y);
+            var heightPlane = new Vector4(up / height, (pose.Position.Y - bounds.Minimum.Y) / height);
+            yield return new(id(cell), parent, pose, subject,
+                [new SceneVisual.Model(mesh.Model, mesh.SurfaceMaterials, cell.Paint,
+                    new(wear, wearSeed, 0, false), heightPlane)], [], []);
+        }
+    }
+
     internal static void AddDiagnostics(ImmutableArray<ContentDiagnostic> source,
         ImmutableArray<SceneProblem>.Builder target, WorldObjectId? subject)
     {
@@ -125,20 +180,22 @@ internal static class DesignGeometry
                 problem.Source?.Package, problem.Element, problem.Message));
     }
 
-    internal static ImmutableArray<SceneVisual> Meshes(VoxelGrid grid, bool wear)
+    internal static ImmutableArray<SceneVisual> Meshes(VoxelGrid grid, bool wear, ulong wearSeed = 0)
     {
+        var shapes = new VoxelShapes(grid);
         var groups = new Dictionary<(GridPosition Chunk, SceneMaterial Material),
             (List<FaceQuad> Quads, Dictionary<FacePlane, uint[]> Planes)>();
         foreach (var cell in grid.Cells)
         {
-            if (!cell.Occludes) continue;
+            if (!cell.Occludes) { shapes.Add(cell); continue; }
             var cube = (VoxelPresentation.Cube)cell.Appearance!.Presentation;
             var axes = SceneGeometry.Axes(cell.Orientation);
             for (var face = GridFace.NegativeX; face <= GridFace.PositiveZ; face++)
             {
                 var normal = SceneGeometry.Normal(face);
                 var at = cell.At;
-                if (grid.Occludes(new(at.X + (int)normal.X, at.Y + (int)normal.Y, at.Z + (int)normal.Z))) continue;
+                if (grid.Occludes(new(at.X + (int)normal.X, at.Y + (int)normal.Y, at.Z + (int)normal.Z),
+                    (GridFace)((int)face ^ 1))) continue;
                 var front = normal == axes.Forward && cube.Front != cube.Side;
                 var texture = normal == axes.Up ? cube.Top : normal == -axes.Up ? cube.Bottom : front ? cube.Front : cube.Side;
                 var imageUp = normal == axes.Up || normal == -axes.Up ? axes.Forward : axes.Up;
@@ -212,8 +269,9 @@ internal static class DesignGeometry
             foreach (var quad in group.Quads)
                 AddQuad(vertices, indices, quad.At, quad.Plane, quad.Width, quad.Height, quad.Edges);
             visuals.Add(new SceneVisual.Geometry(new(key.Material, vertices.DrainToImmutable(), indices.DrainToImmutable()),
-                new(wear, 0, 0, false)));
+                new(wear, wearSeed, 0, false)));
         }
+        visuals.AddRange(shapes.Build(new(wear, wearSeed, 0, false)));
         return visuals.DrainToImmutable();
 
         void AddQuad(ImmutableArray<SceneVertex>.Builder vertices, ImmutableArray<int>.Builder indices, GridPosition at, FacePlane plane,
@@ -262,7 +320,7 @@ internal static class DesignGeometry
     private readonly record struct FacePlane(GridFace Face, int Layer, Vector3 TextureU, Vector3 TextureV, int Span);
     private readonly record struct FaceQuad(GridPosition At, FacePlane Plane, int Width, int Height, ExposedFaceEdges Edges);
 
-    private static float TextureCoordinate(GridPosition at, Vector3 corner, Vector3 axis, int span)
+    internal static float TextureCoordinate(GridPosition at, Vector3 corner, Vector3 axis, int span)
     {
         var coordinate = axis.X != 0 ? at.X : axis.Y != 0 ? at.Y : at.Z;
         var positive = axis.X + axis.Y + axis.Z > 0;

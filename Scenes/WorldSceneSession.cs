@@ -489,6 +489,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         {
             var objectId = id("terrain");
             objects.Add(new(objectId, null, pose, null, DesignGeometry.Meshes(grid, false), [], []));
+            objects.AddRange(DesignGeometry.Models(grid, objectId, null, cell => id("terrain:model:" + cell.At), false));
             picking.Add(new(objectId, pose, grid));
             foreach (var cell in value.Terrain.Where(cell => cell.MissingReference is not null))
             {

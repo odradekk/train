@@ -170,6 +170,57 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public void Real_scene_model_projection_hands_bottom_center_and_ordered_surfaces_to_resources()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        var bytes = GlbFixture.Create();
+        var inspection = new GodotAssetInspector(dispatcher).Inspect(AssetKind.Glb, new("scene-model"), bytes);
+        Require(inspection is AssetInspection.Success, "模型夹具无法解码。");
+        var asset = new ContentAsset(new("scene-model"), bytes, ((AssetInspection.Success)inspection).Metadata, []);
+        var voxel = new Train.Core.Contracts.VoxelDefinitionId("test:scene-model");
+        var design = new Train.Core.Contracts.DesignHash("scene-model-design");
+        ImmutableArray<MaterialCategory> categories =
+            [MaterialCategory.Glass, MaterialCategory.Concrete, MaterialCategory.PaintedMetal];
+        var content = new FixedContentView
+        {
+            Generation = new(1),
+            Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>>
+                { [asset.Revision] = new ContentLookup<ContentAsset>.Found(asset) },
+            VoxelAppearances = new Dictionary<Train.Core.Contracts.VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
+            {
+                [voxel] = new ContentLookup<VoxelAppearanceProjection>.Found(new(voxel,
+                    AllowedVoxelOrientations.All24, new VoxelCollision.None(),
+                    new VoxelPresentation.Mesh(asset.Revision, categories), new(false, null)))
+            }
+        };
+        var projection = new DesignSceneProjection(design, null, null, true, null, null,
+            [new(new(2, 3, 4), voxel, VoxelOrientation.PxPy, null, new("#abcdef"), new(1),
+                new DesignElementPath.Cell([], 0), [], new(2, 3, 4), VoxelOrientation.PxPy, false)], [], [], [], []);
+        var draft = new DesignDraft(new("Model", ""), new DesignSpecification.SceneModel(null), new([], [], []));
+        var evaluation = new DesignEvaluation.Complete(design, new("composition"), draft, null, projection, true, []);
+        using var preview = ((SceneResult<IDesignPreview>.Success)Train.Scenes.ScenesFactory.Create()
+            .PreviewDesign(content, evaluation)).Value;
+        var frame = ((SceneResult<ISceneFrame>.Success)preview.Present()).Value;
+        var projected = frame.Update.Upserts.Single(item => item.Visuals.OfType<SceneVisual.Model>().Any());
+        var model = projected.Visuals.OfType<SceneVisual.Model>().Single();
+        using var resources = new SceneResources(cache, content);
+        using var visual = resources.Prepare(model);
+        var instance = Instance(visual);
+        Require(projected.Pose.Position == new NVector3(2.5f, 3, 4.5f), "Scenes 没有将模型原点放在格底面中心。");
+        Require(visual.Node.Position.IsZeroApprox() && instance.Position.IsZeroApprox(), "资源交接额外移动了模型原点。");
+        Require(instance.Mesh.GetSurfaceCount() == categories.Length, "GLB 表面数与 Scenes 材质列表不一致。");
+        for (var index = 0; index < categories.Length; index++)
+        {
+            var material = (ShaderMaterial)instance.GetSurfaceOverrideMaterial(index);
+            Require(material.GetShaderParameter("material_category").AsInt32() == (int)categories[index],
+                "真实 Scenes 材质次序未传到对应 GLB 表面。");
+            Require(material.GetShaderParameter("paint_color").AsColor().IsEqualApprox(Color.FromHtml("#abcdef")),
+                "模型格涂装未传到 GLB 表面。");
+        }
+    }
+
+    [Test]
     public void Display_leases_share_mesh_and_mipmapped_face_texture_until_last_visual()
     {
         using var dispatcher = new GodotMainThreadDispatcher();

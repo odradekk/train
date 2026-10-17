@@ -203,7 +203,7 @@ public sealed class GeometryTests
         var meshAppearance = cube with { Presentation = new VoxelPresentation.Mesh(new("model"), []) };
         foreach (var appearance in new[] { cube, meshAppearance })
         {
-            var shaped = appearance == cube ? new VoxelShape("slope") : (VoxelShape?)null;
+            var shaped = appearance == cube ? new VoxelShape("half") : (VoxelShape?)null;
             var grid = new VoxelGrid([
                 new(new(0, 0, 0), new(VoxelOrientation.PxPy, cube, null, null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), [])),
                 new(new(1, 0, 0), new(VoxelOrientation.PxPy, appearance, shaped, null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), [])),

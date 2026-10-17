@@ -17,7 +17,10 @@ internal sealed class CellProperties(VoxelOrientation orientation, VoxelAppearan
     internal PickSubject? Subject { get; } = subject;
     internal ImmutableArray<int> Path { get; } = path;
     internal ContentReference? MissingReference { get; } = missingReference;
-    internal bool Occludes { get; } = (shape is null or { Name: "cube" }) && appearance?.Presentation is VoxelPresentation.Cube;
+    internal string ShapeName { get; } = VoxelShapes.Name(shape, appearance);
+    internal bool Occludes { get; } = VoxelShapes.Name(shape, appearance) == "cube" && appearance?.Presentation is VoxelPresentation.Cube;
+    internal int CoveredFaces { get; } = appearance?.Presentation is VoxelPresentation.Cube
+        ? VoxelShapes.Coverage(VoxelShapes.Name(shape, appearance), orientation) : 0;
     private readonly int hashCode = Hash(orientation, appearance, shape, paint, subject, path, missingReference);
 
     public bool Equals(CellProperties? other) => ReferenceEquals(this, other) || other is not null &&
@@ -129,7 +132,8 @@ internal sealed class VoxelGrid
         return id == 0 ? null : new(cell, entries[id]!);
     }
     internal bool Contains(GridPosition cell) => EntryAt(cell) != 0;
-    internal bool Occludes(GridPosition cell) => entries[EntryAt(cell)]?.Occludes ?? false;
+    internal bool Occludes(GridPosition cell, GridFace face) =>
+        ((entries[EntryAt(cell)]?.CoveredFaces ?? 0) & (1 << (int)face)) != 0;
 
     internal (SceneCell Cell, GridFace Face, double Distance)? Pick(SceneRay ray)
     {
