@@ -119,7 +119,9 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 
 默认情景为 `map-1x`、`map-8x`、`follow-1x`、`follow-8x`、`node-1x`、`node-8x`、`sdfgi-off`、`sdfgi-on`、`taa-off`、`taa-on`。每组串行启动三个进程，各暖机 5 秒、采样至少 30 秒。脚本将输入、报告和身份路径传给生产 `--measure=<情景>`，不使用测试 Bootstrap、控制台命令或新增 UI。测量加载普通存档、启动其第一列非空编组列车并保留已有计划；节点情景观察首个节点，其他局部情景跟随该列车首车。SDFGI／TAA 情景均以 8× 运行，只切换对应效果，其余使用当前游戏画质。
 
-`map-8x`、`node-8x`、`follow-8x` 可通过 `-DurationSeconds 120`（应用参数 `--measure-duration 120`）采样 120 秒，省略时仍为 30 秒。`timing.actual_speed` 保留整段实际倍速；`speed_windows` 按从采样起点开始的连续目标秒，取每个目标秒后的首个绘制帧作为边界，记录实际耗时及完成步数，不插值、不重叠计算步数。`window_median_actual_speed` 和 `window_minimum_actual_speed` 分别报告各窗口倍速的中位数与最小值；120 秒样本形成 120 个窗口，末尾超出最后目标秒的部分仅计入整段。单帧跨越多个目标秒而无法形成非零窗口时测量失败。帧间隔 p50／p99／maximum 使用全部绘制帧，不丢弃卡顿帧。跟随情景的原始 `frames` 追加 `follow`，包含列车编号、`Edge`／`Node` 位置种类与编号、已显示帧的空间编号；这些字段读取已有状态，不额外调用核心查询。
+所有非 `scene-*` 情景（地图、跟随、节点及 SDFGI／TAA）都可通过 `-DurationSeconds` 指定 1–120 秒采样时长（应用参数 `--measure-duration`），例如 `-DurationSeconds 120`；省略或设为 0 时仍为 30 秒。非 scene 进程超时按采样时长加 40 秒估算启动和收尾成本，取 1.5 倍并向上取整到 30 秒，且不低于 180 秒；120 秒样本的进程超时为 240 秒。
+
+`timing.actual_speed` 保留整段实际倍速；`speed_windows` 按从采样起点开始的连续目标秒，取每个目标秒后的首个绘制帧作为边界，记录实际耗时及完成步数，不插值、不重叠计算步数。`window_median_actual_speed` 和 `window_minimum_actual_speed` 分别报告各窗口倍速的中位数与最小值；120 秒样本形成 120 个窗口，末尾超出最后目标秒的部分仅计入整段。单帧跨越多个目标秒而无法形成非零窗口时测量失败。帧间隔 p50／p99／maximum 使用全部绘制帧，不丢弃卡顿帧。跟随情景的原始 `frames` 追加 `follow`，包含列车编号、`Edge`／`Node` 位置种类与编号、已显示帧的空间编号；这些字段读取已有状态，不额外调用核心查询。
 
 各次运行保留 `identity.json`、`report.json`、进程日志、`external-load.jsonl` 和新的 `measured.save.json`，原输入不变。报告核对当前加载程序集的 SHA-256 与构建提交，记录实际窗口／viewport、GPU／驱动、录制和自动保存设置。`timing.frames` 保存每个 `FramePostDraw` 间的单调时间、绝对完成步数、请求倍速、暂停状态和模拟工作时间。时间单位为秒，内存单位为字节；分位数使用 nearest-rank，不插值，实际倍速按完成步数除以 60 和实际采样秒数计算。模拟工作时间覆盖帧驱动推进及边界消费者，排除候选准备和渲染提交；5 ms 预算触及次数单列，不作为失败阈值。首次进程读档、场景首个实际绘制帧、Ready 帧和保存的耗时及成败分别记录，OS 文件缓存和驱动着色器缓存未清空。
 

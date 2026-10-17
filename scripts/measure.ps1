@@ -134,7 +134,11 @@ public sealed class MeasurementDisplayAwake : IDisposable
         $isScene = $name.StartsWith('scene-', [StringComparison]::Ordinal)
         $timeout = if ($name -eq 'scene-memory') {
             if ($DurationSeconds -eq 0) { 7800 } else { $DurationSeconds + 600 }
-        } elseif ($isScene) { 600 } else { 180 }
+        } elseif ($isScene) { 600 } else {
+            # 实测采样外耗时最多 39.5 秒；总耗时取 1.5 倍并向上取整到 30 秒，不降低原有预算。
+            $sampleSeconds = if ($DurationSeconds -gt 0) { $DurationSeconds } else { 30 }
+            [Math]::Max(180, [Math]::Ceiling(($sampleSeconds + 40) * 1.5 / 30) * 30)
+        }
         for ($iteration = 1; $iteration -le $Repeat; $iteration++) {
             $runDirectory = Join-Path $OutputDirectory "$name-$iteration"
             [System.IO.Directory]::CreateDirectory($runDirectory) | Out-Null
