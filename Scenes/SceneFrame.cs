@@ -62,7 +62,7 @@ internal sealed class SceneFrame : ISceneFrame
         RailwayPath? railway = null, ImmutableArray<RailwaySegment> segments = default,
         NodeLayout? node = null, ImmutableArray<NodeScene.Part> nodeParts = default,
         SceneDebugLayer debugLayers = SceneDebugLayer.None, ImmutableDictionary<EdgeId, int>? nodeTracks = null,
-        ScenePickRaySample? pickRay = null)
+        ScenePickRaySample? pickRay = null, ImmutableArray<SceneDebugLine> editLines = default)
     {
         Origin = origin;
         SimulationSeconds = seconds;
@@ -77,6 +77,7 @@ internal sealed class SceneFrame : ISceneFrame
         this.fog = fog;
         DebugLines = debugLayers == SceneDebugLayer.None ? [] :
             SceneDebugLines.Generate(debugLayers, picking, origin, railway, this.segments, node, nodeTracks, stamp, pickRay);
+        if (!editLines.IsDefaultOrEmpty) DebugLines = DebugLines.AddRange(editLines);
         var environment = new SceneEnvironment(fog.Select(item => item.WorldBounds).ToImmutableArray(), []);
         var byId = objects.ToDictionary(item => item.Id);
         var composed = new Dictionary<SceneObjectId, ScenePose>();
