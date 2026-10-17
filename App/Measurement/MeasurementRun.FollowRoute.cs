@@ -19,6 +19,7 @@ internal sealed partial class MeasurementRun
     private readonly RouteRangeRecorder _routeBuiltRecorder = new(), _routeShownRecorder = new();
     private readonly Dictionary<VehicleId, double?> _routeLengths = [];
     private long? _routeBuilt, _routeShown;
+    private (SceneFrameStamp Frame, SceneSpaceId Coordinates, ScenePoint Translation)? _routeShownIdentity;
     private RouteTransition? _routeTransition;
     private TrainPosition? _routePreviousPosition;
     private long _routeStateId, _routeFrames;
@@ -244,9 +245,18 @@ internal sealed partial class MeasurementRun
                     }
                 }
                 if (display?.DisplayedFrame is { } drawn)
-                    _routeShown = drawn.Update.Frame == frame.Update.Frame && display.Root.Position == Vector3.Zero ? _routeBuilt :
-                        RecordRouteRanges(_routeShownRecorder, drawn, frame.Update.Frame.Space, frame.Origin,
-                            new(display.Root.Position.X, display.Root.Position.Y, display.Root.Position.Z), display.Objects.Values.Select(item => item.Source));
+                {
+                    var shift = new NVector(display.Root.Position.X, display.Root.Position.Y, display.Root.Position.Z);
+                    var identity = (drawn.Update.Frame, frame.Update.Frame.Space, RouteAbsolute(shift, frame.Origin));
+                    if (drawn.Update.Frame == frame.Update.Frame && shift == NVector.Zero)
+                    { _routeShown = _routeBuilt; _routeShownIdentity = null; }
+                    else if (_routeShownIdentity != identity)
+                    {
+                        _routeShown = RecordRouteRanges(_routeShownRecorder, drawn, frame.Update.Frame.Space, frame.Origin,
+                            shift, display.Objects.Values.Select(item => item.Source));
+                        _routeShownIdentity = identity;
+                    }
+                }
             }
             var newSpace = frame is not null && frame.Update.Frame.Space != _routeLastSpace;
             if (newSpace) { _routeLastSpace = frame!.Update.Frame.Space; _routeCaptureBurst = 6; }
