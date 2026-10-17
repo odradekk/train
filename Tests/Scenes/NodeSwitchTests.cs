@@ -84,15 +84,25 @@ public sealed class NodeSwitchTests
         { Position = new TrainPosition.Node(NodeFixtures.NodeId, inlet.Edge, null, NodeTravelPhase.Approaching, 0, null) }],
             content: content, steps: 1, tracks: 2, trackLimit: 2, platformLengthMeters: 0), []);
         var first = Present(session, displayed);
-        Assert.AreEqual(0, session.PendingNodeBuilds.Length, "The candidate must finish prefetch work before handover, even while outer results await admission.");
+        Assert.AreNotEqual(SceneReadiness.Loading, first.Readiness,
+            "The candidate must supply the near zone before handover; the train head may extend the forward demand.");
         await RailwayFixtures.Settled(session, Request, first);
         var retained = cache.Read(NodeFixtures.NodeId)!;
         var expected = new NodeRange(entry, NodeStreaming.PrefetchCells).Chunks(expectedLayout)
             .Select(NodeScene.ChunkKey).ToArray();
-        CollectionAssert.AreEquivalent(expected, retained.Parts.Keys.Where(key => key.StartsWith("terrain:", StringComparison.Ordinal)).ToArray());
+        var terrain = retained.Parts.Keys.Where(key => key.StartsWith("terrain:", StringComparison.Ordinal)).ToArray();
+        Assert.IsTrue(expected.All(terrain.Contains));
+        var maximumRange = new NodeRange(entry, NodeStreaming.PrefetchCells + train.LengthMeters * RailwayCoordinates.CellsPerMeter / 2);
+        Assert.IsTrue(terrain.All(key =>
+        {
+            var parts = key.Split(':');
+            return maximumRange.Intersects(new GridColumn(int.Parse(parts[1]), int.Parse(parts[2])));
+        }), "The follow head may extend the handover circle only by half the train length.");
         var entryRange = new NodeRange(entry, NodeStreaming.PrefetchCells);
-        CollectionAssert.AreEquivalent(railSegments.Values.Where(segment => entryRange.Intersects(segment.Bounds)).Select(segment => segment.Key).ToArray(),
-            retained.Parts.Keys.Where(railSegments.ContainsKey).ToArray());
+        Assert.IsTrue(railSegments.Values.Where(segment => entryRange.Intersects(segment.Bounds))
+            .All(segment => retained.Parts.ContainsKey(segment.Key)));
+        Assert.IsTrue(retained.Parts.Keys.Where(railSegments.ContainsKey)
+            .All(key => maximumRange.Intersects(railSegments[key].Bounds)));
         var wholeCount = (expectedLayout.Bounds.Maximum.X - expectedLayout.Bounds.Minimum.X) / VoxelGrid.ChunkSize *
             (expectedLayout.Bounds.Maximum.Y - expectedLayout.Bounds.Minimum.Y) / VoxelGrid.ChunkSize;
         Assert.IsTrue(expected.Length < wholeCount, "The candidate must leave distant node chunks unbuilt.");
@@ -232,9 +242,9 @@ public sealed class NodeSwitchTests
         var content = NodeFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 });
         var snapshot = RailwayFixtures.Snapshot(800, 800, 0, content: content);
         await using var vehicles = new SceneVehicles();
-        await using var scene = RailwayFixtures.Controlled(snapshot, vehicles);
         long now = 0;
-        scene.Timestamp = () => now;
+        var displayRate = new DisplayRate { Timestamp = () => now };
+        await using var scene = RailwayFixtures.Controlled(snapshot, vehicles, displayRate: displayRate);
         await RailwayFixtures.Settled(scene, snapshot, new WorldSceneTarget.Location(RailwayFixtures.Location), Request,
             new(new(Guid.NewGuid()), new(1), new(1), 1));
         Assert.IsNull(scene.FrontNode(snapshot, RailwayFixtures.Train(735, speed: 10)));
@@ -245,7 +255,8 @@ public sealed class NodeSwitchTests
         Assert.AreEqual(4, RailwayScene.PrefetchSegments(100, 8));
         Assert.AreEqual(0, RailwayScene.PrefetchSegments(0, 8));
         now = Stopwatch.Frequency;
-        scene.Pump(RailwayFixtures.Snapshot(800, 800, 0, steps: 240, content: content), new(RailwayFixtures.Edge, 0));
+        scene.Present(RailwayFixtures.Snapshot(800, 800, 0, steps: 240, content: content), null,
+            new WorldSceneTarget.Location(RailwayFixtures.Location), Request, new(new(Guid.NewGuid()), new(1), new(1), 2), null);
         Assert.IsNull(scene.FrontNode(snapshot, RailwayFixtures.Train(607, speed: 10)));
         Assert.AreEqual(new WorldLocation.Node(new(2)), scene.FrontNode(snapshot, RailwayFixtures.Train(608, speed: 10)));
     }

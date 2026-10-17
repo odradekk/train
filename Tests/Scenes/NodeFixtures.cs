@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
@@ -10,6 +11,42 @@ namespace Train.Scenes.Tests;
 
 internal static class NodeFixtures
 {
+    internal sealed class DisplayState
+    {
+        internal ulong Revision;
+        internal SceneFrame? Displayed;
+    }
+    internal static readonly ConditionalWeakTable<NodeScene, DisplayState> Displays = new();
+
+    internal static SceneFrameStamp NextStamp(NodeScene scene) =>
+        new(new(Guid.Empty), new(1), new(1), ++Displays.GetValue(scene, static _ => new()).Revision);
+
+    internal static SceneWorldSnapshot EmptyNodeSnapshot(SettlementLayoutProjection layout,
+        ImmutableArray<TrainView> trains, double relief = 0, DesignEvaluation? design = null,
+        ulong steps = 0, double travelMeters = 80)
+    {
+        var original = Snapshot(platforms: 0, trains: trains,
+            content: Content(layout: layout, design: design), platformLengthMeters: 0, steps: steps);
+        var node = original.Core.World.Nodes.Single(item => item.Id == NodeId);
+        node = node with { Terrain = node.Terrain with { Relief = relief } };
+        return original with { Core = new FixedCoreReadView
+        {
+            Position = original.Core.Position, InputIdentity = original.Core.InputIdentity,
+            Nodes = new Dictionary<NodeId, Lookup<NodeView>>
+            {
+                [node.Id] = new Lookup<NodeView>.Found(
+                    ((Lookup<NodeView>.Found)original.Core.FindNode(node.Id)).Value with
+                    { Map = node, ApproachLengthMeters = travelMeters, DepartureLengthMeters = travelMeters })
+            },
+            World = original.Core.World with { Nodes = [node], Edges = [] },
+            Trains = trains.ToDictionary(train => train.Id, train => original.Core.FindTrain(train.Id)),
+            Instances = trains.SelectMany(train => train.Vehicles).ToDictionary(vehicle => (InstanceId)new InstanceId.Vehicle(vehicle),
+                vehicle => original.Core.FindInstance(new InstanceId.Vehicle(vehicle))),
+            Settlements = new Dictionary<SettlementId, Lookup<SettlementView>>
+            { [new(1)] = new Lookup<SettlementView>.Found(Settlement(0) with { Plots = [] }) }
+        } };
+    }
+
     internal static NodeScene.Built Build(SceneWorldSnapshot snapshot, NodeLayout layout,
         NodeScene.Built? previous = null, CancellationToken token = default)
     {

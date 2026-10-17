@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using System.Numerics;
-using System.Runtime.CompilerServices;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
@@ -12,16 +11,6 @@ namespace Train.Scenes.Tests;
 [TestClass]
 public sealed class NodePresentationRegressionTests
 {
-    private sealed class DisplayState
-    {
-        internal ulong Revision;
-        internal SceneFrame? Displayed;
-    }
-    private static readonly ConditionalWeakTable<NodeScene, DisplayState> Displays = new();
-
-    private static SceneFrameStamp NextStamp(NodeScene scene) =>
-        new(new(Guid.Empty), new(1), new(1), ++Displays.GetValue(scene, static _ => new()).Revision);
-
     [TestMethod]
     public async Task Moving_focus_after_near_completion_keeps_attached_objects_and_partial_readiness()
     {
@@ -44,7 +33,7 @@ public sealed class NodePresentationRegressionTests
             Assert.IsTrue(first.Objects.Length > 0);
             block = true;
             var request = new SceneFrameRequest(1, new(first, new(160, 0, 0)), SceneDebugLayer.None);
-            var moved = scene.Present(snapshot, request, NextStamp(scene), first, default);
+            var moved = scene.Present(snapshot, request, NodeFixtures.NextStamp(scene), first, default);
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.AreEqual(SceneReadiness.Partial, moved.Readiness);
             Assert.IsTrue(moved.Objects.Any(item => first.Objects.Any(previous => previous.Id == item.Id)),
@@ -72,7 +61,7 @@ public sealed class NodePresentationRegressionTests
             await Settle(scene, initial, default);
             var first = Present(scene, initial);
             Assert.AreEqual(SceneReadiness.Ready, first.Readiness);
-            var next = scene.Present(arriving, new(1, null, SceneDebugLayer.None), NextStamp(scene), first, default);
+            var next = scene.Present(arriving, new(1, null, SceneDebugLayer.None), NodeFixtures.NextStamp(scene), first, default);
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.AreEqual(SceneReadiness.Partial, next.Readiness);
             Assert.IsTrue(next.Objects.Any(item => first.Objects.Any(previous => previous.Id == item.Id)));
@@ -151,19 +140,22 @@ public sealed class NodePresentationRegressionTests
     private static async Task Settle(NodeScene scene, SceneWorldSnapshot snapshot, ScenePoint focus)
     {
         await scene.BuildWork!;
-        var state = Displays.GetValue(scene, static _ => new());
+        var state = NodeFixtures.Displays.GetValue(scene, static _ => new());
+        SceneFrame? frame = null;
+        int previousObjects;
         do
         {
+            previousObjects = frame?.Objects.Length ?? -1;
             scene.Pump(focus: focus);
             await SceneFixtures.AwaitPendingWork(scene.PendingWork);
-            var frame = scene.Present(snapshot, new(1, null, SceneDebugLayer.None), NextStamp(scene), state.Displayed, default);
+            frame = scene.Present(snapshot, new(1, null, SceneDebugLayer.None), NodeFixtures.NextStamp(scene), state.Displayed, default);
             if (frame.Readiness is SceneReadiness.Partial or SceneReadiness.Ready) state.Displayed = frame;
-        } while (scene.HasPendingBuilds);
+        } while (scene.HasPendingBuilds || frame.Readiness is SceneReadiness.Loading || frame.Objects.Length != previousObjects);
     }
 
     private static SceneFrame Present(NodeScene scene, SceneWorldSnapshot snapshot) =>
         // The caller requested a full replacement; internal settle receipts must not change its delta base.
-        scene.Present(snapshot, new(1, null, SceneDebugLayer.None), NextStamp(scene), null, default);
+        scene.Present(snapshot, new(1, null, SceneDebugLayer.None), NodeFixtures.NextStamp(scene), null, default);
 
     private static Func<string, SceneObjectId> Ids()
     {

@@ -221,8 +221,8 @@ public sealed class RailwaySessionTests
         long now = 0;
         var initial = RailwayFixtures.Snapshot(800, 800, 0);
         await using var vehicles = new SceneVehicles();
-        await using var scene = RailwayFixtures.Controlled(initial, vehicles);
-        scene.Timestamp = () => now;
+        var displayRate = new DisplayRate { Timestamp = () => now };
+        await using var scene = RailwayFixtures.Controlled(initial, vehicles, displayRate: displayRate);
         var target = new WorldSceneTarget.Location(RailwayFixtures.Location);
         scene.Present(initial, null, target, Request, Stamp(1), null);
         for (var index = 1; index <= 5; index++)
@@ -254,8 +254,8 @@ public sealed class RailwaySessionTests
             instances: [RailwayFixtures.Instance()]);
         var initial = Snapshot(distance, 100, 0, direction);
         await using var vehicles = new SceneVehicles();
-        await using var scene = RailwayFixtures.Controlled(initial, vehicles);
-        scene.Timestamp = () => now;
+        var displayRate = new DisplayRate { Timestamp = () => now };
+        await using var scene = RailwayFixtures.Controlled(initial, vehicles, displayRate: displayRate);
         var built = await Settled(scene, initial);
         var middle = (int)(distance / 64);
         var aheadArc = ((middle + sign * 6) * 64 + 32) * 2;
@@ -305,6 +305,7 @@ public sealed class RailwaySessionTests
             instances: [RailwayFixtures.Instance()]);
         var initial = Snapshot(distance, 100, 0);
         await using var vehicles = new SceneVehicles();
+        var displayRate = new DisplayRate { Timestamp = () => now };
         await using var scene = RailwayFixtures.Controlled(initial, vehicles, (snapshot, path, index, token) =>
         {
             if (index == forwardIndex)
@@ -321,8 +322,7 @@ public sealed class RailwaySessionTests
                 releaseNew.Wait();
             }
             return RailwayFixtures.EmptySegment(snapshot, path, index, token);
-        });
-        scene.Timestamp = () => now;
+        }, displayRate: displayRate);
         var target = new WorldSceneTarget.Follow(new(1), new(1));
         ulong revision = 1;
         try

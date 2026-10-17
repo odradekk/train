@@ -3,9 +3,7 @@ using System.Collections.Immutable;
 using System.Numerics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
-using Train.Content.ContractSupport;
 using Train.Core.Contracts;
-using Train.Core.ContractSupport;
 using Train.Scenes.Contracts;
 
 namespace Train.Scenes.Tests;
@@ -18,7 +16,7 @@ public sealed class NodeAdmissionTests
     {
         await using var run = new AdmissionRun(_ => (12000, 1), Snapshot(followedTrain: true));
         await run.BuildAt(new(-192, 0, 0));
-        while (run.Scene.HasPendingBuilds) run.Displayed = run.Present();
+        await run.DisplayAll();
         await run.BuildAt(new(0, 0, 96));
         var target = new WorldSceneTarget.Follow(new(1), new(1));
         var offered = run.Present(target);
@@ -47,7 +45,7 @@ public sealed class NodeAdmissionTests
     {
         await using var run = new AdmissionRun(_ => (24000, 1));
         await run.BuildAt(default);
-        while (run.Scene.HasPendingBuilds) run.Displayed = run.Present();
+        await run.DisplayAll();
         var before = run.Admitted.Keys.ToHashSet();
         ScenePoint[] path = [new(304, 200, 16)];
         await run.BuildAt(new(192, 0, 0), priorityPath: path);
@@ -62,7 +60,7 @@ public sealed class NodeAdmissionTests
         Assert.IsTrue(added.Length > 0 && added.Length * 24000 <= NodeStreaming.AdmissionVertexLimit);
         var offered = run.Present();
         var frozen = run.Admitted.Keys.ToArray();
-        run.Scene.Pump(focus: new(192, 0, 0), priorityPath: path);
+        run.Scene.Pump(focus: new(192, 0, 0), following: new(new(192, 0, 0), path, []));
         CollectionAssert.AreEquivalent(frozen, run.Admitted.Keys.ToArray());
         run.Displayed = offered;
         run.Present();
@@ -233,6 +231,25 @@ public sealed class NodeAdmissionTests
         Assert.IsTrue(observed, "The completed oversized part must eventually be admitted.");
     }
 
+    [TestMethod]
+    public async Task Display_backlog_does_not_keep_the_node_build_slot_pending()
+    {
+        await using var run = new AdmissionRun(_ => (12000, 1));
+        await run.BuildAt(default);
+        await run.DisplayAll();
+        run.Displayed = run.Present();
+        await run.BuildAt(new(192, 0, 0));
+        var offered = run.Present();
+        Assert.IsTrue(offered.Update.Upserts.Length > 0);
+        Assert.AreEqual(0, run.Scene.PendingWork.Length);
+        Assert.IsFalse(run.Scene.HasPendingBuilds,
+            "Completed parts and an unacknowledged display batch must allow the outgoing line candidate to build.");
+        var waiting = run.Present();
+        CollectionAssert.AreEqual(offered.Update.Upserts.Select(item => item.Id).ToArray(),
+            waiting.Update.Upserts.Select(item => item.Id).ToArray(),
+            "The same unacknowledged batch must remain offered while build work is already idle.");
+    }
+
     private static double Distance(GridColumn from) => new NodeRange(default, 0).DistanceSquared(new(
         new(from.X, -128, from.Z), new(from.X + VoxelGrid.ChunkSize, 128, from.Z + VoxelGrid.ChunkSize)));
 
@@ -241,6 +258,7 @@ public sealed class NodeAdmissionTests
         private readonly SceneWorldSnapshot snapshot;
         private readonly SceneVehicles vehicles = new();
         private ulong revision;
+        private ScenePoint focus;
         internal readonly NodeScene.Cache Cache = new();
         internal readonly ConcurrentDictionary<GridColumn, NodeScene.Part> Completed = new();
         internal readonly ConcurrentDictionary<GridColumn, int> BuildCounts = new();
@@ -276,12 +294,36 @@ public sealed class NodeAdmissionTests
         internal async Task BuildAt(ScenePoint focus, IReadOnlyList<ScenePoint>? loadingPath = null,
             IReadOnlyList<ScenePoint>? priorityPath = null)
         {
+            this.focus = focus;
             await Scene.BuildWork!;
-            Scene.Pump(focus: focus, priorityPath: priorityPath, loadingPath: loadingPath);
+            Scene.Pump(focus: focus, following: new(focus, priorityPath ?? [], loadingPath ?? []));
             while (Scene.PendingWork.Length > 0)
             {
                 await SceneFixtures.AwaitPendingWork(Scene.PendingWork);
-                Scene.Pump(focus: focus, priorityPath: priorityPath, loadingPath: loadingPath);
+                Scene.Pump(focus: focus, following: new(focus, priorityPath ?? [], loadingPath ?? []));
+            }
+        }
+
+        internal async Task DisplayAll()
+        {
+            var demanded = new NodeRange(focus, NodeStreaming.PrefetchCells).Chunks(Scene.Layout!).ToArray();
+            var previousRemaining = int.MaxValue;
+            while (true)
+            {
+                var pending = Scene.PendingWork;
+                await SceneFixtures.AwaitPendingWork(pending);
+                var frame = Present();
+                if (frame.Readiness is SceneReadiness.Partial or SceneReadiness.Ready) Displayed = frame;
+                Assert.AreNotEqual(SceneReadiness.Failed, frame.Readiness);
+                var remaining = demanded.Count(from => !Admitted.ContainsKey(from));
+                if (remaining == 0 && !Scene.HasPendingBuilds)
+                {
+                    Displayed = Present();
+                    return;
+                }
+                Assert.IsTrue(remaining < previousRemaining || pending.Length > 0 || Scene.PendingWork.Length > 0,
+                    "Displaying the active demand must admit geometry or await real build work.");
+                previousRemaining = remaining;
             }
         }
 
@@ -319,38 +361,12 @@ public sealed class NodeAdmissionTests
 
     private static SceneWorldSnapshot Snapshot(bool followedTrain = false)
     {
-        var source = NodeFixtures.Content(design: followedTrain ? RailwayFixtures.Vehicle(lengthCells: 104) : null);
         var layout = NodeFixtures.Layout with { Plots = [], SceneModel = NodeFixtures.Layout.SceneModel with
         { Scene = SceneFixtures.Projection([]) with { OccupiedBounds = new(new(-320, 0, -320), new(319, 0, 319)) } } };
-        var content = new FixedContentView
-        {
-            Generation = source.Generation, Core = source.Core, Voxels = source.Voxels,
-            Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
-            { [SceneFixtures.Design] = source.FindDesign(SceneFixtures.Design) },
-            VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
-            { [SceneFixtures.Voxel] = source.FindVoxelAppearance(SceneFixtures.Voxel) },
-            Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
-            { [RailwayFixtures.Terrain] = source.FindTerrain(RailwayFixtures.Terrain) },
-            RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>
-            { [RailwayFixtures.Rule] = source.FindRailwayAppearance(RailwayFixtures.Rule) },
-            SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
-            { [new(1)] = new ContentLookup<SettlementLayoutProjection>.Found(layout) }
-        };
         ImmutableArray<TrainView> trains = followedTrain
             ? [NodeFixtures.Train(activity: TrainActivity.Running) with { LengthMeters = 52 }]
             : [];
-        var original = NodeFixtures.Snapshot(platforms: 0, trains: trains, content: content, platformLengthMeters: 0);
-        var node = original.Core.World.Nodes.Single(item => item.Id == NodeFixtures.NodeId);
-        return new(new FixedCoreReadView
-        {
-            Position = original.Core.Position, InputIdentity = original.Core.InputIdentity,
-            Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [node.Id] = original.Core.FindNode(node.Id) },
-            World = original.Core.World with { Nodes = [node], Edges = [] },
-            Trains = trains.ToDictionary(train => train.Id, train => original.Core.FindTrain(train.Id)),
-            Instances = trains.SelectMany(train => train.Vehicles).ToDictionary(vehicle => (InstanceId)new InstanceId.Vehicle(vehicle),
-                vehicle => original.Core.FindInstance(new InstanceId.Vehicle(vehicle))),
-            Settlements = new Dictionary<SettlementId, Lookup<SettlementView>>
-            { [new(1)] = new Lookup<SettlementView>.Found(NodeFixtures.Settlement(0) with { Plots = [] }) }
-        }, content);
+        return NodeFixtures.EmptyNodeSnapshot(layout, trains,
+            design: followedTrain ? RailwayFixtures.Vehicle(lengthCells: 104) : null);
     }
 }
