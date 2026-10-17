@@ -63,7 +63,7 @@
 | `platform` | 无，写 `{}` | — | 每个完好的部件提供一个站台，按数量相加 | Demo |
 
 - 被毁的部件不计入汇总。
-- 施工参数样例：[基础吊机体素](examples/example-pack/resources/voxels/crane.voxel.json)提供中地块建筑上限且无车辆能力；[车间吊机](examples/example-pack/resources/blueprints/workshop-crane.blueprint.json)和[龙门吊](examples/example-pack/resources/blueprints/gantry-crane.blueprint.json)分别是大地块／大型车辆、巨型地块／泰坦车辆的功能复合体。单格施工设备仍只有基础吊机一种。建筑改装、修理适用同一建筑上限，拆解和制造大型设备只要求施工能力，见[设计 14](../design/14-construction-refit-and-deconstruction.md#construction-job)。
+- 施工参数样例：[基础吊机体素](examples/example-pack/resources/voxels/crane.voxel.json)提供中地块建筑上限且无车辆能力；[车间吊机](examples/example-pack/resources/blueprints/workshop-crane.blueprint.json)和[龙门吊](examples/example-pack/resources/blueprints/gantry-crane.blueprint.json)分别是大地块／大型车辆、巨型地块／泰坦车辆的功能复合体。单格施工设备仍只有基础吊机一种。`builtin/core` 的正式龙门吊已随 #390 更新，重型车辆工厂嵌套引用它；同批还提供大型柴油机、重炮塔两种功能复合体，以及大型机车、泰坦武装重型车辆和重型车辆工厂三份样机，沿用既有 id。炮塔的 `rotation` 只声明表现转动，战斗行为待后续验证；外观修整归 #391，设备制造入库归 #343，并由 #300 验证完整流程。建筑改装、修理适用同一建筑上限，拆解和制造大型设备只要求施工能力，见[设计 14](../design/14-construction-refit-and-deconstruction.md#construction-job)。
 - `production`、`extraction`、`construction`、`power` 的单位和运行时的用法见设计文档 [13 的单位与实际速率](../design/13-production-runtime-and-facilities.md#单位与实际速率)；流程见[流程的格式](process.md)。
 - 武器射程放在 Demo 之后。
 
