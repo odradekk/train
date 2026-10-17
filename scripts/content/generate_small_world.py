@@ -596,6 +596,35 @@ def natural_models():
         yield model
 
 
+def railway_models():
+    for tracks in (1, 2, 3):
+        half_width = 10 + 17 * (tracks - 1)
+        centers = [34 * track - 17 * (tracks - 1) for track in range(tracks)]
+        # 112 格跨过现有最宽的 96 格湖面，两端各留 8 格搭岸。
+        bridge = {(x, y, z): 0 for x in range(-half_width, half_width + 1)
+                  for y in (-4, -3) for z in range(-56, 56)}
+        for center in centers:
+            for y, width in ((-3, 10), (-2, 9)):
+                bridge.update({(x, y, z): 1 for x in range(center - width, center + width + 1) for z in range(-56, 56)})
+            for pier in range(-48, 49, 16):
+                bridge.update({(x, y, z): 0 for x in range(center - 2, center + 3)
+                               for y in range(-16, -4) for z in range(pier - 1, pier + 2)})
+        for x in (-half_width, half_width):
+            bridge.update({(x, -2, z): 0 for z in range(-56, 56)})
+        model = blueprint(f"bridge-{tracks}", f"{tracks}轨桥梁", "scene_model", ["concrete", "ballast"], bridge)
+        model["display"]["description"] = "混凝土梁桥，道床直接铺在桥面上，桥墩间隔 16 格，矮护栏低于轨面。"
+        yield model
+        half_opening = 17 * tracks
+        portal = {(x, y, z): 0 for x in range(-half_opening - 2, half_opening + 2)
+                  for y in range(44) for z in (0, 1)
+                  if x < -half_opening or x >= half_opening or y >= 42}
+        portal.update({(x, y, 1): 1 for x in range(-half_opening, half_opening) for y in range(42)})
+        model = blueprint(f"tunnel-portal-{tracks}", f"{tracks}轨隧道口", "scene_model", ["concrete"], portal)
+        model["layout"]["palette"].append({"voxel": "concrete", "paint": "#000000"})
+        model["display"]["description"] = "混凝土矩形洞门，每轨留 34 格宽、42 格高的开口；黑色内壁遮住洞内。"
+        yield model
+
+
 def locomotive(spec):
     identity, name, size, length, width, height, gauge, frame_height, axle_spacing, end_margin = spec
     x0, z0 = -(width // 2), -(length // 2)
@@ -802,15 +831,8 @@ def content_files():
     document("blueprints", "blueprint", "small-station",
              blueprint("small-station", "小站点", "building", ["construction-material", "platform-equipment"],
                        station, {"plot_size": "small_station", "building_type": "station", "facility_tags": []}))
-    for tracks in (1, 2):
-        half_width = 16 + 17 * (tracks - 1)
-        bridge = {(x, 0, z): 0 for x in range(-half_width, half_width + 1) for z in range(-3, 4)}
-        portal_half_width = 17 * tracks
-        tunnel = {(x, y, 0): 0 for x in range(-portal_half_width - 2, portal_half_width + 2) for y in range(44)
-                  if x < -portal_half_width or x >= portal_half_width or y >= 42}
-        for kind, name, cells in (("bridge", "桥梁", bridge), ("tunnel-portal", "隧道口", tunnel)):
-            identity = f"{kind}-{tracks}"
-            document("blueprints", "blueprint", identity, blueprint(identity, f"{tracks}轨{name}", "scene_model", ["rock"], cells))
+    for model in railway_models():
+        document("blueprints", "blueprint", model["id"], model)
     for model in natural_models():
         document("blueprints", "blueprint", model["id"], model)
     for identity, name, surface, subsurface, rock, local_amplitude in (
@@ -832,7 +854,7 @@ def content_files():
                   "local_height_noise": [{"scale_meters": 140, "amplitude": local_amplitude}],
                   "decorations": [{"scene_model": model, "weight": weight} for model, weight in decorations],
                   "decoration_target_per_square_meter": density,
-                  "railway_models": [{"tracks": n, "bridge": f"bridge-{n}", "tunnel_portal": f"tunnel-portal-{n}"} for n in (1, 2)]})
+                  "railway_models": [{"tracks": n, "bridge": f"bridge-{n}", "tunnel_portal": f"tunnel-portal-{n}"} for n in (1, 2, 3)]})
     for identity, name, behavior in (
         ("industrial-machinery", "机床", {"production": {"work_rate": REFERENCE_WORK_RATE}}),
         ("extraction-equipment", "钻头", {"extraction": {"work_rate": REFERENCE_WORK_RATE}}),
