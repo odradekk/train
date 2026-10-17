@@ -4,13 +4,15 @@ namespace Train.Core.World;
 
 internal static class InstanceCapabilities
 {
-    internal static IEnumerable<PartProjection> EffectiveParts(WorldState world, CoreContentProjection content, InstanceState instance)
+    internal static IEnumerable<PartProjection> EffectiveParts(WorldState world, CoreContentProjection content, InstanceState instance,
+        Func<PartProjection, bool>? include = null)
     {
         var design = world.Designs.Single(d => d.Design == instance.Design);
         if (Math.Min(instance.StructureDurability, design.MaxStructureDurability) <= 0) yield break;
         var current = content.Designs.SingleOrDefault(d => d.Design == design.Design);
         foreach (var part in design.Parts)
         {
+            if (include is not null && !include(part)) continue;
             if (DefinitionMissing(world, content, current, part)
                 || Math.Min(instance.Parts.Single(p => p.Id == part.Id).Current, part.MaxDurability) <= 0) continue;
             yield return part;
