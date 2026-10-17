@@ -67,12 +67,17 @@ internal sealed class EditorPreviewSession : IDesignEditSession
     internal IReadOnlyList<ISceneFrame?> Baselines => _baselines;
     internal bool FailPresent { get; set; }
     internal bool StalePick { get; set; }
+    internal bool ConfirmationRequired { get; set; }
+    internal Queue<GridPosition>? PickSamples { get; set; }
+    internal List<EditOperation> PreviewCalls { get; } = [];
+    internal List<(IEditPreview Preview, bool Confirmed)> ApplyCalls { get; } = [];
+    private FixturePreview? _currentPreview;
     internal FixedSceneFrame? LastFrame { get; private set; }
     internal int Disposals { get; private set; }
     public EditSessionId Id { get; } = new(Guid.NewGuid());
     public ContentGeneration Content { get; }
     internal EditorPreviewSession(ContentGeneration generation, DesignDraft draft)
-    { Content = generation; _state = new(new(new(Id, new(0), generation), draft), false, false, false, null, [], [new(new(1), null, EditElementKind.Cell, new(0, 0, 0), null, [], false), new(new(10), null, EditElementKind.Assembly, new(8, 0, 0), null, [0], false)], Evaluate(draft), []); }
+    { Content = generation; _state = new(new(new(Id, new(0), generation), draft), false, false, false, null, [], [new(new(1), null, EditElementKind.Cell, new(0, 0, 0), null, [], false), new(new(10), null, EditElementKind.Assembly, new(8, 0, 0), null, [0], false), new(new(20), null, EditElementKind.Assembly, new(0, 0, 0), null, [], true), new(new(30), null, EditElementKind.FunctionalComposite, new(0, 0, 0), null, [], false)], Evaluate(draft), []); }
     public EditState Read() => _state;
     public EditSnapshot Capture() => _state.Snapshot;
     public SceneResult<ISceneFrame> Present(EditViewOptions options, ISceneFrame? displayedFrame)
@@ -88,15 +93,23 @@ internal sealed class EditorPreviewSession : IDesignEditSession
             PickResult = new ScenePick.Hit(new(stamp, null, new PickSubject.Editing(Id, revision, new(1)), new(0, 0, 0), GridFace.PositiveY, NVector3.Zero, NVector3.UnitY, 1, [])),
             DebugLines = _state.Snapshot.Stamp.Revision.Value == 0 ? [new(new(-3, 0, -3), new(_baselines.Count, 3, 3), new(1, 0.3f, 0.1f, 1))] : []
         };
-        return new SceneResult<ISceneFrame>.Success(LastFrame);
+        return new SceneResult<ISceneFrame>.Success(PickSamples is { } samples ? new SampledFrame(LastFrame, samples) : LastFrame);
     }
-    public SceneResult<IEditPreview> Preview(EditOperation operation) => operation is EditOperation.Properties properties
-        ? new SceneResult<IEditPreview>.Success(new PropertyPreview(_state.Snapshot.Stamp, properties))
-        : throw new InvalidOperationException("有限替身只配置Properties操作。");
+    public SceneResult<IEditPreview> Preview(EditOperation operation)
+    {
+        if (operation is not EditOperation.Properties && operation is not EditOperation.Cells) throw new InvalidOperationException("有限替身只配置Properties与Cells输入。");
+        PreviewCalls.Add(operation);
+        _currentPreview = new(_state.Snapshot.Stamp, operation, ConfirmationRequired);
+        return new SceneResult<IEditPreview>.Success(_currentPreview);
+    }
     public SceneResult<EditState> Apply(IEditPreview preview, bool confirmed)
     {
-        var properties = ((PropertyPreview)preview).Operation;
-        _state = _state with { Snapshot = new(_state.Snapshot.Stamp with { Revision = new(_state.Snapshot.Stamp.Revision.Value + 1) }, _state.Snapshot.Draft with { Display = properties.Display }), IsDirty = true, CurrentEvaluation = null };
+        ApplyCalls.Add((preview, confirmed));
+        if (!ReferenceEquals(preview, _currentPreview)) return Reject("stale_preview", "预览已过期，请重新预览。");
+        if (preview.RequiresConfirmation && !confirmed) return Reject("confirmation_required", "该预览需要确认。");
+        var draft = _currentPreview!.Operation is EditOperation.Properties properties ? _state.Snapshot.Draft with { Display = properties.Display } : _state.Snapshot.Draft;
+        _state = _state with { Snapshot = new(_state.Snapshot.Stamp with { Revision = new(_state.Snapshot.Stamp.Revision.Value + 1) }, draft), IsDirty = true, CurrentEvaluation = null };
+        _currentPreview = null;
         return new SceneResult<EditState>.Success(_state);
     }
     public bool AcceptEvaluation(EditStamp requested, DesignEvaluation result)
@@ -106,7 +119,9 @@ internal sealed class EditorPreviewSession : IDesignEditSession
     { _state = _state with { Selection = ((EditSelection.Elements)selection).Ids }; return new SceneResult<EditState>.Success(_state); }
     public SceneResult<EditState> Enter(EditElementId? element)
     {
-        if (element is not null && element != new EditElementId(10)) throw new InvalidOperationException("有限替身只配置设备10。");
+        if (element == new EditElementId(20)) return Reject("edit_locked", "缺失定义锁定，不能进入设备。");
+        if (element == new EditElementId(30)) return Reject("functional_composite_closed", "功能复合体是封闭引用，不能进入。");
+        if (element is not null && element != new EditElementId(10)) throw new InvalidOperationException("有限替身只配置设备10、锁定项20与功能复合体30。");
         _state = _state with { EnteredObject = element, Selection = [] }; return new SceneResult<EditState>.Success(_state);
     }
     public SceneResult<DesignDraft> CaptureObject(EditElementId element) => throw new InvalidOperationException("未配置对象导出。");
@@ -114,15 +129,34 @@ internal sealed class EditorPreviewSession : IDesignEditSession
     public SceneResult<EditState> Redo() => throw new InvalidOperationException("未配置重做。");
     public SceneResult<EditElementId> Locate(EditStamp stamp, DesignElementPath path) => throw new InvalidOperationException("未配置诊断定位。");
     public void Dispose() => Disposals++;
-    private sealed record PropertyPreview(EditStamp Basis, EditOperation.Properties Operation) : IEditPreview
+    private static SceneResult<EditState> Reject(string code, string detail) => new SceneResult<EditState>.Failure([new(code, SceneStage.Edit, null, null, null, null, detail)]);
+    private sealed record FixturePreview(EditStamp Basis, EditOperation Operation, bool RequiresConfirmation) : IEditPreview
     {
-        public int CoveredCells => 0;
-        public int AffectedCells => 0;
+        public int CoveredCells => RequiresConfirmation ? 513 : 1;
+        public int AffectedCells => RequiresConfirmation ? 513 : 1;
         public int SkippedCells => 0;
         public bool OccupancyComplete => true;
         public bool CanApply => true;
-        public bool RequiresConfirmation => false;
         public ImmutableArray<EditConflict> Conflicts => [];
         public ImmutableArray<GridPosition> HighlightCells => [];
     }
+    private sealed class SampledFrame(FixedSceneFrame frame, Queue<GridPosition> samples) : ISceneFrame
+    {
+        public ScenePoint Origin => frame.Origin;
+        public ScenePanBounds? NodePanBounds => frame.NodePanBounds;
+        public SceneReadiness Readiness => frame.Readiness;
+        public double SimulationSeconds => frame.SimulationSeconds;
+        public SceneUpdate Update => frame.Update;
+        public ImmutableArray<SceneProblem> Diagnostics => frame.Diagnostics;
+        public ImmutableArray<SceneDebugLine> DebugLines => frame.DebugLines;
+        public ScenePick Pick(SceneRay ray)
+        {
+            var hit = ((ScenePick.Hit)frame.Pick(ray)).Value;
+            return new ScenePick.Hit(hit with { Cell = samples.Dequeue() });
+        }
+        public Lookup<ScenePose> FindPose(WorldObjectId subject) => frame.FindPose(subject);
+        public Lookup<WorldLocation> Locate(NVector3 point) => frame.Locate(point);
+        public Lookup<double> TerrainHeight(double x, double z) => frame.TerrainHeight(x, z);
+    }
+
 }
