@@ -164,7 +164,7 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Changed_preparation_scope_releases_pending_textures_before_budget_return()
+    public async Task Changed_preparation_scope_releases_pending_textures_before_return()
     {
         await new UiTestInput(TestScene).Frames(2);
         using var dispatcher = new GodotMainThreadDispatcher();
@@ -189,14 +189,16 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
                 "纹理对象准备后必须暂停。");
             observer.Dispose();
             Require(GodotObject.IsInstanceValid(texture), "待用资源必须持有纹理。");
-            var latest = Frame(3, [Object(2, textured), Object(3, Mesh())],
+            var latest = Frame(3, [Object(2, Mesh()), Object(3, Mesh())],
                 @base: changed == "base" ? first.Update.Frame : null,
                 space: changed == "space" ? 2UL : 1UL,
                 session: changed == "session" ? new SceneSessionId(Guid.Parse("248c5802-f435-49f4-84fa-2dc3777779a0")) : null,
                 request: changed == "request" ? 2UL : 1UL);
-            Require(display.Prepare(latest) is null, "范围变化后的新候选仍须遵守单项推进预算。");
+            using var prepared = display.Prepare(latest);
+            Require((prepared is not null) == (changed is "session" or "space"),
+                "新空间首帧必须一次准备完；同空间的范围变化仍须遵守预算。");
             Require(!GodotObject.IsInstanceValid(texture),
-                $"{changed} 变化必须在预算提前返回前释放旧候选的待用纹理。");
+                $"{changed} 变化必须在返回前释放旧候选的待用纹理。");
             display.CancelPreparation();
         }
         Require(ReferenceEquals(display.DisplayedFrame, first) && display.Objects.Count == 0,
@@ -237,7 +239,7 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Cross_space_loading_anchors_old_geometry_and_subject_moves_its_children()
+    public async Task Cross_space_loading_anchors_old_geometry_then_first_operable_frame_ignores_budget()
     {
         await new UiTestInput(TestScene).Frames(2);
         using var dispatcher = new GodotMainThreadDispatcher();
@@ -263,9 +265,16 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         Near(display.Objects[new(3)].Root.GlobalPosition, new(-70, 0, 0));
         long timestamp = 0;
         display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
-        Require(display.Prepare(latest) is null && ReferenceEquals(display.DisplayedFrame, first),
-            "完整替换准备期间必须保留旧网格基准。");
+        using var prepared = display.Prepare(latest);
+        Require(prepared is not null && ReferenceEquals(display.DisplayedFrame, first),
+            "切换空间的首个可操作帧必须一次准备完，提交前保留旧网格基准。");
         Require(ReferenceEquals(display.PoseFrame, latest), "旧几何必须使用最新完整替换帧的姿态。");
+        prepared!.Commit();
+        Require(ReferenceEquals(display.DisplayedFrame, latest) && display.Objects.Keys.ToHashSet().SetEquals([new(4), new(5)]),
+            "新空间必须原子提交全部对象并移除旧空间。");
+        var subsequent = Frame(4, [Object(6, Mesh()), Object(7, Mesh())], latest.Update.Frame, space: 2);
+        Require(display.Prepare(subsequent) is null && ReferenceEquals(display.DisplayedFrame, latest),
+            "新空间后续帧必须恢复预算，保持已提交的完整显示。");
         await new UiTestInput(TestScene).Frames(2);
     }
 

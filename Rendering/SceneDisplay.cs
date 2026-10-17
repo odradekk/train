@@ -57,6 +57,9 @@ internal sealed class SceneDisplay : IDisposable
         if (!_preparation.SameScope(frame)) CancelPreparation();
         var previousFrame = _preparation.Frame;
         frame = _preparation.Select(frame, Timestamp());
+        var spaceChanged = DisplayedFrame is { } displayed &&
+            (displayed.Update.Frame.Session != frame.Update.Frame.Session ||
+             displayed.Update.Frame.Space != frame.Update.Frame.Space);
         var processFrame = Engine.GetProcessFrames();
         if (_budgetFrame != processFrame)
         {
@@ -67,7 +70,8 @@ internal sealed class SceneDisplay : IDisposable
         var preparedResource = false;
         var update = frame.Update;
         var next = update.Base is null ? new Dictionary<SceneObjectId, DisplayObject>() : new(_objects);
-        bool BudgetExpired() => preparedResource &&
+        // 切换空间时一次提交首个可操作帧，避免列车继续驶出仍显示的旧空间。
+        bool BudgetExpired() => !spaceChanged && preparedResource &&
             _preparationTime + Stopwatch.GetElapsedTime(started, Timestamp()) >= PreparationBudget;
         try
         {
