@@ -7,7 +7,7 @@ param(
     [ValidateSet('map-1x', 'map-8x', 'follow-1x', 'follow-8x', 'node-1x', 'node-8x',
         'sdfgi-off', 'sdfgi-on', 'taa-off', 'taa-on', 'scene-node', 'scene-node-first',
         'scene-edge', 'scene-follow', 'scene-follow-8x', 'scene-memory', 'scene-capture', 'scene-map', 'scene-reference',
-        'scene-route-1x', 'scene-route-8x', 'scene-route-capture-1x', 'scene-route-capture-8x')]
+        'scene-route-1x', 'scene-route-2x', 'scene-route-4x', 'scene-route-8x', 'scene-route-capture-1x', 'scene-route-capture-8x')]
     [string[]] $Scenario = @('map-1x', 'map-8x', 'follow-1x', 'follow-8x', 'node-1x', 'node-8x',
         'sdfgi-off', 'sdfgi-on', 'taa-off', 'taa-on'),
     [ValidateRange(1, 2147483647)][int] $Repeat = 3,

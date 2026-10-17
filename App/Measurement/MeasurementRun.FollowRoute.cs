@@ -48,7 +48,13 @@ internal sealed partial class MeasurementRun
         try
         {
             var host = _app.Host!;
-            var speed = _scenario.EndsWith("8x", StringComparison.Ordinal) ? SimulationSpeed.Eight : SimulationSpeed.One;
+            var speed = _scenario switch
+            {
+                "scene-route-2x" => SimulationSpeed.Two,
+                "scene-route-4x" => SimulationSpeed.Four,
+                _ when _scenario.EndsWith("8x", StringComparison.Ordinal) => SimulationSpeed.Eight,
+                _ => SimulationSpeed.One
+            };
             var train = ((Lookup<TrainView>.Found)host.GetStatus()!.View.FindTrain(new(1))).Value;
             if (train.Vehicles.IsEmpty) throw new InvalidDataException("路线测量需要列车1的现有编组。");
             _subject = new WorldObjectId.Instance(new InstanceId.Vehicle(train.Vehicles[0]));
