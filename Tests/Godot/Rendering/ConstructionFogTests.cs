@@ -10,42 +10,21 @@ namespace Train.Godot.Tests.Rendering;
 public sealed class ConstructionFogTests
 {
     [TestMethod]
-    public void FollowedTrainIncludesEveryCarriageAndItsNestedParts()
+    public void ChangingFollowIncludesOnlyCurrentTrainCarriagesAndNestedParts()
     {
         var objects = Objects();
-        HashSet<VehicleId> vehicles = [new(101), new(102)];
-
-        foreach (var id in new ulong[] { 1, 2, 3, 4, 5, 6 })
-            Assert.IsTrue(SceneDisplay.BelongsToFollowedTrain(objects[new(id)].Source, objects, vehicles),
-                $"Followed carriage or nested part {id} must remain visible.");
-        foreach (var id in new ulong[] { 7, 8, 9 })
-            Assert.IsFalse(SceneDisplay.BelongsToFollowedTrain(objects[new(id)].Source, objects, vehicles),
-                $"Other train or terrain {id} must retain construction fog.");
-    }
-
-    [TestMethod]
-    public void ChangingFollowedMembersExcludesPreviousCarriagesAndTheirParts()
-    {
-        var objects = Objects();
-        HashSet<VehicleId> vehicles = [new(101), new(102)];
-        Assert.IsTrue(SceneDisplay.BelongsToFollowedTrain(objects[new(3)].Source, objects, vehicles));
-
-        vehicles = [new(103)];
-
-        foreach (var id in new ulong[] { 1, 2, 3, 4, 5, 6, 9 })
-            Assert.IsFalse(SceneDisplay.BelongsToFollowedTrain(objects[new(id)].Source, objects, vehicles));
-        foreach (var id in new ulong[] { 7, 8 })
-            Assert.IsTrue(SceneDisplay.BelongsToFollowedTrain(objects[new(id)].Source, objects, vehicles));
-    }
-
-    [TestMethod]
-    public void NoFollowedVehiclesExcludesAllObjects()
-    {
-        var objects = Objects();
-        HashSet<VehicleId> vehicles = [];
-
-        foreach (var item in objects.Values)
-            Assert.IsFalse(SceneDisplay.BelongsToFollowedTrain(item.Source, objects, vehicles));
+        (VehicleId[] Vehicles, ulong[] Objects)[] cases = [
+            ([new(101), new(102)], [1, 2, 3, 4, 5, 6]),
+            ([new(103)], [7, 8]),
+            ([], [])
+        ];
+        foreach (var (members, expected) in cases)
+        {
+            var vehicles = members.ToHashSet();
+            foreach (var (id, item) in objects)
+                Assert.AreEqual(expected.Contains(id.Value), SceneDisplay.BelongsToFollowedTrain(item.Source, objects, vehicles),
+                    $"Only current followed carriages and nested parts may be exempt: object {id.Value}.");
+        }
     }
 
     private static Dictionary<SceneObjectId, SceneDisplay.DisplayObject> Objects()

@@ -62,7 +62,7 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Compatible_window_merges_latest_frame_and_preserves_only_compatible_pending_leases()
+    public async Task Candidate_keeps_its_leases_until_commit_and_reuses_displayed_visuals_in_the_next_target()
     {
         await new UiTestInput(TestScene).Frames(2);
         using var dispatcher = new GodotMainThreadDispatcher();
@@ -96,72 +96,33 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         obsoleteLease.Dispose();
         Require(GodotObject.IsInstanceValid(keptTexture) && GodotObject.IsInstanceValid(obsoleteTexture),
             "Pending visuals must own both texture leases after the observers release them.");
-        Require(display.Prepare(candidate) is null && display.Prepare(candidate) is null,
-            "Same-frame calls advance through the remaining visual and fog without publishing a partial frame.");
         var fog = ImmutableArray.Create(new SceneBounds(new(20, 0, 0), new(22, 2, 2)));
         var lines = ImmutableArray.Create(new SceneDebugLine(new(3, 0, 0), new(4, 0, 0), new(0, 1, 0, 1)));
         var latest = Frame(3, [Object(2, keptMesh, new(30, 0, 0)), Object(5, Mesh()), Object(6, Mesh())],
-            first.Update.Frame, removed: [new(1)], fog: fog, debugLines: lines);
-        Require(display.Prepare(latest) is null, "Merging within the window still obeys the resource budget.");
-        Require(GodotObject.IsInstanceValid(keptTexture) && !GodotObject.IsInstanceValid(obsoleteTexture),
-            "Compatible leases survive merging; removed pending visuals release their exclusive textures immediately.");
-        Require(ReferenceEquals(display.DisplayedFrame, first) && GodotObject.IsInstanceValid(oldRoot),
-            "Merging must keep the complete old display until commit.");
+            first.Update.Frame, removed: [new(1), new(3), new(4)], fog: fog, debugLines: lines);
         await new UiTestInput(TestScene).Frames(1);
         display.Timestamp = () => timestamp;
-        using var prepared = display.Prepare(latest);
-        Require(prepared is not null && ReferenceEquals(prepared.Frame, latest), "The fresh process frame completes the latest target.");
-        Require(prepared!.Fog.Regions.SequenceEqual(fog) && prepared.DebugLines!.Lines.SequenceEqual(lines),
-            "Fog and debug lines must belong to the latest target.");
-        prepared.Commit();
-        Require(ReferenceEquals(display.DisplayedFrame, latest) && display.Objects.Count == 3 &&
-            display.Objects.ContainsKey(new(2)) && display.Objects.ContainsKey(new(5)) && display.Objects.ContainsKey(new(6)),
-            "Commit publishes exactly the latest object set.");
-        Require(!GodotObject.IsInstanceValid(oldRoot) && GodotObject.IsInstanceValid(keptTexture),
-            "Commit releases the removed old root without dropping the retained texture.");
+        using (var prepared = Prepare(display, latest))
+        {
+            Require(ReferenceEquals(prepared.Frame, candidate), "A newer frame must not replace the locked candidate.");
+            Require(prepared.Fog.Regions.SequenceEqual(oldFog) && prepared.DebugLines!.Lines.SequenceEqual(oldLines),
+                "Fog and debug lines must belong to the locked candidate.");
+            prepared.Commit();
+        }
+        var retained = display.Objects[new(2)].Visuals[0];
+        Require(display.Objects.ContainsKey(new(3)) && display.Objects.ContainsKey(new(4)) &&
+            !display.Objects.ContainsKey(new(5)) && GodotObject.IsInstanceValid(obsoleteTexture),
+            "The candidate must commit its complete object set and pending leases.");
+        await new UiTestInput(TestScene).Frames(1);
+        using (var prepared = Prepare(display, Frame(4, latest.Update.Upserts, candidate.Update.Frame,
+            removed: [new(1), new(3), new(4)], fog: fog, debugLines: lines))) prepared.Commit();
+        Require(ReferenceEquals(retained, display.Objects[new(2)].Visuals[0]) && display.Objects.Count == 3,
+            "The next target must reuse a compatible displayed visual.");
+        Require(!GodotObject.IsInstanceValid(oldRoot) && !GodotObject.IsInstanceValid(obsoleteTexture) &&
+            GodotObject.IsInstanceValid(keptTexture), "Retirement must release obsolete resources while keeping reused leases.");
         Near(display.Objects[new(2)].Root.Position, new(30, 0, 0));
         using var arrays = display.Root.GetNode<MeshInstance3D>("DebugLines").Mesh.SurfaceGetArrays(0);
         Near(arrays[(int)Godot.Mesh.ArrayType.Vertex].AsVector3Array()[0], new(3, 0, 0));
-    }
-
-    [Test]
-    public async Task Compatible_merge_failure_releases_pending_leases_and_preserves_old_display()
-    {
-        await new UiTestInput(TestScene).Frames(2);
-        using var dispatcher = new GodotMainThreadDispatcher();
-        using var cache = new AssetResourceCache(dispatcher);
-        var asset = Png("merge-failure-texture");
-        var missing = new AssetRevision(new string('D', 64));
-        var content = new FixedContentView { Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>>
-        {
-            [asset.Revision] = new ContentLookup<ContentAsset>.Found(asset),
-            [missing] = new ContentLookup<ContentAsset>.NotFound()
-        } };
-        using var display = Attach(cache, content);
-        var first = Frame(1, [Object(1, Mesh())]);
-        Commit(display, first);
-        var oldRoot = display.Objects[new(1)].Root;
-        var oldMesh = MeshOf(display.Objects[new(1)]);
-        await new UiTestInput(TestScene).Frames(1);
-        using var lease = cache.AcquireFaceTexture(asset);
-        var texture = lease.Value;
-        var mesh = Mesh(new SceneMaterial.Voxel(asset.Revision, MaterialCategory.BareMetal, null));
-        var secondMesh = Mesh();
-        var candidate = Frame(2, [Object(2, mesh), Object(3, secondMesh), Object(4, Mesh())], first.Update.Frame);
-        long timestamp = 0;
-        display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency / 500;
-        Require(display.Prepare(candidate) is null, "The candidate must pause with the texture prepared.");
-        lease.Dispose();
-        Require(GodotObject.IsInstanceValid(texture), "The pending visual must own its texture lease.");
-        var latest = Frame(3, [Object(2, mesh), Object(3, secondMesh),
-            Object(4, Mesh(new SceneMaterial.Voxel(missing, MaterialCategory.BareMetal, null)))], first.Update.Frame);
-        var threw = false;
-        try { using var unexpected = display.Prepare(latest); }
-        catch (InvalidOperationException) { threw = true; }
-        Require(threw && !GodotObject.IsInstanceValid(texture), "Failure must release leases retained from the earlier compatible candidate.");
-        Require(!display.IsPreparing && ReferenceEquals(display.DisplayedFrame, first) && display.Objects.Count == 1 &&
-            GodotObject.IsInstanceValid(oldRoot) && GodotObject.IsInstanceValid(oldMesh),
-            "Failure must preserve the complete old display and clear pending preparation.");
     }
 
     [Test]

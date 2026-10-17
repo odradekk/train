@@ -19,9 +19,8 @@ internal sealed class SceneDisplay : IDisposable
     private DebugLineGroup? _pendingDebugLines;
     private ScenePoint _spaceOrigin;
     private HashSet<SceneObjectId> _posedObjects = [];
-    private readonly HashSet<VehicleId> _followedVehicles = [];
     private bool _disposed;
-    private readonly ScenePreparation<PreparedVisual> _preparation = new(static (visual, source) => visual.CanUpdate(source));
+    private readonly ScenePreparation<PreparedVisual> _preparation = new();
     private readonly Dictionary<SceneObjectId, Node3D> _pendingRoots = [];
     private static readonly TimeSpan PreparationBudget = TimeSpan.FromMilliseconds(4);
     private static ulong _budgetFrame;
@@ -57,8 +56,7 @@ internal sealed class SceneDisplay : IDisposable
             return null;
         }
         if (!_preparation.SameScope(frame)) CancelPreparation();
-        var previousFrame = _preparation.Frame;
-        frame = _preparation.Select(frame, Timestamp());
+        frame = _preparation.Select(frame);
         var spaceChanged = DisplayedFrame is { } displayed &&
             (displayed.Update.Frame.Session != frame.Update.Frame.Session ||
              displayed.Update.Frame.Space != frame.Update.Frame.Space);
@@ -77,7 +75,6 @@ internal sealed class SceneDisplay : IDisposable
             _preparationTime + Stopwatch.GetElapsedTime(started, Timestamp()) >= PreparationBudget;
         try
         {
-            if (!ReferenceEquals(previousFrame, frame)) ReconcilePreparation(frame);
             if (update.Base is not null && update.ShiftExistingRoots != System.Numerics.Vector3.Zero)
                 foreach (var item in _objects.Values)
                     if (item.Source.Parent is null)
@@ -93,9 +90,8 @@ internal sealed class SceneDisplay : IDisposable
                 var visuals = new PreparedVisual[source.Visuals.Length];
                 for (var i = 0; i < visuals.Length; i++)
                 {
-                    if (previous is not null && i < previous.Visuals.Length &&
-                        previous.Visuals[i].CanUpdate(source.Visuals[i]))
-                        visuals[i] = previous.Visuals[i];
+                    if (CanReuseVisual(previous, i, source.Visuals[i]))
+                        visuals[i] = previous!.Visuals[i];
                     else
                     {
                         var key = (source.Id, i);
@@ -143,23 +139,6 @@ internal sealed class SceneDisplay : IDisposable
         {
             _preparationTime += Stopwatch.GetElapsedTime(started, Timestamp());
         }
-    }
-
-    private void ReconcilePreparation(ISceneFrame frame)
-    {
-        var sources = frame.Update.Upserts.ToDictionary(item => item.Id);
-        _preparation.Retain(sources, (id, index, visual) => _objects.TryGetValue(id, out var item) &&
-            index < item.Visuals.Length && item.Visuals[index].CanUpdate(visual));
-        foreach (var id in _pendingRoots.Keys.Where(id => !sources.ContainsKey(id)).ToArray())
-        {
-            var root = _pendingRoots[id];
-            _pendingRoots.Remove(id);
-            root.Free();
-        }
-        if (_pendingFog is not null && !_pendingFog.Regions.SequenceEqual(frame.Update.Environment.FoggedRegions))
-        { _pendingFog.Dispose(); _pendingFog = null; }
-        if (_pendingDebugLines is not null && !_pendingDebugLines.Lines.SequenceEqual(frame.DebugLines))
-        { _pendingDebugLines.Dispose(); _pendingDebugLines = null; }
     }
 
     internal Vector3 UpdatePoses(ISceneFrame frame)
@@ -223,17 +202,19 @@ internal sealed class SceneDisplay : IDisposable
         if (source is null) return frame.Update.Base == displayed.Update.Frame ||
             !displayed.Update.Upserts.Any(source => source.Id == id);
         return source.Parent == item.Source.Parent && source.Visuals.Select((visual, index) =>
-            index < item.Visuals.Length && item.Visuals[index].CanUpdate(visual)).All(compatible => compatible);
+            CanReuseVisual(item, index, visual)).All(compatible => compatible);
     }
+
+    private static bool CanReuseVisual(DisplayObject? displayed, int index, SceneVisual visual) =>
+        displayed is not null && index < displayed.Visuals.Length && displayed.Visuals[index].CanUpdate(visual);
 
     internal void UpdateConstructionFog(System.Collections.Immutable.ImmutableArray<VehicleId> vehicles)
     {
         _cache.RequireMainThread();
-        _followedVehicles.Clear();
-        foreach (var vehicle in vehicles) _followedVehicles.Add(vehicle);
+        var followedVehicles = vehicles.ToHashSet();
         foreach (var item in _objects.Values)
         {
-            var followed = BelongsToFollowedTrain(item.Source, _objects, _followedVehicles);
+            var followed = BelongsToFollowedTrain(item.Source, _objects, followedVehicles);
             foreach (var visual in item.Visuals) _resources.ExemptConstructionFog(visual, followed);
         }
     }
