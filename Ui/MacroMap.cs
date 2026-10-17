@@ -16,7 +16,7 @@ public partial class MacroMap : Control
         [TrainActivity.Running] = GD.Load<Texture2D>("res://Ui/Symbols/train-running.png"),
         [TrainActivity.Servicing] = GD.Load<Texture2D>("res://Ui/Symbols/train-servicing.png"),
         [TrainActivity.Waiting] = GD.Load<Texture2D>("res://Ui/Symbols/train-waiting.png"),
-        [TrainActivity.NoRoute] = GD.Load<Texture2D>("res://Ui/Symbols/train-blocked.png"),
+        [TrainActivity.NoRoute] = GD.Load<Texture2D>("res://Ui/Symbols/warning.png"),
         [TrainActivity.Combat] = GD.Load<Texture2D>("res://Ui/Symbols/train-combat.png"),
         [TrainActivity.Retreating] = GD.Load<Texture2D>("res://Ui/Symbols/train-retreating.png")
     };
@@ -171,26 +171,24 @@ public partial class MacroMap : Control
     {
         var point = MapToScreen(node.Position);
         var (radius, name, revision) = NodeDisplay(node);
-        if (node.Occupant is NodeOccupant.Empty or NodeOccupant.Lair)
+        if (node.Occupant is NodeOccupant.Empty)
         {
             DrawCircle(point, radius, Colors.White);
             DrawArc(point, radius, 0, Mathf.Tau, 32, Ink, 2, true);
-            if (node.Occupant is NodeOccupant.Lair)
-                DrawTextureRect(_lairSymbol, new Rect2(point - new Vector2(6, 6), new Vector2(12, 12)), false, Ink);
             DrawMapText(name, point + new Vector2(0, radius + 21), new Color("#1e1e1e"));
             return;
         }
-        var color = node.Occupant is NodeOccupant.Settlement settlement ? settlement.Relation switch
+        var color = node.Occupant switch
         {
-            SettlementRelation.PlayerOwned => new Color("#2b77d0"),
-            SettlementRelation.Hostile => new Color("#c9423a"),
+            NodeOccupant.Settlement { Relation: SettlementRelation.PlayerOwned } => new Color("#2b77d0"),
+            NodeOccupant.Lair or NodeOccupant.Settlement { Relation: SettlementRelation.Hostile } => new Color("#c9423a"),
             _ => new Color("#7f8893")
-        } : new Color("#7f8893");
+        };
         DrawCircle(point, radius, Colors.White);
         DrawArc(point, radius, 0, Mathf.Tau, 48, color, 3, true);
-        if (node.Occupant is NodeOccupant.Settlement { Relation: SettlementRelation.Hostile })
+        if (node.Occupant is NodeOccupant.Lair or NodeOccupant.Settlement { Relation: SettlementRelation.Hostile })
             for (var i = 0; i < 12; i++) DrawArc(point, radius + 6, i * Mathf.Tau / 12, (i + .55f) * Mathf.Tau / 12, 4, color, 2, true);
-        var symbol = revision is { } asset ? FindSymbol(asset) : null;
+        var symbol = node.Occupant is NodeOccupant.Lair ? _lairSymbol : revision is { } asset ? FindSymbol(asset) : null;
         if (symbol is not null) DrawTextureRect(symbol, new Rect2(point - new Vector2(12, 12), new Vector2(24, 24)), false, color);
         else
         {
@@ -202,7 +200,7 @@ public partial class MacroMap : Control
 
     private (float Radius, string Name, AssetRevision? Symbol) NodeDisplay(NodeMapItem node)
     {
-        var radius = node.Occupant is NodeOccupant.Empty or NodeOccupant.Lair ? 6f : 16f;
+        var radius = node.Occupant is NodeOccupant.Empty ? 6f : 16f;
         var name = $"节点 {node.Id.Value}";
         AssetRevision? symbol = null;
         if (node.Occupant is NodeOccupant.Settlement occupied && _content is not null)

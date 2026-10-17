@@ -21,9 +21,9 @@ corner_radius_bottom_left = 4
 
 [sub_resource type="StyleBoxFlat" id="TopBar"]
 content_margin_left = 12.0
-content_margin_top = 5.0
+content_margin_top = 3.0
 content_margin_right = 12.0
-content_margin_bottom = 5.0
+content_margin_bottom = 3.0
 bg_color = Color(0.0941176, 0.1098039, 0.1294118, 0.92)
 border_width_left = 1
 border_width_top = 1
@@ -170,6 +170,7 @@ CheckBox/colors/font_color = Color(0.9019608, 0.9137255, 0.9254902, 1)
 LineEdit/fonts/font = ExtResource("1")
 LineEdit/colors/font_color = Color(0.9019608, 0.9137255, 0.9254902, 1)
 ItemList/fonts/font = ExtResource("1")
+ItemList/constants/v_separation = 12
 ItemList/colors/font_color = Color(0.9019608, 0.9137255, 0.9254902, 1)
 PopupMenu/fonts/font = ExtResource("1")
 PopupMenu/colors/font_color = Color(0.9019608, 0.9137255, 0.9254902, 1)

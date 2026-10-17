@@ -128,8 +128,8 @@ public partial class ProbeRunner : Node
                 $"Actual game PCK is missing the bundled {weight} font.");
         }
         Require(Godot.FileAccess.FileExists("res://Ui/Fonts/OFL.txt"), "Actual game PCK is missing the font license.");
-        foreach (var name in new[] { "lair", "train-running", "train-servicing", "train-waiting", "train-blocked",
-            "train-combat", "train-retreating", "notification-info", "notification-complete", "notification-warning", "notification-critical" })
+        foreach (var name in new[] { "lair", "train-running", "train-servicing", "train-waiting", "warning",
+            "train-combat", "train-retreating", "notification-info", "notification-complete", "notification-critical" })
         {
             using var texture = GD.Load<Texture2D>($"res://Ui/Symbols/{name}.png");
             Require(texture is not null, $"Actual game PCK is missing the host symbol {name}.");
