@@ -35,10 +35,14 @@ internal static class CoreCommandEncoding
                 CoreCommand.BuyVehicle => "market.buy_vehicle",
                 CoreCommand.SellVehicle => "market.sell_vehicle",
                 CoreCommand.AcquireLease => "lease.acquire",
+                CoreCommand.StartOwnedJob { Request: JobRequest.BuildVehicle or JobRequest.Repair { Instance: InstanceId.Vehicle } } => "construction.start_owned",
                 _ => throw new NotImplementedException($"{command.GetType().Name} 尚未实现。")
             });
             switch (command)
             {
+                case CoreCommand.StartOwnedJob start:
+                    WriteJobRequest(writer, start.Request);
+                    break;
                 case CoreCommand.BuyGoods buy:
                     WriteTransfer(writer, buy.Train, buy.Settlement, buy.LocalInventory, buy.Good, buy.Quantity);
                     WriteNonnegativeInteger(writer, "maximum_payment", buy.MaximumPayment.Value);
@@ -172,6 +176,7 @@ internal static class CoreCommandEncoding
                 "rail.debug_add_break" => ["input_format_version", "kind", "edge", "track", "distance_meters"],
                 "inventory.load_goods" or "inventory.unload_goods" => ["input_format_version", "kind", "train", "settlement", "local_inventory", "good", "quantity"],
                 "lease.acquire" => ["input_format_version", "kind", "request", "maximum_payment"],
+                "construction.start_owned" => ["input_format_version", "kind", "request"],
                 "market.buy_goods" => ["input_format_version", "kind", "train", "settlement", "local_inventory", "good", "quantity", "maximum_payment"],
                 "market.sell_goods" => ["input_format_version", "kind", "train", "settlement", "local_inventory", "good", "quantity", "minimum_receipt"],
                 "market.buy_vehicle" => ["input_format_version", "kind", "seller", "vehicle", "maximum_payment"],
@@ -180,6 +185,8 @@ internal static class CoreCommandEncoding
             };
             if (fields is null) return Failure("unsupported_format", "/kind");
             Fields(root, "", fields);
+            if (name == "construction.start_owned")
+                return Success(new(null, new CoreCommand.StartOwnedJob(ReadJobRequest(Property(root, "request", "", JsonValueKind.Object)))));
             if (name == "lease.acquire")
             {
                 var request = Property(root, "request", "", JsonValueKind.Object);
@@ -260,6 +267,75 @@ internal static class CoreCommandEncoding
         catch (JsonException) { return Failure("unsupported_format", ""); }
         catch (InvalidField error) { return Failure("invalid_state", error.Field); }
         catch (InvalidOperationException) { return Failure("invalid_state", ""); }
+    }
+
+    private static void WriteJobRequest(Utf8JsonWriter writer, JobRequest request)
+    {
+        var (facility, sources, priority) = request switch
+        {
+            JobRequest.BuildVehicle construction => (construction.Facility, construction.Sources, construction.Priority),
+            JobRequest.Repair { Instance: InstanceId.Vehicle } repair => (repair.Facility, repair.Sources, repair.Priority),
+            _ => throw new NotImplementedException($"{request?.GetType().Name} 尚未实现。")
+        };
+        ArgumentNullException.ThrowIfNull(facility);
+        if (!Enum.IsDefined(facility.Capability)) throw new ArgumentException("能力种类无效。", nameof(request));
+        if (sources.IsDefault) throw new ArgumentException("数组必须初始化。", nameof(request));
+        writer.WriteStartObject("request");
+        writer.WriteString("kind", request is JobRequest.BuildVehicle ? "build_vehicle" : "repair_vehicle");
+        writer.WriteStartObject("facility");
+        WriteIdentity(writer, "building", facility.Building.Value);
+        writer.WriteString("capability", facility.Capability.ToString().ToLowerInvariant());
+        writer.WriteEndObject();
+        if (request is JobRequest.BuildVehicle build)
+        {
+            var input = WorldInputs.NormalizeDesignInput(build.Design);
+            writer.WritePropertyName("design");
+            WorldJson.WriteDesignInput(writer, input);
+        }
+        else WriteIdentity(writer, "vehicle", ((InstanceId.Vehicle)((JobRequest.Repair)request).Instance).Id.Value);
+        writer.WriteStartArray("sources");
+        foreach (var source in sources)
+        {
+            if (source.Value == 0) throw new ArgumentException("世界身份必须非零。", nameof(request));
+            writer.WriteNumberValue(source.Value);
+        }
+        writer.WriteEndArray();
+        writer.WriteNumber("priority", priority);
+        writer.WriteEndObject();
+    }
+
+    private static JobRequest ReadJobRequest(JsonElement request)
+    {
+        const string field = "/request";
+        var kind = Text(Property(request, "kind", field, JsonValueKind.String), field + "/kind");
+        if (kind is not ("build_vehicle" or "repair_vehicle")) throw new InvalidField(field + "/kind");
+        Fields(request, field, kind == "build_vehicle"
+            ? ["kind", "facility", "design", "sources", "priority"] : ["kind", "facility", "vehicle", "sources", "priority"]);
+        var facilityValue = Property(request, "facility", field, JsonValueKind.Object);
+        Fields(facilityValue, field + "/facility", ["building", "capability"]);
+        var capability = Text(Property(facilityValue, "capability", field + "/facility", JsonValueKind.String), field + "/facility/capability");
+        var capabilityKind = capability switch
+        {
+            "production" => CapabilityKind.Production,
+            "extraction" => CapabilityKind.Extraction,
+            "construction" => CapabilityKind.Construction,
+            _ => throw new InvalidField(field + "/facility/capability")
+        };
+        var facility = new FacilityKey(new(Identity(Property(facilityValue, "building", field + "/facility", JsonValueKind.Number), field + "/facility/building")), capabilityKind);
+        var sources = ImmutableArray.CreateBuilder<InventoryId>();
+        foreach (var source in Property(request, "sources", field, JsonValueKind.Array).EnumerateArray())
+            sources.Add(new(Identity(source, $"{field}/sources/{sources.Count}")));
+        var priority = Property(request, "priority", field, JsonValueKind.Number);
+        if (!priority.TryGetInt32(out var number)) throw new InvalidField(field + "/priority");
+        if (kind == "repair_vehicle")
+            return new JobRequest.Repair(facility, new InstanceId.Vehicle(new(Identity(Property(request, "vehicle", field, JsonValueKind.Number), field + "/vehicle"))), sources.ToImmutable(), number);
+        try
+        {
+            var input = WorldInputs.NormalizeDesignInput(WorldJson.ReadDesignInput(Property(request, "design", field, JsonValueKind.Object)));
+            return new JobRequest.BuildVehicle(facility, input, sources.ToImmutable(), number);
+        }
+        catch (Exception error) when (error is JsonException or ArgumentException or NotSupportedException)
+        { throw new InvalidField(field + "/design"); }
     }
 
     private static void WriteTransfer(Utf8JsonWriter writer, TrainId train, SettlementId settlement,

@@ -61,6 +61,11 @@ internal static class WorldStateValidation
             designs.TryGetValue(hash, out var design) && design.Kind is DesignKind.Vehicle)), "/world/source/start/trains/vehicles");
         foreach (var settlement in world.Settlements)
         {
+            Require(double.IsFinite(settlement.LastConstructionPowerDemand) && settlement.LastConstructionPowerDemand >= 0
+                && double.IsFinite(settlement.LastConstructionActualSupply) && settlement.LastConstructionActualSupply >= 0
+                && settlement.LastConstructionActualSupply <= settlement.LastConstructionPowerDemand
+                && double.IsFinite(settlement.LastConstructionAllocatedLabor) && settlement.LastConstructionAllocatedLabor >= 0,
+                "/world/settlements/last_construction_allocation");
             ValidatePopulation(settlement, world.Source.Configuration.Rules.Population);
             Require(double.IsFinite(settlement.FuelEnergyRemaining) && settlement.FuelEnergyRemaining >= 0,
                 "/world/settlements/fuel_energy_remaining");
@@ -273,6 +278,7 @@ internal static class WorldStateValidation
             }
         }
         Require(world.Money.Value >= 0 && world.Next is not null, "/world/money");
+        ValidateConstruction(world);
         var next = world.Next;
         Next(next.Node, world.Nodes.Select(n => n.Id.Value), "/world/next/node");
         Next(next.Edge, world.Edges.Select(e => e.Id.Value), "/world/next/edge");
@@ -285,6 +291,54 @@ internal static class WorldStateValidation
         Next(next.Inventory, world.Inventories.Select(i => i.Id.Value), "/world/next/inventory");
         Next(next.Break, breakIds, "/world/next/break");
         Next(next.Lease, world.Leases.Select(l => l.Id.Value), "/world/next/lease");
+        Next(next.Job, world.ConstructionJobs.Select(j => j.Id.Value), "/world/next/job");
+    }
+
+    private static void ValidateConstruction(WorldState world)
+    {
+        const string field = "/world/construction_jobs";
+        Ordered(world.ConstructionJobs, j => j.Id.Value, field);
+        Require(world.ConstructionJobs.Select(j => j.Facility).Distinct().Count() == world.ConstructionJobs.Length, field + "/facility");
+        var vehicles = new HashSet<VehicleId>();
+        foreach (var job in world.ConstructionJobs)
+        {
+            var path = field + $"/{job.Id.Value}";
+            Require(job.Facility is not null && job.Facility.Capability == CapabilityKind.Construction, path + "/facility");
+            Require(world.Settlements.Any(s => s.Id == job.Settlement && s.Plots.Any(p => p.Building == job.Facility.Building)), path + "/settlement");
+            Require(world.Designs.Any(d => d.Design == job.TargetDesign && d.Kind is DesignKind.Vehicle), path + "/target_design");
+            if (job.RepairVehicle is { } vehicle)
+                Require(vehicles.Add(vehicle) && world.Instances.Any(i => i.Id == new InstanceId.Vehicle(vehicle)
+                    && i.Design == job.TargetDesign), path + "/repair_vehicle");
+            Require(WorldFormat.IsIdentity(job.Rule.Value) && WorldFormat.IsHash(job.StartedFromRevision.Value), path + "/rule");
+            Require(job.FrozenTotalWork > 0 && double.IsFinite(job.ProgressWork) && job.ProgressWork >= 0
+                && job.ProgressWork < job.FrozenTotalWork, path + "/progress_work");
+            Require(double.IsFinite(job.FrozenPowerPerWork) && job.FrozenPowerPerWork >= 0
+                && double.IsFinite(job.FrozenLaborPerWork) && job.FrozenLaborPerWork >= 0, path + "/frozen_factors");
+            Require(job.State is ConstructionState.Working or ConstructionState.ResourceBlocked, path + "/state");
+            Require(double.IsFinite(job.LastActualWorkPerSecond) && job.LastActualWorkPerSecond >= 0,
+                path + "/last_actual_work_per_second");
+            Items(job.LastLimits, path + "/last_limits");
+            Require(job.LastLimits.All(l => Enum.IsDefined(l))
+                && job.LastLimits.SequenceEqual(job.LastLimits.Distinct().Order()), path + "/last_limits");
+            ProductionGoods(job.InvestedGoods, path + "/invested_goods");
+            Items(job.SourceConsumption, path + "/source_consumption");
+            Require(job.SourceConsumption.Select(s => s.Inventory).Distinct().Count() == job.SourceConsumption.Length, path + "/source_consumption");
+            var totals = new Dictionary<GoodId, Int128>();
+            foreach (var source in job.SourceConsumption)
+            {
+                Require(source.Inventory.Value > 0 && source.Inventory.Value < world.Next.Inventory, path + "/source_consumption/inventory");
+                ProductionGoods(source.Goods, path + "/source_consumption/goods");
+                Require(!source.Goods.IsEmpty, path + "/source_consumption/goods");
+                foreach (var good in source.Goods) totals[good.Good] = totals.GetValueOrDefault(good.Good) + good.Quantity;
+            }
+            Require(totals.Count == job.InvestedGoods.Length && job.InvestedGoods.All(g => totals.GetValueOrDefault(g.Good) == g.Quantity), path + "/invested_goods");
+            Items(job.Blockers, path + "/blockers");
+            foreach (var blocker in job.Blockers)
+            {
+                Require(!string.IsNullOrEmpty(blocker.Code) && !string.IsNullOrEmpty(blocker.Field), path + "/blockers");
+                Items(blocker.RelatedIdentities, path + "/blockers/related_identities");
+            }
+        }
     }
 
     private static void ValidateProduction(SettlementState settlement)

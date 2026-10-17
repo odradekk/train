@@ -3,6 +3,7 @@ using Train.Core.Contracts;
 using Train.Core.Sessions;
 using Train.Core.Trading;
 using Train.Core.World;
+using Train.Core.Construction;
 
 namespace Train.Core.Railway;
 
@@ -112,6 +113,7 @@ internal static class TrainCommands
                     train = TrainOperations.ResolveNode(ref world, content, train, events, new TrainDispatch(world, content), step, boundary);
                 break;
             case CoreCommand.StartTrain:
+                if (ConstructionJobs.TrainLocked(world, train)) return Reject("instance_locked", "Train", subject);
                 if (train.Plan is null) return Reject("plan_missing", "Train.Plan", subject);
                 if (train.NextStopIndex is null) return Reject("plan_completed", "Train.NextStopIndex", subject);
                 if (train.Activity != TrainActivity.Stopped)
