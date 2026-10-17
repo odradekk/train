@@ -678,6 +678,7 @@ internal sealed class NodeScene : IAsyncDisposable
             foreach (var reference in problems.Where(problem => problem.Content is ContentReference.Core { Definition: CoreDefinitionReference.Terrain })
                 .Select(problem => problem.Content!).Distinct()) visuals.Add(new SceneVisual.Missing(reference, false));
             objects.Add(new(root, null, pose, null, visuals.ToImmutable(), [], []));
+            objects.AddRange(DesignGeometry.Models(grid, root, null, cell => id(":model:" + cell.At), false));
             foreach (var cell in cells.Where(cell => cell.MissingReference is not null))
                 objects.Add(new(id("missing:" + cell.At), root, new(new(cell.At.X, cell.At.Y, cell.At.Z), Quaternion.Identity), null,
                     [new SceneVisual.Missing(cell.MissingReference!, true)], [], []));

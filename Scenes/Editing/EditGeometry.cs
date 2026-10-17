@@ -10,6 +10,7 @@ internal static class EditGeometry
 {
     internal static RenderedDesign Build(EditObject root, EditContent content, EditSessionId session,
         EditRevision revision, int? highestY, Func<EditElementId, SceneObjectId> objectId,
+        Func<SceneObjectId, GridPosition, SceneObjectId> modelId,
         ImmutableArray<int> rootPath = default)
     {
         var objects = ImmutableArray.CreateBuilder<SceneObject>();
@@ -100,6 +101,7 @@ internal static class EditGeometry
         {
             var grid = new VoxelGrid(cells.ToImmutable());
             objects.Add(new(id, parent, pose, null, DesignGeometry.Meshes(grid, true), [], []));
+            objects.AddRange(DesignGeometry.Models(grid, id, null, cell => modelId(id, cell.At), true));
             if (cells.Count > 0) picking.Add(new(id, composed, grid));
         }
 
