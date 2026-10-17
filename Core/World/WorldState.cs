@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 using Train.Core.Settlements;
+using Train.Core.Construction;
 using Train.Core.Contracts;
 
 namespace Train.Core.World;
@@ -17,7 +18,12 @@ internal abstract record GeneratedOccupant
 internal sealed record SettlementState(SettlementId Id, NodeId Node, SettlementTypeId Type,
     SettlementRelation Relation, long Population, SettlementTemplateProjection Template,
     ImmutableArray<PlotState> Plots, InventoryId Inventory, ImmutableArray<VehicleId> ParkedVehicles,
-    double FuelEnergyRemaining, ImmutableArray<ProductionFacilityState> ProductionFacilities, PopulationState PopulationState);
+    double FuelEnergyRemaining, ImmutableArray<ProductionFacilityState> ProductionFacilities, PopulationState PopulationState)
+{
+    [JsonRequired] public double LastConstructionPowerDemand { get; init; }
+    [JsonRequired] public double LastConstructionActualSupply { get; init; }
+    [JsonRequired] public double LastConstructionAllocatedLabor { get; init; }
+}
 internal sealed record ProductionBatchState(ProcessRef Process, SemanticRevision StartedFromRevision,
     ImmutableArray<GoodsQuantity> FrozenOutputs, long FrozenWorkRequired, double FrozenPowerPerWork,
     double FrozenLaborPerWork, double ProgressWork);
@@ -32,7 +38,8 @@ internal sealed record InstanceState(InstanceId Id, DesignHash Design,
     ImmutableArray<PartDurability> Parts)
 {
     internal InstanceView Read(WorldState world, CoreContentProjection content, WorldLocation location, DesignProjection design) => new(Id, design.Design, design.Composition, location, Ownership, Details,
-        InstanceLock.None, new(Math.Min(StructureDurability, design.MaxStructureDurability), design.MaxStructureDurability),
+        ConstructionJobs.InstanceLocked(world, Id) ? InstanceLock.UnderRepair : InstanceLock.None,
+        new(Math.Min(StructureDurability, design.MaxStructureDurability), design.MaxStructureDurability),
         Parts.Select(p =>
         {
             var specification = design.Parts.Single(d => d.Id == p.Id);
@@ -57,7 +64,10 @@ internal sealed record InventoryState(InventoryId Id, InventoryOwner Owner,
 internal sealed record LeaseState(LeaseId Id, SettlementId Settlement, InventoryId Inventory,
     long Capacity, ulong ExpiresAtStep, Money Paid);
 internal sealed record WorldIdentities(ulong Node, ulong Edge, ulong Settlement, ulong Lair, ulong Plot,
-    ulong Building, ulong Train, ulong Vehicle, ulong Inventory, ulong Break, ulong Lease);
+    ulong Building, ulong Train, ulong Vehicle, ulong Inventory, ulong Break, ulong Lease)
+{
+    [JsonRequired] public ulong Job { get; init; } = 1;
+}
 
 internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<NodeMapItem> Nodes, ImmutableArray<EdgeMapItem> Edges,
     ImmutableArray<SettlementState> Settlements, ImmutableArray<LairState> Lairs,
@@ -69,6 +79,7 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
     ImmutableArray<ResourceRecoveryState> ResourceRecovery)
 {
     [JsonRequired] public ImmutableArray<RunReport> RecentRunReports { get; init; } = [];
+    [JsonRequired] public ImmutableArray<ConstructionJobState> ConstructionJobs { get; init; } = [];
 
     internal WorldSummary Map => new(Source.WorldSeed, Source.Configuration.Rules.Railway,
         Source.Configuration.WidthMeters, Source.Configuration.HeightMeters, Nodes.Select(ReadNode).ToImmutableArray(), Edges,
