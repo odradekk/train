@@ -13,8 +13,8 @@
 | `basic_reserve_hours`、`production_reserve_hours`、`improvement_reserve_hours` | 有限非负模拟小时；分别为基本生活、生产、改善生活备货时长 |
 | `default_goods_prices` | 默认货物价格参数，见下表 |
 | `good_prices` | 数组；每项必填货物引用 `good` 和完整价格参数 `parameters`；允许空数组 |
-| `vehicle_buy_multiplier_basis_points` | 正 32 位整数；玩家买入现车的估值倍率 |
-| `vehicle_sell_multiplier_basis_points` | 正 32 位整数；玩家卖出现车的估值倍率 |
+| `vehicle_buy_multiplier_basis_points` | 正 32 位整数；玩家买入现车的估值倍率，不得低于卖出倍率 |
+| `vehicle_sell_multiplier_basis_points` | 正 32 位整数；玩家卖出现车的估值倍率，不得高于买入倍率 |
 | `vehicle_purchase_limits` | 五档名额数组，每项必填 `size` 和非负 32 位整数 `maximum_for_sale`；0 表示不收购该档 |
 | `automatic_evaluation_interval_ticks` | 正 32 位整数；自动交易重评间隔，60 ticks = 1 模拟秒 |
 | `recent_report_limit` | 正 32 位整数；近期运行报告条数上限 |
@@ -37,6 +37,7 @@
 
 - `good_prices` 的货物不得重复，必须解析为可库存货物；每项是完整覆盖，不按缺省字段局部合并。未覆盖的货物使用默认参数。
 - 校验每组价格倍率上下限，以及有限数、引用与依赖。
+- 现车买入倍率不得低于卖出倍率。允许相等：整车付款向上取整、收款向下取整，同一步往返最多持平，不会获利。
 - `vehicle_purchase_limits` 恰好覆盖 `small`、`medium`、`large`、`extra_large`、`titan`，各一次。
 
 规则不配置供需数量、无限补货、现车生成或 NPC 资金。补货目标由核心按人口、启用生产计划与容量预算计算；覆盖参数不能改变这一来源。金额直接投影为 `Money`。整数精确计价和必要溢出检查归核心；意外溢出沿用内部故障，不引入新业务拒绝分支。
