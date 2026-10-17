@@ -7,9 +7,12 @@ internal sealed record BuildingCapabilities(double Production, double Extraction
 {
     internal static BuildingCapabilities Read(WorldState world, CoreContentProjection content, BuildingId building)
     {
-        var instance = world.Instances.Single(i => i.Id == new InstanceId.Building(building));
+        var id = new InstanceId.Building(building);
+        var instance = world.Instances.Single(i => i.Id == id);
         double production = 0, extraction = 0, construction = 0, power = 0;
-        foreach (var part in InstanceCapabilities.EffectiveParts(world, content, instance))
+        foreach (var part in InstanceCapabilities.EffectiveParts(world, content, instance,
+            static part => part.Capabilities.Any(c => c is PartCapability.Production or PartCapability.Extraction
+                or PartCapability.Construction or PartCapability.Power)))
             foreach (var capability in part.Capabilities)
                 switch (capability)
                 {

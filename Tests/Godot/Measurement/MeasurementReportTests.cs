@@ -23,7 +23,7 @@ public sealed class MeasurementReportTests
     public void ReportKeepsRawEvidenceUnavailableMetricsAndFailedOperations()
     {
         var measurements = new FrameMeasurements(10, 20);
-        measurements.AddFrame(10.1, 26, 0.007, SimulationSpeed.Eight, false);
+        measurements.AddFrame(10.1, 26, 0.007, SimulationSpeed.Eight, false, new(1, "Edge", 16, 2));
         var json = MeasurementReport.Serialize("follow-8x", new Dictionary<string, object?>
         {
             ["commit"] = "tested-build", ["dirty"] = false, ["input_sha256"] = "input-identity"
@@ -39,6 +39,12 @@ public sealed class MeasurementReportTests
         Assert.AreEqual(1500L, memory.GetProperty("peak_working_set_bytes").GetInt64());
         Assert.AreEqual(26ul, report.GetProperty("timing").GetProperty("frames")[0]
             .GetProperty("completed_steps").GetUInt64());
+        var follow = report.GetProperty("timing").GetProperty("frames")[0].GetProperty("follow");
+        Assert.AreEqual(1ul, follow.GetProperty("train_id").GetUInt64());
+        Assert.AreEqual("Edge", follow.GetProperty("position_kind").GetString());
+        Assert.AreEqual(16ul, follow.GetProperty("position_id").GetUInt64());
+        Assert.AreEqual(2ul, follow.GetProperty("display_space").GetUInt64());
+        Assert.AreEqual(JsonValueKind.Null, report.GetProperty("timing").GetProperty("window_median_actual_speed").ValueKind);
         var failedSave = report.GetProperty("operations")[1];
         Assert.IsFalse(failedSave.GetProperty("succeeded").GetBoolean());
         Assert.AreEqual("publication_failed", failedSave.GetProperty("problem").GetString());
