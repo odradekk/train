@@ -155,6 +155,7 @@ internal static class EconomyFixture
             Goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>>
             {
                 [Food] = new ContentLookup<GoodPresentation>.Found(new(Food, new(new("主食", "有限经济情景"), icon, null, false), null, false)),
+                [new GoodId.Voxel(new("fixture:ore"))] = new ContentLookup<GoodPresentation>.Missing([]),
                 [Equipment] = new ContentLookup<GoodPresentation>.Missing([])
             },
             Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>>
