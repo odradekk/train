@@ -54,7 +54,8 @@ internal sealed partial class MeasurementRun : IDisposable
         _scenario = values["scenario"];
         if (_scenario is not ("map-1x" or "map-8x" or "follow-1x" or "follow-8x" or "node-1x" or "node-8x" or
             "sdfgi-off" or "sdfgi-on" or "taa-off" or "taa-on" or "scene-node" or "scene-node-first" or
-            "scene-edge" or "scene-follow" or "scene-follow-8x" or "scene-memory" or "scene-capture" or "scene-map" or "scene-reference"))
+            "scene-edge" or "scene-follow" or "scene-follow-8x" or "scene-memory" or "scene-capture" or "scene-map" or "scene-reference" or
+            "scene-route-1x" or "scene-route-8x" or "scene-route-capture-1x" or "scene-route-capture-8x"))
             throw new ArgumentException("未知测量情景。");
         if (values.TryGetValue("--measure-duration", out var duration))
         {

@@ -89,7 +89,11 @@ internal sealed partial class MeasurementRun
             _sceneEvidence["initial_load"] = new { button = _sceneLoadButton, completed = _sceneLoadCompleted, map_drawn = _sceneLastDraw };
             _sceneEvidence["initial_load_counts"] = SceneLoadCounts();
             // First clicks happen before the steady-map hold. They never wait for a prebuild.
-            if (_scenario == "scene-reference")
+            if (IsRouteMeasurement)
+            {
+                await RunFollowRoute();
+            }
+            else if (_scenario == "scene-reference")
             {
                 await OpenSceneMeasured("reference-node", new WorldObjectId.Node(new(2)));
                 await ReturnSceneMap();
@@ -161,9 +165,11 @@ internal sealed partial class MeasurementRun
                 _sceneEvidence["cycles"] = cycle;
                 _sceneEvidence["memory_loop_seconds"] = Seconds() - started;
             }
-            ReadIdentity(new TrainId(1), _scenario == "scene-follow-8x" ? SimulationSpeed.Eight : SimulationSpeed.One);
+            ReadIdentity(new TrainId(1), _scenario == "scene-follow-8x" || IsRouteMeasurement && _scenario.EndsWith("8x", StringComparison.Ordinal)
+                ? SimulationSpeed.Eight : SimulationSpeed.One);
             _identity["warmup_seconds"] = _scenario == "scene-follow-8x" ? 5 : 0;
-            _identity["sample_seconds"] = _scenario == "scene-follow-8x" ? (_sceneDuration > 0 ? _sceneDuration : 120) : 0;
+            _identity["sample_seconds"] = IsRouteMeasurement ? _timing!.ElapsedSeconds :
+                _scenario == "scene-follow-8x" ? (_sceneDuration > 0 ? _sceneDuration : 120) : 0;
             if (_app.WorldScenes!.View.Visible) await ReturnSceneMap();
             await HoldSceneMap("final-map");
             _sceneEvidence["final_map"] = SceneSteady();
@@ -359,6 +365,7 @@ internal sealed partial class MeasurementRun
 
     private void OnSceneDraw()
     {
+        if (IsRouteMeasurement && _routeTrace is not null) { OnRouteDraw(); return; }
         var observerStarted = Seconds();
         var operation = _sceneOperation;
         var loggingSeconds = 0d;
@@ -566,6 +573,7 @@ internal sealed partial class MeasurementRun
 
     private void OnScenePresented(ISceneFrame frame)
     {
+        if (IsRouteMeasurement) RecordRoutePresented(frame);
         _scenePresentedStamp = frame.Update.Frame;
         var followPose = _subject is not null && frame.FindPose(_subject) is Lookup<ScenePose>.Found pose
             ? pose.Value.ToString() : null;
