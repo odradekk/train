@@ -28,18 +28,24 @@ internal partial class DesignEditorPanel : Control
     private readonly List<EditElementId> _elementIds = [];
     private SpinBox _x = null!, _y = null!, _z = null!, _endX = null!, _endY = null!, _endZ = null!, _width = null!, _plane = null!, _cut = null!;
     private IEditPreview? _preview;
-    private bool _returnToLibrary;
     internal event Action? LibraryRequested;
     private EditStamp? _shown;
     private EditElementId? _shownEntered;
     private DesignEvaluation? _shownEvaluation;
+    private ImmutableArray<SceneProblem> _shownFrameDiagnostics;
     private SceneHit? _lastHit;
     private EditSessionId? _paletteSession;
     private readonly List<GridPosition> _stroke = [];
     private ConfirmationDialog _confirm = null!;
     private PanelContainer _leave = null!;
     internal EditorSceneController Scene => _scene;
-    internal void Initialize(EditorService service) { _service = service; _scene = new(service); }
+    internal void Initialize(EditorService service)
+    {
+        _service = service;
+        _scene = new(service);
+        _service.BlueprintSaved += ReturnToLibrary;
+    }
+    private void ReturnToLibrary() => LibraryRequested?.Invoke();
     public override void _Ready()
     {
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect); MouseFilter = MouseFilterEnum.Ignore;
@@ -85,8 +91,13 @@ internal partial class DesignEditorPanel : Control
         right.SetAnchorsAndOffsetsPreset(LayoutPreset.TopRight);
         right.OffsetLeft = -310; right.OffsetRight = -8; right.OffsetTop = 64;
         _elements = new ItemList { CustomMinimumSize = new(260, 160), SelectMode = ItemList.SelectModeEnum.Multi }; inspector.AddChild(_elements);
-        _elements.MultiSelected += (_, _) => _service.Select(new EditSelection.Elements([.. _elements.GetSelectedItems().Select(index => _elementIds[index])]));
-        Add(inspector, "EnterObject", "进入所选设备", () => { if (_elements.GetSelectedItems().FirstOrDefault(-1) is var index && index >= 0) _service.Enter(_elementIds[index]); });
+        _elements.MultiSelected += (_, _) => _service.Select(new EditSelection.Elements(
+            [.. _elements.GetSelectedItems().Select(index => _elementIds[index])]));
+        Add(inspector, "EnterObject", "进入所选设备", () =>
+        {
+            var index = _elements.GetSelectedItems().FirstOrDefault(-1);
+            if (index >= 0) _service.Enter(_elementIds[index]);
+        });
         Add(inspector, "ExitObject", "返回上层", () => _service.Enter(null));
         Add(inspector, "ExtractObject", "将所选设备另存为蓝图…", () =>
         {
@@ -114,7 +125,12 @@ internal partial class DesignEditorPanel : Control
         foreach (var label in new[] { _status, _previewText, _information }) { label.AutowrapMode = TextServer.AutowrapMode.WordSmart; label.SizeFlagsHorizontal = SizeFlags.ExpandFill; }
         information.AddChild(_status); information.AddChild(_previewText); information.AddChild(_information);
         _diagnostics = new VBoxContainer(); information.AddChild(_diagnostics);
-        _confirm = new ConfirmationDialog { Title = "确认大范围修改", OkButtonText = "确认应用" }; AddChild(_confirm); _confirm.Confirmed += () => { if (_preview is { } preview) _service.Apply(preview, true); };
+        _confirm = new ConfirmationDialog { Title = "确认大范围修改", OkButtonText = "确认应用" };
+        AddChild(_confirm);
+        _confirm.Confirmed += () =>
+        {
+            if (_preview is { } preview) _service.Apply(preview, true);
+        };
         _leave = UiStyle.Panel(this, "LeaveEditor", "存在未保存修改", new(440, 220), 410, () => _service.ResolveClose(LeaveChoice.Cancel), out var leave);
         Add(leave, "SaveAndLeave", "保存草稿并退出", () => _service.ResolveClose(LeaveChoice.Save));
         Add(leave, "DiscardAndLeave", "放弃本次修改", () => _service.ResolveClose(LeaveChoice.Discard));
@@ -166,7 +182,9 @@ internal partial class DesignEditorPanel : Control
         if (_action.Selected == 3) return new CellEdit.Paint(Paint());
         if (_action.Selected == 4) return Shape() is { } shape ? new CellEdit.Shape(shape) : null;
         if (_voxel.Selected < 0 || _voxel.Selected >= _voxels.Count) { _service.Report("请选择体素。 "); return null; }
-        var value = new VoxelPaletteEntry(_voxels[_voxel.Selected].Definition, (_allowedOrientations.Count > 0 ? _allowedOrientations[Math.Max(0, _orientation.Selected)] : VoxelOrientation.PxPy), Shape(), Paint());
+        var orientation = _allowedOrientations.Count > 0
+            ? _allowedOrientations[Math.Max(0, _orientation.Selected)] : VoxelOrientation.PxPy;
+        var value = new VoxelPaletteEntry(_voxels[_voxel.Selected].Definition, orientation, Shape(), Paint());
         return _action.Selected == 0 ? new CellEdit.Add(value) : new CellEdit.Replace(value);
     }
     private void PreviewCells(EditFootprint? footprint = null)
@@ -243,21 +261,13 @@ internal partial class DesignEditorPanel : Control
     public override void _Process(double delta)
     {
         Visible = _service.IsOpen; _scene.Process(delta);
-        if (!Visible)
-        {
-            if (_returnToLibrary && !_service.IsBusy)
-            {
-                _returnToLibrary = false;
-                LibraryRequested?.Invoke();
-            }
-            return;
-        }
+        if (!Visible) return;
         _leave.Visible = _service.Leaving; if (_service.Leaving) _leave.MoveToFront();
         _status.Text = (_service.State is { } active
             ? $"层级 {active.EnteredObject?.Value.ToString() ?? "根"} · 已选 {active.Selection.Length} · " : "")
             + (_service.Message ?? "")
             + (_service.SceneUnavailable ? " · 场景不可用，可保存、退出或重试" : "")
-            + (_service.Host.GetSaveStatus()?.Frozen == true ? " · 核心已冻结，可保存草稿；有效蓝图暂不可保存" : "")
+            + (_service.Host.GetSaveStatus()?.Frozen == true ? " · 核心已冻结；本局草稿仅保留到离开本局，无法写入存档；用户库草稿可写盘；有效蓝图暂不可保存" : "")
             + (_service.IsDirty ? " · 未保存修改" : "");
         if (_service.State is not { } state) return;
         if (_paletteSession != state.Snapshot.Stamp.Session) { _paletteSession = state.Snapshot.Stamp.Session; RefreshPalette(); }
@@ -268,7 +278,8 @@ internal partial class DesignEditorPanel : Control
         }
         if (_shown == state.Snapshot.Stamp && _shownEntered == state.EnteredObject)
         {
-            if (!ReferenceEquals(_shownEvaluation, state.CurrentEvaluation)) ShowEvaluation(state);
+            if (!ReferenceEquals(_shownEvaluation, state.CurrentEvaluation) ||
+                _shownFrameDiagnostics != _service.FrameDiagnostics) ShowEvaluation(state);
             return;
         }
         _shown = state.Snapshot.Stamp;
@@ -316,6 +327,9 @@ internal partial class DesignEditorPanel : Control
     {
         foreach (var child in _diagnostics.GetChildren()) { _diagnostics.RemoveChild(child); child.QueueFree(); }
         _shownEvaluation = state.CurrentEvaluation;
+        _shownFrameDiagnostics = _service.FrameDiagnostics;
+        foreach (var problem in _shownFrameDiagnostics)
+            _diagnostics.AddChild(UiStyle.Label(EditorService.Describe(problem)));
         IEnumerable<ContentDiagnostic> diagnostics = state.EvaluationDiagnostics;
         _information.Text = state.CurrentEvaluation switch
         {
@@ -396,10 +410,14 @@ internal partial class DesignEditorPanel : Control
             var selectedTarget = overwrite && target.Selected == 0
                 ? _service.SaveTarget!
                 : new BlueprintSaveTarget.New(target.Selected == (overwrite ? 1 : 0) ? BlueprintLibrary.Local : BlueprintLibrary.User);
-            _returnToLibrary = _service.SaveBlueprint(selectedTarget);
+            _service.SaveBlueprint(selectedTarget);
             dialog.QueueFree();
         };
         dialog.PopupCentered(new(380, 160));
     }
-    public override void _ExitTree() => _scene.Dispose();
+    public override void _ExitTree()
+    {
+        _service.BlueprintSaved -= ReturnToLibrary;
+        _scene.Dispose();
+    }
 }

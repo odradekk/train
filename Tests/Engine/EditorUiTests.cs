@@ -3,6 +3,9 @@ using Train.Scenes.ContractSupport;
 using Chickensoft.GoDotTest;
 using Godot;
 using Train.Content.Contracts;
+using Train.Content.ContractSupport;
+using Train.App.Saves;
+using Train.Ui;
 using Train.Scenes.Contracts;
 using static Train.Engine.Tests.Assertions;
 
@@ -52,7 +55,11 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
             Require(hit is ScenePick.Hit picked && picked.Value.Frame == displayed.Update.Frame && ((Train.Scenes.ContractSupport.FixedSceneFrame)displayed).LastPickRay is not null,
                 "拾取必须由已显示的同一帧处理。");
             fixture.Editor.Select(new EditSelection.Elements([new(1)]));
-            Require(controller.Display.Root.Visible && controller.Display.Root.GetNodeOrNull<MeshInstance3D>("DebugLines") is null && ReferenceEquals(controller.Display.DisplayedFrame, displayed) && geometry.IsInsideTree() && geometry.IsVisibleInTree(), "选区变化必须立即清除旧线框并保留已提交几何。");
+            Require(controller.Display.Root.Visible &&
+                controller.Display.Root.GetNodeOrNull<MeshInstance3D>("DebugLines") is null &&
+                ReferenceEquals(controller.Display.DisplayedFrame, displayed) &&
+                geometry.IsInsideTree() && geometry.IsVisibleInTree(),
+                "选区变化必须立即清除旧线框并保留已提交几何。");
             await new UiTestInput(TestScene).Frames(2);
             var line = controller.Display.Root.GetNode<MeshInstance3D>("DebugLines");
             using (var arrays = line.Mesh.SurfaceGetArrays(0))
@@ -185,7 +192,7 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
         }
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
-    private static Control EditorPanel(EditorPreview fixture) => Find<Control>(fixture.App, "DesignEditor");
+    private static DesignEditorPanel EditorPanel(EditorPreview fixture) => Find<DesignEditorPanel>(fixture.App, "DesignEditor");
     private static bool Displayed(Control panel, string text) => panel.FindChildren("*", "Label", true, false).OfType<Label>()
         .Any(label => label.IsVisibleInTree() && label.Text.Contains(text, StringComparison.Ordinal));
     private async Task EnsureVisible(Control control)
@@ -290,11 +297,24 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
     [Test]
-    public async Task Successful_frame_missing_content_problem_is_visible_in_editor_and_console()
+    public async Task Failed_publish_message_and_successful_frame_diagnostics_remain_separate_in_editor_and_console()
     {
         var fixture = await Ready();
         try
         {
+            var panel = EditorPanel(fixture);
+            var libraryRequests = 0;
+            panel.LibraryRequested += () => libraryRequests++;
+            ((ScriptedContentFactory)fixture.App.Host!.ContentFactory).PrepareEditCall = (_, _) =>
+                new ContentResult<IContentCandidate>.Faulted("publish-rejected", "蓝图发布被拒绝。", null);
+            await ActivateEditorButton(panel, "SaveBlueprint");
+            var dialog = panel.GetChildren().OfType<AcceptDialog>().Single(item => item.Title == "保存有效蓝图");
+            await new UiTestInput(TestScene).Activate(dialog.GetOkButton(), dialog);
+            await FramesUntil(TestScene, () => fixture.Editor.IsOpen && !fixture.Editor.IsBusy);
+            Require(libraryRequests == 0 && fixture.Editor.Message?.Contains("蓝图发布被拒绝") == true,
+                "异步发布失败必须重开编辑器并保留失败原因，不返回蓝图库。");
+            var message = fixture.Editor.Message;
+            await new UiTestInput(TestScene).Frames(2);
             var session = fixture.Factory.Session!;
             var frame = fixture.Controller.Display!.DisplayedFrame!;
             session.PresentCall = (_, _) => new SceneResult<ISceneFrame>.Success(new Train.Scenes.ContractSupport.FixedSceneFrame
@@ -307,14 +327,72 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
             });
             fixture.Controller.Process(0);
             await new UiTestInput(TestScene).Frames(2);
-            var texts = new[] { "content_missing", "missing-editor-device", "fixture-package", "设备编辑受阻" };
+            Require(fixture.Editor.Message == message && Displayed(panel, "蓝图发布被拒绝"),
+                "成功帧诊断不得覆盖发布失败原因。");
+            var texts = new[] { "content_missing", "missing-editor-device", "fixture-package", "设备编辑受阻", "蓝图发布被拒绝" };
             foreach (var text in texts)
                 Require(Displayed(EditorPanel(fixture), text), $"成功帧诊断必须在编辑器显示：{text}");
+            await UiCapture.Capture(TestScene, "player-editor-failure-diagnostics");
             await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
             foreach (var text in texts)
                 Require(fixture.App.FindChildren("*", "RichTextLabel", true, false).OfType<RichTextLabel>()
                     .Any(label => label.IsVisibleInTree() && label.GetParsedText().Contains(text, StringComparison.Ordinal)),
                     $"成功帧诊断必须在控制台显示：{text}");
+            await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
+            session.PresentCall = (_, _) => new SceneResult<ISceneFrame>.Success(new FixedSceneFrame
+            {
+                Update = frame.Update,
+                TerrainHeightResult = new Train.Core.Contracts.Lookup<double>.Missing()
+            });
+            fixture.Controller.Process(0);
+            await new UiTestInput(TestScene).Frames(2);
+            Require(!Displayed(panel, "content_missing") && fixture.Editor.Message == message &&
+                Displayed(panel, "蓝图发布被拒绝"), "诊断清除后列表必须移除旧诊断，仍保留发布失败原因。");
+            fixture.Editor.RequestClose(() => { });
+            fixture.Editor.ResolveClose(LeaveChoice.Discard);
+            await new UiTestInput(TestScene).Frames(2);
+            Require(libraryRequests == 0, "失败重开后放弃退出不得触发残留的蓝图库请求。");
+        }
+        finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
+    }
+
+    [Test]
+    public async Task Successful_blueprint_publish_returns_to_library_once()
+    {
+        var fixture = await Ready();
+        try
+        {
+            var panel = EditorPanel(fixture);
+            var libraryRequests = 0;
+            panel.LibraryRequested += () => libraryRequests++;
+            ((ScriptedContentFactory)fixture.App.Host!.ContentFactory).PrepareEditCall = (basis, _) =>
+                new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(
+                    new FixedContentView(basis.Core, basis.Generation, new(1)) { Blueprints = [], LocalDrafts = [] },
+                    basis, ContentChange.Persistent,
+                    edit: new PreparedContentEdit.BlueprintSaved(new(BlueprintLibrary.Local, new("saved")), new("saved-hash"))));
+            await ActivateEditorButton(panel, "SaveBlueprint");
+            var dialog = panel.GetChildren().OfType<AcceptDialog>().Single(item => item.Title == "保存有效蓝图");
+            await new UiTestInput(TestScene).Activate(dialog.GetOkButton(), dialog);
+            await FramesUntil(TestScene, () => !fixture.Editor.IsOpen && !fixture.Editor.IsBusy);
+            await new UiTestInput(TestScene).Frames(2);
+            Require(libraryRequests == 1, "只有蓝图异步发布成功才应返回蓝图库，且只能请求一次。");
+        }
+        finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
+    }
+    [Test]
+    public async Task Multiple_scene_failure_problems_are_visible_together()
+    {
+        var fixture = await Ready();
+        try
+        {
+            fixture.Factory.Session!.PresentCall = (_, _) => new SceneResult<ISceneFrame>.Failure([
+                new("first_failure", SceneStage.Present, null, null, null, null, "第一条场景失败。"),
+                new("second_failure", SceneStage.Present, null, null, null, null, "第二条场景失败。")]);
+            fixture.Controller.Process(0);
+            await new UiTestInput(TestScene).Frames(2);
+            var panel = EditorPanel(fixture);
+            Require(Displayed(panel, "first_failure") && Displayed(panel, "second_failure"),
+                "场景失败的所有问题必须同时显示，不能只保留最后一条。");
         }
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }

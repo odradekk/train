@@ -30,22 +30,8 @@ internal sealed class EditorService : IDisposable
     internal HostCoordinator Host { get; }
     internal IDesignEditSession? Session { get; private set; }
     internal IContentView? FixedContent { get; private set; }
-    internal EditState? State
-    {
-        get
-        {
-            if (Session is null) return null;
-            if (_readFailed) return _lastState;
-            try { return _lastState = Session.Read(); }
-            catch (Exception error)
-            {
-                _readFailed = true;
-                _forceDirty = true;
-                SceneFailed(new("editor_read_failed", SceneStage.Edit, null, null, null, null, error.Message));
-                return _lastState;
-            }
-        }
-    }
+    internal EditState? State => _lastState;
+    internal ImmutableArray<SceneProblem> FrameDiagnostics { get; private set; } = [];
     internal DraftTarget? Target { get; private set; }
     internal BlueprintSaveTarget? SaveTarget { get; private set; }
     internal bool IsOpen => Session is not null || _opening is not null;
@@ -56,6 +42,7 @@ internal sealed class EditorService : IDisposable
     internal string? Message { get; private set; }
     internal bool HasError { get; private set; }
     internal event Action? Changed;
+    internal event Action? BlueprintSaved;
 
     internal EditorService(HostCoordinator host, IScenesFactory scenes, FileSaveStore store, TrainLogger logger)
     {
@@ -132,6 +119,7 @@ internal sealed class EditorService : IDisposable
     internal void Process()
     {
         if (_disposed) return;
+        ReadState();
         while (_operations.TryDequeue(out var completed)) CompleteOperation(completed);
         if (_opening is { Work.IsCompleted: true } opening)
         {
@@ -214,6 +202,24 @@ internal sealed class EditorService : IDisposable
         }
     }
 
+    private void ReadState()
+    {
+        if (Session is null || _readFailed) return;
+        try
+        {
+            var state = Session.Read();
+            var changed = state != _lastState;
+            _lastState = state;
+            if (changed) Changed?.Invoke();
+        }
+        catch (Exception error)
+        {
+            _readFailed = true;
+            _forceDirty = true;
+            SceneFailed(new("editor_read_failed", SceneStage.Edit, null, null, null, null, error.Message));
+        }
+    }
+
     internal SaveFailure? RequestClose(Action after)
     {
         if (IsBusy) return CloseFailure("busy", "请等待当前编辑操作结束。");
@@ -262,6 +268,7 @@ internal sealed class EditorService : IDisposable
         _lastState = null;
         _readFailed = false;
         SceneUnavailable = false;
+        FrameDiagnostics = [];
         FixedContent = null;
         _forceDirty = false;
         ClearFeedback();
@@ -296,10 +303,16 @@ internal sealed class EditorService : IDisposable
             else
             {
                 var begun = Host.BeginContentEdit(new ContentEdit.SaveLocalDraft(saved));
-                if (begun.Problem is { } problem) { Report(CommandDiagnostics.Describe(problem)); _afterClose = null; return; }
+                if (begun.Problem is { } problem)
+                {
+                    _afterClose = null;
+                    Report(CommandDiagnostics.Describe(problem));
+                    return;
+                }
                 _saving = new PendingSave.LocalDraft(session, snapshot, begun.Operation);
             }
-            Message = "正在保存草稿…"; Changed?.Invoke();
+            Message = "正在保存草稿…";
+            Changed?.Invoke();
         }
         catch (Exception error) { _afterClose = null; Report(error.Message); }
     }
@@ -307,11 +320,13 @@ internal sealed class EditorService : IDisposable
     private FileWriteResult WriteDraft(SavedContentDraft draft)
     {
         var encoded = Host.ContentFactory.EncodeDraft(draft);
-        if (encoded is not ContentResult<string>.Success success) return new(false, "draft_encoding_failed", Describe(encoded));
+        if (encoded is not ContentResult<string>.Success success)
+            return new(false, "draft_encoding_failed", Describe(encoded));
         return _store.Write(DraftPath(draft.Id), path => FileSaveStore.WriteCandidate(path, success.Value), path =>
         {
             var decoded = Host.ContentFactory.DecodeDraft(File.ReadAllText(path, new UTF8Encoding(false, true)));
-            if (decoded is not ContentResult<SavedContentDraft>.Success) throw new InvalidDataException(Describe(decoded));
+            if (decoded is not ContentResult<SavedContentDraft>.Success)
+                throw new InvalidDataException(Describe(decoded));
         }, overwrite: true);
     }
 
@@ -348,6 +363,11 @@ internal sealed class EditorService : IDisposable
     {
         if (IsBusy || Session is not { } session || Target is not { } source) return false;
         ClearFeedback();
+        if (Host.GetSaveStatus()?.Frozen == true)
+        {
+            Report("frozen：核心已冻结，不能保存有效蓝图。用户库草稿仍可写盘；本局草稿无法写入存档，只保留到离开本局。");
+            return false;
+        }
         if ((target is BlueprintSaveTarget.New { Library: BlueprintLibrary.User } or
             BlueprintSaveTarget.Overwrite { Address.Library: BlueprintLibrary.User }) && !Host.UserLibraryEnabled)
         { Report("用户蓝图库暂不可用，请保存为本局蓝图或草稿。"); return false; }
@@ -424,13 +444,16 @@ internal sealed class EditorService : IDisposable
                     ClearFeedback();
                     Message = "蓝图已保存。";
                     Changed?.Invoke();
+                    BlueprintSaved?.Invoke();
                 }
                 else
                     Reopen(saving.Snapshot, saving.Source, saving.Target, saving.Draft, OperationMessage(result));
                 break;
             case PendingSave.LocalDraft saving when saving.Operation == result.Operation:
-                CompleteSave(new(result.Succeeded, result.FaultCode, result.Succeeded
-                    ? "本局草稿已保存；保存游戏后写入存档。" : OperationMessage(result)), saving.Session, saving.Snapshot);
+                var message = result.Succeeded ? "本局草稿已保存；保存游戏后写入存档。" : OperationMessage(result);
+                if (result.Succeeded && Host.GetSaveStatus()?.Frozen == true)
+                    message = "本局草稿已保存在当前对局；核心已冻结，无法写入存档，离开本局后丢失。用户库草稿仍可写盘。";
+                CompleteSave(new(result.Succeeded, result.FaultCode, message), saving.Session, saving.Snapshot);
                 break;
             default:
                 if (!result.Succeeded) Report(OperationMessage(result));
@@ -464,7 +487,7 @@ internal sealed class EditorService : IDisposable
                 if (ReferenceEquals(Session, session) && session.MarkSaved(snapshot))
                 {
                     _forceDirty = false;
-                    if (_readFailed) _lastState = _lastState is null ? null : _lastState with { IsDirty = false };
+                    if (_lastState is not null) _lastState = _lastState with { IsDirty = false };
                 }
             }
             catch (Exception error)
@@ -500,14 +523,29 @@ internal sealed class EditorService : IDisposable
     private void Change(Func<IDesignEditSession, SceneResult<EditState>> operation)
     {
         if (Session is null || SceneUnavailable || IsBusy) return;
-        try { var result = operation(Session); if (result is not SceneResult<EditState>.Success) ReportResult(result); Changed?.Invoke(); }
+        try
+        {
+            var result = operation(Session);
+            if (result is SceneResult<EditState>.Success success) _lastState = success.Value;
+            else ReportResult(result);
+            Changed?.Invoke();
+        }
         catch (Exception error) { Report(error.Message); }
     }
     internal SceneResult<IEditPreview>? Preview(EditOperation operation)
     {
         if (Session is null || SceneUnavailable || IsBusy) return null;
-        try { var result = Session.Preview(operation); if (result is not SceneResult<IEditPreview>.Success) ReportResult(result); return result; }
-        catch (Exception error) { Report(error.Message); return null; }
+        try
+        {
+            var result = Session.Preview(operation);
+            if (result is not SceneResult<IEditPreview>.Success) ReportResult(result);
+            return result;
+        }
+        catch (Exception error)
+        {
+            Report(error.Message);
+            return null;
+        }
     }
     internal void Locate(DesignElementPath path)
     {
@@ -520,7 +558,21 @@ internal sealed class EditorService : IDisposable
         }
         catch (Exception error) { Report(error.Message); }
     }
-    internal void SceneFailed(SceneProblem problem) { SceneUnavailable = true; Report(Describe(problem)); }
+    internal void SceneFailed(SceneProblem problem) => SceneFailures([problem]);
+    internal void SceneFailures(IEnumerable<SceneProblem> problems)
+    {
+        SceneUnavailable = true;
+        ReportProblems(problems);
+    }
+
+    internal void SetFrameDiagnostics(ImmutableArray<SceneProblem> problems)
+    {
+        if (FrameDiagnostics.SequenceEqual(problems)) return;
+        FrameDiagnostics = problems;
+        foreach (var problem in problems)
+            _logger.Warning("editor", "editor_scene_diagnostic", Describe(problem));
+        Changed?.Invoke();
+    }
     internal void SceneRecovered()
     {
         SceneUnavailable = false;
@@ -576,10 +628,11 @@ internal sealed class EditorService : IDisposable
     public void Dispose()
     {
         if (_disposed) return;
-        _disposed = true; Host.OperationEnded -= OperationEnded;
+        _disposed = true;
+        Host.OperationEnded -= OperationEnded;
         if (_opening is { } opening) _ = opening.Work.ContinueWith(task => _ = task.Exception, TaskContinuationOptions.OnlyOnFaulted);
         if (_write is { } write) _ = write.ContinueWith(task => _ = task.Exception, TaskContinuationOptions.OnlyOnFaulted);
-        _afterClose = null; Close();
+        Close();
         foreach (var evaluation in _evaluations) _ = evaluation.Work.ContinueWith(task => _ = task.Exception, TaskContinuationOptions.OnlyOnFaulted);
     }
     private sealed record Opening(DesignDraft Draft, Task<ContentResult<DesignEvaluation>> Work);

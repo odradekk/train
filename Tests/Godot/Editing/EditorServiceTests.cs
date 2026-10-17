@@ -53,6 +53,7 @@ public sealed class EditorServiceTests
         fixture.Open();
         var session = fixture.Session;
         session.Change(Draft("unsaved"));
+        fixture.Editor.Process();
         fixture.Host.Factory.PrepareEditCall = (_, _) =>
             new ContentResult<IContentCandidate>.Faulted("save-rejected", "cannot save", null);
         var continued = false;
@@ -101,6 +102,7 @@ public sealed class EditorServiceTests
         fixture.Open();
         var session = fixture.Session;
         session.Change(Draft("saved snapshot"));
+        fixture.Editor.Process();
         var saved = session.Capture();
         using var prepared = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
@@ -185,6 +187,7 @@ public sealed class EditorServiceTests
             new DraftPayload.Design(Draft("initial user draft"))));
         fixture.PumpUntil(() => fixture.Editor.IsOpen && !fixture.Editor.IsBusy);
         fixture.Session.Change(Draft("valid saved draft"));
+        fixture.Editor.Process();
         fixture.Editor.SaveDraft();
         fixture.PumpUntil(() => !fixture.Editor.IsBusy);
         var target = Directory.GetFiles(fixture.Root, "*", SearchOption.AllDirectories).Single();
@@ -192,6 +195,7 @@ public sealed class EditorServiceTests
         var original = File.ReadAllBytes(target);
         Assert.IsFalse(fixture.Editor.State!.IsDirty);
         fixture.Session.Change(Draft("cannot replace locked file"));
+        fixture.Editor.Process();
         using (var locked = new FileStream(target, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
         {
             fixture.Editor.SaveDraft();
@@ -257,6 +261,7 @@ public sealed class EditorServiceTests
         fixture.Open();
         var session = fixture.Session;
         session.Change(Draft("saved before leaving"));
+        fixture.Editor.Process();
         fixture.Host.Factory.PrepareEditCall = (basis, edit) =>
         {
             var draft = ((ContentEdit.SaveLocalDraft)edit).Draft;
@@ -296,6 +301,7 @@ public sealed class EditorServiceTests
         using var saves = new SaveService(fixture.Coordinator, new FileSaveStore(fixture.Root), fixture.Editor);
         fixture.Open();
         fixture.Session.Change(Draft("unsaved editor work"));
+        fixture.Editor.Process();
         var continued = false;
         Assert.IsNull(saves.RequestLeave(() => continued = true));
         Assert.IsTrue(fixture.Editor.Leaving);
@@ -330,6 +336,7 @@ public sealed class EditorServiceTests
             new DraftPayload.Design(Draft("original user draft"))));
         fixture.PumpUntil(() => fixture.Editor.IsOpen && !fixture.Editor.IsBusy);
         fixture.Session.Change(Draft("saved user draft"));
+        fixture.Editor.Process();
         fixture.Editor.SaveDraft();
         fixture.PumpUntil(() => !fixture.Editor.IsBusy);
         var path = Path.Combine(AuthoringPaths.UserDraftsDirectory(fixture.Root), id.Value.ToString("D") + ".json");
@@ -357,6 +364,7 @@ public sealed class EditorServiceTests
         var old = 0;
         var current = 0;
         fixture.Session.Change(Draft("dirty"));
+        fixture.Editor.Process();
         Assert.IsNull(fixture.Editor.RequestClose(() => old++));
         Assert.IsNotNull(fixture.Editor.RequestClose(() => Assert.Fail("不能替换第一个离开请求。")));
         fixture.Session.UndoCall = () =>
@@ -415,6 +423,7 @@ public sealed class EditorServiceTests
     }
 
     [TestMethod]
+    [TestCategory("integration")]
     public void User_draft_listing_skips_other_targets_and_continues_after_individual_failures()
     {
         using var fixture = new EditingFixture();
@@ -446,29 +455,38 @@ public sealed class EditorServiceTests
         using var fixture = new EditingFixture();
         fixture.Open();
         fixture.Session.Change(Draft("dirty"));
-        var last = fixture.Editor.State;
+        var last = fixture.Session.Read();
+        if (read) fixture.Editor.Process();
         if (read) fixture.Session.ReadCall = () => throw new InvalidOperationException("read failed");
         else fixture.Session.CaptureCall = () => throw new InvalidOperationException("capture failed");
         if (read)
         {
             Assert.AreSame(last, fixture.Editor.State);
             Assert.IsTrue(fixture.Editor.IsDirty);
+            Assert.IsFalse(fixture.Editor.SceneUnavailable);
         }
         fixture.Editor.Process();
+        Assert.AreSame(last, fixture.Editor.State);
+        Assert.IsTrue(fixture.Editor.IsDirty);
         Assert.IsTrue(fixture.Editor.SceneUnavailable);
         Assert.AreSame(fixture.Session, fixture.Editor.Session);
         StringAssert.Contains(fixture.Editor.Message!, read ? "read failed" : "capture failed");
     }
 
     [TestMethod]
-    public void Save_service_returns_busy_from_inner_leave_when_editor_is_closed()
+    [TestCategory("integration")]
+    public void Clean_editor_closes_and_returns_busy_while_save_import_is_pending()
     {
         using var fixture = new EditingFixture();
         using var saves = new SaveService(fixture.Coordinator, new FileSaveStore(fixture.Root), fixture.Editor);
-        Assert.IsNull(saves.RequestLeave(() => Assert.Fail("未保存对局应先询问。")));
-        Assert.IsNotNull(saves.Leaving);
-        Assert.AreEqual("busy", saves.RequestLeave(() => Assert.Fail("不能替换进行中的离开请求。"))?.Code);
-        saves.ChooseLeave(LeaveChoice.Cancel);
+        fixture.Open();
+        Assert.IsFalse(fixture.Editor.IsDirty);
+        Assert.IsNull(saves.Import(Path.Combine(fixture.Root, "missing-import.json")));
+        Assert.IsTrue(saves.HasPendingWork);
+        Assert.AreEqual("busy", saves.RequestLeave(() => Assert.Fail("导入未完成时不能继续离开。"))?.Code);
+        Assert.IsFalse(fixture.Editor.IsOpen);
+        Assert.AreEqual(1, fixture.Session.Disposals);
+        Assert.IsTrue(saves.HasPendingWork);
         Assert.IsNull(saves.Leaving);
     }
 
@@ -493,13 +511,75 @@ public sealed class EditorServiceTests
         fixture.Editor.SaveDraft();
         fixture.PumpUntil(() => !fixture.Editor.IsBusy);
         Assert.IsFalse(fixture.Editor.IsDirty);
+        StringAssert.Contains(fixture.Editor.Message!, "无法写入存档");
         fixture.Session.Change(Draft("publish rejected"));
         fixture.EvaluateCurrent();
-        fixture.Editor.SaveBlueprint(new BlueprintSaveTarget.New(BlueprintLibrary.Local));
-        fixture.PumpUntil(() => !fixture.Editor.IsBusy && fixture.Editor.IsOpen);
+        var session = fixture.Session;
+        session.SetState(state => state with { CanUndo = true, EnteredObject = new(10), Selection = [new(11)] });
+        fixture.Editor.Process();
+        var state = fixture.Editor.State;
+        session.CaptureCall = () => throw new InvalidOperationException("冻结拒绝不应捕获或关闭会话。");
+        Assert.IsFalse(fixture.Editor.SaveBlueprint(new BlueprintSaveTarget.New(BlueprintLibrary.Local)));
+        Assert.AreSame(session, fixture.Editor.Session);
+        Assert.AreEqual(0, session.Disposals);
+        Assert.AreSame(state, fixture.Editor.State);
+        Assert.IsTrue(fixture.Editor.State!.CanUndo);
+        Assert.AreEqual(new EditElementId(10), fixture.Editor.State.EnteredObject);
+        CollectionAssert.AreEqual(new[] { new EditElementId(11) }, fixture.Editor.State.Selection.ToArray());
         Assert.IsTrue(fixture.Editor.IsDirty);
         Assert.IsTrue(fixture.Coordinator.GetSaveStatus()!.Frozen);
         StringAssert.Contains(fixture.Editor.Message!, "frozen");
+    }
+
+    [TestMethod]
+    [TestCategory("integration")]
+    public void Frozen_core_still_saves_user_draft_to_disk()
+    {
+        using var fixture = new EditingFixture();
+        var fault = new CoreFault("frozen_fixture", new(0, 0), "advance", "state", null);
+        fixture.Host.Session.QueueAdvance(new(0, new(0, 0), [], fault, null),
+            new FixedCoreReadView(new(0, 0), HostCoreScenario.Input, fault));
+        fixture.Coordinator.Step(1);
+        var id = new DraftId(Guid.NewGuid());
+        var draft = new SavedContentDraft(id, new(0), new DraftTarget.UserBlueprint(null),
+            new DraftPayload.Design(Draft("user draft")));
+        fixture.Host.Factory.EncodeDraftCall = _ => new ContentResult<string>.Success("user draft payload");
+        fixture.Host.Factory.DecodeDraftCall = _ => new ContentResult<SavedContentDraft>.Success(draft);
+        fixture.Editor.OpenDraft(draft);
+        fixture.PumpUntil(() => fixture.Editor.IsOpen && !fixture.Editor.IsBusy);
+        fixture.Session.Change(Draft("saved while frozen"));
+        fixture.Editor.Process();
+        fixture.Editor.SaveDraft();
+        fixture.PumpUntil(() => !fixture.Editor.IsBusy);
+        var path = Path.Combine(AuthoringPaths.UserDraftsDirectory(fixture.Root), id.Value.ToString("D") + ".json");
+        Assert.AreEqual("user draft payload", File.ReadAllText(path));
+        Assert.IsFalse(fixture.Editor.IsDirty);
+        Assert.IsTrue(fixture.Coordinator.GetSaveStatus()!.Frozen);
+    }
+
+    [TestMethod]
+    public void Reading_cached_state_does_not_poll_session_or_publish_changes()
+    {
+        using var fixture = new EditingFixture();
+        fixture.Open();
+        var cached = fixture.Editor.State;
+        var reads = 0;
+        var changes = 0;
+        fixture.Editor.Changed += () => changes++;
+        fixture.Session.Change(Draft("external change"));
+        var updated = fixture.Session.Read();
+        fixture.Session.ReadCall = () => { reads++; return updated; };
+        for (var index = 0; index < 3; index++)
+        {
+            Assert.AreSame(cached, fixture.Editor.State);
+            Assert.IsFalse(fixture.Editor.IsDirty);
+        }
+        Assert.AreEqual(0, reads);
+        Assert.AreEqual(0, changes);
+        fixture.Editor.Process();
+        Assert.AreEqual(1, reads);
+        Assert.AreSame(updated, fixture.Editor.State);
+        Assert.IsTrue(fixture.Editor.IsDirty);
     }
 
     private sealed class EditingFixture : IDisposable
@@ -543,7 +623,7 @@ public sealed class EditorServiceTests
         internal void EvaluateCurrent()
         {
             Editor.Process();
-            PumpUntil(() => Session.Read().CurrentEvaluation is not null);
+            PumpUntil(() => Editor.State?.CurrentEvaluation is not null);
         }
         internal void PumpUntil(Func<bool> completed) => Assert.IsTrue(SpinWait.SpinUntil(() =>
         {

@@ -21,7 +21,6 @@ internal sealed class EditorSceneController : IDisposable
     private DesignEvaluation? _evaluation;
     private readonly EditorOverlay _overlay = new();
     private bool _retrying;
-    private System.Collections.Immutable.ImmutableArray<SceneProblem> _diagnostics = [];
     internal WorldSceneView View { get; } = new();
     internal SceneDisplay? Display => _display;
     internal EditViewOptions Options { get; set; } = new(new(GridAxis.Y, 0), null, SceneDebugLayer.None);
@@ -76,7 +75,6 @@ internal sealed class EditorSceneController : IDisposable
         try
         {
             var state = _service.State;
-            if (_service.SceneUnavailable && !_retrying) { HideScene(); return; }
             var stamp = state?.Snapshot.Stamp;
             _entered = state?.EnteredObject;
             _selection = state?.Selection ?? [];
@@ -109,11 +107,7 @@ internal sealed class EditorSceneController : IDisposable
                         _service.SceneRecovered();
                     }
                 }
-                if (!_diagnostics.SequenceEqual(success.Value.Diagnostics))
-                {
-                    _diagnostics = success.Value.Diagnostics;
-                    if (!_diagnostics.IsEmpty) _service.ReportProblems(_diagnostics);
-                }
+                _service.SetFrameDiagnostics(success.Value.Diagnostics);
                 if (!_retrying) View.CameraRig.Update(delta);
             }
             else if (result is SceneResult<ISceneFrame>.Failure failure) Fail(failure.Problems);
@@ -133,10 +127,10 @@ internal sealed class EditorSceneController : IDisposable
     private void Fail(IEnumerable<SceneProblem> problems)
     {
         _retrying = false;
-        _diagnostics = [];
+        _service.SetFrameDiagnostics([]);
         _display?.CancelPreparation();
         HideScene();
-        foreach (var problem in problems) _service.SceneFailed(problem);
+        _service.SceneFailures(problems);
     }
     internal ScenePick? Pick(Vector2 position)
     {
@@ -172,7 +166,9 @@ internal sealed class EditorSceneController : IDisposable
     internal GridPosition? PickPlane(Vector2 position)
     {
         if (_retrying || _display?.IsPreparing == true) return null;
-        if (_service.SceneUnavailable || _service.Session != _session || _service.State?.Snapshot.Stamp != _displayStamp || _display?.DisplayedFrame is not { } frame || !_display.Root.Visible) return null;
+        if (_service.SceneUnavailable || _service.Session != _session ||
+            _service.State?.Snapshot.Stamp != _displayStamp ||
+            _display?.DisplayedFrame is not { } frame || !_display.Root.Visible) return null;
         var camera = View.CameraRig.Camera;
         var inverse = EnteredTransform().AffineInverse();
         var origin = inverse * (camera.ProjectRayOrigin(position) + new Vector3((float)frame.Origin.X, (float)frame.Origin.Y, (float)frame.Origin.Z));
@@ -255,7 +251,6 @@ internal sealed class EditorSceneController : IDisposable
         _displayStamp = null;
         _evaluation = null;
         _retrying = false;
-        _diagnostics = [];
         _overlay.Visible = false;
         View.SetActive(false);
     }
