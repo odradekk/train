@@ -71,7 +71,7 @@ pwsh -NoProfile -File scripts/test.ps1 -Project content -Layer fast,integration
 
 生成器保留手绘 PNG，`--check` 在缺图时失败；对应的 Keep File `.png.import` 仍由生成器生成。新增 #393、#394 图标时在 `RAW_GOODS_ART` 登记，沿用下述提示词、整理步骤和同用途规则。
 
-创作模式维护的文件在生成器 `HAND_DRAWN_ICONS` 旁的 `AUTHORED_FILES` 登记（初始为空，由 #391 填写）。每项是相对 `builtin/core` 的精确文件路径，可登记 JSON、PNG、GLB 和 `.import`，例如 `resources/voxels/stone.voxel.json`；关联文件须逐一登记，不按目录或扩展名放行。登记后以创作模式写入的磁盘文件为准，生成器不生成、不覆盖这些文件，生成规则变化也不会更新它们。`--check` 检查登记文件存在，JSON 使用实际磁盘字节做 Schema 校验，跳过生成字节比较；未登记的多余文件仍失败。向空的 `--output-dir` 重制时也需自行提供全部登记文件。
+创作模式维护的文件在生成器 `HAND_DRAWN_ICONS` 旁的 `AUTHORED_FILES` 登记（初始为空，由 #391 填写）。每项与 `HAND_DRAWN_ICONS` 一样，是相对 `resources/` 的精确文件路径，可登记 JSON、PNG、GLB 和 `.import`，例如 `voxels/stone.voxel.json`；关联文件须逐一登记，不按目录或扩展名放行。登记后以创作模式写入的磁盘文件为准，生成器不生成、不覆盖这些文件，生成规则变化也不会更新它们。`--check` 检查登记文件存在，JSON 使用实际磁盘字节做 Schema 校验，跳过生成字节比较；未登记的多余文件仍失败。向空的 `--output-dir` 重制时也需自行提供全部登记文件。
 
 共用提示词模板：
 
