@@ -9,6 +9,8 @@ uniform bool has_paint = false;
 uniform float material_roughness = 0.6;
 uniform float material_metallic = 0.0;
 uniform float material_specular = 0.5;
+uniform bool rail_steel = false;
+uniform vec4 rail_head_color : source_color = vec4(1.0);
 uniform bool alpha_cutout = false;
 uniform float alpha_cutoff = 0.5;
 
@@ -36,10 +38,12 @@ void fragment() {
     vec4 color = base_color;
     if (has_texture) { color *= texture(base_texture, UV); }
     if (has_paint) { color.rgb *= paint_color.rgb; }
+    float rail_head = clamp(UV.x, 0.0, 1.0);
+    if (rail_steel) { color.rgb = mix(color.rgb, rail_head_color.rgb, rail_head); }
     if (alpha_cutout && color.a < alpha_cutoff) { discard; }
     ALBEDO = color.rgb;
-    ROUGHNESS = material_roughness;
-    METALLIC = material_metallic;
+    ROUGHNESS = rail_steel ? mix(0.8, material_roughness, rail_head) : material_roughness;
+    METALLIC = rail_steel ? mix(0.15, material_metallic, rail_head) : material_metallic;
     SPECULAR = material_specular;
     // 上面的表现通道和表面状态供 #339 使用，本票不叠加正式磨损。
 }

@@ -41,7 +41,7 @@ internal static class NodeTransitionFixture
             Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
             { [Terrain] = new ContentLookup<TerrainAppearanceProjection>.Found(new(Terrain, Cube, Cube, Cube, [], [], 0, [], new("Preview", ""))) },
             RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>
-            { [Rule] = new ContentLookup<RailwayAppearanceProjection>.Found(new(Rule, 80, .12)) },
+            { [Rule] = new ContentLookup<RailwayAppearanceProjection>.Found(new(Rule, Cube, 80, .12)) },
             SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
             { [new(1)] = new ContentLookup<SettlementLayoutProjection>.Found(new(new(1), new("preview:town"),
                 new(new("ground"), Projection(new("ground"), []), new("Ground", "")),

@@ -1,0 +1,1 @@
+{"schema_version":3,"id":"rail-stack","appearance":{"allowed_orientations":"four_way","presentation":{"kind":"cube","material":"bare_metal","faces":{"top":"top.png","side":"top.png","bottom":"top.png"},"tile_span":1}},"display":{"name":"钢轨堆","description":"用于自然环境和铁路场景的钢轨堆。","icon":"shared/equipment-icon.png"}}

@@ -15,7 +15,7 @@ internal static class RailwayFixtures
     internal static readonly WorldLocation Location = new WorldLocation.Edge(Edge, 0);
     internal static TerrainAppearanceProjection TerrainAppearance => new(Terrain,
         SceneFixtures.Voxel, SceneFixtures.Voxel, SceneFixtures.Voxel, [], [], 0, [], new("Terrain", ""));
-    internal static RailwayAppearanceProjection Rules => new(Rule, 40, 0.12);
+    internal static RailwayAppearanceProjection Rules => new(Rule, SceneFixtures.Voxel, 40, 0.12);
 
     internal static SceneWorldSnapshot Snapshot(double lengthMeters = 800, double directMeters = 600,
         double relief = 1, int tracks = 1, ulong steps = 0, ulong sequence = 0,

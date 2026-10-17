@@ -74,7 +74,7 @@ public sealed class NodeBoundaryMembersTests
     public void OrdinaryDepartureMembersContinueOntoSelectedTrackOne(int count)
     {
         var snapshot = NodeFixtures.Snapshot(tracks: 2,
-            content: NodeFixtures.Content(rules: new(RailwayFixtures.Rule, 80, .12)));
+            content: NodeFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 80 }));
         var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
         var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(layout.Node)).Value;
         foreach (var entry in layout.Entries)
@@ -110,7 +110,7 @@ public sealed class NodeBoundaryMembersTests
     public void SignedMembersStayContinuousAcrossArrivalDepartureAndReturn(int count)
     {
         var snapshot = NodeFixtures.Snapshot(tracks: 2,
-            content: NodeFixtures.Content(rules: new(RailwayFixtures.Rule, 80, .12)));
+            content: NodeFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 80 }));
         var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
         var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(layout.Node)).Value;
         foreach (var boundaryEntry in layout.Entries)

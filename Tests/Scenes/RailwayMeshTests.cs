@@ -42,6 +42,8 @@ public sealed class RailwayMeshTests
         var path = new RailwayPath(RailwayFixtures.Snapshot(lengthMeters: 100, directMeters: 100, relief: 0), new EdgeId(1));
         var rails = RailwayMeshes.Build(path, 0, new(0, 0, 0))[0];
         var tops = rails.Vertices.Where(vertex => vertex.Normal.Y > .99f && Math.Abs(vertex.Position.Y) < .00001f).ToArray();
+        Assert.IsTrue(tops.All(vertex => vertex.TextureUv.X == 1), "Every running surface must use the polished steel material.");
+        Assert.IsTrue(rails.Vertices.Except(tops).All(vertex => vertex.TextureUv.X == 0), "Web, foot and cut ends must keep the rusty material.");
         foreach (var vertex in tops) Assert.AreEqual(0f, vertex.Position.Y, .00001f);
         foreach (var (gauge, height) in new[] { (3f, .3f), (7f, .4f), (15f, .6f) })
         foreach (var side in new[] { -1, 1 })
