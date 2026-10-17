@@ -52,7 +52,7 @@
     },
     {
       "at": {
-        "completed_steps": 718,
+        "completed_steps": 800,
         "sequence": 0
       },
       "kind": "train.replace_run_plan",
@@ -84,13 +84,13 @@
     },
     {
       "at": {
-        "completed_steps": 718,
+        "completed_steps": 800,
         "sequence": 1
       },
       "kind": "inventory.unload_goods",
       "train": 1,
       "settlement": 6,
-      "local_inventory": 10,
+      "local_inventory": 9,
       "good": {
         "kind": "voxel",
         "definition": "core:staple-food"
@@ -99,7 +99,7 @@
     },
     {
       "at": {
-        "completed_steps": 718,
+        "completed_steps": 800,
         "sequence": 2
       },
       "kind": "train.replace_run_plan",
@@ -124,7 +124,7 @@
       "kind": "inventory.unload_goods",
       "train": 1,
       "settlement": 6,
-      "local_inventory": 10,
+      "local_inventory": 9,
       "good": {
         "kind": "voxel",
         "definition": "core:staple-food"
@@ -139,7 +139,7 @@
       "kind": "inventory.load_goods",
       "train": 1,
       "settlement": 6,
-      "local_inventory": 10,
+      "local_inventory": 9,
       "good": {
         "kind": "voxel",
         "definition": "core:staple-food"

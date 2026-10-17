@@ -21,9 +21,34 @@
         "stops": [
           {
             "kind": "station",
-            "node": 14,
-            "dwell_steps": 1000,
-            "goods_rules": []
+            "node": 5,
+            "dwell_steps": 10000,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:lumber"
+                },
+                "local_inventory": 2,
+                "target_quantity": 2400
+              },
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:structural-metal"
+                },
+                "local_inventory": 2,
+                "target_quantity": 2400
+              }
+            ]
           }
         ]
       }
@@ -35,45 +60,13 @@
       },
       "kind": "train.start",
       "train": 1
-    },
-    {
-      "at": {
-        "completed_steps": 718,
-        "sequence": 0
-      },
-      "kind": "train.replace_run_plan",
-      "train": 1,
-      "plan": {
-        "loop": false,
-        "stops": [
-          {
-            "kind": "station",
-            "node": 14,
-            "dwell_steps": 1000,
-            "goods_rules": [
-              {
-                "action": {
-                  "kind": "buy",
-                  "maximum_unit_price": null
-                },
-                "good": {
-                  "kind": "voxel",
-                  "definition": "core:staple-food"
-                },
-                "local_inventory": 6,
-                "target_quantity": 181
-              }
-            ]
-          }
-        ]
-      }
     }
   ],
   "target": {
-    "completed_steps": 719,
+    "completed_steps": 10000,
     "sequence": 0
   },
   "checkpoint_steps": [
-    718
+    8000
   ]
 }
