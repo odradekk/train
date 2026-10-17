@@ -28,6 +28,12 @@ internal sealed class PreparedVisual : IDisposable
         foreach (var material in _materials)
             if (material.Shader == normal || material.Shader == followed)
                 material.Shader = exempt ? followed : normal;
+        foreach (var material in _owned.OfType<StandardMaterial3D>())
+        {
+            material.StencilMode = exempt ? BaseMaterial3D.StencilModeEnum.Custom : BaseMaterial3D.StencilModeEnum.Disabled;
+            material.StencilFlags = (int)BaseMaterial3D.StencilFlagsEnum.Write;
+            material.StencilReference = 1;
+        }
     }
     internal T Own<T>(T value) where T : IDisposable { _owned.Add(value); return value; }
     internal ShaderMaterial Material(ShaderMaterial value) { _materials.Add(value); return Own(value); }

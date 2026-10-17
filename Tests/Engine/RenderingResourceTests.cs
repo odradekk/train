@@ -197,6 +197,13 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
                 "缺失标记必须使用可识别的不受光照影响的洋红色。");
             Require(visual.CanUpdate(source) && !visual.CanUpdate(source with { KnownCell = !knownCell }),
                 "缺失标记类型改变需要重新准备。");
+            resources.ExemptConstructionFog(visual, true);
+            Require(material.StencilMode == BaseMaterial3D.StencilModeEnum.Custom &&
+                material.StencilFlags == (int)BaseMaterial3D.StencilFlagsEnum.Write && material.StencilReference == 1,
+                "被跟随车辆的缺失标记也必须豁免构建雾。");
+            resources.ExemptConstructionFog(visual, false);
+            Require(material.StencilMode == BaseMaterial3D.StencilModeEnum.Disabled && material.AlbedoColor == Colors.Magenta,
+                "取消跟随须恢复缺失标记的雾遮挡及原有外观。");
             visual.Dispose();
             Require(!GodotObject.IsInstanceValid(node) && !GodotObject.IsInstanceValid(instance) &&
                 !GodotObject.IsInstanceValid(mesh) && !GodotObject.IsInstanceValid(material),
@@ -246,6 +253,7 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         {
             resources = new SceneResources(cache, Content(asset));
             TestScene.AddChild(viewport);
+            var surfaceCode = Godot.FileAccess.GetFileAsString("res://Rendering/scene_surface.gdshaderinc");
             var responses = new HashSet<(float Roughness, float Metallic, float Specular)>();
             foreach (var category in Enum.GetValues<MaterialCategory>())
             {
@@ -254,9 +262,9 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
                 var material = Material(visual);
                 responses.Add((material.GetShaderParameter("material_roughness").AsSingle(),
                     material.GetShaderParameter("material_metallic").AsSingle(), material.GetShaderParameter("material_specular").AsSingle()));
-                var sampler = Regex.Match(material.Shader.Code, @"uniform\s+sampler2D\s+base_texture\s*:\s*([^;]+)");
+                var sampler = Regex.Match(surfaceCode, @"uniform\s+sampler2D\s+base_texture\s*:\s*([^;]+)");
                 Require(sampler.Success && new[] { "source_color", "filter_linear_mipmap_anisotropic", "repeat_enable" }.All(sampler.Groups[1].Value.Contains), "基础贴图采样约定丢失。");
-                Require(!Regex.IsMatch(material.Shader.Code, @"\bALPHA\s*="), "Demo 材质包含半透明输出。");
+                Require(!Regex.IsMatch(material.Shader.Code + surfaceCode, @"\bALPHA\s*="), "Demo 材质包含半透明输出。");
             }
             Require(responses.Count == Enum.GetValues<MaterialCategory>().Length, "材质类别没有独立光照响应。");
             var builtinMaterials = new Dictionary<BuiltInMaterial, ShaderMaterial>();
