@@ -137,6 +137,7 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
             [MaterialCategory.Glass, MaterialCategory.Concrete, MaterialCategory.PaintedMetal];
         var content = new FixedContentView
         {
+            Generation = new(1),
             Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>>
                 { [asset.Revision] = new ContentLookup<ContentAsset>.Found(asset) },
             VoxelAppearances = new Dictionary<Train.Core.Contracts.VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
