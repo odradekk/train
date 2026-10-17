@@ -368,6 +368,24 @@ public sealed class ProductionTests
     }
 
     [TestMethod]
+    public void State_changes_recalculate_capability_when_part_durability_changes()
+    {
+        var content = Content();
+        var before = State(content).World;
+        var damaged = before with { Instances = before.Instances.Select(i =>
+            i.Id != new InstanceId.Building(Facility.Building) ? i : i with
+            {
+                Parts = i.Parts.Select(p => p with { Current = 0 }).ToImmutableArray()
+            }).ToImmutableArray() };
+        var change = (CoreEvent.ProductionStateChanged)ProductionQueries.StateChanges(before, content,
+            damaged, content, before.Settlements.Single().Id).Single();
+        Assert.AreEqual(Facility, change.Facility);
+        Assert.AreEqual(ProductionState.Running, change.Before);
+        Assert.AreEqual(ProductionState.ZeroCapability, change.After);
+        Assert.AreEqual("capability_zero", change.Reasons.Single().Code);
+    }
+
+    [TestMethod]
     [DataRow(true, false)]
     [DataRow(false, true)]
     [DataRow(false, false)]
