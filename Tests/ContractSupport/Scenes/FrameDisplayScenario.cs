@@ -114,7 +114,9 @@ public sealed class FixedDisplayFactory : IScenesFactory
         return openIndex < OpenWorldResults.Length ? OpenWorldResults[openIndex++] : throw FrameDisplayScenario.Unconfigured("打开世界");
     }
 
-    public SceneResult<IDesignEditSession> OpenEditor(IContentView content, DesignEvaluation initial) => throw FrameDisplayScenario.Unconfigured("编辑会话");
+    public Func<IContentView, DesignEvaluation, SceneResult<IDesignEditSession>>? OpenEditorCall { get; init; }
+    public SceneResult<IDesignEditSession> OpenEditor(IContentView content, DesignEvaluation initial) =>
+        OpenEditorCall?.Invoke(content, initial) ?? throw FrameDisplayScenario.Unconfigured("编辑会话");
     public Func<IContentView, DesignEvaluation, SceneResult<IDesignPreview>>? PreviewDesignCall { get; init; }
     public List<DisplayPreviewCall> PreviewCalls { get; } = [];
     public SceneResult<IDesignPreview> PreviewDesign(IContentView content, DesignEvaluation initial)

@@ -122,8 +122,9 @@ internal partial class WorldSceneView : Node3D
     public override void _UnhandledInput(InputEvent input)
     {
         if (!IsVisibleInTree()) return;
-        if (input is InputEventKey { Pressed: true, Echo: false, Keycode: Key.Escape })
-            ReturnRequested?.Invoke();
+        if (input is InputEventKey { Pressed: true, Echo: false, Keycode: Key.Escape }
+            && ReturnRequested is { } returnRequested)
+            returnRequested();
         else if (Interactive && input is InputEventMouseButton { Pressed: true } button)
         {
             if (button.ButtonIndex == MouseButton.Left) PickRequested?.Invoke(button.Position);

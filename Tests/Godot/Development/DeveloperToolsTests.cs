@@ -282,7 +282,7 @@ public sealed class DeveloperToolsTests
             Fixture = fixture;
             Replace(View(0));
             var store = new FileSaveStore(Path.GetTempPath());
-            _saves = new(Fixture.Host, store, () => 0);
+            _saves = new(Fixture.Host, store, Fixture.CreateEditor(store), () => 0);
             Tools = new(Fixture.Host, _saves, seconds ?? (() => 0));
         }
         internal void Replace(FixedCoreReadView view, RuntimeIdentity? runtime = null)
