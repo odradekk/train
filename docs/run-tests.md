@@ -129,7 +129,7 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 | `identity.json`、`report.json` | 构建与输入身份、游戏生成的运行报告；编排脚本不改写 `report.json`。`scene-follow-8x` 的 `timing` 是 8× 采样窗口，`scene-memory` 是初始地图窗口，其他非参考情景是最后地图保持窗口；打开过程读取操作记录 |
 | `process.json`、`process.log`、`godot.log` | 进程结果与原始日志；`process.json.process_diagnostics` 分别保留两个日志来源匹配 WASAPI／AUDCLNT_E_DEVICE_INVALIDATED 的原始行 |
 | `external-load.jsonl` | 外部系统负载采样 |
-| `scene-frames.jsonl`、`scene-operations.jsonl`、`scene-collections.jsonl`、`scene-probe-costs.jsonl` | 逐帧状态、打开操作、GC 和探针耗时记录；路径由报告 `identity.scene_budget` 引用 |
+| `scene-frames.jsonl`、`scene-operations.jsonl`、`scene-collections.jsonl`、`scene-probe-costs.jsonl` | 逐帧状态、打开操作、GC 和全过程探针耗时记录（含读档）；路径由报告 `identity.scene_budget` 引用 |
 | `scene-reference.json` | 仅参考情景生成的参考数据 |
 | `measured.save.json`、截图 | 对应情景生成的存档副本或画面 |
 

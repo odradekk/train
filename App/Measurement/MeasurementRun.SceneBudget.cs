@@ -35,7 +35,7 @@ internal sealed partial class MeasurementRun
     [DllImport("kernel32.dll", EntryPoint = "K32GetProcessMemoryInfo", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetProcessMemoryInfo(IntPtr process, out ProcessMemoryCounters counters, uint size);
-    private sealed record SceneProbeCost(string Operation, long Draw, double Started, double Ended,
+    private sealed record SceneProbeCost(string? Operation, long Draw, double Started, double Ended,
         double FrameFogSeconds, double PointSeconds, double BusinessSeconds, double LoggingSeconds, double OtherSeconds,
         int FogRegionCount);
     private readonly List<double> _sceneOpeningFrames = [];
@@ -174,9 +174,10 @@ internal sealed partial class MeasurementRun
         finally
         {
             FlushSceneProbeEvents();
+            FlushSceneProbeCosts();
             _app.Saves!.Changed -= OnSceneSaveChanged;
             _app.WorldScenes!.FramePresented -= OnScenePresented;
-            _sceneTrace = _sceneOperationTrace = _sceneCollectionTrace = null;
+            _sceneTrace = _sceneOperationTrace = _sceneCollectionTrace = _sceneCostTrace = null;
             ResetSceneProbe();
         }
     }
@@ -223,6 +224,7 @@ internal sealed partial class MeasurementRun
 
     private async Task OpenSceneMeasured(string name, WorldObjectId target, double? loadButton = null)
     {
+        FlushSceneProbeCosts();
         ResetSceneProbe();
         _scenePhase = name;
         _sceneOperation = name;
@@ -232,7 +234,7 @@ internal sealed partial class MeasurementRun
         _sceneProbeDetail = _sceneFirstNearDetail = null;
         _sceneLoggedProbeState = null;
         _sceneProbeEvents.Clear();
-        _sceneOpeningFrames.Clear(); _sceneProbeCosts.Clear();
+        _sceneOpeningFrames.Clear();
         var before = SceneCacheState();
         _sceneTarget = target;
         var peakBefore = new { private_bytes = _scenePeakPrivate, working_set_bytes = _scenePeakWorking };
@@ -275,8 +277,6 @@ internal sealed partial class MeasurementRun
         if (_scenario != "scene-reference") ValidateReadyReference();
         var validationSeconds = Seconds() - validationStarted;
         FlushSceneProbeEvents();
-        foreach (var cost in _sceneProbeCosts) _sceneCostTrace!.WriteLine(JsonSerializer.Serialize(cost, SceneJson));
-        _sceneCostTrace!.Flush();
         _sceneCompletedOperations++;
         var record = new
         {
@@ -310,6 +310,7 @@ internal sealed partial class MeasurementRun
         };
         _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(record, SceneJson));
         _sceneOperationTrace.Flush();
+        FlushSceneProbeCosts();
         if (_scenario == "scene-capture") await CaptureSceneImage(name + "-ready");
         ResetSceneProbe();
     }
@@ -318,6 +319,13 @@ internal sealed partial class MeasurementRun
     {
         foreach (var state in _sceneProbeEvents) _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(state, SceneJson));
         _sceneProbeEvents.Clear();
+    }
+
+    private void FlushSceneProbeCosts()
+    {
+        foreach (var cost in _sceneProbeCosts) _sceneCostTrace!.WriteLine(JsonSerializer.Serialize(cost, SceneJson));
+        _sceneCostTrace?.Flush();
+        _sceneProbeCosts.Clear();
     }
 
     private object ProbeCosts(double start, double end)
@@ -464,7 +472,7 @@ internal sealed partial class MeasurementRun
         catch (Exception error) { _drawFailure = error; }
         finally
         {
-            if (operation is not null)
+            if (_sceneCostTrace is not null)
             {
                 var ended = Seconds();
                 _sceneProbeCosts.Add(new(operation, _sceneDrawCount, observerStarted, ended,
