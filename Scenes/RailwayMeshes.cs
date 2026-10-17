@@ -6,6 +6,9 @@ namespace Train.Scenes;
 
 internal static class RailwayMeshes
 {
+    // The 80 m content radius permits 2.25 m chords, including a three-track outer rail.
+    private const double MaximumRingSpacingCells = 4.5;
+    private const double RingErrorCells = .0198;
     internal static ImmutableArray<SceneMesh> Build(RailwayPath path, int segment, ScenePoint origin)
     {
         if (path.Edge.Tracks == 0) return [];
@@ -41,7 +44,7 @@ internal static class RailwayMeshes
                 foreach (var railOffset in new[] { offset - gauge / 2, offset + gauge / 2 })
                 {
                     var previous = Ring(start);
-                    var steps = (int)Math.Ceiling(end - start);
+                    var steps = RingSteps(sampleAt, start, end, railOffset, width, height);
                     for (var step = 1; step <= steps; step++)
                     {
                         var next = Ring(start + (end - start) * step / steps);
@@ -104,6 +107,45 @@ internal static class RailwayMeshes
             }
         }
         return new[] { rails.Build(), sleepers.Build() }.Where(mesh => !mesh.Vertices.IsEmpty).ToImmutableArray();
+    }
+
+    private static int RingSteps(Func<double, double, RailwaySample> sampleAt, double start, double end,
+        double offset, float width, float height)
+    {
+        var steps = Math.Max(1, (int)Math.Ceiling((end - start) / MaximumRingSpacingCells));
+        var originalSteps = Math.Max(1, (int)Math.Ceiling(end - start));
+        // A uniform grid remains sufficient for the content curves. Tighter curves or grade changes
+        // shrink this rail's grid; checking the whole section also covers its changing up vector.
+        while (steps < originalSteps && !Fits(steps)) steps = Math.Min(originalSteps, steps * 2);
+        return steps;
+
+        bool Fits(int count)
+        {
+            var previous = sampleAt(start, offset);
+            for (var step = 1; step <= count; step++)
+            {
+                var begin = start + (end - start) * (step - 1) / count;
+                var finish = start + (end - start) * step / count;
+                var next = sampleAt(finish, offset);
+                var chord = RailwayCoordinates.Relative(next.Position, previous.Position);
+                var upBefore = Vector3.Normalize(Vector3.Cross(previous.Forward, previous.Right));
+                var upAfter = Vector3.Normalize(Vector3.Cross(next.Forward, next.Right));
+                for (var probe = 1; probe < 16; probe++)
+                {
+                    var at = sampleAt(begin + (finish - begin) * probe / 16, offset);
+                    var relative = RailwayCoordinates.Relative(at.Position, previous.Position);
+                    var fraction = chord.LengthSquared() == 0 ? 0 :
+                        Math.Clamp(Vector3.Dot(relative, chord) / chord.LengthSquared(), 0, 1);
+                    var up = Vector3.Normalize(Vector3.Cross(at.Forward, at.Right));
+                    var error = (relative - chord * fraction).Length() +
+                        width * (at.Right - Vector3.Lerp(previous.Right, next.Right, fraction)).Length() +
+                        height * (up - Vector3.Lerp(upBefore, upAfter, fraction)).Length();
+                    if (error > RingErrorCells) return false;
+                }
+                previous = next;
+            }
+            return true;
+        }
     }
 
     private sealed class MeshBuilder(BuiltInMaterial material)

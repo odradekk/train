@@ -149,4 +149,119 @@ public sealed class RailwayMeshTests
         var path = new RailwayPath(RailwayFixtures.Snapshot(tracks: 0), new EdgeId(1));
         Assert.AreEqual(0, RailwayMeshes.Build(path, 0, new(0, 0, 0)).Length);
     }
+
+    [TestMethod]
+    public void ContentRadiusRailsReduceGeometryWithoutMovingTheRunningSurface()
+    {
+        const double radius = 160;
+        RailwaySample Sample(double arc)
+        {
+            var angle = arc / radius;
+            return new(new(radius * (1 - Math.Cos(angle)), 0, radius * Math.Sin(angle)),
+                new((float)Math.Sin(angle), 0, (float)Math.Cos(angle)),
+                new((float)Math.Cos(angle), 0, (float)-Math.Sin(angle)));
+        }
+        var mesh = RailwayMeshes.Build(Sample, 0, 128, default)[0];
+        Assert.IsTrue(mesh.Vertices.Length < 55512 / 3, "The content curve must eliminate most redundant rings.");
+        AssertRailError(mesh, Sample, 0, 128, default);
+    }
+
+    [TestMethod]
+    [DataRow(1)]
+    [DataRow(3)]
+    public void CurvedGradedOffsetRailsStayWithinOneCentimeterAcrossGeometryJoints(int tracks)
+    {
+        var content = RailwayFixtures.Content(rules: RailwayFixtures.Rules with
+            { MinimumCurveRadiusMeters = 80, MaximumGrade = .08 });
+        var path = new RailwayPath(RailwayFixtures.Snapshot(lengthMeters: 800, directMeters: 600,
+            relief: 2, tracks: tracks, content: content), new(1));
+        foreach (var segment in new[] { 0, 4, 6, 12 })
+        {
+            var begin = segment * RailwayCoordinates.SegmentLengthCells;
+            var end = Math.Min(begin + RailwayCoordinates.SegmentLengthCells, path.LengthCells);
+            var origin = path.Sample(begin).Position;
+            var mesh = RailwayMeshes.Build(path, segment, origin)[0];
+            AssertRailError(mesh, arc => path.Sample(arc), begin, end, origin,
+                tracks, (arc, offset) => path.Sample(arc, offset));
+            if (segment == 0) continue;
+            var previousOrigin = path.Sample(begin - RailwayCoordinates.SegmentLengthCells).Position;
+            var previous = RailwayMeshes.Build(path, segment - 1, previousOrigin)[0];
+            var atBoundary = path.Sample(begin);
+            var previousBoundary = previous.Vertices.Select(v => RailwayCoordinates.Add(previousOrigin, v.Position))
+                .Where(point => Math.Abs(Vector3.Dot(RailwayCoordinates.Relative(point, atBoundary.Position), atBoundary.Forward)) < .001)
+                .Distinct().ToArray();
+            foreach (var vertex in mesh.Vertices.Where(v => IsEnd(v.Position, origin, begin)).DistinctBy(v => v.Position))
+            {
+                var absolute = RailwayCoordinates.Add(origin, vertex.Position);
+                Assert.IsTrue(previousBoundary.Any(point => RailwayCoordinates.Relative(point, absolute).Length() < .001f),
+                    "Adjacent segments must preserve their exact shared cross sections.");
+            }
+        }
+
+        bool IsEnd(Vector3 point, ScenePoint origin, double arc)
+        {
+            var at = path.Sample(arc);
+            return Math.Abs(Vector3.Dot(RailwayCoordinates.Relative(RailwayCoordinates.Add(origin, point), at.Position), at.Forward)) < .001;
+        }
+    }
+
+    [TestMethod]
+    public void NodeGradeTransitionRefinesTheUniformGridAndPreservesItsEnds()
+    {
+        RailwaySample Sample(double arc)
+        {
+            var t = Math.Clamp(arc / 16, 0, 1);
+            var height = .8 * t * t * (3 - 2 * t);
+            var grade = .8 * 6 * t * (1 - t) / 16;
+            return new(new(0, height, arc), Vector3.Normalize(new(0, (float)grade, 1)), Vector3.UnitX);
+        }
+        var mesh = RailwayMeshes.Build(Sample, 0, 16, default)[0];
+        AssertRailError(mesh, Sample, 0, 16, default);
+    }
+
+    private static void AssertRailError(SceneMesh mesh, Func<double, RailwaySample> sample, double begin,
+        double end, ScenePoint origin, int tracks = 1, Func<double, double, RailwaySample>? sampleAt = null)
+    {
+        sampleAt ??= (arc, offset) =>
+        {
+            var at = sample(arc);
+            return at with { Position = RailwayCoordinates.Add(at.Position, at.Right * (float)offset) };
+        };
+        var cursor = 0;
+        for (var track = 1; track <= tracks; track++)
+        foreach (var (gauge, height, _, _) in RailwayCoordinates.WheelDimensions)
+        foreach (var sign in new[] { -1, 1 })
+        {
+            var offset = RailwayCoordinates.TrackOffset(track, tracks) + sign * gauge / 2;
+            var start = sampleAt(begin, offset);
+            var cap = cursor;
+            while (cap < mesh.Vertices.Length &&
+                Vector3.Dot(mesh.Vertices[cap].Normal, -start.Forward) < .99999f) cap += 72;
+            Assert.IsTrue(cap < mesh.Vertices.Length, "Each rail must retain its start cap.");
+            var steps = (cap - cursor) / 72;
+            Assert.IsTrue(steps > 0);
+            for (var step = 0; step < steps; step++)
+            for (var probe = 0; probe <= 64; probe++)
+            {
+                var fraction = probe / 64f;
+                var arc = begin + (end - begin) * (step + fraction) / steps;
+                var at = sampleAt(arc, offset);
+                var center = RailwayCoordinates.Relative(at.Position, origin);
+                var up = Vector3.Normalize(Vector3.Cross(at.Forward, at.Right));
+                foreach (var side in new[] { 0, 1, 6, 7 })
+                {
+                    var expected = center + at.Right * (side is 0 or 7 ? -height * .65f : height * .65f) -
+                        up * (side < 2 ? height : 0);
+                    var first = mesh.Vertices[cursor + step * 72 + side * 6].Position;
+                    var last = mesh.Vertices[cursor + step * 72 + side * 6 + 5].Position;
+                    var chord = last - first;
+                    var along = Math.Clamp(Vector3.Dot(expected - first, chord) / chord.LengthSquared(), 0, 1);
+                    var error = Vector3.Distance(expected, first + chord * along);
+                    Assert.IsTrue(error <= .02001f, $"Rail chord exceeds 1 cm at {arc}: {error / 2} m.");
+                }
+            }
+            cursor = cap + 36;
+        }
+        Assert.AreEqual(mesh.Vertices.Length, cursor, "All cross sections and caps must remain accounted for.");
+    }
 }
