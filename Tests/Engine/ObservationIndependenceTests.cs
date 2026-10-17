@@ -34,6 +34,7 @@ public class ObservationIndependenceTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    [Chickensoft.GoDotTest.Timeout(180000)]
     public async Task Same_saved_world_has_identical_checkpoints_at_one_and_eight_times_speed()
     {
         using var recipe = JsonDocument.Parse(System.IO.File.ReadAllText(
