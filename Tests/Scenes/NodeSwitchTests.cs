@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Numerics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
@@ -207,6 +208,8 @@ public sealed class NodeSwitchTests
         var snapshot = RailwayFixtures.Snapshot(800, 800, 0, content: content);
         await using var vehicles = new SceneVehicles();
         await using var scene = RailwayFixtures.Controlled(snapshot, vehicles);
+        long now = 0;
+        scene.Timestamp = () => now;
         await RailwayFixtures.Settled(scene, snapshot, new WorldSceneTarget.Location(RailwayFixtures.Location), Request,
             new(new(Guid.NewGuid()), new(1), new(1), 1));
         Assert.IsNull(scene.FrontNode(snapshot, RailwayFixtures.Train(735, speed: 10)));
@@ -216,6 +219,10 @@ public sealed class NodeSwitchTests
         Assert.AreEqual(3, RailwayScene.PrefetchSegments(10, 4));
         Assert.AreEqual(4, RailwayScene.PrefetchSegments(100, 8));
         Assert.AreEqual(0, RailwayScene.PrefetchSegments(0, 8));
+        now = Stopwatch.Frequency;
+        scene.Pump(RailwayFixtures.Snapshot(800, 800, 0, steps: 240, content: content), new(RailwayFixtures.Edge, 0));
+        Assert.IsNull(scene.FrontNode(snapshot, RailwayFixtures.Train(607, speed: 10)));
+        Assert.AreEqual(new WorldLocation.Node(new(2)), scene.FrontNode(snapshot, RailwayFixtures.Train(608, speed: 10)));
     }
 
     [TestMethod]
@@ -381,6 +388,36 @@ public sealed class NodeSwitchTests
     }
 
     [TestMethod]
+    public async Task CandidateSurvivesLossOfTheStartThresholdButDirectionChangeCancelsIt()
+    {
+        var calls = 0;
+        var content = NodeFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 });
+        SceneWorldSnapshot Snapshot(double speed, TravelDirection direction, ulong step) => RailwayFixtures.Snapshot(4, 4, 0,
+            content: content, steps: step, trains: [RailwayFixtures.Train(3, speed: speed, direction: direction)],
+            instances: [RailwayFixtures.Instance()]);
+        await using var session = Open(Snapshot(10, TravelDirection.Forward, 0), (snapshot, node, previous, token) =>
+        {
+            Interlocked.Increment(ref calls);
+            return RailwayFixtures.EmptyNode(snapshot, node, previous, token);
+        });
+        session.Timestamp = () => 0;
+        session.RequestView(new WorldSceneTarget.Follow(new(1), new(1)));
+        var displayed = await RailwayFixtures.Settled(session, Request);
+        await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
+        Assert.AreEqual(new WorldLocation.Node(new(2)), session.PrebuiltLocation);
+        Assert.AreEqual(1, calls);
+        session.Observe(Snapshot(0, TravelDirection.Forward, 1), []);
+        displayed = Present(session, displayed);
+        Assert.AreEqual(new WorldLocation.Node(new(2)), session.PrebuiltLocation,
+            "Zero speed withdraws the start threshold, not the semantic next node.");
+        Assert.AreEqual(1, calls);
+        session.Observe(Snapshot(0, TravelDirection.Reverse, 2), []);
+        Present(session, displayed);
+        Assert.IsNull(session.PrebuiltLocation, "Reversal invalidates the old destination even below the new start threshold.");
+        await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
+    }
+
+    [TestMethod]
     public async Task NodeCandidateFollowsNextEdgeWhenThePlanPointsToAnotherNeighbor()
     {
         var content = NodeFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 });
@@ -395,6 +432,15 @@ public sealed class NodeSwitchTests
         session.Observe(ShortNodeSnapshot(train with { Position = ((TrainPosition.Node)train.Position) with { EnteredFrom = new(1), NextEdge = new(2) } }, content, 1), []);
         Present(session);
         Assert.AreEqual(new WorldLocation.Edge(new(2), 4), session.PrebuiltLocation);
+        await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
+        session.Observe(ShortNodeSnapshot(train with { Position = ((TrainPosition.Node)train.Position) with { NextEdge = new(1) } }, content, 2), []);
+        await RailwayFixtures.Settled(session, Request);
+        await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
+        Present(session);
+        Assert.AreEqual(new WorldLocation.Edge(new(1), 0), session.PrebuiltLocation);
+        session.Observe(ShortNodeSnapshot(train with { Position = ((TrainPosition.Node)train.Position) with { NextEdge = null } }, content, 3), []);
+        Present(session);
+        Assert.IsNull(session.PrebuiltLocation, "Removing the chosen route invalidates an already created candidate.");
     }
 
     [TestMethod]
