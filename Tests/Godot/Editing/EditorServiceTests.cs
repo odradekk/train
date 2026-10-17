@@ -630,6 +630,7 @@ public sealed class EditorServiceTests
     }
 
     [TestMethod]
+    [TestCategory("integration")]
     [DataRow(false)]
     [DataRow(true)]
     public void Passive_draft_refresh_preserves_external_save_failure(bool package)
