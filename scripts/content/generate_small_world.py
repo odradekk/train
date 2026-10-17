@@ -261,10 +261,64 @@ FOREST = (0x55, 0x68, 0x3a)
 CONCRETE = (0xa8, 0xa5, 0x9e)
 STEEL = (0x8e, 0x93, 0x98)
 YELLOW = (0xd9, 0xa6, 0x2b)
+SOIL_FACE = (125, 107, 76)
+EQUIPMENT_FACE = (194, 148, 60)
+CRUDE_OIL = (58, 67, 75)
+SITE_FENCE = (0x58, 0x66, 0x71)
+PAINTABLE_MATERIALS = ("painted_metal", "concrete")
+DEFAULT_PAINTS = {
+    "structural-metal": BLUE,
+    "propulsion-equipment": BLUE,
+    "control-equipment": BLUE,
+    "storage-equipment": RED,
+    "concrete": CONCRETE,
+    "construction-material": SOIL_FACE,
+    "construction-block": SOIL_FACE,
+    "platform-equipment": EQUIPMENT_FACE,
+    "industrial-machinery": EQUIPMENT_FACE,
+    "extraction-equipment": EQUIPMENT_FACE,
+    "construction-equipment": EQUIPMENT_FACE,
+    "power-equipment": EQUIPMENT_FACE,
+    "conductive-metal": EQUIPMENT_FACE,
+    "specialty-material": EQUIPMENT_FACE,
+    "mechanical-components": EQUIPMENT_FACE,
+    "electrical-components": EQUIPMENT_FACE,
+    "electronic-components": EQUIPMENT_FACE,
+    "structural-block": EQUIPMENT_FACE,
+    "rail": EQUIPMENT_FACE,
+    "lamp": EQUIPMENT_FACE,
+    "machine-gun": EQUIPMENT_FACE,
+    "cannon": EQUIPMENT_FACE,
+    "crude-oil": CRUDE_OIL,
+    "site-fence": SITE_FENCE,
+    "road-barrier": YELLOW,
+    "street-lamp": GRAPHITE,
+}
 
 
 def tint(color, change=0):
     return tuple(max(0, min(255, value + change)) for value in color) + (255,)
+
+
+def linear_luminance(color):
+    channels = (value / 255 for value in color[:3])
+    return sum(weight * (value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4)
+               for weight, value in zip((0.2126, 0.7152, 0.0722), channels))
+
+
+def neutral_texture(texture, base, keep=None):
+    base_luminance = linear_luminance(base)
+
+    def pixel(x, y):
+        color = texture(x, y)
+        if keep is not None and keep(x, y):
+            return color[:3] + (0,)
+        luminance = min(1, linear_luminance(color) / base_luminance)
+        gray = round(255 * (12.92 * luminance if luminance <= 0.0031308 else
+                            1.055 * luminance ** (1 / 2.4) - 0.055))
+        return (gray, gray, gray, 255)
+
+    return pixel
 
 
 def grain(x, y, size, seed):
@@ -374,7 +428,7 @@ def street_lamp_texture(x, y):
 
 
 def site_fence_texture(x, y):
-    return tint((0x58, 0x66, 0x71), -8 if x % 16 in (0, 1) else grain(x, y, 32, 0x526))
+    return tint(SITE_FENCE, -8 if x % 16 in (0, 1) else grain(x, y, 32, 0x526))
 
 
 def road_barrier_texture(x, y):
@@ -426,9 +480,9 @@ def crude_oil_texture(x, y, side=False):
         if x in (0, 31):
             return tint((31, 38, 44))
         band = y % 16 in (3, 4, 5)
-        return tint((58, 67, 75), 15 if band else grain(x, y, 32, 0x607) // 2)
+        return tint(CRUDE_OIL, 15 if band else grain(x, y, 32, 0x607) // 2)
     radius = ((x - 15.5) ** 2 + (y - 15.5) ** 2) ** .5
-    return tint((58, 67, 75), 16 if 12 <= radius < 14 or radius < 2 else -13 if radius >= 14 else 0)
+    return tint(CRUDE_OIL, 16 if 12 <= radius < 14 or radius < 2 else -13 if radius >= 14 else 0)
 
 
 def grain_texture(x, y, side=False):
@@ -648,7 +702,8 @@ def icon(identity):
 
 def style_assets(files):
     for name, size in (("vehicle-underside", 128), ("equipment-underside", 32), ("bogie-underside", 64)):
-        files[f"voxels/shared/{name}.png"] = png(size, underside_texture)
+        texture = underside_texture if name == "bogie-underside" else lambda x, y: underside_texture(x, y)[:3] + (0,)
+        files[f"voxels/shared/{name}.png"] = png(size, texture)
     for identity, size, top, side in (
         ("structural-metal", 128, tread_texture, plate_texture),
         ("bogie", 64, bogie_top_texture, bogie_side_texture),
@@ -656,6 +711,10 @@ def style_assets(files):
         ("control-equipment", 32, equipment_roof_texture, control_texture),
         ("storage-equipment", 32, storage_roof_texture, storage_texture),
     ):
+        if identity != "bogie":
+            top = neutral_texture(top, DEFAULT_PAINTS[identity])
+            side = neutral_texture(side, DEFAULT_PAINTS[identity],
+                                   (lambda x, y: 3 <= x < 29) if identity == "control-equipment" else None)
         files[f"voxels/{identity}/top.png"] = png(size, top)
         if side is not None:
             files[f"voxels/{identity}/side.png"] = png(size, side)
@@ -689,11 +748,23 @@ def scene_assets(files, voxel):
     ):
         top_path = "shared/subsoil.png" if identity == "subsoil" else "top.png"
         texture_path = f"voxels/{top_path}" if identity == "subsoil" else f"voxels/{identity}/{top_path}"
+        icon_path = top_path if span == 4 else f"shared/{'organic' if material == 'organic' else 'equipment'}-icon.png"
+        if material in PAINTABLE_MATERIALS:
+            if icon_path == top_path:
+                files[f"voxels/{identity}/icon.png"] = png(32 * span, top)
+                icon_path = "icon.png"
+            keep = None
+            if identity == "street-lamp":
+                keep = lambda x, y: 5 <= x < 27 and 5 <= y < 27
+            elif identity == "road-barrier":
+                keep = lambda x, y: (x + y) // 8 % 2 != 0
+            top = neutral_texture(top, DEFAULT_PAINTS[identity], keep)
+            if side is not None:
+                side = neutral_texture(side, DEFAULT_PAINTS[identity])
         files[texture_path] = png(32 * span, top)
         if side is not None:
             files[f"voxels/{identity}/side.png"] = png(32 * span, side)
         bottom = "shared/subsoil.png" if identity in ("ground", "dry-grass", "forest-ground") else top_path
-        icon_path = top_path if span == 4 else f"shared/{'organic' if material == 'organic' else 'equipment'}-icon.png"
         voxel(identity, name, material, faces(top_path, "side.png" if side else top_path, bottom), icon_path,
               tile_span=span, light=identity == "street-lamp", description=f"用于自然环境和铁路场景的{name}。")
 
@@ -925,7 +996,19 @@ def content_files():
     blueprint_definitions = {}
     template_definitions = {}
 
+    def paint_design(design):
+        for entry in design["layout"].get("palette", []):
+            identity = entry["voxel"].removeprefix("core:")
+            material = voxel_definitions[identity]["appearance"]["presentation"]["material"]
+            if material in PAINTABLE_MATERIALS and "paint" not in entry:
+                entry["paint"] = "#" + bytes(DEFAULT_PAINTS[identity]).hex()
+        for composite in design["layout"].get("composites", []):
+            if "design" in composite:
+                paint_design(composite["design"])
+
     def document(directory, kind, identity, value):
+        if kind == "blueprint":
+            paint_design(value)
         data = (json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
         if len(data) > JSON_LIMIT:
             raise ValueError(f"{identity}: {len(data)} bytes exceeds {JSON_LIMIT}")
@@ -935,16 +1018,22 @@ def content_files():
         elif kind == "settlement-template":
             template_definitions[identity] = value
 
-    colors = {"soil": (125, 107, 76, 255),
-              "organic": (99, 143, 81, 255), "equipment": (194, 148, 60, 255)}
+    colors = {"soil": SOIL_FACE + (255,),
+              "organic": (99, 143, 81, 255), "equipment": EQUIPMENT_FACE + (255,)}
     for material, color in colors.items():
         files[f"voxels/shared/{material}-face.png"] = png(32, lambda x, y: color)
         files[f"voxels/shared/{material}-icon.png"] = png(128, lambda x, y: color)
+    files["voxels/shared/paintable-face.png"] = png(32, lambda x, y: (255, 255, 255, 255))
     for name in SETTLEMENT_SYMBOLS:
         files[f"settlement-types/{name}/symbol.png"] = symbol_png(name)
 
     def voxel(identity, name, material, face_paths, icon_path, simulation=None, wheelset=False, light=False,
               tile_span=None, description=None):
+        if material in PAINTABLE_MATERIALS:
+            if identity not in DEFAULT_PAINTS:
+                raise ValueError(f"{identity}: paintable voxel has no default paint")
+            face_paths = {face: "shared/paintable-face.png" if path in (
+                "shared/equipment-face.png", "shared/soil-face.png") else path for face, path in face_paths.items()}
         value = {"schema_version": 3, "id": identity,
                  "appearance": {"allowed_orientations": "four_way",
                                 "presentation": {"kind": "cube", "material": material,
@@ -1000,11 +1089,15 @@ def content_files():
           tile_span=tile_span, description=raw_description.format("石料"))
     scene_assets(files, voxel)
     style_assets(files)
-    for identity, (_, tile_span, side, _, texture) in RAW_GOODS_ART.items():
+    for identity, (material, tile_span, side, _, texture) in RAW_GOODS_ART.items():
         size = 32 * tile_span
-        files[f"voxels/{identity}/top.png"] = png(size, texture)
+        top = neutral_texture(texture, DEFAULT_PAINTS[identity]) if material in PAINTABLE_MATERIALS else texture
+        files[f"voxels/{identity}/top.png"] = png(size, top)
         if side is not None:
-            files[f"voxels/{identity}/{side}"] = png(size, lambda x, y: texture(x, y, side=True))
+            side_texture = lambda x, y: texture(x, y, side=True)
+            if material in PAINTABLE_MATERIALS:
+                side_texture = neutral_texture(side_texture, DEFAULT_PAINTS[identity])
+            files[f"voxels/{identity}/{side}"] = png(size, side_texture)
     files["voxels/shared/crate-bottom.png"] = png(32, crate_bottom_texture)
 
     for spec in VEHICLES:
@@ -1370,6 +1463,19 @@ def check_schemas(files):
             Draft202012Validator(schemas[kind + ".schema.json"], registry=registry).validate(json.loads(data))
 
 
+def resource_paints_source():
+    resources = {profile[1] for profile in RESOURCE_PROFILES}
+    entries = "\n".join(f'        "core:{identity}" => new("#{bytes(DEFAULT_PAINTS[identity]).hex()}"),'
+                        for identity in sorted(resources & DEFAULT_PAINTS.keys()))
+    return ("// Generated by scripts/content/generate_small_world.py.\n"
+            "#nullable enable\n"
+            "using Train.Content.Contracts;\nusing Train.Core.Contracts;\n\n"
+            "namespace Train.Scenes;\n\n"
+            "internal static class BuiltInResourcePaints\n{\n"
+            "    internal static PaintColor? For(VoxelDefinitionId voxel) => voxel.Value switch\n    {\n"
+            + entries + "\n        _ => null\n    };\n}\n").encode("utf-8")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
@@ -1377,6 +1483,8 @@ def main():
     args = parser.parse_args()
     files = content_files()
     resources = args.output_dir / "resources"
+    paints_path = (ROOT / "Scenes" if args.output_dir.resolve() == ROOT / "builtin/core" else args.output_dir) / "BuiltInResourcePaints.g.cs"
+    paints_source = resource_paints_source()
     actual = {path.relative_to(resources).as_posix() for path in resources.rglob("*") if path.is_file()}
     expected = files.keys() | set(HAND_DRAWN_ICONS)
     extra = actual - expected
@@ -1388,6 +1496,8 @@ def main():
         return 1
     if args.check:
         changed = [path for path, data in files.items() if (resources / path).read_bytes() != data]
+        if not paints_path.is_file() or paints_path.read_bytes() != paints_source:
+            changed.append(str(paints_path))
         if changed:
             for path in changed:
                 print(f"字节不同：{path}", file=sys.stderr)
@@ -1401,6 +1511,8 @@ def main():
             target = resources / path
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
+        paints_path.parent.mkdir(parents=True, exist_ok=True)
+        paints_path.write_bytes(paints_source)
     print(f"{'校验' if args.check else '生成'} {len(files)} 个文件；超大型蓝图 {len(files['blueprints/extra-large-locomotive.blueprint.json'])} 字节。")
     return 0
 

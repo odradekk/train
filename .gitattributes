@@ -3,3 +3,4 @@
 .agents/setup text eol=lf
 *.verified.txt text eol=lf working-tree-encoding=UTF-8
 builtin/core/resources/**/*.json text eol=lf
+Scenes/BuiltInResourcePaints.g.cs text eol=lf
