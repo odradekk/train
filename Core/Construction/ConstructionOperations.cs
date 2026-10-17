@@ -8,7 +8,9 @@ namespace Train.Core.Construction;
 internal static class ConstructionOperations
 {
     internal static ImmutableArray<FacilityRequest> Requests(WorldState world, CoreContentProjection content, SettlementId settlement)
-        => world.ConstructionJobs.Where(j => j.Settlement == settlement && Failure(world, content, j) is null
+        => world.ConstructionJobs.Where(j => j.Settlement == settlement).GroupBy(j => j.Facility)
+            .Select(g => g.MinBy(j => j.Id.Value)!)
+            .Where(j => Failure(world, content, j) is null
                 && !MissingTarget(world, content, j))
             .Select(j => new FacilityRequest.Work(j.Facility, j.Priority,
                 Math.Min(ConstructionJobs.WorkRate(world, content, j.Facility, Size(world, j)),
@@ -20,6 +22,8 @@ internal static class ConstructionOperations
         CoreContentProjection content, SettlementId settlement, ImmutableArray<FacilityRequest> requests, SettlementResolution resolution)
     {
         var events = ImmutableArray.CreateBuilder<CoreEvent>();
+        var heads = world.ConstructionJobs.Where(j => j.Settlement == settlement).GroupBy(j => j.Facility)
+            .ToDictionary(g => g.Key, g => g.MinBy(j => j.Id.Value)!.Id);
         double demand = 0, supply = 0, labor = 0;
         foreach (var original in world.ConstructionJobs.Where(j => j.Settlement == settlement).ToArray())
         {
@@ -29,6 +33,7 @@ internal static class ConstructionOperations
                 Remove(original);
                 continue;
             }
+            if (heads[original.Facility] != original.Id) continue;
             var request = requests.OfType<FacilityRequest.Work>().SingleOrDefault(r => r.Facility == original.Facility);
             var allocation = resolution.Work.SingleOrDefault(a => a.Facility == original.Facility);
             var rate = allocation?.WorkPerSecond ?? 0;
@@ -108,7 +113,7 @@ internal static class ConstructionOperations
             if (Math.Min(instance.StructureDurability, world.Designs.Single(d => d.Design == instance.Design).MaxStructureDurability) <= 0)
                 return new("instance_destroyed", "Instance", new WorldObjectId.Instance(instance.Id), []);
         }
-        return ConstructionJobs.Qualification(world, content, job.Settlement, job.Facility, Size(world, job));
+        return ConstructionJobs.Qualification(world, content, job.Settlement, job.Facility, Size(world, job), job.Funding);
     }
 
     private static bool MissingTarget(WorldState world, CoreContentProjection content, ConstructionJobState job)

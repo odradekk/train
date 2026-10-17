@@ -36,12 +36,17 @@ internal static class CoreCommandEncoding
                 CoreCommand.SellVehicle => "market.sell_vehicle",
                 CoreCommand.AcquireLease => "lease.acquire",
                 CoreCommand.StartOwnedJob { Request: JobRequest.BuildVehicle or JobRequest.Repair { Instance: InstanceId.Vehicle } } => "construction.start_owned",
+                CoreCommand.CommissionVehicleWork { Request: JobRequest.BuildVehicle or JobRequest.Repair { Instance: InstanceId.Vehicle } } => "construction.commission_vehicle_work",
                 _ => throw new NotImplementedException($"{command.GetType().Name} 尚未实现。")
             });
             switch (command)
             {
                 case CoreCommand.StartOwnedJob start:
                     WriteJobRequest(writer, start.Request);
+                    break;
+                case CoreCommand.CommissionVehicleWork commission:
+                    WriteJobRequest(writer, commission.Request);
+                    WriteNonnegativeInteger(writer, "maximum_payment", commission.MaximumPayment.Value);
                     break;
                 case CoreCommand.BuyGoods buy:
                     WriteTransfer(writer, buy.Train, buy.Settlement, buy.LocalInventory, buy.Good, buy.Quantity);
@@ -177,6 +182,7 @@ internal static class CoreCommandEncoding
                 "inventory.load_goods" or "inventory.unload_goods" => ["input_format_version", "kind", "train", "settlement", "local_inventory", "good", "quantity"],
                 "lease.acquire" => ["input_format_version", "kind", "request", "maximum_payment"],
                 "construction.start_owned" => ["input_format_version", "kind", "request"],
+                "construction.commission_vehicle_work" => ["input_format_version", "kind", "request", "maximum_payment"],
                 "market.buy_goods" => ["input_format_version", "kind", "train", "settlement", "local_inventory", "good", "quantity", "maximum_payment"],
                 "market.sell_goods" => ["input_format_version", "kind", "train", "settlement", "local_inventory", "good", "quantity", "minimum_receipt"],
                 "market.buy_vehicle" => ["input_format_version", "kind", "seller", "vehicle", "maximum_payment"],
@@ -187,6 +193,9 @@ internal static class CoreCommandEncoding
             Fields(root, "", fields);
             if (name == "construction.start_owned")
                 return Success(new(null, new CoreCommand.StartOwnedJob(ReadJobRequest(Property(root, "request", "", JsonValueKind.Object)))));
+            if (name == "construction.commission_vehicle_work")
+                return Success(new(null, new CoreCommand.CommissionVehicleWork(
+                    ReadJobRequest(Property(root, "request", "", JsonValueKind.Object)), new(ReadNonnegativeInteger(root, "maximum_payment")))));
             if (name == "lease.acquire")
             {
                 var request = Property(root, "request", "", JsonValueKind.Object);
