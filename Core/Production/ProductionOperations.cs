@@ -105,7 +105,8 @@ internal static class ProductionOperations
         settlement = world.Settlements.Single(s => s.Id == id);
         var inventory = world.Inventories.Single(i => i.Id == settlement.Inventory);
         var goods = inventory.Goods.ToDictionary(g => g.Good, g => g.Quantity);
-        var available = InventoryStorage.Settlement(world, content, settlement, checked(step + 1)).Uncommitted;
+        var available = facilities.Values.Any(f => !f.OutputBuffer.IsEmpty)
+            ? InventoryStorage.Settlement(world, content, settlement, checked(step + 1)).Uncommitted : 0;
         foreach (var (plan, building) in plans)
         {
             var key = new FacilityKey(building!.Value, plan.Capability);
