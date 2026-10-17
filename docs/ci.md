@@ -29,12 +29,7 @@ gh pr edit <PR号> --repo odradekk/train --add-label ci:correctness
 # 同一 PR 再次请求：先 --remove-label ci:correctness，再 --add-label ci:correctness
 ```
 
-合并后可从 Actions 页面选择 Windows checks → Run workflow，选择 ref 和 `routine` 或 `correctness`，也可用：
-
-```powershell
-gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=routine
-gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=correctness
-```
+手动运行可选择 ref 和 `routine` 或 `correctness`。Windows job 只接受上述 PR 事件和这两种手动选择，不在 master push 或 schedule 时运行。触发和查看命令见[远端检查](run-tests.md#远端检查)。
 
 `correctness` 运行六个现有 MSTest 项目、结构与公开面、Core/Content/Scenes 隔离、内容示例 Schema 及当前 App 的非导出真实 Godot 集成用例。入口复用一次游戏构建和导入并运行独立引擎测试程序集；集成层 MSTest、structure、verify 与可选 Schema 共用最多 4 个并发任务和 330 秒截止时间；选中的 isolate 在该队列结束后独立运行，使用 780 秒上限，队列失败也执行且不计入集成层耗时；收到停止请求时不启动尚未开始的独立隔离检查。导出冒烟对同一次 Windows 导出运行两次，用 `-Layer engine -ExportWindows` 另外显式选择；Benchmark、长测、人工和额外平台也不属于此选择。
 
@@ -44,19 +39,19 @@ GitHub 要求 `workflow_dispatch` 文件已存在于默认分支，所以新工�
 
 在 `master` 上手动运行 `routine` 时，默认基准与 HEAD 相同，快速与集成步骤得到空选择并成功退出，不构建；独立引擎步骤也报告未选择并成功退出，不下载 Godot、不构建或运行测试。需要全仓回归时选择 `correctness`。
 
-## Linux 夜间运行
+## Linux runner
 
-同一 `windows-checks.yml` 每日 UTC 20:23（北京时间 04:23）触发 `schedule`；也可显式选择 `nightly`：
+同一 `windows-checks.yml` 在每日 UTC 20:23（北京时间 04:23）的 schedule、master push 和手动 `nightly` 时，调用 `scripts/test.ps1 -All -Layer all,stage`。它执行全部快速、集成、无界面引擎和 Linux 阶段检查；`all` 本身仍只含前三层。阶段平台范围见[阶段检查与候选基准](run-tests.md#阶段检查与候选基准)。
 
-```powershell
-gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=nightly
-```
+手动选择 `long-example` 时，`example` choice 输入只接受 `starting-trade` 或 `lease-expiry`，通过环境变量传给[长示例脚本](../scripts/checks/run-long-example.ps1)。这条路径构建一次 Release CLI，并行运行 replay、save → resume、make → check 三组，再比较恢复后缀；不运行全量检查或恢复 dotnet-affected。每条命令完成即写入记录、日志和 `TestResults/long-example-<时间>-<7位提交>/summary.json`，失败依赖保持 `not_started`，任何失败或未执行使脚本非零退出。示例检查的平台分工见[示例手册](../examples/README.md#重制与长验证)。
 
-只有 schedule 或手动 nightly 分配带 `[self-hosted, linux, nightly]` 标签的 Linux runner；这两种路径不分配 Windows runner。运行名为 `Linux nightly`，Windows 的 `routine`／`correctness` 检查名保持不变。Linux 调用 `pwsh -NoProfile -File scripts/test.ps1 -All -Layer all,stage`，执行全部快速、集成、无界面引擎和 Linux 阶段检查；`all` 本身仍只含前三层。阶段平台范围和候选基准规则见[阶段检查与候选基准](run-tests.md#阶段检查与候选基准)。
+以上四种事件／选择复用同一个 Linux job，只有它们能分配带 `[self-hosted, linux, nightly]` 标签的 runner；PR 和其他事件被白名单条件排除。这些路径不分配 Windows runner。运行名区分 `Linux post-merge`、`Linux nightly` 和带示例名的 `Linux long-example`。目前只有一台匹配的 runner，任务自然排队，不设置额外并发组；runner 排队超过 24 小时会被 GitHub 取消。触发、查看和下载方法见[远端检查](run-tests.md#远端检查)。
+
+全量检查 job 上限为 60 分钟；长示例初始上限分别为 starting-trade 105 分钟、lease-expiry 485 分钟。长示例按三组 Windows 最坏实测耗时的最大值加构建时间，再乘 1.5、向上取整到分钟；[初始计算记录](https://github.com/odradekk/train/issues/565#issuecomment-6232396762)列出 #299、#546 的命令数据和暂停处理。Linux 实测的 1.5 倍若超过既有上限，按[预算原则](contracts/testing.md#预算调整原则)上调。不设置单条 CLI 命令超时。
 
 局域网自托管 runner `lan-linux-nightly` 由 systemd 服务运行，使用主机预装工具；版本与环境配置见[Linux 验证与自托管 runner](local-environment.md#linux-验证与自托管-runner)。workflow 不含主机安装路径，不安装额外 Godot，不使用 xvfb。job 仅授予 `contents: read`，checkout 完整历史与所选 SHA，`persist-credentials: false`。
 
-Linux 的所有必需步骤失败均传播到 job，不使用 `continue-on-error`。摘要发布和产物上传使用 `always()`，上传 `TestResults/` 为 `linux-nightly-<run_id>-<attempt>`，保留 14 天。上传之后始终清理：确认当前目录和 Git 仓库根目录均为 `GITHUB_WORKSPACE`，执行 `git clean -ffdx`，并在日志列出清理后的目录；不能在其他工作目录运行该清理命令。入口仍负责真实用户目录和临时目录的快照检查。强制终止 runner 或服务故障时，`always()` 不能保证上传或清理完成，应按实际日志报告。
+Linux 的所有必需步骤失败均传播到 job，不使用 `continue-on-error`。摘要发布和产物上传使用 `always()`，按选择上传整个 `TestResults/`，artifact 名为 `linux-nightly-<run_id>-<attempt>`、`linux-post-merge-<run_id>-<attempt>` 或 `linux-long-example-<示例>-<run_id>-<attempt>`，保留 14 天。上传之后始终清理：确认当前目录和 Git 仓库根目录均为 `GITHUB_WORKSPACE`，执行 `git clean -ffdx`，并在日志列出清理后的目录；不能在其他工作目录运行该清理命令。统一测试入口仍负责真实用户目录和临时目录的快照检查。强制终止 runner 或服务故障时，`always()` 不能保证上传或清理完成，应按实际日志报告。
 
 ## 环境与证据
 
@@ -70,6 +65,6 @@ Linux 的所有必需步骤失败均传播到 job，不使用 `continue-on-error
 
 摘要发布和上传步骤使用 `always()`；失败后仍执行，取消时尽可能收集已产生文件。强制终止 runner 或上传服务不可用时不能保证上传。入口非零状态直接传递给步骤；快速、集成和显式 correctness 失败会令 job 失败，常规选择的 Godot 准备和独立引擎步骤均暂用 `continue-on-error`。Godot 下载失败时准备步骤的失败可见，引擎被选中时引擎步骤也报告缺环境；若其他必需步骤成功，常规 job 仍为绿色。后续上传不改变这些规则。工具准备失败仍尝试入口，让所选检查报告缺环境；若连 PowerShell 都未准备好，只保留已产生的环境记录与 Actions 原始日志，不宣称执行通过。
 
-Windows job 上限为 30 分钟，Linux 夜间 job 上限为 60 分钟，为工具下载、构建与检查预留时间，并结束卡住的任务；当前检查的实际耗时以各次统一入口摘要为准。
+Windows job 上限为 30 分钟，为工具下载、构建与检查预留时间，并结束卡住的任务；Linux 上限见[Linux runner](#linux-runner)。当前检查的实际耗时以各次运行摘要为准。
 
 私有仓库的 Windows 托管运行消耗付费 Actions 分钟，包含全层的 correctness 路径要求显式请求。测试证据与复用规则见 [Testing standard](implement-sop.md#testing-standard)。

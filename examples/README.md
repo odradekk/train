@@ -81,23 +81,8 @@ Station 的形状为 `{kind:"station",node,dwell_steps,goods_rules}`，省略后
 
 同一份存档使用同一种构建配置制作和检查。日常测试只运行短经济命令、现车和容量例子；起步四小时与租约一天的完整验证留在交付前执行，不能放进 330 秒的集成层。
 
-以起步例子为例，先构建 Release，然后在三个独立终端中执行以下三组命令；输出目录须存在、目标存档须不存在。租约例子把目录名换成 `lease-expiry`，保存边界换成 **5183999**。`replay` 的输出同时作为连续运行结果，不再额外运行一次 `run`。
+[长示例脚本](../scripts/checks/run-long-example.ps1)构建一次 Release，然后并行执行三组：A 连续运行并严格重放；B 保存退出后由独立进程恢复；C 制作普通存档再从零按配方检查。保存边界为起步贸易 **432000**、租约到期 **5183999**。`replay` 的输出作为连续基准，最后比较恢复后的完整检查点后缀，不额外运行一次 `run`。脚本创建独立运行目录，每条命令完成即保留退出码、耗时和日志，任何失败或未执行均非零退出。runner 触发与下载方法见[远端检查](../docs/run-tests.md#远端检查)。
 
-```powershell
-dotnet build Tools/Cli/Train.Cli.csproj -c Release
-
-# A：连续运行与严格重放
-dotnet Tools/Cli/bin/Release/net10.0/Train.Cli.dll replay . examples/starting-trade/recipe.json TestResults/trade.continuous.json
-
-# B：保存退出后由独立进程恢复
-dotnet Tools/Cli/bin/Release/net10.0/Train.Cli.dll save . examples/starting-trade/recipe.json TestResults/trade.prefix.save.json 432000
-dotnet Tools/Cli/bin/Release/net10.0/Train.Cli.dll resume . examples/starting-trade/recipe.json TestResults/trade.prefix.save.json TestResults/trade.resumed.json
-# 等 A 完成后比较完整后缀
-dotnet Tools/Cli/bin/Release/net10.0/Train.Cli.dll compare TestResults/trade.continuous.json TestResults/trade.resumed.json
-
-# C：重制普通存档，再从零按配方比较
-dotnet Tools/Cli/bin/Release/net10.0/Train.Cli.dll make . examples/starting-trade/recipe.json TestResults/trade.remade.save.json
-dotnet Tools/Cli/bin/Release/net10.0/Train.Cli.dll check . examples/starting-trade/recipe.json TestResults/trade.remade.save.json
-```
+Linux 上的 `check` 只比较本次 Linux 运行重新制作的存档，不能验证已提交 Windows 存档的重制一致性。对已提交 `save.json` 的 `check` 继续在 Windows 使用对应构建配置执行；基础例子的命令形式见[基础贯通](#基础贯通)，长示例使用表中 Release 配置。同机跨进程比较、保存恢复和本次录制的严格重放在两种平台都有效，不宣称跨平台确定性。
 
 容量例子的普通存档用 Debug 制作，Windows 日常用例通过 `check` 对照已提交的 `storage-tight/save.json`，同时确认源文件保持不变。验收证据仍以具体构建、命令、实际耗时和日志为准；这些 CLI 检查不提供 Godot 界面、目标窗口交互或阶段 #299 四模块验收证据。
