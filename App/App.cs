@@ -50,13 +50,12 @@ public partial class App : Node
                 OS.IsDebugBuild() ? LogLevel.Debug : LogLevel.Info, new GodotLogOutput(), buffer);
             _dispatcher = new();
             Host = CreateHost?.Invoke(_logger) ?? HostComposition.CreateHost(_logger, userData, _dispatcher);
-            Saves = new SaveService(Host, new FileSaveStore(userData));
-            GetNode<MainMenu>("MainMenu").ConfigureSaves(Saves);
             GetNode<MainMenu>("MainMenu").ExampleRequested += () => StartExample();
             Recording = new RecordingService(Host, new FileSaveStore(userData));
             var scenesFactory = CreateScenes?.Invoke() ?? HostComposition.CreateScenes();
             Editor = new(Host, scenesFactory, new FileSaveStore(userData), _logger);
-            Saves.CloseEditor = Editor.RequestClose;
+            Saves = new SaveService(Host, new FileSaveStore(userData), Editor);
+            GetNode<MainMenu>("MainMenu").ConfigureSaves(Saves);
             WorldScenes = new(Host, scenesFactory, _logger);
             Editor.Changed += () =>
             {
@@ -163,8 +162,8 @@ public partial class App : Node
                 _logger!.Warning("content", "content_reload_failed", CommandDiagnostics.Describe(problem),
                     new Dictionary<string, object?> { ["code"] = problem.Code, ["field"] = problem.Field });
         }
-        if (Editor is { IsOpen: true }) Editor.RequestClose(Reload);
-        else Reload();
+        if (Editor!.RequestClose(Reload) is { } failure)
+            _logger!.Warning("content", failure.Code, failure.Message);
     }
 
     public override void _UnhandledInput(InputEvent @event)

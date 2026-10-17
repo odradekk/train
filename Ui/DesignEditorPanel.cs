@@ -10,6 +10,10 @@ namespace Train.Ui;
 
 internal partial class DesignEditorPanel : Control
 {
+    internal const string UndoAction = "editor_undo";
+    internal const string RedoAction = "editor_redo";
+    internal const string SaveAction = "editor_save";
+    internal const string CloseAction = "editor_close";
     private EditorService _service = null!;
     private EditorSceneController _scene = null!;
     private LineEdit _name = null!, _description = null!;
@@ -44,7 +48,12 @@ internal partial class DesignEditorPanel : Control
         var bar = new HFlowContainer(); top.AddChild(bar);
         _name = new LineEdit { CustomMinimumSize = new(160, 36), PlaceholderText = "名称" }; bar.AddChild(_name);
         _description = new LineEdit { CustomMinimumSize = new(180, 36), PlaceholderText = "说明" }; bar.AddChild(_description);
-        Add(bar, "Properties", "更新名称说明", () => { if (_service.State is { } state) Preview(new EditOperation.Properties(new(_name.Text, _description.Text), (_scene.EnteredDraft ?? state.Snapshot.Draft).Specification)); });
+        Add(bar, "Properties", "更新名称说明", () =>
+        {
+            if (_service.State is { } state)
+                Preview(new EditOperation.Properties(new(_name.Text, _description.Text),
+                    (_scene.EnteredDraft ?? state.Snapshot.Draft).Specification));
+        });
         Add(bar, "Undo", "撤销", _service.Undo); Add(bar, "Redo", "重做", _service.Redo);
         Add(bar, "SaveDraft", "保存草稿", _service.SaveDraft); Add(bar, "SaveBlueprint", "保存蓝图…", SaveBlueprint);
         Add(bar, "ExitEditor", "退出", () => _service.RequestClose(() => { }));
@@ -81,12 +90,10 @@ internal partial class DesignEditorPanel : Control
         Add(inspector, "ExitObject", "返回上层", () => _service.Enter(null));
         Add(inspector, "ExtractObject", "将所选设备另存为蓝图…", () =>
         {
-            if (_elements.GetSelectedItems().Length == 0 || _service.Session is not { } session) return;
-            var result = session.CaptureObject(_elementIds[_elements.GetSelectedItems()[0]]);
-            if (result is SceneResult<DesignDraft>.Success captured)
-                _service.RequestClose(() => _service.Open(captured.Value, new DraftTarget.UserBlueprint(null), new BlueprintSaveTarget.New(BlueprintLibrary.User), true));
-            else if (result is SceneResult<DesignDraft>.Failure failed) _service.Report(string.Join("；", failed.Problems.Select(problem => problem.Detail)));
-            else if (result is SceneResult<DesignDraft>.Faulted fault) _service.Report(fault.Problem.Detail);
+            if (_elements.GetSelectedItems().Length == 0) return;
+            if (_service.CaptureObject(_elementIds[_elements.GetSelectedItems()[0]]) is not { } captured) return;
+            _service.RequestClose(() => _service.Open(captured, new DraftTarget.UserBlueprint(null),
+                new BlueprintSaveTarget.New(BlueprintLibrary.User), true));
         });
         _x = Number(inspector, "X／移动量 X", -4096, 4096); _y = Number(inspector, "Y／移动量 Y", -4096, 4096); _z = Number(inspector, "Z／移动量 Z", -4096, 4096);
         _endX = Number(inspector, "区域终点 X", -4096, 4096); _endY = Number(inspector, "区域终点 Y", -4096, 4096); _endZ = Number(inspector, "区域终点 Z", -4096, 4096);
@@ -128,9 +135,26 @@ internal partial class DesignEditorPanel : Control
         return panel;
     }
     private static void Add(Node parent, string name, string text, Action action) => parent.AddChild(UiStyle.Button(name, text, action));
-    private static OptionButton Choice(Node parent, string[] values) { var value = new OptionButton(); foreach (var text in values) value.AddItem(text); parent.AddChild(value); return value; }
+    private static OptionButton Choice(Node parent, string[] values)
+    {
+        var value = new OptionButton();
+        foreach (var text in values) value.AddItem(text);
+        parent.AddChild(value);
+        return value;
+    }
     private static SpinBox Number(Node parent, string name, int minimum, int maximum, int value = 0)
-    { var row = new HBoxContainer(); parent.AddChild(row); row.AddChild(UiStyle.Label(name)); var input = new SpinBox { MinValue = minimum, MaxValue = maximum, Value = value, Step = 1, SizeFlagsHorizontal = SizeFlags.ExpandFill }; row.AddChild(input); return input; }
+    {
+        var row = new HBoxContainer();
+        parent.AddChild(row);
+        row.AddChild(UiStyle.Label(name));
+        var input = new SpinBox
+        {
+            MinValue = minimum, MaxValue = maximum, Value = value, Step = 1,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill
+        };
+        row.AddChild(input);
+        return input;
+    }
     private GridPosition At() => new((int)_x.Value, (int)_y.Value, (int)_z.Value);
     private GridBounds Bounds() => new(At(), new((int)_endX.Value, (int)_endY.Value, (int)_endZ.Value));
     private PaintColor Paint() => new("#" + _paint.Color.ToHtml(false));
@@ -146,24 +170,41 @@ internal partial class DesignEditorPanel : Control
         return _action.Selected == 0 ? new CellEdit.Add(value) : new CellEdit.Replace(value);
     }
     private void PreviewCells(EditFootprint? footprint = null)
-    { if (Action() is { } action) Preview(new EditOperation.Cells(footprint ?? (_tool.Selected == 2 ? new EditFootprint.Box(Bounds()) : new EditFootprint.Cell(At())), action)); }
+    {
+        if (Action() is not { } action) return;
+        footprint ??= _tool.Selected == 2 ? new EditFootprint.Box(Bounds()) : new EditFootprint.Cell(At());
+        Preview(new EditOperation.Cells(footprint, action));
+    }
     private void Preview(EditOperation operation)
     {
         _preview = (_service.Preview(operation) as SceneResult<IEditPreview>.Success)?.Value;
         _scene.ShowPreview(_preview);
-        _previewText.Text = _preview is { } p ? $"覆盖 {p.CoveredCells} · 影响 {p.AffectedCells} · 跳过 {p.SkippedCells} · 占格{(p.OccupancyComplete ? "完整" : "未知")}\n" + string.Join("；", p.Conflicts.Select(c => $"{c.Cell}：{c.Problem.Detail}")) : "预览不可用";
+        if (_preview is { } current) _service.ReportProblems(current.Conflicts.Select(conflict => conflict.Problem));
+        _previewText.Text = _preview is { } p
+            ? $"覆盖 {p.CoveredCells} · 影响 {p.AffectedCells} · 跳过 {p.SkippedCells} · 占格{(p.OccupancyComplete ? "完整" : "未知")}\n"
+                + string.Join("；", p.Conflicts.Select(c => $"{c.Cell}：{EditorService.Describe(c.Problem)}"))
+            : "预览不可用";
     }
     private void Apply()
-    { if (_preview is not { CanApply: true } preview) return; if (preview.RequiresConfirmation) { _confirm.DialogText = $"将影响 {preview.AffectedCells} 格。确认应用？"; _confirm.PopupCentered(); } else _service.Apply(preview, false); }
-    private void Pick(SceneHit? hit)
     {
-        if (hit is null)
+        if (_preview is not { CanApply: true } preview) return;
+        if (preview.RequiresConfirmation)
+        {
+            _confirm.DialogText = $"将影响 {preview.AffectedCells} 格。确认应用？";
+            _confirm.PopupCentered();
+        }
+        else _service.Apply(preview, false);
+    }
+    private void Pick(ScenePick pick)
+    {
+        if (pick is ScenePick.Miss)
         {
             if (_scene.PickPlane(GetViewport().GetMousePosition()) is not { } planeCell) { _service.Report("射线未命中设计或工作平面。"); return; }
             _x.Value = planeCell.X; _y.Value = planeCell.Y; _z.Value = planeCell.Z;
             if (_tool.Selected == 1) { _stroke.Clear(); _stroke.Add(planeCell); } else PreviewCells();
             return;
         }
+        if (pick is not ScenePick.Hit { Value: var hit }) return;
         if (_tool.Selected == 3 && hit.Subject is PickSubject.Editing element) { _service.Select(new EditSelection.Elements([element.Element])); return; }
         _lastHit = hit;
         var cell = _scene.CellFor(hit, _action.Selected == 0);
@@ -171,31 +212,53 @@ internal partial class DesignEditorPanel : Control
         if (_tool.Selected == 1) { _stroke.Clear(); _stroke.Add(cell); return; }
         PreviewCells();
     }
-    public override void _Input(InputEvent input)
+    public override void _UnhandledInput(InputEvent input)
     {
         if (!Visible) return;
-        if (input.IsActionPressed("editor_undo")) _service.Undo();
-        else if (input.IsActionPressed("editor_redo")) _service.Redo();
-        else if (input.IsActionPressed("editor_save")) _service.SaveDraft();
-        else if (input.IsActionPressed("editor_close")) _service.RequestClose(() => { });
+        if (input.IsActionPressed(UndoAction)) _service.Undo();
+        else if (input.IsActionPressed(RedoAction)) _service.Redo();
+        else if (input.IsActionPressed(SaveAction)) _service.SaveDraft();
+        else if (input.IsActionPressed(CloseAction)) _service.RequestClose(() => { });
         else if (_stroke.Count > 0 && input is InputEventMouseMotion motion && motion.ButtonMask.HasFlag(MouseButtonMask.Left))
         {
             if (GetViewport().GuiGetHoveredControl() is not null) return;
-            var hit = _scene.Pick(motion.Position);
-            var cell = hit is null ? (_scene.LastPickWasMiss ? _scene.PickPlane(motion.Position) : null) : _scene.CellFor(hit, _action.Selected == 0);
+            var pick = _scene.Pick(motion.Position);
+            var cell = pick switch
+            {
+                ScenePick.Hit hit => _scene.CellFor(hit.Value, _action.Selected == 0),
+                ScenePick.Miss => _scene.PickPlane(motion.Position),
+                _ => null
+            };
             if (cell is { } sample && !_stroke.Contains(sample)) _stroke.Add(sample);
         }
         else if (_stroke.Count > 0 && input is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: false })
-        { PreviewCells(new EditFootprint.Stroke([.. _stroke], (int)_width.Value)); _stroke.Clear(); Apply(); }
+        {
+            PreviewCells(new EditFootprint.Stroke([.. _stroke], (int)_width.Value));
+            _stroke.Clear();
+            Apply();
+        }
         else return;
         GetViewport().SetInputAsHandled();
     }
     public override void _Process(double delta)
     {
         Visible = _service.IsOpen; _scene.Process(delta);
-        if (!Visible) { if (_returnToLibrary && !_service.IsBusy) { _returnToLibrary = false; LibraryRequested?.Invoke(); } return; }
+        if (!Visible)
+        {
+            if (_returnToLibrary && !_service.IsBusy)
+            {
+                _returnToLibrary = false;
+                LibraryRequested?.Invoke();
+            }
+            return;
+        }
         _leave.Visible = _service.Leaving; if (_service.Leaving) _leave.MoveToFront();
-        _status.Text = (_service.State is { } active ? $"层级 {active.EnteredObject?.Value.ToString() ?? "根"} · 已选 {active.Selection.Length} · " : "") + (_service.Message ?? "") + (_service.SceneUnavailable ? " · 场景不可用，可保存、退出或重试" : "") + (_service.IsDirty ? " · 未保存修改" : "");
+        _status.Text = (_service.State is { } active
+            ? $"层级 {active.EnteredObject?.Value.ToString() ?? "根"} · 已选 {active.Selection.Length} · " : "")
+            + (_service.Message ?? "")
+            + (_service.SceneUnavailable ? " · 场景不可用，可保存、退出或重试" : "")
+            + (_service.Host.GetSaveStatus()?.Frozen == true ? " · 核心已冻结，可保存草稿；有效蓝图暂不可保存" : "")
+            + (_service.IsDirty ? " · 未保存修改" : "");
         if (_service.State is not { } state) return;
         if (_paletteSession != state.Snapshot.Stamp.Session) { _paletteSession = state.Snapshot.Stamp.Session; RefreshPalette(); }
         for (var index = 0; index < _elementIds.Count; index++)
@@ -203,11 +266,25 @@ internal partial class DesignEditorPanel : Control
             if (state.Selection.Contains(_elementIds[index])) _elements.Select(index, false);
             else _elements.Deselect(index);
         }
-        if (_shown == state.Snapshot.Stamp && _shownEntered == state.EnteredObject) { if (!ReferenceEquals(_shownEvaluation, state.CurrentEvaluation)) ShowEvaluation(state); return; } _shown = state.Snapshot.Stamp; _shownEntered = state.EnteredObject;
+        if (_shown == state.Snapshot.Stamp && _shownEntered == state.EnteredObject)
+        {
+            if (!ReferenceEquals(_shownEvaluation, state.CurrentEvaluation)) ShowEvaluation(state);
+            return;
+        }
+        _shown = state.Snapshot.Stamp;
+        _shownEntered = state.EnteredObject;
         _preview = null;
+        _previewText.Text = "";
         var current = _scene.EnteredDraft ?? state.Snapshot.Draft;
         _name.Text = current.Display.Name; _description.Text = current.Display.Description;
-        _elements.Clear(); _elementIds.Clear(); foreach (var item in state.Elements) { _elementIds.Add(item.Id); _elements.AddItem($"{(item.Parent is { } parent ? $"↳ {parent.Value} / " : "")}{item.Id.Value} · {item.Kind} {item.At}{(item.Locked ? " [锁定]" : "")}"); }
+        _elements.Clear();
+        _elementIds.Clear();
+        foreach (var item in state.Elements)
+        {
+            _elementIds.Add(item.Id);
+            var prefix = item.Parent is { } parent ? $"↳ {parent.Value} / " : "";
+            _elements.AddItem($"{prefix}{item.Id.Value} · {item.Kind} {item.At}{(item.Locked ? " [锁定]" : "")}");
+        }
         ShowEvaluation(state);
     }
     private void RefreshPalette()
@@ -244,7 +321,12 @@ internal partial class DesignEditorPanel : Control
         {
             null => "评估中；合法性、BOM 和转动范围尚未确认。",
             DesignEvaluation.Complete complete => CompleteInformation(complete),
-            DesignEvaluation.Partial partial => $"信息不完整 · 质量：{Computed(partial.Metrics.MassTons, mass => $"{mass:0.###} t")} · Value：{Computed(partial.Metrics.StructuralBaseValue, value => value.Value.ToString())} · 结构耐久：{Computed(partial.Metrics.MaxStructureDurability, value => value.ToString())}\nBOM：{Computed(partial.Metrics.BillOfMaterials, Bom)}\n已知小计：质量 {partial.KnownSubtotal.MassTons:0.###} t · Value {partial.KnownSubtotal.StructuralBaseValue.Value} · 结构耐久 {partial.KnownSubtotal.MaxStructureDurability}",
+            DesignEvaluation.Partial partial =>
+                $"信息不完整 · 质量：{Computed(partial.Metrics.MassTons, mass => $"{mass:0.###} t")}"
+                + $" · Value：{Computed(partial.Metrics.StructuralBaseValue, value => value.Value.ToString())}"
+                + $" · 结构耐久：{Computed(partial.Metrics.MaxStructureDurability, value => value.ToString())}"
+                + $"\nBOM：{Computed(partial.Metrics.BillOfMaterials, Bom)}"
+                + $"\n已知小计：质量 {partial.KnownSubtotal.MassTons:0.###} t · Value {partial.KnownSubtotal.StructuralBaseValue.Value} · 结构耐久 {partial.KnownSubtotal.MaxStructureDurability}",
             _ => "评估失败，不能保存有效蓝图。"
         };
         var scene = state.CurrentEvaluation switch { DesignEvaluation.Complete complete => complete.Scene, DesignEvaluation.Partial partial => partial.Scene, _ => null };
@@ -258,7 +340,13 @@ internal partial class DesignEditorPanel : Control
                 Add(row, "LocateLockedElement", "定位锁定项", () => _service.Locate(locked.Element));
             }
         }
-        diagnostics = diagnostics.Concat(state.CurrentEvaluation switch { DesignEvaluation.Complete c => c.Diagnostics, DesignEvaluation.Partial p => p.Diagnostics, DesignEvaluation.Failed f => f.Diagnostics, _ => [] });
+        diagnostics = diagnostics.Concat(state.CurrentEvaluation switch
+        {
+            DesignEvaluation.Complete complete => complete.Diagnostics,
+            DesignEvaluation.Partial partial => partial.Diagnostics,
+            DesignEvaluation.Failed failed => failed.Diagnostics,
+            _ => []
+        });
         foreach (var diagnostic in diagnostics)
         {
             var row = new HBoxContainer(); _diagnostics.AddChild(row); row.AddChild(UiStyle.Label(EditorService.Describe(diagnostic)));
@@ -288,9 +376,13 @@ internal partial class DesignEditorPanel : Control
         var text = "";
         foreach (var sweep in scene.RotationSweeps)
         {
-            text += $"\n设备路径 [{string.Join(",", sweep.NestedItemIndices)}] · 转动范围 {Computed(sweep.SweptCells, cells => $"{cells.Length} 格")} · 冲突 {Computed(sweep.ConflictCells, cells => cells.IsEmpty ? "无" : string.Join("、", cells))}";
-            foreach (var reason in (sweep.SweptCells as ComputedValue<ImmutableArray<GridPosition>>.Unknown)?.Reasons ?? []) text += $"\n范围未知：{reason.Code} · 包 {reason.Source?.Package.Value ?? "未知"} · {reason.Message}";
-            foreach (var reason in (sweep.ConflictCells as ComputedValue<ImmutableArray<GridPosition>>.Unknown)?.Reasons ?? []) text += $"\n冲突未知：{reason.Code} · 包 {reason.Source?.Package.Value ?? "未知"} · {reason.Message}";
+            text += $"\n设备路径 [{string.Join(",", sweep.NestedItemIndices)}]"
+                + $" · 转动范围 {Computed(sweep.SweptCells, cells => $"{cells.Length} 格")}"
+                + $" · 冲突 {Computed(sweep.ConflictCells, cells => cells.IsEmpty ? "无" : string.Join("、", cells))}";
+            foreach (var reason in (sweep.SweptCells as ComputedValue<ImmutableArray<GridPosition>>.Unknown)?.Reasons ?? [])
+                text += $"\n范围未知：{reason.Code} · 包 {reason.Source?.Package.Value ?? "未知"} · {reason.Message}";
+            foreach (var reason in (sweep.ConflictCells as ComputedValue<ImmutableArray<GridPosition>>.Unknown)?.Reasons ?? [])
+                text += $"\n冲突未知：{reason.Code} · 包 {reason.Source?.Package.Value ?? "未知"} · {reason.Message}";
         }
         return text;
     }
@@ -298,7 +390,16 @@ internal partial class DesignEditorPanel : Control
     {
         var dialog = new AcceptDialog { Title = "保存有效蓝图", OkButtonText = "保存并退出" }; AddChild(dialog); var body = new VBoxContainer(); dialog.AddChild(body);
         var target = Choice(body, _service.SaveTarget is BlueprintSaveTarget.Overwrite ? ["覆盖当前蓝图", "另存到本局", "另存到用户库"] : ["另存到本局", "另存到用户库"]);
-        dialog.Confirmed += () => { _returnToLibrary = true; var overwrite = _service.SaveTarget is BlueprintSaveTarget.Overwrite; _service.SaveBlueprint(overwrite && target.Selected == 0 ? _service.SaveTarget! : new BlueprintSaveTarget.New(target.Selected == (overwrite ? 1 : 0) ? BlueprintLibrary.Local : BlueprintLibrary.User)); dialog.QueueFree(); }; dialog.PopupCentered(new(380, 160));
+        dialog.Confirmed += () =>
+        {
+            var overwrite = _service.SaveTarget is BlueprintSaveTarget.Overwrite;
+            var selectedTarget = overwrite && target.Selected == 0
+                ? _service.SaveTarget!
+                : new BlueprintSaveTarget.New(target.Selected == (overwrite ? 1 : 0) ? BlueprintLibrary.Local : BlueprintLibrary.User);
+            _returnToLibrary = _service.SaveBlueprint(selectedTarget);
+            dialog.QueueFree();
+        };
+        dialog.PopupCentered(new(380, 160));
     }
     public override void _ExitTree() => _scene.Dispose();
 }

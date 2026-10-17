@@ -12,6 +12,8 @@ train stop <列车ID>
 train plan <列车ID> once|loop <计划项>...
 ```
 
+设计编辑期间，所有 `train` 子命令拒绝并报告 `editing_active`，不提交核心命令。
+
 `form` 按输入顺序编组车辆；`disband` 解编列车；`start` 启动列车；`stop` 停止列车；`plan` 替换运行计划。`once` 表示单次运行，`loop` 表示循环。计划至少有一项，按输入顺序执行：
 
 - `station:<节点ID>:<停站秒数>`：停站，秒数为非负整数，换算为模拟步数；自动货物规则为空。

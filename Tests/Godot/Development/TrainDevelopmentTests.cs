@@ -21,7 +21,7 @@ public sealed class TrainDevelopmentTests
             var binding = fixture.Host.GetStatus()!.Binding;
             var errors = new List<string>();
             var commands = new TrainConsoleCommands(fixture.Host, fixture.Logger, errors.Add);
-            using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()));
+            using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()), fixture.CreateEditor());
             var clockReads = 0;
             using var tools = new DeveloperTools(fixture.Host, saves, () => clockReads++ * 0.006);
             var old = Rejected(1, new(0, 0), new(0, 1));

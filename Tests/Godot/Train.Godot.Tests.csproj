@@ -13,5 +13,6 @@
     <ProjectReference Include="../../Train.csproj" />
     <ProjectReference Include="../ContractSupport/Core/Train.Core.ContractSupport.csproj" />
     <ProjectReference Include="../ContractSupport/Content/Train.Content.ContractSupport.csproj" />
+    <ProjectReference Include="../ContractSupport/Scenes/Train.Scenes.ContractSupport.csproj" />
   </ItemGroup>
 </Project>

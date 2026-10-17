@@ -63,7 +63,7 @@ dotnet build Tests/Engine/Train.Engine.Tests.csproj -c Debug
 
 选择“开发检查预览”启动 `DeveloperToolsPreview`，仍使用同份生产 App、开发窗口、协调器和文件流程；Core、Content、Scenes 为界面列明的有限契约替身。普通会话只支持运行到步 2，重放验证顺序为单步到 `1:0`、推进到 `2:0`、导出普通存档、通过存档面板导入并读取副本。预览启动时在 `TestResults/developer-tools-preview/` 写入固定复现包，窗口或辅助按钮可执行这些操作；场景图层开关请求替身提供彩色线。它不验证真实 Core 重放、生产 Scenes 图层生成、完整 Godot 隔离或四模块联调。
 
-选择“玩家编辑器预览”启动 `EditorPreview`，使用同份生产 App、编辑协调、界面和渲染，Core／Content／Scenes 为明确的有限情景替身。引擎 `EditorUiTests` 检查同帧拾取、当前转动线框、嵌套输入坐标和失败后手动重试；设置 `TRAIN_UI_CAPTURE_DIR` 后有窗口运行该类会保存 `player-editor.png` 与渲染身份。它不验证尚未接入的真实编辑会话、用户库生产装配或阶段 3 的完整设计与委托闭环。
+选择“玩家编辑器预览”启动 `EditorPreview`，使用同份生产 App、编辑协调、界面和渲染，Core／Content／Scenes 为明确的有限情景替身。引擎 `EditorUiTests` 检查同帧拾取、当前转动线框、嵌套输入坐标、笔刷整笔应用、大范围修改确认、过期预览拒绝、Enter 拒绝和失败后手动重试；设置 `TRAIN_UI_CAPTURE_DIR` 后有窗口运行该类会保存 `player-editor.png` 与渲染身份。它不验证尚未接入的真实编辑会话、用户库生产装配或阶段 3 的完整设计与委托闭环。
 
 ## 远端检查
 

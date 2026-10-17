@@ -13,7 +13,7 @@ namespace Train.Ui;
 
 public partial class GameUi : CanvasLayer
 {
-    private EditorService? _editor;
+    private EditorService _editor = null!;
     private DesignEditorPanel? _editorPanel;
     private BlueprintLibraryPanel? _library;
     private HostCoordinator? _host;
@@ -51,7 +51,7 @@ public partial class GameUi : CanvasLayer
     internal string ErrorText => _error.Text;
 
     internal void Initialize(MainMenu menu, HostCoordinator? host, TrainLogger logger,
-        WorldSceneController? scenes, RecordingService? recording, GoodsIconCache icons, EditorService? editor = null)
+        WorldSceneController? scenes, RecordingService? recording, GoodsIconCache icons, EditorService editor)
     { _menu = menu; _host = host; _logger = logger; _scenes = scenes; _recording = recording; _icons = icons; _editor = editor; }
 
     public override void _Ready()
@@ -141,19 +141,12 @@ public partial class GameUi : CanvasLayer
         _settings.Initialize(_host, _logger, ShowError, _recording);
         _root.AddChild(_settings);
         _bar.AddChild(UiStyle.Button("Settings", "设置", _settings.Show));
-        if (_editor is not null)
-        {
-            _library = new BlueprintLibraryPanel { Name = "BlueprintLibrary" }; _library.Initialize(_editor); _root.AddChild(_library);
-            _editorPanel = new DesignEditorPanel { Name = "DesignEditor" }; _editorPanel.Initialize(_editor); _editorPanel.LibraryRequested += _library.Open; _root.AddChild(_editorPanel);
-            _bar.AddChild(UiStyle.Button("NewDesign", "新建设计…", _library.NewDraft));
-            _bar.AddChild(UiStyle.Button("BlueprintLibrary", "蓝图库…", _library.Open));
-            var menuEditor = new HBoxContainer { Position = new(24, 24) };
-            _menu.AddChild(menuEditor);
-            menuEditor.AddChild(UiStyle.Button("MenuNewDesign", "新建设计…", _library.NewDraft));
-            menuEditor.AddChild(UiStyle.Button("MenuBlueprintLibrary", "蓝图库…", _library.Open));
-            if (_panels is not null) _panels.RefitRequested += _editor.OpenInstance;
-            _editor.Changed += OnEditorChanged;
-        }
+        _library = new BlueprintLibraryPanel { Name = "BlueprintLibrary" }; _library.Initialize(_editor); _root.AddChild(_library);
+        _editorPanel = new DesignEditorPanel { Name = "DesignEditor" }; _editorPanel.Initialize(_editor); _editorPanel.LibraryRequested += _library.Open; _root.AddChild(_editorPanel);
+        _bar.AddChild(UiStyle.Button("NewDesign", "新建设计…", _library.NewDraft));
+        _bar.AddChild(UiStyle.Button("BlueprintLibrary", "蓝图库…", _library.Open));
+        if (_panels is not null) _panels.RefitRequested += _editor.OpenInstance;
+        _editor.Changed += OnEditorChanged;
         _menu.SetHostAvailable(_host is not null);
         _menu.NewGameRequested += OpenNewGame;
         _menu.SettingsRequested += _settings.Show;
@@ -170,7 +163,7 @@ public partial class GameUi : CanvasLayer
     {
         var showingScene = _scenes?.View.Visible == true;
         var status = _host?.GetStatus();
-        var editing = _editor?.IsOpen == true;
+        var editing = _editor.IsOpen;
         _map.Visible = status is not null && !showingScene && !editing;
         if (_panels is not null) _panels.Visible = !editing;
         if (_formation is not null) _formation.Visible = !editing && _formation.Visible;
@@ -377,7 +370,7 @@ public partial class GameUi : CanvasLayer
             _newGameError.Text = "正在创建对局，可取消。";
             _createNewGame!.Disabled = true;
             }
-            if (_editor is not null) _editor.RequestClose(Start); else Start();
+            if (_editor.RequestClose(Start) is { } failure) ShowError(failure.Message);
         }, true);
         create.Disabled = profiles.IsEmpty;
         body.AddChild(create);
@@ -425,7 +418,7 @@ public partial class GameUi : CanvasLayer
 
     public override void _ExitTree()
     {
-        if (_editor is not null) _editor.Changed -= OnEditorChanged;
+        _editor.Changed -= OnEditorChanged;
         if (_scenes is not null)
         { _scenes.ReturnedToMap -= OnReturnedToMap; _scenes.Selected -= OnSelected; }
         if (_host is not null)

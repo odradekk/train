@@ -15,132 +15,164 @@ internal sealed class EditorSceneController : IDisposable
     private SceneDisplay? _display;
     private IDesignEditSession? _session;
     private EditStamp? _stamp;
+    private EditStamp? _displayStamp;
     private EditElementId? _entered;
     private System.Collections.Immutable.ImmutableArray<EditElementId> _selection = [];
-    internal bool LastPickWasMiss { get; private set; }
     private DesignEvaluation? _evaluation;
-    private EditWorkPlane? _drawnPlane;
-    private ScenePoint? _gridOrigin;
-    private readonly ImmediateMesh _gridMesh = new();
-    private readonly StandardMaterial3D _gridMaterial = new() { ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded, AlbedoColor = new Color(0.35f, 0.45f, 0.5f) };
-    private MeshInstance3D _grid = null!;
-    private readonly Node3D _highlights = new() { Name = "EditPreviewHighlights" };
-    private readonly BoxMesh _highlightMesh = new() { Size = Vector3.One * 1.01f };
-    private readonly StandardMaterial3D _highlightMaterial = new()
-    {
-        ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-        Transparency = BaseMaterial3D.TransparencyEnum.Alpha, AlbedoColor = new Color(0.2f, 0.8f, 1, 0.25f)
-    };
+    private readonly EditorOverlay _overlay = new();
+    private bool _retrying;
+    private System.Collections.Immutable.ImmutableArray<SceneProblem> _diagnostics = [];
     internal WorldSceneView View { get; } = new();
     internal SceneDisplay? Display => _display;
     internal EditViewOptions Options { get; set; } = new(new(GridAxis.Y, 0), null, SceneDebugLayer.None);
-    internal event Action<SceneHit?>? Picked;
+    internal event Action<ScenePick>? Picked;
     internal EditorSceneController(EditorService service)
     {
-        _service = service; _cache = new(_dispatcher); service.Changed += OnChanged;
-        View.SetActive(false); View.AddChild(_highlights);
-        _grid = new() { Name = "WorkPlaneGrid", Mesh = _gridMesh, MaterialOverride = _gridMaterial, CastShadow = GeometryInstance3D.ShadowCastingSetting.Off }; View.AddChild(_grid);
-        View.PickRequested += position => { var hit = Pick(position); if (hit is not null || LastPickWasMiss) Picked?.Invoke(hit); };
-        View.ReturnRequested += () => service.RequestClose(() => { });
+        _service = service;
+        _cache = new(_dispatcher);
+        service.Changed += OnChanged;
+        View.SetActive(false);
+        _overlay.Attach(View);
+        View.PickRequested += position =>
+        {
+            if (Pick(position) is { } result) Picked?.Invoke(result);
+        };
     }
     private void OnChanged()
     {
-        if (_service.State?.Snapshot.Stamp == _stamp && _service.State?.EnteredObject == _entered && (_service.State?.Selection ?? []).SequenceEqual(_selection) && ReferenceEquals(_service.State?.CurrentEvaluation, _evaluation)) return;
-        if (_display is not null) { _display.Root.Visible = false; _display.CancelPreparation(); }
-        View.Interactive = false; ShowPreview(null);
+        var state = _service.State;
+        if (state?.Snapshot.Stamp == _stamp && state?.EnteredObject == _entered &&
+            (state?.Selection ?? []).SequenceEqual(_selection) && ReferenceEquals(state?.CurrentEvaluation, _evaluation)) return;
+        _display?.CancelPreparation();
+        _display?.ClearDebugLines();
+        View.Interactive = false;
+        ShowPreview(null);
     }
     internal void Process(double delta, bool retry = false)
     {
         if (_service.Session is not { } session || _service.FixedContent is not { } content)
-        { Clear(); return; }
+        {
+            Clear();
+            return;
+        }
         if (_session != session)
         {
-            Clear(); _session = session; _display = new(_cache, content); View.AddChild(_display.Root);
+            Clear();
+            _session = session;
+            _display = new(_cache, content);
+            View.AddChild(_display.Root);
         }
         View.SetActive(true);
-        if (_service.SceneUnavailable && !retry) { View.Interactive = false; return; }
+        if (retry)
+        {
+            _retrying = true;
+            _display!.CancelPreparation();
+        }
+        if (_service.SceneUnavailable && !_retrying)
+        {
+            HideScene();
+            return;
+        }
         try
         {
-            var stamp = _service.State?.Snapshot.Stamp;
-            if (_entered != _service.State?.EnteredObject) { _entered = _service.State?.EnteredObject; _drawnPlane = null; }
-            _selection = _service.State?.Selection ?? [];
-            _evaluation = _service.State?.CurrentEvaluation;
-            if (_stamp != stamp) { _display!.Root.Visible = false; _display.CancelPreparation(); ShowPreview(null); _stamp = stamp; }
-            var result = session.Present(Options, retry ? null : _display!.DisplayedFrame);
+            var state = _service.State;
+            if (_service.SceneUnavailable && !_retrying) { HideScene(); return; }
+            var stamp = state?.Snapshot.Stamp;
+            _entered = state?.EnteredObject;
+            _selection = state?.Selection ?? [];
+            _evaluation = state?.CurrentEvaluation;
+            if (_stamp != stamp)
+            {
+                _display!.CancelPreparation();
+                _display.ClearDebugLines();
+                ShowPreview(null);
+                _stamp = stamp;
+            }
+            var result = session.Present(Options, _retrying ? null : _display!.DisplayedFrame);
             if (result is SceneResult<ISceneFrame>.Success success)
             {
                 if (success.Value.Readiness == SceneReadiness.Failed)
-                { foreach (var problem in success.Value.Diagnostics) _service.SceneFailed(problem); return; }
+                {
+                    Fail(success.Value.Diagnostics);
+                    return;
+                }
                 using var prepared = _display!.Prepare(success.Value);
-                if (prepared is not null) { prepared.Commit(); View.ShowFrame(success.Value, null); }
-                _display.UpdateDebugLines(success.Value.DebugLines);
-                DrawPlane(success.Value);
-                View.CameraRig.Update(delta);
-                if (retry) _service.SceneRecovered();
+                if (prepared is not null)
+                {
+                    prepared.Commit();
+                    _displayStamp = _stamp;
+                    View.ShowFrame(prepared.Frame, null);
+                    _overlay.DrawPlane(Options.WorkPlane, prepared.Frame.Origin, EnteredTransform());
+                    if (_retrying && prepared.Frame.Update.Base is null)
+                    {
+                        _retrying = false;
+                        _service.SceneRecovered();
+                    }
+                }
+                if (!_diagnostics.SequenceEqual(success.Value.Diagnostics))
+                {
+                    _diagnostics = success.Value.Diagnostics;
+                    if (!_diagnostics.IsEmpty) _service.ReportProblems(_diagnostics);
+                }
+                if (!_retrying) View.CameraRig.Update(delta);
             }
-            else if (result is SceneResult<ISceneFrame>.Failure failure)
-                foreach (var problem in failure.Problems) _service.SceneFailed(problem);
-            else if (result is SceneResult<ISceneFrame>.Faulted fault) _service.SceneFailed(fault.Problem);
+            else if (result is SceneResult<ISceneFrame>.Failure failure) Fail(failure.Problems);
+            else if (result is SceneResult<ISceneFrame>.Faulted fault) Fail([fault.Problem]);
         }
-        catch (Exception exception) { _service.SceneFailed(new("editor_display_failed", SceneStage.Present, null, null, null, null, exception.Message)); }
+        catch (Exception exception)
+        {
+            Fail([new("editor_display_failed", SceneStage.Present, null, null, null, null, exception.Message)]);
+        }
     }
-    internal SceneHit? Pick(Vector2 position)
+    private void HideScene()
+    {
+        if (_display is not null) _display.Root.Visible = false;
+        _overlay.Visible = false;
+        View.Interactive = false;
+    }
+    private void Fail(IEnumerable<SceneProblem> problems)
+    {
+        _retrying = false;
+        _diagnostics = [];
+        _display?.CancelPreparation();
+        HideScene();
+        foreach (var problem in problems) _service.SceneFailed(problem);
+    }
+    internal ScenePick? Pick(Vector2 position)
     {
         try { return PickCore(position); }
         catch (Exception error)
         {
-            LastPickWasMiss = false;
-            _service.SceneFailed(new("editor_pick_failed", SceneStage.Pick, null, null, null, null, error.Message));
+            Fail([new("editor_pick_failed", SceneStage.Pick, null, null, null, null, error.Message)]);
             return null;
         }
     }
-    private SceneHit? PickCore(Vector2 position)
+    private ScenePick? PickCore(Vector2 position)
     {
-        LastPickWasMiss = false;
-        if (_service.SceneUnavailable || _service.Session != _session || _service.State?.Snapshot.Stamp != _stamp || _display?.DisplayedFrame is not { } frame || !_display.Root.Visible) return null;
+        if (_retrying || _display?.IsPreparing == true) return new ScenePick.NotReady();
+        if (_service.SceneUnavailable || _service.Session != _session || _service.State?.Snapshot.Stamp != _displayStamp ||
+            _display?.DisplayedFrame is not { } frame || !_display.Root.Visible) return null;
         var camera = View.CameraRig.Camera;
-        var origin = camera.ProjectRayOrigin(position); var direction = camera.ProjectRayNormal(position);
+        var origin = camera.ProjectRayOrigin(position);
+        var direction = camera.ProjectRayNormal(position);
         var result = frame.Pick(new(new(origin.X, origin.Y, origin.Z), new(direction.X, direction.Y, direction.Z), 4000));
-        LastPickWasMiss = result is ScenePick.Miss;
-        if (result is not ScenePick.Hit hit) return null;
+        if (result is not ScenePick.Hit hit) return result;
         if (hit.Value.Frame != frame.Update.Frame || hit.Value.Subject is not PickSubject.Editing subject ||
             subject.Session != _session!.Id || subject.Revision != _stamp!.Revision)
-        { _service.Report("拾取结果已过期，请重新选择。"); return null; }
-        return hit.Value;
-    }
-    private void DrawPlane(ISceneFrame frame)
-    {
-        if (_drawnPlane == Options.WorkPlane && _gridOrigin == frame.Origin) return;
-        _drawnPlane = Options.WorkPlane; _gridOrigin = frame.Origin;
-        _gridMesh.ClearSurfaces(); _gridMesh.SurfaceBegin(Mesh.PrimitiveType.Lines, _gridMaterial);
-        var plane = Options.WorkPlane;
-        Vector3 Point(int a, int b)
         {
-            var p = plane.Axis switch { GridAxis.X => new Vector3(plane.Coordinate, a, b), GridAxis.Y => new Vector3(a, plane.Coordinate, b), _ => new Vector3(a, b, plane.Coordinate) };
-            return EnteredTransform() * p - new Vector3((float)frame.Origin.X, (float)frame.Origin.Y, (float)frame.Origin.Z);
+            _service.Report("拾取结果已过期，请重新选择。");
+            return null;
         }
-        for (var i = -16; i <= 16; i++)
-        {
-            _gridMesh.SurfaceAddVertex(Point(i, -16)); _gridMesh.SurfaceAddVertex(Point(i, 16));
-            _gridMesh.SurfaceAddVertex(Point(-16, i)); _gridMesh.SurfaceAddVertex(Point(16, i));
-        }
-        _gridMesh.SurfaceEnd();
+        return result;
     }
     internal void ShowPreview(IEditPreview? preview)
     {
-        foreach (var child in _highlights.GetChildren()) { _highlights.RemoveChild(child); child.QueueFree(); }
-        if (preview is null || _display?.DisplayedFrame is not { } frame) return;
-        foreach (var cell in preview.HighlightCells)
-            _highlights.AddChild(new MeshInstance3D
-            {
-                Mesh = _highlightMesh, MaterialOverride = _highlightMaterial,
-                Position = EnteredTransform() * new Vector3(cell.X + 0.5f, cell.Y + 0.5f, cell.Z + 0.5f) - new Vector3((float)frame.Origin.X, (float)frame.Origin.Y, (float)frame.Origin.Z),
-                CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
-            });
+        _overlay.ShowPreview(preview, _display?.DisplayedFrame?.Origin, EnteredTransform());
     }
     internal GridPosition? PickPlane(Vector2 position)
     {
-        if (_service.SceneUnavailable || _service.Session != _session || _service.State?.Snapshot.Stamp != _stamp || _display?.DisplayedFrame is not { } frame || !_display.Root.Visible) return null;
+        if (_retrying || _display?.IsPreparing == true) return null;
+        if (_service.SceneUnavailable || _service.Session != _session || _service.State?.Snapshot.Stamp != _displayStamp || _display?.DisplayedFrame is not { } frame || !_display.Root.Visible) return null;
         var camera = View.CameraRig.Camera;
         var inverse = EnteredTransform().AffineInverse();
         var origin = inverse * (camera.ProjectRayOrigin(position) + new Vector3((float)frame.Origin.X, (float)frame.Origin.Y, (float)frame.Origin.Z));
@@ -191,7 +223,8 @@ internal sealed class EditorSceneController : IDisposable
         var transform = Transform3D.Identity;
         foreach (var index in path)
         {
-            var item = draft!.Layout.NestedItems[index];
+            if (draft is null) break;
+            var item = draft.Layout.NestedItems[index];
             var (at, orientation) = item switch
             {
                 NestedDesignItem.AssemblyCopy copy => (copy.At, copy.Orientation),
@@ -214,6 +247,24 @@ internal sealed class EditorSceneController : IDisposable
         "Pz" => new(0, 0, 1), "Nz" => new(0, 0, -1), _ => throw new InvalidOperationException("无效正交朝向。")
     };
     private void Clear()
-    { _display?.Dispose(); _display = null; _session = null; _stamp = null; _evaluation = null; View.SetActive(false); }
-    public void Dispose() { _service.Changed -= OnChanged; Clear(); ShowPreview(null); _highlightMesh.Dispose(); _highlightMaterial.Dispose(); _gridMesh.Dispose(); _gridMaterial.Dispose(); _cache.Dispose(); _dispatcher.Dispose(); }
+    {
+        _display?.Dispose();
+        _display = null;
+        _session = null;
+        _stamp = null;
+        _displayStamp = null;
+        _evaluation = null;
+        _retrying = false;
+        _diagnostics = [];
+        _overlay.Visible = false;
+        View.SetActive(false);
+    }
+    public void Dispose()
+    {
+        _service.Changed -= OnChanged;
+        Clear();
+        _overlay.Dispose();
+        _cache.Dispose();
+        _dispatcher.Dispose();
+    }
 }

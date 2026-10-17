@@ -39,14 +39,11 @@ internal sealed class SceneDisplay : IDisposable
         _resources = new(cache, content);
     }
 
-    internal void UpdateDebugLines(System.Collections.Immutable.ImmutableArray<SceneDebugLine> lines)
+    internal void ClearDebugLines()
     {
         _cache.RequireMainThread();
-        if (_debugLines is null && lines.IsEmpty || _debugLines?.Lines.SequenceEqual(lines) == true) return;
-        var replacement = lines.IsEmpty ? null : new DebugLineGroup(lines);
         _debugLines?.Dispose();
-        _debugLines = replacement;
-        if (replacement is not null) Root.AddChild(replacement.Root);
+        _debugLines = null;
     }
 
     internal PreparedFrame? Prepare(ISceneFrame frame)

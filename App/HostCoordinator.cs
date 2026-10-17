@@ -94,7 +94,7 @@ internal sealed class HostCoordinator : IDisposable
     internal CoreProblem? BeginEditing()
     {
         EnsureOwner();
-        if (MutationProblem() is { } problem) return problem;
+        if (MutationProblem(allowFrozen: true) is { } problem) return problem;
         _active!.Driver.SetEditingPaused(true);
         return null;
     }
@@ -380,7 +380,6 @@ internal sealed class HostCoordinator : IDisposable
     internal (long Operation, CoreProblem? Problem) BeginReplay(string path, Func<string, RecordingPackage>? read = null)
     {
         EnsureOwner();
-        if (IsEditing) return (0, Problem("editing_active"));
         if (SessionOptions is not { } options) return (0, Problem("session_options_unavailable"));
         return Begin(OperationKind.Replay, () => PrepareReplay(path, options.Runtime, read ?? RecordingPackage.Read),
             CommandSource.UserInterface, options: options);
@@ -454,30 +453,27 @@ internal sealed class HostCoordinator : IDisposable
     }
 
     internal (long Operation, CoreProblem? Problem) BeginContentEdit(ContentEdit edit,
-        Func<IContentCandidate, ContentResult<bool>>? write = null)
+        Func<IContentCandidate, FileWriteResult>? write = null)
     {
         EnsureOwner();
-        if (IsEditing && edit is not ContentEdit.SaveLocalDraft) return (0, Problem("editing_active"));
-        if (MutationProblem(allowEditing: edit is ContentEdit.SaveLocalDraft) is { } problem) return (0, problem);
+        var savingDraft = edit is ContentEdit.SaveLocalDraft;
+        if (MutationProblem(allowFrozen: savingDraft, allowEditing: savingDraft) is { } problem) return (0, problem);
         var basis = _content!;
         return Begin(OperationKind.Edit, () => PrepareContentEdit(basis, edit, write), CommandSource.UserInterface);
     }
 
     private PreparedOperation PrepareContentEdit(IContentView basis, ContentEdit edit,
-        Func<IContentCandidate, ContentResult<bool>>? write)
+        Func<IContentCandidate, FileWriteResult>? write)
     {
         var result = _contentFactory.PrepareEdit(basis, edit);
         if (result is not ContentResult<IContentCandidate>.Success prepared) return new(result, null, null);
         try
         {
             var written = write?.Invoke(prepared.Value);
-            ContentResult<IContentCandidate>? failure = written switch
-            {
-                ContentResult<bool>.Failure failed => new ContentResult<IContentCandidate>.Failure(failed.Diagnostics),
-                ContentResult<bool>.Faulted faulted => new ContentResult<IContentCandidate>.Faulted(faulted.Code, faulted.Message, faulted.StackTrace),
-                ContentResult<bool>.Success { Value: false } => new ContentResult<IContentCandidate>.Faulted("content_write_failed", "内容文件未写入。", null),
-                _ => null
-            };
+            ContentResult<IContentCandidate>? failure = written is { Published: false }
+                ? new ContentResult<IContentCandidate>.Faulted(written.Code ?? "content_write_failed",
+                    written.Message ?? "内容文件未写入。", null)
+                : null;
             if (write is null && !prepared.Value.RequiredWrites.IsEmpty)
                 failure = new ContentResult<IContentCandidate>.Faulted("content_write_required", "内容文件尚未写入。", null);
             if (failure is null) return new(result, null, null);

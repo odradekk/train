@@ -67,7 +67,7 @@ internal partial class BlueprintLibraryPanel : Control
         var plot = new OptionButton(); foreach (var label in DesignEditorLabels.PlotSizes) plot.AddItem(label); body.AddChild(plot);
         var building = new OptionButton(); foreach (var label in DesignEditorLabels.BuildingKinds) building.AddItem(label); body.AddChild(building);
         var tags = new LineEdit { PlaceholderText = "设施标签：" + string.Join(",", Enum.GetNames<FacilityTag>()) }; body.AddChild(tags);
-        var destination = new OptionButton(); destination.AddItem("本局草稿（需已开局）"); destination.AddItem("用户草稿"); body.AddChild(destination);
+        var destination = new OptionButton(); destination.AddItem("本局草稿"); destination.AddItem("用户草稿"); body.AddChild(destination);
         void Refresh() { size.Visible = kind.Selected == 0; plot.Visible = building.Visible = tags.Visible = kind.Selected == 1; }
         kind.ItemSelected += _ => Refresh(); Refresh();
         dialog.Confirmed += () =>
@@ -76,7 +76,7 @@ internal partial class BlueprintLibraryPanel : Control
             { _service.Report("设施兼容标签无效。允许：" + string.Join("、", Enum.GetNames<FacilityTag>())); return; }
             DesignSpecification spec = kind.Selected switch
             {
-                0 => new DesignSpecification.Vehicle((SizeClass)size.Selected),
+                0 => new DesignSpecification.Vehicle(DesignEditorLabels.VehicleSizeValues[size.Selected]),
                 1 => new DesignSpecification.Building((PlotSize)plot.Selected, (BuildingKind)building.Selected, [.. tags.Text.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Select(value => Enum.Parse<FacilityTag>(value, true))]),
                 _ => new DesignSpecification.Assembly(null)
             };
@@ -89,7 +89,17 @@ internal partial class BlueprintLibraryPanel : Control
 
 internal static class DesignEditorLabels
 {
-    internal static readonly string[] VehicleSizes = ["小型", "中型", "大型", "超大型", "泰坦级"];
+    internal static readonly SizeClass[] VehicleSizeValues = Enum.GetValues<SizeClass>();
+    internal static readonly string[] VehicleSizes = VehicleSizeValues.Select(SizeLabel).ToArray();
+    private static string SizeLabel(SizeClass size) => size switch
+    {
+        SizeClass.Small => "小型",
+        SizeClass.Medium => "中型",
+        SizeClass.Large => "大型",
+        SizeClass.ExtraLarge => "超大型",
+        SizeClass.Titan => "泰坦",
+        _ => size.ToString()
+    };
     internal static readonly string[] PlotSizes = ["小型地块", "中型地块", "大型地块", "巨型地块", "小型站点地块", "大型站点地块"];
     internal static readonly string[] BuildingKinds = ["生产建筑", "仓库", "供能建筑", "施工建筑", "车站", "防御建筑"];
 }

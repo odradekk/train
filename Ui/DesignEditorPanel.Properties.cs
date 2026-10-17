@@ -19,7 +19,7 @@ internal partial class DesignEditorPanel
         if (draft.Specification is DesignSpecification.Vehicle vehicle)
         {
             body.AddChild(UiStyle.Label("车辆尺寸档位")); size = Choice(body, DesignEditorLabels.VehicleSizes);
-            size.Select(vehicle.Size is { } value ? (int)value : 0);
+            size.Select(vehicle.Size is { } value ? Array.IndexOf(DesignEditorLabels.VehicleSizeValues, value) : 0);
         }
         else if (draft.Specification is DesignSpecification.Building building)
         {
@@ -31,7 +31,7 @@ internal partial class DesignEditorPanel
         dialog.Confirmed += () =>
         {
             DesignSpecification specification;
-            if (size is not null) specification = new DesignSpecification.Vehicle((SizeClass)size.Selected);
+            if (size is not null) specification = new DesignSpecification.Vehicle(DesignEditorLabels.VehicleSizeValues[size.Selected]);
             else
             {
                 var values = tags!.Text.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);

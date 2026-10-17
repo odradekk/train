@@ -24,11 +24,28 @@ internal sealed class EditorService : IDisposable
     private bool _forceDirty;
     private bool _disposed;
     private string? _reopenMessage;
+    private EditState? _lastState;
+    private bool _readFailed;
 
     internal HostCoordinator Host { get; }
     internal IDesignEditSession? Session { get; private set; }
     internal IContentView? FixedContent { get; private set; }
-    internal EditState? State => Session?.Read();
+    internal EditState? State
+    {
+        get
+        {
+            if (Session is null) return null;
+            if (_readFailed) return _lastState;
+            try { return _lastState = Session.Read(); }
+            catch (Exception error)
+            {
+                _readFailed = true;
+                _forceDirty = true;
+                SceneFailed(new("editor_read_failed", SceneStage.Edit, null, null, null, null, error.Message));
+                return _lastState;
+            }
+        }
+    }
     internal DraftTarget? Target { get; private set; }
     internal BlueprintSaveTarget? SaveTarget { get; private set; }
     internal bool IsOpen => Session is not null || _opening is not null;
@@ -42,19 +59,32 @@ internal sealed class EditorService : IDisposable
 
     internal EditorService(HostCoordinator host, IScenesFactory scenes, FileSaveStore store, TrainLogger logger)
     {
-        Host = host; _scenes = scenes; _store = store; _logger = logger;
+        Host = host;
+        _scenes = scenes;
+        _store = store;
+        _logger = logger;
         host.OperationEnded += OperationEnded;
     }
 
     internal void Open(DesignDraft draft, DraftTarget target, BlueprintSaveTarget? saveTarget = null, bool unsaved = false)
     {
         if (IsOpen || IsBusy) { Report("编辑器已有操作，请先结束当前编辑。"); return; }
+        ClearFeedback();
+        _afterClose = null;
+        _reopenMessage = null;
+        _lastState = null;
+        _readFailed = false;
         if (Host.BeginEditing() is { } problem) { Report(CommandDiagnostics.Describe(problem)); return; }
         FixedContent = Host.Content!;
-        Target = target; SaveTarget = saveTarget; _draft = new(Guid.NewGuid()); _forceDirty = unsaved;
+        Target = target;
+        SaveTarget = saveTarget;
+        _draft = new(Guid.NewGuid());
+        _forceDirty = unsaved;
         var content = FixedContent;
         _opening = new(draft, Task.Run(() => Host.ContentFactory.EvaluateDesign(content, draft)));
-        SceneUnavailable = false; HasError = false; Message = "正在准备编辑器…"; Changed?.Invoke();
+        SceneUnavailable = false;
+        Message = "正在准备编辑器…";
+        Changed?.Invoke();
     }
 
     internal void OpenDraft(SavedContentDraft draft)
@@ -109,18 +139,33 @@ internal sealed class EditorService : IDisposable
             try
             {
                 var result = opening.Work.GetAwaiter().GetResult();
-                if (result is not ContentResult<DesignEvaluation>.Success evaluated) { ReportResult(result); Close(); return; }
+                if (result is not ContentResult<DesignEvaluation>.Success evaluated)
+                {
+                    Close();
+                    ReportResult(result);
+                    return;
+                }
                 var opened = _scenes.OpenEditor(FixedContent!, evaluated.Value);
-                if (opened is not SceneResult<IDesignEditSession>.Success success) { ReportResult(opened); Close(); return; }
+                if (opened is not SceneResult<IDesignEditSession>.Success success)
+                {
+                    Close();
+                    ReportResult(opened);
+                    return;
+                }
                 Session = success.Value;
-                _evaluating = Session.Read().Snapshot.Stamp;
+                _lastState = Session.Read();
+                _evaluating = _lastState.Snapshot.Stamp;
                 Message = _reopenMessage;
                 HasError = _reopenMessage is not null;
                 _reopenMessage = null;
                 LogDiagnostics(evaluated.Value);
                 Changed?.Invoke();
             }
-            catch (Exception error) { Report(error.Message); Close(); }
+            catch (Exception error)
+            {
+                Close();
+                Report(error.Message);
+            }
         }
         foreach (var evaluation in _evaluations.Where(item => item.Work.IsCompleted).ToArray())
         {
@@ -142,13 +187,21 @@ internal sealed class EditorService : IDisposable
                 else _logger.Warning("editor", "editor_evaluation_discarded", error.Message);
             }
         }
-        if (Session is { } session && session.Read().Snapshot.Stamp != _evaluating)
+        var state = State;
+        if (!SceneUnavailable && Session is { } session && state is not null && state.Snapshot.Stamp != _evaluating)
         {
-            var snapshot = session.Capture();
-            _evaluating = snapshot.Stamp;
-            var content = FixedContent!;
-            _evaluations.Add(new(session, snapshot, Task.Run(() => Host.ContentFactory.EvaluateDesign(content, snapshot.Draft))));
-            Changed?.Invoke();
+            try
+            {
+                var snapshot = session.Capture();
+                _evaluating = snapshot.Stamp;
+                var content = FixedContent!;
+                _evaluations.Add(new(session, snapshot, Task.Run(() => Host.ContentFactory.EvaluateDesign(content, snapshot.Draft))));
+                Changed?.Invoke();
+            }
+            catch (Exception error)
+            {
+                SceneFailed(new("editor_capture_failed", SceneStage.Edit, null, null, null, null, error.Message));
+            }
         }
         if (_write is { IsCompleted: true } write)
         {
@@ -156,17 +209,32 @@ internal sealed class EditorService : IDisposable
             FileWriteResult result;
             try { result = write.GetAwaiter().GetResult(); }
             catch (Exception error) { result = new(false, "draft_write_failed", error.Message); }
-            CompleteSave(result);
+            var saving = (PendingSave.UserDraft)_saving!;
+            CompleteSave(result, saving.Session, saving.Snapshot);
         }
     }
 
-    internal void RequestClose(Action after)
+    internal SaveFailure? RequestClose(Action after)
     {
-        if (IsBusy) { Report("请等待当前编辑操作结束。"); return; }
-        if (!IsOpen) { after(); return; }
-        if (!IsDirty) { Close(); after(); return; }
-        if (_afterClose is not null) return;
-        _afterClose = after; Changed?.Invoke();
+        if (IsBusy) return CloseFailure("busy", "请等待当前编辑操作结束。");
+        if (!IsOpen) { after(); return null; }
+        if (!IsDirty)
+        {
+            if (!Close()) return new("editor_close_failed", Message!);
+            after();
+            return null;
+        }
+        if (_afterClose is not null)
+            return CloseFailure("editor_close_pending", "请先保存、放弃或取消当前关闭请求。");
+        _afterClose = after;
+        Changed?.Invoke();
+        return null;
+    }
+
+    private SaveFailure CloseFailure(string code, string message)
+    {
+        Report(message);
+        return new(code, message);
     }
 
     internal void ResolveClose(LeaveChoice choice)
@@ -180,37 +248,56 @@ internal sealed class EditorService : IDisposable
     private void FinishClose()
     {
         var after = _afterClose;
-        _afterClose = null;
-        Close(); after?.Invoke();
+        if (Close()) after?.Invoke();
     }
 
-    private void Close()
+    private bool Close()
     {
         var session = Session;
-        Session = null; _opening = null; _evaluating = null;
-        SceneUnavailable = false; FixedContent = null; _forceDirty = false;
+        Session = null;
+        _opening = null;
+        _evaluating = null;
+        _afterClose = null;
+        _reopenMessage = null;
+        _lastState = null;
+        _readFailed = false;
+        SceneUnavailable = false;
+        FixedContent = null;
+        _forceDirty = false;
+        ClearFeedback();
+        Exception? failure = null;
         try { session?.Dispose(); }
-        catch (Exception error) { Report(error.Message); }
+        catch (Exception error) { failure = error; }
         finally { Host.EndEditing(); Changed?.Invoke(); }
+        if (failure is null) return true;
+        Report(failure.Message);
+        return false;
+    }
+
+    private void ClearFeedback()
+    {
+        HasError = false;
+        Message = null;
     }
 
     internal void SaveDraft()
     {
         if (IsBusy || Session is not { } session || Target is not { } target) return;
+        ClearFeedback();
         try
         {
             var snapshot = session.Capture();
             var saved = new SavedContentDraft(_draft, snapshot.Stamp.Revision, target, new DraftPayload.Design(snapshot.Draft));
             if (target is DraftTarget.UserBlueprint)
             {
-                _saving = new(session, snapshot, target, SaveTarget, false, 0, _draft);
+                _saving = new PendingSave.UserDraft(session, snapshot);
                 _write = Task.Run(() => WriteDraft(saved));
             }
             else
             {
                 var begun = Host.BeginContentEdit(new ContentEdit.SaveLocalDraft(saved));
                 if (begun.Problem is { } problem) { Report(CommandDiagnostics.Describe(problem)); _afterClose = null; return; }
-                _saving = new(session, snapshot, target, SaveTarget, false, begun.Operation, _draft);
+                _saving = new PendingSave.LocalDraft(session, snapshot, begun.Operation);
             }
             Message = "正在保存草稿…"; Changed?.Invoke();
         }
@@ -228,65 +315,84 @@ internal sealed class EditorService : IDisposable
         }, overwrite: true);
     }
 
-    private string DraftPath(DraftId id) => Path.Combine(_store.Root, "authoring-drafts", id.Value.ToString("D") + ".json");
+    private string DraftPath(DraftId id) =>
+        Path.Combine(AuthoringPaths.UserDraftsDirectory(_store.Root), id.Value.ToString("D") + ".json");
 
     internal ImmutableArray<SavedContentDraft> UserDrafts()
     {
-        var path = Path.Combine(_store.Root, "authoring-drafts");
+        ClearFeedback();
+        var path = AuthoringPaths.UserDraftsDirectory(_store.Root);
         if (!Directory.Exists(path)) return [];
         var drafts = ImmutableArray.CreateBuilder<SavedContentDraft>();
         try
         {
             foreach (var file in Directory.EnumerateFiles(path, "*.json").Order(StringComparer.Ordinal))
             {
-                var result = Host.ContentFactory.DecodeDraft(File.ReadAllText(file, new UTF8Encoding(false, true)));
-                if (result is ContentResult<SavedContentDraft>.Success success && success.Value.Target is DraftTarget.UserBlueprint) drafts.Add(success.Value);
-                else Report($"{file}：{Describe(result)}");
+                try
+                {
+                    var result = Host.ContentFactory.DecodeDraft(File.ReadAllText(file, new UTF8Encoding(false, true)));
+                    if (result is ContentResult<SavedContentDraft>.Success success)
+                    {
+                        if (success.Value.Target is DraftTarget.UserBlueprint) drafts.Add(success.Value);
+                    }
+                    else Report($"{file}：{Describe(result)}");
+                }
+                catch (Exception error) { Report($"{file}：{error.Message}"); }
             }
         }
         catch (Exception error) { Report(error.Message); }
         return drafts.ToImmutable();
     }
 
-    internal void SaveBlueprint(BlueprintSaveTarget target)
+    internal bool SaveBlueprint(BlueprintSaveTarget target)
     {
-        if (IsBusy || Session is not { } session || Target is not { } source) return;
-        if (target is BlueprintSaveTarget.New { Library: BlueprintLibrary.Packages } or
-            BlueprintSaveTarget.Overwrite { Address.Library: BlueprintLibrary.Packages }) { Report("内容包蓝图只读，请复制为新蓝图。"); return; }
+        if (IsBusy || Session is not { } session || Target is not { } source) return false;
+        ClearFeedback();
         if ((target is BlueprintSaveTarget.New { Library: BlueprintLibrary.User } or
             BlueprintSaveTarget.Overwrite { Address.Library: BlueprintLibrary.User }) && !Host.UserLibraryEnabled)
-        { Report("用户蓝图库暂不可用，请保存为本局蓝图或草稿。"); return; }
+        { Report("用户蓝图库暂不可用，请保存为本局蓝图或草稿。"); return false; }
         try
         {
             var snapshot = session.Capture();
+            var draft = _draft;
             SaveTarget = target;
-            _afterClose = null;
-            Close();
+            if (!Close())
+            {
+                Reopen(snapshot, source, target, draft, Message!);
+                return false;
+            }
             var begun = Host.BeginContentEdit(new ContentEdit.SaveBlueprint(target, snapshot.Draft), WriteRequired);
-            _saving = new(session, snapshot, source, target, true, begun.Operation, _draft);
-            if (begun.Problem is { } problem) { Reopen(CommandDiagnostics.Describe(problem)); return; }
-            Message = "正在保存有效蓝图…"; Changed?.Invoke();
+            if (begun.Problem is { } problem)
+            {
+                Reopen(snapshot, source, target, draft, CommandDiagnostics.Describe(problem));
+                return false;
+            }
+            _saving = new PendingSave.Blueprint(snapshot, source, target, draft, begun.Operation);
+            Message = "正在保存有效蓝图…";
+            Changed?.Invoke();
+            return true;
         }
         catch (Exception error) { Report(error.Message); }
+        return false;
     }
 
     internal void DeleteBlueprint(BlueprintAddress address)
     {
         if (IsOpen || IsBusy) { Report("请先结束编辑。"); return; }
-        if (address.Library == BlueprintLibrary.Packages) { Report("内容包蓝图只读。"); return; }
+        ClearFeedback();
         if (address.Library == BlueprintLibrary.User && !Host.UserLibraryEnabled) { Report("用户蓝图库暂不可用。"); return; }
         var begun = Host.BeginContentEdit(new ContentEdit.DeleteBlueprint(address), WriteRequired);
         if (begun.Problem is { } problem) Report(CommandDiagnostics.Describe(problem));
     }
 
-    private ContentResult<bool> WriteRequired(IContentCandidate candidate)
+    private FileWriteResult WriteRequired(IContentCandidate candidate)
     {
         foreach (var write in candidate.RequiredWrites)
         {
             var id = write.Blueprint.Value;
             if (id.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || id is "." or "..")
                 throw new InvalidDataException("用户蓝图身份不能用作文件名。");
-            var path = Path.Combine(_store.Root, "content-library", id + ".json");
+            var path = Path.Combine(AuthoringPaths.UserLibraryDirectory(_store.Root), id + ".blueprint.json");
             if (write.Bytes is not { } bytes) { File.Delete(path); continue; }
             var result = _store.Write(path, file =>
             {
@@ -296,9 +402,9 @@ internal sealed class EditorService : IDisposable
             {
                 if (!File.ReadAllBytes(file).AsSpan().SequenceEqual(bytes.AsSpan())) throw new InvalidDataException("蓝图文件校验失败。");
             }, overwrite: true);
-            if (!result.Published) return new ContentResult<bool>.Faulted(result.Code ?? "blueprint_write_failed", result.Message ?? "蓝图写入失败。", null);
+            if (!result.Published) return result;
         }
-        return new ContentResult<bool>.Success(true);
+        return new(true);
     }
 
     private void OperationEnded(HostOperationResult result)
@@ -309,40 +415,57 @@ internal sealed class EditorService : IDisposable
     private void CompleteOperation(HostOperationResult result)
     {
         if (result.Kind != OperationKind.Edit) return;
-        if (_saving is not { } saving || saving.Operation != result.Operation)
+        switch (_saving)
         {
-            if (!result.Succeeded) Report(result.Message ?? result.FaultCode ?? string.Join("\n", result.Diagnostics.Select(Describe)));
-            else Changed?.Invoke();
-            return;
+            case PendingSave.Blueprint saving when saving.Operation == result.Operation:
+                _saving = null;
+                if (result.Succeeded)
+                {
+                    ClearFeedback();
+                    Message = "蓝图已保存。";
+                    Changed?.Invoke();
+                }
+                else
+                    Reopen(saving.Snapshot, saving.Source, saving.Target, saving.Draft, OperationMessage(result));
+                break;
+            case PendingSave.LocalDraft saving when saving.Operation == result.Operation:
+                CompleteSave(new(result.Succeeded, result.FaultCode, result.Succeeded
+                    ? "本局草稿已保存；保存游戏后写入存档。" : OperationMessage(result)), saving.Session, saving.Snapshot);
+                break;
+            default:
+                if (!result.Succeeded) Report(OperationMessage(result));
+                else Changed?.Invoke();
+                break;
         }
-        if (saving.Blueprint)
-        {
-            if (result.Succeeded) { _saving = null; HasError = false; Message = "蓝图已保存。"; Changed?.Invoke(); }
-            else Reopen(result.Message ?? result.FaultCode ?? string.Join("\n", result.Diagnostics.Select(Describe)));
-        }
-        else CompleteSave(new(result.Succeeded, result.FaultCode, result.Succeeded ? "本局草稿已保存；保存游戏后写入存档。" :
-            result.Message ?? string.Join("\n", result.Diagnostics.Select(Describe))));
     }
 
-    private void Reopen(string message)
+    private static string OperationMessage(HostOperationResult result) =>
+        result.Message ?? result.FaultCode ?? string.Join("\n", result.Diagnostics.Select(Describe));
+
+    private void Reopen(EditSnapshot snapshot, DraftTarget source, BlueprintSaveTarget target, DraftId draft, string message)
     {
-        var saving = _saving!;
         _saving = null;
-        Report(message);
-        _reopenMessage = message;
-        Open(saving.Snapshot.Draft, saving.Target, saving.SaveTarget, unsaved: true);
-        if (_opening is not null) _draft = saving.Draft;
+        Open(snapshot.Draft, source, target, unsaved: true);
+        if (_opening is not null)
+        {
+            _draft = draft;
+            _reopenMessage = message;
+            _logger.Warning("editor", "editor_operation_failed", message);
+        }
     }
 
-    private void CompleteSave(FileWriteResult result)
+    private void CompleteSave(FileWriteResult result, IDesignEditSession session, EditSnapshot snapshot)
     {
-        var saving = _saving!;
         _saving = null;
         if (result.Published)
         {
             try
             {
-                if (ReferenceEquals(Session, saving.Session) && saving.Session.MarkSaved(saving.Snapshot)) _forceDirty = false;
+                if (ReferenceEquals(Session, session) && session.MarkSaved(snapshot))
+                {
+                    _forceDirty = false;
+                    if (_readFailed) _lastState = _lastState is null ? null : _lastState with { IsDirty = false };
+                }
             }
             catch (Exception error)
             { _afterClose = null; Report($"草稿已保存，但编辑状态更新失败：{error.Message}"); return; }
@@ -361,6 +484,19 @@ internal sealed class EditorService : IDisposable
     internal void Select(EditSelection selection) => Change(session => session.Select(selection));
     internal void Enter(EditElementId? element) => Change(session => session.Enter(element));
     internal void Apply(IEditPreview preview, bool confirmed) => Change(session => session.Apply(preview, confirmed));
+
+    internal DesignDraft? CaptureObject(EditElementId element)
+    {
+        if (Session is null || SceneUnavailable || IsBusy) return null;
+        try
+        {
+            var result = Session.CaptureObject(element);
+            if (result is SceneResult<DesignDraft>.Success captured) return captured.Value;
+            ReportResult(result);
+        }
+        catch (Exception error) { Report(error.Message); }
+        return null;
+    }
     private void Change(Func<IDesignEditSession, SceneResult<EditState>> operation)
     {
         if (Session is null || SceneUnavailable || IsBusy) return;
@@ -385,7 +521,19 @@ internal sealed class EditorService : IDisposable
         catch (Exception error) { Report(error.Message); }
     }
     internal void SceneFailed(SceneProblem problem) { SceneUnavailable = true; Report(Describe(problem)); }
-    internal void SceneRecovered() { SceneUnavailable = false; Changed?.Invoke(); }
+    internal void SceneRecovered()
+    {
+        SceneUnavailable = false;
+        _readFailed = false;
+        ClearFeedback();
+        Changed?.Invoke();
+    }
+
+    internal void ReportProblems(IEnumerable<SceneProblem> problems)
+    {
+        var message = string.Join("\n", problems.Select(Describe));
+        if (message.Length != 0) Report(message);
+    }
     internal void Report(string message)
     {
         Message = message;
@@ -436,6 +584,12 @@ internal sealed class EditorService : IDisposable
     }
     private sealed record Opening(DesignDraft Draft, Task<ContentResult<DesignEvaluation>> Work);
     private sealed record Evaluation(IDesignEditSession Session, EditSnapshot Snapshot, Task<ContentResult<DesignEvaluation>> Work);
-    private sealed record PendingSave(IDesignEditSession Session, EditSnapshot Snapshot, DraftTarget Target,
-        BlueprintSaveTarget? SaveTarget, bool Blueprint, long Operation, DraftId Draft);
+    private abstract record PendingSave
+    {
+        private PendingSave() { }
+        internal sealed record UserDraft(IDesignEditSession Session, EditSnapshot Snapshot) : PendingSave;
+        internal sealed record LocalDraft(IDesignEditSession Session, EditSnapshot Snapshot, long Operation) : PendingSave;
+        internal sealed record Blueprint(EditSnapshot Snapshot, DraftTarget Source, BlueprintSaveTarget Target,
+            DraftId Draft, long Operation) : PendingSave;
+    }
 }

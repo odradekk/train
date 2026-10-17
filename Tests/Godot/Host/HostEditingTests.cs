@@ -148,7 +148,7 @@ public sealed class HostEditingTests
         {
             writing.Set();
             HostFixture.WaitForSignal(finish, "允许内容写入完成");
-            return new ContentResult<bool>.Success(true);
+            return new Train.App.Saves.FileWriteResult(true);
         });
         Assert.IsNull(begun.Problem);
         try
