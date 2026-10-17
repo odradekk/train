@@ -29,7 +29,7 @@ $commands = [ordered]@{
 }
 $records = [ordered]@{}
 foreach ($name in $commands.Keys) {
-    $records[$name] = [ordered]@{ name = $name; command = @('dotnet') + $commands[$name].arguments; status = 'not_started'; exitCode = $null; seconds = 0 }
+    $records[$name] = @{ name = $name; command = @('dotnet') + $commands[$name].arguments; status = 'not_started'; exitCode = $null; seconds = 0; cleanupSucceeded = $null }
 }
 $state = [hashtable]::Synchronized(@{ records = $records })
 $summaryPath = Join-Path $run 'summary.json'
@@ -49,6 +49,22 @@ foreach ($batch in @(
         . (Join-Path $using:root 'scripts/checks/Invoke-HiddenProcess.ps1')
         $shared = $using:state
         $definitions = $using:commands
+        $directory = $using:run
+        $summaryFile = $using:summaryPath
+        $runIdentity = $using:identity
+        function Write-Record($Record) {
+            $Record | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $directory "$($Record.name).record.json") -Encoding utf8
+            [Threading.Monitor]::Enter($shared.SyncRoot)
+            try {
+                $shared.records[$Record.name] = $Record.Clone()
+                $summary = [ordered]@{ identity = $runIdentity; checks = @($shared.records.Values); outcome = 'failed' }
+                $temporary = "$summaryFile.tmp"
+                $summary | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $temporary -Encoding utf8
+                [IO.File]::Move($temporary, $summaryFile, $true)
+            } finally {
+                [Threading.Monitor]::Exit($shared.SyncRoot)
+            }
+        }
         foreach ($name in $_.names) {
             $definition = $definitions[$name]
             [Threading.Monitor]::Enter($shared.SyncRoot)
@@ -58,27 +74,20 @@ foreach ($batch in @(
                 [Threading.Monitor]::Exit($shared.SyncRoot)
             }
             if (-not $ready) { continue }
-            $record = [ordered]@{ name = $name; command = @('dotnet') + $definition.arguments; status = 'failed'; exitCode = $null; seconds = 0 }
+            $record = @{ name = $name; command = @('dotnet') + $definition.arguments; status = 'running'; exitCode = $null; seconds = 0; cleanupSucceeded = $null }
+            Write-Record $record
             try {
                 $result = Invoke-HiddenProcess -FilePath 'dotnet' -ArgumentList $definition.arguments
-                $result.Output | Set-Content -LiteralPath (Join-Path $using:run "$name.log") -Encoding utf8
                 $record.exitCode = $result.ExitCode
                 $record.seconds = $result.DurationMs / 1000
-                if ($result.ExitCode -eq 0 -and $result.CleanupSucceeded) { $record.status = 'passed' }
+                $record.cleanupSucceeded = $result.CleanupSucceeded
+                $record.status = if ($result.ExitCode -eq 0 -and $result.CleanupSucceeded) { 'passed' } else { 'failed' }
+                $result.Output | Set-Content -LiteralPath (Join-Path $directory "$name.log") -Encoding utf8
             } catch {
-                $_ | Out-String | Set-Content -LiteralPath (Join-Path $using:run "$name.log") -Encoding utf8
+                $record.status = 'failed'
+                $_ | Out-String | Set-Content -LiteralPath (Join-Path $directory "$name.log") -Encoding utf8
             }
-            $record | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $using:run "$name.record.json") -Encoding utf8
-            [Threading.Monitor]::Enter($shared.SyncRoot)
-            try {
-                $shared.records[$name] = $record
-                $summary = [ordered]@{ identity = $using:identity; checks = @($shared.records.Values); outcome = 'failed' }
-                $temporary = "$using:summaryPath.tmp"
-                $summary | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $temporary -Encoding utf8
-                [IO.File]::Move($temporary, $using:summaryPath, $true)
-            } finally {
-                [Threading.Monitor]::Exit($shared.SyncRoot)
-            }
+            Write-Record $record
             Write-Host "$name status=$($record.status) exit=$($record.exitCode) seconds=$($record.seconds)"
         }
     } -ThrottleLimit 3

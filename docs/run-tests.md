@@ -65,7 +65,7 @@ dotnet build Tests/Engine/Train.Engine.Tests.csproj -c Debug
 
 ## 远端检查
 
-推送自己的任务分支后，可把完整回归交给 Linux runner。工作流选择、事件白名单与 job 上限见[CI](ci.md#linux-runner)；长示例的平台分工见[示例手册](../examples/README.md#重制与长验证)。
+推送自己的任务分支后，可把完整回归交给 Linux runner。工作流选择、事件白名单与 job 上限见[CI](ci.md#linux-夜间运行)；长示例的平台分工见[示例手册](../examples/README.md#重制与长验证)。
 
 ```powershell
 # 分支全量检查：全部正确性层和 Linux 阶段检查
