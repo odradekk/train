@@ -28,8 +28,26 @@ internal static class RailwayMeshes
     private static ImmutableArray<SceneMesh> Build(Func<double, double, RailwaySample> sampleAt,
         double start, double end, ScenePoint origin, int tracks)
     {
-        var rails = new MeshBuilder(BuiltInMaterial.RailSteel);
-        var sleepers = new MeshBuilder(BuiltInMaterial.Sleeper);
+        var ringCounts = new int[tracks * RailwayCoordinates.WheelDimensions.Length * 2];
+        var railNumber = 0;
+        var railVertices = 0;
+        for (var track = 1; track <= tracks; track++)
+        {
+            var offset = RailwayCoordinates.TrackOffset(track, tracks);
+            foreach (var (gauge, height, _, _) in RailwayCoordinates.WheelDimensions)
+            foreach (var railOffset in new[] { offset - gauge / 2, offset + gauge / 2 })
+            {
+                var steps = RingSteps(sampleAt, start, end, railOffset, height * .65f, height);
+                ringCounts[railNumber++] = steps;
+                // Twelve profile sides and six cap quads, each with six independent vertices.
+                railVertices += (steps * 12 + 6) * 6;
+            }
+        }
+        var sleeperCount = 0;
+        for (var index = (long)Math.Ceiling(start / 1.5); index * 1.5 < end; index++) sleeperCount++;
+        var rails = new MeshBuilder(BuiltInMaterial.RailSteel, railVertices);
+        var sleepers = new MeshBuilder(BuiltInMaterial.Sleeper, sleeperCount * tracks * 5 * 6 * 6);
+        railNumber = 0;
         for (var track = 1; track <= tracks; track++)
         {
             var offset = RailwayCoordinates.TrackOffset(track, tracks);
@@ -44,7 +62,7 @@ internal static class RailwayMeshes
                 foreach (var railOffset in new[] { offset - gauge / 2, offset + gauge / 2 })
                 {
                     var previous = Ring(start);
-                    var steps = RingSteps(sampleAt, start, end, railOffset, width, height);
+                    var steps = ringCounts[railNumber++];
                     for (var step = 1; step <= steps; step++)
                     {
                         var next = Ring(start + (end - start) * step / steps);
@@ -148,10 +166,10 @@ internal static class RailwayMeshes
         }
     }
 
-    private sealed class MeshBuilder(BuiltInMaterial material)
+    private sealed class MeshBuilder(BuiltInMaterial material, int capacity)
     {
-        private readonly List<SceneVertex> vertices = [];
-        private readonly List<int> indices = [];
+        private readonly ImmutableArray<SceneVertex>.Builder vertices = ImmutableArray.CreateBuilder<SceneVertex>(capacity);
+        private readonly ImmutableArray<int>.Builder indices = ImmutableArray.CreateBuilder<int>(capacity);
         internal void Quad(Vector3 a, Vector3 b, Vector3 c, Vector3 d, bool railHead = false)
         {
             Triangle(a, b, c, railHead);
@@ -160,13 +178,14 @@ internal static class RailwayMeshes
         private void Triangle(Vector3 a, Vector3 b, Vector3 c, bool railHead)
         {
             var normal = Vector3.Normalize(Vector3.Cross(b - a, c - a));
-            foreach (var point in new[] { a, b, c })
+            Add(a); Add(b); Add(c);
+            void Add(Vector3 point)
             {
                 indices.Add(vertices.Count);
                 // Built-in steel uses UV.x to distinguish the running surface from the rusty section.
                 vertices.Add(new(point, normal, new(railHead ? 1 : 0, 0), Vector2.Zero, ExposedFaceEdges.None, 0, 0));
             }
         }
-        internal SceneMesh Build() => new(new SceneMaterial.BuiltIn(material), vertices.ToImmutableArray(), indices.ToImmutableArray());
+        internal SceneMesh Build() => new(new SceneMaterial.BuiltIn(material), vertices.MoveToImmutable(), indices.MoveToImmutable());
     }
 }
