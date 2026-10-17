@@ -75,18 +75,23 @@ public sealed partial class CliProcessTests
             if (example == "storage-tight")
             {
                 var output = Path.Combine(directory, "capacity.json");
-                await Run(directory, "capacity", "run", Repository, recipePath, output);
+                await Run(directory, "capacity", "resume", Repository, recipePath, committed, output);
                 var final = (await ReadEconomyOutput(output)).Samples[^1];
                 var train = final.Trains.Single(train => train.Id == 1);
                 var cargo = final.Inventories.Single(inventory => inventory.Id == train.Inventory);
                 Assert.AreEqual(0L, cargo.Available);
                 Assert.AreEqual(cargo.Capacity, cargo.Used);
-                var rule = train.CurrentRun!.IncompleteRules.Single();
-                Assert.AreEqual(cargo.Capacity + 1, rule.RequestedQuantity);
-                Assert.AreEqual(cargo.Capacity, rule.CompletedQuantity);
+                Assert.AreEqual(cargo.Capacity, cargo.Goods.Sum(stack => stack.Quantity));
+                Assert.AreEqual(2, cargo.Goods.Length);
+                var rule = train.CurrentRun!.IncompleteRules.Single(rule => rule.RuleIndex == 1);
+                Assert.IsTrue(cargo.Goods.Single(stack => stack.Good == rule.Good).Quantity > 0);
                 var problem = rule.IncompleteReasons.Single();
                 Assert.AreEqual("insufficient_capacity", problem.Code);
                 Assert.AreEqual("Train.Inventory.Capacity", problem.Field);
+                var seller = final.Settlements.Single(settlement => settlement.Node == train.Position.Id);
+                var stock = final.Inventories.Single(inventory => inventory.Id == seller.Inventory);
+                Assert.IsTrue(stock.Goods.Single(stack => stack.Good == rule.Good).Quantity > 0);
+                Assert.IsTrue(final.Wallet > 0);
             }
             CollectionAssert.AreEqual(originalSave, await File.ReadAllBytesAsync(committed));
             CollectionAssert.AreEqual(originalRecipe, await File.ReadAllBytesAsync(recipePath));
