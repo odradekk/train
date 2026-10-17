@@ -278,6 +278,7 @@ internal static class WorldStateValidation
             }
         }
         Require(world.Money.Value >= 0 && world.Next is not null, "/world/money");
+        Require(world.UnassignedServicePayments.Value >= 0, "/world/unassigned_service_payments");
         ValidateConstruction(world);
         var next = world.Next;
         Next(next.Node, world.Nodes.Select(n => n.Id.Value), "/world/next/node");
@@ -298,7 +299,11 @@ internal static class WorldStateValidation
     {
         const string field = "/world/construction_jobs";
         Ordered(world.ConstructionJobs, j => j.Id.Value, field);
-        Require(world.ConstructionJobs.Select(j => j.Facility).Distinct().Count() == world.ConstructionJobs.Length, field + "/facility");
+        foreach (var queue in world.ConstructionJobs.GroupBy(j => j.Facility))
+        {
+            Require(queue.Count() == 1 || queue.All(j => j.Funding == JobFunding.NpcCommission), field + "/facility");
+            Require(queue.Skip(1).All(j => j.State == ConstructionState.Queued), field + "/state");
+        }
         var vehicles = new HashSet<VehicleId>();
         foreach (var job in world.ConstructionJobs)
         {
@@ -314,7 +319,11 @@ internal static class WorldStateValidation
                 && job.ProgressWork < job.FrozenTotalWork, path + "/progress_work");
             Require(double.IsFinite(job.FrozenPowerPerWork) && job.FrozenPowerPerWork >= 0
                 && double.IsFinite(job.FrozenLaborPerWork) && job.FrozenLaborPerWork >= 0, path + "/frozen_factors");
-            Require(job.State is ConstructionState.Working or ConstructionState.ResourceBlocked, path + "/state");
+            Require(Enum.IsDefined(job.Funding), path + "/funding");
+            Require(job.State is ConstructionState.Working or ConstructionState.ResourceBlocked
+                || job.Funding == JobFunding.NpcCommission && job.State == ConstructionState.Queued, path + "/state");
+            Require(job.State != ConstructionState.Queued || job.ProgressWork == 0 && job.LastActualWorkPerSecond == 0
+                && job.LastLimits.IsEmpty && job.Blockers.IsEmpty, path + "/progress_work");
             Require(double.IsFinite(job.LastActualWorkPerSecond) && job.LastActualWorkPerSecond >= 0,
                 path + "/last_actual_work_per_second");
             Items(job.LastLimits, path + "/last_limits");
