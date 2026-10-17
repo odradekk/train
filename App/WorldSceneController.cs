@@ -33,7 +33,6 @@ internal sealed class WorldSceneController : IDisposable
 
     internal WorldSceneView View { get; } = new();
     internal SceneDisplay? Display => _display;
-    internal IWorldSceneSession? Session => _session;
     internal SceneRequestId CurrentRequest => _request;
     internal ISceneFrame? InteractionFrame => View.Interactive && !_fullReplacement ? _display?.PoseFrame : null;
     internal readonly record struct PickInspection(ISceneFrame Frame, SceneRay Ray, ScenePick Pick, SceneResult<PickSubject>? Resolution);

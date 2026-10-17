@@ -1,21 +1,21 @@
 using System.Security.Cryptography;
-using System.Collections.Immutable;
 using System.Text.Json;
 using Godot;
-using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Rendering;
 using Train.Scenes.Contracts;
 using NVector = System.Numerics.Vector3;
-using NQuaternion = System.Numerics.Quaternion;
-using NMatrix = System.Numerics.Matrix4x4;
 
 namespace Train.App.Measurement;
 
 internal sealed partial class MeasurementRun
 {
     private int _scenePickCount;
-    private double _probeFogSeconds, _probePointSeconds, _probeBusinessSeconds, _probeSnapshotSeconds, _probeFogIndexSeconds;
+    private const float InnerSampleRadiusCells = 32; // 16 米
+    private const float NearAreaRadiusCells = 64; // 32 米，也是参考匹配半径
+    private const float ReferenceCaptureRadiusCells = 128; // 64 米
+    private const double ReferenceMatchRadiusMeters = 32;
+    private double _probeFogSeconds, _probePointSeconds, _probeBusinessSeconds;
     private int _probeFogRegionCount;
     private ProbeState _probeState;
     private readonly record struct ProbeState(string Stage, SceneSpaceId? Space, int FogRegions,
@@ -29,22 +29,18 @@ internal sealed partial class MeasurementRun
     private readonly List<ProbeReferenceView> _probeRecordedViews = [];
     private bool _probeReadyChecked;
     private ProbeReadySnapshot? _probeReadySnapshot;
-    private ImmutableArray<SceneBounds> _probeFogRegions;
-    private SceneProbeFogIndex? _probeFogIndex;
     private readonly Dictionary<SceneSpaceId, NVector> _probeReferenceCenters = [];
     private sealed record ProbeExpected(string Key, string Subject, SceneBounds Bounds);
     private sealed record ProbeReference(string BuildCommit, string InputSha256, ProbeReferenceView[] Views);
     private sealed record ProbeReferenceView(string Target, int? Node, int? Edge, double? ArcMeters,
-        double[] Center, ProbeReferenceObject[] Objects, int[][] Terrain, ProbeReferenceBuilding[] Buildings);
-    private sealed record ProbeReferenceBuilding(string Subject, double[] Bounds);
+        double[] Center, ProbeReferenceObject[] Objects, int[][] Terrain);
     private sealed record ProbeReferenceObject(string? Subject, string[] Decorations, double[] Position,
         double[] Rotation, double[] Bounds);
     private sealed record ProbePick(bool Visible, bool Picked, string? Resolved, object Evidence);
     private sealed record ProbeValidation(bool Valid, ProbeReferenceObject[]? Expected,
-        ProbeReferenceObject[] Actual, double PoseBoundsToleranceCells, string? Reason,
-        ProbeReferenceBuilding[]? ExpectedBuildings, ProbeReferenceBuilding[] ActualBuildings);
-    private sealed record ProbeReadySnapshot(ProbeReferenceView? Reference, int? Node, NVector Center,
-        ProbeReferenceObject[] Objects, ICoreReadView Core, IContentView Content, double At, SceneFrameStamp Frame);
+        ProbeReferenceObject[] Actual, double PoseBoundsToleranceCells, string? Reason);
+    private sealed record ProbeReadySnapshot(ProbeReferenceView? Reference, NVector Center,
+        ProbeReferenceObject[] Objects, double At, SceneFrameStamp Frame, SimulationPosition Position);
 
     private void LoadSceneReference()
     {
@@ -69,8 +65,6 @@ internal sealed partial class MeasurementRun
         _probeMeshPoints.Clear();
         _probeReadyChecked = false;
         _probeReadySnapshot = null;
-        _probeFogRegions = default;
-        _probeFogIndex = null;
         _probeReferenceCenters.Clear();
         _probeReferenceValidation = null;
         _scenePickCount = 0;
@@ -99,15 +93,12 @@ internal sealed partial class MeasurementRun
         var displayed = display.DisplayedFrame!;
         var readyGeometry = displayed.Readiness == SceneReadiness.Ready &&
             displayed.Update.Frame.Space == frame.Update.Frame.Space && frame.Readiness == SceneReadiness.Ready;
-        var reference = _probeReference?.Views.FirstOrDefault(view =>
-            NVector.Distance(absolute, new((float)view.Center[0], (float)view.Center[1], (float)view.Center[2])) <= 64 &&
-            (node is not null ? view.Node == node : edge is not null && view.Edge == (int)edge.Id.Value &&
-                Math.Abs(view.ArcMeters!.Value - edge.DistanceMeters) <= 64));
+        var reference = FindSceneReference(absolute, location);
         if (_scenario == "scene-reference")
         {
             if (readyGeometry &&
                 (!_probeReferenceCenters.TryGetValue(frame.Update.Frame.Space, out var recordedCenter) ||
-                    NVector.Distance(absolute, recordedCenter) >= 32))
+                    NVector.Distance(absolute, recordedCenter) >= InnerSampleRadiusCells))
             {
                 _probeReferenceCenters[frame.Update.Frame.Space] = absolute;
                 _probeRecordedViews.Add(CaptureSceneReference(frame, center, node, edge));
@@ -116,22 +107,9 @@ internal sealed partial class MeasurementRun
             _probeState = new("reference", frame.Update.Frame.Space, 0, 0, 0, 0, 0, 0, false);
             return false;
         }
-        var pointPositions = new List<NVector> { center };
         var terrainBand = reference is not null ? _probeTerrainBands.GetValueOrDefault(reference) : null;
         var known = node is not null ? reference is not null : edge is not null && terrainBand is not null &&
             terrainBand.Contains(((int)Math.Floor(absolute.X), (int)Math.Floor(absolute.Z)));
-        foreach (var radius in new[] { 32f, 64f })
-        {
-            if (edge is not null && terrainBand is not null)
-            {
-                var ring = ProbeBandRing(absolute, radius, terrainBand);
-                known &= ring.Length == 8;
-                pointPositions.AddRange(ring.Select(point => point - ProbeOrigin(frame)));
-            }
-            else for (var angle = 0; angle < 8; angle++)
-                pointPositions.Add(center + new NVector(MathF.Cos(angle * MathF.PI / 4) * radius, 0,
-                    MathF.Sin(angle * MathF.PI / 4) * radius));
-        }
         var fogTransform = display.Root.GlobalTransform.AffineInverse() * controller.View.GlobalTransform;
         NVector FogPoint(NVector point)
         {
@@ -140,24 +118,13 @@ internal sealed partial class MeasurementRun
         }
         var fogRegions = display.DisplayedFrame!.Update.Environment.FoggedRegions;
         _probeFogRegionCount = fogRegions.Length;
-        if (_probeFogIndex is null || !_probeFogRegions.Equals(fogRegions))
-        {
-            var indexStarted = Seconds();
-            _probeFogRegions = fogRegions;
-            _probeFogIndex = new(fogRegions);
-            _probeFogIndexSeconds += Seconds() - indexStarted;
-        }
-        var fogPoints = pointPositions.Select(FogPoint).ToArray();
-        var minimum = fogPoints.Aggregate(NVector.Min);
-        var maximum = fogPoints.Aggregate(NVector.Max);
-        if (node is not null)
-        {
-            minimum = FogPoint(center) - new NVector(64, 0, 64);
-            maximum = FogPoint(center) + new NVector(64, 0, 64);
-        }
-        var nearbyFog = _probeFogIndex.Query(new(minimum, maximum)).ToArray();
-        var intersectingFog = nearbyFog.Count(bounds => node is not null
-            ? ProbeFogOverlaps(FogPoint(center), 64, bounds) : pointPositions.Any(point => ProbeFogContains(FogPoint(point), bounds)));
+        // 显示组相对交互坐标只做原点平移；参考地形带使用绝对格。
+        var fogOrigin = FogPoint(NVector.Zero);
+        var absoluteFog = fogRegions.Select(bounds => new SceneBounds(
+            bounds.Minimum - fogOrigin + ProbeOrigin(frame), bounds.Maximum - fogOrigin + ProbeOrigin(frame))).ToArray();
+        var intersectingFog = absoluteFog.Count(bounds => node is not null
+            ? ProbeFogOverlaps(absolute, NearAreaRadiusCells, bounds)
+            : terrainBand is not null && ProbeFogOverlapsBand(absolute, NearAreaRadiusCells, bounds, terrainBand));
         if (intersectingFog > 0)
         {
             _probeState = new("near_fog", frame.Update.Frame.Space, intersectingFog, 0, 0, 0, 0, 0, false);
@@ -172,15 +139,28 @@ internal sealed partial class MeasurementRun
         CaptureReadyReference(frame, follow);
         stageStarted = Seconds();
         var actualReferenceObjects = reference?.Objects.Any(item => item.Decorations.Length > 0 &&
-            ProbeDistance(absolute, ReferenceBounds(item)) <= 64) == true
-            ? ReferenceObjects(frame, center, 64).ToArray() : [];
+            ProbeDistance(absolute, ReferenceBounds(item)) <= NearAreaRadiusCells) == true
+            ? ReferenceObjects(frame, center, NearAreaRadiusCells).ToArray() : [];
         _probeBusinessSeconds += Seconds() - stageStarted;
         stageStarted = Seconds();
+        var pointPositions = new List<NVector> { center };
+        foreach (var radius in new[] { InnerSampleRadiusCells, NearAreaRadiusCells })
+        {
+            if (edge is not null && terrainBand is not null)
+            {
+                var ring = ProbeBandRing(absolute, radius, terrainBand);
+                known &= ring.Length == 8;
+                pointPositions.AddRange(ring.Select(point => point - ProbeOrigin(frame)));
+            }
+            else for (var angle = 0; angle < 8; angle++)
+                pointPositions.Add(center + new NVector(MathF.Cos(angle * MathF.PI / 4) * radius, 0,
+                    MathF.Sin(angle * MathF.PI / 4) * radius));
+        }
         var points = new List<object>();
         var samplesPassed = 0;
         foreach (var point in pointPositions)
         {
-            var fogged = nearbyFog.Any(bounds => ProbeFogContains(FogPoint(point), bounds));
+            var fogged = fogRegions.Any(bounds => ProbeFogContains(FogPoint(point), bounds));
             var terrain = frame.TerrainHeight(point.X, point.Z);
             _scenePickCount++;
             var inspection = controller.InspectPick(new SceneRay(point + new NVector(0, 4096, 0), -NVector.UnitY, 8192));
@@ -201,14 +181,11 @@ internal sealed partial class MeasurementRun
         }
         _probePointSeconds += Seconds() - stageStarted;
         stageStarted = Seconds();
-        var expectedBusiness = (reference?.Buildings ?? []).Select(item => new ProbeExpected(item.Subject, item.Subject,
-            new(ReferenceBounds(item.Bounds).Minimum - ProbeOrigin(frame), ReferenceBounds(item.Bounds).Maximum - ProbeOrigin(frame)))).ToList();
-        if (reference is not null)
-            expectedBusiness.AddRange(reference.Objects.Where(item => item.Subject is not null)
-                .Select((item, index) => new ProbeExpected("reference:" + index,
-                    item.Subject!, new(ReferenceBounds(item).Minimum - ProbeOrigin(frame), ReferenceBounds(item).Maximum - ProbeOrigin(frame)))));
+        var expectedBusiness = (reference?.Objects ?? []).Where(item => item.Subject is not null)
+            .Select((item, index) => new ProbeExpected("reference:" + index,
+                item.Subject!, new(ReferenceBounds(item).Minimum - ProbeOrigin(frame), ReferenceBounds(item).Maximum - ProbeOrigin(frame))));
         var railGeometry = (reference?.Objects ?? []).Where(item => item.Decorations.Length > 0 &&
-            ProbeDistance(absolute, ReferenceBounds(item)) <= 64).Select(item =>
+            ProbeDistance(absolute, ReferenceBounds(item)) <= NearAreaRadiusCells).Select(item =>
             {
                 var expectedCount = reference!.Objects.Count(other => ReferenceMatches(item, other));
                 var publishedCount = actualReferenceObjects.Count(actual => ReferenceMatches(item, actual));
@@ -216,7 +193,7 @@ internal sealed partial class MeasurementRun
                     expectedCount, publishedCount, ready = publishedCount >= expectedCount };
             }).ToArray();
         var railGeometryPassed = railGeometry.All(item => item.ready);
-        var nearBusiness = expectedBusiness.Where(item => ProbeDistance(center, item.Bounds) <= 64).ToArray();
+        var nearBusiness = expectedBusiness.Where(item => ProbeDistance(center, item.Bounds) <= NearAreaRadiusCells).ToArray();
         var results = new List<object>();
         var businessPassed = true;
         var businessPassedCount = 0;
@@ -275,11 +252,17 @@ internal sealed partial class MeasurementRun
                         terrain.Add([x, z]);
             }
         }
-        var buildings = node is not null ? ExpectedBuildings(_app.Host!.GetStatus()!.View, _app.Host.Content!, new((ulong)node.Value))
-            .Where(item => ProbeDistance(center + origin, item.Bounds) <= 128).Select(ReferenceBuilding).ToArray() : [];
         return new(_sceneTarget!.ToString()!, node, edge is null ? null : (int)edge.Id.Value, edge?.DistanceMeters,
-            [center.X + origin.X, center.Y + origin.Y, center.Z + origin.Z], [.. ReferenceObjects(frame, center, 128)], [.. terrain], buildings);
+            [center.X + origin.X, center.Y + origin.Y, center.Z + origin.Z],
+            [.. ReferenceObjects(frame, center, ReferenceCaptureRadiusCells)], [.. terrain]);
     }
+
+    private ProbeReferenceView? FindSceneReference(NVector absolute, WorldLocation? location) =>
+        _probeReference?.Views.FirstOrDefault(view =>
+            NVector.Distance(absolute, new((float)view.Center[0], (float)view.Center[1], (float)view.Center[2])) <= NearAreaRadiusCells &&
+            (location is WorldLocation.Node node ? view.Node == (int)node.Id.Value :
+                location is WorldLocation.Edge edge && view.Edge == (int)edge.Id.Value &&
+                view.ArcMeters is { } arc && Math.Abs(arc - edge.DistanceMeters) <= ReferenceMatchRadiusMeters));
 
     private void CaptureReadyReference(ISceneFrame frame, WorldObjectId? follow)
     {
@@ -292,39 +275,25 @@ internal sealed partial class MeasurementRun
             ? pose.Value.Position : new NVector(focus.X, focus.Y, focus.Z);
         var absolute = center + ProbeOrigin(frame);
         var location = frame.Locate(center) is Lookup<WorldLocation>.Found found ? found.Value : null;
-        var node = location is WorldLocation.Node n ? (int?)n.Id.Value : null;
-        var edge = location as WorldLocation.Edge;
-        var reference = _probeReference?.Views.FirstOrDefault(view =>
-            NVector.Distance(absolute, new((float)view.Center[0], (float)view.Center[1], (float)view.Center[2])) <= 64 &&
-            (node is not null ? view.Node == node : edge is not null && view.Edge == (int)edge.Id.Value &&
-                Math.Abs(view.ArcMeters!.Value - edge.DistanceMeters) <= 64));
-        _probeReadySnapshot = new(reference, node, absolute, ReferenceObjects(frame, center, 64).ToArray(),
-            _app.Host!.GetStatus()!.View, _app.Host.Content!, started, frame.Update.Frame);
+        _probeReadySnapshot = new(FindSceneReference(absolute, location), absolute,
+            ReferenceObjects(frame, center, NearAreaRadiusCells).ToArray(), started, frame.Update.Frame,
+            _app.Host!.GetStatus()!.View.Position);
         _probeReadyChecked = true;
-        _probeSnapshotSeconds += Seconds() - started;
     }
 
     private void ValidateReadyReference()
     {
         if (_probeReadySnapshot is not { } snapshot)
         {
-            _probeReferenceValidation = new(false, null, [], .001, "ready_snapshot_missing", null, []);
+            _probeReferenceValidation = new(false, null, [], .001, "ready_snapshot_missing");
             return;
         }
-        var expected = snapshot.Reference?.Objects.Where(item => ProbeDistance(snapshot.Center, ReferenceBounds(item)) <= 64).ToArray();
-        var buildings = snapshot.Reference?.Buildings.Where(item => ProbeDistance(snapshot.Center, ReferenceBounds(item.Bounds)) <= 64).ToArray();
-        var actualBuildings = snapshot.Node is { } node ? ExpectedBuildings(snapshot.Core, snapshot.Content, new((ulong)node))
-            .Where(item => ProbeDistance(snapshot.Center, item.Bounds) <= 64).Select(ReferenceBuilding).ToArray() : [];
+        var expected = snapshot.Reference?.Objects.Where(item => ProbeDistance(snapshot.Center, ReferenceBounds(item)) <= NearAreaRadiusCells).ToArray();
         var objectsValid = expected is not null && expected.Length == snapshot.Objects.Length && expected.All(item =>
             expected.Count(other => ReferenceMatches(item, other)) == snapshot.Objects.Count(other => ReferenceMatches(item, other)));
-        var buildingsValid = buildings is not null && buildings.Length == actualBuildings.Length && buildings.All(item =>
-            actualBuildings.Any(actual => item.Subject == actual.Subject && item.Bounds.Zip(actual.Bounds).All(pair => Math.Abs(pair.First - pair.Second) <= .001)));
-        _probeReferenceValidation = new(objectsValid && buildingsValid, expected, snapshot.Objects, .001,
-            snapshot.Reference is null ? "reference_missing" : null, buildings, actualBuildings);
+        _probeReferenceValidation = new(objectsValid, expected, snapshot.Objects, .001,
+            snapshot.Reference is null ? "reference_missing" : null);
     }
-
-    private static ProbeReferenceBuilding ReferenceBuilding(ProbeExpected item) => new(item.Subject,
-        [item.Bounds.Minimum.X, item.Bounds.Minimum.Y, item.Bounds.Minimum.Z, item.Bounds.Maximum.X, item.Bounds.Maximum.Y, item.Bounds.Maximum.Z]);
 
     private IEnumerable<ProbeReferenceObject> ReferenceObjects(ISceneFrame frame, NVector center, double radius)
     {
@@ -338,8 +307,9 @@ internal sealed partial class MeasurementRun
                 .Select(visual => visual.Mesh.Material).OfType<SceneMaterial.BuiltIn>()
                 .Where(material => material.Kind is BuiltInMaterial.RailSteel or BuiltInMaterial.Sleeper)
                 .Select(material => material.Kind.ToString()).Distinct().Order(StringComparer.Ordinal).ToArray() : [];
-            if (decorations.Length == 0 && (item.Source.Subject?.ToString() is not { } subject ||
-                !parked.Contains(subject) || item.Source.Parent is not null)) continue;
+            if (decorations.Length == 0 && (item.Source.Parent is not null ||
+                item.Source.Subject is not WorldObjectId.Instance { Id: InstanceId.Building } &&
+                !parked.Contains(item.Source.Subject?.ToString() ?? ""))) continue;
             var meshes = ProbeMeshes(item.Root).Where(mesh => mesh.IsVisibleInTree() && mesh.Mesh is not null).ToArray();
             if (meshes.Length == 0) continue;
             var bounds = meshes.Select(mesh => MeshBounds(mesh, frame)).ToArray();
@@ -375,27 +345,6 @@ internal sealed partial class MeasurementRun
             min = NVector.Min(min, at); max = NVector.Max(max, at);
         }
         return new(min, max);
-    }
-
-    private static IEnumerable<ProbeExpected> ExpectedBuildings(ICoreReadView core, IContentView content, NodeId nodeId)
-    {
-        if (core.World.Nodes.Single(item => item.Id == nodeId).Occupant is not NodeOccupant.Settlement owner ||
-            core.FindSettlement(owner.Id) is not Lookup<SettlementView>.Found settlement ||
-            content.FindSettlementLayout(owner.Id) is not ContentLookup<SettlementLayoutProjection>.Found template) yield break;
-        foreach (var plot in settlement.Value.Plots)
-        {
-            if (plot.Occupant is not PlotOccupant.Building building) continue;
-            var instance = ((Lookup<InstanceView>.Found)core.FindInstance(new InstanceId.Building(building.Id))).Value;
-            var placed = template.Value.Plots.Single(item => item.Number == plot.TemplatePlotNumber);
-            var design = ((ContentLookup<DesignEvaluation>.Found)content.FindDesign(instance.Design)).Value;
-            var projection = design switch { DesignEvaluation.Complete complete => complete.Scene,
-                DesignEvaluation.Partial partial => partial.Scene, _ => throw new InvalidDataException("业务设计无法求值。") };
-            var occupied = projection.OccupiedBounds ?? throw new InvalidDataException("业务对象缺少占用范围。");
-            var bounds = new SceneBounds(new(occupied.Minimum.X, occupied.Minimum.Y, occupied.Minimum.Z),
-                new(occupied.Maximum.X + 1, occupied.Maximum.Y + 1, occupied.Maximum.Z + 1));
-            var subject = new WorldObjectId.Instance(instance.Id).ToString();
-            yield return new(subject!, subject!, ProbeTransformBounds(bounds, ProbePlacement(placed.At, placed.Orientation), NVector.Zero));
-        }
     }
 
     private ProbePick ProbeBusiness(ISceneFrame frame, SceneDisplay display, ProbeExpected expected)
@@ -454,6 +403,7 @@ internal sealed partial class MeasurementRun
                 if (problems.Length > 0 && _scenePresentedStamp is { } presented &&
                     (presented.Session != frame.Update.Frame.Session || presented.Request != frame.Update.Frame.Request ||
                      presented.Space != frame.Update.Frame.Space))
+                    // 同一过期帧的其它候选射线也无法确认当前对象，留到下一绘制帧再检查。
                     return new(visible, false, resolved, Evidence());
             }
         }
@@ -478,26 +428,22 @@ internal sealed partial class MeasurementRun
     internal static double ProbeDistance(NVector point, SceneBounds bounds) => Math.Sqrt(
         Math.Pow(Math.Max(Math.Max(bounds.Minimum.X - point.X, 0), point.X - bounds.Maximum.X), 2) +
         Math.Pow(Math.Max(Math.Max(bounds.Minimum.Z - point.Z, 0), point.Z - bounds.Maximum.Z), 2));
-    internal static ScenePose ProbePlacement(GridPosition at, VoxelOrientation orientation)
+    internal static bool ProbeFogOverlapsBand(NVector center, double radius, SceneBounds fog, HashSet<(int, int)> terrain)
     {
-        static NVector Axis(string name) => name switch { "Px" => NVector.UnitX, "Nx" => -NVector.UnitX, "Py" => NVector.UnitY,
-            "Ny" => -NVector.UnitY, "Pz" => NVector.UnitZ, "Nz" => -NVector.UnitZ, _ => throw new ArgumentException("Invalid orientation.") };
-        var axes = orientation.ToString(); var right = Axis(axes[..2]); var up = Axis(axes[2..]); var forward = NVector.Cross(right, up);
-        var rotation = NQuaternion.CreateFromRotationMatrix(new NMatrix(right.X, right.Y, right.Z, 0, up.X, up.Y, up.Z, 0,
-            forward.X, forward.Y, forward.Z, 0, 0, 0, 0, 1));
-        var center = new NVector(.5f);
-        return new(new NVector(at.X, at.Y, at.Z) + center - NVector.Transform(center, rotation), rotation);
-    }
-    internal static SceneBounds ProbeTransformBounds(SceneBounds bounds, ScenePose pose, NVector origin)
-    {
-        var minimum = new NVector(float.PositiveInfinity); var maximum = new NVector(float.NegativeInfinity);
-        foreach (var x in new[] { bounds.Minimum.X, bounds.Maximum.X })
-        foreach (var y in new[] { bounds.Minimum.Y, bounds.Maximum.Y })
-        foreach (var z in new[] { bounds.Minimum.Z, bounds.Maximum.Z })
+        if (!ProbeFogOverlaps(center, radius, fog)) return false;
+        var minX = (int)Math.Floor(Math.Max(center.X - radius, fog.Minimum.X));
+        var maxX = (int)Math.Floor(Math.Min(center.X + radius, fog.Maximum.X));
+        var minZ = (int)Math.Floor(Math.Max(center.Z - radius, fog.Minimum.Z));
+        var maxZ = (int)Math.Floor(Math.Min(center.Z + radius, fog.Maximum.Z));
+        for (var z = minZ; z <= maxZ; z++)
+        for (var x = minX; x <= maxX; x++)
         {
-            var point = NVector.Transform(new(x, y, z), pose.Rotation) + pose.Position - origin;
-            minimum = NVector.Min(minimum, point); maximum = NVector.Max(maximum, point);
+            if (!terrain.Contains((x, z))) continue;
+            var minimum = new NVector(Math.Max(x, fog.Minimum.X), 0, Math.Max(z, fog.Minimum.Z));
+            var maximum = new NVector(Math.Min(x + 1, fog.Maximum.X), 0, Math.Min(z + 1, fog.Maximum.Z));
+            if (minimum.X < maximum.X && minimum.Z < maximum.Z &&
+                ProbeFogOverlaps(center, radius, new(minimum, maximum))) return true;
         }
-        return new(minimum, maximum);
+        return false;
     }
 }

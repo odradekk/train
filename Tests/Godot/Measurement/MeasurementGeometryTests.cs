@@ -1,7 +1,6 @@
 using System.Numerics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.App.Measurement;
-using Train.Content.Contracts;
 using Train.Scenes.Contracts;
 
 namespace Train.Godot.Tests.Measurement;
@@ -9,25 +8,6 @@ namespace Train.Godot.Tests.Measurement;
 [TestClass]
 public sealed class MeasurementGeometryTests
 {
-    [TestMethod]
-    public void FogIndexQueriesClosedHorizontalBounds()
-    {
-        var near = new SceneBounds(new(-2, 100, -2), new(2, 110, 2));
-        var touching = new SceneBounds(new(2, -10, 2), new(4, -5, 4));
-        var negative = new SceneBounds(new(-40, 0, -30), new(-20, 1, -10));
-        var far = new SceneBounds(new(1000, 0, 1000), new(1010, 1, 1010));
-        var index = new SceneProbeFogIndex([far, touching, negative, near]);
-
-        CollectionAssert.AreEquivalent(new[] { near, touching },
-            index.Query(new(new(-2, 0, -2), new(2, 1, 2))).ToArray());
-        CollectionAssert.AreEquivalent(new[] { negative },
-            index.Query(new(new(-35, 0, -25), new(-25, 1, -15))).ToArray());
-        CollectionAssert.AreEquivalent(new[] { far },
-            index.Query(new(new(1005, 0, 1005), new(1020, 1, 1020))).ToArray());
-        Assert.AreEqual(0, index.Query(new(new(10, 0, 10), new(20, 1, 20))).Count());
-        Assert.AreEqual(0, new SceneProbeFogIndex([]).Query(new(Vector3.Zero, Vector3.One)).Count());
-    }
-
     [TestMethod]
     public void FogExcludesMaximumBoundaryAndItsTangencyWithTheNearArea()
     {
@@ -67,19 +47,39 @@ public sealed class MeasurementGeometryTests
     }
 
     [TestMethod]
-    public void BoundsAccountForRotationPlacementAndFloatingOrigin()
+    public void FogBetweenRingSamplesOverlapsTheReferenceTerrainBand()
     {
-        var transformed = MeasurementRun.ProbeTransformBounds(new(new(-1, 0, -2), new(3, 4, 2)),
-            new(new(10, 0, 20), Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2)), new(2, 0, 4));
-        Assert.IsTrue(Vector3.Distance(new(6, 0, 13), transformed.Minimum) < 1e-5);
-        Assert.IsTrue(Vector3.Distance(new(10, 4, 17), transformed.Maximum) < 1e-5);
+        var terrain = new HashSet<(int, int)>();
+        for (var x = -80; x <= 80; x++) for (var z = -4; z <= 4; z++) terrain.Add((x, z));
+
+        Assert.IsTrue(MeasurementRun.ProbeFogOverlapsBand(Vector3.Zero, 64,
+            new(new(10, 100, 0), new(12, 110, 2)), terrain));
+        Assert.IsFalse(MeasurementRun.ProbeFogOverlapsBand(Vector3.Zero, 64,
+            new(new(10, 100, 20), new(12, 110, 22)), terrain));
     }
 
     [TestMethod]
-    public void PlacementRotatesAroundTheCellCenter()
+    public void FogInsideTerrainButOutsideTheNearCircleDoesNotOverlap()
     {
-        var pose = MeasurementRun.ProbePlacement(new(10, 20, 30), VoxelOrientation.PzPy);
-        Assert.IsTrue(Vector3.Distance(new(10.5f, 20.5f, 30.5f), pose.Position + Vector3.Transform(new(.5f), pose.Rotation)) < 1e-5);
-        Assert.IsTrue(Vector3.Distance(Vector3.UnitZ, Vector3.Transform(Vector3.UnitX, pose.Rotation)) < 1e-5);
+        Assert.IsFalse(MeasurementRun.ProbeFogOverlapsBand(Vector3.Zero, 64,
+            new(new(60, 0, 40), new(61, 1, 41)), [(60, 40)]));
+    }
+
+    [TestMethod]
+    public void BandOverlapIncludesMinimumTangencyButExcludesMaximumTangency()
+    {
+        Assert.IsTrue(MeasurementRun.ProbeFogOverlapsBand(Vector3.Zero, 64,
+            new(new(64, 0, 0), new(65, 1, 1)), [(64, 0)]));
+        Assert.IsFalse(MeasurementRun.ProbeFogOverlapsBand(Vector3.Zero, 64,
+            new(new(-65, 0, 0), new(-64, 1, 1)), [(-65, 0)]));
+    }
+
+    [TestMethod]
+    public void BandOverlapUsesAbsoluteNegativeCellCoordinates()
+    {
+        Assert.IsTrue(MeasurementRun.ProbeFogOverlapsBand(new(-100, 0, -100), 64,
+            new(new(-90, 0, -100), new(-89, 1, -99)), [(-90, -100)]));
+        Assert.IsFalse(MeasurementRun.ProbeFogOverlapsBand(new(-100, 0, -100), 64,
+            new(new(-90, 0, -100), new(-89, 1, -99)), [(10, 0)]));
     }
 }

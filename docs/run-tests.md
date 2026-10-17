@@ -97,8 +97,6 @@ SDFGI 情景必须在采样窗口观察到原点变化，跟随／TAA 情景必�
 
 ### 场景打开、退役与规模测量
 
-`scene-*` 情景复用同一 Release 导出和 `--measure` 入口，用当前阶段真实负载补测场景打开与内存。主输入为 `examples/starting-trade/save.json`；规模输入由公开内容与 CLI 制作在 `TestResults/`，保留生成配方和哈希，不修改存档载荷。结果不代表完整标准混合负载或目标配置验收，预算及达标判断只写在研究报告中。
-
 ```powershell
 # 同一 HEAD、同一输入先生成参考；参考运行不计入性能样本
 pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/starting-trade/save.json -OutputDirectory TestResults/scene-reference -Scenario scene-reference -Repeat 1
@@ -120,23 +118,20 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 | `scene-memory` | 重复打开节点、返回并等待退役；每 10 轮及结束后执行完整 GC；默认两小时，不使用其时延作正式性能证据 |
 | `scene-capture` | 单独记录部分就绪、Ready 画面及雾区拾取；截图回读与编码使该进程不能作时延或内存性能证据 |
 
-`Repeat` 控制每情景的新进程数量，默认仍是 3；原有十个情景及默认选择不变。首次点击在地图可操作且绘制后立即进行，不等场景预生成。计时从 `MacroMap.ObjectClicked` 或返回／读取按钮信号之前开始，经过生产 UI 链；不从场景接口另开观察目标。拾取复用 `WorldSceneController.InspectPick`：与 UI 共用当前姿态帧、射线坐标、已显示对象兼容检查及 `Resolve`，但不记录 UI 调试射线、不发出选择事件或打开详情。几何 Ready 信号仍取实际提交绘制的帧；近处中心与射线使用交互姿态帧，屏上雾区通过显示根变换到同一坐标判断，不能混用两个帧的原点。
+`Repeat` 控制每情景的新进程数量，默认是 3；`DurationSeconds=0` 使用情景默认时长。`scene-follow-8x` 的 `DurationSeconds`（应用参数 `--measure-duration`）只能缩短默认的 120 秒采样窗口。输入规模及测量、探针和判定方法见[场景预算验证报告](research/scene-budget-verification.md)。
 
-Windows 编排进程在整个调用（含重复进程之间的间隙）持有 `SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED)`。专用线程申请并在 `finally` 同线程恢复先前状态，`summary.json.display_awake` 记录申请与恢复结果；不修改电源方案或项目设置。每进程从 Godot 日志与捕获输出收集 WASAPI 相关行，跨来源同一行取出现次数的最大值，保留各来源行数、错误、警告及设备失效计数，写入 `process.json`、运行报告和汇总。诊断记录不判断其性能影响。
+除 `scene-reference` 和 `scene-map` 外，所有 `scene-*` 情景必须传 `-ReferencePath`，指向同一构建提交、同一输入 SHA 的 `scene-reference.json`；参考运行不计入性能样本。
 
-除 `scene-reference` 和 `scene-map` 外，所有 `scene-*` 情景必须传 `-ReferencePath`；脚本通过 `--measure-reference` 传给应用，参考数据须匹配输入 SHA 和 HEAD。参考从公开 `SceneObject` 记录轨道、停放车辆的 Subject、位姿和可见几何范围，以公开 Core/Content 视图记录建筑占用范围，以公开 `TerrainHeight` 定义线路可操作地形带，不读取私有生成或缓存状态。参考只保留中心 64 m 内与检查有关的对象及建筑，正式近处检查使用这份预期，不每帧求值远处建筑。
+输出目录保留 `summary.json`，每个进程的子目录保留以下文件：
 
-每次打开在观察结束的实际绘制 `Ready` 状态另写 `ready-geometry`，计数放在计时区间外：从公开 `SceneObject` 按实例汇总 `Parent=null`、`Subject=null` 的非 `BuiltIn` 几何网格顶点数和三角形数（含 authored 地面），内建材质另列，同时保留首个 Ready 时间。读数标明「替代读数，不是 N／C／F」，只代表该帧已发布内容，不代表整个节点或去重后的 GPU 分配。规模报告同时列输入地面范围及相对 1× 的面积倍数、authored 地面 N／C／F；公开 `NodePanBounds` 是导航范围，另列其口径，不冒称生成地面的精确边界。
-
-新情景在报告 `identity.scene_budget` 引用 `scene-frames.jsonl`、`scene-operations.jsonl`、`scene-collections.jsonl` 和 `scene-probe-costs.jsonl`。每次 draw 只写固定状态、presented 帧的 stamp/Readiness、检查耗时、拾取次数、加载提示、遮挡控件及内存读数，保留 Loading／Partial／Ready 时间线；详细采样和业务证据只在状态变化时缓存 `probe-state` 事件，观察结束后写盘；事件保留原始 draw／at，文件行序不代表跨类型事件的时间顺序。遮罩检查只遍历 UI 分支，跳过三维场景子树。进程当前内存每 200 ms 通过 Windows `K32GetProcessMemoryInfo` 更新，分别读取 `PrivateUsage`／`WorkingSetSize`／`PeakPagefileUsage`／`PeakWorkingSetSize`，避免 `Process.Refresh` 的全系统进程信息采集成本；OS 峰值覆盖进程生涯，不能当作可重置的单次操作峰值。外部文件另记可用物理内存、页面输入和读取速率。活跃负载在读档后及观察结束时记录，打开期间暂停周期性汇总，避免在观察回调中扫描全部业务对象；自动存档事件保留。公开接口不能观测的预生成／缓存状态标为不可观测。
-
-近处检查使用中心及 16／32 m 两圈共 17 点，节点保留完整圆。线路在每圈与参考 Ready 地形带相交的弧段中均匀取 8 个不同点，保留两圈半径，不按正式运行当前加载区域缩小。跟随中心取当前交互帧中的车辆姿态。参考记录 64 m 内静态对象，正式门槛为 32 m；跟随中心相对参考中心移动不超过参考 32 m 覆盖范围时为 known，超出则样本无效。在近处无雾且显示/交互帧同 Space 的 Ready 时一次性记录对象与公开 Core/Content 只读快照，观察结束后核对集合及建筑占用范围，不一致记录 `sample_valid=false`；昂贵的参考验证不放进 UI 延迟区间。
-
-没有 Subject 的钢轨和轨枕不可拾取，按 Ready 参考逐帧核对已发布几何的材质类别、位姿和范围，独立记录 `rail_geometry`／`rail_geometry_passed`；17 点的无雾与拾取结果另记，不把地形命中算成钢轨命中。建筑、停放车辆与焦点车辆仍须精确解析为该对象，线路焦点须解析为线路 11 的位置。业务拾取从候选三角形中心寻找屏幕射线；候选点在镜头后或画外不能证明整个对象不可见，报告只记录候选结果。
-
-每帧先检查当前请求已有显示帧、原定近处操作区无雾，再做 17 点拾取、业务拾取和钢轨参考核对。雾数组变更时建立二维包围树；公开契约仅提供无序数组，首次及变更后的建树仍同步读取全数组，以 `fog_index_seconds`／`fog_region_count` 单列，不能声称建树成本只与近处有关。索引查询只返回近处范围候选，再做原有精确雾判定；有雾时不遍历显示对象、不做拾取或注入右拖。节点业务对象仍按公开占用范围与近处圆相交筛选，线路仍使用参考地形带。可操作后停止近处门槛检查，`near_available=null`、`not_checked_operable` 表示未重新检查；只跟踪 Ready 并保留一次 Ready 参考快照，不能把后续车辆移动期间的可拾取状态写成已验证。最近业务对象及电子厂实例 6 的补充拾取已取消。独立参考情景只采集 Ready 对象、建筑占用和地形带，不执行可操作探针。
-
-稳态读取当前请求 Ready 实际绘制帧之后第 5 秒末尾一秒的中位数；地图也等待 5 秒。观测窗内未出现可操作信号时保留 `null`，不替换为 Ready 或判断通过。每帧检查与记录开销包含在实测时间内，不扣除。`check_contribution_upper_bound_seconds` 累计近处检查与两段区间的交集；`probe_cost_seconds` 另列完整观察回调在 `[点击,可操作]`、`[可操作,Ready]` 的分项分布及交集累计：显示/雾、17 点、业务/钢轨、日志/序列化及其它，后者再列 UI、进程内存、渲染统计等计时。分布使用与区间相交的完整回调，累计按交集裁剪；Ready 先到时后段为空。逐帧分项先缓存在本次打开的有界列表，观察结束后写盘；常规帧数据流式写盘，稳态只保留最近 6 秒。非 8× 情景的报告 `timing` 为最后地图保持窗口，打开分布应读取操作记录。两小时循环每轮记录自然私有字节，再按周期读取 GC 后存活堆；它不得与正式空闲测量窗口重叠。
+| 文件 | 内容 |
+| --- | --- |
+| `identity.json`、`report.json` | 构建与输入身份、游戏生成的运行报告；编排脚本不改写 `report.json`。`scene-follow-8x` 的 `timing` 是 8× 采样窗口，`scene-memory` 是初始地图窗口，其他非参考情景是最后地图保持窗口；打开过程读取操作记录 |
+| `process.json`、`process.log`、`godot.log` | 进程结果与原始日志；`process.json.process_diagnostics` 分别保留两个日志来源匹配 WASAPI／AUDCLNT_E_DEVICE_INVALIDATED 的原始行 |
+| `external-load.jsonl` | 外部系统负载采样 |
+| `scene-frames.jsonl`、`scene-operations.jsonl`、`scene-collections.jsonl`、`scene-probe-costs.jsonl` | 逐帧状态、打开操作、GC 和探针耗时记录；路径由报告 `identity.scene_budget` 引用 |
+| `scene-reference.json` | 仅参考情景生成的参考数据 |
+| `measured.save.json`、截图 | 对应情景生成的存档副本或画面 |
 
 ## 阶段检查与候选基准
 

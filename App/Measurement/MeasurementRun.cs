@@ -58,8 +58,9 @@ internal sealed partial class MeasurementRun : IDisposable
             throw new ArgumentException("未知测量情景。");
         if (values.TryGetValue("--measure-duration", out var duration))
         {
-            if (!int.TryParse(duration, out _sceneDuration) || _sceneDuration < 0)
-                throw new ArgumentException("测量时长必须是非负整数秒。");
+            if (!int.TryParse(duration, out _sceneDuration) || _sceneDuration < 0 ||
+                _scenario != "scene-memory" && _sceneDuration > 120)
+                throw new ArgumentException("测量时长必须是非负整数秒；除 scene-memory 外只能缩短 120 秒采样。");
         }
         _input = Path.GetFullPath(values["--measure-input"]);
         _sceneReferencePath = values.TryGetValue("--measure-reference", out var reference) ? Path.GetFullPath(reference) : null;
@@ -83,88 +84,90 @@ internal sealed partial class MeasurementRun : IDisposable
             if (_scenario.StartsWith("scene-", StringComparison.Ordinal))
             {
                 await RunSceneBudget();
-                return;
             }
-            await Timed("first-load", async () =>
+            else
             {
-                using var stream = File.OpenRead(_input);
-                var header = SaveContainer.ReadHeader(stream);
-                if (_app.Saves!.Load(new(_input, header, false)) is { } problem)
-                    throw new InvalidDataException(problem.Code + ": " + problem.Message);
-                await Wait(() => !_app.Saves.HasPendingWork && !_app.Host!.IsBusy);
-                if (_app.Host!.GetStatus() is null) throw new InvalidDataException(_app.Saves.LastMessage);
-            });
-            var host = _app.Host!;
-            var view = host.GetStatus()!.View;
-            var train = view.World.Trains.OrderBy(item => item.Id.Value)
-                .Select(item => ((Lookup<TrainView>.Found)view.FindTrain(item.Id)).Value)
-                .FirstOrDefault(item => !item.Vehicles.IsEmpty)
-                ?? throw new InvalidDataException("存档中没有非空编组列车可供测量。");
-            _subject = new WorldObjectId.Instance(new InstanceId.Vehicle(train.Vehicles[0]));
-            var submitted = host.Submit(host.GetStatus()!.Binding, new CoreCommand.StartTrain(train.Id), CommandSource.AutomationTest);
-            if (submitted is not SubmissionResult.Completed { Receipt.Decision: CommandDecision.Accepted })
-                throw new InvalidDataException("无法启动测量列车：" + submitted);
-            host.AutoPauseOnFocusLoss = false;
-            var speed = _scenario.EndsWith("-1x", StringComparison.Ordinal) ? SimulationSpeed.One : SimulationSpeed.Eight;
-            if (host.SetSpeed(speed) is not null) throw new InvalidOperationException("无法设置测量倍速。");
-            _app.WorldScenes!.View.SetMeasurementEffects(_scenario == "sdfgi-on", _scenario == "taa-on");
+                await Timed("first-load", async () =>
+                {
+                    using var stream = File.OpenRead(_input);
+                    var header = SaveContainer.ReadHeader(stream);
+                    if (_app.Saves!.Load(new(_input, header, false)) is { } problem)
+                        throw new InvalidDataException(problem.Code + ": " + problem.Message);
+                    await Wait(() => !_app.Saves.HasPendingWork && !_app.Host!.IsBusy);
+                    if (_app.Host!.GetStatus() is null) throw new InvalidDataException(_app.Saves.LastMessage);
+                });
+                var host = _app.Host!;
+                var view = host.GetStatus()!.View;
+                var train = view.World.Trains.OrderBy(item => item.Id.Value)
+                    .Select(item => ((Lookup<TrainView>.Found)view.FindTrain(item.Id)).Value)
+                    .FirstOrDefault(item => !item.Vehicles.IsEmpty)
+                    ?? throw new InvalidDataException("存档中没有非空编组列车可供测量。");
+                _subject = new WorldObjectId.Instance(new InstanceId.Vehicle(train.Vehicles[0]));
+                var submitted = host.Submit(host.GetStatus()!.Binding, new CoreCommand.StartTrain(train.Id), CommandSource.AutomationTest);
+                if (submitted is not SubmissionResult.Completed { Receipt.Decision: CommandDecision.Accepted })
+                    throw new InvalidDataException("无法启动测量列车：" + submitted);
+                host.AutoPauseOnFocusLoss = false;
+                var speed = _scenario.EndsWith("-1x", StringComparison.Ordinal) ? SimulationSpeed.One : SimulationSpeed.Eight;
+                if (host.SetSpeed(speed) is not null) throw new InvalidOperationException("无法设置测量倍速。");
+                _app.WorldScenes!.View.SetMeasurementEffects(_scenario == "sdfgi-on", _scenario == "taa-on");
 
-            if (!_scenario.StartsWith("map-", StringComparison.Ordinal))
-            {
-                var requested = Seconds();
-                await SceneDisplayTime("scene-first-display", requested, async () =>
+                if (!_scenario.StartsWith("map-", StringComparison.Ordinal))
                 {
-                    _app.WorldScenes.Open(_scenario.StartsWith("node-", StringComparison.Ordinal)
-                        ? new WorldSceneTarget.Location(new WorldLocation.Node(view.World.Nodes[0].Id))
-                        : new WorldSceneTarget.Follow(train.Id, train.Vehicles[0]));
-                    await Wait(() => _firstDisplay is not null);
-                    return _firstDisplay!.Value;
-                });
-                await SceneDisplayTime("scene-ready", requested, async () =>
+                    var requested = Seconds();
+                    await SceneDisplayTime("scene-first-display", requested, async () =>
+                    {
+                        _app.WorldScenes.Open(_scenario.StartsWith("node-", StringComparison.Ordinal)
+                            ? new WorldSceneTarget.Location(new WorldLocation.Node(view.World.Nodes[0].Id))
+                            : new WorldSceneTarget.Follow(train.Id, train.Vehicles[0]));
+                        await Wait(() => _firstDisplay is not null);
+                        return _firstDisplay!.Value;
+                    });
+                    await SceneDisplayTime("scene-ready", requested, async () =>
+                    {
+                        await Wait(() => _readyDisplay is not null);
+                        return _readyDisplay!.Value;
+                    });
+                }
+                await Timed("environment-identity", () => { ReadIdentity(train.Id, speed); return Task.CompletedTask; });
+                if (host.SetPaused(false) is not null) throw new InvalidOperationException("无法开始实时模拟。");
+                var warming = Seconds();
+                await Wait(() => Seconds() - warming >= 5 && _lastDraw > 0);
+                _sampleStarted = _lastDraw;
+                _samples = new(_lastDraw, _lastDrawSteps);
+                _simulationWork = 0;
+                await Wait(() => _timing is not null);
+                // Process 读取可能枚举系统进程；只在最后一个计时帧之后采集。
+                _process.Refresh();
+                var video = Performance.GetMonitor(Performance.Monitor.RenderVideoMemUsed);
+                _memory.Add(new(Seconds() - _sampleStarted, _process.WorkingSet64, _process.PrivateMemorySize64,
+                    _process.PeakWorkingSet64,
+                    OS.IsDebugBuild() ? Performance.GetMonitor(Performance.Monitor.MemoryStatic) : null,
+                    video > 0 ? video : null));
+                _identity["memory_scope"] = "one reading after frame sampling; working set and private bytes are current; peak working set covers process lifetime";
+                _identity["scene_observations"] = _scenes;
+                _identity["moving_sample_frames"] = _movingFrames;
+                if ((_scenario.StartsWith("taa-", StringComparison.Ordinal) || _scenario.StartsWith("follow-", StringComparison.Ordinal)) && _movingFrames == 0)
+                    throw new InvalidDataException("采样期间没有观察到列车移动。");
+                if (_scenario.StartsWith("sdfgi-", StringComparison.Ordinal) && !_scenes.Any(scene => scene.Sampled && scene.OriginChanged))
+                    throw new InvalidDataException("采样期间没有观察到浮动原点变化。");
+                if (_scenario.StartsWith("sdfgi-", StringComparison.Ordinal) || _scenario.StartsWith("taa-", StringComparison.Ordinal))
+                    await CaptureVisuals();
+                host.SetPaused(true);
+                await Timed("save", async () =>
                 {
-                    await Wait(() => _readyDisplay is not null);
-                    return _readyDisplay!.Value;
+                    var target = Path.Combine(Path.GetDirectoryName(_output)!, "measured.save.json");
+                    var position = host.GetStatus()!.View.Position;
+                    if (_app.Saves!.Export(target) is { } problem) throw new IOException(problem.Code + ": " + problem.Message);
+                    await Wait(() => !_app.Saves.HasPendingWork);
+                    using var stream = File.OpenRead(target);
+                    var header = SaveContainer.ReadHeader(stream);
+                    if (header.Position != new SavePosition(position.CompletedSteps, position.Sequence))
+                        throw new InvalidDataException("保存位置与捕获边界不同。");
                 });
+                var closed = false;
+                _app.Recording!.Close(() => closed = true);
+                await Wait(() => closed);
             }
-            await Timed("environment-identity", () => { ReadIdentity(train.Id, speed); return Task.CompletedTask; });
-            if (host.SetPaused(false) is not null) throw new InvalidOperationException("无法开始实时模拟。");
-            var warming = Seconds();
-            await Wait(() => Seconds() - warming >= 5 && _lastDraw > 0);
-            _sampleStarted = _lastDraw;
-            _samples = new(_lastDraw, _lastDrawSteps);
-            _simulationWork = 0;
-            await Wait(() => _timing is not null);
-            // Process 读取可能枚举系统进程；只在最后一个计时帧之后采集。
-            _process.Refresh();
-            var video = Performance.GetMonitor(Performance.Monitor.RenderVideoMemUsed);
-            _memory.Add(new(Seconds() - _sampleStarted, _process.WorkingSet64, _process.PrivateMemorySize64,
-                _process.PeakWorkingSet64,
-                OS.IsDebugBuild() ? Performance.GetMonitor(Performance.Monitor.MemoryStatic) : null,
-                video > 0 ? video : null));
-            _identity["memory_scope"] = "one reading after frame sampling; working set and private bytes are current; peak working set covers process lifetime";
-            _identity["scene_observations"] = _scenes;
-            _identity["moving_sample_frames"] = _movingFrames;
-            if ((_scenario.StartsWith("taa-", StringComparison.Ordinal) || _scenario.StartsWith("follow-", StringComparison.Ordinal)) && _movingFrames == 0)
-                throw new InvalidDataException("采样期间没有观察到列车移动。");
-            if (_scenario.StartsWith("sdfgi-", StringComparison.Ordinal) && !_scenes.Any(scene => scene.Sampled && scene.OriginChanged))
-                throw new InvalidDataException("采样期间没有观察到浮动原点变化。");
-            if (_scenario.StartsWith("sdfgi-", StringComparison.Ordinal) || _scenario.StartsWith("taa-", StringComparison.Ordinal))
-                await CaptureVisuals();
-            host.SetPaused(true);
-            await Timed("save", async () =>
-            {
-                var target = Path.Combine(Path.GetDirectoryName(_output)!, "measured.save.json");
-                var position = host.GetStatus()!.View.Position;
-                if (_app.Saves!.Export(target) is { } problem) throw new IOException(problem.Code + ": " + problem.Message);
-                await Wait(() => !_app.Saves.HasPendingWork);
-                using var stream = File.OpenRead(target);
-                var header = SaveContainer.ReadHeader(stream);
-                if (header.Position != new SavePosition(position.CompletedSteps, position.Sequence))
-                    throw new InvalidDataException("保存位置与捕获边界不同。");
-            });
-            var closed = false;
-            _app.Recording!.Close(() => closed = true);
-            await Wait(() => closed);
         }
         catch (Exception error)
         {

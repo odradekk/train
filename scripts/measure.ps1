@@ -10,6 +10,7 @@ param(
     [string[]] $Scenario = @('map-1x', 'map-8x', 'follow-1x', 'follow-8x', 'node-1x', 'node-8x',
         'sdfgi-off', 'sdfgi-on', 'taa-off', 'taa-on'),
     [ValidateRange(1, 2147483647)][int] $Repeat = 3,
+    # 启动器超时上限 2147478 秒，扣除 scene-memory 的 600 秒退出余量。
     [ValidateRange(0, 2146878)][int] $DurationSeconds = 0,
     [string] $ReferencePath
 )
@@ -181,40 +182,16 @@ public sealed class MeasurementDisplayAwake : IDisposable
                 if ($ReferencePath) { $arguments += @('--measure-reference', $ReferencePath) }
                 $result = Invoke-HiddenProcess -FilePath $ExecutablePath -TimeoutSeconds $timeout -ArgumentList $arguments
                 $result.Output | Set-Content -LiteralPath (Join-Path $runDirectory 'process.log') -Encoding utf8
-                # 相同诊断跨来源取最大次数，既保留仅 stderr 的行，也不把日志副本双算。
                 $godotLog = Join-Path $runDirectory 'godot.log'
                 $godotLines = @(if (Test-Path -LiteralPath $godotLog -PathType Leaf) {
                     Get-Content -LiteralPath $godotLog | Where-Object { $_ -match '(?i)WASAPI|AUDCLNT_E_DEVICE_INVALIDATED' }
                 })
                 $processLines = @($result.Output -split '\r?\n' |
                     Where-Object { $_ -match '(?i)WASAPI|AUDCLNT_E_DEVICE_INVALIDATED' })
-                $godotGroups = [System.Collections.Hashtable]::new([StringComparer]::Ordinal)
-                $processGroups = [System.Collections.Hashtable]::new([StringComparer]::Ordinal)
-                $godotLines | Group-Object -CaseSensitive | ForEach-Object { $godotGroups[$_.Name] = $_.Count }
-                $processLines | Group-Object -CaseSensitive | ForEach-Object { $processGroups[$_.Name] = $_.Count }
-                $diagnosticLines = @(@($godotLines + $processLines) | Select-Object -Unique |
-                    ForEach-Object {
-                        $count = [Math]::Max([int]$godotGroups[$_], [int]$processGroups[$_])
-                        for ($copy = 0; $copy -lt $count; $copy++) { $_ }
-                    })
-                $diagnostics = @{
-                    source_message_counts = @{ 'godot.log' = $godotLines.Count; 'process.log' = $processLines.Count }
-                    wasapi_message_count = $diagnosticLines.Count
-                    wasapi_messages = $diagnosticLines
-                    wasapi_error_count = @($diagnosticLines | Where-Object { $_ -match '(?i)error|failed|failure' }).Count
-                    wasapi_warning_count = @($diagnosticLines | Where-Object { $_ -match '(?i)warning|warn' }).Count
-                    wasapi_device_invalidated_count = @($diagnosticLines | Where-Object { $_ -match '(?i)DEVICE_INVALIDATED|device.*invalid|invalid.*device' }).Count
-                }
-                $run.process_diagnostics = $diagnostics
                 Write-Json (Join-Path $runDirectory 'process.json') @{
                     exit_code = $result.ExitCode; timed_out = $result.TimedOut
                     cleanup_succeeded = $result.CleanupSucceeded; duration_ms = $result.DurationMs
-                    process_diagnostics = $diagnostics
-                }
-                if (Test-Path -LiteralPath $reportPath -PathType Leaf) {
-                    $processReport = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json -AsHashtable
-                    $processReport.process_diagnostics = $diagnostics
-                    Write-Json $reportPath $processReport
+                    process_diagnostics = @{ 'godot.log' = $godotLines; 'process.log' = $processLines }
                 }
                 if ($result.ExitCode -ne 0 -or $result.TimedOut -or -not $result.CleanupSucceeded) { throw "$name/$iteration 进程失败或超时。" }
                 if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw "$name/$iteration 未生成报告。" }
