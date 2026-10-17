@@ -1,3 +1,6 @@
+using Train.App.Editing;
+using Train.App.Saves;
+using Train.Scenes.ContractSupport;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.App;
 using Train.App.Logging;
@@ -68,6 +71,9 @@ internal sealed class HostFixture : IDisposable
         Host = new(Core, Factory, new ScriptedContentFiles(), new UnconfiguredAssetInspector(), new(new("builtin"), new("mods"), null, "fixture-game", []),
             Logger, notification, seconds ?? (() => 0), sessionOptions: Options);
     }
+
+    internal EditorService CreateEditor(FileSaveStore? store = null) =>
+        new(Host, new EditorScenes(), store ?? new FileSaveStore(Path.GetTempPath()), Logger);
 
     internal void AllowHostFailure(string id, int count = 1)
     {
