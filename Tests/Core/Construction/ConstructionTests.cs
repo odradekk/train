@@ -108,8 +108,23 @@ public sealed class ConstructionTests
     public void Completed_vehicle_is_parked_and_can_be_formed_and_started()
     {
         var content = Content();
-        using var session = Session(content);
-        var started = Start(session, Build(content, Local));
+        using var candidate = WorldFixture.Prepare(WorldFixture.Input with
+            { Configuration = WorldFixture.Input.Configuration with { WidthMeters = 20 } }, content);
+        using var generated = (CoreSession)candidate.Activate();
+        var state = generated.State;
+        var node = ((TrainPosition.Node)state.World.Trains.Single().Position).Id;
+        var origin = state.World.Settlements.Single(s => s.Node == node);
+        using var session = new CoreSession(state with { World = state.World with
+        {
+            Settlements = state.World.Settlements.Select(s => s.Id != origin.Id ? s : s with
+                { Relation = SettlementRelation.PlayerOwned }).ToImmutableArray(),
+            Nodes = state.World.Nodes.Select(n => n.Id != node ? n : n with
+                { Occupant = new NodeOccupant.Settlement(origin.Id, SettlementRelation.PlayerOwned) }).ToImmutableArray(),
+            Instances = state.World.Instances.Select(i => !origin.Plots.Any(p => i.Id == new InstanceId.Building(p.Building!.Value))
+                ? i : i with { Ownership = SettlementRelation.PlayerOwned }).ToImmutableArray()
+        } });
+        var facility = new FacilityKey(origin.Plots.Single().Building!.Value, CapabilityKind.Construction);
+        var started = Start(session, new CoreCommand.StartOwnedJob(new JobRequest.BuildVehicle(facility, Design(content), [origin.Inventory], 0)));
         var old = session.Read();
         var events = Step(session, 2).Events.Select(e => e.Event).ToArray();
         var completed = events.OfType<CoreEvent.ConstructionCompleted>().Single();
@@ -117,12 +132,17 @@ public sealed class ConstructionTests
         var vehicle = ((InstanceId.Vehicle)completed.CreatedInstance!).Id;
         Assert.IsInstanceOfType<Lookup<JobView>.Missing>(session.Read().FindJob(started.Id));
         Assert.AreEqual(0d, Job(old, started.Id).ProgressWork);
-        var settlement = ((Lookup<SettlementView>.Found)session.Read().FindSettlement(new(1))).Value;
+        var settlement = ((Lookup<SettlementView>.Found)session.Read().FindSettlement(origin.Id)).Value;
         CollectionAssert.Contains(settlement.ParkedVehicles.ToArray(), vehicle);
+        Accept(session, new CoreCommand.DisbandTrain(new(1)));
         var formed = Accept(session, new CoreCommand.FormTrain([vehicle]));
         var train = ((CommandDecision.Accepted)formed.Receipt.Decision).Created.OfType<WorldObjectId.Train>().Single().Id;
-        Accept(session, new CoreCommand.ReplaceRunPlan(train, new(false, [new PlanStop.Station(settlement.Node, 1, [])])));
+        var destination = session.Read().World.Nodes.Single(n => n.Id != node).Id;
+        Accept(session, new CoreCommand.ReplaceRunPlan(train, new(false, [new PlanStop.Station(destination, 1, [])])));
         Accept(session, new CoreCommand.StartTrain(train));
+        Step(session, 10);
+        var position = ((Lookup<TrainView>.Found)session.Read().FindTrain(train)).Value.Position;
+        Assert.IsTrue(position is TrainPosition.Edge || position is TrainPosition.Node arrival && arrival.Id == destination);
     }
 
     [TestMethod]
