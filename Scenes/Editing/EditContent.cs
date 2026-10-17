@@ -35,15 +35,20 @@ internal sealed class EditContent(IContentView content)
             if (lookup is ContentLookup<DesignEvaluation>.Found { Value: not DesignEvaluation.Failed } found)
             {
                 var projection = DesignGeometry.Projection(found.Value);
+                ArgumentNullException.ThrowIfNull(projection);
                 var draft = Definition(found.Value);
-                if (!projection.EditLocks.IsDefaultOrEmpty)
+                if (projection.EditLocks.IsDefault || projection.Voxels.IsDefault ||
+                    projection.EditLocks.Any(value => value is null) ||
+                    projection.Voxels.Any(cell => cell is null || cell.ObjectPath.IsDefault || !Enum.IsDefined(cell.LocalOrientation)))
+                    throw new ArgumentException("Composite occupancy collections and orientations must be initialized and valid.", nameof(id));
+                if (!projection.EditLocks.IsEmpty)
                 {
                     missing = true;
                     problems = projection.EditLocks.Select(value => new SceneProblem("content_missing", SceneStage.Edit,
                         null, value.Reference, value.Package, value.Element, "The composite contains a missing reference.")).ToImmutableArray();
                 }
                 complete = draft.Specification is DesignSpecification.FunctionalComposite && projection.OccupancyComplete &&
-                    !projection.Voxels.IsDefault && !projection.Voxels.Any(cell => cell.Missing || !cell.ObjectPath.IsEmpty) &&
+                    !projection.Voxels.Any(cell => cell.Missing || !cell.ObjectPath.IsEmpty) &&
                     projection.Voxels.Select(cell => cell.LocalAt).Distinct().Count() == projection.Voxels.Length;
                 if (complete)
                 {
@@ -83,6 +88,32 @@ internal sealed class EditContent(IContentView content)
         DesignEvaluation.Partial partial => partial.Definition,
         _ => throw new ArgumentException("The evaluation has no draft.", nameof(evaluation))
     };
+
+    internal static DesignSceneProjection ValidateEvaluation(DesignEvaluation evaluation)
+    {
+        EditLayout.Validate(Definition(evaluation));
+        var projection = DesignGeometry.Projection(evaluation);
+        ArgumentNullException.ThrowIfNull(projection);
+        if (projection.EditLocks.IsDefault || projection.RotationSweeps.IsDefault)
+            throw new ArgumentException("Evaluation collections must be initialized.", nameof(evaluation));
+        foreach (var value in projection.EditLocks)
+        {
+            var indices = value?.Element switch
+            {
+                DesignElementPath.Cell cell => cell.NestedItemIndices,
+                DesignElementPath.FunctionalComposite composite => composite.NestedItemIndices,
+                _ => default
+            };
+            if (indices.IsDefault || value!.BlockedOperations.IsDefault)
+                throw new ArgumentException("Edit lock collections must be initialized.", nameof(evaluation));
+        }
+        foreach (var value in projection.RotationSweeps)
+            if (value is null || value.NestedItemIndices.IsDefault ||
+                value.SweptCells is ComputedValue<ImmutableArray<GridPosition>>.Known { Value.IsDefault: true } ||
+                value.ConflictCells is ComputedValue<ImmutableArray<GridPosition>>.Known { Value.IsDefault: true })
+                throw new ArgumentException("Rotation sweep collections must be initialized.", nameof(evaluation));
+        return projection;
+    }
     internal static ImmutableArray<ContentDiagnostic> Diagnostics(DesignEvaluation evaluation) => evaluation switch
     {
         DesignEvaluation.Complete complete => complete.Diagnostics,

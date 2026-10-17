@@ -120,18 +120,21 @@ public sealed class EditingSessionTests
     [TestMethod]
     public void StrokeDeduplicatesWithoutConnectingSamplesAndConflictRejectsWholeEdit()
     {
-        using var session = EditingFixtures.Open(EditingFixtures.Draft(new GridPosition(0, 0, 0)));
+        var child = EditingFixtures.Draft(new GridPosition(0, 0, 0)) with { Specification = new DesignSpecification.Assembly(null) };
+        var draft = EditingFixtures.Draft() with { Layout = new([], [], [new NestedDesignItem.AssemblyCopy(new(0, 0, 0), VoxelOrientation.PxPy, child)]) };
+        using var session = EditingFixtures.Open(draft);
         var before = session.Capture();
+        var blocker = session.Read().Elements.Single(e => e.Kind == EditElementKind.Cell);
         var collision = EditingFixtures.Preview(session, new EditOperation.Cells(new EditFootprint.Stroke([new(0, 0, 0), new(5, 0, 0)], 1), new CellEdit.Add(EditingFixtures.Cube)));
         Assert.IsFalse(collision.CanApply);
-        Assert.IsTrue(collision.Conflicts.Any(c => c.Problem.Code == "occupancy_conflict"));
+        Assert.IsTrue(collision.Conflicts.Any(c => c.Problem.Code == "occupancy_conflict" && c.Element == blocker.Id));
         Assert.AreEqual("occupancy_conflict", EditingFixtures.Code(session.Apply(collision, true)));
         Assert.AreEqual(before.Stamp, session.Capture().Stamp);
         var preview = EditingFixtures.Preview(session, new EditOperation.Cells(new EditFootprint.Stroke([new(2, 0, 0), new(2, 0, 0), new(5, 0, 0)], 1), new CellEdit.Add(EditingFixtures.Cube)));
         Assert.AreEqual(2, preview.CoveredCells);
         Assert.AreEqual(2, preview.AffectedCells);
         EditingFixtures.Value(session.Apply(preview, false));
-        CollectionAssert.AreEquivalent(new[] { new GridPosition(0, 0, 0), new(2, 0, 0), new(5, 0, 0) }, session.Capture().Draft.Layout.Cells.Select(c => c.At).ToArray());
+        CollectionAssert.AreEquivalent(new[] { new GridPosition(2, 0, 0), new(5, 0, 0) }, session.Capture().Draft.Layout.Cells.Select(c => c.At).ToArray());
     }
 
     [TestMethod]

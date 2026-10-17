@@ -16,12 +16,11 @@ internal sealed class DesignEditSession : IDesignEditSession
 {
     private sealed record ElementLock(SceneProblem Problem, ImmutableHashSet<LockedDesignOperation> Operations);
     private sealed record PreviewValue(EditStamp Basis, EditObject Result, int CoveredCells, int AffectedCells,
-        int SkippedCells, bool OccupancyComplete, ImmutableArray<EditConflict> Conflicts,
+        int SkippedCells, bool OccupancyComplete, bool RequiresConfirmation, ImmutableArray<EditConflict> Conflicts,
         ImmutableArray<GridPosition> HighlightCells,
         ImmutableArray<(EditElementId Id, LockedDesignOperation Operation)> LockChecks) : IEditPreview
     {
         public bool CanApply => Conflicts.IsEmpty;
-        public bool RequiresConfirmation => AffectedCells > VoxelRegionLimits.ConfirmationThreshold;
     }
 
     private readonly EditContent content;
@@ -47,13 +46,14 @@ internal sealed class DesignEditSession : IDesignEditSession
 
     internal DesignEditSession(IContentView view, DesignEvaluation initial)
     {
+        var projection = EditContent.ValidateEvaluation(initial);
         Content = view.Generation;
         content = new(view);
         saved = EditContent.Definition(initial);
         root = EditLayout.Import(saved, NextElement);
         evaluation = initial;
         RegisterMissing(root);
-        RegisterLocks(DesignGeometry.Projection(initial));
+        RegisterLocks(projection);
     }
 
     private EditElementId NextElement() => new(++nextElement);
@@ -85,7 +85,7 @@ internal sealed class DesignEditSession : IDesignEditSession
         {
             if (elements.Ids.IsDefault) throw new ArgumentException("Selection must be initialized.", nameof(value));
             ids = elements.Ids.Distinct().ToImmutableArray();
-            var available = EditLayout.Elements(current).Select(element => element.Id).ToHashSet();
+            var available = current.Cells.Select(cell => cell.Id).Concat(current.Children.Select(child => child.Id)).ToHashSet();
             if (ids.Any(id => !available.Contains(id))) return Fail<EditState>("target_missing", "Selection element is not in the current object.");
         }
         else if (value is EditSelection.Box box)
@@ -166,6 +166,7 @@ internal sealed class DesignEditSession : IDesignEditSession
         int? covered = null;
         var skipped = 0;
         var occupied = Occupied(current);
+        var elements = Elements;
         switch (operation)
         {
             case EditOperation.Cells cells:
@@ -190,11 +191,16 @@ internal sealed class DesignEditSession : IDesignEditSession
                 {
                     var targets = own[at].ToArray();
                     var blockers = all[at].ToArray();
-                    var locked = blockers.Select(cell => CheckLock(cell.Id, cells.Action is CellEdit.Remove ? LockedDesignOperation.Remove : LockedDesignOperation.Replace))
-                        .FirstOrDefault(problem => problem is not null);
-                    if (locked is not null) { conflicts.Add(new(at, null, locked)); continue; }
-                    if (targets.Length > 1 || blockers.Length > targets.Length || cells.Action is CellEdit.Add && targets.Length > 0)
-                    { conflicts.Add(new(at, blockers.FirstOrDefault().Id, Problem("occupancy_conflict", "The brush intersects occupied cells."))); continue; }
+                    var locked = blockers.Select(cell => (cell.Id, Problem: CheckLock(cell.Id,
+                        cells.Action is CellEdit.Remove ? LockedDesignOperation.Remove : LockedDesignOperation.Replace)))
+                        .FirstOrDefault(value => value.Problem is not null);
+                    if (locked.Problem is not null) { AddConflict(at, locked.Id, locked.Problem); continue; }
+                    var blocker = blockers.FirstOrDefault(cell => !targets.Any(target => target.Id == cell.Id));
+                    if (blocker.Id != default)
+                    { AddConflict(at, blocker.Id, Problem("occupancy_conflict", "The brush intersects another object's cells.")); continue; }
+                    if (cells.Action is CellEdit.Add && targets.Length > 0) { skipped++; continue; }
+                    if (targets.Length > 1)
+                    { AddConflict(at, null, Problem("occupancy_conflict", "The brush intersects overlapping cells.")); continue; }
                     var target = targets.FirstOrDefault();
                     if (cells.Action is CellEdit.Remove)
                     {
@@ -234,6 +240,7 @@ internal sealed class DesignEditSession : IDesignEditSession
                     return Fail<IEditPreview>("invalid_operation", "Properties cannot change the design category.");
                 next = current with { Display = properties.Display, Specification = properties.Specification };
                 EditLayout.Validate(next.Export());
+                next = next with { Display = new(properties.Display.Name.Trim(), properties.Display.Description.Trim()) };
                 break;
             case EditOperation.PlaceNested:
             case EditOperation.ReplaceNested:
@@ -242,6 +249,8 @@ internal sealed class DesignEditSession : IDesignEditSession
                 ArgumentNullException.ThrowIfNull(item);
                 var temporary = new DesignDraft(current.Display, current.Specification, new([], [], [item]));
                 EditLayout.Validate(temporary);
+                temporary = EditLayout.Normalize(temporary);
+                item = temporary.Layout.NestedItems[0];
                 if (!EditLayout.ValidCopies(temporary))
                     return Fail<IEditPreview>("invalid_operation", "Nested copy category does not match its kind.");
                 var missing = content.Missing(temporary);
@@ -257,14 +266,10 @@ internal sealed class DesignEditSession : IDesignEditSession
                 var child = new EditChild(NextElement(), item, EditLayout.Copy(item) is { } copy ? EditLayout.Import(copy, NextElement) : null);
                 var target = ChildOccupied(child);
                 var without = index < 0 ? current : current with { Children = current.Children.RemoveAt(index) };
-                var existing = Occupied(without).Cells.Select(cell => cell.At).ToHashSet();
-                foreach (var cell in target.Cells)
-                {
-                    highlight.Add(cell.At);
-                    if (existing.Contains(cell.At)) conflicts.Add(new(cell.At, child.Id, Problem("occupancy_conflict", "The nested object overlaps existing cells.")));
-                }
-                if (without.Children.Any(other => EditLayout.Placement(other.Item).At == EditLayout.Placement(item).At))
-                    conflicts.Add(new(EditLayout.Placement(item).At, child.Id, Problem("occupancy_conflict", "Nested anchors overlap.")));
+                highlight.UnionWith(target.Cells.Select(cell => cell.At));
+                var anchorBlocker = without.Children.FirstOrDefault(other => EditLayout.Placement(other.Item).At == EditLayout.Placement(item).At);
+                if (anchorBlocker is not null)
+                    AddConflict(EditLayout.Placement(item).At, anchorBlocker.Id, Problem("occupancy_conflict", "Nested anchors overlap."));
                 next = current with { Children = index < 0 ? current.Children.Add(child) : current.Children.SetItem(index, child) };
                 var changedCells = target.Cells.Select(cell => cell.At);
                 if (index >= 0) changedCells = changedCells.Concat(ChildOccupied(current.Children[index]).Cells.Select(cell => cell.At));
@@ -276,17 +281,28 @@ internal sealed class DesignEditSession : IDesignEditSession
         }
         var result = EditLayout.Update(root, path, _ => next);
         var previousCells = Occupied(root).Cells.ToHashSet();
-        foreach (var group in Occupied(result).Cells.GroupBy(cell => cell.At))
+        var resultOccupied = Occupied(result);
+        foreach (var group in resultOccupied.Cells.GroupBy(cell => cell.At))
             if (group.Count() > 1 && group.Any(cell => !previousCells.Contains(cell)))
-                conflicts.Add(new(group.Key, null, Problem("occupancy_conflict", "The edit overlaps another object's cells.")));
+            {
+                var blockers = group.Where(previousCells.Contains).Select(cell => cell.Id).Distinct().ToArray();
+                AddConflict(EditLayout.ToLocal(root, path, group.Key), blockers.Length == 1 ? blockers[0] : null,
+                    Problem("occupancy_conflict", "The edit overlaps another object's cells."));
+            }
         preview = new(Stamp, result, covered ?? highlight.Count, affected, skipped,
-            Occupied(result).Complete, conflicts.ToImmutable(), highlight.OrderBy(cell => cell.X).ThenBy(cell => cell.Y).ThenBy(cell => cell.Z).ToImmutableArray(), lockChecks.ToImmutable());
+            resultOccupied.Complete, operation is EditOperation.Cells && affected > VoxelRegionLimits.ConfirmationThreshold,
+            conflicts.ToImmutable(), highlight.OrderBy(cell => cell.X).ThenBy(cell => cell.Y).ThenBy(cell => cell.Z).ToImmutableArray(), lockChecks.ToImmutable());
         return Success<IEditPreview>(preview);
 
         SceneProblem? CheckLock(EditElementId id, LockedDesignOperation action)
         {
             lockChecks.Add((id, action));
-            return LockFor(id, action);
+            return LockFor(id, action, elements);
+        }
+
+        void AddConflict(GridPosition at, EditElementId? blocker, SceneProblem problem)
+        {
+            if (!conflicts.Any(conflict => conflict.Cell == at)) conflicts.Add(new(at, blocker, problem));
         }
     }
 
@@ -338,11 +354,11 @@ internal sealed class DesignEditSession : IDesignEditSession
         ArgumentNullException.ThrowIfNull(requested);
         ArgumentNullException.ThrowIfNull(result);
         if (disposed || requested != Stamp || result is DesignEvaluation.Failed) return false;
+        var projection = EditContent.ValidateEvaluation(result);
         var draft = EditContent.Definition(result);
-        EditLayout.Validate(draft);
         if (!EditLayout.Same(root.Export(), draft)) return false;
         evaluation = result;
-        RegisterLocks(DesignGeometry.Projection(result));
+        RegisterLocks(projection);
         return true;
     }
 
@@ -415,9 +431,10 @@ internal sealed class DesignEditSession : IDesignEditSession
                     with { Code = "edit_locked" }, Enum.GetValues<LockedDesignOperation>().ToImmutableHashSet());
     }
 
-    private SceneProblem? LockFor(EditElementId id, LockedDesignOperation operation)
+    private SceneProblem? LockFor(EditElementId id, LockedDesignOperation operation) => LockFor(id, operation, Elements);
+
+    private SceneProblem? LockFor(EditElementId id, LockedDesignOperation operation, ImmutableArray<EditElement> entries)
     {
-        var entries = Elements;
         var descendants = new HashSet<EditElementId> { id };
         foreach (var entry in entries)
             if (entry.Parent is { } parent && descendants.Contains(parent)) descendants.Add(entry.Id);

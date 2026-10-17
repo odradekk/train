@@ -65,6 +65,33 @@ internal static class EditLayout
             checked(at.Z + (int)right.Z * cell.X + (int)up.Z * cell.Y + (int)forward.Z * cell.Z));
     }
 
+    internal static GridPosition ToLocal(EditObject root, ImmutableArray<int> path, GridPosition cell)
+    {
+        foreach (var index in path)
+        {
+            var child = root.Children[index];
+            var (at, orientation) = Placement(child.Item);
+            var (right, up, forward) = SceneGeometry.Axes(orientation);
+            var x = (long)cell.X - at.X; var y = (long)cell.Y - at.Y; var z = (long)cell.Z - at.Z;
+            cell = new(checked((int)(x * (int)right.X + y * (int)right.Y + z * (int)right.Z)),
+                checked((int)(x * (int)up.X + y * (int)up.Y + z * (int)up.Z)),
+                checked((int)(x * (int)forward.X + y * (int)forward.Y + z * (int)forward.Z)));
+            root = child.Copy!;
+        }
+        return cell;
+    }
+
+    internal static DesignDraft Normalize(DesignDraft draft) => draft with
+    {
+        Display = new(draft.Display.Name.Trim(), draft.Display.Description.Trim()),
+        Layout = draft.Layout with { NestedItems = draft.Layout.NestedItems.Select(item => item switch
+        {
+            NestedDesignItem.AssemblyCopy copy => copy with { Design = Normalize(copy.Design) },
+            NestedDesignItem.SceneModelCopy copy => copy with { Design = Normalize(copy.Design) },
+            _ => item
+        }).ToImmutableArray() }
+    };
+
     internal static EditObject At(EditObject root, ImmutableArray<int> path)
     {
         foreach (var index in path) root = root.Children[index].Copy!;
@@ -150,37 +177,6 @@ internal static class EditLayout
         if (draft.Specification is DesignSpecification.Building building && building.FacilityTags.IsDefault ||
             draft.Specification is DesignSpecification.FunctionalComposite composite && composite.Behaviors.IsDefault)
             throw new ArgumentException("Specification collections must be initialized.", nameof(draft));
-        var rotation = draft.Specification switch
-        {
-            DesignSpecification.Assembly assembly => assembly.Rotation,
-            DesignSpecification.FunctionalComposite functional => functional.Rotation,
-            _ => null
-        };
-        if (rotation is not null && (!Enum.IsDefined(rotation.Axis) || !double.IsFinite(rotation.MinimumDegrees) ||
-            !double.IsFinite(rotation.MaximumDegrees) || !double.IsFinite(rotation.SpeedDegreesPerSecond)))
-            throw new ArgumentException("Rotation values must be finite and the axis valid.", nameof(draft));
-        if (draft.Specification is DesignSpecification.Vehicle { Size: { } size } && !Enum.IsDefined(size) ||
-            draft.Specification is DesignSpecification.Building b && (b.PlotSize is { } plot && !Enum.IsDefined(plot) ||
-                b.Kind is { } kind && !Enum.IsDefined(kind) || b.FacilityTags.Any(tag => !Enum.IsDefined(tag))))
-            throw new ArgumentException("Invalid specification enum.", nameof(draft));
-        if (draft.Specification is DesignSpecification.Creature { Behavior: { } creature } &&
-            (!double.IsFinite(creature.SpeedMetersPerSecond) || !double.IsFinite(creature.RetreatThreshold) || !double.IsFinite(creature.RaidDurationSeconds)))
-            throw new ArgumentException("Creature values must be finite.", nameof(draft));
-        if (draft.Specification is DesignSpecification.Creature { Weapon: { } creatureWeapon } && !double.IsFinite(creatureWeapon.IntervalSeconds))
-            throw new ArgumentException("Weapon interval must be finite.", nameof(draft));
-        if (draft.Specification is DesignSpecification.FunctionalComposite functionalComposite &&
-            functionalComposite.Behaviors.Any(behavior => behavior switch
-            {
-                Train.Core.Contracts.PartCapability.Propulsion propulsion => !double.IsFinite(propulsion.TractionKilonewtons) || !double.IsFinite(propulsion.RatedSpeedMetersPerSecond),
-                Train.Core.Contracts.PartCapability.Production production => !double.IsFinite(production.WorkPerSecond),
-                Train.Core.Contracts.PartCapability.Extraction extraction => !double.IsFinite(extraction.WorkPerSecond),
-                Train.Core.Contracts.PartCapability.Construction construction => !double.IsFinite(construction.WorkPerSecond) || !Enum.IsDefined(construction.MaximumBuildingPlotSize) ||
-                    construction.MaximumVehicleSize is { } maximum && !Enum.IsDefined(maximum),
-                Train.Core.Contracts.PartCapability.Power power => !double.IsFinite(power.EnergyPerSecond),
-                Train.Core.Contracts.PartCapability.Weapon weapon => !double.IsFinite(weapon.IntervalSeconds),
-                null => true,
-                _ => false
-            })) throw new ArgumentException("Behavior values must be finite and enums valid.", nameof(draft));
         foreach (var item in draft.Layout.NestedItems)
         {
             ArgumentNullException.ThrowIfNull(item);

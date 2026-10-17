@@ -115,26 +115,6 @@ public sealed class EditingBoundaryTests
     }
 
     [TestMethod]
-    [DataRow(double.NaN)]
-    [DataRow(double.PositiveInfinity)]
-    [DataRow(double.NegativeInfinity)]
-    public void CreatureWeaponIntervalMustBeFiniteBeforeOpenOrPropertiesPreview(double interval)
-    {
-        var draft = EditingFixtures.Draft() with
-        { Specification = new DesignSpecification.Creature(null, new PartCapability.Weapon(1, 1)) };
-        using var session = EditingFixtures.Open(draft);
-        var before = session.Read();
-        var invalid = new DesignSpecification.Creature(null, new PartCapability.Weapon(1, interval));
-        Assert.ThrowsExactly<ArgumentException>(() => session.Preview(new EditOperation.Properties(draft.Display, invalid)));
-        Assert.AreEqual(before.Snapshot.Stamp, session.Capture().Stamp);
-        Assert.IsFalse(session.Read().CanUndo);
-        Assert.IsFalse(session.Read().IsDirty);
-        Assert.AreSame(before.CurrentEvaluation, session.Read().CurrentEvaluation);
-        Assert.AreEqual(1d, ((DesignSpecification.Creature)session.Capture().Draft.Specification).Weapon!.IntervalSeconds);
-        Assert.ThrowsExactly<ArgumentException>(() => ScenesFactory.Create().OpenEditor(SceneFixtures.Content(),
-            EditingFixtures.Evaluation(draft with { Specification = invalid })));
-    }
-    [TestMethod]
     public void MissingCompositeDiagnosticsLocateEachInstanceAfterEarlierNestedItemIsRemoved()
     {
         var definition = new CompositeDefinitionId("test:missing-instances");

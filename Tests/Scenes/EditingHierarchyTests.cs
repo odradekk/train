@@ -218,5 +218,10 @@ public sealed class EditingHierarchyTests
         Assert.IsTrue(EditingFixtures.Frame(session).DebugLines.IsEmpty);
         Assert.IsFalse(session.AcceptEvaluation(stamp, EditingFixtures.Evaluation(draft) with { Scene = scene }));
         Assert.IsTrue(EditingFixtures.Frame(session).DebugLines.IsEmpty);
+        var current = session.Capture();
+        Assert.IsTrue(session.AcceptEvaluation(current.Stamp, EditingFixtures.Evaluation(EditingFixtures.Clone(current.Draft)) with { Scene = scene }));
+        var restored = EditingFixtures.Frame(session);
+        Assert.IsFalse(restored.DebugLines.IsEmpty);
+        CollectionAssert.AreEqual(entered.DebugLines.ToArray(), restored.DebugLines.ToArray());
     }
 }
