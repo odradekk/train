@@ -128,7 +128,7 @@ internal static class DesignGeometry
     internal static ImmutableArray<SceneVisual> Meshes(VoxelGrid grid, bool wear)
     {
         var groups = new Dictionary<(GridPosition Chunk, SceneMaterial Material),
-            (List<SceneVertex> Vertices, List<int> Indices, Dictionary<FacePlane, uint[]> Planes)>();
+            (List<FaceQuad> Quads, Dictionary<FacePlane, uint[]> Planes)>();
         foreach (var cell in grid.Cells)
         {
             if (!cell.Occludes) continue;
@@ -147,7 +147,7 @@ internal static class DesignGeometry
                 var span = front ? 1 : cube.TileSpan;
                 var material = new SceneMaterial.Voxel(texture, cube.Material, cell.Paint);
                 var key = (VoxelGrid.Chunk(at), (SceneMaterial)material);
-                if (!groups.TryGetValue(key, out var group)) groups.Add(key, group = ([], [], []));
+                if (!groups.TryGetValue(key, out var group)) groups.Add(key, group = ([], []));
                 var u = normal.X != 0 ? Vector3.UnitZ : Vector3.UnitX;
                 var v = Vector3.Cross(normal, u);
                 var plane = new FacePlane(face, normal.X != 0 ? at.X : normal.Y != 0 ? at.Y : at.Z,
@@ -167,7 +167,7 @@ internal static class DesignGeometry
                 if (Empty(u)) edges |= ExposedFaceEdges.MaximumU;
                 if (Empty(-v)) edges |= ExposedFaceEdges.MinimumV;
                 if (Empty(v)) edges |= ExposedFaceEdges.MaximumV;
-                AddQuad(group.Vertices, group.Indices, at, plane, 1, 1, edges);
+                group.Quads.Add(new(at, plane, 1, 1, edges));
                 bool Empty(Vector3 offset) => !grid.Contains(new(at.X + (int)offset.X, at.Y + (int)offset.Y, at.Z + (int)offset.Z));
             }
         }
@@ -192,14 +192,31 @@ internal static class DesignGeometry
                 var at = normal.X != 0 ? new GridPosition(plane.Layer, (chunk.Y << 5) + alongV, (chunk.Z << 5) + column) :
                     normal.Y != 0 ? new GridPosition((chunk.X << 5) + column, plane.Layer, (chunk.Z << 5) + alongV) :
                     new GridPosition((chunk.X << 5) + column, (chunk.Y << 5) + alongV, plane.Layer);
-                AddQuad(group.Vertices, group.Indices, at, plane, width, height, ExposedFaceEdges.None);
+                group.Quads.Add(new(at, plane, width, height, ExposedFaceEdges.None));
             }
         }
-        return groups.Select(group => (SceneVisual)new SceneVisual.Geometry(
-            new(group.Key.Material, group.Value.Vertices.ToImmutableArray(), group.Value.Indices.ToImmutableArray()),
-            new(wear, 0, 0, false))).ToImmutableArray();
+        var visuals = ImmutableArray.CreateBuilder<SceneVisual>(groups.Count);
+        foreach (var (key, group) in groups)
+        {
+            var vertexCount = 0;
+            var indexCount = 0;
+            foreach (var quad in group.Quads)
+            {
+                var unit = quad.Width == 1 && quad.Height == 1;
+                var perimeter = 2 * (quad.Width + quad.Height);
+                vertexCount += unit ? 4 : perimeter + 1;
+                indexCount += unit ? 6 : perimeter * 3;
+            }
+            var vertices = ImmutableArray.CreateBuilder<SceneVertex>(vertexCount);
+            var indices = ImmutableArray.CreateBuilder<int>(indexCount);
+            foreach (var quad in group.Quads)
+                AddQuad(vertices, indices, quad.At, quad.Plane, quad.Width, quad.Height, quad.Edges);
+            visuals.Add(new SceneVisual.Geometry(new(key.Material, vertices.MoveToImmutable(), indices.MoveToImmutable()),
+                new(wear, 0, 0, false)));
+        }
+        return visuals.MoveToImmutable();
 
-        void AddQuad(List<SceneVertex> vertices, List<int> indices, GridPosition at, FacePlane plane,
+        void AddQuad(ImmutableArray<SceneVertex>.Builder vertices, ImmutableArray<int>.Builder indices, GridPosition at, FacePlane plane,
             int width, int height, ExposedFaceEdges edges)
         {
             var normal = SceneGeometry.Normal(plane.Face);
@@ -210,7 +227,8 @@ internal static class DesignGeometry
             if (width == 1 && height == 1)
             {
                 AddVertex(0, 0); AddVertex(1, 0); AddVertex(1, 1); AddVertex(0, 1);
-                indices.AddRange([first, first + 1, first + 2, first, first + 2, first + 3]);
+                indices.Add(first); indices.Add(first + 1); indices.Add(first + 2);
+                indices.Add(first); indices.Add(first + 2); indices.Add(first + 3);
                 return;
             }
             // Unit border segments share endpoints across rectangles, materials and chunk boundaries.
@@ -242,6 +260,7 @@ internal static class DesignGeometry
     }
 
     private readonly record struct FacePlane(GridFace Face, int Layer, Vector3 TextureU, Vector3 TextureV, int Span);
+    private readonly record struct FaceQuad(GridPosition At, FacePlane Plane, int Width, int Height, ExposedFaceEdges Edges);
 
     private static float TextureCoordinate(GridPosition at, Vector3 corner, Vector3 axis, int span)
     {
