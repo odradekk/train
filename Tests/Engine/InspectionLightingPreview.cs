@@ -148,7 +148,7 @@ public partial class InspectionLightingPreview : Node
             Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
             { [Terrain] = new ContentLookup<TerrainAppearanceProjection>.Found(new(Terrain, ground, ground, ground, [], [], 0, [], new("预览地面", ""))) },
             RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>
-            { [Rule] = new ContentLookup<RailwayAppearanceProjection>.Found(new(Rule, 40, 0.12)) },
+            { [Rule] = new ContentLookup<RailwayAppearanceProjection>.Found(new(Rule, ground, 40, 0.12)) },
             VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
             {
                 [body] = new ContentLookup<VoxelAppearanceProjection>.Found(Appearance(body, MaterialCategory.PaintedMetal, metal)),

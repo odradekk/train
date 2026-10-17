@@ -22,6 +22,6 @@
 | `rail_good` | 铁路施工和修复使用的货物体素引用。 |
 | `repair_rail_units_per_break` | 正整数，每断点材料件数。 |
 
-`appearance.minimum_curve_radius_meters` 是场景中心线的最小弯道半径，正数，米；`appearance.maximum_grade` 是最大坡度，正数，以高差/水平距离表示。两项只投影给场景，不进入核心铁路规则。内容不生成中心线；算法和是否满足整条线路长度约束由体素模块处理。正式数值在场景实测后确定。
+`appearance.minimum_curve_radius_meters` 是场景中心线的最小弯道半径，正数，米；`appearance.maximum_grade` 是最大坡度，正数，以高差/水平距离表示。`appearance.ballast_voxel` 是必填的道床场景体素引用，加载器检查引用存在、包依赖已声明且不含 `simulation`；线路、节点及入口接缝均使用该体素，没有地貌岩层回退。这三个表现字段仅由 `RailwayAppearanceProjection` 提供给场景，不进入核心铁路规则或业务语义修订；该投影不含模拟字段。内容不生成中心线；算法和是否满足整条线路长度约束由体素模块处理。正式数值在场景实测后确定。
 
 格式样例暂用本包 `hull-plate` 作为施工材料，展示货物引用，不代表正式 Rail 货物或配平选择。

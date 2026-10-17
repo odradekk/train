@@ -313,7 +313,7 @@ Train.Content.Contracts|type|Train.Content.Contracts.PreparedContentEdit.DraftDe
 Train.Content.Contracts|type|Train.Content.Contracts.PreparedContentEdit.DraftSaved|public sealed record DraftSaved(DraftId Draft, EditRevision Revision) : PreparedContentEdit;
 Train.Content.Contracts|type|Train.Content.Contracts.PreparedContentEdit.InstanceTarget|public sealed record InstanceTarget(DesignChangeEvaluation Difference) : PreparedContentEdit;
 Train.Content.Contracts|type|Train.Content.Contracts.PreparedContentEdit|public abstract record PreparedContentEdit
-Train.Content.Contracts|type|Train.Content.Contracts.RailwayAppearanceProjection|public sealed record RailwayAppearanceProjection(RuleDefinitionId Id, double MinimumCurveRadiusMeters, double MaximumGrade);
+Train.Content.Contracts|type|Train.Content.Contracts.RailwayAppearanceProjection|public sealed record RailwayAppearanceProjection(RuleDefinitionId Id, VoxelDefinitionId BallastVoxel, double MinimumCurveRadiusMeters, double MaximumGrade);
 Train.Content.Contracts|type|Train.Content.Contracts.RailwaySceneModels|public sealed record RailwaySceneModels(int Tracks, DesignHash Bridge, DesignHash TunnelPortal);
 Train.Content.Contracts|type|Train.Content.Contracts.RotationAppearance|public sealed record RotationAppearance(RotationAxis Axis, GridPosition Pivot, double MinimumDegrees, double MaximumDegrees, double SpeedDegreesPerSecond);
 Train.Content.Contracts|type|Train.Content.Contracts.RotationAxis|public enum RotationAxis

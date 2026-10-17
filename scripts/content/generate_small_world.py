@@ -6,8 +6,8 @@ python scripts/content/generate_small_world.py --output-dir TestResults/reproduc
 
 脚本生成 resources/，手绘图标按 HAND_DRAWN_ICONS 保留；校验模式拒绝缺失、多余或生成字节不同的文件，
 并按仓库 Schema 检查 JSON（校验需要 jsonschema）。生成只用 Python 标准库。
-地形与小型机车使用第一阶段风格样稿，十二种原料货物已有正式美术，聚居地符号来自 ui_symbols；
-其余仍为占位，数值待配平，
+自然地形与十二种原料货物已有正式美术，小型机车保留第一阶段风格样稿，聚居地符号来自 ui_symbols；
+其余美术仍待制作，数值待配平，
 数值和画面待用户试玩确认；NPC 库存与现车初始化已启用，车队待 #340。
 校验同时检查正式内容的经济关系；不生成生物聚落或存档。
 """
@@ -15,7 +15,7 @@ python scripts/content/generate_small_world.py --output-dir TestResults/reproduc
 import argparse
 import hashlib
 import json
-from math import ceil
+from math import ceil, cos, pi, sin
 from pathlib import Path
 import subprocess
 import sys
@@ -256,6 +256,9 @@ RED = (0x7b, 0x3a, 0x2c)
 SOIL = (0x76, 0x59, 0x3f)
 ROCK = (0x7f, 0x7c, 0x76)
 GRASS = (0x6f, 0x8f, 0x4a)
+DRY_GRASS = (0xa3, 0x9a, 0x5c)
+FOREST = (0x55, 0x68, 0x3a)
+CONCRETE = (0xa8, 0xa5, 0x9e)
 STEEL = (0x8e, 0x93, 0x98)
 YELLOW = (0xd9, 0xa6, 0x2b)
 
@@ -280,8 +283,8 @@ def grain(x, y, size, seed):
 SOIL_PEBBLES = ((1, 24, 3), (15, 61, 2), (19, 109, 3), (29, 16, 2), (34, 85, 2),
                 (47, 45, 3), (51, 122, 2), (64, 73, 2), (71, 7, 3), (80, 101, 2),
                 (88, 36, 2), (100, 66, 3), (112, 114, 2), (120, 46, 2), (126, 91, 2))
-ROCK_BLOCKS = ((7, 18, -8), (13, 85, 9), (37, 49, 3), (43, 117, -4),
-               (61, 15, 11), (70, 84, -11), (87, 48, -3), (104, 113, 5), (120, 13, -6))
+ROCK_CRACKS = ((5, 21, 27, 34), (27, 34, 43, 32), (94, 99, 111, 110),
+               (111, 110, 130, 109), (-6, 61, 12, 55), (12, 55, 19, 43))
 MINERAL_FRAGMENTS = ((3, 4, -4), (21, 2, 9), (35, 8, -1), (57, 3, 6), (12, 17, 0),
                      (27, 19, -8), (47, 18, 11), (61, 24, -5), (5, 31, 6), (18, 33, -3),
                      (35, 32, 12), (48, 35, 0), (59, 43, 8), (7, 48, -8), (25, 46, 7),
@@ -297,28 +300,89 @@ def soil_texture(x, y):
     return tint(SOIL, grain(x, y, 128, 0x501))
 
 
-def grass_texture(x, y):
-    return tint(GRASS, grain(x, y, 128, 0x502))
+def grass_texture(x, y, color=GRASS):
+    blades = -3 if (x * 13 + y * 7) % 31 < 2 else 0
+    return tint(color, grain(x, y, 128, 0x502) + grain(x // 4, y // 4, 32, 0x518) + blades)
 
 
 def forest_ground_texture(x, y):
-    leaves = (x % 32 - 8) ** 2 + 4 * (y % 32 - 12) ** 2 < 25
-    return tint((92, 103, 56) if leaves else (43, 66, 54), grain(x, y, 128, 0x517))
+    for cx, cy, radius in SOIL_PEBBLES:
+        dx, dy = (x - cx + 64) % 128 - 64, (y - cy + 64) % 128 - 64
+        if dx * dx + 3 * dy * dy < radius * radius:
+            return tint((0x76, 0x59, 0x36), grain(x, y, 128, 0x517))
+    return grass_texture(x, y, FOREST)
 
 
-def roots_texture(x, y):
+def roots_texture(x, y, grass=GRASS):
     variation = grain(x, y, 128, 0x503)
-    return tint(SOIL if variation < 3 else tuple((a + b) // 2 for a, b in zip(SOIL, GRASS)), variation)
+    return tint(SOIL if variation < 2 else tuple((a + b) // 2 for a, b in zip(SOIL, grass)), variation)
 
 
 def rock_texture(x, y):
-    # 环面上的不规则石块边界形成裂纹；块面只改变固有色，不画方向性光影。
-    px, py = x + grain(x, y, 128, 0x504) / 2, y + grain(x, y, 128, 0x505) / 2
-    distances = sorted((((px - cx + 64) % 128 - 64) ** 2
-                        + ((py - cy + 64) % 128 - 64) ** 2, shade)
-                       for cx, cy, shade in ROCK_BLOCKS)
-    change = -26 if distances[1][0] - distances[0][0] < 45 else distances[0][1]
-    return tint(ROCK, change + grain(x, y, 128, 0x506) // 2)
+    # 裂纹只画局部断续分支，不把整张岩层切成铺路石块。
+    change = grain(x // 4, y // 4, 32, 0x504) + grain(x, y, 128, 0x506) // 2
+    for ax, ay, bx, by in ROCK_CRACKS:
+        dx, dy = (x - ax + 64) % 128 - 64, (y - ay + 64) % 128 - 64
+        ex, ey = bx - ax, by - ay
+        along = (dx * ex + dy * ey) / (ex * ex + ey * ey)
+        if 0 < along < 1 and abs(dx * ey - dy * ex) < 18:
+            change -= 17
+            break
+    return tint(ROCK, change)
+
+
+def sand_texture(x, y):
+    return tint((0xd4, 0xbe, 0x8c), grain(x // 4, y // 4, 32, 0x519) // 2
+                + grain(x * 4, y * 4, 512, 0x520) // 2)
+
+
+def sandstone_texture(x, y, side=False):
+    bedding = round(4 * sin(2 * pi * y / 32 + .3 * sin(2 * pi * x / 128))) if side else 0
+    return tint((0xb8, 0x8c, 0x60), grain(x, y, 128, 0x521) + bedding)
+
+
+def gravel_texture(x, y, color=(0x8d, 0x88, 0x80)):
+    stones = []
+    for row in range(y // 8 - 1, y // 8 + 2):
+        for column in range(x // 8 - 1, x // 8 + 2):
+            key = (column % 16) * 73856093 ^ (row % 16) * 19349663
+            key = (key ^ (key >> 13)) * 1274126177
+            key ^= key >> 16
+            cx, cy = column * 8 + key % 8, row * 8 + (key // 11) % 8
+            stones.append(((x - cx) ** 2 + (y - cy) ** 2, (key // 31) % 17 - 8))
+    stones.sort()
+    shade = -20 if stones[1][0] - stones[0][0] < 8 else stones[0][1]
+    return tint(color, shade + grain(x, y, 128, 0x522) // 2)
+
+
+def concrete_texture(x, y):
+    seam = -3 if x in (0, 127) else 0
+    return tint(CONCRETE, grain(x, y, 128, 0x523) // 2 + seam)
+
+
+def bark_texture(x, y):
+    grooves = round(6 * cos(2 * pi * x / 8 + .3 * sin(2 * pi * y / 32)))
+    return tint((0x5b, 0x46, 0x32), grooves + grain(x, y, 32, 0x524) // 2)
+
+
+def foliage_texture(x, y):
+    return tint((0x46, 0x66, 0x3a), 2 * grain(x, y, 64, 0x525))
+
+
+def street_lamp_texture(x, y):
+    return tint((0xe1, 0xd4, 0xac) if 5 <= x < 27 and 5 <= y < 27 else GRAPHITE)
+
+
+def site_fence_texture(x, y):
+    return tint((0x58, 0x66, 0x71), -8 if x % 16 in (0, 1) else grain(x, y, 32, 0x526))
+
+
+def road_barrier_texture(x, y):
+    return tint(YELLOW if (x + y) // 8 % 2 == 0 else GRAPHITE)
+
+
+def rail_stack_texture(x, y):
+    return tint(STEEL if x % 8 in (2, 3) else (0x5e, 0x44, 0x34))
 
 
 def mineral_texture(x, y, color):
@@ -546,13 +610,7 @@ def icon(identity):
         polygon([(x+width,y),(x+width+depth,y-depth),(x+width+depth,y+height-depth),(x+width,y+height)], tint(color, -16)[:3])
         polygon([(x,y),(x+width,y),(x+width,y+height),(x,y+height)], color)
 
-    if identity in ("ground", "subsoil", "rock"):
-        color = SOIL if identity != "rock" else ROCK
-        box(22, 55, 62, 42, 22, color)
-        polygon([(22,55),(44,33),(106,33),(84,55)], GRASS if identity == "ground" else tint(color, 18)[:3])
-        for a, b in (((31,75),(42,71)), ((59,85),(70,81)), ((72,65),(80,65))):
-            line(a, b, tint(color, -12)[:3], 3)
-    elif identity == "structural-metal":
+    if identity == "structural-metal":
         box(22, 39, 64, 14, 19, BLUE)
         box(43, 53, 19, 39, 19, BLUE)
         box(22, 88, 64, 13, 19, BLUE)
@@ -591,10 +649,7 @@ def icon(identity):
 def style_assets(files):
     for name, size in (("vehicle-underside", 128), ("equipment-underside", 32), ("bogie-underside", 64)):
         files[f"voxels/shared/{name}.png"] = png(size, underside_texture)
-    files["voxels/shared/subsoil.png"] = png(128, soil_texture)
     for identity, size, top, side in (
-        ("ground", 128, grass_texture, roots_texture),
-        ("rock", 128, rock_texture, None),
         ("structural-metal", 128, tread_texture, plate_texture),
         ("bogie", 64, bogie_top_texture, bogie_side_texture),
         ("propulsion-equipment", 32, grille_texture, engine_texture),
@@ -604,9 +659,43 @@ def style_assets(files):
         files[f"voxels/{identity}/top.png"] = png(size, top)
         if side is not None:
             files[f"voxels/{identity}/side.png"] = png(size, side)
-    for identity in ("ground", "subsoil", "rock", "structural-metal", "bogie", "propulsion-equipment",
+    for identity in ("structural-metal", "bogie", "propulsion-equipment",
                      "control-equipment", "storage-equipment"):
         files[f"voxels/{identity}/icon.png"] = icon(identity)
+
+
+def scene_assets(files, voxel):
+    for identity, name, material, span, top, side in (
+        ("ground", "草地", "organic", 4, grass_texture, roots_texture),
+        ("dry-grass", "干草地", "organic", 4, lambda x, y: grass_texture(x, y, DRY_GRASS),
+         lambda x, y: roots_texture(x, y, DRY_GRASS)),
+        ("forest-ground", "林地", "organic", 4, forest_ground_texture,
+         lambda x, y: roots_texture(x, y, FOREST)),
+        ("subsoil", "土", "stone_soil", 4, soil_texture, None),
+        ("rock", "灰岩", "stone_soil", 4, rock_texture, None),
+        ("sand", "沙", "stone_soil", 4, sand_texture, None),
+        ("sandstone", "砂岩", "stone_soil", 4, sandstone_texture,
+         lambda x, y: sandstone_texture(x, y, side=True)),
+        ("gravel", "碎石", "stone_soil", 4, gravel_texture, None),
+        ("ballast", "道床碎石", "stone_soil", 2,
+         lambda x, y: gravel_texture(x * 2, y * 2, (0x8a, 0x87, 0x82)), None),
+        ("concrete", "混凝土", "concrete", 4, concrete_texture, None),
+        ("tree-trunk", "树皮", "organic", 1, bark_texture, None),
+        ("foliage", "树叶", "organic", 2, foliage_texture, None),
+        ("street-lamp", "路灯", "painted_metal", 1, street_lamp_texture, None),
+        ("site-fence", "工地围挡", "painted_metal", 1, site_fence_texture, None),
+        ("road-barrier", "施工路障", "painted_metal", 1, road_barrier_texture, None),
+        ("rail-stack", "钢轨堆", "bare_metal", 1, rail_stack_texture, None),
+    ):
+        top_path = "shared/subsoil.png" if identity == "subsoil" else "top.png"
+        texture_path = f"voxels/{top_path}" if identity == "subsoil" else f"voxels/{identity}/{top_path}"
+        files[texture_path] = png(32 * span, top)
+        if side is not None:
+            files[f"voxels/{identity}/side.png"] = png(32 * span, side)
+        bottom = "shared/subsoil.png" if identity in ("ground", "dry-grass", "forest-ground") else top_path
+        icon_path = top_path if span == 4 else f"shared/{'organic' if material == 'organic' else 'equipment'}-icon.png"
+        voxel(identity, name, material, faces(top_path, "side.png" if side else top_path, bottom), icon_path,
+              tile_span=span, light=identity == "street-lamp", description=f"用于自然环境和铁路场景的{name}。")
 
 
 def faces(top, side=None, bottom=None):
@@ -634,6 +723,82 @@ def blueprint(identity, name, category, palette, cells, simulation=None, appeara
     if appearance is not None:
         value["appearance"] = appearance
     return value
+
+
+def natural_models():
+    for identity, name, height, radius, crown_height, trunk_width in (
+        ("tree-small", "小树", 6, 3, 2, 1),
+        ("tree-medium", "中树", 10, 4, 3, 2),
+        ("tree-large", "大树", 14, 5, 4, 2),
+    ):
+        cells = {(x, y, z): 1 for x in range(-radius, radius + 1)
+                 for z in range(-radius, radius + 1) for y in range(height - crown_height, height + crown_height + 1)
+                 if (x * x + z * z) / (radius * radius) + (y - height) ** 2 / (crown_height * crown_height)
+                 <= 1 + ((x * 37 ^ y * 71 ^ z * 97) % 7 - 3) * .04}
+        for x in range(-(trunk_width // 2), trunk_width - trunk_width // 2):
+            for z in range(-(trunk_width // 2), trunk_width - trunk_width // 2):
+                cells.update({(x, y, z): 0 for y in range(height + 1)})
+        model = blueprint(identity, name, "scene_model", ["tree-trunk", "foliage"], cells)
+        model["display"]["description"] = f"{name}，树干支撑成团树冠，供森林装饰使用。"
+        yield model
+    for identity, name, rx, ry, rz in (("rock-small", "小岩石", 4, 2, 3), ("rock-large", "大岩石", 7, 4, 5)):
+        cells = {(x, y, z): 0 for x in range(-rx, rx + 1) for y in range(ry + 1) for z in range(-rz, rz + 1)
+                 if x * x / (rx * rx) + y * y / (ry * ry) + z * z / (rz * rz)
+                 <= 1 + ((x * 31 ^ y * 67 ^ z * 89) % 5 - 2) * .05}
+        model = blueprint(identity, name, "scene_model", ["rock"], cells)
+        model["display"]["description"] = f"{name}，由灰岩组成的自然露头。"
+        yield model
+
+
+def railway_models():
+    for tracks in (1, 2, 3):
+        half_width = 10 + 17 * (tracks - 1)
+        centers = [34 * track - 17 * (tracks - 1) for track in range(tracks)]
+        # 112 格跨过现有最宽的 96 格湖面，两端各留 8 格搭岸。
+        bridge = {(x, y, z): 0 for x in range(-half_width, half_width + 1)
+                  for y in (-4, -3) for z in range(-56, 56)}
+        for center in centers:
+            for y, width in ((-3, 10), (-2, 9)):
+                bridge.update({(x, y, z): 1 for x in range(center - width, center + width + 1) for z in range(-56, 56)})
+            for pier in range(-48, 49, 16):
+                bridge.update({(x, y, z): 0 for x in range(center - 2, center + 3)
+                               for y in range(-16, -4) for z in range(pier - 1, pier + 2)})
+        for x in (-half_width, half_width):
+            bridge.update({(x, -2, z): 0 for z in range(-56, 56)})
+        model = blueprint(f"bridge-{tracks}", f"{tracks}轨桥梁", "scene_model", ["concrete", "ballast"], bridge)
+        model["display"]["description"] = "混凝土梁桥，道床直接铺在桥面上，桥墩间隔 16 格，矮护栏低于轨面。"
+        yield model
+        half_opening = 17 * tracks
+        portal = {(x, y, z): 0 for x in range(-half_opening - 2, half_opening + 2)
+                  for y in range(44) for z in (0, 1)
+                  if x < -half_opening or x >= half_opening or y >= 42}
+        portal.update({(x, y, 1): 1 for x in range(-half_opening, half_opening) for y in range(42)})
+        model = blueprint(f"tunnel-portal-{tracks}", f"{tracks}轨隧道口", "scene_model", ["concrete"], portal)
+        model["layout"]["palette"].append({"voxel": "concrete", "paint": "#000000"})
+        model["display"]["description"] = "混凝土矩形洞门，每轨留 34 格宽、42 格高的开口；黑色内壁遮住洞内。"
+        yield model
+
+
+def construction_models():
+    site = {(x, y, z): 0 for x in range(-12, 13) for z in range(-9, 10) for y in range(3)
+            if (abs(x) == 12 or abs(z) == 9) and not (z == -9 and abs(x) < 3)}
+    site.update({(x, y, z): 1 for x in range(-8, -3) for y in range(2) for z in range(-4, 3)})
+    site.update({(x, y, z): 2 for x in range(4, 9) for y in range(2) for z in range(-5, 2)})
+    model = blueprint("construction-site", "静态工地", "scene_model", ["site-fence", "concrete", "rail-stack"], site)
+    model["display"]["description"] = "围挡留出入口，内部堆放混凝土与钢轨材料，不搭脚手架。"
+    yield model
+    repair = {(x, y, z): 0 for x in range(-8, 9) for y in range(2) for z in (-9, 9)}
+    # 以断轨为原点：三轨外侧断点的最远邻轨距 68 格，再留 16 格泰坦净空。
+    repair.update({(x, y, z): 1 for x in range(88, 93) for y in range(2) for z in range(-6, 3)})
+    for z in (4, 7, 10):
+        repair.update({(x, 0, z): 2 for x in range(88, 105)})
+    for x, z in ((-88, -6), (88, 6)):
+        repair.update({(x, y, z): 2 for y in range(8)})
+        repair[x, 8, z] = 3
+    model = blueprint("railway-repair-site", "断轨修复工地", "scene_model",
+                      ["road-barrier", "rail-stack", "concrete", "street-lamp"], repair)
+    model["display"]["description"] = "缺口两端的黄黑路障、新钢轨和混凝土轨枕堆，以及两盏工作灯；材料在开通铁轨净空外。"
+    yield model
 
 
 def locomotive(spec):
@@ -833,16 +998,7 @@ def content_files():
     material, tile_span, side, bottom, _ = RAW_GOODS_ART["stone"]
     voxel("stone", "石料", material, faces("top.png", side, bottom), "icon.png", good("stone", 0.042),
           tile_span=tile_span, description=raw_description.format("石料"))
-    voxel("ground", "地表", "organic", faces("top.png", "side.png", "shared/subsoil.png"),
-          "icon.png", tile_span=4, description=sample_description.format("地表"))
-    voxel("forest-ground", "森林地表占位", "organic", faces("top.png"),
-          "icon.png", tile_span=4, description="森林地表占位，正式地形美术归 #358。")
-    files["voxels/forest-ground/top.png"] = png(128, forest_ground_texture)
-    files["voxels/forest-ground/icon.png"] = png(128, forest_ground_texture)
-    voxel("subsoil", "土层", "stone_soil", faces("shared/subsoil.png"),
-          "icon.png", tile_span=4, description=sample_description.format("土层"))
-    voxel("rock", "岩层", "stone_soil", faces("top.png"),
-          "icon.png", tile_span=4, description=sample_description.format("岩层"))
+    scene_assets(files, voxel)
     style_assets(files)
     for identity, (_, tile_span, side, _, texture) in RAW_GOODS_ART.items():
         size = 32 * tile_span
@@ -861,29 +1017,32 @@ def content_files():
     document("blueprints", "blueprint", "small-station",
              blueprint("small-station", "小站点", "building", ["construction-material", "platform-equipment"],
                        station, {"plot_size": "small_station", "building_type": "station", "facility_tags": []}))
-    for tracks in (1, 2):
-        half_width = 16 + 17 * (tracks - 1)
-        bridge = {(x, 0, z): 0 for x in range(-half_width, half_width + 1) for z in range(-3, 4)}
-        portal_half_width = 17 * tracks
-        tunnel = {(x, y, 0): 0 for x in range(-portal_half_width - 2, portal_half_width + 2) for y in range(44)
-                  if x < -portal_half_width or x >= portal_half_width or y >= 42}
-        for kind, name, cells in (("bridge", "桥梁", bridge), ("tunnel-portal", "隧道口", tunnel)):
-            identity = f"{kind}-{tracks}"
-            document("blueprints", "blueprint", identity, blueprint(identity, f"{tracks}轨{name}", "scene_model", ["rock"], cells))
-    for identity, name, surface, local_amplitude in (
-        ("plains", "平原", "ground", 0.7), ("hills", "丘陵", "ground", 2.8),
-        ("forest", "森林", "forest-ground", 0.7), ("desert", "荒漠", "subsoil", 0.7),
-        ("mountains", "山地", "rock", 2.8),
+    for model in railway_models():
+        document("blueprints", "blueprint", model["id"], model)
+    for model in natural_models():
+        document("blueprints", "blueprint", model["id"], model)
+    for model in construction_models():
+        document("blueprints", "blueprint", model["id"], model)
+    for identity, name, surface, subsurface, rock, local_amplitude in (
+        ("plains", "平原", "ground", "subsoil", "rock", 0.7),
+        ("hills", "丘陵", "dry-grass", "subsoil", "rock", 2.8),
+        ("forest", "森林", "forest-ground", "subsoil", "rock", 0.7),
+        ("desert", "荒漠", "sand", "sand", "sandstone", 0.7),
+        ("mountains", "山地", "gravel", "rock", "rock", 2.8),
     ):
-        description = f"基础贯通{name}，提供局部起伏与铁路模型。"
-        if identity in ("forest", "desert", "mountains"):
-            description += "占位，正式地形美术归 #358。"
+        description = f"{name}地表、下层与岩层，以及铁路沿线的局部起伏。"
+        decorations, density = [], 0
+        if identity == "forest":
+            decorations, density = [("tree-small", 2), ("tree-medium", 2), ("tree-large", 1)], .002
+        elif identity in ("hills", "mountains"):
+            decorations, density = [("rock-small", 3), ("rock-large", 1)], .0007
         document("terrain-types", "terrain-type", identity,
                  {"schema_version": 1, "id": identity, "display": {"name": name, "description": description},
-                  "surface_voxel": surface, "subsurface_voxel": "subsoil", "rock_voxel": "rock",
+                  "surface_voxel": surface, "subsurface_voxel": subsurface, "rock_voxel": rock,
                   "local_height_noise": [{"scale_meters": 140, "amplitude": local_amplitude}],
-                  "decorations": [], "decoration_target_per_square_meter": 0,
-                  "railway_models": [{"tracks": n, "bridge": f"bridge-{n}", "tunnel_portal": f"tunnel-portal-{n}"} for n in (1, 2)]})
+                  "decorations": [{"scene_model": model, "weight": weight} for model, weight in decorations],
+                  "decoration_target_per_square_meter": density,
+                  "railway_models": [{"tracks": n, "bridge": f"bridge-{n}", "tunnel_portal": f"tunnel-portal-{n}"} for n in (1, 2, 3)]})
     for identity, name, behavior in (
         ("industrial-machinery", "机床", {"production": {"work_rate": REFERENCE_WORK_RATE}}),
         ("extraction-equipment", "钻头", {"extraction": {"work_rate": REFERENCE_WORK_RATE}}),
@@ -1140,7 +1299,7 @@ def content_files():
         "approach_length_meters": 80, "departure_length_meters": 80, "node_speed_limit_meters_per_second": 15,
         "rail_units_per_meter": 0.7, "build_seconds_per_meter": 3, "repair_seconds_per_break": 48,
         "rail_good": "rail", "repair_rail_units_per_break": 18,
-        "appearance": {"minimum_curve_radius_meters": 80, "maximum_grade": 0.08}})
+        "appearance": {"ballast_voxel": "ballast", "minimum_curve_radius_meters": 80, "maximum_grade": 0.08}})
     document("combat-rules", "combat-rule", "basic-combat", {"schema_version": 1, "id": "basic-combat",
         "retreat_seconds": 24, "morale_damage_coefficient": 0.015, "weapon_destroyed_morale_loss": 0.18,
         "morale_recovery_per_second": 0.012, "surrender_threshold": 0.12, "new_lair_interval_seconds": 5400})

@@ -1,0 +1,1 @@
+{"schema_version":3,"id":"sand","appearance":{"allowed_orientations":"four_way","presentation":{"kind":"cube","material":"stone_soil","faces":{"top":"top.png","side":"top.png","bottom":"top.png"},"tile_span":4}},"display":{"name":"沙","description":"用于自然环境和铁路场景的沙。","icon":"top.png"}}

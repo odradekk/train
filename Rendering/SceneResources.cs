@@ -256,14 +256,20 @@ internal sealed class SceneResources : IDisposable
             return owner.Material(SurfaceMaterial(voxel.Category, Colors.White, texture.Value, voxel.Paint));
         }
         if (material is not SceneMaterial.BuiltIn builtIn) throw new ArgumentOutOfRangeException(nameof(material));
-        return owner.Material(builtIn.Kind switch
+        var preparedMaterial = owner.Material(builtIn.Kind switch
         {
-            BuiltInMaterial.RailSteel => SurfaceMaterial(MaterialCategory.BareMetal, new Color(0.36f, 0.39f, 0.42f)),
-            BuiltInMaterial.Sleeper => SurfaceMaterial(MaterialCategory.Organic, new Color(0.23f, 0.16f, 0.10f)),
+            BuiltInMaterial.RailSteel => SurfaceMaterial(MaterialCategory.BareMetal, Color.FromHtml("#5e4434")),
+            BuiltInMaterial.Sleeper => SurfaceMaterial(MaterialCategory.Concrete, Color.FromHtml("#9d9a93")),
             BuiltInMaterial.Construction => SurfaceMaterial(MaterialCategory.Concrete, new Color(0.72f, 0.48f, 0.13f)),
             BuiltInMaterial.Water => new ShaderMaterial { Shader = _waterShader },
             _ => throw new ArgumentOutOfRangeException(nameof(material))
         });
+        if (builtIn.Kind == BuiltInMaterial.RailSteel)
+        {
+            preparedMaterial.SetShaderParameter("rail_steel", true);
+            preparedMaterial.SetShaderParameter("rail_head_color", Color.FromHtml("#b9bcbf"));
+        }
+        return preparedMaterial;
     }
 
     private ShaderMaterial SurfaceMaterial(MaterialCategory category, Color color, Texture2D? texture = null, PaintColor? paint = null)
