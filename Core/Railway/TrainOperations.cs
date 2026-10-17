@@ -38,12 +38,12 @@ internal static class TrainOperations
         return train;
     }
 
-    private static EdgeId? Departure(WorldState world, CoreContentProjection content, TrainState train, NodeId node)
+    private static EdgeId? Departure(WorldState world, TrainState train, NodeId node, double maximumSpeed)
     {
         train = AfterLocalStops(train, node);
         if (train.NextStopIndex is not { } index) return null;
         var route = TrainRouting.FindRoute(world.Nodes, world.Edges, node, Target(train.Plan!.Stops[index]),
-            Capabilities(world, content, train).MaximumSpeedMetersPerSecond);
+            maximumSpeed);
         return route is { } found && !found.Edges.IsEmpty ? found.Edges[0] : null;
     }
 
@@ -192,7 +192,8 @@ internal static class TrainOperations
         while (visited.Add((node, enteredFrom, train.NextStopIndex)))
         {
             var dimensions = NodeDimensions.Read(world, content, node);
-            var position = new TrainPosition.Node(node, enteredFrom, Departure(world, content, train, node),
+            var position = new TrainPosition.Node(node, enteredFrom,
+                Departure(world, train, node, dispatch.Capabilities(train).MaximumSpeedMetersPerSecond),
                 NodeTravelPhase.Approaching, 0, null);
             train = train with { Position = position };
             if (MustStop(train, position))
@@ -269,7 +270,8 @@ internal static class TrainOperations
         }
         if (position.Phase != NodeTravelPhase.Departing)
         {
-            position = position with { NextEdge = Departure(world, content, train, position.Id) };
+            position = position with { NextEdge = Departure(world, train, position.Id,
+                dispatch.Capabilities(train).MaximumSpeedMetersPerSecond) };
             train = train with { Position = position };
             if (TrainDispatch.NeedsPlatform(world, train) && position.PlatformNumber is null)
             {
@@ -320,7 +322,8 @@ internal static class TrainOperations
                 if (train.NextStopIndex is null)
                     return ChangeActivity(train with { StopRequested = false, QueueEnteredStep = null,
                         Position = position with { NextEdge = null } }, TrainActivity.Stopped, events);
-                position = position with { NextEdge = Departure(world, content, train, position.Id) };
+                position = position with { NextEdge = Departure(world, train, position.Id,
+                    dispatch.Capabilities(train).MaximumSpeedMetersPerSecond) };
                 train = train with { Position = position };
                 if (position.NextEdge is null)
                 {
