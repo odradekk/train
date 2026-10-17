@@ -22,7 +22,8 @@ internal static class SettlementQueries
                 .Select(c => ProductionQueries.Find(world, content, new(b, c))))
             .OfType<FacilityView>().Select(view => potential.GetValueOrDefault(view.Key) ?? view).ToImmutableArray();
         var power = new PowerPoolView(buildings.Sum(b => BuildingCapabilities.Read(world, content, b).Power),
-            settlement.ProductionFacilities.Sum(f => f.LastPowerDemand), settlement.ProductionFacilities.Sum(f => f.LastActualSupply),
+            settlement.ProductionFacilities.Sum(f => f.LastPowerDemand) + settlement.LastConstructionPowerDemand,
+            settlement.ProductionFacilities.Sum(f => f.LastActualSupply) + settlement.LastConstructionActualSupply,
             settlement.FuelEnergyRemaining);
         var market = new MarketView(MarketRule(world, content), InventoryStorage.Settlement(world, content, settlement, step).View, targets.Goods(world, content));
         return new(settlement.Id, settlement.Node, settlement.Type, settlement.Template.Id, settlement.Relation, settlement.Inventory,

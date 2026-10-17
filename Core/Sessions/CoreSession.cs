@@ -6,6 +6,7 @@ using Train.Core.Inventory;
 using Train.Core.Settlements;
 using Train.Core.Production;
 using Train.Core.Trading;
+using Train.Core.Construction;
 
 namespace Train.Core.Sessions;
 
@@ -50,6 +51,11 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
         {
             VehicleTrades.Validate(command);
             return ExecuteCommand(command, source, content => VehicleTrades.Execute(State.World, content, command));
+        }
+        if (command is CoreCommand.StartOwnedJob start)
+        {
+            ConstructionCommands.Validate(start.Request, State.World, State.Content);
+            return ExecuteCommand(command, source, content => ConstructionCommands.Execute(State.World, content, start.Request));
         }
         if (command is CoreCommand.LoadGoods or CoreCommand.UnloadGoods or CoreCommand.AcquireLease
             or CoreCommand.BuyGoods or CoreCommand.SellGoods)
@@ -135,7 +141,8 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
             {
                 var population = PopulationOperations.Begin(world, before.Content, settlement.Id, before.Position.CompletedSteps, inputs);
                 var consumption = population.Consumption;
-                var requests = ProductionOperations.Requests(world, before.Content, settlement.Id);
+                var construction = ConstructionOperations.Requests(world, before.Content, settlement.Id);
+                var requests = ProductionOperations.Requests(world, before.Content, settlement.Id).AddRange(construction);
                 SettlementResolution? resolution = null;
                 if (consumption is not null || !requests.IsEmpty)
                 {
@@ -149,6 +156,14 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
                         requests, resolution ?? new(world, [], [], [], []), before.Position.CompletedSteps);
                     world = production.World;
                     events = events.AddRange(production.Events);
+                }
+                if (world.ConstructionJobs.Any(j => j.Settlement == settlement.Id) || settlement.LastConstructionPowerDemand != 0
+                    || settlement.LastConstructionActualSupply != 0 || settlement.LastConstructionAllocatedLabor != 0)
+                {
+                    var jobs = ConstructionOperations.Complete(world, before.Content, settlement.Id, construction,
+                        resolution ?? new(world, [], [], [], []));
+                    world = jobs.World;
+                    events = events.AddRange(jobs.Events);
                 }
                 var result = PopulationOperations.Complete(world, settlement.Id, population,
                     resolution?.ImprovementGrantedUnits ?? [], new(checked(before.Position.CompletedSteps + 1), 0));

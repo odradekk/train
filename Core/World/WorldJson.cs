@@ -11,6 +11,8 @@ internal static class WorldJson
 
     internal static void Write(Utf8JsonWriter writer, WorldState world) => JsonSerializer.Serialize(writer, world, Options);
     internal static void WriteReferences(Utf8JsonWriter writer, CoreReferenceManifest references) => JsonSerializer.Serialize(writer, references, Options);
+    internal static void WriteDesignInput(Utf8JsonWriter writer, DesignInput input) => JsonSerializer.Serialize(writer, input, Options);
+    internal static DesignInput ReadDesignInput(JsonElement element) => element.Deserialize<DesignInput>(Options) ?? throw new JsonException();
 
     internal static WorldState Read(JsonElement element)
     {
@@ -51,7 +53,7 @@ internal static class WorldJson
     internal static bool SameReferences(CoreReferenceManifest left, CoreReferenceManifest right)
         => SameValue(left, right);
 
-    private static bool SameValue<T>(T left, T right) => JsonSerializer.Serialize(left, Options) == JsonSerializer.Serialize(right, Options);
+    internal static bool SameValue<T>(T left, T right) => JsonSerializer.Serialize(left, Options) == JsonSerializer.Serialize(right, Options);
 
     private static JsonSerializerOptions CreateOptions()
     {
