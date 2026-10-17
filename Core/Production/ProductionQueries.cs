@@ -16,7 +16,8 @@ internal static class ProductionQueries
             throw new NotImplementedException($"FindFacility {key.Capability} 尚未实现。");
         var settlement = world.Settlements.FirstOrDefault(s => s.Plots.Any(p => p.Building == key.Building));
         if (settlement is null) return null;
-        var instance = world.Instances.Single(i => i.Id == new InstanceId.Building(key.Building));
+        var id = new InstanceId.Building(key.Building);
+        var instance = world.Instances.Single(i => i.Id == id);
         var design = world.Designs.Single(d => d.Design == instance.Design);
         var plot = settlement.Plots.Single(p => p.Building == key.Building);
         var plan = settlement.Template.ProductionPlans.SingleOrDefault(p => p.PlotNumber == plot.TemplateNumber
