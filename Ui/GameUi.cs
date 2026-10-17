@@ -57,7 +57,7 @@ public partial class GameUi : CanvasLayer
 
     internal void Initialize(MainMenu menu, HostCoordinator? host, TrainLogger logger,
         WorldSceneController? scenes, RecordingService? recording, GoodsIconCache icons, EditorService editor,
-        AuthoringService? authoring = null, TemplateSceneController? templates = null)
+        AuthoringService? authoring, TemplateSceneController? templates)
     { _menu = menu; _host = host; _logger = logger; _scenes = scenes; _recording = recording; _icons = icons; _editor = editor; _authoring = authoring; _templates = templates; }
 
     public override void _Ready()
@@ -151,7 +151,7 @@ public partial class GameUi : CanvasLayer
         _editorPanel = new DesignEditorPanel { Name = "DesignEditor" }; _editorPanel.Initialize(_editor); _editorPanel.LibraryRequested += _library.Open; _root.AddChild(_editorPanel);
         _bar.AddChild(UiStyle.Button("NewDesign", "新建设计…", _library.NewDraft));
         _bar.AddChild(UiStyle.Button("BlueprintLibrary", "蓝图库…", _library.Open));
-        if (OS.IsDebugBuild() && _authoring is not null)
+        if (_authoring is not null)
         {
             _authoringPanel = new AuthoringPanel { Name = "Authoring" };
             _authoringPanel.Initialize(_authoring, _editor); _root.AddChild(_authoringPanel);

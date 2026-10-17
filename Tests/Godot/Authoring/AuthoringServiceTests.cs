@@ -46,7 +46,7 @@ public sealed class AuthoringServiceTests
         fixture.Pump(() => fixture.Editor.IsOpen && !fixture.Editor.IsBusy);
         Assert.IsInstanceOfType<DraftTarget.PackageDefinition>(fixture.Editor.Target);
         var changed = Draft("changed in grid");
-        fixture.Scenes.Grid.Session!.Change(changed);
+        fixture.Scenes.Session!.Change(changed);
         fixture.Editor.Process();
         fixture.Editor.SaveDraft();
         fixture.Pump(() => !fixture.Editor.IsBusy);
@@ -81,6 +81,7 @@ public sealed class AuthoringServiceTests
         Assert.AreEqual(1, fixture.LoadCalls);
         Assert.AreSame(fixture.Host.Content, fixture.Coordinator.Content);
         Assert.AreEqual(1, fixture.Service.Drafts().Length);
+        StringAssert.Contains(fixture.Service.Message!, "未写入任何文件");
     }
 
     [TestMethod]
@@ -89,15 +90,214 @@ public sealed class AuthoringServiceTests
         using var fixture = new AuthoringFixture();
         fixture.Open();
         fixture.SaveForm();
+        var savedDraft = fixture.Service.Drafts().Single();
         fixture.ConfigureWrite(rejectReload: true);
         fixture.Service.Publish();
         fixture.Pump(() => !fixture.Service.IsBusy);
         Assert.IsTrue(fixture.Service.LastWrite!.Success);
         Assert.AreEqual("written", File.ReadAllText(fixture.Output));
         Assert.AreSame(fixture.Host.Content, fixture.Coordinator.Content);
-        Assert.AreEqual(1, fixture.Service.Drafts().Length);
+        Assert.IsTrue(File.Exists(fixture.DraftPath(savedDraft.Id)));
+        Assert.IsNull(fixture.Service.Package);
         StringAssert.Contains(fixture.Service.Message!, "内存内容未切换");
         StringAssert.Contains(fixture.Service.Message!, "reload rejected");
+        Assert.AreEqual(HostOperationStatus.Rejected, fixture.LastOperation!.Status);
+    }
+
+    [TestMethod]
+    public void Excluded_target_is_rejected_with_its_diagnostics_and_candidate_is_disposed()
+    {
+        using var fixture = new AuthoringFixture();
+        fixture.Open(); fixture.SaveForm();
+        var diagnostic = Diagnostic("target-dependency-missing", "目标包的依赖不可用");
+        var status = new PackageStatus(new(new("core"), "core", "1.0.0", [], []), new("builtin"), PackageState.DependencyUnavailable, [diagnostic]);
+        fixture.ConfigureWrite(report: new([status], [], [], [diagnostic]));
+        fixture.Service.Publish();
+        fixture.Pump(() => !fixture.Service.IsBusy);
+        Assert.AreEqual(HostOperationStatus.Rejected, fixture.LastOperation!.Status);
+        CollectionAssert.AreEqual(new[] { diagnostic }, fixture.LastOperation.Diagnostics.ToArray());
+        Assert.AreEqual(1, fixture.CheckCandidate!.Disposals);
+        Assert.AreEqual(0, fixture.CheckCandidate.Activations);
+        Assert.AreEqual(1, fixture.LoadCalls);
+        Assert.IsFalse(File.Exists(fixture.Output));
+        Assert.IsNull(fixture.Service.LastWrite);
+        StringAssert.Contains(fixture.Service.Message!, diagnostic.Message);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Available_target_can_be_written_despite_unrelated_mod_or_user_library_errors(bool userLibrary)
+    {
+        using var fixture = new AuthoringFixture();
+        fixture.Open(); fixture.SaveForm();
+        var target = new PackageStatus(new(new("core"), "core", "1.0.0", [], []), new("builtin"), PackageState.Available, []);
+        var diagnostic = Diagnostic(userLibrary ? "bad-user-blueprint" : "bad-unrelated-mod", "无关条目不可用")
+            with { Source = null };
+        var unrelated = new PackageStatus(new(new("7ce365e4-ec17-4fef-9451-96a0d6f20373"), "bad mod", "1.0.0", [], []), new("mods"), PackageState.Invalid, [diagnostic]);
+        fixture.ConfigureWrite(report: new(userLibrary ? [target] : [target, unrelated], [], [], [diagnostic]));
+        fixture.Service.Publish();
+        fixture.Pump(() => !fixture.Service.IsBusy);
+        Assert.IsTrue(fixture.LastOperation!.Succeeded);
+        Assert.IsTrue(fixture.Service.LastWrite!.Success);
+        Assert.AreEqual("written", File.ReadAllText(fixture.Output));
+        Assert.AreEqual(1, fixture.CheckCandidate!.Disposals);
+        Assert.AreEqual(0, fixture.CheckCandidate.Activations);
+        Assert.AreEqual(1, fixture.ReloadCandidate!.Activations);
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Candidate_validation_does_not_snapshot_locked_unrelated_mod_files()
+    {
+        using var fixture = new AuthoringFixture();
+        fixture.Open(); fixture.SaveForm(); fixture.ConfigureWrite();
+        var unrelated = Path.Combine(fixture.Mods, "7ce365e4-ec17-4fef-9451-96a0d6f20373");
+        Directory.CreateDirectory(unrelated);
+        var lockedPath = Path.Combine(unrelated, "unreadable.txt");
+        File.WriteAllText(lockedPath, "unrelated");
+        using var locked = new FileStream(lockedPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        var dependency = Path.Combine(unrelated, "live.txt");
+        File.WriteAllText(dependency, "old");
+        var prepare = fixture.Host.Factory.PrepareLoadCall!;
+        fixture.Host.Factory.PrepareLoadCall = (request, files, assets) =>
+        {
+            File.WriteAllText(dependency, "current");
+            var bytes = ContentFilesSnapshot.Require(files.Read(new(new("mods"), "7ce365e4-ec17-4fef-9451-96a0d6f20373/live.txt"), 99));
+            Assert.AreEqual("current", Encoding.UTF8.GetString(bytes.AsSpan()), "非目标包必须读取实时安装文件。");
+            return prepare(request, files, assets);
+        };
+        fixture.Service.Publish(); fixture.Pump(() => !fixture.Service.IsBusy);
+        Assert.IsTrue(fixture.Service.LastWrite!.Success);
+        Assert.IsTrue(fixture.LastOperation!.Succeeded);
+        Assert.AreEqual("written", File.ReadAllText(fixture.Output));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Preflight_failure_and_fault_keep_the_original_rejection_or_fault(bool faulted)
+    {
+        using var fixture = new AuthoringFixture();
+        fixture.Open(); fixture.SaveForm(); fixture.ConfigureWrite();
+        var diagnostic = Diagnostic("preflight-rejected", "候选被拒绝");
+        fixture.Host.Factory.PrepareLoadCall = (_, _, _) => faulted
+            ? new ContentResult<IContentCandidate>.Faulted("preflight-fault", "原始故障", "original-stack")
+            : new ContentResult<IContentCandidate>.Failure([diagnostic]);
+        fixture.Service.Publish();
+        fixture.Pump(() => !fixture.Service.IsBusy);
+        Assert.AreEqual(faulted ? HostOperationStatus.Faulted : HostOperationStatus.Rejected, fixture.LastOperation!.Status);
+        if (faulted) StringAssert.Contains(fixture.Service.Message!, "原始故障");
+        else CollectionAssert.AreEqual(new[] { diagnostic }, fixture.LastOperation.Diagnostics.ToArray());
+        Assert.IsFalse(File.Exists(fixture.Output));
+        Assert.IsNull(fixture.Service.LastWrite);
+    }
+
+    [TestMethod]
+    public void A_written_package_requires_reload_and_saved_draft_can_explicitly_use_the_new_source()
+    {
+        using var fixture = new AuthoringFixture();
+        fixture.Open(); fixture.SaveForm();
+        var saved = fixture.Service.Drafts().Single();
+        var previous = ((DraftTarget.PackageDefinition)saved.Target).SourceVersion;
+        fixture.ConfigureWrite(); fixture.Service.Publish(); fixture.Pump(() => !fixture.Service.IsBusy);
+        Assert.IsNull(fixture.Service.Package);
+        Assert.IsTrue(File.Exists(fixture.DraftPath(saved.Id)));
+        fixture.Service.OpenDefinition(new(DefinitionKind.Blueprint, "blueprint"));
+        Assert.IsFalse(fixture.Editor.IsOpen);
+        fixture.Open();
+        Assert.AreNotEqual(previous, fixture.Service.Package!.SourceVersion);
+        fixture.Service.OpenDraft(saved);
+        Assert.IsFalse(fixture.Editor.IsOpen);
+        StringAssert.Contains(fixture.Service.Message!, "不会自动合并");
+        fixture.Service.OpenDraft(saved, useCurrentSource: true);
+        fixture.Pump(() => fixture.Editor.IsOpen && !fixture.Editor.IsBusy);
+        Assert.AreEqual(fixture.Service.Package.SourceVersion, ((DraftTarget.PackageDefinition)fixture.Editor.Target!).SourceVersion);
+        Assert.AreEqual(((DefinitionDraft.Blueprint)((DraftPayload.Definition)saved.Payload).Value).Value, fixture.Editor.State!.Snapshot.Draft);
+        fixture.Editor.SaveDraft(); fixture.Pump(() => !fixture.Editor.IsBusy);
+        var resaved = fixture.Service.Drafts().Single();
+        Assert.AreEqual(saved.Id, resaved.Id);
+        Assert.AreEqual(fixture.Service.Package.SourceVersion, ((DraftTarget.PackageDefinition)resaved.Target).SourceVersion);
+        fixture.ConfigureWrite(); fixture.Service.Publish(); fixture.Pump(() => !fixture.Service.IsBusy);
+        Assert.IsTrue(fixture.Service.LastWrite!.Success);
+    }
+
+    [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
+    public void Partial_write_invalidates_source_and_retains_the_actual_package_draft()
+    {
+        using var fixture = new AuthoringFixture();
+        fixture.Open(); fixture.SaveForm();
+        var saved = fixture.Service.Drafts().Single();
+        using var locked = new FileStream(Path.Combine(fixture.Core, "source.txt"), FileMode.Open, FileAccess.Read, FileShare.Read);
+        fixture.ConfigureWrite();
+        fixture.Host.Factory.PreparePackageWriteCall = (basis, _) => new ContentResult<PackageWritePlan>.Success(new(basis.Package, basis.SourceVersion,
+            [new("output.txt", ImmutableArray.CreateRange(Encoding.UTF8.GetBytes("written"))), new("source.txt", ImmutableArray.CreateRange(Encoding.UTF8.GetBytes("blocked")))], []));
+        fixture.Service.Publish(); fixture.Pump(() => !fixture.Service.IsBusy);
+        Assert.IsFalse(fixture.Service.LastWrite!.Success);
+        Assert.AreEqual("output.txt", fixture.Service.LastWrite.Completed.Single().RelativePath);
+        Assert.IsNull(fixture.Service.Package);
+        Assert.IsTrue(File.Exists(fixture.DraftPath(saved.Id)));
+        Assert.AreSame(fixture.Host.Content, fixture.Coordinator.Content);
+        StringAssert.Contains(fixture.Service.Message!, "请重新载入源包");
+    }
+
+    [TestMethod]
+    public void Reading_package_without_a_form_does_not_block_editor_close()
+    {
+        using var fixture = new AuthoringFixture();
+        using var started = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var open = fixture.Host.Factory.OpenAuthoringPackageCall!;
+        fixture.Host.Factory.OpenAuthoringPackageCall = (root, package, version, files) =>
+        {
+            started.Set();
+            Assert.IsTrue(release.Wait(HostFixture.HangTimeout), "读取源包未获释放。");
+            return open(root, package, version, files);
+        };
+        try
+        {
+            fixture.Service.OpenCore(); HostFixture.WaitForSignal(started, "读取源包开始");
+            var closed = false;
+            Assert.IsNull(fixture.Editor.RequestClose(() => closed = true));
+            Assert.IsTrue(closed);
+        }
+        finally { release.Set(); }
+        fixture.Pump(() => !fixture.Service.IsBusy);
+    }
+
+    [TestMethod]
+    public void Form_save_encoding_failure_keeps_input_and_does_not_continue_close()
+    {
+        using var fixture = new AuthoringFixture();
+        fixture.Open();
+        fixture.Service.OpenDefinition(new(DefinitionKind.Blueprint, "blueprint"), grid: false);
+        fixture.Service.MarkFormDirty();
+        fixture.Host.Factory.EncodeDraftCall = _ => new ContentResult<string>.Failure([Diagnostic("draft-invalid", "表单草稿编码失败")]);
+        var continued = false;
+        Assert.IsNull(fixture.Editor.RequestClose(() => continued = true));
+        fixture.Service.ResolveClose(LeaveChoice.Save, Blueprint("unsaved form"));
+        Assert.IsNotNull(fixture.Editor.RequestClose(() => continued = true), "保存仍进行时不能关闭表单。");
+        fixture.Pump(() => !fixture.Service.IsBusy);
+        Assert.IsFalse(continued);
+        Assert.IsNotNull(fixture.Service.Form);
+        Assert.AreEqual(0, fixture.Service.Drafts().Length);
+        StringAssert.Contains(fixture.Service.Message!, "表单草稿编码失败");
+        Assert.IsNull(fixture.Editor.RequestClose(() => continued = true));
+        Assert.IsTrue(fixture.Service.Leaving, "保存失败不能清掉未保存输入。");
+    }
+
+    [TestMethod]
+    public void Passive_draft_refresh_after_loaded_package_grid_save_failure_keeps_editor_feedback()
+    {
+        using var fixture = new AuthoringFixture();
+        fixture.Open();
+        fixture.Editor.Changed += () => fixture.Service.Drafts();
+        fixture.Service.OpenDefinition(new(DefinitionKind.Blueprint, "blueprint"));
+        fixture.Pump(() => fixture.Editor.IsOpen && !fixture.Editor.IsBusy);
+        fixture.Host.Factory.EncodeDraftCall = _ => new ContentResult<string>.Failure([Diagnostic("draft-invalid", "网格草稿编码失败")]);
+        fixture.Editor.SaveDraft(); fixture.Pump(() => !fixture.Editor.IsBusy);
+        StringAssert.Contains(fixture.Editor.Message!, "网格草稿编码失败");
     }
 
     [TestMethod]
@@ -136,12 +336,11 @@ public sealed class AuthoringServiceTests
         using var fixture = new AuthoringFixture();
         fixture.Open();
         fixture.Service.OpenDefinition(new(DefinitionKind.Blueprint, "blueprint"), grid: false);
-        fixture.Service.CaptureForm = () => Blueprint("captured form");
         fixture.Service.MarkFormDirty();
         var continued = 0;
         Assert.IsNull(fixture.Editor.RequestClose(() => continued++));
         Assert.IsTrue(fixture.Service.Leaving);
-        fixture.Service.ResolveClose(choice);
+        fixture.Service.ResolveClose(choice, choice == LeaveChoice.Save ? Blueprint("captured form") : null);
         fixture.Pump(() => !fixture.Service.IsBusy);
         Assert.AreEqual(choice == LeaveChoice.Cancel ? 0 : 1, continued);
         Assert.AreEqual(choice == LeaveChoice.Cancel, fixture.Service.Form is not null);
@@ -156,8 +355,8 @@ public sealed class AuthoringServiceTests
         using var fixture = new AuthoringFixture();
         fixture.Open();
         fixture.Service.NewDefinition(new DefinitionDraft.SettlementTemplate(new("template", null, null, null, [], [], [], [])));
-        fixture.Scenes.Preview = (content, _, revision) => new SceneResult<ITemplatePreview>.Success(new TemplatePreview(content.Generation, new(revision.Value + 1)));
-        fixture.Service.PreviewTemplate();
+        fixture.Scenes.PreviewTemplateCall = (content, _, revision) => new SceneResult<ITemplatePreview>.Success(new FixedTemplatePreview(content.Generation, new(revision.Value + 1)));
+        fixture.Service.PreviewTemplate(fixture.Service.Form!).GetAwaiter().GetResult();
         fixture.Pump(() => fixture.Service.Message != "正在准备模板预览…");
         Assert.IsNull(fixture.Service.TemplatePreview);
     }
@@ -172,11 +371,10 @@ public sealed class AuthoringServiceTests
         var address = new AuthoringDefinitionAddress(DefinitionKind.Blueprint, "blueprint");
         fixture.Service.OpenDefinition(address, grid: false);
         var changed = Blueprint("saved while reopening");
-        fixture.Service.CaptureForm = () => changed;
         fixture.Service.MarkFormDirty();
         fixture.Service.OpenDefinition(address, grid);
         Assert.IsTrue(fixture.Service.Leaving);
-        fixture.Service.ResolveClose(LeaveChoice.Save);
+        fixture.Service.ResolveClose(LeaveChoice.Save, changed);
         fixture.Pump(() => !fixture.Service.IsBusy && !fixture.Editor.IsBusy);
         Assert.AreEqual(changed, ((DraftPayload.Definition)fixture.Service.Drafts().Single().Payload).Value);
         if (grid)
@@ -193,68 +391,42 @@ public sealed class AuthoringServiceTests
         using var release = new ManualResetEventSlim();
         fixture.Open();
         fixture.Service.NewDefinition(new DefinitionDraft.SettlementTemplate(new("old-template", null, null, null, [], [], [], [])));
-        fixture.Scenes.Preview = (content, draft, revision) =>
+        fixture.Scenes.PreviewTemplateCall = (content, draft, revision) =>
         {
             Assert.AreEqual("old-template", draft.LocalId);
             Assert.AreEqual(new EditRevision(0), revision);
             started.Set();
             Assert.IsTrue(release.Wait(HostFixture.HangTimeout), "旧模板预览未获释放。");
-            return new SceneResult<ITemplatePreview>.Success(new TemplatePreview(content.Generation, revision));
+            return new SceneResult<ITemplatePreview>.Success(new FixedTemplatePreview(content.Generation, revision));
         };
+        Task? preview = null;
         try
         {
-            fixture.Service.PreviewTemplate();
+            preview = fixture.Service.PreviewTemplate(fixture.Service.Form!);
             HostFixture.WaitForSignal(started, "旧模板预览已开始");
-            Assert.IsTrue(fixture.Service.IsPreviewing);
             var closed = false;
             Assert.IsNull(fixture.Editor.RequestClose(() => closed = true));
-            fixture.Service.ResolveClose(LeaveChoice.Discard);
+            fixture.Service.ResolveClose(LeaveChoice.Discard, null);
             Assert.IsTrue(closed);
             var next = new DefinitionDraft.SettlementTemplate(new("new-template", null, null, null, [], [], [], []));
             fixture.Service.NewDefinition(next);
             Assert.AreEqual(next, fixture.Service.Form);
         }
         finally { release.Set(); }
-        fixture.Pump(() => !fixture.Service.IsPreviewing);
+        Assert.IsTrue(preview!.Wait(HostFixture.HangTimeout), "旧模板预览未完成。");
+        fixture.Service.Process();
         Assert.IsNull(fixture.Service.TemplatePreview);
     }
 
     private static DesignDraft Draft(string name) => new(new(name, ""), new DesignSpecification.SceneModel(null), new([], [], []));
     private static DefinitionDraft.Blueprint Blueprint(string name) => new("blueprint", Draft(name));
-    private sealed class AuthoringPackage(PackageId package, PackageSourceVersion version) : IAuthoringPackage
-    {
-        public PackageId Package => package;
-        public PackageSourceVersion SourceVersion => version;
-        public PackageMetadata Metadata { get; } = new(package, "test package", "1.0.0", [], []);
-        public ImmutableArray<AuthoringDefinitionAddress> EditableDefinitions => [new(DefinitionKind.Blueprint, "blueprint")];
-        public ContentLookup<DefinitionDraft> Read(AuthoringDefinitionAddress address) => address == EditableDefinitions[0]
-            ? new ContentLookup<DefinitionDraft>.Found(Blueprint("original")) : new ContentLookup<DefinitionDraft>.NotFound();
-    }
-    private sealed class AuthoringScenes : IScenesFactory
-    {
-        internal EditorScenes Grid { get; } = new();
-        internal Func<IContentView, SettlementTemplateDraft, EditRevision, SceneResult<ITemplatePreview>>? Preview { get; set; }
-        public SceneResult<IDesignEditSession> OpenEditor(IContentView content, DesignEvaluation initial) => Grid.OpenEditor(content, initial);
-        public SceneResult<IWorldSceneSession> OpenWorld(SceneBinding binding, SceneWorldSnapshot initial) => throw new InvalidOperationException("UNCONFIGURED: world");
-        public SceneResult<IDesignPreview> PreviewDesign(IContentView content, DesignEvaluation initial) => throw new InvalidOperationException("UNCONFIGURED: design preview");
-        public SceneResult<ITemplatePreview> PreviewTemplate(IContentView content, SettlementTemplateDraft draft, EditRevision revision) => (Preview ?? throw new InvalidOperationException("UNCONFIGURED: template preview"))(content, draft, revision);
-    }
-    private sealed class TemplatePreview(ContentGeneration content, EditRevision revision) : ITemplatePreview
-    {
-        public ContentGeneration Content => content;
-        public EditRevision Revision => revision;
-        public ISceneFrame Frame => throw new InvalidOperationException("UNCONFIGURED: frame");
-        public ImmutableArray<TemplatePlotPreview> Plots => [];
-        public ImmutableArray<SceneProblem> Diagnostics => [];
-        public Lookup<int> PickPlot(SceneRay ray) => throw new InvalidOperationException("UNCONFIGURED: pick");
-    }
     private sealed class AuthoringFixture : IDisposable
     {
         private readonly string root = Path.Combine(Path.GetTempPath(), "train-authoring-service-" + Guid.NewGuid().ToString("N"));
         private readonly GodotMainThreadDispatcher dispatcher = new();
         internal HostFixture Host { get; } = new();
         internal HostCoordinator Coordinator { get; }
-        internal AuthoringScenes Scenes { get; } = new();
+        internal EditorScenes Scenes { get; } = new();
         internal EditorService Editor { get; }
         internal AuthoringService Service { get; }
         internal string Core => Path.Combine(root, "core");
@@ -264,6 +436,8 @@ public sealed class AuthoringServiceTests
         internal ScriptedContentCandidate? CheckCandidate { get; private set; }
         internal ScriptedContentCandidate? ReloadCandidate { get; private set; }
         internal int LoadCalls { get; private set; }
+        internal HostOperationResult? LastOperation { get; private set; }
+        internal string DraftPath(DraftId id) => Path.Combine(AuthoringPaths.PackageDraftsDirectory(root, new("core")), id.Value.ToString("D") + ".json");
         internal AuthoringFixture(bool ready = true)
         {
             Directory.CreateDirectory(Core);
@@ -273,7 +447,8 @@ public sealed class AuthoringServiceTests
             Coordinator = new(Host.Core, Host.Factory, files, new UnconfiguredAssetInspector(), new(new("builtin"), new("mods"), null, "test", []), Host.Logger, sessionOptions: HostFixture.Options);
             Editor = new(Coordinator, Scenes, new FileSaveStore(root), Host.Logger);
             Service = new(Coordinator, Editor, Scenes, true, Mods, Core);
-            Host.Factory.OpenAuthoringPackageCall = (_, id, version, _) => new ContentResult<IAuthoringPackage>.Success(new AuthoringPackage(id, version));
+            Coordinator.OperationEnded += result => LastOperation = result;
+            Host.Factory.OpenAuthoringPackageCall = (_, id, version, _) => new ContentResult<IAuthoringPackage>.Success(new FixedAuthoringPackage(id, version, [Blueprint("original")]));
             Host.Factory.EvaluateDesignCall = (_, draft) => new ContentResult<DesignEvaluation>.Success(new DesignEvaluation.Complete(new("design"), new("composition"), draft, null, new(null, null, null, true, null, null, [], [], [], [], []), true, []));
             SavedContentDraft? encoded = null;
             Host.Factory.EncodeDraftCall = draft => { encoded = draft; return new ContentResult<string>.Success("opaque draft"); };
@@ -289,11 +464,12 @@ public sealed class AuthoringServiceTests
         internal void SaveForm()
         {
             Service.OpenDefinition(new(DefinitionKind.Blueprint, "blueprint"), grid: false);
-            Service.CaptureForm = () => Blueprint("saved form");
-            Service.MarkFormDirty(); Service.SaveForm(); Pump(() => !Service.IsBusy);
+            Service.MarkFormDirty(); Service.SaveForm(Blueprint("saved form")); Pump(() => !Service.IsBusy);
         }
-        internal void ConfigureWrite(bool rejectReload = false)
+        internal void ConfigureWrite(bool rejectReload = false, ContentPreparationReport? report = null)
         {
+            LoadCalls = 0;
+            var initialOutput = File.Exists(Output) ? File.ReadAllText(Output) : null;
             Host.Factory.PreparePackageWriteCall = (basis, edits) =>
             { Edits = edits; return new ContentResult<PackageWritePlan>.Success(new(basis.Package, basis.SourceVersion, [new("output.txt", ImmutableArray.CreateRange(Encoding.UTF8.GetBytes("written")))], [])); };
             Host.Factory.PrepareLoadCall = (_, files, _) =>
@@ -302,15 +478,15 @@ public sealed class AuthoringServiceTests
                 Assert.AreEqual("written", Encoding.UTF8.GetString(ContentFilesSnapshot.Require(files.Read(new(new("builtin"), "output.txt"), 99)).AsSpan()));
                 if (LoadCalls == 1)
                 {
-                    Assert.IsFalse(File.Exists(Output), "预校验不得先写磁盘。");
+                    Assert.AreEqual(initialOutput, File.Exists(Output) ? File.ReadAllText(Output) : null, "预校验不得先写磁盘。");
                     var status = new PackageStatus(new(new("core"), "core", "1.0.0", [], []), new("builtin"), PackageState.Available, []);
-                    CheckCandidate = new(Host.Content, Host.Content, ContentChange.Presentation, new([status], [], [], []));
+                    CheckCandidate = new(Host.Content, Host.Content, ContentChange.Presentation, report ?? new([status], [], [], []));
                     return new ContentResult<IContentCandidate>.Success(CheckCandidate);
                 }
                 Assert.AreEqual(1, CheckCandidate!.Disposals);
                 Assert.AreEqual(0, CheckCandidate.Activations);
                 Assert.AreEqual("written", File.ReadAllText(Output));
-                if (rejectReload) return new ContentResult<IContentCandidate>.Faulted("reload-rejected", "reload rejected", null);
+                if (rejectReload) return new ContentResult<IContentCandidate>.Failure([Diagnostic("reload-rejected", "reload rejected")]);
                 ReloadCandidate = new(new FixedContentView(Host.Content.Core, new(2)), Host.Content, ContentChange.Presentation);
                 return new ContentResult<IContentCandidate>.Success(ReloadCandidate);
             };
@@ -318,4 +494,6 @@ public sealed class AuthoringServiceTests
         internal void Pump(Func<bool> done) => Assert.IsTrue(SpinWait.SpinUntil(() => { Coordinator.ProcessFrame(0); Editor.Process(); Service.Process(); return done(); }, HostFixture.HangTimeout), "创作操作超时：" + Service.Message);
         public void Dispose() { Service.Dispose(); Editor.Dispose(); Coordinator.Dispose(); Host.Dispose(); dispatcher.Dispose(); Directory.Delete(root, true); }
     }
+    private static ContentDiagnostic Diagnostic(string code, string message) =>
+        new(code, ContentDiagnosticSeverity.Error, "loading", null, new(new("core"), "definitions/test.json"), "field", null, message);
 }

@@ -27,7 +27,8 @@ internal partial class AuthoringDefinitionForm : VBoxContainer
             DefinitionDraft.SettlementTemplate t => Template(t.Value),
             _ => throw new ArgumentOutOfRangeException(nameof(draft))
         };
-        Button(this, "更新预览", () => PreviewRequested?.Invoke());
+        if (draft is DefinitionDraft.SettlementTemplate)
+            Button(this, "更新预览", () => PreviewRequested?.Invoke());
     }
 
     internal DefinitionDraft Capture() => _capture?.Invoke() ?? throw new InvalidOperationException("尚未加载定义。");
@@ -53,9 +54,7 @@ internal partial class AuthoringDefinitionForm : VBoxContainer
     }
     private static void Button(VBoxContainer parent, string title, Action action)
     {
-        var button = new Button { Text = title };
-        parent.AddChild(button);
-        button.Pressed += action;
+        parent.AddChild(UiStyle.Button("Action", title, action));
     }
     private VBoxContainer Section(string title)
     {
@@ -97,37 +96,25 @@ internal partial class AuthoringDefinitionForm : VBoxContainer
 
     private Func<DefinitionDraft> Blueprint(DefinitionDraft.Blueprint v)
     {
-        var id = Field(this, "本地 ID", v.LocalId); var display = Display(v.Value.Display);
+        var id = Field(this, "本地 ID", v.LocalId);
         Func<DesignSpecification> specification;
         switch (v.Value.Specification)
         {
-            case DesignSpecification.Vehicle x:
-                var size = Field(this, "车辆尺寸（Small/Medium/Large/ExtraLarge/Titan，可空）", x.Size);
-                specification = () => new DesignSpecification.Vehicle(OptionalEnum<SizeClass>(size)); break;
-            case DesignSpecification.Building x:
-                var plot = Field(this, "地块尺寸（可空）", x.PlotSize); var kind = Field(this, "建筑类型（可空）", x.Kind);
-                var tags = Field(this, "设施标签（逗号分隔）", string.Join(',', x.FacilityTags));
-                specification = () => new DesignSpecification.Building(OptionalEnum<PlotSize>(plot), OptionalEnum<BuildingKind>(kind), Items(tags).Select(s => EnumText<FacilityTag>(s, tags.TooltipText)).ToImmutableArray()); break;
             case DesignSpecification.Assembly x:
                 var rotation = BuildRotation(x.Rotation); specification = () => new DesignSpecification.Assembly(rotation()); break;
             case DesignSpecification.FunctionalComposite x:
                 var behaviors = Behaviors(this, x.Behaviors); var compositeRotation = BuildRotation(x.Rotation);
                 specification = () => new DesignSpecification.FunctionalComposite(behaviors(), compositeRotation()); break;
-            case DesignSpecification.SceneModel x:
-                var enabled = Flag(this, "平整区域", x.Flatten != null);
-                var fromX = Field(this, "平整起点 X", x.Flatten?.From.X ?? 0); var fromZ = Field(this, "平整起点 Z", x.Flatten?.From.Z ?? 0);
-                var toX = Field(this, "平整终点 X", x.Flatten?.To.X ?? 0); var toZ = Field(this, "平整终点 Z", x.Flatten?.To.Z ?? 0); var height = Field(this, "平整高度", x.Flatten?.Height ?? 0);
-                specification = () => new DesignSpecification.SceneModel(enabled.ButtonPressed ? new(new(Int(fromX), Int(fromZ)), new(Int(toX), Int(toZ)), Int(height)) : null); break;
             case DesignSpecification.Creature x:
                 var creatureEnabled = Flag(this, "生物行为", x.Behavior != null);
                 var hp = Field(this, "生命", x.Behavior?.HitPoints ?? 1); var speed = Field(this, "移动速度", x.Behavior?.SpeedMetersPerSecond ?? 1);
                 var retreat = Field(this, "撤退阈值", x.Behavior?.RetreatThreshold ?? 0); var raid = Field(this, "袭击持续秒数", x.Behavior?.RaidDurationSeconds ?? 1);
                 var weaponEnabled = Flag(this, "生物武器", x.Weapon != null); var damage = Field(this, "伤害", x.Weapon?.Damage ?? 1); var interval = Field(this, "攻击间隔秒数", x.Weapon?.IntervalSeconds ?? 1);
                 specification = () => new DesignSpecification.Creature(creatureEnabled.ButtonPressed ? new(Long(hp), Number(speed), Number(retreat), Number(raid)) : null, weaponEnabled.ButtonPressed ? new(Long(damage), Number(interval)) : null); break;
-            default: throw new ArgumentOutOfRangeException(nameof(v));
+            default: specification = () => v.Value.Specification; break;
         }
         Button(this, "编辑体素网格", () => GridRequested?.Invoke());
-        return () => new DefinitionDraft.Blueprint(id.Text, v.Value with { Display = display(), Specification = specification() });
+        return () => new DefinitionDraft.Blueprint(id.Text, v.Value with { Specification = specification() });
     }
     private Func<RotationAppearance?> BuildRotation(RotationAppearance? v)
     {

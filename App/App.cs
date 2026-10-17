@@ -57,8 +57,8 @@ public partial class App : Node
             Recording = new RecordingService(Host, new FileSaveStore(userData));
             var scenesFactory = CreateScenes?.Invoke() ?? HostComposition.CreateScenes();
             Editor = new(Host, scenesFactory, new FileSaveStore(userData), _logger);
-            Authoring = new(Host, Editor, scenesFactory, OS.IsDebugBuild(), Path.Combine(userData, "mods"),
-                OS.HasFeature("editor") ? ProjectSettings.GlobalizePath("res://builtin/core") : null);
+            Authoring = new(Host, Editor, scenesFactory, OS.IsDebugBuild(), AuthoringPaths.ModsDirectory(userData),
+                OS.HasFeature("editor") ? ProjectSettings.GlobalizePath(AuthoringPaths.BuiltInCoreResourceDirectory) : null);
             Saves = new SaveService(Host, new FileSaveStore(userData), Editor);
             GetNode<MainMenu>("MainMenu").ConfigureSaves(Saves);
             WorldScenes = new(Host, scenesFactory, _logger);

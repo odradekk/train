@@ -7,7 +7,7 @@ using Train.Scenes.Contracts;
 
 namespace Train.App.Authoring;
 
-internal sealed record AuthoringTarget(PackageId Package, string Directory, bool IsCore, string ModDirectory);
+internal sealed record AuthoringTarget(PackageId Package, string Directory, bool IsCore);
 
 internal sealed class AuthoringService : IDisposable
 {
@@ -35,14 +35,11 @@ internal sealed class AuthoringService : IDisposable
     internal bool CanUse => development && host.GetStatus() is { IsReplay: false };
     internal bool CanWriteCore => CanUse && coreDirectory is not null;
     internal bool IsBusy => opening is not null || saving is not null || operation != 0;
-    internal bool IsPreviewing => previewing is not null;
     internal IAuthoringPackage? Package => package;
     internal ImmutableArray<AuthoringDefinitionAddress> Definitions => package is null ? []
         : package.EditableDefinitions.Concat(edits.Keys).Distinct().ToImmutableArray();
     internal AuthoringTarget? Target { get; private set; }
     internal DefinitionDraft? Form { get; private set; }
-    internal Func<DefinitionDraft>? CaptureForm { get; set; }
-    internal bool FormDirty => formDirty;
     internal bool Leaving => afterFormClose is not null;
     internal ITemplatePreview? TemplatePreview { get; private set; }
     internal PackageWriteResult? LastWrite { get; private set; }
@@ -58,7 +55,6 @@ internal sealed class AuthoringService : IDisposable
         this.coreDirectory = coreDirectory is null ? null : Path.GetFullPath(coreDirectory).TrimEnd(Path.DirectorySeparatorChar);
         editor.CloseForm = RequestCloseForm;
         editor.PackageDraftSaved += AcceptDraft;
-        editor.PackageWriteRequested += Publish;
         host.OperationEnded += OperationEnded;
     }
 
@@ -73,7 +69,7 @@ internal sealed class AuthoringService : IDisposable
             var isCore = coreDirectory is not null && SamePath(full, coreDirectory) && id.Value == "core";
             if (!isCore && (!SamePath(Path.GetDirectoryName(full)!, ModsDirectory) || id.Value == "core"))
             { Report("请选择 user://mods 下的本地 Mod 包目录。"); return; }
-            if (editor.RequestClose(() => StartOpen(new(id, full, isCore, isCore ? "" : Path.GetFileName(full)))) is { } failure)
+            if (editor.RequestClose(() => StartOpen(new(id, full, isCore))) is { } failure)
                 Report(failure.Message);
         }
         catch (Exception error) { Report(error.Message); }
@@ -85,6 +81,7 @@ internal sealed class AuthoringService : IDisposable
     private void StartOpen(AuthoringTarget target)
     {
         Target = target; binding = host.GetStatus()!.Binding;
+        package = null; snapshot = null; edits.Clear(); assetEdits.Clear();
         opening = Task.Run(() =>
         {
             var source = PackageSnapshot.Capture(target.Directory);
@@ -122,7 +119,7 @@ internal sealed class AuthoringService : IDisposable
     private void ShowDefinition(DefinitionDraft definition, DraftId id, bool grid, bool unsaved = false)
     {
         if (definition is DefinitionDraft.Blueprint blueprint && grid)
-            editor.Open(blueprint.Value, DraftTarget(definition), unsaved: unsaved);
+            editor.Open(blueprint.Value, CreateDraftTarget(definition), unsaved: unsaved);
         else
         {
             if (host.BeginEditing() is { } problem) { Report(CommandDiagnostics.Describe(problem)); return; }
@@ -133,16 +130,19 @@ internal sealed class AuthoringService : IDisposable
 
     internal ImmutableArray<SavedContentDraft> Drafts() => package is null ? [] : editor.PackageDrafts(package.Package);
 
-    internal void OpenDraft(SavedContentDraft saved)
+    internal void OpenDraft(SavedContentDraft saved, bool useCurrentSource = false)
     {
         if (!CanUse || IsBusy || package is null) return;
-        if (saved.Target is not DraftTarget.PackageDefinition target || target.Package != package.Package || target.SourceVersion != package.SourceVersion)
-        { Report("草稿来源与当前源包不同，请处理外部修改后重新校验；草稿仍保留。"); return; }
-        if (saved.Payload is DraftPayload.Definition { Value: DefinitionDraft.Blueprint } or DraftPayload.Design)
+        if (saved.Target is not DraftTarget.PackageDefinition target || target.Package != package.Package) return;
+        var changedSource = target.SourceVersion != package.SourceVersion;
+        if (changedSource && !useCurrentSource)
+        { Report("草稿来源与当前源包不同。请显式选择“在当前源包上打开”，手动处理修改后保存并重新校验；不会自动合并。"); return; }
+        if (changedSource) saved = saved with { Target = target with { SourceVersion = package.SourceVersion } };
+        if (saved.Payload is DraftPayload.Definition { Value: DefinitionDraft.Blueprint })
         {
             if (editor.RequestClose(() => editor.OpenDraft(saved)) is { } failure) Report(failure.Message);
         }
-        else if (saved.Payload is DraftPayload.Definition definition) OpenDefinition(definition.Value, saved.Id, false);
+        else if (saved.Payload is DraftPayload.Definition definition) OpenDefinition(definition.Value, saved.Id, false, changedSource);
     }
 
     internal void NewDefinition(DefinitionDraft definition)
@@ -152,20 +152,19 @@ internal sealed class AuthoringService : IDisposable
 
     internal void MarkFormDirty() { formDirty = true; revision = new(checked(revision.Value + 1)); TemplatePreview = null; Changed?.Invoke(); }
 
-    internal void SaveForm()
+    internal void SaveForm(DefinitionDraft value)
     {
         if (!CanUse || IsBusy || Form is null) return;
         try
         {
-            var value = CaptureForm?.Invoke() ?? Form;
-            var saved = new SavedContentDraft(draftId, revision, DraftTarget(value), new DraftPayload.Definition(value));
+            var saved = new SavedContentDraft(draftId, revision, CreateDraftTarget(value), new DraftPayload.Definition(value));
             saving = Task.Run(() => (saved, editor.WriteExternalDraft(saved)));
             Report("正在保存包草稿…");
         }
         catch (Exception error) { afterFormClose = null; Report(error.Message); }
     }
 
-    private DraftTarget.PackageDefinition DraftTarget(DefinitionDraft definition) =>
+    private DraftTarget.PackageDefinition CreateDraftTarget(DefinitionDraft definition) =>
         new(package!.Package, Address(definition).Kind, Address(definition).LocalId, package.SourceVersion);
 
     internal static AuthoringDefinitionAddress Address(DefinitionDraft draft) => draft switch
@@ -181,36 +180,31 @@ internal sealed class AuthoringService : IDisposable
     private void AcceptDraft(SavedContentDraft draft)
     {
         if (package is null || draft.Target is not DraftTarget.PackageDefinition target || target.Package != package.Package || target.SourceVersion != package.SourceVersion) return;
-        var definition = draft.Payload switch
-        {
-            DraftPayload.Definition value => value.Value,
-            DraftPayload.Design value => new DefinitionDraft.Blueprint(target.LocalId, value.Value),
-            _ => throw new ArgumentException("未知包草稿载荷。")
-        };
-        edits[Address(definition)] = new PackageEdit.WriteDefinition(definition);
+        if (draft.Payload is not DraftPayload.Definition definition) throw new ArgumentException("未知包草稿载荷。", nameof(draft));
+        edits[Address(definition.Value)] = new PackageEdit.WriteDefinition(definition.Value);
         Changed?.Invoke();
     }
 
     private SaveFailure? RequestCloseForm(Action after)
     {
-        if (IsBusy) return new("authoring_busy", "请等待创作操作结束。");
+        if (operation != 0 || (Form is not null && IsBusy)) return new("authoring_busy", "请等待创作操作结束。");
         if (Form is null) { after(); return null; }
         if (!formDirty) { CloseForm(); after(); return null; }
         if (afterFormClose is not null) return new("authoring_close_pending", "请先保存、放弃或取消当前表单。");
         afterFormClose = after; Changed?.Invoke(); return null;
     }
 
-    internal void ResolveClose(LeaveChoice choice)
+    internal void ResolveClose(LeaveChoice choice, DefinitionDraft? captured)
     {
         if (afterFormClose is null || IsBusy) return;
         if (choice == LeaveChoice.Cancel) { afterFormClose = null; Changed?.Invoke(); }
-        else if (choice == LeaveChoice.Save) SaveForm();
+        else if (choice == LeaveChoice.Save) SaveForm(captured ?? throw new ArgumentNullException(nameof(captured)));
         else { var after = afterFormClose; CloseForm(); after(); }
     }
 
     private void CloseForm()
     {
-        Form = null; CaptureForm = null; afterFormClose = null; formDirty = false;
+        Form = null; afterFormClose = null; formDirty = false;
         TemplatePreview = null; host.EndEditing(); Changed?.Invoke();
     }
 
@@ -250,15 +244,17 @@ internal sealed class AuthoringService : IDisposable
             if (plan.Diagnostics.Any(d => d.Severity == ContentDiagnosticSeverity.Error))
                 return new ContentResult<IContentCandidate>.Failure(plan.Diagnostics);
             var root = target.IsCore ? request.Installation.BuiltIn : request.Installation.Mods;
-            var prefix = target.ModDirectory;
-            var roots = new[] { request.Installation.BuiltIn, request.Installation.Mods }
-                .Concat(request.Installation.UserLibrary is { } user ? [user] : []).Distinct().ToImmutableArray();
-            var fixedFiles = ContentFilesSnapshot.Capture(new PackageSourceFiles(files, fixedSource, root, prefix), roots);
-            using (var check = RequireCandidate(host.ContentFactory.PrepareLoad(request, fixedFiles.WithChanges(root, prefix, plan.Changes), assets)))
+            var prefix = target.IsCore ? "" : Path.GetFileName(target.Directory);
+            var checkedLoad = host.ContentFactory.PrepareLoad(request,
+                new PackageSourceFiles(files, fixedSource.WithChanges(plan.Changes), root, prefix), assets);
+            if (checkedLoad is not ContentResult<IContentCandidate>.Success candidate) return checkedLoad;
+            using (var check = candidate.Value)
             {
                 var status = check.Report.Packages.FirstOrDefault(p => p.Metadata?.Id == target.Package);
-                if (status?.State != PackageState.Available || check.Report.Diagnostics.Any(d => d.Severity == ContentDiagnosticSeverity.Error))
-                    return new ContentResult<IContentCandidate>.Faulted("authoring_validation_failed", "候选源包或依赖未通过校验，未写入文件。", null);
+                if (status?.State != PackageState.Available)
+                    return new ContentResult<IContentCandidate>.Failure(status?.Diagnostics ?? [new("authoring_package_unavailable",
+                        ContentDiagnosticSeverity.Error, "authoring", null, new(target.Package, ""), "package", null,
+                        "校验结果中没有目标源包，未写入文件。")]);
             }
             written = PackageWriter.Execute(fixedSource, plan, target.IsCore);
             if (!written.Success) return new ContentResult<IContentCandidate>.Faulted("package_write_failed", written.Message ?? "包写入失败。", null);
@@ -268,8 +264,6 @@ internal sealed class AuthoringService : IDisposable
         else { operation = begun.Operation; Report("正在校验候选包并逐文件写入；期间请勿使用外部工具修改此包。"); }
     }
 
-    private static IContentCandidate RequireCandidate(ContentResult<IContentCandidate> result) => result is ContentResult<IContentCandidate>.Success success
-        ? success.Value : throw new InvalidDataException(Describe(result));
     private static ContentResult<IContentCandidate> FailureCandidate<T>(ContentResult<T> result) where T : notnull => result switch
     {
         ContentResult<T>.Failure failure => new ContentResult<IContentCandidate>.Failure(failure.Diagnostics),
@@ -281,23 +275,28 @@ internal sealed class AuthoringService : IDisposable
     {
         if (operation == 0 || result.Operation != operation) return;
         operation = 0; LastWrite = written;
-        if (written?.Success == true) { edits.Clear(); assetEdits.Clear(); }
-        Report((written is null ? "文件尚未写入。" : written.Success ? "文件已写入。" : "写入已停止，部分文件可能已更新。")
-            + (result.Succeeded ? "普通重载成功；重新载入源包后可继续创作。" : "内存内容未切换；草稿保留。 " + result.Message + " "
-                + string.Join("；", result.Diagnostics.Select(EditorService.Describe).Concat(result.Problems.Select(CommandDiagnostics.Describe)))));
+        var changedFiles = written is { Completed.IsEmpty: false };
+        if (changedFiles) { package = null; snapshot = null; }
+        if (changedFiles || written?.Success == true) { edits.Clear(); assetEdits.Clear(); }
+        Report((written is null ? "文件尚未写入。" : !changedFiles ? "未写入任何文件。" : written.Success ? "文件已写入。" : "写入已停止，已完成项保留。")
+            + (result.Succeeded ? "普通重载成功；草稿保留。" : "内存内容未切换；草稿保留。 " + result.Message + " "
+                + string.Join("；", result.Diagnostics.Select(EditorService.Describe).Concat(result.Problems.Select(CommandDiagnostics.Describe))))
+            + (changedFiles ? "请重新载入源包后继续创作。" : ""));
     }
 
-    internal void PreviewTemplate()
+    internal Task PreviewTemplate(DefinitionDraft value)
     {
-        if (!CanUse || Form is null || IsBusy) return;
+        if (!CanUse || Form is null || IsBusy) return Task.CompletedTask;
         try
         {
-            if ((CaptureForm?.Invoke() ?? Form) is not DefinitionDraft.SettlementTemplate template) return;
+            if (value is not DefinitionDraft.SettlementTemplate template) return Task.CompletedTask;
             var fixedRevision = revision; var content = host.Content!; var fixedDraft = draftId;
             previewing = Task.Run(() => (fixedDraft, fixedRevision, content, scenes.PreviewTemplate(content, template.Value, fixedRevision)));
             Report("正在准备模板预览…");
+            return previewing;
         }
         catch (Exception error) { Report(error.Message); }
+        return Task.CompletedTask;
     }
 
     internal Lookup<int> PickPlot(SceneRay ray) => TemplatePreview is { } preview && preview.Revision == revision
@@ -354,7 +353,7 @@ internal sealed class AuthoringService : IDisposable
     public void Dispose()
     {
         if (disposed) return; disposed = true;
-        editor.CloseForm = null; editor.PackageDraftSaved -= AcceptDraft; editor.PackageWriteRequested -= Publish;
+        editor.CloseForm = null; editor.PackageDraftSaved -= AcceptDraft;
         host.OperationEnded -= OperationEnded;
     }
 

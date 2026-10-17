@@ -91,7 +91,13 @@ public sealed class FixedContentView : IContentView
     public ContentLookup<VoxelAppearanceProjection> FindVoxelAppearance(VoxelDefinitionId id)
         => voxelAppearances.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindVoxelAppearance));
 
-    public ContentLookup<VoxelDisplayProjection> FindVoxelDisplay(VoxelDefinitionId id) => throw Unconfigured(nameof(FindVoxelDisplay));
+    private ImmutableDictionary<VoxelDefinitionId, ContentLookup<VoxelDisplayProjection>> voxelDisplays = ImmutableDictionary<VoxelDefinitionId, ContentLookup<VoxelDisplayProjection>>.Empty;
+    public IReadOnlyDictionary<VoxelDefinitionId, ContentLookup<VoxelDisplayProjection>> VoxelDisplays
+    {
+        init => voxelDisplays = value.ToImmutableDictionary();
+    }
+    public ContentLookup<VoxelDisplayProjection> FindVoxelDisplay(VoxelDefinitionId id)
+        => voxelDisplays.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindVoxelDisplay));
 
     private ImmutableDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>> definitionDisplays = ImmutableDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>.Empty;
     public IReadOnlyDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>> DefinitionDisplays

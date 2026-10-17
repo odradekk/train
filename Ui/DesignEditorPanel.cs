@@ -38,7 +38,7 @@ internal partial class DesignEditorPanel : Control
     private readonly List<GridPosition> _stroke = [];
     private ConfirmationDialog _confirm = null!;
     private PanelContainer _leave = null!;
-    private Button _saveBlueprint = null!, _writePackage = null!;
+    private Button _saveBlueprint = null!;
     internal EditorSceneController Scene => _scene;
     internal void Initialize(EditorService service)
     {
@@ -63,7 +63,6 @@ internal partial class DesignEditorPanel : Control
         });
         Add(bar, "Undo", "撤销", _service.Undo); Add(bar, "Redo", "重做", _service.Redo);
         Add(bar, "SaveDraft", "保存草稿", _service.SaveDraft); _saveBlueprint = UiStyle.Button("SaveBlueprint", "保存蓝图…", SaveBlueprint); bar.AddChild(_saveBlueprint);
-        _writePackage = UiStyle.Button("WritePackage", "写入包并重载", _service.RequestPackageWrite); bar.AddChild(_writePackage);
         Add(bar, "ExitEditor", "退出", () => _service.RequestClose(() => { }));
         var left = Panel("Tools", "体素与工具", new(8, 64), 270, out var tools);
         _voxel = Choice(tools, []); _voxel.ItemSelected += _ => RefreshShapes();
@@ -265,7 +264,6 @@ internal partial class DesignEditorPanel : Control
         Visible = _service.IsOpen; _scene.Process(delta);
         if (!Visible) return;
         _saveBlueprint.Visible = _service.Target is not DraftTarget.PackageDefinition;
-        _writePackage.Visible = _service.Target is DraftTarget.PackageDefinition;
         _leave.Visible = _service.Leaving; if (_service.Leaving) _leave.MoveToFront();
         _status.Text = (_service.State is { } active
             ? $"层级 {active.EnteredObject?.Value.ToString() ?? "根"} · 已选 {active.Selection.Length} · " : "")
@@ -305,8 +303,8 @@ internal partial class DesignEditorPanel : Control
     private void RefreshPalette()
     {
         _voxels.Clear(); _voxel.Clear();
-        var sceneModel = _service.State?.Snapshot.Draft.Specification is DesignSpecification.SceneModel;
-        foreach (var item in (_service.FixedContent?.Voxels ?? []).Where(item => sceneModel ? item.Good is null : item.Good is not null))
+        var sceneVoxels = _service.State?.Snapshot.Draft.Specification is DesignSpecification.SceneModel or DesignSpecification.Creature;
+        foreach (var item in (_service.FixedContent?.Voxels ?? []).Where(item => sceneVoxels ? item.Good is null : item.Good is not null))
         {
             _voxels.Add(item);
             var name = _service.FixedContent?.FindVoxelDisplay(item.Definition) is ContentLookup<VoxelDisplayProjection>.Found display ? display.Value.Display.Name : item.Definition.Value;

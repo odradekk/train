@@ -17,21 +17,21 @@ namespace Train.Godot.Tests.Authoring;
 public sealed class PackageFilesTests
 {
     [TestMethod]
-    public void Installation_snapshot_preserves_missing_roots_and_rebuilds_patched_directory_entries()
+    public void Single_root_snapshot_preserves_source_bytes_and_rebuilds_patched_directory_entries()
     {
         using var files = new PackageFiles();
         files.Put("core/original.txt", "original");
         var root = new ContentRoot("installation");
         var missing = new ContentRoot("missing");
         var source = new RootFiles(root, new DiskContentFiles(files.Root));
-        var snapshot = ContentFilesSnapshot.Capture(source, [root, missing]);
+        var snapshot = ContentFilesSnapshot.Capture(source, root);
         files.Put("core/original.txt", "external");
-        var patched = snapshot.WithChanges(root, "core", [Change("new/first.txt", "1"), Change("new/second.txt", "2")]);
+        var patched = snapshot.WithChanges([Change("core/new/first.txt", "1"), Change("core/new/second.txt", "2")]);
         var entries = ContentFilesSnapshot.Require(patched.Enumerate(new(root, "core")));
         Assert.AreEqual(1, entries.Count(e => e.Name == "new"));
         Assert.AreEqual("original", Encoding.UTF8.GetString(ContentFilesSnapshot.Require(snapshot.Read(new(root, "core/original.txt"), 99)).AsSpan()));
         Assert.IsInstanceOfType<ContentIoResult<ImmutableArray<ContentFileEntry>>.Failure>(patched.Enumerate(new(missing, "")));
-        Assert.ThrowsExactly<ArgumentException>(() => snapshot.WithChanges(root, "core", [Change("original.txt/nested.txt", "invalid")]));
+        Assert.ThrowsExactly<ArgumentException>(() => snapshot.WithChanges([Change("core/original.txt/nested.txt", "invalid")]));
     }
 
     [TestMethod]
@@ -76,6 +76,31 @@ public sealed class PackageFilesTests
     }
 
     [TestMethod]
+    public void Invalid_patch_paths_are_rejected_before_any_file_is_written()
+    {
+        using var files = new PackageFiles();
+        files.Put("original.txt", "original");
+        var snapshot = PackageSnapshot.Capture(files.Root);
+        var outside = Path.Combine(Path.GetDirectoryName(files.Root)!, Path.GetFileName(files.Root) + "-outside.txt");
+        try
+        {
+            foreach (var invalid in new[] { "../" + Path.GetFileName(outside), files.PathFor("absolute.txt"), @"nested\backslash.txt" })
+            {
+                var result = PackageWriter.Execute(snapshot,
+                    Plan(snapshot, Change("first.txt", "first"), Change(invalid, "invalid"), Change("last.txt", "last")), false);
+                Assert.IsFalse(result.Success, invalid);
+                Assert.AreEqual(invalid, result.Failed!.RelativePath);
+                Assert.AreEqual(0, result.Completed.Length);
+                CollectionAssert.AreEqual(new[] { "first.txt", "last.txt" }, result.Remaining.Select(change => change.RelativePath).ToArray());
+                Assert.IsFalse(File.Exists(outside));
+                CollectionAssert.AreEquivalent(new[] { files.PathFor("original.txt") }, Directory.GetFiles(files.Root, "*", SearchOption.AllDirectories));
+                Assert.AreEqual("original", File.ReadAllText(files.PathFor("original.txt")));
+            }
+        }
+        finally { File.Delete(outside); }
+    }
+
+    [TestMethod]
     public void Keep_file_precedes_new_core_asset_and_preserves_existing_import_settings()
     {
         using var files = new PackageFiles();
@@ -87,13 +112,13 @@ public sealed class PackageFilesTests
         Assert.AreEqual("[remap]\n\nimporter=\"keep\"\n", File.ReadAllText(files.PathFor("new.png.import")));
         Assert.AreEqual("existing settings", File.ReadAllText(files.PathFor("existing.glb.import")));
         snapshot = PackageSnapshot.Capture(files.Root);
-        Assert.IsTrue(PackageWriter.Execute(snapshot, Plan(snapshot, Change("mod.png", "png")) with { Package = new("mod") }, true).Success);
+        Assert.IsTrue(PackageWriter.Execute(snapshot, Plan(snapshot, Change("mod.png", "png")) with { Package = new("mod") }, false).Success);
         Assert.IsFalse(File.Exists(files.PathFor("mod.png.import")));
     }
 
     [TestMethod]
     [OSCondition(OperatingSystems.Windows)]
-    public void Locked_file_stops_after_completed_items_and_preserves_draft()
+    public void Locked_file_stops_after_completed_items_and_preserves_unmentioned_package_file()
     {
         using var files = new PackageFiles();
         files.Put("blocked.txt", "old");
@@ -104,7 +129,8 @@ public sealed class PackageFilesTests
         var result = PackageWriter.Execute(snapshot, Plan(snapshot, Change("first.txt", "first"), Change("blocked.txt", "new"), Change("last.txt", "last")), false);
         Assert.IsFalse(result.Success);
         Assert.AreEqual(1, result.Completed.Length);
-        Assert.AreEqual(2, result.Remaining.Length);
+        Assert.AreEqual(1, result.Remaining.Length);
+        Assert.AreEqual("last.txt", result.Remaining[0].RelativePath);
         Assert.AreEqual("blocked.txt", result.Failed!.RelativePath);
         Assert.AreEqual("first", File.ReadAllText(files.PathFor("first.txt")));
         Assert.IsFalse(File.Exists(files.PathFor("last.txt")));
@@ -112,7 +138,7 @@ public sealed class PackageFilesTests
     }
 
     [TestMethod]
-    public async Task Process_interruption_leaves_only_acknowledged_writes_and_preserves_saved_draft()
+    public async Task Process_interruption_leaves_only_acknowledged_writes_and_preserves_unmentioned_package_file()
     {
         using var files = new PackageFiles();
         files.Put("draft.json", "saved draft");

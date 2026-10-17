@@ -44,9 +44,7 @@ internal sealed class EditorService : IDisposable
     internal event Action? Changed;
     internal event Action? BlueprintSaved;
     internal event Action<SavedContentDraft>? PackageDraftSaved;
-    internal event Action? PackageWriteRequested;
     internal Func<Action, SaveFailure?>? CloseForm { get; set; }
-    internal void RequestPackageWrite() => PackageWriteRequested?.Invoke();
 
     internal EditorService(HostCoordinator host, IScenesFactory scenes, FileSaveStore store, TrainLogger logger)
     {
@@ -208,7 +206,7 @@ internal sealed class EditorService : IDisposable
             FileWriteResult result;
             try { result = write.GetAwaiter().GetResult(); }
             catch (Exception error) { result = new(false, "draft_write_failed", error.Message); }
-            var saving = (PendingSave.UserDraft)_saving!;
+            var saving = (PendingSave.ExternalDraft)_saving!;
             if (result.Published && saving.Draft.Target is DraftTarget.PackageDefinition)
                 PackageDraftSaved?.Invoke(saving.Draft);
             CompleteSave(result, saving.Session, saving.Snapshot);
@@ -319,7 +317,7 @@ internal sealed class EditorService : IDisposable
             var saved = new SavedContentDraft(_draft, snapshot.Stamp.Revision, target, payload);
             if (target is DraftTarget.UserBlueprint or DraftTarget.PackageDefinition)
             {
-                _saving = new PendingSave.UserDraft(session, snapshot, saved);
+                _saving = new PendingSave.ExternalDraft(session, snapshot, saved);
                 _write = Task.Run(() => WriteExternalDraft(saved));
             }
             else
@@ -361,17 +359,12 @@ internal sealed class EditorService : IDisposable
 
     internal ImmutableArray<SavedContentDraft> UserDrafts()
     {
-        ClearFeedback();
         return ReadDrafts(AuthoringPaths.UserDraftsDirectory(_store.Root), target => target is DraftTarget.UserBlueprint);
     }
 
-    internal ImmutableArray<SavedContentDraft> PackageDrafts(PackageId package)
-    {
-        ClearFeedback();
-        try { return ReadDrafts(AuthoringPaths.PackageDraftsDirectory(_store.Root, package),
-            target => target is DraftTarget.PackageDefinition value && value.Package == package); }
-        catch (Exception error) { Report(error.Message); return []; }
-    }
+    internal ImmutableArray<SavedContentDraft> PackageDrafts(PackageId package) =>
+        ReadDrafts(AuthoringPaths.PackageDraftsDirectory(_store.Root, package),
+            target => target is DraftTarget.PackageDefinition value && value.Package == package);
 
     private ImmutableArray<SavedContentDraft> ReadDrafts(string path, Func<DraftTarget, bool> include)
     {
@@ -674,7 +667,7 @@ internal sealed class EditorService : IDisposable
     private abstract record PendingSave
     {
         private PendingSave() { }
-        internal sealed record UserDraft(IDesignEditSession Session, EditSnapshot Snapshot, SavedContentDraft Draft) : PendingSave;
+        internal sealed record ExternalDraft(IDesignEditSession Session, EditSnapshot Snapshot, SavedContentDraft Draft) : PendingSave;
         internal sealed record LocalDraft(IDesignEditSession Session, EditSnapshot Snapshot, long Operation) : PendingSave;
         internal sealed record Blueprint(EditSnapshot Snapshot, DraftTarget Source, BlueprintSaveTarget Target,
             DraftId Draft, long Operation) : PendingSave;

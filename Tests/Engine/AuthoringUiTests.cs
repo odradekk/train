@@ -1,5 +1,5 @@
-using System.Collections.Immutable;
 using Train.App.Authoring;
+using Train.Core.ContractSupport;
 using Train.App.Saves;
 using Train.Content.ContractSupport;
 using Train.Scenes.Contracts;
@@ -65,6 +65,31 @@ public class AuthoringUiTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public async Task Blueprint_form_preserves_grid_owned_properties_without_duplicate_controls()
+    {
+        DesignSpecification[] specifications =
+        [
+            new DesignSpecification.Vehicle(SizeClass.Titan),
+            new DesignSpecification.Building(PlotSize.Large, BuildingKind.Production, []),
+            new DesignSpecification.SceneModel(new(new(1, 2), new(3, 4), 5))
+        ];
+        foreach (var specification in specifications)
+        {
+            var source = new DefinitionDraft.Blueprint("grid-owned", new(new("保留名称", "保留说明"), specification, new([], [], [])));
+            var form = Mount(source);
+            try
+            {
+                var fields = form.FindChildren("*", "LineEdit", true, false).OfType<LineEdit>().ToArray();
+                Require(fields.Length == 1 && fields[0].TooltipText == "本地 ID", "网格拥有的名称和规格不能在蓝图行为表单重复编辑。");
+                var captured = (DefinitionDraft.Blueprint)form.Capture();
+                Require(captured.Value == source.Value, "未提供行为字段的蓝图必须原样保留网格定义。");
+                Require(!form.FindChildren("*", "Button", true, false).OfType<Button>().Any(button => button.Text == "更新预览"), "蓝图表单不能提供模板专属预览按钮。");
+            }
+            finally { form.QueueFree(); await new UiTestInput(TestScene).Frames(2); }
+        }
+    }
+
+    [Test]
     public async Task Plot_selection_uses_array_index_even_when_plot_numbers_repeat()
     {
         var source = new DefinitionDraft.SettlementTemplate(new("town", new("core:town"), 3, new("core:town-scene"),
@@ -84,6 +109,51 @@ public class AuthoringUiTests(Node testScene) : TestClass(testScene)
                 "未编辑模板时必须保留重复编号、场景模型、建筑与库存字段。");
         }
         finally { form.QueueFree(); await new UiTestInput(TestScene).Frames(2); }
+    }
+
+    [Test]
+    public async Task Creature_and_scene_model_palettes_use_scene_voxels_while_vehicle_uses_goods()
+    {
+        var core = HostContentScenario.CreateProjection(HostCoreScenario.Input);
+        var cargo = new VoxelDefinitionId("fixture:cargo");
+        var scene = new VoxelDefinitionId("fixture:scene");
+        var content = new FixedContentView(core, new(1))
+        {
+            Blueprints = [], LocalDrafts = [], GenerationProfiles = [],
+            Voxels = [new(cargo, core.Goods[0]), new(scene, null)],
+            VoxelDisplays = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelDisplayProjection>>
+            {
+                [cargo] = new ContentLookup<VoxelDisplayProjection>.NotFound(),
+                [scene] = new ContentLookup<VoxelDisplayProjection>.NotFound()
+            },
+            VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
+            {
+                [cargo] = new ContentLookup<VoxelAppearanceProjection>.NotFound(),
+                [scene] = new ContentLookup<VoxelAppearanceProjection>.NotFound()
+            }
+        };
+        var fixture = new EditorPreview { Name = "AuthoringVoxelPaletteFixture", Content = content };
+        TestScene.AddChild(fixture);
+        try
+        {
+            await FramesUntil(TestScene, () => fixture.Editor.Session is not null);
+            var panel = fixture.App.FindChildren("DesignEditor", "", true, false).OfType<DesignEditorPanel>().Single();
+            var palette = panel.GetNode<PanelContainer>("Tools").FindChildren("*", "OptionButton", true, false).OfType<OptionButton>().First();
+            (DesignSpecification Specification, VoxelDefinitionId Expected)[] cases =
+            [
+                (new DesignSpecification.Creature(null, null), scene),
+                (new DesignSpecification.SceneModel(null), scene),
+                (new DesignSpecification.Vehicle(SizeClass.Small), cargo)
+            ];
+            foreach (var (specification, expected) in cases)
+            {
+                Require(fixture.Editor.RequestClose(() => { }) is null && !fixture.Editor.IsOpen, "更换规格前必须关闭旧编辑会话。");
+                fixture.Editor.Open(EditorPreviewSession.Draft with { Specification = specification }, new DraftTarget.LocalBlueprint(null));
+                await FramesUntil(TestScene, () => fixture.Editor.Session is not null && palette.ItemCount == 1 && palette.GetItemText(0).StartsWith(expected.Value, StringComparison.Ordinal));
+                Require(palette.ItemCount == 1 && palette.GetItemText(0).StartsWith(expected.Value, StringComparison.Ordinal), "生物与场景模型只能使用场景体素；车辆只能使用货物体素。");
+            }
+        }
+        finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
 
     [Test]
@@ -117,10 +187,31 @@ public class AuthoringUiTests(Node testScene) : TestClass(testScene)
                 "关闭的网格与尚未打开的模板不得留下独立 CanvasLayer 加载文字。");
             // Isolate the tested panel from unrelated map controls which otherwise consume viewport clicks.
             fixture.App.GetNode<GameUi>("GameUi").Visible = false;
-            var scenes = new TemplatePickingScenes();
+            FixedTemplatePreview? preview = null;
+            var scenes = new EditorScenes
+            {
+                PreviewTemplateCall = (content, draft, revision) =>
+                {
+                    if (draft.LocalId != "repeated-plots" || draft.Plots.Length != 2) throw new InvalidOperationException("UNCONFIGURED: template");
+                    preview = new(content.Generation, revision)
+                    {
+                        Frame = new FixedSceneFrame
+                        {
+                            Update = new(null, new(new(Guid.NewGuid()), new(1), new(1), revision.Value), System.Numerics.Vector3.Zero, [], [], new([], []), []),
+                            TerrainHeightResult = new Lookup<double>.Missing()
+                        },
+                        Plots = [
+                            new(0, new(System.Numerics.Vector3.Zero, System.Numerics.Quaternion.Identity), new(new(0, 0, 0), new(1, 1, 1))),
+                            new(1, new(new(8, 0, 0), System.Numerics.Quaternion.Identity), new(new(0, 0, 0), new(3, 1, 3)))
+                        ],
+                        PickResult = new Lookup<int>.Found(1)
+                    };
+                    return new SceneResult<ITemplatePreview>.Success(preview);
+                }
+            };
             service = new(fixture.Editor.Host, fixture.Editor, scenes, true, Path.Combine(temporary, "mods"), coreDirectory);
             ((ScriptedContentFactory)fixture.Editor.Host.ContentFactory).OpenAuthoringPackageCall = (_, id, version, _) =>
-                new ContentResult<IAuthoringPackage>.Success(new TemplatePickingPackage(id, version));
+                new ContentResult<IAuthoringPackage>.Success(new FixedAuthoringPackage(id, version, []));
             controller = new(service, fixture.Editor); TestScene.AddChild(controller.View);
             panel = new AuthoringPanel { Name = "TemplatePickingPanel" }; panel.Initialize(service, fixture.Editor); TestScene.AddChild(panel);
             controller.PlotSelected += panel.SelectPlot;
@@ -128,9 +219,9 @@ public class AuthoringUiTests(Node testScene) : TestClass(testScene)
             await FramesUntil(TestScene, () => { service.Process(); return service.Package is not null; });
             service.NewDefinition(new DefinitionDraft.SettlementTemplate(new("repeated-plots", null, 1, null,
                 [new(5, PlotSize.Small, new(0, 0, 0), VoxelOrientation.PxPy, null), new(5, PlotSize.Large, new(8, 0, 0), VoxelOrientation.PxPy, null)], [], [], [])));
-            panel.Open(); service.PreviewTemplate();
+            panel.Open(); service.PreviewTemplate(service.Form!);
             await FramesUntil(TestScene, () => { service.Process(); controller.Process(0); return controller.View.Interactive; });
-            var preview = scenes.Preview!;
+            Require(preview is not null, "模板预览入口必须创建配置的预览。");
             Require(ReferenceEquals(service.TemplatePreview, preview), "显示与拾取必须使用同一份服务预览。");
             await UiCapture.Capture(TestScene, "developer-authoring");
             var position = TestScene.GetViewport().GetVisibleRect().End - new Vector2(35, 200);
@@ -139,8 +230,8 @@ public class AuthoringUiTests(Node testScene) : TestClass(testScene)
             var input = new UiTestInput(TestScene);
             await input.MouseButton(position, MouseButton.Left, true);
             await input.MouseButton(position, MouseButton.Left, false);
-            Require(preview.Rays.Count == 1, "真实视口点击必须调用当前模板的 PickPlot 一次。");
-            var ray = preview.Rays[0];
+            Require(preview!.Rays.Count == 1, "真实视口点击必须调用当前模板的 PickPlot 一次。");
+            var ray = preview!.Rays[0];
             Require(ray.Origin == new System.Numerics.Vector3(origin.X, origin.Y, origin.Z) && ray.Direction == new System.Numerics.Vector3(direction.X, direction.Y, direction.Z),
                 "模板拾取必须使用显示帧相机生成的根空间射线。");
             var form = panel.FindChildren("DefinitionForm", "", true, false).OfType<AuthoringDefinitionForm>().Single();
@@ -150,7 +241,7 @@ public class AuthoringUiTests(Node testScene) : TestClass(testScene)
             Require(service.TemplatePreview is null && !controller.View.Interactive, "真实表单输入必须立即清掉旧预览拾取，不等待下一次显示帧。");
             await input.MouseButton(position, MouseButton.Left, true);
             await input.MouseButton(position, MouseButton.Left, false);
-            Require(preview.Rays.Count == 1, "失效显示帧不能继续向旧 PickPlot 发射射线。");
+            Require(preview!.Rays.Count == 1, "失效显示帧不能继续向旧 PickPlot 发射射线。");
         }
         finally
         {
@@ -159,45 +250,6 @@ public class AuthoringUiTests(Node testScene) : TestClass(testScene)
             service?.Dispose(); fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3);
             Directory.Delete(temporary, true);
         }
-    }
-
-    private sealed class TemplatePickingPackage(PackageId id, PackageSourceVersion version) : IAuthoringPackage
-    {
-        public PackageId Package => id;
-        public PackageSourceVersion SourceVersion => version;
-        public PackageMetadata Metadata { get; } = new(id, "template picking fixture", "1.0.0", [], []);
-        public ImmutableArray<AuthoringDefinitionAddress> EditableDefinitions => [];
-        public ContentLookup<DefinitionDraft> Read(AuthoringDefinitionAddress address) => throw new InvalidOperationException("UNCONFIGURED: no existing definitions");
-    }
-    private sealed class TemplatePickingScenes : IScenesFactory
-    {
-        internal TemplatePickingPreview? Preview { get; private set; }
-        public SceneResult<ITemplatePreview> PreviewTemplate(IContentView content, SettlementTemplateDraft draft, EditRevision revision)
-        {
-            if (draft.LocalId != "repeated-plots" || draft.Plots.Length != 2) throw new InvalidOperationException("UNCONFIGURED: template");
-            Preview = new(content.Generation, revision); return new SceneResult<ITemplatePreview>.Success(Preview);
-        }
-        public SceneResult<IDesignEditSession> OpenEditor(IContentView content, DesignEvaluation initial) => throw new InvalidOperationException("UNCONFIGURED: grid");
-        public SceneResult<IWorldSceneSession> OpenWorld(SceneBinding binding, SceneWorldSnapshot initial) => throw new InvalidOperationException("UNCONFIGURED: world");
-        public SceneResult<IDesignPreview> PreviewDesign(IContentView content, DesignEvaluation initial) => throw new InvalidOperationException("UNCONFIGURED: design");
-    }
-    private sealed class TemplatePickingPreview(ContentGeneration content, EditRevision revision) : ITemplatePreview
-    {
-        internal List<SceneRay> Rays { get; } = [];
-        public ContentGeneration Content => content;
-        public EditRevision Revision => revision;
-        public ISceneFrame Frame { get; } = new FixedSceneFrame
-        {
-            Update = new(null, new(new(Guid.NewGuid()), new(1), new(1), revision.Value), System.Numerics.Vector3.Zero, [], [], new([], []), []),
-            TerrainHeightResult = new Lookup<double>.Missing()
-        };
-        public ImmutableArray<TemplatePlotPreview> Plots =>
-        [
-            new(0, new(System.Numerics.Vector3.Zero, System.Numerics.Quaternion.Identity), new(new(0, 0, 0), new(1, 1, 1))),
-            new(1, new(new(8, 0, 0), System.Numerics.Quaternion.Identity), new(new(0, 0, 0), new(3, 1, 3)))
-        ];
-        public ImmutableArray<SceneProblem> Diagnostics => [];
-        public Lookup<int> PickPlot(SceneRay ray) { Rays.Add(ray); return new Lookup<int>.Found(1); }
     }
 
 }

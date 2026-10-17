@@ -9,6 +9,21 @@ namespace Train.Ui;
 
 internal partial class AuthoringPanel : Control
 {
+    private static readonly (string Name, Func<string, DefinitionDraft> Create)[] NewDefinitions =
+    [
+        ("车辆", id => Blueprint(id, new DesignSpecification.Vehicle(SizeClass.Small))),
+        ("建筑", id => Blueprint(id, new DesignSpecification.Building(PlotSize.Small, BuildingKind.Production, []))),
+        ("组装体设备", id => Blueprint(id, new DesignSpecification.Assembly(null))),
+        ("功能复合体", id => Blueprint(id, new DesignSpecification.FunctionalComposite([], null))),
+        ("场景模型", id => Blueprint(id, new DesignSpecification.SceneModel(null))),
+        ("生物", id => Blueprint(id, new DesignSpecification.Creature(null, null))),
+        ("体素", id => new DefinitionDraft.Voxel(new(id, new(id, ""), null, null, AllowedVoxelOrientations.None, new VoxelCollision.None(), null, new(false, null)))),
+        ("聚居地类型", id => new DefinitionDraft.SettlementType(new(id, new(id, ""), null, false, null, [], null, null))),
+        ("生物聚落类型", id => new DefinitionDraft.LairType(new(id, new(id, ""), null, null, [], null, null, null, null, null, null, null))),
+        ("聚居地模板", id => new DefinitionDraft.SettlementTemplate(new(id, null, null, null, [], [], [], [])))
+    ];
+    private static DefinitionDraft.Blueprint Blueprint(string id, DesignSpecification specification) =>
+        new(id, new(new(id, ""), specification, new([], [], [])));
     private AuthoringService _service = null!;
     private EditorService _editor = null!;
     private PanelContainer _window = null!;
@@ -49,21 +64,21 @@ internal partial class AuthoringPanel : Control
         fields.AddChild(new Label { Text = "已保存包草稿" }); _drafts = new VBoxContainer(); fields.AddChild(_drafts);
         _newId = new LineEdit { PlaceholderText = "新定义本地 ID", Name = "NewDefinitionId" }; fields.AddChild(_newId);
         _newKind = new OptionButton { Name = "NewDefinitionKind" };
-        foreach (var name in new[] { "车辆", "建筑", "组装体设备", "功能复合体", "场景模型", "生物", "体素", "聚居地类型", "生物聚落类型", "聚居地模板" }) _newKind.AddItem(name);
+        foreach (var kind in NewDefinitions) _newKind.AddItem(kind.Name);
         fields.AddChild(_newKind); Add(fields, "NewDefinition", "新建定义", NewDefinition);
         _form = new AuthoringDefinitionForm { Name = "DefinitionForm" }; fields.AddChild(_form);
         _form.Edited += _service.MarkFormDirty;
-        _form.PreviewRequested += _service.PreviewTemplate;
+        _form.PreviewRequested += () => Capture(value => _service.PreviewTemplate(value));
         _form.GridRequested += () =>
         {
             try
             {
                 var address = AuthoringService.Address(_form.Capture());
-                if (_editor.RequestClose(() => _service.OpenDefinition(address)) is { } failure) _service.Report(failure.Message);
+                _service.OpenDefinition(address);
             }
             catch (Exception error) { _service.Report(error.Message); }
         };
-        Add(fields, "SaveDraft", "保存草稿", _service.SaveForm);
+        Add(fields, "SaveDraft", "保存草稿", () => Capture(value => _service.SaveForm(value)));
         _relativeAsset = new LineEdit { Name = "AssetRelativePath", PlaceholderText = "资产包相对路径，如 textures/metal.png" }; fields.AddChild(_relativeAsset);
         Add(fields, "AddAsset", "选择并加入资产", () => _asset.PopupCentered(new(900, 650)));
         fields.AddChild(new Label { Text = "最终源基准复核到写入完成期间，请确保只有此工具写入源包。", AutowrapMode = TextServer.AutowrapMode.WordSmart });
@@ -73,10 +88,10 @@ internal partial class AuthoringPanel : Control
         _directory.DirSelected += directory => _service.Open(directory, new(_packageId.Text));
         _asset = new FileDialog { Title = "选择资产文件", Access = FileDialog.AccessEnum.Filesystem, FileMode = FileDialog.FileModeEnum.OpenFile }; AddChild(_asset);
         _asset.FileSelected += source => _service.AddAsset(_relativeAsset.Text, source);
-        _leave = UiStyle.Panel(this, "LeaveAuthoring", "表单有未保存修改", new(440, 200), 420, () => _service.ResolveClose(LeaveChoice.Cancel), out var leave);
-        Add(leave, "SaveAndLeave", "保存草稿并继续", () => _service.ResolveClose(LeaveChoice.Save));
-        Add(leave, "DiscardAndLeave", "放弃本次修改", () => _service.ResolveClose(LeaveChoice.Discard));
-        Add(leave, "CancelLeave", "取消", () => _service.ResolveClose(LeaveChoice.Cancel));
+        _leave = UiStyle.Panel(this, "LeaveAuthoring", "表单有未保存修改", new(440, 200), 420, () => _service.ResolveClose(LeaveChoice.Cancel, null), out var leave);
+        Add(leave, "SaveAndLeave", "保存草稿并继续", () => Capture(value => _service.ResolveClose(LeaveChoice.Save, value)));
+        Add(leave, "DiscardAndLeave", "放弃本次修改", () => _service.ResolveClose(LeaveChoice.Discard, null));
+        Add(leave, "CancelLeave", "取消", () => _service.ResolveClose(LeaveChoice.Cancel, null));
         Refresh();
     }
     internal void Open() { if (!_service.CanUse) return; _opened = true; _refreshLists = true; Refresh(); }
@@ -87,7 +102,7 @@ internal partial class AuthoringPanel : Control
     }
     private static Button Add(VBoxContainer body, string name, string text, Action action)
     {
-        var button = new Button { Name = name, Text = text }; body.AddChild(button); button.Pressed += action; return button;
+        var button = UiStyle.Button(name, text, action); body.AddChild(button); return button;
     }
     private static void Clear(VBoxContainer box)
     {
@@ -103,7 +118,7 @@ internal partial class AuthoringPanel : Control
         if (!ReferenceEquals(_loaded, _service.Form))
         {
             _loaded = _service.Form;
-            if (_loaded is not null) { _form.Load(_loaded); _service.CaptureForm = _form.Capture; }
+            if (_loaded is not null) { _form.Load(_loaded); }
         }
         _form.Visible = _loaded is not null;
         var definitions = _service.Definitions;
@@ -120,7 +135,8 @@ internal partial class AuthoringPanel : Control
         }
         _message.Text = _service.Message ?? "";
         if (_service.LastWrite is { } written)
-            _message.Text += "\n已完成：" + string.Join("、", written.Completed.Select(x => x.RelativePath)) + "\n失败：" + (written.Failed?.RelativePath ?? "无") + "\n未执行：" + string.Join("、", written.Remaining.Select(x => x.RelativePath));
+            _message.Text += "\n已完成：" + string.Join("、", written.Completed.Select(x => x.RelativePath)) + "\n失败：" + (written.Failed?.RelativePath ?? "无") + "\n未执行：" + string.Join("、", written.Remaining.Select(x => x.RelativePath))
+                + (written.CleanupMessage is { } cleanup ? "\n临时文件清理失败：" + cleanup : "");
     }
     private void RefreshLists()
     {
@@ -139,29 +155,21 @@ internal partial class AuthoringPanel : Control
                 });
             }
             foreach (var draft in _service.Drafts())
-                Add(_drafts, "OpenDraft", $"打开草稿 {draft.Id.Value}", () => _service.OpenDraft(draft));
+            {
+                if (draft.Target is DraftTarget.PackageDefinition target && target.SourceVersion != _listedPackage.SourceVersion)
+                {
+                    _drafts.AddChild(new Label { Text = $"草稿 {draft.Id.Value} 的来源已变化。请手动处理修改；工具不会自动合并。", AutowrapMode = TextServer.AutowrapMode.WordSmart });
+                    Add(_drafts, "OpenDraftOnCurrentSource", "在当前源包上打开", () => _service.OpenDraft(draft, true));
+                }
+                else Add(_drafts, "OpenDraft", $"打开草稿 {draft.Id.Value}", () => _service.OpenDraft(draft));
+            }
         }
     }
-    private void NewDefinition()
+    private void NewDefinition() => _service.NewDefinition(NewDefinitions[_newKind.Selected].Create(_newId.Text));
+    private void Capture(Action<DefinitionDraft> action)
     {
-        var id = _newId.Text; var display = new DisplayText(id, "");
-        DefinitionDraft draft = _newKind.Selected switch
-        {
-            6 => new DefinitionDraft.Voxel(new(id, display, null, null, AllowedVoxelOrientations.None, new VoxelCollision.None(), null, new(false, null))),
-            7 => new DefinitionDraft.SettlementType(new(id, display, null, false, null, [], null, null)),
-            8 => new DefinitionDraft.LairType(new(id, display, null, null, [], null, null, null, null, null, null, null)),
-            9 => new DefinitionDraft.SettlementTemplate(new(id, null, null, null, [], [], [], [])),
-            _ => new DefinitionDraft.Blueprint(id, new(display, _newKind.Selected switch
-            {
-                0 => new DesignSpecification.Vehicle(SizeClass.Small),
-                1 => new DesignSpecification.Building(PlotSize.Small, BuildingKind.Production, []),
-                2 => new DesignSpecification.Assembly(null),
-                3 => new DesignSpecification.FunctionalComposite([], null),
-                4 => new DesignSpecification.SceneModel(null),
-                _ => new DesignSpecification.Creature(null, null)
-            }, new([], [], [])))
-        };
-        _service.NewDefinition(draft);
+        try { action(_form.Capture()); }
+        catch (Exception error) { _service.Report(error.Message); }
     }
     public override void _ExitTree()
     {

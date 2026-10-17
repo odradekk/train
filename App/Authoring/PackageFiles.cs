@@ -9,24 +9,20 @@ namespace Train.App.Authoring;
 
 internal sealed class ContentFilesSnapshot : IContentFiles
 {
+    private readonly ContentRoot root;
     private readonly ImmutableDictionary<ContentPath, ImmutableArray<ContentFileEntry>> directories;
     private readonly ImmutableDictionary<ContentPath, ImmutableArray<byte>> files;
 
-    private ContentFilesSnapshot(ImmutableDictionary<ContentPath, ImmutableArray<ContentFileEntry>> directories,
+    private ContentFilesSnapshot(ContentRoot root, ImmutableDictionary<ContentPath, ImmutableArray<ContentFileEntry>> directories,
         ImmutableDictionary<ContentPath, ImmutableArray<byte>> files)
-        => (this.directories, this.files) = (directories, files);
+        => (this.root, this.directories, this.files) = (root, directories, files);
 
-    public static ContentFilesSnapshot Capture(IContentFiles source, ImmutableArray<ContentRoot> roots)
+    public static ContentFilesSnapshot Capture(IContentFiles source, ContentRoot root)
     {
         var directories = ImmutableDictionary.CreateBuilder<ContentPath, ImmutableArray<ContentFileEntry>>();
         var files = ImmutableDictionary.CreateBuilder<ContentPath, ImmutableArray<byte>>();
-        foreach (var root in roots)
-        {
-            var path = new ContentPath(root, "");
-            if (source.Enumerate(path) is ContentIoResult<ImmutableArray<ContentFileEntry>>.Failure { Kind: ContentIoFailure.Missing }) continue;
-            Visit(path);
-        }
-        return new(directories.ToImmutable(), files.ToImmutable());
+        Visit(new(root, ""));
+        return new(root, directories.ToImmutable(), files.ToImmutable());
 
         void Visit(ContentPath path)
         {
@@ -51,14 +47,14 @@ internal sealed class ContentFilesSnapshot : IContentFiles
 
     private static string Join(string prefix, string name) => prefix.Length == 0 ? name : prefix + "/" + name;
 
-    public ContentFilesSnapshot WithChanges(ContentRoot root, string prefix, ImmutableArray<PackageFileChange> changes)
+    public ContentFilesSnapshot WithChanges(ImmutableArray<PackageFileChange> changes)
     {
         var updated = files.ToBuilder();
         var dirs = directories.ToBuilder();
         foreach (var change in changes)
         {
-            PackageWriter.ValidateRelativePath(change.RelativePath);
-            var path = new ContentPath(root, Join(prefix, change.RelativePath));
+            DiskContentFiles.ValidateRelativePath(change.RelativePath);
+            var path = new ContentPath(root, change.RelativePath);
             if (dirs.ContainsKey(path)) throw new ArgumentException("包补丁不能把目录当作文件。");
             if (change.Bytes is { } bytes) updated[path] = bytes;
             else updated.Remove(path);
@@ -83,7 +79,7 @@ internal sealed class ContentFilesSnapshot : IContentFiles
                 .OrderBy(p => p.Name, StringComparer.Ordinal).ToImmutableArray();
             dirs[path] = children;
         }
-        return new(dirs.ToImmutable(), updated.ToImmutable());
+        return new(root, dirs.ToImmutable(), updated.ToImmutable());
     }
 
     private static string Parent(string path) => path.Contains('/') ? path[..path.LastIndexOf('/')] : "";
@@ -130,38 +126,33 @@ internal sealed class PackageSnapshot : IContentFiles
     {
         var full = Path.GetFullPath(directory);
         var disk = new DiskContentFiles(full);
-        ContentFilesSnapshot.Require(disk.Enumerate(new(Root, "")));
-        return new(full, ContentFilesSnapshot.Capture(disk, [Root]));
+        return new(full, ContentFilesSnapshot.Capture(disk, Root));
     }
     public bool MatchesDisk() => snapshot.SameFiles(Capture(Directory).snapshot);
-    public PackageSnapshot WithChanges(ImmutableArray<PackageFileChange> changes) => new(Directory, snapshot.WithChanges(Root, "", changes));
+    public PackageSnapshot WithChanges(ImmutableArray<PackageFileChange> changes) => new(Directory, snapshot.WithChanges(changes));
     public ContentIoResult<ImmutableArray<ContentFileEntry>> Enumerate(ContentPath directory) => snapshot.Enumerate(directory with { Root = Root });
     public ContentIoResult<ImmutableArray<byte>> Read(ContentPath file, long maximumBytes) => snapshot.Read(file with { Root = Root }, maximumBytes);
 }
 
 internal sealed record PackageWriteResult(bool Success, ImmutableArray<PackageFileChange> Completed,
-    ImmutableArray<PackageFileChange> Remaining, PackageFileChange? Failed, string? Message);
+    ImmutableArray<PackageFileChange> Remaining, PackageFileChange? Failed, string? Message, string? CleanupMessage = null);
 
 internal static class PackageWriter
 {
-    internal static void ValidateRelativePath(string relative)
-    {
-        if (string.IsNullOrEmpty(relative) || relative.Split('/').Any(s => s.Length == 0 || s is "." or ".."
-            || s.EndsWith('.') || s.EndsWith(' ') || s.Contains('\\') || s.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0))
-            throw new ArgumentException("包路径必须是有效相对路径。", nameof(relative));
-    }
-
     public static PackageWriteResult Execute(PackageSnapshot basis, PackageWritePlan plan, bool keepFiles,
         Action<PackageFileChange>? completed = null)
     {
         var changes = ImmutableArray.CreateBuilder<PackageFileChange>();
         var done = ImmutableArray.CreateBuilder<PackageFileChange>();
         PackageFileChange? current = null;
+        var currentIndex = -1;
+        var writing = false;
+        var cleanupMessages = new List<string>();
         try
         {
             foreach (var change in plan.Changes)
             {
-                if (keepFiles && plan.Package.Value == "core" && change.Bytes is not null
+                if (keepFiles && change.Bytes is not null
                     && (Path.GetExtension(change.RelativePath).Equals(".png", StringComparison.OrdinalIgnoreCase)
                         || Path.GetExtension(change.RelativePath).Equals(".glb", StringComparison.OrdinalIgnoreCase))
                     && basis.Read(new(default, change.RelativePath), long.MaxValue) is ContentIoResult<ImmutableArray<byte>>.Failure
@@ -170,40 +161,43 @@ internal static class PackageWriter
                     changes.Add(new(change.RelativePath + ".import", ImmutableArray.CreateRange(Encoding.UTF8.GetBytes("[remap]\n\nimporter=\"keep\"\n"))));
                 changes.Add(change);
             }
-            foreach (var change in changes)
+            for (currentIndex = 0; currentIndex < changes.Count; currentIndex++)
             {
-                current = change;
-                ValidateRelativePath(change.RelativePath);
+                current = changes[currentIndex];
+                DiskContentFiles.ValidateRelativePath(current.RelativePath);
             }
             current = null;
+            currentIndex = -1;
             if (plan.SourceVersion != basis.Version || !basis.MatchesDisk())
                 return new(false, [], changes.ToImmutable(), null, "源包已发生外部修改，请重新载入。");
-            _ = basis.WithChanges(changes.ToImmutable());
-            foreach (var change in changes)
+            writing = true;
+            for (currentIndex = 0; currentIndex < changes.Count; currentIndex++)
             {
+                var change = changes[currentIndex];
                 current = change;
                 var target = Path.Combine(basis.Directory, change.RelativePath.Replace('/', Path.DirectorySeparatorChar));
-                var path = basis.Directory;
-                foreach (var segment in change.RelativePath.Split('/'))
-                {
-                    path = Path.Combine(path, segment);
-                    if (Path.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
-                        throw new IOException("包路径不允许链接。");
-                }
+                if (DiskContentFiles.HasLinkedSegment(basis.Directory, target))
+                    throw new IOException("包路径不允许链接。");
                 if (change.Bytes is { } bytes)
                 {
                     var result = new FileSaveStore(basis.Directory).Write(target,
                         candidate => { using var stream = new FileStream(candidate, FileMode.CreateNew, FileAccess.Write, FileShare.None); stream.Write(bytes.AsSpan()); stream.Flush(true); },
                         candidate => { if (!File.ReadAllBytes(candidate).AsSpan().SequenceEqual(bytes.AsSpan())) throw new InvalidDataException("临时文件校验失败。"); }, true);
+                    if (result.CleanupMessage is { } cleanup) cleanupMessages.Add($"{change.RelativePath}：{cleanup}");
                     if (!result.Published) throw new IOException(result.Message);
                 }
                 else File.Delete(target);
                 done.Add(change);
                 completed?.Invoke(change);
             }
-            return new(true, done.ToImmutable(), [], null, null);
+            return new(true, done.ToImmutable(), [], null, null, CleanupMessage());
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException)
-        { return new(false, done.ToImmutable(), changes.Skip(done.Count).ToImmutableArray(), current, error.Message); }
+        {
+            var remaining = writing ? changes.Skip(currentIndex + 1)
+                : changes.Where((_, index) => index != currentIndex);
+            return new(false, done.ToImmutable(), remaining.ToImmutableArray(), current, error.Message, CleanupMessage());
+        }
+        string? CleanupMessage() => cleanupMessages.Count == 0 ? null : string.Join("\n", cleanupMessages);
     }
 }

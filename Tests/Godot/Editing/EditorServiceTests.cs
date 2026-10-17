@@ -190,7 +190,7 @@ public sealed class EditorServiceTests
             return new ContentResult<string>.Success(payload);
         };
         fixture.Host.Factory.DecodeDraftCall = payload => new ContentResult<SavedContentDraft>.Success(encoded[payload]);
-        DraftTarget targetDefinition = package ? new DraftTarget.PackageDefinition(new("test-package"), DefinitionKind.Blueprint, "test", new("source"))
+        DraftTarget targetDefinition = package ? new DraftTarget.PackageDefinition(new("core"), DefinitionKind.Blueprint, "test", new("source"))
             : new DraftTarget.UserBlueprint(null);
         DraftPayload initialPayload = package ? new DraftPayload.Definition(new DefinitionDraft.Blueprint("test", Draft("initial user draft")))
             : new DraftPayload.Design(Draft("initial user draft"));
@@ -203,7 +203,7 @@ public sealed class EditorServiceTests
         fixture.Editor.SaveDraft();
         fixture.PumpUntil(() => !fixture.Editor.IsBusy);
         var target = Directory.GetFiles(fixture.Root, "*", SearchOption.AllDirectories).Single();
-        Assert.AreEqual(package ? AuthoringPaths.PackageDraftsDirectory(fixture.Root, new("test-package"))
+        Assert.AreEqual(package ? AuthoringPaths.PackageDraftsDirectory(fixture.Root, new("core"))
             : AuthoringPaths.UserDraftsDirectory(fixture.Root), Path.GetDirectoryName(target));
         var original = File.ReadAllBytes(target);
         Assert.IsFalse(fixture.Editor.State!.IsDirty);
@@ -220,7 +220,7 @@ public sealed class EditorServiceTests
         Assert.IsTrue(fixture.Editor.State!.IsDirty);
         Assert.AreEqual(1, fixture.Session.Saved.Count);
         CollectionAssert.AreEqual(new[] { target }, Directory.GetFiles(fixture.Root, "*", SearchOption.AllDirectories));
-        var savedDraft = package ? fixture.Editor.PackageDrafts(new("test-package")).Single() : fixture.Editor.UserDrafts().Single();
+        var savedDraft = package ? fixture.Editor.PackageDrafts(new("core")).Single() : fixture.Editor.UserDrafts().Single();
         fixture.Editor.RequestClose(() => { });
         fixture.Editor.ResolveClose(LeaveChoice.Discard);
         fixture.Editor.OpenDraft(savedDraft);
@@ -630,14 +630,30 @@ public sealed class EditorServiceTests
     }
 
     [TestMethod]
-    [DataRow("")]
-    [DataRow("..")]
-    [DataRow("../outside")]
-    [DataRow("CON")]
-    [DataRow("package.")]
-    public void Package_draft_path_rejects_unsafe_file_names(string id)
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Passive_draft_refresh_preserves_external_save_failure(bool package)
     {
-        Assert.ThrowsExactly<InvalidDataException>(() => AuthoringPaths.PackageDraftsDirectory("draft-root", new(id)));
+        using var fixture = new EditingFixture();
+        var packageId = new PackageId("core");
+        DraftTarget target = package ? new DraftTarget.PackageDefinition(packageId, DefinitionKind.Blueprint, "test", new("source"))
+            : new DraftTarget.UserBlueprint(null);
+        fixture.Editor.Open(Draft("unsaved"), target, unsaved: true);
+        fixture.PumpUntil(() => !fixture.Editor.IsBusy);
+        fixture.Host.Factory.EncodeDraftCall = _ => new ContentResult<string>.Faulted("save_failed", "草稿保存失败", null);
+        var wasBusy = false;
+        fixture.Editor.Changed += () =>
+        {
+            if (wasBusy && !fixture.Editor.IsBusy) fixture.Editor.PackageDrafts(packageId);
+            wasBusy = fixture.Editor.IsBusy;
+        };
+        fixture.Editor.SaveDraft();
+        fixture.PumpUntil(() => !fixture.Editor.IsBusy);
+        StringAssert.Contains(fixture.Editor.Message!, "草稿保存失败");
+        Assert.IsTrue(fixture.Editor.HasError);
+        Assert.IsTrue(fixture.Editor.IsDirty);
+        fixture.Editor.UserDrafts();
+        StringAssert.Contains(fixture.Editor.Message!, "草稿保存失败");
     }
 
     private sealed class EditingFixture : IDisposable
