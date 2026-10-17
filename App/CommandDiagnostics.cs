@@ -36,6 +36,7 @@ internal static class CommandDiagnostics
     {
         var explanation = problem.Code switch
         {
+            "editing_active" => "请先结束设计编辑。",
             "busy" => "当前操作尚未结束，请稍后再试。",
             "simulation_session_unavailable" => "没有活动模拟会话。",
             "content_changed" => "对象所属对局已更换，操作未提交。",

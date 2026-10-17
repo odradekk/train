@@ -43,7 +43,8 @@ internal partial class WorldSceneView : Node3D
             AmbientLightSource = Godot.Environment.AmbientSource.Sky,
             ReflectedLightSource = Godot.Environment.ReflectionSource.Sky,
             TonemapMode = Godot.Environment.ToneMapper.Agx, SsaoEnabled = true,
-            SsaoIntensity = 0.5f, GlowEnabled = true, GlowBloom = 0,
+            // 强工作灯下的普通表面也超过 HDR 1；辉光只留给更亮的发光材质。
+            SsaoIntensity = 0.5f, GlowEnabled = true, GlowBloom = 0, GlowHdrThreshold = 32,
             FogEnabled = true, FogLightColor = new Color("c9d6e0"), FogDensity = 0.001f, FogSkyAffect = 0
         };
         _worldEnvironment = new() { Name = "WorldEnvironment", Environment = _environment };
@@ -122,8 +123,9 @@ internal partial class WorldSceneView : Node3D
     public override void _UnhandledInput(InputEvent input)
     {
         if (!IsVisibleInTree()) return;
-        if (input is InputEventKey { Pressed: true, Echo: false, Keycode: Key.Escape })
-            ReturnRequested?.Invoke();
+        if (input is InputEventKey { Pressed: true, Echo: false, Keycode: Key.Escape }
+            && ReturnRequested is { } returnRequested)
+            returnRequested();
         else if (Interactive && input is InputEventMouseButton { Pressed: true } button)
         {
             if (button.ButtonIndex == MouseButton.Left) PickRequested?.Invoke(button.Position);

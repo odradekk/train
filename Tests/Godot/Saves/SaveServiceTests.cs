@@ -596,14 +596,14 @@ public sealed class SaveServiceTests
                 if (failPublish) throw new IOException("deterministic publish failure");
                 File.Move(candidate, target, overwrite);
             });
-            Service = new(Host.Host, Store, () => Now, () => DateTimeOffset.FromUnixTimeSeconds((long)Now));
+            Service = new(Host.Host, Store, Host.CreateEditor(Store), () => Now, () => DateTimeOffset.FromUnixTimeSeconds((long)Now));
             Service.SetAutoSaveInterval(null);
         }
 
         internal void RecreateService()
         {
             Service.Dispose();
-            Service = new(Host.Host, Store, () => Now, () => DateTimeOffset.FromUnixTimeSeconds((long)Now));
+            Service = new(Host.Host, Store, Host.CreateEditor(Store), () => Now, () => DateTimeOffset.FromUnixTimeSeconds((long)Now));
         }
 
         internal void Process() { Host.Host.ProcessFrame(0); Service.Process(); }

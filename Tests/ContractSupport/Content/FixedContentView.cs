@@ -52,9 +52,19 @@ public sealed class FixedContentView : IContentView
         init => voxels = value;
     }
 
-    public ImmutableArray<BlueprintSummary> Blueprints => throw Unconfigured(nameof(Blueprints));
+    private ImmutableArray<BlueprintSummary> blueprints;
+    public ImmutableArray<BlueprintSummary> Blueprints
+    {
+        get => blueprints.IsDefault ? throw Unconfigured(nameof(Blueprints)) : blueprints;
+        init => blueprints = value;
+    }
 
-    public ImmutableArray<SavedContentDraft> LocalDrafts => throw Unconfigured(nameof(LocalDrafts));
+    private ImmutableArray<SavedContentDraft> localDrafts;
+    public ImmutableArray<SavedContentDraft> LocalDrafts
+    {
+        get => localDrafts.IsDefault ? throw Unconfigured(nameof(LocalDrafts)) : localDrafts;
+        init => localDrafts = value;
+    }
 
     private ImmutableArray<GenerationProfileSummary> generationProfiles;
     public ImmutableArray<GenerationProfileSummary> GenerationProfiles
