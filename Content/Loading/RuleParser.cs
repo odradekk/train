@@ -120,9 +120,10 @@ internal static partial class RuleParser
             Int64(Required(root, "repair_rail_units_per_break", ""), "/repair_rail_units_per_break", 1), N("repair_seconds_per_break"),
             N("approach_length_meters"), N("departure_length_meters"), N("node_speed_limit_meters_per_second"));
         var appearance = Required(root, "appearance", "");
-        Object(appearance, "/appearance", "minimum_curve_radius_meters", "maximum_grade");
+        Object(appearance, "/appearance", "ballast_voxel", "minimum_curve_radius_meters", "maximum_grade");
         return new(projection with { Revision = RuleSemantics.Revision(projection) },
-            new(id, Number(Required(appearance, "minimum_curve_radius_meters", "/appearance"), "/appearance/minimum_curve_radius_meters", positive: true),
+            new(id, new(json.Reference(Required(appearance, "ballast_voxel", "/appearance"), "/appearance/ballast_voxel")),
+                Number(Required(appearance, "minimum_curve_radius_meters", "/appearance"), "/appearance/minimum_curve_radius_meters", positive: true),
                 Number(Required(appearance, "maximum_grade", "/appearance"), "/appearance/maximum_grade", positive: true)), path, [new(good, "/rail_good")]);
         double N(string key) => Number(Required(root, key, ""), "/" + key, positive: true);
     }

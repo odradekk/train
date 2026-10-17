@@ -137,8 +137,12 @@ public sealed class RuleParserTests
         Assert.AreNotEqual(original.Appearance, changed.Appearance);
         Assert.AreEqual(new K.VoxelDefinitionId("core:rail"), changed.Projection.RailGood);
         Assert.AreEqual("/rail_good", changed.Goods.Single().Field);
+        json["appearance"]!["ballast_voxel"] = "other-scenery";
+        var changedBallast = (ParsedRule.Railway)Parse("railway", json)!;
+        Assert.AreEqual(changed.Revision, changedBallast.Revision);
+        Assert.AreEqual(changed.Appearance with { BallastVoxel = new("core:other-scenery") }, changedBallast.Appearance);
         json["repair_seconds_per_break"] = 20;
-        Assert.AreNotEqual(changed.Revision, Parse("railway", json)!.Revision);
+        Assert.AreNotEqual(changedBallast.Revision, Parse("railway", json)!.Revision);
     }
 
     [TestMethod]
@@ -260,7 +264,7 @@ public sealed class RuleParserTests
     internal static JsonObject Railway() => JsonNode.Parse("""
         {"schema_version":2,"id":"test","approach_length_meters":80,"departure_length_meters":90,"node_speed_limit_meters_per_second":15,"braking_deceleration":1,"minimum_acceleration":2,"minimum_gap_meters":3,
         "rail_units_per_meter":4,"build_seconds_per_meter":5,"repair_seconds_per_break":6,"rail_good":"rail",
-        "repair_rail_units_per_break":7,"appearance":{"minimum_curve_radius_meters":20,"maximum_grade":0.1}}
+        "repair_rail_units_per_break":7,"appearance":{"ballast_voxel":"scenery","minimum_curve_radius_meters":20,"maximum_grade":0.1}}
         """)!.AsObject();
     internal static JsonObject Combat() => JsonNode.Parse("""
         {"schema_version":1,"id":"test","retreat_seconds":1,"morale_damage_coefficient":0,"weapon_destroyed_morale_loss":1,

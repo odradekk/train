@@ -36,7 +36,7 @@ internal static class RailwayTerrain
         return new(surface, subsurface, rock);
     }
 
-    private static CellProperties PrepareVoxel(VoxelDefinitionId voxel,
+    internal static CellProperties PrepareVoxel(VoxelDefinitionId voxel,
         Func<VoxelDefinitionId, VoxelAppearanceProjection?> appearance, PickSubject subject)
     {
         var projection = appearance(voxel);
@@ -44,12 +44,12 @@ internal static class RailwayTerrain
             new ContentReference.Core(new CoreDefinitionReference.Voxel(voxel)) : null);
     }
 
-    private static (Layers? Terrain, CellProperties? BedRock) PrepareColumn(TerrainAppearanceProjection? terrain,
-        TerrainAppearanceProjection? bedTerrain, double height, double distance, bool hasBed,
+    private static (Layers? Terrain, CellProperties? Ballast) PrepareColumn(TerrainAppearanceProjection? terrain,
+        VoxelDefinitionId ballastVoxel, double height, double distance, bool hasBed,
         (double From, double To)? excludedY, Func<VoxelDefinitionId, CellProperties> property)
     {
         // Prepare only emitted column layers: Appearance() records voxelReads and reports missing diagnostics.
-        CellProperties? surface = null, subsurface = null, rock = null, bedRock = null;
+        CellProperties? surface = null, subsurface = null, rock = null, ballast = null;
         for (var depth = 0; depth < RailwayCoordinates.TerrainDepthCells; depth++)
         {
             var y = height - depth;
@@ -57,7 +57,7 @@ internal static class RailwayTerrain
             var bed = hasBed && BedLayer(depth, distance);
             if (bed)
             {
-                if (bedTerrain is not null) bedRock ??= Property(bedTerrain.RockVoxel);
+                ballast ??= Property(ballastVoxel);
             }
             else if (terrain is not null)
             {
@@ -66,20 +66,20 @@ internal static class RailwayTerrain
                 else rock ??= Property(terrain.RockVoxel);
             }
         }
-        return (terrain is null ? null : new(surface, subsurface, rock), bedRock);
+        return (terrain is null ? null : new(surface, subsurface, rock), ballast);
 
         CellProperties Property(VoxelDefinitionId id)
         {
             if (surface is not null && terrain!.SurfaceVoxel == id) return surface;
             if (subsurface is not null && terrain!.SubsurfaceVoxel == id) return subsurface;
             if (rock is not null && terrain!.RockVoxel == id) return rock;
-            if (bedRock is not null && bedTerrain!.RockVoxel == id) return bedRock;
+            if (ballast is not null && ballastVoxel == id) return ballast;
             return property(id);
         }
     }
 
     internal static void FillColumn(ImmutableArray<SceneCell>.Builder cells, GridColumn column, double height,
-        Layers? terrain, CellProperties? bedRock, double trackDistance, bool hasBed,
+        Layers? terrain, CellProperties? ballast, double trackDistance, bool hasBed,
         double originY = 0, (double From, double To)? excludedY = null)
     {
         for (var depth = 0; depth < RailwayCoordinates.TerrainDepthCells; depth++)
@@ -87,7 +87,7 @@ internal static class RailwayTerrain
             var y = height - depth;
             if (excludedY is { } excluded && y >= excluded.From && y < excluded.To) continue;
             var bed = hasBed && BedLayer(depth, trackDistance);
-            var properties = bed ? bedRock : depth == 0 ? terrain?.Surface : depth < 3 ? terrain?.Subsurface : terrain?.Rock;
+            var properties = bed ? ballast : depth == 0 ? terrain?.Surface : depth < 3 ? terrain?.Subsurface : terrain?.Rock;
             if (properties is not null)
                 cells.Add(new(new(column.X, checked((int)(y - originY)), column.Z), properties));
         }
@@ -343,8 +343,8 @@ internal static class RailwayTerrain
                 heights.Add(new(x, z), value.Height + 1);
                 var distance = TrackDistance(lineLateral);
                 var hasBed = path.Edge.Tracks > 0 && !value.Water && !value.Tunnel;
-                var layers = PrepareColumn(value.Terrain, terrains[path.Edge.Terrain.TypeId], value.Height, distance, hasBed, null, Property);
-                FillColumn(cells, new(x, z), value.Height, layers.Terrain, layers.BedRock, distance, hasBed);
+                var layers = PrepareColumn(value.Terrain, path.Rules.BallastVoxel, value.Height, distance, hasBed, null, Property);
+                FillColumn(cells, new(x, z), value.Height, layers.Terrain, layers.Ballast, distance, hasBed);
             }
             return new(RailwayDependencies.Capture(snapshot, path, index, terrainReads, modelReads, models, voxelReads,
                 readsStartTerrain, readsEndTerrain), new(cells.ToImmutable()), heights.ToImmutable(), shift, diagnostics.ToImmutable());
@@ -395,7 +395,6 @@ internal static class RailwayTerrain
             var heights = ImmutableDictionary.CreateBuilder<GridColumn, double>();
             var waterVertices = new List<SceneVertex>();
             var waterIndices = new List<int>();
-            var bedTerrain = GetTerrain(path.Edge.Terrain.TypeId);
             foreach (var pair in columns)
             {
                 cancellation.ThrowIfCancellationRequested();
@@ -408,9 +407,9 @@ internal static class RailwayTerrain
                 var hasBed = path.Edge.Tracks > 0 && !value.Water && !isTunnel;
                 (double From, double To)? excluded = isTunnel && trackDistance < RailwayCoordinates.BedBlendWidth ?
                     (rail.Position.Y, rail.Position.Y + RailwayCoordinates.TunnelClearance) : null;
-                var layers = PrepareColumn(value.Terrain, bedTerrain, value.Height, trackDistance, hasBed, excluded,
+                var layers = PrepareColumn(value.Terrain, path.Rules.BallastVoxel, value.Height, trackDistance, hasBed, excluded,
                     id => PrepareVoxel(id, Appearance, subject));
-                FillColumn(cells, column, value.Height, layers.Terrain, layers.BedRock, trackDistance, hasBed, origin.Y, excluded);
+                FillColumn(cells, column, value.Height, layers.Terrain, layers.Ballast, trackDistance, hasBed, origin.Y, excluded);
                 if (value.Water)
                 {
                     var y = (float)(WaterLevel(value.Arc) - origin.Y);

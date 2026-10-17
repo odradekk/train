@@ -62,7 +62,7 @@ public sealed class WorldContentTests
         Assert.AreEqual("core:building", view.Core.ConstructionRules.Single().Id.Value);
         Assert.AreEqual("core:rail", view.Core.RailwayRules.Single().Id.Value);
         Assert.AreEqual("core:battle", view.Core.CombatRules.Single().Id.Value);
-        Assert.AreEqual(new C.RailwayAppearanceProjection(new("core:rail"), 20, 0.1),
+        Assert.AreEqual(new C.RailwayAppearanceProjection(new("core:rail"), new("core:scenery"), 20, 0.1),
             Found(view.FindRailwayAppearance(new("core:rail"))));
         var terrain = Found(view.FindTerrain(new("core:plains")));
         Assert.AreEqual(new K.VoxelDefinitionId("core:scenery"), terrain.SurfaceVoxel);

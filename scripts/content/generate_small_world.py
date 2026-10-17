@@ -344,7 +344,7 @@ def sandstone_texture(x, y, side=False):
     return tint((0xb8, 0x8c, 0x60), grain(x, y, 128, 0x521) + bedding)
 
 
-def gravel_texture(x, y):
+def gravel_texture(x, y, color=(0x8d, 0x88, 0x80)):
     stones = []
     for row in range(y // 8 - 1, y // 8 + 2):
         for column in range(x // 8 - 1, x // 8 + 2):
@@ -355,7 +355,7 @@ def gravel_texture(x, y):
             stones.append(((x - cx) ** 2 + (y - cy) ** 2, (key // 31) % 17 - 8))
     stones.sort()
     shade = -20 if stones[1][0] - stones[0][0] < 8 else stones[0][1]
-    return tint((0x8d, 0x88, 0x80), shade + grain(x, y, 128, 0x522) // 2)
+    return tint(color, shade + grain(x, y, 128, 0x522) // 2)
 
 
 def concrete_texture(x, y):
@@ -526,6 +526,8 @@ def scene_assets(files, voxel):
         ("sandstone", "砂岩", "stone_soil", 4, sandstone_texture,
          lambda x, y: sandstone_texture(x, y, side=True)),
         ("gravel", "碎石", "stone_soil", 4, gravel_texture, None),
+        ("ballast", "道床碎石", "stone_soil", 2,
+         lambda x, y: gravel_texture(x * 2, y * 2, (0x8a, 0x87, 0x82)), None),
         ("concrete", "混凝土", "concrete", 4, concrete_texture, None),
         ("tree-trunk", "树皮", "organic", 1, bark_texture, None),
         ("foliage", "树叶", "organic", 2, foliage_texture, None),
@@ -1048,7 +1050,7 @@ def content_files():
         "approach_length_meters": 80, "departure_length_meters": 80, "node_speed_limit_meters_per_second": 15,
         "rail_units_per_meter": 0.7, "build_seconds_per_meter": 3, "repair_seconds_per_break": 48,
         "rail_good": "rail", "repair_rail_units_per_break": 18,
-        "appearance": {"minimum_curve_radius_meters": 80, "maximum_grade": 0.08}})
+        "appearance": {"ballast_voxel": "ballast", "minimum_curve_radius_meters": 80, "maximum_grade": 0.08}})
     document("combat-rules", "combat-rule", "basic-combat", {"schema_version": 1, "id": "basic-combat",
         "retreat_seconds": 24, "morale_damage_coefficient": 0.015, "weapon_destroyed_morale_loss": 0.18,
         "morale_recovery_per_second": 0.012, "surrender_threshold": 0.12, "new_lair_interval_seconds": 5400})

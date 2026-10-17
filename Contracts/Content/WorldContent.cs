@@ -13,4 +13,4 @@ public sealed record TerrainAppearanceProjection(TerrainTypeId Id,
     ImmutableArray<TerrainDecoration> Decorations, double DecorationTargetPerSquareMeter,
     ImmutableArray<RailwaySceneModels> RailwayModels, DisplayText Display);
 public sealed record RailwayAppearanceProjection(RuleDefinitionId Id,
-    double MinimumCurveRadiusMeters, double MaximumGrade);
+    VoxelDefinitionId BallastVoxel, double MinimumCurveRadiusMeters, double MaximumGrade);
