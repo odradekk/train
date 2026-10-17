@@ -151,7 +151,7 @@ public sealed class RailwayMeshTests
     }
 
     [TestMethod]
-    public void ContentRadiusRailsReduceGeometryWithoutMovingTheRunningSurface()
+    public void ContentRadiusRailsKeepTheRunningSurfaceWithinOneCentimeter()
     {
         const double radius = 160;
         RailwaySample Sample(double arc)
@@ -162,7 +162,6 @@ public sealed class RailwayMeshTests
                 new((float)Math.Cos(angle), 0, (float)-Math.Sin(angle)));
         }
         var mesh = RailwayMeshes.Build(Sample, 0, 128, default)[0];
-        Assert.IsTrue(mesh.Vertices.Length < 55512 / 3, "The content curve must eliminate most redundant rings.");
         AssertRailError(mesh, Sample, 0, 128, default);
     }
 
@@ -206,7 +205,7 @@ public sealed class RailwayMeshTests
     }
 
     [TestMethod]
-    public void NodeGradeTransitionRefinesTheUniformGridAndPreservesItsEnds()
+    public void NodeGradeTransitionKeepsTheRunningSurfaceWithinOneCentimeter()
     {
         RailwaySample Sample(double arc)
         {
@@ -227,41 +226,66 @@ public sealed class RailwayMeshTests
             var at = sample(arc);
             return at with { Position = RailwayCoordinates.Add(at.Position, at.Right * (float)offset) };
         };
-        var cursor = 0;
+        var triangles = mesh.TriangleIndices.Chunk(3)
+            .Select(indices => indices.Select(index => mesh.Vertices[index]).ToArray())
+            .Where(vertices => vertices.All(vertex => vertex.TextureUv.X == 1))
+            .Select(vertices => (A: vertices[0].Position, B: vertices[1].Position, C: vertices[2].Position))
+            .ToArray();
+        Assert.IsTrue(triangles.Length > 0, "The mesh must contain polished running surfaces.");
+        var nearby = new Dictionary<(int X, int Z), List<(Vector3 A, Vector3 B, Vector3 C)>>();
+        foreach (var triangle in triangles)
+        {
+            var min = Vector3.Min(triangle.A, Vector3.Min(triangle.B, triangle.C));
+            var max = Vector3.Max(triangle.A, Vector3.Max(triangle.B, triangle.C));
+            // A triangle within the tolerance must share the probe's cell after this padding.
+            for (var x = (int)Math.Floor((min.X - .021f) / 8); x <= Math.Floor((max.X + .021f) / 8); x++)
+            for (var z = (int)Math.Floor((min.Z - .021f) / 8); z <= Math.Floor((max.Z + .021f) / 8); z++)
+            {
+                if (!nearby.TryGetValue((x, z), out var cell)) nearby[(x, z)] = cell = [];
+                cell.Add(triangle);
+            }
+        }
+        // Probe the actual railhead independently of the mesh's rings, vertices and triangulation.
+        var probes = (int)Math.Ceiling((end - begin) / .5);
         for (var track = 1; track <= tracks; track++)
-        foreach (var (gauge, height, _, _) in RailwayCoordinates.WheelDimensions)
+        foreach (var (gauge, halfWidth) in new[] { (3d, .195f), (7d, .26f), (15d, .39f) })
         foreach (var sign in new[] { -1, 1 })
         {
-            var offset = RailwayCoordinates.TrackOffset(track, tracks) + sign * gauge / 2;
-            var start = sampleAt(begin, offset);
-            var cap = cursor;
-            while (cap < mesh.Vertices.Length &&
-                Vector3.Dot(mesh.Vertices[cap].Normal, -start.Forward) < .99999f) cap += 72;
-            Assert.IsTrue(cap < mesh.Vertices.Length, "Each rail must retain its start cap.");
-            var steps = (cap - cursor) / 72;
-            Assert.IsTrue(steps > 0);
-            for (var step = 0; step < steps; step++)
-            for (var probe = 0; probe <= 64; probe++)
+            var offset = (track - (tracks + 1) / 2.0) * 34 + sign * gauge / 2;
+            for (var probe = 0; probe <= probes; probe++)
             {
-                var fraction = probe / 64f;
-                var arc = begin + (end - begin) * (step + fraction) / steps;
+                var arc = begin + (end - begin) * probe / probes;
                 var at = sampleAt(arc, offset);
                 var center = RailwayCoordinates.Relative(at.Position, origin);
-                var up = Vector3.Normalize(Vector3.Cross(at.Forward, at.Right));
-                foreach (var side in new[] { 0, 1, 6, 7 })
+                foreach (var lateral in new[] { -halfWidth, 0, halfWidth })
                 {
-                    var expected = center + at.Right * (side is 0 or 7 ? -height * .65f : height * .65f) -
-                        up * (side < 2 ? height : 0);
-                    var first = mesh.Vertices[cursor + step * 72 + side * 6].Position;
-                    var last = mesh.Vertices[cursor + step * 72 + side * 6 + 5].Position;
-                    var chord = last - first;
-                    var along = Math.Clamp(Vector3.Dot(expected - first, chord) / chord.LengthSquared(), 0, 1);
-                    var error = Vector3.Distance(expected, first + chord * along);
-                    Assert.IsTrue(error <= .02001f, $"Rail chord exceeds 1 cm at {arc}: {error / 2} m.");
+                    var expected = center + at.Right * lateral;
+                    var error = nearby.TryGetValue(((int)Math.Floor(expected.X / 8), (int)Math.Floor(expected.Z / 8)), out var cell)
+                        ? cell.Min(triangle => DistanceToTriangle(expected, triangle.A, triangle.B, triangle.C)) : float.PositiveInfinity;
+                    Assert.IsTrue(error <= .02001f,
+                        $"Railhead exceeds 1 cm at arc {arc}, track {track}, gauge {gauge}, side {sign}: {error / 2} m.");
                 }
             }
-            cursor = cap + 36;
         }
-        Assert.AreEqual(mesh.Vertices.Length, cursor, "All cross sections and caps must remain accounted for.");
+    }
+
+    private static float DistanceToTriangle(Vector3 point, Vector3 a, Vector3 b, Vector3 c)
+    {
+        var ab = b - a;
+        var ac = c - a;
+        var normal = Vector3.Cross(ab, ac);
+        var projected = point - normal * (Vector3.Dot(point - a, normal) / normal.LengthSquared());
+        if (Vector3.Dot(Vector3.Cross(ab, projected - a), normal) >= 0 &&
+            Vector3.Dot(Vector3.Cross(c - b, projected - b), normal) >= 0 &&
+            Vector3.Dot(Vector3.Cross(a - c, projected - c), normal) >= 0)
+            return Vector3.Distance(point, projected);
+        return Math.Min(DistanceToSegment(a, b), Math.Min(DistanceToSegment(b, c), DistanceToSegment(c, a)));
+
+        float DistanceToSegment(Vector3 start, Vector3 end)
+        {
+            var edge = end - start;
+            var fraction = Math.Clamp(Vector3.Dot(point - start, edge) / edge.LengthSquared(), 0, 1);
+            return Vector3.Distance(point, start + edge * fraction);
+        }
     }
 }

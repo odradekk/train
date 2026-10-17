@@ -211,10 +211,10 @@ internal static class DesignGeometry
             var indices = ImmutableArray.CreateBuilder<int>(indexCount);
             foreach (var quad in group.Quads)
                 AddQuad(vertices, indices, quad.At, quad.Plane, quad.Width, quad.Height, quad.Edges);
-            visuals.Add(new SceneVisual.Geometry(new(key.Material, vertices.MoveToImmutable(), indices.MoveToImmutable()),
+            visuals.Add(new SceneVisual.Geometry(new(key.Material, vertices.DrainToImmutable(), indices.DrainToImmutable()),
                 new(wear, 0, 0, false)));
         }
-        return visuals.MoveToImmutable();
+        return visuals.DrainToImmutable();
 
         void AddQuad(ImmutableArray<SceneVertex>.Builder vertices, ImmutableArray<int>.Builder indices, GridPosition at, FacePlane plane,
             int width, int height, ExposedFaceEdges edges)

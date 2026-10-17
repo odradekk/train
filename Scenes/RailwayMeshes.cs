@@ -28,37 +28,41 @@ internal static class RailwayMeshes
     private static ImmutableArray<SceneMesh> Build(Func<double, double, RailwaySample> sampleAt,
         double start, double end, ScenePoint origin, int tracks)
     {
+        var sections = RailwayCoordinates.WheelDimensions.Select(dimension =>
+        {
+            var (gauge, height, _, _) = dimension;
+            var width = height * .65f;
+            Vector2[] profile = [new(-width, -height), new(width, -height),
+                new(width, -.8f * height), new(.2f * width, -.8f * height),
+                new(.2f * width, -.2f * height), new(width, -.2f * height), new(width, 0),
+                new(-width, 0), new(-width, -.2f * height), new(-.2f * width, -.2f * height),
+                new(-.2f * width, -.8f * height), new(-width, -.8f * height)];
+            return (gauge, height, width, profile);
+        }).ToArray();
         var ringCounts = new int[tracks * RailwayCoordinates.WheelDimensions.Length * 2];
         var railNumber = 0;
         var railVertices = 0;
         for (var track = 1; track <= tracks; track++)
         {
             var offset = RailwayCoordinates.TrackOffset(track, tracks);
-            foreach (var (gauge, height, _, _) in RailwayCoordinates.WheelDimensions)
+            foreach (var (gauge, height, width, profile) in sections)
             foreach (var railOffset in new[] { offset - gauge / 2, offset + gauge / 2 })
             {
-                var steps = RingSteps(sampleAt, start, end, railOffset, height * .65f, height);
+                var steps = RingSteps(sampleAt, start, end, railOffset, width, height);
                 ringCounts[railNumber++] = steps;
-                // Twelve profile sides and six cap quads, each with six independent vertices.
-                railVertices += (steps * 12 + 6) * 6;
+                // Each profile side and cap quad has six independent vertices.
+                railVertices += (steps * profile.Length + 6) * 6;
             }
         }
-        var sleeperCount = 0;
-        for (var index = (long)Math.Ceiling(start / 1.5); index * 1.5 < end; index++) sleeperCount++;
+        var sleeperCount = (int)(Math.Ceiling(end / 1.5) - Math.Ceiling(start / 1.5));
         var rails = new MeshBuilder(BuiltInMaterial.RailSteel, railVertices);
         var sleepers = new MeshBuilder(BuiltInMaterial.Sleeper, sleeperCount * tracks * 5 * 6 * 6);
         railNumber = 0;
         for (var track = 1; track <= tracks; track++)
         {
             var offset = RailwayCoordinates.TrackOffset(track, tracks);
-            foreach (var (gauge, height, _, _) in RailwayCoordinates.WheelDimensions)
+            foreach (var (gauge, height, width, profile) in sections)
             {
-                var width = height * .65f;
-                Vector2[] profile = [new(-width, -height), new(width, -height),
-                    new(width, -.8f * height), new(.2f * width, -.8f * height),
-                    new(.2f * width, -.2f * height), new(width, -.2f * height), new(width, 0),
-                    new(-width, 0), new(-width, -.2f * height), new(-.2f * width, -.2f * height),
-                    new(-.2f * width, -.8f * height), new(-width, -.8f * height)];
                 foreach (var railOffset in new[] { offset - gauge / 2, offset + gauge / 2 })
                 {
                     var previous = Ring(start);
@@ -186,6 +190,6 @@ internal static class RailwayMeshes
                 vertices.Add(new(point, normal, new(railHead ? 1 : 0, 0), Vector2.Zero, ExposedFaceEdges.None, 0, 0));
             }
         }
-        internal SceneMesh Build() => new(new SceneMaterial.BuiltIn(material), vertices.MoveToImmutable(), indices.MoveToImmutable());
+        internal SceneMesh Build() => new(new SceneMaterial.BuiltIn(material), vertices.DrainToImmutable(), indices.DrainToImmutable());
     }
 }
