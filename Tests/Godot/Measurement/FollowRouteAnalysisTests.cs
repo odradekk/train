@@ -9,136 +9,251 @@ namespace Train.Godot.Tests.Measurement;
 public sealed class FollowRouteAnalysisTests
 {
     [TestMethod]
-    public void AheadDistanceFollowsObservedCurveRatherThanEndpointDisplacement()
+    public void HeadUsesFutureCenterArcRatherThanVehiclePoseTangent()
     {
-        var ranges = Range(1, Bounds(-10, -10, 10, 10));
-        var report = Analyze([Frame(1, 0, 0), Frame(2, 4, 0), Frame(3, 4, 4)], ranges);
+        var frames = new[] { Frame(1, 0, 0), Frame(2, 2, 0), Frame(3, 2, 4), Frame(4, 2, 6) };
+        var result = Analyze(frames, Range(1, Bounds(-1, -1, 3, .2))).Frames[0].Scenes;
 
-        Assert.AreEqual(4d, report.Frames[0].Scenes.AheadMeters);
+        // Pose +Z would put the nose outside immediately. Actual route first runs along +X.
+        Assert.AreEqual(.5, result.AheadMeters!.Value, 1e-8);
+        Assert.AreEqual(new ScenePoint(2, 0, 1), result.FirstMissingPoint);
+        Assert.IsTrue(result.VehicleCentersCovered);
+    }
+
+    [TestMethod]
+    public void ForwardWalksIntermediateCurveVerticesRatherThanHeadChords()
+    {
+        var report = Analyze([Frame(1, 0, 0), Frame(2, 2, 0), Frame(3, 2, 4), Frame(4, 2, 6)],
+            Range(1, Bounds(-10, -10, 10, 10)));
+
+        Assert.AreEqual(3d, report.Frames[0].Scenes.AheadMeters!.Value, 1e-8);
         Assert.IsTrue(report.Frames[0].Scenes.ObservationLimited);
+        Assert.IsFalse(report.Frames[0].Scenes.BoundaryLimited);
         Assert.IsNull(report.Summary.MinimumScenesAheadMeters);
     }
 
     [TestMethod]
-    public void FogBetweenDrawnHeadPositionsStopsCoverage()
+    public void FogBetweenDrawsStopsFrozenCoverage()
     {
-        var range = Range(1, Bounds(-10, -10, 10, 10)) with { Fog = [Bounds(-1, 2, 1, 3)] };
-        var result = Analyze([Frame(1, 0, 0), Frame(2, 0, 6)], range).Frames[0].Scenes;
+        var range = Range(1, Bounds(-10, -10, 10, 20)) with { Fog = [Bounds(-1, 3, 1, 4)] };
+        var result = Analyze([Frame(1, 0, 0), Frame(2, 0, 6), Frame(3, 0, 10)], range).Frames[0].Scenes;
 
         Assert.AreEqual("fog", result.Missing);
-        Assert.AreEqual(.5, result.AheadMeters);
-        Assert.AreEqual(new ScenePoint(0, 0, 2), result.FirstMissingPoint);
+        Assert.AreEqual(.5, result.AheadMeters!.Value, 1e-8);
+        Assert.AreEqual(new ScenePoint(0, 0, 3), result.FirstMissingPoint);
+    }
+
+    [TestMethod]
+    public void LaterConstructionCannotFillEarlierGeometry()
+    {
+        var first = Range(1, Bounds(-1, -1, 1, 3));
+        var later = Range(2, Bounds(-1, -1, 1, 20));
+        var frames = new[] { Frame(1, 0, 0), Frame(2, 0, 6) with { ScenesRanges = 2, DisplayedRanges = 2 }, Frame(3, 0, 10) };
+        var result = FollowRouteAnalysis.Analyze(frames, new Dictionary<long, RouteRanges> { [1] = first, [2] = later }).Frames[0].Scenes;
+
+        Assert.AreEqual(1d, result.AheadMeters!.Value, 1e-8);
+        Assert.AreEqual("terrain_bounds_missing", result.Missing);
+    }
+
+    [TestMethod]
+    public void ReceivedAndDisplayedPoseGapsAreUnknown()
+    {
+        var range = Range(1, Bounds(-20, -20, 20, 20));
+        var missing = Analyze([Frame(1, 0, 0) with { ExpectedVehicles = [1, 2] }], range).Frames[0];
+        Assert.IsNull(missing.Scenes.AheadMeters);
+        Assert.IsNull(missing.Scenes.VehicleCentersCovered);
+        Assert.AreEqual("vehicle_pose_missing", missing.Scenes.Missing);
+
+        var shown = Analyze([Frame(1, 0, 0) with { DisplayedVehicles = [] }, Frame(2, 0, 4)], range).Frames[0];
+        Assert.IsNull(shown.Displayed.AheadMeters);
+        Assert.IsNotNull(shown.Scenes.AheadMeters);
+    }
+
+    [TestMethod]
+    public void ReverseOrderUsesLastVehicleCenterAndFutureTravelDirection()
+    {
+        RouteFrame Reverse(long draw, double lastZ)
+        {
+            RouteVehicle[] vehicles = [new(1, new(0, 0, lastZ + 4), [0, 0, 0, 1], 2), new(2, new(0, 0, lastZ), [0, 0, 0, 1], 2)];
+            return Frame(draw, 0, 0) with { Vehicles = vehicles, DisplayedVehicles = vehicles, FirstEndLeading = false };
+        }
+        var result = Analyze([Reverse(1, 2), Reverse(2, 0), Reverse(3, -2)], Range(1, Bounds(-1, 2, 1, 10))).Frames[0].Scenes;
+
+        Assert.IsTrue(result.VehicleCentersCovered);
+        Assert.AreEqual(new ScenePoint(0, 0, 1), result.FirstMissingPoint);
+        Assert.IsNull(result.SampledBodyCovered);
+        Assert.AreEqual("initial_history_insufficient", result.BodyUnknown);
+    }
+
+    [TestMethod]
+    public void CurvedBodyStitchesSpacesAndIgnoresWithinSpaceFloatingOrigin()
+    {
+        var old = Range(1, Bounds(-10, -10, 10, 10));
+        var next = Range(2, Bounds(101, 0, 102, 3)) with
+        {
+            Frame = Stamp(2), Coordinates = new(2), Fog = [Bounds(101, .5, 101.5, 2.5)]
+        };
+        var frames = new[]
+        {
+            Frame(1, 0, 0) with { TrainLengthMeters = 2 },
+            Frame(2, 2, 0) with { Origin = new(2000, 0, 0), TrainLengthMeters = 2 },
+            InSpace(Frame(3, 102, 2), 2, 2) with
+            {
+                Origin = new(2100, 0, 0), TrainLengthMeters = 2,
+                Transition = new(Stamp(), new(2000, 0, 0), Stamp(2), new(2100, 0, 0), false)
+            },
+            InSpace(Frame(4, 102, 4), 2, 2) with { TrainLengthMeters = 2 },
+            InSpace(Frame(5, 102, 6), 2, 2) with { TrainLengthMeters = 2 }
+        };
+        var report = FollowRouteAnalysis.Analyze(frames, new Dictionary<long, RouteRanges> { [1] = old, [2] = next });
+
+        Assert.IsTrue(report.Frames[2].Scenes.SampledBodyCovered);
+        Assert.IsTrue(report.Frames[2].Displayed.SampledBodyCovered);
+        Assert.IsNull(report.Frames[2].Scenes.BodyUnknown);
+        Assert.AreEqual("initial_history_insufficient", report.Frames[0].Scenes.BodyUnknown);
+    }
+
+    [TestMethod]
+    public void HeadCanCrossObservedSpaceBoundaryBeforeCenterFrameChangesSpace()
+    {
+        var frames = new[]
+        {
+            Frame(1, 0, 0, 4), Frame(2, 0, 2, 4), Frame(3, 0, 3, 4),
+            InSpace(Frame(4, 0, 4, 4), 2, 2) with { Transition = new(Stamp(), new(), Stamp(2), new(), false) },
+            InSpace(Frame(5, 0, 6, 4), 2, 2), InSpace(Frame(6, 0, 8, 4), 2, 2)
+        };
+        var ranges = new Dictionary<long, RouteRanges>
+        {
+            [1] = Range(1, Bounds(-1, -1, 1, 3.8)),
+            [2] = Range(2, Bounds(-1, -1, 1, 20)) with { Frame = Stamp(2), Coordinates = new(2) }
+        };
+        var report = FollowRouteAnalysis.Analyze(frames, ranges);
+
+        Assert.AreEqual(0d, report.Frames[1].Scenes.AheadMeters);
+        Assert.IsTrue(report.Frames[1].Scenes.BoundaryLimited);
+        Assert.IsNull(report.Frames[1].Scenes.Missing);
+        Assert.IsFalse(report.Frames[1].FirstInSpace);
+    }
+
+    [TestMethod]
+    public void LastPointTwoSixMetresIsLimitedEvenWhenGapComesBeforeBoundary()
+    {
+        var frames = new[]
+        {
+            Frame(1, 0, 0, 4), Frame(2, 0, 2, 4),
+            InSpace(Frame(3, 0, 2.52, 4), 2, 2) with { Transition = new(Stamp(), new(), Stamp(2), new(), false) },
+            InSpace(Frame(4, 0, 5, 4), 2, 2), InSpace(Frame(5, 0, 8, 4), 2, 2)
+        };
+        var ranges = new Dictionary<long, RouteRanges>
+        {
+            [1] = Range(1, Bounds(-1, -1, 1, 2.1)),
+            [2] = Range(2, Bounds(-1, -1, 1, 20)) with { Frame = Stamp(2), Coordinates = new(2) }
+        };
+        var result = FollowRouteAnalysis.Analyze(frames, ranges).Frames[0].Scenes;
+
+        Assert.IsTrue(result.BoundaryLimited);
+        Assert.IsNull(result.Missing);
         Assert.IsFalse(result.ObservationLimited);
     }
 
     [TestMethod]
-    public void LaterConstructionCannotFillAnEarlierFramesCoverage()
+    public void FutureGapOnlyInFinalBoundaryCellIsClippedEvenFromFarAway()
     {
-        var first = Range(1, Bounds(-1, -3, 1, 2));
-        var later = Range(2, Bounds(-1, -3, 1, 20));
-        var report = FollowRouteAnalysis.Analyze([Frame(1, 0, 0), Frame(2, 0, 8) with { ScenesRanges = 2, DisplayedRanges = 2 }],
-            new Dictionary<long, RouteRanges> { [1] = first, [2] = later });
-
-        Assert.AreEqual(1d, report.Frames[0].Scenes.AheadMeters);
-        Assert.AreEqual("terrain_bounds_missing", report.Frames[0].Scenes.Missing);
-        Assert.IsTrue(report.Frames[1].Scenes.ObservationLimited);
-    }
-
-    [TestMethod]
-    public void CoordinateAndOrientationBoundariesAreTruncationsRatherThanPasses()
-    {
-        var range = Range(1, Bounds(-20, -20, 20, 20));
-        var nextSpace = Frame(3, 0, 8) with { Latest = Stamp(2) };
-        var report = Analyze([Frame(1, 0, 0), Frame(2, 0, 4), nextSpace], range);
-
-        Assert.AreEqual(2d, report.Frames[0].Scenes.AheadMeters);
-        Assert.IsTrue(report.Frames[0].Scenes.BoundaryLimited);
-        Assert.IsTrue(report.Frames[2].FirstInSpace);
-        Assert.IsNull(report.Frames[2].Scenes.AheadMeters);
-        Assert.AreEqual("ranges_coordinates_mismatch", report.Frames[2].Scenes.Missing);
-        var reversed = Analyze([Frame(1, 0, 0), Frame(2, 0, 4) with { FirstEndLeading = false }], range);
-        Assert.IsTrue(reversed.Frames[0].Scenes.BoundaryLimited);
-        Assert.AreEqual(0d, reversed.Frames[0].Scenes.AheadMeters);
-    }
-
-    [TestMethod]
-    public void MissingDisplayedPosesAreUnknownRatherThanBuilt()
-    {
-        var frame = Frame(1, 0, 0) with { DisplayedVehicles = [] };
-        var report = Analyze([frame], Range(1, Bounds(-20, -20, 20, 20)));
-
-        Assert.IsNull(report.Frames[0].Displayed.AheadMeters);
-        Assert.IsNull(report.Frames[0].Displayed.VehicleCentersCovered);
-        Assert.AreEqual(1, report.Summary.UnknownDisplayedFrames);
-        Assert.IsNotNull(report.Frames[0].Scenes.AheadMeters);
-    }
-
-    [TestMethod]
-    public void ReversedTrainUsesLastVehicleAndSeparatesCentersFromBodyEndpoints()
-    {
-        RouteVehicle[] vehicles = [new(1, new(0, 0, 3), [0, 0, 0, 1], 2), new(2, new(0, 0, 0), [0, 0, 0, 1], 2)];
-        var frame = Frame(1, 0, 0) with { Vehicles = vehicles, DisplayedVehicles = vehicles, FirstEndLeading = false };
-        var result = Analyze([frame], Range(1, Bounds(-1, 0, 1, 4))).Frames[0].Scenes;
-
-        Assert.IsTrue(result.VehicleCentersCovered);
-        Assert.IsFalse(result.SampledBodyCovered);
-        Assert.AreEqual(0d, result.AheadMeters);
-        Assert.AreEqual(new ScenePoint(0, 0, -1), result.FirstMissingPoint);
-    }
-
-    [TestMethod]
-    public void FirstFrameOfNewSpaceKeepsZeroAndSourcesUseSeparateRanges()
-    {
-        var broad = Range(1, Bounds(-20, -20, 20, 20));
-        var fogged = Range(2, Bounds(-20, -20, 20, 20)) with
+        var frames = new[]
         {
-            Frame = Stamp(2), Coordinates = new(2), Fog = [Bounds(-1, -1, 1, 1)]
+            Frame(1, 0, 0), Frame(2, 0, 4), Frame(3, 0, 8),
+            InSpace(Frame(4, 0, 10), 2, 2) with { Transition = new(Stamp(), new(), Stamp(2), new(), false) },
+            InSpace(Frame(5, 0, 14), 2, 2)
         };
-        var clear = fogged with { Id = 3, Fog = [] };
-        var frame = Frame(2, 0, 0) with { Latest = Stamp(2), Displayed = Stamp(2), ScenesRanges = 3, DisplayedRanges = 2 };
-        var report = FollowRouteAnalysis.Analyze([Frame(1, 0, 0), frame],
-            new Dictionary<long, RouteRanges> { [1] = broad, [2] = fogged, [3] = clear });
+        var ranges = new Dictionary<long, RouteRanges>
+        {
+            [1] = Range(1, Bounds(-1, -1, 1, 8.5)),
+            [2] = Range(2, Bounds(-1, -1, 1, 20)) with { Frame = Stamp(2), Coordinates = new(2) }
+        };
+        var clipped = FollowRouteAnalysis.Analyze(frames, ranges).Frames[0].Scenes;
+        Assert.IsTrue(clipped.BoundaryLimited);
+        Assert.IsNull(clipped.Missing);
+        Assert.IsTrue(clipped.AheadMeters > 0);
 
-        Assert.IsTrue(report.Frames[1].FirstInSpace);
-        Assert.AreEqual(0d, report.Frames[1].Displayed.AheadMeters);
-        Assert.AreEqual("fog", report.Frames[1].Displayed.Missing);
-        Assert.IsNull(report.Frames[1].Scenes.Missing);
-        Assert.AreEqual(0d, report.Summary.MinimumDisplayedAheadMeters);
+        ranges[1] = Range(1, Bounds(-1, -1, 1, 7.5));
+        var earlier = FollowRouteAnalysis.Analyze(frames, ranges).Frames[0].Scenes;
+        Assert.IsFalse(earlier.BoundaryLimited);
+        Assert.AreEqual("terrain_bounds_missing", earlier.Missing);
     }
 
     [TestMethod]
-    public void MissingReceivedVehicleIsUnknownEvenWhenAllRecordedVehiclesAreCovered()
+    public void RecordingEndNeverExtrapolatesAHeadOrPretendsToBeSpaceBoundary()
     {
-        var frame = Frame(1, 0, 0) with { ExpectedVehicles = [1, 2] };
-        var report = Analyze([frame], Range(1, Bounds(-20, -20, 20, 20)));
-
-        Assert.IsNull(report.Frames[0].Scenes.AheadMeters);
-        Assert.IsNull(report.Frames[0].Scenes.VehicleCentersCovered);
-        Assert.AreEqual("vehicle_pose_missing", report.Frames[0].Scenes.Missing);
-    }
-
-    [TestMethod]
-    public void FogMaximumBoundaryIsExcludedWhileGeometryMaximumIsIncluded()
-    {
-        var range = Range(1, Bounds(-1, -3, 1, 0)) with { Fog = [Bounds(-1, -3, 1, 0)] };
-        var result = Analyze([Frame(1, 0, 0)], range).Frames[0].Scenes;
-
-        Assert.AreEqual(0d, result.AheadMeters);
-        Assert.IsNull(result.Missing);
+        var result = Analyze([Frame(1, 0, 0)], Range(1, Bounds(-10, -10, 10, 10))).Frames[0].Scenes;
+        Assert.IsNull(result.AheadMeters);
         Assert.IsTrue(result.ObservationLimited);
+        Assert.IsFalse(result.BoundaryLimited);
+        Assert.AreEqual("head_future_unobserved", result.Missing);
+    }
+
+    [TestMethod]
+    public void PathSwitchAndMultitrackBoundaryInvalidateHistory()
+    {
+        var first = Frame(1, 0, 0) with { Position = JsonSerializer.SerializeToElement(new { platform_number = 0, next_edge = 1, entered_from = 2 }) };
+        var second = Frame(2, 0, 4) with { Position = JsonSerializer.SerializeToElement(new { platform_number = 1, next_edge = 1, entered_from = 2 }) };
+        var third = second with { Draw = 3, Vehicles = [new(1, new(0, 0, 8), [0, 0, 0, 1], 2)], DisplayedVehicles = [new(1, new(0, 0, 8), [0, 0, 0, 1], 2)] };
+        var result = Analyze([first, second, third], Range(1, Bounds(-10, -10, 10, 20))).Frames[1].Scenes;
+        Assert.IsNull(result.SampledBodyCovered);
+        Assert.AreEqual("node_path_changed", result.BodyUnknown);
+
+        var changed = InSpace(Frame(2, 0, 4), 2, 2) with { Transition = new(Stamp(), new(), Stamp(2), new(), true) };
+        var later = InSpace(Frame(3, 0, 8), 2, 2);
+        var range = Range(2, Bounds(-10, -10, 10, 20)) with { Frame = Stamp(2), Coordinates = new(2) };
+        var multiple = FollowRouteAnalysis.Analyze([first, changed, later],
+            new Dictionary<long, RouteRanges> { [1] = Range(1, Bounds(-10, -10, 10, 20)), [2] = range });
+        Assert.AreEqual("multitrack_boundary", multiple.Frames[1].Scenes.BodyUnknown);
+    }
+
+    [TestMethod]
+    public void InitialPreoperableAndPostrollAreExcludedButLaterInoperableIsKept()
+    {
+        var frames = new[] { Frame(1, 0, 0) with { Operable = false }, Frame(2, 0, 4),
+            Frame(3, 0, 8) with { Operable = false }, Frame(4, 0, 12) with { DecisionSample = false } };
+        var report = Analyze(frames, Range(1, Bounds(-10, -10, 10, 20)));
+
+        Assert.IsFalse(report.Frames[0].DecisionEligible);
+        Assert.AreEqual("initial_preoperable", report.Frames[0].ExcludedReason);
+        Assert.IsTrue(report.Frames[2].DecisionEligible);
+        Assert.IsFalse(report.Frames[3].DecisionEligible);
+        Assert.AreEqual("postroll", report.Frames[3].ExcludedReason);
+        Assert.AreEqual(1, report.Summary.ExcludedPreoperableFrames);
+    }
+
+    [TestMethod]
+    public void RangeDeltasReplayRemovalReplacementFogInheritanceAndReset()
+    {
+        var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
+        var original = Range(1, Bounds(-1, -1, 1, 1)) with { Fog = [Bounds(0, 0, 1, 1)] };
+        var updated = new RouteRangeChange(2, 1, Stamp(), new(1), [new(3, 0, Bounds(-2, -2, 2, 2))], [], [new(1, 0)], null);
+        var reset = new RouteRangeChange(3, null, Stamp(), new(1), [], [], [], []);
+        var states = FollowRouteAnalysis.ReadRanges(new[] { JsonSerializer.Serialize(original, options),
+            JsonSerializer.Serialize(updated, options), JsonSerializer.Serialize(reset, options) });
+
+        Assert.AreEqual(3ul, states[2].Terrain.Single().Object);
+        Assert.AreEqual(2ul, states[2].Rails.Single().Object);
+        Assert.AreEqual(original.Fog.Single(), states[2].Fog.Single());
+        Assert.AreEqual(0, states[3].Terrain.Length);
+        Assert.AreEqual(0, states[3].Rails.Length);
+        Assert.AreEqual(0, states[3].Fog.Length);
     }
 
     private static FollowRouteAnalysis.Report Analyze(RouteFrame[] frames, RouteRanges range) =>
         FollowRouteAnalysis.Analyze(frames, new Dictionary<long, RouteRanges> { [range.Id] = range });
-
     private static SceneFrameStamp Stamp(ulong space = 1) => new(new(Guid.Empty), new(1), new(space), 1);
     private static RouteBounds Bounds(double x0, double z0, double x1, double z1) => new(new(x0, -1, z0), new(x1, 1, z1));
-    private static RouteRanges Range(long id, RouteBounds bounds) => new(id, Stamp(), new(1),
-        [new(1, 0, bounds)], [new(2, 0, bounds)], []);
-    private static RouteFrame Frame(long draw, double headX, double headZ)
+    private static RouteRanges Range(long id, RouteBounds bounds) => new(id, Stamp(), new(1), [new(1, 0, bounds)], [new(2, 0, bounds)], []);
+    private static RouteFrame InSpace(RouteFrame frame, ulong space, long ranges) => frame with
+    { Latest = Stamp(space), Displayed = Stamp(space), Posed = Stamp(space), ScenesRanges = ranges, DisplayedRanges = ranges };
+    private static RouteFrame Frame(long draw, double centerX, double centerZ, double leadingLength = 2)
     {
-        RouteVehicle[] vehicles = [new(1, new(headX, 0, headZ - 1), [0, 0, 0, 1], 2)];
+        RouteVehicle[] vehicles = [new(1, new(centerX, 0, centerZ), [0, 0, 0, 1], leadingLength)];
         return new(draw, draw, 1, (ulong)draw, 1, "One", Stamp(), Stamp(), Stamp(), 1, 1,
-            vehicles, vehicles, true, JsonSerializer.SerializeToElement(new { }), 0, 0);
+            vehicles, vehicles, true, JsonSerializer.SerializeToElement(new { }), 0, 0,
+            Origin: new ScenePoint(), TrainLengthMeters: 1);
     }
 }

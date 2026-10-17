@@ -365,7 +365,7 @@ internal sealed partial class MeasurementRun
 
     private void OnSceneDraw()
     {
-        if (IsRouteMeasurement && _routeTrace is not null) { OnRouteDraw(); return; }
+        if (IsRouteMeasurement && _routeRecording) { OnRouteDraw(); return; }
         var observerStarted = Seconds();
         var operation = _sceneOperation;
         var loggingSeconds = 0d;
@@ -573,7 +573,7 @@ internal sealed partial class MeasurementRun
 
     private void OnScenePresented(ISceneFrame frame)
     {
-        if (IsRouteMeasurement) RecordRoutePresented(frame);
+        if (IsRouteMeasurement) { RecordRoutePresented(frame); return; }
         _scenePresentedStamp = frame.Update.Frame;
         var followPose = _subject is not null && frame.FindPose(_subject) is Lookup<ScenePose>.Found pose
             ? pose.Value.ToString() : null;

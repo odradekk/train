@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Godot;
 using Train.Content.Contracts;
@@ -12,13 +11,20 @@ namespace Train.App.Measurement;
 internal sealed partial class MeasurementRun
 {
     private bool IsRouteMeasurement => _scenario.StartsWith("scene-route-", StringComparison.Ordinal);
-    private StreamWriter? _routeTrace, _routeRanges;
+    private bool _routeRecording;
+    private readonly List<RouteFrame> _routeSamples = [];
+    private readonly List<RouteRangeChange> _routeRangeChanges = [];
     private ISceneFrame? _routeSceneFrame;
     private readonly Dictionary<SceneObjectId, SceneObject> _routeObjects = [];
-    private readonly ConditionalWeakTable<SceneMesh, RouteBounds> _routeMeshBounds = new();
+    private readonly RouteRangeRecorder _routeBuiltRecorder = new(), _routeShownRecorder = new();
     private readonly Dictionary<VehicleId, double?> _routeLengths = [];
-    private RouteRanges? _routeBuilt, _routeShown;
+    private long? _routeBuilt, _routeShown;
+    private RouteTransition? _routeTransition;
+    private TrainPosition? _routePreviousPosition;
     private long _routeStateId, _routeFrames;
+    private long _routeDecisionEndDraw;
+    private TimeSpan? _routeOperableGcPause;
+    private int[]? _routeOperableGcCollections;
     private double _routeStarted, _routeLastDraw, _routeLastCapture, _routePresentedCost;
     private ulong _routeLastSteps;
     private SceneSpaceId? _routeLastSpace;
@@ -28,9 +34,16 @@ internal sealed partial class MeasurementRun
     private async Task RunFollowRoute()
     {
         var directory = Path.GetDirectoryName(_output)!;
-        using var frames = new StreamWriter(Path.Combine(directory, "route-frames.jsonl"));
-        using var ranges = new StreamWriter(Path.Combine(directory, "route-ranges.jsonl"));
-        _routeTrace = frames; _routeRanges = ranges;
+        _routeRecording = true;
+        var traceWritten = false;
+        void WriteTrace()
+        {
+            traceWritten = true;
+            using (var frames = new StreamWriter(Path.Combine(directory, "route-frames.jsonl")))
+                foreach (var sample in _routeSamples) frames.WriteLine(JsonSerializer.Serialize(sample, SceneJson));
+            using (var ranges = new StreamWriter(Path.Combine(directory, "route-ranges.jsonl")))
+                foreach (var change in _routeRangeChanges) ranges.WriteLine(JsonSerializer.Serialize(change, SceneJson));
+        }
         try
         {
             var host = _app.Host!;
@@ -47,12 +60,18 @@ internal sealed partial class MeasurementRun
             _app.GetNode<MacroMap>("GameUi/Root/World/MacroMap").RaiseObjectClicked(_sceneTarget);
             _routeStarted = _routeLastDraw = Seconds();
             _routeLastSteps = host.GetStatus()!.View.Position.CompletedSteps;
+            var gcPause = GC.GetTotalPauseDuration();
+            var gcCollections = Enumerable.Range(0, 3).Select(GC.CollectionCount).ToArray();
             _sceneTiming = new(_routeStarted, _routeLastSteps);
             _routeSampling = true;
             EdgeId? first = null, second = null;
             NodeId? middle = null, finalNode = null;
             double? coreCompletedAt = null;
             var routeCompleted = false;
+            var postrollCells = 0d;
+            ScenePoint? postrollPrevious = null;
+            TimeSpan? routeGcEnd = null;
+            int[]? routeGcEndCollections = null;
             var transitions = new List<object>();
             string? lastPosition = null;
             while (true)
@@ -82,20 +101,49 @@ internal sealed partial class MeasurementRun
                     _app.WorldScenes!.Display?.DisplayedFrame is { } drawn && drawn.Update.Frame.Space == latest.Update.Frame.Space &&
                     drawn.FindPose(_subject) is Lookup<ScenePose>.Found finalPose &&
                     drawn.Locate(finalPose.Value.Position) is Lookup<WorldLocation>.Found { Value: WorldLocation.Node atNode } && atNode.Id == finalNode)
-                { routeCompleted = true; break; }
-                if (coreCompletedAt is { } ended && Seconds() - ended > 30) throw new TimeoutException("核心路线完成后30秒内未取得终点新场景显示帧。");
+                {
+                    if (!routeCompleted)
+                    {
+                        routeCompleted = true; _routeDecisionEndDraw = _routeFrames;
+                        routeGcEnd = GC.GetTotalPauseDuration();
+                        routeGcEndCollections = Enumerable.Range(0, 3).Select(GC.CollectionCount).ToArray();
+                    }
+                    var sample = _routeSamples[^1];
+                    var leading = train.OrderFacing == TrainOrderFacing.FirstEndLeading ? sample.Vehicles.FirstOrDefault() : sample.Vehicles.LastOrDefault();
+                    if (leading is not null)
+                    {
+                        if (postrollPrevious is { } before)
+                            postrollCells += Math.Sqrt(Math.Pow(leading.Position.X - before.X, 2) + Math.Pow(leading.Position.Y - before.Y, 2) + Math.Pow(leading.Position.Z - before.Z, 2));
+                        postrollPrevious = leading.Position;
+                        if (leading.LengthCells is { } length && postrollCells >= length / 2 + 1) break;
+                    }
+                }
+                if (coreCompletedAt is { } ended && Seconds() - ended > 30)
+                {
+                    if (routeCompleted) break;
+                    throw new TimeoutException("核心路线完成后30秒内未取得终点新场景显示帧。");
+                }
                 if (Seconds() - _routeStarted > 3300) throw new TimeoutException("整条路线在3300秒内未完成。");
                 if (_sceneDuration > 0 && Seconds() - _routeStarted >= _sceneDuration) break;
             }
             _routeSampling = false;
             _timing = _sceneTiming.Summarize();
             _sceneTiming = null;
-            frames.Dispose(); ranges.Dispose();
-            _routeTrace = _routeRanges = null;
+            _sceneEvidence["route_gc"] = new
+            {
+                pause_seconds = ((routeGcEnd ?? GC.GetTotalPauseDuration()) - gcPause).TotalSeconds,
+                collections_by_generation = Enumerable.Range(0, 3).Select(generation => (routeGcEndCollections?[generation] ?? GC.CollectionCount(generation)) - gcCollections[generation]).ToArray(),
+                after_first_operable_pause_seconds = _routeOperableGcPause is { } operable ? ((routeGcEnd ?? GC.GetTotalPauseDuration()) - operable).TotalSeconds : (double?)null,
+                after_first_operable_collections_by_generation = _routeOperableGcCollections is { } counts ?
+                    Enumerable.Range(0, 3).Select(generation => (routeGcEndCollections?[generation] ?? GC.CollectionCount(generation)) - counts[generation]).ToArray() : null,
+                method = "Process-local GC.GetTotalPauseDuration delta; GC.CollectionCount deltas are collection counts, not pause-event counts. Trajectory-only postroll, offline serialization and analysis are excluded."
+            };
+            WriteTrace();
             _sceneEvidence["route"] = new
             {
                 train = train.Id.Value, vehicle = train.Vehicles[0].Value, first_edge = first?.Value, middle_node = middle?.Value,
                 second_edge = second?.Value, transitions, route_completed = routeCompleted, preview_seconds = _sceneDuration, frames = _routeFrames,
+                decision_end_draw = _routeDecisionEndDraw, postroll_frames = _routeDecisionEndDraw == 0 ? 0 : _routeFrames - _routeDecisionEndDraw,
                 analysis = FollowRouteAnalysis.Analyze(directory).Summary,
                 elapsed_seconds = _timing.ElapsedSeconds, capture_only = _scenario.Contains("capture", StringComparison.Ordinal),
                 absolute_start_seconds = _routeStarted, clock_frequency = System.Diagnostics.Stopwatch.Frequency,
@@ -103,69 +151,50 @@ internal sealed partial class MeasurementRun
                 files = new[] { "route-frames.jsonl", "route-ranges.jsonl", "route-analysis.json" }
             };
         }
-        finally { _routeSampling = false; _routeTrace = _routeRanges = null; }
+        finally
+        {
+            _routeSampling = _routeRecording = false;
+            if (!traceWritten) WriteTrace();
+        }
     }
 
     private void RecordRoutePresented(ISceneFrame frame)
     {
         if (!_routeSampling) return;
         var started = Seconds();
+        if (_routeSceneFrame is { } previous && previous.Update.Frame.Space != frame.Update.Frame.Space &&
+            _app.WorldScenes!.Display?.DisplayedFrame is { } old && old.Update.Frame.Space == previous.Update.Frame.Space)
+        {
+            var core = _app.Host!.GetStatus()!.View;
+            var current = ((Lookup<TrainView>.Found)core.FindTrain(new(1))).Value.Position;
+            var edge = current as TrainPosition.Edge ?? _routePreviousPosition as TrainPosition.Edge;
+            var multipleTracks = edge is not null && core.FindEdge(edge.Id) is Lookup<EdgeView>.Found found && found.Value.Map.Tracks > 1;
+            _routeTransition = new(old.Update.Frame, old.Origin, frame.Update.Frame, frame.Origin, multipleTracks);
+        }
         _routeSceneFrame = frame;
         _routeObjects.Clear();
         if (frame.Update.Base is { } baseline)
         {
-            if (_app.WorldScenes!.Display?.DisplayedFrame?.Update.Frame != baseline) { _routeBuilt = null; return; }
+            if (_app.WorldScenes!.Display?.DisplayedFrame?.Update.Frame != baseline)
+            { _routeBuilt = null; _routePresentedCost += Seconds() - started; return; }
             foreach (var item in _app.WorldScenes.Display.Objects.Values)
                 if (item.Source.Parent is null && item.Source.Subject is null)
-                    _routeObjects.Add(item.Source.Id, item.Source with { Pose = item.Source.Pose with
-                    { Position = item.Source.Pose.Position + frame.Update.ShiftExistingRoots } });
+                    _routeObjects.Add(item.Source.Id, frame.Update.ShiftExistingRoots == NVector.Zero ? item.Source :
+                        item.Source with { Pose = item.Source.Pose with { Position = item.Source.Pose.Position + frame.Update.ShiftExistingRoots } });
         }
         foreach (var id in frame.Update.Removed) _routeObjects.Remove(id);
         foreach (var item in frame.Update.Upserts)
             if (item.Parent is null && item.Subject is null) _routeObjects[item.Id] = item;
-        _routeBuilt = RecordRouteRanges(_routeBuilt, frame, frame.Update.Frame.Space, frame.Origin, NVector.Zero, _routeObjects.Values);
+        _routeBuilt = RecordRouteRanges(_routeBuiltRecorder, frame, frame.Update.Frame.Space, frame.Origin, NVector.Zero, _routeObjects.Values);
         _routePresentedCost += Seconds() - started;
     }
 
-    private RouteRanges RecordRouteRanges(RouteRanges? previous, ISceneFrame frame, SceneSpaceId coordinates,
+    private long? RecordRouteRanges(RouteRangeRecorder recorder, ISceneFrame frame, SceneSpaceId coordinates,
         ScenePoint origin, NVector shift, IEnumerable<SceneObject> objects)
     {
-        var terrain = new List<RouteRange>(); var rails = new List<RouteRange>();
-        foreach (var item in objects)
-        {
-            if (item.Parent is not null || item.Subject is not null) continue;
-            for (var index = 0; index < item.Visuals.Length; index++)
-            {
-                if (item.Visuals[index] is not SceneVisual.Geometry visual || visual.Mesh.Vertices.IsEmpty) continue;
-                var rail = visual.Mesh.Material is SceneMaterial.BuiltIn { Kind: BuiltInMaterial.RailSteel };
-                if (!rail && visual.Mesh.Material is SceneMaterial.BuiltIn) continue;
-                var local = _routeMeshBounds.GetValue(visual.Mesh, mesh =>
-                {
-                    var min = new NVector(float.PositiveInfinity); var max = new NVector(float.NegativeInfinity);
-                    foreach (var vertex in mesh.Vertices) { min = NVector.Min(min, vertex.Position); max = NVector.Max(max, vertex.Position); }
-                    return new(new(min.X, min.Y, min.Z), new(max.X, max.Y, max.Z));
-                });
-                var minimum = new NVector(float.PositiveInfinity); var maximum = new NVector(float.NegativeInfinity);
-                foreach (var x in new[] { local.Minimum.X, local.Maximum.X })
-                foreach (var y in new[] { local.Minimum.Y, local.Maximum.Y })
-                foreach (var z in new[] { local.Minimum.Z, local.Maximum.Z })
-                {
-                    var point = NVector.Transform(new((float)x, (float)y, (float)z), item.Pose.Rotation) + item.Pose.Position + shift;
-                    minimum = NVector.Min(minimum, point); maximum = NVector.Max(maximum, point);
-                }
-                (rail ? rails : terrain).Add(new(item.Id.Value, index,
-                    new(RouteAbsolute(minimum, origin), RouteAbsolute(maximum, origin))));
-            }
-        }
-        var fog = frame.Update.Environment.FoggedRegions.Select(bounds => new RouteBounds(
-            RouteAbsolute(bounds.Minimum + shift, origin), RouteAbsolute(bounds.Maximum + shift, origin))).ToArray();
-        if (previous is not null && previous.Coordinates == coordinates &&
-            previous.Frame.Session == frame.Update.Frame.Session && previous.Frame.Request == frame.Update.Frame.Request &&
-            previous.Frame.Space == frame.Update.Frame.Space && previous.Terrain.SequenceEqual(terrain) &&
-            previous.Rails.SequenceEqual(rails) && previous.Fog.SequenceEqual(fog)) return previous;
-        var state = new RouteRanges(++_routeStateId, frame.Update.Frame, coordinates, terrain.ToArray(), rails.ToArray(), fog);
-        _routeRanges!.WriteLine(JsonSerializer.Serialize(state, SceneJson));
-        return state;
+        if (recorder.Update(_routeStateId + 1, frame, coordinates, origin, shift, objects) is { } change)
+        { _routeStateId++; _routeRangeChanges.Add(change); }
+        return recorder.Id;
     }
 
     private static ScenePoint RouteAbsolute(NVector point, ScenePoint origin) => new(origin.X + point.X, origin.Y + point.Y, origin.Z + point.Z);
@@ -216,17 +245,26 @@ internal sealed partial class MeasurementRun
                 }
                 if (display?.DisplayedFrame is { } drawn)
                     _routeShown = drawn.Update.Frame == frame.Update.Frame && display.Root.Position == Vector3.Zero ? _routeBuilt :
-                        RecordRouteRanges(_routeShown, drawn, frame.Update.Frame.Space, frame.Origin,
+                        RecordRouteRanges(_routeShownRecorder, drawn, frame.Update.Frame.Space, frame.Origin,
                             new(display.Root.Position.X, display.Root.Position.Y, display.Root.Position.Z), display.Objects.Values.Select(item => item.Source));
             }
             var newSpace = frame is not null && frame.Update.Frame.Space != _routeLastSpace;
             if (newSpace) { _routeLastSpace = frame!.Update.Frame.Space; _routeCaptureBurst = 6; }
+            var operable = _app.WorldScenes.View.Interactive && !_app.WorldScenes.View.Loading;
+            if (operable && _routeOperableGcPause is null)
+            {
+                _routeOperableGcPause = GC.GetTotalPauseDuration();
+                _routeOperableGcCollections = Enumerable.Range(0, 3).Select(GC.CollectionCount).ToArray();
+            }
             var sample = new RouteFrame(++_routeFrames, now - _routeStarted, interval, completed, stepDelta, status.Speed.ToString(),
                 frame?.Update.Frame, display?.DisplayedFrame?.Update.Frame, display?.PoseFrame?.Update.Frame,
-                _routeBuilt?.Id, _routeShown?.Id, vehicles.ToArray(), displayedVehicles.ToArray(), train.OrderFacing == TrainOrderFacing.FirstEndLeading,
+                _routeBuilt, _routeShown, vehicles.ToArray(), displayedVehicles.ToArray(), train.OrderFacing == TrainOrderFacing.FirstEndLeading,
                 JsonSerializer.SerializeToElement(train.Position, train.Position.GetType(), SceneJson), _simulationWork, Seconds() - started + _routePresentedCost,
-                train.Vehicles.Select(id => id.Value).ToArray());
-            _routeTrace!.WriteLine(JsonSerializer.Serialize(sample, SceneJson));
+                train.Vehicles.Select(id => id.Value).ToArray(), frame?.Origin, train.LengthMeters,
+                operable, _routeTransition, _routeDecisionEndDraw == 0);
+            _routeSamples.Add(sample);
+            _routeTransition = null;
+            _routePreviousPosition = train.Position;
             _routePresentedCost = 0;
             if (_scenario.Contains("capture", StringComparison.Ordinal) && (now - _routeLastCapture >= .5 || _routeCaptureBurst > 0))
             {
