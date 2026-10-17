@@ -376,6 +376,18 @@ def street_lamp_texture(x, y):
     return tint((0xe1, 0xd4, 0xac) if 5 <= x < 27 and 5 <= y < 27 else GRAPHITE)
 
 
+def site_fence_texture(x, y):
+    return tint((0x58, 0x66, 0x71), -8 if x % 16 in (0, 1) else grain(x, y, 32, 0x526))
+
+
+def road_barrier_texture(x, y):
+    return tint(YELLOW if (x + y) // 8 % 2 == 0 else GRAPHITE)
+
+
+def rail_stack_texture(x, y):
+    return tint(STEEL if x % 8 in (2, 3) else (0x5e, 0x44, 0x34))
+
+
 def plate_texture(x, y):
     seam = x % 128 in (0, 64)
     rivet = x % 64 == 3 and y % 16 in (4, 5)
@@ -532,6 +544,9 @@ def scene_assets(files, voxel):
         ("tree-trunk", "树皮", "organic", 1, bark_texture, None),
         ("foliage", "树叶", "organic", 2, foliage_texture, None),
         ("street-lamp", "路灯", "painted_metal", 1, street_lamp_texture, None),
+        ("site-fence", "工地围挡", "painted_metal", 1, site_fence_texture, None),
+        ("road-barrier", "施工路障", "painted_metal", 1, road_barrier_texture, None),
+        ("rail-stack", "钢轨堆", "bare_metal", 1, rail_stack_texture, None),
     ):
         top_path = "shared/subsoil.png" if identity == "subsoil" else "top.png"
         texture_path = f"voxels/{top_path}" if identity == "subsoil" else f"voxels/{identity}/{top_path}"
@@ -623,6 +638,28 @@ def railway_models():
         model["layout"]["palette"].append({"voxel": "concrete", "paint": "#000000"})
         model["display"]["description"] = "混凝土矩形洞门，每轨留 34 格宽、42 格高的开口；黑色内壁遮住洞内。"
         yield model
+
+
+def construction_models():
+    site = {(x, y, z): 0 for x in range(-12, 13) for z in range(-9, 10) for y in range(3)
+            if (abs(x) == 12 or abs(z) == 9) and not (z == -9 and abs(x) < 3)}
+    site.update({(x, y, z): 1 for x in range(-8, -3) for y in range(2) for z in range(-4, 3)})
+    site.update({(x, y, z): 2 for x in range(4, 9) for y in range(2) for z in range(-5, 2)})
+    model = blueprint("construction-site", "静态工地", "scene_model", ["site-fence", "concrete", "rail-stack"], site)
+    model["display"]["description"] = "围挡留出入口，内部堆放混凝土与钢轨材料，不搭脚手架。"
+    yield model
+    repair = {(x, y, z): 0 for x in range(-8, 9) for y in range(2) for z in (-9, 9)}
+    # 以断轨为原点：三轨外侧断点的最远邻轨距 68 格，再留 16 格泰坦净空。
+    repair.update({(x, y, z): 1 for x in range(88, 93) for y in range(2) for z in range(-6, 3)})
+    for z in (4, 7, 10):
+        repair.update({(x, 0, z): 2 for x in range(88, 105)})
+    for x, z in ((-88, -6), (88, 6)):
+        repair.update({(x, y, z): 2 for y in range(8)})
+        repair[x, 8, z] = 3
+    model = blueprint("railway-repair-site", "断轨修复工地", "scene_model",
+                      ["road-barrier", "rail-stack", "concrete", "street-lamp"], repair)
+    model["display"]["description"] = "缺口两端的黄黑路障、新钢轨和混凝土轨枕堆，以及两盏工作灯；材料在开通铁轨净空外。"
+    yield model
 
 
 def locomotive(spec):
@@ -834,6 +871,8 @@ def content_files():
     for model in railway_models():
         document("blueprints", "blueprint", model["id"], model)
     for model in natural_models():
+        document("blueprints", "blueprint", model["id"], model)
+    for model in construction_models():
         document("blueprints", "blueprint", model["id"], model)
     for identity, name, surface, subsurface, rock, local_amplitude in (
         ("plains", "平原", "ground", "subsoil", "rock", 0.7),
