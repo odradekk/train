@@ -113,7 +113,7 @@ internal sealed class DesignEditSession : IDesignEditSession
             var found = Elements.FirstOrDefault(entry => entry.Id == id);
             if (found is null) return Fail<EditState>("target_missing", "The nested object no longer exists.");
             if (locks.TryGetValue(id, out var locked) && locked.Operations.Contains(LockedDesignOperation.Enter)) return Failure<EditState>([locked.Problem]);
-            if (found.Kind is not (EditElementKind.Assembly or EditElementKind.SceneModel))
+            if (found.Kind is not (EditElementKind.Assembly or EditElementKind.SceneModel) || !EditLayout.CanEnter(EditLayout.At(root, found.ObjectPath)))
                 return Fail<EditState>("invalid_operation", "Only copied objects can be entered.");
         }
         entered = element;
@@ -129,7 +129,7 @@ internal sealed class DesignEditSession : IDesignEditSession
         var entry = Elements.FirstOrDefault(item => item.Id == element);
         if (entry is null) return Fail<DesignDraft>("target_missing", "The object no longer exists.");
         if (LockFor(element, LockedDesignOperation.Copy) is { } problem) return Failure<DesignDraft>([problem]);
-        if (entry.Kind is not (EditElementKind.Assembly or EditElementKind.SceneModel))
+        if (entry.Kind is not (EditElementKind.Assembly or EditElementKind.SceneModel) || !EditLayout.CanEnter(EditLayout.At(root, entry.ObjectPath)))
             return Fail<DesignDraft>("invalid_operation", "Only copied objects can be exported.");
         return Success(EditLayout.At(root, entry.ObjectPath).Export());
     }
@@ -163,6 +163,7 @@ internal sealed class DesignEditSession : IDesignEditSession
         var lockChecks = ImmutableArray.CreateBuilder<(EditElementId, LockedDesignOperation)>();
         var highlight = new HashSet<GridPosition>();
         var affected = 0;
+        int? covered = null;
         var skipped = 0;
         var occupied = Occupied(current);
         switch (operation)
@@ -241,8 +242,7 @@ internal sealed class DesignEditSession : IDesignEditSession
                 ArgumentNullException.ThrowIfNull(item);
                 var temporary = new DesignDraft(current.Display, current.Specification, new([], [], [item]));
                 EditLayout.Validate(temporary);
-                if (item is NestedDesignItem.AssemblyCopy { Design.Specification: not DesignSpecification.Assembly } or
-                    NestedDesignItem.SceneModelCopy { Design.Specification: not DesignSpecification.SceneModel })
+                if (!EditLayout.ValidCopies(temporary))
                     return Fail<IEditPreview>("invalid_operation", "Nested copy category does not match its kind.");
                 var missing = content.Missing(temporary);
                 if (!missing.IsEmpty) return Failure<IEditPreview>(missing);
@@ -266,7 +266,10 @@ internal sealed class DesignEditSession : IDesignEditSession
                 if (without.Children.Any(other => EditLayout.Placement(other.Item).At == EditLayout.Placement(item).At))
                     conflicts.Add(new(EditLayout.Placement(item).At, child.Id, Problem("occupancy_conflict", "Nested anchors overlap.")));
                 next = current with { Children = index < 0 ? current.Children.Add(child) : current.Children.SetItem(index, child) };
-                affected = target.Cells.Length;
+                var changedCells = target.Cells.Select(cell => cell.At);
+                if (index >= 0) changedCells = changedCells.Concat(ChildOccupied(current.Children[index]).Cells.Select(cell => cell.At));
+                affected = changedCells.Distinct().Count();
+                covered = affected;
                 break;
             }
             default: throw new ArgumentException("Invalid edit operation.", nameof(operation));
@@ -276,7 +279,7 @@ internal sealed class DesignEditSession : IDesignEditSession
         foreach (var group in Occupied(result).Cells.GroupBy(cell => cell.At))
             if (group.Count() > 1 && group.Any(cell => !previousCells.Contains(cell)))
                 conflicts.Add(new(group.Key, null, Problem("occupancy_conflict", "The edit overlaps another object's cells.")));
-        preview = new(Stamp, result, highlight.Count, affected, skipped,
+        preview = new(Stamp, result, covered ?? highlight.Count, affected, skipped,
             Occupied(result).Complete, conflicts.ToImmutable(), highlight.OrderBy(cell => cell.X).ThenBy(cell => cell.Y).ThenBy(cell => cell.Z).ToImmutableArray(), lockChecks.ToImmutable());
         return Success<IEditPreview>(preview);
 

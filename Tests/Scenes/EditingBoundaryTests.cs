@@ -58,6 +58,83 @@ public sealed class EditingBoundaryTests
     }
 
     [TestMethod]
+    public void NestedCopyCategoryCannotHideInsideLegalWrapperOrBeEnteredFromExistingDraft()
+    {
+        var sealedDraft = EditingFixtures.Draft(new GridPosition(0, 0, 0)) with
+        { Specification = new DesignSpecification.FunctionalComposite([], null) };
+        var invalidInner = new NestedDesignItem.AssemblyCopy(new(0, 0, 0), VoxelOrientation.PxPy, sealedDraft);
+        var wrapper = EditingFixtures.Draft() with
+        {
+            Specification = new DesignSpecification.Assembly(null),
+            Layout = new([], [], [invalidInner])
+        };
+        var invalidOuter = new NestedDesignItem.AssemblyCopy(new(4, 0, 0), VoxelOrientation.PxPy, wrapper);
+        var validOuter = invalidOuter with { Design = wrapper with { Layout = new([], [], []) } };
+        var draft = EditingFixtures.Draft() with { Layout = new([], [], [validOuter]) };
+        using var session = EditingFixtures.Open(draft);
+        var before = session.Read();
+        var parent = before.Elements.Single(e => e.Kind == EditElementKind.Assembly);
+        Assert.AreEqual("invalid_operation", EditingFixtures.Code(session.Preview(new EditOperation.PlaceNested(invalidOuter with { At = new(8, 0, 0) }))));
+        Assert.AreEqual("invalid_operation", EditingFixtures.Code(session.Preview(new EditOperation.ReplaceNested(parent.Id, invalidOuter))));
+        Assert.AreEqual(before.Snapshot.Stamp, session.Capture().Stamp);
+        Assert.IsFalse(session.Read().CanUndo);
+        Assert.IsFalse(session.Read().IsDirty);
+
+        Assert.IsTrue(((NestedDesignItem.AssemblyCopy)session.Capture().Draft.Layout.NestedItems.Single()).Design.Layout.NestedItems.IsEmpty);
+        using var repair = EditingFixtures.Open(draft with { Layout = new([], [], [invalidOuter]) });
+        var inner = repair.Read().Elements.Single(e => e.Kind == EditElementKind.Assembly && e.Parent is not null);
+        Assert.AreEqual("invalid_operation", EditingFixtures.Code(repair.Enter(inner.Id)));
+        Assert.AreEqual("invalid_operation", EditingFixtures.Code(repair.CaptureObject(inner.Id)));
+        Assert.IsFalse(repair.Read().CanUndo);
+    }
+
+    [TestMethod]
+    [DataRow(0, 0, 2)]
+    [DataRow(5, 1, 3)]
+    [DataRow(1, 1, 2)]
+    public void NestedReplacementCountsUnionOfOldAndNewOccupancy(int replacementX, int newCells, int affected)
+    {
+        var oldDraft = EditingFixtures.Draft(new(0, 0, 0), new(1, 0, 0)) with
+        { Specification = new DesignSpecification.Assembly(null) };
+        var oldItem = new NestedDesignItem.AssemblyCopy(new(0, 0, 0), VoxelOrientation.PxPy, oldDraft);
+        using var session = EditingFixtures.Open(EditingFixtures.Draft() with { Layout = new([], [], [oldItem]) });
+        var parent = session.Read().Elements.Single(e => e.Kind == EditElementKind.Assembly);
+        var replacement = oldItem with
+        {
+            At = new(replacementX, 0, 0),
+            Design = oldDraft with { Layout = new([EditingFixtures.Cube], newCells == 0 ? [] : [new(new(0, 0, 0), 0)], []) }
+        };
+        var preview = EditingFixtures.Preview(session, new EditOperation.ReplaceNested(parent.Id, replacement));
+        Assert.IsTrue(preview.CanApply);
+        Assert.AreEqual(affected, preview.AffectedCells);
+        Assert.AreEqual(affected, preview.CoveredCells);
+        CollectionAssert.AreEquivalent(newCells == 0 ? Array.Empty<GridPosition>() : new[] { new GridPosition(replacementX, 0, 0) }, preview.HighlightCells.ToArray());
+        Assert.IsFalse(session.Read().CanUndo);
+        var applied = EditingFixtures.Value(session.Apply(preview, false));
+        Assert.AreEqual(newCells, ((NestedDesignItem.AssemblyCopy)applied.Snapshot.Draft.Layout.NestedItems.Single()).Design.Layout.Cells.Length);
+    }
+
+    [TestMethod]
+    [DataRow(double.NaN)]
+    [DataRow(double.PositiveInfinity)]
+    [DataRow(double.NegativeInfinity)]
+    public void CreatureWeaponIntervalMustBeFiniteBeforeOpenOrPropertiesPreview(double interval)
+    {
+        var draft = EditingFixtures.Draft() with
+        { Specification = new DesignSpecification.Creature(null, new PartCapability.Weapon(1, 1)) };
+        using var session = EditingFixtures.Open(draft);
+        var before = session.Read();
+        var invalid = new DesignSpecification.Creature(null, new PartCapability.Weapon(1, interval));
+        Assert.ThrowsExactly<ArgumentException>(() => session.Preview(new EditOperation.Properties(draft.Display, invalid)));
+        Assert.AreEqual(before.Snapshot.Stamp, session.Capture().Stamp);
+        Assert.IsFalse(session.Read().CanUndo);
+        Assert.IsFalse(session.Read().IsDirty);
+        Assert.AreSame(before.CurrentEvaluation, session.Read().CurrentEvaluation);
+        Assert.AreEqual(1d, ((DesignSpecification.Creature)session.Capture().Draft.Specification).Weapon!.IntervalSeconds);
+        Assert.ThrowsExactly<ArgumentException>(() => ScenesFactory.Create().OpenEditor(SceneFixtures.Content(),
+            EditingFixtures.Evaluation(draft with { Specification = invalid })));
+    }
+    [TestMethod]
     public void DeferredBatchOperationsRemainExplicitlyUnimplemented()
     {
         using var session = EditingFixtures.Open(EditingFixtures.Draft());

@@ -38,6 +38,16 @@ internal static class EditLayout
         _ => null
     };
 
+    internal static bool ValidCopies(DesignDraft draft) => draft.Layout.NestedItems.All(item => item switch
+    {
+        NestedDesignItem.AssemblyCopy assembly => assembly.Design.Specification is DesignSpecification.Assembly && ValidCopies(assembly.Design),
+        NestedDesignItem.SceneModelCopy model => model.Design.Specification is DesignSpecification.SceneModel && ValidCopies(model.Design),
+        NestedDesignItem.FunctionalCompositeReference => true,
+        _ => false
+    });
+
+    internal static bool CanEnter(EditObject value) => value.Specification is DesignSpecification.Assembly or DesignSpecification.SceneModel;
+
     internal static (GridPosition At, VoxelOrientation Orientation) Placement(NestedDesignItem item) => item switch
     {
         NestedDesignItem.AssemblyCopy assembly => (assembly.At, assembly.Orientation),
@@ -156,6 +166,8 @@ internal static class EditLayout
         if (draft.Specification is DesignSpecification.Creature { Behavior: { } creature } &&
             (!double.IsFinite(creature.SpeedMetersPerSecond) || !double.IsFinite(creature.RetreatThreshold) || !double.IsFinite(creature.RaidDurationSeconds)))
             throw new ArgumentException("Creature values must be finite.", nameof(draft));
+        if (draft.Specification is DesignSpecification.Creature { Weapon: { } creatureWeapon } && !double.IsFinite(creatureWeapon.IntervalSeconds))
+            throw new ArgumentException("Weapon interval must be finite.", nameof(draft));
         if (draft.Specification is DesignSpecification.FunctionalComposite functionalComposite &&
             functionalComposite.Behaviors.Any(behavior => behavior switch
             {
