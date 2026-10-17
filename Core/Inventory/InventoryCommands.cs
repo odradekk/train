@@ -6,6 +6,7 @@ using Train.Core.Sessions;
 using Train.Core.Settlements;
 using Train.Core.Trading;
 using Train.Core.World;
+using Train.Core.Construction;
 
 namespace Train.Core.Inventory;
 
@@ -55,10 +56,8 @@ internal static class InventoryCommands
         if (train is null) return Reject("object_missing", "Train", new WorldObjectId.Train(request.Train));
         if (settlement is null) return Reject("object_missing", "Settlement", new WorldObjectId.Settlement(request.Settlement));
         if (local is null) return Reject("object_missing", "LocalInventory", new WorldObjectId.Inventory(request.LocalInventory));
-        if (train.Vehicles.Any(v => world.Instances.Single(i => i.Id == new InstanceId.Vehicle(v)).Ownership != SettlementRelation.PlayerOwned))
-            return Reject("not_owned", "Train", new WorldObjectId.Train(train.Id));
-        if (train.Position is not TrainPosition.Node position || position.Id != settlement.Node)
-            return Reject("train_not_at_settlement", "Train.Position", new WorldObjectId.Train(train.Id));
+        if (TrainAccess(world, settlement, train) is { } access)
+            return new(request, revision, executable, total, [access], []);
         var lease = local.Owner is InventoryOwner.Lease l ? world.Leases.Single(x => x.Id == l.Id) : null;
         if (local.Owner != new InventoryOwner.Settlement(settlement.Id) && (trade || lease?.Settlement != settlement.Id))
             return Reject("invalid_state", "LocalInventory", new WorldObjectId.Inventory(local.Id));
@@ -72,9 +71,8 @@ internal static class InventoryCommands
             return Reject("access_denied", "LocalInventory", new WorldObjectId.Inventory(local.Id));
         var rule = MarketPrices.Rule(world, content);
         if (trade && rule is null) return Reject("content_missing", "MarketRule");
-        if (!TrainDispatch.HoldsPlatform(world, train) || train.Activity != TrainActivity.Servicing
-            || train.Position is not TrainPosition.Node { Phase: NodeTravelPhase.Docked } || train.SpeedMetersPerSecond != 0)
-            return Reject("platform_required", "Train.Position", new WorldObjectId.Train(train.Id));
+        if (PlatformAccess(world, train) is { } platform)
+            return new(request, revision, executable, total, [platform], []);
         if (WorldGoods.DefinitionMissing(world, content, request.Good))
             return Reject("content_missing", "Good", new WorldObjectId.Inventory(local.Id));
         var cargo = world.Inventories.Single(i => i.Id == train.Inventory);
@@ -171,6 +169,22 @@ internal static class InventoryCommands
         TradeQuote Reject(string code, string field, WorldObjectId? subject = null)
             => new(request, revision, executable, total, [new(code, field, subject, [])], []);
     }
+
+    internal static CoreProblem? TrainAccess(WorldState world, SettlementState settlement, TrainState train)
+    {
+        if (train.Vehicles.Any(v => world.Instances.Single(i => i.Id == new InstanceId.Vehicle(v)).Ownership != SettlementRelation.PlayerOwned))
+            return new("not_owned", "Train", new WorldObjectId.Train(train.Id), []);
+        if (train.Position is not TrainPosition.Node node || node.Id != settlement.Node)
+            return new("train_not_at_settlement", "Train.Position", new WorldObjectId.Train(train.Id), []);
+        if (ConstructionJobs.TrainLocked(world, train))
+            return new("instance_locked", "Train", new WorldObjectId.Train(train.Id), []);
+        return null;
+    }
+
+    internal static CoreProblem? PlatformAccess(WorldState world, TrainState train)
+        => !TrainDispatch.HoldsPlatform(world, train) || train.Activity != TrainActivity.Servicing
+            || train.Position is not TrainPosition.Node { Phase: NodeTravelPhase.Docked } || train.SpeedMetersPerSecond != 0
+            ? new("platform_required", "Train.Position", new WorldObjectId.Train(train.Id), []) : null;
 
     internal static CommandEffect Execute(WorldState world, CoreContentProjection content, CoreCommand command, ulong step)
     {

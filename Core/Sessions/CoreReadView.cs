@@ -70,7 +70,9 @@ internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Re
         var settlement = State.Settlements.Single(s => s.Plots.Any(p => p.Building == key.Building));
         return Lookup(ProductionQueries.Potential(State, Content, settlement).Select(p => p.View).SingleOrDefault(v => v.Key == key) ?? view);
     }
-    public Lookup<JobView> FindJob(JobId id) => throw new NotImplementedException("FindJob 尚未实现。");
+    public Lookup<JobView> FindJob(JobId id)
+        => State.ConstructionJobs.SingleOrDefault(j => j.Id == id) is { } job
+            ? new Lookup<JobView>.Found(new JobView.Construction(job.Read())) : new Lookup<JobView>.Missing();
     public Lookup<CombatView> FindCombat(CombatId id) => throw new NotImplementedException("FindCombat 尚未实现。");
     public Lookup<CreatureGroupView> FindCreatureGroup(CreatureGroupId id)
         => throw new NotImplementedException("FindCreatureGroup 尚未实现。");
