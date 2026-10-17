@@ -83,7 +83,7 @@
 | `voxel` | 是 | 体素定义的引用 | 首个切片 |
 | `orientation` | 否 | 默认 `px_py`；必须是体素定义允许的朝向。只按这一份设计自己的调色板检查，被嵌套后整体转动不受体素朝向的限制 | 首个切片 |
 | `shape` | 否 | 形状目录里的名字；不写就是体素定义 `shapes` 的第一项。必须在该定义的 `shapes` 里，否则报错；自定义模型体素不能写。形状只是外观，不改变货物种类，每一格仍算一件该货物（[Demo 内容与资产清单：覆盖场景与制作验收](https://github.com/odradekk/train/issues/283)，2026-10-10） | Demo |
-| `paint` | 否 | 主色，小写 `#rrggbb`；不写就是贴图本来的颜色。体素的材质不能涂装（只有 `painted_metal` 和 `concrete` 能）时忽略，不报错 | Demo |
+| `paint` | 否 | 主色，小写 `#rrggbb`；不写时的外观、内置设计默认色和可涂区域的目标规则见[美术 03 的玩家涂装](../art/03-color-and-paint.md#玩家涂装)，迁移责任见[美术 03 的本阶段](../art/03-color-and-paint.md#本阶段)。不能涂装的材质类别忽略该字段，不报错 | Demo |
 
 被嵌套的复合体有两种写法（[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)）：
 
@@ -166,4 +166,4 @@ Schema 之外，加载器按[设计文档 03 的设计合法性](../design/03-ve
 
 ## 和现有代码的差别
 
-当前宿主通过真实 `ContentFactory` 加载本文版本 3 的 `.blueprint.json`，支持车辆、建筑、组装体、功能复合体和场景模型，包含四层设计复制、功能复合体身份引用、24 向朝向、稳定编号、整件设备 BOM 和行为全角度转动扫格，保留形状、涂装及场景模型平整区域。生物设计、用户蓝图库加载及编辑仍待后续工单。公开草稿求值尚不能提供根功能复合体的定义身份，该入口仍明确拒绝；包加载不受此限制。旧版本 2 的 `.composites.json` 加载实现已在 [#452](https://github.com/odradekk/train/issues/452) 退役。当前范围见[内容契约](../contracts/content.md)，行为覆盖见[蓝图加载测试](../../Tests/Content/Loading/BlueprintLoadingTests.cs)、[设计评估测试](../../Tests/Content/Loading/DesignEvaluationTests.cs)、[嵌套设计测试](../../Tests/Content/Loading/NestedDesignTests.cs)、[嵌套内容生命周期测试](../../Tests/Content/Loading/NestedContentLifecycleTests.cs)及[文档蓝图测试](../../Tests/Content/Loading/DocumentationBlueprintTests.cs)。
+当前宿主通过真实 `ContentFactory` 加载本文版本 3 的 `.blueprint.json`，支持车辆、建筑、组装体、功能复合体和场景模型，包含四层设计复制、功能复合体身份引用、24 向朝向、稳定编号、整件设备 BOM 和行为全角度转动扫格，保留形状、涂装及场景模型平整区域。生物设计仍待后续工单；用户库加载及编辑已实现，见[内容契约](../contracts/content.md#草稿蓝图库与实例目标)。公开草稿求值尚不能提供根功能复合体的定义身份，该入口仍明确拒绝；包加载不受此限制。旧版本 2 的 `.composites.json` 加载实现已在 [#452](https://github.com/odradekk/train/issues/452) 退役。当前范围见[内容契约](../contracts/content.md)，行为覆盖见[蓝图加载测试](../../Tests/Content/Loading/BlueprintLoadingTests.cs)、[设计评估测试](../../Tests/Content/Loading/DesignEvaluationTests.cs)、[嵌套设计测试](../../Tests/Content/Loading/NestedDesignTests.cs)、[嵌套内容生命周期测试](../../Tests/Content/Loading/NestedContentLifecycleTests.cs)及[文档蓝图测试](../../Tests/Content/Loading/DocumentationBlueprintTests.cs)。

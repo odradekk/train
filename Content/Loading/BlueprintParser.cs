@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using Train.Content.Designs;
 using static Train.Content.Loading.DefinitionJson;
@@ -36,13 +37,13 @@ internal sealed class BlueprintParser
         }
     }
 
-    internal static C.DesignDraft ReadDesign(JsonElement root)
+    internal static C.DesignDraft ReadDesign(JsonElement root, bool draft = false)
     {
         Object(root, "", "category", "simulation", "layout", "appearance", "display");
-        return ReadDesign(root, null);
+        return ReadDesign(root, null, draft);
     }
 
-    private static C.DesignDraft ReadDesign(JsonElement root, LoadPackage? package)
+    private static C.DesignDraft ReadDesign(JsonElement root, LoadPackage? package, bool draft = false)
     {
         var category = Choice(Required(root, "category", ""), "/category", ["vehicle", "building", "large_equipment", "scene_model", "creature"]);
         if (category == "creature")
@@ -66,7 +67,7 @@ internal sealed class BlueprintParser
                         Fail(field, "复制设计不能带 blueprint 或 paint。");
                     Object(design, field + "/design", "category", "simulation", "layout", "appearance", "display");
                     C.DesignDraft child;
-                    try { child = ReadDesign(design, package); }
+                    try { child = ReadDesign(design, package, draft); }
                     catch (DefinitionFormatException exception)
                     { throw new DefinitionFormatException(field + "/design" + exception.Field, exception.Message, exception.Code); }
                     if (category == "scene_model")
@@ -108,11 +109,11 @@ internal sealed class BlueprintParser
                 var field = "/layout/cells/" + cells.Count;
                 Array(cell, field, 4);
                 var index = Integer(cell[3], field + "/3");
-                if (index < 0 || index >= palette.Count) Fail(field + "/3", "调色板序号必须在调色板范围内。");
+                if (!draft && (index < 0 || index >= palette.Count)) Fail(field + "/3", "调色板序号必须在调色板范围内。");
                 cells.Add(new(new(Integer(cell[0], field + "/0"), Integer(cell[1], field + "/1"), Integer(cell[2], field + "/2")), index));
             }
         }
-        var specification = Specification(root, category);
+        var specification = Specification(root, category, draft);
         var display = Required(root, "display", "");
         Object(display, "/display", "name", "description");
         return new(new(Text(Required(display, "name", "/display"), "/display/name"),
@@ -120,22 +121,28 @@ internal sealed class BlueprintParser
             specification, new(palette.ToImmutable(), cells.ToImmutable(), nested.ToImmutable()));
     }
 
-    internal static void WriteDesign(Utf8JsonWriter writer, C.DesignDraft draft)
+    internal static void WriteDesign(Utf8JsonWriter writer, C.DesignDraft draft, bool incomplete = false, int depth = 0)
     {
+        if (depth >= 64) Fail("/layout/composites", "设计嵌套过深或包含循环。");
+        if (draft is null || draft.Display is null || draft.Layout is null || draft.Specification is null)
+            Fail("", "设计、显示、布局和规格必须为对象。");
+        if (draft.Layout.Palette.IsDefault || draft.Layout.Cells.IsDefault || draft.Layout.NestedItems.IsDefault)
+            Fail("/layout", "布局数组必须初始化。");
         switch (draft.Specification)
         {
-            case C.DesignSpecification.Vehicle { Size: { } size }:
+            case C.DesignSpecification.Vehicle vehicle when incomplete || vehicle.Size is not null:
                 writer.WriteString("category", "vehicle");
                 writer.WriteStartObject("simulation");
-                writer.WriteString("size_class", DesignEvaluator.Wire(size));
+                if (vehicle.Size is { } size) writer.WriteString("size_class", DesignEvaluator.Wire(size));
                 writer.WriteEndObject();
                 break;
-            case C.DesignSpecification.Building { PlotSize: { } plot, Kind: { } kind } building:
+            case C.DesignSpecification.Building building when incomplete || building.PlotSize is not null && building.Kind is not null:
                 writer.WriteString("category", "building");
                 writer.WriteStartObject("simulation");
-                writer.WriteString("plot_size", DesignEvaluator.Wire(plot));
-                writer.WriteString("building_type", DesignEvaluator.Wire(kind));
+                if (building.PlotSize is { } plot) writer.WriteString("plot_size", DesignEvaluator.Wire(plot));
+                if (building.Kind is { } kind) writer.WriteString("building_type", DesignEvaluator.Wire(kind));
                 writer.WriteStartArray("facility_tags");
+                if (building.FacilityTags.IsDefault) Fail("/simulation/facility_tags", "数组必须初始化。");
                 foreach (var tag in building.FacilityTags) writer.WriteStringValue(DesignEvaluator.Wire(tag));
                 writer.WriteEndArray();
                 writer.WriteEndObject();
@@ -147,6 +154,7 @@ internal sealed class BlueprintParser
                 writer.WriteString("category", "large_equipment");
                 writer.WriteStartObject("simulation");
                 writer.WriteStartObject("behaviors");
+                if (functional.Behaviors.IsDefault) Fail("/simulation/behaviors", "数组必须初始化。");
                 foreach (var capability in functional.Behaviors) WriteBehavior(writer, capability);
                 writer.WriteEndObject();
                 writer.WriteEndObject();
@@ -162,6 +170,7 @@ internal sealed class BlueprintParser
         writer.WriteStartArray("palette");
         foreach (var entry in draft.Layout.Palette)
         {
+            if (entry is null) Fail("/layout/palette", "调色板条目不能为空。");
             writer.WriteStartObject();
             writer.WriteString("voxel", entry.Voxel.Value);
             writer.WriteString("orientation", DesignEvaluator.Wire(entry.Orientation));
@@ -173,6 +182,7 @@ internal sealed class BlueprintParser
         writer.WriteStartArray("cells");
         foreach (var cell in draft.Layout.Cells)
         {
+            if (cell is null) Fail("/layout/cells", "布局单元不能为空。");
             writer.WriteStartArray();
             writer.WriteNumberValue(cell.At.X);
             writer.WriteNumberValue(cell.At.Y);
@@ -184,6 +194,7 @@ internal sealed class BlueprintParser
         writer.WriteStartArray("composites");
         foreach (var item in draft.Layout.NestedItems)
         {
+            if (item is null) Fail("/layout/composites", "嵌套项不能为空。");
             writer.WriteStartObject();
             WritePosition(writer, "at", DesignTraversal.At(item));
             writer.WriteString("orientation", DesignEvaluator.Wire(DesignTraversal.Orientation(item)));
@@ -195,7 +206,7 @@ internal sealed class BlueprintParser
             else
             {
                 writer.WriteStartObject("design");
-                WriteDesign(writer, DesignTraversal.Copy(item)!);
+                WriteDesign(writer, DesignTraversal.Copy(item)!, incomplete, depth + 1);
                 writer.WriteEndObject();
             }
             writer.WriteEndObject();
@@ -246,7 +257,7 @@ internal sealed class BlueprintParser
         writer.WriteEndObject();
     }
 
-    private static C.DesignSpecification Specification(JsonElement root, string category)
+    private static C.DesignSpecification Specification(JsonElement root, string category, bool draft)
     {
         if (category == "scene_model")
         {
@@ -308,11 +319,11 @@ internal sealed class BlueprintParser
         if (category == "vehicle")
         {
             Object(sim, "/simulation", "size_class");
-            return new C.DesignSpecification.Vehicle(EnumValue<K.SizeClass>(Required(sim, "size_class", "/simulation"), "/simulation/size_class"));
+            return new C.DesignSpecification.Vehicle(draft && !sim.TryGetProperty("size_class", out _) ? null : EnumValue<K.SizeClass>(Required(sim, "size_class", "/simulation"), "/simulation/size_class"));
         }
         Object(sim, "/simulation", "plot_size", "building_type", "facility_tags");
-        var plot = EnumValue<K.PlotSize>(Required(sim, "plot_size", "/simulation"), "/simulation/plot_size");
-        var kind = EnumValue<K.BuildingKind>(Required(sim, "building_type", "/simulation"), "/simulation/building_type");
+        K.PlotSize? plot = draft && !sim.TryGetProperty("plot_size", out _) ? null : EnumValue<K.PlotSize>(Required(sim, "plot_size", "/simulation"), "/simulation/plot_size");
+        K.BuildingKind? kind = draft && !sim.TryGetProperty("building_type", out _) ? null : EnumValue<K.BuildingKind>(Required(sim, "building_type", "/simulation"), "/simulation/building_type");
         var tags = ImmutableArray.CreateBuilder<K.FacilityTag>();
         if (sim.TryGetProperty("facility_tags", out var values))
         {
@@ -346,6 +357,7 @@ internal sealed class BlueprintParser
     }
     internal static void WriteBehavior(Utf8JsonWriter writer, K.PartCapability capability)
     {
+        if (capability is null) Fail("/simulation/behaviors", "行为不能为空。");
         var name = capability switch
         {
             K.PartCapability.Propulsion => "propulsion", K.PartCapability.Control => "control",
@@ -410,5 +422,6 @@ internal sealed class BlueprintParser
             if (!keys.Contains(property.Name, StringComparer.Ordinal)) Fail(Child(field, property.Name), "未知字段。");
     }
     private static string Child(string field, string key) => field + "/" + key.Replace("~", "~0", StringComparison.Ordinal).Replace("/", "~1", StringComparison.Ordinal);
+    [DoesNotReturn]
     private static void Fail(string field, string message, string code = "invalid_field") => throw new DefinitionFormatException(field, message, code);
 }

@@ -89,7 +89,7 @@ internal sealed class SimulationConsoleCommands
         Log(LogLevel.Info, StatusEventId,
             $"模拟位置={state.Position.CompletedSteps}:{state.Position.Sequence}，模拟秒={Number(status.SimulationSeconds)}，" +
             $"暂停={status.IsPaused}，设定倍速={(int)status.Speed}，实际倍速={Number(status.ActualSpeed)}，" +
-            $"玩家暂停={status.PlayerPaused}，失焦暂停={status.FocusPaused}，技术操作锁={status.OperationLocked}，" +
+            $"玩家暂停={status.PlayerPaused}，失焦暂停={status.FocusPaused}，编辑暂停={status.EditingPaused}，技术操作锁={status.OperationLocked}，" +
             $"帧余量秒={Number(status.Remainder)}，故障={fault}。");
     }
 

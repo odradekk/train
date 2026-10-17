@@ -61,7 +61,7 @@ public sealed class HostReplayTests
             new CoreCommand.StartTrain(new(1)), CommandSource.UserInterface)).Reason.Code);
         Assert.AreEqual("replay_read_only", run.Host.Host.BeginReload(CommandSource.Console).Problem?.Code);
         Assert.AreEqual("replay_read_only", run.Host.Host.SetSpeed(SimulationSpeed.Four)?.Code);
-        using var saves = new SaveService(run.Host.Host, new FileSaveStore(Path.GetTempPath()));
+        using var saves = new SaveService(run.Host.Host, new FileSaveStore(Path.GetTempPath()), run.Host.CreateEditor());
         Assert.AreEqual("replay_read_only", saves.Save()?.Code);
         Assert.IsNull(run.Host.Host.ReadRecording(status.Binding));
         Assert.IsInstanceOfType<CoreResult<RecordingStart>.Failure>(run.Host.Host.CaptureRecordingStart(status.Binding));
@@ -124,7 +124,7 @@ public sealed class HostReplayTests
             ReplayFixture.View(fault.Position, fault));
         run.Host.Host.AdvanceReplay(1);
         using var saves = new SaveService(run.Host.Host, new FileSaveStore(Path.GetTempPath(),
-            (_, _) => Assert.Fail("冻结边界不应写入文件。"), (_, _, _) => Assert.Fail("冻结边界不应发布文件。")));
+            (_, _) => Assert.Fail("冻结边界不应写入文件。"), (_, _, _) => Assert.Fail("冻结边界不应发布文件。")), run.Host.CreateEditor());
         Assert.AreEqual("frozen", saves.Export(Path.Combine(Path.GetTempPath(), "frozen-boundary.train"))?.Code);
         Assert.IsFalse(saves.HasPendingWork);
     }
@@ -167,7 +167,7 @@ public sealed class HostReplayTests
         Assert.IsNull(run.Host.Host.BeginReplay("memory.zip", _ => package).Problem);
         run.Host.PumpUntil(() => run.Host.Host.GetStatus()?.IsReplay == true);
         var store = new FileSaveStore(Path.GetTempPath());
-        using var saves = new SaveService(run.Host.Host, store, () => 0);
+        using var saves = new SaveService(run.Host.Host, store, run.Host.CreateEditor(), () => 0);
         using var tools = new DeveloperTools(run.Host.Host, saves, () => 0);
         run.Replay.QueueAdvance(1, null, new(ReplayStop.BudgetReached, new(1, 0), [], null, null), ReplayFixture.View(new(1, 0)));
         Assert.IsNull(tools.StartSteps(1));
@@ -190,7 +190,7 @@ public sealed class HostReplayTests
         using var run = new ReplayFixture();
         run.Open();
         var store = new FileSaveStore(Path.GetTempPath());
-        using var saves = new SaveService(run.Host.Host, store, () => 0);
+        using var saves = new SaveService(run.Host.Host, store, run.Host.CreateEditor(), () => 0);
         using var tools = new DeveloperTools(run.Host.Host, saves);
         Assert.AreEqual("invalid-position", tools.AdvanceTo(new(1, 99))?.Code);
         Assert.IsFalse(tools.Running);
@@ -208,7 +208,7 @@ public sealed class HostReplayTests
         run.Replay.QueueAdvance(1, null, new(ReplayStop.EndOfRecording, new(1, 0),
             [new(new(1, 0), 0, new CoreEvent.TrainArrived(new(1), new(7)))], null, null), ReplayFixture.View(new(1, 0)));
         var store = new FileSaveStore(Path.GetTempPath());
-        using var saves = new SaveService(run.Host.Host, store, () => 0);
+        using var saves = new SaveService(run.Host.Host, store, run.Host.CreateEditor(), () => 0);
         using var tools = new DeveloperTools(run.Host.Host, saves);
         Assert.IsNull(tools.StartSteps(1));
         tools.Process();

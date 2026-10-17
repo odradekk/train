@@ -190,7 +190,10 @@ public sealed class NestedContentLifecycleTests
         var before = Success(ContentFactory.Create().Capture(initial.View, references)).Encode();
         AddAssembly(fixture, "introduced", "候选", "#abcdef");
         using (var candidate = Success(PrepareReload(fixture, initial.View, references)))
-            Assert.IsTrue(candidate.View.Core.DesignGoods.Any(g => g.Good == good));
+        {
+            Assert.IsInstanceOfType<C.ContentLookup<C.GoodPresentation>.Found>(candidate.View.FindGood(good));
+            Assert.IsFalse(candidate.View.Core.DesignGoods.Any(g => g.Good == good));
+        }
         Assert.IsFalse(initial.View.Core.DesignGoods.Any(g => g.Good == good));
         Assert.AreEqual(before, Success(ContentFactory.Create().Capture(initial.View, references)).Encode());
     }
@@ -221,7 +224,8 @@ public sealed class NestedContentLifecycleTests
         Assert.AreEqual(C.ContentChange.None, reloaded.Changes);
         Assert.AreEqual(restored.View.Generation, reloaded.View.Generation);
         Assert.AreEqual(restored.View.PersistentRevision, reloaded.View.PersistentRevision);
-        Assert.AreEqual(1, reloaded.View.Core.DesignGoods.Length);
+        Assert.AreEqual(0, reloaded.View.Core.DesignGoods.Length);
+        Assert.IsInstanceOfType<C.ContentLookup<C.GoodPresentation>.Found>(reloaded.View.FindGood(good));
     }
 
     [TestMethod]

@@ -35,7 +35,7 @@ public sealed class ReplayFilesTests
             return new ContentResult<IContentCapture>.Success(new FixedContentCapture("boundary-content", new(9)));
         };
         var store = new FileSaveStore(files.Root);
-        using var saves = new SaveService(run.Host.Host, store, () => 0);
+        using var saves = new SaveService(run.Host.Host, store, run.Host.CreateEditor(), () => 0);
         using var tools = new DeveloperTools(run.Host.Host, saves, () => 0);
         var exported = Path.Combine(files.Root, "boundary.json");
         Assert.IsNull(tools.ExportReplayBoundary(exported));
@@ -91,7 +91,7 @@ public sealed class ReplayFilesTests
         File.WriteAllText(target, original);
         var store = new FileSaveStore(files.Root, File.WriteAllText,
             (_, _, _) => throw new IOException("publication denied"));
-        using var saves = new SaveService(run.Host.Host, store, () => 0);
+        using var saves = new SaveService(run.Host.Host, store, run.Host.CreateEditor(), () => 0);
         using var tools = new DeveloperTools(run.Host.Host, saves, () => 0);
         Assert.AreEqual("overwrite-confirmation", tools.ExportReplayBoundary(target)?.Code);
         Assert.IsNull(tools.ExportReplayBoundary(target, overwriteConfirmed: true));
@@ -134,7 +134,7 @@ public sealed class ReplayFilesTests
             published.Set();
             HostFixture.WaitForSignal(release, "保存发布完成后返回");
         });
-        using var saves = new SaveService(run.Host.Host, store, () => 0);
+        using var saves = new SaveService(run.Host.Host, store, run.Host.CreateEditor(), () => 0);
         using var tools = new DeveloperTools(run.Host.Host, saves);
         try
         {

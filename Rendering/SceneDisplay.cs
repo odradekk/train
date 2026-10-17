@@ -38,6 +38,13 @@ internal sealed class SceneDisplay : IDisposable
         _resources = new(cache, content);
     }
 
+    internal void ClearDebugLines()
+    {
+        _cache.RequireMainThread();
+        _debugLines?.Dispose();
+        _debugLines = null;
+    }
+
     internal PreparedFrame? Prepare(ISceneFrame frame)
     {
         _cache.RequireMainThread();

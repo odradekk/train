@@ -24,16 +24,16 @@ internal static class ProductionOperations
         {
             var key = new FacilityKey(building!.Value, plan.Capability);
             var runtime = facilities[key];
-            var view = ProductionQueries.Find(world, content, key)!;
             var process = ProductionQueries.Process(content, plan.Process);
             if (runtime.Batch is { } batch)
             {
-                if (process is null || view.CapabilityWorkPerSecond == 0) continue;
-                var rate = Math.Min(view.CapabilityWorkPerSecond,
+                var capability = ProductionQueries.Capability(world, content, key);
+                if (process is null || capability == 0) continue;
+                var rate = Math.Min(capability,
                     (batch.FrozenWorkRequired - batch.ProgressWork) / SimulationTime.StepSeconds);
                 requests.Add(new FacilityRequest.Work(key, plan.Priority, rate, batch.FrozenPowerPerWork, batch.FrozenLaborPerWork));
             }
-            else if (view.State == ProductionState.Running)
+            else if (ProductionQueries.Find(world, content, key)!.State == ProductionState.Running)
                 requests.Add(new FacilityRequest.Batch(key, plan.Priority, ProductionQueries.Inputs(process!.Details),
                     (process.Details as ProcessDetails.Extraction)?.Extracts));
         }
@@ -105,7 +105,8 @@ internal static class ProductionOperations
         settlement = world.Settlements.Single(s => s.Id == id);
         var inventory = world.Inventories.Single(i => i.Id == settlement.Inventory);
         var goods = inventory.Goods.ToDictionary(g => g.Good, g => g.Quantity);
-        var available = InventoryStorage.Settlement(world, content, settlement, checked(step + 1)).Uncommitted;
+        var available = facilities.Values.Any(f => !f.OutputBuffer.IsEmpty)
+            ? InventoryStorage.Settlement(world, content, settlement, checked(step + 1)).Uncommitted : 0;
         foreach (var (plan, building) in plans)
         {
             var key = new FacilityKey(building!.Value, plan.Capability);

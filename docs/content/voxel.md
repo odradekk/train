@@ -92,7 +92,7 @@
 | --- | --- | --- | --- | --- | --- |
 | `kind` | 字符串 | 是 | — | `cube` | 首个切片 |
 | `shapes` | 字符串数组 | 否 | `["cube"]` | 允许放置时选用的形状，取自形状目录，由代码提供，每个标准变体是一个独立的名字；不能为空，不能重复。Demo 的取值：`cube`、`half`、`plate`、`wedge`、`corner-wedge`、`beam`、`cylinder`，见[美术 01 的形状](../art/01-construction-language.md#形状)。设计里的格子不写形状时用第一项，格子写的形状必须在这个列表里，见[蓝图的调色板](blueprint.md#layout)。形状只是外观：不参与语义哈希，不影响货物身份、价值、质量、耐久、能力和 BOM，同一种体素放成楔形或立方体是同一种货物 | Demo |
-| `material` | 字符串 | 否 | `painted_metal` | 表现材质类别：`painted_metal`、`bare_metal`、`concrete`、`stone_soil`、`glass`、`polymer_rubber`、`organic`，见[美术 02](../art/02-materials-and-textures.md#材质类别)。只有 `painted_metal` 和 `concrete` 能涂装 | 首个切片 |
+| `material` | 字符串 | 否 | `painted_metal` | 表现材质类别：`painted_metal`、`bare_metal`、`concrete`、`stone_soil`、`glass`、`polymer_rubber`、`organic`，见[美术 02](../art/02-materials-and-textures.md#材质类别)。涂装目标规则见[美术 03](../art/03-color-and-paint.md#玩家涂装) | 首个切片 |
 | `tile_span` | 整数 | 否 | 1 | 平铺跨度，1、2、4 或 8 | 首个切片 |
 | `faces.top`、`faces.side`、`faces.bottom` | 资产路径 | 是 | — | 顶面、侧面、底面的贴图。几个面用同一张图就写同一个文件 | 首个切片 |
 | `faces.front` | 资产路径 | 否 | 用侧面图 | 正面图，不平铺 | Demo |
@@ -100,6 +100,8 @@
 形状由放置时选择，不由体素定义固定：这一处只列出允许的形状，每一格用哪种写在蓝图的调色板里（[Demo 内容与资产清单：覆盖场景与制作验收](https://github.com/odradekk/train/issues/283)，2026-10-10；它只取代[非立方体形状与构造语言](https://github.com/odradekk/train/issues/245)中把形状写在定义上的部分，取舍见 [ADR-0018](../adr/0018-choose-voxel-shapes-per-placement-so-shapes-never-create-goods.md)）。
 
 加载器检查图片：顶面、侧面、底面是边长相同的 2 的幂正方形；正面图是 2 的幂正方形，尺寸可以不同。边长是否等于 32 像素乘以平铺跨度，由美术检查。
+
+面贴图 Alpha 的目标语义、可涂部分的画法和着色公式统一见[美术 03 的玩家涂装](../art/03-color-and-paint.md#玩家涂装)，当前实现差距与迁移责任见[美术 03 的本阶段](../art/03-color-and-paint.md#本阶段)。这些规则不新增内容字段。
 
 ### `presentation`：自定义模型
 
@@ -121,6 +123,7 @@
 - **节点与表面**：文件里只有一个带网格的节点。这个网格的各个表面按文件里的顺序对应 `surface_materials`，在 Blender 里就是一个物体的材质槽顺序。
 - **贴图**：嵌在 `.glb` 里，不能引用外部文件。
 - **材质**：只用基础颜色（贴图和颜色系数）和透明方式。透明方式只能是不透明或镂空裁剪，半透明混合就拒绝。法线、粗糙度、金属度、自发光一律忽略，外观由材质类别决定。
+- **涂装**：模型表面分区及模型 Alpha 的用途见[美术 03 的目标规则](../art/03-color-and-paint.md#玩家涂装)。
 - **不支持的内容**：有骨骼、形变目标、动画、相机或灯光就拒绝。
 
 现在没有模型样例，第一个自定义模型随 Demo 的内容制作加入。

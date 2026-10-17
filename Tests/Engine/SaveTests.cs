@@ -253,7 +253,7 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             owned.Add(damagedId);
             Directory.CreateDirectory(store.DirectoryFor(damagedId));
             File.WriteAllText(store.PathFor(damagedId), "{}");
-            saves = new SaveService(app.Host!, store);
+            saves = new SaveService(app.Host!, store, app.Editor!);
             panel = new SavePanel();
             app.AddChild(panel);
             panel.Configure(saves);

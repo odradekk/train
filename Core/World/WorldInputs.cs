@@ -307,6 +307,21 @@ internal static class WorldInputs
         ProductionPlans = template.ProductionPlans.OrderBy(p => p.PlotNumber).ThenBy(p => p.Capability).ToImmutableArray()
     };
 
+    internal static DesignInput NormalizeDesignInput(DesignInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        Require(WorldFormat.IsHash(input.InputIdentity.Value), "InputIdentity");
+        ValidateDesign(input.Design);
+        Unique(Items(input.AssemblyGoods), g => g.Good);
+        foreach (var good in input.AssemblyGoods) ValidateDesignGood(good);
+        return input with
+        {
+            Design = NormalizeDesign(input.Design),
+            AssemblyGoods = Sorted(input.AssemblyGoods, g => GoodKey(g.Good))
+                .Select(g => g with { MassTons = Zero(g.MassTons) }).ToImmutableArray()
+        };
+    }
+
     internal static DesignProjection NormalizeDesign(DesignProjection design) => design with
     {
         MassTons = Zero(design.MassTons),
@@ -471,7 +486,7 @@ internal static class WorldInputs
     private static void Identity(string value) => Require(WorldFormat.IsIdentity(value), "Canonical identity");
     private static void Hash(string value) => Require(WorldFormat.IsHash(value), "Canonical SHA-256");
     private static void EnumValue<T>(T value) where T : struct, Enum => Require(Enum.IsDefined(value), "Invalid enum");
-    private static double Zero(double value) => value == 0 ? 0 : value;
+    internal static double Zero(double value) => value == 0 ? 0 : value;
     private static void Finite(double value) => Require(double.IsFinite(value), "Non-finite value");
     private static void Positive(double value) { Finite(value); Require(value > 0, "Positive value required"); }
     private static void Nonnegative(double value) { Finite(value); Require(value >= 0, "Nonnegative value required"); }

@@ -63,6 +63,12 @@ internal static class WorldReferences
             }
         }
         foreach (var lair in world.Lairs) Add(new CoreDefinitionReference.Lair(lair.Type), $"World.Lairs[{lair.Id.Value}].Type");
+        foreach (var job in world.ConstructionJobs)
+        {
+            var path = $"World.ConstructionJobs[{job.Id.Value}]";
+            definitions.Add(new(new CoreDefinitionReference.Rule(job.Rule), job.StartedFromRevision, path + ".Rule", false));
+            foreach (var good in job.InvestedGoods) Good(good.Good, path + ".InvestedGoods");
+        }
         foreach (var train in world.Trains)
         {
             if (train.Plan is not { } plan) continue;
