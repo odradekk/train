@@ -137,7 +137,8 @@
       "references": [
         "Train",
         "Train.Core.ContractSupport",
-        "Train.Content.ContractSupport"
+        "Train.Content.ContractSupport",
+        "Train.Scenes.ContractSupport"
       ]
     },
     "Train.Engine.Tests": {

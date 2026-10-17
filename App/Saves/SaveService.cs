@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
+using Train.App.Editing;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 
@@ -14,6 +15,7 @@ internal sealed class SaveService : IDisposable
 {
     private readonly HostCoordinator _host;
     private readonly FileSaveStore _store;
+    private readonly EditorService _editor;
     private readonly Func<double> _seconds;
     private readonly Func<DateTimeOffset> _date;
     private readonly List<PendingWrite> _writes = [];
@@ -30,10 +32,10 @@ internal sealed class SaveService : IDisposable
     private double _nextAuto;
     private bool _disposed;
 
-    internal SaveService(HostCoordinator host, FileSaveStore store, Func<double>? seconds = null,
+    internal SaveService(HostCoordinator host, FileSaveStore store, EditorService editor, Func<double>? seconds = null,
         Func<DateTimeOffset>? date = null)
     {
-        _host = host; _store = store;
+        _host = host; _store = store; _editor = editor;
         _seconds = seconds ?? (() => Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency);
         _date = date ?? (() => DateTimeOffset.UtcNow);
         _host.OperationEnded += OnOperationEnded;
@@ -178,6 +180,13 @@ internal sealed class SaveService : IDisposable
 
     internal SaveFailure? RequestLeave(Action continuation) => RequestLeave(continuation, closesSession: false);
     private SaveFailure? RequestLeave(Action continuation, bool closesSession)
+    {
+        SaveFailure? failure = null;
+        var closeFailure = _editor.RequestClose(() => failure = LeaveAfterEditor(continuation, closesSession));
+        return closeFailure is not null ? Fail(closeFailure.Code, closeFailure.Message) : failure;
+    }
+
+    private SaveFailure? LeaveAfterEditor(Action continuation, bool closesSession)
     {
         if (_leave is not null || _read is not null || _import is { Published: null } || _restore is not null)
             return Fail("busy", "正在处理其他操作，请先完成或取消。");

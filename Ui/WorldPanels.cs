@@ -26,6 +26,7 @@ public partial class WorldPanels : Control
     internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
     internal event Action<PanelTarget, SettlementId>? SettlementRequested;
     internal event Action<PanelTarget, TrainId>? InventoryRequested;
+    internal event Action<InstanceId>? RefitRequested;
 
     internal void Initialize(HostCoordinator host,
         Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit, Action<string> reportError)
@@ -157,6 +158,14 @@ public partial class WorldPanels : Control
             buttons.Add(UiStyle.Button("Stop", "停车", () => _submit(bound, new CoreCommand.StopTrain(train.Id))));
             buttons.Add(UiStyle.Button("Disband", "解编…", () => ConfirmDisband(bound, train.Id)));
         }
+        if (target is WorldObjectId.Train refitTrain && _view.FindTrain(refitTrain.Id) is Lookup<TrainView>.Found trainForRefit)
+            foreach (var vehicle in trainForRefit.Value.Vehicles)
+                buttons.Add(UiStyle.Button("RefitVehicle", $"改装车辆 {vehicle.Value}…", () => { if (Available(bound)) RefitRequested?.Invoke(new InstanceId.Vehicle(vehicle)); }));
+        if (target is WorldObjectId.Node refitNode && _view.FindLocation(new WorldLocation.Node(refitNode.Id)) is Lookup<LocationView>.Found locationForRefit)
+            foreach (var vehicle in locationForRefit.Value.Instances.OfType<InstanceId.Vehicle>())
+                buttons.Add(UiStyle.Button("RefitParkedVehicle", $"改装车辆 {vehicle.Id.Value}…", () => { if (Available(bound)) RefitRequested?.Invoke(vehicle); }));
+        if (target is WorldObjectId.Instance instance)
+            buttons.Add(UiStyle.Button("RefitDesign", "改装设计…", () => { if (Available(bound)) RefitRequested?.Invoke(instance.Id); }));
         foreach (var button in buttons) body.AddChild(button);
         _details.Add(new(bound, panel, text, buttons));
         Refresh(_binding, _view, _content);

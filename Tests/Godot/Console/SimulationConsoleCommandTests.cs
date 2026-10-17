@@ -31,7 +31,7 @@ public sealed class SimulationConsoleCommandTests
     public void InvalidArgumentsReportUsageBeforeSessionAccess()
     {
         using var fixture = CreateFixture();
-        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()));
+        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()), fixture.CreateEditor());
         using var tools = new DeveloperTools(fixture.Host, saves);
         var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger, tools);
         string[][] invalid =
@@ -52,7 +52,7 @@ public sealed class SimulationConsoleCommandTests
     public void ValidCommandsWithoutSessionReportUnavailable()
     {
         using var fixture = CreateFixture();
-        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()));
+        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()), fixture.CreateEditor());
         using var tools = new DeveloperTools(fixture.Host, saves);
         var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger, tools);
         string[][] valid =
@@ -71,7 +71,7 @@ public sealed class SimulationConsoleCommandTests
     {
         using var fixture = CreateFixture();
         fixture.ReadyHost();
-        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()));
+        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()), fixture.CreateEditor());
         using var tools = new DeveloperTools(fixture.Host, saves);
         var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger, tools);
 
@@ -105,7 +105,7 @@ public sealed class SimulationConsoleCommandTests
         fixture.ReadyHost();
         var expected = fixture.Capture(new(27, 4));
         session.SetCapture(CapturePurpose.Save, new CoreResult<ICoreCapture>.Success(expected));
-        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()));
+        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()), fixture.CreateEditor());
         using var tools = new DeveloperTools(fixture.Host, saves);
         var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger, tools);
         var previousCount = fixture.Logs.Count;
@@ -130,7 +130,7 @@ public sealed class SimulationConsoleCommandTests
         var session = fixture.ReadyHost();
         session.SetCapture(CapturePurpose.Save, new CoreResult<ICoreCapture>.Failure(
             [new("capture_rejected", "checkpoint", null, []), new("input_unavailable", "input", null, [])]));
-        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()));
+        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()), fixture.CreateEditor());
         using var tools = new DeveloperTools(fixture.Host, saves);
         var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger, tools);
         var previousCount = fixture.Logs.Count;
@@ -148,7 +148,7 @@ public sealed class SimulationConsoleCommandTests
     {
         using var fixture = CreateFixture();
         var session = fixture.ReadyHost();
-        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()));
+        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()), fixture.CreateEditor());
         using var tools = new DeveloperTools(fixture.Host, saves);
         var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger, tools);
         commands.Execute(["resume"]);
@@ -166,7 +166,7 @@ public sealed class SimulationConsoleCommandTests
         session.QueueAdvance(new(1, new(1, 0),
             [new(new(1, 0), 0, new CoreEvent.TrainArrived(new(1), new(1)))], null, null),
             new FixedCoreReadView(new(1, 0), HostCoreScenario.Input));
-        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()));
+        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()), fixture.CreateEditor());
         using var tools = new DeveloperTools(fixture.Host, saves);
         var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger, tools);
         commands.Execute(["step", "3"]);
@@ -194,7 +194,7 @@ public sealed class SimulationConsoleCommandTests
             { World = new(1, new("fixture:railway"), 100, 100, [], [], [], [], []) });
         var expected = fixture.Capture(position);
         session.SetCapture(CapturePurpose.Diagnostic, new CoreResult<ICoreCapture>.Success(expected));
-        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()));
+        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()), fixture.CreateEditor());
         using var tools = new DeveloperTools(fixture.Host, saves);
         var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger, tools);
         commands.Execute(["step", "4"]);
@@ -268,7 +268,7 @@ public sealed class SimulationConsoleCommandTests
         using var fixture = CreateFixture();
         fixture.ReadyHost();
         fixture.Host.AutoPauseOnFocusLoss = true;
-        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()));
+        using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()), fixture.CreateEditor());
         using var tools = new DeveloperTools(fixture.Host, saves);
         var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger, tools);
         fixture.Host.SetFocused(false);
@@ -304,7 +304,7 @@ public sealed class SimulationConsoleCommandTests
             var operation = fixture.Host.BeginReload(CommandSource.Console);
             Assert.IsNull(operation.Problem);
             HostFixture.WaitForSignal(entered, "重载准备任务未进入");
-            using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()));
+            using var saves = new SaveService(fixture.Host, new FileSaveStore(Path.GetTempPath()), fixture.CreateEditor());
             using var tools = new DeveloperTools(fixture.Host, saves);
             var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger, tools);
             string[][] mutations = [["resume"], ["pause"], ["speed", "8"], ["step", "2"]];
