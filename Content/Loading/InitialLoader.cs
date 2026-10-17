@@ -91,7 +91,14 @@ internal sealed class InitialLoader
         var view = new ContentView(loaded.Where(item => item.Package.State == C.PackageState.Available)
             .Select(item => item.Voxel).OrderBy(voxel => voxel.Definition.Definition.Value, StringComparer.Ordinal).ToImmutableArray(), statuses, _assets.Freeze(),
             blueprints.Where(item => item.Package.State == C.PackageState.Available).Select(item => item.Blueprint).ToImmutableArray(), world, _source.Freeze());
-        return new C.ContentResult<C.IContentCandidate>.Success(new ContentCandidate(view, new(statuses, [], [], diagnostics)));
+        if (_installation.UserLibrary is { } root)
+        {
+            var library = UserLibraryLoader.Load(view, root, _source);
+            view = view.WithUserLibrary(library, _source.Freeze());
+            diagnostics = diagnostics.AddRange(library.Diagnostics);
+        }
+        return new C.ContentResult<C.IContentCandidate>.Success(new ContentCandidate(view,
+            new(statuses, [], view.AuthoringMissing(), diagnostics)));
     }
 
     private void LoadDefinitions(LoadPackage package, List<(LoadPackage Package, LoadedVoxel Voxel)> loaded,
