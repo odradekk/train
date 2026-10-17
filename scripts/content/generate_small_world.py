@@ -525,6 +525,8 @@ RAW_GOODS_ART = {
 }
 # 表中货物的 icon.png 是唯一源，生成器只生成 Keep File 导入声明。
 HAND_DRAWN_ICONS = tuple(f"voxels/{identity}/icon.png" for identity in RAW_GOODS_ART)
+# 相对 builtin/core 的精确文件路径；登记后由创作模式维护。
+AUTHORED_FILES = ()
 
 
 def plate_texture(x, y):
@@ -1375,10 +1377,10 @@ def main():
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--output-dir", type=Path, default=ROOT / "builtin/core")
     args = parser.parse_args()
-    files = content_files()
-    resources = args.output_dir / "resources"
-    actual = {path.relative_to(resources).as_posix() for path in resources.rglob("*") if path.is_file()}
-    expected = files.keys() | set(HAND_DRAWN_ICONS)
+    files = {"resources/" + path: data for path, data in content_files().items()}
+    authored = set(AUTHORED_FILES)
+    actual = {path.relative_to(args.output_dir).as_posix() for path in args.output_dir.rglob("*") if path.is_file()}
+    expected = files.keys() | {"resources/" + path for path in HAND_DRAWN_ICONS} | authored
     extra = actual - expected
     missing = expected - actual
     if extra or (args.check and missing):
@@ -1387,21 +1389,24 @@ def main():
                 print(f"{label}文件：{path}", file=sys.stderr)
         return 1
     if args.check:
-        changed = [path for path, data in files.items() if (resources / path).read_bytes() != data]
+        changed = [path for path, data in files.items()
+                   if path not in authored and (args.output_dir / path).read_bytes() != data]
         if changed:
             for path in changed:
                 print(f"字节不同：{path}", file=sys.stderr)
             return 1
-        check_schemas(files)
+        check_schemas(files | {path: (args.output_dir / path).read_bytes() for path in authored})
         result = subprocess.run([sys.executable, str(ROOT / "scripts/content/check_economy.py"), str(args.output_dir)])
         if result.returncode:
             return result.returncode
     else:
         for path, data in files.items():
-            target = resources / path
+            if path in authored:
+                continue
+            target = args.output_dir / path
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
-    print(f"{'校验' if args.check else '生成'} {len(files)} 个文件；超大型蓝图 {len(files['blueprints/extra-large-locomotive.blueprint.json'])} 字节。")
+    print(f"{'校验' if args.check else '生成'} {len(files)} 个文件；超大型蓝图 {len(files['resources/blueprints/extra-large-locomotive.blueprint.json'])} 字节。")
     return 0
 
 
