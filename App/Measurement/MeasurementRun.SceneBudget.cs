@@ -165,8 +165,8 @@ internal sealed partial class MeasurementRun
                 _sceneEvidence["cycles"] = cycle;
                 _sceneEvidence["memory_loop_seconds"] = Seconds() - started;
             }
-            ReadIdentity(new TrainId(1), _scenario == "scene-follow-8x" || IsRouteMeasurement && _scenario.EndsWith("8x", StringComparison.Ordinal)
-                ? SimulationSpeed.Eight : SimulationSpeed.One);
+            ReadIdentity(new TrainId(1), IsRouteMeasurement ? RouteSpeed :
+                _scenario == "scene-follow-8x" ? SimulationSpeed.Eight : SimulationSpeed.One);
             _identity["warmup_seconds"] = _scenario == "scene-follow-8x" ? 5 : 0;
             _identity["sample_seconds"] = IsRouteMeasurement ? _timing!.ElapsedSeconds :
                 _scenario == "scene-follow-8x" ? (_sceneDuration > 0 ? _sceneDuration : 120) : 0;

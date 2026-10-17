@@ -11,6 +11,13 @@ namespace Train.App.Measurement;
 internal sealed partial class MeasurementRun
 {
     private bool IsRouteMeasurement => _scenario.StartsWith("scene-route-", StringComparison.Ordinal);
+    private SimulationSpeed RouteSpeed => _scenario switch
+    {
+        "scene-route-2x" => SimulationSpeed.Two,
+        "scene-route-4x" => SimulationSpeed.Four,
+        _ when _scenario.EndsWith("8x", StringComparison.Ordinal) => SimulationSpeed.Eight,
+        _ => SimulationSpeed.One
+    };
     private bool _routeRecording;
     private readonly List<RouteFrame> _routeSamples = [];
     private readonly List<RouteRangeChange> _routeRangeChanges = [];
@@ -48,13 +55,7 @@ internal sealed partial class MeasurementRun
         try
         {
             var host = _app.Host!;
-            var speed = _scenario switch
-            {
-                "scene-route-2x" => SimulationSpeed.Two,
-                "scene-route-4x" => SimulationSpeed.Four,
-                _ when _scenario.EndsWith("8x", StringComparison.Ordinal) => SimulationSpeed.Eight,
-                _ => SimulationSpeed.One
-            };
+            var speed = RouteSpeed;
             var train = ((Lookup<TrainView>.Found)host.GetStatus()!.View.FindTrain(new(1))).Value;
             if (train.Vehicles.IsEmpty) throw new InvalidDataException("路线测量需要列车1的现有编组。");
             _subject = new WorldObjectId.Instance(new InstanceId.Vehicle(train.Vehicles[0]));
