@@ -486,7 +486,7 @@ internal static class WorldInputs
     private static void Identity(string value) => Require(WorldFormat.IsIdentity(value), "Canonical identity");
     private static void Hash(string value) => Require(WorldFormat.IsHash(value), "Canonical SHA-256");
     private static void EnumValue<T>(T value) where T : struct, Enum => Require(Enum.IsDefined(value), "Invalid enum");
-    private static double Zero(double value) => value == 0 ? 0 : value;
+    internal static double Zero(double value) => value == 0 ? 0 : value;
     private static void Finite(double value) => Require(double.IsFinite(value), "Non-finite value");
     private static void Positive(double value) { Finite(value); Require(value > 0, "Positive value required"); }
     private static void Nonnegative(double value) { Finite(value); Require(value >= 0, "Nonnegative value required"); }

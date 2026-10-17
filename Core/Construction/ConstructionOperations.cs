@@ -11,7 +11,7 @@ internal static class ConstructionOperations
         => world.ConstructionJobs.Where(j => j.Settlement == settlement && Failure(world, content, j) is null
                 && !MissingTarget(world, content, j))
             .Select(j => new FacilityRequest.Work(j.Facility, j.Priority,
-                Math.Min(ConstructionJobs.WorkRate(world, content, j.Facility, Size(world, content, j)),
+                Math.Min(ConstructionJobs.WorkRate(world, content, j.Facility, Size(world, j)),
                     (j.FrozenTotalWork - j.ProgressWork) / SimulationTime.StepSeconds),
                 j.FrozenPowerPerWork, j.FrozenLaborPerWork))
             .Where(r => r.MaximumWorkPerSecond > 0).Cast<FacilityRequest>().ToImmutableArray();
@@ -32,9 +32,9 @@ internal static class ConstructionOperations
             var request = requests.OfType<FacilityRequest.Work>().SingleOrDefault(r => r.Facility == original.Facility);
             var allocation = resolution.Work.SingleOrDefault(a => a.Facility == original.Facility);
             var rate = allocation?.WorkPerSecond ?? 0;
-            var capability = ConstructionJobs.WorkRate(world, content, original.Facility, Size(world, content, original));
+            var capability = ConstructionJobs.WorkRate(world, content, original.Facility, Size(world, original));
             var limits = allocation?.Limits ?? [];
-            if (rate == capability || request is null && !MissingTarget(world, content, original))
+            if (rate == capability)
                 limits = limits.Insert(0, WorkLimit.Capability);
             var blockers = MissingTarget(world, content, original)
                 ? ImmutableArray.Create(new CoreProblem("content_missing", "TargetDesign", new WorldObjectId.Job(original.Id), []))
@@ -45,13 +45,11 @@ internal static class ConstructionOperations
             var job = original with
             {
                 ProgressWork = progress, State = rate > 0 ? ConstructionState.Working : ConstructionState.ResourceBlocked,
-                LastActualWorkPerSecond = rate, LastLimits = limits, Blockers = blockers,
-                LastPowerDemand = (request?.MaximumWorkPerSecond ?? 0) * original.FrozenPowerPerWork,
-                LastActualSupply = rate * original.FrozenPowerPerWork, LastAllocatedLabor = rate * original.FrozenLaborPerWork
+                LastActualWorkPerSecond = rate, LastLimits = limits, Blockers = blockers
             };
-            demand += job.LastPowerDemand;
-            supply += job.LastActualSupply;
-            labor += job.LastAllocatedLabor;
+            demand += (request?.MaximumWorkPerSecond ?? 0) * original.FrozenPowerPerWork;
+            supply += rate * original.FrozenPowerPerWork;
+            labor += rate * original.FrozenLaborPerWork;
             if (progress < job.FrozenTotalWork)
             {
                 world = world with { ConstructionJobs = world.ConstructionJobs.Select(j => j.Id == job.Id ? job : j).ToImmutableArray() };
@@ -59,7 +57,7 @@ internal static class ConstructionOperations
                     events.Add(new CoreEvent.ConstructionStateChanged(job.Id, original.State, job.State, job.Blockers));
                 continue;
             }
-            var design = ConstructionJobs.Design(world, content, job.TargetDesign);
+            var design = world.Designs.Single(d => d.Design == job.TargetDesign);
             InstanceId? created = null;
             if (job.RepairVehicle is { } repair)
             {
@@ -86,7 +84,6 @@ internal static class ConstructionOperations
                         { ParkedVehicles = s.ParkedVehicles.Add(vehicle).OrderBy(v => v.Value).ToImmutableArray() }).ToImmutableArray()
                 };
             }
-            world = world with { Designs = world.Designs.Select(d => d.Design == design.Design ? design : d).ToImmutableArray() };
             events.Add(new CoreEvent.ConstructionStateChanged(job.Id, original.State, ConstructionState.Completed, []));
             events.Add(new CoreEvent.ConstructionCompleted(job.Id, job.Kind, job.Target, created, []));
             Remove(job);
@@ -99,8 +96,8 @@ internal static class ConstructionOperations
             => world = world with { ConstructionJobs = world.ConstructionJobs.Where(j => j.Id != job.Id).ToImmutableArray() };
     }
 
-    private static SizeClass Size(WorldState world, CoreContentProjection content, ConstructionJobState job)
-        => ((DesignKind.Vehicle)ConstructionJobs.Design(world, content, job.TargetDesign).Kind).Size;
+    private static SizeClass Size(WorldState world, ConstructionJobState job)
+        => ((DesignKind.Vehicle)world.Designs.Single(d => d.Design == job.TargetDesign).Kind).Size;
 
     private static CoreProblem? Failure(WorldState world, CoreContentProjection content, ConstructionJobState job)
     {
@@ -108,16 +105,16 @@ internal static class ConstructionOperations
         {
             var instance = world.Instances.SingleOrDefault(i => i.Id == new InstanceId.Vehicle(vehicle));
             if (instance is null) return new("object_missing", "Instance", new WorldObjectId.Instance(new InstanceId.Vehicle(vehicle)), []);
-            if (Math.Min(instance.StructureDurability, ConstructionJobs.Design(world, content, instance.Design).MaxStructureDurability) <= 0)
+            if (Math.Min(instance.StructureDurability, world.Designs.Single(d => d.Design == instance.Design).MaxStructureDurability) <= 0)
                 return new("instance_destroyed", "Instance", new WorldObjectId.Instance(instance.Id), []);
         }
-        return ConstructionJobs.Qualification(world, content, job.Settlement, job.Facility, Size(world, content, job));
+        return ConstructionJobs.Qualification(world, content, job.Settlement, job.Facility, Size(world, job));
     }
 
     private static bool MissingTarget(WorldState world, CoreContentProjection content, ConstructionJobState job)
     {
         if (job.RepairVehicle is not null) return false;
-        var design = ConstructionJobs.Design(world, content, job.TargetDesign);
+        var design = world.Designs.Single(d => d.Design == job.TargetDesign);
         return !design.MissingReferences.IsEmpty || design.Parts.Any(p => InstanceCapabilities.DefinitionMissing(world, content, design.Design, p))
             || design.ReturnUnits.Any(u => !u.MissingReferences.IsEmpty)
             || WorldReferences.DesignGoods(design).Any(g => WorldGoods.DefinitionMissing(world, content, g.Good));

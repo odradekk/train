@@ -98,7 +98,7 @@
 
 `Sources` 是显式消费顺序，空数组表示没有来源，只能用于无需货物的请求。允许设施所在聚居地库存和当地可访问的玩家列车库存；列车来源复用 `LoadGoods` 的归属、同节点、修理锁、`Servicing`、`Docked`、零速及站台预约检查。重复、不存在或不可访问来源定位到 `Sources[i]`。受理先完成全部校验和材料分配，再原子扣料、分配任务编号并占用设施；任何拒绝都不扣料、不占能力。
 
-任务冻结目标设计身份、总工作量、电力／劳动系数、规则身份和启动修订，保存实际材料来源及投入。`PublishContent` 不允许删除活动任务必需定义；规则更新不重算冻结的总工作量与系数。任务通过 `SettlementResources.Resolve` 与生产、开采及人口同次仲裁；资源不足或完好部件能力不足为 `ResourceBlocked`，保留进度，能力不足的 `Limits` 含 `Capability`。设施被毁、失去归属或设计资格，以及目标实例消失或被毁，使任务失败并释放设施。制造完成后创建当地停放车辆；修理完成后有效部件和结构耐久恢复到当前上限。接受发 `ConstructionStarted`，状态变化发 `ConstructionStateChanged`，完成再发 `ConstructionCompleted`。完成或失败立即移除任务，之后 `FindJob` 返回 `Missing`，结果从事件读取。
+任务冻结目标设计身份、总工作量、电力／劳动系数、规则身份和启动修订，保存实际材料来源及投入。已有实例与任务的规格来自世界保存的设计，普通读档沿用内嵌设计，规格适配通过 `PublishContent` 完成。`PublishContent` 不允许删除活动任务必需定义；规则更新不重算冻结的总工作量与系数。任务通过 `SettlementResources.Resolve` 与生产、开采及人口同次仲裁；资源不足或完好部件能力不足为 `ResourceBlocked`，保留进度，能力不足的 `Limits` 含 `Capability`。设施被毁、失去归属或设计资格，以及目标实例消失或被毁，使任务失败并释放设施。制造完成后创建当地停放车辆；修理完成后有效部件和结构耐久恢复到当前上限。接受发 `ConstructionStarted`，状态变化发 `ConstructionStateChanged`，完成再发 `ConstructionCompleted`。完成或失败立即移除任务，之后 `FindJob` 返回 `Missing`，结果从事件读取。
 
 `FindInstance` 的 `UnderRepair` 从活动修理任务派生，不另存锁。锁拒绝同一车辆的第二个施工任务、所在列车的 `StartTrain`、货物买卖与装卸，以及 `SellVehicle`；编组、解编允许。稳定拒绝码如下，字段与相关身份补充定位：
 
@@ -476,7 +476,7 @@ Buy/Sell 在前提检查后依次判断：
 
 格式 8 的聚居地模板副本保存 `platform_length_meters`；站台段 P 在建立聚居地时就已固定，不随源模板变化重算。
 
-格式 14 的 `WorldState.ConstructionJobs`（`construction_jobs`）保存活动任务，`Next.Job`（`next.job`）保存下一任务编号；任务包括设施、聚居地、目标设计／修理车辆、优先级、规则身份与启动修订、冻结总工作量和电力／劳动系数、投入及实际来源消费、进度、主状态、上一步工作速率、限制、阻塞及资源占用。每座聚居地保存 `LastConstructionPowerDemand`、`LastConstructionActualSupply`、`LastConstructionAllocatedLabor`（线格式为对应 snake_case 字段），即使本步最后一个任务完成并移除，也保留最后一步汇总，下一无请求步骤归零。这些状态参加捕获、校验、恢复、引用、检查点与严格重放。
+格式 14 的 `WorldState.ConstructionJobs`（`construction_jobs`）保存活动任务，`Next.Job`（`next.job`）保存下一任务编号；任务包括设施、聚居地、目标设计／修理车辆、优先级、规则身份与启动修订、冻结总工作量和电力／劳动系数、投入及实际来源消费、进度、主状态、上一步工作速率、限制及阻塞。每座聚居地保存 `LastConstructionPowerDemand`、`LastConstructionActualSupply`、`LastConstructionAllocatedLabor`（线格式为对应 snake_case 字段），即使本步最后一个任务完成并移除，也保留最后一步汇总，下一无请求步骤归零。这些状态参加捕获、校验、恢复、引用、检查点与严格重放。
 
 顶层载荷包含格式版本、位置、下一命令编号、修订、当前输入身份、故障、`world` 和 `references`。`world` 保存完整生成来源 `source`（含种子、生成器版本、生成内容语义修订、解析配置及开局输入）、图与资源、聚居地与生物聚落、聚居地模板业务副本和地块、实例耐久、列车、库存、资金、全部下一身份编号，以及实际设计投影和衍生货物。实例只保存 `DesignHash`，引用同一 `world.designs` 中的投影，不在每个实例重复设计。实例和库存位置由所有者派生，不进载荷。
 

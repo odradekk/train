@@ -34,7 +34,9 @@ internal static class ConstructionCommands
         {
             var existing = content.DesignGoods.SingleOrDefault(g => g.Good == good.Good)
                 ?? world.DesignGoods.SingleOrDefault(g => g.Good == good.Good);
-            if (existing is not null && !WorldJson.SameValue(existing with { MassTons = existing.MassTons == 0 ? 0 : existing.MassTons }, good))
+            if (existing is not null && !WorldJson.SameValue(
+                    existing with { MassTons = WorldInputs.Zero(existing.MassTons) },
+                    good with { MassTons = WorldInputs.Zero(good.MassTons) }))
                 throw new ArgumentException("同一组装体货物身份的投影相互矛盾。", nameof(request));
         }
     }
@@ -85,7 +87,7 @@ internal static class ConstructionCommands
                     return Reject("train_not_stationary_at_node", "Instance.Location");
             }
             else if (!settlement.ParkedVehicles.Contains(vehicle.Value)) return Reject("vehicles_not_colocated", "Instance.Location");
-            design = ConstructionJobs.Design(world, content, instance.Design);
+            design = world.Designs.Single(d => d.Design == instance.Design);
             if (Math.Min(instance.StructureDurability, design.MaxStructureDurability) <= 0)
                 return Reject("instance_destroyed", "Instance");
         }
@@ -166,7 +168,7 @@ internal static class ConstructionCommands
             .Select(g => new GoodsQuantity(g.Key, g.Sum(x => x.Quantity))).ToImmutableArray();
         var job = new ConstructionJobState(new(world.Next.Job), settlement.Id, facility, design.Design, vehicle, priority,
             rule.Id, rule.Revision, work, rule.PowerPerWork, rule.LaborPerWork, invested, consumption.ToImmutable(),
-            0, ConstructionState.Working, 0, [], 0, 0, 0, []);
+            0, ConstructionState.Working, 0, [], []);
         prepared = prepared with
         {
             ConstructionJobs = prepared.ConstructionJobs.Add(job), Next = prepared.Next with { Job = checked(world.Next.Job + 1) },

@@ -411,9 +411,43 @@ public sealed class ConstructionTests
     }
 
     [TestMethod]
+    public void Settlement_retains_the_completing_steps_resource_usage_until_the_next_step()
+    {
+        var content = Content(power: 1, labor: .05);
+        content = content with
+        {
+            Designs = content.Designs.Select(d => d.Design != WorldFixture.Station ? d : d with
+            { Parts = d.Parts.Select(p => p with { Capabilities = p.Capabilities.Add(new PartCapability.Power(60)) }).ToImmutableArray() }).ToImmutableArray(),
+            Goods = content.Goods.Select(g => g.Good == Material ? g with { FuelEnergyPerUnit = 1 } : g).ToImmutableArray()
+        };
+        using var session = Session(content);
+        var job = Start(session, Build(content, Local));
+        Step(session, 2);
+        Assert.IsInstanceOfType<Lookup<JobView>.Missing>(session.Read().FindJob(job.Id));
+        var completed = ((Lookup<SettlementView>.Found)session.Read().FindSettlement(new(1))).Value;
+        Assert.AreEqual(60d, completed.Power.Demand, 1e-12);
+        Assert.AreEqual(60d, completed.Power.ActualSupply, 1e-12);
+        Assert.AreEqual(3d, completed.Population.AllocatedLabor, 1e-12);
+
+        var saved = WorldFixture.Success(session.Capture(CapturePurpose.Save));
+        using var candidate = WorldFixture.Success(CoreFactory.Create().PrepareRestore(
+            WorldFixture.Success(CoreFactory.Create().DecodeState(saved.Encode())), content, WorldFixture.Options));
+        using var restored = candidate.Activate();
+        var retained = ((Lookup<SettlementView>.Found)restored.Read().FindSettlement(new(1))).Value;
+        Assert.AreEqual(completed.Power, retained.Power);
+        Assert.AreEqual(completed.Population.AllocatedLabor, retained.Population.AllocatedLabor);
+        Step(restored);
+        var idle = ((Lookup<SettlementView>.Found)restored.Read().FindSettlement(new(1))).Value;
+        Assert.AreEqual(0d, idle.Power.Demand);
+        Assert.AreEqual(0d, idle.Power.ActualSupply);
+        Assert.AreEqual(0d, idle.Population.AllocatedLabor);
+    }
+
+    [TestMethod]
     [DataRow("progress_work", "-1")]
     [DataRow("frozen_total_work", "0")]
     [DataRow("frozen_power_per_work", "-1")]
+    [DataRow("last_actual_work_per_second", "-1")]
     [DataRow("source_consumption", "[]")]
     [DataRow("next", "0")]
     public void Invalid_construction_progress_frozen_terms_sources_and_next_identity_are_rejected(string field, string value)

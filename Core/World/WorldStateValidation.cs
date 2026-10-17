@@ -315,12 +315,8 @@ internal static class WorldStateValidation
             Require(double.IsFinite(job.FrozenPowerPerWork) && job.FrozenPowerPerWork >= 0
                 && double.IsFinite(job.FrozenLaborPerWork) && job.FrozenLaborPerWork >= 0, path + "/frozen_factors");
             Require(job.State is ConstructionState.Working or ConstructionState.ResourceBlocked, path + "/state");
-            Require(double.IsFinite(job.LastActualWorkPerSecond) && job.LastActualWorkPerSecond >= 0
-                && double.IsFinite(job.LastPowerDemand) && job.LastPowerDemand >= 0
-                && double.IsFinite(job.LastActualSupply) && job.LastActualSupply >= 0 && job.LastActualSupply <= job.LastPowerDemand
-                && double.IsFinite(job.LastAllocatedLabor) && job.LastAllocatedLabor >= 0, path + "/last_allocation");
-            Require(job.LastActualSupply == job.LastActualWorkPerSecond * job.FrozenPowerPerWork
-                && job.LastAllocatedLabor == job.LastActualWorkPerSecond * job.FrozenLaborPerWork, path + "/last_allocation");
+            Require(double.IsFinite(job.LastActualWorkPerSecond) && job.LastActualWorkPerSecond >= 0,
+                path + "/last_actual_work_per_second");
             Items(job.LastLimits, path + "/last_limits");
             Require(job.LastLimits.All(l => Enum.IsDefined(l))
                 && job.LastLimits.SequenceEqual(job.LastLimits.Distinct().Order()), path + "/last_limits");

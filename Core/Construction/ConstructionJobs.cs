@@ -9,9 +9,7 @@ internal sealed record ConstructionJobState(JobId Id, SettlementId Settlement, F
     RuleDefinitionId Rule, SemanticRevision StartedFromRevision, long FrozenTotalWork,
     double FrozenPowerPerWork, double FrozenLaborPerWork, ImmutableArray<GoodsQuantity> InvestedGoods,
     ImmutableArray<JobMaterialSourceView> SourceConsumption, double ProgressWork, ConstructionState State,
-    double LastActualWorkPerSecond, ImmutableArray<WorkLimit> LastLimits,
-    double LastPowerDemand, double LastActualSupply, double LastAllocatedLabor,
-    ImmutableArray<CoreProblem> Blockers)
+    double LastActualWorkPerSecond, ImmutableArray<WorkLimit> LastLimits, ImmutableArray<CoreProblem> Blockers)
 {
     internal ConstructionKind Kind => RepairVehicle is null ? ConstructionKind.Construction : ConstructionKind.Repair;
     internal ConstructionTarget Target => RepairVehicle is { } vehicle
@@ -30,10 +28,6 @@ internal static class ConstructionJobs
     internal static bool TrainLocked(WorldState world, TrainState train)
         => train.Vehicles.Any(v => InstanceLocked(world, new InstanceId.Vehicle(v)));
 
-    internal static DesignProjection Design(WorldState world, CoreContentProjection content, DesignHash hash)
-        => content.Designs.SingleOrDefault(d => d.Design == hash) is { } current
-            ? WorldInputs.NormalizeDesign(current) : world.Designs.Single(d => d.Design == hash);
-
     internal static CoreProblem? Qualification(WorldState world, CoreContentProjection content,
         SettlementId settlementId, FacilityKey facility, SizeClass size)
     {
@@ -44,7 +38,7 @@ internal static class ConstructionJobs
             return new("object_missing", "Facility", subject, []);
         if (settlement.Relation != SettlementRelation.PlayerOwned || instance.Ownership != SettlementRelation.PlayerOwned)
             return new("not_owned", "Facility", subject, []);
-        var design = Design(world, content, instance.Design);
+        var design = world.Designs.Single(d => d.Design == instance.Design);
         if (Math.Min(instance.StructureDurability, design.MaxStructureDurability) <= 0)
             return new("instance_destroyed", "Facility", subject, []);
         if (!design.Parts.Where(p => !InstanceCapabilities.DefinitionMissing(world, content, design.Design, p))
@@ -57,9 +51,7 @@ internal static class ConstructionJobs
     internal static double WorkRate(WorldState world, CoreContentProjection content, FacilityKey facility, SizeClass size)
     {
         var instance = world.Instances.Single(i => i.Id == new InstanceId.Building(facility.Building));
-        var design = Design(world, content, instance.Design);
-        var capabilities = design.Parts.Where(p => !InstanceCapabilities.DefinitionMissing(world, content, design.Design, p)
-                && Math.Min(instance.Parts.Single(d => d.Id == p.Id).Current, p.MaxDurability) > 0)
+        var capabilities = InstanceCapabilities.EffectiveParts(world, content, instance)
             .SelectMany(p => p.Capabilities).OfType<PartCapability.Construction>().ToArray();
         return capabilities.Any(c => c.MaximumVehicleSize is { } maximum && maximum >= size)
             ? capabilities.Sum(c => c.WorkPerSecond) : 0;
