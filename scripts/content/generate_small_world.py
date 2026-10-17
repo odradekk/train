@@ -786,17 +786,17 @@ def content_files():
         for kind, name, cells in (("bridge", "桥梁", bridge), ("tunnel-portal", "隧道口", tunnel)):
             identity = f"{kind}-{tracks}"
             document("blueprints", "blueprint", identity, blueprint(identity, f"{tracks}轨{name}", "scene_model", ["rock"], cells))
-    for identity, name, surface, local_amplitude in (
-        ("plains", "平原", "ground", 0.7), ("hills", "丘陵", "ground", 2.8),
-        ("forest", "森林", "forest-ground", 0.7), ("desert", "荒漠", "subsoil", 0.7),
-        ("mountains", "山地", "rock", 2.8),
+    for identity, name, surface, subsurface, rock, local_amplitude in (
+        ("plains", "平原", "ground", "subsoil", "rock", 0.7),
+        ("hills", "丘陵", "dry-grass", "subsoil", "rock", 2.8),
+        ("forest", "森林", "forest-ground", "subsoil", "rock", 0.7),
+        ("desert", "荒漠", "sand", "sand", "sandstone", 0.7),
+        ("mountains", "山地", "gravel", "rock", "rock", 2.8),
     ):
-        description = f"基础贯通{name}，提供局部起伏与铁路模型。"
-        if identity in ("forest", "desert", "mountains"):
-            description += "占位，正式地形美术归 #358。"
+        description = f"{name}地表、下层与岩层，以及铁路沿线的局部起伏。"
         document("terrain-types", "terrain-type", identity,
                  {"schema_version": 1, "id": identity, "display": {"name": name, "description": description},
-                  "surface_voxel": surface, "subsurface_voxel": "subsoil", "rock_voxel": "rock",
+                  "surface_voxel": surface, "subsurface_voxel": subsurface, "rock_voxel": rock,
                   "local_height_noise": [{"scale_meters": 140, "amplitude": local_amplitude}],
                   "decorations": [], "decoration_target_per_square_meter": 0,
                   "railway_models": [{"tracks": n, "bridge": f"bridge-{n}", "tunnel_portal": f"tunnel-portal-{n}"} for n in (1, 2)]})
