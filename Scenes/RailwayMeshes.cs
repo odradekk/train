@@ -48,7 +48,7 @@ internal static class RailwayMeshes
                         for (var side = 0; side < profile.Length; side++)
                         {
                             var following = (side + 1) % profile.Length;
-                            rails.Quad(previous[side], previous[following], next[following], next[side]);
+                            rails.Quad(previous[side], previous[following], next[following], next[side], railHead: side == 6);
                         }
                         previous = next;
                     }
@@ -110,18 +110,19 @@ internal static class RailwayMeshes
     {
         private readonly List<SceneVertex> vertices = [];
         private readonly List<int> indices = [];
-        internal void Quad(Vector3 a, Vector3 b, Vector3 c, Vector3 d)
+        internal void Quad(Vector3 a, Vector3 b, Vector3 c, Vector3 d, bool railHead = false)
         {
-            Triangle(a, b, c);
-            Triangle(a, c, d);
+            Triangle(a, b, c, railHead);
+            Triangle(a, c, d, railHead);
         }
-        private void Triangle(Vector3 a, Vector3 b, Vector3 c)
+        private void Triangle(Vector3 a, Vector3 b, Vector3 c, bool railHead)
         {
             var normal = Vector3.Normalize(Vector3.Cross(b - a, c - a));
             foreach (var point in new[] { a, b, c })
             {
                 indices.Add(vertices.Count);
-                vertices.Add(new(point, normal, Vector2.Zero, Vector2.Zero, ExposedFaceEdges.None, 0, 0));
+                // Built-in steel uses UV.x to distinguish the running surface from the rusty section.
+                vertices.Add(new(point, normal, new(railHead ? 1 : 0, 0), Vector2.Zero, ExposedFaceEdges.None, 0, 0));
             }
         }
         internal SceneMesh Build() => new(new SceneMaterial.BuiltIn(material), vertices.ToImmutableArray(), indices.ToImmutableArray());
