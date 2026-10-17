@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using Godot;
 using Train.App.Assets;
+using Train.App.Editing;
 using Train.App.Logging;
 using Train.Content.Contracts;
 using Train.Scenes.Contracts;
@@ -15,13 +16,15 @@ internal static class HostComposition
     {
         var builtin = new ContentRoot("builtin");
         var mods = new ContentRoot("mods");
+        var userLibrary = new ContentRoot("user-library");
         var files = new ContentFiles(dispatcher, new Dictionary<ContentRoot, ContentRootLocation>
         {
             [builtin] = new ContentRootLocation.Resource("res://builtin/core"),
-            [mods] = new ContentRootLocation.Disk(Path.Combine(userData, "mods"))
+            [mods] = new ContentRootLocation.Disk(Path.Combine(userData, "mods")),
+            [userLibrary] = new ContentRootLocation.Disk(AuthoringPaths.UserLibraryDirectory(userData))
         });
         var content = Train.Content.ContentFactory.Create();
-        var installation = new ContentInstallation(builtin, mods, null,
+        var installation = new ContentInstallation(builtin, mods, userLibrary,
             ProjectSettings.GetSetting("application/config/version").AsString(), []);
         var discovery = content.Discover(installation, files);
         if (discovery is ContentResult<ImmutableArray<PackageStatus>>.Success discovered)

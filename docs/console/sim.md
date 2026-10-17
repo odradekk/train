@@ -22,6 +22,8 @@ sim checkpoint
 
 `step` 默认推进一步，`N` 必须是大于零的十进制 `UInt64`。手动推进只允许在宿主已暂停时执行；运行中会报告 `simulation_requires_pause`，不会隐式暂停。手动步同步执行，不受自动推进的每帧预算限制；较大的 N 会占用当前帧。宿主逐步调用核心，遇到通知暂停立即停止，并报告请求步数与实际完成步数；命令处理器不再次分发事件。默认通知策略全部为 `None`，暂停／降速策略目前通过注入的测试策略验证。故障已冻结的会话仍允许 `pause` 和 `speed N`，但拒绝 `resume` 和 `step`；故障显示 `CoreFault` 的 `Code`、`Operation`、`Field`。
 
+设计编辑期间独立保留编辑暂停来源，`status` 显示该来源；`pause`、`resume`、`speed` 和 `step` 均返回 `editing_active`，不能改变编辑前的运行设置。状态和检查点查询仍可用。
+
 `checkpoint` 只输出当前权威位置与 SHA-256 摘要，供确定性诊断使用；它不会写存档，也不会输出完整权威文档。
 
 宿主通过 `DeveloperTools` 捕获检查点，`sim checkpoint` 还将该检查点加入 [`dev`](dev.md) 窗口的进程内列表，说明为“控制台检查点”，可与窗口捕获的检查点按相同规则比较；换局保留，退出进程丢失。

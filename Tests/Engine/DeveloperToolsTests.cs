@@ -111,7 +111,7 @@ public class DeveloperToolsTests(Node testScene) : TestClass(testScene)
                 if (!release.Wait(TimeSpan.FromSeconds(30))) throw new TimeoutException("导出等待超时。");
                 throw new IOException("publication denied");
             }, File.Move);
-            using var saves = new SaveService(app.Host!, store);
+            using var saves = new SaveService(app.Host!, store, app.Editor!);
             using var tools = new DeveloperTools(app.Host!, saves);
             var inspector = new DeveloperInspector();
             inspector.Configure(tools, app.WorldScenes);
