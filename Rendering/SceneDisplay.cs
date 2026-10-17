@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Godot;
 using Train.App.Assets;
 using Train.Content.Contracts;
+using Train.Core.Contracts;
 using Train.Scenes.Contracts;
 
 namespace Train.Rendering;
@@ -18,6 +19,7 @@ internal sealed class SceneDisplay : IDisposable
     private DebugLineGroup? _pendingDebugLines;
     private ScenePoint _spaceOrigin;
     private HashSet<SceneObjectId> _posedObjects = [];
+    private readonly HashSet<VehicleId> _followedVehicles = [];
     private bool _disposed;
     private readonly ScenePreparation<PreparedVisual> _preparation = new(static (visual, source) => visual.CanUpdate(source));
     private readonly Dictionary<SceneObjectId, Node3D> _pendingRoots = [];
@@ -115,7 +117,7 @@ internal sealed class SceneDisplay : IDisposable
             if (_pendingFog is null && (_fog is null || !_fog.Regions.SequenceEqual(update.Environment.FoggedRegions)))
             {
                 if (BudgetExpired()) return null;
-                _pendingFog = new(update.Environment.FoggedRegions);
+                _pendingFog = new(update.Environment.FoggedRegions, _resources.ConstructionFogMaterial());
                 preparedResource = true;
             }
             if (_pendingDebugLines is null && !frame.DebugLines.IsEmpty &&
@@ -222,6 +224,36 @@ internal sealed class SceneDisplay : IDisposable
             !displayed.Update.Upserts.Any(source => source.Id == id);
         return source.Parent == item.Source.Parent && source.Visuals.Select((visual, index) =>
             index < item.Visuals.Length && item.Visuals[index].CanUpdate(visual)).All(compatible => compatible);
+    }
+
+    internal void UpdateConstructionFog(System.Collections.Immutable.ImmutableArray<VehicleId> vehicles)
+    {
+        _cache.RequireMainThread();
+        if (_fog is null) return;
+        _followedVehicles.Clear();
+        foreach (var vehicle in vehicles) _followedVehicles.Add(vehicle);
+        Aabb? bounds = null;
+        if (_followedVehicles.Count > 0)
+            foreach (var item in _objects.Values)
+                if (BelongsToFollowedTrain(item.Source, _objects, _followedVehicles))
+                    foreach (var visual in item.Visuals)
+                        if (visual.Bounds is { } local)
+                        {
+                            var world = visual.Node.GlobalTransform * local;
+                            bounds = bounds?.Merge(world) ?? world;
+                        }
+        _fog.ShowTrain(bounds);
+    }
+
+    internal static bool BelongsToFollowedTrain(SceneObject source,
+        IReadOnlyDictionary<SceneObjectId, DisplayObject> objects, IReadOnlySet<VehicleId> vehicles)
+    {
+        while (true)
+        {
+            if (source.Subject is WorldObjectId.Instance { Id: InstanceId.Vehicle vehicle } && vehicles.Contains(vehicle.Id)) return true;
+            if (source.Parent is not { } parent || !objects.TryGetValue(parent, out var ancestor)) return false;
+            source = ancestor.Source;
+        }
     }
 
     internal void CancelPreparation()
@@ -391,13 +423,10 @@ internal sealed class SceneDisplay : IDisposable
         internal Node3D Root { get; } = new() { Name = "LoadingFog" };
         private readonly List<BoxMesh> _meshes = [];
         private bool _disposed;
-        private readonly StandardMaterial3D _material = new()
+        private readonly ShaderMaterial _material;
+        internal FogGroup(System.Collections.Immutable.ImmutableArray<SceneBounds> regions, ShaderMaterial material)
         {
-            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-            AlbedoColor = new Color("c9d6e0"), CullMode = BaseMaterial3D.CullModeEnum.Disabled
-        };
-        internal FogGroup(System.Collections.Immutable.ImmutableArray<SceneBounds> regions)
-        {
+            _material = material;
             Regions = regions;
             foreach (var region in regions)
             {
@@ -410,6 +439,13 @@ internal sealed class SceneDisplay : IDisposable
                     Position = ToGodot((region.Minimum + region.Maximum) / 2)
                 });
             }
+        }
+        internal void ShowTrain(Aabb? bounds)
+        {
+            _material.SetShaderParameter("train_visible", bounds.HasValue);
+            if (bounds is not { } box) return;
+            _material.SetShaderParameter("train_minimum", box.Position);
+            _material.SetShaderParameter("train_maximum", box.End);
         }
         public void Dispose()
         {

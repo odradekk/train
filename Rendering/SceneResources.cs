@@ -11,6 +11,8 @@ internal sealed class PreparedVisual : IDisposable
     private readonly List<IDisposable> _owned = [];
     private readonly List<ShaderMaterial> _materials = [];
     private bool _disposed;
+    private bool _boundsCalculated;
+    private Aabb? _bounds;
 
     internal PreparedVisual(AssetResourceCache cache, SceneVisual visual)
     {
@@ -20,6 +22,23 @@ internal sealed class PreparedVisual : IDisposable
 
     internal Node3D Node { get; } = new();
     internal SceneVisual Visual { get; private set; }
+    internal Aabb? Bounds
+    {
+        get
+        {
+            if (_boundsCalculated) return _bounds;
+            _boundsCalculated = true;
+            if (Visual is SceneVisual.Missing) return null;
+            var children = Node.GetChildren();
+            foreach (var child in children)
+                if (child is MeshInstance3D { Mesh: { } mesh } instance)
+                {
+                    var bounds = instance.Transform * mesh.GetAabb();
+                    _bounds = _bounds?.Merge(bounds) ?? bounds;
+                }
+            return _bounds;
+        }
+    }
     internal T Own<T>(T value) where T : IDisposable { _owned.Add(value); return value; }
     internal ShaderMaterial Material(ShaderMaterial value) { _materials.Add(value); return Own(value); }
 
@@ -93,6 +112,7 @@ internal sealed class SceneResources : IDisposable
     private readonly IContentView _content;
     private readonly Shader _surfaceShader;
     private readonly Shader _waterShader;
+    private readonly Shader _fogShader;
     private readonly Dictionary<SceneMesh, GeometryResource> _geometry = new(ReferenceEqualityComparer.Instance);
     private bool _disposed;
 
@@ -107,9 +127,13 @@ internal sealed class SceneResources : IDisposable
         {
             _waterShader = ResourceLoader.Load<Shader>("res://Rendering/water.gdshader", cacheMode: ResourceLoader.CacheMode.Ignore)
                 ?? throw new InvalidOperationException("水面着色器无法加载。");
+            _fogShader = ResourceLoader.Load<Shader>("res://Rendering/construction_fog.gdshader", cacheMode: ResourceLoader.CacheMode.Ignore)
+                ?? throw new InvalidOperationException("构建雾着色器无法加载。");
         }
-        catch { _surfaceShader.Dispose(); throw; }
+        catch { _waterShader?.Dispose(); _surfaceShader.Dispose(); throw; }
     }
+
+    internal ShaderMaterial ConstructionFogMaterial() => new() { Shader = _fogShader };
 
     internal PreparedVisual Prepare(SceneVisual visual)
     {
@@ -323,5 +347,6 @@ internal sealed class SceneResources : IDisposable
         _disposed = true;
         _surfaceShader.Dispose();
         _waterShader.Dispose();
+        _fogShader.Dispose();
     }
 }
