@@ -161,8 +161,15 @@ internal sealed class NodeScene : IAsyncDisposable
     private readonly ConditionalWeakTable<SceneWorldSnapshot, PlatformMap> platformMaps = new();
     private readonly Task<Preparation>? pending;
     private sealed record PartWork(Task<Part> Task, CancellationTokenSource Cancellation, SceneBounds Bounds, GridColumn? Chunk);
+    private sealed record CompletedPart(Part Part, SceneBounds Bounds, GridColumn? Chunk)
+    {
+        internal long Vertices { get; } = Part.Geometry.Geometry.Objects.Sum(item =>
+            item.Visuals.OfType<SceneVisual.Geometry>().Sum(visual => (long)visual.Mesh.Vertices.Length));
+        internal int Visuals { get; } = Part.Geometry.Geometry.Objects.Sum(item => item.Visuals.Length);
+    }
     private readonly Dictionary<GridColumn, Part> chunks = [];
     private readonly Dictionary<string, Part> rails = [];
+    private readonly Dictionary<string, CompletedPart> completedParts = [];
     private readonly object workGate = new();
     private Queue<(string Key, SceneBounds Bounds, GridColumn? Chunk)> waitingParts = [];
     private readonly Dictionary<string, PartWork> pendingParts = [];
@@ -172,6 +179,8 @@ internal sealed class NodeScene : IAsyncDisposable
     private Preparation? prepared;
     private NodeRange range;
     private bool nearCompleted;
+    private bool awaitingDisplay;
+    private SceneFrameStamp? admissionFrame;
     private NodeLayout? layout;
     private bool buildAllowed = true;
     private Built? built;
@@ -199,7 +208,7 @@ internal sealed class NodeScene : IAsyncDisposable
     {
         get
         {
-            lock (workGate) return !Failed && prepared is null || waitingParts.Count > 0 ||
+            lock (workGate) return !Failed && prepared is null || waitingParts.Count > 0 || completedParts.Count > 0 || awaitingDisplay ||
                 pendingParts.Values.Concat(retiring).Any(work => !work.Task.IsCompleted) ||
                 vehicles.HasPendingBuilds || settlement.HasPendingBuilds;
         }
@@ -261,13 +270,14 @@ internal sealed class NodeScene : IAsyncDisposable
                 {
                     foreach (var segment in prepared.Rails.Values.Where(segment => range.Around(NodeStreaming.RetainCells).Intersects(segment.Bounds)))
                         if (previous.Parts.TryGetValue(segment.Key, out var old) && old.Inputs == segment.Inputs)
-                        { rails.Add(segment.Key, old); Attach(segment.Key, old); }
+                            completedParts.Add(segment.Key, new(old, segment.Bounds, null));
                     if (prepared.HasChunks)
                     foreach (var from in range.Around(NodeStreaming.RetainCells).Chunks(layout!))
                         if (previous.Parts.TryGetValue(ChunkKey(from), out var old))
                         {
                             // Validate the value key before retaining geometry from another binding.
-                            if (old.Inputs == prepared.ChunkInputs(from)) { chunks.Add(from, old); Attach(ChunkKey(from), old); }
+                            if (old.Inputs == prepared.ChunkInputs(from))
+                                completedParts.Add(ChunkKey(from), new(old, ChunkBounds(from), from));
                         }
                 }
             }
@@ -287,6 +297,8 @@ internal sealed class NodeScene : IAsyncDisposable
     private void ReconcileParts()
     {
         var retention = range.Around(NodeStreaming.RetainCells);
+        foreach (var key in completedParts.Keys.Where(key => !retention.Intersects(completedParts[key].Bounds)).ToArray())
+            completedParts.Remove(key);
         foreach (var key in pendingParts.Keys.Where(key => !range.Intersects(pendingParts[key].Bounds)).ToArray())
         {
             var work = pendingParts[key];
@@ -303,9 +315,7 @@ internal sealed class NodeScene : IAsyncDisposable
             try
             {
                 var part = work.Task.GetAwaiter().GetResult() with { Bounds = work.Bounds };
-                if (work.Chunk is { } from) chunks[from] = part;
-                else rails[key] = part;
-                Attach(key, part);
+                completedParts.Add(key, new(part, work.Bounds, work.Chunk));
             }
             catch (OperationCanceledException) when (work.Cancellation.IsCancellationRequested) { }
             catch (RailwayBuildException error) { Fail(error); }
@@ -318,13 +328,43 @@ internal sealed class NodeScene : IAsyncDisposable
             work.Cancellation.Dispose(); retiring.Remove(work);
         }
         if (failure is not null) return;
-        var terrain = prepared!.HasChunks ? range.Chunks(layout!).Where(from => !chunks.ContainsKey(from) && !pendingParts.ContainsKey(ChunkKey(from)))
-            .Select(from => (Key: ChunkKey(from), Bounds: new SceneBounds(new(from.X, -128, from.Z),
-                new(from.X + VoxelGrid.ChunkSize, 128, from.Z + VoxelGrid.ChunkSize)), Chunk: (GridColumn?)from)) : [];
-        var tracks = prepared.Rails.Values.Where(segment => !rails.ContainsKey(segment.Key) && !pendingParts.ContainsKey(segment.Key) && range.Intersects(segment.Bounds))
+        AdmitCompletedParts();
+        var terrain = prepared!.HasChunks ? range.Chunks(layout!).Where(from => !chunks.ContainsKey(from) &&
+                !pendingParts.ContainsKey(ChunkKey(from)) && !completedParts.ContainsKey(ChunkKey(from)))
+            .Select(from => (Key: ChunkKey(from), Bounds: ChunkBounds(from), Chunk: (GridColumn?)from)) : [];
+        var tracks = prepared.Rails.Values.Where(segment => !rails.ContainsKey(segment.Key) && !pendingParts.ContainsKey(segment.Key) &&
+                !completedParts.ContainsKey(segment.Key) && range.Intersects(segment.Bounds))
             .Select(segment => (segment.Key, segment.Bounds, Chunk: (GridColumn?)null));
         waitingParts = new(terrain.Concat(tracks).OrderBy(item => range.DistanceSquared(item.Bounds)).ThenBy(item => item.Key, StringComparer.Ordinal));
         StartParts();
+    }
+
+    private static SceneBounds ChunkBounds(GridColumn from) => new(new(from.X, -128, from.Z),
+        new(from.X + VoxelGrid.ChunkSize, 128, from.Z + VoxelGrid.ChunkSize));
+
+    private void AdmitCompletedParts()
+    {
+        if (nearCompleted && awaitingDisplay) return;
+        var near = range.Around(NodeStreaming.NearCells);
+        long vertices = 0;
+        var visuals = 0;
+        var count = 0;
+        foreach (var (key, ready) in completedParts.OrderBy(item => range.DistanceSquared(item.Value.Bounds))
+            .ThenBy(item => item.Key, StringComparer.Ordinal).ToArray())
+        {
+            if (!nearCompleted && !near.Intersects(ready.Bounds)) continue;
+            // One indivisible part may exceed the batch target, but must never block the queue.
+            if (nearCompleted && count > 0 && (vertices + ready.Vertices > NodeStreaming.AdmissionVertexLimit ||
+                visuals + ready.Visuals > NodeStreaming.AdmissionVisualLimit)) break;
+            if (ready.Chunk is { } from) chunks.Add(from, ready.Part);
+            else rails.Add(key, ready.Part);
+            Attach(key, ready.Part);
+            completedParts.Remove(key);
+            vertices += ready.Vertices;
+            visuals += ready.Visuals;
+            count++;
+        }
+        if (nearCompleted && count > 0) awaitingDisplay = true;
     }
 
     // Caller holds workGate; only Pump replaces the priority order and consumes results.
@@ -352,6 +392,14 @@ internal sealed class NodeScene : IAsyncDisposable
     internal SceneFrame Present(SceneWorldSnapshot snapshot, SceneFrameRequest request, SceneFrameStamp stamp,
         SceneFrame? displayed, ScenePoint origin, WorldSceneTarget? target = null, SceneWorldSnapshot? previous = null)
     {
+        if (admissionFrame is { } offered && displayed?.Update.Frame is { } shown &&
+            shown.Session == offered.Session && shown.Request == offered.Request && shown.Space == offered.Space &&
+            shown.Revision >= offered.Revision)
+        {
+            // Every later frame in this scope retains the admitted batch until normal range retirement.
+            awaitingDisplay = false;
+            admissionFrame = null;
+        }
         if (layout is null && pending?.IsCompleted == true) Pump(snapshot, allowBuild: false);
         var (start, seconds) = SceneFrame.SampleTime(snapshot, previous, request.Interpolation);
         var objects = ImmutableArray.CreateBuilder<SceneObject>();
@@ -407,7 +455,12 @@ internal sealed class NodeScene : IAsyncDisposable
             var relative = new NodeRange(RailwayCoordinates.Add(needed.Focus, -RailwayCoordinates.Relative(origin, default)), radius);
             return !fog.Skip(terrainFog.Count).Any(region => relative.Intersects(region.WorldBounds));
         }
-        if (!nearCompleted) nearCompleted = Complete(NodeStreaming.NearCells);
+        if (!nearCompleted && Complete(NodeStreaming.NearCells))
+        {
+            nearCompleted = true;
+            awaitingDisplay = true;
+        }
+        if (nearCompleted && awaitingDisplay) admissionFrame ??= stamp;
         var readiness = failure is not null ? SceneReadiness.Failed : !nearCompleted ? SceneReadiness.Loading :
             Complete(NodeStreaming.ViewCells) ? SceneReadiness.Ready : SceneReadiness.Partial;
         return new(stamp, origin, seconds, readiness,
@@ -813,6 +866,7 @@ internal sealed class NodeScene : IAsyncDisposable
             cancellation.Cancel();
             cache.Close(Node, owner);
             waitingParts.Clear();
+            completedParts.Clear();
             parts = pendingParts.Values.Concat(retiring).ToArray();
             foreach (var work in parts) work.Cancellation.Cancel();
             ownedWork = (pending is null ? Array.Empty<Task>() : [pending]).Concat(parts.Select(item => item.Task)).ToArray();

@@ -54,17 +54,30 @@ public sealed class NodeSwitchTests
             await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
             displayed = Present(session, displayed);
         } while (session.PendingPrebuilds.Length > 0);
-        var retained = cache.Read(NodeFixtures.NodeId)!;
         var expectedLayout = NodeLayout.Build(initial, NodeFixtures.NodeId);
         var inlet = expectedLayout.EntryFor(new(1));
-        var railway = new RailwayPath(initial, inlet.Edge);
-        var endpoint = railway.Start.Id == expectedLayout.Node ? 0 : railway.LengthCells;
-        var entry = RailwayCoordinates.Add(inlet.Point, RailwayCoordinates.Relative(
-            railway.Sample(endpoint, RailwayCoordinates.TrackOffset(1, 2)).Position, railway.Sample(endpoint).Position));
+        var entry = expectedLayout.TrainBoundary(inlet).Position;
+        var near = new NodeRange(entry, NodeStreaming.NearCells);
+        var expectedNear = new NodeRange(entry, NodeStreaming.PrefetchCells).Chunks(expectedLayout)
+            .Where(near.Intersects).Select(NodeScene.ChunkKey).ToArray();
+        var actualNear = cache.Read(NodeFixtures.NodeId)!.Parts.Keys.Where(key => key.StartsWith("terrain:", StringComparison.Ordinal)).ToArray();
+        CollectionAssert.AreEquivalent(expectedNear, actualNear,
+            $"Entry {entry}; extra {string.Join(',', actualNear.Except(expectedNear))}; missing {string.Join(',', expectedNear.Except(actualNear))}");
+        var railSegments = NodeScene.Prepare(initial, expectedLayout).Rails;
+        CollectionAssert.AreEquivalent(railSegments.Values.Where(segment => near.Intersects(segment.Bounds)).Select(segment => segment.Key).ToArray(),
+            cache.Read(NodeFixtures.NodeId)!.Parts.Keys.Where(railSegments.ContainsKey).ToArray());
+
+        var train = ((Lookup<TrainView>.Found)initial.Core.FindTrain(new(1))).Value;
+        session.Observe(NodeFixtures.Snapshot(platforms: 0, trains: [train with
+        { Position = new TrainPosition.Node(NodeFixtures.NodeId, inlet.Edge, null, NodeTravelPhase.Approaching, 0, null) }],
+            content: content, steps: 1, tracks: 2, trackLimit: 2, platformLengthMeters: 0), []);
+        var first = Present(session, displayed);
+        Assert.AreEqual(0, session.PendingNodeBuilds.Length, "The candidate must finish prefetch work before handover, even while outer results await admission.");
+        await RailwayFixtures.Settled(session, Request, first);
+        var retained = cache.Read(NodeFixtures.NodeId)!;
         var expected = new NodeRange(entry, NodeStreaming.PrefetchCells).Chunks(expectedLayout)
             .Select(NodeScene.ChunkKey).ToArray();
         CollectionAssert.AreEquivalent(expected, retained.Parts.Keys.Where(key => key.StartsWith("terrain:", StringComparison.Ordinal)).ToArray());
-        var railSegments = NodeScene.Prepare(initial, expectedLayout).Rails;
         var entryRange = new NodeRange(entry, NodeStreaming.PrefetchCells);
         CollectionAssert.AreEquivalent(railSegments.Values.Where(segment => entryRange.Intersects(segment.Bounds)).Select(segment => segment.Key).ToArray(),
             retained.Parts.Keys.Where(railSegments.ContainsKey).ToArray());

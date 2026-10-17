@@ -11,6 +11,8 @@ internal static class NodeStreaming
     internal const double ViewCells = 64 * RailwayCoordinates.CellsPerMeter;
     internal const double PrefetchCells = 80 * RailwayCoordinates.CellsPerMeter;
     internal const double RetainCells = 96 * RailwayCoordinates.CellsPerMeter;
+    internal const int AdmissionVertexLimit = 48_000;
+    internal const int AdmissionVisualLimit = 64;
     internal const int MaximumTerrainFogRegions = 102;
 
     internal static bool OverlapsTerrain(SceneBounds bounds, IEnumerable<GridColumn> chunks) => chunks.Any(from =>
