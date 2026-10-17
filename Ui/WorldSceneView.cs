@@ -113,9 +113,9 @@ internal partial class WorldSceneView : Node3D
         CameraRig.Camera.Current = active;
         _worldEnvironment.Environment = active ? CurrentEnvironment : null;
     }
-    internal void ShowFrame(ISceneFrame frame, WorldObjectId? follow, bool railwayPan = false)
+    internal void ShowFrame(ISceneFrame frame, WorldObjectId? follow, bool railwayPan = false, bool preserveFocus = false)
     {
-        CameraRig.DisplayedFrame(frame, follow, railwayPan);
+        CameraRig.DisplayedFrame(frame, follow, railwayPan, preserveFocus: preserveFocus);
         SetLoading(false);
         Interactive = true;
     }

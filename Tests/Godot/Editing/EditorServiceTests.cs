@@ -422,6 +422,18 @@ public sealed class EditorServiceTests
     }
 
     [TestMethod]
+    public void Clearing_feedback_removes_old_message_and_error_without_closing_the_editor()
+    {
+        using var fixture = new EditingFixture();
+        fixture.Open();
+        fixture.Editor.Report("old failure");
+        fixture.Editor.ClearFeedback();
+        Assert.IsNull(fixture.Editor.Message);
+        Assert.IsFalse(fixture.Editor.HasError);
+        Assert.IsTrue(fixture.Editor.IsOpen);
+    }
+
+    [TestMethod]
     public void Object_capture_reports_complete_problem_and_exception_and_respects_scene_guard()
     {
         using var fixture = new EditingFixture();

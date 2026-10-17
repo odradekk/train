@@ -140,7 +140,7 @@ internal sealed class AuthoringService : IDisposable
         if (changedSource) saved = saved with { Target = target with { SourceVersion = package.SourceVersion } };
         if (saved.Payload is DraftPayload.Definition { Value: DefinitionDraft.Blueprint })
         {
-            if (editor.RequestClose(() => editor.OpenDraft(saved)) is { } failure) Report(failure.Message);
+            if (editor.RequestClose(() => editor.OpenDraft(saved, changedSource)) is { } failure) Report(failure.Message);
         }
         else if (saved.Payload is DraftPayload.Definition definition) OpenDefinition(definition.Value, saved.Id, false, changedSource);
     }

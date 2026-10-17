@@ -51,7 +51,7 @@ internal sealed class TemplateSceneController : IDisposable
             if (!ReferenceEquals(_display!.DisplayedFrame, preview.Frame))
             {
                 using var prepared = _display.Prepare(preview.Frame);
-                if (prepared is not null) { prepared.Commit(); View.ShowFrame(prepared.Frame, null); }
+                if (prepared is not null) { prepared.Commit(); View.ShowFrame(prepared.Frame, null, preserveFocus: true); }
             }
             View.Interactive = !_display.IsPreparing && ReferenceEquals(_display.DisplayedFrame, preview.Frame);
             View.CameraRig.Update(delta);

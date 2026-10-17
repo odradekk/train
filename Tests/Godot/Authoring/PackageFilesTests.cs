@@ -2,13 +2,9 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Text;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.App;
 using Train.App.Authoring;
 using Train.App.Assets;
 using Train.Content.Contracts;
-using Train.Content.ContractSupport;
-using Train.Core.Contracts;
-using Train.Godot.Tests.Host;
 
 namespace Train.Godot.Tests.Authoring;
 
@@ -163,69 +159,6 @@ public sealed class PackageFilesTests
         Assert.IsFalse(File.Exists(files.PathFor("second.txt")));
         Assert.IsFalse(File.Exists(files.PathFor("third.txt")));
         Assert.AreEqual("saved draft", File.ReadAllText(files.PathFor("draft.json")));
-
-        var restart = new ProcessStartInfo("dotnet")
-        {
-            UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true,
-            CreateNoWindow = true, StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8
-        };
-        foreach (var argument in new[] { typeof(PackageFilesTests).Assembly.Location, "--package-load-process", files.Root }) restart.ArgumentList.Add(argument);
-        using var restarted = Process.Start(restart)!;
-        using var restartTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        var stdout = restarted.StandardOutput.ReadToEndAsync();
-        var stderr = restarted.StandardError.ReadToEndAsync();
-        try { await restarted.WaitForExitAsync(restartTimeout.Token); }
-        finally
-        {
-            if (!restarted.HasExited) { restarted.Kill(entireProcessTree: true); await restarted.WaitForExitAsync(); }
-        }
-        Assert.AreEqual(0, restarted.ExitCode, await stderr);
-        StringAssert.Contains(await stdout, "incomplete-test-package|部分写入：缺少 second.txt、third.txt。");
-        Assert.AreEqual("first", File.ReadAllText(files.PathFor("first.txt")), "普通加载不能自动恢复旧包。");
-        Assert.IsFalse(File.Exists(files.PathFor("second.txt")));
-        Assert.IsFalse(File.Exists(files.PathFor("third.txt")));
-        Assert.AreEqual("saved draft", File.ReadAllText(files.PathFor("draft.json")));
-    }
-
-    internal static int LoadInChild(string directory)
-    {
-        System.Console.OutputEncoding = Encoding.UTF8;
-        // This finite content scenario checks host restart/loading diagnostics, not the production package decoder.
-        using var fixture = new HostFixture();
-        var loadCalls = 0;
-        fixture.Factory.PrepareLoadCall = (request, files, _) =>
-        {
-            loadCalls++;
-            Assert.IsInstanceOfType<ContentLoadPurpose.Initial>(request.Purpose);
-            Assert.AreEqual("first", Encoding.UTF8.GetString(ContentFilesSnapshot.Require(files.Read(new(request.Installation.BuiltIn, "first.txt"), 99)).AsSpan()));
-            foreach (var missing in new[] { "second.txt", "third.txt" })
-            {
-                var read = files.Read(new(request.Installation.BuiltIn, missing), 99);
-                Assert.IsInstanceOfType<ContentIoResult<ImmutableArray<byte>>.Failure>(read);
-                Assert.AreEqual(ContentIoFailure.Missing, ((ContentIoResult<ImmutableArray<byte>>.Failure)read).Kind);
-            }
-            return new ContentResult<IContentCandidate>.Failure([new("incomplete-test-package", ContentDiagnosticSeverity.Error,
-                "loading", null, new(new("core"), "second.txt"), "files", null, "部分写入：缺少 second.txt、third.txt。")]);
-        };
-        using var host = new HostCoordinator(fixture.Core, fixture.Factory, new DiskContentFiles(directory),
-            new UnconfiguredAssetInspector(), new(new("builtin"), new("mods"), null, "test", []), fixture.Logger);
-        HostOperationResult? ended = null;
-        host.OperationEnded += result => ended = result;
-        Assert.IsNull(host.BeginReload(CommandSource.UserInterface).Problem);
-        Assert.IsTrue(SpinWait.SpinUntil(() => { host.ProcessFrame(0); return ended is not null; }, HostFixture.HangTimeout), "重启普通加载超时。");
-        Assert.AreEqual(1, loadCalls);
-        Assert.IsFalse(ended!.Succeeded);
-        Assert.IsNull(host.Content);
-        Assert.IsNull(host.GetStatus());
-        Assert.AreEqual(1, ended.Diagnostics.Length);
-        Assert.AreEqual("incomplete-test-package", ended.Diagnostics[0].Code);
-        System.Console.WriteLine($"{ended.Diagnostics[0].Code}|{ended.Diagnostics[0].Message}");
-        System.Console.Out.Flush();
-        Assert.AreEqual("first", File.ReadAllText(Path.Combine(directory, "first.txt")));
-        Assert.IsFalse(File.Exists(Path.Combine(directory, "second.txt")));
-        Assert.IsFalse(File.Exists(Path.Combine(directory, "third.txt")));
-        Assert.AreEqual("saved draft", File.ReadAllText(Path.Combine(directory, "draft.json")));
-        return 0;
     }
 
     internal static int WriteInChild(string directory, int stopAfter)

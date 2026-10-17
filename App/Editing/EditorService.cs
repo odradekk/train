@@ -76,7 +76,7 @@ internal sealed class EditorService : IDisposable
         Changed?.Invoke();
     }
 
-    internal void OpenDraft(SavedContentDraft draft)
+    internal void OpenDraft(SavedContentDraft draft, bool unsaved = false)
     {
         var design = draft.Payload switch
         {
@@ -86,7 +86,7 @@ internal sealed class EditorService : IDisposable
             _ => null
         };
         if (design is null) { Report("该草稿不是可编辑的蓝图。"); return; }
-        Open(design, draft.Target, TargetBlueprint(draft.Target));
+        Open(design, draft.Target, TargetBlueprint(draft.Target), unsaved);
         if (_opening is not null) _draft = draft.Id;
     }
 
@@ -298,7 +298,7 @@ internal sealed class EditorService : IDisposable
         return false;
     }
 
-    private void ClearFeedback()
+    internal void ClearFeedback()
     {
         HasError = false;
         Message = null;

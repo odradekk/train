@@ -214,7 +214,12 @@ public sealed class AuthoringServiceTests
         fixture.Pump(() => fixture.Editor.IsOpen && !fixture.Editor.IsBusy);
         Assert.AreEqual(fixture.Service.Package.SourceVersion, ((DraftTarget.PackageDefinition)fixture.Editor.Target!).SourceVersion);
         Assert.AreEqual(((DefinitionDraft.Blueprint)((DraftPayload.Definition)saved.Payload).Value).Value, fixture.Editor.State!.Snapshot.Draft);
+        Assert.IsTrue(fixture.Editor.IsDirty);
+        fixture.Editor.RequestClose(() => { });
+        Assert.IsTrue(fixture.Editor.Leaving);
+        fixture.Editor.ResolveClose(LeaveChoice.Cancel);
         fixture.Editor.SaveDraft(); fixture.Pump(() => !fixture.Editor.IsBusy);
+        Assert.IsFalse(fixture.Editor.IsDirty);
         var resaved = fixture.Service.Drafts().Single();
         Assert.AreEqual(saved.Id, resaved.Id);
         Assert.AreEqual(fixture.Service.Package.SourceVersion, ((DraftTarget.PackageDefinition)resaved.Target).SourceVersion);
