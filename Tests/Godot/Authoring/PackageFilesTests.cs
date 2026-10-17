@@ -141,7 +141,7 @@ public sealed class PackageFilesTests
         var restart = new ProcessStartInfo("dotnet")
         {
             UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true,
-            CreateNoWindow = true
+            CreateNoWindow = true, StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8
         };
         foreach (var argument in new[] { typeof(PackageFilesTests).Assembly.Location, "--package-load-process", files.Root }) restart.ArgumentList.Add(argument);
         using var restarted = Process.Start(restart)!;
@@ -163,6 +163,7 @@ public sealed class PackageFilesTests
 
     internal static int LoadInChild(string directory)
     {
+        System.Console.OutputEncoding = Encoding.UTF8;
         // This finite content scenario checks host restart/loading diagnostics, not the production package decoder.
         using var fixture = new HostFixture();
         var loadCalls = 0;
