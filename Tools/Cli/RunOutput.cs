@@ -12,9 +12,9 @@ internal sealed record RunOutput(int ProcessId,
 
 internal sealed record RecipeReceipt(int CommandIndex, string Kind, string Decision,
     ImmutableArray<ProblemSample> Problems, long? QuotedTotal);
-internal sealed record ProblemSample(string Code, string Field)
+internal sealed record ProblemSample(string Code, string Field, ImmutableArray<string> RelatedIdentities)
 {
-    internal static ProblemSample From(CoreProblem problem) => new(problem.Code, problem.Field);
+    internal static ProblemSample From(CoreProblem problem) => new(problem.Code, problem.Field, problem.RelatedIdentities);
 }
 
 internal sealed record GoodSample(string Kind, string? Definition = null, string? Composition = null)
@@ -70,10 +70,21 @@ internal sealed record LeaseSample(ulong Id, ulong Settlement, ulong Inventory, 
 internal sealed record GoodsSample(GoodSample Good, long Quantity);
 internal sealed record InventorySample(ulong Id, long Capacity, long Used, long Available, string Access,
     ImmutableArray<GoodsSample> Goods);
+internal sealed record CommissionJobSample(ulong Id, string State, int Priority, long FrozenTotalWork,
+    double ProgressWork, double Progress, double ActualWorkPerSecond, ImmutableArray<string> Limits,
+    ImmutableArray<GoodsSample> InvestedGoods, ImmutableArray<ProblemSample> Blockers)
+{
+    internal static CommissionJobSample From(ConstructionJobView job) => new(job.Id.Value, job.State.ToString(),
+        job.Priority, job.FrozenTotalWork, job.ProgressWork, job.Progress, job.ActualWorkPerSecond,
+        job.Limits.Select(limit => limit.ToString()).ToImmutableArray(),
+        job.InvestedGoods.Select(goods => new GoodsSample(GoodSample.From(goods.Good), goods.Quantity)).ToImmutableArray(),
+        job.Blockers.Select(ProblemSample.From).ToImmutableArray());
+}
 
 internal sealed record EconomySample(SimulationPosition Position, long Wallet, ImmutableArray<TrainSample> Trains,
     ImmutableArray<SettlementSample> Settlements, ImmutableArray<LeaseSample> Leases,
-    ImmutableArray<InventorySample> Inventories, long UnassignedServicePayments)
+    ImmutableArray<InventorySample> Inventories, long UnassignedServicePayments,
+    ImmutableArray<CommissionJobSample> CommissionJobs)
 {
     internal static EconomySample Read(ICoreReadView view)
     {
@@ -98,7 +109,10 @@ internal sealed record EconomySample(SimulationPosition Position, long Wallet, I
             inventories.Select(inventory => new InventorySample(inventory.Id.Value, inventory.Capacity,
                 inventory.Used, inventory.Available, inventory.Access.ToString(),
                 inventory.Stacks.Select(stack => new GoodsSample(GoodSample.From(stack.Good), stack.Quantity)).ToImmutableArray()))
-                .ToImmutableArray(), view.Economy.UnassignedServicePayments.Value);
+                .ToImmutableArray(), view.Economy.UnassignedServicePayments.Value,
+            settlements.SelectMany(settlement => settlement.CommissionJobs).OrderBy(job => job.Value)
+                .Select(job => CommissionJobSample.From(((JobView.Construction)Found(view.FindJob(job))).Value))
+                .ToImmutableArray());
     }
 
     private static T Found<T>(Lookup<T> lookup) where T : notnull => lookup is Lookup<T>.Found found

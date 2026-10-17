@@ -4,7 +4,7 @@
   "seed": 40,
   "generator_version": "stage1-world-v1",
   "save": {
-    "name": "满载采购后的委托缺货",
+    "name": "满载采购后的委托受理与缺货",
     "saved_at": "2026-10-18T00:00:00Z",
     "id": "c404b542-323f-46d6-b681-d86c1f347ea8"
   },
@@ -14,20 +14,20 @@
         "loop": false,
         "stops": [
           {
-            "node": 14,
+            "node": 13,
             "kind": "station",
             "goods_rules": [
               {
-                "local_inventory": 6,
+                "local_inventory": 5,
                 "action": {
                   "maximum_unit_price": null,
                   "kind": "buy"
                 },
                 "good": {
-                  "definition": "core:staple-food",
+                  "definition": "core:structural-metal",
                   "kind": "voxel"
                 },
-                "target_quantity": 180
+                "target_quantity": 1260
               }
             ],
             "dwell_steps": 100
@@ -67,7 +67,26 @@
                   "definition": "core:staple-food",
                   "kind": "voxel"
                 },
-                "target_quantity": 180
+                "target_quantity": 1080
+              }
+            ],
+            "dwell_steps": 100
+          },
+          {
+            "node": 12,
+            "kind": "station",
+            "goods_rules": [
+              {
+                "local_inventory": 4,
+                "action": {
+                  "maximum_unit_price": null,
+                  "kind": "buy"
+                },
+                "good": {
+                  "definition": "core:fuel",
+                  "kind": "voxel"
+                },
+                "target_quantity": 1080
               }
             ],
             "dwell_steps": 100
@@ -90,62 +109,33 @@
       "kind": "train.start"
     },
     {
-      "plan": {
-        "loop": false,
-        "stops": [
-          {
-            "node": 13,
-            "kind": "station",
-            "goods_rules": [
-              {
-                "action": {
-                  "maximum_unit_price": null,
-                  "kind": "buy"
-                },
-                "target_quantity": 180,
-                "local_inventory": 5,
-                "good": {
-                  "definition": "core:structural-metal",
-                  "kind": "voxel"
-                }
-              }
-            ],
-            "dwell_steps": 100
-          }
-        ]
-      },
-      "train": 3,
-      "at": {
-        "sequence": 4,
-        "completed_steps": 0
-      },
-      "kind": "train.replace_run_plan"
-    },
-    {
-      "train": 3,
-      "at": {
-        "sequence": 5,
-        "completed_steps": 0
-      },
-      "kind": "train.start"
-    },
-    {
-      "blueprint": "core:small-locomotive",
       "facility": 37,
       "kind": "construction.commission_vehicle_work",
-      "maximum_payment": 9223372036854775807,
-      "sources": [],
       "at": {
-        "sequence": 0,
-        "completed_steps": 4000
-      }
+        "completed_steps": 10000,
+        "sequence": 0
+      },
+      "blueprint": "core:small-freight-wagon",
+      "sources": [],
+      "maximum_payment": 9223372036854775807
+    },
+    {
+      "facility": 37,
+      "kind": "construction.commission_vehicle_work",
+      "at": {
+        "completed_steps": 10000,
+        "sequence": 1
+      },
+      "blueprint": "core:small-freight-wagon",
+      "sources": [],
+      "maximum_payment": 9223372036854775807
     }
   ],
   "target": {
-    "sequence": 1,
-    "completed_steps": 4000
+    "sequence": 2,
+    "completed_steps": 10000
   },
   "checkpoint_steps": [
-    4000
+    10000
   ]
 }

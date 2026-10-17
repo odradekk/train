@@ -62,7 +62,7 @@ public sealed partial class CliProcessTests
     [OSCondition(OperatingSystems.Windows)]
     [DataRow("basic-through")]
     [DataRow("storage-tight")]
-    [DataRow("commission-shortage")]
+    [DataRow("commission-branches")]
     public async Task Committed_example_checks_without_changing_committed_files(string example)
     {
         var directory = CreateDirectory();
