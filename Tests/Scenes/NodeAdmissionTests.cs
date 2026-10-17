@@ -14,6 +14,53 @@ namespace Train.Scenes.Tests;
 public sealed class NodeAdmissionTests
 {
     [TestMethod]
+    public async Task Partial_admission_prioritizes_the_path_and_still_waits_for_a_displayed_receipt()
+    {
+        await using var run = new AdmissionRun(_ => (24000, 1));
+        await run.BuildAt(default);
+        while (run.Scene.HasPendingBuilds) run.Displayed = run.Present();
+        var before = run.Admitted.Keys.ToHashSet();
+        ScenePoint[] path = [new(304, 200, 16)];
+        await run.BuildAt(new(192, 0, 0), priorityPath: path);
+        var forward = new GridColumn(288, 0);
+        var side = new GridColumn(192, 64);
+        Assert.IsFalse(before.Contains(forward));
+        Assert.IsFalse(before.Contains(side));
+        Assert.IsTrue(run.Admitted.ContainsKey(forward), "A path part must enter before a side part closer to the focus.");
+        Assert.IsTrue(run.Completed.ContainsKey(side));
+        Assert.IsFalse(run.Admitted.ContainsKey(side));
+        var added = run.Admitted.Keys.Where(from => !before.Contains(from)).ToArray();
+        Assert.IsTrue(added.Length > 0 && added.Length * 24000 <= NodeStreaming.AdmissionVertexLimit);
+        var offered = run.Present();
+        var frozen = run.Admitted.Keys.ToArray();
+        run.Scene.Pump(focus: new(192, 0, 0), priorityPath: path);
+        CollectionAssert.AreEquivalent(frozen, run.Admitted.Keys.ToArray());
+        run.Displayed = offered;
+        run.Present();
+        Assert.IsTrue(run.Admitted.Count > frozen.Length, "A matching receipt must release the next admission batch.");
+    }
+
+    [TestMethod]
+    public async Task Loading_admits_completed_path_parts_beyond_the_near_circle_but_keeps_side_parts_queued()
+    {
+        await using var run = new AdmissionRun(_ => (12000, 1));
+        ScenePoint[] path = Enumerable.Range(0, 5).Select(index => new ScenePoint(index * 32, 200, 0)).ToArray();
+        await run.BuildAt(default, path);
+        var forward = new GridColumn(128, 0);
+        var side = new GridColumn(0, 96);
+        Assert.IsFalse(new NodeRange(default, NodeStreaming.NearCells).Intersects(forward));
+        Assert.IsTrue(run.Completed.ContainsKey(forward));
+        Assert.IsTrue(run.Admitted.ContainsKey(forward), "Loading must admit the path through 64m ahead regardless of height or budget.");
+        Assert.IsTrue(run.Completed.ContainsKey(side));
+        Assert.IsFalse(run.Admitted.ContainsKey(side), "A completed side part outside the near circle must wait for a batch.");
+        Assert.IsTrue(run.Admitted.Count * 12000 > NodeStreaming.AdmissionVertexLimit);
+        var first = run.Present();
+        Assert.AreEqual(SceneReadiness.Partial, first.Readiness);
+        Assert.IsInstanceOfType<Lookup<WorldLocation>.Found>(first.Locate(new(forward.X + .5f, 1, forward.Z + .5f)));
+        Assert.IsInstanceOfType<Lookup<WorldLocation>.Missing>(first.Locate(new(side.X + .5f, 1, side.Z + .5f)));
+    }
+
+    [TestMethod]
     [DataRow("session")]
     [DataRow("request")]
     [DataRow("space")]
@@ -196,14 +243,15 @@ public sealed class NodeAdmissionTests
             });
         }
 
-        internal async Task BuildAt(ScenePoint focus)
+        internal async Task BuildAt(ScenePoint focus, IReadOnlyList<ScenePoint>? loadingPath = null,
+            IReadOnlyList<ScenePoint>? priorityPath = null)
         {
             await Scene.BuildWork!;
-            Scene.Pump(focus: focus);
+            Scene.Pump(focus: focus, priorityPath: priorityPath, loadingPath: loadingPath);
             while (Scene.PendingWork.Length > 0)
             {
                 await SceneFixtures.AwaitPendingWork(Scene.PendingWork);
-                Scene.Pump(focus: focus);
+                Scene.Pump(focus: focus, priorityPath: priorityPath, loadingPath: loadingPath);
             }
         }
 

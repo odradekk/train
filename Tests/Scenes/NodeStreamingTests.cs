@@ -17,6 +17,43 @@ public sealed class NodeStreamingTests
     private static readonly SceneFrameRequest Request = new(1, null, SceneDebugLayer.None);
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Dispatch_uses_the_path_when_following_and_the_focus_otherwise(bool following)
+    {
+        var snapshot = Snapshot(true);
+        var started = new ConcurrentQueue<GridColumn>();
+        var filled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles, build: (data, from, old, token) =>
+        {
+            started.Enqueue(from);
+            if (started.Count == RailwayCoordinates.MaxConcurrentBuilds) filled.TrySetResult();
+            release.Wait(token);
+            return SmallPart(data, from, old, token);
+        });
+        ScenePoint[] path = [new(128, 200, 16)];
+        try
+        {
+            await scene.BuildWork!;
+            scene.Pump(focus: default(ScenePoint), priorityPath: following ? path : null);
+            await filled.Task;
+            var priority = new NodeRange(following ? path[0] : default, 0);
+            var expected = new NodeRange(default, NodeStreaming.PrefetchCells).Chunks(scene.Layout!)
+                .OrderBy(from => priority.DistanceSquared(new(new(from.X, -128, from.Z),
+                    new(from.X + VoxelGrid.ChunkSize, 128, from.Z + VoxelGrid.ChunkSize))))
+                .ThenBy(NodeScene.ChunkKey, StringComparer.Ordinal).Take(RailwayCoordinates.MaxConcurrentBuilds).ToArray();
+            CollectionAssert.AreEquivalent(expected, started.ToArray());
+            Assert.AreEqual(RailwayCoordinates.MaxConcurrentBuilds, started.Count);
+            if (following) Assert.IsTrue(started.All(from => from.X >= 96),
+                "Path parts ahead must start before side parts nearer the vehicle focus, ignoring sample height.");
+            scene.SetBuildAllowed(false);
+        }
+        finally { release.Set(); }
+    }
+
+    [TestMethod]
     public async Task Ahead_circle_builds_and_retains_parts_beyond_the_train_retention_circle()
     {
         var snapshot = Snapshot(true);
