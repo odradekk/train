@@ -21,7 +21,7 @@ public sealed class BuiltInContentTests
         var mods = new C.ContentRoot(Path.Combine(repository.FullName, "TestResults", "builtin-test-mods-" + Guid.NewGuid().ToString("N")));
         var factory = ContentFactory.Create();
         var result = factory.PrepareLoad(new(new(builtIn, mods, null, "0.0.56", []), new C.ContentLoadPurpose.Initial()),
-            new DiskFiles(), new PngHeaderInspector());
+            new ContentDiskFiles(), new PngHeaderInspector());
         Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Success>(result, result.ToString());
         using var candidate = ((C.ContentResult<C.IContentCandidate>.Success)result).Value;
         Assert.AreEqual(0, candidate.Report.Diagnostics.Length);
@@ -193,7 +193,7 @@ public sealed class BuiltInContentTests
             File.WriteAllText(file, process.ToJsonString());
             var factory = ContentFactory.Create();
             var installation = new C.ContentInstallation(new(Path.Combine(repository.FullName, "builtin", "core")), new(directory), null, "0.0.56", [new(package)]);
-            var files = new DiskFiles();
+            var files = new ContentDiskFiles();
             var inspector = new PngHeaderInspector();
             using var initial = ContentCaptureTests.Success(factory.PrepareLoad(new(installation, new C.ContentLoadPurpose.Initial()), files, inspector));
             var original = initial.View.Core.Processes.Single(process => ProcessReference(process.Details) == new K.ProcessRef.Production(new(package + ":test")));
@@ -233,30 +233,6 @@ public sealed class BuiltInContentTests
         Assert.IsTrue(complete.IsValid, id);
         Assert.AreEqual(0, complete.Diagnostics.Length);
         return complete;
-    }
-
-    private sealed class DiskFiles : C.IContentFiles
-    {
-        public C.ContentIoResult<ImmutableArray<C.ContentFileEntry>> Enumerate(C.ContentPath directory)
-        {
-            var path = Path.Combine(directory.Root.Key, directory.RelativePath);
-            if (!Directory.Exists(path))
-                return new C.ContentIoResult<ImmutableArray<C.ContentFileEntry>>.Failure(C.ContentIoFailure.Missing, path);
-            return new C.ContentIoResult<ImmutableArray<C.ContentFileEntry>>.Success(Directory.EnumerateFileSystemEntries(path)
-                .Select(entry => new C.ContentFileEntry(Path.GetFileName(entry),
-                    (File.GetAttributes(entry) & FileAttributes.ReparsePoint) != 0 ? C.ContentEntryKind.Link :
-                    Directory.Exists(entry) ? C.ContentEntryKind.Directory : C.ContentEntryKind.File)).ToImmutableArray());
-        }
-
-        public C.ContentIoResult<ImmutableArray<byte>> Read(C.ContentPath file, long maximumBytes)
-        {
-            var path = Path.Combine(file.Root.Key, file.RelativePath);
-            if (!File.Exists(path))
-                return new C.ContentIoResult<ImmutableArray<byte>>.Failure(C.ContentIoFailure.Missing, path);
-            if (new FileInfo(path).Length > maximumBytes)
-                return new C.ContentIoResult<ImmutableArray<byte>>.Failure(C.ContentIoFailure.LimitExceeded, path);
-            return new C.ContentIoResult<ImmutableArray<byte>>.Success(File.ReadAllBytes(path).ToImmutableArray());
-        }
     }
 
     // 只提供 PNG 头中的尺寸事实；本测试不证明 Godot 能解码这些资产。

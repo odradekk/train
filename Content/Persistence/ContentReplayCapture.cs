@@ -35,7 +35,7 @@ internal sealed class ContentReplayCapture(ImmutableArray<C.IContentView> histor
         var blobs = views.SelectMany(view => view.Source!.FileBytes)
             .GroupBy(bytes => ContentHash.FromBytes(bytes.AsSpan())).OrderBy(group => group.Key, StringComparer.Ordinal);
         writer.WriteStartObject();
-        writer.WriteNumber("format_version", 5);
+        writer.WriteNumber("format_version", 6);
         writer.WriteStartArray("blobs");
         foreach (var blob in blobs)
         {
@@ -52,6 +52,9 @@ internal sealed class ContentReplayCapture(ImmutableArray<C.IContentView> histor
             writer.WriteStartObject();
             writer.WriteString("input", view.Core.Identity.Value);
             writer.WriteNumber("generation", view.Generation.Value);
+            writer.WriteStartArray("runtime_designs");
+            foreach (var design in view.Core.Designs.OrderBy(d => d.Design.Value, StringComparer.Ordinal)) writer.WriteStringValue(design.Design.Value);
+            writer.WriteEndArray();
             writer.WritePropertyName("source");
             view.Source!.Write(writer);
             writer.WritePropertyName("content");
@@ -74,8 +77,8 @@ internal sealed class ContentReplayCapture(ImmutableArray<C.IContentView> histor
 
     internal static ContentReplayCapture Read(JsonElement root)
     {
-        if (Int32(Required(root, "format_version", ""), "/format_version") != 5)
-            Fail("/format_version", "复现内容载荷只支持版本 5。", "unsupported_format");
+        if (Int32(Required(root, "format_version", ""), "/format_version") != 6)
+            Fail("/format_version", "复现内容载荷只支持版本 6。", "unsupported_format");
         Object(root, "", "format_version", "blobs", "history");
         var blobs = new Dictionary<string, ImmutableArray<byte>>(StringComparer.Ordinal);
         foreach (var (value, field) in Items(Required(root, "blobs", ""), "/blobs"))
@@ -96,9 +99,12 @@ internal sealed class ContentReplayCapture(ImmutableArray<C.IContentView> histor
         var captures = ImmutableArray.CreateBuilder<ContentCapture>();
         foreach (var (value, field) in Items(Required(root, "history", ""), "/history"))
         {
-            Object(value, field, "input", "generation", "source", "content", "missing");
+            Object(value, field, "input", "generation", "runtime_designs", "source", "content", "missing");
             var identity = new K.CoreInputId(ContentCapture.ReadHash(Required(value, "input", field), field + "/input"));
             var generation = new C.ContentGeneration(UInt64(Required(value, "generation", field), field + "/generation", 1));
+            var runtimeDesigns = Items(Required(value, "runtime_designs", field), field + "/runtime_designs")
+                .Select(item => new K.DesignHash(ContentCapture.ReadHash(item.Value, item.Field))).ToImmutableArray();
+            Unique(runtimeDesigns, field + "/runtime_designs");
             var sourceValue = Required(value, "source", field);
             ContentSourceSnapshot source;
             try { source = ContentSourceSnapshot.Read(sourceValue, immutableBlobs); }
@@ -130,13 +136,16 @@ internal sealed class ContentReplayCapture(ImmutableArray<C.IContentView> histor
             try
             {
                 view = ((ContentView)candidate.View).WithCapture(capture,
-                    new(capture.Designs, capture.Templates, missing, [identity]), generation);
+                    new(runtimeDesigns.Where(capture.Designs.Contains).ToImmutableArray(), capture.Templates, missing, [identity]), generation);
             }
             catch (DefinitionFormatException exception)
             {
                 throw new DefinitionFormatException(field + "/content" + exception.Field, exception.Message, exception.Code);
             }
             if (view.Core.Identity != identity) ContentCapture.Inconsistent(field + "/input", "重算的输入身份与记录不一致。");
+            if (!view.Core.Designs.Select(d => d.Design).OrderBy(d => d.Value, StringComparer.Ordinal)
+                .SequenceEqual(runtimeDesigns.OrderBy(d => d.Value, StringComparer.Ordinal)))
+                ContentCapture.Inconsistent(field + "/runtime_designs", "运行设计目录与重建内容不一致。");
             if (!view.Core.MissingReferences.SequenceEqual(missing.Select(m => new K.MissingCoreReference(m.Definition, m.Field))))
                 ContentCapture.Inconsistent(field + "/missing", "缺失清单与重建内容不一致。");
             history.Add(view);
