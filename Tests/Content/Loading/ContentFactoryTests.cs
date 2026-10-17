@@ -43,16 +43,18 @@ public sealed class ContentFactoryTests
     }
 
     [TestMethod]
-    public void Deferred_load_purposes_and_user_library_throw_before_fault_conversion()
+    public void User_library_loads_and_invalid_restore_reload_arguments_throw_before_fault_conversion()
     {
         var fixture = new ContentFixture();
         var factory = ContentFactory.Create();
         using var candidate = fixture.Load();
-        Assert.ThrowsExactly<NotImplementedException>(() => factory.PrepareLoad(
+        fixture.AddDirectory(new("library"), "");
+        using var library = Success(factory.PrepareLoad(
             new(fixture.Installation with { UserLibrary = new C.ContentRoot("library") }, new C.ContentLoadPurpose.Initial()), fixture, fixture));
-        Assert.ThrowsExactly<NotImplementedException>(() => factory.PrepareLoad(
+        Assert.AreEqual(0, library.View.Blueprints.Length);
+        Assert.ThrowsExactly<ArgumentNullException>(() => factory.PrepareLoad(
             new(fixture.Installation with { UserLibrary = new C.ContentRoot("library") }, new C.ContentLoadPurpose.Restore(null!, null!)), fixture, fixture));
-        Assert.ThrowsExactly<NotImplementedException>(() => factory.PrepareLoad(
+        Assert.ThrowsExactly<ArgumentNullException>(() => factory.PrepareLoad(
             new(fixture.Installation with { UserLibrary = new C.ContentRoot("library") }, new C.ContentLoadPurpose.Reload(candidate.View, null!)), fixture, fixture));
         Assert.ThrowsExactly<NotImplementedException>(() => factory.OpenAuthoringPackage(ContentFixture.BuiltIn, new("core"), new("unused"), fixture));
     }

@@ -9,6 +9,7 @@ using K = Train.Core.Contracts;
 
 namespace Train.Content.Persistence;
 
+internal sealed record CapturedBlueprint(C.BlueprintAddress Address, C.DesignDraft Definition, ImmutableArray<C.PackageMetadata> UsedPackages);
 internal sealed record CapturedDesign(K.DesignHash Hash, C.DesignDraft Definition, K.CompositeDefinitionId? Composite);
 internal sealed record CapturedAssembly(K.CompositionHash Composition, K.DesignHash Design);
 internal sealed record CapturedTemplate(K.SettlementId Owner, K.SettlementTemplateId Source,
@@ -16,8 +17,11 @@ internal sealed record CapturedTemplate(K.SettlementId Owner, K.SettlementTempla
 
 internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<CapturedDesign> designs,
     ImmutableArray<CapturedTemplate> templates, ImmutableArray<C.PackageMetadata> packages,
-    ImmutableArray<CapturedAssembly> assemblyDisplays) : C.IContentCapture
+    ImmutableArray<CapturedAssembly> assemblyDisplays, ImmutableArray<CapturedBlueprint> localBlueprints = default,
+    ImmutableArray<C.SavedContentDraft> localDrafts = default) : C.IContentCapture
 {
+    internal ImmutableArray<CapturedBlueprint> LocalBlueprints { get; } = localBlueprints.IsDefault ? [] : localBlueprints;
+    internal ImmutableArray<C.SavedContentDraft> LocalDrafts { get; } = localDrafts.IsDefault ? [] : localDrafts;
     public C.ContentRevision Revision { get; } = revision;
     internal ImmutableArray<CapturedAssembly> AssemblyDisplays { get; } = assemblyDisplays;
     internal ImmutableArray<CapturedDesign> Records { get; } = designs;
@@ -54,7 +58,7 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
             return new CapturedTemplate(layout.Owner, layout.SourceTemplate, layout.Display, layout.Plots, layout.SceneModel.Design);
         }).OrderBy(t => t.Owner.Value).ToImmutableArray();
         Unique(layouts.Select(t => t.Owner), "/templates");
-        var records = references.Designs.Concat(layouts.Select(t => t.SceneModel)).Concat(view.AssemblyDisplays.Select(d => d.Design)).Distinct()
+        var records = references.Designs.Concat(layouts.Select(t => t.SceneModel)).Concat(view.AssemblyDisplays.Select(d => d.Design)).Concat(view.SavedDesigns.Select(d => d.Hash)).Distinct()
             .OrderBy(hash => hash.Value, StringComparer.Ordinal).Select(hash =>
             {
                 if (view.FindDesign(hash) is not C.ContentLookup<C.DesignEvaluation>.Found found)
@@ -77,13 +81,17 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
                 var composite = kind is K.DesignKind.LargeEquipment { ManufacturedGood: K.GoodId.Composite good } ? good.Definition : (K.CompositeDefinitionId?)null;
                 return new CapturedDesign(hash, draft, composite);
             }).ToImmutableArray();
+        var localBlueprints = view.LocalBlueprints.Select(b => new CapturedBlueprint(b.Address, b.Definition, b.UsedPackages)).ToImmutableArray();
+        var localDrafts = view.LocalDrafts;
+        var authoring = localBlueprints.Select(b => b.Definition).Concat(localDrafts.Select(d => ((C.DraftPayload.Design)d.Payload).Value));
         var usedPackages = records.SelectMany(d => DesignTraversal.References(d.Definition).Select(r => ContentView.DefinitionId(r.Reference).Split(':')[0]))
             .Concat(records.Where(d => d.Composite is not null).Select(d => d.Composite!.Value.Value.Split(':')[0]))
+            .Concat(authoring.SelectMany(d => DesignTraversal.References(d).Select(r => ContentView.DefinitionId(r.Reference).Split(':')[0])))
             .Concat(layouts.Select(t => t.Source.Value.Split(':')[0]))
             .Concat(references.Definitions.Select(d => ContentView.DefinitionId(d.Definition).Split(':')[0])).ToHashSet(StringComparer.Ordinal);
-        var metadata = view.Packages.Select(p => p.Metadata).OfType<C.PackageMetadata>().Concat(view.SavedPackages)
+        var metadata = view.Packages.Select(p => p.Metadata).OfType<C.PackageMetadata>().Concat(view.SavedPackages).Concat(localBlueprints.SelectMany(b => b.UsedPackages))
             .DistinctBy(p => p.Id).Where(p => usedPackages.Contains(p.Id.Value)).OrderBy(p => p.Id.Value, StringComparer.Ordinal).ToImmutableArray();
-        return new(view.PersistentRevision, records, layouts, metadata, view.AssemblyDisplays);
+        return new(view.PersistentRevision, records, layouts, metadata, view.AssemblyDisplays, localBlueprints, localDrafts);
     }
 
     public string Encode() => Encode(Write);
@@ -91,7 +99,7 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
     internal void Write(Utf8JsonWriter writer)
     {
         writer.WriteStartObject();
-        writer.WriteNumber("format_version", 4);
+        writer.WriteNumber("format_version", 5);
         writer.WriteNumber("revision", Revision.Value);
         writer.WriteStartArray("packages");
         foreach (var package in ReferencedPackages.OrderBy(p => p.Id.Value, StringComparer.Ordinal))
@@ -153,14 +161,25 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
             writer.WriteEndObject();
         }
         writer.WriteEndArray();
+        writer.WriteStartArray("local_blueprints");
+        foreach (var blueprint in LocalBlueprints.OrderBy(b => b.Address.Id.Value, StringComparer.Ordinal))
+            PlayerBlueprint.Write(writer, blueprint);
+        writer.WriteEndArray();
+        writer.WriteStartArray("local_drafts");
+        foreach (var draft in LocalDrafts.OrderBy(d => d.Id.Value))
+        {
+            using var encoded = Parse(ContentDraftCodec.Encode(draft));
+            encoded.RootElement.WriteTo(writer);
+        }
+        writer.WriteEndArray();
         writer.WriteEndObject();
     }
 
     internal static ContentCapture Read(JsonElement root, string field = "")
     {
-        if (Int32(Required(root, "format_version", field), field + "/format_version") != 4)
-            Fail(field + "/format_version", "内容载荷只支持版本 4。", "unsupported_format");
-        Object(root, field, "format_version", "revision", "packages", "designs", "templates", "assembly_displays");
+        if (Int32(Required(root, "format_version", field), field + "/format_version") != 5)
+            Fail(field + "/format_version", "内容载荷只支持版本 5。", "unsupported_format");
+        Object(root, field, "format_version", "revision", "packages", "designs", "templates", "assembly_displays", "local_blueprints", "local_drafts");
         var revision = new C.ContentRevision(UInt64(Required(root, "revision", field), field + "/revision"));
         var packages = Items(Required(root, "packages", field), field + "/packages").Select(item => ReadPackage(item.Value, item.Field)).ToImmutableArray();
         Unique(packages.Select(p => p.Id), field + "/packages");
@@ -214,7 +233,28 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
             return new CapturedTemplate(owner, source, display, plots, scene);
         }).OrderBy(t => t.Owner.Value).ToImmutableArray();
         Unique(templates.Select(t => t.Owner), field + "/templates");
-        return new(revision, designs, templates, packages, displays);
+        var blueprints = Items(Required(root, "local_blueprints", field), field + "/local_blueprints").Select(item =>
+        {
+            try { return PlayerBlueprint.ReadDefinition(item.Value, C.BlueprintLibrary.Local); }
+            catch (DefinitionFormatException exception)
+            { throw new DefinitionFormatException(item.Field + exception.Field, exception.Message, "inconsistent_capture"); }
+        }).OrderBy(b => b.Address.Id.Value, StringComparer.Ordinal).ToImmutableArray();
+        Unique(blueprints.Select(b => b.Address.Id), field + "/local_blueprints");
+        var drafts = Items(Required(root, "local_drafts", field), field + "/local_drafts").Select(item =>
+        {
+            C.SavedContentDraft draft;
+            try { draft = ContentDraftCodec.Decode(item.Value); }
+            catch (DefinitionFormatException exception)
+            { throw new DefinitionFormatException(item.Field + exception.Field, exception.Message, "inconsistent_capture"); }
+            catch (Exception exception) when (exception is JsonException or NotImplementedException or ArgumentException)
+            { throw new DefinitionFormatException(item.Field, "草稿载荷无效。", "inconsistent_capture"); }
+            if (draft.Target is C.DraftTarget.UserBlueprint)
+                Inconsistent(item.Field + "/target", "本局草稿不能指向用户库。");
+            return draft;
+        }).OrderBy(d => d.Id.Value).ToImmutableArray();
+        Unique(drafts.Select(d => d.Id), field + "/local_drafts");
+        Unique(drafts.Select(d => d.Target).OfType<C.DraftTarget.Instance>().Select(t => t.Id), field + "/local_drafts");
+        return new(revision, designs, templates, packages, displays, blueprints, drafts);
     }
 
     private static C.PackageMetadata ReadPackage(JsonElement value, string field)

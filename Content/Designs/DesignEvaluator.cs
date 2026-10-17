@@ -18,9 +18,6 @@ internal static class DesignEvaluator
             throw new NotImplementedException("生物设计尚未实现。");
         if (draft.Specification is C.DesignSpecification.FunctionalComposite && compositeIdentity is null)
             throw new NotImplementedException("根功能复合体草稿缺少定义身份，不能推断货物标识。");
-        if (draft.Specification is C.DesignSpecification.Vehicle { Size: null } or
-            C.DesignSpecification.Building { PlotSize: null } or C.DesignSpecification.Building { Kind: null })
-            throw new NotImplementedException("不完整草稿的部分计算尚未实现。");
 
         draft = DesignTraversal.Normalize(draft);
 
@@ -28,13 +25,29 @@ internal static class DesignEvaluator
         void Invalid(string field, string message, int? cell = null) => diagnostics.Add(new(
             "design_invalid", C.ContentDiagnosticSeverity.Error, "evaluate", null, null, field,
             cell is null ? null : new C.DesignElementPath.Cell([], cell.Value), message));
+        void CheckSpecification(C.DesignDraft value, string field)
+        {
+            if (value.Specification is C.DesignSpecification.Vehicle { Size: null })
+                Invalid(field + "/simulation/size_class", "车辆尺寸尚未指定。");
+            if (value.Specification is C.DesignSpecification.Building { PlotSize: null })
+                Invalid(field + "/simulation/plot_size", "建筑地块尺寸尚未指定。");
+            if (value.Specification is C.DesignSpecification.Building { Kind: null })
+                Invalid(field + "/simulation/building_type", "建筑类型尚未指定。");
+            foreach (var (item, index) in DesignTraversal.Items(value))
+                if (DesignTraversal.Copy(item) is { } copy)
+                    CheckSpecification(copy, field + $"/layout/composites/{index}/design");
+        }
+        CheckSpecification(draft, "");
+        var specificationMissing = diagnostics.Count > 0;
+        var specificationDiagnosticCount = diagnostics.Count;
         var cells = DesignTraversal.Cells(draft).ToArray();
         foreach (var item in cells)
         {
             if (item.Cell.PaletteIndex < 0 || item.Cell.PaletteIndex >= draft.Layout.Palette.Length)
                 Invalid($"/layout/cells/{item.Index}/3", "调色板序号超出范围。", item.Index);
         }
-        if (diagnostics.Count > 0) return new C.DesignEvaluation.Failed(diagnostics.ToImmutable());
+        if (diagnostics.Count > specificationDiagnosticCount)
+            return new C.DesignEvaluation.Failed(diagnostics.ToImmutable());
         var anchors = new HashSet<C.GridPosition>();
         foreach (var (item, index) in DesignTraversal.Items(draft))
         {
@@ -52,7 +65,6 @@ internal static class DesignEvaluator
             var voxel = content.FindVoxel(entry.Voxel);
             if (voxel is null)
             {
-                if (!allowMissing) throw new NotImplementedException("只有已保存设计支持缺失定义的部分计算。");
                 var field = $"/layout/palette/{index}/voxel";
                 missing.Add(new(new K.CoreDefinitionReference.Voxel(entry.Voxel), field));
                 diagnostics.Add(new("reference_missing", C.ContentDiagnosticSeverity.Error, "evaluate", null,
@@ -72,8 +84,8 @@ internal static class DesignEvaluator
             }
         }
 
-        var design = Identity(draft);
-        var composition = new K.CompositionHash(DesignTraversal.Hash(draft, true));
+        K.DesignHash? design = specificationMissing ? null : Identity(draft);
+        K.CompositionHash? composition = specificationMissing ? null : new(DesignTraversal.Hash(draft, true));
         var envelope = Envelope(draft.Specification);
         var sceneOnly = draft.Specification is C.DesignSpecification.SceneModel;
         if (cells.Length == 0 && draft.Layout.NestedItems.IsEmpty) Invalid("/layout/cells", "布局必须非空。");
@@ -81,11 +93,12 @@ internal static class DesignEvaluator
         if (draft.Display.Description.Length is < 1 or > 2000) Invalid("/display/description", "说明长度必须为 1–2000。");
         if (draft.Specification is C.DesignSpecification.Building building)
         {
-            if (PlotRules.IsStation(building.PlotSize!.Value) != (building.Kind == K.BuildingKind.Station))
+            if (building.PlotSize is { } plot && building.Kind is { } buildingKind &&
+                PlotRules.IsStation(plot) != (buildingKind == K.BuildingKind.Station))
                 Invalid("/simulation/building_type", "站点尺寸和站点建筑类型必须相互对应。");
             if (building.FacilityTags.Distinct().Count() != building.FacilityTags.Length)
                 Invalid("/simulation/facility_tags", "设施标签不能重复。");
-            if (!Enum.IsDefined(building.Kind!.Value)) Invalid("/simulation/building_type", "未知建筑类型。");
+            if (building.Kind is { } kindValue && !Enum.IsDefined(kindValue)) Invalid("/simulation/building_type", "未知建筑类型。");
             if (building.FacilityTags.Any(tag => !Enum.IsDefined(tag))) Invalid("/simulation/facility_tags", "未知设施标签。");
         }
         if (draft.Specification is C.DesignSpecification.SceneModel { Flatten: { } flatten } &&
@@ -172,7 +185,6 @@ internal static class DesignEvaluator
                 Invalid(field + "/paint", "颜色必须为小写 #rrggbb。");
             if (childDraft is null)
             {
-                if (!allowMissing) throw new NotImplementedException("只有已保存设计支持缺失定义的部分计算。");
                 var definition = new K.CoreDefinitionReference.Composite(reference!.Definition);
                 var reason = new C.ContentDiagnostic("reference_missing", C.ContentDiagnosticSeverity.Error, "evaluate", null,
                     new(new(reference.Definition.Value.Split(':')[0]), ""), field + "/blueprint", element, "功能复合体定义缺失。");
@@ -189,19 +201,24 @@ internal static class DesignEvaluator
                 item is C.NestedDesignItem.AssemblyCopy && childDraft.Specification is not C.DesignSpecification.Assembly ||
                 item is C.NestedDesignItem.SceneModelCopy && childDraft.Specification is not C.DesignSpecification.SceneModel)
             { Invalid(field + "/design/category", "宿主不允许此复制设计或其中的功能参数。"); continue; }
-            var child = Evaluate(content, childDraft, allowMissing, reference?.Definition, depth + 1);
+            // 子对象的占位投影只用于汇总已知部分；公开的新草稿不返回运行占位。
+            var child = Evaluate(content, childDraft, true, reference?.Definition, depth + 1);
             ImmutableArray<C.ContentDiagnostic> childDiagnostics = child switch { C.DesignEvaluation.Complete c => c.Diagnostics,
                 C.DesignEvaluation.Partial p => p.Diagnostics, C.DesignEvaluation.Failed f => f.Diagnostics, _ => throw new InvalidOperationException() };
             diagnostics.AddRange(childDiagnostics.Select(d => Prefix(d, index, reference is null ? "/design" : "/blueprint")));
             if (child is C.DesignEvaluation.Failed) return new C.DesignEvaluation.Failed(diagnostics.ToImmutable());
             var childScene = child is C.DesignEvaluation.Complete complete ? complete.Scene : ((C.DesignEvaluation.Partial)child).Scene;
             var childCore = child is C.DesignEvaluation.Complete full ? full.Core?.Design : ((C.DesignEvaluation.Partial)child).CorePlaceholder;
-            var childComposition = child is C.DesignEvaluation.Complete computed ? computed.Composition
-                : new K.CompositionHash(DesignTraversal.Hash(childDraft, true));
-            var childGood = reference is not null ? (K.GoodId)new K.GoodId.Composite(reference.Definition) : new K.GoodId.Assembly(childComposition);
-            var childParts = childCore?.Parts.Select(p => p with { Id = new(p.Id.Value + number.Value) }).ToImmutableArray() ?? [];
+            if (child is C.DesignEvaluation.Partial && childCore is null)
+                foreach (var dependency in DesignTraversal.References(childDraft))
+                    if (dependency.Reference is K.CoreDefinitionReference.Voxel voxel && content.FindVoxel(voxel.Id) is null ||
+                        dependency.Reference is K.CoreDefinitionReference.Composite composite && content.FindComposite(composite.Id) is null)
+                        missing.Add(new(dependency.Reference, field + "/design" + dependency.Field));
             if (childCore is not null)
             {
+                var childComposition = childCore.Composition;
+                var childGood = reference is not null ? (K.GoodId)new K.GoodId.Composite(reference.Definition) : new K.GoodId.Assembly(childComposition);
+                var childParts = childCore.Parts.Select(p => p with { Id = new(p.Id.Value + number.Value) }).ToImmutableArray();
                 mass += childCore.MassTons;
                 if (child is C.DesignEvaluation.Complete) bom[childGood] = checked(bom.GetValueOrDefault(childGood) + 1);
                 missing.AddRange(childCore.MissingReferences.Select(m => m with { FieldPath = field + (reference is null ? "/design" : "/blueprint") + m.FieldPath }));
@@ -226,6 +243,13 @@ internal static class DesignEvaluator
                 }
                 returnUnits.Add(new(childGood, 1, reference is null ? childParts.Select(p => p.Id).ToImmutableArray() : [number],
                     reference is null ? childCore.StructuralGoods : [], missing.Skip(missingStart).ToImmutableArray()));
+            }
+            else if (child is C.DesignEvaluation.Partial partialChild)
+            {
+                mass += partialChild.KnownSubtotal.MassTons;
+                structureDurability = checked(structureDurability + partialChild.KnownSubtotal.MaxStructureDurability);
+                structuralValue = checked(structuralValue + partialChild.KnownSubtotal.StructuralBaseValue.Value);
+                parts.AddRange(partialChild.KnownSubtotal.Parts.Select(p => p with { Id = new(p.Id.Value + number.Value) }));
             }
             nestedObjects.Add(new(path, at, orientation, reference is not null
                 ? new C.NestedObjectDetails.FunctionalComposite(reference.Definition, number, childScene.RootRotation)
@@ -331,16 +355,16 @@ internal static class DesignEvaluator
             Invalid($"/layout/cells/{last.Index}", "车辆长度超出 Int32 表示范围。", last.Index);
             return new C.DesignEvaluation.Failed(diagnostics.ToImmutable());
         }
-        K.DesignKind? kind = draft.Specification switch
+        K.DesignKind? kind = specificationMissing ? null : draft.Specification switch
         {
-            C.DesignSpecification.Vehicle vehicle => new K.DesignKind.Vehicle(vehicle.Size!.Value, (int)vehicleLength),
-            C.DesignSpecification.Building b => new K.DesignKind.Building(b.PlotSize!.Value, b.Kind!.Value,
+            C.DesignSpecification.Vehicle { Size: { } size } => new K.DesignKind.Vehicle(size, (int)vehicleLength),
+            C.DesignSpecification.Building { PlotSize: { } plot, Kind: { } buildingKind } b => new K.DesignKind.Building(plot, buildingKind,
                 b.FacilityTags.OrderBy(tag => Wire(tag), StringComparer.Ordinal).ToImmutableArray()),
-            C.DesignSpecification.Assembly => new K.DesignKind.LargeEquipment(new K.GoodId.Assembly(composition)),
+            C.DesignSpecification.Assembly => new K.DesignKind.LargeEquipment(new K.GoodId.Assembly(composition!.Value)),
             C.DesignSpecification.FunctionalComposite => new K.DesignKind.LargeEquipment(new K.GoodId.Composite(compositeIdentity!.Value)),
             _ => null
         };
-        if (draft.Specification is C.DesignSpecification.Building &&
+        if (draft.Specification is C.DesignSpecification.Building && envelope is not null &&
             parts.SelectMany(p => p.Capabilities).OfType<K.PartCapability.Construction>()
                 .Select(c => c.MaximumVehicleSize).Max() is { } maximumVehicleSize)
         {
@@ -353,27 +377,29 @@ internal static class DesignEvaluator
         }
         var valid = diagnostics.Count == 0;
         var projection = kind is null ? null : new K.DesignProjection(
-            design, composition, kind, parts.ToImmutable(), structureDurability, structuralCount,
+            design!.Value, composition!.Value, kind, parts.ToImmutable(), structureDurability, structuralCount,
             mass, new(structuralValue), Goods(structuralGoods), Goods(bom), bom.Values.Sum(), returnUnits.ToImmutable(), valid, missing.ToImmutable());
-        if (draft.Specification is C.DesignSpecification.Assembly && missing.Count == 0)
-            assemblyGoods[new K.GoodId.Assembly(composition)] = AssemblyGood(composition, projection!);
+        if (draft.Specification is C.DesignSpecification.Assembly && missing.Count == 0 && !specificationMissing)
+            assemblyGoods[new K.GoodId.Assembly(composition!.Value)] = AssemblyGood(composition!.Value, projection!);
         var core = projection is null ? null : new K.DesignInput(content.Core.Identity, projection,
             assemblyGoods.Values.OrderBy(g => GoodKey(g.Good), StringComparer.Ordinal).ToImmutableArray());
         var scene = new C.DesignSceneProjection(design, bounds, envelope, occupancyComplete, rootRotation,
             (draft.Specification as C.DesignSpecification.SceneModel)?.Flatten,
             sceneVoxels.ToImmutable(), elements.ToImmutable(), nestedObjects.ToImmutable(), sweeps.ToImmutable(), locks.ToImmutable());
-        if (missing.Count > 0)
+        if (missing.Count > 0 || specificationMissing)
         {
             var reasons = diagnostics.Where(d => d.Code == "reference_missing").ToImmutableArray();
+            var metricsUnknown = elements.Any(e => e.Missing);
+            C.ComputedValue<T> Metric<T>(T value) where T : notnull => metricsUnknown
+                ? new C.ComputedValue<T>.Unknown(reasons) : new C.ComputedValue<T>.Known(value);
             return new C.DesignEvaluation.Partial(draft,
-                new(new C.ComputedValue<double>.Unknown(reasons), new C.ComputedValue<K.Money>.Unknown(reasons),
-                    new C.ComputedValue<long>.Unknown(reasons), new C.ComputedValue<ImmutableArray<K.PartProjection>>.Unknown(reasons),
-                    new C.ComputedValue<ImmutableArray<K.GoodsQuantity>>.Unknown(reasons), occupancyComplete ? new C.ComputedValue<int>.Known((int)vehicleLength) : new C.ComputedValue<int>.Unknown(reasons)),
-                new(mass, new(structuralValue), structureDurability, parts.ToImmutable(), Goods(bom)), core?.Design, scene,
-                diagnostics.Select(d => d with { Subject = new C.ContentReference.Design(design) }).ToImmutableArray());
+                new(Metric(mass), Metric(new K.Money(structuralValue)),
+                    Metric(structureDurability), Metric(parts.ToImmutable()), Metric(Goods(bom)), occupancyComplete ? new C.ComputedValue<int>.Known((int)vehicleLength) : new C.ComputedValue<int>.Unknown(reasons)),
+                new(mass, new(structuralValue), structureDurability, parts.Where(p => !p.Missing).ToImmutableArray(), Goods(bom)), allowMissing ? core?.Design : null, scene,
+                diagnostics.Select(d => d with { Subject = design is { } identity ? new C.ContentReference.Design(identity) : null }).ToImmutableArray());
         }
-        return new C.DesignEvaluation.Complete(design, composition, draft, core, scene, valid,
-            diagnostics.Select(diagnostic => diagnostic with { Subject = new C.ContentReference.Design(design) }).ToImmutableArray());
+        return new C.DesignEvaluation.Complete(design!.Value, composition!.Value, draft, core, scene, valid,
+            diagnostics.Select(diagnostic => diagnostic with { Subject = design is { } identity ? new C.ContentReference.Design(identity) : null }).ToImmutableArray());
     }
 
     private static ImmutableArray<K.GoodsQuantity> Goods(Dictionary<K.VoxelDefinitionId, long> counts) =>
@@ -421,9 +447,9 @@ internal static class DesignEvaluator
 
     private static C.GridBounds? Envelope(C.DesignSpecification specification)
     {
-        if (specification is C.DesignSpecification.Building building) return PlotRules.Envelope(building.PlotSize!.Value);
-        if (specification is not C.DesignSpecification.Vehicle vehicle) return null;
-        var (width, depth, height) = VehicleDimensions(vehicle.Size!.Value);
+        if (specification is C.DesignSpecification.Building { PlotSize: { } plot }) return PlotRules.Envelope(plot);
+        if (specification is not C.DesignSpecification.Vehicle { Size: { } size }) return null;
+        var (width, depth, height) = VehicleDimensions(size);
         return new(new(-width / 2, 0, -depth / 2),
             new(width - width / 2 - 1, height - 1, depth - depth / 2 - 1));
     }
