@@ -16,11 +16,10 @@ internal sealed class SceneDisplay : IDisposable
     private DebugLineGroup? _debugLines;
     private FogGroup? _pendingFog;
     private DebugLineGroup? _pendingDebugLines;
-    private ISceneFrame? _preparingFrame;
     private ScenePoint _spaceOrigin;
     private HashSet<SceneObjectId> _posedObjects = [];
     private bool _disposed;
-    private readonly Dictionary<(SceneObjectId Object, int Index), PreparedVisual> _pendingVisuals = [];
+    private readonly ScenePreparation<PreparedVisual> _preparation = new(static (visual, source) => visual.CanUpdate(source));
     private readonly Dictionary<SceneObjectId, Node3D> _pendingRoots = [];
     private static readonly TimeSpan PreparationBudget = TimeSpan.FromMilliseconds(4);
     private static ulong _budgetFrame;
@@ -30,7 +29,7 @@ internal sealed class SceneDisplay : IDisposable
     internal Node3D Root { get; } = new() { Name = "SceneDisplay" };
     internal ISceneFrame? DisplayedFrame { get; private set; }
     internal ISceneFrame? PoseFrame { get; private set; }
-    internal bool IsPreparing => _preparingFrame is not null;
+    internal bool IsPreparing => _preparation.Frame is not null;
     internal IReadOnlyDictionary<SceneObjectId, DisplayObject> Objects => _objects;
 
     internal SceneDisplay(AssetResourceCache cache, IContentView content)
@@ -48,14 +47,9 @@ internal sealed class SceneDisplay : IDisposable
             CancelPreparation();
             return null;
         }
-        if (_preparingFrame is { } previousFrame &&
-            (previousFrame.Update.Base != frame.Update.Base ||
-             previousFrame.Update.Frame.Session != frame.Update.Frame.Session ||
-             previousFrame.Update.Frame.Request != frame.Update.Frame.Request ||
-             previousFrame.Update.Frame.Space != frame.Update.Frame.Space))
-            CancelPreparation();
-        frame = _preparingFrame ?? frame;
-        _preparingFrame = frame;
+        if (!_preparation.SameScope(frame)) CancelPreparation();
+        var previousFrame = _preparation.Frame;
+        frame = _preparation.Select(frame, Timestamp());
         var processFrame = Engine.GetProcessFrames();
         if (_budgetFrame != processFrame)
         {
@@ -70,6 +64,7 @@ internal sealed class SceneDisplay : IDisposable
             _preparationTime + Stopwatch.GetElapsedTime(started, Timestamp()) >= PreparationBudget;
         try
         {
+            if (!ReferenceEquals(previousFrame, frame)) ReconcilePreparation(frame);
             if (update.Base is not null && update.ShiftExistingRoots != System.Numerics.Vector3.Zero)
                 foreach (var item in _objects.Values)
                     if (item.Source.Parent is null)
@@ -91,12 +86,11 @@ internal sealed class SceneDisplay : IDisposable
                     else
                     {
                         var key = (source.Id, i);
-                        if (!_pendingVisuals.TryGetValue(key, out var visual))
+                        if (!_preparation.TryGet(key, out var visual))
                         {
                             if (BudgetExpired())
                                 return null;
-                            visual = _resources.Prepare(source.Visuals[i]);
-                            _pendingVisuals.Add(key, visual);
+                            visual = _preparation.GetOrCreate(key, () => _resources.Prepare(source.Visuals[i]));
                             preparedResource = true;
                         }
                         visuals[i] = visual;
@@ -119,14 +113,12 @@ internal sealed class SceneDisplay : IDisposable
                 if (BudgetExpired()) return null;
                 _pendingDebugLines = new(frame.DebugLines);
             }
-            var prepared = new PreparedFrame(this, frame, next, [.. _pendingVisuals.Values],
+            var prepared = new PreparedFrame(this, frame, next, _preparation.Take(),
                 [.. _pendingRoots.Values], _pendingFog ?? _fog!, _pendingFog is not null,
                 frame.DebugLines.IsEmpty ? null : _pendingDebugLines ?? _debugLines, _pendingDebugLines is not null);
             _pendingFog = null;
             _pendingDebugLines = null;
-            _pendingVisuals.Clear();
             _pendingRoots.Clear();
-            _preparingFrame = null;
             return prepared;
         }
         catch
@@ -138,6 +130,23 @@ internal sealed class SceneDisplay : IDisposable
         {
             _preparationTime += Stopwatch.GetElapsedTime(started, Timestamp());
         }
+    }
+
+    private void ReconcilePreparation(ISceneFrame frame)
+    {
+        var sources = frame.Update.Upserts.ToDictionary(item => item.Id);
+        _preparation.Retain(sources, (id, index, visual) => _objects.TryGetValue(id, out var item) &&
+            index < item.Visuals.Length && item.Visuals[index].CanUpdate(visual));
+        foreach (var id in _pendingRoots.Keys.Where(id => !sources.ContainsKey(id)).ToArray())
+        {
+            var root = _pendingRoots[id];
+            _pendingRoots.Remove(id);
+            root.Free();
+        }
+        if (_pendingFog is not null && !_pendingFog.Regions.SequenceEqual(frame.Update.Environment.FoggedRegions))
+        { _pendingFog.Dispose(); _pendingFog = null; }
+        if (_pendingDebugLines is not null && !_pendingDebugLines.Lines.SequenceEqual(frame.DebugLines))
+        { _pendingDebugLines.Dispose(); _pendingDebugLines = null; }
     }
 
     internal Vector3 UpdatePoses(ISceneFrame frame)
@@ -207,10 +216,8 @@ internal sealed class SceneDisplay : IDisposable
     internal void CancelPreparation()
     {
         _cache.RequireMainThread();
-        _preparingFrame = null;
-        foreach (var visual in _pendingVisuals.Values) visual.Dispose();
+        _preparation.Cancel();
         foreach (var root in _pendingRoots.Values) root.Free();
-        _pendingVisuals.Clear();
         _pendingRoots.Clear();
         _pendingFog?.Dispose();
         _pendingFog = null;
