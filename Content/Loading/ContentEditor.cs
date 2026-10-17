@@ -22,11 +22,13 @@ internal static class ContentEditor
 
     private static C.ContentResult<C.IContentCandidate> SaveDraft(ContentView basis, C.SavedContentDraft draft)
     {
+        if (draft.Target is not (C.DraftTarget.Instance or C.DraftTarget.LocalBlueprint))
+            return Failure("invalid_field", "/target", "本局草稿必须以实例或本局蓝图为目标。");
+        if (draft.Payload is not C.DraftPayload.Design)
+            return Failure("invalid_field", "/payload", "本局草稿必须为设计草稿。");
         string encoded;
         try { encoded = ContentDraftCodec.Encode(draft); }
         catch (JsonException exception) { throw new DefinitionFormatException("/payload", exception.Message, "invalid_field"); }
-        if (draft.Target is C.DraftTarget.UserBlueprint)
-            return Failure("invalid_field", "/target", "用户库草稿不能保存在本局。");
         if (draft.Target is C.DraftTarget.Instance instance && basis.LocalDrafts.Any(existing =>
             existing.Id != draft.Id && existing.Target is C.DraftTarget.Instance other && other.Id == instance.Id))
             return Failure("duplicate_identity", "/target", "同一实例只能保存一份改装草稿。");
@@ -48,15 +50,13 @@ internal static class ContentEditor
 
     private static C.ContentResult<C.IContentCandidate> SaveBlueprint(ContentView basis, C.ContentEdit.SaveBlueprint save)
     {
-        if (save.Draft.Specification is C.DesignSpecification.FunctionalComposite)
-            return Failure("design_invalid", "/simulation/behaviors", "玩家蓝图不能带功能性行为。");
         var address = save.Target switch
         {
             C.BlueprintSaveTarget.New target => new C.BlueprintAddress(target.Library, new(Guid.NewGuid().ToString("D"))),
             C.BlueprintSaveTarget.Overwrite target => target.Address,
             _ => throw new ArgumentOutOfRangeException(nameof(save))
         };
-        var rejected = CheckAddress(address);
+        var rejected = CheckAddress(basis, address);
         if (rejected is not null) return rejected;
         var previous = basis.FindBlueprint(address) as C.ContentLookup<C.BlueprintRecord>.Found;
         if (save.Target is C.BlueprintSaveTarget.Overwrite && !basis.Blueprints.Any(b => b.Address == address))
@@ -78,7 +78,7 @@ internal static class ContentEditor
 
     private static C.ContentResult<C.IContentCandidate> DeleteBlueprint(ContentView basis, C.BlueprintAddress address)
     {
-        var rejected = CheckAddress(address);
+        var rejected = CheckAddress(basis, address);
         if (rejected is not null) return rejected;
         if (!basis.Blueprints.Any(b => b.Address == address))
             return Failure("reference_missing", "/target", "蓝图不存在。");
@@ -89,12 +89,14 @@ internal static class ContentEditor
         return Candidate(basis, view, changes, new C.PreparedContentEdit.BlueprintDeleted(address), writes);
     }
 
-    private static C.ContentResult<C.IContentCandidate>? CheckAddress(C.BlueprintAddress address)
+    private static C.ContentResult<C.IContentCandidate>? CheckAddress(ContentView basis, C.BlueprintAddress address)
     {
         if (address.Library == C.BlueprintLibrary.Packages)
             return Failure("read_only_target", "/target", "包库只读。");
         if (address.Library is not (C.BlueprintLibrary.Local or C.BlueprintLibrary.User) || !PlayerBlueprint.IsId(address.Id.Value))
             return Failure("invalid_field", "/target", "蓝图库或身份无效。");
+        if (address.Library == C.BlueprintLibrary.User && basis.Source?.Installation.UserLibrary is null)
+            return Failure("invalid_field", "/target", "未配置用户库目录。");
         return null;
     }
 
@@ -108,7 +110,7 @@ internal static class ContentEditor
         if (instance is null) prepared = new C.PreparedContentEdit.ConstructionTarget(complete.Core);
         else
         {
-            var compared = DesignComparer.Compare(basis, instance.Current, draft);
+            var compared = DesignComparer.Compare(basis, instance.Current, complete);
             if (compared is C.ContentResult<C.DesignChangeEvaluation>.Failure failure)
                 return new C.ContentResult<C.IContentCandidate>.Failure(failure.Diagnostics);
             prepared = new C.PreparedContentEdit.InstanceTarget(((C.ContentResult<C.DesignChangeEvaluation>.Success)compared).Value);
@@ -118,15 +120,8 @@ internal static class ContentEditor
             C.ContentChange.Presentation | C.ContentChange.Persistent, prepared);
     }
 
-    private static C.ContentResult<C.IContentCandidate> Invalid(C.DesignEvaluation evaluation)
-    {
-        var diagnostics = PlayerBlueprint.Diagnostics(evaluation);
-        if (diagnostics.Any(d => d.Code == "reference_missing"))
-            return new C.ContentResult<C.IContentCandidate>.Failure(diagnostics);
-        if (!diagnostics.Any(d => d.Code == "design_invalid"))
-            diagnostics = diagnostics.Add(PlayerBlueprint.Diagnostic("design_invalid", "/target", "需要完整合法的玩家设计及核心投影。"));
-        return new C.ContentResult<C.IContentCandidate>.Failure(diagnostics);
-    }
+    private static C.ContentResult<C.IContentCandidate> Invalid(C.DesignEvaluation evaluation) =>
+        new C.ContentResult<C.IContentCandidate>.Failure(PlayerBlueprint.InvalidDiagnostics(evaluation));
 
     private static C.ContentResult<C.IContentCandidate> Failure(string code, string field, string message) =>
         new C.ContentResult<C.IContentCandidate>.Failure([PlayerBlueprint.Diagnostic(code, field, message)]);

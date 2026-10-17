@@ -67,8 +67,8 @@ internal sealed class InitialContentFactory : C.IContentFactory
                 var basis = (ContentView)reload.Basis;
                 var saved = ContentCapture.Create(basis, reload.References);
                 var installed = (ContentView)initial.View;
-                var changes = installed.ChangesFrom(basis);
-                var view = installed.WithCapture(saved, reload.References, basis.Generation, advanceGeneration: changes != C.ContentChange.None);
+                var view = installed.WithCapture(saved, reload.References, basis.Generation, reloadBasis: basis);
+                var changes = view.ChangesFrom(basis);
                 if (view.PersistentRevision != saved.Revision) changes |= C.ContentChange.Persistent;
                 var missing = view.Missing(reload.References, "reload");
                 var previousMissing = basis.Missing(reload.References).Select(m => ((C.ContentReference.Core)m.Reference).Definition).ToHashSet();
@@ -259,13 +259,9 @@ internal sealed class InitialContentFactory : C.IContentFactory
     public C.ContentResult<C.SavedContentDraft> DecodeDraft(string payload)
     {
         ArgumentNullException.ThrowIfNull(payload);
-        return EditResult(() =>
-        {
-            using var document = ContentCapture.Parse(payload);
-            try { return new C.ContentResult<C.SavedContentDraft>.Success(ContentDraftCodec.Decode(payload)); }
-            catch (JsonException exception) { throw new DefinitionFormatException("/payload", exception.Message, "invalid_field"); }
-        });
+        return EditResult(() => new C.ContentResult<C.SavedContentDraft>.Success(ContentDraftCodec.Decode(payload)));
     }
+
     public C.ContentResult<C.IAuthoringPackage> OpenAuthoringPackage(C.ContentRoot source, C.PackageId package, C.PackageSourceVersion sourceVersion, C.IContentFiles files) => throw new NotImplementedException();
     public C.ContentResult<C.PackageWritePlan> PreparePackageWrite(C.IAuthoringPackage basis, ImmutableArray<C.PackageEdit> edits) => throw new NotImplementedException();
 }

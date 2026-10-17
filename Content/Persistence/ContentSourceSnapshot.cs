@@ -62,9 +62,7 @@ internal sealed class ContentSourceSnapshot(C.ContentInstallation installation,
 
     internal ContentSourceSnapshot WithUserBlueprint(C.BlueprintId id, C.BlueprintRecord? blueprint)
     {
-        var key = "$user-library";
-        while (key == Installation.BuiltIn.Key || key == Installation.Mods.Key) key += "$";
-        var root = Installation.UserLibrary ?? new C.ContentRoot(key);
+        var root = Installation.UserLibrary ?? throw new InvalidOperationException("未配置用户库目录。");
         var path = new C.ContentPath(root, id.Value + ".blueprint.json");
         var directory = new C.ContentPath(root, "");
         var nextDirectories = directories.ToDictionary();
@@ -76,7 +74,7 @@ internal sealed class ContentSourceSnapshot(C.ContentInstallation installation,
         if (blueprint is not null)
             nextFiles[(path, ContentLimits.JsonFileMaxBytes)] = new C.ContentIoResult<ImmutableArray<byte>>.Success(
                 Encoding.UTF8.GetBytes(PlayerBlueprint.Encode(blueprint)).ToImmutableArray());
-        return new(Installation with { UserLibrary = root }, nextDirectories.ToFrozenDictionary(), nextFiles.ToFrozenDictionary(), inspections);
+        return new(Installation, nextDirectories.ToFrozenDictionary(), nextFiles.ToFrozenDictionary(), inspections);
     }
     internal IEnumerable<ImmutableArray<byte>> FileBytes => files.Values
         .OfType<C.ContentIoResult<ImmutableArray<byte>>.Success>().Select(result => result.Value);

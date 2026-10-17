@@ -6,7 +6,7 @@
 
 [Train.Content.Contracts](../../Contracts/Content/Train.Content.Contracts.csproj) 只引用核心契约，并提供[可编译消费样例](../../prototypes/content-contract/ConsumerExamples.cs)。`Content/Train.Content.csproj` 已实现真实工厂的 `Discover` 与 `PrepareLoad(Initial/Restore/Reload)`：manifest v2、依赖、voxel v3、固定资产字节、资产规则、只读投影及候选生命周期；包内 blueprint v3 支持车辆、建筑、组装体、功能复合体与场景模型，包含最多四层的设计复制和功能复合体引用。Initial 还支持地貌 v1、聚居地类型 v3、聚居地模板 v2、五类规则与生成配置 v2，包含 NPC 初始化参数；铁路表现参数通过 `FindRailwayAppearance` 提供。`CreateWorldInput` 交出已解析的新局输入，`WithSettlementCopies` 按最终所有者固定模板副本，`FindSettlementLayout` 读取所有者的布局。模板的 `founding`、`inventory`、`production_plans` 支持非空数组，内容层解析、校验引用及地块和能力约束并交出核心投影；特殊库存支持 voxel、功能复合体标识及组装体构成哈希货物。NPC 补货、产出预存和现车生成由核心执行，不属于本次内容交付。初始化后的经营状态由核心持有，不写入内容布局副本。Restore 从内嵌设计与实例模板副本重算当前投影，Reload 保留清单仍引用的原设计与副本；源蓝图、源模板的删改不改写已有实例布局。
 
-`EvaluateDesign` 在真实工厂产生的固定视图上计算车辆、建筑、组装体及场景模型的身份、合法性和嵌套投影；包加载还为功能复合体传入定义身份。车辆、建筑及两类大型设备提供 `DesignInput`。流程 v1 已支持生产、开采和回收的解析、引用校验、核心投影与显示查询；租赁参数沿用市场规则。流程业务参数参与语义修订和核心输入身份，显示变化只标记 `Presentation`；货物和地貌数组按引用身份的 Ordinal 顺序规范化。`Capture/DecodeCapture` 与 `CaptureReplay/DecodeReplay` 已实现当前范围的普通内容往返和仅凭载荷重建历史视图。恢复报告被引用流程的缺失；重载拒绝原有效引用新增缺失及流程种类变化，允许原缺失保留或恢复。恢复／重载对已保存设计和模板副本中的缺失定义提供部分计算、占位和锁资料；损伤、进度和批次冻结参数仍由核心保存。生物聚落和生物尚未支持。新设计草稿支持缺定义和缺必填规格的部分计算；设计草稿编解码、本局草稿保存和删除、本局及用户蓝图库编辑、用户库加载、设计比较和实例目标准备已有实现。定义草稿、包定义目标和开发创作入口仍留给 #330，相关入口抛 `NotImplementedException`。上述模块实现不表示完整存档容器、核心经济运行或真实四模块联调已经通过；阶段一真实交接归 #298，经济运输交接归 #299；生产宿主已通过 `App/Composition/` 接入真实工厂。共享用例与替身的行为验证由[契约原型](https://github.com/odradekk/train/issues/292)完成。
+`EvaluateDesign` 在真实工厂产生的固定视图上计算车辆、建筑、组装体及场景模型的身份、合法性和嵌套投影；包加载还为功能复合体传入定义身份。车辆、建筑及两类大型设备提供 `DesignInput`。流程 v1 已支持生产、开采和回收的解析、引用校验、核心投影与显示查询；租赁参数沿用市场规则。流程业务参数参与语义修订和核心输入身份，显示变化只标记 `Presentation`；货物和地貌数组按引用身份的 Ordinal 顺序规范化。`Capture/DecodeCapture` 与 `CaptureReplay/DecodeReplay` 已实现当前范围的普通内容往返和仅凭载荷重建历史视图。恢复报告被引用流程的缺失；重载拒绝原有效引用新增缺失及流程种类变化，允许原缺失保留或恢复。恢复／重载对已保存设计和模板副本中的缺失定义提供部分计算、占位和锁资料；损伤、进度和批次冻结参数仍由核心保存。生物聚落和生物尚未支持。新设计草稿支持缺定义和缺必填规格的部分计算；设计草稿编解码、本局草稿保存和删除、本局库及用户库编辑、用户库加载、设计比较、建造目标和实例目标准备已有实现。定义草稿编解码、包定义目标编解码和开发创作入口仍留给 #330，相关入口抛 `NotImplementedException`；本局草稿保存遇到这些目标或载荷时返回 `invalid_field`。上述模块实现不表示完整存档容器、核心经济运行或真实四模块联调已经通过；阶段一真实交接归 #298，经济运输交接归 #299；生产宿主已通过 `App/Composition/` 接入真实工厂。共享用例与替身的行为验证由[契约原型](https://github.com/odradekk/train/issues/292)完成。
 
 | 声明 | 作用 |
 | --- | --- |
@@ -41,7 +41,7 @@
 
 | 目的 | 输入及行为 |
 | --- | --- |
-| Initial | 内置包、启用的 Mod 和可选用户蓝图库；建立本局内容为空的候选，供选开局配置 |
+| Initial | 内置包、启用的 Mod 和可选用户库；建立本局内容为空的候选，供选开局配置 |
 | Restore | 当前安装内容、已解码内容捕获和核心引用清单；还原内嵌设计、库、草稿与模板，按当前外部定义计算占位和适配输入 |
 | Reload | 当前视图和核心引用清单；固定新的包字节，在候选中保留本局内嵌资料并重算受影响投影 |
 
@@ -81,7 +81,7 @@ Mod 缺依赖、版本不够、依赖循环、未知行为／字段、定义或�
 
 缺失项及其祖先间接操作都受 `DesignEditLock` 约束。UI 与控制台必须显示缺失身份、所属包和阻止的操作；只在 UI 隐藏按钮不能代替体素编辑入口检查。Elements／EditLocks 只在 Scene 中保留一份，场景模型平整信息只用 Scene.RootFlatten。Partial.Scene 始终存在，承载已知布局及定位；不能取得规范设计身份时仅 Scene.Design 为空。Complete 与运行场景的 Scene.Design 必须有值并与设计一致。
 
-`CompareDesigns` 统一计算新旧部件对应、BOM 差额与能否立即应用。完整合法的目标构成不变才能立即应用；否则整份目标走正式改装。预览结果不是永久发布凭证：提交使用固定草稿和内容基准，不在途中换成最新编辑内容。普通体素同位置、同定义时保留部件，单改朝向的改动单位为零，但构成改变仍需正式改装。组装体按每层放置位置对应：同构成或仅改安装朝向时整件保留；移动算移除加新增两个单位，同位置改变内部构成算整件替换一个单位。已有设计可完整但不合法，目标必须完整合法且类别兼容；已有设计不存在或含缺失占位，以及目标缺定义时返回 `reference_missing`，目标缺规格、不合法或类别不兼容时返回 `design_invalid`。比较只预览，不改变视图。
+`CompareDesigns` 统一计算新旧部件对应、BOM 差额与能否立即应用。完整合法的目标构成不变才能立即应用；否则整份目标走正式改装。预览结果不是永久发布凭证：提交使用固定草稿和内容基准，不在途中换成最新编辑内容。普通体素同位置、同定义时保留部件，单改朝向的改动单位为零，但构成改变仍需正式改装。组装体按每层放置位置对应：同构成或仅改安装朝向时整件保留；移动算移除加新增两个单位，同位置改变内部构成算整件替换一个单位。已有设计可完整但不合法，目标必须完整合法且类别兼容；已有设计不存在或含缺失占位，以及目标缺定义时返回 `reference_missing`，目标缺规格、不合法或类别不兼容时返回 `design_invalid`。比较只预览，不改变视图。根层结构体素按种类合并返还单元：`Good` 为该体素、`Quantity=n`、`Parts=[]`、`StructuralGoods=[该体素×n]`，核心将拆下总数 n 乘以当前结构耐久比例后向下取整。功能体素每格一个单元，`Parts` 指向该部件；大型设备每整件一个单元，与设计投影的 `ReturnUnits` 一致，内部 `StructuralGoods` 不另行返还。`ChangedItemCount` 仍按格和整件计数。
 
 `IContentView.Voxels` 提供固定世代的只读体素目录，身份唯一，只含已接受且可放置的定义，不含缺失占位。`VoxelCatalogEntry.Good` 为 null 的条目供场景体素栏使用；非 null 的条目供玩家体素栏使用，其 Good 必须是同 Definition 的 `GoodId.Voxel`，与 `Core.Goods` 中对应投影一致，直接复用质量、价值等业务资料。目录不重复显示与外观，消费者按 Definition 调用 `FindVoxelDisplay` 和 `FindVoxelAppearance`。功能复合体从现有 `Blueprints` 查询，不新增目录。
 
@@ -123,8 +123,8 @@ Mod 缺依赖、版本不够、依赖循环、未知行为／字段、定义或�
 
 本局草稿、蓝图库和实例目标通过 `PrepareEdit` 准备。`PreparedContentEdit` 给出新 UUID、设计身份或差额，调用方不靠比较目录猜测创建结果；它是准备回执，激活后才成功。新建身份在准备时固定，取消后不发布。
 
-- 保存本局草稿只要求可编码，目标必须为本局蓝图或实例；调用方提供非空 `DraftId`，同一身份原位覆盖，同一实例不能保存两份不同身份的草稿。实际改变只标记 `Persistent`，增加持久修订，不增加内容世代。删除草稿不存在时返回 `reference_missing`。外部草稿通过 `EncodeDraft`／`DecodeDraft` 编解码，由宿主写 `user://authoring-drafts/`；只有明确保存为本局草稿的记录才进入游戏存档。
-- 保存蓝图要求玩家设计完整合法。新建分配新 UUID，覆盖保留原身份，覆盖不存在的条目返回 `reference_missing`；包库写入或删除返回 `read_only_target`。本局库变化标记 `Library | Persistent`；用户库变化标记 `Library`，仅新增首次显示记录时再标记 `Persistent`。用户库 `RequiredWrites` 给出 `<UUID>.blueprint.json` 的字节，删除时 `Bytes=null`；宿主完成写入后再激活。本局库只更新本局记录，下一次保存游戏才写盘。
+- 保存本局草稿只要求可编码，目标必须为本局蓝图或实例，载荷必须为 Design，否则在 `/target` 或 `/payload` 返回 `invalid_field`；调用方提供非空 `DraftId`，同一身份原位覆盖，同一实例不能保存两份不同身份的草稿。实际改变只标记 `Persistent`，增加持久修订，不增加内容世代。删除草稿不存在时返回 `reference_missing`。外部草稿通过 `EncodeDraft`／`DecodeDraft` 编解码，由宿主写 `user://authoring-drafts/`；只有明确保存为本局草稿的记录才进入游戏存档。
+- 保存蓝图要求玩家设计完整合法。新建分配新 UUID，覆盖保留原身份，覆盖不存在的条目返回 `reference_missing`；包库写入或删除返回 `read_only_target`；未配置 `UserLibrary` 时，用户库保存和删除在 `/target` 返回 `invalid_field`。本局库变化标记 `Library | Persistent`；用户库变化标记 `Library`，仅新增首次显示记录时再标记 `Persistent`。用户库 `RequiredWrites` 给出 `<UUID>.blueprint.json` 的字节，删除时 `Bytes=null`；宿主完成写入后再激活。本局库只更新本局记录，下一次保存游戏才写盘。
 - 删除蓝图不检查实例引用，也不删除已有实例设计。删除草稿只删除明确指定记录，不影响当前未保存工作副本。
 - ConstructionTarget 准备建造需要的完整设计和嵌套依赖，并以 PreparedContentEdit.ConstructionTarget 返回 DesignInput；来源可以是本局、用户或包蓝图的固定设计。
 - InstanceTarget 准备立即应用／改装的目标和差额，DesignChangeProjection.Target 携带同类 DesignInput，不混入定义更新；准备回执不另存目标哈希，统一从 Difference.Core.Target.Design.Design 读取。两种目标均不改变 CoreInputId；宿主同步 Submit 后仅接受时激活候选，不先把目标当作成功写入本局。
@@ -132,7 +132,7 @@ Mod 缺依赖、版本不够、依赖循环、未知行为／字段、定义或�
 
 `EncodeDraft`／`DecodeDraft` 当前只支持 `DraftPayload.Design`，目标为 `Instance`、`LocalBlueprint` 或 `UserBlueprint`；`DraftPayload.Definition` 和 `DraftTarget.PackageDefinition` 继续抛 `NotImplementedException`，由 #330 补齐。编解码允许规格为空及玩法上不合法的布局，保留调用方的 `EditRevision`，内容不自增修订，也不把它当锁。
 
-Initial、Restore、Reload 都独立读取当前 `UserLibrary` 根下的 `<UUID>.blueprint.json`。读取、JSON、格式、正文身份与文件名不符、设计不合法或引用缺失只令该条目 `Usable=false` 并附诊断，不令整次加载失败，也不排除包。文件名不是规范 UUID 时，只在加载报告中诊断，不列入蓝图目录；引用缺失另列入 `AuthoringMissing`。Reload 的用户库变化标记 `Library`；用户库文件不嵌入普通存档。
+Initial、Restore、Reload 都独立读取当前 `UserLibrary` 根下的 `<UUID>.blueprint.json`。读取、JSON、格式、正文身份与文件名不符、设计不合法或引用缺失只令该条目 `Usable=false` 并附诊断，不令整次加载失败，也不排除包。文件名不是规范 UUID 时，只在加载报告中诊断，不列入蓝图目录；引用缺失另列入 `AuthoringMissing`。Reload 的用户库文件变化或任一库条目的摘要变化（含可用性和诊断）标记 `Library`；用户库文件不嵌入普通存档。有效用户库设计和包库一样，按来源库、规范蓝图身份及规范嵌套路径顺序登记首次组装体显示记录；Restore 优先保留原记录，因此新增记录时持久修订增加 1。
 
 同内容保存视为无变化，返回 `Changes=None`。所有编辑都不改变 `CoreInputId`；同次编辑的世代和持久修订各自最多增加 1。有效设计成功激活时才登记新的首次显示资料，预览、未激活候选和不合法草稿不登记。
 
@@ -156,7 +156,7 @@ Initial、Restore、Reload 都独立读取当前 `UserLibrary` 根下的 `<UUID>
 
 当前普通内容载荷为版本 5；其他版本返回 `unsupported_format`。顶层字段固定为 `format_version`、`revision`、`packages`、`designs`、`assembly_displays`、`templates`、`local_blueprints`、`local_drafts`。包按身份、设计按哈希、首次显示记录按构成哈希、模板副本按所有者排序；本局蓝图按 UUID 的 Ordinal 顺序，草稿按 `DraftId` 排序。它不嵌入市场等外部规则定义或用户库文件。引用包元数据也覆盖本局库及草稿的定义引用。设计捕获覆盖核心清单、模板场景、全部已登记组装体显示记录及已有本局保存设计；蓝图库条目本身不因此加入运行设计目录。
 
-设计条目包含 `hash`、`definition`，根功能复合体还必须带 `composite` 定义身份，其他设计不得携带该字段。设计正文复用 blueprint v3，引用全限定；模板副本复用模板 v2 的地块布局字段，场景模型原设计按设计哈希入档。本局蓝图使用玩家蓝图 v3，字段为 `schema_version`、`id`、`used_packages` 及设计正文；解码只读取结构，恢复时按当前定义重算求值。本局草稿内嵌独立的草稿 v1 对象，字段固定为 `format_version`、`id`、`revision`、`target`、`payload`；`target.kind` 为 `instance`、`local_blueprint` 或外部草稿才可用的 `user_blueprint`，`payload.kind` 为 `design`，`payload.value` 保存设计草稿。实例目标用 `target.instance` 的 `kind`（`vehicle`／`building`）和数值 `id` 表示；库目标用可为空的 UUID `target.id`。`payload.value` 按契约记录的 snake_case 字段编码，规格、嵌套项及能力用 `kind` 区分变体；建筑规格的建筑类型字段名为 `building_kind`，避免与变体标记冲突。普通载荷的 `local_drafts` 只接受实例及本局库目标；重复草稿身份、同一实例多份草稿或损坏草稿返回 `inconsistent_capture`。
+设计条目包含 `hash`、`definition`，根功能复合体还必须带 `composite` 定义身份，其他设计不得携带该字段。设计正文复用 blueprint v3，引用全限定；模板副本复用模板 v2 的地块布局字段，场景模型原设计按设计哈希入档。本局蓝图使用玩家蓝图 v3，字段为 `schema_version`、`id`、`used_packages` 及设计正文；解码只读取结构，恢复时按当前定义重算求值。本局草稿内嵌独立的草稿 v1 对象，字段固定为 `format_version`、`id`、`revision`、`target`、`payload`；`target.kind` 为 `instance`、`local_blueprint` 或外部草稿才可用的 `user_blueprint`，`payload.kind` 为 `design`，`payload.value` 保存设计草稿。实例目标用 `target.instance` 的 `kind`（`vehicle`／`building`）和数值 `id` 表示；库目标用可为空的 UUID `target.id`。`payload.value` 复用 blueprint v3 的 `category`、`simulation`、`layout`、`appearance`、`display` 设计字段，仅允许省略 `size_class`、`plot_size`、`building_type` 以及调色板序号越界；未知字段、非 snake_case 枚举和非有限数值仍拒绝。UUID 只接受规范小写写法，实例身份必须非零。普通载荷的 `local_drafts` 只接受实例及本局库目标；重复草稿身份、同一实例多份草稿或损坏草稿返回 `inconsistent_capture`。
 
 正文哈希与键不一致、缺内嵌设计、缺副本、地块不配对、组装体缺显示记录或显示记录构成不配对，均返回 `inconsistent_capture`；JSON 损坏返回 `invalid_json`。Restore 优先使用捕获中的全部组装体显示记录，再按与 Initial／Reload 相同的稳定顺序登记当前新增构成；没有新增记录时持久修订取捕获值，有新增时增加修订。运行引用缺失列入 `RuntimeMissing`；本局库、用户库和已保存草稿的缺失引用列入 `AuthoringMissing`。
 

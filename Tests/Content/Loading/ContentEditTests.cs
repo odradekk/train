@@ -42,7 +42,10 @@ public sealed class ContentEditTests
     [DataRow(C.BlueprintLibrary.User)]
     public void Blueprint_save_overwrite_and_delete_follow_library_persistence(C.BlueprintLibrary library)
     {
-        using var loaded = DesignFixtures.Content().Load();
+        var fixture = DesignFixtures.Content();
+        fixture.Installation = fixture.Installation with { UserLibrary = new("library") };
+        fixture.AddDirectory(fixture.Installation.UserLibrary!.Value, "");
+        using var loaded = fixture.Load();
         var basis = (ContentView)loaded.View;
         var draft = DesignFixtures.Vehicle();
         using var save = Success(basis, new C.ContentEdit.SaveBlueprint(new C.BlueprintSaveTarget.New(library), draft));
@@ -65,6 +68,23 @@ public sealed class ContentEditTests
         Assert.AreEqual(0, delete.View.Blueprints.Length);
         if (library == C.BlueprintLibrary.User) Assert.IsNull(delete.RequiredWrites.Single().Bytes);
         Failure(basis, new C.ContentEdit.DeleteBlueprint(address), "reference_missing");
+    }
+
+    [TestMethod]
+    public void Local_draft_view_keeps_identity_order_after_save_and_overwrite()
+    {
+        using var initial = DesignFixtures.Content().Load();
+        var factory = ContentFactory.Create();
+        var first = new C.SavedContentDraft(new(Guid.Parse("11111111-1111-4111-8111-111111111111")), new(1),
+            new C.DraftTarget.LocalBlueprint(null), new C.DraftPayload.Design(DesignFixtures.Vehicle()));
+        var second = first with { Id = new(Guid.Parse("22222222-2222-4222-8222-222222222222")) };
+        using var later = ((C.ContentResult<C.IContentCandidate>.Success)factory.PrepareEdit(initial.View, new C.ContentEdit.SaveLocalDraft(second))).Value;
+        using var earlier = ((C.ContentResult<C.IContentCandidate>.Success)factory.PrepareEdit(later.Activate(), new C.ContentEdit.SaveLocalDraft(first))).Value;
+        var basis = earlier.Activate();
+        CollectionAssert.AreEqual(new[] { first.Id, second.Id }, basis.LocalDrafts.Select(d => d.Id).ToArray());
+        using var overwrite = ((C.ContentResult<C.IContentCandidate>.Success)factory.PrepareEdit(basis,
+            new C.ContentEdit.SaveLocalDraft(first with { Revision = new(2) }))).Value;
+        CollectionAssert.AreEqual(new[] { first.Id, second.Id }, overwrite.View.LocalDrafts.Select(d => d.Id).ToArray());
     }
 
     [TestMethod]
@@ -94,27 +114,67 @@ public sealed class ContentEditTests
         var draft = DesignFixtures.Vehicle();
         Failure(basis, new C.ContentEdit.SaveBlueprint(new C.BlueprintSaveTarget.New(C.BlueprintLibrary.Packages), draft), "read_only_target");
         Failure(basis, new C.ContentEdit.DeleteBlueprint(new(C.BlueprintLibrary.Packages, new("core:test"))), "read_only_target");
-        foreach (var invalid in new[]
+        var incomplete = draft with { Specification = new C.DesignSpecification.Vehicle(null) };
+        Failure(basis, new C.ContentEdit.SaveBlueprint(new C.BlueprintSaveTarget.New(C.BlueprintLibrary.Local), incomplete), "design_invalid");
+        Failure(basis, new C.ContentEdit.ConstructionTarget(incomplete), "design_invalid");
+    }
+
+    [TestMethod]
+    public void Unconfigured_user_library_rejects_save_overwrite_and_delete_without_writes()
+    {
+        using var loaded = DesignFixtures.Content().Load();
+        var factory = ContentFactory.Create();
+        var address = new C.BlueprintAddress(C.BlueprintLibrary.User, new("11111111-1111-4111-8111-111111111111"));
+        foreach (var edit in new C.ContentEdit[]
         {
-            draft with { Specification = new C.DesignSpecification.Vehicle(null) },
-            draft with { Specification = new C.DesignSpecification.FunctionalComposite([new K.PartCapability.Control()], null) }
+            new C.ContentEdit.SaveBlueprint(new C.BlueprintSaveTarget.New(C.BlueprintLibrary.User), DesignFixtures.Vehicle()),
+            new C.ContentEdit.SaveBlueprint(new C.BlueprintSaveTarget.Overwrite(address), DesignFixtures.Vehicle()),
+            new C.ContentEdit.DeleteBlueprint(address)
         })
         {
-            Failure(basis, new C.ContentEdit.SaveBlueprint(new C.BlueprintSaveTarget.New(C.BlueprintLibrary.Local), invalid), "design_invalid");
-            Failure(basis, new C.ContentEdit.ConstructionTarget(invalid), "design_invalid");
+            var result = factory.PrepareEdit(loaded.View, edit);
+            Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Failure>(result);
+            var diagnostic = ((C.ContentResult<C.IContentCandidate>.Failure)result).Diagnostics.Single();
+            Assert.AreEqual("invalid_field", diagnostic.Code);
+            Assert.AreEqual("/target", diagnostic.Field);
         }
+        Assert.AreEqual(0, loaded.View.Blueprints.Length);
+        Assert.AreEqual(new C.ContentRevision(0), loaded.View.PersistentRevision);
+    }
+
+    [TestMethod]
+    [DataRow("default", "/id")]
+    [DataRow("package", "/target")]
+    [DataRow("definition", "/payload")]
+    public void Public_local_draft_save_rejects_invalid_identity_target_and_payload(string mutation, string field)
+    {
+        using var loaded = DesignFixtures.Content().Load();
+        var draft = new C.SavedContentDraft(new(Guid.Parse("11111111-1111-4111-8111-111111111111")), new(1),
+            new C.DraftTarget.LocalBlueprint(null), new C.DraftPayload.Design(DesignFixtures.Vehicle()));
+        draft = mutation switch
+        {
+            "default" => draft with { Id = default },
+            "package" => draft with { Target = new C.DraftTarget.PackageDefinition(new("core"), C.DefinitionKind.Blueprint, "test", new("version")) },
+            _ => draft with { Payload = new C.DraftPayload.Definition(new C.DefinitionDraft.Blueprint("test", DesignFixtures.Vehicle())) }
+        };
+        var result = ContentFactory.Create().PrepareEdit(loaded.View, new C.ContentEdit.SaveLocalDraft(draft));
+        Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Failure>(result);
+        var diagnostic = ((C.ContentResult<C.IContentCandidate>.Failure)result).Diagnostics.Single();
+        Assert.AreEqual("invalid_field", diagnostic.Code);
+        Assert.AreEqual(field, diagnostic.Field);
+        Assert.AreEqual(0, loaded.View.LocalDrafts.Length);
     }
 
     private static C.IContentCandidate Success(ContentView basis, C.ContentEdit edit)
     {
-        var result = ContentEditor.Prepare(basis, edit);
+        var result = ContentFactory.Create().PrepareEdit(basis, edit);
         Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Success>(result, result.ToString());
         return ((C.ContentResult<C.IContentCandidate>.Success)result).Value;
     }
 
     private static void Failure(ContentView basis, C.ContentEdit edit, string code)
     {
-        var result = ContentEditor.Prepare(basis, edit);
+        var result = ContentFactory.Create().PrepareEdit(basis, edit);
         Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Failure>(result);
         Assert.IsTrue(((C.ContentResult<C.IContentCandidate>.Failure)result).Diagnostics.Any(d => d.Code == code), result.ToString());
     }

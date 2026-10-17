@@ -1,8 +1,8 @@
-using System.Collections.Immutable;
 using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Loading;
 using C = Train.Content.Contracts;
+using K = Train.Core.Contracts;
 
 namespace Train.Content.Tests.Loading;
 
@@ -40,7 +40,12 @@ public sealed class UserLibraryTests
         Assert.AreEqual(6, summaries.Length);
         Assert.AreEqual(Good, summaries.Single(s => s.Usable).Address.Id.Value);
         Assert.AreEqual(5, summaries.Count(s => !s.Usable));
-        Assert.AreEqual(1, result.AuthoringMissing.Select(d => ((C.ContentReference.Blueprint)d.Subject!).Address).Distinct().Count());
+        fixture.Installation = fixture.Installation with { UserLibrary = Library };
+        using var loaded = fixture.Load();
+        var authoringMissing = loaded.Report.AuthoringMissing;
+        Assert.AreEqual(1, authoringMissing.Length);
+        Assert.AreEqual(new C.ContentReference.Core(new K.CoreDefinitionReference.Voxel(new("core:missing"))),
+            authoringMissing.Single().Reference);
         Assert.IsTrue(result.Diagnostics.Any(d => d.Field.StartsWith("not-an-id.blueprint.json", StringComparison.Ordinal)));
         Assert.IsTrue(result.Summaries.Single(s => s.Address.Id.Value == WrongId).Diagnostics.Any(d => d.Field.EndsWith("/id", StringComparison.Ordinal)));
     }
@@ -90,7 +95,7 @@ public sealed class UserLibraryTests
             var file = Path.Combine(directory, Good + ".blueprint.json");
             File.WriteAllText(file, Blueprint(view, Good));
             var root = new C.ContentRoot(directory);
-            var files = new LibraryDiskFiles();
+            var files = new ContentDiskFiles();
             var loaded = UserLibraryLoader.Load(view, root, files);
             Assert.IsTrue(PlayerBlueprint.Summary(loaded.Records.Single()).Usable);
             File.WriteAllText(file, "{}");
@@ -107,20 +112,5 @@ public sealed class UserLibraryTests
     {
         var draft = DesignFixtures.Vehicle();
         return PlayerBlueprint.Encode(new(new(C.BlueprintLibrary.User, new(id)), draft, [], PlayerBlueprint.Evaluate(view, draft)));
-    }
-
-    private sealed class LibraryDiskFiles : C.IContentFiles
-    {
-        public C.ContentIoResult<ImmutableArray<C.ContentFileEntry>> Enumerate(C.ContentPath directory) =>
-            new C.ContentIoResult<ImmutableArray<C.ContentFileEntry>>.Success(Directory.EnumerateFiles(directory.Root.Key)
-                .Select(path => new C.ContentFileEntry(Path.GetFileName(path), C.ContentEntryKind.File)).ToImmutableArray());
-
-        public C.ContentIoResult<ImmutableArray<byte>> Read(C.ContentPath file, long maximumBytes)
-        {
-            var path = Path.Combine(file.Root.Key, file.RelativePath);
-            return new FileInfo(path).Length > maximumBytes
-                ? new C.ContentIoResult<ImmutableArray<byte>>.Failure(C.ContentIoFailure.LimitExceeded, "文件超出限制。")
-                : new C.ContentIoResult<ImmutableArray<byte>>.Success(File.ReadAllBytes(path).ToImmutableArray());
-        }
     }
 }

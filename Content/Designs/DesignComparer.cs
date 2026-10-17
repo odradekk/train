@@ -1,4 +1,4 @@
-using System.Collections.Immutable;
+﻿using System.Collections.Immutable;
 using Train.Content.Loading;
 using C = Train.Content.Contracts;
 using K = Train.Core.Contracts;
@@ -9,18 +9,20 @@ internal static class DesignComparer
 {
     internal static C.ContentResult<C.DesignChangeEvaluation> Compare(ContentView content, K.DesignHash current, C.DesignDraft target)
     {
-        if (target.Specification is C.DesignSpecification.FunctionalComposite)
-            return Failure("design_invalid", "玩家设计不能声明功能复合体行为。");
+        var evaluation = PlayerBlueprint.Evaluate(content, target);
+        return evaluation is C.DesignEvaluation.Complete { IsValid: true, Core: not null } after
+            ? Compare(content, current, after)
+            : new C.ContentResult<C.DesignChangeEvaluation>.Failure(PlayerBlueprint.InvalidDiagnostics(evaluation));
+    }
+
+    internal static C.ContentResult<C.DesignChangeEvaluation> Compare(ContentView content, K.DesignHash current,
+        C.DesignEvaluation.Complete after)
+    {
         if (content.FindDesign(current) is not C.ContentLookup<C.DesignEvaluation>.Found found)
             return new C.ContentResult<C.DesignChangeEvaluation>.Failure([new("reference_missing", C.ContentDiagnosticSeverity.Error,
                 "compare", new C.ContentReference.Design(current), null, "/current", null, "当前设计不存在。")]);
         if (found.Value is not C.DesignEvaluation.Complete { Core: not null } before)
-            return Incomplete(found.Value);
-        var evaluated = DesignEvaluator.Evaluate(content, target);
-        if (evaluated is not C.DesignEvaluation.Complete { Core: not null } after)
-            return Incomplete(evaluated);
-        if (!after.IsValid)
-            return new C.ContentResult<C.DesignChangeEvaluation>.Failure(after.Diagnostics);
+            return new C.ContentResult<C.DesignChangeEvaluation>.Failure(PlayerBlueprint.InvalidDiagnostics(found.Value));
         if (before.Definition.Specification.GetType() != after.Definition.Specification.GetType())
             return Failure("design_invalid", "当前设计和目标设计的类别不兼容。");
 
@@ -29,23 +31,33 @@ internal static class DesignComparer
         var retained = ImmutableArray.CreateBuilder<C.DesignElementCorrespondence>();
         var removed = ImmutableArray.CreateBuilder<K.DesignReturnUnit>();
         var added = new Dictionary<K.GoodId, long>();
+        var structural = new Dictionary<K.GoodId, long>();
         long changed = 0;
         foreach (var old in oldAtoms)
         {
             if (!newAtoms.Remove((old.At, old.Nested), out var next))
-            { removed.Add(old.Return); changed++; continue; }
+            { Remove(old); changed++; continue; }
             if (old.Return.Good != next.Return.Good)
-            { removed.Add(old.Return); Add(next); changed++; continue; }
+            { Remove(old); Add(next); changed++; continue; }
             for (var i = 0; i < old.Parts.Length; i++)
                 retained.Add(new(new(old.Parts[i].Number, next.Parts[i].Number), old.Parts[i].Element, next.Parts[i].Element));
         }
         foreach (var atom in newAtoms.Values) { Add(atom); changed++; }
+        foreach (var (good, quantity) in structural.OrderBy(g => DesignEvaluator.GoodKey(g.Key), StringComparer.Ordinal))
+            removed.Add(new(good, quantity, [], [new(good, quantity)], []));
         var elements = retained.ToImmutable();
-        var projection = new K.DesignChangeProjection(before.Design, before.Composition, after.Core,
+        var projection = new K.DesignChangeProjection(before.Design, before.Composition, after.Core!,
             elements.Select(e => e.Parts).ToImmutableArray(),
             added.OrderBy(g => DesignEvaluator.GoodKey(g.Key), StringComparer.Ordinal).Select(g => new K.GoodsQuantity(g.Key, g.Value)).ToImmutableArray(),
             removed.ToImmutable(), changed);
         return new C.ContentResult<C.DesignChangeEvaluation>.Success(new(projection, elements, before.Composition == after.Composition, after.Diagnostics));
+
+        void Remove(Atom atom)
+        {
+            if (!atom.Nested && atom.Parts.IsEmpty)
+                structural[atom.Return.Good] = checked(structural.GetValueOrDefault(atom.Return.Good) + atom.Return.Quantity);
+            else removed.Add(atom.Return);
+        }
 
         void Add(Atom atom) => added[atom.Return.Good] = checked(added.GetValueOrDefault(atom.Return.Good) + atom.Return.Quantity);
     }
@@ -89,15 +101,6 @@ internal static class DesignComparer
             var parts = nested.TryGetValue(index, out var list) ? list.OrderBy(p => p.Number.Value).ToImmutableArray() : [];
             yield return new(DesignTraversal.At(item), true, unit, parts);
         }
-    }
-
-    private static C.ContentResult<C.DesignChangeEvaluation> Incomplete(C.DesignEvaluation evaluation)
-    {
-        var diagnostics = evaluation switch
-        { C.DesignEvaluation.Partial p => p.Diagnostics, C.DesignEvaluation.Failed f => f.Diagnostics, C.DesignEvaluation.Complete c => c.Diagnostics, _ => [] };
-        var missing = diagnostics.Where(d => d.Code == "reference_missing").ToImmutableArray();
-        return !missing.IsEmpty ? new C.ContentResult<C.DesignChangeEvaluation>.Failure(missing)
-            : Failure("design_invalid", "设计不完整或不能形成核心投影。");
     }
 
     private static C.ContentResult<C.DesignChangeEvaluation> Failure(string code, string message) =>

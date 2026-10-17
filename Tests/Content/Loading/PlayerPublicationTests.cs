@@ -11,16 +11,97 @@ namespace Train.Content.Tests.Loading;
 public sealed class PlayerPublicationTests
 {
     [TestMethod]
+    public void Unusable_user_blueprints_and_shared_local_uuid_do_not_change_world_or_presentation()
+    {
+        var fixture = WorldContentFixtures.Content();
+        var root = new C.ContentRoot("library");
+        fixture.Installation = fixture.Installation with { UserLibrary = root };
+        fixture.AddDirectory(fixture.Installation.UserLibrary!.Value, "");
+        var factory = ContentFactory.Create();
+        using var initial = fixture.Load();
+        var expected = Success(factory.CreateWorldInput(initial.View, new("core:world"), 42, "test"));
+        using var local = Success(factory.PrepareEdit(initial.View, new C.ContentEdit.SaveBlueprint(
+            new C.BlueprintSaveTarget.New(C.BlueprintLibrary.Local), DesignFixtures.Vehicle())));
+        var sharedId = ((C.PreparedContentEdit.BlueprintSaved)local.Edit!).Blueprint.Id.Value;
+        var basis = local.Activate();
+        Add(sharedId, "core:block", false);
+        Add("11111111-1111-4111-8111-111111111111", "core:missing", false);
+        Add("22222222-2222-4222-8222-222222222222", "core:block", true);
+        using var loaded = fixture.Load();
+        Assert.AreEqual(2, loaded.View.Blueprints.Count(b => b.Address.Library == C.BlueprintLibrary.User && !b.Usable));
+        Assert.AreEqual(expected.GenerationContentRevision,
+            Success(factory.CreateWorldInput(loaded.View, new("core:world"), 42, "test")).GenerationContentRevision);
+        Assert.AreEqual(initial.View.Core.Identity, loaded.View.Core.Identity);
+        using var reload = Success(factory.PrepareLoad(new(fixture.Installation,
+            new C.ContentLoadPurpose.Reload(basis, References(basis))), fixture, fixture));
+        Assert.AreEqual(C.ContentChange.Library, reload.Changes);
+        Assert.AreEqual(2, reload.View.Blueprints.Count(b => b.Address.Id.Value == sharedId));
+        Assert.AreEqual(expected.GenerationContentRevision,
+            Success(factory.CreateWorldInput(reload.View, new("core:world"), 42, "test")).GenerationContentRevision);
+
+        void Add(string id, string voxel, bool functional)
+        {
+            var json = DesignFixtures.Blueprint(id);
+            json["used_packages"] = new JsonArray();
+            json["layout"]!["palette"]![0]!["voxel"] = voxel;
+            if (functional)
+            {
+                json["category"] = "large_equipment";
+                json["simulation"] = JsonNode.Parse("""{"behaviors":{"control":{}}}""");
+            }
+            fixture.AddFile(root, id + ".blueprint.json", json.ToJsonString());
+        }
+    }
+
+    [TestMethod]
+    public void User_library_display_records_are_ordered_and_restore_adds_one_persistent_revision()
+    {
+        var fixture = DesignFixtures.Content();
+        var root = new C.ContentRoot("library");
+        fixture.Installation = fixture.Installation with { UserLibrary = root };
+        fixture.AddDirectory(fixture.Installation.UserLibrary!.Value, "");
+        var factory = ContentFactory.Create();
+        using var initial = fixture.Load();
+        var capture = Success(factory.Capture(initial.View, References(initial.View)));
+        var later = DesignFixtures.Blueprint("22222222-2222-4222-8222-222222222222");
+        later["used_packages"] = new JsonArray();
+        later["category"] = "large_equipment";
+        later.Remove("simulation");
+        later["layout"]!["palette"]![0]!["voxel"] = "core:block";
+        later["display"]!["name"] = "后序资料";
+        fixture.AddFile(root, "22222222-2222-4222-8222-222222222222.blueprint.json", later.ToJsonString());
+        var earlier = later.DeepClone().AsObject();
+        earlier["id"] = "11111111-1111-4111-8111-111111111111";
+        earlier["display"]!["name"] = "先序资料";
+        fixture.AddFile(root, "11111111-1111-4111-8111-111111111111.blueprint.json", earlier.ToJsonString());
+        fixture.ReverseEnumeration = true;
+        using var loaded = fixture.Load();
+        var address = new C.BlueprintAddress(C.BlueprintLibrary.User, new("11111111-1111-4111-8111-111111111111"));
+        var complete = (C.DesignEvaluation.Complete)((C.ContentLookup<C.BlueprintRecord>.Found)loaded.View.FindBlueprint(address)).Value.Evaluation;
+        var good = new K.GoodId.Assembly(complete.Composition);
+        Assert.AreEqual("先序资料", ((C.ContentLookup<C.GoodPresentation>.Found)loaded.View.FindGood(good)).Value.Display.Text.Name);
+        using var restored = Success(factory.PrepareLoad(new(fixture.Installation,
+            new C.ContentLoadPurpose.Restore(capture, References(initial.View))), fixture, fixture));
+        Assert.AreEqual(capture.Revision.Value + 1, restored.View.PersistentRevision.Value);
+        Assert.AreEqual("先序资料", ((C.ContentLookup<C.GoodPresentation>.Found)restored.View.FindGood(good)).Value.Display.Text.Name);
+        using var reload = Success(factory.PrepareLoad(new(fixture.Installation,
+            new C.ContentLoadPurpose.Reload(initial.View, References(initial.View))), fixture, fixture));
+        Assert.AreEqual(C.ContentChange.Library | C.ContentChange.Persistent, reload.Changes);
+        Assert.AreEqual(initial.View.PersistentRevision.Value + 1, reload.View.PersistentRevision.Value);
+    }
+
+    [TestMethod]
     public void Current_user_library_is_read_by_all_load_purposes_and_only_library_changes_are_published()
     {
         var fixture = DesignFixtures.Content();
+        var root = new C.ContentRoot("library");
+        fixture.Installation = fixture.Installation with { UserLibrary = root };
+        fixture.AddDirectory(fixture.Installation.UserLibrary!.Value, "");
         using var initial = fixture.Load();
         var factory = ContentFactory.Create();
         using var saved = Success(factory.PrepareEdit(initial.View, new C.ContentEdit.SaveBlueprint(
             new C.BlueprintSaveTarget.New(C.BlueprintLibrary.User), DesignFixtures.Vehicle())));
         var write = saved.RequiredWrites.Single();
-        var root = new C.ContentRoot("library");
-        fixture.Installation = fixture.Installation with { UserLibrary = root };
         fixture.AddFile(root, write.Blueprint.Value + ".blueprint.json", write.Bytes!.Value.ToArray());
         fixture.AddFile(root, "22222222-2222-4222-8222-222222222222.blueprint.json", "{");
         fixture.AddFile(root, "wrong.blueprint.json", "{}");
@@ -54,6 +135,8 @@ public sealed class PlayerPublicationTests
     public void Only_instance_drafts_block_new_missing_references_on_reload_and_restore_reports_all(string kind)
     {
         var fixture = DesignFixtures.Content();
+        fixture.Installation = fixture.Installation with { UserLibrary = new("library") };
+        fixture.AddDirectory(fixture.Installation.UserLibrary!.Value, "");
         DesignFixtures.AddVoxel(fixture, "only");
         using var initial = fixture.Load();
         var factory = ContentFactory.Create();
@@ -69,7 +152,6 @@ public sealed class PlayerPublicationTests
         if (kind == "user-blueprint")
         {
             var write = saved.RequiredWrites.Single();
-            fixture.Installation = fixture.Installation with { UserLibrary = new("library") };
             fixture.AddFile(new("library"), write.Blueprint.Value + ".blueprint.json", write.Bytes!.Value.ToArray());
         }
         fixture.RemoveEntry(ContentFixture.BuiltIn, "resources/voxels/only.voxel.json");
@@ -80,6 +162,12 @@ public sealed class PlayerPublicationTests
             using var reload = Success(result);
             Assert.AreEqual(0, reload.Report.RuntimeMissing.Length);
             Assert.IsTrue(reload.Report.AuthoringMissing.Any(m => m.Diagnostics.Any(d => d.Code == "reference_missing")));
+            if (kind.EndsWith("blueprint", StringComparison.Ordinal))
+            {
+                Assert.IsTrue(reload.Changes.HasFlag(C.ContentChange.Library));
+                Assert.AreEqual(basis.Generation.Value + 1, reload.View.Generation.Value);
+                Assert.IsFalse(reload.View.Blueprints.Single().Usable);
+            }
         }
         using var restored = Success(factory.PrepareLoad(new(fixture.Installation,
             new C.ContentLoadPurpose.Restore(Success(factory.DecodeCapture(capture.Encode())), references)), fixture, fixture));
@@ -114,6 +202,8 @@ public sealed class PlayerPublicationTests
     public void Abandoned_user_save_does_not_choose_first_display_and_user_edits_replay_without_external_files()
     {
         var fixture = DesignFixtures.Content();
+        fixture.Installation = fixture.Installation with { UserLibrary = new("library") };
+        fixture.AddDirectory(fixture.Installation.UserLibrary!.Value, "");
         using var initial = fixture.Load();
         var factory = ContentFactory.Create();
         var assembly = Only() with { Specification = new C.DesignSpecification.Assembly(null),

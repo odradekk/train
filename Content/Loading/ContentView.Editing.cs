@@ -23,7 +23,7 @@ internal sealed partial class ContentView
 
     private ContentView(ContentView basis, ImmutableArray<C.SavedContentDraft> drafts) : this(basis)
     {
-        LocalDrafts = drafts;
+        LocalDrafts = drafts.OrderBy(d => d.Id.Value).ToImmutableArray();
         PersistentRevision = new(checked(basis.PersistentRevision.Value + 1));
     }
 
@@ -39,7 +39,7 @@ internal sealed partial class ContentView
         {
             Source = Source?.WithUserBlueprint(address.Id, record);
             if (Source?.Installation.UserLibrary is { } root)
-                UserLibraryFingerprint = UserLibraryLoader.Load(basis, root, Source).Fingerprint;
+                UserLibraryFingerprint = UserLibraryLoader.Fingerprint(root, Source);
         }
         if (record is not null)
         {

@@ -19,6 +19,7 @@ internal static class PlayerBlueprint
 
     internal static CapturedBlueprint ReadDefinition(JsonElement root, C.BlueprintLibrary library)
     {
+        if (root.ValueKind != JsonValueKind.Object) Fail("", "玩家蓝图必须为对象。");
         if (Int32(Required(root, "schema_version", ""), "/schema_version") != 3)
             Fail("/schema_version", "玩家蓝图只支持版本 3。", "unsupported_format");
         Object(root, "", "schema_version", "id", "used_packages", "category", "simulation", "layout", "appearance", "display");
@@ -67,6 +68,13 @@ internal static class PlayerBlueprint
     internal static C.BlueprintSummary Summary(C.BlueprintRecord record) => new(record.Address, record.Definition.Display,
         (record.Evaluation as C.DesignEvaluation.Complete)?.Design,
         record.Evaluation is C.DesignEvaluation.Complete { IsValid: true }, Diagnostics(record.Evaluation));
+
+    internal static ImmutableArray<C.ContentDiagnostic> InvalidDiagnostics(C.DesignEvaluation evaluation)
+    {
+        var diagnostics = Diagnostics(evaluation);
+        if (diagnostics.Any(d => d.Code == "reference_missing" || d.Code == "design_invalid")) return diagnostics;
+        return diagnostics.Add(Diagnostic("design_invalid", "/target", "需要完整合法的玩家设计及核心投影。"));
+    }
 
     internal static string Encode(C.BlueprintRecord record) => ContentCapture.Encode(writer => Write(writer, record));
 

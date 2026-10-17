@@ -142,6 +142,59 @@ public sealed class ContentCaptureTests
     }
 
     [TestMethod]
+    public void Capture_sorts_multiple_local_blueprints_and_drafts_and_restores_the_same_order()
+    {
+        var fixture = DesignFixtures.Content();
+        using var initial = fixture.Load();
+        var factory = ContentFactory.Create();
+        var firstBlueprint = new CapturedBlueprint(new(C.BlueprintLibrary.Local, new("11111111-1111-4111-8111-111111111111")),
+            DesignFixtures.Vehicle(), []);
+        var secondBlueprint = firstBlueprint with { Address = new(C.BlueprintLibrary.Local, new("22222222-2222-4222-8222-222222222222")) };
+        var firstDraft = new C.SavedContentDraft(new(Guid.Parse("33333333-3333-4333-8333-333333333333")), new(1),
+            new C.DraftTarget.Instance(new K.InstanceId.Vehicle(new(12))), new C.DraftPayload.Design(DesignFixtures.Vehicle()));
+        var secondDraft = firstDraft with
+        {
+            Id = new(Guid.Parse("44444444-4444-4444-8444-444444444444")),
+            Target = new C.DraftTarget.Instance(new K.InstanceId.Vehicle(new(13)))
+        };
+        var references = new K.CoreReferenceManifest([], [], [], [initial.View.Core.Identity]);
+        var view = ((ContentView)initial.View).WithCapture(new ContentCapture(new(4), [], [], [], [],
+            [secondBlueprint, firstBlueprint], [secondDraft, firstDraft]), references);
+        var payload = Success(factory.Capture(view, references)).Encode();
+        var json = JsonNode.Parse(payload)!;
+        CollectionAssert.AreEqual(new[] { "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222" },
+            json["local_blueprints"]!.AsArray().Select(b => b!["id"]!.GetValue<string>()).ToArray());
+        CollectionAssert.AreEqual(new[] { "33333333-3333-4333-8333-333333333333", "44444444-4444-4444-8444-444444444444" },
+            json["local_drafts"]!.AsArray().Select(d => d!["id"]!.GetValue<string>()).ToArray());
+        var decoded = Success(factory.DecodeCapture(payload));
+        Assert.AreEqual(payload, decoded.Encode());
+        using var restored = ContentRestoreTests.Restore(fixture, decoded, references);
+        CollectionAssert.AreEqual(new[] { firstDraft.Id, secondDraft.Id }, restored.View.LocalDrafts.Select(d => d.Id).ToArray());
+        CollectionAssert.AreEqual(new[] { firstBlueprint.Address, secondBlueprint.Address },
+            restored.View.Blueprints.Where(b => b.Address.Library == C.BlueprintLibrary.Local).Select(b => b.Address).ToArray());
+    }
+
+    [TestMethod]
+    [DataRow("invalid_record")]
+    [DataRow("invalid_design")]
+    [DataRow("duplicate_id")]
+    public void Decode_rejects_malformed_local_blueprints_as_inconsistent_capture(string mutation)
+    {
+        using var initial = DesignFixtures.Content().Load();
+        var factory = ContentFactory.Create();
+        var payload = JsonNode.Parse(Success(factory.Capture(initial.View, new([], [], [], [initial.View.Core.Identity]))).Encode())!;
+        var blueprint = DesignFixtures.Blueprint("11111111-1111-4111-8111-111111111111");
+        blueprint["used_packages"] = new JsonArray();
+        blueprint["layout"]!["palette"]![0]!["voxel"] = "core:block";
+        var blueprints = payload["local_blueprints"]!.AsArray();
+        blueprints.Add(blueprint);
+        if (mutation == "invalid_record") blueprints[0] = 17;
+        else if (mutation == "invalid_design") blueprint["layout"]!["palette"]![0]!["voxel"] = 17;
+        else blueprints.Add(blueprint.DeepClone());
+        Failure(factory.DecodeCapture(payload.ToJsonString()), "inconsistent_capture");
+    }
+
+    [TestMethod]
     [DataRow("duplicate_id")]
     [DataRow("duplicate_instance")]
     [DataRow("user_target")]
@@ -153,7 +206,7 @@ public sealed class ContentCaptureTests
         var payload = JsonNode.Parse(Success(factory.Capture(initial.View, new([], [], [], [initial.View.Core.Identity]))).Encode())!;
         var draft = new C.SavedContentDraft(new(Guid.Parse("22222222-2222-4222-8222-222222222222")), new(7),
             new C.DraftTarget.Instance(new K.InstanceId.Vehicle(new(12))), new C.DraftPayload.Design(DesignFixtures.Vehicle()));
-        var record = JsonNode.Parse(ContentDraftCodec.Encode(draft))!;
+        var record = JsonNode.Parse(Success(factory.EncodeDraft(draft)))!;
         var drafts = payload["local_drafts"]!.AsArray();
         drafts.Add(record);
         if (mutation is "duplicate_id" or "duplicate_instance")

@@ -243,7 +243,7 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
         var drafts = Items(Required(root, "local_drafts", field), field + "/local_drafts").Select(item =>
         {
             C.SavedContentDraft draft;
-            try { draft = ContentDraftCodec.Decode(item.Value.GetRawText()); }
+            try { draft = ContentDraftCodec.Decode(item.Value); }
             catch (DefinitionFormatException exception)
             { throw new DefinitionFormatException(item.Field + exception.Field, exception.Message, "inconsistent_capture"); }
             catch (Exception exception) when (exception is JsonException or NotImplementedException or ArgumentException)

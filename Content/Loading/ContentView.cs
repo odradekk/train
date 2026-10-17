@@ -99,14 +99,14 @@ internal sealed partial class ContentView : C.IContentView
         LocalDrafts = basis.LocalDrafts; UnreadableBlueprints = basis.UnreadableBlueprints; UserLibraryFingerprint = basis.UserLibraryFingerprint;
     }
 
-    private ContentView(ContentView basis, ContentCapture capture, K.CoreReferenceManifest references, C.ContentGeneration? generation, bool advanceGeneration)
+    private ContentView(ContentView basis, ContentCapture capture, K.CoreReferenceManifest references, C.ContentGeneration? generation, ContentView? reloadBasis)
     {
         capture.Validate(references);
         _voxels = basis._voxels; _assets = basis._assets; _world = basis._world;
         Generation = generation ?? basis.Generation; PersistentRevision = capture.Revision;
         SavedPackages = capture.ReferencedPackages; SavedDesigns = capture.Records; Source = basis.Source;
         Packages = basis.Packages; Voxels = basis.Voxels; GenerationProfiles = basis.GenerationProfiles;
-        LocalDrafts = capture.LocalDrafts;
+        LocalDrafts = capture.LocalDrafts.OrderBy(d => d.Id.Value).ToImmutableArray();
         UnreadableBlueprints = basis.UnreadableBlueprints; UserLibraryFingerprint = basis.UserLibraryFingerprint;
         _blueprints = basis._blueprints.Values.Where(b => b.Address.Library != C.BlueprintLibrary.Local)
             .Concat(capture.LocalBlueprints.Select(b => new C.BlueprintRecord(b.Address, b.Definition, b.UsedPackages,
@@ -128,8 +128,6 @@ internal sealed partial class ContentView : C.IContentView
         AssemblyDisplays = displays.Values.OrderBy(d => d.Composition.Value, StringComparer.Ordinal).ToImmutableArray();
         if (AssemblyDisplays.Length != capture.AssemblyDisplays.Length)
             PersistentRevision = new(checked(capture.Revision.Value + 1));
-        if (generation is not null && (advanceGeneration || PersistentRevision != capture.Revision))
-            Generation = new(checked(generation.Value.Value + 1));
         _layouts = capture.Copies.ToFrozenDictionary(t => t.Owner, t =>
         {
             var scene = _designs[t.SceneModel] switch
@@ -149,21 +147,17 @@ internal sealed partial class ContentView : C.IContentView
             MissingReferences = Missing(references).Select(m => new K.MissingCoreReference(
                 ((C.ContentReference.Core)m.Reference).Definition, m.Field)).ToImmutableArray()
         };
+        if (generation is not null && (PersistentRevision != capture.Revision ||
+            reloadBasis is not null && ChangesFrom(reloadBasis) != C.ContentChange.None))
+            Generation = new(checked(generation.Value.Value + 1));
     }
 
-    internal ContentView WithCapture(ContentCapture capture, K.CoreReferenceManifest references, C.ContentGeneration? generation = null, bool advanceGeneration = false) =>
-        new(this, capture, references, generation, advanceGeneration);
+    internal ContentView WithCapture(ContentCapture capture, K.CoreReferenceManifest references, C.ContentGeneration? generation = null, ContentView? reloadBasis = null) =>
+        new(this, capture, references, generation, reloadBasis);
 
     private static ImmutableArray<K.DesignProjection> DesignProjections(Dictionary<K.DesignHash, C.DesignEvaluation> designs) =>
         designs.OrderBy(d => d.Key.Value, StringComparer.Ordinal).Select(d => d.Value switch
         { C.DesignEvaluation.Complete c => c.Core?.Design, C.DesignEvaluation.Partial p => p.CorePlaceholder, _ => null }).OfType<K.DesignProjection>().ToImmutableArray();
-
-    private static ImmutableArray<K.GoodDefinitionProjection> AssemblyProjections(Dictionary<K.DesignHash, C.DesignEvaluation> designs, ImmutableArray<CapturedAssembly> displays) =>
-        displays.Select(display => designs[display.Design] switch
-        {
-            C.DesignEvaluation.Complete { Core: { } core } => DesignEvaluator.AssemblyGood(display.Composition, core.Design),
-            _ => null
-        }).OfType<K.GoodDefinitionProjection>().ToImmutableArray();
 
     private K.GoodDefinitionProjection CompositeGood(C.BlueprintRecord record)
     {
@@ -204,6 +198,7 @@ internal sealed partial class ContentView : C.IContentView
     {
         writer.WriteStartArray();
         writer.WriteStringValue(UserLibraryFingerprint);
+        JsonSerializer.Serialize(writer, Blueprints);
         foreach (var record in _blueprints.Values.Where(b => b.Address.Library != C.BlueprintLibrary.Local)
             .OrderBy(b => b.Address.Library).ThenBy(b => b.Address.Id.Value, StringComparer.Ordinal))
         {
@@ -230,7 +225,8 @@ internal sealed partial class ContentView : C.IContentView
                 presentation = JsonSerializer.Serialize(v.Appearance.Presentation, v.Appearance.Presentation.GetType())
             }),
             terrains = _world.Terrains,
-            composites = _blueprints.Values.Where(b => b.Definition.Specification is C.DesignSpecification.FunctionalComposite)
+            composites = _blueprints.Values.Where(b => b.Address.Library == C.BlueprintLibrary.Packages &&
+                b.Definition.Specification is C.DesignSpecification.FunctionalComposite)
                 .OrderBy(b => b.Address.Id.Value, StringComparer.Ordinal).Select(b => new
                 {
                     b.Address.Id, b.Definition.Display, b.Definition.Layout,
@@ -305,7 +301,8 @@ internal sealed partial class ContentView : C.IContentView
                 null, "", null, "生成配置不存在。")]);
         var revision = WorldSemantics.Generation(profile, _world,
             _voxels.Values.OrderBy(v => v.Definition.Definition.Value, StringComparer.Ordinal).ToImmutableArray(),
-            _blueprints.Values.OrderBy(b => b.Address.Id.Value, StringComparer.Ordinal).ToImmutableArray(), Core.Goods);
+            _blueprints.Values.Where(b => b.Address.Library == C.BlueprintLibrary.Packages)
+                .OrderBy(b => b.Address.Id.Value, StringComparer.Ordinal).ToImmutableArray(), Core.Goods);
         return new C.ContentResult<K.WorldGenerationInput>.Success(new(seed, version, revision, profile.Configuration, profile.Start));
     }
 
