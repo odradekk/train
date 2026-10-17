@@ -38,6 +38,7 @@ internal partial class DesignEditorPanel : Control
     private readonly List<GridPosition> _stroke = [];
     private ConfirmationDialog _confirm = null!;
     private PanelContainer _leave = null!;
+    private Button _saveBlueprint = null!, _writePackage = null!;
     internal EditorSceneController Scene => _scene;
     internal void Initialize(EditorService service)
     {
@@ -61,7 +62,8 @@ internal partial class DesignEditorPanel : Control
                     (_scene.EnteredDraft ?? state.Snapshot.Draft).Specification));
         });
         Add(bar, "Undo", "撤销", _service.Undo); Add(bar, "Redo", "重做", _service.Redo);
-        Add(bar, "SaveDraft", "保存草稿", _service.SaveDraft); Add(bar, "SaveBlueprint", "保存蓝图…", SaveBlueprint);
+        Add(bar, "SaveDraft", "保存草稿", _service.SaveDraft); _saveBlueprint = UiStyle.Button("SaveBlueprint", "保存蓝图…", SaveBlueprint); bar.AddChild(_saveBlueprint);
+        _writePackage = UiStyle.Button("WritePackage", "写入包并重载", _service.RequestPackageWrite); bar.AddChild(_writePackage);
         Add(bar, "ExitEditor", "退出", () => _service.RequestClose(() => { }));
         var left = Panel("Tools", "体素与工具", new(8, 64), 270, out var tools);
         _voxel = Choice(tools, []); _voxel.ItemSelected += _ => RefreshShapes();
@@ -108,7 +110,7 @@ internal partial class DesignEditorPanel : Control
         });
         _x = Number(inspector, "X／移动量 X", -4096, 4096); _y = Number(inspector, "Y／移动量 Y", -4096, 4096); _z = Number(inspector, "Z／移动量 Z", -4096, 4096);
         _endX = Number(inspector, "区域终点 X", -4096, 4096); _endY = Number(inspector, "区域终点 Y", -4096, 4096); _endZ = Number(inspector, "区域终点 Z", -4096, 4096);
-        Add(inspector, "EditSpecification", "车辆／建筑规格…", EditSpecification);
+        Add(inspector, "EditSpecification", "设计规格…", EditSpecification);
         Add(inspector, "Preview", "预览精确参数", () => PreviewCells());
         Add(inspector, "Apply", "应用预览", Apply);
         Add(inspector, "SelectBox", "框选区域", () => _service.Select(new EditSelection.Box(Bounds())));
@@ -262,6 +264,8 @@ internal partial class DesignEditorPanel : Control
     {
         Visible = _service.IsOpen; _scene.Process(delta);
         if (!Visible) return;
+        _saveBlueprint.Visible = _service.Target is not DraftTarget.PackageDefinition;
+        _writePackage.Visible = _service.Target is DraftTarget.PackageDefinition;
         _leave.Visible = _service.Leaving; if (_service.Leaving) _leave.MoveToFront();
         _status.Text = (_service.State is { } active
             ? $"层级 {active.EnteredObject?.Value.ToString() ?? "根"} · 已选 {active.Selection.Length} · " : "")
@@ -301,11 +305,12 @@ internal partial class DesignEditorPanel : Control
     private void RefreshPalette()
     {
         _voxels.Clear(); _voxel.Clear();
-        foreach (var item in (_service.FixedContent?.Voxels ?? []).Where(item => item.Good is not null))
+        var sceneModel = _service.State?.Snapshot.Draft.Specification is DesignSpecification.SceneModel;
+        foreach (var item in (_service.FixedContent?.Voxels ?? []).Where(item => sceneModel ? item.Good is null : item.Good is not null))
         {
             _voxels.Add(item);
             var name = _service.FixedContent?.FindVoxelDisplay(item.Definition) is ContentLookup<VoxelDisplayProjection>.Found display ? display.Value.Display.Name : item.Definition.Value;
-            _voxel.AddItem($"{name} · Value {item.Good!.BaseValue.Value} · {item.Good.MassTons:0.##} t");
+            _voxel.AddItem(item.Good is { } good ? $"{name} · Value {good.BaseValue.Value} · {good.MassTons:0.##} t" : name);
         }
         RefreshShapes();
         RefreshEquipment();

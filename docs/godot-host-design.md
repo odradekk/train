@@ -79,6 +79,14 @@ ZIP 外层格式为 2；旧格式 1 因引用清单与命令回执含旧地块�
 
 宿主协调测试用明确情景的核心和内容替身，文件测试使用真实 I/O，报告面板使用真实 Godot 验证；这些证据不替代 #424 的完整 Godot 隔离或 #298 的真实模块联调。本票不改变导出装配，以 Debug、Release、ExportDebug、ExportRelease 编译检查构建配置覆盖。
 
+### 当前开发创作工具
+
+开发构建在已有普通游戏会话的顶栏提供“创作”。只有 `OS.HasFeature("editor")` 时，源码 `core` 才通过 `ProjectSettings.GlobalizePath` 解析为磁盘输出；debug 导出只写 `user://mods` 下的本地包，release 隐藏入口并拒绝调用。源包打开、完整基准捕获和写前目录项／字节复核使用同一目录上的 `DiskContentFiles`。包内蓝图经 `IAuthoringPackage.Read` 打开到既有 `EditorService`，编辑目标为 `DraftTarget.PackageDefinition`；包草稿与逐类型表单草稿共用内容编码和 `FileSaveStore`，保存在 `user://authoring-drafts/packages/<包 ID>/<草稿 UUID>.json`，不进入游戏存档。
+
+网格和表单的关闭统一经过 `Editor.RequestClose`，提供保存、放弃、取消；保存失败不继续。固定来源、依赖和补丁的只读 `IContentFiles` 视图用于普通 `PrepareLoad(Reload)` 预校验，候选不激活并及时释放。校验通过后复核磁盘来源，按单一写入者约定逐文件同目录临时写后替换，只执行明确删除；写入开始后的操作不可取消或被离开流程丢弃。中途失败保留完成项及草稿，显示完成、失败、剩余清单，不自动回滚。源码 core 新增 PNG／GLB 且无现有 `.import` 时，在资产前追加 `importer="keep"` 的普通写入项；Mod 不追加，已有 sidecar 不修改。全部完成后从磁盘普通重载，成功才切换活动内容，磁盘写入与重载结果分开显示。
+
+模板帧和地块拾取消费 `PreviewTemplate`／`PickPlot`，仅在草稿身份、修订、内容及显示帧仍匹配时允许交互。#330 的包打开、补丁和定义草稿编码、#389 的真实模板预览仍是生产前置；宿主测试使用列明情景的替身，不宣称这些真实路径或 #300 阶段联调已通过。前置未实现时沿用普通异常捕获与报告，不添加临时成功路径。`core` 中受内容生成器管理的文件修改仍需由内容维护者同步生成器，本入口不改变其归属。
+
 ### 当前开发检查工具
 
 生产 `--measure` 复用普通读档、帧驱动、世界场景、录制和保存流程；实际绘制间隔通过 `RenderingServer.FramePostDraw` 采集，模拟工作时间在既有帧预算区间读取。它不改变暂停、倍速或预算语义。观察无关检查独立放在真实引擎测试中，不增加开发 runner 模式。入口、报告边界与前期测量限制见[窗口测量](run-tests.md#观察无关检查与窗口测量)。

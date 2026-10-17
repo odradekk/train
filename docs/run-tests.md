@@ -65,6 +65,8 @@ dotnet build Tests/Engine/Train.Engine.Tests.csproj -c Debug
 
 选择“玩家编辑器预览”启动 `EditorPreview`，使用同份生产 App、编辑协调、界面和渲染，Core／Content／Scenes 为明确的有限情景替身。引擎 `EditorUiTests` 检查同帧拾取、当前转动线框、嵌套输入坐标、笔刷整笔应用、大范围修改确认、过期预览拒绝、Enter 拒绝和失败后手动重试；设置 `TRAIN_UI_CAPTURE_DIR` 后有窗口运行该类会保存 `player-editor.png` 与渲染身份。它不验证尚未接入的真实编辑会话、用户库生产装配或阶段 3 的完整设计与委托闭环。
 
+开发创作的宿主集成用例位于 `Tests/Godot/Authoring/`：同份纯 .NET 写入器以真实文件验证来源冲突、显式删除、Keep File 追加文本和部分完成；测试程序集的 `--package-write-process` 子进程在第 N 项发布完成后发信号并阻塞，父进程收到信号后终止，核对保留文件与草稿，不依赖随机时机。协调用例用明确的包、内容和场景情景检查网格草稿、表单关闭、只检查不激活的预校验、写入后普通重载与失败保留。`AuthoringUiTests` 在真实 Godot 中检查原始输入脏标记、逐类型字段、网格保留和地块数组下标。上述证据不替代 #330 的真实包编码、#389 的模板预览和 #300 联调；Keep File 导入器本身沿用既有资产导出证据，不增加新导入／导出夹具。
+
 ## 远端检查
 
 推送自己的任务分支后，可把完整回归交给 Linux runner。工作流选择、事件白名单与 job 上限见[CI](ci.md#linux-夜间运行)；长示例的平台分工见[示例手册](../examples/README.md#重制与长验证)。

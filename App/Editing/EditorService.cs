@@ -43,6 +43,10 @@ internal sealed class EditorService : IDisposable
     internal bool HasError { get; private set; }
     internal event Action? Changed;
     internal event Action? BlueprintSaved;
+    internal event Action<SavedContentDraft>? PackageDraftSaved;
+    internal event Action? PackageWriteRequested;
+    internal Func<Action, SaveFailure?>? CloseForm { get; set; }
+    internal void RequestPackageWrite() => PackageWriteRequested?.Invoke();
 
     internal EditorService(HostCoordinator host, IScenesFactory scenes, FileSaveStore store, TrainLogger logger)
     {
@@ -76,8 +80,15 @@ internal sealed class EditorService : IDisposable
 
     internal void OpenDraft(SavedContentDraft draft)
     {
-        if (draft.Payload is not DraftPayload.Design design) { Report("该草稿不是玩家设计。"); return; }
-        Open(design.Value, draft.Target, TargetBlueprint(draft.Target));
+        var design = draft.Payload switch
+        {
+            DraftPayload.Design value => value.Value,
+            DraftPayload.Definition { Value: DefinitionDraft.Blueprint value }
+                when draft.Target is DraftTarget.PackageDefinition => value.Value,
+            _ => null
+        };
+        if (design is null) { Report("该草稿不是可编辑的蓝图。"); return; }
+        Open(design, draft.Target, TargetBlueprint(draft.Target));
         if (_opening is not null) _draft = draft.Id;
     }
 
@@ -198,6 +209,8 @@ internal sealed class EditorService : IDisposable
             try { result = write.GetAwaiter().GetResult(); }
             catch (Exception error) { result = new(false, "draft_write_failed", error.Message); }
             var saving = (PendingSave.UserDraft)_saving!;
+            if (result.Published && saving.Draft.Target is DraftTarget.PackageDefinition)
+                PackageDraftSaved?.Invoke(saving.Draft);
             CompleteSave(result, saving.Session, saving.Snapshot);
         }
     }
@@ -223,17 +236,23 @@ internal sealed class EditorService : IDisposable
     internal SaveFailure? RequestClose(Action after)
     {
         if (IsBusy) return CloseFailure("busy", "请等待当前编辑操作结束。");
-        if (!IsOpen) { after(); return null; }
+        if (!IsOpen) return CloseFormThen(after);
         if (!IsDirty)
         {
             if (!Close()) return new("editor_close_failed", Message!);
-            after();
-            return null;
+            return CloseFormThen(after);
         }
         if (_afterClose is not null)
             return CloseFailure("editor_close_pending", "请先保存、放弃或取消当前关闭请求。");
         _afterClose = after;
         Changed?.Invoke();
+        return null;
+    }
+
+    private SaveFailure? CloseFormThen(Action after)
+    {
+        if (CloseForm is { } close) return close(after);
+        after();
         return null;
     }
 
@@ -254,7 +273,7 @@ internal sealed class EditorService : IDisposable
     private void FinishClose()
     {
         var after = _afterClose;
-        if (Close()) after?.Invoke();
+        if (Close() && after is not null && CloseFormThen(after) is { } failure) Report(failure.Message);
     }
 
     private bool Close()
@@ -294,11 +313,14 @@ internal sealed class EditorService : IDisposable
         try
         {
             var snapshot = session.Capture();
-            var saved = new SavedContentDraft(_draft, snapshot.Stamp.Revision, target, new DraftPayload.Design(snapshot.Draft));
-            if (target is DraftTarget.UserBlueprint)
+            DraftPayload payload = target is DraftTarget.PackageDefinition package
+                ? new DraftPayload.Definition(new DefinitionDraft.Blueprint(package.LocalId, snapshot.Draft))
+                : new DraftPayload.Design(snapshot.Draft);
+            var saved = new SavedContentDraft(_draft, snapshot.Stamp.Revision, target, payload);
+            if (target is DraftTarget.UserBlueprint or DraftTarget.PackageDefinition)
             {
-                _saving = new PendingSave.UserDraft(session, snapshot);
-                _write = Task.Run(() => WriteDraft(saved));
+                _saving = new PendingSave.UserDraft(session, snapshot, saved);
+                _write = Task.Run(() => WriteExternalDraft(saved));
             }
             else
             {
@@ -317,12 +339,12 @@ internal sealed class EditorService : IDisposable
         catch (Exception error) { _afterClose = null; Report(error.Message); }
     }
 
-    private FileWriteResult WriteDraft(SavedContentDraft draft)
+    internal FileWriteResult WriteExternalDraft(SavedContentDraft draft)
     {
         var encoded = Host.ContentFactory.EncodeDraft(draft);
         if (encoded is not ContentResult<string>.Success success)
             return new(false, "draft_encoding_failed", Describe(encoded));
-        return _store.Write(DraftPath(draft.Id), path => FileSaveStore.WriteCandidate(path, success.Value), path =>
+        return _store.Write(DraftPath(draft), path => FileSaveStore.WriteCandidate(path, success.Value), path =>
         {
             var decoded = Host.ContentFactory.DecodeDraft(File.ReadAllText(path, new UTF8Encoding(false, true)));
             if (decoded is not ContentResult<SavedContentDraft>.Success)
@@ -330,13 +352,29 @@ internal sealed class EditorService : IDisposable
         }, overwrite: true);
     }
 
-    private string DraftPath(DraftId id) =>
-        Path.Combine(AuthoringPaths.UserDraftsDirectory(_store.Root), id.Value.ToString("D") + ".json");
+    private string DraftPath(SavedContentDraft draft) => Path.Combine(draft.Target switch
+    {
+        DraftTarget.UserBlueprint => AuthoringPaths.UserDraftsDirectory(_store.Root),
+        DraftTarget.PackageDefinition package => AuthoringPaths.PackageDraftsDirectory(_store.Root, package.Package),
+        _ => throw new InvalidDataException("该草稿不是外部草稿。")
+    }, draft.Id.Value.ToString("D") + ".json");
 
     internal ImmutableArray<SavedContentDraft> UserDrafts()
     {
         ClearFeedback();
-        var path = AuthoringPaths.UserDraftsDirectory(_store.Root);
+        return ReadDrafts(AuthoringPaths.UserDraftsDirectory(_store.Root), target => target is DraftTarget.UserBlueprint);
+    }
+
+    internal ImmutableArray<SavedContentDraft> PackageDrafts(PackageId package)
+    {
+        ClearFeedback();
+        try { return ReadDrafts(AuthoringPaths.PackageDraftsDirectory(_store.Root, package),
+            target => target is DraftTarget.PackageDefinition value && value.Package == package); }
+        catch (Exception error) { Report(error.Message); return []; }
+    }
+
+    private ImmutableArray<SavedContentDraft> ReadDrafts(string path, Func<DraftTarget, bool> include)
+    {
         if (!Directory.Exists(path)) return [];
         var drafts = ImmutableArray.CreateBuilder<SavedContentDraft>();
         try
@@ -348,7 +386,7 @@ internal sealed class EditorService : IDisposable
                     var result = Host.ContentFactory.DecodeDraft(File.ReadAllText(file, new UTF8Encoding(false, true)));
                     if (result is ContentResult<SavedContentDraft>.Success success)
                     {
-                        if (success.Value.Target is DraftTarget.UserBlueprint) drafts.Add(success.Value);
+                        if (include(success.Value.Target)) drafts.Add(success.Value);
                     }
                     else Report($"{file}：{Describe(result)}");
                 }
@@ -636,7 +674,7 @@ internal sealed class EditorService : IDisposable
     private abstract record PendingSave
     {
         private PendingSave() { }
-        internal sealed record UserDraft(IDesignEditSession Session, EditSnapshot Snapshot) : PendingSave;
+        internal sealed record UserDraft(IDesignEditSession Session, EditSnapshot Snapshot, SavedContentDraft Draft) : PendingSave;
         internal sealed record LocalDraft(IDesignEditSession Session, EditSnapshot Snapshot, long Operation) : PendingSave;
         internal sealed record Blueprint(EditSnapshot Snapshot, DraftTarget Source, BlueprintSaveTarget Target,
             DraftId Draft, long Operation) : PendingSave;

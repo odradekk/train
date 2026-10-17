@@ -31,6 +31,7 @@ internal sealed class EditorSceneController : IDisposable
         _cache = new(_dispatcher);
         service.Changed += OnChanged;
         View.SetActive(false);
+        View.SetLoading(false);
         _overlay.Attach(View);
         View.PickRequested += position =>
         {
@@ -253,6 +254,7 @@ internal sealed class EditorSceneController : IDisposable
         _retrying = false;
         _overlay.Visible = false;
         View.SetActive(false);
+        View.SetLoading(false);
     }
     public void Dispose()
     {
