@@ -368,6 +368,31 @@ public sealed class ProductionTests
     }
 
     [TestMethod]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(false, false)]
+    public void State_changes_consider_plans_on_both_sides_of_the_boundary(bool plannedBefore, bool plannedAfter)
+    {
+        var content = Content();
+        var planned = State(content).World;
+        var unplanned = planned with { Settlements = planned.Settlements.Select(s => s with
+        {
+            Template = s.Template with { ProductionPlans = [] }
+        }).ToImmutableArray() };
+        var events = ProductionQueries.StateChanges(plannedBefore ? planned : unplanned, content,
+            plannedAfter ? planned : unplanned, content, planned.Settlements.Single().Id);
+        if (plannedBefore == plannedAfter) Assert.IsEmpty(events);
+        else
+        {
+            var change = (CoreEvent.ProductionStateChanged)events.Single();
+            Assert.AreEqual(Facility, change.Facility);
+            Assert.AreEqual(plannedBefore ? ProductionState.Running : ProductionState.Disabled, change.Before);
+            Assert.AreEqual(plannedAfter ? ProductionState.Running : ProductionState.Disabled, change.After);
+            Assert.IsEmpty(change.Reasons);
+        }
+    }
+
+    [TestMethod]
     public void Declared_production_capability_remains_discoverable_without_a_plan_when_parts_are_destroyed()
     {
         var content = Content();

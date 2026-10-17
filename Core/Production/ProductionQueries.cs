@@ -125,14 +125,22 @@ internal static class ProductionQueries
     {
         var settlement = after.Settlements.Single(s => s.Id == id);
         var events = ImmutableArray.CreateBuilder<CoreEvent>();
-        foreach (var key in settlement.Plots.Where(p => p.Building is not null).OrderBy(p => p.Building!.Value.Value)
-            .SelectMany(p => new[] { new FacilityKey(p.Building!.Value, CapabilityKind.Production),
-                new FacilityKey(p.Building!.Value, CapabilityKind.Extraction) }))
+        foreach (var plot in settlement.Plots.Where(p => p.Building is not null).OrderBy(p => p.Building!.Value.Value))
         {
-            var old = Find(before, beforeContent, key);
-            var current = Find(after, afterContent, key);
-            if (old is not null && current is not null && old.State != current.State)
-                events.Add(new CoreEvent.ProductionStateChanged(key, old.State, current.State, current.Blockers));
+            var previousSettlement = before.Settlements.FirstOrDefault(s => s.Plots.Any(p => p.Building == plot.Building));
+            var previousPlot = previousSettlement?.Plots.Single(p => p.Building == plot.Building);
+            foreach (var capability in new[] { CapabilityKind.Production, CapabilityKind.Extraction })
+            {
+                // 两边都没有计划时，设施只可能不存在或为 Disabled，不会产生状态变化。
+                if (!settlement.Template.ProductionPlans.Any(p => p.PlotNumber == plot.TemplateNumber && p.Capability == capability)
+                    && previousSettlement?.Template.ProductionPlans.Any(p => p.PlotNumber == previousPlot!.TemplateNumber
+                        && p.Capability == capability) != true) continue;
+                var key = new FacilityKey(plot.Building!.Value, capability);
+                var old = Find(before, beforeContent, key);
+                var current = Find(after, afterContent, key);
+                if (old is not null && current is not null && old.State != current.State)
+                    events.Add(new CoreEvent.ProductionStateChanged(key, old.State, current.State, current.Blockers));
+            }
         }
         return events.ToImmutable();
     }
