@@ -20,12 +20,13 @@ internal static class SceneFixtures
     internal static readonly DesignHash Design = new("test-design");
     internal static readonly WorldObjectId Subject = new WorldObjectId.Train(new TrainId(1));
     internal static readonly ScenePose Identity = new(Vector3.Zero, Quaternion.Identity);
+    private static readonly ImmutableArray<VoxelShape> CubeShapes = [new("cube")];
     internal static VoxelAppearanceProjection Cube => new(Voxel, AllowedVoxelOrientations.All24,
-        new VoxelCollision.None(), new VoxelPresentation.Cube([], MaterialCategory.PaintedMetal, 1,
+        new VoxelCollision.None(), new VoxelPresentation.Cube(CubeShapes, MaterialCategory.PaintedMetal, 1,
             new("tile"), new("tile"), new("tile"), new("tile")), new(false, null));
     internal static VoxelAppearanceProjection TexturedCube(int span, bool front = false) => Cube with
     {
-        Presentation = new VoxelPresentation.Cube([], MaterialCategory.PaintedMetal, span,
+        Presentation = new VoxelPresentation.Cube(CubeShapes, MaterialCategory.PaintedMetal, span,
             new("top"), new("side"), new("bottom"), new(front ? "front" : "side"))
     };
     internal static FixedContentView Content(DesignEvaluation? evaluation = null, DesignHash? design = null,

@@ -421,6 +421,7 @@ internal static class RailwayTerrain
             }
             var grid = new VoxelGrid(cells.ToImmutable());
             var visuals = DesignGeometry.Meshes(grid, false).ToBuilder();
+            objects.AddRange(DesignGeometry.Models(grid, terrainId, null, _ => new(nextId++), false));
             foreach (var missingTerrain in terrains.Where(item => item.Value is null))
                 visuals.Add(new SceneVisual.Missing(new ContentReference.Core(new CoreDefinitionReference.Terrain(missingTerrain.Key)), false));
             foreach (var missing in cells.Where(cell => cell.MissingReference is not null))
@@ -561,7 +562,8 @@ internal static class RailwayTerrain
             }
             var modelArc = path.Locate(RailwayCoordinates.Add(origin, pose.Position));
             var rendered = DesignGeometry.Build(snapshot.Content, found.Value, null, pose, _ => new(nextId++),
-            terrainLocation: new WorldLocation.Edge(path.Edge.Id, modelArc / RailwayCoordinates.CellsPerMeter));
+            terrainLocation: new WorldLocation.Edge(path.Edge.Id, modelArc / RailwayCoordinates.CellsPerMeter),
+            wearSeed: DesignGeometry.PlacementWearSeed(path.Edge.Id, RailwayCoordinates.Add(origin, pose.Position)));
             objects.AddRange(rendered.Objects); picking.AddRange(rendered.Picking); diagnostics.AddRange(rendered.Diagnostics);
         }
         private double NodeHeight(NodeMapItem node, ScenePoint endpoint, ScenePoint point)
