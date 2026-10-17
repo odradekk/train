@@ -73,7 +73,7 @@ Station 的形状为 `{kind:"station",node,dwell_steps,goods_rules}`，省略后
 dotnet build Tools/Cli/Train.Cli.csproj -c Release
 New-Item -ItemType Directory -Force TestResults/trade-diagnostics | Out-Null
 dotnet Tools/Cli/bin/Release/net10.0/Train.Cli.dll run . examples/starting-trade/recipe.json TestResults/trade-diagnostics/run.json
-python Tools/Cli/summarize_starting_trade.py TestResults/trade-diagnostics/run.json TestResults/trade-diagnostics/summary
+python -X utf8 Tools/Cli/summarize_starting_trade.py TestResults/trade-diagnostics/run.json TestResults/trade-diagnostics/summary
 ```
 
 脚本只接受完整四小时 `starting-trade` 输出，写出逐笔成交和小时列车、市场、设施、人口需求及设施状态变化 CSV。按实际事件位置划分小时，以成交金额除以数量计算实际均价，无成交时标“无成交”，不计算定价公式。实际消费由库存、完成产量、输出缓冲和转运收支守恒推导，包含居民、批次投入及燃料的合计，不拆分用途。脚本逐小时核对成交净额与钱包变化，并跨采样去重运行报告、检查报告连续性，将每列车的报告收付款与成交累计核对；失败返回非零。该入口不适用于带租金或现车买卖的配方。
