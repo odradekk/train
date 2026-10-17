@@ -70,14 +70,13 @@ public sealed class WorldSessionTests
     private static string Code<T>(SceneResult<T> result) where T : notnull => ((SceneResult<T>.Failure)result).Problems[0].Code;
 
     [TestMethod]
-    public void OpenWorldRejectsUnpairedInputAndEditorOpensWhileTemplateRemainsDeferred()
+    public void OpenWorldRejectsUnpairedInputAndEditorOpens()
     {
         var factory = ScenesFactory.Create();
         var snapshot = Snapshot();
         var mismatch = snapshot with { Core = new FixedCoreReadView { InputIdentity = new("other") } };
         Assert.ThrowsExactly<ArgumentException>(() => factory.OpenWorld(new(Guid.NewGuid()), mismatch));
         using var editor = ((SceneResult<IDesignEditSession>.Success)factory.OpenEditor(snapshot.Content, Evaluation)).Value;
-        StringAssert.Contains(Assert.ThrowsExactly<NotImplementedException>(() => factory.PreviewTemplate(snapshot.Content, null!, new(1))).Message, "#389");
     }
 
     [TestMethod]
