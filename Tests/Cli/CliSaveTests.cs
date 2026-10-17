@@ -75,7 +75,7 @@ public sealed partial class CliProcessTests
             if (example == "storage-tight")
             {
                 var output = Path.Combine(directory, "capacity.json");
-                await Run(directory, "capacity", "run", Repository, recipePath, output);
+                await Run(directory, "capacity", "resume", Repository, recipePath, committed, output);
                 var final = (await ReadEconomyOutput(output)).Samples[^1];
                 var train = final.Trains.Single(train => train.Id == 1);
                 var cargo = final.Inventories.Single(inventory => inventory.Id == train.Inventory);
