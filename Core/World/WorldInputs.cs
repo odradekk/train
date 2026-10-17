@@ -307,6 +307,21 @@ internal static class WorldInputs
         ProductionPlans = template.ProductionPlans.OrderBy(p => p.PlotNumber).ThenBy(p => p.Capability).ToImmutableArray()
     };
 
+    internal static DesignInput NormalizeDesignInput(DesignInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        Require(WorldFormat.IsHash(input.InputIdentity.Value), "InputIdentity");
+        ValidateDesign(input.Design);
+        Unique(Items(input.AssemblyGoods), g => g.Good);
+        foreach (var good in input.AssemblyGoods) ValidateDesignGood(good);
+        return input with
+        {
+            Design = NormalizeDesign(input.Design),
+            AssemblyGoods = Sorted(input.AssemblyGoods, g => GoodKey(g.Good))
+                .Select(g => g with { MassTons = Zero(g.MassTons) }).ToImmutableArray()
+        };
+    }
+
     internal static DesignProjection NormalizeDesign(DesignProjection design) => design with
     {
         MassTons = Zero(design.MassTons),

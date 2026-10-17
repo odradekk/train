@@ -38,7 +38,8 @@ internal static class PopulationQueries
             : new PopulationExecution.NotStarted(inputs.Current!.Needs.Select(need =>
                 new PopulationNeedView(need.Need, settlement.Population * need.AmountPerPersonSecond, 0, 0, null)).ToImmutableArray());
         var available = problems.IsEmpty ? settlement.Population * inputs.Current!.LaborRatio : 0;
-        var allocated = settlement.ProductionFacilities.Sum(f => f.LastAllocatedLabor);
+        var allocated = settlement.ProductionFacilities.Sum(f => f.LastAllocatedLabor)
+            + settlement.LastConstructionAllocatedLabor;
         return new(current, settlement.Population, available, allocated, Math.Max(0, available - allocated), execution,
             state.LastSettlement, state.LastSettlement is { } report ? [report] : []);
     }

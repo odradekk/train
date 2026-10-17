@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using Train.Core.Contracts;
 using Train.Core.Sessions;
 using Train.Core.World;
+using Train.Core.Construction;
 
 namespace Train.Core.Trading;
 
@@ -52,6 +53,7 @@ internal static class VehicleTrades
         Money? total = null;
         if (settlement is null) return Reject("object_missing", party, new WorldObjectId.Settlement(request.Settlement));
         if (instance is null) return Reject("object_missing", "Vehicle", new WorldObjectId.Instance(new InstanceId.Vehicle(request.Vehicle)));
+        if (!buy && ConstructionJobs.InstanceLocked(world, instance.Id)) return Reject("instance_locked", "Vehicle");
         if (settlement.Relation == SettlementRelation.Hostile) return Reject("access_denied", party, new WorldObjectId.Settlement(settlement.Id));
         if (settlement.Relation == SettlementRelation.PlayerOwned) return Reject("invalid_state", party, new WorldObjectId.Settlement(settlement.Id));
         if (instance.Ownership != (buy ? settlement.Relation : SettlementRelation.PlayerOwned))
