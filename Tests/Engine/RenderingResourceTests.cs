@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using System.Text.RegularExpressions;
-using System.Text.Json;
 using Chickensoft.GoDotTest;
 using Godot;
 using Train.App.Assets;
@@ -274,77 +273,6 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
             viewport.Free();
             OS.RemoveLogger(output);
         }
-    }
-
-    [Test]
-    public async Task Model_instancing_records_completed_frame_draw_calls()
-    {
-        if (DisplayServer.GetName() == "headless") return;
-        Require(RenderingServer.GetCurrentRenderingMethod() == "forward_plus", "模型绘制测量要求 Forward+。");
-        using var dispatcher = new GodotMainThreadDispatcher();
-        using var cache = new AssetResourceCache(dispatcher);
-        var bytes = GlbFixture.Create(feature: "cell");
-        var inspection = new GodotAssetInspector(dispatcher).Inspect(AssetKind.Glb, new("instancing-model"), bytes);
-        Require(inspection is AssetInspection.Success, "批处理模型无法解码。");
-        var asset = new ContentAsset(new("instancing-model"), bytes, ((AssetInspection.Success)inspection).Metadata, []);
-        using var resources = new SceneResources(cache, Content(asset));
-        var viewport = new SubViewport
-        {
-            Size = new(512, 512), OwnWorld3D = true,
-            RenderTargetUpdateMode = SubViewport.UpdateMode.Always
-        };
-        var samples = new Dictionary<int, ulong[]>();
-        TestScene.AddChild(viewport);
-        viewport.AddChild(new Camera3D
-        {
-            Projection = Camera3D.ProjectionType.Orthogonal, Size = 11,
-            Position = new(4.25f, 4.775f, 20), Current = true
-        });
-        viewport.AddChild(new DirectionalLight3D());
-        try
-        {
-            foreach (var count in new[] { 1, 64 })
-            {
-                var visuals = new List<PreparedVisual>();
-                try
-                {
-                    for (var index = 0; index < count; index++)
-                    {
-                        var visual = resources.Prepare(new SceneVisual.Model(asset.Revision,
-                            [MaterialCategory.PaintedMetal, MaterialCategory.Concrete, MaterialCategory.Glass],
-                            new("#4080c0"), new(true, 17, 0, false), new(0, 0.125f, 0, index / 64f)));
-                        visuals.Add(visual);
-                        visual.Node.Position = new(index % 8 * 1.25f, index / 8 * 1.25f, 0);
-                        Instance(visual).CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
-                        viewport.AddChild(visual.Node);
-                    }
-                    await TestScene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
-                    await TestScene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
-                    var values = new ulong[5];
-                    for (var frame = 0; frame < values.Length; frame++)
-                    {
-                        await TestScene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
-                        values[frame] = RenderingServer.GetRenderingInfo(RenderingServer.RenderingInfo.TotalDrawCallsInFrame);
-                    }
-                    samples.Add(count, values);
-                }
-                finally { foreach (var visual in visuals) visual.Dispose(); }
-            }
-            var directory = ProjectSettings.GlobalizePath("res://TestResults/issue-339-model-batching");
-            Directory.CreateDirectory(directory);
-            var output = Path.Combine(directory, $"draw-calls-{DateTime.UtcNow:yyyyMMddTHHmmssfff}.json");
-            File.WriteAllText(output, JsonSerializer.Serialize(new
-            {
-                godot = Godot.Engine.GetVersionInfo()["string"].AsString(),
-                renderingMethod = RenderingServer.GetCurrentRenderingMethod(),
-                driver = RenderingServer.GetCurrentRenderingDriverName(), adapter = RenderingServer.GetVideoAdapterName(),
-                viewportWidth = 512, viewportHeight = 512, surfacesPerModel = 3, samples,
-                globalUniformBufferSlots = ProjectSettings.GetSetting("rendering/limits/global_shader_variables/buffer_size").AsInt64()
-            }, new JsonSerializerOptions { WriteIndented = true }));
-            GD.Print($"MODEL_DRAW_CALLS={output}");
-            Require(samples.Values.All(values => values.Distinct().Count() == 1), "模型绘制调用数不稳定，需检查原始测量。");
-        }
-        finally { viewport.Free(); }
     }
 
     private static void AssertSurface(ShaderMaterial material, SurfaceState expected)

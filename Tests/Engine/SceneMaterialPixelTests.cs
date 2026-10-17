@@ -19,7 +19,6 @@ public class SceneMaterialPixelTests(Node testScene) : TestClass(testScene)
     [Test]
     public async Task Face_alpha_is_linear_paint_weight_and_never_transparency()
     {
-        if (DisplayServer.GetName() == "headless") return;
         using var fixture = new PixelFixture(TestScene);
         foreach (var category in Enum.GetValues<MaterialCategory>())
         {
@@ -45,7 +44,6 @@ public class SceneMaterialPixelTests(Node testScene) : TestClass(testScene)
     [Test]
     public async Task Mipmapped_zero_alpha_keeps_source_rgb_visible()
     {
-        if (DisplayServer.GetName() == "headless") return;
         using var fixture = new PixelFixture(TestScene, uniformAlpha: 0);
         using var rendered = await fixture.Face(MaterialCategory.PaintedMetal, new("#000000"), false,
             ExposedFaceEdges.None, textureRepeats: 128);
@@ -57,7 +55,6 @@ public class SceneMaterialPixelTests(Node testScene) : TestClass(testScene)
     [Test]
     public async Task Paint_chipping_strength_follows_alpha_at_the_same_surface_coordinates()
     {
-        if (DisplayServer.GetName() == "headless") return;
         var strengths = new List<float>();
         foreach (var alpha in new byte[] { 0, 128, 255 })
         {
@@ -82,7 +79,6 @@ public class SceneMaterialPixelTests(Node testScene) : TestClass(testScene)
     [Test]
     public async Task Glb_alpha_only_cuts_out_and_does_not_weight_paint()
     {
-        if (DisplayServer.GetName() == "headless") return;
         using var fixture = new PixelFixture(TestScene);
         using var original = await fixture.Model(null);
         using var painted = await fixture.Model(new("#4080c0"));
@@ -102,7 +98,6 @@ public class SceneMaterialPixelTests(Node testScene) : TestClass(testScene)
     [Test]
     public async Task Wear_edges_follow_category_and_preserve_unpainted_regions()
     {
-        if (DisplayServer.GetName() == "headless") return;
         using var fixture = new PixelFixture(TestScene);
         foreach (var category in Enum.GetValues<MaterialCategory>())
         {
@@ -136,6 +131,73 @@ public class SceneMaterialPixelTests(Node testScene) : TestClass(testScene)
             using var repeated = await fixture.Face(category, new("#204080"), true, ExposedFaceEdges.MinimumV);
             Require(AllEqual(edge, repeated), $"{category} 重建后磨损图案改变。");
         }
+    }
+
+    [Test]
+    public async Task Model_instancing_records_completed_frame_draw_calls()
+    {
+        Require(RenderingServer.GetCurrentRenderingMethod() == "forward_plus", "模型绘制测量要求 Forward+。");
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        var bytes = GlbFixture.Create(feature: "cell");
+        var inspection = new GodotAssetInspector(dispatcher).Inspect(AssetKind.Glb, new("instancing-model"), bytes);
+        Require(inspection is AssetInspection.Success, "批处理模型无法解码。");
+        var asset = new ContentAsset(new("instancing-model"), bytes, ((AssetInspection.Success)inspection).Metadata, []);
+        using var resources = new SceneResources(cache, new FixedContentView
+        {
+            Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>>
+            {
+                [asset.Revision] = new ContentLookup<ContentAsset>.Found(asset)
+            }
+        });
+        var viewport = new SubViewport
+        {
+            Size = new(512, 512), OwnWorld3D = true,
+            RenderTargetUpdateMode = SubViewport.UpdateMode.Always
+        };
+        var samples = new Dictionary<int, ulong[]>();
+        TestScene.AddChild(viewport);
+        viewport.AddChild(new Camera3D
+        {
+            Projection = Camera3D.ProjectionType.Orthogonal, Size = 11,
+            Position = new(4.25f, 4.775f, 20), Current = true
+        });
+        viewport.AddChild(new DirectionalLight3D());
+        try
+        {
+            foreach (var count in new[] { 1, 64 })
+            {
+                var visuals = new List<PreparedVisual>();
+                try
+                {
+                    for (var index = 0; index < count; index++)
+                    {
+                        var visual = resources.Prepare(new SceneVisual.Model(asset.Revision,
+                            [MaterialCategory.PaintedMetal, MaterialCategory.Concrete, MaterialCategory.Glass],
+                            new("#4080c0"), new(true, 17, 0, false), new(0, 0.125f, 0, index / 64f)));
+                        visuals.Add(visual);
+                        visual.Node.Position = new(index % 8 * 1.25f, index / 8 * 1.25f, 0);
+                        visual.Node.GetChildren().OfType<MeshInstance3D>().Single().CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
+                        viewport.AddChild(visual.Node);
+                    }
+                    await TestScene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+                    await TestScene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+                    var values = new ulong[5];
+                    for (var frame = 0; frame < values.Length; frame++)
+                    {
+                        await TestScene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+                        values[frame] = RenderingServer.GetRenderingInfo(RenderingServer.RenderingInfo.TotalDrawCallsInFrame);
+                    }
+                    samples.Add(count, values);
+                }
+                finally { foreach (var visual in visuals) visual.Dispose(); }
+            }
+            GD.Print($"MODEL_DRAW_CALLS one=[{string.Join(",", samples[1])}] sixtyFour=[{string.Join(",", samples[64])}]");
+            Require(samples.Values.All(values => values.Distinct().Count() == 1), "模型绘制调用数不稳定，需检查原始测量。");
+            Require(samples[1][0] > 0, "模型绘制测量没有记录到绘制调用。");
+            Require(samples[64][0] == samples[1][0], "64 个模型实例的绘制调用数高于单实例，实例批处理失效。");
+        }
+        finally { viewport.Free(); }
     }
 
     private static float Distance(Color a, Color b) => Math.Max(Math.Abs(a.R - b.R),
