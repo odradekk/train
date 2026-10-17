@@ -78,7 +78,7 @@ internal partial class EconomyPanels
         _leaseDuration.Text = _leaseRule is { } rule
             ? $"固定租期：{rule.LeaseDurationTicks / (decimal)UiInput.StepsPerDay:0.#########} 游戏日\n本次租期：{LeaseDurationSteps(_leaseMultiple) / (decimal)UiInput.StepsPerDay:0.#########} 游戏日（{_leaseMultiple} 倍）"
             : $"市场规则缺失：{status.Rule.Value}，无法确定租期。\n" + Problems(status.Problems);
-        _leaseDuration.AddThemeColorOverride("font_color", _leaseRule is null ? UiStyle.Error : Colors.White);
+        _leaseDuration.AddThemeColorOverride("font_color", _leaseRule is null ? UiStyle.Error : UiStyle.Foreground);
     }
 
     private void RefreshLeaseTerms()

@@ -10,6 +10,16 @@ namespace Train.Ui;
 public partial class MacroMap : Control
 {
     private static readonly Color Ink = new("#2a2a2a");
+    private readonly Texture2D _lairSymbol = GD.Load<Texture2D>("res://Ui/Symbols/lair.png");
+    private readonly Dictionary<TrainActivity, Texture2D> _trainSymbols = new()
+    {
+        [TrainActivity.Running] = GD.Load<Texture2D>("res://Ui/Symbols/train-running.png"),
+        [TrainActivity.Servicing] = GD.Load<Texture2D>("res://Ui/Symbols/train-servicing.png"),
+        [TrainActivity.Waiting] = GD.Load<Texture2D>("res://Ui/Symbols/train-waiting.png"),
+        [TrainActivity.NoRoute] = GD.Load<Texture2D>("res://Ui/Symbols/train-blocked.png"),
+        [TrainActivity.Combat] = GD.Load<Texture2D>("res://Ui/Symbols/train-combat.png"),
+        [TrainActivity.Retreating] = GD.Load<Texture2D>("res://Ui/Symbols/train-retreating.png")
+    };
     private IContentView? _content;
     private WorldSummary? _world;
     private readonly Dictionary<NodeId, NodeMapItem> _nodes = [];
@@ -165,6 +175,8 @@ public partial class MacroMap : Control
         {
             DrawCircle(point, radius, Colors.White);
             DrawArc(point, radius, 0, Mathf.Tau, 32, Ink, 2, true);
+            if (node.Occupant is NodeOccupant.Lair)
+                DrawTextureRect(_lairSymbol, new Rect2(point - new Vector2(6, 6), new Vector2(12, 12)), false, Ink);
             DrawMapText(name, point + new Vector2(0, radius + 21), new Color("#1e1e1e"));
             return;
         }
@@ -235,30 +247,23 @@ public partial class MacroMap : Control
         {
             TrainActivity.Running => new Color("#2f9e5c"),
             TrainActivity.Servicing => new Color("#2aa3b3"),
-            TrainActivity.Stopped or TrainActivity.Waiting => new Color("#d8962a"),
+            TrainActivity.Stopped or TrainActivity.Waiting or TrainActivity.Retreating => new Color("#d8962a"),
             _ => new Color("#c9423a")
         };
         DrawCapsule(point, Ink, 7);
         DrawCapsule(point, color, 6);
+        var rotation = 0f;
         if (train.Activity == TrainActivity.Running)
         {
             var direction = Vector2.Right;
             if (train.Position is TrainPosition.Edge moving && _edges.TryGetValue(moving.Id, out var edge) && EdgePoints(edge) is { } ends)
                 direction = (ends.End - ends.Start).Normalized() * (moving.Direction == TravelDirection.Forward ? 1 : -1);
-            var normal = direction.Orthogonal();
-            DrawColoredPolygon([point + direction * 5, point - direction * 4 + normal * 4, point - direction * 4 - normal * 4], Colors.White);
+            rotation = direction.Angle();
         }
-        else if (train.Activity == TrainActivity.Servicing) DrawRect(new Rect2(point - new Vector2(5, 3), new Vector2(10, 6)), Colors.White, false, 2);
-        else if (train.Activity is TrainActivity.Stopped or TrainActivity.Waiting)
-        {
-            DrawLine(point + new Vector2(-3, -4), point + new Vector2(-3, 4), Colors.White, 2);
-            DrawLine(point + new Vector2(3, -4), point + new Vector2(3, 4), Colors.White, 2);
-        }
-        else
-        {
-            DrawLine(point + new Vector2(0, -4), point + new Vector2(0, 1), Colors.White, 2);
-            DrawCircle(point + new Vector2(0, 4), 1, Colors.White);
-        }
+        var activity = train.Activity == TrainActivity.Stopped ? TrainActivity.Waiting : train.Activity;
+        DrawSetTransform(point, rotation);
+        DrawTextureRect(_trainSymbols[activity], new Rect2(-7, -7, 14, 14), false);
+        DrawSetTransform(Vector2.Zero);
     }
 
     private void DrawCapsule(Vector2 point, Color color, float radius)

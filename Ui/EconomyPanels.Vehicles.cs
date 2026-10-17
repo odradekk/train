@@ -52,7 +52,7 @@ internal partial class EconomyPanels
             var size = capacity.Size switch
             { SizeClass.Small => "小型", SizeClass.Medium => "中型", SizeClass.Large => "大型", SizeClass.ExtraLarge => "超大型", SizeClass.Titan => "泰坦", _ => capacity.Size.ToString() };
             label.Text = $"{size} 收购名额：{capacity.Available} · 待售 {capacity.ForSale} / 上限 {capacity.Limit}";
-            label.AddThemeColorOverride("font_color", capacity.Available == 0 ? UiStyle.Warning : Colors.White);
+            label.AddThemeColorOverride("font_color", capacity.Available == 0 ? UiStyle.Warning : UiStyle.Foreground);
         }
         var vehicles = _settlement.VehiclesForSale.Select(id => (Id: id, Action: VehicleTradeAction.Buy))
             .Concat(_settlement.ParkedVehicles.Where(id => _view.FindInstance(new InstanceId.Vehicle(id)) is

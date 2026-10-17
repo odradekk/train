@@ -261,11 +261,11 @@ internal partial class EconomyPanels : Control
             (warnings.IsDefaultOrEmpty ? "" : "\n短缺风险：\n" + Problems(warnings)) +
             (reason is null ? "" : "\n" + reason);
         label.AddThemeColorOverride("font_color", !blockers.IsEmpty ? UiStyle.Error :
-            !warnings.IsDefaultOrEmpty || reason is not null ? UiStyle.Warning : Colors.White);
+            !warnings.IsDefaultOrEmpty || reason is not null ? UiStyle.Warning : UiStyle.Foreground);
     }
 
     private static void ResetQuote<T>(ref T? quote, Label label, string reason = "输入已改变，请获取报价。") where T : class
-    { quote = null; label.Text = "报价不锁定。" + reason; label.AddThemeColorOverride("font_color", Colors.White); }
+    { quote = null; label.Text = "报价不锁定。" + reason; label.AddThemeColorOverride("font_color", UiStyle.Foreground); }
     private static void MissingSelection<T>(ref T? quote, Label label, string selection) where T : class =>
         ResetQuote(ref quote, label, $"已不存在：所选{selection}，请重新选择。");
 

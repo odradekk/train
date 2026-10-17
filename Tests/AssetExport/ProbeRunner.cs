@@ -121,6 +121,19 @@ public partial class ProbeRunner : Node
         Require(Success(files.Enumerate(new(production, ""))).Any(entry => entry.Name == "placeholder.png"
             && entry.Kind == ContentEntryKind.File), "Actual game PCK did not retain original PNG name.");
         CheckPackedSourceContents("res://");
+        foreach (var weight in new[] { "Regular", "Bold" })
+        {
+            using var font = GD.Load<Font>($"res://Ui/Fonts/NotoSansSC-{weight}.otf");
+            Require(font is not null && font.GetFontName() == "Noto Sans SC",
+                $"Actual game PCK is missing the bundled {weight} font.");
+        }
+        Require(Godot.FileAccess.FileExists("res://Ui/Fonts/OFL.txt"), "Actual game PCK is missing the font license.");
+        foreach (var name in new[] { "lair", "train-running", "train-servicing", "train-waiting", "train-blocked",
+            "train-combat", "train-retreating", "notification-info", "notification-complete", "notification-warning", "notification-critical" })
+        {
+            using var texture = GD.Load<Texture2D>($"res://Ui/Symbols/{name}.png");
+            Require(texture is not null, $"Actual game PCK is missing the host symbol {name}.");
+        }
         foreach (var (name, kind) in new[] { ("broken.png", AssetKind.Png), ("broken.glb", AssetKind.Glb) })
         {
             var result = inspector.Inspect(kind, new(name), Success(files.Read(new(mod, name), 100)));

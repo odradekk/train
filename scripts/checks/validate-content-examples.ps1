@@ -6,4 +6,6 @@ $env:PYTHONIOENCODING = 'utf-8'
 & $python -X utf8 (Join-Path $root 'docs/content/tools/validate_examples.py')
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $python -X utf8 (Join-Path $root 'scripts/content/generate_small_world.py') --check
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& $python -X utf8 (Join-Path $root 'scripts/content/ui_symbols.py') --check
 exit $LASTEXITCODE

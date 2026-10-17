@@ -1,4 +1,4 @@
-[gd_resource type="Theme" load_steps=12 format=3]
+[gd_resource type="Theme" load_steps=13 format=3]
 
 [ext_resource type="FontFile" path="res://Ui/Fonts/NotoSansSC-Regular.otf" id="1"]
 [ext_resource type="FontFile" path="res://Ui/Fonts/NotoSansSC-Bold.otf" id="2"]
@@ -147,6 +147,10 @@ corner_radius_top_right = 4
 corner_radius_bottom_right = 4
 corner_radius_bottom_left = 4
 
+[sub_resource type="StyleBoxLine" id="Separator"]
+color = Color(0.172549, 0.2, 0.231373, 1)
+thickness = 1
+
 [resource]
 default_font = ExtResource("1")
 default_font_size = 14
@@ -173,6 +177,7 @@ RichTextLabel/fonts/normal_font = ExtResource("1")
 RichTextLabel/fonts/bold_font = ExtResource("2")
 Button/colors/font_disabled_color = Color(0.6039216, 0.6392157, 0.6784314, 1)
 PanelContainer/styles/panel = SubResource("Panel")
+HSeparator/styles/separator = SubResource("Separator")
 TopBar/base_type = &"PanelContainer"
 TopBar/styles/panel = SubResource("TopBar")
 Button/styles/normal = SubResource("Secondary")
