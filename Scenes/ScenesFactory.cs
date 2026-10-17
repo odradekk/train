@@ -31,7 +31,7 @@ public static class ScenesFactory
             return new SceneResult<IDesignEditSession>.Success(new Editing.DesignEditSession(content, initial));
         }
         public SceneResult<ITemplatePreview> PreviewTemplate(IContentView content, SettlementTemplateDraft draft, EditRevision revision) =>
-            throw new NotImplementedException("Template previews are implemented by Issue #389.");
+            new SceneResult<ITemplatePreview>.Success(new TemplatePreview(content, draft, revision));
         public SceneResult<IDesignPreview> PreviewDesign(IContentView content, DesignEvaluation initial)
         {
             ArgumentNullException.ThrowIfNull(content);

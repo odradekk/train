@@ -1,6 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using Train.Content.Loading;
+using Train.Content.Authoring;
+using Train.Content.Designs;
 using static Train.Content.Loading.DefinitionJson;
 using C = Train.Content.Contracts;
 using K = Train.Core.Contracts;
@@ -13,9 +15,7 @@ internal static class ContentDraftCodec
     {
         if (draft is null) Fail("", "必须为草稿对象。");
         if (draft.Id.Value == Guid.Empty) Fail("/id", "草稿身份不能为空。");
-        if (draft.Payload is C.DraftPayload.Definition || draft.Target is C.DraftTarget.PackageDefinition)
-            throw new NotImplementedException();
-        if (draft.Payload is not C.DraftPayload.Design) Fail("/payload", "必须为设计草稿。");
+        CheckDefinitionTarget(draft.Target, draft.Payload);
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream))
         {
@@ -39,16 +39,34 @@ internal static class ContentDraftCodec
                     break;
                 case C.DraftTarget.LocalBlueprint local: WriteLibrary(writer, "local_blueprint", local.Id); break;
                 case C.DraftTarget.UserBlueprint user: WriteLibrary(writer, "user_blueprint", user.Id); break;
+                case C.DraftTarget.PackageDefinition package:
+                    writer.WriteString("kind", "package_definition");
+                    writer.WriteString("package", package.Package.Value);
+                    writer.WriteString("definition_kind", DesignEvaluator.Wire(package.Kind));
+                    writer.WriteString("local_id", package.LocalId);
+                    writer.WriteString("source_version", package.SourceVersion.Value);
+                    break;
                 default: Fail("/target", "未知草稿目标。"); break;
             }
             writer.WriteEndObject();
             writer.WriteStartObject("payload");
-            writer.WriteString("kind", "design");
-            writer.WritePropertyName("value");
-            writer.WriteStartObject();
-            try { BlueprintParser.WriteDesign(writer, ((C.DraftPayload.Design)draft.Payload).Value, incomplete: true); }
-            catch (ArgumentException exception) { throw new DefinitionFormatException("/payload/value", exception.Message, "invalid_field"); }
-            writer.WriteEndObject();
+            if (draft.Payload is C.DraftPayload.Definition definition)
+            {
+                writer.WriteString("kind", "definition");
+                writer.WriteString("definition_kind", DesignEvaluator.Wire(DefinitionDraftJson.Address(definition.Value).Kind));
+                writer.WritePropertyName("value");
+                try { DefinitionDraftJson.Write(definition.Value, incomplete: true).WriteTo(writer); }
+                catch (ArgumentException exception) { throw new DefinitionFormatException("/payload/value", exception.Message, "invalid_field"); }
+            }
+            else
+            {
+                writer.WriteString("kind", "design");
+                writer.WritePropertyName("value");
+                writer.WriteStartObject();
+                try { BlueprintParser.WriteDesign(writer, ((C.DraftPayload.Design)draft.Payload).Value, incomplete: true); }
+                catch (ArgumentException exception) { throw new DefinitionFormatException("/payload/value", exception.Message, "invalid_field"); }
+                writer.WriteEndObject();
+            }
             writer.WriteEndObject();
             writer.WriteEndObject();
         }
@@ -74,8 +92,15 @@ internal static class ContentDraftCodec
         var target = Required(root, "target", "");
         var kind = Text(Required(target, "kind", "/target"), "/target/kind");
         C.DraftTarget destination;
-        if (kind == "package_definition") throw new NotImplementedException();
-        if (kind == "instance")
+        if (kind == "package_definition")
+        {
+            Object(target, "/target", "kind", "package", "definition_kind", "local_id", "source_version");
+            destination = new C.DraftTarget.PackageDefinition(new(Text(Required(target, "package", "/target"), "/target/package")),
+                EnumValue<C.DefinitionKind>(Required(target, "definition_kind", "/target"), "/target/definition_kind"),
+                Text(Required(target, "local_id", "/target"), "/target/local_id"),
+                new(Text(Required(target, "source_version", "/target"), "/target/source_version")));
+        }
+        else if (kind == "instance")
         {
             Object(target, "/target", "kind", "instance");
             var instance = Required(target, "instance", "/target");
@@ -108,15 +133,43 @@ internal static class ContentDraftCodec
             };
         }
         var content = Required(root, "payload", "");
-        Object(content, "/payload", "kind", "value");
         var payloadKind = Text(Required(content, "kind", "/payload"), "/payload/kind");
-        if (payloadKind == "definition") throw new NotImplementedException();
+        if (payloadKind == "definition")
+        {
+            Object(content, "/payload", "kind", "definition_kind", "value");
+            var definitionKind = EnumValue<C.DefinitionKind>(Required(content, "definition_kind", "/payload"), "/payload/definition_kind");
+            C.DefinitionDraft definition;
+            try { definition = DefinitionDraftJson.Read(Required(content, "value", "/payload"), definitionKind); }
+            catch (DefinitionFormatException exception)
+            { throw new DefinitionFormatException("/payload/value" + exception.Field, exception.Message, exception.Code); }
+            var decoded = new C.DraftPayload.Definition(definition);
+            CheckDefinitionTarget(destination, decoded);
+            return new(new(Guid.Parse(idText)), new(revision), destination, decoded);
+        }
+        Object(content, "/payload", "kind", "value");
         if (payloadKind != "design") Fail("/payload/kind", "未知草稿类型。");
         C.DesignDraft design;
         try { design = BlueprintParser.ReadDesign(Required(content, "value", "/payload"), draft: true); }
         catch (DefinitionFormatException exception)
         { throw new DefinitionFormatException("/payload/value" + exception.Field, exception.Message, exception.Code); }
-        return new(new(Guid.Parse(idText)), new(revision), destination, new C.DraftPayload.Design(design));
+        var designPayload = new C.DraftPayload.Design(design);
+        CheckDefinitionTarget(destination, designPayload);
+        return new(new(Guid.Parse(idText)), new(revision), destination, designPayload);
+    }
+
+    private static void CheckDefinitionTarget(C.DraftTarget target, C.DraftPayload payload)
+    {
+        if (target is C.DraftTarget.PackageDefinition package)
+        {
+            DefinitionDraftJson.Kind(package.Kind);
+            if (package.Package.Value != "core" && (!PackageIdentity.TryCanonicalUuid(package.Package.Value, out var canonical) || canonical != package.Package.Value))
+                Fail("/target/package", "包 ID 必须为 core 或规范 UUID。");
+            if (package.SourceVersion.Value is null || package.LocalId is null) Fail("/target", "来源版本和本地 ID 必须为字符串。");
+            if (payload is not C.DraftPayload.Definition definition) Fail("/payload", "包定义目标必须保存定义草稿。");
+            var address = DefinitionDraftJson.Address(((C.DraftPayload.Definition)payload).Value);
+            if (address.Kind != package.Kind || address.LocalId != package.LocalId) Fail("/target", "草稿目标与定义不一致。");
+        }
+        else if (payload is not C.DraftPayload.Design) Fail("/payload", "定义草稿必须以包定义为目标。");
     }
 
     private static void WriteLibrary(Utf8JsonWriter writer, string kind, C.BlueprintId? id)

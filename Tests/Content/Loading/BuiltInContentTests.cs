@@ -28,9 +28,11 @@ public sealed class BuiltInContentTests
         var view = candidate.View;
         CollectionAssert.AllItemsAreUnique(new[] { "plains", "forest", "desert", "mountains" }
             .Select(id => Found(view.FindTerrain(new("core:" + id))).SurfaceVoxel).ToArray());
+        var vehicleDesigns = new List<K.DesignProjection>();
         foreach (var summary in view.Blueprints)
         {
             var blueprint = Found(view.FindBlueprint(summary.Address));
+            AssertPaintedPalette(blueprint.Definition);
             C.DesignEvaluation evaluation;
             if (summary.Address.Id.Value is "core:workshop-crane" or "core:gantry-crane")
                 evaluation = blueprint.Evaluation;
@@ -45,6 +47,7 @@ public sealed class BuiltInContentTests
             Assert.IsTrue(complete.IsValid, summary.Address.ToString());
             Assert.AreEqual(0, complete.Diagnostics.Length, summary.Address.ToString());
             if (complete.Core is not { } core) continue;
+            if (core.Design.Kind is K.DesignKind.Vehicle) vehicleDesigns.Add(core.Design);
             Assert.IsFalse(core.Design.BillOfMaterials.IsEmpty, summary.Address.ToString());
             foreach (var item in core.Design.BillOfMaterials)
             {
@@ -52,20 +55,33 @@ public sealed class BuiltInContentTests
                 Assert.IsFalse(Found(view.FindGood(item.Good)).Missing, item.Good.ToString());
             }
         }
-        var processes = view.Core.Processes.ToDictionary(process => ProcessReference(process.Details));
-        var vehicles = new List<K.DesignHash>();
-        foreach (var (id, size) in new[] { ("small-locomotive", K.SizeClass.Small),
-                     ("medium-locomotive", K.SizeClass.Medium), ("extra-large-locomotive", K.SizeClass.ExtraLarge) })
+        void AssertPaintedPalette(C.DesignDraft design)
         {
-            var design = Complete(view, id);
-            Assert.IsNotNull(design.Core);
-            Assert.IsInstanceOfType<K.DesignKind.Vehicle>(design.Core.Design.Kind);
-            Assert.AreEqual(size, ((K.DesignKind.Vehicle)design.Core.Design.Kind).Size);
-            var capabilities = design.Core.Design.Parts.SelectMany(part => part.Capabilities).ToArray();
-            Assert.IsTrue(capabilities.OfType<K.PartCapability.Control>().Any(), id);
-            Assert.IsTrue(capabilities.OfType<K.PartCapability.Propulsion>().Any(), id);
-            Assert.IsTrue(capabilities.OfType<K.PartCapability.Storage>().Any(), id);
-            vehicles.Add(design.Design);
+            foreach (var entry in design.Layout.Palette)
+            {
+                var appearance = Found(view.FindVoxelAppearance(entry.Voxel));
+                if (appearance.Presentation is C.VoxelPresentation.Cube cube &&
+                    cube.Material is C.MaterialCategory.PaintedMetal or C.MaterialCategory.Concrete)
+                    Assert.IsNotNull(entry.Paint, entry.Voxel.ToString());
+            }
+            foreach (var nested in design.Layout.NestedItems)
+                if (nested is C.NestedDesignItem.AssemblyCopy assembly) AssertPaintedPalette(assembly.Design);
+                else if (nested is C.NestedDesignItem.SceneModelCopy scene) AssertPaintedPalette(scene.Design);
+        }
+        var processes = view.Core.Processes.ToDictionary(process => ProcessReference(process.Details));
+        foreach (var sizes in new K.SizeClass[][]
+                 {
+                     [K.SizeClass.Small],
+                     [K.SizeClass.Medium, K.SizeClass.Large],
+                     [K.SizeClass.ExtraLarge, K.SizeClass.Titan]
+                 })
+        {
+            var designs = vehicleDesigns.Where(design => sizes.Contains(((K.DesignKind.Vehicle)design.Kind).Size)).ToArray();
+            Assert.IsTrue(designs.Any(design =>
+                design.Parts.SelectMany(part => part.Capabilities).OfType<K.PartCapability.Control>().Any() &&
+                design.Parts.SelectMany(part => part.Capabilities).OfType<K.PartCapability.Propulsion>().Any()), string.Join(",", sizes));
+            Assert.IsTrue(designs.Any(design => design.Parts.SelectMany(part => part.Capabilities)
+                .OfType<K.PartCapability.Storage>().Any(storage => storage.Capacity > 0)), string.Join(",", sizes));
         }
         var station = Complete(view, "small-station");
         Assert.IsNotNull(station.Core);
@@ -168,7 +184,24 @@ public sealed class BuiltInContentTests
         var worldResult = factory.CreateWorldInput(view, new("core:basic-through-world"), 1, "stage1-world-v1");
         Assert.IsInstanceOfType<C.ContentResult<K.WorldGenerationInput>.Success>(worldResult, worldResult.ToString());
         var world = ((C.ContentResult<K.WorldGenerationInput>.Success)worldResult).Value;
-        foreach (var vehicle in vehicles) Assert.IsTrue(world.Start.Trains.Any(train => train.Vehicles.Contains(vehicle)));
+        var commission = view.Core.Designs.Single(design =>
+            design.Design == world.Configuration.StartConstraints.RequiredAffordableCommissionDesign);
+        foreach (var template in view.Core.SettlementTemplates.Where(template => template.Plots
+                     .Where(plot => plot.PrebuiltDesign != null)
+                     .Select(plot => view.Core.Designs.Single(design => design.Design == plot.PrebuiltDesign))
+                     .SelectMany(design => design.Parts).SelectMany(part => part.Capabilities)
+                     .OfType<K.PartCapability.Construction>()
+                     .Any(construction => construction.MaximumVehicleSize >= K.SizeClass.Small)))
+        {
+            foreach (var item in commission.BillOfMaterials)
+                Assert.IsTrue(template.SpecialInitialInventory.Where(stock => stock.Good == item.Good)
+                    .Sum(stock => stock.Quantity) >= item.Quantity, template.Id + ":" + item.Good);
+        }
+        Assert.AreEqual(2, world.Start.Trains.Length);
+        CollectionAssert.AreEqual(new[] { "small-locomotive", "small-freight-wagon", "small-freight-wagon", "small-freight-wagon" }
+            .Select(id => Complete(view, id).Design).ToArray(), world.Start.Trains[0].Vehicles.ToArray());
+        CollectionAssert.AreEqual(new[] { "small-locomotive", "small-freight-wagon", "small-freight-wagon", "small-armed-wagon" }
+            .Select(id => Complete(view, id).Design).ToArray(), world.Start.Trains[1].Vehicles.ToArray());
     }
 
     [TestMethod]

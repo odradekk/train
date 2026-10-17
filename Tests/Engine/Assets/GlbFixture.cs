@@ -59,6 +59,23 @@ internal static class GlbFixture
             root["accessors"]![position]!["max"] = new JsonArray(2, 3, z + 1);
             primitives[surface]!["attributes"]!["POSITION"] = position;
         }
+        if (feature == "cell")
+        {
+            var uv = Accessor(Floats(0, 1, 1, 1, 0, 0, 1, 0), 5126, 4, "VEC2");
+            var indices = Accessor([0, 0, 1, 0, 2, 0, 1, 0, 3, 0, 2, 0], 5123, 6, "SCALAR");
+            for (var surface = 0; surface < primitives.Count; surface++)
+            {
+                var z = -0.125f + surface * 0.075f;
+                var position = Accessor(Floats(-0.25f, 0, z, 0.125f, 0, z,
+                    -0.25f, 0.4f, z + 0.05f, 0.125f, 0.4f, z + 0.05f), 5126, 4, "VEC3");
+                root["accessors"]![position]!["min"] = new JsonArray(-0.25f, 0, z);
+                root["accessors"]![position]!["max"] = new JsonArray(0.125f, 0.4f, z + 0.05f);
+                primitives[surface]!["attributes"]!["POSITION"] = position;
+                primitives[surface]!["attributes"]!["TEXCOORD_0"] = uv;
+                primitives[surface]!["indices"] = indices;
+            }
+            root["materials"]![1]!["alphaMode"] = "OPAQUE";
+        }
         if (feature == "instances")
         {
             root["nodes"]![1]!["translation"] = new JsonArray(1, 2, 3);

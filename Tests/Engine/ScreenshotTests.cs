@@ -33,7 +33,6 @@ public class ScreenshotTests(Node testScene) : TestClass(testScene)
         var window = TestScene.GetTree().Root;
         window.Mode = Window.ModeEnum.Windowed;
         window.Size = new Vector2I(1920, 1080);
-        Input.WarpMouse(Vector2.Zero);
         var fixture = new Fixture(TestScene.GetTree());
         try
         {
@@ -41,6 +40,11 @@ public class ScreenshotTests(Node testScene) : TestClass(testScene)
             Require(app.GetNode<MainMenu>("MainMenu").IsVisibleInTree(), "Main menu must be visible before capture.");
             // 等待尺寸变更和场景首次绘制完成后，读取已经提交的 viewport。
             await TestScene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+            await TestScene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+            // 仅归位鼠标坐标仍可能残留 GUI 悬停状态，布局完成后显式发送移动事件。
+            Input.WarpMouse(Vector2.Zero);
+            using (var motion = new InputEventMouseMotion { Position = Vector2.Zero, GlobalPosition = Vector2.Zero })
+                window.PushInput(motion, true);
             await TestScene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
             using var actual = window.GetTexture().GetImage();
             Require(actual.GetWidth() == 1920 && actual.GetHeight() == 1080, "Screenshot viewport must be 1920x1080.");
