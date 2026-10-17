@@ -368,9 +368,6 @@ internal sealed class EditorService : IDisposable
             Report("frozen：核心已冻结，不能保存有效蓝图。用户库草稿仍可写盘；本局草稿无法写入存档，只保留到离开本局。");
             return false;
         }
-        if ((target is BlueprintSaveTarget.New { Library: BlueprintLibrary.User } or
-            BlueprintSaveTarget.Overwrite { Address.Library: BlueprintLibrary.User }) && !Host.UserLibraryEnabled)
-        { Report("用户蓝图库暂不可用，请保存为本局蓝图或草稿。"); return false; }
         try
         {
             var snapshot = session.Capture();
@@ -400,7 +397,6 @@ internal sealed class EditorService : IDisposable
     {
         if (IsOpen || IsBusy) { Report("请先结束编辑。"); return; }
         ClearFeedback();
-        if (address.Library == BlueprintLibrary.User && !Host.UserLibraryEnabled) { Report("用户蓝图库暂不可用。"); return; }
         var begun = Host.BeginContentEdit(new ContentEdit.DeleteBlueprint(address), WriteRequired);
         if (begun.Problem is { } problem) Report(CommandDiagnostics.Describe(problem));
     }

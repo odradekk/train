@@ -72,7 +72,6 @@ internal sealed class HostCoordinator : IDisposable
     internal NotificationAction LastNotification { get; private set; }
     internal IContentView? Content { get { EnsureOwner(); return _content; } }
     internal IContentFactory ContentFactory => _contentFactory;
-    internal bool UserLibraryEnabled => _installation.UserLibrary is not null;
     internal bool IsEditing { get { EnsureOwner(); return _active?.Driver.EditingPaused == true; } }
     internal bool IsBusy { get { EnsureOwner(); return _pending is not null || _insideBoundary || _leaveLocked; } }
     internal bool AutoPauseOnFocusLoss
