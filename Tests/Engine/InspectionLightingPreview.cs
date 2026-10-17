@@ -132,7 +132,8 @@ public partial class InspectionLightingPreview : Node
             var window = z >= 8 && y == 3 && (x != 0 || z == 11);
             var id = window ? glass : y == 1 && x == 0 && z is 2 or 9 ? wheel : body;
             var number = cells.Count + 1;
-            cells.Add(new(at, id, VoxelOrientation.PxPy, null, window ? null : new PaintColor("#b54832"),
+            var paint = new PaintColor(z < 4 ? "#b54832" : z < 8 ? "#5a6b78" : "#ff00cc");
+            cells.Add(new(at, id, VoxelOrientation.PxPy, null, window ? null : paint,
                 new(number), new DesignElementPath.Cell([], number - 1), [], at, VoxelOrientation.PxPy, false));
         }
         var scene = new DesignSceneProjection(Design, null, null, true, null, null, cells.ToImmutable(), [], [], [], []);
