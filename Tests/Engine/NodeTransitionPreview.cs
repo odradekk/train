@@ -62,7 +62,9 @@ public partial class NodeTransitionPreview : Node
                 var snapshot = NodeTransitionFixture.Snapshot(content, position, ++step, facing);
                 var observed = _session.Observe(snapshot, []);
                 if (observed is not SceneResult<SimulationPosition>.Success) throw new InvalidOperationException(observed.ToString());
-                foreach (var alpha in new[] { 0d, .25, .5, .75, 1d }) await Capture(name, snapshot, alpha, boundaryFrom);
+                ScenePoint? firstOrigin = null;
+                foreach (var alpha in new[] { 0d, .25, .5, .75, 1d })
+                    firstOrigin = await Capture(name, snapshot, alpha, boundaryFrom, firstOrigin);
             }
             await Sample("00-edge-before-entry", new TrainPosition.Edge(new(2), 2, TravelDirection.Forward, 799.99));
             await Sample("00-node-boundary", Position(NodeTravelPhase.Approaching, 0), boundaryFrom: "00-edge-before-entry");
@@ -127,7 +129,7 @@ public partial class NodeTransitionPreview : Node
     private static TrainPosition Position(NodeTravelPhase phase, double distance, int? platform = 1, ulong next = 1, int nextTrack = 1) =>
         new TrainPosition.Node(new(1), new(2), 2, new(next), phase == NodeTravelPhase.Departing ? nextTrack : null, phase, distance, platform);
 
-    private async Task Capture(string name, SceneWorldSnapshot snapshot, double alpha, string? boundaryFrom)
+    private async Task<ScenePoint> Capture(string name, SceneWorldSnapshot snapshot, double alpha, string? boundaryFrom, ScenePoint? firstOrigin)
     {
         var scenario = name.Contains("return") ? "return-track2-to-track1" : name.Contains("same-side") ? "same-side-turn" : name.Contains("track2") ? "entry2-exit2" : "entry2-exit1";
         var attempts = 0;
@@ -141,6 +143,7 @@ public partial class NodeTransitionPreview : Node
             {
                 candidate.Commit();
                 frame = candidate.Frame;
+                firstOrigin ??= frame.Origin;
                 _view.ShowFrame(frame, NodeTransitionFixture.Subject);
                 if (frame.FindPose(NodeTransitionFixture.Subject) is Lookup<ScenePose>.Found && frame.Readiness == SceneReadiness.Ready) break;
             }
@@ -157,20 +160,20 @@ public partial class NodeTransitionPreview : Node
         Assertions.Require(root.GlobalPosition.DistanceTo(expected) < .003f && root.GlobalBasis.GetRotationQuaternion().AngleTo(rotation) < .003f,
             $"真实 Godot 车辆节点姿态必须与 FindPose 一致：node={root.GlobalTransform}, expected={pose}, frame={frame.Update.Frame}。");
         float? boundaryDisplacement = null, boundaryDirectionAngle = null, boundaryHeightDifference = null;
-        if (alpha == 1)
+        var referenceOrigin = firstOrigin!.Value;
+        var boundaryPosition = root.GlobalPosition + new Vector3((float)(frame.Origin.X - referenceOrigin.X),
+            (float)(frame.Origin.Y - referenceOrigin.Y), (float)(frame.Origin.Z - referenceOrigin.Z));
+        if (boundaryFrom is not null)
         {
-            if (boundaryFrom is not null)
-            {
-                // SwitchOrigin preserves display coordinates across edge/node spaces.
-                var previous = _keyframes[boundaryFrom];
-                boundaryDisplacement = root.GlobalPosition.DistanceTo(previous.Position);
-                boundaryDirectionAngle = root.GlobalBasis.GetRotationQuaternion().AngleTo(previous.Rotation);
-                boundaryHeightDifference = Mathf.Abs(root.GlobalPosition.Y - previous.Position.Y);
-                Assertions.Require(boundaryDisplacement < .05f && boundaryDirectionAngle < .003f && boundaryHeightDifference < .003f,
-                    $"边界连续性失败：{boundaryFrom} → {name}, displacement={boundaryDisplacement}, angle={boundaryDirectionAngle}, height={boundaryHeightDifference}, origin={frame.Origin}。");
-            }
-            _keyframes[name] = (root.GlobalPosition, root.GlobalBasis.GetRotationQuaternion());
+            // Railways may rebase after the handoff frame; compare in that first frame's coordinates.
+            var previous = _keyframes[boundaryFrom];
+            boundaryDisplacement = boundaryPosition.DistanceTo(previous.Position);
+            boundaryDirectionAngle = root.GlobalBasis.GetRotationQuaternion().AngleTo(previous.Rotation);
+            boundaryHeightDifference = Mathf.Abs(boundaryPosition.Y - previous.Position.Y);
+            Assertions.Require(boundaryDisplacement < .05f && boundaryDirectionAngle < .003f && boundaryHeightDifference < .003f,
+                $"边界连续性失败：{boundaryFrom} → {name}, displacement={boundaryDisplacement}, angle={boundaryDirectionAngle}, height={boundaryHeightDifference}, origin={frame.Origin}。");
         }
+        if (alpha == 1) _keyframes[name] = (root.GlobalPosition, root.GlobalBasis.GetRotationQuaternion());
         // Inputs are separate keyframes; let the normal follow camera catch up after their deliberate jumps.
         for (var i = 0; i < 60; i++)
         {
@@ -185,13 +188,17 @@ public partial class NodeTransitionPreview : Node
         static float[] V(Vector3 v) => [v.X, v.Y, v.Z];
         static float[] Q(Quaternion q) => [q.X, q.Y, q.Z, q.W];
         var nodePosition = snapshot.Core.World.Trains[0].Position as TrainPosition.Node;
-        var row = new { name, scenario, enteredTrack = nodePosition?.EnteredTrack, nextTrack = nodePosition?.NextTrack, origin = new[] { frame.Origin.X, frame.Origin.Y, frame.Origin.Z }, boundaryFrom, boundaryDisplacement, boundaryDirectionAngle, boundaryHeightDifference, alpha, cameraSettlingFrames = 60, corePosition = snapshot.Core.Position.ToString(), trainPosition = snapshot.Core.World.Trains[0].Position.ToString(),
+        var row = new { name, scenario, enteredTrack = nodePosition?.EnteredTrack, nextTrack = nodePosition?.NextTrack, edgeTrack = (snapshot.Core.World.Trains[0].Position as TrainPosition.Edge)?.Track,
+            origin = new[] { frame.Origin.X, frame.Origin.Y, frame.Origin.Z }, space = frame.Update.Frame.Space.Value,
+            boundaryReferenceOrigin = new[] { referenceOrigin.X, referenceOrigin.Y, referenceOrigin.Z }, boundaryPosition = V(boundaryPosition),
+            boundaryFrom, boundaryDisplacement, boundaryDirectionAngle, boundaryHeightDifference, alpha, cameraSettlingFrames = 60, corePosition = snapshot.Core.Position.ToString(), trainPosition = snapshot.Core.World.Trains[0].Position.ToString(),
             evidence = "controlled public Core snapshot; real ScenesFactory + SceneDisplay + WorldCamera; no production Core advancement or performance evidence",
             frame.SimulationSeconds, readiness = frame.Readiness.ToString(), loading = _view.Loading, attempts,
             displayedPosition = V(root.GlobalPosition), displayedRotation = Q(root.GlobalBasis.GetRotationQuaternion()),
             findPosePosition = new[] { pose.Position.X, pose.Position.Y, pose.Position.Z }, findPoseRotation = new[] { pose.Rotation.X, pose.Rotation.Y, pose.Rotation.Z, pose.Rotation.W },
             cameraFocus = V(_view.CameraRig.Focus), cameraPosition = V(_view.CameraRig.Camera.GlobalPosition), cameraRotation = Q(_view.CameraRig.Camera.GlobalBasis.GetRotationQuaternion()), screenshot = filename + ".png" };
         System.IO.File.AppendAllText(Path.Combine(_directory, "frames.jsonl"), JsonSerializer.Serialize(row) + System.Environment.NewLine);
+        return referenceOrigin;
     }
 
     public override void _ExitTree()
