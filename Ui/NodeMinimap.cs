@@ -105,12 +105,14 @@ internal partial class NodeMinimap : Control
         }
     }
 
-    internal Vector2 NodeToMap(Vector2 point)
+    internal Vector2 NodeToMap(Vector2 point) => NodeToMap(point, MapRect);
+
+    private Vector2 NodeToMap(Vector2 point, Rect2 rectangle)
     {
         var bounds = _bounds!;
         var minimum = new Vector2(bounds.Minimum.X, bounds.Minimum.Y);
         var extent = new Vector2(bounds.Maximum.X, bounds.Maximum.Y) - minimum;
-        return MapRect.Position + (point - minimum) / extent * MapRect.Size;
+        return rectangle.Position + (point - minimum) / extent * rectangle.Size;
     }
 
     internal Vector2 MapToNode(Vector2 point)
@@ -149,9 +151,10 @@ internal partial class NodeMinimap : Control
         _background.DrawRect(new(Vector2.Zero, Size), new Color("17242d"));
         _background.DrawRect(new(Vector2.Zero, Size), new Color("6d8088"), false);
         if (_overview is null) return;
+        var rectangle = MapRect;
         foreach (var plot in _overview.Plots)
         {
-            var corners = plot.Corners.Select(point => NodeToMap(new(point.X, point.Y))).ToArray();
+            var corners = plot.Corners.Select(point => NodeToMap(new(point.X, point.Y), rectangle)).ToArray();
             var station = plot.Size is PlotSize.SmallStation or PlotSize.LargeStation;
             _background.DrawColoredPolygon(corners, new Color(station ? "63583a" : "304139"));
             _background.DrawPolyline([.. corners, corners[0]], new Color(station ? "e3bd69" : "82988c"), 1, true);
@@ -166,13 +169,13 @@ internal partial class NodeMinimap : Control
         foreach (var track in _overview.Tracks)
         {
             if (track.Length < 2) continue;
-            List<Vector2> pixels = [NodeToMap(new(track[0].X, track[0].Y))];
+            List<Vector2> pixels = [NodeToMap(new(track[0].X, track[0].Y), rectangle)];
             for (var i = 1; i < track.Length - 1; i++)
             {
-                var point = NodeToMap(new(track[i].X, track[i].Y));
+                var point = NodeToMap(new(track[i].X, track[i].Y), rectangle);
                 if (point.DistanceSquaredTo(pixels[^1]) >= 1) pixels.Add(point);
             }
-            pixels.Add(NodeToMap(new(track[^1].X, track[^1].Y)));
+            pixels.Add(NodeToMap(new(track[^1].X, track[^1].Y), rectangle));
             _background.DrawPolyline(pixels.ToArray(), new Color("dbd6bf"), 1, true);
         }
     }
