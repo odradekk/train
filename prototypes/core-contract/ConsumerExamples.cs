@@ -30,6 +30,11 @@ public static class ConsumerExamples
         return (view.World, view.FindLocation(location), view.FindTrain(train));
     }
 
+    public static ImmutableArray<Lookup<JobView>> ReadOwnedJobs(ICoreReadView view, SettlementId settlement)
+        => view.FindSettlement(settlement) is Lookup<SettlementView>.Found found
+            ? found.Value.OwnedJobs.Select(view.FindJob).ToImmutableArray()
+            : [];
+
     public static ulong? ReadPlatformQueueEnteredStep(TrainView train)
         => train.PlatformQueueEnteredStep;
 

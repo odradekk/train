@@ -113,7 +113,8 @@ internal static class WorldGenerator
             {
                 var candidates = config.ForSaleVehicleCandidates.Select(hash => world.Designs.Single(d => d.Design == hash))
                     .Where(d => VehicleTrades.Supports(world, content, settlement, ((DesignKind.Vehicle)d.Kind).Size))
-                    .OrderBy(d => d.Design.Value, StringComparer.Ordinal).ToArray();
+                    .OrderBy(d => d.Composition.Value, StringComparer.Ordinal)
+                    .ThenBy(d => d.Design.Value, StringComparer.Ordinal).ToArray();
                 var rule = content.MarketRules.Single(r => r.Id == world.Source.Configuration.Rules.Market);
                 var slots = candidates.Select(d => ((DesignKind.Vehicle)d.Kind).Size).Distinct()
                     .ToDictionary(size => size, size => rule.VehiclePurchaseLimits.FirstOrDefault(l => l.Size == size)?.MaximumForSale ?? 0);

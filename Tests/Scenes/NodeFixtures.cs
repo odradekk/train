@@ -119,7 +119,7 @@ internal static class NodeFixtures
         [new(new(1), 1, PlotSize.SmallStation, [BuildingKind.Station], platforms > 0 ? new PlotOccupant.Building(new(1)) : new PlotOccupant.Empty())],
         [], 0, platforms, 0, [], [], [], new(0, 0, 0, 0),
         new(new(new("test:population"), null, []), 0, 0, 0, 0, new PopulationExecution.NotStarted([]), null, []),
-        new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [],
+        new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [], [],
         new(new(new("test:market"), null, []), new(0, 0, 0, 0, 0, 0, 0), []));
 
     internal static InstanceView Station(int platforms) => new(new InstanceId.Building(new(1)), StationDesign, new("station"),

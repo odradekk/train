@@ -61,12 +61,17 @@ public sealed class ConstructionCommandRecordingTests
     }
 
     [TestMethod]
-    public void Accepted_rejected_and_faulted_design_inputs_are_retained_only_as_recording_dependencies()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Accepted_rejected_and_faulted_design_inputs_are_retained_only_as_recording_dependencies(bool apply)
     {
         using var session = new CoreSession(WorldFixture.State());
         foreach (var identity in new[] { 'D', 'E', 'F' })
         {
-            var command = new CoreCommand.StartOwnedJob(new JobRequest.BuildVehicle(new(new(7), CapabilityKind.Construction), Input(identity), [], 0));
+            CoreCommand command = apply
+                ? new CoreCommand.ApplyInstanceDesign(new InstanceId.Vehicle(new(8)), new(new(new string('A', 64)), new(new string('B', 64)), Input(identity), [], [],
+                    [new(new GoodId.Voxel(new("fixture:removed-material")), 1, [], [], [])], 2))
+                : new CoreCommand.StartOwnedJob(new JobRequest.BuildVehicle(new(new(7), CapabilityKind.Construction), Input(identity), [], 0));
             session.ExecuteCommand(command, CommandSource.AutomationTest, _ => identity switch
             {
                 'D' => new CommandEffect.Accepted(session.State.Content, []),
@@ -84,9 +89,75 @@ public sealed class ConstructionCommandRecordingTests
                 Assert.IsTrue(manifest.Definitions.Any(definition => definition.Definition ==
                     new CoreDefinitionReference.Voxel(new("fixture:recording-material"))));
             }
+        if (apply)
+            Assert.IsTrue(recording.RequiredReferences.Definitions.Any(definition => definition.Definition ==
+                new CoreDefinitionReference.Voxel(new("fixture:removed-material"))));
         var saved = WorldFixture.Success(session.Capture(CapturePurpose.Diagnostic));
         Assert.IsFalse(saved.References.Designs.Contains(Input('E').Design.Design));
         Assert.IsFalse(saved.References.Designs.Contains(Input('F').Design.Design));
+    }
+
+    [TestMethod]
+    public void Design_changes_round_trip_complete_targets_and_deltas()
+    {
+        var change = new DesignChangeProjection(new(new string('A', 64)), new(new string('B', 64)), Input('D'), [], [],
+            [new(new GoodId.Voxel(new("fixture:removed-material")), 1, [], [], [])], 2);
+        CoreCommand[] commands =
+        [
+            new CoreCommand.ApplyInstanceDesign(new InstanceId.Vehicle(new(8)), change),
+            new CoreCommand.StartOwnedJob(new JobRequest.Refit(new(new(7), CapabilityKind.Construction), new InstanceId.Vehicle(new(8)), change, [new(4), new(2)], -3)),
+            new CoreCommand.CommissionVehicleWork(new JobRequest.Refit(new(new(7), CapabilityKind.Construction), new InstanceId.Vehicle(new(8)), change, [new(4), new(2)], -3), new(123))
+        ];
+        foreach (var command in commands)
+        {
+            var payload = CoreCommandEncoding.Encode(command);
+            Assert.AreEqual(payload, CoreCommandEncoding.Encode(Decode(payload)));
+            var decoded = Decode(payload) switch
+            {
+                CoreCommand.ApplyInstanceDesign apply => apply.Change,
+                CoreCommand.StartOwnedJob { Request: JobRequest.Refit refit } => refit.Change,
+                CoreCommand.CommissionVehicleWork { Request: JobRequest.Refit refit } => refit.Change,
+                _ => throw new AssertFailedException()
+            };
+            Assert.AreEqual(change.Before, decoded.Before);
+            Assert.AreEqual(change.Target.InputIdentity, decoded.Target.InputIdentity);
+            Assert.AreEqual(change.RemovedItems.Single().Good, decoded.RemovedItems.Single().Good);
+            Assert.AreEqual(change.ChangedItemCount, decoded.ChangedItemCount);
+            var prefix = command is CoreCommand.ApplyInstanceDesign
+                ? "{\"input_format_version\":2,\"kind\":\"instance.apply_design\",\"vehicle\":8,\"change\":{"
+                : command is CoreCommand.StartOwnedJob
+                    ? "{\"input_format_version\":2,\"kind\":\"construction.start_owned\",\"request\":{\"kind\":\"refit_vehicle\",\"facility\":{\"building\":7,\"capability\":\"construction\"},\"vehicle\":8,\"change\":{"
+                    : "{\"input_format_version\":2,\"kind\":\"construction.commission_vehicle_work\",\"request\":{\"kind\":\"refit_vehicle\",\"facility\":{\"building\":7,\"capability\":\"construction\"},\"vehicle\":8,\"change\":{";
+            StringAssert.StartsWith(payload, prefix);
+            var invalid = (CoreResult<DecodedCommand>.Failure)CoreCommandEncoding.Decode(payload.Replace("\"changed_item_count\":2", "\"changed_item_count\":2,\"changed_item_count\":2"));
+            Assert.AreEqual(command is CoreCommand.ApplyInstanceDesign ? "/change" : "/request/change", invalid.Problems.Single().Field);
+            Assert.IsInstanceOfType<CoreResult<DecodedCommand>.Failure>(CoreCommandEncoding.Decode(payload.Replace("\"changed_item_count\":2", "\"changed_item_count\":-1")));
+            Assert.IsInstanceOfType<CoreResult<DecodedCommand>.Failure>(CoreCommandEncoding.Decode(payload.Replace("\"changed_item_count\":2", "\"changed_item_count\":2,\"extra\":0")));
+        }
+    }
+
+    [TestMethod]
+    public void Dismantle_and_pause_have_fixed_vectors_and_precise_failures()
+    {
+        const string dismantle = """{"input_format_version":2,"kind":"construction.start_owned","request":{"kind":"dismantle_vehicle","facility":{"building":7,"capability":"construction"},"vehicle":8,"priority":-3}}""";
+        const string pause = """{"input_format_version":2,"kind":"construction.set_deconstruction_paused","job":8,"paused":true}""";
+        Assert.AreEqual(dismantle, CoreCommandEncoding.Encode(new CoreCommand.StartOwnedJob(new JobRequest.Dismantle(new(new(7), CapabilityKind.Construction), new InstanceId.Vehicle(new(8)), -3))));
+        Assert.AreEqual(pause, CoreCommandEncoding.Encode(new CoreCommand.SetDeconstructionPaused(new(8), true)));
+        Assert.AreEqual(dismantle, CoreCommandEncoding.Encode(Decode(dismantle)));
+        Assert.AreEqual(pause, CoreCommandEncoding.Encode(Decode(pause)));
+        foreach (var (payload, field) in new[]
+        {
+            (pause.Replace("\"job\":8", "\"job\":0"), "/job"),
+            (pause.Replace("true", "0"), "/paused"),
+            (pause.Replace(",\"paused\":true", ""), "/paused"),
+            (pause.Replace("\"job\":8", "\"job\":8,\"job\":9"), "/job"),
+            (dismantle.Replace("\"priority\":-3", "\"sources\":[],\"priority\":-3"), "/request/sources")
+        })
+        {
+            var result = (CoreResult<DecodedCommand>.Failure)CoreCommandEncoding.Decode(payload);
+            Assert.AreEqual("invalid_state", result.Problems.Single().Code);
+            Assert.AreEqual(field, result.Problems.Single().Field);
+        }
     }
 
     private static DesignInput Input(char identity)

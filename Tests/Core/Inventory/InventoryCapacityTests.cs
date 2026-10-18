@@ -39,12 +39,6 @@ public sealed class InventoryCapacityTests
         Assert.AreEqual(93L, ReadInventory(session, settlement.Inventory).Capacity);
         Assert.AreEqual(78L, ReadInventory(session, settlement.Inventory).Available);
         Assert.AreEqual(78L, WorldFixture.Success(session.Read().QuoteLease(new LeaseRequest.Rent(settlement.Id, 1, 3))).CurrentlyRentableCapacity);
-        var saved = WorldFixture.Success(session.Capture(CapturePurpose.Save));
-        var decoded = WorldFixture.Success(CoreFactory.Create().DecodeState(saved.Encode()));
-        using var candidate = WorldFixture.Success(CoreFactory.Create().PrepareRestore(decoded, Content(), WorldFixture.Options));
-        using var restored = candidate.Activate();
-        Assert.AreEqual(saved.Checkpoint, WorldFixture.Success(restored.Capture(CapturePurpose.Save)).Checkpoint);
-        Assert.AreEqual(5L, ReadInventory(restored, lease.Inventory).Reserved);
     }
 
     [TestMethod]

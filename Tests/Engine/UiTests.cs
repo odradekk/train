@@ -178,6 +178,8 @@ public class UiTests(Node testScene) : TestClass(testScene)
             var ui = app.GetNode<GameUi>("GameUi");
             var map = ui.GetNode<MacroMap>("Root/World/MacroMap");
             Require(ReferenceEquals(map.View, view) && ReferenceEquals(ui.View, view), "地图和宿主未读取同一固定快照。");
+            await _input.Activate(map.GetNode<CheckBox>("InformationLayers/Body/Resources"));
+            await _input.Activate(map.GetNode<CheckBox>("InformationLayers/Body/Platforms"));
             WorldObjectId? clicked = null;
             map.ObjectClicked += value => clicked = value;
             await _input.Click(map.GlobalPosition + map.MapToScreen(view.World.Nodes[1].Position));
@@ -195,11 +197,26 @@ public class UiTests(Node testScene) : TestClass(testScene)
             Require(map.Zoom > zoom && ((local - map.Offset) / map.Zoom).DistanceTo(anchor) < .01f,
                 "滚轮没有以实际鼠标位置缩放。");
             await UiCapture.Capture(TestScene, "macro-map");
+            await _input.Activate(map.GetNode<CheckBox>("InformationLayers/Body/Resources"));
+            await _input.Activate(map.GetNode<CheckBox>("InformationLayers/Body/Platforms"));
+            await UiCapture.Capture(TestScene, "macro-map-off");
+            await _input.Activate(map.GetNode<CheckBox>("InformationLayers/Body/Resources"));
+            await _input.Activate(map.GetNode<CheckBox>("InformationLayers/Body/Platforms"));
+
+            var layerPanel = map.GetNode<Control>("InformationLayers");
+            var panelPoint = layerPanel.GlobalPosition + new Vector2(8, 8);
+            before = map.Offset; zoom = map.Zoom; clicked = null;
+            await _input.Click(panelPoint);
+            await _input.Drag(panelPoint, new Vector2(12, 8));
+            await _input.MouseButton(panelPoint, MouseButton.WheelUp, true);
+            await _input.MouseButton(panelPoint, MouseButton.WheelUp, false);
+            Require(clicked is null && map.Offset == before && map.Zoom == zoom,
+                "信息层面板的输入穿透到了地图。");
 
             var fleet = ui.GetNode<Button>("Root/World/Bar/TopBar/Fleet");
             fleet.GrabFocus();
             await _input.PressKey(Key.Space);
-            var list = ui.GetNode<ItemList>("Root/World/WorldPanels/FleetList/Layout/Body/Objects");
+            var list = ui.GetNode<ItemList>("Root/World/WorldPanels/FleetList/Layout/Content/Body/Objects");
             Require(list.IsVisibleInTree(), "顶栏实际按键没有打开车队列表。");
             await _input.Frames(2);
             var covered = list.GlobalPosition + new Vector2(30, 30);
@@ -283,10 +300,10 @@ public class UiTests(Node testScene) : TestClass(testScene)
             var ui = app.GetNode<GameUi>("GameUi");
             ui.GetNode<Button>("Root/World/Bar/TopBar/Fleet").GrabFocus();
             await _input.PressKey(Key.Space);
-            var list = ui.GetNode<ItemList>("Root/World/WorldPanels/FleetList/Layout/Body/Objects");
+            var list = ui.GetNode<ItemList>("Root/World/WorldPanels/FleetList/Layout/Content/Body/Objects");
             await _input.ClickItem(list, 0);
             var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
-            var stop = panels.GetNodeOrNull<Button>("Details/Layout/Body/Stop");
+            var stop = panels.GetNodeOrNull<Button>("Details/Layout/Content/Body/Stop");
             Require(stop is not null && stop.IsVisibleInTree(),
                 $"实际列表点击没有打开列车详情：rect={list.GetGlobalRect()}，item={list.GetItemRect(0)}，selected={string.Join(',', list.GetSelectedItems())}，hover={tree.Root.GuiGetHoveredControl()?.GetPath()}。");
             stop!.GrabFocus();
@@ -295,7 +312,7 @@ public class UiTests(Node testScene) : TestClass(testScene)
                 ui.GetNode<Control>("Root/ErrorPanel").IsVisibleInTree(), "真实停车命令的拒绝没有显示在界面。");
             setup.Session.AssertComplete();
 
-            var disband = panels.GetNode<Button>("Details/Layout/Body/Disband");
+            var disband = panels.GetNode<Button>("Details/Layout/Content/Body/Disband");
             disband.GrabFocus();
             await _input.PressKey(Key.Space);
             var confirmation = panels.GetNode<ConfirmationDialog>("DisbandConfirmation");

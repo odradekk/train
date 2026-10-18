@@ -35,7 +35,7 @@ dotnet Tools/Cli/bin/Debug/net10.0/Train.Cli.dll compare TestResults/run.json Te
 
 工具只加载内置内容。PNG 端口支持当前资产使用的 8 位 RGBA、非交错编码，校验签名、块 CRC、头部、解压长度；无效或不支持的 PNG 返回 `CannotDecode`，GLB 返回 `UnsupportedContent`。这不替代真实 Godot 资产解码或视觉验证。
 
-`basic-through/save.json` 是推进到 200:0 的普通格式 6 存档，当前核心载荷为格式 15。`make` 推进到配方目标后保存，`save` 在指定步的序号 0 边界保存；该位置的命令由 `resume` 执行。保存同时捕获核心状态与内容依赖，UUID、名称和保存时间取配方固定值。容器编解码、临时文件读回校验及发布直接链接宿主同份源码；恢复依次读取容器、解码核心和内容、准备恢复内容、准备核心、激活后继续配方。
+`basic-through/save.json` 是推进到 200:0 的普通格式 6 存档，当前核心载荷为格式 16。`make` 推进到配方目标后保存，`save` 在指定步的序号 0 边界保存；该位置的命令由 `resume` 执行。保存同时捕获核心状态与内容依赖，UUID、名称和保存时间取配方固定值。容器编解码、临时文件读回校验及发布直接链接宿主同份源码；恢复依次读取容器、解码核心和内容、准备恢复内容、准备核心、激活后继续配方。
 
 Godot 开发构建（编辑器运行和调试导出）的主菜单提供“从示例开始”，发布构建隐藏此入口。游戏从 `res://examples/basic-through/save.json` 读取同一份普通存档，经过正常恢复流程打开暂停的宏观地图，不执行配方。恢复后的对局使用新 UUID，沿用名称“基础贯通小世界”，标记为未保存；第一次手动或自动保存才写入新 UUID 的用户存档目录，原示例保持不变。
 
@@ -60,7 +60,7 @@ Station 的形状为 `{kind:"station",node,dwell_steps,goods_rules}`，省略后
 | `market.buy_vehicle` | `seller,vehicle,maximum_payment` | 仅测试专用短配方 |
 | `construction.commission_vehicle_work` | `facility,blueprint,sources,maximum_payment` | 委托成功与材料不足分支 |
 
-CLI 委托目前只支持制造车辆。`facility` 是执行施工的建筑编号，能力固定为 `Construction`；`blueprint` 是内置包中的车辆蓝图身份，由内容模块交出完整设计输入。`sources` 是按消费顺序排列的库存编号数组，必须显式给出，空数组表示整份 BOM 都从当地 NPC 补购。`maximum_payment` 为非负整数。任务优先级为 0；改装和修理的 CLI 配方入口尚未增加，核心修理另由模块用例验证。
+CLI 委托目前只支持制造车辆。`facility` 是执行施工的建筑编号，能力固定为 `Construction`；`blueprint` 是内置包中的车辆蓝图身份，由内容模块交出完整设计输入。`sources` 是按消费顺序排列的库存编号数组，必须显式给出，空数组表示整份 BOM 都从当地 NPC 补购。`maximum_payment` 为非负整数。任务优先级为 0；改装和修理的 CLI 配方入口尚未增加，核心改装和修理由模块用例验证。
 
 租期必须是正式规则一天（5,184,000 步）的整数倍；配方不能借缩短租期加速验证。不支持本票未使用的续租、卖车、手动货物买卖或自动装卸。这些是 CLI 配方能力，没有新增游戏控制台命令，单命令手册不适用。
 

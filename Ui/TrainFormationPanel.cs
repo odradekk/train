@@ -39,8 +39,9 @@ internal partial class TrainFormationPanel : Control
         var right = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         left.AddChild(UiStyle.Label("可用车辆")); right.AddChild(UiStyle.Label("编组顺序"));
         _available = new ItemList { Name = "AvailableVehicles", SelectMode = ItemList.SelectModeEnum.Multi,
-            CustomMinimumSize = new(290, 280), SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        _ordered = new ItemList { Name = "OrderedVehicles", CustomMinimumSize = new(290, 280), SizeFlagsHorizontal = SizeFlags.ExpandFill };
+            CustomMinimumSize = new(290, 0), AutoHeight = true, SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        _ordered = new ItemList { Name = "OrderedVehicles", CustomMinimumSize = new(290, 0), AutoHeight = true,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill };
         left.AddChild(_available); right.AddChild(_ordered);
         left.AddChild(UiStyle.Button("AddSelected", "添加所选车辆 →", AddSelected));
         var reorder = new HBoxContainer();
