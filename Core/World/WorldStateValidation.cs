@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using Train.Core.Combat;
 using Train.Core.Contracts;
 using Train.Core.Settlements;
 using Train.Core.Trading;
@@ -18,6 +19,7 @@ internal static class WorldStateValidation
         Ordered(world.Trains, t => t.Id.Value, "/world/trains");
         Ordered(world.Inventories, i => i.Id.Value, "/world/inventories");
         Ordered(world.Leases, l => l.Id.Value, "/world/leases");
+        Ordered(world.Combats, c => c.Id.Value, "/world/combats");
         Strings(world.Designs, d => d.Design.Value, "/world/designs");
         Strings(world.DesignGoods, g => WorldReferences.GoodKey(g.Good), "/world/design_goods");
         Items(world.Instances, "/world/instances");
@@ -174,6 +176,7 @@ internal static class WorldStateValidation
             Identity(settlement.Type.Value, "/world/settlements/type");
             Require(Enum.IsDefined(settlement.Relation) && settlement.Population > 0
                 && settlement.Template.Type == settlement.Type, "/world/settlements");
+            Require(CombatRules.Valid(settlement.Engagement), "/world/settlements/engagement");
             Ordered(settlement.Plots, p => p.Id.Value, "/world/settlements/plots");
             Require(settlement.Plots.Select(p => (p.TemplateNumber, p.Size)).SequenceEqual(
                 settlement.Template.Plots.Select(p => (p.Number, p.Size))), "/world/settlements/plots");
@@ -197,7 +200,7 @@ internal static class WorldStateValidation
         }
         foreach (var train in world.Trains)
         {
-            ValidateTrain(train, nodes, edges);
+            ValidateTrain(world, train, nodes, edges);
             Items(train.Vehicles, "/world/trains/vehicles");
             Require(!train.Vehicles.IsEmpty && train.Vehicles.Distinct().Count() == train.Vehicles.Length, "/world/trains/vehicles");
             foreach (var vehicle in train.Vehicles)
@@ -285,6 +288,7 @@ internal static class WorldStateValidation
         Require(world.UnassignedServicePayments.Value >= 0, "/world/unassigned_service_payments");
         ValidateConstruction(world);
         ValidateFounding(world);
+        ValidateCombat(world, nodes, edges, settlements, trains, instances, designs);
         var next = world.Next;
         Next(next.Node, world.Nodes.Select(n => n.Id.Value), "/world/next/node");
         Next(next.Edge, world.Edges.Select(e => e.Id.Value), "/world/next/edge");
@@ -298,6 +302,7 @@ internal static class WorldStateValidation
         Next(next.Break, breakIds, "/world/next/break");
         Next(next.Lease, world.Leases.Select(l => l.Id.Value), "/world/next/lease");
         Next(next.Job, world.ConstructionJobs.Select(j => j.Id.Value).Concat(world.FoundingJobs.Select(j => j.Id.Value)), "/world/next/job");
+        Next(next.Combat, world.Combats.Select(c => c.Id.Value), "/world/next/combat");
     }
 
     private static void ValidateFounding(WorldState world)
@@ -524,13 +529,19 @@ internal static class WorldStateValidation
         }
     }
 
-    private static void ValidateTrain(TrainState train, Dictionary<NodeId, NodeMapItem> nodes,
+    private static void ValidateTrain(WorldState world, TrainState train, Dictionary<NodeId, NodeMapItem> nodes,
         Dictionary<EdgeId, EdgeMapItem> edges)
     {
         Require(Enum.IsDefined(train.OrderFacing) && double.IsFinite(train.SpeedMetersPerSecond)
             && train.SpeedMetersPerSecond >= 0, "/world/trains");
+        Require(CombatRules.Valid(train.Engagement), "/world/trains/engagement");
+        Require(train.RetreatDestination is not { } destination || nodes.ContainsKey(destination),
+            "/world/trains/retreat_destination");
+        Require(train.RetreatDestination is null || train.Activity == TrainActivity.Retreating,
+            "/world/trains/retreat_destination");
         Require(train.QueueEnteredStep is null || train.Position is TrainPosition.Node
-            && train.Activity is TrainActivity.Waiting or TrainActivity.Running, "/world/trains/queue_entered_step");
+            && train.Activity is TrainActivity.Waiting or TrainActivity.Running or TrainActivity.Combat
+                or TrainActivity.Retreating, "/world/trains/queue_entered_step");
         Require(train.ReturningFromBreak is null || train.Position is TrainPosition.Edge returning
             && train.Activity == TrainActivity.Running && edges.TryGetValue(returning.Id, out var returningEdge)
             && returningEdge.Breaks.Any(b => b.Id == train.ReturningFromBreak && b.Track == returning.Track),
@@ -611,10 +622,12 @@ internal static class WorldStateValidation
         }
         var finishingStop = train.Plan is not null && train.NextStopIndex is null
             && train.Activity == TrainActivity.Running && train.StopRequested;
-        Require(unfinished || finishingStop || train.Activity == TrainActivity.Stopped && train.RemainingDwellSteps == 0,
+        var combatActivity = train.Activity is TrainActivity.Combat or TrainActivity.Retreating;
+        Require(unfinished || finishingStop || combatActivity
+            || train.Activity == TrainActivity.Stopped && train.RemainingDwellSteps == 0,
             "/world/trains/activity");
-        Require(!train.StopRequested || train.Activity is TrainActivity.Running or TrainActivity.Waiting,
-            "/world/trains/stop_requested");
+        Require(!train.StopRequested || train.Activity is TrainActivity.Running or TrainActivity.Waiting
+            or TrainActivity.Combat or TrainActivity.Retreating, "/world/trains/stop_requested");
         if (train.RemainingDwellSteps > 0)
             Require(unfinished && train.Position is TrainPosition.Node dwellNode
                 && train.Plan!.Stops[train.NextStopIndex!.Value] is PlanStop.Station dwellStation
@@ -640,19 +653,174 @@ internal static class WorldStateValidation
                 Require(unfinished && train.Position is TrainPosition.Node && train.SpeedMetersPerSecond == 0
                     && train.RemainingDwellSteps == 0, "/world/trains/activity");
                 break;
+            case TrainActivity.Combat:
+                Require(train.Position is TrainPosition.Node && train.SpeedMetersPerSecond == 0
+                    && CombatQueries.TrainInCombat(world, train.Id), "/world/trains/activity");
+                break;
+            case TrainActivity.Retreating:
+                Require(train.Position is TrainPosition.Node or TrainPosition.Edge, "/world/trains/activity");
+                break;
             default: throw new CoreStateFormatException("/world/trains/activity");
         }
         Require(train.AutomaticEvaluationRemainingSteps is null || unfinished
             && train.Position is TrainPosition.Node atStation
             && train.Plan!.Stops[train.NextStopIndex!.Value] is PlanStop.Station current && current.Node == atStation.Id
             && !current.GoodsRules.IsEmpty
-            && train.RemainingDwellSteps > 0 && train.Activity is TrainActivity.Servicing or TrainActivity.Stopped or TrainActivity.Waiting,
+            && train.RemainingDwellSteps > 0 && train.Activity is TrainActivity.Servicing or TrainActivity.Stopped
+                or TrainActivity.Waiting or TrainActivity.Combat,
             "/world/trains/automatic_evaluation_remaining_steps");
         Require(train.AutomaticEvaluationRemainingSteps is not null
             || train.Activity != TrainActivity.Servicing && train.RemainingDwellSteps == 0
             || unfinished && train.Plan!.Stops[train.NextStopIndex!.Value] is PlanStop.Station { GoodsRules.IsEmpty: true },
             "/world/trains/automatic_evaluation_remaining_steps");
     }
+
+    private static void ValidateCombat(WorldState world, Dictionary<NodeId, NodeMapItem> nodes,
+        Dictionary<EdgeId, EdgeMapItem> edges, Dictionary<SettlementId, SettlementState> settlements,
+        Dictionary<TrainId, TrainState> trains, Dictionary<InstanceId, InstanceState> instances,
+        Dictionary<DesignHash, DesignProjection> designs)
+    {
+        var controllers = new HashSet<(int Kind, ulong Id)>();
+        var unitsLost = new HashSet<CombatUnitId>();
+        var partsLost = new HashSet<(int Kind, ulong Id, int Part)>();
+        for (var index = 0; index < world.Combats.Length; index++)
+        {
+            var combat = world.Combats[index];
+            var path = $"/world/combats/{index}";
+            Require(combat.Id.Value != 0 && combat.Controllers.IsDefault == false
+                && combat.Sides.IsDefault == false && !combat.Controllers.IsEmpty, path);
+            switch (combat.Location)
+            {
+                case WorldLocation.Node node:
+                    Require(nodes.ContainsKey(node.Id), path + "/location");
+                    break;
+                case WorldLocation.Edge edge:
+                    Require(edges.TryGetValue(edge.Id, out var edgeItem)
+                        && double.IsFinite(edge.DistanceMeters) && edge.DistanceMeters >= 0
+                        && edge.DistanceMeters <= edgeItem.LengthMeters, path + "/location");
+                    break;
+                default: throw new CoreStateFormatException(path + "/location");
+            }
+            for (var other = 0; other < index; other++)
+                Require(!CombatQueries.SameLocation(combat.Location, world.Combats[other].Location),
+                    path + "/location");
+            (int Kind, ulong Id) previousController = (-1, 0);
+            foreach (var controller in combat.Controllers)
+            {
+                var controllerPath = path + "/controllers";
+                var key = CombatQueries.ControllerKey(controller.Controller);
+                Require(key.CompareTo(previousController) > 0 && controllers.Add(key), controllerPath);
+                previousController = key;
+                Require(controller.JoinedAtStep >= combat.StartedAtStep, controllerPath + "/joined_at_step");
+                Require(controller.Retreating || controller.RemainingDisengagementSteps == 0,
+                    controllerPath + "/remaining_disengagement_steps");
+                switch (controller.Controller)
+                {
+                    case CombatController.Train train:
+                        Require(trains.TryGetValue(train.Id, out var controllerTrain)
+                            && CombatQueries.SameLocation(combat.Location, WorldState.Location(controllerTrain.Position)),
+                            controllerPath + "/train");
+                        break;
+                    case CombatController.Settlement settlement:
+                        Require(settlements.TryGetValue(settlement.Id, out var controllerSettlement)
+                            && combat.Location is WorldLocation.Node node && node.Id == controllerSettlement.Node,
+                            controllerPath + "/settlement");
+                        break;
+                    default: throw new CoreStateFormatException(controllerPath);
+                }
+                var units = CombatQueries.Units(world, controller.Controller);
+                Require(!units.IsEmpty, controllerPath + "/units");
+                foreach (var unit in units)
+                {
+                    Require(unit is CombatUnitId.Instance { Id: var id } && instances.ContainsKey(id)
+                        && CombatQueries.SameLocation(combat.Location, InstanceLocation(world, id, trains, settlements)),
+                        controllerPath + "/units");
+                }
+                if (controller.FocusTarget is { } focus)
+                {
+                    var hostileParticipant = combat.Controllers
+                        .Where(other => other.Controller != controller.Controller)
+                        .SelectMany(other => CombatQueries.Units(world, other.Controller))
+                        .Contains(focus);
+                    Require(hostileParticipant
+                        && units.Any(unit => CombatQueries.Hostile(world, unit, focus)),
+                        controllerPath + "/focus_target");
+                }
+            }
+            (int Kind, ulong Id) previousOwner = (-1, 0);
+            var owners = new HashSet<(int Kind, ulong Id)>();
+            foreach (var side in combat.Sides)
+            {
+                var sidePath = path + "/sides";
+                var owner = OwnerKey(side.Owner);
+                Require(owner.CompareTo(previousOwner) > 0 && owners.Add(owner), sidePath + "/owner");
+                previousOwner = owner;
+                Require(side.Reward.Value >= 0, sidePath + "/reward");
+                Items(side.UnitsLost, sidePath + "/units_lost");
+                (int Kind, ulong Id) previousUnit = (-1, 0);
+                foreach (var lost in side.UnitsLost)
+                {
+                    Require(lost is DestroyedUnit.Instance, sidePath + "/units_lost");
+                    var unit = (DestroyedUnit.Instance)lost;
+                    var unitKey = CombatQueries.UnitKey(new CombatUnitId.Instance(unit.Value.Instance));
+                    Require(unitKey.CompareTo(previousUnit) > 0 && unitsLost.Add(new CombatUnitId.Instance(unit.Value.Instance)),
+                        sidePath + "/units_lost");
+                    previousUnit = unitKey;
+                    Require(designs.ContainsKey(unit.Value.Design)
+                        && CombatQueries.SameLocation(unit.Value.Location, combat.Location)
+                        && !instances.ContainsKey(unit.Value.Instance), sidePath + "/units_lost");
+                }
+                Items(side.PartsLost, sidePath + "/parts_lost");
+                (int Kind, ulong Id, int Part) previousPart = (-1, 0, -1);
+                foreach (var lost in side.PartsLost)
+                {
+                    var instance = lost.Instance.Instance;
+                    var partKey = (CombatQueries.UnitKey(new CombatUnitId.Instance(instance)).Kind,
+                        CombatQueries.UnitKey(new CombatUnitId.Instance(instance)).Id, lost.Part.Value);
+                    Require(instance is InstanceId.Building or InstanceId.Vehicle
+                        && partKey.CompareTo(previousPart) > 0 && partsLost.Add(partKey), sidePath + "/parts_lost");
+                    previousPart = partKey;
+                    Require(designs.TryGetValue(lost.Instance.Design, out var design)
+                        && design.Parts.Any(part => part.Id == lost.Part)
+                        && CombatQueries.SameLocation(lost.Instance.Location, combat.Location), sidePath + "/parts_lost");
+                    if (instances.TryGetValue(instance, out var survivor))
+                        Require(survivor.Parts.Single(p => p.Id == lost.Part).Current == 0, sidePath + "/parts_lost");
+                }
+                Strings(side.CargoLost, good => WorldReferences.GoodKey(good.Good), sidePath + "/cargo_lost");
+                foreach (var cargo in side.CargoLost)
+                {
+                    Good(cargo.Good, sidePath + "/cargo_lost");
+                    Require(cargo.Quantity > 0, sidePath + "/cargo_lost");
+                }
+            }
+            foreach (var controller in combat.Controllers)
+                Require(owners.Contains(OwnerKey(CombatQueries.Owner(world, controller.Controller))),
+                    path + "/sides/owner");
+        }
+    }
+
+    private static WorldLocation InstanceLocation(WorldState world, InstanceId id,
+        Dictionary<TrainId, TrainState> trains, Dictionary<SettlementId, SettlementState> settlements)
+    {
+        var instance = world.Instances.Single(i => i.Id == id);
+        return instance.Details switch
+        {
+            InstanceDetails.Vehicle { Train: { } train } => WorldState.Location(trains[train].Position),
+            InstanceDetails.Vehicle { Train: null } => new WorldLocation.Node(settlements.Values
+                .Single(s => s.ParkedVehicles.Contains(((InstanceId.Vehicle)id).Id)).Node),
+            InstanceDetails.Building building => new WorldLocation.Node(settlements.Values
+                .Single(s => s.Plots.Any(plot => plot.Id == building.Plot)).Node),
+            _ => throw new CoreStateFormatException("/world/combats/instances")
+        };
+    }
+
+    private static (int Kind, ulong Id) OwnerKey(CombatOwner owner) => owner switch
+    {
+        CombatOwner.Player => (0, 0),
+        CombatOwner.Settlement settlement => (1, settlement.Id.Value),
+        CombatOwner.Creatures => (2, 0),
+        _ => throw new CoreStateFormatException("/world/combats/sides/owner")
+    };
 
     private static bool NotAfter(SimulationPosition a, SimulationPosition b)
         => a.CompletedSteps < b.CompletedSteps || a.CompletedSteps == b.CompletedSteps && a.Sequence <= b.Sequence;
@@ -704,6 +872,14 @@ internal static class WorldStateValidation
         foreach (var train in world.Trains)
             Require(train.QueueEnteredStep is null || train.QueueEnteredStep <= completedSteps,
                 "/world/trains/queue_entered_step");
+        foreach (var combat in world.Combats)
+        {
+            Require(combat.StartedAtStep > 0 && combat.StartedAtStep <= completedSteps,
+                "/world/combats/started_at_step");
+            foreach (var controller in combat.Controllers)
+                Require(controller.JoinedAtStep >= combat.StartedAtStep && controller.JoinedAtStep <= completedSteps,
+                    "/world/combats/controllers/joined_at_step");
+        }
         foreach (var settlement in world.Settlements)
         {
             Require(settlement.PopulationState.LastSettlement is not { } report || report.Position.CompletedSteps <= completedSteps,

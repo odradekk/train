@@ -90,6 +90,15 @@ internal static class WorldJson
                     new(typeof(WorldObjectId.Train), "train"), new(typeof(WorldObjectId.Instance), "instance"), new(typeof(WorldObjectId.Settlement), "settlement"),
                     new(typeof(WorldObjectId.Inventory), "inventory"), new(typeof(WorldObjectId.Job), "job"), new(typeof(WorldObjectId.Combat), "combat"),
                     new(typeof(WorldObjectId.Creature), "creature"), new(typeof(WorldObjectId.CreatureGroup), "creature_group"), new(typeof(WorldObjectId.Lair), "lair")],
+                var t when t == typeof(WorldLocation) => [new(typeof(WorldLocation.Node), "node"), new(typeof(WorldLocation.Edge), "edge")],
+                var t when t == typeof(CombatController) => [new(typeof(CombatController.Train), "train"),
+                    new(typeof(CombatController.Settlement), "settlement")],
+                var t when t == typeof(CombatUnitId) => [new(typeof(CombatUnitId.Instance), "instance"),
+                    new(typeof(CombatUnitId.CreatureGroup), "creature_group")],
+                var t when t == typeof(CombatOwner) => [new(typeof(CombatOwner.Player), "player"),
+                    new(typeof(CombatOwner.Settlement), "settlement"), new(typeof(CombatOwner.Creatures), "creatures")],
+                var t when t == typeof(DestroyedUnit) => [new(typeof(DestroyedUnit.Instance), "instance"),
+                    new(typeof(DestroyedUnit.Creature), "creature")],
                 _ => []
             };
             if (variants.Length == 0) return;
