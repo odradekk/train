@@ -98,7 +98,7 @@ public sealed class SettlementPrebuildTests
         var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
         var stamp = new SceneFrameStamp(new(Guid.NewGuid()), new(1), new(1), 1);
         SceneFrame first;
-        await using (var candidate = new NodeScene(snapshot, NodeFixtures.NodeId, new(), Ids(), vehicles,
+        await using (var candidate = new NodeScene(snapshot, NodeFixtures.NodeId, new(), Ids(), vehicles, new(),
             RailwayFixtures.EmptyNode, buildingCache, parkedCache))
         {
             await Prepare(candidate);
@@ -108,7 +108,7 @@ public sealed class SettlementPrebuildTests
             Assert.IsTrue(first.Objects.Any(item => item.Subject == new WorldObjectId.Instance(new InstanceId.Building(new(1))) && !item.Visuals.IsEmpty));
             Assert.IsTrue(first.Objects.Any(item => item.Subject == new WorldObjectId.Instance(new InstanceId.Vehicle(new(2))) && !item.Visuals.IsEmpty));
         }
-        await using var reopened = new NodeScene(snapshot, NodeFixtures.NodeId, new(), Ids(), vehicles,
+        await using var reopened = new NodeScene(snapshot, NodeFixtures.NodeId, new(), Ids(), vehicles, new(),
             RailwayFixtures.EmptyNode, buildingCache, parkedCache);
         await Prepare(reopened);
         var second = reopened.Present(snapshot, request, stamp with { Revision = 2 }, null, default);

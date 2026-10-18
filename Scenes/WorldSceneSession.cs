@@ -19,6 +19,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     private readonly RailwayCache railwayCache;
     private readonly NodeScene.Cache nodeCache;
     private readonly SceneVehicles vehicles;
+    private readonly DisplayRate displayRate;
     private readonly Dictionary<NodeId, (SceneVehicles.Cache Buildings, SceneVehicles.Cache Parked)> settlementCaches = [];
     private RailwayScene? railway;
     private NodeScene? node;
@@ -57,6 +58,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     internal Task[] PendingPrebuilds => (candidate?.Node?.PendingWork ?? []).Concat(candidate?.Railway?.PendingWork ?? [])
         .Concat(retiringCandidate is { IsCompleted: false } ? [retiringCandidate] : []).ToArray();
     internal WorldLocation? PrebuiltLocation => candidate?.Location;
+    internal Func<long> Timestamp { get; set; } = System.Diagnostics.Stopwatch.GetTimestamp;
 
     private sealed record BuiltWorld(WorldSceneContent Content, BuiltGeometry Scenery,
         ImmutableDictionary<InstanceId, BuiltObject> Objects);
@@ -74,6 +76,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         this.nodeCache = nodeCache;
         this.nodeBuild = nodeBuild;
         vehicles = new(vehicleCache);
+        displayRate = new() { Timestamp = () => Timestamp() };
     }
 
     internal static void ValidateSnapshot(SceneWorldSnapshot snapshot)
@@ -117,7 +120,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         ids.Clear();
         if (value is not WorldSceneTarget.Combat && CurrentLocation(snapshot, value) is WorldLocation.Edge edge)
         {
-            railway = new(snapshot, edge.Id, railwayCache, ObjectId, vehicles: vehicles);
+            railway = new(snapshot, edge.Id, railwayCache, ObjectId, vehicles: vehicles, displayRate: displayRate);
             pending = null;
             PruneCaches();
             return new SceneResult<SceneRequestId>.Success(request);
@@ -323,7 +326,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         {
             CancelCandidate(); ids = [];
             var map = ids;
-            if (location is WorldLocation.Edge edge) railway = new(snapshot, edge.Id, railwayCache, key => AssignId(map, key), vehicles: vehicles);
+            if (location is WorldLocation.Edge edge) railway = new(snapshot, edge.Id, railwayCache, key => AssignId(map, key), vehicles: vehicles, displayRate: displayRate);
             else if (location is WorldLocation.Node atNode) node = OpenNode(atNode.Id, key => AssignId(map, key));
             else throw new ArgumentException("Invalid follow location.");
         }
@@ -346,35 +349,39 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     {
         if (!settlementCaches.TryGetValue(id, out var caches))
             settlementCaches.Add(id, caches = (new(), new()));
-        return new(snapshot, id, nodeCache, objectId, vehicles, nodeBuild, caches.Buildings, caches.Parked, background: background);
+        return new(snapshot, id, nodeCache, objectId, vehicles, displayRate, nodeBuild, caches.Buildings, caches.Parked, background: background);
     }
     private void Prebuild()
     {
         if (target is not WorldSceneTarget.Follow follow) return;
         var train = ((Lookup<TrainView>.Found)snapshot.Core.FindTrain(follow.Train)).Value;
-        WorldLocation? wanted = railway is not null ? railway.FrontNode(snapshot, train) : null;
+        WorldLocation? wanted = null;
+        var startCandidate = true;
+        if (railway is not null && train.Position is TrainPosition.Edge at && snapshot.Core.FindEdge(at.Id) is Lookup<EdgeView>.Found current)
+        {
+            wanted = new WorldLocation.Node(at.Direction == TravelDirection.Forward ? current.Value.Map.End : current.Value.Map.Start);
+            startCandidate = railway.FrontNode(snapshot, train) is not null;
+        }
         if (node is not null && (train.Position as TrainPosition.Node)?.NextEdge is { } next && snapshot.Core.FindEdge(next) is Lookup<EdgeView>.Found edge)
             wanted = new WorldLocation.Edge(next, edge.Value.Map.Start == node.Node ? 0 : edge.Value.Map.LengthMeters);
         if (wanted is null || !SameLocation(candidate?.Location, wanted)) CancelCandidate();
         if (wanted is null) { rejectedCandidate = null; return; }
-        if (SameLocation(rejectedCandidate, wanted)) return;
+        if (startCandidate && SameLocation(rejectedCandidate, wanted)) return;
         rejectedCandidate = null;
         var allowBuild = node?.HasPendingBuilds != true && railway?.HasPendingBuilds != true;
         // Keep at most one background candidate alive, including cancellation that is still draining.
-        if (allowBuild && candidate is null && retiringCandidate?.IsCompleted != false)
+        if (allowBuild && startCandidate && candidate is null && retiringCandidate?.IsCompleted != false)
         {
             var map = new Dictionary<string, SceneObjectId>();
             candidate = wanted is WorldLocation.Node atNode
                 ? new(wanted, map, Node: OpenNode(atNode.Id, key => AssignId(map, key), background: true))
-                : new(wanted, map, Railway: new(snapshot, ((WorldLocation.Edge)wanted).Id, railwayCache, key => AssignId(map, key), vehicles: vehicles));
+                : new(wanted, map, Railway: new(snapshot, ((WorldLocation.Edge)wanted).Id, railwayCache, key => AssignId(map, key), vehicles: vehicles, displayRate: displayRate));
         }
         try
         {
             if (candidate?.Node is { } candidateNode)
             {
-                var entry = candidateNode.Layout?.Entries.FirstOrDefault(item => item.Edge == railway?.Edge);
-                candidateNode.Pump(snapshot, entry is null ? null : candidateNode.Layout!.TrainBoundary(entry).Position,
-                    allowBuild, railway?.Edge);
+                candidateNode.Pump(snapshot, allowBuild: allowBuild, enteringTrain: train);
             }
             if (wanted is WorldLocation.Edge atEdge) candidate?.Railway?.Pump(snapshot, atEdge, allowBuild);
             if (candidate?.Node?.Failed == true || candidate?.Railway?.Failed == true)

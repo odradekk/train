@@ -11,6 +11,7 @@ internal sealed class PreparedVisual : IDisposable
     private readonly List<IDisposable> _owned = [];
     private readonly List<ShaderMaterial> _materials = [];
     private bool _disposed;
+    private bool _constructionFogExempt;
 
     internal PreparedVisual(AssetResourceCache cache, SceneVisual visual)
     {
@@ -20,6 +21,28 @@ internal sealed class PreparedVisual : IDisposable
 
     internal Node3D Node { get; } = new();
     internal SceneVisual Visual { get; private set; }
+    internal void ExemptConstructionFog(bool exempt, Shader normal, Shader followed)
+    {
+        if (_constructionFogExempt == exempt) return;
+        if (exempt && Visual is SceneVisual.Model model && _materials.Count == 0)
+        {
+            // 普通模型共享材质；跟随豁免只切换本实例的副本，保留原租约到释放。
+            var instance = Node.GetChild<MeshInstance3D>(0);
+            for (var index = 0; index < model.Materials.Length; index++)
+                instance.SetSurfaceOverrideMaterial(index,
+                    Material((ShaderMaterial)instance.GetSurfaceOverrideMaterial(index).Duplicate()));
+        }
+        _constructionFogExempt = exempt;
+        foreach (var material in _materials)
+            if (material.Shader == normal || material.Shader == followed)
+                material.Shader = exempt ? followed : normal;
+        foreach (var material in _owned.OfType<StandardMaterial3D>())
+        {
+            material.StencilMode = exempt ? BaseMaterial3D.StencilModeEnum.Custom : BaseMaterial3D.StencilModeEnum.Disabled;
+            material.StencilFlags = (int)BaseMaterial3D.StencilFlagsEnum.Write;
+            material.StencilReference = 1;
+        }
+    }
     internal T Own<T>(T value) where T : IDisposable { _owned.Add(value); return value; }
     internal ShaderMaterial Material(ShaderMaterial value) { _materials.Add(value); return Own(value); }
 
@@ -99,6 +122,8 @@ internal sealed class SceneResources : IDisposable
     private readonly IContentView _content;
     private readonly Shader _surfaceShader;
     private readonly Shader _waterShader;
+    private readonly Shader _fogShader;
+    private readonly Shader _followedShader;
     private readonly Dictionary<SceneMesh, GeometryResource> _geometry = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<ModelMaterialKey, ModelMaterialResource> _modelMaterials = [];
     private bool _disposed;
@@ -114,9 +139,18 @@ internal sealed class SceneResources : IDisposable
         {
             _waterShader = ResourceLoader.Load<Shader>("res://Rendering/water.gdshader", cacheMode: ResourceLoader.CacheMode.Ignore)
                 ?? throw new InvalidOperationException("水面着色器无法加载。");
+            _fogShader = ResourceLoader.Load<Shader>("res://Rendering/construction_fog.gdshader", cacheMode: ResourceLoader.CacheMode.Ignore)
+                ?? throw new InvalidOperationException("构建雾着色器无法加载。");
+            _followedShader = ResourceLoader.Load<Shader>("res://Rendering/followed_vehicle.gdshader", cacheMode: ResourceLoader.CacheMode.Ignore)
+                ?? throw new InvalidOperationException("跟随车辆着色器无法加载。");
         }
-        catch { _surfaceShader.Dispose(); throw; }
+        catch { _fogShader?.Dispose(); _waterShader?.Dispose(); _surfaceShader.Dispose(); throw; }
     }
+
+    internal ShaderMaterial ConstructionFogMaterial() => new() { Shader = _fogShader };
+
+    internal void ExemptConstructionFog(PreparedVisual visual, bool exempt) =>
+        visual.ExemptConstructionFog(exempt, _surfaceShader, _followedShader);
 
     internal PreparedVisual Prepare(SceneVisual visual)
     {
@@ -355,5 +389,7 @@ internal sealed class SceneResources : IDisposable
         _disposed = true;
         _surfaceShader.Dispose();
         _waterShader.Dispose();
+        _fogShader.Dispose();
+        _followedShader.Dispose();
     }
 }
