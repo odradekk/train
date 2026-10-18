@@ -12,10 +12,10 @@ namespace Train.Scenes.Tests;
 public sealed class NodeAdmissionTests
 {
     [TestMethod]
-    [DataRow(3000, 8)]
     [DataRow(6000, 8)]
-    [DataRow(12000, 4)]
-    [DataRow(16000, 3)]
+    [DataRow(12000, 8)]
+    [DataRow(24000, 4)]
+    [DataRow(32000, 3)]
     public async Task Completed_path_parts_admit_in_sorted_order_up_to_the_limit_then_wait_for_the_displayed_receipt(
         int verticesPerPart, int expectedParts)
     {

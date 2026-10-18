@@ -14,7 +14,7 @@ internal static class NodeStreaming
     internal const double PathSampleCells = 16 * RailwayCoordinates.CellsPerMeter;
     internal const double PrefetchLeadSeconds = .5;
     internal const double MaximumPrefetchLeadCells = 160 * RailwayCoordinates.CellsPerMeter;
-    internal const int AdmissionVertexLimit = 48_000;
+    internal const int AdmissionVertexLimit = 96_000;
     internal const int AdmissionVisualLimit = 64;
 
     internal static double AdvanceCells(double mappedSpeedCells, double rate) =>
