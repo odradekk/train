@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Godot;
 using Train.App.Assets;
 using Train.Content.Contracts;
+using Train.Core.Contracts;
 using Train.Scenes.Contracts;
 
 namespace Train.Rendering;
@@ -11,6 +12,7 @@ internal sealed class SceneDisplay : IDisposable
     internal sealed record DisplayObject(SceneObject Source, Node3D Root, PreparedVisual[] Visuals);
     private readonly SceneResources _resources;
     private readonly AssetResourceCache _cache;
+    private readonly bool _completeInitialFrame;
     private Dictionary<SceneObjectId, DisplayObject> _objects = [];
     private FogGroup? _fog;
     private DebugLineGroup? _debugLines;
@@ -33,9 +35,10 @@ internal sealed class SceneDisplay : IDisposable
     internal bool IsPreparing => _preparingFrame is not null;
     internal IReadOnlyDictionary<SceneObjectId, DisplayObject> Objects => _objects;
 
-    internal SceneDisplay(AssetResourceCache cache, IContentView content)
+    internal SceneDisplay(AssetResourceCache cache, IContentView content, bool completeInitialFrame = false)
     {
         _cache = cache;
+        _completeInitialFrame = completeInitialFrame;
         _resources = new(cache, content);
     }
 
@@ -61,8 +64,10 @@ internal sealed class SceneDisplay : IDisposable
              previousFrame.Update.Frame.Request != frame.Update.Frame.Request ||
              previousFrame.Update.Frame.Space != frame.Update.Frame.Space))
             CancelPreparation();
-        frame = _preparingFrame ?? frame;
-        _preparingFrame = frame;
+        frame = _preparingFrame ??= frame;
+        var spaceChanged = DisplayedFrame is { } displayed
+            ? displayed.Update.Frame.Session != frame.Update.Frame.Session || displayed.Update.Frame.Space != frame.Update.Frame.Space
+            : _completeInitialFrame;
         var processFrame = Engine.GetProcessFrames();
         if (_budgetFrame != processFrame)
         {
@@ -73,7 +78,8 @@ internal sealed class SceneDisplay : IDisposable
         var preparedResource = false;
         var update = frame.Update;
         var next = update.Base is null ? new Dictionary<SceneObjectId, DisplayObject>() : new(_objects);
-        bool BudgetExpired() => preparedResource &&
+        // 首次打开或切换空间时一次提交首个可操作帧，避免列车继续驶出尚未接入的空间。
+        bool BudgetExpired() => !spaceChanged && preparedResource &&
             _preparationTime + Stopwatch.GetElapsedTime(started, Timestamp()) >= PreparationBudget;
         try
         {
@@ -92,9 +98,8 @@ internal sealed class SceneDisplay : IDisposable
                 var visuals = new PreparedVisual[source.Visuals.Length];
                 for (var i = 0; i < visuals.Length; i++)
                 {
-                    if (previous is not null && i < previous.Visuals.Length &&
-                        previous.Visuals[i].CanUpdate(source.Visuals[i]))
-                        visuals[i] = previous.Visuals[i];
+                    if (CanReuseVisual(previous, i, source.Visuals[i]))
+                        visuals[i] = previous!.Visuals[i];
                     else
                     {
                         var key = (source.Id, i);
@@ -117,7 +122,7 @@ internal sealed class SceneDisplay : IDisposable
             if (_pendingFog is null && (_fog is null || !_fog.Regions.SequenceEqual(update.Environment.FoggedRegions)))
             {
                 if (BudgetExpired()) return null;
-                _pendingFog = new(update.Environment.FoggedRegions);
+                _pendingFog = new(update.Environment.FoggedRegions, _resources.ConstructionFogMaterial());
                 preparedResource = true;
             }
             if (_pendingDebugLines is null && !frame.DebugLines.IsEmpty &&
@@ -208,16 +213,41 @@ internal sealed class SceneDisplay : IDisposable
         if (source is null) return frame.Update.Base == displayed.Update.Frame ||
             !displayed.Update.Upserts.Any(source => source.Id == id);
         return source.Parent == item.Source.Parent && source.Visuals.Select((visual, index) =>
-            index < item.Visuals.Length && item.Visuals[index].CanUpdate(visual)).All(compatible => compatible);
+            CanReuseVisual(item, index, visual)).All(compatible => compatible);
+    }
+
+    private static bool CanReuseVisual(DisplayObject? displayed, int index, SceneVisual visual) =>
+        displayed is not null && index < displayed.Visuals.Length && displayed.Visuals[index].CanUpdate(visual);
+
+    internal void UpdateConstructionFog(System.Collections.Immutable.ImmutableArray<VehicleId> vehicles)
+    {
+        _cache.RequireMainThread();
+        var followedVehicles = vehicles.ToHashSet();
+        foreach (var item in _objects.Values)
+        {
+            var followed = BelongsToFollowedTrain(item.Source, _objects, followedVehicles);
+            foreach (var visual in item.Visuals) _resources.ExemptConstructionFog(visual, followed);
+        }
+    }
+
+    internal static bool BelongsToFollowedTrain(SceneObject source,
+        IReadOnlyDictionary<SceneObjectId, DisplayObject> objects, IReadOnlySet<VehicleId> vehicles)
+    {
+        while (true)
+        {
+            if (source.Subject is WorldObjectId.Instance { Id: InstanceId.Vehicle vehicle } && vehicles.Contains(vehicle.Id)) return true;
+            if (source.Parent is not { } parent || !objects.TryGetValue(parent, out var ancestor)) return false;
+            source = ancestor.Source;
+        }
     }
 
     internal void CancelPreparation()
     {
         _cache.RequireMainThread();
-        _preparingFrame = null;
         foreach (var visual in _pendingVisuals.Values) visual.Dispose();
-        foreach (var root in _pendingRoots.Values) root.Free();
         _pendingVisuals.Clear();
+        _preparingFrame = null;
+        foreach (var root in _pendingRoots.Values) root.Free();
         _pendingRoots.Clear();
         _pendingFog?.Dispose();
         _pendingFog = null;
@@ -380,13 +410,10 @@ internal sealed class SceneDisplay : IDisposable
         internal Node3D Root { get; } = new() { Name = "LoadingFog" };
         private readonly List<BoxMesh> _meshes = [];
         private bool _disposed;
-        private readonly StandardMaterial3D _material = new()
+        private readonly ShaderMaterial _material;
+        internal FogGroup(System.Collections.Immutable.ImmutableArray<SceneBounds> regions, ShaderMaterial material)
         {
-            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-            AlbedoColor = new Color("c9d6e0"), CullMode = BaseMaterial3D.CullModeEnum.Disabled
-        };
-        internal FogGroup(System.Collections.Immutable.ImmutableArray<SceneBounds> regions)
-        {
+            _material = material;
             Regions = regions;
             foreach (var region in regions)
             {

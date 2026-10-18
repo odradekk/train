@@ -17,6 +17,39 @@ namespace Train.Engine.Tests;
 public class RenderingResourceTests(Node testScene) : TestClass(testScene)
 {
     [Test]
+    public void Followed_vehicle_fog_exemption_preserves_material_state_and_mesh_and_can_be_removed()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var resources = new SceneResources(cache, new FixedContentView());
+        var source = new SceneVisual.Geometry(Triangle(new SceneMaterial.BuiltIn(BuiltInMaterial.RailSteel)),
+            new(true, 17, 0.25f, false));
+        using var followed = resources.Prepare(source);
+        using var other = resources.Prepare(source);
+        var instance = Instance(followed);
+        var mesh = instance.Mesh;
+        var material = Material(followed);
+        var originalShader = material.Shader;
+
+        resources.ExemptConstructionFog(followed, true);
+
+        Require(material.Shader != originalShader && Material(other).Shader == originalShader,
+            "雾豁免只能改变被跟随车辆的材质。");
+        Require(ReferenceEquals(instance.Mesh, mesh), "雾豁免不应重建车辆网格。");
+        AssertSurface(material, source.Surface);
+        Require(material.GetShaderParameter("rail_steel").AsBool(), "切换着色器不能丢失材质参数。");
+        var next = source with { Surface = new(false, 31, 0.75f, true) };
+        followed.Update(next);
+        AssertSurface(material, next.Surface);
+
+        resources.ExemptConstructionFog(followed, false);
+
+        Require(material.Shader == originalShader, "离开跟随目标后必须恢复普通构建雾遮挡。");
+        AssertSurface(material, next.Surface);
+        Require(ReferenceEquals(instance.Mesh, mesh), "移除豁免不应重建车辆网格。");
+    }
+
+    [Test]
     public void Geometry_uploads_outward_faces_and_all_vertex_and_surface_channels()
     {
         using var dispatcher = new GodotMainThreadDispatcher();
@@ -108,6 +141,18 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         Require(!first.CanUpdate(source with { Paint = null }) &&
             !first.CanUpdate(source with { Surface = new(false, ulong.MaxValue, 0.5f, false) }),
             "涂装或表面状态变化必须重新准备共享材质。");
+        var shared = (ShaderMaterial)Instance(second).GetSurfaceOverrideMaterial(0);
+        var normalShader = shared.Shader;
+        resources.ExemptConstructionFog(first, true);
+        var privateMaterial = (ShaderMaterial)instance.GetSurfaceOverrideMaterial(0);
+        Require(privateMaterial.GetInstanceId() != shared.GetInstanceId() && privateMaterial.Shader != normalShader &&
+            shared.Shader == normalShader, "跟随模型必须私有化材质，不能豁免另一实例的构建雾。");
+        AssertSurface(privateMaterial, source.Surface);
+        resources.ExemptConstructionFog(first, false);
+        Require(privateMaterial.Shader == normalShader, "取消跟随必须恢复普通模型着色器。");
+        resources.ExemptConstructionFog(first, true);
+        Require(instance.GetSurfaceOverrideMaterial(0).GetInstanceId() == privateMaterial.GetInstanceId(),
+            "再次跟随应复用私有材质，不能反复分配。");
         var next = source with { RelativeHeightPlane = new(0, 1, 0, -2) };
         Require(first.CanUpdate(next), "高度平面变化不应重建网格或材质。");
         first.Update(next);
@@ -115,6 +160,8 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         Require(Instance(second).GetInstanceShaderParameter("relative_height_plane").AsVector4().IsEqualApprox(new Vector4(0, 1, 0, -1)),
             "更新实例高度影响了另一实例。");
         first.Dispose();
+        Require(!GodotObject.IsInstanceValid(privateMaterial) && shared.Shader == normalShader,
+            "释放跟随实例必须释放私有副本并保留另一实例的普通材质。");
         Require(GodotObject.IsInstanceValid(mesh) && GodotObject.IsInstanceValid(texture) && GodotObject.IsInstanceValid(mask),
             "释放一个模型实例销毁了另一实例的资源。");
         second.Dispose();
@@ -223,6 +270,13 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
                 "缺失标记必须使用可识别的不受光照影响的洋红色。");
             Require(visual.CanUpdate(source) && !visual.CanUpdate(source with { KnownCell = !knownCell }),
                 "缺失标记类型改变需要重新准备。");
+            resources.ExemptConstructionFog(visual, true);
+            Require(material.StencilMode == BaseMaterial3D.StencilModeEnum.Custom &&
+                material.StencilFlags == (int)BaseMaterial3D.StencilFlagsEnum.Write && material.StencilReference == 1,
+                "被跟随车辆的缺失标记也必须豁免构建雾。");
+            resources.ExemptConstructionFog(visual, false);
+            Require(material.StencilMode == BaseMaterial3D.StencilModeEnum.Disabled && material.AlbedoColor == Colors.Magenta,
+                "取消跟随须恢复缺失标记的雾遮挡及原有外观。");
             visual.Dispose();
             Require(!GodotObject.IsInstanceValid(node) && !GodotObject.IsInstanceValid(instance) &&
                 !GodotObject.IsInstanceValid(mesh) && !GodotObject.IsInstanceValid(material),
@@ -272,6 +326,7 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         {
             resources = new SceneResources(cache, Content(asset));
             TestScene.AddChild(viewport);
+            var surfaceCode = Godot.FileAccess.GetFileAsString("res://Rendering/scene_surface.gdshaderinc");
             var responses = new HashSet<(float Roughness, float Metallic, float Specular)>();
             foreach (var category in Enum.GetValues<MaterialCategory>())
             {
@@ -280,9 +335,9 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
                 var material = Material(visual);
                 responses.Add((material.GetShaderParameter("material_roughness").AsSingle(),
                     material.GetShaderParameter("material_metallic").AsSingle(), material.GetShaderParameter("material_specular").AsSingle()));
-                var sampler = Regex.Match(material.Shader.Code, @"uniform\s+sampler2D\s+base_texture\s*:\s*([^;]+)");
+                var sampler = Regex.Match(surfaceCode, @"uniform\s+sampler2D\s+base_texture\s*:\s*([^;]+)");
                 Require(sampler.Success && new[] { "source_color", "filter_linear_mipmap_anisotropic", "repeat_enable" }.All(sampler.Groups[1].Value.Contains), "基础贴图采样约定丢失。");
-                Require(!Regex.IsMatch(material.Shader.Code, @"\bALPHA\s*="), "Demo 材质包含半透明输出。");
+                Require(!Regex.IsMatch(material.Shader.Code + surfaceCode, @"\bALPHA\s*="), "Demo 材质包含半透明输出。");
             }
             Require(responses.Count == Enum.GetValues<MaterialCategory>().Length, "材质类别没有独立光照响应。");
             var builtinMaterials = new Dictionary<BuiltInMaterial, ShaderMaterial>();

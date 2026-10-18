@@ -115,6 +115,14 @@ public sealed class NodeRebindTests
         await RailwayFixtures.Settled(session, Request, second);
         await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
         await RailwayFixtures.Settled(session, Request, second);
+        Assert.AreEqual(new WorldLocation.Node(new(3)), session.PrebuiltLocation);
+        Assert.IsNotNull(nodeCache.Read(new(3)), "Stopping keeps the same next-node candidate and its cache.");
+        var reversed = Snapshot(onSecondEdge with
+        { SpeedMetersPerSecond = 0, Position = ((TrainPosition.Edge)onSecondEdge.Position) with { Direction = TravelDirection.Forward } }, 4);
+        session.Observe(reversed, []);
+        await RailwayFixtures.Settled(session, Request, second);
+        await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
+        await RailwayFixtures.Settled(session, Request, second);
         Assert.IsNull(session.PrebuiltLocation);
         Assert.IsNull(nodeCache.Read(new(3)), "An empty candidate leaves no idle cache entry.");
         Assert.IsTrue(nodeCache.IdleBytes <= NodeScene.Cache.DefaultIdleBudget);

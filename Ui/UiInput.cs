@@ -17,9 +17,9 @@ internal static class UiInput
 
 internal sealed record PanelTarget(HostBinding Binding, ContentGeneration Generation, WorldObjectId Object)
 {
-    internal bool IsAvailable(HostBinding binding, ContentGeneration generation, ICoreReadView view)
+    internal bool IsAvailable(HostBinding binding, ICoreReadView view, bool samePanelGeneration)
     {
-        if (Binding != binding || Generation != generation) return false;
+        if (Binding != binding || !samePanelGeneration) return false;
         return Object switch
         {
             WorldObjectId.Node node => view.World.Nodes.Any(item => item.Id == node.Id),

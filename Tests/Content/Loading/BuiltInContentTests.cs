@@ -88,6 +88,31 @@ public sealed class BuiltInContentTests
         Assert.IsTrue(station.Core.Design.Parts.Any(part => part.Definition is K.CoreDefinitionReference.Voxel &&
             part.Capabilities.OfType<K.PartCapability.Platform>().Any()));
         Assert.AreEqual(2, station.Core.Design.Parts.Count(part => part.Capabilities.OfType<K.PartCapability.Platform>().Any()));
+        var largeStation = Complete(view, "large-station");
+        Assert.IsNotNull(largeStation.Core);
+        var stationKind = (K.DesignKind.Building)largeStation.Core.Design.Kind;
+        Assert.AreEqual(K.BuildingKind.Station, stationKind.Type);
+        Assert.AreEqual(K.PlotSize.LargeStation, stationKind.PlotSize);
+        var platforms = largeStation.Core.Design.Parts.Where(part => part.Capabilities.OfType<K.PartCapability.Platform>().Any()).ToArray();
+        Assert.AreEqual(4, platforms.Length);
+        // 槽位与最近规则见 docs/contracts/scenes.md：large_station 为 −80/−40/40/80，等距取较小 LocalZ。
+        var slots = new[] { -80, -40, 40, 80 };
+        var assigned = platforms.Select(part =>
+        {
+            var localZ = largeStation.Scene.Voxels.Where(voxel => voxel.Number == part.Id).Average(voxel => (double)voxel.At.Z);
+            var ordered = slots.OrderBy(slot => Math.Abs(slot - localZ)).ThenBy(slot => slot).ToArray();
+            Assert.IsTrue(Math.Abs(ordered[0] - localZ) < Math.Abs(ordered[1] - localZ), part.Id.ToString());
+            return ordered[0];
+        }).ToArray();
+        CollectionAssert.AreEquivalent(slots, assigned);
+        var largeWarehouse = Complete(view, "large-warehouse");
+        Assert.IsNotNull(largeWarehouse.Core);
+        var warehouseKind = (K.DesignKind.Building)largeWarehouse.Core.Design.Kind;
+        Assert.AreEqual(K.BuildingKind.Warehouse, warehouseKind.Type);
+        Assert.AreEqual(K.PlotSize.Medium, warehouseKind.PlotSize);
+        long Storage(C.DesignEvaluation.Complete design) => design.Core!.Design.Parts.SelectMany(part => part.Capabilities)
+            .OfType<K.PartCapability.Storage>().Sum(item => item.Capacity);
+        Assert.IsTrue(Storage(largeWarehouse) > Storage(Complete(view, "small-warehouse")));
         foreach (var (id, productionBuildings) in new (string, string[])[]
                  {
                      ("agricultural-town", ["farm", "food-factory"]),
@@ -186,16 +211,51 @@ public sealed class BuiltInContentTests
         var world = ((C.ContentResult<K.WorldGenerationInput>.Success)worldResult).Value;
         var commission = view.Core.Designs.Single(design =>
             design.Design == world.Configuration.StartConstraints.RequiredAffordableCommissionDesign);
-        foreach (var template in view.Core.SettlementTemplates.Where(template => template.Plots
-                     .Where(plot => plot.PrebuiltDesign != null)
-                     .Select(plot => view.Core.Designs.Single(design => design.Design == plot.PrebuiltDesign))
-                     .SelectMany(design => design.Parts).SelectMany(part => part.Capabilities)
-                     .OfType<K.PartCapability.Construction>()
-                     .Any(construction => construction.MaximumVehicleSize >= K.SizeClass.Small)))
+        var enabledProcesses = view.Core.SettlementTemplates.SelectMany(template => template.ProductionPlans)
+            .Where(plan => plan.Enabled).Select(plan => plan.Process).ToHashSet();
+        var suppliedGoods = view.Core.Processes.SelectMany(process => process.Details switch
         {
-            foreach (var item in commission.BillOfMaterials)
+            K.ProcessDetails.Production production when enabledProcesses.Contains(new K.ProcessRef.Production(production.Id))
+                => production.Outputs,
+            K.ProcessDetails.Extraction extraction when enabledProcesses.Contains(new K.ProcessRef.Production(extraction.Id))
+                => ImmutableArray.Create(extraction.Extracts),
+            K.ProcessDetails.Recovery recovery when enabledProcesses.Contains(new K.ProcessRef.Recovery(recovery.Id))
+                => recovery.Outputs,
+            _ => ImmutableArray<K.GoodsQuantity>.Empty
+        }).Select(item => item.Good).ToHashSet();
+        var constructionRule = view.Core.ConstructionRules.Single(rule => rule.Id == world.Configuration.Rules.Construction);
+        foreach (var template in view.Core.SettlementTemplates)
+        {
+            var hasVehicleWorkshop = template.Plots.Where(plot => plot.PrebuiltDesign != null)
+                .Select(plot => view.Core.Designs.Single(design => design.Design == plot.PrebuiltDesign))
+                .SelectMany(design => design.Parts).SelectMany(part => part.Capabilities)
+                .OfType<K.PartCapability.Construction>()
+                .Any(construction => construction.MaximumVehicleSize >= K.SizeClass.Small);
+            var commissionMaterials = hasVehicleWorkshop ? commission.BillOfMaterials : [];
+            foreach (var item in commissionMaterials)
                 Assert.IsTrue(template.SpecialInitialInventory.Where(stock => stock.Good == item.Good)
                     .Sum(stock => stock.Quantity) >= item.Quantity, template.Id + ":" + item.Good);
+            var founding = template.FoundingBuildings.Select(building =>
+                view.Core.Designs.Single(design => design.Design == building.Design)).ToArray();
+            Assert.IsTrue(founding.SelectMany(design => design.Parts).SelectMany(part => part.Capabilities)
+                .OfType<K.PartCapability.Power>().Any() || constructionRule.PowerPerWork == 0, template.Id.ToString());
+            var maximumPlot = founding.SelectMany(design => design.Parts).SelectMany(part => part.Capabilities)
+                .OfType<K.PartCapability.Construction>().Max(capability => capability.MaximumBuildingPlotSize);
+            foreach (var path in new string[][] { ["small-warehouse", "farm"],
+                         ["small-warehouse", "power-station", "extraction-site"] })
+            {
+                var buildings = path.Select(id => Complete(view, id).Core!.Design).ToArray();
+                foreach (var building in buildings)
+                    Assert.IsTrue(maximumPlot >= ((K.DesignKind.Building)building.Kind).PlotSize,
+                        template.Id + ":" + building.Design);
+                var required = founding.Concat(buildings).SelectMany(design => design.BillOfMaterials)
+                    .GroupBy(item => item.Good);
+                foreach (var items in required)
+                    Assert.IsTrue(suppliedGoods.Contains(items.Key) || template.SpecialInitialInventory.Where(stock => stock.Good == items.Key)
+                        .Sum(stock => stock.Quantity) >= items.Sum(item => item.Quantity)
+                        + commissionMaterials.Where(item => item.Good == items.Key).Sum(item => item.Quantity),
+                        template.Id + ":" + items.Key);
+            }
         }
         Assert.AreEqual(2, world.Start.Trains.Length);
         CollectionAssert.AreEqual(new[] { "small-locomotive", "small-freight-wagon", "small-freight-wagon", "small-freight-wagon" }

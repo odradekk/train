@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Numerics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
@@ -211,6 +212,148 @@ public sealed class RailwaySessionTests
             await scene.DisposeAsync();
         }
         finally { release.Set(); }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task DisplayRateUsesTheWholeWindowRatherThanTheLastFrameBurst(bool burst)
+    {
+        long now = 0;
+        var initial = RailwayFixtures.Snapshot(800, 800, 0);
+        await using var vehicles = new SceneVehicles();
+        var displayRate = new DisplayRate { Timestamp = () => now };
+        await using var scene = RailwayFixtures.Controlled(initial, vehicles, displayRate: displayRate);
+        var target = new WorldSceneTarget.Location(RailwayFixtures.Location);
+        scene.Present(initial, null, target, Request, Stamp(1), null);
+        for (var index = 1; index <= 5; index++)
+        {
+            now = Stopwatch.Frequency * index / 5;
+            var steps = burst && index < 5 ? 0UL : (ulong)(96 * index);
+            var snapshot = RailwayFixtures.Snapshot(800, 800, 0, steps: steps);
+            scene.Present(snapshot, null, target, Request, Stamp((ulong)index + 1), null);
+        }
+        Assert.IsNull(scene.FrontNode(initial, RailwayFixtures.Train(650, speed: 4)),
+            "Eight simulated seconds per real second need two forward segments, regardless of step burst shape.");
+        Assert.AreEqual(new WorldLocation.Node(new(2)), scene.FrontNode(initial, RailwayFixtures.Train(672, speed: 4)));
+        // Repeating a sample at the same timestamp must not replace the measured window rate.
+        scene.Present(RailwayFixtures.Snapshot(800, 800, 0, steps: 480), null, target, Request, Stamp(7), null);
+        Assert.IsNull(scene.FrontNode(initial, RailwayFixtures.Train(650, speed: 4)));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task SlowerFollowKeepsBuiltForwardSegmentsWithoutFogAndDropsDistantBehindSegments(bool reverse)
+    {
+        long now = 0;
+        var direction = reverse ? TravelDirection.Reverse : TravelDirection.Forward;
+        var sign = reverse ? -1 : 1;
+        const double distance = 800;
+        SceneWorldSnapshot Snapshot(double at, double speed, ulong steps, TravelDirection facing) => RailwayFixtures.Snapshot(1600, 1600, 0,
+            steps: steps, content: Content(RailwayFixtures.Vehicle()), trains: [RailwayFixtures.Train(at, speed: speed, direction: facing)],
+            instances: [RailwayFixtures.Instance()]);
+        var initial = Snapshot(distance, 100, 0, direction);
+        await using var vehicles = new SceneVehicles();
+        var displayRate = new DisplayRate { Timestamp = () => now };
+        await using var scene = RailwayFixtures.Controlled(initial, vehicles, displayRate: displayRate);
+        var built = await Settled(scene, initial);
+        var middle = (int)(distance / 64);
+        var aheadArc = ((middle + sign * 6) * 64 + 32) * 2;
+        var behindArc = ((middle - sign * 2) * 64 + 32) * 2;
+        now = Stopwatch.Frequency;
+        var stopped = Snapshot(distance, 0, 60, direction);
+        var retained = await Settled(scene, stopped, displayed: built, revision: built.Update.Frame.Revision + 1);
+        AssertLoaded(retained, aheadArc);
+        AssertLoaded(retained, behindArc);
+        now += Stopwatch.Frequency;
+        var advanced = Snapshot(distance + sign * 64, 0, 120, direction);
+        var moved = await Settled(scene, advanced, displayed: retained, revision: retained.Update.Frame.Revision + 1);
+        AssertLoaded(moved, aheadArc);
+        Assert.IsInstanceOfType<Lookup<WorldLocation>.Missing>(moved.Locate(Point(moved, behindArc)),
+            "The old rear edge is now three segments behind and must leave retention.");
+        var reversed = Snapshot(distance + sign * 64, 0, 120,
+            reverse ? TravelDirection.Forward : TravelDirection.Reverse);
+        var turned = await Settled(scene, reversed, displayed: moved, revision: moved.Update.Frame.Revision + 1);
+        Assert.IsInstanceOfType<Lookup<WorldLocation>.Missing>(turned.Locate(Point(turned, aheadArc)),
+            "Changing direction swaps the six-segment and two-segment retention sides.");
+
+        Vector3 Point(SceneFrame frame, double arc) => RailwayCoordinates.Relative(scene.Path!.Sample(arc).Position, frame.Origin);
+        void AssertLoaded(SceneFrame frame, double arc)
+        {
+            var point = Point(frame, arc);
+            Assert.IsInstanceOfType<Lookup<WorldLocation>.Found>(frame.Locate(point));
+            Assert.IsInstanceOfType<ScenePick.Miss>(frame.Pick(new(point + Vector3.UnitY * 20, -Vector3.UnitY, 40)),
+                "An empty connected test segment must be unfogged, even outside the current demand range.");
+        }
+    }
+
+    [TestMethod]
+    public async Task PendingForwardSegmentSurvivesSlowdownAndCancelledWorkKeepsItsSlotUntilExit()
+    {
+        using var releaseForward = new ManualResetEventSlim();
+        using var releaseNew = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var newEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var replenished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        CancellationToken forwardToken = default;
+        var newStarted = 0;
+        long now = 0;
+        const double distance = 800;
+        var forwardIndex = (int)(distance / 64) + 3;
+        SceneWorldSnapshot Snapshot(double at, double speed, ulong steps) => RailwayFixtures.Snapshot(2400, 2400, 0,
+            steps: steps, content: Content(RailwayFixtures.Vehicle()), trains: [RailwayFixtures.Train(at, speed: speed)],
+            instances: [RailwayFixtures.Instance()]);
+        var initial = Snapshot(distance, 100, 0);
+        await using var vehicles = new SceneVehicles();
+        var displayRate = new DisplayRate { Timestamp = () => now };
+        await using var scene = RailwayFixtures.Controlled(initial, vehicles, (snapshot, path, index, token) =>
+        {
+            if (index == forwardIndex)
+            {
+                forwardToken = token;
+                entered.TrySetResult();
+                releaseForward.Wait();
+            }
+            else if (index >= (int)((distance + 640) / 64) - 2)
+            {
+                var count = Interlocked.Increment(ref newStarted);
+                newEntered.TrySetResult();
+                if (count == 2) replenished.TrySetResult();
+                releaseNew.Wait();
+            }
+            return RailwayFixtures.EmptySegment(snapshot, path, index, token);
+        }, displayRate: displayRate);
+        var target = new WorldSceneTarget.Follow(new(1), new(1));
+        ulong revision = 1;
+        try
+        {
+            scene.Present(initial, null, target, Request, Stamp(revision++), null);
+            while (!entered.Task.IsCompleted)
+            {
+                await Task.WhenAny(Task.WhenAll(scene.PendingWork), entered.Task);
+                scene.Present(initial, null, target, Request, Stamp(revision++), null);
+            }
+            now = Stopwatch.Frequency;
+            scene.Present(Snapshot(distance, 0, 60), null, target, Request, Stamp(revision++), null);
+            Assert.IsFalse(forwardToken.IsCancellationRequested,
+                "A forward segment three places ahead remains in the six-segment retention even when demand drops.");
+            while (scene.PendingWork.Count(task => !task.IsCompleted) > 1)
+                await Task.WhenAny(scene.PendingWork.Where(task => !task.IsCompleted));
+            var draining = scene.PendingWork;
+            now += Stopwatch.Frequency;
+            var moved = Snapshot(distance + 640, 0, 120);
+            scene.Present(moved, null, target, Request, Stamp(revision++), null);
+            Assert.IsTrue(forwardToken.IsCancellationRequested);
+            await newEntered.Task;
+            Assert.AreEqual(1, Volatile.Read(ref newStarted), "The cancelled builder still occupies the other slot.");
+            releaseForward.Set();
+            await SceneFixtures.AwaitPendingWork(draining);
+            scene.Present(moved, null, target, Request, Stamp(revision++), null);
+            await replenished.Task;
+            Assert.AreEqual(2, Volatile.Read(ref newStarted));
+        }
+        finally { releaseForward.Set(); releaseNew.Set(); }
     }
 
     [TestMethod]

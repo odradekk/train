@@ -303,22 +303,28 @@ internal sealed class HostCoordinator : IDisposable
         return result;
     }
 
-    internal SubmissionResult Submit(HostBinding binding, CoreCommand command, CommandSource source)
+    internal SubmissionResult Submit(HostBinding binding, CoreCommand command, CommandSource source,
+        IContentCandidate? target = null)
     {
         EnsureOwner();
         var problem = MutationProblem();
         if (problem is not null) return new SubmissionResult.NotAccepted(problem);
         if (_active!.Binding != binding) return new SubmissionResult.NotAccepted(Problem("content_changed", "host.binding"));
+        if (target is not null && !ReferenceEquals(target.Basis, _active.Content))
+            return new SubmissionResult.NotAccepted(Problem("content_changed", "host.content"));
         _insideBoundary = true;
         try
         {
             var result = _active.Core.Submit(command, source);
             if (result is SubmissionResult.Completed completed)
-                CompleteSubmission(completed, target: null);
+                CompleteSubmission(completed, target);
             return result;
         }
         finally { _insideBoundary = false; }
     }
+
+    internal bool PanelGenerationCurrent(HostBinding binding, ContentGeneration captured) =>
+        _active is { } group && group.Binding == binding && captured.Value >= group.PanelEpoch.Value;
 
     internal static CoreReplayInput SelectReplayInput(RecordingPackage package)
     {
@@ -694,7 +700,7 @@ internal sealed class HostCoordinator : IDisposable
                 else
                 {
                     _content = candidate.Activate();
-                    if (_active is not null) { _active.UseContent(_content); Dispatch([]); }
+                    if (_active is not null) { InstallContent(_content, false); Dispatch([]); }
                     LogContentResult(operation.Id, prepared, status.ToString(), true, kind: operation.Kind);
                 }
             }
@@ -714,6 +720,7 @@ internal sealed class HostCoordinator : IDisposable
                     activatedCore = prepared.CoreCandidate!.Activate();
                     group = new(activatedCore, content, new(_seconds), operation.Options!.Runtime);
                     group.UseContent(prepared.Paired ?? content);
+                    group.PanelEpoch = group.Content.Generation;
                     if (operation.Save is { } identity) group.Save = identity;
                     if (!operation.Unsaved && prepared.Saved is { } saved)
                         group.Saved = saved with { Name = group.Save.Name };
@@ -758,7 +765,7 @@ internal sealed class HostCoordinator : IDisposable
                 group.Retain(content);
                 if (accepted.SettlementCopies.Length > 0)
                     content = _contentFactory.WithSettlementCopies(content, accepted.SettlementCopies);
-                group.UseContent(content); _content = content;
+                InstallContent(content, target?.Edit is PreparedContentEdit.ConstructionTarget or PreparedContentEdit.InstanceTarget);
             }
             catch (Exception exception)
             { group.Driver.Freeze(); LogHostFailure("host_pairing_failed", exception); return false; }
@@ -768,6 +775,15 @@ internal sealed class HostCoordinator : IDisposable
             RecordCoreFault(faulted.Fault, completed.Diagnostic, completed.Receipt.Number);
         Dispatch(completed.Events);
         return completed.Receipt.Decision is CommandDecision.Accepted;
+    }
+
+    private void InstallContent(IContentView content, bool keepPanelEpoch)
+    {
+        var group = _active!;
+        var previous = group.Content.Generation;
+        group.UseContent(content);
+        _content = content;
+        if (!keepPanelEpoch && content.Generation != previous) group.PanelEpoch = content.Generation;
     }
 
     private (uint Completed, bool Stop) AdvanceOne(bool manual)
@@ -942,16 +958,17 @@ internal sealed class HostCoordinator : IDisposable
     {
         private readonly ICoreSession? _core;
         internal ActiveGroup(ICoreSession core, IContentView content, SimulationFrameDriver driver, RuntimeIdentity runtime)
-        { _core = core; Content = content; Driver = driver; Runtime = runtime; View = core.Read(); History.Add(content); }
+        { _core = core; Content = content; PanelEpoch = content.Generation; Driver = driver; Runtime = runtime; View = core.Read(); History.Add(content); }
         internal ActiveGroup(ICoreReplay replay, IContentView content, ImmutableArray<IContentView> history,
             SimulationFrameDriver driver, RuntimeIdentity runtime, ReplayRecording recording)
-        { Replay = replay; Content = content; Driver = driver; Runtime = runtime; View = replay.Read();
+        { Replay = replay; Content = content; PanelEpoch = content.Generation; Driver = driver; Runtime = runtime; View = replay.Read();
             History.AddRange(history); ReplayRecording = recording; }
         internal HostBinding Binding { get; } = new(Guid.NewGuid());
         internal ICoreSession Core => _core ?? throw new InvalidOperationException("重放没有核心写入口。");
         internal ICoreReplay? Replay { get; }
         internal ReplayRecording? ReplayRecording { get; }
         internal IContentView Content { get; set; }
+        internal ContentGeneration PanelEpoch { get; set; }
         internal ICoreReadView View { get; set; }
         internal SimulationFrameDriver Driver { get; }
         internal SaveIdentity Save { get; set; } = new(Guid.NewGuid(), "未命名存档");

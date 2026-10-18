@@ -149,4 +149,143 @@ public sealed class RailwayMeshTests
         var path = new RailwayPath(RailwayFixtures.Snapshot(tracks: 0), new EdgeId(1));
         Assert.AreEqual(0, RailwayMeshes.Build(path, 0, new(0, 0, 0)).Length);
     }
+
+    [TestMethod]
+    public void ContentRadiusRailsKeepTheRunningSurfaceWithinOneCentimeter()
+    {
+        const double radius = 160;
+        RailwaySample Sample(double arc)
+        {
+            var angle = arc / radius;
+            return new(new(radius * (1 - Math.Cos(angle)), 0, radius * Math.Sin(angle)),
+                new((float)Math.Sin(angle), 0, (float)Math.Cos(angle)),
+                new((float)Math.Cos(angle), 0, (float)-Math.Sin(angle)));
+        }
+        var mesh = RailwayMeshes.Build(Sample, 0, 128, default)[0];
+        AssertRailError(mesh, Sample, 0, 128, default);
+    }
+
+    [TestMethod]
+    [DataRow(1)]
+    [DataRow(3)]
+    public void CurvedGradedOffsetRailsStayWithinOneCentimeterAcrossGeometryJoints(int tracks)
+    {
+        var content = RailwayFixtures.Content(rules: RailwayFixtures.Rules with
+            { MinimumCurveRadiusMeters = 80, MaximumGrade = .08 });
+        var path = new RailwayPath(RailwayFixtures.Snapshot(lengthMeters: 800, directMeters: 600,
+            relief: 2, tracks: tracks, content: content), new(1));
+        foreach (var segment in new[] { 0, 4, 6, 12 })
+        {
+            var begin = segment * RailwayCoordinates.SegmentLengthCells;
+            var end = Math.Min(begin + RailwayCoordinates.SegmentLengthCells, path.LengthCells);
+            var origin = path.Sample(begin).Position;
+            var mesh = RailwayMeshes.Build(path, segment, origin)[0];
+            AssertRailError(mesh, arc => path.Sample(arc), begin, end, origin,
+                tracks, (arc, offset) => path.Sample(arc, offset));
+            if (segment == 0) continue;
+            var previousOrigin = path.Sample(begin - RailwayCoordinates.SegmentLengthCells).Position;
+            var previous = RailwayMeshes.Build(path, segment - 1, previousOrigin)[0];
+            var atBoundary = path.Sample(begin);
+            var previousBoundary = previous.Vertices.Select(v => RailwayCoordinates.Add(previousOrigin, v.Position))
+                .Where(point => Math.Abs(Vector3.Dot(RailwayCoordinates.Relative(point, atBoundary.Position), atBoundary.Forward)) < .001)
+                .Distinct().ToArray();
+            foreach (var vertex in mesh.Vertices.Where(v => IsEnd(v.Position, origin, begin)).DistinctBy(v => v.Position))
+            {
+                var absolute = RailwayCoordinates.Add(origin, vertex.Position);
+                Assert.IsTrue(previousBoundary.Any(point => RailwayCoordinates.Relative(point, absolute).Length() < .001f),
+                    "Adjacent segments must preserve their exact shared cross sections.");
+            }
+        }
+
+        bool IsEnd(Vector3 point, ScenePoint origin, double arc)
+        {
+            var at = path.Sample(arc);
+            return Math.Abs(Vector3.Dot(RailwayCoordinates.Relative(RailwayCoordinates.Add(origin, point), at.Position), at.Forward)) < .001;
+        }
+    }
+
+    [TestMethod]
+    public void NodeGradeTransitionKeepsTheRunningSurfaceWithinOneCentimeter()
+    {
+        RailwaySample Sample(double arc)
+        {
+            var t = Math.Clamp(arc / 16, 0, 1);
+            var height = .8 * t * t * (3 - 2 * t);
+            var grade = .8 * 6 * t * (1 - t) / 16;
+            return new(new(0, height, arc), Vector3.Normalize(new(0, (float)grade, 1)), Vector3.UnitX);
+        }
+        var mesh = RailwayMeshes.Build(Sample, 0, 16, default)[0];
+        AssertRailError(mesh, Sample, 0, 16, default);
+    }
+
+    private static void AssertRailError(SceneMesh mesh, Func<double, RailwaySample> sample, double begin,
+        double end, ScenePoint origin, int tracks = 1, Func<double, double, RailwaySample>? sampleAt = null)
+    {
+        sampleAt ??= (arc, offset) =>
+        {
+            var at = sample(arc);
+            return at with { Position = RailwayCoordinates.Add(at.Position, at.Right * (float)offset) };
+        };
+        var triangles = mesh.TriangleIndices.Chunk(3)
+            .Select(indices => indices.Select(index => mesh.Vertices[index]).ToArray())
+            .Where(vertices => vertices.All(vertex => vertex.TextureUv.X == 1))
+            .Select(vertices => (A: vertices[0].Position, B: vertices[1].Position, C: vertices[2].Position))
+            .ToArray();
+        Assert.IsTrue(triangles.Length > 0, "The mesh must contain polished running surfaces.");
+        var nearby = new Dictionary<(int X, int Z), List<(Vector3 A, Vector3 B, Vector3 C)>>();
+        foreach (var triangle in triangles)
+        {
+            var min = Vector3.Min(triangle.A, Vector3.Min(triangle.B, triangle.C));
+            var max = Vector3.Max(triangle.A, Vector3.Max(triangle.B, triangle.C));
+            // A triangle within the tolerance must share the probe's cell after this padding.
+            for (var x = (int)Math.Floor((min.X - .021f) / 8); x <= Math.Floor((max.X + .021f) / 8); x++)
+            for (var z = (int)Math.Floor((min.Z - .021f) / 8); z <= Math.Floor((max.Z + .021f) / 8); z++)
+            {
+                if (!nearby.TryGetValue((x, z), out var cell)) nearby[(x, z)] = cell = [];
+                cell.Add(triangle);
+            }
+        }
+        // Probe the actual railhead independently of the mesh's rings, vertices and triangulation.
+        var probes = (int)Math.Ceiling((end - begin) / .5);
+        for (var track = 1; track <= tracks; track++)
+        foreach (var (gauge, halfWidth) in new[] { (3d, .195f), (7d, .26f), (15d, .39f) })
+        foreach (var sign in new[] { -1, 1 })
+        {
+            var offset = (track - (tracks + 1) / 2.0) * 34 + sign * gauge / 2;
+            for (var probe = 0; probe <= probes; probe++)
+            {
+                var arc = begin + (end - begin) * probe / probes;
+                var at = sampleAt(arc, offset);
+                var center = RailwayCoordinates.Relative(at.Position, origin);
+                foreach (var lateral in new[] { -halfWidth, 0, halfWidth })
+                {
+                    var expected = center + at.Right * lateral;
+                    var error = nearby.TryGetValue(((int)Math.Floor(expected.X / 8), (int)Math.Floor(expected.Z / 8)), out var cell)
+                        ? cell.Min(triangle => DistanceToTriangle(expected, triangle.A, triangle.B, triangle.C)) : float.PositiveInfinity;
+                    Assert.IsTrue(error <= .02001f,
+                        $"Railhead exceeds 1 cm at arc {arc}, track {track}, gauge {gauge}, side {sign}: {error / 2} m.");
+                }
+            }
+        }
+    }
+
+    private static float DistanceToTriangle(Vector3 point, Vector3 a, Vector3 b, Vector3 c)
+    {
+        var ab = b - a;
+        var ac = c - a;
+        var normal = Vector3.Cross(ab, ac);
+        var projected = point - normal * (Vector3.Dot(point - a, normal) / normal.LengthSquared());
+        if (Vector3.Dot(Vector3.Cross(ab, projected - a), normal) >= 0 &&
+            Vector3.Dot(Vector3.Cross(c - b, projected - b), normal) >= 0 &&
+            Vector3.Dot(Vector3.Cross(a - c, projected - c), normal) >= 0)
+            return Vector3.Distance(point, projected);
+        return Math.Min(DistanceToSegment(a, b), Math.Min(DistanceToSegment(b, c), DistanceToSegment(c, a)));
+
+        float DistanceToSegment(Vector3 start, Vector3 end)
+        {
+            var edge = end - start;
+            var fraction = Math.Clamp(Vector3.Dot(point - start, edge) / edge.LengthSquared(), 0, 1);
+            return Vector3.Distance(point, start + edge * fraction);
+        }
+    }
 }
