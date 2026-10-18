@@ -5,6 +5,7 @@ using Train.Core.Inventory;
 using Train.Core.Production;
 using Train.Core.Settlements;
 using Train.Core.Trading;
+using Train.Core.Construction;
 
 namespace Train.Core.Sessions;
 
@@ -109,7 +110,15 @@ internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Re
         }
     }
     public CoreResult<JobQuote> GetJobQuote(JobRequest request, JobFunding funding)
-        => throw new NotImplementedException("GetJobQuote 尚未实现。");
+    {
+        ConstructionCommands.Validate(request, State, Content, funding);
+        try { return new CoreResult<JobQuote>.Success(ConstructionCommands.Quote(State, Content, Position.CompletedSteps, Revision, request, funding)); }
+        catch (Exception exception)
+        {
+            return new CoreResult<JobQuote>.Faulted(new("internal_error", Position, nameof(GetJobQuote), "", null),
+                new(exception.Message, exception.StackTrace));
+        }
+    }
     public CoreResult<SettlementFoundingPreview> PreviewSettlement(NodeId node)
         => throw new NotImplementedException("PreviewSettlement 尚未实现。");
 }

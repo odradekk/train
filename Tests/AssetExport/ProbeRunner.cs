@@ -183,6 +183,8 @@ public partial class ProbeRunner : Node
         }
         foreach (var child in directory.GetDirectories())
         {
+            Require(path != "res://examples/" || child == "basic-through",
+                $"Current PCK contains a development example: {path}{child}");
             Require(!(path == "res://" && child == "addons") && !(path == "res://App/" && child == "ArtCapture"),
                 $"Current PCK contains a development directory: {path}{child}");
             Require(!child.Equals("art-source", StringComparison.OrdinalIgnoreCase), $"Current PCK contains a source directory (no source-file fixture is supplied): {path}{child}");

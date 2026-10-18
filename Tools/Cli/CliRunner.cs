@@ -127,10 +127,15 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
             if (Order(command.At, start) < 0) continue;
             if (Order(command.At, target) >= 0) break;
             AdvanceTo(command.At);
-            var parsed = command.Parse();
-            long? quotedTotal = parsed is CoreCommand.BuyVehicle buy
-                && session.Read().QuoteVehicle(new(buy.Seller, buy.Vehicle, VehicleTradeAction.Buy))
-                    is CoreResult<VehicleTradeQuote>.Success quote ? quote.Value.Total?.Value : null;
+            var parsed = command.Parse(prepared.Content);
+            long? quotedTotal = parsed switch
+            {
+                CoreCommand.BuyVehicle buy when session.Read().QuoteVehicle(new(buy.Seller, buy.Vehicle, VehicleTradeAction.Buy))
+                    is CoreResult<VehicleTradeQuote>.Success quote => quote.Value.Total?.Value,
+                CoreCommand.CommissionVehicleWork commission when session.Read().GetJobQuote(commission.Request, JobFunding.NpcCommission)
+                    is CoreResult<JobQuote>.Success quote => quote.Value.TotalPayment?.Value,
+                _ => null
+            };
             var submission = session.Submit(parsed, CommandSource.Console);
             if (submission is SubmissionResult.Completed completed) Observe(completed.Events);
             switch (submission)
