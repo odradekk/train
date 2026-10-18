@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Collections.Immutable;
+using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static Train.Content.Tests.Loading.WorldContentFixtures;
 using C = Train.Content.Contracts;
@@ -347,15 +348,21 @@ public sealed class BuiltInContentTests
         return complete;
     }
 
-    // PNG 读取头尺寸，GLB 返回固定格内元数据以测试内容加载；不证明模型事实。
+    // PNG 读取头尺寸，GLB 只读取表面数，其余返回固定格内元数据；不证明完整模型事实。
     // 真实 GLB 元数据由 CLI 检查器测试和 Engine 资产测试验证。
     private sealed class FixtureAssetInspector : C.IAssetInspector
     {
         public C.AssetInspection Inspect(C.AssetKind kind, C.AssetRevision revision, ImmutableArray<byte> bytes)
         {
             if (kind == C.AssetKind.Glb)
-                return new C.AssetInspection.Success(new C.AssetMetadata.Glb(1, [C.AssetAlphaMode.Opaque, C.AssetAlphaMode.Opaque],
+            {
+                using var glb = JsonDocument.Parse(bytes.AsSpan().Slice(20,
+                    BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan().Slice(12, 4))).ToArray());
+                var surfaces = glb.RootElement.GetProperty("meshes").EnumerateArray()
+                    .Sum(mesh => mesh.GetProperty("primitives").GetArrayLength());
+                return new C.AssetInspection.Success(new C.AssetMetadata.Glb(1, [.. Enumerable.Repeat(C.AssetAlphaMode.Opaque, surfaces)],
                     new(new(-0.25, 0, -0.25), new(0.25, 0.5, 0.25)), false, false, false, false, false, false));
+            }
             Assert.AreEqual(C.AssetKind.Png, kind);
             Assert.IsTrue(bytes.Length >= 24);
             Assert.IsTrue(bytes.AsSpan()[..8].SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }));

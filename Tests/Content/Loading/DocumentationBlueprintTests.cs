@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using C = Train.Content.Contracts;
 using K = Train.Core.Contracts;
@@ -105,9 +106,13 @@ public sealed class DocumentationBlueprintTests
             }
             else if (relative.EndsWith(".glb", StringComparison.Ordinal))
             {
-                // 固定格内元数据只支持本测试的内容加载，不证明模型事实；真实事实由 CLI 和 Engine 资产测试验证。
+                // 只读取表面数，其余固定格内元数据不证明完整模型事实；真实事实由 CLI 和 Engine 资产测试验证。
+                using var glb = JsonDocument.Parse(bytes.AsSpan(20,
+                    BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(12, 4))).ToArray());
+                var surfaces = glb.RootElement.GetProperty("meshes").EnumerateArray()
+                    .Sum(mesh => mesh.GetProperty("primitives").GetArrayLength());
                 fixture.AddAsset(root, prefix + relative, bytes, new C.AssetMetadata.Glb(1,
-                    [C.AssetAlphaMode.Opaque, C.AssetAlphaMode.Opaque],
+                    [.. Enumerable.Repeat(C.AssetAlphaMode.Opaque, surfaces)],
                     new(new(-0.25, 0, -0.25), new(0.25, 0.5, 0.25)), false, false, false, false, false, false));
             }
             else fixture.AddFile(root, prefix + relative, bytes);
