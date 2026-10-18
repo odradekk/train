@@ -23,6 +23,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     private readonly Dictionary<NodeId, (SceneVehicles.Cache Buildings, SceneVehicles.Cache Parked)> settlementCaches = [];
     private RailwayScene? railway;
     private NodeScene? node;
+    private NodeScene? successor;
     private sealed record Candidate(WorldLocation Location, Dictionary<string, SceneObjectId> Ids, NodeScene? Node = null, RailwayScene? Railway = null);
     private Candidate? candidate;
     private WorldLocation? rejectedCandidate;
@@ -54,7 +55,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     internal Task? PendingBuild => pending ?? node?.BuildWork;
     internal Task[] PendingObjectBuilds => rebuilds.Values.Cast<Task>().Concat(vehicles.PendingWork).ToArray();
     internal Task[] PendingRailwayBuilds => railway?.PendingWork ?? [];
-    internal Task[] PendingNodeBuilds => node?.PendingWork ?? [];
+    internal Task[] PendingNodeBuilds => (node?.PendingWork ?? []).Concat(successor?.PendingWork ?? []).ToArray();
     internal Task[] PendingPrebuilds => (candidate?.Node?.PendingWork ?? []).Concat(candidate?.Railway?.PendingWork ?? [])
         .Concat(retiringCandidate is { IsCompleted: false } ? [retiringCandidate] : []).ToArray();
     internal WorldLocation? PrebuiltLocation => candidate?.Location;
@@ -108,6 +109,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         RetireCompletedTasks();
         CancelCandidate(); rejectedCandidate = null; sceneOrigin = null;
         foreach (var work in tasks) work.Cancellation.Cancel();
+        if (successor is not null) { closingScenes.Add(successor.DisposeAsync().AsTask()); successor = null; }
         if (railway is not null) { closingScenes.Add(railway.DisposeAsync().AsTask()); railway = null; }
         if (node is not null) { closingScenes.Add(node.DisposeAsync().AsTask()); node = null; }
         target = value;
@@ -235,10 +237,12 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             if (node is not null || railway is not null)
             {
                 candidate?.Node?.SetBuildAllowed(false);
+                var retire = AdvanceSuccessor();
                 var stamp = new SceneFrameStamp(Id, request, space, ++revision);
                 var frame = node is not null
                     ? node.Present(snapshot, frameRequest, stamp, displayedFrame as SceneFrame, sceneOrigin ?? default, target, interpolationStart)
                     : railway!.Present(snapshot, interpolationStart, target, frameRequest, stamp, displayedFrame as SceneFrame, sceneOrigin);
+                if (retire is not null) closingScenes.Add(retire.DisposeAsync().AsTask());
                 if (railway is not null) sceneOrigin = null;
                 var liveIds = frame.Objects.Select(item => item.Id).ToHashSet();
                 foreach (var key in ids.Where(item => !liveIds.Contains(item.Value)).Select(item => item.Key).ToArray()) ids.Remove(key);
@@ -312,8 +316,47 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         (WorldLocation.Edge a, WorldLocation.Edge b) => a.Id == b.Id,
         _ => false
     };
+    private NodeScene? AdvanceSuccessor()
+    {
+        if (node is null) return null;
+        if (successor is null && FoundedSinceOpen(node))
+        {
+            if (candidate?.Node?.Node == node.Node) CancelCandidate();
+            node.AcceptTrackChanges = false;
+            successor = OpenNode(node.Node, ObjectId, background: true);
+        }
+        if (successor is null) return null;
+        if (!successor.Failed)
+        {
+            TrainView? followed = target is WorldSceneTarget.Follow follow &&
+                snapshot.Core.FindTrain(follow.Train) is Lookup<TrainView>.Found found && found.Value.Position is TrainPosition.Node
+                ? found.Value : null;
+            successor.Pump(snapshot, node.StreamingFocus, allowBuild: node.HasPendingBuilds != true, following: node.StreamingFollow,
+                followedTrain: followed);
+            if (!successor.Failed && successor.NearPrepared)
+            {
+                successor.MarkNearReady();
+                var previous = node;
+                node = successor;
+                successor = null;
+                return previous;
+            }
+        }
+        if (successor.Failure is { } problem) node.Report(problem);
+        return null;
+    }
+
+    private bool FoundedSinceOpen(NodeScene current)
+    {
+        if (current.Layout is not { Template: null }) return false;
+        var map = snapshot.Core.World.Nodes.FirstOrDefault(item => item.Id == current.Node);
+        if (map?.Occupant is not NodeOccupant.Settlement owner) return false;
+        return snapshot.Content.FindSettlementLayout(owner.Id) is ContentLookup<SettlementLayoutProjection>.Found;
+    }
+
     private void Switch(WorldLocation location, SceneFrame? displayed)
     {
+        if (successor is not null) { closingScenes.Add(successor.DisposeAsync().AsTask()); successor = null; }
         if (railway is not null) { closingScenes.Add(railway.DisposeAsync().AsTask()); railway = null; }
         if (node is not null) { closingScenes.Add(node.DisposeAsync().AsTask()); node = null; }
         space = new(space.Value + 1);
@@ -585,6 +628,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         if (closing is not null) return new(closing);
         disposed = true;
         CancelCandidate();
+        if (successor is not null) { closingScenes.Add(successor.DisposeAsync().AsTask()); successor = null; }
         if (railway is not null) { closingScenes.Add(railway.DisposeAsync().AsTask()); railway = null; }
         if (node is not null) { closingScenes.Add(node.DisposeAsync().AsTask()); node = null; }
         foreach (var work in tasks) work.Cancellation.Cancel();
