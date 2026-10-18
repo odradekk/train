@@ -151,10 +151,22 @@ public sealed class RailwayWorkTests
         Assert.AreEqual("insufficient_goods", ((CoreEvent.RailwayWorkChanged)events[1]).Reasons.Single().Code);
         Assert.AreEqual(0, Advance(session, 1).Events.Count(item => item.Event is CoreEvent.RailwayWorkChanged));
         var pending = ((CoreSession)session).State.World.RailwayJobs.Single();
-        var retargeted = ((CoreSession)session).State.World with { RailwayJobs = [pending with { MaterialSource = new(999) }] };
-        using var changed = new CoreSession(((CoreSession)session).State with { World = retargeted });
-        var again = Advance(changed, 1).Events.Select(item => item.Event).OfType<CoreEvent.RailwayWorkChanged>().Single();
-        Assert.AreEqual(("object_missing", "MaterialSource"), (again.Reasons.Single().Code, again.Reasons.Single().Field));
+        var before = Work(session, pending.Id).Blockers.Single().Subject;
+        var other = player with { Id = new(player.Id.Value + 100), Inventory = new(900) };
+        var basis = ((CoreSession)session).State;
+        var world = basis.World with
+        {
+            Settlements = basis.World.Settlements.Add(other),
+            Inventories = basis.World.Inventories.Add(new(other.Inventory, new InventoryOwner.Settlement(other.Id), [], []))
+        };
+        using var changed = new CoreSession(basis with { World = world });
+        var switched = Accepted(changed, new CoreCommand.SetAutomaticRailRepair(new(1), other.Id));
+        var again = switched.Events.Select(item => item.Event).OfType<CoreEvent.RailwayWorkChanged>().Single();
+        var reason = again.Reasons.Single();
+        Assert.AreEqual(("insufficient_goods", "MaterialSource.Inventory"), (reason.Code, reason.Field));
+        Assert.AreEqual(new WorldObjectId.Settlement(other.Id), reason.Subject);
+        Assert.AreNotEqual(before, reason.Subject);
+        Assert.AreEqual(0, Advance(changed, 1).Events.Count(item => item.Event is CoreEvent.RailwayWorkChanged));
         using var supplied = new CoreSession(((CoreSession)session).State with
             { World = Stock(((CoreSession)session).State.World, player.Id, 2) });
         Assert.AreEqual(2L, ConstructionFixture.Stock(supplied, player.Inventory));
