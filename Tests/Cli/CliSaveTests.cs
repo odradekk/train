@@ -59,6 +59,36 @@ public sealed partial class CliProcessTests
     }
 
     [TestMethod]
+    [OSCondition(OperatingSystems.Linux)]
+    public async Task Committed_lease_example_resumes_at_its_final_boundary_without_advancing()
+    {
+        var directory = CreateDirectory();
+        try
+        {
+            var save = Path.Combine(Repository, "examples", "lease-expiry", "save.json");
+            var recipe = Path.Combine(Repository, "examples", "lease-expiry", "recipe.json");
+            var output = Path.Combine(directory, "resumed.json");
+            using var container = JsonDocument.Parse(await File.ReadAllTextAsync(save));
+            var position = container.RootElement.GetProperty("Header").GetProperty("Position");
+            await Run(directory, "resume", "resume", Repository, recipe, save, output);
+            using var result = JsonDocument.Parse(await File.ReadAllTextAsync(output));
+            var checkpoints = JsonSerializer.Deserialize<CoreCheckpoint[]>(
+                result.RootElement.GetProperty("checkpoints").GetRawText(), Recipe.Json)!;
+            Assert.AreEqual(1, checkpoints.Length);
+            Assert.AreEqual(new SimulationPosition(position.GetProperty("CompletedSteps").GetUInt64(),
+                position.GetProperty("Sequence").GetUInt64()), checkpoints[0].Position);
+            Assert.AreEqual(0, result.RootElement.GetProperty("accepted_commands").GetInt32());
+            Assert.AreEqual(0, result.RootElement.GetProperty("rejected_commands").GetInt32());
+        }
+        catch
+        {
+            TestContext.WriteLine($"CLI 失败证据：{directory}");
+            throw;
+        }
+        Directory.Delete(directory, recursive: true);
+    }
+
+    [TestMethod]
     [OSCondition(OperatingSystems.Windows)]
     [DataRow("basic-through")]
     [DataRow("storage-tight")]
