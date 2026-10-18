@@ -123,7 +123,9 @@ internal static class UiWorldFixture
             Locations = new Dictionary<WorldLocation, Lookup<LocationView>>
             {
                 [location] = new Lookup<LocationView>.Found(new(location, formed ? [train.Id] : [],
-                    vehicles.Cast<InstanceId>().ToImmutableArray(), [], [], new NodeOccupant.Empty()))
+                    vehicles.Cast<InstanceId>().ToImmutableArray(), [], [], new NodeOccupant.Empty())),
+                [new WorldLocation.Node(second.Id)] = new Lookup<LocationView>.Found(new(
+                    new WorldLocation.Node(second.Id), [], [], [], [], new NodeOccupant.Empty()))
             },
             Instances = instances,
             Trains = formed

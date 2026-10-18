@@ -168,15 +168,203 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
         setup.Session.AssertComplete();
     }
 
+    [Test]
+    public async Task Production_plan_filters_processes_submits_priority_and_requeries_batch_separately()
+    {
+        var press = new ProcessRef.Production(new("fixture:press"));
+        var weave = new ProcessRef.Production(new("fixture:weave"));
+        var reuse = new ProcessRef.Recovery(new("fixture:reuse"));
+        var dig = new ProcessRef.Production(new("fixture:dig"));
+        var content = EconomyFixture.Content(
+            processes:
+            [
+                new(new ProcessDetails.Production(press.Definition, [], [new(EconomyFixture.Food, 2)]), new("v2"), 10, 1, 1, FacilityTag.FoodProcessing, []),
+                new(new ProcessDetails.Production(weave.Definition, [], []), new("v2"), 10, 1, 1, FacilityTag.Assembly, []),
+                new(new ProcessDetails.Recovery(reuse.Definition, [], [new(EconomyFixture.Food, 1)]), new("v2"), 8, 1, 1, FacilityTag.FoodProcessing, []),
+                new(new ProcessDetails.Extraction(dig.Definition, new(EconomyFixture.Food, 1)), new("v2"), 6, 1, 1, FacilityTag.FoodProcessing, [])
+            ],
+            definitionDisplays: new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
+            {
+                [new CoreDefinitionReference.Process(press)] = new ContentLookup<ContentDisplay>.Found(new(new("压榨", ""), null, null, false)),
+                [new CoreDefinitionReference.Process(weave)] = new ContentLookup<ContentDisplay>.Found(new(new("装配", ""), null, null, false)),
+                [new CoreDefinitionReference.Process(reuse)] = new ContentLookup<ContentDisplay>.Found(new(new("回收", ""), null, null, false)),
+                [new CoreDefinitionReference.Process(dig)] = new ContentLookup<ContentDisplay>.Found(new(new("开采", ""), null, null, false))
+            });
+        ActiveBatchView Batch() => new(reuse, new("batch-v1"), 10, 1, .1, [new(EconomyFixture.Food, 1)], true);
+        var basis = EconomyFixture.Create();
+        var empty = View(basis, 1, new PopulationExecution.NotStarted([]), [Facility(null, false, 0, null)], buildingDesign: "fixture-food-building");
+        var planned = View(basis, 2, new PopulationExecution.NotStarted([]), [Facility(press, true, 4, Batch())], buildingDesign: "fixture-food-building");
+        var raised = View(basis, 3, new PopulationExecution.NotStarted([]), [Facility(press, true, 9, Batch())], buildingDesign: "fixture-food-building");
+        var stopped = View(basis, 4, new PopulationExecution.NotStarted([]), [Facility(press, false, 9, Batch())], buildingDesign: "fixture-food-building");
+        var setup = new HostSimulationTests.HostSetup(empty, content);
+        await Run(setup, async (ui, economy) =>
+        {
+            await OpenProduction(economy);
+            var facility = Find<VBoxContainer>(economy, "Facility");
+            var choice = Find<OptionButton>(facility, "PlanProcess_1");
+            var names = Enumerable.Range(0, choice.ItemCount).Select(choice.GetItemText).ToArray();
+            Require(names[0] == "选择流程" && names.Contains("压榨") && names.Contains("回收") &&
+                !names.Contains("装配") && !names.Contains("开采"), "加工设施没有按能力和标签筛选流程。");
+            Require(Find<Label>(facility, "CurrentSpecification").Text.Contains("未选择流程") && setup.Session.SubmitCount == 0,
+                "空计划被写成已有流程或打开页面就提交了。");
+            await _input.Choose(choice, Array.IndexOf(names, "压榨"));
+            await _input.Enter(Find<LineEdit>(facility, "PlanPriority_1"), "4");
+            setup.Session.QueueSubmit(new CoreCommand.SetProductionPlan(new(new(1), CapabilityKind.Production), press, true, 4),
+                CommandSource.UserInterface, Completed(1, empty, planned, new CommandDecision.Accepted([], [])), planned);
+            await _input.Activate(Find<Button>(facility, "ApplyPlan_1"));
+            Require(Find<Label>(facility, "CurrentSpecification").Text.Contains("压榨") &&
+                Find<Label>(facility, "Batch").Text.Contains("回收") && Find<Label>(facility, "State").Text.Contains("优先级 4"),
+                "受理后没有重新查询计划，或批次流程被写成计划流程。");
+            await _input.Enter(Find<LineEdit>(facility, "PlanPriority_1"), "9");
+            setup.Session.QueueSubmit(new CoreCommand.SetProductionPlan(new(new(1), CapabilityKind.Production), press, true, 9),
+                CommandSource.UserInterface, Completed(2, planned, raised, new CommandDecision.Accepted([], [])), raised);
+            await _input.Activate(Find<Button>(facility, "ApplyPlan_1"));
+            Require(Find<Label>(facility, "State").Text.Contains("优先级 9") && Find<Label>(facility, "Batch").Text.Contains("回收"),
+                "只改优先级后没有重新查询，或批次被替换。");
+            setup.Session.QueueSubmit(new CoreCommand.SetProductionPlan(new(new(1), CapabilityKind.Production), press, false, 9),
+                CommandSource.UserInterface, Completed(3, raised, stopped, new CommandDecision.Accepted([], [])), stopped);
+            await _input.Activate(Find<Button>(facility, "StopPlan_1"));
+            Require(setup.Session.SubmitCount == 3 && Find<Label>(facility, "State").Text.Contains("计划停用") &&
+                Find<Label>(facility, "CurrentSpecification").Text.Contains("压榨") &&
+                Find<Button>(facility, "StopPlan_1").Disabled, "停用没有以当前流程关闭计划，或已停用的计划仍可再停。");
+            await ShowPlanControls(economy);
+            HideCaptureChrome(ui);
+            await UiCapture.Capture(TestScene, "production-plan");
+        });
+        setup.Session.AssertComplete();
+    }
+
+    [Test]
+    public async Task Production_plan_keeps_pending_process_and_priority_across_revision()
+    {
+        var press = new ProcessRef.Production(new("fixture:press"));
+        var content = EconomyFixture.Content(
+            processes: [new(new ProcessDetails.Production(press.Definition, [], [new(EconomyFixture.Food, 2)]), new("v2"), 10, 1, 1, FacilityTag.FoodProcessing, [])],
+            definitionDisplays: new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
+            {
+                [new CoreDefinitionReference.Process(press)] = new ContentLookup<ContentDisplay>.Found(new(new("压榨", ""), null, null, false))
+            });
+        var basis = EconomyFixture.Create();
+        var empty = View(basis, 1, new PopulationExecution.NotStarted([]), [Facility(null, false, 0, null)], buildingDesign: "fixture-food-building");
+        var stepped = View(basis, 2, new PopulationExecution.NotStarted([]), [Facility(null, false, 0, null)], buildingDesign: "fixture-food-building");
+        var planned = View(basis, 3, new PopulationExecution.NotStarted([]), [Facility(press, true, 4, null)], buildingDesign: "fixture-food-building");
+        var setup = new HostSimulationTests.HostSetup(empty, content);
+        await Run(setup, async (ui, economy) =>
+        {
+            await OpenProduction(economy);
+            var facility = Find<VBoxContainer>(economy, "Facility");
+            var choice = Find<OptionButton>(facility, "PlanProcess_1");
+            await _input.Choose(choice, Enumerable.Range(0, choice.ItemCount).Single(index => choice.GetItemText(index) == "压榨"));
+            await _input.Enter(Find<LineEdit>(facility, "PlanPriority_1"), "4");
+            var host = ui.GetParent<Train.App.App>().Host!;
+            await _input.ClickAcrossRevision(Find<Button>(facility, "ApplyPlan_1"), () =>
+            {
+                setup.Session.QueueAdvance(new(1, stepped.Position, [], null, null), stepped);
+                Require(host.Step(1).Problem is null, "无法发布设施未变的新修订。");
+                setup.Session.QueueSubmit(new CoreCommand.SetProductionPlan(new(new(1), CapabilityKind.Production), press, true, 4),
+                    CommandSource.UserInterface, Completed(1, stepped, planned, new CommandDecision.Accepted([], [])), planned);
+            });
+            Require(setup.Session.SubmitCount == 1 && Find<Label>(facility, "State").Text.Contains("优先级 4") &&
+                Find<Label>(facility, "CurrentSpecification").Text.Contains("压榨"),
+                "按下应用期间的新修订改写了优先级，或没有提交所选流程。");
+        });
+        setup.Session.AssertComplete();
+    }
+
+    [Test]
+    public async Task Unowned_production_plan_controls_do_not_submit()
+    {
+        var press = new ProcessRef.Production(new("fixture:press"));
+        var view = View(EconomyFixture.Create(), 1, new PopulationExecution.NotStarted([]), [Facility(press, true, 2, null)],
+            SettlementRelation.NonHostile, "fixture-food-building");
+        var content = EconomyFixture.Content(
+            processes: [new(new ProcessDetails.Production(press.Definition, [], []), new("v2"), 10, 1, 1, FacilityTag.FoodProcessing, [])],
+            definitionDisplays: new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
+            {
+                [new CoreDefinitionReference.Process(press)] = new ContentLookup<ContentDisplay>.Found(new(new("压榨", ""), null, null, false))
+            });
+        var setup = new HostSimulationTests.HostSetup(view, content);
+        await Run(setup, async (_, economy) =>
+        {
+            await OpenProduction(economy);
+            var facility = Find<VBoxContainer>(economy, "Facility");
+            Require(Find<OptionButton>(facility, "PlanProcess_1").Disabled && !Find<LineEdit>(facility, "PlanPriority_1").Editable &&
+                Find<Button>(facility, "ApplyPlan_1").Disabled && Find<Button>(facility, "StopPlan_1").Disabled &&
+                setup.Session.SubmitCount == 0, "非自有聚居地可以修改生产计划。");
+        });
+        setup.Session.AssertComplete();
+    }
+
+    private static FacilityView Facility(ProcessRef? process, bool enabled, int priority, ActiveBatchView? batch) =>
+        new(new(new(1), CapabilityKind.Production), process, enabled, priority,
+            enabled ? ProductionState.Running : ProductionState.Disabled, 1, 0, [], batch, [], [], []);
+
+    private async Task ShowPlanControls(EconomyPanels economy)
+    {
+        await _input.Frames(2);
+        foreach (var scroll in new[]
+        {
+            Find<ScrollContainer>(economy, "生产"),
+            economy.GetNode<ScrollContainer>("Settlement/Layout/Content")
+        })
+        {
+            var maximum = (int)scroll.GetVScrollBar().MaxValue;
+            if (maximum > 0) scroll.ScrollVertical = maximum;
+        }
+        await _input.Frames(2);
+    }
+
+    private static void HideCaptureChrome(GameUi ui)
+    {
+        ui.GetNode<CanvasItem>("Root/ErrorPanel").Hide();
+        foreach (var detail in ui.GetNode<WorldPanels>("Root/World/WorldPanels").FindChildren("Details", "PanelContainer", false, false))
+            ((CanvasItem)detail).Hide();
+    }
+
+    private async Task OpenProduction(EconomyPanels economy)
+    {
+        var tabs = Find<TabContainer>(economy, "Pages");
+        var index = Enumerable.Range(0, tabs.GetTabCount()).Single(i => tabs.GetTabTitle(i) == "生产");
+        var bar = tabs.GetTabBar();
+        await _input.Frames(2);
+        await _input.Click(bar.GlobalPosition + bar.GetTabRect(index).GetCenter());
+        Require(tabs.CurrentTab == index, "真实点击未打开生产。");
+        await _input.Frames();
+    }
+
+    private async Task Run(HostSimulationTests.HostSetup setup, Func<GameUi, EconomyPanels, Task> body)
+    {
+        var tree = TestScene.GetTree();
+        var fixture = new Fixture(tree);
+        var scale = tree.Root.ContentScaleFactor;
+        try
+        {
+            var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
+            app.CreateHost = logger => setup.Create(logger);
+            await fixture.AddToRoot(app);
+            await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
+            tree.Root.ContentScaleFactor = 1;
+            UiCapture.ConfigureWindowIfNeeded(tree.Root);
+            await _input.Frames(2);
+            var ui = app.GetNode<GameUi>("GameUi");
+            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
+            await _input.ClickItem(ui.GetNode<ItemList>("Root/World/WorldPanels/NodesList/Layout/Content/Body/Objects"), 0);
+            await _input.Activate(Find<Button>(ui.GetNode<WorldPanels>("Root/World/WorldPanels"), "Economy"));
+            await body(ui, ui.GetNode<EconomyPanels>("Root/World/EconomyPanels"));
+        }
+        finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
+    }
+
     private static FixedCoreReadView View(FixedCoreReadView source, ulong revision, PopulationExecution execution,
-        ImmutableArray<FacilityView>? facilities = null)
+        ImmutableArray<FacilityView>? facilities = null, SettlementRelation relation = SettlementRelation.PlayerOwned,
+        string buildingDesign = "fixture-plain-building")
     {
         var settlement = ((Lookup<SettlementView>.Found)source.FindSettlement(new(1))).Value;
         PopulationSettlementReport Report(long before, long after) => new(new(12, 0), new("settled-v1"),
             before, after, after - before, .8, .6, PopulationSettlementReason.Growth);
         var owned = settlement with
         {
-            Relation = SettlementRelation.PlayerOwned,
+            Relation = relation,
             Facilities = facilities ?? settlement.Facilities,
             Population = settlement.Population with
             {
@@ -187,18 +375,37 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
         var npc = settlement with { Id = new(2), Node = new(2), Population = settlement.Population with
             { LastSettlement = Report(901, 907), RecentSettlements = [Report(901, 907)] } };
         var node = source.World.Nodes[0];
-        return new(source.Position, source.InputIdentity, source.Fault, new(revision))
+        return new(new(source.Position.CompletedSteps, revision), source.InputIdentity, source.Fault, new(revision))
         {
             World = source.World with { Nodes = [node with { Occupant = new NodeOccupant.Settlement(owned.Id, owned.Relation) },
                 node with { Id = new(2), Occupant = new NodeOccupant.Settlement(npc.Id, npc.Relation) }] },
+            Nodes = new Dictionary<NodeId, Lookup<NodeView>>
+            {
+                [new(1)] = source.FindNode(new(1)), [new(2)] = source.FindNode(new(2))
+            },
+            Locations = new Dictionary<WorldLocation, Lookup<LocationView>>
+            {
+                [new WorldLocation.Node(new(1))] = source.FindLocation(new WorldLocation.Node(new(1))),
+                [new WorldLocation.Node(new(2))] = source.FindLocation(new WorldLocation.Node(new(2)))
+            },
             Economy = source.Economy with { UnassignedServicePayments = new(23) },
             Settlements = new Dictionary<SettlementId, Lookup<SettlementView>>
                 { [owned.Id] = new Lookup<SettlementView>.Found(owned), [npc.Id] = new Lookup<SettlementView>.Found(npc) },
             Inventories = new ulong[] { 10, 11, 12, 13 }.ToDictionary(id => new InventoryId(id), id => source.FindInventory(new(id))),
             Leases = new Dictionary<LeaseId, Lookup<LeaseView>> { [new(1)] = source.FindLease(new(1)) },
             Trains = new Dictionary<TrainId, Lookup<TrainView>> { [new(7)] = source.FindTrain(new(7)) },
-            Instances = new ulong[] { 9, 10 }.ToDictionary(id => (InstanceId)new InstanceId.Vehicle(new(id)),
-                id => source.FindInstance(new InstanceId.Vehicle(new(id))))
+            Instances = new Dictionary<InstanceId, Lookup<InstanceView>>
+            {
+                [new InstanceId.Vehicle(new(9))] = source.FindInstance(new InstanceId.Vehicle(new(9))),
+                [new InstanceId.Vehicle(new(10))] = source.FindInstance(new InstanceId.Vehicle(new(10))),
+                [new InstanceId.Building(new(1))] = BuildingInstance(1, buildingDesign),
+                [new InstanceId.Building(new(2))] = BuildingInstance(2, buildingDesign)
+            }
         };
     }
+
+    private static Lookup<InstanceView> BuildingInstance(ulong id, string design) => new Lookup<InstanceView>.Found(new(
+        new InstanceId.Building(new(id)), new(design), new("fixture-plain-composition"),
+        new WorldLocation.Node(new(1)), SettlementRelation.PlayerOwned,
+        new InstanceDetails.Building(new(id), PlotSize.Small), InstanceLock.None, new(100, 100), [], []));
 }

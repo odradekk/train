@@ -77,7 +77,8 @@ internal partial class EconomyPanels : Control
         BuildVehicles(Page(tabs, "现车"));
         BuildLeases(Page(tabs, "仓库租用"));
         BuildProduction(Page(tabs, "生产")); BuildPopulation(Page(tabs, "人口"));
-        BuildServices(Page(tabs, "车辆服务"));
+        BuildPlots(Page(tabs, "地块与建筑"));
+        BuildServices(Page(tabs, "建造与工地"));
         tabs.TabChanged += _ => RefreshServices();
         Refresh(_binding, _view, _content);
     }
@@ -156,7 +157,7 @@ internal partial class EconomyPanels : Control
             id => _locals.First(local => local.Inventory.Id == id).Lease is { } lease
                 ? $"租用库存 {id.Value} · 租约 {lease.Id.Value}" : $"聚居地库存 {id.Value}");
         RenderLocal(); RefreshTrade(); RefreshVehicles(); RefreshLeases();
-        RefreshProduction(); RefreshPopulation();
+        RefreshProduction(); RefreshPopulation(); RefreshPlots();
     }
 
     private void AddInventory(InventoryId id, LeaseView? lease)

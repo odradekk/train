@@ -125,7 +125,13 @@ public sealed class FixedCoreReadView : ICoreReadView
 
     public Lookup<FacilityView> FindFacility(FacilityKey id) => throw Unconfigured(nameof(FindFacility));
 
-    public Lookup<JobView> FindJob(JobId id) => throw Unconfigured(nameof(FindJob));
+    private ImmutableDictionary<JobId, Lookup<JobView>> jobs = ImmutableDictionary<JobId, Lookup<JobView>>.Empty;
+    public IReadOnlyDictionary<JobId, Lookup<JobView>> Jobs
+    {
+        init => jobs = value.ToImmutableDictionary();
+    }
+    public Lookup<JobView> FindJob(JobId id)
+        => jobs.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindJob));
 
     private ImmutableDictionary<CombatId, Lookup<CombatView>> combats = ImmutableDictionary<CombatId, Lookup<CombatView>>.Empty;
     public IReadOnlyDictionary<CombatId, Lookup<CombatView>> Combats
@@ -163,7 +169,14 @@ public sealed class FixedCoreReadView : ICoreReadView
     public CoreResult<LeaseQuote> QuoteLease(LeaseRequest request)
         => leaseQuotes.TryGetValue(request, out var result) ? result : throw Unconfigured(nameof(QuoteLease));
     public CoreResult<JobQuote> GetJobQuote(JobRequest request, JobFunding funding) => throw Unconfigured(nameof(GetJobQuote));
-    public CoreResult<SettlementFoundingPreview> PreviewSettlement(NodeId node) => throw Unconfigured(nameof(PreviewSettlement));
+    private ImmutableDictionary<NodeId, CoreResult<SettlementFoundingPreview>> foundingPreviews =
+        ImmutableDictionary<NodeId, CoreResult<SettlementFoundingPreview>>.Empty;
+    public IReadOnlyDictionary<NodeId, CoreResult<SettlementFoundingPreview>> FoundingPreviews
+    {
+        init => foundingPreviews = value.ToImmutableDictionary();
+    }
+    public CoreResult<SettlementFoundingPreview> PreviewSettlement(NodeId node)
+        => foundingPreviews.TryGetValue(node, out var result) ? result : throw Unconfigured(nameof(PreviewSettlement));
 
     private static InvalidOperationException Unconfigured(string member)
         => new($"UNCONFIGURED: {member}");
