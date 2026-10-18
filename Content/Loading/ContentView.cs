@@ -61,6 +61,8 @@ internal sealed partial class ContentView : C.IContentView
             ((C.DesignEvaluation.Complete)blueprint.Evaluation).Design,
             ((C.DesignEvaluation.Complete)blueprint.Evaluation).IsValid,
             ((C.DesignEvaluation.Complete)blueprint.Evaluation).Diagnostics)).ToImmutableArray();
+        var creatures = records.Where(blueprint => blueprint.Definition.Specification is C.DesignSpecification.Creature { Behavior: not null })
+            .Select(CreatureProjection).OrderBy(creature => creature.Id.Value, StringComparer.Ordinal).ToImmutableArray();
         Core = new(Identity: new(identity), Goods: voxels.Where(voxel => voxel.Definition.Good is not null)
             .Select(voxel => voxel.Definition.Good!).Concat(compositeGoods).ToImmutableArray(), Designs: designs.Where(design => design.Core is not null)
                 .Select(design => design.Core!.Design).ToImmutableArray(), DesignGoods: [], Processes: _world.Processes.Select(p => p.Projection).ToImmutableArray(),
@@ -70,7 +72,7 @@ internal sealed partial class ContentView : C.IContentView
             RailwayRules: _world.Rules.OfType<ParsedRule.Railway>().Select(r => r.Projection).ToImmutableArray(),
             CombatRules: _world.Rules.OfType<ParsedRule.Combat>().Select(r => r.Projection).ToImmutableArray(),
             SettlementTypes: _world.Types.Select(t => t.Source.Core).ToImmutableArray(),
-            SettlementTemplates: _world.Templates.Select(t => t.Core).ToImmutableArray(), Creatures: [],
+            SettlementTemplates: _world.Templates.Select(t => t.Core).ToImmutableArray(), Creatures: creatures,
             LairTypes: _world.Lairs.Select(lair => lair.Core).ToImmutableArray(), MissingReferences: []);
         GenerationProfiles = _world.Profiles.Select(p => new C.GenerationProfileSummary(p.Id, p.Display)).ToImmutableArray();
         var allDesigns = _designs.ToDictionary();
@@ -346,6 +348,11 @@ internal sealed partial class ContentView : C.IContentView
             return new C.ContentLookup<C.ContentDisplay>.Found(new(ground.Display, null, null, false));
         if (definition is K.CoreDefinitionReference.Template template && _world.Templates.FirstOrDefault(t => t.Core.Id == template.Id) is { } source)
             return new C.ContentLookup<C.ContentDisplay>.Found(new(source.Source.Display, null, null, false));
+        if (definition is K.CoreDefinitionReference.Creature creature &&
+            FindCreature(creature.Id) is C.ContentLookup<C.CreatureAppearanceProjection>.Found appearance)
+            return new C.ContentLookup<C.ContentDisplay>.Found(new(appearance.Value.Display, null, null, false));
+        if (definition is K.CoreDefinitionReference.Lair lair && _world.Lairs.FirstOrDefault(item => item.Core.Id == lair.Id) is { } loadedLair)
+            return new C.ContentLookup<C.ContentDisplay>.Found(new(loadedLair.Display, null, null, false));
         return Absent<C.ContentDisplay>(definition);
     }
     public C.ContentLookup<C.GoodPresentation> FindGood(K.GoodId good)
@@ -379,8 +386,34 @@ internal sealed partial class ContentView : C.IContentView
         _designs.TryGetValue(hash, out var design) ? new C.ContentLookup<C.DesignEvaluation>.Found(design) : new C.ContentLookup<C.DesignEvaluation>.NotFound();
     public C.ContentLookup<C.SettlementLayoutProjection> FindSettlementLayout(K.SettlementId settlement) =>
         _layouts.TryGetValue(settlement, out var layout) ? new C.ContentLookup<C.SettlementLayoutProjection>.Found(layout) : new C.ContentLookup<C.SettlementLayoutProjection>.NotFound();
-    public C.ContentLookup<C.CreatureAppearanceProjection> FindCreature(K.CreatureDefinitionId creature) => new C.ContentLookup<C.CreatureAppearanceProjection>.NotFound();
-    public C.ContentLookup<C.LairAppearanceProjection> FindLair(K.LairTypeId lair) => new C.ContentLookup<C.LairAppearanceProjection>.NotFound();
+    public C.ContentLookup<C.CreatureAppearanceProjection> FindCreature(K.CreatureDefinitionId creature)
+    {
+        var record = _blueprints.Values.FirstOrDefault(blueprint => blueprint.Address.Id.Value == creature.Value
+            && blueprint.Definition.Specification is C.DesignSpecification.Creature);
+        return record?.Evaluation is C.DesignEvaluation.Complete complete
+            ? new C.ContentLookup<C.CreatureAppearanceProjection>.Found(new(creature, complete.Scene, record.Definition.Display))
+            : Absent<C.CreatureAppearanceProjection>(new K.CoreDefinitionReference.Creature(creature));
+    }
+    public C.ContentLookup<C.LairAppearanceProjection> FindLair(K.LairTypeId lair)
+    {
+        var loaded = _world.Lairs.FirstOrDefault(item => item.Core.Id == lair);
+        return loaded is null
+            ? Absent<C.LairAppearanceProjection>(new K.CoreDefinitionReference.Lair(lair))
+            : new C.ContentLookup<C.LairAppearanceProjection>.Found(new(lair, loaded.Scene, new(loaded.Display, null, null, false)));
+    }
+
+    private static K.CreatureProjection CreatureProjection(C.BlueprintRecord record)
+    {
+        var creature = (C.DesignSpecification.Creature)record.Definition.Specification;
+        var behavior = creature.Behavior!;
+        var id = new K.CreatureDefinitionId(record.Address.Id.Value);
+        return new(id, DefinitionJson.Semantic("creature", id.Value, new
+        {
+            hp = behavior.HitPoints, speed = behavior.SpeedMetersPerSecond, retreat_threshold = behavior.RetreatThreshold,
+            raid_duration = behavior.RaidDurationSeconds,
+            weapon = creature.Weapon is { } weapon ? new { damage = weapon.Damage, interval = weapon.IntervalSeconds } : null
+        }), behavior.HitPoints, behavior.SpeedMetersPerSecond, behavior.RetreatThreshold, behavior.RaidDurationSeconds, creature.Weapon);
+    }
     public C.ContentLookup<C.TerrainAppearanceProjection> FindTerrain(K.TerrainTypeId terrain) =>
         _world.Terrains.FirstOrDefault(t => t.Id == terrain) is { } ground
             ? new C.ContentLookup<C.TerrainAppearanceProjection>.Found(ground) : Absent<C.TerrainAppearanceProjection>(new K.CoreDefinitionReference.Terrain(terrain));

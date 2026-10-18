@@ -46,8 +46,6 @@ internal sealed class BlueprintParser
     internal static C.DesignDraft ReadDesign(JsonElement root, LoadPackage? package, bool draft = false)
     {
         var category = Choice(Required(root, "category", ""), "/category", ["vehicle", "building", "large_equipment", "scene_model", "creature"]);
-        if (category == "creature" && !draft)
-            Fail("/category", "当前不支持生物蓝图。", "unsupported_format");
         var layout = Required(root, "layout", "");
         Object(layout, "/layout", "palette", "cells", "composites");
         var nested = ImmutableArray.CreateBuilder<C.NestedDesignItem>();
@@ -83,6 +81,8 @@ internal sealed class BlueprintParser
                 }
             }
         }
+        if (category == "creature" && nested.Count > 0)
+            Fail("/layout/composites", "生物不能嵌套设计。", "design_invalid");
         var palette = ImmutableArray.CreateBuilder<C.VoxelPaletteEntry>();
         if (layout.TryGetProperty("palette", out var entries))
         {
@@ -162,7 +162,7 @@ internal sealed class BlueprintParser
             case C.DesignSpecification.SceneModel:
                 writer.WriteString("category", "scene_model");
                 break;
-            case C.DesignSpecification.Creature creature when incomplete:
+            case C.DesignSpecification.Creature creature:
                 writer.WriteString("category", "creature");
                 writer.WriteStartObject("simulation");
                 writer.WriteStartObject("behaviors");
@@ -288,18 +288,19 @@ internal sealed class BlueprintParser
             {
                 const string field = "/simulation/behaviors/creature";
                 Object(c, field, "hp", "speed", "retreat_threshold", "raid_duration");
-                creature = new(Int64(Required(c, "hp", field), field + "/hp"),
-                    Number(Required(c, "speed", field), field + "/speed"),
-                    Number(Required(c, "retreat_threshold", field), field + "/retreat_threshold"),
-                    Number(Required(c, "raid_duration", field), field + "/raid_duration"));
+                creature = new(Int64(Required(c, "hp", field), field + "/hp", 1),
+                    Number(Required(c, "speed", field), field + "/speed", positive: true),
+                    Number(Required(c, "retreat_threshold", field), field + "/retreat_threshold", 0, 1),
+                    Number(Required(c, "raid_duration", field), field + "/raid_duration", positive: true));
             }
+            else if (!draft) Fail("/simulation/behaviors/creature", "生物必须有 creature 行为。");
             K.PartCapability.Weapon? weapon = null;
             if (behaviors.TryGetProperty("weapon", out var w))
             {
                 const string field = "/simulation/behaviors/weapon";
                 Object(w, field, "damage", "interval");
-                weapon = new(Int64(Required(w, "damage", field), field + "/damage"),
-                    Number(Required(w, "interval", field), field + "/interval"));
+                weapon = new(Int64(Required(w, "damage", field), field + "/damage", 1),
+                    Number(Required(w, "interval", field), field + "/interval", positive: true));
             }
             return new C.DesignSpecification.Creature(creature, weapon);
         }

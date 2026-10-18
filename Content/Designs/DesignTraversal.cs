@@ -106,6 +106,14 @@ internal static class DesignTraversal
             case C.DesignSpecification.Building building:
                 result["category"] = "building"; result["simulation"] = Map(("plot_size", DesignEvaluator.Wire(building.PlotSize!.Value)),
                     ("building_type", DesignEvaluator.Wire(building.Kind!.Value)), ("facility_tags", building.FacilityTags.Select(tag => DesignEvaluator.Wire(tag)).Order(StringComparer.Ordinal).ToArray())); break;
+            case C.DesignSpecification.Creature creature:
+                result["category"] = "creature";
+                var behavior = Map();
+                if (creature.Behavior is { } stats) behavior["creature"] = Map(("hp", stats.HitPoints), ("speed", stats.SpeedMetersPerSecond),
+                    ("retreat_threshold", stats.RetreatThreshold), ("raid_duration", stats.RaidDurationSeconds));
+                if (creature.Weapon is { } weapon) behavior["weapon"] = Map(("damage", weapon.Damage), ("interval", weapon.IntervalSeconds));
+                result["simulation"] = Map(("behaviors", behavior));
+                break;
             case C.DesignSpecification.SceneModel model:
                 result["category"] = "scene_model";
                 if (model.Flatten is { } flatten) result["appearance"] = Map(("flatten", Map(("from", new[] { flatten.From.X, flatten.From.Z }),
