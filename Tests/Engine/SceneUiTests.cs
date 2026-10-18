@@ -52,7 +52,7 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
                 "场景真实点击未经过Pick/Resolve打开实例详情。");
             var pickedRay = frame.LastPickRay;
             await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
-            var list = ui.GetNode<ItemList>("Root/World/WorldPanels/NodesList/Layout/Body/Objects");
+            var list = ui.GetNode<ItemList>("Root/World/WorldPanels/NodesList/Layout/Content/Body/Objects");
             await _input.ClickItem(list, 0);
             Require(session.ResolveCalls.Count == 1 && ReferenceEquals(frame.LastPickRay, pickedRay), "顶栏或列表点击穿透场景拾取。");
             foreach (var panel in ui.GetNode<WorldPanels>("Root/World/WorldPanels").GetChildren().OfType<PanelContainer>()) panel.Hide();
@@ -151,7 +151,7 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
                 "没有ReturnedToMap事件的离开未重置场景和游戏界面。");
             panel.Hide();
             await _input.Activate(menu.GetNode<Button>("%NewGame"));
-            await _input.Activate(ui.GetNode<Button>("Root/NewGame/Layout/Body/Create"));
+            await _input.Activate(ui.GetNode<Button>("Root/NewGame/Layout/Content/Body/Create"));
             await _input.WaitUntil(() => app.Host!.GetStatus() is not null && map.IsVisibleInTree());
             Require(app.Host!.GetStatus() is { IsPaused: true, PlayerPaused: true } && !menu.IsVisibleInTree() &&
                 !app.WorldScenes!.View.Visible && setup.Scenes.Count == 1,
@@ -221,7 +221,7 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
                 "小地图滚轮或中键穿透到世界相机。");
             await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
             var panel = ui.GetNode<PanelContainer>("Root/World/WorldPanels/NodesList");
-            var list = panel.GetNode<ItemList>("Layout/Body/Objects");
+            var list = panel.GetNode<ItemList>("Layout/Content/Body/Objects");
             await _input.WaitUntil(() => list.ItemCount > 0 && list.GetItemRect(0).Size.Y > 0 &&
                 list.GetItemAtPosition(list.GetItemRect(0).GetCenter(), true) == 0);
             panel.Position = minimap.Position;

@@ -295,8 +295,9 @@ public partial class WorldPanels : Control
         WorldLocation.Edge edge => $"线路 {edge.Id.Value} · {edge.DistanceMeters:0.##} m", _ => "未知地点" };
     internal static string Relation(SettlementRelation relation) => relation switch
     { SettlementRelation.PlayerOwned => "自有", SettlementRelation.NonHostile => "非敌对", _ => "敌对" };
-    private static string Activity(TrainActivity activity) => activity switch
+    internal static string Activity(TrainActivity activity) => activity switch
     { TrainActivity.Running => "运行", TrainActivity.Servicing => "装卸", TrainActivity.Waiting => "等待",
-        TrainActivity.Stopped => "等待 · 已停车", TrainActivity.NoRoute => "受阻", _ => activity.ToString() };
+        TrainActivity.Stopped => "等待 · 已停车", TrainActivity.NoRoute => "受阻", TrainActivity.Combat => "战斗",
+        TrainActivity.Retreating => "撤退", _ => activity.ToString() };
     private sealed record Detail(PanelTarget Target, PanelContainer Panel, Label Text, List<Button> Buttons);
 }
