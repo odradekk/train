@@ -14,6 +14,7 @@ namespace Train.Engine.Tests;
 public class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
 {
     [Test]
+    [Chickensoft.GoDotTest.Timeout(120000)]
     public async Task Real_grid_draft_is_saved_before_publish_and_disk_reload_activates_new_content()
     {
         using var fixture = new RealAuthoringFixture(TestScene);
