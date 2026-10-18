@@ -202,20 +202,75 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public void Continuous_follow_tracks_displayed_translation_without_lag_and_keeps_turn_smoothing()
+    {
+        var camera = AttachCamera();
+        try
+        {
+            camera.DisplayedFrame(Frame(poses: Poses((First, Pose(0, 0, 0)))), First);
+            var forward = camera.Camera.Basis.Z;
+            var position = new Vector3(300, 2, -100);
+            camera.DisplayedFrame(Frame(revision: 2,
+                poses: Poses((First, Pose(position.X, position.Y, position.Z, Mathf.Pi / 2)))), First);
+            Near(camera.Focus, position);
+            Near(camera.Camera.Basis.Z, forward);
+            camera.Update(1d / 60);
+            Near(camera.Focus, position);
+            Require(camera.Camera.IsPositionInFrustum(camera.ToGlobal(position)),
+                "车辆显示位置快速推进后，跟随目标必须仍在相机视锥内。");
+            var horizontalForward = new Vector2(camera.Camera.Basis.Z.X, camera.Camera.Basis.Z.Z).Normalized();
+            Require(camera.Camera.Basis.Z.DistanceTo(forward) > 0.01 &&
+                horizontalForward.DistanceTo(Vector2.Right) > 0.01,
+                "平移随车不能取消车体转向的平滑。");
+        }
+        finally { camera.Free(); }
+    }
+
+    [Test]
+    public void Continuous_follow_stays_aligned_through_a_space_switch_and_origin_shift()
+    {
+        var camera = AttachCamera();
+        try
+        {
+            camera.DisplayedFrame(Frame(poses: Poses((First, Pose(20, 0, 10)))), First);
+            camera.DisplayedFrame(Frame(revision: 2, poses: Poses((First, Pose(30, 0, 10)))), First);
+            camera.Update(1d / 60);
+            Near(camera.Focus, new(30, 0, 10));
+            var transform = camera.Camera.Transform;
+            var shift = new Vector3(-100, 2, 200);
+            var aligned = new Vector3(-70, 2, 210);
+            camera.DisplayedFrame(Frame(space: 2, revision: 3, origin: new(1000, 0, 0),
+                poses: Poses((First, Pose(aligned.X, aligned.Y, aligned.Z)))), First, coordinateShift: shift);
+            Near(camera.Focus, aligned);
+            Near(camera.Camera.Position, transform.Origin + shift);
+            Near(camera.Camera.Basis.Z, transform.Basis.Z);
+            camera.Update(1d / 60);
+            Near(camera.Focus, aligned);
+            var motion = new Vector3(6, 0, 8);
+            camera.DisplayedFrame(Frame(space: 2, revision: 4, origin: new(1000, 0, 0),
+                poses: Poses((First, Pose(aligned.X + motion.X, aligned.Y, aligned.Z + motion.Z)))), First);
+            Near(camera.Focus - aligned, motion);
+            camera.Update(1d / 60);
+            Near(camera.Focus - aligned, motion);
+        }
+        finally { camera.Free(); }
+    }
+
+    [Test]
     public void Space_transition_preserves_aligned_display_coordinates_and_follow_lag()
     {
         var camera = AttachCamera();
         try
         {
             camera.DisplayedFrame(Frame(poses: Poses((First, Pose(0, 0, 0)))), First);
-            camera.DisplayedFrame(Frame(revision: 2, poses: Poses((First, Pose(30, 0, 10)))), First);
+            camera.DisplayedFrame(Frame(revision: 2, poses: Poses((Second, Pose(30, 0, 10)))), Second);
             camera.Update(0.05);
             camera.Orbit(90, 20);
             var focus = camera.Focus;
             var position = camera.Camera.Position;
             var forward = camera.Camera.Basis.Z;
             camera.DisplayedFrame(Frame(space: 2, revision: 3, origin: new(1000, 0, 0),
-                poses: Poses((First, Pose(35, 0, 10)))), First);
+                poses: Poses((Second, Pose(35, 0, 10)))), Second);
             Near(camera.Focus, focus);
             Near(camera.Camera.Position, position);
             Near(camera.Camera.Basis.Z, forward);
@@ -234,7 +289,7 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
         {
             camera.DisplayedFrame(Frame(poses: Poses((First, Pose(0, 0, 0)))), First);
             var oldTarget = new Vector3(30, 0, 10);
-            camera.DisplayedFrame(Frame(revision: 2, poses: Poses((First, Pose(30, 0, 10)))), First);
+            camera.DisplayedFrame(Frame(revision: 2, poses: Poses((Second, Pose(30, 0, 10)))), Second);
             camera.Update(0.05);
             camera.Orbit(90, 20);
             var lag = camera.Focus - oldTarget;
@@ -246,7 +301,7 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
             Near(camera.Camera.Basis.Z, forward);
             var newTarget = new Vector3(-700, 5, 900);
             camera.DisplayedFrame(Frame(revision: 3, session: new SceneSessionId(Guid.NewGuid()),
-                poses: Poses((First, Pose(-700, 5, 900, Mathf.Pi / 2)))), First);
+                poses: Poses((Second, Pose(-700, 5, 900, Mathf.Pi / 2)))), Second);
             Near(camera.Focus, newTarget + lag.Rotated(Vector3.Up, Mathf.Pi / 2));
             Near(camera.Camera.Position - camera.Focus, offset.Rotated(Vector3.Up, Mathf.Pi / 2));
             Near(camera.Camera.Basis.Z, forward.Rotated(Vector3.Up, Mathf.Pi / 2));
@@ -306,7 +361,7 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
         try
         {
             camera.DisplayedFrame(Frame(poses: Poses((First, Pose(0, 0, 0)))), First);
-            camera.DisplayedFrame(Frame(revision: 2, poses: Poses((First, Pose(100, 0, 80, 1.2f)))), First);
+            camera.DisplayedFrame(Frame(revision: 2, poses: Poses((Second, Pose(100, 0, 80, 1.2f)))), Second);
             camera.Update(0.05);
             Require(camera.Focus.DistanceTo(new(100, 0, 80)) > 1, "测试必须先产生真实跟随残差。");
             camera.Orbit(50, 20);

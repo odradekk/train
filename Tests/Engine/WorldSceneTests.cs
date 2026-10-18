@@ -101,8 +101,8 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
                     "预算耗尽后必须保留已提交网格和交互。");
                 Require(Math.Abs(root.GlobalPosition.X + candidates[i].Origin.X - (i + 2) * 10) < 0.001 &&
                     world.View.CameraRig.Focus.X + candidates[i].Origin.X > oldFocus &&
-                    world.View.CameraRig.Focus.X < root.GlobalPosition.X,
-                    "准备未完成时真实节点必须更新到最新姿态，跟随焦点也必须持续推进。");
+                    Math.Abs(world.View.CameraRig.Focus.X - root.GlobalPosition.X) < 0.001,
+                    "准备未完成时真实节点和跟随焦点必须同步更新到最新姿态。");
                 world.Pick(TestScene.GetViewport().GetVisibleRect().Size / 2);
                 Require(first.LastPickRay is null && candidates[i].LastPickRay is not null,
                     "准备期间拾取必须查询最新姿态帧。");
@@ -114,7 +114,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             Require(ReferenceEquals(world.Display.PoseFrame, candidates[^1]) &&
                 Math.Abs(root.GlobalPosition.X + candidates[^1].Origin.X - 40) < 0.001 &&
                 world.View.CameraRig.Focus.X + candidates[^1].Origin.X > beforeCommit &&
-                world.View.CameraRig.Focus.X < root.GlobalPosition.X &&
+                Math.Abs(world.View.CameraRig.Focus.X - root.GlobalPosition.X) < 0.001 &&
                 Math.Abs(world.Display.Objects[new(6)].Root.GlobalPosition.X + 200) < 0.001,
                 "较早候选提交时必须立即显示最新姿态，物体和相机的原点变化只施加一次。");
             world.Pick(TestScene.GetViewport().GetVisibleRect().Size / 2);
@@ -173,11 +173,11 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             long timestamp = 0;
             world.Display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
             world.ProcessFrame(0, false);
-            Require(world.Display.IsPreparing && Math.Abs(world.View.CameraRig.Focus.X) < 0.001 &&
+            Require(world.Display.IsPreparing && Math.Abs(world.View.CameraRig.Focus.X - 5) < 0.001 &&
                 Math.Abs(world.Display.Objects[new(1)].Root.GlobalPosition.X - 5) < 0.001,
-                "切换前必须建立未提交的原点平移和跟随余量。");
+                "切换前必须建立未提交的原点平移，同时焦点跟随最新显示位置。");
             world.ProcessFrame(0, false);
-            Require(Math.Abs(world.View.CameraRig.Focus.X - 10) < 0.001 &&
+            Require(Math.Abs(world.View.CameraRig.Focus.X - 15) < 0.001 &&
                 Math.Abs(world.Display.Objects[new(1)].Root.GlobalPosition.X - 15) < 0.001 &&
                 Math.Abs(world.Display.Objects[new(2)].Root.GlobalPosition.X - 30) < 0.001,
                 "新空间交接坐标相对D对齐，旧叠加平移必须与相机一起换算，不能重复保留。");
@@ -185,17 +185,17 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             Require(!world.Display.IsPreparing && ReferenceEquals(world.Display.DisplayedFrame, pending) &&
                 Math.Abs(world.Display.Objects[new(11)].Root.GlobalPosition.X + 85) < 0.001 &&
                 Math.Abs(world.Display.Objects[new(22)].Root.GlobalPosition.X + 70) < 0.001 &&
-                Math.Abs(world.View.CameraRig.Focus.X + 90) < 0.001,
-                "Loading之后的新空间首帧必须立即提交，并保持原点换算和相机跟随余量。");
+                Math.Abs(world.View.CameraRig.Focus.X + 85) < 0.001,
+                "Loading之后的新空间首帧必须立即提交，并保持原点换算和相机跟随位置。");
             Require(ReferenceEquals(session!.PresentCalls[^1].Request.Camera!.Frame, loading) &&
-                Math.Abs(session.PresentCalls[^1].Request.Camera!.Focus.X - 10) < 0.001,
+                Math.Abs(session.PresentCalls[^1].Request.Camera!.Focus.X - 15) < 0.001,
                 "相机样本的来源帧和焦点坐标必须配对。");
             await new UiTestInput(TestScene).Frames(2);
             world.Display.Timestamp = () => timestamp;
             world.ProcessFrame(0, false);
             Require(ReferenceEquals(world.Display.DisplayedFrame, latest) &&
                 Math.Abs(world.Display.Objects[new(11)].Root.GlobalPosition.X + 85) < 0.001 &&
-                Math.Abs(world.View.CameraRig.Focus.X + 90) < 0.001,
+                Math.Abs(world.View.CameraRig.Focus.X + 85) < 0.001,
                 "完整替换提交不得再次施加原点变化或重置跟随余量。");
         }
         finally { await fixture.Cleanup(); await new UiTestInput(TestScene).Frames(2); }

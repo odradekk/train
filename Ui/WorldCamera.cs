@@ -42,6 +42,7 @@ internal partial class WorldCamera : Node3D
         var previous = _frame;
         var sameSpace = previous is not null && previous.Update.Frame.Session == frame.Update.Frame.Session
             && previous.Update.Frame.Space == frame.Update.Frame.Space;
+        var moveWithTarget = sameSpace && _hasFollowPose && follow == _follow;
         var pose = follow is { } subject && frame.FindPose(subject) is Lookup<ScenePose>.Found found
             ? found.Value : null;
         if (sameSpace || previous is not null && previous.Update.Frame.Session == frame.Update.Frame.Session &&
@@ -73,6 +74,8 @@ internal partial class WorldCamera : Node3D
         _railwayPan = railwayPan;
         if (pose is not null)
         {
+            if (moveWithTarget)
+                Focus += ToGodot(pose.Position) - _targetPosition;
             _targetPosition = ToGodot(pose.Position);
             _targetYaw = Heading(pose);
             if (!_hasFollowPose && sameSpace)
