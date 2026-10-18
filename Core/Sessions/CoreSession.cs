@@ -168,6 +168,9 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
         return AdvanceWorld(steps, before =>
         {
             var (world, events) = TrainOperations.Advance(before.World, before.Content, before.Position.CompletedSteps);
+            var combat = CombatOperations.Advance(world, before.Content, checked(before.Position.CompletedSteps + 1));
+            world = combat.World;
+            events = events.AddRange(combat.Events);
             // Content and definitions cannot change within this public Advance call.
             inputs ??= PopulationOperations.ReadInputs(world, before.Content);
             foreach (var settlement in before.World.Settlements)

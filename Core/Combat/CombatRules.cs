@@ -29,4 +29,10 @@ internal static class CombatRules
 
     internal static bool Valid(SettlementEngagementRules rules) => rules is not null
         && Enum.IsDefined(rules.Priority) && Enum.IsDefined(rules.Scope);
+
+    internal static CombatRuleProjection? FindRule(WorldState world, CoreContentProjection content)
+        => content.CombatRules.SingleOrDefault(rule => rule.Id == world.Source.Configuration.Rules.Combat);
+
+    internal static CombatRuleProjection Rule(WorldState world, CoreContentProjection content)
+        => FindRule(world, content) ?? throw new InvalidOperationException("战斗规则缺失。");
 }

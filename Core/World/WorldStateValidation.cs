@@ -200,7 +200,7 @@ internal static class WorldStateValidation
         }
         foreach (var train in world.Trains)
         {
-            ValidateTrain(train, nodes, edges);
+            ValidateTrain(world, train, nodes, edges);
             Items(train.Vehicles, "/world/trains/vehicles");
             Require(!train.Vehicles.IsEmpty && train.Vehicles.Distinct().Count() == train.Vehicles.Length, "/world/trains/vehicles");
             foreach (var vehicle in train.Vehicles)
@@ -515,7 +515,7 @@ internal static class WorldStateValidation
         }
     }
 
-    private static void ValidateTrain(TrainState train, Dictionary<NodeId, NodeMapItem> nodes,
+    private static void ValidateTrain(WorldState world, TrainState train, Dictionary<NodeId, NodeMapItem> nodes,
         Dictionary<EdgeId, EdgeMapItem> edges)
     {
         Require(Enum.IsDefined(train.OrderFacing) && double.IsFinite(train.SpeedMetersPerSecond)
@@ -523,8 +523,11 @@ internal static class WorldStateValidation
         Require(CombatRules.Valid(train.Engagement), "/world/trains/engagement");
         Require(train.RetreatDestination is not { } destination || nodes.ContainsKey(destination),
             "/world/trains/retreat_destination");
+        Require(train.RetreatDestination is null || train.Activity == TrainActivity.Retreating,
+            "/world/trains/retreat_destination");
         Require(train.QueueEnteredStep is null || train.Position is TrainPosition.Node
-            && train.Activity is TrainActivity.Waiting or TrainActivity.Running, "/world/trains/queue_entered_step");
+            && train.Activity is TrainActivity.Waiting or TrainActivity.Running or TrainActivity.Combat
+                or TrainActivity.Retreating, "/world/trains/queue_entered_step");
         Require(train.ReturningFromBreak is null || train.Position is TrainPosition.Edge returning
             && train.Activity == TrainActivity.Running && edges.TryGetValue(returning.Id, out var returningEdge)
             && returningEdge.Breaks.Any(b => b.Id == train.ReturningFromBreak && b.Track == returning.Track),
@@ -605,10 +608,12 @@ internal static class WorldStateValidation
         }
         var finishingStop = train.Plan is not null && train.NextStopIndex is null
             && train.Activity == TrainActivity.Running && train.StopRequested;
-        Require(unfinished || finishingStop || train.Activity == TrainActivity.Stopped && train.RemainingDwellSteps == 0,
+        var combatActivity = train.Activity is TrainActivity.Combat or TrainActivity.Retreating;
+        Require(unfinished || finishingStop || combatActivity
+            || train.Activity == TrainActivity.Stopped && train.RemainingDwellSteps == 0,
             "/world/trains/activity");
-        Require(!train.StopRequested || train.Activity is TrainActivity.Running or TrainActivity.Waiting,
-            "/world/trains/stop_requested");
+        Require(!train.StopRequested || train.Activity is TrainActivity.Running or TrainActivity.Waiting
+            or TrainActivity.Combat or TrainActivity.Retreating, "/world/trains/stop_requested");
         if (train.RemainingDwellSteps > 0)
             Require(unfinished && train.Position is TrainPosition.Node dwellNode
                 && train.Plan!.Stops[train.NextStopIndex!.Value] is PlanStop.Station dwellStation
@@ -634,13 +639,21 @@ internal static class WorldStateValidation
                 Require(unfinished && train.Position is TrainPosition.Node && train.SpeedMetersPerSecond == 0
                     && train.RemainingDwellSteps == 0, "/world/trains/activity");
                 break;
+            case TrainActivity.Combat:
+                Require(train.Position is TrainPosition.Node && train.SpeedMetersPerSecond == 0
+                    && CombatQueries.TrainInCombat(world, train.Id), "/world/trains/activity");
+                break;
+            case TrainActivity.Retreating:
+                Require(train.Position is TrainPosition.Node or TrainPosition.Edge, "/world/trains/activity");
+                break;
             default: throw new CoreStateFormatException("/world/trains/activity");
         }
         Require(train.AutomaticEvaluationRemainingSteps is null || unfinished
             && train.Position is TrainPosition.Node atStation
             && train.Plan!.Stops[train.NextStopIndex!.Value] is PlanStop.Station current && current.Node == atStation.Id
             && !current.GoodsRules.IsEmpty
-            && train.RemainingDwellSteps > 0 && train.Activity is TrainActivity.Servicing or TrainActivity.Stopped or TrainActivity.Waiting,
+            && train.RemainingDwellSteps > 0 && train.Activity is TrainActivity.Servicing or TrainActivity.Stopped
+                or TrainActivity.Waiting or TrainActivity.Combat,
             "/world/trains/automatic_evaluation_remaining_steps");
         Require(train.AutomaticEvaluationRemainingSteps is not null
             || train.Activity != TrainActivity.Servicing && train.RemainingDwellSteps == 0

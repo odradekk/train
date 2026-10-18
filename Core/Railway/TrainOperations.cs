@@ -90,6 +90,8 @@ internal static class TrainOperations
         {
             var train = original;
             if (train.Activity == TrainActivity.Stopped) continue;
+            if (train.Activity == TrainActivity.Combat) continue;
+            if (train.Activity == TrainActivity.Retreating && train.RetreatDestination is null) continue;
             if (train.Activity == TrainActivity.Servicing)
             {
                 train = train with { RemainingDwellSteps = train.RemainingDwellSteps - 1 };
@@ -256,12 +258,11 @@ internal static class TrainOperations
     {
         train = dispatch.FixExit(train);
         var position = (TrainPosition.Node)train.Position;
-        if (position.Phase == NodeTravelPhase.Departing && train.Activity == TrainActivity.Waiting
-            && train.QueueEnteredStep is not null)
+        if (position.Phase == NodeTravelPhase.Departing && train.QueueEnteredStep is not null)
         {
             if (dispatch.Capabilities(train).DepartureProblem(train.Id, Rule(world, content).MinimumAcceleration) is { } blocked)
                 return ChangeActivity(train with { QueueEnteredStep = null }, TrainActivity.Waiting, events, [blocked]);
-            return train;
+            return ChangeActivity(train, TrainActivity.Waiting, events);
         }
         if (position.Phase != NodeTravelPhase.Departing)
         {

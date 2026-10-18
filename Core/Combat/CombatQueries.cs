@@ -40,6 +40,14 @@ internal static class CombatQueries
             && world.Combats.Any(combat => combat.Controllers.Any(state => state.Controller == controller)
                 && SameLocation(combat.Location, Location(world, controller)));
 
+    internal static bool TrainInCombat(WorldState world, TrainId id)
+    {
+        var train = world.Trains.Single(t => t.Id == id);
+        var controller = new CombatController.Train(id);
+        return Controller(world, controller) is { } found
+            && SameLocation(found.Combat.Location, WorldState.Location(train.Position));
+    }
+
     internal static CombatController? ControllerOf(WorldState world, InstanceId id)
     {
         var instance = world.Instances.SingleOrDefault(i => i.Id == id);
