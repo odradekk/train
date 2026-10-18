@@ -103,6 +103,13 @@ public sealed class DocumentationBlueprintTests
                 fixture.AddAsset(root, prefix + relative, bytes, new C.AssetMetadata.Png(
                     BinaryPrimitives.ReadInt32BigEndian(bytes.AsSpan(16, 4)), BinaryPrimitives.ReadInt32BigEndian(bytes.AsSpan(20, 4))));
             }
+            else if (relative.EndsWith(".glb", StringComparison.Ordinal))
+            {
+                // 固定格内元数据只支持本测试的内容加载，不证明模型事实；真实事实由 CLI 和 Engine 资产测试验证。
+                fixture.AddAsset(root, prefix + relative, bytes, new C.AssetMetadata.Glb(1,
+                    [C.AssetAlphaMode.Opaque, C.AssetAlphaMode.Opaque],
+                    new(new(-0.25, 0, -0.25), new(0.25, 0.5, 0.25)), false, false, false, false, false, false));
+            }
             else fixture.AddFile(root, prefix + relative, bytes);
         }
     }
