@@ -241,6 +241,34 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public async Task Initial_loading_then_first_operable_frame_ignores_budget_and_subsequent_frames_restore_it()
+    {
+        await new UiTestInput(TestScene).Frames(2);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView());
+        long timestamp = 0;
+        display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
+        Require(display.Prepare(Frame(1, [], readiness: SceneReadiness.Loading)) is null &&
+            display.DisplayedFrame is null && !display.IsPreparing,
+            "首次 Loading 不得开始准备或提交显示。");
+        var first = Frame(2, [Object(1, Mesh()), Object(2, Mesh())]);
+        using (var prepared = display.Prepare(first))
+        {
+            Require(prepared is not null && display.DisplayedFrame is null,
+                "首次可操作候选必须忽略预算一次准备完，提交前不得提前显示。");
+            prepared!.Commit();
+        }
+        Require(ReferenceEquals(display.DisplayedFrame, first) &&
+            display.Objects.Keys.ToHashSet().SetEquals([new(1), new(2)]),
+            "首次可操作候选必须原子提交全部对象。");
+        var subsequent = Frame(3, [Object(3, Mesh()), Object(4, Mesh())], first.Update.Frame);
+        Require(display.Prepare(subsequent) is null && ReferenceEquals(display.DisplayedFrame, first),
+            "首次提交后的同空间候选必须恢复预算并保留完整显示。");
+        await new UiTestInput(TestScene).Frames(2);
+    }
+
+    [Test]
     public async Task Displays_share_the_process_frame_budget_and_each_call_still_progresses()
     {
         await new UiTestInput(TestScene).Frames(2);
@@ -248,12 +276,16 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         using var cache = new AssetResourceCache(dispatcher);
         using var first = Attach(cache, new FixedContentView());
         using var second = Attach(cache, new FixedContentView());
+        var baseline = Frame(0, []);
+        Commit(first, baseline);
+        Commit(second, baseline);
         long timestamp = 0;
         first.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
         var processFrame = Godot.Engine.GetProcessFrames();
-        Require(first.Prepare(Frame(1, [Object(1, Mesh()), Object(2, Mesh())])) is null,
+        Require(first.Prepare(Frame(1, [Object(1, Mesh()), Object(2, Mesh())], baseline.Update.Frame)) is null,
             "先调用的显示器必须先耗尽当前进程帧的预算。");
-        var candidate = Frame(2, [Object(1, Mesh()), Object(2, Mesh()), Object(3, Mesh())]);
+        var candidate = Frame(2, [Object(1, Mesh()), Object(2, Mesh()), Object(3, Mesh())], baseline.Update.Frame,
+            fog: [new(new(10, 0, 0), new(11, 1, 1))]);
         for (var call = 0; call < 3; call++)
         {
             using var partial = second.Prepare(candidate);
