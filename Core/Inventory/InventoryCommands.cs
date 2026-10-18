@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Numerics;
 using Train.Core.Contracts;
 using Train.Core.Railway;
 using Train.Core.Sessions;
@@ -105,20 +104,21 @@ internal static class InventoryCommands
                     AutomaticGoodsAction.Sell sell => sell.MinimumUnitPrice,
                     _ => null
                 };
-                foreach (var price in UnitPrices(world, content, request, market!, localStock, executable))
+                foreach (var (price, quantity) in MarketPrices.Goods(world, content, request.Good, incoming, market!, localStock, executable))
                 {
                     if (limit is { } unitLimit && (incoming ? price.Value > unitLimit.Value : price.Value < unitLimit.Value))
                     {
                         incomplete = new("price_condition_failed", incoming ? "MaximumUnitPrice" : "MinimumUnitPrice", null, []);
                         break;
                     }
-                    if (incoming && price.Value > world.Money.Value - amount)
+                    var available = incoming ? Math.Min(quantity, (world.Money.Value - amount) / price.Value) : quantity;
+                    amount = checked(amount + price.Value * available);
+                    completed += available;
+                    if (available < quantity)
                     {
                         incomplete = new("insufficient_money", "Wallet", null, []);
                         break;
                     }
-                    amount = checked(amount + price.Value);
-                    completed++;
                 }
                 if (!incoming) _ = checked(world.Money.Value + amount);
             }
@@ -134,10 +134,11 @@ internal static class InventoryCommands
         if (trade)
         {
             long amount = 0, affordable = 0;
-            foreach (var price in UnitPrices(world, content, request, market!, localStock, request.Quantity))
+            foreach (var (price, quantity) in MarketPrices.Goods(world, content, request.Good, incoming, market!, localStock, request.Quantity))
             {
-                amount = checked(amount + price.Value);
-                if (amount <= world.Money.Value) affordable++;
+                if (amount <= world.Money.Value)
+                    affordable += Math.Min(quantity, (world.Money.Value - amount) / price.Value);
+                amount = checked(amount + price.Value * quantity);
             }
             total = new(amount);
             if (condition is { } limit && (incoming ? amount > limit.Value : amount < limit.Value))
@@ -193,23 +194,6 @@ internal static class InventoryCommands
         var quote = Quote(world, content, step, new(0), request, condition);
         if (!quote.Blockers.IsEmpty) return new CommandEffect.Rejected(quote.Blockers);
         return Apply(world, content, request, quote.Total!.Value);
-    }
-
-    private static IEnumerable<Money> UnitPrices(WorldState world, CoreContentProjection content,
-        TradeQuoteRequest request, MarketStockTargets market, long localStock, long count)
-    {
-        if (count == 0) yield break;
-        var incoming = request.Action == TradeAction.Buy;
-        var rule = market.Rule!;
-        var prices = rule.GoodPrices.SingleOrDefault(p => p.Good == request.Good)?.Parameters ?? rule.DefaultGoodsPrices;
-        var value = WorldGoods.Definition(world, content, request.Good)!.BaseValue;
-        var range = market.TargetRange(request.Good, incoming ? localStock - 1 : localStock);
-        for (long i = 0; i < count; i++)
-        {
-            var lowerStock = incoming ? localStock - i - 1 : checked(localStock + i);
-            if (lowerStock < range.Minimum || lowerStock > range.Maximum) range = market.TargetRange(request.Good, lowerStock);
-            yield return MarketPrices.Good(value, prices, range.Target, (BigInteger)lowerStock * 2 + 1, incoming);
-        }
     }
 
     internal static CommandEffect.Accepted Apply(WorldState world, CoreContentProjection content, TradeQuoteRequest request, Money amount)

@@ -157,7 +157,7 @@ public sealed class AutomaticTradingTests
     public void Buy_limit_checks_each_unit_and_keeps_the_affordable_prefix()
     {
         using var session = InventoryTradeTests.Session(local: [new(Clothing, 13)]);
-        var result = Evaluate(session, [Rule(session, new AutomaticGoodsAction.Buy(new(103)), Clothing, 3)]).Results.Single();
+        var result = Evaluate(session, [Rule(session, new AutomaticGoodsAction.Buy(new(102)), Clothing, 3)]).Results.Single();
         Assert.AreEqual(3L, result.RequestedQuantity);
         Assert.AreEqual(2L, result.CompletedQuantity);
         Assert.AreEqual(new Money(199), result.ActualAmount);
@@ -179,6 +179,37 @@ public sealed class AutomaticTradingTests
         Assert.AreEqual("MinimumUnitPrice", result.IncompleteReasons.Single().Field);
         Assert.AreEqual(1L, Quantity(session, Clothing));
         Assert.AreEqual(2L, Train(session).CurrentRun!.TransportedUnits);
+    }
+
+    [TestMethod]
+    [DataRow(false, "insufficient_money")]
+    [DataRow(true, "insufficient_capacity")]
+    public void Same_price_buy_stops_inside_the_segment(bool capacityLimited, string blocker)
+    {
+        var content = InventoryTradeTests.Content();
+        content = content with { Goods = content.Goods.Select(g => g with { MassTons = .001 }).ToImmutableArray() };
+        using var session = InventoryTradeTests.Session(content, local: [new(Voxel, 10)],
+            cargo: capacityLimited ? [new(Composite, 998)] : [], money: capacityLimited ? 10000 : 139);
+        var result = Evaluate(session, [Rule(session, new AutomaticGoodsAction.Buy(null), Voxel, 5)]).Results.Single();
+        Assert.AreEqual(2L, result.CompletedQuantity);
+        Assert.AreEqual(new Money(110), result.ActualAmount);
+        Assert.AreEqual(blocker, result.IncompleteReasons.Single().Code);
+        Assert.AreEqual(2L, Quantity(session, Voxel));
+        Assert.AreEqual(new Money(capacityLimited ? 9890 : 29), session.Read().Economy.Wallet);
+    }
+
+    [TestMethod]
+    public void Buy_limit_does_not_price_an_overflowing_unconsumed_tail()
+    {
+        var content = InventoryTradeTests.Content(value: long.MaxValue,
+            prices: new(new(10000), new(5000), new(20000), new(1000)));
+        using var session = InventoryTradeTests.Session(content, local: [new(Clothing, 30)], money: long.MaxValue);
+        var result = Evaluate(session, [Rule(session, new AutomaticGoodsAction.Buy(new(0)), Clothing, 20)]).Results.Single();
+        Assert.AreEqual(0L, result.CompletedQuantity);
+        Assert.AreEqual(new Money(0), result.ActualAmount);
+        Assert.AreEqual("price_condition_failed", result.IncompleteReasons.Single().Code);
+        Assert.IsNull(session.Read().Fault);
+        Assert.AreEqual(new Money(long.MaxValue), session.Read().Economy.Wallet);
     }
 
     [TestMethod]
