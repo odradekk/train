@@ -114,11 +114,11 @@ public class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Lair_type_encode_invalid_field_is_reported_without_host_special_case_or_writing()
+    public async Task Lair_type_write_invalid_field_is_reported_without_host_special_case_or_writing()
     {
         using var fixture = new RealAuthoringFixture(TestScene);
         await fixture.Start(); await fixture.Open();
-        await RejectedForm(fixture, new DefinitionDraft.LairType(new("new-lair", new("生物聚落", ""), null, null, [], null, null, null, null, null, null, null)), "/definition_kind", encodable: false);
+        await RejectedForm(fixture, new DefinitionDraft.LairType(new("new-lair", new("生物聚落", ""), null, null, [], null, null, null, null, null, null, null)), "/generation_weight");
     }
 
     private async Task RejectedForm(RealAuthoringFixture fixture, DefinitionDraft draft, string expected, bool encodable = true)

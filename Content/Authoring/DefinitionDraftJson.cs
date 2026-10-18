@@ -17,13 +17,15 @@ internal static class DefinitionDraftJson
         C.DefinitionDraft.Blueprint b => new(C.DefinitionKind.Blueprint, b.LocalId),
         C.DefinitionDraft.SettlementType t => new(C.DefinitionKind.SettlementType, t.Value.LocalId),
         C.DefinitionDraft.SettlementTemplate t => new(C.DefinitionKind.SettlementTemplate, t.Value.LocalId),
-        _ => throw new DefinitionFormatException("/definition_kind", "生物聚落表单须等待生物聚落加载实现。", "invalid_field")
+        C.DefinitionDraft.LairType lair => new(C.DefinitionKind.LairType, lair.Value.LocalId),
+        _ => throw new DefinitionFormatException("/definition_kind", "此定义种类不支持创作表单。", "invalid_field")
     };
 
     internal static string Kind(C.DefinitionKind kind) => kind switch
     {
         C.DefinitionKind.Voxel => "voxel", C.DefinitionKind.Blueprint => "blueprint",
         C.DefinitionKind.SettlementType => "settlement-type", C.DefinitionKind.SettlementTemplate => "settlement-template",
+        C.DefinitionKind.LairType => "lair-type",
         _ => throw new DefinitionFormatException("/definition_kind", "此定义种类不支持创作表单。", "invalid_field")
     };
 
@@ -39,7 +41,14 @@ internal static class DefinitionDraftJson
     {
         ArgumentNullException.ThrowIfNull(draft);
         var address = Address(draft);
-        var root = new JsonObject { ["schema_version"] = address.Kind == C.DefinitionKind.SettlementTemplate ? 2 : 3, ["id"] = address.LocalId };
+        var root = new JsonObject
+        {
+            ["schema_version"] = address.Kind switch
+            {
+                C.DefinitionKind.SettlementTemplate => 2, C.DefinitionKind.LairType => 1, _ => 3
+            },
+            ["id"] = address.LocalId
+        };
         switch (draft)
         {
             case C.DefinitionDraft.Blueprint blueprint:
@@ -126,6 +135,9 @@ internal static class DefinitionDraftJson
                 if (templateDisplay is not null) root["display"] = templateDisplay.DeepClone();
                 else if (!incomplete) Fail("/display", "新建模板需要契约提供显示文本；当前只能编辑已有模板。");
                 break;
+            case C.DefinitionDraft.LairType lair:
+                WriteLair(root, lair.Value, incomplete);
+                break;
         }
         return root;
     }
@@ -134,7 +146,7 @@ internal static class DefinitionDraftJson
         Func<string, bool>? isComposite = null, Func<string, bool>? isRecovery = null)
     {
         Kind(kind);
-        var expected = kind == C.DefinitionKind.SettlementTemplate ? 2 : 3;
+        var expected = kind switch { C.DefinitionKind.SettlementTemplate => 2, C.DefinitionKind.LairType => 1, _ => 3 };
         if (Int32(Required(root, "schema_version", ""), "/schema_version") != expected) Fail("/schema_version", "不支持此定义版本。", "unsupported_format");
         var id = Text(Required(root, "id", ""), "/id");
         string Reference(JsonElement value, string field) => package is null ? Text(value, field) : DefinitionJson.Reference(value, field, package);
@@ -243,9 +255,91 @@ internal static class DefinitionDraftJson
                 var scene = OptionalReference(root, "scene_model", "");
                 return new C.DefinitionDraft.SettlementTemplate(new(id, type is null ? null : new(type), OptionalInt(root, "weight", "") ?? (package is null ? null : 1),
                     scene is null ? null : new(scene), plots, founding, inventory, plans));
+            case C.DefinitionKind.LairType:
+                return new C.DefinitionDraft.LairType(ReadLair(root, Reference));
             default: throw new ArgumentOutOfRangeException(nameof(kind));
         }
     }
+
+    private static void WriteLair(JsonObject root, C.LairTypeDraft value, bool incomplete)
+    {
+        if (value.Members.IsDefault) Fail("/members", "数组必须初始化。");
+        root["display"] = DisplayNode(value.Display);
+        WriteOptional(root, "generation_weight", value.GenerationWeight, "/generation_weight", incomplete, 1, false);
+        var members = new JsonArray();
+        var creatures = ImmutableArray.CreateBuilder<K.CreatureDefinitionId>();
+        for (var index = 0; index < value.Members.Length; index++)
+        {
+            if (value.Members[index] is not { } member)
+                Fail("/members", "成员不能为空。");
+            else
+            {
+                if (member.Weight < 1) Fail($"/members/{index}/weight", "必须为范围内的有限数值。");
+                creatures.Add(member.Creature);
+                members.Add(new JsonObject { ["creature"] = member.Creature.Value, ["weight"] = member.Weight });
+            }
+        }
+        Unique(creatures, "/members");
+        if (!incomplete && members.Count == 0) Fail("/members", "成员不能为空。");
+        root["members"] = members;
+        WriteOptional(root, "maximum_members", value.MaximumMembers, "/maximum_members", incomplete, 1, false);
+        WriteOptional(root, "spawn_interval_seconds", value.SpawnIntervalSeconds, "/spawn_interval_seconds", incomplete, null, true);
+        WriteOptional(root, "raid_interval_seconds", value.RaidIntervalSeconds, "/raid_interval_seconds", incomplete, null, true);
+        WriteOptional(root, "roaming_radius_hops", value.RoamingRadiusHops, "/roaming_radius_hops", incomplete, 0, false);
+        WriteOptional(root, "raid_radius_hops", value.RaidRadiusHops, "/raid_radius_hops", incomplete, 0, false);
+        WriteOptional(root, "rail_damage_work_seconds", value.RailDamageWorkSeconds, "/rail_damage_work_seconds", incomplete, null, true);
+        WriteOptional(root, "clearance_reward", value.ClearanceReward, "/clearance_reward", incomplete, 0L, false);
+        if (value.SceneModel is { } scene) root["scene_model"] = scene.Value;
+        else if (!incomplete) Fail("/scene_model", "场景模型尚未指定。");
+    }
+
+    private static void WriteOptional<T>(JsonObject root, string key, T? value, string field, bool incomplete, T? minimum, bool positive)
+        where T : struct, IComparable<T>
+    {
+        if (value is null)
+        {
+            if (!incomplete) Fail(field, "字段尚未指定。");
+            return;
+        }
+        if (minimum is { } lower && value.Value.CompareTo(lower) < 0 || positive && value.Value.CompareTo(default) <= 0 ||
+            value is double number && !double.IsFinite(number))
+            Fail(field, "必须为范围内的有限数值。");
+        root[key] = JsonValue.Create(value.Value);
+    }
+
+    private static C.LairTypeDraft ReadLair(JsonElement root, Func<JsonElement, string, string> reference)
+    {
+        Object(root, "", "schema_version", "id", "display", "generation_weight", "members", "maximum_members",
+            "spawn_interval_seconds", "raid_interval_seconds", "roaming_radius_hops", "raid_radius_hops",
+            "rail_damage_work_seconds", "clearance_reward", "scene_model");
+        var members = root.TryGetProperty("members", out var values) ? Items(values, "/members").Select(item =>
+        {
+            Object(item.Value, item.Field, "creature", "weight");
+            return new K.WeightedCreature(new(reference(Required(item.Value, "creature", item.Field), item.Field + "/creature")),
+                Int32(Required(item.Value, "weight", item.Field), item.Field + "/weight", 1));
+        }).ToImmutableArray() : [];
+        Unique(members.Select(member => member.Creature), "/members");
+        var scene = root.TryGetProperty("scene_model", out var model) ? reference(model, "/scene_model") : null;
+        return new(Text(Required(root, "id", ""), "/id"), RawDisplay(Required(root, "display", "")),
+            scene is null ? null : new(scene), OptionalMinimum(root, "generation_weight", "", 1), members,
+            OptionalMinimum(root, "maximum_members", "", 1), OptionalPositive(root, "spawn_interval_seconds", ""),
+            OptionalPositive(root, "raid_interval_seconds", ""), OptionalMinimum(root, "roaming_radius_hops", "", 0),
+            OptionalMinimum(root, "raid_radius_hops", "", 0), OptionalPositive(root, "rail_damage_work_seconds", ""),
+            OptionalLongMinimum(root, "clearance_reward", "", 0));
+    }
+
+    private static C.DisplayText RawDisplay(JsonElement value, params string[] extra)
+    {
+        Object(value, "/display", ["name", "description", .. extra]);
+        return new(Text(Required(value, "name", "/display"), "/display/name"), Text(Required(value, "description", "/display"), "/display/description"));
+    }
+
+    private static int? OptionalMinimum(JsonElement root, string key, string field, int minimum) =>
+        root.TryGetProperty(key, out var value) ? Int32(value, Child(field, key), minimum) : null;
+    private static long? OptionalLongMinimum(JsonElement root, string key, string field, long minimum) =>
+        root.TryGetProperty(key, out var value) ? Int64(value, Child(field, key), minimum) : null;
+    private static double? OptionalPositive(JsonElement root, string key, string field) =>
+        root.TryGetProperty(key, out var value) ? Number(value, Child(field, key), positive: true) : null;
 
     private static JsonObject DisplayNode(C.DisplayText display) => new() { ["name"] = display.Name, ["description"] = display.Description };
     private static long? OptionalLong(JsonElement root, string key, string field) => root.TryGetProperty(key, out var value) ? Int64(value, Child(field, key)) : null;
