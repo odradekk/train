@@ -21,7 +21,6 @@ public class TrainPlanPanelTests(Node testScene) : TestClass(testScene)
         var tree = TestScene.GetTree();
         var fixture = new Fixture(tree);
         var size = tree.Root.Size;
-        var contentSize = tree.Root.ContentScaleSize;
         var scale = tree.Root.ContentScaleFactor;
         var view = EconomyFixture.Create(vehicle: EconomyFixture.VehicleState.Formed);
         var content = EconomyFixture.Content();
@@ -33,16 +32,17 @@ public class TrainPlanPanelTests(Node testScene) : TestClass(testScene)
             await fixture.AddToRoot(app);
             await FramesUntil(TestScene, () => app.Host!.GetStatus() is not null);
             tree.Root.ContentScaleFactor = 1;
-            tree.Root.ContentScaleSize = Vector2I.Zero;
             var ui = app.GetNode<GameUi>("GameUi");
             var panel = ui.GetNode<TrainPlanPanel>("Root/World/TrainPlanPanel");
             var train = Train(view, 7) with { Plan = new(true,
                 Enumerable.Range(0, 40).Select(_ => (PlanStop)new PlanStop.Station(new(1), 60, [])).ToImmutableArray()) };
             panel.Open(new(app.Host!.GetStatus()!.Binding, content.Generation, new WorldObjectId.Train(train.Id)), train, view, content);
             var firstBarHeight = 0f;
-            foreach (var windowSize in new[] { new Vector2I(1920, 1080), new Vector2I(1000, 720) })
+            foreach (var (windowSize, uiScale) in new[] {
+                (new Vector2I(1920, 1080), 1f), (new Vector2I(1280, 720), 1.25f), (new Vector2I(1280, 720), 1.75f) })
             {
                 tree.Root.Size = windowSize;
+                tree.Root.ContentScaleFactor = uiScale;
                 await new UiTestInput(TestScene).Frames(6);
                 var bounds = panel.GetNode<PanelContainer>("Plan").GetGlobalRect();
                 var bar = ui.GetNode<PanelContainer>("Root/World/Bar").GetGlobalRect();
@@ -53,13 +53,24 @@ public class TrainPlanPanelTests(Node testScene) : TestClass(testScene)
                     firstBarHeight = bar.Size.Y;
                     await UiCapture.Capture(TestScene, "long-plan");
                 }
-                else Require(bar.Size.Y > firstBarHeight, "窄窗口没有覆盖顶栏换行情景。");
+                else
+                {
+                    if (uiScale == 1.75f) Require(bar.Size.Y > firstBarHeight, "窄窗口没有覆盖顶栏换行情景。");
+                    if (DisplayServer.GetName() != "headless" &&
+                        System.Environment.GetEnvironmentVariable("TRAIN_UI_CAPTURE_DIR") is { } output)
+                    {
+                        await TestScene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+                        using var image = tree.Root.GetTexture().GetImage();
+                        Require(image.SavePng(Path.Combine(output, $"long-plan-{uiScale}.png")) == Error.Ok,
+                            "窄窗口计划截图保存失败。");
+                    }
+                }
             }
         }
         finally
         {
             await fixture.Cleanup();
-            tree.Root.Size = size; tree.Root.ContentScaleSize = contentSize; tree.Root.ContentScaleFactor = scale;
+            tree.Root.Size = size; tree.Root.ContentScaleFactor = scale;
         }
     }
 
