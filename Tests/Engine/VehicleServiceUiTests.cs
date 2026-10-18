@@ -210,7 +210,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             await _input.Frames(2);
             var ui = app.GetNode<GameUi>("GameUi");
             await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
-            await _input.ClickItem(ui.GetNode<ItemList>("Root/World/WorldPanels/NodesList/Layout/Body/Objects"), 0);
+            await _input.ClickItem(ui.GetNode<ItemList>("Root/World/WorldPanels/NodesList/Layout/Content/Body/Objects"), 0);
             await _input.Activate(Find<Button>(ui.GetNode<WorldPanels>("Root/World/WorldPanels"), "Economy"));
             await body(ui, ui.GetNode<EconomyPanels>("Root/World/EconomyPanels"));
         }
@@ -276,4 +276,3 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
         public CoreResult<SettlementFoundingPreview> PreviewSettlement(NodeId node) => basis.PreviewSettlement(node);
     }
 }
-
