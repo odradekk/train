@@ -81,17 +81,27 @@ public sealed class AuthoringDraftTests
     }
 
     [TestMethod]
-    public void Lair_definition_codec_rejects_both_directions_and_local_library_rejects_package_drafts()
+    public void Lair_drafts_round_trip_and_invalid_numbers_keep_their_field()
     {
-        var lair = new C.DefinitionDraft.LairType(new("den", new("巢穴", ""), null,
+        var incomplete = new C.DefinitionDraft.LairType(new("unfinished", new("巢穴", ""), null,
             null, [], null, null, null, null, null, null, null));
-        Failure(ContentFactory.Create().EncodeDraft(Saved(lair, C.DefinitionKind.LairType)));
+        var decoded = Success(ContentFactory.Create().DecodeDraft(Success(ContentFactory.Create().EncodeDraft(Saved(incomplete, C.DefinitionKind.LairType)))));
+        AssertLair(incomplete, (C.DefinitionDraft.LairType)((C.DraftPayload.Definition)decoded.Payload).Value);
+        var complete = incomplete with
+        {
+            Value = incomplete.Value with
+            {
+                SceneModel = new("core:grove"), GenerationWeight = 2, Members = [new(new("core:scout"), 3)], MaximumMembers = 4,
+                SpawnIntervalSeconds = 30, RaidIntervalSeconds = 60, RoamingRadiusHops = 0, RaidRadiusHops = 2,
+                RailDamageWorkSeconds = 15, ClearanceReward = 10
+            }
+        };
+        decoded = Success(ContentFactory.Create().DecodeDraft(Success(ContentFactory.Create().EncodeDraft(Saved(complete, C.DefinitionKind.LairType)))));
+        AssertLair(complete, (C.DefinitionDraft.LairType)((C.DraftPayload.Definition)decoded.Payload).Value);
+        var invalid = ContentFactory.Create().EncodeDraft(Saved(complete with { Value = complete.Value with { SpawnIntervalSeconds = 0 } }, C.DefinitionKind.LairType));
+        Assert.IsTrue(((C.ContentResult<string>.Failure)invalid).Diagnostics.Any(diagnostic =>
+            diagnostic.Code == "invalid_field" && diagnostic.Field == "/spawn_interval_seconds"));
         var valid = Saved(new C.DefinitionDraft.Blueprint("unfinished", DesignFixtures.Vehicle()), C.DefinitionKind.Blueprint);
-        var root = JsonNode.Parse(Success(ContentFactory.Create().EncodeDraft(valid)))!;
-        root["target"]!["definition_kind"] = "lair_type";
-        root["payload"]!["definition_kind"] = "lair_type";
-        root["payload"]!["value"] = JsonNode.Parse("""{"schema_version":1,"id":"den","display":{"name":"巢穴","description":""}}""");
-        Failure(ContentFactory.Create().DecodeDraft(root.ToJsonString()));
         using var loaded = DesignFixtures.Content().Load();
         foreach (var draft in new[]
         {
@@ -101,6 +111,12 @@ public sealed class AuthoringDraftTests
         })
             Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Failure>(ContentFactory.Create().PrepareEdit(
                 loaded.View, new C.ContentEdit.SaveLocalDraft(draft)));
+    }
+
+    private static void AssertLair(C.DefinitionDraft.LairType expected, C.DefinitionDraft.LairType actual)
+    {
+        Assert.AreEqual(expected.Value with { Members = [] }, actual.Value with { Members = [] });
+        CollectionAssert.AreEqual(expected.Value.Members.ToArray(), actual.Value.Members.ToArray());
     }
 
     private static C.SavedContentDraft Saved(C.DefinitionDraft value, C.DefinitionKind kind, string version = "snapshot") =>
