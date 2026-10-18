@@ -34,6 +34,7 @@ internal sealed class RailwayScene : IAsyncDisposable
     private readonly Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment> build;
     private readonly CancellationTokenSource cancellation = new();
     private readonly Dictionary<int, ConnectedSegment> segments = [];
+    private readonly HashSet<int> staleSegments = [];
     private readonly Dictionary<int, SegmentWork> pendingSegments = [];
     private readonly List<SegmentWork> retiredSegments = [];
     private readonly SceneVehicles vehicles;
@@ -138,11 +139,14 @@ internal sealed class RailwayScene : IAsyncDisposable
         if (map.Tracks == path.Edge.Tracks && map.Breaks.SequenceEqual(path.Edge.Breaks) &&
             RepairIdentity(map).SequenceEqual(RepairIdentity(path.Edge))) return;
         try { path = new RailwayPath(snapshot, Edge, cancellation.Token); }
-        catch (RailwayBuildException error) { Fail(error); }
+        catch (RailwayBuildException error) { Fail(error); return; }
+        staleSegments.Clear();
+        foreach (var pair in segments)
+            if (!pair.Value.Source.Dependencies.Matches(snapshot, path, pair.Key)) staleSegments.Add(pair.Key);
     }
 
     private static ImmutableArray<(ulong Job, int Track, ulong Break)> RepairIdentity(EdgeMapItem edge) =>
-        edge.Works.Where(work => work.Kind == RailwayWorkKind.RepairBreak && work.RepairingBreak is not null)
+        edge.Works.Where(RailwayCoordinates.IsBreakRepair)
             .OrderBy(work => work.Id.Value)
             .Select(work => (work.Id.Value, work.Track, work.RepairingBreak!.Value.Value))
             .ToImmutableArray();
@@ -199,7 +203,7 @@ internal sealed class RailwayScene : IAsyncDisposable
         }
         foreach (var index in Enumerable.Range(minimum, maximum - minimum + 1).OrderBy(index => Math.Abs(index - middle)))
         {
-            if (segments.TryGetValue(index, out var shown) && shown.Source.Dependencies.Matches(snapshot, path!, index)) continue;
+            if (segments.ContainsKey(index) && !staleSegments.Contains(index)) continue;
             if (pendingSegments.ContainsKey(index)) continue;
             if (cache.Find(snapshot, path!, index) is { } cached) Connect(cached);
             else if (allowBuild && failure is null && pendingSegments.Count + retiredSegments.Count(work => !work.Task.IsCompleted) < RailwayCoordinates.MaxConcurrentBuilds)
@@ -215,6 +219,7 @@ internal sealed class RailwayScene : IAsyncDisposable
 
     private void Connect(RailwaySegment segment)
     {
+        staleSegments.Remove(segment.Index);
         var keys = segment.Geometry.Objects.ToImmutableDictionary(item => item.Id, item => item.Id.Value.ToString());
         var start = segment.Index * RailwayCoordinates.SegmentLengthCells;
         var end = Math.Min(path!.LengthCells, (segment.Index + 1) * RailwayCoordinates.SegmentLengthCells);

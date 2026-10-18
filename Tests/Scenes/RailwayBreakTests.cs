@@ -25,7 +25,7 @@ public sealed class RailwayBreakTests
         var meshes = RailwayMeshes.Build(path, 0, default, _ => 4);
         var points = meshes.SelectMany(mesh => mesh.Vertices).Select(vertex => vertex.Position).ToArray();
         Assert.IsTrue(points.All(point => Along(path, point) >= -1e-3f && Along(path, point) <= path.LengthCells + 1e-3f));
-        var rails = RailsNear(meshes, path, 0);
+        var rails = Band(meshes, BuiltInMaterial.RailSteel, path, 0, 8, true);
         Assert.IsFalse(rails.Any(point => Along(path, point) is > .5f and < 11f));
         Assert.IsTrue(rails.Any(point => Along(path, point) > 13f));
         var construction = Of(meshes, BuiltInMaterial.Construction);
@@ -60,18 +60,39 @@ public sealed class RailwayBreakTests
     }
 
     [TestMethod]
+    public void BarrierOnASegmentBoundaryAndOnTheEdgeEndIsDrawnOnce()
+    {
+        var boundary = RailwayCoordinates.SegmentLengthCells;
+        var path = Path([new TrackBreakView(new(1), 1, boundary / RailwayCoordinates.CellsPerMeter - RailwayCoordinates.BreakGapCells / 4)],
+            [Repair(new(1), 1, new(1))]);
+        var first = RailwayMeshes.Build(path, 0, default, _ => 4);
+        var second = RailwayMeshes.Build(path, 1, default, _ => 4);
+        Assert.IsFalse(Of(first, BuiltInMaterial.Construction).Any(point => Along(path, point) >= boundary - 1));
+        Assert.IsTrue(Of(second, BuiltInMaterial.Construction).Any(point => Math.Abs(Along(path, point) - boundary) < 1));
+
+        var limit = path.LengthCells;
+        var ended = Path([new TrackBreakView(new(1), 1, limit / RailwayCoordinates.CellsPerMeter - RailwayCoordinates.BreakGapCells / 4)],
+            [Repair(new(1), 1, new(1))]);
+        var lastIndex = (int)((limit - 1) / RailwayCoordinates.SegmentLengthCells);
+        var earlier = lastIndex == 0 ? [] : RailwayMeshes.Build(ended, lastIndex - 1, default, _ => 4);
+        var last = RailwayMeshes.Build(ended, lastIndex, default, _ => 4);
+        Assert.IsFalse(Of(earlier, BuiltInMaterial.Construction).Any(point => Along(ended, point) >= limit - 1));
+        Assert.IsTrue(Of(last, BuiltInMaterial.Construction).Any(point => Math.Abs(Along(ended, point) - limit) < 1));
+    }
+
+    [TestMethod]
     public void BreakOpensACappedGapAndRepairPropsStayOffOpenTracks()
     {
         var bare = Path(Breaks: [new TrackBreakView(new(1), 1, 20)]);
         var open = RailwayMeshes.Build(bare, 0, default);
-        Assert.IsFalse(RailsNear(open, bare, 0).Any(point => Along(bare, point) is > 32.5f and < 47.5f));
-        Assert.IsTrue(SleepersNear(open, bare, 0).Any(point => point.Y > 0 && Along(bare, point) is > 32f and < 48f));
+        Assert.IsFalse(Band(open, BuiltInMaterial.RailSteel, bare, 0, 8, true).Any(point => Along(bare, point) is > 32.5f and < 47.5f));
+        Assert.IsTrue(Band(open, BuiltInMaterial.Sleeper, bare, 0, 8, true).Any(point => point.Y > 0 && Along(bare, point) is > 32f and < 48f));
         Assert.IsFalse(open.Any(mesh => mesh.Material is SceneMaterial.BuiltIn { Kind: BuiltInMaterial.Construction }));
 
         var repaired = Path([new TrackBreakView(new(1), 1, 20)], [Repair(new(1), 1, new(1))]);
         var grounded = RailwayMeshes.Build(repaired, 0, default, _ => 4);
-        var barriers = ConstructionNear(grounded, repaired, 0, 8);
-        var yard = ConstructionBeyond(grounded, repaired, 0, 8);
+        var barriers = Band(grounded, BuiltInMaterial.Construction, repaired, 0, 8, true, true);
+        var yard = Band(grounded, BuiltInMaterial.Construction, repaired, 0, 8, false);
         Assert.IsTrue(barriers.Any());
         Assert.IsTrue(yard.Any());
         Assert.AreEqual(4, yard.Min(point => point.Y), 1e-3);
@@ -81,14 +102,14 @@ public sealed class RailwayBreakTests
         Assert.AreEqual(4, steelYard.Min(point => point.Y), 1e-3);
 
         var bridge = RailwayMeshes.Build(repaired, 0, default, _ => null);
-        Assert.IsTrue(ConstructionNear(bridge, repaired, 0, 8).Any());
-        Assert.IsFalse(ConstructionBeyond(bridge, repaired, 0, 8).Any());
+        Assert.IsTrue(Band(bridge, BuiltInMaterial.Construction, repaired, 0, 8, true, true).Any());
+        Assert.IsFalse(Band(bridge, BuiltInMaterial.Construction, repaired, 0, 8, false).Any());
 
         var two = Path([new TrackBreakView(new(1), 1, 20)], [Repair(new(1), 1, new(1))], tracks: 2);
-        var props = ConstructionBeyond(RailwayMeshes.Build(two, 0, default, _ => 4), two, RailwayCoordinates.TrackOffset(1, 2), 8);
+        var props = Band(RailwayMeshes.Build(two, 0, default, _ => 4), BuiltInMaterial.Construction, two, RailwayCoordinates.TrackOffset(1, 2), 8, false);
         var openOffset = RailwayCoordinates.TrackOffset(2, 2);
         Assert.IsTrue(props.Any());
-        Assert.IsTrue(props.All(point => Lateral(two, point, 40, openOffset) > 16));
+        Assert.IsTrue(props.All(point => Lateral(two, point, 40, openOffset) >= NodeLayout.PlatformClearance - 0.05));
     }
 
     [TestMethod]
@@ -274,14 +295,14 @@ public sealed class RailwayBreakTests
     private static Vector3[] Of(ImmutableArray<SceneMesh> meshes, BuiltInMaterial kind) => meshes
         .Where(mesh => mesh.Material is SceneMaterial.BuiltIn built && built.Kind == kind)
         .SelectMany(mesh => mesh.Vertices).Select(vertex => vertex.Position).ToArray();
-    private static Vector3[] RailsNear(ImmutableArray<SceneMesh> meshes, RailwayPath path, double offset) =>
-        Of(meshes, BuiltInMaterial.RailSteel).Where(point => Lateral(path, point, 40, offset) < 8).ToArray();
-    private static Vector3[] SleepersNear(ImmutableArray<SceneMesh> meshes, RailwayPath path, double offset) =>
-        Of(meshes, BuiltInMaterial.Sleeper).Where(point => Lateral(path, point, 40, offset) < 8).ToArray();
-    private static Vector3[] ConstructionNear(ImmutableArray<SceneMesh> meshes, RailwayPath path, double offset, float limit) =>
-        Of(meshes, BuiltInMaterial.Construction).Where(point => Lateral(path, point, 40, offset) <= limit).ToArray();
-    private static Vector3[] ConstructionBeyond(ImmutableArray<SceneMesh> meshes, RailwayPath path, double offset, float limit) =>
-        Of(meshes, BuiltInMaterial.Construction).Where(point => Lateral(path, point, 40, offset) > limit).ToArray();
+    private static Vector3[] Band(ImmutableArray<SceneMesh> meshes, BuiltInMaterial kind, RailwayPath path,
+        double offset, double limit, bool inside, bool inclusive = false) =>
+        Of(meshes, kind).Where(point =>
+        {
+            var lateral = Lateral(path, point, 40, offset);
+            if (!inside) return lateral > limit;
+            return inclusive ? lateral <= limit : lateral < limit;
+        }).ToArray();
 
     private static ScenePose Pose(SceneFrame frame, ulong vehicle) =>
         ((Lookup<ScenePose>.Found)frame.FindPose(new WorldObjectId.Instance(new InstanceId.Vehicle(new(vehicle))))).Value;

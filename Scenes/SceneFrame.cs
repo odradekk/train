@@ -39,7 +39,6 @@ internal sealed class SceneFrame : ISceneFrame
     }
 
     private readonly ImmutableArray<PickGrid> picking;
-    internal ImmutableArray<PickGrid> Picking => picking;
     private readonly ImmutableDictionary<WorldObjectId, ScenePose> poses;
     private readonly RailwayPath? railway;
     private readonly ImmutableArray<RailwaySegment> segments;

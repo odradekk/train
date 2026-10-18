@@ -80,8 +80,8 @@ internal sealed class RailwayDependencies
         foreach (var br in edge.Breaks.Where(item => RailwayCoordinates.BreakGapOverlaps(item.DistanceMeters, segmentStart, segmentEnd))
             .OrderBy(item => item.Id.Value).ThenBy(item => item.Track))
             values.Add(new object[] { "break", br.Id, br.Track, br.DistanceMeters });
-        foreach (var work in edge.Works.Where(item => item.Kind == RailwayWorkKind.RepairBreak && item.RepairingBreak is { } repairing &&
-            edge.Breaks.Any(br => br.Id == repairing && RailwayCoordinates.BreakGapOverlaps(br.DistanceMeters, segmentStart, segmentEnd)))
+        foreach (var work in edge.Works.Where(item => RailwayCoordinates.IsBreakRepair(item) &&
+            edge.Breaks.Any(br => br.Id == item.RepairingBreak && RailwayCoordinates.BreakGapOverlaps(br.DistanceMeters, segmentStart, segmentEnd)))
             .OrderBy(item => item.Id.Value))
             values.Add(new object?[] { "repair", work.Id, work.Track, work.RepairingBreak });
         if (startTerrain) { values.Add(Terrain(start.Terrain)); values.Add(NodeLayout.ReadInputs(snapshot, start.Id)); }

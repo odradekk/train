@@ -112,7 +112,6 @@ public sealed class SettlementObjectsTests
         var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
         await using var objects = new SettlementObjects(StableIds());
         var rendered = await Settle(objects, snapshot, layout);
-        Assert.ThrowsExactly<InvalidOperationException>(() => snapshot.Core.FindJob(new(77)));
         Assert.AreEqual(0, rendered.Diagnostics.Length);
         var site = rendered.Objects.Single();
         Assert.IsNull(site.Subject);

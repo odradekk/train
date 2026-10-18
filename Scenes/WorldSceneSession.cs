@@ -109,6 +109,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         RetireCompletedTasks();
         CancelCandidate(); rejectedCandidate = null; sceneOrigin = null;
         foreach (var work in tasks) work.Cancellation.Cancel();
+        if (successor is not null) { closingScenes.Add(successor.DisposeAsync().AsTask()); successor = null; }
         if (railway is not null) { closingScenes.Add(railway.DisposeAsync().AsTask()); railway = null; }
         if (node is not null) { closingScenes.Add(node.DisposeAsync().AsTask()); node = null; }
         target = value;
@@ -322,12 +323,12 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         {
             if (candidate?.Node?.Node == node.Node) CancelCandidate();
             node.AcceptTrackChanges = false;
-            successor = OpenNode(node.Node, ObjectId);
+            successor = OpenNode(node.Node, ObjectId, background: true);
         }
         if (successor is null) return null;
         if (!successor.Failed)
         {
-            successor.Pump(snapshot, allowBuild: node.HasPendingBuilds != true);
+            successor.Pump(snapshot, node.StreamingFocus, allowBuild: node.HasPendingBuilds != true, following: node.StreamingFollow);
             if (!successor.Failed && successor.NearPrepared)
             {
                 successor.MarkNearReady();

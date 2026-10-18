@@ -20,6 +20,8 @@ internal static class RailwayCoordinates
         var half = BreakGapCells / 2;
         return center + half > startCells && center - half < endCells;
     }
+    internal static bool IsBreakRepair(RailwayWorkView work) =>
+        work.Kind == RailwayWorkKind.RepairBreak && work.RepairingBreak is not null;
     internal const double TrackSpacing = 34;
     internal const double BedTopHalfWidth = 9.5;
     internal const double BedBaseHalfWidth = 10.5;
