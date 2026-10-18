@@ -49,7 +49,9 @@ internal sealed partial class ContentView : C.IContentView
         Voxels = voxels.Select(voxel => new C.VoxelCatalogEntry(voxel.Definition.Definition, voxel.Definition.Good)).ToImmutableArray();
         var compositeGoods = blueprints.Where(b => b.Definition.Specification is C.DesignSpecification.FunctionalComposite)
             .Select(CompositeGood).OrderBy(g => DesignEvaluator.GoodKey(g.Good), StringComparer.Ordinal).ToImmutableArray();
-        var identity = WorldSemantics.Core(voxels, _world, blueprints, compositeGoods);
+        var creatures = blueprints.Where(blueprint => blueprint.Definition.Specification is C.DesignSpecification.Creature { Behavior: not null })
+            .Select(CreatureProjection).OrderBy(creature => creature.Id.Value, StringComparer.Ordinal).ToImmutableArray();
+        var identity = WorldSemantics.Core(voxels, _world, blueprints, compositeGoods, creatures);
         var records = blueprints.OrderBy(blueprint => blueprint.Address.Id.Value, StringComparer.Ordinal)
             .Select(blueprint => blueprint.Evaluation is C.DesignEvaluation.Complete { Core: { } core } complete
                 ? blueprint with { Evaluation = complete with { Core = core with { InputIdentity = new(identity) } } } : blueprint).ToImmutableArray();
@@ -61,8 +63,6 @@ internal sealed partial class ContentView : C.IContentView
             ((C.DesignEvaluation.Complete)blueprint.Evaluation).Design,
             ((C.DesignEvaluation.Complete)blueprint.Evaluation).IsValid,
             ((C.DesignEvaluation.Complete)blueprint.Evaluation).Diagnostics)).ToImmutableArray();
-        var creatures = records.Where(blueprint => blueprint.Definition.Specification is C.DesignSpecification.Creature { Behavior: not null })
-            .Select(CreatureProjection).OrderBy(creature => creature.Id.Value, StringComparer.Ordinal).ToImmutableArray();
         Core = new(Identity: new(identity), Goods: voxels.Where(voxel => voxel.Definition.Good is not null)
             .Select(voxel => voxel.Definition.Good!).Concat(compositeGoods).ToImmutableArray(), Designs: designs.Where(design => design.Core is not null)
                 .Select(design => design.Core!.Design).ToImmutableArray(), DesignGoods: [], Processes: _world.Processes.Select(p => p.Projection).ToImmutableArray(),
@@ -244,6 +244,11 @@ internal sealed partial class ContentView : C.IContentView
                 p.Id, p.Display, configuration = GenerationSemantics.Configuration(p.Configuration, Composition),
                 start = GenerationSemantics.Start(p.Start, Composition)
             }),
+            creatures = _blueprints.Values.Where(blueprint => blueprint.Address.Library == C.BlueprintLibrary.Packages &&
+                blueprint.Definition.Specification is C.DesignSpecification.Creature)
+                .OrderBy(blueprint => blueprint.Address.Id.Value, StringComparer.Ordinal).Select(blueprint => new
+                { blueprint.Address.Id, blueprint.Definition.Display, blueprint.Definition.Layout }),
+            lairs = _world.Lairs.Select(lair => new { lair.Core.Id, lair.Display, scene = lair.Scene.Design }),
             packages = Packages.Where(p => p.State == C.PackageState.Available).Select(p => p.Metadata).OfType<C.PackageMetadata>()
                 .OrderBy(p => p.Id.Value, StringComparer.Ordinal)
         });
