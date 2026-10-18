@@ -14,6 +14,52 @@ public sealed class NodeTrainPresentationTests
     { Position = new TrainPosition.Node(NodeFixtures.NodeId, new(2), 1, new(1), null, NodeTravelPhase.Approaching, distance, 1) };
 
     [TestMethod]
+    [DataRow(1UL, -17f)]
+    [DataRow(2UL, 17f)]
+    public async Task TrackTwoArrivalUsesItsOwnBoundaryAtEitherLineEnd(ulong edge, float offset)
+    {
+        var train = Approaching(0) with
+        { Position = new TrainPosition.Node(NodeFixtures.NodeId, new(edge), 2, null, null, NodeTravelPhase.Approaching, 0, 1) };
+        var snapshot = NodeFixtures.Snapshot(tracks: 2, trains: [train]);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Controlled(snapshot, vehicles);
+        var frame = await Frame(scene, snapshot);
+        var entry = scene.Layout!.EntryFor(new(edge));
+        var right = Vector3.Cross(Vector3.UnitY, -entry.Outward);
+        var expected = RailwayCoordinates.Relative(entry.Point, default) + right * offset;
+        Assert.IsTrue(Vector3.Distance(expected, Pose(frame, 1).Position) < .003,
+            "The node must keep the entered track's independent two-track offset.");
+    }
+
+    [TestMethod]
+    [DataRow(2UL, 2, 1UL, 1)]
+    [DataRow(2UL, 1, 1UL, 2)]
+    [DataRow(1UL, 1, 2UL, 2)]
+    [DataRow(2UL, 2, 2UL, 1)]
+    [DataRow(1UL, 2, 1UL, 1)]
+    public async Task DepartureUsesTheFixedExitTrackIncludingReturns(ulong enteredEdge, int enteredTrack, ulong exitEdge, int exitTrack)
+    {
+        var returning = enteredEdge == exitEdge;
+        var train = NodeFixtures.Train(activity: TrainActivity.Running,
+            facing: returning ? TrainOrderFacing.LastEndLeading : TrainOrderFacing.FirstEndLeading) with
+        { Position = new TrainPosition.Node(NodeFixtures.NodeId, new(enteredEdge), enteredTrack,
+            new(exitEdge), exitTrack, NodeTravelPhase.Departing, 256, 1) };
+        var snapshot = NodeFixtures.Snapshot(tracks: 2, trains: [train]);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Controlled(snapshot, vehicles);
+        var frame = await Frame(scene, snapshot);
+        var entry = scene.Layout!.EntryFor(new(exitEdge));
+        var edge = snapshot.Core.World.Edges.Single(item => item.Id == entry.Edge);
+        var direction = edge.End == NodeFixtures.NodeId ? 1 : -1;
+        var right = Vector3.Cross(Vector3.UnitY, -entry.Outward);
+        var expected = RailwayCoordinates.Relative(entry.Point, default) + right * ((exitTrack == 1 ? -17 : 17) * direction);
+        Assert.IsTrue(Vector3.Distance(expected, Pose(frame, 1).Position) < .003,
+            "The fixed exit must not reuse the entered track or the display fallback.");
+        var forward = Vector3.Transform(Vector3.UnitZ, Pose(frame, 1).Rotation);
+        Assert.IsTrue(Vector3.Distance(forward, (returning ? -1 : 1) * entry.Outward) < .0001);
+    }
+
+    [TestMethod]
     [DataRow(0)]
     [DataRow(1)]
     public async Task FormedTrainUsesTheSmallestBuiltEntryOrTheStationAxis(int builtTracks)
@@ -62,16 +108,20 @@ public sealed class NodeTrainPresentationTests
     }
 
     [TestMethod]
-    public async Task AdjacentNodeStepsInterpolateProgressAndShareTheRenderedPickPose()
+    [DataRow(1)]
+    [DataRow(2)]
+    public async Task AdjacentNodeStepsInterpolateProgressAndShareTheRenderedPickPose(int track)
     {
-        var old = NodeFixtures.Snapshot(trains: [Approaching(20)], steps: 4);
-        var current = NodeFixtures.Snapshot(trains: [Approaching(60)], steps: 5);
+        TrainView Train(double distance) => Approaching(distance) with
+        { Position = ((TrainPosition.Node)Approaching(distance).Position) with { EnteredTrack = track } };
+        var old = NodeFixtures.Snapshot(tracks: track, trains: [Train(20)], steps: 4);
+        var current = NodeFixtures.Snapshot(tracks: track, trains: [Train(60)], steps: 5);
         await using var vehicles = new SceneVehicles();
         await using var scene = Controlled(old, vehicles);
         var first = await Frame(scene, old);
         var frame = await Frame(scene, current, old, .25);
         var entry = scene.Layout!.EntryFor(new(2));
-        var expected = RailwayCoordinates.Relative(scene.Layout.TrainBoundary(entry).Position, default) -
+        var expected = RailwayCoordinates.Relative(scene.Layout.TrainBoundary(entry, track).Position, default) -
             entry.Outward * (float)((16 + entry.StraightLength - 4) * 30 / 80);
         var subject = new WorldObjectId.Instance(new InstanceId.Vehicle(new(1)));
         var pose = ((Lookup<ScenePose>.Found)frame.FindPose(subject)).Value;
@@ -85,6 +135,23 @@ public sealed class NodeTrainPresentationTests
         var hit = (ScenePick.Hit)frame.Pick(new(cell + Vector3.UnitY * 10, -Vector3.UnitY, 20));
         Assert.AreEqual(subject, ((PickSubject.WorldObject)hit.Value.Subject).Object);
         Assert.AreEqual(frame.Update.Frame, hit.Value.Frame);
+    }
+
+    [TestMethod]
+    public async Task AFixedTrackChangeUsesCurrentProgressWithoutBlendingRoutes()
+    {
+        var oldTrain = NodeFixtures.Train(activity: TrainActivity.Running) with
+        { Position = new TrainPosition.Node(NodeFixtures.NodeId, new(2), 2, new(1), 1, NodeTravelPhase.Departing, 200, 1) };
+        var currentTrain = oldTrain with
+        { Position = ((TrainPosition.Node)oldTrain.Position) with { NextTrack = 2, DistanceMeters = 240 } };
+        var old = NodeFixtures.Snapshot(tracks: 2, trains: [oldTrain], steps: 4);
+        var current = NodeFixtures.Snapshot(tracks: 2, trains: [currentTrain], steps: 5);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Controlled(old, vehicles);
+        await Frame(scene, old);
+        var beginning = await Frame(scene, current, old, 0);
+        var end = await Frame(scene, current, old, 1);
+        Assert.AreEqual(Pose(end, 1), Pose(beginning, 1), "Reselection must not blend progress on different exit paths.");
     }
 
     [TestMethod]
@@ -141,6 +208,30 @@ public sealed class NodeTrainPresentationTests
         {
             Assert.IsTrue(Vector3.Distance(Pose(before, id).Position, Pose(after, id).Position) < .003);
             Assert.IsTrue(Math.Abs(Quaternion.Dot(Pose(before, id).Rotation, Pose(after, id).Rotation)) > .999999);
+        }
+    }
+
+    [TestMethod]
+    public async Task TrackQueuesAreIndependentAndFormedTrainsJoinTheirDisplayedFallback()
+    {
+        var formed = NodeFixtures.Train();
+        var first = NodeFixtures.Train(9, enteredFrom: new(1)) with { PlatformQueueEnteredStep = 3 };
+        var second = NodeFixtures.Train(2, enteredFrom: new(1)) with { PlatformQueueEnteredStep = 4 };
+        var otherFirst = NodeFixtures.Train(8, enteredFrom: new(1)) with
+        { Position = new TrainPosition.Node(NodeFixtures.NodeId, new(1), 2, null, null, NodeTravelPhase.Waiting, 80, null), PlatformQueueEnteredStep = 1 };
+        var otherSecond = otherFirst with { Id = new(3), Vehicles = [new(3)], PlatformQueueEnteredStep = 2 };
+        var snapshot = NodeFixtures.Snapshot(tracks: 2, trains: [second, otherSecond, formed, first, otherFirst], steps: 4);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Controlled(snapshot, vehicles);
+        var frame = await Frame(scene, snapshot);
+        var entry = scene.Layout!.EntryFor(new(1));
+        foreach (var (track, ids) in new[] { (1, new ulong[] { 1, 9, 2 }), (2, new ulong[] { 8, 3 }) })
+        {
+            var inlet = scene.Layout.Approach(entry, scene.Layout.Bypass, track).Inlet;
+            var head = RailwayCoordinates.Relative(inlet.Sample(inlet.Length - 4).Position, default);
+            for (var index = 0; index < ids.Length; index++)
+                Assert.IsTrue(Vector3.Distance(head + entry.Outward * (index * 8), Pose(frame, ids[index]).Position) < .003,
+                    $"Track {track} queue member {ids[index]} must keep its own queue age and display fallback.");
         }
     }
 

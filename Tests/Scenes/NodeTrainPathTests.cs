@@ -9,19 +9,20 @@ namespace Train.Scenes.Tests;
 public sealed class NodeTrainPathTests
 {
     [TestMethod]
-    [DataRow(80.0, 80.0)]
-    [DataRow(51.0, 137.0)]
-    public void CoreBreakpointsMapToEntryWaitingStopPlatformEndAndExit(double a, double d)
+    [DataRow(80.0, 80.0, 1)]
+    [DataRow(80.0, 80.0, 2)]
+    [DataRow(51.0, 137.0, 2)]
+    public void CoreBreakpointsMapToEntryWaitingStopPlatformEndAndExit(double a, double d, int track)
     {
-        var snapshot = NodeFixtures.Snapshot();
+        var snapshot = NodeFixtures.Snapshot(tracks: 2);
         var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
         var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(NodeFixtures.NodeId)).Value with
         { ApproachLengthMeters = a, PlatformLengthMeters = 96, DepartureLengthMeters = d };
         var entry = layout.Entries[0]; var exit = layout.Entries[1]; var stop = layout.Stops[0];
-        var position = new TrainPosition.Node(layout.Node, entry.Edge, 1, exit.Edge, null, NodeTravelPhase.Approaching, 0, 1);
+        var position = new TrainPosition.Node(layout.Node, entry.Edge, track, exit.Edge, null, NodeTravelPhase.Approaching, 0, 1);
         var path = new NodeTrainPath(layout, dimensions, position, stop, 8, null);
-        Near(layout.TrainBoundary(entry).Position, path.Sample(path.Arc(0)).Position);
-        var waiting = RailwayCoordinates.Add(layout.TrainBoundary(entry).Position, -entry.Outward * (float)(16 + entry.StraightLength - 4));
+        Near(layout.TrainBoundary(entry, track).Position, path.Sample(path.Arc(0)).Position);
+        var waiting = RailwayCoordinates.Add(layout.TrainBoundary(entry, track).Position, -entry.Outward * (float)(16 + entry.StraightLength - 4));
         Near(waiting, path.Sample(path.Arc(a)).Position);
         Near(stop.Center, path.Sample(path.Arc(a + 48)).Position);
         var tail = layout.StationTail(stop, -entry.Side);
@@ -148,6 +149,31 @@ public sealed class NodeTrainPathTests
         Near(layout.Bypass.Center, path.Sample(path.Arc(80)).Position);
         Near(layout.TrainBoundary(layout.Entries[0]).Position, path.Sample(path.Arc(160)).Position);
         Assert.IsTrue(double.IsFinite(path.Arc(120)));
+    }
+
+    [TestMethod]
+    [DataRow(1)]
+    [DataRow(2)]
+    public void ZeroPlatformPassThroughKeepsFrontMembersOnTheFallbackExitAcrossS(int tracks)
+    {
+        var snapshot = NodeFixtures.Snapshot(platforms: 0, tracks: tracks, platformLengthMeters: 0);
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(layout.Node)).Value;
+        var beforePosition = new TrainPosition.Node(layout.Node, new(2), tracks, new(1), null,
+            NodeTravelPhase.Approaching, 79.999999, null);
+        var before = new NodeTrainPath(layout, dimensions, beforePosition, layout.Bypass, 52, null);
+        var after = new NodeTrainPath(layout, dimensions, beforePosition with
+        { Phase = NodeTravelPhase.Departing, NextTrack = 1, DistanceMeters = 80.000001 }, layout.Bypass, 52, null);
+        foreach (var offset in new[] { -52.0, 0, 400 })
+        {
+            var incoming = before.Sample(before.Arc(beforePosition.DistanceMeters) + offset);
+            var outgoing = after.Sample(after.Arc(80.000001) + offset);
+            Near(incoming.Position, outgoing.Position);
+            Assert.IsTrue(Vector3.Distance(incoming.Forward, outgoing.Forward) < .0001);
+        }
+        var waiting = new NodeTrainPath(layout, dimensions, beforePosition with
+        { Phase = NodeTravelPhase.Departing, DistanceMeters = 120 }, layout.Bypass, 52, null);
+        Near(after.Sample(after.Arc(120)).Position, waiting.Sample(waiting.Arc(120)).Position);
     }
 
     private static void Near(ScenePoint expected, ScenePoint actual) =>

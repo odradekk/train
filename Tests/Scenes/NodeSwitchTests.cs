@@ -116,16 +116,18 @@ public sealed class NodeSwitchTests
     }
 
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task SingleTrackEntryKeepsVehiclePoseAndDoesNotInterpolateAcrossSpaces(bool reverse)
+    [DataRow(false, 1)]
+    [DataRow(true, 1)]
+    [DataRow(false, 2)]
+    [DataRow(true, 2)]
+    public async Task ActualEntryAndReturnTracksKeepVehiclePoseWithoutInterpolatingAcrossSpaces(bool reverse, int track)
     {
         var endpoint = reverse ? new NodeId(1) : new NodeId(2);
         var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle(),
             rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 });
-        var onEdge = RailwayFixtures.Train(reverse ? 0 : 4,
+        var onEdge = RailwayFixtures.Train(reverse ? 0 : 4, track: track,
             direction: reverse ? TravelDirection.Reverse : TravelDirection.Forward);
-        SceneWorldSnapshot Snapshot(TrainView train, ulong step) => RailwayFixtures.Snapshot(4, 4, 0,
+        SceneWorldSnapshot Snapshot(TrainView train, ulong step) => RailwayFixtures.Snapshot(4, 4, 0, tracks: track,
             steps: step, content: content, trains: [train], instances: [RailwayFixtures.Instance() with
             {
                 Location = train.Position is TrainPosition.Node ? new WorldLocation.Node(endpoint) :
@@ -139,7 +141,7 @@ public sealed class NodeSwitchTests
         var before = ((Lookup<ScenePose>.Found)line.FindPose(subject)).Value;
         var entering = onEdge with
         {
-            Position = new TrainPosition.Node(endpoint, RailwayFixtures.Edge, 1, null, null, NodeTravelPhase.Approaching, 0, null)
+            Position = new TrainPosition.Node(endpoint, RailwayFixtures.Edge, track, null, null, NodeTravelPhase.Approaching, 0, null)
         };
         session.Observe(Snapshot(entering, 1), []);
         var first = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(Request with { Interpolation = 0 }, line)).Value;
@@ -154,6 +156,24 @@ public sealed class NodeSwitchTests
         var hit = (ScenePick.Hit)node.Pick(new(atEnd.Position + Vector3.Transform(new Vector3(.5f, 20, .5f), atEnd.Rotation),
             -Vector3.UnitY, 50));
         Assert.AreEqual(subject, ((PickSubject.WorldObject)hit.Value.Subject).Object);
+
+        var departing = entering with
+        {
+            Position = new TrainPosition.Node(endpoint, RailwayFixtures.Edge, track, RailwayFixtures.Edge, 1,
+                NodeTravelPhase.Departing, 160, null), OrderFacing = TrainOrderFacing.LastEndLeading
+        };
+        session.Observe(Snapshot(departing, 2), []);
+        var atExit = await RailwayFixtures.Settled(session, Request, node);
+        var beforeExit = ((Lookup<ScenePose>.Found)atExit.FindPose(subject)).Value;
+        var returned = departing with { Position = new TrainPosition.Edge(RailwayFixtures.Edge, 1,
+            reverse ? TravelDirection.Forward : TravelDirection.Reverse, reverse ? 0 : 4) };
+        session.Observe(Snapshot(returned, 3), []);
+        var firstLine = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(Request with { Interpolation = 0 }, atExit)).Value;
+        var afterExit = ((Lookup<ScenePose>.Found)firstLine.FindPose(subject)).Value;
+        Assert.IsTrue(Vector3.Distance(beforeExit.Position, afterExit.Position) < .001);
+        Assert.IsTrue(Math.Abs(Quaternion.Dot(beforeExit.Rotation, afterExit.Rotation)) > .99999);
+        var settledLine = await RailwayFixtures.Settled(session, Request, firstLine);
+        Assert.AreEqual(afterExit, ((Lookup<ScenePose>.Found)settledLine.FindPose(subject)).Value);
     }
 
     [TestMethod]
