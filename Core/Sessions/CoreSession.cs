@@ -66,8 +66,8 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
         }
         if (command is CoreCommand.ApplyInstanceDesign apply)
         {
-            VehicleDesignChanges.Validate(apply.Instance, apply.Change, State.World, State.Content);
-            return ExecuteCommand(command, source, content => VehicleDesignChanges.Apply(State.World, content, apply));
+            InstanceDesignChanges.Validate(apply.Instance, apply.Change, State.World, State.Content);
+            return ExecuteCommand(command, source, content => InstanceDesignChanges.Apply(State.World, content, apply));
         }
         if (command is CoreCommand.StartOwnedJob or CoreCommand.CommissionVehicleWork)
         {
@@ -187,7 +187,7 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
                     || settlement.LastConstructionActualSupply != 0 || settlement.LastConstructionAllocatedLabor != 0)
                 {
                     var jobs = ConstructionOperations.Complete(world, before.Content, settlement.Id, construction,
-                        resolution ?? new(world, [], [], [], []));
+                        resolution ?? new(world, [], [], [], []), new(checked(before.Position.CompletedSteps + 1), 0));
                     world = jobs.World;
                     events = events.AddRange(jobs.Events);
                 }

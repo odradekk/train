@@ -42,13 +42,43 @@ public sealed class ConstructionProcessTests
         Directory.Delete(directory, recursive: true);
     }
 
-    private async Task<ConstructionProcessResult> Run(string directory, string mode)
+    [TestMethod]
+    public async Task Building_construction_survives_process_exit_and_strict_replay()
+    {
+        var root = TestContext.TestRunResultsDirectory ?? throw new AssertFailedException("缺少当前测试结果目录。");
+        var directory = Path.Combine(root, "building-process-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var continuous = await Run(directory, "complete", "building");
+        var saved = await Run(directory, "save", "building");
+        var resumed = await Run(directory, "resume", "building");
+        var replayed = await Run(directory, "replay", "building");
+        Assert.AreEqual(4, new[] { continuous, saved, resumed, replayed }.Select(r => r.ProcessId).Distinct().Count());
+        foreach (var result in new[] { continuous, saved, resumed, replayed }) Assert.AreNotEqual(Environment.ProcessId, result.ProcessId);
+        Assert.AreEqual(continuous.Samples[0], saved.Samples.Single());
+        CollectionAssert.AreEqual(continuous.Samples, resumed.Samples);
+        CollectionAssert.AreEqual(continuous.Events, resumed.Events);
+        CollectionAssert.AreEqual(continuous.Samples, replayed.Samples);
+        CollectionAssert.AreEqual(continuous.Events, replayed.Events);
+        Assert.AreEqual(3, continuous.Events.Count(e => e.Contains("\"Kind\":\"ConstructionCompleted\"", StringComparison.Ordinal)));
+        var factory = CoreFactory.Create();
+        using var candidate = WorldFixture.Success(factory.PrepareRestore(WorldFixture.Success(factory.DecodeState(saved.Samples[0].Payload)),
+            ConstructionProcessDriver.BuildingOriginal, WorldFixture.Options));
+        using var session = candidate.Activate();
+        Assert.AreEqual(1d, ConstructionFixture.Job(session.Read(), new(1)).ProgressWork, 1e-12);
+        Assert.AreEqual(2L, ConstructionFixture.Job(session.Read(), new(1)).FrozenTotalWork);
+        Assert.IsInstanceOfType<ConstructionTarget.NewAssembly>(ConstructionFixture.Job(session.Read(), new(1)).Target);
+        Assert.AreEqual(8L, ConstructionFixture.Stock(session, ConstructionFixture.Local));
+        Directory.Delete(directory, recursive: true);
+    }
+
+    private async Task<ConstructionProcessResult> Run(string directory, string mode, string? scenario = null)
     {
         var output = Path.Combine(directory, mode + ".json");
         var start = new ProcessStartInfo("dotnet") { UseShellExecute = false, RedirectStandardOutput = true,
             RedirectStandardError = true, CreateNoWindow = true, WorkingDirectory = directory };
         foreach (var argument in new[] { typeof(ConstructionProcessTests).Assembly.Location, "--construction-process", mode, output, directory })
             start.ArgumentList.Add(argument);
+        if (scenario is not null) start.ArgumentList.Add(scenario);
         using var process = Process.Start(start) ?? throw new AssertFailedException("无法启动施工子进程。");
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();

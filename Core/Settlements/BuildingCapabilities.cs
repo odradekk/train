@@ -1,3 +1,4 @@
+using Train.Core.Construction;
 using Train.Core.Contracts;
 using Train.Core.World;
 
@@ -9,6 +10,7 @@ internal sealed record BuildingCapabilities(double Production, double Extraction
     {
         var id = new InstanceId.Building(building);
         var instance = world.Instances.Single(i => i.Id == id);
+        if (ConstructionJobs.InstanceLocked(world, id)) return new(0, 0, 0, 0);
         double production = 0, extraction = 0, construction = 0, power = 0;
         foreach (var part in InstanceCapabilities.EffectiveParts(world, content, instance,
             static part => part.Capabilities.Any(c => c is PartCapability.Production or PartCapability.Extraction

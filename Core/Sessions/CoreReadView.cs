@@ -73,7 +73,7 @@ internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Re
     }
     public Lookup<JobView> FindJob(JobId id)
         => State.ConstructionJobs.SingleOrDefault(j => j.Id == id) is { } job
-            ? new Lookup<JobView>.Found(new JobView.Construction(job.Read()))
+            ? new Lookup<JobView>.Found(new JobView.Construction(job.Read(State)))
             : State.FoundingJobs.SingleOrDefault(j => j.Id == id) is { } founding
                 ? new Lookup<JobView>.Found(new JobView.Founding(founding.Read())) : new Lookup<JobView>.Missing();
     public Lookup<CombatView> FindCombat(CombatId id) => throw new NotImplementedException("FindCombat 尚未实现。");

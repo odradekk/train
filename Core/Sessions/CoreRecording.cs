@@ -134,6 +134,8 @@ internal sealed class CoreRecording
         var changes = decoded.Select(command => command.Command).OfType<CoreCommand.ApplyInstanceDesign>()
             .Select(command => command.Change).Concat(requests.OfType<JobRequest.Refit>().Select(request => request.Change)).ToArray();
         var designs = requests.OfType<JobRequest.BuildVehicle>().Select(request => request.Design)
+            .Concat(requests.OfType<JobRequest.BuildBuilding>().Select(request => request.Design))
+            .Concat(requests.OfType<JobRequest.BuildEquipment>().Select(request => request.Design))
             .Concat(changes.Select(change => change.Target)).ToArray();
         var commandDefinitions = designs.SelectMany(input =>
         {
