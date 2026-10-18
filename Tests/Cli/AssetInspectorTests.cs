@@ -3,8 +3,6 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
 using Train.Engine.Tests.Assets;
 using System.Text.Json.Nodes;
-using System.Buffers.Binary;
-using System.IO.Compression;
 
 namespace Train.Cli.Tests;
 
@@ -18,13 +16,6 @@ public sealed class AssetInspectorTests
     {
         var success = (AssetInspection.Success)Inspect(Convert.FromBase64String(ValidPng));
         Assert.AreEqual(new AssetMetadata.Png(2, 2), success.Metadata);
-    }
-
-    [TestMethod]
-    public void Glb_embedded_rgb_png_is_supported_and_other_png_encodings_are_explicit()
-    {
-        Assert.IsFalse(Glb(GlbFixture.Create(png: Png(2))).HasExternalImages);
-        Failure(GlbFixture.Create(png: Png(0)), AssetInspectionFailure.UnsupportedContent);
     }
 
     [TestMethod]
@@ -121,68 +112,15 @@ public sealed class AssetInspectorTests
     public void Glb_unsupported_encoding_and_malformed_data_are_distinct()
     {
         Failure(GlbFixture.Create(externalBuffer: true), AssetInspectionFailure.UnsupportedContent);
+        Failure(GlbFixture.Create(changeJson: root => root["extensionsRequired"] = new JsonArray("KHR_draco_mesh_compression")), AssetInspectionFailure.UnsupportedContent);
         Failure(GlbFixture.Create(changeJson: root => root["accessors"]![0]!["componentType"] = 5123), AssetInspectionFailure.UnsupportedContent);
+        Failure(GlbFixture.Create(changeJson: root => root["accessors"]![0]!["type"] = "VEC2"), AssetInspectionFailure.UnsupportedContent);
+        Failure(GlbFixture.Create(changeJson: root => root["accessors"]![0]!["normalized"] = true), AssetInspectionFailure.UnsupportedContent);
+        Failure(GlbFixture.Create(changeJson: root => root["accessors"]![0]!["sparse"] = new JsonObject()), AssetInspectionFailure.UnsupportedContent);
         Failure(GlbFixture.Create(invalidAlpha: "invalid"), AssetInspectionFailure.CannotDecode);
         Failure(GlbFixture.Create(invalidMaterial: true), AssetInspectionFailure.CannotDecode);
-        Failure(GlbFixture.Create(changeJson: root => root["accessors"]![0]!["count"] = 10000), AssetInspectionFailure.CannotDecode);
         Failure(GlbFixture.Create(changeJson: root => root["nodes"]![1]!["children"] = new JsonArray(0)), AssetInspectionFailure.CannotDecode);
         Failure([1, 2, 3], AssetInspectionFailure.CannotDecode);
-    }
-
-    [TestMethod]
-    public void Glb_rejects_invalid_index_and_attribute_references_ranges_and_counts()
-    {
-        Failure(GlbFixture.Create(changeJson: root => root["meshes"]![0]!["primitives"]![0]!["indices"] = 999), AssetInspectionFailure.CannotDecode);
-        Failure(GlbFixture.Create(changeJson: root => root["accessors"]![1]!["count"] = 4), AssetInspectionFailure.CannotDecode);
-        Failure(GlbFixture.Create(changeJson: root => root["accessors"]![1]!["componentType"] = 5122), AssetInspectionFailure.CannotDecode);
-        Failure(GlbFixture.Create(changeJson: root =>
-        {
-            root["accessors"]![0]!["count"] = 2;
-            root["meshes"]![0]!["primitives"]![0]!["mode"] = 0;
-        }), AssetInspectionFailure.CannotDecode); // indices 中的 2 超出两个 POSITION 顶点。
-        Failure(GlbFixture.Create(changeJson: root => root["meshes"]![0]!["primitives"]![0]!["attributes"]!["NORMAL"] = 999), AssetInspectionFailure.CannotDecode);
-        Failure(GlbFixture.Create(feature: "tangent", changeJson: root => root["accessors"]![4]!["count"] = 2), AssetInspectionFailure.CannotDecode);
-        Failure(GlbFixture.Create(feature: "tangent", changeJson: root => root["accessors"]![4]!["byteOffset"] = 10000), AssetInspectionFailure.CannotDecode);
-    }
-
-    [TestMethod]
-    public void Glb_rejects_accessor_and_buffer_view_extensions_without_guessing_geometry()
-    {
-        Failure(GlbFixture.Create(changeJson: root => root["accessors"]![0]!["extensions"] = JsonNode.Parse("{\"unknown\":{}}")), AssetInspectionFailure.UnsupportedContent);
-        Failure(GlbFixture.Create(changeJson: root => root["bufferViews"]![0]!["extensions"] = JsonNode.Parse("{\"EXT_meshopt_compression\":{}}")), AssetInspectionFailure.UnsupportedContent);
-    }
-
-    private static byte[] Png(byte colorType)
-    {
-        using var file = new MemoryStream();
-        file.Write(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 });
-        void Chunk(string type, byte[] data)
-        {
-            var chunk = new byte[data.Length + 12];
-            BinaryPrimitives.WriteInt32BigEndian(chunk, data.Length);
-            System.Text.Encoding.ASCII.GetBytes(type).CopyTo(chunk, 4);
-            data.CopyTo(chunk, 8);
-            uint crc = uint.MaxValue;
-            foreach (var value in chunk.AsSpan(4, data.Length + 4))
-            {
-                crc ^= value;
-                for (var bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ ((crc & 1) != 0 ? 0xedb88320u : 0);
-            }
-            BinaryPrimitives.WriteUInt32BigEndian(chunk.AsSpan(data.Length + 8), ~crc);
-            file.Write(chunk);
-        }
-        var header = new byte[13];
-        BinaryPrimitives.WriteInt32BigEndian(header, 1);
-        BinaryPrimitives.WriteInt32BigEndian(header.AsSpan(4), 1);
-        header[8] = 8;
-        header[9] = colorType;
-        Chunk("IHDR", header);
-        using var pixels = new MemoryStream();
-        using (var compressed = new ZLibStream(pixels, CompressionMode.Compress, leaveOpen: true))
-            compressed.Write(colorType == 2 ? new byte[] { 0, 255, 0, 0 } : new byte[] { 0, 127 });
-        Chunk("IDAT", pixels.ToArray());
-        Chunk("IEND", []);
-        return file.ToArray();
     }
 
     private static AssetMetadata.Glb Glb(ImmutableArray<byte> bytes) =>

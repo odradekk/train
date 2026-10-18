@@ -37,7 +37,7 @@ internal sealed partial class AssetInspector : IAssetInspector
         if (!bytes.StartsWith(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }))
             return CannotDecode("PNG 签名无效。");
 
-        int width = 0, height = 0, channels = 0;
+        int width = 0, height = 0;
         using var compressed = new MemoryStream();
         for (var offset = 8; offset < bytes.Length;)
         {
@@ -61,19 +61,8 @@ internal sealed partial class AssetInspector : IAssetInspector
                 var h = BinaryPrimitives.ReadUInt32BigEndian(data[4..]);
                 if (w == 0 || h == 0 || w > int.MaxValue || h > int.MaxValue)
                     return CannotDecode("PNG 尺寸无效。");
-                if (data[10] != 0 || data[11] != 0 || data[12] > 1)
-                    return CannotDecode("PNG 压缩、过滤或交错方法无效。");
-                var validDepth = data[9] switch
-                {
-                    0 => data[8] is 1 or 2 or 4 or 8 or 16,
-                    2 or 4 or 6 => data[8] is 8 or 16,
-                    3 => data[8] is 1 or 2 or 4 or 8,
-                    _ => false
-                };
-                if (!validDepth) return CannotDecode("PNG 颜色类型或位深无效。");
-                if (data[8] != 8 || data[9] is not (2 or 6) || data[12] != 0)
-                    throw Unsupported("命令行工具只支持 8 位 RGB/RGBA、非交错 PNG。");
-                channels = data[9] == 2 ? 3 : 4;
+                if (data[8] != 8 || data[9] != 6 || data[10] != 0 || data[11] != 0 || data[12] != 0)
+                    return CannotDecode("命令行工具只支持 8 位 RGBA、非交错 PNG。");
                 width = (int)w;
                 height = (int)h;
             }
@@ -87,17 +76,17 @@ internal sealed partial class AssetInspector : IAssetInspector
             {
                 if (compressed.Length == 0 || data.Length != 0 || offset != bytes.Length)
                     return CannotDecode("PNG 结束块无效。");
-                return InspectPixels(width, height, channels, compressed);
+                return InspectPixels(width, height, compressed);
             }
         }
         return CannotDecode("PNG 缺少 IEND。");
     }
 
-    private static AssetInspection InspectPixels(int width, int height, int channels, MemoryStream compressed)
+    private static AssetInspection InspectPixels(int width, int height, MemoryStream compressed)
     {
         compressed.Position = 0;
         using var decoded = new ZLibStream(compressed, CompressionMode.Decompress, leaveOpen: true);
-        var rowLength = 1L + (long)channels * width;
+        var rowLength = 1L + 4L * width;
         if (height > long.MaxValue / rowLength)
             return CannotDecode("PNG 尺寸超出可表示的像素数据长度。");
         var expectedLength = rowLength * height;
