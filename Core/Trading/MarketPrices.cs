@@ -22,6 +22,7 @@ internal static class MarketPrices
             var bound = (BigInteger)2 * market.Capacity * BigInteger.Max(0, 10000 + sensitivity - prices.MinimumMultiplier.Value);
             minimumStock = (bound + sensitivity - 1) / (2 * sensitivity);
         }
+        var range = (Minimum: 0L, Maximum: -1L, Target: 0L);
         long completed = 0;
         while (completed < count)
         {
@@ -33,7 +34,7 @@ internal static class MarketPrices
                 completed += quantity;
                 continue;
             }
-            var range = market.TargetRange(good, lowerStock);
+            if (lowerStock < range.Minimum || lowerStock > range.Maximum) range = market.TargetRange(good, lowerStock);
             var price = Good(value, prices, range.Target, (BigInteger)lowerStock * 2 + 1, buy);
             var maximum = count - completed;
             var distance = buy ? lowerStock - range.Minimum : range.Maximum - lowerStock;
