@@ -1398,20 +1398,6 @@ def content_files():
             behaviors.extend(blueprint_behaviors(composite["blueprint"], capability))
         return behaviors
 
-    small_vehicle_materials = Counter()
-    for identity, _, _, size, *_ in VEHICLES:
-        if size == "small":
-            layout = blueprint_definitions[identity]["layout"]
-            small_vehicle_materials |= Counter(layout["palette"][index]["voxel"] for *_, index in layout["cells"])
-    for template in list(template_definitions.values()):
-        if any(behavior.get("max_size_class") is not None
-               for plot in template["plots"] if "building" in plot
-               for behavior in blueprint_behaviors(plot["building"], "construction")):
-            template["inventory"] = [{"voxel": good, "quantity": quantity * INITIAL_SMALL_VEHICLE_MATERIAL_SETS}
-                                     for good, quantity in sorted(small_vehicle_materials.items())]
-            template["display"]["description"] += "一次性备有小型车辆材料，用完不补货。"
-            document("settlement-templates", "settlement-template", template["id"], template)
-
     per_generator_outputs, template_estimates = [], []
     for template in template_definitions.values():
         buildings_by_plot = {plot["id"]: plot["building"] for plot in template["plots"] if "building" in plot}
@@ -1469,6 +1455,30 @@ def content_files():
     warehouse["display"]["description"] = "仓储规模按生活、生产和产出毛量估算；容量及租赁影响待用户试玩确认。"
     document("blueprints", "blueprint", "small-warehouse", warehouse)
 
+    small_vehicle_materials = Counter()
+    for identity, _, _, size, *_ in VEHICLES:
+        if size == "small":
+            layout = blueprint_definitions[identity]["layout"]
+            small_vehicle_materials |= Counter(layout["palette"][index]["voxel"] for *_, index in layout["cells"])
+    equipment_goods = {"platform-equipment", "construction-equipment", "storage-equipment",
+                       "power-equipment", "industrial-machinery", "extraction-equipment"}
+    construction_equipment = Counter()
+    for path in (("small-station", "basic-shed", "small-warehouse", "farm"),
+                 ("small-station", "basic-shed", "small-warehouse", "power-station", "extraction-site")):
+        construction_equipment |= Counter(good for identity in path
+            for *_, index in blueprint_definitions[identity]["layout"]["cells"]
+            if (good := blueprint_definitions[identity]["layout"]["palette"][index]["voxel"]) in equipment_goods)
+    for template in list(template_definitions.values()):
+        if any(behavior.get("max_size_class") is not None
+               for plot in template["plots"] if "building" in plot
+               for behavior in blueprint_behaviors(plot["building"], "construction")):
+            stock = Counter({good: quantity * INITIAL_SMALL_VEHICLE_MATERIAL_SETS
+                             for good, quantity in small_vehicle_materials.items()})
+            stock.update(construction_equipment)
+            template["inventory"] = [{"voxel": good, "quantity": quantity} for good, quantity in sorted(stock.items())]
+            template["display"]["description"] += "一次性备有小型车辆材料和一套建设设备，用完不补货；建设设备持续供货待 #586。"
+            document("settlement-templates", "settlement-template", template["id"], template)
+
     consumption = []
     for order, (identity, _, _) in enumerate(goods):
         roles = ("food", "improved_diet") if identity == "prepared-food" else (needs[order],)
@@ -1504,7 +1514,7 @@ def content_files():
         "maximum_lease_duration_multiple": MAXIMUM_LEASE_MULTIPLE}})
     document("rules", "construction-rule", "basic-construction", {"schema_version": 1, "id": "basic-construction", "simulation": {
         "founding_duration_ticks": 2400, "construction_work_per_item": 8, "refit_work_per_changed_item": 5,
-        "deconstruction_work_per_item": 3, "repair_work_per_damaged_part": 4, "power_per_work": 0.4, "labor_per_work": 0.25}})
+        "deconstruction_work_per_item": 3, "repair_work_per_damaged_part": 4, "power_per_work": 0, "labor_per_work": 0.25}})
     document("railway-rules", "railway-rule", "basic-railway", {"schema_version": 2, "id": "basic-railway",
         "braking_deceleration": 0.7, "minimum_acceleration": 0.15, "minimum_gap_meters": 28,
         "approach_length_meters": 80, "departure_length_meters": 80, "node_speed_limit_meters_per_second": 15,
