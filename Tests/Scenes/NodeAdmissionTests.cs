@@ -12,10 +12,11 @@ namespace Train.Scenes.Tests;
 public sealed class NodeAdmissionTests
 {
     [TestMethod]
-    [DataRow(6000, 4)]
+    [DataRow(3000, 8)]
+    [DataRow(6000, 8)]
     [DataRow(12000, 4)]
     [DataRow(16000, 3)]
-    public async Task A_path_interval_admits_multiple_crossings_up_to_the_limit_then_waits_for_the_displayed_receipt(
+    public async Task Completed_path_parts_admit_in_sorted_order_up_to_the_limit_then_wait_for_the_displayed_receipt(
         int verticesPerPart, int expectedParts)
     {
         await using var run = new AdmissionRun(_ => (verticesPerPart, 1), Snapshot(followedTrain: true));
@@ -28,8 +29,9 @@ public sealed class NodeAdmissionTests
         var queued = run.Completed.Keys.Where(from => !run.Admitted.ContainsKey(from)).ToHashSet();
         var earlier = new GridColumn(0, 32);
         var later = new GridColumn(0, 96);
-        GridColumn[] interval = [new(-32, 32), earlier, new(-32, 64), new(0, 64)];
-        Assert.IsTrue(interval.All(queued.Contains) && queued.Contains(later));
+        GridColumn[] path = [new(-32, 32), earlier, new(-32, 64), new(0, 64),
+            new(-32, 96), later, new(-32, 128), new(0, 128)];
+        Assert.IsTrue(path.All(queued.Contains));
         var frozen = run.Admitted.Keys.ToHashSet();
         run.Present(target);
         CollectionAssert.AreEquivalent(frozen.ToArray(), run.Admitted.Keys.ToArray());
@@ -37,16 +39,13 @@ public sealed class NodeAdmissionTests
         run.Displayed = offered;
         var critical = run.Present(target);
         var added = run.Admitted.Keys.Where(from => !frozen.Contains(from)).ToArray();
-        // The 52m train spans Z44..148. Its first interval crosses Z64 between samples,
-        // so both Z32 and Z64 rows belong to this batch despite different crossing fractions.
-        CollectionAssert.AreEquivalent(interval.Take(expectedParts).ToArray(), added);
-        Assert.IsFalse(added.Contains(later), "A later path interval must not enlarge the critical atomic target.");
+        // The 52m train spans Z44..148; all four crossed rows share the batch budget.
+        CollectionAssert.AreEquivalent(path.Take(expectedParts).ToArray(), added);
         Assert.IsInstanceOfType<Lookup<WorldLocation>.Found>(critical.Locate(new(earlier.X + .5f, 1, earlier.Z + .5f)));
-        Assert.IsInstanceOfType<Lookup<WorldLocation>.Missing>(critical.Locate(new(later.X + .5f, 1, later.Z + .5f)));
         Assert.IsTrue(added.Length * verticesPerPart <= NodeStreaming.AdmissionVertexLimit && added.Length < NodeStreaming.AdmissionVisualLimit);
-        if (expectedParts < interval.Length)
+        if (expectedParts < path.Length)
             Assert.IsTrue((added.Length + 1) * verticesPerPart > NodeStreaming.AdmissionVertexLimit,
-                "The next completed part in the same interval must wait when it would exceed the batch limit.");
+                "The next completed part must wait when it would exceed the batch limit.");
         var admitted = run.Admitted.Keys.ToArray();
         run.Present(target);
         CollectionAssert.AreEquivalent(admitted, run.Admitted.Keys.ToArray(), "The next batch still needs its display receipt.");

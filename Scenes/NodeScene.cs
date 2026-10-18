@@ -435,7 +435,7 @@ internal sealed class NodeScene : IAsyncDisposable
         long vertices = 0;
         var visuals = 0;
         var count = 0;
-        (int Ring, double Distance, double Progress)? firstPriority = null;
+        var pathBatch = false;
         const double pathMargin = NodeStreaming.PathSampleCells;
         foreach (var (key, ready, priority) in completedParts
             .Select(item => (item.Key, item.Value, Priority: Priority(item.Value.Bounds)))
@@ -444,19 +444,17 @@ internal sealed class NodeScene : IAsyncDisposable
             if (!nearCompleted && !near.Intersects(ready.Bounds) && PathPriority(ready.Bounds, followedPath?.Loading ?? []).Distance >
                 pathMargin * pathMargin) continue;
             // One indivisible part may exceed the batch target, but must never block the queue.
-            // Crossings within one sampled path interval share a batch; later intervals must wait.
+            // Keep path parts separate from peripheral work.
             if (nearCompleted && count > 0 && (vertices + ready.Vertices > NodeStreaming.AdmissionVertexLimit ||
                 visuals + ready.Visuals > NodeStreaming.AdmissionVisualLimit ||
-                followedPath?.Priority.Count > 0 && firstPriority is { Distance: 0 } first &&
-                (priority.Ring != first.Ring || priority.Distance != 0 ||
-                 Math.Floor(priority.Progress) != Math.Floor(first.Progress)))) break;
+                pathBatch && priority.Distance != 0)) break;
             if (ready.Chunk is { } from) chunks.Add(from, ready.Part);
             else { rails.Add(key, ready.Part); railFogDirty = true; }
             Attach(key, ready.Part);
             completedParts.Remove(key);
             vertices += ready.Vertices;
             visuals += ready.Visuals;
-            firstPriority ??= priority;
+            pathBatch |= followedPath?.Priority.Count > 0 && priority.Distance == 0;
             count++;
         }
         if (nearCompleted && count > 0) awaitingDisplay = true;
