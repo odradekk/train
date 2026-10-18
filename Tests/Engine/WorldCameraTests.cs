@@ -327,6 +327,31 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
         finally { camera.Free(); }
     }
 
+    [Test]
+    public void Minimap_focus_clamps_to_node_bounds_and_preserves_orbit_and_distance()
+    {
+        var camera = AttachCamera();
+        try
+        {
+            camera.DisplayedFrame(Frame(bounds: new(new(-10, -20), new(30, 40))), null);
+            camera.Orbit(70, 20);
+            camera.Zoom(2);
+            var offset = camera.Camera.Position - camera.Focus;
+            var heading = camera.Camera.Basis.Z;
+            camera.MoveFocus(new(1000, 999, -1000));
+            Near(camera.Focus, new(30, 0, -20));
+            Near(camera.Camera.Position - camera.Focus, offset);
+            Near(camera.Camera.Basis.Z, heading);
+            camera.MoveFocus(new(-1000, -999, 1000));
+            Near(camera.Focus, new(-10, 0, 40));
+            Near(camera.Camera.Position - camera.Focus, offset);
+            camera.DisplayedFrame(Frame(revision: 2), null);
+            var focus = camera.Focus;
+            camera.MoveFocus(Vector3.Zero);
+            Near(camera.Focus, focus);
+        }
+        finally { camera.Free(); }
+    }
     private WorldCamera AttachCamera()
     {
         var camera = new WorldCamera();
