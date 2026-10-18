@@ -76,6 +76,7 @@ internal partial class DesignEditorPanel : Control
                  })
         {
             var swatch = new Button { Text = name, TooltipText = color, CustomMinimumSize = new(116, 32) };
+            swatch.AddChild(new ColorRect { Position = new(4, 9), Size = new(14, 14), Color = Colors.LightGray, MouseFilter = MouseFilterEnum.Ignore });
             swatch.AddChild(new ColorRect { Position = new(5, 10), Size = new(12, 12), Color = new(color), MouseFilter = MouseFilterEnum.Ignore });
             swatch.Pressed += () => { _paint.Color = new Color(color); InvalidatePreview(); }; colors.AddChild(swatch);
         }
