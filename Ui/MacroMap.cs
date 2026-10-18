@@ -30,6 +30,12 @@ public partial class MacroMap : Control
     private bool _dragging;
     private bool _fitPending;
     private float _fitZoom = 1;
+    private PanelContainer _layers = null!;
+    private CheckBox _resources = null!, _platforms = null!;
+    private float _layersTop;
+    private readonly Dictionary<NodeId, int> _platformQueues = [];
+    private ICoreReadView? _queueView;
+    private double _queueDelay;
 
     internal ICoreReadView? View { get; private set; }
     internal Vector2 Offset { get; private set; }
@@ -44,6 +50,52 @@ public partial class MacroMap : Control
         MouseFilter = MouseFilterEnum.Stop;
         ClipContents = true;
         Resized += OnResized;
+        _layers = new PanelContainer { Name = "InformationLayers", CustomMinimumSize = new(280, 0),
+            MouseFilter = MouseFilterEnum.Stop, MouseForcePassScrollEvents = false };
+        var body = new VBoxContainer { Name = "Body", MouseFilter = MouseFilterEnum.Ignore };
+        body.AddThemeConstantOverride("separation", 6);
+        body.AddChild(UiStyle.Label("地图信息层", true));
+        _resources = new CheckBox { Name = "Resources", Text = "节点资源" };
+        _platforms = new CheckBox { Name = "Platforms", Text = "站台占用" };
+        AddLayer(_resources, "货物图标 · 名称与剩余储量");
+        AddLayer(_platforms, "站台 占用/总数 · 排队列车数");
+        AddLayer(new CheckBox { Name = "Creatures", Text = "世界生物", Disabled = true,
+            TooltipText = "阶段 5 接入世界生物信息层" }, "阶段 5 接入，图例待开放");
+        _layers.AddChild(body);
+        AddChild(_layers);
+        _layers.Resized += () => PositionLayerPanel(_layersTop);
+
+        void AddLayer(CheckBox toggle, string legend)
+        {
+            body.AddChild(toggle);
+            var label = UiStyle.Label(legend);
+            label.AddThemeFontSizeOverride("font_size", 12);
+            label.AddThemeColorOverride("font_color", new Color("#9aa3ad"));
+            body.AddChild(label);
+            toggle.Toggled += _ => QueueRedraw();
+        }
+    }
+
+    internal void PositionLayerPanel(float top)
+    {
+        _layersTop = top;
+        _layers.Position = new(Math.Max(8, Size.X - _layers.Size.X - 12), top);
+    }
+
+    internal void RefreshPlatformQueues(double delta)
+    {
+        if (!IsVisibleInTree() || !_platforms.ButtonPressed || View is null)
+        { _queueView = null; _platformQueues.Clear(); _queueDelay = 0; return; }
+        _queueDelay -= delta;
+        if (_queueView is not null && (_queueDelay > 0 || ReferenceEquals(View, _queueView))) return;
+        _platformQueues.Clear();
+        foreach (var train in View.World.Trains)
+            if (train.Position is TrainPosition.Node { PlatformNumber: null } node &&
+                View.FindTrain(train.Id) is Lookup<TrainView>.Found { Value.PlatformQueueEnteredStep: not null })
+                _platformQueues[node.Id] = _platformQueues.GetValueOrDefault(node.Id) + 1;
+        _queueView = View;
+        _queueDelay = .5;
+        QueueRedraw();
     }
 
     internal void SetView(ICoreReadView view, IContentView content, bool resetCamera = false)
@@ -66,6 +118,9 @@ public partial class MacroMap : Control
         if (geometryChanged) BuildRegions();
         if (geometryChanged || resetCamera)
         {
+            _queueView = null;
+            _platformQueues.Clear();
+            _queueDelay = 0;
             _dragging = false;
             _fitPending = true;
             FitCamera();
@@ -76,6 +131,7 @@ public partial class MacroMap : Control
     private void OnResized()
     {
         FitCamera();
+        PositionLayerPanel(_layersTop);
         QueueRedraw();
     }
 
@@ -143,7 +199,44 @@ public partial class MacroMap : Control
         }
         foreach (var edge in _world.Edges) DrawEdge(edge);
         foreach (var node in _world.Nodes) DrawNode(node);
+        if (_resources.ButtonPressed || _platforms.ButtonPressed)
+            foreach (var node in _world.Nodes) DrawInformation(node);
         foreach (var train in _world.Trains) DrawTrain(train);
+    }
+
+    internal string ResourceText(NodeResourceView resource) =>
+        $"{WorldPanels.GoodName(resource.Good, _content!)}：{resource.Quantity}";
+
+    internal AssetRevision? ResourceIcon(NodeResourceView resource) =>
+        _content?.FindGood(resource.Good) is ContentLookup<GoodPresentation>.Found good ? good.Value.Display.Icon : null;
+
+    internal string PlatformText(NodeMapItem node) =>
+        $"站台 {node.OccupiedPlatforms}/{node.Platforms} · 排队 {_platformQueues.GetValueOrDefault(node.Id)}";
+
+    private void DrawInformation(NodeMapItem node)
+    {
+        var font = UiStyle.NumericFont();
+        var point = MapToScreen(node.Position) + new Vector2(0, NodeDisplay(node).Radius + 32);
+        if (_resources.ButtonPressed)
+            foreach (var resource in node.Resources)
+            {
+                var rectangle = DrawAnnotation(ResourceText(resource), point, 24);
+                if (ResourceIcon(resource) is { } revision && FindSymbol(revision) is { } texture)
+                    DrawTextureRect(texture, new(rectangle.Position + new Vector2(3, 2), new Vector2(20, 20)), false);
+                point.Y += 26;
+            }
+        if (_platforms.ButtonPressed && (node.Platforms > 0 || _platformQueues.GetValueOrDefault(node.Id) > 0))
+            DrawAnnotation(PlatformText(node), point, 0);
+
+        Rect2 DrawAnnotation(string text, Vector2 center, int iconWidth)
+        {
+            var width = font.GetStringSize(text, HorizontalAlignment.Left, -1, 14).X + iconWidth + 12;
+            var rectangle = new Rect2(center - new Vector2(width / 2, 0), new(width, 24));
+            DrawRect(rectangle, new Color(24 / 255f, 28 / 255f, 33 / 255f, .9f));
+            DrawString(font, rectangle.Position + new Vector2(iconWidth + 6, 17), text,
+                HorizontalAlignment.Left, -1, 14, UiStyle.Foreground);
+            return rectangle;
+        }
     }
 
     private (Vector2 Start, Vector2 End)? EdgePoints(EdgeMapItem edge) =>
