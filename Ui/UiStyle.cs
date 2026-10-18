@@ -35,7 +35,7 @@ internal static class UiStyle
     };
 
     internal static PanelContainer Panel(Control parent, string name, string title, Vector2 position,
-        float width, Action close, out VBoxContainer body)
+        float width, Action close, out VBoxContainer body, bool centered = false)
     {
         var panel = new PanelContainer { Name = name, Position = position, CustomMinimumSize = new(width, 0),
             MouseFilter = Control.MouseFilterEnum.Stop, MouseForcePassScrollEvents = false };
@@ -66,10 +66,12 @@ internal static class UiStyle
             area.Position -= parent.GlobalPosition;
             var frameHeight = panel.GetThemeStylebox("panel").GetMinimumSize().Y +
                 box.GetCombinedMinimumSize().Y - scroll.GetCombinedMinimumSize().Y;
-            var top = Math.Clamp(position.Y, area.Position.Y, Math.Max(area.Position.Y, area.End.Y - frameHeight));
+            var preferred = centered ? (parent.Size - new Vector2(panel.GetCombinedMinimumSize().X,
+                frameHeight + content.GetCombinedMinimumSize().Y)) / 2 : position;
+            var top = Math.Clamp(preferred.Y, area.Position.Y, Math.Max(area.Position.Y, area.End.Y - frameHeight));
             scroll.CustomMinimumSize = new(0, Math.Min(content.GetCombinedMinimumSize().Y, Math.Max(0, area.End.Y - top - frameHeight)));
             panel.Size = panel.GetCombinedMinimumSize();
-            panel.Position = new(Math.Clamp(position.X, area.Position.X, Math.Max(area.Position.X, area.End.X - panel.Size.X)),
+            panel.Position = new(Math.Clamp(preferred.X, area.Position.X, Math.Max(area.Position.X, area.End.X - panel.Size.X)),
                 top);
         }
         void QueueFit()
