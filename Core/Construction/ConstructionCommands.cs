@@ -40,18 +40,14 @@ internal static class ConstructionCommands
             throw new ArgumentException("施工请求须提供施工设施和已初始化的来源数组。", nameof(request));
         if (request is JobRequest.BuildVehicle building) VehicleDesignChanges.ValidateInput(building.Design, world, content);
         if (request is JobRequest.Refit refitting)
-        {
             VehicleDesignChanges.Validate(refitting.Instance, refitting.Change, world, content);
-            if (funding == JobFunding.NpcCommission && !refitting.Change.RemovedItems.IsEmpty)
-                throw new NotImplementedException("委托改装返还去向尚待决定。");
-        }
     }
 
     internal static JobQuote Quote(WorldState world, CoreContentProjection content, ulong step, CoreRevision revision,
         JobRequest request, JobFunding funding)
         => Prepare(world, content, step, revision, request, funding, null).Quote;
 
-    private static (WorldState World, JobQuote Quote, ImmutableArray<GoodsQuantity> Returns) Prepare(WorldState world, CoreContentProjection content,
+    private static (WorldState World, JobQuote Quote, ImmutableArray<GoodsQuantity> Returns, InventoryId? ReturnInventory) Prepare(WorldState world, CoreContentProjection content,
         ulong step, CoreRevision revision, JobRequest request, JobFunding funding, Money? maximumPayment)
     {
         var (facility, sources, priority) = request switch
@@ -66,6 +62,7 @@ internal static class ConstructionCommands
         long work = 0;
         ImmutableArray<GoodsQuantity> required = [];
         ImmutableArray<GoodsQuantity> returns = [];
+        InventoryId? returnInventory = null;
         var consumption = ImmutableArray.CreateBuilder<JobMaterialSourceView>();
         var purchases = ImmutableArray.CreateBuilder<GoodsQuantity>();
         Money? materialPayment = funding == JobFunding.OwnInventory ? new(0) : null;
@@ -252,9 +249,18 @@ internal static class ConstructionCommands
         }
         if (!returns.IsEmpty)
         {
-            var inventory = Consume(prepared, consumption).Inventories.Single(i => i.Id == settlement.Inventory);
-            if (InventoryStorage.Read(Consume(prepared, consumption), content, step, inventory).Available < returns.Sum(g => g.Quantity))
+            var afterConsumption = Consume(prepared, consumption);
+            var quantity = returns.Sum(g => g.Quantity);
+            var destination = funding == JobFunding.OwnInventory
+                ? InventoryStorage.Read(afterConsumption, content, step,
+                    afterConsumption.Inventories.Single(i => i.Id == settlement.Inventory))
+                : afterConsumption.Inventories.Where(i => i.Owner is InventoryOwner.Lease lease
+                        && afterConsumption.Leases.Any(l => l.Id == lease.Id && l.Settlement == settlement.Id))
+                    .OrderBy(i => i.Id.Value).Select(i => InventoryStorage.Read(afterConsumption, content, step, i))
+                    .FirstOrDefault(i => i.Access == InventoryAccess.ReadWrite && i.Available >= quantity);
+            if (destination is null || destination.Access != InventoryAccess.ReadWrite || destination.Available < quantity)
                 return Reject("insufficient_capacity", "ReturnInventory.Capacity");
+            returnInventory = destination.Id;
         }
         if (world.Next.Job == ulong.MaxValue) return Reject("identity_exhausted", "World.Next.Job");
         totalPayment = new(checked(materialPayment!.Value.Value + servicePayment!.Value.Value));
@@ -264,16 +270,16 @@ internal static class ConstructionCommands
         return Result([]);
 
         void Add(GoodId good, long quantity) => needed[good] = checked(needed.GetValueOrDefault(good) + quantity);
-        (WorldState, JobQuote, ImmutableArray<GoodsQuantity>) Result(ImmutableArray<CoreProblem> problems) => (prepared,
+        (WorldState, JobQuote, ImmutableArray<GoodsQuantity>, InventoryId?) Result(ImmutableArray<CoreProblem> problems) => (prepared,
             new(request, funding, revision, work, required, consumption.ToImmutable(), purchases.ToImmutable(),
-                materialPayment, servicePayment, totalPayment, problems), returns);
-        (WorldState, JobQuote, ImmutableArray<GoodsQuantity>) Reject(string code, string field) => Result([new(code, field, null, [])]);
+                materialPayment, servicePayment, totalPayment, problems), returns, returnInventory);
+        (WorldState, JobQuote, ImmutableArray<GoodsQuantity>, InventoryId?) Reject(string code, string field) => Result([new(code, field, null, [])]);
     }
 
     internal static CommandEffect Execute(WorldState world, CoreContentProjection content, JobRequest request,
         ulong step, JobFunding funding = JobFunding.OwnInventory, Money? maximumPayment = null)
     {
-        var (prepared, quote, returns) = Prepare(world, content, step, new(0), request, funding, maximumPayment);
+        var (prepared, quote, returns, returnInventory) = Prepare(world, content, step, new(0), request, funding, maximumPayment);
         if (!quote.Blockers.IsEmpty) return new CommandEffect.Rejected(quote.Blockers);
         var (facility, priority, vehicle) = request switch
         {
@@ -311,7 +317,7 @@ internal static class ConstructionCommands
             },
             RetainedParts = request is JobRequest.Refit r ? WorldInputs.NormalizeDesignChange(r.Change).RetainedParts : [],
             RemovedItems = request is JobRequest.Refit removed ? WorldInputs.NormalizeDesignChange(removed.Change).RemovedItems : [],
-            ReturnInventory = returns.IsEmpty ? null : settlement.Inventory
+            ReturnInventory = returnInventory
         };
         prepared = Consume(prepared, consumption) with
         {

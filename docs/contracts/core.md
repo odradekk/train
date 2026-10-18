@@ -39,7 +39,7 @@
 - `Extraction` 设施、开采批次、节点资源原地恢复与全局再生，按 [#383 的批准决定](https://github.com/odradekk/train/issues/383#issuecomment-6188092446)实现，使用同一批次运行时与资源仲裁；参数、时序及事件见下文“节点资源”。
 - #331 接入 `StartOwnedJob` 的 `BuildVehicle` 和车辆 `Repair`、`FindJob`、施工事件与修理锁；施工与生产、开采、人口共用单步资源仲裁，具体范围见下文“自有车辆施工”。
 - #387 接入两种资金来源的车辆制造／修理 `GetJobQuote`、`CommissionVehicleWork`、原子补购收费及按设施 FIFO 委托队列；全局工钱、查询、事件和保存重放见下文“NPC 车辆委托与施工报价”。
-- #332 接入车辆 `ApplyInstanceDesign`、自有 `Refit`／`Dismantle`、`SetDeconstructionPaused`、自有车辆改装报价及无拆下项的委托改装与报价；查询、事件与保存重放沿用同一任务路径。委托返还去向尚待决定，有 `RemovedItems` 的委托改装暂未接入。
+- #332 接入车辆 `ApplyInstanceDesign`、自有 `Refit`／`Dismantle`、`SetDeconstructionPaused`、两种资金来源的车辆改装报价及委托改装；委托返还进入当地玩家租库，查询、事件与保存重放沿用同一任务路径。
 - 按 [#332 批准计划 D11](https://github.com/odradekk/train/issues/332#issuecomment-6245198930)增加 `SettlementView.OwnedJobs`，让宿主从聚居地查询活动自有施工任务，再经 `FindJob` 读取详情；不新增持久字段。
 - `Capture`、`DecodeState` 和 `PrepareRestore`，覆盖当前真实世界状态；格式与恢复规则见下文“当前载荷”。公开 `PrepareNew` 路径有共享 `CaptureScenario` 及跨进程生成、保存恢复测试。
 - `ReadRecording`、`CaptureRecordingStart`、`ConfirmRecordingStart`、`PrepareReplay` 和 `CompareCheckpoints`，覆盖当前完整世界状态、`PublishContent`、五个铁路命令和 `DebugAddRailBreak`，包含正常业务拒绝。运行在线路上、停留及调度中的录制通过生产重放路径逐检查点比较。
@@ -49,7 +49,6 @@
 
 | 未实现成员 | 交付责任 |
 | --- | --- |
-| `NpcCommission` 下含 `RemovedItems` 的车辆改装报价与委托 | #332；返还去向待用户决定，暂抛 `NotImplementedException` |
 | `FindFacility` 的 `Construction` 键、`SetJobPriority` | 后续施工查询与调度任务 |
 | `OwnInventory` 下建筑建造、大型设备制造、建筑修理的 `GetJobQuote` 及对应的 `StartOwnedJob` | #343 |
 | `OwnInventory` 下建筑改装、拆解的报价与 `StartOwnedJob`，以及建筑 `ApplyInstanceDesign` | #343；车辆目标已由 #332 实现 |
@@ -121,7 +120,7 @@
 
 ### 车辆立即应用、改装与拆解（#332）
 
-按 [#332 批准计划 D1–D11](https://github.com/odradekk/train/issues/332#issuecomment-6245198930)实现车辆范围，并增加 `SettlementView.OwnedJobs` 查询；不新增控制台命令。建筑目标及建筑 `Locked` 生产状态归 #343。
+按 [#332 批准计划 D1–D12](https://github.com/odradekk/train/issues/332#issuecomment-6245198930)实现车辆范围，并增加 `SettlementView.OwnedJobs` 查询；不新增控制台命令。建筑目标及建筑 `Locked` 生产状态归 #343。
 
 `ApplyInstanceDesign` 检查当前输入身份、实例设计哈希与构成、完整合法且无缺失引用的目标，以及部件对应。仅构成未变时立即换设计，保留损伤、列车归属与运行状态，不消费货物或建立任务；构成变化整份拒绝。设计哈希变化发 `InstanceDesignChanged`。
 
@@ -135,7 +134,7 @@
 
 [#387 的批准计划](https://github.com/odradekk/train/issues/387#issuecomment-6239791107)接入 `CommissionVehicleWork` 的车辆制造和修理，以及 `GetJobQuote` 的 `OwnInventory`、`NpcCommission` 两种资金来源。两条命令和报价共用需求、来源分配及拒绝计算；报价不预留货物、资金或队列位置，提交重新裁决。报价内部故障返回该读视图位置的 `CoreResult.Faulted`，不冻结活动会话。
 
-两种资金来源均实现 `BuildVehicle` 和车辆 `Repair`。#332 接入自有车辆 `Refit` 及无 `RemovedItems` 的委托车辆 `Refit`；委托改装沿用同一需求、来源、补购、原子收费和 FIFO 流程。委托改装的返还去向仍待[用户决定](https://github.com/odradekk/train/issues/332#issuecomment-6245193645)：当前含 `RemovedItems` 的委托改装在校验阶段暂抛 `NotImplementedException`，不能视为全部委托改装已完成。委托的 `BuildBuilding`、`BuildEquipment`、`Dismantle` 和所有建筑目标不合法，抛 `ArgumentException`。非法资金来源、零身份、未初始化来源数组和负 `MaximumPayment` 也在取得命令编号前抛 `ArgumentException`。
+两种资金来源均实现 `BuildVehicle` 和车辆 `Repair`、`Refit`；委托改装沿用同一需求、来源、补购、原子收费和 FIFO 流程。按[用户决定 D12](https://github.com/odradekk/train/issues/332#issuecomment-6246041891)，委托改装返还进入设施所在聚居地的玩家租用库存。委托的 `BuildBuilding`、`BuildEquipment`、`Dismantle` 和所有建筑目标不合法，抛 `ArgumentException`。非法资金来源、零身份、未初始化来源数组和负 `MaximumPayment` 也在取得命令编号前抛 `ArgumentException`。
 
 业务检查按以下顺序执行，报价和命令返回相同代码与字段：
 
@@ -145,7 +144,10 @@
 4. 施工规则存在（`content_missing / ConstructionRule`），委托还须有市场规则（`content_missing / MarketRule`）；计算工作量及材料，无可修工作量时 `invalid_state / Instance.Durability`。
 5. 按数组顺序检查每个来源的重复、存在和访问权限。自有任务沿用当地自有库存／当地列车来源；委托仅允许当地玩家列车库存及该聚居地的玩家租用库存，到期租约仍可取出。列车来源复用装载的归属、同节点、停站、站台、零速及修理锁检查。NPC 库存不能作为玩家来源，返回 `access_denied / Sources[i]`；其他来源拒绝也定位到 `Sources[i]`。
 6. 先分配玩家来源，再按货物稳定身份顺序从当地真实可售库存补购缺额，复用市场留货及逐件边际价格。两种资金来源均检查全部货物后才报告缺料；`insufficient_goods / Sources` 的 `RelatedIdentities` 按货物键的 Ordinal 顺序列出所有缺货身份，编码与 `restock_shortage` 相同。补购直接投入施工，不经列车货舱，不受玩家货舱容量限制；不会先买半份材料，也不建立等待供货的任务。
-7. 任务编号可用；计算材料款、工钱和总额后依次检查总限价（`price_condition_failed / MaximumPayment`）和钱包（`insufficient_money / Wallet`）。
+7. 有预计返还时，在玩家来源扣料后的候选状态检查容量。自有任务使用设施所在自有聚居地库存；委托按库存编号升序，选择该聚居地第一份 `ReadWrite` 且可用容量足以容纳全部预计返还的玩家租库。没有合适库存时，报价与命令均拒绝 `insufficient_capacity / ReturnInventory.Capacity`，不扣料、不收费、不建任务。无预计返还时不需要租库或预留。
+8. 任务编号可用；计算材料款、工钱和总额后依次检查总限价（`price_condition_failed / MaximumPayment`）和钱包（`insufficient_money / Wallet`）。
+
+受理时在选中的租库建立完整返还预留，任务的 `ReturnInventory` 指向该库存。施工期间租约到期或库存冻结，预留仍参与全城 `TotalReserved` 和容量统计；完成时照常存入该租库，完成或失败均释放整份预留。
 
 `RequiredGoods` 是整份需求，`SourceConsumption` 仅为玩家来源，`NpcPurchases` 是缺额补购。拒绝时，`SourceConsumption` 和 `NpcPurchases` 只包含到失败检查为止算出的部分分配，仅供诊断参考，不能据此消费材料或执行补购。`OwnInventory` 的补购为空，`MaterialPayment` 与 `ServicePayment` 为零。启动条件不足时 `TotalPayment` 为空；仅限价或钱包不足时仍保留已算出的总额。工钱为冻结总工作量乘市场规则的 `CommissionMoneyPerWork`，无最低费用。接受时一次提交全部玩家材料消费、NPC 补购、总付款、工钱累计及任务建立，发 `ConstructionStarted`，携带资金来源和两项实际付款。材料款只影响钱包及事件；只有工钱计入 `Economy.UnassignedServicePayments`，不计入任何列车运行的 `ServicePayments`。
 
@@ -516,7 +518,7 @@ Buy/Sell 在前提检查后依次判断：
 
 格式 14 的 `WorldState.ConstructionJobs`（`construction_jobs`）保存活动任务，`Next.Job`（`next.job`）保存下一任务编号；任务包括设施、聚居地、目标设计／修理车辆、优先级、规则身份与启动修订、冻结总工作量和电力／劳动系数、投入及实际来源消费、进度、主状态、上一步工作速率、限制及阻塞。每座聚居地保存 `LastConstructionPowerDemand`、`LastConstructionActualSupply`、`LastConstructionAllocatedLabor`（线格式为对应 snake_case 字段），即使本步最后一个任务完成并移除，也保留最后一步汇总，下一无请求步骤归零。这些状态参加捕获、校验、恢复、引用、检查点与严格重放。格式 15 在任务中增加 `Funding`（`funding`），世界增加 `UnassignedServicePayments`（`unassigned_service_payments`）；NPC 队列由活动任务的设施与编号派生，不另存队列，后继排队任务必须进度为零。
 
-格式 16 将任务目标车辆统一保存为 `Vehicle`（`vehicle`），并保存 `Kind`、`RetainedParts`、`RemovedItems`、`ReturnInventory`（对应 snake_case 字段）。实例在完工前保留原设计，不另存原设计或锁。返还库存中的预留按任务编号唯一保存 `ExpectedReturns` 与容量；任务和预留严格双向配对，无预计返还不建预留。解码检查任务种类、玩家实例和唯一锁目标、保留与移除部件引用及不重叠、合法暂停与零工作量，以及库存预留配对。冻结移除项的货物、结构货物和缺失定义进入引用清单；上述资料均参加普通捕获、恢复、检查点与严格重放。
+格式 16 将任务目标车辆统一保存为 `Vehicle`（`vehicle`），并保存 `Kind`、`RetainedParts`、`RemovedItems`、`ReturnInventory`（对应 snake_case 字段）。实例在完工前保留原设计，不另存原设计或锁。返还库存中的预留按任务编号唯一保存 `ExpectedReturns` 与容量；任务和预留严格双向配对，无预计返还不建预留。自有任务的返还库存必须是设施所在自有聚居地库存，委托任务则必须是该聚居地的玩家租库；已有预留不因租约到期或冻结失效。解码检查任务种类、玩家实例和唯一锁目标、保留与移除部件引用及不重叠、合法暂停与零工作量，以及库存预留配对。冻结移除项的货物、结构货物和缺失定义进入引用清单；上述资料均参加普通捕获、恢复、检查点与严格重放。
 
 顶层载荷包含格式版本、位置、下一命令编号、修订、当前输入身份、故障、`world` 和 `references`。`world` 保存完整生成来源 `source`（含种子、生成器版本、生成内容语义修订、解析配置及开局输入）、图与资源、聚居地与生物聚落、聚居地模板业务副本和地块、实例耐久、列车、库存、资金、全部下一身份编号，以及实际设计投影和衍生货物。实例只保存 `DesignHash`，引用同一 `world.designs` 中的投影，不在每个实例重复设计。实例和库存位置由所有者派生，不进载荷。
 

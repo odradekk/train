@@ -375,7 +375,7 @@ internal static class WorldStateValidation
                 var settlement = world.Settlements.Single(s => s.Id == job.Settlement);
                 Require(job.Funding == JobFunding.OwnInventory
                     ? destination.Id == settlement.Inventory && settlement.Relation == SettlementRelation.PlayerOwned
-                    : destination.Id == settlement.Inventory || destination.Owner is InventoryOwner.Lease lease
+                    : destination.Owner is InventoryOwner.Lease lease
                         && world.Leases.Any(l => l.Id == lease.Id && l.Settlement == job.Settlement), path + "/return_inventory");
             }
             Require(WorldFormat.IsIdentity(job.Rule.Value) && WorldFormat.IsHash(job.StartedFromRevision.Value), path + "/rule");
