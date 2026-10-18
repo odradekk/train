@@ -34,7 +34,7 @@ public sealed class BuiltInContentTests
             var blueprint = Found(view.FindBlueprint(summary.Address));
             AssertPaintedPalette(blueprint.Definition);
             C.DesignEvaluation evaluation;
-            if (summary.Address.Id.Value is "core:workshop-crane" or "core:gantry-crane")
+            if (blueprint.Definition.Specification is C.DesignSpecification.FunctionalComposite)
                 evaluation = blueprint.Evaluation;
             else
             {
@@ -202,6 +202,25 @@ public sealed class BuiltInContentTests
             .Select(id => Complete(view, id).Design).ToArray(), world.Start.Trains[0].Vehicles.ToArray());
         CollectionAssert.AreEqual(new[] { "small-locomotive", "small-freight-wagon", "small-freight-wagon", "small-armed-wagon" }
             .Select(id => Complete(view, id).Design).ToArray(), world.Start.Trains[1].Vehicles.ToArray());
+    }
+
+    [TestMethod]
+    public void Builtin_titan_expands_to_about_twenty_five_thousand_voxels_with_large_equipment_parts()
+    {
+        var repository = new DirectoryInfo(AppContext.BaseDirectory);
+        while (repository != null && !File.Exists(Path.Combine(repository.FullName, "global.json"))) repository = repository.Parent;
+        Assert.IsNotNull(repository);
+        var builtIn = new C.ContentRoot(Path.Combine(repository.FullName, "builtin", "core"));
+        var mods = new C.ContentRoot(Path.Combine(repository.FullName, "TestResults", "builtin-test-mods-" + Guid.NewGuid().ToString("N")));
+        using var candidate = ContentCaptureTests.Success(ContentFactory.Create().PrepareLoad(
+            new(new(builtIn, mods, null, "0.0.56", []), new C.ContentLoadPurpose.Initial()),
+            new ContentDiskFiles(), new PngHeaderInspector()));
+        var titan = Complete(candidate.View, "titan-armed-vehicle");
+        Assert.IsTrue(titan.Scene.Voxels.Length is >= 24_500 and <= 25_500, titan.Scene.Voxels.Length.ToString());
+        var parts = titan.Core!.Design.Parts;
+        Assert.IsTrue(parts.Length >= 60, parts.Length.ToString());
+        Assert.AreEqual(2, parts.Count(part => part.Definition == new K.CoreDefinitionReference.Composite(new("core:large-diesel-engine"))));
+        Assert.AreEqual(4, parts.Count(part => part.Definition == new K.CoreDefinitionReference.Composite(new("core:heavy-turret"))));
     }
 
     [TestMethod]
