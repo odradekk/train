@@ -64,6 +64,47 @@ public sealed class ProductionProcessTests
         }
     }
 
+    [TestMethod]
+    public async Task Plan_switch_during_a_batch_survives_save_and_strict_replay()
+    {
+        var root = TestContext.TestRunResultsDirectory ?? throw new AssertFailedException("缺少当前测试结果目录。");
+        var directory = Path.Combine(root, "production-plan-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var continuous = await Run(directory, "plan-complete");
+        var saved = await Run(directory, "plan-save");
+        var resumed = await Run(directory, "plan-resume");
+        var replayed = await Run(directory, "plan-replay");
+        var results = new[] { continuous, saved, resumed, replayed };
+        Assert.AreEqual(4, results.Select(r => r.ProcessId).Distinct().Count());
+        foreach (var result in results) Assert.AreNotEqual(Environment.ProcessId, result.ProcessId);
+        Assert.AreEqual(continuous.Samples[0], saved.Samples.Single());
+        CollectionAssert.AreEqual(continuous.Samples, resumed.Samples);
+        CollectionAssert.AreEqual(continuous.Events, resumed.Events);
+        CollectionAssert.AreEqual(continuous.Samples, replayed.Samples);
+        CollectionAssert.AreEqual(continuous.Events, replayed.Events);
+        foreach (var sample in replayed.Samples) Assert.AreEqual(CoreProcessDriver.Sha256(sample.CanonicalText), sample.Sha256);
+
+        using var boundary = JsonDocument.Parse(continuous.Samples[0].Query);
+        var facility = boundary.RootElement.GetProperty("Facility");
+        Assert.AreEqual("production:fixture:alternate", boundary.RootElement.GetProperty("PlanProcess").GetString());
+        Assert.AreEqual("production:fixture:production", boundary.RootElement.GetProperty("BatchProcess").GetString());
+        Assert.IsFalse(facility.GetProperty("Batch").GetProperty("CurrentSpecificationDiffers").GetBoolean());
+        Assert.AreEqual(8L, Quantity(boundary.RootElement, "fixture:material"));
+        using var final = JsonDocument.Parse(replayed.Samples[^1].Query);
+        Assert.AreEqual(3L, Quantity(final.RootElement, "fixture:material"));
+        Assert.AreEqual(3L, Quantity(final.RootElement, "fixture:a-product"));
+        Assert.AreEqual(0L, Quantity(final.RootElement, "fixture:z-product"));
+        Assert.AreEqual("production:fixture:alternate", final.RootElement.GetProperty("BatchProcess").GetString());
+        Assert.AreEqual(1, continuous.Events.Count(e => e.Contains("\"Kind\":\"ProductionCompleted\"", StringComparison.Ordinal)));
+        Assert.IsTrue(continuous.Events.Single(e => e.Contains("\"Kind\":\"ProductionCompleted\"", StringComparison.Ordinal))
+            .Contains("\"Process\":\"production:fixture:production\"", StringComparison.Ordinal));
+        Directory.Delete(directory, recursive: true);
+    }
+
+    private static long Quantity(JsonElement root, string definition) => root.GetProperty("Stacks").EnumerateArray()
+        .Where(s => s.GetProperty("Good").GetString()!.Contains(definition, StringComparison.Ordinal))
+        .Sum(s => s.GetProperty("Quantity").GetInt64());
+
     private async Task<ProductionProcessResult> Run(string directory, string mode)
     {
         var output = Path.Combine(directory, mode + ".json");
