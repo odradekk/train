@@ -53,11 +53,15 @@ public enum SceneReadiness { Loading, Partial, Ready, Failed }
 [Flags]
 public enum SceneDebugLayer { None = 0, Chunks = 1, RailwaySegments = 2, Origin = 4, PickRay = 8, Centerline = 16 }
 public sealed record SceneDebugLine(Vector3 From, Vector3 To, Vector4 Color);
+public sealed record SceneOverviewPlot(int TemplatePlotNumber, PlotSize Size, ImmutableArray<Vector2> Corners);
+public sealed record SceneNodeOverview(ImmutableArray<SceneOverviewPlot> Plots,
+    ImmutableArray<ImmutableArray<Vector2>> Tracks);
 
 public interface ISceneFrame
 {
     ScenePoint Origin { get; }
     ScenePanBounds? NodePanBounds { get; }
+    SceneNodeOverview? NodeOverview { get; }
     SceneReadiness Readiness { get; }
     double SimulationSeconds { get; }
     SceneUpdate Update { get; }

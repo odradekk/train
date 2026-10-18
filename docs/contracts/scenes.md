@@ -12,6 +12,8 @@
 
 当前节点加载状态在近处操作区第一次补齐前为 `Loading`；首次补齐后，即使焦点移动导致近处再次未齐，也返回 `Partial`。显示范围内地形、轨道段、建筑和车辆全部就绪时返回 `Ready`。该状态是 Scenes 构建状态，宿主资源接入及首个可操作状态仍需独立确认。
 
+节点帧通过 `NodeOverview` 提供完整节点的地块轮廓与铁轨中心折线，不受部件流式构建、保留或卸载进度影响。生产实现从节点布局和聚居地布局生成概况，按布局与 `Origin` 缓存；同一布局和原点的后续帧复用同一实例，原点平移后生成对应根空间的新概况。线路、编辑、设计预览和模板预览帧不提供节点概况。
+
 Cube 表现生成内置标准形状；Shape 为空时取 Shapes 首项。Mesh 表现每格输出一个模型子对象，不读取导入模型几何；所有形状与模型仍按完整格拾取。几何与遮面规则见下文。战斗的初始生成在后台抛指向 #353 的 NotImplementedException，Present 接入结果时报告 Faulted／scene_internal_fault；PreviewTemplate 已实现固定模板快照，按草稿数组下标提供地块及 PickPlot；地块底面轮廓通过帧 DebugLines 显示，不依赖开发图层开关。模板体素不带拾取身份，Frame.Pick 与只读设计预览一样返回 Miss；结果无需 Dispose，旧结果不能覆盖新表单。缺失引用保留已知部分和 content_missing；重复地块编号的每个条目各报 duplicate_plot_number，founding／production_plans 引用缺号报 target_missing；预览成功不表示发布合法。真实工具接入仍由 #337 验证。OpenEditor 已接入固定内容下的真实编辑会话：支持单格／笔刷的添加、移除和替换、选取与层级、嵌套放置／替换、属性、缺失锁、捕获与保存确认，以及不限步数的会话撤销重做。显示、拾取和动作冲突读取工作布局；封闭引用按 FindGood → DisplayDesign → FindDesign 取得自身占格，未知占格只显示标记，不进入 DDA。当前评估的已知转动范围与冲突通过帧 DebugLines 交出。Box 足迹、涂装／形状及选区移动／旋转／复制等批量操作仍抛出指向 #334 的 NotImplementedException。独立模块检查不提供 #335 的 Godot 编辑器接入或 #300 的阶段联调证据。
 
 线路按 64 米分段后台构建，分段依实际读取值核对并复用未变化的不可变几何，后台构建并发有界；相机采样先从来源帧的根空间转换到线路空间，再确定焦点与预取分段。线路生成输出地形柱、地貌过渡、削坡填方、水面、带键随机装饰、按铁轨数选择的桥梁与隧道口、钢轨和轨枕。河流与湖泊识别 Demo 清单的 `river`／`lake` 特征 id。线路、节点及入口接缝的道床使用铁路表现投影的必填 `BallastVoxel`，对应内容字段 `appearance.ballast_voxel`，只接受不含 `simulation` 的场景体素，没有地貌 `RockVoxel` 回退；道床上层 19 格、下层 21 格，顶面位于轨面下 1 格以支撑轨枕；装饰平整地形时保留铁路净空和水域。中心线依固定输入和铁轨上限预留走廊，当前铁轨数只决定以 34 格中心距对称放置的铁轨；长度由圆弧与直线构造，短节点间距或坡度使地图直线距离不可用时采用 [#315 批准规则](https://github.com/odradekk/train/issues/315#issuecomment-6135918111) 的场景弦长。节点基准高程统一为 0，地图 X／Y 映射到场景 X／Z；端点地形按节点入口偏移平移到节点局部坐标，使用共享采样。节点入口内侧延续线路端部的占格相位、地貌混合和道床采样；同面入口边界条带的每列归最近的实际铁轨线路，距离相同时取最小 EdgeId。调整线路弦长不会改变边界的同一采样点。走廊地形基准跟随最近弧长处的轨面纵断面，隧道与路堤只由地貌噪声和起伏产生。越过场景边界的车辆沿相邻场景的实际铁路摆放：节点入口边界外及 L 外取相邻线路的 1 号轨；线路端点外取该端节点同一入口的共用引入线，出站后部按共用段反向摆放。伸入节点分岔之后的部分属于下述车长限制。
@@ -99,6 +101,10 @@ Godot 按以下语义准备并一次接入资源更新：完整替换时移除�
 世界请求的 `SceneFrameRequest.PickRay` 为可选 `ScenePickRaySample`，携带最近一次实际传给 `ISceneFrame.Pick` 的帧（以 D 请求的准备期间为 P，传 null 时仍为 D）和射线；命中、未命中及 NotReady 都可提供样本。射线使用来源帧根坐标，不依赖 `Present` 的 displayedFrame，因此完整替换时仍可提供。仅开启 PickRay 且来源与新帧的 Session、Request、Space 都相同时，DebugLines 中输出一条射线：起点为来源 Origin 加射线 Origin 再减新帧 Origin，方向不变，长度为 MaximumDistanceCells；不额外执行拾取，不按命中距离截短。未开启、无样本或旧 Request／Space 时不输出射线。外会话样本或非法射线在修改会话前抛 ArgumentException；数值沿用有限、单位方向和正有限长度的射线前提。宿主在目标请求、会话或显示空间切换时清空旧样本。样本及调试线不改变 Pick 的只读语义，已返回帧仍不可变。
 
 `NodePanBounds` 由体素给出节点场景完整的水平相机范围，分量为本帧根空间的 X、Z 格坐标，随浮动原点一起换算；不是当前已生成网格的包围盒。节点的 Partial／Ready 帧必须提供，Loading 尚未确定时可为 null；非节点帧为 null。Godot 只限制节点自由环绕的焦点，同空间后续帧范围缺失时保留焦点，不猜边界；跟随相机继续使用显示对象姿态。此字段由[Godot 宿主契约](https://github.com/odradekk/train/issues/290)补齐已有的相机规则，不冻结具体场景尺寸。
+
+`NodeOverview` 是节点小地图使用的不可变几何概况，坐标与同帧 `NodePanBounds` 相同：`Vector2.X` 为根空间 X，`Vector2.Y` 为根空间 Z，单位为格，随浮动原点换算。节点的 Partial／Ready 帧必须提供，Loading 尚未确定时可为 null；非节点帧为 null。概况覆盖完整节点，不按当前已构建网格筛选，也不包含核心地块占用。
+
+`SceneOverviewPlot.TemplatePlotNumber` 对应核心 `PlotView.TemplatePlotNumber`，`Size` 保留内容布局中的地块尺寸类别，宿主不据此重算轮廓；`Corners` 是按周长顺序排列的四角，可直接绘制多边形。`SceneNodeOverview.Tracks` 的每项是一条铁轨中心折线，包含入口、站线、旁路线和回转线，与 `Centerline` 调试输出取相同路线，不含停车线；读取不要求开启调试图层。空节点和生物聚落的 `Plots` 为空，仍提供铁路 `Tracks`。同一布局与 `Origin` 的帧复用概况实例，调用方可按引用变化更新底图；不同原点下的概况不得混用。此契约变更依据 [#580 批准计划](https://github.com/odradekk/train/issues/580#issuecomment-6243568667)。
 
 Base 不匹配或适配失败时不应用资源更新。资源尚未准备好时，不部分接入新资源，也不把 P 设为 displayedFrame，但允许按上述规则更新旧几何姿态、相机和拾取；新对象等待资源就绪。下一次仍以最后完整接入帧 D 请求；必要时传 null 获取完整替换。绑定切换后旧画面失去交互资格，即使为过渡暂时保留，也不能继续拾取。GPU 资源的创建、原子接入和退役由 Godot 契约落实。
 
