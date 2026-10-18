@@ -190,29 +190,46 @@ public sealed class AuthoringPackageTests
     }
 
     [TestMethod]
-    public void Lair_is_not_editable_while_creature_blueprints_round_trip_as_definitions()
+    public void Lair_types_round_trip_through_package_edits_and_creature_blueprints_remain_definitions()
     {
         var fixture = DesignFixtures.Content();
-        fixture.AddFile(ContentFixture.BuiltIn, "resources/lair-types/den.lair-type.json", "{}");
+        WorldContentFixtures.AddBlueprint(fixture, WorldContentFixtures.Scene());
+        fixture.AddFile(ContentFixture.BuiltIn, "resources/lair-types/den.lair-type.json", """
+            {"schema_version":1,"id":"den","display":{"name":"巢穴","description":"测试聚落"},
+            "generation_weight":2,"members":[{"creature":"creature","weight":1}],"maximum_members":4,
+            "spawn_interval_seconds":30,"raid_interval_seconds":60,"roaming_radius_hops":1,"raid_radius_hops":2,
+            "rail_damage_work_seconds":15,"clearance_reward":10,"scene_model":"scene"}
+            """);
         var creature = DesignFixtures.Blueprint("creature");
         creature["category"] = "creature";
         creature["simulation"] = JsonNode.Parse("""{"behaviors":{"creature":{"hp":20,"speed":3,"retreat_threshold":0.25,"raid_duration":10},"weapon":{"damage":2,"interval":1}}}""");
+        creature["layout"]!["palette"]![0]!["voxel"] = "scenery";
         WorldContentFixtures.AddBlueprint(fixture, creature);
+        using var initial = fixture.Load();
         var package = Open(fixture);
-        Assert.IsFalse(package.EditableDefinitions.Any(d => d.Kind == C.DefinitionKind.LairType));
+        Assert.IsTrue(package.EditableDefinitions.Contains(new(C.DefinitionKind.LairType, "den")));
+        var lair = (C.DefinitionDraft.LairType)Read(package, C.DefinitionKind.LairType, "den");
+        Assert.AreEqual(new Train.Core.Contracts.CreatureDefinitionId("core:creature"), lair.Value.Members.Single().Creature);
         Rejected(ContentFactory.Create().PreparePackageWrite(package,
-            [new C.PackageEdit.DeleteDefinition(new(C.DefinitionKind.LairType, "den"))]), code: "invalid_field");
+            [new C.PackageEdit.WriteDefinition(lair with { Value = lair.Value with { GenerationWeight = null } })]), "/generation_weight", "invalid_field");
         Rejected(ContentFactory.Create().PreparePackageWrite(package,
-            [new C.PackageEdit.WriteDefinition(new C.DefinitionDraft.LairType(new("den", new("", ""), null,
-                null, [], null, null, null, null, null, null, null)))]), code: "invalid_field");
+            [new C.PackageEdit.WriteDefinition(lair with { Value = lair.Value with { Members = [] } })]), "/members", "invalid_field");
+        var changed = lair with { Value = lair.Value with { GenerationWeight = 5 } };
+        Apply(fixture, Plan(package, new C.PackageEdit.WriteDefinition(changed)));
+        using var reloaded = Success(ContentFactory.Create().PrepareLoad(new(fixture.Installation,
+            new C.ContentLoadPurpose.Reload(initial.View, new([], [], [], [initial.View.Core.Identity]))), fixture, fixture));
+        Assert.AreEqual(5, reloaded.View.Core.LairTypes.Single(lairType => lairType.Id.Value == "core:den").GenerationWeight);
+        Apply(fixture, Plan(Open(fixture), new C.PackageEdit.DeleteDefinition(new(C.DefinitionKind.LairType, "den"))));
+        Assert.IsInstanceOfType<C.ContentLookup<C.DefinitionDraft>.NotFound>(Open(fixture).Read(new(C.DefinitionKind.LairType, "den")));
+        package = Open(fixture);
         var draft = (C.DefinitionDraft.Blueprint)Read(package, C.DefinitionKind.Blueprint, "creature");
         Assert.IsInstanceOfType<C.DesignSpecification.Creature>(draft.Value.Specification);
-        var changed = draft with { Value = draft.Value with { Display = new("生物", "草稿") } };
-        var plan = Plan(package, new C.PackageEdit.WriteDefinition(changed));
+        var renamed = draft with { Value = draft.Value with { Display = new("生物", "草稿") } };
+        var plan = Plan(package, new C.PackageEdit.WriteDefinition(renamed));
         Apply(fixture, plan);
         var restored = (C.DefinitionDraft.Blueprint)Read(Open(fixture), C.DefinitionKind.Blueprint, "creature");
-        Assert.AreEqual(changed.Value.Display, restored.Value.Display);
-        Assert.AreEqual(changed.Value.Specification, restored.Value.Specification);
+        Assert.AreEqual(renamed.Value.Display, restored.Value.Display);
+        Assert.AreEqual(renamed.Value.Specification, restored.Value.Specification);
     }
 
     [TestMethod]

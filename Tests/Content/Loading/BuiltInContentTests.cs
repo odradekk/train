@@ -280,7 +280,9 @@ public sealed class BuiltInContentTests
         var parts = titan.Core!.Design.Parts;
         Assert.IsTrue(parts.Length >= 60, parts.Length.ToString());
         Assert.AreEqual(2, parts.Count(part => part.Definition == new K.CoreDefinitionReference.Composite(new("core:large-diesel-engine"))));
-        Assert.AreEqual(4, parts.Count(part => part.Definition == new K.CoreDefinitionReference.Composite(new("core:heavy-turret"))));
+        var turrets = parts.Where(part => part.Definition == new K.CoreDefinitionReference.Composite(new("core:heavy-turret"))).ToArray();
+        Assert.AreEqual(4, turrets.Length);
+        Assert.IsTrue(turrets.All(part => part.Capabilities.OfType<K.PartCapability.Weapon>().Single() == new K.PartCapability.Weapon(108, 4)));
     }
 
     [TestMethod]

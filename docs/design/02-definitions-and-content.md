@@ -114,7 +114,7 @@
 | 市场表 | `.market-tables.json` | 1 |
 | 聚居地类型 | `.settlement-types.json` | 1 |
 
-- 聚居地模板、场景模型和生物蓝图的格式见[内容定义标准](../content/README.md)；新内容工厂已支持聚居地模板的基础布局和无嵌套的场景模型蓝图，生物蓝图仍未实现；生物聚落类型见 [17](17-combat.md#生物聚落)。旧过渡格式 `settlements/*.settlements.json` 已退役，内容加载不创建旧聚居地实例，也不要求首次目录包含聚居地。聚居地类型与模板见 [16](16-settlements.md)；世界生成在生成边界校验所需内容和开局地点，见 [05](05-world-graph-and-generation.md)。
+- 聚居地模板、场景模型和生物蓝图的格式见[内容定义标准](../content/README.md)；新内容工厂已支持聚居地模板的基础布局、无嵌套的场景模型蓝图、生物蓝图和生物聚落类型；生物聚落类型见 [17](17-combat.md#生物聚落)。旧过渡格式 `settlements/*.settlements.json` 已退役，内容加载不创建旧聚居地实例，也不要求首次目录包含聚居地。聚居地类型与模板见 [16](16-settlements.md)；世界生成在生成边界校验所需内容和开局地点，见 [05](05-world-graph-and-generation.md)。
 - 存档位于 `user://saves/<存档 UUID>/save.json`。内容文件按稳定身份组织，显示名称保存在文件内，重命名不改变身份和引用；路径不替代定义内部的 DefinitionId。旧蓝图文件形式为 `user://blueprints/<蓝图 UUID>.composites.json`，其身份与原文件保护遵守上文迁移要求。
 - 早期切片通过手写 JSON 和测试操作使用定义格式；设计编辑器与创作模式见 [15](15-design-editor-and-tools.md)。
 

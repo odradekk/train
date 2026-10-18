@@ -113,7 +113,7 @@ internal sealed class InitialLoader
                 package.Reject("linked_path", path, "", "内容目录包含无效路径或链接。");
                 continue;
             }
-            if (entry.Name is "lair-types" or "markets")
+            if (entry.Name is "markets")
             {
                 package.Reject("unsupported_format", path, "", $"当前尚未实现定义种类 {entry.Name}：{path}。");
                 continue;
