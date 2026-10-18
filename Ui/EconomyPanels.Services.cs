@@ -44,10 +44,11 @@ internal partial class EconomyPanels
         _serviceSourceOptions.Clear(); _serviceSources.Clear(); _serviceJobRows.Clear(); _servicePauseButtons.Clear();
         _serviceSelectedFacility = null; _serviceSelectedBlueprint = null; _serviceSelectedTarget = null; _serviceSelectedPlot = null;
         _serviceOperation = new() { Name = "ServiceOperation" };
-        _serviceOperation.AddItem("制造车辆"); _serviceOperation.AddItem("修理车辆");
-        _serviceOperation.AddItem("改装车辆");
-        if (_view.FindSettlement(_settlementId) is Lookup<SettlementView>.Found { Value.Relation: SettlementRelation.PlayerOwned })
-            _serviceOperation.AddItem("拆解车辆");
+        var ownedSettlement = _view.FindSettlement(_settlementId) is Lookup<SettlementView>.Found { Value.Relation: SettlementRelation.PlayerOwned };
+        _serviceOperation.AddItem(ownedSettlement ? "制造" : "制造车辆");
+        _serviceOperation.AddItem(ownedSettlement ? "修理" : "修理车辆");
+        _serviceOperation.AddItem(ownedSettlement ? "改装" : "改装车辆");
+        if (ownedSettlement) _serviceOperation.AddItem("拆解");
         body.AddChild(_serviceOperation);
         _serviceFacility = ServiceChoice(body, "ServiceFacility");
         _serviceBlueprint = ServiceChoice(body, "ServiceBlueprint");

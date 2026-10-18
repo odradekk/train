@@ -29,7 +29,7 @@ internal partial class EconomyPanels
                 ServiceDesignRequested?.Invoke(target.Instance);
         });
         body.AddChild(_serviceEdit);
-        _serviceDifferenceText = Text(body, "ServiceDifference", "保存草稿后回到此页获取报价；编辑器不提交车辆操作。");
+        _serviceDifferenceText = Text(body, "ServiceDifference", "保存草稿后回到此页获取报价；编辑器不提交制造、修理、改装或拆解。");
         _serviceApply = UiStyle.Button("ApplyServiceDesign", "立即应用", ApplyServiceDesign, true);
         body.AddChild(_serviceApply);
     }
