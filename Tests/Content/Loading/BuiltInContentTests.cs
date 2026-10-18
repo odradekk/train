@@ -21,7 +21,7 @@ public sealed class BuiltInContentTests
         var mods = new C.ContentRoot(Path.Combine(repository.FullName, "TestResults", "builtin-test-mods-" + Guid.NewGuid().ToString("N")));
         var factory = ContentFactory.Create();
         var result = factory.PrepareLoad(new(new(builtIn, mods, null, "0.0.56", []), new C.ContentLoadPurpose.Initial()),
-            new ContentDiskFiles(), new PngHeaderInspector());
+            new ContentDiskFiles(), new FixtureAssetInspector());
         Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Success>(result, result.ToString());
         using var candidate = ((C.ContentResult<C.IContentCandidate>.Success)result).Value;
         Assert.AreEqual(0, candidate.Report.Diagnostics.Length);
@@ -214,7 +214,7 @@ public sealed class BuiltInContentTests
         var mods = new C.ContentRoot(Path.Combine(repository.FullName, "TestResults", "builtin-test-mods-" + Guid.NewGuid().ToString("N")));
         using var candidate = ContentCaptureTests.Success(ContentFactory.Create().PrepareLoad(
             new(new(builtIn, mods, null, "0.0.56", []), new C.ContentLoadPurpose.Initial()),
-            new ContentDiskFiles(), new PngHeaderInspector()));
+            new ContentDiskFiles(), new FixtureAssetInspector()));
         var titan = Complete(candidate.View, "titan-armed-vehicle");
         Assert.IsTrue(titan.Scene.Voxels.Length is >= 24_500 and <= 25_500, titan.Scene.Voxels.Length.ToString());
         var parts = titan.Core!.Design.Parts;
@@ -246,7 +246,7 @@ public sealed class BuiltInContentTests
             var factory = ContentFactory.Create();
             var installation = new C.ContentInstallation(new(Path.Combine(repository.FullName, "builtin", "core")), new(directory), null, "0.0.56", [new(package)]);
             var files = new ContentDiskFiles();
-            var inspector = new PngHeaderInspector();
+            var inspector = new FixtureAssetInspector();
             using var initial = ContentCaptureTests.Success(factory.PrepareLoad(new(installation, new C.ContentLoadPurpose.Initial()), files, inspector));
             var original = initial.View.Core.Processes.Single(process => ProcessReference(process.Details) == new K.ProcessRef.Production(new(package + ":test")));
             Assert.AreEqual(new K.GoodsQuantity(new K.GoodId.Voxel(new("core:staple-food")), 2),
@@ -287,11 +287,15 @@ public sealed class BuiltInContentTests
         return complete;
     }
 
-    // 只提供 PNG 头中的尺寸事实；本测试不证明 Godot 能解码这些资产。
-    private sealed class PngHeaderInspector : C.IAssetInspector
+    // PNG 读取头尺寸，GLB 返回固定格内元数据以测试内容加载；不证明模型事实。
+    // 真实 GLB 元数据由 CLI 检查器测试和 Engine 资产测试验证。
+    private sealed class FixtureAssetInspector : C.IAssetInspector
     {
         public C.AssetInspection Inspect(C.AssetKind kind, C.AssetRevision revision, ImmutableArray<byte> bytes)
         {
+            if (kind == C.AssetKind.Glb)
+                return new C.AssetInspection.Success(new C.AssetMetadata.Glb(1, [C.AssetAlphaMode.Opaque, C.AssetAlphaMode.Opaque],
+                    new(new(-0.25, 0, -0.25), new(0.25, 0.5, 0.25)), false, false, false, false, false, false));
             Assert.AreEqual(C.AssetKind.Png, kind);
             Assert.IsTrue(bytes.Length >= 24);
             Assert.IsTrue(bytes.AsSpan()[..8].SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }));

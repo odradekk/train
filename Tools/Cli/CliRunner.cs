@@ -61,7 +61,7 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
             ?? throw new InvalidDataException("project.godot 缺少游戏版本。");
         var loaded = Require(content.PrepareLoad(new(new(CliContentFiles.BuiltIn,
             CliContentFiles.Mods, null, gameVersion, []), purpose),
-            new CliContentFiles(repository), new PngAssetInspector()));
+            new CliContentFiles(repository), new AssetInspector()));
         if (loaded.Report.Diagnostics.Any(d => d.Severity == ContentDiagnosticSeverity.Error))
         {
             var message = string.Join('\n', loaded.Report.Diagnostics.Select(d => $"{d.Field}: {d.Code} {d.Message}"));
