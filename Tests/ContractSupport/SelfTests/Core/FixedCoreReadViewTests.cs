@@ -157,6 +157,27 @@ public sealed class FixedCoreReadViewTests
         AssertUnconfigured(() => unconfigured.QuoteLease(lease));
     }
 
+    [TestMethod]
+    public void JobsAndFoundingPreviewsCopyConfigurationAndRejectUnknownKeys()
+    {
+        var jobId = new JobId(4);
+        var job = new Lookup<JobView>.Found(new JobView.Founding(new(jobId, new(1), 180, 0, new(91), new("template"), [])));
+        var node = new NodeId(1);
+        var preview = new CoreResult<SettlementFoundingPreview>.Success(new(node, 40, [], [], 180, []));
+        var jobs = new Dictionary<JobId, Lookup<JobView>> { [jobId] = job };
+        var previews = new Dictionary<NodeId, CoreResult<SettlementFoundingPreview>> { [node] = preview };
+        var view = new FixedCoreReadView { Jobs = jobs, FoundingPreviews = previews };
+        jobs.Clear();
+        previews.Clear();
+        Assert.AreSame(job, view.FindJob(jobId));
+        Assert.AreSame(preview, view.PreviewSettlement(node));
+        AssertUnconfigured(() => view.FindJob(new JobId(9)));
+        AssertUnconfigured(() => view.PreviewSettlement(new NodeId(9)));
+        var unconfigured = new FixedCoreReadView();
+        AssertUnconfigured(() => unconfigured.FindJob(jobId));
+        AssertUnconfigured(() => unconfigured.PreviewSettlement(node));
+    }
+
     private static void AssertUnconfigured(Action operation)
     {
         var error = Assert.ThrowsExactly<InvalidOperationException>(operation);
