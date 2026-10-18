@@ -1035,6 +1035,42 @@ public sealed class NodeStreamingTests
     }
 
     [TestMethod]
+    public async Task PendingRailFogDoesNotCoverTheAttachedCurvedRail()
+    {
+        var snapshot = NodeFixtures.Snapshot(content: NodeFixtures.Content());
+        var prepared = NodeScene.Prepare(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+        var segment = prepared.Rails.Values.First(part => Vector3.Dot(part.Sample(part.Begin).Forward,
+            part.Sample(part.End).Forward) < .99f);
+        var part = new NodeScene.Part(segment.Inputs, WorldSceneSession.BuildGeometry(_ => new([], [], [])),
+            ImmutableDictionary<GridColumn, double>.Empty);
+        var cache = new NodeScene.Cache();
+        var owner = cache.Open(NodeFixtures.NodeId);
+        cache.Publish(NodeFixtures.NodeId, owner, prepared.Global with { Parts = prepared.Global.Parts.Add(segment.Key, part) });
+        using var release = new ManualResetEventSlim();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles, cache,
+            build: (data, from, old, token) => { release.Wait(token); return SmallPart(data, from, old, token); },
+            buildRail: (_, pending, old, token) => { release.Wait(token); return pending.Build(old, token); });
+        try
+        {
+            await scene.BuildWork!;
+            scene.Pump(focus: segment.Sample((segment.Begin + segment.End) / 2).Position);
+            var frame = Present(scene, snapshot);
+            Assert.IsTrue(Rails(cache).ContainsKey(segment.Key));
+            var fog = frame.Update.Environment.FoggedRegions.Where(box => box.Minimum.Y == segment.Bounds.Minimum.Y &&
+                box.Maximum.Y == segment.Bounds.Maximum.Y).ToArray();
+            Assert.IsTrue(fog.Length > 0, "Other rails are still pending and must retain construction fog.");
+            for (var arc = segment.Begin + 1; arc < segment.End - 1; arc += 2)
+            {
+                var point = segment.Sample(arc).Position;
+                Assert.IsFalse(fog.Any(box => point.X > box.Minimum.X && point.X < box.Maximum.X &&
+                    point.Z > box.Minimum.Z && point.Z < box.Maximum.Z), "Pending rail AABBs must not hide the attached curve.");
+            }
+        }
+        finally { release.Set(); }
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task Cancelled_rail_work_cannot_attach_or_publish_cache(bool close)

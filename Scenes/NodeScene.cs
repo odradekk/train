@@ -36,6 +36,10 @@ internal sealed class NodeScene : IAsyncDisposable
     internal sealed record RailSegment(string Key, Func<double, RailwaySample> Sample, double Begin, double End,
         SceneBounds Bounds, string Inputs)
     {
+        private ImmutableArray<SceneBounds> footprint;
+        internal ImmutableArray<SceneBounds> Footprint => footprint.IsDefault ? footprint = ConstructionFog.Band(
+            Sample, Begin, End, RailwayCoordinates.BedBaseHalfWidth, Bounds.Minimum.Y, Bounds.Maximum.Y) : footprint;
+
         internal Part Build(Part? previous = null, CancellationToken token = default)
         {
             token.ThrowIfCancellationRequested();
@@ -171,6 +175,11 @@ internal sealed class NodeScene : IAsyncDisposable
     }
     private readonly Dictionary<GridColumn, Part> chunks = [];
     private readonly Dictionary<string, Part> rails = [];
+    private readonly HashSet<string> foggedRails = [];
+    private bool railFogDirty = true;
+    private ImmutableArray<SceneBounds> railFogBounds = [];
+    private ImmutableArray<SceneFog> translatedRailFog = [];
+    private ScenePoint? railFogOrigin;
     private readonly Dictionary<string, CompletedPart> completedParts = [];
     private readonly object workGate = new();
     private Queue<(string Key, SceneBounds Bounds, GridColumn? Chunk)> waitingParts = [];
@@ -329,7 +338,7 @@ internal sealed class NodeScene : IAsyncDisposable
         { chunks.Remove(from); attached.Remove(ChunkKey(from)); }
         foreach (var key in rails.Keys.Where(key => !retention.Intersects(prepared!.Rails[key].Bounds) &&
             !prefetch.Intersects(prepared.Rails[key].Bounds)).ToArray())
-        { rails.Remove(key); attached.Remove(key); }
+        { rails.Remove(key); attached.Remove(key); railFogDirty = true; }
         foreach (var key in pendingParts.Where(pair => pair.Value.Task.IsCompleted).Select(pair => pair.Key).ToArray())
         {
             var work = pendingParts[key];
@@ -406,7 +415,7 @@ internal sealed class NodeScene : IAsyncDisposable
                 visuals + ready.Visuals > NodeStreaming.AdmissionVisualLimit ||
                 followedPath?.Priority.Count > 0 && firstPriority is { Distance: 0 } && priority != firstPriority.Value)) break;
             if (ready.Chunk is { } from) chunks.Add(from, ready.Part);
-            else rails.Add(key, ready.Part);
+            else { rails.Add(key, ready.Part); railFogDirty = true; }
             Attach(key, ready.Part);
             completedParts.Remove(key);
             vertices += ready.Vertices;
@@ -474,11 +483,7 @@ internal sealed class NodeScene : IAsyncDisposable
         var terrainFog = ImmutableArray.CreateBuilder<SceneFog>();
         if (layout is not null && prepared?.HasChunks != false) TerrainFog(origin, terrainFog);
         fog.AddRange(terrainFog);
-        if (prepared is not null)
-            foreach (var segment in prepared.Rails.Values.Where(segment => !rails.ContainsKey(segment.Key) &&
-                (range.Intersects(segment.Bounds) || NodeStreaming.OverlapsTerrain(segment.Bounds, chunks.Keys))))
-                fog.Add(new(new(segment.Bounds.Minimum - RailwayCoordinates.Relative(origin, default),
-                    segment.Bounds.Maximum - RailwayCoordinates.Relative(origin, default))));
+        fog.AddRange(RailFog(origin));
         fog.AddRange(trainFog);
         if (layout is not null)
         {
@@ -524,6 +529,38 @@ internal sealed class NodeScene : IAsyncDisposable
 
         void Add(RenderedDesign geometry)
         { objects.AddRange(geometry.Objects); picking.AddRange(geometry.Picking); problems.AddRange(geometry.Diagnostics); }
+    }
+
+    private ImmutableArray<SceneFog> RailFog(ScenePoint origin)
+    {
+        if (prepared is null) return [];
+        bool NeedsFog(RailSegment segment) => !rails.ContainsKey(segment.Key) &&
+            (range.Intersects(segment.Bounds) || NodeStreaming.OverlapsTerrain(segment.Bounds, chunks.Keys));
+        var count = 0;
+        foreach (var segment in prepared.Rails.Values)
+            if (NeedsFog(segment))
+            {
+                count++;
+                if (!foggedRails.Contains(segment.Key)) railFogDirty = true;
+            }
+        if (count != foggedRails.Count) railFogDirty = true;
+        if (railFogDirty)
+        {
+            foggedRails.Clear();
+            foreach (var segment in prepared.Rails.Values.Where(NeedsFog)) foggedRails.Add(segment.Key);
+            railFogBounds = ConstructionFog.Clip(foggedRails.Select(key => prepared.Rails[key].Bounds),
+                rails.Keys.SelectMany(key => prepared.Rails[key].Footprint));
+            railFogDirty = false;
+            railFogOrigin = null;
+        }
+        if (railFogOrigin != origin)
+        {
+            var shift = RailwayCoordinates.Relative(default, origin);
+            translatedRailFog = railFogBounds.Select(bounds => new SceneFog(
+                new(bounds.Minimum + shift, bounds.Maximum + shift))).ToImmutableArray();
+            railFogOrigin = origin;
+        }
+        return translatedRailFog;
     }
 
     private void TerrainFog(ScenePoint origin, ImmutableArray<SceneFog>.Builder fog)
