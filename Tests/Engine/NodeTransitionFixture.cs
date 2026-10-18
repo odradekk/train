@@ -99,7 +99,7 @@ internal static class NodeTransitionFixture
         var settlement = new SettlementView(new(1), new(1), new("preview:town"), new("preview:town"), SettlementRelation.NonHostile, new(1),
             [new(new(1), 1, PlotSize.SmallStation, [BuildingKind.Station], new PlotOccupant.Building(new(1)))], [], 0, 2, 0, [], [], [], new(0, 0, 0, 0),
             new(new(new("preview:population"), null, []), 0, 0, 0, 0, new PopulationExecution.NotStarted([]), null, []),
-            new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [],
+            new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [], [],
             new(new(new("preview:market"), null, []), new(0, 0, 0, 0, 0, 0, 0), []));
         return new(new FixedCoreReadView
         {
