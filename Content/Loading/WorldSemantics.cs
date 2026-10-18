@@ -9,7 +9,8 @@ namespace Train.Content.Loading;
 internal static class WorldSemantics
 {
     internal static string Core(ImmutableArray<LoadedVoxel> voxels, WorldDefinitions world,
-        ImmutableArray<C.BlueprintRecord> blueprints, ImmutableArray<K.GoodDefinitionProjection> composites)
+        ImmutableArray<C.BlueprintRecord> blueprints, ImmutableArray<K.GoodDefinitionProjection> composites,
+        ImmutableArray<K.CreatureProjection> creatures)
     {
         var value = JsonSerializer.SerializeToNode(new
         {
@@ -22,6 +23,10 @@ internal static class WorldSemantics
         })!;
         if (!composites.IsEmpty) value["composites"] = JsonSerializer.SerializeToNode(composites.Select(g => new
         { id = ((K.GoodId.Composite)g.Good).Definition.Value, revision = g.Revision.Value }));
+        if (!creatures.IsEmpty) value["creatures"] = JsonSerializer.SerializeToNode(creatures.Select(creature => new
+        { id = creature.Id.Value, revision = creature.Revision.Value }));
+        if (!world.Lairs.IsEmpty) value["lairs"] = JsonSerializer.SerializeToNode(world.Lairs.Select(lair => new
+        { id = lair.Core.Id.Value, revision = lair.Core.Revision.Value }));
         return Hash(value);
     }
 
@@ -85,6 +90,11 @@ internal static class WorldSemantics
             .Where(g => g.Good is K.GoodId.Composite c && composites.Contains(c.Definition))
             .OrderBy(g => DesignEvaluator.GoodKey(g.Good), StringComparer.Ordinal)
             .Select(g => new { id = ((K.GoodId.Composite)g.Good).Definition.Value, revision = g.Revision.Value }));
+        var lairs = configuration.LairWeights.Select(weight => weight.Type).Distinct()
+            .OrderBy(id => id.Value, StringComparer.Ordinal)
+            .Select(id => world.Lairs.First(lair => lair.Core.Id == id)).ToArray();
+        if (lairs.Length > 0) value["lairs"] = JsonSerializer.SerializeToNode(lairs.Select(lair => new
+        { id = lair.Core.Id.Value, revision = lair.Core.Revision.Value }));
         return new(Hash(value));
     }
 

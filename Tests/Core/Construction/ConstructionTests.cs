@@ -41,15 +41,8 @@ public sealed class ConstructionTests
     {
         var content = Content();
         using var session = Session(content);
-        var input = Design(content);
         CoreCommand[] commands =
         [
-            new CoreCommand.StartOwnedJob(new JobRequest.BuildBuilding(Facility, new(1), input, [Local], 0)),
-            new CoreCommand.StartOwnedJob(new JobRequest.BuildEquipment(Facility, input, [Local], 0)),
-            new CoreCommand.StartOwnedJob(new JobRequest.Repair(Facility, new InstanceId.Building(new(1)), [Local], 0)),
-            new CoreCommand.StartOwnedJob(new JobRequest.Dismantle(Facility, new InstanceId.Building(new(1)), 0)),
-            new CoreCommand.StartOwnedJob(new JobRequest.Refit(Facility, new InstanceId.Building(new(1)),
-                new(input.Design.Design, input.Design.Composition, input, [], [], [], 0), [], 0)),
             new CoreCommand.SetJobPriority(new(1), 0)
         ];
         var before = session.State;
@@ -157,9 +150,11 @@ public sealed class ConstructionTests
         Assert.AreEqual(ConstructionState.ResourceBlocked, blocked.State);
         Assert.AreEqual(0d, blocked.ProgressWork);
         CollectionAssert.Contains(blocked.Limits.ToArray(), WorkLimit.Power);
+        Assert.AreEqual(60d, Demand(session), 1e-12);
+        Assert.AreEqual(0d, Labor(session), 1e-12);
         var updated = Changed(content) with
         {
-            ConstructionRules = [content.ConstructionRules[0] with { ConstructionWorkPerItem = 100, PowerPerWork = 0 }],
+            ConstructionRules = [content.ConstructionRules[0] with { ConstructionWorkPerItem = 100, PowerPerWork = 0, LaborPerWork = 100 }],
             Designs = content.Designs.Select(d => d.Design != WorldFixture.Station ? d : d with
             { Parts = d.Parts.Select(p => p with { Capabilities = p.Capabilities.Add(new PartCapability.Power(60)) }).ToImmutableArray() }).ToImmutableArray(),
             Goods = content.Goods.Select(g => g.Good == Material ? g with { FuelEnergyPerUnit = 1 } : g).ToImmutableArray()
@@ -168,6 +163,8 @@ public sealed class ConstructionTests
         Assert.AreEqual(2L, Job(session.Read(), job.Id).FrozenTotalWork);
         Step(session);
         Assert.AreEqual(1d, Job(session.Read(), job.Id).ProgressWork, 1e-12);
+        Assert.AreEqual(60d, Demand(session), 1e-12);
+        Assert.AreEqual(0d, Labor(session), 1e-12);
         Step(session);
         Assert.IsInstanceOfType<Lookup<JobView>.Missing>(session.Read().FindJob(job.Id));
     }
@@ -462,4 +459,10 @@ public sealed class ConstructionTests
         else json["world"]!["construction_jobs"]![0]![field] = JsonNode.Parse(value);
         Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Failure>(CoreFactory.Create().DecodeState(json.ToJsonString()));
     }
+
+    private static double Demand(ICoreSession session)
+        => ((CoreSession)session).State.World.Settlements.Single().LastConstructionPowerDemand;
+
+    private static double Labor(ICoreSession session)
+        => ((CoreSession)session).State.World.Settlements.Single().LastConstructionAllocatedLabor;
 }

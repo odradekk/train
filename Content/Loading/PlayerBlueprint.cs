@@ -51,7 +51,7 @@ internal static class PlayerBlueprint
         draft.Specification is C.DesignSpecification.FunctionalComposite
             ? new C.DesignEvaluation.Failed([Diagnostic("design_invalid", "/simulation/behaviors", "玩家蓝图不能带功能性行为。")])
             : draft.Specification is C.DesignSpecification.Creature
-                ? new C.DesignEvaluation.Failed([Diagnostic("unsupported_format", "/category", "生物设计尚未实现。")])
+                ? new C.DesignEvaluation.Failed([Diagnostic("unsupported_format", "/category", "玩家蓝图不支持生物类别。")])
                 : DesignEvaluator.Evaluate(view, draft);
 
     internal static C.ContentDiagnostic Diagnostic(string code, string field, string message) =>

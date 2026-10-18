@@ -219,7 +219,8 @@ internal sealed class AuthoringPackage : C.IAuthoringPackage
 
     private static C.AuthoringDefinitionAddress? Address(string path)
     {
-        foreach (var kind in new[] { C.DefinitionKind.Voxel, C.DefinitionKind.Blueprint, C.DefinitionKind.SettlementType, C.DefinitionKind.SettlementTemplate })
+        foreach (var kind in new[] { C.DefinitionKind.Voxel, C.DefinitionKind.Blueprint, C.DefinitionKind.SettlementType,
+            C.DefinitionKind.SettlementTemplate, C.DefinitionKind.LairType })
         {
             var name = DefinitionDraftJson.Kind(kind);
             var prefix = "resources/" + name + "s/";

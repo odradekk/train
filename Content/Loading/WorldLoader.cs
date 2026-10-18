@@ -9,9 +9,10 @@ internal sealed record LoadedGenerationProfile(C.GenerationProfileId Id, C.Displ
     K.ResolvedGenerationConfiguration Configuration, K.NewGameStartInput Start);
 internal sealed record WorldDefinitions(ImmutableArray<C.TerrainAppearanceProjection> Terrains,
     ImmutableArray<LoadedSettlementType> Types, ImmutableArray<LoadedSettlementTemplate> Templates,
-    ImmutableArray<ParsedRule> Rules, ImmutableArray<LoadedGenerationProfile> Profiles, ImmutableArray<ParsedProcess> Processes)
+    ImmutableArray<ParsedRule> Rules, ImmutableArray<LoadedGenerationProfile> Profiles, ImmutableArray<ParsedProcess> Processes,
+    ImmutableArray<LoadedLair> Lairs)
 {
-    internal static WorldDefinitions Empty { get; } = new([], [], [], [], [], []);
+    internal static WorldDefinitions Empty { get; } = new([], [], [], [], [], [], []);
 }
 
 internal sealed class WorldLoader
@@ -22,15 +23,17 @@ internal sealed class WorldLoader
     private readonly List<(LoadPackage Package, ParsedRule Value)> _rules = [];
     private readonly List<(LoadPackage Package, ParsedGenerationProfile Value)> _profiles = [];
     private readonly List<(LoadPackage Package, ParsedProcess Value)> _processes = [];
+    private readonly List<(LoadPackage Package, ParsedLair Value)> _lairs = [];
 
     internal static bool Directory(string name) => name is "terrain-types" or "settlement-types" or "settlement-templates"
-        or "generation-profiles" or "rules" or "railway-rules" or "combat-rules" or "processes";
+        or "generation-profiles" or "rules" or "railway-rules" or "combat-rules" or "processes" or "lair-types";
 
     internal static string? Kind(string directory, string file) => directory switch
     {
         "terrain-types" => "terrain-type", "settlement-types" => "settlement-type",
         "settlement-templates" => "settlement-template", "generation-profiles" => "generation-profile",
         "railway-rules" => "railway-rule", "combat-rules" => "combat-rule", "processes" => "process",
+        "lair-types" => "lair-type",
         "rules" => new[] { "population-rule", "market-rule", "construction-rule" }
             .FirstOrDefault(kind => file.EndsWith("." + kind + ".json", StringComparison.Ordinal)),
         _ => null
@@ -44,6 +47,7 @@ internal sealed class WorldLoader
             case "settlement-template": Add(SettlementParser.Template(bytes, package, path), _templates); break;
             case "generation-profile": Add(GenerationProfileParser.Parse(bytes, package, path), _profiles); break;
             case "process": Add(ProcessParser.Parse(bytes, package, path), _processes); break;
+            case "lair-type": Add(LairParser.Parse(bytes, package, path), _lairs); break;
             case "settlement-type":
                 var type = SettlementParser.Type(bytes, package, path);
                 if (type is null) break;
@@ -70,7 +74,9 @@ internal sealed class WorldLoader
         RejectDuplicates(_rules, r => r.Id.Value, r => r.Path);
         RejectDuplicates(_profiles, p => p.Id.Value, p => p.Path);
         RejectDuplicates(_processes, p => p.Id, p => p.Path);
+        RejectDuplicates(_lairs, lair => lair.Core.Id.Value, lair => lair.Path);
         var resolvedTerrains = new Dictionary<K.TerrainTypeId, C.TerrainAppearanceProjection>();
+        var resolvedLairs = new Dictionary<K.LairTypeId, LoadedLair>();
         var resolvedTemplates = new Dictionary<K.SettlementTemplateId, LoadedSettlementTemplate>();
         var resolvedProfiles = new Dictionary<C.GenerationProfileId, LoadedGenerationProfile>();
         int before;
@@ -89,7 +95,9 @@ internal sealed class WorldLoader
                 .Concat(terrainIndex.Keys.Select(k => k.Value)).Concat(typeIndex.Keys.Select(k => k.Value))
                 .Concat(ruleIndex.Keys.Select(k => k.Value)).Concat(_templates.Where(t => Active(t.Package)).Select(t => t.Value.Id.Value))
                 .Concat(_processes.Where(p => Active(p.Package)).Select(p => p.Value.Id))
-                .Concat(_profiles.Where(p => Active(p.Package)).Select(p => p.Value.Id.Value)).ToHashSet(StringComparer.Ordinal);
+                .Concat(_profiles.Where(p => Active(p.Package)).Select(p => p.Value.Id.Value))
+                .Concat(_lairs.Where(lair => Active(lair.Package)).Select(lair => lair.Value.Core.Id.Value)).ToHashSet(StringComparer.Ordinal);
+            var lairIndex = _lairs.Where(lair => Active(lair.Package)).ToDictionary(lair => lair.Value.Core.Id);
             var references = new References(voxelIndex, blueprintIndex, known);
             foreach (var (package, terrain) in _terrains.Where(t => Active(t.Package)))
             {
@@ -119,9 +127,14 @@ internal sealed class WorldLoader
                 var loaded = ResolveTemplate(package, source, references, typeIndex.ContainsKey(source.Type), processIndex);
                 if (loaded is not null) resolvedTemplates[source.Id] = loaded;
             }
+            foreach (var (package, source) in _lairs.Where(lair => Active(lair.Package)))
+            {
+                var loaded = ResolveLair(package, source, references);
+                if (loaded is not null) resolvedLairs[source.Core.Id] = loaded;
+            }
             foreach (var (package, source) in _profiles.Where(p => Active(p.Package)))
             {
-                var loaded = ResolveProfile(package, source, references, terrainIndex, ruleIndex);
+                var loaded = ResolveProfile(package, source, references, terrainIndex, ruleIndex, lairIndex);
                 if (loaded is not null) resolvedProfiles[source.Id] = loaded;
             }
             PackageLoader.ExcludeDependents(packages);
@@ -132,7 +145,8 @@ internal sealed class WorldLoader
             _templates.Where(t => Active(t.Package)).Select(t => resolvedTemplates[t.Value.Id]).OrderBy(t => t.Core.Id.Value, StringComparer.Ordinal).ToImmutableArray(),
             _rules.Where(r => Active(r.Package)).Select(r => r.Value).OrderBy(r => r.Id.Value, StringComparer.Ordinal).ToImmutableArray(),
             _profiles.Where(p => Active(p.Package)).Select(p => resolvedProfiles[p.Value.Id]).OrderBy(p => p.Id.Value, StringComparer.Ordinal).ToImmutableArray(),
-            _processes.Where(p => Active(p.Package)).Select(p => p.Value).OrderBy(p => p.Id, StringComparer.Ordinal).ToImmutableArray());
+            _processes.Where(p => Active(p.Package)).Select(p => p.Value).OrderBy(p => p.Id, StringComparer.Ordinal).ToImmutableArray(),
+            _lairs.Where(lair => Active(lair.Package)).Select(lair => resolvedLairs[lair.Value.Core.Id]).OrderBy(lair => lair.Core.Id.Value, StringComparer.Ordinal).ToImmutableArray());
     }
 
     private static C.TerrainAppearanceProjection? ResolveTerrain(LoadPackage package, ParsedTerrain source, References references)
@@ -268,8 +282,18 @@ internal sealed class WorldLoader
         }
     }
 
+    private static LoadedLair? ResolveLair(LoadPackage package, ParsedLair source, References references)
+    {
+        var subject = new C.ContentReference.Core(new K.CoreDefinitionReference.Lair(source.Core.Id));
+        var scene = references.Scene(package, source.Path, subject, source.SceneModel, "/scene_model");
+        foreach (var member in source.Members)
+            references.Creature(package, source.Path, subject, member.Creature, member.Field);
+        return Active(package) && scene is not null ? new(source.Core, source.Display, scene) : null;
+    }
+
     private static LoadedGenerationProfile? ResolveProfile(LoadPackage package, ParsedGenerationProfile source,
-        References references, Dictionary<K.TerrainTypeId, ParsedTerrain> terrains, Dictionary<K.RuleDefinitionId, ParsedRule> rules)
+        References references, Dictionary<K.TerrainTypeId, ParsedTerrain> terrains, Dictionary<K.RuleDefinitionId, ParsedRule> rules,
+        Dictionary<K.LairTypeId, (LoadPackage Package, ParsedLair Value)> lairs)
     {
         var subject = new C.ContentReference.Generation(source.Id);
         var config = source.Configuration;
@@ -292,7 +316,7 @@ internal sealed class WorldLoader
                 references.Need(package, source.Path, subject, terrain.Value, terrains.ContainsKey(terrain), "/configuration/resources");
         }
         foreach (var lair in config.LairWeights)
-            references.Need(package, source.Path, subject, lair.Type.Value, false, "/configuration/lair_weights");
+            references.Need(package, source.Path, subject, lair.Type.Value, lairs.ContainsKey(lair.Type), "/configuration/lair_weights");
         Rule(config.Rules.Population, r => r is ParsedRule.Population, "population");
         Rule(config.Rules.Market, r => r is ParsedRule.Market, "market");
         Rule(config.Rules.Construction, r => r is ParsedRule.Construction, "construction");
@@ -389,6 +413,13 @@ internal sealed class WorldLoader
             if (vehicle ? design.Core?.Design.Kind is K.DesignKind.Vehicle : design.Core?.Design.Kind is K.DesignKind.Building) return design;
             package.Reject("reference_wrong_kind", path, field, "蓝图类别不符。", subject);
             return null;
+        }
+        internal void Creature(LoadPackage package, string path, C.ContentReference subject, string id, string field)
+        {
+            Need(package, path, subject, id, blueprints.ContainsKey(id), field);
+            if (!blueprints.TryGetValue(id, out var blueprint)) return;
+            if (blueprint.Definition.Specification is C.DesignSpecification.Creature) return;
+            package.Reject("reference_wrong_kind", path, field, "引用必须是生物蓝图。", subject);
         }
         internal C.SceneModelProjection? Scene(LoadPackage package, string path, C.ContentReference subject,
             C.BlueprintAddress address, string field)

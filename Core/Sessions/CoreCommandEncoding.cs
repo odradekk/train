@@ -24,7 +24,7 @@ internal static class CoreCommandEncoding
             writer.WriteString("kind", command switch
             {
                 CoreCommand.PublishContent => "content.publish",
-                CoreCommand.ApplyInstanceDesign { Instance: InstanceId.Vehicle } => "instance.apply_design",
+                CoreCommand.ApplyInstanceDesign => "instance.apply_design",
                 CoreCommand.SetDeconstructionPaused => "construction.set_deconstruction_paused",
                 CoreCommand.FormTrain => "train.form",
                 CoreCommand.DisbandTrain => "train.disband",
@@ -40,7 +40,7 @@ internal static class CoreCommandEncoding
                 CoreCommand.SellVehicle => "market.sell_vehicle",
                 CoreCommand.AcquireLease => "lease.acquire",
                 CoreCommand.FoundSettlement => "settlement.found",
-                CoreCommand.StartOwnedJob { Request: JobRequest.BuildVehicle or JobRequest.Repair { Instance: InstanceId.Vehicle } or JobRequest.Refit { Instance: InstanceId.Vehicle } or JobRequest.Dismantle { Instance: InstanceId.Vehicle } } => "construction.start_owned",
+                CoreCommand.StartOwnedJob => "construction.start_owned",
                 CoreCommand.CommissionVehicleWork { Request: JobRequest.BuildVehicle or JobRequest.Repair { Instance: InstanceId.Vehicle } or JobRequest.Refit { Instance: InstanceId.Vehicle } } => "construction.commission_vehicle_work",
                 _ => throw new NotImplementedException($"{command.GetType().Name} 尚未实现。")
             });
@@ -51,7 +51,12 @@ internal static class CoreCommandEncoding
                     WriteIdentity(writer, "material_source", found.MaterialSource.Value);
                     break;
                 case CoreCommand.ApplyInstanceDesign apply:
-                    WriteIdentity(writer, "vehicle", ((InstanceId.Vehicle)apply.Instance).Id.Value);
+                    switch (apply.Instance)
+                    {
+                        case InstanceId.Vehicle vehicle: WriteIdentity(writer, "vehicle", vehicle.Id.Value); break;
+                        case InstanceId.Building building: WriteIdentity(writer, "building", building.Id.Value); break;
+                        default: throw new ArgumentException("实例身份无效。", nameof(command));
+                    }
                     writer.WritePropertyName("change");
                     WorldJson.WriteDesignChange(writer, WorldInputs.NormalizeDesignChange(apply.Change));
                     break;
@@ -190,9 +195,10 @@ internal static class CoreCommandEncoding
             if (!root.TryGetProperty("kind", out var kind) || kind.ValueKind != JsonValueKind.String)
                 return Failure("unsupported_format", "/kind");
             var name = Text(kind, "/kind");
+            if (name == "instance.apply_design")
+                return DecodeDesignApplication(root);
             string[]? fields = name switch
             {
-                "instance.apply_design" => ["input_format_version", "kind", "vehicle", "change"],
                 "construction.set_deconstruction_paused" => ["input_format_version", "kind", "job", "paused"],
                 "content.publish" => new[] { "input_format_version", "kind", "input_identity" },
                 "train.form" => ["input_format_version", "kind", "ordered_vehicles"],
@@ -216,9 +222,6 @@ internal static class CoreCommandEncoding
                 return Success(new(null, new CoreCommand.FoundSettlement(
                     new(Identity(Property(root, "node", "", JsonValueKind.Number), "/node")),
                     new(Identity(Property(root, "material_source", "", JsonValueKind.Number), "/material_source")))));
-            if (name == "instance.apply_design")
-                return Success(new(null, new CoreCommand.ApplyInstanceDesign(
-                    new InstanceId.Vehicle(new(Identity(Property(root, "vehicle", "", JsonValueKind.Number), "/vehicle"))), ReadDesignChange(root, ""))));
             if (name == "construction.set_deconstruction_paused")
             {
                 if (!root.TryGetProperty("paused", out var paused) || paused.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
@@ -318,30 +321,65 @@ internal static class CoreCommandEncoding
         var (facility, sources, priority) = request switch
         {
             JobRequest.BuildVehicle construction => (construction.Facility, construction.Sources, construction.Priority),
-            JobRequest.Repair { Instance: InstanceId.Vehicle } repair => (repair.Facility, repair.Sources, repair.Priority),
-            JobRequest.Refit { Instance: InstanceId.Vehicle } refit => (refit.Facility, refit.Sources, refit.Priority),
-            JobRequest.Dismantle { Instance: InstanceId.Vehicle } dismantle => (dismantle.Facility, ImmutableArray<InventoryId>.Empty, dismantle.Priority),
+            JobRequest.BuildBuilding construction => (construction.Facility, construction.Sources, construction.Priority),
+            JobRequest.BuildEquipment construction => (construction.Facility, construction.Sources, construction.Priority),
+            JobRequest.Repair repair => (repair.Facility, repair.Sources, repair.Priority),
+            JobRequest.Refit refit => (refit.Facility, refit.Sources, refit.Priority),
+            JobRequest.Dismantle dismantle => (dismantle.Facility, ImmutableArray<InventoryId>.Empty, dismantle.Priority),
             _ => throw new NotImplementedException($"{request?.GetType().Name} 尚未实现。")
         };
         ArgumentNullException.ThrowIfNull(facility);
         if (!Enum.IsDefined(facility.Capability)) throw new ArgumentException("能力种类无效。", nameof(request));
         if (sources.IsDefault) throw new ArgumentException("数组必须初始化。", nameof(request));
         writer.WriteStartObject("request");
-        writer.WriteString("kind", request switch { JobRequest.BuildVehicle => "build_vehicle", JobRequest.Refit => "refit_vehicle", JobRequest.Dismantle => "dismantle_vehicle", _ => "repair_vehicle" });
+        writer.WriteString("kind", request switch
+        {
+            JobRequest.BuildVehicle => "build_vehicle",
+            JobRequest.BuildBuilding => "build_building",
+            JobRequest.BuildEquipment => "build_equipment",
+            JobRequest.Refit { Instance: InstanceId.Building } => "refit_building",
+            JobRequest.Refit => "refit_vehicle",
+            JobRequest.Dismantle { Instance: InstanceId.Building } => "dismantle_building",
+            JobRequest.Dismantle => "dismantle_vehicle",
+            JobRequest.Repair { Instance: InstanceId.Building } => "repair_building",
+            _ => "repair_vehicle"
+        });
         writer.WriteStartObject("facility");
         WriteIdentity(writer, "building", facility.Building.Value);
         writer.WriteString("capability", facility.Capability.ToString().ToLowerInvariant());
         writer.WriteEndObject();
-        if (request is JobRequest.BuildVehicle build)
+        if (request is JobRequest.BuildBuilding building) WriteIdentity(writer, "plot", building.Plot.Value);
+        if (request is JobRequest.BuildVehicle or JobRequest.BuildBuilding or JobRequest.BuildEquipment)
         {
-            var input = WorldInputs.NormalizeDesignInput(build.Design);
+            var input = WorldInputs.NormalizeDesignInput(request switch
+            {
+                JobRequest.BuildVehicle build => build.Design,
+                JobRequest.BuildBuilding build => build.Design,
+                JobRequest.BuildEquipment build => build.Design,
+                _ => throw new ArgumentException("施工请求无效。", nameof(request))
+            });
             writer.WritePropertyName("design");
             WorldJson.WriteDesignInput(writer, input);
         }
         else
         {
-            var instance = request switch { JobRequest.Repair repair => repair.Instance, JobRequest.Refit refit => refit.Instance, JobRequest.Dismantle dismantle => dismantle.Instance, _ => throw new ArgumentException("施工请求无效。", nameof(request)) };
-            WriteIdentity(writer, "vehicle", ((InstanceId.Vehicle)instance).Id.Value);
+            var instance = request switch
+            {
+                JobRequest.Repair repair => repair.Instance,
+                JobRequest.Refit refit => refit.Instance,
+                JobRequest.Dismantle dismantle => dismantle.Instance,
+                _ => throw new ArgumentException("施工请求无效。", nameof(request))
+            };
+            switch (instance)
+            {
+                case InstanceId.Vehicle vehicle:
+                    WriteIdentity(writer, "vehicle", vehicle.Id.Value);
+                    break;
+                case InstanceId.Building built:
+                    WriteIdentity(writer, "building", built.Id.Value);
+                    break;
+                default: throw new ArgumentException("实例身份无效。", nameof(request));
+            }
             if (request is JobRequest.Refit refitRequest)
             {
                 writer.WritePropertyName("change");
@@ -366,12 +404,19 @@ internal static class CoreCommandEncoding
     {
         const string field = "/request";
         var kind = Text(Property(request, "kind", field, JsonValueKind.String), field + "/kind");
-        if (kind is not ("build_vehicle" or "repair_vehicle" or "refit_vehicle" or "dismantle_vehicle") || commission && kind == "dismantle_vehicle") throw new InvalidField(field + "/kind");
+        if (kind is not ("build_vehicle" or "build_building" or "build_equipment" or "repair_vehicle" or "repair_building"
+                or "refit_vehicle" or "refit_building" or "dismantle_vehicle" or "dismantle_building")
+            || commission && kind is not ("build_vehicle" or "repair_vehicle" or "refit_vehicle"))
+            throw new InvalidField(field + "/kind");
         Fields(request, field, kind switch
         {
-            "build_vehicle" => ["kind", "facility", "design", "sources", "priority"],
+            "build_vehicle" or "build_equipment" => ["kind", "facility", "design", "sources", "priority"],
+            "build_building" => ["kind", "facility", "plot", "design", "sources", "priority"],
             "refit_vehicle" => ["kind", "facility", "vehicle", "change", "sources", "priority"],
+            "refit_building" => ["kind", "facility", "building", "change", "sources", "priority"],
             "dismantle_vehicle" => ["kind", "facility", "vehicle", "priority"],
+            "dismantle_building" => ["kind", "facility", "building", "priority"],
+            "repair_building" => ["kind", "facility", "building", "sources", "priority"],
             _ => ["kind", "facility", "vehicle", "sources", "priority"]
         });
         var facilityValue = Property(request, "facility", field, JsonValueKind.Object);
@@ -386,24 +431,51 @@ internal static class CoreCommandEncoding
         };
         var facility = new FacilityKey(new(Identity(Property(facilityValue, "building", field + "/facility", JsonValueKind.Number), field + "/facility/building")), capabilityKind);
         var sources = ImmutableArray.CreateBuilder<InventoryId>();
-        if (kind != "dismantle_vehicle")
+        if (kind is not ("dismantle_vehicle" or "dismantle_building"))
             foreach (var source in Property(request, "sources", field, JsonValueKind.Array).EnumerateArray())
                 sources.Add(new(Identity(source, $"{field}/sources/{sources.Count}")));
         var priority = Property(request, "priority", field, JsonValueKind.Number);
         if (!priority.TryGetInt32(out var number)) throw new InvalidField(field + "/priority");
-        if (kind == "dismantle_vehicle")
-            return new JobRequest.Dismantle(facility, new InstanceId.Vehicle(new(Identity(Property(request, "vehicle", field, JsonValueKind.Number), field + "/vehicle"))), number);
-        if (kind == "refit_vehicle")
-            return new JobRequest.Refit(facility, new InstanceId.Vehicle(new(Identity(Property(request, "vehicle", field, JsonValueKind.Number), field + "/vehicle"))), ReadDesignChange(request, field), sources.ToImmutable(), number);
-        if (kind == "repair_vehicle")
-            return new JobRequest.Repair(facility, new InstanceId.Vehicle(new(Identity(Property(request, "vehicle", field, JsonValueKind.Number), field + "/vehicle"))), sources.ToImmutable(), number);
+        var taken = sources.ToImmutable();
+        if (kind is "dismantle_vehicle" or "dismantle_building")
+            return new JobRequest.Dismantle(facility, ReadInstance(request, field, kind.EndsWith("building", StringComparison.Ordinal)), number);
+        if (kind is "refit_vehicle" or "refit_building")
+            return new JobRequest.Refit(facility, ReadInstance(request, field, kind.EndsWith("building", StringComparison.Ordinal)), ReadDesignChange(request, field), taken, number);
+        if (kind is "repair_vehicle" or "repair_building")
+            return new JobRequest.Repair(facility, ReadInstance(request, field, kind.EndsWith("building", StringComparison.Ordinal)), taken, number);
+        PlotId? plot = kind == "build_building"
+            ? new PlotId(Identity(Property(request, "plot", field, JsonValueKind.Number), field + "/plot")) : null;
         try
         {
             var input = WorldInputs.NormalizeDesignInput(WorldJson.ReadDesignInput(Property(request, "design", field, JsonValueKind.Object)));
-            return new JobRequest.BuildVehicle(facility, input, sources.ToImmutable(), number);
+            return kind switch
+            {
+                "build_building" => new JobRequest.BuildBuilding(facility, plot!.Value, input, taken, number),
+                "build_equipment" => new JobRequest.BuildEquipment(facility, input, taken, number),
+                _ => new JobRequest.BuildVehicle(facility, input, taken, number)
+            };
         }
         catch (Exception error) when (error is JsonException or ArgumentException or NotSupportedException)
         { throw new InvalidField(field + "/design"); }
+    }
+
+    private static InstanceId ReadInstance(JsonElement request, string field, bool building)
+        => building
+            ? new InstanceId.Building(new(Identity(Property(request, "building", field, JsonValueKind.Number), field + "/building")))
+            : new InstanceId.Vehicle(new(Identity(Property(request, "vehicle", field, JsonValueKind.Number), field + "/vehicle")));
+
+    private static CoreResult<DecodedCommand> DecodeDesignApplication(JsonElement root)
+    {
+        var hasVehicle = root.TryGetProperty("vehicle", out _);
+        var hasBuilding = root.TryGetProperty("building", out _);
+        if (hasVehicle == hasBuilding) throw new InvalidField(hasVehicle ? "/building" : "/vehicle");
+        Fields(root, "", hasVehicle
+            ? ["input_format_version", "kind", "vehicle", "change"]
+            : ["input_format_version", "kind", "building", "change"]);
+        InstanceId instance = hasVehicle
+            ? new InstanceId.Vehicle(new(Identity(Property(root, "vehicle", "", JsonValueKind.Number), "/vehicle")))
+            : new InstanceId.Building(new(Identity(Property(root, "building", "", JsonValueKind.Number), "/building")));
+        return Success(new(null, new CoreCommand.ApplyInstanceDesign(instance, ReadDesignChange(root, ""))));
     }
 
     private static DesignChangeProjection ReadDesignChange(JsonElement value, string field)

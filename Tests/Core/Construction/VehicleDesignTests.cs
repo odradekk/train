@@ -176,12 +176,8 @@ public sealed class VehicleDesignTests
             ? d with { CanConstruct = false } : d).ToImmutableArray() };
         using var oldInvalid = Session(unavailable);
         Reject(oldInvalid, new CoreCommand.ApplyInstanceDesign(Vehicle, change), "Change.Target", "invalid_design");
-        var before = session.State;
-        var commandCount = session.ReadRecording().Commands.Length;
-        Assert.ThrowsExactly<NotImplementedException>(() => session.Submit(
-            new CoreCommand.ApplyInstanceDesign(new InstanceId.Building(new(1)), change), CommandSource.AutomationTest));
-        Assert.AreEqual(before, session.State);
-        Assert.AreEqual(commandCount, session.ReadRecording().Commands.Length);
+        Reject(session, new CoreCommand.ApplyInstanceDesign(new InstanceId.Building(new(1)), change),
+            "Change.Before", "invalid_state");
     }
 
     [TestMethod]
