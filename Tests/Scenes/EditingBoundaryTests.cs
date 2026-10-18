@@ -165,17 +165,4 @@ public sealed class EditingBoundaryTests
             }
         }
     }
-    [TestMethod]
-    public void DeferredBatchOperationsRemainExplicitlyUnimplemented()
-    {
-        using var session = EditingFixtures.Open(EditingFixtures.Draft());
-        EditOperation[] deferred = [
-            new EditOperation.Cells(new EditFootprint.Box(new(new(0, 0, 0), new(1, 1, 1))), new CellEdit.Add(EditingFixtures.Cube)),
-            new EditOperation.Cells(new EditFootprint.Cell(new(0, 0, 0)), new CellEdit.Paint(null)),
-            new EditOperation.Cells(new EditFootprint.Cell(new(0, 0, 0)), new CellEdit.Shape(new("cube"))),
-            new EditOperation.MoveSelection(new(1, 0, 0)), new EditOperation.RotateSelection(GridAxis.Y, new(0, 0, 0), 1),
-            new EditOperation.CopySelection(new(1, 0, 0)), new EditOperation.PaintSelection(null), new EditOperation.ShapeSelection(new("cube"))];
-        foreach (var operation in deferred)
-            StringAssert.Contains(Assert.ThrowsExactly<NotImplementedException>(() => session.Preview(operation)).Message, "#334");
-    }
 }

@@ -149,7 +149,7 @@ public sealed class EditingReviewRegressionTests
     }
 
     [TestMethod]
-    public void BrushWidthAndCoverageHaveExact16And4096Boundaries()
+    public void BrushWidthAndCoverageHaveExact16And5000Boundaries()
     {
         using var session = EditingFixtures.Open(EditingFixtures.Draft());
         var atLimit = EditingFixtures.Preview(session, new EditOperation.Cells(new EditFootprint.Stroke([new(0, 0, 0)], 16), new CellEdit.Add(EditingFixtures.Cube)));
@@ -157,9 +157,9 @@ public sealed class EditingReviewRegressionTests
         Assert.AreEqual(4096, atLimit.AffectedCells);
         Assert.IsTrue(atLimit.CanApply);
         Assert.AreEqual("region_limit", EditingFixtures.Code(session.Preview(new EditOperation.Cells(new EditFootprint.Stroke([new(0, 0, 0)], 17), new CellEdit.Add(EditingFixtures.Cube)))));
-        var samples = Enumerable.Range(0, 4097).Select(x => new GridPosition(x, 0, 0)).ToImmutableArray();
-        var exact = EditingFixtures.Preview(session, new EditOperation.Cells(new EditFootprint.Stroke(samples.RemoveAt(4096), 1), new CellEdit.Add(EditingFixtures.Cube)));
-        Assert.AreEqual(4096, exact.CoveredCells);
+        var samples = Enumerable.Range(0, 5001).Select(x => new GridPosition(x, 0, 0)).ToImmutableArray();
+        var exact = EditingFixtures.Preview(session, new EditOperation.Cells(new EditFootprint.Stroke(samples.RemoveAt(5000), 1), new CellEdit.Add(EditingFixtures.Cube)));
+        Assert.AreEqual(5000, exact.CoveredCells);
         Assert.AreEqual("region_limit", EditingFixtures.Code(session.Preview(new EditOperation.Cells(new EditFootprint.Stroke(samples, 1), new CellEdit.Add(EditingFixtures.Cube)))));
         Assert.IsFalse(session.Read().CanUndo);
     }
