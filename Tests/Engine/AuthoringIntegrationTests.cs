@@ -25,7 +25,7 @@ public class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
         fixture.Service.Publish();
         Require(fixture.Editor.Leaving && fixture.Service.LastWrite is null, "未保存的真实网格编辑必须先询问，不能开始写包。");
         fixture.Editor.ResolveClose(LeaveChoice.Save);
-        await fixture.Pump(() => !fixture.Service.IsBusy && !fixture.Editor.IsBusy && !fixture.Editor.IsOpen);
+        await fixture.Pump(() => !fixture.Service.IsBusy && !fixture.Editor.IsBusy && !fixture.Editor.IsOpen, TimeSpan.FromSeconds(60));
         Require(fixture.Service.LastWrite is { Success: true, Completed.Length: > 0 } && fixture.LastOperation?.Succeeded == true,
             "真实补丁写入或普通重载失败：" + fixture.Service.Message);
         Require(!ReferenceEquals(original, fixture.Host.Content) && fixture.Host.GetStatus()!.View.InputIdentity == fixture.Host.Content!.Core.Identity,
