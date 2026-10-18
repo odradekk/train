@@ -25,7 +25,9 @@ internal static class RailwayVehicles
         var destroyed = built.Destroyed;
         var removedPaths = projection.NestedObjects.Where(item => item.Details is NestedObjectDetails.FunctionalComposite composite &&
             destroyed.Contains(composite.Number)).Select(item => item.NestedItemIndices).ToArray();
+        var removed = StructureDamage.Assess(instance, projection).Removed;
         var rows = projection.Voxels.Where(voxel => !voxel.Missing && !destroyed.Contains(voxel.Number) &&
+            !removed.Contains(new(DesignGeometry.Key(voxel.ObjectPath), voxel.LocalAt)) &&
             !removedPaths.Any(path => voxel.ObjectPath.Length >= path.Length && voxel.ObjectPath.Take(path.Length).SequenceEqual(path)) &&
             content.FindVoxelAppearance(voxel.Voxel) is ContentLookup<VoxelAppearanceProjection>.Found
             { Value.Behaviors.Wheelset: true }).Select(voxel => voxel.At.Z).Distinct().Order().ToArray();
@@ -168,7 +170,10 @@ internal sealed class SceneVehicles : IAsyncDisposable
         var scene = DesignGeometry.Projection(found.Value);
         return RailwayDependencies.Values(new object?[] { instance.Id, instance.Design,
             instance.Details is InstanceDetails.Vehicle vehicle ? (object)vehicle.Size : null,
-            WorldSceneSession.Destroyed(instance).OrderBy(part => part.Value).ToArray(), scene,
+            WorldSceneSession.Destroyed(instance).OrderBy(part => part.Value).ToArray(),
+            instance.Structure.EffectiveCurrent, instance.Structure.Maximum,
+            instance.Parts.OrderBy(part => part.Part.Value).Select(part =>
+                (part.Part.Value, part.Durability.EffectiveCurrent, part.Durability.Maximum)).ToArray(), scene,
             found.Value is DesignEvaluation.Complete complete ? complete.Diagnostics : ((DesignEvaluation.Partial)found.Value).Diagnostics,
             scene.Voxels.Select(voxel => voxel.Voxel).Distinct().OrderBy(id => id.Value, StringComparer.Ordinal)
                 .Select(id => content.FindVoxelAppearance(id)).ToArray() });

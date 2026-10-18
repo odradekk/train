@@ -38,6 +38,7 @@ internal sealed class RailwayScene : IAsyncDisposable
     private readonly Dictionary<int, SegmentWork> pendingSegments = [];
     private readonly List<SegmentWork> retiredSegments = [];
     private readonly SceneVehicles vehicles;
+    internal PresentationState? Presentation { get; set; }
     private RailwayPath? path;
     private SceneProblem? failure;
     private bool waitingSegments;
@@ -72,9 +73,12 @@ internal sealed class RailwayScene : IAsyncDisposable
     {
         var (start, seconds) = SceneFrame.SampleTime(snapshot, previous, request.Interpolation);
         if (path is null)
+        {
+            var waitingEffects = Effects(snapshot, ImmutableArray.CreateBuilder<SceneObject>(), seconds, switchedOrigin ?? default);
             return new(stamp, switchedOrigin ?? default, seconds, failure is null ? SceneReadiness.Loading : SceneReadiness.Failed,
                 [], [], [new(new SceneBounds(new(float.MinValue), new(float.MaxValue)))], failure is null ? [] : [failure], displayed,
-                debugLayers: request.DebugLayers, pickRay: request.PickRay);
+                debugLayers: request.DebugLayers, pickRay: request.PickRay, effects: waitingEffects);
+        }
 
         RefreshPath(snapshot);
         var trains = PlaceTrains(snapshot, start, request.Interpolation);
@@ -99,17 +103,25 @@ internal sealed class RailwayScene : IAsyncDisposable
         var frame = new FrameContents();
         RenderSegments(origin, frame);
         var waiting = false;
-        try { waiting = RenderTrains(snapshot.Content, trains, origin, frame); }
+        try { waiting = RenderTrains(snapshot, trains, origin, frame, seconds); }
         catch (RailwayBuildException error) { Fail(error); }
         if (failure is not null) frame.Problems.Add(failure);
         RetireCompletedWork();
         var radius = RailwayCoordinates.ViewRadiusSegments;
         var ready = Enumerable.Range(Math.Max(0, middle - radius), Math.Min(path.SegmentCount - 1, middle + radius) -
             Math.Max(0, middle - radius) + 1).All(segments.ContainsKey) && !waiting;
+        var terrain = ImmutableArray.CreateBuilder<TerrainCollisionPatch>();
+        foreach (var segment in segments.Values.OrderBy(item => item.Source.Index))
+        {
+            var patch = TerrainCollision.Patch(new(0), segment.Source.Origin, origin, segment.Source.Heights);
+            if (patch is not null) terrain.Add(patch with { Id = objectId("terrain:" + segment.Source.Index) });
+        }
+        var effects = Effects(snapshot, frame.Objects, seconds, origin);
         return new(stamp, origin, seconds, failure is not null ? SceneReadiness.Failed : segments.Count == 0 ? SceneReadiness.Loading :
             ready ? SceneReadiness.Ready : SceneReadiness.Partial, frame.Objects.ToImmutable(), frame.Picking.ToImmutable(),
             frame.Fog.ToImmutable(), RailwayTerrain.UniqueProblems(frame.Problems), displayed, path,
-            segments.Values.Select(item => item.Source).ToImmutableArray(), debugLayers: request.DebugLayers, pickRay: request.PickRay);
+            segments.Values.Select(item => item.Source).ToImmutableArray(), debugLayers: request.DebugLayers, pickRay: request.PickRay,
+            effects: effects, terrain: terrain.DrainToImmutable());
     }
 
     internal void Pump(SceneWorldSnapshot snapshot, WorldLocation.Edge location, bool allowBuild = true)
@@ -320,7 +332,17 @@ internal sealed class RailwayScene : IAsyncDisposable
         return position.DistanceMeters * RailwayCoordinates.CellsPerMeter;
     }
 
-    private bool RenderTrains(IContentView content, ImmutableArray<TrainPlacement> trains, ScenePoint origin, FrameContents frame)
+    private ImmutableArray<SceneEffectCue> Effects(SceneWorldSnapshot snapshot, ImmutableArray<SceneObject>.Builder objects,
+        double seconds, ScenePoint origin)
+    {
+        if (Presentation is not { } state) return [];
+        if (path is not null)
+            state.AddCreatures(objects, snapshot, new WorldLocation.Edge(Edge, 0), origin, path, null, seconds, objectId);
+        return state.Finish(objects, snapshot, new WorldLocation.Edge(Edge, 0), origin, path);
+    }
+
+    private bool RenderTrains(SceneWorldSnapshot snapshot, ImmutableArray<TrainPlacement> trains, ScenePoint origin,
+        FrameContents frame, double seconds)
     {
         var waiting = false;
         foreach (var train in trains)
@@ -328,14 +350,15 @@ internal sealed class RailwayScene : IAsyncDisposable
             if (!train.TrackAvailable) continue;
             foreach (var member in train.Members)
             {
+                Presentation?.Seen(member.Instance);
                 var pose = RailwayVehicles.Pose(path!.SampleWithNodes(member.CenterArc, train.Offset,
                     ((TrainPosition.Edge)train.Train.Position).Track), origin, train.Positive);
                 if (!train.LengthsKnown)
                 {
-                    frame.Add(SceneVehicles.Unplaced(content, member.Instance, member.Design, member.Length, pose, objectId));
+                    frame.Add(SceneVehicles.Unplaced(snapshot.Content, member.Instance, member.Design, member.Length, pose, objectId));
                     continue;
                 }
-                var geometry = vehicles.Reconcile(content, member.Instance, objectId);
+                var geometry = vehicles.Reconcile(snapshot.Content, member.Instance, objectId);
                 if (geometry is null)
                 {
                     waiting = true;
@@ -347,6 +370,7 @@ internal sealed class RailwayScene : IAsyncDisposable
                 var placed = RailwayVehicles.Place(geometry, pose, (train.Positive ? 1 : -1) * member.TrackArc);
                 var hidden = segments.Values.Any(segment => segment.Source.Tunnels.Any(interval => member.CenterArc >= interval.Start && member.CenterArc <= interval.End));
                 frame.Add(placed, hidden);
+                Presentation?.ApplyTurrets(frame.Objects, member.Instance, "vehicle:" + member.Instance.Id + ":", objectId, seconds, snapshot);
             }
         }
         return waiting;

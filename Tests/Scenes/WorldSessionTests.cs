@@ -298,6 +298,40 @@ public sealed class WorldSessionTests
         Assert.IsInstanceOfType<SceneResult<PickSubject>.Success>(session.Resolve(expired with { Object = restored.Id }));
     }
 
+    [TestMethod]
+    public async Task LateBlockedNodeRequestCannotReplaceTheNewerRequest()
+    {
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var session = Open(NodeFixtures.Snapshot(platforms: 0, trains: [], instances: []), (snapshot, id, previous, token) =>
+        {
+            if (id == NodeFixtures.NodeId)
+            {
+                entered.TrySetResult();
+                release.Wait();
+                token.ThrowIfCancellationRequested();
+            }
+            return RailwayFixtures.EmptyNode(snapshot, id, previous, token);
+        });
+        try
+        {
+            var first = (SceneResult<SceneRequestId>.Success)session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location));
+            Assert.IsTrue(entered.Task.Wait(TimeSpan.FromSeconds(5)));
+            var second = (SceneResult<SceneRequestId>.Success)session.RequestView(new WorldSceneTarget.Location(new WorldLocation.Node(new(2))));
+            Assert.AreNotEqual(first.Value, second.Value);
+            var frame = Present(session);
+            Assert.AreEqual(second.Value, frame.Update.Frame.Request);
+            Assert.AreEqual(new SceneSpaceId(2), frame.Update.Frame.Space);
+            Assert.AreEqual(new NodeId(2), frame.Node!.Node);
+            release.Set();
+            var later = Present(session);
+            Assert.AreEqual(second.Value, later.Update.Frame.Request);
+            Assert.AreEqual(new SceneSpaceId(2), later.Update.Frame.Space);
+            Assert.AreEqual(new NodeId(2), later.Node!.Node);
+        }
+        finally { release.Set(); }
+    }
+
     private static SceneWorldSnapshot Line(IContentView content, ulong steps = 0, ulong sequence = 0) =>
         RailwayFixtures.Snapshot(4, 4, 0, steps: steps, sequence: sequence, content: content);
 

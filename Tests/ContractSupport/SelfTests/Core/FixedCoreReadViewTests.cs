@@ -27,6 +27,8 @@ public sealed class FixedCoreReadViewTests
         AssertUnconfigured(() => view.FindTrain(new TrainId(1)));
         AssertUnconfigured(() => view.FindInstance(new InstanceId.Vehicle(new(1))));
         AssertUnconfigured(() => view.FindCombat(new CombatId(1)));
+        AssertUnconfigured(() => view.FindCreatureGroup(new CreatureGroupId(1)));
+        AssertUnconfigured(() => view.FindCreature(new CreatureId(1)));
         AssertUnconfigured(() => _ = view.Revision);
         AssertUnconfigured(() => _ = view.Fault);
         AssertUnconfigured(() => view.FindLocation(new WorldLocation.Node(new(1))));

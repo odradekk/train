@@ -205,6 +205,7 @@ internal sealed class NodeScene : IAsyncDisposable
     private Built? built;
     private SceneProblem? failure;
     internal NodeId Node { get; }
+    internal PresentationState? Presentation { get; set; }
     internal ScenePoint StreamingFocus => range.Focus;
     internal FollowedPath? StreamingFollow => followedPath;
     internal NodeLayout? Layout => layout ?? (pending?.IsCompletedSuccessfully == true ? pending.Result.Global.Layout : null);
@@ -671,7 +672,7 @@ internal sealed class NodeScene : IAsyncDisposable
                         "The settlement layout copy is missing."));
                 }
             }
-            Add(settlement.Present(snapshot, layout, origin, fog, range, chunks.Keys, prefetch));
+            Add(settlement.Present(snapshot, layout, origin, fog, range, chunks.Keys, prefetch, Presentation, seconds));
         }
         if (failure is not null) problems.Add(failure);
         foreach (var problem in reported) problems.Add(problem);
@@ -691,12 +692,28 @@ internal sealed class NodeScene : IAsyncDisposable
         if (nearCompleted && awaitingDisplay) admissionFrame ??= stamp;
         var readiness = failure is not null ? SceneReadiness.Failed : !nearCompleted ? SceneReadiness.Loading :
             Complete(NodeStreaming.ViewCells) ? SceneReadiness.Ready : SceneReadiness.Partial;
+        var parts = new List<(string Key, Part Part)>();
+        if (built is not null)
+            parts.AddRange(built.Parts.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => (item.Key, item.Value)));
+        parts.AddRange(chunks.OrderBy(item => item.Key.Z).ThenBy(item => item.Key.X).Select(item => (ChunkKey(item.Key), item.Value)));
+        parts.AddRange(rails.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => (item.Key, item.Value)));
+        var terrain = ImmutableArray.CreateBuilder<TerrainCollisionPatch>();
+        foreach (var (key, part) in parts)
+        {
+            var patch = TerrainCollision.Patch(new(0), part.Origin, origin, part.Heights);
+            if (patch is not null) terrain.Add(patch with { Id = objectId("terrain:" + key) });
+        }
+        var effects = ImmutableArray<SceneEffectCue>.Empty;
+        if (Presentation is { } state)
+        {
+            state.AddCreatures(objects, snapshot, new WorldLocation.Node(Node), origin, null, layout, seconds, objectId);
+            effects = state.Finish(objects, snapshot, new WorldLocation.Node(Node), origin, null);
+        }
         return new(stamp, origin, seconds, readiness,
             objects.ToImmutable(), picking.ToImmutable(), fog.ToImmutable(), RailwayTerrain.UniqueProblems(problems), displayed,
-            node: layout, nodeParts: built is null ? [] : built.Parts.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => item.Value)
-                .Concat(chunks.OrderBy(item => item.Key.Z).ThenBy(item => item.Key.X).Select(item => item.Value))
-                .Concat(rails.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => item.Value)).ToImmutableArray(),
-            debugLayers: request.DebugLayers, nodeTracks: layout?.EntryTracks, pickRay: request.PickRay);
+            node: layout, nodeParts: parts.Select(item => item.Part).ToImmutableArray(),
+            debugLayers: request.DebugLayers, nodeTracks: layout?.EntryTracks, pickRay: request.PickRay,
+            effects: effects, terrain: terrain.DrainToImmutable());
 
         void Add(RenderedDesign geometry)
         { objects.AddRange(geometry.Objects); picking.AddRange(geometry.Picking); problems.AddRange(geometry.Diagnostics); }
@@ -1066,6 +1083,7 @@ internal sealed class NodeScene : IAsyncDisposable
             for (var i = 0; i < members.Length; i++)
             {
                 var member = members[i];
+                Presentation?.Seen(member);
                 var arc = center + (positive ? 1 : -1) * (known ? total / 2.0 - consumed - lengths[i]!.Value / 2.0 : 0);
                 consumed += lengths[i] ?? 0;
                 var pose = RailwayVehicles.Pose(path.Sample(arc), origin, positive);

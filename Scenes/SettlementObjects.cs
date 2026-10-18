@@ -179,8 +179,8 @@ internal sealed class SettlementObjects : IAsyncDisposable
     }
 
     internal RenderedDesign Present(SceneWorldSnapshot snapshot, NodeLayout layout, ScenePoint origin,
-        ImmutableArray<SceneFog>.Builder fog, NodeRange? range = null, IReadOnlyCollection<GridColumn>? terrainChunks = null,
-        NodeRange? prefetch = null)
+        ImmutableArray<SceneFog>.Builder fog,         NodeRange? range = null, IReadOnlyCollection<GridColumn>? terrainChunks = null,
+        NodeRange? prefetch = null, PresentationState? presentation = null, double seconds = 0)
     {
         var objects = ImmutableArray.CreateBuilder<SceneObject>();
         var picking = ImmutableArray.CreateBuilder<PickGrid>();
@@ -192,12 +192,16 @@ internal sealed class SettlementObjects : IAsyncDisposable
         foreach (var item in placed)
         {
             var instance = item.Instance;
+            presentation?.Seen(instance);
             var buildingId = ((InstanceId.Building)instance.Id).Id;
             var pose = item.Pose with { Position = item.Pose.Position - RailwayCoordinates.Relative(origin, default) };
             var body = buildings.Prepare(snapshot.Content, instance);
             var hasBody = body is not null;
             if (hasBody)
+            {
                 Add(SceneGeometry.Place(WorldSceneSession.Attach(body!.Geometry, "building:" + buildingId.Value + ":", objectId).Geometry, pose));
+                presentation?.ApplyTurrets(objects, instance, "building:" + buildingId.Value + ":", objectId, seconds, snapshot);
+            }
             else objects.Add(new(objectId("building:" + buildingId.Value + ":"), null, pose, new WorldObjectId.Instance(instance.Id), [], [], []));
             if (!hasBody || !WorldSceneSession.Matches(body!, instance))
             {
@@ -223,6 +227,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
         foreach (var item in vehicles)
         {
             var instance = item.Instance;
+            presentation?.Seen(instance);
             var pose = item.Pose with { Position = item.Pose.Position - RailwayCoordinates.Relative(origin, default) };
             if (item.Bounds is null)
             {
@@ -232,7 +237,10 @@ internal sealed class SettlementObjects : IAsyncDisposable
             }
             var design = (ContentLookup<DesignEvaluation>.Found)item.Design;
             if (parked.Reconcile(snapshot.Content, instance, objectId) is { } rendered)
+            {
                 Add(RailwayVehicles.Place(rendered, pose, 0));
+                presentation?.ApplyTurrets(objects, instance, "vehicle:" + instance.Id + ":", objectId, seconds, snapshot);
+            }
             else
             {
                 var loading = SceneVehicles.Loading(instance, design.Value, pose, objectId);

@@ -28,6 +28,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     private SceneWorldSnapshot snapshot;
     private WorldSceneTarget? target;
     private EventEnvelope? lastEvent;
+    private readonly PresentationState presentation = new();
     private SceneProblem? fault;
     private SceneRequestId request;
     private SceneSpaceId space;
@@ -83,6 +84,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         request = new(request.Value + 1);
         space = new(space.Value + 1);
         ids.Clear();
+        presentation.Clear();
         switch (CurrentLocation(snapshot, value))
         {
             case WorldLocation.Edge edge:
@@ -154,6 +156,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             interpolationStart = input.Core.Position.CompletedSteps == snapshot.Core.Position.CompletedSteps + 1 ? snapshot : null;
         snapshot = input;
         lastEvent = previous;
+        presentation.Note(input, events, OpenLocation());
         return new SceneResult<SimulationPosition>.Success(input.Core.Position);
     }
 
@@ -189,7 +192,9 @@ internal sealed class WorldSceneSession : IWorldSceneSession
                     Switch(location, displayedFrame as SceneFrame);
             }
             closingScenes.RemoveAll(task => task.IsCompleted);
-            if (node is null && railway is null) throw new InvalidOperationException("The requested view has no scene.");
+            presentation.Acknowledge(displayedFrame as SceneFrame, request, space);
+            if (node is not null) node.Presentation = presentation;
+            if (railway is not null) railway.Presentation = presentation;
             candidate?.Node?.SetBuildAllowed(false);
             var retire = AdvanceSuccessor();
             var stamp = new SceneFrameStamp(Id, request, space, ++revision);
@@ -199,6 +204,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             if (retire is not null) closingScenes.Add(retire.DisposeAsync().AsTask());
             if (railway is not null) sceneOrigin = null;
             var liveIds = frame.Objects.Select(item => item.Id).ToHashSet();
+            foreach (var patch in frame.Update.Environment.TerrainCollision) liveIds.Add(patch.Id);
             foreach (var key in ids.Where(item => !liveIds.Contains(item.Value)).Select(item => item.Key).ToArray()) ids.Remove(key);
             Prebuild();
             PruneCaches();
@@ -220,6 +226,9 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         if (!map.TryGetValue(key, out var value)) map.Add(key, value = new(++nextObject));
         return value;
     }
+
+    private WorldLocation? OpenLocation() => railway is not null ? new WorldLocation.Edge(railway.Edge, 0) :
+        node is not null ? new WorldLocation.Node(node.Node) : null;
 
     private static bool SameLocation(WorldLocation? left, WorldLocation right) => (left, right) switch
     {
@@ -271,6 +280,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         if (railway is not null) { closingScenes.Add(railway.DisposeAsync().AsTask()); railway = null; }
         if (node is not null) { closingScenes.Add(node.DisposeAsync().AsTask()); node = null; }
         space = new(space.Value + 1);
+        presentation.Clear();
         if (candidate is { } next && SameLocation(next.Location, location) && next.Node is not { Layout: null })
         {
             railway = next.Railway; node = next.Node; ids = next.Ids;
@@ -361,7 +371,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         instance.Parts.Where(part => part.Destroyed).Select(part => part.Part).ToImmutableHashSet();
 
     internal static bool Matches(BuiltObject built, InstanceView current) =>
-        built.Design == current.Design && built.Destroyed.SetEquals(Destroyed(current));
+        built.Design == current.Design && built.Destroyed.SetEquals(Destroyed(current)) &&
+        StructureDamage.Signature.Same(built.Durability, StructureDamage.Signature.From(current));
 
     internal static BuiltObject BuildObject(IContentView content, InstanceView instance, ScenePose pose)
     {
@@ -371,7 +382,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             var subject = new WorldObjectId.Instance(instance.Id);
             var lookup = content.FindDesign(instance.Design);
             if (lookup is ContentLookup<DesignEvaluation>.Found design && design.Value is not DesignEvaluation.Failed)
-                return DesignGeometry.Build(content, design.Value, subject, pose, id, destroyed, instance.Design);
+                return DesignGeometry.Build(content, design.Value, subject, pose, id, destroyed, instance.Design,
+                    damage: StructureDamage.Assess(instance, DesignGeometry.Projection(design.Value), content));
             var problems = ImmutableArray.CreateBuilder<SceneProblem>();
             if (lookup is ContentLookup<DesignEvaluation>.Missing missing)
                 DesignGeometry.AddDiagnostics(missing.Diagnostics, problems, subject);
@@ -384,7 +396,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             return new([new(id(""), null, pose, subject, [new SceneVisual.Missing(reference, false)], [], [])],
                 [], problems.ToImmutable());
         });
-        return new(instance.Design, destroyed, geometry);
+        return new(instance.Design, destroyed, geometry, StructureDamage.Signature.From(instance));
     }
 
     internal static BuiltGeometry Attach(BuiltGeometry built, string prefix, Func<string, SceneObjectId> objectId)

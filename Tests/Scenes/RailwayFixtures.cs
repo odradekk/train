@@ -58,6 +58,7 @@ internal static class RailwayFixtures
         IReadOnlyDictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>? terrains = null,
         IReadOnlyDictionary<DesignHash, ContentLookup<DesignEvaluation>>? designs = null,
         IReadOnlyDictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>? voxels = null,
+        IReadOnlyDictionary<CreatureDefinitionId, ContentLookup<CreatureAppearanceProjection>>? creatures = null,
         ulong generation = 1)
     {
         var terrainViews = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
@@ -82,7 +83,8 @@ internal static class RailwayFixtures
             RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>
             { [Rule] = new ContentLookup<RailwayAppearanceProjection>.Found(rules ?? Rules) },
             VoxelAppearances = voxelViews,
-            Designs = designViews
+            Designs = designViews,
+            Creatures = creatures ?? new Dictionary<CreatureDefinitionId, ContentLookup<CreatureAppearanceProjection>>()
         };
     }
 
