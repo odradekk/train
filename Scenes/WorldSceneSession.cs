@@ -349,7 +349,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     {
         if (!settlementCaches.TryGetValue(id, out var caches))
             settlementCaches.Add(id, caches = (new(), new()));
-        return new(snapshot, id, nodeCache, objectId, vehicles, nodeBuild, caches.Buildings, caches.Parked, background: background, displayRate: displayRate);
+        return new(snapshot, id, nodeCache, objectId, vehicles, displayRate, nodeBuild, caches.Buildings, caches.Parked, background: background);
     }
     private void Prebuild()
     {

@@ -48,12 +48,12 @@ internal sealed class RailwayScene : IAsyncDisposable
     internal Task[] PendingWork => pendingSegments.Values.Select(item => (Task)item.Task).Concat(vehicles.PendingWork)
         .Concat(retiredSegments.Where(item => !item.Task.IsCompleted).Select(item => item.Task)).ToArray();
 
-    internal RailwayScene(SceneWorldSnapshot initial, EdgeId edge, RailwayCache cache, Func<string, SceneObjectId> objectId, SceneVehicles vehicles,
-        Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null, DisplayRate? displayRate = null)
+    internal RailwayScene(SceneWorldSnapshot initial, EdgeId edge, RailwayCache cache, Func<string, SceneObjectId> objectId, SceneVehicles vehicles, DisplayRate displayRate,
+        Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null)
     {
         this.cache = cache;
         this.vehicles = vehicles;
-        this.displayRate = displayRate ?? new();
+        this.displayRate = displayRate;
         Edge = edge;
         owner = cache.OpenSession(edge);
         this.objectId = objectId;

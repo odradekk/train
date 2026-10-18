@@ -220,15 +220,15 @@ internal sealed class NodeScene : IAsyncDisposable
     }
     internal void SetBuildAllowed(bool allowed) { lock (workGate) buildAllowed = allowed; }
 
-    internal NodeScene(SceneWorldSnapshot initial, NodeId node, Cache cache, Func<string, SceneObjectId> objectId, SceneVehicles vehicles,
+    internal NodeScene(SceneWorldSnapshot initial, NodeId node, Cache cache, Func<string, SceneObjectId> objectId, SceneVehicles vehicles, DisplayRate displayRate,
         Func<SceneWorldSnapshot, NodeId, Cached?, CancellationToken, Built>? generate = null,
         SceneVehicles.Cache? buildingCache = null, SceneVehicles.Cache? parkedCache = null,
         Func<Preparation, GridColumn, Part?, CancellationToken, Part>? buildChunk = null,
-        Func<Preparation, RailSegment, Part?, CancellationToken, Part>? buildRail = null, bool background = false, DisplayRate? displayRate = null)
+        Func<Preparation, RailSegment, Part?, CancellationToken, Part>? buildRail = null, bool background = false)
     {
         Node = node; this.cache = cache; this.objectId = objectId; owner = cache.Open(node);
         this.vehicles = vehicles;
-        this.displayRate = displayRate ?? new();
+        this.displayRate = displayRate;
         this.buildChunk = buildChunk ?? ((data, from, old, token) => data.BuildChunk(from, old, token));
         this.buildRail = buildRail ?? ((data, segment, old, token) => segment.Build(old, token));
         snapshot = initial;

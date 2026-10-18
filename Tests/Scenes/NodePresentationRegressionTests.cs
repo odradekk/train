@@ -19,7 +19,7 @@ public sealed class NodePresentationRegressionTests
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var block = false;
         await using var vehicles = new SceneVehicles();
-        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), Ids(), vehicles,
+        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), Ids(), vehicles, new(),
             buildChunk: (data, from, old, token) =>
             {
                 if (block) { entered.TrySetResult(); release.Wait(token); }
@@ -55,7 +55,7 @@ public sealed class NodePresentationRegressionTests
             release.Wait();
             return RailwayVehicles.Build(content, instance);
         });
-        await using var scene = new NodeScene(initial, NodeFixtures.NodeId, new(), Ids(), vehicles, buildChunk: (data, from, old, token) => Terrain(data, from, old, token));
+        await using var scene = new NodeScene(initial, NodeFixtures.NodeId, new(), Ids(), vehicles, new(), buildChunk: (data, from, old, token) => Terrain(data, from, old, token));
         try
         {
             await Settle(scene, initial, default);
@@ -107,7 +107,7 @@ public sealed class NodePresentationRegressionTests
         var range = new NodeRange(probe.Focus, NodeStreaming.PrefetchCells);
         Assert.IsFalse(range.Intersects(bounds), "The object must be outside the selection range.");
         await using var vehicles = new SceneVehicles();
-        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), Ids(), vehicles,
+        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), Ids(), vehicles, new(),
             buildChunk: (data, from, old, token) => Terrain(data, from, old, token, probe.Point));
         await Settle(scene, snapshot, probe.Focus);
         var frame = Present(scene, snapshot);
