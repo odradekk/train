@@ -239,7 +239,7 @@ internal static class RailwayTerrain
         {
             var (tunnels, portals) = SampleTunnels();
             var columns = SampleColumns();
-            foreach (var portal in portals) PlaceRailwayModel(portal.Arc, RailwayModelRole.Tunnel, columns, portal.Exit);
+            foreach (var portal in portals) PlacePortal(portal.Arc, portal.Exit, columns);
             PlaceModels(columns);
             return Render(columns, tunnels);
         }
@@ -414,8 +414,8 @@ internal static class RailwayTerrain
                 (double From, double To)? excluded = null;
                 if (isTunnel && Math.Abs(value.Offset) < RailwayCoordinates.TunnelShoulder(path.Edge.Tracks))
                 {
-                    var surfaceCell = value.Height - 1;
-                    var upper = Math.Min(rail.Position.Y + RailwayCoordinates.TunnelCrownCells, surfaceCell);
+                    var surface = value.Height;
+                    var upper = Math.Min(rail.Position.Y + RailwayCoordinates.TunnelCrownCells, surface);
                     if (upper > rail.Position.Y) excluded = (rail.Position.Y, upper);
                 }
                 var layers = PrepareColumn(value.Terrain, path.Rules.BallastVoxel, value.Height, trackDistance, hasBed, excluded,
@@ -515,10 +515,10 @@ internal static class RailwayTerrain
             if (path.Edge.Terrain.FeatureIds.Contains("lake")) yield return (path.LengthCells *
             (0.3 + 0.5 * RailwayRandom.Unit(path.Seed, path.Edge.Id.Value, 0, LakePlacementPurpose)), 48);
         }
-        private void PlaceRailwayModel(double arc, RailwayModelRole role, Dictionary<GridColumn, TerrainColumn> columns, bool exitPortal = false)
+        private void PlacePortal(double arc, bool exit, Dictionary<GridColumn, TerrainColumn> columns)
         {
             var terrain = GetTerrain(path.Edge.Terrain.TypeId);
-            modelReads.Add(new(path.Edge.Terrain.TypeId, -1, role));
+            modelReads.Add(new(path.Edge.Terrain.TypeId, -1, RailwayModelRole.Tunnel));
             var model = terrain?.RailwayModels.FirstOrDefault(item => item.Tracks == path.Edge.Tracks);
             if (model is null)
             {
@@ -526,7 +526,7 @@ internal static class RailwayTerrain
                 return;
             }
             var sample = path.Sample(arc);
-            var forward = exitPortal ? -sample.Forward : sample.Forward;
+            var forward = exit ? -sample.Forward : sample.Forward;
             AddModel(model.TunnelPortal,
                 new(RailwayCoordinates.Relative(sample.Position, origin), RailwayCoordinates.Rotation(forward)), null, columns);
         }
@@ -535,39 +535,34 @@ internal static class RailwayTerrain
         {
             var terrain = GetTerrain(path.Edge.Terrain.TypeId);
             var model = terrain?.RailwayModels.FirstOrDefault(item => item.Tracks == path.Edge.Tracks);
+            modelReads.Add(new(path.Edge.Terrain.TypeId, -1, RailwayModelRole.Bridge));
             if (model is null)
             {
-                if (!OwnsArc(waterCenter)) return;
-                modelReads.Add(new(path.Edge.Terrain.TypeId, -1, RailwayModelRole.Bridge));
-                ReportMissingModel(waterCenter);
+                if (OwnsArc(waterCenter)) ReportMissingModel(waterCenter);
                 return;
             }
             var lookup = snapshot.Content.FindDesign(model.Bridge);
+            models.Add(model.Bridge);
             if (lookup is not ContentLookup<DesignEvaluation>.Found found || found.Value is not (DesignEvaluation.Complete or DesignEvaluation.Partial))
             {
                 if (!OwnsArc(waterCenter)) return;
-                modelReads.Add(new(path.Edge.Terrain.TypeId, -1, RailwayModelRole.Bridge));
-                AddModel(model.Bridge, new(RailwayCoordinates.Relative(path.Sample(waterCenter).Position, origin), Quaternion.Identity), null, columns);
+                var sample = path.Sample(waterCenter);
+                AddModel(model.Bridge, new(RailwayCoordinates.Relative(sample.Position, origin), RailwayCoordinates.Rotation(sample.Forward)), null, columns);
                 return;
             }
             var scene = DesignGeometry.Projection(found.Value);
             var (kMin, kMax) = SpanRange(scene);
-            var members = RootSpanMembers(scene, kMin, kMax, waterCenter);
-            var wearAt = path.Sample(waterCenter).Position;
-            var placed = false;
+            var owned = new List<int>();
             for (var k = kMin; k <= kMax; k++)
+                if (OwnsArc(waterCenter + k * BridgeSpanCells)) owned.Add(k);
+            if (owned.Count == 0) return;
+            var members = RootSpanMembers(scene, kMin, kMax, owned, waterCenter);
+            var wearAt = path.Sample(waterCenter).Position;
+            foreach (var k in owned)
             {
-                var centerArc = waterCenter + k * BridgeSpanCells;
-                if (!OwnsArc(centerArc)) continue;
-                var sliced = SliceSpan(found.Value, k, members[k - kMin]);
+                var sliced = SliceSpan(found.Value, k, members[k]);
                 if (sliced is null) continue;
-                if (!placed)
-                {
-                    modelReads.Add(new(path.Edge.Terrain.TypeId, -1, RailwayModelRole.Bridge));
-                    models.Add(model.Bridge);
-                    placed = true;
-                }
-                var sample = path.Sample(centerArc);
+                var sample = path.Sample(waterCenter + k * BridgeSpanCells);
                 AddPlaced(sliced, new(RailwayCoordinates.Relative(sample.Position, origin), RailwayCoordinates.Rotation(sample.Forward)),
                     null, columns, wearAt);
             }
@@ -615,29 +610,34 @@ internal static class RailwayTerrain
             return any ? (min, max) : (0, 0);
         }
 
-        private List<int>[] RootSpanMembers(DesignSceneProjection scene, int kMin, int kMax, double waterCenter)
+        private Dictionary<int, List<int>> RootSpanMembers(DesignSceneProjection scene, int kMin, int kMax,
+            List<int> owned, double waterCenter)
         {
-            var members = new List<int>[kMax - kMin + 1];
-            for (var k = kMin; k <= kMax; k++) members[k - kMin] = [];
+            var members = new Dictionary<int, List<int>>(owned.Count);
+            var poses = new (int K, int Z0, int Z1, ScenePoint Position, Quaternion Rotation)[owned.Count];
+            for (var n = 0; n < owned.Count; n++)
+            {
+                var k = owned[n];
+                var sample = path.Sample(waterCenter + k * BridgeSpanCells);
+                poses[n] = (k, k * BridgeSpanCells - BridgeSpanCells / 2, k * BridgeSpanCells + BridgeSpanCells / 2,
+                    sample.Position, RailwayCoordinates.Rotation(sample.Forward));
+                members[k] = [];
+            }
             for (var i = 0; i < scene.Voxels.Length; i++)
             {
                 var voxel = scene.Voxels[i];
                 if (!voxel.ObjectPath.IsDefaultOrEmpty) continue;
                 var local = voxel.LocalAt;
-                for (var k = kMin; k <= kMax; k++)
+                foreach (var pose in poses)
                 {
-                    var z0 = k * BridgeSpanCells - BridgeSpanCells / 2;
-                    var z1 = k * BridgeSpanCells + BridgeSpanCells / 2;
-                    if (local.Z < z0 - BridgeJointMargin || local.Z >= z1 + BridgeJointMargin) continue;
-                    var shift = k * BridgeSpanCells;
-                    var sample = path.Sample(waterCenter + shift);
-                    var center = Vector3.Transform(new Vector3(local.X + 0.5f, local.Y + 0.5f, local.Z - shift + 0.5f),
-                        RailwayCoordinates.Rotation(sample.Forward));
-                    var located = path.Locate(RailwayCoordinates.Add(sample.Position, center));
+                    if (local.Z < pose.Z0 - BridgeJointMargin || local.Z >= pose.Z1 + BridgeJointMargin) continue;
+                    var center = Vector3.Transform(
+                        new Vector3(local.X + 0.5f, local.Y + 0.5f, local.Z - pose.K * BridgeSpanCells + 0.5f), pose.Rotation);
+                    var located = path.Locate(RailwayCoordinates.Add(pose.Position, center));
                     // Inside a curve, a cell in this span's own interval can fall past the joint and is omitted.
-                    if (k != kMin && located < waterCenter + z0) continue;
-                    if (k != kMax && located >= waterCenter + z1) continue;
-                    members[k - kMin].Add(i);
+                    if (pose.K != kMin && located < waterCenter + pose.Z0) continue;
+                    if (pose.K != kMax && located >= waterCenter + pose.Z1) continue;
+                    members[pose.K].Add(i);
                 }
             }
             return members;

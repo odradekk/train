@@ -288,7 +288,8 @@ public sealed class RailwayTerrainTests
     [TestMethod]
     public void TunnelKeepsItsRoofAboveTheTrackAndLeavesTheInteriorClear()
     {
-        var snapshot = TunnelSnapshot(true);
+        // Amplitude 30.3 puts a bore column of this ridge in [rail+44, rail+45), where keeping the cell under the surface fails.
+        var snapshot = TunnelSnapshot(true, amplitude: 30.3);
         var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
         var middleArc = path.LengthCells / 2;
 
@@ -318,6 +319,7 @@ public sealed class RailwayTerrainTests
                 RailwayCoordinates.Relative(path.Sample(expected[i]).Position, segment.Origin)) < 1e-5);
         Assert.AreEqual(0, segment.Geometry.Diagnostics.Length);
         var boreColumns = 0;
+        var boundaryColumns = 0;
         var terrain = segment.Geometry.Picking.OrderByDescending(grid => grid.Grid.Cells.Count()).First().Grid.Cells;
         foreach (var group in terrain.GroupBy(cell => new GridColumn(cell.At.X, cell.At.Z)))
         {
@@ -330,6 +332,8 @@ public sealed class RailwayTerrainTests
             if (Math.Abs(offset) >= RailwayCoordinates.TunnelShoulder(path.Edge.Tracks)) continue;
             boreColumns++;
             var roof = segment.Heights[group.Key] - 1;
+            if (roof >= rail.Position.Y + RailwayCoordinates.TunnelCrownCells &&
+                roof < rail.Position.Y + RailwayCoordinates.TunnelCrownCells + 1) boundaryColumns++;
             Assert.IsTrue(group.All(cell =>
             {
                 var y = cell.At.Y + segment.Origin.Y;
@@ -337,6 +341,8 @@ public sealed class RailwayTerrainTests
             }), "The bore may keep only that column's surface cell.");
         }
         Assert.IsTrue(boreColumns > 0, "The ridge must cover the bore.");
+        Assert.IsTrue(boundaryColumns > 0,
+            "The fixture must include a bore column whose surface sits in [rail+44, rail+45).");
         foreach (var portal in portals)
         {
             var forward = Vector3.Transform(Vector3.UnitZ, portal.Pose.Rotation);
@@ -672,7 +678,7 @@ public sealed class RailwayTerrainTests
     }
 
     [TestMethod]
-    public void ModelLayoutAndAppearanceChangesInvalidateOnlySegmentsThatActuallyUseTheModel()
+    public void BridgeDesignChangesInvalidateSegmentsThatResolvedIt()
     {
         var terrain = RailwayFixtures.TerrainAppearance with { RailwayModels = [new(1, ModelHash, ModelHash)] };
         var snapshot = WithFeatures(RailwayFixtures.Snapshot(132, 132, relief: 0, content: Content(terrain, Model())), ["river"]);
@@ -683,12 +689,47 @@ public sealed class RailwayTerrainTests
         {
             Content = Content(terrain, Model(), modelAppearance: ModelAppearance("replacement"))
         };
-        foreach (var changed in new[] { changedLayout, changedAppearance })
+        var layoutPath = new RailwayPath(changedLayout, RailwayFixtures.Edge);
+        Assert.IsFalse(bridgeSegment.Dependencies.Matches(changedLayout, layoutPath, 1));
+        Assert.IsFalse(distantSegment.Dependencies.Matches(changedLayout, layoutPath, 2),
+            "Resolving the bridge design records its hash even when this segment places no span.");
+        var appearancePath = new RailwayPath(changedAppearance, RailwayFixtures.Edge);
+        Assert.IsFalse(bridgeSegment.Dependencies.Matches(changedAppearance, appearancePath, 1));
+        Assert.IsTrue(distantSegment.Dependencies.Matches(changedAppearance, appearancePath, 2),
+            "A segment that never placed the model does not read its voxel appearance.");
+    }
+
+    [TestMethod]
+    public void LongerBridgeDesignInvalidatesTheSegmentThatOwnedNoSpan()
+    {
+        var terrain = RailwayFixtures.TerrainAppearance with { RailwayModels = [new(1, ModelHash, ModelHash)] };
+        var snapshot = WithFeatures(RailwayFixtures.Snapshot(400, 400, relief: 0, content: Content(terrain, Model())), ["river"]);
+        var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
+        var water = RiverCenter(path);
+        var owner = (int)(Math.Clamp(water, 0, path.LengthCells - 1e-9) / RailwayCoordinates.SegmentLengthCells);
+        var neighbor = owner + 1 < path.SegmentCount ? owner + 1 : owner - 1;
+        int? extend = null;
+        for (var k = -40; k <= 40; k++)
         {
-            var path = new RailwayPath(changed, RailwayFixtures.Edge);
-            Assert.IsFalse(bridgeSegment.Dependencies.Matches(changed, path, 1));
-            Assert.IsTrue(distantSegment.Dependencies.Matches(changed, path, 2));
+            if (k == 0) continue;
+            var center = water + k * 16;
+            var clamped = Math.Clamp(center, 0, path.LengthCells);
+            var segment = clamped >= path.LengthCells ? path.SegmentCount - 1 : (int)(clamped / RailwayCoordinates.SegmentLengthCells);
+            if (segment != neighbor) continue;
+            extend = k;
+            break;
         }
+        Assert.IsNotNull(extend, "The line must have room for a span in the neighboring segment.");
+        var neighborSegment = Build(snapshot, neighbor);
+        Assert.IsFalse(neighborSegment.Geometry.Objects.Any(item => item.Parent is null && item.Id.Value != 0),
+            "The short bridge must place no span in the neighboring segment.");
+        var longer = SceneFixtures.Evaluation(SceneFixtures.Projection([
+            SceneFixtures.Cell(new(0, 0, 0)) with { Voxel = ModelVoxel },
+            SceneFixtures.Cell(new(0, 0, extend.Value * 16)) with { Voxel = ModelVoxel }
+        ]) with { Design = ModelHash }) with { Design = ModelHash };
+        var changed = snapshot with { Content = Content(terrain, longer) };
+        Assert.IsFalse(neighborSegment.Dependencies.Matches(changed, new(changed, RailwayFixtures.Edge), neighbor),
+            "Growing the bridge into a span this segment owns must invalidate its cached dependencies.");
     }
 
     [TestMethod]
