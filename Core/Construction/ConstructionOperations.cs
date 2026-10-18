@@ -88,14 +88,9 @@ internal static class ConstructionOperations
             }
             else if (job.Kind == ConstructionKind.Deconstruction)
             {
-                world = world with
-                {
-                    Instances = world.Instances.Where(i => i.Id != job.Instance).ToImmutableArray(),
-                    Settlements = world.Settlements.Select(s => s.Id != job.Settlement ? s : s with
-                    {
-                        ParkedVehicles = s.ParkedVehicles.Where(v => job.Instance is not InstanceId.Vehicle vehicle || v != vehicle.Id).ToImmutableArray()
-                    }).ToImmutableArray()
-                };
+                var removed = RemoveTarget(world, content, job, design, boundary);
+                world = removed.World;
+                adapted = removed.Events;
             }
             else if (job.Instance is not null)
             {
@@ -160,6 +155,34 @@ internal static class ConstructionOperations
                 Inventories = job.ReturnInventory is null ? world.Inventories : world.Inventories.Select(i => i.Id != job.ReturnInventory ? i : i with
                     { Reservations = i.Reservations.Where(r => r.Job != job.Id).ToImmutableArray() }).ToImmutableArray()
             };
+    }
+
+    private static (WorldState World, ImmutableArray<CoreEvent> Events) RemoveTarget(WorldState world,
+        CoreContentProjection content, ConstructionJobState job, DesignProjection design, SimulationPosition boundary)
+    {
+        var id = job.Instance!;
+        if (id is InstanceId.Vehicle vehicle)
+        {
+            world = world with
+            {
+                Instances = world.Instances.Where(i => i.Id != id).ToImmutableArray(),
+                Settlements = world.Settlements.Select(s => s.Id != job.Settlement ? s : s with
+                    { ParkedVehicles = s.ParkedVehicles.Where(v => v != vehicle.Id).ToImmutableArray() }).ToImmutableArray()
+            };
+            return (world, []);
+        }
+        var building = ((InstanceId.Building)id).Id;
+        world = world with
+        {
+            Instances = world.Instances.Where(i => i.Id != id).ToImmutableArray(),
+            Settlements = world.Settlements.Select(s => s.Id != job.Settlement ? s : s with
+            {
+                Plots = s.Plots.Select(p => p.Building != building ? p : p with { Building = null }).ToImmutableArray(),
+                ProductionFacilities = s.ProductionFacilities.Where(f => f.Facility.Building != building).ToImmutableArray()
+            }).ToImmutableArray()
+        };
+        if (design.Kind is not DesignKind.Building { Type: BuildingKind.Station }) return (world, []);
+        return AdaptPlatforms(world, content, job.Settlement, boundary);
     }
 
     private static (WorldState World, DesignHash Before, ImmutableArray<CoreEvent> Events) ApplyRefit(

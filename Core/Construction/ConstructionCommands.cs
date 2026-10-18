@@ -34,12 +34,15 @@ internal static class ConstructionCommands
                 => (repair.Facility, repair.Sources, repair.Priority),
             JobRequest.Dismantle { Instance: InstanceId.Vehicle vehicle } dismantle when vehicle.Id.Value != 0
                 => (dismantle.Facility, ImmutableArray<InventoryId>.Empty, dismantle.Priority),
+            JobRequest.Dismantle { Instance: InstanceId.Building building } dismantle when building.Id.Value != 0
+                => (dismantle.Facility, ImmutableArray<InventoryId>.Empty, dismantle.Priority),
             JobRequest.Repair { Instance: InstanceId.Vehicle { Id.Value: 0 } }
                 or JobRequest.Refit { Instance: InstanceId.Vehicle { Id.Value: 0 } }
                 or JobRequest.Dismantle { Instance: InstanceId.Vehicle { Id.Value: 0 } }
                 => throw new ArgumentException("车辆编号必须非零。", nameof(request)),
             JobRequest.Repair { Instance: InstanceId.Building { Id.Value: 0 } }
                 or JobRequest.Refit { Instance: InstanceId.Building { Id.Value: 0 } }
+                or JobRequest.Dismantle { Instance: InstanceId.Building { Id.Value: 0 } }
                 => throw new ArgumentException("建筑编号必须非零。", nameof(request)),
             _ => throw new NotImplementedException($"{request.GetType().Name} 尚未实现。")
         };

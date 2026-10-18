@@ -431,6 +431,98 @@ public sealed class BuildingConstructionTests
         }
     }
 
+    [TestMethod]
+    public void Dismantle_pauses_without_work_and_removes_the_building_without_returning_placeholders()
+    {
+        var (session, content, building, design) = BuildProductionBuilding();
+        using (session)
+        {
+            var id = new InstanceId.Building(building);
+            using var missing = MarkPartMissing(session, design.Design.Design, 2);
+            using var oversized = new CoreSession(missing.State with { World = missing.State.World with
+            {
+                Designs = missing.State.World.Designs.Select(d => d.Design != design.Design.Design ? d : d with
+                    { Kind = new DesignKind.Building(PlotSize.SmallStation, BuildingKind.Production, []) }).ToImmutableArray()
+            } });
+            var before = Settlement(oversized);
+            var started = Accept(oversized, DismantleBuilding(building));
+            var job = started.Events.Select(e => e.Event).OfType<CoreEvent.ConstructionStarted>().Single().Job;
+            var locked = started.Events.Select(e => e.Event).OfType<CoreEvent.ProductionStateChanged>().Single();
+            Assert.AreEqual(ProductionState.Disabled, locked.Before);
+            Assert.AreEqual(ProductionState.Locked, locked.After);
+            Assert.AreEqual(2L, job.FrozenTotalWork);
+            CollectionAssert.AreEqual(new[] { new GoodsQuantity(Material, 4) }, LocalInventory(oversized).Reservations.Single().ExpectedReturns.ToArray());
+            Step(oversized);
+            Assert.AreEqual(1d, Job(oversized.Read(), job.Id).ProgressWork);
+            Accept(oversized, new CoreCommand.SetDeconstructionPaused(job.Id, true));
+            Step(oversized, 3);
+            var paused = Job(oversized.Read(), job.Id);
+            Assert.AreEqual(ConstructionState.Paused, paused.State);
+            Assert.AreEqual(1d, paused.ProgressWork);
+            Assert.AreEqual(InstanceLock.UnderDeconstruction, Instance(oversized, id).Lock);
+            Accept(oversized, new CoreCommand.SetDeconstructionPaused(job.Id, false));
+            var finished = Step(oversized).Events.Select(e => e.Event).ToArray();
+            var completed = finished.OfType<CoreEvent.ConstructionCompleted>().Single();
+            CollectionAssert.AreEqual(new[] { new GoodsQuantity(Material, 4) }, completed.ReturnedGoods.ToArray());
+            Assert.IsFalse(finished.OfType<CoreEvent.ProductionStateChanged>().Any());
+            Assert.IsInstanceOfType<Lookup<InstanceView>.Missing>(oversized.Read().FindInstance(id));
+            Assert.IsInstanceOfType<Lookup<FacilityView>.Missing>(oversized.Read().FindFacility(new(building, CapabilityKind.Production)));
+            Assert.IsInstanceOfType<PlotOccupant.Empty>(Plot(oversized, ((InstanceDetails.Building)Instance(session, id).Details).Plot).Occupant);
+            Assert.IsFalse(oversized.State.World.Settlements.Single().ProductionFacilities.Any(f => f.Facility.Building == building));
+            Assert.IsNull(oversized.State.World.Settlements.Single().Plots.Single(p => p.Id == ((InstanceDetails.Building)Instance(session, id).Details).Plot).Building);
+            var after = Settlement(oversized);
+            Assert.AreEqual(0d, after.Power.GenerationCapacity, 1e-12);
+            Assert.AreEqual(before.Market.Storage.PhysicalCapacity - 25, after.Market.Storage.PhysicalCapacity);
+            Assert.AreEqual(before.Platforms, after.Platforms);
+            Assert.AreEqual(12L, Stock(oversized, Local));
+            RoundTrip(oversized, content);
+        }
+    }
+
+    [TestMethod]
+    public void Dismantle_caps_returns_at_the_opening_reservation()
+    {
+        var (session, content, building, design) = BuildPlain();
+        using (session)
+        {
+            var started = Start(session, DismantleBuilding(building));
+            Assert.AreEqual(2L, started.FrozenTotalWork);
+            CollectionAssert.AreEqual(new[] { new GoodsQuantity(Material, 3) }, LocalInventory(session).Reservations.Single().ExpectedReturns.ToArray());
+            var published = Changed(content) with { Designs = session.State.World.Designs.Select(d => d.Design != design.Design.Design
+                ? d : d with { StructuralGoods = [new(Material, 10)] }).ToImmutableArray() };
+            Accept(session, new CoreCommand.PublishContent(published));
+            var completed = Step(session, 2).Events.Select(e => e.Event).OfType<CoreEvent.ConstructionCompleted>().Single();
+            CollectionAssert.AreEqual(new[] { new GoodsQuantity(Material, 3) }, completed.ReturnedGoods.ToArray());
+            Assert.AreEqual(11L, Stock(session, Local));
+            Assert.IsTrue(LocalInventory(session).Reservations.IsEmpty);
+        }
+    }
+
+    [TestMethod]
+    public void Station_dismantle_recounts_platforms()
+    {
+        var (session, content, building, _) = BuildProductionBuilding();
+        using (session)
+        {
+            Reject(session, DismantleBuilding(Facility.Building), "Instance", "invalid_state");
+            var job = Start(session, new CoreCommand.StartOwnedJob(new JobRequest.Dismantle(
+                new(building, CapabilityKind.Construction), new InstanceId.Building(Facility.Building), 0)));
+            Assert.AreEqual(0L, job.FrozenTotalWork);
+            var finished = Step(session).Events.Select(e => e.Event).OfType<CoreEvent.ConstructionCompleted>().Single();
+            CollectionAssert.AreEqual(new[] { new GoodsQuantity(Material, 1) }, finished.ReturnedGoods.ToArray());
+            var world = session.State.World;
+            var settlement = world.Settlements.Single();
+            Assert.AreEqual(0, world.Nodes.Single(n => n.Id == settlement.Node).Platforms);
+            Assert.AreEqual(WorldState.CountPlatforms(settlement, world.Instances.ToDictionary(i => i.Id), world.Designs.ToDictionary(d => d.Design)),
+                world.Nodes.Single(n => n.Id == settlement.Node).Platforms);
+            Assert.IsInstanceOfType<Lookup<InstanceView>.Missing>(session.Read().FindInstance(new InstanceId.Building(Facility.Building)));
+            RoundTrip(session, content);
+        }
+    }
+
+    private static CoreCommand DismantleBuilding(BuildingId building, FacilityKey? facility = null)
+        => new CoreCommand.StartOwnedJob(new JobRequest.Dismantle(facility ?? Facility, new InstanceId.Building(building), 0));
+
     private static (CoreSession Session, CoreContentProjection Content, BuildingId Building, DesignInput Design) BuildPlain()
     {
         var content = WithPlot(Content(), PlotSize.Small);
