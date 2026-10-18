@@ -66,10 +66,11 @@ internal static class UiStyle
             area.Position -= parent.GlobalPosition;
             var frameHeight = panel.GetThemeStylebox("panel").GetMinimumSize().Y +
                 box.GetCombinedMinimumSize().Y - scroll.GetCombinedMinimumSize().Y;
-            scroll.CustomMinimumSize = new(0, Math.Min(content.GetCombinedMinimumSize().Y, Math.Max(0, area.Size.Y - frameHeight)));
+            var top = Math.Clamp(position.Y, area.Position.Y, Math.Max(area.Position.Y, area.End.Y - frameHeight));
+            scroll.CustomMinimumSize = new(0, Math.Min(content.GetCombinedMinimumSize().Y, Math.Max(0, area.End.Y - top - frameHeight)));
             panel.Size = panel.GetCombinedMinimumSize();
             panel.Position = new(Math.Clamp(position.X, area.Position.X, Math.Max(area.Position.X, area.End.X - panel.Size.X)),
-                Math.Clamp(position.Y, area.Position.Y, Math.Max(area.Position.Y, area.End.Y - panel.Size.Y)));
+                top);
         }
         void QueueFit()
         {
