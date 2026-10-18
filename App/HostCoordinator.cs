@@ -303,18 +303,21 @@ internal sealed class HostCoordinator : IDisposable
         return result;
     }
 
-    internal SubmissionResult Submit(HostBinding binding, CoreCommand command, CommandSource source)
+    internal SubmissionResult Submit(HostBinding binding, CoreCommand command, CommandSource source,
+        IContentCandidate? target = null)
     {
         EnsureOwner();
         var problem = MutationProblem();
         if (problem is not null) return new SubmissionResult.NotAccepted(problem);
         if (_active!.Binding != binding) return new SubmissionResult.NotAccepted(Problem("content_changed", "host.binding"));
+        if (target is not null && !ReferenceEquals(target.Basis, _active.Content))
+            return new SubmissionResult.NotAccepted(Problem("content_changed", "host.content"));
         _insideBoundary = true;
         try
         {
             var result = _active.Core.Submit(command, source);
             if (result is SubmissionResult.Completed completed)
-                CompleteSubmission(completed, target: null);
+                CompleteSubmission(completed, target);
             return result;
         }
         finally { _insideBoundary = false; }
