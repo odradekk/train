@@ -79,6 +79,16 @@ ZIP 外层格式为 2；旧格式 1 因引用清单与命令回执含旧地块�
 
 宿主协调测试用明确情景的核心和内容替身，文件测试使用真实 I/O，报告面板使用真实 Godot 验证；这些证据不替代 #424 的完整 Godot 隔离或 #298 的真实模块联调。本票不改变导出装配，以 Debug、Release、ExportDebug、ExportRelease 编译检查构建配置覆盖。
 
+### 当前开发创作工具
+
+开发构建在已有普通游戏会话的顶栏提供“创作”。只有 `OS.HasFeature("editor")` 时，源码 `core` 才通过 `ProjectSettings.GlobalizePath` 解析为磁盘输出；debug 导出只写 `user://mods` 下的本地包，release 隐藏入口并拒绝调用。源包打开、完整基准捕获和写前目录项／字节复核使用同一目录上的 `DiskContentFiles`。包内蓝图经 `IAuthoringPackage.Read` 打开到既有 `EditorService`，编辑目标为 `DraftTarget.PackageDefinition`；包草稿与逐类型表单草稿共用内容编码和 `FileSaveStore`，保存在 `user://authoring-drafts/packages/<包 ID>/<草稿 UUID>.json`，不进入游戏存档。
+
+网格和表单的关闭统一经过 `Editor.RequestClose`，提供保存、放弃、取消；保存失败不继续。固定目标包来源和补丁、实时读取依赖的只读 `IContentFiles` 视图用于普通 `PrepareLoad(Reload)` 预校验，候选不激活并及时释放。目标包必须为 `Available`，无关条目的错误不拦下写包；内容拒绝和故障保留原诊断。
+
+校验通过后复核磁盘来源，按单一写入者约定逐文件同目录临时写后替换，只执行明确删除；从写前校验开始的整次操作不可取消或被离开流程丢弃。中途失败保留完成项及草稿，显示完成、失败、剩余清单及临时文件清理失败，不自动回滚。只要写入过文件就使旧基准失效，必须重新载入源包才能继续编辑。来源不同的草稿需开发者显式选择“在当前源包上打开”，手动处理后保存并重新校验，不自动合并。源码 core 新增 PNG／GLB 且无现有 `.import` 时，在资产前追加 `importer="keep"` 的普通写入项；Mod 不追加，已有 `.import` 文件不修改。全部完成后从磁盘普通重载，成功才切换活动内容，磁盘写入与重载结果分开显示。
+
+模板帧和地块拾取消费真实 `PreviewTemplate`／`PickPlot`，仅在草稿身份、修订、内容及显示帧仍匹配时允许交互。替换模板预览时保留观察焦点、距离与角度。`Tests/Engine/AuthoringIntegrationTests` 在隔离用户目录的本地 Mod 上接入真实 Core／Content／Scenes，覆盖网格和表单草稿编解码、补丁校验、写入与普通重载、来源冲突及拒绝后的旧内容保留；`AuthoringPreviewTests` 覆盖真实模板帧、地块数组下标拾取与刷新相机，窗口截图另检查地表和轮廓。有限情景替身继续用于宿主失败协调用例，不代替这些真实边界。新建模板缺少可表达的显示字段（#595）与生物聚落类型的 `invalid_field`（#349）沿普通内容诊断路径显示字段位置，不加宿主特例。完整保存、恢复及严格重放交接仍归 #300。创作入口写入的文件由内容作者登记在 `generate_small_world.py` 的 `AUTHORED_FILES`，#391 修整样机后登记其所写文件；生成器只核对已登记文件存在并通过 Schema，不比对字节。
+
 ### 当前开发检查工具
 
 生产 `--measure` 复用普通读档、帧驱动、世界场景、录制和保存流程；实际绘制间隔通过 `RenderingServer.FramePostDraw` 采集，模拟工作时间在既有帧预算区间读取。它不改变暂停、倍速或预算语义。观察无关检查独立放在真实引擎测试中，不增加开发 runner 模式。入口、报告边界与前期测量限制见[窗口测量](run-tests.md#观察无关检查与窗口测量)。

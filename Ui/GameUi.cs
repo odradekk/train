@@ -3,6 +3,7 @@ using System.Globalization;
 using Godot;
 using Train.App;
 using Train.App.Editing;
+using Train.App.Authoring;
 using Train.App.Logging;
 using Train.App.Recording;
 using Train.Content.Contracts;
@@ -16,6 +17,10 @@ public partial class GameUi : CanvasLayer
     private EditorService _editor = null!;
     private DesignEditorPanel? _editorPanel;
     private BlueprintLibraryPanel? _library;
+    private AuthoringService? _authoring;
+    private AuthoringPanel? _authoringPanel;
+    private TemplateSceneController? _templates;
+    private Button? _authoringButton;
     private HostCoordinator? _host;
     private WorldSceneController? _scenes;
     private RecordingService? _recording;
@@ -51,8 +56,9 @@ public partial class GameUi : CanvasLayer
     internal string ErrorText => _error.Text;
 
     internal void Initialize(MainMenu menu, HostCoordinator? host, TrainLogger logger,
-        WorldSceneController? scenes, RecordingService? recording, GoodsIconCache icons, EditorService editor)
-    { _menu = menu; _host = host; _logger = logger; _scenes = scenes; _recording = recording; _icons = icons; _editor = editor; }
+        WorldSceneController? scenes, RecordingService? recording, GoodsIconCache icons, EditorService editor,
+        AuthoringService? authoring, TemplateSceneController? templates)
+    { _menu = menu; _host = host; _logger = logger; _scenes = scenes; _recording = recording; _icons = icons; _editor = editor; _authoring = authoring; _templates = templates; }
 
     public override void _Ready()
     {
@@ -145,6 +151,14 @@ public partial class GameUi : CanvasLayer
         _editorPanel = new DesignEditorPanel { Name = "DesignEditor" }; _editorPanel.Initialize(_editor); _editorPanel.LibraryRequested += _library.Open; _root.AddChild(_editorPanel);
         _bar.AddChild(UiStyle.Button("NewDesign", "新建设计…", _library.NewDraft));
         _bar.AddChild(UiStyle.Button("BlueprintLibrary", "蓝图库…", _library.Open));
+        if (_authoring is not null)
+        {
+            _authoringPanel = new AuthoringPanel { Name = "Authoring" };
+            _authoringPanel.Initialize(_authoring, _editor); _root.AddChild(_authoringPanel);
+            if (_templates is not null) _templates.PlotSelected += _authoringPanel.SelectPlot;
+            _authoringButton = UiStyle.Button("OpenAuthoring", "创作…", _authoringPanel.Open);
+            _bar.AddChild(_authoringButton);
+        }
         if (_panels is not null) _panels.RefitRequested += _editor.OpenInstance;
         _editor.Changed += OnEditorChanged;
         _menu.SetHostAvailable(_host is not null);
@@ -163,7 +177,12 @@ public partial class GameUi : CanvasLayer
     {
         var showingScene = _scenes?.View.Visible == true;
         var status = _host?.GetStatus();
-        var editing = _editor.IsOpen;
+        var editing = _editor.IsOpen || _authoring?.Form is not null;
+        if (_authoringButton is not null)
+        {
+            _authoringButton.Visible = _authoring!.CanUse;
+            _authoringButton.Disabled = _authoring.IsBusy || _host!.IsBusy;
+        }
         _map.Visible = status is not null && !showingScene && !editing;
         if (_panels is not null) _panels.Visible = !editing;
         if (_formation is not null) _formation.Visible = !editing && _formation.Visible;

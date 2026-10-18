@@ -33,6 +33,8 @@ public sealed class ScriptedContentFactory : IContentFactory
     public Func<IContentView, ContentEdit, ContentResult<IContentCandidate>>? PrepareEditCall { get; set; }
     public Func<SavedContentDraft, ContentResult<string>>? EncodeDraftCall { get; set; }
     public Func<string, ContentResult<SavedContentDraft>>? DecodeDraftCall { get; set; }
+    public Func<ContentRoot, PackageId, PackageSourceVersion, IContentFiles, ContentResult<IAuthoringPackage>>? OpenAuthoringPackageCall { get; set; }
+    public Func<IAuthoringPackage, ImmutableArray<PackageEdit>, ContentResult<PackageWritePlan>>? PreparePackageWriteCall { get; set; }
     public int CaptureCount { get; private set; }
     public Func<IContentView, ImmutableArray<OwnedSettlementTemplateReference>, IContentView>? WithSettlementCopiesCall { get; init; }
 
@@ -64,8 +66,8 @@ public sealed class ScriptedContentFactory : IContentFactory
     public ContentResult<string> EncodeDraft(SavedContentDraft draft) => (EncodeDraftCall ?? throw Unconfigured())(draft);
     public ContentResult<SavedContentDraft> DecodeDraft(string payload) => (DecodeDraftCall ?? throw Unconfigured())(payload);
     public ContentResult<IAuthoringPackage> OpenAuthoringPackage(ContentRoot source, PackageId package,
-        PackageSourceVersion sourceVersion, IContentFiles files) => throw Unconfigured();
-    public ContentResult<PackageWritePlan> PreparePackageWrite(IAuthoringPackage basis, ImmutableArray<PackageEdit> edits) => throw Unconfigured();
+        PackageSourceVersion sourceVersion, IContentFiles files) => (OpenAuthoringPackageCall ?? throw Unconfigured())(source, package, sourceVersion, files);
+    public ContentResult<PackageWritePlan> PreparePackageWrite(IAuthoringPackage basis, ImmutableArray<PackageEdit> edits) => (PreparePackageWriteCall ?? throw Unconfigured())(basis, edits);
 
     private static InvalidOperationException Unconfigured() => new("UNCONFIGURED: 内容工厂入口未配置。");
 }
