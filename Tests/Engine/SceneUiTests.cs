@@ -37,6 +37,10 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
             app = await Ready(fixture, setup);
             var ui = app.GetNode<GameUi>("GameUi");
             var map = ui.GetNode<MacroMap>("Root/World/MacroMap");
+            var resources = map.GetNode<CheckBox>("InformationLayers/Body/Resources");
+            var platforms = map.GetNode<CheckBox>("InformationLayers/Body/Platforms");
+            await _input.Activate(resources);
+            await _input.Activate(platforms);
             await _input.Drag(map.GlobalPosition + map.Size / 2, new(20, 15));
             await _input.MouseButton(map.GlobalPosition + map.Size / 2, MouseButton.WheelUp, true);
             var offset = map.Offset;
@@ -65,6 +69,8 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
             await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/ReturnToMap"));
             await _input.WaitUntil(() => map.IsVisibleInTree());
             Require(map.IsVisibleInTree() && map.Offset == offset && map.Zoom == zoom, "返回地图按钮未恢复原地图视角。");
+            Require(resources.ButtonPressed && platforms.ButtonPressed,
+                "场景往返重置了地图信息层开关。");
             await Open(app, setup, map.GlobalPosition + map.MapToScreen(new(250, 300)) + new Vector2(25, -22), TrainTarget);
             await _input.PressKey(Key.Escape);
             setup.RejectNext = true;
@@ -88,6 +94,8 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
             app = await Ready(fixture, setup);
             var ui = app.GetNode<GameUi>("GameUi");
             var map = ui.GetNode<MacroMap>("Root/World/MacroMap");
+            var resources = map.GetNode<CheckBox>("InformationLayers/Body/Resources");
+            await _input.Activate(resources);
             var panel = app.GetNode<MainMenu>("MainMenu").GetChildren().OfType<SavePanel>().Single();
             await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Saves"));
             await _input.Activate(UiTestInput.SaveButton(panel, "保存"), panel);
@@ -110,6 +118,7 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
                 !ui.GetNode<Control>("Root/ErrorPanel").Visible,
                 "场景中真实读档没有释放旧场景并进入暂停地图。");
             await _input.WaitUntil(() => !minimap.IsVisibleInTree());
+            Require(resources.ButtonPressed, "读档重置了信息层开关。");
             panel.Hide();
             await Open(app, setup, map.GlobalPosition + map.MapToScreen(new(250, 300)), NodeTarget);
             await _input.WaitUntil(minimap.IsVisibleInTree);
@@ -133,6 +142,8 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
             var ui = app.GetNode<GameUi>("GameUi");
             var menu = app.GetNode<MainMenu>("MainMenu");
             var map = ui.GetNode<MacroMap>("Root/World/MacroMap");
+            var platforms = map.GetNode<CheckBox>("InformationLayers/Body/Platforms");
+            await _input.Activate(platforms);
             await Open(app, setup, map.GlobalPosition + map.MapToScreen(new(250, 300)), NodeTarget);
             var scene = setup.Scenes[^1];
             var returned = 0;
@@ -156,6 +167,7 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
             Require(app.Host!.GetStatus() is { IsPaused: true, PlayerPaused: true } && !menu.IsVisibleInTree() &&
                 !app.WorldScenes!.View.Visible && setup.Scenes.Count == 1,
                 "菜单新建对局恢复了旧场景而不是暂停地图。");
+            Require(platforms.ButtonPressed, "新开局重置了信息层开关。");
         }
         finally { await Cleanup(fixture, app); }
     }

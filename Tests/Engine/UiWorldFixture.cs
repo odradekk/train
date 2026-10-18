@@ -24,6 +24,41 @@ internal static class UiWorldFixture
     internal static FixedCoreReadView Map(SimulationPosition tick = default)
         => Create(Scenario.Map, tick, HostCoreScenario.Input);
 
+    internal static FixedCoreReadView InformationLayers(bool changed = false)
+    {
+        var original = Map();
+        var first = original.World.Nodes[0] with
+        {
+            Resources = [new(new GoodId.Voxel(new("core:ferrous-ore")), changed ? 60 : 100,
+                new ResourceRenewal.NonRenewable()),
+                new(new GoodId.Voxel(new("core:timber")), changed ? 12 : 0, new ResourceRenewal.Renewable(200, .5))],
+            Platforms = 2, OccupiedPlatforms = changed ? 2 : 1
+        };
+        var second = original.World.Nodes[1];
+        var empty = second with { Id = new(3), Position = new(500, 500) };
+        var train = ((Lookup<TrainView>.Found)original.FindTrain(new(7))).Value;
+        var queued = train with { Activity = TrainActivity.Waiting, PlatformQueueEnteredStep = changed ? null : 2 };
+        var stopped = train with { Id = new(8) };
+        var otherQueue = train with { Id = new(11), Position = new TrainPosition.Node(second.Id, null, null,
+            NodeTravelPhase.Approaching, 20, null), PlatformQueueEnteredStep = 5 };
+        ImmutableArray<TrainMapItem> trains = [new(queued.Id, queued.Position, queued.Activity),
+            new(stopped.Id, stopped.Position, stopped.Activity),
+            new(new(9), new TrainPosition.Node(first.Id, null, null, NodeTravelPhase.Docked, 80, 0), TrainActivity.Servicing),
+            new(new(10), new TrainPosition.Edge(new(1), 0, TravelDirection.Forward, 20), TrainActivity.Running),
+            new(otherQueue.Id, otherQueue.Position, otherQueue.Activity)];
+        if (changed) trains = trains.Add(new(new(12), new TrainPosition.Node(first.Id, null, null,
+            NodeTravelPhase.Docked, 80, 1), TrainActivity.Servicing));
+        var nodes = ImmutableArray.Create(first, second, empty);
+        return new(default, HostCoreScenario.Input)
+        {
+            World = original.World with { Nodes = nodes, Trains = trains },
+            Nodes = nodes.ToDictionary(node => node.Id, node => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(node, [], 80, 0, 80))),
+            // 已持有站台及线路上的列车不配置 FindTrain；意外查询会直接使测试失败。
+            Trains = new[] { queued, stopped, otherQueue }.ToDictionary(item => item.Id,
+                item => (Lookup<TrainView>)new Lookup<TrainView>.Found(item))
+        };
+    }
+
     internal static FixedCoreReadView Save(CoreInputId input)
         => Create(Scenario.Save, default, input);
 
