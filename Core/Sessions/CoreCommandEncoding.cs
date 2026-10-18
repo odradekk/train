@@ -35,12 +35,17 @@ internal static class CoreCommandEncoding
                 CoreCommand.BuyVehicle => "market.buy_vehicle",
                 CoreCommand.SellVehicle => "market.sell_vehicle",
                 CoreCommand.AcquireLease => "lease.acquire",
+                CoreCommand.FoundSettlement => "settlement.found",
                 CoreCommand.StartOwnedJob { Request: JobRequest.BuildVehicle or JobRequest.Repair { Instance: InstanceId.Vehicle } } => "construction.start_owned",
                 CoreCommand.CommissionVehicleWork { Request: JobRequest.BuildVehicle or JobRequest.Repair { Instance: InstanceId.Vehicle } } => "construction.commission_vehicle_work",
                 _ => throw new NotImplementedException($"{command.GetType().Name} 尚未实现。")
             });
             switch (command)
             {
+                case CoreCommand.FoundSettlement found:
+                    WriteIdentity(writer, "node", found.Node.Value);
+                    WriteIdentity(writer, "material_source", found.MaterialSource.Value);
+                    break;
                 case CoreCommand.StartOwnedJob start:
                     WriteJobRequest(writer, start.Request);
                     break;
@@ -181,6 +186,7 @@ internal static class CoreCommandEncoding
                 "rail.debug_add_break" => ["input_format_version", "kind", "edge", "track", "distance_meters"],
                 "inventory.load_goods" or "inventory.unload_goods" => ["input_format_version", "kind", "train", "settlement", "local_inventory", "good", "quantity"],
                 "lease.acquire" => ["input_format_version", "kind", "request", "maximum_payment"],
+                "settlement.found" => ["input_format_version", "kind", "node", "material_source"],
                 "construction.start_owned" => ["input_format_version", "kind", "request"],
                 "construction.commission_vehicle_work" => ["input_format_version", "kind", "request", "maximum_payment"],
                 "market.buy_goods" => ["input_format_version", "kind", "train", "settlement", "local_inventory", "good", "quantity", "maximum_payment"],
@@ -191,6 +197,10 @@ internal static class CoreCommandEncoding
             };
             if (fields is null) return Failure("unsupported_format", "/kind");
             Fields(root, "", fields);
+            if (name == "settlement.found")
+                return Success(new(null, new CoreCommand.FoundSettlement(
+                    new(Identity(Property(root, "node", "", JsonValueKind.Number), "/node")),
+                    new(Identity(Property(root, "material_source", "", JsonValueKind.Number), "/material_source")))));
             if (name == "construction.start_owned")
                 return Success(new(null, new CoreCommand.StartOwnedJob(ReadJobRequest(Property(root, "request", "", JsonValueKind.Object)))));
             if (name == "construction.commission_vehicle_work")

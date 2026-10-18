@@ -13,6 +13,7 @@ internal static class WorldStateValidation
         Ordered(world.Nodes, n => n.Id.Value, "/world/nodes");
         Ordered(world.Edges, e => e.Id.Value, "/world/edges");
         Ordered(world.Settlements, s => s.Id.Value, "/world/settlements");
+        Ordered(world.FoundingJobs, j => j.Id.Value, "/world/founding_jobs");
         Ordered(world.Lairs, l => l.Id.Value, "/world/lairs");
         Ordered(world.Trains, t => t.Id.Value, "/world/trains");
         Ordered(world.Inventories, i => i.Id.Value, "/world/inventories");
@@ -109,7 +110,9 @@ internal static class WorldStateValidation
                 && node.Position.X >= 0 && node.Position.X <= world.Source.Configuration.WidthMeters
                 && node.Position.Y >= 0 && node.Position.Y <= world.Source.Configuration.HeightMeters, "/world/nodes/position");
             Terrain(node.Terrain, "/world/nodes/terrain");
-            Require(node.Platforms >= 0 && node.OccupiedPlatforms == 0 && node.FoundingJob is null, "/world/nodes/platforms");
+            Require(node.Platforms >= 0 && node.OccupiedPlatforms == 0, "/world/nodes/platforms");
+            Require(node.FoundingJob is not { } founding || node.Occupant is NodeOccupant.Empty
+                && world.FoundingJobs.Any(j => j.Id == founding && j.Node == node.Id), "/world/nodes/founding_job");
             switch (node.Occupant)
             {
                 case NodeOccupant.Empty: break;
@@ -280,10 +283,11 @@ internal static class WorldStateValidation
         Require(world.Money.Value >= 0 && world.Next is not null, "/world/money");
         Require(world.UnassignedServicePayments.Value >= 0, "/world/unassigned_service_payments");
         ValidateConstruction(world);
+        ValidateFounding(world);
         var next = world.Next;
         Next(next.Node, world.Nodes.Select(n => n.Id.Value), "/world/next/node");
         Next(next.Edge, world.Edges.Select(e => e.Id.Value), "/world/next/edge");
-        Next(next.Settlement, world.Settlements.Select(s => s.Id.Value), "/world/next/settlement");
+        Next(next.Settlement, world.Settlements.Select(s => s.Id.Value).Concat(world.FoundingJobs.Select(j => j.ReservedSettlementId.Value)), "/world/next/settlement");
         Next(next.Lair, world.Lairs.Select(l => l.Id.Value), "/world/next/lair");
         Next(next.Plot, plots.Keys.Select(p => p.Value), "/world/next/plot");
         Next(next.Building, world.Instances.Select(i => i.Id).OfType<InstanceId.Building>().Select(i => i.Id.Value), "/world/next/building");
@@ -292,7 +296,44 @@ internal static class WorldStateValidation
         Next(next.Inventory, world.Inventories.Select(i => i.Id.Value), "/world/next/inventory");
         Next(next.Break, breakIds, "/world/next/break");
         Next(next.Lease, world.Leases.Select(l => l.Id.Value), "/world/next/lease");
-        Next(next.Job, world.ConstructionJobs.Select(j => j.Id.Value), "/world/next/job");
+        Next(next.Job, world.ConstructionJobs.Select(j => j.Id.Value).Concat(world.FoundingJobs.Select(j => j.Id.Value)), "/world/next/job");
+    }
+
+    private static void ValidateFounding(WorldState world)
+    {
+        const string field = "/world/founding_jobs";
+        var ids = world.ConstructionJobs.Select(j => j.Id).ToHashSet();
+        var settlements = world.Settlements.Select(s => s.Id).ToHashSet();
+        foreach (var job in world.FoundingJobs)
+        {
+            var path = field + $"/{job.Id.Value}";
+            Require(ids.Add(job.Id), path + "/id");
+            Require(job.ReservedSettlementId.Value > 0 && settlements.Add(job.ReservedSettlementId), path + "/reserved_settlement_id");
+            Require(world.Nodes.Any(n => n.Id == job.Node && n.Occupant is NodeOccupant.Empty
+                && n.FoundingJob == job.Id), path + "/node");
+            Require(WorldFormat.IsIdentity(job.Rule.Value) && WorldFormat.IsHash(job.StartedFromRevision.Value), path + "/rule");
+            Require(job.FrozenDurationTicks > 0 && job.ElapsedTicks < job.FrozenDurationTicks, path + "/elapsed_ticks");
+            Require(job.InitialResidents > 0, path + "/initial_residents");
+            try { WorldInputs.ValidateTemplate(job.Template); }
+            catch (ArgumentException) { throw new CoreStateFormatException(path + "/template"); }
+            Require(job.Template.Type == job.Type, path + "/type");
+            Require(job.Template.SpecialInitialInventory.IsEmpty && job.Template.ProductionPlans.IsEmpty, path + "/template");
+            foreach (var plot in job.Template.Plots)
+            {
+                var building = job.Template.FoundingBuildings.SingleOrDefault(b => b.PlotNumber == plot.Number);
+                Require(plot.PrebuiltDesign == building?.Design, path + "/template/plots/prebuilt_design");
+            }
+            foreach (var building in job.Template.FoundingBuildings)
+                Require(job.Template.Plots.Any(p => p.Number == building.PlotNumber
+                    && world.Designs.Any(d => d.Design == building.Design && d.Kind is DesignKind.Building kind
+                        && WorldInputs.FitsPlot(kind.PlotSize, p.Size))), path + "/template/founding_buildings");
+            Strings(job.InvestedGoods, g => WorldReferences.GoodKey(g.Good), path + "/invested_goods");
+            foreach (var good in job.InvestedGoods)
+            {
+                Good(good.Good, path + "/invested_goods/good");
+                Require(good.Quantity > 0, path + "/invested_goods/quantity");
+            }
+        }
     }
 
     private static void ValidateConstruction(WorldState world)
@@ -562,6 +603,8 @@ internal static class WorldStateValidation
     internal static void ValidateBoundary(WorldState world, SimulationPosition boundary)
     {
         var completedSteps = boundary.CompletedSteps;
+        foreach (var job in world.FoundingJobs)
+            Require(job.ElapsedTicks <= completedSteps, "/world/founding_jobs/elapsed_ticks");
         foreach (var report in world.RecentRunReports)
             Require(NotAfter(report.EndedAt, boundary), "/world/recent_run_reports/ended_at");
         foreach (var train in world.Trains)

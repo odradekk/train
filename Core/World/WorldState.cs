@@ -80,6 +80,7 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
 {
     [JsonRequired] public ImmutableArray<RunReport> RecentRunReports { get; init; } = [];
     [JsonRequired] public ImmutableArray<ConstructionJobState> ConstructionJobs { get; init; } = [];
+    [JsonRequired] public ImmutableArray<FoundingJobState> FoundingJobs { get; init; } = [];
     [JsonRequired] public Money UnassignedServicePayments { get; init; } = new(0);
 
     internal WorldSummary Map => new(Source.WorldSeed, Source.Configuration.Rules.Railway,
@@ -127,29 +128,23 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
                 var settlementId = new SettlementId(settlementNumber++);
                 occupant = new NodeOccupant.Settlement(settlementId, settlement.Relation);
                 platforms = settlement.Platforms;
-                var plots = ImmutableArray.CreateBuilder<PlotState>();
-                foreach (var plot in settlement.Template.Plots)
+                var inventory = new InventoryId(inventoryNumber++);
+                var created = CreateSettlement(settlementId, id, settlement.Type.Id, settlement.Relation,
+                    settlement.Population, settlement.Template, new(plotNumber), new(buildingNumber), inventory);
+                plotNumber += (ulong)created.Plots.Length;
+                buildingNumber += (ulong)created.Plots.Count(p => p.Building is not null);
+                foreach (var plot in created.Plots)
                 {
-                    var plotId = new PlotId(plotNumber++);
-                    BuildingId? building = null;
-                    if (plot.PrebuiltDesign is { } hash)
+                    if (plot.Building is { } building)
                     {
-                        building = new(buildingNumber++);
-                        instances.Add(CreateInstance(new InstanceId.Building(building.Value), hash,
-                            settlement.Relation, new InstanceDetails.Building(plotId, plot.Size)));
+                        var hash = settlement.Template.Plots.Single(p => p.Number == plot.TemplateNumber).PrebuiltDesign!.Value;
+                        instances.Add(CreateInitialInstance(new InstanceId.Building(building), hash,
+                            settlement.Relation, new InstanceDetails.Building(plot.Id, plot.Size)));
                     }
-                    plots.Add(new(plotId, plot.Number, plot.Size, building));
                 }
                 foreach (var founding in settlement.Template.FoundingBuildings) designHashes.Add(founding.Design);
-                var inventory = new InventoryId(inventoryNumber++);
                 inventories.Add(new(inventory, new InventoryOwner.Settlement(settlementId), settlement.Template.SpecialInitialInventory, []));
-                settlements.Add(new(settlementId, id, settlement.Type.Id, settlement.Relation, settlement.Population,
-                    settlement.Template, plots.ToImmutable(), inventory, [], 0,
-                    settlement.Template.ProductionPlans.Where(p => p.Capability is CapabilityKind.Production or CapabilityKind.Extraction)
-                        .Select(p => (Plan: p, Building: plots.Single(plot => plot.TemplateNumber == p.PlotNumber).Building))
-                        .Where(p => p.Building is not null).OrderBy(p => p.Building!.Value.Value).ThenBy(p => p.Plan.Capability)
-                        .Select(p => new ProductionFacilityState(new(p.Building!.Value, p.Plan.Capability), null, [], 0, [], 0, 0, 0))
-                        .ToImmutableArray(), PopulationState.Initial));
+                settlements.Add(created);
             }
             else if (occupants[index] is GeneratedOccupant.Lair lair)
             {
@@ -172,7 +167,7 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
                 var vehicleId = new VehicleId(vehicleNumber++);
                 var design = content.Designs.Single(d => d.Design == hash);
                 vehicles.Add(vehicleId);
-                instances.Add(CreateInstance(new InstanceId.Vehicle(vehicleId), hash, SettlementRelation.PlayerOwned,
+                instances.Add(CreateInitialInstance(new InstanceId.Vehicle(vehicleId), hash, SettlementRelation.PlayerOwned,
                     new InstanceDetails.Vehicle(((DesignKind.Vehicle)design.Kind).Size, trainId)));
             }
             var inventory = new InventoryId(inventoryNumber++);
@@ -192,15 +187,33 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
             WorldResources.Initial(input.Configuration.Resources, mapNodes), []);
         return state with { DefinitionDependencies = WorldReferences.Dependencies(state, content) };
 
-        InstanceState CreateInstance(InstanceId id, DesignHash hash,
+        InstanceState CreateInitialInstance(InstanceId id, DesignHash hash,
             SettlementRelation ownership, InstanceDetails details)
         {
             designHashes.Add(hash);
             var design = content.Designs.Single(d => d.Design == hash);
-            return new(id, hash, ownership, details, design.MaxStructureDurability,
-                design.Parts.Select(p => new PartDurability(p.Id, p.MaxDurability)).ToImmutableArray());
+            return CreateInstance(id, design, ownership, details);
         }
     }
+
+    internal static SettlementState CreateSettlement(SettlementId id, NodeId node, SettlementTypeId type,
+        SettlementRelation relation, long population, SettlementTemplateProjection template,
+        PlotId firstPlot, BuildingId firstBuilding, InventoryId inventory)
+    {
+        var building = firstBuilding.Value;
+        var plots = template.Plots.Select((plot, index) => new PlotState(new(checked(firstPlot.Value + (ulong)index)),
+            plot.Number, plot.Size, plot.PrebuiltDesign is null ? null : new BuildingId(building++))).ToImmutableArray();
+        var facilities = template.ProductionPlans.Where(p => p.Capability is CapabilityKind.Production or CapabilityKind.Extraction)
+            .Select(p => (Plan: p, Building: plots.Single(plot => plot.TemplateNumber == p.PlotNumber).Building))
+            .Where(p => p.Building is not null).OrderBy(p => p.Building!.Value.Value).ThenBy(p => p.Plan.Capability)
+            .Select(p => new ProductionFacilityState(new(p.Building!.Value, p.Plan.Capability), null, [], 0, [], 0, 0, 0))
+            .ToImmutableArray();
+        return new(id, node, type, relation, population, template, plots, inventory, [], 0, facilities, PopulationState.Initial);
+    }
+
+    internal static InstanceState CreateInstance(InstanceId id, DesignProjection design,
+        SettlementRelation ownership, InstanceDetails details) => new(id, design.Design, ownership, details,
+            design.MaxStructureDurability, design.Parts.Select(p => new PartDurability(p.Id, p.MaxDurability)).ToImmutableArray());
 
     internal NodeView? FindNode(NodeId id, CoreContentProjection content)
     {
