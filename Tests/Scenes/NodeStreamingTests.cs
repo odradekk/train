@@ -17,6 +17,32 @@ public sealed class NodeStreamingTests
     private static readonly SceneFrameRequest Request = new(1, null, SceneDebugLayer.None);
 
     [TestMethod]
+    public async Task Dispatch_prioritizes_the_chunk_crossed_between_samples_at_a_corner()
+    {
+        var started = new ConcurrentQueue<GridColumn>();
+        var filled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(Snapshot(true), vehicles, build: (data, from, old, token) =>
+        {
+            started.Enqueue(from);
+            if (started.Count == RailwayCoordinates.MaxConcurrentBuilds) filled.TrySetResult();
+            release.Wait(token);
+            return SmallPart(data, from, old, token);
+        });
+        try
+        {
+            await scene.BuildWork!;
+            scene.Pump(focus: default(ScenePoint), following: new(default, [new(-1, 200, 2), new(2, 200, -1)], []));
+            await filled.Task;
+            CollectionAssert.AreEquivalent(new[] { new GridColumn(-32, 0), new GridColumn(0, 0) }, started.ToArray(),
+                "The path clips the corner of (0,0) between its samples; it must precede the lateral (-32,-32) chunk and later crossings.");
+            scene.SetBuildAllowed(false);
+        }
+        finally { release.Set(); }
+    }
+
+    [TestMethod]
     public async Task Dispatch_starts_the_earliest_path_crossing_before_later_zero_distance_parts()
     {
         var started = new ConcurrentQueue<GridColumn>();

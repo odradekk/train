@@ -372,7 +372,7 @@ internal sealed class NodeScene : IAsyncDisposable
         StartParts();
     }
 
-    private (int Ring, double Distance, int Progress) Priority(SceneBounds bounds)
+    private (int Ring, double Distance, double Progress) Priority(SceneBounds bounds)
     {
         var (distance, progress) = followedPath?.Priority is { Count: > 0 } path
             ? PathPriority(bounds, path) : (range.DistanceSquared(bounds), 0);
@@ -380,13 +380,47 @@ internal sealed class NodeScene : IAsyncDisposable
             distance, progress);
     }
 
-    private static (double Distance, int Progress) PathPriority(SceneBounds bounds, IReadOnlyList<ScenePoint> path)
+    private static (double Distance, double Progress) PathPriority(SceneBounds bounds, IReadOnlyList<ScenePoint> path)
     {
-        var distance = double.PositiveInfinity;
-        for (var i = 0; i < path.Count; i++)
+        if (path.Count == 0) return (double.PositiveInfinity, 0);
+        var distance = new NodeRange(path[0], 0).DistanceSquared(bounds);
+        if (distance == 0) return (0, 0);
+        for (var i = 1; i < path.Count; i++)
         {
             distance = Math.Min(distance, new NodeRange(path[i], 0).DistanceSquared(bounds));
-            if (distance == 0) return (0, i);
+            var from = path[i - 1];
+            var dx = path[i].X - from.X;
+            var dz = path[i].Z - from.Z;
+            double enter = 0, exit = 1;
+            for (var axis = 0; axis < 2; axis++)
+            {
+                var start = axis == 0 ? from.X : from.Z;
+                var delta = axis == 0 ? dx : dz;
+                var minimum = axis == 0 ? bounds.Minimum.X : bounds.Minimum.Z;
+                var maximum = axis == 0 ? bounds.Maximum.X : bounds.Maximum.Z;
+                if (delta == 0)
+                {
+                    if (start < minimum || start > maximum) { enter = 1; exit = 0; break; }
+                }
+                else
+                {
+                    var first = (minimum - start) / delta;
+                    var last = (maximum - start) / delta;
+                    enter = Math.Max(enter, Math.Min(first, last));
+                    exit = Math.Min(exit, Math.Max(first, last));
+                }
+            }
+            if (enter <= exit) return (0, i - 1 + enter);
+            var lengthSquared = dx * dx + dz * dz;
+            for (var corner = 0; corner < 4 && lengthSquared > 0; corner++)
+            {
+                var x = corner % 2 == 0 ? bounds.Minimum.X : bounds.Maximum.X;
+                var z = corner < 2 ? bounds.Minimum.Z : bounds.Maximum.Z;
+                var along = Math.Clamp(((x - from.X) * dx + (z - from.Z) * dz) / lengthSquared, 0, 1);
+                var offsetX = from.X + along * dx - x;
+                var offsetZ = from.Z + along * dz - z;
+                distance = Math.Min(distance, offsetX * offsetX + offsetZ * offsetZ);
+            }
         }
         return (distance, 0);
     }
@@ -401,7 +435,7 @@ internal sealed class NodeScene : IAsyncDisposable
         long vertices = 0;
         var visuals = 0;
         var count = 0;
-        (int Ring, double Distance, int Progress)? firstPriority = null;
+        (int Ring, double Distance, double Progress)? firstPriority = null;
         const double pathMargin = NodeStreaming.PathSampleCells;
         foreach (var (key, ready, priority) in completedParts
             .Select(item => (item.Key, item.Value, Priority: Priority(item.Value.Bounds)))
