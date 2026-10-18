@@ -302,7 +302,7 @@ public partial class GameUi : CanvasLayer
     {
         var status = _host?.GetStatus();
         if (status is null || _host!.Content is not { } content || target is null ||
-            !target.IsAvailable(status.Binding, content.Generation, status.View) || _host.IsBusy)
+            !target.IsAvailable(status.Binding, status.View, _host.PanelGenerationCurrent(target.Binding, target.Generation)) || _host.IsBusy)
         {
             ReportUiError("当前操作不可提交：对象已失效或宿主正在操作。");
             return null;
@@ -333,8 +333,9 @@ public partial class GameUi : CanvasLayer
 
     private void OpenScene(WorldObjectId id)
     {
-        if (_scenes is null || _content is null || _host?.GetStatus() is not { } status || _host.Content is not { } content ||
-            !new PanelTarget(_binding, _content.Generation, id).IsAvailable(status.Binding, content.Generation, status.View))
+        if (_scenes is null || _content is null || _host?.GetStatus() is not { } status || _host.Content is null ||
+            !new PanelTarget(_binding, _content.Generation, id).IsAvailable(status.Binding, status.View,
+                _host.PanelGenerationCurrent(_binding, _content.Generation)))
             return;
         WorldSceneTarget? target = id switch
         {
@@ -366,7 +367,8 @@ public partial class GameUi : CanvasLayer
             _ => null
         };
         if (id is null || _content is null ||
-            !new PanelTarget(_binding, _content.Generation, id).IsAvailable(status.Binding, content.Generation, status.View))
+            !new PanelTarget(_binding, _content.Generation, id).IsAvailable(status.Binding, status.View,
+                _host.PanelGenerationCurrent(_binding, _content.Generation)))
             return;
         _panels!.Refresh(status.Binding, status.View, content);
         _panels.OpenObject(id);

@@ -54,7 +54,7 @@ internal partial class EconomyPanels : Control
 
     internal void OpenSettlement(PanelTarget source, SettlementId id)
     {
-        if (!ReadCurrent() || source.Binding != _binding || source.Generation != _content.Generation) return;
+        if (!ReadCurrent() || !_host.PanelGenerationCurrent(source.Binding, source.Generation)) return;
         Show();
         RemoveWindow(_settlementPanel);
         _settlementTarget = new(_binding, _content.Generation, new WorldObjectId.Settlement(id));
@@ -84,7 +84,7 @@ internal partial class EconomyPanels : Control
 
     internal void OpenTrainInventory(PanelTarget target, TrainId id)
     {
-        if (!ReadCurrent() || target.Binding != _binding || target.Generation != _content.Generation) return;
+        if (!ReadCurrent() || !_host.PanelGenerationCurrent(target.Binding, target.Generation)) return;
         RemoveWindow(_trainPanel);
         _trainTarget = target; _trainRevision = null;
         _trainPanel = UiStyle.Panel(this, "TrainInventory", $"列车 {id.Value} 库存", new(1160, 70), 420,
@@ -224,7 +224,8 @@ internal partial class EconomyPanels : Control
         _binding = status.Binding; _view = status.View; _content = content; return true;
     }
 
-    private bool Current(PanelTarget? target) => target is not null && target.Binding == _binding && target.Generation == _content.Generation;
+    private bool Current(PanelTarget? target) => target is not null && target.Binding == _binding &&
+        _host.PanelGenerationCurrent(target.Binding, target.Generation);
 
     private static void Invalidate(Control body, Label state)
     { state.Text = "已不存在：对象或所属对局已失效，请重新打开。"; state.AddThemeColorOverride("font_color", UiStyle.Error); Disable(body); }

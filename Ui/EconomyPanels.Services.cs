@@ -256,15 +256,12 @@ internal partial class EconomyPanels
         _serviceConfirm.Disabled = true;
         _serviceResult.Text = accepted is null ? "提交未受理或被拒绝，请查看错误；不会自动重报或重试。" : "任务已受理，等待核心完工事件。";
         if (accepted is not null) ClearServiceDesign();
-        RefreshAfterService(accepted is not null);
+        RefreshAfterService();
     }
 
-    private void RefreshAfterService(bool accepted)
+    private void RefreshAfterService()
     {
-        var priorBinding = _binding;
         if (!ReadCurrent()) return;
-        if (accepted && priorBinding == _binding && _settlementTarget is { } target)
-            _settlementTarget = target with { Generation = _content.Generation };
         _settlementRevision = null; Refresh(_binding, _view, _content);
     }
 

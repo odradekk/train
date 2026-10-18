@@ -144,7 +144,7 @@ internal partial class EconomyPanels
         ResetQuote(ref _serviceQuote, _serviceDescription, "请重新获取报价与设计差额。");
         ClearServiceDesign();
         if (accepted is null) _serviceResult.Text = "立即应用未受理或被拒绝；已保存草稿保留，请查看错误。";
-        RefreshAfterService(accepted is not null);
+        RefreshAfterService();
     }
 
     internal void OpenVehicleServices(InstanceId instance)
@@ -159,6 +159,8 @@ internal partial class EconomyPanels
             _serviceTargetKind.Select(1);
             _serviceSelectedDraft = _content.LocalDrafts.First(saved => saved.Target == new DraftTarget.Instance(instance)).Id;
         }
-        _settlementBody.GetNode<TabContainer>("Pages").CurrentTab = 6; ServiceChanged();
+        var tabs = _settlementBody.GetNode<TabContainer>("Pages");
+        tabs.CurrentTab = Enumerable.Range(0, tabs.GetTabCount()).Single(index => tabs.GetTabTitle(index) == "车辆服务");
+        ServiceChanged();
     }
 }

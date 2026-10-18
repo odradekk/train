@@ -44,7 +44,7 @@ public partial class WorldPanels : Control
 
     internal void Refresh(HostBinding binding, ICoreReadView view, IContentView content)
     {
-        if (_view is not null && (_binding != binding || _content.Generation != content.Generation))
+        if (_view is not null && (_binding != binding || !_host.PanelGenerationCurrent(_binding, _content.Generation)))
         {
             foreach (var entry in _lists.Values) { RemoveChild(entry.Panel); entry.Panel.QueueFree(); }
             _lists.Clear();
@@ -67,13 +67,13 @@ public partial class WorldPanels : Control
         }
         foreach (var detail in _details)
         {
-            var valid = detail.Target.IsAvailable(binding, content.Generation, view);
+            var valid = detail.Target.IsAvailable(binding, view, _host.PanelGenerationCurrent(detail.Target.Binding, detail.Target.Generation));
             detail.Text.Text = valid ? Describe(detail.Target.Object) : "已不存在\n\n对象或所属对局已失效。请从当前列表重新打开。";
             foreach (var button in detail.Buttons) button.Disabled = !valid || _host.IsBusy;
         }
         if (_disbandTarget is { } target)
         {
-            var valid = target.IsAvailable(binding, content.Generation, view);
+            var valid = target.IsAvailable(binding, view, _host.PanelGenerationCurrent(target.Binding, target.Generation));
             _disband.GetOkButton().Disabled = !valid || _host.IsBusy;
             _disband.DialogText = valid ? "解编后车辆停放在所在聚居地。" : "已不存在：对象或所属对局已失效。";
         }
@@ -99,7 +99,7 @@ public partial class WorldPanels : Control
         list.ItemSelected += index =>
         {
             var status = _host.GetStatus();
-            if (status is null || status.Binding != binding || _host.Content?.Generation != generation ||
+            if (status is null || !_host.PanelGenerationCurrent(binding, generation) ||
                 index < 0 || index >= ids.Count) return;
             OpenObject(ids[(int)index]);
         };
@@ -189,7 +189,7 @@ public partial class WorldPanels : Control
     {
         var status = _host.GetStatus();
         if (status is not null && _host.Content is { } content &&
-            target.IsAvailable(status.Binding, content.Generation, status.View))
+            target.IsAvailable(status.Binding, status.View, _host.PanelGenerationCurrent(target.Binding, target.Generation)))
         { _binding = status.Binding; _view = status.View; _content = content; return true; }
         _reportError("对象已不存在或所属对局已更换，操作未提交。");
         return false;
