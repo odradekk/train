@@ -316,13 +316,21 @@ public sealed class DesignEvaluationTests
     }
 
     [TestMethod]
-    public void Unsupported_functional_root_identity_and_creatures_throw_directly()
+    public void Unsupported_functional_root_identity_throws_and_a_creature_without_behavior_is_partial()
     {
         using var candidate = DesignFixtures.Content().Load();
         var draft = DesignFixtures.Vehicle();
         var factory = ContentFactory.Create();
-        foreach (var specification in new C.DesignSpecification[] { new C.DesignSpecification.FunctionalComposite([], null), new C.DesignSpecification.Creature(null, null) })
-            Assert.ThrowsExactly<NotImplementedException>(() => factory.EvaluateDesign(candidate.View, draft with { Specification = specification }));
+        Assert.ThrowsExactly<NotImplementedException>(() => factory.EvaluateDesign(candidate.View,
+            draft with { Specification = new C.DesignSpecification.FunctionalComposite([], null) }));
+        var result = factory.EvaluateDesign(candidate.View, draft with
+        {
+            Specification = new C.DesignSpecification.Creature(null, null),
+            Layout = new([DesignFixtures.Entry("scenery")], [new(new(0, 0, 0), 0)], [])
+        });
+        var partial = (C.DesignEvaluation.Partial)((C.ContentResult<C.DesignEvaluation>.Success)result).Value;
+        Assert.IsNull(partial.CorePlaceholder);
+        Assert.IsTrue(partial.Diagnostics.Any(diagnostic => diagnostic.Code == "design_invalid" && diagnostic.Field == "/simulation/behaviors/creature"));
     }
 
     [TestMethod]

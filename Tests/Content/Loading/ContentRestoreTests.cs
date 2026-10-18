@@ -142,6 +142,44 @@ public sealed class ContentRestoreTests
             new(fixture.Installation, reload ? new C.ContentLoadPurpose.Reload(basis, references) : new C.ContentLoadPurpose.Restore(saved, references)), fixture, fixture));
     }
 
+    [TestMethod]
+    public void Missing_weapon_composite_has_unknown_occupancy_and_returns_with_the_same_part()
+    {
+        var fixture = DesignFixtures.Content();
+        var turret = DesignFixtures.Blueprint("turret");
+        turret["category"] = "large_equipment";
+        turret["simulation"] = JsonNode.Parse("""{"behaviors":{"weapon":{"damage":4,"interval":1.5}}}""");
+        turret["layout"]!["palette"]![0]!["voxel"] = "block";
+        WorldContentFixtures.AddBlueprint(fixture, turret);
+        var host = DesignFixtures.Blueprint("carrier");
+        host["layout"]!["palette"]![0]!["voxel"] = "block";
+        host["layout"]!["composites"] = JsonNode.Parse("""[{"at":[0,1,0],"blueprint":"turret"}]""");
+        WorldContentFixtures.AddBlueprint(fixture, host);
+        using var initial = fixture.Load();
+        var before = (C.DesignEvaluation.Complete)((C.ContentLookup<C.BlueprintRecord>.Found)initial.View.FindBlueprint(
+            new(C.BlueprintLibrary.Packages, new("core:carrier")))).Value.Evaluation;
+        var partId = before.Core!.Design.Parts.Single(part => part.Definition is K.CoreDefinitionReference.Composite).Id;
+        Assert.AreEqual(new K.PartCapability.Weapon(4, 1.5), before.Core.Design.Parts.Single(part => part.Id == partId).Capabilities.Single());
+        var references = References(initial.View, "carrier");
+        var saved = Success(ContentFactory.Create().Capture(initial.View, references));
+        fixture.RemoveEntry(ContentFixture.BuiltIn, "resources/blueprints/carrier.blueprint.json");
+        fixture.RemoveEntry(ContentFixture.BuiltIn, "resources/blueprints/turret.blueprint.json");
+        using var restored = Restore(fixture, saved, references);
+        var partial = (C.DesignEvaluation.Partial)((C.ContentLookup<C.DesignEvaluation>.Found)restored.View.FindDesign(before.Design)).Value;
+        Assert.IsInstanceOfType<C.ComputedValue<ImmutableArray<C.GridPosition>>.Unknown>(
+            partial.Scene.Elements.Single(element => element.Element is C.DesignElementPath.FunctionalComposite).OccupiedCells);
+        Assert.AreEqual(1, partial.Scene.EditLocks.Length);
+        Assert.AreEqual(partId, partial.CorePlaceholder!.Parts.Single(part => part.Missing).Id);
+        Assert.IsFalse(partial.CorePlaceholder.MissingReferences.IsEmpty);
+        WorldContentFixtures.AddBlueprint(fixture, turret);
+        using var recovered = Restore(fixture, saved, references);
+        var complete = (C.DesignEvaluation.Complete)((C.ContentLookup<C.DesignEvaluation>.Found)recovered.View.FindDesign(before.Design)).Value;
+        var restoredPart = complete.Core!.Design.Parts.Single(part => part.Definition is K.CoreDefinitionReference.Composite);
+        Assert.AreEqual(partId, restoredPart.Id);
+        Assert.IsTrue(complete.Core.Design.MissingReferences.IsEmpty);
+        Assert.AreEqual(new K.PartCapability.Weapon(4, 1.5), restoredPart.Capabilities.Single());
+    }
+
     internal const string ModId = "11111111-1111-4111-8111-111111111111";
     internal static ContentFixture ModContent()
     {

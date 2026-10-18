@@ -14,8 +14,6 @@ internal static class DesignEvaluator
     internal static C.DesignEvaluation Evaluate(ContentView content, C.DesignDraft draft, bool allowMissing = false,
         K.CompositeDefinitionId? compositeIdentity = null, int depth = 1)
     {
-        if (draft.Specification is C.DesignSpecification.Creature)
-            throw new NotImplementedException("生物设计尚未实现。");
         if (draft.Specification is C.DesignSpecification.FunctionalComposite && compositeIdentity is null)
             throw new NotImplementedException("根功能复合体草稿缺少定义身份，不能推断货物标识。");
 
@@ -33,6 +31,8 @@ internal static class DesignEvaluator
                 Invalid(field + "/simulation/plot_size", "建筑地块尺寸尚未指定。");
             if (value.Specification is C.DesignSpecification.Building { Kind: null })
                 Invalid(field + "/simulation/building_type", "建筑类型尚未指定。");
+            if (value.Specification is C.DesignSpecification.Creature { Behavior: null })
+                Invalid(field + "/simulation/behaviors/creature", "生物行为尚未指定。");
             foreach (var (item, index) in DesignTraversal.Items(value))
                 if (DesignTraversal.Copy(item) is { } copy)
                     CheckSpecification(copy, field + $"/layout/composites/{index}/design");
@@ -87,7 +87,9 @@ internal static class DesignEvaluator
         K.DesignHash? design = specificationMissing ? null : Identity(draft);
         K.CompositionHash? composition = specificationMissing ? null : new(DesignTraversal.Hash(draft, true));
         var envelope = Envelope(draft.Specification);
-        var sceneOnly = draft.Specification is C.DesignSpecification.SceneModel;
+        var sceneOnly = draft.Specification is C.DesignSpecification.SceneModel or C.DesignSpecification.Creature;
+        if (draft.Specification is C.DesignSpecification.Creature && !draft.Layout.NestedItems.IsEmpty)
+            Invalid("/layout/composites", "生物不能嵌套设计。");
         if (cells.Length == 0 && draft.Layout.NestedItems.IsEmpty) Invalid("/layout/cells", "布局必须非空。");
         if (draft.Display.Name.Length is < 1 or > 100) Invalid("/display/name", "名称长度必须为 1–100。");
         if (draft.Display.Description.Length is < 1 or > 2000) Invalid("/display/description", "说明长度必须为 1–2000。");
@@ -131,7 +133,9 @@ internal static class DesignEvaluator
             var functional = definition is not null && !definition.Capabilities.IsEmpty;
             if (!occupied.Add(cell.At)) Invalid($"/layout/cells/{item.Index}", "坐标重复。", item.Index);
             if (definition is not null && sceneOnly != (definition.Good is null))
-                Invalid($"/layout/cells/{item.Index}", sceneOnly ? "场景模型只能使用场景体素。" : "车辆和建筑只能使用货物体素。", item.Index);
+                Invalid($"/layout/cells/{item.Index}", sceneOnly
+                    ? draft.Specification is C.DesignSpecification.Creature ? "生物只能使用场景体素。" : "场景模型只能使用场景体素。"
+                    : "车辆和建筑只能使用货物体素。", item.Index);
             var shape = palette.Shape;
             if (voxel?.Appearance.Presentation is C.VoxelPresentation.Cube cube)
                 shape ??= cube.Shapes[0];
