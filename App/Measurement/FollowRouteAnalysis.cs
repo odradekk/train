@@ -75,7 +75,9 @@ internal static class FollowRouteAnalysis
             .Where(value => !value.BoundaryLimited && value.ObservationLimited && value.AheadMeters.HasValue)
             .Select(value => value.AheadMeters).DefaultIfEmpty(null).Min();
         return new("XZ AABB coverage estimate. Body follows stitched observed head history for the full train length; " +
-            "centers are diagnostic only. Forward distance uses same-space future head polylines. Unknown or truncated observations are not passes.", .5,
+            "centers are diagnostic only. Forward distance uses same-space future head polylines. " +
+            "Space boundaries are estimated from the first new-space head minus half the train length, with max(2 m, crossing-frame travel) tolerance. " +
+            "Unknown or truncated observations are not passes.", .5,
             results, new(Minimum(item => item.Scenes), Minimum(item => item.Displayed),
                 eligible.Count(item => item.Displayed.VehicleCentersCovered == false), eligible.Count(item => item.Displayed.SampledBodyCovered == false),
                 eligible.Count(item => item.Scenes.SampledBodyCovered is null), eligible.Count(item => item.Displayed.SampledBodyCovered is null),
@@ -101,8 +103,6 @@ internal static class FollowRouteAnalysis
                 return new(null, centers, null, false, true, reason, null, reason);
             }
             var body = Body(index, path, range);
-            if (ObservedSpaceEnd(index, path) is { } observedEnd && path[index].TargetArc > observedEnd)
-                return new(0, centers, body.Covered, false, true, "boundary_position_unknown", null, body.Unknown);
             var ahead = Forward(index, displayed, range, path);
             return new(ahead.Cells / 2, centers, body.Covered, ahead.Boundary, ahead.Observation, ahead.Missing, ahead.Point, body.Unknown);
         }
@@ -117,18 +117,15 @@ internal static class FollowRouteAnalysis
             return (true, null);
         }
 
-        double? ObservedSpaceEnd(int index, PathPoint[] path)
+        (double Arc, double Tolerance)? EstimatedBoundary(int index, PathPoint[] path)
         {
             var end = spaceEnds[index];
             if (end + 1 >= frames.Length || !IsSpaceChange(frames[end], frames[end + 1]) ||
-                path[end].History != path[index].History) return null;
-            var vehicles = path == paths[1] ? frames[end].DisplayedVehicles : frames[end].Vehicles;
-            var leading = vehicles.Length == 0 ? null : frames[end].FirstEndLeading ? vehicles[0] : vehicles[^1];
-            // A leading center can already be across the physical boundary while Core still references the old space.
-            // Retreat to the last observed train reference center; this is an observation cutoff, not a boundary.
-            if (frames[end].TrainLengthMeters is not > 0 || leading?.LengthCells is not > 0)
-                return double.NegativeInfinity;
-            return path[end].CenterArc - (frames[end].TrainLengthMeters!.Value * 2 - leading.LengthCells.Value) / 2;
+                path[end + 1].History != path[index].History || path[end + 1].Head is null ||
+                frames[end + 1].TrainLengthMeters is not > 0) return null;
+            // Core changes space at the reference center. All arcs are in 0.5 m cells.
+            return (path[end + 1].TargetArc - frames[end + 1].TrainLengthMeters!.Value,
+                Math.Max(4, path[end + 1].TargetArc - path[end].TargetArc));
         }
 
         Ahead Forward(int index, bool displayed, RouteRanges range, PathPoint[] path)
@@ -140,42 +137,47 @@ internal static class FollowRouteAnalysis
             while (true)
             {
                 if (aheadCache.TryGetValue((range.Id, displayed, cursor), out result!)) break;
+                var boundary = EstimatedBoundary(cursor, path);
+                if (boundary is { } reached && path[cursor].TargetArc >= reached.Arc)
+                { result = new(0, true, false, null, null); break; }
                 var head = Subtract(path[cursor].Head!.Value, path[cursor].Offset);
                 if (Missing(head, range) is { } missing)
                 {
-                    result = new(0, false, false, missing, head);
+                    result = new(0, NearBoundary(path[cursor].TargetArc), false, missing, head);
                     break;
                 }
                 var next = cursor + 1;
                 if (next == frames.Length) { result = new(0, false, true, null, null); break; }
-                // Transition origins align coordinates; they do not identify the physical boundary.
-                if (IsSpaceChange(frames[cursor], frames[next]))
+                if (IsSpaceChange(frames[cursor], frames[next]) && boundary is null)
                 { result = new(0, false, true, "boundary_position_unknown", null); break; }
-                if (!SameCoordinates(frames[cursor], frames[next]))
+                if (!SameCoordinates(frames[cursor], frames[next]) && !IsSpaceChange(frames[cursor], frames[next]))
                 { result = new(0, false, true, "future_coordinate_context_changed", null); break; }
                 if (path[cursor].History != path[next].History)
                 { result = new(0, false, true, "future_path_changed", null); break; }
                 if (path[next].Head is null) { result = new(0, false, true, "future_center_history_insufficient", null); break; }
                 var endArc = path[next].TargetArc;
-                var observedEnd = ObservedSpaceEnd(cursor, path);
-                var observationClipped = observedEnd is { } limit && endArc > limit;
-                if (observationClipped) endArc = observedEnd!.Value;
+                var boundaryClipped = boundary is { } limit && endArc >= limit.Arc;
+                if (boundaryClipped) endArc = boundary!.Value.Arc;
                 var length = 0d;
                 var previous = head;
+                var gapArc = path[cursor].TargetArc;
                 string? reason = null; ScenePoint? missingPoint = null;
                 foreach (var unified in ArcSamples(path, cursor, path[cursor].TargetArc, endArc).Skip(1))
                 {
                     var point = Subtract(unified, path[cursor].Offset);
                     if (Missing(point, range) is { } gap)
                     {
+                        gapArc = path[cursor].TargetArc + length + Distance(previous, point);
                         reason = gap; missingPoint = point;
                         break;
                     }
                     length += Distance(previous, point); previous = point;
                 }
-                if (reason is not null) { result = new(length, false, false, reason, missingPoint); break; }
-                if (observationClipped) { result = new(length, false, true, "boundary_position_unknown", null); break; }
+                if (reason is not null) { result = new(length, NearBoundary(gapArc), false, reason, missingPoint); break; }
+                if (boundaryClipped) { result = new(length, true, false, null, null); break; }
                 pending.Add((cursor, length)); cursor = next;
+
+                bool NearBoundary(double arc) => boundary is { } value && Math.Abs(arc - value.Arc) <= value.Tolerance;
             }
             Cache(cursor, result);
             for (var i = pending.Count - 1; i >= 0; i--)

@@ -129,41 +129,46 @@ public sealed class FollowRouteAnalysisTests
     }
 
     [TestMethod]
-    public void SpaceChangeDoesNotUseLeadingVehicleCenterAsBoundary()
+    public void SpaceBoundaryUsesHalfTheWholeConsistAlongTheStitchedHeadPath()
     {
-        foreach (var length in new[] { 2d, 8d })
-        {
-            RouteFrame Consist(long draw, double z, ulong space)
-            {
-                RouteVehicle[] vehicles = [new(1, new(0, 0, z + length / 2), length),
-                    new(2, new(0, 0, z - length / 2), length)];
-                return InSpace(Frame(draw, 0, z), space, (long)space) with
-                { Vehicles = vehicles, DisplayedVehicles = vehicles, ExpectedVehicles = [1, 2],
-                    TrainLengthMeters = length };
-            }
-            var frames = new[] { Consist(1, 0, 1), Consist(2, 4, 1),
-                Consist(3, 8, 2) with { Transition = new(Stamp(), new(), Stamp(2), new(), false) },
-                Consist(4, 12, 2) };
-            var ranges = new Dictionary<long, RouteRanges>
-            {
-                [1] = Range(1, Bounds(-1, -1, 1, 4)),
-                [2] = Range(2, Bounds(-1, -1, 1, 100)) with { Frame = Stamp(2), Coordinates = new(2) }
-            };
-            var report = FollowRouteAnalysis.Analyze(frames, ranges);
-            Assert.IsFalse(report.Frames[0].Scenes.BoundaryLimited);
-            Assert.IsTrue(report.Frames[0].Scenes.ObservationLimited);
-            Assert.AreEqual("boundary_position_unknown", report.Frames[0].Scenes.Missing);
-            Assert.IsTrue(report.Summary.UnknownScenes64MetersFrames > 0);
-            // The reference center is at z=4; the leading center and interpolated head already extend beyond it.
-            Assert.AreEqual(0d, report.Frames[1].Scenes.AheadMeters);
-            Assert.IsTrue(report.Frames[1].Scenes.ObservationLimited);
-            Assert.AreEqual("boundary_position_unknown", report.Frames[1].Scenes.Missing);
-            Assert.IsNull(report.Frames[1].Scenes.FirstMissingPoint);
-            if (length == 2)
-                Assert.IsFalse(report.Frames[1].Scenes.SampledBodyCovered,
-                    "Unknown forward boundary position must not suppress an observed body gap.");
-            else Assert.IsNull(report.Frames[1].Scenes.SampledBodyCovered);
-        }
+        var (frames, ranges) = BoundaryConsist();
+        var report = FollowRouteAnalysis.Analyze(frames, ranges);
+
+        // At center z=0 the head is z=8. The next space starts at reference center z=20,
+        // not leading vehicle center z=24. Coverage ends at z=18, within the 2 m tolerance.
+        Assert.AreEqual(5d, report.Frames[4].Scenes.AheadMeters);
+        Assert.IsTrue(report.Frames[4].Scenes.BoundaryLimited);
+        Assert.IsTrue(report.Frames[4].Displayed.BoundaryLimited);
+        Assert.IsFalse(report.Frames[4].Scenes.ObservationLimited);
+        Assert.AreEqual(0d, report.Frames[8].Scenes.AheadMeters);
+        Assert.IsTrue(report.Frames[8].Scenes.BoundaryLimited);
+        Assert.IsFalse(report.Frames[8].Scenes.SampledBodyCovered,
+            "Boundary-limited forward coverage must not suppress an observed body gap.");
+    }
+
+    [TestMethod]
+    public void GapBeforeTheBoundaryToleranceRemainsAFailure()
+    {
+        var (frames, ranges) = BoundaryConsist();
+        ranges[1] = ranges[1] with { Fog = [Bounds(-1, 10, 1, 11)] };
+        var result = FollowRouteAnalysis.Analyze(frames, ranges).Frames[4].Scenes;
+
+        Assert.AreEqual(.5, result.AheadMeters);
+        Assert.AreEqual("fog", result.Missing);
+        Assert.IsFalse(result.BoundaryLimited);
+        Assert.IsFalse(result.ObservationLimited);
+    }
+
+    [TestMethod]
+    public void BoundaryToleranceIncludesTheCrossingFramesTravel()
+    {
+        var (frames, ranges) = BoundaryConsist(crossingTravelCells: 12);
+        var result = FollowRouteAnalysis.Analyze(frames, ranges).Frames[4].Scenes;
+
+        // Gap z=19 is 4.5 m before the estimated boundary z=28, but this frame travels 6 m.
+        Assert.AreEqual(5d, result.AheadMeters);
+        Assert.IsTrue(result.BoundaryLimited);
+        Assert.IsFalse(result.ObservationLimited);
     }
 
     [TestMethod]
@@ -230,6 +235,25 @@ public sealed class FollowRouteAnalysisTests
 
     private static FollowRouteAnalysis.Report Analyze(RouteFrame[] frames, RouteRanges range) =>
         FollowRouteAnalysis.Analyze(frames, new Dictionary<long, RouteRanges> { [range.Id] = range });
+    private static (RouteFrame[] Frames, Dictionary<long, RouteRanges> Ranges) BoundaryConsist(double crossingTravelCells = 4)
+    {
+        var frames = Enumerable.Range(0, 13).Select(index =>
+        {
+            var z = -16 + index * 4 + (index >= 9 ? crossingTravelCells - 4 : 0);
+            var space = index < 9 ? 1ul : 2ul;
+            RouteVehicle[] vehicles = [new(1, new(0, 0, z + 4), 8), new(2, new(0, 0, z - 4), 8)];
+            return InSpace(Frame(index + 1, 0, z), space, (long)space) with
+            {
+                Vehicles = vehicles, DisplayedVehicles = vehicles, ExpectedVehicles = [1, 2], TrainLengthMeters = 8,
+                Transition = index == 9 ? new(Stamp(), new(), Stamp(2), new(), false) : null
+            };
+        }).ToArray();
+        return (frames, new()
+        {
+            [1] = Range(1, Bounds(-1, -100, 1, 18)),
+            [2] = Range(2, Bounds(-1, -100, 1, 100)) with { Frame = Stamp(2), Coordinates = new(2) }
+        });
+    }
     private static SceneFrameStamp Stamp(ulong space = 1) => new(new(Guid.Empty), new(1), new(space), 1);
     private static RouteBounds Bounds(double x0, double z0, double x1, double z1) => new(new(x0, -1, z0), new(x1, 1, z1));
     private static RouteRanges Range(long id, RouteBounds bounds) => new(id, Stamp(), new(1), [new(1, 0, bounds)], [new(2, 0, bounds)], []);
