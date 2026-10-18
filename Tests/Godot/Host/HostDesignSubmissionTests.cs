@@ -110,6 +110,39 @@ public sealed class HostDesignSubmissionTests
         fixture.AssertNoUnexpectedFailures();
     }
 
+    [TestMethod]
+    public void Accepted_design_target_keeps_panel_generation_until_reload()
+    {
+        using var fixture = new HostFixture();
+        var session = fixture.ReadyHost();
+        var binding = fixture.Host.GetStatus()!.Binding;
+        var opened = fixture.Content.Generation;
+        Assert.IsTrue(fixture.Host.PanelGenerationCurrent(binding, opened));
+        var activated = new FixedContentView(fixture.Content.Core, new(opened.Value + 1));
+        using var candidate = new ScriptedContentCandidate(activated, fixture.Content, ContentChange.Persistent,
+            edit: new PreparedContentEdit.ConstructionTarget(Design(fixture.Content.Core.Identity)));
+        var command = new CoreCommand.CommissionVehicleWork(new JobRequest.BuildVehicle(
+            new(new(1), CapabilityKind.Construction), Design(fixture.Content.Core.Identity), [], 0), new(100));
+        session.QueueSubmit(command, CommandSource.UserInterface,
+            new SubmissionResult.Completed(new(1, new(0, 0), new(0, 1), new CommandDecision.Accepted([], [])), [], null),
+            session.CurrentView);
+        Assert.IsInstanceOfType<CommandDecision.Accepted>(((SubmissionResult.Completed)fixture.Host.Submit(
+            binding, command, CommandSource.UserInterface, candidate)).Receipt.Decision);
+        Assert.AreSame(activated, fixture.Host.Content);
+        Assert.IsTrue(fixture.Host.PanelGenerationCurrent(binding, opened));
+        Assert.IsTrue(fixture.Host.PanelGenerationCurrent(binding, activated.Generation));
+        var reloaded = new FixedContentView(fixture.Content.Core, new(activated.Generation.Value + 1));
+        var reload = new ScriptedContentCandidate(reloaded, activated, ContentChange.Presentation);
+        fixture.Load = _ => new ContentResult<IContentCandidate>.Success(reload);
+        Assert.IsNull(fixture.Host.BeginReload(CommandSource.Console).Problem);
+        fixture.PumpUntil(() => !fixture.Host.IsBusy);
+        Assert.AreSame(reloaded, fixture.Host.Content);
+        Assert.IsFalse(fixture.Host.PanelGenerationCurrent(binding, opened));
+        Assert.IsTrue(fixture.Host.PanelGenerationCurrent(binding, reloaded.Generation));
+        reload.Dispose();
+        fixture.AssertNoUnexpectedFailures();
+    }
+
     private static DesignInput Design(CoreInputId input) => new(input,
         new(new("service-design"), new("service-composition"), new DesignKind.Vehicle(SizeClass.Small, 2),
             [], 10, 10, 1, new(100), [], [new(new GoodId.Voxel(new("fixture:ore")), 1)], 1, [], true, []), []);

@@ -63,14 +63,14 @@ public class VehicleServiceIntegrationTests(Node testScene) : TestClass(testScen
             var store = new FileSaveStore(directory);
             async Task RestoreAndCompare(string name)
             {
-                var capture = host.CaptureSave().Capture!;
+                var capture = Saved(host);
                 var path = Path.Combine(directory, name + ".save.json");
                 Require(store.Write(path, capture.Encode(capture.Identity, DateTimeOffset.UtcNow), false).Published, "真实存档未写入：" + path);
                 var document = store.Read(path);
                 Require(restored.BeginRestore(document.CorePayload, document.ContentPayload, host.SessionOptions!, capture.Identity).Problem is null,
                     "真实文件恢复请求被拒绝。");
                 await Pump(restored);
-                Require(restored.GetStatus() is not null && restored.CaptureSave().Capture!.Core.Encode() == capture.Core.Encode(),
+                Require(restored.GetStatus() is not null && Saved(restored).Core.Encode() == capture.Core.Encode(),
                     "真实保存恢复改变核心状态，或重复扣款、扣料、创建任务。");
                 Require(restored.Content!.FindBlueprint(saved.Address) is ContentLookup<BlueprintRecord>.Found,
                     "真实恢复丢失本局新蓝图。");
@@ -253,9 +253,8 @@ public class VehicleServiceIntegrationTests(Node testScene) : TestClass(testScen
                     Require(Quantity(returnedInventory, returned.Good) == Quantity(returnInventory, returned.Good) + returned.Quantity,
                         "委托改装没有恰好返还一次到当地玩家租库。");
             }
-            var finalState = host.CaptureSave().Capture!.Core.Encode();
-            var binding = host.GetStatus()!.Binding;
-            var recording = host.CaptureRecording(binding, host.ReadRecording(binding)!).Snapshot!;
+            var finalState = Saved(host).Core.Encode();
+            var recording = Recorded(host);
             var package = RecordingPackage.Capture(recording.Window, recording.Content, recording.Runtime);
             var replayPath = Path.Combine(directory, "vehicle-service.recording.zip");
             package.Write(replayPath);
@@ -270,7 +269,7 @@ public class VehicleServiceIntegrationTests(Node testScene) : TestClass(testScen
                     "含拒绝目标依赖的严格重放失败：" + replay);
                 await TestScene.ToSignal(TestScene.GetTree(), SceneTree.SignalName.ProcessFrame);
             }
-            Require(replay?.Stop == ReplayStop.EndOfRecording && restored.CaptureSave().Capture!.Core.Encode() == finalState,
+            Require(replay?.Stop == ReplayStop.EndOfRecording && Saved(restored).Core.Encode() == finalState,
                 "严格重放终态不一致，资金、库存、任务或编组可能重复应用。");
         }
         finally { Directory.Delete(directory, true); }
@@ -280,8 +279,28 @@ public class VehicleServiceIntegrationTests(Node testScene) : TestClass(testScen
         ? success.Value : throw new InvalidOperationException("真实内容准备失败：" + result);
     private static T Found<T>(Lookup<T> result) where T : notnull => result is Lookup<T>.Found found
         ? found.Value : throw new InvalidOperationException("真实核心对象不存在：" + result);
-    private static JobQuote Quote(ICoreReadView view, JobRequest request) => view.GetJobQuote(request, JobFunding.NpcCommission) is CoreResult<JobQuote>.Success success
-        ? success.Value : throw new InvalidOperationException("真实委托报价失败。");
+    private static JobQuote Quote(ICoreReadView view, JobRequest request)
+    {
+        var result = view.GetJobQuote(request, JobFunding.NpcCommission);
+        Require(result is CoreResult<JobQuote>.Success, "真实委托报价失败：" + result);
+        return ((CoreResult<JobQuote>.Success)result).Value;
+    }
+    private static SaveCapture Saved(HostCoordinator host)
+    {
+        var saved = host.CaptureSave();
+        if (saved.Failure is not null || saved.Capture is not { } capture)
+            throw new InvalidOperationException("保存失败：" + saved.Failure?.Code + " " + saved.Failure?.Message);
+        return capture;
+    }
+    private static RecordingSnapshot Recorded(HostCoordinator host)
+    {
+        var binding = host.GetStatus()!.Binding;
+        if (host.ReadRecording(binding) is not { } window) throw new InvalidOperationException("没有可录制的窗口。");
+        var recorded = host.CaptureRecording(binding, window);
+        if (recorded.Failure is not null || recorded.Snapshot is not { } snapshot)
+            throw new InvalidOperationException("录制失败：" + recorded.Failure?.Code + " " + recorded.Failure?.Message);
+        return snapshot;
+    }
     private static long Quantity(InventoryView inventory, GoodId good) => inventory.Stacks.SingleOrDefault(s => s.Good == good)?.Quantity ?? 0;
     private static string EconomicState(ICoreReadView view, SettlementId settlement)
     {

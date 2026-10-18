@@ -28,7 +28,7 @@ public class VehicleServiceDeconstructionIntegrationTests(Node testScene) : Test
             { current.ProcessFrame(0); return !current.IsBusy; }, dispatcher);
             Require(host.BeginNewGame(new("core:basic-through-world"), 1, "stage1-world-v1", host.SessionOptions!).Problem is null, "拆解新局请求失败。");
             await Pump(host);
-            var initial = host.CaptureSave().Capture!;
+            var initial = Saved(host);
             // 公开生成入口只创建 NPC 聚居地，占领命令尚未实现；仅此初始夹具调整归属，随即交给真实恢复校验。
             var ownedPayload = OwnedStartingSave(initial.Core.Encode());
             Require(host.BeginRestore(ownedPayload, initial.Content.Encode(), host.SessionOptions!, initial.Identity).Problem is null, "自有初始存档恢复请求失败。");
@@ -56,7 +56,7 @@ public class VehicleServiceDeconstructionIntegrationTests(Node testScene) : Test
             await SaveAndRestore();
             Require(host.Step(3).Completed == 3 && restored.Step(3).Completed == 3, "暂停步进失败。");
             Require(((JobView.Construction)Found(host.GetStatus()!.View.FindJob(job))).Value.ProgressWork == paused.ProgressWork
-                && host.CaptureSave().Capture!.Core.Encode() == restored.CaptureSave().Capture!.Core.Encode(), "暂停恢复后施工推进或核心状态分歧。");
+                && Saved(host).Core.Encode() == Saved(restored).Core.Encode(), "暂停恢复后施工推进或核心状态分歧。");
             Accept(host, new CoreCommand.SetDeconstructionPaused(job, false));
             Accept(restored, new CoreCommand.SetDeconstructionPaused(job, false));
             CoreEvent.ConstructionCompleted? completion = null;
@@ -69,14 +69,13 @@ public class VehicleServiceDeconstructionIntegrationTests(Node testScene) : Test
             Require(completion is not null && host.GetStatus()!.View.FindInstance(target.Id) is Lookup<InstanceView>.Missing
                 && host.GetStatus()!.View.FindJob(job) is Lookup<JobView>.Missing, "拆解没有删除实例及任务。");
             Require(completion!.ReturnedGoods.SequenceEqual(reservation.ExpectedReturns), "完整车辆的拆解返还与核心预约不一致。");
-            Require(host.CaptureSave().Capture!.Core.Encode() == restored.CaptureSave().Capture!.Core.Encode(), "磁盘恢复后的拆解终态不一致。");
+            Require(Saved(host).Core.Encode() == Saved(restored).Core.Encode(), "磁盘恢复后的拆解终态不一致。");
             var after = Found(host.GetStatus()!.View.FindInventory(settlement.Inventory));
             Require(after.Reservations.All(r => r.Job != job), "拆解完成未释放返还预约。");
             foreach (var returned in completion!.ReturnedGoods)
                 Require(Quantity(after, returned.Good) == Quantity(inventory, returned.Good) + returned.Quantity, "拆解返还未恰好进入当地自有库存一次。");
-            var final = host.CaptureSave().Capture!.Core.Encode();
-            var binding = host.GetStatus()!.Binding;
-            var recording = host.CaptureRecording(binding, host.ReadRecording(binding)!).Snapshot!;
+            var final = Saved(host).Core.Encode();
+            var recording = Recorded(host);
             var path = Path.Combine(directory, "deconstruction.recording.zip");
             RecordingPackage.Capture(recording.Window, recording.Content, recording.Runtime).Write(path);
             Require(restored.BeginReplay(path).Problem is null, "拆解严格重放请求失败。");
@@ -88,12 +87,12 @@ public class VehicleServiceDeconstructionIntegrationTests(Node testScene) : Test
                 Require(replay is { Difference: null, Fault: null }, "拆解严格重放分歧：" + replay);
                 await TestScene.ToSignal(TestScene.GetTree(), SceneTree.SignalName.ProcessFrame);
             }
-            Require(replay?.Stop == ReplayStop.EndOfRecording && restored.CaptureSave().Capture!.Core.Encode() == final,
+            Require(replay?.Stop == ReplayStop.EndOfRecording && Saved(restored).Core.Encode() == final,
                 "拆解严格重放终态不同或重复返还。");
 
             async Task SaveAndRestore()
             {
-                var capture = host.CaptureSave().Capture!;
+                var capture = Saved(host);
                 var store = new FileSaveStore(directory);
                 var path = Path.Combine(directory, "paused.save.json");
                 Require(store.Write(path, capture.Encode(capture.Identity, DateTimeOffset.UtcNow), false).Published, "拆解存档未发布。");
@@ -102,7 +101,7 @@ public class VehicleServiceDeconstructionIntegrationTests(Node testScene) : Test
                 var document = store.Read(path);
                 Require(restored.BeginRestore(document.CorePayload, document.ContentPayload, host.SessionOptions!, capture.Identity).Problem is null, "拆解恢复请求失败。");
                 await Pump(restored);
-                Require(restored.CaptureSave().Capture!.Core.Encode() == capture.Core.Encode(), "拆解存档恢复重复改变任务、库存或返还。");
+                Require(Saved(restored).Core.Encode() == capture.Core.Encode(), "拆解存档恢复重复改变任务、库存或返还。");
             }
         }
         finally { Directory.Delete(directory, true); }
@@ -190,5 +189,21 @@ public class VehicleServiceDeconstructionIntegrationTests(Node testScene) : Test
     }
     private static T Found<T>(Lookup<T> result) where T : notnull => result is Lookup<T>.Found found ? found.Value
         : throw new InvalidOperationException("真实拆解对象不存在：" + result);
+    private static SaveCapture Saved(HostCoordinator host)
+    {
+        var saved = host.CaptureSave();
+        if (saved.Failure is not null || saved.Capture is not { } capture)
+            throw new InvalidOperationException("保存失败：" + saved.Failure?.Code + " " + saved.Failure?.Message);
+        return capture;
+    }
+    private static RecordingSnapshot Recorded(HostCoordinator host)
+    {
+        var binding = host.GetStatus()!.Binding;
+        if (host.ReadRecording(binding) is not { } window) throw new InvalidOperationException("没有可录制的窗口。");
+        var recorded = host.CaptureRecording(binding, window);
+        if (recorded.Failure is not null || recorded.Snapshot is not { } snapshot)
+            throw new InvalidOperationException("录制失败：" + recorded.Failure?.Code + " " + recorded.Failure?.Message);
+        return snapshot;
+    }
     private static long Quantity(InventoryView inventory, GoodId good) => inventory.Stacks.SingleOrDefault(s => s.Good == good)?.Quantity ?? 0;
 }

@@ -49,11 +49,11 @@ public sealed class UiInputTests
         foreach (var obj in objects)
         {
             var target = new PanelTarget(binding, generation, obj);
-            Assert.IsTrue(target.IsAvailable(binding, generation, present));
-            Assert.IsFalse(target.IsAvailable(new(Guid.NewGuid()), generation, present));
-            Assert.IsFalse(target.IsAvailable(binding, new(4), present));
-            Assert.IsFalse(target.IsAvailable(binding, generation, absent));
-            Assert.IsFalse(target.IsAvailable(new(Guid.NewGuid()), generation, new FixedCoreReadView()));
+            Assert.IsTrue(target.IsAvailable(binding, present, true));
+            Assert.IsFalse(target.IsAvailable(new(Guid.NewGuid()), present, true));
+            Assert.IsFalse(target.IsAvailable(binding, present, false));
+            Assert.IsFalse(target.IsAvailable(binding, absent, true));
+            Assert.IsFalse(target.IsAvailable(new(Guid.NewGuid()), new FixedCoreReadView(), true));
         }
     }
     [TestMethod]
@@ -85,10 +85,10 @@ public sealed class UiInputTests
         foreach (var obj in objects)
         {
             var target = new PanelTarget(binding, generation, obj);
-            Assert.IsTrue(target.IsAvailable(binding, generation, View(true)));
-            Assert.IsFalse(target.IsAvailable(binding, generation, View(false)));
-            Assert.IsFalse(target.IsAvailable(new(Guid.NewGuid()), generation, new FixedCoreReadView()));
-            Assert.IsFalse(target.IsAvailable(binding, new(4), new FixedCoreReadView()));
+            Assert.IsTrue(target.IsAvailable(binding, View(true), true));
+            Assert.IsFalse(target.IsAvailable(binding, View(false), true));
+            Assert.IsFalse(target.IsAvailable(new(Guid.NewGuid()), new FixedCoreReadView(), true));
+            Assert.IsFalse(target.IsAvailable(binding, new FixedCoreReadView(), false));
         }
     }
 }

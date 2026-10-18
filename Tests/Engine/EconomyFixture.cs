@@ -173,7 +173,8 @@ internal static class EconomyFixture
             Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
             {
                 [new("fixture-vehicle")] = new ContentLookup<DesignEvaluation>.Missing([]),
-                [new("fixture-service-building")] = new ContentLookup<DesignEvaluation>.Found(ServiceBuilding())
+                [new("fixture-service-building")] = new ContentLookup<DesignEvaluation>.Found(ServiceBuilding()),
+                [new("fixture-plain-building")] = new ContentLookup<DesignEvaluation>.Found(PlainBuilding())
             }
         };
     }
@@ -187,6 +188,20 @@ internal static class EconomyFixture
                 new DesignKind.Building(PlotSize.Small, BuildingKind.Construction, []),
                 [new(new(1), new CoreDefinitionReference.Voxel(new("fixture:builder")), Food, 100, 1, new(1),
                     [new PartCapability.Construction(1, PlotSize.Small, SizeClass.Medium)], false)],
+                100, 1, 1, new(1), [], [], 0, [], true, []), []);
+        return new(design.Design.Design, design.Design.Composition, definition, design,
+            new(null, null, null, true, null, null, [], [], [], [], []), true, []);
+    }
+
+    private static DesignEvaluation.Complete PlainBuilding()
+    {
+        var definition = new DesignDraft(new("普通建筑", ""),
+            new DesignSpecification.Building(PlotSize.Small, BuildingKind.Production, []), new([], [], []));
+        var design = new DesignInput(HostCoreScenario.Input,
+            new(new("fixture-plain-building"), new("fixture-plain-composition"),
+                new DesignKind.Building(PlotSize.Small, BuildingKind.Production, []),
+                [new(new(1), new CoreDefinitionReference.Voxel(new("fixture:builder")), Food, 100, 1, new(1),
+                    [new PartCapability.Production(1)], false)],
                 100, 1, 1, new(1), [], [], 0, [], true, []), []);
         return new(design.Design.Design, design.Design.Composition, definition, design,
             new(null, null, null, true, null, null, [], [], [], [], []), true, []);
