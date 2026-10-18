@@ -33,6 +33,9 @@ internal static class SettlementQueries
             Engagement: new(TargetPriority.ArmedFirst, TargetScope.All), MoraleRatio: 1, Surrendered: false,
             CommissionJobs: world.ConstructionJobs.Where(j => j.Settlement == settlement.Id && j.Funding == JobFunding.NpcCommission)
                 .OrderBy(j => j.Id.Value).Select(j => j.Id).ToImmutableArray(),
+            OwnedJobs: settlement.Relation != SettlementRelation.PlayerOwned ? [] : world.ConstructionJobs
+                .Where(j => j.Settlement == settlement.Id && j.Funding == JobFunding.OwnInventory)
+                .OrderBy(j => j.Id.Value).Select(j => j.Id).ToImmutableArray(),
             world.Leases.Where(l => l.Settlement == settlement.Id).Select(l => l.Id).ToImmutableArray(), market);
     }
 
