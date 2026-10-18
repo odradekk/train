@@ -166,12 +166,18 @@ internal sealed class SceneResources : IDisposable
                             Rotation = new(0, 0, Mathf.Pi / 2)
                         };
                         result.Node.AddChild(wheel);
-                        wheel.AddChild(new MeshInstance3D
+                        for (var spoke = 0; spoke < 4; spoke++)
                         {
-                            Mesh = result.Own(new BoxMesh { Size = new((float)wheelset.RadiusCells * 0.8f, 0.015f, (float)wheelset.RadiusCells * 0.2f) }),
-                            MaterialOverride = wheelMarkerMaterial,
-                            Position = new((float)wheelset.RadiusCells * 0.4f, -side * ((float)wheelset.WidthCells / 2 + 0.01f), 0)
-                        });
+                            var angle = spoke * Mathf.Pi / 2;
+                            wheel.AddChild(new MeshInstance3D
+                            {
+                                Mesh = result.Own(new BoxMesh { Size = new((float)wheelset.RadiusCells * 0.95f, 0.015f, (float)wheelset.RadiusCells * 0.2f) }),
+                                MaterialOverride = wheelMarkerMaterial,
+                                Position = new Vector3((float)wheelset.RadiusCells * 0.475f,
+                                    -side * ((float)wheelset.WidthCells / 2 + 0.01f), 0).Rotated(Vector3.Up, angle),
+                                Rotation = new(0, angle, 0)
+                            });
+                        }
                     }
                     result.Node.Rotation = new((float)wheelset.RotationRadians, 0, 0);
                     break;
