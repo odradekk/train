@@ -34,6 +34,9 @@ internal static class WorldJson
                     && !SameValue(period.Rule, WorldInputs.NormalizePopulationRule(period.Rule)))
                     throw new CoreStateFormatException("/world/settlements/population_state/period/rule");
             }
+            foreach (var job in world.FoundingJobs)
+                if (!SameValue(job.Template, WorldInputs.NormalizeTemplate(job.Template)))
+                    throw new CoreStateFormatException("/world/founding_jobs/template");
             return world;
         }
         catch (Exception error) when (error is JsonException or NotSupportedException or ArgumentException)
