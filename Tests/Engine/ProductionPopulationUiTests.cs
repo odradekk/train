@@ -49,7 +49,7 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
                     }
                 };
                 economy.Refresh(binding, view, content);
-                var text = economy.GetNode<Label>("EconomyReports/Layout/Body/ReportsScroll/Reports/ReportsText").Text;
+                var text = economy.GetNode<Label>("EconomyReports/Layout/Content/Body/ReportsScroll/Reports/ReportsText").Text;
                 Require(text.Contains("载运率 " + expected), "经营报告未区分未定义、空载和超载的载运率。");
                 Require(ratio is null || !text.Contains("未进入线路"), "有数值的载运率被显示为未定义。");
             }
@@ -135,7 +135,7 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
             var needs = Enum.GetValues<PopulationNeed>().Select(kind => new PopulationNeedView(kind, 2, 0, 0, null)).ToImmutableArray();
             var pending = View(original, 2, new PopulationExecution.NotStarted(needs));
             economy.Refresh(binding, pending, content);
-            var population = economy.GetNode<Label>("Settlement/Layout/Body/Pages/人口/Body/Population");
+            var population = economy.GetNode<Label>("Settlement/Layout/Content/Body/Pages/人口/Body/Population");
             Require(population.Text.Contains("尚未开始") && population.Text.Contains("未结算") &&
                 !population.Text.Contains("满足率 0"), "尚未开始的人口被显示为零满足率。");
             Require(!population.Text.Contains("累计应需") && !population.Text.Contains("实际满足"),
@@ -153,13 +153,13 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
 
             economy.OpenReports();
             economy.Refresh(binding, active, content);
-            var report = economy.GetNode<Label>("EconomyReports/Layout/Body/ReportsScroll/Reports/ReportsText").Text;
+            var report = economy.GetNode<Label>("EconomyReports/Layout/Content/Body/ReportsScroll/Reports/ReportsText").Text;
             Require(report.Contains("服务费用：未接入") && report.Contains("未归属服务支出：未接入"),
                 "服务费用被伪装成已接入金额。");
             Require(report.Contains("101 → 103") && !report.Contains("901 → 907"),
                 "经营报告未展示自有聚居地结算，或混入NPC人口结算。");
             economy.Refresh(new HostBinding(Guid.NewGuid()), active, content);
-            Require(economy.GetNode<Label>("EconomyReports/Layout/Body/State").Text.Contains("已失效"),
+            Require(economy.GetNode<Label>("EconomyReports/Layout/Content/Body/State").Text.Contains("已失效"),
                 "全局经营报告仍接受旧对局绑定。");
             Require(setup.Session.SubmitCount == 0, "只读页面提交了命令。");
         }

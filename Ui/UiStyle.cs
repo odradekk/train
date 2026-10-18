@@ -48,20 +48,54 @@ internal static class UiStyle
         heading.AddChild(Button("Close", "×", close));
         box.AddChild(heading);
         box.AddChild(new HSeparator());
-        body = new VBoxContainer { Name = "Body" };
+        var scroll = new ScrollContainer { Name = "Content", HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
+            VerticalScrollMode = ScrollContainer.ScrollMode.Auto };
+        body = new VBoxContainer { Name = "Body", SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
         body.AddThemeConstantOverride("separation", 10);
-        box.AddChild(body);
+        scroll.AddChild(body);
+        box.AddChild(scroll);
         panel.AddChild(box);
-        parent.AddChild(panel);
+        GameUi? ui = null;
+        var content = body;
+        var queued = false;
         void Fit()
         {
-            if (parent.Size.X <= 0 || parent.Size.Y <= 0) return;
-            panel.Position = new(Math.Clamp(position.X, 8, Math.Max(8, parent.Size.X - panel.Size.X - 8)),
-                Math.Clamp(position.Y, 8, Math.Max(8, parent.Size.Y - panel.Size.Y - 8)));
+            queued = false;
+            if (!GodotObject.IsInstanceValid(panel) || !panel.IsVisibleInTree() || parent.Size.X <= 0 || parent.Size.Y <= 0) return;
+            var area = ui?.PanelArea ?? parent.GetGlobalRect().Grow(-8);
+            area.Position -= parent.GlobalPosition;
+            var frameHeight = panel.GetThemeStylebox("panel").GetMinimumSize().Y +
+                box.GetCombinedMinimumSize().Y - scroll.GetCombinedMinimumSize().Y;
+            scroll.CustomMinimumSize = new(0, Math.Min(content.GetCombinedMinimumSize().Y, Math.Max(0, area.Size.Y - frameHeight)));
+            panel.Size = panel.GetCombinedMinimumSize();
+            panel.Position = new(Math.Clamp(position.X, area.Position.X, Math.Max(area.Position.X, area.End.X - panel.Size.X)),
+                Math.Clamp(position.Y, area.Position.Y, Math.Max(area.Position.Y, area.End.Y - panel.Size.Y)));
         }
-        parent.Resized += Fit;
-        panel.Resized += Fit;
-        panel.TreeExiting += () => parent.Resized -= Fit;
+        void QueueFit()
+        {
+            if (queued || !panel.IsInsideTree() || !panel.IsVisibleInTree()) return;
+            // 绑定多条规则时合并布局，避免逐个控件重新测量整个面板。
+            queued = true;
+            Callable.From(Fit).CallDeferred();
+        }
+        parent.Resized += QueueFit;
+        panel.Resized += QueueFit;
+        panel.VisibilityChanged += QueueFit;
+        content.MinimumSizeChanged += QueueFit;
+        panel.Ready += () =>
+        {
+            Node? ancestor = parent;
+            while (ancestor is not null && ancestor is not GameUi) ancestor = ancestor.GetParent();
+            ui = ancestor as GameUi;
+            if (ui is not null) ui.PanelAreaChanged += QueueFit;
+            QueueFit();
+        };
+        panel.TreeExiting += () =>
+        {
+            parent.Resized -= QueueFit;
+            if (ui is not null) ui.PanelAreaChanged -= QueueFit;
+        };
+        parent.AddChild(panel);
         return panel;
     }
 }

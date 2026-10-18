@@ -199,7 +199,7 @@ public class UiTests(Node testScene) : TestClass(testScene)
             var fleet = ui.GetNode<Button>("Root/World/Bar/TopBar/Fleet");
             fleet.GrabFocus();
             await _input.PressKey(Key.Space);
-            var list = ui.GetNode<ItemList>("Root/World/WorldPanels/FleetList/Layout/Body/Objects");
+            var list = ui.GetNode<ItemList>("Root/World/WorldPanels/FleetList/Layout/Content/Body/Objects");
             Require(list.IsVisibleInTree(), "顶栏实际按键没有打开车队列表。");
             await _input.Frames(2);
             var covered = list.GlobalPosition + new Vector2(30, 30);
@@ -283,10 +283,10 @@ public class UiTests(Node testScene) : TestClass(testScene)
             var ui = app.GetNode<GameUi>("GameUi");
             ui.GetNode<Button>("Root/World/Bar/TopBar/Fleet").GrabFocus();
             await _input.PressKey(Key.Space);
-            var list = ui.GetNode<ItemList>("Root/World/WorldPanels/FleetList/Layout/Body/Objects");
+            var list = ui.GetNode<ItemList>("Root/World/WorldPanels/FleetList/Layout/Content/Body/Objects");
             await _input.ClickItem(list, 0);
             var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
-            var stop = panels.GetNodeOrNull<Button>("Details/Layout/Body/Stop");
+            var stop = panels.GetNodeOrNull<Button>("Details/Layout/Content/Body/Stop");
             Require(stop is not null && stop.IsVisibleInTree(),
                 $"实际列表点击没有打开列车详情：rect={list.GetGlobalRect()}，item={list.GetItemRect(0)}，selected={string.Join(',', list.GetSelectedItems())}，hover={tree.Root.GuiGetHoveredControl()?.GetPath()}。");
             stop!.GrabFocus();
@@ -295,7 +295,7 @@ public class UiTests(Node testScene) : TestClass(testScene)
                 ui.GetNode<Control>("Root/ErrorPanel").IsVisibleInTree(), "真实停车命令的拒绝没有显示在界面。");
             setup.Session.AssertComplete();
 
-            var disband = panels.GetNode<Button>("Details/Layout/Body/Disband");
+            var disband = panels.GetNode<Button>("Details/Layout/Content/Body/Disband");
             disband.GrabFocus();
             await _input.PressKey(Key.Space);
             var confirmation = panels.GetNode<ConfirmationDialog>("DisbandConfirmation");

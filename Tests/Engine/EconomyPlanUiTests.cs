@@ -92,7 +92,7 @@ public class EconomyPlanUiTests(Node testScene) : TestClass(testScene)
             await input.Frames(2);
             var bar = tabs.GetTabBar();
             await input.Click(bar.GlobalPosition + bar.GetTabRect(4).GetCenter());
-            economy.GetNode<ScrollContainer>("Settlement/Layout/Body/Pages/生产").EnsureControlVisible(
+            economy.GetNode<ScrollContainer>("Settlement/Layout/Content/Body/Pages/生产").EnsureControlVisible(
                 Find<Label>(specificationLabel.GetParent(), "Batch"));
             await UiCapture.Capture(TestScene, "production-frozen-batch");
             await input.Click(bar.GlobalPosition + bar.GetTabRect(5).GetCenter());
@@ -146,7 +146,7 @@ public class EconomyPlanUiTests(Node testScene) : TestClass(testScene)
             panels.OpenObject(new WorldObjectId.Train(trainId));
             await input.Activate(Find<Button>(panels, "EditPlan"));
             var editor = ui.GetNode<TrainPlanPanel>("Root/World/TrainPlanPanel");
-            var stop = editor.GetNode<VBoxContainer>("Plan/Layout/Body/RowsScroll/Rows/Row0");
+            var stop = editor.GetNode<VBoxContainer>("Plan/Layout/Content/Body/RowsScroll/Rows/Row0");
             await input.Choose(stop.GetNode<OptionButton>("Stop/Node"), view.World.Nodes.Select(item => item.Id).ToList().IndexOf(node));
             await input.Activate(stop.GetNode<Button>("AddRule"));
             var rule = stop.GetNode<VBoxContainer>("Rules").GetChild<VBoxContainer>(0);

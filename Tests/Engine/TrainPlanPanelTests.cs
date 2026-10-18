@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Reflection;
 using Chickensoft.GoDotTest;
@@ -14,6 +15,54 @@ namespace Train.Engine.Tests;
 
 public class TrainPlanPanelTests(Node testScene) : TestClass(testScene)
 {
+    [Test]
+    public async Task Long_plan_stays_below_the_top_bar_and_inside_the_window_when_the_bar_wraps()
+    {
+        var tree = TestScene.GetTree();
+        var fixture = new Fixture(tree);
+        var size = tree.Root.Size;
+        var contentSize = tree.Root.ContentScaleSize;
+        var scale = tree.Root.ContentScaleFactor;
+        var view = EconomyFixture.Create(vehicle: EconomyFixture.VehicleState.Formed);
+        var content = EconomyFixture.Content();
+        var setup = new HostSimulationTests.HostSetup(view, content);
+        try
+        {
+            var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
+            app.CreateHost = logger => setup.Create(logger);
+            await fixture.AddToRoot(app);
+            await FramesUntil(TestScene, () => app.Host!.GetStatus() is not null);
+            tree.Root.ContentScaleFactor = 1;
+            tree.Root.ContentScaleSize = Vector2I.Zero;
+            var ui = app.GetNode<GameUi>("GameUi");
+            var panel = ui.GetNode<TrainPlanPanel>("Root/World/TrainPlanPanel");
+            var train = Train(view, 7) with { Plan = new(true,
+                Enumerable.Range(0, 40).Select(_ => (PlanStop)new PlanStop.Station(new(1), 60, [])).ToImmutableArray()) };
+            panel.Open(new(app.Host!.GetStatus()!.Binding, content.Generation, new WorldObjectId.Train(train.Id)), train, view, content);
+            var firstBarHeight = 0f;
+            foreach (var windowSize in new[] { new Vector2I(1920, 1080), new Vector2I(1000, 720) })
+            {
+                tree.Root.Size = windowSize;
+                await new UiTestInput(TestScene).Frames(6);
+                var bounds = panel.GetNode<PanelContainer>("Plan").GetGlobalRect();
+                var bar = ui.GetNode<PanelContainer>("Root/World/Bar").GetGlobalRect();
+                Require(bounds.Position.Y >= bar.End.Y && bounds.End.Y <= tree.Root.GetVisibleRect().End.Y,
+                    $"运行计划超出顶栏下方的可用区域：window={windowSize}，bar={bar}，panel={bounds}。");
+                if (firstBarHeight == 0)
+                {
+                    firstBarHeight = bar.Size.Y;
+                    await UiCapture.Capture(TestScene, "long-plan");
+                }
+                else Require(bar.Size.Y > firstBarHeight, "窄窗口没有覆盖顶栏换行情景。");
+            }
+        }
+        finally
+        {
+            await fixture.Cleanup();
+            tree.Root.Size = size; tree.Root.ContentScaleSize = contentSize; tree.Root.ContentScaleFactor = scale;
+        }
+    }
+
     [Test]
     public async Task Opening_another_train_discards_cancelled_edits_and_submits_only_its_plan()
     {
@@ -143,7 +192,7 @@ public class TrainPlanPanelTests(Node testScene) : TestClass(testScene)
     }
 
     private static TrainView Train(ICoreReadView view, ulong id) => ((Lookup<TrainView>.Found)view.FindTrain(new(id))).Value;
-    private static VBoxContainer Rows(TrainPlanPanel panel) => panel.GetNode<VBoxContainer>("Plan/Layout/Body/RowsScroll/Rows");
+    private static VBoxContainer Rows(TrainPlanPanel panel) => panel.GetNode<VBoxContainer>("Plan/Layout/Content/Body/RowsScroll/Rows");
     private static string Selected(OptionButton choice) => choice.GetItemText(choice.Selected);
 
     private static void AssertVisiblePlan(TrainPlanPanel panel, RunPlan expected, ICoreReadView view, IContentView content)

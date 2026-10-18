@@ -54,6 +54,21 @@ public partial class GameUi : CanvasLayer
 
     internal ICoreReadView? View => _view;
     internal string ErrorText => _error.Text;
+    internal Rect2 PanelArea { get; private set; }
+    internal event Action? PanelAreaChanged;
+
+    private void UpdatePanelArea()
+    {
+        var area = _root.GetGlobalRect().Grow(-8);
+        if (_world.IsVisibleInTree())
+        {
+            var top = _bar.GetParent<Control>().GetGlobalRect().End.Y + 8;
+            area = new(new(area.Position.X, top), new(area.Size.X, Math.Max(0, area.End.Y - top)));
+        }
+        if (PanelArea == area) return;
+        PanelArea = area;
+        PanelAreaChanged?.Invoke();
+    }
 
     internal void Initialize(MainMenu menu, HostCoordinator? host, TrainLogger logger,
         WorldSceneController? scenes, RecordingService? recording, GoodsIconCache icons, EditorService editor,
@@ -81,6 +96,9 @@ public partial class GameUi : CanvasLayer
         _bar = new HFlowContainer { Name = "TopBar" };
         _bar.AddThemeConstantOverride("h_separation", 12);
         top.AddChild(_bar);
+        top.Resized += UpdatePanelArea;
+        _root.Resized += UpdatePanelArea;
+        _world.VisibilityChanged += UpdatePanelArea;
         _clock = UiStyle.Label("");
         _clock.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
         _bar.AddChild(_clock);
@@ -171,6 +189,7 @@ public partial class GameUi : CanvasLayer
             if (_host.GetStatus() is { } status && _host.Content is { } content)
                 OnBoundary(status.Binding, status.View, content, []);
         }
+        UpdatePanelArea();
     }
 
     public override void _Process(double delta)
