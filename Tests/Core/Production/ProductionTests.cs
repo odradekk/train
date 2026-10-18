@@ -1,9 +1,11 @@
 using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Train.Core.Construction;
 using Train.Core.Contracts;
 using Train.Core.Production;
 using Train.Core.Sessions;
 using Train.Core.Tests.World;
+using Train.Core.World;
 using static Train.Core.Tests.Production.ProductionFixture;
 
 namespace Train.Core.Tests.Production;
@@ -362,7 +364,6 @@ public sealed class ProductionTests
         Assert.IsInstanceOfType<Lookup<FacilityView>.Missing>(session.Read().FindFacility(new(new(1), CapabilityKind.Production)));
         Assert.IsInstanceOfType<Lookup<FacilityView>.Missing>(session.Read().FindFacility(Facility with { Capability = CapabilityKind.Extraction }));
         Assert.ThrowsExactly<NotImplementedException>(() => session.Read().FindFacility(Facility with { Capability = CapabilityKind.Construction }));
-        Assert.ThrowsExactly<NotImplementedException>(() => session.Submit(new CoreCommand.SetProductionPlan(Facility, Process, false, 1), CommandSource.AutomationTest));
     }
 
     [TestMethod]
@@ -420,5 +421,328 @@ public sealed class ProductionTests
         Assert.AreEqual(0d, Read(session).CapabilityWorkPerSecond);
         Assert.AreEqual(ProductionState.Disabled, Read(session).State);
         Assert.IsNull(Read(session).Process);
+    }
+
+    [TestMethod]
+    public void Malformed_production_plan_throws_before_a_command_number()
+    {
+        using var session = (CoreSession)Prepare().Activate();
+        var position = session.State.Position;
+        var number = session.State.NextCommandNumber;
+        Assert.ThrowsExactly<ArgumentNullException>(() => session.Submit(new CoreCommand.SetProductionPlan(null!, Process, true, 0), CommandSource.AutomationTest));
+        Assert.ThrowsExactly<ArgumentNullException>(() => session.Submit(new CoreCommand.SetProductionPlan(Facility, null!, true, 0), CommandSource.AutomationTest));
+        Assert.ThrowsExactly<ArgumentException>(() => session.Submit(Plan(Process, building: new(0)), CommandSource.AutomationTest));
+        Assert.ThrowsExactly<ArgumentException>(() => session.Submit(Plan(Process, capability: CapabilityKind.Construction), CommandSource.AutomationTest));
+        Assert.ThrowsExactly<ArgumentException>(() => session.Submit(Plan(Process, capability: (CapabilityKind)99), CommandSource.AutomationTest));
+        Assert.ThrowsExactly<ArgumentException>(() => session.Submit(Plan(new ProcessRef.Production(new("BAD"))), CommandSource.AutomationTest));
+        Assert.AreEqual(position, session.State.Position);
+        Assert.AreEqual(number, session.State.NextCommandNumber);
+    }
+
+    [TestMethod]
+    public void Production_plan_rejections_follow_ownership_and_leave_the_world_unchanged()
+    {
+        using var unowned = (CoreSession)Prepare().Activate();
+        Rejects(unowned, Plan(Process, building: new(999)), "object_missing", "Facility");
+        Rejects(unowned, Plan(Process), "not_owned", "Facility");
+
+        using var hostile = Owned(relation: SettlementRelation.Hostile);
+        Rejects(hostile, Plan(Process), "not_owned", "Facility");
+
+        using var split = Owned();
+        var foreignBuilding = split.State.World with
+        {
+            Instances = split.State.World.Instances.Select(i => i.Id != new InstanceId.Building(Facility.Building)
+                ? i : i with { Ownership = SettlementRelation.NonHostile }).ToImmutableArray()
+        };
+        using var unownedBuilding = new CoreSession(split.State with { World = foreignBuilding });
+        Rejects(unownedBuilding, Plan(Process), "not_owned", "Facility");
+
+        using var intact = Owned();
+        var destroyed = intact.State.World with
+        {
+            Instances = intact.State.World.Instances.Select(i => i.Id != new InstanceId.Building(Facility.Building)
+                ? i : i with { StructureDurability = 0 }).ToImmutableArray()
+        };
+        using var ruined = new CoreSession(intact.State with { World = destroyed });
+        Rejects(ruined, Plan(new ProcessRef.Production(new("fixture:absent"))), "instance_destroyed", "Facility");
+
+        using var capable = Owned();
+        Rejects(capable, Plan(new ProcessRef.Production(new("fixture:absent")), capability: CapabilityKind.Extraction), "conditions_not_met", "Facility.Capability");
+        Rejects(capable, Plan(new ProcessRef.Production(new("fixture:absent"))), "content_missing", "Process");
+
+        var mismatched = WithProcess(new ProcessDetails.Extraction(new("fixture:extract"), new(Input, 1)), FacilityTag.Assembly);
+        using var wrongKind = Owned(mismatched);
+        Rejects(wrongKind, Plan(new ProcessRef.Production(new("fixture:extract"))), "conditions_not_met", "Process");
+
+        using var wrongTag = Owned(Content() with
+        {
+            Processes = [Content().Processes[0] with { RequiredFacilityTag = FacilityTag.Assembly }]
+        });
+        Rejects(wrongTag, Plan(Process), "conditions_not_met", "Facility.Tags");
+    }
+
+    [TestMethod]
+    public void Setting_a_plan_writes_only_that_settlement_copy_and_keeps_runtime_rows()
+    {
+        var content = WithAlternate();
+        using var created = Owned(content);
+        var settlement = created.State.World.Settlements.Single();
+        var otherPlan = new TemplateProductionPlan(2, CapabilityKind.Production, Recovery, false, 9);
+        var other = settlement with
+        {
+            Id = new(99),
+            Plots = settlement.Plots.Select(p => p with { Building = null }).ToImmutableArray(),
+            Template = settlement.Template with { ProductionPlans = [otherPlan] },
+            ProductionFacilities = []
+        };
+        var cleared = created.State.World with
+        {
+            Settlements = [settlement with
+            {
+                Template = settlement.Template with { ProductionPlans = [] },
+                ProductionFacilities = []
+            }, other]
+        };
+        using var session = new CoreSession(created.State with { World = cleared });
+        var templates = session.State.Content.SettlementTemplates;
+        var accepted = Accept(session, Plan(Process, priority: int.MaxValue));
+        var createdState = accepted.Events.Select(e => e.Event).OfType<CoreEvent.ProductionStateChanged>().Single();
+        Assert.AreEqual(ProductionState.Disabled, createdState.Before);
+        Assert.AreEqual(ProductionState.Running, createdState.After);
+        var plans = session.State.World.Settlements.Single(s => s.Id == Settlement).Template.ProductionPlans;
+        Assert.AreEqual(new TemplateProductionPlan(2, CapabilityKind.Production, Process, true, int.MaxValue), plans.Single());
+        Assert.AreEqual(new ProductionFacilityState(Facility, null, [], 0, [], 0, 0, 0),
+            session.State.World.Settlements.Single(s => s.Id == Settlement).ProductionFacilities.Single());
+        Assert.AreEqual(otherPlan, session.State.World.Settlements.Single(s => s.Id == new SettlementId(99)).Template.ProductionPlans.Single());
+        Assert.AreEqual(templates, session.State.Content.SettlementTemplates);
+        Accept(session, Plan(Alternate, enabled: false, priority: 3));
+        Assert.AreEqual(new TemplateProductionPlan(2, CapabilityKind.Production, Alternate, false, 3),
+            session.State.World.Settlements.Single(s => s.Id == Settlement).Template.ProductionPlans.Single());
+
+        using var running = Owned(Content());
+        Step(running);
+        var runtime = running.State.World.Settlements.Single().ProductionFacilities.Single();
+        var priority = Accept(running, Plan(Process, priority: int.MinValue));
+        Assert.IsFalse(priority.Events.Any(e => e.Event is CoreEvent.ProductionStateChanged));
+        Assert.AreEqual(runtime, running.State.World.Settlements.Single().ProductionFacilities.Single());
+        Assert.AreEqual(8L, Stock(running, Input));
+        var disabled = Accept(running, Plan(Process, enabled: false, priority: int.MinValue));
+        Assert.AreEqual(ProductionState.Disabled, ((CoreEvent.ProductionStateChanged)disabled.Events.Select(e => e.Event).OfType<CoreEvent.ProductionStateChanged>().Single()).After);
+        Step(running, 2);
+        Assert.AreEqual(3L, Stock(running, Product));
+        Assert.AreEqual(8L, Stock(running, Input));
+        Assert.IsNull(Read(running).Batch);
+        Step(running);
+        Assert.IsNull(Read(running).Batch);
+        Assert.AreEqual(8L, Stock(running, Input));
+
+        using var bufferedSession = Owned(WithAlternate());
+        var bufferedWorld = bufferedSession.State.World;
+        var bufferedSettlement = bufferedWorld.Settlements.Single();
+        var buffered = bufferedWorld with
+        {
+            Settlements = [bufferedSettlement with
+            {
+                ProductionFacilities = [bufferedSettlement.ProductionFacilities.Single() with
+                {
+                    Batch = null, OutputBuffer = [new(Product, 1)]
+                }]
+            }]
+        };
+        using var holding = new CoreSession(bufferedSession.State with { World = buffered });
+        Accept(holding, Plan(Alternate));
+        Assert.AreEqual(new GoodsQuantity(Product, 1), holding.State.World.Settlements.Single().ProductionFacilities.Single().OutputBuffer.Single());
+        Assert.IsNull(holding.State.World.Settlements.Single().ProductionFacilities.Single().Batch);
+        Assert.AreEqual(10L, Stock(holding, Input));
+    }
+
+    [TestMethod]
+    public void Damaged_declared_capability_and_terrain_mismatch_still_accept_a_plan()
+    {
+        var content = Content();
+        using var owned = Owned(content);
+        var damaged = owned.State.World with
+        {
+            Instances = owned.State.World.Instances.Select(i => i.Id != new InstanceId.Building(Facility.Building) ? i : i with
+            {
+                Parts = i.Parts.Select(p => p with { Current = 0 }).ToImmutableArray()
+            }).ToImmutableArray()
+        };
+        using var session = new CoreSession(owned.State with { World = damaged });
+        Accept(session, Plan(Process, priority: 2));
+        Assert.AreEqual(ProductionState.ZeroCapability, Read(session).State);
+
+        var hills = new ProcessRef.Production(new("fixture:hills"));
+        var terrain = WorldInputs.NormalizeContent(content with
+        {
+            Processes = content.Processes.Add(content.Processes[0] with
+            {
+                Details = new ProcessDetails.Production(new("fixture:hills"), [new(Input, 2)], [new(Product, 3)]),
+                AllowedTerrainTypes = [WorldFixture.Hills]
+            })
+        });
+        using var plain = Owned(terrain);
+        Accept(plain, Plan(hills));
+        Assert.AreEqual(ProductionState.ConditionsNotMet, Read(plain).State);
+        Step(plain);
+        Assert.AreEqual(10L, Stock(plain, Input));
+        Assert.IsNull(Read(plain).Batch);
+    }
+
+    [TestMethod]
+    public void Adding_a_plan_to_a_locked_building_enters_the_locked_state()
+    {
+        using var owned = Owned();
+        var world = owned.State.World;
+        var settlement = world.Settlements.Single();
+        var building = new InstanceId.Building(Facility.Building);
+        var job = new ConstructionJobState(new(world.Next.Job), settlement.Id, Facility,
+            world.Instances.Single(i => i.Id == building).Design, building, null, 0,
+            world.Source.Configuration.Rules.Construction, WorldFixture.Revision, 1, 0, 0, [], [], 0,
+            ConstructionState.Working, 0, [], [])
+        { Funding = JobFunding.OwnInventory, Kind = ConstructionKind.Repair };
+        var locked = world with
+        {
+            Settlements = [settlement with
+            {
+                Template = settlement.Template with { ProductionPlans = [] },
+                ProductionFacilities = []
+            }],
+            ConstructionJobs = [job]
+        };
+        using var session = new CoreSession(owned.State with { World = locked });
+        Assert.AreEqual(ProductionState.Disabled, Read(session).State);
+        var result = Accept(session, Plan(Process));
+        Assert.AreEqual(ProductionState.Locked, Read(session).State);
+        var change = result.Events.Select(e => e.Event).OfType<CoreEvent.ProductionStateChanged>().Single();
+        Assert.AreEqual(ProductionState.Disabled, change.Before);
+        Assert.AreEqual(ProductionState.Locked, change.After);
+    }
+
+    [TestMethod]
+    public void Switching_process_during_a_batch_finishes_the_old_batch_and_consumes_the_new_inputs_once()
+    {
+        var content = WithAlternate();
+        using var session = Owned(content);
+        Step(session);
+        Assert.AreEqual(8L, Stock(session, Input));
+        var result = Accept(session, Plan(Alternate, priority: 4));
+        Assert.IsFalse(result.Events.Any(e => e.Event is CoreEvent.ProductionStateChanged));
+        Assert.AreEqual(Alternate, Read(session).Process);
+        Assert.AreEqual(Process, Read(session).Batch!.Process);
+        Assert.IsFalse(Read(session).Batch!.CurrentSpecificationDiffers);
+        Assert.AreEqual(0d, Read(session).Batch!.ProgressWork);
+        Assert.AreEqual(8L, Stock(session, Input));
+        Assert.AreEqual(4, Read(session).Priority);
+        var potential = ((Lookup<SettlementView>.Found)session.Read().FindSettlement(Settlement)).Value.Facilities
+            .Single(f => f.Key == Facility).PotentialConsumption.Single();
+        Assert.AreEqual(Input, potential.Good);
+        Assert.AreEqual(150d, potential.UnitsPerSecond, 1e-9);
+
+        Step(session);
+        Assert.AreEqual(1d, Read(session).Batch!.ProgressWork, 1e-12);
+        var finished = Step(session);
+        var completed = finished.Events.Select(e => e.Event).OfType<CoreEvent.ProductionCompleted>().Single();
+        Assert.AreEqual(Process, completed.Process);
+        CollectionAssert.AreEqual(new[] { new GoodsQuantity(Product, 3) }, completed.Outputs.ToArray());
+        Assert.AreEqual(3L, Stock(session, Product));
+        Assert.AreEqual(8L, Stock(session, Input));
+        Assert.AreEqual(0L, Stock(session, OtherProduct));
+        Step(session);
+        Assert.AreEqual(Alternate, Read(session).Batch!.Process);
+        Assert.AreEqual(0d, Read(session).Batch!.ProgressWork);
+        Assert.AreEqual(3L, Stock(session, Input));
+        Assert.AreEqual(0L, Stock(session, OtherProduct));
+        Assert.AreEqual(3L, Stock(session, Product));
+    }
+
+    [TestMethod]
+    public void Current_specification_differs_follows_the_batch_process_after_a_switch()
+    {
+        var content = WithAlternate();
+        using var session = Owned(content);
+        Step(session);
+        Accept(session, Plan(Alternate));
+        Assert.IsFalse(Read(session).Batch!.CurrentSpecificationDiffers);
+        var updated = Changed(content) with
+        {
+            Processes = content.Processes.Select(p => p.Details is ProcessDetails.Production { Id.Value: "fixture:production" }
+                ? p with
+                {
+                    Revision = new(new string('A', 64)),
+                    Details = new ProcessDetails.Production(new("fixture:production"), [new(Input, 2)], [new(Product, 9)])
+                }
+                : p).ToImmutableArray()
+        };
+        Publish(session, updated);
+        Assert.AreEqual(Alternate, Read(session).Process);
+        Assert.AreEqual(Process, Read(session).Batch!.Process);
+        Assert.IsTrue(Read(session).Batch!.CurrentSpecificationDiffers);
+        Assert.AreEqual(0d, Read(session).Batch!.ProgressWork);
+        Assert.AreEqual(8L, Stock(session, Input));
+    }
+
+    [TestMethod]
+    public void Missing_batch_process_pauses_a_switched_batch()
+    {
+        var content = WithAlternate();
+        using var session = Owned(content);
+        Step(session);
+        Accept(session, Plan(Alternate));
+        Step(session);
+        Assert.AreEqual(1d, Read(session).Batch!.ProgressWork, 1e-12);
+        var saved = WorldFixture.Success(session.Capture(CapturePurpose.Save));
+        var missing = Changed(content) with
+        {
+            Processes = content.Processes.Where(p => p.Details is not ProcessDetails.Production { Id.Value: "fixture:production" }).ToImmutableArray(),
+            MissingReferences = [new(new CoreDefinitionReference.Process(Process), "process")]
+        };
+        using var restoredCandidate = WorldFixture.Success(CoreFactory.Create().PrepareRestore(
+            WorldFixture.Success(CoreFactory.Create().DecodeState(saved.Encode())), missing, WorldFixture.Options));
+        using var restored = restoredCandidate.Activate();
+        Assert.AreEqual(ProductionState.ProcessMissing, Read(restored).State);
+        Assert.AreEqual(Alternate, Read(restored).Process);
+        Assert.AreEqual(1d, Read(restored).Batch!.ProgressWork, 1e-12);
+        Step(restored, 3);
+        Assert.AreEqual(ProductionState.ProcessMissing, Read(restored).State);
+        Assert.AreEqual(1d, Read(restored).Batch!.ProgressWork, 1e-12);
+        Assert.AreEqual(0d, Read(restored).ActualWorkPerSecond);
+        Assert.AreEqual(8L, Stock(restored, Input));
+    }
+
+    private static CoreCommand.SetProductionPlan Plan(ProcessRef process, bool enabled = true, int priority = 0,
+        CapabilityKind capability = CapabilityKind.Production, BuildingId? building = null)
+        => new(new(building ?? Facility.Building, capability), process, enabled, priority);
+
+    private static CoreContentProjection WithProcess(ProcessDetails details, FacilityTag tag)
+    {
+        var content = Content();
+        return WorldInputs.NormalizeContent(content with
+        {
+            Processes = content.Processes.Add(content.Processes[0] with { Details = details, RequiredFacilityTag = tag })
+        });
+    }
+
+    private static void Rejects(CoreSession session, CoreCommand.SetProductionPlan command, string code, string field)
+    {
+        var world = session.State.World;
+        var number = session.State.NextCommandNumber;
+        var result = (SubmissionResult.Completed)session.Submit(command, CommandSource.AutomationTest);
+        var problem = ((CommandDecision.Rejected)result.Receipt.Decision).Problems.Single();
+        Assert.AreEqual(code, problem.Code);
+        Assert.AreEqual(field, problem.Field);
+        Assert.AreEqual(new WorldObjectId.Instance(new InstanceId.Building(command.Facility.Building)), problem.Subject);
+        Assert.AreEqual(0, result.Events.Length);
+        Assert.AreEqual(world, session.State.World);
+        Assert.AreEqual(number, result.Receipt.Number);
+        Assert.AreEqual(checked(number + 1), session.State.NextCommandNumber);
+    }
+
+    private static SubmissionResult.Completed Accept(CoreSession session, CoreCommand command)
+    {
+        var result = (SubmissionResult.Completed)session.Submit(command, CommandSource.AutomationTest);
+        Assert.IsInstanceOfType<CommandDecision.Accepted>(result.Receipt.Decision, result.Diagnostic?.Message);
+        return result;
     }
 }

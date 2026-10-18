@@ -66,7 +66,7 @@ Core 和 Content 测试已各自引用一个实现；原聚合项目的用例已
 
 边界矩阵 `scripts/checks/project-boundaries.json` 在顶层、与 `projects` 同级登记 `isolationTests`，其元素是 `projects` 中的隔离根测试项目名。`isolate` 只选择此列表中的项目，沿矩阵声明的允许引用生成各自的依赖闭包；空列表判失败，不回退到固定项目名。工具夹具可以只登记一个模块；真实仓库登记 `["Train.Core.Tests", "Train.Content.Tests", "Train.Scenes.Tests", "Train.Godot.Tests"]`，串行复制独立输入、冷构建四个模块、独立查询 MSBuild 事实并运行各自非阶段用例，首个失败后停止；单次是否通过以运行日志与摘要为准。
 
-资产导出项目 `Train.AssetExport` 在矩阵中只允许 Core／Content 契约引用；C# 源码归属检查仅为该项目允许链接 `App/Assets/**` 和精确的 `Tests/Engine/Assets/GlbFixture.cs`，其他项目不获得此例外。该 Godot 项目的 Release 配置映射为 ExportRelease，资产实际隔离构建仍由 `-ExportWindows` 的探针完成，不加入 Core/Content/Scenes 的 `isolationTests`。
+资产导出项目 `Train.AssetExport` 在矩阵中只允许 Core／Content 契约引用；C# 源码归属检查仅为该项目允许链接 `App/Assets/**`。精确的纯 .NET 夹具 `Tests/Engine/Assets/GlbFixture.cs` 允许由 `Train.AssetExport` 和 `Train.Cli.Tests` 链接，其他项目不获得此例外。该 Godot 项目的 Release 配置映射为 ExportRelease，资产实际隔离构建仍由 `-ExportWindows` 的探针完成，不加入 Core/Content/Scenes 的 `isolationTests`。
 
 隔离运行在本次验证拥有的临时目录中进行。按上述依赖闭包生成输入清单，只放该模块生产源码、允许的契约、必要测试支持、测试资源，以及构建所需的配置和工具；不提供其他三个模块的实现源码或程序集。
 

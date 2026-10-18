@@ -72,6 +72,13 @@ public partial class GameUi : CanvasLayer
         PanelAreaChanged?.Invoke();
     }
 
+    internal void SetInspectionLighting(InspectionLighting mode)
+    {
+        _scenes?.View.SetLighting(mode);
+        _templates?.View.SetLighting(mode);
+        _editorPanel?.Scene.View.SetLighting(mode);
+    }
+
     internal void Initialize(MainMenu menu, HostCoordinator? host, TrainLogger logger,
         WorldSceneController? scenes, RecordingService? recording, GoodsIconCache icons, EditorService editor,
         AuthoringService? authoring, TemplateSceneController? templates)
