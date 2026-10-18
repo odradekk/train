@@ -70,7 +70,8 @@ internal sealed partial class ContentView : C.IContentView
             RailwayRules: _world.Rules.OfType<ParsedRule.Railway>().Select(r => r.Projection).ToImmutableArray(),
             CombatRules: _world.Rules.OfType<ParsedRule.Combat>().Select(r => r.Projection).ToImmutableArray(),
             SettlementTypes: _world.Types.Select(t => t.Source.Core).ToImmutableArray(),
-            SettlementTemplates: _world.Templates.Select(t => t.Core).ToImmutableArray(), Creatures: [], LairTypes: [], MissingReferences: []);
+            SettlementTemplates: _world.Templates.Select(t => t.Core).ToImmutableArray(), Creatures: [],
+            LairTypes: _world.Lairs.Select(lair => lair.Core).ToImmutableArray(), MissingReferences: []);
         GenerationProfiles = _world.Profiles.Select(p => new C.GenerationProfileSummary(p.Id, p.Display)).ToImmutableArray();
         var allDesigns = _designs.ToDictionary();
         var displays = new Dictionary<K.CompositionHash, CapturedAssembly>();
