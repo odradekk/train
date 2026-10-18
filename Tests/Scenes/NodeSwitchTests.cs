@@ -88,7 +88,7 @@ public sealed class NodeSwitchTests
 
         var train = ((Lookup<TrainView>.Found)initial.Core.FindTrain(new(1))).Value;
         session.Observe(NodeFixtures.Snapshot(platforms: 0, trains: [train with
-        { Position = new TrainPosition.Node(NodeFixtures.NodeId, inlet.Edge, null, NodeTravelPhase.Approaching, 0, null) }],
+        { Position = new TrainPosition.Node(NodeFixtures.NodeId, inlet.Edge, 1, null, null, NodeTravelPhase.Approaching, 0, null) }],
             content: content, steps: 1, tracks: 2, trackLimit: 2, platformLengthMeters: 0), []);
         var first = Present(session, displayed);
         Assert.AreNotEqual(SceneReadiness.Loading, first.Readiness,

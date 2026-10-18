@@ -398,7 +398,7 @@ public sealed class NodeAdmissionTests
         { Scene = SceneFixtures.Projection([]) with { OccupiedBounds = new(new(-320, 0, -320), new(319, 0, 319)) } } };
         ImmutableArray<TrainView> trains = followedTrain
             ? [NodeFixtures.Train(activity: TrainActivity.Running) with
-            { LengthMeters = trainLengthMeters, Position = new TrainPosition.Node(NodeFixtures.NodeId, null, null,
+            { LengthMeters = trainLengthMeters, Position = new TrainPosition.Node(NodeFixtures.NodeId, null, null, null, null,
                 NodeTravelPhase.Departing, travelMeters + 48, null) }]
             : [];
         return NodeFixtures.EmptyNodeSnapshot(layout, trains,

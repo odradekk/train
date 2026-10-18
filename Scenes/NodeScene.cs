@@ -274,7 +274,7 @@ internal sealed class NodeScene : IAsyncDisposable
         {
             focus = candidateLayout.TrainBoundary(entry).Position;
             var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(Node)).Value;
-            var crossing = new TrainPosition.Node(Node, entering.Id, null, NodeTravelPhase.Approaching, 0, null);
+            var crossing = new TrainPosition.Node(Node, entering.Id, entering.Track, null, null, NodeTravelPhase.Approaching, 0, null);
             var path = new NodeTrainPath(candidateLayout, dimensions, crossing, candidateLayout.Bypass,
                 enteringTrain.LengthMeters * RailwayCoordinates.CellsPerMeter, AdjacentRailway);
             following = FollowPath(path, enteringTrain, 0);
