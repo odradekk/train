@@ -221,7 +221,7 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
                 "小地图滚轮或中键穿透到世界相机。");
             await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
             var panel = ui.GetNode<PanelContainer>("Root/World/WorldPanels/NodesList");
-            var list = panel.GetNode<ItemList>("Layout/Body/Objects");
+            var list = panel.GetNode<ItemList>("Layout/Content/Body/Objects");
             await _input.WaitUntil(() => list.ItemCount > 0 && list.GetItemRect(0).Size.Y > 0 &&
                 list.GetItemAtPosition(list.GetItemRect(0).GetCenter(), true) == 0);
             panel.Position = minimap.Position;
