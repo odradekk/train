@@ -175,12 +175,15 @@ public sealed class RailwayTerrainTests
                 segment.Origin.Z + column.Key.Z + 0.5);
             var rail = path.Sample(path.Locate(point));
             var offset = (point.X - rail.Position.X) * rail.Right.X + (point.Z - rail.Position.Z) * rail.Right.Z;
-            if (Math.Abs(offset) >= RailwayCoordinates.BedTopHalfWidth ||
-                segment.Heights[column.Key] <= rail.Position.Y + RailwayCoordinates.TunnelClearance) continue;
+            if (Math.Abs(offset) >= RailwayCoordinates.TunnelShoulder(path.Edge.Tracks) ||
+                segment.Heights[column.Key] <= rail.Position.Y + RailwayCoordinates.TunnelCrownCells) continue;
             highColumns++;
-            Assert.IsTrue(column.All(cell => cell.At.Y + segment.Origin.Y < rail.Position.Y ||
-                cell.At.Y + segment.Origin.Y >= rail.Position.Y + RailwayCoordinates.TunnelClearance),
-                "A high column at a tunnel entrance or exit must not fill the track clearance.");
+            var surface = segment.Heights[column.Key] - 1;
+            Assert.IsTrue(column.All(cell =>
+            {
+                var y = cell.At.Y + segment.Origin.Y;
+                return y == surface || y < rail.Position.Y || y >= rail.Position.Y + RailwayCoordinates.TunnelCrownCells;
+            }), "A high column at a tunnel entrance or exit must not fill the bore.");
         }
         Assert.IsTrue(highColumns > 0, "The fixture must include high terrain in the track corridor.");
     }
@@ -294,11 +297,17 @@ public sealed class RailwayTerrainTests
         Assert.IsTrue(segment.Tunnels.Any(interval => interval.Start < middleArc && interval.End > middleArc));
         var middle = path.Sample(middleArc).Position;
         var column = new GridColumn((int)Math.Floor(middle.X - segment.Origin.X), (int)Math.Floor(middle.Z - segment.Origin.Z));
-        Assert.IsTrue(segment.Heights[column] > middle.Y + RailwayCoordinates.TunnelClearance, "The tunnel roof must survive trackbed cutting.");
+        Assert.IsTrue(segment.Heights[column] > middle.Y + RailwayCoordinates.TunnelCrownCells, "The tunnel roof must clear the portal crown.");
         var centerColumn = segment.Geometry.Picking.OrderByDescending(grid => grid.Grid.Cells.Count()).First().Grid.Cells
             .Where(cell => cell.At.X == column.X && cell.At.Z == column.Z).ToArray();
         Assert.IsTrue(centerColumn.Length > 0, "The ridge must retain real roof voxels.");
-        Assert.IsTrue(centerColumn.All(cell => cell.At.Y < 0 || cell.At.Y >= RailwayCoordinates.TunnelClearance), "Tunnel clearance contains terrain voxels.");
+        var surface = segment.Heights[column] - 1;
+        Assert.IsTrue(centerColumn.Any(cell => cell.At.Y + segment.Origin.Y == surface), "The surface cell must survive the bore.");
+        Assert.IsTrue(centerColumn.All(cell =>
+        {
+            var y = cell.At.Y + segment.Origin.Y;
+            return y == surface || y < middle.Y || y >= middle.Y + RailwayCoordinates.TunnelCrownCells;
+        }), "The bore contains terrain other than the surface cell.");
         var portals = segment.Geometry.Objects.Where(item => item.Parent is null && item.Id.Value != 0).ToArray();
         Assert.AreEqual(2, portals.Length, "The finite ridge needs an entrance and an exit.");
         Assert.IsTrue(portals.All(item => item.Visuals.OfType<SceneVisual.Geometry>().Any()));
@@ -308,6 +317,235 @@ public sealed class RailwayTerrainTests
             Assert.IsTrue(Vector3.Distance(ordered[i].Pose.Position,
                 RailwayCoordinates.Relative(path.Sample(expected[i]).Position, segment.Origin)) < 1e-5);
         Assert.AreEqual(0, segment.Geometry.Diagnostics.Length);
+        var boreColumns = 0;
+        var terrain = segment.Geometry.Picking.OrderByDescending(grid => grid.Grid.Cells.Count()).First().Grid.Cells;
+        foreach (var group in terrain.GroupBy(cell => new GridColumn(cell.At.X, cell.At.Z)))
+        {
+            var subject = (PickSubject.Terrain)group.First().Subject!;
+            var arc = ((WorldLocation.Edge)subject.Location).DistanceMeters * RailwayCoordinates.CellsPerMeter;
+            if (!segment.Tunnels.Any(interval => arc >= interval.Start && arc <= interval.End)) continue;
+            var point = new ScenePoint(segment.Origin.X + group.Key.X + 0.5, 0, segment.Origin.Z + group.Key.Z + 0.5);
+            var rail = path.Sample(path.Locate(point));
+            var offset = (point.X - rail.Position.X) * rail.Right.X + (point.Z - rail.Position.Z) * rail.Right.Z;
+            if (Math.Abs(offset) >= RailwayCoordinates.TunnelShoulder(path.Edge.Tracks)) continue;
+            boreColumns++;
+            var roof = segment.Heights[group.Key] - 1;
+            Assert.IsTrue(group.All(cell =>
+            {
+                var y = cell.At.Y + segment.Origin.Y;
+                return y == roof || y < rail.Position.Y || y >= rail.Position.Y + RailwayCoordinates.TunnelCrownCells;
+            }), "The bore may keep only that column's surface cell.");
+        }
+        Assert.IsTrue(boreColumns > 0, "The ridge must cover the bore.");
+        foreach (var portal in portals)
+        {
+            var forward = Vector3.Transform(Vector3.UnitZ, portal.Pose.Rotation);
+            var posePoint = new ScenePoint(segment.Origin.X + portal.Pose.Position.X,
+                segment.Origin.Y + portal.Pose.Position.Y, segment.Origin.Z + portal.Pose.Position.Z);
+            var poseArc = path.Locate(posePoint);
+            var along = path.Sample(poseArc).Forward;
+            var exit = Vector3.Dot(forward, along) < 0;
+            var frameTop = posePoint.Y + RailwayCoordinates.TunnelCrownCells;
+            var portalColumn = new GridColumn((int)Math.Floor(portal.Pose.Position.X), (int)Math.Floor(portal.Pose.Position.Z));
+            Assert.IsTrue(segment.Heights[portalColumn] >= frameTop, "The portal frame top must not rise above the ground.");
+            var deeper = segment.Geometry.Picking.Single(item => item.Object == portal.Id).Grid.Cells.Single(cell => cell.At.Z == 1);
+            var moved = Vector3.Transform(new Vector3(deeper.At.X, deeper.At.Y, deeper.At.Z), portal.Pose.Rotation);
+            var deeperArc = path.Locate(new(posePoint.X + moved.X, posePoint.Y + moved.Y, posePoint.Z + moved.Z));
+            Assert.IsTrue(exit ? deeperArc < poseArc : deeperArc > poseArc, "The portal fill must sit inside the bore.");
+        }
+        Assert.AreEqual(1, portals.Count(portal => Vector3.Dot(Vector3.Transform(Vector3.UnitZ, portal.Pose.Rotation),
+            path.Sample(path.Locate(new(segment.Origin.X + portal.Pose.Position.X, segment.Origin.Y + portal.Pose.Position.Y,
+                segment.Origin.Z + portal.Pose.Position.Z))).Forward) < 0));
+    }
+
+    [TestMethod]
+    public void LowRidgeKeepsItsCrownWithoutATunnel()
+    {
+        var snapshot = TunnelSnapshot(true, amplitude: 20);
+        var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
+        var segment = Build(snapshot);
+        Assert.AreEqual(0, segment.Tunnels.Length);
+        Assert.IsFalse(segment.Geometry.Objects.Any(item => item.Parent is null && item.Id.Value != 0),
+            "A ridge below the crown must not place a portal.");
+        var crowned = 0;
+        foreach (var group in segment.Geometry.Picking.Single().Grid.Cells.GroupBy(cell => new GridColumn(cell.At.X, cell.At.Z)))
+        {
+            var point = new ScenePoint(segment.Origin.X + group.Key.X + 0.5, 0, segment.Origin.Z + group.Key.Z + 0.5);
+            var rail = path.Sample(path.Locate(point)).Position.Y;
+            Assert.IsTrue(segment.Heights[group.Key] < rail + RailwayCoordinates.TunnelCrownCells + 1,
+                "The fixture must stay below the crown or it is no longer a low ridge.");
+            if (segment.Heights[group.Key] <= rail + 20) continue;
+            crowned++;
+            var surface = segment.Heights[group.Key] - 1;
+            Assert.IsTrue(group.Any(cell => cell.At.Y + segment.Origin.Y == surface), "The crown cell must remain.");
+        }
+        Assert.IsTrue(crowned > 0, "The ridge must rise above the old 20-cell clearance.");
+    }
+
+    [TestMethod]
+    public void DeepCuttingHoldsBedHeightAcrossTheTrackSpacing()
+    {
+        var terrain = RailwayFixtures.TerrainAppearance with { LocalHeightNoise = [new(1_000_000, 20)] };
+        var snapshot = RailwayFixtures.ReplaceCore(RailwayFixtures.Snapshot(400, 400, relief: 1, tracks: 2, content: Content(terrain)),
+            worldSeed: 4UL);
+        var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
+        var middle = path.LengthCells / 2;
+        var segment = Build(snapshot, (int)(middle / RailwayCoordinates.SegmentLengthCells));
+        Assert.AreEqual(0, segment.Tunnels.Length);
+        var held = 0;
+        var cutting = false;
+        foreach (var group in segment.Geometry.Picking.Single().Grid.Cells.GroupBy(cell => new GridColumn(cell.At.X, cell.At.Z)))
+        {
+            var point = new ScenePoint(segment.Origin.X + group.Key.X + 0.5, 0, segment.Origin.Z + group.Key.Z + 0.5);
+            var arc = path.Locate(point);
+            if (Math.Abs(arc - middle) > 2) continue;
+            var rail = path.Sample(arc);
+            var lateral = (point.X - rail.Position.X) * rail.Right.X + (point.Z - rail.Position.Z) * rail.Right.Z;
+            var distance = Enumerable.Range(1, 2).Min(number => Math.Abs(lateral - RailwayCoordinates.TrackOffset(number, 2)));
+            var bed = Math.Floor(RailwayTerrain.BedHeight(rail.Position.Y, distance));
+            if (distance <= RailwayCoordinates.TrackSpacing / 2)
+            {
+                held++;
+                Assert.IsTrue(group.All(cell => cell.At.Y + segment.Origin.Y <= bed),
+                    "Ground within 17 cells of a track center must not rise above the bed.");
+            }
+            else if (distance > RailwayCoordinates.TrackSpacing / 2 + RailwayCoordinates.BedBlendWidth &&
+                segment.Heights[group.Key] - 1 > bed)
+                cutting = true;
+        }
+        Assert.IsTrue(held > 0, "The midpoint must include the flat cutting.");
+        Assert.IsTrue(cutting, "Ground beyond the slope must stay above the bed, or this is not a cutting.");
+    }
+
+    [TestMethod]
+    public void HorizontalStraightBridgeMatchesOnePose()
+    {
+        GridPosition[] roots = [new(-1, 0, -9), new(0, 0, -8), new(1, 2, 7), new(4, 0, 8), new(0, 1, 24)];
+        var nestedAt = new GridPosition(5, -1, 20);
+        var childAt = new GridPosition(1, 0, 4);
+        var nested = new NestedObjectProjection([0], nestedAt, VoxelOrientation.PxPy, new NestedObjectDetails.Assembly(null));
+        var projection = SceneFixtures.Projection(
+            roots.Select(at => SceneFixtures.Cell(at) with { Voxel = ModelVoxel })
+                .Append(SceneFixtures.Cell(childAt, path: [0]) with { Voxel = ModelVoxel }).ToImmutableArray(),
+            [nested]) with { Design = ModelHash };
+        var model = SceneFixtures.Evaluation(projection) with { Design = ModelHash };
+        var terrain = RailwayFixtures.TerrainAppearance with { RailwayModels = [new(1, ModelHash, ModelHash)] };
+        var snapshot = WithFeatures(RailwayFixtures.Snapshot(400, 400, relief: 0, content: Content(terrain, model)), ["river"]);
+        var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
+        var start = path.Sample(0);
+        var finish = path.Sample(path.LengthCells);
+        Assert.AreEqual(0, start.Position.Y, 1e-6);
+        Assert.AreEqual(start.Position.Y, finish.Position.Y, 1e-6);
+        Assert.IsTrue(Vector3.Dot(start.Forward, finish.Forward) > 0.999f, "The fixture must be a straight line.");
+        var water = RiverCenter(path);
+        var sample = path.Sample(water);
+        var rotation = RailwayCoordinates.Rotation(sample.Forward);
+        var rootPose = new ScenePose(RailwayCoordinates.Relative(sample.Position, default), rotation);
+        var expected = roots.Select(at => rootPose.Position + Vector3.Transform(new Vector3(at.X, at.Y, at.Z), rotation)).ToList();
+        var childPose = SceneGeometry.Compose(rootPose, SceneGeometry.Placement(nestedAt, VoxelOrientation.PxPy));
+        expected.Add(childPose.Position + Vector3.Transform(new Vector3(childAt.X, childAt.Y, childAt.Z), childPose.Rotation));
+        var actual = new List<Vector3>();
+        var seeds = new HashSet<ulong>();
+        foreach (var segment in BuildAround(snapshot, path, water, 80))
+        {
+            actual.AddRange(ModelCorners(segment));
+            foreach (var seed in segment.Geometry.Objects.Where(item => item.Id.Value != 0)
+                .SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Select(item => item.Surface.WearSeed))
+                seeds.Add(seed);
+        }
+        Assert.AreEqual(expected.Count, actual.Count, "Each design cell must appear once.");
+        var used = new bool[expected.Count];
+        foreach (var point in actual)
+        {
+            var match = -1;
+            for (var i = 0; i < expected.Count; i++)
+                if (!used[i] && Vector3.Distance(point, expected[i]) < 0.01f) { match = i; break; }
+            Assert.AreNotEqual(-1, match, $"Bridge cell {point} is not the water-center pose applied to a design cell.");
+            used[match] = true;
+        }
+        Assert.AreEqual(1, seeds.Count);
+        Assert.AreEqual(DesignGeometry.PlacementWearSeed(path.Edge.Id, sample.Position), seeds.Single());
+    }
+
+    [TestMethod]
+    public void MinimumRadiusBridgeDeckFollowsTheTracks()
+    {
+        var cells = ImmutableArray.CreateBuilder<SceneVoxelProjection>();
+        int[] xs = [-44, -34, 0, 34, 44];
+        for (var z = -56; z < 56; z++)
+            foreach (var x in xs)
+                cells.Add(SceneFixtures.Cell(new(x, -2, z)) with { Voxel = ModelVoxel });
+        var halfWidth = xs.Max(x => Math.Abs(x + 0.5));
+        var model = SceneFixtures.Evaluation(SceneFixtures.Projection(cells.ToImmutable()) with { Design = ModelHash }) with { Design = ModelHash };
+        var terrain = RailwayFixtures.TerrainAppearance with { RailwayModels = [new(3, ModelHash, ModelHash)] };
+        var snapshot = WithFeatures(RailwayFixtures.ReplaceCore(RailwayFixtures.Snapshot(400, 50, relief: 0, tracks: 3,
+            content: Content(terrain, model, rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 80 })), worldSeed: 3UL), ["river"]);
+        var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
+        var water = RiverCenter(path);
+        Assert.IsTrue(Vector3.Dot(path.Sample(water - 56).Forward, path.Sample(water + 56).Forward) < 0.98f,
+            "The bridge must sit on a curve.");
+        var deck = new List<(ScenePoint Origin, ScenePose Pose, GridPosition At, Vector3 Center)>();
+        foreach (var segment in BuildAround(snapshot, path, water, 80))
+            foreach (var grid in segment.Geometry.Picking)
+                foreach (var cell in grid.Grid.Cells)
+                {
+                    if (cell.Appearance?.Definition != ModelVoxel) continue;
+                    var centerLocal = Vector3.Transform(new Vector3(cell.At.X + 0.5f, cell.At.Y + 0.5f, cell.At.Z + 0.5f), grid.Pose.Rotation);
+                    var center = new Vector3((float)segment.Origin.X + grid.Pose.Position.X + centerLocal.X,
+                        (float)segment.Origin.Y + grid.Pose.Position.Y + centerLocal.Y,
+                        (float)segment.Origin.Z + grid.Pose.Position.Z + centerLocal.Z);
+                    deck.Add((segment.Origin, grid.Pose, cell.At, center));
+                }
+        Assert.IsTrue(deck.Count > 0, "The bridge must place deck cells.");
+        foreach (var item in deck)
+        {
+            var arc = path.Locate(new(item.Center.X, item.Center.Y, item.Center.Z));
+            var rail = path.Sample(arc);
+            var lateral = (item.Center.X - rail.Position.X) * rail.Right.X + (item.Center.Z - rail.Position.Z) * rail.Right.Z;
+            Assert.IsTrue(Math.Abs(lateral) <= halfWidth + 0.75, "Deck cell sticks out past the deck.");
+        }
+        var arcs = new List<double>();
+        var first = Math.Max(0, water - 12);
+        var last = Math.Min(path.LengthCells, water + 12);
+        for (var n = 0; first + n * 0.5 <= last + 1e-9; n++) arcs.Add(first + n * 0.5);
+        foreach (var joint in new[] { -40d, -24, -8, 8, 24, 40 })
+            for (var n = 0; n <= 4; n++) arcs.Add(water + joint - 1 + n * 0.5);
+        foreach (var offset in new[] { 0d, RailwayCoordinates.TrackOffset(1, 3), RailwayCoordinates.TrackOffset(3, 3) })
+            foreach (var along in arcs)
+            {
+                var at = path.Sample(along, offset).Position;
+                var nearest = deck.Min(item => HorizontalDistance(at, item.Origin, item.Pose, item.At));
+                Assert.IsTrue(nearest <= 0.75,
+                    $"The deck has a gap of {nearest:0.00} cells at arc {along:0.0}, offset {offset:0.0}.");
+            }
+    }
+
+    [TestMethod]
+    public void BridgeSpansBelongToTheSegmentThatOwnsTheirCenter()
+    {
+        GridPosition[] roots = [new(0, 0, -48), new(0, 0, 0), new(0, 0, 48)];
+        var projection = SceneFixtures.Projection(roots.Select(at => SceneFixtures.Cell(at) with { Voxel = ModelVoxel }).ToImmutableArray())
+            with { Design = ModelHash };
+        var model = SceneFixtures.Evaluation(projection) with { Design = ModelHash };
+        var terrain = RailwayFixtures.TerrainAppearance with { RailwayModels = [new(1, ModelHash, ModelHash)] };
+        var snapshot = WithFeatures(RailwayFixtures.Snapshot(400, 400, relief: 0, content: Content(terrain, model)), ["river"]);
+        var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
+        var water = RiverCenter(path);
+        var owners = new List<(int Segment, double Arc)>();
+        foreach (var segment in BuildAround(snapshot, path, water, 80))
+            foreach (var bridge in segment.Geometry.Objects.Where(item => item.Parent is null && item.Id.Value != 0))
+            {
+                var point = new ScenePoint(segment.Origin.X + bridge.Pose.Position.X,
+                    segment.Origin.Y + bridge.Pose.Position.Y, segment.Origin.Z + bridge.Pose.Position.Z);
+                var arc = path.Locate(point);
+                var clamped = Math.Clamp(arc, 0, path.LengthCells);
+                var owner = clamped >= path.LengthCells ? path.SegmentCount - 1
+                    : (int)(clamped / RailwayCoordinates.SegmentLengthCells);
+                Assert.AreEqual(segment.Index, owner, "A span was built by a segment that does not own its center.");
+                owners.Add((segment.Index, arc));
+            }
+        Assert.IsTrue(owners.Select(item => item.Segment).Distinct().Count() >= 2,
+            "The fixture must place spans on both sides of a segment boundary.");
     }
 
     [TestMethod]
@@ -476,14 +714,14 @@ public sealed class RailwayTerrainTests
         Assert.IsNull(cache.Find(equivalent, path, 0));
     }
 
-    private static SceneWorldSnapshot TunnelSnapshot(bool includeModel, bool diagonal = false)
+    private static SceneWorldSnapshot TunnelSnapshot(bool includeModel, bool diagonal = false, double amplitude = 100)
     {
         var terrain = RailwayFixtures.TerrainAppearance with
         {
-            LocalHeightNoise = [new(1_000_000, 100)],
+            LocalHeightNoise = [new(1_000_000, amplitude)],
             RailwayModels = includeModel ? [new(1, ModelHash, ModelHash)] : []
         };
-        var basis = RailwayFixtures.Snapshot(4, 4, relief: 1, content: Content(terrain, Model()));
+        var basis = RailwayFixtures.Snapshot(4, 4, relief: 1, content: Content(terrain, PortalModel()));
         var snapshot = RailwayFixtures.ReplaceCore(basis, worldSeed: 4);
         foreach (var node in snapshot.Core.World.Nodes)
             snapshot = RailwayFixtures.ReplaceCore(snapshot, node with { Terrain = node.Terrain with { Relief = 0 } });
@@ -502,9 +740,48 @@ public sealed class RailwayTerrainTests
     private static RailwaySegment Build(SceneWorldSnapshot snapshot, int index = 0) =>
         RailwayTerrain.Build(snapshot, new(snapshot, RailwayFixtures.Edge), index, CancellationToken.None);
 
+    private static double RiverCenter(RailwayPath path) =>
+        path.LengthCells * (0.5 + 0.2 * RailwayRandom.Unit(path.Seed, path.Edge.Id.Value, 0, 20));
+
+    private static IEnumerable<RailwaySegment> BuildAround(SceneWorldSnapshot snapshot, RailwayPath path, double arc, double margin)
+    {
+        var first = Math.Max(0, (int)((arc - margin) / RailwayCoordinates.SegmentLengthCells));
+        var last = Math.Min(path.SegmentCount - 1, (int)((arc + margin) / RailwayCoordinates.SegmentLengthCells));
+        for (var index = first; index <= last; index++) yield return Build(snapshot, index);
+    }
+
+    private static IEnumerable<Vector3> ModelCorners(RailwaySegment segment)
+    {
+        foreach (var grid in segment.Geometry.Picking)
+            foreach (var cell in grid.Grid.Cells)
+            {
+                if (cell.Appearance?.Definition != ModelVoxel) continue;
+                var local = Vector3.Transform(new Vector3(cell.At.X, cell.At.Y, cell.At.Z), grid.Pose.Rotation);
+                yield return new((float)segment.Origin.X + grid.Pose.Position.X + local.X,
+                    (float)segment.Origin.Y + grid.Pose.Position.Y + local.Y,
+                    (float)segment.Origin.Z + grid.Pose.Position.Z + local.Z);
+            }
+    }
+
+    private static float HorizontalDistance(ScenePoint point, ScenePoint origin, ScenePose pose, GridPosition at)
+    {
+        var relative = new Vector3((float)(point.X - origin.X) - pose.Position.X, 0,
+            (float)(point.Z - origin.Z) - pose.Position.Z);
+        var local = Vector3.Transform(relative, Quaternion.Conjugate(pose.Rotation));
+        return MathF.Sqrt(AxisDistance(local.X, at.X) * AxisDistance(local.X, at.X) + AxisDistance(local.Z, at.Z) * AxisDistance(local.Z, at.Z));
+        static float AxisDistance(float value, int start) => value < start ? start - value : value > start + 1 ? value - (start + 1) : 0;
+    }
+
+    private static DesignEvaluation.Complete PortalModel() =>
+        SceneFixtures.Evaluation(SceneFixtures.Projection([
+            SceneFixtures.Cell(new(0, 0, 0)) with { Voxel = ModelVoxel },
+            SceneFixtures.Cell(new(0, 0, 1)) with { Voxel = ModelVoxel }
+        ]) with { Design = ModelHash }) with { Design = ModelHash };
+
     private static FixedContentView Content(TerrainAppearanceProjection terrain, DesignEvaluation.Complete? model = null,
-        VoxelAppearanceProjection? modelAppearance = null, bool missingGround = false) => RailwayFixtures.Content(
-            terrain: terrain, design: model, voxels: new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
+        VoxelAppearanceProjection? modelAppearance = null, bool missingGround = false,
+        RailwayAppearanceProjection? rules = null) => RailwayFixtures.Content(
+            terrain: terrain, rules: rules, design: model, voxels: new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
             {
                 [SceneFixtures.Voxel] = missingGround ? new ContentLookup<VoxelAppearanceProjection>.Missing([]) :
                     new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube with
