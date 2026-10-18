@@ -876,7 +876,7 @@ internal sealed class NodeScene : IAsyncDisposable
             {
                 var global = Global(column);
                 boundaryColumns.Add(global);
-                boundarySurfaces[global] = boundary.Heights[column] - 1;
+                boundarySurfaces[global] = boundary.Heights[column] - 1 + Math.Round(boundary.Origin.Y);
             }
         }
         var anyTracks = snapshot.Core.World.Edges.Any(edge => (edge.Start == node || edge.End == node) && edge.Tracks > 0);
@@ -1008,7 +1008,7 @@ internal sealed class NodeScene : IAsyncDisposable
                     if (allowed.Contains(new(neighbor.X - originX, neighbor.Z - originZ))) continue;
                     int surface;
                     if (boundarySurfaces.TryGetValue(neighbor, out var owned))
-                        surface = (int)Math.Floor(owned) + (int)Math.Round(boundaries[boundaryOwners[neighbor].Edge].Origin.Y);
+                        surface = (int)Math.Floor(owned);
                     else if (neighbor.X >= left && neighbor.X < right && neighbor.Z >= back && neighbor.Z < front)
                     {
                         if (!ground.TryGetValue(neighbor, out surface))
