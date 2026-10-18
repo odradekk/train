@@ -40,15 +40,15 @@ internal static class UiWorldFixture
         var train = ((Lookup<TrainView>.Found)original.FindTrain(new(7))).Value;
         var queued = train with { Activity = TrainActivity.Waiting, PlatformQueueEnteredStep = changed ? null : 2 };
         var stopped = train with { Id = new(8) };
-        var otherQueue = train with { Id = new(11), Position = new TrainPosition.Node(second.Id, null, null,
+        var otherQueue = train with { Id = new(11), Position = new TrainPosition.Node(second.Id, null, null, null, null,
             NodeTravelPhase.Approaching, 20, null), PlatformQueueEnteredStep = 5 };
         ImmutableArray<TrainMapItem> trains = [new(queued.Id, queued.Position, queued.Activity),
             new(stopped.Id, stopped.Position, stopped.Activity),
-            new(new(9), new TrainPosition.Node(first.Id, null, null, NodeTravelPhase.Docked, 80, 0), TrainActivity.Servicing),
+            new(new(9), new TrainPosition.Node(first.Id, null, null, null, null, NodeTravelPhase.Docked, 80, 0), TrainActivity.Servicing),
             // 线路列车穿过首行资源标注，供真实窗口截图检查绘制顺序。
             new(new(10), new TrainPosition.Edge(edge.Id, 0, TravelDirection.Forward, 30), TrainActivity.Running),
             new(otherQueue.Id, otherQueue.Position, otherQueue.Activity)];
-        if (changed) trains = trains.Add(new(new(12), new TrainPosition.Node(first.Id, null, null,
+        if (changed) trains = trains.Add(new(new(12), new TrainPosition.Node(first.Id, null, null, null, null,
             NodeTravelPhase.Docked, 80, 1), TrainActivity.Servicing));
         var nodes = ImmutableArray.Create(first, second, empty);
         return new(default, HostCoreScenario.Input)
@@ -78,7 +78,7 @@ internal static class UiWorldFixture
             0, scenario == Scenario.Map ? 0 : 1, null);
         var second = first with { Id = new(2), Position = new(750, 300) };
         var edge = new EdgeMapItem(new(1), first.Id, second.Id, 600, terrain, 1, 1, [], []);
-        var position = new TrainPosition.Node(first.Id, null, null, NodeTravelPhase.Waiting, 80, null);
+        var position = new TrainPosition.Node(first.Id, null, null, null, null, NodeTravelPhase.Waiting, 80, null);
         // Save 情景保留一辆未编组车辆；Scene 情景需一辆可跟随的车；Formation 检查两辆车的顺序。
         ImmutableArray<VehicleId> ordered = scenario switch
         {

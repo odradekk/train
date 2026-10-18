@@ -305,7 +305,8 @@ internal sealed class RailwayScene : IAsyncDisposable
             }
             foreach (var member in train.Members)
             {
-                var pose = RailwayVehicles.Pose(path!.SampleWithNodes(member.CenterArc, train.Offset), origin, train.Positive);
+                var pose = RailwayVehicles.Pose(path!.SampleWithNodes(member.CenterArc, train.Offset,
+                    ((TrainPosition.Edge)train.Train.Position).Track), origin, train.Positive);
                 if (!train.LengthsKnown)
                 {
                     frame.Add(SceneVehicles.Unplaced(content, member.Instance, member.Design, member.Length, pose, objectId));

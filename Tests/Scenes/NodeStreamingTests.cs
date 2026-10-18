@@ -697,7 +697,7 @@ public sealed class NodeStreamingTests
         var layout = NodeFixtures.Layout with { Plots = [], SceneModel = NodeFixtures.Layout.SceneModel with
         { Scene = SceneFixtures.Projection([]) with { OccupiedBounds = new(new(-640, 0, -640), new(639, 0, 639)) } } };
         var train = NodeFixtures.Train(vehicles: [new(1), new(2)], activity: TrainActivity.Running, speed: 10) with
-        { LengthMeters = 40, Position = new TrainPosition.Node(NodeFixtures.NodeId, null, null, NodeTravelPhase.Approaching, 200, null) };
+        { LengthMeters = 40, Position = new TrainPosition.Node(NodeFixtures.NodeId, null, null, null, null, NodeTravelPhase.Approaching, 200, null) };
         SceneWorldSnapshot Snapshot(ulong steps) => NodeFixtures.EmptyNodeSnapshot(layout,
             [train with { Position = ((TrainPosition.Node)train.Position) with { DistanceMeters = steps == 0 ? 199 : 200 } }],
             design: RailwayFixtures.Vehicle(lengthCells: 40), steps: steps, travelMeters: 240);
@@ -879,7 +879,7 @@ public sealed class NodeStreamingTests
         var layout = NodeFixtures.Layout with { Plots = [], SceneModel = NodeFixtures.Layout.SceneModel with
         { Scene = SceneFixtures.Projection([]) with { OccupiedBounds = new(new(-640, 0, -640), new(639, 0, 639)) } } };
         var train = NodeFixtures.Train(activity: TrainActivity.Running, speed: 320) with
-        { Position = new TrainPosition.Node(NodeFixtures.NodeId, null, null, NodeTravelPhase.Approaching, 240, null) };
+        { Position = new TrainPosition.Node(NodeFixtures.NodeId, null, null, null, null, NodeTravelPhase.Approaching, 240, null) };
         var snapshot = NodeFixtures.EmptyNodeSnapshot(layout, [train], travelMeters: 240);
         await using var vehicles = new SceneVehicles();
         var cache = new NodeScene.Cache();
