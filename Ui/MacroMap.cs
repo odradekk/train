@@ -207,7 +207,7 @@ public partial class MacroMap : Control
     internal string ResourceText(NodeResourceView resource) =>
         $"{WorldPanels.GoodName(resource.Good, _content!)}：{resource.Quantity}";
 
-    internal AssetRevision? ResourceDisplay(NodeResourceView resource) =>
+    internal AssetRevision? ResourceIcon(NodeResourceView resource) =>
         _content?.FindGood(resource.Good) is ContentLookup<GoodPresentation>.Found good ? good.Value.Display.Icon : null;
 
     internal string PlatformText(NodeMapItem node) =>
@@ -221,7 +221,7 @@ public partial class MacroMap : Control
             foreach (var resource in node.Resources)
             {
                 var rectangle = DrawAnnotation(ResourceText(resource), point, 24);
-                if (ResourceDisplay(resource) is { } revision && FindSymbol(revision) is { } texture)
+                if (ResourceIcon(resource) is { } revision && FindSymbol(revision) is { } texture)
                     DrawTextureRect(texture, new(rectangle.Position + new Vector2(3, 2), new Vector2(20, 20)), false);
                 point.Y += 26;
             }

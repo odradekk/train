@@ -57,7 +57,7 @@ public class MacroMapLayerTests(Node testScene) : TestClass(testScene)
             var ore = view.World.Nodes[0].Resources[0];
             var timber = view.World.Nodes[0].Resources[1];
             Require(map.ResourceText(ore) == "铁矿石：100" && map.ResourceText(timber) == "原木：0" &&
-                map.ResourceDisplay(ore) == ((ContentLookup<GoodPresentation>.Found)content.View.FindGood(ore.Good)).Value.Display.Icon,
+                map.ResourceIcon(ore) == ((ContentLookup<GoodPresentation>.Found)content.View.FindGood(ore.Good)).Value.Display.Icon,
                 "资源标注没有读取公开的货物名称、图标或储量，或丢失了零储量再生资源。");
             await UiCapture.Capture(TestScene, "layers-resources");
 
