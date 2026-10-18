@@ -217,11 +217,19 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
                 "小地图滚轮或中键穿透到世界相机。");
             await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
             var panel = ui.GetNode<PanelContainer>("Root/World/WorldPanels/NodesList");
+            var list = panel.GetNode<ItemList>("Layout/Body/Objects");
+            await _input.WaitUntil(() => list.ItemCount > 0 && list.GetItemRect(0).Size.Y > 0 &&
+                list.GetItemAtPosition(list.GetItemRect(0).GetCenter(), true) == 0);
             panel.Position = minimap.Position;
             await _input.Frames();
-            await _input.Click(minimap.GlobalPosition + new Vector2(20, 45));
+            var overlap = minimap.GlobalPosition + new Vector2(20, 45);
+            Require(panel.GetGlobalRect().HasPoint(overlap) && minimap.GetGlobalRect().HasPoint(overlap),
+                $"覆盖夹具没有重叠：panel={panel.GetGlobalRect()}，minimap={minimap.GetGlobalRect()}，click={overlap}。");
+            await _input.Click(overlap);
             Require(camera.Focus.DistanceTo(focus) < .001f && frame.LastPickRay is null,
-                "覆盖小地图的面板点击穿透到相机或场景。");
+                $"覆盖小地图的面板点击穿透：before={focus}，after={camera.Focus}，pick={frame.LastPickRay}，" +
+                $"panel={panel.GetGlobalRect()}，minimap={minimap.GetGlobalRect()}，mask={Input.GetMouseButtonMask()}，" +
+                $"hover={TestScene.GetViewport().GuiGetHoveredControl()?.GetPath()}。");
             panel.Hide();
             await _input.PressKey(Key.Escape);
             await _input.WaitUntil(() => map.IsVisibleInTree() && !minimap.IsVisibleInTree());
