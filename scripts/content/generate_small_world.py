@@ -322,12 +322,12 @@ def linear_luminance(color):
                for weight, value in zip((0.2126, 0.7152, 0.0722), channels))
 
 
-def neutral_texture(texture, base, keep=None):
+def neutral_texture(texture, base):
     base_luminance = linear_luminance(base)
 
     def pixel(x, y):
         color = texture(x, y)
-        if color[3] == 0 or keep is not None and keep(x, y):
+        if color[3] == 0:
             return color[:3] + (0,)
         luminance = min(1, linear_luminance(color) / base_luminance)
         gray = round(255 * (12.92 * luminance if luminance <= 0.0031308 else
@@ -444,7 +444,7 @@ def street_lamp_panel(x, y):
 
 
 def street_lamp_texture(x, y):
-    return tint((0xe1, 0xd4, 0xac) if street_lamp_panel(x, y) else GRAPHITE)
+    return (0xe1, 0xd4, 0xac, 0) if street_lamp_panel(x, y) else tint(GRAPHITE)
 
 
 def site_fence_texture(x, y):
@@ -456,7 +456,7 @@ def road_barrier_stripe(x, y):
 
 
 def road_barrier_texture(x, y):
-    return tint(GRAPHITE if road_barrier_stripe(x, y) else YELLOW)
+    return GRAPHITE + (0,) if road_barrier_stripe(x, y) else tint(YELLOW)
 
 
 def rail_stack_texture(x, y):
@@ -712,9 +712,13 @@ def construction_block_texture(x, y):
 def rail_texture(x, y, side=False):
     if side:
         return tint(STEEL, -31 if x % 16 in (5, 6, 9, 10) else -10 if x % 16 in (7, 8) else 0)
-    a, b = abs(x % 16 - 7.5), abs(y % 16 - 7.5)
-    section = (a <= 5.5 and b >= 4.5) or (b <= 5.5 and a >= 4.5) or max(a, b) <= 1.5
-    return tint(STEEL if section else GRAPHITE)
+    while x >= 16 or y >= 16:
+        x, y = 31 - y, x
+    head = 4 <= x <= 11 and 2 <= y <= 5 and (y > 2 or 5 <= x <= 10)
+    web = 7 <= x <= 8 and 6 <= y <= 10
+    foot = (2 <= x <= 13 and 12 <= y <= 13 or
+            4 <= x <= 11 and y == 11 or 6 <= x <= 9 and y == 10)
+    return tint(STEEL, 10 if head or web or foot else -32)
 
 
 GOODS_ART = {
@@ -787,12 +791,10 @@ def engine_texture(x, y):
     return tint(BLUE, -22 if 4 <= x < 28 and y % 8 in (2, 3) else grain(x, y, 32, 0x511))
 
 
-def control_window(x, y):
-    return 3 <= x < 29
-
-
 def control_texture(x, y):
-    return tint(GLASS if control_window(x, y) else BLUE, grain(x, y, 32, 0x512))
+    window = 3 <= x < 29
+    color = tint(GLASS if window else BLUE, grain(x, y, 32, 0x512))
+    return color[:3] + (0,) if window else color
 
 
 def storage_texture(x, y):
@@ -884,8 +886,7 @@ def style_assets(files):
     ):
         if identity != "bogie":
             top = neutral_texture(top, DEFAULT_PAINTS[identity])
-            side = neutral_texture(side, DEFAULT_PAINTS[identity],
-                                   control_window if identity == "control-equipment" else None)
+            side = neutral_texture(side, DEFAULT_PAINTS[identity])
         files[f"voxels/{identity}/top.png"] = png(size, top)
         if side is not None:
             files[f"voxels/{identity}/side.png"] = png(size, side)
@@ -924,12 +925,7 @@ def scene_assets(files, voxel):
             if icon_path == top_path:
                 files[f"voxels/{identity}/icon.png"] = png(32 * span, top)
                 icon_path = "icon.png"
-            keep = None
-            if identity == "street-lamp":
-                keep = street_lamp_panel
-            elif identity == "road-barrier":
-                keep = road_barrier_stripe
-            top = neutral_texture(top, DEFAULT_PAINTS[identity], keep)
+            top = neutral_texture(top, DEFAULT_PAINTS[identity])
             if side is not None:
                 side = neutral_texture(side, DEFAULT_PAINTS[identity])
         files[texture_path] = png(32 * span, top)
@@ -1267,7 +1263,7 @@ def content_files():
     for name in SETTLEMENT_SYMBOLS:
         files[f"settlement-types/{name}/symbol.png"] = symbol_png(name)
 
-    def voxel(identity, name, material, face_paths, icon_path, simulation=None, wheelset=False, light=False,
+    def voxel(identity, name, material=None, face_paths=None, icon_path=None, simulation=None, wheelset=False, light=False,
               tile_span=None, description=None):
         if identity in GOODS_ART:
             material, tile_span, side, bottom, _ = GOODS_ART[identity]
@@ -1307,10 +1303,8 @@ def content_files():
 
     sample_description = "{}的第一阶段风格样稿；数值待配平，画面待用户阶段试玩确认。"
     raw_description = "{}的正式美术；数值待配平，画面待用户阶段试玩确认。"
-    voxel("structural-metal", "结构金属", "painted_metal", faces("top.png", "side.png", "shared/vehicle-underside.png"),
-          "icon.png", good("structural-metal", 0.028, 260), tile_span=4, description=sample_description.format("结构金属"))
-    voxel("construction-material", "建筑材料", "concrete", faces("shared/soil-face.png"),
-          "shared/soil-icon.png", good("construction-material", 0.046, 220))
+    voxel("structural-metal", "结构金属", simulation=good("structural-metal", 0.028, 260))
+    voxel("construction-material", "建筑材料", simulation=good("construction-material", 0.046, 220))
     voxel("bogie", "转向架", "bare_metal", faces("top.png", "side.png", "shared/bogie-underside.png"),
           "icon.png", good("bogie", 0.034, 240), wheelset=True, tile_span=2, description=sample_description.format("转向架"))
     voxel("platform-equipment", "站台设备", "painted_metal", faces("shared/equipment-face.png"),
@@ -1328,7 +1322,7 @@ def content_files():
              ("consumer-electronics", "消费电子", 1.6), ("medical-supplies", "医疗用品", 0.4))
     for identity, name, mass in goods:
         voxel(identity, name, "organic", faces("shared/organic-face.png"), "shared/organic-icon.png", good(identity, mass))
-    voxel("stone", "石料", "stone_soil", faces("top.png"), "icon.png", good("stone", 0.042))
+    voxel("stone", "石料", simulation=good("stone", 0.042))
     scene_assets(files, voxel)
     style_assets(files)
     for identity, (material, tile_span, side, _, texture) in GOODS_ART.items():
@@ -1395,7 +1389,7 @@ def content_files():
         voxel(identity, name, "painted_metal", faces("shared/equipment-face.png"),
               "shared/equipment-icon.png", good(identity, 0.08, behaviors=behavior))
     fuel = good("fuel", 0.7)
-    voxel("fuel", "燃料", "organic", faces("shared/organic-face.png"), "shared/organic-icon.png", fuel)
+    voxel("fuel", "燃料", simulation=fuel)
 
     for identity, name, physical_source, texture in NEW_GOODS:
         source = voxel_definitions[physical_source]["simulation"]
