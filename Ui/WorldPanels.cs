@@ -27,6 +27,7 @@ public partial class WorldPanels : Control
     internal event Action<PanelTarget, SettlementId>? SettlementRequested;
     internal event Action<PanelTarget, TrainId>? InventoryRequested;
     internal event Action<InstanceId>? RefitRequested;
+    internal event Action<InstanceId>? VehicleServiceRequested;
 
     internal void Initialize(HostCoordinator host,
         Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit, Action<string> reportError)
@@ -43,7 +44,7 @@ public partial class WorldPanels : Control
 
     internal void Refresh(HostBinding binding, ICoreReadView view, IContentView content)
     {
-        if (_view is not null && (_binding != binding || _content.Generation != content.Generation))
+        if (_view is not null && (_binding != binding || !_host.PanelGenerationCurrent(_binding, _content.Generation)))
         {
             foreach (var entry in _lists.Values) { RemoveChild(entry.Panel); entry.Panel.QueueFree(); }
             _lists.Clear();
@@ -66,13 +67,13 @@ public partial class WorldPanels : Control
         }
         foreach (var detail in _details)
         {
-            var valid = detail.Target.IsAvailable(binding, content.Generation, view);
+            var valid = detail.Target.IsAvailable(binding, view, _host.PanelGenerationCurrent(detail.Target.Binding, detail.Target.Generation));
             detail.Text.Text = valid ? Describe(detail.Target.Object) : "已不存在\n\n对象或所属对局已失效。请从当前列表重新打开。";
             foreach (var button in detail.Buttons) button.Disabled = !valid || _host.IsBusy;
         }
         if (_disbandTarget is { } target)
         {
-            var valid = target.IsAvailable(binding, content.Generation, view);
+            var valid = target.IsAvailable(binding, view, _host.PanelGenerationCurrent(target.Binding, target.Generation));
             _disband.GetOkButton().Disabled = !valid || _host.IsBusy;
             _disband.DialogText = valid ? "解编后车辆停放在所在聚居地。" : "已不存在：对象或所属对局已失效。";
         }
@@ -98,7 +99,7 @@ public partial class WorldPanels : Control
         list.ItemSelected += index =>
         {
             var status = _host.GetStatus();
-            if (status is null || status.Binding != binding || _host.Content?.Generation != generation ||
+            if (status is null || !_host.PanelGenerationCurrent(binding, generation) ||
                 index < 0 || index >= ids.Count) return;
             OpenObject(ids[(int)index]);
         };
@@ -160,12 +161,25 @@ public partial class WorldPanels : Control
         }
         if (target is WorldObjectId.Train refitTrain && _view.FindTrain(refitTrain.Id) is Lookup<TrainView>.Found trainForRefit)
             foreach (var vehicle in trainForRefit.Value.Vehicles)
+            {
                 buttons.Add(UiStyle.Button("RefitVehicle", $"改装车辆 {vehicle.Value}…", () => { if (Available(bound)) RefitRequested?.Invoke(new InstanceId.Vehicle(vehicle)); }));
+                if (trainForRefit.Value.Position is TrainPosition.Node)
+                    buttons.Add(UiStyle.Button("VehicleServices", $"车辆 {vehicle.Value} 服务…", () => { if (Available(bound)) VehicleServiceRequested?.Invoke(new InstanceId.Vehicle(vehicle)); }));
+            }
         if (target is WorldObjectId.Node refitNode && _view.FindLocation(new WorldLocation.Node(refitNode.Id)) is Lookup<LocationView>.Found locationForRefit)
             foreach (var vehicle in locationForRefit.Value.Instances.OfType<InstanceId.Vehicle>())
+            {
                 buttons.Add(UiStyle.Button("RefitParkedVehicle", $"改装车辆 {vehicle.Id.Value}…", () => { if (Available(bound)) RefitRequested?.Invoke(vehicle); }));
+                if (_view.FindInstance(vehicle) is Lookup<InstanceView>.Found { Value.Ownership: SettlementRelation.PlayerOwned })
+                    buttons.Add(UiStyle.Button("ParkedVehicleServices", $"车辆 {vehicle.Id.Value} 服务…", () => { if (Available(bound)) VehicleServiceRequested?.Invoke(vehicle); }));
+            }
         if (target is WorldObjectId.Instance instance)
+        {
             buttons.Add(UiStyle.Button("RefitDesign", "改装设计…", () => { if (Available(bound)) RefitRequested?.Invoke(instance.Id); }));
+            if (instance.Id is InstanceId.Vehicle && _view.FindInstance(instance.Id) is Lookup<InstanceView>.Found
+                { Value.Ownership: SettlementRelation.PlayerOwned, Value.Location: WorldLocation.Node })
+                buttons.Add(UiStyle.Button("VehicleServices", "车辆服务…", () => { if (Available(bound)) VehicleServiceRequested?.Invoke(instance.Id); }));
+        }
         foreach (var button in buttons) body.AddChild(button);
         _details.Add(new(bound, panel, text, buttons));
         Refresh(_binding, _view, _content);
@@ -175,7 +189,7 @@ public partial class WorldPanels : Control
     {
         var status = _host.GetStatus();
         if (status is not null && _host.Content is { } content &&
-            target.IsAvailable(status.Binding, content.Generation, status.View))
+            target.IsAvailable(status.Binding, status.View, _host.PanelGenerationCurrent(target.Binding, target.Generation)))
         { _binding = status.Binding; _view = status.View; _content = content; return true; }
         _reportError("对象已不存在或所属对局已更换，操作未提交。");
         return false;

@@ -165,6 +165,7 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
 
     internal sealed class HostSetup
     {
+        internal ScriptedContentFactory? ContentFactory { get; private set; }
         internal ScriptedCoreSession Session { get; }
         internal ScriptedCoreCandidate Candidate { get; }
         internal ScriptedCoreCandidate? ReplacementCandidate { get; set; }
@@ -208,7 +209,7 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
                         ? Candidate : ReplacementCandidate ?? throw new InvalidOperationException("UNCONFIGURED: replacement restore"));
                 }
             };
-            var content = new ScriptedContentFactory
+            var content = ContentFactory = new ScriptedContentFactory
             {
                 CaptureReplayCall = (history, _) => new ContentResult<IContentReplayCapture>.Success(new FixedContentReplayCapture(history, "engine recording content")),
                 DecodeCaptureCall = payload => payload == "opaque content"
