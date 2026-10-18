@@ -133,7 +133,8 @@ internal static class EconomyFixture
     internal static FixedContentView Content(ulong generation = 1, bool missingMarketRule = false, int maxLeaseMultiple = 3,
         ImmutableArray<ProcessProjection> processes = default,
         IReadOnlyDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>? definitionDisplays = null,
-        BlueprintRecord? vehicleBlueprint = null, ImmutableArray<SavedContentDraft> drafts = default)
+        BlueprintRecord? vehicleBlueprint = null, BlueprintRecord? otherBlueprint = null,
+        ImmutableArray<SavedContentDraft> drafts = default)
     {
         var icon = new AssetRevision("fixture-food-png");
         var bytes = ImmutableArray.CreateRange(Convert.FromBase64String(
@@ -149,16 +150,16 @@ internal static class EconomyFixture
         return new(projection, new(generation))
         {
             LocalDrafts = drafts.IsDefault ? [] : drafts,
-            Blueprints = vehicleBlueprint is null ? [] : [new(vehicleBlueprint.Address, vehicleBlueprint.Definition.Display,
-                ((DesignEvaluation.Complete)vehicleBlueprint.Evaluation).Design, true, [])],
-            BlueprintRecords = vehicleBlueprint is null
-                ? ImmutableDictionary<BlueprintAddress, ContentLookup<BlueprintRecord>>.Empty
-                : new Dictionary<BlueprintAddress, ContentLookup<BlueprintRecord>>
-                { [vehicleBlueprint.Address] = new ContentLookup<BlueprintRecord>.Found(vehicleBlueprint) },
+            Blueprints = [.. new[] { vehicleBlueprint, otherBlueprint }.OfType<BlueprintRecord>().Select(record =>
+                new BlueprintSummary(record.Address, record.Definition.Display,
+                    ((DesignEvaluation.Complete)record.Evaluation).Design, true, []))],
+            BlueprintRecords = new[] { vehicleBlueprint, otherBlueprint }.OfType<BlueprintRecord>().ToDictionary(
+                record => record.Address, record => (ContentLookup<BlueprintRecord>)new ContentLookup<BlueprintRecord>.Found(record)),
             DefinitionDisplays = definitionDisplays ?? ImmutableDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>.Empty,
             SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
             {
-                [new(1)] = new ContentLookup<SettlementLayoutProjection>.NotFound()
+                [new(1)] = new ContentLookup<SettlementLayoutProjection>.NotFound(),
+                [new(2)] = new ContentLookup<SettlementLayoutProjection>.NotFound()
             },
             Goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>>
             {
@@ -174,7 +175,8 @@ internal static class EconomyFixture
             {
                 [new("fixture-vehicle")] = new ContentLookup<DesignEvaluation>.Missing([]),
                 [new("fixture-service-building")] = new ContentLookup<DesignEvaluation>.Found(ServiceBuilding()),
-                [new("fixture-plain-building")] = new ContentLookup<DesignEvaluation>.Found(PlainBuilding())
+                [new("fixture-plain-building")] = new ContentLookup<DesignEvaluation>.Found(PlainBuilding()),
+                [new("fixture-food-building")] = new ContentLookup<DesignEvaluation>.Found(FoodBuilding())
             }
         };
     }
@@ -200,6 +202,20 @@ internal static class EconomyFixture
         var design = new DesignInput(HostCoreScenario.Input,
             new(new("fixture-plain-building"), new("fixture-plain-composition"),
                 new DesignKind.Building(PlotSize.Small, BuildingKind.Production, []),
+                [new(new(1), new CoreDefinitionReference.Voxel(new("fixture:builder")), Food, 100, 1, new(1),
+                    [new PartCapability.Production(1)], false)],
+                100, 1, 1, new(1), [], [], 0, [], true, []), []);
+        return new(design.Design.Design, design.Design.Composition, definition, design,
+            new(null, null, null, true, null, null, [], [], [], [], []), true, []);
+    }
+
+    private static DesignEvaluation.Complete FoodBuilding()
+    {
+        var definition = new DesignDraft(new("食品建筑", ""),
+            new DesignSpecification.Building(PlotSize.Small, BuildingKind.Production, [FacilityTag.FoodProcessing]), new([], [], []));
+        var design = new DesignInput(HostCoreScenario.Input,
+            new(new("fixture-food-building"), new("fixture-food-composition"),
+                new DesignKind.Building(PlotSize.Small, BuildingKind.Production, [FacilityTag.FoodProcessing]),
                 [new(new(1), new CoreDefinitionReference.Voxel(new("fixture:builder")), Food, 100, 1, new(1),
                     [new PartCapability.Production(1)], false)],
                 100, 1, 1, new(1), [], [], 0, [], true, []), []);
