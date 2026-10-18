@@ -106,7 +106,7 @@ internal sealed class WorldSceneController : IDisposable
             var opened = _factory.OpenWorld(_sceneBinding, snapshot);
             if (opened is not SceneResult<IWorldSceneSession>.Success success) { Fail(opened); return; }
             _session = success.Value;
-            _display = new(_cache, snapshot.Content);
+            _display = new(_cache, snapshot.Content, completeInitialFrame: true);
             View.AddChild(_display.Root);
             var requested = RequestTarget(target);
             if (requested is SceneResult<SceneRequestId>.Failure) Fail(requested);
@@ -222,6 +222,8 @@ internal sealed class WorldSceneController : IDisposable
                     _pendingNodeFrame = null;
                 }
             }
+            _display.UpdateConstructionFog(_target is WorldSceneTarget.Follow follow &&
+                status.View.FindTrain(follow.Train) is Lookup<TrainView>.Found train ? train.Value.Vehicles : []);
         }
         catch (Exception exception) { AdapterFailed(exception, SceneStage.Present); }
     }
@@ -263,6 +265,7 @@ internal sealed class WorldSceneController : IDisposable
         {
             _display!.CancelPreparation();
             _target = target;
+            _display.UpdateConstructionFog([]);
             _request = success.Value;
             _pickRay = null;
             _fullReplacement = true;

@@ -12,6 +12,13 @@ namespace Train.Scenes.Tests;
 public sealed class GeometryTests
 {
     [TestMethod]
+    [DataRow(-1)]
+    [DataRow(24)]
+    [DataRow(int.MaxValue)]
+    public void InvalidOrientationsCannotSelectAnAxisFrame(int value) =>
+        Assert.ThrowsExactly<ArgumentException>(() => SceneGeometry.Axes((VoxelOrientation)value));
+
+    [TestMethod]
     public void CubeTrianglesFaceOutwardWithMatchingNormalsAndValidIndices()
     {
         var geometry = SceneFixtures.Build(SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0))]));

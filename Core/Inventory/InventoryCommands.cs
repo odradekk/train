@@ -104,20 +104,21 @@ internal static class InventoryCommands
                     AutomaticGoodsAction.Sell sell => sell.MinimumUnitPrice,
                     _ => null
                 };
-                foreach (var price in MarketPrices.Goods(world, content, request.Good, incoming, market!, localStock, executable))
+                foreach (var (price, quantity) in MarketPrices.Goods(world, content, request.Good, incoming, market!, localStock, executable))
                 {
                     if (limit is { } unitLimit && (incoming ? price.Value > unitLimit.Value : price.Value < unitLimit.Value))
                     {
                         incomplete = new("price_condition_failed", incoming ? "MaximumUnitPrice" : "MinimumUnitPrice", null, []);
                         break;
                     }
-                    if (incoming && price.Value > world.Money.Value - amount)
+                    var available = incoming ? Math.Min(quantity, (world.Money.Value - amount) / price.Value) : quantity;
+                    amount = checked(amount + price.Value * available);
+                    completed += available;
+                    if (available < quantity)
                     {
                         incomplete = new("insufficient_money", "Wallet", null, []);
                         break;
                     }
-                    amount = checked(amount + price.Value);
-                    completed++;
                 }
                 if (!incoming) _ = checked(world.Money.Value + amount);
             }
@@ -133,10 +134,11 @@ internal static class InventoryCommands
         if (trade)
         {
             long amount = 0, affordable = 0;
-            foreach (var price in MarketPrices.Goods(world, content, request.Good, incoming, market!, localStock, request.Quantity))
+            foreach (var (price, quantity) in MarketPrices.Goods(world, content, request.Good, incoming, market!, localStock, request.Quantity))
             {
-                amount = checked(amount + price.Value);
-                if (amount <= world.Money.Value) affordable++;
+                if (amount <= world.Money.Value)
+                    affordable += Math.Min(quantity, (world.Money.Value - amount) / price.Value);
+                amount = checked(amount + price.Value * quantity);
             }
             total = new(amount);
             if (condition is { } limit && (incoming ? amount > limit.Value : amount < limit.Value))

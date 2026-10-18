@@ -122,7 +122,8 @@ public sealed record SettlementView(SettlementId Id, NodeId Node, SettlementType
     ImmutableArray<VehicleId> VehiclesForSale, ImmutableArray<VehiclePurchaseCapacity> VehiclePurchaseCapacities,
     ImmutableArray<FacilityView> Facilities, PowerPoolView Power, PopulationView Population,
     SettlementEngagementRules Engagement, double MoraleRatio, bool Surrendered,
-    ImmutableArray<JobId> CommissionJobs, ImmutableArray<LeaseId> Leases, MarketView Market);
+    ImmutableArray<JobId> CommissionJobs, ImmutableArray<JobId> OwnedJobs,
+    ImmutableArray<LeaseId> Leases, MarketView Market);
 public abstract record PlotOccupant
 {
     private PlotOccupant() { }

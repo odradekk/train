@@ -55,6 +55,22 @@ public partial class GameUi : CanvasLayer
 
     internal ICoreReadView? View => _view;
     internal string ErrorText => _error.Text;
+    internal Rect2 PanelArea { get; private set; }
+    internal event Action? PanelAreaChanged;
+
+    private void UpdatePanelArea()
+    {
+        var area = _root.GetGlobalRect().Grow(-8);
+        if (_world.IsVisibleInTree())
+        {
+            var top = _bar.GetParent<Control>().GetGlobalRect().End.Y + 8;
+            area = new(new(area.Position.X, top), new(area.Size.X, Math.Max(0, area.End.Y - top)));
+        }
+        if (PanelArea == area) return;
+        PanelArea = area;
+        _menu.FitSaves(area);
+        PanelAreaChanged?.Invoke();
+    }
 
     internal void SetInspectionLighting(InspectionLighting mode)
     {
@@ -88,13 +104,19 @@ public partial class GameUi : CanvasLayer
             MouseForcePassScrollEvents = false };
         top.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.TopWide);
         _world.AddChild(top);
-        void PositionMinimap() => _minimap.Position = new(Math.Max(8, _world.Size.X - _minimap.Size.X - 12),
-            top.Position.Y + top.Size.Y + 8);
-        top.Resized += PositionMinimap;
-        _world.Resized += PositionMinimap;
+        void PositionOverlays()
+        {
+            _minimap.Position = new(Math.Max(8, _world.Size.X - _minimap.Size.X - 12), top.Position.Y + top.Size.Y + 8);
+            _map.PositionLayerPanel(top.Position.Y + top.Size.Y + 8);
+        }
+        top.Resized += PositionOverlays;
+        _world.Resized += PositionOverlays;
         _bar = new HFlowContainer { Name = "TopBar" };
         _bar.AddThemeConstantOverride("h_separation", 12);
         top.AddChild(_bar);
+        top.Resized += UpdatePanelArea;
+        _root.Resized += UpdatePanelArea;
+        _world.VisibilityChanged += UpdatePanelArea;
         _clock = UiStyle.Label("");
         _clock.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
         _bar.AddChild(_clock);
@@ -185,6 +207,7 @@ public partial class GameUi : CanvasLayer
             if (_host.GetStatus() is { } status && _host.Content is { } content)
                 OnBoundary(status.Binding, status.View, content, []);
         }
+        UpdatePanelArea();
     }
 
     public override void _Process(double delta)
@@ -200,6 +223,7 @@ public partial class GameUi : CanvasLayer
             _authoringButton.Disabled = _authoring.IsBusy || _host!.IsBusy;
         }
         _map.Visible = status is not null && !showingScene && !editing;
+        _map.RefreshPlatformQueues(delta);
         if (_panels is not null) _panels.Visible = !editing;
         if (_formation is not null) _formation.Visible = !editing && _formation.Visible;
         if (_plan is not null) _plan.Visible = !editing && _plan.Visible;
@@ -353,7 +377,7 @@ public partial class GameUi : CanvasLayer
             _root.RemoveChild(_newGame); _newGame.QueueFree();
         }
         _newGame = UiStyle.Panel(_root, "NewGame", "新游戏", new(720, 260), 480,
-            CancelNewGame, out var body);
+            CancelNewGame, out var body, centered: true);
         body.AddChild(UiStyle.Label("世界种子", true));
         var seed = new LineEdit { Name = "Seed", Text = "0", CustomMinimumSize = new(430, 38) };
         body.AddChild(seed);
@@ -409,7 +433,6 @@ public partial class GameUi : CanvasLayer
         }, true);
         create.Disabled = profiles.IsEmpty;
         body.AddChild(create);
-        _newGame.Resized += () => _newGame.Position = (_root.Size - _newGame.Size) / 2;
     }
 
     private void CancelNewGame()

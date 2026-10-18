@@ -287,7 +287,7 @@ public sealed class NodeSceneTests
             vehicles.Reconcile(snapshot.Content, ((Lookup<InstanceView>.Found)snapshot.Core.FindInstance(
                 new InstanceId.Vehicle(new(train.Id.Value)))).Value, ObjectId);
         await SceneFixtures.AwaitPendingWork(vehicles.PendingWork);
-        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), ObjectId, vehicles, (_, _, _, _) => built);
+        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), ObjectId, vehicles, new(), (_, _, _, _) => built);
         await scene.BuildWork!;
         var stamp = new SceneFrameStamp(new(Guid.NewGuid()), new(1), new(1), 1);
         var frame = scene.Present(snapshot, new(1, null, SceneDebugLayer.None), stamp, null, default);

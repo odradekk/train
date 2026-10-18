@@ -186,16 +186,51 @@ public sealed class BuiltInContentTests
         var world = ((C.ContentResult<K.WorldGenerationInput>.Success)worldResult).Value;
         var commission = view.Core.Designs.Single(design =>
             design.Design == world.Configuration.StartConstraints.RequiredAffordableCommissionDesign);
-        foreach (var template in view.Core.SettlementTemplates.Where(template => template.Plots
-                     .Where(plot => plot.PrebuiltDesign != null)
-                     .Select(plot => view.Core.Designs.Single(design => design.Design == plot.PrebuiltDesign))
-                     .SelectMany(design => design.Parts).SelectMany(part => part.Capabilities)
-                     .OfType<K.PartCapability.Construction>()
-                     .Any(construction => construction.MaximumVehicleSize >= K.SizeClass.Small)))
+        var enabledProcesses = view.Core.SettlementTemplates.SelectMany(template => template.ProductionPlans)
+            .Where(plan => plan.Enabled).Select(plan => plan.Process).ToHashSet();
+        var suppliedGoods = view.Core.Processes.SelectMany(process => process.Details switch
         {
-            foreach (var item in commission.BillOfMaterials)
+            K.ProcessDetails.Production production when enabledProcesses.Contains(new K.ProcessRef.Production(production.Id))
+                => production.Outputs,
+            K.ProcessDetails.Extraction extraction when enabledProcesses.Contains(new K.ProcessRef.Production(extraction.Id))
+                => ImmutableArray.Create(extraction.Extracts),
+            K.ProcessDetails.Recovery recovery when enabledProcesses.Contains(new K.ProcessRef.Recovery(recovery.Id))
+                => recovery.Outputs,
+            _ => ImmutableArray<K.GoodsQuantity>.Empty
+        }).Select(item => item.Good).ToHashSet();
+        var constructionRule = view.Core.ConstructionRules.Single(rule => rule.Id == world.Configuration.Rules.Construction);
+        foreach (var template in view.Core.SettlementTemplates)
+        {
+            var hasVehicleWorkshop = template.Plots.Where(plot => plot.PrebuiltDesign != null)
+                .Select(plot => view.Core.Designs.Single(design => design.Design == plot.PrebuiltDesign))
+                .SelectMany(design => design.Parts).SelectMany(part => part.Capabilities)
+                .OfType<K.PartCapability.Construction>()
+                .Any(construction => construction.MaximumVehicleSize >= K.SizeClass.Small);
+            var commissionMaterials = hasVehicleWorkshop ? commission.BillOfMaterials : [];
+            foreach (var item in commissionMaterials)
                 Assert.IsTrue(template.SpecialInitialInventory.Where(stock => stock.Good == item.Good)
                     .Sum(stock => stock.Quantity) >= item.Quantity, template.Id + ":" + item.Good);
+            var founding = template.FoundingBuildings.Select(building =>
+                view.Core.Designs.Single(design => design.Design == building.Design)).ToArray();
+            Assert.IsTrue(founding.SelectMany(design => design.Parts).SelectMany(part => part.Capabilities)
+                .OfType<K.PartCapability.Power>().Any() || constructionRule.PowerPerWork == 0, template.Id.ToString());
+            var maximumPlot = founding.SelectMany(design => design.Parts).SelectMany(part => part.Capabilities)
+                .OfType<K.PartCapability.Construction>().Max(capability => capability.MaximumBuildingPlotSize);
+            foreach (var path in new string[][] { ["small-warehouse", "farm"],
+                         ["small-warehouse", "power-station", "extraction-site"] })
+            {
+                var buildings = path.Select(id => Complete(view, id).Core!.Design).ToArray();
+                foreach (var building in buildings)
+                    Assert.IsTrue(maximumPlot >= ((K.DesignKind.Building)building.Kind).PlotSize,
+                        template.Id + ":" + building.Design);
+                var required = founding.Concat(buildings).SelectMany(design => design.BillOfMaterials)
+                    .GroupBy(item => item.Good);
+                foreach (var items in required)
+                    Assert.IsTrue(suppliedGoods.Contains(items.Key) || template.SpecialInitialInventory.Where(stock => stock.Good == items.Key)
+                        .Sum(stock => stock.Quantity) >= items.Sum(item => item.Quantity)
+                        + commissionMaterials.Where(item => item.Good == items.Key).Sum(item => item.Quantity),
+                        template.Id + ":" + items.Key);
+            }
         }
         Assert.AreEqual(2, world.Start.Trains.Length);
         CollectionAssert.AreEqual(new[] { "small-locomotive", "small-freight-wagon", "small-freight-wagon", "small-freight-wagon" }

@@ -534,6 +534,63 @@ public sealed class InventoryTradeTests
     }
 
     [TestMethod]
+    [DataRow(10L, 30L, 5000, 5000, 10L, 55L)]
+    [DataRow(11L, 30L, 5000, 5000, 10L, 55L)]
+    [DataRow(20L, 30L, 5000, 5000, 10L, 55L)]
+    [DataRow(10L, 35L, 2500, 5000, 5L, 55L)]
+    [DataRow(10L, 30L, 3333, 5000, 5L, 55L)]
+    [DataRow(20L, 30L, 5000, 10000, 20L, 110L)]
+    [DataRow(20L, 30L, 5000, 15000, 20L, 165L)]
+    [DataRow(20L, 30L, 0, 5000, -1L, 110L)]
+    public void Compressed_dynamic_food_quotes_match_each_unit_across_the_clamp_boundary(
+        long quantity, long stock, int sensitivity, int minimum, long firstQuantity, long firstPrice)
+    {
+        var staple = new GoodId.Voxel(new("fixture:food"));
+        var content = Content(capacity: 10,
+            prices: new(new(sensitivity), new(minimum), new(20000), new(1000)));
+        content = content with { MarketRules = [content.MarketRules[0] with { BasicReserveHours = 4d / 3600 }] };
+        using var session = Session(content, local: [new(staple, stock), new(PreparedFood, 30)]);
+        var market = Market(session);
+        var population = content.PopulationRules[0];
+        var remainders = session.State.World.Settlements.Single().PopulationState.ConsumptionRemaining;
+        var raw = PopulationStockTargets.FoodTargets(population, 10, 4d / 3600, stock, 30, remainders);
+        var adjacentRaw = PopulationStockTargets.FoodTargets(population, 10, 4d / 3600, stock - 1, 30, remainders);
+        Assert.AreNotEqual(raw.Staple, adjacentRaw.Staple);
+        Assert.IsTrue(market.Target(staple, stock) < raw.Staple);
+        var first = MarketPrices.Goods(session.State.World, content, staple, true, market, stock, quantity).First();
+        Assert.AreEqual(new Money(firstPrice), first.Price);
+        if (firstQuantity >= 0) Assert.AreEqual(firstQuantity, first.Quantity);
+        long expected = 0;
+        // Food demand is 40 and capacity 10 compresses the changing raw food targets.
+        // Hand-calculated clamp thresholds for these rows are 20, 30, 25, 10 and 0.
+        // Zero sensitivity is checked by amount only; its segment size is unrestricted.
+        for (long i = 0; i < quantity; i++)
+        {
+            var lowerStock = stock - i - 1;
+            var target = market.Target(staple, lowerStock);
+            Assert.IsTrue(target <= 10);
+            expected += MarketPrices.Good(new(100), content.MarketRules[0].DefaultGoodsPrices,
+                target, (BigInteger)lowerStock * 2 + 1, true).Value;
+        }
+        var request = Request(session, TradeAction.Buy, staple, quantity);
+        AssertQuote(session, Quote(session, request), request, quantity, expected);
+        Accept(session, Command(request, expected));
+        Assert.AreEqual(new Money(10000 - expected), session.Read().Economy.Wallet);
+    }
+
+    [TestMethod]
+    public void Same_price_buy_quote_keeps_the_affordable_prefix_and_submission_is_atomic()
+    {
+        using var session = Session(local: [new(Voxel, 10)], money: 139);
+        var request = Request(session, TradeAction.Buy, Voxel, 5);
+        var quote = Quote(session, request);
+        Assert.AreEqual(new Money(275), quote.Total);
+        Assert.AreEqual(2L, quote.CurrentlyExecutableQuantity);
+        Assert.AreEqual("insufficient_money", quote.Blockers.Single().Code);
+        RejectWithoutWorldChange(session, Command(request, 275), "insufficient_money");
+    }
+
+    [TestMethod]
     [TestCategory("integration")]
     public void Food_reserve_scales_and_compressed_partial_coverage_measure_warm_queries()
     {

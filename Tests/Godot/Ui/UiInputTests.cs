@@ -11,6 +11,17 @@ namespace Train.Godot.Tests.Ui;
 public sealed class UiInputTests
 {
     [TestMethod]
+    public void EveryTrainActivityHasDisplayText()
+    {
+        foreach (var activity in Enum.GetValues<TrainActivity>())
+        {
+            var text = WorldPanels.Activity(activity);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(text), $"{activity} 缺少显示文字。");
+            Assert.AreNotEqual(activity.ToString(), text, $"{activity} 仍显示枚举名。");
+        }
+    }
+
+    [TestMethod]
     public void TimeChangesAtMinuteHourAndDayBoundaries()
     {
         var minute = 60UL * (ulong)SimulationTime.StepsPerSecond;
@@ -54,7 +65,7 @@ public sealed class UiInputTests
         var settlement = new SettlementView(new(1), new(1), new("town"), null,
             SettlementRelation.PlayerOwned, new(2), [], [], 0, 0, 0, [], [], [],
             new(0, 0, 0, 0), new(rule, 0, 0, 0, 0, new PopulationExecution.NotStarted([]), null, []),
-            new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [new(3)],
+            new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [], [new(3)],
             new(rule, new(0, 0, 0, 0, 0, 0, 0), []));
         var inventory = new InventoryView(new(2), new InventoryOwner.Settlement(new(1)),
             new WorldLocation.Node(new(1)), InventoryAccess.ReadWrite, 10, 0, 0, 10, 0, [], []);
