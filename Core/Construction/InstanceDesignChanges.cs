@@ -5,15 +5,22 @@ using Train.Core.World;
 
 namespace Train.Core.Construction;
 
-internal static class VehicleDesignChanges
+internal static class InstanceDesignChanges
 {
     internal static void Validate(InstanceId instance, DesignChangeProjection change, WorldState world,
         CoreContentProjection content)
     {
         ArgumentNullException.ThrowIfNull(instance);
-        if (instance is InstanceId.Building) throw new NotImplementedException("建筑设计应用尚未实现。");
-        if (instance is not InstanceId.Vehicle { Id.Value: > 0 })
-            throw new ArgumentException("车辆编号必须非零。", nameof(instance));
+        switch (instance)
+        {
+            case InstanceId.Vehicle { Id.Value: > 0 }:
+            case InstanceId.Building { Id.Value: > 0 }:
+                break;
+            case InstanceId.Building:
+                throw new ArgumentException("建筑编号必须非零。", nameof(instance));
+            default:
+                throw new ArgumentException("车辆编号必须非零。", nameof(instance));
+        }
         ValidateInput(WorldInputs.NormalizeDesignChange(change).Target, world, content);
     }
 
@@ -59,9 +66,17 @@ internal static class VehicleDesignChanges
             return Problem("invalid_state", "Change.Before");
         if (Missing(world, content, before) || Missing(AddTarget(world, change.Target), content, target))
             return Problem("content_missing", "Change");
-        if (target.Kind is not DesignKind.Vehicle || !target.CanConstruct || target.MaxStructureDurability == 0
-            || immediate && !before.CanConstruct)
+        var sameKind = (before.Kind, target.Kind) switch
+        {
+            (DesignKind.Vehicle, DesignKind.Vehicle) => true,
+            (DesignKind.Building, DesignKind.Building) => true,
+            _ => false
+        };
+        if (!sameKind || !target.CanConstruct || target.MaxStructureDurability == 0 || immediate && !before.CanConstruct)
             return Problem("invalid_design", "Change.Target");
+        if (target.Kind is DesignKind.Building building && (instance.Details is not InstanceDetails.Building plot
+            || !WorldInputs.FitsPlot(building.PlotSize, plot.Size)))
+            return Problem("conditions_not_met", "Instance.Details.Plot");
         var removedParts = change.RemovedItems.SelectMany(u => u.Parts).ToArray();
         if (removedParts.Distinct().Count() != removedParts.Length
             || before.Parts.Any(p => !change.RetainedParts.Any(pair => pair.Before == p.Id) && !removedParts.Contains(p.Id))
