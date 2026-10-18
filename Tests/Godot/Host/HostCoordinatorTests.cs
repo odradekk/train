@@ -317,6 +317,7 @@ public sealed class HostCoordinatorTests
         {
             Assert.AreEqual("frozen", fixture.Host.SetPaused(false)?.Code);
             Assert.AreEqual("frozen", fixture.Host.Step(1).Problem?.Code);
+            Assert.AreEqual("frozen", fixture.Host.CaptureSave().Failure?.Code);
             Assert.AreEqual(0, session.AdvanceCount);
             Assert.AreEqual(1, fixture.Logs.Count(log => log.EventId == "host_pairing_failed"));
         }
