@@ -603,7 +603,51 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             Require(blueprints.ItemCount == 0 && !Find<OptionButton>(economy, "ServicePlot").Visible, "非自有聚居地列出了建筑蓝图或空地块。");
             Require(Enumerable.Range(0, Find<OptionButton>(economy, "ServiceOperation").ItemCount)
                 .All(index => Find<OptionButton>(economy, "ServiceOperation").GetItemText(index) != "拆解车辆"), "非自有聚居地的建造页改变了原有操作。");
+            var targets = Find<OptionButton>(economy, "ServiceVehicle");
+            Require(Enumerable.Range(0, targets.ItemCount).All(index => !targets.GetItemText(index).Contains("建筑")),
+                "非自有聚居地列出了建筑目标。");
             Require(setup.Session.SubmitCount == 0 && view.QuoteCount == 0, "打开非自有建造页提交或报价。");
+        });
+        setup.Session.AssertComplete();
+    }
+
+    [Test]
+    public async Task Building_dismantle_lists_target_reservation_and_pause_without_other_job_controls()
+    {
+        var before = new ServiceView(owned: true, buildingWork: true);
+        var paused = new ServiceView(2, owned: true, buildingWork: true, buildingPaused: true);
+        var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content());
+        await Run(setup, async (_, economy) =>
+        {
+            await Services(economy);
+            var choice = Find<OptionButton>(economy, "ServiceVehicle");
+            var entries = Enumerable.Range(1, choice.ItemCount - 1).Select(index => choice.GetItemText(index)).ToArray();
+            var vehicles = entries.Select((text, index) => (text, index)).Where(item => item.text.StartsWith("车辆")).ToArray();
+            var buildings = entries.Select((text, index) => (text, index)).Where(item => item.text.StartsWith("建筑")).ToArray();
+            Require(choice.GetItemText(1).Contains("车辆 9") && buildings.Any(item => item.text == "建筑 21") &&
+                buildings.Min(item => item.index) > vehicles.Max(item => item.index),
+                "建筑目标没有排在车辆之后。");
+            var dismantle = Find<Label>(economy, "ServiceJob_6").Text;
+            Require(dismantle.Contains("拆解") && dismantle.Contains("目标：建筑 21") && dismantle.Contains("库存 10") && dismantle.Contains("容量 40") &&
+                Find<Label>(economy, "ServiceJob_9").Text.Contains("目标：地块 3") && Find<Label>(economy, "ServiceJob_4").Text.Contains("目标：车辆 9"),
+                "任务行没有列出建筑、地块、车辆目标或匹配的库存预留。");
+            Require(Find<Button>(economy, "PauseServiceJob_6").Text == "暂停拆解" &&
+                !economy.FindChildren("PauseServiceJob_7", "Button", true, false).Any() &&
+                !economy.FindChildren("PauseServiceJob_8", "Button", true, false).Any() &&
+                !economy.FindChildren("PauseServiceJob_9", "Button", true, false).Any(),
+                "修理、改装或建造任务出现了暂停入口。");
+            await _input.Choose(Find<OptionButton>(economy, "ServiceOperation"), 3);
+            await _input.Choose(Find<OptionButton>(economy, "ServiceFacility"), 0);
+            var building = Enumerable.Range(0, choice.ItemCount).Single(index => choice.GetItemText(index).Contains("建筑 21"));
+            await _input.Choose(choice, building);
+            await _input.Activate(Find<Button>(economy, "RefreshServiceQuote"));
+            Require(before.LastQuote!.Request is JobRequest.Dismantle { Instance: InstanceId.Building { Id.Value: 21 }, Priority: 0 } &&
+                setup.Session.SubmitCount == 0, "建筑拆解报价没有使用该建筑实例和固定优先级。");
+            setup.Session.QueueSubmit(new CoreCommand.SetDeconstructionPaused(new(6), true), CommandSource.UserInterface,
+                Completed(1, before, paused, new CommandDecision.Accepted([], [])), paused);
+            await _input.Activate(Find<Button>(economy, "PauseServiceJob_6"));
+            Require(setup.Session.SubmitCount == 1 && Find<Label>(economy, "ServiceJob_6").Text.Contains("已暂停") &&
+                !Find<Label>(economy, "ServiceJob_4").Text.Contains("已暂停"), "建筑拆解暂停没有提交或作用到了其他任务。");
         });
         setup.Session.AssertComplete();
     }
@@ -692,7 +736,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
         finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
     }
 
-    private sealed class ServiceView(ulong revision = 1, bool blocked = false, bool nullPayment = false, bool completed = false, bool missingFacility = false, DesignInput? expectedDesign = null, bool owned = false, bool paused = false, bool changedDesign = false, bool emptyPlot = false, bool constructionPlot = false, InstanceLock buildingLock = InstanceLock.None) : ICoreReadView
+    private sealed class ServiceView(ulong revision = 1, bool blocked = false, bool nullPayment = false, bool completed = false, bool missingFacility = false, DesignInput? expectedDesign = null, bool owned = false, bool paused = false, bool changedDesign = false, bool emptyPlot = false, bool constructionPlot = false, InstanceLock buildingLock = InstanceLock.None, bool buildingWork = false, bool buildingPaused = false) : ICoreReadView
     {
         private readonly ICoreReadView basis = EconomyFixture.Create(revision, vehicle: EconomyFixture.VehicleState.Owned);
         private static readonly FacilityKey Facility = new(new(20), CapabilityKind.Construction);
@@ -705,20 +749,36 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             PlotView[] plots = missingFacility ? [] : [new(new(1), 1, PlotSize.Small, [], new PlotOccupant.Building(new(20))), new(new(2), 2, PlotSize.Small, [], new PlotOccupant.Building(new(21)))];
             if (emptyPlot && !missingFacility) plots = [.. plots, new(new(3), 3, PlotSize.Medium, [], new PlotOccupant.Empty())];
             if (constructionPlot && !missingFacility) plots = [.. plots, new(new(4), 4, PlotSize.Large, [], new PlotOccupant.Construction(new(4)))];
-            return new Lookup<SettlementView>.Found(found.Value with { Relation = owned ? SettlementRelation.PlayerOwned : found.Value.Relation, Plots = [.. plots], CommissionJobs = completed || owned ? [] : [new(4)], OwnedJobs = owned && !completed ? [new(4), new(5)] : [] });
+            return new Lookup<SettlementView>.Found(found.Value with { Relation = owned ? SettlementRelation.PlayerOwned : found.Value.Relation, Plots = [.. plots], CommissionJobs = completed || owned ? [] : [new(4)], OwnedJobs = owned && !completed ? buildingWork ? [new(4), new(5), new(6), new(7), new(8), new(9)] : [new(4), new(5)] : [] });
         }
-        public Lookup<JobView> FindJob(JobId id) => id.Value is 4 or 5 && (id.Value == 4 || owned)
+        public Lookup<JobView> FindJob(JobId id)
+        {
+            if (buildingWork && owned && id.Value is 6 or 7 or 8 or 9)
+            {
+                var kind = id.Value switch
+                {
+                    6 => ConstructionKind.Deconstruction, 7 => ConstructionKind.Repair, 8 => ConstructionKind.Refit, _ => ConstructionKind.Construction
+                };
+                ConstructionTarget target = id.Value == 9
+                    ? new ConstructionTarget.NewBuilding(new(3), new("fixture-plain-building"))
+                    : new ConstructionTarget.Existing(new InstanceId.Building(new(21)), new("fixture-plain-building"));
+                var state = id.Value == 6 && buildingPaused ? ConstructionState.Paused : ConstructionState.ResourceBlocked;
+                return new Lookup<JobView>.Found(new JobView.Construction(new(id, kind, new(1), Facility, target, state, 0, 100, 20, .2, 3, [WorkLimit.Labor], [], Missing)));
+            }
+            return id.Value is 4 or 5 && (id.Value == 4 || owned)
             ? new Lookup<JobView>.Found(new JobView.Construction(new(id, owned ? ConstructionKind.Deconstruction : ConstructionKind.Repair, new(1), Facility,
                 new ConstructionTarget.Existing(new InstanceId.Vehicle(new(9)), new("fixture-vehicle")), id.Value == 4 && paused ? ConstructionState.Paused : ConstructionState.ResourceBlocked,
                 0, 100, revision == 1 ? 20 : 60, revision == 1 ? .2 : .6, 3,
                 revision == 1 ? [WorkLimit.Labor] : [WorkLimit.Power], [], Missing)))
             : throw new InvalidOperationException("UNCONFIGURED: FindJob");
+        }
         public CoreResult<JobQuote> GetJobQuote(JobRequest request, JobFunding funding)
         {
             var sources = request switch
             {
                 JobRequest.Repair repair when repair.Facility == Facility && repair.Instance is InstanceId.Vehicle { Id.Value: 9 or 10 } => repair.Sources,
                 JobRequest.Dismantle dismantle when owned && dismantle.Facility == Facility && dismantle.Instance is InstanceId.Vehicle { Id.Value: 9 } => [],
+                JobRequest.Dismantle dismantle when buildingWork && owned && dismantle.Facility == Facility && dismantle.Instance is InstanceId.Building { Id.Value: 21 } => [],
                 JobRequest.Refit refit when refit.Facility == Facility && expectedDesign is not null && ReferenceEquals(refit.Change.Target, expectedDesign) => refit.Sources,
                 JobRequest.BuildVehicle build when build.Facility == Facility && expectedDesign is not null && ReferenceEquals(build.Design, expectedDesign) => build.Sources,
                 JobRequest.BuildBuilding build when owned && build.Facility == Facility && build.Plot == new PlotId(3) && expectedDesign is not null && ReferenceEquals(build.Design, expectedDesign) => build.Sources,
@@ -758,7 +818,13 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
                     new InstanceDetails.Building(new(1), PlotSize.Small), buildingLock, new(100, 100), [], []));
             return basis.FindInstance(id);
         }
-        public Lookup<InventoryView> FindInventory(InventoryId id) => basis.FindInventory(id);
+        public Lookup<InventoryView> FindInventory(InventoryId id)
+        {
+            var found = basis.FindInventory(id);
+            if (buildingWork && id.Value == 10 && found is Lookup<InventoryView>.Found inventory)
+                return new Lookup<InventoryView>.Found(inventory.Value with { Reservations = [new(new(6), 40, [new(EconomyFixture.Food, 2)])] });
+            return found;
+        }
         public Lookup<LeaseView> FindLease(LeaseId id) => basis.FindLease(id);
         public Lookup<FacilityView> FindFacility(FacilityKey key) => basis.FindFacility(key);
         public Lookup<CombatView> FindCombat(CombatId id) => basis.FindCombat(id);

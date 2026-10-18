@@ -51,6 +51,7 @@ internal static class CommandDiagnostics
             "conditions_not_met" => "条件未满足。",
             "not_owned" => "对象不属于玩家。",
             "instance_locked" => "对象已锁定。",
+            "instance_destroyed" => "对象已毁坏。",
             "train_not_stationary_at_node" => "列车未停在该节点。",
             "access_denied" => "没有访问权限。",
             "insufficient_goods" => "货物不足。",

@@ -12,7 +12,8 @@ internal partial class EconomyPanels
     private OptionButton _serviceOperation = null!, _serviceFacility = null!, _serviceBlueprint = null!, _serviceVehicle = null!, _serviceSource = null!;
     private readonly List<FacilityKey> _serviceFacilities = [];
     private readonly List<BlueprintAddress> _serviceBlueprints = [];
-    private readonly List<VehicleId?> _serviceVehicles = [];
+    private readonly List<WorkTarget?> _serviceTargets = [];
+    private readonly record struct WorkTarget(InstanceId Instance);
     private OptionButton _servicePlot = null!;
     private readonly List<PlotId?> _servicePlots = [];
     private PlotId? _serviceSelectedPlot;
@@ -21,7 +22,7 @@ internal partial class EconomyPanels
     private ItemList _serviceSourceOrder = null!;
     private FacilityKey? _serviceSelectedFacility;
     private BlueprintAddress? _serviceSelectedBlueprint;
-    private VehicleId? _serviceSelectedVehicle;
+    private WorkTarget? _serviceSelectedTarget;
     private IContentCandidate? _serviceCandidate;
     private DesignInput? _serviceDesign;
     private string? _serviceDesignProblem;
@@ -39,9 +40,9 @@ internal partial class EconomyPanels
     private void BuildServices(VBoxContainer body)
     {
         CloseServices();
-        _services = body; _serviceFacilities.Clear(); _serviceBlueprints.Clear(); _serviceVehicles.Clear(); _servicePlots.Clear();
+        _services = body; _serviceFacilities.Clear(); _serviceBlueprints.Clear(); _serviceTargets.Clear(); _servicePlots.Clear();
         _serviceSourceOptions.Clear(); _serviceSources.Clear(); _serviceJobRows.Clear(); _servicePauseButtons.Clear();
-        _serviceSelectedFacility = null; _serviceSelectedBlueprint = null; _serviceSelectedVehicle = null; _serviceSelectedPlot = null;
+        _serviceSelectedFacility = null; _serviceSelectedBlueprint = null; _serviceSelectedTarget = null; _serviceSelectedPlot = null;
         _serviceOperation = new() { Name = "ServiceOperation" };
         _serviceOperation.AddItem("制造车辆"); _serviceOperation.AddItem("修理车辆");
         _serviceOperation.AddItem("改装车辆");
@@ -58,7 +59,7 @@ internal partial class EconomyPanels
             _serviceSelectedBlueprint = index < 0 ? null : _serviceBlueprints[(int)index];
             ClearServiceDesign(); ServiceChanged();
         };
-        _serviceVehicle.ItemSelected += index => { _serviceSelectedVehicle = _serviceVehicles[(int)index]; ClearServiceDesign(); ServiceChanged(); };
+        _serviceVehicle.ItemSelected += index => { _serviceSelectedTarget = _serviceTargets[(int)index]; ClearServiceDesign(); ServiceChanged(); };
         _servicePlot = ServiceChoice(body, "ServicePlot");
         _servicePlot.ItemSelected += index =>
         {
@@ -142,9 +143,9 @@ internal partial class EconomyPanels
             .Select(building => new FacilityKey(building.Id, CapabilityKind.Construction)).ToArray();
         SyncServiceChoice(_serviceFacility, _serviceFacilities, facilities, _serviceSelectedFacility,
             ServiceFacilityTitle, "请选择执行建筑");
+        var playerOwned = _settlement.Relation == SettlementRelation.PlayerOwned;
         if (refreshTargets)
         {
-            var playerOwned = _settlement.Relation == SettlementRelation.PlayerOwned;
             var blueprints = _content.Blueprints.Where(item => item.Design is not null)
                 .Select(item => (Summary: item, Found: _content.FindBlueprint(item.Address)))
                 .Where(item => item.Found is ContentLookup<BlueprintRecord>.Found)
@@ -161,7 +162,12 @@ internal partial class EconomyPanels
         var vehicles = _settlement.ParkedVehicles.Concat(trains.Where(train => train.Activity == TrainActivity.Stopped && train.SpeedMetersPerSecond == 0)
             .SelectMany(train => train.Vehicles)).Distinct().Where(id => _view.FindInstance(new InstanceId.Vehicle(id)) is
                 Lookup<InstanceView>.Found { Value.Ownership: SettlementRelation.PlayerOwned }).ToArray();
-        SyncChoices(_serviceVehicle, _serviceVehicles, vehicles, _serviceSelectedVehicle, id => $"车辆 {id.Value}", "请选择车辆");
+        IEnumerable<WorkTarget> targets = vehicles.Select(id => new WorkTarget(new InstanceId.Vehicle(id)));
+        if (playerOwned)
+            targets = targets.Concat(_settlement.Plots.Select(plot => plot.Occupant).OfType<PlotOccupant.Building>()
+                .Select(building => new WorkTarget(new InstanceId.Building(building.Id))));
+        SyncChoices(_serviceVehicle, _serviceTargets, targets, _serviceSelectedTarget, ServiceTargetTitle,
+            playerOwned ? "请选择车辆或建筑" : "请选择车辆");
         if (refreshTargets) RefreshServiceTargets();
         var sources = trains.Select(train => train.Inventory).Concat(_locals.Where(local => local.Lease is not null || _settlement.Relation == SettlementRelation.PlayerOwned)
             .Select(local => local.Inventory.Id)).Distinct().ToArray();
@@ -229,15 +235,15 @@ internal partial class EconomyPanels
         }
         else
         {
-            if (_serviceSelectedVehicle is not { } id) { _serviceDescription.Text = "请选择车辆。"; return; }
-            if (!IsLocalServiceVehicle(id)) { _serviceDescription.Text = $"已不存在：所选本地玩家车辆 {id.Value}"; return; }
+            if (_serviceSelectedTarget is not { } target) { _serviceDescription.Text = _settlement!.Relation == SettlementRelation.PlayerOwned ? "请选择车辆或建筑。" : "请选择车辆。"; return; }
+            if (!IsLocalServiceTarget(target)) { _serviceDescription.Text = target.Instance is InstanceId.Vehicle vehicle ? $"已不存在：所选本地玩家车辆 {vehicle.Id.Value}" : "已不存在：所选建筑。"; return; }
             if (_serviceOperation.Selected == 2 && (_serviceDifference is null || _serviceCandidate is null))
             { _serviceDescription.Text = _serviceDesignProblem ?? "请先选择已保存的目标并重新获取报价。"; return; }
             request = _serviceOperation.Selected switch
             {
-                2 => new JobRequest.Refit(facility, new InstanceId.Vehicle(id), _serviceDifference!.Core, [.. _serviceSources], 0),
-                3 => new JobRequest.Dismantle(facility, new InstanceId.Vehicle(id), 0),
-                _ => new JobRequest.Repair(facility, new InstanceId.Vehicle(id), [.. _serviceSources], 0)
+                2 => new JobRequest.Refit(facility, target.Instance, _serviceDifference!.Core, [.. _serviceSources], 0),
+                3 => new JobRequest.Dismantle(facility, target.Instance, 0),
+                _ => new JobRequest.Repair(facility, target.Instance, [.. _serviceSources], 0)
             };
         }
         var funding = _settlement!.Relation == SettlementRelation.PlayerOwned ? JobFunding.OwnInventory : JobFunding.NpcCommission;
@@ -253,6 +259,13 @@ internal partial class EconomyPanels
 
     private string ServiceGoods(ImmutableArray<GoodsQuantity> goods) => goods.IsEmpty ? "无" :
         string.Join("、", goods.Select(item => $"{WorldPanels.GoodName(item.Good, _content)} × {item.Quantity}"));
+
+    private static string ServiceTargetTitle(WorkTarget target) => target.Instance switch
+    {
+        InstanceId.Vehicle vehicle => $"车辆 {vehicle.Id.Value}",
+        InstanceId.Building building => $"建筑 {building.Id.Value}",
+        _ => target.Instance.ToString()!
+    };
 
     private string ServiceFacilityTitle(FacilityKey key)
     {
