@@ -11,7 +11,7 @@
 | [loglevel](loglevel.md) | 查询或设置日志过滤等级 |
 | [sim](sim.md) | 查询或控制当前活动模拟会话（仅 Debug） |
 | [train](train.md) | 编组、解编、启停列车和替换运行计划；含节点内停车、预约保留、计划替换和修理期间启动限制（仅 Debug） |
-| [lighting](lighting.md) | 查询、切换检查光照并恢复游戏光照（仅 Debug） |
+| [lighting](lighting.md) | 为世界、设计编辑器和模板预览切换检查光照并恢复游戏光照（仅 Debug） |
 | [dev](dev.md) | 打开或关闭开发检查器（仅 Debug） |
 
 玩家构建的 `help` 列表不包含 `reload`、`sim`、`train`、`lighting` 或 `dev`；Debug 游戏宿主列出 `help, clear, quit, reload, loglevel, sim, train, lighting, dev`。编辑器内运行和 debug 模板导出均为开发构建，release 模板导出为玩家构建。
