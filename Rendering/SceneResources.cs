@@ -183,6 +183,7 @@ internal sealed class SceneResources : IDisposable
                     break;
                 case SceneVisual.Wheelset wheelset:
                     var wheelMaterial = result.Material(SurfaceMaterial(MaterialCategory.BareMetal, new Color(0.26f, 0.28f, 0.30f)));
+                    var wheelMarkerMaterial = result.Material(SurfaceMaterial(MaterialCategory.BareMetal, new Color("#8e9398")));
                     foreach (var side in new[] { -1, 1 })
                     {
                         var cylinder = result.Own(new CylinderMesh
@@ -192,12 +193,25 @@ internal sealed class SceneResources : IDisposable
                             Height = (float)wheelset.WidthCells,
                             RadialSegments = 24
                         });
-                        result.Node.AddChild(new MeshInstance3D
+                        var wheel = new MeshInstance3D
                         {
                             Mesh = cylinder, MaterialOverride = wheelMaterial,
                             Position = new(side * (float)wheelset.GaugeCells / 2, 0, 0),
                             Rotation = new(0, 0, Mathf.Pi / 2)
-                        });
+                        };
+                        result.Node.AddChild(wheel);
+                        for (var spoke = 0; spoke < 4; spoke++)
+                        {
+                            var angle = spoke * Mathf.Pi / 2;
+                            wheel.AddChild(new MeshInstance3D
+                            {
+                                Mesh = result.Own(new BoxMesh { Size = new((float)wheelset.RadiusCells * 0.95f, 0.015f, (float)wheelset.RadiusCells * 0.2f) }),
+                                MaterialOverride = wheelMarkerMaterial,
+                                Position = new Vector3((float)wheelset.RadiusCells * 0.475f,
+                                    -side * ((float)wheelset.WidthCells / 2 + 0.01f), 0).Rotated(Vector3.Up, angle),
+                                Rotation = new(0, angle, 0)
+                            });
+                        }
                     }
                     result.Node.Rotation = new((float)wheelset.RotationRadians, 0, 0);
                     break;

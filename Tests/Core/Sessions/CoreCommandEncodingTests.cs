@@ -272,6 +272,45 @@ public sealed class CoreCommandEncodingTests
         Assert.AreEqual(field, failure.Problems.Single().Field);
     }
 
+    [TestMethod]
+    public void Production_plan_round_trips_canonical_json()
+    {
+        const string canonical = "{\"input_format_version\":2,\"kind\":\"production.set_plan\",\"facility\":{\"building\":2,\"capability\":\"extraction\"},\"process\":{\"kind\":\"recovery\",\"definition\":\"fixture:recovery\"},\"enabled\":false,\"priority\":-3}";
+        var command = new CoreCommand.SetProductionPlan(new(new(2), CapabilityKind.Extraction),
+            new ProcessRef.Recovery(new("fixture:recovery")), false, -3);
+        Assert.AreEqual(canonical, CoreCommandEncoding.Encode(command));
+        Assert.AreEqual(command, Decode(canonical));
+        Assert.AreEqual(command, Decode("{\"priority\":-3,\"enabled\":false,\"process\":{\"definition\":\"fixture:recovery\",\"kind\":\"recovery\"},\"facility\":{\"capability\":\"extraction\",\"building\":2},\"kind\":\"production.set_plan\",\"input_format_version\":2}"));
+        Assert.AreEqual(canonical, CoreCommandEncoding.Encode(Decode(canonical)));
+        foreach (var priority in new[] { int.MinValue, int.MaxValue })
+        {
+            var boundary = new CoreCommand.SetProductionPlan(new(new(2), CapabilityKind.Production),
+                new ProcessRef.Production(new("fixture:production")), true, priority);
+            Assert.AreEqual(boundary, Decode(CoreCommandEncoding.Encode(boundary)));
+        }
+        Assert.ThrowsExactly<ArgumentException>(() => CoreCommandEncoding.Encode(new CoreCommand.SetProductionPlan(
+            new(new(2), CapabilityKind.Construction), new ProcessRef.Production(new("fixture:production")), true, 0)));
+    }
+
+    [TestMethod]
+    [DataRow("\"enabled\":false,", "", "/enabled")]
+    [DataRow("\"priority\":-3", "\"priority\":-3,\"extra\":1", "/extra")]
+    [DataRow("\"priority\":-3", "\"priority\":-3,\"priority\":1", "/priority")]
+    [DataRow("\"building\":2", "\"building\":0", "/facility/building")]
+    [DataRow("\"capability\":\"extraction\"", "\"capability\":\"construction\"", "/facility/capability")]
+    [DataRow("\"definition\":\"fixture:recovery\"", "\"definition\":\"BAD\"", "/process/definition")]
+    [DataRow("\"process\":{\"kind\":\"recovery\"", "\"process\":{\"kind\":\"extraction\"", "/process/kind")]
+    [DataRow("\"priority\":-3", "\"priority\":1.5", "/priority")]
+    [DataRow("\"priority\":-3", "\"priority\":2147483648", "/priority")]
+    [DataRow("\"priority\":-3", "\"priority\":-2147483649", "/priority")]
+    public void Production_plan_payload_fields_are_strict(string from, string to, string field)
+    {
+        const string payload = "{\"input_format_version\":2,\"kind\":\"production.set_plan\",\"facility\":{\"building\":2,\"capability\":\"extraction\"},\"process\":{\"kind\":\"recovery\",\"definition\":\"fixture:recovery\"},\"enabled\":false,\"priority\":-3}";
+        var failure = (CoreResult<DecodedCommand>.Failure)CoreCommandEncoding.Decode(payload.Replace(from, to, StringComparison.Ordinal));
+        Assert.AreEqual("invalid_state", failure.Problems.Single().Code);
+        Assert.AreEqual(field, failure.Problems.Single().Field);
+    }
+
     private static CoreCommand Decode(string payload)
     {
         var decoded = ((CoreResult<DecodedCommand>.Success)CoreCommandEncoding.Decode(payload)).Value;

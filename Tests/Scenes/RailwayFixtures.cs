@@ -131,11 +131,11 @@ internal static class RailwayFixtures
 
     internal static RailwayScene Controlled(SceneWorldSnapshot snapshot, SceneVehicles vehicles,
         Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null,
-        DisplayRate? displayRate = null)
+        DisplayRate? displayRate = null, EdgeId? edge = null)
     {
         var ids = new Dictionary<string, SceneObjectId>();
         ulong next = 0;
-        return new(snapshot, Edge, new(), key =>
+        return new(snapshot, edge ?? Edge, new(), key =>
         {
             if (!ids.TryGetValue(key, out var id)) ids.Add(key, id = new(++next));
             return id;

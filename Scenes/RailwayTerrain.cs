@@ -494,7 +494,9 @@ internal static class RailwayTerrain
             foreach (var missing in cells.Where(cell => cell.MissingReference is not null))
                 objects.Add(new(new(nextId++), terrainId, SceneGeometry.Placement(missing.At, missing.Orientation), null,
                 [new SceneVisual.Missing(missing.MissingReference!, true)], [], []));
-            foreach (var mesh in RailwayMeshes.Build(path, index, origin)) visuals.Add(new SceneVisual.Geometry(mesh, new(false, 0, 0, false)));
+            foreach (var mesh in RailwayMeshes.Build(path, index, origin, column =>
+                columns.TryGetValue(column, out var value) && !value.Water && !value.Tunnel ? value.Height + 1 : null))
+                visuals.Add(new SceneVisual.Geometry(mesh, new(false, 0, 0, false)));
             if (waterVertices.Count > 0) visuals.Add(new SceneVisual.Geometry(new(new SceneMaterial.BuiltIn(BuiltInMaterial.Water),
             waterVertices.ToImmutableArray(), waterIndices.ToImmutableArray()), new(false, 0, 0, false)));
             objects.Insert(0, new(terrainId, null, new(Vector3.Zero, Quaternion.Identity), null, visuals.ToImmutable(), [], []));

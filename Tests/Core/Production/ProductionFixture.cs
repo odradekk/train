@@ -16,6 +16,7 @@ internal static class ProductionFixture
     internal static readonly GoodId OtherProduct = new GoodId.Voxel(new("fixture:z-product"));
     internal static readonly GoodId Fuel = new GoodId.Voxel(new("fixture:fuel"));
     internal static readonly ProcessRef Process = new ProcessRef.Production(new("fixture:production"));
+    internal static readonly ProcessRef Alternate = new ProcessRef.Production(new("fixture:alternate"));
     internal static readonly ProcessRef Recovery = new ProcessRef.Recovery(new("fixture:recovery"));
     internal static readonly FacilityKey Facility = new(new(2), CapabilityKind.Production);
     internal static readonly SettlementId Settlement = new(1);
@@ -93,4 +94,32 @@ internal static class ProductionFixture
 
     internal static CoreContentProjection Changed(CoreContentProjection content, char identity = 'F')
         => content with { Identity = new(new string(identity, 64)) };
+
+    internal static CoreContentProjection WithAlternate(CoreContentProjection? content = null)
+    {
+        content ??= Content();
+        var alternate = content.Processes[0] with
+        {
+            Details = new ProcessDetails.Production(new("fixture:alternate"), [new(Input, 5)], [new(OtherProduct, 4)])
+        };
+        return WorldInputs.NormalizeContent(content with { Processes = content.Processes.Add(alternate) });
+    }
+
+    internal static CoreSession Owned(CoreContentProjection? content = null, SettlementRelation relation = SettlementRelation.PlayerOwned)
+    {
+        var state = State(content);
+        return new(state with { World = Own(state.World, relation) });
+    }
+
+    internal static WorldState Own(WorldState world, SettlementRelation relation = SettlementRelation.PlayerOwned)
+    {
+        var settlement = world.Settlements.Single();
+        return world with
+        {
+            Settlements = [settlement with { Relation = relation }],
+            Nodes = world.Nodes.Select(n => n.Id != settlement.Node ? n : n with
+                { Occupant = new NodeOccupant.Settlement(settlement.Id, relation) }).ToImmutableArray(),
+            Instances = world.Instances.Select(i => i with { Ownership = relation }).ToImmutableArray()
+        };
+    }
 }

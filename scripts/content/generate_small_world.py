@@ -4,8 +4,9 @@ python scripts/content/generate_small_world.py
 python scripts/content/generate_small_world.py --check
 python scripts/content/generate_small_world.py --output-dir TestResults/reproduction
 
-脚本生成 resources/，手绘图标按 HAND_DRAWN_ICONS 保留；校验模式拒绝缺失、多余或生成字节不同的文件，
-并按仓库 Schema 检查 JSON（校验需要 jsonschema）。生成只用 Python 标准库。
+脚本生成 resources/，手绘图标按 HAND_DRAWN_ICONS 保留；创作模式蓝图和 Blender 导出按 AUTHORED_FILES 保留，
+只检查存在和 JSON Schema。校验模式拒绝缺失、多余或其他生成文件字节不同的文件（校验需要 jsonschema）。
+生成只用 Python 标准库。
 自然地形与三十四种货物已有正式美术：十二种原料、六种生活货物和十六种工业与建造货物。
 小型机车保留第一阶段风格样稿，聚居地符号来自 ui_symbols；
 其余美术仍待制作，数值待配平，
@@ -35,11 +36,9 @@ VEHICLES = (
     ("medium-locomotive", "中型机车", "locomotive", "medium", 64, 10, 13, 7, 2, 3, 6, 2),
     ("medium-freight-wagon", "中型货车", "freight", "medium", 64, 10, 13, 7, 2, 3, 6, 2),
     ("medium-armed-wagon", "中型武装车", "armed", "medium", 64, 10, 13, 7, 2, 3, 6, 2),
-    ("large-locomotive", "大型机车", "locomotive", "large", 80, 14, 18, 7, 2, 3, 8, 3),
     ("large-freight-wagon", "大型货车", "freight", "large", 80, 14, 18, 7, 2, 3, 8, 3),
     ("extra-large-locomotive", "超大型机车", "locomotive", "extra_large", 104, 20, 26, 15, 4, 5, 10, 4),
     ("extra-large-freight-wagon", "超大型货车", "freight", "extra_large", 104, 20, 26, 15, 4, 5, 10, 4),
-    ("titan-armed-vehicle", "泰坦武装重型车辆", "armed", "titan", 136, 30, 38, 15, 4, 5, 14, 6),
 )
 START_TRAINS = (
     ("small-locomotive", "small-freight-wagon", "small-freight-wagon", "small-freight-wagon"),
@@ -72,7 +71,12 @@ LARGE_WAREHOUSE_FACTOR = 2
 NPC_FILL_INPUTS_AND_LIVING_TARGETS = True
 NPC_MINIMUM_FOR_SALE_VEHICLES = 1
 NPC_MAXIMUM_FOR_SALE_VEHICLES = 2
-NPC_FOR_SALE_VEHICLE_CANDIDATES = tuple(spec[0] for spec in VEHICLES)
+NPC_FOR_SALE_VEHICLE_CANDIDATES = (
+    "small-locomotive", "small-freight-wagon", "small-armed-wagon",
+    "medium-locomotive", "medium-freight-wagon", "medium-armed-wagon",
+    "large-locomotive", "large-freight-wagon", "extra-large-locomotive",
+    "extra-large-freight-wagon", "titan-armed-vehicle",
+)
 INITIAL_SMALL_VEHICLE_MATERIAL_SETS = 1
 MARKET_MARGIN = 0.1
 MARKET_SENSITIVITY = 0.25
@@ -813,8 +817,15 @@ GOODS_ART = {
 }
 # 表中货物的 icon.png 是唯一源，生成器只生成 Keep File 导入声明。
 HAND_DRAWN_ICONS = tuple(f"voxels/{identity}/icon.png" for identity in GOODS_ART)
-# 相对 resources/ 的精确文件路径；登记后由创作模式维护。
-AUTHORED_FILES = ()
+# 相对 resources/ 的精确路径；蓝图由创作模式维护，模型由 Blender 源导出，生成器只维护清单和导入声明。
+AUTHORED_FILES = (
+    "blueprints/large-locomotive.blueprint.json",
+    "blueprints/titan-armed-vehicle.blueprint.json",
+    "blueprints/heavy-vehicle-factory.blueprint.json",
+    "voxels/machine-gun/model.glb",
+    "voxels/cannon/model.glb",
+    "voxels/bogie/model.glb",
+)
 
 
 def plate_texture(x, y):
@@ -829,22 +840,6 @@ def tread_texture(x, y):
 
 def underside_texture(x, y):
     return tint((0x2b, 0x2e, 0x31))
-
-
-def bogie_top_texture(x, y):
-    ax, ay = min(x, 63 - x), min(y, 63 - y)
-    seam = ax == 0 or ay == 0
-    rivet = ax % 16 in (3, 12) and ay % 16 in (3, 12)
-    return tint(GRAPHITE, -6 if seam else 8 if rivet else grain(min(ax, ay), max(ax, ay), 64, 0x509))
-
-
-def bogie_side_texture(x, y):
-    ax, ay = x % 32, y % 32
-    axle_box = 10 <= ax < 22 and 9 <= ay < 25
-    frame = 12 <= ay < 20 or (4 <= ax < 8 or 24 <= ax < 28) and 8 <= ay < 24
-    if axle_box:
-        return tint(GRAPHITE, 16 if ax in (10, 21) or ay in (9, 24) else 6)
-    return tint(GRAPHITE, 10 if frame else grain(x, y, 64, 0x510))
 
 
 def engine_texture(x, y):
@@ -935,18 +930,16 @@ def icon(identity):
 
 
 def style_assets(files):
-    for name, size in (("vehicle-underside", 128), ("equipment-underside", 32), ("bogie-underside", 64)):
-        texture = underside_texture if name == "bogie-underside" else lambda x, y: underside_texture(x, y)[:3] + (0,)
+    for name, size in (("vehicle-underside", 128), ("equipment-underside", 32)):
+        texture = lambda x, y: underside_texture(x, y)[:3] + (0,)
         files[f"voxels/shared/{name}.png"] = png(size, texture)
     for identity, size, top, side in (
-        ("bogie", 64, bogie_top_texture, bogie_side_texture),
         ("propulsion-equipment", 32, grille_texture, engine_texture),
         ("control-equipment", 32, equipment_roof_texture, control_texture),
         ("storage-equipment", 32, storage_roof_texture, storage_texture),
     ):
-        if identity != "bogie":
-            top = neutral_texture(top, DEFAULT_PAINTS[identity])
-            side = neutral_texture(side, DEFAULT_PAINTS[identity])
+        top = neutral_texture(top, DEFAULT_PAINTS[identity])
+        side = neutral_texture(side, DEFAULT_PAINTS[identity])
         files[f"voxels/{identity}/top.png"] = png(size, top)
         if side is not None:
             files[f"voxels/{identity}/side.png"] = png(size, side)
@@ -1111,13 +1104,9 @@ def vehicle(spec):
         cells = {at: 0 for at in volume
                  if any(tuple(at[i] + delta[i] for i in range(3)) not in volume for delta in directions)}
     else:
-        body_height = 30 if size == "titan" else height
-        cells = {(x, y, z): 0 for x in range(x0, x1 + 1) for y in range(frame_height, body_height)
+        cells = {(x, y, z): 0 for x in range(x0, x1 + 1) for y in range(frame_height, height)
                  for z in range(z0, z1 + 1)
-                 if x in (x0, x1) or y in (frame_height, body_height - 1) or z in (z0, z1)}
-        if size == "titan":
-            fill_box(cells, (x0, 14, z0), (width, 1, length), 0)
-            fill_box(cells, (-9, 24, z0), (18, 1, length), 0)
+                 if x in (x0, x1) or y in (frame_height, height - 1) or z in (z0, z1)}
     left, right = -(gauge + 1) // 2, (gauge - 1) // 2
     for first, last in ((z0 + end_margin, z0 + end_margin + axle_spacing),
                         (z1 - end_margin - axle_spacing, z1 - end_margin)):
@@ -1130,47 +1119,26 @@ def vehicle(spec):
     if size == "small" and role == "locomotive":
         cells.update({(0, 6, 23): 3, (2, 5, 5): 2, (2, 5, 1): 2, (2, 5, -3): 2, (-2, 3, -20): 4})
     else:
-        if role == "locomotive" or size == "titan":
-            if identity not in ("large-locomotive", "titan-armed-vehicle"):
-                for z in range(-3 * units, 3 * units, 2):
-                    cells[0, frame_height + 1, z] = 2
+        if role == "locomotive":
+            for z in range(-3 * units, 3 * units, 2):
+                cells[0, frame_height + 1, z] = 2
             cells[0, frame_height + 1, z1 - 1] = 3
         storage_count = {"locomotive": 1, "freight": 2 * units, "armed": units}[role]
         for index in range(storage_count):
-            cells[1, frame_height + 1, 14 if identity == "large-locomotive" else 2 * index] = 4
+            cells[1, frame_height + 1, 2 * index] = 4
         if role == "armed":
-            if size == "titan":
-                cells[0, frame_height + 1, z0 + 1] = 3
-                for z in range(-44, 45, 4):
-                    cells[x0, 18, z] = 5
-                    cells[x1, 18, z] = 6
-            else:
-                for index in range(units):
-                    cells[x0, frame_height + 2, 4 * index] = 5
+            for index in range(units):
+                cells[x0, frame_height + 2, 4 * index] = 5
     value = blueprint(identity, name, "vehicle",
                       ["structural-metal", "bogie", "propulsion-equipment", "control-equipment", "storage-equipment"],
                       cells, {"size_class": size})
     if role == "armed":
         value["layout"]["palette"].append({"voxel": "machine-gun"})
-        if size == "titan":
-            value["layout"]["palette"][-1]["orientation"] = "pz_py"
-            value["layout"]["palette"].append({"voxel": "machine-gun", "orientation": "nz_py"})
-    if identity == "large-locomotive":
-        value["layout"]["composites"] = [{"at": [0, 3, 0], "blueprint": "large-diesel-engine"}]
-    elif size == "titan":
-        value["layout"]["composites"] = [
-            *({"at": [0, 5, z], "blueprint": "large-diesel-engine"} for z in (-22, 22)),
-            *({"at": [0, 30, z], "blueprint": "heavy-turret"} for z in (-48, -16, 16, 48)),
-        ]
     value["display"]["description"] = f"{name}：能力和价值来自实际部件，数值与外观待试玩确认。"
     if size == "small" and role == "locomotive":
         value["display"]["description"] = "第一阶段铁路机车风格样稿：驾驶室、机器间、检修走廊和端部平台；画面待用户阶段试玩确认。"
     if role == "armed":
         value["display"]["description"] += " 静态武器只提供合法设计输入，战斗行为待战斗阶段验证。"
-    if identity == "large-locomotive":
-        value["display"]["description"] = "民用重载机车正式设计：一台大型柴油机、驾驶台和货舱；外观由创作模式继续修整。"
-    elif size == "titan":
-        value["display"]["description"] = "军用重装车辆正式设计：两台大型柴油机、四座重炮塔、两处驾驶台、六个货舱与两侧机枪。炮塔转动仅属表现，战斗行为待战斗阶段验证；外观由创作模式继续修整。"
     return value
 
 
@@ -1295,8 +1263,9 @@ def content_files():
     def paint_design(design):
         for entry in design["layout"].get("palette", []):
             identity = entry["voxel"].removeprefix("core:")
-            material = voxel_definitions[identity]["appearance"]["presentation"]["material"]
-            if material in PAINTABLE_MATERIALS and "paint" not in entry:
+            presentation = voxel_definitions[identity]["appearance"]["presentation"]
+            materials = presentation.get("surface_materials", [presentation.get("material")])
+            if any(material in PAINTABLE_MATERIALS for material in materials) and "paint" not in entry:
                 entry["paint"] = "#" + bytes(DEFAULT_PAINTS[identity]).hex()
         for composite in design["layout"].get("composites", []):
             if "design" in composite:
@@ -1347,6 +1316,14 @@ def content_files():
             value["appearance"]["presentation"]["shapes"] = (
                 ALL_SHAPES if identity in ("structural-block", "construction-block") else
                 ["cube", "plate"] if identity == "glass" else ["cube"])
+        if identity in ("machine-gun", "cannon"):
+            value["appearance"]["presentation"] = {
+                "kind": "mesh", "model": "model.glb", "surface_materials": ["painted_metal", "bare_metal"]}
+            value["display"]["description"] = f"{name}的第三阶段模型样稿；数值待配平，画面待用户阶段试玩确认。"
+        if identity == "bogie":
+            value["appearance"]["presentation"] = {
+                "kind": "mesh", "model": "model.glb", "surface_materials": ["bare_metal"]}
+            value["display"]["description"] = f"{name}的第三阶段模型样稿；数值待配平，画面待用户阶段试玩确认。"
         if wheelset:
             value["appearance"]["behaviors"] = {"wheelset": {}}
         if light:
@@ -1365,8 +1342,8 @@ def content_files():
     raw_description = "{}的正式美术；数值待配平，画面待用户阶段试玩确认。"
     voxel("structural-metal", "结构金属", simulation=good("structural-metal", 0.028, 260))
     voxel("construction-material", "建筑材料", simulation=good("construction-material", 0.046, 220))
-    voxel("bogie", "转向架", "bare_metal", faces("top.png", "side.png", "shared/bogie-underside.png"),
-          "icon.png", good("bogie", 0.034, 240), wheelset=True, tile_span=2, description=sample_description.format("转向架"))
+    voxel("bogie", "转向架", "bare_metal", faces("shared/equipment-face.png"),
+          "icon.png", good("bogie", 0.034, 240), wheelset=True)
     voxel("platform-equipment", "站台设备", "painted_metal", faces("shared/equipment-face.png"),
           "shared/equipment-icon.png", good("platform-equipment", 0.024, behaviors={"platform": {}}))
     voxel("propulsion-equipment", "柴油机组", "painted_metal", faces("top.png", "side.png", "shared/equipment-underside.png"),
@@ -1472,6 +1449,10 @@ def content_files():
     for spec in VEHICLES:
         value = vehicle(spec)
         document("blueprints", "blueprint", value["id"], value)
+    for path in AUTHORED_FILES:
+        if path.startswith("blueprints/"):
+            value = json.loads((ROOT / "builtin/core/resources" / path).read_text(encoding="utf-8"))
+            blueprint_definitions[value["id"]] = value
 
     for identity, simulation in processes.items():
         item = simulation["extracts"] if simulation["kind"] == "extraction" else (
@@ -1506,12 +1487,11 @@ def content_files():
         ("assembly-factory", "装配厂", "large", "production", "assembly", "industrial-machinery"),
         ("electronics-factory", "电子厂", "medium", "production", "electronics", "industrial-machinery"),
         ("recovery-factory", "回收厂", "medium", "production", "recovery", "industrial-machinery"),
-        ("heavy-vehicle-factory", "重型车辆工厂", "large", "construction", None, "gantry-crane"),
     )
-    plot_sizes = {}
+    plot_sizes = {"heavy-vehicle-factory": blueprint_definitions["heavy-vehicle-factory"]["simulation"]["plot_size"]}
     for identity, name, size, kind, tag, equipment in buildings:
         plot_sizes[identity] = size
-        half_x, half_z, height = {"vehicle-workshop": (20, 40, 20), "heavy-vehicle-factory": (32, 80, 52),
+        half_x, half_z, height = {"vehicle-workshop": (20, 40, 20),
                                   "large-warehouse": (8, 15, 8)}.get(identity, (8, 10, 8))
         cells = {(x, 0, z): 0 for x in range(-half_x, half_x) for z in range(-half_z, half_z)}
         # 四角立柱和屋顶边框与地板相连，保留内部设备空间。
@@ -1519,7 +1499,7 @@ def content_files():
                       for y in range(1, height)})
         cells.update({(x, height - 1, z): 0 for x in range(-half_x, half_x) for z in range(-half_z, half_z)
                       if x in (-half_x, half_x - 1) or z in (-half_z, half_z - 1)})
-        nested = equipment in ("workshop-crane", "gantry-crane")
+        nested = equipment == "workshop-crane"
         palette = ["construction-material"] if nested else ["construction-material", equipment]
         if not nested:
             cells[0, 1, 0] = 1
@@ -1590,10 +1570,10 @@ def content_files():
                        appearance={"flatten": {"from": [-432, -232], "to": [431, 999], "height": 1}}))
 
     def blueprint_behaviors(blueprint_id, capability):
-        definition = blueprint_definitions[blueprint_id]
+        definition = blueprint_definitions[blueprint_id.removeprefix("core:")]
         layout = definition["layout"]
         behaviors = [behavior for *_, index in layout["cells"]
-                     if (behavior := voxel_definitions[layout["palette"][index]["voxel"]]
+                     if (behavior := voxel_definitions[layout["palette"][index]["voxel"].removeprefix("core:")]
                          .get("simulation", {}).get("behaviors", {}).get(capability)) is not None]
         if (behavior := definition.get("simulation", {}).get("behaviors", {}).get(capability)) is not None:
             behaviors.append(behavior)
@@ -1783,8 +1763,8 @@ def content_files():
             "rules": {"population": "basic-population", "market": "basic-market", "construction": "basic-construction",
                       "railway": "basic-railway", "combat": "basic-combat"}},
         "start": {"initial_money": initial_money, "trains": [{"vehicles": train, "inventory": []} for train in START_TRAINS]}})
-    for path in list(files) + list(HAND_DRAWN_ICONS):
-        if path.endswith(".png"):
+    for path in list(files) + list(HAND_DRAWN_ICONS) + list(AUTHORED_FILES):
+        if path.endswith((".png", ".glb")):
             files[path + ".import"] = keep_import(path)
     return files
 

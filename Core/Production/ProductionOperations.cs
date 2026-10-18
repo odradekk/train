@@ -28,7 +28,7 @@ internal static class ProductionOperations
             if (runtime.Batch is { } batch)
             {
                 var capability = ProductionQueries.Capability(world, content, key);
-                if (process is null || capability == 0) continue;
+                if (process is null || ProductionQueries.Process(content, batch.Process) is null || capability == 0) continue;
                 var rate = Math.Min(capability,
                     (batch.FrozenWorkRequired - batch.ProgressWork) / SimulationTime.StepSeconds);
                 requests.Add(new FacilityRequest.Work(key, plan.Priority, rate, batch.FrozenPowerPerWork, batch.FrozenLaborPerWork));

@@ -8,6 +8,7 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../Engine/Assets/GlbFixture.cs" Link="GlbFixture.cs" />
     <ProjectReference Include="../../Tools/Cli/Train.Cli.csproj" />
   </ItemGroup>
 </Project>
