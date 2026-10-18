@@ -487,6 +487,10 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             stop.GrabFocus();
             await _input.PressKey(Key.Space);
             Require(setup.Session.SubmitCount == 2, "设计激活后列车详情不能提交停车。");
+            await _input.Frames(2);
+            Require(panels.HasNode("FleetList") && panels.HasNode("NodesList"), "接受普通命令后关闭了仍打开的列表。");
+            Require(!stop.Disabled && !stop.GetParent().FindChildren("Description", "Label", true, false).OfType<Label>().Single().Text.Contains("已不存在"),
+                "接受普通命令后列车详情失效。");
             setup.Session.SetCapture(CapturePurpose.Save, new CoreResult<ICoreCapture>.Success(
                 new Train.Core.ContractSupport.FixedCoreCapture(new(before.Position, "fixed", "fixed"),
                     Train.Core.ContractSupport.HostCoreScenario.References, "opaque", before.InputIdentity, before.Revision)));

@@ -131,6 +131,13 @@ public sealed class HostDesignSubmissionTests
         Assert.AreSame(activated, fixture.Host.Content);
         Assert.IsTrue(fixture.Host.PanelGenerationCurrent(binding, opened));
         Assert.IsTrue(fixture.Host.PanelGenerationCurrent(binding, activated.Generation));
+        var ordinary = new CoreCommand.StopTrain(new(1));
+        session.QueueSubmit(ordinary, CommandSource.UserInterface,
+            new SubmissionResult.Completed(new(2, new(0, 1), new(0, 2), new CommandDecision.Accepted([], [])), [], null),
+            session.CurrentView);
+        Assert.IsInstanceOfType<CommandDecision.Accepted>(((SubmissionResult.Completed)fixture.Host.Submit(
+            binding, ordinary, CommandSource.UserInterface)).Receipt.Decision);
+        Assert.IsTrue(fixture.Host.PanelGenerationCurrent(binding, opened), "接受普通命令后打开时的世代失效。");
         var reloaded = new FixedContentView(fixture.Content.Core, new(activated.Generation.Value + 1));
         var reload = new ScriptedContentCandidate(reloaded, activated, ContentChange.Presentation);
         fixture.Load = _ => new ContentResult<IContentCandidate>.Success(reload);

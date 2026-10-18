@@ -780,9 +780,10 @@ internal sealed class HostCoordinator : IDisposable
     private void InstallContent(IContentView content, bool keepPanelEpoch)
     {
         var group = _active!;
+        var previous = group.Content.Generation;
         group.UseContent(content);
         _content = content;
-        if (!keepPanelEpoch) group.PanelEpoch = content.Generation;
+        if (!keepPanelEpoch && content.Generation != previous) group.PanelEpoch = content.Generation;
     }
 
     private (uint Completed, bool Stop) AdvanceOne(bool manual)
