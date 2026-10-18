@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Train.Core.Contracts;
+using Train.Core.Tests.Combat;
 using Train.Core.Tests.World;
 using static Train.Core.Tests.World.WorldFixture;
 
@@ -38,6 +39,8 @@ internal static class CoreProcessDriver
             }
             if (mode == "replay")
                 return await Replay(output, payloadPath, runtime);
+            if (mode.StartsWith("combat-", StringComparison.Ordinal))
+                return await Combat(mode, output, payloadPath, runtime);
             ICoreSession session;
             if (mode == "resume")
             {
@@ -136,6 +139,74 @@ internal static class CoreProcessDriver
             Console.Error.WriteLine(exception);
             return 1;
         }
+    }
+
+    private static async Task<int> Combat(string mode, string output, string payloadPath, RuntimeIdentity runtime)
+    {
+        var factory = CoreFactory.Create();
+        var content = CombatFixture.Content();
+        ICoreSession session;
+        if (mode == "combat-resume")
+        {
+            var saved = Success(factory.DecodeState(await File.ReadAllTextAsync(payloadPath)));
+            using var candidate = Success(factory.PrepareRestore(saved, content, new(runtime, false, 1)));
+            session = candidate.Activate();
+        }
+        else
+        {
+            using var candidate = Success(factory.PrepareNew(CombatFixture.Input(), content, new(runtime, false, 1)));
+            session = candidate.Activate();
+        }
+        using (session)
+        {
+            var samples = new List<CoreProcessSample>();
+            void Sample()
+            {
+                var capture = Success(session.Capture(CapturePurpose.Save));
+                samples.Add(new(capture.Position, capture.Revision, capture.InputIdentity.Value,
+                    capture.Encode(), capture.Checkpoint.CanonicalText, capture.Checkpoint.Sha256));
+            }
+            void Advance(uint steps)
+            {
+                var result = session.Advance(steps);
+                if (result.CompletedSteps != steps || result.Fault is not null)
+                    throw new InvalidOperationException("推进未成功。");
+                Sample();
+            }
+            if (mode != "combat-resume")
+            {
+                var hostile = CombatFixture.HostileNode(session);
+                var train = new TrainId(1);
+                Submit(session, new CoreCommand.SetTrainEngagement(train,
+                    new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Retreat, 0)));
+                Submit(session, new CoreCommand.ReplaceRunPlan(train, new(false, [new PlanStop.Waypoint(hostile)])));
+                Submit(session, new CoreCommand.StartTrain(train));
+                Sample();
+                var steps = 0;
+                while (session.Read().World.Combats.IsEmpty && steps < 10_000)
+                {
+                    session.Advance(1);
+                    steps++;
+                }
+                if (session.Read().World.Combats.IsEmpty) throw new InvalidOperationException("未开战。");
+                Sample();
+                Advance(5);
+            }
+            if (mode == "combat-save")
+                await File.WriteAllTextAsync(payloadPath, samples[^1].Payload, new UTF8Encoding(false));
+            else
+                Advance(200);
+            await File.WriteAllTextAsync(output, JsonSerializer.Serialize(new CoreProcessResult(
+                Environment.ProcessId, runtime, samples.ToArray(), [])), new UTF8Encoding(false));
+        }
+        return 0;
+    }
+
+    private static void Submit(ICoreSession session, CoreCommand command)
+    {
+        if (session.Submit(command, CommandSource.AutomationTest)
+            is not SubmissionResult.Completed { Receipt.Decision: CommandDecision.Accepted })
+            throw new InvalidOperationException($"命令未成功：{command}。");
     }
 
     private static async Task<int> Replay(string output, string payloadPath, RuntimeIdentity runtime)

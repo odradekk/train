@@ -63,6 +63,42 @@ public sealed class CoreProcessTests
     }
 
     [TestMethod]
+    [TestCategory("integration")]
+    public async Task Combat_execution_is_byte_identical_across_processes()
+    {
+        var directory = CreateDirectory();
+        try
+        {
+            var first = await Run(directory, "combat-first", "combat-complete");
+            var second = await Run(directory, "combat-second", "combat-complete");
+            AssertIndependent(first, second);
+            AssertSamples(first.Samples, second.Samples);
+            Assert.IsTrue(first.Samples.Length >= 4);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [TestMethod]
+    [TestCategory("integration")]
+    public async Task Combat_save_in_one_process_restores_the_same_execution_in_another()
+    {
+        var directory = CreateDirectory();
+        try
+        {
+            var continuous = await Run(directory, "continuous", "combat-complete");
+            var saved = await Run(directory, "saved", "combat-save");
+            var restored = await Run(directory, "restored", "combat-resume");
+            AssertIndependent(continuous, saved);
+            AssertIndependent(saved, restored);
+            AssertSamples(continuous.Samples[..3], saved.Samples);
+            AssertSamples(continuous.Samples[3..], restored.Samples);
+            Assert.AreEqual(saved.Samples[^1].Payload,
+                await File.ReadAllTextAsync(Path.Combine(directory, "state.json")));
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [TestMethod]
     [TestCategory("stage")]
     public async Task Production_recording_replays_from_disk_in_a_new_process()
     {
