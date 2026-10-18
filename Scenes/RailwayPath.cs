@@ -17,7 +17,11 @@ internal static class RailwayCoordinates
     internal const double BedTopHalfWidth = 9.5;
     internal const double BedBaseHalfWidth = 10.5;
     internal const double BedBlendWidth = 12;
-    internal const double TunnelClearance = 20;
+    internal const double TunnelFrameMargin = 2;
+    // Frame top is 44 cells above the rail. A surface voxel at this index is the one cell of cover.
+    internal const double TunnelCrownCells = 44;
+    internal static double TunnelShoulder(int tracks) =>
+        OutermostTrackOffset(tracks) + TrackSpacing / 2 + TunnelFrameMargin;
     internal const double DecorationRootClearance = 24;
     internal const double DecorationVoxelClearance = 17;
     internal const double TerrainBaselineOffset = 4;
