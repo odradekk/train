@@ -67,6 +67,7 @@ public partial class GameUi : CanvasLayer
         }
         if (PanelArea == area) return;
         PanelArea = area;
+        _menu.FitSaves(area);
         PanelAreaChanged?.Invoke();
     }
 
