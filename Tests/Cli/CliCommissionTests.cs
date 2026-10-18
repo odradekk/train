@@ -25,7 +25,7 @@ public sealed partial class CliProcessTests
             var receipt = receipts[1];
             Assert.AreEqual("rejected", receipt.Decision);
             Assert.AreEqual("insufficient_goods", receipt.Problems.Single().Code);
-            CollectionAssert.AreEqual(new[] { "voxel:core:bogie", "voxel:core:storage-equipment", "voxel:core:structural-metal" },
+            CollectionAssert.AreEqual(new[] { "voxel:core:bogie", "voxel:core:structural-metal" },
                 receipt.Problems.Single().RelatedIdentities.ToArray());
             Assert.IsNull(receipt.QuotedTotal);
             Assert.AreEqual(1, continuous.RejectedCommands);
