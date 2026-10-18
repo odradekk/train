@@ -66,6 +66,8 @@ IMPROVEMENT_RESERVE_HOURS = BASIC_RESERVE_HOURS / 4
 LOCAL_FOOD_SHARE = 0.25
 WAREHOUSE_HEADROOM = 2
 WAREHOUSE_ROW_WIDTH = 8
+# 大仓库没有独立预算。件数是小仓库推导结果的这个倍数，待试玩确认。
+LARGE_WAREHOUSE_FACTOR = 2
 NPC_FILL_INPUTS_AND_LIVING_TARGETS = True
 NPC_MINIMUM_FOR_SALE_VEHICLES = 1
 NPC_MAXIMUM_FOR_SALE_VEHICLES = 2
@@ -1205,6 +1207,19 @@ def content_files():
     document("blueprints", "blueprint", "small-station",
              blueprint("small-station", "小站点", "building", ["construction-material", "platform-equipment"],
                        station, {"plot_size": "small_station", "building_type": "station", "facility_tags": []}))
+    # 桥面在泰坦包络（轨面 Y=0 起共 38 格）之上；立柱只落在站台带上，地面连廊不跨站线道床。
+    large_station = {(x, 0, z): 0 for x in range(-128, 128)
+                     for z in (*range(-64, -60), *range(-24, -20), *range(20, 24), *range(60, 64))}
+    large_station.update({(x, 0, z): 0 for x in range(-2, 2) for z in range(-20, 20)})
+    for platform_z in (-62, -22, 22, 62):
+        for x in range(-2, 2):
+            for y in range(1, 38):
+                large_station[x, y, platform_z] = 0
+        large_station[0, 1, platform_z] = 1
+    large_station.update({(x, 38, z): 0 for x in range(-2, 2) for z in (*range(-62, -21), *range(22, 63))})
+    document("blueprints", "blueprint", "large-station",
+             blueprint("large-station", "大站点", "building", ["construction-material", "platform-equipment"],
+                       large_station, {"plot_size": "large_station", "building_type": "station", "facility_tags": []}))
     for model in railway_models():
         document("blueprints", "blueprint", model["id"], model)
     for model in natural_models():
@@ -1454,6 +1469,21 @@ def content_files():
          for index in range(storage_count)])
     warehouse["display"]["description"] = "仓储规模按生活、生产和产出毛量估算；容量及租赁影响待用户试玩确认。"
     document("blueprints", "blueprint", "small-warehouse", warehouse)
+    large_count = storage_count * LARGE_WAREHOUSE_FACTOR
+    half_x, half_z, height = 8, 15, 8
+    cells = {(x, 0, z): 0 for x in range(-half_x, half_x) for z in range(-half_z, half_z)}
+    # 四角立柱和屋顶边框与地板相连，保留内部设备空间。
+    cells.update({(x, y, z): 0 for x in (-half_x, half_x - 1) for z in (-half_z, half_z - 1)
+                  for y in range(1, height)})
+    cells.update({(x, height - 1, z): 0 for x in range(-half_x, half_x) for z in range(-half_z, half_z)
+                  if x in (-half_x, half_x - 1) or z in (-half_z, half_z - 1)})
+    cells.update({(index % WAREHOUSE_ROW_WIDTH - WAREHOUSE_ROW_WIDTH // 2, 1,
+                   index // WAREHOUSE_ROW_WIDTH - ceil(large_count / WAREHOUSE_ROW_WIDTH) // 2): 1
+                  for index in range(large_count)})
+    value = blueprint("large-warehouse", "大仓库", "building", ["construction-material", "storage-equipment"], cells,
+                      {"plot_size": "medium", "building_type": "warehouse", "facility_tags": []})
+    value["display"]["description"] = "仓储件数取小仓库推导结果的固定倍数，是待试玩确认的初值；容量及租赁影响待用户试玩确认。"
+    document("blueprints", "blueprint", "large-warehouse", value)
 
     small_vehicle_materials = Counter()
     for identity, _, _, size, *_ in VEHICLES:
