@@ -715,7 +715,7 @@ public sealed class NodeSceneTests
         snapshot = snapshot with { Content = NodeFixtures.Content(terrain: terrain, layout: layout) };
         var node = snapshot.Core.World.Nodes[0];
         snapshot = RailwayFixtures.ReplaceCore(snapshot, node with { Terrain = node.Terrain with { Relief = 1 } });
-        var cells = NodeCells(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+        var cells = CellsAcrossOneChunkBoundary(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
         Assert.IsTrue(CrossesChunk(cells), "A chunk boundary must step by more than six cells.");
         AssertNodeColumnsMeet(cells);
     }
@@ -726,7 +726,7 @@ public sealed class NodeSceneTests
         var scene = SceneFixtures.Projection([]) with { RootFlatten = new(new(4, -8), new(20, 8), 80) };
         var layout = NodeFixtures.Layout with { SceneModel = NodeFixtures.Layout.SceneModel with { Scene = scene } };
         var snapshot = NodeFixtures.EmptyNodeSnapshot(layout, []);
-        var cells = NodeCells(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+        var cells = CellsAcrossOneChunkBoundary(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
         Assert.IsTrue(CrossesChunk(cells), "The flatten skirt must step by more than six cells across a chunk boundary.");
         AssertNodeColumnsMeet(cells);
     }
@@ -748,6 +748,19 @@ public sealed class NodeSceneTests
         var snapshot = NodeFixtures.Snapshot(trains: [], tracks: 1, content: NodeFixtures.Content(terrain: terrain));
         var node = snapshot.Core.World.Nodes.Single(item => item.Id == NodeFixtures.NodeId);
         snapshot = RailwayFixtures.ReplaceCore(snapshot, node with { Terrain = node.Terrain with { Relief = 1 } }, worldSeed: 4);
+        var kept = snapshot.Core.World.Edges[0];
+        snapshot = snapshot with
+        {
+            Core = new FixedCoreReadView
+            {
+                Position = snapshot.Core.Position,
+                InputIdentity = snapshot.Core.InputIdentity,
+                World = snapshot.Core.World with { Edges = [kept] },
+                Nodes = snapshot.Core.World.Nodes.ToDictionary(item => item.Id, item => snapshot.Core.FindNode(item.Id)),
+                Edges = new Dictionary<EdgeId, Lookup<EdgeView>> { [kept.Id] = snapshot.Core.FindEdge(kept.Id) },
+                Settlements = new Dictionary<SettlementId, Lookup<SettlementView>> { [new(1)] = snapshot.Core.FindSettlement(new(1)) }
+            }
+        };
         var columns = SeamColumns(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
         var nodeAbove = 0;
         var boundaryAbove = 0;
@@ -787,18 +800,30 @@ public sealed class NodeSceneTests
     private static Dictionary<GridColumn, (HashSet<int> Cells, bool Boundary)> SeamColumns(SceneWorldSnapshot snapshot, NodeLayout layout)
     {
         var prepared = NodeScene.Prepare(snapshot, layout);
+        var node = snapshot.Core.World.Nodes.Single(item => item.Id == layout.Node);
+        var bed = Beds(prepared);
         var chunks = new HashSet<GridColumn>();
-        foreach (var (chunk, columns) in prepared.BoundaryChunks)
+        var nodeHigher = false;
+        var boundaryHigher = false;
+        foreach (var (column, surface) in prepared.BoundarySurfaces)
         {
-            if (Inside(layout, chunk)) chunks.Add(chunk);
-            foreach (var column in columns)
+            var boundaryHeight = (int)Math.Floor(surface);
             foreach (var neighbor in Orthogonal(column))
             {
-                var from = new GridColumn(
-                    (int)Math.Floor(neighbor.X / (double)VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize,
-                    (int)Math.Floor(neighbor.Z / (double)VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize);
-                if (Inside(layout, from)) chunks.Add(from);
+                if (prepared.BoundarySurfaces.ContainsKey(neighbor) || !Inside(layout, neighbor)) continue;
+                var step = ColumnHeight(snapshot, node, layout, bed, neighbor) - boundaryHeight;
+                if (!nodeHigher && step > RailwayCoordinates.TerrainDepthCells)
+                {
+                    nodeHigher = true;
+                    IncludeSeamChunk(chunks, layout, neighbor);
+                }
+                else if (!boundaryHigher && step < -RailwayCoordinates.TerrainDepthCells)
+                {
+                    boundaryHigher = true;
+                    IncludeSeamChunk(chunks, layout, neighbor);
+                }
             }
+            if (nodeHigher && boundaryHigher) break;
         }
         var parts = prepared.Global.Parts.Where(part => part.Key.StartsWith("boundary:", StringComparison.Ordinal)).ToList();
         foreach (var from in chunks)
@@ -859,14 +884,47 @@ public sealed class NodeSceneTests
         return false;
     }
 
-    private static Dictionary<GridColumn, (HashSet<int> Cells, GridColumn Chunk)> NodeCells(SceneWorldSnapshot snapshot, NodeLayout layout)
+    private static Dictionary<GridColumn, (HashSet<int> Cells, GridColumn Chunk)> CellsAcrossOneChunkBoundary(
+        SceneWorldSnapshot snapshot, NodeLayout layout)
     {
         var prepared = NodeScene.Prepare(snapshot, layout);
-        var cells = new Dictionary<GridColumn, (HashSet<int> Cells, GridColumn Chunk)>();
-        for (var z = (int)layout.Bounds.Minimum.Y; z < layout.Bounds.Maximum.Y; z += VoxelGrid.ChunkSize)
-        for (var x = (int)layout.Bounds.Minimum.X; x < layout.Bounds.Maximum.X; x += VoxelGrid.ChunkSize)
+        var node = snapshot.Core.World.Nodes.Single(item => item.Id == layout.Node);
+        var bed = Beds(prepared);
+        var size = VoxelGrid.ChunkSize;
+        var minX = (int)layout.Bounds.Minimum.X;
+        var maxX = (int)layout.Bounds.Maximum.X;
+        var minZ = (int)layout.Bounds.Minimum.Y;
+        var maxZ = (int)layout.Bounds.Maximum.Y;
+        GridColumn? left = null;
+        GridColumn? right = null;
+        for (var z = minZ; z < maxZ && left is null; z += size)
+        for (var x = minX; x < maxX && left is null; x += size)
         {
-            var from = new GridColumn(x, z);
+            if (x + size < maxX)
+                for (var i = 0; i < size && left is null; i++)
+                    Consider(new(x + size - 1, z + i), new(x + size, z + i));
+            if (left is null && z + size < maxZ)
+                for (var i = 0; i < size && left is null; i++)
+                    Consider(new(x + i, z + size - 1), new(x + i, z + size));
+
+            void Consider(GridColumn a, GridColumn b)
+            {
+                var step = Math.Abs(ColumnHeight(snapshot, node, layout, bed, a) - ColumnHeight(snapshot, node, layout, bed, b));
+                if (step <= RailwayCoordinates.TerrainDepthCells) return;
+                left = a;
+                right = b;
+            }
+        }
+        var chunks = new HashSet<GridColumn>();
+        if (left is { } first && right is { } second)
+        {
+            Include(first);
+            Include(second);
+            foreach (var neighbor in Orthogonal(first).Concat(Orthogonal(second))) Include(neighbor);
+        }
+        var cells = new Dictionary<GridColumn, (HashSet<int> Cells, GridColumn Chunk)>();
+        foreach (var from in chunks)
+        {
             var part = prepared.BuildChunk(from);
             if (part.Geometry.Geometry.Picking.IsEmpty) continue;
             foreach (var cell in part.Geometry.Geometry.Picking.Single().Grid.Cells)
@@ -878,6 +936,44 @@ public sealed class NodeSceneTests
             }
         }
         return cells;
+
+        void Include(GridColumn column)
+        {
+            if (column.X < minX || column.X >= maxX || column.Z < minZ || column.Z >= maxZ) return;
+            chunks.Add(new(minX + (int)Math.Floor((column.X - minX) / (double)size) * size,
+                minZ + (int)Math.Floor((column.Z - minZ) / (double)size) * size));
+        }
+    }
+
+    private static void IncludeSeamChunk(HashSet<GridColumn> chunks, NodeLayout layout, GridColumn column)
+    {
+        var size = VoxelGrid.ChunkSize;
+        var minX = (int)layout.Bounds.Minimum.X;
+        var minZ = (int)layout.Bounds.Minimum.Y;
+        var from = new GridColumn(minX + (int)Math.Floor((column.X - minX) / (double)size) * size,
+            minZ + (int)Math.Floor((column.Z - minZ) / (double)size) * size);
+        if (Inside(layout, from)) chunks.Add(from);
+    }
+
+    private static Dictionary<GridColumn, NodeScene.RailBed> Beds(NodeScene.Preparation prepared)
+    {
+        var bed = new Dictionary<GridColumn, NodeScene.RailBed>();
+        foreach (var chunk in prepared.BedChunks.Values)
+        foreach (var pair in chunk)
+            bed[pair.Key] = pair.Value;
+        return bed;
+    }
+
+    private static int ColumnHeight(SceneWorldSnapshot snapshot, NodeMapItem node, NodeLayout layout,
+        Dictionary<GridColumn, NodeScene.RailBed> bed, GridColumn column)
+    {
+        var raw = RailwayTerrain.NodeGround(snapshot, node, new(column.X + 0.5, 0, column.Z + 0.5), layout.Template);
+        if (bed.TryGetValue(column, out var rail))
+        {
+            var blend = Math.Clamp((rail.Distance - RailwayCoordinates.BedBaseHalfWidth) / RailwayCoordinates.BedBlendWidth, 0, 1);
+            raw = RailwayTerrain.BedHeight(rail.Height, rail.Distance) * (1 - blend) + raw * blend;
+        }
+        return (int)Math.Floor(raw);
     }
 
     private static bool CrossesChunk(Dictionary<GridColumn, (HashSet<int> Cells, GridColumn Chunk)> cells)

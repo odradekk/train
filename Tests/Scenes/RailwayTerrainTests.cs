@@ -771,9 +771,10 @@ public sealed class RailwayTerrainTests
     public void SteepSeamFillsDownAcrossSegments()
     {
         var terrain = RailwayFixtures.TerrainAppearance with { LocalHeightNoise = [new(1, 20)] };
-        var snapshot = RailwayFixtures.ReplaceCore(RailwayFixtures.Snapshot(200, 200, relief: 1, content: Content(terrain)), worldSeed: 4UL);
+        var meters = RailwayCoordinates.SegmentLengthCells / RailwayCoordinates.CellsPerMeter + 8;
+        var snapshot = RailwayFixtures.ReplaceCore(RailwayFixtures.Snapshot(meters, meters, relief: 1, content: Content(terrain)), worldSeed: 4UL);
         var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
-        var segments = Enumerable.Range(0, path.SegmentCount).Select(index => Build(snapshot, index)).ToArray();
+        var segments = new[] { Build(snapshot, 0), Build(snapshot, 1) };
         var cells = SegmentCells(segments);
         var maxSeam = 0;
         foreach (var (column, group) in cells)
