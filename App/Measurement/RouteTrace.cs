@@ -19,4 +19,4 @@ internal sealed record RouteFrame(long Draw, double At, ulong Steps,
     long? ScenesRanges, long? DisplayedRanges, RouteVehicle[] Vehicles, RouteVehicle[] DisplayedVehicles,
     bool FirstEndLeading, JsonElement Position, double ObservationSeconds,
     ulong[]? ExpectedVehicles = null, double? TrainLengthMeters = null,
-    bool Operable = true, RouteTransition? Transition = null, bool DecisionSample = true);
+    bool Operable = true, RouteTransition? Transition = null, bool DecisionSample = true, SceneReadiness? DisplayedReadiness = null);

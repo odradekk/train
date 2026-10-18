@@ -35,7 +35,8 @@ public sealed class FollowRouteAnalysisTests
     [TestMethod]
     public void TruncatedCoverageKeepsLowerBoundsAndCountsUnknownForEachTarget()
     {
-        var frames = new[] { Frame(1, 0, 0), Frame(2, 0, 80) with { DecisionSample = false },
+        var frames = new[] { Frame(0, 0, -2) with { At = -5, DecisionSample = false },
+            Frame(1, 0, 0), Frame(2, 0, 80) with { DecisionSample = false },
             Frame(3, 0, 82) with { DecisionSample = false } };
         var report = Analyze(frames, Range(1, Bounds(-10, -10, 10, 200)));
 
@@ -203,7 +204,7 @@ public sealed class FollowRouteAnalysisTests
     public void InitialPreoperableAndPostrollAreExcludedButLaterInoperableIsKept()
     {
         var frames = new[] { Frame(1, 0, 0) with { Operable = false }, Frame(2, 0, 4),
-            Frame(3, 0, 8) with { Operable = false }, Frame(4, 0, 12) with { DecisionSample = false } };
+            Frame(3, 0, 8) with { At = 8, Operable = false }, Frame(4, 0, 12) with { DecisionSample = false } };
         var report = Analyze(frames, Range(1, Bounds(-10, -10, 10, 20)));
 
         Assert.IsFalse(report.Frames[0].DecisionEligible);
@@ -212,6 +213,55 @@ public sealed class FollowRouteAnalysisTests
         Assert.IsFalse(report.Frames[3].DecisionEligible);
         Assert.AreEqual("postroll", report.Frames[3].ExcludedReason);
         Assert.AreEqual(1, report.Summary.ExcludedPreoperableFrames);
+    }
+
+    [TestMethod]
+    public void StartupExcludesOnlyFiveSecondsAndKeepsRawCoverage()
+    {
+        var frames = new[] { Frame(1, 0, 0) with { At = 0, Operable = false },
+            Frame(2, 0, 4) with { At = 1, DisplayedReadiness = SceneReadiness.Partial },
+            Frame(3, 0, 8) with { At = 5.99, DisplayedReadiness = SceneReadiness.Ready },
+            Frame(4, 0, 12) with { At = 6, DisplayedReadiness = SceneReadiness.Ready } };
+        var report = Analyze(frames, Range(1, Bounds(-10, -10, 10, 20)));
+
+        Assert.AreEqual("passed", report.Startup.Status);
+        Assert.AreEqual(2, report.Startup.ExcludedFrames);
+        Assert.AreEqual("initial_startup", report.Frames[1].ExcludedReason);
+        Assert.IsTrue(report.Frames[1].Displayed.VehicleCentersCovered);
+        Assert.IsTrue(report.Frames[3].DecisionEligible);
+    }
+
+    [TestMethod]
+    public void FollowingSpaceIsNotExemptAndCannotSupplyInitialReady()
+    {
+        var frames = new[] { Frame(1, 0, 0) with { At = 0, DisplayedReadiness = SceneReadiness.Partial },
+            InSpace(Frame(2, 0, 4), 2, 2) with { At = 1, DisplayedReadiness = SceneReadiness.Ready } };
+        var report = Analyze(frames, Range(1, Bounds(-10, -10, 10, 20)));
+
+        Assert.AreEqual("unknown", report.Startup.Status);
+        Assert.AreEqual("initial_space_left_before_ready", report.Startup.Reason);
+        Assert.IsNull(report.Startup.FirstReadyAt);
+        Assert.IsTrue(report.Frames[1].DecisionEligible);
+        frames[0] = frames[0] with { Operable = false };
+        report = Analyze(frames, Range(1, Bounds(-10, -10, 10, 20)));
+        Assert.AreEqual("not_observed", report.Startup.Status);
+        Assert.AreEqual(0, report.Startup.ExcludedFrames);
+        Assert.IsTrue(report.Frames[1].DecisionEligible);
+    }
+
+    [TestMethod]
+    public void MissingReadinessIsUnknownAndLateReadyFails()
+    {
+        var frames = new[] { Frame(1, 0, 0) with { At = 0 }, Frame(2, 0, 4) with { At = 6 } };
+        var report = Analyze(frames, Range(1, Bounds(-10, -10, 10, 20)));
+        Assert.AreEqual("unknown", report.Startup.Status);
+        Assert.AreEqual("readiness_unobserved", report.Startup.Reason);
+        frames[0] = frames[0] with { DisplayedReadiness = SceneReadiness.Partial };
+        frames[1] = frames[1] with { DisplayedReadiness = SceneReadiness.Ready };
+        report = Analyze(frames, Range(1, Bounds(-10, -10, 10, 20)));
+        Assert.AreEqual("failed", report.Startup.Status);
+        frames[1] = frames[1] with { At = 5 };
+        Assert.AreEqual("passed", Analyze(frames, Range(1, Bounds(-10, -10, 10, 20))).Startup.Status);
     }
 
     [TestMethod]

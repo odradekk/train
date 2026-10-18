@@ -143,12 +143,13 @@ internal sealed partial class MeasurementRun
                 method = "Process-local GC.GetTotalPauseDuration delta; GC.CollectionCount deltas are collection counts, not pause-event counts. Trajectory-only postroll, offline serialization and analysis are excluded."
             };
             WriteTrace();
+            var routeAnalysis = FollowRouteAnalysis.Analyze(directory);
             _sceneEvidence["route"] = new
             {
                 train = train.Id.Value, vehicle = train.Vehicles[0].Value, first_edge = first?.Value, middle_node = middle?.Value,
                 second_edge = second?.Value, transitions, route_completed = routeCompleted, preview_seconds = _sceneDuration, frames = _routeFrames,
                 decision_end_draw = _routeDecisionEndDraw, postroll_frames = _routeDecisionEndDraw == 0 ? 0 : _routeFrames - _routeDecisionEndDraw,
-                analysis = FollowRouteAnalysis.Analyze(directory).Summary,
+                analysis = routeAnalysis.Summary, startup = routeAnalysis.Startup,
                 elapsed_seconds = _timing.ElapsedSeconds, capture_only = _scenario.Contains("capture", StringComparison.Ordinal),
                 absolute_start_seconds = _routeStarted, clock_frequency = System.Diagnostics.Stopwatch.Frequency,
                 endpoint = "first edge, full node traversal, full following edge; ends on next node",
@@ -272,7 +273,7 @@ internal sealed partial class MeasurementRun
                 _routeBuilt, _routeShown, vehicles.ToArray(), displayedVehicles.ToArray(), train.OrderFacing == TrainOrderFacing.FirstEndLeading,
                 JsonSerializer.SerializeToElement(train.Position, train.Position.GetType(), SceneJson), Seconds() - started + _routePresentedCost,
                 train.Vehicles.Select(id => id.Value).ToArray(), train.LengthMeters,
-                operable, _routeTransition, _routeDecisionEndDraw == 0);
+                operable, _routeTransition, _routeDecisionEndDraw == 0, display?.DisplayedFrame?.Readiness);
             _routeSamples.Add(sample);
             _routeTransition = null;
             _routePreviousPosition = train.Position;

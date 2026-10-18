@@ -160,6 +160,8 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 
 除 `scene-reference`、`scene-map` 和 `scene-route-*` 外，所有 `scene-*` 情景必须传 `-ReferencePath`，指向同一构建提交、同一输入 SHA 的 `scene-reference.json`；参考运行不计入性能样本。整路测量使用默认 `DurationSeconds=0`，非零值只作提前结束的预演。
 
+整路首次打开仅对初始空间单列 `route-analysis.json.startup`：从首个可操作帧起，以显示帧 `displayed_readiness` 在 5 秒内达到 Ready 判定。状态为 `passed`、`failed`、`unknown` 或 `not_observed`；历史记录缺少 readiness 为未知，初始空间从未可操作为未观察。初始空间在 Ready 前切走时，下一空间的 Ready 不能补算成功。初始空间这 5 秒内的判定帧以 `excluded_reason=initial_startup` 排除出 criterion 2 始终覆盖统计，逐帧原始覆盖仍保留；恰好第 5 秒起恢复统计，期间发生的跟随空间切换也立即恢复统计。该分类不改变 D18 near32 首次 Partial 的语义。
+
 整路前方距离沿后续实际车头轨迹计算。Core 在列车参考中心过界时切换位置，因此空间边界估计为跨空间拼接轨迹中新空间首帧的车头位置，沿弧长回退半列车总长；容差取 2 米与跨界帧行驶距离的较大者。到达估计边界即截断，边界容差内发现的缺口记 `boundary_limited`；其他缺口仍计失败，轨迹不足或不能拼接仍记未知。车身覆盖独立检查，不因前方边界截断而豁免。
 
 输出目录保留 `summary.json`，每个进程的子目录保留以下文件：

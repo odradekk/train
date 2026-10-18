@@ -18,7 +18,9 @@ internal static class FollowRouteAnalysis
         double? MinimumScenesAheadLowerBoundMeters, double? MinimumDisplayedAheadLowerBoundMeters,
         int UnknownScenes32MetersFrames, int UnknownDisplayed32MetersFrames,
         int UnknownScenes64MetersFrames, int UnknownDisplayed64MetersFrames);
-    internal sealed record Report(string Scope, double MaximumSampleSpacingMeters, FrameResult[] Frames, Summary Summary);
+    internal sealed record StartupResult(double? FirstOperableAt, double? FirstReadyAt, double ReadyBudgetSeconds,
+        string Status, string? Reason, int ExcludedFrames);
+    internal sealed record Report(string Scope, double MaximumSampleSpacingMeters, FrameResult[] Frames, Summary Summary, StartupResult Startup);
     private sealed record PathPoint(ScenePoint? Head, ScenePoint Offset, int History, string Reason,
         double Arc, ScenePoint? Center, double CenterArc, double TargetArc, int Start, int End);
     private sealed record Ahead(double Cells, bool Boundary, bool Observation, string? Missing, ScenePoint? Point);
@@ -59,10 +61,32 @@ internal static class FollowRouteAnalysis
                 ? spaceEnds[index + 1] : index;
         var aheadCache = new Dictionary<(long Range, bool Displayed, int Index), Ahead>();
         var firstOperable = Array.FindIndex(frames, frame => frame.Operable);
+        var initial = Array.FindIndex(frames, frame => frame.Latest is not null);
+        var initialEnd = initial < 0 ? -1 : spaceEnds[initial];
+        var startupOperable = initial < 0 ? -1 : Array.FindIndex(frames, initial, initialEnd - initial + 1, frame => frame.Operable);
+        var startupAt = startupOperable < 0 ? (double?)null : frames[startupOperable].At;
+        bool StartupFrame(int index) => startupAt is { } at && index >= startupOperable && index <= initialEnd && frames[index].At < at + 5;
+        var ready = startupOperable < 0 ? -1 : Array.FindIndex(frames, startupOperable, initialEnd - startupOperable + 1,
+            frame => frame.DisplayedReadiness == SceneReadiness.Ready && frame.Latest is { } latest &&
+                frame.Displayed is { } displayed && SameSpace(latest, displayed));
+        var readinessUnknown = startupOperable >= 0 && frames.Skip(startupOperable).Take(initialEnd - startupOperable + 1)
+            .Any(frame => frame.At <= startupAt + 5 && frame.DisplayedReadiness is null);
+        string startupStatus;
+        string? startupReason;
+        if (startupAt is null)
+            (startupStatus, startupReason) = ("not_observed", "initial_operable_unobserved");
+        else if (ready >= 0 && frames[ready].At <= startupAt + 5)
+            (startupStatus, startupReason) = ("passed", null);
+        else if (readinessUnknown)
+            (startupStatus, startupReason) = ("unknown", "readiness_unobserved");
+        else if (ready >= 0 || frames[initialEnd].At >= startupAt + 5)
+            (startupStatus, startupReason) = ("failed", "ready_deadline_missed");
+        else
+            (startupStatus, startupReason) = ("unknown", initialEnd + 1 < frames.Length ? "initial_space_left_before_ready" : "ready_unobserved");
         var results = frames.Select((frame, index) => new FrameResult(frame.Draw,
             index == 0 || !SameCoordinates(frames[index - 1], frame), Measure(index, false), Measure(index, true),
-            frame.DecisionSample && firstOperable >= 0 && index >= firstOperable,
-            !frame.DecisionSample ? "postroll" : firstOperable >= 0 && index >= firstOperable ? null : "initial_preoperable")).ToArray();
+            frame.DecisionSample && firstOperable >= 0 && index >= firstOperable && !StartupFrame(index),
+            !frame.DecisionSample ? "postroll" : StartupFrame(index) ? "initial_startup" : firstOperable >= 0 && index >= firstOperable ? null : "initial_preoperable")).ToArray();
         var eligible = results.Where(item => item.DecisionEligible).ToArray();
         double? Minimum(Func<FrameResult, Coverage> select) => eligible.Select(select)
             .Where(value => !value.BoundaryLimited && !value.ObservationLimited && value.AheadMeters.HasValue)
@@ -85,7 +109,9 @@ internal static class FollowRouteAnalysis
                 Limited(item => item.Scenes), Limited(item => item.Displayed),
                 LowerBound(item => item.Scenes), LowerBound(item => item.Displayed),
                 UnknownAt(item => item.Scenes, 32), UnknownAt(item => item.Displayed, 32),
-                UnknownAt(item => item.Scenes, 64), UnknownAt(item => item.Displayed, 64)));
+                UnknownAt(item => item.Scenes, 64), UnknownAt(item => item.Displayed, 64)),
+            new(startupAt, ready >= 0 ? frames[ready].At : null, 5, startupStatus, startupReason,
+                results.Count(item => item.ExcludedReason == "initial_startup")));
 
         Coverage Measure(int index, bool displayed)
         {
