@@ -12,7 +12,8 @@ internal static class SettlementFounding
 {
     private sealed record Plan(SettlementTypeProjection? Type, SettlementTemplateProjection? Template,
         ConstructionRuleProjection? Rule, ImmutableArray<DesignProjection> Designs,
-        ImmutableArray<GoodsQuantity> Materials, ImmutableArray<CoreProblem> Blockers);
+        ImmutableArray<GoodsQuantity> Materials, ImmutableArray<DesignProjection> DesignCatalog,
+        ImmutableArray<GoodDefinitionProjection> DesignGoodsCatalog, ImmutableArray<CoreProblem> Blockers);
 
     internal static CoreResult<SettlementFoundingPreview> Preview(WorldState world, CoreContentProjection content, NodeId node)
     {
@@ -40,6 +41,8 @@ internal static class SettlementFounding
         ConstructionRuleProjection? rule = null;
         ImmutableArray<DesignProjection> designs = [];
         ImmutableArray<GoodsQuantity> materials = [];
+        ImmutableArray<DesignProjection> designCatalog = [];
+        ImmutableArray<GoodDefinitionProjection> designGoodsCatalog = [];
         var node = world.Nodes.SingleOrDefault(n => n.Id == id);
         if (node is null) return Reject("object_missing", "Node");
         if (node.Occupant is not NodeOccupant.Empty) return Reject("node_occupied", "Node");
@@ -61,13 +64,18 @@ internal static class SettlementFounding
             var plot = template.Plots.SingleOrDefault(p => p.Number == building.PlotNumber);
             if (design?.Kind is not DesignKind.Building kind || plot is null || !WorldInputs.FitsPlot(kind.PlotSize, plot.Size))
                 return Reject("invalid_design", "Template.FoundingBuildings");
-            if (!design.CanConstruct || !design.MissingReferences.IsEmpty || design.Parts.Any(p => p.Missing)
-                || design.ReturnUnits.Any(u => !u.MissingReferences.IsEmpty)
-                || WorldReferences.DesignGoods(design).Any(g => WorldGoods.DefinitionMissing(world, content, g.Good)))
-                return Reject("content_missing", "Template.FoundingBuildings");
             targets.Add(design);
         }
         designs = targets.ToImmutable();
+        var referenced = designs.SelectMany(WorldReferences.DesignGoods).Select(g => g.Good).ToHashSet();
+        designCatalog = world.Designs.Concat(designs).DistinctBy(d => d.Design)
+            .OrderBy(d => d.Design.Value, StringComparer.Ordinal).ToImmutableArray();
+        designGoodsCatalog = world.DesignGoods.Concat(content.DesignGoods.Where(g => g.Good is GoodId.Assembly && referenced.Contains(g.Good)))
+            .DistinctBy(g => g.Good).OrderBy(g => WorldReferences.GoodKey(g.Good), StringComparer.Ordinal).ToImmutableArray();
+        var prepared = world with { Designs = designCatalog, DesignGoods = designGoodsCatalog };
+        foreach (var design in designs)
+            if (!design.CanConstruct || VehicleDesignChanges.Missing(prepared, content, design))
+                return Reject("content_missing", "Template.FoundingBuildings");
         materials = ConstructionCommands.BillOfMaterials(designs);
         if (source is { } trainId)
         {
@@ -81,14 +89,14 @@ internal static class SettlementFounding
             var inventory = world.Inventories.Single(i => i.Id == train.Inventory);
             var missing = materials.Where(g => (inventory.Goods.SingleOrDefault(q => q.Good == g.Good)?.Quantity ?? 0) < g.Quantity)
                 .Select(g => WorldReferences.GoodKey(g.Good)).ToImmutableArray();
-            if (!missing.IsEmpty) return new(type, template, rule, designs, materials,
+            if (!missing.IsEmpty) return new(type, template, rule, designs, materials, designCatalog, designGoodsCatalog,
                 [new("insufficient_goods", "MaterialSource.Inventory", new WorldObjectId.Train(trainId), missing)]);
         }
         if (world.Next.Job == ulong.MaxValue) return Reject("identity_exhausted", "World.Next.Job");
         if (world.Next.Settlement == ulong.MaxValue) return Reject("identity_exhausted", "World.Next.Settlement");
-        return new(type, template, rule, designs, materials, []);
+        return new(type, template, rule, designs, materials, designCatalog, designGoodsCatalog, []);
 
-        Plan Reject(string code, string field) => new(type, template, rule, designs, materials,
+        Plan Reject(string code, string field) => new(type, template, rule, designs, materials, designCatalog, designGoodsCatalog,
             [new(code, field, new WorldObjectId.Node(id), [])]);
     }
 
@@ -112,10 +120,8 @@ internal static class SettlementFounding
             FoundingJobs = world.FoundingJobs.Add(job),
             Nodes = world.Nodes.Select(n => n.Id == command.Node ? n with { FoundingJob = job.Id } : n).ToImmutableArray(),
             Next = world.Next with { Job = checked(world.Next.Job + 1), Settlement = checked(world.Next.Settlement + 1) },
-            Designs = world.Designs.Concat(plan.Designs).DistinctBy(d => d.Design)
-                .OrderBy(d => d.Design.Value, StringComparer.Ordinal).ToImmutableArray(),
-            DesignGoods = world.DesignGoods.Concat(content.DesignGoods.Where(g => plan.Materials.Any(m => m.Good == g.Good)))
-                .DistinctBy(g => g.Good).OrderBy(g => WorldReferences.GoodKey(g.Good), StringComparer.Ordinal).ToImmutableArray()
+            Designs = plan.DesignCatalog,
+            DesignGoods = plan.DesignGoodsCatalog
         };
         prepared = prepared with { DefinitionDependencies = WorldReferences.Dependencies(prepared, content) };
         var reference = new OwnedSettlementTemplateReference(job.ReservedSettlementId, source.Id,
