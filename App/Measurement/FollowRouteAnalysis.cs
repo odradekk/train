@@ -55,6 +55,7 @@ internal static class FollowRouteAnalysis
     internal static Report Analyze(RouteFrame[] frames, IReadOnlyDictionary<long, RouteRanges> ranges)
     {
         var paths = new[] { BuildPath(frames, false), BuildPath(frames, true) };
+        var boundaryPaths = new[] { BuildPath(frames, false, false), BuildPath(frames, true, false) };
         var spaceEnds = new int[frames.Length];
         for (var index = frames.Length - 1; index >= 0; index--)
             spaceEnds[index] = index + 1 < frames.Length && SameCoordinates(frames[index], frames[index + 1])
@@ -143,15 +144,18 @@ internal static class FollowRouteAnalysis
             return (true, null);
         }
 
-        (double Arc, double Tolerance)? EstimatedBoundary(int index, PathPoint[] path)
+        (double Arc, double Tolerance)? EstimatedBoundary(int index, PathPoint[] path, PathPoint[] boundaryPath)
         {
             var end = spaceEnds[index];
             if (end + 1 >= frames.Length || !IsSpaceChange(frames[end], frames[end + 1]) ||
-                path[end + 1].History != path[index].History || path[end + 1].Head is null ||
+                boundaryPath[end + 1].History != boundaryPath[index].History ||
                 frames[end + 1].TrainLengthMeters is not > 0) return null;
             // Core changes space at the reference center. All arcs are in 0.5 m cells.
-            return (path[end + 1].TargetArc - frames[end + 1].TrainLengthMeters!.Value,
-                Math.Max(4, path[end + 1].TargetArc - path[end].TargetArc));
+            var arc = boundaryPath[end + 1].TargetArc - frames[end + 1].TrainLengthMeters!.Value;
+            if (AtArc(boundaryPath, end + 1, arc) is null) return null;
+            // A multitrack switch invalidates the body's history, not this observed boundary anchor.
+            return (path[index].TargetArc + arc - boundaryPath[index].TargetArc,
+                Math.Max(4, boundaryPath[end + 1].CenterArc - boundaryPath[end].CenterArc));
         }
 
         Ahead Forward(int index, bool displayed, RouteRanges range, PathPoint[] path)
@@ -163,7 +167,7 @@ internal static class FollowRouteAnalysis
             while (true)
             {
                 if (aheadCache.TryGetValue((range.Id, displayed, cursor), out result!)) break;
-                var boundary = EstimatedBoundary(cursor, path);
+                var boundary = EstimatedBoundary(cursor, path, boundaryPaths[displayed ? 1 : 0]);
                 if (boundary is { } reached && path[cursor].TargetArc >= reached.Arc)
                 { result = new(0, true, false, null, null); break; }
                 var head = Subtract(path[cursor].Head!.Value, path[cursor].Offset);
@@ -222,7 +226,7 @@ internal static class FollowRouteAnalysis
         }
     }
 
-    private static PathPoint[] BuildPath(RouteFrame[] frames, bool displayed)
+    private static PathPoint[] BuildPath(RouteFrame[] frames, bool displayed, bool resetAtMultitrack = true)
     {
         var result = new PathPoint[frames.Length];
         var offset = new ScenePoint(); var history = 0; var reason = "initial_history_insufficient";
@@ -241,7 +245,7 @@ internal static class FollowRouteAnalysis
                         SameSpace(transition.From, from) && SameSpace(transition.To, to))
                     {
                         offset = Add(offset, Subtract(transition.FromOrigin, transition.ToOrigin));
-                        if (transition.MultipleTracks) reset = "multitrack_boundary";
+                        if (transition.MultipleTracks && resetAtMultitrack) reset = "multitrack_boundary";
                     }
                     else { offset = default; reset = "transition_missing"; }
                 }

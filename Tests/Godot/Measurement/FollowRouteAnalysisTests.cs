@@ -173,6 +173,21 @@ public sealed class FollowRouteAnalysisTests
     }
 
     [TestMethod]
+    public void MultitrackHistoryResetKeepsTheBoundaryEstimateWithoutTrustingTheBody()
+    {
+        var (frames, ranges) = BoundaryConsist();
+        frames[9] = frames[9] with { Transition = frames[9].Transition! with { MultipleTracks = true } };
+        var report = FollowRouteAnalysis.Analyze(frames, ranges);
+
+        Assert.AreEqual(5d, report.Frames[4].Scenes.AheadMeters);
+        Assert.IsTrue(report.Frames[4].Scenes.BoundaryLimited);
+        Assert.IsTrue(report.Frames[4].Displayed.BoundaryLimited);
+        Assert.IsFalse(report.Frames[4].Scenes.ObservationLimited);
+        Assert.IsNull(report.Frames[9].Scenes.SampledBodyCovered);
+        Assert.AreEqual("multitrack_boundary", report.Frames[9].Scenes.BodyUnknown);
+    }
+
+    [TestMethod]
     public void RecordingEndNeverExtrapolatesAHeadOrPretendsToBeSpaceBoundary()
     {
         var result = Analyze([Frame(1, 0, 0)], Range(1, Bounds(-10, -10, 10, 10))).Frames[0].Scenes;
