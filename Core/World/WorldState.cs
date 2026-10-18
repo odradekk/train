@@ -80,6 +80,7 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
 {
     [JsonRequired] public ImmutableArray<RunReport> RecentRunReports { get; init; } = [];
     [JsonRequired] public ImmutableArray<ConstructionJobState> ConstructionJobs { get; init; } = [];
+    [JsonRequired] public Money UnassignedServicePayments { get; init; } = new(0);
 
     internal WorldSummary Map => new(Source.WorldSeed, Source.Configuration.Rules.Railway,
         Source.Configuration.WidthMeters, Source.Configuration.HeightMeters, Nodes.Select(ReadNode).ToImmutableArray(), Edges,

@@ -3,14 +3,21 @@ using Train.Core.Contracts;
 using Train.Core.Inventory;
 using Train.Core.Sessions;
 using Train.Core.World;
+using Train.Core.Settlements;
+using Train.Core.Trading;
 
 namespace Train.Core.Construction;
 
 internal static class ConstructionCommands
 {
-    internal static void Validate(JobRequest request, WorldState world, CoreContentProjection content)
+    internal static void Validate(JobRequest request, WorldState world, CoreContentProjection content,
+        JobFunding funding = JobFunding.OwnInventory)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!Enum.IsDefined(funding)) throw new ArgumentException("施工资金来源无效。", nameof(funding));
+        if (funding == JobFunding.NpcCommission && request is JobRequest.BuildBuilding or JobRequest.BuildEquipment
+                or JobRequest.Dismantle or JobRequest.Repair { Instance: InstanceId.Building })
+            throw new ArgumentException("委托只支持车辆制造、改装和修理。", nameof(request));
         var (facility, sources, _) = request switch
         {
             JobRequest.BuildVehicle build => (build.Facility, build.Sources, build.Priority),
@@ -41,7 +48,12 @@ internal static class ConstructionCommands
         }
     }
 
-    internal static CommandEffect Execute(WorldState world, CoreContentProjection content, JobRequest request)
+    internal static JobQuote Quote(WorldState world, CoreContentProjection content, ulong step, CoreRevision revision,
+        JobRequest request, JobFunding funding)
+        => Prepare(world, content, step, revision, request, funding, null).Quote;
+
+    private static (WorldState World, JobQuote Quote) Prepare(WorldState world, CoreContentProjection content,
+        ulong step, CoreRevision revision, JobRequest request, JobFunding funding, Money? maximumPayment)
     {
         var (facility, sources, priority) = request switch
         {
@@ -49,11 +61,23 @@ internal static class ConstructionCommands
             JobRequest.Repair repair => (repair.Facility, repair.Sources, repair.Priority),
             _ => throw new InvalidOperationException("施工请求无效。")
         };
+        var prepared = world;
+        long work = 0;
+        ImmutableArray<GoodsQuantity> required = [];
+        var consumption = ImmutableArray.CreateBuilder<JobMaterialSourceView>();
+        var purchases = ImmutableArray.CreateBuilder<GoodsQuantity>();
+        Money? materialPayment = funding == JobFunding.OwnInventory ? new(0) : null;
+        Money? servicePayment = materialPayment;
+        Money? totalPayment = null;
         var settlement = world.Settlements.SingleOrDefault(s => s.Plots.Any(p => p.Building == facility.Building));
         if (settlement is null) return Reject("object_missing", "Facility");
+        if (funding == JobFunding.NpcCommission)
+        {
+            if (settlement.Relation == SettlementRelation.PlayerOwned) return Reject("invalid_state", "Facility");
+            if (settlement.Relation == SettlementRelation.Hostile) return Reject("access_denied", "Facility");
+        }
         DesignProjection design;
         VehicleId? vehicle = null;
-        var prepared = world;
         if (request is JobRequest.BuildVehicle buildVehicle)
         {
             var input = WorldInputs.NormalizeDesignInput(buildVehicle.Design);
@@ -92,16 +116,18 @@ internal static class ConstructionCommands
                 return Reject("instance_destroyed", "Instance");
         }
         var size = ((DesignKind.Vehicle)design.Kind).Size;
-        if (ConstructionJobs.Qualification(world, content, settlement.Id, facility, size) is { } qualification)
-            return new CommandEffect.Rejected([qualification]);
+        if (ConstructionJobs.Qualification(world, content, settlement.Id, facility, size, funding) is { } qualification)
+            return Result([qualification]);
         if (ConstructionJobs.WorkRate(world, content, facility, size) <= 0) return Reject("capability_zero", "Facility");
-        if (world.ConstructionJobs.Any(j => j.Facility == facility)) return Reject("busy", "Facility");
+        if (funding == JobFunding.OwnInventory && world.ConstructionJobs.Any(j => j.Facility == facility))
+            return Reject("busy", "Facility");
         var ruleId = world.Source.Configuration.Rules.Construction;
         var rule = content.ConstructionRules.SingleOrDefault(r => r.Id == ruleId);
         if (rule is null || content.MissingReferences.Any(m => m.Reference == new CoreDefinitionReference.Rule(ruleId)))
             return Reject("content_missing", "ConstructionRule");
+        var marketRule = MarketPrices.Rule(world, content);
+        if (funding == JobFunding.NpcCommission && marketRule is null) return Reject("content_missing", "MarketRule");
         var needed = new Dictionary<GoodId, long>();
-        long work;
         if (vehicle is null)
         {
             foreach (var good in design.BillOfMaterials) Add(good.Good, good.Quantity);
@@ -136,20 +162,26 @@ internal static class ConstructionCommands
             work = checked(checked(destroyed + structure) * rule.ConstructionWorkPerItem + damaged * rule.RepairWorkPerDamagedPart);
         }
         if (work == 0) return Reject("invalid_state", "Instance.Durability");
+        required = needed.OrderBy(g => WorldReferences.GoodKey(g.Key), StringComparer.Ordinal)
+            .Select(g => new GoodsQuantity(g.Key, g.Value)).ToImmutableArray();
         var inventories = new HashSet<InventoryId>();
-        var consumption = ImmutableArray.CreateBuilder<JobMaterialSourceView>();
         for (var index = 0; index < sources.Length; index++)
         {
             var field = $"Sources[{index}]";
             if (!inventories.Add(sources[index])) return Reject("duplicate_source", field);
             var inventory = world.Inventories.SingleOrDefault(i => i.Id == sources[index]);
             if (inventory is null) return Reject("object_missing", field);
-            if (inventory.Owner != new InventoryOwner.Settlement(settlement.Id))
+            if (funding == JobFunding.NpcCommission || inventory.Owner != new InventoryOwner.Settlement(settlement.Id))
             {
-                if (inventory.Owner is not InventoryOwner.Train owner) return Reject("access_denied", field);
-                var train = world.Trains.Single(t => t.Id == owner.Id);
-                var access = InventoryCommands.TrainAccess(world, settlement, train) ?? InventoryCommands.PlatformAccess(world, train);
-                if (access is not null) return new CommandEffect.Rejected([access with { Field = field }]);
+                if (inventory.Owner is InventoryOwner.Train owner)
+                {
+                    var train = world.Trains.Single(t => t.Id == owner.Id);
+                    var access = InventoryCommands.TrainAccess(world, settlement, train) ?? InventoryCommands.PlatformAccess(world, train);
+                    if (access is not null) return Result([access with { Field = field }]);
+                }
+                else if (funding != JobFunding.NpcCommission || inventory.Owner is not InventoryOwner.Lease lease
+                    || !world.Leases.Any(l => l.Id == lease.Id && l.Settlement == settlement.Id))
+                    return Reject("access_denied", field);
             }
             var taken = ImmutableArray.CreateBuilder<GoodsQuantity>();
             foreach (var good in needed.Keys.OrderBy(WorldReferences.GoodKey, StringComparer.Ordinal).ToArray())
@@ -161,31 +193,92 @@ internal static class ConstructionCommands
             }
             if (taken.Count > 0) consumption.Add(new(inventory.Id, taken.ToImmutable()));
         }
-        if (needed.Any(g => g.Value > 0)) return Reject("insufficient_goods", "Sources");
+        if (funding == JobFunding.OwnInventory)
+        {
+            var missing = needed.Where(g => g.Value > 0).OrderBy(g => WorldReferences.GoodKey(g.Key), StringComparer.Ordinal)
+                .Select(g => WorldReferences.GoodKey(g.Key)).ToImmutableArray();
+            if (!missing.IsEmpty) return Result([new("insufficient_goods", "Sources", null, missing)]);
+        }
+        if (funding == JobFunding.NpcCommission)
+        {
+            var pricingWorld = Consume(prepared, consumption);
+            var unavailable = ImmutableArray.CreateBuilder<string>();
+            long payment = 0;
+            foreach (var good in needed.Where(g => g.Value > 0).OrderBy(g => WorldReferences.GoodKey(g.Key), StringComparer.Ordinal))
+            {
+                var inventory = pricingWorld.Inventories.Single(i => i.Id == settlement.Inventory);
+                var stock = inventory.Goods.SingleOrDefault(g => g.Good == good.Key)?.Quantity ?? 0;
+                var market = new MarketStockTargets(pricingWorld, content, settlement, step);
+                if (market.Quantity(good.Key, stock, Math.Min(stock, good.Value), true) < good.Value)
+                {
+                    unavailable.Add(WorldReferences.GoodKey(good.Key));
+                    continue;
+                }
+                foreach (var (price, quantity) in MarketPrices.Goods(pricingWorld, content, good.Key, true, market, stock, good.Value))
+                    payment = checked(payment + price.Value * quantity);
+                var purchase = new GoodsQuantity(good.Key, good.Value);
+                purchases.Add(purchase);
+                pricingWorld = Consume(pricingWorld, [new(settlement.Inventory, [purchase])]);
+            }
+            if (unavailable.Count > 0)
+                return Result([new("insufficient_goods", "Sources", null, unavailable.ToImmutable())]);
+            materialPayment = new(payment);
+            servicePayment = new(checked(work * marketRule!.CommissionMoneyPerWork.Value));
+        }
         if (world.Next.Job == ulong.MaxValue) return Reject("identity_exhausted", "World.Next.Job");
+        totalPayment = new(checked(materialPayment!.Value.Value + servicePayment!.Value.Value));
+        if (maximumPayment is { } limit && totalPayment.Value.Value > limit.Value)
+            return Reject("price_condition_failed", "MaximumPayment");
+        if (totalPayment.Value.Value > world.Money.Value) return Reject("insufficient_money", "Wallet");
+        return Result([]);
+
+        void Add(GoodId good, long quantity) => needed[good] = checked(needed.GetValueOrDefault(good) + quantity);
+        (WorldState, JobQuote) Result(ImmutableArray<CoreProblem> problems) => (prepared,
+            new(request, funding, revision, work, required, consumption.ToImmutable(), purchases.ToImmutable(),
+                materialPayment, servicePayment, totalPayment, problems));
+        (WorldState, JobQuote) Reject(string code, string field) => Result([new(code, field, null, [])]);
+    }
+
+    internal static CommandEffect Execute(WorldState world, CoreContentProjection content, JobRequest request,
+        ulong step, JobFunding funding = JobFunding.OwnInventory, Money? maximumPayment = null)
+    {
+        var (prepared, quote) = Prepare(world, content, step, new(0), request, funding, maximumPayment);
+        if (!quote.Blockers.IsEmpty) return new CommandEffect.Rejected(quote.Blockers);
+        var (facility, priority, vehicle) = request switch
+        {
+            JobRequest.BuildVehicle build => (build.Facility, build.Priority, (VehicleId?)null),
+            JobRequest.Repair repair => (repair.Facility, repair.Priority, (VehicleId?)((InstanceId.Vehicle)repair.Instance).Id),
+            _ => throw new InvalidOperationException("施工请求无效。")
+        };
+        var settlement = world.Settlements.Single(s => s.Plots.Any(p => p.Building == facility.Building));
+        var design = request is JobRequest.BuildVehicle buildVehicle ? buildVehicle.Design.Design
+            : world.Designs.Single(d => d.Design == world.Instances.Single(i => i.Id == new InstanceId.Vehicle(vehicle!.Value)).Design);
+        var rule = content.ConstructionRules.Single(r => r.Id == world.Source.Configuration.Rules.Construction);
+        var consumption = quote.SourceConsumption;
+        if (!quote.NpcPurchases.IsEmpty) consumption = consumption.Add(new(settlement.Inventory, quote.NpcPurchases));
         var invested = consumption.SelectMany(s => s.Goods).GroupBy(g => g.Good)
             .OrderBy(g => WorldReferences.GoodKey(g.Key), StringComparer.Ordinal)
             .Select(g => new GoodsQuantity(g.Key, g.Sum(x => x.Quantity))).ToImmutableArray();
         var job = new ConstructionJobState(new(world.Next.Job), settlement.Id, facility, design.Design, vehicle, priority,
-            rule.Id, rule.Revision, work, rule.PowerPerWork, rule.LaborPerWork, invested, consumption.ToImmutable(),
-            0, ConstructionState.Working, 0, [], []);
-        prepared = prepared with
+            rule.Id, rule.Revision, quote.TotalWork, rule.PowerPerWork, rule.LaborPerWork, invested, consumption,
+            0, world.ConstructionJobs.Any(j => j.Facility == facility) ? ConstructionState.Queued : ConstructionState.Working,
+            0, [], []) { Funding = funding };
+        prepared = Consume(prepared, consumption) with
         {
             ConstructionJobs = prepared.ConstructionJobs.Add(job), Next = prepared.Next with { Job = checked(world.Next.Job + 1) },
-            Inventories = prepared.Inventories.Select(i => consumption.SingleOrDefault(s => s.Inventory == i.Id) is not { } source ? i : i with
-            {
-                Goods = i.Goods.Select(g => g with { Quantity = g.Quantity - (source.Goods.SingleOrDefault(t => t.Good == g.Good)?.Quantity ?? 0) })
-                    .Where(g => g.Quantity > 0).ToImmutableArray()
-            }).ToImmutableArray()
+            Money = new(checked(world.Money.Value - quote.TotalPayment!.Value.Value)),
+            UnassignedServicePayments = new(checked(world.UnassignedServicePayments.Value + quote.ServicePayment!.Value.Value))
         };
         prepared = prepared with { DefinitionDependencies = WorldReferences.Dependencies(prepared, content) };
-        return new CommandEffect.Accepted(content, [new CoreEvent.ConstructionStarted(job.Read(), JobFunding.OwnInventory, new(0), new(0))],
+        return new CommandEffect.Accepted(content, [new CoreEvent.ConstructionStarted(job.Read(), funding,
+                quote.MaterialPayment!.Value, quote.ServicePayment!.Value)],
             prepared, [new WorldObjectId.Job(job.Id)]);
-
-        void Add(GoodId good, long quantity)
-        {
-            needed[good] = checked(needed.GetValueOrDefault(good) + quantity);
-        }
-        static CommandEffect.Rejected Reject(string code, string field) => new([new(code, field, null, [])]);
     }
+
+    private static WorldState Consume(WorldState world, IEnumerable<JobMaterialSourceView> consumption)
+        => world with { Inventories = world.Inventories.Select(i => consumption.SingleOrDefault(s => s.Inventory == i.Id) is not { } source ? i : i with
+        {
+            Goods = i.Goods.Select(g => g with { Quantity = g.Quantity - (source.Goods.SingleOrDefault(t => t.Good == g.Good)?.Quantity ?? 0) })
+                .Where(g => g.Quantity > 0).ToImmutableArray()
+        }).ToImmutableArray() };
 }

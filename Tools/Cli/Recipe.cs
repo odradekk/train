@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Train.Core.Contracts;
+using Train.Content.Contracts;
 
 namespace Train.Cli;
 
@@ -38,7 +39,7 @@ internal sealed record Recipe(
                 || command.At.CompletedSteps == previous.CompletedSteps && command.At.Sequence != previous.Sequence
                 || command.At.CompletedSteps > previous.CompletedSteps && command.At.Sequence != 0)
                 throw new InvalidDataException("commands.at 必须按模拟位置连续排列。");
-            command.Parse();
+            command.Validate();
             previous = command.At with { Sequence = checked(command.At.Sequence + 1) };
         }
         if (recipe.Target.CompletedSteps < previous.CompletedSteps
@@ -73,15 +74,41 @@ internal sealed record RecipeCommand(
     ulong? Settlement = null,
     ulong? LocalInventory = null,
     RecipeGood? Good = null,
-    long? Quantity = null)
+    long? Quantity = null,
+    ulong? Facility = null,
+    string? Blueprint = null,
+    ImmutableArray<ulong> Sources = default)
 {
+    internal void Validate()
+    {
+        if (Kind != "construction.commission_vehicle_work") { Parse(); return; }
+        if (Facility is null or 0 || string.IsNullOrWhiteSpace(Blueprint) || Sources.IsDefault
+            || Sources.Any(source => source == 0) || MaximumPayment is null or < 0
+            || Train is not null || Plan is not null || Request is not null || Seller is not null || Vehicle is not null
+            || Settlement is not null || LocalInventory is not null || Good is not null || Quantity is not null)
+            throw Invalid();
+    }
+
+    internal CoreCommand Parse(IContentView content)
+    {
+        if (Kind != "construction.commission_vehicle_work") return Parse();
+        Validate();
+        var blueprint = content.FindBlueprint(new(BlueprintLibrary.Packages, new(Blueprint!)));
+        if (blueprint is not ContentLookup<BlueprintRecord>.Found
+            { Value.Evaluation: DesignEvaluation.Complete { IsValid: true, Core: { } design } })
+            throw new InvalidDataException($"委托蓝图不可用：{Blueprint}。");
+        return new CoreCommand.CommissionVehicleWork(new JobRequest.BuildVehicle(
+            new(new(Facility!.Value), CapabilityKind.Construction), design,
+            Sources.Select(source => new InventoryId(source)).ToImmutableArray(), 0), new(MaximumPayment!.Value));
+    }
+
     internal CoreCommand Parse()
     {
         var trainCommand = Kind is "train.replace_run_plan" or "train.start" or "train.stop";
         var transfer = Kind is "inventory.load_goods" or "inventory.unload_goods";
         var lease = Kind == "lease.acquire";
         var vehicle = Kind == "market.buy_vehicle";
-        if (!(trainCommand || transfer || lease || vehicle)
+        if (!(trainCommand || transfer || lease || vehicle) || Facility is not null || Blueprint is not null || !Sources.IsDefault
             || (trainCommand || transfer ? Train is null or 0 : Train is not null)
             || Kind != "train.replace_run_plan" && Plan is not null
             || !lease && Request is not null

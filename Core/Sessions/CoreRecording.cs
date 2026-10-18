@@ -125,8 +125,12 @@ internal sealed class CoreRecording
         var manifests = starts.Select(start => start.State.References)
             .Concat(faults.Select(fault => fault.RequiredReferences)).ToArray();
         var decoded = commands.Select(command => ((CoreResult<DecodedCommand>.Success)CoreCommandEncoding.Decode(command.CanonicalPayload)).Value).ToArray();
-        var designs = decoded.Select(command => command.Command).OfType<CoreCommand.StartOwnedJob>()
-            .Select(command => command.Request).OfType<JobRequest.BuildVehicle>().Select(request => request.Design).ToArray();
+        var designs = decoded.Select(command => command.Command switch
+            {
+                CoreCommand.StartOwnedJob start => start.Request,
+                CoreCommand.CommissionVehicleWork commission => commission.Request,
+                _ => null
+            }).OfType<JobRequest.BuildVehicle>().Select(request => request.Design).ToArray();
         var commandDefinitions = designs.SelectMany(input =>
         {
             var path = $"Recording.Designs[{input.Design.Design.Value}]";

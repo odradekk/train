@@ -39,7 +39,7 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
                 (1.5, "150.0%")
             })
             {
-                var totals = new RunAccumulatorView(new(0, 0), new(0), new(0), new(0), 0, 0, ratio, []);
+                var totals = new RunAccumulatorView(new(0, 0), new(0), new(0), new(17), -17, 0, ratio, []);
                 var view = new FixedCoreReadView(original.Position, original.InputIdentity, revision: new(revision++))
                 {
                     World = original.World,
@@ -52,6 +52,7 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
                 var text = economy.GetNode<Label>("EconomyReports/Layout/Body/ReportsScroll/Reports/ReportsText").Text;
                 Require(text.Contains("载运率 " + expected), "经营报告未区分未定义、空载和超载的载运率。");
                 Require(ratio is null || !text.Contains("未进入线路"), "有数值的载运率被显示为未定义。");
+                Require(text.Contains("服务费用：17 · 净现金流 -17"), "运行报告未展示核心返回的服务费用。");
             }
             Require(setup.Session.SubmitCount == 0, "只读经营报告提交了命令。");
         }
@@ -154,8 +155,8 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
             economy.OpenReports();
             economy.Refresh(binding, active, content);
             var report = economy.GetNode<Label>("EconomyReports/Layout/Body/ReportsScroll/Reports/ReportsText").Text;
-            Require(report.Contains("服务费用：未接入") && report.Contains("未归属服务支出：未接入"),
-                "服务费用被伪装成已接入金额。");
+            Require(report.Contains("未归属服务支出：23") && !report.Contains("未接入"),
+                "经营报告未展示核心返回的未归属服务支出。");
             Require(report.Contains("101 → 103") && !report.Contains("901 → 907"),
                 "经营报告未展示自有聚居地结算，或混入NPC人口结算。");
             economy.Refresh(new HostBinding(Guid.NewGuid()), active, content);
@@ -190,7 +191,7 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
         {
             World = source.World with { Nodes = [node with { Occupant = new NodeOccupant.Settlement(owned.Id, owned.Relation) },
                 node with { Id = new(2), Occupant = new NodeOccupant.Settlement(npc.Id, npc.Relation) }] },
-            Economy = source.Economy,
+            Economy = source.Economy with { UnassignedServicePayments = new(23) },
             Settlements = new Dictionary<SettlementId, Lookup<SettlementView>>
                 { [owned.Id] = new Lookup<SettlementView>.Found(owned), [npc.Id] = new Lookup<SettlementView>.Found(npc) },
             Inventories = new ulong[] { 10, 11, 12, 13 }.ToDictionary(id => new InventoryId(id), id => source.FindInventory(new(id))),
