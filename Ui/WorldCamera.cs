@@ -133,6 +133,14 @@ internal partial class WorldCamera : Node3D
         PlaceCamera();
     }
 
+    internal void MoveFocus(Vector3 focus)
+    {
+        if (NodePanBounds is null) return;
+        Focus = new(focus.X, Focus.Y, focus.Z);
+        ClampNodeView();
+        PlaceCamera();
+    }
+
     private void ClampNodeView()
     {
         if (NodePanBounds is { } bounds)
