@@ -13,6 +13,13 @@ internal static class RailwayCoordinates
 {
     internal const double CellsPerMeter = 2;
     internal const double SegmentLengthCells = 128;
+    internal const double BreakGapCells = 16;
+    internal static bool BreakGapOverlaps(double distanceMeters, double startCells, double endCells)
+    {
+        var center = distanceMeters * CellsPerMeter;
+        var half = BreakGapCells / 2;
+        return center + half > startCells && center - half < endCells;
+    }
     internal const double TrackSpacing = 34;
     internal const double BedTopHalfWidth = 9.5;
     internal const double BedBaseHalfWidth = 10.5;

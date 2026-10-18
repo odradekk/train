@@ -19,6 +19,8 @@ internal sealed class SettlementObjects : IAsyncDisposable
     private readonly Dictionary<(VoxelDefinitionId Good, int Candidate), ScenePoint?> resourcePositions = [];
     private readonly HashSet<InstanceId> retainedBuildings = [];
     private readonly HashSet<InstanceId> retainedParked = [];
+    private readonly HashSet<PlotId> retainedSites = [];
+    private readonly Dictionary<PlotId, (PlotSize Size, SceneMesh Mesh)> siteMeshes = [];
     private ICoreReadView? readView;
     private Lookup<SettlementView>? settlement;
     private readonly Dictionary<InstanceId, Lookup<InstanceView>> instances = [];
@@ -93,6 +95,36 @@ internal sealed class SettlementObjects : IAsyncDisposable
                 (InstanceDetails.Vehicle)instance.Details), lookup, length));
         }
         return result.ToArray();
+    }
+
+    private readonly record struct ConstructionSite(PlotId Plot, ScenePose Pose, SceneBounds Bounds, SceneMesh Mesh);
+
+    private ConstructionSite[] ConstructionPlacements(SceneWorldSnapshot snapshot, NodeLayout layout)
+    {
+        if (Settlement(snapshot, layout) is not { } settlement || layout.Template is not { } template) return [];
+        var result = new List<ConstructionSite>();
+        foreach (var plot in settlement.Plots.OrderBy(item => item.Id.Value))
+        {
+            if (plot.Occupant is not PlotOccupant.Construction) continue;
+            if (template.Plots.FirstOrDefault(item => item.Number == plot.TemplatePlotNumber) is not { } placement) continue;
+            var (x, z, _) = NodeSettlement.Size(plot.Size);
+            if (!siteMeshes.TryGetValue(plot.Id, out var cached) || cached.Size != plot.Size)
+                siteMeshes[plot.Id] = cached = (plot.Size, ConstructionSites.Plot(plot.Size, plot.Id));
+            result.Add(new(plot.Id, SceneGeometry.Placement(placement.At, placement.Orientation),
+                new(new(-x / 2f, 0, -z / 2f), new(x / 2f, 4, z / 2f)), cached.Mesh));
+        }
+        return result.ToArray();
+    }
+
+    private ConstructionSite[] SelectSites(ConstructionSite[] sites, NodeRange? range, NodeRange? prefetch)
+    {
+        var selected = sites.Where(item => range is null ||
+            range.Value.Intersects(item.Bounds, item.Pose) || prefetch is { } ahead && ahead.Intersects(item.Bounds, item.Pose) ||
+            retainedSites.Contains(item.Plot) && range.Value.Around(NodeStreaming.RetainCells).Intersects(item.Bounds, item.Pose)).ToArray();
+        retainedSites.Clear();
+        retainedSites.UnionWith(selected.Select(item => item.Plot));
+        return selected.OrderBy(item => range is { } area
+            ? Math.Pow(item.Pose.Position.X - area.Focus.X, 2) + Math.Pow(item.Pose.Position.Z - area.Focus.Z, 2) : 0).ToArray();
     }
 
     private static Placement[] Select(Placement[] placements, HashSet<InstanceId> retained, NodeRange? range,
@@ -175,6 +207,21 @@ internal sealed class SettlementObjects : IAsyncDisposable
                         new(bounds.Maximum.X + 1, bounds.Maximum.Y + 1, bounds.Maximum.Z + 1)), Pose: pose));
             }
         }
+
+        var shift = RailwayCoordinates.Relative(origin, default);
+        var sites = ConstructionPlacements(snapshot, layout);
+        var placedSites = SelectSites(sites, range, prefetch);
+        if (terrainChunks is { Count: > 0 })
+            foreach (var item in sites.Where(item => !placedSites.Any(selected => selected.Plot == item.Plot)))
+            {
+                var region = new SceneFog(item.Bounds, Pose: item.Pose);
+                if (NodeStreaming.OverlapsTerrain(region.WorldBounds, terrainChunks))
+                    fog.Add(region with { Pose = item.Pose with { Position = item.Pose.Position - shift } });
+            }
+        foreach (var item in placedSites)
+            objects.Add(new(objectId("construction:" + item.Plot.Value), null,
+                item.Pose with { Position = item.Pose.Position - shift }, null,
+                [new SceneVisual.Geometry(item.Mesh, new(false, 0, 0, false))], [], []));
 
         var allParked = ParkedPlacements(snapshot, layout);
         var vehicles = Select(allParked, retainedParked, range, prefetch);

@@ -75,6 +75,15 @@ internal sealed class RailwayDependencies
         var edge = path.Edge; var start = path.Start; var end = path.End; var rules = path.Rules; var seed = path.Seed;
         var values = new List<object?> { seed, edge.Id, edge.LengthMeters, edge.Tracks, edge.TrackLimit,
             start.Id, start.Position, end.Id, end.Position, rules, index, Terrain(edge.Terrain) };
+        var segmentStart = index * RailwayCoordinates.SegmentLengthCells;
+        var segmentEnd = Math.Min(path.LengthCells, segmentStart + RailwayCoordinates.SegmentLengthCells);
+        foreach (var br in edge.Breaks.Where(item => RailwayCoordinates.BreakGapOverlaps(item.DistanceMeters, segmentStart, segmentEnd))
+            .OrderBy(item => item.Id.Value).ThenBy(item => item.Track))
+            values.Add(new object[] { "break", br.Id, br.Track, br.DistanceMeters });
+        foreach (var work in edge.Works.Where(item => item.Kind == RailwayWorkKind.RepairBreak && item.RepairingBreak is { } repairing &&
+            edge.Breaks.Any(br => br.Id == repairing && RailwayCoordinates.BreakGapOverlaps(br.DistanceMeters, segmentStart, segmentEnd)))
+            .OrderBy(item => item.Id.Value))
+            values.Add(new object?[] { "repair", work.Id, work.Track, work.RepairingBreak });
         if (startTerrain) { values.Add(Terrain(start.Terrain)); values.Add(NodeLayout.ReadInputs(snapshot, start.Id)); }
         if (endTerrain) { values.Add(Terrain(end.Terrain)); values.Add(NodeLayout.ReadInputs(snapshot, end.Id)); }
         foreach (var id in terrains)
