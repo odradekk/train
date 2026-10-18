@@ -613,6 +613,7 @@ AUTHORED_FILES = (
     "blueprints/heavy-vehicle-factory.blueprint.json",
     "voxels/machine-gun/model.glb",
     "voxels/cannon/model.glb",
+    "voxels/bogie/model.glb",
 )
 
 
@@ -628,22 +629,6 @@ def tread_texture(x, y):
 
 def underside_texture(x, y):
     return tint((0x2b, 0x2e, 0x31))
-
-
-def bogie_top_texture(x, y):
-    ax, ay = min(x, 63 - x), min(y, 63 - y)
-    seam = ax == 0 or ay == 0
-    rivet = ax % 16 in (3, 12) and ay % 16 in (3, 12)
-    return tint(GRAPHITE, -6 if seam else 8 if rivet else grain(min(ax, ay), max(ax, ay), 64, 0x509))
-
-
-def bogie_side_texture(x, y):
-    ax, ay = x % 32, y % 32
-    axle_box = 10 <= ax < 22 and 9 <= ay < 25
-    frame = 12 <= ay < 20 or (4 <= ax < 8 or 24 <= ax < 28) and 8 <= ay < 24
-    if axle_box:
-        return tint(GRAPHITE, 16 if ax in (10, 21) or ay in (9, 24) else 6)
-    return tint(GRAPHITE, 10 if frame else grain(x, y, 64, 0x510))
 
 
 def engine_texture(x, y):
@@ -740,20 +725,18 @@ def icon(identity):
 
 
 def style_assets(files):
-    for name, size in (("vehicle-underside", 128), ("equipment-underside", 32), ("bogie-underside", 64)):
-        texture = underside_texture if name == "bogie-underside" else lambda x, y: underside_texture(x, y)[:3] + (0,)
+    for name, size in (("vehicle-underside", 128), ("equipment-underside", 32)):
+        texture = lambda x, y: underside_texture(x, y)[:3] + (0,)
         files[f"voxels/shared/{name}.png"] = png(size, texture)
     for identity, size, top, side in (
         ("structural-metal", 128, tread_texture, plate_texture),
-        ("bogie", 64, bogie_top_texture, bogie_side_texture),
         ("propulsion-equipment", 32, grille_texture, engine_texture),
         ("control-equipment", 32, equipment_roof_texture, control_texture),
         ("storage-equipment", 32, storage_roof_texture, storage_texture),
     ):
-        if identity != "bogie":
-            top = neutral_texture(top, DEFAULT_PAINTS[identity])
-            side = neutral_texture(side, DEFAULT_PAINTS[identity],
-                                   control_window if identity == "control-equipment" else None)
+        top = neutral_texture(top, DEFAULT_PAINTS[identity])
+        side = neutral_texture(side, DEFAULT_PAINTS[identity],
+                               control_window if identity == "control-equipment" else None)
         files[f"voxels/{identity}/top.png"] = png(size, top)
         if side is not None:
             files[f"voxels/{identity}/side.png"] = png(size, side)
@@ -1135,6 +1118,10 @@ def content_files():
             value["appearance"]["presentation"] = {
                 "kind": "mesh", "model": "model.glb", "surface_materials": ["painted_metal", "bare_metal"]}
             value["display"]["description"] = f"{name}的第三阶段模型样稿；数值待配平，画面待用户阶段试玩确认。"
+        if identity == "bogie":
+            value["appearance"]["presentation"] = {
+                "kind": "mesh", "model": "model.glb", "surface_materials": ["bare_metal"]}
+            value["display"]["description"] = f"{name}的第三阶段模型样稿；数值待配平，画面待用户阶段试玩确认。"
         if wheelset:
             value["appearance"]["behaviors"] = {"wheelset": {}}
         if light:
@@ -1155,8 +1142,8 @@ def content_files():
           "icon.png", good("structural-metal", 0.028, 260), tile_span=4, description=sample_description.format("结构金属"))
     voxel("construction-material", "建筑材料", "concrete", faces("shared/soil-face.png"),
           "shared/soil-icon.png", good("construction-material", 0.046, 220))
-    voxel("bogie", "转向架", "bare_metal", faces("top.png", "side.png", "shared/bogie-underside.png"),
-          "icon.png", good("bogie", 0.034, 240), wheelset=True, tile_span=2, description=sample_description.format("转向架"))
+    voxel("bogie", "转向架", "bare_metal", faces("shared/equipment-face.png"),
+          "icon.png", good("bogie", 0.034, 240), wheelset=True)
     voxel("platform-equipment", "站台设备", "painted_metal", faces("shared/equipment-face.png"),
           "shared/equipment-icon.png", good("platform-equipment", 0.024, behaviors={"platform": {}}))
     voxel("propulsion-equipment", "柴油机组", "painted_metal", faces("top.png", "side.png", "shared/equipment-underside.png"),
