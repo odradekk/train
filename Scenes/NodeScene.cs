@@ -444,10 +444,12 @@ internal sealed class NodeScene : IAsyncDisposable
             if (!nearCompleted && !near.Intersects(ready.Bounds) && PathPriority(ready.Bounds, followedPath?.Loading ?? []).Distance >
                 pathMargin * pathMargin) continue;
             // One indivisible part may exceed the batch target, but must never block the queue.
-            // Later path crossings must not delay this atomic display target.
+            // Crossings within one sampled path interval share a batch; later intervals must wait.
             if (nearCompleted && count > 0 && (vertices + ready.Vertices > NodeStreaming.AdmissionVertexLimit ||
                 visuals + ready.Visuals > NodeStreaming.AdmissionVisualLimit ||
-                followedPath?.Priority.Count > 0 && firstPriority is { Distance: 0 } && priority != firstPriority.Value)) break;
+                followedPath?.Priority.Count > 0 && firstPriority is { Distance: 0 } first &&
+                (priority.Ring != first.Ring || priority.Distance != 0 ||
+                 Math.Floor(priority.Progress) != Math.Floor(first.Progress)))) break;
             if (ready.Chunk is { } from) chunks.Add(from, ready.Part);
             else { rails.Add(key, ready.Part); railFogDirty = true; }
             Attach(key, ready.Part);
