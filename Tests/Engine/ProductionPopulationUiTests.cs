@@ -191,12 +191,13 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
                 [new CoreDefinitionReference.Process(dig)] = new ContentLookup<ContentDisplay>.Found(new(new("开采", ""), null, null, false))
             });
         ActiveBatchView Batch() => new(reuse, new("batch-v1"), 10, 1, .1, [new(EconomyFixture.Food, 1)], true);
-        var empty = new PlanView(1, SettlementRelation.PlayerOwned, [Facility(null, false, 0, null)], new("fixture-food-building"));
-        var planned = new PlanView(2, SettlementRelation.PlayerOwned, [Facility(press, true, 4, Batch())], new("fixture-food-building"));
-        var raised = new PlanView(3, SettlementRelation.PlayerOwned, [Facility(press, true, 9, Batch())], new("fixture-food-building"));
-        var stopped = new PlanView(4, SettlementRelation.PlayerOwned, [Facility(press, false, 9, Batch())], new("fixture-food-building"));
+        var basis = EconomyFixture.Create();
+        var empty = View(basis, 1, new PopulationExecution.NotStarted([]), [Facility(null, false, 0, null)], buildingDesign: "fixture-food-building");
+        var planned = View(basis, 2, new PopulationExecution.NotStarted([]), [Facility(press, true, 4, Batch())], buildingDesign: "fixture-food-building");
+        var raised = View(basis, 3, new PopulationExecution.NotStarted([]), [Facility(press, true, 9, Batch())], buildingDesign: "fixture-food-building");
+        var stopped = View(basis, 4, new PopulationExecution.NotStarted([]), [Facility(press, false, 9, Batch())], buildingDesign: "fixture-food-building");
         var setup = new HostSimulationTests.HostSetup(empty, content);
-        await Run(setup, async (_, economy) =>
+        await Run(setup, async (ui, economy) =>
         {
             await OpenProduction(economy);
             var facility = Find<VBoxContainer>(economy, "Facility");
@@ -224,8 +225,49 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
                 CommandSource.UserInterface, Completed(3, raised, stopped, new CommandDecision.Accepted([], [])), stopped);
             await _input.Activate(Find<Button>(facility, "StopPlan_1"));
             Require(setup.Session.SubmitCount == 3 && Find<Label>(facility, "State").Text.Contains("计划停用") &&
-                Find<Label>(facility, "CurrentSpecification").Text.Contains("压榨"), "停用没有以当前流程关闭计划。");
+                Find<Label>(facility, "CurrentSpecification").Text.Contains("压榨") &&
+                Find<Button>(facility, "StopPlan_1").Disabled, "停用没有以当前流程关闭计划，或已停用的计划仍可再停。");
+            await ShowPlanControls(economy);
+            HideCaptureChrome(ui);
             await UiCapture.Capture(TestScene, "production-plan");
+        });
+        setup.Session.AssertComplete();
+    }
+
+    [Test]
+    public async Task Production_plan_keeps_pending_process_and_priority_across_revision()
+    {
+        var press = new ProcessRef.Production(new("fixture:press"));
+        var content = EconomyFixture.Content(
+            processes: [new(new ProcessDetails.Production(press.Definition, [], [new(EconomyFixture.Food, 2)]), new("v2"), 10, 1, 1, FacilityTag.FoodProcessing, [])],
+            definitionDisplays: new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
+            {
+                [new CoreDefinitionReference.Process(press)] = new ContentLookup<ContentDisplay>.Found(new(new("压榨", ""), null, null, false))
+            });
+        var basis = EconomyFixture.Create();
+        var empty = View(basis, 1, new PopulationExecution.NotStarted([]), [Facility(null, false, 0, null)], buildingDesign: "fixture-food-building");
+        var stepped = View(basis, 2, new PopulationExecution.NotStarted([]), [Facility(null, false, 0, null)], buildingDesign: "fixture-food-building");
+        var planned = View(basis, 3, new PopulationExecution.NotStarted([]), [Facility(press, true, 4, null)], buildingDesign: "fixture-food-building");
+        var setup = new HostSimulationTests.HostSetup(empty, content);
+        await Run(setup, async (ui, economy) =>
+        {
+            await OpenProduction(economy);
+            var facility = Find<VBoxContainer>(economy, "Facility");
+            var choice = Find<OptionButton>(facility, "PlanProcess_1");
+            await _input.Choose(choice, Enumerable.Range(0, choice.ItemCount).Single(index => choice.GetItemText(index) == "压榨"));
+            await _input.Enter(Find<LineEdit>(facility, "PlanPriority_1"), "4");
+            var host = ui.GetParent<Train.App.App>().Host!;
+            setup.Session.QueueAdvance(new(1, stepped.Position, [], null, null), stepped);
+            Require(host.Step(1).Problem is null, "无法发布设施未变的新修订。");
+            await _input.Frames(4);
+            Require(choice.GetItemText(choice.Selected) == "压榨" && Find<LineEdit>(facility, "PlanPriority_1").Text == "4",
+                "新修订冲掉了尚未提交的流程或优先级。");
+            setup.Session.QueueSubmit(new CoreCommand.SetProductionPlan(new(new(1), CapabilityKind.Production), press, true, 4),
+                CommandSource.UserInterface, Completed(1, stepped, planned, new CommandDecision.Accepted([], [])), planned);
+            await _input.Activate(Find<Button>(facility, "ApplyPlan_1"));
+            Require(setup.Session.SubmitCount == 1 && Find<Label>(facility, "State").Text.Contains("优先级 4") &&
+                Find<Label>(facility, "CurrentSpecification").Text.Contains("压榨"),
+                "跨修订后没有提交所选流程和优先级。");
         });
         setup.Session.AssertComplete();
     }
@@ -234,7 +276,8 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
     public async Task Unowned_production_plan_controls_do_not_submit()
     {
         var press = new ProcessRef.Production(new("fixture:press"));
-        var view = new PlanView(1, SettlementRelation.NonHostile, [Facility(press, true, 2, null)], new("fixture-food-building"));
+        var view = View(EconomyFixture.Create(), 1, new PopulationExecution.NotStarted([]), [Facility(press, true, 2, null)],
+            SettlementRelation.NonHostile, "fixture-food-building");
         var content = EconomyFixture.Content(
             processes: [new(new ProcessDetails.Production(press.Definition, [], []), new("v2"), 10, 1, 1, FacilityTag.FoodProcessing, [])],
             definitionDisplays: new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
@@ -256,6 +299,28 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
     private static FacilityView Facility(ProcessRef? process, bool enabled, int priority, ActiveBatchView? batch) =>
         new(new(new(1), CapabilityKind.Production), process, enabled, priority,
             enabled ? ProductionState.Running : ProductionState.Disabled, 1, 0, [], batch, [], [], []);
+
+    private async Task ShowPlanControls(EconomyPanels economy)
+    {
+        await _input.Frames(2);
+        foreach (var scroll in new[]
+        {
+            Find<ScrollContainer>(economy, "生产"),
+            economy.GetNode<ScrollContainer>("Settlement/Layout/Content")
+        })
+        {
+            var maximum = (int)scroll.GetVScrollBar().MaxValue;
+            if (maximum > 0) scroll.ScrollVertical = maximum;
+        }
+        await _input.Frames(2);
+    }
+
+    private static void HideCaptureChrome(GameUi ui)
+    {
+        ui.GetNode<CanvasItem>("Root/ErrorPanel").Hide();
+        foreach (var detail in ui.GetNode<WorldPanels>("Root/World/WorldPanels").FindChildren("Details", "PanelContainer", false, false))
+            ((CanvasItem)detail).Hide();
+    }
 
     private async Task OpenProduction(EconomyPanels economy)
     {
@@ -292,14 +357,15 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
     }
 
     private static FixedCoreReadView View(FixedCoreReadView source, ulong revision, PopulationExecution execution,
-        ImmutableArray<FacilityView>? facilities = null)
+        ImmutableArray<FacilityView>? facilities = null, SettlementRelation relation = SettlementRelation.PlayerOwned,
+        string buildingDesign = "fixture-plain-building")
     {
         var settlement = ((Lookup<SettlementView>.Found)source.FindSettlement(new(1))).Value;
         PopulationSettlementReport Report(long before, long after) => new(new(12, 0), new("settled-v1"),
             before, after, after - before, .8, .6, PopulationSettlementReason.Growth);
         var owned = settlement with
         {
-            Relation = SettlementRelation.PlayerOwned,
+            Relation = relation,
             Facilities = facilities ?? settlement.Facilities,
             Population = settlement.Population with
             {
@@ -310,10 +376,19 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
         var npc = settlement with { Id = new(2), Node = new(2), Population = settlement.Population with
             { LastSettlement = Report(901, 907), RecentSettlements = [Report(901, 907)] } };
         var node = source.World.Nodes[0];
-        return new(source.Position, source.InputIdentity, source.Fault, new(revision))
+        return new(new(source.Position.CompletedSteps, revision), source.InputIdentity, source.Fault, new(revision))
         {
             World = source.World with { Nodes = [node with { Occupant = new NodeOccupant.Settlement(owned.Id, owned.Relation) },
                 node with { Id = new(2), Occupant = new NodeOccupant.Settlement(npc.Id, npc.Relation) }] },
+            Nodes = new Dictionary<NodeId, Lookup<NodeView>>
+            {
+                [new(1)] = source.FindNode(new(1)), [new(2)] = source.FindNode(new(2))
+            },
+            Locations = new Dictionary<WorldLocation, Lookup<LocationView>>
+            {
+                [new WorldLocation.Node(new(1))] = source.FindLocation(new WorldLocation.Node(new(1))),
+                [new WorldLocation.Node(new(2))] = source.FindLocation(new WorldLocation.Node(new(2)))
+            },
             Economy = source.Economy with { UnassignedServicePayments = new(23) },
             Settlements = new Dictionary<SettlementId, Lookup<SettlementView>>
                 { [owned.Id] = new Lookup<SettlementView>.Found(owned), [npc.Id] = new Lookup<SettlementView>.Found(npc) },
@@ -324,52 +399,14 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
             {
                 [new InstanceId.Vehicle(new(9))] = source.FindInstance(new InstanceId.Vehicle(new(9))),
                 [new InstanceId.Vehicle(new(10))] = source.FindInstance(new InstanceId.Vehicle(new(10))),
-                [new InstanceId.Building(new(1))] = BuildingInstance(1),
-                [new InstanceId.Building(new(2))] = BuildingInstance(2)
+                [new InstanceId.Building(new(1))] = BuildingInstance(1, buildingDesign),
+                [new InstanceId.Building(new(2))] = BuildingInstance(2, buildingDesign)
             }
         };
     }
 
-    private static Lookup<InstanceView> BuildingInstance(ulong id) => new Lookup<InstanceView>.Found(new(
-        new InstanceId.Building(new(id)), new("fixture-plain-building"), new("fixture-plain-composition"),
+    private static Lookup<InstanceView> BuildingInstance(ulong id, string design) => new Lookup<InstanceView>.Found(new(
+        new InstanceId.Building(new(id)), new(design), new("fixture-plain-composition"),
         new WorldLocation.Node(new(1)), SettlementRelation.PlayerOwned,
         new InstanceDetails.Building(new(id), PlotSize.Small), InstanceLock.None, new(100, 100), [], []));
-
-    private sealed class PlanView(ulong revision, SettlementRelation relation, ImmutableArray<FacilityView> facilities, DesignHash design) : ICoreReadView
-    {
-        private readonly ICoreReadView basis = EconomyFixture.Create(revision, vehicle: EconomyFixture.VehicleState.Owned);
-        public SimulationPosition Position => basis.Position;
-        public CoreRevision Revision => basis.Revision;
-        public CoreInputId InputIdentity => basis.InputIdentity;
-        public CoreFault? Fault => basis.Fault;
-        public WorldSummary World => basis.World;
-        public EconomyView Economy => basis.Economy;
-        public Lookup<SettlementView> FindSettlement(SettlementId id)
-        {
-            if (id != new SettlementId(1) || basis.FindSettlement(id) is not Lookup<SettlementView>.Found found) return basis.FindSettlement(id);
-            return new Lookup<SettlementView>.Found(found.Value with { Relation = relation, Facilities = facilities });
-        }
-        public Lookup<NodeView> FindNode(NodeId id) => basis.FindNode(id);
-        public Lookup<EdgeView> FindEdge(EdgeId id) => basis.FindEdge(id);
-        public Lookup<LocationView> FindLocation(WorldLocation location) => basis.FindLocation(location);
-        public Lookup<TrainView> FindTrain(TrainId id) => basis.FindTrain(id);
-        public Lookup<InstanceView> FindInstance(InstanceId id) => id is InstanceId.Building building
-            ? new Lookup<InstanceView>.Found(new(id, design, new("fixture-food-composition"), new WorldLocation.Node(new(1)),
-                SettlementRelation.PlayerOwned, new InstanceDetails.Building(new(building.Id.Value), PlotSize.Small),
-                InstanceLock.None, new(100, 100), [], []))
-            : basis.FindInstance(id);
-        public Lookup<InventoryView> FindInventory(InventoryId id) => basis.FindInventory(id);
-        public Lookup<LeaseView> FindLease(LeaseId id) => basis.FindLease(id);
-        public Lookup<JobView> FindJob(JobId id) => basis.FindJob(id);
-        public Lookup<FacilityView> FindFacility(FacilityKey key) => basis.FindFacility(key);
-        public Lookup<CombatView> FindCombat(CombatId id) => basis.FindCombat(id);
-        public Lookup<CreatureGroupView> FindCreatureGroup(CreatureGroupId id) => basis.FindCreatureGroup(id);
-        public Lookup<CreatureView> FindCreature(CreatureId id) => basis.FindCreature(id);
-        public Lookup<LairView> FindLair(LairId id) => basis.FindLair(id);
-        public CoreResult<JobQuote> GetJobQuote(JobRequest request, JobFunding funding) => basis.GetJobQuote(request, funding);
-        public CoreResult<TradeQuote> QuoteTrade(TradeQuoteRequest request) => basis.QuoteTrade(request);
-        public CoreResult<VehicleTradeQuote> QuoteVehicle(VehicleTradeQuoteRequest request) => basis.QuoteVehicle(request);
-        public CoreResult<LeaseQuote> QuoteLease(LeaseRequest request) => basis.QuoteLease(request);
-        public CoreResult<SettlementFoundingPreview> PreviewSettlement(NodeId node) => basis.PreviewSettlement(node);
-    }
 }
