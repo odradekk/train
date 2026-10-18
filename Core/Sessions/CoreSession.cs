@@ -200,8 +200,11 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
             world = resources.World;
             var founding = SettlementFounding.Advance(world, before.Content, new(checked(before.Position.CompletedSteps + 1), 0));
             world = founding.World;
+            var railway = RailwayWorks.Advance(world, before.Content);
+            world = railway.World;
             events = events.AddRange(resources.Events);
             events = events.AddRange(founding.Events);
+            events = events.AddRange(railway.Events);
             events = events.AddRange(world.Settlements.Where(s => !s.ProductionFacilities.IsEmpty).SelectMany(s =>
                 ProductionQueries.StateChanges(before.World, before.Content, world, before.Content, s.Id)));
             return (before.Content, world, InventoryLeases.ExpirationEvents(before.World, before.Position.CompletedSteps).AddRange(events));

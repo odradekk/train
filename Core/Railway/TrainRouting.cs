@@ -7,7 +7,8 @@ internal static class TrainRouting
 {
     internal static (ImmutableArray<EdgeId> Edges, double DistanceMeters)? FindRoute(
         ImmutableArray<NodeMapItem> nodes, ImmutableArray<EdgeMapItem> edges,
-        NodeId start, NodeId target, double maximumSpeedMetersPerSecond)
+        NodeId start, NodeId target, double maximumSpeedMetersPerSecond,
+        IReadOnlySet<(EdgeId Edge, int Track)>? closedByRepair = null)
     {
         var occupants = nodes.ToDictionary(node => node.Id, node => node.Occupant);
         var routes = new Dictionary<NodeId, (double TimeSeconds, double DistanceMeters, ImmutableArray<EdgeId> Edges)>
@@ -46,7 +47,7 @@ internal static class TrainRouting
                 else
                     continue;
 
-                if (visited.Contains(next) || FindTrack(edge) is null)
+                if (visited.Contains(next) || FindTrack(edge, closedByRepair) is null)
                     continue;
                 if (next != target && occupants[next] is (NodeOccupant.Lair or
                     NodeOccupant.Settlement { Relation: SettlementRelation.Hostile }))
@@ -61,12 +62,12 @@ internal static class TrainRouting
         }
     }
 
-    internal static int? FindTrack(EdgeMapItem edge)
+    internal static int? FindTrack(EdgeMapItem edge, IReadOnlySet<(EdgeId Edge, int Track)>? closedByRepair = null)
     {
         for (var track = 1; track <= edge.Tracks; track++)
         {
-            if (edge.Breaks.Any(item => item.Track == track) ||
-                edge.Works.Any(work => work.Kind == RailwayWorkKind.RepairBreak && work.Track == track))
+            if (edge.Breaks.Any(item => item.Track == track)
+                || closedByRepair is not null && closedByRepair.Contains((edge.Id, track)))
                 continue;
             return track;
         }

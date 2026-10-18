@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 using Train.Core.Settlements;
 using Train.Core.Construction;
+using Train.Core.Railway;
 using Train.Core.Contracts;
 
 namespace Train.Core.World;
@@ -81,10 +82,13 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
     [JsonRequired] public ImmutableArray<RunReport> RecentRunReports { get; init; } = [];
     [JsonRequired] public ImmutableArray<ConstructionJobState> ConstructionJobs { get; init; } = [];
     [JsonRequired] public ImmutableArray<FoundingJobState> FoundingJobs { get; init; } = [];
+    [JsonRequired] public ImmutableArray<RailwayWorkState> RailwayJobs { get; init; } = [];
+    [JsonRequired] public ImmutableArray<AutomaticRailRepair> AutomaticRailRepairs { get; init; } = [];
     [JsonRequired] public Money UnassignedServicePayments { get; init; } = new(0);
 
     internal WorldSummary Map => new(Source.WorldSeed, Source.Configuration.Rules.Railway,
-        Source.Configuration.WidthMeters, Source.Configuration.HeightMeters, Nodes.Select(ReadNode).ToImmutableArray(), Edges,
+        Source.Configuration.WidthMeters, Source.Configuration.HeightMeters, Nodes.Select(ReadNode).ToImmutableArray(),
+        Edges.Select(edge => edge with { Works = RailwayWorks.Views(this, edge) }).ToImmutableArray(),
         Trains.Select(t => new TrainMapItem(t.Id, t.Position, t.Activity)).ToImmutableArray(), [], []);
 
     internal static int CountPlatforms(SettlementState settlement, IReadOnlyDictionary<InstanceId, InstanceState> instances,
@@ -232,11 +236,12 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
     internal EdgeView? FindEdge(EdgeId id)
     {
         var edge = Edges.FirstOrDefault(e => e.Id == id);
-        return edge is null ? null : new(edge,
+        return edge is null ? null : new(edge with { Works = RailwayWorks.Views(this, edge) },
             Enumerable.Range(1, edge.Tracks).Select(n => new TrackView(n,
                 Trains.FirstOrDefault(t => t.Position is TrainPosition.Edge p && p.Id == id && p.Track == n)?.Position is TrainPosition.Edge locked ? locked.Direction : null,
                 Trains.Where(t => t.Position is TrainPosition.Edge p && p.Id == id && p.Track == n)
-                    .Select(t => t.Id).ToImmutableArray())).ToImmutableArray(), null);
+                    .Select(t => t.Id).ToImmutableArray())).ToImmutableArray(),
+            AutomaticRailRepairs.FirstOrDefault(repair => repair.Edge == id)?.MaterialSource);
     }
 
     internal LocationView? FindLocation(WorldLocation location)

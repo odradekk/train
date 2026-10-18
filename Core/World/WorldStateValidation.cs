@@ -14,6 +14,8 @@ internal static class WorldStateValidation
         Ordered(world.Edges, e => e.Id.Value, "/world/edges");
         Ordered(world.Settlements, s => s.Id.Value, "/world/settlements");
         Ordered(world.FoundingJobs, j => j.Id.Value, "/world/founding_jobs");
+        Ordered(world.RailwayJobs, j => j.Id.Value, "/world/railway_jobs");
+        Ordered(world.AutomaticRailRepairs, repair => repair.Edge.Value, "/world/automatic_rail_repairs");
         Ordered(world.Lairs, l => l.Id.Value, "/world/lairs");
         Ordered(world.Trains, t => t.Id.Value, "/world/trains");
         Ordered(world.Inventories, i => i.Id.Value, "/world/inventories");
@@ -285,6 +287,7 @@ internal static class WorldStateValidation
         Require(world.UnassignedServicePayments.Value >= 0, "/world/unassigned_service_payments");
         ValidateConstruction(world);
         ValidateFounding(world);
+        ValidateRailway(world);
         var next = world.Next;
         Next(next.Node, world.Nodes.Select(n => n.Id.Value), "/world/next/node");
         Next(next.Edge, world.Edges.Select(e => e.Id.Value), "/world/next/edge");
@@ -297,7 +300,8 @@ internal static class WorldStateValidation
         Next(next.Inventory, world.Inventories.Select(i => i.Id.Value), "/world/next/inventory");
         Next(next.Break, breakIds, "/world/next/break");
         Next(next.Lease, world.Leases.Select(l => l.Id.Value), "/world/next/lease");
-        Next(next.Job, world.ConstructionJobs.Select(j => j.Id.Value).Concat(world.FoundingJobs.Select(j => j.Id.Value)), "/world/next/job");
+        Next(next.Job, world.ConstructionJobs.Select(j => j.Id.Value).Concat(world.FoundingJobs.Select(j => j.Id.Value))
+            .Concat(world.RailwayJobs.Select(j => j.Id.Value)), "/world/next/job");
     }
 
     private static void ValidateFounding(WorldState world)
@@ -334,6 +338,56 @@ internal static class WorldStateValidation
                 Good(good.Good, path + "/invested_goods/good");
                 Require(good.Quantity > 0, path + "/invested_goods/quantity");
             }
+        }
+    }
+
+    private static void ValidateRailway(WorldState world)
+    {
+        const string jobs = "/world/railway_jobs";
+        var ids = world.ConstructionJobs.Select(job => job.Id).Concat(world.FoundingJobs.Select(job => job.Id)).ToHashSet();
+        var breaks = new HashSet<BreakId>();
+        var edges = world.Edges.ToDictionary(edge => edge.Id);
+        var settlements = world.Settlements.ToDictionary(settlement => settlement.Id);
+        var adds = new Dictionary<EdgeId, int>();
+        foreach (var job in world.RailwayJobs)
+        {
+            var path = jobs + $"/{job.Id.Value}";
+            Require(ids.Add(job.Id) && Enum.IsDefined(job.Kind) && edges.ContainsKey(job.Edge), path);
+            var edge = edges[job.Edge];
+            if (job.Kind == RailwayWorkKind.AddTrack)
+            {
+                Require(job.Break is null && job.Blockers.IsEmpty, path + "/break");
+                adds[job.Edge] = adds.GetValueOrDefault(job.Edge) + 1;
+            }
+            else
+                Require(job.Kind == RailwayWorkKind.RepairBreak && job.Break is { } broken
+                    && edge.Breaks.Any(item => item.Id == broken) && breaks.Add(broken), path + "/break");
+            Require(settlements.TryGetValue(job.MaterialSource, out var settlement)
+                && settlement.Relation == SettlementRelation.PlayerOwned, path + "/material_source");
+            if (!job.Blockers.IsEmpty)
+            {
+                Require(job.InvestedGoods.IsEmpty && job.ElapsedTicks == 0 && job.FrozenDurationTicks == 0, path + "/blockers");
+                Items(job.Blockers, path + "/blockers");
+                foreach (var blocker in job.Blockers)
+                    Require(blocker.Field is not null && !blocker.RelatedIdentities.IsDefault && blocker.Code is "insufficient_goods"
+                        or "content_missing" or "object_missing" or "not_owned", path + "/blockers");
+            }
+            else
+            {
+                Require(job.FrozenDurationTicks > 0 && job.ElapsedTicks < job.FrozenDurationTicks, path + "/elapsed_ticks");
+                Require(job.InvestedGoods.Length == 1, path + "/invested_goods");
+                Strings(job.InvestedGoods, good => WorldReferences.GoodKey(good.Good), path + "/invested_goods");
+                Good(job.InvestedGoods[0].Good, path + "/invested_goods/good");
+                Require(job.InvestedGoods[0].Quantity > 0, path + "/invested_goods/quantity");
+            }
+        }
+        foreach (var (edge, count) in adds)
+            Require(edges[edge].Tracks + count <= edges[edge].TrackLimit, jobs + "/edge");
+        foreach (var repair in world.AutomaticRailRepairs)
+        {
+            Require(edges.ContainsKey(repair.Edge), "/world/automatic_rail_repairs/edge");
+            Require(settlements.TryGetValue(repair.MaterialSource, out var settlement)
+                && settlement.Relation == SettlementRelation.PlayerOwned, "/world/automatic_rail_repairs/material_source");
         }
     }
 
@@ -693,6 +747,8 @@ internal static class WorldStateValidation
         var completedSteps = boundary.CompletedSteps;
         foreach (var job in world.FoundingJobs)
             Require(job.ElapsedTicks <= completedSteps, "/world/founding_jobs/elapsed_ticks");
+        foreach (var job in world.RailwayJobs)
+            Require(job.ElapsedTicks <= completedSteps, "/world/railway_jobs/elapsed_ticks");
         foreach (var report in world.RecentRunReports)
             Require(NotAfter(report.EndedAt, boundary), "/world/recent_run_reports/ended_at");
         foreach (var train in world.Trains)

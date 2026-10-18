@@ -1,5 +1,7 @@
+using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
+using Train.Core.Railway;
 using Train.Core.Sessions;
 using Train.Core.Tests.World;
 using Train.Core.World;
@@ -64,19 +66,23 @@ public sealed class NodeExitTrackTests
     {
         var state = State(1, 2, content: DepartureContent());
         var edge = state.World.Edges[0];
+        var settlement = state.World.Settlements[0].Id;
+        ImmutableArray<RailwayWorkState> jobs = [];
         edge = change switch
         {
             "break" => edge with { Breaks = [new(new(1), 1, 10)] },
-            "repair" => edge with { Works = [new(new(1), RailwayWorkKind.RepairBreak, 1, null,
-                state.World.Settlements[0].Id, [], 0, [])] },
+            "repair" => edge with { Breaks = [new(new(1), 1, 10)] },
             "removed" => edge with { Tracks = 1 },
             _ => throw new ArgumentOutOfRangeException(nameof(change))
         };
+        if (change == "repair")
+            jobs = [new(new(1), edge.Id, RailwayWorkKind.RepairBreak, new(1), settlement, 0, 0, [],
+                [new("insufficient_goods", "MaterialSource.Inventory", new WorldObjectId.Settlement(settlement), ["voxel:fixture:material"])])];
         var train = Exit(state.World.Trains[0], 1, previous) with { Activity = TrainActivity.Running, Position =
             new TrainPosition.Node(new(1), new(1), 2, new(1), previous, NodeTravelPhase.Departing,
                 2 + WorldFixture.PlatformLength / 2, null) };
         using var session = new CoreSession(state with { World = state.World with { Edges = [edge], Trains = [train],
-            Next = state.World.Next with { Break = 2 } } });
+            RailwayJobs = jobs, Next = state.World.Next with { Break = 2, Job = jobs.IsEmpty ? state.World.Next.Job : 2 } } });
         Step(session);
         Assert.AreEqual(expected, Node(session, 1).NextTrack);
         Assert.AreEqual(2, Node(session, 1).EnteredTrack);
