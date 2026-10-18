@@ -280,6 +280,9 @@ internal sealed partial class ContentView : C.IContentView
         K.CoreDefinitionReference.SettlementType type => _world.Types.Any(t => t.Source.Core.Id == type.Id),
         K.CoreDefinitionReference.Template template => _world.Templates.Any(t => t.Core.Id == template.Id),
         K.CoreDefinitionReference.Terrain terrain => _world.Terrains.Any(t => t.Id == terrain.Id),
+        K.CoreDefinitionReference.Creature creature => _blueprints.Values.Any(blueprint => blueprint.Address.Id.Value == creature.Id.Value &&
+            blueprint.Definition.Specification is C.DesignSpecification.Creature),
+        K.CoreDefinitionReference.Lair lair => _world.Lairs.Any(item => item.Core.Id == lair.Id),
         _ => false
     };
 
