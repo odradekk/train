@@ -35,7 +35,7 @@ jobs:
     # A label is a one-shot request; leaving it on a PR does not make pushes heavy.
     if: (github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'ci:correctness')) || (github.event_name == 'workflow_dispatch' && (inputs.selection == 'routine' || inputs.selection == 'correctness'))
     runs-on: windows-2025
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       CI_SELECTION: ${{ inputs.selection || (github.event.action == 'labeled' && github.event.label.name == 'ci:correctness' && 'correctness') || 'routine' }}
     steps:

@@ -8,18 +8,19 @@ namespace Train.Scenes.Editing;
 internal static class VoxelRegionLimits
 {
     internal const int MaximumBrushWidth = 16;
-    internal const int MaximumCoveredCells = 4096;
+    internal const int MaximumCoveredCells = 5000;
     internal const int ConfirmationThreshold = 512;
 }
 
-internal sealed class DesignEditSession : IDesignEditSession
+internal sealed partial class DesignEditSession : IDesignEditSession
 {
     private sealed record ElementLock(SceneProblem Problem, ImmutableHashSet<LockedDesignOperation> Operations);
     private sealed record PreviewValue(EditStamp Basis, EditObject Result, int CoveredCells, int AffectedCells,
-        int SkippedCells, bool OccupancyComplete, bool RequiresConfirmation, ImmutableArray<EditConflict> Conflicts,
+        int SkippedCells, bool RequiresConfirmation, ImmutableArray<EditConflict> Conflicts,
         ImmutableArray<GridPosition> HighlightCells,
         ImmutableArray<(EditElementId Id, LockedDesignOperation Operation)> LockChecks) : IEditPreview
     {
+        public bool OccupancyComplete { get; init; }
         public bool CanApply => Conflicts.IsEmpty;
     }
 
@@ -152,15 +153,25 @@ internal sealed class DesignEditSession : IDesignEditSession
     {
         CheckOpen();
         ArgumentNullException.ThrowIfNull(operation);
-        if (operation is EditOperation.MoveSelection or EditOperation.RotateSelection or EditOperation.CopySelection or
-            EditOperation.PaintSelection or EditOperation.ShapeSelection || operation is EditOperation.Cells
-            { Footprint: EditFootprint.Box } or EditOperation.Cells { Action: CellEdit.Paint or CellEdit.Shape })
-            throw new NotImplementedException("Region and selection editing is implemented by Issue #334.");
         preview = null;
+        try
+        {
+            return operation is EditOperation.MoveSelection or EditOperation.RotateSelection or EditOperation.CopySelection or
+                EditOperation.PaintSelection or EditOperation.ShapeSelection ? PreviewSelection(operation) : PreviewEdit(operation);
+        }
+        catch (OverflowException)
+        {
+            return Fail<IEditPreview>("invalid_operation", "The edit exceeds the integer grid coordinates.");
+        }
+    }
+
+    private SceneResult<IEditPreview> PreviewEdit(EditOperation operation)
+    {
         var path = EnteredPath;
         var current = EditLayout.At(root, path);
         var next = current;
         var conflicts = ImmutableArray.CreateBuilder<EditConflict>();
+        var conflictCells = new HashSet<GridPosition>();
         var lockChecks = ImmutableArray.CreateBuilder<(EditElementId, LockedDesignOperation)>();
         var highlight = new HashSet<GridPosition>();
         var affected = 0;
@@ -168,14 +179,16 @@ internal sealed class DesignEditSession : IDesignEditSession
         var skipped = 0;
         var occupied = Occupied(current);
         var elements = Elements;
+        var lockProblems = LockProblems(elements);
         switch (operation)
         {
             case EditOperation.Cells cells:
             {
                 ArgumentNullException.ThrowIfNull(cells.Footprint);
                 ArgumentNullException.ThrowIfNull(cells.Action);
+                if (cells.Action is CellEdit.Shape shape) ArgumentNullException.ThrowIfNull(shape.Value.Name);
                 var footprint = Footprint(cells.Footprint);
-                if (footprint is null) return Fail<IEditPreview>("region_limit", "The brush exceeds the region limit.");
+                if (footprint is null) return Fail<IEditPreview>("region_limit", "The footprint exceeds the region limit.");
                 highlight.UnionWith(footprint);
                 var value = cells.Action switch { CellEdit.Add add => add.Value, CellEdit.Replace replace => replace.Value, _ => null };
                 if (cells.Action is CellEdit.Add or CellEdit.Replace) ArgumentNullException.ThrowIfNull(value);
@@ -187,13 +200,19 @@ internal sealed class DesignEditSession : IDesignEditSession
                 var own = current.Cells.ToLookup(cell => cell.At);
                 var all = Occupied(root).Cells.Select(cell => (At: EditLayout.ToLocal(root, path, cell.At), cell.Id)).ToLookup(cell => cell.At);
                 var changed = current.Cells.ToDictionary(cell => cell.Id);
-                var palette = current.Palette;
+                var palette = new EditPalette(current.Palette);
                 foreach (var at in footprint)
                 {
                     var targets = own[at].ToArray();
                     var blockers = all[at].ToArray();
-                    var locked = blockers.Select(cell => (cell.Id, Problem: CheckLock(cell.Id,
-                        cells.Action is CellEdit.Remove ? LockedDesignOperation.Remove : LockedDesignOperation.Replace)))
+                    var action = cells.Action switch
+                    {
+                        CellEdit.Remove => LockedDesignOperation.Remove,
+                        CellEdit.Paint => LockedDesignOperation.Paint,
+                        CellEdit.Shape => LockedDesignOperation.ChangeShape,
+                        _ => LockedDesignOperation.Replace
+                    };
+                    var locked = blockers.Select(cell => (cell.Id, Problem: CheckLock(cell.Id, action)))
                         .FirstOrDefault(value => value.Problem is not null);
                     if (locked.Problem is not null) { AddConflict(at, locked.Id, locked.Problem); continue; }
                     var blocker = blockers.FirstOrDefault(cell => !targets.Any(target => target.Id == cell.Id));
@@ -210,16 +229,21 @@ internal sealed class DesignEditSession : IDesignEditSession
                     }
                     else
                     {
-                        if (cells.Action is CellEdit.Replace && target is null || target is not null && current.Palette[target.PaletteIndex] == value)
+                        var replacementValue = value;
+                        if (cells.Action is CellEdit.Paint or CellEdit.Shape)
+                        {
+                            if (target is null) { skipped++; continue; }
+                            replacementValue = AppearanceEdit(current.Palette[target.PaletteIndex], cells.Action);
+                            if (replacementValue is null) { skipped++; continue; }
+                        }
+                        if (cells.Action is CellEdit.Replace && target is null || target is not null && current.Palette[target.PaletteIndex] == replacementValue)
                         { skipped++; continue; }
-                        var index = palette.IndexOf(value!);
-                        if (index < 0) { index = palette.Length; palette = palette.Add(value!); }
-                        var replacement = new EditCell(target?.Id ?? NextElement(), at, index);
+                        var replacement = new EditCell(target?.Id ?? NextElement(), at, palette.Index(replacementValue!));
                         changed[replacement.Id] = replacement;
                     }
                     affected++;
                 }
-                next = current with { Palette = palette, Cells = changed.Values.ToImmutableArray() };
+                next = current with { Palette = palette.Values, Cells = changed.Values.ToImmutableArray() };
                 break;
             }
             case EditOperation.RemoveSelection:
@@ -280,32 +304,43 @@ internal sealed class DesignEditSession : IDesignEditSession
             }
             default: throw new ArgumentException("Invalid edit operation.", nameof(operation));
         }
-        var result = EditLayout.Update(root, path, _ => next);
-        var previousCells = Occupied(root).Cells.ToHashSet();
-        var resultOccupied = Occupied(result);
-        foreach (var group in resultOccupied.Cells.GroupBy(cell => cell.At))
-            if (group.Count() > 1 && group.Any(cell => !previousCells.Contains(cell)))
-            {
-                var blockers = group.Where(previousCells.Contains).Select(cell => cell.Id).Distinct().ToArray();
-                AddConflict(EditLayout.ToLocal(root, path, group.Key), blockers.Length == 1 ? blockers[0] : null,
-                    Problem("occupancy_conflict", "The edit overlaps another object's cells."));
-            }
-        preview = new(Stamp, result, covered ?? highlight.Count, affected, skipped,
-            resultOccupied.Complete, operation is EditOperation.Cells && affected > VoxelRegionLimits.ConfirmationThreshold,
-            conflicts.ToImmutable(), highlight.OrderBy(cell => cell.X).ThenBy(cell => cell.Y).ThenBy(cell => cell.Z).ToImmutableArray(), lockChecks.ToImmutable());
-        return Success<IEditPreview>(preview);
+        return FinishPreview(new(Stamp, EditLayout.Update(root, path, _ => next), covered ?? highlight.Count, affected, skipped,
+            operation is EditOperation.Cells && affected > VoxelRegionLimits.ConfirmationThreshold,
+            conflicts.ToImmutable(), Ordered(highlight), lockChecks.ToImmutable()), path);
 
         SceneProblem? CheckLock(EditElementId id, LockedDesignOperation action)
         {
             lockChecks.Add((id, action));
-            return LockFor(id, action, elements);
+            return lockProblems.GetValueOrDefault((id, action));
         }
 
         void AddConflict(GridPosition at, EditElementId? blocker, SceneProblem problem)
         {
-            if (!conflicts.Any(conflict => conflict.Cell == at)) conflicts.Add(new(at, blocker, problem));
+            if (conflictCells.Add(at)) conflicts.Add(new(at, blocker, problem));
         }
     }
+
+    private SceneResult<IEditPreview> FinishPreview(PreviewValue candidate, ImmutableArray<int> path)
+    {
+        var previousCells = Occupied(root).Cells.ToHashSet();
+        var resultOccupied = Occupied(candidate.Result);
+        var conflicts = candidate.Conflicts.ToBuilder();
+        var conflictCells = conflicts.Where(value => value.Cell.HasValue).Select(value => value.Cell!.Value).ToHashSet();
+        foreach (var group in resultOccupied.Cells.GroupBy(cell => cell.At))
+            if (group.Count() > 1 && group.Any(cell => !previousCells.Contains(cell)))
+            {
+                var at = EditLayout.ToLocal(root, path, group.Key);
+                if (!conflictCells.Add(at)) continue;
+                var blockers = group.Where(previousCells.Contains).Select(cell => cell.Id).Distinct().ToArray();
+                conflicts.Add(new(at, blockers.Length == 1 ? blockers[0] : null,
+                    Problem("occupancy_conflict", "The edit overlaps another object's cells.")));
+            }
+        preview = candidate with { OccupancyComplete = resultOccupied.Complete, Conflicts = conflicts.ToImmutable() };
+        return Success<IEditPreview>(preview);
+    }
+
+    private static ImmutableArray<GridPosition> Ordered(IEnumerable<GridPosition> cells) =>
+        cells.OrderBy(cell => cell.X).ThenBy(cell => cell.Y).ThenBy(cell => cell.Z).ToImmutableArray();
 
     public SceneResult<EditState> Apply(IEditPreview value, bool confirmed)
     {
@@ -314,8 +349,9 @@ internal sealed class DesignEditSession : IDesignEditSession
         if (!ReferenceEquals(value, preview) || preview.Basis != Stamp)
             return Fail<EditState>("stale_preview", "The preview is no longer current.");
         if (!preview.Conflicts.IsEmpty) return Failure<EditState>(preview.Conflicts.Select(conflict => conflict.Problem).ToImmutableArray());
+        var lockProblems = LockProblems(Elements);
         foreach (var check in preview.LockChecks)
-            if (LockFor(check.Id, check.Operation) is { } problem) return Failure<EditState>([problem]);
+            if (lockProblems.GetValueOrDefault(check) is { } problem) return Failure<EditState>([problem]);
         if (preview.RequiresConfirmation && !confirmed) return Fail<EditState>("confirmation_required", "Confirm the brush operation first.");
         var next = preview.Result;
         preview = null;
@@ -437,17 +473,19 @@ internal sealed class DesignEditSession : IDesignEditSession
                     with { Code = "edit_locked" }, Enum.GetValues<LockedDesignOperation>().ToImmutableHashSet());
     }
 
-    private SceneProblem? LockFor(EditElementId id, LockedDesignOperation operation) => LockFor(id, operation, Elements);
+    private SceneProblem? LockFor(EditElementId id, LockedDesignOperation operation) => LockProblems(Elements).GetValueOrDefault((id, operation));
 
-    private SceneProblem? LockFor(EditElementId id, LockedDesignOperation operation, ImmutableArray<EditElement> entries)
+    private Dictionary<(EditElementId Id, LockedDesignOperation Operation), SceneProblem> LockProblems(ImmutableArray<EditElement> entries)
     {
-        var descendants = new HashSet<EditElementId> { id };
+        var result = new Dictionary<(EditElementId, LockedDesignOperation), SceneProblem>();
+        if (locks.Count == 0) return result;
+        var parents = entries.ToDictionary(entry => entry.Id, entry => entry.Parent);
         foreach (var entry in entries)
-            if (entry.Parent is { } parent && descendants.Contains(parent)) descendants.Add(entry.Id);
-        foreach (var entry in entries)
-            if (descendants.Contains(entry.Id) && locks.TryGetValue(entry.Id, out var value) && value.Operations.Contains(operation))
-                return value.Problem with { Element = entry.Path };
-        return null;
+            if (locks.TryGetValue(entry.Id, out var value))
+                foreach (var operation in value.Operations)
+                    for (EditElementId? id = entry.Id; id is { } ancestor; id = parents[ancestor])
+                        result.TryAdd((ancestor, operation), value.Problem with { Element = entry.Path });
+        return result;
     }
     private static EditObject Remove(EditObject value, HashSet<EditElementId> ids) => value with
     {
@@ -485,17 +523,39 @@ internal sealed class DesignEditSession : IDesignEditSession
         var missing = EditContent.MissingProblems(lookup, new ContentReference.Core(new Train.Core.Contracts.CoreDefinitionReference.Voxel(value.Voxel)));
         if (!missing.IsEmpty) return missing;
         var appearance = ((ContentLookup<VoxelAppearanceProjection>.Found)lookup).Value;
-        if (appearance.AllowedOrientations == AllowedVoxelOrientations.None && value.Orientation != VoxelOrientation.PxPy ||
-            appearance.AllowedOrientations == AllowedVoxelOrientations.FourWay && value.Orientation is not
-                (VoxelOrientation.PxPy or VoxelOrientation.NxPy or VoxelOrientation.PzPy or VoxelOrientation.NzPy) ||
+        if (!AllowsOrientation(appearance, value.Orientation) ||
             value.Shape is { } shape && (appearance.Presentation is not VoxelPresentation.Cube cube || !cube.Shapes.Contains(shape)))
             return [Problem("invalid_operation", "The voxel does not support this orientation or shape.")];
         return [];
     }
 
+    private static bool AllowsOrientation(VoxelAppearanceProjection appearance, VoxelOrientation orientation) =>
+        appearance.AllowedOrientations switch
+        {
+            AllowedVoxelOrientations.None => orientation == VoxelOrientation.PxPy,
+            AllowedVoxelOrientations.FourWay => orientation is VoxelOrientation.PxPy or VoxelOrientation.NxPy or VoxelOrientation.PzPy or VoxelOrientation.NzPy,
+            _ => true
+        };
+
     private static HashSet<GridPosition>? Footprint(EditFootprint value)
     {
         if (value is EditFootprint.Cell cell) return [cell.At];
+        if (value is EditFootprint.Box box)
+        {
+            ValidateBounds(box.Bounds);
+            var min = box.Bounds.Minimum;
+            var max = box.Bounds.Maximum;
+            var width = (long)max.X - min.X + 1;
+            var height = (long)max.Y - min.Y + 1;
+            var depth = (long)max.Z - min.Z + 1;
+            if (width > VoxelRegionLimits.MaximumCoveredCells || height > VoxelRegionLimits.MaximumCoveredCells ||
+                depth > VoxelRegionLimits.MaximumCoveredCells || width * height * depth > VoxelRegionLimits.MaximumCoveredCells) return null;
+            var cells = new HashSet<GridPosition>();
+            for (long x = min.X; x <= max.X; x++)
+            for (long y = min.Y; y <= max.Y; y++)
+            for (long z = min.Z; z <= max.Z; z++) cells.Add(new((int)x, (int)y, (int)z));
+            return cells;
+        }
         if (value is not EditFootprint.Stroke stroke) throw new ArgumentException("Invalid footprint.", nameof(value));
         if (stroke.Samples.IsDefault) throw new ArgumentException("Brush samples must be initialized.", nameof(value));
         if (stroke.BrushWidth < 1 || stroke.BrushWidth > VoxelRegionLimits.MaximumBrushWidth) return null;

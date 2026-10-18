@@ -167,6 +167,99 @@ public class WorldSceneTargetTests(Node testScene) : TestClass(testScene)
         finally { await fixture.Cleanup(); }
     }
 
+    [Test]
+    public async Task Minimap_pending_focus_keeps_old_overview_and_applies_latest_absolute_point_after_loading()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var target = new WorldSceneTarget.Location(new WorldLocation.Node(new(1)));
+        var first = Frame(1, 1, 1, 3, NVector3.Zero, origin: new(1000, 0, 2000),
+            bounds: new(new(-100, -50), new(100, 50)), overview: true);
+        var loading = Frame(2, 2, 2, 3, NVector3.Zero, SceneReadiness.Loading, origin: new(3000, 0, 3900));
+        var noBounds = Frame(3, 2, 2, 3, NVector3.Zero, origin: new(3100, 0, 3950));
+        var ready = Frame(4, 2, 2, 3, NVector3.Zero, origin: new(3200, 0, 4000),
+            bounds: new(new(-40, -20), new(40, 20)), overview: true);
+        FixedDisplaySession? session = null;
+        try
+        {
+            var app = await Ready(fixture, new Setup(true, minimap: true), Factory(binding => session = new()
+            {
+                Id = SceneId, Binding = binding,
+                RequestResults = ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>>.Empty
+                    .Add(Follow3, new SceneResult<SceneRequestId>.Success(new(1)))
+                    .Add(target, new SceneResult<SceneRequestId>.Success(new(2))),
+                PresentResults = [Success(first), Success(loading), Success(noBounds), Success(ready)]
+            }));
+            var world = app.WorldScenes!;
+            world.Open(Follow3);
+            world.ProcessFrame(0, false);
+            var camera = world.View.CameraRig;
+            camera.Orbit(60, 10);
+            camera.Zoom(-100);
+            var heading = camera.Camera.Basis.Z;
+            Require(camera.Camera.Position.DistanceTo(camera.Focus) > 96, "夹具必须先拉远跟随相机。");
+            world.FocusNode(new(1), new(1040, 0, 2010));
+            Require(!world.View.Interactive && ReferenceEquals(world.MinimapFrame, first),
+                "跟随切自由请求期间必须保留原节点小地图。");
+            world.ProcessFrame(0, false);
+            Require(ReferenceEquals(world.MinimapFrame, first), "Loading帧清除了待定位的小地图。");
+            world.FocusNode(new(1), new(3210, 0, 4010));
+            world.ProcessFrame(0, false);
+            Require(ReferenceEquals(world.MinimapFrame, first), "没有节点边界的自由帧过早清除了待定位的小地图。");
+            var minimap = app.GetNode<Train.Ui.GameUi>("GameUi").GetNode<Train.Ui.NodeMinimap>("Root/World/NodeMinimap");
+            var status = app.Host!.GetStatus()!;
+            minimap.Refresh(world, status.View, status.Binding, 0);
+            Require(minimap.FocusOnMap.DistanceTo(minimap.NodeToMap(new(2100, 1950))) < .001f,
+                "加载交接时，相机标记没有换算到保留底图的原点。");
+            world.FocusNode(new(1), new(3250, 0, 3970));
+            Require(session!.RequestCalls.SequenceEqual(new[] { Follow3, target }),
+                "等待自由帧期间重复定位不应重复请求节点场景。");
+            world.ProcessFrame(0, false);
+            Near(camera.Focus, new(40, 0, -20));
+            Near(camera.Camera.Basis.Z, heading);
+            Require(camera.Camera.Position.DistanceTo(camera.Focus) <= 96.001f &&
+                ReferenceEquals(world.MinimapFrame, ready),
+                "最终自由帧没有应用最新绝对坐标及新Origin，或未恢复自由缩放上限和小地图。");
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
+    [Test]
+    public async Task Returning_to_map_discards_pending_minimap_focus_before_reopening()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var target = new WorldSceneTarget.Location(new WorldLocation.Node(new(1)));
+        var frame = Frame(1, 1, 1, 3, NVector3.Zero,
+            bounds: new(new(-100, -50), new(100, 50)), overview: true);
+        var sessions = new List<FixedDisplaySession>();
+        try
+        {
+            var app = await Ready(fixture, new Setup(true, minimap: true), Factory(binding =>
+            {
+                var session = new FixedDisplaySession
+                {
+                    Id = SceneId, Binding = binding, PresentResults = [Success(frame)],
+                    RequestResults = ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>>.Empty
+                        .Add(Follow3, new SceneResult<SceneRequestId>.Success(new(1)))
+                        .Add(target, new SceneResult<SceneRequestId>.Success(new(sessions.Count == 0 ? 2UL : 1UL)))
+                };
+                sessions.Add(session);
+                return session;
+            }));
+            var world = app.WorldScenes!;
+            world.Open(Follow3);
+            world.ProcessFrame(0, false);
+            world.FocusNode(new(1), new(80, 0, 40));
+            world.ReturnToMap();
+            Require(world.MinimapFrame is null && sessions[0].IsDisposed,
+                "返回地图没有清除等待中的节点小地图或关闭旧会话。");
+            world.Open(target);
+            world.ProcessFrame(0, false);
+            Near(world.View.CameraRig.Focus, Vector3.Zero);
+            Require(world.View.Interactive && sessions.Count == 2 && ReferenceEquals(world.MinimapFrame, frame),
+                "重新打开节点没有建立新场景，或迟到的旧定位覆盖了新场景。");
+        }
+        finally { await fixture.Cleanup(); }
+    }
     private async Task<Train.App.App> Ready(Fixture fixture, Setup setup, FixedDisplayFactory factory)
     {
         var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
@@ -198,11 +291,13 @@ public class WorldSceneTargetTests(Node testScene) : TestClass(testScene)
     private static WorldObjectId Subject(ulong vehicle) => new WorldObjectId.Instance(new InstanceId.Vehicle(new(vehicle)));
     private static FixedSceneFrame Frame(ulong revision, ulong request, ulong space, ulong vehicle,
         NVector3 position, SceneReadiness readiness = SceneReadiness.Ready,
-        ImmutableArray<SceneProblem> diagnostics = default) => new()
+        ImmutableArray<SceneProblem> diagnostics = default, ScenePoint origin = default,
+        ScenePanBounds? bounds = null, bool overview = false) => new()
     {
         Update = new(null, new(SceneId, new(request), new(space), revision), NVector3.Zero,
             [], [], new([], []), []),
         Readiness = readiness, SimulationSeconds = revision == 1 ? 0 : 1d / 60,
+        Origin = origin, NodePanBounds = bounds, NodeOverview = overview ? new([], []) : null,
         PickResult = new ScenePick.Miss(),
         Diagnostics = diagnostics.IsDefault ? [] : diagnostics,
         Poses = ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty.Add(Subject(vehicle),
@@ -210,9 +305,10 @@ public class WorldSceneTargetTests(Node testScene) : TestClass(testScene)
         TerrainHeightResult = new Lookup<double>.Missing()
     };
 
-    private static FixedCoreReadView View(bool alternatives, bool initial) => new(new(initial ? 0UL : 1UL, 0), HostCoreScenario.Input)
+    private static FixedCoreReadView View(bool alternatives, bool initial, bool minimap = false) => new(new(initial ? 0UL : 1UL, 0), HostCoreScenario.Input)
     {
-        World = new(1, new("fixture:railway"), 1, 1, [], [], [], [], []),
+        World = new(1, new("fixture:railway"), 1, 1, [], [], minimap
+            ? [new(Train, new TrainPosition.Node(new(1), null, null, NodeTravelPhase.Waiting, 80, null), TrainActivity.Stopped)] : [], [], []),
         Trains = new Dictionary<TrainId, Lookup<TrainView>>
         {
             [Train] = new Lookup<TrainView>.Found(new(Train, new TrainPosition.Node(new(1), null, null, NodeTravelPhase.Waiting, 80, null), TrainActivity.Stopped,
@@ -235,10 +331,10 @@ public class WorldSceneTargetTests(Node testScene) : TestClass(testScene)
     private sealed class Setup
     {
         internal ScriptedCoreSession Session { get; }
-        internal Setup(bool alternatives)
+        internal Setup(bool alternatives, bool minimap = false)
         {
-            Session = new(View(alternatives, true));
-            Session.QueueAdvance(new(1, new(1, 0), [], null, null), View(alternatives, false));
+            Session = new(View(alternatives, true, minimap));
+            Session.QueueAdvance(new(1, new(1, 0), [], null, null), View(alternatives, false, minimap));
         }
 
         internal HostCoordinator Create(TrainLogger logger)

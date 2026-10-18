@@ -81,7 +81,7 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
     public async Task Save_panel_load_from_scene_disposes_scene_and_enters_paused_map()
     {
         var fixture = new Fixture(TestScene.GetTree());
-        var setup = new Setup();
+        var setup = new Setup(minimap: true);
         Train.App.App? app = null;
         try
         {
@@ -96,6 +96,8 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
             panel.Hide();
             await Open(app, setup, map.GlobalPosition + map.MapToScreen(new(250, 300)), NodeTarget);
             var scene = setup.Scenes[^1];
+            var minimap = ui.GetNode<NodeMinimap>("Root/World/NodeMinimap");
+            await _input.WaitUntil(minimap.IsVisibleInTree);
             var oldCore = setup.Session;
             await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Saves"));
             var list = panel.FindChildren("*", "ItemList", true, false).Cast<ItemList>().Single(item => item.GetWindow() == panel);
@@ -107,6 +109,14 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
                 oldCore.DisposeCount == 1 && !app.WorldScenes!.View.Visible && app.Saves.Status!.Identity == identity &&
                 !ui.GetNode<Control>("Root/ErrorPanel").Visible,
                 "场景中真实读档没有释放旧场景并进入暂停地图。");
+            await _input.WaitUntil(() => !minimap.IsVisibleInTree());
+            panel.Hide();
+            await Open(app, setup, map.GlobalPosition + map.MapToScreen(new(250, 300)), NodeTarget);
+            await _input.WaitUntil(minimap.IsVisibleInTree);
+            await _input.Click(minimap.GlobalPosition + minimap.NodeToMap(new(70, 30)));
+            Require(setup.Scenes.Count == 2 && !setup.Scenes[^1].IsDisposed &&
+                app.WorldScenes!.View.CameraRig.Focus.DistanceTo(new(70, 0, 30)) < .001f,
+                "换绑定后节点小地图未使用新场景定位。");
         }
         finally { await Cleanup(fixture, app); }
     }
@@ -150,6 +160,99 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
         finally { await Cleanup(fixture, app); }
     }
 
+    [Test]
+    public async Task Node_minimap_routes_real_clicks_and_drags_without_scene_or_panel_input_leaks()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var setup = new Setup(minimap: true);
+        Train.App.App? app = null;
+        try
+        {
+            app = await Ready(fixture, setup);
+            var ui = app.GetNode<GameUi>("GameUi");
+            var map = ui.GetNode<MacroMap>("Root/World/MacroMap");
+            var minimap = ui.GetNode<NodeMinimap>("Root/World/NodeMinimap");
+            Require(!minimap.IsVisibleInTree(), "宏观地图不应显示节点小地图。");
+            await Open(app, setup, map.GlobalPosition + map.MapToScreen(new(250, 300)), NodeTarget);
+            await _input.WaitUntil(minimap.IsVisibleInTree);
+            var frame = setup.Frames[^1];
+            var session = setup.Scenes[^1];
+            var camera = app.WorldScenes!.View.CameraRig;
+            camera.Orbit(50, 20);
+            var offset = camera.Camera.Position - camera.Focus;
+            var heading = camera.Camera.Basis.Z;
+            var target = new Vector2(80, 25);
+            var pixel = minimap.NodeToMap(target);
+            Require(minimap.MapToNode(pixel).DistanceTo(target) < .001f,
+                "非方形节点坐标不能正确往返小地图。");
+            var unitX = minimap.NodeToMap(target + Vector2.Right) - pixel;
+            var unitZ = minimap.NodeToMap(target + Vector2.Down) - pixel;
+            Require(Math.Abs(unitX.Length() - unitZ.Length()) < .001f, "非方形节点小地图改变了纵横比例。");
+            Require(minimap.MapToNode(new(-1000, 1000)).DistanceTo(new(-120, 120)) < .001f,
+                "小地图边缘输入没有限制在节点范围内。");
+            await _input.Click(minimap.GlobalPosition + pixel);
+            Require(camera.Focus.DistanceTo(new(target.X, 0, target.Y)) < .001f &&
+                (camera.Camera.Position - camera.Focus).DistanceTo(offset) < .001f &&
+                camera.Camera.Basis.Z.DistanceTo(heading) < .001f,
+                "小地图点击没有使用帧原点换算定位，或改变了相机环绕和距离。");
+            var arrow = minimap.HeadingTipOnMap - minimap.FocusOnMap;
+            var forward = new Vector2(-camera.Camera.Basis.Z.X, -camera.Camera.Basis.Z.Z).Normalized();
+            Require(arrow.Length() >= 12 && arrow.Normalized().Dot(forward) > .999f,
+                "小地图朝向箭头必须至少长12像素，并与3D相机的水平朝向一致。");
+            var end = minimap.GlobalPosition + minimap.NodeToMap(new(-70, 70));
+            var start = minimap.GlobalPosition + pixel;
+            await _input.MouseButton(start, MouseButton.Left, true);
+            var transform = TestScene.GetViewport().GetScreenTransform();
+            using (var motion = new InputEventMouseMotion { Position = transform * end, GlobalPosition = transform * end,
+                Relative = transform * end - transform * start, ButtonMask = MouseButtonMask.Left })
+                Input.ParseInputEvent(motion);
+            await _input.Frames();
+            await _input.MouseButton(end, MouseButton.Left, false);
+            Require(camera.Focus.DistanceTo(new(-70, 0, 70)) < .001f &&
+                frame.LastPickRay is null && session.ResolveCalls.Count == 0,
+                "小地图左键拖动未定位，或穿透为场景拾取。");
+            var focus = camera.Focus;
+            var distance = camera.Camera.Position.DistanceTo(focus);
+            await _input.MouseButton(end, MouseButton.WheelUp, true);
+            await _input.MouseButton(end, MouseButton.WheelUp, false);
+            await _input.Drag(end, new(5, 5));
+            Require(camera.Focus.DistanceTo(focus) < .001f &&
+                Math.Abs(camera.Camera.Position.DistanceTo(focus) - distance) < .001f,
+                "小地图滚轮或中键穿透到世界相机。");
+            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
+            var panel = ui.GetNode<PanelContainer>("Root/World/WorldPanels/NodesList");
+            var list = panel.GetNode<ItemList>("Layout/Body/Objects");
+            await _input.WaitUntil(() => list.ItemCount > 0 && list.GetItemRect(0).Size.Y > 0 &&
+                list.GetItemAtPosition(list.GetItemRect(0).GetCenter(), true) == 0);
+            panel.Position = minimap.Position;
+            await _input.Frames();
+            var overlap = minimap.GlobalPosition + new Vector2(20, 45);
+            Require(panel.GetGlobalRect().HasPoint(overlap) && minimap.GetGlobalRect().HasPoint(overlap),
+                $"覆盖夹具没有重叠：panel={panel.GetGlobalRect()}，minimap={minimap.GetGlobalRect()}，click={overlap}。");
+            await _input.Click(overlap);
+            Require(camera.Focus.DistanceTo(focus) < .001f && frame.LastPickRay is null,
+                $"覆盖小地图的面板点击穿透：before={focus}，after={camera.Focus}，pick={frame.LastPickRay}，" +
+                $"panel={panel.GetGlobalRect()}，minimap={minimap.GetGlobalRect()}，mask={Input.GetMouseButtonMask()}，" +
+                $"hover={TestScene.GetViewport().GuiGetHoveredControl()?.GetPath()}。");
+            panel.Hide();
+            await _input.PressKey(Key.Escape);
+            await _input.WaitUntil(() => map.IsVisibleInTree() && !minimap.IsVisibleInTree());
+            await Open(app, setup, map.GlobalPosition + map.MapToScreen(new(500, 300)), EdgeTarget);
+            Require(!minimap.IsVisibleInTree(), "线路场景不应显示节点小地图。");
+            await _input.PressKey(Key.Escape);
+            await _input.WaitUntil(map.IsVisibleInTree);
+            await Open(app, setup, map.GlobalPosition + map.MapToScreen(new(250, 300)) + new Vector2(25, -22), TrainTarget);
+            await _input.WaitUntil(minimap.IsVisibleInTree);
+            session = setup.Scenes[^1];
+            await _input.Click(minimap.GlobalPosition + minimap.NodeToMap(target));
+            await _input.WaitUntil(() => app.WorldScenes.View.Interactive && session.RequestCalls.Count == 2);
+            Require(session.RequestCalls.SequenceEqual(new[] { TrainTarget, NodeTarget }) &&
+                app.WorldScenes.View.CameraRig.Focus.DistanceTo(new(target.X, 0, target.Y)) < .001f &&
+                minimap.IsVisibleInTree() && setup.Frames[^1].LastPickRay is null,
+                "跟随节点内列车时，小地图未复用会话切换自由相机并定位。");
+        }
+        finally { await Cleanup(fixture, app); }
+    }
     private async Task<Train.App.App> Ready(Fixture fixture, Setup setup)
     {
         _previousScale = TestScene.GetTree().Root.ContentScaleFactor;
@@ -190,7 +293,7 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
         internal readonly List<FixedSceneFrame> Frames = [];
         internal bool RejectNext;
         internal FixedDisplayFactory Factory { get; }
-        internal Setup()
+        internal Setup(bool minimap = false)
         {
             Factory = new() { OpenWorldCall = (binding, _) =>
             {
@@ -201,6 +304,9 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
                 var hit = new SceneHit(stamp, new(1), subject, new(0, 0, 0), GridFace.PositiveY,
                     NVector3.Zero, NVector3.UnitY, 1, []);
                 var frame = new FixedSceneFrame { Update = new(null, stamp, NVector3.Zero, [Geometry()], [], new([], []), []),
+                    NodePanBounds = minimap ? new(new(-120, -60), new(240, 120)) : null,
+                    NodeOverview = minimap ? new([], [[new(-120, 0), new(240, 0)]]) : null,
+                    Origin = minimap ? new(1000, 0, -2000) : default,
                     PickResult = new ScenePick.Hit(hit), TerrainHeightResult = new Lookup<double>.Found(0),
                     Poses = ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty.Add(new WorldObjectId.Instance(Vehicle),
                         new Lookup<ScenePose>.Found(new(NVector3.Zero, System.Numerics.Quaternion.Identity))) };

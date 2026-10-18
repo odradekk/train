@@ -48,7 +48,6 @@ public sealed class ConstructionTests
             new CoreCommand.StartOwnedJob(new JobRequest.BuildEquipment(Facility, input, [Local], 0)),
             new CoreCommand.StartOwnedJob(new JobRequest.Repair(Facility, new InstanceId.Building(new(1)), [Local], 0)),
             new CoreCommand.StartOwnedJob(new JobRequest.Dismantle(Facility, Vehicle, 0)),
-            new CoreCommand.CommissionVehicleWork(((CoreCommand.StartOwnedJob)Build(content, Local)).Request, new(100)),
             new CoreCommand.SetJobPriority(new(1), 0), new CoreCommand.SetDeconstructionPaused(new(1), true)
         ];
         var before = session.State;

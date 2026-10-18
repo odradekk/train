@@ -27,8 +27,11 @@ internal partial class TrainPlanPanel : Control
 
     public override void _Ready() => SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
     private sealed record Row(VBoxContainer Box, OptionButton Node, OptionButton Kind, LineEdit Seconds,
-        string InitialSeconds, ulong? InitialSteps, VBoxContainer Rules, Button AddRule)
+        VBoxContainer Rules, Button AddRule)
     {
+        internal string InitialSeconds = "0";
+        internal ulong? InitialSteps;
+        internal readonly List<NodeId> Nodes = [];
         internal readonly List<RuleRow> Goods = [];
     }
 
@@ -44,7 +47,7 @@ internal partial class TrainPlanPanel : Control
         var scroll = new ScrollContainer { Name = "RowsScroll", CustomMinimumSize = new(0, 400), HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
         _rowsBox = new VBoxContainer { Name = "Rows", SizeFlagsHorizontal = SizeFlags.ExpandFill };
         scroll.AddChild(_rowsBox); body.AddChild(scroll);
-        body.AddChild(UiStyle.Button("AddStop", "添加计划项", () => AddRow(null)));
+        body.AddChild(UiStyle.Button("AddStop", "添加计划项", AddRow));
         body.AddChild(UiStyle.Label("节点从列表选择；停站秒数为非负整数。未编辑的原停留时间保留精确步数。"));
         _reason = new Label { Name = "Reason", AutowrapMode = TextServer.AutowrapMode.WordSmart };
         body.AddChild(_reason);
@@ -61,38 +64,36 @@ internal partial class TrainPlanPanel : Control
         _view = view; _content = content; _revision = null;
         _nodes = view.World.Nodes.Select(item => item.Id).ToArray();
         _nodeNames = _nodes.Select(id => WorldPanels.NodeName(id, view, content)).ToArray();
-        foreach (var row in _rows) { _rowsBox.RemoveChild(row.Box); row.Box.QueueFree(); }
-        _rows.Clear();
-        _nextRow = 0;
         _loop.ButtonPressed = train.Plan?.Loop ?? false;
         _reason.Text = "目标数量指列车持有量：买入／装载补到目标，卖出／卸载保留目标；规则从上到下执行。含规则的停靠站须先删除规则才能改为途经点。";
-        if (train.Plan is { } plan) foreach (var stop in plan.Stops) AddRow(stop);
-        else AddRow(null);
+        var count = train.Plan?.Stops.Length ?? 1;
+        for (var index = 0; index < count; index++)
+            BindRow(index < _rows.Count ? _rows[index] : CreateRow(), train.Plan?.Stops[index]);
+        while (_rows.Count > count)
+        {
+            var row = _rows[^1];
+            _rows.RemoveAt(_rows.Count - 1); _rowsBox.RemoveChild(row.Box); row.Box.QueueFree();
+        }
         Show();
-        Refresh(target.Binding, view, content);
+        RefreshState(target.Binding, view, content);
     }
 
-    private void AddRow(PlanStop? stop)
+    private void AddRow() => BindRow(CreateRow(), null);
+
+    private Row CreateRow()
     {
         var box = new VBoxContainer { Name = $"Row{_nextRow++}", SizeFlagsHorizontal = SizeFlags.ExpandFill };
         var controls = new HBoxContainer { Name = "Stop" }; box.AddChild(controls);
         var node = new OptionButton { Name = "Node", SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        foreach (var name in _nodeNames) node.AddItem(name);
-        var selected = stop switch { PlanStop.Station station => station.Node, PlanStop.Waypoint waypoint => waypoint.Node, _ => default };
-        var index = Array.IndexOf(_nodes, selected);
-        if (index >= 0) node.Select(index);
-        else if (stop is not null) { node.AddItem($"已失效节点 {selected.Value}"); node.Select(_nodes.Length); }
         var kind = new OptionButton { Name = "Kind" };
-        kind.AddItem("停靠站"); kind.AddItem("途经点"); kind.Select(stop is PlanStop.Waypoint ? 1 : 0);
-        var steps = (stop as PlanStop.Station)?.DwellSteps;
-        var initial = steps is { } value ? (value / (decimal)SimulationTime.StepsPerSecond).ToString(CultureInfo.InvariantCulture) : "0";
-        var seconds = new LineEdit { Name = "DwellSeconds", Text = initial, PlaceholderText = "停站秒数", CustomMinimumSize = new(120, 0) };
+        kind.AddItem("停靠站"); kind.AddItem("途经点");
+        var seconds = new LineEdit { Name = "DwellSeconds", PlaceholderText = "停站秒数", CustomMinimumSize = new(120, 0) };
         var rules = new VBoxContainer { Name = "Rules" }; box.AddChild(rules);
         var add = new Button { Name = "AddRule", Text = "添加货物规则", CustomMinimumSize = new(0, 34) }; box.AddChild(add);
-        var row = new Row(box, node, kind, seconds, initial, steps, rules, add);
-        add.Pressed += () => AddRule(row, null);
+        var row = new Row(box, node, kind, seconds, rules, add);
+        add.Pressed += () => AddRule(row);
         kind.ItemSelected += _ => UpdateStopKind(row);
-        node.ItemSelected += _ => { foreach (var rule in row.Goods) RefreshInventories(row, rule); };
+        node.ItemSelected += _ => RefreshInventories([row]);
         controls.AddChild(node); controls.AddChild(kind); controls.AddChild(seconds);
         var up = UiStyle.Button("MoveUp", "↑", () => Move(row, -1));
         var down = UiStyle.Button("MoveDown", "↓", () => Move(row, 1));
@@ -103,8 +104,49 @@ internal partial class TrainPlanPanel : Control
         controls.AddChild(up); controls.AddChild(down); controls.AddChild(remove);
         box.AddChild(new HSeparator());
         _rows.Add(row); _rowsBox.AddChild(box);
-        if (stop is PlanStop.Station planned) foreach (var rule in planned.GoodsRules) AddRule(row, rule);
+        return row;
+    }
+
+    private void BindRow(Row row, PlanStop? stop)
+    {
+        var selected = stop switch { PlanStop.Station station => station.Node, PlanStop.Waypoint waypoint => waypoint.Node, _ => default };
+        var index = Array.IndexOf(_nodes, selected);
+        var nodes = _nodes;
+        var names = _nodeNames;
+        if (index < 0 && stop is not null)
+        {
+            index = nodes.Length;
+            nodes = [.. nodes, selected]; names = [.. names, $"已失效节点 {selected.Value}"];
+        }
+        BindChoices(row.Node, row.Nodes, nodes, names);
+        row.Node.Select(index < 0 && nodes.Length > 0 ? 0 : index);
+        row.Kind.SetItemDisabled(1, false);
+        row.Kind.Select(stop is PlanStop.Waypoint ? 1 : 0);
+        row.InitialSteps = (stop as PlanStop.Station)?.DwellSteps;
+        row.InitialSeconds = row.InitialSteps is { } value
+            ? (value / (decimal)SimulationTime.StepsPerSecond).ToString(CultureInfo.InvariantCulture) : "0";
+        row.Seconds.Text = row.InitialSeconds;
+        var goods = stop is PlanStop.Station planned ? planned.GoodsRules : [];
+        for (var ruleIndex = 0; ruleIndex < goods.Length; ruleIndex++)
+            BindRule(ruleIndex < row.Goods.Count ? row.Goods[ruleIndex] : CreateRule(row), goods[ruleIndex]);
+        while (row.Goods.Count > goods.Length)
+        {
+            var rule = row.Goods[^1];
+            row.Goods.RemoveAt(row.Goods.Count - 1); row.Rules.RemoveChild(rule.Box); rule.Box.QueueFree();
+        }
         UpdateStopKind(row);
+    }
+
+    private static void BindChoices<T>(OptionButton choice, List<T> current, T[] next, string[] labels)
+    {
+        if (!current.SequenceEqual(next))
+        {
+            choice.Clear(); current.Clear(); current.AddRange(next);
+            foreach (var label in labels) choice.AddItem(label);
+        }
+        else
+            for (var index = 0; index < labels.Length; index++)
+                if (choice.GetItemText(index) != labels[index]) choice.SetItemText(index, labels[index]);
     }
 
     private void Move(Row row, int offset)
@@ -116,13 +158,19 @@ internal partial class TrainPlanPanel : Control
 
     internal void Refresh(HostBinding binding, ICoreReadView view, IContentView content)
     {
+        if (!IsVisibleInTree()) return;
+        RefreshState(binding, view, content);
+    }
+
+    private void RefreshState(HostBinding binding, ICoreReadView view, IContentView content)
+    {
         var unavailable = _target is null || !_target.IsAvailable(binding, content.Generation, view);
         _apply.Disabled = _host.IsBusy || view.Fault is not null || unavailable;
         if (unavailable && _target is not null)
             _reason.Text = "已不存在：草稿所属对象或对局已失效，请从当前列表重新打开。";
         if (unavailable || _revision == view.Revision) return;
         _view = view; _content = content; _revision = view.Revision;
-        foreach (var row in _rows) foreach (var rule in row.Goods) RefreshInventories(row, rule);
+        RefreshInventories(_rows);
     }
 
     private void Apply()

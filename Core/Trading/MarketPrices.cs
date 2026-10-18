@@ -1,11 +1,28 @@
 using System.Numerics;
 using Train.Core.Contracts;
 using Train.Core.World;
+using Train.Core.Settlements;
 
 namespace Train.Core.Trading;
 
 internal static class MarketPrices
 {
+    internal static IEnumerable<Money> Goods(WorldState world, CoreContentProjection content,
+        GoodId good, bool buy, MarketStockTargets market, long stock, long count)
+    {
+        if (count == 0) yield break;
+        var rule = market.Rule!;
+        var prices = rule.GoodPrices.SingleOrDefault(p => p.Good == good)?.Parameters ?? rule.DefaultGoodsPrices;
+        var value = WorldGoods.Definition(world, content, good)!.BaseValue;
+        var range = market.TargetRange(good, buy ? stock - 1 : stock);
+        for (long i = 0; i < count; i++)
+        {
+            var lowerStock = buy ? stock - i - 1 : checked(stock + i);
+            if (lowerStock < range.Minimum || lowerStock > range.Maximum) range = market.TargetRange(good, lowerStock);
+            yield return Good(value, prices, range.Target, (BigInteger)lowerStock * 2 + 1, buy);
+        }
+    }
+
     internal static MarketRuleProjection? Rule(WorldState world, CoreContentProjection content)
     {
         var id = world.Source.Configuration.Rules.Market;
