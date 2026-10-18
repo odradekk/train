@@ -48,6 +48,11 @@ internal static class CombatQueries
             && SameLocation(found.Combat.Location, WorldState.Location(train.Position));
     }
 
+    internal static bool InDisengagement(WorldState world, TrainId id)
+        => Controller(world, new CombatController.Train(id)) is { } found
+            && found.Combat.Controllers[found.Index].Retreating
+            && found.Combat.Controllers[found.Index].RemainingDisengagementSteps > 0;
+
     internal static CombatController? ControllerOf(WorldState world, InstanceId id)
     {
         var instance = world.Instances.SingleOrDefault(i => i.Id == id);

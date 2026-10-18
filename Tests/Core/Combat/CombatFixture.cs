@@ -81,6 +81,13 @@ internal static class CombatFixture
     internal static NodeId StartNode(ICoreSession session, TrainId train)
         => ((TrainPosition.Node)((Lookup<TrainView>.Found)session.Read().FindTrain(train)).Value.Position).Id;
 
+    internal static CombatParticipantView Participant(ICoreSession session, CombatUnitId unit)
+    {
+        var combat = session.Read().World.Combats.Single();
+        return ((Lookup<CombatView>.Found)session.Read().FindCombat(combat.Id)).Value.Participants
+            .Single(participant => participant.Unit == unit);
+    }
+
     internal static void Send(ICoreSession session, NodeId node, TrainId train)
     {
         var plan = new CoreCommand.ReplaceRunPlan(train, new(false, [new PlanStop.Waypoint(node)]));
@@ -124,6 +131,9 @@ internal static class CombatFixture
     internal static SubmissionResult.Completed Accepted(SubmissionResult result)
     {
         var completed = (SubmissionResult.Completed)result;
+        if (completed.Receipt.Decision is CommandDecision.Rejected rejected)
+            Assert.Fail(string.Join("; ", rejected.Problems.Select(problem =>
+                $"{problem.Code} {problem.Field} [{string.Join(",", problem.RelatedIdentities)}]")));
         Assert.IsInstanceOfType<CommandDecision.Accepted>(completed.Receipt.Decision);
         return completed;
     }
