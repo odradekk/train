@@ -166,6 +166,39 @@ public sealed class NpcInitializationTests
     }
 
     [TestMethod]
+    public void Repainting_a_candidate_preserves_generated_vehicle_composition_for_the_same_seed()
+    {
+        var (input, content) = NpcInitializationFixture.RandomVehicles();
+        var npc = input.Configuration.NpcInitialization with { MinimumForSaleVehicles = 1, MaximumForSaleVehicles = 1 };
+        input = input with { WorldSeed = 40, Configuration = input.Configuration with { NpcInitialization = npc } };
+        var firstDesign = content.Designs.Single(d => d.Design == WorldFixture.Vehicle);
+        var secondDesign = content.Designs.Single(d => d.Design == WorldFixture.SecondVehicle);
+        content = content with { Designs = content.Designs
+            .Replace(firstDesign, firstDesign with { Composition = new(new string('1', 64)) })
+            .Replace(secondDesign, secondDesign with { Composition = new(new string('2', 64)) }) };
+        using var originalCandidate = WorldFixture.Prepare(input, content);
+        using var original = originalCandidate.Activate();
+        var originalVehicle = NpcInitializationFixture.Town(original).VehiclesForSale.Single();
+        var originalInstance = ((Lookup<InstanceView>.Found)original.Read()
+            .FindInstance(new InstanceId.Vehicle(originalVehicle))).Value;
+
+        var repaintedHash = new DesignHash(new string('0', 64));
+        secondDesign = content.Designs.Single(d => d.Design == WorldFixture.SecondVehicle);
+        var repaintedContent = content with { Designs = content.Designs.Replace(secondDesign, secondDesign with { Design = repaintedHash }) };
+        var repaintedInput = input with { Configuration = input.Configuration with { NpcInitialization = npc with
+            { ForSaleVehicleCandidates = [WorldFixture.Vehicle, repaintedHash] } } };
+        using var repaintedCandidate = WorldFixture.Prepare(repaintedInput, repaintedContent);
+        using var repainted = repaintedCandidate.Activate();
+        var repaintedVehicle = NpcInitializationFixture.Town(repainted).VehiclesForSale.Single();
+        var repaintedInstance = ((Lookup<InstanceView>.Found)repainted.Read()
+            .FindInstance(new InstanceId.Vehicle(repaintedVehicle))).Value;
+
+        Assert.AreEqual(originalInstance.Composition, repaintedInstance.Composition);
+        Assert.AreEqual(repaintedContent.Designs.Single(d => d.Composition == originalInstance.Composition).Design,
+            repaintedInstance.Design);
+    }
+
+    [TestMethod]
     public void Random_vehicle_counts_cover_both_bounds_and_select_every_eligible_design()
     {
         var (input, content) = NpcInitializationFixture.RandomVehicles();
