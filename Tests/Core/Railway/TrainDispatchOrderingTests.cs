@@ -56,7 +56,7 @@ public sealed class TrainDispatchOrderingTests
         for (var step = 0; step < 1000 && View(session, 3).Position is TrainPosition.Node; step++) Step(session);
         Assert.IsInstanceOfType<TrainPosition.Edge>(View(session, 3).Position);
         var later = (TrainPosition.Edge)View(session, 3).Position;
-        Assert.AreEqual(2, later.Track);
+        Assert.AreEqual(1, later.Track);
         Assert.AreEqual(TravelDirection.Forward, later.Direction);
     }
 

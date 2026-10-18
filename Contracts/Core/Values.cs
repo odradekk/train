@@ -89,7 +89,7 @@ public abstract record WorldLocation
 public abstract record TrainPosition
 {
     private TrainPosition() { }
-    public sealed record Node(NodeId Id, EdgeId? EnteredFrom, EdgeId? NextEdge,
+    public sealed record Node(NodeId Id, EdgeId? EnteredFrom, int? EnteredTrack, EdgeId? NextEdge, int? NextTrack,
         NodeTravelPhase Phase, double DistanceMeters, int? PlatformNumber) : TrainPosition;
     public sealed record Edge(EdgeId Id, int Track, TravelDirection Direction,
         double DistanceMeters) : TrainPosition;

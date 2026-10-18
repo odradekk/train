@@ -12,6 +12,59 @@ namespace Train.Core.Tests.Railway;
 public sealed class TrainStateValidationTests
 {
     [TestMethod]
+    public void Historical_entry_track_may_exceed_current_capacity_but_the_exit_must_exist()
+    {
+        var state = StateWithPlan();
+        var edge = state.World.Edges[0];
+        var train = state.World.Trains[0] with
+        {
+            Position = new TrainPosition.Node(edge.Start, edge.Id, edge.Tracks + 1, edge.Id, 1,
+                NodeTravelPhase.Departing, WorldFixture.ApproachLength, null)
+        };
+        RoundTrip(state with { World = state.World with { Trains = [train] } });
+    }
+
+    [TestMethod]
+    [DataRow("entered_track", "0", "entered_track")]
+    [DataRow("entered_track", "1", "entered_track")]
+    [DataRow("next_track", "0", "next_track")]
+    [DataRow("next_track", "3", "next_track")]
+    [DataRow("phase", "0", "next_track")]
+    public void Invalid_node_track_identity_or_phase_is_rejected_on_decode(string field, string value, string problemField)
+    {
+        var state = StateWithPlan();
+        var edge = state.World.Edges[0];
+        var train = state.World.Trains[0] with
+        {
+            Position = WorldFixture.Node(edge.Start, NodeTravelPhase.Departing, nextEdge: edge.Id)
+        };
+        var saved = RoundTrip(state with { World = state.World with { Trains = [train] } });
+        var root = JsonNode.Parse(saved.Encode())!;
+        root["world"]!["trains"]![0]!["position"]![field] = JsonNode.Parse(value);
+        var result = CoreFactory.Create().DecodeState(root.ToJsonString());
+        Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Failure>(result);
+        var problem = ((CoreResult<ICoreCapture>.Failure)result).Problems.Single();
+        Assert.AreEqual("invalid_state", problem.Code);
+        Assert.AreEqual("/world/trains/position/" + problemField, problem.Field);
+    }
+
+    [TestMethod]
+    public void An_unselected_exit_on_an_open_edge_round_trips_and_is_filled_on_restore()
+    {
+        var state = StateWithPlan();
+        var edge = state.World.Edges[0];
+        var train = state.World.Trains[0] with
+        {
+            Position = WorldFixture.Node(edge.Start, NodeTravelPhase.Departing, nextEdge: edge.Id) with { NextTrack = null }
+        };
+        var saved = RoundTrip(state with { World = state.World with { Trains = [train] } });
+        using var candidate = WorldFixture.Success(CoreFactory.Create().PrepareRestore(saved, state.Content, WorldFixture.Options));
+        using var restored = candidate.Activate();
+        var view = ((Lookup<TrainView>.Found)restored.Read().FindTrain(train.Id)).Value;
+        Assert.IsTrue(view.Position is TrainPosition.Node { NextTrack: 1 });
+    }
+
+    [TestMethod]
     public void Running_edge_and_paused_station_round_trip_authoritative_railway_state()
     {
         var state = StateWithPlan();
@@ -105,7 +158,7 @@ public sealed class TrainStateValidationTests
             case "invalid_track": train["position"]!["track"] = 0; break;
             case "invalid_distance": train["position"]!["distance_meters"] = edge.LengthMeters + 1; break;
             case "invalid_direction": train["position"]!["direction"] = 99; break;
-            case "invalid_node_phase": train["position"] = JsonNode.Parse("{\"$kind\":\"node\",\"id\":{\"value\":1},\"entered_from\":null,\"next_edge\":null,\"phase\":99,\"distance_meters\":0,\"platform_number\":null}"); break;
+            case "invalid_node_phase": train["position"] = JsonNode.Parse("{\"$kind\":\"node\",\"id\":{\"value\":1},\"entered_from\":null,\"entered_track\":null,\"next_edge\":null,\"next_track\":null,\"phase\":99,\"distance_meters\":0,\"platform_number\":null}"); break;
             case "unsupported_activity": train["activity"] = (int)TrainActivity.Combat; break;
             case "stopped_on_edge": train["activity"] = (int)TrainActivity.Stopped; train["speed_meters_per_second"] = 0; break;
             case "missing_plan": train["plan"] = null; train["next_stop_index"] = null; train["current_run"] = null; break;

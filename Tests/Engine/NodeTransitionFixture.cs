@@ -75,9 +75,9 @@ internal static class NodeTransitionFixture
             center with { Id = new(4), Position = new(20, -600), Occupant = new NodeOccupant.Empty(), Platforms = 0 }];
         ImmutableArray<EdgeMapItem> edges =
         [
-            new(new(1), new(1), new(2), 800, terrain, 1, 1, [], []),
-            new(new(2), new(3), new(1), 800, terrain, 1, 1, [], []),
-            new(new(3), new(4), new(1), 800, terrain, 1, 1, [], [])
+            new(new(1), new(1), new(2), 800, terrain, 2, 2, [], []),
+            new(new(2), new(3), new(1), 800, terrain, 2, 2, [], []),
+            new(new(3), new(4), new(1), 800, terrain, 2, 2, [], [])
         ];
         var activity = position switch
         {
@@ -107,7 +107,7 @@ internal static class NodeTransitionFixture
             InputIdentity = content.Core.Identity,
             World = new(3, Rule, 1200, 1200, nodes, edges, [new(train.Id, position, activity)], [], []),
             Nodes = nodes.ToDictionary(n => n.Id, n => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(n, edges.Where(e => e.Start == n.Id || e.End == n.Id).Select(e => e.Id).ToImmutableArray(), 80, n.Id.Value == 1 ? 96 : 0, 80))),
-            Edges = edges.ToDictionary(e => e.Id, e => (Lookup<EdgeView>)new Lookup<EdgeView>.Found(new(e, [new(1, null, [])], null))),
+            Edges = edges.ToDictionary(e => e.Id, e => (Lookup<EdgeView>)new Lookup<EdgeView>.Found(new(e, [new(1, null, []), new(2, null, [])], null))),
             Trains = new Dictionary<TrainId, Lookup<TrainView>> { [train.Id] = new Lookup<TrainView>.Found(train) },
             Instances = new Dictionary<InstanceId, Lookup<InstanceView>> { [vehicle.Id] = new Lookup<InstanceView>.Found(vehicle), [station.Id] = new Lookup<InstanceView>.Found(station) },
             Settlements = new Dictionary<SettlementId, Lookup<SettlementView>> { [settlement.Id] = new Lookup<SettlementView>.Found(settlement) }

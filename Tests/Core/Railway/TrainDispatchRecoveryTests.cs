@@ -32,6 +32,59 @@ public sealed class TrainDispatchRecoveryTests
     }
 
     [TestMethod]
+    public void Different_node_entry_and_exit_tracks_restore_and_strictly_replay_the_same_continuation()
+    {
+        var state = TrainDispatchFixture.State(count: 1, tracks: 2);
+        var train = state.World.Trains[0] with
+        {
+            Position = new TrainPosition.Node(new(2), new(1), 2, new(1), 1,
+                NodeTravelPhase.Departing, WorldFixture.ApproachLength, null),
+            SpeedMetersPerSecond = 1, Activity = TrainActivity.Running,
+            Plan = new(false, [new PlanStop.Waypoint(new(1))])
+        };
+        state = state with { World = state.World with { Trains = [train] } };
+        using var continuous = new CoreSession(state);
+        var capture = Success(continuous.Capture(CapturePurpose.Save));
+        var decoded = Success(CoreFactory.Create().DecodeState(capture.Encode()));
+        Assert.AreEqual(capture.Encode(), decoded.Encode());
+        using var candidate = Success(CoreFactory.Create().PrepareRestore(decoded, state.Content, Options));
+        using var resumed = candidate.Activate();
+        var restored = (TrainPosition.Node)TrainRecoveryFixture.Train(resumed).Position;
+        Assert.AreEqual(2, restored.EnteredTrack);
+        Assert.AreEqual(1, restored.NextTrack);
+        Assert.AreEqual(TrainDispatchRecoveryScenario.Query(continuous), TrainDispatchRecoveryScenario.Query(resumed));
+        var checkpoints = new List<CoreCheckpoint> { capture.Checkpoint };
+        var events = new List<string>();
+        var resumedEvents = new List<string>();
+        for (var step = 0; step < 12; step++)
+        {
+            TrainRecoveryFixture.Advance(continuous, events);
+            TrainRecoveryFixture.Advance(resumed, resumedEvents);
+            Assert.AreEqual(TrainDispatchRecoveryScenario.Query(continuous), TrainDispatchRecoveryScenario.Query(resumed));
+            var checkpoint = Success(continuous.Capture(CapturePurpose.Save)).Checkpoint;
+            Assert.AreEqual(checkpoint, Success(resumed.Capture(CapturePurpose.Save)).Checkpoint);
+            checkpoints.Add(checkpoint);
+        }
+        CollectionAssert.AreEqual(events, resumedEvents);
+        Assert.IsTrue(TrainRecoveryFixture.Train(continuous).Position is TrainPosition.Edge { Track: 1 });
+        var recording = continuous.ReadRecording();
+        var input = new CoreReplayInput(2, Options.Runtime, capture.Encode(), recording.Commands,
+            checkpoints.ToImmutableArray(), recording.EndPosition, null);
+        using var replay = Success(CoreFactory.Create().PrepareReplay(input, Options.Runtime, [state.Content]));
+        var replayEvents = new List<string>();
+        foreach (var checkpoint in checkpoints)
+        {
+            var result = replay.Advance(12, checkpoint.Position);
+            Assert.IsNull(result.Fault);
+            Assert.IsNull(result.Difference);
+            Assert.AreEqual(checkpoint, replay.CaptureBoundary().Checkpoint);
+            replayEvents.AddRange(result.Events.Select(TrainRecoveryFixture.Event));
+        }
+        CollectionAssert.AreEqual(events, replayEvents);
+        Assert.AreEqual(ReplayStop.EndOfRecording, replay.Advance(0).Stop);
+    }
+
+    [TestMethod]
     public void Debug_break_command_and_dispatch_steps_strictly_replay()
     {
         var state = TrainDispatchRecoveryScenario.State("queue");

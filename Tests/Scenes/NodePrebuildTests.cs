@@ -33,7 +33,7 @@ public sealed class NodePrebuildTests
 
             var moved = leaving with
             {
-                Position = new TrainPosition.Node(new(2), RailwayFixtures.Edge, null, NodeTravelPhase.Approaching, 0, null)
+                Position = new TrainPosition.Node(new(2), RailwayFixtures.Edge, 1, null, null, NodeTravelPhase.Approaching, 0, null)
             };
             var current = RailwayFixtures.Snapshot(4, 4, 0, steps: 1, content: content,
                 trains: [followed, second, moved], instances: [.. instances]);
