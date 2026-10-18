@@ -32,28 +32,31 @@ internal partial class EconomyPanels
     private CoreEvent.ConstructionCompleted? _serviceCompletion;
     private HostBinding? _serviceObservedBinding;
     private bool _serviceDirty;
-    private bool _serviceSubmitting;
-    private bool _serviceQuoteRejected;
 
     private void BuildServices(VBoxContainer body)
     {
         CloseServices();
         _services = body; _serviceFacilities.Clear(); _serviceBlueprints.Clear(); _serviceVehicles.Clear();
-        _serviceSourceOptions.Clear(); _serviceSources.Clear(); _serviceJobRows.Clear();
+        _serviceSourceOptions.Clear(); _serviceSources.Clear(); _serviceJobRows.Clear(); _servicePauseButtons.Clear();
         _serviceSelectedFacility = null; _serviceSelectedBlueprint = null; _serviceSelectedVehicle = null;
         _serviceOperation = new() { Name = "ServiceOperation" };
-        _serviceOperation.AddItem("制造车辆"); _serviceOperation.AddItem("修理车辆"); body.AddChild(_serviceOperation);
+        _serviceOperation.AddItem("制造车辆"); _serviceOperation.AddItem("修理车辆");
+        _serviceOperation.AddItem("改装车辆");
+        if (_view.FindSettlement(_settlementId) is Lookup<SettlementView>.Found { Value.Relation: SettlementRelation.PlayerOwned })
+            _serviceOperation.AddItem("拆解车辆");
+        body.AddChild(_serviceOperation);
         _serviceFacility = ServiceChoice(body, "ServiceFacility");
         _serviceBlueprint = ServiceChoice(body, "ServiceBlueprint");
         _serviceVehicle = ServiceChoice(body, "ServiceVehicle");
-        _serviceOperation.ItemSelected += _ => ServiceChanged();
+        _serviceOperation.ItemSelected += _ => { ClearServiceDesign(); ServiceChanged(); };
         _serviceFacility.ItemSelected += index => { _serviceSelectedFacility = index < 0 ? null : _serviceFacilities[(int)index]; ServiceChanged(); };
         _serviceBlueprint.ItemSelected += index =>
         {
             _serviceSelectedBlueprint = index < 0 ? null : _serviceBlueprints[(int)index];
-            PrepareServiceDesign(); ServiceChanged();
+            ClearServiceDesign(); ServiceChanged();
         };
-        _serviceVehicle.ItemSelected += index => { _serviceSelectedVehicle = _serviceVehicles[(int)index]; ServiceChanged(); };
+        _serviceVehicle.ItemSelected += index => { _serviceSelectedVehicle = _serviceVehicles[(int)index]; ClearServiceDesign(); ServiceChanged(); };
+        BuildServiceTargets(body);
         Text(body, "SourceInstructions", "材料来源按下列顺序扣取；委托不足部分由 NPC 补购。来源需明确添加，可留空。");
         _serviceSource = ServiceChoice(body, "ServiceSource");
         var sourceActions = new HFlowContainer(); body.AddChild(sourceActions);
@@ -74,15 +77,16 @@ internal partial class EconomyPanels
         _serviceConfirm = UiStyle.Button("ConfirmService", "确认服务", ConfirmService, true); body.AddChild(_serviceConfirm);
         body.AddChild(UiStyle.Button("RefreshServiceQuote", "重新获取报价", () =>
         {
-            if (_serviceOperation.Selected == 0 && _serviceCandidate is null) PrepareServiceDesign();
-            ServiceChanged();
+            if (!ReadCurrent() || !CanAct) return;
+            _serviceDirty = true; RefreshServices();
+            PrepareServiceDesign(); RequestServiceQuote();
         }));
         _serviceResult = Text(body, "ServiceResult", "完工以核心事件为准；任务从队列消失不代表完工。");
         body.AddChild(UiStyle.Button("FormServiceVehicle", "编组…", () =>
         {
             if (CanAct) FormationRequested?.Invoke(new(_binding, _content.Generation, new WorldObjectId.Node(_settlement!.Node)), _settlement.Node, _view, _content);
         }));
-        Text(body, "ServiceJobsTitle", "NPC 委托队列");
+        Text(body, "ServiceJobsTitle", "施工任务 · NPC 委托与自有任务");
         _serviceJobs = new() { Name = "ServiceJobs" }; body.AddChild(_serviceJobs);
         _serviceDirty = true;
     }
@@ -94,15 +98,17 @@ internal partial class EconomyPanels
 
     private void CloseServices()
     {
-        _serviceCandidate?.Dispose(); _serviceCandidate = null; _serviceDesign = null;
-        _serviceDesignProblem = null;
+        ClearServiceDesign();
         _serviceShownView = null; _serviceShownContent = null; _serviceQuote = null;
         _serviceCompletion = null; _services = null!;
-        _serviceQuoteRejected = false;
     }
 
     private void ServiceChanged()
-    { _serviceDirty = true; _serviceQuoteRejected = false; RefreshServices(); }
+    {
+        ResetQuote(ref _serviceQuote, _serviceDescription);
+        _serviceConfirm.Disabled = true;
+        _serviceDirty = true; RefreshServices();
+    }
 
     private void MoveServiceSource(int offset)
     {
@@ -113,48 +119,34 @@ internal partial class EconomyPanels
         ServiceChanged(); _serviceSourceOrder.Select(next);
     }
 
-    private void PrepareServiceDesign()
-    {
-        _serviceCandidate?.Dispose(); _serviceCandidate = null; _serviceDesign = null;
-        _serviceDesignProblem = null;
-        if (_serviceSelectedBlueprint is not { } address || _content.FindBlueprint(address) is not ContentLookup<BlueprintRecord>.Found blueprint) return;
-        var result = _host.ContentFactory.PrepareEdit(_content, new ContentEdit.ConstructionTarget(blueprint.Value.Definition));
-        if (result is ContentResult<IContentCandidate>.Success success)
-        {
-            _serviceCandidate = success.Value;
-            _serviceDesign = (success.Value.Edit as PreparedContentEdit.ConstructionTarget)?.Design;
-        }
-        else _serviceDesignProblem = result switch
-        {
-            ContentResult<IContentCandidate>.Failure failure => string.Join("\n", failure.Diagnostics.Select(Train.App.Editing.EditorService.Describe)),
-            ContentResult<IContentCandidate>.Faulted fault => $"{fault.Code}：{fault.Message}",
-            _ => "目标设计不可用。"
-        };
-    }
-
     private void RefreshServices()
     {
         if (_services is null || !_services.IsVisibleInTree() || _settlement is null || !Current(_settlementTarget)) return;
-        _serviceConfirm.Disabled = !CanAct || _serviceQuoteRejected || _serviceQuote is not { Blockers.IsEmpty: true } ||
+        _serviceConfirm.Disabled = !CanAct || _serviceQuote is not { Blockers.IsEmpty: true } ||
             (_settlement.Relation != SettlementRelation.PlayerOwned && _serviceQuote.TotalPayment is null);
         if (_host.IsBusy) return;
         if (!_serviceDirty && ReferenceEquals(_serviceShownView, _view) && ReferenceEquals(_serviceShownContent, _content)) return;
+        var refreshTargets = _serviceDirty || !ReferenceEquals(_serviceShownContent, _content);
         _serviceShownView = _view; _serviceShownContent = _content; _serviceDirty = false;
         var facilities = _settlement.Plots.Select(plot => plot.Occupant).OfType<PlotOccupant.Building>()
+            .Where(building => IsServiceBuilding(building.Id))
             .Select(building => new FacilityKey(building.Id, CapabilityKind.Construction)).ToArray();
         SyncServiceChoice(_serviceFacility, _serviceFacilities, facilities, _serviceSelectedFacility,
             ServiceFacilityTitle, "请选择执行建筑");
-        var blueprints = _content.Blueprints.Where(item => item.Design is not null).Where(item =>
-            _content.FindBlueprint(item.Address) is ContentLookup<BlueprintRecord>.Found { Value.Definition.Specification: DesignSpecification.Vehicle }).ToArray();
-        SyncServiceChoice(_serviceBlueprint, _serviceBlueprints, blueprints.Select(item => item.Address), _serviceSelectedBlueprint,
-            id => $"{ServiceLibrary(id.Library)} · {blueprints.First(item => item.Address == id).Display.Name}", "请选择制造蓝图");
+        if (refreshTargets)
+        {
+            var blueprints = _content.Blueprints.Where(item => item.Design is not null).Where(item =>
+                _content.FindBlueprint(item.Address) is ContentLookup<BlueprintRecord>.Found { Value.Definition.Specification: DesignSpecification.Vehicle }).ToArray();
+            SyncServiceChoice(_serviceBlueprint, _serviceBlueprints, blueprints.Select(item => item.Address), _serviceSelectedBlueprint,
+                id => $"{ServiceLibrary(id.Library)} · {blueprints.First(item => item.Address == id).Display.Name}", "请选择制造蓝图");
+        }
         var trains = _view.World.Trains.Select(item => _view.FindTrain(item.Id)).OfType<Lookup<TrainView>.Found>()
             .Select(item => item.Value).Where(train => train.Position is TrainPosition.Node node && node.Id == _settlement.Node).ToArray();
         var vehicles = _settlement.ParkedVehicles.Concat(trains.Where(train => train.Activity == TrainActivity.Stopped && train.SpeedMetersPerSecond == 0)
             .SelectMany(train => train.Vehicles)).Distinct().Where(id => _view.FindInstance(new InstanceId.Vehicle(id)) is
                 Lookup<InstanceView>.Found { Value.Ownership: SettlementRelation.PlayerOwned }).ToArray();
-        SyncChoices(_serviceVehicle, _serviceVehicles, vehicles, _serviceSelectedVehicle, id => $"修理车辆 {id.Value}", "请选择修理车辆");
-        _serviceBlueprint.Visible = _serviceOperation.Selected == 0; _serviceVehicle.Visible = _serviceOperation.Selected == 1;
+        SyncChoices(_serviceVehicle, _serviceVehicles, vehicles, _serviceSelectedVehicle, id => $"车辆 {id.Value}", "请选择车辆");
+        if (refreshTargets) RefreshServiceTargets();
         var sources = trains.Select(train => train.Inventory).Concat(_locals.Where(local => local.Lease is not null || _settlement.Relation == SettlementRelation.PlayerOwned)
             .Select(local => local.Inventory.Id)).Distinct().ToArray();
         var selectedSource = _serviceSource.Selected >= 0 ? _serviceSourceOptions[_serviceSource.Selected] : null;
@@ -165,11 +157,12 @@ internal partial class EconomyPanels
         {
             var id = _serviceSources[index];
             var text = $"{index + 1}. {ServiceSourceTitle(id)}" + (sources.Contains(id) ? "" : " · 已不存在：所选来源或已不可访问");
-            if (index == _serviceSourceOrder.ItemCount) _serviceSourceOrder.AddItem(text); else _serviceSourceOrder.SetItemText(index, text);
+            if (index == _serviceSourceOrder.ItemCount) _serviceSourceOrder.AddItem(text);
+            else if (_serviceSourceOrder.GetItemText(index) != text) _serviceSourceOrder.SetItemText(index, text);
         }
         if (sourceSelection >= 0 && sourceSelection < _serviceSources.Count) _serviceSourceOrder.Select(sourceSelection);
         RefreshServiceJobs();
-        if (!_serviceSubmitting && !_serviceQuoteRejected) RequestServiceQuote(facilities, vehicles, blueprints.Select(item => item.Address).ToArray());
+        ValidateServiceSelection();
     }
 
     private static void SyncServiceChoice<T>(OptionButton choice, List<T> options, IEnumerable<T> values,
@@ -181,32 +174,45 @@ internal partial class EconomyPanels
             if (!next.Contains(options[index])) { choice.RemoveItem(index); options.RemoveAt(index); }
         foreach (var id in next) if (!options.Contains(id)) { options.Add(id); choice.AddItem(""); }
         for (var index = 0; index < options.Count; index++)
-            choice.SetItemText(index, current.Contains(options[index]) ? title(options[index]) : $"已不存在：{options[index]}");
-        choice.Select(selected is null ? -1 : options.IndexOf(selected));
+        {
+            var text = current.Contains(options[index]) ? title(options[index]) : $"已不存在：{options[index]}";
+            if (choice.GetItemText(index) != text) choice.SetItemText(index, text);
+        }
+        var selectedIndex = selected is null ? -1 : options.IndexOf(selected);
+        if (choice.Selected != selectedIndex) choice.Select(selectedIndex);
         if (selected is null) choice.Text = placeholder;
     }
 
-    private void RequestServiceQuote(FacilityKey[] facilities, VehicleId[] vehicles, BlueprintAddress[] blueprints)
+    private void RequestServiceQuote()
     {
         _serviceQuote = null; _serviceConfirm.Disabled = true;
+        if (_serviceOperation.Selected == 2 && _serviceDifference?.CanApplyImmediately == true)
+        { _serviceDescription.Text = "构成未变，请使用单独的「立即应用」；不创建改装任务。"; return; }
         if (_serviceSelectedFacility is not { } facility) { _serviceDescription.Text = "请选择执行建筑；资格由核心报价判断。"; return; }
-        if (!facilities.Contains(facility)) { _serviceDescription.Text = $"已不存在：执行建筑 {facility.Building.Value}"; return; }
+        if (!IsCurrentServiceBuilding(facility)) { _serviceDescription.Text = $"已不存在：执行建筑 {facility.Building.Value}"; return; }
         JobRequest request;
         if (_serviceOperation.Selected == 0)
         {
             if (_serviceSelectedBlueprint is not { } address) { _serviceDescription.Text = "请选择制造蓝图。"; return; }
-            if (!blueprints.Contains(address)) { _serviceDescription.Text = $"已不存在：蓝图 {address}"; return; }
+            if (_content.FindBlueprint(address) is not ContentLookup<BlueprintRecord>.Found) { _serviceDescription.Text = $"已不存在：蓝图 {address}"; return; }
             if (_serviceDesign is null || _serviceCandidate is null)
             { _serviceDescription.Text = _serviceDesignProblem ?? "目标设计尚未准备，请重新获取报价。"; return; }
             if (!ReferenceEquals(_serviceCandidate.Basis, _content))
-            { _serviceDescription.Text = "目标蓝图的内容版本已失效，请重新选择蓝图。"; return; }
+            { _serviceDescription.Text = "目标蓝图的内容版本已失效，请重新获取报价。"; return; }
             request = new JobRequest.BuildVehicle(facility, _serviceDesign, [.. _serviceSources], 0);
         }
         else
         {
-            if (_serviceSelectedVehicle is not { } id) { _serviceDescription.Text = "请选择修理车辆。"; return; }
-            if (!vehicles.Contains(id)) { _serviceDescription.Text = $"已不存在：所选本地玩家车辆 {id.Value}"; return; }
-            request = new JobRequest.Repair(facility, new InstanceId.Vehicle(id), [.. _serviceSources], 0);
+            if (_serviceSelectedVehicle is not { } id) { _serviceDescription.Text = "请选择车辆。"; return; }
+            if (!IsLocalServiceVehicle(id)) { _serviceDescription.Text = $"已不存在：所选本地玩家车辆 {id.Value}"; return; }
+            if (_serviceOperation.Selected == 2 && (_serviceDifference is null || _serviceCandidate is null))
+            { _serviceDescription.Text = _serviceDesignProblem ?? "请先选择已保存的目标并重新获取报价。"; return; }
+            request = _serviceOperation.Selected switch
+            {
+                2 => new JobRequest.Refit(facility, new InstanceId.Vehicle(id), _serviceDifference!.Core, [.. _serviceSources], 0),
+                3 => new JobRequest.Dismantle(facility, new InstanceId.Vehicle(id), 0),
+                _ => new JobRequest.Repair(facility, new InstanceId.Vehicle(id), [.. _serviceSources], 0)
+            };
         }
         var funding = _settlement!.Relation == SettlementRelation.PlayerOwned ? JobFunding.OwnInventory : JobFunding.NpcCommission;
         _serviceQuote = ReadQuote(_view.GetJobQuote(request, funding), _serviceDescription);
@@ -244,58 +250,22 @@ internal partial class EconomyPanels
         CoreCommand command = quote.Funding == JobFunding.OwnInventory ? new CoreCommand.StartOwnedJob(quote.Request)
             : new CoreCommand.CommissionVehicleWork(quote.Request, quote.TotalPayment!.Value);
         _serviceCompletion = null;
-        _serviceSubmitting = true;
-        try
-        {
-            var accepted = _submitTarget(_settlementTarget, command, quote.Request is JobRequest.BuildVehicle ? _serviceCandidate : null);
-            _serviceQuote = null; _serviceConfirm.Disabled = true;
-            _serviceQuoteRejected = true;
-            _serviceResult.Text = accepted is null ? "提交未受理或被拒绝，请查看错误；不会自动重报或重试。" : "任务已受理，等待核心完工事件。";
-            if (accepted is not null && quote.Request is JobRequest.BuildVehicle)
-            { _serviceCandidate?.Dispose(); _serviceCandidate = null; _serviceDesign = null; }
-            if (ReadCurrent()) { _settlementRevision = null; Refresh(_binding, _view, _content); }
-        }
-        finally { _serviceSubmitting = false; }
+        var accepted = _submitTarget(_settlementTarget, command,
+            quote.Request is JobRequest.BuildVehicle or JobRequest.Refit ? _serviceCandidate : null);
+        ResetQuote(ref _serviceQuote, _serviceDescription, "本次报价已使用，请重新获取报价。");
+        _serviceConfirm.Disabled = true;
+        _serviceResult.Text = accepted is null ? "提交未受理或被拒绝，请查看错误；不会自动重报或重试。" : "任务已受理，等待核心完工事件。";
+        if (accepted is not null) ClearServiceDesign();
+        RefreshAfterService(accepted is not null);
     }
 
-    internal void Observe(HostBinding binding, ICoreReadView view, ImmutableArray<EventEnvelope> events)
+    private void RefreshAfterService(bool accepted)
     {
-        if (_serviceObservedBinding != binding)
-        { _serviceObservedBinding = binding; _serviceCompletion = null; }
-        if (_services is null || _settlement is null || _settlementTarget?.Binding != binding) return;
-        foreach (var envelope in events)
-        {
-            if (envelope.Event is not CoreEvent.ConstructionCompleted completed) continue;
-            var createdHere = completed.CreatedInstance is { } instance && view.FindInstance(instance) is
-                Lookup<InstanceView>.Found { Value.Location: WorldLocation.Node node } && node.Id == _settlement.Node;
-            if (createdHere || _settlement.CommissionJobs.Contains(completed.Job))
-            { _serviceCompletion = completed; _serviceDirty = true; }
-        }
-    }
-
-    private void RefreshServiceJobs()
-    {
-        var ids = _settlement!.CommissionJobs.OrderBy(id => id.Value).ToArray();
-        foreach (var id in _serviceJobRows.Keys.Except(ids).ToArray()) { RemoveControl(_serviceJobRows[id]); _serviceJobRows.Remove(id); }
-        foreach (var id in ids)
-        {
-            if (!_serviceJobRows.TryGetValue(id, out var label)) _serviceJobRows.Add(id, label = Text(_serviceJobs, $"ServiceJob_{id.Value}", ""));
-            label.Text = $"任务 {id.Value}：";
-            if (_view.FindJob(id) is Lookup<JobView>.Found { Value: JobView.Construction job })
-            {
-                var value = job.Value;
-                label.Text += $"建筑 {value.Facility.Building.Value} · {ServiceKind(value.Kind)} · {ServiceState(value.State)}\n工作 {value.ProgressWork:0.###}/{value.FrozenTotalWork} · {value.Progress:P1} · 实际 {value.ActualWorkPerSecond:0.###} 工作/秒\n限制：{string.Join("、", value.Limits.Select(ServiceLimit))}\n投入：{ServiceGoods(value.InvestedGoods)}\n" + Problems(value.Blockers);
-            }
-            else label.Text += "已不在当前任务查询中；未收到完工事件。";
-        }
-        if (_serviceCompletion is { } completed)
-        {
-            _serviceResult.Text = $"核心已确认任务 {completed.Job.Value} 完工 · {ServiceKind(completed.Kind)}";
-            if (completed.CreatedInstance is InstanceId.Vehicle vehicle)
-                _serviceResult.Text += _view.FindInstance(vehicle) is Lookup<InstanceView>.Found
-                    ? $" · 新车 {vehicle.Id.Value}，可编组" : $" · 新车 {vehicle.Id.Value} 已不存在";
-            _serviceResult.Text += $"\n返还：{ServiceGoods(completed.ReturnedGoods)}";
-        }
+        var priorBinding = _binding;
+        if (!ReadCurrent()) return;
+        if (accepted && priorBinding == _binding && _settlementTarget is { } target)
+            _settlementTarget = target with { Generation = _content.Generation };
+        _settlementRevision = null; Refresh(_binding, _view, _content);
     }
 
     private static string ServiceLibrary(BlueprintLibrary value) => value switch

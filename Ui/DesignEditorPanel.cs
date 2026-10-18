@@ -39,6 +39,8 @@ internal partial class DesignEditorPanel : Control
     private ConfirmationDialog _confirm = null!;
     private PanelContainer _leave = null!;
     private Button _saveBlueprint = null!;
+    private Button _returnServices = null!;
+    internal event Action<InstanceId>? ServiceRequested;
     internal EditorSceneController Scene => _scene;
     internal void Initialize(EditorService service)
     {
@@ -64,6 +66,12 @@ internal partial class DesignEditorPanel : Control
         Add(bar, "Undo", "撤销", _service.Undo); Add(bar, "Redo", "重做", _service.Redo);
         Add(bar, "SaveDraft", "保存草稿", _service.SaveDraft); _saveBlueprint = UiStyle.Button("SaveBlueprint", "保存蓝图…", SaveBlueprint); bar.AddChild(_saveBlueprint);
         Add(bar, "ExitEditor", "退出", () => _service.RequestClose(() => { }));
+        _returnServices = UiStyle.Button("ReturnToVehicleServices", "返回车辆服务", () =>
+        {
+            if (_service.Target is DraftTarget.Instance { Id: InstanceId.Vehicle vehicle })
+                _service.RequestClose(() => ServiceRequested?.Invoke(vehicle));
+        });
+        bar.AddChild(_returnServices);
         var left = Panel("Tools", "体素与工具", new(8, 64), 270, out var tools);
         _voxel = Choice(tools, []); _voxel.ItemSelected += _ => RefreshShapes();
         _shape = Choice(tools, []); _orientation = Choice(tools, []);
@@ -264,6 +272,7 @@ internal partial class DesignEditorPanel : Control
         Visible = _service.IsOpen; _scene.Process(delta);
         if (!Visible) return;
         _saveBlueprint.Visible = _service.Target is not DraftTarget.PackageDefinition;
+        _returnServices.Visible = _service.Target is DraftTarget.Instance { Id: InstanceId.Vehicle };
         _leave.Visible = _service.Leaving; if (_service.Leaving) _leave.MoveToFront();
         _status.Text = (_service.State is { } active
             ? $"层级 {active.EnteredObject?.Value.ToString() ?? "根"} · 已选 {active.Selection.Length} · " : "")

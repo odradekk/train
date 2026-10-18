@@ -186,6 +186,12 @@ public partial class GameUi : CanvasLayer
             _bar.AddChild(_authoringButton);
         }
         if (_panels is not null) _panels.RefitRequested += _editor.OpenInstance;
+        if (_economy is not null)
+        {
+            _panels!.VehicleServiceRequested += _economy.OpenVehicleServices;
+            _economy.ServiceDesignRequested += _editor.OpenInstance;
+            _editorPanel.ServiceRequested += _economy.OpenVehicleServices;
+        }
         _editor.Changed += OnEditorChanged;
         _menu.SetHostAvailable(_host is not null);
         _menu.NewGameRequested += OpenNewGame;

@@ -55,6 +55,7 @@ internal partial class EconomyPanels : Control
     internal void OpenSettlement(PanelTarget source, SettlementId id)
     {
         if (!ReadCurrent() || source.Binding != _binding || source.Generation != _content.Generation) return;
+        Show();
         RemoveWindow(_settlementPanel);
         _settlementTarget = new(_binding, _content.Generation, new WorldObjectId.Settlement(id));
         _settlementId = id; _settlement = null; _settlementRevision = null; _localId = null; _localOptions.Clear();

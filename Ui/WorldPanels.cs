@@ -27,6 +27,7 @@ public partial class WorldPanels : Control
     internal event Action<PanelTarget, SettlementId>? SettlementRequested;
     internal event Action<PanelTarget, TrainId>? InventoryRequested;
     internal event Action<InstanceId>? RefitRequested;
+    internal event Action<InstanceId>? VehicleServiceRequested;
 
     internal void Initialize(HostCoordinator host,
         Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit, Action<string> reportError)
@@ -160,12 +161,25 @@ public partial class WorldPanels : Control
         }
         if (target is WorldObjectId.Train refitTrain && _view.FindTrain(refitTrain.Id) is Lookup<TrainView>.Found trainForRefit)
             foreach (var vehicle in trainForRefit.Value.Vehicles)
+            {
                 buttons.Add(UiStyle.Button("RefitVehicle", $"改装车辆 {vehicle.Value}…", () => { if (Available(bound)) RefitRequested?.Invoke(new InstanceId.Vehicle(vehicle)); }));
+                if (trainForRefit.Value.Position is TrainPosition.Node)
+                    buttons.Add(UiStyle.Button("VehicleServices", $"车辆 {vehicle.Value} 服务…", () => { if (Available(bound)) VehicleServiceRequested?.Invoke(new InstanceId.Vehicle(vehicle)); }));
+            }
         if (target is WorldObjectId.Node refitNode && _view.FindLocation(new WorldLocation.Node(refitNode.Id)) is Lookup<LocationView>.Found locationForRefit)
             foreach (var vehicle in locationForRefit.Value.Instances.OfType<InstanceId.Vehicle>())
+            {
                 buttons.Add(UiStyle.Button("RefitParkedVehicle", $"改装车辆 {vehicle.Id.Value}…", () => { if (Available(bound)) RefitRequested?.Invoke(vehicle); }));
+                if (_view.FindInstance(vehicle) is Lookup<InstanceView>.Found { Value.Ownership: SettlementRelation.PlayerOwned })
+                    buttons.Add(UiStyle.Button("ParkedVehicleServices", $"车辆 {vehicle.Id.Value} 服务…", () => { if (Available(bound)) VehicleServiceRequested?.Invoke(vehicle); }));
+            }
         if (target is WorldObjectId.Instance instance)
+        {
             buttons.Add(UiStyle.Button("RefitDesign", "改装设计…", () => { if (Available(bound)) RefitRequested?.Invoke(instance.Id); }));
+            if (instance.Id is InstanceId.Vehicle && _view.FindInstance(instance.Id) is Lookup<InstanceView>.Found
+                { Value.Ownership: SettlementRelation.PlayerOwned, Value.Location: WorldLocation.Node })
+                buttons.Add(UiStyle.Button("VehicleServices", "车辆服务…", () => { if (Available(bound)) VehicleServiceRequested?.Invoke(instance.Id); }));
+        }
         foreach (var button in buttons) body.AddChild(button);
         _details.Add(new(bound, panel, text, buttons));
         Refresh(_binding, _view, _content);

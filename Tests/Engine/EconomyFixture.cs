@@ -133,7 +133,7 @@ internal static class EconomyFixture
     internal static FixedContentView Content(ulong generation = 1, bool missingMarketRule = false, int maxLeaseMultiple = 3,
         ImmutableArray<ProcessProjection> processes = default,
         IReadOnlyDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>? definitionDisplays = null,
-        BlueprintRecord? vehicleBlueprint = null)
+        BlueprintRecord? vehicleBlueprint = null, ImmutableArray<SavedContentDraft> drafts = default)
     {
         var icon = new AssetRevision("fixture-food-png");
         var bytes = ImmutableArray.CreateRange(Convert.FromBase64String(
@@ -148,6 +148,7 @@ internal static class EconomyFixture
         };
         return new(projection, new(generation))
         {
+            LocalDrafts = drafts.IsDefault ? [] : drafts,
             Blueprints = vehicleBlueprint is null ? [] : [new(vehicleBlueprint.Address, vehicleBlueprint.Definition.Display,
                 ((DesignEvaluation.Complete)vehicleBlueprint.Evaluation).Design, true, [])],
             BlueprintRecords = vehicleBlueprint is null
@@ -171,8 +172,23 @@ internal static class EconomyFixture
             },
             Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
             {
-                [new("fixture-vehicle")] = new ContentLookup<DesignEvaluation>.Missing([])
+                [new("fixture-vehicle")] = new ContentLookup<DesignEvaluation>.Missing([]),
+                [new("fixture-service-building")] = new ContentLookup<DesignEvaluation>.Found(ServiceBuilding())
             }
         };
+    }
+
+    private static DesignEvaluation.Complete ServiceBuilding()
+    {
+        var definition = new DesignDraft(new("施工建筑", ""),
+            new DesignSpecification.Building(PlotSize.Small, BuildingKind.Construction, []), new([], [], []));
+        var design = new DesignInput(HostCoreScenario.Input,
+            new(new("fixture-service-building"), new("fixture-building-composition"),
+                new DesignKind.Building(PlotSize.Small, BuildingKind.Construction, []),
+                [new(new(1), new CoreDefinitionReference.Voxel(new("fixture:builder")), Food, 100, 1, new(1),
+                    [new PartCapability.Construction(1, PlotSize.Small, SizeClass.Medium)], false)],
+                100, 1, 1, new(1), [], [], 0, [], true, []), []);
+        return new(design.Design.Design, design.Design.Composition, definition, design,
+            new(null, null, null, true, null, null, [], [], [], [], []), true, []);
     }
 }
