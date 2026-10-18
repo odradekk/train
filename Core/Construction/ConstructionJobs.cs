@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using Train.Core.Contracts;
 using Train.Core.World;
 
@@ -11,6 +12,7 @@ internal sealed record ConstructionJobState(JobId Id, SettlementId Settlement, F
     ImmutableArray<JobMaterialSourceView> SourceConsumption, double ProgressWork, ConstructionState State,
     double LastActualWorkPerSecond, ImmutableArray<WorkLimit> LastLimits, ImmutableArray<CoreProblem> Blockers)
 {
+    [JsonRequired] public JobFunding Funding { get; init; }
     internal ConstructionKind Kind => RepairVehicle is null ? ConstructionKind.Construction : ConstructionKind.Repair;
     internal ConstructionTarget Target => RepairVehicle is { } vehicle
         ? new ConstructionTarget.Existing(new InstanceId.Vehicle(vehicle), TargetDesign)
@@ -29,14 +31,15 @@ internal static class ConstructionJobs
         => train.Vehicles.Any(v => InstanceLocked(world, new InstanceId.Vehicle(v)));
 
     internal static CoreProblem? Qualification(WorldState world, CoreContentProjection content,
-        SettlementId settlementId, FacilityKey facility, SizeClass size)
+        SettlementId settlementId, FacilityKey facility, SizeClass size, JobFunding funding = JobFunding.OwnInventory)
     {
         var subject = new WorldObjectId.Instance(new InstanceId.Building(facility.Building));
         var settlement = world.Settlements.SingleOrDefault(s => s.Id == settlementId);
         var instance = world.Instances.SingleOrDefault(i => i.Id == new InstanceId.Building(facility.Building));
         if (settlement is null || instance is null || !settlement.Plots.Any(p => p.Building == facility.Building))
             return new("object_missing", "Facility", subject, []);
-        if (settlement.Relation != SettlementRelation.PlayerOwned || instance.Ownership != SettlementRelation.PlayerOwned)
+        var owner = funding == JobFunding.NpcCommission ? SettlementRelation.NonHostile : SettlementRelation.PlayerOwned;
+        if (settlement.Relation != owner || instance.Ownership != owner)
             return new("not_owned", "Facility", subject, []);
         var design = world.Designs.Single(d => d.Design == instance.Design);
         if (Math.Min(instance.StructureDurability, design.MaxStructureDurability) <= 0)

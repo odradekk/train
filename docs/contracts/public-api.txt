@@ -1037,6 +1037,7 @@ Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|ImmutableArray<
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|Lookup<ScenePose> FindPose(WorldObjectId subject);
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|Lookup<WorldLocation> Locate(Vector3 point);
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|Lookup<double> TerrainHeight(double x, double z);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|SceneNodeOverview? NodeOverview { get; }
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|ScenePanBounds? NodePanBounds { get; }
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|ScenePick Pick(SceneRay ray);
 Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|ScenePoint Origin { get; }
@@ -1128,8 +1129,10 @@ Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneMaterial.BuiltIn|public 
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneMaterial.Voxel|public sealed record Voxel(AssetRevision Texture, MaterialCategory Category, PaintColor? Paint) : SceneMaterial;
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneMaterial|public abstract record SceneMaterial
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneMesh|public sealed record SceneMesh(SceneMaterial Material, ImmutableArray<SceneVertex> Vertices, ImmutableArray<int> TriangleIndices);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneNodeOverview|public sealed record SceneNodeOverview(ImmutableArray<SceneOverviewPlot> Plots, ImmutableArray<ImmutableArray<Vector2>> Tracks);
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneObjectId|public readonly record struct SceneObjectId(ulong Value);
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneObject|public sealed record SceneObject(SceneObjectId Id, SceneObjectId? Parent, ScenePose Pose, WorldObjectId? Subject, ImmutableArray<SceneVisual> Visuals, ImmutableArray<SceneLight> Lights, ImmutableArray<PersistentSceneEffect> Effects);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneOverviewPlot|public sealed record SceneOverviewPlot(int TemplatePlotNumber, PlotSize Size, ImmutableArray<Vector2> Corners);
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.ScenePanBounds|public sealed record ScenePanBounds(Vector2 Minimum, Vector2 Maximum);
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.ScenePick.Hit|public sealed record Hit(SceneHit Value) : ScenePick;
 Train.Scenes.Contracts|type|Train.Scenes.Contracts.ScenePick.Miss|public sealed record Miss : ScenePick;

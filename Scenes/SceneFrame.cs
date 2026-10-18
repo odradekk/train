@@ -50,6 +50,7 @@ internal sealed class SceneFrame : ISceneFrame
     internal ImmutableArray<SceneObject> Objects { get; }
     public ScenePoint Origin { get; }
     public ScenePanBounds? NodePanBounds => node?.PanBounds(Origin);
+    public SceneNodeOverview? NodeOverview { get; }
     public SceneReadiness Readiness { get; }
     public double SimulationSeconds { get; }
     public SceneUpdate Update { get; }
@@ -72,6 +73,7 @@ internal sealed class SceneFrame : ISceneFrame
         Diagnostics = diagnostics;
         this.railway = railway;
         this.node = node;
+        NodeOverview = node?.Overview(origin);
         this.nodeParts = nodeParts.IsDefault ? [] : nodeParts;
         this.segments = segments.IsDefault ? [] : segments;
         this.fog = fog;

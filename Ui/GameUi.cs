@@ -37,6 +37,7 @@ public partial class GameUi : CanvasLayer
     private Button? _returnToMap;
     private Label _clock = null!;
     private MacroMap _map = null!;
+    private NodeMinimap _minimap = null!;
     private WorldPanels? _panels;
     private TrainFormationPanel? _formation;
     private TrainPlanPanel? _plan;
@@ -90,10 +91,16 @@ public partial class GameUi : CanvasLayer
         _map.ObjectClicked += OpenScene;
         _map.DisplayFailed += message =>
         { _logger.Warning("ui", "map_display_failed", message); ShowError(message); };
+        _minimap = new();
+        _world.AddChild(_minimap);
         var top = new PanelContainer { Name = "Bar", ThemeTypeVariation = "TopBar", MouseFilter = Control.MouseFilterEnum.Stop,
             MouseForcePassScrollEvents = false };
         top.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.TopWide);
         _world.AddChild(top);
+        void PositionMinimap() => _minimap.Position = new(Math.Max(8, _world.Size.X - _minimap.Size.X - 12),
+            top.Position.Y + top.Size.Y + 8);
+        top.Resized += PositionMinimap;
+        _world.Resized += PositionMinimap;
         _bar = new HFlowContainer { Name = "TopBar" };
         _bar.AddThemeConstantOverride("h_separation", 12);
         top.AddChild(_bar);
@@ -198,6 +205,8 @@ public partial class GameUi : CanvasLayer
         var showingScene = _scenes?.View.Visible == true;
         var status = _host?.GetStatus();
         var editing = _editor.IsOpen || _authoring?.Form is not null;
+        if (editing) _minimap.Clear();
+        else _minimap.Refresh(_scenes, status?.View, status?.Binding ?? default, delta);
         if (_authoringButton is not null)
         {
             _authoringButton.Visible = _authoring!.CanUse;
