@@ -214,8 +214,8 @@ internal static class ConstructionCommands
                     unavailable.Add(WorldReferences.GoodKey(good.Key));
                     continue;
                 }
-                foreach (var price in MarketPrices.Goods(pricingWorld, content, good.Key, true, market, stock, good.Value))
-                    payment = checked(payment + price.Value);
+                foreach (var (price, quantity) in MarketPrices.Goods(pricingWorld, content, good.Key, true, market, stock, good.Value))
+                    payment = checked(payment + price.Value * quantity);
                 var purchase = new GoodsQuantity(good.Key, good.Value);
                 purchases.Add(purchase);
                 pricingWorld = Consume(pricingWorld, [new(settlement.Inventory, [purchase])]);
