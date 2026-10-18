@@ -351,8 +351,18 @@ internal sealed partial class NodeLayout
         samples = points.ToImmutable();
     }
     internal bool ContainsPlot(ScenePoint point) => Template is { } template && NodeSettlement.ContainsPlot(template, point);
-    internal bool ClearOfTracks(ScenePoint point, double clearance) => samples.All(sample =>
-        Math.Pow(point.X - sample.Position.X, 2) + Math.Pow(point.Z - sample.Position.Z, 2) >= Math.Pow(clearance + 1, 2));
+    internal bool ClearOfTracks(ScenePoint point, double clearance)
+    {
+        var minimum = clearance + 1;
+        var minimumSquared = minimum * minimum;
+        foreach (var sample in samples)
+        {
+            var x = point.X - sample.Position.X;
+            var z = point.Z - sample.Position.Z;
+            if (!(x * x + z * z >= minimumSquared)) return false;
+        }
+        return true;
+    }
 
     private static (double Lateral, double Forward) ArcSpans(double theta, double phi, double radius) =>
         (radius * (1 + Math.Cos(theta) - 2 * Math.Cos(phi)), radius * (2 * Math.Sin(phi) - Math.Sin(theta)));
