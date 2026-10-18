@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
+using System.Numerics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
+using Train.Content.ContractSupport;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
 
@@ -117,18 +119,135 @@ public sealed class NodeLifecycleTests
         session.Observe(changed, []);
         var after = await RailwayFixtures.Settled(session, Request);
         Assert.AreEqual(SceneReadiness.Ready, after.Readiness);
-        Assert.AreEqual(1, builds);
-        var afterGeometry = after.Update.Upserts.Where(item => item.Subject is null).SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Select(item => item.Mesh).ToArray();
-        Assert.AreEqual(geometry.Length, afterGeometry.Length);
-        for (var index = 0; index < geometry.Length; index++) Assert.AreSame(geometry[index], afterGeometry[index]);
-        Assert.AreEqual(!platforms, after.Diagnostics.Any(problem => problem.Code == "railway_update_pending"));
+        Assert.AreEqual(platforms ? 1 : 2, builds);
+        if (platforms)
+        {
+            var afterGeometry = after.Update.Upserts.Where(item => item.Subject is null).SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Select(item => item.Mesh).ToArray();
+            Assert.AreEqual(geometry.Length, afterGeometry.Length);
+            for (var index = 0; index < geometry.Length; index++) Assert.AreSame(geometry[index], afterGeometry[index]);
+        }
+        Assert.IsFalse(after.Diagnostics.Any(problem => problem.Code == "railway_update_pending"));
+        Assert.IsFalse(after.Diagnostics.Any(problem => problem.Detail.Contains("345")));
         Assert.AreEqual(before.NodePanBounds, after.NodePanBounds);
         if (openingTracks == 0)
         {
             var subject = new WorldObjectId.Instance(new InstanceId.Vehicle(new(1)));
             Assert.IsInstanceOfType<Lookup<ScenePose>.Found>(after.FindPose(subject));
-            Assert.IsTrue(after.Objects.Where(item => item.Subject == subject).All(item => item.Visuals.IsEmpty));
+            Assert.IsTrue(after.Objects.Where(item => item.Subject == subject).Any(item => !item.Visuals.IsEmpty));
         }
+    }
+
+    [TestMethod]
+    public async Task AddedEntryTrackKeepsUntouchedPartsAndBuildsBallast()
+    {
+        var ballast = new VoxelDefinitionId("test:ballast");
+        var basis = NodeFixtures.Content(rules: RailwayFixtures.Rules with { BallastVoxel = ballast, MinimumCurveRadiusMeters = 1 });
+        var vehicle = RailwayFixtures.Vehicle();
+        var vehicleHash = vehicle is DesignEvaluation.Complete complete ? complete.Design : SceneFixtures.Design;
+        var designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+        {
+            [vehicleHash] = new ContentLookup<DesignEvaluation>.Found(vehicle),
+            [NodeFixtures.StationDesign] = basis.FindDesign(NodeFixtures.StationDesign)
+        };
+        if (vehicleHash != SceneFixtures.Design) designs[SceneFixtures.Design] = basis.FindDesign(SceneFixtures.Design);
+        var content = new FixedContentView
+        {
+            Generation = basis.Generation, Core = basis.Core,
+            Voxels = [new(NodeFixtures.Concrete, null), new(SceneFixtures.Voxel, null), new(ballast, null)],
+            Designs = designs,
+            SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
+            { [new(1)] = basis.FindSettlementLayout(new(1)) },
+            VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
+            {
+                [SceneFixtures.Voxel] = basis.FindVoxelAppearance(SceneFixtures.Voxel),
+                [NodeFixtures.Concrete] = basis.FindVoxelAppearance(NodeFixtures.Concrete),
+                [ballast] = new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube with { Definition = ballast })
+            },
+            Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
+            { [RailwayFixtures.Terrain] = basis.FindTerrain(RailwayFixtures.Terrain) },
+            RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>
+            { [RailwayFixtures.Rule] = basis.FindRailwayAppearance(RailwayFixtures.Rule) }
+        };
+        var initial = NodeFixtures.Snapshot(platforms: 0, tracks: 0, trackLimit: 2, trains: [], content: content);
+        initial = RailwayFixtures.ReplaceCore(initial, node: initial.Core.World.Nodes[0] with
+            { Occupant = new NodeOccupant.Empty(), Platforms = 0 });
+        initial = RailwayFixtures.ReplaceCore(initial, node: initial.Core.World.Nodes[1] with { Position = new(40, 0) });
+        initial = RailwayFixtures.ReplaceCore(initial, node: initial.Core.World.Nodes[2] with { Position = new(0, -40) });
+        initial = RailwayFixtures.ReplaceCore(initial, edge: initial.Core.World.Edges[0] with { LengthMeters = 50 });
+        // The other entry already has a track, so the shared terrain key already includes ballast.
+        initial = RailwayFixtures.ReplaceCore(initial, edge: initial.Core.World.Edges[1] with { Tracks = 1, LengthMeters = 50 });
+        var changed = RailwayFixtures.ReplaceCore(initial, edge: initial.Core.World.Edges[0] with { Tracks = 1 });
+        var route = NodeLayout.Build(changed, NodeFixtures.NodeId);
+        var added = route.EntryRoutes(route.Entries.Single(item => item.Edge.Value == 1), 1).First();
+        var at = added.Sample(Math.Min(64, added.Length / 2)).Position;
+        var bedChunk = new GridColumn((int)Math.Floor(at.X / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize,
+            (int)Math.Floor(at.Z / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize);
+        var ids = new Dictionary<string, SceneObjectId>();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = new NodeScene(initial, NodeFixtures.NodeId, new(), key =>
+            ids.TryGetValue(key, out var id) ? id : ids[key] = new((ulong)ids.Count + 1), vehicles, new(),
+            buildChunk: (data, from, old, token) =>
+            {
+                if (old?.Inputs == data.ChunkInputs(from)) return old;
+                if (data.BedChunks.ContainsKey(from) && Math.Abs(from.X - bedChunk.X) <= VoxelGrid.ChunkSize * 2 &&
+                    Math.Abs(from.Z - bedChunk.Z) <= VoxelGrid.ChunkSize * 2)
+                    return data.BuildChunk(from, old, token);
+                var mesh = new SceneMesh(new SceneMaterial.BuiltIn(BuiltInMaterial.Sleeper),
+                    [new SceneVertex(new(from.X, 0, from.Z), Vector3.UnitY, Vector2.Zero, Vector2.Zero, ExposedFaceEdges.None, 0, 0)], [0, 0, 0]);
+                return new(data.ChunkInputs(from), WorldSceneSession.BuildGeometry(id => new([new(id(""), null, SceneFixtures.Identity, null,
+                    [new SceneVisual.Geometry(mesh, new(false, 0, 0, false))], [], [])], [], [])), ImmutableDictionary<GridColumn, double>.Empty);
+            });
+        var before = await Settle(scene, initial, at);
+        scene.Present(changed, Request, NodeFixtures.NextStamp(scene), before, default);
+        await SceneFixtures.AwaitPendingWork(scene.PendingWork);
+        var held = scene.Present(changed, Request, NodeFixtures.NextStamp(scene), before, default);
+        var settled = await Settle(scene, changed);
+        var after = scene.Present(changed, Request, NodeFixtures.NextStamp(scene), held, default);
+
+        var boundary = ids["node:boundary:2:"];
+        Assert.AreSame(Mesh(before, boundary), Mesh(held, boundary));
+        Assert.AreSame(Mesh(held, boundary), Mesh(after, boundary));
+        Assert.IsFalse(after.Update.Upserts.Any(item => item.Id == boundary));
+        var terrain = ids.Where(pair => TerrainRoot.IsMatch(pair.Key)).Select(pair => pair.Value)
+            .Where(id => Mesh(before, id) is not null && Mesh(held, id) is not null && Mesh(after, id) is not null).ToArray();
+        var affected = terrain.Where(id => !ReferenceEquals(Mesh(held, id), Mesh(after, id))).ToArray();
+        var untouched = terrain.Where(id => ReferenceEquals(Mesh(before, id), Mesh(after, id))).ToArray();
+        Assert.IsTrue(affected.Length > 0, "The new bed must rebuild a displayed chunk.");
+        Assert.IsTrue(untouched.Length > 0, "Chunks outside the new bed keep their mesh.");
+        foreach (var id in affected)
+        {
+            Assert.AreSame(Mesh(before, id), Mesh(held, id), "The previous chunk stays until its replacement connects.");
+            Assert.IsTrue(after.Update.Upserts.Any(item => item.Id == id));
+        }
+        foreach (var id in untouched) Assert.IsFalse(after.Update.Upserts.Any(item => item.Id == id));
+        Assert.IsTrue(affected.Any(id => after.Picking.Where(pick => pick.Object == id)
+            .Any(pick => pick.Grid.Cells.Any(cell => cell.Appearance?.Definition == ballast))), "The new entry route has ballast.");
+        Assert.AreEqual(before.NodePanBounds, settled.NodePanBounds);
+        Assert.IsFalse(after.Diagnostics.Any(problem => problem.Detail.Contains("345") || problem.Code == "railway_update_pending"));
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex TerrainRoot = new("^node:terrain:-?\\d+:-?\\d+:$",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    private static SceneMesh? Mesh(SceneFrame frame, SceneObjectId id) =>
+        frame.Objects.Single(item => item.Id == id).Visuals.OfType<SceneVisual.Geometry>().Select(visual => visual.Mesh).FirstOrDefault();
+
+    private static async Task<SceneFrame> Settle(NodeScene scene, SceneWorldSnapshot snapshot, ScenePoint? focus = null)
+    {
+        if (scene.BuildWork is not null) await scene.BuildWork;
+        if (focus is { } point) scene.Pump(snapshot, point);
+        SceneFrame? frame = null;
+        SceneFrame? displayed = null;
+        while (true)
+        {
+            var work = scene.PendingWork;
+            await SceneFixtures.AwaitPendingWork(work);
+            var next = scene.Present(snapshot, Request, NodeFixtures.NextStamp(scene), displayed, default);
+            var changed = frame is null || !frame.Objects.Select(item => item.Id).ToHashSet().SetEquals(next.Objects.Select(item => item.Id));
+            frame = next;
+            if (frame.Readiness is SceneReadiness.Partial or SceneReadiness.Ready) displayed = frame;
+            if (work.Length == 0 && scene.PendingWork.Length == 0 && !changed && frame.Readiness is not SceneReadiness.Loading) break;
+        }
+        return frame;
     }
 
     private static SceneWorldSnapshot Small(TrainView train, ulong steps)

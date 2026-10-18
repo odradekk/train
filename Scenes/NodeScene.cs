@@ -166,6 +166,10 @@ internal sealed class NodeScene : IAsyncDisposable
     private sealed record PlatformMap(ImmutableArray<NodeLayout.Stop> Stops, ImmutableArray<SceneProblem> Problems);
     private readonly ConditionalWeakTable<SceneWorldSnapshot, PlatformMap> platformMaps = new();
     private readonly Task<Preparation>? pending;
+    private readonly Func<SceneWorldSnapshot, NodeId, Cached?, CancellationToken, Built>? nodeBuild;
+    private Task<Preparation>? refresh;
+    private readonly List<SceneProblem> reported = [];
+    internal bool AcceptTrackChanges { get; set; } = true;
     private sealed record PartWork(Task<Part> Task, CancellationTokenSource Cancellation, SceneBounds Bounds, GridColumn? Chunk);
     private sealed record CompletedPart(Part Part, SceneBounds Bounds, GridColumn? Chunk)
     {
@@ -213,6 +217,7 @@ internal sealed class NodeScene : IAsyncDisposable
         get
         {
             lock (workGate) return (pending is not null && prepared is null && failure is null ? new Task[] { pending } : [])
+                .Concat(refresh is not null && failure is null ? [refresh] : [])
                 .Concat(pendingParts.Values.Select(work => work.Task)).Concat(retiring.Select(work => work.Task))
                 .Concat(vehicles.PendingWork).Concat(settlement.PendingWork).ToArray();
         }
@@ -222,7 +227,7 @@ internal sealed class NodeScene : IAsyncDisposable
     {
         get
         {
-            lock (workGate) return !Failed && prepared is null || waitingParts.Count > 0 ||
+            lock (workGate) return !Failed && prepared is null || refresh is not null || waitingParts.Count > 0 ||
                 pendingParts.Values.Concat(retiring).Any(work => !work.Task.IsCompleted) ||
                 vehicles.HasPendingBuilds || settlement.HasPendingBuilds;
         }
@@ -235,7 +240,7 @@ internal sealed class NodeScene : IAsyncDisposable
         Func<Preparation, GridColumn, Part?, CancellationToken, Part>? buildChunk = null,
         Func<Preparation, RailSegment, Part?, CancellationToken, Part>? buildRail = null, bool background = false)
     {
-        Node = node; this.cache = cache; this.objectId = objectId; owner = cache.Open(node);
+        Node = node; this.cache = cache; this.objectId = objectId; owner = cache.Open(node); this.nodeBuild = generate;
         this.vehicles = vehicles;
         this.displayRate = displayRate;
         this.buildChunk = buildChunk ?? ((data, from, old, token) => data.BuildChunk(from, old, token));
@@ -252,8 +257,8 @@ internal sealed class NodeScene : IAsyncDisposable
         pending = Task.Run(() =>
         {
             var currentLayout = layout ?? NodeLayout.Build(initial, node, cancellation.Token);
-            return generate is null ? Prepare(initial, currentLayout, previous, cancellation.Token) :
-                new Preparation(initial, generate(initial, node, previous, cancellation.Token), null, default, [], [], [], [], "", [], false);
+            return nodeBuild is null ? Prepare(initial, currentLayout, previous, cancellation.Token) :
+                new Preparation(initial, nodeBuild(initial, node, previous, cancellation.Token), null, default, [], [], [], [], "", [], false);
         }, cancellation.Token);
     }
     private void InitializeRange(NodeLayout value)
@@ -268,6 +273,7 @@ internal sealed class NodeScene : IAsyncDisposable
     {
         SetBuildAllowed(allowBuild);
         if (current is not null) snapshot = current;
+        AcceptRefresh();
         if (cancellation.IsCancellationRequested || failure is not null) return;
         if (enteringTrain is { Position: TrainPosition.Edge entering } && Layout is { } candidateLayout &&
             candidateLayout.TrainEntry(entering.Id) is { } entry)
@@ -317,9 +323,118 @@ internal sealed class NodeScene : IAsyncDisposable
         lock (workGate) ReconcileParts();
         cache.Publish(Node, owner, built! with
         { Parts = prepared.Global.Parts.SetItems(chunks.Select(item => new KeyValuePair<string, Part>(ChunkKey(item.Key), item.Value))).SetItems(rails) });
+        ScheduleRefresh();
+    }
+
+    private void AcceptRefresh(SceneWorldSnapshot? current = null)
+    {
+        if (current is not null) snapshot = current;
+        var task = refresh;
+        if (task?.IsCompleted != true) return;
+        refresh = null;
+        if (cancellation.IsCancellationRequested || failure is not null) return;
+        try
+        {
+            var next = task.GetAwaiter().GetResult();
+            if (EntryTracksDiffer(snapshot, next.Global.Layout))
+            {
+                ScheduleRefresh();
+                return;
+            }
+            Adopt(next);
+        }
+        catch (RailwayBuildException error) { Fail(error); }
+        catch (OperationCanceledException) { }
+    }
+
+    private void ScheduleRefresh()
+    {
+        if (!AcceptTrackChanges || refresh is not null || layout is null || prepared is null || failure is not null ||
+            cancellation.IsCancellationRequested || !EntryTracksDiffer(snapshot, layout)) return;
+        var captured = snapshot;
+        var node = Node;
+        var previous = cache.Read(node);
+        var token = cancellation.Token;
+        var build = nodeBuild;
+        refresh = Task.Run(() =>
+        {
+            var newLayout = NodeLayout.Build(captured, node, token);
+            return build is null ? Prepare(captured, newLayout, previous, token) :
+                new Preparation(captured, build(captured, node, previous, token), null, default, [], [], [], [], "", [], false);
+        }, token);
+    }
+
+    private static bool EntryTracksDiffer(SceneWorldSnapshot snapshot, NodeLayout layout)
+    {
+        foreach (var entry in layout.Entries)
+        {
+            var tracks = snapshot.Core.World.Edges.FirstOrDefault(edge => edge.Id == entry.Edge)?.Tracks;
+            if (tracks is not null && tracks != layout.EntryTracks.GetValueOrDefault(entry.Edge)) return true;
+        }
+        return false;
+    }
+
+    private void Adopt(Preparation next)
+    {
+        RetireStreaming();
+        var previousBuilt = built;
+        prepared = next;
+        built = next.Global;
+        layout = next.Global.Layout;
+        if (previousBuilt is not null)
+            foreach (var key in previousBuilt.Parts.Keys)
+                if (!built.Parts.ContainsKey(key)) attached.Remove(key);
+        foreach (var part in built.Parts.OrderBy(item => item.Key, StringComparer.Ordinal))
+        {
+            if (previousBuilt?.Parts.TryGetValue(part.Key, out var old) == true && ReferenceEquals(old, part.Value)) continue;
+            Attach(part.Key, part.Value);
+        }
+        foreach (var key in rails.Keys.Where(key => !next.Rails.ContainsKey(key)).ToArray())
+        {
+            rails.Remove(key);
+            attached.Remove(key);
+            railFogDirty = true;
+        }
+    }
+
+    private void RetireStreaming()
+    {
+        lock (workGate)
+        {
+            foreach (var key in pendingParts.Keys.ToArray())
+            {
+                var work = pendingParts[key];
+                work.Cancellation.Cancel();
+                retiring.Add(work);
+                pendingParts.Remove(key);
+            }
+            completedParts.Clear();
+            waitingParts.Clear();
+        }
+    }
+
+    internal bool NearPrepared => failure is null && StructuresReady(NodeStreaming.NearCells) &&
+        !settlement.HasPendingBuilds && !vehicles.HasPendingBuilds;
+    internal void MarkNearReady()
+    {
+        if (NearPrepared) nearCompleted = true;
+    }
+    internal SceneProblem? Failure => failure;
+    internal void Report(SceneProblem problem) => reported.Add(problem);
+
+    private bool StructuresReady(double radius)
+    {
+        if (prepared is null || layout is null) return false;
+        var needed = range.Around(radius);
+        if (prepared.HasChunks && needed.Chunks(layout).Any(from => !chunks.TryGetValue(from, out var shown) ||
+            shown.Inputs != prepared.ChunkInputs(from))) return false;
+        return !prepared.Rails.Values.Any(segment => needed.Intersects(segment.Bounds) &&
+            (!rails.TryGetValue(segment.Key, out var shown) || shown.Inputs != segment.Inputs));
     }
 
     private void Attach(string key, Part part) => attached[key] = WorldSceneSession.Attach(part.Geometry, "node:" + key + ":", objectId);
+    private string? CurrentInputs(string key, GridColumn? chunk) => prepared is null ? null : chunk is { } from ? prepared.ChunkInputs(from) :
+        prepared.Rails.TryGetValue(key, out var segment) ? segment.Inputs : null;
     internal static string ChunkKey(GridColumn from) => "terrain:" + from.X + ":" + from.Z;
 
     private void ReconcileParts()
@@ -336,8 +451,8 @@ internal sealed class NodeScene : IAsyncDisposable
         }
         foreach (var from in chunks.Keys.Where(from => !retention.Intersects(from) && !prefetch.Intersects(from)).ToArray())
         { chunks.Remove(from); attached.Remove(ChunkKey(from)); }
-        foreach (var key in rails.Keys.Where(key => !retention.Intersects(prepared!.Rails[key].Bounds) &&
-            !prefetch.Intersects(prepared.Rails[key].Bounds)).ToArray())
+        foreach (var key in rails.Keys.Where(key => !prepared!.Rails.TryGetValue(key, out var segment) ||
+            !retention.Intersects(segment.Bounds) && !prefetch.Intersects(segment.Bounds)).ToArray())
         { rails.Remove(key); attached.Remove(key); railFogDirty = true; }
         foreach (var key in pendingParts.Where(pair => pair.Value.Task.IsCompleted).Select(pair => pair.Key).ToArray())
         {
@@ -346,7 +461,8 @@ internal sealed class NodeScene : IAsyncDisposable
             try
             {
                 var part = work.Task.GetAwaiter().GetResult() with { Bounds = work.Bounds };
-                completedParts.Add(key, new(part, work.Bounds, work.Chunk));
+                if (CurrentInputs(key, work.Chunk) == part.Inputs)
+                    completedParts.Add(key, new(part, work.Bounds, work.Chunk));
             }
             catch (OperationCanceledException) when (work.Cancellation.IsCancellationRequested) { }
             catch (RailwayBuildException error) { Fail(error); }
@@ -362,11 +478,16 @@ internal sealed class NodeScene : IAsyncDisposable
         AdmitCompletedParts();
         var neededChunks = range.Chunks(layout!);
         if (prefetch.Focus != range.Focus) neededChunks = neededChunks.Concat(prefetch.Chunks(layout!)).Distinct();
-        var terrain = prepared!.HasChunks ? neededChunks.Where(from => !chunks.ContainsKey(from) &&
-                !pendingParts.ContainsKey(ChunkKey(from)) && !completedParts.ContainsKey(ChunkKey(from)))
-            .Select(from => (Key: ChunkKey(from), Bounds: ChunkBounds(from), Chunk: (GridColumn?)from)) : [];
-        var tracks = prepared.Rails.Values.Where(segment => !rails.ContainsKey(segment.Key) && !pendingParts.ContainsKey(segment.Key) &&
-                !completedParts.ContainsKey(segment.Key) && (range.Intersects(segment.Bounds) || prefetch.Intersects(segment.Bounds)))
+        var terrain = prepared!.HasChunks ? neededChunks.Where(from =>
+            {
+                var key = ChunkKey(from);
+                var current = chunks.TryGetValue(from, out var shown) && shown.Inputs == prepared.ChunkInputs(from);
+                return !current && !pendingParts.ContainsKey(key) && !completedParts.ContainsKey(key);
+            }).Select(from => (Key: ChunkKey(from), Bounds: ChunkBounds(from), Chunk: (GridColumn?)from)) : [];
+        var tracks = prepared.Rails.Values.Where(segment =>
+                (!rails.TryGetValue(segment.Key, out var shown) || shown.Inputs != segment.Inputs) &&
+                !pendingParts.ContainsKey(segment.Key) && !completedParts.ContainsKey(segment.Key) &&
+                (range.Intersects(segment.Bounds) || prefetch.Intersects(segment.Bounds)))
             .Select(segment => (segment.Key, segment.Bounds, Chunk: (GridColumn?)null));
         waitingParts = new(terrain.Concat(tracks).OrderBy(item => Priority(item.Bounds)).ThenBy(item => item.Key, StringComparer.Ordinal));
         StartParts();
@@ -448,8 +569,8 @@ internal sealed class NodeScene : IAsyncDisposable
             if (nearCompleted && count > 0 && (vertices + ready.Vertices > NodeStreaming.AdmissionVertexLimit ||
                 visuals + ready.Visuals > NodeStreaming.AdmissionVisualLimit ||
                 pathBatch && priority.Distance != 0)) break;
-            if (ready.Chunk is { } from) chunks.Add(from, ready.Part);
-            else { rails.Add(key, ready.Part); railFogDirty = true; }
+            if (ready.Chunk is { } from) chunks[from] = ready.Part;
+            else { rails[key] = ready.Part; railFogDirty = true; }
             Attach(key, ready.Part);
             completedParts.Remove(key);
             vertices += ready.Vertices;
@@ -470,8 +591,10 @@ internal sealed class NodeScene : IAsyncDisposable
             var item = waitingParts.Dequeue();
             var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
             var data = prepared!;
-            var task = Task.Run(() => item.Chunk is { } from ? buildChunk(data, from, null, stop.Token) :
-                buildRail(data, data.Rails[item.Key], null, stop.Token), stop.Token);
+            var oldChunk = item.Chunk is { } column ? chunks.GetValueOrDefault(column) : null;
+            var oldRail = item.Chunk is null ? rails.GetValueOrDefault(item.Key) : null;
+            var task = Task.Run(() => item.Chunk is { } from ? buildChunk(data, from, oldChunk, stop.Token) :
+                buildRail(data, data.Rails[item.Key], oldRail, stop.Token), stop.Token);
             pendingParts.Add(item.Key, new(task, stop, item.Bounds, item.Chunk));
             _ = task.ContinueWith(_ => { lock (workGate) StartParts(); }, CancellationToken.None,
                 TaskContinuationOptions.None, TaskScheduler.Default);
@@ -494,6 +617,7 @@ internal sealed class NodeScene : IAsyncDisposable
             admissionFrame = null;
         }
         if (layout is null && pending?.IsCompleted == true) Pump(snapshot, allowBuild: false);
+        AcceptRefresh(snapshot);
         var (start, seconds) = SceneFrame.SampleTime(snapshot, previous, request.Interpolation);
         displayRate.Update(seconds);
         var objects = ImmutableArray.CreateBuilder<SceneObject>();
@@ -525,18 +649,19 @@ internal sealed class NodeScene : IAsyncDisposable
             if (layout.Template is null && snapshot.Core.World.Nodes.Single(item => item.Id == Node).Occupant is NodeOccupant.Settlement owner)
             {
                 var lookup = snapshot.Content.FindSettlementLayout(owner.Id);
-                if (lookup is ContentLookup<SettlementLayoutProjection>.Found)
-                    problems.Add(new("railway_update_pending", SceneStage.Reconcile, new WorldObjectId.Node(Node), null, null, null,
-                        "The settlement was founded after this layout opened; railway updates are implemented by Issue #345."));
-                else
+                if (lookup is not ContentLookup<SettlementLayoutProjection>.Found)
                 {
-                    if (lookup is ContentLookup<SettlementLayoutProjection>.Missing missing) DesignGeometry.AddDiagnostics(missing.Diagnostics, problems, new WorldObjectId.Node(Node));
-                    problems.Add(new("content_missing", SceneStage.Input, new WorldObjectId.Node(Node), null, null, null, "The settlement layout copy is missing."));
+                    if (lookup is ContentLookup<SettlementLayoutProjection>.Missing missing)
+                        DesignGeometry.AddDiagnostics(missing.Diagnostics, problems, new WorldObjectId.Node(Node));
+                    problems.Add(new("content_missing", SceneStage.Input, new WorldObjectId.Node(Node), null, null, null,
+                        "The settlement layout copy is missing."));
                 }
             }
             Add(settlement.Present(snapshot, layout, origin, fog, range, chunks.Keys, prefetch));
         }
         if (failure is not null) problems.Add(failure);
+        foreach (var problem in reported) problems.Add(problem);
+        reported.Clear();
         bool Complete(double radius)
         {
             if (prepared is null) return false;
@@ -924,7 +1049,7 @@ internal sealed class NodeScene : IAsyncDisposable
             var changed = !available || entry is not null &&
                 snapshot.Core.World.Edges.FirstOrDefault(edge => edge.Id == entry.Edge)?.Tracks != layout.EntryTracks.GetValueOrDefault(entry.Edge);
             if (changed) problems.Add(new("railway_update_pending", SceneStage.Reconcile, new WorldObjectId.Train(train.Id),
-                null, null, null, "Node track counts use the opening snapshot; updates are implemented by Issue #345."));
+                null, null, null, "Node track counts still use the previous layout until the replacement connects."));
             var consumed = 0.0;
             for (var i = 0; i < members.Length; i++)
             {
@@ -1028,7 +1153,8 @@ internal sealed class NodeScene : IAsyncDisposable
             completedParts.Clear();
             parts = pendingParts.Values.Concat(retiring).ToArray();
             foreach (var work in parts) work.Cancellation.Cancel();
-            ownedWork = (pending is null ? Array.Empty<Task>() : [pending]).Concat(parts.Select(item => item.Task)).ToArray();
+            ownedWork = (pending is null ? Array.Empty<Task>() : [pending]).Concat(refresh is null ? [] : [refresh])
+                .Concat(parts.Select(item => item.Task)).ToArray();
         }
         try { await Task.WhenAll(ownedWork).ConfigureAwait(false); }
         catch (Exception) { /* Retired scene work cannot be attached or published. */ }

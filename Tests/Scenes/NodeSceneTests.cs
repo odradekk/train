@@ -486,18 +486,63 @@ public sealed class NodeSceneTests
     }
 
     [TestMethod]
-    public async Task SettlementCreatedAfterOpeningReportsPendingRailwayUpdateRatherThanMissingCopy()
+    public async Task SettlementFoundedAfterOpeningReplacesTheSceneInTheSameSpace()
     {
         var founded = CopiedSettlement(1, terrain: false);
         var empty = RailwayFixtures.ReplaceCore(founded, node: founded.Core.World.Nodes[0] with
             { Occupant = new NodeOccupant.Empty(), Platforms = 0 });
         await using var session = Open(empty);
         session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location));
-        await RailwayFixtures.Settled(session, new(1, null, SceneDebugLayer.None));
+        var before = await RailwayFixtures.Settled(session, new(1, null, SceneDebugLayer.None));
         session.Observe(founded, []);
-        var frame = await RailwayFixtures.Settled(session, new(1, null, SceneDebugLayer.None));
-        Assert.IsTrue(frame.Diagnostics.Any(problem => problem.Code == "railway_update_pending" && problem.Detail.Contains("345")));
-        Assert.IsFalse(frame.Diagnostics.Any(problem => problem.Code == "content_missing" && problem.Detail.Contains("layout copy")));
+        var held = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(new(1, null, SceneDebugLayer.None), before)).Value;
+        Assert.AreEqual(before.NodePanBounds, held.NodePanBounds);
+        Assert.AreEqual(before.Update.Frame.Session, held.Update.Frame.Session);
+        Assert.AreEqual(before.Update.Frame.Request, held.Update.Frame.Request);
+        Assert.AreEqual(before.Update.Frame.Space, held.Update.Frame.Space);
+        Assert.IsFalse(held.Diagnostics.Any(problem => problem.Detail.Contains("345") || problem.Detail.Contains("layout copy")));
+        var after = await RailwayFixtures.Settled(session, new(1, null, SceneDebugLayer.None), before);
+        Assert.AreEqual(before.Update.Frame.Session, after.Update.Frame.Session);
+        Assert.AreEqual(before.Update.Frame.Request, after.Update.Frame.Request);
+        Assert.AreEqual(before.Update.Frame.Space, after.Update.Frame.Space);
+        Assert.AreNotEqual(SceneReadiness.Loading, after.Readiness);
+        Assert.AreEqual(NodeLayout.Build(founded, NodeFixtures.NodeId).PanBounds(after.Origin), after.NodePanBounds);
+        Assert.AreNotEqual(before.NodePanBounds, after.NodePanBounds);
+        Assert.IsTrue(after.Objects.Any(item => item.Subject is WorldObjectId.Instance && before.Objects.All(old => old.Id != item.Id)));
+        Assert.IsFalse(after.Diagnostics.Any(problem => problem.Code == "railway_update_pending"));
+        Assert.IsFalse(after.Diagnostics.Any(problem => problem.Code == "content_missing" && problem.Detail.Contains("layout copy")));
+    }
+
+    [TestMethod]
+    public async Task FoundedReplacementFailureStaysOnTheOpenScene()
+    {
+        var founded = CopiedSettlement(1, terrain: false);
+        var empty = RailwayFixtures.ReplaceCore(founded, node: founded.Core.World.Nodes[0] with
+            { Occupant = new NodeOccupant.Empty(), Platforms = 0 });
+        var calls = 0;
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), empty, WorldSceneSession.Generate, new(), new(),
+            (input, node, _, token) =>
+            {
+                if (Interlocked.Increment(ref calls) > 1) throw new RailwayBuildException("founded layout failed");
+                var layout = NodeLayout.Build(input, node, token);
+                return new(layout, ImmutableDictionary<string, NodeScene.Part>.Empty.Add("ground",
+                    new("fixed", WorldSceneSession.BuildGeometry(id => new([new(id(""), null, SceneFixtures.Identity, null, [], [], [])], [], [])),
+                        ImmutableDictionary<GridColumn, double>.Empty)), []);
+            });
+        session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location));
+        var before = await RailwayFixtures.Settled(session, new(1, null, SceneDebugLayer.None));
+        session.Observe(founded, []);
+        var frame = before;
+        for (var attempt = 0; attempt < 8 && frame.Diagnostics.All(problem => problem.Code != "build_failed"); attempt++)
+        {
+            try { await SceneFixtures.AwaitPendingWork(session.PendingNodeBuilds); }
+            catch (Exception) { }
+            frame = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(new(1, null, SceneDebugLayer.None), before)).Value;
+        }
+        Assert.IsTrue(frame.Diagnostics.Any(problem => problem.Code == "build_failed"));
+        Assert.AreEqual(before.NodePanBounds, frame.NodePanBounds);
+        Assert.AreEqual(before.Update.Frame.Space, frame.Update.Frame.Space);
+        Assert.IsTrue(frame.Objects.Length > 0);
     }
 
     private static SceneWorldSnapshot CopiedSettlement(ulong generation, bool terrain = true, bool stationPlots = true,

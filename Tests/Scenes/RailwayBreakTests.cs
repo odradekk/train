@@ -19,6 +19,47 @@ public sealed class RailwayBreakTests
     private static readonly WorldSceneTarget Middle = new WorldSceneTarget.Location(new WorldLocation.Edge(RailwayFixtures.Edge, 64));
 
     [TestMethod]
+    public async Task BreakWithinFourMetersOfAnEdgeEndStopsAtTheEdgeAndLeavesTheNodeUnchanged()
+    {
+        var path = Path([new TrackBreakView(new(1), 1, 2)], [Repair(new(1), 1, new(1))]);
+        var meshes = RailwayMeshes.Build(path, 0, default, _ => 4);
+        var points = meshes.SelectMany(mesh => mesh.Vertices).Select(vertex => vertex.Position).ToArray();
+        Assert.IsTrue(points.All(point => Along(path, point) >= -1e-3f && Along(path, point) <= path.LengthCells + 1e-3f));
+        var rails = RailsNear(meshes, path, 0);
+        Assert.IsFalse(rails.Any(point => Along(path, point) is > .5f and < 11f));
+        Assert.IsTrue(rails.Any(point => Along(path, point) > 13f));
+        var construction = Of(meshes, BuiltInMaterial.Construction);
+        Assert.IsTrue(construction.Any(point => Along(path, point) < 1f));
+        Assert.IsTrue(construction.All(point => Along(path, point) >= -1e-3f));
+
+        var builds = 0;
+        var initial = NodeFixtures.Snapshot(platforms: 0, tracks: 1, trackLimit: 2, trains: []);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = new NodeScene(initial, NodeFixtures.NodeId, new(), SceneFixtures.NextId(), vehicles, new(), (_, node, _, token) =>
+        {
+            Interlocked.Increment(ref builds);
+            return new(NodeLayout.Build(initial, node, token), ImmutableDictionary<string, NodeScene.Part>.Empty.Add("ground",
+                new("fixed", WorldSceneSession.BuildGeometry(id => new([new(id(""), null, SceneFixtures.Identity, null, [], [], [])], [], [])),
+                    ImmutableDictionary<GridColumn, double>.Empty)), []);
+        });
+        await scene.BuildWork!;
+        SceneFrame? displayed = null;
+        SceneFrame frame;
+        do
+        {
+            await SceneFixtures.AwaitPendingWork(scene.PendingWork);
+            frame = scene.Present(initial, Request, NodeFixtures.NextStamp(scene), displayed, default);
+            if (frame.Readiness is not SceneReadiness.Loading) displayed = frame;
+        } while (scene.PendingWork.Length > 0);
+        var broken = RailwayFixtures.ReplaceCore(initial, edge: initial.Core.World.Edges[0] with
+            { Breaks = [new TrackBreakView(new(1), 1, 2)] });
+        var after = scene.Present(broken, Request, NodeFixtures.NextStamp(scene), frame, default);
+        Assert.AreEqual(1, builds);
+        Assert.AreEqual(0, after.Update.Upserts.Length);
+        Assert.AreEqual(0, after.Update.Removed.Length);
+    }
+
+    [TestMethod]
     public void BreakOpensACappedGapAndRepairPropsStayOffOpenTracks()
     {
         var bare = Path(Breaks: [new TrackBreakView(new(1), 1, 20)]);

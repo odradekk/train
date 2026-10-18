@@ -53,12 +53,17 @@ internal static class RailwayMeshes
 
     private readonly record struct TrackGap(int Track, double From, double To);
 
-    private static TrackGap[] Gaps(EdgeMapItem edge) => edge.Breaks.IsDefaultOrEmpty ? [] : edge.Breaks
-        .Where(item => item.Track >= 1 && item.Track <= edge.Tracks).Select(item =>
+    private static TrackGap[] Gaps(EdgeMapItem edge)
+    {
+        if (edge.Breaks.IsDefaultOrEmpty) return [];
+        var limit = edge.LengthMeters * RailwayCoordinates.CellsPerMeter;
+        var half = RailwayCoordinates.BreakGapCells / 2;
+        return edge.Breaks.Where(item => item.Track >= 1 && item.Track <= edge.Tracks).Select(item =>
         {
             var center = item.DistanceMeters * RailwayCoordinates.CellsPerMeter;
-            return new TrackGap(item.Track, center - RailwayCoordinates.BreakGapCells / 2, center + RailwayCoordinates.BreakGapCells / 2);
-        }).ToArray();
+            return new TrackGap(item.Track, Math.Max(0, center - half), Math.Min(limit, center + half));
+        }).Where(gap => gap.To - gap.From > 1e-4).ToArray();
+    }
 
     private static List<(double Start, double End)> OpenSpans(double start, double end, IEnumerable<TrackGap> gaps)
     {
@@ -186,24 +191,31 @@ internal static class RailwayMeshes
         var construction = new MeshBuilder(BuiltInMaterial.Construction, 512);
         var open = Enumerable.Range(1, tracks).Where(track => path.Edge.Breaks.All(item => item.Track != track))
             .Select(track => RailwayCoordinates.TrackOffset(track, tracks)).ToArray();
+        var limit = path.LengthCells;
         foreach (var br in path.Edge.Breaks.Where(item => item.Track >= 1 && item.Track <= tracks).OrderBy(item => item.Id.Value))
         {
             var center = br.DistanceMeters * RailwayCoordinates.CellsPerMeter;
-            if (center + RailwayCoordinates.BreakGapCells / 2 <= start || center - RailwayCoordinates.BreakGapCells / 2 >= end) continue;
+            var half = RailwayCoordinates.BreakGapCells / 2;
+            var rawFrom = center - half;
+            var rawTo = center + half;
+            var from = Math.Max(0, rawFrom);
+            var to = Math.Min(limit, rawTo);
+            if (to <= start || from >= end || to - from <= 1e-4) continue;
             var offset = RailwayCoordinates.TrackOffset(br.Track, tracks);
             foreach (var along in new[] { -4d, 4d })
             foreach (var side in new[] { -2.5d, 2.5d })
             {
-                var arc = center + along;
+                var arc = Math.Clamp(center + along, 0.25, limit - 0.25);
                 if (arc < start || arc >= end) continue;
                 var sample = At(arc, offset + side);
                 var up = Vector3.Normalize(Vector3.Cross(sample.Forward, sample.Right));
                 debris.Box(RailwayCoordinates.Relative(sample.Position, origin) + up * .35f, sample.Right, up, sample.Forward, .35f, .12f, .25f);
             }
             if (!path.Edge.Works.Any(work => work.Kind == RailwayWorkKind.RepairBreak && work.RepairingBreak == br.Id)) continue;
-            Barrier(offset, center - RailwayCoordinates.BreakGapCells / 2);
-            Barrier(offset, center + RailwayCoordinates.BreakGapCells / 2);
-            if (ground is null || center < start || center >= end) continue;
+            // A gap that crosses an edge end keeps its barrier on the truncated end, inside the edge.
+            Barrier(offset, rawFrom < 0 ? from + .25 : from);
+            Barrier(offset, rawTo > limit ? to - .25 : to);
+            if (ground is null || center < 0 || center >= limit || center < start || center >= end) continue;
             var sideSign = offset < 0 ? -1 : 1;
             var place = offset + sideSign * PropClearance;
             foreach (var lane in open)
@@ -223,7 +235,9 @@ internal static class RailwayMeshes
             }
             void GroundBox(MeshBuilder builder, float along, float halfX, float halfY, float halfZ)
             {
-                var sample = At(center + along, place);
+                var arc = center + along;
+                if (arc - halfZ < 0 || arc + halfZ > limit) return;
+                var sample = At(arc, place);
                 var column = new GridColumn((int)Math.Floor(sample.Position.X - origin.X), (int)Math.Floor(sample.Position.Z - origin.Z));
                 if (ground(column) is not double surface) return;
                 var forward = new Vector3(sample.Forward.X, 0, sample.Forward.Z);
