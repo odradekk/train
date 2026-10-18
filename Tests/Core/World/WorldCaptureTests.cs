@@ -27,6 +27,24 @@ public sealed class WorldCaptureTests
     }
 
     [TestMethod]
+    [DataRow(false, "/world/inventories/reservations/job")]
+    [DataRow(true, "/world/inventories/reservations/expected_returns")]
+    public void Orphaned_or_empty_construction_return_reservations_are_rejected(bool empty, string field)
+    {
+        using var candidate = Prepare();
+        using var session = candidate.Activate();
+        var payload = JsonNode.Parse(Capture(session).Encode())!;
+        payload["world"]!["inventories"]![0]!["reservations"] = JsonNode.Parse("""
+            [{"job":{"value":1},"capacity":1,"expected_returns":[
+                {"good":{"$kind":"voxel","definition":{"value":"fixture:material"}},"quantity":1}]}]
+            """);
+        if (empty) payload["world"]!["inventories"]![0]!["reservations"]![0]!["expected_returns"] = new JsonArray();
+        var failure = (CoreResult<ICoreCapture>.Failure)CoreFactory.Create().DecodeState(payload.ToJsonString());
+        Assert.AreEqual("invalid_state", failure.Problems.Single().Code);
+        Assert.AreEqual(field, failure.Problems.Single().Field);
+    }
+
+    [TestMethod]
     public void Published_specifications_round_trip_and_restore_without_changing_the_previous_capture()
     {
         using var candidate = Prepare();

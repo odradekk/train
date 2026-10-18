@@ -10,7 +10,7 @@ internal static class ConstructionOperations
     internal static ImmutableArray<FacilityRequest> Requests(WorldState world, CoreContentProjection content, SettlementId settlement)
         => world.ConstructionJobs.Where(j => j.Settlement == settlement).GroupBy(j => j.Facility)
             .Select(g => g.MinBy(j => j.Id.Value)!)
-            .Where(j => Failure(world, content, j) is null
+            .Where(j => j.State != ConstructionState.Paused && Failure(world, content, j) is null
                 && !MissingTarget(world, content, j))
             .Select(j => new FacilityRequest.Work(j.Facility, j.Priority,
                 Math.Min(ConstructionJobs.WorkRate(world, content, j.Facility, Size(world, j)),
@@ -34,6 +34,7 @@ internal static class ConstructionOperations
                 continue;
             }
             if (heads[original.Facility] != original.Id) continue;
+            if (original.State == ConstructionState.Paused) continue;
             var request = requests.OfType<FacilityRequest.Work>().SingleOrDefault(r => r.Facility == original.Facility);
             var allocation = resolution.Work.SingleOrDefault(a => a.Facility == original.Facility);
             var rate = allocation?.WorkPerSecond ?? 0;
@@ -41,7 +42,8 @@ internal static class ConstructionOperations
             var limits = allocation?.Limits ?? [];
             if (rate == capability)
                 limits = limits.Insert(0, WorkLimit.Capability);
-            var blockers = MissingTarget(world, content, original)
+            var missing = MissingTarget(world, content, original);
+            var blockers = missing
                 ? ImmutableArray.Create(new CoreProblem("content_missing", "TargetDesign", new WorldObjectId.Job(original.Id), []))
                 : rate == 0 ? limits.Select(l => new CoreProblem(l switch
                     { WorkLimit.Capability => "capability_zero", WorkLimit.Power => "power_unavailable", _ => "labor_unavailable" },
@@ -55,7 +57,7 @@ internal static class ConstructionOperations
             demand += (request?.MaximumWorkPerSecond ?? 0) * original.FrozenPowerPerWork;
             supply += rate * original.FrozenPowerPerWork;
             labor += rate * original.FrozenLaborPerWork;
-            if (progress < job.FrozenTotalWork)
+            if (progress < job.FrozenTotalWork || missing)
             {
                 world = world with { ConstructionJobs = world.ConstructionJobs.Select(j => j.Id == job.Id ? job : j).ToImmutableArray() };
                 if (original.State != job.State)
@@ -63,8 +65,46 @@ internal static class ConstructionOperations
                 continue;
             }
             var design = world.Designs.Single(d => d.Design == job.TargetDesign);
+            var returned = job.ReturnInventory is null ? ImmutableArray<GoodsQuantity>.Empty
+                : ConstructionReturns.Calculate(world, content,
+                    world.Instances.Single(i => i.Id == new InstanceId.Vehicle(job.Vehicle!.Value)),
+                    job.Kind == ConstructionKind.Deconstruction ? ConstructionReturns.AllItems(design) : job.RemovedItems).Goods;
+            if (job.ReturnInventory is { } returnInventory)
+            {
+                var expected = world.Inventories.Single(i => i.Id == returnInventory).Reservations.Single(r => r.Job == job.Id)
+                    .ExpectedReturns.ToDictionary(g => g.Good, g => g.Quantity);
+                returned = returned.Where(g => expected.ContainsKey(g.Good))
+                    .Select(g => g with { Quantity = Math.Min(g.Quantity, expected[g.Good]) }).ToImmutableArray();
+            }
             InstanceId? created = null;
-            if (job.RepairVehicle is { } repair)
+            if (job.Kind == ConstructionKind.Refit)
+            {
+                var id = new InstanceId.Vehicle(job.Vehicle!.Value);
+                var instance = world.Instances.Single(i => i.Id == id);
+                var before = world.Designs.Single(d => d.Design == instance.Design);
+                var retained = job.RetainedParts.ToDictionary(p => p.After, p => p.Before);
+                var structure = checked((long)(((Int128)design.MaxStructureDurability
+                    * Math.Min(instance.StructureDurability, before.MaxStructureDurability) + before.MaxStructureDurability - 1)
+                    / before.MaxStructureDurability));
+                world = world with { Instances = world.Instances.Select(i => i.Id != id ? i : i with
+                {
+                    Design = design.Design, StructureDurability = structure,
+                    Details = ((InstanceDetails.Vehicle)i.Details) with { Size = ((DesignKind.Vehicle)design.Kind).Size },
+                    Parts = design.Parts.Select(p => new PartDurability(p.Id, retained.TryGetValue(p.Id, out var old)
+                        ? instance.Parts.Single(d => d.Id == old).Current : p.MaxDurability)).ToImmutableArray()
+                }).ToImmutableArray() };
+                events.Add(new CoreEvent.InstanceDesignChanged(id, before.Design, design.Design));
+            }
+            else if (job.Kind == ConstructionKind.Deconstruction)
+            {
+                world = world with
+                {
+                    Instances = world.Instances.Where(i => i.Id != new InstanceId.Vehicle(job.Vehicle!.Value)).ToImmutableArray(),
+                    Settlements = world.Settlements.Select(s => s.Id != job.Settlement ? s : s with
+                        { ParkedVehicles = s.ParkedVehicles.Where(v => v != job.Vehicle).ToImmutableArray() }).ToImmutableArray()
+                };
+            }
+            else if (job.Vehicle is { } repair)
             {
                 world = world with { Instances = world.Instances.Select(i => i.Id != new InstanceId.Vehicle(repair) ? i : i with
                 {
@@ -89,8 +129,17 @@ internal static class ConstructionOperations
                         { ParkedVehicles = s.ParkedVehicles.Add(vehicle).OrderBy(v => v.Value).ToImmutableArray() }).ToImmutableArray()
                 };
             }
+            if (job.ReturnInventory is { } destination)
+            {
+                world = world with { Inventories = world.Inventories.Select(i => i.Id != destination ? i : i with
+                {
+                    Goods = i.Goods.Concat(returned).GroupBy(g => g.Good)
+                        .OrderBy(g => WorldReferences.GoodKey(g.Key), StringComparer.Ordinal)
+                        .Select(g => new GoodsQuantity(g.Key, checked(g.Sum(x => x.Quantity)))).ToImmutableArray()
+                }).ToImmutableArray() };
+            }
             events.Add(new CoreEvent.ConstructionStateChanged(job.Id, original.State, ConstructionState.Completed, []));
-            events.Add(new CoreEvent.ConstructionCompleted(job.Id, job.Kind, job.Target, created, []));
+            events.Add(new CoreEvent.ConstructionCompleted(job.Id, job.Kind, job.Target, created, returned));
             Remove(job);
         }
         world = world with { Settlements = world.Settlements.Select(s => s.Id != settlement ? s : s with
@@ -98,19 +147,24 @@ internal static class ConstructionOperations
         return (world, events.ToImmutable());
 
         void Remove(ConstructionJobState job)
-            => world = world with { ConstructionJobs = world.ConstructionJobs.Where(j => j.Id != job.Id).ToImmutableArray() };
+            => world = world with
+            {
+                ConstructionJobs = world.ConstructionJobs.Where(j => j.Id != job.Id).ToImmutableArray(),
+                Inventories = job.ReturnInventory is null ? world.Inventories : world.Inventories.Select(i => i.Id != job.ReturnInventory ? i : i with
+                    { Reservations = i.Reservations.Where(r => r.Job != job.Id).ToImmutableArray() }).ToImmutableArray()
+            };
     }
 
-    private static SizeClass Size(WorldState world, ConstructionJobState job)
-        => ((DesignKind.Vehicle)world.Designs.Single(d => d.Design == job.TargetDesign).Kind).Size;
+    private static SizeClass? Size(WorldState world, ConstructionJobState job)
+        => job.Kind == ConstructionKind.Deconstruction ? null : ((DesignKind.Vehicle)world.Designs.Single(d => d.Design == job.TargetDesign).Kind).Size;
 
     private static CoreProblem? Failure(WorldState world, CoreContentProjection content, ConstructionJobState job)
     {
-        if (job.RepairVehicle is { } vehicle)
+        if (job.Vehicle is { } vehicle)
         {
             var instance = world.Instances.SingleOrDefault(i => i.Id == new InstanceId.Vehicle(vehicle));
             if (instance is null) return new("object_missing", "Instance", new WorldObjectId.Instance(new InstanceId.Vehicle(vehicle)), []);
-            if (Math.Min(instance.StructureDurability, world.Designs.Single(d => d.Design == instance.Design).MaxStructureDurability) <= 0)
+            if (instance.StructureDurability <= 0)
                 return new("instance_destroyed", "Instance", new WorldObjectId.Instance(instance.Id), []);
         }
         return ConstructionJobs.Qualification(world, content, job.Settlement, job.Facility, Size(world, job), job.Funding);
@@ -118,7 +172,7 @@ internal static class ConstructionOperations
 
     private static bool MissingTarget(WorldState world, CoreContentProjection content, ConstructionJobState job)
     {
-        if (job.RepairVehicle is not null) return false;
+        if (job.Kind is ConstructionKind.Repair or ConstructionKind.Deconstruction) return false;
         var design = world.Designs.Single(d => d.Design == job.TargetDesign);
         return !design.MissingReferences.IsEmpty || design.Parts.Any(p => InstanceCapabilities.DefinitionMissing(world, content, design.Design, p))
             || design.ReturnUnits.Any(u => !u.MissingReferences.IsEmpty)

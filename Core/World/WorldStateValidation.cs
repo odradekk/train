@@ -266,7 +266,8 @@ internal static class WorldStateValidation
             {
                 Require(reservation.Job.Value != 0 && reservationJobs.Add(reservation.Job), "/world/inventories/reservations/job");
                 Require(reservation.Capacity > 0, "/world/inventories/reservations/capacity");
-                Items(reservation.ExpectedReturns, "/world/inventories/reservations/expected_returns");
+                Strings(reservation.ExpectedReturns, g => WorldReferences.GoodKey(g.Good),
+                    "/world/inventories/reservations/expected_returns");
                 Int128 total = 0;
                 foreach (var good in reservation.ExpectedReturns)
                 {
@@ -274,7 +275,7 @@ internal static class WorldStateValidation
                     Require(good.Quantity > 0, "/world/inventories/reservations/expected_returns");
                     total += good.Quantity;
                 }
-                Require(total <= reservation.Capacity, "/world/inventories/reservations/expected_returns");
+                Require(total > 0 && total <= reservation.Capacity, "/world/inventories/reservations/expected_returns");
             }
         }
         Require(world.Money.Value >= 0 && world.Next is not null, "/world/money");
@@ -304,6 +305,9 @@ internal static class WorldStateValidation
             Require(queue.Count() == 1 || queue.All(j => j.Funding == JobFunding.NpcCommission), field + "/facility");
             Require(queue.Skip(1).All(j => j.State == ConstructionState.Queued), field + "/state");
         }
+        var reservations = world.Inventories.SelectMany(i => i.Reservations.Select(r => (Inventory: i, Reservation: r)))
+            .ToDictionary(r => r.Reservation.Job);
+        Require(reservations.Keys.All(id => world.ConstructionJobs.Any(j => j.Id == id)), "/world/inventories/reservations/job");
         var vehicles = new HashSet<VehicleId>();
         foreach (var job in world.ConstructionJobs)
         {
@@ -311,17 +315,79 @@ internal static class WorldStateValidation
             Require(job.Facility is not null && job.Facility.Capability == CapabilityKind.Construction, path + "/facility");
             Require(world.Settlements.Any(s => s.Id == job.Settlement && s.Plots.Any(p => p.Building == job.Facility.Building)), path + "/settlement");
             Require(world.Designs.Any(d => d.Design == job.TargetDesign && d.Kind is DesignKind.Vehicle), path + "/target_design");
-            if (job.RepairVehicle is { } vehicle)
-                Require(vehicles.Add(vehicle) && world.Instances.Any(i => i.Id == new InstanceId.Vehicle(vehicle)
-                    && i.Design == job.TargetDesign), path + "/repair_vehicle");
+            Require(Enum.IsDefined(job.Kind) && (job.Kind == ConstructionKind.Construction) == (job.Vehicle is null), path + "/kind");
+            var instance = job.Vehicle is { } vehicle
+                ? world.Instances.SingleOrDefault(i => i.Id == new InstanceId.Vehicle(vehicle)) : null;
+            if (job.Vehicle is { } targetVehicle)
+            {
+                Require(vehicles.Add(targetVehicle) && instance is not null
+                    && instance.Ownership == SettlementRelation.PlayerOwned, path + "/vehicle");
+                Require(job.Kind == ConstructionKind.Refit || instance.Design == job.TargetDesign, path + "/target_design");
+            }
+            Items(job.RetainedParts, path + "/retained_parts");
+            Items(job.RemovedItems, path + "/removed_items");
+            if (job.Kind != ConstructionKind.Refit)
+                Require(job.RetainedParts.IsEmpty && job.RemovedItems.IsEmpty, path + "/retained_parts");
+            else
+            {
+                var before = world.Designs.Single(d => d.Design == instance!.Design);
+                var after = world.Designs.Single(d => d.Design == job.TargetDesign);
+                Require(job.RetainedParts.Select(p => p.Before).Distinct().Count() == job.RetainedParts.Length
+                    && job.RetainedParts.Select(p => p.After).Distinct().Count() == job.RetainedParts.Length
+                    && job.RetainedParts.All(p => before.Parts.Any(b => b.Id == p.Before)
+                        && after.Parts.Any(a => a.Id == p.After
+                            && a.Definition == before.Parts.Single(b => b.Id == p.Before).Definition)), path + "/retained_parts");
+                var removed = new HashSet<PartId>();
+                foreach (var unit in job.RemovedItems)
+                {
+                    Good(unit.Good, path + "/removed_items/good");
+                    Require(unit.Quantity > 0, path + "/removed_items/quantity");
+                    Items(unit.Parts, path + "/removed_items/parts");
+                    Require(unit.Parts.All(id => removed.Add(id) && before.Parts.Any(p => p.Id == id)
+                        && !job.RetainedParts.Any(p => p.Before == id)), path + "/removed_items/parts");
+                    Strings(unit.StructuralGoods, g => WorldReferences.GoodKey(g.Good), path + "/removed_items/structural_goods");
+                    foreach (var good in unit.StructuralGoods)
+                    {
+                        Good(good.Good, path + "/removed_items/structural_goods");
+                        Require(good.Quantity > 0, path + "/removed_items/structural_goods");
+                    }
+                    Items(unit.MissingReferences, path + "/removed_items/missing_references");
+                    foreach (var missing in unit.MissingReferences)
+                    {
+                        try { WorldInputs.ValidateReference(missing.Reference); }
+                        catch (ArgumentException) { throw new CoreStateFormatException(path + "/removed_items/missing_references"); }
+                        Require(missing.FieldPath is not null, path + "/removed_items/missing_references");
+                    }
+                }
+            }
+            if (job.Kind == ConstructionKind.Refit)
+            {
+                var old = world.Designs.Single(d => d.Design == instance!.Design);
+                Require(old.Parts.All(p => job.RetainedParts.Any(pair => pair.Before == p.Id)
+                    || job.RemovedItems.Any(u => u.Parts.Contains(p.Id))), path + "/retained_parts");
+            }
+            Require((job.ReturnInventory is not null) == reservations.ContainsKey(job.Id), path + "/return_inventory");
+            if (job.ReturnInventory is { } returnInventory)
+            {
+                Require(job.Kind is ConstructionKind.Refit or ConstructionKind.Deconstruction, path + "/return_inventory");
+                var destination = reservations[job.Id].Inventory;
+                Require(destination.Id == returnInventory, path + "/return_inventory");
+                var settlement = world.Settlements.Single(s => s.Id == job.Settlement);
+                Require(job.Funding == JobFunding.OwnInventory
+                    ? destination.Id == settlement.Inventory && settlement.Relation == SettlementRelation.PlayerOwned
+                    : destination.Id == settlement.Inventory || destination.Owner is InventoryOwner.Lease lease
+                        && world.Leases.Any(l => l.Id == lease.Id && l.Settlement == job.Settlement), path + "/return_inventory");
+            }
             Require(WorldFormat.IsIdentity(job.Rule.Value) && WorldFormat.IsHash(job.StartedFromRevision.Value), path + "/rule");
-            Require(job.FrozenTotalWork > 0 && double.IsFinite(job.ProgressWork) && job.ProgressWork >= 0
-                && job.ProgressWork < job.FrozenTotalWork, path + "/progress_work");
+            Require(job.FrozenTotalWork >= 0 && double.IsFinite(job.ProgressWork) && job.ProgressWork >= 0
+                && (job.FrozenTotalWork == 0 ? (job.Kind is ConstructionKind.Refit or ConstructionKind.Deconstruction) && job.ProgressWork == 0
+                    : job.ProgressWork < job.FrozenTotalWork), path + "/progress_work");
             Require(double.IsFinite(job.FrozenPowerPerWork) && job.FrozenPowerPerWork >= 0
                 && double.IsFinite(job.FrozenLaborPerWork) && job.FrozenLaborPerWork >= 0, path + "/frozen_factors");
             Require(Enum.IsDefined(job.Funding), path + "/funding");
             Require(job.State is ConstructionState.Working or ConstructionState.ResourceBlocked
-                || job.Funding == JobFunding.NpcCommission && job.State == ConstructionState.Queued, path + "/state");
+                || job.Funding == JobFunding.NpcCommission && job.State == ConstructionState.Queued
+                || job.Kind == ConstructionKind.Deconstruction && job.State == ConstructionState.Paused, path + "/state");
             Require(job.State != ConstructionState.Queued || job.ProgressWork == 0 && job.LastActualWorkPerSecond == 0
                 && job.LastLimits.IsEmpty && job.Blockers.IsEmpty, path + "/progress_work");
             Require(double.IsFinite(job.LastActualWorkPerSecond) && job.LastActualWorkPerSecond >= 0,
