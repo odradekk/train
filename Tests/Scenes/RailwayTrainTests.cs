@@ -186,7 +186,7 @@ public sealed class RailwayTrainTests
     }
 
     [TestMethod]
-    public async Task NewTrackTrainReportsDeferredUpdatesAndNewTrainDoesNotInterpolateFromMissing()
+    public async Task AddedTrackTrainIsPlacedAndNewTrainDoesNotInterpolateFromMissing()
     {
         var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle());
         var initial = RailwayFixtures.Snapshot(600, 600, 0, tracks: 1, trackLimit: 2, content: content,
@@ -199,9 +199,8 @@ public sealed class RailwayTrainTests
             instances: [RailwayFixtures.Instance(), RailwayFixtures.Instance(2)]);
         var target = new WorldSceneTarget.Follow(new(2), new(2));
         var frame = await RailwayFixtures.Settled(scene, next, target, Request with { Interpolation = .25 }, Stamp with { Revision = 2 }, initial, before);
-        var problem = frame.Diagnostics.Single(item => item.Code == "railway_update_pending");
-        Assert.AreEqual(new WorldObjectId.Train(new(2)), problem.Subject);
-        StringAssert.Contains(problem.Detail, "#345");
+        Assert.IsFalse(frame.Diagnostics.Any(item => item.Code == "railway_update_pending"));
+        Assert.AreEqual(400, Pose(frame, 2).Position.Z + frame.Origin.Z, 1e-4);
         var sameTrack = RailwayFixtures.Snapshot(600, 600, 0, tracks: 1, trackLimit: 2, steps: 1, content: content,
             trains: [RailwayFixtures.Train(102), RailwayFixtures.Train(200, [new(2)], 2)],
             instances: [RailwayFixtures.Instance(), RailwayFixtures.Instance(2)]);
