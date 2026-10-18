@@ -205,6 +205,11 @@ public class WorldSceneTargetTests(Node testScene) : TestClass(testScene)
             world.FocusNode(new(1), new(3210, 0, 4010));
             world.ProcessFrame(0, false);
             Require(ReferenceEquals(world.MinimapFrame, first), "没有节点边界的自由帧过早清除了待定位的小地图。");
+            var minimap = app.GetNode<Train.Ui.GameUi>("GameUi").GetNode<Train.Ui.NodeMinimap>("Root/World/NodeMinimap");
+            var status = app.Host!.GetStatus()!;
+            minimap.Refresh(world, status.View, status.Binding, 0);
+            Require(minimap.FocusOnMap.DistanceTo(minimap.NodeToMap(new(2100, 1950))) < .001f,
+                "加载交接时，相机标记没有换算到保留底图的原点。");
             world.FocusNode(new(1), new(3250, 0, 3970));
             Require(session!.RequestCalls.SequenceEqual(new[] { Follow3, target }),
                 "等待自由帧期间重复定位不应重复请求节点场景。");

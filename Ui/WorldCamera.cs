@@ -30,6 +30,7 @@ internal partial class WorldCamera : Node3D
     public Camera3D Camera { get; } = new() { Fov = 60f, Near = 0.1f, Far = 4000f };
     internal float OrbitYawRadians => _orbitYaw;
     internal float OrbitPitchRadians => _pitch;
+    internal ScenePoint FrameOrigin => _frame?.Origin ?? default;
 
     public WorldCamera()
     {

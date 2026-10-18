@@ -20,6 +20,7 @@ internal partial class NodeMinimap : Control
     private double _occupancyDelay;
     private bool _dragging;
     private Vector2 _focus, _camera, _forward;
+    internal Vector2 FocusOnMap => NodeToMap(_focus);
 
     internal NodeMinimap()
     {
@@ -70,8 +71,10 @@ internal partial class NodeMinimap : Control
             _occupancyDelay = .5;
         }
         var rig = scenes.View.CameraRig;
-        var focus = new Vector2(rig.Focus.X, rig.Focus.Z);
-        var camera = new Vector2(rig.Camera.Position.X, rig.Camera.Position.Z);
+        var shift = new Vector2((float)(rig.FrameOrigin.X - frame.Origin.X),
+            (float)(rig.FrameOrigin.Z - frame.Origin.Z));
+        var focus = new Vector2(rig.Focus.X, rig.Focus.Z) + shift;
+        var camera = new Vector2(rig.Camera.Position.X, rig.Camera.Position.Z) + shift;
         var forward = new Vector2(-rig.Camera.Basis.Z.X, -rig.Camera.Basis.Z.Z).Normalized();
         if (_focus != focus || _camera != camera || _forward != forward)
         { _focus = focus; _camera = camera; _forward = forward; _marker.QueueRedraw(); }
@@ -166,7 +169,7 @@ internal partial class NodeMinimap : Control
     private void DrawCamera()
     {
         if (_bounds is null) return;
-        var focus = NodeToMap(_focus);
+        var focus = FocusOnMap;
         var camera = NodeToMap(_camera).Clamp(MapRect.Position, MapRect.End);
         var side = _forward.Orthogonal();
         _marker.DrawLine(camera, focus, new Color("f1c863"), 1, true);

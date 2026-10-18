@@ -115,7 +115,7 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
             await _input.WaitUntil(minimap.IsVisibleInTree);
             await _input.Click(minimap.GlobalPosition + minimap.NodeToMap(new(70, 30)));
             Require(setup.Scenes.Count == 2 && !setup.Scenes[^1].IsDisposed &&
-                app.WorldScenes.View.CameraRig.Focus.DistanceTo(new(70, 0, 30)) < .001f,
+                app.WorldScenes!.View.CameraRig.Focus.DistanceTo(new(70, 0, 30)) < .001f,
                 "换绑定后节点小地图未使用新场景定位。");
         }
         finally { await Cleanup(fixture, app); }
@@ -210,6 +210,7 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
             var focus = camera.Focus;
             var distance = camera.Camera.Position.DistanceTo(focus);
             await _input.MouseButton(end, MouseButton.WheelUp, true);
+            await _input.MouseButton(end, MouseButton.WheelUp, false);
             await _input.Drag(end, new(5, 5));
             Require(camera.Focus.DistanceTo(focus) < .001f &&
                 Math.Abs(camera.Camera.Position.DistanceTo(focus) - distance) < .001f,
