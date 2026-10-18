@@ -154,10 +154,12 @@ public sealed class AutomaticTradingTests
     }
 
     [TestMethod]
-    public void Buy_limit_checks_each_unit_and_keeps_the_affordable_prefix()
+    [DataRow(103L)]
+    [DataRow(102L)]
+    public void Buy_limit_checks_each_unit_and_keeps_the_affordable_prefix(long maximumUnitPrice)
     {
         using var session = InventoryTradeTests.Session(local: [new(Clothing, 13)]);
-        var result = Evaluate(session, [Rule(session, new AutomaticGoodsAction.Buy(new(102)), Clothing, 3)]).Results.Single();
+        var result = Evaluate(session, [Rule(session, new AutomaticGoodsAction.Buy(new(maximumUnitPrice)), Clothing, 3)]).Results.Single();
         Assert.AreEqual(3L, result.RequestedQuantity);
         Assert.AreEqual(2L, result.CompletedQuantity);
         Assert.AreEqual(new Money(199), result.ActualAmount);

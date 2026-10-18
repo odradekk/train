@@ -39,6 +39,7 @@ internal static class MarketPrices
             var maximum = count - completed;
             var distance = buy ? lowerStock - range.Minimum : range.Maximum - lowerStock;
             if (maximum - 1 > distance) maximum = distance + 1;
+            // With a fixed target, price is monotonic in the midpoint, so equal endpoint prices cover the entire segment.
             long low = 1, high = maximum;
             while (low < high)
             {
