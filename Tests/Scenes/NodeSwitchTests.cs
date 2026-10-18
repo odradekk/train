@@ -88,7 +88,7 @@ public sealed class NodeSwitchTests
 
         var train = ((Lookup<TrainView>.Found)initial.Core.FindTrain(new(1))).Value;
         session.Observe(NodeFixtures.Snapshot(platforms: 0, trains: [train with
-        { Position = new TrainPosition.Node(NodeFixtures.NodeId, inlet.Edge, null, NodeTravelPhase.Approaching, 0, null) }],
+        { Position = new TrainPosition.Node(NodeFixtures.NodeId, inlet.Edge, 1, null, null, NodeTravelPhase.Approaching, 0, null) }],
             content: content, steps: 1, tracks: 2, trackLimit: 2, platformLengthMeters: 0), []);
         var first = Present(session, displayed);
         Assert.AreNotEqual(SceneReadiness.Loading, first.Readiness,
@@ -116,16 +116,18 @@ public sealed class NodeSwitchTests
     }
 
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task SingleTrackEntryKeepsVehiclePoseAndDoesNotInterpolateAcrossSpaces(bool reverse)
+    [DataRow(false, 1)]
+    [DataRow(true, 1)]
+    [DataRow(false, 2)]
+    [DataRow(true, 2)]
+    public async Task ActualEntryAndReturnTracksKeepVehiclePoseWithoutInterpolatingAcrossSpaces(bool reverse, int track)
     {
         var endpoint = reverse ? new NodeId(1) : new NodeId(2);
         var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle(),
             rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 });
-        var onEdge = RailwayFixtures.Train(reverse ? 0 : 4,
+        var onEdge = RailwayFixtures.Train(reverse ? 0 : 4, track: track,
             direction: reverse ? TravelDirection.Reverse : TravelDirection.Forward);
-        SceneWorldSnapshot Snapshot(TrainView train, ulong step) => RailwayFixtures.Snapshot(4, 4, 0,
+        SceneWorldSnapshot Snapshot(TrainView train, ulong step) => RailwayFixtures.Snapshot(4, 4, 0, tracks: track,
             steps: step, content: content, trains: [train], instances: [RailwayFixtures.Instance() with
             {
                 Location = train.Position is TrainPosition.Node ? new WorldLocation.Node(endpoint) :
@@ -139,7 +141,7 @@ public sealed class NodeSwitchTests
         var before = ((Lookup<ScenePose>.Found)line.FindPose(subject)).Value;
         var entering = onEdge with
         {
-            Position = new TrainPosition.Node(endpoint, RailwayFixtures.Edge, null, NodeTravelPhase.Approaching, 0, null)
+            Position = new TrainPosition.Node(endpoint, RailwayFixtures.Edge, track, null, null, NodeTravelPhase.Approaching, 0, null)
         };
         session.Observe(Snapshot(entering, 1), []);
         var first = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(Request with { Interpolation = 0 }, line)).Value;
@@ -154,6 +156,24 @@ public sealed class NodeSwitchTests
         var hit = (ScenePick.Hit)node.Pick(new(atEnd.Position + Vector3.Transform(new Vector3(.5f, 20, .5f), atEnd.Rotation),
             -Vector3.UnitY, 50));
         Assert.AreEqual(subject, ((PickSubject.WorldObject)hit.Value.Subject).Object);
+
+        var departing = entering with
+        {
+            Position = new TrainPosition.Node(endpoint, RailwayFixtures.Edge, track, RailwayFixtures.Edge, 1,
+                NodeTravelPhase.Departing, 160, null), OrderFacing = TrainOrderFacing.LastEndLeading
+        };
+        session.Observe(Snapshot(departing, 2), []);
+        var atExit = await RailwayFixtures.Settled(session, Request, node);
+        var beforeExit = ((Lookup<ScenePose>.Found)atExit.FindPose(subject)).Value;
+        var returned = departing with { Position = new TrainPosition.Edge(RailwayFixtures.Edge, 1,
+            reverse ? TravelDirection.Forward : TravelDirection.Reverse, reverse ? 0 : 4) };
+        session.Observe(Snapshot(returned, 3), []);
+        var firstLine = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(Request with { Interpolation = 0 }, atExit)).Value;
+        var afterExit = ((Lookup<ScenePose>.Found)firstLine.FindPose(subject)).Value;
+        Assert.IsTrue(Vector3.Distance(beforeExit.Position, afterExit.Position) < .001);
+        Assert.IsTrue(Math.Abs(Quaternion.Dot(beforeExit.Rotation, afterExit.Rotation)) > .99999);
+        var settledLine = await RailwayFixtures.Settled(session, Request, firstLine);
+        Assert.AreEqual(afterExit, ((Lookup<ScenePose>.Found)settledLine.FindPose(subject)).Value);
     }
 
     [TestMethod]
@@ -337,7 +357,7 @@ public sealed class NodeSwitchTests
         var physical = oldPath.Sample(arc, 17).Position;
         var display = RailwayCoordinates.Relative(physical, line.Origin);
         var hit = (ScenePick.Hit)line.Pick(new(display + new Vector3(0.5f, 20, 0.5f), -Vector3.UnitY, 50));
-        var atNode = onEdge with { Position = new TrainPosition.Node(endpoint, RailwayFixtures.Edge, RailwayFixtures.Edge,
+        var atNode = onEdge with { Position = new TrainPosition.Node(endpoint, RailwayFixtures.Edge, 2, RailwayFixtures.Edge, activity == TrainActivity.Running ? 1 : null,
                 activity == TrainActivity.Running ? NodeTravelPhase.Departing : NodeTravelPhase.Docked, 80, null), Activity = activity };
         session.Observe(Snapshot(atNode, 1), []);
         var firstNode = Present(session, line);
@@ -419,7 +439,7 @@ public sealed class NodeSwitchTests
         await RailwayFixtures.Settled(session, Request);
         Assert.AreEqual(new WorldLocation.Node(new(2)), session.PrebuiltLocation);
         await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
-        var atNode = RailwayFixtures.Train() with { Position = new TrainPosition.Node(new(2), RailwayFixtures.Edge, null, NodeTravelPhase.Approaching, 0, null) };
+        var atNode = RailwayFixtures.Train() with { Position = new TrainPosition.Node(new(2), RailwayFixtures.Edge, 1, null, null, NodeTravelPhase.Approaching, 0, null) };
         session.Observe(RailwayFixtures.Snapshot(4, 4, 0, content: content, steps: 2, trains: [atNode], instances: [RailwayFixtures.Instance()]), []);
         var node = await RailwayFixtures.Settled(session, Request);
         Assert.AreEqual(new NodeId(2), node.Node!.Node);
@@ -537,7 +557,7 @@ public sealed class NodeSwitchTests
             session.RequestView(new WorldSceneTarget.Follow(new(1), new(1)));
             var line = await RailwayFixtures.Settled(session, Request);
             Assert.AreEqual(-256d, line.Origin.Y);
-            var inNode = train with { Position = new TrainPosition.Node(new(2), RailwayFixtures.Edge, null, NodeTravelPhase.Approaching, 0, null) };
+            var inNode = train with { Position = new TrainPosition.Node(new(2), RailwayFixtures.Edge, 1, null, null, NodeTravelPhase.Approaching, 0, null) };
             var snapshot = Snapshot(inNode, 1, seed);
             session.Observe(snapshot, []);
             var first = Present(session, line);

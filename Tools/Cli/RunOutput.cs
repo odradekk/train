@@ -52,12 +52,14 @@ internal sealed record RunReportSample(ulong Train, SimulationPosition EndedAt, 
 }
 
 internal sealed record TrainPositionSample(string Kind, ulong Id, double DistanceMeters, string? Phase = null,
-    int? Track = null, int? PlatformNumber = null, string? Direction = null)
+    int? Track = null, int? PlatformNumber = null, string? Direction = null,
+    ulong? EnteredFrom = null, int? EnteredTrack = null, ulong? NextEdge = null, int? NextTrack = null)
 {
     internal static TrainPositionSample From(TrainPosition position) => position switch
     {
         TrainPosition.Node node => new("node", node.Id.Value, node.DistanceMeters, node.Phase.ToString(),
-            PlatformNumber: node.PlatformNumber),
+            PlatformNumber: node.PlatformNumber, EnteredFrom: node.EnteredFrom?.Value, EnteredTrack: node.EnteredTrack,
+            NextEdge: node.NextEdge?.Value, NextTrack: node.NextTrack),
         TrainPosition.Edge edge => new("edge", edge.Id.Value, edge.DistanceMeters,
             Track: edge.Track, Direction: edge.Direction.ToString()),
         _ => throw new InvalidOperationException("未知列车位置。")

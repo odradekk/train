@@ -266,7 +266,7 @@ NPC 初始化按 [#528 的批准决定](https://github.com/odradekk/train/issues
 
 `MaximumForSaleVehicles>0` 时，有有效车辆车间的 NPC 聚居地生成满耐久待售实例，所有权等于当地关系，车辆停放当地且未编组。候选先按车间支持档位和市场规则 `VehiclePurchaseLimits.MaximumForSale` 的剩余名额筛选，再按 DesignHash 排序，有放回等概率抽取；每辆占用对应档位名额。可生成名额是车间支持且有候选的各档位上限之和，数量在 `[MinimumForSaleVehicles, min(MaximumForSaleVehicles, 可生成名额)]` 内均匀抽取。没有车间时为零辆；有车间但名额低于最低数量时，立即返回 `config_invalid`，字段为 `Configuration.NpcInitialization.MinimumForSaleVehicles`，不做约束重试。敌对关系的交易访问限制不影响初始生成，也不使用运行时的可收购数作为生成名额。
 
-初始化不是搜索，不增加候选或搜索工作量计数。三项关闭时保留原生成路径、随机键和预算结果；生成器版本仍为 `stage1-world-v1`，核心状态格式为 16，命令格式仍为 2。新增库存和车辆使用既有权威状态、引用、捕获、恢复和重放协议，不新增持久字段。
+初始化不是搜索，不增加候选或搜索工作量计数。三项关闭时保留原生成路径、随机键和预算结果；生成器版本仍为 `stage1-world-v1`，核心状态格式为 19，命令格式仍为 2。新增库存和车辆使用既有权威状态、引用、捕获、恢复和重放协议，不新增持久字段。
 
 违反契约取值范围的输入（包括空地貌带）抛 `ArgumentException`；没有带模板的聚居地类型在重试前返回 `config_invalid`；初始铁轨范围与 `[1,2]` 没有交集时，在 `configuration` 阶段返回 `config_invalid`，不消耗候选数或搜索工作量：`MinimumInitialTracks>2` 指向 `Configuration.InitialRailway.MinimumInitialTracks`，`MaximumInitialTracks<1` 指向 `Configuration.InitialRailway.MaximumInitialTracks`；不支持的版本、缺少引用或无法唯一匹配的地貌带返回配置失败。失败用一条 `CoreProblem("generation_failed", 字段路径, null, [类别, 阶段, 候选身份, 世界重试序号, 已用候选数, 已用搜索工作量])` 表达，六项都是字符串，计数使用不变区域十进制；类别为 `config_invalid`、`constraint_unsatisfied`、`budget_exhausted`。同步入口没有中断类别，也没有成功报告字段。预算跨整次准备累计，起点 BFS 与相邻生物聚落的线路扫描也计入搜索工作量；进入阶段时清空候选身份。配置失败和预算耗尽立即返回，约束失败有界重试，失败不消耗正式身份。最大阶段／世界重试数表示首次之外的次数。
 
@@ -335,7 +335,7 @@ NPC 现车使用独立的 `KeyedRandom` 版本 1，不消费上述阶段的随�
 
 `TrainView.PlatformQueueEnteredStep` 为当前有效站台申请首次入队的模拟步，可空。仅当列车位于节点、尚未进入 Departing、当前计划需要友方站台、尚未持有站台预约且已有申请队龄时非空；此条件与查询中的 `platform_wait` 阻塞一致，包含尚在 Approaching 的申请者。站台分配依次按该值、`TrainId.Value` 升序决定；不同入口共享同一节点的站台申请顺序。出线等待、已获站台及未申请列车返回空。该字段投影已有存档队龄，不新增权威状态或改变存档格式。
 
-`TrainPosition.Node(NodeId Id, EdgeId? EnteredFrom, EdgeId? NextEdge, NodeTravelPhase Phase, double DistanceMeters, int? PlatformNumber)` 是节点内唯一权威位置；`NodeTravelPhase` 为 `Approaching / Waiting / Docked / Departing`。删除 `NodeTransitView` 和 `TrainView.NodeTransit`，内部也不另存转场。`EnteredFrom` 为实际进入线路，无进入历史时为空；`NextEdge` 为已决定的下一线路，不承诺预留铁轨，体素只能消费它而不重算路径。`DistanceMeters` 为中心沿节点路径的米数，`PlatformNumber` 为可空预约站台号。`NodeView` 仅增加 `ApproachLengthMeters`、`PlatformLengthMeters`、`DepartureLengthMeters`，不公开限速、总长或停站点；三段尺度和阶段转换见[节点与站台](../design/06-railway.md#节点与站台)。
+`TrainPosition.Node(NodeId Id, EdgeId? EnteredFrom, int? EnteredTrack, EdgeId? NextEdge, int? NextTrack, NodeTravelPhase Phase, double DistanceMeters, int? PlatformNumber)` 是节点内唯一权威位置；`NodeTravelPhase` 为 `Approaching / Waiting / Docked / Departing`。删除 `NodeTransitView` 和 `TrainView.NodeTransit`，内部也不另存转场。`EnteredFrom`、`EnteredTrack` 为实际进入线路及铁轨，两者同时为空或同时非空；轨号须为正，允许超过线路当前铁轨数。`NextEdge` 为已决定的下一线路；`NextTrack` 在进入 `Departing` 时确定，不提前占用铁轨。非 `Departing` 阶段 `NextTrack` 为空；非空时须有 `NextEdge`，轨号在当前铁轨数内。出站无开放铁轨且没有仍存在的原选择时允许为空；原选择仍存在但关闭、又无替代时保留。体素消费实际进出线路及铁轨，不重算选轨。选择快照、失效重选与 L 点检查时序见[铁轨与通行](../design/06-railway.md#铁轨与通行)。`DistanceMeters` 为中心沿节点路径的米数，`PlatformNumber` 为可空预约站台号。`NodeView` 仅增加 `ApproachLengthMeters`、`PlatformLengthMeters`、`DepartureLengthMeters`，不公开限速、总长或停站点；三段尺度和阶段转换见[节点与站台](../design/06-railway.md#节点与站台)。
 
 `TrainPosition.Edge.DistanceMeters` 表示整列长度中心，`TrainView.OrderFacing` 表示车辆列表哪一端沿最近实际行驶方向在前。编组默认首端在前，线路上倒车及节点原路返回时切换标记；节点驶入其他线路时保持，等待中保留最近实际状态。两项均随存档恢复，场景不自行记一份持久朝向。标记不参与牵引、选路或战斗计算；中心间距、成员被毁后的收拢及整列在节点切换的规则见[铁路位置](../design/06-railway.md#位置)。
 
@@ -349,9 +349,9 @@ NPC 现车使用独立的 `KeyedRandom` 版本 1，不消费上述阶段的随�
 
 选路权重为线路长度除以最高速度，用时相同时按完整线路身份序列的字典序比较，与邻接枚举顺序无关。敌对聚居地及生物聚落可作当前目标，不能作中间节点。至少一条铁轨没有断点且不在修复才可走，选路不考虑拥堵；加轨施工不关闭原有铁轨。无路时停在节点，活动为 `NoRoute`，原因 `no_route / Train.Plan` 带目标节点身份，每步重新选路。原路返回先在 S 停稳，沿 `EnteredFrom` 反向起步时切换正反标记，断点引起的线路倒车也切换；战斗撤退仍归战斗阶段。
 
-按 [#311 批准计划](https://github.com/odradekk/train/issues/311#issuecomment-6139384407)，入线及站台仲裁基于步开始时已提交的状态，同轮后授予的请求看到先授予的占用和入口空间；本步释放的铁轨、站台下一步才可用。等待按首次到达步、稳定 `TrainId` 排序，不由列车数组顺序决定。方向锁从在轨列车的位置派生，空轨解锁；选轨先取同向已锁且入口间距足够的铁轨，再取空轨，同类取最小轨号。有对向等待时，本方向不再进入本方向锁定轨；只在开放铁轨清空时记录交让，恢复校验拒绝断轨上的交让；未兑现交让优先给对向等待者，较早的本方向等待者不能抢先。
+按 [#311 批准计划](https://github.com/odradekk/train/issues/311#issuecomment-6139384407)，入线及站台仲裁基于步开始时已提交的状态，同轮后授予的请求看到先授予的占用和入口空间；本步释放的铁轨、站台下一步才可用。等待按首次到达步、稳定 `TrainId` 排序，不由列车数组顺序决定。方向锁从在轨列车的位置派生，空轨解锁；出站预选与 L 点固定铁轨入线检查见[铁轨与通行](../design/06-railway.md#铁轨与通行)。有对向等待时，本方向不再进入本方向锁定轨；只在开放铁轨清空时记录交让，恢复校验拒绝断轨上的交让；未兑现交让优先给对向等待者，较早的本方向等待者不能抢先。
 
-入口及同轨跟车的中心间距至少为两列长度之和的一半加内容最小间距，前车步开始时的位置作为后车制动障碍；不超车、不换轨。进入同向已锁定铁轨还要求入口到跟车界限的距离不小于当前速度的制动距离 `v²/(2b)`；不足时该轨不可选，可取空轨，否则在节点等待并写零速度，下一步从静止检查入线。需要站台时按步开始状态预测空闲站台与前方队列，以 S 或 W 为制动目标；下一线路不可进入时提前向 L 制动。预测不登记首次排队步，只有中心在 L 正式选轨失败才登记 `QueueEnteredStep`；预测失效且来不及制动时才强制停车。规则不变且没有断点的正常运行中，线路上每步减速不超过制动减速度乘步长。
+入口及同轨跟车的中心间距至少为两列长度之和的一半加内容最小间距，前车步开始时的位置作为后车制动障碍；不超车、不换轨。进入同向已锁定铁轨还要求入口到跟车界限的距离不小于当前速度的制动距离 `v²/(2b)`；不足时固定铁轨不可进入，在节点等待并写零速度，下一步从静止检查入线。需要站台时按步开始状态预测空闲站台与前方队列，以 S 或 W 为制动目标；已定驶出铁轨不可进入（或尚无可定铁轨）时提前向 L 制动。预测不登记首次排队步，只有中心在 L 正式入线检查失败才登记 `QueueEnteredStep`；预测失效且来不及制动时才强制停车。规则不变且没有断点的正常运行中，线路上每步减速不超过制动减速度乘步长。
 
 `RailwayRuleProjection` 提供 `ApproachLengthMeters`、`DepartureLengthMeters`、`NodeSpeedLimitMetersPerSecond`，均须为正有限值，初值为 80 米、80 米、15 米/秒；铁路规则文件 `schema_version` 为 2。`SettlementTemplateProjection.PlatformLengthMeters` 为非负有限值，供节点站台段使用；模板有站点地块时必须大于 0，没有时为 0。
 
@@ -380,7 +380,7 @@ NPC 现车使用独立的 `KeyedRandom` 版本 1，不消费上述阶段的随�
 | `DebugAddRailBreak` | 调用前提：线路身份非零、轨号为正 `int`、距离为有限非负米数，否则在取得编号前抛 `ArgumentException`。线路不存在拒绝 `object_missing / Edge`；轨号超过现有铁轨数或距离超过线路长度拒绝 `invalid_state / Break`，两者主体均为线路；断点编号耗尽拒绝 `identity_exhausted / World.Next.Break`。成功增加断点、推进编号并发出 `RailBroken`，同轨未兑现交让清除 |
 | `StopTrain` | 静止时原地停车并暂停停留；进站制动到 S，来不及则强制停车；已过 S 继续驶出并在下一节点停车；在线路上请求停在前方节点 S。重复请求保持同样业务状态 |
 
-后四个命令不存在的列车统一为 `object_missing / Train`，主体为该列车；编组中缺失车辆的主体为该车辆实例，非自有用 `not_owned`，聚居地敌对用 `access_denied`。正常拒绝仍前进命令编号和边界序号并录制，无事件且业务状态不变。单次计划完成后保留计划、索引为空，须替换计划才可再次启动。通常活动为 `Stopped`；出站列车换计划并消费完开头当前节点的途经点后，若仍在行驶，保留已定驶出线路，设置 `StopRequested = true`，继续驶出并在下一节点 S 停稳后转为 `Stopped`。已静止在 L 的列车原地转为 `Stopped`，清除停车请求和排队步。这类仍在行驶的列车若到 L 正式选轨被拒绝，也立即原地转为 `Stopped`，清除停车请求和排队步，不转为 `Waiting`。这些停车均保留预约和下一线路；预约仍到实际驶出、删除或解编时才释放。相邻重复目标依序消费，零停留 Station 仍是停车点。
+后四个命令不存在的列车统一为 `object_missing / Train`，主体为该列车；编组中缺失车辆的主体为该车辆实例，非自有用 `not_owned`，聚居地敌对用 `access_denied`。正常拒绝仍前进命令编号和边界序号并录制，无事件且业务状态不变。单次计划完成后保留计划、索引为空，须替换计划才可再次启动。通常活动为 `Stopped`；出站列车换计划并消费完开头当前节点的途经点后，若仍在行驶，保留已定驶出线路，设置 `StopRequested = true`，继续驶出并在下一节点 S 停稳后转为 `Stopped`。已静止在 L 的列车原地转为 `Stopped`，清除停车请求和排队步。这类仍在行驶的列车若到 L 正式入线检查被拒绝，也立即原地转为 `Stopped`，清除停车请求和排队步，不转为 `Waiting`。这些停车均保留预约和下一线路；预约仍到实际驶出、删除或解编时才释放。相邻重复目标依序消费，零停留 Station 仍是停车点。
 
 普通查询无副作用。报价不锁价格、库存、容量或资金，也不是提交凭证。只读派生计算若遇内部故障，返回 `CoreResult.Faulted` 及该视图的位置，不记录命令或修改任何活动会话；不能用旧视图的错误冻结新局。命令执行重新裁决时发生内部故障，仍按下节冻结。这一区分也适用于独立新局/读档准备与活动运行。
 
@@ -412,7 +412,7 @@ Rent 要求非零聚居地身份和正容量，Renew 要求非零租约身份，
 
 ## 市场报价与手动交易
 
-#384 按[批准决定 D1–D9](https://github.com/odradekk/train/issues/384#issuecomment-6194386767)实现本节。玩法公式见[市场与交易](../design/19-markets-and-trading.md)，本节明确报价、执行及当前阶段边界。没有新增持久字段：钱包、货物、实例所有权、设计与耐久和唯一停车归属沿用现有编码；核心状态格式为 16，命令和重放格式仍为 2。目标、留货、价格、待售列表和名额不另存。#528 已接入三个经济初始化配置，生成初始库存和有限现车；初始化规则见上文“阶段一生成器”。现车也可由玩家卖给当地形成。自动规则和报告见下文“自动交易与运行报告”，委托采购见上文“NPC 车辆委托与施工报价”，真实经济内容及四模块交接归 #299。
+#384 按[批准决定 D1–D9](https://github.com/odradekk/train/issues/384#issuecomment-6194386767)实现本节。玩法公式见[市场与交易](../design/19-markets-and-trading.md)，本节明确报价、执行及当前阶段边界。没有新增持久字段：钱包、货物、实例所有权、设计与耐久和唯一停车归属沿用现有编码；核心状态格式为 19，命令和重放格式仍为 2。目标、留货、价格、待售列表和名额不另存。#528 已接入三个经济初始化配置，生成初始库存和有限现车；初始化规则见上文“阶段一生成器”。现车也可由玩家卖给当地形成。自动规则和报告见下文“自动交易与运行报告”，委托采购见上文“NPC 车辆委托与施工报价”，真实经济内容及四模块交接归 #299。
 
 ### 备货与查询
 
@@ -538,7 +538,7 @@ Buy/Sell 在前提检查后依次判断：
 
 ### 当前载荷
 
-#312 按[批准决定](https://github.com/odradekk/train/issues/312#issuecomment-6133949111)实现捕获边界，#309 扩展世界状态，#480 更新地块枚举，#325 增加租约、库存预留和下一租约编号，#380 增加每座聚居地的 `fuel_energy_remaining`，#381 增加 `production_facilities`，#382 增加 `population_state`，#481 更新节点权威位置，#383 将设施状态改为能力键并增加 `resource_regenerations`、`resource_recovery`，#486 增加设施上一步实际劳动占用。内部编码器 [CoreCapture](../../Core/Sessions/CoreCapture.cs) 当前使用独立的 `core_state_format_version = 18`，与宿主完整存档的 `SaveFormatVersion` 6 分别演进；不支持格式 1–17 或旧通用模拟框架载荷，旧版本返回 `unsupported_format`。#480 与 #325 各自的格式 3 布局不同，合并后使用格式 4 明确区分；燃料余量使用格式 5，生产状态使用格式 6，人口状态使用格式 7，#481 的节点权威位置布局使用格式 8，#383 的开采与资源周期状态使用格式 9，#501 扩展施工部件能力后使用格式 10，#486 的实际劳动占用使用格式 11，#385 的自动重评、运行累计和近期报告使用格式 12；#546 将历史报告的载运率改为可空，使用格式 13；#331 增加自有车辆施工任务与聚居地施工上一步汇总，使用格式 14；#387 增加委托资金来源与全局工钱累计，使用格式 15；#332 增加车辆改装、拆解与冻结返还资料，使用格式 16；#342 增加冻结建城任务，合并后使用格式 17；#343 将任务目标从 `Vehicle` 改为 `Instance` 并增加 `Plot`，使用格式 18。
+#312 按[批准决定](https://github.com/odradekk/train/issues/312#issuecomment-6133949111)实现捕获边界，#309 扩展世界状态，#480 更新地块枚举，#325 增加租约、库存预留和下一租约编号，#380 增加每座聚居地的 `fuel_energy_remaining`，#381 增加 `production_facilities`，#382 增加 `population_state`，#481 更新节点权威位置，#383 将设施状态改为能力键并增加 `resource_regenerations`、`resource_recovery`，#486 增加设施上一步实际劳动占用。内部编码器 [CoreCapture](../../Core/Sessions/CoreCapture.cs) 当前使用独立的 `core_state_format_version = 19`，与宿主完整存档的 `SaveFormatVersion` 6 分别演进；不支持格式 1–18 或旧通用模拟框架载荷，旧版本返回 `unsupported_format`。#480 与 #325 各自的格式 3 布局不同，合并后使用格式 4 明确区分；燃料余量使用格式 5，生产状态使用格式 6，人口状态使用格式 7，#481 的节点权威位置布局使用格式 8，#383 的开采与资源周期状态使用格式 9，#501 扩展施工部件能力后使用格式 10，#486 的实际劳动占用使用格式 11，#385 的自动重评、运行累计和近期报告使用格式 12；#546 将历史报告的载运率改为可空，使用格式 13；#331 增加自有车辆施工任务与聚居地施工上一步汇总，使用格式 14；#387 增加委托资金来源与全局工钱累计，使用格式 15；#332 增加车辆改装、拆解与冻结返还资料，使用格式 16；#342 增加冻结建城任务，使用格式 17；#541 增加节点进出铁轨，使用格式 18；#343 将任务目标从 `Vehicle` 改为 `Instance` 并增加 `Plot`，使用格式 19。
 
 人口状态保存精确执行参数、有效进度、累计应需与满足量、按货物身份保留的消费剩余量、人口变化余量、短缺与可用性状态及最近一次结算；普通恢复和严格重放使用同一份生产推进。当前规则缺失或本期必需货物缺失时停用人口，保留这些状态；新局仍须有有效规则。燃料余量必须为有限非负数，新局为零，保存、恢复、检查点、严格重放及内容发布保留其电量，不反推已消费燃料。生产状态保存完整冻结批次、输出缓冲和上一步工作、供电与劳动分配结果；解码拒绝非有限或负的实际劳动占用，以及非法进度、系数、数量、排序、建筑／计划配对及同时存在批次与缓冲。诊断消息和堆栈不进入载荷。内部字段布局由编码器维护，宿主只通过公开契约取得所需资料。
 
@@ -548,11 +548,11 @@ Buy/Sell 在前提检查后依次判断：
 
 格式 16 将任务目标车辆统一保存为 `Vehicle`（`vehicle`），并保存 `Kind`、`RetainedParts`、`RemovedItems`、`ReturnInventory`（对应 snake_case 字段）。实例在完工前保留原设计，不另存原设计或锁。返还库存中的预留按任务编号唯一保存 `ExpectedReturns` 与容量；任务和预留严格双向配对，无预计返还不建预留。自有任务的返还库存必须是设施所在自有聚居地库存，委托任务则必须是该聚居地的玩家租库；已有预留不因租约到期或冻结失效。解码检查任务种类、玩家实例和唯一锁目标、保留与移除部件引用及不重叠、合法暂停与零工作量，以及库存预留配对。冻结移除项的货物、结构货物和缺失定义进入引用清单；上述资料均参加普通捕获、恢复、检查点与严格重放。
 
-格式 18 用可空 `Instance`（`instance`，`vehicle` 或 `building`）取代 `Vehicle`，并增加可空 `Plot`（`plot`）。有地块且无实例的任务是建筑建造；有实例的是既有车辆或建筑；二者皆无且设计为大型设备时，目标为 `NewAssembly`，否则为新车辆。工地由建造任务的地块派生，不另存。建筑身份在完工时分配。大型设备的返还库存必须是设施所在自有库存，预留一件成品。
+格式 19 用可空 `Instance`（`instance`，`vehicle` 或 `building`）取代 `Vehicle`，并增加可空 `Plot`（`plot`）。有地块且无实例的任务是建筑建造；有实例的是既有车辆或建筑；二者皆无且设计为大型设备时，目标为 `NewAssembly`，否则为新车辆。工地由建造任务的地块派生，不另存。建筑身份在完工时分配。大型设备的返还库存必须是设施所在自有库存，预留一件成品。
 
 顶层载荷包含格式版本、位置、下一命令编号、修订、当前输入身份、故障、`world` 和 `references`。`world` 保存完整生成来源 `source`（含种子、生成器版本、生成内容语义修订、解析配置及开局输入）、图与资源、聚居地与生物聚落、聚居地模板业务副本和地块、实例耐久、列车、库存、资金、全部下一身份编号，以及实际设计投影和衍生货物。实例只保存 `DesignHash`，引用同一 `world.designs` 中的投影，不在每个实例重复设计。实例和库存位置由所有者派生，不进载荷。
 
-铁路新增权威字段全部进入捕获、检查点和解码一致性检查：列车的唯一 `position`（节点或线路、轨号、方向、中心距离）、`activity`、`speed_meters_per_second`、`plan`、`next_stop_index`、`remaining_dwell_steps`、`stop_requested`，以及节点位置内的进入线路、下一线路、阶段、节点距离、预约站台号与正反标记；聚居地的 `parked_vehicles` 是未编组车辆的唯一停放归属。成员、库存所有者和下一身份编号沿用原世界状态。解码检查位置范围、节点/线路变体及节点阶段、距离和预约一致、活动与速度及计划进度匹配、暂停停留余时、停车请求与当前阶段相容、计划目标存在、Station 货物规则合法且同站货物唯一、循环不退化，以及车辆与列车或停放清单的双向唯一归属。有计划但已完成的列车，只允许活动为 `Stopped`，或活动为 `Running` 且 `stop_requested = true`；后一种情况覆盖出站、线路行驶和下一节点进站，不按位置变体枚举。能力、Blockers、预测距离、交战默认值均为查询派生，不增加持久副本。
+铁路新增权威字段全部进入捕获、检查点和解码一致性检查：列车的唯一 `position`（节点或线路、轨号、方向、中心距离）、`activity`、`speed_meters_per_second`、`plan`、`next_stop_index`、`remaining_dwell_steps`、`stop_requested`，以及节点位置内的进入线路及铁轨、下一线路及铁轨、阶段、节点距离、预约站台号与正反标记；聚居地的 `parked_vehicles` 是未编组车辆的唯一停放归属。成员、库存所有者和下一身份编号沿用原世界状态。解码检查位置范围、节点/线路变体及节点阶段、距离和预约一致、活动与速度及计划进度匹配、暂停停留余时、停车请求与当前阶段相容、计划目标存在、Station 货物规则合法且同站货物唯一、循环不退化，以及车辆与列车或停放清单的双向唯一归属。有计划但已完成的列车，只允许活动为 `Stopped`，或活动为 `Running` 且 `stop_requested = true`；后一种情况覆盖出站、线路行驶和下一节点进站，不按位置变体枚举。能力、Blockers、预测距离、交战默认值均为查询派生，不增加持久副本。
 
 #311 另外保存 `TrainState.QueueEnteredStep`（首次排队步）、`WorldState.TrackHandoffs`（线路、轨号、交让方向）、`WorldIdentities.Break`（下一断点编号）和 `TrainState.ReturningFromBreak`（实际掉头所对应的断点）；线格式分别为 `queue_entered_step`、`track_handoffs`、`next.break`、`returning_from_break`，可空或空集合也必须出现。已有 `EdgeMapItem.Breaks` 保存断点。四项及断点、编组方向全部参加捕获、检查点和严格重放。方向锁与站台占用按上述规则派生，不增加权威副本。
 
@@ -574,7 +574,7 @@ Buy/Sell 在前提检查后依次判断：
 
 | 决定 | 行为 |
 | --- | --- |
-| D1：持久化 | 核心状态格式为 16，命令输入格式和重放外壳格式均保持 2。计划规则保留数组顺序；规则、停靠重评剩余步数、运行累计和全局近期报告均参加捕获、恢复、检查点和严格重放。引用清单包含当前计划规则中的货物；历史报告只保留货物身份，不参与内容引用，名称由界面按身份读取并处理缺失。旧格式 2 命令中空 `goods_rules` 的解码含义不变。 |
+| D1：持久化 | 核心状态格式为 19，命令输入格式和重放外壳格式均保持 2。计划规则保留数组顺序；规则、停靠重评剩余步数、运行累计和全局近期报告均参加捕获、恢复、检查点和严格重放。引用清单包含当前计划规则中的货物；历史报告只保留货物身份，不参与内容引用，名称由界面按身份读取并处理缺失。旧格式 2 命令中空 `goods_rules` 的解码含义不变。 |
 | D2：运行边界 | 接受 `ReplaceRunPlan` 时，已有累计先以 `PlanReplaced` 结束并出报告，再为新计划建立累计，`StartedAt` 为该命令边界，无论列车是否停车。循环计划最后一站消费并回到索引 0 时，出 `LoopCompleted` 报告并立即建立下一圈累计；单次完成出 `PlanCompleted` 报告，`CurrentRun` 变为 null；解编出 `TrainDisbanded` 报告。`StopTrain`／`StartTrain` 不结束或新建累计，已完成计划的启动返回 `plan_completed`。`AllVehiclesDestroyed` 当前没有生产触发路径，不增加结束分支。 |
 | D3：现金流 | 有 `CurrentRun` 时，该列车参与的手动与自动 Buy／Sell 金额记入本次累计，包括建立计划后、启动前的手动备货；Load／Unload 不记收支。现车买卖和租金没有列车身份，不归属任何运行。`ServicePayments` 当前恒为 0；#387 将委托工钱累计到 `Economy.UnassignedServicePayments`，材料补购款不计入服务支出。报告表达净现金流，不是利润。 |
 | D4：运输件数 | `TransportedUnits` 累计运行期间该列车实际 Sell 和 Unload 的件数，包含手动与自动操作；装入不重复计数。 |
@@ -619,7 +619,7 @@ Buy/Sell 在前提检查后依次判断：
 
 宿主读取复现容器并还原包内内容投影，调用 `PrepareReplay`；核心比较原构建、模拟版本、兼容环境、配置和输入身份。依赖不完整、格式无法理解或身份不符明确失败，不跳过命令，也不读取安装目录补救。
 
-当前 `CoreReplayInput.FormatVersion` 为 2（旧版 1 因检查点与命令回执包含旧地块档位而拒绝），与命令输入格式 2 分开。#385、#546 保持重放格式 2 和命令格式 2；重制起点为核心状态格式 18，检查点按新的世界结构重制。旧起点载荷由状态格式校验拒绝；检查点规范文本不带状态格式号，旧结构由世界载荷校验拒绝。不因这些内部变化再升重放外壳格式。`RuntimeIdentity` 的 `GameBuild`、`SimulationVersion`、`OperatingSystem`、`Architecture` 和 `DotNetRuntime` 全部按 Ordinal 匹配；不匹配返回 `incompatible_replay`，字段为 `OriginalRuntime.<成员>`，兼容粒度由宿主提供的字符串决定。准备阶段解码起点与全部命令，核验记录位置、检查点格式／SHA-256，并从 `contentHistory` 取得起点及所有命令前后、目标输入身份的投影；任一依赖缺失返回 `content_missing`。不支持的版本和种类返回 `unsupported_format`，非法字段和位置返回 `invalid_state`，附字段路径；带故障的起点不能作为可执行起点。准备阶段也对全部 `contentHistory` 使用与 `PublishContent`、普通恢复相同的内容投影校验，非法投影抛 `ArgumentException`，不能在执行一段前缀后才发现输入无法使用。检查点复用世界载荷读取与校验，世界内部差异以 JSON Pointer 报告。世界来源含生成配置，未来新增领域字段仍须同步接入。
+当前 `CoreReplayInput.FormatVersion` 为 2（旧版 1 因检查点与命令回执包含旧地块档位而拒绝），与命令输入格式 2 分开。#385、#546、#332、#342、#541、#343 保持重放格式 2 和命令格式 2；重制起点为核心状态格式 19，检查点按新的世界结构重制。旧起点载荷由状态格式校验拒绝；检查点规范文本不带状态格式号，旧结构由世界载荷校验拒绝。不因这些内部变化再升重放外壳格式。`RuntimeIdentity` 的 `GameBuild`、`SimulationVersion`、`OperatingSystem`、`Architecture` 和 `DotNetRuntime` 全部按 Ordinal 匹配；不匹配返回 `incompatible_replay`，字段为 `OriginalRuntime.<成员>`，兼容粒度由宿主提供的字符串决定。准备阶段解码起点与全部命令，核验记录位置、检查点格式／SHA-256，并从 `contentHistory` 取得起点及所有命令前后、目标输入身份的投影；任一依赖缺失返回 `content_missing`。不支持的版本和种类返回 `unsupported_format`，非法字段和位置返回 `invalid_state`，附字段路径；带故障的起点不能作为可执行起点。准备阶段也对全部 `contentHistory` 使用与 `PublishContent`、普通恢复相同的内容投影校验，非法投影抛 `ArgumentException`，不能在执行一段前缀后才发现输入无法使用。检查点复用世界载荷读取与校验，世界内部差异以 JSON Pointer 报告。世界来源含生成配置，未来新增领域字段仍须同步接入。
 
 重放只有读取、推进和边界捕获入口，没有 Submit。`Advance` 到达预算、指定位置、记录截止位置、首个差异或故障即返回明确停止原因；`stopAt` 可以指定同一步内某条命令后的边界，不能越过它。同一步内的命令按记录位置顺序执行，拒绝结果也核对。`CompareCheckpoints` 返回首个字段差异，不要求宿主解析检查点文本。`CaptureBoundary` 可作为普通读档候选建立可编辑副本；此后当前内容适配属于新会话，不改原重放或声称其仍是严格复现。
 

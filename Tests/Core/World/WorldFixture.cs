@@ -114,7 +114,8 @@ internal static partial class WorldFixture
     public const double DepartureLength = 0.001;
     public static TrainPosition.Node Node(NodeId id, NodeTravelPhase phase = NodeTravelPhase.Waiting,
         double distance = ApproachLength, EdgeId? enteredFrom = null, EdgeId? nextEdge = null, int? platform = null) =>
-        new(id, enteredFrom, nextEdge, phase, distance, platform);
+        new(id, enteredFrom, enteredFrom is null ? null : 1, nextEdge,
+            phase == NodeTravelPhase.Departing && nextEdge is not null ? 1 : null, phase, distance, platform);
     public static PopulationRuleProjection PopulationRule() => new(Rules.Population, Revision,
         Enum.GetValues<PopulationNeed>().Select(need => new PopulationNeedProjection(need,
             need is PopulationNeed.Food or PopulationNeed.Clothing ? PopulationNeedClass.Basic : PopulationNeedClass.Improvement,
