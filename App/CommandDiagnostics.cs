@@ -47,6 +47,8 @@ internal static class CommandDiagnostics
             "invalid_state" => "状态不符合操作要求。",
             "invalid_design" => "设计不能用于此操作。",
             "node_occupied" => "节点已被占据。",
+            "plot_occupied" => "地块已被占用。",
+            "conditions_not_met" => "条件未满足。",
             "not_owned" => "对象不属于玩家。",
             "instance_locked" => "对象已锁定。",
             "train_not_stationary_at_node" => "列车未停在该节点。",

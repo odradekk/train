@@ -13,6 +13,9 @@ internal partial class EconomyPanels
     private readonly List<FacilityKey> _serviceFacilities = [];
     private readonly List<BlueprintAddress> _serviceBlueprints = [];
     private readonly List<VehicleId?> _serviceVehicles = [];
+    private OptionButton _servicePlot = null!;
+    private readonly List<PlotId?> _servicePlots = [];
+    private PlotId? _serviceSelectedPlot;
     private readonly List<InventoryId?> _serviceSourceOptions = [];
     private readonly List<InventoryId> _serviceSources = [];
     private ItemList _serviceSourceOrder = null!;
@@ -36,9 +39,9 @@ internal partial class EconomyPanels
     private void BuildServices(VBoxContainer body)
     {
         CloseServices();
-        _services = body; _serviceFacilities.Clear(); _serviceBlueprints.Clear(); _serviceVehicles.Clear();
+        _services = body; _serviceFacilities.Clear(); _serviceBlueprints.Clear(); _serviceVehicles.Clear(); _servicePlots.Clear();
         _serviceSourceOptions.Clear(); _serviceSources.Clear(); _serviceJobRows.Clear(); _servicePauseButtons.Clear();
-        _serviceSelectedFacility = null; _serviceSelectedBlueprint = null; _serviceSelectedVehicle = null;
+        _serviceSelectedFacility = null; _serviceSelectedBlueprint = null; _serviceSelectedVehicle = null; _serviceSelectedPlot = null;
         _serviceOperation = new() { Name = "ServiceOperation" };
         _serviceOperation.AddItem("制造车辆"); _serviceOperation.AddItem("修理车辆");
         _serviceOperation.AddItem("改装车辆");
@@ -56,6 +59,12 @@ internal partial class EconomyPanels
             ClearServiceDesign(); ServiceChanged();
         };
         _serviceVehicle.ItemSelected += index => { _serviceSelectedVehicle = _serviceVehicles[(int)index]; ClearServiceDesign(); ServiceChanged(); };
+        _servicePlot = ServiceChoice(body, "ServicePlot");
+        _servicePlot.ItemSelected += index =>
+        {
+            _serviceSelectedPlot = index < 0 || index >= _servicePlots.Count ? null : _servicePlots[(int)index];
+            ServiceChanged();
+        };
         BuildServiceTargets(body);
         Text(body, "SourceInstructions", "材料来源按下列顺序扣取；委托不足部分由 NPC 补购。来源需明确添加，可留空。");
         _serviceSource = ServiceChoice(body, "ServiceSource");
@@ -135,8 +144,15 @@ internal partial class EconomyPanels
             ServiceFacilityTitle, "请选择执行建筑");
         if (refreshTargets)
         {
-            var blueprints = _content.Blueprints.Where(item => item.Design is not null).Where(item =>
-                _content.FindBlueprint(item.Address) is ContentLookup<BlueprintRecord>.Found { Value.Definition.Specification: DesignSpecification.Vehicle }).ToArray();
+            var playerOwned = _settlement.Relation == SettlementRelation.PlayerOwned;
+            var blueprints = _content.Blueprints.Where(item => item.Design is not null)
+                .Select(item => (Summary: item, Found: _content.FindBlueprint(item.Address)))
+                .Where(item => item.Found is ContentLookup<BlueprintRecord>.Found)
+                .Select(item => (item.Summary, Record: ((ContentLookup<BlueprintRecord>.Found)item.Found).Value))
+                .Where(item => item.Record.Definition.Specification is DesignSpecification.Vehicle
+                    || item.Record.Definition.Specification is DesignSpecification.Building && playerOwned)
+                .OrderBy(item => item.Record.Definition.Specification is DesignSpecification.Building)
+                .Select(item => item.Summary).ToArray();
             SyncServiceChoice(_serviceBlueprint, _serviceBlueprints, blueprints.Select(item => item.Address), _serviceSelectedBlueprint,
                 id => $"{ServiceLibrary(id.Library)} · {blueprints.First(item => item.Address == id).Display.Name}", "请选择制造蓝图");
         }
@@ -161,6 +177,7 @@ internal partial class EconomyPanels
             else if (_serviceSourceOrder.GetItemText(index) != text) _serviceSourceOrder.SetItemText(index, text);
         }
         if (sourceSelection >= 0 && sourceSelection < _serviceSources.Count) _serviceSourceOrder.Select(sourceSelection);
+        UpdateServicePlot();
         RefreshServiceJobs();
         ValidateServiceSelection();
     }
@@ -194,12 +211,21 @@ internal partial class EconomyPanels
         if (_serviceOperation.Selected == 0)
         {
             if (_serviceSelectedBlueprint is not { } address) { _serviceDescription.Text = "请选择制造蓝图。"; return; }
-            if (_content.FindBlueprint(address) is not ContentLookup<BlueprintRecord>.Found) { _serviceDescription.Text = $"已不存在：蓝图 {address}"; return; }
+            if (_content.FindBlueprint(address) is not ContentLookup<BlueprintRecord>.Found blueprint) { _serviceDescription.Text = $"已不存在：蓝图 {address}"; return; }
+            var building = blueprint.Value.Definition.Specification is DesignSpecification.Building;
+            if (building)
+            {
+                if (_settlement!.Relation != SettlementRelation.PlayerOwned) { _serviceDescription.Text = "建筑蓝图只在自有聚居地列出。"; return; }
+                if (_serviceSelectedPlot is not { } plot) { _serviceDescription.Text = "请选择空地块。"; return; }
+                if (!IsEmptyServicePlot(plot)) { _serviceDescription.Text = "已不存在：所选空地块。"; return; }
+            }
             if (_serviceDesign is null || _serviceCandidate is null)
             { _serviceDescription.Text = _serviceDesignProblem ?? "目标设计尚未准备，请重新获取报价。"; return; }
             if (!ReferenceEquals(_serviceCandidate.Basis, _content))
             { _serviceDescription.Text = "目标蓝图的内容版本已失效，请重新获取报价。"; return; }
-            request = new JobRequest.BuildVehicle(facility, _serviceDesign, [.. _serviceSources], 0);
+            request = building
+                ? new JobRequest.BuildBuilding(facility, _serviceSelectedPlot!.Value, _serviceDesign, [.. _serviceSources], 0)
+                : new JobRequest.BuildVehicle(facility, _serviceDesign, [.. _serviceSources], 0);
         }
         else
         {
@@ -251,7 +277,7 @@ internal partial class EconomyPanels
             : new CoreCommand.CommissionVehicleWork(quote.Request, quote.TotalPayment!.Value);
         _serviceCompletion = null;
         var accepted = _submitTarget(_settlementTarget, command,
-            quote.Request is JobRequest.BuildVehicle or JobRequest.Refit ? _serviceCandidate : null);
+            quote.Request is JobRequest.BuildVehicle or JobRequest.BuildBuilding or JobRequest.Refit ? _serviceCandidate : null);
         ResetQuote(ref _serviceQuote, _serviceDescription, "本次报价已使用，请重新获取报价。");
         _serviceConfirm.Disabled = true;
         _serviceResult.Text = accepted is null ? "提交未受理或被拒绝，请查看错误；不会自动重报或重试。" : "任务已受理，等待核心完工事件。";
@@ -264,6 +290,37 @@ internal partial class EconomyPanels
         if (!ReadCurrent()) return;
         _settlementRevision = null; Refresh(_binding, _view, _content);
     }
+
+    private void UpdateServicePlot()
+    {
+        if (!GodotObject.IsInstanceValid(_servicePlot) || _settlement is null) return;
+        var building = _settlement.Relation == SettlementRelation.PlayerOwned && SelectedBuildingBlueprint();
+        if (!building) _serviceSelectedPlot = null;
+        var plots = building
+            ? _settlement.Plots.Where(plot => plot.Occupant is PlotOccupant.Empty).Select(plot => plot.Id)
+            : [];
+        SyncChoices(_servicePlot, _servicePlots, plots, _serviceSelectedPlot, PlotTitle, "请选择空地块");
+        _servicePlot.Visible = building;
+    }
+
+    private bool SelectedBuildingBlueprint() =>
+        _serviceOperation.Selected == 0 && _serviceSelectedBlueprint is { } address &&
+        _content.FindBlueprint(address) is ContentLookup<BlueprintRecord>.Found { Value.Definition.Specification: DesignSpecification.Building };
+
+    private bool IsEmptyServicePlot(PlotId id) =>
+        _settlement!.Plots.Any(plot => plot.Id == id && plot.Occupant is PlotOccupant.Empty);
+
+    private string PlotTitle(PlotId id)
+    {
+        var plot = _settlement!.Plots.FirstOrDefault(item => item.Id == id);
+        return plot is null ? $"地块 {id.Value}" : $"空地块 {id.Value} · {PlotSizeName(plot.Size)}";
+    }
+
+    internal static string PlotSizeName(PlotSize size) => size switch
+    {
+        PlotSize.Small => "小", PlotSize.Medium => "中", PlotSize.Large => "大", PlotSize.Giant => "巨型",
+        PlotSize.SmallStation => "小站点", PlotSize.LargeStation => "大站点", _ => size.ToString()
+    };
 
     private static string ServiceLibrary(BlueprintLibrary value) => value switch
     { BlueprintLibrary.Packages => "内容包", BlueprintLibrary.Local => "本局库", BlueprintLibrary.User => "用户库", _ => value.ToString() };

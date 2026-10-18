@@ -59,6 +59,7 @@ internal partial class EconomyPanels
         if (_serviceDifference is null) _serviceDifferenceText.Text = _serviceDesignProblem ?? "选择蓝图或该实例已保存的草稿后，获取报价与设计差额。";
         if (_serviceOperation.Selected == 3)
             _serviceDifferenceText.Text = "拆解要求当地停放车辆；返还由核心按完工时损伤结算，进入自有聚居地库存。开工后可暂停或恢复。";
+        UpdateServicePlot();
     }
 
     private void PrepareServiceDesign()
@@ -122,6 +123,7 @@ internal partial class EconomyPanels
         string? reason = null;
         if (_serviceSelectedFacility is { } facility && !IsCurrentServiceBuilding(facility)) reason = "已不存在：执行建筑，请重新选择。";
         if (_serviceOperation.Selected != 0 && _serviceSelectedVehicle is { } id && !IsLocalServiceVehicle(id)) reason = "已不存在：所选本地玩家车辆，请重新选择。";
+        if (SelectedBuildingBlueprint() && _serviceSelectedPlot is { } plot && !IsEmptyServicePlot(plot)) reason = "已不存在：所选空地块，请重新选择。";
         if (_serviceCandidate is { } candidate && !ReferenceEquals(candidate.Basis, _content)) reason = "目标内容版本已失效，请重新获取报价。";
         if (_serviceDifference is { } difference && _serviceSelectedVehicle is { } vehicle &&
             _view.FindInstance(new InstanceId.Vehicle(vehicle)) is Lookup<InstanceView>.Found found && found.Value.Design != difference.Core.Before)
@@ -160,7 +162,7 @@ internal partial class EconomyPanels
             _serviceSelectedDraft = _content.LocalDrafts.First(saved => saved.Target == new DraftTarget.Instance(instance)).Id;
         }
         var tabs = _settlementBody.GetNode<TabContainer>("Pages");
-        tabs.CurrentTab = Enumerable.Range(0, tabs.GetTabCount()).Single(index => tabs.GetTabTitle(index) == "车辆服务");
+        tabs.CurrentTab = Enumerable.Range(0, tabs.GetTabCount()).Single(index => tabs.GetTabTitle(index) == "建造与工地");
         ServiceChanged();
     }
 }

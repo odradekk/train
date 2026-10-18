@@ -318,7 +318,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             await _input.Activate(Find<Button>(economy, "PauseServiceJob_4"));
             await _input.Frames(2);
             Require(!economy.FindChildren("ServiceJob_4", "Label", true, false).Any(), "任务离开OwnedJobs后仍被缓存展示。");
-            var serviceButtons = economy.GetNode<ScrollContainer>("Settlement/Layout/Content/Body/Pages/车辆服务")
+            var serviceButtons = economy.GetNode<ScrollContainer>("Settlement/Layout/Content/Body/Pages/建造与工地")
                 .FindChildren("*", "Button", true, false).OfType<Button>().Select(button => button.Text).ToArray();
             Require(!serviceButtons.Any(text => text.Contains("取消") || text.Contains("退款") || text.Contains("优先级")),
                 "车辆服务按钮集合含取消、退款或优先级：" + string.Join("、", serviceButtons));
@@ -436,7 +436,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             await _input.ClickItem(ui.GetNode<ItemList>("Root/World/WorldPanels/FleetList/Layout/Content/Body/Objects"), 0);
             await _input.Activate(panels.FindChildren("VehicleServices", "Button", true, false).OfType<Button>().Single(button => button.Text.Contains("车辆 10")));
             var tabs = Find<TabContainer>(economy, "Pages");
-            Require(tabs.GetTabTitle(tabs.CurrentTab) == "车辆服务", "车辆入口没有打开车辆服务页。");
+            Require(tabs.GetTabTitle(tabs.CurrentTab) == "建造与工地", "车辆入口没有打开建造与工地页。");
             Require(Find<OptionButton>(economy, "ServiceTargetKind").Selected == 1, "没有预选已保存草稿。");
             var drafts = Find<OptionButton>(economy, "ServiceDraft");
             Require(drafts.Selected > 0 && drafts.GetItemText(drafts.Selected).Contains("入口草稿"), "已保存草稿没有预选。");
@@ -511,6 +511,117 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
         setup.Session.AssertComplete();
     }
 
+    [Test]
+    public async Task Building_blueprint_quotes_sources_and_submits_build_building_on_owned_settlement()
+    {
+        var design = new DesignInput(Train.Core.ContractSupport.HostCoreScenario.Input,
+            new(new("building-design"), new("building-composition"),
+                new DesignKind.Building(PlotSize.Medium, BuildingKind.Production, [FacilityTag.FoodProcessing]),
+                [], 10, 10, 1, new(100), [], [new(EconomyFixture.Food, 1)], 1, [], true, []), []);
+        var draft = new DesignDraft(new("本局建筑蓝图", ""),
+            new DesignSpecification.Building(PlotSize.Medium, BuildingKind.Production, [FacilityTag.FoodProcessing]), new([], [], []));
+        var evaluation = new DesignEvaluation.Complete(design.Design.Design, design.Design.Composition, draft, design,
+            new(null, new(new(0, 0, 0), new(1, 1, 1)), null, true, null, null, [], [], [], [], []), true, []);
+        var blueprint = new BlueprintRecord(new(BlueprintLibrary.Local, new("building-blueprint")), draft, [], evaluation);
+        var content = EconomyFixture.Content(vehicleBlueprint: blueprint);
+        var target = EconomyFixture.Content(vehicleBlueprint: blueprint);
+        var blocked = new ServiceView(owned: true, blocked: true, nullPayment: true, emptyPlot: true, expectedDesign: design);
+        var clear = new ServiceView(2, owned: true, nullPayment: true, emptyPlot: true, expectedDesign: design);
+        var setup = new HostSimulationTests.HostSetup(blocked, content);
+        var edit = new PreparedContentEdit.ConstructionTarget(design);
+        using var quoted = new ScriptedContentCandidate(content, content, ContentChange.Persistent, edit: edit);
+        using var confirmed = new ScriptedContentCandidate(target, content, ContentChange.Persistent, edit: edit);
+        var prepares = 0;
+        await Run(setup, async (ui, economy) =>
+        {
+            setup.ContentFactory!.PrepareEditCall = (basis, requestedEdit) =>
+            {
+                Require(ReferenceEquals(basis, content) && requestedEdit is ContentEdit.ConstructionTarget requested &&
+                    ReferenceEquals(requested.Target, draft), "建筑制造没有把所选蓝图交给内容准备目标。");
+                return new ContentResult<IContentCandidate>.Success(++prepares == 1 ? quoted : confirmed);
+            };
+            await Services(economy);
+            await QuoteBuilding(economy);
+            var quote = blocked.LastQuote!;
+            var order = Find<ItemList>(economy, "ServiceSourceOrder");
+            var build = quote.Request as JobRequest.BuildBuilding;
+            Require(build is not null && build.Plot == new PlotId(3) && build.Priority == 0 &&
+                ReferenceEquals(build.Design, design) && build.Sources.Length == order.ItemCount && build.Sources.Length == 2 &&
+                Enumerable.Range(0, order.ItemCount).All(index => order.GetItemText(index).Contains($"库存 {build.Sources[index].Value}")),
+                "建筑报价没有使用空地块、内容设计和界面上的来源顺序。");
+            var text = Find<Label>(economy, "ServiceQuote").Text;
+            var firstSource = text.IndexOf($"库存 {build!.Sources[0].Value}", StringComparison.Ordinal);
+            var secondSource = text.IndexOf($"库存 {build.Sources[1].Value}", StringComparison.Ordinal);
+            Require(text.Contains("来源扣料") && firstSource >= 0 && secondSource > firstSource && text.Contains("材料款：500") &&
+                text.Contains("地块已被占用") && text.Contains("plot_occupied") && Find<Button>(economy, "ConfirmService").Disabled,
+                "建筑报价没有显示来源、费用或核心阻止原因。");
+            var quotes = blocked.QuoteCount;
+            await _input.ClickItem(Find<ItemList>(economy, "ServiceSourceOrder"), 1);
+            await _input.Activate(Find<Button>(economy, "MoveServiceSourceDown"));
+            Require(setup.Session.SubmitCount == 0 && blocked.QuoteCount == quotes && Find<Button>(economy, "ConfirmService").Disabled,
+                "改选来源后自动报价或提交了建造。");
+            await _input.Activate(Find<Button>(economy.GetNode<PanelContainer>("Settlement"), "Close"));
+            Require(setup.Session.SubmitCount == 0, "关闭建造页提交了命令。");
+            setup.Session.QueueAdvance(new(1, clear.Position, [], null, null), clear);
+            var host = ui.GetParent<Train.App.App>().Host!;
+            Require(host.Step(1).Problem is null, "无法发布可建造的读视图。");
+            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
+            await _input.ClickItem(ui.GetNode<ItemList>("Root/World/WorldPanels/NodesList/Layout/Content/Body/Objects"), 0);
+            await _input.Activate(Find<Button>(ui.GetNode<WorldPanels>("Root/World/WorldPanels"), "Economy"));
+            await Services(economy);
+            await QuoteBuilding(economy);
+            quote = clear.LastQuote!;
+            Require(quote.Blockers.IsEmpty && !Find<Button>(economy, "ConfirmService").Disabled, "没有阻止原因时不能确认建造。");
+            await UiCapture.Capture(TestScene, "construction-yard");
+            setup.Session.QueueSubmit(new CoreCommand.StartOwnedJob(quote.Request), CommandSource.UserInterface,
+                Completed(1, clear, clear, new CommandDecision.Accepted([], [])), clear);
+            await _input.Activate(Find<Button>(economy, "ConfirmService"));
+            await _input.WaitUntil(() => confirmed.Activations == 1);
+            Require(setup.Session.SubmitCount == 1 && quoted.Activations == 0 && quote.Request is JobRequest.BuildBuilding &&
+                ReferenceEquals(ui.GetParent<Train.App.App>().Host!.Content, target), "确认没有提交自有建筑建造或没有激活当前候选。");
+        });
+        setup.Session.AssertComplete();
+    }
+
+    [Test]
+    public async Task Unowned_settlement_lists_no_building_blueprint_and_does_not_submit()
+    {
+        var draft = new DesignDraft(new("本局建筑蓝图", ""),
+            new DesignSpecification.Building(PlotSize.Medium, BuildingKind.Production, []), new([], [], []));
+        var design = new DesignInput(Train.Core.ContractSupport.HostCoreScenario.Input,
+            new(new("building-design"), new("building-composition"), new DesignKind.Building(PlotSize.Medium, BuildingKind.Production, []),
+                [], 10, 1, 1, new(1), [], [], 0, [], true, []), []);
+        var evaluation = new DesignEvaluation.Complete(design.Design.Design, design.Design.Composition, draft, design,
+            new(null, null, null, true, null, null, [], [], [], [], []), true, []);
+        var blueprint = new BlueprintRecord(new(BlueprintLibrary.Local, new("building-blueprint")), draft, [], evaluation);
+        var view = new ServiceView(emptyPlot: true);
+        var setup = new HostSimulationTests.HostSetup(view, EconomyFixture.Content(vehicleBlueprint: blueprint));
+        await Run(setup, async (_, economy) =>
+        {
+            await Services(economy);
+            var blueprints = Find<OptionButton>(economy, "ServiceBlueprint");
+            Require(blueprints.ItemCount == 0 && !Find<OptionButton>(economy, "ServicePlot").Visible, "非自有聚居地列出了建筑蓝图或空地块。");
+            Require(Enumerable.Range(0, Find<OptionButton>(economy, "ServiceOperation").ItemCount)
+                .All(index => Find<OptionButton>(economy, "ServiceOperation").GetItemText(index) != "拆解车辆"), "非自有聚居地的建造页改变了原有操作。");
+            Require(setup.Session.SubmitCount == 0 && view.QuoteCount == 0, "打开非自有建造页提交或报价。");
+        });
+        setup.Session.AssertComplete();
+    }
+
+    private async Task QuoteBuilding(EconomyPanels economy)
+    {
+        await _input.Choose(Find<OptionButton>(economy, "ServiceFacility"), 0);
+        await _input.Choose(Find<OptionButton>(economy, "ServiceBlueprint"), 0);
+        await _input.Choose(Find<OptionButton>(economy, "ServicePlot"), 1);
+        await _input.Choose(Find<OptionButton>(economy, "ServiceSource"), 1);
+        await _input.Activate(Find<Button>(economy, "AddServiceSource"));
+        await _input.Choose(Find<OptionButton>(economy, "ServiceSource"), 2);
+        await _input.Activate(Find<Button>(economy, "AddServiceSource"));
+        await _input.ClickItem(Find<ItemList>(economy, "ServiceSourceOrder"), 1);
+        await _input.Activate(Find<Button>(economy, "MoveServiceSourceUp"));
+        await _input.Activate(Find<Button>(economy, "RefreshServiceQuote"));
+    }
+
     private async Task SelectRepair(EconomyPanels economy)
     {
         await _input.Choose(Find<OptionButton>(economy, "ServiceOperation"), 1);
@@ -521,7 +632,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
     private async Task Services(EconomyPanels economy)
     {
         var tabs = Find<TabContainer>(economy, "Pages");
-        var index = Enumerable.Range(0, tabs.GetTabCount()).Single(i => tabs.GetTabTitle(i) == "车辆服务");
+        var index = Enumerable.Range(0, tabs.GetTabCount()).Single(i => tabs.GetTabTitle(i) == "建造与工地");
         var bar = tabs.GetTabBar();
         await _input.Frames(2);
         await _input.Click(bar.GlobalPosition + bar.GetTabRect(index).GetCenter());
@@ -552,7 +663,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
         finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
     }
 
-    private sealed class ServiceView(ulong revision = 1, bool blocked = false, bool nullPayment = false, bool completed = false, bool missingFacility = false, DesignInput? expectedDesign = null, bool owned = false, bool paused = false, bool changedDesign = false) : ICoreReadView
+    private sealed class ServiceView(ulong revision = 1, bool blocked = false, bool nullPayment = false, bool completed = false, bool missingFacility = false, DesignInput? expectedDesign = null, bool owned = false, bool paused = false, bool changedDesign = false, bool emptyPlot = false) : ICoreReadView
     {
         private readonly ICoreReadView basis = EconomyFixture.Create(revision, vehicle: EconomyFixture.VehicleState.Owned);
         private static readonly FacilityKey Facility = new(new(20), CapabilityKind.Construction);
@@ -562,7 +673,9 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
         public Lookup<SettlementView> FindSettlement(SettlementId id)
         {
             if (basis.FindSettlement(id) is not Lookup<SettlementView>.Found found) return basis.FindSettlement(id);
-            return new Lookup<SettlementView>.Found(found.Value with { Relation = owned ? SettlementRelation.PlayerOwned : found.Value.Relation, Plots = missingFacility ? [] : [new(new(1), 1, PlotSize.Small, [], new PlotOccupant.Building(new(20))), new(new(2), 2, PlotSize.Small, [], new PlotOccupant.Building(new(21)))], CommissionJobs = completed || owned ? [] : [new(4)], OwnedJobs = owned && !completed ? [new(4), new(5)] : [] });
+            PlotView[] plots = missingFacility ? [] : [new(new(1), 1, PlotSize.Small, [], new PlotOccupant.Building(new(20))), new(new(2), 2, PlotSize.Small, [], new PlotOccupant.Building(new(21)))];
+            if (emptyPlot && !missingFacility) plots = [.. plots, new(new(3), 3, PlotSize.Medium, [], new PlotOccupant.Empty())];
+            return new Lookup<SettlementView>.Found(found.Value with { Relation = owned ? SettlementRelation.PlayerOwned : found.Value.Relation, Plots = [.. plots], CommissionJobs = completed || owned ? [] : [new(4)], OwnedJobs = owned && !completed ? [new(4), new(5)] : [] });
         }
         public Lookup<JobView> FindJob(JobId id) => id.Value is 4 or 5 && (id.Value == 4 || owned)
             ? new Lookup<JobView>.Found(new JobView.Construction(new(id, owned ? ConstructionKind.Deconstruction : ConstructionKind.Repair, new(1), Facility,
@@ -578,14 +691,17 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
                 JobRequest.Dismantle dismantle when owned && dismantle.Facility == Facility && dismantle.Instance is InstanceId.Vehicle { Id.Value: 9 } => [],
                 JobRequest.Refit refit when refit.Facility == Facility && expectedDesign is not null && ReferenceEquals(refit.Change.Target, expectedDesign) => refit.Sources,
                 JobRequest.BuildVehicle build when build.Facility == Facility && expectedDesign is not null && ReferenceEquals(build.Design, expectedDesign) => build.Sources,
+                JobRequest.BuildBuilding build when owned && build.Facility == Facility && build.Plot == new PlotId(3) && expectedDesign is not null && ReferenceEquals(build.Design, expectedDesign) => build.Sources,
                 _ => throw new InvalidOperationException("UNCONFIGURED: GetJobQuote request")
             };
             if (funding != (owned ? JobFunding.OwnInventory : JobFunding.NpcCommission)) throw new InvalidOperationException("UNCONFIGURED: GetJobQuote funding");
             QuoteCount++;
+            ImmutableArray<CoreProblem> problems = blocked
+                ? [.. Missing, new("insufficient_capacity", "queue", null, ["fixture:capacity"])] : [];
+            if (blocked && request is JobRequest.BuildBuilding) problems = problems.Add(new("plot_occupied", "Plot", null, []));
             LastQuote = new(request, funding, Revision, 100, [new(EconomyFixture.Food, 7)],
                 [.. sources.Select(id => new JobMaterialSourceView(id, [new(EconomyFixture.Food, 2)]))],
-                [new(EconomyFixture.Food, 3)], new(500), new(231), nullPayment ? null : new(999),
-                blocked ? [.. Missing, new("insufficient_capacity", "queue", null, ["fixture:capacity"])] : []);
+                [new(EconomyFixture.Food, 3)], new(500), new(231), nullPayment ? null : new(999), problems);
             return new CoreResult<JobQuote>.Success(LastQuote);
         }
         public SimulationPosition Position => basis.Position;

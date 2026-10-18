@@ -77,7 +77,7 @@ internal partial class EconomyPanels : Control
         BuildVehicles(Page(tabs, "现车"));
         BuildLeases(Page(tabs, "仓库租用"));
         BuildProduction(Page(tabs, "生产")); BuildPopulation(Page(tabs, "人口"));
-        BuildServices(Page(tabs, "车辆服务"));
+        BuildServices(Page(tabs, "建造与工地"));
         tabs.TabChanged += _ => RefreshServices();
         Refresh(_binding, _view, _content);
     }
