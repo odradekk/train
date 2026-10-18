@@ -111,6 +111,7 @@ public sealed class RouteRangeRecorderTests
         public required SceneUpdate Update { get; init; }
         public ScenePoint Origin => default;
         public ScenePanBounds? NodePanBounds => null;
+        public SceneNodeOverview? NodeOverview => null;
         public SceneReadiness Readiness => SceneReadiness.Ready;
         public double SimulationSeconds => 0;
         public ImmutableArray<SceneProblem> Diagnostics => [];
