@@ -284,24 +284,34 @@ public class SceneMaterialPixelTests(Node testScene) : TestClass(testScene)
 
         private async Task<Image> Render(Mesh mesh, ShaderMaterial source)
         {
-            using var material = (ShaderMaterial)source.Duplicate();
-            // 颜色契约独立于光照；保留生产 vertex/fragment，只禁用光照响应。
-            using var shader = new Shader
-            {
-                Code = Regex.Replace(source.Shader.Code, @"render_mode\s+([^;]+);", "render_mode $1, unshaded;")
-            };
-            material.Shader = shader;
-            var instance = new MeshInstance3D { Mesh = mesh, MaterialOverride = material };
-            _viewport.AddChild(instance);
+            using var output = new GodotOutputCapture();
+            OS.AddLogger(output);
             try
             {
-                await _scene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
-                await _scene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
-                var result = _viewport.GetTexture().GetImage();
-                Require(!result.IsEmpty(), "有窗口的 SubViewport 没有像素输出。");
-                return result;
+                using var material = (ShaderMaterial)source.Duplicate();
+                // 颜色契约独立于光照；保留生产 vertex/fragment，只禁用光照响应。
+                using var shader = new Shader
+                {
+                    Code = Regex.Replace(source.Shader.Code, @"render_mode\s+([^;]+);", "render_mode $1, unshaded;")
+                        .Replace("#include \"scene_surface.gdshaderinc\"",
+                            "#include \"res://Rendering/scene_surface.gdshaderinc\"")
+                };
+                material.Shader = shader;
+                var instance = new MeshInstance3D { Mesh = mesh, MaterialOverride = material };
+                _viewport.AddChild(instance);
+                try
+                {
+                    await _scene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+                    await _scene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+                    var result = _viewport.GetTexture().GetImage();
+                    Require(!result.IsEmpty(), "有窗口的 SubViewport 没有像素输出。");
+                    Require(!output.Contains("Shader compilation failed") && !output.Contains("SHADER ERROR") &&
+                        !output.Contains("Shader error"), "像素测试着色器编译失败。");
+                    return result;
+                }
+                finally { instance.Free(); }
             }
-            finally { instance.Free(); }
+            finally { OS.RemoveLogger(output); }
         }
 
         private static SceneMesh Quad(SceneMaterial material, ExposedFaceEdges edges, float repeats)
