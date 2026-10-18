@@ -271,7 +271,7 @@ internal sealed class NodeScene : IAsyncDisposable
         prefetch = range;
     }
     internal void Pump(SceneWorldSnapshot? current = null, ScenePoint? focus = null, bool allowBuild = true, TrainView? enteringTrain = null,
-        FollowedPath? following = null)
+        FollowedPath? following = null, TrainView? followedTrain = null)
     {
         SetBuildAllowed(allowBuild);
         if (current is not null) snapshot = current;
@@ -286,6 +286,19 @@ internal sealed class NodeScene : IAsyncDisposable
             var path = new NodeTrainPath(candidateLayout, dimensions, crossing, candidateLayout.Bypass,
                 enteringTrain.LengthMeters * RailwayCoordinates.CellsPerMeter, AdjacentRailway);
             following = FollowPath(path, enteringTrain, 0);
+        }
+        if (followedTrain is { Position: TrainPosition.Node onNode } && Layout is { } ownLayout)
+        {
+            var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(Node)).Value;
+            var stops = settlement.Platforms(snapshot, ownLayout, ImmutableArray.CreateBuilder<SceneProblem>(), false);
+            var station = onNode.PlatformNumber is { } number ? number - 1 : -1;
+            if (station < stops.Length)
+            {
+                var path = new NodeTrainPath(ownLayout, dimensions, onNode, station >= 0 ? stops[station] : ownLayout.Bypass,
+                    followedTrain.LengthMeters * RailwayCoordinates.CellsPerMeter, AdjacentRailway);
+                focus = path.Sample(path.Arc(onNode.DistanceMeters)).Position;
+                following = FollowPath(path, followedTrain, onNode.DistanceMeters);
+            }
         }
         followedPath = following;
         if (focus is { } requestedFocus) range = new(requestedFocus, NodeStreaming.PrefetchCells);

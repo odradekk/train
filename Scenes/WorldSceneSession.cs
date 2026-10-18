@@ -328,7 +328,11 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         if (successor is null) return null;
         if (!successor.Failed)
         {
-            successor.Pump(snapshot, node.StreamingFocus, allowBuild: node.HasPendingBuilds != true, following: node.StreamingFollow);
+            TrainView? followed = target is WorldSceneTarget.Follow follow &&
+                snapshot.Core.FindTrain(follow.Train) is Lookup<TrainView>.Found found && found.Value.Position is TrainPosition.Node
+                ? found.Value : null;
+            successor.Pump(snapshot, node.StreamingFocus, allowBuild: node.HasPendingBuilds != true, following: node.StreamingFollow,
+                followedTrain: followed);
             if (!successor.Failed && successor.NearPrepared)
             {
                 successor.MarkNearReady();

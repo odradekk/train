@@ -551,6 +551,56 @@ public sealed class NodeSceneTests
     }
 
     [TestMethod]
+    public async Task FoundedReplacementKeepsTheFollowedTrainClearOfFog()
+    {
+        var content = CopiedSettlement(1, terrain: true, radius: 20).Content;
+        var docked = NodeFixtures.Train(activity: TrainActivity.Servicing, platformNumber: 1, enteredFrom: new(1));
+        var waiting = docked with
+        {
+            Activity = TrainActivity.Stopped,
+            Position = new TrainPosition.Node(NodeFixtures.NodeId, new(1), 1, null, null, NodeTravelPhase.Waiting, 0, null)
+        };
+        var founded = NodeFixtures.Snapshot(platforms: 2, trains: [docked], steps: 1, content: content);
+        var empty = RailwayFixtures.ReplaceCore(NodeFixtures.Snapshot(platforms: 2, trains: [waiting], content: content),
+            node: founded.Core.World.Nodes[0] with { Occupant = new NodeOccupant.Empty(), Platforms = 0 });
+        await using var session = Open(empty);
+        var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
+        session.RequestView(new WorldSceneTarget.Follow(waiting.Id, waiting.Vehicles[0]));
+        var opened = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(request, null)).Value;
+        var displayed = await Focused(session, opened, null);
+        var before = Vehicle(displayed, waiting.Vehicles[0]);
+        session.Observe(founded, []);
+        SceneFrame? swapped = null;
+        var previous = displayed;
+        for (var attempt = 0; attempt < 40 && swapped is null; attempt++)
+        {
+            await SceneFixtures.AwaitPendingWork(session.PendingNodeBuilds);
+            var next = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(request, previous)).Value;
+            if (!SamePan(previous, next)) swapped = next;
+            else previous = next;
+        }
+        Assert.IsNotNull(swapped);
+        var after = Vehicle(swapped, docked.Vehicles[0]);
+        Assert.IsTrue(Vector2.Distance(new(before.X, before.Z), new(after.X, after.Z)) > NodeStreaming.NearCells,
+            $"The followed train must leave the empty-layout position. before {before} after {after}");
+        var aim = new Vector3(after.X, after.Y + 8, after.Z);
+        var beside = new Vector3(after.X + 8, after.Y + 20, after.Z);
+        Assert.IsInstanceOfType<ScenePick.Hit>(swapped.Pick(new(aim, -Vector3.UnitY, 80)));
+        Assert.IsFalse(Covers(swapped, aim));
+        var ground = displayed.Pick(new(beside, -Vector3.UnitY, 40));
+        Assert.IsInstanceOfType<ScenePick.Hit>(ground, "The open scene has built the ground beside the train's new position.");
+        var kept = ((ScenePick.Hit)ground).Value.Object;
+        Assert.IsInstanceOfType<ScenePick.Hit>(swapped.Pick(new(beside, -Vector3.UnitY, 40)));
+        Assert.IsFalse(swapped.Update.Removed.Contains(kept!.Value));
+    }
+
+    private static Vector3 Vehicle(SceneFrame frame, VehicleId id)
+    {
+        var subject = new WorldObjectId.Instance(new InstanceId.Vehicle(id));
+        return frame.Objects.Single(item => item.Parent is null && item.Subject == subject).Pose.Position;
+    }
+
+    [TestMethod]
     public async Task RequestViewReleasesTheFoundingSuccessor()
     {
         var founded = WithNeighbor(CopiedSettlement(1, terrain: false));
@@ -577,17 +627,20 @@ public sealed class NodeSceneTests
         Assert.AreEqual(NodeLayout.Build(founded, new(2)).PanBounds(frame.Origin), frame.NodePanBounds);
     }
 
-    private static async Task<SceneFrame> Focused(WorldSceneSession session, SceneFrame displayed, Vector3 aim)
+    private static async Task<SceneFrame> Focused(WorldSceneSession session, SceneFrame displayed, Vector3? aim)
     {
         for (var attempt = 0; attempt < 40; attempt++)
         {
             await SceneFixtures.AwaitPendingWork(session.PendingNodeBuilds);
-            var next = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(
-                new(1, new(displayed, aim), SceneDebugLayer.None), displayed)).Value;
+            var request = aim is { } at
+                ? new SceneFrameRequest(1, new SceneCameraSample(displayed, at), SceneDebugLayer.None)
+                : new SceneFrameRequest(1, null, SceneDebugLayer.None);
+            var next = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(request, displayed)).Value;
             var stable = next.Readiness is not SceneReadiness.Loading && session.PendingNodeBuilds.Length == 0 &&
                 next.Objects.Select(item => item.Id).ToHashSet().SetEquals(displayed.Objects.Select(item => item.Id));
             if (next.Readiness is not SceneReadiness.Loading) displayed = next;
-            if (stable && displayed.Pick(new(aim, -Vector3.UnitY, 80)) is ScenePick.Hit) return displayed;
+            if (!stable) continue;
+            if (aim is not { } look || displayed.Pick(new(look, -Vector3.UnitY, 80)) is ScenePick.Hit) return displayed;
         }
         return displayed;
     }
