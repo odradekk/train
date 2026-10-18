@@ -167,7 +167,7 @@ internal sealed class TrainDispatch
         return selected;
     }
 
-    internal static bool Open(EdgeMapItem edge, int track) => track >= 1 && track <= edge.Tracks && !edge.Breaks.Any(b => b.Track == track)
+    private static bool Open(EdgeMapItem edge, int track) => track >= 1 && track <= edge.Tracks && !edge.Breaks.Any(b => b.Track == track)
         && !edge.Works.Any(w => w.Track == track && w.Kind == RailwayWorkKind.RepairBreak);
 
     private bool EntrySpace(TrainState entering, TrainState ahead, EdgeMapItem edge, TravelDirection direction)

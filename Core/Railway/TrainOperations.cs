@@ -96,8 +96,8 @@ internal static class TrainOperations
         var trains = world.Trains.ToDictionary(t => t.Id);
         foreach (var original in world.Trains.OrderBy(t => t.QueueEnteredStep ?? step).ThenBy(t => t.Id.Value))
         {
-            var train = dispatch.FixExit(original);
-            if (train.Activity == TrainActivity.Stopped) { trains[train.Id] = train; continue; }
+            var train = original;
+            if (train.Activity == TrainActivity.Stopped) continue;
             if (train.Activity == TrainActivity.Servicing)
             {
                 train = train with { RemainingDwellSteps = train.RemainingDwellSteps - 1 };

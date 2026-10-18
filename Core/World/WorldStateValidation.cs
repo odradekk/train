@@ -429,9 +429,6 @@ internal static class WorldStateValidation
                     "/world/trains/position/entered_track");
                 Require(node.NextTrack is null || node.Phase == NodeTravelPhase.Departing && node.NextEdge is { } next
                     && node.NextTrack >= 1 && node.NextTrack <= edges[next].Tracks, "/world/trains/position/next_track");
-                Require(node.Phase != NodeTravelPhase.Departing || node.NextTrack is not null
-                    || !Enumerable.Range(1, edges[node.NextEdge!.Value].Tracks).Any(track => Railway.TrainDispatch.Open(edges[node.NextEdge.Value], track)),
-                    "/world/trains/position/next_track");
                 Require(node.Phase is not (NodeTravelPhase.Waiting or NodeTravelPhase.Docked)
                     || train.SpeedMetersPerSecond == 0, "/world/trains/position");
                 break;

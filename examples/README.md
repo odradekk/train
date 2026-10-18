@@ -66,7 +66,7 @@ CLI 委托目前只支持制造车辆。`facility` 是执行施工的建筑编�
 
 `run`／`replay`／`resume` 的 JSON 另外包含：
 
-- `samples[]`：位置（节点位置包含可空 `entered_track`、`next_track`，与 Core 公开位置一致）、钱包、全局未归属委托工钱，全部列车的位置／活动／库存身份／当前运行累计／近期报告，全部聚居地的库存身份、待售车辆与委托任务编号，以及按任务编号查询的状态、工作进度、冻结工作量、投入货物和阻塞，全部租约的到期状态，以及这些对象引用的库存容量、已用、可用、权限和全部货物。数据直接来自公开查询；报告与当前累计保留 Core 给出的收付款、净现金流、运量、载运率和未完成规则，不重算。近期报告有核心规则规定的保留上限。
+- `samples[]`：位置（节点位置包含可空 `entered_from`、`entered_track`、`next_edge`、`next_track`，与 Core 公开位置一致）、钱包、全局未归属委托工钱，全部列车的位置／活动／库存身份／当前运行累计／近期报告，全部聚居地的库存身份、待售车辆与委托任务编号，以及按任务编号查询的状态、工作进度、冻结工作量、投入货物和阻塞，全部租约的到期状态，以及这些对象引用的库存容量、已用、可用、权限和全部货物。数据直接来自公开查询；报告与当前累计保留 Core 给出的收付款、净现金流、运量、载运率和未完成规则，不重算。近期报告有核心规则规定的保留上限。
 - `command_receipts[]`：配方中的零基 `command_index`、`kind`、`decision`（accepted／rejected）、`problems[{code,field,related_identities}]`、`quoted_total`。现车购买使用执行前的公开 `QuoteVehicle.Total`，车辆委托使用 `GetJobQuote.TotalPayment`；启动条件不足时为空，单纯资金不足时仍有已计算总额。其他命令为 null；报价不预留交易条件。
 - `samples[].settlements[]` 另含公开查询中的 `market_goods`（库存、补货目标、留用、可售／可收量及阻塞）、`facilities`（流程、状态、实际工作速率、限制、输出缓冲、潜在消耗及阻塞）、`residents` 和 `population_needs`。潜在消耗不是实际消耗。
 - `goods_transfers[]`、`production_completions[]`、`production_state_changes[]` 保留命令提交和推进返回的三类公开事件，含实际模拟位置和事件序号。成交记录含列车、聚居地、货物、数量及实际金额；生产完成量包含仍在输出缓冲中的货物。

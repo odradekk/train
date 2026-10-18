@@ -29,7 +29,6 @@ public sealed class TrainStateValidationTests
     [DataRow("entered_track", "1", "entered_track")]
     [DataRow("next_track", "0", "next_track")]
     [DataRow("next_track", "3", "next_track")]
-    [DataRow("next_track", "null", "next_track")]
     [DataRow("phase", "0", "next_track")]
     public void Invalid_node_track_identity_or_phase_is_rejected_on_decode(string field, string value, string problemField)
     {
@@ -47,6 +46,22 @@ public sealed class TrainStateValidationTests
         var problem = ((CoreResult<ICoreCapture>.Failure)result).Problems.Single();
         Assert.AreEqual("invalid_state", problem.Code);
         Assert.AreEqual("/world/trains/position/" + problemField, problem.Field);
+    }
+
+    [TestMethod]
+    public void An_unselected_exit_on_an_open_edge_round_trips_and_is_filled_on_restore()
+    {
+        var state = StateWithPlan();
+        var edge = state.World.Edges[0];
+        var train = state.World.Trains[0] with
+        {
+            Position = WorldFixture.Node(edge.Start, NodeTravelPhase.Departing, nextEdge: edge.Id) with { NextTrack = null }
+        };
+        var saved = RoundTrip(state with { World = state.World with { Trains = [train] } });
+        using var candidate = WorldFixture.Success(CoreFactory.Create().PrepareRestore(saved, state.Content, WorldFixture.Options));
+        using var restored = candidate.Activate();
+        var view = ((Lookup<TrainView>.Found)restored.Read().FindTrain(train.Id)).Value;
+        Assert.IsTrue(view.Position is TrainPosition.Node { NextTrack: 1 });
     }
 
     [TestMethod]

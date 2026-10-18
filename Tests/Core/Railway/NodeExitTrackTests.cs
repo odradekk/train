@@ -62,7 +62,7 @@ public sealed class NodeExitTrackTests
     [DataRow("removed", 2, 1)]
     public void An_unavailable_fixed_track_changes_to_an_open_track(string change, int previous, int expected)
     {
-        var state = State(1, 2);
+        var state = State(1, 2, content: DepartureContent());
         var edge = state.World.Edges[0];
         edge = change switch
         {
@@ -72,9 +72,9 @@ public sealed class NodeExitTrackTests
             "removed" => edge with { Tracks = 1 },
             _ => throw new ArgumentOutOfRangeException(nameof(change))
         };
-        var train = Exit(state.World.Trains[0], 1, previous) with { Position =
+        var train = Exit(state.World.Trains[0], 1, previous) with { Activity = TrainActivity.Running, Position =
             new TrainPosition.Node(new(1), new(1), 2, new(1), previous, NodeTravelPhase.Departing,
-                WorldFixture.ApproachLength + WorldFixture.PlatformLength, null) };
+                2 + WorldFixture.PlatformLength / 2, null) };
         using var session = new CoreSession(state with { World = state.World with { Edges = [edge], Trains = [train],
             Next = state.World.Next with { Break = 2 } } });
         Step(session);
@@ -100,7 +100,8 @@ public sealed class NodeExitTrackTests
         var state = State(1, tracks);
         var edge = state.World.Edges[0] with { Breaks = tracks == 0 ? [] : [new(new(1), 1, 10)] };
         using var session = new CoreSession(state with { World = state.World with { Edges = [edge],
-            Trains = [Exit(state.World.Trains[0], 1, previous)], Next = state.World.Next with { Break = 2 } } });
+            Trains = [Exit(state.World.Trains[0], 1, previous) with { Activity = TrainActivity.Waiting, QueueEnteredStep = 0 }],
+            Next = state.World.Next with { Break = 2 } } });
         Step(session);
         Assert.AreEqual(expected, Node(session, 1).NextTrack);
         Step(session);
@@ -112,7 +113,7 @@ public sealed class NodeExitTrackTests
         var reopened = closed with { World = closed.World with { Edges = [edge with { Tracks = 1, Breaks = [] }] } };
         using var open = new CoreSession(reopened);
         Step(open);
-        Assert.AreEqual(1, Node(open, 1).NextTrack);
+        Assert.IsTrue(View(open, 1).Position is TrainPosition.Edge { Track: 1 });
     }
 
     [TestMethod]
