@@ -862,7 +862,7 @@ internal sealed class NodeScene : IAsyncDisposable
                     var head = center + halfLength;
                     following = new(path.Sample(Math.Clamp(head + ahead, 0, path.Length)).Position,
                         SamplePath(path, center - halfLength, Math.Min(head + ahead, path.Length)),
-                        SamplePath(path, center - halfLength, Math.Min(head + NodeStreaming.ViewCells, path.Length)));
+                        SamplePath(path, center - halfLength, Math.Min(head + NodeStreaming.ViewCells + NodeStreaming.PathSampleCells, path.Length)));
                 }
                 if (!known || !available)
                 {

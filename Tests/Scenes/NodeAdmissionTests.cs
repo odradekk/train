@@ -68,6 +68,28 @@ public sealed class NodeAdmissionTests
     }
 
     [TestMethod]
+    public async Task First_follow_frame_admits_a_completed_terrain_layer_beyond_the_64m_path()
+    {
+        await using var run = new AdmissionRun(_ => (12000, 1),
+            Snapshot(followedTrain: true, trainLengthMeters: 26, travelMeters: 240));
+        await run.BuildAt(new(0, 0, 160));
+        var reserve = new GridColumn(0, 288);
+        Assert.IsTrue(run.Completed.ContainsKey(reserve));
+        Assert.IsFalse(run.Admitted.ContainsKey(reserve));
+
+        var target = new WorldSceneTarget.Follow(new(1), new(1));
+        run.Present(target);
+        await SceneFixtures.AwaitPendingWork(run.Scene.PendingWork);
+        var first = run.Present(target);
+
+        // The head is Z122. The layer starting at Z288 needs an 80m initial path,
+        // including its 16m margin; the old 64m path leaves this completed layer queued.
+        Assert.AreNotEqual(SceneReadiness.Loading, first.Readiness);
+        Assert.IsTrue(run.Admitted.ContainsKey(reserve), "The first display target needs a completed layer in reserve for display lag.");
+        Assert.IsInstanceOfType<Lookup<WorldLocation>.Found>(first.Locate(new(.5f, 1, 288.5f)));
+    }
+
+    [TestMethod]
     public async Task Loading_admits_completed_path_parts_beyond_the_near_circle_but_keeps_side_parts_queued()
     {
         await using var run = new AdmissionRun(_ => (12000, 1));
@@ -359,14 +381,16 @@ public sealed class NodeAdmissionTests
         return new(data.ChunkInputs(from), geometry, ImmutableDictionary<GridColumn, double>.Empty.Add(from, 1));
     }
 
-    private static SceneWorldSnapshot Snapshot(bool followedTrain = false)
+    private static SceneWorldSnapshot Snapshot(bool followedTrain = false, double trainLengthMeters = 52, double travelMeters = 80)
     {
         var layout = NodeFixtures.Layout with { Plots = [], SceneModel = NodeFixtures.Layout.SceneModel with
         { Scene = SceneFixtures.Projection([]) with { OccupiedBounds = new(new(-320, 0, -320), new(319, 0, 319)) } } };
         ImmutableArray<TrainView> trains = followedTrain
-            ? [NodeFixtures.Train(activity: TrainActivity.Running) with { LengthMeters = 52 }]
+            ? [NodeFixtures.Train(activity: TrainActivity.Running) with
+            { LengthMeters = trainLengthMeters, Position = new TrainPosition.Node(NodeFixtures.NodeId, null, null,
+                NodeTravelPhase.Departing, travelMeters + 48, null) }]
             : [];
         return NodeFixtures.EmptyNodeSnapshot(layout, trains,
-            design: followedTrain ? RailwayFixtures.Vehicle(lengthCells: 104) : null);
+            design: followedTrain ? RailwayFixtures.Vehicle(lengthCells: (int)(trainLengthMeters * 2)) : null, travelMeters: travelMeters);
     }
 }
