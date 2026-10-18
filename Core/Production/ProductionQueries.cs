@@ -11,16 +11,17 @@ internal static class ProductionQueries
     internal static FacilityView? Find(WorldState world, CoreContentProjection content, FacilityKey key)
     {
         if (Evaluate(world, content, key) is not { } result) return null;
-        var (plan, runtime, capability, process, state, problem) = result;
+        var (plan, runtime, capability, _, state, problem) = result;
         var batch = runtime?.Batch;
+        var batchProcess = batch is null ? null : Process(content, batch.Process);
         return new(key, plan?.Process, plan?.Enabled ?? false, plan?.Priority ?? 0, state, capability,
             runtime?.LastActualWorkPerSecond ?? 0, runtime?.LastLimits ?? [],
             batch is null ? null : new(batch.Process, batch.StartedFromRevision, batch.FrozenWorkRequired,
                 batch.ProgressWork, batch.ProgressWork / batch.FrozenWorkRequired, batch.FrozenOutputs,
-                process is not null && (process.Revision != batch.StartedFromRevision
-                    || process.WorkRequired != batch.FrozenWorkRequired || process.PowerPerWork != batch.FrozenPowerPerWork
-                    || process.LaborPerWork != batch.FrozenLaborPerWork
-                    || !Outputs(process.Details).OrderBy(g => WorldReferences.GoodKey(g.Good), StringComparer.Ordinal).SequenceEqual(batch.FrozenOutputs))),
+                batchProcess is not null && (batchProcess.Revision != batch.StartedFromRevision
+                    || batchProcess.WorkRequired != batch.FrozenWorkRequired || batchProcess.PowerPerWork != batch.FrozenPowerPerWork
+                    || batchProcess.LaborPerWork != batch.FrozenLaborPerWork
+                    || !Outputs(batchProcess.Details).OrderBy(g => WorldReferences.GoodKey(g.Good), StringComparer.Ordinal).SequenceEqual(batch.FrozenOutputs))),
             runtime?.OutputBuffer ?? [], [], Blockers(key, problem));
     }
 
@@ -48,9 +49,10 @@ internal static class ProductionQueries
         var runtime = settlement.ProductionFacilities.SingleOrDefault(f => f.Facility == key);
         var capability = knownCapability ?? Capability(world, content, key);
         var process = plan is null ? null : Process(content, plan.Process);
+        var batchProcessMissing = runtime?.Batch is { } active && Process(content, active.Process) is null;
         var state = ProductionState.Running;
         string? problem = null;
-        if (plan is not null && process is null) { state = ProductionState.ProcessMissing; problem = "content_missing"; }
+        if ((plan is not null && process is null) || batchProcessMissing) { state = ProductionState.ProcessMissing; problem = "content_missing"; }
         else if (plan is null) state = ProductionState.Disabled;
         else if (ConstructionJobs.InstanceLocked(world, id)) { state = ProductionState.Locked; problem = "instance_locked"; }
         else if (!plan.Enabled) state = ProductionState.Disabled;
