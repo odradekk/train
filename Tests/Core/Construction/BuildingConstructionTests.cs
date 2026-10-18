@@ -278,6 +278,179 @@ public sealed class BuildingConstructionTests
         }
     }
 
+    [TestMethod]
+    public void Refit_consumes_the_difference_and_scales_structure_from_retained_parts()
+    {
+        var (session, _, building, design) = BuildPlain();
+        using (session)
+        {
+            var id = new InstanceId.Building(building);
+            using var damaged = new CoreSession(session.State with { World = session.State.World with
+            {
+                Instances = session.State.World.Instances.Select(i => i.Id != id ? i : i with
+                    { StructureDurability = 50, Parts = i.Parts.Select(p => p with { Current = 40 }).ToImmutableArray() }).ToImmutableArray()
+            } });
+            var before = Instance(damaged, id);
+            var part = design.Design.Parts[0];
+            var target = design with { Design = design.Design with
+            {
+                Design = new(new string('8', 64)), Composition = new(new string('7', 64)), MaxStructureDurability = 201,
+                Parts = [part with { Id = new(1) }, part with { Id = new(0), Capabilities = [] }]
+            } };
+            var change = new DesignChangeProjection(before.Design, before.Composition, target, [new(new(0), new(1))], [new(Material, 1)], [], 1);
+            Assert.AreEqual(8L, Stock(damaged, Local));
+            var job = Start(damaged, RefitBuilding(building, change));
+            Assert.AreEqual(7L, Stock(damaged, Local));
+            Assert.AreEqual(1L, job.FrozenTotalWork);
+            Assert.AreEqual(InstanceLock.UnderRefit, Instance(damaged, id).Lock);
+            Step(damaged);
+            var after = damaged.State.World.Instances.Single(i => i.Id == id);
+            Assert.AreEqual(target.Design.Design, after.Design);
+            Assert.AreEqual(101L, after.StructureDurability);
+            Assert.AreEqual(40L, after.Parts.Single(p => p.Id.Value == 1).Current);
+            Assert.AreEqual(part.MaxDurability, after.Parts.Single(p => p.Id.Value == 0).Current);
+            Assert.AreEqual(before.Details, Instance(damaged, id).Details);
+            Assert.AreEqual(InstanceLock.None, Instance(damaged, id).Lock);
+            Assert.AreEqual(7L, Stock(damaged, Local));
+        }
+    }
+
+    [TestMethod]
+    public void Refit_rounds_returns_down_and_caps_them_at_the_opening_reservation()
+    {
+        var (session, content, building, design) = BuildPlain();
+        using (session)
+        {
+            var id = new InstanceId.Building(building);
+            using var damaged = new CoreSession(session.State with { World = session.State.World with
+            {
+                Instances = session.State.World.Instances.Select(i => i.Id != id ? i : i with
+                    { StructureDurability = 50, Parts = i.Parts.Select(p => p with { Current = 40 }).ToImmutableArray() }).ToImmutableArray()
+            } });
+            var before = Instance(damaged, id);
+            var target = design with { Design = design.Design with
+            {
+                Design = new(new string('8', 64)), Composition = new(new string('7', 64)), Parts = []
+            } };
+            var change = new DesignChangeProjection(before.Design, before.Composition, target, [], [new(Material, 1)],
+                [new(Material, 1, [new(0)], [], []), new(Material, 1, [], [new(Material, 1)], []), new(Material, 2, [], [new(Material, 2)], [])], 5);
+            Start(damaged, RefitBuilding(building, change));
+            var reservation = LocalInventory(damaged).Reservations.Single();
+            Assert.AreEqual(2L, reservation.Capacity);
+            CollectionAssert.AreEqual(new[] { new GoodsQuantity(Material, 2) }, reservation.ExpectedReturns.ToArray());
+            using var later = new CoreSession(damaged.State with { World = damaged.State.World with
+            {
+                Instances = damaged.State.World.Instances.Select(i => i.Id != id ? i : i with
+                    { Parts = i.Parts.Select(p => p with { Current = 0 }).ToImmutableArray() }).ToImmutableArray()
+            } });
+            var published = Changed(content) with { Designs = later.State.World.Designs.Select(d => d.Design != design.Design.Design
+                ? d : d with { MaxStructureDurability = 50 }).ToImmutableArray() };
+            Accept(later, new CoreCommand.PublishContent(published));
+            var completed = Step(later, 6).Events.Select(e => e.Event).OfType<CoreEvent.ConstructionCompleted>().Single();
+            CollectionAssert.AreEqual(new[] { new GoodsQuantity(Material, 2) }, completed.ReturnedGoods.ToArray());
+            Assert.AreEqual(9L, Stock(later, Local));
+            Assert.IsTrue(LocalInventory(later).Reservations.IsEmpty);
+        }
+    }
+
+    [TestMethod]
+    public void Zero_work_building_refit_is_a_job_and_immediate_application_keeps_composition()
+    {
+        var (session, content, building, design) = BuildPlain();
+        using (session)
+        {
+            var id = new InstanceId.Building(building);
+            var before = Instance(session, id);
+            var formal = design with { Design = design.Design with
+                { Design = new(new string('8', 64)), Composition = new(new string('7', 64)) } };
+            var change = new DesignChangeProjection(before.Design, before.Composition, formal, [new(new(0), new(0))], [], [], 0);
+            var job = Start(session, RefitBuilding(building, change));
+            Assert.AreEqual(0L, job.FrozenTotalWork);
+            Assert.AreEqual(0d, job.Progress);
+            Assert.AreEqual(8L, Stock(session, Local));
+            var completed = Step(session).Events.Select(e => e.Event).OfType<CoreEvent.ConstructionCompleted>().Single();
+            Assert.AreEqual(job.Id, completed.Job);
+            Assert.AreEqual(formal.Design.Design, Instance(session, id).Design);
+
+            var immediate = formal with { Design = formal.Design with { Design = new(new string('6', 64)) } };
+            var same = new DesignChangeProjection(formal.Design.Design, formal.Design.Composition, immediate, [new(new(0), new(0))], [], [], 0);
+            var applied = Accept(session, new CoreCommand.ApplyInstanceDesign(id, same));
+            Assert.IsFalse(applied.Events.Any(e => e.Event is CoreEvent.ConstructionStarted));
+            Assert.AreEqual(immediate.Design.Design, Instance(session, id).Design);
+            Assert.AreEqual(formal.Design.Composition, Instance(session, id).Composition);
+            var current = Instance(session, id);
+            var changed = immediate with { Design = immediate.Design with
+                { Design = new(new string('2', 64)), Composition = new(new string('5', 64)) } };
+            Reject(session, new CoreCommand.ApplyInstanceDesign(id, new DesignChangeProjection(current.Design, current.Composition, changed,
+                [new(new(0), new(0))], [], [], 0)), "Change.Target", "invalid_design");
+            Reject(session, RefitBuilding(building, new DesignChangeProjection(current.Design, current.Composition,
+                immediate with { Design = immediate.Design with
+                {
+                    Design = new(new string('1', 64)),
+                    Kind = new DesignKind.Building(PlotSize.Medium, BuildingKind.Production, [])
+                } }, [new(new(0), new(0))], [], [], 0)), "Instance.Details.Plot", "conditions_not_met");
+            Assert.AreEqual(8L, Stock(session, Local));
+        }
+        using var station = Session(content);
+        var stationDesign = station.State.World.Designs.Single(d => d.Design == WorldFixture.Station);
+        var self = new DesignChangeProjection(stationDesign.Design, stationDesign.Composition,
+            new(content.Identity, stationDesign with { Design = new(new string('4', 64)), Composition = new(new string('3', 64)) }, []),
+            [new(stationDesign.Parts[0].Id, stationDesign.Parts[0].Id)], [], [], 0);
+        Reject(station, new CoreCommand.StartOwnedJob(new JobRequest.Refit(Facility, new InstanceId.Building(Facility.Building), self, [Local], 0)),
+            "Instance", "invalid_state");
+    }
+
+    [TestMethod]
+    public void Station_refit_recounts_platforms()
+    {
+        var (session, content, building, _) = BuildProductionBuilding();
+        using (session)
+        {
+            var stationId = new InstanceId.Building(Facility.Building);
+            var stationDesign = session.State.World.Designs.Single(d => d.Design == WorldFixture.Station);
+            var part = stationDesign.Parts[0];
+            var target = stationDesign with
+            {
+                Design = new(new string('8', 64)), Composition = new(new string('7', 64)),
+                Parts = [part, part with { Id = new(1), Capabilities = [new PartCapability.Platform()] }]
+            };
+            var before = Instance(session, stationId);
+            var change = new DesignChangeProjection(before.Design, before.Composition,
+                new(content.Identity, target, []), [new(part.Id, part.Id)], [new(Material, 1)], [], 1);
+            Start(session, new CoreCommand.StartOwnedJob(new JobRequest.Refit(
+                new(building, CapabilityKind.Construction), stationId, change, [Local], 0)));
+            Step(session);
+            var world = session.State.World;
+            var settlement = world.Settlements.Single();
+            Assert.AreEqual(2, world.Nodes.Single(n => n.Id == settlement.Node).Platforms);
+            Assert.AreEqual(WorldState.CountPlatforms(settlement, world.Instances.ToDictionary(i => i.Id), world.Designs.ToDictionary(d => d.Design)),
+                world.Nodes.Single(n => n.Id == settlement.Node).Platforms);
+            Assert.AreEqual(new InstanceDetails.Building(settlement.Plots.Single(p => p.Building == Facility.Building).Id,
+                settlement.Plots.Single(p => p.Building == Facility.Building).Size), world.Instances.Single(i => i.Id == stationId).Details);
+            RoundTrip(session, content);
+        }
+    }
+
+    private static (CoreSession Session, CoreContentProjection Content, BuildingId Building, DesignInput Design) BuildPlain()
+    {
+        var content = WithPlot(Content(), PlotSize.Small);
+        var session = Session(content);
+        var plot = Empty(session);
+        var design = Building(content, PlotSize.Small, BuildingKind.Production, '9');
+        Start(session, BuildOn(plot, design));
+        var created = ((InstanceId.Building)Step(session, 2).Events.Select(e => e.Event).OfType<CoreEvent.ConstructionCompleted>().Single().CreatedInstance!).Id;
+        return (session, content, created, design);
+    }
+
+    private static CoreCommand RefitBuilding(BuildingId building, DesignChangeProjection change)
+        => new CoreCommand.StartOwnedJob(new JobRequest.Refit(Facility, new InstanceId.Building(building), change, [Local], 0));
+
+    private static InstanceView Instance(ICoreSession session, InstanceId id)
+        => ((Lookup<InstanceView>.Found)session.Read().FindInstance(id)).Value;
+
+    private static InventoryView LocalInventory(ICoreSession session)
+        => ((Lookup<InventoryView>.Found)session.Read().FindInventory(Local)).Value;
+
     private static (CoreSession Session, CoreContentProjection Content, BuildingId Building, DesignInput Design) BuildProductionBuilding()
     {
         var (session, content, plot) = Planned(PlotSize.Small);

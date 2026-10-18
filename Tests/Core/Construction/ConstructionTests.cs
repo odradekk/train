@@ -46,8 +46,6 @@ public sealed class ConstructionTests
         [
             new CoreCommand.StartOwnedJob(new JobRequest.BuildEquipment(Facility, input, [Local], 0)),
             new CoreCommand.StartOwnedJob(new JobRequest.Dismantle(Facility, new InstanceId.Building(new(1)), 0)),
-            new CoreCommand.StartOwnedJob(new JobRequest.Refit(Facility, new InstanceId.Building(new(1)),
-                new(input.Design.Design, input.Design.Composition, input, [], [], [], 0), [], 0)),
             new CoreCommand.SetJobPriority(new(1), 0)
         ];
         var before = session.State;

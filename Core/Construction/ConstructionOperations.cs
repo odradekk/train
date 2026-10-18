@@ -81,21 +81,10 @@ internal static class ConstructionOperations
             ImmutableArray<CoreEvent> adapted = [];
             if (job.Kind == ConstructionKind.Refit)
             {
-                var id = job.Instance!;
-                var instance = world.Instances.Single(i => i.Id == id);
-                var before = world.Designs.Single(d => d.Design == instance.Design);
-                var retained = job.RetainedParts.ToDictionary(p => p.After, p => p.Before);
-                var structure = checked((long)(((Int128)design.MaxStructureDurability
-                    * Math.Min(instance.StructureDurability, before.MaxStructureDurability) + before.MaxStructureDurability - 1)
-                    / before.MaxStructureDurability));
-                world = world with { Instances = world.Instances.Select(i => i.Id != id ? i : i with
-                {
-                    Design = design.Design, StructureDurability = structure,
-                    Details = ((InstanceDetails.Vehicle)i.Details) with { Size = ((DesignKind.Vehicle)design.Kind).Size },
-                    Parts = design.Parts.Select(p => new PartDurability(p.Id, retained.TryGetValue(p.Id, out var old)
-                        ? instance.Parts.Single(d => d.Id == old).Current : p.MaxDurability)).ToImmutableArray()
-                }).ToImmutableArray() };
-                events.Add(new CoreEvent.InstanceDesignChanged(id, before.Design, design.Design));
+                var refit = ApplyRefit(world, content, job, design, boundary);
+                world = refit.World;
+                adapted = refit.Events;
+                events.Add(new CoreEvent.InstanceDesignChanged(job.Instance!, refit.Before, design.Design));
             }
             else if (job.Kind == ConstructionKind.Deconstruction)
             {
@@ -171,6 +160,33 @@ internal static class ConstructionOperations
                 Inventories = job.ReturnInventory is null ? world.Inventories : world.Inventories.Select(i => i.Id != job.ReturnInventory ? i : i with
                     { Reservations = i.Reservations.Where(r => r.Job != job.Id).ToImmutableArray() }).ToImmutableArray()
             };
+    }
+
+    private static (WorldState World, DesignHash Before, ImmutableArray<CoreEvent> Events) ApplyRefit(
+        WorldState world, CoreContentProjection content, ConstructionJobState job, DesignProjection design, SimulationPosition boundary)
+    {
+        var id = job.Instance!;
+        var instance = world.Instances.Single(i => i.Id == id);
+        var before = world.Designs.Single(d => d.Design == instance.Design);
+        var retained = job.RetainedParts.ToDictionary(p => p.After, p => p.Before);
+        var structure = checked((long)(((Int128)design.MaxStructureDurability
+            * Math.Min(instance.StructureDurability, before.MaxStructureDurability) + before.MaxStructureDurability - 1)
+            / before.MaxStructureDurability));
+        var details = instance.Details is InstanceDetails.Vehicle vehicle
+            ? vehicle with { Size = ((DesignKind.Vehicle)design.Kind).Size }
+            : instance.Details;
+        world = world with { Instances = world.Instances.Select(i => i.Id != id ? i : i with
+        {
+            Design = design.Design, StructureDurability = structure, Details = details,
+            Parts = design.Parts.Select(p => new PartDurability(p.Id, retained.TryGetValue(p.Id, out var old)
+                ? instance.Parts.Single(d => d.Id == old).Current : p.MaxDurability)).ToImmutableArray()
+        }).ToImmutableArray() };
+        if (id is not InstanceId.Building) return (world, before.Design, []);
+        if (before.Kind is not DesignKind.Building { Type: BuildingKind.Station }
+            && design.Kind is not DesignKind.Building { Type: BuildingKind.Station })
+            return (world, before.Design, []);
+        var adapted = AdaptPlatforms(world, content, job.Settlement, boundary);
+        return (adapted.World, before.Design, adapted.Events);
     }
 
     private static DesignKind? TargetKind(WorldState world, ConstructionJobState job)

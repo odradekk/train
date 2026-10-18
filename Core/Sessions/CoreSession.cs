@@ -66,8 +66,8 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
         }
         if (command is CoreCommand.ApplyInstanceDesign apply)
         {
-            VehicleDesignChanges.Validate(apply.Instance, apply.Change, State.World, State.Content);
-            return ExecuteCommand(command, source, content => VehicleDesignChanges.Apply(State.World, content, apply));
+            InstanceDesignChanges.Validate(apply.Instance, apply.Change, State.World, State.Content);
+            return ExecuteCommand(command, source, content => InstanceDesignChanges.Apply(State.World, content, apply));
         }
         if (command is CoreCommand.StartOwnedJob or CoreCommand.CommissionVehicleWork)
         {

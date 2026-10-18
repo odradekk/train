@@ -26,6 +26,8 @@ internal static class ConstructionCommands
             JobRequest.BuildBuilding { Plot.Value: 0 } => throw new ArgumentException("地块编号必须非零。", nameof(request)),
             JobRequest.Refit { Instance: InstanceId.Vehicle vehicle } refit when vehicle.Id.Value != 0
                 => (refit.Facility, refit.Sources, refit.Priority),
+            JobRequest.Refit { Instance: InstanceId.Building building } refit when building.Id.Value != 0
+                => (refit.Facility, refit.Sources, refit.Priority),
             JobRequest.Repair { Instance: InstanceId.Vehicle vehicle } repair when vehicle.Id.Value != 0
                 => (repair.Facility, repair.Sources, repair.Priority),
             JobRequest.Repair { Instance: InstanceId.Building building } repair when building.Id.Value != 0
@@ -37,6 +39,7 @@ internal static class ConstructionCommands
                 or JobRequest.Dismantle { Instance: InstanceId.Vehicle { Id.Value: 0 } }
                 => throw new ArgumentException("车辆编号必须非零。", nameof(request)),
             JobRequest.Repair { Instance: InstanceId.Building { Id.Value: 0 } }
+                or JobRequest.Refit { Instance: InstanceId.Building { Id.Value: 0 } }
                 => throw new ArgumentException("建筑编号必须非零。", nameof(request)),
             _ => throw new NotImplementedException($"{request.GetType().Name} 尚未实现。")
         };
@@ -44,10 +47,10 @@ internal static class ConstructionCommands
         if (facility.Building.Value == 0 || facility.Capability != CapabilityKind.Construction || sources.IsDefault
             || sources.Any(s => s.Value == 0))
             throw new ArgumentException("施工请求须提供施工设施和已初始化的来源数组。", nameof(request));
-        if (request is JobRequest.BuildVehicle vehicleBuild) VehicleDesignChanges.ValidateInput(vehicleBuild.Design, world, content);
-        if (request is JobRequest.BuildBuilding buildingBuild) VehicleDesignChanges.ValidateInput(buildingBuild.Design, world, content);
+        if (request is JobRequest.BuildVehicle vehicleBuild) InstanceDesignChanges.ValidateInput(vehicleBuild.Design, world, content);
+        if (request is JobRequest.BuildBuilding buildingBuild) InstanceDesignChanges.ValidateInput(buildingBuild.Design, world, content);
         if (request is JobRequest.Refit refitting)
-            VehicleDesignChanges.Validate(refitting.Instance, refitting.Change, world, content);
+            InstanceDesignChanges.Validate(refitting.Instance, refitting.Change, world, content);
     }
 
     internal static JobQuote Quote(WorldState world, CoreContentProjection content, ulong step, CoreRevision revision,
@@ -93,7 +96,7 @@ internal static class ConstructionCommands
             design = WorldInputs.NormalizeDesign(input.Design);
             if (design.Kind is not DesignKind.Vehicle || !design.CanConstruct)
                 return Reject("invalid_design", "Design");
-            prepared = VehicleDesignChanges.AddTarget(world, input);
+            prepared = InstanceDesignChanges.AddTarget(world, input);
             if (MissingDesign(prepared, content, design)) return Reject("content_missing", "Design");
         }
         else if (request is JobRequest.BuildBuilding buildBuilding)
@@ -107,7 +110,7 @@ internal static class ConstructionCommands
             design = WorldInputs.NormalizeDesign(input.Design);
             if (design.Kind is not DesignKind.Building || !design.CanConstruct)
                 return Reject("invalid_design", "Design");
-            prepared = VehicleDesignChanges.AddTarget(world, input);
+            prepared = InstanceDesignChanges.AddTarget(world, input);
             if (MissingDesign(prepared, content, design)) return Reject("content_missing", "Design");
             if (!WorldInputs.FitsPlot(((DesignKind.Building)design.Kind).PlotSize, site.Size))
                 return Reject("conditions_not_met", "Plot");
@@ -154,15 +157,15 @@ internal static class ConstructionCommands
                 design = world.Designs.Single(d => d.Design == instance.Design);
                 if (instance.StructureDurability <= 0 || design.MaxStructureDurability == 0 && request is not JobRequest.Dismantle)
                     return Reject("instance_destroyed", "Instance");
-                if (request is JobRequest.Refit refit)
-                {
-                    var change = WorldInputs.NormalizeDesignChange(refit.Change);
-                    if (VehicleDesignChanges.Check(world, content, instance, change, false) is { } problem) return Result([problem]);
-                    if (design.Composition == change.Target.Design.Composition) return Reject("invalid_design", "Change.Target");
-                    prepared = VehicleDesignChanges.AddTarget(world, change.Target);
-                    design = change.Target.Design;
-                }
             }
+        }
+        if (request is JobRequest.Refit requested)
+        {
+            var change = WorldInputs.NormalizeDesignChange(requested.Change);
+            if (InstanceDesignChanges.Check(world, content, instance!, change, false) is { } problem) return Result([problem]);
+            if (design.Composition == change.Target.Design.Composition) return Reject("invalid_design", "Change.Target");
+            prepared = InstanceDesignChanges.AddTarget(world, change.Target);
+            design = change.Target.Design;
         }
         DesignKind? tier = request is JobRequest.Dismantle ? null : design.Kind;
         if (ConstructionJobs.Qualification(world, content, settlement.Id, facility, tier, funding) is { } qualification)
