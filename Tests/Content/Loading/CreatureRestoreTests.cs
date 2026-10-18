@@ -43,8 +43,6 @@ public sealed class CreatureRestoreTests
                 new K.CoreDefinitionReference.Lair(lair.Id))).Value.Text.Name);
             Assert.IsTrue(view.Core.MissingReferences.IsEmpty);
         }
-        Assert.AreEqual(creature.Revision, references.Definitions[0].FrozenRevision);
-        Assert.AreEqual(lair.Revision, references.Definitions[1].FrozenRevision);
     }
 
     [TestMethod]

@@ -101,6 +101,11 @@ public sealed class AuthoringDraftTests
         var invalid = ContentFactory.Create().EncodeDraft(Saved(complete with { Value = complete.Value with { SpawnIntervalSeconds = 0 } }, C.DefinitionKind.LairType));
         Assert.IsTrue(((C.ContentResult<string>.Failure)invalid).Diagnostics.Any(diagnostic =>
             diagnostic.Code == "invalid_field" && diagnostic.Field == "/spawn_interval_seconds"));
+    }
+
+    [TestMethod]
+    public void SaveLocalDraft_rejects_package_blueprints_and_design_payloads()
+    {
         var valid = Saved(new C.DefinitionDraft.Blueprint("unfinished", DesignFixtures.Vehicle()), C.DefinitionKind.Blueprint);
         using var loaded = DesignFixtures.Content().Load();
         foreach (var draft in new[]

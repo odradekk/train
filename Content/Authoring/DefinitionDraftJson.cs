@@ -265,35 +265,35 @@ internal static class DefinitionDraftJson
     {
         if (value.Members.IsDefault) Fail("/members", "数组必须初始化。");
         root["display"] = DisplayNode(value.Display);
-        WriteOptional(root, "generation_weight", value.GenerationWeight, "/generation_weight", incomplete, 1, null);
+        WriteOptional(root, "generation_weight", value.GenerationWeight, "/generation_weight", incomplete, 1, false);
         var members = new JsonArray();
         var creatures = ImmutableArray.CreateBuilder<K.CreatureDefinitionId>();
         for (var index = 0; index < value.Members.Length; index++)
         {
             if (value.Members[index] is not { } member)
-            {
                 Fail("/members", "成员不能为空。");
-                continue;
+            else
+            {
+                if (member.Weight < 1) Fail($"/members/{index}/weight", "必须为范围内的有限数值。");
+                creatures.Add(member.Creature);
+                members.Add(new JsonObject { ["creature"] = member.Creature.Value, ["weight"] = member.Weight });
             }
-            if (member.Weight < 1) Fail($"/members/{index}/weight", "必须为范围内的有限数值。");
-            creatures.Add(member.Creature);
-            members.Add(new JsonObject { ["creature"] = member.Creature.Value, ["weight"] = member.Weight });
         }
         Unique(creatures, "/members");
         if (!incomplete && members.Count == 0) Fail("/members", "成员不能为空。");
         root["members"] = members;
-        WriteOptional(root, "maximum_members", value.MaximumMembers, "/maximum_members", incomplete, 1, null);
+        WriteOptional(root, "maximum_members", value.MaximumMembers, "/maximum_members", incomplete, 1, false);
         WriteOptional(root, "spawn_interval_seconds", value.SpawnIntervalSeconds, "/spawn_interval_seconds", incomplete, null, true);
         WriteOptional(root, "raid_interval_seconds", value.RaidIntervalSeconds, "/raid_interval_seconds", incomplete, null, true);
-        WriteOptional(root, "roaming_radius_hops", value.RoamingRadiusHops, "/roaming_radius_hops", incomplete, 0, null);
-        WriteOptional(root, "raid_radius_hops", value.RaidRadiusHops, "/raid_radius_hops", incomplete, 0, null);
+        WriteOptional(root, "roaming_radius_hops", value.RoamingRadiusHops, "/roaming_radius_hops", incomplete, 0, false);
+        WriteOptional(root, "raid_radius_hops", value.RaidRadiusHops, "/raid_radius_hops", incomplete, 0, false);
         WriteOptional(root, "rail_damage_work_seconds", value.RailDamageWorkSeconds, "/rail_damage_work_seconds", incomplete, null, true);
-        WriteOptional(root, "clearance_reward", value.ClearanceReward, "/clearance_reward", incomplete, 0L, null);
+        WriteOptional(root, "clearance_reward", value.ClearanceReward, "/clearance_reward", incomplete, 0L, false);
         if (value.SceneModel is { } scene) root["scene_model"] = scene.Value;
         else if (!incomplete) Fail("/scene_model", "场景模型尚未指定。");
     }
 
-    private static void WriteOptional<T>(JsonObject root, string key, T? value, string field, bool incomplete, T? minimum, bool? positive)
+    private static void WriteOptional<T>(JsonObject root, string key, T? value, string field, bool incomplete, T? minimum, bool positive)
         where T : struct, IComparable<T>
     {
         if (value is null)
@@ -301,7 +301,7 @@ internal static class DefinitionDraftJson
             if (!incomplete) Fail(field, "字段尚未指定。");
             return;
         }
-        if (minimum is { } lower && value.Value.CompareTo(lower) < 0 || positive == true && value.Value.CompareTo(default) <= 0 ||
+        if (minimum is { } lower && value.Value.CompareTo(lower) < 0 || positive && value.Value.CompareTo(default) <= 0 ||
             value is double number && !double.IsFinite(number))
             Fail(field, "必须为范围内的有限数值。");
         root[key] = JsonValue.Create(value.Value);

@@ -13,6 +13,7 @@ public sealed class LairLoadingTests
     [DataRow("duplicate-members", "invalid_field", "/members")]
     [DataRow("not-positive", "invalid_field", "/spawn_interval_seconds")]
     [DataRow("schema", "unsupported_format", "/schema_version")]
+    [DataRow("missing-maximum", "invalid_field", "/maximum_members")]
     [DataRow("missing-creature", "reference_missing", "/members/0/creature")]
     [DataRow("vehicle-member", "reference_wrong_kind", "/members/0/creature")]
     [DataRow("vehicle-scene", "reference_wrong_kind", "/scene_model")]
@@ -21,6 +22,7 @@ public sealed class LairLoadingTests
     {
         var fixture = DesignFixtures.Content();
         WorldContentFixtures.AddBlueprint(fixture, WorldContentFixtures.Scene());
+        WorldContentFixtures.AddBlueprint(fixture, Scout());
         WorldContentFixtures.AddBlueprint(fixture, DesignFixtures.Blueprint("hauler"));
         var lair = Lair();
         switch (problem)
@@ -30,6 +32,7 @@ public sealed class LairLoadingTests
             case "duplicate-members": lair["members"]!.AsArray().Add(lair["members"]![0]!.DeepClone()); break;
             case "not-positive": lair["spawn_interval_seconds"] = 0; break;
             case "schema": lair["schema_version"] = 2; break;
+            case "missing-maximum": lair.Remove("maximum_members"); break;
             case "missing-creature": lair["members"]![0]!["creature"] = "absent"; break;
             case "vehicle-member": lair["members"]![0]!["creature"] = "hauler"; break;
             case "vehicle-scene": lair["scene_model"] = "hauler"; break;
@@ -37,8 +40,9 @@ public sealed class LairLoadingTests
         }
         fixture.AddFile(ContentFixture.BuiltIn, "resources/lair-types/nest.lair-type.json", lair.ToJsonString());
         var failure = WorldContentFixtures.Failure(fixture.Prepare());
-        Assert.IsTrue(failure.Diagnostics.Any(diagnostic => diagnostic.Code == code && diagnostic.Field == field),
+        Assert.AreEqual(1, failure.Diagnostics.Length,
             string.Join("; ", failure.Diagnostics.Select(diagnostic => diagnostic.Code + " " + diagnostic.Field)));
+        Assert.IsTrue(failure.Diagnostics.Any(diagnostic => diagnostic.Code == code && diagnostic.Field == field));
     }
 
     [TestMethod]
@@ -73,6 +77,15 @@ public sealed class LairLoadingTests
         Assert.IsTrue(status.Diagnostics.Any(diagnostic => diagnostic.Code == "reference_missing"));
         Assert.IsFalse(candidate.View.Voxels.Any(entry => entry.Definition.Value == mod + ":food"));
         Assert.AreEqual(0, candidate.View.Core.LairTypes.Length);
+    }
+
+    private static JsonObject Scout()
+    {
+        var creature = DesignFixtures.Blueprint("scout");
+        creature["category"] = "creature";
+        creature["simulation"] = JsonNode.Parse("""{"behaviors":{"creature":{"hp":8,"speed":1.5,"retreat_threshold":0.25,"raid_duration":12}}}""");
+        creature["layout"]!["palette"]![0]!["voxel"] = "scenery";
+        return creature;
     }
 
     private static JsonObject Lair() => JsonNode.Parse("""

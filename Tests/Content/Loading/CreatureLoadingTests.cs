@@ -29,12 +29,22 @@ public sealed class CreatureLoadingTests
         Assert.AreEqual(12, creatures[0].RaidDurationSeconds);
         Assert.AreEqual(new K.PartCapability.Weapon(3, 0.5), creatures[0].Weapon);
         Assert.IsNull(creatures[1].Weapon);
-        Assert.IsFalse(candidate.View.Core.Designs.Any(design => design.Design == Appearance(candidate.View, "scout").Scene.Design));
+        Assert.IsNull(((C.DesignEvaluation.Complete)((C.ContentLookup<C.BlueprintRecord>.Found)candidate.View.FindBlueprint(
+            new(C.BlueprintLibrary.Packages, new("core:scout")))).Value.Evaluation).Core);
         var scene = Appearance(candidate.View, "wolf").Scene;
         Assert.AreEqual(2, scene.Voxels.Length);
         Assert.IsTrue(scene.OccupancyComplete);
         var lair = candidate.View.Core.LairTypes.Single();
+        Assert.AreEqual(2, lair.GenerationWeight);
+        Assert.AreEqual(4, lair.MaximumMembers);
+        Assert.AreEqual(30, lair.SpawnIntervalSeconds);
+        Assert.AreEqual(60, lair.RaidIntervalSeconds);
+        Assert.AreEqual(1, lair.RoamingRadiusHops);
+        Assert.AreEqual(2, lair.RaidRadiusHops);
+        Assert.AreEqual(15, lair.RailDamageWorkSeconds);
+        Assert.AreEqual(new K.Money(10), lair.ClearanceReward);
         CollectionAssert.AreEqual(new[] { "core:scout", "core:wolf" }, lair.Members.Select(member => member.Creature.Value).ToArray());
+        CollectionAssert.AreEqual(new[] { 3, 1 }, lair.Members.Select(member => member.Weight).ToArray());
         var lairAppearance = (C.ContentLookup<C.LairAppearanceProjection>.Found)candidate.View.FindLair(lair.Id);
         Assert.AreEqual(WorldContentFixtures.Design(candidate.View, "scene"), lairAppearance.Value.SceneModel.Design);
         Assert.IsNull(lairAppearance.Value.Display.Icon);
@@ -68,6 +78,7 @@ public sealed class CreatureLoadingTests
     [DataRow("goods", "design_invalid", "/layout/cells/0")]
     [DataRow("nested", "design_invalid", "/layout/composites")]
     [DataRow("hp", "invalid_field", "/simulation/behaviors/creature/hp")]
+    [DataRow("speed", "invalid_field", "/simulation/behaviors/creature/speed")]
     [DataRow("retreat", "invalid_field", "/simulation/behaviors/creature/retreat_threshold")]
     [DataRow("damage", "invalid_field", "/simulation/behaviors/weapon/damage")]
     [DataRow("unknown", "invalid_field", "/simulation/behaviors/creature/extra")]
@@ -81,6 +92,7 @@ public sealed class CreatureLoadingTests
             case "goods": creature["layout"]!["palette"]![0]!["voxel"] = "block"; break;
             case "nested": creature["layout"]!["composites"] = JsonNode.Parse("""[{"at":[0,0,1],"blueprint":"absent"}]"""); break;
             case "hp": creature["simulation"]!["behaviors"]!["creature"]!["hp"] = 0; break;
+            case "speed": creature["simulation"]!["behaviors"]!["creature"]!["speed"] = 0; break;
             case "retreat": creature["simulation"]!["behaviors"]!["creature"]!["retreat_threshold"] = 1.5; break;
             case "damage": creature["simulation"]!["behaviors"]!["weapon"]!["damage"] = 0; break;
             case "unknown": creature["simulation"]!["behaviors"]!["creature"]!["extra"] = 1; break;
@@ -109,7 +121,10 @@ public sealed class CreatureLoadingTests
         using var candidate = fixture.Load();
         var status = candidate.Report.Packages.Single(package => package.Metadata?.Id.Value == mod);
         Assert.AreEqual(C.PackageState.Invalid, status.State);
-        Assert.IsTrue(status.Diagnostics.Any(diagnostic => diagnostic.Code == "invalid_field"));
+        var extra = status.Diagnostics.Single(diagnostic => diagnostic.Field == "/extra");
+        Assert.AreEqual("invalid_field", extra.Code);
+        Assert.AreEqual("pack/resources/lair-types/nest.lair-type.json", extra.Source?.Path);
+        Assert.IsFalse(status.Diagnostics.Any(diagnostic => diagnostic.Source?.Path == "pack/resources/blueprints/beast.blueprint.json"));
         Assert.IsFalse(candidate.View.Core.Creatures.Any(creatureProjection => creatureProjection.Id.Value == mod + ":beast"));
         Assert.IsInstanceOfType<C.ContentLookup<C.CreatureAppearanceProjection>.NotFound>(candidate.View.FindCreature(new(mod + ":beast")));
     }

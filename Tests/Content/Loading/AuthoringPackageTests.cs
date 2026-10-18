@@ -193,16 +193,19 @@ public sealed class AuthoringPackageTests
     public void Lair_types_round_trip_through_package_edits_and_creature_blueprints_remain_definitions()
     {
         var fixture = DesignFixtures.Content();
+        WorldContentFixtures.AddBlueprint(fixture, WorldContentFixtures.Scene());
         fixture.AddFile(ContentFixture.BuiltIn, "resources/lair-types/den.lair-type.json", """
             {"schema_version":1,"id":"den","display":{"name":"巢穴","description":"测试聚落"},
             "generation_weight":2,"members":[{"creature":"creature","weight":1}],"maximum_members":4,
             "spawn_interval_seconds":30,"raid_interval_seconds":60,"roaming_radius_hops":1,"raid_radius_hops":2,
-            "rail_damage_work_seconds":15,"clearance_reward":10,"scene_model":"creature"}
+            "rail_damage_work_seconds":15,"clearance_reward":10,"scene_model":"scene"}
             """);
         var creature = DesignFixtures.Blueprint("creature");
         creature["category"] = "creature";
         creature["simulation"] = JsonNode.Parse("""{"behaviors":{"creature":{"hp":20,"speed":3,"retreat_threshold":0.25,"raid_duration":10},"weapon":{"damage":2,"interval":1}}}""");
+        creature["layout"]!["palette"]![0]!["voxel"] = "scenery";
         WorldContentFixtures.AddBlueprint(fixture, creature);
+        using var initial = fixture.Load();
         var package = Open(fixture);
         Assert.IsTrue(package.EditableDefinitions.Contains(new(C.DefinitionKind.LairType, "den")));
         var lair = (C.DefinitionDraft.LairType)Read(package, C.DefinitionKind.LairType, "den");
@@ -213,7 +216,9 @@ public sealed class AuthoringPackageTests
             [new C.PackageEdit.WriteDefinition(lair with { Value = lair.Value with { Members = [] } })]), "/members", "invalid_field");
         var changed = lair with { Value = lair.Value with { GenerationWeight = 5 } };
         Apply(fixture, Plan(package, new C.PackageEdit.WriteDefinition(changed)));
-        Assert.AreEqual(5, ((C.DefinitionDraft.LairType)Read(Open(fixture), C.DefinitionKind.LairType, "den")).Value.GenerationWeight);
+        using var reloaded = Success(ContentFactory.Create().PrepareLoad(new(fixture.Installation,
+            new C.ContentLoadPurpose.Reload(initial.View, new([], [], [], [initial.View.Core.Identity]))), fixture, fixture));
+        Assert.AreEqual(5, reloaded.View.Core.LairTypes.Single(lairType => lairType.Id.Value == "core:den").GenerationWeight);
         Apply(fixture, Plan(Open(fixture), new C.PackageEdit.DeleteDefinition(new(C.DefinitionKind.LairType, "den"))));
         Assert.IsInstanceOfType<C.ContentLookup<C.DefinitionDraft>.NotFound>(Open(fixture).Read(new(C.DefinitionKind.LairType, "den")));
         package = Open(fixture);
