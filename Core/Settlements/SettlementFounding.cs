@@ -74,7 +74,7 @@ internal static class SettlementFounding
             .DistinctBy(g => g.Good).OrderBy(g => WorldReferences.GoodKey(g.Good), StringComparer.Ordinal).ToImmutableArray();
         var prepared = world with { Designs = designCatalog, DesignGoods = designGoodsCatalog };
         foreach (var design in designs)
-            if (!design.CanConstruct || VehicleDesignChanges.Missing(prepared, content, design))
+            if (!design.CanConstruct || InstanceDesignChanges.Missing(prepared, content, design))
                 return Reject("content_missing", "Template.FoundingBuildings");
         materials = ConstructionCommands.BillOfMaterials(designs);
         if (source is { } trainId)

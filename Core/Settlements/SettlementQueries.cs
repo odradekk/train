@@ -16,7 +16,9 @@ internal static class SettlementQueries
         var plots = settlement.Plots.Select(p => new PlotView(p.Id, p.TemplateNumber, p.Size,
             p.Size is PlotSize.SmallStation or PlotSize.LargeStation ? [BuildingKind.Station]
                 : Enum.GetValues<BuildingKind>().Where(k => k != BuildingKind.Station).ToImmutableArray(),
-            p.Building is { } building ? new PlotOccupant.Building(building) : new PlotOccupant.Empty())).ToImmutableArray();
+            p.Building is { } building ? new PlotOccupant.Building(building)
+                : world.ConstructionJobs.SingleOrDefault(j => j.Plot == p.Id) is { } site
+                    ? new PlotOccupant.Construction(site.Id) : new PlotOccupant.Empty())).ToImmutableArray();
         var buildings = settlement.Plots.Where(p => p.Building is not null).Select(p => p.Building!.Value).OrderBy(b => b.Value).ToArray();
         var facilities = buildings.SelectMany(b => new[] { CapabilityKind.Production, CapabilityKind.Extraction }
                 .Select(c => ProductionQueries.Find(world, content, new(b, c))))

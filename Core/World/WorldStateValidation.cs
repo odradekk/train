@@ -354,22 +354,39 @@ internal static class WorldStateValidation
         var reservations = world.Inventories.SelectMany(i => i.Reservations.Select(r => (Inventory: i, Reservation: r)))
             .ToDictionary(r => r.Reservation.Job);
         Require(reservations.Keys.All(id => world.ConstructionJobs.Any(j => j.Id == id)), "/world/inventories/reservations/job");
-        var vehicles = new HashSet<VehicleId>();
+        var targets = new HashSet<InstanceId>();
+        var sites = new HashSet<PlotId>();
         foreach (var job in world.ConstructionJobs)
         {
             var path = field + $"/{job.Id.Value}";
             Require(job.Facility is not null && job.Facility.Capability == CapabilityKind.Construction, path + "/facility");
             Require(world.Settlements.Any(s => s.Id == job.Settlement && s.Plots.Any(p => p.Building == job.Facility.Building)), path + "/settlement");
-            Require(world.Designs.Any(d => d.Design == job.TargetDesign && d.Kind is DesignKind.Vehicle), path + "/target_design");
-            Require(Enum.IsDefined(job.Kind) && (job.Kind == ConstructionKind.Construction) == (job.Vehicle is null), path + "/kind");
-            var instance = job.Vehicle is { } vehicle
-                ? world.Instances.SingleOrDefault(i => i.Id == new InstanceId.Vehicle(vehicle)) : null;
-            if (job.Vehicle is { } targetVehicle)
+            var design = world.Designs.SingleOrDefault(d => d.Design == job.TargetDesign);
+            Require(design is not null, path + "/target_design");
+            Require(Enum.IsDefined(job.Kind) && (job.Kind == ConstructionKind.Construction) == (job.Instance is null), path + "/kind");
+            InstanceState? instance = null;
+            if (job.Plot is { } plot)
             {
-                Require(vehicles.Add(targetVehicle) && instance is not null
-                    && instance.Ownership == SettlementRelation.PlayerOwned, path + "/vehicle");
-                Require(job.Kind == ConstructionKind.Refit || instance.Design == job.TargetDesign, path + "/target_design");
+                var owner = world.Settlements.Single(s => s.Id == job.Settlement);
+                var plotState = owner.Plots.SingleOrDefault(p => p.Id == plot);
+                Require(sites.Add(plot) && job.Instance is null && design.Kind is DesignKind.Building
+                    && plotState is not null && plotState.Building is null, path + "/plot");
             }
+            else if (job.Instance is { } target)
+            {
+                instance = world.Instances.SingleOrDefault(i => i.Id == target);
+                Require(targets.Add(target) && instance is not null
+                    && instance.Ownership == SettlementRelation.PlayerOwned, path + "/instance");
+                Require(job.Kind == ConstructionKind.Refit || instance.Design == job.TargetDesign, path + "/target_design");
+                if (target is InstanceId.Building building)
+                    Require(design.Kind is DesignKind.Building
+                        && job.Kind is ConstructionKind.Repair or ConstructionKind.Refit or ConstructionKind.Deconstruction
+                        && world.Settlements.Single(s => s.Id == job.Settlement).Plots.Any(p => p.Building == building.Id), path + "/instance");
+                else Require(design.Kind is DesignKind.Vehicle, path + "/target_design");
+            }
+            else if (design.Kind is DesignKind.LargeEquipment)
+                Require(job.ReturnInventory == world.Settlements.Single(s => s.Id == job.Settlement).Inventory, path + "/return_inventory");
+            else Require(design.Kind is DesignKind.Vehicle, path + "/target_design");
             Items(job.RetainedParts, path + "/retained_parts");
             Items(job.RemovedItems, path + "/removed_items");
             if (job.Kind != ConstructionKind.Refit)
@@ -415,7 +432,8 @@ internal static class WorldStateValidation
             Require((job.ReturnInventory is not null) == reservations.ContainsKey(job.Id), path + "/return_inventory");
             if (job.ReturnInventory is { } returnInventory)
             {
-                Require(job.Kind is ConstructionKind.Refit or ConstructionKind.Deconstruction, path + "/return_inventory");
+                Require(job.Kind is ConstructionKind.Refit or ConstructionKind.Deconstruction
+                    || design.Kind is DesignKind.LargeEquipment, path + "/return_inventory");
                 var destination = reservations[job.Id].Inventory;
                 Require(destination.Id == returnInventory, path + "/return_inventory");
                 var settlement = world.Settlements.Single(s => s.Id == job.Settlement);
