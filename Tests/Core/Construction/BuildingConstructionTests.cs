@@ -263,19 +263,71 @@ public sealed class BuildingConstructionTests
         var (session, content, building, _) = BuildProductionBuilding();
         using (session)
         {
+            var node = session.State.World.Settlements.Single().Node;
             using var damaged = new CoreSession(session.State with { World = session.State.World with
             {
                 Instances = session.State.World.Instances.Select(i => i.Id != new InstanceId.Building(Facility.Building) ? i : i with
-                    { Parts = i.Parts.Select(p => p with { Current = 0 }).ToImmutableArray() }).ToImmutableArray()
+                    { Parts = i.Parts.Select(p => p with { Current = 0 }).ToImmutableArray() }).ToImmutableArray(),
+                Nodes = session.State.World.Nodes.Select(n => n.Id != node ? n : n with { Platforms = 0 }).ToImmutableArray()
             } });
+            Assert.AreEqual(0, damaged.State.World.Nodes.Single(n => n.Id == node).Platforms);
             Start(damaged, RepairBuilding(Facility.Building, new(building, CapabilityKind.Construction)));
             Step(damaged);
             var world = damaged.State.World;
-            var settlement = world.Settlements.Single();
-            Assert.AreEqual(WorldState.CountPlatforms(settlement, world.Instances.ToDictionary(i => i.Id), world.Designs.ToDictionary(d => d.Design)),
-                world.Nodes.Single(n => n.Id == settlement.Node).Platforms);
+            Assert.AreEqual(1, world.Nodes.Single(n => n.Id == node).Platforms);
+            Assert.AreEqual(1, WorldState.CountPlatforms(world.Settlements.Single(),
+                world.Instances.ToDictionary(i => i.Id), world.Designs.ToDictionary(d => d.Design)));
             RoundTrip(damaged, content);
         }
+    }
+
+    [TestMethod]
+    public void Station_archive_accepts_at_the_archived_limit_and_rejects_one_size_below()
+    {
+        AcceptStation(PlotSize.SmallStation, PlotSize.Large);
+        RejectStation(PlotSize.SmallStation, PlotSize.Medium);
+        AcceptStation(PlotSize.LargeStation, PlotSize.Giant);
+        RejectStation(PlotSize.LargeStation, PlotSize.Large);
+    }
+
+    [TestMethod]
+    public void Repair_without_a_plan_stays_disabled_and_emits_no_production_state_change()
+    {
+        var content = WithPlot(Content(), PlotSize.Small);
+        using var built = Session(content);
+        var design = Building(content, PlotSize.Small, BuildingKind.Production, '9', [new PartCapability.Production(1)]);
+        Start(built, BuildOn(Empty(built), design));
+        var created = ((InstanceId.Building)Step(built, 2).Events.Select(e => e.Event)
+            .OfType<CoreEvent.ConstructionCompleted>().Single().CreatedInstance!).Id;
+        Assert.AreEqual(ProductionState.Disabled, FacilityState(built, created));
+        using var damaged = new CoreSession(built.State with { World = built.State.World with
+        {
+            Instances = built.State.World.Instances.Select(i => i.Id != new InstanceId.Building(created) ? i : i with
+                { Parts = i.Parts.Select(p => p with { Current = 0 }).ToImmutableArray() }).ToImmutableArray()
+        } });
+        var repair = Accept(damaged, RepairBuilding(created));
+        Assert.IsFalse(repair.Events.Any(e => e.Event is CoreEvent.ProductionStateChanged));
+        Assert.AreEqual(ProductionState.Disabled, FacilityState(damaged, created));
+        var finished = Step(damaged);
+        Assert.IsFalse(finished.Events.Any(e => e.Event is CoreEvent.ProductionStateChanged));
+        Assert.AreEqual(ProductionState.Disabled, FacilityState(damaged, created));
+    }
+
+    [TestMethod]
+    public void Active_building_job_rejects_removal_of_a_required_definition()
+    {
+        var content = WithPlot(Content(), PlotSize.Small);
+        using var session = Session(content);
+        var design = Building(content, PlotSize.Small, BuildingKind.Production, '9');
+        Start(session, BuildOn(Empty(session), design));
+        var removed = Changed(content) with
+        {
+            Designs = session.State.World.Designs,
+            Goods = content.Goods.Where(g => g.Good != Material).ToImmutableArray()
+        };
+        Reject(session, new CoreCommand.PublishContent(removed));
+        Assert.AreEqual(content.Identity, session.Read().InputIdentity);
+        Assert.AreEqual(1, session.State.World.ConstructionJobs.Length);
     }
 
     [TestMethod]
@@ -713,6 +765,21 @@ public sealed class BuildingConstructionTests
             && pair.First.Ownership == pair.Second.Ownership && pair.First.Details.Equals(pair.Second.Details)
             && pair.First.StructureDurability == pair.Second.StructureDurability
             && pair.First.Parts.SequenceEqual(pair.Second.Parts));
+
+    private static void AcceptStation(PlotSize plotSize, PlotSize limit)
+    {
+        var content = BuildingLimit(WithPlot(Content(), plotSize), limit);
+        using var session = Session(content);
+        Start(session, BuildOn(Empty(session), Building(content, plotSize, BuildingKind.Station, '4', [new PartCapability.Platform()])));
+    }
+
+    private static void RejectStation(PlotSize plotSize, PlotSize limit)
+    {
+        var content = BuildingLimit(WithPlot(Content(), plotSize), limit);
+        using var session = Session(content);
+        Reject(session, BuildOn(Empty(session), Building(content, plotSize, BuildingKind.Station, '4', [new PartCapability.Platform()])),
+            "Facility", "conditions_not_met");
+    }
 
     private static CoreContentProjection BuildingLimit(CoreContentProjection content, PlotSize limit) => content with
     {

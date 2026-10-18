@@ -17,9 +17,8 @@ internal static class ConstructionProcessDriver
     internal static CoreContentProjection Original => Content(rate: 30);
     internal static CoreContentProjection Updated => Changed(Original) with
     { ConstructionRules = [Original.ConstructionRules[0] with { ConstructionWorkPerItem = 100, PowerPerWork = 100, LaborPerWork = 100 }] };
-    internal static readonly CoreContentProjection BuildingOriginal = WithBuilding(Content(rate: 30));
-    internal static readonly CoreContentProjection BuildingUpdated = Changed(BuildingOriginal) with
-    { ConstructionRules = [BuildingOriginal.ConstructionRules[0] with { ConstructionWorkPerItem = 100, PowerPerWork = 100, LaborPerWork = 100 }] };
+    internal static readonly CoreContentProjection BuildingOriginal = WithBuilding(Content());
+    private static readonly GoodId AssemblyGood = new GoodId.Assembly(new(new string('1', 64)));
 
     internal static async Task<int> RunAsync(string[] args)
     {
@@ -30,23 +29,38 @@ internal static class ConstructionProcessDriver
             var directory = args[2];
             var building = args.Length > 3 && args[3] == "building";
             var original = building ? BuildingOriginal : Original;
-            var updated = building ? BuildingUpdated : Updated;
             var factory = CoreFactory.Create();
             var samples = new List<ConstructionProcessSample>();
             var events = new List<string>();
             if (mode == "replay")
             {
-                var disk = JsonSerializer.Deserialize<CoreDiskRecording>(await File.ReadAllTextAsync(Path.Combine(directory, "recording.json")), RecordingJson)!;
-                Assert.IsInstanceOfType<WorldObjectId.Job>(disk.Commands[0].Decision.Created.Single());
-                var prepared = factory.PrepareReplay(new(2, disk.Runtime, disk.InitialState,
-                    disk.Commands.Select(c => new RecordedCommand(c.Source, c.Payload, new(c.Number, c.Before, c.After, c.Decision),
-                        c.InputBefore, c.InputAfter)).ToImmutableArray(), disk.Checkpoints.ToImmutableArray(), disk.EndPosition, null),
-                    WorldFixture.Options.Runtime, [original, updated]);
+                SimulationPosition[] positions;
+                CoreReplayInput replayInput;
+                if (building)
+                {
+                    var disk = JsonSerializer.Deserialize<VehicleWorkDiskRecording>(await File.ReadAllTextAsync(Path.Combine(directory, "recording.json")), RecordingJson)!;
+                    Assert.IsInstanceOfType<CommandDecision.Rejected>(disk.Commands[0].Result.Decision);
+                    Assert.IsTrue(disk.Commands.Any(c => c.CanonicalPayload.Contains("\"kind\":\"build_equipment\"", StringComparison.Ordinal)));
+                    Assert.IsTrue(disk.Commands.Any(c => c.CanonicalPayload.Contains("\"kind\":\"dismantle_building\"", StringComparison.Ordinal)));
+                    Assert.IsTrue(disk.Commands.Any(c => c.CanonicalPayload.Contains("\"kind\":\"construction.set_deconstruction_paused\"", StringComparison.Ordinal)));
+                    positions = disk.Positions;
+                    replayInput = new(2, WorldFixture.Options.Runtime, disk.InitialState, disk.Commands, disk.Checkpoints, disk.EndPosition, null);
+                }
+                else
+                {
+                    var disk = JsonSerializer.Deserialize<CoreDiskRecording>(await File.ReadAllTextAsync(Path.Combine(directory, "recording.json")), RecordingJson)!;
+                    Assert.IsInstanceOfType<WorldObjectId.Job>(disk.Commands[0].Decision.Created.Single());
+                    positions = disk.Positions;
+                    replayInput = new(2, disk.Runtime, disk.InitialState,
+                        disk.Commands.Select(c => new RecordedCommand(c.Source, c.Payload, new(c.Number, c.Before, c.After, c.Decision),
+                            c.InputBefore, c.InputAfter)).ToImmutableArray(), disk.Checkpoints.ToImmutableArray(), disk.EndPosition, null);
+                }
+                var prepared = factory.PrepareReplay(replayInput, WorldFixture.Options.Runtime, building ? [original] : [original, Updated]);
                 Assert.IsInstanceOfType<CoreResult<ICoreReplay>.Success>(prepared,
                     prepared is CoreResult<ICoreReplay>.Failure failure
                         ? string.Join("; ", failure.Problems.Select(p => $"{p.Code}: {p.Field}")) : null);
                 using var replay = ((CoreResult<ICoreReplay>.Success)prepared).Value;
-                foreach (var position in disk.Positions)
+                foreach (var position in positions)
                 {
                     var result = replay.Advance(uint.MaxValue, position);
                     Assert.AreEqual(ReplayStop.RequestedPosition, result.Stop);
@@ -59,17 +73,25 @@ internal static class ConstructionProcessDriver
             }
             else
             {
-                using var session = mode == "resume" ? Restore() : Session(original);
+                using var session = mode == "resume" ? Restore(building ? original : Updated) : Session(original);
                 if (mode != "resume")
                 {
-                    if (building) StartBuilding(session, original);
-                    else Start(session, Build(original, Local));
-                    Step(session);
-                    Accept(session, new CoreCommand.PublishContent(updated));
+                    if (building) BeginBuilding(session, original);
+                    else
+                    {
+                        Start(session, Build(original, Local));
+                        Step(session);
+                        Accept(session, new CoreCommand.PublishContent(Updated));
+                    }
                 }
                 samples.Add(Sample(WorldFixture.Success(session.Capture(CapturePurpose.Save))));
                 if (mode == "save")
                     await File.WriteAllTextAsync(Path.Combine(directory, "state.json"), samples[0].Payload, new UTF8Encoding(false));
+                else if (building)
+                {
+                    FinishBuilding(session, original);
+                    if (mode == "complete") await WriteBuildingRecording(session, samples);
+                }
                 else
                 {
                     for (var step = 0; step < 3; step++)
@@ -92,11 +114,43 @@ internal static class ConstructionProcessDriver
                 samples.ToArray(), events.ToArray())), new UTF8Encoding(false));
             return 0;
 
-            ICoreSession Restore()
+            ICoreSession Restore(CoreContentProjection content)
             {
                 var decoded = WorldFixture.Success(factory.DecodeState(File.ReadAllText(Path.Combine(directory, "state.json"))));
-                using var candidate = WorldFixture.Success(factory.PrepareRestore(decoded, updated, WorldFixture.Options));
+                using var candidate = WorldFixture.Success(factory.PrepareRestore(decoded, content, WorldFixture.Options));
                 return candidate.Activate();
+            }
+            void FinishBuilding(ICoreSession session, CoreContentProjection content)
+            {
+                events.AddRange(Step(session).Events.Select(Event));
+                samples.Add(Sample(WorldFixture.Success(session.Capture(CapturePurpose.Save))));
+                var plot = ((CoreSession)session).State.World.Settlements.Single().Plots.Single(p => p.Building is null).Id;
+                events.AddRange(Accept(session, new CoreCommand.StartOwnedJob(new JobRequest.BuildBuilding(
+                    Facility, plot, BuildingDesign(content), [Local], 0))).Events.Select(Event));
+                events.AddRange(Step(session, 2).Events.Select(Event));
+                samples.Add(Sample(WorldFixture.Success(session.Capture(CapturePurpose.Save))));
+                var built = ((CoreSession)session).State.World.Instances.Single(i => i.Id is InstanceId.Building id && id.Id != Facility.Building);
+                var started = Accept(session, new CoreCommand.StartOwnedJob(new JobRequest.Dismantle(Facility, built.Id, 0)));
+                events.AddRange(started.Events.Select(Event));
+                var dismantle = started.Events.Select(e => e.Event).OfType<CoreEvent.ConstructionStarted>().Single().Job;
+                events.AddRange(Accept(session, new CoreCommand.SetDeconstructionPaused(dismantle.Id, true)).Events.Select(Event));
+                events.AddRange(Step(session).Events.Select(Event));
+                Assert.AreEqual(0d, Job(session.Read(), dismantle.Id).ProgressWork);
+                Assert.AreEqual(ConstructionState.Paused, Job(session.Read(), dismantle.Id).State);
+                samples.Add(Sample(WorldFixture.Success(session.Capture(CapturePurpose.Save))));
+                events.AddRange(Accept(session, new CoreCommand.SetDeconstructionPaused(dismantle.Id, false)).Events.Select(Event));
+                events.AddRange(Step(session, 2).Events.Select(Event));
+                samples.Add(Sample(WorldFixture.Success(session.Capture(CapturePurpose.Save))));
+                Assert.AreEqual(9L, Stock(session, Local));
+                Assert.AreEqual(1L, AssemblyCount(session));
+                Assert.AreEqual(0L, ((Lookup<InventoryView>.Found)session.Read().FindInventory(Local)).Value.Reserved);
+            }
+            Task WriteBuildingRecording(ICoreSession session, List<ConstructionProcessSample> taken)
+            {
+                var recording = session.ReadRecording();
+                var disk = new VehicleWorkDiskRecording(recording.Starts[0].State.Encode(), recording.Commands,
+                    recording.Checkpoints, recording.EndPosition, taken.Select(s => s.Position).ToArray());
+                return File.WriteAllTextAsync(Path.Combine(directory, "recording.json"), JsonSerializer.Serialize(disk, RecordingJson), new UTF8Encoding(false));
             }
         }
         catch (Exception exception) { Console.Error.WriteLine(exception); return 1; }
@@ -122,13 +176,30 @@ internal static class ConstructionProcessDriver
         };
     }
 
-    private static void StartBuilding(ICoreSession session, CoreContentProjection content)
+    private static void BeginBuilding(ICoreSession session, CoreContentProjection content)
     {
-        var plot = ((CoreSession)session).State.World.Settlements.Single().Plots.Single(p => p.Building is null).Id;
-        var design = content.Designs.Single(d => d.Design == new DesignHash(new string('2', 64)));
-        Start(session, new CoreCommand.StartOwnedJob(new JobRequest.BuildBuilding(
-            Facility, plot, new(content.Identity, design, []), [Local], 0)));
+        var rejected = Submit(session, new CoreCommand.StartOwnedJob(new JobRequest.BuildBuilding(
+            Facility, new(999), BuildingDesign(content), [Local], 0)));
+        Assert.AreEqual("object_missing", ((CommandDecision.Rejected)rejected.Receipt.Decision).Problems.Single().Code);
+        Start(session, new CoreCommand.StartOwnedJob(new JobRequest.BuildEquipment(
+            Facility, EquipmentDesign(content), [Local], 0)));
+        Step(session);
+        Assert.AreEqual(1d, Job(session.Read(), new(1)).ProgressWork, 1e-12);
+        Assert.AreEqual(8L, Stock(session, Local));
+        Assert.AreEqual(0L, AssemblyCount(session));
     }
+
+    private static DesignInput BuildingDesign(CoreContentProjection content)
+        => new(content.Identity, content.Designs.Single(d => d.Design == new DesignHash(new string('2', 64))), []);
+
+    private static DesignInput EquipmentDesign(CoreContentProjection content) => new(content.Identity,
+        new(new(new string('3', 64)), new(new string('1', 64)), new DesignKind.LargeEquipment(AssemblyGood), [],
+            0, 0, 0, new(0), [], [new(Material, 2)], 2, [], true, []),
+        [new(AssemblyGood, WorldFixture.Revision, new(1), 1, false, null)]);
+
+    private static long AssemblyCount(ICoreSession session)
+        => ((Lookup<InventoryView>.Found)session.Read().FindInventory(Local)).Value.Stacks
+            .Where(s => s.Good == AssemblyGood).Sum(s => s.Quantity);
 
     private static ConstructionProcessSample Sample(ICoreCapture capture)
     {
@@ -144,9 +215,15 @@ internal static class ConstructionProcessDriver
         var resolver = new DefaultJsonTypeInfoResolver();
         resolver.Modifiers.Add(info =>
         {
-            if (info.Type != typeof(WorldObjectId)) return;
+            (Type Type, string Name)[] variants = info.Type == typeof(CommandDecision)
+                ? [(typeof(CommandDecision.Accepted), "accepted"), (typeof(CommandDecision.Rejected), "rejected")]
+                : info.Type == typeof(WorldObjectId)
+                    ? [(typeof(WorldObjectId.Job), "job"), (typeof(WorldObjectId.Instance), "instance")]
+                    : info.Type == typeof(InstanceId)
+                        ? [(typeof(InstanceId.Vehicle), "vehicle"), (typeof(InstanceId.Building), "building")] : [];
+            if (variants.Length == 0) return;
             info.PolymorphismOptions = new() { TypeDiscriminatorPropertyName = "$kind" };
-            info.PolymorphismOptions.DerivedTypes.Add(new(typeof(WorldObjectId.Job), "job"));
+            foreach (var variant in variants) info.PolymorphismOptions.DerivedTypes.Add(new(variant.Type, variant.Name));
         });
         return new() { TypeInfoResolver = resolver };
     }

@@ -51,8 +51,9 @@ internal static class ProductionQueries
         var state = ProductionState.Running;
         string? problem = null;
         if (plan is not null && process is null) { state = ProductionState.ProcessMissing; problem = "content_missing"; }
+        else if (plan is null) state = ProductionState.Disabled;
         else if (ConstructionJobs.InstanceLocked(world, id)) { state = ProductionState.Locked; problem = "instance_locked"; }
-        else if (plan is null || !plan.Enabled) state = ProductionState.Disabled;
+        else if (!plan.Enabled) state = ProductionState.Disabled;
         else if (capability == 0) { state = ProductionState.ZeroCapability; problem = "capability_zero"; }
         else if ((process!.Details is ProcessDetails.Extraction) != (key.Capability == CapabilityKind.Extraction)
             || design.Kind is not DesignKind.Building building || !building.FacilityTags.Contains(process.RequiredFacilityTag)

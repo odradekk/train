@@ -59,14 +59,15 @@ public sealed class ConstructionProcessTests
         CollectionAssert.AreEqual(continuous.Events, resumed.Events);
         CollectionAssert.AreEqual(continuous.Samples, replayed.Samples);
         CollectionAssert.AreEqual(continuous.Events, replayed.Events);
-        Assert.AreEqual(1, continuous.Events.Count(e => e.Contains("\"Kind\":\"ConstructionCompleted\"", StringComparison.Ordinal)));
+        Assert.AreEqual(3, continuous.Events.Count(e => e.Contains("\"Kind\":\"ConstructionCompleted\"", StringComparison.Ordinal)));
         var factory = CoreFactory.Create();
         using var candidate = WorldFixture.Success(factory.PrepareRestore(WorldFixture.Success(factory.DecodeState(saved.Samples[0].Payload)),
-            ConstructionProcessDriver.BuildingUpdated, WorldFixture.Options));
+            ConstructionProcessDriver.BuildingOriginal, WorldFixture.Options));
         using var session = candidate.Activate();
-        Assert.AreEqual(.5, ConstructionFixture.Job(session.Read(), new(1)).ProgressWork, 1e-12);
+        Assert.AreEqual(1d, ConstructionFixture.Job(session.Read(), new(1)).ProgressWork, 1e-12);
         Assert.AreEqual(2L, ConstructionFixture.Job(session.Read(), new(1)).FrozenTotalWork);
-        Assert.IsInstanceOfType<ConstructionTarget.NewBuilding>(ConstructionFixture.Job(session.Read(), new(1)).Target);
+        Assert.IsInstanceOfType<ConstructionTarget.NewAssembly>(ConstructionFixture.Job(session.Read(), new(1)).Target);
+        Assert.AreEqual(8L, ConstructionFixture.Stock(session, ConstructionFixture.Local));
         Directory.Delete(directory, recursive: true);
     }
 

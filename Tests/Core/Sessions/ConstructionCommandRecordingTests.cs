@@ -151,10 +151,13 @@ public sealed class ConstructionCommandRecordingTests
     public void Dismantle_and_pause_have_fixed_vectors_and_precise_failures()
     {
         const string dismantle = """{"input_format_version":2,"kind":"construction.start_owned","request":{"kind":"dismantle_vehicle","facility":{"building":7,"capability":"construction"},"vehicle":8,"priority":-3}}""";
+        const string building = """{"input_format_version":2,"kind":"construction.start_owned","request":{"kind":"dismantle_building","facility":{"building":7,"capability":"construction"},"building":8,"priority":-3}}""";
         const string pause = """{"input_format_version":2,"kind":"construction.set_deconstruction_paused","job":8,"paused":true}""";
         Assert.AreEqual(dismantle, CoreCommandEncoding.Encode(new CoreCommand.StartOwnedJob(new JobRequest.Dismantle(new(new(7), CapabilityKind.Construction), new InstanceId.Vehicle(new(8)), -3))));
+        Assert.AreEqual(building, CoreCommandEncoding.Encode(new CoreCommand.StartOwnedJob(new JobRequest.Dismantle(new(new(7), CapabilityKind.Construction), new InstanceId.Building(new(8)), -3))));
         Assert.AreEqual(pause, CoreCommandEncoding.Encode(new CoreCommand.SetDeconstructionPaused(new(8), true)));
         Assert.AreEqual(dismantle, CoreCommandEncoding.Encode(Decode(dismantle)));
+        Assert.AreEqual(building, CoreCommandEncoding.Encode(Decode(building)));
         Assert.AreEqual(pause, CoreCommandEncoding.Encode(Decode(pause)));
         foreach (var (payload, field) in new[]
         {
@@ -170,6 +173,65 @@ public sealed class ConstructionCommandRecordingTests
             Assert.AreEqual(field, result.Problems.Single().Field);
         }
     }
+
+    [TestMethod]
+    public void Commission_rejects_a_building_request_kind()
+    {
+        const string payload = """{"input_format_version":2,"kind":"construction.commission_vehicle_work","request":{"kind":"build_building"},"maximum_payment":1}""";
+        var result = (CoreResult<DecodedCommand>.Failure)CoreCommandEncoding.Decode(payload);
+        Assert.AreEqual("invalid_state", result.Problems.Single().Code);
+        Assert.AreEqual("/request/kind", result.Problems.Single().Field);
+    }
+
+    [TestMethod]
+    public void Building_payloads_match_handwritten_canonical_json()
+    {
+        var design = BuildingDesign();
+        var change = new DesignChangeProjection(new(new string('A', 64)), new(new string('B', 64)), design, [], [], [], 0);
+        (CoreCommand Command, string Payload)[] cases =
+        [
+            (new CoreCommand.StartOwnedJob(new JobRequest.BuildBuilding(new(new(7), CapabilityKind.Construction), new(3), design, [new(4)], 1)),
+                BuildPayload("build_building", "\"plot\":3,")),
+            (new CoreCommand.StartOwnedJob(new JobRequest.BuildEquipment(new(new(7), CapabilityKind.Construction), design, [new(4)], 1)),
+                BuildPayload("build_equipment", "")),
+            (new CoreCommand.StartOwnedJob(new JobRequest.Refit(new(new(7), CapabilityKind.Construction), new InstanceId.Building(new(8)), change, [new(4)], 1)),
+                RefitPayload()),
+            (new CoreCommand.ApplyInstanceDesign(new InstanceId.Building(new(8)), change), ApplyPayload())
+        ];
+        foreach (var (command, payload) in cases)
+        {
+            Assert.AreEqual(payload, CoreCommandEncoding.Encode(command));
+            Assert.AreEqual(payload, CoreCommandEncoding.Encode(Decode(payload)));
+        }
+    }
+
+    private static string BuildPayload(string kind, string plot) =>
+        "{\"input_format_version\":2,\"kind\":\"construction.start_owned\",\"request\":{\"kind\":\"" + kind
+        + "\",\"facility\":{\"building\":7,\"capability\":\"construction\"}," + plot + "\"design\":" + DesignJson()
+        + ",\"sources\":[4],\"priority\":1}}";
+
+    private static string RefitPayload() =>
+        "{\"input_format_version\":2,\"kind\":\"construction.start_owned\",\"request\":{\"kind\":\"refit_building\",\"facility\":{\"building\":7,\"capability\":\"construction\"},\"building\":8,\"change\":"
+        + ChangeJson() + ",\"sources\":[4],\"priority\":1}}";
+
+    private static string ApplyPayload() =>
+        "{\"input_format_version\":2,\"kind\":\"instance.apply_design\",\"building\":8,\"change\":" + ChangeJson() + "}";
+
+    private static string Hash(char digit) => "{\"value\":\"" + new string(digit, 64) + "\"}";
+
+    private static string ChangeJson() =>
+        "{\"before\":" + Hash('A') + ",\"before_composition\":" + Hash('B') + ",\"target\":" + DesignJson()
+        + ",\"retained_parts\":[],\"added_goods\":[],\"removed_items\":[],\"changed_item_count\":0}";
+
+    private static string DesignJson() =>
+        "{\"input_identity\":" + Hash('3') + ",\"design\":{\"design\":" + Hash('1') + ",\"composition\":" + Hash('2')
+        + ",\"kind\":{\"$kind\":\"building\",\"plot_size\":0,\"type\":0,\"facility_tags\":[]},\"parts\":[{\"id\":{\"value\":0},\"definition\":{\"$kind\":\"voxel\",\"id\":{\"value\":\"fixture:material\"}},\"repair_good\":{\"$kind\":\"voxel\",\"definition\":{\"value\":\"fixture:material\"}},\"max_durability\":100,\"hit_weight\":1,\"base_value\":1,\"capabilities\":[],\"missing\":false}],\"max_structure_durability\":100,\"structure_hit_weight\":1,\"mass_tons\":1,\"structural_base_value\":1,\"structural_goods\":[],\"bill_of_materials\":[{\"good\":{\"$kind\":\"voxel\",\"definition\":{\"value\":\"fixture:material\"}},\"quantity\":2}],\"bill_of_materials_item_count\":2,\"return_units\":[],\"can_construct\":true,\"missing_references\":[]},\"assembly_goods\":[]}";
+
+    private static DesignInput BuildingDesign() => new(new(new string('3', 64)), new(new(new string('1', 64)), new(new string('2', 64)),
+        new DesignKind.Building(PlotSize.Small, BuildingKind.Production, []),
+        [new(new(0), new CoreDefinitionReference.Voxel(new("fixture:material")), new GoodId.Voxel(new("fixture:material")),
+            100, 1, new(1), [], false)],
+        100, 1, 1, new(1), [], [new(new GoodId.Voxel(new("fixture:material")), 2)], 2, [], true, []), []);
 
     [TestMethod]
     public void Build_building_and_equipment_round_trip_and_remain_recording_dependencies()

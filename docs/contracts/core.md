@@ -49,7 +49,8 @@
 
 | 未实现成员 | 交付责任 |
 | --- | --- |
-| `FindFacility` 的 `Construction` 键、`SetJobPriority`、`SetProductionPlan` | 后续施工查询、调度与玩家计划编辑 |
+| `FindFacility` 的 `Construction` 键、`SetJobPriority` | 后续施工查询与调度 |
+| `SetProductionPlan` | #622 |
 | 其余命令、其他 `Find*`、报价和预览 | 后续经济运输、制造与编辑、自有建设、战斗与生物领域任务 |
 
 旧 `Train.Core.Simulation` 及宿主入口已删除。`RandomKey`、`KeyedRandom`、`SplitMix64` 原算法迁到 `Core/World/`，作为内部实现保留；固定向量测试及独立 Python 参考工具位于 `Tests/Core/World/`。会话始终持有世界状态；内部会话测试也使用真实生成状态，拒绝与事件由内部测试体供给。列车运行、调度及后续领域任务须将各自新增权威字段补入捕获、恢复和检查点，不能把初始世界往返当作完整玩法恢复证据。
@@ -149,13 +150,13 @@
 
 建造校验地块：不存在或不在设施聚居地 `object_missing / Plot`；已有建筑 `plot_occupied / Plot`；已是工地 `busy / Plot.ConstructionJob`；目标不是可制造建筑 `invalid_design / Design`；`FitsPlot` 失败 `conditions_not_met / Plot`；设施建筑上限不足 `conditions_not_met / Facility`。受理后地块占用为 `PlotOccupant.Construction`，BOM 只扣一次。完工分配建筑身份，实例插在车辆之前并按身份升序；`InstanceDetails.Building` 的尺寸是地块尺寸。地块模板已有加工或开采计划时补空的设施行，没有计划则不创建，查询为停用。
 
-修理、改装、拆解的建筑必须在设施聚居地的地块上、玩家所有且未摧毁。不在当地 `conditions_not_met / Instance`；缺失、非玩家、已摧毁、已锁定沿用车辆的 `object_missing`、`not_owned`、`instance_destroyed`、`instance_locked`，字段为 `Instance`。目标建筑任一加工或开采设施有批次时 `invalid_state / Instance.Batch`，输出缓冲非空时 `invalid_state / Instance.OutputBuffer`，批次优先。目标正在作为执行设施施工时 `invalid_state / Instance.ConstructionJob`。执行设施就是目标时 `invalid_state / Instance`。改装目标不适合该地块 `conditions_not_met / Instance.Details.Plot`。
+修理、改装、拆解的建筑必须在设施聚居地的地块上、玩家所有且未摧毁。不在当地 `conditions_not_met / Instance`；缺失、非玩家、已摧毁、已锁定沿用车辆的 `object_missing`、`not_owned`、`instance_destroyed`、`instance_locked`，字段为 `Instance`。目标建筑的设施行按顺序检查：该行有批次时 `invalid_state / Instance.Batch`，输出缓冲非空时 `invalid_state / Instance.OutputBuffer`。目标正在作为执行设施施工时 `invalid_state / Instance.ConstructionJob`。执行设施就是目标时 `invalid_state / Instance`。锁定中的建筑不能作为执行设施，`Qualification` 返回 `conditions_not_met / Facility`。改装目标不适合该地块 `conditions_not_met / Instance.Details.Plot`。
 
 改装复用车辆差额、整件返还、开工预留和返还上限。结构耐久同样为 `ceil(M新 × min(S, M旧) / M旧)`。零工作量改装仍是正式任务。立即应用只接受构成未变的目标。修理跳过缺定义部件，完工只恢复其余部件和结构耐久。拆解不查档位；占位格不返还；暂停不累计工作，恢复后继续。完工移除实例和生产设施行，不为已移除设施补发 `ProductionStateChanged`，`FindFacility` 返回 `Missing`。
 
 大型设备只要求施工能力。开工在设施所在自有库存为一件 `ManufacturedGood` 预留容量，不足则 `insufficient_capacity / ReturnInventory.Capacity`。目标为 `NewAssembly`，不建实例、不占地块。完工把这一件放入该库存，`ConstructionCompleted.ReturnedGoods` 列出它；失败只释放预留，不退料。
 
-建筑改装、修理、拆解期间，其加工和开采进入 `ProductionState.Locked`，问题为 `instance_locked`。状态顺序是流程缺失、锁定、停用、能力为零、不满足条件、出料阻塞、等待原料、运行中。锁定期间生产、开采、施工和发电能力为 0，仓储容量和站台保留。地块模板已有对应计划时，进入和离开锁定各发一次 `ProductionStateChanged`；没有计划的建筑查询为停用，不发该事件。站点的建造、改装、修理、拆解完工后用完好站台部件重算 `Node.Platforms`，并按新节点尺寸适配列车。缩小仓储不删除已有货物。
+建筑改装、修理、拆解期间，已有计划的加工和开采进入 `ProductionState.Locked`，问题为 `instance_locked`。状态顺序是流程缺失、没有计划则为停用、锁定、计划未启用则为停用、能力为零、不满足条件、出料阻塞、等待原料、运行中。锁定期间生产、开采、施工和发电能力为 0，仓储容量和站台保留。地块模板已有对应计划时，进入和离开锁定各发一次 `ProductionStateChanged`；没有计划的建筑查询保持停用，不发该事件。站点的建造、改装、修理、拆解完工后用完好站台部件重算 `Node.Platforms`，并按新节点尺寸适配列车。缩小仓储不删除已有货物。
 
 ### NPC 车辆委托与施工报价
 
@@ -184,11 +185,11 @@
 
 ### 加工与回收
 
-计划直接读取每座聚居地已保存的 `Template.ProductionPlans`，按地块的 `TemplateNumber` 定位建筑；没有第二份运行计划。源模板更新不改变该副本。`SetProductionPlan` 仍未实现，继续抛 `NotImplementedException`；玩家计划编辑归后续自有建设任务。本票不新增控制台命令。
+计划直接读取每座聚居地已保存的 `Template.ProductionPlans`，按地块的 `TemplateNumber` 定位建筑；没有第二份运行计划。源模板更新不改变该副本。`SetProductionPlan` 仍未实现，继续抛 `NotImplementedException`；玩家计划编辑归 #622。本票不新增控制台命令。
 
 `FindFacility` 支持 `CapabilityKind.Production`（加工与回收）及 `Extraction`（开采）。建筑不在聚居地地块上，或既无该能力的计划、设计也没有声明该能力时返回 `Missing`。设备损坏或缺定义造成有效能力为零，不会使仍有计划或声明能力的设施消失。`Construction` 键仍待后票，抛出注明 `FindFacility` 和能力种类的 `NotImplementedException`。`PotentialConsumption` 由全城同一次潜在电力／劳动分配换算为每秒原料与燃料消耗；与 `FindSettlement.Facilities` 使用同一计算。
 
-状态按流程缺失、锁定、停用、能力为零、不满足条件、出料阻塞、等待原料、运行中的顺序判断。锁定来自该建筑的改装、修理或拆解任务；流程缺失仍优先于锁定。停用只阻止启动新批次；当前流程的 Tag／地貌要求不再满足时，状态为“不满足条件”，已有批次仍按冻结规格完成。能力为零或流程缺失时保留批次进度。流程补回后继续，不重新扣原料。
+状态按流程缺失、没有计划则为停用、锁定、计划未启用则为停用、能力为零、不满足条件、出料阻塞、等待原料、运行中的顺序判断。锁定来自该建筑的改装、修理或拆解任务，且只作用于已有计划的设施；流程缺失仍优先于锁定。没有计划的建筑保持停用。停用只阻止启动新批次；当前流程的 Tag／地貌要求不再满足时，状态为“不满足条件”，已有批次仍按冻结规格完成。能力为零或流程缺失时保留批次进度。流程补回后继续，不重新扣原料。
 
 启动步只原子投入完整原料并建立批次，下一步才工作。工作请求上限取当前有效能力与剩余工作量所需速率的较小值，使用冻结的工作量和电力／劳动系数。生产推进接收 #382 人口换算提供的劳动容量，与基本／改善消费在同一次 `SettlementResources.Resolve` 中仲裁；人口规则或本期必需货物缺失时，人口停用并提供零劳动力。
 
