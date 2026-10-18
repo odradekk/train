@@ -108,6 +108,7 @@ public sealed class WorldPackageTests
     [TestMethod]
     [DataRow("wrong-rule", "/configuration/rules/population")]
     [DataRow("scene-good", "/rail_good")]
+    [DataRow("missing-good", "/rail_good")]
     [DataRow("duplicate-rule", "/id")]
     [DataRow("invalid-symbol", "/display/map_symbol")]
     [DataRow("wrong-terrain-voxel", "/surface_voxel")]
@@ -122,6 +123,9 @@ public sealed class WorldPackageTests
                 break;
             case "scene-good":
                 WorldContentFixtures.Change(fixture, "resources/railway-rules/rail.railway-rule.json", j => j["rail_good"] = "scenery");
+                break;
+            case "missing-good":
+                WorldContentFixtures.Change(fixture, "resources/railway-rules/rail.railway-rule.json", j => j["rail_good"] = "absent");
                 break;
             case "wrong-ballast-voxel":
                 WorldContentFixtures.Change(fixture, "resources/railway-rules/rail.railway-rule.json", j => j["appearance"]!["ballast_voxel"] = "rail");
@@ -139,7 +143,13 @@ public sealed class WorldPackageTests
         }
         var result = fixture.Prepare();
         Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Failure>(result, result.ToString());
-        var code = mutation == "duplicate-rule" ? "duplicate_identity" : mutation == "invalid-symbol" ? "asset_rule_failed" : "reference_wrong_kind";
+        var code = mutation switch
+        {
+            "duplicate-rule" => "duplicate_identity",
+            "invalid-symbol" => "asset_rule_failed",
+            "missing-good" => "reference_missing",
+            _ => "reference_wrong_kind"
+        };
         Assert.IsTrue(((C.ContentResult<C.IContentCandidate>.Failure)result).Diagnostics.Any(d => d.Code == code && d.Field == expectedField));
     }
 
