@@ -94,7 +94,7 @@ internal partial class SettlementFoundingPanel : Control
 
     private void ShowFounded(SettlementId id)
     {
-        _preview.Text = $"聚居地 {id.Value} 已建立。";
+        _preview.Text = $"聚居地 {id.Value} 已建立。\n成立后库存为空，需另行运入生活物资。";
         _trains.Hide();
         _confirm.Hide();
         _openSettlement.Show();
@@ -151,7 +151,7 @@ internal partial class SettlementFoundingPanel : Control
             : string.Join("\n", preview.RequiredMaterials.Select(item => Quantity(item, content)));
         var blockers = preview.Blockers.IsDefaultOrEmpty ? ""
             : "\n当前不能确认：\n" + string.Join("\n", preview.Blockers.Select(CommandDiagnostics.Describe));
-        return $"初始人口：{preview.InitialResidents}\n预计生活物资\n{consumption}\n所需材料\n{materials}\n固定工期 {preview.DurationTicks} 步{blockers}";
+        return $"初始人口：{preview.InitialResidents}\n预计生活物资\n{consumption}\n所需材料\n{materials}\n固定工期 {preview.DurationTicks} 步\n成立后库存为空，需另行运入生活物资。{blockers}";
     }
 
     private static string Quantity(GoodsQuantity item, IContentView content)

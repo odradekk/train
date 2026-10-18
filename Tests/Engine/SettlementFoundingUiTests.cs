@@ -56,6 +56,7 @@ public class SettlementFoundingUiTests(Node testScene) : TestClass(testScene)
                 $"配对后没有显示建城进度或没有装回配对内容。text={preview.Text} job={job} same={ReferenceEquals(host.Content, paired)} during={during}");
             Require(detail.Text.Contains("建城进行中") && !detail.Text.Contains("已用") && !detail.Text.Contains("预留聚居地"),
                 "节点详情重复了建城进度。");
+            Require(!Find<Button>(Founding(ui), "ConfirmFounding").Visible, "受理后仍显示确认建立。");
             Require(setup.Session.SubmitCount == 1, "建城确认没有经宿主提交一次。");
         });
         setup.Session.AssertComplete();
