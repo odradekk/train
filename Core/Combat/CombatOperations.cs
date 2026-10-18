@@ -63,6 +63,9 @@ internal static class CombatOperations
         }
 
         foreach (var combat in world.Combats.ToArray())
+            world = CombatResolution.Resolve(world, content, combat.Id, step, events);
+
+        foreach (var combat in world.Combats.ToArray())
         {
             if (HasAttacker(world, content, combat)) continue;
             events.Add(new CoreEvent.CombatEnded(combat.Id, combat.Location,
@@ -121,6 +124,7 @@ internal static class CombatOperations
             foreach (var target in groups.Where(target => target.Controller != attacker.Controller))
                 foreach (var unit in attacker.Units.Where(unit => CombatQueries.Armed(world, content, unit)))
                     foreach (var other in target.Units.Where(other => CombatQueries.Hostile(world, unit, other)
+                                 && CombatQueries.Hittable(world, content, other)
                                  && (attacker.Scope == TargetScope.All || CombatQueries.Armed(world, content, other))))
                         return true;
         return false;
@@ -141,6 +145,7 @@ internal static class CombatOperations
                 foreach (var target in combat.Controllers.Where(target => target.Controller != state.Controller))
                     foreach (var other in CombatQueries.Units(world, target.Controller)
                                  .Where(other => CombatQueries.Hostile(world, unit, other)
+                                     && CombatQueries.Hittable(world, content, other)
                                      && (scope == TargetScope.All || CombatQueries.Armed(world, content, other))))
                         return true;
         }

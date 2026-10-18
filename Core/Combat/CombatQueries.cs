@@ -121,6 +121,24 @@ internal static class CombatQueries
         => unit is CombatUnitId.Instance { Id: var id }
             && CombatRules.Armed(world, content, world.Instances.Single(i => i.Id == id));
 
+    internal static bool Hittable(WorldState world, CoreContentProjection content, CombatUnitId unit)
+    {
+        if (unit is not CombatUnitId.Instance { Id: var id }) return false;
+        var instance = world.Instances.Single(i => i.Id == id);
+        var design = world.Designs.Single(d => d.Design == instance.Design);
+        var total = design.StructureHitWeight;
+        foreach (var part in design.Parts)
+            if (!InstanceCapabilities.DefinitionMissing(world, content, design.Design, part))
+                total = checked(total + part.HitWeight);
+        return total > 0;
+    }
+
+    internal static long Durability(WorldState world, CombatUnitId unit)
+        => unit is CombatUnitId.Instance { Id: var id }
+            ? Math.Min(world.Instances.Single(i => i.Id == id).StructureDurability,
+                world.Designs.Single(d => d.Design == world.Instances.Single(i => i.Id == id).Design).MaxStructureDurability)
+            : 0;
+
     internal static CombatUnitId? Target(WorldObjectId target) => target switch
     {
         WorldObjectId.Instance instance => new CombatUnitId.Instance(instance.Id),

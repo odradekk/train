@@ -12,7 +12,8 @@ internal static class CombatFixture
     internal static readonly DesignHash ArmedVehicle = new(new string('7', 64));
     internal static readonly DesignHash ArmedBuilding = new(new string('8', 64));
 
-    internal static WorldGenerationInput Input(int trains = 1) => WorldFixture.MultiInput with
+    internal static WorldGenerationInput Input(int trains = 1, ImmutableArray<GoodsQuantity> cargo = default,
+        int vehicles = 1) => WorldFixture.MultiInput with
     {
         Configuration = WorldFixture.MultiInput.Configuration with
         {
@@ -29,19 +30,20 @@ internal static class CombatFixture
             }
         },
         Start = new(new(1000), Enumerable.Range(0, trains)
-            .Select(_ => new StartingTrainProjection([ArmedVehicle], [])).ToImmutableArray())
+            .Select(_ => new StartingTrainProjection(Enumerable.Repeat(ArmedVehicle, vehicles).ToImmutableArray(),
+                cargo.IsDefault ? [] : cargo)).ToImmutableArray())
     };
 
-    internal static CoreContentProjection Content(bool armedBuilding = true)
+    internal static CoreContentProjection Content(bool armedBuilding = true, long damage = 1)
     {
         var content = WorldFixture.MultiContent;
         var designs = content.Designs
             .Add(Design(ArmedVehicle, new DesignKind.Vehicle(SizeClass.Small, 1),
                 [new PartCapability.Control(), new PartCapability.Propulsion(100, 10),
-                    new PartCapability.Storage(100), new PartCapability.Weapon(10, 1)]));
+                    new PartCapability.Storage(100), new PartCapability.Weapon(damage, 1)]));
         if (armedBuilding)
             designs = designs.Add(Design(ArmedBuilding, new DesignKind.Building(PlotSize.Small, BuildingKind.Defense, []),
-                [new PartCapability.Weapon(20, 1)]));
+                [new PartCapability.Weapon(damage, 1)]));
         return content with
         {
             Designs = designs,
@@ -50,9 +52,21 @@ internal static class CombatFixture
         };
     }
 
-    internal static CoreSession Session(int trains = 1, bool armedBuilding = true)
+    internal static CoreSession Session(int trains = 1, bool armedBuilding = true, long damage = 1,
+        ImmutableArray<GoodsQuantity> cargo = default, int vehicles = 1)
     {
-        var prepared = CoreFactory.Create().PrepareNew(Input(trains), Content(armedBuilding), WorldFixture.Options);
+        var prepared = CoreFactory.Create().PrepareNew(Input(trains, cargo, vehicles), Content(armedBuilding, damage), WorldFixture.Options);
+        if (prepared is CoreResult<ICoreSessionCandidate>.Failure failure)
+            Assert.Fail(string.Join("; ", failure.Problems.Select(problem =>
+                $"{problem.Code} {problem.Field} [{string.Join(",", problem.RelatedIdentities)}]")));
+        using var candidate = ((CoreResult<ICoreSessionCandidate>.Success)prepared).Value;
+        return (CoreSession)candidate.Activate();
+    }
+
+    internal static CoreSession SessionWithContent(CoreContentProjection content, int trains = 1,
+        ImmutableArray<GoodsQuantity> cargo = default, int vehicles = 1)
+    {
+        var prepared = CoreFactory.Create().PrepareNew(Input(trains, cargo, vehicles), content, WorldFixture.Options);
         if (prepared is CoreResult<ICoreSessionCandidate>.Failure failure)
             Assert.Fail(string.Join("; ", failure.Problems.Select(problem =>
                 $"{problem.Code} {problem.Field} [{string.Join(",", problem.RelatedIdentities)}]")));
@@ -87,6 +101,23 @@ internal static class CombatFixture
             if (condition(session.Read())) return events.ToImmutable();
         }
         Assert.Fail("未在限定步数内到达战斗测试边界。");
+        return [];
+    }
+
+    internal static ImmutableArray<CoreEvent> AdvanceUntilEvent(ICoreSession session, Func<CoreEvent, bool> condition,
+        int maximum = 1000)
+    {
+        var events = ImmutableArray.CreateBuilder<CoreEvent>();
+        for (var step = 0; step < maximum; step++)
+        {
+            var result = session.Advance(1);
+            if (result.Fault is not null)
+                Assert.Fail($"{result.Fault.Code}: {result.Diagnostic?.Message}\n{result.Diagnostic?.StackTrace}");
+            var batch = result.Events.Select(envelope => envelope.Event).ToArray();
+            events.AddRange(batch);
+            if (batch.Any(condition)) return events.ToImmutable();
+        }
+        Assert.Fail("未在限定步数内到达战斗事件。");
         return [];
     }
 
