@@ -125,12 +125,16 @@ internal sealed class CoreRecording
         var manifests = starts.Select(start => start.State.References)
             .Concat(faults.Select(fault => fault.RequiredReferences)).ToArray();
         var decoded = commands.Select(command => ((CoreResult<DecodedCommand>.Success)CoreCommandEncoding.Decode(command.CanonicalPayload)).Value).ToArray();
-        var designs = decoded.Select(command => command.Command switch
-            {
-                CoreCommand.StartOwnedJob start => start.Request,
-                CoreCommand.CommissionVehicleWork commission => commission.Request,
-                _ => null
-            }).OfType<JobRequest.BuildVehicle>().Select(request => request.Design).ToArray();
+        var requests = decoded.Select(command => command.Command switch
+        {
+            CoreCommand.StartOwnedJob start => start.Request,
+            CoreCommand.CommissionVehicleWork commission => commission.Request,
+            _ => null
+        }).ToArray();
+        var changes = decoded.Select(command => command.Command).OfType<CoreCommand.ApplyInstanceDesign>()
+            .Select(command => command.Change).Concat(requests.OfType<JobRequest.Refit>().Select(request => request.Change)).ToArray();
+        var designs = requests.OfType<JobRequest.BuildVehicle>().Select(request => request.Design)
+            .Concat(changes.Select(change => change.Target)).ToArray();
         var commandDefinitions = designs.SelectMany(input =>
         {
             var path = $"Recording.Designs[{input.Design.Design.Value}]";
@@ -143,6 +147,20 @@ internal sealed class CoreRecording
                     .Select(item => new RequiredDefinition(WorldReferences.GoodReference(item.Good)!, null,
                         path + item.Item2, missing.Contains(WorldReferences.GoodReference(item.Good)!))));
         });
+        var removedDefinitions = changes.SelectMany(change => change.RemovedItems.SelectMany((unit, index) =>
+        {
+            var path = $"Recording.Designs[{change.Target.Design.Design.Value}].RemovedItems[{index}]";
+            var missing = unit.MissingReferences.Select(reference => reference.Reference).ToHashSet();
+            return new[] { unit.Good }.Concat(unit.StructuralGoods.Select(goods => goods.Good))
+                .Where(good => WorldReferences.GoodReference(good) is not null)
+                .Select(good => new RequiredDefinition(WorldReferences.GoodReference(good)!, null, path,
+                    missing.Contains(WorldReferences.GoodReference(good)!)))
+                .Concat(unit.MissingReferences.Select(reference => new RequiredDefinition(reference.Reference, null, path, true)));
+        }));
+        var addedDefinitions = changes.SelectMany(change => change.AddedGoods
+            .Where(goods => WorldReferences.GoodReference(goods.Good) is not null)
+            .Select(goods => new RequiredDefinition(WorldReferences.GoodReference(goods.Good)!, null,
+                $"Recording.Designs[{change.Target.Design.Design.Value}].AddedGoods", false)));
         var inputs = manifests.SelectMany(manifest => manifest.Inputs)
             .Concat(commands.SelectMany(command =>
             {
@@ -158,7 +176,7 @@ internal sealed class CoreRecording
                 .OrderBy(design => design.Value, StringComparer.Ordinal).ToImmutableArray(),
             manifests.SelectMany(manifest => manifest.Templates).DistinctBy(template => template.Owner)
                 .OrderBy(template => template.Owner.Value).ToImmutableArray(),
-            manifests.SelectMany(manifest => manifest.Definitions).Concat(commandDefinitions).Distinct()
+            manifests.SelectMany(manifest => manifest.Definitions).Concat(commandDefinitions).Concat(removedDefinitions).Concat(addedDefinitions).Distinct()
                 .OrderBy(definition => WorldReferences.DefinitionKey(definition.Definition), StringComparer.Ordinal)
                 .ThenBy(definition => definition.Field, StringComparer.Ordinal).ToImmutableArray(), inputs);
     }

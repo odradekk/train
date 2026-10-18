@@ -52,6 +52,16 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
             VehicleTrades.Validate(command);
             return ExecuteCommand(command, source, content => VehicleTrades.Execute(State.World, content, command));
         }
+        if (command is CoreCommand.SetDeconstructionPaused pause)
+        {
+            if (pause.Job.Value == 0) throw new ArgumentException("任务编号必须非零。", nameof(command));
+            return ExecuteCommand(command, source, content => ConstructionCommands.Pause(State.World, content, pause));
+        }
+        if (command is CoreCommand.ApplyInstanceDesign apply)
+        {
+            VehicleDesignChanges.Validate(apply.Instance, apply.Change, State.World, State.Content);
+            return ExecuteCommand(command, source, content => VehicleDesignChanges.Apply(State.World, content, apply));
+        }
         if (command is CoreCommand.StartOwnedJob or CoreCommand.CommissionVehicleWork)
         {
             var (request, funding, maximum) = command switch

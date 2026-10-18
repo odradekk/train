@@ -148,6 +148,8 @@ internal static class TrainCommands
             var instance = world.Instances.FirstOrDefault(i => i.Id == new InstanceId.Vehicle(id));
             if (instance is null) return Reject("object_missing", "OrderedVehicles", subject);
             if (instance.Ownership != SettlementRelation.PlayerOwned) return Reject("not_owned", "OrderedVehicles", subject);
+            if (ConstructionJobs.Lock(world, instance.Id) == InstanceLock.UnderDeconstruction)
+                return Reject("instance_locked", "OrderedVehicles", subject);
             if (instance.Details is not InstanceDetails.Vehicle { Train: null }) return Reject("vehicle_in_train", "OrderedVehicles", subject);
             var parked = world.Settlements.Single(s => s.ParkedVehicles.Contains(id));
             if (settlement is not null && settlement.Id != parked.Id) return Reject("vehicles_not_colocated", "OrderedVehicles", subject);

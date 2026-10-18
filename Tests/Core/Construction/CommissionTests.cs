@@ -428,8 +428,8 @@ public sealed class CommissionTests
             Assert.ThrowsExactly<ArgumentException>(() => session.Read().GetJobQuote(request, JobFunding.NpcCommission));
         }
         var refit = new JobRequest.Refit(Facility, Vehicle, null!, [], 0);
-        Assert.ThrowsExactly<NotImplementedException>(() => session.Submit(new CoreCommand.CommissionVehicleWork(refit, new(0)), CommandSource.AutomationTest));
-        Assert.ThrowsExactly<NotImplementedException>(() => session.Read().GetJobQuote(refit, JobFunding.NpcCommission));
+        Assert.ThrowsExactly<ArgumentNullException>(() => session.Submit(new CoreCommand.CommissionVehicleWork(refit, new(0)), CommandSource.AutomationTest));
+        Assert.ThrowsExactly<ArgumentNullException>(() => session.Read().GetJobQuote(refit, JobFunding.NpcCommission));
         Assert.AreEqual(before, session.State);
         Assert.IsEmpty(session.ReadRecording().Commands);
     }
