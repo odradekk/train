@@ -82,7 +82,7 @@ public sealed class NodeTraversalTests
         var state = State();
         var train = state.World.Trains[0] with
         {
-            Position = new TrainPosition.Node(new(1), new(1), new(2), phase, distance, null),
+            Position = new TrainPosition.Node(new(1), new(1), 1, new(2), phase == NodeTravelPhase.Departing ? 1 : null, phase, distance, null),
             SpeedMetersPerSecond = 5,
             NextStopIndex = phase == NodeTravelPhase.Departing ? 1 : 0
         };
@@ -181,7 +181,7 @@ public sealed class NodeTraversalTests
         };
         var earlier = state.World.Trains[1] with
         {
-            Position = new TrainPosition.Node(new(1), null, null, NodeTravelPhase.Waiting, 80, null),
+            Position = new TrainPosition.Node(new(1), null, null, null, null, NodeTravelPhase.Waiting, 80, null),
             Activity = TrainActivity.Waiting, QueueEnteredStep = 0,
             Plan = new(false, [new PlanStop.Station(new(1), 50000, [])]), NextStopIndex = 0
         };
@@ -208,7 +208,7 @@ public sealed class NodeTraversalTests
         var state = State(blocker: true);
         var train = state.World.Trains[0] with
         {
-            Position = new TrainPosition.Node(new(1), new(1), new(2),
+            Position = new TrainPosition.Node(new(1), new(1), 1, new(2), null,
                 stopped ? NodeTravelPhase.Docked : NodeTravelPhase.Approaching, stopped ? 128 : 100, null),
             SpeedMetersPerSecond = stopped ? 0 : 5,
             Activity = stopped ? TrainActivity.Stopped : TrainActivity.Running
@@ -240,7 +240,7 @@ public sealed class NodeTraversalTests
             { Edges = state.World.Edges.Select(edge => edge with { LengthMeters = 100 }).ToImmutableArray() } };
         var train = state.World.Trains[0] with
         {
-            Position = new TrainPosition.Node(new(1), new(1), new(2), NodeTravelPhase.Departing,
+            Position = new TrainPosition.Node(new(1), new(1), 1, new(2), 1, NodeTravelPhase.Departing,
                 waitingAtExit ? 256 : 150, null),
             SpeedMetersPerSecond = waitingAtExit ? 0 : 5,
             Activity = waitingAtExit ? TrainActivity.Waiting : TrainActivity.Running,
@@ -272,7 +272,7 @@ public sealed class NodeTraversalTests
         bool waitingAtExit, bool station)
     {
         var state = State();
-        var position = new TrainPosition.Node(new(1), new(1), new(2), NodeTravelPhase.Departing,
+        var position = new TrainPosition.Node(new(1), new(1), 1, new(2), 1, NodeTravelPhase.Departing,
             waitingAtExit ? 256 : 150, null);
         var train = state.World.Trains[0] with
         {
@@ -301,7 +301,7 @@ public sealed class NodeTraversalTests
         var state = State();
         var train = state.World.Trains[0] with
         {
-            Position = new TrainPosition.Node(new(1), new(1), new(2), NodeTravelPhase.Departing, 150, 1),
+            Position = new TrainPosition.Node(new(1), new(1), 1, new(2), 1, NodeTravelPhase.Departing, 150, 1),
             SpeedMetersPerSecond = 5
         };
         using var session = new CoreSession(state with { World = state.World with
@@ -323,7 +323,7 @@ public sealed class NodeTraversalTests
         Assert.IsNull(Train(restored).NextStopIndex);
         using var entering = Restore(Success(restored.Capture(CapturePurpose.Save)), state.Content);
         Until(entering, () => Train(entering).Activity == TrainActivity.Stopped, checkBraking: true);
-        Assert.AreEqual(new TrainPosition.Node(new(3), new(2), null, NodeTravelPhase.Docked, 80, null), Train(entering).Position);
+        Assert.AreEqual(new TrainPosition.Node(new(3), new(2), 1, null, null, NodeTravelPhase.Docked, 80, null), Train(entering).Position);
         Assert.AreEqual(0.0, Train(entering).SpeedMetersPerSecond);
         Assert.IsFalse(entering.State.World.Trains[0].StopRequested);
         Assert.IsNull(session.Advance((uint)(entering.Read().Position.CompletedSteps - saved.Position.CompletedSteps)).Fault);
@@ -336,7 +336,7 @@ public sealed class NodeTraversalTests
     public void Completed_plan_at_the_exit_stays_stopped_and_reserved_after_restore(bool trackRejected)
     {
         var state = State(blocker: trackRejected);
-        var position = new TrainPosition.Node(new(1), new(1), new(2), NodeTravelPhase.Departing, 256, 1);
+        var position = new TrainPosition.Node(new(1), new(1), 1, new(2), 1, NodeTravelPhase.Departing, 256, 1);
         var train = state.World.Trains[0] with
         {
             Position = position, SpeedMetersPerSecond = trackRejected ? 5 : 0,
@@ -381,7 +381,7 @@ public sealed class NodeTraversalTests
         var state = State();
         var train = state.World.Trains[0] with
         {
-            Position = new TrainPosition.Node(new(1), new(1), new(2), NodeTravelPhase.Departing, 150, 1),
+            Position = new TrainPosition.Node(new(1), new(1), 1, new(2), 1, NodeTravelPhase.Departing, 150, 1),
             SpeedMetersPerSecond = 5
         };
         using var session = new CoreSession(state with { World = state.World with { Trains = [train] } });
@@ -470,7 +470,7 @@ public sealed class NodeTraversalTests
         var state = State(station);
         var train = state.World.Trains[0] with
         {
-            Position = new TrainPosition.Node(new(1), new(1), new(2), phase, distance, station ? 1 : null),
+            Position = new TrainPosition.Node(new(1), new(1), 1, new(2), phase == NodeTravelPhase.Departing ? 1 : null, phase, distance, station ? 1 : null),
             SpeedMetersPerSecond = speed, Activity = activity,
             QueueEnteredStep = activity == TrainActivity.Waiting ? 0UL : null
         };
@@ -501,7 +501,7 @@ public sealed class NodeTraversalTests
     public void Lowered_speed_limit_brakes_instead_of_clamping_the_saved_speed()
     {
         var state = State();
-        var train = state.World.Trains[0] with { Position = new TrainPosition.Node(new(1), new(1), new(2),
+        var train = state.World.Trains[0] with { Position = new TrainPosition.Node(new(1), new(1), 1, new(2), null,
             NodeTravelPhase.Approaching, 10, null), SpeedMetersPerSecond = 20 };
         var original = state.Content with { RailwayRules = [state.Content.RailwayRules[0] with { NodeSpeedLimitMetersPerSecond = 25 }] };
         using var session = new CoreSession(state with { Content = original, World = state.World with { Trains = [train] } });
@@ -542,7 +542,7 @@ public sealed class NodeTraversalTests
             Trains = world.Trains.SetItem(0, arriving), Next = world.Next with { Node = 4, Edge = 3 }
         };
         if (blocker) world = world with { Trains = world.Trains.SetItem(1, world.Trains[1] with
-            { Position = new TrainPosition.Node(new(1), null, null, NodeTravelPhase.Docked, 128, 1) }) };
+            { Position = new TrainPosition.Node(new(1), null, null, null, null, NodeTravelPhase.Docked, 128, 1) }) };
         WorldStateValidation.Validate(world);
         return state with { World = world };
     }

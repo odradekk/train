@@ -10,7 +10,7 @@ internal sealed partial class NodeLayout
 {
     internal sealed record TrainApproach(NodeRailPath Inlet, NodeRailPath Branch);
     private sealed record Turn(NodeRailPath Curve, ImmutableDictionary<Stop, NodeRailPath> Connections, NodeRailPath Return);
-    private readonly Dictionary<(EdgeId, Stop), TrainApproach> trainApproaches = [];
+    private readonly Dictionary<(EdgeId, int, Stop), TrainApproach> trainApproaches = [];
     private readonly Dictionary<int, Turn> turns = [];
     private readonly List<NodeRailPath> turnRails = [];
     private readonly List<(EdgeId Edge, int Lane, NodeRailPath Path)> sharedTurnRails = [];
@@ -28,15 +28,19 @@ internal sealed partial class NodeLayout
         ? Entries.FirstOrDefault(entry => entry.Edge == edge)
         : Entries.Where(entry => entryTracks.GetValueOrDefault(entry.Edge) > 0).MinBy(entry => entry.Edge.Value);
 
-    internal RailwaySample TrainBoundary(Entry entry)
+    internal int TrainTrackNumber(Entry entry, int? track) =>
+        track is > 0 && track <= entryTracks.GetValueOrDefault(entry.Edge) ? track.Value : 1;
+
+    internal RailwaySample TrainBoundary(Entry entry, int? track = null)
     {
         var forward = -entry.Outward;
         var right = Vector3.Cross(Vector3.UnitY, forward);
-        var offset = TrainTrackOffset(entry);
+        var offset = TrainTrackOffset(entry, track);
         return new(RailwayCoordinates.Add(entry.Point, right * (float)offset), forward, right);
     }
 
-    internal TrainApproach Approach(Entry entry, Stop stop) => trainApproaches[(entry.Edge, stop)];
+    internal TrainApproach Approach(Entry entry, Stop stop, int? track = null) =>
+        trainApproaches[(entry.Edge, TrainTrackNumber(entry, track), stop)];
 
     internal NodeRailPath StationTail(Stop stop, int side)
     {
@@ -45,22 +49,22 @@ internal sealed partial class NodeLayout
             Vector3.Dot(RailwayCoordinates.Relative(target, stop.Center), side * StationForward));
     }
 
-    internal NodeRailPath Exit(Entry entry, Stop stop)
+    internal NodeRailPath Exit(Entry entry, Stop stop, int? track = null)
     {
-        var boundary = TrainBoundary(entry);
-        var curve = NodeRailPath.From(StopConnection(entry, stop));
+        var boundary = TrainBoundary(entry, track);
+        var curve = NodeRailPath.From(StopConnection(entry, stop, TrainTrackOffset(entry, track)));
         return NodeRailPath.Join(curve.Reverse(), NodeRailPath.Straight(
             RailwayCoordinates.Add(boundary.Position, boundary.Forward * ApproachStraight), entry.Outward, ApproachStraight));
     }
 
-    internal NodeRailPath TurnExit(int side, Stop stop, Entry exit)
+    internal NodeRailPath TurnExit(int side, Stop stop, Entry exit, int? track = null)
     {
         var turn = turns[side];
         var end = turn.Return.Sample(turn.Return.Length);
         var target = StationEnd(Bypass, exit.Side);
         var length = Vector3.Dot(RailwayCoordinates.Relative(target, end.Position), end.Forward);
         return NodeRailPath.Join(turn.Connections[stop], turn.Curve, turn.Return,
-            NodeRailPath.Straight(end.Position, end.Forward, length), Exit(exit, Bypass));
+            NodeRailPath.Straight(end.Position, end.Forward, length), Exit(exit, Bypass, track));
     }
 
     private ScenePoint StationEnd(Stop stop, int side)
@@ -87,10 +91,10 @@ internal sealed partial class NodeLayout
         return Connection(entry.Edge, offset, line);
     }
 
-    private double TrainTrackOffset(Entry entry)
+    private double TrainTrackOffset(Entry entry, int? track = null)
     {
         var count = entryTracks.GetValueOrDefault(entry.Edge);
-        return count > 0 ? RailwayCoordinates.TrackOffset(1, count) * entryTrackDirections[entry.Edge] : 0;
+        return count > 0 ? RailwayCoordinates.TrackOffset(TrainTrackNumber(entry, track), count) * entryTrackDirections[entry.Edge] : 0;
     }
 
     private readonly Dictionary<EdgeId, int> entryTrackDirections = [];
@@ -106,15 +110,16 @@ internal sealed partial class NodeLayout
     {
         var stops = Stops.Append(Bypass).Distinct().ToArray();
         foreach (var entry in Entries)
+        foreach (var track in Enumerable.Range(1, Math.Max(1, entryTracks.GetValueOrDefault(entry.Edge))))
         foreach (var stop in stops)
         {
-            var boundary = TrainBoundary(entry);
+            var boundary = TrainBoundary(entry, track);
             var inlet = NodeRailPath.Straight(boundary.Position, boundary.Forward, ApproachStraight + entry.StraightLength);
-            var curve = NodeRailPath.From(StopConnection(entry, stop));
+            var curve = NodeRailPath.From(StopConnection(entry, stop, TrainTrackOffset(entry, track)));
             var end = curve.Sample(curve.Length);
             var tail = NodeRailPath.Straight(end.Position, end.Forward,
                 Vector3.Dot(RailwayCoordinates.Relative(stop.Center, end.Position), end.Forward));
-            trainApproaches.Add((entry.Edge, stop), new(inlet,
+            trainApproaches.Add((entry.Edge, track, stop), new(inlet,
                 NodeRailPath.Join(curve.Slice(entry.StraightLength, curve.Length), tail)));
         }
     }

@@ -218,11 +218,11 @@ internal sealed class RailwayPath
         return new(point, tangent, right);
     }
 
-    internal RailwaySample SampleFromNode(NodeId node, RailwaySample boundary, double inwardArc)
+    internal RailwaySample SampleFromNode(NodeId node, RailwaySample boundary, double inwardArc, int track = 1)
     {
         var direction = node == Edge.End ? 1 : -1;
         var endpoint = direction > 0 ? LengthCells : 0;
-        var offset = RailwayCoordinates.TrackOffset(1, Math.Max(1, Edge.Tracks));
+        var offset = RailwayCoordinates.TrackOffset(track, Math.Max(1, Edge.Tracks));
         var end = Sample(endpoint, offset);
         var arc = TrackArc(endpoint, offset) + direction * inwardArc;
         var sample = Sample(CenterArc(arc, offset), offset);
@@ -230,13 +230,13 @@ internal sealed class RailwayPath
             direction * sample.Forward, direction * sample.Right);
     }
 
-    internal RailwaySample SampleWithNodes(double distanceCells, double offsetCells)
+    internal RailwaySample SampleWithNodes(double distanceCells, double offsetCells, int track = 1)
     {
         if (distanceCells >= 0 && distanceCells <= LengthCells) return Sample(distanceCells, offsetCells);
         var atStart = distanceCells < 0;
         var layout = atStart ? StartLayout : EndLayout;
         var entry = layout.EntryFor(Edge.Id);
-        var inlet = layout.Approach(entry, layout.Bypass).Inlet;
+        var inlet = layout.Approach(entry, layout.Bypass, track).Inlet;
         var inwardArc = atStart ? -distanceCells : distanceCells - LengthCells;
         var sample = inlet.Sample(inwardArc);
         var boundary = inlet.Sample(0);

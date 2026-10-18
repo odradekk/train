@@ -11,7 +11,7 @@ internal sealed class TrainDispatch
     private readonly CoreContentProjection _content;
     private readonly Dictionary<TrainId, TrainCapabilities> _capabilities;
     private readonly Dictionary<(EdgeId Edge, int Track), List<TrainState>> _tracks;
-    private readonly Dictionary<TrainId, (EdgeId Edge, TravelDirection Direction)> _requests = [];
+    private readonly Dictionary<TrainId, (EdgeId Edge, int? Track, TravelDirection Direction)> _requests = [];
     private readonly Dictionary<NodeId, HashSet<int>> _platforms;
     private readonly Dictionary<TrainId, int> _platformHolders;
     private readonly HashSet<(EdgeId, int)> _usedHandoffs = [];
@@ -34,7 +34,8 @@ internal sealed class TrainDispatch
                 _platformHolders.Add(train.Id, platform);
             }
             if (RequestedEdge(world, content, train, _capabilities[train.Id]) is { } edge)
-                _requests.Add(train.Id, (edge.Id, Direction(edge, ((TrainPosition.Node)train.Position).Id)));
+                _requests.Add(train.Id, (edge.Id, ((TrainPosition.Node)train.Position).NextTrack,
+                    Direction(edge, ((TrainPosition.Node)train.Position).Id)));
         }
     }
 
@@ -97,40 +98,16 @@ internal sealed class TrainDispatch
         {
             var position = (TrainPosition.Node)train.Position;
             var edge = _world.Edges.Single(e => e.Id == position.NextEdge);
-            _requests[train.Id] = (edge.Id, Direction(edge, position.Id));
+            _requests[train.Id] = (edge.Id, position.NextTrack, Direction(edge, position.Id));
         }
     }
 
     internal int? Enter(TrainState train, EdgeMapItem edge, bool reserve)
     {
-        var direction = Direction(edge, ((TrainPosition.Node)train.Position).Id);
-        var opposite = Opposite(direction);
-        var opposing = _requests.Any(r => r.Key != train.Id && r.Value.Edge == edge.Id && r.Value.Direction == opposite);
-        var handoffs = _world.TrackHandoffs.Where(h => h.Edge == edge.Id && !_usedHandoffs.Contains((h.Edge, h.Track)))
-            .Where(h => _requests.Values.Any(r => r.Edge == h.Edge && r.Direction == h.Direction)).ToArray();
-        int? selected = null;
-        if (!opposing)
-            for (var track = 1; track <= edge.Tracks; track++)
-                if (Open(edge, track) && _tracks.TryGetValue((edge.Id, track), out var trains)
-                    && trains.Any(t => t.Id != train.Id)
-                    && trains.Where(t => t.Id != train.Id).All(t => ((TrainPosition.Edge)t.Position).Direction == direction
-                        && EntrySpace(train, t, edge, direction)))
-                { selected = track; break; }
-        if (selected is null)
-            for (var track = 1; track <= edge.Tracks; track++)
-            {
-                if (!Open(edge, track) || _tracks.TryGetValue((edge.Id, track), out var occupants)
-                    && occupants.Any(t => t.Id != train.Id)) continue;
-                var handoff = handoffs.FirstOrDefault(h => h.Track == track);
-                if (handoff is not null && handoff.Direction != direction) continue;
-                if (handoff is null && opposing && (handoffs.Any(h => h.Direction == opposite)
-                    || _tracks.Any(t => t.Key.Edge == edge.Id
-                        && t.Value.Any(other => other.Id != train.Id && ((TrainPosition.Edge)other.Position).Direction == direction)))) continue;
-                selected = track;
-                break;
-            }
+        var selected = SelectTrack(train, edge, choosing: false);
         if (selected is { } number && reserve)
         {
+            var direction = Direction(edge, ((TrainPosition.Node)train.Position).Id);
             var position = new TrainPosition.Edge(edge.Id, number, direction,
                 direction == TravelDirection.Forward ? 0 : edge.LengthMeters);
             if (!_tracks.TryGetValue((edge.Id, number), out var trains))
@@ -141,7 +118,56 @@ internal sealed class TrainDispatch
         return selected;
     }
 
-    private static bool Open(EdgeMapItem edge, int track) => !edge.Breaks.Any(b => b.Track == track)
+    internal TrainState FixExit(TrainState train)
+    {
+        if (train.Position is not TrainPosition.Node { Phase: NodeTravelPhase.Departing, NextEdge: { } next } position)
+            return train;
+        var edge = _world.Edges.Single(e => e.Id == next);
+        if (position.NextTrack is { } current && Open(edge, current)) return train;
+        var selected = SelectTrack(train, edge, choosing: true)
+            ?? Enumerable.Range(1, edge.Tracks).Where(track => Open(edge, track)).Select(track => (int?)track).FirstOrDefault()
+            ?? (position.NextTrack <= edge.Tracks ? position.NextTrack : null);
+        return train with { Position = position with { NextTrack = selected } };
+    }
+
+    private int? SelectTrack(TrainState train, EdgeMapItem edge, bool choosing)
+    {
+        var node = (TrainPosition.Node)train.Position;
+        bool Available(int track) => Open(edge, track)
+            && (choosing || node.Phase != NodeTravelPhase.Departing || node.NextTrack == track)
+            && (!choosing || !_world.Trains.Any(other => other.Id != train.Id && other.Position is TrainPosition.Node
+                { Phase: NodeTravelPhase.Departing, NextEdge: { } next, NextTrack: { } fixedTrack }
+                && next == edge.Id && fixedTrack == track));
+        var direction = Direction(edge, ((TrainPosition.Node)train.Position).Id);
+        var opposite = Opposite(direction);
+        var opposing = _requests.Any(r => r.Key != train.Id && r.Value.Edge == edge.Id && r.Value.Direction == opposite);
+        var handoffs = _world.TrackHandoffs.Where(h => h.Edge == edge.Id && !_usedHandoffs.Contains((h.Edge, h.Track)))
+            .Where(h => _requests.Values.Any(r => r.Edge == h.Edge && r.Track == h.Track && r.Direction == h.Direction)).ToArray();
+        int? selected = null;
+        if (!opposing)
+            for (var track = 1; track <= edge.Tracks; track++)
+                if (Available(track) && _tracks.TryGetValue((edge.Id, track), out var trains)
+                    && trains.Any(t => t.Id != train.Id)
+                    && trains.Where(t => t.Id != train.Id).All(t => ((TrainPosition.Edge)t.Position).Direction == direction
+                        && EntrySpace(train, t, edge, direction)))
+                { selected = track; break; }
+        if (selected is null)
+            for (var track = 1; track <= edge.Tracks; track++)
+            {
+                if (!Available(track) || _tracks.TryGetValue((edge.Id, track), out var occupants)
+                    && occupants.Any(t => t.Id != train.Id)) continue;
+                var handoff = handoffs.FirstOrDefault(h => h.Track == track);
+                if (handoff is not null && handoff.Direction != direction) continue;
+                if (handoff is null && opposing && (handoffs.Any(h => h.Direction == opposite)
+                    || _tracks.Any(t => t.Key.Edge == edge.Id
+                        && t.Value.Any(other => other.Id != train.Id && ((TrainPosition.Edge)other.Position).Direction == direction)))) continue;
+                selected = track;
+                break;
+            }
+        return selected;
+    }
+
+    private static bool Open(EdgeMapItem edge, int track) => track >= 1 && track <= edge.Tracks && !edge.Breaks.Any(b => b.Track == track)
         && !edge.Works.Any(w => w.Track == track && w.Kind == RailwayWorkKind.RepairBreak);
 
     private bool EntrySpace(TrainState entering, TrainState ahead, EdgeMapItem edge, TravelDirection direction)
@@ -214,15 +240,16 @@ internal sealed class TrainDispatch
         }
         world = world with { Trains = world.Trains.Select(t => trains[t.Id]).ToImmutableArray() };
         var requests = world.Trains.Select(t => (Train: t, Edge: RequestedEdge(world, _content, t, _capabilities[t.Id])))
-            .Where(r => r.Edge is not null).Select(r => (r.Edge!.Id, Direction(r.Edge, ((TrainPosition.Node)r.Train.Position).Id))).ToHashSet();
+            .Where(r => r.Edge is not null).Select(r => (r.Edge!.Id, ((TrainPosition.Node)r.Train.Position).NextTrack,
+                Direction(r.Edge, ((TrainPosition.Node)r.Train.Position).Id))).ToHashSet();
         var handoffs = _world.TrackHandoffs.Where(h => !_usedHandoffs.Contains((h.Edge, h.Track))
-            && requests.Contains((h.Edge, h.Direction))).ToDictionary(h => (h.Edge, h.Track));
+            && requests.Contains((h.Edge, h.Track, h.Direction))).ToDictionary(h => (h.Edge, h.Track));
         foreach (var (key, occupants) in _tracks)
             if (Open(world.Edges.Single(e => e.Id == key.Edge), key.Track)
                 && !world.Trains.Any(t => t.Position is TrainPosition.Edge p && p.Id == key.Edge && p.Track == key.Track))
             {
                 var direction = Opposite(((TrainPosition.Edge)occupants[0].Position).Direction);
-                if (requests.Contains((key.Edge, direction))) handoffs[key] = new(key.Edge, key.Track, direction);
+                if (requests.Contains((key.Edge, key.Track, direction))) handoffs[key] = new(key.Edge, key.Track, direction);
             }
         return world with { TrackHandoffs = handoffs.Values.OrderBy(h => h.Edge.Value).ThenBy(h => h.Track).ToImmutableArray() };
     }

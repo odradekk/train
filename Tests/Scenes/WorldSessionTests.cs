@@ -529,7 +529,7 @@ public sealed class WorldSessionTests
     [TestMethod]
     public async Task FollowVehicleMustBelongToRequestedTrain()
     {
-        var train = new TrainView(new(1), new TrainPosition.Node(new(1), null, null, NodeTravelPhase.Waiting, 80, null), TrainActivity.Stopped,
+        var train = new TrainView(new(1), new TrainPosition.Node(new(1), null, null, null, null, NodeTravelPhase.Waiting, 80, null), TrainActivity.Stopped,
             [new(2)], new(1), 0, 0, 0, 0, 0, 0, null, null, 0,
             new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0),
             [], null, [], TrainOrderFacing.FirstEndLeading, null);

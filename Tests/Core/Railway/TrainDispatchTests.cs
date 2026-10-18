@@ -37,7 +37,7 @@ public sealed class TrainDispatchTests
     [TestMethod]
     [DataRow(1)]
     [DataRow(2)]
-    public void Same_step_requests_use_train_id_and_see_prior_grants_independent_of_list_order(int tracks)
+    public void Same_step_departures_fix_the_same_track_and_admission_uses_train_id_independent_of_list_order(int tracks)
     {
         foreach (var reversed in new[] { false, true })
         {
@@ -47,13 +47,9 @@ public sealed class TrainDispatchTests
             using var session = new CoreSession(state with { World = state.World with { Trains = trains } });
             Step(session);
             Assert.AreEqual(1, ((TrainPosition.Edge)View(session, 1).Position).Track);
-            if (tracks == 1)
-            {
-                Assert.AreEqual(TrainActivity.Waiting, View(session, 2).Activity);
-                Assert.AreEqual(WorldFixture.Node(new(1), NodeTravelPhase.Departing,
-                    WorldFixture.ApproachLength + WorldFixture.PlatformLength + WorldFixture.DepartureLength, nextEdge: new(1)), View(session, 2).Position);
-            }
-            else Assert.AreEqual(2, ((TrainPosition.Edge)View(session, 2).Position).Track);
+            Assert.AreEqual(TrainActivity.Waiting, View(session, 2).Activity);
+            Assert.AreEqual(WorldFixture.Node(new(1), NodeTravelPhase.Departing,
+                WorldFixture.ApproachLength + WorldFixture.PlatformLength + WorldFixture.DepartureLength, nextEdge: new(1)), View(session, 2).Position);
         }
     }
 

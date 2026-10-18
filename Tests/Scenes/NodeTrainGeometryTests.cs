@@ -15,12 +15,13 @@ public sealed class NodeTrainGeometryTests
     {
         var template = NodeFixtures.Layout with { Plots = NodeFixtures.Layout.Plots.Select(plot => plot with
         { At = plot.At with { X = plot.At.X + shift, Z = plot.At.Z + shift } }).ToImmutableArray() };
-        var layout = NodeLayout.Build(NodeFixtures.Snapshot(content: NodeFixtures.Content(layout: template)), NodeFixtures.NodeId);
+        var layout = NodeLayout.Build(NodeFixtures.Snapshot(tracks: 2, content: NodeFixtures.Content(layout: template)), NodeFixtures.NodeId);
         foreach (var entry in layout.Entries)
+        foreach (var track in new[] { 1, 2 })
         {
             foreach (var stop in layout.Stops.Append(layout.Bypass))
             {
-                var path = layout.Approach(entry, stop);
+                var path = layout.Approach(entry, stop, track);
                 Near(path.Inlet.Sample(path.Inlet.Length).Position, path.Branch.Sample(0).Position);
                 Near(path.Branch.Sample(path.Branch.Length).Position, stop.Center);
                 Assert.IsTrue(Vector3.Distance(path.Branch.Sample(path.Branch.Length).Forward, -entry.Side * layout.StationForward) < .0001);
@@ -31,18 +32,19 @@ public sealed class NodeTrainGeometryTests
     [TestMethod]
     public void SameSideExitUsesAnExteriorTurnWithContinuousEndpointTangents()
     {
-        var basis = NodeFixtures.Snapshot();
+        var basis = NodeFixtures.Snapshot(tracks: 2);
         var snapshot = RailwayFixtures.ReplaceCore(basis, node: basis.Core.World.Nodes[2] with { Position = new(600, 100) });
         var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
         var entry = layout.Entries[0]; var exit = layout.Entries[1];
         Assert.AreEqual(entry.Side, exit.Side);
         foreach (var stop in layout.Stops.Append(layout.Bypass))
+        foreach (var track in new[] { 1, 2 })
         {
             var tail = layout.StationTail(stop, -entry.Side);
-            var turn = layout.TurnExit(-entry.Side, stop, exit);
+            var turn = layout.TurnExit(-entry.Side, stop, exit, track);
             Near(tail.Sample(tail.Length).Position, turn.Sample(0).Position);
             Assert.IsTrue(Vector3.Distance(tail.Sample(tail.Length).Forward, turn.Sample(0).Forward) < .0001);
-            Near(turn.Sample(turn.Length).Position, layout.TrainBoundary(exit).Position);
+            Near(turn.Sample(turn.Length).Position, layout.TrainBoundary(exit, track).Position);
             Assert.IsTrue(Vector3.Distance(turn.Sample(turn.Length).Forward, exit.Outward) < .0001);
             Assert.IsTrue(turn.Length > Math.PI * RailwayFixtures.Rules.MinimumCurveRadiusMeters * RailwayCoordinates.CellsPerMeter);
             for (var arc = 2.0; arc < turn.Length - 2; arc += 2)
@@ -57,16 +59,17 @@ public sealed class NodeTrainGeometryTests
     }
 
     [TestMethod]
-    public void BothEndsOfAMultitrackLineConnectToItsFirstTrack()
+    public void BothEndsOfAMultitrackLineConnectToEachActualTrack()
     {
         var snapshot = RailwayFixtures.Snapshot(tracks: 3, trackLimit: 3);
         var line = new RailwayPath(snapshot, RailwayFixtures.Edge);
         var edge = snapshot.Core.World.Edges.Single();
         foreach (var (node, arc) in new[] { (edge.Start, 0.0), (edge.End, line.LengthCells) })
+        foreach (var track in new[] { 1, 2, 3 })
         {
             var layout = NodeLayout.Build(snapshot, node);
-            var boundary = layout.TrainBoundary(layout.EntryFor(edge.Id));
-            var lateral = RailwayCoordinates.Relative(line.Sample(arc, RailwayCoordinates.TrackOffset(1, 3)).Position,
+            var boundary = layout.TrainBoundary(layout.EntryFor(edge.Id), track);
+            var lateral = RailwayCoordinates.Relative(line.Sample(arc, RailwayCoordinates.TrackOffset(track, 3)).Position,
                 line.Sample(arc).Position);
             Near(RailwayCoordinates.Add(layout.EntryPoint(edge.Id), lateral), boundary.Position);
         }
