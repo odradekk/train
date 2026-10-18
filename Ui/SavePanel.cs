@@ -5,6 +5,8 @@ namespace Train.Ui;
 
 public partial class SavePanel : Window
 {
+    private readonly Vector2I _preferredSize = new(680, 460);
+    private Rect2 _area;
     private SaveService? _service;
     private readonly Label _status = new();
     private readonly Label _message = new();
@@ -36,11 +38,12 @@ public partial class SavePanel : Window
     public override void _Ready()
     {
         Title = "存档";
-        Size = new Vector2I(680, 460);
+        Size = _preferredSize;
         Transient = true;
         Exclusive = true;
         Visible = false;
         CloseRequested += Hide;
+        VisibilityChanged += () => { if (Visible) Callable.From(() => Fit(_area)).CallDeferred(); };
         var background = new PanelContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
         background.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         AddChild(background);
@@ -49,8 +52,10 @@ public partial class SavePanel : Window
         foreach (var side in new[] { "left", "top", "right", "bottom" })
             margin.AddThemeConstantOverride("margin_" + side, 16);
         AddChild(margin);
-        var column = new VBoxContainer();
-        margin.AddChild(column);
+        var scroll = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        margin.AddChild(scroll);
+        var column = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        scroll.AddChild(column);
         column.AddChild(_status);
         column.AddChild(_message);
         _message.AutowrapMode = TextServer.AutowrapMode.WordSmart;
@@ -106,6 +111,18 @@ public partial class SavePanel : Window
     {
         _service = service;
         service.Changed += Refresh;
+    }
+
+    internal void Fit(Rect2 area)
+    {
+        _area = area;
+        if (!Visible || area.Size.Y <= 0) return;
+        var frameTop = Position.Y - GetPositionWithDecorations().Y;
+        var frameBottom = GetSizeWithDecorations().Y - Size.Y - frameTop;
+        var top = (int)Math.Ceiling(area.Position.Y) + frameTop;
+        var bottom = (int)Math.Floor(area.End.Y) - frameBottom;
+        Size = new(_preferredSize.X, Math.Min(_preferredSize.Y, Math.Max(1, bottom - top)));
+        Position = new(Position.X, Math.Clamp(Position.Y, top, Math.Max(top, bottom - Size.Y)));
     }
 
     internal void Open()

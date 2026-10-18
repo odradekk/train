@@ -11,6 +11,17 @@ namespace Train.Godot.Tests.Ui;
 public sealed class UiInputTests
 {
     [TestMethod]
+    public void EveryTrainActivityHasDisplayText()
+    {
+        foreach (var activity in Enum.GetValues<TrainActivity>())
+        {
+            var text = WorldPanels.Activity(activity);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(text), $"{activity} 缺少显示文字。");
+            Assert.AreNotEqual(activity.ToString(), text, $"{activity} 仍显示枚举名。");
+        }
+    }
+
+    [TestMethod]
     public void TimeChangesAtMinuteHourAndDayBoundaries()
     {
         var minute = 60UL * (ulong)SimulationTime.StepsPerSecond;

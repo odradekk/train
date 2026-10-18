@@ -84,7 +84,7 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             var ui = app.GetNode<GameUi>("GameUi");
             var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
             await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
-            var nodes = panels.GetNode<ItemList>("NodesList/Layout/Body/Objects");
+            var nodes = panels.GetNode<ItemList>("NodesList/Layout/Content/Body/Objects");
             await _input.ClickItem(nodes, 0);
             await _input.Activate(panels.FindChildren("Form", "Button", true, false).Cast<Button>().Single());
             var formation = ui.GetNode<TrainFormationPanel>("Root/World/TrainFormationPanel");
@@ -96,11 +96,11 @@ public class SaveTests(Node testScene) : TestClass(testScene)
                 formation.FindChildren("OrderedVehicles", "ItemList", true, false).Cast<ItemList>().Single().ItemCount == 1,
                 "未建立可提交的编组草稿。");
             await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Fleet"));
-            var fleet = panels.GetNode<ItemList>("FleetList/Layout/Body/Objects");
+            var fleet = panels.GetNode<ItemList>("FleetList/Layout/Content/Body/Objects");
             await _input.ClickItem(fleet, 0);
             await _input.Activate(panels.FindChildren("EditPlan", "Button", true, false).Cast<Button>().Single());
             var plan = ui.GetNode<TrainPlanPanel>("Root/World/TrainPlanPanel");
-            await _input.Activate(plan.GetNode<CheckBox>("Plan/Layout/Body/Loop"));
+            await _input.Activate(plan.GetNode<CheckBox>("Plan/Layout/Content/Body/Loop"));
             var apply = plan.FindChildren("Apply", "Button", true, false).Cast<Button>().Single();
             var descriptions = panels.FindChildren("Description", "Label", true, false).Cast<Label>().ToArray();
             Require(plan.IsVisibleInTree() && !apply.Disabled && descriptions.Length == 2 &&
