@@ -13,7 +13,7 @@ internal static class ContentFixture
     internal static void WriteMod(string directory, Guid id)
     {
         var voxels = Path.Combine(directory, "resources", "voxels");
-        Directory.CreateDirectory(Path.Combine(voxels, "shared"));
+        Directory.CreateDirectory(Path.Combine(voxels, "engine-food"));
         File.WriteAllText(Path.Combine(directory, "mod.json"), $$"""
             {"schema_version":2,"id":"{{id:D}}","name":"Engine fixture","version":"1.0.0","authors":["Engine tests"]}
             """);
@@ -21,9 +21,9 @@ internal static class ContentFixture
             "res://builtin/core/resources/voxels/staple-food.voxel.json"))!;
         definition["id"] = "engine-food";
         File.WriteAllText(Path.Combine(voxels, "engine-food.voxel.json"), definition.ToJsonString());
-        foreach (var image in new[] { "organic-icon.png", "organic-face.png" })
-            File.WriteAllBytes(Path.Combine(voxels, "shared", image), Godot.FileAccess.GetFileAsBytes(
-                "res://builtin/core/resources/voxels/shared/" + image));
+        foreach (var image in new[] { "icon.png", "top.png", "side.png" })
+            File.WriteAllBytes(Path.Combine(voxels, "engine-food", image), Godot.FileAccess.GetFileAsBytes(
+                "res://builtin/core/resources/voxels/staple-food/" + image));
     }
 
     internal static string CopyBuiltIn()

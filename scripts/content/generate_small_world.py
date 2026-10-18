@@ -6,7 +6,8 @@ python scripts/content/generate_small_world.py --output-dir TestResults/reproduc
 
 脚本生成 resources/，手绘图标按 HAND_DRAWN_ICONS 保留；校验模式拒绝缺失、多余或生成字节不同的文件，
 并按仓库 Schema 检查 JSON（校验需要 jsonschema）。生成只用 Python 标准库。
-自然地形与二十八种货物已有正式美术，小型机车保留第一阶段风格样稿，聚居地符号来自 ui_symbols；
+自然地形与三十四种货物已有正式美术：十二种原料、六种生活货物和十六种工业与建造货物。
+小型机车保留第一阶段风格样稿，聚居地符号来自 ui_symbols；
 其余美术仍待制作，数值待配平，
 数值和画面待用户试玩确认；十一种车辆与两列小型起始车队已接入。
 校验同时检查正式内容的经济关系；不生成生物聚落或存档。
@@ -721,6 +722,59 @@ def rail_texture(x, y, side=False):
     return tint(STEEL, 10 if head or web or foot else -32)
 
 
+def staple_food_texture(x, y, side=False):
+    a, b = min(x, 31 - x), min(y, 31 - y)
+    seam = y % 16 in (0, 15) if side else a == b or a == 0 or b == 0
+    band = side and 12 <= y <= 19
+    return tint((118, 82, 95), -16 if seam else 12 if band else grain(min(a, b), max(a, b), 32, 0x631) // 3)
+
+
+def prepared_food_texture(x, y, side=False):
+    if side:
+        label = 9 <= y <= 22
+        rim = y in (1, 2, 29, 30) or x in (0, 31)
+        return tint((181, 124, 80) if label else (164, 170, 162), -17 if rim else 0)
+    radius = int(((x - 15.5) ** 2 + (y - 15.5) ** 2) ** .5)
+    return tint((164, 170, 162), -18 if radius in (6, 12, 14) else 0)
+
+
+def clothing_texture(x, y, side=False):
+    a, b = sorted((min(x, 31 - x), min(y, 31 - y)))
+    fold = y % 8 in (0, 1) if side else a in (0, 5)
+    return tint((83, 98, 139), -17 if fold else 3 if (a + b) % 2 else -3)
+
+
+def consumer_goods_texture(x, y, side=False):
+    a, b = sorted((min(x, 31 - x), min(y, 31 - y)))
+    if side:
+        handle = 7 <= x <= 24 and 12 <= y <= 16
+        seam = x in (0, 3, 28, 31) or y in (0, 31)
+    else:
+        handle = False
+        seam = a % 8 == 0 or b % 8 == 0
+    return tint((163, 152, 178), -42 if handle else -15 if seam else 0)
+
+
+def consumer_electronics_texture(x, y, side=False):
+    a, b = sorted((min(x, 31 - x), min(y, 31 - y)))
+    if side:
+        recess = 9 <= x <= 22 and 12 <= y <= 18
+        seam = y in (0, 7, 24, 31) or x in (0, 31)
+    else:
+        recess = b < 6
+        seam = a in (0, 4)
+    return tint((52, 61, 70), -16 if recess else -9 if seam else 0)
+
+
+def medical_supplies_texture(x, y, side=False):
+    a, b = sorted((min(x, 31 - x), min(y, 31 - y)))
+    mark = 14 <= y <= 17 if side else a >= 13 and b >= 7 or b >= 13 and a >= 7
+    if mark:
+        return tint((61, 119, 113))
+    seam = y in (0, 31) or 10 <= x <= 21 and 7 <= y <= 10 if side else a == 0
+    return tint((197, 214, 212), -24 if seam else 0)
+
+
 GOODS_ART = {
     "ferrous-ore": ("stone_soil", 2, None, None, ferrous_ore_texture),
     "conductive-ore": ("stone_soil", 2, None, None, conductive_ore_texture),
@@ -750,6 +804,12 @@ GOODS_ART = {
     "structural-block": ("painted_metal", 1, None, None, structural_block_texture),
     "construction-block": ("concrete", 1, None, None, construction_block_texture),
     "rail": ("bare_metal", 1, "side.png", None, rail_texture),
+    "staple-food": ("organic", 1, "side.png", None, staple_food_texture),
+    "prepared-food": ("bare_metal", 1, "side.png", None, prepared_food_texture),
+    "clothing": ("organic", 1, "side.png", None, clothing_texture),
+    "consumer-goods": ("polymer_rubber", 1, "side.png", None, consumer_goods_texture),
+    "consumer-electronics": ("polymer_rubber", 1, "side.png", None, consumer_electronics_texture),
+    "medical-supplies": ("polymer_rubber", 1, "side.png", None, medical_supplies_texture),
 }
 # 表中货物的 icon.png 是唯一源，生成器只生成 Keep File 导入声明。
 HAND_DRAWN_ICONS = tuple(f"voxels/{identity}/icon.png" for identity in GOODS_ART)
@@ -1321,7 +1381,7 @@ def content_files():
              ("prepared-food", "加工食品", 0.6), ("consumer-goods", "日用品", 1.4),
              ("consumer-electronics", "消费电子", 1.6), ("medical-supplies", "医疗用品", 0.4))
     for identity, name, mass in goods:
-        voxel(identity, name, "organic", faces("shared/organic-face.png"), "shared/organic-icon.png", good(identity, mass))
+        voxel(identity, name, simulation=good(identity, mass))
     voxel("stone", "石料", simulation=good("stone", 0.042))
     scene_assets(files, voxel)
     style_assets(files)
