@@ -44,7 +44,7 @@ internal static class EconomyFixture
             vehicle == VehicleState.ForSale && forSale > 0 ? [new(9)] : [],
             [new(SizeClass.Medium, forSale, 4, purchaseAvailable)], [], new(0, 0, 0, 0),
             new(rule, 10, 10, 0, 10, new PopulationExecution.NotStarted([]), null, []),
-            new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [new(1)],
+            new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [], [new(1)],
             new(missingMarketRule ? rule with { Problems = [
                     new("content_missing", "market.rule", new WorldObjectId.Settlement(new(1)), ["fixture:missing-market"]),
                     new("invalid_state", "market.rule", new WorldObjectId.Settlement(new(1)), ["fixture:invalid-market"])] } : rule,

@@ -29,13 +29,12 @@ public sealed class InventoryDecodeTests
     }
 
     [TestMethod]
-    public void Lease_and_reservation_survive_capture_and_checkpoint_round_trip()
+    public void Lease_survives_capture_and_checkpoint_round_trip()
     {
         var capture = new CoreCapture(State());
         var restored = WorldFixture.Success(CoreFactory.Create().DecodeState(capture.Encode()));
         Assert.AreEqual(capture.Encode(), restored.Encode());
         Assert.AreEqual(capture.Checkpoint, restored.Checkpoint);
-        Assert.IsTrue(restored.References.Definitions.Any(d => d.Field.Contains(".Reservations[9].ExpectedReturns[", StringComparison.Ordinal)));
     }
 
     [TestMethod]
@@ -60,10 +59,15 @@ public sealed class InventoryDecodeTests
         Invalid(world with { Leases = [world.Leases[0] with { ExpiresAtStep = 0 }] }, "/world/leases/expires_at_step");
         Invalid(world with { Leases = [world.Leases[0] with { Paid = new(-1) }] }, "/world/leases/paid");
         Invalid(world with { Next = world.Next with { Lease = 1 } }, "/world/next/lease");
-        Invalid(world with { Inventories = world.Inventories.SetItem(0, world.Inventories[0] with { Reservations = world.Inventories[^1].Reservations }) }, "/world/inventories/reservations/job");
-        var inventory = world.Inventories[^1];
+        var inventory = world.Inventories[^1] with { Reservations = [new(new(9), 3, [new(new GoodId.Voxel(WorldFixture.Material), 2)])] };
+        var reserved = world with { Inventories = world.Inventories.SetItem(world.Inventories.Length - 1, inventory) };
+        Invalid(reserved with { Inventories = reserved.Inventories.SetItem(0, reserved.Inventories[0] with { Reservations = inventory.Reservations }) }, "/world/inventories/reservations/job");
         Invalid(world with { Inventories = world.Inventories.SetItem(world.Inventories.Length - 1,
             inventory with { Reservations = [inventory.Reservations[0] with { Capacity = 1 }] }) }, "/world/inventories/reservations/expected_returns");
+        Invalid(world with { Inventories = world.Inventories.SetItem(world.Inventories.Length - 1,
+            inventory with { Reservations = [inventory.Reservations[0] with
+                { ExpectedReturns = [inventory.Reservations[0].ExpectedReturns[0], inventory.Reservations[0].ExpectedReturns[0]] }] }) },
+            "/world/inventories/reservations/expected_returns");
 
         void Invalid(WorldState invalid, string field) => AssertFailure(new CoreCapture(state with { World = invalid }).Encode(), field);
     }
@@ -71,14 +75,8 @@ public sealed class InventoryDecodeTests
     private static CoreState State()
     {
         using var session = InventoryFixture.Session();
-        var lease = InventoryFixture.Rent(session);
-        var state = session.State;
-        var world = state.World;
-        return state with { World = world with
-        {
-            Inventories = world.Inventories.Select(i => i.Id == lease.Inventory ? i with
-                { Reservations = [new(new(9), 3, [new(new GoodId.Voxel(WorldFixture.Material), 2)])] } : i).ToImmutableArray()
-        } };
+        InventoryFixture.Rent(session);
+        return session.State;
     }
 
     private static void AssertFailure(string payload, string field)

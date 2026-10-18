@@ -113,6 +113,23 @@ public sealed class FixedCoreReadViewTests
     }
 
     [TestMethod]
+    public void SettlementRetainsNonemptyOwnedJobsAfterConfigurationIsCopied()
+    {
+        var rule = new RuleStatusView(new("rule"), null, []);
+        var settlement = new SettlementView(new(1), new(1), new("town"), null,
+            SettlementRelation.PlayerOwned, new(2), [], [], 0, 0, 0, [], [], [],
+            new(0, 0, 0, 0), new(rule, 0, 0, 0, 0, new PopulationExecution.NotStarted([]), null, []),
+            new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [new(3), new(7)], [],
+            new(rule, new(0, 0, 0, 0, 0, 0, 0), []));
+        var entries = new Dictionary<SettlementId, Lookup<SettlementView>>
+            { [settlement.Id] = new Lookup<SettlementView>.Found(settlement) };
+        var view = new FixedCoreReadView { Settlements = entries };
+        entries.Clear();
+        var found = ((Lookup<SettlementView>.Found)view.FindSettlement(settlement.Id)).Value;
+        CollectionAssert.AreEqual(new[] { new JobId(3), new JobId(7) }, found.OwnedJobs.ToArray());
+    }
+
+    [TestMethod]
     public void QuotesMatchTheWholeRequestAndCopyConfiguration()
     {
         var trade = new TradeQuoteRequest(new(1), new(2), new(3), TradeAction.Buy, new GoodId.Voxel(new("good")), 4);
