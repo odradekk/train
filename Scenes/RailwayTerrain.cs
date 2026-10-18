@@ -19,6 +19,8 @@ internal static class RailwayTerrain
     private const ulong DecorationSelectionPurpose = 11;
     private const ulong RiverPlacementPurpose = 20;
     private const ulong LakePlacementPurpose = 21;
+    private const int BridgeSpanCells = 16;
+    private const int BridgeJointMargin = 4;
 
     internal static double BedHeight(double railHeight, double distance) =>
         railHeight - BedTopBelowRailCells - (distance <= RailwayCoordinates.BedTopHalfWidth ? 1 : 2);
@@ -237,16 +239,16 @@ internal static class RailwayTerrain
         {
             var (tunnels, portals) = SampleTunnels();
             var columns = SampleColumns();
-            foreach (var arc in portals) PlaceRailwayModel(arc, RailwayModelRole.Tunnel, columns);
+            foreach (var portal in portals) PlacePortal(portal.Arc, portal.Exit, columns);
             PlaceModels(columns);
             return Render(columns, tunnels);
         }
 
-        private (ImmutableArray<(double Start, double End)> Intervals, List<double> Portals) SampleTunnels()
+        private (ImmutableArray<(double Start, double End)> Intervals, List<(double Arc, bool Exit)> Portals) SampleTunnels()
         {
             if (path.Edge.Tracks == 0) return ([], []);
             var tunnelIntervals = ImmutableArray.CreateBuilder<(double Start, double End)>();
-            var portals = new List<double>();
+            var portals = new List<(double Arc, bool Exit)>();
             double? tunnelStart = null;
             for (var arc = begin; arc <= end; arc = Math.Min(end, arc + 0.5))
             {
@@ -260,10 +262,10 @@ internal static class RailwayTerrain
                     if (tunnelStart.Value > 0)
                     {
                         var previousArc = Math.Max(0, tunnelStart.Value - TunnelPortalLookbackCells);
-                        if (!TunnelAt(previousArc)) portals.Add(tunnelStart.Value);
+                        if (!TunnelAt(previousArc)) portals.Add((tunnelStart.Value, false));
                     }
                     if (!tunnel && finish < path.LengthCells)
-                        portals.Add(finish);
+                        portals.Add((finish, true));
                     tunnelStart = null;
                 }
                 if (arc == end) break;
@@ -308,7 +310,12 @@ internal static class RailwayTerrain
             if (path.Edge.Tracks > 0 && !water && !tunnel)
             {
                 var bed = BedHeight(path.Sample(arc).Position.Y, distance);
-                var blend = Math.Clamp((distance - RailwayCoordinates.BedBaseHalfWidth) / RailwayCoordinates.BedBlendWidth, 0, 1);
+                var cutting = height > bed;
+                var weight = Math.Clamp(Math.Min(arc, path.LengthCells - arc) / endpointBlend, 0, 1);
+                var flat = cutting
+                    ? RailwayCoordinates.BedBaseHalfWidth + (RailwayCoordinates.TrackSpacing / 2 - RailwayCoordinates.BedBaseHalfWidth) * weight
+                    : RailwayCoordinates.BedBaseHalfWidth;
+                var blend = Math.Clamp((distance - flat) / RailwayCoordinates.BedBlendWidth, 0, 1);
                 height = bed * (1 - blend) + height * blend;
             }
             var random = RailwayRandom.Unit(path.Seed, path.Edge.Id.Value, ColumnKey(column), EndpointMaterialPurpose);
@@ -359,9 +366,8 @@ internal static class RailwayTerrain
 
         private void PlaceModels(Dictionary<GridColumn, TerrainColumn> columns)
         {
-            // One bridge per deterministic water interval, placed only by the owning segment.
             foreach (var arc in waterRegions.Select(region => region.Center))
-                if (arc >= begin && arc < end && path.Edge.Tracks > 0) PlaceRailwayModel(arc, RailwayModelRole.Bridge, columns);
+                if (path.Edge.Tracks > 0) PlaceBridge(arc, columns);
 
             var decorations = new List<(GridColumn Column, DesignHash Design)>();
             foreach (var pair in columns)
@@ -405,8 +411,13 @@ internal static class RailwayTerrain
                 heights.Add(column, value.Height + 1);
                 var subject = new PickSubject.Terrain(new WorldLocation.Edge(path.Edge.Id, value.Arc / RailwayCoordinates.CellsPerMeter));
                 var hasBed = path.Edge.Tracks > 0 && !value.Water && !isTunnel;
-                (double From, double To)? excluded = isTunnel && trackDistance < RailwayCoordinates.BedBlendWidth ?
-                    (rail.Position.Y, rail.Position.Y + RailwayCoordinates.TunnelClearance) : null;
+                (double From, double To)? excluded = null;
+                if (isTunnel && Math.Abs(value.Offset) < RailwayCoordinates.TunnelShoulder(path.Edge.Tracks))
+                {
+                    var surface = value.Height;
+                    var upper = Math.Min(rail.Position.Y + RailwayCoordinates.TunnelCrownCells, surface);
+                    if (upper > rail.Position.Y) excluded = (rail.Position.Y, upper);
+                }
                 var layers = PrepareColumn(value.Terrain, path.Rules.BallastVoxel, value.Height, trackDistance, hasBed, excluded,
                     id => PrepareVoxel(id, Appearance, subject));
                 FillColumn(cells, column, value.Height, layers.Terrain, layers.Ballast, trackDistance, hasBed, origin.Y, excluded);
@@ -484,8 +495,16 @@ internal static class RailwayTerrain
         }
         private bool TunnelAt(double arc)
         {
-            var sample = path.Sample(arc);
-            return Height(arc, sample.Position, terrains[path.Edge.Terrain.TypeId]) > sample.Position.Y + RailwayCoordinates.TunnelClearance && !Water(arc);
+            if (path.Edge.Tracks == 0 || Water(arc)) return false;
+            var rail = path.Sample(arc).Position.Y;
+            var terrain = terrains[path.Edge.Terrain.TypeId];
+            var shoulder = RailwayCoordinates.TunnelShoulder(path.Edge.Tracks);
+            var floor = Math.Floor(Height(arc, path.Sample(arc).Position, terrain));
+            floor = Math.Min(floor, Math.Floor(Height(arc, path.Sample(arc, shoulder).Position, terrain)));
+            floor = Math.Min(floor, Math.Floor(Height(arc, path.Sample(arc, -shoulder).Position, terrain)));
+            for (var track = 1; track <= path.Edge.Tracks; track++)
+                floor = Math.Min(floor, Math.Floor(Height(arc, path.Sample(arc, RailwayCoordinates.TrackOffset(track, path.Edge.Tracks)).Position, terrain)));
+            return floor >= rail + RailwayCoordinates.TunnelCrownCells;
         }
         private bool Water(double arc) => waterRegions.Any(region => arc >= region.First && arc <= region.Last);
         private double WaterLevel(double arc) => waterRegions.First(region => arc >= region.First && arc <= region.Last).Level;
@@ -496,23 +515,184 @@ internal static class RailwayTerrain
             if (path.Edge.Terrain.FeatureIds.Contains("lake")) yield return (path.LengthCells *
             (0.3 + 0.5 * RailwayRandom.Unit(path.Seed, path.Edge.Id.Value, 0, LakePlacementPurpose)), 48);
         }
-        private void PlaceRailwayModel(double arc, RailwayModelRole role, Dictionary<GridColumn, TerrainColumn> columns)
+        private void PlacePortal(double arc, bool exit, Dictionary<GridColumn, TerrainColumn> columns)
         {
             var terrain = GetTerrain(path.Edge.Terrain.TypeId);
-            modelReads.Add(new(path.Edge.Terrain.TypeId, -1, role));
+            modelReads.Add(new(path.Edge.Terrain.TypeId, -1, RailwayModelRole.Tunnel));
             var model = terrain?.RailwayModels.FirstOrDefault(item => item.Tracks == path.Edge.Tracks);
             if (model is null)
             {
-                var reference = new ContentReference.Core(new CoreDefinitionReference.Terrain(path.Edge.Terrain.TypeId));
-                objects.Add(new(new(nextId++), null, new(RailwayCoordinates.Relative(path.Sample(arc).Position, origin), Quaternion.Identity),
-                null, [new SceneVisual.Missing(reference, false)], [], []));
-                ReportMissing(reference, [], "No railway scene model matches the track count.");
+                ReportMissingModel(arc);
                 return;
             }
             var sample = path.Sample(arc);
-            AddModel(role == RailwayModelRole.Bridge ? model.Bridge : model.TunnelPortal,
-            new(RailwayCoordinates.Relative(sample.Position, origin), RailwayCoordinates.Rotation(sample.Forward)), null, columns);
+            var forward = exit ? -sample.Forward : sample.Forward;
+            AddModel(model.TunnelPortal,
+                new(RailwayCoordinates.Relative(sample.Position, origin), RailwayCoordinates.Rotation(forward)), null, columns);
         }
+
+        private void PlaceBridge(double waterCenter, Dictionary<GridColumn, TerrainColumn> columns)
+        {
+            var terrain = GetTerrain(path.Edge.Terrain.TypeId);
+            var model = terrain?.RailwayModels.FirstOrDefault(item => item.Tracks == path.Edge.Tracks);
+            modelReads.Add(new(path.Edge.Terrain.TypeId, -1, RailwayModelRole.Bridge));
+            if (model is null)
+            {
+                if (OwnsArc(waterCenter)) ReportMissingModel(waterCenter);
+                return;
+            }
+            var lookup = snapshot.Content.FindDesign(model.Bridge);
+            models.Add(model.Bridge);
+            if (lookup is not ContentLookup<DesignEvaluation>.Found found || found.Value is not (DesignEvaluation.Complete or DesignEvaluation.Partial))
+            {
+                if (!OwnsArc(waterCenter)) return;
+                var sample = path.Sample(waterCenter);
+                AddModel(model.Bridge, new(RailwayCoordinates.Relative(sample.Position, origin), RailwayCoordinates.Rotation(sample.Forward)), null, columns);
+                return;
+            }
+            var scene = DesignGeometry.Projection(found.Value);
+            var (kMin, kMax) = SpanRange(scene);
+            var owned = new List<int>();
+            for (var k = kMin; k <= kMax; k++)
+                if (OwnsArc(waterCenter + k * BridgeSpanCells)) owned.Add(k);
+            if (owned.Count == 0) return;
+            var members = RootSpanMembers(scene, kMin, kMax, owned, waterCenter);
+            var wearAt = path.Sample(waterCenter).Position;
+            foreach (var k in owned)
+            {
+                var sliced = SliceSpan(found.Value, k, members[k]);
+                if (sliced is null) continue;
+                var sample = path.Sample(waterCenter + k * BridgeSpanCells);
+                AddPlaced(sliced, new(RailwayCoordinates.Relative(sample.Position, origin), RailwayCoordinates.Rotation(sample.Forward)),
+                    null, columns, wearAt);
+            }
+        }
+
+        private void ReportMissingModel(double arc)
+        {
+            var reference = new ContentReference.Core(new CoreDefinitionReference.Terrain(path.Edge.Terrain.TypeId));
+            objects.Add(new(new(nextId++), null, new(RailwayCoordinates.Relative(path.Sample(arc).Position, origin), Quaternion.Identity),
+                null, [new SceneVisual.Missing(reference, false)], [], []));
+            ReportMissing(reference, [], "No railway scene model matches the track count.");
+        }
+
+        private bool OwnsArc(double arc)
+        {
+            var owner = Math.Clamp(arc, 0, path.LengthCells);
+            if (owner >= path.LengthCells) return index == path.SegmentCount - 1;
+            return owner >= begin && owner < end;
+        }
+
+        private static int SpanIndex(int z) => (int)Math.Floor((z + BridgeSpanCells / 2.0) / BridgeSpanCells);
+
+        private static (int Min, int Max) SpanRange(DesignSceneProjection scene)
+        {
+            var min = int.MaxValue;
+            var max = int.MinValue;
+            var any = false;
+            void Include(int z)
+            {
+                any = true;
+                var k = SpanIndex(z);
+                if (k < min) min = k;
+                if (k > max) max = k;
+            }
+            foreach (var voxel in scene.Voxels)
+                if (voxel.ObjectPath.IsDefaultOrEmpty) Include(voxel.LocalAt.Z);
+            foreach (var nested in scene.NestedObjects)
+                if (!nested.NestedItemIndices.IsDefaultOrEmpty && nested.NestedItemIndices.Length == 1)
+                    Include(nested.At.Z);
+            if (scene.RootFlatten is { } flatten)
+            {
+                Include(flatten.From.Z);
+                Include(flatten.To.Z);
+            }
+            return any ? (min, max) : (0, 0);
+        }
+
+        private Dictionary<int, List<int>> RootSpanMembers(DesignSceneProjection scene, int kMin, int kMax,
+            List<int> owned, double waterCenter)
+        {
+            var members = new Dictionary<int, List<int>>(owned.Count);
+            var poses = new (int K, int Z0, int Z1, ScenePoint Position, Quaternion Rotation)[owned.Count];
+            for (var n = 0; n < owned.Count; n++)
+            {
+                var k = owned[n];
+                var sample = path.Sample(waterCenter + k * BridgeSpanCells);
+                poses[n] = (k, k * BridgeSpanCells - BridgeSpanCells / 2, k * BridgeSpanCells + BridgeSpanCells / 2,
+                    sample.Position, RailwayCoordinates.Rotation(sample.Forward));
+                members[k] = [];
+            }
+            for (var i = 0; i < scene.Voxels.Length; i++)
+            {
+                var voxel = scene.Voxels[i];
+                if (!voxel.ObjectPath.IsDefaultOrEmpty) continue;
+                var local = voxel.LocalAt;
+                foreach (var pose in poses)
+                {
+                    if (local.Z < pose.Z0 - BridgeJointMargin || local.Z >= pose.Z1 + BridgeJointMargin) continue;
+                    var center = Vector3.Transform(
+                        new Vector3(local.X + 0.5f, local.Y + 0.5f, local.Z - pose.K * BridgeSpanCells + 0.5f), pose.Rotation);
+                    var located = path.Locate(RailwayCoordinates.Add(pose.Position, center));
+                    // Inside a curve, a cell in this span's own interval can fall past the joint and is omitted.
+                    if (pose.K != kMin && located < waterCenter + pose.Z0) continue;
+                    if (pose.K != kMax && located >= waterCenter + pose.Z1) continue;
+                    members[pose.K].Add(i);
+                }
+            }
+            return members;
+        }
+
+        private DesignEvaluation? SliceSpan(DesignEvaluation evaluation, int k, List<int> owners)
+        {
+            var scene = DesignGeometry.Projection(evaluation);
+            var z0 = k * BridgeSpanCells - BridgeSpanCells / 2;
+            var z1 = k * BridgeSpanCells + BridgeSpanCells / 2;
+            var shift = k * BridgeSpanCells;
+            var included = new HashSet<int>();
+            foreach (var nested in scene.NestedObjects)
+                if (nested.NestedItemIndices.Length == 1 && nested.At.Z >= z0 && nested.At.Z < z1)
+                    included.Add(nested.NestedItemIndices[0]);
+            var voxels = ImmutableArray.CreateBuilder<SceneVoxelProjection>();
+            foreach (var i in owners)
+            {
+                var voxel = scene.Voxels[i];
+                var localZ = voxel.LocalAt.Z - shift;
+                voxels.Add(voxel with
+                {
+                    At = new(voxel.At.X, voxel.At.Y, voxel.At.Z - shift),
+                    LocalAt = new(voxel.LocalAt.X, voxel.LocalAt.Y, localZ)
+                });
+            }
+            foreach (var voxel in scene.Voxels)
+                if (!voxel.ObjectPath.IsDefaultOrEmpty && included.Contains(voxel.ObjectPath[0]))
+                    voxels.Add(voxel);
+            var nestedObjects = ImmutableArray.CreateBuilder<NestedObjectProjection>();
+            foreach (var nested in scene.NestedObjects)
+            {
+                if (nested.NestedItemIndices.IsDefaultOrEmpty || !included.Contains(nested.NestedItemIndices[0])) continue;
+                nestedObjects.Add(nested.NestedItemIndices.Length == 1
+                    ? nested with { At = new(nested.At.X, nested.At.Y, nested.At.Z - shift) }
+                    : nested);
+            }
+            FlattenRegion? flatten = null;
+            if (scene.RootFlatten is { } region)
+            {
+                var from = Math.Max(region.From.Z, z0);
+                var to = Math.Min(region.To.Z, z1 - 1);
+                if (from <= to)
+                    flatten = region with { From = new(region.From.X, from - shift), To = new(region.To.X, to - shift) };
+            }
+            if (voxels.Count == 0 && nestedObjects.Count == 0 && flatten is null) return null;
+            var sliced = scene with { Voxels = voxels.ToImmutable(), NestedObjects = nestedObjects.ToImmutable(), RootFlatten = flatten };
+            return evaluation switch
+            {
+                DesignEvaluation.Complete complete => complete with { Scene = sliced },
+                DesignEvaluation.Partial partial => partial with { Scene = sliced },
+                _ => null
+            };
+        }
+
         private void AddModel(DesignHash hash, ScenePose pose, GridColumn? decoration, Dictionary<GridColumn, TerrainColumn> columns)
         {
             cancellation.ThrowIfCancellationRequested();
@@ -541,6 +721,13 @@ internal static class RailwayTerrain
                 var lateral = (point.X - rail.Position.X) * rail.Right.X + (point.Z - rail.Position.Z) * rail.Right.Z;
                 return Water(arc) || TrackDistance(lateral) < RailwayCoordinates.DecorationVoxelClearance;
             })) return;
+            AddPlaced(found.Value, pose, decoration, columns, null);
+        }
+
+        private void AddPlaced(DesignEvaluation evaluation, ScenePose pose, GridColumn? decoration,
+            Dictionary<GridColumn, TerrainColumn> columns, ScenePoint? wearAt)
+        {
+            var projection = DesignGeometry.Projection(evaluation);
             foreach (var voxel in projection.Voxels) Appearance(voxel.Voxel);
             if (projection.RootFlatten is { } flatten)
             {
@@ -554,16 +741,18 @@ internal static class RailwayTerrain
                     if (decoration is not null && (value.Water || TrackDistance(value.Offset) < RailwayCoordinates.DecorationVoxelClearance)) continue;
                     var local = Vector3.Transform(new Vector3(column.X + 0.5f - pose.Position.X, 0, column.Z + 0.5f - pose.Position.Z), inverse);
                     var distance = Math.Max(Math.Max(flatten.From.X - local.X, local.X - flatten.To.X - 1),
-                    Math.Max(flatten.From.Z - local.Z, local.Z - flatten.To.Z - 1));
+                        Math.Max(flatten.From.Z - local.Z, local.Z - flatten.To.Z - 1));
                     var blend = Math.Clamp(distance / 8, 0, 1);
                     if (blend < 1)
                         columns[column] = value with { Height = Math.Floor((pose.Position.Y + origin.Y + flatten.Height - 1) * (1 - blend) + value.Height * blend) };
                 }
             }
-            var modelArc = path.Locate(RailwayCoordinates.Add(origin, pose.Position));
-            var rendered = DesignGeometry.Build(snapshot.Content, found.Value, null, pose, _ => new(nextId++),
-            terrainLocation: new WorldLocation.Edge(path.Edge.Id, modelArc / RailwayCoordinates.CellsPerMeter),
-            wearSeed: DesignGeometry.PlacementWearSeed(path.Edge.Id, RailwayCoordinates.Add(origin, pose.Position)));
+            var placedAt = RailwayCoordinates.Add(origin, pose.Position);
+            var wearPoint = wearAt ?? placedAt;
+            var modelArc = path.Locate(placedAt);
+            var rendered = DesignGeometry.Build(snapshot.Content, evaluation, null, pose, _ => new(nextId++),
+                terrainLocation: new WorldLocation.Edge(path.Edge.Id, modelArc / RailwayCoordinates.CellsPerMeter),
+                wearSeed: DesignGeometry.PlacementWearSeed(path.Edge.Id, wearPoint));
             objects.AddRange(rendered.Objects); picking.AddRange(rendered.Picking); diagnostics.AddRange(rendered.Diagnostics);
         }
         private double NodeHeight(NodeMapItem node, ScenePoint endpoint, ScenePoint point)
