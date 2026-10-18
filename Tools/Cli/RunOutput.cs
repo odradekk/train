@@ -8,7 +8,9 @@ internal sealed record RunOutput(int ProcessId,
     [property: JsonRequired] RuntimeIdentity Runtime,
     [property: JsonRequired] CoreInputId InputIdentity,
     [property: JsonRequired] ImmutableArray<CoreCheckpoint> Checkpoints, int AcceptedCommands, int RejectedCommands,
-    bool ReplayVerified, ImmutableArray<EconomySample> Samples, ImmutableArray<RecipeReceipt> CommandReceipts);
+    bool ReplayVerified, ImmutableArray<EconomySample> Samples, ImmutableArray<RecipeReceipt> CommandReceipts,
+    ImmutableArray<GoodsTransferSample> GoodsTransfers, ImmutableArray<ProductionCompletedSample> ProductionCompletions,
+    ImmutableArray<ProductionStateSample> ProductionStateChanges);
 
 internal sealed record RecipeReceipt(int CommandIndex, string Kind, string Decision,
     ImmutableArray<ProblemSample> Problems, long? QuotedTotal);
@@ -65,9 +67,41 @@ internal sealed record TrainPositionSample(string Kind, ulong Id, double Distanc
 internal sealed record TrainSample(ulong Id, TrainPositionSample Position, string Activity, ulong Inventory, RunTotalsSample? CurrentRun,
     ImmutableArray<RunReportSample> RecentReports);
 internal sealed record SettlementSample(ulong Id, ulong Node, ulong Inventory, ImmutableArray<ulong> VehiclesForSale,
-    ImmutableArray<ulong> CommissionJobs);
+    ImmutableArray<ulong> CommissionJobs,
+    ImmutableArray<MarketGoodSample> MarketGoods, ImmutableArray<FacilitySample> Facilities,
+    long Residents, ImmutableArray<PopulationNeedSample> PopulationNeeds);
 internal sealed record LeaseSample(ulong Id, ulong Settlement, ulong Inventory, ulong ExpiresAtStep, bool Expired);
-internal sealed record GoodsSample(GoodSample Good, long Quantity);
+internal sealed record GoodsSample(GoodSample Good, long Quantity)
+{
+    internal static GoodsSample From(GoodsQuantity goods) => new(GoodSample.From(goods.Good), goods.Quantity);
+}
+internal sealed record MarketGoodSample(GoodSample Good, long Stock, long RestockTarget, long ReservedForUse,
+    long SellableQuantity, long ReceivableQuantity, ImmutableArray<ProblemSample> Blockers);
+internal sealed record FacilityKeySample(ulong Building, string Capability)
+{
+    internal static FacilityKeySample From(FacilityKey key) => new(key.Building.Value, key.Capability.ToString());
+}
+internal sealed record ProcessSample(string Kind, string Definition)
+{
+    internal static ProcessSample From(ProcessRef process) => process switch
+    {
+        ProcessRef.Production production => new("production", production.Definition.Value),
+        ProcessRef.Recovery recovery => new("recovery", recovery.Definition.Value),
+        _ => throw new InvalidOperationException("未知生产流程。")
+    };
+}
+internal sealed record GoodsRateSample(GoodSample Good, double UnitsPerSecond);
+internal sealed record FacilitySample(FacilityKeySample Key, ProcessSample? Process, string State,
+    double ActualWorkPerSecond, ImmutableArray<string> Limits, ImmutableArray<GoodsSample> OutputBuffer,
+    ImmutableArray<GoodsRateSample> PotentialConsumption, ImmutableArray<ProblemSample> Blockers);
+internal sealed record PopulationNeedSample(string Kind, double RequiredPerSecond, double AccumulatedRequired,
+    double AccumulatedSatisfied, double? SatisfactionRatio);
+internal sealed record GoodsTransferSample(SimulationPosition Position, int Ordinal, string Action, GoodSample Good,
+    long Quantity, ulong Source, ulong Destination, long ActualAmount, ulong Train, ulong Settlement);
+internal sealed record ProductionCompletedSample(SimulationPosition Position, int Ordinal, FacilityKeySample Facility,
+    ProcessSample Process, ImmutableArray<GoodsSample> Outputs, bool Buffered);
+internal sealed record ProductionStateSample(SimulationPosition Position, int Ordinal, FacilityKeySample Facility,
+    string Before, string After, ImmutableArray<ProblemSample> Reasons);
 internal sealed record InventorySample(ulong Id, long Capacity, long Used, long Available, string Access,
     ImmutableArray<GoodsSample> Goods);
 internal sealed record CommissionJobSample(ulong Id, string State, int Priority, long FrozenTotalWork,
@@ -103,7 +137,19 @@ internal sealed record EconomySample(SimulationPosition Position, long Wallet, I
                 train.RecentReports.Select(RunReportSample.From).ToImmutableArray())).ToImmutableArray(),
             settlements.Select(settlement => new SettlementSample(settlement.Id.Value, settlement.Node.Value,
                 settlement.Inventory.Value, settlement.VehiclesForSale.Select(vehicle => vehicle.Value).ToImmutableArray(),
-                settlement.CommissionJobs.Select(job => job.Value).ToImmutableArray())).ToImmutableArray(),
+                settlement.CommissionJobs.Select(job => job.Value).ToImmutableArray(),
+                settlement.Market.Goods.Select(good => new MarketGoodSample(GoodSample.From(good.Good), good.Stock,
+                    good.RestockTarget, good.ReservedForUse, good.SellableQuantity, good.ReceivableQuantity,
+                    good.Blockers.Select(ProblemSample.From).ToImmutableArray())).ToImmutableArray(),
+                settlement.Facilities.Select(facility => new FacilitySample(FacilityKeySample.From(facility.Key),
+                    facility.Process is null ? null : ProcessSample.From(facility.Process), facility.State.ToString(),
+                    facility.ActualWorkPerSecond, facility.Limits.Select(limit => limit.ToString()).ToImmutableArray(),
+                    facility.OutputBuffer.Select(GoodsSample.From).ToImmutableArray(),
+                    facility.PotentialConsumption.Select(rate => new GoodsRateSample(GoodSample.From(rate.Good), rate.UnitsPerSecond)).ToImmutableArray(),
+                    facility.Blockers.Select(ProblemSample.From).ToImmutableArray())).ToImmutableArray(),
+                settlement.Population.Residents, Needs(settlement.Population.Execution).Select(need =>
+                    new PopulationNeedSample(need.Kind.ToString(), need.RequiredPerSecond, need.AccumulatedRequired,
+                        need.AccumulatedSatisfied, need.SatisfactionRatio)).ToImmutableArray())).ToImmutableArray(),
             leases.Select(lease => new LeaseSample(lease.Id.Value, lease.Settlement.Value, lease.Inventory.Value,
                 lease.ExpiresAtStep, lease.Expired)).ToImmutableArray(),
             inventories.Select(inventory => new InventorySample(inventory.Id.Value, inventory.Capacity,
@@ -114,6 +160,14 @@ internal sealed record EconomySample(SimulationPosition Position, long Wallet, I
                 .Select(job => CommissionJobSample.From(((JobView.Construction)Found(view.FindJob(job))).Value))
                 .ToImmutableArray());
     }
+
+    private static ImmutableArray<PopulationNeedView> Needs(PopulationExecution execution) => execution switch
+    {
+        PopulationExecution.NotStarted initial => initial.CurrentNeeds,
+        PopulationExecution.InProgress current => current.Period.Needs,
+        PopulationExecution.Disabled disabled => disabled.RetainedPeriod?.Needs ?? [],
+        _ => throw new InvalidOperationException("未知人口执行状态。")
+    };
 
     private static T Found<T>(Lookup<T> lookup) where T : notnull => lookup is Lookup<T>.Found found
         ? found.Value : throw new InvalidDataException($"采样对象不存在：{lookup}。");
