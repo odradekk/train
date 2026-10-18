@@ -91,6 +91,12 @@ public sealed class WorldConsumer(IWorldSceneSession session, ISceneDisplay disp
             requestedFocus.Y, Math.Clamp(requestedFocus.Z, bounds.Minimum.Y, bounds.Maximum.Y));
     }
 
+    public void ReadNodeOverview(Action<ScenePoint, ScenePanBounds, SceneNodeOverview> consume)
+    {
+        if (displayedFrame is { NodePanBounds: { } bounds, NodeOverview: { } overview } frame)
+            consume(frame.Origin, bounds, overview);
+    }
+
     public SceneResult<ISceneFrame> Update(SceneWorldSnapshot snapshot,
         ImmutableArray<EventEnvelope> newEvents, double interpolation,
         Vector3 cameraFocus, SceneDebugLayer debugLayers)
