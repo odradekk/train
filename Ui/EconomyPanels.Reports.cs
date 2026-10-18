@@ -30,7 +30,7 @@ internal partial class EconomyPanels
     private void RefreshReports()
     {
         if (_reportsPanel?.Visible != true) return;
-        if (_reportsBinding != _binding || _reportsGeneration != _content.Generation)
+        if (_binding != _reportsBinding || !_host.PanelGenerationCurrent(_reportsBinding, _reportsGeneration))
         { Invalidate(_reportsBody, _reportsState); return; }
         if (_reportsRevision == _view.Revision) return;
         _reportsRevision = _view.Revision;

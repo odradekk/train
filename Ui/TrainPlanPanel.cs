@@ -165,7 +165,7 @@ internal partial class TrainPlanPanel : Control
 
     private void RefreshState(HostBinding binding, ICoreReadView view, IContentView content)
     {
-        var unavailable = _target is null || !_target.IsAvailable(binding, content.Generation, view);
+        var unavailable = _target is null || !_target.IsAvailable(binding, view, _host.PanelGenerationCurrent(_target.Binding, _target.Generation));
         _apply.Disabled = _host.IsBusy || view.Fault is not null || unavailable;
         if (unavailable && _target is not null)
             _reason.Text = "已不存在：草稿所属对象或对局已失效，请从当前列表重新打开。";

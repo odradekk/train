@@ -88,6 +88,31 @@ public sealed class BuiltInContentTests
         Assert.IsTrue(station.Core.Design.Parts.Any(part => part.Definition is K.CoreDefinitionReference.Voxel &&
             part.Capabilities.OfType<K.PartCapability.Platform>().Any()));
         Assert.AreEqual(2, station.Core.Design.Parts.Count(part => part.Capabilities.OfType<K.PartCapability.Platform>().Any()));
+        var largeStation = Complete(view, "large-station");
+        Assert.IsNotNull(largeStation.Core);
+        var stationKind = (K.DesignKind.Building)largeStation.Core.Design.Kind;
+        Assert.AreEqual(K.BuildingKind.Station, stationKind.Type);
+        Assert.AreEqual(K.PlotSize.LargeStation, stationKind.PlotSize);
+        var platforms = largeStation.Core.Design.Parts.Where(part => part.Capabilities.OfType<K.PartCapability.Platform>().Any()).ToArray();
+        Assert.AreEqual(4, platforms.Length);
+        // 槽位与最近规则见 docs/contracts/scenes.md：large_station 为 −80/−40/40/80，等距取较小 LocalZ。
+        var slots = new[] { -80, -40, 40, 80 };
+        var assigned = platforms.Select(part =>
+        {
+            var localZ = largeStation.Scene.Voxels.Where(voxel => voxel.Number == part.Id).Average(voxel => (double)voxel.At.Z);
+            var ordered = slots.OrderBy(slot => Math.Abs(slot - localZ)).ThenBy(slot => slot).ToArray();
+            Assert.IsTrue(Math.Abs(ordered[0] - localZ) < Math.Abs(ordered[1] - localZ), part.Id.ToString());
+            return ordered[0];
+        }).ToArray();
+        CollectionAssert.AreEquivalent(slots, assigned);
+        var largeWarehouse = Complete(view, "large-warehouse");
+        Assert.IsNotNull(largeWarehouse.Core);
+        var warehouseKind = (K.DesignKind.Building)largeWarehouse.Core.Design.Kind;
+        Assert.AreEqual(K.BuildingKind.Warehouse, warehouseKind.Type);
+        Assert.AreEqual(K.PlotSize.Medium, warehouseKind.PlotSize);
+        long Storage(C.DesignEvaluation.Complete design) => design.Core!.Design.Parts.SelectMany(part => part.Capabilities)
+            .OfType<K.PartCapability.Storage>().Sum(item => item.Capacity);
+        Assert.IsTrue(Storage(largeWarehouse) > Storage(Complete(view, "small-warehouse")));
         foreach (var (id, productionBuildings) in new (string, string[])[]
                  {
                      ("agricultural-town", ["farm", "food-factory"]),
