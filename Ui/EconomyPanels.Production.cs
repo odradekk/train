@@ -111,6 +111,7 @@ internal partial class EconomyPanels
             row.EditedProcess = row.Processes[choice.Selected];
             row.Apply.Disabled = !CanEditPlan() || choice.Selected <= 0 || row.EditedProcess is null;
         };
+        Text(box, "PlanPriorityHint", "优先级（整数，越小越先）");
         var priority = new LineEdit { Name = $"PlanPriority_{key.Building.Value}" }; box.AddChild(priority);
         priority.TextChanged += text =>
         {

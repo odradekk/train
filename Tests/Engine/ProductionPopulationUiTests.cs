@@ -257,17 +257,16 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
             await _input.Choose(choice, Enumerable.Range(0, choice.ItemCount).Single(index => choice.GetItemText(index) == "压榨"));
             await _input.Enter(Find<LineEdit>(facility, "PlanPriority_1"), "4");
             var host = ui.GetParent<Train.App.App>().Host!;
-            setup.Session.QueueAdvance(new(1, stepped.Position, [], null, null), stepped);
-            Require(host.Step(1).Problem is null, "无法发布设施未变的新修订。");
-            await _input.Frames(4);
-            Require(choice.GetItemText(choice.Selected) == "压榨" && Find<LineEdit>(facility, "PlanPriority_1").Text == "4",
-                "新修订冲掉了尚未提交的流程或优先级。");
-            setup.Session.QueueSubmit(new CoreCommand.SetProductionPlan(new(new(1), CapabilityKind.Production), press, true, 4),
-                CommandSource.UserInterface, Completed(1, stepped, planned, new CommandDecision.Accepted([], [])), planned);
-            await _input.Activate(Find<Button>(facility, "ApplyPlan_1"));
+            await _input.ClickAcrossRevision(Find<Button>(facility, "ApplyPlan_1"), () =>
+            {
+                setup.Session.QueueAdvance(new(1, stepped.Position, [], null, null), stepped);
+                Require(host.Step(1).Problem is null, "无法发布设施未变的新修订。");
+                setup.Session.QueueSubmit(new CoreCommand.SetProductionPlan(new(new(1), CapabilityKind.Production), press, true, 4),
+                    CommandSource.UserInterface, Completed(1, stepped, planned, new CommandDecision.Accepted([], [])), planned);
+            });
             Require(setup.Session.SubmitCount == 1 && Find<Label>(facility, "State").Text.Contains("优先级 4") &&
                 Find<Label>(facility, "CurrentSpecification").Text.Contains("压榨"),
-                "跨修订后没有提交所选流程和优先级。");
+                "按下应用期间的新修订改写了优先级，或没有提交所选流程。");
         });
         setup.Session.AssertComplete();
     }
