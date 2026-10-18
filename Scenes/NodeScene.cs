@@ -56,8 +56,8 @@ internal sealed class NodeScene : IAsyncDisposable
         Dictionary<GridColumn, Dictionary<GridColumn, RailBed>> BedChunks,
         Dictionary<GridColumn, HashSet<GridColumn>> BoundaryChunks, string TerrainInputs,
         ImmutableDictionary<string, RailSegment> Rails,
-        bool HasChunks = true,
-        Dictionary<GridColumn, double>? BoundarySurfaces = null)
+        Dictionary<GridColumn, double> BoundarySurfaces,
+        bool HasChunks = true)
     {
         internal string ChunkInputs(GridColumn from)
         {
@@ -85,21 +85,33 @@ internal sealed class NodeScene : IAsyncDisposable
         private Dictionary<GridColumn, RailBed> BedsNear(GridColumn from)
         {
             var beds = new Dictionary<GridColumn, RailBed>();
-            foreach (var chunk in BedChunks.Values)
+            foreach (var key in ChunkNeighborhood(from))
+            {
+                if (!BedChunks.TryGetValue(key, out var chunk)) continue;
                 foreach (var (column, rail) in chunk)
                     if (NearChunk(from, column)) beds[column] = rail;
+            }
             return beds;
         }
 
         private Dictionary<GridColumn, double> SurfacesNear(GridColumn from)
         {
             var surfaces = new Dictionary<GridColumn, double>();
-            if (BoundarySurfaces is null) return surfaces;
-            foreach (var columns in BoundaryChunks.Values)
+            foreach (var key in ChunkNeighborhood(from))
+            {
+                if (!BoundaryChunks.TryGetValue(key, out var columns)) continue;
                 foreach (var column in columns)
-                    if (NearChunk(from, column) && BoundarySurfaces.TryGetValue(column, out var surface))
-                        surfaces[column] = surface;
+                    if (NearChunk(from, column)) surfaces[column] = BoundarySurfaces[column];
+            }
             return surfaces;
+        }
+
+        private static IEnumerable<GridColumn> ChunkNeighborhood(GridColumn from)
+        {
+            var size = VoxelGrid.ChunkSize;
+            for (var z = from.Z - size; z <= from.Z + size; z += size)
+            for (var x = from.X - size; x <= from.X + size; x += size)
+                yield return new(x, z);
         }
 
         private static bool NearChunk(GridColumn from, GridColumn column)
@@ -283,7 +295,7 @@ internal sealed class NodeScene : IAsyncDisposable
         {
             var currentLayout = layout ?? NodeLayout.Build(initial, node, cancellation.Token);
             return generate is null ? Prepare(initial, currentLayout, previous, cancellation.Token) :
-                new Preparation(initial, generate(initial, node, previous, cancellation.Token), null, default, [], [], [], [], "", [], false);
+                new Preparation(initial, generate(initial, node, previous, cancellation.Token), null, default, [], [], [], [], "", [], [], false);
         }, cancellation.Token);
     }
     private void InitializeRange(NodeLayout value)

@@ -99,13 +99,8 @@ internal static class RailwayTerrain
         }
     }
 
-    private static double ColumnBottom(double height, double? lowestNeighbor)
-    {
-        var bottom = height - (RailwayCoordinates.TerrainDepthCells - 1);
-        if (lowestNeighbor is double neighbor && neighbor < height)
-            bottom = Math.Min(bottom, Math.Floor(neighbor) + 1);
-        return bottom;
-    }
+    private static double ColumnBottom(double height, double? lowestNeighbor) =>
+        Math.Min(height - (RailwayCoordinates.TerrainDepthCells - 1), (lowestNeighbor ?? height) + 1);
 
     private static bool BedLayer(int depth, double distance) => depth == 0 && distance <= RailwayCoordinates.BedBaseHalfWidth ||
         depth == 1 && distance <= RailwayCoordinates.BedTopHalfWidth;
@@ -239,8 +234,9 @@ internal static class RailwayTerrain
             terrains = new Dictionary<TerrainTypeId, TerrainAppearanceProjection?>();
             halfWidth = RailwayCoordinates.TerrainHalfWidth(path.Edge.Tracks);
             nextId = 1UL;
-            // A neighbor one cell outside this segment can sit about two arc-cells past the sampled range.
-            const int neighborArc = 2;
+            // Inside a curve, adjacent columns differ in arc by about R/(R-lateral).
+            // At the 160-cell minimum radius and a 3-track half-width of 83, that is about 2.1, so the margin is 4.
+            const int neighborArc = 4;
             var startArc = path.Edge.Tracks > 0 ? Math.Max(TunnelPortalLookbackCells, neighborArc) : neighborArc;
             readsStartTerrain = Math.Max(0, begin - startArc) < endpointBlend;
             readsEndTerrain = path.LengthCells - end - neighborArc < endpointBlend;
