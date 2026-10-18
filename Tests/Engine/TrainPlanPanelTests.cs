@@ -210,5 +210,3 @@ public class TrainPlanPanelTests(Node testScene) : TestClass(testScene)
         }
     }
 }
-
-
