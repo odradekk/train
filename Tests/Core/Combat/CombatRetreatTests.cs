@@ -49,7 +49,7 @@ public sealed class CombatRetreatTests
     }
 
     [TestMethod]
-    public void Retreat_completes_on_arrival_and_keeps_the_plan()
+    public void Retreat_completes_on_arrival_at_the_nearest_candidate_and_keeps_the_plan()
     {
         var content = RetreatSeconds(CombatFixture.Content(damage: 1), 1);
         using var session = CombatFixture.SessionWithContent(content);
@@ -59,16 +59,30 @@ public sealed class CombatRetreatTests
             new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Retreat, 0)), CommandSource.AutomationTest));
         CombatFixture.Send(session, hostile, train);
         CombatFixture.AdvanceUntilEvent(session, value => value is CoreEvent.CombatRetreatStarted);
+        var world = session.State.World;
+        var speed = TrainOperations.Capabilities(world, session.State.Content, world.Trains.Single())
+            .MaximumSpeedMetersPerSecond;
+        var expected = world.Settlements.Where(settlement => settlement.Node != hostile
+                && settlement.Relation is SettlementRelation.PlayerOwned or SettlementRelation.NonHostile)
+            .Select(settlement => (settlement.Node,
+                Route: TrainRouting.FindRoute(world.Nodes, world.Edges, hostile, settlement.Node, speed)))
+            .Where(item => item.Route is not null)
+            .Select(item => (item.Node, Time: item.Route!.Value.DistanceMeters / speed))
+            .OrderBy(item => item.Time).ThenBy(item => item.Node.Value).First().Node;
         var before = Train(session, train);
         var events = CombatFixture.AdvanceUntil(session, view => view.World.Combats.IsEmpty
             && view.FindTrain(train) is Lookup<TrainView>.Found { Value.Activity: TrainActivity.Stopped }, 600);
         var completed = events.OfType<CoreEvent.RetreatCompleted>().Single(value => value.Train == train);
+        Assert.AreEqual(expected, completed.Node);
         Assert.AreNotEqual(hostile, completed.Node);
         var names = events.Select(value => value.GetType().Name).ToArray();
         var completedIndex = Array.LastIndexOf(names, nameof(CoreEvent.RetreatCompleted));
         var arrivedIndex = Array.LastIndexOf(names, nameof(CoreEvent.TrainArrived), completedIndex);
         Assert.IsTrue(arrivedIndex >= 0 && arrivedIndex < completedIndex);
         Assert.AreEqual(completed.Node, events.OfType<CoreEvent.TrainArrived>().Last().Node);
+        var stoppedIndex = Array.IndexOf(names, nameof(CoreEvent.TrainActivityChanged), completedIndex);
+        Assert.IsTrue(stoppedIndex > completedIndex);
+        Assert.AreEqual(TrainActivity.Stopped, ((CoreEvent.TrainActivityChanged)events[stoppedIndex]).After);
         var location = ((Lookup<LocationView>.Found)session.Read().FindLocation(
             new WorldLocation.Node(completed.Node))).Value;
         var occupant = (NodeOccupant.Settlement)location.Occupant;
@@ -77,6 +91,41 @@ public sealed class CombatRetreatTests
         Assert.AreEqual(TrainActivity.Stopped, after.Activity);
         Assert.AreEqual(before.Plan, after.Plan);
         Assert.AreEqual(before.NextStopIndex, after.NextStopIndex);
+    }
+
+    [TestMethod]
+    public void Equal_travel_time_chooses_the_smaller_node_id()
+    {
+        using var session = CombatFixture.SessionWithContent(CombatFixture.Content());
+        var state = session.State;
+        var world = state.World;
+        var hostile = CombatFixture.HostileNode(session);
+        var friendly = world.Settlements.First(settlement => settlement.Relation is SettlementRelation.PlayerOwned
+            or SettlementRelation.NonHostile);
+        var speed = TrainOperations.Capabilities(world, state.Content, world.Trains.Single())
+            .MaximumSpeedMetersPerSecond;
+        var route = TrainRouting.FindRoute(world.Nodes, world.Edges, hostile, friendly.Node, speed);
+        Assert.IsNotNull(route);
+        var node = new NodeId(world.Nodes.Max(item => item.Id.Value) + 1);
+        var settlementId = new SettlementId(world.Settlements.Max(item => item.Id.Value) + 1);
+        var source = world.Nodes.Single(item => item.Id == friendly.Node);
+        var addedNode = source with
+        {
+            Id = node, Occupant = new NodeOccupant.Settlement(settlementId, SettlementRelation.NonHostile)
+        };
+        var addedSettlement = friendly with { Id = settlementId, Node = node };
+        var edge = new EdgeMapItem(new EdgeId(world.Edges.Max(item => item.Id.Value) + 1), hostile, node,
+            route.Value.DistanceMeters, source.Terrain, 1, 1, [], []);
+        var settlements = world.Settlements.Select(settlement => settlement.Node == hostile
+                || settlement.Id == friendly.Id ? settlement : settlement with { Relation = SettlementRelation.Hostile })
+            .ToImmutableArray();
+        var modified = world with
+        {
+            Nodes = world.Nodes.Add(addedNode), Edges = world.Edges.Add(edge),
+            Settlements = [addedSettlement, .. settlements]
+        };
+        Assert.AreEqual(friendly.Node, CombatOperations.ChooseDestination(modified, state.Content,
+            world.Trains.Single(), new WorldLocation.Node(hostile)));
     }
 
     [TestMethod]
@@ -97,6 +146,15 @@ public sealed class CombatRetreatTests
         Assert.IsInstanceOfType<CommandDecision.Accepted>(result.Receipt.Decision);
         Assert.IsEmpty(result.Events);
         Assert.AreEqual(remaining, CombatFixture.Participant(session, started.Unit).RemainingDisengagementSteps);
+        var plan = new CoreCommand.ReplaceRunPlan(train, new(false,
+            [new PlanStop.Waypoint(CombatFixture.StartNode(session, train))]));
+        foreach (var command in new CoreCommand[] { plan, new CoreCommand.DisbandTrain(train) })
+        {
+            var rejected = (CommandDecision.Rejected)((SubmissionResult.Completed)session.Submit(command,
+                CommandSource.AutomationTest)).Receipt.Decision;
+            Assert.AreEqual("invalid_state", rejected.Problems.Single().Code);
+            Assert.AreEqual("Train.Activity", rejected.Problems.Single().Field);
+        }
     }
 
     [TestMethod]
@@ -145,7 +203,7 @@ public sealed class CombatRetreatTests
     [TestMethod]
     public void Ending_the_combat_finishes_disengagement_and_the_train_leaves()
     {
-        var content = ThresholdContent(buildingDamage: 1) with
+        var content = RetreatSeconds(ThresholdContent(buildingDamage: 1), 20) with
         {
             Designs = ThresholdContent(buildingDamage: 1).Designs.Select(design =>
                 design.Design == CombatFixture.ArmedVehicle ? design with
@@ -171,10 +229,20 @@ public sealed class CombatRetreatTests
         CombatFixture.Accepted(session.Submit(new CoreCommand.SetTrainEngagement(retreating,
             new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Retreat, 0)), CommandSource.AutomationTest));
         CombatFixture.Send(session, hostile, retreating);
-        CombatFixture.AdvanceUntilEvent(session, value => value is CoreEvent.CombatRetreatStarted);
+        var retreated = CombatFixture.AdvanceUntilEvent(session, value => value is CoreEvent.CombatRetreatStarted)
+            .OfType<CoreEvent.CombatRetreatStarted>().Single();
         CombatFixture.Send(session, hostile, attacker);
-        var ended = CombatFixture.AdvanceUntilEvent(session, value => value is CoreEvent.CombatEnded, 600);
-        Assert.IsTrue(ended.OfType<CoreEvent.CombatEnded>().Any());
+        ulong? remainingBeforeEnd = null;
+        CoreEvent.CombatEnded? ended = null;
+        for (var step = 0; step < 800 && ended is null; step++)
+        {
+            remainingBeforeEnd = CombatFixture.Participant(session, retreated.Unit).RemainingDisengagementSteps;
+            var result = session.Advance(1);
+            Assert.IsNull(result.Fault);
+            ended = result.Events.Select(envelope => envelope.Event).OfType<CoreEvent.CombatEnded>().FirstOrDefault();
+        }
+        Assert.IsNotNull(ended);
+        Assert.IsTrue(remainingBeforeEnd > 0);
         Assert.AreEqual(TrainActivity.Retreating, Train(session, retreating).Activity);
         Assert.IsNotNull(session.State.World.Trains.Single(item => item.Id == retreating).RetreatDestination);
         foreach (var command in new CoreCommand[]
@@ -201,49 +269,56 @@ public sealed class CombatRetreatTests
     }
 
     [TestMethod]
-    public void Retreat_without_a_destination_waits_and_reports_no_route_until_one_appears()
+    public void Retreat_without_a_destination_waits_at_the_node_and_retries_every_step()
     {
-        var content = RetreatSeconds(CombatFixture.Content(damage: 1), .05);
-        using var session = CombatFixture.SessionWithContent(content);
+        var content = CombatFixture.Content(damage: 1) with
+        {
+            Designs = CombatFixture.Content(damage: 1).Designs.Select(design =>
+                design.Design == CombatFixture.ArmedBuilding ? design with
+                {
+                    MaxStructureDurability = 5,
+                    Parts = design.Parts.Select(part => part with
+                    {
+                        MaxDurability = 1000, Capabilities = [new PartCapability.Weapon(1, 1)]
+                    }).ToImmutableArray()
+                } : design).ToImmutableArray()
+        };
+        using var session = CombatFixture.SessionWithContent(content, trains: 2);
         var hostile = CombatFixture.HostileNode(session);
-        var train = new TrainId(1);
-        CombatFixture.Accepted(session.Submit(new CoreCommand.SetTrainEngagement(train,
+        var retreating = new TrainId(1);
+        var attacker = new TrainId(2);
+        CombatFixture.Accepted(session.Submit(new CoreCommand.SetTrainEngagement(retreating,
             new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Retreat, 0)), CommandSource.AutomationTest));
-        CombatFixture.Send(session, hostile, train);
+        CombatFixture.Send(session, hostile, retreating);
         CombatFixture.AdvanceUntilEvent(session, value => value is CoreEvent.CombatRetreatStarted);
-        var state = session.State;
-        var friendly = state.World.Settlements.First(settlement => settlement.Relation != SettlementRelation.Hostile);
-        var world = state.World with
+        CombatFixture.Send(session, hostile, attacker);
+        CombatFixture.AdvanceUntil(session, view => view.FindTrain(attacker) is Lookup<TrainView>.Found
+            { Value: { Position: TrainPosition.Node node } } && node.Id == hostile);
+        var node = ((Lookup<NodeView>.Found)session.Read().FindNode(hostile)).Value;
+        foreach (var edge in node.AdjacentEdges)
         {
-            Settlements = state.World.Settlements.Select(settlement => settlement.Relation == SettlementRelation.Hostile
-                ? settlement : settlement with { Relation = SettlementRelation.Hostile }).ToImmutableArray()
-        };
-        var combat = world.Combats.Single();
-        var index = -1;
-        for (var position = 0; position < combat.Controllers.Length; position++)
-            if (combat.Controllers[position].Controller is CombatController.Train) { index = position; break; }
-        Assert.IsTrue(index >= 0);
-        world = world with
+            var tracks = ((Lookup<EdgeView>.Found)session.Read().FindEdge(edge)).Value.Map.Tracks;
+            for (var track = 1; track <= tracks; track++)
+                CombatFixture.Accepted(session.Submit(new CoreCommand.DebugAddRailBreak(edge, track, 0),
+                    CommandSource.AutomationTest));
+        }
+        var ended = CombatFixture.AdvanceUntilEvent(session, value => value is CoreEvent.CombatEnded, 1000);
+        Assert.IsTrue(ended.OfType<CoreEvent.CombatEnded>().Any());
+        Assert.AreEqual(TrainActivity.Retreating, Train(session, retreating).Activity);
+        Assert.IsNull(session.State.World.Trains.Single(item => item.Id == retreating).RetreatDestination);
+        var waiting = Train(session, retreating);
+        Assert.AreEqual(hostile, ((TrainPosition.Node)waiting.Position).Id);
+        Assert.IsTrue(waiting.Blockers.Any(problem => problem.Code == "no_route"));
+        for (var step = 0; step < 600; step++)
         {
-            Combats = world.Combats.Select(item => item.Id != combat.Id ? item : item with
-            {
-                Controllers = item.Controllers.SetItem(index,
-                    item.Controllers[index] with { RemainingDisengagementSteps = 0 })
-            }).ToImmutableArray()
-        };
-        var step = state.Position.CompletedSteps + 1;
-        var advanced = CombatOperations.Advance(world, state.Content, step);
-        var waiting = advanced.World.Trains.Single(item => item.Id == train);
-        Assert.AreEqual(TrainActivity.Retreating, waiting.Activity);
-        Assert.IsNull(waiting.RetreatDestination);
-        Assert.IsTrue(TrainOperations.Read(advanced.World, state.Content, waiting).Blockers
-            .Any(problem => problem.Code == "no_route"));
-        var retried = CombatOperations.Advance(advanced.World with
-        {
-            Settlements = advanced.World.Settlements.Select(settlement => settlement.Id == friendly.Id
-                ? settlement with { Relation = friendly.Relation } : settlement).ToImmutableArray()
-        }, state.Content, step + 1);
-        Assert.AreEqual(friendly.Node, retried.World.Trains.Single(item => item.Id == train).RetreatDestination);
+            var result = session.Advance(1);
+            Assert.IsNull(result.Fault);
+            var train = Train(session, retreating);
+            Assert.AreEqual(TrainActivity.Retreating, train.Activity);
+            Assert.AreEqual(hostile, ((TrainPosition.Node)train.Position).Id);
+            Assert.IsNull(session.State.World.Trains.Single(item => item.Id == retreating).RetreatDestination);
+            Assert.IsTrue(train.Blockers.Any(problem => problem.Code == "no_route"));
+        }
     }
 
     private static CoreContentProjection RetreatSeconds(CoreContentProjection content, double seconds)

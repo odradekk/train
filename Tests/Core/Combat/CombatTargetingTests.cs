@@ -16,6 +16,8 @@ public sealed class CombatTargetingTests
         using var session = CombatFixture.Session(damage: 1);
         var hostile = CombatFixture.HostileNode(session);
         var train = new TrainId(1);
+        CombatFixture.Accepted(session.Submit(new CoreCommand.SetTrainEngagement(train,
+            new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0)), CommandSource.AutomationTest));
         CombatFixture.Send(session, hostile, train);
         var events = CombatFixture.AdvanceUntil(session, view => view.World.Combats.Any());
         var target = TrainTarget(session, train, events);
@@ -25,14 +27,14 @@ public sealed class CombatTargetingTests
     [TestMethod]
     public void Lowest_and_highest_durability_use_effective_structure()
     {
-        using var low = Session(SettlementDamage(50), TargetPriority.LowestDurability);
-        var lowTarget = TrainTarget(low, new TrainId(1), CombatEvents(low));
-        Assert.AreEqual(50, Instance(low, lowTarget).Structure.EffectiveCurrent);
+        using var low = DamagedSession(TargetPriority.LowestDurability);
+        var hostile = CombatFixture.HostileNode(low);
+        var station = Station(low, hostile);
+        Assert.AreEqual(station, TrainTarget(low, new TrainId(1), CombatEvents(low)));
 
-        using var high = Session(SettlementDamage(50), TargetPriority.HighestDurability);
-        var highTarget = TrainTarget(high, new TrainId(1), CombatEvents(high));
-        Assert.AreEqual(100, Instance(high, highTarget).Structure.EffectiveCurrent);
-        Assert.AreNotEqual(lowTarget, highTarget);
+        using var high = DamagedSession(TargetPriority.HighestDurability);
+        var builder = BuilderBuilding(high, hostile);
+        Assert.AreEqual(builder, TrainTarget(high, new TrainId(1), CombatEvents(high)));
     }
 
     [TestMethod]
@@ -70,7 +72,10 @@ public sealed class CombatTargetingTests
             new(TargetPriority.LowestDurability, TargetScope.All, EncounterAction.Engage, 0)), CommandSource.AutomationTest));
         CombatFixture.Send(session, hostile, train);
         var events = CombatFixture.AdvanceUntil(session, view => view.World.Combats.Any());
-        Assert.AreEqual(Station(session, hostile), TrainTarget(session, train, events));
+        var expected = new InstanceId.Building(new BuildingId(((Lookup<LocationView>.Found)session.Read().FindLocation(
+                new WorldLocation.Node(hostile))).Value.Instances.OfType<InstanceId.Building>()
+            .Min(instance => instance.Id.Value)));
+        Assert.AreEqual(expected, TrainTarget(session, train, events));
     }
 
     [TestMethod]
@@ -79,17 +84,16 @@ public sealed class CombatTargetingTests
         using var session = CombatFixture.SessionWithContent(CombatFixture.Content(damage: 1));
         var hostile = CombatFixture.HostileNode(session);
         var train = new TrainId(1);
+        CombatFixture.Accepted(session.Submit(new CoreCommand.SetTrainEngagement(train,
+            new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0)), CommandSource.AutomationTest));
         CombatFixture.Send(session, hostile, train);
         CombatFixture.AdvanceUntil(session, view => view.World.Combats.Any());
         var combat = session.Read().World.Combats.Single();
         var own = new WorldObjectId.Instance(new InstanceId.Vehicle(Train(session, train).Vehicles[0]));
-        var station = new WorldObjectId.Instance(Station(session, hostile));
-        var other = OtherBuilding(session, hostile);
+        var other = OtherHostileArmedBuilding(session, hostile);
         AssertRejected(session, new CoreCommand.FocusFire(combat.Id, new CombatController.Train(new(999)), own),
             "object_missing", "Controller");
         AssertRejected(session, new CoreCommand.FocusFire(combat.Id, new CombatController.Train(train), own),
-            "invalid_state", "Target");
-        AssertRejected(session, new CoreCommand.FocusFire(combat.Id, new CombatController.Train(train), station),
             "invalid_state", "Target");
         AssertRejected(session, new CoreCommand.FocusFire(combat.Id, new CombatController.Train(train),
             new WorldObjectId.Instance(other)), "invalid_state", "Target");
@@ -104,20 +108,42 @@ public sealed class CombatTargetingTests
         Assert.IsNull(session.Read().Fault);
     }
 
-    private static InstanceId OtherBuilding(ICoreSession session, NodeId hostile)
-        => session.Read().World.Nodes.Where(node => node.Id != hostile && node.Occupant is NodeOccupant.Settlement)
-            .Select(node => session.Read().FindLocation(new WorldLocation.Node(node.Id)))
-            .OfType<Lookup<LocationView>.Found>().SelectMany(value => value.Value.Instances)
-            .First(instance => instance is InstanceId.Building);
-
-
-    private static CoreSession Session(CoreContentProjection content, TargetPriority priority)
+    private static InstanceId OtherHostileArmedBuilding(CoreSession session, NodeId combatNode)
     {
-        var session = CombatFixture.SessionWithContent(content);
+        var settlement = session.State.World.Settlements.Where(item => item.Node != combatNode
+            && item.Relation == SettlementRelation.Hostile).OrderBy(item => item.Node.Value).FirstOrDefault();
+        if (settlement is null) Assert.Fail("夹具世界没有第二个敌对聚居地。");
+        return settlement.Plots.Select(plot => plot.Building).OfType<BuildingId>()
+            .Select(building => (InstanceId)new InstanceId.Building(building))
+            .Single(instance => Instance(session, instance).Design == CombatFixture.ArmedBuilding);
+    }
+
+    private static CoreSession DamagedSession(TargetPriority priority)
+    {
+        var content = CombatFixture.Content(damage: 1, builder: true) with
+        {
+            Designs = CombatFixture.Content(damage: 1, builder: true).Designs.Select(design =>
+                design.Design == CombatFixture.ArmedBuilding ? design with { MaxStructureDurability = 1000 }
+                : design.Design == CombatFixture.BuilderBuilding ? design with { MaxStructureDurability = 500 }
+                : design).ToImmutableArray()
+        };
+        var original = CombatFixture.SessionWithContent(content);
+        var hostile = CombatFixture.HostileNode(original);
+        var station = Station(original, hostile);
+        var armed = ArmedBuilding(original, hostile);
+        var builder = BuilderBuilding(original, hostile);
+        var state = original.State;
+        original.Dispose();
+        var damaged = state.World.Instances.Select(instance => instance.Id == station
+            ? instance with { StructureDurability = 50 }
+            : instance.Id == armed ? instance with { StructureDurability = 100 }
+            : instance.Id == builder ? instance with { StructureDurability = 300 }
+            : instance).ToImmutableArray();
+        var session = new CoreSession(state with { World = state.World with { Instances = damaged } });
         var train = new TrainId(1);
         CombatFixture.Accepted(session.Submit(new CoreCommand.SetTrainEngagement(train,
             new(priority, TargetScope.All, EncounterAction.Engage, 0)), CommandSource.AutomationTest));
-        CombatFixture.Send(session, CombatFixture.HostileNode(session), train);
+        CombatFixture.Send(session, hostile, train);
         return session;
     }
 
@@ -142,9 +168,17 @@ public sealed class CombatTargetingTests
     }
 
     private static InstanceId Station(ICoreSession session, NodeId node)
+        => Instance(session, node, WorldFixture.Station);
+
+    private static InstanceId ArmedBuilding(ICoreSession session, NodeId node)
+        => Instance(session, node, CombatFixture.ArmedBuilding);
+
+    private static InstanceId BuilderBuilding(ICoreSession session, NodeId node)
+        => Instance(session, node, CombatFixture.BuilderBuilding);
+
+    private static InstanceId Instance(ICoreSession session, NodeId node, DesignHash design)
         => ((Lookup<LocationView>.Found)session.Read().FindLocation(new WorldLocation.Node(node))).Value.Instances
-            .Single(instance => ((Lookup<InstanceView>.Found)session.Read().FindInstance(instance)).Value.Design
-                == WorldFixture.Station);
+            .Single(instance => Instance(session, instance).Design == design);
 
     private static InstanceId Target(HitTarget target) => target switch
     {

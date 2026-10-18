@@ -138,9 +138,11 @@ internal static class TrainOperations
             world = world with { Trains = world.Trains.Select(t => t.Id == train.Id ? train : t).ToImmutableArray() };
         }
 
+        // 没有目的地的撤退列车留在节点等待重试，不能由出站队列改写为 Waiting。
         var exits = trains.Values.Where(t => t.Position is TrainPosition.Node
                 { Phase: NodeTravelPhase.Departing, NextEdge: not null } p
             && t.Activity is TrainActivity.Running or TrainActivity.Waiting or TrainActivity.Retreating
+            && (t.Activity != TrainActivity.Retreating || t.RetreatDestination is not null)
             && p.DistanceMeters >= NodeDimensions.Read(world, content, p.Id).Length
             && (t.SpeedMetersPerSecond > 0 || dispatch.Capabilities(t).DepartureProblem(t.Id,
                 Rule(world, content).MinimumAcceleration) is null)).ToArray();
@@ -445,6 +447,7 @@ internal static class TrainOperations
     internal static TrainState ChangeActivity(TrainState train, TrainActivity activity,
         ImmutableArray<CoreEvent>.Builder events, ImmutableArray<CoreProblem> reasons = default)
     {
+        // 撤退移动复用普通铁路状态，但对外始终显示 Retreating，避免途中被误认为恢复原计划。
         if (train.RetreatDestination is not null
             && activity is TrainActivity.Running or TrainActivity.Waiting or TrainActivity.NoRoute)
             activity = TrainActivity.Retreating;

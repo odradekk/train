@@ -741,7 +741,15 @@ internal static class WorldStateValidation
                         controllerPath + "/units");
                 }
                 if (controller.FocusTarget is { } focus)
-                    Require(units.Contains(focus), controllerPath + "/focus_target");
+                {
+                    var hostileParticipant = combat.Controllers
+                        .Where(other => other.Controller != controller.Controller)
+                        .SelectMany(other => CombatQueries.Units(world, other.Controller))
+                        .Contains(focus);
+                    Require(hostileParticipant
+                        && units.Any(unit => CombatQueries.Hostile(world, unit, focus)),
+                        controllerPath + "/focus_target");
+                }
             }
             (int Kind, ulong Id) previousOwner = (-1, 0);
             var owners = new HashSet<(int Kind, ulong Id)>();

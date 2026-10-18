@@ -190,7 +190,7 @@ internal static class CombatOperations
         return world with { Trains = trains };
     }
 
-    private static NodeId? ChooseDestination(WorldState world, CoreContentProjection content, TrainState train,
+    internal static NodeId? ChooseDestination(WorldState world, CoreContentProjection content, TrainState train,
         WorldLocation origin)
     {
         if (origin is not WorldLocation.Node node) return null;
@@ -198,7 +198,6 @@ internal static class CombatOperations
         if (speed <= 0) return null;
         NodeId? best = null;
         double bestTime = double.PositiveInfinity;
-        ImmutableArray<EdgeId> bestRoute = [];
         foreach (var settlement in world.Settlements.Where(settlement =>
                      settlement.Node != node.Id && settlement.Relation is SettlementRelation.PlayerOwned
                          or SettlementRelation.NonHostile))
@@ -206,26 +205,13 @@ internal static class CombatOperations
             var route = TrainRouting.FindRoute(world.Nodes, world.Edges, node.Id, settlement.Node, speed);
             if (route is not { } found) continue;
             var time = found.DistanceMeters / speed;
-            if (time < bestTime || time == bestTime && (best is null
-                || settlement.Node.Value < best.Value.Value
-                || settlement.Node == best && CompareRoute(found.Edges, bestRoute) < 0))
+            if (time < bestTime || time == bestTime && (best is null || settlement.Node.Value < best.Value.Value))
             {
                 best = settlement.Node;
                 bestTime = time;
-                bestRoute = found.Edges;
             }
         }
         return best;
-    }
-
-    private static int CompareRoute(ImmutableArray<EdgeId> left, ImmutableArray<EdgeId> right)
-    {
-        for (var index = 0; index < Math.Min(left.Length, right.Length); index++)
-        {
-            var comparison = left[index].Value.CompareTo(right[index].Value);
-            if (comparison != 0) return comparison;
-        }
-        return left.Length.CompareTo(right.Length);
     }
 
     private static ImmutableArray<Group> Groups(WorldState world, NodeMapItem node)

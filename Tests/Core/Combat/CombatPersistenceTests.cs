@@ -10,6 +10,47 @@ namespace Train.Core.Tests.Combat;
 public sealed class CombatPersistenceTests
 {
     [TestMethod]
+    public void Depleting_the_combat_identity_freezes_at_the_pre_step_boundary()
+    {
+        var content = CombatFixture.Content(damage: 1);
+        using var session = CombatFixture.SessionWithContent(content);
+        var factory = CoreFactory.Create();
+        var root = JsonNode.Parse(Success(session.Capture(CapturePurpose.Save)).Encode())!;
+        root["world"]!["next"]!["combat"] = ulong.MaxValue;
+        var decoded = Success(factory.DecodeState(root.ToJsonString()));
+        using var candidate = Success(factory.PrepareRestore(decoded, content, WorldFixture.Options));
+        using var restored = (CoreSession)candidate.Activate();
+        var hostile = CombatFixture.HostileNode(restored);
+        var train = new TrainId(1);
+        CombatFixture.Send(restored, hostile, train);
+        for (var step = 0; step < 10_000; step++)
+        {
+            var before = restored.State;
+            var result = restored.Advance(1);
+            if (result.Fault is null)
+            {
+                Assert.AreEqual(1u, result.CompletedSteps);
+                continue;
+            }
+            Assert.AreEqual(0u, result.CompletedSteps);
+            Assert.AreEqual("internal_error", result.Fault.Code);
+            Assert.AreEqual("Advance", result.Fault.Operation);
+            Assert.AreEqual(before.Position, restored.State.Position);
+            Assert.AreSame(before.World, restored.State.World);
+            Assert.AreEqual(result.Fault, restored.Read().Fault);
+            Assert.IsTrue(result.Events.IsEmpty);
+            var frozen = restored.Advance(1);
+            Assert.AreEqual(0u, frozen.CompletedSteps);
+            Assert.AreEqual(result.Fault, frozen.Fault);
+            var submission = restored.Submit(new CoreCommand.StartTrain(train), CommandSource.AutomationTest);
+            Assert.IsInstanceOfType<SubmissionResult.NotAccepted>(submission);
+            Assert.AreEqual("frozen", ((SubmissionResult.NotAccepted)submission).Reason.Code);
+            return;
+        }
+        Assert.Fail("未触发战斗身份耗尽故障。");
+    }
+
+    [TestMethod]
     public void Combat_in_progress_restores_and_continues_identically()
     {
         var content = RetreatSeconds(CombatFixture.Content(damage: 1), 1);
@@ -20,6 +61,7 @@ public sealed class CombatPersistenceTests
             new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Retreat, 0)), CommandSource.AutomationTest));
         CombatFixture.Send(session, hostile, train);
         CombatFixture.AdvanceUntil(session, view => view.World.Combats.Any());
+        FocusAndRetreat(session, hostile, train);
         session.Advance(5);
         var factory = CoreFactory.Create();
         var saved = Success(session.Capture(CapturePurpose.Save));
@@ -54,6 +96,7 @@ public sealed class CombatPersistenceTests
             new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Retreat, 0)), CommandSource.AutomationTest));
         CombatFixture.Send(session, hostile, train);
         CombatFixture.AdvanceUntil(session, view => view.World.Combats.Any());
+        FocusAndRetreat(session, hostile, train);
         session.Advance(120);
         var window = session.ReadRecording();
         var input = new CoreReplayInput(2, WorldFixture.Options.Runtime, window.Starts[0].State.Encode(),
@@ -71,12 +114,13 @@ public sealed class CombatPersistenceTests
     }
 
     [TestMethod]
-    [DataRow("duplicate_controller")]
-    [DataRow("controller_at_wrong_node")]
-    [DataRow("focus_not_participant")]
-    [DataRow("next_combat_reused")]
-    [DataRow("sides_missing_owner")]
-    public void Corrupt_combat_payload_is_rejected_without_changing_the_active_session(string corruption)
+    [DataRow("duplicate_controller", "/world/combats/0/controllers")]
+    [DataRow("controller_at_wrong_node", "/world/combats/0/controllers/train")]
+    [DataRow("focus_not_participant", "/world/combats/0/controllers/focus_target")]
+    [DataRow("next_combat_reused", "/world/next/combat")]
+    [DataRow("sides_missing_owner", "/world/combats/0/sides/owner")]
+    public void Corrupt_combat_payload_is_rejected_without_changing_the_active_session(string corruption,
+        string expectedField)
     {
         var content = RetreatSeconds(CombatFixture.Content(damage: 1), 1);
         using var session = CombatFixture.SessionWithContent(content);
@@ -86,6 +130,7 @@ public sealed class CombatPersistenceTests
             new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Retreat, 0)), CommandSource.AutomationTest));
         CombatFixture.Send(session, hostile, train);
         CombatFixture.AdvanceUntil(session, view => view.World.Combats.Any());
+        FocusAndRetreat(session, hostile, train);
         session.Advance(5);
         var original = Success(session.Capture(CapturePurpose.Save));
         var payload = original.Encode();
@@ -107,14 +152,18 @@ public sealed class CombatPersistenceTests
                 break;
             case "focus_not_participant":
                 var node = combat["location"]!["id"]!["value"]!.GetValue<ulong>();
-                var settlement = world["settlements"]!.AsArray().First(item =>
-                    item!["node"]!["value"]!.GetValue<ulong>() == node)!;
-                var building = settlement["plots"]!.AsArray().Select(plot => plot!["building"])
+                var otherSettlement = world["settlements"]!.AsArray().First(item =>
+                    item!["node"]!["value"]!.GetValue<ulong>() != node)!;
+                var building = otherSettlement["plots"]!.AsArray().Select(plot => plot!["building"])
                     .First(item => item is not null)!["value"]!.GetValue<ulong>();
                 controllers[0]!["focus_target"] = new JsonObject
                 {
                     ["$kind"] = "instance",
-                    ["id"] = new JsonObject { ["$kind"] = "building", ["value"] = building }
+                    ["id"] = new JsonObject
+                    {
+                        ["$kind"] = "building",
+                        ["id"] = new JsonObject { ["value"] = building }
+                    }
                 };
                 break;
             case "next_combat_reused":
@@ -131,10 +180,22 @@ public sealed class CombatPersistenceTests
         Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Failure>(result, corruption);
         var problem = ((CoreResult<ICoreCapture>.Failure)result).Problems.Single();
         Assert.AreEqual("invalid_state", problem.Code, corruption);
-        Assert.IsTrue(problem.Field!.StartsWith("/world", StringComparison.Ordinal), corruption);
+        Assert.AreEqual(expectedField, problem.Field, corruption);
         var after = Success(session.Capture(CapturePurpose.Save));
         Assert.AreEqual(payload, after.Encode());
         Assert.AreEqual(original.Checkpoint, after.Checkpoint);
+    }
+
+    private static void FocusAndRetreat(ICoreSession session, NodeId hostile, TrainId train)
+    {
+        var combat = session.Read().World.Combats.Single();
+        var building = ((Lookup<LocationView>.Found)session.Read().FindLocation(
+                new WorldLocation.Node(hostile))).Value.Instances
+            .Single(instance => ((Lookup<InstanceView>.Found)session.Read().FindInstance(instance)).Value.Design
+                == CombatFixture.ArmedBuilding);
+        CombatFixture.Accepted(session.Submit(new CoreCommand.FocusFire(combat.Id,
+            new CombatController.Train(train), new WorldObjectId.Instance(building)), CommandSource.AutomationTest));
+        CombatFixture.Accepted(session.Submit(new CoreCommand.Retreat(train), CommandSource.AutomationTest));
     }
 
     private static CoreContentProjection RetreatSeconds(CoreContentProjection content, double seconds)

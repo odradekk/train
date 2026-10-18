@@ -189,6 +189,14 @@ internal static class CoreProcessDriver
                     steps++;
                 }
                 if (session.Read().World.Combats.IsEmpty) throw new InvalidOperationException("未开战。");
+                var combat = session.Read().World.Combats.Single();
+                var building = ((Lookup<LocationView>.Found)session.Read().FindLocation(
+                        new WorldLocation.Node(hostile))).Value.Instances
+                    .Single(instance => ((Lookup<InstanceView>.Found)session.Read().FindInstance(instance)).Value.Design
+                        == CombatFixture.ArmedBuilding);
+                Submit(session, new CoreCommand.FocusFire(combat.Id, new CombatController.Train(train),
+                    new WorldObjectId.Instance(building)));
+                Submit(session, new CoreCommand.Retreat(train));
                 Sample();
                 Advance(5);
             }
