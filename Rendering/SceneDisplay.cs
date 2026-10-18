@@ -17,10 +17,11 @@ internal sealed class SceneDisplay : IDisposable
     private DebugLineGroup? _debugLines;
     private FogGroup? _pendingFog;
     private DebugLineGroup? _pendingDebugLines;
+    private ISceneFrame? _preparingFrame;
     private ScenePoint _spaceOrigin;
     private HashSet<SceneObjectId> _posedObjects = [];
     private bool _disposed;
-    private readonly ScenePreparation<PreparedVisual> _preparation = new();
+    private readonly Dictionary<(SceneObjectId Object, int Index), PreparedVisual> _pendingVisuals = [];
     private readonly Dictionary<SceneObjectId, Node3D> _pendingRoots = [];
     private static readonly TimeSpan PreparationBudget = TimeSpan.FromMilliseconds(4);
     private static ulong _budgetFrame;
@@ -30,7 +31,7 @@ internal sealed class SceneDisplay : IDisposable
     internal Node3D Root { get; } = new() { Name = "SceneDisplay" };
     internal ISceneFrame? DisplayedFrame { get; private set; }
     internal ISceneFrame? PoseFrame { get; private set; }
-    internal bool IsPreparing => _preparation.Frame is not null;
+    internal bool IsPreparing => _preparingFrame is not null;
     internal IReadOnlyDictionary<SceneObjectId, DisplayObject> Objects => _objects;
 
     internal SceneDisplay(AssetResourceCache cache, IContentView content)
@@ -55,8 +56,13 @@ internal sealed class SceneDisplay : IDisposable
             CancelPreparation();
             return null;
         }
-        if (!_preparation.SameScope(frame)) CancelPreparation();
-        frame = _preparation.Select(frame);
+        if (_preparingFrame is { } previousFrame &&
+            (previousFrame.Update.Base != frame.Update.Base ||
+             previousFrame.Update.Frame.Session != frame.Update.Frame.Session ||
+             previousFrame.Update.Frame.Request != frame.Update.Frame.Request ||
+             previousFrame.Update.Frame.Space != frame.Update.Frame.Space))
+            CancelPreparation();
+        frame = _preparingFrame ??= frame;
         var spaceChanged = DisplayedFrame is not { } displayed ||
             (displayed.Update.Frame.Session != frame.Update.Frame.Session ||
              displayed.Update.Frame.Space != frame.Update.Frame.Space);
@@ -95,11 +101,12 @@ internal sealed class SceneDisplay : IDisposable
                     else
                     {
                         var key = (source.Id, i);
-                        if (!_preparation.TryGet(key, out var visual))
+                        if (!_pendingVisuals.TryGetValue(key, out var visual))
                         {
                             if (BudgetExpired())
                                 return null;
-                            visual = _preparation.GetOrCreate(key, () => _resources.Prepare(source.Visuals[i]));
+                            visual = _resources.Prepare(source.Visuals[i]);
+                            _pendingVisuals.Add(key, visual);
                             preparedResource = true;
                         }
                         visuals[i] = visual;
@@ -122,12 +129,14 @@ internal sealed class SceneDisplay : IDisposable
                 if (BudgetExpired()) return null;
                 _pendingDebugLines = new(frame.DebugLines);
             }
-            var prepared = new PreparedFrame(this, frame, next, _preparation.Take(),
+            var prepared = new PreparedFrame(this, frame, next, [.. _pendingVisuals.Values],
                 [.. _pendingRoots.Values], _pendingFog ?? _fog!, _pendingFog is not null,
                 frame.DebugLines.IsEmpty ? null : _pendingDebugLines ?? _debugLines, _pendingDebugLines is not null);
             _pendingFog = null;
             _pendingDebugLines = null;
+            _pendingVisuals.Clear();
             _pendingRoots.Clear();
+            _preparingFrame = null;
             return prepared;
         }
         catch
@@ -233,7 +242,9 @@ internal sealed class SceneDisplay : IDisposable
     internal void CancelPreparation()
     {
         _cache.RequireMainThread();
-        _preparation.Cancel();
+        foreach (var visual in _pendingVisuals.Values) visual.Dispose();
+        _pendingVisuals.Clear();
+        _preparingFrame = null;
         foreach (var root in _pendingRoots.Values) root.Free();
         _pendingRoots.Clear();
         _pendingFog?.Dispose();

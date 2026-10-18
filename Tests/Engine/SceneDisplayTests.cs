@@ -67,8 +67,8 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         await new UiTestInput(TestScene).Frames(2);
         using var dispatcher = new GodotMainThreadDispatcher();
         using var cache = new AssetResourceCache(dispatcher);
-        var kept = Png("merge-kept-texture");
-        var obsolete = Png("merge-obsolete-texture");
+        var kept = Png("candidate-kept-texture");
+        var obsolete = Png("candidate-obsolete-texture");
         var content = new FixedContentView { Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>>
         {
             [kept.Revision] = new ContentLookup<ContentAsset>.Found(kept),
