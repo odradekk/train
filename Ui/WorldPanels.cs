@@ -25,6 +25,7 @@ public partial class WorldPanels : Control
     internal event Action<PanelTarget, TrainView, ICoreReadView, IContentView>? PlanRequested;
     internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
     internal event Action<PanelTarget, SettlementId>? SettlementRequested;
+    internal event Action<PanelTarget, NodeId>? FoundingRequested;
     internal event Action<PanelTarget, TrainId>? InventoryRequested;
     internal event Action<InstanceId>? RefitRequested;
     internal event Action<InstanceId>? VehicleServiceRequested;
@@ -140,10 +141,16 @@ public partial class WorldPanels : Control
             {
                 if (Available(bound)) FormationRequested?.Invoke(bound, node.Id, _view, _content);
             }, true));
-            if (_view.World.Nodes.FirstOrDefault(item => item.Id == node.Id)?.Occupant is NodeOccupant.Settlement settlement)
+            var occupant = _view.World.Nodes.FirstOrDefault(item => item.Id == node.Id)?.Occupant;
+            if (occupant is NodeOccupant.Settlement settlement)
                 buttons.Add(UiStyle.Button("Economy", "库存、市场与服务…", () =>
                 {
                     if (Available(bound)) SettlementRequested?.Invoke(bound, settlement.Id);
+                }));
+            else if (occupant is NodeOccupant.Empty)
+                buttons.Add(UiStyle.Button("FoundSettlement", "建立聚居地…", () =>
+                {
+                    if (Available(bound)) FoundingRequested?.Invoke(bound, node.Id);
                 }));
         }
         if (target is WorldObjectId.Train train)
@@ -242,6 +249,7 @@ public partial class WorldPanels : Control
             var occupant = map.Occupant switch { NodeOccupant.Settlement owned => $"聚居地 · {Relation(owned.Relation)}",
                 NodeOccupant.Lair => "生物聚落", _ => "空节点" };
             text.AppendLine($"占据者：{occupant}\n位置：{map.Position.X:0.##} m，{map.Position.Y:0.##} m\n地貌：{map.Terrain.TypeId.Value}\n站台：{map.OccupiedPlatforms} / {map.Platforms}\n");
+            if (map.FoundingJob is not null) text.AppendLine("建城进行中");
             text.AppendLine("节点资源");
             foreach (var resource in map.Resources) text.AppendLine($"{GoodName(resource.Good)}：{resource.Quantity}");
             text.AppendLine("\n地点车辆");
