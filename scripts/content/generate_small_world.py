@@ -7,7 +7,8 @@ python scripts/content/generate_small_world.py --output-dir TestResults/reproduc
 脚本生成 resources/，手绘图标按 HAND_DRAWN_ICONS 保留；创作模式蓝图和 Blender 导出按 AUTHORED_FILES 保留，
 只检查存在和 JSON Schema。校验模式拒绝缺失、多余或其他生成文件字节不同的文件（校验需要 jsonschema）。
 生成只用 Python 标准库。
-自然地形与十八种货物（十二种原料、六种生活货物）已有正式美术，小型机车保留第一阶段风格样稿，聚居地符号来自 ui_symbols；
+自然地形与三十四种货物已有正式美术：十二种原料、六种生活货物和十六种工业与建造货物。
+小型机车保留第一阶段风格样稿，聚居地符号来自 ui_symbols；
 其余美术仍待制作，数值待配平，
 数值和画面待用户试玩确认；十一种车辆与两列小型起始车队已接入。
 校验同时检查正式内容的经济关系；不生成生物聚落或存档。
@@ -293,24 +294,23 @@ DEFAULT_PAINTS = {
     "control-equipment": BLUE,
     "storage-equipment": RED,
     "concrete": CONCRETE,
-    "construction-material": SOIL_FACE,
-    "construction-block": SOIL_FACE,
+    "construction-material": CONCRETE,
+    "construction-block": CONCRETE,
     "platform-equipment": EQUIPMENT_FACE,
     "industrial-machinery": EQUIPMENT_FACE,
     "extraction-equipment": EQUIPMENT_FACE,
     "construction-equipment": EQUIPMENT_FACE,
     "power-equipment": EQUIPMENT_FACE,
-    "conductive-metal": EQUIPMENT_FACE,
-    "specialty-material": EQUIPMENT_FACE,
     "mechanical-components": EQUIPMENT_FACE,
     "electrical-components": EQUIPMENT_FACE,
     "electronic-components": EQUIPMENT_FACE,
-    "structural-block": EQUIPMENT_FACE,
-    "rail": EQUIPMENT_FACE,
+    "structural-block": STEEL,
     "lamp": EQUIPMENT_FACE,
     "machine-gun": EQUIPMENT_FACE,
     "cannon": EQUIPMENT_FACE,
     "crude-oil": CRUDE_OIL,
+    "fuel": RED,
+    "chemical-feedstock": BLUE,
     "site-fence": SITE_FENCE,
     "road-barrier": YELLOW,
     "street-lamp": GRAPHITE,
@@ -327,12 +327,12 @@ def linear_luminance(color):
                for weight, value in zip((0.2126, 0.7152, 0.0722), channels))
 
 
-def neutral_texture(texture, base, keep=None):
+def neutral_texture(texture, base):
     base_luminance = linear_luminance(base)
 
     def pixel(x, y):
         color = texture(x, y)
-        if keep is not None and keep(x, y):
+        if color[3] == 0:
             return color[:3] + (0,)
         luminance = min(1, linear_luminance(color) / base_luminance)
         gray = round(255 * (12.92 * luminance if luminance <= 0.0031308 else
@@ -449,7 +449,7 @@ def street_lamp_panel(x, y):
 
 
 def street_lamp_texture(x, y):
-    return tint((0xe1, 0xd4, 0xac) if street_lamp_panel(x, y) else GRAPHITE)
+    return (0xe1, 0xd4, 0xac, 0) if street_lamp_panel(x, y) else tint(GRAPHITE)
 
 
 def site_fence_texture(x, y):
@@ -461,7 +461,7 @@ def road_barrier_stripe(x, y):
 
 
 def road_barrier_texture(x, y):
-    return tint(GRAPHITE if road_barrier_stripe(x, y) else YELLOW)
+    return GRAPHITE + (0,) if road_barrier_stripe(x, y) else tint(YELLOW)
 
 
 def rail_stack_texture(x, y):
@@ -592,6 +592,140 @@ def natural_fiber_texture(x, y, side=False):
     return tint((67, 77, 76) if strap else (226, 218, 192), grain(min(x, y), max(x, y), 32, 0x617) // 2)
 
 
+def conductive_metal_texture(x, y, side=False):
+    a, b = min(x, 31 - x), min(y, 31 - y)
+    if side:
+        variation = -9 if a == 0 else -3 if a % 8 == 1 else grain(a, y, 32, 0x618) // 3
+    else:
+        a, b = sorted((a, b))
+        variation = -9 if a == 0 else grain(a, b, 32, 0x619) // 2
+    return tint((166, 105, 65), variation)
+
+
+def fuel_texture(x, y, side=False):
+    return barrel_texture(x, y, side, RED, ((12, 19),))
+
+
+def chemical_feedstock_texture(x, y, side=False):
+    return barrel_texture(x, y, side, BLUE, ((10, 12), (19, 21)))
+
+
+def barrel_texture(x, y, side, color, bands):
+    if side and any(start <= y <= end for start, end in bands):
+        return (0xd9, 0xd4, 0xc7, 0)
+    return tint(color, crude_oil_texture(x, y, side)[0] - CRUDE_OIL[0])
+
+
+def mechanical_components_texture(x, y, side=False):
+    a, b = min(x, 31 - x), min(y, 31 - y)
+    if side:
+        vent = 5 <= x <= 26 and 10 <= y <= 21 and y % 4 in (1, 2)
+    else:
+        vent = 5 <= x <= 26 and 5 <= y <= 26 and x % 8 in (3, 4) and y % 8 in (3, 4)
+    if vent:
+        return GRAPHITE + (0,)
+    if a == 4 and b == 4:
+        return STEEL + (0,)
+    if not side:
+        a, b = sorted((a, b))
+    variation = -9 if a == 0 or b == 0 else grain(a, b, 32, 0x621) // 3
+    return tint(EQUIPMENT_FACE, variation)
+
+
+def construction_material_texture(x, y):
+    a, b = sorted((min(x, 127 - x), min(y, 127 - y)))
+    variation = grain(a, b, 128, 0x622) + grain(a // 4, b // 4, 32, 0x623) // 2
+    aggregate = -2 if (a * 17 ^ b * 29) % 53 == 0 else 0
+    return tint(CONCRETE, variation + aggregate)
+
+
+def structural_metal_texture(x, y, side=False):
+    return plate_texture(x, y) if side else tread_texture(x, y)
+
+
+def specialty_material_texture(x, y, side=False):
+    a, b = min(x, 31 - x), min(y, 31 - y)
+    if not side:
+        a, b = sorted((a, b))
+    return tint((118, 113, 132), -9 if a == 0 else grain(a, b, 32, 0x624) // 3)
+
+
+def glass_texture(x, y):
+    a, b = sorted((min(x, 31 - x), min(y, 31 - y)))
+    return tint(GLASS, 5 if a == 0 else grain(a, b, 32, 0x625) // 4)
+
+
+def lumber_texture(x, y, side=False):
+    if side:
+        return tint((151, 112, 65), -13 if x % 16 in (0, 15) else grain(x, y // 4, 32, 0x626))
+    a, b = abs(x % 16 - 7.5), abs(y % 16 - 7.5)
+    ring = int((a * a + b * b) ** .5) % 4 == 0
+    return tint((176, 140, 89), -15 if ring or max(a, b) == 7.5 else 0)
+
+
+def textile_texture(x, y, side=False):
+    if side:
+        return tint((158, 139, 111), -16 if x in (0, 31) else 4 if (x + y) % 2 else -3)
+    radius = int(((x - 15.5) ** 2 + (y - 15.5) ** 2) ** .5)
+    return tint((174, 153, 122), -18 if radius % 4 == 0 or radius < 3 else 0)
+
+
+def polymer_texture(x, y, side=False):
+    a, b = min(x, 31 - x), min(y, 31 - y)
+    if not side:
+        a, b = sorted((a, b))
+    seam = a == 0 or (b == 0 if not side else y in (2, 29))
+    pellet = a % 6 in (2, 3) and b % 6 in (2, 3)
+    return tint((192, 187, 167), -24 if seam else -9 if pellet else 0)
+
+
+def electrical_components_texture(x, y, side=False):
+    a, b = min(x, 31 - x), min(y, 31 - y)
+    terminal = 6 <= a <= 9 and (10 <= y <= 21 if side else 6 <= b <= 9)
+    if terminal:
+        return (166, 105, 65, 0)
+    insulator = a in (5, 10) and 9 <= y <= 22 if side else (
+        a in (5, 10) and 5 <= b <= 10 or b in (5, 10) and 5 <= a <= 10)
+    if insulator:
+        return GRAPHITE + (0,)
+    if not side:
+        a, b = sorted((a, b))
+    return tint(EQUIPMENT_FACE, -10 if a == 0 or b == 0 or a == 3 or b == 3 else 0)
+
+
+def electronic_components_texture(x, y, side=False):
+    a, b = min(x, 31 - x), min(y, 31 - y)
+    if side and 6 <= x <= 25 and 12 <= y <= 19:
+        return ((71, 91, 69) if x % 6 > 1 else GRAPHITE) + (0,)
+    if not side and 5 <= a <= 12 and 5 <= b <= 12 and a % 4 in (1, 2) and b % 4 in (1, 2):
+        return GRAPHITE + (0,)
+    if not side:
+        a, b = sorted((a, b))
+    return tint(EQUIPMENT_FACE, -10 if a == 0 or b == 0 else 0)
+
+
+def structural_block_texture(x, y):
+    a, b = sorted((min(x, 31 - x), min(y, 31 - y)))
+    return tint(STEEL, -15 if a == 0 else -6 if a == b == 3 else grain(a, b, 32, 0x627) // 3)
+
+
+def construction_block_texture(x, y):
+    a, b = sorted((min(x, 31 - x), min(y, 31 - y)))
+    return tint(CONCRETE, -22 if a == 0 else grain(a, b, 32, 0x628) // 2)
+
+
+def rail_texture(x, y, side=False):
+    if side:
+        return tint(STEEL, -31 if x % 16 in (5, 6, 9, 10) else -10 if x % 16 in (7, 8) else 0)
+    while x >= 16 or y >= 16:
+        x, y = 31 - y, x
+    head = 4 <= x <= 11 and 2 <= y <= 5 and (y > 2 or 5 <= x <= 10)
+    web = 7 <= x <= 8 and 6 <= y <= 10
+    foot = (2 <= x <= 13 and 12 <= y <= 13 or
+            4 <= x <= 11 and y == 11 or 6 <= x <= 9 and y == 10)
+    return tint(STEEL, 10 if head or web or foot else -32)
+
+
 def staple_food_texture(x, y, side=False):
     a, b = min(x, 31 - x), min(y, 31 - y)
     seam = y % 16 in (0, 15) if side else a == b or a == 0 or b == 0
@@ -645,7 +779,7 @@ def medical_supplies_texture(x, y, side=False):
     return tint((197, 214, 212), -24 if seam else 0)
 
 
-RAW_GOODS_ART = {
+GOODS_ART = {
     "ferrous-ore": ("stone_soil", 2, None, None, ferrous_ore_texture),
     "conductive-ore": ("stone_soil", 2, None, None, conductive_ore_texture),
     "rare-mineral": ("stone_soil", 2, None, None, rare_mineral_texture),
@@ -658,6 +792,22 @@ RAW_GOODS_ART = {
     "animal-products": ("organic", 1, "side.png", "shared/crate-bottom.png", animal_products_texture),
     "timber": ("organic", 1, "side.png", None, timber_texture),
     "natural-fiber": ("organic", 1, "side.png", None, natural_fiber_texture),
+    "conductive-metal": ("bare_metal", 1, "side.png", None, conductive_metal_texture),
+    "fuel": ("painted_metal", 1, "side.png", None, fuel_texture),
+    "mechanical-components": ("painted_metal", 1, "side.png", "shared/equipment-underside.png", mechanical_components_texture),
+    "construction-material": ("concrete", 4, None, None, construction_material_texture),
+    "structural-metal": ("painted_metal", 4, "side.png", "shared/vehicle-underside.png", structural_metal_texture),
+    "specialty-material": ("bare_metal", 1, "side.png", None, specialty_material_texture),
+    "glass": ("glass", 1, None, None, glass_texture),
+    "lumber": ("organic", 1, "side.png", None, lumber_texture),
+    "textile": ("organic", 1, "side.png", None, textile_texture),
+    "chemical-feedstock": ("painted_metal", 1, "side.png", None, chemical_feedstock_texture),
+    "polymer": ("polymer_rubber", 1, "side.png", None, polymer_texture),
+    "electrical-components": ("painted_metal", 1, "side.png", "shared/equipment-underside.png", electrical_components_texture),
+    "electronic-components": ("painted_metal", 1, "side.png", "shared/equipment-underside.png", electronic_components_texture),
+    "structural-block": ("painted_metal", 1, None, None, structural_block_texture),
+    "construction-block": ("concrete", 1, None, None, construction_block_texture),
+    "rail": ("bare_metal", 1, "side.png", None, rail_texture),
     "staple-food": ("organic", 1, "side.png", None, staple_food_texture),
     "prepared-food": ("bare_metal", 1, "side.png", None, prepared_food_texture),
     "clothing": ("organic", 1, "side.png", None, clothing_texture),
@@ -666,7 +816,7 @@ RAW_GOODS_ART = {
     "medical-supplies": ("polymer_rubber", 1, "side.png", None, medical_supplies_texture),
 }
 # 表中货物的 icon.png 是唯一源，生成器只生成 Keep File 导入声明。
-HAND_DRAWN_ICONS = tuple(f"voxels/{identity}/icon.png" for identity in RAW_GOODS_ART)
+HAND_DRAWN_ICONS = tuple(f"voxels/{identity}/icon.png" for identity in GOODS_ART)
 # 相对 resources/ 的精确路径；蓝图由创作模式维护，模型由 Blender 源导出，生成器只维护清单和导入声明。
 AUTHORED_FILES = (
     "blueprints/large-locomotive.blueprint.json",
@@ -696,12 +846,10 @@ def engine_texture(x, y):
     return tint(BLUE, -22 if 4 <= x < 28 and y % 8 in (2, 3) else grain(x, y, 32, 0x511))
 
 
-def control_window(x, y):
-    return 3 <= x < 29
-
-
 def control_texture(x, y):
-    return tint(GLASS if control_window(x, y) else BLUE, grain(x, y, 32, 0x512))
+    window = 3 <= x < 29
+    color = tint(GLASS if window else BLUE, grain(x, y, 32, 0x512))
+    return color[:3] + (0,) if window else color
 
 
 def storage_texture(x, y):
@@ -749,11 +897,7 @@ def icon(identity):
         polygon([(x+width,y),(x+width+depth,y-depth),(x+width+depth,y+height-depth),(x+width,y+height)], tint(color, -16)[:3])
         polygon([(x,y),(x+width,y),(x+width,y+height),(x,y+height)], color)
 
-    if identity == "structural-metal":
-        box(22, 39, 64, 14, 19, BLUE)
-        box(43, 53, 19, 39, 19, BLUE)
-        box(22, 88, 64, 13, 19, BLUE)
-    elif identity == "bogie":
+    if identity == "bogie":
         for x in (35, 79):
             for y in range(65, 104):
                 for px in range(x - 16, x + 17):
@@ -790,18 +934,16 @@ def style_assets(files):
         texture = lambda x, y: underside_texture(x, y)[:3] + (0,)
         files[f"voxels/shared/{name}.png"] = png(size, texture)
     for identity, size, top, side in (
-        ("structural-metal", 128, tread_texture, plate_texture),
         ("propulsion-equipment", 32, grille_texture, engine_texture),
         ("control-equipment", 32, equipment_roof_texture, control_texture),
         ("storage-equipment", 32, storage_roof_texture, storage_texture),
     ):
         top = neutral_texture(top, DEFAULT_PAINTS[identity])
-        side = neutral_texture(side, DEFAULT_PAINTS[identity],
-                               control_window if identity == "control-equipment" else None)
+        side = neutral_texture(side, DEFAULT_PAINTS[identity])
         files[f"voxels/{identity}/top.png"] = png(size, top)
         if side is not None:
             files[f"voxels/{identity}/side.png"] = png(size, side)
-    for identity in ("structural-metal", "bogie", "propulsion-equipment",
+    for identity in ("bogie", "propulsion-equipment",
                      "control-equipment", "storage-equipment"):
         files[f"voxels/{identity}/icon.png"] = icon(identity)
 
@@ -836,12 +978,7 @@ def scene_assets(files, voxel):
             if icon_path == top_path:
                 files[f"voxels/{identity}/icon.png"] = png(32 * span, top)
                 icon_path = "icon.png"
-            keep = None
-            if identity == "street-lamp":
-                keep = street_lamp_panel
-            elif identity == "road-barrier":
-                keep = road_barrier_stripe
-            top = neutral_texture(top, DEFAULT_PAINTS[identity], keep)
+            top = neutral_texture(top, DEFAULT_PAINTS[identity])
             if side is not None:
                 side = neutral_texture(side, DEFAULT_PAINTS[identity])
         files[texture_path] = png(32 * span, top)
@@ -1155,8 +1292,12 @@ def content_files():
     for name in SETTLEMENT_SYMBOLS:
         files[f"settlement-types/{name}/symbol.png"] = symbol_png(name)
 
-    def voxel(identity, name, material, face_paths, icon_path, simulation=None, wheelset=False, light=False,
+    def voxel(identity, name, material=None, face_paths=None, icon_path=None, simulation=None, wheelset=False, light=False,
               tile_span=None, description=None):
+        if identity in GOODS_ART:
+            material, tile_span, side, bottom, _ = GOODS_ART[identity]
+            face_paths, icon_path = faces("top.png", side, bottom), "icon.png"
+            description = raw_description.format(name)
         if material in PAINTABLE_MATERIALS:
             if identity not in DEFAULT_PAINTS:
                 raise ValueError(f"{identity}: paintable voxel has no default paint")
@@ -1199,10 +1340,8 @@ def content_files():
 
     sample_description = "{}的第一阶段风格样稿；数值待配平，画面待用户阶段试玩确认。"
     raw_description = "{}的正式美术；数值待配平，画面待用户阶段试玩确认。"
-    voxel("structural-metal", "结构金属", "painted_metal", faces("top.png", "side.png", "shared/vehicle-underside.png"),
-          "icon.png", good("structural-metal", 0.028, 260), tile_span=4, description=sample_description.format("结构金属"))
-    voxel("construction-material", "建筑材料", "concrete", faces("shared/soil-face.png"),
-          "shared/soil-icon.png", good("construction-material", 0.046, 220))
+    voxel("structural-metal", "结构金属", simulation=good("structural-metal", 0.028, 260))
+    voxel("construction-material", "建筑材料", simulation=good("construction-material", 0.046, 220))
     voxel("bogie", "转向架", "bare_metal", faces("shared/equipment-face.png"),
           "icon.png", good("bogie", 0.034, 240), wheelset=True)
     voxel("platform-equipment", "站台设备", "painted_metal", faces("shared/equipment-face.png"),
@@ -1219,15 +1358,11 @@ def content_files():
              ("prepared-food", "加工食品", 0.6), ("consumer-goods", "日用品", 1.4),
              ("consumer-electronics", "消费电子", 1.6), ("medical-supplies", "医疗用品", 0.4))
     for identity, name, mass in goods:
-        material, tile_span, side, bottom, _ = RAW_GOODS_ART[identity]
-        voxel(identity, name, material, faces("top.png", side, bottom), "icon.png", good(identity, mass),
-              tile_span=tile_span, description=raw_description.format(name))
-    material, tile_span, side, bottom, _ = RAW_GOODS_ART["stone"]
-    voxel("stone", "石料", material, faces("top.png", side, bottom), "icon.png", good("stone", 0.042),
-          tile_span=tile_span, description=raw_description.format("石料"))
+        voxel(identity, name, simulation=good(identity, mass))
+    voxel("stone", "石料", simulation=good("stone", 0.042))
     scene_assets(files, voxel)
     style_assets(files)
-    for identity, (material, tile_span, side, _, texture) in RAW_GOODS_ART.items():
+    for identity, (material, tile_span, side, _, texture) in GOODS_ART.items():
         size = 32 * tile_span
         top = neutral_texture(texture, DEFAULT_PAINTS[identity]) if material in PAINTABLE_MATERIALS else texture
         files[f"voxels/{identity}/top.png"] = png(size, top)
@@ -1291,7 +1426,7 @@ def content_files():
         voxel(identity, name, "painted_metal", faces("shared/equipment-face.png"),
               "shared/equipment-icon.png", good(identity, 0.08, behaviors=behavior))
     fuel = good("fuel", 0.7)
-    voxel("fuel", "燃料", "organic", faces("shared/organic-face.png"), "shared/organic-icon.png", fuel)
+    voxel("fuel", "燃料", simulation=fuel)
 
     for identity, name, physical_source, texture in NEW_GOODS:
         source = voxel_definitions[physical_source]["simulation"]
@@ -1300,16 +1435,10 @@ def content_files():
             factor = CANNON_FACTOR if identity == "cannon" else 1
             simulation["behaviors"] = {"weapon": {"damage": ceil(source["max_durability"] * WEAPON_DAMAGE_SHARE) * factor,
                                                    "interval": MACHINE_GUN_INTERVAL_SECONDS * factor}}
-        material = "glass" if identity == "glass" else "concrete" if identity == "construction-block" else {
-            "soil": "stone_soil", "organic": "organic", "equipment": "painted_metal"}[texture]
+        material = {"soil": "stone_soil", "organic": "organic", "equipment": "painted_metal"}[texture]
         face_paths, icon_path = faces(f"shared/{texture}-face.png"), f"shared/{texture}-icon.png"
-        tile_span, description = None, None
-        if identity in RAW_GOODS_ART:
-            material, tile_span, side, bottom, _ = RAW_GOODS_ART[identity]
-            face_paths, icon_path = faces("top.png", side, bottom), "icon.png"
-            description = raw_description.format(name)
         voxel(identity, name, material, face_paths, icon_path, simulation,
-              light=identity == "lamp", tile_span=tile_span, description=description)
+              light=identity == "lamp")
 
     document("blueprints", "blueprint", "large-diesel-engine",
              large_diesel_engine(voxel_definitions["propulsion-equipment"]["simulation"]["behaviors"]["propulsion"]))

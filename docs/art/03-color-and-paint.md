@@ -77,7 +77,7 @@
 
 [#583](https://github.com/odradekk/train/issues/583) 已将现有 26 个 `painted_metal`／`concrete` 体素定义的可涂贴图迁为中性纹样，并为内置设计和示例存档补齐默认 `paint`。现有车辆及共用面贴图仍从唯一源 `scripts/content/generate_small_world.py` 生成，共用图继续引用同一 PNG。#338 的临时样例不成为正式资产源。
 
-每个可涂体素定义只有一个默认色，就是迁移前贴图可涂部分所用的基色。这些基色由 `scripts/content/generate_small_world.py` 中的基色常量确定，例如下表车辆体素使用的 `BLUE`、`RED`，以及 `concrete` 使用的 `CONCRETE`（`#a8a59e`）。
+每个可涂体素定义只有一个默认色，迁移时沿用原贴图可涂部分的基色；经批准的正式美术批次可以替换占位基色，#393 将建筑材料、混凝土块改为 `CONCRETE`，结构块改为 `STEEL`。这些基色由 `scripts/content/generate_small_world.py` 中的基色常量确定，例如下表车辆体素使用的 `BLUE`、`RED`，以及 `concrete` 使用的 `CONCRETE`（`#a8a59e`）。
 
 默认色只在生成器里维护一份。生成器在输出内置设计前，为引用可涂体素且尚未写 `paint` 的调色板项补默认色，包含嵌套组装体和场景模型中的设计。同一体素在所有内置设计里使用同一个默认色，不按车辆另定涂装方案；已经显式写入的 `paint` 保持不变，包括 `tunnel-portal-*` 的 `#000000`。Scenes 直接放置的可涂原料使用生成器输出的内部色表，当前只有原油资源堆。
 
