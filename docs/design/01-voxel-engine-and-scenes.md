@@ -223,8 +223,9 @@ W 处同一引入线上的列车向后首尾相接，不加额外间隔：静止
 按 [#581 用户确认](https://github.com/odradekk/train/issues/581#issuecomment-6244790041)，当前 Demo 保留以下已知限制：
 
 - 线路与节点场景的空间边界不重叠，交接时最多约半列车悬于未构建侧；26 米列车约为 12.8 米，每次持续约 0.05–0.8 秒。104 米列车最多约 52 米，在 1× 的线路 11 → 节点 8 交接中持续约 9.1 秒，也按[用户确认](https://github.com/odradekk/train/issues/581#issuecomment-6246042954)保留为 Demo 已知限制。
-- 1× 时可保持车头前方 32 米已构建；高倍速下，节点受 [#443](https://github.com/odradekk/train/issues/443)／[#481](https://github.com/odradekk/train/issues/481) 的显示速度映射影响，前方仍可能有雾，被跟随列车仍可见。沿路径预构建留至 Demo 后由 [#604](https://github.com/odradekk/train/issues/604) 处理。
-- 请求 8× 时，正式测量的实际倍率中位数为 6.752×，未达 7.5× 目标；剩余瓶颈为年轻代 GC 暂停和主线程场景成本。
+- 旧 seed-40 示例的 26 米列车在 1× 时可保持车头前方 32 米已构建；高倍速下，节点受 [#443](https://github.com/odradekk/train/issues/443)／[#481](https://github.com/odradekk/train/issues/481) 的显示速度映射影响，前方仍可能有雾，被跟随列车仍可见。沿路径预构建留至 Demo 后由 [#604](https://github.com/odradekk/train/issues/604) 处理。
+- 当前 starting-trade 示例（Core 格式 16，列车 1 为 4 辆车、共 104 米）在 1× 通过节点 8 出口时，局部映射显示速度约 318 米／秒（d/D≈21.2），显示前方不足 64 米约 3.0 秒（123 帧）、不足 32 米约 2.85 秒（119 帧），最小为 0 米；列车下方约 2.5 秒未完全构建，被跟随列车仍可见。该段受宿主资源准备与接入吞吐限制：48k 批量练习探针的接入约 46 万顶点／秒，现有路径策略需求约 71 万顶点／秒。按[用户决定](https://github.com/odradekk/train/issues/581#issuecomment-6247958233)，本票验收条件 2、3 以该示例的实测值处理，Demo 后由 [#604](https://github.com/odradekk/train/issues/604) 改善。
+- 请求 8×、Release 连续跟随跨节点 120 秒：旧 seed-40 示例的 26 米列车（head `872c5d00`）实际倍率中位数为 6.752×；当前 starting-trade 示例的 104 米列车（Core 格式 16，head `e520ac07`）中位数为 6.252×、平均为 6.133×，按[用户决定](https://github.com/odradekk/train/issues/581#issuecomment-6247958233)作为 Demo 的实测可达值。两组输入、编组和路线不同，不直接作为代码效果对照；均未达 7.5× 目标，剩余差距为年轻代 GC 暂停和主线程场景成本。
 
 ### 场景中的结构破损
 
