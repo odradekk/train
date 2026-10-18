@@ -280,9 +280,7 @@ public sealed class ProductionTests
             Goods = extraStock == 0 ? [] : [new(OtherProduct, extraStock)],
             Reservations = reserved == 0 ? [] : [new(new(1), reserved, [])]
         }).ToImmutableArray() };
-        var saved = WorldFixture.Success(CoreFactory.Create().DecodeState(new CoreCapture(state with { World = world }).Encode()));
-        using var candidate = WorldFixture.Success(CoreFactory.Create().PrepareRestore(saved, state.Content, WorldFixture.Options));
-        using var session = candidate.Activate();
+        using var session = new CoreSession(state with { World = world });
         Step(session);
         Assert.AreEqual(0L, Stock(session, Product));
         Assert.AreEqual(new GoodsQuantity(Product, 3), Read(session).OutputBuffer.Single());

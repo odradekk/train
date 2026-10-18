@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
@@ -10,6 +11,61 @@ namespace Train.Core.Tests.Construction;
 [TestClass]
 public sealed class CommissionRecoveryTests
 {
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Refit_return_reservation_restores_to_expired_or_frozen_player_lease_and_rejects_npc_inventory(bool frozen)
+    {
+        var content = CommissionFixture.Content(rate: 1);
+        content = content with
+        {
+            MarketRules = [content.MarketRules[0] with { RentableCapacityRatio = new(10000), LeaseDurationTicks = 1 }]
+        };
+        using var original = CommissionFixture.Session(content);
+        var settlement = original.State.World.Settlements.Single();
+        var lease = Accept(original, new CoreCommand.AcquireLease(new LeaseRequest.Rent(settlement.Id, 10, 1), new(long.MaxValue)))
+            .Events.Select(e => e.Event).OfType<CoreEvent.LeaseAcquired>().Single().Lease;
+        var input = Design(content);
+        var target = input with { Design = input.Design with
+        {
+            Design = new(new string('9', 64)), Composition = new(new string('8', 64)),
+            Parts = [], BillOfMaterials = [new(Material, 2)], BillOfMaterialsItemCount = 2
+        } };
+        var change = new DesignChangeProjection(input.Design.Design, input.Design.Composition, target,
+            [], [], [new(Material, 1, [new(0)], [], [])], 1);
+        var job = Start(original, new CoreCommand.CommissionVehicleWork(new JobRequest.Refit(Facility, Vehicle, change, [], 0), new(long.MaxValue)));
+        Step(original);
+        var world = original.State.World;
+        using var session = new CoreSession(original.State with { World = !frozen ? world : world with
+        {
+            Settlements = [settlement with { Relation = SettlementRelation.Hostile }],
+            Nodes = world.Nodes.Select(n => n.Id != settlement.Node ? n : n with
+                { Occupant = new NodeOccupant.Settlement(settlement.Id, SettlementRelation.Hostile) }).ToImmutableArray(),
+            Instances = world.Instances.Select(i => i.Id is not InstanceId.Building ? i : i with
+                { Ownership = SettlementRelation.Hostile }).ToImmutableArray()
+        } });
+        var saved = WorldFixture.Success(session.Capture(CapturePurpose.Save));
+        var factory = CoreFactory.Create();
+        var decoded = WorldFixture.Success(factory.DecodeState(saved.Encode()));
+        using var candidate = WorldFixture.Success(factory.PrepareRestore(decoded, content, WorldFixture.Options));
+        using var restored = candidate.Activate();
+        Assert.AreEqual(saved.Encode(), WorldFixture.Success(restored.Capture(CapturePurpose.Save)).Encode());
+        var inventory = ((Lookup<InventoryView>.Found)restored.Read().FindInventory(lease.Inventory)).Value;
+        Assert.AreEqual(job.Id, inventory.Reservations.Single().Job);
+        Assert.AreEqual(frozen ? InventoryAccess.Frozen : InventoryAccess.WithdrawOnly, inventory.Access);
+        Assert.IsTrue(((Lookup<LeaseView>.Found)restored.Read().FindLease(lease.Id)).Value.Expired);
+
+        var payload = JsonNode.Parse(saved.Encode())!;
+        var inventories = payload["world"]!["inventories"]!.AsArray();
+        var rented = inventories.Single(i => i!["id"]!["value"]!.GetValue<ulong>() == lease.Inventory.Value)!;
+        var npc = inventories.Single(i => i!["id"]!["value"]!.GetValue<ulong>() == Local.Value)!;
+        npc["reservations"] = rented["reservations"]!.DeepClone();
+        rented["reservations"] = new JsonArray();
+        payload["world"]!["construction_jobs"]![0]!["return_inventory"]!["value"] = Local.Value;
+        var failure = (CoreResult<ICoreCapture>.Failure)factory.DecodeState(payload.ToJsonString());
+        Assert.AreEqual($"/world/construction_jobs/{job.Id.Value}/return_inventory", failure.Problems.Single().Field);
+    }
+
     [TestMethod]
     public void Publishing_content_keeps_paid_amount_and_frozen_work_but_new_commissions_use_new_terms()
     {

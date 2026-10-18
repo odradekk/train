@@ -38,7 +38,7 @@ internal sealed record InstanceState(InstanceId Id, DesignHash Design,
     ImmutableArray<PartDurability> Parts)
 {
     internal InstanceView Read(WorldState world, CoreContentProjection content, WorldLocation location, DesignProjection design) => new(Id, design.Design, design.Composition, location, Ownership, Details,
-        ConstructionJobs.InstanceLocked(world, Id) ? InstanceLock.UnderRepair : InstanceLock.None,
+        ConstructionJobs.Lock(world, Id),
         new(Math.Min(StructureDurability, design.MaxStructureDurability), design.MaxStructureDurability),
         Parts.Select(p =>
         {

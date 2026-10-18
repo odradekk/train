@@ -221,14 +221,19 @@ internal static class WorldInputs
             foreach (var capability in Items(part.Capabilities)) Capability(capability);
         }
         Quantities(design.StructuralGoods); Quantities(design.BillOfMaterials);
-        foreach (var unit in Items(design.ReturnUnits))
+        ValidateReturns(design.ReturnUnits);
+        Missing(design.MissingReferences);
+    }
+
+    private static void ValidateReturns(ImmutableArray<DesignReturnUnit> units)
+    {
+        foreach (var unit in Items(units))
         {
             ValidateGood(unit.Good); Require(unit.Quantity > 0, "ReturnUnits");
             Unique(Items(unit.Parts), x => x);
             foreach (var part in unit.Parts) Require(part.Value >= 0, "ReturnUnits.Parts");
             Quantities(unit.StructuralGoods); Missing(unit.MissingReferences);
         }
-        Missing(design.MissingReferences);
     }
 
     internal static void ValidateTemplate(SettlementTemplateProjection template)
@@ -322,6 +327,31 @@ internal static class WorldInputs
         };
     }
 
+    internal static DesignChangeProjection NormalizeDesignChange(DesignChangeProjection change)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        Hash(change.Before.Value); Hash(change.BeforeComposition.Value);
+        Require(change.ChangedItemCount >= 0, "ChangedItemCount");
+        Unique(Items(change.RetainedParts), p => p.Before);
+        Unique(change.RetainedParts, p => p.After);
+        foreach (var part in change.RetainedParts)
+            Require(part.Before.Value >= 0 && part.After.Value >= 0, "RetainedParts");
+        Quantities(change.AddedGoods);
+        ValidateReturns(change.RemovedItems);
+        return change with
+        {
+            Target = NormalizeDesignInput(change.Target),
+            RetainedParts = change.RetainedParts.OrderBy(p => p.Before.Value).ToImmutableArray(),
+            AddedGoods = Amounts(change.AddedGoods), RemovedItems = NormalizeReturns(change.RemovedItems)
+        };
+    }
+
+    internal static ImmutableArray<DesignReturnUnit> NormalizeReturns(ImmutableArray<DesignReturnUnit> units)
+        => units.Select(x => x with
+            { Parts = x.Parts.OrderBy(p => p.Value).ToImmutableArray(), StructuralGoods = Amounts(x.StructuralGoods),
+                MissingReferences = MissingOrder(x.MissingReferences) })
+            .Order(Comparer<DesignReturnUnit>.Create(CompareReturnUnits)).ToImmutableArray();
+
     internal static DesignProjection NormalizeDesign(DesignProjection design) => design with
     {
         MassTons = Zero(design.MassTons),
@@ -330,10 +360,7 @@ internal static class WorldInputs
         Parts = design.Parts.OrderBy(x => x.Id.Value).Select(x => x with
             { Capabilities = x.Capabilities.OrderBy(CapabilityOrder).ToImmutableArray() }).ToImmutableArray(),
         StructuralGoods = Amounts(design.StructuralGoods), BillOfMaterials = Amounts(design.BillOfMaterials),
-        ReturnUnits = design.ReturnUnits.Select(x => x with
-            { Parts = x.Parts.OrderBy(p => p.Value).ToImmutableArray(), StructuralGoods = Amounts(x.StructuralGoods),
-                MissingReferences = MissingOrder(x.MissingReferences) })
-            .Order(Comparer<DesignReturnUnit>.Create(CompareReturnUnits)).ToImmutableArray(),
+        ReturnUnits = NormalizeReturns(design.ReturnUnits),
         MissingReferences = MissingOrder(design.MissingReferences)
     };
 

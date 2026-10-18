@@ -16,54 +16,53 @@ internal static class ConstructionCommands
         ArgumentNullException.ThrowIfNull(request);
         if (!Enum.IsDefined(funding)) throw new ArgumentException("施工资金来源无效。", nameof(funding));
         if (funding == JobFunding.NpcCommission && request is JobRequest.BuildBuilding or JobRequest.BuildEquipment
-                or JobRequest.Dismantle or JobRequest.Repair { Instance: InstanceId.Building })
+                or JobRequest.Dismantle or JobRequest.Repair { Instance: InstanceId.Building }
+                or JobRequest.Refit { Instance: InstanceId.Building })
             throw new ArgumentException("委托只支持车辆制造、改装和修理。", nameof(request));
         var (facility, sources, _) = request switch
         {
             JobRequest.BuildVehicle build => (build.Facility, build.Sources, build.Priority),
+            JobRequest.Refit { Instance: InstanceId.Vehicle vehicle } refit when vehicle.Id.Value != 0
+                => (refit.Facility, refit.Sources, refit.Priority),
             JobRequest.Repair { Instance: InstanceId.Vehicle vehicle } repair when vehicle.Id.Value != 0
                 => (repair.Facility, repair.Sources, repair.Priority),
-            JobRequest.Repair { Instance: InstanceId.Vehicle } => throw new ArgumentException("车辆编号必须非零。", nameof(request)),
+            JobRequest.Dismantle { Instance: InstanceId.Vehicle vehicle } dismantle when vehicle.Id.Value != 0
+                => (dismantle.Facility, ImmutableArray<InventoryId>.Empty, dismantle.Priority),
+            JobRequest.Repair { Instance: InstanceId.Vehicle { Id.Value: 0 } }
+                or JobRequest.Refit { Instance: InstanceId.Vehicle { Id.Value: 0 } }
+                or JobRequest.Dismantle { Instance: InstanceId.Vehicle { Id.Value: 0 } }
+                => throw new ArgumentException("车辆编号必须非零。", nameof(request)),
             _ => throw new NotImplementedException($"{request.GetType().Name} 尚未实现。")
         };
         ArgumentNullException.ThrowIfNull(facility);
         if (facility.Building.Value == 0 || facility.Capability != CapabilityKind.Construction || sources.IsDefault
             || sources.Any(s => s.Value == 0))
             throw new ArgumentException("施工请求须提供施工设施和已初始化的来源数组。", nameof(request));
-        if (request is not JobRequest.BuildVehicle building) return;
-        var input = WorldInputs.NormalizeDesignInput(building.Design);
-        if (input.InputIdentity != content.Identity) return;
-        var current = content.Designs.SingleOrDefault(d => d.Design == input.Design.Design)
-            ?? world.Designs.SingleOrDefault(d => d.Design == input.Design.Design);
-        if (current is not null && !WorldJson.SameValue(WorldInputs.NormalizeDesign(input.Design), WorldInputs.NormalizeDesign(current)))
-            throw new ArgumentException("同一设计身份的业务投影相互矛盾。", nameof(request));
-        foreach (var good in input.AssemblyGoods)
-        {
-            var existing = content.DesignGoods.SingleOrDefault(g => g.Good == good.Good)
-                ?? world.DesignGoods.SingleOrDefault(g => g.Good == good.Good);
-            if (existing is not null && !WorldJson.SameValue(
-                    existing with { MassTons = WorldInputs.Zero(existing.MassTons) },
-                    good with { MassTons = WorldInputs.Zero(good.MassTons) }))
-                throw new ArgumentException("同一组装体货物身份的投影相互矛盾。", nameof(request));
-        }
+        if (request is JobRequest.BuildVehicle building) VehicleDesignChanges.ValidateInput(building.Design, world, content);
+        if (request is JobRequest.Refit refitting)
+            VehicleDesignChanges.Validate(refitting.Instance, refitting.Change, world, content);
     }
 
     internal static JobQuote Quote(WorldState world, CoreContentProjection content, ulong step, CoreRevision revision,
         JobRequest request, JobFunding funding)
         => Prepare(world, content, step, revision, request, funding, null).Quote;
 
-    private static (WorldState World, JobQuote Quote) Prepare(WorldState world, CoreContentProjection content,
+    private static (WorldState World, JobQuote Quote, ImmutableArray<GoodsQuantity> Returns, InventoryId? ReturnInventory) Prepare(WorldState world, CoreContentProjection content,
         ulong step, CoreRevision revision, JobRequest request, JobFunding funding, Money? maximumPayment)
     {
         var (facility, sources, priority) = request switch
         {
             JobRequest.BuildVehicle build => (build.Facility, build.Sources, build.Priority),
+            JobRequest.Refit refit => (refit.Facility, refit.Sources, refit.Priority),
             JobRequest.Repair repair => (repair.Facility, repair.Sources, repair.Priority),
+            JobRequest.Dismantle dismantle => (dismantle.Facility, ImmutableArray<InventoryId>.Empty, dismantle.Priority),
             _ => throw new InvalidOperationException("施工请求无效。")
         };
         var prepared = world;
         long work = 0;
         ImmutableArray<GoodsQuantity> required = [];
+        ImmutableArray<GoodsQuantity> returns = [];
+        InventoryId? returnInventory = null;
         var consumption = ImmutableArray.CreateBuilder<JobMaterialSourceView>();
         var purchases = ImmutableArray.CreateBuilder<GoodsQuantity>();
         Money? materialPayment = funding == JobFunding.OwnInventory ? new(0) : null;
@@ -78,6 +77,7 @@ internal static class ConstructionCommands
         }
         DesignProjection design;
         VehicleId? vehicle = null;
+        InstanceState? instance = null;
         if (request is JobRequest.BuildVehicle buildVehicle)
         {
             var input = WorldInputs.NormalizeDesignInput(buildVehicle.Design);
@@ -85,13 +85,7 @@ internal static class ConstructionCommands
             design = WorldInputs.NormalizeDesign(input.Design);
             if (design.Kind is not DesignKind.Vehicle || !design.CanConstruct)
                 return Reject("invalid_design", "Design");
-            prepared = world with
-            {
-                Designs = world.Designs.Where(d => d.Design != design.Design).Append(design)
-                    .OrderBy(d => d.Design.Value, StringComparer.Ordinal).ToImmutableArray(),
-                DesignGoods = world.DesignGoods.Concat(input.AssemblyGoods).DistinctBy(g => g.Good)
-                    .OrderBy(g => WorldReferences.GoodKey(g.Good), StringComparer.Ordinal).ToImmutableArray()
-            };
+            prepared = VehicleDesignChanges.AddTarget(world, input);
             if (!design.MissingReferences.IsEmpty || design.Parts.Any(p => InstanceCapabilities.DefinitionMissing(prepared, content, design.Design, p))
                 || design.ReturnUnits.Any(u => !u.MissingReferences.IsEmpty)
                 || WorldReferences.DesignGoods(design).Any(g => WorldGoods.DefinitionMissing(prepared, content, g.Good)))
@@ -99,23 +93,38 @@ internal static class ConstructionCommands
         }
         else
         {
-            vehicle = ((InstanceId.Vehicle)((JobRequest.Repair)request).Instance).Id;
-            var instance = world.Instances.SingleOrDefault(i => i.Id == new InstanceId.Vehicle(vehicle.Value));
+            vehicle = (request switch
+            {
+                JobRequest.Refit targetRefit => (InstanceId.Vehicle)targetRefit.Instance,
+                JobRequest.Repair repair => (InstanceId.Vehicle)repair.Instance,
+                JobRequest.Dismantle dismantle => (InstanceId.Vehicle)dismantle.Instance,
+                _ => throw new InvalidOperationException("施工目标无效。")
+            }).Id;
+            instance = world.Instances.SingleOrDefault(i => i.Id == new InstanceId.Vehicle(vehicle.Value));
             if (instance is null) return Reject("object_missing", "Instance");
             if (instance.Ownership != SettlementRelation.PlayerOwned) return Reject("not_owned", "Instance");
             if (ConstructionJobs.InstanceLocked(world, instance.Id)) return Reject("instance_locked", "Instance");
             if (instance.Details is InstanceDetails.Vehicle { Train: { } trainId })
             {
+                if (request is JobRequest.Dismantle) return Reject("vehicle_in_train", "Instance.Details.Train");
                 var train = world.Trains.Single(t => t.Id == trainId);
                 if (train.Position is not TrainPosition.Node node || node.Id != settlement.Node || train.Activity != TrainActivity.Stopped)
                     return Reject("train_not_stationary_at_node", "Instance.Location");
             }
             else if (!settlement.ParkedVehicles.Contains(vehicle.Value)) return Reject("vehicles_not_colocated", "Instance.Location");
             design = world.Designs.Single(d => d.Design == instance.Design);
-            if (Math.Min(instance.StructureDurability, design.MaxStructureDurability) <= 0)
+            if (instance.StructureDurability <= 0 || design.MaxStructureDurability == 0 && request is not JobRequest.Dismantle)
                 return Reject("instance_destroyed", "Instance");
+            if (request is JobRequest.Refit refit)
+            {
+                var change = WorldInputs.NormalizeDesignChange(refit.Change);
+                if (VehicleDesignChanges.Check(world, content, instance, change, false) is { } problem) return Result([problem]);
+                if (design.Composition == change.Target.Design.Composition) return Reject("invalid_design", "Change.Target");
+                prepared = VehicleDesignChanges.AddTarget(world, change.Target);
+                design = change.Target.Design;
+            }
         }
-        var size = ((DesignKind.Vehicle)design.Kind).Size;
+        SizeClass? size = request is JobRequest.Dismantle ? null : ((DesignKind.Vehicle)design.Kind).Size;
         if (ConstructionJobs.Qualification(world, content, settlement.Id, facility, size, funding) is { } qualification)
             return Result([qualification]);
         if (ConstructionJobs.WorkRate(world, content, facility, size) <= 0) return Reject("capability_zero", "Facility");
@@ -133,14 +142,27 @@ internal static class ConstructionCommands
             foreach (var good in BillOfMaterials([design])) Add(good.Good, good.Quantity);
             work = checked(design.BillOfMaterialsItemCount * rule.ConstructionWorkPerItem);
         }
+        else if (request is JobRequest.Refit refit)
+        {
+            var change = WorldInputs.NormalizeDesignChange(refit.Change);
+            foreach (var good in change.AddedGoods) Add(good.Good, good.Quantity);
+            var removed = ConstructionReturns.Calculate(world, content, instance!, change.RemovedItems);
+            returns = removed.Goods;
+            work = checked(change.ChangedItemCount * rule.RefitWorkPerChangedItem + removed.DamagedParts * rule.RepairWorkPerDamagedPart);
+        }
+        else if (request is JobRequest.Dismantle)
+        {
+            var removed = ConstructionReturns.Calculate(world, content, instance!, ConstructionReturns.AllItems(design));
+            returns = removed.Goods;
+            work = checked(design.BillOfMaterialsItemCount * rule.DeconstructionWorkPerItem + removed.DamagedParts * rule.RepairWorkPerDamagedPart);
+        }
         else
         {
-            var instance = world.Instances.Single(i => i.Id == new InstanceId.Vehicle(vehicle.Value));
             long destroyed = 0, damaged = 0, structure = 0;
             foreach (var part in design.Parts)
             {
                 if (InstanceCapabilities.DefinitionMissing(world, content, design.Design, part)) continue;
-                var durability = Math.Min(instance.Parts.Single(p => p.Id == part.Id).Current, part.MaxDurability);
+                var durability = Math.Min(instance!.Parts.Single(p => p.Id == part.Id).Current, part.MaxDurability);
                 if (durability == 0 && part.MaxDurability > 0)
                 {
                     if (WorldGoods.DefinitionMissing(world, content, part.RepairGood))
@@ -151,7 +173,7 @@ internal static class ConstructionCommands
                 else if (durability < part.MaxDurability) damaged++;
             }
             var maximum = design.MaxStructureDurability;
-            var loss = maximum - Math.Min(instance.StructureDurability, maximum);
+            var loss = maximum - Math.Min(instance!.StructureDurability, maximum);
             foreach (var good in design.StructuralGoods)
             {
                 if (WorldGoods.DefinitionMissing(world, content, good.Good)) continue;
@@ -161,7 +183,7 @@ internal static class ConstructionCommands
             }
             work = checked(checked(destroyed + structure) * rule.ConstructionWorkPerItem + damaged * rule.RepairWorkPerDamagedPart);
         }
-        if (work == 0) return Reject("invalid_state", "Instance.Durability");
+        if (work == 0 && request is JobRequest.Repair) return Reject("invalid_state", "Instance.Durability");
         required = needed.OrderBy(g => WorldReferences.GoodKey(g.Key), StringComparer.Ordinal)
             .Select(g => new GoodsQuantity(g.Key, g.Value)).ToImmutableArray();
         var inventories = new HashSet<InventoryId>();
@@ -225,6 +247,21 @@ internal static class ConstructionCommands
             materialPayment = new(payment);
             servicePayment = new(checked(work * marketRule!.CommissionMoneyPerWork.Value));
         }
+        if (!returns.IsEmpty)
+        {
+            var afterConsumption = Consume(prepared, consumption);
+            var quantity = returns.Sum(g => g.Quantity);
+            var destination = funding == JobFunding.OwnInventory
+                ? InventoryStorage.Read(afterConsumption, content, step,
+                    afterConsumption.Inventories.Single(i => i.Id == settlement.Inventory))
+                : afterConsumption.Inventories.Where(i => i.Owner is InventoryOwner.Lease lease
+                        && afterConsumption.Leases.Any(l => l.Id == lease.Id && l.Settlement == settlement.Id))
+                    .OrderBy(i => i.Id.Value).Select(i => InventoryStorage.Read(afterConsumption, content, step, i))
+                    .FirstOrDefault(i => i.Access == InventoryAccess.ReadWrite && i.Available >= quantity);
+            if (destination is null || destination.Access != InventoryAccess.ReadWrite || destination.Available < quantity)
+                return Reject("insufficient_capacity", "ReturnInventory.Capacity");
+            returnInventory = destination.Id;
+        }
         if (world.Next.Job == ulong.MaxValue) return Reject("identity_exhausted", "World.Next.Job");
         totalPayment = new(checked(materialPayment!.Value.Value + servicePayment!.Value.Value));
         if (maximumPayment is { } limit && totalPayment.Value.Value > limit.Value)
@@ -233,26 +270,32 @@ internal static class ConstructionCommands
         return Result([]);
 
         void Add(GoodId good, long quantity) => needed[good] = checked(needed.GetValueOrDefault(good) + quantity);
-        (WorldState, JobQuote) Result(ImmutableArray<CoreProblem> problems) => (prepared,
+        (WorldState, JobQuote, ImmutableArray<GoodsQuantity>, InventoryId?) Result(ImmutableArray<CoreProblem> problems) => (prepared,
             new(request, funding, revision, work, required, consumption.ToImmutable(), purchases.ToImmutable(),
-                materialPayment, servicePayment, totalPayment, problems));
-        (WorldState, JobQuote) Reject(string code, string field) => Result([new(code, field, null, [])]);
+                materialPayment, servicePayment, totalPayment, problems), returns, returnInventory);
+        (WorldState, JobQuote, ImmutableArray<GoodsQuantity>, InventoryId?) Reject(string code, string field) => Result([new(code, field, null, [])]);
     }
 
     internal static CommandEffect Execute(WorldState world, CoreContentProjection content, JobRequest request,
         ulong step, JobFunding funding = JobFunding.OwnInventory, Money? maximumPayment = null)
     {
-        var (prepared, quote) = Prepare(world, content, step, new(0), request, funding, maximumPayment);
+        var (prepared, quote, returns, returnInventory) = Prepare(world, content, step, new(0), request, funding, maximumPayment);
         if (!quote.Blockers.IsEmpty) return new CommandEffect.Rejected(quote.Blockers);
         var (facility, priority, vehicle) = request switch
         {
             JobRequest.BuildVehicle build => (build.Facility, build.Priority, (VehicleId?)null),
+            JobRequest.Refit refit => (refit.Facility, refit.Priority, (VehicleId?)((InstanceId.Vehicle)refit.Instance).Id),
             JobRequest.Repair repair => (repair.Facility, repair.Priority, (VehicleId?)((InstanceId.Vehicle)repair.Instance).Id),
+            JobRequest.Dismantle dismantle => (dismantle.Facility, dismantle.Priority, (VehicleId?)((InstanceId.Vehicle)dismantle.Instance).Id),
             _ => throw new InvalidOperationException("施工请求无效。")
         };
         var settlement = world.Settlements.Single(s => s.Plots.Any(p => p.Building == facility.Building));
-        var design = request is JobRequest.BuildVehicle buildVehicle ? buildVehicle.Design.Design
-            : world.Designs.Single(d => d.Design == world.Instances.Single(i => i.Id == new InstanceId.Vehicle(vehicle!.Value)).Design);
+        var design = request switch
+        {
+            JobRequest.BuildVehicle build => build.Design.Design,
+            JobRequest.Refit refit => refit.Change.Target.Design,
+            _ => world.Designs.Single(d => d.Design == world.Instances.Single(i => i.Id == new InstanceId.Vehicle(vehicle!.Value)).Design)
+        };
         var rule = content.ConstructionRules.Single(r => r.Id == world.Source.Configuration.Rules.Construction);
         var consumption = quote.SourceConsumption;
         if (!quote.NpcPurchases.IsEmpty) consumption = consumption.Add(new(settlement.Inventory, quote.NpcPurchases));
@@ -262,13 +305,29 @@ internal static class ConstructionCommands
         var job = new ConstructionJobState(new(world.Next.Job), settlement.Id, facility, design.Design, vehicle, priority,
             rule.Id, rule.Revision, quote.TotalWork, rule.PowerPerWork, rule.LaborPerWork, invested, consumption,
             0, world.ConstructionJobs.Any(j => j.Facility == facility) ? ConstructionState.Queued : ConstructionState.Working,
-            0, [], []) { Funding = funding };
+            0, [], [])
+        {
+            Funding = funding,
+            Kind = request switch
+            {
+                JobRequest.Refit => ConstructionKind.Refit,
+                JobRequest.Dismantle => ConstructionKind.Deconstruction,
+                JobRequest.Repair => ConstructionKind.Repair,
+                _ => ConstructionKind.Construction
+            },
+            RetainedParts = request is JobRequest.Refit r ? WorldInputs.NormalizeDesignChange(r.Change).RetainedParts : [],
+            RemovedItems = request is JobRequest.Refit removed ? WorldInputs.NormalizeDesignChange(removed.Change).RemovedItems : [],
+            ReturnInventory = returnInventory
+        };
         prepared = Consume(prepared, consumption) with
         {
             ConstructionJobs = prepared.ConstructionJobs.Add(job), Next = prepared.Next with { Job = checked(world.Next.Job + 1) },
             Money = new(checked(world.Money.Value - quote.TotalPayment!.Value.Value)),
             UnassignedServicePayments = new(checked(world.UnassignedServicePayments.Value + quote.ServicePayment!.Value.Value))
         };
+        if (job.ReturnInventory is { } destination)
+            prepared = prepared with { Inventories = prepared.Inventories.Select(i => i.Id != destination ? i : i with
+                { Reservations = i.Reservations.Add(new(job.Id, returns.Sum(g => g.Quantity), returns)) }).ToImmutableArray() };
         prepared = prepared with { DefinitionDependencies = WorldReferences.Dependencies(prepared, content) };
         return new CommandEffect.Accepted(content, [new CoreEvent.ConstructionStarted(job.Read(), funding,
                 quote.MaterialPayment!.Value, quote.ServicePayment!.Value)],
@@ -286,4 +345,17 @@ internal static class ConstructionCommands
             Goods = i.Goods.Select(g => g with { Quantity = g.Quantity - (source.Goods.SingleOrDefault(t => t.Good == g.Good)?.Quantity ?? 0) })
                 .Where(g => g.Quantity > 0).ToImmutableArray()
         }).ToImmutableArray() };
+
+    internal static CommandEffect Pause(WorldState world, CoreContentProjection content, CoreCommand.SetDeconstructionPaused command)
+    {
+        var job = world.ConstructionJobs.SingleOrDefault(j => j.Id == command.Job);
+        if (job is null) return new CommandEffect.Rejected([new("object_missing", "Job", new WorldObjectId.Job(command.Job), [])]);
+        if (job.Kind != ConstructionKind.Deconstruction)
+            return new CommandEffect.Rejected([new("invalid_state", "Job.Kind", new WorldObjectId.Job(command.Job), [])]);
+        if ((job.State == ConstructionState.Paused) == command.Paused) return new CommandEffect.Accepted(content, [], world);
+        var state = command.Paused ? ConstructionState.Paused : ConstructionState.Working;
+        var changed = job with { State = state, LastActualWorkPerSecond = 0, LastLimits = [], Blockers = [] };
+        return new CommandEffect.Accepted(content, [new CoreEvent.ConstructionStateChanged(job.Id, job.State, state, [])],
+            world with { ConstructionJobs = world.ConstructionJobs.Select(j => j.Id == job.Id ? changed : j).ToImmutableArray() });
+    }
 }

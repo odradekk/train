@@ -8,7 +8,8 @@ internal static class WorldReferences
     internal static CoreReferenceManifest Create(WorldState world, CoreContentProjection content)
     {
         var usedDesigns = world.Designs.Select(d => d.Design).ToHashSet();
-        var missing = content.MissingReferences.Concat(content.Designs.Where(d => usedDesigns.Contains(d.Design))
+        var missing = world.ConstructionJobs.SelectMany(j => j.RemovedItems).SelectMany(u => u.MissingReferences)
+            .Concat(content.MissingReferences).Concat(content.Designs.Where(d => usedDesigns.Contains(d.Design))
             .SelectMany(d => d.MissingReferences.Concat(d.ReturnUnits.SelectMany(u => u.MissingReferences))
                 .Concat(d.Parts.Where(p => p.Missing).Select(p => new MissingCoreReference(p.Definition, "")))))
             .ToImmutableArray();
@@ -68,6 +69,14 @@ internal static class WorldReferences
             var path = $"World.ConstructionJobs[{job.Id.Value}]";
             definitions.Add(new(new CoreDefinitionReference.Rule(job.Rule), job.StartedFromRevision, path + ".Rule", false));
             foreach (var good in job.InvestedGoods) Good(good.Good, path + ".InvestedGoods");
+            for (var index = 0; index < job.RemovedItems.Length; index++)
+            {
+                var unit = job.RemovedItems[index];
+                var field = path + $".RemovedItems[{index}]";
+                Good(unit.Good, field + ".Good");
+                foreach (var good in unit.StructuralGoods) Good(good.Good, field + ".StructuralGoods");
+                foreach (var absent in unit.MissingReferences) Add(absent.Reference, field + ".MissingReferences");
+            }
         }
         foreach (var job in world.FoundingJobs)
         {

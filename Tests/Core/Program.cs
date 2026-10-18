@@ -9,6 +9,9 @@ using Train.Core.Tests.Production;
 using Train.Core.Tests.Trading;
 using Train.Core.Tests.Construction;
 
+if (args.Length > 0 && string.Equals(args[0], "--vehicle-work-process", StringComparison.Ordinal))
+    return await VehicleWorkProcessDriver.RunAsync(args[1..]);
+
 if (args.Length > 0 && string.Equals(args[0], "--commission-process", StringComparison.Ordinal))
     return await CommissionProcessDriver.RunAsync(args[1..]);
 

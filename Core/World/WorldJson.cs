@@ -14,6 +14,9 @@ internal static class WorldJson
     internal static void WriteDesignInput(Utf8JsonWriter writer, DesignInput input) => JsonSerializer.Serialize(writer, input, Options);
     internal static DesignInput ReadDesignInput(JsonElement element) => element.Deserialize<DesignInput>(Options) ?? throw new JsonException();
 
+    internal static void WriteDesignChange(Utf8JsonWriter writer, DesignChangeProjection change) => JsonSerializer.Serialize(writer, change, Options);
+    internal static DesignChangeProjection ReadDesignChange(JsonElement element) => element.Deserialize<DesignChangeProjection>(Options) ?? throw new JsonException();
+
     internal static WorldState Read(JsonElement element)
     {
         try
