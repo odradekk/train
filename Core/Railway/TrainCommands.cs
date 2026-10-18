@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Train.Core.Combat;
 using Train.Core.Contracts;
 using Train.Core.Sessions;
 using Train.Core.Trading;
@@ -163,7 +164,9 @@ internal static class TrainCommands
         var inventory = new InventoryId(world.Next.Inventory);
         var added = new TrainState(train, new TrainPosition.Node(settlement.Node, null, null, null, null, NodeTravelPhase.Waiting,
             TrainOperations.Rule(world, content).ApproachLengthMeters, null), command.OrderedVehicles, inventory,
-            TrainOrderFacing.FirstEndLeading, TrainActivity.Stopped, 0, null, null, 0, false, null, null);
+            TrainOrderFacing.FirstEndLeading, TrainActivity.Stopped, 0, null, null, 0, false, null, null,
+            CombatRules.DefaultTrainEngagement(command.OrderedVehicles.Any(vehicle => CombatRules.Armed(world, content,
+                world.Instances.Single(i => i.Id == new InstanceId.Vehicle(vehicle))))), null);
         return new CommandEffect.Accepted(content, [new CoreEvent.TrainCompositionChanged(train, command.OrderedVehicles)], world with
         {
             Trains = world.Trains.Add(added), Inventories = world.Inventories.Add(new(inventory, new InventoryOwner.Train(train), [], [])),

@@ -219,29 +219,29 @@ public sealed class CoreCaptureTests
     }
 
     [TestMethod]
-    [DataRow("\"core_state_format_version\":18", "\"core_state_format_version\":1", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":18", "\"core_state_format_version\":2", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":18", "\"core_state_format_version\":3", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":18", "\"core_state_format_version\":4", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":18", "\"core_state_format_version\":5", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":18", "\"core_state_format_version\":6", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":18", "\"core_state_format_version\":7", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":18", "\"core_state_format_version\":8", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":18", "\"core_state_format_version\":9", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":18", "\"core_state_format_version\":10", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":18", "\"core_state_format_version\":11", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":18", "\"core_state_format_version\":12", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":18", "\"core_state_format_version\":13", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":18", "\"core_state_format_version\":14", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":18", "\"core_state_format_version\":15", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":18", "\"core_state_format_version\":16", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":18", "\"core_state_format_version\":17", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":18", "\"core_state_format_version\":\"1\"", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":18", "\"core_state_format_version\":null", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":18", "\"core_state_format_version\":-1", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":18", "\"core_state_format_version\":1.5", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":18", "\"core_state_format_version\":18446744073709551616", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":18,", "", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":19", "\"core_state_format_version\":1", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":19", "\"core_state_format_version\":2", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":19", "\"core_state_format_version\":3", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":19", "\"core_state_format_version\":4", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":19", "\"core_state_format_version\":5", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":19", "\"core_state_format_version\":6", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":19", "\"core_state_format_version\":7", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":19", "\"core_state_format_version\":8", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":19", "\"core_state_format_version\":9", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":19", "\"core_state_format_version\":10", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":19", "\"core_state_format_version\":11", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":19", "\"core_state_format_version\":12", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":19", "\"core_state_format_version\":13", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":19", "\"core_state_format_version\":14", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":19", "\"core_state_format_version\":15", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":19", "\"core_state_format_version\":16", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":19", "\"core_state_format_version\":17", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":19", "\"core_state_format_version\":\"1\"", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":19", "\"core_state_format_version\":null", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":19", "\"core_state_format_version\":-1", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":19", "\"core_state_format_version\":1.5", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":19", "\"core_state_format_version\":18446744073709551616", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":19,", "", "unsupported_format", "/core_state_format_version")]
     [DataRow("\"revision\":20,", "", "invalid_state", "/revision")]
     [DataRow("\"revision\":20", "\"revision\":20,\"extra\":1", "invalid_state", "/extra")]
     [DataRow("\"revision\":20", "\"revision\":20,\"revision\":21", "invalid_state", "/revision")]
@@ -317,7 +317,7 @@ public sealed class CoreCaptureTests
     {
         using var document = JsonDocument.Parse(capture.Encode());
         var root = document.RootElement;
-        Assert.AreEqual(18, root.GetProperty("core_state_format_version").GetInt32());
+        Assert.AreEqual(19, root.GetProperty("core_state_format_version").GetInt32());
         Assert.AreEqual(7UL, root.GetProperty("position").GetProperty("completed_steps").GetUInt64());
         Assert.AreEqual(2UL, root.GetProperty("position").GetProperty("sequence").GetUInt64());
         Assert.AreEqual(10UL, root.GetProperty("next_command_number").GetUInt64());

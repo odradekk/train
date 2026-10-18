@@ -72,19 +72,11 @@ internal static class TrainOperations
             else if (position.Phase == NodeTravelPhase.Departing && position.NextEdge is { } edge)
                 blockers.Add(TrainDispatch.TrackWait(train, edge));
         }
-        var armed = train.Vehicles.Any(id =>
-        {
-            var instance = world.Instances.Single(i => i.Id == new InstanceId.Vehicle(id));
-            return world.Designs.Single(d => d.Design == instance.Design).Parts.Any(p =>
-                !InstanceCapabilities.DefinitionMissing(world, content, instance.Design, p)
-                && Math.Min(p.MaxDurability, instance.Parts.Single(d => d.Id == p.Id).Current) > 0
-                && p.Capabilities.Any(c => c is PartCapability.Weapon));
-        });
         return new(train.Id, train.Position, train.Activity, train.Vehicles, train.Inventory,
             train.SpeedMetersPerSecond, capabilities.LengthMeters, capabilities.MassTons,
             capabilities.TractionKilonewtons, capabilities.Acceleration, capabilities.MaximumSpeedMetersPerSecond,
             train.Plan, train.NextStopIndex, train.RemainingDwellSteps,
-            new(TargetPriority.ArmedFirst, TargetScope.ArmedOnly, armed ? EncounterAction.Engage : EncounterAction.Retreat, 0),
+            train.Engagement,
             blockers.ToImmutable(), train.CurrentRun is { } run ? RunReports.Read(run) : null,
             world.RecentRunReports.Where(r => r.Train == train.Id).ToImmutableArray(), train.OrderFacing, platformQueueEnteredStep);
     }
