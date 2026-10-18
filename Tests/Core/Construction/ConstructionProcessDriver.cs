@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
+using Train.Core.Sessions;
 using Train.Core.Tests.Sessions;
 using Train.Core.Tests.World;
 using static Train.Core.Tests.Construction.ConstructionFixture;
@@ -16,6 +17,9 @@ internal static class ConstructionProcessDriver
     internal static CoreContentProjection Original => Content(rate: 30);
     internal static CoreContentProjection Updated => Changed(Original) with
     { ConstructionRules = [Original.ConstructionRules[0] with { ConstructionWorkPerItem = 100, PowerPerWork = 100, LaborPerWork = 100 }] };
+    internal static readonly CoreContentProjection BuildingOriginal = WithBuilding(Content(rate: 30));
+    internal static readonly CoreContentProjection BuildingUpdated = Changed(BuildingOriginal) with
+    { ConstructionRules = [BuildingOriginal.ConstructionRules[0] with { ConstructionWorkPerItem = 100, PowerPerWork = 100, LaborPerWork = 100 }] };
 
     internal static async Task<int> RunAsync(string[] args)
     {
@@ -24,6 +28,9 @@ internal static class ConstructionProcessDriver
             var mode = args[0];
             var output = args[1];
             var directory = args[2];
+            var building = args.Length > 3 && args[3] == "building";
+            var original = building ? BuildingOriginal : Original;
+            var updated = building ? BuildingUpdated : Updated;
             var factory = CoreFactory.Create();
             var samples = new List<ConstructionProcessSample>();
             var events = new List<string>();
@@ -34,7 +41,7 @@ internal static class ConstructionProcessDriver
                 var prepared = factory.PrepareReplay(new(2, disk.Runtime, disk.InitialState,
                     disk.Commands.Select(c => new RecordedCommand(c.Source, c.Payload, new(c.Number, c.Before, c.After, c.Decision),
                         c.InputBefore, c.InputAfter)).ToImmutableArray(), disk.Checkpoints.ToImmutableArray(), disk.EndPosition, null),
-                    WorldFixture.Options.Runtime, [Original, Updated]);
+                    WorldFixture.Options.Runtime, [original, updated]);
                 Assert.IsInstanceOfType<CoreResult<ICoreReplay>.Success>(prepared,
                     prepared is CoreResult<ICoreReplay>.Failure failure
                         ? string.Join("; ", failure.Problems.Select(p => $"{p.Code}: {p.Field}")) : null);
@@ -52,12 +59,13 @@ internal static class ConstructionProcessDriver
             }
             else
             {
-                using var session = mode == "resume" ? Restore() : Session(Original);
+                using var session = mode == "resume" ? Restore() : Session(original);
                 if (mode != "resume")
                 {
-                    Start(session, Build(Original, Local));
+                    if (building) StartBuilding(session, original);
+                    else Start(session, Build(original, Local));
                     Step(session);
-                    Accept(session, new CoreCommand.PublishContent(Updated));
+                    Accept(session, new CoreCommand.PublishContent(updated));
                 }
                 samples.Add(Sample(WorldFixture.Success(session.Capture(CapturePurpose.Save))));
                 if (mode == "save")
@@ -87,11 +95,39 @@ internal static class ConstructionProcessDriver
             ICoreSession Restore()
             {
                 var decoded = WorldFixture.Success(factory.DecodeState(File.ReadAllText(Path.Combine(directory, "state.json"))));
-                using var candidate = WorldFixture.Success(factory.PrepareRestore(decoded, Updated, WorldFixture.Options));
+                using var candidate = WorldFixture.Success(factory.PrepareRestore(decoded, updated, WorldFixture.Options));
                 return candidate.Activate();
             }
         }
         catch (Exception exception) { Console.Error.WriteLine(exception); return 1; }
+    }
+
+    private static CoreContentProjection WithBuilding(CoreContentProjection content)
+    {
+        var template = content.SettlementTemplates[0];
+        var number = template.Plots.Max(p => p.Number) + 1;
+        var basis = content.Designs.First(d => d.Kind is DesignKind.Vehicle);
+        var design = basis with
+        {
+            Design = new(new string('2', 64)),
+            Kind = new DesignKind.Building(PlotSize.Small, BuildingKind.Production, []),
+            Parts = [basis.Parts[0] with { Capabilities = [] }],
+            BillOfMaterials = [new(Material, 2)],
+            BillOfMaterialsItemCount = 2
+        };
+        return content with
+        {
+            Designs = content.Designs.Add(design),
+            SettlementTemplates = [template with { Plots = template.Plots.Add(new(number, PlotSize.Small, null)) }]
+        };
+    }
+
+    private static void StartBuilding(ICoreSession session, CoreContentProjection content)
+    {
+        var plot = ((CoreSession)session).State.World.Settlements.Single().Plots.Single(p => p.Building is null).Id;
+        var design = content.Designs.Single(d => d.Design == new DesignHash(new string('2', 64)));
+        Start(session, new CoreCommand.StartOwnedJob(new JobRequest.BuildBuilding(
+            Facility, plot, new(content.Identity, design, []), [Local], 0)));
     }
 
     private static ConstructionProcessSample Sample(ICoreCapture capture)

@@ -6,9 +6,9 @@
 
 `PartCapability.Construction(double WorkPerSecond, PlotSize MaximumBuildingPlotSize, SizeClass? MaximumVehicleSize)` 的三个参数均无默认值；调用方显式传 `null` 表示没有车辆施工能力。`WorkPerSecond` 为正有限值，建筑上限只接受 `Small`、`Medium`、`Large`、`Giant`，Core 输入校验拒绝站点档位与非法枚举；非空车辆上限必须是有效的车辆档位。能力来自完好部件，工作速率相加，两个上限分别取完好施工部件的最大值；不新增无调用方的公开汇总接口。
 
-- #343：在建筑建造、改装、修理的命令边界检查目标设计的地块档位不超过设施建筑上限；小站点按大、大站点按巨型归档。改装／修理范围与站点归档按批准计划记录，阶段验收时待用户确认。
+- #343：建筑建造、改装、修理已在命令边界检查目标设计的地块档位不超过设施建筑上限；小站点按大、大站点按巨型归档。资格看定义未缺失的施工部件，不看损伤；工作速率只计完好部件。站点归档在阶段验收时仍待用户确认。
 - #331：已在自有车辆建造、修理的命令边界检查设施车辆上限；车辆改装已由 #332 按目标设计档位检查。`null` 一律拒绝，非空时目标车辆档位不得超过上限。不能把存在施工工作速率解释为能够造车。
-- 拆解和制造大型设备只要求施工能力，不检查上述档位。#501 交付表达、输入校验、持久化和交接；大型设备制造与建筑拆解归 #343，车辆拆解已由 #332 接入。
+- 拆解和制造大型设备只要求施工能力，不检查上述档位。#501 交付表达、输入校验、持久化和交接；#343 已接入大型设备制造与建筑拆解，车辆拆解已由 #332 接入。
 
 ## 交付状态与入口
 
@@ -31,7 +31,7 @@
 - 会话的 `Read`、`Submit`、`Advance` 和 `Dispose`。实现 `PublishContent`、五个铁路命令和 `DebugAddRailBreak`，推进包含列车运行及线路、站台调度；`PublishContent` 在比较身份前使用与新局相同的内容投影校验，未初始化数组等输入错误在事务前抛 `ArgumentException`，不取得命令编号。身份相同时在事务前抛 `ArgumentException`；合法投影身份不同时，在同步事务内检查世界引用并适配保存的设计、衍生货物、当前定义依赖和节点站台数，具体拒绝与兼容规则见下文“内容候选与同步提交”。铁路货物查询和出发检查从当前货物目录识别缺失，恢复候选的缺失标注见下文“当前载荷”。
 - 读视图的 `Position`、`Revision`、`InputIdentity` 和 `Fault`。修订在每个 Completed 命令、完成步骤及新步骤故障时各增加一次；NotAccepted、查询和零步推进不增加。修订已达 `ulong.MaxValue` 时，故障仍写入并冻结，修订保持最大值；正常路径的递增仍使用 checked 算术。
 - `World`、`FindNode`、`FindEdge`、`FindLocation`、`FindInstance`、`FindTrain`，覆盖生成的图、占据者、资源、实例和运行列车；车辆位置随所属列车派生，轨道查询列出实际在轨列车。
-- `FindInventory`、`FindLease`、`QuoteLease`、`LoadGoods`、`UnloadGoods`、`AcquireLease` 及租约到期，按 [#325 的批准计划](https://github.com/odradekk/train/issues/325#issuecomment-6172428536)实现。库存预留参与容量和持久化；当前车辆制造与修理不产生返还预留；车辆改装与拆解由 #332 产生和释放返还预留，具体规则见下文“库存与租约”。
+- `FindInventory`、`FindLease`、`QuoteLease`、`LoadGoods`、`UnloadGoods`、`AcquireLease` 及租约到期，按 [#325 的批准计划](https://github.com/odradekk/train/issues/325#issuecomment-6172428536)实现。库存预留参与容量和持久化；车辆与建筑的制造、修理不产生返还预留；车辆改装与拆解由 #332 产生和释放返还预留，建筑改装、拆解与大型设备制造由 #343 产生和释放，具体规则见下文“库存与租约”。
 - #384 接入 `QuoteTrade` 的四种动作、`BuyGoods`／`SellGoods`、`QuoteVehicle` 和 `BuyVehicle`／`SellVehicle`，以及补货目标、两轮备货、潜在消耗和现车名额；具体语义见下文“市场报价与手动交易”。#528 接入按配置计算的 NPC 初始库存和有限现车，见下文“阶段一生成器”。
 - #385 接入运行计划的自动货物规则、停靠重评、运行累计、近期报告及 `AutomaticTradeEvaluated`、`RunReported`；规则顺序、部分成交、时序与持久化见下文“自动交易与运行报告”。
 - `FindSettlement` 与 `Economy` 按 [#486 的批准计划](https://github.com/odradekk/train/issues/486#issuecomment-6190044442)接入已有状态：聚居地库存身份、地块、停放车辆、站台与占用、租约、仓储划分、加工、回收和开采设施、电力、人口、钱包和当前规则状态。尚未实现及暂定字段逐项见下文“聚居地与经济查询”。
@@ -49,9 +49,7 @@
 
 | 未实现成员 | 交付责任 |
 | --- | --- |
-| `FindFacility` 的 `Construction` 键、`SetJobPriority` | 后续施工查询与调度任务 |
-| `OwnInventory` 下建筑建造、大型设备制造、建筑修理的 `GetJobQuote` 及对应的 `StartOwnedJob` | #343 |
-| `OwnInventory` 下建筑改装、拆解的报价与 `StartOwnedJob`，以及建筑 `ApplyInstanceDesign` | #343；车辆目标已由 #332 实现 |
+| `FindFacility` 的 `Construction` 键、`SetJobPriority`、`SetProductionPlan` | 后续施工查询、调度与玩家计划编辑 |
 | 其余命令、其他 `Find*`、报价和预览 | 后续经济运输、制造与编辑、自有建设、战斗与生物领域任务 |
 
 旧 `Train.Core.Simulation` 及宿主入口已删除。`RandomKey`、`KeyedRandom`、`SplitMix64` 原算法迁到 `Core/World/`，作为内部实现保留；固定向量测试及独立 Python 参考工具位于 `Tests/Core/World/`。会话始终持有世界状态；内部会话测试也使用真实生成状态，拒绝与事件由内部测试体供给。列车运行、调度及后续领域任务须将各自新增权威字段补入捕获、恢复和检查点，不能把初始世界往返当作完整玩法恢复证据。
@@ -131,11 +129,11 @@
 | `train_not_at_settlement`、`platform_required` | 列车来源不在当地，或不满足停站与站台访问条件 |
 | `invalid_state`、`identity_exhausted` | 无可修工作量，或任务编号耗尽 |
 
-运行中的阻塞还使用 `power_unavailable`、`labor_unavailable`。`FindFacility(Construction)`、`SetJobPriority`、建筑施工与大型设备制造仍未实现。建筑 `Refit`、`Dismantle` 和 `ApplyInstanceDesign` 按 `InstanceId.Building` 变体在取得编号前抛 `NotImplementedException`，归 #343；不增加取消和退款。
+运行中的阻塞还使用 `power_unavailable`、`labor_unavailable`。`FindFacility(Construction)` 与 `SetJobPriority` 仍未实现。建筑施工与大型设备制造见下文；不增加取消和退款。
 
 ### 车辆立即应用、改装与拆解（#332）
 
-按 [#332 批准计划 D1–D12](https://github.com/odradekk/train/issues/332#issuecomment-6245198930)实现车辆范围，并增加 `SettlementView.OwnedJobs` 查询；不新增控制台命令。建筑目标及建筑 `Locked` 生产状态归 #343。
+按 [#332 批准计划 D1–D12](https://github.com/odradekk/train/issues/332#issuecomment-6245198930)实现车辆范围，并增加 `SettlementView.OwnedJobs` 查询；不新增控制台命令。建筑目标及建筑 `Locked` 生产状态由 #343 接入，规则见下节。
 
 `ApplyInstanceDesign` 检查当前输入身份、实例设计哈希与构成、完整合法且无缺失引用的目标，以及部件对应。仅构成未变时立即换设计，保留损伤、列车归属与运行状态，不消费货物或建立任务；构成变化整份拒绝。设计哈希变化发 `InstanceDesignChanged`。
 
@@ -144,6 +142,20 @@
 `Dismantle` 仅接受设施所在聚居地的玩家停放车辆；编组车辆返回 `vehicle_in_train / Instance.Details.Train`。先 `DisbandTrain`，其库存非空或有预留时拒绝解编。拆解只要求施工能力，不检查车辆档位。工作量为保存设计的 BOM 件数乘拆解系数，加可返还单元中受损部件的修理工作量。占位不返还，其他有效部分照常返还。完成时原子移除实例并入库。`SetDeconstructionPaused` 只接受拆解任务，其他种类返回 `invalid_state / Job.Kind`；暂停保留进度、预留和锁，目标或设施失效仍使任务失败。
 
 返还按整件单元计算：任一内部部件缺失或被毁，整个单元不返；其余整件返还，每个受损部件只计一次修理工作量。根层同种结构货物先合并，再按最新结构耐久比例向下取整。自有任务在设施所在自有聚居地库存预留，容量不足则原子拒绝启动；初始无返还时不建空预留。完成时每种货物实际返还为最新计算值与开工预留 `ExpectedReturns` 同种数量的较小值，未列入预留的货物返还 0。`PublishContent` 不重算返还和预留，也不因库存容量拒绝发布；损伤可减少返还。完成或失败均释放整份预留。
+
+### 建筑施工与大型设备（#343）
+
+按 [#343 批准计划](https://github.com/odradekk/train/issues/343#issuecomment-6249973069)实现自有聚居地的 `BuildBuilding`、`BuildEquipment`、建筑 `Repair`／`Refit`／`Dismantle`、建筑 `ApplyInstanceDesign`，以及这些请求的 `GetJobQuote`。`OwnedJobs` 不新增字段，建筑任务与车辆任务一起按 `JobId` 列出。不新增控制台命令。委托的建筑目标、`BuildEquipment` 和任何 `Dismantle` 仍抛 `ArgumentException`。`SetDeconstructionPaused` 只接受拆解；建造、改装、修理返回 `invalid_state / Job.Kind`。
+
+建造校验地块：不存在或不在设施聚居地 `object_missing / Plot`；已有建筑 `plot_occupied / Plot`；已是工地 `busy / Plot.ConstructionJob`；目标不是可制造建筑 `invalid_design / Design`；`FitsPlot` 失败 `conditions_not_met / Plot`；设施建筑上限不足 `conditions_not_met / Facility`。受理后地块占用为 `PlotOccupant.Construction`，BOM 只扣一次。完工分配建筑身份，实例插在车辆之前并按身份升序；`InstanceDetails.Building` 的尺寸是地块尺寸。地块模板已有加工或开采计划时补空的设施行，没有计划则不创建，查询为停用。
+
+修理、改装、拆解的建筑必须在设施聚居地的地块上、玩家所有且未摧毁。不在当地 `conditions_not_met / Instance`；缺失、非玩家、已摧毁、已锁定沿用车辆的 `object_missing`、`not_owned`、`instance_destroyed`、`instance_locked`，字段为 `Instance`。目标建筑任一加工或开采设施有批次时 `invalid_state / Instance.Batch`，输出缓冲非空时 `invalid_state / Instance.OutputBuffer`，批次优先。目标正在作为执行设施施工时 `invalid_state / Instance.ConstructionJob`。执行设施就是目标时 `invalid_state / Instance`。改装目标不适合该地块 `conditions_not_met / Instance.Details.Plot`。
+
+改装复用车辆差额、整件返还、开工预留和返还上限。结构耐久同样为 `ceil(M新 × min(S, M旧) / M旧)`。零工作量改装仍是正式任务。立即应用只接受构成未变的目标。修理跳过缺定义部件，完工只恢复其余部件和结构耐久。拆解不查档位；占位格不返还；暂停不累计工作，恢复后继续。完工移除实例和生产设施行，不为已移除设施补发 `ProductionStateChanged`，`FindFacility` 返回 `Missing`。
+
+大型设备只要求施工能力。开工在设施所在自有库存为一件 `ManufacturedGood` 预留容量，不足则 `insufficient_capacity / ReturnInventory.Capacity`。目标为 `NewAssembly`，不建实例、不占地块。完工把这一件放入该库存，`ConstructionCompleted.ReturnedGoods` 列出它；失败只释放预留，不退料。
+
+建筑改装、修理、拆解期间，其加工和开采进入 `ProductionState.Locked`，问题为 `instance_locked`。状态顺序是流程缺失、锁定、停用、能力为零、不满足条件、出料阻塞、等待原料、运行中。锁定期间生产、开采、施工和发电能力为 0，仓储容量和站台保留。地块模板已有对应计划时，进入和离开锁定各发一次 `ProductionStateChanged`；没有计划的建筑查询为停用，不发该事件。站点的建造、改装、修理、拆解完工后用完好站台部件重算 `Node.Platforms`，并按新节点尺寸适配列车。缩小仓储不删除已有货物。
 
 ### NPC 车辆委托与施工报价
 
@@ -176,7 +188,7 @@
 
 `FindFacility` 支持 `CapabilityKind.Production`（加工与回收）及 `Extraction`（开采）。建筑不在聚居地地块上，或既无该能力的计划、设计也没有声明该能力时返回 `Missing`。设备损坏或缺定义造成有效能力为零，不会使仍有计划或声明能力的设施消失。`Construction` 键仍待后票，抛出注明 `FindFacility` 和能力种类的 `NotImplementedException`。`PotentialConsumption` 由全城同一次潜在电力／劳动分配换算为每秒原料与燃料消耗；与 `FindSettlement.Facilities` 使用同一计算。
 
-状态按流程缺失、停用、能力为零、不满足条件、出料阻塞、等待原料、运行中的顺序判断。建筑锁定目前没有权威来源，归 #343，不能据当前七态的模块证据宣称八态完整通过。停用只阻止启动新批次；当前流程的 Tag／地貌要求不再满足时，状态为“不满足条件”，已有批次仍按冻结规格完成。能力为零或流程缺失时保留批次进度。流程补回后继续，不重新扣原料。
+状态按流程缺失、锁定、停用、能力为零、不满足条件、出料阻塞、等待原料、运行中的顺序判断。锁定来自该建筑的改装、修理或拆解任务；流程缺失仍优先于锁定。停用只阻止启动新批次；当前流程的 Tag／地貌要求不再满足时，状态为“不满足条件”，已有批次仍按冻结规格完成。能力为零或流程缺失时保留批次进度。流程补回后继续，不重新扣原料。
 
 启动步只原子投入完整原料并建立批次，下一步才工作。工作请求上限取当前有效能力与剩余工作量所需速率的较小值，使用冻结的工作量和电力／劳动系数。生产推进接收 #382 人口换算提供的劳动容量，与基本／改善消费在同一次 `SettlementResources.Resolve` 中仲裁；人口规则或本期必需货物缺失时，人口停用并提供零劳动力。
 
@@ -395,7 +407,7 @@ Rent 要求非零聚居地身份和正容量，Renew 要求非零租约身份，
 
 从完成步 n 推进到 n+1 时，期限落在该边界的租约按 LeaseId 升序发 LeaseExpired，事件排在同一步铁路事件之前。到期状态由完成步派生，恢复不重复发事件，空租约及其库存不自动删除。市场规则缺失不暂停到期，也不禁止其它条件合法的手动装卸。规则更新不追改已付金额、合同额度或到期步。
 
-预留随库存保存、恢复并参与检查点。解码检查正容量、返还货物唯一且规范排序、正数量及合计不超过容量、JobId 非零且全世界唯一；预计返还货物定义加入引用清单。#332 的车辆改装、拆解创建和释放预留，任务与返还库存中的预留按任务编号严格双向配对；制造与修理不创建返还预留。本票不新增控制台命令，单命令手册和索引更新不适用。
+预留随库存保存、恢复并参与检查点。解码检查正容量、返还货物唯一且规范排序、正数量及合计不超过容量、JobId 非零且全世界唯一；预计返还货物定义加入引用清单。#332 的车辆改装、拆解，以及 #343 的建筑改装、拆解和大型设备制造，创建和释放预留；任务与返还库存中的预留按任务编号严格双向配对。车辆与建筑的制造、修理不创建返还预留，大型设备制造预留一件成品。本票不新增控制台命令，单命令手册和索引更新不适用。
 
 ## 市场报价与手动交易
 
@@ -525,7 +537,7 @@ Buy/Sell 在前提检查后依次判断：
 
 ### 当前载荷
 
-#312 按[批准决定](https://github.com/odradekk/train/issues/312#issuecomment-6133949111)实现捕获边界，#309 扩展世界状态，#480 更新地块枚举，#325 增加租约、库存预留和下一租约编号，#380 增加每座聚居地的 `fuel_energy_remaining`，#381 增加 `production_facilities`，#382 增加 `population_state`，#481 更新节点权威位置，#383 将设施状态改为能力键并增加 `resource_regenerations`、`resource_recovery`，#486 增加设施上一步实际劳动占用。内部编码器 [CoreCapture](../../Core/Sessions/CoreCapture.cs) 当前使用独立的 `core_state_format_version = 17`，与宿主完整存档的 `SaveFormatVersion` 6 分别演进；不支持格式 1–16 或旧通用模拟框架载荷，旧版本返回 `unsupported_format`。#480 与 #325 各自的格式 3 布局不同，合并后使用格式 4 明确区分；燃料余量使用格式 5，生产状态使用格式 6，人口状态使用格式 7，#481 的节点权威位置布局使用格式 8，#383 的开采与资源周期状态使用格式 9，#501 扩展施工部件能力后使用格式 10，#486 的实际劳动占用使用格式 11，#385 的自动重评、运行累计和近期报告使用格式 12；#546 将历史报告的载运率改为可空，使用格式 13；#331 增加自有车辆施工任务与聚居地施工上一步汇总，使用格式 14；#387 增加委托资金来源与全局工钱累计，使用格式 15；#332 增加车辆改装、拆解与冻结返还资料，使用格式 16；#342 增加冻结建城任务，合并后使用格式 17。
+#312 按[批准决定](https://github.com/odradekk/train/issues/312#issuecomment-6133949111)实现捕获边界，#309 扩展世界状态，#480 更新地块枚举，#325 增加租约、库存预留和下一租约编号，#380 增加每座聚居地的 `fuel_energy_remaining`，#381 增加 `production_facilities`，#382 增加 `population_state`，#481 更新节点权威位置，#383 将设施状态改为能力键并增加 `resource_regenerations`、`resource_recovery`，#486 增加设施上一步实际劳动占用。内部编码器 [CoreCapture](../../Core/Sessions/CoreCapture.cs) 当前使用独立的 `core_state_format_version = 18`，与宿主完整存档的 `SaveFormatVersion` 6 分别演进；不支持格式 1–17 或旧通用模拟框架载荷，旧版本返回 `unsupported_format`。#480 与 #325 各自的格式 3 布局不同，合并后使用格式 4 明确区分；燃料余量使用格式 5，生产状态使用格式 6，人口状态使用格式 7，#481 的节点权威位置布局使用格式 8，#383 的开采与资源周期状态使用格式 9，#501 扩展施工部件能力后使用格式 10，#486 的实际劳动占用使用格式 11，#385 的自动重评、运行累计和近期报告使用格式 12；#546 将历史报告的载运率改为可空，使用格式 13；#331 增加自有车辆施工任务与聚居地施工上一步汇总，使用格式 14；#387 增加委托资金来源与全局工钱累计，使用格式 15；#332 增加车辆改装、拆解与冻结返还资料，使用格式 16；#342 增加冻结建城任务，合并后使用格式 17；#343 将任务目标从 `Vehicle` 改为 `Instance` 并增加 `Plot`，使用格式 18。
 
 人口状态保存精确执行参数、有效进度、累计应需与满足量、按货物身份保留的消费剩余量、人口变化余量、短缺与可用性状态及最近一次结算；普通恢复和严格重放使用同一份生产推进。当前规则缺失或本期必需货物缺失时停用人口，保留这些状态；新局仍须有有效规则。燃料余量必须为有限非负数，新局为零，保存、恢复、检查点、严格重放及内容发布保留其电量，不反推已消费燃料。生产状态保存完整冻结批次、输出缓冲和上一步工作、供电与劳动分配结果；解码拒绝非有限或负的实际劳动占用，以及非法进度、系数、数量、排序、建筑／计划配对及同时存在批次与缓冲。诊断消息和堆栈不进入载荷。内部字段布局由编码器维护，宿主只通过公开契约取得所需资料。
 
@@ -534,6 +546,8 @@ Buy/Sell 在前提检查后依次判断：
 格式 14 的 `WorldState.ConstructionJobs`（`construction_jobs`）保存活动任务，`Next.Job`（`next.job`）保存下一任务编号；任务包括设施、聚居地、目标设计／修理车辆、优先级、规则身份与启动修订、冻结总工作量和电力／劳动系数、投入及实际来源消费、进度、主状态、上一步工作速率、限制及阻塞。每座聚居地保存 `LastConstructionPowerDemand`、`LastConstructionActualSupply`、`LastConstructionAllocatedLabor`（线格式为对应 snake_case 字段），即使本步最后一个任务完成并移除，也保留最后一步汇总，下一无请求步骤归零。这些状态参加捕获、校验、恢复、引用、检查点与严格重放。格式 15 在任务中增加 `Funding`（`funding`），世界增加 `UnassignedServicePayments`（`unassigned_service_payments`）；NPC 队列由活动任务的设施与编号派生，不另存队列，后继排队任务必须进度为零。
 
 格式 16 将任务目标车辆统一保存为 `Vehicle`（`vehicle`），并保存 `Kind`、`RetainedParts`、`RemovedItems`、`ReturnInventory`（对应 snake_case 字段）。实例在完工前保留原设计，不另存原设计或锁。返还库存中的预留按任务编号唯一保存 `ExpectedReturns` 与容量；任务和预留严格双向配对，无预计返还不建预留。自有任务的返还库存必须是设施所在自有聚居地库存，委托任务则必须是该聚居地的玩家租库；已有预留不因租约到期或冻结失效。解码检查任务种类、玩家实例和唯一锁目标、保留与移除部件引用及不重叠、合法暂停与零工作量，以及库存预留配对。冻结移除项的货物、结构货物和缺失定义进入引用清单；上述资料均参加普通捕获、恢复、检查点与严格重放。
+
+格式 18 用可空 `Instance`（`instance`，`vehicle` 或 `building`）取代 `Vehicle`，并增加可空 `Plot`（`plot`）。有地块且无实例的任务是建筑建造；有实例的是既有车辆或建筑；二者皆无且设计为大型设备时，目标为 `NewAssembly`，否则为新车辆。工地由建造任务的地块派生，不另存。建筑身份在完工时分配。大型设备的返还库存必须是设施所在自有库存，预留一件成品。
 
 顶层载荷包含格式版本、位置、下一命令编号、修订、当前输入身份、故障、`world` 和 `references`。`world` 保存完整生成来源 `source`（含种子、生成器版本、生成内容语义修订、解析配置及开局输入）、图与资源、聚居地与生物聚落、聚居地模板业务副本和地块、实例耐久、列车、库存、资金、全部下一身份编号，以及实际设计投影和衍生货物。实例只保存 `DesignHash`，引用同一 `world.designs` 中的投影，不在每个实例重复设计。实例和库存位置由所有者派生，不进载荷。
 
@@ -584,7 +598,7 @@ Buy/Sell 在前提检查后依次判断：
 
 当前会话创建时自动建立初始起点，出现在 `ReadRecording().Starts` 中，同样需要宿主确认。检查点只在录制起点、故障边界及读取窗口的截止边界生成；同一内容的截止检查点不重复列出，不逐命令生成，也不设置核心固定采样间隔。命令与对应记录在同一完整边界生效，查询、捕获、起点确认、暂停和倍速不生成模拟输入。当前 `content.publish` 的规范负载为 `{"input_format_version":2,"kind":"content.publish","input_identity":"<目标 CoreInputId>"}`；目标投影由宿主保留，核心不编码内容投影。窗口引用合并各起点和固定故障片段的完整清单，并包含全部 Completed 命令的前后及目标输入身份。设计和输入身份按 Ordinal 排序去重；定义依赖按类型身份及字段路径排序去重；模板按 `Owner` 排序且所有者唯一。起点世界的设计、模板和定义依赖在普通窗口及固定故障片段中保留。
 
-施工命令同用输入格式 2。`construction.start_owned` 的 `request` 按 `kind`、`facility:{building,capability}`、目标、来源（如有）和 `priority` 输出：`build_vehicle` 携带 `design:DesignInput`；`repair_vehicle` 携带非零 `vehicle` 和 `sources`；`refit_vehicle` 携带 `vehicle`、完整 `change:DesignChangeProjection` 和 `sources`；`dismantle_vehicle` 只有 `vehicle` 和 `priority`，不编码来源。`construction.commission_vehicle_work` 同用前三种请求，并在 `request` 后携带 `maximum_payment`。`instance.apply_design` 携带 `vehicle`、`change`；`construction.set_deconstruction_paused` 携带 `job`、`paused`。变更投影包含当前设计与构成、目标 `DesignInput`、保留部件对应、新增货物、移除单元和改动计数。来源保留显式顺序，设计与变更中无业务顺序的集合使用既有规范排序。
+施工命令同用输入格式 2。`construction.start_owned` 的 `request` 按 `kind`、`facility:{building,capability}`、目标、来源（如有）和 `priority` 输出：`build_vehicle` 与 `build_equipment` 携带 `design:DesignInput`；`build_building` 在 `facility` 后携带非零 `plot` 和 `design`；`repair_vehicle` 携带非零 `vehicle` 和 `sources`；`repair_building` 携带非零 `building` 和 `sources`；`refit_vehicle` 与 `refit_building` 分别携带 `vehicle` 或 `building`、完整 `change:DesignChangeProjection` 和 `sources`；`dismantle_vehicle` 与 `dismantle_building` 只有对应身份和 `priority`，不编码来源。`construction.commission_vehicle_work` 只接受 `build_vehicle`、`repair_vehicle`、`refit_vehicle`，并在 `request` 后携带 `maximum_payment`。`instance.apply_design` 携带 `change`，以及 `vehicle`、`building` 二者之一，不能同时出现，也不能都缺。`construction.set_deconstruction_paused` 携带 `job`、`paused`。变更投影包含当前设计与构成、目标 `DesignInput`、保留部件对应、新增货物、移除单元和改动计数。来源保留显式顺序，设计与变更中无业务顺序的集合使用既有规范排序。
 
 成功、拒绝和故障命令的目标设计、定义依赖及输入身份均进入录制引用，完整组装体货物投影留在规范负载；拒绝或故障携带的设计不会因此加入普通世界保存。命令编码、解码与严格重放沿用同一生产提交和推进路径。
 
@@ -604,7 +618,7 @@ Buy/Sell 在前提检查后依次判断：
 
 宿主读取复现容器并还原包内内容投影，调用 `PrepareReplay`；核心比较原构建、模拟版本、兼容环境、配置和输入身份。依赖不完整、格式无法理解或身份不符明确失败，不跳过命令，也不读取安装目录补救。
 
-当前 `CoreReplayInput.FormatVersion` 为 2（旧版 1 因检查点与命令回执包含旧地块档位而拒绝），与命令输入格式 2 分开。#385、#546 保持重放格式 2 和命令格式 2；重制起点为核心状态格式 17，检查点按新的世界结构重制。旧起点载荷由状态格式校验拒绝；检查点规范文本不带状态格式号，旧结构由世界载荷校验拒绝。不因这些内部变化再升重放外壳格式。`RuntimeIdentity` 的 `GameBuild`、`SimulationVersion`、`OperatingSystem`、`Architecture` 和 `DotNetRuntime` 全部按 Ordinal 匹配；不匹配返回 `incompatible_replay`，字段为 `OriginalRuntime.<成员>`，兼容粒度由宿主提供的字符串决定。准备阶段解码起点与全部命令，核验记录位置、检查点格式／SHA-256，并从 `contentHistory` 取得起点及所有命令前后、目标输入身份的投影；任一依赖缺失返回 `content_missing`。不支持的版本和种类返回 `unsupported_format`，非法字段和位置返回 `invalid_state`，附字段路径；带故障的起点不能作为可执行起点。准备阶段也对全部 `contentHistory` 使用与 `PublishContent`、普通恢复相同的内容投影校验，非法投影抛 `ArgumentException`，不能在执行一段前缀后才发现输入无法使用。检查点复用世界载荷读取与校验，世界内部差异以 JSON Pointer 报告。世界来源含生成配置，未来新增领域字段仍须同步接入。
+当前 `CoreReplayInput.FormatVersion` 为 2（旧版 1 因检查点与命令回执包含旧地块档位而拒绝），与命令输入格式 2 分开。#385、#546 保持重放格式 2 和命令格式 2；重制起点为核心状态格式 18，检查点按新的世界结构重制。旧起点载荷由状态格式校验拒绝；检查点规范文本不带状态格式号，旧结构由世界载荷校验拒绝。不因这些内部变化再升重放外壳格式。`RuntimeIdentity` 的 `GameBuild`、`SimulationVersion`、`OperatingSystem`、`Architecture` 和 `DotNetRuntime` 全部按 Ordinal 匹配；不匹配返回 `incompatible_replay`，字段为 `OriginalRuntime.<成员>`，兼容粒度由宿主提供的字符串决定。准备阶段解码起点与全部命令，核验记录位置、检查点格式／SHA-256，并从 `contentHistory` 取得起点及所有命令前后、目标输入身份的投影；任一依赖缺失返回 `content_missing`。不支持的版本和种类返回 `unsupported_format`，非法字段和位置返回 `invalid_state`，附字段路径；带故障的起点不能作为可执行起点。准备阶段也对全部 `contentHistory` 使用与 `PublishContent`、普通恢复相同的内容投影校验，非法投影抛 `ArgumentException`，不能在执行一段前缀后才发现输入无法使用。检查点复用世界载荷读取与校验，世界内部差异以 JSON Pointer 报告。世界来源含生成配置，未来新增领域字段仍须同步接入。
 
 重放只有读取、推进和边界捕获入口，没有 Submit。`Advance` 到达预算、指定位置、记录截止位置、首个差异或故障即返回明确停止原因；`stopAt` 可以指定同一步内某条命令后的边界，不能越过它。同一步内的命令按记录位置顺序执行，拒绝结果也核对。`CompareCheckpoints` 返回首个字段差异，不要求宿主解析检查点文本。`CaptureBoundary` 可作为普通读档候选建立可编辑副本；此后当前内容适配属于新会话，不改原重放或声称其仍是严格复现。
 
