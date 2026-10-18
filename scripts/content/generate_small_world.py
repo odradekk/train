@@ -1211,11 +1211,8 @@ def content_files():
     large_station = {(x, 0, z): 0 for x in range(-128, 128)
                      for z in (*range(-64, -60), *range(-24, -20), *range(20, 24), *range(60, 64))}
     large_station.update({(x, 0, z): 0 for x in range(-2, 2) for z in range(-20, 20)})
-    for platform_z in (-62, -22, 22, 62):
-        for x in range(-2, 2):
-            for y in range(1, 38):
-                large_station[x, y, platform_z] = 0
-        large_station[0, 1, platform_z] = 1
+    large_station.update({(x, y, z): 0 for z in (-62, -22, 22, 62) for x in range(-2, 2) for y in range(1, 38)})
+    large_station[0, 1, -62] = large_station[0, 1, -22] = large_station[0, 1, 22] = large_station[0, 1, 62] = 1
     large_station.update({(x, 38, z): 0 for x in range(-2, 2) for z in (*range(-62, -21), *range(22, 63))})
     document("blueprints", "blueprint", "large-station",
              blueprint("large-station", "大站点", "building", ["construction-material", "platform-equipment"],
@@ -1307,6 +1304,7 @@ def content_files():
         ("basic-shed", "基础工棚", "small", "construction", None, "construction-equipment"),
         ("vehicle-workshop", "车辆车间", "medium", "construction", None, "workshop-crane"),
         ("small-warehouse", "小仓库", "small", "warehouse", None, "storage-equipment"),
+        ("large-warehouse", "大仓库", "medium", "warehouse", None, "storage-equipment"),
         ("power-station", "发电站", "medium", "power", None, "power-equipment"),
         ("farm", "农场", "medium", "production", "agriculture", "industrial-machinery"),
         ("food-factory", "食品厂", "small", "production", "food_processing", "industrial-machinery"),
@@ -1323,8 +1321,8 @@ def content_files():
     plot_sizes = {}
     for identity, name, size, kind, tag, equipment in buildings:
         plot_sizes[identity] = size
-        half_x, half_z, height = (20, 40, 20) if identity == "vehicle-workshop" else (
-            (32, 80, 52) if identity == "heavy-vehicle-factory" else (8, 10, 8))
+        half_x, half_z, height = {"vehicle-workshop": (20, 40, 20), "heavy-vehicle-factory": (32, 80, 52),
+                                  "large-warehouse": (8, 15, 8)}.get(identity, (8, 10, 8))
         cells = {(x, 0, z): 0 for x in range(-half_x, half_x) for z in range(-half_z, half_z)}
         # 四角立柱和屋顶边框与地板相连，保留内部设备空间。
         cells.update({(x, y, z): 0 for x in (-half_x, half_x - 1) for z in (-half_z, half_z - 1)
@@ -1461,29 +1459,19 @@ def content_files():
     storage = voxel_definitions["storage-equipment"]["simulation"]["behaviors"]["storage"]["capacity"]
     storage_count = WAREHOUSE_ROW_WIDTH * ceil(
         max(warehouse_budgets) * WAREHOUSE_HEADROOM / (storage * WAREHOUSE_ROW_WIDTH))
-    warehouse = blueprint_definitions["small-warehouse"]
-    warehouse["layout"]["cells"] = sorted(
-        [cell for cell in warehouse["layout"]["cells"] if cell[3] != 1] +
-        [[index % WAREHOUSE_ROW_WIDTH - WAREHOUSE_ROW_WIDTH // 2, 1,
-          index // WAREHOUSE_ROW_WIDTH - ceil(storage_count / WAREHOUSE_ROW_WIDTH) // 2, 1]
-         for index in range(storage_count)])
-    warehouse["display"]["description"] = "仓储规模按生活、生产和产出毛量估算；容量及租赁影响待用户试玩确认。"
-    document("blueprints", "blueprint", "small-warehouse", warehouse)
-    large_count = storage_count * LARGE_WAREHOUSE_FACTOR
-    half_x, half_z, height = 8, 15, 8
-    cells = {(x, 0, z): 0 for x in range(-half_x, half_x) for z in range(-half_z, half_z)}
-    # 四角立柱和屋顶边框与地板相连，保留内部设备空间。
-    cells.update({(x, y, z): 0 for x in (-half_x, half_x - 1) for z in (-half_z, half_z - 1)
-                  for y in range(1, height)})
-    cells.update({(x, height - 1, z): 0 for x in range(-half_x, half_x) for z in range(-half_z, half_z)
-                  if x in (-half_x, half_x - 1) or z in (-half_z, half_z - 1)})
-    cells.update({(index % WAREHOUSE_ROW_WIDTH - WAREHOUSE_ROW_WIDTH // 2, 1,
-                   index // WAREHOUSE_ROW_WIDTH - ceil(large_count / WAREHOUSE_ROW_WIDTH) // 2): 1
-                  for index in range(large_count)})
-    value = blueprint("large-warehouse", "大仓库", "building", ["construction-material", "storage-equipment"], cells,
-                      {"plot_size": "medium", "building_type": "warehouse", "facility_tags": []})
-    value["display"]["description"] = "仓储件数取小仓库推导结果的固定倍数，是待试玩确认的初值；容量及租赁影响待用户试玩确认。"
-    document("blueprints", "blueprint", "large-warehouse", value)
+    for identity, count in (("small-warehouse", storage_count),
+                            ("large-warehouse", storage_count * LARGE_WAREHOUSE_FACTOR)):
+        warehouse = blueprint_definitions[identity]
+        warehouse["layout"]["cells"] = sorted(
+            [cell for cell in warehouse["layout"]["cells"] if cell[3] != 1] +
+            [[index % WAREHOUSE_ROW_WIDTH - WAREHOUSE_ROW_WIDTH // 2, 1,
+              index // WAREHOUSE_ROW_WIDTH - ceil(count / WAREHOUSE_ROW_WIDTH) // 2, 1]
+             for index in range(count)])
+        warehouse["display"]["description"] = (
+            "仓储件数取小仓库推导结果的固定倍数，是待试玩确认的初值；容量及租赁影响待用户试玩确认。"
+            if identity == "large-warehouse" else
+            "仓储规模按生活、生产和产出毛量估算；容量及租赁影响待用户试玩确认。")
+        document("blueprints", "blueprint", identity, warehouse)
 
     small_vehicle_materials = Counter()
     for identity, _, _, size, *_ in VEHICLES:
