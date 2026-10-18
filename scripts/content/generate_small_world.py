@@ -1130,8 +1130,6 @@ def content_files():
             value["simulation"] = simulation
             value["appearance"]["presentation"]["shapes"] = (
                 ALL_SHAPES if identity in ("structural-block", "construction-block") else
-                ["cube", "wedge", "plate"] if identity == "structural-metal" else
-                ["cube", "beam"] if identity == "construction-material" else
                 ["cube", "plate"] if identity == "glass" else ["cube"])
         if identity in ("machine-gun", "cannon"):
             value["appearance"]["presentation"] = {
@@ -1381,10 +1379,10 @@ def content_files():
                        appearance={"flatten": {"from": [-432, -232], "to": [431, 999], "height": 1}}))
 
     def blueprint_behaviors(blueprint_id, capability):
-        definition = blueprint_definitions[blueprint_id]
+        definition = blueprint_definitions[blueprint_id.removeprefix("core:")]
         layout = definition["layout"]
         behaviors = [behavior for *_, index in layout["cells"]
-                     if (behavior := voxel_definitions[layout["palette"][index]["voxel"]]
+                     if (behavior := voxel_definitions[layout["palette"][index]["voxel"].removeprefix("core:")]
                          .get("simulation", {}).get("behaviors", {}).get(capability)) is not None]
         if (behavior := definition.get("simulation", {}).get("behaviors", {}).get(capability)) is not None:
             behaviors.append(behavior)
