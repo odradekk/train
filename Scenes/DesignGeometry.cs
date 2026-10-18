@@ -252,7 +252,7 @@ internal static class DesignGeometry
                 group.Quads.Add(new(at, plane, width, height, ExposedFaceEdges.None));
             }
         }
-        var visuals = ImmutableArray.CreateBuilder<SceneVisual>(groups.Count);
+        var visuals = ImmutableArray.CreateBuilder<SceneVisual>(groups.Count + shapes.GroupCount);
         foreach (var (key, group) in groups)
         {
             var vertexCount = 0;
