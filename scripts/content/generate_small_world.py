@@ -1392,8 +1392,7 @@ def content_files():
             factor = CANNON_FACTOR if identity == "cannon" else 1
             simulation["behaviors"] = {"weapon": {"damage": ceil(source["max_durability"] * WEAPON_DAMAGE_SHARE) * factor,
                                                    "interval": MACHINE_GUN_INTERVAL_SECONDS * factor}}
-        material = "glass" if identity == "glass" else "concrete" if identity == "construction-block" else {
-            "soil": "stone_soil", "organic": "organic", "equipment": "painted_metal"}[texture]
+        material = {"soil": "stone_soil", "organic": "organic", "equipment": "painted_metal"}[texture]
         face_paths, icon_path = faces(f"shared/{texture}-face.png"), f"shared/{texture}-icon.png"
         voxel(identity, name, material, face_paths, icon_path, simulation,
               light=identity == "lamp")
