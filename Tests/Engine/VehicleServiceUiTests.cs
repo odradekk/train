@@ -629,6 +629,35 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
         await _input.Choose(Find<OptionButton>(economy, "ServiceVehicle"), 1);
     }
 
+    [Test]
+    public async Task Plots_page_lists_size_and_occupant_without_submitting()
+    {
+        var view = new ServiceView(owned: true, emptyPlot: true, constructionPlot: true, buildingLock: InstanceLock.UnderRepair);
+        var setup = new HostSimulationTests.HostSetup(view, EconomyFixture.Content());
+        await Run(setup, async (_, economy) =>
+        {
+            var tabs = Find<TabContainer>(economy, "Pages");
+            var index = Enumerable.Range(0, tabs.GetTabCount()).Single(i => tabs.GetTabTitle(i) == "地块与建筑");
+            var bar = tabs.GetTabBar();
+            await _input.Frames(2);
+            await _input.Click(bar.GlobalPosition + bar.GetTabRect(index).GetCenter());
+            Require(tabs.CurrentTab == index, "真实点击未打开地块与建筑。");
+            var text = Find<Label>(economy, "Plots").Text;
+            Require(text.Contains("地块 1") && text.Contains("模板编号 1") && text.Contains("小") &&
+                text.Contains("施工建筑") && text.Contains("建筑 20") && text.Contains("修理中") &&
+                text.Contains("地块 2") && text.Contains("普通建筑") && text.Contains("建筑 21") && text.Contains("未锁定") &&
+                text.Contains("地块 3") && text.Contains("模板编号 3") && text.Contains("中") && text.Contains("空地") &&
+                text.Contains("地块 4") && text.Contains("模板编号 4") && text.Contains("大") && text.Contains("工地") &&
+                text.Contains("任务 4") && text.Contains("拆解") && text.Contains("20/100"),
+                "地块页没有按查询列出尺寸和占用。");
+            Require(Find<ScrollContainer>(economy, "地块与建筑").GetNode<VBoxContainer>("Body").GetChildCount() == 1,
+                "只读地块页出现了操作控件。");
+            Require(setup.Session.SubmitCount == 0, "打开地块页提交了命令。");
+            await UiCapture.Capture(TestScene, "plots");
+        });
+        setup.Session.AssertComplete();
+    }
+
     private async Task Services(EconomyPanels economy)
     {
         var tabs = Find<TabContainer>(economy, "Pages");
@@ -663,7 +692,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
         finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
     }
 
-    private sealed class ServiceView(ulong revision = 1, bool blocked = false, bool nullPayment = false, bool completed = false, bool missingFacility = false, DesignInput? expectedDesign = null, bool owned = false, bool paused = false, bool changedDesign = false, bool emptyPlot = false) : ICoreReadView
+    private sealed class ServiceView(ulong revision = 1, bool blocked = false, bool nullPayment = false, bool completed = false, bool missingFacility = false, DesignInput? expectedDesign = null, bool owned = false, bool paused = false, bool changedDesign = false, bool emptyPlot = false, bool constructionPlot = false, InstanceLock buildingLock = InstanceLock.None) : ICoreReadView
     {
         private readonly ICoreReadView basis = EconomyFixture.Create(revision, vehicle: EconomyFixture.VehicleState.Owned);
         private static readonly FacilityKey Facility = new(new(20), CapabilityKind.Construction);
@@ -675,6 +704,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             if (basis.FindSettlement(id) is not Lookup<SettlementView>.Found found) return basis.FindSettlement(id);
             PlotView[] plots = missingFacility ? [] : [new(new(1), 1, PlotSize.Small, [], new PlotOccupant.Building(new(20))), new(new(2), 2, PlotSize.Small, [], new PlotOccupant.Building(new(21)))];
             if (emptyPlot && !missingFacility) plots = [.. plots, new(new(3), 3, PlotSize.Medium, [], new PlotOccupant.Empty())];
+            if (constructionPlot && !missingFacility) plots = [.. plots, new(new(4), 4, PlotSize.Large, [], new PlotOccupant.Construction(new(4)))];
             return new Lookup<SettlementView>.Found(found.Value with { Relation = owned ? SettlementRelation.PlayerOwned : found.Value.Relation, Plots = [.. plots], CommissionJobs = completed || owned ? [] : [new(4)], OwnedJobs = owned && !completed ? [new(4), new(5)] : [] });
         }
         public Lookup<JobView> FindJob(JobId id) => id.Value is 4 or 5 && (id.Value == 4 || owned)
@@ -725,7 +755,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             if (id is InstanceId.Building { Id.Value: 20 })
                 return new Lookup<InstanceView>.Found(new(id, new("fixture-service-building"), new("fixture-building-composition"),
                     new WorldLocation.Node(new(1)), owned ? SettlementRelation.PlayerOwned : SettlementRelation.NonHostile,
-                    new InstanceDetails.Building(new(1), PlotSize.Small), InstanceLock.None, new(100, 100), [], []));
+                    new InstanceDetails.Building(new(1), PlotSize.Small), buildingLock, new(100, 100), [], []));
             return basis.FindInstance(id);
         }
         public Lookup<InventoryView> FindInventory(InventoryId id) => basis.FindInventory(id);
