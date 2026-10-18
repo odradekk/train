@@ -74,6 +74,59 @@ internal static class CombatQueries
     internal static CombatState? Find(WorldState world, WorldLocation location)
         => world.Combats.FirstOrDefault(combat => SameLocation(combat.Location, location));
 
+    internal static (CombatState Combat, int Index)? Controller(WorldState world, CombatController controller)
+    {
+        foreach (var combat in world.Combats)
+            for (var index = 0; index < combat.Controllers.Length; index++)
+                if (combat.Controllers[index].Controller == controller) return (combat, index);
+        return null;
+    }
+
+    internal static bool IsParticipant(WorldState world, CombatState combat, CombatUnitId unit)
+        => combat.Controllers.Any(controller => Units(world, controller.Controller).Contains(unit));
+
+    internal static CombatOwner OwnerOfUnit(WorldState world, CombatUnitId unit) => unit switch
+    {
+        CombatUnitId.Instance instance => ControllerOf(world, instance.Id) is { } controller
+            ? Owner(world, controller) : throw new InvalidOperationException("参战实例所属不明。"),
+        CombatUnitId.CreatureGroup => new CombatOwner.Creatures(),
+        _ => throw new InvalidOperationException("战斗单位种类无效。")
+    };
+
+    internal static bool Hostile(WorldState world, CombatUnitId left, CombatUnitId right)
+    {
+        var leftOwner = OwnerOfUnit(world, left);
+        var rightOwner = OwnerOfUnit(world, right);
+        if (leftOwner is CombatOwner.Creatures || rightOwner is CombatOwner.Creatures)
+            return leftOwner is not CombatOwner.Creatures || rightOwner is not CombatOwner.Creatures;
+        return (leftOwner, rightOwner) switch
+        {
+            (CombatOwner.Player, CombatOwner.Settlement settlement) => world.Settlements
+                .Single(s => s.Id == settlement.Id).Relation == SettlementRelation.Hostile,
+            (CombatOwner.Settlement settlement, CombatOwner.Player) => world.Settlements
+                .Single(s => s.Id == settlement.Id).Relation == SettlementRelation.Hostile,
+            _ => false
+        };
+    }
+
+    internal static bool Armed(WorldState world, CoreContentProjection content, CombatUnitId unit)
+        => unit is CombatUnitId.Instance { Id: var id }
+            && CombatRules.Armed(world, content, world.Instances.Single(i => i.Id == id));
+
+    internal static CombatUnitId? Target(WorldObjectId target) => target switch
+    {
+        WorldObjectId.Instance instance => new CombatUnitId.Instance(instance.Id),
+        WorldObjectId.CreatureGroup group => new CombatUnitId.CreatureGroup(group.Id),
+        _ => null
+    };
+
+    internal static bool Exists(WorldState world, CombatUnitId unit) => unit switch
+    {
+        CombatUnitId.Instance instance => world.Instances.Any(i => i.Id == instance.Id),
+        CombatUnitId.CreatureGroup => false,
+        _ => false
+    };
+
     internal static bool SameLocation(WorldLocation left, WorldLocation right) => (left, right) switch
     {
         (WorldLocation.Node a, WorldLocation.Node b) => a.Id == b.Id,

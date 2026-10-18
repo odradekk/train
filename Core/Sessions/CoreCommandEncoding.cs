@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using Train.Core.Combat;
 using Train.Core.Contracts;
 using Train.Core.World;
 
@@ -40,6 +41,10 @@ internal static class CoreCommandEncoding
                 CoreCommand.SellVehicle => "market.sell_vehicle",
                 CoreCommand.AcquireLease => "lease.acquire",
                 CoreCommand.FoundSettlement => "settlement.found",
+                CoreCommand.SetTrainEngagement => "engagement.set_train",
+                CoreCommand.SetSettlementEngagement => "engagement.set_settlement",
+                CoreCommand.Retreat => "combat.retreat",
+                CoreCommand.FocusFire => "combat.focus_fire",
                 CoreCommand.StartOwnedJob { Request: JobRequest.BuildVehicle or JobRequest.Repair { Instance: InstanceId.Vehicle } or JobRequest.Refit { Instance: InstanceId.Vehicle } or JobRequest.Dismantle { Instance: InstanceId.Vehicle } } => "construction.start_owned",
                 CoreCommand.CommissionVehicleWork { Request: JobRequest.BuildVehicle or JobRequest.Repair { Instance: InstanceId.Vehicle } or JobRequest.Refit { Instance: InstanceId.Vehicle } } => "construction.commission_vehicle_work",
                 _ => throw new NotImplementedException($"{command.GetType().Name} 尚未实现。")
@@ -49,6 +54,22 @@ internal static class CoreCommandEncoding
                 case CoreCommand.FoundSettlement found:
                     WriteIdentity(writer, "node", found.Node.Value);
                     WriteIdentity(writer, "material_source", found.MaterialSource.Value);
+                    break;
+                case CoreCommand.SetTrainEngagement set:
+                    WriteIdentity(writer, "train", set.Train.Value);
+                    WriteTrainEngagement(writer, set.Rules);
+                    break;
+                case CoreCommand.SetSettlementEngagement set:
+                    WriteIdentity(writer, "settlement", set.Settlement.Value);
+                    WriteSettlementEngagement(writer, set.Rules);
+                    break;
+                case CoreCommand.Retreat retreat:
+                    WriteIdentity(writer, "train", retreat.Train.Value);
+                    break;
+                case CoreCommand.FocusFire focus:
+                    WriteIdentity(writer, "combat", focus.Combat.Value);
+                    WriteController(writer, focus.Controller);
+                    WriteWorldObject(writer, "target", focus.Target);
                     break;
                 case CoreCommand.ApplyInstanceDesign apply:
                     WriteIdentity(writer, "vehicle", ((InstanceId.Vehicle)apply.Instance).Id.Value);
@@ -202,6 +223,10 @@ internal static class CoreCommandEncoding
                 "inventory.load_goods" or "inventory.unload_goods" => ["input_format_version", "kind", "train", "settlement", "local_inventory", "good", "quantity"],
                 "lease.acquire" => ["input_format_version", "kind", "request", "maximum_payment"],
                 "settlement.found" => ["input_format_version", "kind", "node", "material_source"],
+                "engagement.set_train" => ["input_format_version", "kind", "train", "rules"],
+                "engagement.set_settlement" => ["input_format_version", "kind", "settlement", "rules"],
+                "combat.retreat" => ["input_format_version", "kind", "train"],
+                "combat.focus_fire" => ["input_format_version", "kind", "combat", "controller", "target"],
                 "construction.start_owned" => ["input_format_version", "kind", "request"],
                 "construction.commission_vehicle_work" => ["input_format_version", "kind", "request", "maximum_payment"],
                 "market.buy_goods" => ["input_format_version", "kind", "train", "settlement", "local_inventory", "good", "quantity", "maximum_payment"],
@@ -216,6 +241,22 @@ internal static class CoreCommandEncoding
                 return Success(new(null, new CoreCommand.FoundSettlement(
                     new(Identity(Property(root, "node", "", JsonValueKind.Number), "/node")),
                     new(Identity(Property(root, "material_source", "", JsonValueKind.Number), "/material_source")))));
+            if (name == "engagement.set_train")
+                return Success(new(null, new CoreCommand.SetTrainEngagement(
+                    new(Identity(Property(root, "train", "", JsonValueKind.Number), "/train")),
+                    ReadTrainEngagement(Property(root, "rules", "", JsonValueKind.Object)))));
+            if (name == "engagement.set_settlement")
+                return Success(new(null, new CoreCommand.SetSettlementEngagement(
+                    new(Identity(Property(root, "settlement", "", JsonValueKind.Number), "/settlement")),
+                    ReadSettlementEngagement(Property(root, "rules", "", JsonValueKind.Object)))));
+            if (name == "combat.retreat")
+                return Success(new(null, new CoreCommand.Retreat(
+                    new(Identity(Property(root, "train", "", JsonValueKind.Number), "/train")))));
+            if (name == "combat.focus_fire")
+                return Success(new(null, new CoreCommand.FocusFire(
+                    new(Identity(Property(root, "combat", "", JsonValueKind.Number), "/combat")),
+                    ReadController(Property(root, "controller", "", JsonValueKind.Object)),
+                    ReadWorldObject(Property(root, "target", "", JsonValueKind.Object), "/target"))));
             if (name == "instance.apply_design")
                 return Success(new(null, new CoreCommand.ApplyInstanceDesign(
                     new InstanceId.Vehicle(new(Identity(Property(root, "vehicle", "", JsonValueKind.Number), "/vehicle"))), ReadDesignChange(root, ""))));
@@ -456,6 +497,230 @@ internal static class CoreCommandEncoding
         try { WorldInputs.ValidateGood(good); }
         catch (ArgumentException) { throw new InvalidField(field + "/" + name); }
         return good;
+    }
+
+    private static void WriteTrainEngagement(Utf8JsonWriter writer, TrainEngagementRules rules)
+    {
+        ArgumentNullException.ThrowIfNull(rules);
+        if (!CombatRules.Valid(rules)) throw new ArgumentException("列车交战规则无效。", nameof(rules));
+        writer.WriteStartObject("rules");
+        WritePriority(writer, rules.Priority);
+        WriteScope(writer, rules.Scope);
+        writer.WriteString("encounter", rules.Encounter switch
+        {
+            EncounterAction.Engage => "engage",
+            EncounterAction.Retreat => "retreat",
+            _ => throw new ArgumentException("遇敌行为无效。", nameof(rules))
+        });
+        writer.WritePropertyName("retreat_structure_ratio");
+        writer.WriteRawValue(rules.RetreatStructureRatio.ToString("R", CultureInfo.InvariantCulture));
+        writer.WriteEndObject();
+    }
+
+    private static TrainEngagementRules ReadTrainEngagement(JsonElement value)
+    {
+        const string field = "/rules";
+        Fields(value, field, ["priority", "scope", "encounter", "retreat_structure_ratio"]);
+        var priority = ReadPriority(Property(value, "priority", field, JsonValueKind.String), field + "/priority");
+        var scope = ReadScope(Property(value, "scope", field, JsonValueKind.String), field + "/scope");
+        var encounter = Text(Property(value, "encounter", field, JsonValueKind.String), field + "/encounter") switch
+        {
+            "engage" => EncounterAction.Engage,
+            "retreat" => EncounterAction.Retreat,
+            _ => throw new InvalidField(field + "/encounter")
+        };
+        var ratio = Double(Property(value, "retreat_structure_ratio", field, JsonValueKind.Number), field + "/retreat_structure_ratio");
+        var rules = new TrainEngagementRules(priority, scope, encounter, ratio);
+        if (!CombatRules.Valid(rules)) throw new InvalidField(field + "/retreat_structure_ratio");
+        return rules;
+    }
+
+    private static void WriteSettlementEngagement(Utf8JsonWriter writer, SettlementEngagementRules rules)
+    {
+        ArgumentNullException.ThrowIfNull(rules);
+        if (!CombatRules.Valid(rules)) throw new ArgumentException("聚居地交战规则无效。", nameof(rules));
+        writer.WriteStartObject("rules");
+        WritePriority(writer, rules.Priority);
+        WriteScope(writer, rules.Scope);
+        writer.WriteEndObject();
+    }
+
+    private static SettlementEngagementRules ReadSettlementEngagement(JsonElement value)
+    {
+        const string field = "/rules";
+        Fields(value, field, ["priority", "scope"]);
+        return new(ReadPriority(Property(value, "priority", field, JsonValueKind.String), field + "/priority"),
+            ReadScope(Property(value, "scope", field, JsonValueKind.String), field + "/scope"));
+    }
+
+    private static void WritePriority(Utf8JsonWriter writer, TargetPriority priority) => writer.WriteString("priority", priority switch
+    {
+        TargetPriority.ArmedFirst => "armed_first",
+        TargetPriority.LowestDurability => "lowest_durability",
+        TargetPriority.HighestDurability => "highest_durability",
+        _ => throw new ArgumentException("目标优先级无效。", nameof(priority))
+    });
+
+    private static TargetPriority ReadPriority(JsonElement value, string field) => Text(value, field) switch
+    {
+        "armed_first" => TargetPriority.ArmedFirst,
+        "lowest_durability" => TargetPriority.LowestDurability,
+        "highest_durability" => TargetPriority.HighestDurability,
+        _ => throw new InvalidField(field)
+    };
+
+    private static void WriteScope(Utf8JsonWriter writer, TargetScope scope) => writer.WriteString("scope", scope switch
+    {
+        TargetScope.ArmedOnly => "armed_only",
+        TargetScope.All => "all",
+        _ => throw new ArgumentException("目标范围无效。", nameof(scope))
+    });
+
+    private static TargetScope ReadScope(JsonElement value, string field) => Text(value, field) switch
+    {
+        "armed_only" => TargetScope.ArmedOnly,
+        "all" => TargetScope.All,
+        _ => throw new InvalidField(field)
+    };
+
+    private static void WriteController(Utf8JsonWriter writer, CombatController controller)
+    {
+        ArgumentNullException.ThrowIfNull(controller);
+        writer.WriteStartObject("controller");
+        switch (controller)
+        {
+            case CombatController.Train train:
+                writer.WriteString("kind", "train");
+                WriteIdentity(writer, "train", train.Id.Value);
+                break;
+            case CombatController.Settlement settlement:
+                writer.WriteString("kind", "settlement");
+                WriteIdentity(writer, "settlement", settlement.Id.Value);
+                break;
+            default: throw new ArgumentException("战斗控制方无效。", nameof(controller));
+        }
+        writer.WriteEndObject();
+    }
+
+    private static CombatController ReadController(JsonElement value)
+    {
+        const string field = "/controller";
+        var kind = Text(Property(value, "kind", field, JsonValueKind.String), field + "/kind");
+        if (kind is not ("train" or "settlement")) throw new InvalidField(field + "/kind");
+        var name = kind == "train" ? "train" : "settlement";
+        Fields(value, field, ["kind", name]);
+        var id = Identity(Property(value, name, field, JsonValueKind.Number), field + "/" + name);
+        return kind == "train" ? new CombatController.Train(new(id)) : new CombatController.Settlement(new(id));
+    }
+
+    private static void WriteWorldObject(Utf8JsonWriter writer, string name, WorldObjectId value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        writer.WriteStartObject(name);
+        switch (value)
+        {
+            case WorldObjectId.Node node:
+                writer.WriteString("kind", "node");
+                WriteIdentity(writer, "node", node.Id.Value);
+                break;
+            case WorldObjectId.Edge edge:
+                writer.WriteString("kind", "edge");
+                WriteIdentity(writer, "edge", edge.Id.Value);
+                break;
+            case WorldObjectId.Train train:
+                writer.WriteString("kind", "train");
+                WriteIdentity(writer, "train", train.Id.Value);
+                break;
+            case WorldObjectId.Instance instance:
+                writer.WriteString("kind", "instance");
+                writer.WriteStartObject("instance");
+                switch (instance.Id)
+                {
+                    case InstanceId.Vehicle vehicle:
+                        writer.WriteString("kind", "vehicle");
+                        WriteIdentity(writer, "vehicle", vehicle.Id.Value);
+                        break;
+                    case InstanceId.Building building:
+                        writer.WriteString("kind", "building");
+                        WriteIdentity(writer, "building", building.Id.Value);
+                        break;
+                    default: throw new ArgumentException("实例身份无效。", nameof(value));
+                }
+                writer.WriteEndObject();
+                break;
+            case WorldObjectId.Settlement settlement:
+                writer.WriteString("kind", "settlement");
+                WriteIdentity(writer, "settlement", settlement.Id.Value);
+                break;
+            case WorldObjectId.Inventory inventory:
+                writer.WriteString("kind", "inventory");
+                WriteIdentity(writer, "inventory", inventory.Id.Value);
+                break;
+            case WorldObjectId.Job job:
+                writer.WriteString("kind", "job");
+                WriteIdentity(writer, "job", job.Id.Value);
+                break;
+            case WorldObjectId.Combat combat:
+                writer.WriteString("kind", "combat");
+                WriteIdentity(writer, "combat", combat.Id.Value);
+                break;
+            case WorldObjectId.Creature creature:
+                writer.WriteString("kind", "creature");
+                WriteIdentity(writer, "creature", creature.Id.Value);
+                break;
+            case WorldObjectId.CreatureGroup group:
+                writer.WriteString("kind", "creature_group");
+                WriteIdentity(writer, "creature_group", group.Id.Value);
+                break;
+            case WorldObjectId.Lair lair:
+                writer.WriteString("kind", "lair");
+                WriteIdentity(writer, "lair", lair.Id.Value);
+                break;
+            default: throw new ArgumentException("世界对象无效。", nameof(value));
+        }
+        writer.WriteEndObject();
+    }
+
+    private static WorldObjectId ReadWorldObject(JsonElement value, string field)
+    {
+        var kind = Text(Property(value, "kind", field, JsonValueKind.String), field + "/kind");
+        if (kind is not ("node" or "edge" or "train" or "instance" or "settlement" or "inventory" or "job"
+            or "combat" or "creature" or "creature_group" or "lair")) throw new InvalidField(field + "/kind");
+        if (kind == "instance")
+        {
+            Fields(value, field, ["kind", "instance"]);
+            var instance = Property(value, "instance", field, JsonValueKind.Object);
+            var instanceKind = Text(Property(instance, "kind", field + "/instance", JsonValueKind.String), field + "/instance/kind");
+            if (instanceKind is not ("vehicle" or "building")) throw new InvalidField(field + "/instance/kind");
+            var name = instanceKind == "vehicle" ? "vehicle" : "building";
+            Fields(instance, field + "/instance", ["kind", name]);
+            var id = Identity(Property(instance, name, field + "/instance", JsonValueKind.Number), field + "/instance/" + name);
+            return new WorldObjectId.Instance(instanceKind == "vehicle"
+                ? new InstanceId.Vehicle(new(id)) : new InstanceId.Building(new(id)));
+        }
+        Fields(value, field, ["kind", kind]);
+        var identity = Identity(Property(value, kind, field, JsonValueKind.Number), field + "/" + kind);
+        return kind switch
+        {
+            "node" => new WorldObjectId.Node(new(identity)),
+            "edge" => new WorldObjectId.Edge(new(identity)),
+            "train" => new WorldObjectId.Train(new(identity)),
+            "settlement" => new WorldObjectId.Settlement(new(identity)),
+            "inventory" => new WorldObjectId.Inventory(new(identity)),
+            "job" => new WorldObjectId.Job(new(identity)),
+            "combat" => new WorldObjectId.Combat(new(identity)),
+            "creature" => new WorldObjectId.Creature(new(identity)),
+            "creature_group" => new WorldObjectId.CreatureGroup(new(identity)),
+            "lair" => new WorldObjectId.Lair(new(identity)),
+            _ => throw new InvalidField(field + "/kind")
+        };
+    }
+
+    private static double Double(JsonElement value, string field)
+    {
+        if (!value.TryGetDouble(out var number) || !double.IsFinite(number))
+            throw new InvalidField(field);
+        return number;
     }
 
     private static void WritePositive(Utf8JsonWriter writer, string name, long value)

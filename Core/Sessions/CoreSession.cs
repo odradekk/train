@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Train.Core.Contracts;
+using Train.Core.Combat;
 using Train.Core.World;
 using Train.Core.Railway;
 using Train.Core.Inventory;
@@ -87,6 +88,12 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
         {
             InventoryCommands.Validate(command);
             return ExecuteCommand(command, source, content => InventoryCommands.Execute(State.World, content, command, State.Position.CompletedSteps));
+        }
+        if (command is CoreCommand.SetTrainEngagement or CoreCommand.SetSettlementEngagement
+            or CoreCommand.Retreat or CoreCommand.FocusFire)
+        {
+            CombatCommands.Validate(command);
+            return ExecuteCommand(command, source, content => CombatCommands.Execute(State.World, content, command));
         }
         TrainCommands.Validate(command);
         return ExecuteCommand(command, source, content => TrainCommands.Execute(State.World, content, command,
