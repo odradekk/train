@@ -18,6 +18,9 @@ if (args.Length > 0 && string.Equals(args[0], "--commission-process", StringComp
 if (args.Length > 0 && string.Equals(args[0], "--construction-process", StringComparison.Ordinal))
     return await ConstructionProcessDriver.RunAsync(args[1..]);
 
+if (args.Length > 0 && string.Equals(args[0], "--founding-process", StringComparison.Ordinal))
+    return await FoundingProcessDriver.RunAsync(args[1..]);
+
 if (args.Length > 0 && string.Equals(args[0], "--population-process", StringComparison.Ordinal))
     return await PopulationProcessDriver.RunAsync(args[1..]);
 

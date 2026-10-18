@@ -108,19 +108,21 @@ internal static class PopulationOperations
         }, events.ToImmutable());
     }
 
-    internal static ImmutableArray<CoreProblem> Problems(WorldState world, SettlementState settlement, PopulationInputs inputs)
+    internal static ImmutableArray<CoreProblem> Problems(WorldState world, SettlementState? settlement, PopulationInputs inputs)
     {
         if (!inputs.RuleMissing && inputs.MissingGoods.IsEmpty) return [];
         var problems = ImmutableArray.CreateBuilder<CoreProblem>();
         var selected = world.Source.Configuration.Rules.Population;
+        WorldObjectId? subject = settlement is null ? null : new WorldObjectId.Settlement(settlement.Id);
         if (inputs.RuleMissing)
-            problems.Add(new("content_missing", "Configuration.Rules.Population", new WorldObjectId.Settlement(settlement.Id), [selected.Value]));
-        var execution = settlement.PopulationState.Period?.Rule ?? inputs.Current;
+            problems.Add(new("content_missing", "Configuration.Rules.Population", subject, [selected.Value]));
+        var execution = settlement?.PopulationState.Period?.Rule ?? inputs.Current;
         if (execution is not null)
             foreach (var good in execution.ConsumptionGoods)
                 if (inputs.MissingGoods.Contains(good.Good))
-                    problems.Add(new("content_missing", $"World.Settlements[{settlement.Id.Value}].PopulationState.Period.Rule.ConsumptionGoods",
-                        new WorldObjectId.Settlement(settlement.Id), [WorldReferences.GoodKey(good.Good)]));
+                    problems.Add(new("content_missing", settlement is null ? $"Content.PopulationRules[{selected.Value}].ConsumptionGoods"
+                        : $"World.Settlements[{settlement.Id.Value}].PopulationState.Period.Rule.ConsumptionGoods",
+                        subject, [WorldReferences.GoodKey(good.Good)]));
         return problems.ToImmutable();
     }
 

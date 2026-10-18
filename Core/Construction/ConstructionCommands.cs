@@ -139,7 +139,7 @@ internal static class ConstructionCommands
         var needed = new Dictionary<GoodId, long>();
         if (vehicle is null)
         {
-            foreach (var good in design.BillOfMaterials) Add(good.Good, good.Quantity);
+            foreach (var good in BillOfMaterials([design])) Add(good.Good, good.Quantity);
             work = checked(design.BillOfMaterialsItemCount * rule.ConstructionWorkPerItem);
         }
         else if (request is JobRequest.Refit refit)
@@ -334,7 +334,12 @@ internal static class ConstructionCommands
             prepared, [new WorldObjectId.Job(job.Id)]);
     }
 
-    private static WorldState Consume(WorldState world, IEnumerable<JobMaterialSourceView> consumption)
+    internal static ImmutableArray<GoodsQuantity> BillOfMaterials(IEnumerable<DesignProjection> designs)
+        => designs.SelectMany(d => d.BillOfMaterials).GroupBy(g => g.Good)
+            .OrderBy(g => WorldReferences.GoodKey(g.Key), StringComparer.Ordinal)
+            .Select(g => new GoodsQuantity(g.Key, g.Sum(q => q.Quantity))).ToImmutableArray();
+
+    internal static WorldState Consume(WorldState world, IEnumerable<JobMaterialSourceView> consumption)
         => world with { Inventories = world.Inventories.Select(i => consumption.SingleOrDefault(s => s.Inventory == i.Id) is not { } source ? i : i with
         {
             Goods = i.Goods.Select(g => g with { Quantity = g.Quantity - (source.Goods.SingleOrDefault(t => t.Good == g.Good)?.Quantity ?? 0) })

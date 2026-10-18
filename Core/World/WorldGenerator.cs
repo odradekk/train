@@ -50,7 +50,7 @@ internal static class WorldGenerator
                 {
                     try
                     {
-                        var occupants = Occupants(nodes, input, content, types, budget, attempt);
+                        var occupants = Occupants(nodes, input, content, budget, attempt);
                         var resources = Resources(nodes, input, budget);
                         var tracks = WorldRailway.Build(nodes, edges, occupants, input, budget);
                         var start = Start(nodes, edges, occupants, tracks, input, budget);
@@ -237,7 +237,7 @@ internal static class WorldGenerator
     }
 
     private static ImmutableArray<GeneratedOccupant> Occupants(ImmutableArray<CandidateNode> nodes,
-        WorldGenerationInput input, CoreContentProjection content, SettlementTypeProjection[] types, GenerationBudgetCounter budget, ulong attempt)
+        WorldGenerationInput input, CoreContentProjection content, GenerationBudgetCounter budget, ulong attempt)
     {
         budget.Stage = "occupants";
         var config = input.Configuration;
@@ -254,10 +254,8 @@ internal static class WorldGenerator
         foreach (var index in order.Take(settlements))
         {
             budget.Candidate = nodes[index].Cell.ToString();
-            var preferred = types.Where(t => t.PreferredTerrain.IsEmpty || t.PreferredTerrain.Contains(nodes[index].Terrain.TypeId)).ToArray();
-            var type = Weighted(preferred.Length == 0 ? types : preferred, t => t.Weight, Random("settlement.type", index));
-            var templates = content.SettlementTemplates.Where(t => t.Type == type.Id).ToArray();
-            var template = Weighted(templates, t => t.Weight, Random("settlement.template", index, WorldRandom.Identity(type.Id.Value)));
+            var (type, template) = SettlementSelection.Choose(content, nodes[index].Terrain.TypeId,
+                Random("settlement.type", index), type => Random("settlement.template", index, WorldRandom.Identity(type.Value)))!.Value;
             var population = WorldRandom.Integer(Random("settlement.population", index, WorldRandom.Identity(type.Id.Value)),
                 type.MinimumInitialPopulation, type.MaximumInitialPopulation);
             var platforms = template.Plots.Where(p => p.PrebuiltDesign is not null).Select(p => content.Designs.Single(d => d.Design == p.PrebuiltDesign))
@@ -269,25 +267,13 @@ internal static class WorldGenerator
         foreach (var index in order.Skip(settlements).Take(lairs))
         {
             budget.Candidate = nodes[index].Cell.ToString();
-            var lair = Weighted(config.LairWeights.ToArray(), l => l.Weight, Random("lair.type", index));
+            var lair = SettlementSelection.Weighted(config.LairWeights.ToArray(), l => l.Weight, Random("lair.type", index));
             result[index] = new GeneratedOccupant.Lair(lair.Type);
         }
         return result.ToImmutableArray();
 
         ulong Random(string purpose, int index, params ulong[] identity)
             => WorldRandom.Sample(input.WorldSeed, purpose, 4, budget.WorldRetry, attempt, [nodes[index].Cell.X, nodes[index].Cell.Y, .. identity]);
-    }
-
-    private static T Weighted<T>(T[] values, Func<T, int> weight, ulong random)
-    {
-        var total = values.Sum(v => (long)weight(v));
-        var selected = WorldRandom.Integer(random, 0, total - 1);
-        foreach (var value in values)
-        {
-            selected -= weight(value);
-            if (selected < 0) return value;
-        }
-        throw new InvalidOperationException("权重选择没有结果。");
     }
 
     private static ImmutableArray<ImmutableArray<NodeResourceView>> Resources(ImmutableArray<CandidateNode> nodes,

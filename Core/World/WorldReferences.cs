@@ -78,6 +78,13 @@ internal static class WorldReferences
                 foreach (var absent in unit.MissingReferences) Add(absent.Reference, field + ".MissingReferences");
             }
         }
+        foreach (var job in world.FoundingJobs)
+        {
+            var path = $"World.FoundingJobs[{job.Id.Value}]";
+            Add(new CoreDefinitionReference.SettlementType(job.Type), path + ".Type");
+            definitions.Add(new(new CoreDefinitionReference.Rule(job.Rule), job.StartedFromRevision, path + ".Rule", false));
+            foreach (var good in job.InvestedGoods) Good(good.Good, path + ".InvestedGoods");
+        }
         foreach (var train in world.Trains)
         {
             if (train.Plan is not { } plan) continue;
@@ -116,8 +123,11 @@ internal static class WorldReferences
         definitions.AddRange(world.DefinitionDependencies);
         var missing = missingReferences.Select(m => m.Reference).ToHashSet();
         return new(world.Designs.Select(d => d.Design).OrderBy(d => d.Value, StringComparer.Ordinal).ToImmutableArray(),
-            world.Settlements.OrderBy(s => s.Id.Value).Select(s => new OwnedSettlementTemplateReference(s.Id, s.Template.Id,
-                s.Template.Plots.Select(p => new TemplatePlotReference(p.Number, p.Size)).ToImmutableArray())).ToImmutableArray(),
+            world.Settlements.Select(s => new OwnedSettlementTemplateReference(s.Id, s.Template.Id,
+                s.Template.Plots.Select(p => new TemplatePlotReference(p.Number, p.Size)).ToImmutableArray()))
+                .Concat(world.FoundingJobs.Select(j => new OwnedSettlementTemplateReference(j.ReservedSettlementId, j.Template.Id,
+                    j.Template.Plots.Select(p => new TemplatePlotReference(p.Number, p.Size)).ToImmutableArray())))
+                .OrderBy(t => t.Owner.Value).ToImmutableArray(),
             definitions.Distinct().OrderBy(d => DefinitionKey(d.Definition), StringComparer.Ordinal).ThenBy(d => d.Field, StringComparer.Ordinal)
                 .Select(d => d with { WasMissing = missing.Contains(d.Definition) }).ToImmutableArray(), [identity]);
 

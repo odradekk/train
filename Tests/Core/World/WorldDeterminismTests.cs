@@ -61,7 +61,7 @@ public sealed class WorldDeterminismTests
         using var session = candidate.Activate();
         var world = session.Read().World;
         var capture = Success(session.Capture(CapturePurpose.Save));
-        Assert.AreEqual("0AA60B6E6E628D6AEA9DF6329AC478B4E8FC68FA98BD500942997029A2D0C271",
+        Assert.AreEqual("85547F2B667C35C76DE02EBBC9F6AC4C5A03E21A781ECB53D5B216703CA00FC3",
             capture.Checkpoint.Sha256);
         Assert.AreEqual(19, world.Nodes.Length);
         Assert.AreEqual(22, world.Edges.Length);
