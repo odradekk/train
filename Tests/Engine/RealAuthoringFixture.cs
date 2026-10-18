@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Godot;
 using Train.App;
 using Train.App.Assets;
@@ -73,10 +74,21 @@ internal sealed class RealAuthoringFixture : IDisposable
         Require(Service.Package is not null, "真实本地包未打开：" + Service.Message);
     }
 
-    internal Task Pump(Func<bool> done) => FramesUntil(testScene, () =>
+    internal async Task Pump(Func<bool> done, TimeSpan? timeout = null, [CallerArgumentExpression(nameof(done))] string? description = null)
     {
-        Dispatcher.Pump(); Host.ProcessFrame(0); Editor.Process(); Service.Process(); return done();
-    }, Dispatcher);
+        try
+        {
+            await FramesUntil(testScene, () =>
+            {
+                Dispatcher.Pump(); Host.ProcessFrame(0); Editor.Process(); Service.Process();
+                return done();
+            }, Dispatcher, timeout, description);
+        }
+        catch (InvalidOperationException error) when (error.Message.StartsWith("真实 Godot 帧等待超时：", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"{error.Message}\nHost: busy={Host.IsBusy}, generation={Host.Content?.Generation}, lastOperation={LastOperation}\nEditor: busy={Editor.IsBusy}, open={Editor.IsOpen}, dirty={Editor.IsDirty}, leaving={Editor.Leaving}, error={Editor.HasError}, message={Editor.Message}\nService: busy={Service.IsBusy}, leaving={Service.Leaving}, writeSuccess={Service.LastWrite?.Success}, writtenFiles={Service.LastWrite?.Completed.Length}, message={Service.Message}", error);
+        }
+    }
 
     public void Dispose()
     {

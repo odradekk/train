@@ -2,7 +2,10 @@ using Chickensoft.GoDotTest;
 using Chickensoft.GodotTestDriver;
 using Godot;
 using Train.App;
+using Train.Content.Contracts;
+using Train.Content.ContractSupport;
 using Train.Core.Contracts;
+using Train.Core.ContractSupport;
 using Train.Ui;
 using static Train.Engine.Tests.Assertions;
 
@@ -344,10 +347,20 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
             economy.Refresh(new HostBinding(Guid.NewGuid()), view, content);
             Require(Find<Button>(economy, "QuoteTrade").Disabled && !Find<LineEdit>(economy, "Quantity").Editable,
                 "旧绑定窗口仍允许操作。");
-            var binding = ui.GetParent<Train.App.App>().Host!.GetStatus()!.Binding;
-            economy.Refresh(binding, view, EconomyFixture.Content(2));
+            var host = ui.GetParent<Train.App.App>().Host!;
+            var binding = host.GetStatus()!.Binding;
+            setup.Session.SetCapture(CapturePurpose.Save, new CoreResult<ICoreCapture>.Success(
+                new FixedCoreCapture(new(view.Position, "fixed", "fixed"), HostCoreScenario.References, "opaque", view.InputIdentity, view.Revision)));
+            var reloaded = EconomyFixture.Content(2);
+            using var reload = new ScriptedContentCandidate(reloaded, host.Content!, ContentChange.Presentation);
+            setup.ContentFactory!.PrepareLoadCall = (request, _, _) => request.Purpose is ContentLoadPurpose.Reload
+                ? new ContentResult<IContentCandidate>.Success(reload)
+                : throw new InvalidOperationException("UNCONFIGURED: " + request.Purpose);
+            Require(host.BeginReload(CommandSource.UserInterface).Problem is null, "内容重载被拒绝。");
+            await _input.WaitUntil(() => !host.IsBusy && ReferenceEquals(host.Content, reloaded));
+            economy.Refresh(binding, view, host.Content!);
             Require(Find<Button>(economy, "QuoteTrade").Disabled && Find<Button>(economy, "ConfirmTrade").Disabled,
-                "旧内容世代窗口仍允许操作。");
+                "内容重载后旧窗口仍允许操作。");
             Require(setup.Session.SubmitCount == 0, "无效窗口提交了命令。");
             var app = ui.GetParent<Train.App.App>();
             Require(app.Saves!.ReturnToMenu() is null, "无法返回主菜单。");
