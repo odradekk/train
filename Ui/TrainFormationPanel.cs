@@ -108,7 +108,7 @@ internal partial class TrainFormationPanel : Control
 
     internal void Refresh(HostBinding binding, ICoreReadView view, IContentView content)
     {
-        var unavailable = _target is null || !_target.IsAvailable(binding, content.Generation, view);
+        var unavailable = _target is null || !_target.IsAvailable(binding, view, _host.PanelGenerationCurrent(_target.Binding, _target.Generation));
         _form.Disabled = _host.IsBusy || unavailable || _candidates.Count == 0;
         _reason.Text = unavailable && _target is not null ? "已不存在：编组草稿所属节点或对局已失效。"
             : _candidates.Count == 0 ? "本站没有未编组的玩家车辆可供编组。" : "";

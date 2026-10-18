@@ -150,7 +150,7 @@ public partial class GameUi : CanvasLayer
             _panels.FormationRequested += _formation.Open;
             _panels.PlanRequested += _plan.Open;
             _economy = new EconomyPanels { Name = "EconomyPanels" };
-            _economy.Initialize(_host, Submit, _icons);
+            _economy.Initialize(_host, Submit, _icons, Submit);
             _world.AddChild(_economy);
             _bar.AddChild(UiStyle.Button("EconomyReports", "经营报告", _economy.OpenReports));
             _panels.SettlementRequested += _economy.OpenSettlement;
@@ -189,6 +189,12 @@ public partial class GameUi : CanvasLayer
             _bar.AddChild(_authoringButton);
         }
         if (_panels is not null) _panels.RefitRequested += _editor.OpenInstance;
+        if (_economy is not null)
+        {
+            _panels!.VehicleServiceRequested += _economy.OpenVehicleServices;
+            _economy.ServiceDesignRequested += _editor.OpenInstance;
+            _editorPanel.ServiceRequested += _economy.OpenVehicleServices;
+        }
         _editor.Changed += OnEditorChanged;
         _menu.SetHostAvailable(_host is not null);
         _menu.NewGameRequested += OpenNewGame;
@@ -290,15 +296,18 @@ public partial class GameUi : CanvasLayer
     }
 
     private CommandDecision.Accepted? Submit(PanelTarget? target, CoreCommand command)
+        => Submit(target, command, null);
+
+    private CommandDecision.Accepted? Submit(PanelTarget? target, CoreCommand command, IContentCandidate? candidate)
     {
         var status = _host?.GetStatus();
         if (status is null || _host!.Content is not { } content || target is null ||
-            !target.IsAvailable(status.Binding, content.Generation, status.View) || _host.IsBusy)
+            !target.IsAvailable(status.Binding, status.View, _host.PanelGenerationCurrent(target.Binding, target.Generation)) || _host.IsBusy)
         {
             ReportUiError("当前操作不可提交：对象已失效或宿主正在操作。");
             return null;
         }
-        var result = _host.Submit(target.Binding, command, CommandSource.UserInterface);
+        var result = _host.Submit(target.Binding, command, CommandSource.UserInterface, candidate);
         if (CommandDiagnostics.Report(_logger, result) is { } problem) ShowError(problem);
         return (result as SubmissionResult.Completed)?.Receipt.Decision as CommandDecision.Accepted;
     }
@@ -312,6 +321,7 @@ public partial class GameUi : CanvasLayer
     private void OnBoundary(HostBinding binding, ICoreReadView view, IContentView content,
         ImmutableArray<EventEnvelope> events)
     {
+        _economy?.Observe(binding, view, events);
         if (view.Fault is { } fault && (_binding != binding || _view?.Fault != fault))
             ShowError(CommandDiagnostics.Describe(fault));
         _map.SetView(view, content, _binding != binding);
@@ -323,8 +333,9 @@ public partial class GameUi : CanvasLayer
 
     private void OpenScene(WorldObjectId id)
     {
-        if (_scenes is null || _content is null || _host?.GetStatus() is not { } status || _host.Content is not { } content ||
-            !new PanelTarget(_binding, _content.Generation, id).IsAvailable(status.Binding, content.Generation, status.View))
+        if (_scenes is null || _content is null || _host?.GetStatus() is not { } status || _host.Content is null ||
+            !new PanelTarget(_binding, _content.Generation, id).IsAvailable(status.Binding, status.View,
+                _host.PanelGenerationCurrent(_binding, _content.Generation)))
             return;
         WorldSceneTarget? target = id switch
         {
@@ -356,7 +367,8 @@ public partial class GameUi : CanvasLayer
             _ => null
         };
         if (id is null || _content is null ||
-            !new PanelTarget(_binding, _content.Generation, id).IsAvailable(status.Binding, content.Generation, status.View))
+            !new PanelTarget(_binding, _content.Generation, id).IsAvailable(status.Binding, status.View,
+                _host.PanelGenerationCurrent(_binding, _content.Generation)))
             return;
         _panels!.Refresh(status.Binding, status.View, content);
         _panels.OpenObject(id);
