@@ -317,7 +317,7 @@ public sealed class NodeTrainPresentationTests
         {
             if (!ids.TryGetValue(key, out var id)) ids.Add(key, id = new(++next));
             return id;
-        }, vehicles, RailwayFixtures.EmptyNode);
+        }, vehicles, new(), RailwayFixtures.EmptyNode);
     }
 
     private static async Task<SceneFrame> Frame(NodeScene scene, SceneWorldSnapshot snapshot,

@@ -101,8 +101,8 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
                     "预算耗尽后必须保留已提交网格和交互。");
                 Require(Math.Abs(root.GlobalPosition.X + candidates[i].Origin.X - (i + 2) * 10) < 0.001 &&
                     world.View.CameraRig.Focus.X + candidates[i].Origin.X > oldFocus &&
-                    world.View.CameraRig.Focus.X < root.GlobalPosition.X,
-                    "准备未完成时真实节点必须更新到最新姿态，跟随焦点也必须持续推进。");
+                    Math.Abs(world.View.CameraRig.Focus.X - root.GlobalPosition.X) < 0.001,
+                    "准备未完成时真实节点和跟随焦点必须同步更新到最新姿态。");
                 world.Pick(TestScene.GetViewport().GetVisibleRect().Size / 2);
                 Require(first.LastPickRay is null && candidates[i].LastPickRay is not null,
                     "准备期间拾取必须查询最新姿态帧。");
@@ -114,7 +114,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             Require(ReferenceEquals(world.Display.PoseFrame, candidates[^1]) &&
                 Math.Abs(root.GlobalPosition.X + candidates[^1].Origin.X - 40) < 0.001 &&
                 world.View.CameraRig.Focus.X + candidates[^1].Origin.X > beforeCommit &&
-                world.View.CameraRig.Focus.X < root.GlobalPosition.X &&
+                Math.Abs(world.View.CameraRig.Focus.X - root.GlobalPosition.X) < 0.001 &&
                 Math.Abs(world.Display.Objects[new(6)].Root.GlobalPosition.X + 200) < 0.001,
                 "较早候选提交时必须立即显示最新姿态，物体和相机的原点变化只施加一次。");
             world.Pick(TestScene.GetViewport().GetVisibleRect().Size / 2);
@@ -173,36 +173,36 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             long timestamp = 0;
             world.Display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
             world.ProcessFrame(0, false);
-            Require(world.Display.IsPreparing && Math.Abs(world.View.CameraRig.Focus.X) < 0.001 &&
+            Require(world.Display.IsPreparing && Math.Abs(world.View.CameraRig.Focus.X - 5) < 0.001 &&
                 Math.Abs(world.Display.Objects[new(1)].Root.GlobalPosition.X - 5) < 0.001,
-                "切换前必须建立未提交的原点平移和跟随余量。");
+                "切换前必须建立未提交的原点平移，同时焦点跟随最新显示位置。");
             world.ProcessFrame(0, false);
-            Require(Math.Abs(world.View.CameraRig.Focus.X - 10) < 0.001 &&
+            Require(Math.Abs(world.View.CameraRig.Focus.X - 15) < 0.001 &&
                 Math.Abs(world.Display.Objects[new(1)].Root.GlobalPosition.X - 15) < 0.001 &&
                 Math.Abs(world.Display.Objects[new(2)].Root.GlobalPosition.X - 30) < 0.001,
                 "新空间交接坐标相对D对齐，旧叠加平移必须与相机一起换算，不能重复保留。");
             world.ProcessFrame(0, false);
-            Require(world.Display.IsPreparing && ReferenceEquals(world.Display.DisplayedFrame, first) &&
-                Math.Abs(world.Display.Objects[new(1)].Root.GlobalPosition.X + 85) < 0.001 &&
-                Math.Abs(world.Display.Objects[new(2)].Root.GlobalPosition.X + 70) < 0.001 &&
-                Math.Abs(world.View.CameraRig.Focus.X + 90) < 0.001,
-                "Loading锚点后的原点变化必须同时换算旧对象和相机，保持跟随余量。");
+            Require(!world.Display.IsPreparing && ReferenceEquals(world.Display.DisplayedFrame, pending) &&
+                Math.Abs(world.Display.Objects[new(11)].Root.GlobalPosition.X + 85) < 0.001 &&
+                Math.Abs(world.Display.Objects[new(22)].Root.GlobalPosition.X + 70) < 0.001 &&
+                Math.Abs(world.View.CameraRig.Focus.X + 85) < 0.001,
+                "Loading之后的新空间首帧必须立即提交，并保持原点换算和相机跟随位置。");
             Require(ReferenceEquals(session!.PresentCalls[^1].Request.Camera!.Frame, loading) &&
-                Math.Abs(session.PresentCalls[^1].Request.Camera!.Focus.X - 10) < 0.001,
+                Math.Abs(session.PresentCalls[^1].Request.Camera!.Focus.X - 15) < 0.001,
                 "相机样本的来源帧和焦点坐标必须配对。");
             await new UiTestInput(TestScene).Frames(2);
-            world.Display.Timestamp = () => 0;
+            world.Display.Timestamp = () => timestamp;
             world.ProcessFrame(0, false);
-            Require(ReferenceEquals(world.Display.DisplayedFrame, pending) &&
+            Require(ReferenceEquals(world.Display.DisplayedFrame, latest) &&
                 Math.Abs(world.Display.Objects[new(11)].Root.GlobalPosition.X + 85) < 0.001 &&
-                Math.Abs(world.View.CameraRig.Focus.X + 90) < 0.001,
+                Math.Abs(world.View.CameraRig.Focus.X + 85) < 0.001,
                 "完整替换提交不得再次施加原点变化或重置跟随余量。");
         }
         finally { await fixture.Cleanup(); await new UiTestInput(TestScene).Frames(2); }
     }
 
     [Test]
-    public async Task Replacement_without_a_displayed_base_freezes_the_old_view_until_commit()
+    public async Task Replacement_without_a_displayed_base_freezes_loading_then_commits_first_operable_frame()
     {
         await new UiTestInput(TestScene).Frames(2);
         foreach (var cause in new[] { "target", "base" })
@@ -230,7 +230,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             var hit = new SceneHit(Stamp(6) with { Request = new(request), Space = new(2) }, new(11),
                 new PickSubject.Terrain(new WorldLocation.Node(new(1))), default, GridFace.PositiveY,
                 default, NVector3.UnitY, 1, []);
-            var latest = Frame(6, objects: [.. objects, Object(14)], origin: new(1000, 0, 0),
+            var latest = Frame(6, pending.Update.Frame, objects: [.. objects, Object(14), Object(15)], origin: new(1000, 0, 0),
                 request: request, space: 2, poses: Poses(5000), pick: new ScenePick.Hit(hit));
             FixedDisplaySession? session = null;
             try
@@ -264,36 +264,33 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
                 var camera = world.View.CameraRig.Camera.GlobalTransform;
                 if (cause == "target") world.Open(nextTarget);
                 else world.ProcessFrame(0.1, false);
-                foreach (var candidate in new[] { loading, pending })
-                {
-                    world.ProcessFrame(0.1, false);
-                    Require(root.GlobalPosition.DistanceTo(position) < 0.001 &&
-                        world.View.CameraRig.Focus.DistanceTo(focus) < 0.001 &&
-                        world.View.CameraRig.Camera.GlobalTransform == camera &&
-                        ReferenceEquals(world.Display.DisplayedFrame, first),
-                        $"{cause}完整替换提交前不能移动旧画面或相机。");
-                    var call = session!.PresentCalls[^1];
-                    Require(call.DisplayedFrame is null && ReferenceEquals(call.Request.Camera!.Frame, first),
-                        "没有D基准的Present必须继续用D采样相机。");
-                    Require(NVector3.Distance(call.Request.Camera!.Focus, new(focus.X + 10, focus.Y, focus.Z)) < 0.001,
-                        "冻结期间的相机样本必须把焦点换回D的原点。");
-                    world.Pick(TestScene.GetViewport().GetVisibleRect().Size / 2);
-                    Require(candidate.LastPickRay is null, "完整替换期间不能用新目标帧拾取旧画面。");
-                }
-                Require(world.Display.IsPreparing, "确定性预算必须让新目标准备跨帧。");
+                world.ProcessFrame(0.1, false);
+                Require(root.GlobalPosition.DistanceTo(position) < 0.001 &&
+                    world.View.CameraRig.Focus.DistanceTo(focus) < 0.001 &&
+                    world.View.CameraRig.Camera.GlobalTransform == camera &&
+                    ReferenceEquals(world.Display.DisplayedFrame, first),
+                    $"{cause}完整替换提交前不能移动旧画面或相机。");
+                var call = session!.PresentCalls[^1];
+                Require(call.DisplayedFrame is null && ReferenceEquals(call.Request.Camera!.Frame, first),
+                    "没有D基准的Present必须继续用D采样相机。");
+                Require(NVector3.Distance(call.Request.Camera!.Focus, new(focus.X + 10, focus.Y, focus.Z)) < 0.001,
+                    "冻结期间的相机样本必须把焦点换回D的原点。");
+                world.Pick(TestScene.GetViewport().GetVisibleRect().Size / 2);
+                Require(loading.LastPickRay is null, "完整替换期间不能用新目标帧拾取旧画面。");
                 if (cause == "base") Require(first.LastPickRay is not null,
                     "Base恢复期间保留的拾取资格只能查询D。");
-                await new UiTestInput(TestScene).Frames(2);
-                world.Display.Timestamp = () => 0;
                 world.ProcessFrame(0.1, false);
                 Require(ReferenceEquals(world.Display.DisplayedFrame, pending) && world.View.Interactive &&
-                    !world.Display.Objects.ContainsKey(new(1)) && world.Display.Objects.ContainsKey(new(11)),
-                    "资源就绪后才应切换到新场景。");
+                    !world.Display.IsPreparing && !world.Display.Objects.ContainsKey(new(1)) && world.Display.Objects.ContainsKey(new(11)),
+                    "新空间首个可操作帧必须忽略软预算，一次准备并提交。");
                 Require(world.View.CameraRig.Focus != focus, "提交后相机必须接入新目标帧。");
+                world.ProcessFrame(0.1, false);
+                Require(world.Display.IsPreparing && ReferenceEquals(world.Display.DisplayedFrame, pending),
+                    "同空间后续帧仍受软预算限制，准备期间保持完整显示。");
                 world.Pick(TestScene.GetViewport().GetVisibleRect().Size / 2);
                 Require(selected == 1 && session!.ResolveCalls.SequenceEqual(new[] { hit }) &&
                     latest.LastPickRay is not null && !world.Display.Objects.ContainsKey(new(14)),
-                    "较早完整候选提交当帧，最新P命中的已显示兼容对象必须可选，新对象仍等待资源。");
+                    "最新P命中的已显示兼容对象必须可选，新对象仍等待资源。");
             }
             finally { await fixture.Cleanup(); await new UiTestInput(TestScene).Frames(2); }
         }

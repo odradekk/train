@@ -130,7 +130,8 @@ internal static class RailwayFixtures
         new(NodeLayout.Build(snapshot, node, token), ImmutableDictionary<string, NodeScene.Part>.Empty, []);
 
     internal static RailwayScene Controlled(SceneWorldSnapshot snapshot, SceneVehicles vehicles,
-        Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null)
+        Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null,
+        DisplayRate? displayRate = null)
     {
         var ids = new Dictionary<string, SceneObjectId>();
         ulong next = 0;
@@ -138,7 +139,7 @@ internal static class RailwayFixtures
         {
             if (!ids.TryGetValue(key, out var id)) ids.Add(key, id = new(++next));
             return id;
-        }, vehicles, build ?? EmptySegment);
+        }, vehicles, displayRate ?? new(), build ?? EmptySegment);
     }
 
     internal static async Task<SceneFrame> Settled(RailwayScene scene, SceneWorldSnapshot snapshot,
@@ -157,14 +158,22 @@ internal static class RailwayFixtures
 
     internal static async Task<SceneFrame> Settled(WorldSceneSession session, SceneFrameRequest request, ISceneFrame? displayed = null)
     {
+        var baseline = displayed;
         SceneFrame Present() => (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(request, displayed)).Value;
         var frame = Present();
-        while (Work().Length > 0)
+        while (true)
         {
-            await SceneFixtures.AwaitPendingWork(Work());
-            frame = Present();
+            var work = Work();
+            await SceneFixtures.AwaitPendingWork(work);
+            if (frame.Readiness is SceneReadiness.Partial or SceneReadiness.Ready) displayed = frame;
+            var next = Present();
+            // A displayed receipt can admit another completed batch even when no builder remains.
+            var changed = !frame.Objects.Select(item => item.Id).ToHashSet().SetEquals(next.Objects.Select(item => item.Id));
+            frame = next;
+            if (work.Length == 0 && Work().Length == 0 && !changed) break;
         }
-        return frame;
+        // Keep the caller's requested delta base after simulating intermediate host commits.
+        return (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(request, baseline)).Value;
 
         Task[] Work() => session.PendingNodeBuilds.Concat(session.PendingRailwayBuilds)
             .Concat(session.PendingObjectBuilds).ToArray();

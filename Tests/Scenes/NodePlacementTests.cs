@@ -290,7 +290,7 @@ public sealed class NodePlacementTests
         {
             if (!ids.TryGetValue(key, out var id)) ids.Add(key, id = new(++next));
             return id;
-        }, vehicles, RailwayFixtures.EmptyNode);
+        }, vehicles, new(), RailwayFixtures.EmptyNode);
     }
 
     private static async Task<SceneFrame> Settled(NodeScene scene, SceneWorldSnapshot snapshot)
