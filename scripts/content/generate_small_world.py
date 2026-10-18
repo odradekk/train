@@ -1460,24 +1460,26 @@ def content_files():
         if size == "small":
             layout = blueprint_definitions[identity]["layout"]
             small_vehicle_materials |= Counter(layout["palette"][index]["voxel"] for *_, index in layout["cells"])
-    equipment_goods = {"platform-equipment", "construction-equipment", "storage-equipment",
-                       "power-equipment", "industrial-machinery", "extraction-equipment"}
-    construction_equipment = Counter()
+    supplied_goods = {item["voxel"] for _, plans, _ in template_estimates for process, _ in plans
+                      for item in ([process["extracts"]] if process["kind"] == "extraction" else process["outputs"])}
+    construction_materials = Counter()
     for path in (("small-station", "basic-shed", "small-warehouse", "farm"),
                  ("small-station", "basic-shed", "small-warehouse", "power-station", "extraction-site")):
-        construction_equipment |= Counter(good for identity in path
+        construction_materials |= Counter(material for identity in path
             for *_, index in blueprint_definitions[identity]["layout"]["cells"]
-            if (good := blueprint_definitions[identity]["layout"]["palette"][index]["voxel"]) in equipment_goods)
+            if (material := blueprint_definitions[identity]["layout"]["palette"][index]["voxel"]) not in supplied_goods)
     for template in list(template_definitions.values()):
+        stock = construction_materials.copy()
+        description = "一次性备有"
         if any(behavior.get("max_size_class") is not None
                for plot in template["plots"] if "building" in plot
                for behavior in blueprint_behaviors(plot["building"], "construction")):
-            stock = Counter({good: quantity * INITIAL_SMALL_VEHICLE_MATERIAL_SETS
-                             for good, quantity in small_vehicle_materials.items()})
-            stock.update(construction_equipment)
-            template["inventory"] = [{"voxel": good, "quantity": quantity} for good, quantity in sorted(stock.items())]
-            template["display"]["description"] += "一次性备有小型车辆材料和一套建设设备，用完不补货；建设设备持续供货待 #586。"
-            document("settlement-templates", "settlement-template", template["id"], template)
+            stock.update({good: quantity * INITIAL_SMALL_VEHICLE_MATERIAL_SETS
+                          for good, quantity in small_vehicle_materials.items()})
+            description += "小型车辆材料和"
+        template["inventory"] = [{"voxel": good, "quantity": quantity} for good, quantity in sorted(stock.items())]
+        template["display"]["description"] += description + "一套建设设备，用完不补货；建设设备持续供货待 #586。"
+        document("settlement-templates", "settlement-template", template["id"], template)
 
     consumption = []
     for order, (identity, _, _) in enumerate(goods):
