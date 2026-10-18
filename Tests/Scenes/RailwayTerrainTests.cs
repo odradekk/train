@@ -770,9 +770,9 @@ public sealed class RailwayTerrainTests
     [TestMethod]
     public void SteepSeamFillsDownAcrossSegments()
     {
-        var terrain = RailwayFixtures.TerrainAppearance with { LocalHeightNoise = [new(1, 20)] };
-        var meters = RailwayCoordinates.SegmentLengthCells / RailwayCoordinates.CellsPerMeter + 8;
-        var snapshot = RailwayFixtures.ReplaceCore(RailwayFixtures.Snapshot(meters, meters, relief: 1, content: Content(terrain)), worldSeed: 4UL);
+        var terrain = RailwayFixtures.TerrainAppearance with { LocalHeightNoise = [new(1, 12)] };
+        var meters = (RailwayCoordinates.SegmentLengthCells + 1) / RailwayCoordinates.CellsPerMeter;
+        var snapshot = RailwayFixtures.ReplaceCore(RailwayFixtures.Snapshot(meters, meters, relief: 1, content: Content(terrain)), worldSeed: 2UL);
         var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
         var segments = new[] { Build(snapshot, 0), Build(snapshot, 1) };
         var cells = SegmentCells(segments);
