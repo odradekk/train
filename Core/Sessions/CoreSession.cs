@@ -17,7 +17,8 @@ internal abstract record CommandEffect
 {
     private CommandEffect() { }
     internal sealed record Accepted(CoreContentProjection Content, ImmutableArray<CoreEvent> Events,
-        WorldState? World = null, ImmutableArray<WorldObjectId> Created = default) : CommandEffect;
+        WorldState? World = null, ImmutableArray<WorldObjectId> Created = default,
+        ImmutableArray<OwnedSettlementTemplateReference> SettlementCopies = default) : CommandEffect;
     internal sealed record Rejected(ImmutableArray<CoreProblem> Problems) : CommandEffect;
 }
 
@@ -39,6 +40,12 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
         ArgumentNullException.ThrowIfNull(command);
         if (!Enum.IsDefined(source))
             throw new ArgumentOutOfRangeException(nameof(source));
+        if (command is CoreCommand.FoundSettlement found)
+        {
+            if (found.Node.Value == 0 || found.MaterialSource.Value == 0)
+                throw new ArgumentException("节点和材料列车编号必须非零。", nameof(command));
+            return ExecuteCommand(command, source, content => SettlementFounding.Execute(State.World, content, found));
+        }
         if (command is CoreCommand.PublishContent publish)
         {
             WorldInputs.ValidateContent(publish.Content);
@@ -107,7 +114,8 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
             var decision = effect switch
             {
                 CommandEffect.Accepted acceptance => (CommandDecision)new CommandDecision.Accepted(
-                    acceptance.Created.IsDefault ? [] : acceptance.Created, []),
+                    acceptance.Created.IsDefault ? [] : acceptance.Created,
+                    acceptance.SettlementCopies.IsDefault ? [] : acceptance.SettlementCopies),
                 CommandEffect.Rejected rejected => new CommandDecision.Rejected(rejected.Problems),
                 _ => throw new InvalidOperationException("命令结果无效。")
             };
@@ -190,7 +198,10 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
             }
             var resources = WorldResources.Advance(before.World, world, before.Position.CompletedSteps);
             world = resources.World;
+            var founding = SettlementFounding.Advance(world, before.Content, new(checked(before.Position.CompletedSteps + 1), 0));
+            world = founding.World;
             events = events.AddRange(resources.Events);
+            events = events.AddRange(founding.Events);
             events = events.AddRange(world.Settlements.Where(s => !s.ProductionFacilities.IsEmpty).SelectMany(s =>
                 ProductionQueries.StateChanges(before.World, before.Content, world, before.Content, s.Id)));
             return (before.Content, world, InventoryLeases.ExpirationEvents(before.World, before.Position.CompletedSteps).AddRange(events));

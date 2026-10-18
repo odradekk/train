@@ -73,7 +73,9 @@ internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Re
     }
     public Lookup<JobView> FindJob(JobId id)
         => State.ConstructionJobs.SingleOrDefault(j => j.Id == id) is { } job
-            ? new Lookup<JobView>.Found(new JobView.Construction(job.Read())) : new Lookup<JobView>.Missing();
+            ? new Lookup<JobView>.Found(new JobView.Construction(job.Read()))
+            : State.FoundingJobs.SingleOrDefault(j => j.Id == id) is { } founding
+                ? new Lookup<JobView>.Found(new JobView.Founding(founding.Read())) : new Lookup<JobView>.Missing();
     public Lookup<CombatView> FindCombat(CombatId id) => throw new NotImplementedException("FindCombat 尚未实现。");
     public Lookup<CreatureGroupView> FindCreatureGroup(CreatureGroupId id)
         => throw new NotImplementedException("FindCreatureGroup 尚未实现。");
@@ -120,5 +122,13 @@ internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Re
         }
     }
     public CoreResult<SettlementFoundingPreview> PreviewSettlement(NodeId node)
-        => throw new NotImplementedException("PreviewSettlement 尚未实现。");
+    {
+        try { return SettlementFounding.Preview(State, Content, node); }
+        catch (ArgumentException) { throw; }
+        catch (Exception exception)
+        {
+            return new CoreResult<SettlementFoundingPreview>.Faulted(new("internal_error", Position, nameof(PreviewSettlement), "", null),
+                new(exception.Message, exception.StackTrace));
+        }
+    }
 }
