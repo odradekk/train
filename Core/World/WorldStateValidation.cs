@@ -556,10 +556,6 @@ internal static class WorldStateValidation
             ProductionGoods(facility.OutputBuffer, field + "/output_buffer");
             if (facility.Batch is not { } batch) continue;
             Require(facility.OutputBuffer.IsEmpty, field + "/output_buffer");
-            var plot = settlement.Plots.Single(p => p.Building == facility.Facility.Building);
-            var plan = settlement.Template.ProductionPlans.Single(p => p.PlotNumber == plot.TemplateNumber
-                && p.Capability == facility.Facility.Capability);
-            Require(batch.Process == plan.Process, field + "/batch/process");
             Require(WorldFormat.IsHash(batch.StartedFromRevision.Value), field + "/batch/started_from_revision");
             Require(batch.FrozenWorkRequired > 0 && double.IsFinite(batch.ProgressWork)
                 && batch.ProgressWork >= 0 && batch.ProgressWork < batch.FrozenWorkRequired, field + "/batch/progress_work");

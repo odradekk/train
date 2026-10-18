@@ -84,7 +84,7 @@ builtin/core/resources/voxels/
 - 运动：列车过弯、相机绕车转动时，贴图不闪烁、不游移。
 - 光照：三种检查光照（[05](05-lighting-and-readability.md#检查光照)）。
 - 可读性：先认出整体和用途，再看细部（[05](05-lighting-and-readability.md#可读性)）。
-- 轮对排布、旋转与车体匹配，转向架贴图不画车轮（[06 的动画](06-wear-damage-and-motion.md#动画)）。
+- 轮对排布、旋转与车体匹配，转向架模型只制作侧架和轴箱，开口给专用轮对留出轮面（[06 的动画](06-wear-damage-and-motion.md#动画)）。
 - 第三阶段起按 [03 的玩家涂装](03-color-and-paint.md#玩家涂装)检查涂装与保色区域，并检查内置设计的默认外观；磨损叠加和损伤符合 [06](06-wear-damage-and-motion.md)。
 
 性能不属于美术检查，按设计文档 [00 的本阶段性能目标](../design/00-product-and-core-loop.md#本阶段性能目标)。
@@ -143,6 +143,8 @@ dotnet Tools/Cli/bin/Debug/net10.0/Train.Cli.dll save . examples/basic-through/r
 | 第六阶段 | 分批完成全部正式贴图、图标、模型、车辆、建筑、自然环境、工地、生物与特效，并核对完整目录 |
 
 每批交付遵循上文目录、源文件和三光照检查规则。历史首个切片的两张浏览器样稿曾作为该批 PNG 的生成器，不自动成为所有 Demo 资产的唯一源；新批次须明确选择 PNG 本身或生成工具。正式性能测量、完整窗口长测和最终人工验收必须在全量正式资产交付后执行。
+
+第三阶段样稿沿用以下制作方式，后续按具体对象复用：三台样机蓝图由创作模式写出，按精确路径登记在 `scripts/content/generate_small_world.py` 的 `AUTHORED_FILES`，生成器保留文件并检查存在和 Schema。嵌套设备继续由生成器维护。机枪、火炮和转向架的唯一源是 `art-source/core/voxels/<id>/model.blend`，纹理打包在源文件中，与部位有关的磨损画在模型贴图上；导出的 GLB 登记为手工文件，体素绑定和 Keep File 声明仍由生成器输出。转向架使用 `bare_metal` 表面，保留 `icon.png`，不再输出转向架面贴图；轮对仍由宿主专用表现生成。共用面贴图继续使用原生成器，四种运行时磨损复用 `Rendering/scene_material.gdshader`；色卡由选色器直接绘制，轮面辨识标记由宿主的轮对表现生成。
 
 ## Demo 范围
 

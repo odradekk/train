@@ -311,8 +311,7 @@ public sealed class CoreSessionTests
         using var session = Session();
 
         Assert.ThrowsExactly<NotImplementedException>(() =>
-            session.Submit(new CoreCommand.SetProductionPlan(new(new(1), CapabilityKind.Production),
-                new ProcessRef.Production(new("fixture:process")), true, 0), CommandSource.AutomationTest));
+            session.Submit(new CoreCommand.SetJobPriority(new(1), 0), CommandSource.AutomationTest));
 
         AssertBoundary(session, new(7, 2), 10, 20, A);
     }
