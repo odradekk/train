@@ -1,4 +1,5 @@
 using Train.Core.Contracts;
+using Train.Core.Combat;
 using Train.Core.World;
 using Train.Core.Railway;
 using Train.Core.Inventory;
@@ -76,7 +77,12 @@ internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Re
             ? new Lookup<JobView>.Found(new JobView.Construction(job.Read(State)))
             : State.FoundingJobs.SingleOrDefault(j => j.Id == id) is { } founding
                 ? new Lookup<JobView>.Found(new JobView.Founding(founding.Read())) : new Lookup<JobView>.Missing();
-    public Lookup<CombatView> FindCombat(CombatId id) => throw new NotImplementedException("FindCombat 尚未实现。");
+    public Lookup<CombatView> FindCombat(CombatId id)
+    {
+        if (id.Value == 0) throw new ArgumentException("战斗编号必须非零。", nameof(id));
+        var combat = State.Combats.FirstOrDefault(c => c.Id == id);
+        return Lookup(combat is null ? null : CombatQueries.Read(State, combat));
+    }
     public Lookup<CreatureGroupView> FindCreatureGroup(CreatureGroupId id)
         => throw new NotImplementedException("FindCreatureGroup 尚未实现。");
     public Lookup<CreatureView> FindCreature(CreatureId id) => throw new NotImplementedException("FindCreature 尚未实现。");

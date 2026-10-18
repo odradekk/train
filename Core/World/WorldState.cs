@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json.Serialization;
+using Train.Core.Combat;
 using Train.Core.Settlements;
 using Train.Core.Construction;
 using Train.Core.Contracts;
@@ -18,7 +19,8 @@ internal abstract record GeneratedOccupant
 internal sealed record SettlementState(SettlementId Id, NodeId Node, SettlementTypeId Type,
     SettlementRelation Relation, long Population, SettlementTemplateProjection Template,
     ImmutableArray<PlotState> Plots, InventoryId Inventory, ImmutableArray<VehicleId> ParkedVehicles,
-    double FuelEnergyRemaining, ImmutableArray<ProductionFacilityState> ProductionFacilities, PopulationState PopulationState)
+    double FuelEnergyRemaining, ImmutableArray<ProductionFacilityState> ProductionFacilities,
+    PopulationState PopulationState, SettlementEngagementRules Engagement)
 {
     [JsonRequired] public double LastConstructionPowerDemand { get; init; }
     [JsonRequired] public double LastConstructionActualSupply { get; init; }
@@ -38,7 +40,7 @@ internal sealed record InstanceState(InstanceId Id, DesignHash Design,
     ImmutableArray<PartDurability> Parts)
 {
     internal InstanceView Read(WorldState world, CoreContentProjection content, WorldLocation location, DesignProjection design) => new(Id, design.Design, design.Composition, location, Ownership, Details,
-        ConstructionJobs.Lock(world, Id),
+        CombatQueries.IsInCombat(world, Id) ? ConstructionJobs.Lock(world, Id) | InstanceLock.Combat : ConstructionJobs.Lock(world, Id),
         new(Math.Min(StructureDurability, design.MaxStructureDurability), design.MaxStructureDurability),
         Parts.Select(p =>
         {
@@ -50,7 +52,8 @@ internal sealed record InstanceState(InstanceId Id, DesignHash Design,
 internal sealed record TrainState(TrainId Id, TrainPosition Position, ImmutableArray<VehicleId> Vehicles,
     InventoryId Inventory, TrainOrderFacing OrderFacing,
     TrainActivity Activity, double SpeedMetersPerSecond, RunPlan? Plan, int? NextStopIndex,
-    ulong RemainingDwellSteps, bool StopRequested, ulong? QueueEnteredStep, BreakId? ReturningFromBreak)
+    ulong RemainingDwellSteps, bool StopRequested, ulong? QueueEnteredStep, BreakId? ReturningFromBreak,
+    TrainEngagementRules Engagement, NodeId? RetreatDestination)
 {
     [JsonRequired] public ulong? AutomaticEvaluationRemainingSteps { get; init; }
     [JsonRequired] public RunAccumulatorState? CurrentRun { get; init; }
@@ -67,6 +70,7 @@ internal sealed record WorldIdentities(ulong Node, ulong Edge, ulong Settlement,
     ulong Building, ulong Train, ulong Vehicle, ulong Inventory, ulong Break, ulong Lease)
 {
     [JsonRequired] public ulong Job { get; init; } = 1;
+    [JsonRequired] public ulong Combat { get; init; } = 1;
 }
 
 internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<NodeMapItem> Nodes, ImmutableArray<EdgeMapItem> Edges,
@@ -82,10 +86,12 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
     [JsonRequired] public ImmutableArray<ConstructionJobState> ConstructionJobs { get; init; } = [];
     [JsonRequired] public ImmutableArray<FoundingJobState> FoundingJobs { get; init; } = [];
     [JsonRequired] public Money UnassignedServicePayments { get; init; } = new(0);
+    [JsonRequired] public ImmutableArray<CombatState> Combats { get; init; } = [];
 
     internal WorldSummary Map => new(Source.WorldSeed, Source.Configuration.Rules.Railway,
         Source.Configuration.WidthMeters, Source.Configuration.HeightMeters, Nodes.Select(ReadNode).ToImmutableArray(), Edges,
-        Trains.Select(t => new TrainMapItem(t.Id, t.Position, t.Activity)).ToImmutableArray(), [], []);
+        Trains.Select(t => new TrainMapItem(t.Id, t.Position, t.Activity)).ToImmutableArray(), [],
+        Combats.Select(c => new CombatMapItem(c.Id, c.Location)).ToImmutableArray());
 
     internal static int CountPlatforms(SettlementState settlement, IReadOnlyDictionary<InstanceId, InstanceState> instances,
         IReadOnlyDictionary<DesignHash, DesignProjection> designs)
@@ -175,7 +181,8 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
             trains.Add(new(trainId, new TrainPosition.Node(startNode, null, null, null, null, NodeTravelPhase.Waiting,
                 content.RailwayRules.Single(r => r.Id == input.Configuration.Rules.Railway).ApproachLengthMeters, null),
                 vehicles.ToImmutable(), inventory, TrainOrderFacing.FirstEndLeading, TrainActivity.Stopped,
-                0, null, null, 0, false, null, null));
+                0, null, null, 0, false, null, null, CombatRules.DefaultTrainEngagement(
+                    initial.Vehicles.Any(hash => CombatRules.Armed(content.Designs.Single(d => d.Design == hash)))), null));
         }
         var designs = content.Designs.Where(d => designHashes.Contains(d.Design)).ToImmutableArray();
         var goods = new HashSet<GoodId>(inventories.SelectMany(i => i.Goods).Select(g => g.Good));
@@ -208,7 +215,8 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
             .Where(p => p.Building is not null).OrderBy(p => p.Building!.Value.Value).ThenBy(p => p.Plan.Capability)
             .Select(p => new ProductionFacilityState(new(p.Building!.Value, p.Plan.Capability), null, [], 0, [], 0, 0, 0))
             .ToImmutableArray();
-        return new(id, node, type, relation, population, template, plots, inventory, [], 0, facilities, PopulationState.Initial);
+        return new(id, node, type, relation, population, template, plots, inventory, [], 0, facilities,
+            PopulationState.Initial, CombatRules.DefaultSettlementEngagement);
     }
 
     internal static InstanceState CreateInstance(InstanceId id, DesignProjection design,
@@ -252,7 +260,8 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
         }
         return new(location,
             Trains.Where(t => SameLocation(location, Location(t.Position))).Select(t => t.Id).ToImmutableArray(),
-            Instances.Where(i => SameLocation(Location(i), location)).Select(i => i.Id).ToImmutableArray(), [], [], occupant);
+            Instances.Where(i => SameLocation(Location(i), location)).Select(i => i.Id).ToImmutableArray(), [],
+            Combats.Where(c => SameLocation(c.Location, location)).Select(c => c.Id).ToImmutableArray(), occupant);
     }
 
     private static bool SameLocation(WorldLocation left, WorldLocation right) => (left, right) switch
