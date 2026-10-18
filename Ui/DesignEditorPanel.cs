@@ -68,9 +68,17 @@ internal partial class DesignEditorPanel : Control
         _voxel = Choice(tools, []); _voxel.ItemSelected += _ => RefreshShapes();
         _shape = Choice(tools, []); _orientation = Choice(tools, []);
         _paint = new ColorPickerButton { Color = Colors.White, CustomMinimumSize = new(240, 32) }; tools.AddChild(_paint);
-        var colors = new HBoxContainer(); tools.AddChild(colors);
-        foreach (var color in new[] { "#d8d3c4", "#a23d32", "#386b83", "#d5ae4e", "#343b40" })
-        { var swatch = new Button { Text = "■", Modulate = new Color(color) }; swatch.Pressed += () => _paint.Color = new Color(color); colors.AddChild(swatch); }
+        var colors = new GridContainer { Columns = 2 }; tools.AddChild(colors);
+        foreach (var (name, color) in new[]
+                 {
+                     ("民用蓝灰", "#5a6b78"), ("货运暗红", "#7b3a2c"), ("工程黄", "#d9a62b"),
+                     ("军用橄榄", "#626750"), ("军用石墨", "#33373b"), ("工业钢灰", "#7e858b")
+                 })
+        {
+            var swatch = new Button { Text = name, TooltipText = color, CustomMinimumSize = new(116, 32) };
+            swatch.AddChild(new ColorRect { Position = new(5, 10), Size = new(12, 12), Color = new(color), MouseFilter = MouseFilterEnum.Ignore });
+            swatch.Pressed += () => { _paint.Color = new Color(color); InvalidatePreview(); }; colors.AddChild(swatch);
+        }
         _tool = Choice(tools, ["单格", "笔刷（拖动松开一笔）", "长方体", "选区"]);
         _action = Choice(tools, ["添加", "移除", "替换", "涂装", "形状"]);
         _width = Number(tools, "笔刷宽度", 1, 16, 1);
