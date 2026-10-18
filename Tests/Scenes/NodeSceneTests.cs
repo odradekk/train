@@ -535,27 +535,16 @@ public sealed class NodeSceneTests
             "The fixture must place a bed on the ring of a neighboring terrain chunk.");
     }
 
-    // Boundary columns estimate the node neighbor with the line height function. After the rounded
-    // shift, that sample is up to half a cell from the rendered node position, so only the node side is exact.
     [TestMethod]
-    public void NodeSideOfTheBoundarySeamHasNoGaps()
+    public void BoundarySeamHasNoGaps()
     {
         var terrain = RailwayFixtures.TerrainAppearance with { LocalHeightNoise = [new(4, 40)] };
         var snapshot = NodeFixtures.Snapshot(trains: [], tracks: 1, content: NodeFixtures.Content(terrain: terrain));
         var node = snapshot.Core.World.Nodes.Single(item => item.Id == NodeFixtures.NodeId);
         snapshot = RailwayFixtures.ReplaceCore(snapshot, node with { Terrain = node.Terrain with { Relief = 1 } }, worldSeed: 4);
         var columns = SeamColumns(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
-        var steep = 0;
-        foreach (var (column, group) in columns)
-        {
-            if (group.Boundary) continue;
-            var surface = group.Cells.Max();
-            foreach (var neighbor in Orthogonal(column))
-                if (columns.TryGetValue(neighbor, out var other) && other.Boundary && surface - other.Cells.Max() > steep)
-                    steep = surface - other.Cells.Max();
-        }
-        Assert.IsTrue(steep > RailwayCoordinates.TerrainDepthCells,
-            $"A node column must stand more than six cells above the boundary, found {steep}.");
+        var nodeAbove = 0;
+        var boundaryAbove = 0;
         foreach (var (column, group) in columns)
         {
             if (group.Boundary) continue;
@@ -564,11 +553,28 @@ public sealed class NodeSceneTests
             {
                 if (!columns.TryGetValue(neighbor, out var other) || !other.Boundary) continue;
                 var boundary = other.Cells.Max();
-                if (surface <= boundary) continue;
-                for (var y = boundary + 1; y <= surface; y++)
-                    Assert.IsTrue(group.Cells.Contains(y),
-                        $"({column.X},{column.Z}) node surface {surface} is missing {y} above boundary ({neighbor.X},{neighbor.Z}) at {boundary}.");
+                if (surface - boundary > nodeAbove) nodeAbove = surface - boundary;
+                if (boundary - surface > boundaryAbove) boundaryAbove = boundary - surface;
             }
+        }
+        Assert.IsTrue(nodeAbove > RailwayCoordinates.TerrainDepthCells,
+            $"A node column must stand more than six cells above the boundary, found {nodeAbove}.");
+        Assert.IsTrue(boundaryAbove > RailwayCoordinates.TerrainDepthCells,
+            $"A boundary column must stand more than six cells above the node, found {boundaryAbove}.");
+        foreach (var (column, group) in columns)
+        foreach (var neighbor in Orthogonal(column))
+        {
+            if (!columns.TryGetValue(neighbor, out var other) || group.Boundary == other.Boundary) continue;
+            if (column.X > neighbor.X || column.X == neighbor.X && column.Z > neighbor.Z) continue;
+            var groupSurface = group.Cells.Max();
+            var otherSurface = other.Cells.Max();
+            var high = groupSurface >= otherSurface ? group.Cells : other.Cells;
+            var highAt = groupSurface >= otherSurface ? column : neighbor;
+            var lowAt = groupSurface >= otherSurface ? neighbor : column;
+            var lowSurface = Math.Min(groupSurface, otherSurface);
+            for (var y = lowSurface + 1; y <= Math.Max(groupSurface, otherSurface); y++)
+                Assert.IsTrue(high.Contains(y),
+                    $"({highAt.X},{highAt.Z}) is missing {y} above ({lowAt.X},{lowAt.Z}) at {lowSurface}.");
         }
     }
 
