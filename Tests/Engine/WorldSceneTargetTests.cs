@@ -308,10 +308,10 @@ public class WorldSceneTargetTests(Node testScene) : TestClass(testScene)
     private static FixedCoreReadView View(bool alternatives, bool initial, bool minimap = false) => new(new(initial ? 0UL : 1UL, 0), HostCoreScenario.Input)
     {
         World = new(1, new("fixture:railway"), 1, 1, [], [], minimap
-            ? [new(Train, new TrainPosition.Node(new(1), null, null, NodeTravelPhase.Waiting, 80, null), TrainActivity.Stopped)] : [], [], []),
+            ? [new(Train, new TrainPosition.Node(new(1), null, null, null, null, NodeTravelPhase.Waiting, 80, null), TrainActivity.Stopped)] : [], [], []),
         Trains = new Dictionary<TrainId, Lookup<TrainView>>
         {
-            [Train] = new Lookup<TrainView>.Found(new(Train, new TrainPosition.Node(new(1), null, null, NodeTravelPhase.Waiting, 80, null), TrainActivity.Stopped,
+            [Train] = new Lookup<TrainView>.Found(new(Train, new TrainPosition.Node(new(1), null, null, null, null, NodeTravelPhase.Waiting, 80, null), TrainActivity.Stopped,
                 [new(3), new(2), new(1)], new(1), 0, 30, 10, 0, 0, 0, null, null, 0,
                 new(TargetPriority.ArmedFirst, TargetScope.ArmedOnly, EncounterAction.Engage, 0.2),
                 [], null, [], TrainOrderFacing.FirstEndLeading, null))

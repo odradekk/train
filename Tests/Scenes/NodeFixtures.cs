@@ -156,7 +156,7 @@ internal static class NodeFixtures
         RailwayFixtures.Train(vehicles: vehicles.IsDefault ? [new(trainId)] : vehicles,
             trainId: trainId, facing: facing, speed: speed) with
         {
-            Position = new TrainPosition.Node(NodeId, enteredFrom, nextEdge,
+            Position = new TrainPosition.Node(NodeId, enteredFrom, enteredFrom is null ? null : 1, nextEdge, activity == TrainActivity.Running && nextEdge is not null ? 1 : null,
                 activity == TrainActivity.Servicing ? NodeTravelPhase.Docked :
                 activity == TrainActivity.Running ? NodeTravelPhase.Departing : NodeTravelPhase.Waiting,
                 activity is TrainActivity.Servicing or TrainActivity.Running ? 128 : 80, platformNumber), Activity = activity

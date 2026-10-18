@@ -180,7 +180,7 @@ internal static class TrainOperations
         }
         events.Add(new CoreEvent.TrainArrived(train.Id, forward));
         train = train with { SpeedMetersPerSecond = motion.SpeedMetersPerSecond,
-            Position = new TrainPosition.Node(forward, position.Id, null, NodeTravelPhase.Approaching, 0, null), ReturningFromBreak = null };
+            Position = new TrainPosition.Node(forward, position.Id, position.Track, null, null, NodeTravelPhase.Approaching, 0, null), ReturningFromBreak = null };
         return ResolveNode(ref world, content, train, events, dispatch, step, new(step, 0));
     }
 
@@ -192,9 +192,9 @@ internal static class TrainOperations
         while (visited.Add((node, enteredFrom, train.NextStopIndex)))
         {
             var dimensions = NodeDimensions.Read(world, content, node);
-            var position = new TrainPosition.Node(node, enteredFrom,
+            var position = new TrainPosition.Node(node, enteredFrom, enteredFrom is null ? null : 1,
                 Departure(world, train, node, dispatch.Capabilities(train).MaximumSpeedMetersPerSecond),
-                NodeTravelPhase.Approaching, 0, null);
+                null, NodeTravelPhase.Approaching, 0, null);
             train = train with { Position = position };
             if (MustStop(train, position))
                 return distance + (dispatch.PredictPlatform(train, step) ? dimensions.Stop : dimensions.Approach);
@@ -248,11 +248,13 @@ internal static class TrainOperations
         }
         if (position.Phase != NodeTravelPhase.Departing && moved >= dimensions.Stop && motion.DistanceMeters > 0)
         {
-            if (position.NextEdge == position.EnteredFrom)
-                train = train with { OrderFacing = OppositeFacing(train.OrderFacing) };
             while (train.NextStopIndex is { } index && train.Plan!.Stops[index] is PlanStop.Waypoint waypoint && waypoint.Node == position.Id)
                 train = ConsumeStop(ref world, content, train, new(step, 0), events);
-            train = train with { Position = ((TrainPosition.Node)train.Position) with { Phase = NodeTravelPhase.Departing } };
+            train = dispatch.FixExit(train with
+            {
+                Position = ((TrainPosition.Node)train.Position) with { Phase = NodeTravelPhase.Departing },
+                OrderFacing = position.NextEdge == position.EnteredFrom ? OppositeFacing(train.OrderFacing) : train.OrderFacing
+            });
         }
         return train;
     }
@@ -260,6 +262,7 @@ internal static class TrainOperations
     internal static TrainState ResolveNode(ref WorldState world, CoreContentProjection content, TrainState train,
         ImmutableArray<CoreEvent>.Builder events, TrainDispatch dispatch, ulong step, SimulationPosition boundary, bool running = true)
     {
+        train = dispatch.FixExit(train);
         var position = (TrainPosition.Node)train.Position;
         if (position.Phase == NodeTravelPhase.Departing && train.Activity == TrainActivity.Waiting
             && train.QueueEnteredStep is not null)
@@ -348,6 +351,7 @@ internal static class TrainOperations
     {
         var events = ImmutableArray.CreateBuilder<CoreEvent>();
         var trains = ImmutableArray.CreateBuilder<TrainState>();
+        var dispatch = new TrainDispatch(world, content);
         foreach (var original in world.Trains)
         {
             var train = original;
@@ -373,7 +377,7 @@ internal static class TrainOperations
                     position = position with { Phase = NodeTravelPhase.Departing };
                 }
             }
-            trains.Add(train with { Position = position with { DistanceMeters = distance } });
+            trains.Add(dispatch.FixExit(train with { Position = position with { DistanceMeters = distance } }));
         }
         return (world with { Trains = trains.ToImmutable() }, events.ToImmutable());
     }

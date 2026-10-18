@@ -272,9 +272,9 @@ internal sealed class NodeScene : IAsyncDisposable
         if (enteringTrain is { Position: TrainPosition.Edge entering } && Layout is { } candidateLayout &&
             candidateLayout.TrainEntry(entering.Id) is { } entry)
         {
-            focus = candidateLayout.TrainBoundary(entry).Position;
+            focus = candidateLayout.TrainBoundary(entry, entering.Track).Position;
             var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(Node)).Value;
-            var crossing = new TrainPosition.Node(Node, entering.Id, null, NodeTravelPhase.Approaching, 0, null);
+            var crossing = new TrainPosition.Node(Node, entering.Id, entering.Track, null, null, NodeTravelPhase.Approaching, 0, null);
             var path = new NodeTrainPath(candidateLayout, dimensions, crossing, candidateLayout.Bypass,
                 enteringTrain.LengthMeters * RailwayCoordinates.CellsPerMeter, AdjacentRailway);
             following = FollowPath(path, enteringTrain, 0);
@@ -989,7 +989,11 @@ internal sealed class NodeScene : IAsyncDisposable
             (train.PlatformQueueEnteredStep is not null && position.DistanceMeters <= waiting ||
              train.SpeedMetersPerSecond == 0 && position.Phase == NodeTravelPhase.Waiting && position.DistanceMeters == waiting));
         foreach (var group in queued.GroupBy(train =>
-            layout!.TrainEntry(((TrainPosition.Node)train.Position).EnteredFrom)?.Edge))
+        {
+            var position = (TrainPosition.Node)train.Position;
+            var entry = layout!.TrainEntry(position.EnteredFrom);
+            return (entry?.Edge, Track: entry is null ? null : (int?)layout.TrainTrackNumber(entry, position.EnteredTrack));
+        }))
         {
             var ordered = group.OrderBy(train => train.PlatformQueueEnteredStep is not null)
                 .ThenBy(train => train.PlatformQueueEnteredStep).ThenBy(train => train.Id.Value).ToArray();
