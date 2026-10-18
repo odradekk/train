@@ -69,7 +69,8 @@ internal sealed partial class DesignEditSession
                         if (!copying) affected.Add(cell.At);
                         affected.Add(at);
                     }
-                    return new EditCell(copying ? NextElement() : cell.Id, at, palette.Index(nextValue));
+                    return new EditCell(copying ? NextElement() : cell.Id, at,
+                        nextValue == value ? cell.PaletteIndex : palette.Index(nextValue));
                 }).ToImmutableArray(),
                 Children = selected.Children.Select(child =>
                 {

@@ -123,9 +123,9 @@ internal static class EditLayout
     {
         var (at, orientation) = Placement(item);
         var (right, up, forward) = SceneGeometry.Axes(orientation);
-        return new(checked(at.X + (int)right.X * cell.X + (int)up.X * cell.Y + (int)forward.X * cell.Z),
-            checked(at.Y + (int)right.Y * cell.X + (int)up.Y * cell.Y + (int)forward.Y * cell.Z),
-            checked(at.Z + (int)right.Z * cell.X + (int)up.Z * cell.Y + (int)forward.Z * cell.Z));
+        return new(checked((int)(at.X + (long)right.X * cell.X + (long)up.X * cell.Y + (long)forward.X * cell.Z)),
+            checked((int)(at.Y + (long)right.Y * cell.X + (long)up.Y * cell.Y + (long)forward.Y * cell.Z)),
+            checked((int)(at.Z + (long)right.Z * cell.X + (long)up.Z * cell.Y + (long)forward.Z * cell.Z)));
     }
 
     internal static GridPosition ToLocal(EditObject root, ImmutableArray<int> path, GridPosition cell)

@@ -356,6 +356,42 @@ public sealed class EditingSelectionTests
     }
 
     [TestMethod]
+    public void ZeroMovePreservesDuplicatePaletteIndices()
+    {
+        var draft = EditingFixtures.Draft(new GridPosition(0, 0, 0));
+        draft = draft with { Layout = draft.Layout with
+        { Palette = [EditingFixtures.Cube, EditingFixtures.Cube], Cells = [new(new(0, 0, 0), 1)] } };
+        using var session = EditingFixtures.Open(draft);
+        SelectRoot(session);
+        var before = session.Capture();
+        var preview = EditingFixtures.Preview(session, new EditOperation.MoveSelection(new(0, 0, 0)));
+        Assert.AreEqual(0, preview.AffectedCells);
+        var result = EditingFixtures.Value(session.Apply(preview, false));
+        Assert.AreEqual(before.Stamp, result.Snapshot.Stamp);
+        Assert.AreEqual(1, result.Snapshot.Draft.Layout.Cells.Single().PaletteIndex);
+        Assert.IsFalse(result.CanUndo);
+        Assert.IsFalse(result.IsDirty);
+    }
+
+    [TestMethod]
+    public void NestedRotationChecksFinalCoordinatesWithoutIntermediateIntOverflow()
+    {
+        var child = EditingFixtures.Draft(new GridPosition(int.MinValue, 0, 0));
+        var draft = EditingFixtures.Draft() with { Layout = new([], [],
+            [new NestedDesignItem.SceneModelCopy(new(int.MaxValue, 0, 0), VoxelOrientation.PxPy, child)]) };
+        using var session = EditingFixtures.Open(draft);
+        SelectRoot(session);
+        var preview = EditingFixtures.Preview(session, new EditOperation.RotateSelection(GridAxis.Y, new(0, 0, 0), 1));
+        Assert.IsTrue(preview.CanApply);
+        CollectionAssert.AreEqual(new[] { new GridPosition(0, 0, 1) }, preview.HighlightCells.ToArray());
+        var result = EditingFixtures.Value(session.Apply(preview, false));
+        var nested = (NestedDesignItem.SceneModelCopy)result.Snapshot.Draft.Layout.NestedItems.Single();
+        Assert.AreEqual(new GridPosition(0, 0, -int.MaxValue), nested.At);
+        Assert.AreEqual(VoxelOrientation.NzPy, nested.Orientation);
+        Assert.AreEqual(new GridPosition(int.MinValue, 0, 0), nested.Design.Layout.Cells.Single().At);
+    }
+
+    [TestMethod]
     public void LateLocksAreRecheckedAtApplyAndUndoCannotReviveOldEvaluation()
     {
         using var session = EditingFixtures.Open(EditingFixtures.Draft(new GridPosition(0, 0, 0)));
