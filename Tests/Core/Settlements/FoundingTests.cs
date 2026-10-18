@@ -132,6 +132,7 @@ public sealed class FoundingTests
         var view = session.Read();
         var settlement = ((Lookup<SettlementView>.Found)view.FindSettlement(founded.Settlement)).Value;
         Assert.AreEqual(SettlementRelation.PlayerOwned, settlement.Relation);
+        Assert.IsInstanceOfType<PopulationExecution.NotStarted>(settlement.Population.Execution);
         Assert.AreEqual(2, settlement.Plots.Count(p => p.Occupant is PlotOccupant.Building));
         Assert.IsTrue(settlement.Plots.Single(p => p.TemplatePlotNumber == 21).Occupant is PlotOccupant.Empty);
         Assert.IsTrue(((Lookup<InventoryView>.Found)view.FindInventory(settlement.Inventory)).Value.Stacks.IsEmpty);
