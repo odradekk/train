@@ -132,7 +132,8 @@ internal static class EconomyFixture
 
     internal static FixedContentView Content(ulong generation = 1, bool missingMarketRule = false, int maxLeaseMultiple = 3,
         ImmutableArray<ProcessProjection> processes = default,
-        IReadOnlyDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>? definitionDisplays = null)
+        IReadOnlyDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>? definitionDisplays = null,
+        BlueprintRecord? vehicleBlueprint = null)
     {
         var icon = new AssetRevision("fixture-food-png");
         var bytes = ImmutableArray.CreateRange(Convert.FromBase64String(
@@ -147,6 +148,12 @@ internal static class EconomyFixture
         };
         return new(projection, new(generation))
         {
+            Blueprints = vehicleBlueprint is null ? [] : [new(vehicleBlueprint.Address, vehicleBlueprint.Definition.Display,
+                ((DesignEvaluation.Complete)vehicleBlueprint.Evaluation).Design, true, [])],
+            BlueprintRecords = vehicleBlueprint is null
+                ? ImmutableDictionary<BlueprintAddress, ContentLookup<BlueprintRecord>>.Empty
+                : new Dictionary<BlueprintAddress, ContentLookup<BlueprintRecord>>
+                { [vehicleBlueprint.Address] = new ContentLookup<BlueprintRecord>.Found(vehicleBlueprint) },
             DefinitionDisplays = definitionDisplays ?? ImmutableDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>.Empty,
             SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
             {

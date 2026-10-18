@@ -128,7 +128,7 @@ public partial class GameUi : CanvasLayer
             _panels.FormationRequested += _formation.Open;
             _panels.PlanRequested += _plan.Open;
             _economy = new EconomyPanels { Name = "EconomyPanels" };
-            _economy.Initialize(_host, Submit, _icons);
+            _economy.Initialize(_host, Submit, _icons, Submit);
             _world.AddChild(_economy);
             _bar.AddChild(UiStyle.Button("EconomyReports", "经营报告", _economy.OpenReports));
             _panels.SettlementRequested += _economy.OpenSettlement;
@@ -266,6 +266,9 @@ public partial class GameUi : CanvasLayer
     }
 
     private CommandDecision.Accepted? Submit(PanelTarget? target, CoreCommand command)
+        => Submit(target, command, null);
+
+    private CommandDecision.Accepted? Submit(PanelTarget? target, CoreCommand command, IContentCandidate? candidate)
     {
         var status = _host?.GetStatus();
         if (status is null || _host!.Content is not { } content || target is null ||
@@ -274,7 +277,7 @@ public partial class GameUi : CanvasLayer
             ReportUiError("当前操作不可提交：对象已失效或宿主正在操作。");
             return null;
         }
-        var result = _host.Submit(target.Binding, command, CommandSource.UserInterface);
+        var result = _host.Submit(target.Binding, command, CommandSource.UserInterface, candidate);
         if (CommandDiagnostics.Report(_logger, result) is { } problem) ShowError(problem);
         return (result as SubmissionResult.Completed)?.Receipt.Decision as CommandDecision.Accepted;
     }
@@ -288,6 +291,7 @@ public partial class GameUi : CanvasLayer
     private void OnBoundary(HostBinding binding, ICoreReadView view, IContentView content,
         ImmutableArray<EventEnvelope> events)
     {
+        _economy?.Observe(binding, view, events);
         if (view.Fault is { } fault && (_binding != binding || _view?.Fault != fault))
             ShowError(CommandDiagnostics.Describe(fault));
         _map.SetView(view, content, _binding != binding);

@@ -10,6 +10,7 @@ internal partial class EconomyPanels : Control
 {
     private HostCoordinator _host = null!;
     private Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> _submit = null!;
+    private Func<PanelTarget?, CoreCommand, IContentCandidate?, CommandDecision.Accepted?> _submitTarget = null!;
     private GoodsIconCache _icons = null!;
     private HostBinding _binding;
     private ICoreReadView _view = null!;
@@ -44,8 +45,9 @@ internal partial class EconomyPanels : Control
     internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
 
     internal void Initialize(HostCoordinator host,
-        Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit, GoodsIconCache icons)
-    { _host = host; _submit = submit; _icons = icons; }
+        Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit, GoodsIconCache icons,
+        Func<PanelTarget?, CoreCommand, IContentCandidate?, CommandDecision.Accepted?> submitTarget)
+    { _host = host; _submit = submit; _icons = icons; _submitTarget = submitTarget; }
 
     public override void _Ready()
     { SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect); MouseFilter = MouseFilterEnum.Ignore; }
@@ -74,6 +76,8 @@ internal partial class EconomyPanels : Control
         BuildVehicles(Page(tabs, "现车"));
         BuildLeases(Page(tabs, "仓库租用"));
         BuildProduction(Page(tabs, "生产")); BuildPopulation(Page(tabs, "人口"));
+        BuildServices(Page(tabs, "车辆服务"));
+        tabs.TabChanged += _ => RefreshServices();
         Refresh(_binding, _view, _content);
     }
 
@@ -91,6 +95,7 @@ internal partial class EconomyPanels : Control
 
     internal void Close()
     {
+        CloseServices();
         RemoveWindow(_settlementPanel); RemoveWindow(_trainPanel); RemoveWindow(_reportsPanel);
         _reportsPanel = null;
         _settlementPanel = _trainPanel = null; _settlementTarget = _trainTarget = null;
@@ -114,6 +119,7 @@ internal partial class EconomyPanels : Control
                 if (_settlementRevision != view.Revision)
                 { _settlementRevision = view.Revision; ReadSettlement(); }
                 if (_settlement is not null) UpdateActions();
+                if (_settlement is not null) RefreshServices();
             }
         }
         if (_trainPanel?.Visible == true)
