@@ -31,6 +31,7 @@ internal partial class TrainPlanPanel : Control
     {
         internal string InitialSeconds = "0";
         internal ulong? InitialSteps;
+        internal readonly List<NodeId> Nodes = [];
         internal readonly List<RuleRow> Goods = [];
     }
 
@@ -108,12 +109,17 @@ internal partial class TrainPlanPanel : Control
 
     private void BindRow(Row row, PlanStop? stop)
     {
-        row.Node.Clear();
-        foreach (var name in _nodeNames) row.Node.AddItem(name);
         var selected = stop switch { PlanStop.Station station => station.Node, PlanStop.Waypoint waypoint => waypoint.Node, _ => default };
         var index = Array.IndexOf(_nodes, selected);
-        if (index >= 0) row.Node.Select(index);
-        else if (stop is not null) { row.Node.AddItem($"已失效节点 {selected.Value}"); row.Node.Select(_nodes.Length); }
+        var nodes = _nodes;
+        var names = _nodeNames;
+        if (index < 0 && stop is not null)
+        {
+            index = nodes.Length;
+            nodes = [.. nodes, selected]; names = [.. names, $"已失效节点 {selected.Value}"];
+        }
+        BindChoices(row.Node, row.Nodes, nodes, names);
+        row.Node.Select(index < 0 && nodes.Length > 0 ? 0 : index);
         row.Kind.SetItemDisabled(1, false);
         row.Kind.Select(stop is PlanStop.Waypoint ? 1 : 0);
         row.InitialSteps = (stop as PlanStop.Station)?.DwellSteps;
@@ -129,6 +135,18 @@ internal partial class TrainPlanPanel : Control
             row.Goods.RemoveAt(row.Goods.Count - 1); row.Rules.RemoveChild(rule.Box); rule.Box.QueueFree();
         }
         UpdateStopKind(row);
+    }
+
+    private static void BindChoices<T>(OptionButton choice, List<T> current, T[] next, string[] labels)
+    {
+        if (!current.SequenceEqual(next))
+        {
+            choice.Clear(); current.Clear(); current.AddRange(next);
+            foreach (var label in labels) choice.AddItem(label);
+        }
+        else
+            for (var index = 0; index < labels.Length; index++)
+                if (choice.GetItemText(index) != labels[index]) choice.SetItemText(index, labels[index]);
     }
 
     private void Move(Row row, int offset)

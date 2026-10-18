@@ -58,15 +58,15 @@ internal partial class TrainPlanPanel
 
     private void BindRule(RuleRow row, AutomaticGoodsRule? value)
     {
-        row.Goods.Clear(); row.Good.Clear();
-        row.Goods.Add(null); row.Good.AddItem("请选择货物");
-        foreach (var id in _content.Core.Goods.Concat(_content.Core.DesignGoods).Select(item => item.Good)
-            .Concat(value is null ? [] : new[] { value.Good }).Distinct())
+        GoodId?[] goods = [null, .. _content.Core.Goods.Concat(_content.Core.DesignGoods).Select(item => item.Good)
+            .Concat(value is null ? [] : new[] { value.Good }).Distinct()];
+        var labels = goods.Select(id =>
         {
-            row.Goods.Add(id);
+            if (id is null) return "请选择货物";
             var missing = _content.FindGood(id) is not ContentLookup<GoodPresentation>.Found { Value.Missing: false };
-            row.Good.AddItem(WorldPanels.GoodName(id, _content) + (missing ? "（缺失，保留身份）" : ""));
-        }
+            return WorldPanels.GoodName(id, _content) + (missing ? "（缺失，保留身份）" : "");
+        }).ToArray();
+        BindChoices(row.Good, row.Goods, goods, labels);
         row.Good.Select(row.Goods.IndexOf(value?.Good));
         row.Action.Select(value?.Action switch
         { AutomaticGoodsAction.Sell => 1, AutomaticGoodsAction.Load => 2, AutomaticGoodsAction.Unload => 3, _ => 0 });

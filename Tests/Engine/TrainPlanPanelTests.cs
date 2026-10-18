@@ -50,6 +50,11 @@ public class TrainPlanPanelTests(Node testScene) : TestClass(testScene)
             Open(b);
             AssertVisiblePlan(panel, b.Plan!, view, content);
             var bRule = Rows(panel).GetChild<VBoxContainer>(0).GetNode<VBoxContainer>("Rules").GetChild<VBoxContainer>(0);
+            Find<OptionButton>(bRule, "Good").Select(0);
+            Find<LineEdit>(bRule, "TargetQuantity").Text = "99";
+            Find<Button>(panel, "Cancel").EmitSignal(Button.SignalName.Pressed);
+            Open(b);
+            AssertVisiblePlan(panel, b.Plan!, view, content);
             var bInventory = Find<OptionButton>(bRule, "Inventory");
             Require(bInventory.ItemCount == 3 && Selected(bInventory) == "租用库存 11 · 租约 1",
                 "当前计划的租用库存选择不正确，或残留上一个计划的非本站库存选项。");
@@ -155,6 +160,10 @@ public class TrainPlanPanelTests(Node testScene) : TestClass(testScene)
             Require(nodeChoice.ItemCount == view.World.Nodes.Length + (validNode ? 0 : 1) &&
                 Selected(nodeChoice) == (validNode ? WorldPanels.NodeName(node, view, content) : $"已失效节点 {node.Value}"),
                 "节点选择或上一次失效节点的额外选项没有重置。");
+            var nodeLabels = view.World.Nodes.Select(item => WorldPanels.NodeName(item.Id, view, content))
+                .Concat(validNode ? [] : new[] { $"已失效节点 {node.Value}" });
+            Require(Enumerable.Range(0, nodeChoice.ItemCount).Select(nodeChoice.GetItemText).SequenceEqual(nodeLabels),
+                "节点条目顺序或文字不符合当前计划。");
             var rules = stop is PlanStop.Station planned ? planned.GoodsRules : [];
             var kind = row.GetNode<OptionButton>("Stop/Kind");
             Require(kind.Selected == (stop is PlanStop.Station ? 0 : 1) && kind.IsItemDisabled(1) == !rules.IsEmpty &&
@@ -175,6 +184,10 @@ public class TrainPlanPanelTests(Node testScene) : TestClass(testScene)
                 var goodIds = content.Core.Goods.Concat(content.Core.DesignGoods).Select(item => item.Good).Append(value.Good).Distinct().ToArray();
                 Require(good.ItemCount == goodIds.Length + 1 && Selected(good).StartsWith(WorldPanels.GoodName(value.Good, content)),
                     "货物选择或旧缺失货物的额外选项没有重置。");
+                var goodLabels = new[] { "请选择货物" }.Concat(goodIds.Select(id => WorldPanels.GoodName(id, content) +
+                    (content.FindGood(id) is ContentLookup<GoodPresentation>.Found { Value.Missing: false } ? "" : "（缺失，保留身份）")));
+                Require(Enumerable.Range(0, good.ItemCount).Select(good.GetItemText).SequenceEqual(goodLabels),
+                    "货物条目顺序或文字不符合当前内容和缺失身份。");
                 Require(Find<OptionButton>(rule, "Action").GetSelectedId() == action &&
                     Find<LineEdit>(rule, "TargetQuantity").Text == value.TargetQuantity.ToString(CultureInfo.InvariantCulture) &&
                     Find<LineEdit>(rule, "UnitPrice").Text == (price?.Value.ToString(CultureInfo.InvariantCulture) ?? "") &&
