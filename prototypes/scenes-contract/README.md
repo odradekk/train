@@ -18,6 +18,8 @@
 
 节点自由环绕用 `ConstrainNodeFocus` 读取实际显示帧的 `NodePanBounds` 限制水平焦点；还没有范围时保持当前焦点。调用方先按浮动原点变化转换焦点，不能把别的帧坐标传入，也不能从已生成的部分网格估算完整范围。
 
+节点小地图用 `ReadNodeOverview` 读取实际显示帧的 `Origin`、`NodePanBounds` 和 `NodeOverview`，不额外调用 `Present`。地块四角和铁轨折线已经位于本帧根空间的 X、Z 格坐标；占用由核心 `PlotView.TemplatePlotNumber` 关联，不读取内容布局，也不使用开发中心线图层。
+
 在仓库根目录使用锁定 SDK 和 PowerShell 7 验证：
 
 ```powershell

@@ -11,6 +11,7 @@ public sealed class FixedSceneFrame : ISceneFrame
     public required SceneUpdate Update { get; init; }
     public ScenePoint Origin { get; init; }
     public ScenePanBounds? NodePanBounds { get; init; }
+    public SceneNodeOverview? NodeOverview { get; init; }
     public SceneReadiness Readiness { get; init; } = SceneReadiness.Ready;
     public double SimulationSeconds { get; init; }
     public ImmutableArray<SceneProblem> Diagnostics { get; init; } = [];
