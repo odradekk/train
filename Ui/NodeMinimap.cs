@@ -7,6 +7,7 @@ namespace Train.Ui;
 
 internal partial class NodeMinimap : Control
 {
+    private const float HeadingLength = 16;
     private readonly Control _background = new() { MouseFilter = MouseFilterEnum.Ignore };
     private readonly Control _marker = new() { MouseFilter = MouseFilterEnum.Ignore, ClipContents = true };
     private SceneNodeOverview? _overview;
@@ -21,6 +22,7 @@ internal partial class NodeMinimap : Control
     private bool _dragging;
     private Vector2 _focus, _camera, _forward;
     internal Vector2 FocusOnMap => NodeToMap(_focus);
+    internal Vector2 HeadingTipOnMap => FocusOnMap + _forward * HeadingLength;
 
     internal NodeMinimap()
     {
@@ -96,10 +98,10 @@ internal partial class NodeMinimap : Control
         {
             if (_bounds is not { } bounds) return new();
             var extent = new Vector2(bounds.Maximum.X - bounds.Minimum.X, bounds.Maximum.Y - bounds.Minimum.Y);
-            var available = new Vector2(Size.X - 16, Size.Y - 32);
+            var available = new Vector2(Size.X - HeadingLength * 2, Size.Y - HeadingLength * 2 - 24);
             var scale = Mathf.Min(available.X / extent.X, available.Y / extent.Y);
             var size = extent * scale;
-            return new(new Vector2(8, 24) + (available - size) / 2, size);
+            return new(new Vector2(HeadingLength, HeadingLength + 24) + (available - size) / 2, size);
         }
     }
 
@@ -162,8 +164,17 @@ internal partial class NodeMinimap : Control
             }
         }
         foreach (var track in _overview.Tracks)
-            if (track.Length > 1) _background.DrawPolyline(
-                track.Select(point => NodeToMap(new(point.X, point.Y))).ToArray(), new Color("dbd6bf"), 1, true);
+        {
+            if (track.Length < 2) continue;
+            List<Vector2> pixels = [NodeToMap(new(track[0].X, track[0].Y))];
+            for (var i = 1; i < track.Length - 1; i++)
+            {
+                var point = NodeToMap(new(track[i].X, track[i].Y));
+                if (point.DistanceSquaredTo(pixels[^1]) >= 1) pixels.Add(point);
+            }
+            pixels.Add(NodeToMap(new(track[^1].X, track[^1].Y)));
+            _background.DrawPolyline(pixels.ToArray(), new Color("dbd6bf"), 1, true);
+        }
     }
 
     private void DrawCamera()
@@ -173,9 +184,11 @@ internal partial class NodeMinimap : Control
         var camera = NodeToMap(_camera).Clamp(MapRect.Position, MapRect.End);
         var side = _forward.Orthogonal();
         _marker.DrawLine(camera, focus, new Color("f1c863"), 1, true);
-        _marker.DrawColoredPolygon([camera + _forward * 7, camera - _forward * 4 + side * 4,
-            camera - _forward * 4 - side * 4], new Color("f1c863"));
         _marker.DrawCircle(focus, 3, Colors.White);
         _marker.DrawArc(focus, 5, 0, Mathf.Tau, 16, new Color("f1c863"), 1, true);
+        var tip = HeadingTipOnMap;
+        _marker.DrawLine(focus, tip, new Color("f1c863"), 2, true);
+        _marker.DrawColoredPolygon([tip, tip - _forward * 6 + side * 4,
+            tip - _forward * 6 - side * 4], new Color("f1c863"));
     }
 }

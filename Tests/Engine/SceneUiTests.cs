@@ -195,6 +195,10 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
                 (camera.Camera.Position - camera.Focus).DistanceTo(offset) < .001f &&
                 camera.Camera.Basis.Z.DistanceTo(heading) < .001f,
                 "小地图点击没有使用帧原点换算定位，或改变了相机环绕和距离。");
+            var arrow = minimap.HeadingTipOnMap - minimap.FocusOnMap;
+            var forward = new Vector2(-camera.Camera.Basis.Z.X, -camera.Camera.Basis.Z.Z).Normalized();
+            Require(arrow.Length() >= 12 && arrow.Normalized().Dot(forward) > .999f,
+                "小地图朝向箭头必须至少长12像素，并与3D相机的水平朝向一致。");
             var end = minimap.GlobalPosition + minimap.NodeToMap(new(-70, 70));
             var start = minimap.GlobalPosition + pixel;
             await _input.MouseButton(start, MouseButton.Left, true);
