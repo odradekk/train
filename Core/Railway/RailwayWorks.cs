@@ -28,19 +28,6 @@ internal static class RailwayWorks
     internal static ImmutableArray<RailwayWorkView> Views(WorldState world, EdgeMapItem edge)
         => world.RailwayJobs.Where(job => job.Edge == edge.Id).Select(job => Read(world, job)).ToImmutableArray();
 
-    internal static HashSet<(EdgeId Edge, int Track)> ClosedTracks(WorldState world)
-    {
-        var closed = new HashSet<(EdgeId, int)>();
-        foreach (var job in world.RailwayJobs)
-        {
-            if (job.Kind != RailwayWorkKind.RepairBreak || job.Break is not { } id) continue;
-            var edge = world.Edges.FirstOrDefault(item => item.Id == job.Edge);
-            var broken = edge?.Breaks.FirstOrDefault(item => item.Id == id);
-            if (broken is not null) closed.Add((job.Edge, broken.Track));
-        }
-        return closed;
-    }
-
     internal static CommandEffect Expand(WorldState world, CoreContentProjection content, CoreCommand.ExpandRail command)
     {
         var edge = world.Edges.FirstOrDefault(item => item.Id == command.Edge);
@@ -52,7 +39,7 @@ internal static class RailwayWorks
         var price = Price(world, content, edge, RailwayWorkKind.AddTrack, command.MaterialSource);
         if (price.Problem is { } problem) return new CommandEffect.Rejected([problem]);
         if (world.Next.Job == ulong.MaxValue) return Reject("identity_exhausted", "World.Next.Job");
-        return AcceptStarted(world, content, edge, RailwayWorkKind.AddTrack, null, command.MaterialSource, price, []);
+        return AcceptStarted(world, content, edge, RailwayWorkKind.AddTrack, null, command.MaterialSource, price);
     }
 
     internal static CommandEffect Repair(WorldState world, CoreContentProjection content, CoreCommand.RepairRail command)
@@ -68,7 +55,7 @@ internal static class RailwayWorks
         var price = Price(world, content, edge, RailwayWorkKind.RepairBreak, command.MaterialSource);
         if (price.Problem is { } problem) return new CommandEffect.Rejected([problem]);
         if (world.Next.Job == ulong.MaxValue) return Reject("identity_exhausted", "World.Next.Job");
-        return AcceptStarted(world, content, edge, RailwayWorkKind.RepairBreak, command.Break, command.MaterialSource, price, []);
+        return AcceptStarted(world, content, edge, RailwayWorkKind.RepairBreak, command.Break, command.MaterialSource, price);
     }
 
     internal static CommandEffect SetAutomatic(WorldState world, CoreContentProjection content, CoreCommand.SetAutomaticRailRepair command)
@@ -154,7 +141,7 @@ internal static class RailwayWorks
             if (original is null || original.Blockers.IsEmpty) continue;
             world = Reevaluate(world, content, original, events);
         }
-        return (WithDependencies(world, content), events.ToImmutable());
+        return (world, events.ToImmutable());
     }
 
     private static WorldState Reevaluate(WorldState world, CoreContentProjection content, RailwayWorkState job,
@@ -193,7 +180,7 @@ internal static class RailwayWorks
     }
 
     private static CommandEffect AcceptStarted(WorldState world, CoreContentProjection content, EdgeMapItem edge,
-        RailwayWorkKind kind, BreakId? broken, SettlementId source, WorkPrice price, ImmutableArray<CoreEvent> leading)
+        RailwayWorkKind kind, BreakId? broken, SettlementId source, WorkPrice price)
     {
         var id = new JobId(world.Next.Job);
         var job = new RailwayWorkState(id, edge.Id, kind, broken, source, price.Ticks, 0,
@@ -204,7 +191,7 @@ internal static class RailwayWorks
             Next = world.Next with { Job = checked(world.Next.Job + 1) }
         }, [new(Inventory(world, source), job.InvestedGoods)]);
         world = WithDependencies(world, content);
-        return new CommandEffect.Accepted(content, leading.Add(new CoreEvent.RailwayWorkStarted(edge.Id, Read(world, job))),
+        return new CommandEffect.Accepted(content, [new CoreEvent.RailwayWorkStarted(edge.Id, Read(world, job))],
             world, [new WorldObjectId.Job(id)]);
     }
 
@@ -295,7 +282,7 @@ internal static class RailwayWorks
         => world.RailwayJobs.Count(job => job.Edge == edge && job.Kind == RailwayWorkKind.AddTrack);
 
     private static bool CanAllocate(ulong next, int count)
-        => count <= 0 || next != 0 && next != ulong.MaxValue && (ulong)count <= ulong.MaxValue - next;
+        => (ulong)count <= ulong.MaxValue - next;
 
     private static WorldState WithDependencies(WorldState world, CoreContentProjection content)
     {

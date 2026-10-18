@@ -367,6 +367,8 @@ internal static class WorldStateValidation
             if (!job.Blockers.IsEmpty)
             {
                 Require(job.InvestedGoods.IsEmpty && job.ElapsedTicks == 0 && job.FrozenDurationTicks == 0, path + "/blockers");
+                Require(world.AutomaticRailRepairs.Any(item => item.Edge == job.Edge && item.MaterialSource == job.MaterialSource),
+                    path + "/material_source");
                 Items(job.Blockers, path + "/blockers");
                 foreach (var blocker in job.Blockers)
                     Require(blocker.Field is not null && !blocker.RelatedIdentities.IsDefault && blocker.Code is "insufficient_goods"

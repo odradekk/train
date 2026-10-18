@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Train.Core.Contracts;
 using Train.Core.Tests.Sessions;
 
 namespace Train.Core.Tests.Railway;
@@ -29,6 +30,16 @@ public sealed class RailwayProcessTests
                 Assert.AreEqual(CoreProcessDriver.Identity(), result.Runtime);
             }
             Assert.AreEqual(saved.Samples.Single(), complete.Samples[0]);
+            using (var savedState = JsonDocument.Parse(saved.Samples.Single().Payload))
+            {
+                var jobs = savedState.RootElement.GetProperty("world").GetProperty("railway_jobs");
+                Assert.AreEqual(2, jobs.GetArrayLength());
+                var expansion = jobs.EnumerateArray().Single(job => job.GetProperty("kind").GetInt32() == (int)RailwayWorkKind.AddTrack);
+                Assert.AreEqual((ulong)RailwayProcessDriver.PrefixSteps, expansion.GetProperty("elapsed_ticks").GetUInt64());
+                Assert.IsTrue(jobs.EnumerateArray().Any(job => job.GetProperty("kind").GetInt32() == (int)RailwayWorkKind.RepairBreak
+                    && job.GetProperty("blockers").GetArrayLength() > 0));
+                Assert.AreEqual(1, savedState.RootElement.GetProperty("world").GetProperty("automatic_rail_repairs").GetArrayLength());
+            }
             Assert.AreEqual(saved.Samples[0].Payload, await File.ReadAllTextAsync(Path.Combine(directory, "state.json")));
             CollectionAssert.AreEqual(complete.Samples, restored.Samples);
             CollectionAssert.AreEqual(complete.Events, restored.Events);

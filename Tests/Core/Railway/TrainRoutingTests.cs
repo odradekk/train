@@ -40,16 +40,15 @@ public sealed class TrainRoutingTests
     }
 
     [TestMethod]
-    public void Track_selection_excludes_breaks_and_repairs_and_chooses_the_smallest_remaining_number()
+    public void Track_selection_excludes_breaks_and_chooses_the_smallest_remaining_number()
     {
         var edge = Edge(1, 1, 2, 5) with
         {
             Tracks = 4,
             Breaks = [new(new(1), 1, 2)]
         };
-        var closed = new HashSet<(EdgeId, int)> { (edge.Id, 2) };
 
-        Assert.AreEqual(3, TrainRouting.FindTrack(edge, closed));
+        Assert.AreEqual(2, TrainRouting.FindTrack(edge));
         Assert.AreEqual(1, TrainRouting.FindTrack(edge with { Breaks = [] }));
         Assert.AreEqual(1, TrainRouting.FindTrack(Edge(1, 1, 2, 5)));
     }
@@ -67,9 +66,8 @@ public sealed class TrainRoutingTests
             Tracks = 2,
             Breaks = [new(new(1), 1, 2)]
         };
-        var closed = new HashSet<(EdgeId, int)> { (edge.Id, 2) };
-        Assert.IsNull(TrainRouting.FindTrack(edge, closed));
-        Assert.IsNull(TrainRouting.FindRoute(nodes, [edge], new(1), new(2), 2, closed));
+        Assert.AreEqual(2, TrainRouting.FindTrack(edge));
+        AssertRoute(TrainRouting.FindRoute(nodes, [edge], new(1), new(2), 2), 5, 1);
 
         edge = edge with { Tracks = 3 };
         AssertRoute(TrainRouting.FindRoute(nodes, [edge], new(1), new(2), 2), 5, 1);

@@ -15,13 +15,11 @@ internal sealed class TrainDispatch
     private readonly Dictionary<NodeId, HashSet<int>> _platforms;
     private readonly Dictionary<TrainId, int> _platformHolders;
     private readonly HashSet<(EdgeId, int)> _usedHandoffs = [];
-    private readonly HashSet<(EdgeId Edge, int Track)> _closedTracks;
 
     internal TrainDispatch(WorldState world, CoreContentProjection content)
     {
         _world = world;
         _content = content;
-        _closedTracks = RailwayWorks.ClosedTracks(world);
         _capabilities = world.Trains.ToDictionary(t => t.Id, t => TrainOperations.Capabilities(world, content, t));
         _tracks = world.Trains.Where(t => t.Position is TrainPosition.Edge)
             .GroupBy(t => { var p = (TrainPosition.Edge)t.Position; return (p.Id, p.Track); })
@@ -169,8 +167,7 @@ internal sealed class TrainDispatch
         return selected;
     }
 
-    private bool Open(EdgeMapItem edge, int track) => track >= 1 && track <= edge.Tracks && !edge.Breaks.Any(b => b.Track == track)
-        && !_closedTracks.Contains((edge.Id, track));
+    private bool Open(EdgeMapItem edge, int track) => track >= 1 && track <= edge.Tracks && !edge.Breaks.Any(b => b.Track == track);
 
     private bool EntrySpace(TrainState entering, TrainState ahead, EdgeMapItem edge, TravelDirection direction)
     {

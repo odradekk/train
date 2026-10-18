@@ -1,7 +1,5 @@
-using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
-using Train.Core.Railway;
 using Train.Core.Sessions;
 using Train.Core.Tests.World;
 using Train.Core.World;
@@ -60,38 +58,28 @@ public sealed class NodeExitTrackTests
 
     [TestMethod]
     [DataRow("break", 1, 2)]
-    [DataRow("repair", 1, 2)]
     [DataRow("removed", 2, 1)]
     public void An_unavailable_fixed_track_changes_to_an_open_track(string change, int previous, int expected)
     {
         var state = State(1, 2, content: DepartureContent());
         var edge = state.World.Edges[0];
-        var settlement = state.World.Settlements[0].Id;
-        ImmutableArray<RailwayWorkState> jobs = [];
         edge = change switch
         {
             "break" => edge with { Breaks = [new(new(1), 1, 10)] },
-            "repair" => edge with { Breaks = [new(new(1), 1, 10)] },
             "removed" => edge with { Tracks = 1 },
             _ => throw new ArgumentOutOfRangeException(nameof(change))
         };
-        if (change == "repair")
-            jobs = [new(new(1), edge.Id, RailwayWorkKind.RepairBreak, new(1), settlement, 0, 0, [],
-                [new("insufficient_goods", "MaterialSource.Inventory", new WorldObjectId.Settlement(settlement), ["voxel:fixture:material"])])];
         var train = Exit(state.World.Trains[0], 1, previous) with { Activity = TrainActivity.Running, Position =
             new TrainPosition.Node(new(1), new(1), 2, new(1), previous, NodeTravelPhase.Departing,
                 2 + WorldFixture.PlatformLength / 2, null) };
-        using var session = new CoreSession(state with { World = state.World with { Edges = [edge], Trains = [train],
-            RailwayJobs = jobs, Next = state.World.Next with { Break = 2, Job = jobs.IsEmpty ? state.World.Next.Job : 2 } } });
+        var next = change == "break" ? state.World.Next with { Break = 2 } : state.World.Next;
+        using var session = new CoreSession(state with { World = state.World with { Edges = [edge], Trains = [train], Next = next } });
         Step(session);
         Assert.AreEqual(expected, Node(session, 1).NextTrack);
         Assert.AreEqual(2, Node(session, 1).EnteredTrack);
-        if (change != "repair")
-        {
-            var capture = WorldFixture.Success(session.Capture(CapturePurpose.Save));
-            var decoded = WorldFixture.Success(CoreFactory.Create().DecodeState(capture.Encode()));
-            Assert.AreEqual(capture.Encode(), decoded.Encode());
-        }
+        var capture = WorldFixture.Success(session.Capture(CapturePurpose.Save));
+        var decoded = WorldFixture.Success(CoreFactory.Create().DecodeState(capture.Encode()));
+        Assert.AreEqual(capture.Encode(), decoded.Encode());
     }
 
     [TestMethod]

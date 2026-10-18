@@ -42,8 +42,7 @@ internal static class TrainOperations
     {
         train = AfterLocalStops(train, node);
         if (train.NextStopIndex is not { } index) return null;
-        var route = TrainRouting.FindRoute(world.Nodes, world.Edges, node, Target(train.Plan!.Stops[index]),
-            maximumSpeed, RailwayWorks.ClosedTracks(world));
+        var route = TrainRouting.FindRoute(world.Nodes, world.Edges, node, Target(train.Plan!.Stops[index]), maximumSpeed);
         return route is { } found && !found.Edges.IsEmpty ? found.Edges[0] : null;
     }
 
