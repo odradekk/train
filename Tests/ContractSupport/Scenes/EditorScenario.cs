@@ -140,6 +140,7 @@ public sealed class EditorSession : IDesignEditSession
     {
         public ScenePoint Origin => frame.Origin;
         public ScenePanBounds? NodePanBounds => frame.NodePanBounds;
+        public SceneNodeOverview? NodeOverview => frame.NodeOverview;
         public SceneReadiness Readiness => frame.Readiness;
         public double SimulationSeconds => frame.SimulationSeconds;
         public SceneUpdate Update => frame.Update;

@@ -52,10 +52,18 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
             VehicleTrades.Validate(command);
             return ExecuteCommand(command, source, content => VehicleTrades.Execute(State.World, content, command));
         }
-        if (command is CoreCommand.StartOwnedJob start)
+        if (command is CoreCommand.StartOwnedJob or CoreCommand.CommissionVehicleWork)
         {
-            ConstructionCommands.Validate(start.Request, State.World, State.Content);
-            return ExecuteCommand(command, source, content => ConstructionCommands.Execute(State.World, content, start.Request));
+            var (request, funding, maximum) = command switch
+            {
+                CoreCommand.StartOwnedJob start => (start.Request, JobFunding.OwnInventory, (Money?)null),
+                CoreCommand.CommissionVehicleWork commission => (commission.Request, JobFunding.NpcCommission, (Money?)commission.MaximumPayment),
+                _ => throw new InvalidOperationException()
+            };
+            ConstructionCommands.Validate(request, State.World, State.Content, funding);
+            if (maximum is { Value: < 0 }) throw new ArgumentException("付款上限必须非负。", nameof(command));
+            return ExecuteCommand(command, source, content => ConstructionCommands.Execute(State.World, content, request,
+                State.Position.CompletedSteps, funding, maximum));
         }
         if (command is CoreCommand.LoadGoods or CoreCommand.UnloadGoods or CoreCommand.AcquireLease
             or CoreCommand.BuyGoods or CoreCommand.SellGoods)

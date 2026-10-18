@@ -426,7 +426,7 @@ public sealed class NodeStreamingTests
     [TestMethod]
     public async Task Near_parts_are_interactive_while_far_work_is_blocked()
     {
-        var snapshot = Snapshot(true, nearVehicle: true);
+        var snapshot = Snapshot(true, nearVehicle: true, overviewPlots: true);
         using var release = new ManualResetEventSlim();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var vehicles = new SceneVehicles();
@@ -453,6 +453,10 @@ public sealed class NodeStreamingTests
             await entered.Task;
             var frame = Present(scene, snapshot);
             Assert.AreEqual(SceneReadiness.Partial, frame.Readiness);
+            Assert.IsNotNull(frame.NodeOverview);
+            var distantPlot = frame.NodeOverview.Plots.Single();
+            Assert.AreEqual(1, distantPlot.TemplatePlotNumber);
+            Assert.IsTrue(distantPlot.Corners.All(point => point.X > NodeStreaming.NearCells && point.Y > NodeStreaming.NearCells));
             var hit = (ScenePick.Hit)frame.Pick(Ray(Chunks(cache).Keys.First()));
             Assert.AreEqual(new PickSubject.Terrain(NodeFixtures.Location), hit.Value.Subject);
             var subject = new WorldObjectId.Instance(instance.Id);
@@ -1122,11 +1126,11 @@ public sealed class NodeStreamingTests
         });
     }
 
-    private static SceneWorldSnapshot Snapshot(bool large, bool nearVehicle = false, double relief = 0)
+    private static SceneWorldSnapshot Snapshot(bool large, bool nearVehicle = false, double relief = 0, bool overviewPlots = false)
     {
         var layout = NodeFixtures.Layout with
         {
-            Plots = [],
+            Plots = overviewPlots ? [new(1, PlotSize.Small, new(288, 0, 288), VoxelOrientation.PxPy)] : [],
             SceneModel = NodeFixtures.Layout.SceneModel with
             {
                 Scene = SceneFixtures.Projection(large ? [SceneFixtures.Cell(new(-320, 0, -320)), SceneFixtures.Cell(new(319, 0, 319), 2)] : []) with

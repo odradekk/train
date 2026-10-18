@@ -14,9 +14,9 @@ internal sealed record RunOutput(int ProcessId,
 
 internal sealed record RecipeReceipt(int CommandIndex, string Kind, string Decision,
     ImmutableArray<ProblemSample> Problems, long? QuotedTotal);
-internal sealed record ProblemSample(string Code, string Field)
+internal sealed record ProblemSample(string Code, string Field, ImmutableArray<string> RelatedIdentities)
 {
-    internal static ProblemSample From(CoreProblem problem) => new(problem.Code, problem.Field);
+    internal static ProblemSample From(CoreProblem problem) => new(problem.Code, problem.Field, problem.RelatedIdentities);
 }
 
 internal sealed record GoodSample(string Kind, string? Definition = null, string? Composition = null)
@@ -67,6 +67,7 @@ internal sealed record TrainPositionSample(string Kind, ulong Id, double Distanc
 internal sealed record TrainSample(ulong Id, TrainPositionSample Position, string Activity, ulong Inventory, RunTotalsSample? CurrentRun,
     ImmutableArray<RunReportSample> RecentReports);
 internal sealed record SettlementSample(ulong Id, ulong Node, ulong Inventory, ImmutableArray<ulong> VehiclesForSale,
+    ImmutableArray<ulong> CommissionJobs,
     ImmutableArray<MarketGoodSample> MarketGoods, ImmutableArray<FacilitySample> Facilities,
     long Residents, ImmutableArray<PopulationNeedSample> PopulationNeeds);
 internal sealed record LeaseSample(ulong Id, ulong Settlement, ulong Inventory, ulong ExpiresAtStep, bool Expired);
@@ -103,10 +104,21 @@ internal sealed record ProductionStateSample(SimulationPosition Position, int Or
     string Before, string After, ImmutableArray<ProblemSample> Reasons);
 internal sealed record InventorySample(ulong Id, long Capacity, long Used, long Available, string Access,
     ImmutableArray<GoodsSample> Goods);
+internal sealed record CommissionJobSample(ulong Id, string State, int Priority, long FrozenTotalWork,
+    double ProgressWork, double Progress, double ActualWorkPerSecond, ImmutableArray<string> Limits,
+    ImmutableArray<GoodsSample> InvestedGoods, ImmutableArray<ProblemSample> Blockers)
+{
+    internal static CommissionJobSample From(ConstructionJobView job) => new(job.Id.Value, job.State.ToString(),
+        job.Priority, job.FrozenTotalWork, job.ProgressWork, job.Progress, job.ActualWorkPerSecond,
+        job.Limits.Select(limit => limit.ToString()).ToImmutableArray(),
+        job.InvestedGoods.Select(goods => new GoodsSample(GoodSample.From(goods.Good), goods.Quantity)).ToImmutableArray(),
+        job.Blockers.Select(ProblemSample.From).ToImmutableArray());
+}
 
 internal sealed record EconomySample(SimulationPosition Position, long Wallet, ImmutableArray<TrainSample> Trains,
     ImmutableArray<SettlementSample> Settlements, ImmutableArray<LeaseSample> Leases,
-    ImmutableArray<InventorySample> Inventories)
+    ImmutableArray<InventorySample> Inventories, long UnassignedServicePayments,
+    ImmutableArray<CommissionJobSample> CommissionJobs)
 {
     internal static EconomySample Read(ICoreReadView view)
     {
@@ -125,6 +137,7 @@ internal sealed record EconomySample(SimulationPosition Position, long Wallet, I
                 train.RecentReports.Select(RunReportSample.From).ToImmutableArray())).ToImmutableArray(),
             settlements.Select(settlement => new SettlementSample(settlement.Id.Value, settlement.Node.Value,
                 settlement.Inventory.Value, settlement.VehiclesForSale.Select(vehicle => vehicle.Value).ToImmutableArray(),
+                settlement.CommissionJobs.Select(job => job.Value).ToImmutableArray(),
                 settlement.Market.Goods.Select(good => new MarketGoodSample(GoodSample.From(good.Good), good.Stock,
                     good.RestockTarget, good.ReservedForUse, good.SellableQuantity, good.ReceivableQuantity,
                     good.Blockers.Select(ProblemSample.From).ToImmutableArray())).ToImmutableArray(),
@@ -142,6 +155,9 @@ internal sealed record EconomySample(SimulationPosition Position, long Wallet, I
             inventories.Select(inventory => new InventorySample(inventory.Id.Value, inventory.Capacity,
                 inventory.Used, inventory.Available, inventory.Access.ToString(),
                 inventory.Stacks.Select(stack => new GoodsSample(GoodSample.From(stack.Good), stack.Quantity)).ToImmutableArray()))
+                .ToImmutableArray(), view.Economy.UnassignedServicePayments.Value,
+            settlements.SelectMany(settlement => settlement.CommissionJobs).OrderBy(job => job.Value)
+                .Select(job => CommissionJobSample.From(((JobView.Construction)Found(view.FindJob(job))).Value))
                 .ToImmutableArray());
     }
 

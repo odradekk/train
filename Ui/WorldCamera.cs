@@ -30,6 +30,7 @@ internal partial class WorldCamera : Node3D
     public Camera3D Camera { get; } = new() { Fov = 60f, Near = 0.1f, Far = 4000f };
     internal float OrbitYawRadians => _orbitYaw;
     internal float OrbitPitchRadians => _pitch;
+    internal ScenePoint FrameOrigin => _frame?.Origin ?? default;
 
     public WorldCamera()
     {
@@ -132,6 +133,14 @@ internal partial class WorldCamera : Node3D
         if (_frame is null || _follow is not null || !_railwayPan && _frame.NodePanBounds is null)
             return;
         Focus += new Vector3(horizontal.X, 0f, horizontal.Z);
+        ClampNodeView();
+        PlaceCamera();
+    }
+
+    internal void MoveFocus(Vector3 focus)
+    {
+        if (NodePanBounds is null) return;
+        Focus = new(focus.X, Focus.Y, focus.Z);
         ClampNodeView();
         PlaceCamera();
     }

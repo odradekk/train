@@ -41,6 +41,7 @@ public sealed class RailwaySessionTests
         session.RequestView(new WorldSceneTarget.Follow(new(1), new(1)));
         var frame = await Settled(session);
         Assert.AreEqual(SceneReadiness.Ready, frame.Readiness);
+        Assert.IsNull(frame.NodeOverview);
         var pose = ((Lookup<ScenePose>.Found)frame.FindPose(new WorldObjectId.Instance(new InstanceId.Vehicle(new(1))))).Value;
         Assert.AreEqual(new Vector3(0, 0, 2), pose.Position);
         Assert.AreEqual(Quaternion.Identity, pose.Rotation);

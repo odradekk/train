@@ -1,15 +1,16 @@
 # 示例存档与配方
 
-`basic-through` 是游戏内基础示例；另外三个经济示例只供开发与阶段验收，不进入 Windows 导出的 PCK。所有配方都加载已提交的正式 `builtin/core`，通过公开 Core 命令推进真实模拟，不重跑内容生成器或修改存档内部状态。
+`basic-through` 是游戏内基础示例；另外四个经济示例只供开发与阶段验收，不进入 Windows 导出的 PCK。所有配方都加载已提交的正式 `builtin/core`，通过公开 Core 命令推进真实模拟，不重跑内容生成器或修改存档内部状态。
 
 | 目录 | 场景与检查 | 制作／检查配置 |
 | --- | --- | --- |
 | `basic-through` | 基础铁路贯通，200 步 | Debug |
 | `starting-trade` | 种子 40、两列小型起始列车，分线运输主食、燃料和结构金属，运行 4 游戏小时 | Release |
 | `storage-tight` | 列车 1 驶往林业镇 5，依次买入木材加工品和结构金属，各以 2400 为目标；总容量 1260 截断第二笔成交，10000 步 | Debug |
+| `commission-branches` | 两列起始列车满载采购后，首笔小型货车委托受理，第二笔真实缺货且不扣款 | Debug |
 | `lease-expiry` | 租用 1 点仓储、存入主食，越过一天租期后卸货被拒、取货成功，5,184,001 步 | Release |
 
-四个配方共用种子 40、`core:basic-through-world` 与 `stage1-world-v1`，存档元数据固定。默认车队由一列机车加三辆货车和一列机车加两辆货车、一辆武装车组成；采购后仍可委托小型货车的经济条件留待 #387 补验。
+这些配方共用种子 40、`core:basic-through-world` 与 `stage1-world-v1`，存档元数据固定。默认车队由一列机车加三辆货车和一列机车加两辆货车、一辆武装车组成；采购后仍可委托小型货车的经济条件已由 #387 的正式配方补验，阶段 #300 复核。
 
 ## 基础贯通
 
@@ -34,7 +35,7 @@ dotnet Tools/Cli/bin/Debug/net10.0/Train.Cli.dll compare TestResults/run.json Te
 
 工具只加载内置内容。PNG 端口支持当前资产使用的 8 位 RGBA、非交错编码，校验签名、块 CRC、头部、解压长度；无效或不支持的 PNG 返回 `CannotDecode`，GLB 返回 `UnsupportedContent`。这不替代真实 Godot 资产解码或视觉验证。
 
-`basic-through/save.json` 是推进到 200:0 的普通格式 6 存档。`make` 推进到配方目标后保存，`save` 在指定步的序号 0 边界保存；该位置的命令由 `resume` 执行。保存同时捕获核心状态与内容依赖，UUID、名称和保存时间取配方固定值。容器编解码、临时文件读回校验及发布直接链接宿主同份源码；恢复依次读取容器、解码核心和内容、准备恢复内容、准备核心、激活后继续配方。
+`basic-through/save.json` 是推进到 200:0 的普通格式 6 存档，当前核心载荷为格式 15。`make` 推进到配方目标后保存，`save` 在指定步的序号 0 边界保存；该位置的命令由 `resume` 执行。保存同时捕获核心状态与内容依赖，UUID、名称和保存时间取配方固定值。容器编解码、临时文件读回校验及发布直接链接宿主同份源码；恢复依次读取容器、解码核心和内容、准备恢复内容、准备核心、激活后继续配方。
 
 Godot 开发构建（编辑器运行和调试导出）的主菜单提供“从示例开始”，发布构建隐藏此入口。游戏从 `res://examples/basic-through/save.json` 读取同一份普通存档，经过正常恢复流程打开暂停的宏观地图，不执行配方。恢复后的对局使用新 UUID，沿用名称“基础贯通小世界”，标记为未保存；第一次手动或自动保存才写入新 UUID 的用户存档目录，原示例保持不变。
 
@@ -57,15 +58,19 @@ Station 的形状为 `{kind:"station",node,dwell_steps,goods_rules}`，省略后
 | `lease.acquire` | `request:{kind:"rent",settlement,capacity,duration_steps}`, `maximum_payment` | 租约示例、短测试 |
 | `inventory.unload_goods`／`inventory.load_goods` | `train,settlement,local_inventory,good,quantity` | 租约示例、短测试 |
 | `market.buy_vehicle` | `seller,vehicle,maximum_payment` | 仅测试专用短配方 |
+| `construction.commission_vehicle_work` | `facility,blueprint,sources,maximum_payment` | 委托成功与材料不足分支 |
+
+CLI 委托目前只支持制造车辆。`facility` 是执行施工的建筑编号，能力固定为 `Construction`；`blueprint` 是内置包中的车辆蓝图身份，由内容模块交出完整设计输入。`sources` 是按消费顺序排列的库存编号数组，必须显式给出，空数组表示整份 BOM 都从当地 NPC 补购。`maximum_payment` 为非负整数。任务优先级为 0；改装和修理的 CLI 配方入口尚未增加，核心修理另由模块用例验证。
 
 租期必须是正式规则一天（5,184,000 步）的整数倍；配方不能借缩短租期加速验证。不支持本票未使用的续租、卖车、手动货物买卖或自动装卸。这些是 CLI 配方能力，没有新增游戏控制台命令，单命令手册不适用。
 
 `run`／`replay`／`resume` 的 JSON 另外包含：
 
-- `samples[]`：位置、钱包，全部列车的位置／活动／库存身份／当前运行累计／近期报告，全部聚居地的库存身份与待售车辆，全部租约的到期状态，以及这些对象引用的库存容量、已用、可用、权限和全部货物。数据直接来自公开查询；报告与当前累计保留 Core 给出的收付款、净现金流、运量、载运率和未完成规则，不重算。近期报告有核心规则规定的保留上限。
-- `command_receipts[]`：配方中的零基 `command_index`、`kind`、`decision`（accepted／rejected）、`problems[{code,field}]`、`quoted_total`。只有现车购买提供执行前的公开报价总额，其他命令为 null；报价不预留交易条件。
+- `samples[]`：位置、钱包、全局未归属委托工钱，全部列车的位置／活动／库存身份／当前运行累计／近期报告，全部聚居地的库存身份、待售车辆与委托任务编号，以及按任务编号查询的状态、工作进度、冻结工作量、投入货物和阻塞，全部租约的到期状态，以及这些对象引用的库存容量、已用、可用、权限和全部货物。数据直接来自公开查询；报告与当前累计保留 Core 给出的收付款、净现金流、运量、载运率和未完成规则，不重算。近期报告有核心规则规定的保留上限。
+- `command_receipts[]`：配方中的零基 `command_index`、`kind`、`decision`（accepted／rejected）、`problems[{code,field,related_identities}]`、`quoted_total`。现车购买使用执行前的公开 `QuoteVehicle.Total`，车辆委托使用 `GetJobQuote.TotalPayment`；启动条件不足时为空，单纯资金不足时仍有已计算总额。其他命令为 null；报价不预留交易条件。
 - `samples[].settlements[]` 另含公开查询中的 `market_goods`（库存、补货目标、留用、可售／可收量及阻塞）、`facilities`（流程、状态、实际工作速率、限制、输出缓冲、潜在消耗及阻塞）、`residents` 和 `population_needs`。潜在消耗不是实际消耗。
 - `goods_transfers[]`、`production_completions[]`、`production_state_changes[]` 保留命令提交和推进返回的三类公开事件，含实际模拟位置和事件序号。成交记录含列车、聚居地、货物、数量及实际金额；生产完成量包含仍在输出缓冲中的货物。
+- `samples[].unassigned_service_payments` 是全局未归属委托工钱，`samples[].commission_jobs[]` 是委托任务详情，`samples[].settlements[].commission_jobs[]` 是当地任务编号。所有问题项（含 `blockers`、`reasons` 和 `incomplete_reasons`）均保留 `code`、`field`、`related_identities`。
 
 需要按小时调查起步贸易时，只运行一次 Release `run`，再用 Python 3 标准库脚本汇总：
 
@@ -89,12 +94,30 @@ python -X utf8 Tools/Cli/summarize_starting_trade.py TestResults/trade-diagnosti
 
 容量例子在 8000 步记录进站过程的查询，10000 步核对列车 1 两种货物的总量等于容量、`available == 0`，第二条规则为 `insufficient_capacity / Train.Inventory.Capacity`，且卖方结构金属仍有剩余、钱包余额为正。结构金属来自车辆车间的模板一次性初始库存；两种货物合计可售量超过车队容量，使第二笔成交由容量截断。租约例子在到期前关闭买入规则，停靠等待；到期后的卸货回执为 `access_denied / LocalInventory`，随后取货回执为 accepted，货物与权限由同位置查询核对。
 
+## 委托成功与缺货分支
+
+`commission-branches/recipe.json` 使用种子 40 和两列正式起始列车。列车 1 前往矿镇 13 采购结构金属，列车 2 在农业镇 14 采购主食后前往油田 12 采购燃料；各地点只采购一次，不循环，也不消耗农业镇用于委托的结构金属库存。采购在第 7841 步完成，提交委托前两列车均满载。
+
+| 列车 | 采购地点与货物 | 实际数量 | 实际货款 | 最终载货量／容量 |
+| --- | --- | --- | --- | --- |
+| 1 | 矿镇 13，结构金属 | 1260 | 17,640 | 1260／1260 |
+| 2 | 农业镇 14，主食 | 395 | 3,704 | 两笔合计 1080／1080 |
+| 2 | 油田 12，燃料 | 685 | 2,740 | 同上 |
+
+列车 2 两笔货款合计 6,444；全部采购共支付 24,084，钱包由 813,500 减至 789,416。
+
+在 `10000:0`，向农业镇（节点 14、聚居地 6、施工建筑 37）提交 `core:small-freight-wagon` 制造委托。材料来源为空，完整 BOM 从当地 NPC 补购，总付款上限为 Int64 最大值。公开报价为 43,734，由材料款 20,726 和工钱 23,008 组成。首单受理后，在 `10000:1` 查询到钱包余额 745,682、全局未归属服务支出 23,008，委托任务 1 为 `Working`，工作进度为 0、冻结总工作量为 11,504，投入货物为 16 份转向架、2 份仓储设备和 1,420 份结构金属。这补验了 #387 验收条件 4：正式起始车队满载采购后仍可受理指定小型货车委托；阶段 #300 继续复核。
+
+随后在 `10000:1` 再提交相同委托，因当地材料不足而以 `insufficient_goods / Sources` 拒绝。`related_identities` 按顺序列出 `voxel:core:bogie`、`voxel:core:storage-equipment`、`voxel:core:structural-metal`。拒绝后的 `10000:2` 与 `10000:1` 全部查询样本仅位置不同：钱包、全部库存、委托任务和工钱保持不变，确认拒绝没有部分扣款或消费。
+
+日常用例严格重放真实配方，已提交存档由统一示例检查核对并确认源文件保持不变；通用委托保存恢复另由 Core 跨进程用例覆盖。“前面材料可用、最后一项不足仍完全不扣”的场景另由 Core 受控用例覆盖。示例使用正式内容，不注入货物；成功受理不等于任务已经完工，也不替代 #300 阶段联调。
+
 ## 重制与长验证
 
-同一份存档使用同一种构建配置制作和检查。日常测试只运行短经济命令、现车和容量例子。本次车辆内容迭代的长示例只做 `make` 和一次正常加载；起步四小时与租约一天的完整验证留给阶段验收，不能放进 450 秒的集成层。
+同一份存档使用同一种构建配置制作和检查。日常测试只运行短经济命令、现车、容量和委托例子。本次车辆内容迭代中，`starting-trade` 只做 `make` 和一次正常读取；`lease-expiry` 通过 Linux runner 制作并执行长验证。长例不能放进日常集成层。
 
 [长示例脚本](../scripts/checks/run-long-example.ps1)构建一次 Release，然后并行执行三组：A 连续运行并严格重放；B 保存退出后由独立进程恢复；C 制作普通存档再从零按配方检查。保存边界为起步贸易 **432000**、租约到期 **5183999**。`replay` 的输出作为连续基准，最后比较恢复后的完整检查点后缀，不额外运行一次 `run`。脚本创建独立运行目录，每条命令完成即保留退出码、耗时和日志，任何失败或未执行均非零退出。runner 触发与下载方法见[远端检查](../docs/run-tests.md#远端检查)。
 
-Linux 上的 `check` 只比较本次 Linux 运行重新制作的存档，不能验证已提交 Windows 存档的重制一致性。对已提交 `save.json` 的 `check` 继续在 Windows 使用对应构建配置执行；基础例子的命令形式见[基础贯通](#基础贯通)，长示例使用表中 Release 配置。同机跨进程比较、保存恢复和本次录制的严格重放在两种平台都有效，不宣称跨平台确定性。
+`basic-through`、`storage-tight`、`commission-branches` 和 `starting-trade` 的存档在 Windows 制作；`lease-expiry` 在 Linux runner 制作。`check` 在制作平台使用同种构建配置比较；Linux 重制不能验证 Windows 存档的一致性，反之亦然。基础例子的命令形式见[基础贯通](#基础贯通)，长示例使用表中 Release 配置。同机跨进程比较、保存恢复和本次录制的严格重放在两种平台都有效，不宣称跨平台确定性。
 
 容量例子的普通存档用 Debug 制作，Windows 日常用例通过 `check` 对照已提交的 `storage-tight/save.json`，同时确认源文件保持不变。验收证据仍以具体构建、命令、实际耗时和日志为准；这些 CLI 检查不提供 Godot 界面、目标窗口交互或阶段 #299 四模块验收证据。

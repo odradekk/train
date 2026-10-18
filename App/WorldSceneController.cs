@@ -30,11 +30,14 @@ internal sealed class WorldSceneController : IDisposable
     private bool _fullReplacement;
     private bool _awaitingRequest;
     private bool _disposed;
+    private ScenePoint? _pendingNodeFocus;
+    private ISceneFrame? _pendingNodeFrame;
 
     internal WorldSceneView View { get; } = new();
     internal SceneDisplay? Display => _display;
     internal SceneRequestId CurrentRequest => _request;
     internal ISceneFrame? InteractionFrame => View.Interactive && !_fullReplacement ? _display?.PoseFrame : null;
+    internal ISceneFrame? MinimapFrame => _pendingNodeFrame ?? InteractionFrame;
     internal readonly record struct PickInspection(ISceneFrame Frame, SceneRay Ray, ScenePick Pick, SceneResult<PickSubject>? Resolution);
     internal SceneDebugLayer DebugLayers { get; set; }
     internal event Action<SceneProblem?>? ReturnedToMap;
@@ -211,6 +214,13 @@ internal sealed class WorldSceneController : IDisposable
                 View.CameraRig.DisplayedFrame(frame, FollowSubject(),
                     _target is WorldSceneTarget.Location { Value: WorldLocation.Edge }, shift);
                 View.CameraRig.Update(delta);
+                if (_pendingNodeFocus is { } focus && frame.NodePanBounds is not null)
+                {
+                    View.CameraRig.MoveFocus(new((float)(focus.X - frame.Origin.X), 0,
+                        (float)(focus.Z - frame.Origin.Z)));
+                    _pendingNodeFocus = null;
+                    _pendingNodeFrame = null;
+                }
             }
             _display.UpdateConstructionFog(_target is WorldSceneTarget.Follow follow &&
                 status.View.FindTrain(follow.Train) is Lookup<TrainView>.Found train ? train.Value.Vehicles : []);
@@ -221,8 +231,35 @@ internal sealed class WorldSceneController : IDisposable
     private WorldObjectId? FollowSubject() => _target is WorldSceneTarget.Follow follow
         ? new WorldObjectId.Instance(new InstanceId.Vehicle(follow.Vehicle)) : null;
 
+    internal NodeId? ViewedNode(ICoreReadView core) => _target switch
+    {
+        WorldSceneTarget.Location { Value: WorldLocation.Node node } => node.Id,
+        WorldSceneTarget.Follow follow when core.World.Trains.FirstOrDefault(train => train.Id == follow.Train)?.Position
+            is TrainPosition.Node node => node.Id,
+        _ => null
+    };
+
+    internal void FocusNode(NodeId node, ScenePoint point)
+    {
+        _dispatcher.RequireMainThread();
+        if (_session is null || _host.IsBusy || _host.GetStatus() is not { } status ||
+            ViewedNode(status.View) != node || MinimapFrame?.NodeOverview is null) return;
+        if (_target is WorldSceneTarget.Follow)
+        {
+            var previous = MinimapFrame;
+            if (RequestTarget(new WorldSceneTarget.Location(new WorldLocation.Node(node))) is
+                SceneResult<SceneRequestId>.Success)
+            { _pendingNodeFocus = point; _pendingNodeFrame = previous; }
+        }
+        else if (_pendingNodeFocus is not null) _pendingNodeFocus = point;
+        else if (InteractionFrame is { } frame)
+            View.CameraRig.MoveFocus(new((float)(point.X - frame.Origin.X), 0, (float)(point.Z - frame.Origin.Z)));
+    }
+
     private SceneResult<SceneRequestId> RequestTarget(WorldSceneTarget target)
     {
+        _pendingNodeFocus = null;
+        _pendingNodeFrame = null;
         var result = _session!.RequestView(target);
         if (result is SceneResult<SceneRequestId>.Success success)
         {
@@ -339,6 +376,8 @@ internal sealed class WorldSceneController : IDisposable
 
     private void CloseScene()
     {
+        _pendingNodeFocus = null;
+        _pendingNodeFrame = null;
         _pickRay = null;
         View.Interactive = false;
         View.SetActive(false);

@@ -23,6 +23,28 @@ public sealed class ConstructionCommandRecordingTests
     }
 
     [TestMethod]
+    public void Commission_vehicle_repair_has_a_fixed_vector_with_payment_after_request()
+    {
+        const string payload = """{"input_format_version":2,"kind":"construction.commission_vehicle_work","request":{"kind":"repair_vehicle","facility":{"building":7,"capability":"construction"},"vehicle":8,"sources":[4,2],"priority":-3},"maximum_payment":123}""";
+        var command = new CoreCommand.CommissionVehicleWork(new JobRequest.Repair(new(new(7), CapabilityKind.Construction),
+            new InstanceId.Vehicle(new(8)), [new(4), new(2)], -3), new(123));
+        Assert.AreEqual(payload, CoreCommandEncoding.Encode(command));
+        Assert.AreEqual(payload, CoreCommandEncoding.Encode(Decode(payload)));
+    }
+
+    [TestMethod]
+    [DataRow("construction.commission_vehicle_work", "")]
+    [DataRow("construction.start_owned", ",\"maximum_payment\":123")]
+    public void Missing_or_extraneous_maximum_payment_is_rejected(string kind, string payment)
+    {
+        var payload = """{"input_format_version":2,"kind":"KIND","request":{"kind":"repair_vehicle","facility":{"building":7,"capability":"construction"},"vehicle":8,"sources":[4,2],"priority":-3}PAYMENT}"""
+            .Replace("KIND", kind).Replace("PAYMENT", payment);
+        var result = (CoreResult<DecodedCommand>.Failure)CoreCommandEncoding.Decode(payload);
+        Assert.AreEqual("invalid_state", result.Problems.Single().Code);
+        Assert.AreEqual("/maximum_payment", result.Problems.Single().Field);
+    }
+
+    [TestMethod]
     public void Build_vehicle_round_trips_the_complete_normalized_design_and_assembly_goods()
     {
         var input = Input('D');
