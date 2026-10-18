@@ -11,6 +11,53 @@ namespace Train.Core.Tests.Construction;
 public sealed class VehicleDesignTests
 {
     [TestMethod]
+    public void Zero_work_refit_waits_for_effective_construction_capability()
+    {
+        var content = Content(power: 1, labor: 1);
+        using var initial = Session(content);
+        var change = Change(content, compositionChanged: true);
+        var started = Start(initial, Refit(change));
+        var building = new InstanceId.Building(Facility.Building);
+        using var disabled = new CoreSession(initial.State with { World = initial.State.World with
+        {
+            Instances = initial.State.World.Instances.Select(i => i.Id != building ? i : i with
+                { Parts = i.Parts.Select(p => p with { Current = 0 }).ToImmutableArray() }).ToImmutableArray()
+        } });
+
+        var blockedStep = Step(disabled);
+
+        Assert.IsFalse(blockedStep.Events.Any(e => e.Event is CoreEvent.ConstructionCompleted or CoreEvent.InstanceDesignChanged));
+        var blocked = Job(disabled.Read(), started.Id);
+        Assert.AreEqual(ConstructionState.ResourceBlocked, blocked.State);
+        Assert.IsTrue(blocked.Blockers.Any(p => p.Code == "capability_zero"));
+        Assert.AreEqual(0d, blocked.ActualWorkPerSecond);
+        var vehicle = ((Lookup<InstanceView>.Found)disabled.Read().FindInstance(Vehicle)).Value;
+        Assert.AreEqual(change.Before, vehicle.Design);
+        Assert.AreEqual(InstanceLock.UnderRefit, vehicle.Lock);
+        var settlement = ((Lookup<SettlementView>.Found)disabled.Read().FindSettlement(started.Settlement)).Value;
+        Assert.AreEqual(0d, settlement.Power.Demand);
+        Assert.AreEqual(0d, settlement.Population.AllocatedLabor);
+        var buildingDesign = content.Designs.Single(d => d.Design == WorldFixture.Station);
+        using var restored = new CoreSession(disabled.State with { World = disabled.State.World with
+        {
+            Instances = disabled.State.World.Instances.Select(i => i.Id != building ? i : i with
+            {
+                Parts = i.Parts.Select(p => p with
+                    { Current = buildingDesign.Parts.Single(definition => definition.Id == p.Id).MaxDurability }).ToImmutableArray()
+            }).ToImmutableArray()
+        } });
+
+        var events = Step(restored).Events.Select(e => e.Event).ToArray();
+
+        Assert.AreEqual(started.Id, events.OfType<CoreEvent.ConstructionCompleted>().Single().Job);
+        Assert.AreEqual(change.Target.Design.Design, events.OfType<CoreEvent.InstanceDesignChanged>().Single().After);
+        Assert.IsInstanceOfType<Lookup<JobView>.Missing>(restored.Read().FindJob(started.Id));
+        settlement = ((Lookup<SettlementView>.Found)restored.Read().FindSettlement(started.Settlement)).Value;
+        Assert.AreEqual(0d, settlement.Power.Demand);
+        Assert.AreEqual(0d, settlement.Population.AllocatedLabor);
+    }
+
+    [TestMethod]
     public void Refit_return_limits_remain_per_good_when_later_damage_and_content_change_actual_returns()
     {
         GoodId ore = new GoodId.Voxel(WorldFixture.Ore);

@@ -57,7 +57,7 @@ internal static class ConstructionOperations
             demand += (request?.MaximumWorkPerSecond ?? 0) * original.FrozenPowerPerWork;
             supply += rate * original.FrozenPowerPerWork;
             labor += rate * original.FrozenLaborPerWork;
-            if (progress < job.FrozenTotalWork || missing)
+            if (progress < job.FrozenTotalWork || missing || capability == 0)
             {
                 world = world with { ConstructionJobs = world.ConstructionJobs.Select(j => j.Id == job.Id ? job : j).ToImmutableArray() };
                 if (original.State != job.State)
