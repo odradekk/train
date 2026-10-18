@@ -49,7 +49,7 @@ public class TrainEditingUiTests(Node testScene) : TestClass(testScene)
             await _input.Frames(2);
             var ui = app.GetNode<GameUi>("GameUi");
             await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
-            var nodes = ui.GetNode<ItemList>("Root/World/WorldPanels/NodesList/Layout/Body/Objects");
+            var nodes = ui.GetNode<ItemList>("Root/World/WorldPanels/NodesList/Layout/Content/Body/Objects");
             await _input.ClickItem(nodes, 0);
             var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
             await _input.Activate(Find<Button>(panels, "Form"));
@@ -72,7 +72,7 @@ public class TrainEditingUiTests(Node testScene) : TestClass(testScene)
 
             await _input.Activate(Find<Button>(panels, "EditPlan"));
             var editor = ui.GetNode<TrainPlanPanel>("Root/World/TrainPlanPanel");
-            var rows = editor.GetNode<VBoxContainer>("Plan/Layout/Body/RowsScroll/Rows");
+            var rows = editor.GetNode<VBoxContainer>("Plan/Layout/Content/Body/RowsScroll/Rows");
             var station = rows.GetNode<VBoxContainer>("Row0");
             await _input.Enter(station.GetNode<LineEdit>("Stop/DwellSeconds"), "2");
             await _input.Activate(Find<Button>(editor, "AddStop"));
@@ -84,7 +84,7 @@ public class TrainEditingUiTests(Node testScene) : TestClass(testScene)
             await _input.Activate(waypoint.GetNode<Button>("Stop/MoveUp"));
             await _input.Activate(Find<Button>(editor, "AddStop"));
             await _input.Activate(rows.GetNode<Button>("Row2/Stop/Remove"));
-            await _input.Activate(editor.GetNode<CheckBox>("Plan/Layout/Body/Loop"));
+            await _input.Activate(editor.GetNode<CheckBox>("Plan/Layout/Content/Body/Loop"));
             Require(rows.GetChildCount() == 2 && rows.GetChild(0) == waypoint &&
                 station.GetNode<LineEdit>("Stop/DwellSeconds").Text == "2", "计划行增删重排或秒输入未保留。");
             var apply = Find<Button>(editor, "Apply");

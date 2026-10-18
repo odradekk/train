@@ -30,6 +30,8 @@ public partial class MainMenu : Control
     internal void OpenSaves() => _saves?.Open();
     internal void CloseSaves() => _saves?.Hide();
 
+    internal void FitSaves(Rect2 area) => _saves?.Fit(area);
+
     internal void ConfigureSaves(SaveService service)
     {
         _saves = new SavePanel();

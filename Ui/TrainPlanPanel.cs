@@ -44,7 +44,8 @@ internal partial class TrainPlanPanel : Control
         UiStyle.Panel(this, "Plan", "运行计划", new(310, 90), 960, Hide, out var body);
         _loop = new CheckBox { Name = "Loop", Text = "循环运行（未勾选为单次）" };
         body.AddChild(_loop);
-        var scroll = new ScrollContainer { Name = "RowsScroll", CustomMinimumSize = new(0, 400), HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        var scroll = new ScrollContainer { Name = "RowsScroll", VerticalScrollMode = ScrollContainer.ScrollMode.Disabled,
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
         _rowsBox = new VBoxContainer { Name = "Rows", SizeFlagsHorizontal = SizeFlags.ExpandFill };
         scroll.AddChild(_rowsBox); body.AddChild(scroll);
         body.AddChild(UiStyle.Button("AddStop", "添加计划项", AddRow));
