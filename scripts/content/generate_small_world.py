@@ -913,9 +913,13 @@ def vehicle(spec):
         cells = {at: 0 for at in volume
                  if any(tuple(at[i] + delta[i] for i in range(3)) not in volume for delta in directions)}
     else:
-        cells = {(x, y, z): 0 for x in range(x0, x1 + 1) for y in range(frame_height, height)
+        body_height = 30 if size == "titan" else height
+        cells = {(x, y, z): 0 for x in range(x0, x1 + 1) for y in range(frame_height, body_height)
                  for z in range(z0, z1 + 1)
-                 if x in (x0, x1) or y in (frame_height, height - 1) or z in (z0, z1)}
+                 if x in (x0, x1) or y in (frame_height, body_height - 1) or z in (z0, z1)}
+        if size == "titan":
+            fill_box(cells, (x0, 14, z0), (width, 1, length), 0)
+            fill_box(cells, (-9, 24, z0), (18, 1, length), 0)
     left, right = -(gauge + 1) // 2, (gauge - 1) // 2
     for first, last in ((z0 + end_margin, z0 + end_margin + axle_spacing),
                         (z1 - end_margin - axle_spacing, z1 - end_margin)):
@@ -929,28 +933,93 @@ def vehicle(spec):
         cells.update({(0, 6, 23): 3, (2, 5, 5): 2, (2, 5, 1): 2, (2, 5, -3): 2, (-2, 3, -20): 4})
     else:
         if role == "locomotive" or size == "titan":
-            for z in range(-3 * units, 3 * units, 2):
-                cells[0, frame_height + 1, z] = 2
+            if identity not in ("large-locomotive", "titan-armed-vehicle"):
+                for z in range(-3 * units, 3 * units, 2):
+                    cells[0, frame_height + 1, z] = 2
             cells[0, frame_height + 1, z1 - 1] = 3
         storage_count = {"locomotive": 1, "freight": 2 * units, "armed": units}[role]
         for index in range(storage_count):
-            cells[1, frame_height + 1, 2 * index] = 4
+            cells[1, frame_height + 1, 14 if identity == "large-locomotive" else 2 * index] = 4
         if role == "armed":
-            for index in range(units):
-                cells[x0, frame_height + 2, 4 * index] = 5
+            if size == "titan":
+                cells[0, frame_height + 1, z0 + 1] = 3
+                for z in range(-44, 45, 4):
+                    cells[x0, 18, z] = 5
+                    cells[x1, 18, z] = 6
+            else:
+                for index in range(units):
+                    cells[x0, frame_height + 2, 4 * index] = 5
     value = blueprint(identity, name, "vehicle",
                       ["structural-metal", "bogie", "propulsion-equipment", "control-equipment", "storage-equipment"],
                       cells, {"size_class": size})
     if role == "armed":
-        value["layout"]["palette"].append({"voxel": "cannon" if size == "titan" else "machine-gun"})
+        value["layout"]["palette"].append({"voxel": "machine-gun"})
+        if size == "titan":
+            value["layout"]["palette"][-1]["orientation"] = "pz_py"
+            value["layout"]["palette"].append({"voxel": "machine-gun", "orientation": "nz_py"})
+    if identity == "large-locomotive":
+        value["layout"]["composites"] = [{"at": [0, 3, 0], "blueprint": "large-diesel-engine"}]
+    elif size == "titan":
+        value["layout"]["composites"] = [
+            *({"at": [0, 5, z], "blueprint": "large-diesel-engine"} for z in (-22, 22)),
+            *({"at": [0, 30, z], "blueprint": "heavy-turret"} for z in (-48, -16, 16, 48)),
+        ]
     value["display"]["description"] = f"{name}：能力和价值来自实际部件，数值与外观待试玩确认。"
     if size == "small" and role == "locomotive":
         value["display"]["description"] = "第一阶段铁路机车风格样稿：驾驶室、机器间、检修走廊和端部平台；画面待用户阶段试玩确认。"
     if role == "armed":
         value["display"]["description"] += " 静态武器只提供合法设计输入，战斗行为待战斗阶段验证。"
-    if identity in ("large-locomotive", "titan-armed-vehicle"):
-        value["display"]["description"] += " 正式样机规格由 #390 使用同一 id 替换；当前仅使用单格货物。"
+    if identity == "large-locomotive":
+        value["display"]["description"] = "民用重载机车正式设计：一台大型柴油机、驾驶台和货舱；外观由创作模式继续修整。"
+    elif size == "titan":
+        value["display"]["description"] = "军用重装车辆正式设计：两台大型柴油机、四座重炮塔、两处驾驶台、六个货舱与两侧机枪。炮塔转动仅属表现，战斗行为待战斗阶段验证；外观由创作模式继续修整。"
     return value
+
+
+def fill_box(cells, origin, size, index):
+    x0, y0, z0 = origin
+    width, height, depth = size
+    cells.update({(x, y, z): index for x in range(x0, x0 + width) for y in range(y0, y0 + height)
+                  for z in range(z0, z0 + depth)})
+
+
+def large_diesel_engine(propulsion):
+    cells = {(x, y, z): 0 for x in range(-3, 4) for y in range(8) for z in range(-10, 10)
+             if x in (-3, 3) or y in (0, 7) or z in (-10, 9)}
+    for x in (-1, 1):
+        fill_box(cells, (x, 2, -8), (1, 4, 16), 1)
+    fill_box(cells, (0, 3, -9), (1, 1, 18), 1)
+    return blueprint("large-diesel-engine", "大型柴油机", "large_equipment",
+                     ["structural-metal", "mechanical-components"], cells,
+                     {"behaviors": {"propulsion": {"traction": 9 * propulsion["traction"],
+                                                   "rated_speed": propulsion["rated_speed"]}}})
+
+
+def heavy_turret(cannon):
+    cells = {(x, y, z): 0 for x in range(-3, 4) for y in range(8) for z in range(-3, 4)
+             if x in (-3, 3) or y in (0, 7) or z in (-3, 3)}
+    fill_box(cells, (-1, 3, 4), (3, 2, 2), 1)
+    value = blueprint("heavy-turret", "重炮塔", "large_equipment", ["structural-metal", "mechanical-components"], cells,
+                      {"behaviors": {"weapon": {"damage": ceil(cannon["damage"] * 6 / 4), "interval": cannon["interval"]}}},
+                      {"behaviors": {"rotation": {"axis": "y", "pivot": [0, 0, 0], "range": [-180, 180], "speed": 90}}})
+    value["display"]["description"] = "重炮塔正式设计：整圈转动仅属表现，战斗行为待战斗阶段验证；武器数值待试玩确认。"
+    return value
+
+
+def gantry_crane():
+    cells = {}
+    for x in (-21, 19):
+        fill_box(cells, (x, 0, -72), (3, 2, 144), 0)
+        for z in (-65, 62):
+            fill_box(cells, (x, 2, z), (3, 42, 3), 0)
+    for z in (-65, 62, -1):
+        fill_box(cells, (-21, 44, z), (43, 2, 3), 0)
+    for x in (-20, 20):
+        fill_box(cells, (x, 44, -64), (1, 2, 128), 0)
+    fill_box(cells, (-2, 44, -1), (5, 4, 3), 1)
+    fill_box(cells, (0, 42, 0), (1, 2, 1), 1)
+    return blueprint("gantry-crane", "龙门吊", "large_equipment", ["structural-metal", "mechanical-components"], cells,
+                     {"behaviors": {"construction": {"work_rate": 4, "max_plot_size": "giant", "max_size_class": "titan"}}})
 
 
 def building_shell(cells, origin, size):
@@ -1192,6 +1261,11 @@ def content_files():
         voxel(identity, name, material, face_paths, icon_path, simulation,
               light=identity == "lamp", tile_span=tile_span, description=description)
 
+    document("blueprints", "blueprint", "large-diesel-engine",
+             large_diesel_engine(voxel_definitions["propulsion-equipment"]["simulation"]["behaviors"]["propulsion"]))
+    document("blueprints", "blueprint", "heavy-turret",
+             heavy_turret(voxel_definitions["cannon"]["simulation"]["behaviors"]["weapon"]))
+
     # 输出补色需要货物材质，车辆须等武器等体素登记后再输出。
     for spec in VEHICLES:
         value = vehicle(spec)
@@ -1208,16 +1282,11 @@ def content_files():
                               "description": "正式经济流程；批量、价值与速率为待用户试玩确认的第一版。"}})
 
     # 吊机是独立货物；建筑只引用它，不手写汇总施工能力。
-    for identity, name, span, plot_limit, vehicle_limit in (
-        ("workshop-crane", "车间吊机", 8, "large", "large"),
-        ("gantry-crane", "龙门吊", 16, "giant", "titan"),
-    ):
-        crane = {(x, y, 0): 0 for x in range(-span, span + 1) for y in range(8)
-                 if x in (-span, span) or y == 7}
-        document("blueprints", "blueprint", identity,
-                 blueprint(identity, name, "large_equipment", ["structural-metal"], crane,
-                           {"behaviors": {"construction": {"work_rate": 4, "max_plot_size": plot_limit,
-                                                          "max_size_class": vehicle_limit}}}))
+    crane = {(x, y, 0): 0 for x in range(-8, 9) for y in range(8) if x in (-8, 8) or y == 7}
+    document("blueprints", "blueprint", "workshop-crane",
+             blueprint("workshop-crane", "车间吊机", "large_equipment", ["structural-metal"], crane,
+                       {"behaviors": {"construction": {"work_rate": 4, "max_plot_size": "large", "max_size_class": "large"}}}))
+    document("blueprints", "blueprint", "gantry-crane", gantry_crane())
 
     buildings = (
         ("basic-shed", "基础工棚", "small", "construction", None, "construction-equipment"),
@@ -1240,7 +1309,7 @@ def content_files():
     for identity, name, size, kind, tag, equipment in buildings:
         plot_sizes[identity] = size
         half_x, half_z, height = (20, 40, 20) if identity == "vehicle-workshop" else (
-            (32, 80, 44) if identity == "heavy-vehicle-factory" else (8, 10, 8))
+            (32, 80, 52) if identity == "heavy-vehicle-factory" else (8, 10, 8))
         cells = {(x, 0, z): 0 for x in range(-half_x, half_x) for z in range(-half_z, half_z)}
         # 四角立柱和屋顶边框与地板相连，保留内部设备空间。
         cells.update({(x, y, z): 0 for x in (-half_x, half_x - 1) for z in (-half_z, half_z - 1)
