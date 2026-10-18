@@ -20,8 +20,32 @@ internal sealed record EditObject(DisplayText Display, DesignSpecification Speci
         }).ToImmutableArray()));
 }
 
+internal sealed class EditPalette
+{
+    private readonly ImmutableArray<VoxelPaletteEntry>.Builder entries;
+    private readonly Dictionary<VoxelPaletteEntry, int> indices = [];
+
+    internal EditPalette(ImmutableArray<VoxelPaletteEntry> values)
+    {
+        entries = values.ToBuilder();
+        for (var i = 0; i < values.Length; i++) indices.TryAdd(values[i], i);
+    }
+
+    internal int Index(VoxelPaletteEntry value)
+    {
+        if (indices.TryGetValue(value, out var index)) return index;
+        index = entries.Count;
+        entries.Add(value);
+        indices.Add(value, index);
+        return index;
+    }
+
+    internal ImmutableArray<VoxelPaletteEntry> Values => entries.ToImmutable();
+}
+
 internal static class EditLayout
 {
+    private static readonly VoxelOrientation[] orientations = Enum.GetValues<VoxelOrientation>();
     internal static EditObject Import(DesignDraft draft, Func<EditElementId> next)
     {
         Validate(draft);
@@ -56,13 +80,52 @@ internal static class EditLayout
         _ => throw new ArgumentException("Invalid nested item.", nameof(item))
     };
 
+    internal static NestedDesignItem Place(NestedDesignItem item, GridPosition at, VoxelOrientation orientation) => item switch
+    {
+        NestedDesignItem.AssemblyCopy copy => copy with { At = at, Orientation = orientation },
+        NestedDesignItem.SceneModelCopy copy => copy with { At = at, Orientation = orientation },
+        NestedDesignItem.FunctionalCompositeReference reference => reference with { At = at, Orientation = orientation },
+        _ => throw new ArgumentException("Invalid nested item.", nameof(item))
+    };
+
+    internal static GridPosition Offset(GridPosition at, GridPosition offset) =>
+        new(checked(at.X + offset.X), checked(at.Y + offset.Y), checked(at.Z + offset.Z));
+
+    internal static GridPosition Rotate(GridPosition at, GridAxis axis, GridPosition pivot, int turns)
+    {
+        var x = (long)at.X - pivot.X;
+        var y = (long)at.Y - pivot.Y;
+        var z = (long)at.Z - pivot.Z;
+        for (var i = 0; i < turns; i++)
+            (x, y, z) = axis switch
+            {
+                GridAxis.X => (x, -z, y),
+                GridAxis.Y => (z, y, -x),
+                _ => (-y, x, z)
+            };
+        return new(checked((int)(pivot.X + x)), checked((int)(pivot.Y + y)), checked((int)(pivot.Z + z)));
+    }
+
+    internal static VoxelOrientation Rotate(VoxelOrientation orientation, GridAxis axis, int turns)
+    {
+        var (right, up, _) = SceneGeometry.Axes(orientation);
+        var r = Rotate(new((int)right.X, (int)right.Y, (int)right.Z), axis, default, turns);
+        var u = Rotate(new((int)up.X, (int)up.Y, (int)up.Z), axis, default, turns);
+        return orientations.First(value =>
+        {
+            var axes = SceneGeometry.Axes(value);
+            return axes.Right.X == r.X && axes.Right.Y == r.Y && axes.Right.Z == r.Z &&
+                axes.Up.X == u.X && axes.Up.Y == u.Y && axes.Up.Z == u.Z;
+        });
+    }
+
     internal static GridPosition Map(GridPosition cell, NestedDesignItem item)
     {
         var (at, orientation) = Placement(item);
         var (right, up, forward) = SceneGeometry.Axes(orientation);
-        return new(checked(at.X + (int)right.X * cell.X + (int)up.X * cell.Y + (int)forward.X * cell.Z),
-            checked(at.Y + (int)right.Y * cell.X + (int)up.Y * cell.Y + (int)forward.Y * cell.Z),
-            checked(at.Z + (int)right.Z * cell.X + (int)up.Z * cell.Y + (int)forward.Z * cell.Z));
+        return new(checked((int)(at.X + (long)right.X * cell.X + (long)up.X * cell.Y + (long)forward.X * cell.Z)),
+            checked((int)(at.Y + (long)right.Y * cell.X + (long)up.Y * cell.Y + (long)forward.Y * cell.Z)),
+            checked((int)(at.Z + (long)right.Z * cell.X + (long)up.Z * cell.Y + (long)forward.Z * cell.Z)));
     }
 
     internal static GridPosition ToLocal(EditObject root, ImmutableArray<int> path, GridPosition cell)
