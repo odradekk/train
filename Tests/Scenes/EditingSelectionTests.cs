@@ -37,12 +37,36 @@ public sealed class EditingSelectionTests
         EditingFixtures.Value(session.Select(new EditSelection.Elements([selected])));
         var preview = EditingFixtures.Preview(session, new EditOperation.RotateSelection(GridAxis.Y, new(0, 0, 0), 2));
         CollectionAssert.AreEquivalent(new[] { new GridPosition(0, 0, -1), new(-1, 0, 0) }, preview.HighlightCells.ToArray());
+        Assert.AreEqual(1, preview.CoveredCells);
+        Assert.AreEqual(0, preview.SkippedCells);
         Assert.IsTrue(preview.CanApply);
         EditingFixtures.Value(session.Apply(preview, false));
         Assert.AreEqual(new GridPosition(-1, 0, 0), session.Read().Elements.Single(e => e.Id == selected).At);
         var blocked = EditingFixtures.Preview(session, new EditOperation.RotateSelection(GridAxis.Y, new(0, 0, 0), 3));
         Assert.IsFalse(blocked.CanApply);
         Assert.AreEqual("occupancy_conflict", EditingFixtures.Code(session.Apply(blocked, false)));
+    }
+
+    [TestMethod]
+    public void RotationRejectsUndefinedAxisAsAnArgumentError()
+    {
+        using var session = EditingFixtures.Open(EditingFixtures.Draft(new GridPosition(1, 0, 0)));
+        SelectRoot(session);
+        Assert.ThrowsExactly<ArgumentException>(() => session.Preview(new EditOperation.RotateSelection((GridAxis)99, new(0, 0, 0), 1)));
+        Assert.IsFalse(session.Read().CanUndo);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ShapeRejectsNullNameAsAnArgumentError(bool selection)
+    {
+        using var session = EditingFixtures.Open(EditingFixtures.Draft(new GridPosition(0, 0, 0)));
+        SelectRoot(session);
+        EditOperation operation = selection ? new EditOperation.ShapeSelection(default)
+            : new EditOperation.Cells(new EditFootprint.Cell(new(0, 0, 0)), new CellEdit.Shape(default));
+        Assert.ThrowsExactly<ArgumentNullException>(() => session.Preview(operation));
+        Assert.IsFalse(session.Read().CanUndo);
     }
 
     [TestMethod]

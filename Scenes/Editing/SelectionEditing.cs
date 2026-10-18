@@ -8,9 +8,13 @@ internal sealed partial class DesignEditSession
 {
     private SceneResult<IEditPreview> PreviewSelection(EditOperation operation)
     {
-        if (operation is EditOperation.RotateSelection rotation &&
-            (rotation.QuarterTurns is < 1 or > 3 || !Enum.IsDefined(rotation.Axis)))
-            return Fail<IEditPreview>("invalid_operation", "Selection rotation requires one to three quarter turns.");
+        if (operation is EditOperation.RotateSelection rotation)
+        {
+            if (!Enum.IsDefined(rotation.Axis)) throw new ArgumentException("Invalid rotation axis.", nameof(operation));
+            if (rotation.QuarterTurns is < 1 or > 3)
+                return Fail<IEditPreview>("invalid_operation", "Selection rotation requires one to three quarter turns.");
+        }
+        if (operation is EditOperation.ShapeSelection shapeSelection) ArgumentNullException.ThrowIfNull(shapeSelection.Shape.Name);
         var path = EnteredPath;
         var current = EditLayout.At(root, path);
         var ids = selection.ToHashSet();
@@ -34,21 +38,21 @@ internal sealed partial class DesignEditSession
             if (lockProblems.GetValueOrDefault(check) is { } problem) conflicts.Add(new(null, check.Id, problem));
         var affected = new HashSet<GridPosition>();
         var highlight = new HashSet<GridPosition>();
+        var copying = operation is EditOperation.CopySelection;
+        CellEdit? appearance = operation switch
+        {
+            EditOperation.PaintSelection paint => new CellEdit.Paint(paint.Color),
+            EditOperation.ShapeSelection shape => new CellEdit.Shape(shape.Shape),
+            _ => null
+        };
         EditObject target;
-        if (operation is EditOperation.PaintSelection paint)
+        if (appearance is not null)
         {
-            highlight.UnionWith(Occupied(selected).Cells.Select(cell => cell.At));
-            target = ChangeAppearance(selected, new CellEdit.Paint(paint.Color), at => at, affected);
-        }
-        else if (operation is EditOperation.ShapeSelection shape)
-        {
-            highlight.UnionWith(Occupied(selected).Cells.Select(cell => cell.At));
-            target = ChangeAppearance(selected, new CellEdit.Shape(shape.Shape), at => at, affected);
+            target = ChangeAppearance(selected, appearance, at => at, affected);
         }
         else
         {
             var palette = new EditPalette(current.Palette);
-            var copying = operation is EditOperation.CopySelection;
             target = selected with
             {
                 Cells = selected.Cells.Select(cell =>
@@ -97,29 +101,29 @@ internal sealed partial class DesignEditSession
                 foreach (var cell in Occupied(selected).Cells)
                     for (var turn = 1; turn <= rotateSelection.QuarterTurns; turn++)
                         highlight.Add(EditLayout.Rotate(cell.At, rotateSelection.Axis, rotateSelection.Pivot, turn));
-            else highlight.UnionWith(Occupied(target).Cells.Select(cell => cell.At));
         }
-        var copied = operation is EditOperation.CopySelection;
+        var covered = Occupied(target).Cells.Select(cell => cell.At).ToHashSet();
+        if (operation is not EditOperation.RotateSelection) highlight.UnionWith(covered);
         var cellsById = target.Cells.ToDictionary(cell => cell.Id);
         var childrenById = target.Children.ToDictionary(child => child.Id);
         var next = current with
         {
             Palette = target.Palette,
-            Cells = copied ? current.Cells.AddRange(target.Cells) : current.Cells.Select(cell => cellsById.GetValueOrDefault(cell.Id, cell)).ToImmutableArray(),
-            Children = copied ? current.Children.AddRange(target.Children) : current.Children.Select(child => childrenById.GetValueOrDefault(child.Id, child)).ToImmutableArray()
+            Cells = copying ? current.Cells.AddRange(target.Cells) : current.Cells.Select(cell => cellsById.GetValueOrDefault(cell.Id, cell)).ToImmutableArray(),
+            Children = copying ? current.Children.AddRange(target.Children) : current.Children.Select(child => childrenById.GetValueOrDefault(child.Id, child)).ToImmutableArray()
         };
         if (operation is EditOperation.MoveSelection or EditOperation.CopySelection or EditOperation.RotateSelection)
         {
             var previousAnchors = current.Children.ToDictionary(child => child.Id, child => EditLayout.Placement(child.Item));
-            var changedAnchors = target.Children.Where(child => copied ||
+            var changedAnchors = target.Children.Where(child => copying ||
                 EditLayout.Placement(child.Item) != previousAnchors[child.Id])
                 .Select(child => child.Id).ToHashSet();
             foreach (var group in next.Children.GroupBy(child => EditLayout.Placement(child.Item).At))
                 if (group.Count() > 1 && group.Any(child => changedAnchors.Contains(child.Id)))
                     conflicts.Add(new(group.Key, group.First().Id, Problem("occupancy_conflict", "Nested anchors overlap.")));
         }
-        return FinishPreview(new(Stamp, EditLayout.Update(root, path, _ => next), highlight.Count, affected.Count,
-            highlight.Count(at => !affected.Contains(at)), false, conflicts.ToImmutable(), Ordered(highlight), checks), path);
+        return FinishPreview(new(Stamp, EditLayout.Update(root, path, _ => next), covered.Count, affected.Count,
+            covered.Count(at => !affected.Contains(at)), false, conflicts.ToImmutable(), Ordered(highlight), checks), path);
 
         GridPosition Transform(GridPosition at) => operation switch
         {

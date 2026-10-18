@@ -186,6 +186,7 @@ internal sealed partial class DesignEditSession : IDesignEditSession
             {
                 ArgumentNullException.ThrowIfNull(cells.Footprint);
                 ArgumentNullException.ThrowIfNull(cells.Action);
+                if (cells.Action is CellEdit.Shape shape) ArgumentNullException.ThrowIfNull(shape.Value.Name);
                 var footprint = Footprint(cells.Footprint);
                 if (footprint is null) return Fail<IEditPreview>("region_limit", "The footprint exceeds the region limit.");
                 highlight.UnionWith(footprint);
