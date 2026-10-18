@@ -337,7 +337,7 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
                 Find<Label>(economy, "Quote").Text.Contains("insufficient_money") &&
                 Find<Label>(economy, "Quote").Text.Contains("insufficient_capacity"), "受阻报价未禁止提交或遗漏原因。");
             await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Fleet"));
-            await _input.ClickItem(ui.GetNode<ItemList>("Root/World/WorldPanels/FleetList/Layout/Body/Objects"), 0);
+            await _input.ClickItem(ui.GetNode<ItemList>("Root/World/WorldPanels/FleetList/Layout/Content/Body/Objects"), 0);
             await _input.Activate(Find<Button>(ui.GetNode<WorldPanels>("Root/World/WorldPanels"), "Inventory"));
             Require(economy.GetNode<Control>("Settlement").IsVisibleInTree() &&
                 economy.GetNode<Control>("TrainInventory").IsVisibleInTree(), "聚居地与列车库存窗口未能同时打开。");
@@ -447,7 +447,7 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
             await _input.Frames(2);
             var ui = app.GetNode<GameUi>("GameUi");
             await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
-            await _input.ClickItem(ui.GetNode<ItemList>("Root/World/WorldPanels/NodesList/Layout/Body/Objects"), 0);
+            await _input.ClickItem(ui.GetNode<ItemList>("Root/World/WorldPanels/NodesList/Layout/Content/Body/Objects"), 0);
             await _input.Activate(Find<Button>(ui.GetNode<WorldPanels>("Root/World/WorldPanels"), "Economy"));
             await body(ui, ui.GetNode<EconomyPanels>("Root/World/EconomyPanels"));
         }

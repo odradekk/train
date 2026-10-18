@@ -55,7 +55,7 @@ public class RecordingTests(Node testScene) : TestClass(testScene)
             Require(!menu.IsVisibleInTree(), "对局中仍显示主菜单。");
             await input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Settings"));
             var settings = ui.GetNode<SettingsPanel>("Root/SettingsPanel");
-            var button = settings.GetNode<Button>("Settings/Layout/Body/ReportIssue");
+            var button = settings.GetNode<Button>("Settings/Layout/Content/Body/ReportIssue");
             Require(button.IsVisibleInTree(), "新宿主没有显示报告问题入口。");
             await UiCapture.Capture(TestScene, "session-report-settings");
             await input.Activate(button);

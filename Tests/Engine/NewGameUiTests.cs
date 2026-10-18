@@ -121,20 +121,20 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
             await _input.PressKey(Key.Space);
             var panel = ui.GetNode<Control>("Root/NewGame");
             Require(panel.IsVisibleInTree(), "菜单实际按键未打开新游戏面板。");
-            var seedInput = panel.GetNode<LineEdit>("Layout/Body/Seed");
+            var seedInput = panel.GetNode<LineEdit>("Layout/Content/Body/Seed");
             seedInput.GrabFocus();
             await _input.Frames();
             await _input.PressKey(Key.A, control: true);
             await _input.PressKey(Key.Key4, unicode: '4');
             await _input.PressKey(Key.Key2, unicode: '2');
             Require(seedInput.Text == "42", "真实键盘输入未替换世界种子。");
-            var profileInput = panel.GetNode<OptionButton>("Layout/Body/Profile");
+            var profileInput = panel.GetNode<OptionButton>("Layout/Content/Body/Profile");
             profileInput.GrabFocus();
             await _input.PressKey(Key.Space);
             await _input.PressKey(Key.Down);
             await _input.PressKey(Key.Enter);
             Require(profileInput.Selected == 1, "真实键盘输入未选择第二个生成配置。");
-            panel.GetNode<Button>("Layout/Body/Create").GrabFocus();
+            panel.GetNode<Button>("Layout/Content/Body/Create").GrabFocus();
             await _input.PressKey(Key.Space);
             await _input.WaitUntil(() => missing
                 ? app.Host!.MissingConfirmation is not null && ui.ErrorText.Contains("fixture:missing")
@@ -147,7 +147,7 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
                     panel.IsVisibleInTree() && ui.ErrorText.Contains("vehicles[0]") &&
                     ui.GetNode<Control>("Root/ErrorPanel").IsVisibleInTree(),
                     "缺失引用未显示具体引用、字段和等待确认状态，或提前替换了活动局。");
-                var action = panel.GetNode<Button>(confirm ? "Layout/Body/ConfirmMissing" : "Layout/Body/Cancel");
+                var action = panel.GetNode<Button>(confirm ? "Layout/Content/Body/ConfirmMissing" : "Layout/Content/Body/Cancel");
                 Require(action.IsVisibleInTree() && !action.Disabled, "缺失确认的操作入口不可用。");
                 Require(candidate.ActivationCount == 0, "缺失确认前已激活候选。");
                 if (preserveError) ui.ShowError(ui.ErrorText);

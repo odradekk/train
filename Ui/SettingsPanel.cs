@@ -55,7 +55,7 @@ public partial class SettingsPanel : Control
             else if (result != Error.FileNotFound) Report("无法读取设置文件，使用当前工程默认设置。", result);
         }
         Apply();
-        var panel = UiStyle.Panel(this, "Settings", "设置", new(650, 200), 576, Hide, out var body);
+        UiStyle.Panel(this, "Settings", "设置", new(650, 200), 576, Hide, out var body, centered: true);
         var modes = Options("WindowMode", ["窗口化", "无边框全屏", "独占全屏"]);
         modes.Select(_mode);
         AddRow(body, "窗口模式", modes);
@@ -81,8 +81,6 @@ public partial class SettingsPanel : Control
             body.AddChild(UiStyle.Button("ReportIssue", "报告问题", report.Open));
         }
         body.AddChild(UiStyle.Button("Back", "返回", Hide));
-        panel.Resized += () => panel.Position = (Size - panel.Size) / 2;
-        Resized += () => panel.Position = (Size - panel.Size) / 2;
         Hide();
     }
 
