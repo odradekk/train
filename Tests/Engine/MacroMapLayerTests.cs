@@ -56,8 +56,8 @@ public class MacroMapLayerTests(Node testScene) : TestClass(testScene)
             Require(resources.ButtonPressed && !platforms.ButtonPressed, "资源开关改变了站台开关。");
             var ore = view.World.Nodes[0].Resources[0];
             var timber = view.World.Nodes[0].Resources[1];
-            Require(map.ResourceDisplay(ore).Text == "铁矿石：100" && map.ResourceDisplay(timber).Text == "原木：0" &&
-                map.ResourceDisplay(ore).Icon == ((ContentLookup<GoodPresentation>.Found)content.View.FindGood(ore.Good)).Value.Display.Icon,
+            Require(map.ResourceText(ore) == "铁矿石：100" && map.ResourceText(timber) == "原木：0" &&
+                map.ResourceDisplay(ore) == ((ContentLookup<GoodPresentation>.Found)content.View.FindGood(ore.Good)).Value.Display.Icon,
                 "资源标注没有读取公开的货物名称、图标或储量，或丢失了零储量再生资源。");
             await UiCapture.Capture(TestScene, "layers-resources");
 
@@ -68,6 +68,8 @@ public class MacroMapLayerTests(Node testScene) : TestClass(testScene)
                 map.PlatformText(view.World.Nodes[0]) == "站台 1/2 · 排队 1" &&
                 map.PlatformText(view.World.Nodes[1]) == "站台 0/0 · 排队 1",
                 "站台标注未消费核心占用数，或错误统计了普通停车、已获站台及线路上的列车。");
+            Require(map.HitTest(map.MapToScreen(new(250, 330))) == new WorldObjectId.Train(new(10)),
+                "用于检查标注叠放的线路列车没有位于预期位置。");
             await UiCapture.Capture(TestScene, "layers-both");
             await input.Activate(resources);
             Require(!resources.ButtonPressed && platforms.ButtonPressed, "关闭资源改变了站台开关。");
@@ -75,8 +77,8 @@ public class MacroMapLayerTests(Node testScene) : TestClass(testScene)
 
             var changed = UiWorldFixture.InformationLayers(changed: true);
             map.SetView(changed, content.View);
-            Require(map.ResourceDisplay(changed.World.Nodes[0].Resources[0]).Text == "铁矿石：60" &&
-                map.ResourceDisplay(changed.World.Nodes[0].Resources[1]).Text == "原木：12" &&
+            Require(map.ResourceText(changed.World.Nodes[0].Resources[0]) == "铁矿石：60" &&
+                map.ResourceText(changed.World.Nodes[0].Resources[1]) == "原木：12" &&
                 map.PlatformText(changed.World.Nodes[0]) == "站台 2/2 · 排队 1",
                 "摘要更新没有立即更新储量与占用，或 SetView 提前执行了排队查询。");
             map.RefreshPlatformQueues(.49);

@@ -35,7 +35,8 @@ internal static class UiWorldFixture
             Platforms = 2, OccupiedPlatforms = changed ? 2 : 1
         };
         var second = original.World.Nodes[1];
-        var empty = second with { Id = new(3), Position = new(500, 500) };
+        var empty = second with { Id = new(3), Position = new(250, 500) };
+        var edge = new EdgeMapItem(new(1), first.Id, empty.Id, 200, first.Terrain, 1, 1, [], []);
         var train = ((Lookup<TrainView>.Found)original.FindTrain(new(7))).Value;
         var queued = train with { Activity = TrainActivity.Waiting, PlatformQueueEnteredStep = changed ? null : 2 };
         var stopped = train with { Id = new(8) };
@@ -44,14 +45,15 @@ internal static class UiWorldFixture
         ImmutableArray<TrainMapItem> trains = [new(queued.Id, queued.Position, queued.Activity),
             new(stopped.Id, stopped.Position, stopped.Activity),
             new(new(9), new TrainPosition.Node(first.Id, null, null, NodeTravelPhase.Docked, 80, 0), TrainActivity.Servicing),
-            new(new(10), new TrainPosition.Edge(new(1), 0, TravelDirection.Forward, 20), TrainActivity.Running),
+            // 线路列车穿过首行资源标注，供真实窗口截图检查绘制顺序。
+            new(new(10), new TrainPosition.Edge(edge.Id, 0, TravelDirection.Forward, 30), TrainActivity.Running),
             new(otherQueue.Id, otherQueue.Position, otherQueue.Activity)];
         if (changed) trains = trains.Add(new(new(12), new TrainPosition.Node(first.Id, null, null,
             NodeTravelPhase.Docked, 80, 1), TrainActivity.Servicing));
         var nodes = ImmutableArray.Create(first, second, empty);
         return new(default, HostCoreScenario.Input)
         {
-            World = original.World with { Nodes = nodes, Trains = trains },
+            World = original.World with { Nodes = nodes, Edges = [edge], Trains = trains },
             Nodes = nodes.ToDictionary(node => node.Id, node => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(node, [], 80, 0, 80))),
             // 已持有站台及线路上的列车不配置 FindTrain；意外查询会直接使测试失败。
             Trains = new[] { queued, stopped, otherQueue }.ToDictionary(item => item.Id,

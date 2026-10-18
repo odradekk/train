@@ -97,13 +97,13 @@ public partial class GameUi : CanvasLayer
             MouseForcePassScrollEvents = false };
         top.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.TopWide);
         _world.AddChild(top);
-        void PositionMinimap()
+        void PositionOverlays()
         {
             _minimap.Position = new(Math.Max(8, _world.Size.X - _minimap.Size.X - 12), top.Position.Y + top.Size.Y + 8);
             _map.PositionLayerPanel(top.Position.Y + top.Size.Y + 8);
         }
-        top.Resized += PositionMinimap;
-        _world.Resized += PositionMinimap;
+        top.Resized += PositionOverlays;
+        _world.Resized += PositionOverlays;
         _bar = new HFlowContainer { Name = "TopBar" };
         _bar.AddThemeConstantOverride("h_separation", 12);
         top.AddChild(_bar);

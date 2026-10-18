@@ -199,18 +199,16 @@ public partial class MacroMap : Control
         }
         foreach (var edge in _world.Edges) DrawEdge(edge);
         foreach (var node in _world.Nodes) DrawNode(node);
-        foreach (var train in _world.Trains) DrawTrain(train);
         if (_resources.ButtonPressed || _platforms.ButtonPressed)
             foreach (var node in _world.Nodes) DrawInformation(node);
+        foreach (var train in _world.Trains) DrawTrain(train);
     }
 
-    internal (string Text, AssetRevision? Icon) ResourceDisplay(NodeResourceView resource)
-    {
-        if (_content?.FindGood(resource.Good) is ContentLookup<GoodPresentation>.Found good)
-            return ($"{good.Value.Display.Text.Name}：{resource.Quantity}", good.Value.Display.Icon);
-        var name = resource.Good is GoodId.Voxel voxel ? voxel.Definition.Value : resource.Good.ToString();
-        return ($"{name}：{resource.Quantity}", null);
-    }
+    internal string ResourceText(NodeResourceView resource) =>
+        $"{WorldPanels.GoodName(resource.Good, _content!)}：{resource.Quantity}";
+
+    internal AssetRevision? ResourceDisplay(NodeResourceView resource) =>
+        _content?.FindGood(resource.Good) is ContentLookup<GoodPresentation>.Found good ? good.Value.Display.Icon : null;
 
     internal string PlatformText(NodeMapItem node) =>
         $"站台 {node.OccupiedPlatforms}/{node.Platforms} · 排队 {_platformQueues.GetValueOrDefault(node.Id)}";
@@ -222,9 +220,8 @@ public partial class MacroMap : Control
         if (_resources.ButtonPressed)
             foreach (var resource in node.Resources)
             {
-                var (text, icon) = ResourceDisplay(resource);
-                var rectangle = DrawAnnotation(text, point, 24);
-                if (icon is { } revision && FindSymbol(revision) is { } texture)
+                var rectangle = DrawAnnotation(ResourceText(resource), point, 24);
+                if (ResourceDisplay(resource) is { } revision && FindSymbol(revision) is { } texture)
                     DrawTextureRect(texture, new(rectangle.Position + new Vector2(3, 2), new Vector2(20, 20)), false);
                 point.Y += 26;
             }
