@@ -12,7 +12,7 @@ namespace Train.Scenes;
 internal sealed class SettlementObjects : IAsyncDisposable
 {
     internal const int ParkedVehicleLimit = 8;
-    private readonly Dictionary<VoxelDefinitionId, (VoxelAppearanceProjection Appearance, ImmutableArray<SceneVisual> Visuals)> resourceVisuals = [];
+    private readonly Dictionary<VoxelDefinitionId, (VoxelAppearanceProjection Appearance, VoxelGrid Grid, ImmutableArray<SceneVisual> Visuals)> resourceVisuals = [];
     private readonly Func<string, SceneObjectId> objectId;
     private readonly SceneVehicles buildings;
     private readonly SceneVehicles parked;
@@ -313,12 +313,17 @@ internal sealed class SettlementObjects : IAsyncDisposable
                 if (position is not { } point) continue;
                 if (!resourceVisuals.TryGetValue(good.Definition, out var cached) || cached.Appearance != appearance.Value)
                 {
-                    var grid = new VoxelGrid([new(new(0, 0, 0), new(VoxelOrientation.PxPy, appearance.Value, null, null, null, []))]);
-                    resourceVisuals[good.Definition] = cached = (appearance.Value, DesignGeometry.Meshes(grid, false));
+                    var grid = new VoxelGrid([new(new(0, 0, 0), new(VoxelOrientation.PxPy, appearance.Value, null,
+                        BuiltInResourcePaints.For(good.Definition), null, []))]);
+                    resourceVisuals[good.Definition] = cached = (appearance.Value, grid, DesignGeometry.Meshes(grid, false));
                 }
-                objects.Add(new(objectId("resource:" + good.Definition.Value + ":" + candidate), null,
+                var objectKey = "resource:" + good.Definition.Value + ":" + candidate;
+                var resourceId = objectId(objectKey);
+                objects.Add(new(resourceId, null,
                     new(RailwayCoordinates.Relative(point, origin), Quaternion.Identity), null,
                     cached.Visuals, [], []));
+                objects.AddRange(DesignGeometry.Models(cached.Grid, resourceId, null,
+                    cell => objectId(objectKey + ":model:" + cell.At), false));
             }
         }
     }

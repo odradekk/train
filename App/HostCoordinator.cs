@@ -11,7 +11,7 @@ internal readonly record struct HostBinding(Guid Session);
 internal enum NotificationAction { None, SlowToOne, Pause }
 internal sealed record ReplayRecording(string Path, SimulationPosition From, SimulationPosition Until,
     ImmutableArray<RecordedCommand> Commands, ImmutableArray<RecordingGap> Gaps);
-internal enum OperationKind { NewGame, Restore, Reload, Replay, Edit }
+internal enum OperationKind { NewGame, Restore, Reload, Replay, Edit, Authoring }
 internal enum HostOperationStatus { Committed, CommittedWithWarnings, Rejected, NotAccepted, Faulted, Cancelled, Discarded }
 internal sealed record HostOperationResult(long Operation, OperationKind Kind, HostOperationStatus Status,
     ImmutableArray<CoreProblem> Problems, ImmutableArray<ContentDiagnostic> Diagnostics, string? FaultCode,
@@ -416,6 +416,18 @@ internal sealed class HostCoordinator : IDisposable
     }
 
     internal (long Operation, CoreProblem? Problem) BeginReload(CommandSource source)
+        => BeginReload(source, null);
+
+    internal (long Operation, CoreProblem? Problem) BeginPackageWrite(
+        Func<ContentLoadRequest, IContentFiles, IAssetInspector, ContentResult<IContentCandidate>> prepare)
+    {
+        EnsureOwner();
+        if (MutationProblem() is { } problem) return (0, problem);
+        return BeginReload(CommandSource.UserInterface, prepare);
+    }
+
+    private (long Operation, CoreProblem? Problem) BeginReload(CommandSource source,
+        Func<ContentLoadRequest, IContentFiles, IAssetInspector, ContentResult<IContentCandidate>>? prepare)
     {
         EnsureOwner();
         if (IsEditing) return (0, Problem("editing_active"));
@@ -447,8 +459,10 @@ internal sealed class HostCoordinator : IDisposable
         var basis = _content;
         ContentLoadPurpose purpose = basis is null ? new ContentLoadPurpose.Initial()
             : new ContentLoadPurpose.Reload(basis, references);
-        return Begin(OperationKind.Reload, () => new(_contentFactory.PrepareLoad(
-            new(_installation, purpose), _files, _assets), null, null), source);
+        var request = new ContentLoadRequest(_installation, purpose);
+        return Begin(prepare is null ? OperationKind.Reload : OperationKind.Authoring,
+            () => new(prepare is null ? _contentFactory.PrepareLoad(request, _files, _assets)
+                : prepare(request, _files, _assets), null, null), source);
     }
 
     internal (long Operation, CoreProblem? Problem) BeginContentEdit(ContentEdit edit,
@@ -500,7 +514,7 @@ internal sealed class HostCoordinator : IDisposable
         EnsureOwner();
         // 编辑准备可能已替换用户文件，必须接收写入结果并完成激活。
         if (_insideBoundary || _pending is not { } operation || operation.Id != operationId ||
-            operation.Kind == OperationKind.Edit) return false;
+            operation.Kind is OperationKind.Edit or OperationKind.Authoring) return false;
         _pending = null;
         _active?.Driver.SetOperationLocked(_leaveLocked);
         _skipNextFrame = true;
@@ -958,8 +972,8 @@ internal sealed class HostCoordinator : IDisposable
     {
         internal long Id { get; } = id;
         internal OperationKind Kind { get; } = kind;
-        internal bool Reload => Kind == OperationKind.Reload;
-        internal bool ContentOnly => Kind is OperationKind.Reload or OperationKind.Edit;
+        internal bool Reload => Kind is OperationKind.Reload or OperationKind.Authoring;
+        internal bool ContentOnly => Kind is OperationKind.Reload or OperationKind.Edit or OperationKind.Authoring;
         internal HostBinding? BasisBinding { get; } = basisBinding;
         internal IContentView? BasisContent { get; } = basisContent;
         internal Task<PreparedOperation> Work { get; } = work;

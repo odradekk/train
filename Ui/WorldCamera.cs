@@ -37,7 +37,7 @@ internal partial class WorldCamera : Node3D
     }
 
     public void DisplayedFrame(ISceneFrame frame, WorldObjectId? follow, bool railwayPan = false,
-        Vector3? coordinateShift = null)
+        Vector3? coordinateShift = null, bool preserveFocus = false)
     {
         var previous = _frame;
         var sameSpace = previous is not null && previous.Update.Frame.Session == frame.Update.Frame.Session
@@ -61,7 +61,7 @@ internal partial class WorldCamera : Node3D
             Focus = ToGodot(pose.Position) + (Focus - _targetPosition).Rotated(Vector3.Up, yawChange);
             _bodyYaw += yawChange;
         }
-        else
+        else if (!preserveFocus || previous is null)
         {
             Focus = pose is not null ? ToGodot(pose.Position) : InitialFocus(frame);
             if (pose is not null)

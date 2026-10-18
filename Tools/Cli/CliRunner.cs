@@ -114,6 +114,9 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
         var checkpoints = ImmutableArray.CreateBuilder<CoreCheckpoint>();
         var observations = ImmutableArray.CreateBuilder<EconomySample>();
         var receipts = ImmutableArray.CreateBuilder<RecipeReceipt>();
+        var transfers = ImmutableArray.CreateBuilder<GoodsTransferSample>();
+        var completions = ImmutableArray.CreateBuilder<ProductionCompletedSample>();
+        var stateChanges = ImmutableArray.CreateBuilder<ProductionStateSample>();
         var checkpointSteps = recipe.CheckpointSteps.IsDefault ? [] : recipe.CheckpointSteps;
         var accepted = 0;
         var rejected = 0;
@@ -128,7 +131,9 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
             long? quotedTotal = parsed is CoreCommand.BuyVehicle buy
                 && session.Read().QuoteVehicle(new(buy.Seller, buy.Vehicle, VehicleTradeAction.Buy))
                     is CoreResult<VehicleTradeQuote>.Success quote ? quote.Value.Total?.Value : null;
-            switch (session.Submit(parsed, CommandSource.Console))
+            var submission = session.Submit(parsed, CommandSource.Console);
+            if (submission is SubmissionResult.Completed completed) Observe(completed.Events);
+            switch (submission)
             {
                 case SubmissionResult.Completed { Receipt.Decision: CommandDecision.Accepted }:
                     accepted++;
@@ -150,7 +155,28 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
         var samples = checkpoints.ToImmutable();
         if (verifyReplay) VerifyReplay(session.ReadRecording(), prepared.Content, samples);
         return new(Environment.ProcessId, runtime, prepared.InputIdentity, samples, accepted, rejected, verifyReplay,
-            observations.ToImmutable(), receipts.ToImmutable());
+            observations.ToImmutable(), receipts.ToImmutable(), transfers.ToImmutable(), completions.ToImmutable(), stateChanges.ToImmutable());
+
+        void Observe(ImmutableArray<EventEnvelope> events)
+        {
+            foreach (var envelope in events)
+                switch (envelope.Event)
+                {
+                    case CoreEvent.GoodsTransferred transfer:
+                        transfers.Add(new(envelope.Position, envelope.Ordinal, transfer.Action.ToString(),
+                            GoodSample.From(transfer.Good), transfer.Quantity, transfer.Source.Value,
+                            transfer.Destination.Value, transfer.ActualAmount.Value, transfer.Train.Value, transfer.Settlement.Value));
+                        break;
+                    case CoreEvent.ProductionCompleted production:
+                        completions.Add(new(envelope.Position, envelope.Ordinal, FacilityKeySample.From(production.Facility),
+                            ProcessSample.From(production.Process), production.Outputs.Select(GoodsSample.From).ToImmutableArray(), production.Buffered));
+                        break;
+                    case CoreEvent.ProductionStateChanged state:
+                        stateChanges.Add(new(envelope.Position, envelope.Ordinal, FacilityKeySample.From(state.Facility),
+                            state.Before.ToString(), state.After.ToString(), state.Reasons.Select(ProblemSample.From).ToImmutableArray()));
+                        break;
+                }
+        }
 
         void Sample()
         {
@@ -168,6 +194,7 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
                 var result = session.Advance(steps);
                 if (result.Fault is not null || result.CompletedSteps != steps)
                     throw new InvalidDataException($"推进失败：{result.Fault?.Code} {result.Fault?.Field}。");
+                Observe(result.Events);
                 position = result.Position;
                 Sample();
             }

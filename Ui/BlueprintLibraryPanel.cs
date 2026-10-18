@@ -19,8 +19,13 @@ internal partial class BlueprintLibraryPanel : Control
         _body = new VBoxContainer(); scroll.AddChild(_body); Hide();
     }
     public override void _Process(double delta)
-    { if (Visible && !ReferenceEquals(_observedContent, _service.Host.Content)) Open(); }
+    { if (Visible && !ReferenceEquals(_observedContent, _service.Host.Content)) Refresh(); }
     internal void Open()
+    {
+        _service.ClearFeedback();
+        Refresh();
+    }
+    private void Refresh()
     {
         _observedContent = _service.Host.Content;
         foreach (var child in _body.GetChildren()) { _body.RemoveChild(child); child.QueueFree(); }
@@ -37,7 +42,7 @@ internal partial class BlueprintLibraryPanel : Control
                     row.AddChild(UiStyle.Button("DeleteBlueprint", "删除…", () =>
                     {
                         var confirm = new ConfirmationDialog { Title = "删除蓝图", DialogText = $"删除 {item.Display.Name}？实例不受影响。" };
-                        AddChild(confirm); confirm.Confirmed += () => { _service.DeleteBlueprint(item.Address); Open(); confirm.QueueFree(); }; confirm.PopupCentered();
+                        AddChild(confirm); confirm.Confirmed += () => { _service.DeleteBlueprint(item.Address); Refresh(); confirm.QueueFree(); }; confirm.PopupCentered();
                     }));
                 }
                 foreach (var destination in new[] { BlueprintLibrary.Local, BlueprintLibrary.User })
