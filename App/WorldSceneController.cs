@@ -103,7 +103,7 @@ internal sealed class WorldSceneController : IDisposable
             var opened = _factory.OpenWorld(_sceneBinding, snapshot);
             if (opened is not SceneResult<IWorldSceneSession>.Success success) { Fail(opened); return; }
             _session = success.Value;
-            _display = new(_cache, snapshot.Content);
+            _display = new(_cache, snapshot.Content, completeInitialFrame: true);
             View.AddChild(_display.Root);
             var requested = RequestTarget(target);
             if (requested is SceneResult<SceneRequestId>.Failure) Fail(requested);

@@ -12,6 +12,7 @@ internal sealed class SceneDisplay : IDisposable
     internal sealed record DisplayObject(SceneObject Source, Node3D Root, PreparedVisual[] Visuals);
     private readonly SceneResources _resources;
     private readonly AssetResourceCache _cache;
+    private readonly bool _completeInitialFrame;
     private Dictionary<SceneObjectId, DisplayObject> _objects = [];
     private FogGroup? _fog;
     private DebugLineGroup? _debugLines;
@@ -34,9 +35,10 @@ internal sealed class SceneDisplay : IDisposable
     internal bool IsPreparing => _preparingFrame is not null;
     internal IReadOnlyDictionary<SceneObjectId, DisplayObject> Objects => _objects;
 
-    internal SceneDisplay(AssetResourceCache cache, IContentView content)
+    internal SceneDisplay(AssetResourceCache cache, IContentView content, bool completeInitialFrame = false)
     {
         _cache = cache;
+        _completeInitialFrame = completeInitialFrame;
         _resources = new(cache, content);
     }
 
@@ -63,9 +65,9 @@ internal sealed class SceneDisplay : IDisposable
              previousFrame.Update.Frame.Space != frame.Update.Frame.Space))
             CancelPreparation();
         frame = _preparingFrame ??= frame;
-        var spaceChanged = DisplayedFrame is not { } displayed ||
-            (displayed.Update.Frame.Session != frame.Update.Frame.Session ||
-             displayed.Update.Frame.Space != frame.Update.Frame.Space);
+        var spaceChanged = DisplayedFrame is { } displayed
+            ? displayed.Update.Frame.Session != frame.Update.Frame.Session || displayed.Update.Frame.Space != frame.Update.Frame.Space
+            : _completeInitialFrame;
         var processFrame = Engine.GetProcessFrames();
         if (_budgetFrame != processFrame)
         {

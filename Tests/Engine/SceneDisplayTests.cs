@@ -246,7 +246,7 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         await new UiTestInput(TestScene).Frames(2);
         using var dispatcher = new GodotMainThreadDispatcher();
         using var cache = new AssetResourceCache(dispatcher);
-        using var display = Attach(cache, new FixedContentView());
+        using var display = Attach(cache, new FixedContentView(), completeInitialFrame: true);
         long timestamp = 0;
         display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
         Require(display.Prepare(Frame(1, [], readiness: SceneReadiness.Loading)) is null &&
@@ -724,9 +724,9 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         Require(!GodotObject.IsInstanceValid(reloaded), "空完整帧没有释放最后模型材质。");
     }
 
-    private SceneDisplay Attach(AssetResourceCache cache, FixedContentView content)
+    private SceneDisplay Attach(AssetResourceCache cache, FixedContentView content, bool completeInitialFrame = false)
     {
-        var display = new SceneDisplay(cache, content) { Timestamp = () => 0 };
+        var display = new SceneDisplay(cache, content, completeInitialFrame) { Timestamp = () => 0 };
         TestScene.AddChild(display.Root);
         return display;
     }
