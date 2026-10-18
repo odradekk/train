@@ -30,7 +30,9 @@ internal static class SettlementQueries
             plots, settlement.ParkedVehicles, ParkingCapacity: int.MaxValue, world.Nodes.Single(n => n.Id == settlement.Node).Platforms,
             world.OccupiedPlatforms(settlement.Node), VehicleTrades.ForSale(world, settlement), VehicleTrades.PurchaseCapacities(world, content, settlement),
             facilities, power, PopulationQueries.Read(world, content, settlement, step),
-            Engagement: new(TargetPriority.ArmedFirst, TargetScope.All), MoraleRatio: 1, Surrendered: false, CommissionJobs: [],
+            Engagement: new(TargetPriority.ArmedFirst, TargetScope.All), MoraleRatio: 1, Surrendered: false,
+            CommissionJobs: world.ConstructionJobs.Where(j => j.Settlement == settlement.Id && j.Funding == JobFunding.NpcCommission)
+                .OrderBy(j => j.Id.Value).Select(j => j.Id).ToImmutableArray(),
             world.Leases.Where(l => l.Settlement == settlement.Id).Select(l => l.Id).ToImmutableArray(), market);
     }
 
@@ -40,7 +42,7 @@ internal static class SettlementQueries
         return new(world.Money, MarketRule(world, content),
             Rule(content, rules.Population, content.PopulationRules.SingleOrDefault(r => r.Id == rules.Population)?.Revision, "Population"),
             Rule(content, rules.Construction, content.ConstructionRules.SingleOrDefault(r => r.Id == rules.Construction)?.Revision, "Construction"),
-            UnassignedServicePayments: new(0), RecentRunReports: world.RecentRunReports);
+            UnassignedServicePayments: world.UnassignedServicePayments, RecentRunReports: world.RecentRunReports);
     }
 
     private static RuleStatusView MarketRule(WorldState world, CoreContentProjection content)

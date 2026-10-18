@@ -1,0 +1,141 @@
+{
+  "format_version": 1,
+  "generation_profile": "core:basic-through-world",
+  "seed": 40,
+  "generator_version": "stage1-world-v1",
+  "save": {
+    "name": "满载采购后的委托受理与缺货",
+    "saved_at": "2026-10-18T00:00:00Z",
+    "id": "c404b542-323f-46d6-b681-d86c1f347ea8"
+  },
+  "commands": [
+    {
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "node": 13,
+            "kind": "station",
+            "goods_rules": [
+              {
+                "local_inventory": 5,
+                "action": {
+                  "maximum_unit_price": null,
+                  "kind": "buy"
+                },
+                "good": {
+                  "definition": "core:structural-metal",
+                  "kind": "voxel"
+                },
+                "target_quantity": 1260
+              }
+            ],
+            "dwell_steps": 100
+          }
+        ]
+      },
+      "train": 1,
+      "at": {
+        "sequence": 0,
+        "completed_steps": 0
+      },
+      "kind": "train.replace_run_plan"
+    },
+    {
+      "train": 1,
+      "at": {
+        "sequence": 1,
+        "completed_steps": 0
+      },
+      "kind": "train.start"
+    },
+    {
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "node": 14,
+            "kind": "station",
+            "goods_rules": [
+              {
+                "local_inventory": 6,
+                "action": {
+                  "maximum_unit_price": null,
+                  "kind": "buy"
+                },
+                "good": {
+                  "definition": "core:staple-food",
+                  "kind": "voxel"
+                },
+                "target_quantity": 1080
+              }
+            ],
+            "dwell_steps": 100
+          },
+          {
+            "node": 12,
+            "kind": "station",
+            "goods_rules": [
+              {
+                "local_inventory": 4,
+                "action": {
+                  "maximum_unit_price": null,
+                  "kind": "buy"
+                },
+                "good": {
+                  "definition": "core:fuel",
+                  "kind": "voxel"
+                },
+                "target_quantity": 1080
+              }
+            ],
+            "dwell_steps": 100
+          }
+        ]
+      },
+      "train": 2,
+      "at": {
+        "sequence": 2,
+        "completed_steps": 0
+      },
+      "kind": "train.replace_run_plan"
+    },
+    {
+      "train": 2,
+      "at": {
+        "sequence": 3,
+        "completed_steps": 0
+      },
+      "kind": "train.start"
+    },
+    {
+      "facility": 37,
+      "kind": "construction.commission_vehicle_work",
+      "at": {
+        "completed_steps": 10000,
+        "sequence": 0
+      },
+      "blueprint": "core:small-freight-wagon",
+      "sources": [],
+      "maximum_payment": 9223372036854775807
+    },
+    {
+      "facility": 37,
+      "kind": "construction.commission_vehicle_work",
+      "at": {
+        "completed_steps": 10000,
+        "sequence": 1
+      },
+      "blueprint": "core:small-freight-wagon",
+      "sources": [],
+      "maximum_payment": 9223372036854775807
+    }
+  ],
+  "target": {
+    "sequence": 2,
+    "completed_steps": 10000
+  },
+  "checkpoint_steps": [
+    10000
+  ]
+}

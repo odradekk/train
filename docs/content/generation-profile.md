@@ -47,7 +47,7 @@
 
 `npc_initialization` 全部字段：`fill_inputs_and_living_targets` 决定是否按核心规则补输入原料与生活物资目标；`output_reserve_hours` 是非负模拟小时的潜在产量预存时长；`minimum_for_sale_vehicles`、`maximum_for_sale_vehicles` 是非负 Int32 数量范围，最小不大于最大；`for_sale_vehicle_candidates` 是不重复的车辆蓝图引用数组，内容计算 DesignHash，初始化由核心按车间档位筛选。需要现车时数组不能为空。内容不推算库存目标、产能或车辆名额。
 
-`start_constraints` 全部字段：`minimum_reachable_non_hostile_settlements` 和 `minimum_reachable_empty_nodes` 是非负 Int32 个数；`require_station`、`exclude_adjacent_lairs` 是布尔值；`fully_loaded_purchase_rounds_per_train` 是正 Int32 满载采购轮数；`required_affordable_commission_design` 是车辆蓝图引用，内容计算 DesignHash，核心验证采购后资金是否仍足够委托建造。内容不计算运行报价或自行选择起点。
+`start_constraints` 全部字段：`minimum_reachable_non_hostile_settlements` 和 `minimum_reachable_empty_nodes` 是非负 Int32 个数；`require_station`、`exclude_adjacent_lairs` 是布尔值；`fully_loaded_purchase_rounds_per_train` 是正 Int32 满载采购轮数；`required_affordable_commission_design` 是车辆蓝图引用，内容计算 DesignHash；采购后资金仍足够委托建造是配平条件，由委托分支配方和阶段验收核实，核心不在生成时评估经济条件。内容不计算运行报价或自行选择起点。
 
 `start.initial_money` 是最小货币单位的非负 Int64 整数；`start.trains` 数组顺序保留，每列车 `vehicles` 是非空有序车辆蓝图引用数组，顺序就是编组顺序，允许同一蓝图重复；`inventory` 是货物数量数组，每项使用 `voxel` 或 `blueprint` 与正 Int64 `quantity`，大型设备引用按既有货物身份规则解析。货物身份不重复。内容计算车辆属性与哈希，不能凭空填入能力。
 

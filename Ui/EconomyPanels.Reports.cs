@@ -34,7 +34,7 @@ internal partial class EconomyPanels
         { Invalidate(_reportsBody, _reportsState); return; }
         if (_reportsRevision == _view.Revision) return;
         _reportsRevision = _view.Revision;
-        var lines = new List<string> { $"资金：{_view.Economy.Wallet.Value}", "服务费用：未接入 · 未归属服务支出：未接入", "最近运行报告：" };
+        var lines = new List<string> { $"资金：{_view.Economy.Wallet.Value}", $"未归属服务支出：{_view.Economy.UnassignedServicePayments.Value}", "最近运行报告：" };
         foreach (var report in _view.Economy.RecentRunReports) lines.Add(ReportText(report, _content));
         if (_view.Economy.RecentRunReports.IsEmpty) lines.Add("暂无已结束的运行报告。");
         lines.Add("玩家自有聚居地最近人口结算：");
@@ -58,7 +58,7 @@ internal partial class EconomyPanels
         var lines = new List<string>
         {
             $"从第 {run.StartedAt.CompletedSteps} 步开始 · 销售收入 {run.SalesReceipts.Value} · 采购支出 {run.PurchasePayments.Value}",
-            $"服务费用：未接入 · 净现金流 {run.NetCashFlow} · 运输数量 {run.TransportedUnits} · 载运率 {loadedCapacity}"
+            $"服务费用：{run.ServicePayments.Value} · 净现金流 {run.NetCashFlow} · 运输数量 {run.TransportedUnits} · 载运率 {loadedCapacity}"
         };
         foreach (var rule in run.IncompleteRules)
             lines.Add($"未完成规则：停靠站 {rule.StopIndex + 1} / 规则 {rule.RuleIndex + 1} · " +
