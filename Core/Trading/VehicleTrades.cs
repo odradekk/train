@@ -111,7 +111,8 @@ internal static class VehicleTrades
     }
 
     internal static bool Supports(WorldState world, CoreContentProjection content, SettlementState settlement, SizeClass size)
-        => settlement.Plots.Where(p => p.Building is not null).Any(p => InstanceCapabilities.EffectiveParts(world, content,
+        => settlement.Plots.Where(p => p.Building is { } id && !ConstructionJobs.InstanceLocked(world, new InstanceId.Building(id)))
+            .Any(p => InstanceCapabilities.EffectiveParts(world, content,
                 world.Instances.Single(i => i.Id == new InstanceId.Building(p.Building!.Value)))
             .SelectMany(part => part.Capabilities).OfType<PartCapability.Construction>()
             .Any(c => c.WorkPerSecond > 0 && c.MaximumVehicleSize is { } maximum && maximum >= size));

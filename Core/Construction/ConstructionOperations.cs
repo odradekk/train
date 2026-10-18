@@ -108,7 +108,7 @@ internal static class ConstructionOperations
                     }).ToImmutableArray()
                 };
             }
-            else if (job.Instance is InstanceId.Vehicle)
+            else if (job.Instance is not null)
             {
                 world = world with { Instances = world.Instances.Select(i => i.Id != job.Instance ? i : i with
                 {
@@ -117,6 +117,12 @@ internal static class ConstructionOperations
                         design.Parts.Single(d => d.Id == p.Id)) ? p : p with
                         { Current = design.Parts.Single(d => d.Id == p.Id).MaxDurability }).ToImmutableArray()
                 }).ToImmutableArray() };
+                if (job.Instance is InstanceId.Building && design.Kind is DesignKind.Building { Type: BuildingKind.Station })
+                {
+                    var adaptedNodes = AdaptPlatforms(world, content, job.Settlement, boundary);
+                    world = adaptedNodes.World;
+                    adapted = adaptedNodes.Events;
+                }
             }
             else if (job.Plot is not null)
             {
@@ -188,14 +194,20 @@ internal static class ConstructionOperations
             Settlements = world.Settlements.Select(s => s.Id != job.Settlement ? s : Occupy(s, plot.Id, building)).ToImmutableArray()
         };
         if (design.Kind is not DesignKind.Building { Type: BuildingKind.Station }) return (world, created, []);
-        settlement = world.Settlements.Single(s => s.Id == job.Settlement);
+        var adapted = AdaptPlatforms(world, content, job.Settlement, boundary);
+        return (adapted.World, created, adapted.Events);
+    }
+
+    private static (WorldState World, ImmutableArray<CoreEvent> Events) AdaptPlatforms(WorldState world,
+        CoreContentProjection content, SettlementId settlementId, SimulationPosition boundary)
+    {
+        var settlement = world.Settlements.Single(s => s.Id == settlementId);
         var platforms = WorldState.CountPlatforms(settlement, world.Instances.ToDictionary(i => i.Id), world.Designs.ToDictionary(d => d.Design));
         world = world with
         {
             Nodes = world.Nodes.Select(n => n.Id != settlement.Node ? n : n with { Platforms = platforms }).ToImmutableArray()
         };
-        var adapted = TrainOperations.AdaptNodes(world, content, boundary);
-        return (adapted.World, created, adapted.Events);
+        return TrainOperations.AdaptNodes(world, content, boundary);
     }
 
     private static SettlementState Occupy(SettlementState settlement, PlotId plot, BuildingId building)

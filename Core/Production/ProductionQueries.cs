@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Train.Core.Construction;
 using Train.Core.Contracts;
 using Train.Core.Settlements;
 using Train.Core.World;
@@ -50,6 +51,7 @@ internal static class ProductionQueries
         var state = ProductionState.Running;
         string? problem = null;
         if (plan is not null && process is null) { state = ProductionState.ProcessMissing; problem = "content_missing"; }
+        else if (ConstructionJobs.InstanceLocked(world, id)) { state = ProductionState.Locked; problem = "instance_locked"; }
         else if (plan is null || !plan.Enabled) state = ProductionState.Disabled;
         else if (capability == 0) { state = ProductionState.ZeroCapability; problem = "capability_zero"; }
         else if ((process!.Details is ProcessDetails.Extraction) != (key.Capability == CapabilityKind.Extraction)
@@ -140,7 +142,8 @@ internal static class ProductionQueries
         var events = ImmutableArray.CreateBuilder<CoreEvent>();
         // 不可变输入仍是同一份时，边界两侧的能力相同；只在本次比较中复用。
         var sameCapabilities = ReferenceEquals(beforeContent, afterContent) && before.Instances == after.Instances
-            && before.Designs == after.Designs && before.DesignGoods == after.DesignGoods;
+            && before.Designs == after.Designs && before.DesignGoods == after.DesignGoods
+            && before.ConstructionJobs == after.ConstructionJobs;
         foreach (var plot in settlement.Plots.Where(p => p.Building is not null).OrderBy(p => p.Building!.Value.Value))
         {
             var previousSettlement = before.Settlements.FirstOrDefault(s => s.Plots.Any(p => p.Building == plot.Building));

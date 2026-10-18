@@ -28,12 +28,16 @@ internal static class ConstructionCommands
                 => (refit.Facility, refit.Sources, refit.Priority),
             JobRequest.Repair { Instance: InstanceId.Vehicle vehicle } repair when vehicle.Id.Value != 0
                 => (repair.Facility, repair.Sources, repair.Priority),
+            JobRequest.Repair { Instance: InstanceId.Building building } repair when building.Id.Value != 0
+                => (repair.Facility, repair.Sources, repair.Priority),
             JobRequest.Dismantle { Instance: InstanceId.Vehicle vehicle } dismantle when vehicle.Id.Value != 0
                 => (dismantle.Facility, ImmutableArray<InventoryId>.Empty, dismantle.Priority),
             JobRequest.Repair { Instance: InstanceId.Vehicle { Id.Value: 0 } }
                 or JobRequest.Refit { Instance: InstanceId.Vehicle { Id.Value: 0 } }
                 or JobRequest.Dismantle { Instance: InstanceId.Vehicle { Id.Value: 0 } }
                 => throw new ArgumentException("车辆编号必须非零。", nameof(request)),
+            JobRequest.Repair { Instance: InstanceId.Building { Id.Value: 0 } }
+                => throw new ArgumentException("建筑编号必须非零。", nameof(request)),
             _ => throw new NotImplementedException($"{request.GetType().Name} 尚未实现。")
         };
         ArgumentNullException.ThrowIfNull(facility);
@@ -110,35 +114,54 @@ internal static class ConstructionCommands
         }
         else
         {
-            vehicle = (request switch
+            var target = request switch
             {
-                JobRequest.Refit targetRefit => (InstanceId.Vehicle)targetRefit.Instance,
-                JobRequest.Repair repair => (InstanceId.Vehicle)repair.Instance,
-                JobRequest.Dismantle dismantle => (InstanceId.Vehicle)dismantle.Instance,
+                JobRequest.Refit targetRefit => targetRefit.Instance,
+                JobRequest.Repair repair => repair.Instance,
+                JobRequest.Dismantle dismantle => dismantle.Instance,
                 _ => throw new InvalidOperationException("施工目标无效。")
-            }).Id;
-            instance = world.Instances.SingleOrDefault(i => i.Id == new InstanceId.Vehicle(vehicle.Value));
+            };
+            instance = world.Instances.SingleOrDefault(i => i.Id == target);
             if (instance is null) return Reject("object_missing", "Instance");
             if (instance.Ownership != SettlementRelation.PlayerOwned) return Reject("not_owned", "Instance");
             if (ConstructionJobs.InstanceLocked(world, instance.Id)) return Reject("instance_locked", "Instance");
-            if (instance.Details is InstanceDetails.Vehicle { Train: { } trainId })
+            if (target is InstanceId.Building building)
             {
-                if (request is JobRequest.Dismantle) return Reject("vehicle_in_train", "Instance.Details.Train");
-                var train = world.Trains.Single(t => t.Id == trainId);
-                if (train.Position is not TrainPosition.Node node || node.Id != settlement.Node || train.Activity != TrainActivity.Stopped)
-                    return Reject("train_not_stationary_at_node", "Instance.Location");
+                if (!settlement.Plots.Any(p => p.Building == building.Id)) return Reject("conditions_not_met", "Instance");
+                design = world.Designs.Single(d => d.Design == instance.Design);
+                if (instance.StructureDurability <= 0 || design.MaxStructureDurability == 0 && request is not JobRequest.Dismantle)
+                    return Reject("instance_destroyed", "Instance");
+                if (facility.Building == building.Id) return Reject("invalid_state", "Instance");
+                if (world.ConstructionJobs.Any(j => j.Facility.Building == building.Id))
+                    return Reject("invalid_state", "Instance.ConstructionJob");
+                foreach (var row in settlement.ProductionFacilities.Where(f => f.Facility.Building == building.Id))
+                {
+                    if (row.Batch is not null) return Reject("invalid_state", "Instance.Batch");
+                    if (!row.OutputBuffer.IsEmpty) return Reject("invalid_state", "Instance.OutputBuffer");
+                }
             }
-            else if (!settlement.ParkedVehicles.Contains(vehicle.Value)) return Reject("vehicles_not_colocated", "Instance.Location");
-            design = world.Designs.Single(d => d.Design == instance.Design);
-            if (instance.StructureDurability <= 0 || design.MaxStructureDurability == 0 && request is not JobRequest.Dismantle)
-                return Reject("instance_destroyed", "Instance");
-            if (request is JobRequest.Refit refit)
+            else
             {
-                var change = WorldInputs.NormalizeDesignChange(refit.Change);
-                if (VehicleDesignChanges.Check(world, content, instance, change, false) is { } problem) return Result([problem]);
-                if (design.Composition == change.Target.Design.Composition) return Reject("invalid_design", "Change.Target");
-                prepared = VehicleDesignChanges.AddTarget(world, change.Target);
-                design = change.Target.Design;
+                vehicle = ((InstanceId.Vehicle)target).Id;
+                if (instance.Details is InstanceDetails.Vehicle { Train: { } trainId })
+                {
+                    if (request is JobRequest.Dismantle) return Reject("vehicle_in_train", "Instance.Details.Train");
+                    var train = world.Trains.Single(t => t.Id == trainId);
+                    if (train.Position is not TrainPosition.Node node || node.Id != settlement.Node || train.Activity != TrainActivity.Stopped)
+                        return Reject("train_not_stationary_at_node", "Instance.Location");
+                }
+                else if (!settlement.ParkedVehicles.Contains(vehicle.Value)) return Reject("vehicles_not_colocated", "Instance.Location");
+                design = world.Designs.Single(d => d.Design == instance.Design);
+                if (instance.StructureDurability <= 0 || design.MaxStructureDurability == 0 && request is not JobRequest.Dismantle)
+                    return Reject("instance_destroyed", "Instance");
+                if (request is JobRequest.Refit refit)
+                {
+                    var change = WorldInputs.NormalizeDesignChange(refit.Change);
+                    if (VehicleDesignChanges.Check(world, content, instance, change, false) is { } problem) return Result([problem]);
+                    if (design.Composition == change.Target.Design.Composition) return Reject("invalid_design", "Change.Target");
+                    prepared = VehicleDesignChanges.AddTarget(world, change.Target);
+                    design = change.Target.Design;
+                }
             }
         }
         DesignKind? tier = request is JobRequest.Dismantle ? null : design.Kind;
@@ -154,7 +177,7 @@ internal static class ConstructionCommands
         var marketRule = MarketPrices.Rule(world, content);
         if (funding == JobFunding.NpcCommission && marketRule is null) return Reject("content_missing", "MarketRule");
         var needed = new Dictionary<GoodId, long>();
-        if (vehicle is null)
+        if (request is JobRequest.BuildVehicle or JobRequest.BuildBuilding)
         {
             foreach (var good in BillOfMaterials([design])) Add(good.Good, good.Quantity);
             work = checked(design.BillOfMaterialsItemCount * rule.ConstructionWorkPerItem);

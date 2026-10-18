@@ -63,6 +63,8 @@ internal static class ConstructionJobs
         var design = world.Designs.Single(d => d.Design == instance.Design);
         if (Math.Min(instance.StructureDurability, design.MaxStructureDurability) <= 0)
             return new("instance_destroyed", "Facility", subject, []);
+        if (InstanceLocked(world, new InstanceId.Building(facility.Building)))
+            return new("conditions_not_met", "Facility", subject, []);
         if (!design.Parts.Where(p => !InstanceCapabilities.DefinitionMissing(world, content, design.Design, p))
             .SelectMany(p => p.Capabilities).OfType<PartCapability.Construction>().Any(c => Allows(c, target)))
             return new("conditions_not_met", "Facility", subject, []);
@@ -71,6 +73,7 @@ internal static class ConstructionJobs
 
     internal static double WorkRate(WorldState world, CoreContentProjection content, FacilityKey facility, DesignKind? target)
     {
+        if (InstanceLocked(world, new InstanceId.Building(facility.Building))) return 0;
         var instance = world.Instances.Single(i => i.Id == new InstanceId.Building(facility.Building));
         var capabilities = InstanceCapabilities.EffectiveParts(world, content, instance)
             .SelectMany(p => p.Capabilities).OfType<PartCapability.Construction>().ToArray();
