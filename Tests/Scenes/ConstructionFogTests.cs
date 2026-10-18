@@ -9,6 +9,27 @@ namespace Train.Scenes.Tests;
 public sealed class ConstructionFogTests
 {
     [TestMethod]
+    [DataRow(384d, 512d)]
+    [DataRow(384d, 384.2d)]
+    public void AttachedRailFootprintIncludesSleepersBeyondBothArcEnds(double begin, double end)
+    {
+        RailwaySample Sample(double arc) => new(new(0, 0, arc), Vector3.UnitZ, Vector3.UnitX);
+        var segment = new NodeScene.RailSegment("rail", Sample, begin, end,
+            new(new(-11, -11, (float)begin - 11), new(11, 11, (float)end + 11)), "inputs");
+        SceneBounds[] missing = [new(new(-20, -10, (float)begin - 2), new(20, 10, (float)begin)),
+            new(new(-20, -10, (float)end), new(20, 10, (float)end + 2))];
+        var fog = ConstructionFog.Clip(missing, segment.Footprint);
+        var vertices = segment.Build().Geometry.Geometry.Objects.SelectMany(item => item.Visuals)
+            .OfType<SceneVisual.Geometry>().SelectMany(visual => visual.Mesh.Vertices)
+            .Where(vertex => vertex.Position.Z < begin || vertex.Position.Z > end).ToArray();
+        Assert.IsTrue(vertices.Length > 0, "The actual mesh must extend beyond the arc range.");
+        foreach (var vertex in vertices)
+            Assert.IsFalse(fog.Any(box => Contains(box, new(vertex.Position.X, vertex.Position.Y, vertex.Position.Z))),
+                "Pending neighboring segments must not fog the attached mesh's sleeper overhang.");
+        Assert.IsTrue(fog.Any(box => Contains(box, new(0, 0, begin - 1.5))), "The genuinely unbuilt track remains fogged.");
+    }
+
+    [TestMethod]
     public void OverlappingMissingBoundsAreUnitedBeforeClippingAndMergedAcrossRows()
     {
         SceneBounds[] missing = [new(new(.25f, -3, .25f), new(6.25f, 7, 10.25f)),

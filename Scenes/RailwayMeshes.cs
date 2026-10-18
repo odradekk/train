@@ -9,6 +9,8 @@ internal static class RailwayMeshes
     // The 80 m content radius permits 2.25 m chords, including a three-track outer rail.
     private const double MaximumRingSpacingCells = 4.5;
     private const double RingErrorCells = .0198;
+    private const double SleeperSpacingCells = 1.5;
+    private const float SleeperHalfLengthCells = .3f;
     internal static ImmutableArray<SceneMesh> Build(RailwayPath path, int segment, ScenePoint origin)
     {
         if (path.Edge.Tracks == 0) return [];
@@ -24,6 +26,25 @@ internal static class RailwayMeshes
             var at = sample(arc);
             return at with { Position = RailwayCoordinates.Add(at.Position, at.Right * (float)offset) };
         }, start, end, origin, 1);
+
+    internal static ImmutableArray<SceneBounds> Footprint(Func<double, RailwaySample> sample, double start, double end,
+        int tracks, double minimumY, double maximumY)
+    {
+        if (tracks == 0) return [];
+        var firstSleeper = Math.Ceiling(start / SleeperSpacingCells) * SleeperSpacingCells;
+        var lastSleeper = (Math.Ceiling(end / SleeperSpacingCells) - 1) * SleeperSpacingCells;
+        var begin = firstSleeper < end ? Math.Min(start, firstSleeper - SleeperHalfLengthCells) : start;
+        var finish = lastSleeper >= start ? Math.Max(end, lastSleeper + SleeperHalfLengthCells) : end;
+        return ConstructionFog.Band(At, begin, finish, RailwayCoordinates.OutermostTrackOffset(tracks) +
+            RailwayCoordinates.BedBaseHalfWidth, minimumY, maximumY);
+
+        RailwaySample At(double arc)
+        {
+            var clamped = Math.Clamp(arc, start, end);
+            var at = sample(clamped);
+            return at with { Position = RailwayCoordinates.Add(at.Position, at.Forward * (float)(arc - clamped)) };
+        }
+    }
 
     private static ImmutableArray<SceneMesh> Build(Func<double, double, RailwaySample> sampleAt,
         double start, double end, ScenePoint origin, int tracks)
@@ -54,7 +75,7 @@ internal static class RailwayMeshes
                 railVertices += (steps * profile.Length + 6) * 6;
             }
         }
-        var sleeperCount = (int)(Math.Ceiling(end / 1.5) - Math.Ceiling(start / 1.5));
+        var sleeperCount = (int)(Math.Ceiling(end / SleeperSpacingCells) - Math.Ceiling(start / SleeperSpacingCells));
         var rails = new MeshBuilder(BuiltInMaterial.RailSteel, railVertices);
         var sleepers = new MeshBuilder(BuiltInMaterial.Sleeper, sleeperCount * tracks * 5 * 6 * 6);
         railNumber = 0;
@@ -105,9 +126,9 @@ internal static class RailwayMeshes
                 }
             }
             // Global spacing keeps a sleeper at a segment boundary in exactly one segment.
-            for (var index = (long)Math.Ceiling(start / 1.5); index * 1.5 < end; index++)
+            for (var index = (long)Math.Ceiling(start / SleeperSpacingCells); index * SleeperSpacingCells < end; index++)
             {
-                var sample = sampleAt(index * 1.5, offset);
+                var sample = sampleAt(index * SleeperSpacingCells, offset);
                 var up = Vector3.Normalize(Vector3.Cross(sample.Forward, sample.Right));
                 var center = RailwayCoordinates.Relative(sample.Position, origin) - up * .8f;
                 Box(0, 0, 8.5f, .2f);
@@ -118,10 +139,10 @@ internal static class RailwayMeshes
                 void Box(float lateral, float height, float halfWidth, float halfHeight)
                 {
                     Vector3 Corner(float x, float y, float z) => center + sample.Right * (x + lateral) + up * (y + height) + sample.Forward * z;
-                    var a = Corner(-halfWidth, -halfHeight, -.3f); var b = Corner(halfWidth, -halfHeight, -.3f);
-                    var c = Corner(halfWidth, halfHeight, -.3f); var d = Corner(-halfWidth, halfHeight, -.3f);
-                    var e = Corner(-halfWidth, -halfHeight, .3f); var f = Corner(halfWidth, -halfHeight, .3f);
-                    var g = Corner(halfWidth, halfHeight, .3f); var h = Corner(-halfWidth, halfHeight, .3f);
+                    var a = Corner(-halfWidth, -halfHeight, -SleeperHalfLengthCells); var b = Corner(halfWidth, -halfHeight, -SleeperHalfLengthCells);
+                    var c = Corner(halfWidth, halfHeight, -SleeperHalfLengthCells); var d = Corner(-halfWidth, halfHeight, -SleeperHalfLengthCells);
+                    var e = Corner(-halfWidth, -halfHeight, SleeperHalfLengthCells); var f = Corner(halfWidth, -halfHeight, SleeperHalfLengthCells);
+                    var g = Corner(halfWidth, halfHeight, SleeperHalfLengthCells); var h = Corner(-halfWidth, halfHeight, SleeperHalfLengthCells);
                     sleepers.Quad(d, c, b, a); sleepers.Quad(e, f, g, h);
                     sleepers.Quad(a, b, f, e); sleepers.Quad(d, h, g, c);
                     sleepers.Quad(a, e, h, d); sleepers.Quad(b, c, g, f);

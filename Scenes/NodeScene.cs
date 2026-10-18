@@ -37,8 +37,8 @@ internal sealed class NodeScene : IAsyncDisposable
         SceneBounds Bounds, string Inputs)
     {
         private ImmutableArray<SceneBounds> footprint;
-        internal ImmutableArray<SceneBounds> Footprint => footprint.IsDefault ? footprint = ConstructionFog.Band(
-            Sample, Begin, End, RailwayCoordinates.BedBaseHalfWidth, Bounds.Minimum.Y, Bounds.Maximum.Y) : footprint;
+        internal ImmutableArray<SceneBounds> Footprint => footprint.IsDefault ? footprint = RailwayMeshes.Footprint(
+            Sample, Begin, End, 1, Bounds.Minimum.Y, Bounds.Maximum.Y) : footprint;
 
         internal Part Build(Part? previous = null, CancellationToken token = default)
         {

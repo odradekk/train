@@ -191,12 +191,14 @@ internal sealed class RailwayScene : IAsyncDisposable
     private void Connect(RailwaySegment segment)
     {
         var keys = segment.Geometry.Objects.ToImmutableDictionary(item => item.Id, item => item.Id.Value.ToString());
-        var footprint = segment.Heights.Count > 0
+        var start = segment.Index * RailwayCoordinates.SegmentLengthCells;
+        var end = Math.Min(path!.LengthCells, (segment.Index + 1) * RailwayCoordinates.SegmentLengthCells);
+        var footprint = (segment.Heights.Count > 0
             ? ConstructionFog.Columns(segment.Heights.Keys.Select(column => new GridColumn(
                 checked(column.X + (int)segment.Origin.X), checked(column.Z + (int)segment.Origin.Z))))
-            : ConstructionFog.Band(arc => path!.Sample(arc), segment.Index * RailwayCoordinates.SegmentLengthCells,
-                Math.Min(path!.LengthCells, (segment.Index + 1) * RailwayCoordinates.SegmentLengthCells),
-                RailwayCoordinates.TerrainHalfWidth(path.Edge.Tracks), -128, 128);
+            : ConstructionFog.Band(arc => path.Sample(arc), start, end,
+                RailwayCoordinates.TerrainHalfWidth(path.Edge.Tracks), -128, 128))
+            .AddRange(RailwayMeshes.Footprint(arc => path.Sample(arc), start, end, path.Edge.Tracks, -128, 128));
         segments[segment.Index] = new(segment, WorldSceneSession.Attach(new(segment.Geometry, keys),
             "segment:" + segment.Index + ":", objectId).Geometry, footprint);
         fogDirty = true;
