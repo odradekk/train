@@ -33,7 +33,7 @@ public sealed class SettlementReadViewTests
         var oldView = new CountingCoreReadView(previous.Core);
         Assert.AreNotSame(oldView, view);
         await using var session = new WorldSceneSession(new(Guid.NewGuid()), previous with { Core = oldView },
-            WorldSceneSession.Generate, new(), new(), RailwayFixtures.EmptyNode);
+            new(), new(), RailwayFixtures.EmptyNode);
         session.Observe(basis with { Core = view }, []);
         session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location));
         var request = new SceneFrameRequest(.5, null, SceneDebugLayer.None);
@@ -52,7 +52,7 @@ public sealed class SettlementReadViewTests
         var basis = NodeFixtures.Snapshot();
         var view = new CountingCoreReadView(basis.Core);
         await using var session = new WorldSceneSession(new(Guid.NewGuid()), basis with { Core = view },
-            WorldSceneSession.Generate, new(), new(), RailwayFixtures.EmptyNode);
+            new(), new(), RailwayFixtures.EmptyNode);
         session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location));
         var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
         var frame = await RailwayFixtures.Settled(session, request);

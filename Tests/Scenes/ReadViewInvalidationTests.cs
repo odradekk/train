@@ -20,7 +20,7 @@ public sealed class ReadViewInvalidationTests
         Assert.AreNotSame(initial.Core, changed.Core);
         Assert.AreEqual(initial.Core.Position.CompletedSteps, changed.Core.Position.CompletedSteps);
         Assert.AreEqual(initial.Core.Position.Sequence + 1, changed.Core.Position.Sequence);
-        await using var session = new WorldSceneSession(new(Guid.NewGuid()), initial, WorldSceneSession.Generate,
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), initial,
             new(), new(), RailwayFixtures.EmptyNode);
         session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location));
         var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);

@@ -606,7 +606,7 @@ public sealed class NodeSceneTests
         var founded = WithNeighbor(CopiedSettlement(1, terrain: false));
         var empty = RailwayFixtures.ReplaceCore(founded, node: founded.Core.World.Nodes[0] with
             { Occupant = new NodeOccupant.Empty(), Platforms = 0 });
-        await using var session = new WorldSceneSession(new(Guid.NewGuid()), empty, WorldSceneSession.Generate, new(), new(),
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), empty, new(), new(),
             (input, node, _, token) => new(NodeLayout.Build(input, node, token),
                 ImmutableDictionary<string, NodeScene.Part>.Empty.Add("ground", new("fixed",
                     WorldSceneSession.BuildGeometry(id => new([new(id(""), null, SceneFixtures.Identity, null, [], [], [])], [], [])),
@@ -658,7 +658,7 @@ public sealed class NodeSceneTests
         var empty = RailwayFixtures.ReplaceCore(founded, node: founded.Core.World.Nodes[0] with
             { Occupant = new NodeOccupant.Empty(), Platforms = 0 });
         var calls = 0;
-        await using var session = new WorldSceneSession(new(Guid.NewGuid()), empty, WorldSceneSession.Generate, new(), new(),
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), empty, new(), new(),
             (input, node, _, token) =>
             {
                 if (Interlocked.Increment(ref calls) > 1) throw new RailwayBuildException("founded layout failed");

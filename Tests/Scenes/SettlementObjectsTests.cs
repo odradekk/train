@@ -132,7 +132,7 @@ public sealed class SettlementObjectsTests
         var settlement = NodeFixtures.Settlement() with { Plots =
             [NodeFixtures.Settlement().Plots[0] with { Occupant = new PlotOccupant.Construction(new(77)) }] };
         var opened = Snapshot(settlement: settlement, node: NodeFixtures.Node(0));
-        await using var session = new WorldSceneSession(new(Guid.NewGuid()), opened, WorldSceneSession.Generate, new(), new(), RailwayFixtures.EmptyNode);
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), opened, new(), new(), RailwayFixtures.EmptyNode);
         Assert.IsInstanceOfType<SceneResult<SceneRequestId>.Success>(session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location)));
         var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
         var first = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(request, null)).Value;

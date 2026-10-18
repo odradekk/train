@@ -79,14 +79,16 @@ internal sealed class RailwayScene : IAsyncDisposable
         RefreshPath(snapshot);
         var trains = PlaceTrains(snapshot, start, request.Interpolation);
         var followed = target is WorldSceneTarget.Follow follow ? trains.First(item => item.Train.Id == follow.Train) : null;
-        var focal = Focal(target, followed);
+        var focal = followed is not null
+            ? followed.Members.First(item => item.Id == new InstanceId.Vehicle(((WorldSceneTarget.Follow)target).Vehicle)).CenterArc
+            : ((WorldLocation.Edge)WorldSceneSession.CurrentLocation(snapshot, target)).DistanceMeters * RailwayCoordinates.CellsPerMeter;
         var camera = request.Camera;
         var hasSameSpaceCamera = camera is not null && camera.Frame.Update.Frame.Space == stamp.Space;
-        if (target is WorldSceneTarget.Location && hasSameSpaceCamera)
+        if (target is not WorldSceneTarget.Follow && hasSameSpaceCamera)
             focal = path.Locate(RailwayCoordinates.Add(camera!.Frame.Origin, camera.Focus));
         var focus = path.Sample(focal).Position;
         var origin = focus;
-        if (target is not WorldSceneTarget.Location || hasSameSpaceCamera)
+        if (target is WorldSceneTarget.Follow || hasSameSpaceCamera)
         {
             var step = RailwayCoordinates.OriginStepCells;
             origin = new ScenePoint(Math.Floor(focus.X / step) * step, Math.Floor(focus.Y / step) * step, Math.Floor(focus.Z / step) * step);
@@ -118,10 +120,6 @@ internal sealed class RailwayScene : IAsyncDisposable
         ScheduleSegments(snapshot, focal, null, allowBuild);
         RetireCompletedWork();
     }
-
-    private static double Focal(WorldSceneTarget target, TrainPlacement? followed) => followed is not null
-        ? followed.Members.First(item => item.Id == new InstanceId.Vehicle(((WorldSceneTarget.Follow)target).Vehicle)).CenterArc
-        : ((WorldLocation.Edge)((WorldSceneTarget.Location)target).Value).DistanceMeters * RailwayCoordinates.CellsPerMeter;
 
     private int ScheduleSegments(SceneWorldSnapshot snapshot, double focal, TrainView? followed, bool allowBuild = true)
     {

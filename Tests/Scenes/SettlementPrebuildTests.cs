@@ -65,7 +65,7 @@ public sealed class SettlementPrebuildTests
             }
         } };
         await using var session = new WorldSceneSession(new(Guid.NewGuid()), snapshot,
-            WorldSceneSession.Generate, new(), new(), RailwayFixtures.EmptyNode);
+            new(), new(), RailwayFixtures.EmptyNode);
         var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
         var first = await Open(NodeFixtures.NodeId);
         var retained = await Open(NodeFixtures.NodeId);

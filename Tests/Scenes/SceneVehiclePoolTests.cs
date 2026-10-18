@@ -151,5 +151,44 @@ public sealed class SceneVehiclePoolTests
         Assert.IsNotNull(rebound.Reconcile(changed, instance, Id));
         Assert.AreEqual(1, builds, "A changed projection must rebuild even when the design hash remains the same.");
     }
+
+    [TestMethod]
+    public async Task InFlightBodyThatNoLongerMatchesTheCurrentInstanceIsDiscarded()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var builds = 0;
+        await using var pool = new SceneVehicles(build: (content, instance) =>
+        {
+            if (Interlocked.Increment(ref builds) == 1)
+            {
+                entered.Set();
+                release.Wait();
+            }
+            return RailwayVehicles.Build(content, instance);
+        });
+        var first = RailwayFixtures.Vehicle();
+        var second = RailwayFixtures.Vehicle(lengthCells: 16, design: new("other"));
+        var content = RailwayFixtures.Content(designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+        {
+            [first.Design] = new ContentLookup<DesignEvaluation>.Found(first),
+            [second.Design] = new ContentLookup<DesignEvaluation>.Found(second)
+        });
+        var instance = RailwayFixtures.Instance();
+        try
+        {
+            Assert.IsNull(pool.Reconcile(content, instance, Id));
+            Assert.IsTrue(entered.Wait(TimeSpan.FromSeconds(2)));
+            var updated = instance with { Design = second.Design };
+            Assert.IsNull(pool.Reconcile(content, updated, Id));
+            release.Set();
+            await SceneFixtures.AwaitPendingWork(pool.PendingWork);
+            Assert.IsNull(pool.Reconcile(content, updated, Id));
+            await SceneFixtures.AwaitPendingWork(pool.PendingWork);
+            Assert.IsNotNull(pool.Reconcile(content, updated, Id));
+            Assert.AreEqual(2, builds);
+        }
+        finally { release.Set(); }
+    }
 }
 

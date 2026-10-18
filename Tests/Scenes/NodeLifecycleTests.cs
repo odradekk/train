@@ -16,7 +16,7 @@ public sealed class NodeLifecycleTests
         (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(Request, displayed)).Value;
     private static WorldSceneSession Open(SceneWorldSnapshot snapshot,
         Func<SceneWorldSnapshot, NodeId, NodeScene.Cached?, CancellationToken, NodeScene.Built>? build = null) =>
-        new(new(Guid.NewGuid()), snapshot, WorldSceneSession.Generate, new(), new(), build);
+        new(new(Guid.NewGuid()), snapshot, new(), new(), build);
 
     [TestMethod]
     public async Task MissingRailwayAppearanceReturnsFailedFrameWithoutThrowingRequest()

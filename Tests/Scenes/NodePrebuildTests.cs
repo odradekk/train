@@ -19,7 +19,7 @@ public sealed class NodePrebuildTests
         var initial = RailwayFixtures.Snapshot(4, 4, 0, content: content,
             trains: [followed, second, leaving], instances: [.. instances]);
         await using var session = new WorldSceneSession(new(Guid.NewGuid()), initial,
-            WorldSceneSession.Generate, new(), new(), RailwayFixtures.EmptyNode);
+            new(), new(), RailwayFixtures.EmptyNode);
         var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
         try
         {
@@ -62,7 +62,7 @@ public sealed class NodePrebuildTests
                 trains: [RailwayFixtures.Train(0, direction: TravelDirection.Reverse, speed: 10)],
                 instances: [RailwayFixtures.Instance()]);
         await using var session = new WorldSceneSession(new(Guid.NewGuid()), snapshot,
-            WorldSceneSession.Generate, new(), new(), RailwayFixtures.EmptyNode);
+            new(), new(), RailwayFixtures.EmptyNode);
         var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
         try
         {
