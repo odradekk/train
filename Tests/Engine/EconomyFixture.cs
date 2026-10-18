@@ -174,7 +174,8 @@ internal static class EconomyFixture
             {
                 [new("fixture-vehicle")] = new ContentLookup<DesignEvaluation>.Missing([]),
                 [new("fixture-service-building")] = new ContentLookup<DesignEvaluation>.Found(ServiceBuilding()),
-                [new("fixture-plain-building")] = new ContentLookup<DesignEvaluation>.Found(PlainBuilding())
+                [new("fixture-plain-building")] = new ContentLookup<DesignEvaluation>.Found(PlainBuilding()),
+                [new("fixture-food-building")] = new ContentLookup<DesignEvaluation>.Found(FoodBuilding())
             }
         };
     }
@@ -200,6 +201,20 @@ internal static class EconomyFixture
         var design = new DesignInput(HostCoreScenario.Input,
             new(new("fixture-plain-building"), new("fixture-plain-composition"),
                 new DesignKind.Building(PlotSize.Small, BuildingKind.Production, []),
+                [new(new(1), new CoreDefinitionReference.Voxel(new("fixture:builder")), Food, 100, 1, new(1),
+                    [new PartCapability.Production(1)], false)],
+                100, 1, 1, new(1), [], [], 0, [], true, []), []);
+        return new(design.Design.Design, design.Design.Composition, definition, design,
+            new(null, null, null, true, null, null, [], [], [], [], []), true, []);
+    }
+
+    private static DesignEvaluation.Complete FoodBuilding()
+    {
+        var definition = new DesignDraft(new("食品建筑", ""),
+            new DesignSpecification.Building(PlotSize.Small, BuildingKind.Production, [FacilityTag.FoodProcessing]), new([], [], []));
+        var design = new DesignInput(HostCoreScenario.Input,
+            new(new("fixture-food-building"), new("fixture-food-composition"),
+                new DesignKind.Building(PlotSize.Small, BuildingKind.Production, [FacilityTag.FoodProcessing]),
                 [new(new(1), new CoreDefinitionReference.Voxel(new("fixture:builder")), Food, 100, 1, new(1),
                     [new PartCapability.Production(1)], false)],
                 100, 1, 1, new(1), [], [], 0, [], true, []), []);
