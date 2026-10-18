@@ -706,6 +706,50 @@ public sealed class NodeStreamingTests
     }
 
     [TestMethod]
+    [DataRow(1)]
+    [DataRow(8)]
+    [DataRow(64)]
+    public async Task Candidate_prefetch_starts_at_the_predicted_head_and_uses_the_shared_rate(int rate)
+    {
+        var layout = NodeFixtures.Layout with { Plots = [], SceneModel = NodeFixtures.Layout.SceneModel with
+        { Scene = SceneFixtures.Projection([]) with { OccupiedBounds = new(new(-640, 0, -640), new(639, 0, 639)) } } };
+        var train = RailwayFixtures.Train(0, direction: TravelDirection.Reverse, speed: 10) with { LengthMeters = 26 };
+        var snapshot = NodeFixtures.Snapshot(platforms: 0, trains: [train], platformLengthMeters: 0,
+            content: NodeFixtures.Content(layout: layout, design: RailwayFixtures.Vehicle(lengthCells: 52)));
+        long now = 0;
+        var rateWindow = new DisplayRate { Timestamp = () => now };
+        rateWindow.Update(0);
+        now = Stopwatch.Frequency;
+        rateWindow.Update(rate);
+        var started = new ConcurrentDictionary<GridColumn, byte>();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles, build: (data, from, old, token) =>
+        {
+            started[from] = 0;
+            return SmallPart(data, from, old, token);
+        }, displayRate: rateWindow);
+        await scene.BuildWork!;
+        do
+        {
+            scene.Pump(snapshot, enteringTrain: train);
+            await SceneFixtures.AwaitPendingWork(scene.PendingWork);
+        } while (scene.HasPendingBuilds);
+
+        var entry = scene.Layout!.EntryFor(new(1));
+        var approach = scene.Layout.Approach(entry, scene.Layout.Bypass);
+        var route = NodeRailPath.Join(approach.Inlet, approach.Branch);
+        // With no platform, the complete inbound path maps to the core's 80 m approach.
+        var mappedSpeed = route.Length / 80 * 10;
+        var lead = Math.Min(mappedSpeed * rate * .5, 320);
+        var predicted = new NodeRange(route.Sample(26 + lead).Position, 160);
+        var boundary = new NodeRange(scene.Layout.TrainBoundary(entry).Position, 160);
+        Assert.IsTrue(predicted.Chunks(scene.Layout).All(started.ContainsKey),
+            "The first candidate must build the circle ahead of the predicted head, using the session rate.");
+        Assert.IsTrue(started.Keys.All(from => boundary.Intersects(from) || predicted.Intersects(from)),
+            "The candidate must retain the existing two circles and capped lead.");
+    }
+
+    [TestMethod]
     public async Task Present_follow_uses_vehicle_node_coordinates_with_nonzero_origin()
     {
         var snapshot = Snapshot(true, nearVehicle: true);

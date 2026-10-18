@@ -254,15 +254,25 @@ internal sealed class NodeScene : IAsyncDisposable
             (bounds.Minimum.Y + bounds.Maximum.Y) / 2), NodeStreaming.PrefetchCells);
         prefetch = range;
     }
-    internal void Pump(SceneWorldSnapshot? current = null, ScenePoint? focus = null, bool allowBuild = true, EdgeId? enteringEdge = null,
+    internal void Pump(SceneWorldSnapshot? current = null, ScenePoint? focus = null, bool allowBuild = true, TrainView? enteringTrain = null,
         FollowedPath? following = null)
     {
         SetBuildAllowed(allowBuild);
-        followedPath = following;
         if (current is not null) snapshot = current;
+        if (cancellation.IsCancellationRequested || failure is not null) return;
+        if (enteringTrain is { Position: TrainPosition.Edge entering } && Layout is { } candidateLayout &&
+            candidateLayout.TrainEntry(entering.Id) is { } entry)
+        {
+            focus = candidateLayout.TrainBoundary(entry).Position;
+            var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(Node)).Value;
+            var crossing = new TrainPosition.Node(Node, entering.Id, null, NodeTravelPhase.Approaching, 0, null);
+            var path = new NodeTrainPath(candidateLayout, dimensions, crossing, candidateLayout.Bypass,
+                enteringTrain.LengthMeters * RailwayCoordinates.CellsPerMeter, AdjacentRailway);
+            following = FollowPath(path, enteringTrain, 0);
+        }
+        followedPath = following;
         if (focus is { } requestedFocus) range = new(requestedFocus, NodeStreaming.PrefetchCells);
         prefetch = new(following?.Ahead ?? range.Focus, NodeStreaming.PrefetchCells);
-        if (cancellation.IsCancellationRequested || failure is not null) return;
         var hadLayout = layout is not null;
         if (hadLayout) settlement.Pump(snapshot, layout!, range, allowBuild, prefetch);
         if (prepared is null && pending?.IsCompleted == true)
@@ -272,8 +282,6 @@ internal sealed class NodeScene : IAsyncDisposable
                 prepared = pending.GetAwaiter().GetResult();
                 built = prepared.Global;
                 if (layout is null) { layout = built.Layout; InitializeRange(layout); }
-                if (enteringEdge is { } edge && layout.Entries.FirstOrDefault(entry => entry.Edge == edge) is { } inlet)
-                    focus = layout.TrainBoundary(inlet).Position;
                 if (focus is { } initialFocus) range = new(initialFocus, NodeStreaming.PrefetchCells);
                 foreach (var part in built.Parts.OrderBy(item => item.Key, StringComparer.Ordinal)) Attach(part.Key, part.Value);
                 if (cache.Read(Node) is { } previous)
@@ -854,16 +862,7 @@ internal sealed class NodeScene : IAsyncDisposable
                 consumed += lengths[i] ?? 0;
                 var pose = RailwayVehicles.Pose(path.Sample(arc), origin, positive);
                 if (member.Id is InstanceId.Vehicle vehicleId && vehicleId.Id == followedVehicle)
-                {
-                    var speed = (path.Arc(distance + train.SpeedMetersPerSecond * SimulationTime.StepSeconds, queue) - center)
-                        / SimulationTime.StepSeconds;
-                    var ahead = NodeStreaming.AdvanceCells(speed, displayRate.Value);
-                    var halfLength = train.LengthMeters * RailwayCoordinates.CellsPerMeter / 2;
-                    var head = center + halfLength;
-                    following = new(path.Sample(Math.Clamp(head + ahead, 0, path.Length)).Position,
-                        SamplePath(path, center - halfLength, Math.Min(head + ahead, path.Length)),
-                        SamplePath(path, center - halfLength, Math.Min(head + NodeStreaming.ViewCells + NodeStreaming.PathSampleCells, path.Length)));
-                }
+                    following = FollowPath(path, train, distance, queue);
                 if (!known || !available)
                 {
                     Add(SceneVehicles.Unplaced(snapshot.Content, member, evaluations[i], lengths[i], pose, objectId));
@@ -881,6 +880,19 @@ internal sealed class NodeScene : IAsyncDisposable
         return following;
         void Add(RenderedDesign geometry)
         { objects.AddRange(geometry.Objects); picking.AddRange(geometry.Picking); problems.AddRange(geometry.Diagnostics); }
+    }
+
+    private FollowedPath FollowPath(NodeTrainPath path, TrainView train, double distance, double queue = 0)
+    {
+        var center = path.Arc(distance, queue);
+        var speed = (path.Arc(distance + train.SpeedMetersPerSecond * SimulationTime.StepSeconds, queue) - center)
+            / SimulationTime.StepSeconds;
+        var ahead = NodeStreaming.AdvanceCells(speed, displayRate.Value);
+        var halfLength = train.LengthMeters * RailwayCoordinates.CellsPerMeter / 2;
+        var head = center + halfLength;
+        return new(path.Sample(Math.Clamp(head + ahead, 0, path.Length)).Position,
+            SamplePath(path, center - halfLength, Math.Min(head + ahead, path.Length)),
+            SamplePath(path, center - halfLength, Math.Min(head + NodeStreaming.ViewCells + NodeStreaming.PathSampleCells, path.Length)));
     }
 
     private static ScenePoint[] SamplePath(NodeTrainPath path, double begin, double end)

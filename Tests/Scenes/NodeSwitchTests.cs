@@ -28,9 +28,10 @@ public sealed class NodeSwitchTests
     }
 
     [TestMethod]
-    public async Task Follow_candidate_prebuilds_only_handover_range()
+    public async Task Follow_candidate_prebuilds_the_head_path_within_the_handover_range()
     {
-        var source = NodeFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 });
+        var source = NodeFixtures.Content(design: RailwayFixtures.Vehicle(lengthCells: 52),
+            rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 });
         var layout = NodeFixtures.Layout with
         {
             Plots = [],
@@ -54,7 +55,7 @@ public sealed class NodeSwitchTests
             SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
             { [new(1)] = new ContentLookup<SettlementLayoutProjection>.Found(layout) }
         };
-        var initial = NodeFixtures.Snapshot(platforms: 0, trains: [RailwayFixtures.Train(0, direction: TravelDirection.Reverse)], content: content,
+        var initial = NodeFixtures.Snapshot(platforms: 0, trains: [RailwayFixtures.Train(0, direction: TravelDirection.Reverse) with { LengthMeters = 26 }], content: content,
             tracks: 2, trackLimit: 2, platformLengthMeters: 0);
         var cache = new NodeScene.Cache();
         await using var session = new WorldSceneSession(new(Guid.NewGuid()), initial, WorldSceneSession.Generate, new(), cache);
@@ -73,11 +74,17 @@ public sealed class NodeSwitchTests
         var expectedNear = new NodeRange(entry, NodeStreaming.PrefetchCells).Chunks(expectedLayout)
             .Where(near.Intersects).Select(NodeScene.ChunkKey).ToArray();
         var actualNear = cache.Read(NodeFixtures.NodeId)!.Parts.Keys.Where(key => key.StartsWith("terrain:", StringComparison.Ordinal)).ToArray();
-        CollectionAssert.AreEquivalent(expectedNear, actualNear,
-            $"Entry {entry}; extra {string.Join(',', actualNear.Except(expectedNear))}; missing {string.Join(',', expectedNear.Except(actualNear))}");
+        Assert.IsTrue(expectedNear.All(actualNear.Contains), "Prefetch from the head must keep the boundary near circle built.");
+        var approach = expectedLayout.Approach(inlet, expectedLayout.Bypass);
+        var route = NodeRailPath.Join(approach.Inlet, approach.Branch);
+        var front = route.Sample(26 + 64 * RailwayCoordinates.CellsPerMeter).Position;
+        var forwardChunks = new NodeRange(front, 0).Chunks(expectedLayout).Select(NodeScene.ChunkKey).ToArray();
+        Assert.IsTrue(forwardChunks.Length > 0 && Math.Pow(front.X - entry.X, 2) + Math.Pow(front.Z - entry.Z, 2) > NodeStreaming.NearCells * NodeStreaming.NearCells,
+            "The first displayed path ahead must reach beyond the boundary near circle.");
+        Assert.IsTrue(forwardChunks.All(actualNear.Contains), "The candidate must admit the first train head's 64m path before switching.");
         var railSegments = NodeScene.Prepare(initial, expectedLayout).Rails;
-        CollectionAssert.AreEquivalent(railSegments.Values.Where(segment => near.Intersects(segment.Bounds)).Select(segment => segment.Key).ToArray(),
-            cache.Read(NodeFixtures.NodeId)!.Parts.Keys.Where(railSegments.ContainsKey).ToArray());
+        Assert.IsTrue(railSegments.Values.Where(segment => near.Intersects(segment.Bounds))
+            .All(segment => cache.Read(NodeFixtures.NodeId)!.Parts.ContainsKey(segment.Key)));
 
         var train = ((Lookup<TrainView>.Found)initial.Core.FindTrain(new(1))).Value;
         session.Observe(NodeFixtures.Snapshot(platforms: 0, trains: [train with

@@ -381,9 +381,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         {
             if (candidate?.Node is { } candidateNode)
             {
-                var entry = candidateNode.Layout?.Entries.FirstOrDefault(item => item.Edge == railway?.Edge);
-                candidateNode.Pump(snapshot, entry is null ? null : candidateNode.Layout!.TrainBoundary(entry).Position,
-                    allowBuild, railway?.Edge);
+                candidateNode.Pump(snapshot, allowBuild: allowBuild, enteringTrain: train);
             }
             if (wanted is WorldLocation.Edge atEdge) candidate?.Railway?.Pump(snapshot, atEdge, allowBuild);
             if (candidate?.Node?.Failed == true || candidate?.Railway?.Failed == true)
