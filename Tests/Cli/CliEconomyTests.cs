@@ -119,6 +119,10 @@ public sealed partial class CliProcessTests
                 JsonSerializer.Serialize(resumed.Samples, Recipe.Json));
             Assert.AreEqual(JsonSerializer.Serialize(continuous.CommandReceipts.Where(receipt => receipt.CommandIndex >= 3), Recipe.Json),
                 JsonSerializer.Serialize(resumed.CommandReceipts, Recipe.Json));
+            Assert.AreEqual(JsonSerializer.Serialize(continuous.GoodsTransfers.Where(transfer =>
+                    transfer.Position.CompletedSteps > boundary.CompletedSteps
+                    || transfer.Position.CompletedSteps == boundary.CompletedSteps && transfer.Position.Sequence > boundary.Sequence), Recipe.Json),
+                JsonSerializer.Serialize(resumed.GoodsTransfers, Recipe.Json));
             var initial = continuous.Samples[0];
             var beforeTrade = continuous.Samples.Single(sample => sample.Position == boundary);
             var final = continuous.Samples[^1];
@@ -145,6 +149,10 @@ public sealed partial class CliProcessTests
             Assert.AreEqual(-run.PurchasePayments, run.NetCashFlow);
             Assert.AreEqual(24L, initial.Wallet - beforeTrade.Wallet);
             Assert.AreEqual(run.PurchasePayments, beforeTrade.Wallet - final.Wallet);
+            Assert.AreEqual(run.PurchasePayments, continuous.GoodsTransfers.Where(transfer => transfer.Action == "Buy")
+                .Sum(transfer => transfer.ActualAmount));
+            Assert.AreEqual(1L, continuous.GoodsTransfers.Single(transfer => transfer.Action == "Unload").Quantity);
+            Assert.AreEqual(1L, continuous.GoodsTransfers.Single(transfer => transfer.Action == "Load").Quantity);
         }
         catch
         {
