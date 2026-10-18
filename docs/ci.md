@@ -67,6 +67,6 @@ Linux 的所有必需步骤失败均传播到 job，不使用 `continue-on-error
 
 摘要发布和上传步骤使用 `always()`；失败后仍执行，取消时尽可能收集已产生文件。强制终止 runner 或上传服务不可用时不能保证上传。入口非零状态直接传递给步骤；快速、集成和显式 correctness 失败会令 job 失败，常规选择的 Godot 准备和独立引擎步骤均暂用 `continue-on-error`。Godot 下载失败时准备步骤的失败可见，引擎被选中时引擎步骤也报告缺环境；若其他必需步骤成功，常规 job 仍为绿色。后续上传不改变这些规则。工具准备失败仍尝试入口，让所选检查报告缺环境；若连 PowerShell 都未准备好，只保留已产生的环境记录与 Actions 原始日志，不宣称执行通过。
 
-Windows job 上限为 30 分钟，为工具下载、构建与检查预留时间，并结束卡住的任务；Linux 上限见[Linux runner](#linux-夜间运行)。当前检查的实际耗时以各次运行摘要为准。
+Windows job 上限为 40 分钟，为工具下载、构建与检查预留时间，并结束卡住的任务；入口预算合计与 job 上限的关系见[执行与边界](run-tests.md#执行与边界)，Linux 上限见[Linux runner](#linux-夜间运行)。当前检查的实际耗时以各次运行摘要为准。
 
 私有仓库的 Windows 托管运行消耗付费 Actions 分钟，包含全层的 correctness 路径要求显式请求。测试证据与复用规则见 [Testing standard](implement-sop.md#testing-standard)。
