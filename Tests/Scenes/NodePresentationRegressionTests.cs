@@ -11,8 +11,6 @@ namespace Train.Scenes.Tests;
 [TestClass]
 public sealed class NodePresentationRegressionTests
 {
-    private static readonly SceneFrameStamp Stamp = new(new(Guid.Empty), new(1), new(1), 1);
-
     [TestMethod]
     public async Task Moving_focus_after_near_completion_keeps_attached_objects_and_partial_readiness()
     {
@@ -21,7 +19,7 @@ public sealed class NodePresentationRegressionTests
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var block = false;
         await using var vehicles = new SceneVehicles();
-        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), Ids(), vehicles,
+        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), Ids(), vehicles, new(),
             buildChunk: (data, from, old, token) =>
             {
                 if (block) { entered.TrySetResult(); release.Wait(token); }
@@ -29,13 +27,13 @@ public sealed class NodePresentationRegressionTests
             });
         try
         {
-            await Settle(scene, default);
+            await Settle(scene, snapshot, default);
             var first = Present(scene, snapshot);
             Assert.AreEqual(SceneReadiness.Ready, first.Readiness);
             Assert.IsTrue(first.Objects.Length > 0);
             block = true;
             var request = new SceneFrameRequest(1, new(first, new(160, 0, 0)), SceneDebugLayer.None);
-            var moved = scene.Present(snapshot, request, Stamp, first, default);
+            var moved = scene.Present(snapshot, request, NodeFixtures.NextStamp(scene), first, default);
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.AreEqual(SceneReadiness.Partial, moved.Readiness);
             Assert.IsTrue(moved.Objects.Any(item => first.Objects.Any(previous => previous.Id == item.Id)),
@@ -57,13 +55,13 @@ public sealed class NodePresentationRegressionTests
             release.Wait();
             return RailwayVehicles.Build(content, instance);
         });
-        await using var scene = new NodeScene(initial, NodeFixtures.NodeId, new(), Ids(), vehicles, buildChunk: (data, from, old, token) => Terrain(data, from, old, token));
+        await using var scene = new NodeScene(initial, NodeFixtures.NodeId, new(), Ids(), vehicles, new(), buildChunk: (data, from, old, token) => Terrain(data, from, old, token));
         try
         {
-            await Settle(scene, default);
+            await Settle(scene, initial, default);
             var first = Present(scene, initial);
             Assert.AreEqual(SceneReadiness.Ready, first.Readiness);
-            var next = scene.Present(arriving, new(1, null, SceneDebugLayer.None), Stamp, first, default);
+            var next = scene.Present(arriving, new(1, null, SceneDebugLayer.None), NodeFixtures.NextStamp(scene), first, default);
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.AreEqual(SceneReadiness.Partial, next.Readiness);
             Assert.IsTrue(next.Objects.Any(item => first.Objects.Any(previous => previous.Id == item.Id)));
@@ -109,9 +107,9 @@ public sealed class NodePresentationRegressionTests
         var range = new NodeRange(probe.Focus, NodeStreaming.PrefetchCells);
         Assert.IsFalse(range.Intersects(bounds), "The object must be outside the selection range.");
         await using var vehicles = new SceneVehicles();
-        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), Ids(), vehicles,
+        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), Ids(), vehicles, new(),
             buildChunk: (data, from, old, token) => Terrain(data, from, old, token, probe.Point));
-        await Settle(scene, probe.Focus);
+        await Settle(scene, snapshot, probe.Focus);
         var frame = Present(scene, snapshot);
         Assert.IsInstanceOfType<Lookup<double>.Found>(frame.TerrainHeight(probe.Point.X, probe.Point.Z),
             "The terrain beneath the omitted object is already built.");
@@ -139,15 +137,25 @@ public sealed class NodePresentationRegressionTests
         return new(data.ChunkInputs(from), geometry, ImmutableDictionary<GridColumn, double>.Empty.Add(new(position.X, position.Z), -1));
     }
 
-    private static async Task Settle(NodeScene scene, ScenePoint focus)
+    private static async Task Settle(NodeScene scene, SceneWorldSnapshot snapshot, ScenePoint focus)
     {
         await scene.BuildWork!;
-        do { scene.Pump(focus: focus); await SceneFixtures.AwaitPendingWork(scene.PendingWork); scene.Pump(focus: focus); }
-        while (scene.PendingWork.Length > 0);
+        var state = NodeFixtures.Displays.GetValue(scene, static _ => new());
+        SceneFrame? frame = null;
+        int previousObjects;
+        do
+        {
+            previousObjects = frame?.Objects.Length ?? -1;
+            scene.Pump(focus: focus);
+            await SceneFixtures.AwaitPendingWork(scene.PendingWork);
+            frame = scene.Present(snapshot, new(1, null, SceneDebugLayer.None), NodeFixtures.NextStamp(scene), state.Displayed, default);
+            if (frame.Readiness is SceneReadiness.Partial or SceneReadiness.Ready) state.Displayed = frame;
+        } while (scene.HasPendingBuilds || frame.Readiness is SceneReadiness.Loading || frame.Objects.Length != previousObjects);
     }
 
     private static SceneFrame Present(NodeScene scene, SceneWorldSnapshot snapshot) =>
-        scene.Present(snapshot, new(1, null, SceneDebugLayer.None), Stamp, null, default);
+        // The caller requested a full replacement; internal settle receipts must not change its delta base.
+        scene.Present(snapshot, new(1, null, SceneDebugLayer.None), NodeFixtures.NextStamp(scene), null, default);
 
     private static Func<string, SceneObjectId> Ids()
     {

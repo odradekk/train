@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Diagnostics;
 using System.Numerics;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
@@ -9,7 +8,7 @@ namespace Train.Scenes;
 
 internal sealed class RailwayScene : IAsyncDisposable
 {
-    private sealed record ConnectedSegment(RailwaySegment Source, RenderedDesign Geometry);
+    private sealed record ConnectedSegment(RailwaySegment Source, RenderedDesign Geometry, ImmutableArray<SceneBounds> Footprint);
     private sealed record SegmentWork(Task<RailwaySegment> Task, CancellationTokenSource Cancellation);
     private sealed record MemberPlacement(InstanceId Id, InstanceView Instance,
         ContentLookup<DesignEvaluation> Design, int? Length, double CenterArc, double TrackArc);
@@ -41,9 +40,11 @@ internal sealed class RailwayScene : IAsyncDisposable
     private RailwayPath? path;
     private SceneProblem? failure;
     private bool waitingSegments;
-    private double lastRealSeconds = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
-    private double lastSimulationSeconds;
-    private double displayRate = 1;
+    private bool fogDirty = true;
+    private ImmutableArray<SceneFog> segmentFog = [];
+    private ImmutableArray<SceneFog> translatedFog = [];
+    private ScenePoint? fogOrigin;
+    private readonly DisplayRate displayRate;
     internal EdgeId Edge { get; }
     internal RailwayPath? Path => path;
     internal bool Failed => failure is not null;
@@ -51,16 +52,16 @@ internal sealed class RailwayScene : IAsyncDisposable
     internal Task[] PendingWork => pendingSegments.Values.Select(item => (Task)item.Task).Concat(vehicles.PendingWork)
         .Concat(retiredSegments.Where(item => !item.Task.IsCompleted).Select(item => item.Task)).ToArray();
 
-    internal RailwayScene(SceneWorldSnapshot initial, EdgeId edge, RailwayCache cache, Func<string, SceneObjectId> objectId, SceneVehicles vehicles,
+    internal RailwayScene(SceneWorldSnapshot initial, EdgeId edge, RailwayCache cache, Func<string, SceneObjectId> objectId, SceneVehicles vehicles, DisplayRate displayRate,
         Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null)
     {
         this.cache = cache;
         this.vehicles = vehicles;
+        this.displayRate = displayRate;
         Edge = edge;
         owner = cache.OpenSession(edge);
         this.objectId = objectId;
         this.build = build ?? RailwayTerrain.Build;
-        lastSimulationSeconds = initial.Core.Position.CompletedSteps * SimulationTime.StepSeconds;
         try { path = new RailwayPath(initial, edge, cancellation.Token); }
         catch (RailwayBuildException error) { Fail(error); }
     }
@@ -89,9 +90,10 @@ internal sealed class RailwayScene : IAsyncDisposable
             origin = new ScenePoint(Math.Floor(focus.X / step) * step, Math.Floor(focus.Y / step) * step, Math.Floor(focus.Z / step) * step);
         }
         origin = switchedOrigin ?? origin;
-        var (middle, minimum, maximum) = ScheduleSegments(snapshot, focal, followed?.Train, seconds);
+        displayRate.Update(seconds);
+        var middle = ScheduleSegments(snapshot, focal, followed?.Train);
         var frame = new FrameContents();
-        RenderSegments(origin, minimum, maximum, frame);
+        RenderSegments(origin, frame);
         var waiting = false;
         try { waiting = RenderTrains(snapshot.Content, trains, origin, frame); }
         catch (RailwayBuildException error) { Fail(error); }
@@ -110,7 +112,7 @@ internal sealed class RailwayScene : IAsyncDisposable
     {
         if (path is null) return;
         var focal = location.DistanceMeters * RailwayCoordinates.CellsPerMeter;
-        ScheduleSegments(snapshot, focal, null, snapshot.Core.Position.CompletedSteps * SimulationTime.StepSeconds, allowBuild);
+        ScheduleSegments(snapshot, focal, null, allowBuild);
         RetireCompletedWork();
     }
 
@@ -118,34 +120,24 @@ internal sealed class RailwayScene : IAsyncDisposable
         ? followed.Members.First(item => item.Id == new InstanceId.Vehicle(((WorldSceneTarget.Follow)target).Vehicle)).CenterArc
         : ((WorldLocation.Edge)((WorldSceneTarget.Location)target).Value).DistanceMeters * RailwayCoordinates.CellsPerMeter;
 
-    private (int Middle, int Minimum, int Maximum) ScheduleSegments(SceneWorldSnapshot snapshot, double focal, TrainView? followed, double seconds, bool allowBuild = true)
+    private int ScheduleSegments(SceneWorldSnapshot snapshot, double focal, TrainView? followed, bool allowBuild = true)
     {
         var middle = Math.Clamp((int)(focal / RailwayCoordinates.SegmentLengthCells), 0, path!.SegmentCount - 1);
-        UpdateDisplayRate(seconds);
         var (minimum, maximum) = NeededRange(middle, followed);
-        ReconcileSegments(snapshot, middle, minimum, maximum, allowBuild);
-        return (middle, minimum, maximum);
+        ReconcileSegments(snapshot, middle, minimum, maximum, followed, allowBuild);
+        return middle;
     }
 
     private void Fail(RailwayBuildException error) => failure =
         new("build_failed", SceneStage.Build, new WorldObjectId.Edge(Edge), null, null, null, error.Message);
 
-    private void UpdateDisplayRate(double seconds)
-    {
-        var now = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
-        if (seconds > lastSimulationSeconds && now > lastRealSeconds)
-            displayRate = Math.Clamp((seconds - lastSimulationSeconds) / (now - lastRealSeconds), 1, RailwayCoordinates.MaximumDisplayRate);
-        lastSimulationSeconds = seconds;
-        lastRealSeconds = now;
-    }
-
-    private (int Minimum, int Maximum) NeededRange(int middle, TrainView? followed)
+    private (int Minimum, int Maximum) NeededRange(int middle, TrainView? followed, int? ahead = null)
     {
         var direction = followed?.Position is TrainPosition.Edge { Direction: TravelDirection.Reverse } ? -1 : 1;
-        var ahead = PrefetchSegments(followed?.SpeedMetersPerSecond ?? 0, displayRate);
+        var count = ahead ?? PrefetchSegments(followed?.SpeedMetersPerSecond ?? 0, displayRate.Value);
         var radius = RailwayCoordinates.ViewRadiusSegments;
-        return (Math.Max(0, middle - radius - (direction < 0 ? ahead : 0)),
-            Math.Min(path!.SegmentCount - 1, middle + radius + (direction > 0 ? ahead : 0)));
+        return (Math.Max(0, middle - radius - (direction < 0 ? count : 0)),
+            Math.Min(path!.SegmentCount - 1, middle + radius + (direction > 0 ? count : 0)));
     }
 
     internal static int PrefetchSegments(double speed, double rate) => Math.Clamp((int)Math.Ceiling(Math.Abs(speed) *
@@ -157,20 +149,23 @@ internal sealed class RailwayScene : IAsyncDisposable
         var position = (TrainPosition.Edge)train.Position;
         var edge = ((Lookup<EdgeView>.Found)snapshot.Core.FindEdge(position.Id)).Value.Map;
         var remaining = position.Direction == TravelDirection.Forward ? edge.LengthMeters - position.DistanceMeters : position.DistanceMeters;
-        return remaining * RailwayCoordinates.CellsPerMeter <= PrefetchSegments(train.SpeedMetersPerSecond, displayRate) * RailwayCoordinates.SegmentLengthCells
+        return remaining * RailwayCoordinates.CellsPerMeter <= PrefetchSegments(train.SpeedMetersPerSecond, displayRate.Value) * RailwayCoordinates.SegmentLengthCells
             ? new(position.Direction == TravelDirection.Forward ? edge.End : edge.Start) : null;
     }
 
-    private void ReconcileSegments(SceneWorldSnapshot snapshot, int middle, int minimum, int maximum, bool allowBuild)
+    private void ReconcileSegments(SceneWorldSnapshot snapshot, int middle, int minimum, int maximum, TrainView? followed, bool allowBuild)
     {
-        foreach (var index in pendingSegments.Keys.Where(index => index < minimum || index > maximum).ToArray())
+        var (retainMinimum, retainMaximum) = NeededRange(middle, followed,
+            followed is null ? 0 : RailwayCoordinates.MaxPrefetchSegments);
+        foreach (var index in pendingSegments.Keys.Where(index => index < retainMinimum || index > retainMaximum).ToArray())
         {
             var work = pendingSegments[index];
             work.Cancellation.Cancel();
             retiredSegments.Add(work);
             pendingSegments.Remove(index);
         }
-        foreach (var index in segments.Keys.Where(index => index < minimum || index > maximum).ToArray()) segments.Remove(index);
+        foreach (var index in segments.Keys.Where(index => index < retainMinimum || index > retainMaximum).ToArray())
+        { segments.Remove(index); fogDirty = true; }
         foreach (var pair in pendingSegments.Where(pair => pair.Value.Task.IsCompleted).ToArray())
         {
             pendingSegments.Remove(pair.Key);
@@ -196,23 +191,57 @@ internal sealed class RailwayScene : IAsyncDisposable
     private void Connect(RailwaySegment segment)
     {
         var keys = segment.Geometry.Objects.ToImmutableDictionary(item => item.Id, item => item.Id.Value.ToString());
-        segments[segment.Index] = new(segment, WorldSceneSession.Attach(new(segment.Geometry, keys), "segment:" + segment.Index + ":", objectId).Geometry);
+        var start = segment.Index * RailwayCoordinates.SegmentLengthCells;
+        var end = Math.Min(path!.LengthCells, (segment.Index + 1) * RailwayCoordinates.SegmentLengthCells);
+        var footprint = (segment.Heights.Count > 0
+            ? ConstructionFog.Columns(segment.Heights.Keys.Select(column => new GridColumn(
+                checked(column.X + (int)segment.Origin.X), checked(column.Z + (int)segment.Origin.Z))))
+            : ConstructionFog.Band(arc => path.Sample(arc), start, end,
+                RailwayCoordinates.TerrainHalfWidth(path.Edge.Tracks), -128, 128))
+            .AddRange(RailwayMeshes.Footprint(arc => path.Sample(arc), start, end, path.Edge.Tracks, -128, 128));
+        segments[segment.Index] = new(segment, WorldSceneSession.Attach(new(segment.Geometry, keys),
+            "segment:" + segment.Index + ":", objectId).Geometry, footprint);
+        fogDirty = true;
     }
 
-    private void RenderSegments(ScenePoint origin, int minimum, int maximum, FrameContents frame)
+    private void RenderSegments(ScenePoint origin, FrameContents frame)
     {
-        foreach (var item in segments.OrderBy(item => item.Key).Select(item => item.Value))
+        foreach (var pair in segments.OrderBy(item => item.Key))
+        {
+            var item = pair.Value;
             frame.Add(SceneGeometry.Place(item.Geometry, new(RailwayCoordinates.Relative(item.Source.Origin, origin), Quaternion.Identity)));
-        foreach (var index in Enumerable.Range(minimum, maximum - minimum + 1).Where(index => !segments.ContainsKey(index)))
-            AddFog(index * RailwayCoordinates.SegmentLengthCells, Math.Min(path!.LengthCells, (index + 1) * RailwayCoordinates.SegmentLengthCells), origin, frame);
-        if (minimum > 0) AddFog(0, minimum * RailwayCoordinates.SegmentLengthCells, origin, frame);
-        if (maximum < path!.SegmentCount - 1) AddFog((maximum + 1) * RailwayCoordinates.SegmentLengthCells, path.LengthCells, origin, frame);
-    }
+        }
+        if (fogDirty)
+        {
+            var fog = ImmutableArray.CreateBuilder<SceneFog>();
+            var footprint = segments.Values.SelectMany(segment => segment.Footprint).ToArray();
+            var end = 0d;
+            foreach (var index in segments.Keys.Order())
+            {
+                var start = index * RailwayCoordinates.SegmentLengthCells;
+                if (start > end) AddFog(end, start);
+                end = Math.Min(path!.LengthCells, (index + 1) * RailwayCoordinates.SegmentLengthCells);
+            }
+            if (end < path!.LengthCells) AddFog(end, path.LengthCells);
+            segmentFog = fog.ToImmutable();
+            fogDirty = false;
+            fogOrigin = null;
 
-    private void AddFog(double begin, double end, ScenePoint origin, FrameContents frame)
-    {
-        var halfWidth = RailwayCoordinates.FogHalfWidth(path!.Edge.Tracks);
-        frame.Fog.Add(new(path!.Bounds(begin, end, origin, halfWidth), new(begin, end, halfWidth)));
+            void AddFog(double begin, double finish)
+            {
+                var width = RailwayCoordinates.FogHalfWidth(path!.Edge.Tracks);
+                foreach (var bounds in ConstructionFog.Clip([path.Bounds(begin, finish, default, width)], footprint))
+                    fog.Add(new(bounds, new(begin, finish, width)));
+            }
+        }
+        if (fogOrigin != origin)
+        {
+            var shift = RailwayCoordinates.Relative(default, origin);
+            translatedFog = segmentFog.Select(region => region with
+            { Bounds = new(region.Bounds.Minimum + shift, region.Bounds.Maximum + shift) }).ToImmutableArray();
+            fogOrigin = origin;
+        }
+        frame.Fog.AddRange(translatedFog);
     }
 
     private ImmutableArray<TrainPlacement> PlaceTrains(SceneWorldSnapshot snapshot, SceneWorldSnapshot? previous, double interpolation)

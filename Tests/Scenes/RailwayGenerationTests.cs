@@ -107,6 +107,51 @@ public sealed class RailwayGenerationTests
     }
 
     [TestMethod]
+    public async Task CurvedGapFogExcludesAttachedColumnsAndReusesTheUnchangedFootprint()
+    {
+        var snapshot = RailwayFixtures.Snapshot(600, 28.224, relief: 0, tracks: 3, trackLimit: 3);
+        var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
+        var columns = Enumerable.Range(256, 128).SelectMany(arc => new[] { -2d, 0, 2 }.Select(offset =>
+        {
+            var point = path.Sample(arc, offset).Position;
+            return new GridColumn((int)Math.Floor(point.X), (int)Math.Floor(point.Z));
+        })).Distinct().ToImmutableDictionary(column => column, _ => 0d);
+        using var release = new ManualResetEventSlim();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = RailwayFixtures.Controlled(snapshot, vehicles, (input, railway, index, token) =>
+        {
+            if (index != 2) release.Wait(token);
+            var part = RailwayFixtures.EmptySegment(input, railway, index, token);
+            return index == 2 ? part with { Origin = default, Heights = columns } : part;
+        });
+        var target = new WorldSceneTarget.Location(new WorldLocation.Edge(RailwayFixtures.Edge, 128));
+        var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
+        var stamp = new SceneFrameStamp(new(Guid.NewGuid()), new(1), new(1), 1);
+        try
+        {
+            scene.Present(snapshot, null, target, request, stamp, null);
+            await Task.WhenAny(scene.PendingWork);
+            var frame = scene.Present(snapshot, null, target, request, stamp with { Revision = 2 }, null);
+            var fog = frame.Update.Environment.FoggedRegions;
+            foreach (var column in columns.Keys)
+            {
+                var x = column.X - frame.Origin.X;
+                var z = column.Z - frame.Origin.Z;
+                var overlap = fog.FirstOrDefault(box => box.Minimum.X < x + 1 - 1e-4 && box.Maximum.X > x + 1e-4 &&
+                    box.Minimum.Z < z + 1 - 1e-4 && box.Maximum.Z > z + 1e-4);
+                Assert.IsNull(overlap, $"Fog must exclude column {column} at origin {frame.Origin}; overlap {overlap}.");
+            }
+            var gap = RailwayCoordinates.Relative(path.Sample(192).Position, frame.Origin);
+            Assert.IsTrue(fog.Any(box => gap.X >= box.Minimum.X && gap.X < box.Maximum.X &&
+                gap.Z >= box.Minimum.Z && gap.Z < box.Maximum.Z), "The unloaded curve must remain fogged.");
+            var unchanged = scene.Present(snapshot, null, target, request, stamp with { Revision = 3 }, frame);
+            Assert.AreSame(fog[0], unchanged.Update.Environment.FoggedRegions[0],
+                "An unchanged attached set and origin must reuse fog boxes.");
+        }
+        finally { release.Set(); }
+    }
+
+    [TestMethod]
     public void HorizontalRayThroughUnloadedCurveCannotPickKnownCubeBehindIt()
     {
         var path = new RailwayPath(RailwayFixtures.Snapshot(600, 28.224, relief: 0, tracks: 3, trackLimit: 3), RailwayFixtures.Edge);

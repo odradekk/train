@@ -51,7 +51,7 @@ public sealed class DebugLineTests
             return id;
         }
         await using var vehicles = new SceneVehicles();
-        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), ObjectId, vehicles,
+        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), ObjectId, vehicles, new(),
             (input, node, previous, token) =>
             {
                 entered.SetResult(); release.Wait(token);

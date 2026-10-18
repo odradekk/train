@@ -62,7 +62,71 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Changed_preparation_scope_releases_pending_textures_before_budget_return()
+    public async Task Candidate_keeps_its_leases_until_commit_and_reuses_displayed_visuals_in_the_next_target()
+    {
+        await new UiTestInput(TestScene).Frames(2);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        var kept = Png("candidate-kept-texture");
+        var obsolete = Png("candidate-obsolete-texture");
+        var content = new FixedContentView { Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>>
+        {
+            [kept.Revision] = new ContentLookup<ContentAsset>.Found(kept),
+            [obsolete.Revision] = new ContentLookup<ContentAsset>.Found(obsolete)
+        } };
+        using var display = Attach(cache, content);
+        var first = Frame(1, [Object(1, Mesh())]);
+        Commit(display, first);
+        var oldRoot = display.Objects[new(1)].Root;
+        await new UiTestInput(TestScene).Frames(1);
+        using var keptLease = cache.AcquireFaceTexture(kept);
+        using var obsoleteLease = cache.AcquireFaceTexture(obsolete);
+        var keptTexture = keptLease.Value;
+        var obsoleteTexture = obsoleteLease.Value;
+        var keptMesh = Mesh(new SceneMaterial.Voxel(kept.Revision, MaterialCategory.BareMetal, null));
+        var oldFog = ImmutableArray.Create(new SceneBounds(new(10, 0, 0), new(11, 1, 1)));
+        var oldLines = ImmutableArray.Create(new SceneDebugLine(new(1, 0, 0), new(2, 0, 0), new(1, 0, 0, 1)));
+        var candidate = Frame(2, [Object(2, keptMesh), Object(3,
+            Mesh(new SceneMaterial.Voxel(obsolete.Revision, MaterialCategory.BareMetal, null))), Object(4, Mesh())],
+            first.Update.Frame, fog: oldFog, debugLines: oldLines);
+        long timestamp = 0;
+        display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency / 500;
+        Require(display.Prepare(candidate) is null, "Preparing two textures must exhaust this frame's resource budget.");
+        keptLease.Dispose();
+        obsoleteLease.Dispose();
+        Require(GodotObject.IsInstanceValid(keptTexture) && GodotObject.IsInstanceValid(obsoleteTexture),
+            "Pending visuals must own both texture leases after the observers release them.");
+        var fog = ImmutableArray.Create(new SceneBounds(new(20, 0, 0), new(22, 2, 2)));
+        var lines = ImmutableArray.Create(new SceneDebugLine(new(3, 0, 0), new(4, 0, 0), new(0, 1, 0, 1)));
+        var latest = Frame(3, [Object(2, keptMesh, new(30, 0, 0)), Object(5, Mesh()), Object(6, Mesh())],
+            first.Update.Frame, removed: [new(1), new(3), new(4)], fog: fog, debugLines: lines);
+        await new UiTestInput(TestScene).Frames(1);
+        display.Timestamp = () => timestamp;
+        using (var prepared = Prepare(display, latest))
+        {
+            Require(ReferenceEquals(prepared.Frame, candidate), "A newer frame must not replace the locked candidate.");
+            Require(prepared.Fog.Regions.SequenceEqual(oldFog) && prepared.DebugLines!.Lines.SequenceEqual(oldLines),
+                "Fog and debug lines must belong to the locked candidate.");
+            prepared.Commit();
+        }
+        var retained = display.Objects[new(2)].Visuals[0];
+        Require(display.Objects.ContainsKey(new(3)) && display.Objects.ContainsKey(new(4)) &&
+            !display.Objects.ContainsKey(new(5)) && GodotObject.IsInstanceValid(obsoleteTexture),
+            "The candidate must commit its complete object set and pending leases.");
+        await new UiTestInput(TestScene).Frames(1);
+        using (var prepared = Prepare(display, Frame(4, latest.Update.Upserts, candidate.Update.Frame,
+            removed: [new(1), new(3), new(4)], fog: fog, debugLines: lines))) prepared.Commit();
+        Require(ReferenceEquals(retained, display.Objects[new(2)].Visuals[0]) && display.Objects.Count == 3,
+            "The next target must reuse a compatible displayed visual.");
+        Require(!GodotObject.IsInstanceValid(oldRoot) && !GodotObject.IsInstanceValid(obsoleteTexture) &&
+            GodotObject.IsInstanceValid(keptTexture), "Retirement must release obsolete resources while keeping reused leases.");
+        Near(display.Objects[new(2)].Root.Position, new(30, 0, 0));
+        using var arrays = display.Root.GetNode<MeshInstance3D>("DebugLines").Mesh.SurfaceGetArrays(0);
+        Near(arrays[(int)Godot.Mesh.ArrayType.Vertex].AsVector3Array()[0], new(3, 0, 0));
+    }
+
+    [Test]
+    public async Task Changed_preparation_scope_releases_pending_textures_before_return()
     {
         await new UiTestInput(TestScene).Frames(2);
         using var dispatcher = new GodotMainThreadDispatcher();
@@ -87,14 +151,16 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
                 "纹理对象准备后必须暂停。");
             observer.Dispose();
             Require(GodotObject.IsInstanceValid(texture), "待用资源必须持有纹理。");
-            var latest = Frame(3, [Object(2, textured), Object(3, Mesh())],
+            var latest = Frame(3, [Object(2, Mesh()), Object(3, Mesh())],
                 @base: changed == "base" ? first.Update.Frame : null,
                 space: changed == "space" ? 2UL : 1UL,
                 session: changed == "session" ? new SceneSessionId(Guid.Parse("248c5802-f435-49f4-84fa-2dc3777779a0")) : null,
                 request: changed == "request" ? 2UL : 1UL);
-            Require(display.Prepare(latest) is null, "范围变化后的新候选仍须遵守单项推进预算。");
+            using var prepared = display.Prepare(latest);
+            Require((prepared is not null) == (changed is "session" or "space"),
+                "新空间首帧必须一次准备完；同空间的范围变化仍须遵守预算。");
             Require(!GodotObject.IsInstanceValid(texture),
-                $"{changed} 变化必须在预算提前返回前释放旧候选的待用纹理。");
+                $"{changed} 变化必须在返回前释放旧候选的待用纹理。");
             display.CancelPreparation();
         }
         Require(ReferenceEquals(display.DisplayedFrame, first) && display.Objects.Count == 0,
@@ -135,7 +201,7 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Cross_space_loading_anchors_old_geometry_and_subject_moves_its_children()
+    public async Task Cross_space_loading_anchors_old_geometry_then_first_operable_frame_ignores_budget()
     {
         await new UiTestInput(TestScene).Frames(2);
         using var dispatcher = new GodotMainThreadDispatcher();
@@ -161,9 +227,44 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         Near(display.Objects[new(3)].Root.GlobalPosition, new(-70, 0, 0));
         long timestamp = 0;
         display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
-        Require(display.Prepare(latest) is null && ReferenceEquals(display.DisplayedFrame, first),
-            "完整替换准备期间必须保留旧网格基准。");
+        using var prepared = display.Prepare(latest);
+        Require(prepared is not null && ReferenceEquals(display.DisplayedFrame, first),
+            "切换空间的首个可操作帧必须一次准备完，提交前保留旧网格基准。");
         Require(ReferenceEquals(display.PoseFrame, latest), "旧几何必须使用最新完整替换帧的姿态。");
+        prepared!.Commit();
+        Require(ReferenceEquals(display.DisplayedFrame, latest) && display.Objects.Keys.ToHashSet().SetEquals([new(4), new(5)]),
+            "新空间必须原子提交全部对象并移除旧空间。");
+        var subsequent = Frame(4, [Object(6, Mesh()), Object(7, Mesh())], latest.Update.Frame, space: 2);
+        Require(display.Prepare(subsequent) is null && ReferenceEquals(display.DisplayedFrame, latest),
+            "新空间后续帧必须恢复预算，保持已提交的完整显示。");
+        await new UiTestInput(TestScene).Frames(2);
+    }
+
+    [Test]
+    public async Task Initial_loading_then_first_operable_frame_ignores_budget_and_subsequent_frames_restore_it()
+    {
+        await new UiTestInput(TestScene).Frames(2);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView(), completeInitialFrame: true);
+        long timestamp = 0;
+        display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
+        Require(display.Prepare(Frame(1, [], readiness: SceneReadiness.Loading)) is null &&
+            display.DisplayedFrame is null && !display.IsPreparing,
+            "首次 Loading 不得开始准备或提交显示。");
+        var first = Frame(2, [Object(1, Mesh()), Object(2, Mesh())]);
+        using (var prepared = display.Prepare(first))
+        {
+            Require(prepared is not null && display.DisplayedFrame is null,
+                "首次可操作候选必须忽略预算一次准备完，提交前不得提前显示。");
+            prepared!.Commit();
+        }
+        Require(ReferenceEquals(display.DisplayedFrame, first) &&
+            display.Objects.Keys.ToHashSet().SetEquals([new(1), new(2)]),
+            "首次可操作候选必须原子提交全部对象。");
+        var subsequent = Frame(3, [Object(3, Mesh()), Object(4, Mesh())], first.Update.Frame);
+        Require(display.Prepare(subsequent) is null && ReferenceEquals(display.DisplayedFrame, first),
+            "首次提交后的同空间候选必须恢复预算并保留完整显示。");
         await new UiTestInput(TestScene).Frames(2);
     }
 
@@ -175,12 +276,16 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         using var cache = new AssetResourceCache(dispatcher);
         using var first = Attach(cache, new FixedContentView());
         using var second = Attach(cache, new FixedContentView());
+        var baseline = Frame(0, []);
+        Commit(first, baseline);
+        Commit(second, baseline);
         long timestamp = 0;
         first.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
         var processFrame = Godot.Engine.GetProcessFrames();
-        Require(first.Prepare(Frame(1, [Object(1, Mesh()), Object(2, Mesh())])) is null,
+        Require(first.Prepare(Frame(1, [Object(1, Mesh()), Object(2, Mesh())], baseline.Update.Frame)) is null,
             "先调用的显示器必须先耗尽当前进程帧的预算。");
-        var candidate = Frame(2, [Object(1, Mesh()), Object(2, Mesh()), Object(3, Mesh())]);
+        var candidate = Frame(2, [Object(1, Mesh()), Object(2, Mesh()), Object(3, Mesh())], baseline.Update.Frame,
+            fog: [new(new(10, 0, 0), new(11, 1, 1))]);
         for (var call = 0; call < 3; call++)
         {
             using var partial = second.Prepare(candidate);
@@ -619,9 +724,9 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         Require(!GodotObject.IsInstanceValid(reloaded), "空完整帧没有释放最后模型材质。");
     }
 
-    private SceneDisplay Attach(AssetResourceCache cache, FixedContentView content)
+    private SceneDisplay Attach(AssetResourceCache cache, FixedContentView content, bool completeInitialFrame = false)
     {
-        var display = new SceneDisplay(cache, content) { Timestamp = () => 0 };
+        var display = new SceneDisplay(cache, content, completeInitialFrame) { Timestamp = () => 0 };
         TestScene.AddChild(display.Root);
         return display;
     }
