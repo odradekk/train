@@ -51,6 +51,36 @@ public sealed class FoundingTests
     }
 
     [TestMethod]
+    public void Preview_accepts_assembly_on_a_founding_design_the_world_has_not_seen()
+    {
+        using var generated = Session();
+        var assembly = new GoodId.Assembly(new(new string('A', 64)));
+        var unseen = new DesignHash(new string('8', 64));
+        var content = generated.State.Content;
+        var shed = content.Designs.Single(d => d.Design == Shed);
+        var template = content.SettlementTemplates[0];
+        content = content with
+        {
+            Designs = content.Designs.Add(shed with
+            {
+                Design = unseen,
+                BillOfMaterials = shed.BillOfMaterials.Add(new(assembly, 1)),
+                BillOfMaterialsItemCount = shed.BillOfMaterialsItemCount + 1
+            }),
+            DesignGoods = [content.Goods[0] with { Good = assembly, RawGood = false }],
+            SettlementTemplates = [template with
+            {
+                FoundingBuildings = template.FoundingBuildings.Select(b => b.Design == Shed ? b with { Design = unseen } : b).ToImmutableArray()
+            }]
+        };
+        using var session = new CoreSession(generated.State with { Content = content });
+        Assert.IsFalse(session.State.World.DesignGoods.Any(g => g.Good == assembly));
+        var preview = WorldFixture.Success(session.Read().PreviewSettlement(Node(session)));
+        Assert.IsFalse(preview.Blockers.Any(p => p.Code == "content_missing"));
+        Assert.IsTrue(preview.RequiredMaterials.Any(g => g.Good == assembly));
+    }
+
+    [TestMethod]
     [DataRow("goods", "insufficient_goods")]
     [DataRow("node", "node_occupied")]
     [DataRow("lair", "node_occupied")]
