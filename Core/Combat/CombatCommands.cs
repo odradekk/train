@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Train.Core.Contracts;
+using Train.Core.Railway;
 using Train.Core.Sessions;
 using Train.Core.World;
 
@@ -86,22 +87,23 @@ internal static class CombatCommands
         var (combat, index) = found.Value;
         var state = combat.Controllers[index];
         if (state.Retreating) return Accepted(content, world);
-        var rule = content.CombatRules.SingleOrDefault(r => r.Id == world.Source.Configuration.Rules.Combat);
-        if (rule is null) return Reject("content_missing", "CombatRule");
+        var rule = CombatRules.Rule(world, content);
         var steps = WorldResources.IntervalSteps(rule.RetreatSeconds)
             ?? throw new InvalidOperationException("战斗规则脱离时长超出可表示范围。");
         var controllers = combat.Controllers.SetItem(index, state with
         {
             Retreating = true, RemainingDisengagementSteps = steps
         });
-        var events = CombatQueries.Units(world, controller)
-            .Select(unit => (CoreEvent)new CoreEvent.CombatRetreatStarted(combat.Id, unit, steps)).ToImmutableArray();
-        return new CommandEffect.Accepted(content, events, world with
+        var events = ImmutableArray.CreateBuilder<CoreEvent>();
+        foreach (var unit in CombatQueries.Units(world, controller))
+            events.Add(new CoreEvent.CombatRetreatStarted(combat.Id, unit, steps));
+        var retreated = TrainOperations.ChangeActivity(train with { SpeedMetersPerSecond = 0 },
+            TrainActivity.Retreating, events);
+        return new CommandEffect.Accepted(content, events.ToImmutable(), world with
         {
             Combats = world.Combats.Select(c => c.Id == combat.Id ? combat with { Controllers = controllers } : c)
                 .ToImmutableArray(),
-            Trains = world.Trains.Select(t => t.Id == trainId
-                ? t with { Activity = TrainActivity.Retreating, SpeedMetersPerSecond = 0 } : t).ToImmutableArray()
+            Trains = world.Trains.Select(t => t.Id == trainId ? retreated : t).ToImmutableArray()
         });
     }
 
@@ -109,8 +111,9 @@ internal static class CombatCommands
     {
         var combat = world.Combats.SingleOrDefault(c => c.Id == focus.Combat);
         if (combat is null) return Reject("object_missing", "Combat", new WorldObjectId.Combat(focus.Combat));
-        if (CombatQueries.Controller(world, focus.Controller) is not { } located || located.Combat.Id != combat.Id)
-            return Reject("invalid_state", "Controller", Subject(focus.Controller));
+        if (focus.Controller is CombatController.Train trainController
+            && !world.Trains.Any(t => t.Id == trainController.Id))
+            return Reject("object_missing", "Controller", Subject(focus.Controller));
         if (focus.Controller is CombatController.Settlement settlement)
         {
             var state = world.Settlements.SingleOrDefault(s => s.Id == settlement.Id);
@@ -118,9 +121,8 @@ internal static class CombatCommands
             if (state.Relation != SettlementRelation.PlayerOwned)
                 return Reject("not_owned", "Controller", Subject(focus.Controller));
         }
-        if (focus.Controller is CombatController.Train trainController
-            && !world.Trains.Any(t => t.Id == trainController.Id))
-            return Reject("object_missing", "Controller", Subject(focus.Controller));
+        if (CombatQueries.Controller(world, focus.Controller) is not { } located || located.Combat.Id != combat.Id)
+            return Reject("invalid_state", "Controller", Subject(focus.Controller));
         if (CombatQueries.Target(focus.Target) is not { } target)
             return Reject("invalid_state", "Target", focus.Target);
         if (!CombatQueries.Exists(world, target))

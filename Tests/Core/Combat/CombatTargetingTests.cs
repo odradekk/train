@@ -60,6 +60,57 @@ public sealed class CombatTargetingTests
         Assert.AreEqual(station, Target(hit.Target));
     }
 
+    [TestMethod]
+    public void Ties_choose_the_canonical_unit_order()
+    {
+        using var session = CombatFixture.SessionWithContent(SettlementDamage(100));
+        var hostile = CombatFixture.HostileNode(session);
+        var train = new TrainId(1);
+        CombatFixture.Accepted(session.Submit(new CoreCommand.SetTrainEngagement(train,
+            new(TargetPriority.LowestDurability, TargetScope.All, EncounterAction.Engage, 0)), CommandSource.AutomationTest));
+        CombatFixture.Send(session, hostile, train);
+        var events = CombatFixture.AdvanceUntil(session, view => view.World.Combats.Any());
+        Assert.AreEqual(Station(session, hostile), TrainTarget(session, train, events));
+    }
+
+    [TestMethod]
+    public void Focus_fire_rejects_missing_controllers_and_invalid_targets()
+    {
+        using var session = CombatFixture.SessionWithContent(CombatFixture.Content(damage: 1));
+        var hostile = CombatFixture.HostileNode(session);
+        var train = new TrainId(1);
+        CombatFixture.Send(session, hostile, train);
+        CombatFixture.AdvanceUntil(session, view => view.World.Combats.Any());
+        var combat = session.Read().World.Combats.Single();
+        var own = new WorldObjectId.Instance(new InstanceId.Vehicle(Train(session, train).Vehicles[0]));
+        var station = new WorldObjectId.Instance(Station(session, hostile));
+        var other = OtherBuilding(session, hostile);
+        AssertRejected(session, new CoreCommand.FocusFire(combat.Id, new CombatController.Train(new(999)), own),
+            "object_missing", "Controller");
+        AssertRejected(session, new CoreCommand.FocusFire(combat.Id, new CombatController.Train(train), own),
+            "invalid_state", "Target");
+        AssertRejected(session, new CoreCommand.FocusFire(combat.Id, new CombatController.Train(train), station),
+            "invalid_state", "Target");
+        AssertRejected(session, new CoreCommand.FocusFire(combat.Id, new CombatController.Train(train),
+            new WorldObjectId.Instance(other)), "invalid_state", "Target");
+    }
+
+    private static void AssertRejected(ICoreSession session, CoreCommand command, string code, string field)
+    {
+        var result = (SubmissionResult.Completed)session.Submit(command, CommandSource.AutomationTest);
+        var rejected = (CommandDecision.Rejected)result.Receipt.Decision;
+        Assert.AreEqual(code, rejected.Problems.Single().Code);
+        Assert.AreEqual(field, rejected.Problems.Single().Field);
+        Assert.IsNull(session.Read().Fault);
+    }
+
+    private static InstanceId OtherBuilding(ICoreSession session, NodeId hostile)
+        => session.Read().World.Nodes.Where(node => node.Id != hostile && node.Occupant is NodeOccupant.Settlement)
+            .Select(node => session.Read().FindLocation(new WorldLocation.Node(node.Id)))
+            .OfType<Lookup<LocationView>.Found>().SelectMany(value => value.Value.Instances)
+            .First(instance => instance is InstanceId.Building);
+
+
     private static CoreSession Session(CoreContentProjection content, TargetPriority priority)
     {
         var session = CombatFixture.SessionWithContent(content);

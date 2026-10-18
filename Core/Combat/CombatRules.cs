@@ -18,9 +18,15 @@ internal static class CombatRules
     internal static bool Armed(WorldState world, CoreContentProjection content, InstanceState instance)
     {
         var design = world.Designs.Single(d => d.Design == instance.Design);
-        return design.Parts.Any(part => part.Capabilities.Any(capability => capability is PartCapability.Weapon)
-            && !InstanceCapabilities.DefinitionMissing(world, content, design.Design, part)
-            && Math.Min(instance.Parts.Single(p => p.Id == part.Id).Current, part.MaxDurability) > 0);
+        for (var index = 0; index < design.Parts.Length; index++)
+        {
+            var part = design.Parts[index];
+            if (part.Capabilities.Any(capability => capability is PartCapability.Weapon)
+                && !InstanceCapabilities.DefinitionMissing(world, content, design.Design, part)
+                && Math.Min(instance.Parts[index].Current, part.MaxDurability) > 0)
+                return true;
+        }
+        return false;
     }
 
     internal static bool Valid(TrainEngagementRules rules) => rules is not null

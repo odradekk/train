@@ -43,11 +43,14 @@ internal static class CombatOperations
             }
         }
 
-        foreach (var node in world.Nodes.Where(node => world.Combats.All(combat =>
-                     combat.Location is not WorldLocation.Node location || location.Id != node.Id)))
+        foreach (var nodeId in world.Trains.Select(train => train.Position).OfType<TrainPosition.Node>()
+                     .Select(position => position.Id).Distinct().ToArray())
         {
+            if (world.Combats.Any(combat => combat.Location is WorldLocation.Node location && location.Id == nodeId))
+                continue;
+            var node = world.Nodes.Single(item => item.Id == nodeId);
             var groups = Groups(world, node);
-            if (!HasAttack(world, content, groups)) continue;
+            if (!HasAttacker(world, content, groups)) continue;
             if (world.Next.Combat == ulong.MaxValue)
                 throw new InvalidOperationException("战斗身份已耗尽。");
             var controllers = groups.Select(group => new CombatControllerState(group.Controller, step, false, 0, null))
@@ -67,7 +70,7 @@ internal static class CombatOperations
 
         foreach (var combat in world.Combats.ToArray())
         {
-            if (HasAttacker(world, content, combat)) continue;
+            if (HasAttacker(world, content, CombatGroups(world, combat))) continue;
             events.Add(new CoreEvent.CombatEnded(combat.Id, combat.Location,
                 new CombatSummary(combat.StartedAtStep, step, combat.Sides)));
             foreach (var state in combat.Controllers)
@@ -118,7 +121,11 @@ internal static class CombatOperations
         return groups.OrderBy(group => CombatQueries.ControllerKey(group.Controller)).ToImmutableArray();
     }
 
-    private static bool HasAttack(WorldState world, CoreContentProjection content, ImmutableArray<Group> groups)
+    private static ImmutableArray<Group> CombatGroups(WorldState world, CombatState combat)
+        => combat.Controllers.Select(state => new Group(state.Controller, CombatQueries.Units(world, state.Controller),
+            Scope(world, state.Controller), state.Retreating)).ToImmutableArray();
+
+    private static bool HasAttacker(WorldState world, CoreContentProjection content, ImmutableArray<Group> groups)
     {
         foreach (var attacker in groups.Where(group => !group.Retreat))
             foreach (var target in groups.Where(target => target.Controller != attacker.Controller))
@@ -130,27 +137,12 @@ internal static class CombatOperations
         return false;
     }
 
-    private static bool HasAttacker(WorldState world, CoreContentProjection content, CombatState combat)
+    private static TargetScope Scope(WorldState world, CombatController controller) => controller switch
     {
-        foreach (var state in combat.Controllers.Where(state => !state.Retreating))
-        {
-            var scope = state.Controller switch
-            {
-                CombatController.Train train => world.Trains.Single(t => t.Id == train.Id).Engagement.Scope,
-                CombatController.Settlement settlement => world.Settlements.Single(s => s.Id == settlement.Id).Engagement.Scope,
-                _ => throw new InvalidOperationException("战斗控制方种类无效。")
-            };
-            foreach (var unit in CombatQueries.Units(world, state.Controller)
-                         .Where(unit => CombatQueries.Armed(world, content, unit)))
-                foreach (var target in combat.Controllers.Where(target => target.Controller != state.Controller))
-                    foreach (var other in CombatQueries.Units(world, target.Controller)
-                                 .Where(other => CombatQueries.Hostile(world, unit, other)
-                                     && CombatQueries.Hittable(world, content, other)
-                                     && (scope == TargetScope.All || CombatQueries.Armed(world, content, other))))
-                        return true;
-        }
-        return false;
-    }
+        CombatController.Train train => world.Trains.Single(t => t.Id == train.Id).Engagement.Scope,
+        CombatController.Settlement settlement => world.Settlements.Single(s => s.Id == settlement.Id).Engagement.Scope,
+        _ => throw new InvalidOperationException("战斗控制方种类无效。")
+    };
 
     private static WorldState Apply(WorldState world, CoreContentProjection content, CombatId id, Group group,
         ulong step, ImmutableArray<CoreEvent>.Builder events)

@@ -95,6 +95,24 @@ public sealed class CombatStartTests
         Assert.IsNull(session.Read().Fault);
     }
 
+    [TestMethod]
+    public void Retreat_command_emits_the_activity_change()
+    {
+        using var session = CombatFixture.Session(damage: 1);
+        var hostile = CombatFixture.HostileNode(session);
+        var train = new TrainId(1);
+        CombatFixture.Send(session, hostile, train);
+        CombatFixture.AdvanceUntil(session, view => view.World.Combats.Any());
+        var result = (SubmissionResult.Completed)session.Submit(new CoreCommand.Retreat(train), CommandSource.AutomationTest);
+        Assert.IsInstanceOfType<CommandDecision.Accepted>(result.Receipt.Decision);
+        var changed = result.Events.Select(envelope => envelope.Event).OfType<CoreEvent.TrainActivityChanged>()
+            .Single(value => value.Train == train);
+        Assert.AreEqual(TrainActivity.Combat, changed.Before);
+        Assert.AreEqual(TrainActivity.Retreating, changed.After);
+        Assert.IsTrue(result.Events.Select(envelope => envelope.Event).OfType<CoreEvent.CombatRetreatStarted>()
+            .Any(value => value.Unit is CombatUnitId.Instance));
+    }
+
     private static CombatView Combat(ICoreSession session, CombatId id)
         => ((Lookup<CombatView>.Found)session.Read().FindCombat(id)).Value;
 

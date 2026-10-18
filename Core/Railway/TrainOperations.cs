@@ -258,11 +258,12 @@ internal static class TrainOperations
     {
         train = dispatch.FixExit(train);
         var position = (TrainPosition.Node)train.Position;
-        if (position.Phase == NodeTravelPhase.Departing && train.QueueEnteredStep is not null)
+        if (position.Phase == NodeTravelPhase.Departing && train.QueueEnteredStep is not null
+            && train.Activity is TrainActivity.Waiting or TrainActivity.Combat)
         {
             if (dispatch.Capabilities(train).DepartureProblem(train.Id, Rule(world, content).MinimumAcceleration) is { } blocked)
                 return ChangeActivity(train with { QueueEnteredStep = null }, TrainActivity.Waiting, events, [blocked]);
-            return ChangeActivity(train, TrainActivity.Waiting, events);
+            return train.Activity == TrainActivity.Waiting ? train : ChangeActivity(train, TrainActivity.Waiting, events);
         }
         if (position.Phase != NodeTravelPhase.Departing)
         {

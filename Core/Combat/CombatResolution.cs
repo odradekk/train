@@ -17,11 +17,11 @@ internal static class CombatResolution
         foreach (var controller in combat.Controllers.Where(state => !state.Retreating))
         {
             var scope = Scope(world, controller.Controller);
+            var target = ChooseTarget(world, content, combat, controller, scope);
+            if (target is not { } selected) continue;
             foreach (var unit in CombatQueries.Units(world, controller.Controller)
                          .Where(unit => CombatQueries.Armed(world, content, unit)))
             {
-                var target = ChooseTarget(world, content, combat, controller, scope);
-                if (target is not { } selected) continue;
                 foreach (var weapon in Weapons(world, content, unit))
                 {
                     var interval = WorldResources.IntervalSteps(weapon.Interval)
@@ -62,9 +62,11 @@ internal static class CombatResolution
             foreach (var (key, damage) in partDamage.Where(pair => pair.Key.Instance == instanceId)
                          .OrderBy(pair => pair.Key.Part.Value))
             {
-                var specification = design.Parts.Single(part => part.Id == key.Part);
-                var index = parts.Select((part, position) => (part, position))
-                    .Single(item => item.part.Id == key.Part).position;
+                var index = -1;
+                for (var position = 0; position < design.Parts.Length; position++)
+                    if (design.Parts[position].Id == key.Part) { index = position; break; }
+                if (index < 0) throw new InvalidOperationException("受损部件不在设计部件表中。");
+                var specification = design.Parts[index];
                 var current = parts[index].Current;
                 var remaining = Math.Max(0, Math.Min(current, specification.MaxDurability));
                 var applied = Math.Min(damage, remaining);
@@ -76,8 +78,8 @@ internal static class CombatResolution
             }
             var structure = Math.Max(0, Math.Min(instance.StructureDurability, design.MaxStructureDurability));
             var incoming = checked(structureDamage.GetValueOrDefault(instanceId) + overflow);
-            var nextStructure = Math.Max(0, structure - incoming);
-            if (structure > 0 && nextStructure == 0)
+            var nextStructure = incoming > 0 ? Math.Max(0, structure - incoming) : instance.StructureDurability;
+            if (incoming > 0 && structure > 0 && nextStructure == 0)
                 destroyedUnits.Add(new DestroyedUnit.Instance(Reference(instance, design, combat.Location)));
             instances = instances.Select(item => item.Id == instanceId ? item with
             {
@@ -105,10 +107,11 @@ internal static class CombatResolution
         if (unit is not CombatUnitId.Instance { Id: var id }) yield break;
         var instance = world.Instances.Single(i => i.Id == id);
         var design = world.Designs.Single(d => d.Design == instance.Design);
-        foreach (var part in design.Parts.OrderBy(part => part.Id.Value))
+        for (var index = 0; index < design.Parts.Length; index++)
         {
+            var part = design.Parts[index];
             if (InstanceCapabilities.DefinitionMissing(world, content, design.Design, part)
-                || Math.Min(instance.Parts.Single(p => p.Id == part.Id).Current, part.MaxDurability) <= 0)
+                || Math.Min(instance.Parts[index].Current, part.MaxDurability) <= 0)
                 continue;
             var weapon = part.Capabilities.OfType<PartCapability.Weapon>().SingleOrDefault();
             if (weapon is not null) yield return (part.Id, weapon.Damage, weapon.IntervalSeconds);
@@ -118,9 +121,10 @@ internal static class CombatResolution
     private static CombatUnitId? ChooseTarget(WorldState world, CoreContentProjection content, CombatState combat,
         CombatControllerState controller, TargetScope scope)
     {
+        var attacker = CombatQueries.Units(world, controller.Controller).First();
         var candidates = combat.Controllers.Where(state => state.Controller != controller.Controller)
             .SelectMany(state => CombatQueries.Units(world, state.Controller))
-            .Where(unit => CombatQueries.Hostile(world, CombatQueries.Units(world, controller.Controller).First(), unit)
+            .Where(unit => CombatQueries.Hostile(world, attacker, unit)
                 && (scope == TargetScope.All || CombatQueries.Armed(world, content, unit))
                 && CombatQueries.Hittable(world, content, unit)).ToArray();
         if (controller.FocusTarget is { } focus && candidates.Contains(focus)) return focus;
@@ -354,10 +358,10 @@ internal static class CombatResolution
     {
         var combat = world.Combats.Single(c => c.Id == id);
         var sides = combat.Sides;
-        var index = sides.Select((side, position) => (side, position))
-            .FirstOrDefault(item => item.side.Owner == owner).position;
-        var side = index < sides.Length && sides[index].Owner == owner
-            ? sides[index] : new CombatSideSummary(owner, [], [], [], new(0));
+        var index = -1;
+        for (var position = 0; position < sides.Length; position++)
+            if (sides[position].Owner == owner) { index = position; break; }
+        var side = index >= 0 ? sides[index] : new CombatSideSummary(owner, [], [], [], new(0));
         var mergedUnits = side.UnitsLost.AddRange(units)
             .OrderBy(unit => unit is DestroyedUnit.Instance instance
                 ? CombatQueries.UnitKey(new CombatUnitId.Instance(instance.Value.Instance))
@@ -367,8 +371,7 @@ internal static class CombatResolution
             .ThenBy(part => part.Part.Value).ToImmutableArray();
         var mergedCargo = Merge(side.CargoLost, cargo);
         side = side with { UnitsLost = mergedUnits, PartsLost = mergedParts, CargoLost = mergedCargo };
-        sides = index < sides.Length && sides[index].Owner == owner
-            ? sides.SetItem(index, side)
+        sides = index >= 0 ? sides.SetItem(index, side)
             : sides.Add(side).OrderBy(item => OwnerKey(item.Owner)).ToImmutableArray();
         world = world with
         {
