@@ -18,8 +18,11 @@ public sealed class ConstructionCommandRecordingTests
         Assert.AreEqual(payload, CoreCommandEncoding.Encode(Decode(payload)));
         Assert.IsInstanceOfType<CoreResult<DecodedCommand>.Failure>(CoreCommandEncoding.Decode(payload.Replace("[4,2]", "[4,0]")));
         Assert.IsInstanceOfType<CoreResult<DecodedCommand>.Failure>(CoreCommandEncoding.Decode(payload.Replace("\"priority\":-3", "\"priority\":-3,\"extra\":1")));
-        Assert.ThrowsExactly<NotImplementedException>(() => CoreCommandEncoding.Encode(new CoreCommand.StartOwnedJob(
-            new JobRequest.Repair(new(new(7), CapabilityKind.Construction), new InstanceId.Building(new(8)), [], 0))));
+        const string building = """{"input_format_version":2,"kind":"construction.start_owned","request":{"kind":"repair_building","facility":{"building":7,"capability":"construction"},"building":8,"sources":[4,2],"priority":-3}}""";
+        var buildingRepair = new CoreCommand.StartOwnedJob(new JobRequest.Repair(new(new(7), CapabilityKind.Construction),
+            new InstanceId.Building(new(8)), [new(4), new(2)], -3));
+        Assert.AreEqual(building, CoreCommandEncoding.Encode(buildingRepair));
+        Assert.AreEqual(building, CoreCommandEncoding.Encode(Decode(building)));
     }
 
     [TestMethod]
@@ -105,6 +108,7 @@ public sealed class ConstructionCommandRecordingTests
         CoreCommand[] commands =
         [
             new CoreCommand.ApplyInstanceDesign(new InstanceId.Vehicle(new(8)), change),
+            new CoreCommand.ApplyInstanceDesign(new InstanceId.Building(new(8)), change),
             new CoreCommand.StartOwnedJob(new JobRequest.Refit(new(new(7), CapabilityKind.Construction), new InstanceId.Vehicle(new(8)), change, [new(4), new(2)], -3)),
             new CoreCommand.CommissionVehicleWork(new JobRequest.Refit(new(new(7), CapabilityKind.Construction), new InstanceId.Vehicle(new(8)), change, [new(4), new(2)], -3), new(123))
         ];
@@ -123,12 +127,19 @@ public sealed class ConstructionCommandRecordingTests
             Assert.AreEqual(change.Target.InputIdentity, decoded.Target.InputIdentity);
             Assert.AreEqual(change.RemovedItems.Single().Good, decoded.RemovedItems.Single().Good);
             Assert.AreEqual(change.ChangedItemCount, decoded.ChangedItemCount);
-            var prefix = command is CoreCommand.ApplyInstanceDesign
+            var prefix = command is CoreCommand.ApplyInstanceDesign { Instance: InstanceId.Building }
+                ? "{\"input_format_version\":2,\"kind\":\"instance.apply_design\",\"building\":8,\"change\":{"
+                : command is CoreCommand.ApplyInstanceDesign
                 ? "{\"input_format_version\":2,\"kind\":\"instance.apply_design\",\"vehicle\":8,\"change\":{"
                 : command is CoreCommand.StartOwnedJob
                     ? "{\"input_format_version\":2,\"kind\":\"construction.start_owned\",\"request\":{\"kind\":\"refit_vehicle\",\"facility\":{\"building\":7,\"capability\":\"construction\"},\"vehicle\":8,\"change\":{"
                     : "{\"input_format_version\":2,\"kind\":\"construction.commission_vehicle_work\",\"request\":{\"kind\":\"refit_vehicle\",\"facility\":{\"building\":7,\"capability\":\"construction\"},\"vehicle\":8,\"change\":{";
             StringAssert.StartsWith(payload, prefix);
+            if (command is CoreCommand.ApplyInstanceDesign { Instance: InstanceId.Vehicle })
+            {
+                var both = (CoreResult<DecodedCommand>.Failure)CoreCommandEncoding.Decode(payload.Replace("\"vehicle\":8", "\"vehicle\":8,\"building\":8"));
+                Assert.AreEqual("/building", both.Problems.Single().Field);
+            }
             var invalid = (CoreResult<DecodedCommand>.Failure)CoreCommandEncoding.Decode(payload.Replace("\"changed_item_count\":2", "\"changed_item_count\":2,\"changed_item_count\":2"));
             Assert.AreEqual(command is CoreCommand.ApplyInstanceDesign ? "/change" : "/request/change", invalid.Problems.Single().Field);
             Assert.IsInstanceOfType<CoreResult<DecodedCommand>.Failure>(CoreCommandEncoding.Decode(payload.Replace("\"changed_item_count\":2", "\"changed_item_count\":-1")));
@@ -158,6 +169,29 @@ public sealed class ConstructionCommandRecordingTests
             Assert.AreEqual("invalid_state", result.Problems.Single().Code);
             Assert.AreEqual(field, result.Problems.Single().Field);
         }
+    }
+
+    [TestMethod]
+    public void Build_building_and_equipment_round_trip_and_remain_recording_dependencies()
+    {
+        var input = Input('D');
+        CoreCommand[] commands =
+        [
+            new CoreCommand.StartOwnedJob(new JobRequest.BuildBuilding(new(new(7), CapabilityKind.Construction), new(3), input, [new(4)], 1)),
+            new CoreCommand.StartOwnedJob(new JobRequest.BuildEquipment(new(new(7), CapabilityKind.Construction), input, [new(4)], 1))
+        ];
+        foreach (var command in commands)
+        {
+            var payload = CoreCommandEncoding.Encode(command);
+            Assert.AreEqual(payload, CoreCommandEncoding.Encode(Decode(payload)));
+            StringAssert.Contains(payload, command is CoreCommand.StartOwnedJob { Request: JobRequest.BuildBuilding }
+                ? "\"kind\":\"build_building\"" : "\"kind\":\"build_equipment\"");
+        }
+        using var session = new CoreSession(WorldFixture.State());
+        foreach (var command in commands)
+            session.ExecuteCommand(command, CommandSource.AutomationTest, _ => new CommandEffect.Accepted(session.State.Content, []));
+        Assert.IsTrue(session.ReadRecording().RequiredReferences.Designs.Contains(input.Design.Design));
+        Assert.IsTrue(session.ReadRecording().RequiredReferences.Inputs.Contains(input.InputIdentity));
     }
 
     private static DesignInput Input(char identity)

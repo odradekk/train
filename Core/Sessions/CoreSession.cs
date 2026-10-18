@@ -187,7 +187,7 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
                     || settlement.LastConstructionActualSupply != 0 || settlement.LastConstructionAllocatedLabor != 0)
                 {
                     var jobs = ConstructionOperations.Complete(world, before.Content, settlement.Id, construction,
-                        resolution ?? new(world, [], [], [], []));
+                        resolution ?? new(world, [], [], [], []), new(checked(before.Position.CompletedSteps + 1), 0));
                     world = jobs.World;
                     events = events.AddRange(jobs.Events);
                 }

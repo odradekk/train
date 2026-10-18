@@ -44,7 +44,6 @@ public sealed class ConstructionTests
         var input = Design(content);
         CoreCommand[] commands =
         [
-            new CoreCommand.StartOwnedJob(new JobRequest.BuildBuilding(Facility, new(1), input, [Local], 0)),
             new CoreCommand.StartOwnedJob(new JobRequest.BuildEquipment(Facility, input, [Local], 0)),
             new CoreCommand.StartOwnedJob(new JobRequest.Repair(Facility, new InstanceId.Building(new(1)), [Local], 0)),
             new CoreCommand.StartOwnedJob(new JobRequest.Dismantle(Facility, new InstanceId.Building(new(1)), 0)),
