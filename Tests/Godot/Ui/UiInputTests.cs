@@ -54,7 +54,7 @@ public sealed class UiInputTests
         var settlement = new SettlementView(new(1), new(1), new("town"), null,
             SettlementRelation.PlayerOwned, new(2), [], [], 0, 0, 0, [], [], [],
             new(0, 0, 0, 0), new(rule, 0, 0, 0, 0, new PopulationExecution.NotStarted([]), null, []),
-            new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [new(3)],
+            new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [], [new(3)],
             new(rule, new(0, 0, 0, 0, 0, 0, 0), []));
         var inventory = new InventoryView(new(2), new InventoryOwner.Settlement(new(1)),
             new WorldLocation.Node(new(1)), InventoryAccess.ReadWrite, 10, 0, 0, 10, 0, [], []);

@@ -40,6 +40,7 @@
 - #331 接入 `StartOwnedJob` 的 `BuildVehicle` 和车辆 `Repair`、`FindJob`、施工事件与修理锁；施工与生产、开采、人口共用单步资源仲裁，具体范围见下文“自有车辆施工”。
 - #387 接入两种资金来源的车辆制造／修理 `GetJobQuote`、`CommissionVehicleWork`、原子补购收费及按设施 FIFO 委托队列；全局工钱、查询、事件和保存重放见下文“NPC 车辆委托与施工报价”。
 - #332 接入车辆 `ApplyInstanceDesign`、自有 `Refit`／`Dismantle`、`SetDeconstructionPaused`、自有车辆改装报价及无拆下项的委托改装与报价；查询、事件与保存重放沿用同一任务路径。委托返还去向尚待决定，有 `RemovedItems` 的委托改装暂未接入。
+- 按 [#332 批准计划 D11](https://github.com/odradekk/train/issues/332#issuecomment-6245198930)增加 `SettlementView.OwnedJobs`，让宿主从聚居地查询活动自有施工任务，再经 `FindJob` 读取详情；不新增持久字段。
 - `Capture`、`DecodeState` 和 `PrepareRestore`，覆盖当前真实世界状态；格式与恢复规则见下文“当前载荷”。公开 `PrepareNew` 路径有共享 `CaptureScenario` 及跨进程生成、保存恢复测试。
 - `ReadRecording`、`CaptureRecordingStart`、`ConfirmRecordingStart`、`PrepareReplay` 和 `CompareCheckpoints`，覆盖当前完整世界状态、`PublishContent`、五个铁路命令和 `DebugAddRailBreak`，包含正常业务拒绝。运行在线路上、停留及调度中的录制通过生产重放路径逐检查点比较。
 - #382 将人口消费与结算接入 `Advance`：六类生活需求、主食优先与加工食品共享满足、整数取用后的物理余量、分类加权、人口变化余量和最低一人。每次消费全部完成后判断各项短缺，仅在状态变化时发 `PopulationShortageChanged`；结算发 `PopulationSettled`，从多于一人降至一人时发 `PopulationMinimumReached`。停用与恢复使用 `PopulationAvailabilityChanged`，停用期间不消费、不累计周期、不判断短缺，劳动力为零。
@@ -83,6 +84,7 @@
 | `VehiclesForSale` | 当地 NPC 拥有的实际停放车辆，按身份排序；来源包括世界生成的初始现车和玩家卖给当地的原实例 |
 | `Surrendered` | 当前没有投降机制，为 `false`；#352 接入投降状态 |
 | `CommissionJobs`、`Economy.UnassignedServicePayments` | #387 返回当地活动委托的任务编号（按受理顺序），并累计全局实际已付委托工钱；材料补购款、租金及各列车运行账目不计入该累计 |
+| `OwnedJobs` | #332 返回设施在该聚居地、资金来源为 `OwnInventory` 的活动制造、修理、改装、拆解任务编号，按 `JobId` 升序；种类、状态和进度经 `FindJob` 读取。暂停的拆解仍列出，完成或失败后与 `FindJob` 返回 `Missing` 同步移除；NPC 聚居地返回空数组 |
 | `Market.Goods`、`VehiclePurchaseCapacities`、设施 `PotentialConsumption` | #384 从当前真实库存、需求、能力和市场规则派生；字段定义见下文市场部分 |
 | `Economy.RecentRunReports` | #385 接入全局近期运行报告，按生成顺序返回；与列车查询共用同一份历史，包含已解编列车的报告 |
 | `Facilities` 中的施工设施 | 当前返回已实现的加工、回收和开采设施；施工详情查询仍待后票，未列出不表示不存在施工能力或活动施工任务；活动任务由 `FindJob` 查询 |
@@ -119,7 +121,7 @@
 
 ### 车辆立即应用、改装与拆解（#332）
 
-按 [#332 批准计划 D1–D10](https://github.com/odradekk/train/issues/332#issuecomment-6245198930)实现车辆范围，公开声明不变，不新增控制台命令。建筑目标及建筑 `Locked` 生产状态归 #343。
+按 [#332 批准计划 D1–D11](https://github.com/odradekk/train/issues/332#issuecomment-6245198930)实现车辆范围，并增加 `SettlementView.OwnedJobs` 查询；不新增控制台命令。建筑目标及建筑 `Locked` 生产状态归 #343。
 
 `ApplyInstanceDesign` 检查当前输入身份、实例设计哈希与构成、完整合法且无缺失引用的目标，以及部件对应。仅构成未变时立即换设计，保留损伤、列车归属与运行状态，不消费货物或建立任务；构成变化整份拒绝。设计哈希变化发 `InstanceDesignChanged`。
 
