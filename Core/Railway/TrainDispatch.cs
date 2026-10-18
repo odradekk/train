@@ -85,7 +85,7 @@ internal sealed class TrainDispatch
         TrainCapabilities? knownCapabilities = null)
     {
         if (train.Position is not TrainPosition.Node { Phase: NodeTravelPhase.Departing, NextEdge: { } edge }
-            || train.Activity != TrainActivity.Waiting || train.QueueEnteredStep is null)
+            || train.Activity is not (TrainActivity.Waiting or TrainActivity.Retreating) || train.QueueEnteredStep is null)
             return null;
         if ((knownCapabilities ?? TrainOperations.Capabilities(world, content, train)).DepartureProblem(train.Id,
             TrainOperations.Rule(world, content).MinimumAcceleration) is not null) return null;

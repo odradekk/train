@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Train.Core.Combat;
 using Train.Core.Contracts;
 using Train.Core.Sessions;
 using Train.Core.Trading;
@@ -77,6 +78,8 @@ internal static class TrainCommands
         var subject = new WorldObjectId.Train(id);
         var train = world.Trains.FirstOrDefault(t => t.Id == id);
         if (train is null) return Reject("object_missing", "Train", subject);
+        if (train.Activity == TrainActivity.Retreating || CombatQueries.TrainInCombat(world, id))
+            return Reject("invalid_state", "Train.Activity", subject);
         if (command is CoreCommand.DisbandTrain) return Disband(world, content, train, boundary);
         var events = ImmutableArray.CreateBuilder<CoreEvent>();
         switch (command)
@@ -148,6 +151,7 @@ internal static class TrainCommands
             var subject = new WorldObjectId.Instance(new InstanceId.Vehicle(id));
             var instance = world.Instances.FirstOrDefault(i => i.Id == new InstanceId.Vehicle(id));
             if (instance is null) return Reject("object_missing", "OrderedVehicles", subject);
+            if (CombatQueries.IsInCombat(world, instance.Id)) return Reject("invalid_state", "OrderedVehicles", subject);
             if (instance.Ownership != SettlementRelation.PlayerOwned) return Reject("not_owned", "OrderedVehicles", subject);
             if (ConstructionJobs.Lock(world, instance.Id) == InstanceLock.UnderDeconstruction)
                 return Reject("instance_locked", "OrderedVehicles", subject);
@@ -164,7 +168,9 @@ internal static class TrainCommands
         var inventory = new InventoryId(world.Next.Inventory);
         var added = new TrainState(train, new TrainPosition.Node(settlement.Node, null, null, null, null, NodeTravelPhase.Waiting,
             TrainOperations.Rule(world, content).ApproachLengthMeters, null), command.OrderedVehicles, inventory,
-            TrainOrderFacing.FirstEndLeading, TrainActivity.Stopped, 0, null, null, 0, false, null, null);
+            TrainOrderFacing.FirstEndLeading, TrainActivity.Stopped, 0, null, null, 0, false, null, null,
+            CombatRules.DefaultTrainEngagement(command.OrderedVehicles.Any(vehicle => CombatRules.Armed(world, content,
+                world.Instances.Single(i => i.Id == new InstanceId.Vehicle(vehicle))))), null);
         return new CommandEffect.Accepted(content, [new CoreEvent.TrainCompositionChanged(train, command.OrderedVehicles)], world with
         {
             Trains = world.Trains.Add(added), Inventories = world.Inventories.Add(new(inventory, new InventoryOwner.Train(train), [], [])),

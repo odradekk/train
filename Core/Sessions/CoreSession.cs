@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Train.Core.Contracts;
+using Train.Core.Combat;
 using Train.Core.World;
 using Train.Core.Railway;
 using Train.Core.Inventory;
@@ -88,6 +89,12 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
             InventoryCommands.Validate(command);
             return ExecuteCommand(command, source, content => InventoryCommands.Execute(State.World, content, command, State.Position.CompletedSteps));
         }
+        if (command is CoreCommand.SetTrainEngagement or CoreCommand.SetSettlementEngagement
+            or CoreCommand.Retreat or CoreCommand.FocusFire)
+        {
+            CombatCommands.Validate(command);
+            return ExecuteCommand(command, source, content => CombatCommands.Execute(State.World, content, command));
+        }
         if (command is CoreCommand.SetProductionPlan productionPlan)
         {
             ProductionCommands.Validate(productionPlan);
@@ -166,6 +173,9 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
         return AdvanceWorld(steps, before =>
         {
             var (world, events) = TrainOperations.Advance(before.World, before.Content, before.Position.CompletedSteps);
+            var combat = CombatOperations.Advance(world, before.Content, checked(before.Position.CompletedSteps + 1));
+            world = combat.World;
+            events = events.AddRange(combat.Events);
             // Content and definitions cannot change within this public Advance call.
             inputs ??= PopulationOperations.ReadInputs(world, before.Content);
             foreach (var settlement in before.World.Settlements)

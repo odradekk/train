@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Train.Core.Combat;
 using Train.Core.Contracts;
 using Train.Core.World;
 using Train.Core.Trading;
@@ -22,6 +23,7 @@ internal static class TrainOperations
 
     internal static PlanStop.Station? StationAt(TrainState train, NodeId node)
     {
+        if (train.RetreatDestination is not null) return null;
         for (var count = 0; count < (train.Plan?.Stops.Length ?? 0) && train.NextStopIndex is { } index
              && Target(train.Plan!.Stops[index]) == node; count++)
         {
@@ -33,6 +35,7 @@ internal static class TrainOperations
 
     private static TrainState AfterLocalStops(TrainState train, NodeId node)
     {
+        if (train.RetreatDestination is not null) return train;
         for (var count = 0; count < (train.Plan?.Stops.Length ?? 0) && train.NextStopIndex is { } index
              && Target(train.Plan!.Stops[index]) == node; count++) train = Consume(train);
         return train;
@@ -40,16 +43,24 @@ internal static class TrainOperations
 
     private static EdgeId? Departure(WorldState world, TrainState train, NodeId node, double maximumSpeed)
     {
+        if (train.RetreatDestination is { } destination)
+        {
+            var route = TrainRouting.FindRoute(world.Nodes, world.Edges, node, destination, maximumSpeed);
+            return route is { } found && !found.Edges.IsEmpty ? found.Edges[0] : null;
+        }
         train = AfterLocalStops(train, node);
         if (train.NextStopIndex is not { } index) return null;
-        var route = TrainRouting.FindRoute(world.Nodes, world.Edges, node, Target(train.Plan!.Stops[index]), maximumSpeed);
-        return route is { } found && !found.Edges.IsEmpty ? found.Edges[0] : null;
+        var target = Target(train.Plan!.Stops[index]);
+        var foundRoute = TrainRouting.FindRoute(world.Nodes, world.Edges, node, target, maximumSpeed);
+        return foundRoute is { } result && !result.Edges.IsEmpty ? result.Edges[0] : null;
     }
 
     private static bool MustStop(TrainState train, TrainPosition.Node position)
-        => train.StopRequested || StationAt(train, position.Id) is not null
-            || AfterLocalStops(train, position.Id).NextStopIndex is null
-            || position.NextEdge is null || position.NextEdge == position.EnteredFrom;
+        => train.RetreatDestination is { } destination
+            ? position.Id == destination
+            : train.StopRequested || StationAt(train, position.Id) is not null
+                || AfterLocalStops(train, position.Id).NextStopIndex is null
+                || position.NextEdge is null || position.NextEdge == position.EnteredFrom;
 
     internal static TrainView Read(WorldState world, CoreContentProjection content, TrainState train)
     {
@@ -60,6 +71,13 @@ internal static class TrainOperations
         if (problem is not null) blockers.Add(problem);
         if (capabilities.MissingProblem(train.Id) is { } missing && problem?.Code != missing.Code) blockers.Add(missing);
         if (train.Activity == TrainActivity.NoRoute) blockers.Add(NoRoute(train));
+        if (train.Activity == TrainActivity.Retreating && train.RetreatDestination is null
+            && !CombatQueries.InDisengagement(world, train.Id))
+            blockers.Add(new("no_route", "Train.Plan", new WorldObjectId.Train(train.Id), []));
+        if (train.Activity == TrainActivity.Retreating && train.RetreatDestination is { } retreatDestination
+            && train.Position is TrainPosition.Node { NextEdge: null } retreatNode
+            && retreatNode.Id != retreatDestination)
+            blockers.Add(new("no_route", "Train.Plan", new WorldObjectId.Train(train.Id), []));
         if (train.QueueEnteredStep is not null && train.Position is TrainPosition.Node position)
         {
             if (position.Phase != NodeTravelPhase.Departing && TrainDispatch.NeedsPlatform(world, train)
@@ -71,19 +89,11 @@ internal static class TrainOperations
             else if (position.Phase == NodeTravelPhase.Departing && position.NextEdge is { } edge)
                 blockers.Add(TrainDispatch.TrackWait(train, edge));
         }
-        var armed = train.Vehicles.Any(id =>
-        {
-            var instance = world.Instances.Single(i => i.Id == new InstanceId.Vehicle(id));
-            return world.Designs.Single(d => d.Design == instance.Design).Parts.Any(p =>
-                !InstanceCapabilities.DefinitionMissing(world, content, instance.Design, p)
-                && Math.Min(p.MaxDurability, instance.Parts.Single(d => d.Id == p.Id).Current) > 0
-                && p.Capabilities.Any(c => c is PartCapability.Weapon));
-        });
         return new(train.Id, train.Position, train.Activity, train.Vehicles, train.Inventory,
             train.SpeedMetersPerSecond, capabilities.LengthMeters, capabilities.MassTons,
             capabilities.TractionKilonewtons, capabilities.Acceleration, capabilities.MaximumSpeedMetersPerSecond,
             train.Plan, train.NextStopIndex, train.RemainingDwellSteps,
-            new(TargetPriority.ArmedFirst, TargetScope.ArmedOnly, armed ? EncounterAction.Engage : EncounterAction.Retreat, 0),
+            train.Engagement,
             blockers.ToImmutable(), train.CurrentRun is { } run ? RunReports.Read(run) : null,
             world.RecentRunReports.Where(r => r.Train == train.Id).ToImmutableArray(), train.OrderFacing, platformQueueEnteredStep);
     }
@@ -97,6 +107,8 @@ internal static class TrainOperations
         {
             var train = original;
             if (train.Activity == TrainActivity.Stopped) continue;
+            if (train.Activity == TrainActivity.Combat) continue;
+            if (train.Activity == TrainActivity.Retreating && train.RetreatDestination is null) continue;
             if (train.Activity == TrainActivity.Servicing)
             {
                 train = train with { RemainingDwellSteps = train.RemainingDwellSteps - 1 };
@@ -118,16 +130,19 @@ internal static class TrainOperations
             {
                 // 调度按本步开始时刻排队；报告记录完成本步后的提交边界。
                 train = ResolveNode(ref world, content, train, events, dispatch, step, new(checked(step + 1), 0));
-                if (train.Activity == TrainActivity.Running)
+                if (train.Activity is TrainActivity.Running
+                    || train.Activity == TrainActivity.Retreating && train.RetreatDestination is not null)
                     train = MoveNode(ref world, content, train, dispatch, events, checked(step + 1));
             }
             trains[train.Id] = train;
             world = world with { Trains = world.Trains.Select(t => t.Id == train.Id ? train : t).ToImmutableArray() };
         }
 
+        // 没有目的地的撤退列车留在节点等待重试，不能由出站队列改写为 Waiting。
         var exits = trains.Values.Where(t => t.Position is TrainPosition.Node
                 { Phase: NodeTravelPhase.Departing, NextEdge: not null } p
-            && t.Activity is TrainActivity.Running or TrainActivity.Waiting
+            && t.Activity is TrainActivity.Running or TrainActivity.Waiting or TrainActivity.Retreating
+            && (t.Activity != TrainActivity.Retreating || t.RetreatDestination is not null)
             && p.DistanceMeters >= NodeDimensions.Read(world, content, p.Id).Length
             && (t.SpeedMetersPerSecond > 0 || dispatch.Capabilities(t).DepartureProblem(t.Id,
                 Rule(world, content).MinimumAcceleration) is null)).ToArray();
@@ -241,14 +256,23 @@ internal static class TrainOperations
         {
             var phase = endpoint == dimensions.Stop ? NodeTravelPhase.Docked : NodeTravelPhase.Waiting;
             train = train with { Position = ((TrainPosition.Node)train.Position) with { Phase = phase }, SpeedMetersPerSecond = 0 };
+            if (train.RetreatDestination == position.Id && phase == NodeTravelPhase.Docked)
+            {
+                events.Add(new CoreEvent.RetreatCompleted(train.Id, position.Id));
+                return ChangeActivity(train with { RetreatDestination = null, StopRequested = false,
+                    QueueEnteredStep = null, RemainingDwellSteps = 0,
+                    AutomaticEvaluationRemainingSteps = null }, TrainActivity.Stopped, events);
+            }
             if (train.StopRequested)
                 return ChangeActivity(train with { StopRequested = false, QueueEnteredStep = null }, TrainActivity.Stopped, events);
             return ResolveNode(ref world, content, train, events, dispatch, step, new(step, 0));
         }
         if (position.Phase != NodeTravelPhase.Departing && moved >= dimensions.Stop && motion.DistanceMeters > 0)
         {
-            while (train.NextStopIndex is { } index && train.Plan!.Stops[index] is PlanStop.Waypoint waypoint && waypoint.Node == position.Id)
-                train = ConsumeStop(ref world, content, train, new(step, 0), events);
+            if (train.RetreatDestination is null)
+                while (train.NextStopIndex is { } index && train.Plan!.Stops[index] is PlanStop.Waypoint waypoint
+                       && waypoint.Node == position.Id)
+                    train = ConsumeStop(ref world, content, train, new(step, 0), events);
             train = dispatch.FixExit(train with
             {
                 Position = ((TrainPosition.Node)train.Position) with { Phase = NodeTravelPhase.Departing },
@@ -263,12 +287,25 @@ internal static class TrainOperations
     {
         train = dispatch.FixExit(train);
         var position = (TrainPosition.Node)train.Position;
-        if (position.Phase == NodeTravelPhase.Departing && train.Activity == TrainActivity.Waiting
-            && train.QueueEnteredStep is not null)
+        if (position.Phase == NodeTravelPhase.Departing && train.QueueEnteredStep is not null
+            && (train.Activity is TrainActivity.Waiting or TrainActivity.Combat
+                || train.Activity == TrainActivity.Retreating && train.RetreatDestination is not null))
         {
             if (dispatch.Capabilities(train).DepartureProblem(train.Id, Rule(world, content).MinimumAcceleration) is { } blocked)
                 return ChangeActivity(train with { QueueEnteredStep = null }, TrainActivity.Waiting, events, [blocked]);
-            return train;
+            return train.Activity == TrainActivity.Waiting ? train : ChangeActivity(train, TrainActivity.Waiting, events);
+        }
+        if (train.RetreatDestination is not null && position.Phase != NodeTravelPhase.Departing)
+        {
+            position = position with { NextEdge = Departure(world, train, position.Id,
+                dispatch.Capabilities(train).MaximumSpeedMetersPerSecond) };
+            train = train with { Position = position };
+            if (position.NextEdge is null)
+                return ChangeActivity(train, TrainActivity.NoRoute, events, [NoRoute(train)]);
+            if (train.SpeedMetersPerSecond == 0 && dispatch.Capabilities(train).DepartureProblem(train.Id,
+                    Rule(world, content).MinimumAcceleration) is { } blocked)
+                return ChangeActivity(train, TrainActivity.Waiting, events, [blocked]);
+            return ChangeActivity(train, TrainActivity.Running, events);
         }
         if (position.Phase != NodeTravelPhase.Departing)
         {
@@ -410,6 +447,10 @@ internal static class TrainOperations
     internal static TrainState ChangeActivity(TrainState train, TrainActivity activity,
         ImmutableArray<CoreEvent>.Builder events, ImmutableArray<CoreProblem> reasons = default)
     {
+        // 撤退移动复用普通铁路状态，但对外始终显示 Retreating，避免途中被误认为恢复原计划。
+        if (train.RetreatDestination is not null
+            && activity is TrainActivity.Running or TrainActivity.Waiting or TrainActivity.NoRoute)
+            activity = TrainActivity.Retreating;
         if (train.Activity != activity)
             events.Add(new CoreEvent.TrainActivityChanged(train.Id, train.Activity, activity, train.Position,
                 reasons.IsDefault ? [] : reasons));

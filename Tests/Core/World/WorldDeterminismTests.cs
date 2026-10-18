@@ -61,8 +61,8 @@ public sealed class WorldDeterminismTests
         using var session = candidate.Activate();
         var world = session.Read().World;
         var capture = Success(session.Capture(CapturePurpose.Save));
-        // 格式 20 只在检查点中增加空的 railway_jobs 与 automatic_rail_repairs；节点、线路和生成结构不变。
-        Assert.AreEqual("287DC206972620BE67690D13CB707E5975EC20143F122B1AC1E8B30872D936D2",
+        // 格式 21 在检查点中同时增加空的 railway_jobs、automatic_rail_repairs，以及 #350 的战斗、交战规则和撤退目的地；节点、线路和生成结构不变。
+        Assert.AreEqual("6407326C0439906C39712504A2EDFCDCC6AB4B86514BF4C82ECEA3B4AE434D2E",
             capture.Checkpoint.Sha256);
         Assert.AreEqual(19, world.Nodes.Length);
         Assert.AreEqual(22, world.Edges.Length);

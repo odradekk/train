@@ -104,16 +104,45 @@ public sealed class SettlementObjectsTests
     }
 
     [TestMethod]
-    public async Task ConstructionPlotsRemainEmptyWithoutReadingJobs()
+    public async Task ConstructionPlotShowsSiteWithoutReadingJobsAndBecomesBuilding()
     {
-        // FixedCoreReadView.FindJob throws, so any attempt to inspect the job fails this test.
         var settlement = NodeFixtures.Settlement() with { Plots =
             [NodeFixtures.Settlement().Plots[0] with { Occupant = new PlotOccupant.Construction(new(77)) }] };
         var snapshot = Snapshot(settlement: settlement, node: NodeFixtures.Node(0));
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
         await using var objects = new SettlementObjects(StableIds());
-        var rendered = await Settle(objects, snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
-        Assert.AreEqual(0, rendered.Objects.Length);
+        var rendered = await Settle(objects, snapshot, layout);
         Assert.AreEqual(0, rendered.Diagnostics.Length);
+        var site = rendered.Objects.Single();
+        Assert.IsNull(site.Subject);
+        var mesh = site.Visuals.OfType<SceneVisual.Geometry>().Single().Mesh;
+        Assert.IsInstanceOfType<SceneMaterial.BuiltIn>(mesh.Material);
+        Assert.AreEqual(BuiltInMaterial.Construction, ((SceneMaterial.BuiltIn)mesh.Material).Kind);
+        Assert.AreSame(mesh, (await Settle(objects, snapshot, layout)).Objects.Single().Visuals.OfType<SceneVisual.Geometry>().Single().Mesh);
+
+        var built = await Settle(objects, Snapshot(), layout);
+        Assert.IsTrue(built.Objects.Any(item => item.Subject is WorldObjectId.Instance { Id: InstanceId.Building }));
+        Assert.IsFalse(built.Objects.Any(item => item.Subject is null && item.Visuals.OfType<SceneVisual.Geometry>()
+            .Any(visual => visual.Mesh.Material is SceneMaterial.BuiltIn { Kind: BuiltInMaterial.Construction })));
+    }
+
+    [TestMethod]
+    public async Task ConstructionSiteIsRemovedOnTheFrameTheBuildingAppears()
+    {
+        var settlement = NodeFixtures.Settlement() with { Plots =
+            [NodeFixtures.Settlement().Plots[0] with { Occupant = new PlotOccupant.Construction(new(77)) }] };
+        var opened = Snapshot(settlement: settlement, node: NodeFixtures.Node(0));
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), opened, WorldSceneSession.Generate, new(), new(), RailwayFixtures.EmptyNode);
+        Assert.IsInstanceOfType<SceneResult<SceneRequestId>.Success>(session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location)));
+        var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
+        var first = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(request, null)).Value;
+        var site = first.Objects.Single(item => item.Subject is null && item.Visuals.OfType<SceneVisual.Geometry>()
+            .Any(visual => visual.Mesh.Material is SceneMaterial.BuiltIn { Kind: BuiltInMaterial.Construction }));
+        session.Observe(Snapshot(), []);
+        var frame = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(request, first)).Value;
+        Assert.IsTrue(frame.Update.Removed.Contains(site.Id));
+        Assert.IsFalse(frame.Objects.Any(item => item.Id == site.Id));
+        Assert.IsTrue(frame.Objects.Any(item => item.Subject is WorldObjectId.Instance { Id: InstanceId.Building }));
     }
 
     [TestMethod]
