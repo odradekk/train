@@ -18,6 +18,7 @@ internal sealed class MarketStockTargets
     private readonly Dictionary<GoodId, long> _stock;
     private readonly long _available;
     internal MarketRuleProjection? Rule { get; }
+    internal long Capacity => _capacity;
     internal GoodId? Staple { get; }
     internal GoodId? Prepared { get; }
     internal long StapleStock { get; }
