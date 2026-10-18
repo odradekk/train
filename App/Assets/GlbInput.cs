@@ -9,6 +9,7 @@ internal sealed class GlbInput : IDisposable
 {
     internal ImmutableArray<byte> Bytes { get; }
     internal JsonDocument Json { get; }
+    internal ReadOnlyMemory<byte> Binary { get; }
     internal bool HasExternalImages { get; }
 
     internal GlbInput(ImmutableArray<byte> bytes)
@@ -22,6 +23,8 @@ internal sealed class GlbInput : IDisposable
         ReadOnlySpan<byte> json = default;
         var offset = 12;
         var hasBinary = false;
+        var binaryOffset = 0;
+        var binaryLength = 0;
         while (offset < data.Length)
         {
             if (data.Length - offset < 8) throw new JsonException("GLB 块头不完整。");
@@ -36,10 +39,16 @@ internal sealed class GlbInput : IDisposable
             }
             else if (kind == 0x4e4f534a || kind == 0x004e4942 && hasBinary)
                 throw new JsonException("GLB 块重复。");
-            if (kind == 0x004e4942) hasBinary = true;
+            if (kind == 0x004e4942)
+            {
+                hasBinary = true;
+                binaryOffset = offset + 8;
+                binaryLength = (int)length;
+            }
             offset += 8 + (int)length;
         }
         Bytes = bytes;
+        Binary = bytes.AsMemory().Slice(binaryOffset, binaryLength);
         Json = JsonDocument.Parse(json.ToArray());
         try
         {

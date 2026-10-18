@@ -5,16 +5,22 @@ using Train.Content.Contracts;
 
 namespace Train.Cli;
 
-internal sealed class PngAssetInspector : IAssetInspector
+internal sealed partial class AssetInspector : IAssetInspector
 {
     public AssetInspection Inspect(AssetKind kind, AssetRevision revision, ImmutableArray<byte> bytes)
     {
-        if (kind == AssetKind.Glb)
-            return new AssetInspection.Failure(AssetInspectionFailure.UnsupportedContent,
-                "命令行工具不检查 GLB 资产。");
         try
         {
-            return InspectPng(bytes.AsSpan());
+            return kind == AssetKind.Glb ? InspectGlb(bytes) : InspectPng(bytes.AsSpan());
+        }
+        catch (Train.App.Assets.AssetDecodeException exception)
+        {
+            return new AssetInspection.Failure(exception.Kind, exception.Message);
+        }
+        catch (Exception exception) when (exception is System.Text.Json.JsonException or InvalidOperationException
+            or KeyNotFoundException or IndexOutOfRangeException or ArgumentOutOfRangeException or OverflowException or FormatException)
+        {
+            return CannotDecode(exception.Message);
         }
         catch (InvalidDataException exception)
         {
