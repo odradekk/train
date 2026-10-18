@@ -31,15 +31,13 @@ try {
             if ($case -eq 'mod') {
                 $mod = Join-Path $userData 'mods/smoke-fixture'
                 $resources = Join-Path $mod 'resources/voxels'
-                New-Item -ItemType Directory -Path (Join-Path $resources 'shared') -Force | Out-Null
+                New-Item -ItemType Directory -Path $resources -Force | Out-Null
                 @{ schema_version = 2; id = '550e8400-e29b-41d4-a716-446655440000'; name = 'Export smoke'; version = '1.0.0'; authors = @('Tests') } |
                     ConvertTo-Json | Set-Content (Join-Path $mod 'mod.json')
                 $definition = Get-Content (Join-Path $root 'builtin/core/resources/voxels/staple-food.voxel.json') -Raw | ConvertFrom-Json
                 $definition.id = 'smoke-food'
                 $definition | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $resources 'smoke-food.voxel.json')
-                foreach ($image in @('organic-icon.png', 'organic-face.png')) {
-                    Copy-Item -LiteralPath (Join-Path $root "builtin/core/resources/voxels/shared/$image") -Destination (Join-Path $resources "shared/$image")
-                }
+                Copy-Item -LiteralPath (Join-Path $root 'builtin/core/resources/voxels/staple-food') -Destination (Join-Path $resources 'smoke-food') -Recurse
             }
             $remaining = [int] [Math]::Floor($TimeoutSeconds - $watch.Elapsed.TotalSeconds)
             if ($remaining -lt 1) { throw 'Export smoke exhausted its time budget.' }

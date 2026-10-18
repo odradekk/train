@@ -189,7 +189,7 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Production_app_selects_lighting_before_entering_the_world()
+    public async Task Production_app_selects_lighting_for_all_views_before_entering_the_world()
     {
         var fixture = new Fixture(TestScene.GetTree());
         try
@@ -206,6 +206,15 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
                 feedback.Any(log => log.EventId == "lighting_mode" && Equals(log.Attributes["mode"], "night")) &&
                 !feedback.Any(log => log.EventId is "lighting_unavailable" or "lighting_denied" or "unknown_command"),
                 "菜单预选光照没有生效，或错误地建立了核心会话。");
+            var editor = app.GetNode<DesignEditorPanel>("GameUi/Root/DesignEditor");
+            Require(editor.Scene.View.Lighting == InspectionLighting.Night &&
+                app.TemplateScenes!.View.Lighting == InspectionLighting.Night,
+                "检查光照没有同步到设计编辑器和模板预览。");
+            console.SubmitLine("lighting restore");
+            Require(world.View.Lighting == InspectionLighting.Game &&
+                editor.Scene.View.Lighting == InspectionLighting.Game &&
+                app.TemplateScenes.View.Lighting == InspectionLighting.Game,
+                "恢复游戏光照没有同步到所有视图。");
         }
         finally { await fixture.Cleanup(); }
     }

@@ -45,6 +45,7 @@ internal static class CoreCommandEncoding
                 CoreCommand.SetSettlementEngagement => "engagement.set_settlement",
                 CoreCommand.Retreat => "combat.retreat",
                 CoreCommand.FocusFire => "combat.focus_fire",
+                CoreCommand.SetProductionPlan => "production.set_plan",
                 CoreCommand.StartOwnedJob => "construction.start_owned",
                 CoreCommand.CommissionVehicleWork { Request: JobRequest.BuildVehicle or JobRequest.Repair { Instance: InstanceId.Vehicle } or JobRequest.Refit { Instance: InstanceId.Vehicle } } => "construction.commission_vehicle_work",
                 _ => throw new NotImplementedException($"{command.GetType().Name} 尚未实现。")
@@ -70,6 +71,33 @@ internal static class CoreCommandEncoding
                     WriteIdentity(writer, "combat", focus.Combat.Value);
                     WriteController(writer, focus.Controller);
                     WriteWorldObject(writer, "target", focus.Target);
+                    break;
+                case CoreCommand.SetProductionPlan plan:
+                    writer.WriteStartObject("facility");
+                    writer.WriteNumber("building", plan.Facility.Building.Value);
+                    writer.WriteString("capability", plan.Facility.Capability switch
+                    {
+                        CapabilityKind.Production => "production",
+                        CapabilityKind.Extraction => "extraction",
+                        _ => throw new ArgumentException("生产计划只能使用加工或开采能力。", nameof(command))
+                    });
+                    writer.WriteEndObject();
+                    writer.WriteStartObject("process");
+                    switch (plan.Process)
+                    {
+                        case ProcessRef.Production production:
+                            writer.WriteString("kind", "production");
+                            writer.WriteString("definition", production.Definition.Value);
+                            break;
+                        case ProcessRef.Recovery recovery:
+                            writer.WriteString("kind", "recovery");
+                            writer.WriteString("definition", recovery.Definition.Value);
+                            break;
+                        default: throw new ArgumentException("流程种类无效。", nameof(command));
+                    }
+                    writer.WriteEndObject();
+                    writer.WriteBoolean("enabled", plan.Enabled);
+                    writer.WriteNumber("priority", plan.Priority);
                     break;
                 case CoreCommand.ApplyInstanceDesign apply:
                     switch (apply.Instance)
@@ -233,6 +261,7 @@ internal static class CoreCommandEncoding
                 "engagement.set_settlement" => ["input_format_version", "kind", "settlement", "rules"],
                 "combat.retreat" => ["input_format_version", "kind", "train"],
                 "combat.focus_fire" => ["input_format_version", "kind", "combat", "controller", "target"],
+                "production.set_plan" => ["input_format_version", "kind", "facility", "process", "enabled", "priority"],
                 "construction.start_owned" => ["input_format_version", "kind", "request"],
                 "construction.commission_vehicle_work" => ["input_format_version", "kind", "request", "maximum_payment"],
                 "market.buy_goods" => ["input_format_version", "kind", "train", "settlement", "local_inventory", "good", "quantity", "maximum_payment"],
@@ -243,6 +272,35 @@ internal static class CoreCommandEncoding
             };
             if (fields is null) return Failure("unsupported_format", "/kind");
             Fields(root, "", fields);
+            if (name == "production.set_plan")
+            {
+                var facility = Property(root, "facility", "", JsonValueKind.Object);
+                Fields(facility, "/facility", ["building", "capability"]);
+                var building = new BuildingId(Identity(Property(facility, "building", "/facility", JsonValueKind.Number), "/facility/building"));
+                var capabilityName = Text(Property(facility, "capability", "/facility", JsonValueKind.String), "/facility/capability");
+                var capability = capabilityName switch
+                {
+                    "production" => CapabilityKind.Production,
+                    "extraction" => CapabilityKind.Extraction,
+                    _ => throw new InvalidField("/facility/capability")
+                };
+                var processValue = Property(root, "process", "", JsonValueKind.Object);
+                Fields(processValue, "/process", ["kind", "definition"]);
+                var processKind = Text(Property(processValue, "kind", "/process", JsonValueKind.String), "/process/kind");
+                var definition = Text(Property(processValue, "definition", "/process", JsonValueKind.String), "/process/definition");
+                if (!WorldFormat.IsIdentity(definition)) throw new InvalidField("/process/definition");
+                ProcessRef process = processKind switch
+                {
+                    "production" => new ProcessRef.Production(new(definition!)),
+                    "recovery" => new ProcessRef.Recovery(new(definition!)),
+                    _ => throw new InvalidField("/process/kind")
+                };
+                if (!root.TryGetProperty("enabled", out var enabled) || enabled.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                    throw new InvalidField("/enabled");
+                var priority = Property(root, "priority", "", JsonValueKind.Number);
+                if (!priority.TryGetInt32(out var priorityValue)) throw new InvalidField("/priority");
+                return Success(new(null, new CoreCommand.SetProductionPlan(new(building, capability), process, enabled.GetBoolean(), priorityValue)));
+            }
             if (name == "settlement.found")
                 return Success(new(null, new CoreCommand.FoundSettlement(
                     new(Identity(Property(root, "node", "", JsonValueKind.Number), "/node")),

@@ -33,7 +33,7 @@ dotnet Tools/Cli/bin/Debug/net10.0/Train.Cli.dll compare TestResults/run.json Te
 
 输出目录须已存在，制作存档要求目标文件不存在。`run` 输出模拟位置、权威检查点、`CoreInputId` 及运行身份；`compare` 先核对 `CoreInputId` 和当前构建／运行环境，再由核心比较检查点，失败返回非零退出码并报告首个差异位置与字段。它也支持从连续运行中已有的检查点位置开始比较恢复运行的完整后缀，上例以 150:0 为保存边界。`replay` 使用本次运行的录制及内容视图逐检查点核对，不读写复现包。
 
-工具只加载内置内容。PNG 端口支持当前资产使用的 8 位 RGBA、非交错编码，校验签名、块 CRC、头部、解压长度；无效或不支持的 PNG 返回 `CannotDecode`，GLB 返回 `UnsupportedContent`。这不替代真实 Godot 资产解码或视觉验证。
+工具只加载内置内容。PNG 端口支持 8 位 RGBA、非交错编码，校验签名、块 CRC、头部、解压长度。GLB 复用宿主的容器检查，从 BIN 块中的实际 POSITION 顶点及节点层级变换计算米制包围盒，并报告表面透明方式和不支持特性的事实；内容层判断是否符合单格模型规则。CLI 支持单 BIN、未归一化且非 sparse 的 FLOAT VEC3 POSITION 和节点 TRS／matrix；`extensionsRequired` 非空时返回 `UnsupportedContent`。无法解码返回 `CannotDecode`，不支持的编码返回 `UnsupportedContent`，不读取外部资产。这不替代真实 Godot 资产解码或视觉验证。
 
 `basic-through/save.json` 是推进到 200:0 的普通格式 6 存档，当前核心载荷为格式 20。`make` 推进到配方目标后保存，`save` 在指定步的序号 0 边界保存；该位置的命令由 `resume` 执行。保存同时捕获核心状态与内容依赖，UUID、名称和保存时间取配方固定值。容器编解码、临时文件读回校验及发布直接链接宿主同份源码；恢复依次读取容器、解码核心和内容、准备恢复内容、准备核心、激活后继续配方。
 

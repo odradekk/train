@@ -35,7 +35,7 @@
 - #384 接入 `QuoteTrade` 的四种动作、`BuyGoods`／`SellGoods`、`QuoteVehicle` 和 `BuyVehicle`／`SellVehicle`，以及补货目标、两轮备货、潜在消耗和现车名额；具体语义见下文“市场报价与手动交易”。#528 接入按配置计算的 NPC 初始库存和有限现车，见下文“阶段一生成器”。
 - #385 接入运行计划的自动货物规则、停靠重评、运行累计、近期报告及 `AutomaticTradeEvaluated`、`RunReported`；规则顺序、部分成交、时序与持久化见下文“自动交易与运行报告”。
 - `FindSettlement` 与 `Economy` 按 [#486 的批准计划](https://github.com/odradekk/train/issues/486#issuecomment-6190044442)接入已有状态：聚居地库存身份、地块、停放车辆、站台与占用、租约、仓储划分、加工、回收和开采设施、电力、人口、钱包和当前规则状态。尚未实现及暂定字段逐项见下文“聚居地与经济查询”。
-- `FindFacility` 的 `Production` 键、模板中的加工／回收计划、批次推进、输出缓冲及生产事件，按 [#381 的批准计划](https://github.com/odradekk/train/issues/381#issuecomment-6183793182)实现，具体范围见下文“加工与回收”。
+- `FindFacility` 的 `Production` 键、模板中的加工／回收计划、批次推进、输出缓冲及生产事件，按 [#381 的批准计划](https://github.com/odradekk/train/issues/381#issuecomment-6183793182)实现，具体范围见下文“加工与回收”。玩家用 #622 的 `SetProductionPlan` 编辑已保存的计划副本。
 - `Extraction` 设施、开采批次、节点资源原地恢复与全局再生，按 [#383 的批准决定](https://github.com/odradekk/train/issues/383#issuecomment-6188092446)实现，使用同一批次运行时与资源仲裁；参数、时序及事件见下文“节点资源”。
 - #331 接入 `StartOwnedJob` 的 `BuildVehicle` 和车辆 `Repair`、`FindJob`、施工事件与修理锁；施工与生产、开采、人口共用单步资源仲裁，具体范围见下文“自有车辆施工”。
 - #387 接入两种资金来源的车辆制造／修理 `GetJobQuote`、`CommissionVehicleWork`、原子补购收费及按设施 FIFO 委托队列；全局工钱、查询、事件和保存重放见下文“NPC 车辆委托与施工报价”。
@@ -50,7 +50,6 @@
 | 未实现成员 | 交付责任 |
 | --- | --- |
 | `FindFacility` 的 `Construction` 键、`SetJobPriority` | 后续施工查询与调度 |
-| `SetProductionPlan` | #622 |
 | 其余命令、其他 `Find*`、报价和预览 | 后续经济运输、制造与编辑、自有建设、生物与外交等领域任务 |
 
 旧 `Train.Core.Simulation` 及宿主入口已删除。`RandomKey`、`KeyedRandom`、`SplitMix64` 原算法迁到 `Core/World/`，作为内部实现保留；固定向量测试及独立 Python 参考工具位于 `Tests/Core/World/`。会话始终持有世界状态；内部会话测试也使用真实生成状态，拒绝与事件由内部测试体供给。列车运行、调度及后续领域任务须将各自新增权威字段补入捕获、恢复和检查点，不能把初始世界往返当作完整玩法恢复证据。
@@ -185,15 +184,23 @@
 
 ### 加工与回收
 
-计划直接读取每座聚居地已保存的 `Template.ProductionPlans`，按地块的 `TemplateNumber` 定位建筑；没有第二份运行计划。源模板更新不改变该副本。`SetProductionPlan` 仍未实现，继续抛 `NotImplementedException`；玩家计划编辑归 #622。本票不新增控制台命令。
+计划直接读取每座聚居地已保存的 `Template.ProductionPlans`，按地块的 `TemplateNumber` 定位建筑；没有第二份运行计划。源模板更新不改变该副本。不新增控制台命令，也不因计划编辑增加权威状态；核心存档格式和命令输入格式保持当前版本。
 
-`FindFacility` 支持 `CapabilityKind.Production`（加工与回收）及 `Extraction`（开采）。建筑不在聚居地地块上，或既无该能力的计划、设计也没有声明该能力时返回 `Missing`。设备损坏或缺定义造成有效能力为零，不会使仍有计划或声明能力的设施消失。`Construction` 键仍待后票，抛出注明 `FindFacility` 和能力种类的 `NotImplementedException`。`PotentialConsumption` 由全城同一次潜在电力／劳动分配换算为每秒原料与燃料消耗；与 `FindSettlement.Facilities` 使用同一计算。
+`SetProductionPlan` 只改该地块、该能力的一条计划。`Facility` 或 `Process` 为 null、建筑编号为 0、能力种类未定义或为 `Construction`、流程种类无法映射，或流程定义不是合法身份时，在取得命令编号前抛出：空引用为 `ArgumentNullException`，其余为 `ArgumentException`。编码不再单独校验，只在能力或流程种类无法映射时抛 `ArgumentException`。流程种类沿用世界 JSON 的 `production` 与 `recovery`。
 
-状态按流程缺失、没有计划则为停用、锁定、计划未启用则为停用、能力为零、不满足条件、出料阻塞、等待原料、运行中的顺序判断。锁定来自该建筑的改装、修理或拆解任务，且只作用于已有计划的设施；流程缺失仍优先于锁定。没有计划的建筑保持停用。停用只阻止启动新批次；当前流程的 Tag／地貌要求不再满足时，状态为“不满足条件”，已有批次仍按冻结规格完成。能力为零或流程缺失时保留批次进度。流程补回后继续，不重新扣原料。
+业务拒绝按第一次命中返回，主体是该建筑实例，命令编号已消耗，世界与事件不变：没有聚居地地块持有该建筑或实例不存在时为 `object_missing` / `Facility`；聚居地关系或建筑归属不是 `PlayerOwned` 时为 `not_owned` / `Facility`；`min(实例结构耐久, 设计上限) <= 0` 时为 `instance_destroyed` / `Facility`；设计部件没有声明该能力时为 `conditions_not_met` / `Facility.Capability`，有效能力为零仍可接受；流程不在投影中或已列入缺失时为 `content_missing` / `Process`；开采能力只接受开采流程，加工能力接受加工或回收、不接受开采时为 `conditions_not_met` / `Process`（开采流程使用 `ProcessRef.Production`）；建筑设施标签不含流程要求的标签时为 `conditions_not_met` / `Facility.Tags`。改装、修理或拆解锁定不是拒绝。没有计划时锁定仍为停用；加上计划后进入锁定。提交时不检查地貌，接受后地貌不符由既有求值表现为“不满足条件”。优先级是任意 `Int32`，升序，没有范围拒绝。
+
+尚无该设施键的设施行时，按占用建筑的方式追加空行（无批次、空缓冲、上一步读数为零），再按建筑身份、能力种类排序。已有行保持批次、进度、缓冲和上一步读数。计划按地块号、能力种类排序。没有删除命令；停用是 `Enabled=false`。接受后重算定义依赖。更换或停用计划不取消批次、不退料、不改冻结产出和进度。`FacilityView.Process` 立即是新计划；`ActiveBatchView.Process` 仍是批次冻结的流程，二者可以不同。新流程的原料只在下一批启动时投入一次。
+
+`FindFacility` 支持 `CapabilityKind.Production`（加工与回收）及 `Extraction`（开采）。建筑不在聚居地地块上，或既无该能力的计划、设计也没有声明该能力时返回 `Missing`。设备损坏或缺定义造成有效能力为零，不会使仍有计划或声明能力的设施消失。`Construction` 键仍待后票，抛出注明 `FindFacility` 和能力种类的 `NotImplementedException`。`PotentialConsumption` 由全城同一次潜在电力／劳动分配换算为每秒原料与燃料消耗，使用计划流程；与 `FindSettlement.Facilities` 使用同一计算。
+
+#346 要给设施写入第一条计划时，遍历 `SettlementView` 地块上的建筑，对 `Production` 和 `Extraction` 分别调用 `FindFacility`；结果不是 `Missing` 就可以设置计划。`FindSettlement.Facilities` 是同一组 `Find` 结果：包含已有计划的设施，也包含设计声明了该能力但还没有计划的设施（停用、流程为空），不包含既无计划也未声明能力的建筑。是否已有计划看返回的 `Process` 是否为空。已有计划的 `Process`、`Enabled`、`Priority`、`State`，以及在制批次的 `Batch.Process`，都从 `FindFacility` 读取。已接受命令由 `ExecuteCommand` 既有的 `ProductionQueries.StateChanges` 在 `ProductionState` 变化时发出 `ProductionStateChanged`；只改优先级或流程而不改变状态时不发事件，界面重新查询。
+
+状态按流程缺失、没有计划则为停用、锁定、计划未启用则为停用、能力为零、不满足条件、出料阻塞、等待原料、运行中的顺序判断。流程缺失指计划流程缺失，或已有批次的流程缺失；二者任一缺失则暂停并保留进度，批次只在两个流程都存在时推进。锁定来自该建筑的改装、修理或拆解任务，且只作用于已有计划的设施；流程缺失仍优先于锁定。没有计划的建筑保持停用。停用只阻止启动新批次；当前流程的 Tag／地貌要求不再满足时，状态为“不满足条件”，已有批次仍按冻结规格完成。能力为零或流程缺失时保留批次进度。流程补回后继续，不重新扣原料。`CurrentSpecificationDiffers` 比较批次自身流程的当前投影与冻结规格，不比较计划流程。
 
 启动步只原子投入完整原料并建立批次，下一步才工作。工作请求上限取当前有效能力与剩余工作量所需速率的较小值，使用冻结的工作量和电力／劳动系数。生产推进接收 #382 人口换算提供的劳动容量，与基本／改善消费在同一次 `SettlementResources.Resolve` 中仲裁；人口规则或本期必需货物缺失时，人口停用并提供零劳动力。
 
-完成产出和已有缓冲在批次请求仲裁之后按计划优先级、建筑身份入库，同一批多输出按货物身份的 Ordinal 顺序。使用扣除租约和预留后的真实可用容量，不扩大超容；本步完成或步初缓冲非空的设施不在本步启动下一批。生产能力失效不阻止已完成货物的内部转入。仅冻结产出或缓冲货物定义缺失时，仍按件数转入库存并保留身份；已有库存规则将其标为缺失且排除原料和燃料使用。流程本身缺失则暂停执行，不用冻结参数替代缺失定义。
+完成产出和已有缓冲在批次请求仲裁之后按计划优先级、建筑身份入库，同一批多输出按货物身份的 Ordinal 顺序。使用扣除租约和预留后的真实可用容量，不扩大超容；本步完成或步初缓冲非空的设施不在本步启动下一批。生产能力失效不阻止已完成货物的内部转入。仅冻结产出或缓冲货物定义缺失时，仍按件数转入库存并保留身份；已有库存规则将其标为缺失且排除原料和燃料使用。计划流程或已有批次的流程缺失则暂停执行，不用冻结参数替代缺失定义。批次只在两者都存在时推进。
 
 `SettlementState.ProductionFacilities` 按 `FacilityKey`（建筑身份、能力种类）保存 `Batch`、`OutputBuffer` 和上一步的 `LastActualWorkPerSecond`、`LastLimits`、`LastPowerDemand`、`LastActualSupply`、`LastAllocatedLabor`。同一建筑的加工和开采计划独立运行，共同竞争电力、劳动力与输出容量；相同优先级、建筑身份的请求及入库按能力种类排序。批次保存流程、启动版本、冻结产出、总工作量、两项系数和进度。请求功率为本步最大有用速率乘冻结电力系数，实际供电及实际劳动占用为获分配速率乘对应冻结系数；无工作请求时结果归零／空。`ActualWorkPerSecond` 和 `Limits` 直接返回上一步结果，能力、主状态和规格差异按当前内容派生。内容发布不重算上一步结果；读档、旧读视图和检查点保留它们。电力与实际劳动占用查询汇总每座聚居地全部设施的上一步结果，包括开采；施工另保存聚居地上一步汇总，以保留任务完工移除后的读数。
 
@@ -557,7 +564,7 @@ Buy/Sell 在前提检查后依次判断：
 
 #312 按[批准决定](https://github.com/odradekk/train/issues/312#issuecomment-6133949111)实现捕获边界，#309 扩展世界状态，#480 更新地块枚举，#325 增加租约、库存预留和下一租约编号，#380 增加每座聚居地的 `fuel_energy_remaining`，#381 增加 `production_facilities`，#382 增加 `population_state`，#481 更新节点权威位置，#383 将设施状态改为能力键并增加 `resource_regenerations`、`resource_recovery`，#486 增加设施上一步实际劳动占用。内部编码器 [CoreCapture](../../Core/Sessions/CoreCapture.cs) 当前使用独立的 `core_state_format_version = 20`，与宿主完整存档的 `SaveFormatVersion` 6 分别演进；不支持格式 1–19 或旧通用模拟框架载荷，旧版本返回 `unsupported_format`。#480 与 #325 各自的格式 3 布局不同，合并后使用格式 4 明确区分；燃料余量使用格式 5，生产状态使用格式 6，人口状态使用格式 7，#481 的节点权威位置布局使用格式 8，#383 的开采与资源周期状态使用格式 9，#501 扩展施工部件能力后使用格式 10，#486 的实际劳动占用使用格式 11，#385 的自动重评、运行累计和近期报告使用格式 12；#546 将历史报告的载运率改为可空，使用格式 13；#331 增加自有车辆施工任务与聚居地施工上一步汇总，使用格式 14；#387 增加委托资金来源与全局工钱累计，使用格式 15；#332 增加车辆改装、拆解与冻结返还资料，使用格式 16；#342 增加冻结建城任务，使用格式 17；#541 增加节点进出铁轨，使用格式 18；#343 将任务目标从 `Vehicle` 改为 `Instance` 并增加 `Plot`，使用格式 19；#350 增加战斗、交战规则和撤退目的地，使用格式 20。
 
-人口状态保存精确执行参数、有效进度、累计应需与满足量、按货物身份保留的消费剩余量、人口变化余量、短缺与可用性状态及最近一次结算；普通恢复和严格重放使用同一份生产推进。当前规则缺失或本期必需货物缺失时停用人口，保留这些状态；新局仍须有有效规则。燃料余量必须为有限非负数，新局为零，保存、恢复、检查点、严格重放及内容发布保留其电量，不反推已消费燃料。生产状态保存完整冻结批次、输出缓冲和上一步工作、供电与劳动分配结果；解码拒绝非有限或负的实际劳动占用，以及非法进度、系数、数量、排序、建筑／计划配对及同时存在批次与缓冲。诊断消息和堆栈不进入载荷。内部字段布局由编码器维护，宿主只通过公开契约取得所需资料。
+人口状态保存精确执行参数、有效进度、累计应需与满足量、按货物身份保留的消费剩余量、人口变化余量、短缺与可用性状态及最近一次结算；普通恢复和严格重放使用同一份生产推进。当前规则缺失或本期必需货物缺失时停用人口，保留这些状态；新局仍须有有效规则。燃料余量必须为有限非负数，新局为零，保存、恢复、检查点、严格重放及内容发布保留其电量，不反推已消费燃料。生产状态保存完整冻结批次、输出缓冲和上一步工作、供电与劳动分配结果；解码拒绝非有限或负的实际劳动占用，以及非法进度、系数、数量、排序、设施行与已有计划的建筑／能力配对不一致，及同时存在批次与缓冲。批次流程可以与当前计划流程不同。诊断消息和堆栈不进入载荷。内部字段布局由编码器维护，宿主只通过公开契约取得所需资料。
 
 格式 8 的聚居地模板副本保存 `platform_length_meters`；站台段 P 在建立聚居地时就已固定，不随源模板变化重算。
 
@@ -615,6 +622,8 @@ Buy/Sell 在前提检查后依次判断：
 核心保管命令、检查点和故障片段；宿主按 `RequiredReferences` 保管对应内容并写文件。`ReadRecording` 给出截止位置，因而没有命令的运行区间也可以准确导出。`CaptureRecordingStart` 建立待写起点；宿主仅在起点和全部依赖已经发布后，以原起点标识调用 `ConfirmRecordingStart(PublishedWithDependencies)`。
 
 当前会话创建时自动建立初始起点，出现在 `ReadRecording().Starts` 中，同样需要宿主确认。检查点只在录制起点、故障边界及读取窗口的截止边界生成；同一内容的截止检查点不重复列出，不逐命令生成，也不设置核心固定采样间隔。命令与对应记录在同一完整边界生效，查询、捕获、起点确认、暂停和倍速不生成模拟输入。当前 `content.publish` 的规范负载为 `{"input_format_version":2,"kind":"content.publish","input_identity":"<目标 CoreInputId>"}`；目标投影由宿主保留，核心不编码内容投影。窗口引用合并各起点和固定故障片段的完整清单，并包含全部 Completed 命令的前后及目标输入身份。设计和输入身份按 Ordinal 排序去重；定义依赖按类型身份及字段路径排序去重；模板按 `Owner` 排序且所有者唯一。起点世界的设计、模板和定义依赖在普通窗口及固定故障片段中保留。
+
+生产计划命令同用输入格式 2。规范负载为 `{"input_format_version":2,"kind":"production.set_plan","facility":{"building":2,"capability":"production"},"process":{"kind":"production","definition":"fixture:production"},"enabled":true,"priority":0}`。`capability` 只接受 `production` 或 `extraction`；`process.kind` 只接受 `production` 或 `recovery`，定义必须是合法身份；`priority` 是完整 `Int32`。解码允许字段重排，拒绝缺少、多余、重复或非法字段并返回 `invalid_state` 与 JSON 指针；未知种类或版本返回 `unsupported_format`。接受和拒绝的命令都进入录制，严格重放走同一 `Submit`。
 
 施工命令同用输入格式 2。`construction.start_owned` 的 `request` 按 `kind`、`facility:{building,capability}`、目标、来源（如有）和 `priority` 输出：`build_vehicle` 与 `build_equipment` 携带 `design:DesignInput`；`build_building` 在 `facility` 后携带非零 `plot` 和 `design`；`repair_vehicle` 携带非零 `vehicle` 和 `sources`；`repair_building` 携带非零 `building` 和 `sources`；`refit_vehicle` 与 `refit_building` 分别携带 `vehicle` 或 `building`、完整 `change:DesignChangeProjection` 和 `sources`；`dismantle_vehicle` 与 `dismantle_building` 只有对应身份和 `priority`，不编码来源。`construction.commission_vehicle_work` 只接受 `build_vehicle`、`repair_vehicle`、`refit_vehicle`，并在 `request` 后携带 `maximum_payment`。`instance.apply_design` 携带 `change`，以及 `vehicle`、`building` 二者之一，不能同时出现，也不能都缺。`construction.set_deconstruction_paused` 携带 `job`、`paused`。变更投影包含当前设计与构成、目标 `DesignInput`、保留部件对应、新增货物、移除单元和改动计数。来源保留显式顺序，设计与变更中无业务顺序的集合使用既有规范排序。
 

@@ -98,7 +98,7 @@ public partial class App : Node
                 simulationCommands = new SimulationConsoleCommands(Host, _logger, Development).Execute;
                 trainCommands = new TrainConsoleCommands(Host, _logger, ui.ShowError).Execute;
                 lightingCommands = new LightingConsoleCommands(_logger, () => WorldScenes?.View.Lighting,
-                    mode => WorldScenes!.View.SetLighting(mode)).Execute;
+                    ui.SetInspectionLighting).Execute;
             }
             console.Initialize(buffer, new ConsoleCommandDispatcher(
                 _logger, buffer.Clear, RequestQuit, () => ReloadContent(CommandSource.Console), OS.IsDebugBuild(), simulationCommands,

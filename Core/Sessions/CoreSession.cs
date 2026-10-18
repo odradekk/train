@@ -95,6 +95,11 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
             CombatCommands.Validate(command);
             return ExecuteCommand(command, source, content => CombatCommands.Execute(State.World, content, command));
         }
+        if (command is CoreCommand.SetProductionPlan productionPlan)
+        {
+            ProductionCommands.Validate(productionPlan);
+            return ExecuteCommand(command, source, content => ProductionCommands.Execute(State.World, content, productionPlan));
+        }
         TrainCommands.Validate(command);
         return ExecuteCommand(command, source, content => TrainCommands.Execute(State.World, content, command,
             new(State.Position.CompletedSteps, checked(State.Position.Sequence + 1))));
