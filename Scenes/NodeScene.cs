@@ -56,17 +56,20 @@ internal sealed class NodeScene : IAsyncDisposable
         Dictionary<GridColumn, Dictionary<GridColumn, RailBed>> BedChunks,
         Dictionary<GridColumn, HashSet<GridColumn>> BoundaryChunks, string TerrainInputs,
         ImmutableDictionary<string, RailSegment> Rails,
-        bool HasChunks = true)
+        bool HasChunks = true,
+        Dictionary<GridColumn, double>? BoundarySurfaces = null)
     {
         internal string ChunkInputs(GridColumn from)
         {
-            var bed = BedChunks.GetValueOrDefault(from) ?? [];
+            var bed = BedsNear(from);
             var boundary = BoundaryChunks.GetValueOrDefault(from) ?? [];
+            var surfaces = SurfacesNear(from);
             var model = ModelChunks.GetValueOrDefault(from, []);
             return RailwayDependencies.Values(new object?[] { TerrainInputs, Global.Layout.Template?.SceneModel.Design, from,
                 model.Select(voxel => voxel.Voxel).Distinct().Select(id => Appearances[id]).ToArray(),
                 bed.OrderBy(item => item.Key.X).ThenBy(item => item.Key.Z).ToArray(),
-                boundary.OrderBy(item => item.X).ThenBy(item => item.Z).ToArray() });
+                boundary.OrderBy(item => item.X).ThenBy(item => item.Z).ToArray(),
+                surfaces.OrderBy(item => item.Key.X).ThenBy(item => item.Key.Z).ToArray() });
         }
 
         internal Part BuildChunk(GridColumn from, Part? previous = null, CancellationToken token = default)
@@ -75,8 +78,35 @@ internal sealed class NodeScene : IAsyncDisposable
             var inputs = ChunkInputs(from);
             return previous?.Inputs == inputs ? previous : TerrainPart(Snapshot,
                 Snapshot.Core.World.Nodes.Single(node => node.Id == Global.Layout.Node), Global.Layout, Terrain, BallastVoxel, Appearances,
-                BedChunks.GetValueOrDefault(from) ?? [], BoundaryChunks.GetValueOrDefault(from) ?? [],
-                ModelChunks.GetValueOrDefault(from, []), from, token) with { Inputs = inputs };
+                BedsNear(from), BoundaryChunks.GetValueOrDefault(from) ?? [],
+                ModelChunks.GetValueOrDefault(from, []), from, SurfacesNear(from), token) with { Inputs = inputs };
+        }
+
+        private Dictionary<GridColumn, RailBed> BedsNear(GridColumn from)
+        {
+            var beds = new Dictionary<GridColumn, RailBed>();
+            foreach (var chunk in BedChunks.Values)
+                foreach (var (column, rail) in chunk)
+                    if (NearChunk(from, column)) beds[column] = rail;
+            return beds;
+        }
+
+        private Dictionary<GridColumn, double> SurfacesNear(GridColumn from)
+        {
+            var surfaces = new Dictionary<GridColumn, double>();
+            if (BoundarySurfaces is null) return surfaces;
+            foreach (var columns in BoundaryChunks.Values)
+                foreach (var column in columns)
+                    if (NearChunk(from, column) && BoundarySurfaces.TryGetValue(column, out var surface))
+                        surfaces[column] = surface;
+            return surfaces;
+        }
+
+        private static bool NearChunk(GridColumn from, GridColumn column)
+        {
+            var size = VoxelGrid.ChunkSize;
+            return column.X >= from.X - 1 && column.X <= from.X + size &&
+                column.Z >= from.Z - 1 && column.Z <= from.Z + size;
         }
     }
 
@@ -655,6 +685,7 @@ internal sealed class NodeScene : IAsyncDisposable
         var diagnostics = ImmutableArray.CreateBuilder<SceneProblem>();
         var bed = new Dictionary<GridColumn, RailBed>();
         var boundaryColumns = new HashSet<GridColumn>();
+        var boundarySurfaces = new Dictionary<GridColumn, double>();
         var boundaries = ImmutableDictionary.CreateBuilder<EdgeId, RailwayTerrain.BoundaryData>();
         var boundaryOwners = new Dictionary<GridColumn, (EdgeId Edge, double Distance)>();
         var terrainInputs = RailwayDependencies.Values(new object?[] { snapshot.Core.World.WorldSeed, map.Position, map.Terrain.TypeId,
@@ -695,7 +726,12 @@ internal sealed class NodeScene : IAsyncDisposable
             Put("boundary:" + entry.Edge.Value, inputs, () => GridPart(
                 boundary.Grid.Cells.Where(cell => allowed.Contains(new(cell.At.X, cell.At.Z))).ToImmutableArray(),
                 boundary.Heights.Where(item => allowed.Contains(item.Key)).ToImmutableDictionary(), [], boundary.Origin));
-            foreach (var column in allowed) boundaryColumns.Add(Global(column));
+            foreach (var column in allowed)
+            {
+                var global = Global(column);
+                boundaryColumns.Add(global);
+                boundarySurfaces[global] = boundary.Heights[column] - 1;
+            }
         }
         var anyTracks = snapshot.Core.World.Edges.Any(edge => (edge.Start == node || edge.End == node) && edge.Tracks > 0);
         var stationKey = RailwayDependencies.Values(new object[] { layout.Inputs, anyTracks });
@@ -736,7 +772,8 @@ internal sealed class NodeScene : IAsyncDisposable
         var problemInputs = RailwayDependencies.Values(uniqueProblems);
         Put("diagnostics", problemInputs, () => GridPart([], ImmutableDictionary<GridColumn, double>.Empty, uniqueProblems));
         return new(snapshot, new(layout, parts.ToImmutable(), boundaries.ToImmutable()), terrain, ballastVoxel,
-            appearances, modelChunks, bedChunks, boundaryChunks, terrainInputs, rails.ToImmutable());
+            appearances, modelChunks, bedChunks, boundaryChunks, terrainInputs, rails.ToImmutable(),
+            BoundarySurfaces: boundarySurfaces);
 
         void Put(string name, string inputs, Func<Part> create)
         {
@@ -803,7 +840,7 @@ internal sealed class NodeScene : IAsyncDisposable
     private static Part TerrainPart(SceneWorldSnapshot snapshot, NodeMapItem node, NodeLayout layout,
         TerrainAppearanceProjection? terrain, VoxelDefinitionId ballastVoxel, Dictionary<VoxelDefinitionId, VoxelAppearanceProjection?> appearances,
         Dictionary<GridColumn, RailBed> bed, HashSet<GridColumn> boundaryColumns, ImmutableArray<SceneVoxelProjection> model,
-        GridColumn from, CancellationToken token)
+        GridColumn from, Dictionary<GridColumn, double> boundarySurfaces, CancellationToken token)
     {
         var cellCount = terrain is null ? 0 :
             (VoxelGrid.ChunkSize * VoxelGrid.ChunkSize - boundaryColumns.Count) * RailwayCoordinates.TerrainDepthCells;
@@ -812,15 +849,22 @@ internal sealed class NodeScene : IAsyncDisposable
         var subject = new PickSubject.Terrain(new WorldLocation.Node(node.Id));
         var layers = RailwayTerrain.PrepareLayers(terrain, id => appearances.GetValueOrDefault(id), subject);
         var ballast = bed.Count > 0 ? RailwayTerrain.PrepareVoxel(ballastVoxel, id => appearances.GetValueOrDefault(id), subject) : null;
+        var bounds = layout.Bounds;
+        var left = (int)bounds.Minimum.X;
+        var right = (int)bounds.Maximum.X;
+        var back = (int)bounds.Minimum.Y;
+        var front = (int)bounds.Maximum.Y;
+        var computed = new Dictionary<GridColumn, (int Height, double Distance)>();
         for (var z = from.Z; z < from.Z + VoxelGrid.ChunkSize; z++)
         for (var x = from.X; x < from.X + VoxelGrid.ChunkSize; x++)
         {
             token.ThrowIfCancellationRequested();
             var column = new GridColumn(x, z);
             if (boundaryColumns.Contains(column)) continue;
-            var (height, distance) = Column(column);
+            var (height, distance) = At(column);
             heights.Add(column, height + 1);
-            RailwayTerrain.FillColumn(cells, column, height, layers, ballast, distance, double.IsFinite(distance));
+            RailwayTerrain.FillColumn(cells, column, height, layers, ballast, distance, double.IsFinite(distance),
+                lowestNeighbor: Lowest(column));
         }
         var modelCells = ImmutableArray.CreateBuilder<SceneCell>();
         foreach (var voxel in model)
@@ -834,6 +878,29 @@ internal sealed class NodeScene : IAsyncDisposable
         }
         var occupied = modelCells.Select(cell => cell.At).ToHashSet();
         return GridPart(cells.Where(cell => !occupied.Contains(cell.At)).Concat(modelCells).ToImmutableArray(), heights.ToImmutable(), []);
+
+        (int Height, double Distance) At(GridColumn column)
+        {
+            if (!computed.TryGetValue(column, out var value))
+                computed[column] = value = Column(column);
+            return value;
+        }
+
+        double? Lowest(GridColumn column)
+        {
+            double? lowest = null;
+            void Consider(GridColumn neighbor)
+            {
+                if (neighbor.X < left || neighbor.X >= right || neighbor.Z < back || neighbor.Z >= front) return;
+                var surface = boundarySurfaces.TryGetValue(neighbor, out var owned) ? owned : At(neighbor).Height;
+                if (lowest is null || surface < lowest) lowest = surface;
+            }
+            Consider(new(column.X + 1, column.Z));
+            Consider(new(column.X - 1, column.Z));
+            Consider(new(column.X, column.Z + 1));
+            Consider(new(column.X, column.Z - 1));
+            return lowest;
+        }
 
         (int Height, double Distance) Column(GridColumn column)
         {

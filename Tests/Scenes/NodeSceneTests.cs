@@ -500,6 +500,124 @@ public sealed class NodeSceneTests
         Assert.IsFalse(frame.Diagnostics.Any(problem => problem.Code == "content_missing" && problem.Detail.Contains("layout copy")));
     }
 
+    [TestMethod]
+    public void NodeSlopeMeetsAcrossAChunkBoundary()
+    {
+        var terrain = RailwayFixtures.TerrainAppearance with { LocalHeightNoise = [new(2, 40)] };
+        var layout = NodeFixtures.Layout;
+        var snapshot = NodeFixtures.EmptyNodeSnapshot(layout, []);
+        snapshot = snapshot with { Content = NodeFixtures.Content(terrain: terrain, layout: layout) };
+        var node = snapshot.Core.World.Nodes[0];
+        snapshot = RailwayFixtures.ReplaceCore(snapshot, node with { Terrain = node.Terrain with { Relief = 1 } });
+        var cells = NodeCells(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+        Assert.IsTrue(CrossesChunk(cells), "A chunk boundary must step by more than six cells.");
+        AssertNodeColumnsMeet(cells);
+    }
+
+    [TestMethod]
+    public void FlattenSkirtMeetsAcrossAChunkBoundary()
+    {
+        var scene = SceneFixtures.Projection([]) with { RootFlatten = new(new(4, -8), new(20, 8), 80) };
+        var layout = NodeFixtures.Layout with { SceneModel = NodeFixtures.Layout.SceneModel with { Scene = scene } };
+        var snapshot = NodeFixtures.EmptyNodeSnapshot(layout, []);
+        var cells = NodeCells(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+        Assert.IsTrue(CrossesChunk(cells), "The flatten skirt must step by more than six cells across a chunk boundary.");
+        AssertNodeColumnsMeet(cells);
+    }
+
+    [TestMethod]
+    public void ChunkInputsIncludeABedInTheNeighboringChunk()
+    {
+        var snapshot = NodeFixtures.Snapshot(trains: [], tracks: 1);
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        var prepared = NodeScene.Prepare(snapshot, layout);
+        Assert.IsTrue(RemovingANeighborBedChangesInputs(prepared, layout),
+            "The fixture must place a bed on the ring of a neighboring terrain chunk.");
+    }
+
+    private static bool RemovingANeighborBedChangesInputs(NodeScene.Preparation prepared, NodeLayout layout)
+    {
+        foreach (var (chunk, beds) in prepared.BedChunks)
+        foreach (var column in beds.Keys.ToArray())
+        foreach (var from in new[]
+        {
+            new GridColumn(chunk.X - VoxelGrid.ChunkSize, chunk.Z), new GridColumn(chunk.X + VoxelGrid.ChunkSize, chunk.Z),
+            new GridColumn(chunk.X, chunk.Z - VoxelGrid.ChunkSize), new GridColumn(chunk.X, chunk.Z + VoxelGrid.ChunkSize)
+        })
+        {
+            if (from.X < (int)layout.Bounds.Minimum.X || from.X >= (int)layout.Bounds.Maximum.X ||
+                from.Z < (int)layout.Bounds.Minimum.Y || from.Z >= (int)layout.Bounds.Maximum.Y) continue;
+            var outside = column.X < from.X || column.X >= from.X + VoxelGrid.ChunkSize ||
+                column.Z < from.Z || column.Z >= from.Z + VoxelGrid.ChunkSize;
+            var near = column.X >= from.X - 1 && column.X <= from.X + VoxelGrid.ChunkSize &&
+                column.Z >= from.Z - 1 && column.Z <= from.Z + VoxelGrid.ChunkSize;
+            if (!outside || !near) continue;
+            var before = prepared.ChunkInputs(from);
+            Assert.IsTrue(prepared.BedChunks[chunk].Remove(column));
+            Assert.AreNotEqual(before, prepared.ChunkInputs(from));
+            return true;
+        }
+        return false;
+    }
+
+    private static Dictionary<GridColumn, (HashSet<int> Cells, GridColumn Chunk)> NodeCells(SceneWorldSnapshot snapshot, NodeLayout layout)
+    {
+        var prepared = NodeScene.Prepare(snapshot, layout);
+        var cells = new Dictionary<GridColumn, (HashSet<int> Cells, GridColumn Chunk)>();
+        for (var z = (int)layout.Bounds.Minimum.Y; z < layout.Bounds.Maximum.Y; z += VoxelGrid.ChunkSize)
+        for (var x = (int)layout.Bounds.Minimum.X; x < layout.Bounds.Maximum.X; x += VoxelGrid.ChunkSize)
+        {
+            var from = new GridColumn(x, z);
+            var part = prepared.BuildChunk(from);
+            if (part.Geometry.Geometry.Picking.IsEmpty) continue;
+            foreach (var cell in part.Geometry.Geometry.Picking.Single().Grid.Cells)
+            {
+                var column = new GridColumn(cell.At.X, cell.At.Z);
+                if (!part.Heights.TryGetValue(column, out var top) || cell.At.Y > top - 1) continue;
+                if (!cells.TryGetValue(column, out var group)) cells[column] = group = ([], from);
+                group.Cells.Add(cell.At.Y);
+            }
+        }
+        return cells;
+    }
+
+    private static bool CrossesChunk(Dictionary<GridColumn, (HashSet<int> Cells, GridColumn Chunk)> cells)
+    {
+        foreach (var (column, group) in cells)
+        {
+            var surface = group.Cells.Max();
+            foreach (var neighbor in Orthogonal(column))
+                if (cells.TryGetValue(neighbor, out var other) && other.Chunk != group.Chunk &&
+                    Math.Abs(surface - other.Cells.Max()) > RailwayCoordinates.TerrainDepthCells)
+                    return true;
+        }
+        return false;
+    }
+
+    private static void AssertNodeColumnsMeet(Dictionary<GridColumn, (HashSet<int> Cells, GridColumn Chunk)> cells)
+    {
+        foreach (var (column, group) in cells)
+        {
+            var surface = group.Cells.Max();
+            foreach (var neighbor in Orthogonal(column))
+            {
+                if (!cells.TryGetValue(neighbor, out var other)) continue;
+                var lower = other.Cells.Max();
+                if (lower >= surface) continue;
+                for (var y = lower + 1; y <= surface; y++)
+                    Assert.IsTrue(group.Cells.Contains(y), $"({column.X},{column.Z}) is missing {y} above ({neighbor.X},{neighbor.Z}) at {lower}.");
+            }
+        }
+    }
+
+    private static IEnumerable<GridColumn> Orthogonal(GridColumn column)
+    {
+        yield return new(column.X + 1, column.Z);
+        yield return new(column.X, column.Z + 1);
+        yield return new(column.X - 1, column.Z);
+        yield return new(column.X, column.Z - 1);
+    }
+
     private static SceneWorldSnapshot CopiedSettlement(ulong generation, bool terrain = true, bool stationPlots = true,
         VoxelDefinitionId? ballast = null)
     {
