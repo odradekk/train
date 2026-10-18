@@ -41,7 +41,7 @@ internal static class UiWorldFixture
             0, scenario == Scenario.Map ? 0 : 1, null);
         var second = first with { Id = new(2), Position = new(750, 300) };
         var edge = new EdgeMapItem(new(1), first.Id, second.Id, 600, terrain, 1, 1, [], []);
-        var position = new TrainPosition.Node(first.Id, null, null, NodeTravelPhase.Waiting, 80, null);
+        var position = new TrainPosition.Node(first.Id, null, null, null, null, NodeTravelPhase.Waiting, 80, null);
         // Save 情景保留一辆未编组车辆；Scene 情景需一辆可跟随的车；Formation 检查两辆车的顺序。
         ImmutableArray<VehicleId> ordered = scenario switch
         {

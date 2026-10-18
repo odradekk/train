@@ -117,7 +117,7 @@ public partial class NodeTransitionPreview : Node
     }
 
     private static TrainPosition Position(NodeTravelPhase phase, double distance, int? platform = 1, ulong next = 1) =>
-        new TrainPosition.Node(new(1), new(2), new(next), phase, distance, platform);
+        new TrainPosition.Node(new(1), new(2), 1, new(next), phase == NodeTravelPhase.Departing ? 1 : null, phase, distance, platform);
 
     private async Task Capture(string name, SceneWorldSnapshot snapshot, double alpha)
     {

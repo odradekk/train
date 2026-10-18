@@ -18,7 +18,7 @@ public sealed class NodeTrainPathTests
         var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(NodeFixtures.NodeId)).Value with
         { ApproachLengthMeters = a, PlatformLengthMeters = 96, DepartureLengthMeters = d };
         var entry = layout.Entries[0]; var exit = layout.Entries[1]; var stop = layout.Stops[0];
-        var position = new TrainPosition.Node(layout.Node, entry.Edge, exit.Edge, NodeTravelPhase.Approaching, 0, 1);
+        var position = new TrainPosition.Node(layout.Node, entry.Edge, 1, exit.Edge, null, NodeTravelPhase.Approaching, 0, 1);
         var path = new NodeTrainPath(layout, dimensions, position, stop, 8, null);
         Near(layout.TrainBoundary(entry).Position, path.Sample(path.Arc(0)).Position);
         var waiting = RailwayCoordinates.Add(layout.TrainBoundary(entry).Position, -entry.Outward * (float)(16 + entry.StraightLength - 4));
@@ -41,7 +41,7 @@ public sealed class NodeTrainPathTests
         var snapshot = NodeFixtures.Snapshot();
         var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
         var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(NodeFixtures.NodeId)).Value with { PlatformLengthMeters = 96 };
-        var position = new TrainPosition.Node(layout.Node, layout.Entries[0].Edge, null, NodeTravelPhase.Approaching, 0, 1);
+        var position = new TrainPosition.Node(layout.Node, layout.Entries[0].Edge, 1, null, null, NodeTravelPhase.Approaching, 0, 1);
         var paths = new EdgeId?[] { null, layout.Entries[0].Edge, layout.Entries[1].Edge }
             .Select(edge => new NodeTrainPath(layout, dimensions, position with { NextEdge = edge }, layout.Stops[0], 0, null)).ToArray();
         foreach (var distance in new[] { 0.0, 40, 80, 104, 128 })
@@ -58,7 +58,7 @@ public sealed class NodeTrainPathTests
         var entry = layout.EntryFor(new(2));
         var stop = layout.Stops[0];
         var distance = dimensions.ApproachLengthMeters + dimensions.PlatformLengthMeters / 2 - 1;
-        var position = new TrainPosition.Node(layout.Node, entry.Edge, null, NodeTravelPhase.Approaching, distance, 1);
+        var position = new TrainPosition.Node(layout.Node, entry.Edge, 1, null, null, NodeTravelPhase.Approaching, distance, 1);
         var unchanged = new NodeTrainPath(layout, dimensions, position, stop, 0, null);
         foreach (var next in new EdgeId?[] { null, layout.EntryFor(new(1)).Edge, entry.Edge })
         {
@@ -92,9 +92,9 @@ public sealed class NodeTrainPathTests
         var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(NodeFixtures.NodeId)).Value with
         { ApproachLengthMeters = 51, PlatformLengthMeters = 96, DepartureLengthMeters = 137 };
         var entry = layout.Entries[0]; var stop = layout.Stops[0];
-        var position = new TrainPosition.Node(layout.Node, entry.Edge, entry.Edge, NodeTravelPhase.Docked, 99, 1);
+        var position = new TrainPosition.Node(layout.Node, entry.Edge, 1, entry.Edge, null, NodeTravelPhase.Docked, 99, 1);
         var before = new NodeTrainPath(layout, dimensions, position, stop, 8, null);
-        var after = new NodeTrainPath(layout, dimensions, position with { Phase = NodeTravelPhase.Departing }, stop, 8, null);
+        var after = new NodeTrainPath(layout, dimensions, position with { Phase = NodeTravelPhase.Departing, NextTrack = 1 }, stop, 8, null);
         Near(stop.Center, after.Sample(after.Arc(99)).Position);
         Near(before.Sample(before.Arc(51)).Position, after.Sample(after.Arc(147)).Position);
         Near(layout.TrainBoundary(entry).Position, after.Sample(after.Arc(284)).Position);
@@ -115,7 +115,7 @@ public sealed class NodeTrainPathTests
         var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(NodeFixtures.NodeId)).Value;
         var entry = layout.EntryFor(new(1));
         var inlet = layout.Approach(entry, layout.Bypass).Inlet.Length;
-        var position = new TrainPosition.Node(layout.Node, entry.Edge, new(2), NodeTravelPhase.Waiting,
+        var position = new TrainPosition.Node(layout.Node, entry.Edge, 1, new(2), null, NodeTravelPhase.Waiting,
             dimensions.ApproachLengthMeters, null);
         foreach (var halfLength in new[] { inlet, inlet + 52 })
         {
@@ -144,7 +144,7 @@ public sealed class NodeTrainPathTests
         var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(layout.Node)).Value with { PlatformLengthMeters = 0 };
         var edge = layout.Entries[0].Edge;
         var path = new NodeTrainPath(layout, dimensions,
-            new(layout.Node, edge, edge, NodeTravelPhase.Departing, 80, null), layout.Bypass, 0, null);
+            new(layout.Node, edge, 1, edge, 1, NodeTravelPhase.Departing, 80, null), layout.Bypass, 0, null);
         Near(layout.Bypass.Center, path.Sample(path.Arc(80)).Position);
         Near(layout.TrainBoundary(layout.Entries[0]).Position, path.Sample(path.Arc(160)).Position);
         Assert.IsTrue(double.IsFinite(path.Arc(120)));

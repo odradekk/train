@@ -29,10 +29,10 @@ public sealed class NodeBoundaryMembersTests
             var endpoint = direction > 0 ? railway.LengthCells : 0;
             var lineBoundary = railway.Sample(endpoint, offset);
             var incoming = new NodeTrainPath(layout, dimensions,
-                new(node, entry.Edge, entry.Edge, NodeTravelPhase.Approaching, 0, null), layout.Bypass,
+                new(node, entry.Edge, 1, entry.Edge, null, NodeTravelPhase.Approaching, 0, null), layout.Bypass,
                 count * 52, _ => railway);
             var returning = new NodeTrainPath(layout, dimensions,
-                new(node, entry.Edge, entry.Edge, NodeTravelPhase.Departing, 0, null), layout.Bypass,
+                new(node, entry.Edge, 1, entry.Edge, 1, NodeTravelPhase.Departing, 0, null), layout.Bypass,
                 count * 52, _ => railway);
             var inlet = layout.Approach(entry, layout.Bypass).Inlet;
             Assert.IsTrue(inlet.Length > 52,
@@ -82,7 +82,7 @@ public sealed class NodeBoundaryMembersTests
         {
             var railway = new RailwayPath(snapshot, exit.Edge);
             var path = new NodeTrainPath(layout, dimensions,
-                new(layout.Node, entry.Edge, exit.Edge, NodeTravelPhase.Departing, 0, null),
+                new(layout.Node, entry.Edge, 1, exit.Edge, 1, NodeTravelPhase.Departing, 0, null),
                 layout.Stops[0], count * 52, edge => new RailwayPath(snapshot, edge));
             var direction = railway.Start.Id == layout.Node ? 1 : -1;
             var endpoint = direction > 0 ? 0 : railway.LengthCells;
@@ -124,17 +124,17 @@ public sealed class NodeBoundaryMembersTests
             Assert.IsTrue(common >= count / 2 * 52,
                 "This whole-train fixture must fit the shared inlet; members beyond its branch belong to R9.");
             var arrival = new NodeTrainPath(layout, dimensions,
-                new(layout.Node, boundaryEntry.Edge, boundaryEntry.Edge, NodeTravelPhase.Approaching, 0, null),
+                new(layout.Node, boundaryEntry.Edge, 1, boundaryEntry.Edge, null, NodeTravelPhase.Approaching, 0, null),
                 stop, count * 52, edge => new RailwayPath(snapshot, edge));
             Compare(arrival, 0, incomingDirection, "arrival");
             var returning = new NodeTrainPath(layout, dimensions,
-                new(layout.Node, boundaryEntry.Edge, boundaryEntry.Edge, NodeTravelPhase.Departing, 0, null),
+                new(layout.Node, boundaryEntry.Edge, 1, boundaryEntry.Edge, 1, NodeTravelPhase.Departing, 0, null),
                 stop, count * 52, edge => new RailwayPath(snapshot, edge));
             Compare(returning, returning.Length, -incomingDirection, "return");
             foreach (var other in layout.Entries.Where(entry => entry.Edge != boundaryEntry.Edge))
             {
                 var departure = new NodeTrainPath(layout, dimensions,
-                    new(layout.Node, other.Edge, boundaryEntry.Edge, NodeTravelPhase.Departing, 0, null),
+                    new(layout.Node, other.Edge, 1, boundaryEntry.Edge, 1, NodeTravelPhase.Departing, 0, null),
                     stop, count * 52, edge => new RailwayPath(snapshot, edge));
                 Compare(departure, departure.Length, -incomingDirection, "departure");
             }

@@ -177,7 +177,7 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
             }
             var inventory = new InventoryId(inventoryNumber++);
             inventories.Add(new(inventory, new InventoryOwner.Train(trainId), initial.Inventory, []));
-            trains.Add(new(trainId, new TrainPosition.Node(startNode, null, null, NodeTravelPhase.Waiting,
+            trains.Add(new(trainId, new TrainPosition.Node(startNode, null, null, null, null, NodeTravelPhase.Waiting,
                 content.RailwayRules.Single(r => r.Id == input.Configuration.Rules.Railway).ApproachLengthMeters, null),
                 vehicles.ToImmutable(), inventory, TrainOrderFacing.FirstEndLeading, TrainActivity.Stopped,
                 0, null, null, 0, false, null, null));

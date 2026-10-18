@@ -11,7 +11,7 @@ namespace Train.Scenes.Tests;
 public sealed class NodeTrainPresentationTests
 {
     private static TrainView Approaching(double distance) => NodeFixtures.Train(speed: 10) with
-    { Position = new TrainPosition.Node(NodeFixtures.NodeId, new(2), new(1), NodeTravelPhase.Approaching, distance, 1) };
+    { Position = new TrainPosition.Node(NodeFixtures.NodeId, new(2), 1, new(1), null, NodeTravelPhase.Approaching, distance, 1) };
 
     [TestMethod]
     [DataRow(0)]
@@ -113,7 +113,7 @@ public sealed class NodeTrainPresentationTests
         var waiting = NodeFixtures.Train(vehicles: [new(1), new(2), new(3)], enteredFrom: new(1), nextEdge: new(2)) with
         {
             LengthMeters = 78, PlatformQueueEnteredStep = 1,
-            Position = new TrainPosition.Node(NodeFixtures.NodeId, new(1), new(2),
+            Position = new TrainPosition.Node(NodeFixtures.NodeId, new(1), 1, new(2), null,
                 distance == 80 ? NodeTravelPhase.Waiting : NodeTravelPhase.Approaching, distance, null)
         };
         var content = NodeFixtures.Content(design: RailwayFixtures.Vehicle(lengthCells: 52),
@@ -221,7 +221,7 @@ public sealed class NodeTrainPresentationTests
     {
         var stationary = NodeFixtures.Train(9, enteredFrom: new(2), nextEdge: new(1), activity: TrainActivity.Servicing);
         var arriving = NodeFixtures.Train(1, enteredFrom: new(2), nextEdge: new(1), speed: 1) with
-        { Position = new TrainPosition.Node(NodeFixtures.NodeId, new(2), new(1), NodeTravelPhase.Approaching, 127.999999, null) };
+        { Position = new TrainPosition.Node(NodeFixtures.NodeId, new(2), 1, new(1), null, NodeTravelPhase.Approaching, 127.999999, null) };
         var stopped = arriving with { SpeedMetersPerSecond = 0, Position = ((TrainPosition.Node)arriving.Position) with
             { Phase = NodeTravelPhase.Docked, DistanceMeters = 128 } };
         var old = NodeFixtures.Snapshot(trains: [stationary, arriving], steps: 1);
@@ -241,7 +241,7 @@ public sealed class NodeTrainPresentationTests
         var following = NodeFixtures.Train(2, vehicles: [new(2), new(20)], enteredFrom: new(2)) with
         { PlatformQueueEnteredStep = 2, LengthMeters = 8 };
         var through = NodeFixtures.Train(3, enteredFrom: new(2), speed: 10) with
-        { Position = new TrainPosition.Node(NodeFixtures.NodeId, new(2), new(1), NodeTravelPhase.Approaching, 40, null) };
+        { Position = new TrainPosition.Node(NodeFixtures.NodeId, new(2), 1, new(1), null, NodeTravelPhase.Approaching, 40, null) };
         var old = NodeFixtures.Snapshot(trains: [following, head, through], steps: 1);
         var current = NodeFixtures.Snapshot(trains: [following, through], steps: 2);
         await using var vehicles = new SceneVehicles();

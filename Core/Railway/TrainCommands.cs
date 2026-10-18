@@ -159,7 +159,7 @@ internal static class TrainCommands
             return Reject("identity_exhausted", "World.Next");
         var train = new TrainId(world.Next.Train);
         var inventory = new InventoryId(world.Next.Inventory);
-        var added = new TrainState(train, new TrainPosition.Node(settlement.Node, null, null, NodeTravelPhase.Waiting,
+        var added = new TrainState(train, new TrainPosition.Node(settlement.Node, null, null, null, null, NodeTravelPhase.Waiting,
             TrainOperations.Rule(world, content).ApproachLengthMeters, null), command.OrderedVehicles, inventory,
             TrainOrderFacing.FirstEndLeading, TrainActivity.Stopped, 0, null, null, 0, false, null, null);
         return new CommandEffect.Accepted(content, [new CoreEvent.TrainCompositionChanged(train, command.OrderedVehicles)], world with

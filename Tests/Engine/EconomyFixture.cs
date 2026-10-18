@@ -25,7 +25,7 @@ internal static class EconomyFixture
         var terrain = new TerrainView(new("fixture:plain"), 0, []);
         var occupant = new NodeOccupant.Settlement(new(1), SettlementRelation.NonHostile);
         var node = new NodeMapItem(new(1), new(250, 300), terrain, occupant, [], 0, 1, null);
-        var train = new TrainView(new(7), new TrainPosition.Node(new(1), null, null, NodeTravelPhase.Waiting, 80, null), TrainActivity.Stopped,
+        var train = new TrainView(new(7), new TrainPosition.Node(new(1), null, null, null, null, NodeTravelPhase.Waiting, 80, null), TrainActivity.Stopped,
             [new(10)], new(12), 0, 20, 10, 100, 0, 30,
             null, null, 0, new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, .2),
             [], null, [], TrainOrderFacing.FirstEndLeading, null);
