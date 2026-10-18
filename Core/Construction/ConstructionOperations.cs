@@ -67,7 +67,9 @@ internal static class ConstructionOperations
                 continue;
             }
             var design = world.Designs.Single(d => d.Design == job.TargetDesign);
-            var returned = job.ReturnInventory is null ? ImmutableArray<GoodsQuantity>.Empty
+            var returned = design.Kind is DesignKind.LargeEquipment equipment
+                ? ImmutableArray.Create(new GoodsQuantity(equipment.ManufacturedGood, 1))
+                : job.ReturnInventory is null ? ImmutableArray<GoodsQuantity>.Empty
                 : ConstructionReturns.Calculate(world, content, world.Instances.Single(i => i.Id == job.Instance),
                     job.Kind == ConstructionKind.Deconstruction ? ConstructionReturns.AllItems(design) : job.RemovedItems).Goods;
             if (job.ReturnInventory is { } returnInventory)
@@ -115,7 +117,7 @@ internal static class ConstructionOperations
                 created = placed.Created;
                 adapted = placed.Events;
             }
-            else
+            else if (design.Kind is not DesignKind.LargeEquipment)
             {
                 if (world.Next.Vehicle == ulong.MaxValue) throw new InvalidOperationException("车辆身份已耗尽。");
                 var vehicle = new VehicleId(world.Next.Vehicle);

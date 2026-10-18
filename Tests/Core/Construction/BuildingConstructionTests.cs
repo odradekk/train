@@ -520,6 +520,78 @@ public sealed class BuildingConstructionTests
         }
     }
 
+    [TestMethod]
+    public void Equipment_deposits_one_assembly_and_one_composite_without_an_instance_or_site()
+    {
+        var limited = Content(maximum: null);
+        Deposit(limited, new GoodId.Assembly(new(new string('1', 64))), '2');
+        var composite = new GoodId.Composite(new("fixture:turret"));
+        Deposit(limited with { Goods = limited.Goods.Add(new(composite, WorldFixture.Revision, new(1), 1, false, null)) }, composite, '3');
+
+        static void Deposit(CoreContentProjection content, GoodId good, char hash)
+        {
+            using var session = Session(content);
+            var design = Equipment(content, good, hash);
+            var instances = session.State.World.Instances.Select(i => i.Id).ToArray();
+            var job = Start(session, new CoreCommand.StartOwnedJob(new JobRequest.BuildEquipment(Facility, design, [Local], 0)));
+            Assert.AreEqual(new ConstructionTarget.NewAssembly(design.Design.Design, design.Design.Composition,
+                session.State.World.Settlements.Single().Inventory), job.Target);
+            Assert.IsNull(session.State.World.ConstructionJobs.Single().Instance);
+            Assert.IsNull(session.State.World.ConstructionJobs.Single().Plot);
+            Assert.IsTrue(Settlement(session).Plots.All(p => p.Occupant is PlotOccupant.Building));
+            Assert.AreEqual(2L, job.FrozenTotalWork);
+            Assert.AreEqual(8L, Stock(session, Local));
+            CollectionAssert.AreEqual(new[] { new GoodsQuantity(good, 1) }, LocalInventory(session).Reservations.Single().ExpectedReturns.ToArray());
+            var completed = Step(session, 2).Events.Select(e => e.Event).OfType<CoreEvent.ConstructionCompleted>().Single();
+            Assert.IsNull(completed.CreatedInstance);
+            CollectionAssert.AreEqual(new[] { new GoodsQuantity(good, 1) }, completed.ReturnedGoods.ToArray());
+            CollectionAssert.AreEqual(instances, session.State.World.Instances.Select(i => i.Id).ToArray());
+            Assert.AreEqual(1L, LocalInventory(session).Stacks.Single(s => s.Good == good).Quantity);
+            Assert.IsTrue(LocalInventory(session).Reservations.IsEmpty);
+            Assert.AreEqual(8L, Stock(session, Local));
+            RoundTrip(session, content);
+        }
+    }
+
+    [TestMethod]
+    public void Equipment_rejects_insufficient_return_capacity_and_failure_only_releases_the_reservation()
+    {
+        var stored = Content(stock: 2);
+        var content = stored with
+        {
+            Designs = stored.Designs.Select(d => d.Design != WorldFixture.Station ? d : d with
+            {
+                Parts = d.Parts.Select(p => p with
+                    { Capabilities = p.Capabilities.Where(c => c is not PartCapability.Storage).ToImmutableArray() }).ToImmutableArray()
+            }).ToImmutableArray()
+        };
+        using (var full = Session(content))
+            Reject(full, new CoreCommand.StartOwnedJob(new JobRequest.BuildEquipment(Facility,
+                Equipment(content, new GoodId.Assembly(new(new string('1', 64))), '2'), [Local], 0)),
+                "ReturnInventory.Capacity", "insufficient_capacity");
+
+        var good = new GoodId.Assembly(new(new string('4', 64)));
+        using var session = Session(Content(maximum: null));
+        Start(session, new CoreCommand.StartOwnedJob(new JobRequest.BuildEquipment(Facility, Equipment(session.State.Content, good, '5'), [Local], 0)));
+        using var destroyed = new CoreSession(session.State with { World = session.State.World with
+        {
+            Instances = session.State.World.Instances.Select(i => i.Id != new InstanceId.Building(Facility.Building) ? i : i with
+                { StructureDurability = 0 }).ToImmutableArray()
+        } });
+        var failed = Step(destroyed).Events.Select(e => e.Event).OfType<CoreEvent.ConstructionStateChanged>().Single();
+        Assert.AreEqual(ConstructionState.Failed, failed.After);
+        Assert.AreEqual("instance_destroyed", failed.Reasons.Single().Code);
+        Assert.IsTrue(LocalInventory(destroyed).Reservations.IsEmpty);
+        Assert.IsFalse(LocalInventory(destroyed).Stacks.Any(s => s.Good == good));
+        Assert.AreEqual(8L, Stock(destroyed, Local));
+        Assert.IsInstanceOfType<Lookup<JobView>.Missing>(destroyed.Read().FindJob(failed.Job));
+    }
+
+    private static DesignInput Equipment(CoreContentProjection content, GoodId good, char hash) => new(content.Identity,
+        new(new(new string(hash, 64)), new(new string('E', 64)), new DesignKind.LargeEquipment(good), [],
+            0, 0, 0, new(0), [], [new(Material, 2)], 2, [], true, []),
+        good is GoodId.Assembly ? [new(good, WorldFixture.Revision, new(1), 1, false, null)] : []);
+
     private static CoreCommand DismantleBuilding(BuildingId building, FacilityKey? facility = null)
         => new CoreCommand.StartOwnedJob(new JobRequest.Dismantle(facility ?? Facility, new InstanceId.Building(building), 0));
 

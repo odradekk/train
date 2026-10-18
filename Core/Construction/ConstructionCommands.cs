@@ -24,6 +24,7 @@ internal static class ConstructionCommands
             JobRequest.BuildVehicle build => (build.Facility, build.Sources, build.Priority),
             JobRequest.BuildBuilding build when build.Plot.Value != 0 => (build.Facility, build.Sources, build.Priority),
             JobRequest.BuildBuilding { Plot.Value: 0 } => throw new ArgumentException("地块编号必须非零。", nameof(request)),
+            JobRequest.BuildEquipment build => (build.Facility, build.Sources, build.Priority),
             JobRequest.Refit { Instance: InstanceId.Vehicle vehicle } refit when vehicle.Id.Value != 0
                 => (refit.Facility, refit.Sources, refit.Priority),
             JobRequest.Refit { Instance: InstanceId.Building building } refit when building.Id.Value != 0
@@ -52,6 +53,7 @@ internal static class ConstructionCommands
             throw new ArgumentException("施工请求须提供施工设施和已初始化的来源数组。", nameof(request));
         if (request is JobRequest.BuildVehicle vehicleBuild) InstanceDesignChanges.ValidateInput(vehicleBuild.Design, world, content);
         if (request is JobRequest.BuildBuilding buildingBuild) InstanceDesignChanges.ValidateInput(buildingBuild.Design, world, content);
+        if (request is JobRequest.BuildEquipment equipmentBuild) InstanceDesignChanges.ValidateInput(equipmentBuild.Design, world, content);
         if (request is JobRequest.Refit refitting)
             InstanceDesignChanges.Validate(refitting.Instance, refitting.Change, world, content);
     }
@@ -67,6 +69,7 @@ internal static class ConstructionCommands
         {
             JobRequest.BuildVehicle build => (build.Facility, build.Sources, build.Priority),
             JobRequest.BuildBuilding build => (build.Facility, build.Sources, build.Priority),
+            JobRequest.BuildEquipment build => (build.Facility, build.Sources, build.Priority),
             JobRequest.Refit refit => (refit.Facility, refit.Sources, refit.Priority),
             JobRequest.Repair repair => (repair.Facility, repair.Sources, repair.Priority),
             JobRequest.Dismantle dismantle => (dismantle.Facility, ImmutableArray<InventoryId>.Empty, dismantle.Priority),
@@ -117,6 +120,16 @@ internal static class ConstructionCommands
             if (MissingDesign(prepared, content, design)) return Reject("content_missing", "Design");
             if (!WorldInputs.FitsPlot(((DesignKind.Building)design.Kind).PlotSize, site.Size))
                 return Reject("conditions_not_met", "Plot");
+        }
+        else if (request is JobRequest.BuildEquipment equipment)
+        {
+            var input = WorldInputs.NormalizeDesignInput(equipment.Design);
+            if (input.InputIdentity != content.Identity) return Reject("content_changed", "Design.InputIdentity");
+            design = WorldInputs.NormalizeDesign(input.Design);
+            if (design.Kind is not DesignKind.LargeEquipment || !design.CanConstruct)
+                return Reject("invalid_design", "Design");
+            prepared = InstanceDesignChanges.AddTarget(world, input);
+            if (MissingDesign(prepared, content, design)) return Reject("content_missing", "Design");
         }
         else
         {
@@ -183,10 +196,11 @@ internal static class ConstructionCommands
         var marketRule = MarketPrices.Rule(world, content);
         if (funding == JobFunding.NpcCommission && marketRule is null) return Reject("content_missing", "MarketRule");
         var needed = new Dictionary<GoodId, long>();
-        if (request is JobRequest.BuildVehicle or JobRequest.BuildBuilding)
+        if (request is JobRequest.BuildVehicle or JobRequest.BuildBuilding or JobRequest.BuildEquipment)
         {
             foreach (var good in BillOfMaterials([design])) Add(good.Good, good.Quantity);
             work = checked(design.BillOfMaterialsItemCount * rule.ConstructionWorkPerItem);
+            if (design.Kind is DesignKind.LargeEquipment equipment) returns = [new(equipment.ManufacturedGood, 1)];
         }
         else if (request is JobRequest.Refit refit)
         {
@@ -336,6 +350,7 @@ internal static class ConstructionCommands
         {
             JobRequest.BuildVehicle build => (build.Facility, build.Priority, (InstanceId?)null, (PlotId?)null),
             JobRequest.BuildBuilding build => (build.Facility, build.Priority, (InstanceId?)null, (PlotId?)build.Plot),
+            JobRequest.BuildEquipment build => (build.Facility, build.Priority, (InstanceId?)null, (PlotId?)null),
             JobRequest.Refit refit => (refit.Facility, refit.Priority, (InstanceId?)refit.Instance, (PlotId?)null),
             JobRequest.Repair repair => (repair.Facility, repair.Priority, (InstanceId?)repair.Instance, (PlotId?)null),
             JobRequest.Dismantle dismantle => (dismantle.Facility, dismantle.Priority, (InstanceId?)dismantle.Instance, (PlotId?)null),
@@ -346,6 +361,7 @@ internal static class ConstructionCommands
         {
             JobRequest.BuildVehicle build => build.Design.Design,
             JobRequest.BuildBuilding build => build.Design.Design,
+            JobRequest.BuildEquipment build => build.Design.Design,
             JobRequest.Refit refit => refit.Change.Target.Design,
             _ => world.Designs.Single(d => d.Design == world.Instances.Single(i => i.Id == instance).Design)
         };

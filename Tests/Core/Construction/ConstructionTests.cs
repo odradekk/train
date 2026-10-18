@@ -41,10 +41,8 @@ public sealed class ConstructionTests
     {
         var content = Content();
         using var session = Session(content);
-        var input = Design(content);
         CoreCommand[] commands =
         [
-            new CoreCommand.StartOwnedJob(new JobRequest.BuildEquipment(Facility, input, [Local], 0)),
             new CoreCommand.SetJobPriority(new(1), 0)
         ];
         var before = session.State;
