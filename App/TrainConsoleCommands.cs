@@ -20,7 +20,7 @@ internal sealed class TrainConsoleCommands(HostCoordinator host, TrainLogger log
             return;
         }
         var result = host.Submit(status.Binding, command!, CommandSource.Console);
-        if (CommandDiagnostics.Report(logger, result) is { } problem) showError(problem);
+        if (CommandDiagnostics.Report(logger, result, host.Content) is { } problem) showError(problem);
     }
 
     private void ReportError(string eventId, string error)

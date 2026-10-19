@@ -77,7 +77,7 @@ internal partial class EconomyPanels
         var status = _settlement!.Market.Rule;
         _leaseDuration.Text = _leaseRule is { } rule
             ? $"固定租期：{rule.LeaseDurationTicks / (decimal)UiInput.StepsPerDay:0.#########} 游戏日\n本次租期：{LeaseDurationSteps(_leaseMultiple) / (decimal)UiInput.StepsPerDay:0.#########} 游戏日（{_leaseMultiple} 倍）"
-            : $"市场规则缺失：{status.Rule.Value}，无法确定租期。\n" + Problems(status.Problems);
+            : $"市场规则缺失：{status.Rule.Value}，无法确定租期。\n" + Problems(status.Problems, _content);
         _leaseDuration.AddThemeColorOverride("font_color", _leaseRule is null ? UiStyle.Error : UiStyle.Foreground);
     }
 
@@ -98,8 +98,8 @@ internal partial class EconomyPanels
                     var result = _view.QuoteLease(new LeaseRequest.Renew(id, LeaseDurationSteps(index + 1)));
                     reason = result switch
                     {
-                        CoreResult<LeaseQuote>.Success success => Problems([.. success.Value.Blockers.Where(problem => problem.Field == "Request.DurationSteps")]),
-                        CoreResult<LeaseQuote>.Failure failure => "报价被拒绝：\n" + Problems(failure.Problems),
+                        CoreResult<LeaseQuote>.Success success => Problems([.. success.Value.Blockers.Where(problem => problem.Field == "Request.DurationSteps")], _content),
+                        CoreResult<LeaseQuote>.Failure failure => "报价被拒绝：\n" + Problems(failure.Problems, _content),
                         CoreResult<LeaseQuote>.Faulted fault => CommandDiagnostics.Describe(fault.Fault),
                         _ => throw new InvalidOperationException("未知报价结果。")
                     };

@@ -136,7 +136,7 @@ internal partial class SettlementFoundingPanel : Control
     private static string Describe(CoreResult<SettlementFoundingPreview> result, IContentView content) => result switch
     {
         CoreResult<SettlementFoundingPreview>.Failure failure =>
-            "建城条件暂不可用。\n" + string.Join("\n", failure.Problems.Select(CommandDiagnostics.Describe)) +
+            "建城条件暂不可用。\n" + string.Join("\n", failure.Problems.Select(problem => CommandDiagnostics.Describe(problem, content))) +
             "\n选择停在该节点的列车后仍可确认。",
         CoreResult<SettlementFoundingPreview>.Success success => Describe(success.Value, content),
         _ => "建城条件暂不可用。"
@@ -150,7 +150,7 @@ internal partial class SettlementFoundingPanel : Control
         var materials = preview.RequiredMaterials.IsDefaultOrEmpty ? "无"
             : string.Join("\n", preview.RequiredMaterials.Select(item => Quantity(item, content)));
         var blockers = preview.Blockers.IsDefaultOrEmpty ? ""
-            : "\n当前不能确认：\n" + string.Join("\n", preview.Blockers.Select(CommandDiagnostics.Describe));
+            : "\n当前不能确认：\n" + string.Join("\n", preview.Blockers.Select(problem => CommandDiagnostics.Describe(problem, content)));
         return $"初始人口：{preview.InitialResidents}\n预计生活物资\n{consumption}\n所需材料\n{materials}\n固定工期 {preview.DurationTicks} 步\n成立后库存为空，需另行运入生活物资。{blockers}";
     }
 

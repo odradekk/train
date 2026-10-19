@@ -254,7 +254,7 @@ internal partial class EconomyPanels : Control
         if (result is CoreResult<T>.Success success) return success.Value;
         description.Text = result switch
         {
-            CoreResult<T>.Failure failure => "报价被拒绝：\n" + Problems(failure.Problems),
+            CoreResult<T>.Failure failure => "报价被拒绝：\n" + Problems(failure.Problems, _content),
             CoreResult<T>.Faulted fault => CommandDiagnostics.Describe(fault.Fault),
             _ => throw new InvalidOperationException("未知报价结果。")
         };
@@ -266,8 +266,8 @@ internal partial class EconomyPanels : Control
     {
         label.Text = "报价不锁定\n" + details +
             (revision == _view.Revision ? "" : "\n报价后状态已变化，确认时由核心按当前状态判断。") +
-            (blockers.IsEmpty ? "" : "\n受阻：\n" + Problems(blockers)) +
-            (warnings.IsDefaultOrEmpty ? "" : "\n短缺风险：\n" + Problems(warnings)) +
+            (blockers.IsEmpty ? "" : "\n受阻：\n" + Problems(blockers, _content)) +
+            (warnings.IsDefaultOrEmpty ? "" : "\n短缺风险：\n" + Problems(warnings, _content)) +
             (reason is null ? "" : "\n" + reason);
         label.AddThemeColorOverride("font_color", !blockers.IsEmpty ? UiStyle.Error :
             !warnings.IsDefaultOrEmpty || reason is not null ? UiStyle.Warning : UiStyle.Foreground);
@@ -319,7 +319,8 @@ internal partial class EconomyPanels : Control
     { foreach (var child in node.GetChildren()) RemoveControl(child); }
     private static void RemoveControl(Node node) { node.GetParent().RemoveChild(node); node.QueueFree(); }
     private static void RemoveWindow(PanelContainer? panel) { if (panel is not null) RemoveControl(panel); }
-    private static string Problems(ImmutableArray<CoreProblem> problems) => string.Join("\n", problems.Select(CommandDiagnostics.Describe));
+    private static string Problems(ImmutableArray<CoreProblem> problems, IContentView content) =>
+        string.Join("\n", problems.Select(problem => CommandDiagnostics.Describe(problem, content)));
     private static LineEdit IntegerInput(Node parent, string name, string placeholder, string initial = "")
     { var edit = new LineEdit { Name = name, Text = initial, PlaceholderText = placeholder }; edit.AddThemeFontOverride("font", UiStyle.NumericFont()); parent.AddChild(edit); return edit; }
 }

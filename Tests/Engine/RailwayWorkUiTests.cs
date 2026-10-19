@@ -401,7 +401,7 @@ public class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
     {
         SubmissionResult.NotAccepted rejected => CommandDiagnostics.Describe(rejected.Reason),
         SubmissionResult.Completed { Receipt.Decision: CommandDecision.Rejected rejected } =>
-            string.Join("；", rejected.Problems.Select(CommandDiagnostics.Describe)),
+            string.Join("；", rejected.Problems.Select(problem => CommandDiagnostics.Describe(problem))),
         SubmissionResult.Completed { Receipt.Decision: CommandDecision.Faulted faulted } => CommandDiagnostics.Describe(faulted.Fault),
         SubmissionResult.Completed completed => completed.Receipt.Decision.GetType().Name,
         _ => result.ToString() ?? ""

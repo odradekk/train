@@ -63,7 +63,7 @@ internal partial class EconomyPanels
     private void RenderMarket()
     {
         var market = _settlement!.Market;
-        _marketProblems.Text = Problems(market.Rule.Problems); _marketProblems.Visible = !market.Rule.Problems.IsEmpty;
+        _marketProblems.Text = Problems(market.Rule.Problems, _content); _marketProblems.Visible = !market.Rule.Problems.IsEmpty;
         var trainGoods = Array.Empty<InventoryStackView>();
         if (_tradeTrain is { } id && _view.FindTrain(id) is Lookup<TrainView>.Found train)
         {
@@ -98,7 +98,7 @@ internal partial class EconomyPanels
             row.Choose.Text = _tradeGood == good ? "已选择" : "选择"; row.Choose.Disabled = !CanAct;
             row.Amounts.Visible = item is not null;
             if (item is not null) row.Amounts.Text = $"库存 {item.Stock} · 补货目标 {item.RestockTarget} · 留货 {item.ReservedForUse} · 可售 {item.SellableQuantity} · 可收 {item.ReceivableQuantity}";
-            row.Blockers.Text = item is null ? "" : Problems(item.Blockers); row.Blockers.Visible = row.Blockers.Text.Length > 0;
+            row.Blockers.Text = item is null ? "" : Problems(item.Blockers, _content); row.Blockers.Visible = row.Blockers.Text.Length > 0;
         }
     }
 

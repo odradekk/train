@@ -122,7 +122,7 @@ internal sealed class AuthoringService : IDisposable
             editor.Open(blueprint.Value, CreateDraftTarget(definition), unsaved: unsaved);
         else
         {
-            if (host.BeginEditing() is { } problem) { Report(CommandDiagnostics.Describe(problem)); return; }
+            if (host.BeginEditing() is { } problem) { Reject(problem); return; }
             Form = definition; draftId = id; revision = new(0); formDirty = unsaved;
             TemplatePreview = null; Changed?.Invoke();
         }
@@ -265,7 +265,7 @@ internal sealed class AuthoringService : IDisposable
                     written.Message ?? "包写入失败。")]);
             return host.ContentFactory.PrepareLoad(request, files, assets);
         });
-        if (begun.Problem is { } problem) Report(CommandDiagnostics.Describe(problem));
+        if (begun.Problem is { } problem) Reject(problem);
         else { operation = begun.Operation; Report("正在校验候选包并逐文件写入；期间请勿使用外部工具修改此包。"); }
     }
 
@@ -285,7 +285,7 @@ internal sealed class AuthoringService : IDisposable
         if (changedFiles || written?.Success == true) { edits.Clear(); assetEdits.Clear(); }
         Report((written is null ? "文件尚未写入。" : !changedFiles ? "未写入任何文件。" : written.Success ? "文件已写入。" : "写入已停止，已完成项保留。")
             + (result.Succeeded ? "普通重载成功；草稿保留。" : "内存内容未切换；草稿保留。 " + result.Message + " "
-                + string.Join("；", result.Diagnostics.Select(EditorService.Describe).Concat(result.Problems.Select(CommandDiagnostics.Describe))))
+                + string.Join("；", result.Diagnostics.Select(EditorService.Describe).Concat(result.Problems.Select(problem => CommandDiagnostics.Describe(problem, host.Content)))))
             + (changedFiles ? "请重新载入源包后继续创作。" : ""));
     }
 
@@ -351,6 +351,8 @@ internal sealed class AuthoringService : IDisposable
     }
 
     internal void Report(string message) { Message = message; Changed?.Invoke(); }
+    private void Reject(CoreProblem problem) =>
+        Report(editor.LogRejected("authoring", "authoring_operation_failed", problem));
     private static string Describe<T>(ContentResult<T> result) where T : notnull => result switch
     { ContentResult<T>.Failure failure => string.Join("；", failure.Diagnostics.Select(d => EditorService.Describe(d))),
         ContentResult<T>.Faulted failure => failure.Message, _ => "操作成功。" };

@@ -287,7 +287,7 @@ public partial class WorldPanels : Control
         {
             var value = foundTrain.Value;
             text.AppendLine($"状态：{Activity(value.Activity)}\n位置：{PositionText(value.Position)}\n速度：{value.SpeedMetersPerSecond:0.00} m/s\n编组：{string.Join(" → ", value.Vehicles.Select(id => $"车辆 {id.Value}"))}\n总长：{value.LengthMeters:0.##} m\n总质量：{value.MassTons:0.##} t\n牵引：{value.TractionKilonewtons:0.##} kN\n加速度：{value.Acceleration:0.##} m/s²\n");
-            foreach (var problem in value.Blockers) text.AppendLine(CommandDiagnostics.Describe(problem));
+            foreach (var problem in value.Blockers) text.AppendLine(CommandDiagnostics.Describe(problem, _content));
             text.AppendLine("\n运行计划");
             if (value.Plan is { } plan)
             {
@@ -315,7 +315,7 @@ public partial class WorldPanels : Control
                 text.AppendLine(vehicle.Train is { } trainId ? $"编组：列车 {trainId.Value}" : "未编组");
             else if (value.Details is InstanceDetails.Building building)
                 text.AppendLine($"地块：{building.Plot.Value}");
-            foreach (var problem in value.MissingContent) text.AppendLine(CommandDiagnostics.Describe(problem));
+            foreach (var problem in value.MissingContent) text.AppendLine(CommandDiagnostics.Describe(problem, _content));
         }
         else return "已不存在";
         return text.ToString();

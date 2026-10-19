@@ -330,9 +330,7 @@ public partial class GameUi : CanvasLayer
     private void Report(CoreProblem? problem)
     {
         if (problem is null) return;
-        var message = CommandDiagnostics.Describe(problem);
-        _logger.Warning("ui", "simulation_control_denied", message);
-        ShowError(message);
+        ShowError(CommandDiagnostics.LogProblem(_logger, "ui", "simulation_control_denied", problem, _content));
     }
 
     private void SetSpeed(SimulationSpeed? speed)
@@ -364,7 +362,7 @@ public partial class GameUi : CanvasLayer
             ShowError("该操作尚未实现。");
             return null;
         }
-        if (CommandDiagnostics.Report(_logger, result) is { } problem) ShowError(problem);
+        if (CommandDiagnostics.Report(_logger, result, content) is { } problem) ShowError(problem);
         return (result as SubmissionResult.Completed)?.Receipt.Decision as CommandDecision.Accepted;
     }
 
@@ -566,8 +564,7 @@ public partial class GameUi : CanvasLayer
             var result = _host.BeginNewGame(profiles[profile.Selected].Id, value, "stage1-world-v1", _host.SessionOptions);
             if (result.Problem is { } problem)
             {
-                var message = CommandDiagnostics.Describe(problem);
-                _logger.Warning("application", "host_new_game_denied", message);
+                var message = CommandDiagnostics.LogProblem(_logger, "application", "host_new_game_denied", problem, _host.Content);
                 ShowError(message);
                 _newGameError.Text = message;
                 return;
@@ -596,7 +593,7 @@ public partial class GameUi : CanvasLayer
             _menu.CloseSaves();
         if (!result.Succeeded && result.Status is not (HostOperationStatus.Cancelled or HostOperationStatus.Discarded))
         {
-            var message = string.Join("；", result.Problems.Select(CommandDiagnostics.Describe)
+            var message = string.Join("；", result.Problems.Select(problem => CommandDiagnostics.Describe(problem, _content))
                 .Concat(result.Diagnostics.Select(problem => problem.Message)));
             var operation = result.Kind switch
             { OperationKind.NewGame => "新游戏", OperationKind.Restore => "读档", OperationKind.Reload => "内容重载", _ => "宿主操作" };
