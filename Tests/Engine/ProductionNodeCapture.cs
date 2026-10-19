@@ -18,6 +18,8 @@ public partial class ProductionNodeCapture : Node
     private string? _lastPhase;
     private bool _worldRecorded;
     private int _sequenceLeft;
+    private Task _pngWrites = Task.CompletedTask;
+    private bool _recording;
 
     public static void Start(Node root) => root.AddChild(new ProductionNodeCapture { Name = "ProductionNodeCapture" });
 
@@ -47,7 +49,12 @@ public partial class ProductionNodeCapture : Node
         bar.AddChild(route);
         var sequence = new Button { Text = "连续记录 120 帧", Name = "CaptureSequence" };
         bar.AddChild(sequence);
-        sequence.Pressed += () => _sequenceLeft = 120;
+        sequence.Pressed += () =>
+        {
+            if (_sequenceLeft != 0 || !_pngWrites.IsCompleted) return;
+            _sequenceLeft = 120;
+            _recording = true;
+        };
         layer.AddChild(_status);
         route.Pressed += () =>
         {
@@ -62,6 +69,12 @@ public partial class ProductionNodeCapture : Node
 
     private void Capture()
     {
+        if (_pngWrites.IsFaulted) _pngWrites.GetAwaiter().GetResult();
+        if (_recording && _sequenceLeft == 0 && _pngWrites.IsCompleted)
+        {
+            _recording = false;
+            GD.Print("PRODUCTION PNG SEQUENCE COMPLETED: " + _directory);
+        }
         var status = _app.Host?.GetStatus();
         var world = _app.WorldScenes;
         var display = world?.Display;
@@ -80,8 +93,18 @@ public partial class ProductionNodeCapture : Node
         if (frame is not null && (_sequenceLeft > 0 || pose is not null && phase != _lastPhase))
         {
             screenshot = $"{_draw:D8}-{phase}.png";
-            using var image = GetViewport().GetTexture().GetImage();
-            if (image.SavePng(Path.Combine(_directory, screenshot)) != Error.Ok) throw new IOException("逐帧取证截图保存失败。");
+            var image = GetViewport().GetTexture().GetImage();
+            var path = Path.Combine(_directory, screenshot);
+            var previousWrite = _pngWrites;
+            // 视口只在主线程读回；每份图像交给后台串行编码，避免编码耗时改变模拟帧。
+            _pngWrites = Task.Run(async () =>
+            {
+                using (image)
+                {
+                    await previousWrite.ConfigureAwait(false);
+                    if (image.SavePng(path) != Error.Ok) throw new IOException("逐帧取证截图保存失败。");
+                }
+            });
             _lastPhase = phase;
             if (_sequenceLeft > 0) _sequenceLeft--;
         }
@@ -118,7 +141,7 @@ public partial class ProductionNodeCapture : Node
             findPoseRotation = pose is null ? null : new[] { pose.Rotation.X, pose.Rotation.Y, pose.Rotation.Z, pose.Rotation.W },
             vehiclePosition = node is null ? null : V(node.GlobalPosition), vehicleRotation = node is null ? null : Q(node.GlobalBasis.GetRotationQuaternion()),
             cameraPosition = camera is null ? null : V(camera.GlobalPosition), cameraRotation = camera is null ? null : Q(camera.GlobalBasis.GetRotationQuaternion()),
-            focus = world is null ? null : V(world.View.CameraRig.Focus), screenshot
+            focus = world is null ? null : V(world.View.CameraRig.Focus), screenshot, pngWritesComplete = _pngWrites.IsCompleted
         }));
     }
 
@@ -128,6 +151,7 @@ public partial class ProductionNodeCapture : Node
     public override void _ExitTree()
     {
         RenderingServer.FramePostDraw -= Capture;
+        _pngWrites.GetAwaiter().GetResult();
         _frames?.Dispose();
     }
 }
