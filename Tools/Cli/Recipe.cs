@@ -83,7 +83,7 @@ internal sealed record RecipeCommand(
     ulong? Break = null,
     int? Track = null,
     double? DistanceMeters = null,
-    [property: JsonConverter(typeof(RecipeOptionalIdConverter))] RecipeOptionalId? MaterialSource = null,
+    JsonElement MaterialSource = default,
     ImmutableArray<ulong> OrderedVehicles = default)
 {
     internal void Validate()
@@ -153,8 +153,8 @@ internal sealed record RecipeCommand(
             case "train.disband": return new CoreCommand.DisbandTrain(new(Train!.Value));
             case "train.form" when !OrderedVehicles.IsDefault && OrderedVehicles.All(id => id > 0):
                 return new CoreCommand.FormTrain(OrderedVehicles.Select(id => new VehicleId(id)).ToImmutableArray());
-            case "settlement.found" when MaterialSource?.Value is > 0:
-                return new CoreCommand.FoundSettlement(new(Node!.Value), new(RequiredMaterial()));
+            case "settlement.found" when SourceId() is { } source:
+                return new CoreCommand.FoundSettlement(new(Node!.Value), new(source));
             case "lease.acquire" when Lease() is { Kind: "rent", Settlement: > 0, Capacity: > 0, DurationSteps: > 0 } rent
                 && MaximumPayment is >= 0:
                 return new CoreCommand.AcquireLease(new LeaseRequest.Rent(new(rent.Settlement), rent.Capacity,
@@ -168,20 +168,23 @@ internal sealed record RecipeCommand(
                         Good.Parse(), Quantity.Value)
                     : new CoreCommand.UnloadGoods(new(Train!.Value), new(Settlement.Value), new(LocalInventory.Value),
                         Good.Parse(), Quantity.Value);
-            case "rail.expand" when MaterialSource?.Value is > 0:
-                return new CoreCommand.ExpandRail(new(Edge!.Value), new(RequiredMaterial()));
-            case "rail.repair" when MaterialSource?.Value is > 0:
-                return new CoreCommand.RepairRail(new(Edge!.Value), new(Break!.Value), new(RequiredMaterial()));
-            case "rail.set_automatic_repair":
-                return new CoreCommand.SetAutomaticRailRepair(new(Edge!.Value),
-                    MaterialSource!.Value.Value is { } source ? new SettlementId(source) : null);
+            case "rail.expand" when SourceId() is { } source:
+                return new CoreCommand.ExpandRail(new(Edge!.Value), new(source));
+            case "rail.repair" when SourceId() is { } source:
+                return new CoreCommand.RepairRail(new(Edge!.Value), new(Break!.Value), new(source));
+            case "rail.set_automatic_repair" when MaterialSource.ValueKind == JsonValueKind.Null:
+                return new CoreCommand.SetAutomaticRailRepair(new(Edge!.Value), null);
+            case "rail.set_automatic_repair" when SourceId() is { } source:
+                return new CoreCommand.SetAutomaticRailRepair(new(Edge!.Value), new(source));
             case "rail.debug_add_break" when Track is >= 1 && DistanceMeters is >= 0 && double.IsFinite(DistanceMeters.Value):
                 return new CoreCommand.DebugAddRailBreak(new(Edge!.Value), Track.Value, DistanceMeters.Value);
             default: throw Invalid();
         }
     }
 
-    private ulong RequiredMaterial() => MaterialSource!.Value.Value ?? throw Invalid();
+    private ulong? SourceId() =>
+        MaterialSource.ValueKind == JsonValueKind.Number && MaterialSource.TryGetUInt64(out var value) && value > 0
+            ? value : null;
 
     private void RejectUnused(bool train = false, bool plan = false, bool request = false, bool vehicle = false,
         bool payment = false, bool transfer = false, bool facility = false, bool vehicles = false, bool node = false,
@@ -202,7 +205,9 @@ internal sealed record RecipeCommand(
             || (railBreak ? Break is null or 0 : Break is not null)
             || (track ? Track is null : Track is not null)
             || (distance ? DistanceMeters is null : DistanceMeters is not null)
-            || (material ? MaterialSource is null : MaterialSource is not null))
+            || (material
+                ? MaterialSource.ValueKind == JsonValueKind.Undefined
+                : MaterialSource.ValueKind != JsonValueKind.Undefined))
             throw Invalid();
     }
 
@@ -245,27 +250,6 @@ internal sealed record RecipeCommand(
     }
 
     private InvalidDataException Invalid() => new($"不支持的配方命令或参数：{Kind}。");
-}
-
-internal readonly record struct RecipeOptionalId(ulong? Value);
-
-internal sealed class RecipeOptionalIdConverter : JsonConverter<RecipeOptionalId>
-{
-    public override bool HandleNull => true;
-
-    public override RecipeOptionalId Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-    {
-        if (reader.TokenType == JsonTokenType.Null) return new(null);
-        if (reader.TokenType != JsonTokenType.Number || !reader.TryGetUInt64(out var value) || value == 0)
-            throw new JsonException("材料来源必须是非零身份或 null。");
-        return new(value);
-    }
-
-    public override void Write(Utf8JsonWriter writer, RecipeOptionalId value, JsonSerializerOptions options)
-    {
-        if (value.Value is { } number) writer.WriteNumberValue(number);
-        else writer.WriteNullValue();
-    }
 }
 
 internal sealed record RecipeOwnedJob(

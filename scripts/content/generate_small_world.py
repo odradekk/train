@@ -1512,7 +1512,8 @@ def content_files():
 
     settlements = (
         ("agricultural-town", "农业镇", ("plains", "hills"), ("farm", "food-factory")),
-        ("mining-town", "矿业镇", ("mountains", "hills"), ("extraction-site", "metallurgy-factory", "building-materials-factory")),
+        ("mining-town", "矿业镇", ("mountains", "hills"),
+         ("extraction-site", "metallurgy-factory", "building-materials-factory", "metallurgy-factory")),
         ("forestry-town", "林业镇", ("forest",), ("extraction-site", "light-industry-factory")),
         ("oilfield-town", "油田镇", ("desert",), ("extraction-site", "chemical-factory")),
         ("industrial-city", "工业城", ("plains",), ("assembly-factory", "electronics-factory", "recovery-factory", "heavy-vehicle-factory")),
@@ -1527,7 +1528,7 @@ def content_files():
         plots = [{"id": 1, "size": "small_station", "at": [-104, 1, -176], "orientation": "px_py", "building": "small-station"},
                  {"id": 2, "size": "small_station", "at": [104, 1, -176], "orientation": "px_py"}]
         prebuilt = ("vehicle-workshop", "small-warehouse", "power-station") + major_buildings
-        # 各行列间隔足以容纳旋转后的大地块；第十地块留给建城工棚。矿镇把空的第九地块改为大地块，放第二座冶金厂。
+        # 各行列间隔足以容纳旋转后的大地块；第十地块留给建城工棚。
         positions = ((-224, 0), (0, 0), (224, 0), (-224, 224), (0, 224), (224, 224), (-224, 448), (0, 448))
         for index, (x, z) in enumerate(positions):
             plot = {"id": index + 3, "size": plot_sizes[prebuilt[index]] if index < len(prebuilt) else "small",
@@ -1535,10 +1536,6 @@ def content_files():
             if index < len(prebuilt):
                 plot["building"] = prebuilt[index]
             plots.append(plot)
-        if identity == "mining-town":
-            rail_plot = next(plot for plot in plots if plot["id"] == 9)
-            rail_plot["size"] = "large"
-            rail_plot["building"] = "metallurgy-factory"
         ground = {(x, 0, z): 0 for x in range(-328, 328) for z in range(-2, 2)}
         ground.update({(x, 0, z): 0 for x in range(-2, 2) for z in range(-232, 552)})
         for row in (224, 448):

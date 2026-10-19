@@ -179,7 +179,8 @@ public sealed partial class CliProcessTests
                   {"at":{"completed_steps":0,"sequence":4},"kind":"rail.expand","edge":3,"material_source":6},
                   {"at":{"completed_steps":0,"sequence":5},"kind":"rail.repair","edge":3,"break":1,"material_source":6},
                   {"at":{"completed_steps":0,"sequence":6},"kind":"rail.set_automatic_repair","edge":3,"material_source":6},
-                  {"at":{"completed_steps":0,"sequence":7},"kind":"rail.debug_add_break","edge":3,"track":99,"distance_meters":10}
+                  {"at":{"completed_steps":0,"sequence":7},"kind":"rail.debug_add_break","edge":3,"track":99,"distance_meters":10},
+                  {"at":{"completed_steps":0,"sequence":8},"kind":"rail.set_automatic_repair","edge":3,"material_source":null}
                 ]
                 """, 1);
             var output = Path.Combine(directory, "railway-commands.json");
@@ -194,7 +195,8 @@ public sealed partial class CliProcessTests
                 ("rail.expand", "rejected", "not_owned", "MaterialSource"),
                 ("rail.repair", "rejected", "object_missing", "Break"),
                 ("rail.set_automatic_repair", "rejected", "not_owned", "MaterialSource"),
-                ("rail.debug_add_break", "rejected", "invalid_state", "Break")
+                ("rail.debug_add_break", "rejected", "invalid_state", "Break"),
+                ("rail.set_automatic_repair", "accepted", null, null)
             ];
             Assert.AreEqual(expected.Length, result.CommandReceipts.Length);
             for (var index = 0; index < expected.Length; index++)
@@ -211,6 +213,16 @@ public sealed partial class CliProcessTests
                     Assert.AreEqual(expected[index].Field, problem.Field);
                 }
             }
+
+            var missing = await WriteEconomyRecipe(directory, "missing-material-source", """
+                [
+                  {"at":{"completed_steps":0,"sequence":0},"kind":"rail.set_automatic_repair","edge":3}
+                ]
+                """, 1);
+            await Run(directory, "missing-material-source", 1, "run", Repository, missing,
+                Path.Combine(directory, "missing-material-source.json"));
+            var error = await File.ReadAllTextAsync(Path.Combine(directory, "missing-material-source.stderr.log"));
+            StringAssert.Contains(error, "不支持的配方命令或参数：rail.set_automatic_repair");
         }
         catch
         {
