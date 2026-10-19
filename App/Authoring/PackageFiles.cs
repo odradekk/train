@@ -169,7 +169,8 @@ internal static class PackageWriter
             current = null;
             currentIndex = -1;
             if (plan.SourceVersion != basis.Version || !basis.MatchesDisk())
-                return new(false, [], changes.ToImmutable(), null, "源包已发生外部修改，请重新载入。");
+                return new(false, [], changes.ToImmutable(), null,
+                    "源包已发生外部修改，未写入任何文件，草稿保留；请重新载入该包，处理外部修改后重新校验。");
             writing = true;
             for (currentIndex = 0; currentIndex < changes.Count; currentIndex++)
             {
