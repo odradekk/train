@@ -25,7 +25,7 @@
 | 立方体体素 | 各面 PNG，边长为 32 px × 平铺跨度；可选的正面图；面图 Alpha 按 [03 的玩家涂装](03-color-and-paint.md#玩家涂装)制作；`icon.png`，128×128（[07](07-icons-and-ui.md#物品图标)）；`.voxel.json` 中的表现字段：`faces`、`tile_span`、`material`，写法见[体素定义的格式](../content/voxel.md)；`.png.import`，导入方式改为 Keep File（`importer=keep`） |
 | 形状 | 内置目录随代码提供，不按体素交付文件；美术只检查贴图投影到形状上的效果（[01](01-construction-language.md#形状)） |
 | 自定义模型 | 通过 Blender MCP 操作 Blender 制作；源文件 `.blend`；导出的 `model.glb`，贴图嵌在文件里；每个表面的材质类别（[02](02-materials-and-textures.md#形状与自定义模型)）；`.glb.import`，导入方式改为 Keep File（`importer=keep`）。单位、原点、轴和文件内容的限制见[模型文件的约定](../content/voxel.md#模型文件的约定) |
-| 场景模型、样机 | 内容文件：场景模型和样机都是蓝图 `.blueprint.json`，写法见[蓝图的格式](../content/blueprint.md)。通过创作模式编辑和导出；占位设计仍由原生成器维护 |
+| 场景模型、样机 | 内容文件：场景模型和样机都是蓝图 `.blueprint.json`，写法见[蓝图的格式](../content/blueprint.md)。车辆蓝图和重型车辆工厂样机由创作模式维护，按精确路径登记在 `AUTHORED_FILES`；其余场景模型和建筑蓝图仍由生成器生成 |
 | 检查记录 | 写在实施工单的完成评论里，见[检查人与记录](#检查人与记录) |
 
 ### 源文件
