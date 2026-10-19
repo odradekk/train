@@ -8,6 +8,7 @@ internal static class UiStyle
     internal static readonly Color Error = new("c9423a");
     internal static readonly Color Warning = new("d8962a");
     internal static readonly Color Success = new("2f9e5c");
+    internal static readonly Color Info = new("7f8fa3");
 
     private static FontVariation? _regularNumbers, _boldNumbers;
     internal static FontVariation NumericFont(bool bold = false) => bold
