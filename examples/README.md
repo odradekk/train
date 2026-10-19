@@ -64,12 +64,16 @@ Station 的形状为 `{kind:"station",node,dwell_steps,goods_rules}`，省略后
 | `construction.commission_vehicle_work` | `facility,blueprint,sources,maximum_payment` | 委托成功与材料不足分支 |
 | `train.disband` | `train` | 断轨修复配方 |
 | `train.form` | `ordered_vehicles` | 断轨修复配方 |
+| `settlement.declare_war` | `settlement` | 战斗取证临时配方 |
+| `engagement.set_train` | `train,rules` | 战斗取证临时配方 |
 | `settlement.found` | `node,material_source` | 断轨修复配方；材料来源是列车 |
 | `construction.start_owned` | `request` | 断轨修复配方；只支持 `build_building`，`blueprint` 由内容模块交出设计 |
 | `rail.expand` | `edge,material_source` | 断轨修复配方；材料来源是自有聚居地 |
 | `rail.repair` | `edge,break,material_source` | 断轨修复配方 |
 | `rail.set_automatic_repair` | `edge,material_source` | 断轨修复配方；`material_source` 为 JSON null 时关闭 |
 | `rail.debug_add_break` | `edge,track,distance_meters` | 断轨修复配方 |
+
+`engagement.set_train` 的 `rules` 包含 `priority`（`armed_first`、`lowest_durability`、`highest_durability`）、`scope`（`armed_only`、`all`）、`encounter`（`engage`、`retreat`）和 `retreat_structure_ratio`（0–1 的有限数）。它设置既有列车规则，不改变武器或生物数值；宣战和派车可由同一配方重复执行。这两个 CLI 命令没有新增游戏控制台入口。
 
 CLI 委托目前只支持制造车辆。`facility` 是执行施工的建筑编号，能力固定为 `Construction`；`blueprint` 是内置包中的车辆蓝图身份，由内容模块交出完整设计输入。`sources` 是按消费顺序排列的库存编号数组，必须显式给出，空数组表示整份 BOM 都从当地 NPC 补购。`maximum_payment` 为非负整数。任务优先级为 0；改装和修理的 CLI 配方入口尚未增加，核心改装和修理由模块用例验证。
 

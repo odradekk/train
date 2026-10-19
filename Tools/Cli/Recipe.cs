@@ -84,7 +84,8 @@ internal sealed record RecipeCommand(
     int? Track = null,
     double? DistanceMeters = null,
     JsonElement MaterialSource = default,
-    ImmutableArray<ulong> OrderedVehicles = default)
+    ImmutableArray<ulong> OrderedVehicles = default,
+    RecipeEngagementRules? Rules = null)
 {
     internal void Validate()
     {
@@ -127,27 +128,32 @@ internal sealed record RecipeCommand(
 
     internal CoreCommand Parse()
     {
-        var trainCommand = Kind is "train.replace_run_plan" or "train.start" or "train.stop" or "train.disband";
+        var trainCommand = Kind is "train.replace_run_plan" or "train.start" or "train.stop" or "train.disband" or "engagement.set_train";
         var transfer = Kind is "inventory.load_goods" or "inventory.unload_goods";
         var lease = Kind == "lease.acquire";
         var vehicle = Kind == "market.buy_vehicle";
         var form = Kind == "train.form";
         var found = Kind == "settlement.found";
+        var war = Kind == "settlement.declare_war";
         var expand = Kind == "rail.expand";
         var repair = Kind == "rail.repair";
         var automatic = Kind == "rail.set_automatic_repair";
         var debugBreak = Kind == "rail.debug_add_break";
-        if (!(trainCommand || transfer || lease || vehicle || form || found || expand || repair || automatic || debugBreak))
+        if (!(trainCommand || transfer || lease || vehicle || form || found || war || expand || repair || automatic || debugBreak))
             throw Invalid();
         RejectUnused(train: trainCommand || transfer, plan: Kind == "train.replace_run_plan", request: lease,
             vehicle: vehicle, payment: lease || vehicle, transfer: transfer, vehicles: form, node: found,
             edge: expand || repair || automatic || debugBreak, railBreak: repair,
-            track: debugBreak, distance: debugBreak, material: found || expand || repair || automatic);
+            track: debugBreak, distance: debugBreak, material: found || expand || repair || automatic, settlement: war, rules: Kind == "engagement.set_train");
         switch (Kind)
         {
             case "train.replace_run_plan" when Plan is { Stops.IsDefault: false, Stops.IsEmpty: false } plan:
                 return new CoreCommand.ReplaceRunPlan(new(Train!.Value), new(plan.Loop,
                     plan.Stops.Select(stop => stop?.Parse() ?? throw Invalid()).ToImmutableArray()));
+            case "settlement.declare_war" when Settlement is > 0:
+                return new CoreCommand.DeclareWar(new(Settlement.Value));
+            case "engagement.set_train":
+                return new CoreCommand.SetTrainEngagement(new(Train!.Value), Rules!.Parse());
             case "train.start": return new CoreCommand.StartTrain(new(Train!.Value));
             case "train.stop": return new CoreCommand.StopTrain(new(Train!.Value));
             case "train.disband": return new CoreCommand.DisbandTrain(new(Train!.Value));
@@ -188,15 +194,17 @@ internal sealed record RecipeCommand(
 
     private void RejectUnused(bool train = false, bool plan = false, bool request = false, bool vehicle = false,
         bool payment = false, bool transfer = false, bool facility = false, bool vehicles = false, bool node = false,
-        bool edge = false, bool railBreak = false, bool track = false, bool distance = false, bool material = false)
+        bool settlement = false, bool edge = false, bool railBreak = false, bool track = false, bool distance = false, bool material = false,
+        bool rules = false)
     {
-        if ((train ? Train is null or 0 : Train is not null)
+        if ((rules ? Rules is null : Rules is not null)
+            || (train ? Train is null or 0 : Train is not null)
             || (plan ? Plan is null : Plan is not null)
             || (request ? Request is null : Request is not null)
             || (vehicle ? Seller is null || Vehicle is null : Seller is not null || Vehicle is not null)
             || (payment ? MaximumPayment is null : MaximumPayment is not null)
             || (transfer ? Settlement is null || LocalInventory is null || Good is null || Quantity is null
-                : Settlement is not null || LocalInventory is not null || Good is not null || Quantity is not null)
+                : (!settlement && Settlement is not null) || LocalInventory is not null || Good is not null || Quantity is not null)
             || (facility ? Facility is null || Blueprint is null || Sources.IsDefault
                 : Facility is not null || Blueprint is not null || !Sources.IsDefault)
             || (vehicles ? OrderedVehicles.IsDefault : !OrderedVehicles.IsDefault)
@@ -329,4 +337,34 @@ internal sealed record RecipeGoodsAction(
             new AutomaticGoodsAction.Sell(MinimumUnitPrice is { } value ? new Money(value) : null),
         _ => throw new InvalidDataException($"不支持的自动货物动作或参数：{Kind}。")
     };
+}
+
+internal sealed record RecipeEngagementRules(
+    [property: JsonRequired] string Priority,
+    [property: JsonRequired] string Scope,
+    [property: JsonRequired] string Encounter,
+    [property: JsonRequired] double RetreatStructureRatio)
+{
+    internal TrainEngagementRules Parse()
+    {
+        if (!double.IsFinite(RetreatStructureRatio) || RetreatStructureRatio is < 0 or > 1)
+            throw new InvalidDataException("列车交战规则无效。");
+        return new(Priority switch
+        {
+            "armed_first" => TargetPriority.ArmedFirst,
+            "lowest_durability" => TargetPriority.LowestDurability,
+            "highest_durability" => TargetPriority.HighestDurability,
+            _ => throw new InvalidDataException("列车目标优先级无效。")
+        }, Scope switch
+        {
+            "armed_only" => TargetScope.ArmedOnly,
+            "all" => TargetScope.All,
+            _ => throw new InvalidDataException("列车目标范围无效。")
+        }, Encounter switch
+        {
+            "engage" => EncounterAction.Engage,
+            "retreat" => EncounterAction.Retreat,
+            _ => throw new InvalidDataException("列车遇敌行为无效。")
+        }, RetreatStructureRatio);
+    }
 }
