@@ -25,7 +25,7 @@
 | 立方体体素 | 各面 PNG，边长为 32 px × 平铺跨度；可选的正面图；面图 Alpha 按 [03 的玩家涂装](03-color-and-paint.md#玩家涂装)制作；`icon.png`，128×128（[07](07-icons-and-ui.md#物品图标)）；`.voxel.json` 中的表现字段：`faces`、`tile_span`、`material`，写法见[体素定义的格式](../content/voxel.md)；`.png.import`，导入方式改为 Keep File（`importer=keep`） |
 | 形状 | 内置目录随代码提供，不按体素交付文件；美术只检查贴图投影到形状上的效果（[01](01-construction-language.md#形状)） |
 | 自定义模型 | 通过 Blender MCP 操作 Blender 制作；源文件 `.blend`；导出的 `model.glb`，贴图嵌在文件里；每个表面的材质类别（[02](02-materials-and-textures.md#形状与自定义模型)）；`.glb.import`，导入方式改为 Keep File（`importer=keep`）。单位、原点、轴和文件内容的限制见[模型文件的约定](../content/voxel.md#模型文件的约定) |
-| 场景模型、样机 | 内容文件：场景模型和样机都是蓝图 `.blueprint.json`，写法见[蓝图的格式](../content/blueprint.md)。车辆蓝图和重型车辆工厂样机由创作模式维护，按精确路径登记在 `AUTHORED_FILES`；其余场景模型和建筑蓝图仍由生成器生成 |
+| 场景模型、样机 | 内容文件：场景模型和样机都是蓝图 `.blueprint.json`，写法见[蓝图的格式](../content/blueprint.md)。车辆蓝图及建筑样机（含重型车辆工厂）由创作模式维护，按精确路径登记在 `AUTHORED_FILES`；其余场景模型和蓝图仍由生成器生成 |
 | 检查记录 | 写在实施工单的完成评论里，见[检查人与记录](#检查人与记录) |
 
 ### 源文件
@@ -144,7 +144,7 @@ dotnet Tools/Cli/bin/Debug/net10.0/Train.Cli.dll save . examples/basic-through/r
 
 每批交付遵循上文目录、源文件和三光照检查规则。历史首个切片的两张浏览器样稿曾作为该批 PNG 的生成器，不自动成为所有 Demo 资产的唯一源；新批次须明确选择 PNG 本身或生成工具。正式性能测量、完整窗口长测和最终人工验收必须在全量正式资产交付后执行。
 
-第三阶段样稿沿用以下制作方式，后续按具体对象复用：车辆蓝图及重型车辆工厂样机蓝图由创作模式维护，按精确路径登记在 `scripts/content/generate_small_world.py` 的 `AUTHORED_FILES`，生成器保留文件并检查存在和 Schema。嵌套设备继续由生成器维护。机枪、火炮和转向架的唯一源是 `art-source/core/voxels/<id>/model.blend`，纹理打包在源文件中，与部位有关的磨损画在模型贴图上；导出的 GLB 登记为手工文件，体素绑定和 Keep File 声明仍由生成器输出。转向架使用 `bare_metal` 表面，保留 `icon.png`，不再输出转向架面贴图；轮对仍由宿主专用表现生成。共用面贴图继续使用原生成器，四种运行时磨损复用 `Rendering/scene_material.gdshader`；色卡由选色器直接绘制，轮面辨识标记由宿主的轮对表现生成。
+第三阶段样稿沿用以下制作方式，后续按具体对象复用：车辆蓝图及建筑样机蓝图（含重型车辆工厂）由创作模式维护，按精确路径登记在 `scripts/content/generate_small_world.py` 的 `AUTHORED_FILES`，生成器保留文件并检查存在和 Schema。嵌套设备继续由生成器维护。机枪、火炮和转向架的唯一源是 `art-source/core/voxels/<id>/model.blend`，纹理打包在源文件中，与部位有关的磨损画在模型贴图上；导出的 GLB 登记为手工文件，体素绑定和 Keep File 声明仍由生成器输出。转向架使用 `bare_metal` 表面，保留 `icon.png`，不再输出转向架面贴图；轮对仍由宿主专用表现生成。共用面贴图继续使用原生成器，四种运行时磨损复用 `Rendering/scene_material.gdshader`；色卡由选色器直接绘制，轮面辨识标记由宿主的轮对表现生成。
 
 ## Demo 范围
 

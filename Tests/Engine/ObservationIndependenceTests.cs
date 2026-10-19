@@ -106,7 +106,7 @@ public class ObservationIndependenceTests(Node testScene) : TestClass(testScene)
             {
                 app._Process(0);
                 return !host.IsBusy && !app.Saves!.HasPendingWork;
-            });
+            }, timeout: TimeSpan.FromSeconds(60), description: $"{variant.Name} 读档后等待宿主和存档空闲");
             Require(host.GetStatus() is { PlayerPaused: true, IsFrozen: false }, "示例新局未成功激活。");
             Require(host.SetSpeed(variant.Speed) is null, "无法设置测试倍速。");
 

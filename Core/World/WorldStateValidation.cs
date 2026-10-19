@@ -180,6 +180,10 @@ internal static class WorldStateValidation
             Identity(settlement.Type.Value, "/world/settlements/type");
             Require(Enum.IsDefined(settlement.Relation) && settlement.Population > 0
                 && settlement.Template.Type == settlement.Type, "/world/settlements");
+            Require(double.IsFinite(settlement.Morale) && settlement.Morale >= 0 && settlement.Morale <= 1,
+                "/world/settlements/morale");
+            Require(!settlement.Surrendered || settlement.Relation == SettlementRelation.Hostile,
+                "/world/settlements/surrendered");
             Require(CombatRules.Valid(settlement.Engagement), "/world/settlements/engagement");
             Ordered(settlement.Plots, p => p.Id.Value, "/world/settlements/plots");
             Require(settlement.Plots.Select(p => (p.TemplateNumber, p.Size)).SequenceEqual(
