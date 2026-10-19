@@ -48,6 +48,7 @@ public partial class GameUi : CanvasLayer
     private CombatPanel? _combat;
     private readonly BattleReportLog _reports = new();
     private SettlementFoundingPanel? _founding;
+    private RailwayWorkPanel? _railway;
     private GoodsIconCache _icons = null!;
     private HFlowContainer _bar = null!;
     private readonly List<(SimulationSpeed? Speed, Button Button)> _speeds = [];
@@ -177,6 +178,10 @@ public partial class GameUi : CanvasLayer
                 if (_host.GetStatus() is not { } status || _host.Content is not { } content) return;
                 _economy.OpenSettlement(new(status.Binding, content.Generation, new WorldObjectId.Settlement(id)), id);
             };
+            _railway = new RailwayWorkPanel { Name = "RailwayWork" };
+            _railway.Initialize(_host, Submit);
+            _world.AddChild(_railway);
+            _panels.RailwayWorkRequested += (target, edge) => _railway.Open(target, edge);
             _panels.InventoryRequested += _economy.OpenTrainInventory;
             _economy.FormationRequested += _formation.Open;
             _combat = new CombatPanel { Name = "CombatPanel" };
@@ -263,6 +268,7 @@ public partial class GameUi : CanvasLayer
         if (_combat is not null) _combat.Visible = !editing && _combat.Visible;
         if (_notices is not null) _notices.Visible = status is not null && !editing;
         if (_founding is not null) _founding.Visible = !editing;
+        if (_railway is not null) _railway.Visible = !editing;
         if (editing) _editorPanel?.MoveToFront();
         _returnToMap?.SetVisible(showingScene);
         if (_newOperation != 0 && _host?.MissingConfirmation is { } missing &&
@@ -294,6 +300,7 @@ public partial class GameUi : CanvasLayer
                 _economy!.Refresh(_binding, _view, _content);
                 _combat!.Refresh(_binding, _view, _content, _host!.IsBusy, _reports);
                 _founding?.Refresh(_binding, _view, _content);
+                _railway?.Refresh(_binding, _view, _content);
             }
         }
         else if (_view is not null)
@@ -303,6 +310,7 @@ public partial class GameUi : CanvasLayer
             _plan!.Refresh(default, _view, _content!);
             _economy!.Close();
             _founding?.Close();
+            _railway?.Close();
             _icons.Bind(default, null);
             _formation.Hide(); _plan.Hide(); _combat?.Hide(); _notices?.Hide();
             _reports.Clear();
@@ -405,8 +413,9 @@ public partial class GameUi : CanvasLayer
         };
         if (target is null) { ReportUiError("对象没有可观察的场景目标。"); return; }
         _scenes.Open(target);
-        if (id is WorldObjectId.Node clicked &&
-            status.View.World.Nodes.FirstOrDefault(item => item.Id == clicked.Id)?.Occupant is NodeOccupant.Empty)
+        var openDetail = id is WorldObjectId.Edge || id is WorldObjectId.Node clicked &&
+            status.View.World.Nodes.FirstOrDefault(item => item.Id == clicked.Id)?.Occupant is NodeOccupant.Empty;
+        if (openDetail)
         {
             _panels?.Refresh(_binding, status.View, _content!);
             _panels?.OpenObject(id);
