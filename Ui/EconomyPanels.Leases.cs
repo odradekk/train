@@ -39,7 +39,7 @@ internal partial class EconomyPanels
         _leaseChoice.ItemSelected += index => { _leaseId = _leaseIds[(int)index]; RefreshLeaseTerms(); ClearLeaseQuote(); };
         _leaseMultipleChoice.ItemSelected += index => { _leaseMultiple = (int)index + 1; RefreshLeaseDuration(); ClearLeaseQuote(); };
         _leaseCapacity.TextChanged += _ => ClearLeaseQuote();
-        var actions = new HBoxContainer(); body.AddChild(actions);
+        var actions = Footer(body);
         _leaseQuoteButton = UiStyle.Button("QuoteLease", "获取报价", () => Quote(RequestLeaseQuote));
         _leaseConfirm = UiStyle.Button("ConfirmLease", "确认租用／续租", ConfirmLease, true);
         actions.AddChild(_leaseQuoteButton); actions.AddChild(_leaseConfirm);

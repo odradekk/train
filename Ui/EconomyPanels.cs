@@ -59,8 +59,8 @@ internal partial class EconomyPanels : Control
         RemoveWindow(_settlementPanel);
         _settlementTarget = new(_binding, _content.Generation, new WorldObjectId.Settlement(id));
         _settlementId = id; _settlement = null; _settlementRevision = null; _localId = null; _localOptions.Clear();
-        _settlementPanel = UiStyle.Panel(this, "Settlement", $"聚居地 {id.Value}", new(420, 70), 720,
-            () => _settlementPanel!.Hide(), out _settlementBody);
+        _settlementPanel = UiStyle.Panel(this, "Settlement", $"聚居地 {id.Value}", new(408, 70), 720,
+            () => _settlementPanel!.Hide(), out _settlementBody, fill: true);
         _state = Text(_settlementBody, "State", "");
         _wallet = Text(_settlementBody, "Wallet", "");
         _localChoice = new OptionButton { Name = "LocalInventory" };
@@ -70,7 +70,8 @@ internal partial class EconomyPanels : Control
             _localId = _localOptions[(int)index];
             RenderLocal(); ClearTradeQuote(); RenderMarket();
         };
-        var tabs = new TabContainer { Name = "Pages", CustomMinimumSize = new(680, 570) };
+        var tabs = new TabContainer { Name = "Pages", SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill, CustomMinimumSize = new(0, 160) };
         _settlementBody.AddChild(tabs);
         _stock = Page(tabs, "库存"); _stockRows = BuildStock(_stock);
         BuildTrade(Page(tabs, "市场"));
@@ -306,9 +307,20 @@ internal partial class EconomyPanels : Control
     }
     private static VBoxContainer Page(TabContainer tabs, string title)
     {
-        var scroll = new ScrollContainer { Name = title, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled }; tabs.AddChild(scroll);
+        var page = new VBoxContainer { Name = title, SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
+        tabs.AddChild(page);
+        var scroll = new ScrollContainer { Name = "Page", SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill,
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        page.AddChild(scroll);
         var body = new VBoxContainer { Name = "Body", SizeFlagsHorizontal = SizeFlags.ExpandFill };
         body.AddThemeConstantOverride("separation", 10); scroll.AddChild(body); return body;
+    }
+
+    private static HBoxContainer Footer(VBoxContainer body)
+    {
+        var footer = new HBoxContainer { Name = "Footer" };
+        body.GetParent().GetParent().AddChild(footer);
+        return footer;
     }
     private static VBoxContainer List(Node parent, string name, int height)
     {

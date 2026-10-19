@@ -136,7 +136,7 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
             var needs = Enum.GetValues<PopulationNeed>().Select(kind => new PopulationNeedView(kind, 2, 0, 0, null)).ToImmutableArray();
             var pending = View(original, 2, new PopulationExecution.NotStarted(needs));
             economy.Refresh(binding, pending, content);
-            var population = economy.GetNode<Label>("Settlement/Layout/Content/Body/Pages/人口/Body/Population");
+            var population = economy.GetNode<Label>("Settlement/Layout/Content/Body/Pages/人口/Page/Body/Population");
             Require(population.Text.Contains("尚未开始") && population.Text.Contains("未结算") &&
                 !population.Text.Contains("满足率 0"), "尚未开始的人口被显示为零满足率。");
             Require(!population.Text.Contains("累计应需") && !population.Text.Contains("实际满足"),

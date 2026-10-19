@@ -319,7 +319,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             await _input.Activate(Find<Button>(economy, "PauseServiceJob_4"));
             await _input.Frames(2);
             Require(!economy.FindChildren("ServiceJob_4", "Label", true, false).Any(), "任务离开OwnedJobs后仍被缓存展示。");
-            var serviceButtons = economy.GetNode<ScrollContainer>("Settlement/Layout/Content/Body/Pages/建造与工地")
+            var serviceButtons = economy.GetNode<VBoxContainer>("Settlement/Layout/Content/Body/Pages/建造与工地")
                 .FindChildren("*", "Button", true, false).OfType<Button>().Select(button => button.Text).ToArray();
             Require(!serviceButtons.Any(text => text.Contains("取消") || text.Contains("退款") || text.Contains("优先级")),
                 "车辆服务按钮集合含取消、退款或优先级：" + string.Join("、", serviceButtons));
@@ -646,7 +646,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
                 Find<Label>(economy, "ServiceJob_7").Text.Contains("预留：无") &&
                 Find<Label>(economy, "ServiceJob_9").Text.Contains("目标：地块 3") && Find<Label>(economy, "ServiceJob_4").Text.Contains("目标：车辆 9"),
                 "任务行没有列出建筑、地块、车辆目标或匹配的库存预留。");
-            var serviceButtons = economy.GetNode<ScrollContainer>("Settlement/Layout/Content/Body/Pages/建造与工地")
+            var serviceButtons = economy.GetNode<VBoxContainer>("Settlement/Layout/Content/Body/Pages/建造与工地")
                 .FindChildren("*", "Button", true, false).OfType<Button>().Select(button => button.Text).ToArray();
             Require(!serviceButtons.Any(text => text.Contains("取消") || text.Contains("退款") || text.Contains("优先级")),
                 "建筑任务行出现了取消、退款或优先级：" + string.Join("、", serviceButtons));

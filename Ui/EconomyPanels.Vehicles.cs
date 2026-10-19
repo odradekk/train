@@ -28,7 +28,7 @@ internal partial class EconomyPanels
         _vehicle = null; _vehicleQuote = null; _vehicleAvailable = false; _vehicleItems.Clear(); _capacityItems.Clear();
         _vehicleRows = List(body, "Vehicles", 270); _soldOut = Text(_vehicleRows, "SoldOut", "现车已售罄。");
         _vehicleDetails = Text(body, "VehicleDetails", "请选择实际车辆。");
-        var actions = new HBoxContainer(); body.AddChild(actions);
+        var actions = Footer(body);
         _vehicleQuoteButton = UiStyle.Button("QuoteVehicle", "获取报价", () => Quote(RequestVehicleQuote));
         _vehicleConfirm = UiStyle.Button("ConfirmVehicle", "确认买卖", ConfirmVehicle, true);
         _formPurchased = UiStyle.Button("FormPurchased", "编组…", () =>

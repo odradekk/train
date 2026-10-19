@@ -44,7 +44,7 @@ internal partial class EconomyPanels
         Text(body, "QuantityLabel", "货物数量（正整数）");
         _quantity = IntegerInput(body, "Quantity", "货物数量（正整数）", "1");
         _tradeAction.ItemSelected += _ => ClearTradeQuote(); _quantity.TextChanged += _ => ClearTradeQuote();
-        var actions = new HBoxContainer(); body.AddChild(actions);
+        var actions = Footer(body);
         _tradeQuoteButton = UiStyle.Button("QuoteTrade", "获取报价", () => Quote(RequestTradeQuote));
         _tradeConfirm = UiStyle.Button("ConfirmTrade", "确认交易", ConfirmTrade, true);
         actions.AddChild(_tradeQuoteButton); actions.AddChild(_tradeConfirm);

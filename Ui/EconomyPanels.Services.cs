@@ -85,8 +85,9 @@ internal partial class EconomyPanels
         }));
         _serviceSourceOrder = new() { Name = "ServiceSourceOrder", CustomMinimumSize = new(0, 100) }; body.AddChild(_serviceSourceOrder);
         _serviceDescription = Text(body, "ServiceQuote", "请选择执行建筑和目标。");
-        _serviceConfirm = UiStyle.Button("ConfirmService", "确认服务", ConfirmService, true); body.AddChild(_serviceConfirm);
-        body.AddChild(UiStyle.Button("RefreshServiceQuote", "重新获取报价", () =>
+        var footer = Footer(body);
+        _serviceConfirm = UiStyle.Button("ConfirmService", "确认服务", ConfirmService, true); footer.AddChild(_serviceConfirm);
+        footer.AddChild(UiStyle.Button("RefreshServiceQuote", "重新获取报价", () =>
         {
             if (!ReadCurrent() || !CanAct) return;
             _serviceDirty = true; RefreshServices();
