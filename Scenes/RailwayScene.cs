@@ -39,7 +39,7 @@ internal sealed class RailwayScene : IAsyncDisposable
     private readonly Dictionary<int, SegmentWork> pendingSegments = [];
     private readonly List<SegmentWork> retiredSegments = [];
     private readonly SceneVehicles vehicles;
-    internal PresentationState? Presentation { get; set; }
+    private readonly PresentationState? presentation;
     private readonly TerrainCollision.PatchCache terrainPatches = new();
     private RailwayPath? path;
     private SceneProblem? failure;
@@ -57,7 +57,8 @@ internal sealed class RailwayScene : IAsyncDisposable
         .Concat(retiredSegments.Where(item => !item.Task.IsCompleted).Select(item => item.Task)).ToArray();
 
     internal RailwayScene(SceneWorldSnapshot initial, EdgeId edge, RailwayCache cache, Func<string, SceneObjectId> objectId, SceneVehicles vehicles, DisplayRate displayRate,
-        Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null, Func<string, SceneObjectId?>? findId = null)
+        Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null, Func<string, SceneObjectId?>? findId = null,
+        PresentationState? presentation = null)
     {
         this.cache = cache;
         this.vehicles = vehicles;
@@ -66,6 +67,7 @@ internal sealed class RailwayScene : IAsyncDisposable
         owner = cache.OpenSession(edge);
         this.objectId = objectId;
         this.findId = findId ?? (_ => null);
+        this.presentation = presentation;
         this.build = build ?? RailwayTerrain.Build;
         try { path = new RailwayPath(initial, edge, cancellation.Token); }
         catch (RailwayBuildException error) { Fail(error); }
@@ -342,7 +344,7 @@ internal sealed class RailwayScene : IAsyncDisposable
     private ImmutableArray<SceneEffectCue> Effects(SceneWorldSnapshot snapshot, ImmutableArray<SceneObject>.Builder objects,
         double seconds, ScenePoint origin)
     {
-        if (Presentation is not { } state) return [];
+        if (presentation is not { } state) return [];
         if (path is not null)
             state.AddCreatures(objects, snapshot, new WorldLocation.Edge(Edge, 0), origin, path, null, seconds, objectId);
         return state.Finish(objects, snapshot, new WorldLocation.Edge(Edge, 0), origin, path);
@@ -357,7 +359,7 @@ internal sealed class RailwayScene : IAsyncDisposable
             if (!train.TrackAvailable) continue;
             foreach (var member in train.Members)
             {
-                Presentation?.Seen(member.Instance);
+                presentation?.Seen(member.Instance);
                 var pose = RailwayVehicles.Pose(path!.SampleWithNodes(member.CenterArc, train.Offset,
                     ((TrainPosition.Edge)train.Train.Position).Track), origin, train.Positive);
                 if (!train.LengthsKnown)
@@ -377,7 +379,7 @@ internal sealed class RailwayScene : IAsyncDisposable
                 var placed = RailwayVehicles.Place(geometry, pose, (train.Positive ? 1 : -1) * member.TrackArc);
                 var hidden = segments.Values.Any(segment => segment.Source.Tunnels.Any(interval => member.CenterArc >= interval.Start && member.CenterArc <= interval.End));
                 frame.Add(placed, hidden);
-                Presentation?.ApplyTurrets(frame.Objects, member.Instance, "vehicle:" + member.Instance.Id + ":", findId, seconds, snapshot);
+                presentation?.ApplyTurrets(frame.Objects, member.Instance, "vehicle:" + member.Instance.Id + ":", findId, seconds, snapshot);
             }
         }
         return waiting;

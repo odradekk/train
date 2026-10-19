@@ -206,7 +206,7 @@ internal sealed class NodeScene : IAsyncDisposable
     private Built? built;
     private SceneProblem? failure;
     internal NodeId Node { get; }
-    internal PresentationState? Presentation { get; set; }
+    private readonly PresentationState? presentation;
     private readonly TerrainCollision.PatchCache terrainPatches = new();
     internal ScenePoint StreamingFocus => range.Focus;
     internal FollowedPath? StreamingFollow => followedPath;
@@ -245,9 +245,9 @@ internal sealed class NodeScene : IAsyncDisposable
         SceneVehicles.Cache? buildingCache = null, SceneVehicles.Cache? parkedCache = null,
         Func<Preparation, GridColumn, Part?, CancellationToken, Part>? buildChunk = null,
         Func<Preparation, RailSegment, Part?, CancellationToken, Part>? buildRail = null, bool background = false,
-        Func<string, SceneObjectId?>? findId = null)
+        Func<string, SceneObjectId?>? findId = null, PresentationState? presentation = null)
     {
-        Node = node; this.cache = cache; this.objectId = objectId; this.findId = findId ?? (_ => null); owner = cache.Open(node); this.nodeBuild = generate;
+        Node = node; this.cache = cache; this.objectId = objectId; this.findId = findId ?? (_ => null); this.presentation = presentation; owner = cache.Open(node); this.nodeBuild = generate;
         this.vehicles = vehicles;
         this.displayRate = displayRate;
         this.buildChunk = buildChunk ?? ((data, from, old, token) => data.BuildChunk(from, old, token));
@@ -675,7 +675,7 @@ internal sealed class NodeScene : IAsyncDisposable
                         "The settlement layout copy is missing."));
                 }
             }
-            Add(settlement.Present(snapshot, layout, origin, fog, range, chunks.Keys, prefetch, Presentation, seconds, findId));
+            Add(settlement.Present(snapshot, layout, origin, fog, range, chunks.Keys, prefetch, presentation, seconds, findId));
         }
         if (failure is not null) problems.Add(failure);
         foreach (var problem in reported) problems.Add(problem);
@@ -711,7 +711,7 @@ internal sealed class NodeScene : IAsyncDisposable
         }
         terrainPatches.Retain(terrainKeys);
         var effects = ImmutableArray<SceneEffectCue>.Empty;
-        if (Presentation is { } state)
+        if (presentation is { } state)
         {
             state.AddCreatures(objects, snapshot, new WorldLocation.Node(Node), origin, null, layout, seconds, objectId);
             effects = state.Finish(objects, snapshot, new WorldLocation.Node(Node), origin, null);
@@ -1090,7 +1090,7 @@ internal sealed class NodeScene : IAsyncDisposable
             for (var i = 0; i < members.Length; i++)
             {
                 var member = members[i];
-                Presentation?.Seen(member);
+                presentation?.Seen(member);
                 var arc = center + (positive ? 1 : -1) * (known ? total / 2.0 - consumed - lengths[i]!.Value / 2.0 : 0);
                 consumed += lengths[i] ?? 0;
                 var pose = RailwayVehicles.Pose(path.Sample(arc), origin, positive);
@@ -1104,7 +1104,7 @@ internal sealed class NodeScene : IAsyncDisposable
                 if (vehicles.Reconcile(snapshot.Content, member, objectId) is { } body)
                 {
                     Add(RailwayVehicles.Place(body, pose, (positive ? 1 : -1) * arc));
-                    Presentation?.ApplyTurrets(objects, member, "vehicle:" + member.Id + ":", findId, seconds, snapshot);
+                    presentation?.ApplyTurrets(objects, member, "vehicle:" + member.Id + ":", findId, seconds, snapshot);
                 }
                 else
                 {

@@ -88,7 +88,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         switch (CurrentLocation(snapshot, value))
         {
             case WorldLocation.Edge edge:
-                railway = new(snapshot, edge.Id, railwayCache, ObjectId, vehicles: vehicles, displayRate: displayRate, findId: key => Find(ids, key));
+                railway = new(snapshot, edge.Id, railwayCache, ObjectId, vehicles: vehicles, displayRate: displayRate, findId: key => Find(ids, key), presentation: presentation);
                 break;
             case WorldLocation.Node location:
                 node = OpenNode(location.Id, ObjectId, key => Find(ids, key));
@@ -193,8 +193,6 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             }
             closingScenes.RemoveAll(task => task.IsCompleted);
             presentation.Acknowledge(displayedFrame as SceneFrame, request, space);
-            if (node is not null) node.Presentation = presentation;
-            if (railway is not null) railway.Presentation = presentation;
             candidate?.Node?.SetBuildAllowed(false);
             var retire = AdvanceSuccessor();
             var stamp = new SceneFrameStamp(Id, request, space, ++revision);
@@ -290,7 +288,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         {
             CancelCandidate(); ids = [];
             var map = ids;
-            if (location is WorldLocation.Edge edge) railway = new(snapshot, edge.Id, railwayCache, key => AssignId(map, key), vehicles: vehicles, displayRate: displayRate, findId: key => Find(map, key));
+            if (location is WorldLocation.Edge edge) railway = new(snapshot, edge.Id, railwayCache, key => AssignId(map, key), vehicles: vehicles, displayRate: displayRate, findId: key => Find(map, key), presentation: presentation);
             else if (location is WorldLocation.Node atNode) node = OpenNode(atNode.Id, key => AssignId(map, key), key => Find(map, key));
             else throw new ArgumentException("Invalid follow location.");
         }
@@ -313,7 +311,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     {
         if (!settlementCaches.TryGetValue(id, out var caches))
             settlementCaches.Add(id, caches = (new(), new()));
-        return new(snapshot, id, nodeCache, objectId, vehicles, displayRate, nodeBuild, caches.Buildings, caches.Parked, background: background, findId: findId);
+        return new(snapshot, id, nodeCache, objectId, vehicles, displayRate, nodeBuild, caches.Buildings, caches.Parked, background: background, findId: findId, presentation: presentation);
     }
 
     private static SceneObjectId? Find(Dictionary<string, SceneObjectId> map, string key) =>
@@ -342,7 +340,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             var map = new Dictionary<string, SceneObjectId>();
             candidate = wanted is WorldLocation.Node atNode
                 ? new(wanted, map, Node: OpenNode(atNode.Id, key => AssignId(map, key), key => Find(map, key), background: true))
-                : new(wanted, map, Railway: new(snapshot, ((WorldLocation.Edge)wanted).Id, railwayCache, key => AssignId(map, key), vehicles: vehicles, displayRate: displayRate, findId: key => Find(map, key)));
+                : new(wanted, map, Railway: new(snapshot, ((WorldLocation.Edge)wanted).Id, railwayCache, key => AssignId(map, key), vehicles: vehicles, displayRate: displayRate, findId: key => Find(map, key), presentation: presentation));
         }
         try
         {
