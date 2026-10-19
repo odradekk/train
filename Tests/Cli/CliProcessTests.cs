@@ -34,7 +34,6 @@ public sealed partial class CliProcessTests
             Assert.AreEqual(RuntimeInformation.FrameworkDescription, runtime.DotNetRuntime);
             Assert.AreEqual(one, firstOutput.RootElement.GetProperty("process_id").GetInt32());
             Assert.AreEqual(two, secondOutput.RootElement.GetProperty("process_id").GetInt32());
-            Assert.AreNotEqual(one, two);
             Assert.AreNotEqual(Environment.ProcessId, one);
             Assert.AreNotEqual(Environment.ProcessId, two);
             Assert.IsTrue(firstOutput.RootElement.GetProperty("checkpoints").GetArrayLength() > 2);
@@ -147,6 +146,7 @@ public sealed partial class CliProcessTests
         };
         start.ArgumentList.Add(typeof(CliRunner).Assembly.Location);
         foreach (var argument in arguments) start.ArgumentList.Add(argument);
+        // 顺序启动的子进程退出后可能复用 PID，不要求不同调用的 PID 不同。
         using var process = Process.Start(start) ?? throw new AssertFailedException("无法启动 CLI。");
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();

@@ -36,7 +36,6 @@ public sealed partial class CliProcessTests
             using var continuous = JsonDocument.Parse(await File.ReadAllTextAsync(continuousPath));
             Assert.AreEqual(resumingProcess, resumed.RootElement.GetProperty("process_id").GetInt32());
             Assert.AreEqual(continuousProcess, continuous.RootElement.GetProperty("process_id").GetInt32());
-            Assert.AreEqual(3, new[] { savingProcess, resumingProcess, continuousProcess }.Distinct().Count());
             Assert.IsFalse(new[] { savingProcess, resumingProcess, continuousProcess }.Contains(Environment.ProcessId));
             var actual = JsonSerializer.Deserialize<CoreCheckpoint[]>(
                 resumed.RootElement.GetProperty("checkpoints").GetRawText(), Recipe.Json)!;
