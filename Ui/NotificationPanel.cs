@@ -1,5 +1,7 @@
 using Godot;
 using Train.App.Notifications;
+using Train.Content.Contracts;
+using Train.Core.Contracts;
 
 namespace Train.Ui;
 
@@ -13,6 +15,10 @@ public partial class NotificationPanel : Control
     private VBoxContainer _toastsBox = null!;
     private VBoxContainer _logBody = null!;
     private PanelContainer _log = null!;
+    private Texture2D? _infoIcon;
+    private Texture2D? _completeIcon;
+    private Texture2D? _warningIcon;
+    private Texture2D? _severeIcon;
     private Guid? _session;
 
     internal event Action<NotificationNotice>? Chosen;
@@ -44,14 +50,15 @@ public partial class NotificationPanel : Control
         _session = session;
     }
 
-    internal void Add(NotificationNotice notice)
+    internal void Add(NotificationNotice notice, ICoreReadView view, IContentView content)
     {
         if (!IsNodeReady()) return;
-        var row = CreateRow(notice);
+        var message = Describe(notice, view, content);
+        var row = CreateRow(notice, message);
         row.Visible = _shown[(int)notice.Level];
         _rows.Add(new(notice, row));
         _logBody.AddChild(row);
-        var toastRow = CreateRow(notice);
+        var toastRow = CreateRow(notice, message);
         var panel = new PanelContainer { MouseFilter = MouseFilterEnum.Stop };
         var box = new HBoxContainer();
         box.AddChild(new ColorRect { Color = ColorOf(notice.Level), CustomMinimumSize = new(4, 34),
@@ -75,6 +82,10 @@ public partial class NotificationPanel : Control
         _toastsBox = new VBoxContainer { Name = "Toasts", MouseFilter = MouseFilterEnum.Ignore };
         _toastsBox.AddThemeConstantOverride("separation", 8);
         AddChild(_toastsBox);
+        _infoIcon = GD.Load<Texture2D>("res://Ui/Symbols/notification-info.png");
+        _completeIcon = GD.Load<Texture2D>("res://Ui/Symbols/notification-complete.png");
+        _warningIcon = GD.Load<Texture2D>("res://Ui/Symbols/warning.png");
+        _severeIcon = GD.Load<Texture2D>("res://Ui/Symbols/notification-critical.png");
         _log = UiStyle.Panel(this, "NoticeLog", "通知", new(24, 68), 460, () => _log.Hide(), out _logBody);
         var filters = new HFlowContainer();
         AddFilter(filters, NotificationLevel.Information, "FilterInformation", "信息");
@@ -112,13 +123,88 @@ public partial class NotificationPanel : Control
         filters.AddChild(box);
     }
 
-    private Button CreateRow(NotificationNotice notice)
+    internal static string Describe(NotificationNotice notice, ICoreReadView view, IContentView content)
     {
-        var button = new Button { Name = "Notice", Text = notice.Text, Alignment = HorizontalAlignment.Left,
-            CustomMinimumSize = new(360, 34), AutowrapMode = TextServer.AutowrapMode.WordSmart };
-        button.AddThemeColorOverride("font_color", ColorOf(notice.Level));
+        var name = notice.Subject is { } subject ? SubjectName(subject, view, content) : null;
+        if (notice.Category == NotificationCategory.RunDestroyed)
+            return name is null ? notice.Text : $"{name}\n{notice.Text}";
+        var verb = notice.Text.TrimEnd('。');
+        var line = name is null || notice.Category is NotificationCategory.Encounter or NotificationCategory.Destruction
+            or NotificationCategory.CombatEnded or NotificationCategory.LairCleared
+            ? verb : $"{name} {verb}";
+        return notice.Location is { } location ? $"{line} · {WorldPanels.LocationText(location, view, content)}" : line;
+    }
+
+    private Button CreateRow(NotificationNotice notice, string message)
+    {
+        var color = ColorOf(notice.Level);
+        var button = new Button
+        {
+            Name = "Notice",
+            Text = $"{LevelName(notice.Level)}  {message}",
+            Icon = Icon(notice.Level),
+            Alignment = HorizontalAlignment.Left,
+            CustomMinimumSize = new(420, 64),
+            AutowrapMode = TextServer.AutowrapMode.WordSmart
+        };
+        var background = new StyleBoxFlat
+        {
+            BgColor = color,
+            ContentMarginLeft = 8,
+            ContentMarginRight = 8,
+            ContentMarginTop = 6,
+            ContentMarginBottom = 6
+        };
+        button.AddThemeStyleboxOverride("normal", background);
+        button.AddThemeStyleboxOverride("hover", background);
+        button.AddThemeStyleboxOverride("pressed", background);
+        button.AddThemeStyleboxOverride("focus", background);
+        button.AddThemeColorOverride("font_color", Colors.White);
+        button.AddThemeColorOverride("font_hover_color", Colors.White);
+        button.AddThemeColorOverride("font_pressed_color", Colors.White);
         button.Pressed += () => Chosen?.Invoke(notice);
         return button;
+    }
+
+    private static string LevelName(NotificationLevel level) => level switch
+    {
+        NotificationLevel.Information => "信息",
+        NotificationLevel.Completion => "完成",
+        NotificationLevel.Warning => "警告",
+        _ => "严重"
+    };
+
+    private Texture2D? Icon(NotificationLevel level) => level switch
+    {
+        NotificationLevel.Information => _infoIcon,
+        NotificationLevel.Completion => _completeIcon,
+        NotificationLevel.Warning => _warningIcon,
+        _ => _severeIcon
+    };
+
+    private static string? SubjectName(WorldObjectId subject, ICoreReadView view, IContentView content) => subject switch
+    {
+        WorldObjectId.Train train => $"列车 {train.Id.Value}",
+        WorldObjectId.Settlement settlement => content.FindSettlementLayout(settlement.Id) is
+            ContentLookup<SettlementLayoutProjection>.Found layout && layout.Value.Display.Name.Length > 0
+            ? layout.Value.Display.Name : $"聚居地 {settlement.Id.Value}",
+        WorldObjectId.Instance instance => InstanceName(instance.Id, view),
+        WorldObjectId.CreatureGroup group => $"生物群 {group.Id.Value}",
+        WorldObjectId.Lair => "生物聚落",
+        _ => null
+    };
+
+    private static string InstanceName(InstanceId id, ICoreReadView view)
+    {
+        if (view.FindInstance(id) is Lookup<InstanceView>.Found found &&
+            found.Value.Details is InstanceDetails.Vehicle { Train: { } train })
+            return $"列车 {train.Value}";
+        return id switch
+        {
+            InstanceId.Vehicle vehicle => $"车辆 {vehicle.Id.Value}",
+            InstanceId.Building building => $"建筑 {building.Id.Value}",
+            _ => "单位"
+        };
     }
 
     private static Color ColorOf(NotificationLevel level) => level switch

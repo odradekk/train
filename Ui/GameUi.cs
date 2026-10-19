@@ -339,9 +339,8 @@ public partial class GameUi : CanvasLayer
         try { result = _host.Submit(target.Binding, command, CommandSource.UserInterface, candidate); }
         catch (NotImplementedException)
         {
-            var message = $"该操作尚未实现：{CommandKind(command)}";
-            _logger.Warning("ui", "command_not_implemented", message);
-            ShowError(message);
+            _logger.Warning("ui", "command_not_implemented", command.GetType().Name);
+            ShowError("该操作尚未实现。");
             return null;
         }
         if (CommandDiagnostics.Report(_logger, result) is { } problem) ShowError(problem);
@@ -360,11 +359,13 @@ public partial class GameUi : CanvasLayer
         _economy?.Observe(binding, view, events);
         if (_notices is not null && _binding.Session != binding.Session) _notices.Begin(binding.Session);
         if (_notices is not null)
+        {
+            var previous = _binding == binding ? _view : null;
             foreach (var envelope in events)
-                if (_policy.Classify(envelope.Event, view) is { } notice) _notices.Add(notice);
+                if (_policy.Classify(envelope.Event, previous, view) is { } notice)
+                    _notices.Add(notice, view, content);
+        }
         _reports.Observe(binding, events);
-        // 分级使用上一边界的读视图；本边界结束后才换上新视图。
-        _policy.Observe(view);
         if (view.Fault is { } fault && (_binding != binding || _view?.Fault != fault))
             ShowError(CommandDiagnostics.Describe(fault));
         _map.SetView(view, content, _binding != binding);
@@ -403,10 +404,37 @@ public partial class GameUi : CanvasLayer
 
     private void OpenNotice(NotificationNotice notice)
     {
-        if (_host?.GetStatus() is not { } status || notice.Location is not { } location ||
-            !NoticeAvailable(status.View, notice))
-        { ReportUiError("已不存在"); return; }
-        OpenLocation(location);
+        if (_host?.GetStatus() is not { } status) { ReportUiError("已不存在"); return; }
+        var view = status.View;
+        switch (notice.Subject)
+        {
+            case WorldObjectId.Settlement settlement:
+                var occupied = view.World.Nodes.FirstOrDefault(item =>
+                    item.Occupant is NodeOccupant.Settlement node && node.Id == settlement.Id);
+                if (occupied is null) { ReportUiError("已不存在"); return; }
+                OpenLocation(new WorldLocation.Node(occupied.Id));
+                return;
+            case WorldObjectId.Instance instance:
+                if (view.FindInstance(instance.Id) is not Lookup<InstanceView>.Found found ||
+                    !LocationExists(view, found.Value.Location))
+                { ReportUiError("已不存在"); return; }
+                OpenLocation(found.Value.Location);
+                return;
+            case WorldObjectId.Train train:
+                if (!view.World.Trains.Any(item => item.Id == train.Id)) { ReportUiError("已不存在"); return; }
+                OpenScene(new WorldObjectId.Train(train.Id));
+                return;
+            case WorldObjectId.Combat combat:
+                var listed = view.World.Combats.FirstOrDefault(item => item.Id == combat.Id);
+                if (listed is null) { ReportUiError("已不存在"); return; }
+                OpenLocation(listed.Location);
+                return;
+            case { } subject when !SubjectExists(view, subject):
+                ReportUiError("已不存在");
+                return;
+        }
+        if (notice.Location is { } location) OpenLocation(location);
+        else ReportUiError("已不存在");
     }
 
     private void OpenLocation(WorldLocation location)
@@ -415,10 +443,6 @@ public partial class GameUi : CanvasLayer
         { ReportUiError("已不存在"); return; }
         _scenes.Open(new WorldSceneTarget.Location(location));
     }
-
-    private static bool NoticeAvailable(ICoreReadView view, NotificationNotice notice) =>
-        notice.Location is not null && LocationExists(view, notice.Location) &&
-        (notice.Subject is not { } subject || SubjectExists(view, subject));
 
     private static bool LocationExists(ICoreReadView view, WorldLocation location) => location switch
     {
@@ -439,41 +463,6 @@ public partial class GameUi : CanvasLayer
             item.Occupant is NodeOccupant.Lair occupied && occupied.Id == lair.Id),
         WorldObjectId.Instance instance => view.FindInstance(instance.Id) is Lookup<InstanceView>.Found,
         _ => false
-    };
-
-    private static string CommandKind(CoreCommand command) => command switch
-    {
-        CoreCommand.FormTrain => "编组",
-        CoreCommand.DisbandTrain => "解编",
-        CoreCommand.ReplaceRunPlan => "运行计划",
-        CoreCommand.StartTrain => "启动",
-        CoreCommand.StopTrain => "停车",
-        CoreCommand.ExpandRail => "扩展线路",
-        CoreCommand.RepairRail => "修复线路",
-        CoreCommand.SetAutomaticRailRepair => "自动修路",
-        CoreCommand.BuyGoods => "购买货物",
-        CoreCommand.SellGoods => "出售货物",
-        CoreCommand.LoadGoods => "装货",
-        CoreCommand.UnloadGoods => "卸货",
-        CoreCommand.BuyVehicle => "购买车辆",
-        CoreCommand.SellVehicle => "出售车辆",
-        CoreCommand.AcquireLease => "租用",
-        CoreCommand.SetProductionPlan => "生产计划",
-        CoreCommand.StartOwnedJob => "自有工程",
-        CoreCommand.CommissionVehicleWork => "委托车辆工程",
-        CoreCommand.SetJobPriority => "工程优先级",
-        CoreCommand.SetDeconstructionPaused => "暂停拆除",
-        CoreCommand.ApplyInstanceDesign => "应用设计",
-        CoreCommand.FoundSettlement => "建立聚居地",
-        CoreCommand.DeclareWar => "宣战",
-        CoreCommand.OccupySettlement => "占领",
-        CoreCommand.SetTrainEngagement => "列车交战规则",
-        CoreCommand.SetSettlementEngagement => "聚居地交战规则",
-        CoreCommand.Retreat => "撤退",
-        CoreCommand.FocusFire => "集中攻击",
-        CoreCommand.PublishContent => "发布内容",
-        CoreCommand.DebugAddRailBreak => "调试断轨",
-        _ => "未知命令"
     };
 
     private void OnReturnedToMap(SceneProblem? problem)

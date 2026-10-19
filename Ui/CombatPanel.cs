@@ -22,6 +22,8 @@ public partial class CombatPanel : Control
     private VBoxContainer _combats = null!;
     private VBoxContainer _participants = null!;
     private VBoxContainer _focus = null!;
+    private VBoxContainer _trainRules = null!;
+    private VBoxContainer _settlementRules = null!;
     private VBoxContainer _occupyTrains = null!;
     private OptionButton _trainPriority = null!;
     private OptionButton _trainScope = null!;
@@ -48,13 +50,19 @@ public partial class CombatPanel : Control
     internal void Initialize(Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit, Action<string> report)
     { _submit = submit; _report = report; }
 
-    internal void Open() => Show();
+    internal void Open()
+    {
+        Show();
+        if (IsNodeReady() && _view is not null && _content is not null) Render();
+    }
 
     internal void OpenTrain(TrainId train)
     {
         ContextTrain = train;
         _rulesTrain = null;
+        if (_view is not null && CombatContaining(_view, train) is { } combat) SelectedCombat = combat;
         Show();
+        if (IsNodeReady() && _view is not null && _content is not null) Render();
     }
 
     internal void OpenSettlement(SettlementId settlement)
@@ -62,12 +70,13 @@ public partial class CombatPanel : Control
         ContextSettlement = settlement;
         _rulesSettlement = null;
         Show();
+        if (IsNodeReady() && _view is not null && _content is not null) Render();
     }
 
     internal void Refresh(HostBinding binding, ICoreReadView view, IContentView content, bool busy, BattleReportLog reports)
     {
         _binding = binding; _view = view; _content = content; _busy = busy; _reports = reports;
-        if (IsNodeReady()) Render();
+        if (IsNodeReady() && Visible) Render();
     }
 
     public override void _Ready()
@@ -89,26 +98,36 @@ public partial class CombatPanel : Control
         _focusFire = UiStyle.Button("FocusFire", "集中攻击", SubmitFocus, true);
         body.AddChild(_retreat);
         body.AddChild(_focusFire);
-        body.AddChild(UiStyle.Label("列车交战规则", true));
+        _trainRules = new VBoxContainer { Name = "TrainRules" };
+        _trainRules.AddChild(UiStyle.Label("列车交战规则", true));
         _trainPriority = Choices("TrainPriority", ["武装优先", "最低耐久", "最高耐久"]);
         _trainScope = Choices("TrainScope", ["仅武装", "全部"]);
         _trainEncounter = Choices("TrainEncounter", ["交战", "撤退"]);
         _trainRetreat = new SpinBox { Name = "TrainRetreatRatio", MinValue = 0, MaxValue = 1, Step = 0.05,
             CustomMinimumSize = new(280, 38) };
-        body.AddChild(_trainPriority); body.AddChild(_trainScope); body.AddChild(_trainEncounter); body.AddChild(_trainRetreat);
+        AddRow(_trainRules, "目标优先级", _trainPriority);
+        AddRow(_trainRules, "攻击范围", _trainScope);
+        AddRow(_trainRules, "遇敌行为", _trainEncounter);
+        AddRow(_trainRules, "撤退阈值（结构耐久比例）", _trainRetreat);
         _applyTrain = UiStyle.Button("ApplyTrainEngagement", "应用列车规则", SubmitTrainRules);
-        body.AddChild(_applyTrain);
-        body.AddChild(UiStyle.Label("聚居地交战规则", true));
+        _trainRules.AddChild(_applyTrain);
+        body.AddChild(_trainRules);
+        _settlementRules = new VBoxContainer { Name = "SettlementRules" };
+        _settlementRules.AddChild(UiStyle.Label("聚居地交战规则", true));
         _settlementPriority = Choices("SettlementPriority", ["武装优先", "最低耐久", "最高耐久"]);
         _settlementScope = Choices("SettlementScope", ["仅武装", "全部"]);
-        body.AddChild(_settlementPriority); body.AddChild(_settlementScope);
+        AddRow(_settlementRules, "目标优先级", _settlementPriority);
+        AddRow(_settlementRules, "攻击范围", _settlementScope);
         _applySettlement = UiStyle.Button("ApplySettlementEngagement", "应用聚居地规则", SubmitSettlementRules);
         _declareWar = UiStyle.Button("DeclareWar", "宣战", SubmitDeclareWar);
         _occupy = UiStyle.Button("Occupy", "占领", SubmitOccupy, true);
-        body.AddChild(_applySettlement); body.AddChild(_declareWar);
-        body.AddChild(UiStyle.Label("在场列车", true));
-        _occupyTrains = List(body);
-        body.AddChild(_occupy);
+        _settlementRules.AddChild(_applySettlement);
+        _settlementRules.AddChild(_declareWar);
+        _settlementRules.AddChild(UiStyle.Label("在场列车", true));
+        _occupyTrains = new VBoxContainer();
+        _settlementRules.AddChild(_occupyTrains);
+        _settlementRules.AddChild(_occupy);
+        body.AddChild(_settlementRules);
         body.AddChild(UiStyle.Label("战报", true));
         _reportText = UiStyle.Label("暂无战报。");
         _reportText.Name = "BattleReports";
@@ -141,7 +160,7 @@ public partial class CombatPanel : Control
         if (SelectedParticipant is not null && !participantPresent)
             text.AppendLine("参战者已不存在");
         var focusPresent = combat is not null && SelectedFocus is { } focus &&
-            combat.Participants.Any(item => UnitObject(item.Unit) == focus && item.Unit != SelectedParticipant);
+            combat.Participants.Any(item => UnitObject(item.Unit) == focus && Focusable(view, item));
         if (SelectedFocus is not null && !focusPresent)
             text.AppendLine("集中目标已不存在");
         AppendContext(text, view);
@@ -149,9 +168,9 @@ public partial class CombatPanel : Control
         Sync(_combats, view.World.Combats.Select(item => new Choice($"Combat{item.Id.Value}",
             $"{BattleReportLog.Place(item.Location)}", () => SelectedCombat = item.Id)).ToArray());
         Sync(_participants, combat?.Participants.Select(item => new Choice(UnitName(item.Unit),
-            UnitLabel(item), () => ChooseParticipant(item.Unit))).ToArray() ?? []);
-        Sync(_focus, combat?.Participants.Where(item => item.Unit != SelectedParticipant)
-            .Select(item => new Choice("Focus" + UnitName(item.Unit), UnitLabel(item), () => SelectedFocus = UnitObject(item.Unit)))
+            UnitLabel(view, item), () => ChooseParticipant(item.Unit))).ToArray() ?? []);
+        Sync(_focus, combat?.Participants.Where(item => Focusable(view, item))
+            .Select(item => new Choice("Focus" + UnitName(item.Unit), UnitLabel(view, item), () => SelectedFocus = UnitObject(item.Unit)))
             .ToArray() ?? []);
         var settlement = Settlement(view);
         var trains = settlement is null ? [] : view.World.Trains.Where(item => item.Position is TrainPosition.Node node &&
@@ -177,12 +196,17 @@ public partial class CombatPanel : Control
             _settlementScope.Select((int)settlement.Engagement.Scope);
         }
         var controller = participantPresent ? Controller(view, SelectedParticipant!) : null;
+        var ownSettlement = settlement?.Relation == SettlementRelation.PlayerOwned;
+        _trainRules.Visible = ContextTrain is not null;
+        _settlementRules.Visible = ContextSettlement is not null;
         _retreat.Disabled = _busy || !participantPresent || RetreatTrain(view) is null;
         _focusFire.Disabled = _busy || combat is null || !participantPresent || !focusPresent || controller is null;
         _applyTrain.Disabled = _busy || train is null || _trainPriority.Selected < 0;
-        _applySettlement.Disabled = _busy || settlement is null || _settlementPriority.Selected < 0;
-        _declareWar.Disabled = _busy || settlement is null;
-        _occupy.Disabled = _busy || settlement is null || OccupyTrain is not { } chosen ||
+        _settlementPriority.Disabled = _busy || !ownSettlement;
+        _settlementScope.Disabled = _busy || !ownSettlement;
+        _applySettlement.Disabled = _busy || !ownSettlement || _settlementPriority.Selected < 0;
+        _declareWar.Disabled = _busy || settlement is not { Relation: SettlementRelation.NonHostile };
+        _occupy.Disabled = _busy || settlement is not { Relation: SettlementRelation.Hostile } || OccupyTrain is not { } chosen ||
             !view.World.Trains.Any(item => item.Id == chosen && item.Position is TrainPosition.Node node && node.Id == settlement.Node);
         _reportText.Text = _reports is { Reports.Count: > 0 } log
             ? string.Join("\n", log.Reports.Select(BattleReportLog.Describe)) : "暂无战报。";
@@ -300,12 +324,30 @@ public partial class CombatPanel : Control
 
     private CombatController? Controller(ICoreReadView view, CombatUnitId unit)
     {
-        if (RetreatTrain(view) is { } train && unit is CombatUnitId.Instance { Id: InstanceId.Vehicle })
+        if (unit is not CombatUnitId.Instance instance ||
+            view.FindInstance(instance.Id) is not Lookup<InstanceView>.Found found ||
+            found.Value.Ownership != SettlementRelation.PlayerOwned)
+            return null;
+        if (RetreatTrain(view) is { } train && instance.Id is InstanceId.Vehicle)
             return new CombatController.Train(train);
-        if (unit is CombatUnitId.Instance instance && view.FindInstance(instance.Id) is Lookup<InstanceView>.Found found &&
-            found.Value.Location is WorldLocation.Node node &&
-            view.World.Nodes.FirstOrDefault(item => item.Id == node.Id)?.Occupant is NodeOccupant.Settlement settlement)
-            return new CombatController.Settlement(settlement.Id);
+        if (found.Value.Location is WorldLocation.Node node &&
+            view.World.Nodes.FirstOrDefault(item => item.Id == node.Id)?.Occupant is NodeOccupant.Settlement occupied &&
+            view.FindSettlement(occupied.Id) is Lookup<SettlementView>.Found settlement &&
+            settlement.Value.Relation == SettlementRelation.PlayerOwned)
+            return new CombatController.Settlement(occupied.Id);
+        return null;
+    }
+
+    private CombatId? CombatContaining(ICoreReadView view, TrainId train)
+    {
+        if (view.FindTrain(train) is not Lookup<TrainView>.Found found) return null;
+        foreach (var item in view.World.Combats)
+        {
+            if (view.FindCombat(item.Id) is not Lookup<CombatView>.Found combat) continue;
+            if (combat.Value.Participants.Any(participant => participant.Unit is CombatUnitId.Instance
+                { Id: InstanceId.Vehicle vehicle } && found.Value.Vehicles.Contains(vehicle.Id)))
+                return item.Id;
+        }
         return null;
     }
 
@@ -330,6 +372,16 @@ public partial class CombatPanel : Control
         return list;
     }
 
+    private static void AddRow(VBoxContainer body, string title, Control input)
+    {
+        var row = new HBoxContainer();
+        var label = UiStyle.Label(title);
+        label.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        row.AddChild(label);
+        row.AddChild(input);
+        body.AddChild(row);
+    }
+
     private static OptionButton Choices(string name, string[] values)
     {
         var options = new OptionButton { Name = name, CustomMinimumSize = new(280, 38) };
@@ -345,7 +397,19 @@ public partial class CombatPanel : Control
         _ => "Unit"
     };
 
-    private static string UnitLabel(CombatParticipantView participant)
+    private bool Focusable(ICoreReadView view, CombatParticipantView participant)
+    {
+        if (participant.Unit == SelectedParticipant) return false;
+        return participant.Unit switch
+        {
+            CombatUnitId.CreatureGroup => true,
+            CombatUnitId.Instance instance when view.FindInstance(instance.Id) is Lookup<InstanceView>.Found found =>
+                found.Value.Ownership != SettlementRelation.PlayerOwned,
+            _ => false
+        };
+    }
+
+    private static string UnitLabel(ICoreReadView view, CombatParticipantView participant)
     {
         var name = participant.Unit switch
         {
@@ -354,7 +418,15 @@ public partial class CombatPanel : Control
             CombatUnitId.CreatureGroup group => $"生物群 {group.Id.Value}",
             _ => "单位"
         };
-        return participant.Retreating ? $"{name} · 撤退中" : name;
+        var side = participant.Unit switch
+        {
+            CombatUnitId.CreatureGroup => "生物",
+            CombatUnitId.Instance instance when view.FindInstance(instance.Id) is Lookup<InstanceView>.Found
+                { Value.Ownership: SettlementRelation.PlayerOwned } => "我方",
+            _ => "敌方"
+        };
+        var text = $"{name} · {side}";
+        return participant.Retreating ? $"{text} · 撤退中" : text;
     }
 
     private static WorldObjectId? UnitObject(CombatUnitId unit) => unit switch

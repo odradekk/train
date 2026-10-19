@@ -116,7 +116,6 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
                 "交战控件没有装入查询里的规则。");
             var view = host.Session.CurrentView;
             var rules = new TrainEngagementRules(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0.5);
-            var settlementRules = new SettlementEngagementRules(TargetPriority.LowestDurability, TargetScope.ArmedOnly);
             host.Session.QueueSubmit(new CoreCommand.Retreat(new(7)), CommandSource.UserInterface,
                 Completed(1, view, view, new CommandDecision.Accepted([], [])), view);
             host.Session.QueueSubmit(new CoreCommand.FocusFire(new(5), new CombatController.Train(new(7)),
@@ -124,25 +123,23 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
                 Completed(2, view, view, new CommandDecision.Accepted([], [])), view);
             host.Session.QueueSubmit(new CoreCommand.SetTrainEngagement(new(7), rules), CommandSource.UserInterface,
                 Completed(3, view, view, new CommandDecision.Accepted([], [])), view);
-            host.Session.QueueSubmit(new CoreCommand.SetSettlementEngagement(new(4), settlementRules), CommandSource.UserInterface,
-                Completed(4, view, view, new CommandDecision.Accepted([], [])), view);
             host.Session.QueueSubmit(new CoreCommand.OccupySettlement(new(4), new(7)), CommandSource.UserInterface,
-                Completed(5, view, view, new CommandDecision.Rejected([new("invalid_state", "relation", null, [])])), view);
-            host.Session.QueueSubmit(new CoreCommand.DeclareWar(new(4)), CommandSource.UserInterface,
-                Completed(6, view, view, new CommandDecision.Accepted([], [])), view);
+                Completed(4, view, view, new CommandDecision.Rejected([new("invalid_state", "relation", null, [])])), view);
+            Require(Button(combat, "Vehicle11").Text.Contains("我方") && Button(combat, "Building13").Text.Contains("敌方") &&
+                Button(combat, "DeclareWar").Disabled && Button(combat, "ApplySettlementEngagement").Disabled &&
+                combat.FindChildren("*", "Label", true, false).Cast<Label>().Any(label => label.Text == "撤退阈值（结构耐久比例）"),
+                $"筛选或规则标题不对：{Button(combat, "Vehicle11").Text} / {Button(combat, "Building13").Text}");
             await Press(Button(combat, "Retreat"));
             await Press(Button(combat, "FocusFire"));
             await Press(Button(combat, "ApplyTrainEngagement"));
-            await Press(Button(combat, "ApplySettlementEngagement"));
             await Press(Button(combat, "OccupyTrain7"));
             await _input.WaitUntil(() => !Button(combat, "Occupy").Disabled);
             await Press(Button(combat, "Occupy"));
-            await Press(Button(combat, "DeclareWar"));
-            Require(host.Session.SubmitCount == 6 && !app.Host!.GetStatus()!.IsFrozen,
+            Require(host.Session.SubmitCount == 4 && !app.Host!.GetStatus()!.IsFrozen,
                 $"已实现命令没有按脚本接受或拒绝：count={host.Session.SubmitCount}。");
             host.Gate!.ThrowUnimplemented = true;
-            await Press(Button(combat, "DeclareWar"));
-            Require(ui.ErrorText == "该操作尚未实现：宣战" && host.Session.SubmitCount == 6 &&
+            await Press(Button(combat, "Occupy"));
+            Require(ui.ErrorText == "该操作尚未实现。" && host.Session.SubmitCount == 4 &&
                 app.Host?.GetStatus() is { IsFrozen: false },
                 $"未实现命令被当成接受或冻结了核心：{ui.ErrorText}，count={host.Session.SubmitCount}。");
         }
@@ -182,6 +179,72 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
                 $"消失的战斗通知打开了场景或没有说明缺失：{ui.ErrorText}，opens={scenes.OpenCalls.Count}。");
             await Press(Find<CheckBox>(log, "FilterWarning"));
             Require(!row.Visible, "等级过滤仍然显示警告记录。");
+        }
+        finally { await Cleanup(fixture, app); }
+    }
+
+    [Test]
+    public async Task Surrender_or_relation_notice_opens_the_settlement_node_until_it_is_gone()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var host = new CombatHost(rich: true);
+        FixedDisplaySession? scene = null;
+        var target = new WorldSceneTarget.Location(new WorldLocation.Node(new(1)));
+        var failure = new SceneResult<ISceneFrame>.Failure([
+            new("notice_probe", SceneStage.Present, null, null, null, null, "只记录聚居地节点。")]);
+        var scenes = new FixedDisplayFactory
+        {
+            OpenWorldCall = (binding, _) =>
+            {
+                scene = new FixedDisplaySession
+                {
+                    Id = new(Guid.Parse("00000000-0000-0000-0000-000000330354")),
+                    Binding = binding,
+                    RequestResults = ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>>.Empty.Add(
+                        target, new SceneResult<SceneRequestId>.Success(new(1))),
+                    PresentResults = [failure]
+                };
+                return new SceneResult<IWorldSceneSession>.Success(scene);
+            }
+        };
+        Train.App.App? app = null;
+        try
+        {
+            app = await Boot(fixture, (_, logger) => host.Create(logger), () => scenes);
+            host.Session.QueueAdvance(new(1, new(1, 0),
+            [
+                new(new(1, 0), 0, new CoreEvent.SettlementSurrendered(new(5), new(4))),
+                new(new(1, 0), 1, new CoreEvent.SettlementRelationChanged(new(4),
+                    SettlementRelation.NonHostile, SettlementRelation.PlayerOwned))
+            ], null, null), host.View(new(1, 0)));
+            Require(app.Host!.SetPaused(false) is null, "无法推进投降和关系变化。");
+            app.Host.ProcessFrame(SimulationTime.StepSeconds);
+            app.Host.SetPaused(true);
+            await _input.Frames();
+            var ui = app.GetNode<GameUi>("GameUi");
+            await Press(ui.GetNode<Button>("Root/World/Bar/TopBar/Notices"));
+            var log = Find<PanelContainer>(ui, "NoticeLog");
+            var rows = log.FindChildren("Notice", "Button", true, false).Cast<Button>().ToArray();
+            var surrender = rows.Single(button => button.Text.Contains("投降"));
+            var relation = rows.Single(button => button.Text.Contains("变为自有"));
+            Require(surrender.Text.Contains("警告") && surrender.Text.Contains("Town") &&
+                relation.Text.Contains("完成") && relation.Text.Contains("Town"),
+                $"{surrender.Text} / {relation.Text}");
+            await Press(surrender);
+            await _input.WaitUntil(() => scene is { RequestCalls.Count: 1, IsDisposed: true });
+            Require(scene!.RequestCalls[0] == target, $"投降没有打开节点：{string.Join(", ", scene.RequestCalls)}。");
+            await Press(relation);
+            await _input.WaitUntil(() => scenes.OpenCalls.Count == 2 && scene is { RequestCalls.Count: 1, IsDisposed: true });
+            Require(scene.RequestCalls[0] == target, $"关系变化没有打开节点：{string.Join(", ", scene.RequestCalls)}。");
+            host.Session.QueueAdvance(new(1, new(2, 0), [], null, null), host.View(new(2, 0), settlementPresent: false));
+            Require(app.Host.SetPaused(false) is null, "无法推进到聚居地消失。");
+            app.Host.ProcessFrame(SimulationTime.StepSeconds);
+            app.Host.SetPaused(true);
+            await _input.Frames();
+            var opens = scenes.OpenCalls.Count;
+            await Press(surrender);
+            Require(ui.ErrorText == "已不存在" && scenes.OpenCalls.Count == opens,
+                $"聚居地消失后仍打开场景：{ui.ErrorText}，opens={scenes.OpenCalls.Count}。");
         }
         finally { await Cleanup(fixture, app); }
     }
@@ -257,7 +320,7 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
             app.Host.SetPaused(true);
             var ui = app.GetNode<GameUi>("GameUi");
             var notices = ui.FindChildren("Notice", "Button", true, false).Cast<Button>().Select(button => button.Text).ToArray();
-            Require(NotificationPolicy.RunDestroyedText == expected && notices.Contains(expected) &&
+            Require(NotificationPolicy.RunDestroyedText == expected && notices.Any(text => text.Contains(expected) && text.Contains("列车 7") && text.Contains("严重")) &&
                 !app.Host.GetStatus()!.IsFrozen && first.SubmitCount == 0 &&
                 !expected.Contains("核心模拟发生故障") && !ui.ErrorText.Contains("核心模拟发生故障"),
                 $"全毁通知或冻结状态不对：{string.Join(" | ", notices)} / {ui.ErrorText}");
@@ -273,7 +336,7 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
             await _input.Activate(UiTestInput.SaveButton(panel, "读取最近存档"), panel);
             await _input.WaitUntil(() => host.Restores >= 2 && app.Host.GetStatus() is not null &&
                 ui.GetNode<MacroMap>("Root/World/MacroMap").IsVisibleInTree() &&
-                !ui.FindChildren("Notice", "Button", true, false).Cast<Button>().Any(button => button.Text == expected));
+                !ui.FindChildren("Notice", "Button", true, false).Cast<Button>().Any(button => button.Text.Contains(expected)));
             Require(!app.Host.GetStatus()!.IsFrozen && first.SubmitCount == 0 && host.Session.SubmitCount == 0,
                 "读档后核心被冻结，或界面自动提交了命令。");
             if (!panel.Visible) await Press(ui.GetNode<Button>("Root/World/Bar/TopBar/Saves"));
@@ -433,8 +496,8 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
             return host;
         }
 
-        internal FixedCoreReadView View(SimulationPosition position, bool combatPresent = true) =>
-            rich ? Battlefield(position, combatPresent) : new(position, HostCoreScenario.Input, null, new(1))
+        internal FixedCoreReadView View(SimulationPosition position, bool combatPresent = true, bool settlementPresent = true) =>
+            rich ? Battlefield(position, combatPresent, settlementPresent) : new(position, HostCoreScenario.Input, null, new(1))
             {
                 World = new(0, new("fixture:railway"), 100, 100, [], [], [], [], [])
             };
@@ -453,11 +516,12 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
             };
         }
 
-        private static FixedCoreReadView Battlefield(SimulationPosition position, bool combatPresent)
+        private static FixedCoreReadView Battlefield(SimulationPosition position, bool combatPresent, bool settlementPresent)
         {
             var terrain = new TerrainView(new("fixture:plain"), 0, []);
-            var settlementNode = new NodeMapItem(new(1), new(250, 300), terrain,
-                new NodeOccupant.Settlement(new(4), SettlementRelation.Hostile), [], 0, 2, null);
+            NodeOccupant occupant = settlementPresent
+                ? new NodeOccupant.Settlement(new(4), SettlementRelation.Hostile) : new NodeOccupant.Empty();
+            var settlementNode = new NodeMapItem(new(1), new(250, 300), terrain, occupant, [], 0, 2, null);
             var far = settlementNode with { Id = new(2), Position = new(750, 300), Occupant = new NodeOccupant.Empty(), Platforms = 0 };
             var edge = new EdgeMapItem(new(1), new(1), new(2), 600, terrain, 1, 1, [], []);
             var trainPosition = new TrainPosition.Node(new(1), null, null, null, null, NodeTravelPhase.Waiting, 80, null);
@@ -505,7 +569,7 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
                 Locations = new Dictionary<WorldLocation, Lookup<LocationView>>
                 {
                     [nodeLocation] = new Lookup<LocationView>.Found(new(nodeLocation, [train.Id],
-                        [vehicle.Id, building.Id], [], [], settlementNode.Occupant))
+                        [vehicle.Id, building.Id], [], [], occupant))
                 },
                 Trains = new Dictionary<TrainId, Lookup<TrainView>> { [train.Id] = new Lookup<TrainView>.Found(train) },
                 Instances = new Dictionary<InstanceId, Lookup<InstanceView>>
@@ -515,7 +579,8 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
                 },
                 Settlements = new Dictionary<SettlementId, Lookup<SettlementView>>
                 {
-                    [settlement.Id] = new Lookup<SettlementView>.Found(settlement)
+                    [settlement.Id] = settlementPresent
+                        ? new Lookup<SettlementView>.Found(settlement) : new Lookup<SettlementView>.Missing()
                 },
                 Combats = new Dictionary<CombatId, Lookup<CombatView>>
                 {

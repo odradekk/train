@@ -16,17 +16,17 @@ public sealed class NotificationPolicyTests
         foreach (var category in Enum.GetValues<NotificationCategory>())
             Assert.AreEqual(NotificationPolicy.DefaultAction(category), policy.Action(category));
         Assert.AreEqual(NotificationAction.SlowToOne, policy.Action(NotificationCategory.Encounter));
-        var started = policy.Classify(new CoreEvent.CombatStarted(new(4), new WorldLocation.Node(new(1)), []), null);
-        var joined = policy.Classify(new CoreEvent.CombatJoined(new(4), new CombatUnitId.CreatureGroup(new(2))), null);
+        var started = policy.Classify(new CoreEvent.CombatStarted(new(4), new WorldLocation.Node(new(1)), []), null, null);
+        var joined = policy.Classify(new CoreEvent.CombatJoined(new(4), new CombatUnitId.CreatureGroup(new(2))), null, null);
         Assert.AreEqual(NotificationCategory.Encounter, started!.Category);
         Assert.AreEqual(NotificationLevel.Warning, started.Level);
         Assert.AreEqual(NotificationCategory.Encounter, joined!.Category);
         Assert.AreEqual(NotificationAction.SlowToOne, policy.Decide(new CoreEvent.CombatJoined(new(4), new CombatUnitId.CreatureGroup(new(2)))));
-        Assert.IsNull(policy.Classify(new CoreEvent.CombatHits(new(4), new WorldLocation.Node(new(1)), []), null));
-        Assert.IsNull(policy.Classify(new CoreEvent.LairCreated(new(1), new(1), new("lair")), null));
-        Assert.IsNull(policy.Classify(new CoreEvent.RunReported(Report(RunEndReason.PlanCompleted)), null));
+        Assert.IsNull(policy.Classify(new CoreEvent.CombatHits(new(4), new WorldLocation.Node(new(1)), []), null, null));
+        Assert.IsNull(policy.Classify(new CoreEvent.LairCreated(new(1), new(1), new("lair")), null, null));
+        Assert.IsNull(policy.Classify(new CoreEvent.RunReported(Report(RunEndReason.PlanCompleted)), null, null));
         Assert.IsNull(policy.Classify(new CoreEvent.SettlementRelationChanged(new(1),
-            SettlementRelation.Hostile, SettlementRelation.NonHostile), null));
+            SettlementRelation.Hostile, SettlementRelation.NonHostile), null, null));
     }
 
     [TestMethod]
@@ -34,8 +34,8 @@ public sealed class NotificationPolicyTests
     {
         var policy = new NotificationPolicy();
         var hostile = Destruction(new InstanceId.Building(new(3)));
-        policy.Observe(View((new InstanceId.Building(new(3)), SettlementRelation.Hostile)));
-        Assert.AreEqual(NotificationLevel.Information, policy.Classify(hostile, null)!.Level);
+        var previous = View((new InstanceId.Building(new(3)), SettlementRelation.Hostile));
+        Assert.AreEqual(NotificationLevel.Information, policy.Classify(hostile, previous, null)!.Level);
         Assert.AreEqual(NotificationAction.None, policy.Decide(hostile));
         policy.SetAction(NotificationCategory.Destruction, NotificationAction.Pause);
         Assert.AreEqual(NotificationAction.Pause, policy.Decide(hostile));
@@ -70,20 +70,20 @@ public sealed class NotificationPolicyTests
         var owned = new InstanceId.Vehicle(new(7));
         var hostile = new InstanceId.Building(new(3));
         var missing = new InstanceId.Building(new(9));
-        Assert.AreEqual(NotificationLevel.Severe, policy.Classify(Destruction(owned), null)!.Level);
-        policy.Observe(View((owned, SettlementRelation.PlayerOwned), (hostile, SettlementRelation.Hostile)));
-        Assert.AreEqual(NotificationLevel.Severe, policy.Classify(Destruction(owned), null)!.Level);
-        Assert.AreEqual(NotificationLevel.Information, policy.Classify(Destruction(hostile), null)!.Level);
+        Assert.AreEqual(NotificationLevel.Severe, policy.Classify(Destruction(owned), null, null)!.Level);
+        var previous = View((owned, SettlementRelation.PlayerOwned), (hostile, SettlementRelation.Hostile));
+        Assert.AreEqual(NotificationLevel.Severe, policy.Classify(Destruction(owned), previous, null)!.Level);
+        Assert.AreEqual(NotificationLevel.Information, policy.Classify(Destruction(hostile), previous, null)!.Level);
         Assert.AreEqual(NotificationLevel.Severe, policy.Classify(new CoreEvent.CombatDestruction(new(1),
-            new WorldLocation.Node(new(1)), [new(InstanceRef(hostile), new(2))], [new DestroyedUnit.Instance(InstanceRef(owned))]), null)!.Level);
-        policy.Observe(new FixedCoreReadView
+            new WorldLocation.Node(new(1)), [new(InstanceRef(hostile), new(2))], [new DestroyedUnit.Instance(InstanceRef(owned))]), previous, null)!.Level);
+        var missingView = new FixedCoreReadView
         {
             Instances = new Dictionary<InstanceId, Lookup<InstanceView>> { [missing] = new Lookup<InstanceView>.Missing() }
-        });
-        Assert.AreEqual(NotificationLevel.Severe, policy.Classify(Destruction(missing), null)!.Level);
+        };
+        Assert.AreEqual(NotificationLevel.Severe, policy.Classify(Destruction(missing), missingView, null)!.Level);
         var creature = new CoreEvent.CombatDestruction(new(1), new WorldLocation.Edge(new(1), 100), [],
             [new DestroyedUnit.Creature(new(new(1), new(2), new("wolf"), new WorldLocation.Edge(new(1), 100)))]);
-        Assert.AreEqual(NotificationLevel.Information, policy.Classify(creature, null)!.Level);
+        Assert.AreEqual(NotificationLevel.Information, policy.Classify(creature, null, null)!.Level);
     }
 
     [TestMethod]
@@ -91,14 +91,17 @@ public sealed class NotificationPolicyTests
     {
         var policy = new NotificationPolicy();
         var owned = policy.Classify(new CoreEvent.SettlementRelationChanged(new(4),
-            SettlementRelation.NonHostile, SettlementRelation.PlayerOwned), null);
+            SettlementRelation.NonHostile, SettlementRelation.PlayerOwned), null, null);
         var hostile = policy.Classify(new CoreEvent.SettlementRelationChanged(new(4),
-            SettlementRelation.NonHostile, SettlementRelation.Hostile), null);
-        var lost = policy.Classify(new CoreEvent.RunReported(Report(RunEndReason.AllVehiclesDestroyed)), null);
+            SettlementRelation.NonHostile, SettlementRelation.Hostile), null, null);
+        var lost = policy.Classify(new CoreEvent.RunReported(Report(RunEndReason.AllVehiclesDestroyed)), null, null);
+        var ended = policy.Classify(new CoreEvent.CombatEnded(new(4), new WorldLocation.Node(new(1)), new(1, 2, [])), null, null);
         Assert.AreEqual(NotificationLevel.Completion, owned!.Level);
         Assert.AreEqual(NotificationLevel.Warning, hostile!.Level);
         Assert.AreEqual(NotificationLevel.Severe, lost!.Level);
         Assert.AreEqual(NotificationPolicy.RunDestroyedText, lost.Text);
+        Assert.IsNull(ended!.Subject);
+        Assert.AreEqual(new WorldLocation.Node(new(1)), ended.Location);
         Assert.AreEqual(NotificationAction.None, policy.Decide(new CoreEvent.RunReported(Report(RunEndReason.AllVehiclesDestroyed))));
     }
 
@@ -110,7 +113,7 @@ public sealed class NotificationPolicyTests
         {
             World = new(1, new("fixture:railway"), 1, 1, [], [], [], [], [new(new(8), edge)])
         };
-        var notice = new NotificationPolicy().Classify(new CoreEvent.CombatJoined(new(8), new CombatUnitId.CreatureGroup(new(1))), view);
+        var notice = new NotificationPolicy().Classify(new CoreEvent.CombatJoined(new(8), new CombatUnitId.CreatureGroup(new(1))), null, view);
         Assert.AreEqual(edge, notice!.Location);
         Assert.AreEqual(new WorldObjectId.Combat(new(8)), notice.Subject);
     }
