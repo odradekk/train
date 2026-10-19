@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core;
 using Train.Core.Contracts;
@@ -9,6 +10,7 @@ using Train.Core.World;
 namespace Train.Core.Tests.Combat;
 
 [TestClass]
+[TestCategory("integration")]
 public sealed class SettlementWarTests
 {
     [TestMethod]
@@ -113,8 +115,17 @@ public sealed class SettlementWarTests
     public void Surrender_ends_the_combat_in_the_same_step_and_keeps_the_settlement()
     {
         var content = SettlementWarFixture.MoraleRules(CombatFixture.Content(armedBuilding: true, damage: 100),
-            coefficient: .015, weaponLoss: .18, recovery: .012, threshold: .9);
-        using var session = CombatFixture.SessionWithContent(content);
+            coefficient: 10, weaponLoss: .18, recovery: .012, threshold: .9);
+        content = content with
+        {
+            Designs = content.Designs.Select(design => design.Design != CombatFixture.ArmedBuilding
+                ? design : design with
+                {
+                    MaxStructureDurability = 1000,
+                    Parts = design.Parts.Select(part => part with { MaxDurability = 1000 }).ToImmutableArray()
+                }).ToImmutableArray()
+        };
+        using var session = CombatFixture.SessionWithContent(content, vehicles: 2);
         var hostile = CombatFixture.HostileNode(session);
         var settlement = ((NodeOccupant.Settlement)session.State.World.Nodes
             .Single(node => node.Id == hostile).Occupant).Id;

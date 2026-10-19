@@ -65,6 +65,7 @@ public sealed class SettlementMoraleTests
     }
 
     [TestMethod]
+    [TestCategory("integration")]
     public void A_surrendered_settlement_recovers_and_reengages_when_morale_reaches_the_threshold()
     {
         var content = SettlementWarFixture.MoraleRules(CombatFixture.Content(armedBuilding: true, damage: 100),
