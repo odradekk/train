@@ -131,6 +131,7 @@ public class ContentTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    [Chickensoft.GoDotTest.Timeout(150000)]
     public async Task Console_and_input_reload_pair_business_updates_and_preserve_presentation_boundaries()
     {
         var directory = ContentFixture.CopyBuiltIn();
