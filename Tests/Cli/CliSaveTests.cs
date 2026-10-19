@@ -93,6 +93,7 @@ public sealed partial class CliProcessTests
     [DataRow("storage-tight")]
     [DataRow("commission-branches")]
     [DataRow("retreat")]
+    [DataRow("damaged-vehicle-trade")]
     public async Task Committed_example_checks_without_changing_committed_files(string example)
     {
         var directory = CreateDirectory();
