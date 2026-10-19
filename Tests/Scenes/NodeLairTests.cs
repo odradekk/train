@@ -61,7 +61,7 @@ public sealed class NodeLairTests
     public async Task LairPoseMatchesBakedModelAndFrameOrigin()
     {
         var model = Model("test:lair-anchor", [new(3, 2, -4)], null);
-        var snapshot = World(Found(model));
+        var snapshot = World(Found(model), light: true);
         var built = Build(snapshot);
         var origin = new ScenePoint(17, 3, -29);
         var frame = await Present(snapshot, built, origin);
@@ -74,6 +74,11 @@ public sealed class NodeLairTests
         Assert.AreEqual(Quaternion.Identity, pose.Rotation);
         Assert.IsNull(anchor.Parent);
         Assert.IsTrue(anchor.Visuals.IsEmpty && anchor.Lights.IsEmpty && anchor.Effects.IsEmpty);
+        var eye = frame.Objects.Single(item => !item.Lights.IsEmpty);
+        var parent = frame.Objects.Single(item => item.Id == eye.Parent);
+        Assert.AreEqual(new Vector3((float)(cell.At.X + .5 - origin.X), (float)(cell.At.Y + .5 - origin.Y),
+            (float)(cell.At.Z + .5 - origin.Z)), SceneGeometry.Compose(parent.Pose, eye.Pose).Position);
+        Assert.AreEqual(0, eye.Lights.Single().Damage);
     }
 
     [TestMethod]
@@ -130,8 +135,8 @@ public sealed class NodeLairTests
     public async Task ClearingAndPlacingALairRefreshesTerrainAndResources()
     {
         var model = Model("test:lair-line", [new(0, 2, 0), new(1, 2, 0), new(2, 2, 0)], new(new(0, 0), new(2, 0), 5));
-        var lair = World(Found(model), resources: true);
-        var empty = World(Found(model), occupant: false, resources: true);
+        var lair = World(Found(model), resources: true, light: true);
+        var empty = World(Found(model), occupant: false, resources: true, light: true);
         var layout = NodeLayout.Build(lair, NodeFixtures.NodeId);
         var shift = layout.Lair!;
         var column = new GridColumn(shift.ShiftX, shift.ShiftZ);
@@ -161,13 +166,17 @@ public sealed class NodeLairTests
                 ImmutableDictionary<GridColumn, double>.Empty));
         var opened = await Settle(scene, lair);
         var anchor = opened.Objects.Single(item => item.Subject == new WorldObjectId.Lair(Id));
+        Assert.AreEqual(3, opened.Objects.Sum(item => item.Lights.Length));
         Assert.IsTrue(LairCells(built[modelChunk]).Length > 0);
         Assert.AreEqual(5, ((Lookup<double>.Found)opened.TerrainHeight(column.X + 0.5, column.Z + 0.5)).Value);
         var cleared = await Refresh(scene, empty, opened);
+        Assert.AreEqual(0, cleared.Objects.Sum(item => item.Lights.Length));
         Assert.IsInstanceOfType<Lookup<ScenePose>.Missing>(cleared.FindPose(new WorldObjectId.Lair(Id)));
         var clearedModel = built[modelChunk];
         var clearedFar = built[far];
         var returned = await Refresh(scene, lair, cleared);
+        CollectionAssert.AreEqual(opened.Objects.Where(item => !item.Lights.IsEmpty).Select(item => item.Id).ToArray(),
+            returned.Objects.Where(item => !item.Lights.IsEmpty).Select(item => item.Id).ToArray());
         Assert.AreEqual(anchor.Id, returned.Objects.Single(item => item.Subject == new WorldObjectId.Lair(Id)).Id);
         Assert.IsNotNull(opened.Node!.Lair);
         Assert.IsNull(cleared.Node!.Lair);
@@ -367,12 +376,13 @@ public sealed class NodeLairTests
         NodeFixtures.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
 
     private static SceneWorldSnapshot World(ContentLookup<LairAppearanceProjection> lair, bool occupant = true,
-        int tracks = 1, int? trackLimit = null, bool sameSideEntry = false, bool resources = false)
+        int tracks = 1, int? trackLimit = null, bool sameSideEntry = false, bool resources = false, bool light = false)
     {
         var content = NodeFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = Radius },
             lairs: new Dictionary<LairTypeId, ContentLookup<LairAppearanceProjection>> { [Type] = lair },
             voxelAppearances: new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
-            { [LairVoxel] = new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube with { Definition = LairVoxel }) });
+            { [LairVoxel] = new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube with
+                { Definition = LairVoxel, Behaviors = new(false, light ? new(new("#ffffff"), 4) : null) }) });
         var snapshot = NodeFixtures.Snapshot(platforms: 0, trains: [], tracks: tracks, trackLimit: trackLimit,
             content: content, platformLengthMeters: 0, sameSideEntry: sameSideEntry);
         var node = snapshot.Core.World.Nodes.Single(item => item.Id == NodeFixtures.NodeId) with

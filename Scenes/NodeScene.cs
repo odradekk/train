@@ -1209,6 +1209,7 @@ internal sealed class NodeScene : IAsyncDisposable
                 .Select(problem => problem.Content!).Distinct()) visuals.Add(new SceneVisual.Missing(reference, false));
             objects.Add(new(root, null, pose, null, visuals.ToImmutable(), [], []));
             objects.AddRange(DesignGeometry.Models(grid, root, null, cell => id(":model:" + cell.At), false));
+            objects.AddRange(DesignGeometry.Lights(grid, root, null, cell => id(":light:" + cell.At)));
             foreach (var cell in cells.Where(cell => cell.MissingReference is not null))
                 objects.Add(new(id("missing:" + cell.At), root, new(new(cell.At.X, cell.At.Y, cell.At.Z), Quaternion.Identity), null,
                     [new SceneVisual.Missing(cell.MissingReference!, true)], [], []));

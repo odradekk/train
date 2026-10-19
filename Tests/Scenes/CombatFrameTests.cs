@@ -595,13 +595,18 @@ public sealed class CombatFrameTests
     {
         var creature = new CreatureDefinitionId("test:beast");
         var other = new CreatureDefinitionId("test:other");
+        var eye = new VoxelDefinitionId("test:eye");
         var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle(), creatures: new Dictionary<CreatureDefinitionId, ContentLookup<CreatureAppearanceProjection>>
         {
             [creature] = new ContentLookup<CreatureAppearanceProjection>.Found(new(creature,
-                SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0)) with { Paint = new("red") }]), new("Beast", ""))),
+                SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0)) with { Paint = new("red") },
+                    SceneFixtures.Cell(new(-1, 1, 0)) with { Voxel = eye },
+                    SceneFixtures.Cell(new(1, 1, 0)) with { Voxel = eye }]), new("Beast", ""))),
             [other] = new ContentLookup<CreatureAppearanceProjection>.Found(new(other,
                 SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0)) with { Paint = new("blue") }]), new("Other", "")))
-        });
+        }, voxels: new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
+        { [eye] = new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube with
+            { Definition = eye, Behaviors = new(false, new(new("#ffffff"), 4)) }) });
         var group = new CreatureGroupView(new(7), null, RailwayFixtures.Location, null, CreatureActivity.Guarding, 0,
             [new(new(3), creature, 10, 10)]);
         var instance = RailwayFixtures.Instance();
@@ -609,6 +614,12 @@ public sealed class CombatFrameTests
         session.RequestView(new WorldSceneTarget.Location(RailwayFixtures.Location));
         var settled = await RailwayFixtures.Settled(session, Request);
         Assert.IsTrue(settled.Objects.Any(item => item.Subject == new WorldObjectId.Creature(new(3))));
+        var eyes = settled.Objects.Where(item => item.Subject == new WorldObjectId.Creature(new(3)) && !item.Lights.IsEmpty).ToArray();
+        Assert.AreEqual(2, eyes.Length);
+        var body = settled.Objects.Single(item => item.Subject == new WorldObjectId.Creature(new(3)) && item.Parent is null);
+        Assert.IsTrue(eyes.All(item => item.Parent == body.Id && item.Lights.Single().Damage == 0));
+        CollectionAssert.AreEquivalent(new[] { new Vector3(-.5f, 1.5f, .5f), new Vector3(1.5f, 1.5f, .5f) },
+            eyes.Select(item => item.Pose.Position).ToArray());
         var dead = Snapshot(content, instance, steps: 1, group: group with { Creatures = [] });
         session.Observe(dead, [Envelope(dead, new CoreEvent.CombatDestruction(new(1), RailwayFixtures.Location, [],
             [new DestroyedUnit.Creature(new(group.Id, new(3), other, RailwayFixtures.Location))]))]);
