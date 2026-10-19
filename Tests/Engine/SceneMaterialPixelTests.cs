@@ -134,6 +134,27 @@ public class SceneMaterialPixelTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public async Task Damage_follows_vertex_and_surface_amount_per_category()
+    {
+        using var fixture = new PixelFixture(TestScene);
+        foreach (var category in Enum.GetValues<MaterialCategory>())
+        {
+            using var plain = await fixture.Face(category, new("#204080"), false, ExposedFaceEdges.None);
+            using var untouched = await fixture.Face(category, new("#204080"), false, ExposedFaceEdges.None, vertexDamage: 0, surfaceDamage: 0.6f);
+            using var structure = await fixture.Face(category, new("#204080"), false, ExposedFaceEdges.None, vertexDamage: 1, surfaceDamage: 0.6f);
+            using var capped = await fixture.Face(category, new("#204080"), false, ExposedFaceEdges.None, vertexDamage: 1, surfaceDamage: 1);
+            using var limit = await fixture.Face(category, new("#204080"), false, ExposedFaceEdges.None, vertexDamage: 1, surfaceDamage: 0.65f);
+            using var part = await fixture.Face(category, new("#204080"), false, ExposedFaceEdges.None, vertexDamage: 0.5f);
+            Require(AllEqual(plain, untouched), $"{category} 顶点损伤为 0 时画面与不传损伤不同。");
+            var structureDelta = MaxDistance(plain, structure);
+            Require(structureDelta > 0.02f, $"{category} 顶点损伤 1、表面损伤 0.6 的画面变化只有 {structureDelta:F3}。");
+            Require(AllEqual(capped, limit), $"{category} 表面损伤 1.0 与 0.65 的画面不同。");
+            var partDelta = MaxDistance(plain, part);
+            Require(partDelta > 0.02f, $"{category} 部件损伤 0.5 在表面损伤为 0 时的画面变化只有 {partDelta:F3}。");
+        }
+    }
+
+    [Test]
     public async Task Model_instancing_records_completed_frame_draw_calls()
     {
         Require(RenderingServer.GetCurrentRenderingMethod() == "forward_plus", "模型绘制测量要求 Forward+。");
@@ -203,12 +224,15 @@ public class SceneMaterialPixelTests(Node testScene) : TestClass(testScene)
     private static float Distance(Color a, Color b) => Math.Max(Math.Abs(a.R - b.R),
         Math.Max(Math.Abs(a.G - b.G), Math.Abs(a.B - b.B)));
 
-    private static bool AllEqual(Image a, Image b)
+    private static bool AllEqual(Image a, Image b) => MaxDistance(a, b) <= 0.005f;
+
+    private static float MaxDistance(Image a, Image b)
     {
+        var distance = 0f;
         for (var y = 4; y < 140; y++)
         for (var x = 4; x < 140; x++)
-            if (Distance(a.GetPixel(x, y), b.GetPixel(x, y)) > 0.005f) return false;
-        return true;
+            distance = Math.Max(distance, Distance(a.GetPixel(x, y), b.GetPixel(x, y)));
+        return distance;
     }
 
     private sealed class PixelFixture : IDisposable
@@ -262,10 +286,12 @@ public class SceneMaterialPixelTests(Node testScene) : TestClass(testScene)
         }
 
         internal async Task<Image> Face(MaterialCategory category, PaintColor? paint, bool wear,
-            ExposedFaceEdges edges, float textureRepeats = 1)
+            ExposedFaceEdges edges, float textureRepeats = 1, float vertexDamage = 0,
+            float surfaceDamage = 0, bool scorched = false)
         {
             using var visual = _resources.Prepare(new SceneVisual.Geometry(Quad(
-                new SceneMaterial.Voxel(_png, category, paint), edges, textureRepeats), new(wear, 17, 0, false)));
+                new SceneMaterial.Voxel(_png, category, paint), edges, textureRepeats, vertexDamage),
+                new(wear, 17, surfaceDamage, scorched)));
             var mesh = visual.Node.GetChildren().OfType<MeshInstance3D>().Single();
             return await Render(mesh.Mesh, (ShaderMaterial)mesh.MaterialOverride);
         }
@@ -314,10 +340,10 @@ public class SceneMaterialPixelTests(Node testScene) : TestClass(testScene)
             finally { OS.RemoveLogger(output); }
         }
 
-        private static SceneMesh Quad(SceneMaterial material, ExposedFaceEdges edges, float repeats)
+        private static SceneMesh Quad(SceneMaterial material, ExposedFaceEdges edges, float repeats, float damage = 0)
         {
             SceneVertex Vertex(float x, float y) => new(new NVector3(x, y, 0), NVector3.UnitZ,
-                new NVector2(x * repeats, y * repeats), new NVector2(x, y), edges, 1, 0);
+                new NVector2(x * repeats, y * repeats), new NVector2(x, y), edges, 1, damage);
             return new(material, [Vertex(0, 0), Vertex(1, 0), Vertex(1, 1), Vertex(0, 1)], [0, 1, 2, 0, 2, 3]);
         }
 

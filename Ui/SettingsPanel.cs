@@ -19,11 +19,13 @@ public partial class SettingsPanel : Control
     private float _scale = 1;
     private int _fps;
     private bool _focusPause;
+    private bool _cameraShake = true;
+    private WorldCamera? _camera;
     private NotificationAction[] _actions = Defaults();
 
     internal void Initialize(HostCoordinator? host, TrainLogger logger, Action<string> showError,
-        NotificationPolicy policy, RecordingService? recording = null)
-    { _host = host; _logger = logger; _showError = showError; _policy = policy; _recording = recording; }
+        NotificationPolicy policy, RecordingService? recording = null, WorldCamera? camera = null)
+    { _host = host; _logger = logger; _showError = showError; _policy = policy; _recording = recording; _camera = camera; }
 
     public override void _Ready()
     {
@@ -40,20 +42,22 @@ public partial class SettingsPanel : Control
                 var configScale = config.GetValue("display", "scale", 1.0);
                 var configFps = config.GetValue("display", "fps", _fps);
                 var focusPause = config.GetValue("game", "focus_pause", false);
+                var cameraShake = config.GetValue("game", "camera_shake", true);
                 var displayValid = mode.VariantType == Variant.Type.Int && mode.AsInt64() is >= 0 and <= 2 &&
                     (configScale.VariantType is Variant.Type.Int or Variant.Type.Float) &&
                     double.IsFinite(configScale.AsDouble()) && configScale.AsDouble() is >= 0.75 and <= 2 &&
                     configFps.VariantType == Variant.Type.Int && configFps.AsInt64() is >= 0 and <= 1000 &&
-                    focusPause.VariantType == Variant.Type.Bool;
+                    focusPause.VariantType == Variant.Type.Bool && cameraShake.VariantType == Variant.Type.Bool;
                 if (!displayValid || !TryReadNotifications(config, out var actions))
                 {
                     Report("设置文件包含无效值，使用当前工程默认设置。", Error.InvalidData);
-                    _mode = 0; _scale = 1; _fps = Engine.MaxFps; _focusPause = false; _actions = Defaults();
+                    _mode = 0; _scale = 1; _fps = Engine.MaxFps; _focusPause = false; _cameraShake = true; _actions = Defaults();
                 }
                 else
                 {
                     _mode = mode.AsInt32(); _scale = (float)configScale.AsDouble();
-                    _fps = configFps.AsInt32(); _focusPause = focusPause.AsBool(); _actions = actions;
+                    _fps = configFps.AsInt32(); _focusPause = focusPause.AsBool();
+                    _cameraShake = cameraShake.AsBool(); _actions = actions;
                 }
             }
             else if (result != Error.FileNotFound) Report("无法读取设置文件，使用当前工程默认设置。", result);
@@ -76,6 +80,9 @@ public partial class SettingsPanel : Control
         var focus = new CheckButton { Name = "FocusPause", Text = "失焦时自动暂停", ButtonPressed = _focusPause };
         focus.Toggled += value => { _focusPause = value; Save(); };
         body.AddChild(focus);
+        var shake = new CheckButton { Name = "CameraShake", Text = "镜头抖动", ButtonPressed = _cameraShake };
+        shake.Toggled += value => { _cameraShake = value; Save(); };
+        body.AddChild(shake);
         body.AddChild(UiStyle.Label("通知", true));
         foreach (var category in Enum.GetValues<NotificationCategory>())
         {
@@ -108,6 +115,7 @@ public partial class SettingsPanel : Control
         _window.ContentScaleFactor = _scale;
         Engine.MaxFps = _fps;
         if (_host is not null) _host.AutoPauseOnFocusLoss = _focusPause;
+        if (_camera is not null) _camera.ShakeEnabled = _cameraShake;
         foreach (var category in Enum.GetValues<NotificationCategory>())
             _policy.SetAction(category, _actions[(int)category]);
     }
@@ -120,6 +128,7 @@ public partial class SettingsPanel : Control
         config.SetValue("display", "scale", _scale);
         config.SetValue("display", "fps", _fps);
         config.SetValue("game", "focus_pause", _focusPause);
+        config.SetValue("game", "camera_shake", _cameraShake);
         foreach (var category in Enum.GetValues<NotificationCategory>())
             config.SetValue("notifications", NotificationPolicy.Key(category), (int)_actions[(int)category]);
         if (config.Save(Path) is var error && error != Error.Ok)

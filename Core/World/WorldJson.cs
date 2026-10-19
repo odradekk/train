@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using Train.Core.Contracts;
+using Train.Core.Creatures;
 
 namespace Train.Core.World;
 
@@ -91,6 +92,8 @@ internal static class WorldJson
                     new(typeof(WorldObjectId.Inventory), "inventory"), new(typeof(WorldObjectId.Job), "job"), new(typeof(WorldObjectId.Combat), "combat"),
                     new(typeof(WorldObjectId.Creature), "creature"), new(typeof(WorldObjectId.CreatureGroup), "creature_group"), new(typeof(WorldObjectId.Lair), "lair")],
                 var t when t == typeof(WorldLocation) => [new(typeof(WorldLocation.Node), "node"), new(typeof(WorldLocation.Edge), "edge")],
+                var t when t == typeof(CreatureObjective) => [new(typeof(CreatureObjective.Settlement), "settlement"),
+                    new(typeof(CreatureObjective.Railway), "railway")],
                 var t when t == typeof(CombatController) => [new(typeof(CombatController.Train), "train"),
                     new(typeof(CombatController.Settlement), "settlement")],
                 var t when t == typeof(CombatUnitId) => [new(typeof(CombatUnitId.Instance), "instance"),

@@ -103,20 +103,50 @@ internal static class RailwayWorks
         if (world.Next.Break == ulong.MaxValue) return Reject("identity_exhausted", "World.Next.Break");
         var auto = world.AutomaticRailRepairs.FirstOrDefault(item => item.Edge == edge.Id);
         if (auto is not null && !CanAllocate(world.Next.Job, 1)) return Reject("identity_exhausted", "World.Next.Job");
-        var broken = new TrackBreakView(new(world.Next.Break), command.Track, command.DistanceMeters);
-        world = world with
-        {
-            Edges = world.Edges.Select(item => item.Id == edge.Id ? item with { Breaks = item.Breaks.Add(broken) } : item).ToImmutableArray(),
-            TrackHandoffs = world.TrackHandoffs.Where(item => item.Edge != edge.Id || item.Track != broken.Track).ToImmutableArray(),
-            Next = world.Next with { Break = world.Next.Break + 1 }
-        };
         var events = ImmutableArray.CreateBuilder<CoreEvent>();
-        events.Add(new CoreEvent.RailBroken(edge.Id, broken));
+        world = PlaceBreak(world, edge, command.Track, command.DistanceMeters, events, out var broken);
         if (auto is null) return new CommandEffect.Accepted(content, events.ToImmutable(), world);
         var created = ImmutableArray.CreateBuilder<WorldObjectId>();
         edge = world.Edges.Single(item => item.Id == edge.Id);
         world = OpenRepair(world, content, edge, auto.MaterialSource, broken.Id, events, created);
         return new CommandEffect.Accepted(content, events.ToImmutable(), WithDependencies(world, content), created.ToImmutable());
+    }
+
+    internal static WorldState? WriteBreaks(WorldState world, CoreContentProjection content, EdgeId edgeId,
+        double distance, ImmutableArray<CoreEvent>.Builder events)
+    {
+        var edge = world.Edges.FirstOrDefault(item => item.Id == edgeId);
+        if (edge is null) return null;
+        if (!CanAllocate(world.Next.Break, edge.Tracks)) return null;
+        var auto = world.AutomaticRailRepairs.FirstOrDefault(item => item.Edge == edge.Id);
+        if (auto is not null && !CanAllocate(world.Next.Job, edge.Tracks)) return null;
+        var written = new BreakId[edge.Tracks];
+        for (var track = 1; track <= edge.Tracks; track++)
+        {
+            world = PlaceBreak(world, edge, track, distance, events, out var broken);
+            written[track - 1] = broken.Id;
+        }
+        if (auto is null) return world;
+        var created = ImmutableArray.CreateBuilder<WorldObjectId>();
+        edge = world.Edges.Single(item => item.Id == edge.Id);
+        foreach (var broken in written)
+            world = OpenRepair(world, content, edge, auto.MaterialSource, broken, events, created);
+        return WithDependencies(world, content);
+    }
+
+    private static WorldState PlaceBreak(WorldState world, EdgeMapItem edge, int track, double distance,
+        ImmutableArray<CoreEvent>.Builder events, out TrackBreakView broken)
+    {
+        broken = new TrackBreakView(new(world.Next.Break), track, distance);
+        var placed = broken;
+        events.Add(new CoreEvent.RailBroken(edge.Id, placed));
+        return world with
+        {
+            Edges = world.Edges.Select(item => item.Id == edge.Id
+                ? item with { Breaks = item.Breaks.Add(placed) } : item).ToImmutableArray(),
+            TrackHandoffs = world.TrackHandoffs.Where(item => item.Edge != edge.Id || item.Track != track).ToImmutableArray(),
+            Next = world.Next with { Break = world.Next.Break + 1 }
+        };
     }
 
     internal static (WorldState World, ImmutableArray<CoreEvent> Events) Advance(WorldState world, CoreContentProjection content)

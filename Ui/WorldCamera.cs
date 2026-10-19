@@ -28,6 +28,8 @@ internal partial class WorldCamera : Node3D
 
     public Vector3 Focus { get; private set; }
     public Camera3D Camera { get; } = new() { Fov = 60f, Near = 0.1f, Far = 4000f };
+    internal bool ShakeEnabled { get; set; } = true;
+    internal Vector3 ShakeOffset { get; private set; }
     internal float OrbitYawRadians => _orbitYaw;
     internal float OrbitPitchRadians => _pitch;
     internal ScenePoint FrameOrigin => _frame?.Origin ?? default;
@@ -85,6 +87,12 @@ internal partial class WorldCamera : Node3D
         _hasFollowPose = pose is not null;
         ClampNodeView();
         PlaceCamera();
+    }
+
+    internal void SetShake(Vector3 offset)
+    {
+        ShakeOffset = offset;
+        if (_frame is not null) PlaceCamera();
     }
 
     internal void ReleaseFrame() => _frame = null;
@@ -163,7 +171,8 @@ internal partial class WorldCamera : Node3D
             _distance * Mathf.Sin(_pitch), Mathf.Cos(yaw) * horizontalDistance);
         if (_frame?.TerrainHeight(position.X, position.Z) is Lookup<double>.Found terrain)
             position.Y = Mathf.Max(position.Y, (float)terrain.Value + TerrainClearance);
-        Camera.Transform = new Transform3D(Basis.LookingAt(Focus - position, Vector3.Up), position);
+        var offset = ShakeEnabled ? ShakeOffset : Vector3.Zero;
+        Camera.Transform = new Transform3D(Basis.LookingAt(Focus - position, Vector3.Up), position + offset);
     }
 
     private static Vector3 InitialFocus(ISceneFrame frame) => frame.NodePanBounds is { } bounds
