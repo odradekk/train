@@ -41,7 +41,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         var name = "capture-test-" + Guid.NewGuid().ToString("N");
         using var run = new ArtCaptureRun(TestScene)
         {
-            CreateHost = (_, _, _) => throw new InvalidOperationException("缺存档时不能创建宿主。")
+            CreateHost = (_, _, _, _) => throw new InvalidOperationException("缺存档时不能创建宿主。")
         };
         try
         {
@@ -75,7 +75,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         var core = new ScriptedCoreSession(View(scenePresent, trainPresent, trainEdge));
         using var run = new ArtCaptureRun(TestScene)
         {
-            CreateHost = (logger, _, _) => CreateHost(core, logger),
+            CreateHost = (logger, _, _, _) => CreateHost(core, logger),
             CreateScenes = () => throw new InvalidOperationException("输入校验失败前不能创建场景。")
         };
         try
@@ -136,7 +136,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         };
         using var run = new ArtCaptureRun(TestScene)
         {
-            CreateHost = (logger, _, _) => CreateHost(core, logger), CreateScenes = () => factory
+            CreateHost = (logger, _, _, _) => CreateHost(core, logger), CreateScenes = () => factory
         };
         try
         {

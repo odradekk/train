@@ -5,6 +5,7 @@ using Train.App;
 using Train.App.Editing;
 using Train.App.Authoring;
 using Train.App.Logging;
+using Train.App.Notifications;
 using Train.App.Recording;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
@@ -42,6 +43,10 @@ public partial class GameUi : CanvasLayer
     private TrainFormationPanel? _formation;
     private TrainPlanPanel? _plan;
     private EconomyPanels? _economy;
+    private NotificationPolicy _policy = null!;
+    private NotificationPanel? _notices;
+    private CombatPanel? _combat;
+    private readonly BattleReportLog _reports = new();
     private GoodsIconCache _icons = null!;
     private HFlowContainer _bar = null!;
     private readonly List<(SimulationSpeed? Speed, Button Button)> _speeds = [];
@@ -81,8 +86,8 @@ public partial class GameUi : CanvasLayer
 
     internal void Initialize(MainMenu menu, HostCoordinator? host, TrainLogger logger,
         WorldSceneController? scenes, RecordingService? recording, GoodsIconCache icons, EditorService editor,
-        AuthoringService? authoring, TemplateSceneController? templates)
-    { _menu = menu; _host = host; _logger = logger; _scenes = scenes; _recording = recording; _icons = icons; _editor = editor; _authoring = authoring; _templates = templates; }
+        AuthoringService? authoring, TemplateSceneController? templates, NotificationPolicy policy)
+    { _menu = menu; _host = host; _logger = logger; _scenes = scenes; _recording = recording; _icons = icons; _editor = editor; _authoring = authoring; _templates = templates; _policy = policy; }
 
     public override void _Ready()
     {
@@ -96,6 +101,7 @@ public partial class GameUi : CanvasLayer
         _map.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         _world.AddChild(_map);
         _map.ObjectClicked += OpenScene;
+        _map.CombatClicked += OpenCombat;
         _map.DisplayFailed += message =>
         { _logger.Warning("ui", "map_display_failed", message); ShowError(message); };
         _minimap = new();
@@ -163,6 +169,16 @@ public partial class GameUi : CanvasLayer
             _panels.SettlementRequested += _economy.OpenSettlement;
             _panels.InventoryRequested += _economy.OpenTrainInventory;
             _economy.FormationRequested += _formation.Open;
+            _combat = new CombatPanel { Name = "CombatPanel" };
+            _combat.Initialize(Submit, ReportUiError);
+            _world.AddChild(_combat);
+            _notices = new NotificationPanel { Name = "NotificationPanel" };
+            _notices.Chosen += OpenNotice;
+            _world.AddChild(_notices);
+            _bar.AddChild(UiStyle.Button("Combats", "战斗", () => _combat.Open()));
+            _bar.AddChild(UiStyle.Button("Notices", "通知", () => _notices.ShowLog()));
+            _panels.TrainCombatRequested += _combat.OpenTrain;
+            _panels.SettlementCombatRequested += _combat.OpenSettlement;
             _formation.TrainCreated += train =>
             {
                 if (_host.GetStatus() is not { } status || _host.Content is not { } content) return;
@@ -180,7 +196,7 @@ public partial class GameUi : CanvasLayer
         _error.AddThemeColorOverride("font_color", UiStyle.Error);
         errorBody.AddChild(_error);
         _settings = new SettingsPanel { Name = "SettingsPanel" };
-        _settings.Initialize(_host, _logger, ShowError, _recording);
+        _settings.Initialize(_host, _logger, ShowError, _policy, _recording);
         _root.AddChild(_settings);
         _bar.AddChild(UiStyle.Button("Settings", "设置", _settings.Show));
         _library = new BlueprintLibraryPanel { Name = "BlueprintLibrary" }; _library.Initialize(_editor); _root.AddChild(_library);
@@ -234,6 +250,8 @@ public partial class GameUi : CanvasLayer
         if (_formation is not null) _formation.Visible = !editing && _formation.Visible;
         if (_plan is not null) _plan.Visible = !editing && _plan.Visible;
         if (_economy is not null) _economy.Visible = !editing && _economy.Visible;
+        if (_combat is not null) _combat.Visible = !editing && _combat.Visible;
+        if (_notices is not null) _notices.Visible = status is not null && !editing;
         if (editing) _editorPanel?.MoveToFront();
         _returnToMap?.SetVisible(showingScene);
         if (_newOperation != 0 && _host?.MissingConfirmation is { } missing &&
@@ -263,6 +281,7 @@ public partial class GameUi : CanvasLayer
                 _formation!.Refresh(_binding, _view, _content);
                 _plan!.Refresh(_binding, _view, _content);
                 _economy!.Refresh(_binding, _view, _content);
+                _combat!.Refresh(_binding, _view, _content, _host!.IsBusy, _reports);
             }
         }
         else if (_view is not null)
@@ -272,7 +291,9 @@ public partial class GameUi : CanvasLayer
             _plan!.Refresh(default, _view, _content!);
             _economy!.Close();
             _icons.Bind(default, null);
-            _formation.Hide(); _plan.Hide();
+            _formation.Hide(); _plan.Hide(); _combat?.Hide(); _notices?.Hide();
+            _reports.Clear();
+            _notices?.Clear();
             _view = null; _content = null; _binding = default;
             _world.Hide(); _errorPanel.Hide(); _settings.Hide(); _missingErrorOperation = null;
             _menu.Show();
@@ -314,7 +335,15 @@ public partial class GameUi : CanvasLayer
             ReportUiError("当前操作不可提交：对象已失效或宿主正在操作。");
             return null;
         }
-        var result = _host.Submit(target.Binding, command, CommandSource.UserInterface, candidate);
+        SubmissionResult result;
+        try { result = _host.Submit(target.Binding, command, CommandSource.UserInterface, candidate); }
+        catch (NotImplementedException)
+        {
+            var message = $"该操作尚未实现：{CommandKind(command)}";
+            _logger.Warning("ui", "command_not_implemented", message);
+            ShowError(message);
+            return null;
+        }
         if (CommandDiagnostics.Report(_logger, result) is { } problem) ShowError(problem);
         return (result as SubmissionResult.Completed)?.Receipt.Decision as CommandDecision.Accepted;
     }
@@ -329,6 +358,13 @@ public partial class GameUi : CanvasLayer
         ImmutableArray<EventEnvelope> events)
     {
         _economy?.Observe(binding, view, events);
+        if (_notices is not null && _binding.Session != binding.Session) _notices.Begin(binding.Session);
+        if (_notices is not null)
+            foreach (var envelope in events)
+                if (_policy.Classify(envelope.Event, view) is { } notice) _notices.Add(notice);
+        _reports.Observe(binding, events);
+        // 分级使用上一边界的读视图；本边界结束后才换上新视图。
+        _policy.Observe(view);
         if (view.Fault is { } fault && (_binding != binding || _view?.Fault != fault))
             ShowError(CommandDiagnostics.Describe(fault));
         _map.SetView(view, content, _binding != binding);
@@ -356,6 +392,89 @@ public partial class GameUi : CanvasLayer
         if (target is null) { ReportUiError("对象没有可观察的场景目标。"); return; }
         _scenes.Open(target);
     }
+
+    private void OpenCombat(CombatId id)
+    {
+        if (_host?.GetStatus() is not { } status) return;
+        var item = status.View.World.Combats.FirstOrDefault(combat => combat.Id == id);
+        if (item is null) { ReportUiError("已不存在"); return; }
+        OpenLocation(item.Location);
+    }
+
+    private void OpenNotice(NotificationNotice notice)
+    {
+        if (_host?.GetStatus() is not { } status || notice.Location is not { } location ||
+            !NoticeAvailable(status.View, notice))
+        { ReportUiError("已不存在"); return; }
+        OpenLocation(location);
+    }
+
+    private void OpenLocation(WorldLocation location)
+    {
+        if (_scenes is null || _host?.GetStatus() is not { } status || !LocationExists(status.View, location))
+        { ReportUiError("已不存在"); return; }
+        _scenes.Open(new WorldSceneTarget.Location(location));
+    }
+
+    private static bool NoticeAvailable(ICoreReadView view, NotificationNotice notice) =>
+        notice.Location is not null && LocationExists(view, notice.Location) &&
+        (notice.Subject is not { } subject || SubjectExists(view, subject));
+
+    private static bool LocationExists(ICoreReadView view, WorldLocation location) => location switch
+    {
+        WorldLocation.Node node => view.World.Nodes.Any(item => item.Id == node.Id),
+        WorldLocation.Edge edge => view.World.Edges.Any(item => item.Id == edge.Id),
+        _ => false
+    };
+
+    private static bool SubjectExists(ICoreReadView view, WorldObjectId subject) => subject switch
+    {
+        WorldObjectId.Combat combat => view.World.Combats.Any(item => item.Id == combat.Id),
+        WorldObjectId.Train train => view.World.Trains.Any(item => item.Id == train.Id),
+        WorldObjectId.Node node => view.World.Nodes.Any(item => item.Id == node.Id),
+        WorldObjectId.Edge edge => view.World.Edges.Any(item => item.Id == edge.Id),
+        WorldObjectId.Settlement settlement => view.World.Nodes.Any(item =>
+            item.Occupant is NodeOccupant.Settlement occupied && occupied.Id == settlement.Id),
+        WorldObjectId.Lair lair => view.World.Nodes.Any(item =>
+            item.Occupant is NodeOccupant.Lair occupied && occupied.Id == lair.Id),
+        WorldObjectId.Instance instance => view.FindInstance(instance.Id) is Lookup<InstanceView>.Found,
+        _ => false
+    };
+
+    private static string CommandKind(CoreCommand command) => command switch
+    {
+        CoreCommand.FormTrain => "编组",
+        CoreCommand.DisbandTrain => "解编",
+        CoreCommand.ReplaceRunPlan => "运行计划",
+        CoreCommand.StartTrain => "启动",
+        CoreCommand.StopTrain => "停车",
+        CoreCommand.ExpandRail => "扩展线路",
+        CoreCommand.RepairRail => "修复线路",
+        CoreCommand.SetAutomaticRailRepair => "自动修路",
+        CoreCommand.BuyGoods => "购买货物",
+        CoreCommand.SellGoods => "出售货物",
+        CoreCommand.LoadGoods => "装货",
+        CoreCommand.UnloadGoods => "卸货",
+        CoreCommand.BuyVehicle => "购买车辆",
+        CoreCommand.SellVehicle => "出售车辆",
+        CoreCommand.AcquireLease => "租用",
+        CoreCommand.SetProductionPlan => "生产计划",
+        CoreCommand.StartOwnedJob => "自有工程",
+        CoreCommand.CommissionVehicleWork => "委托车辆工程",
+        CoreCommand.SetJobPriority => "工程优先级",
+        CoreCommand.SetDeconstructionPaused => "暂停拆除",
+        CoreCommand.ApplyInstanceDesign => "应用设计",
+        CoreCommand.FoundSettlement => "建立聚居地",
+        CoreCommand.DeclareWar => "宣战",
+        CoreCommand.OccupySettlement => "占领",
+        CoreCommand.SetTrainEngagement => "列车交战规则",
+        CoreCommand.SetSettlementEngagement => "聚居地交战规则",
+        CoreCommand.Retreat => "撤退",
+        CoreCommand.FocusFire => "集中攻击",
+        CoreCommand.PublishContent => "发布内容",
+        CoreCommand.DebugAddRailBreak => "调试断轨",
+        _ => "未知命令"
+    };
 
     private void OnReturnedToMap(SceneProblem? problem)
     {

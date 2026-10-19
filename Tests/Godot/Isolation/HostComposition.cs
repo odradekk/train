@@ -1,5 +1,6 @@
 using Train.App.Assets;
 using Train.App.Logging;
+using Train.App.Notifications;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
 using Train.Core.ContractSupport;
@@ -10,9 +11,9 @@ namespace Train.App.Composition;
 internal static class HostComposition
 {
     internal static HostCoordinator CreateHost(TrainLogger logger, string userData,
-        GodotMainThreadDispatcher dispatcher) => new(new ScriptedCoreFactory(), new ScriptedContentFactory(),
-            new ScriptedContentFiles(), new UnconfiguredAssetInspector(),
-            new(new("builtin"), new("mods"), null, "0.0.56", []), logger);
+        GodotMainThreadDispatcher dispatcher, NotificationPolicy notifications) => new(new ScriptedCoreFactory(),
+            new ScriptedContentFactory(), new ScriptedContentFiles(), new UnconfiguredAssetInspector(),
+            new(new("builtin"), new("mods"), null, "0.0.56", []), logger, notifications.Decide);
 
     internal static IScenesFactory CreateScenes() => new UnconfiguredScenesFactory();
 

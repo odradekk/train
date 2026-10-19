@@ -28,6 +28,8 @@ public partial class WorldPanels : Control
     internal event Action<PanelTarget, TrainId>? InventoryRequested;
     internal event Action<InstanceId>? RefitRequested;
     internal event Action<InstanceId>? VehicleServiceRequested;
+    internal event Action<TrainId>? TrainCombatRequested;
+    internal event Action<SettlementId>? SettlementCombatRequested;
 
     internal void Initialize(HostCoordinator host,
         Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit, Action<string> reportError)
@@ -141,15 +143,23 @@ public partial class WorldPanels : Control
                 if (Available(bound)) FormationRequested?.Invoke(bound, node.Id, _view, _content);
             }, true));
             if (_view.World.Nodes.FirstOrDefault(item => item.Id == node.Id)?.Occupant is NodeOccupant.Settlement settlement)
+            {
                 buttons.Add(UiStyle.Button("Economy", "库存、市场与服务…", () =>
                 {
                     if (Available(bound)) SettlementRequested?.Invoke(bound, settlement.Id);
                 }));
+                buttons.Add(UiStyle.Button("OpenSettlementCombat", "战斗…", () =>
+                {
+                    if (Available(bound)) SettlementCombatRequested?.Invoke(settlement.Id);
+                }));
+            }
         }
         if (target is WorldObjectId.Train train)
         {
             buttons.Add(UiStyle.Button("Inventory", "列车库存…", () =>
             { if (Available(bound)) InventoryRequested?.Invoke(bound, train.Id); }));
+            buttons.Add(UiStyle.Button("OpenCombat", "战斗…", () =>
+            { if (Available(bound)) TrainCombatRequested?.Invoke(train.Id); }));
             buttons.Add(UiStyle.Button("EditPlan", "编辑计划", () =>
             {
                 if (Available(bound) && _view.FindTrain(train.Id) is Lookup<TrainView>.Found found)

@@ -4,6 +4,7 @@ using Godot;
 using Train.App.Assets;
 using Train.App.Editing;
 using Train.App.Logging;
+using Train.App.Notifications;
 using Train.Content.Contracts;
 using Train.Scenes.Contracts;
 
@@ -12,7 +13,7 @@ namespace Train.App.Composition;
 internal static class HostComposition
 {
     internal static HostCoordinator CreateHost(TrainLogger logger, string userData,
-        GodotMainThreadDispatcher dispatcher)
+        GodotMainThreadDispatcher dispatcher, NotificationPolicy notifications)
     {
         var builtin = new ContentRoot("builtin");
         var mods = new ContentRoot("mods");
@@ -46,7 +47,7 @@ internal static class HostComposition
         var runtime = RuntimeEnvironment.Identity(typeof(HostComposition).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion);
         return new(Train.Core.CoreFactory.Create(), content, files, new GodotAssetInspector(dispatcher),
-            installation, logger, sessionOptions: new(runtime, OS.IsDebugBuild(), 3));
+            installation, logger, notifications.Decide, sessionOptions: new(runtime, OS.IsDebugBuild(), 3));
     }
 
     internal static IScenesFactory CreateScenes() => Train.Scenes.ScenesFactory.Create();
