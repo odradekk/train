@@ -4,7 +4,9 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Train.Core.Contracts;
+using Train.Core.Sessions;
 using Train.Core.Tests.Combat;
+using Train.Core.Tests.Creatures;
 using Train.Core.Tests.World;
 using static Train.Core.Tests.World.WorldFixture;
 
@@ -41,6 +43,8 @@ internal static class CoreProcessDriver
                 return await Replay(output, payloadPath, runtime);
             if (mode.StartsWith("combat-", StringComparison.Ordinal))
                 return await Combat(mode, output, payloadPath, runtime);
+            if (mode.StartsWith("creature-", StringComparison.Ordinal))
+                return await Creature(mode, output, payloadPath, runtime);
             ICoreSession session;
             if (mode == "resume")
             {
@@ -204,6 +208,50 @@ internal static class CoreProcessDriver
                 await File.WriteAllTextAsync(payloadPath, samples[^1].Payload, new UTF8Encoding(false));
             else
                 Advance(200);
+            await File.WriteAllTextAsync(output, JsonSerializer.Serialize(new CoreProcessResult(
+                Environment.ProcessId, runtime, samples.ToArray(), [])), new UTF8Encoding(false));
+        }
+        return 0;
+    }
+
+    private static async Task<int> Creature(string mode, string output, string payloadPath, RuntimeIdentity runtime)
+    {
+        var evidence = CreatureTestSupport.EdgeCombatEvidence();
+        var factory = CoreFactory.Create();
+        ICoreSession session;
+        if (mode == "creature-resume")
+        {
+            var saved = Success(factory.DecodeState(await File.ReadAllTextAsync(payloadPath)));
+            using var candidate = Success(factory.PrepareRestore(saved, evidence.Content, new(runtime, false, 1)));
+            session = candidate.Activate();
+        }
+        else
+            session = new CoreSession(evidence);
+        using (session)
+        {
+            var samples = new List<CoreProcessSample>();
+            void Sample()
+            {
+                var capture = Success(session.Capture(CapturePurpose.Save));
+                samples.Add(new(capture.Position, capture.Revision, capture.InputIdentity.Value,
+                    capture.Encode(), capture.Checkpoint.CanonicalText, capture.Checkpoint.Sha256));
+            }
+            void Advance(uint steps)
+            {
+                var result = session.Advance(steps);
+                if (result.CompletedSteps != steps || result.Fault is not null)
+                    throw new InvalidOperationException("推进未成功。");
+                Sample();
+            }
+            if (mode != "creature-resume")
+            {
+                Sample();
+                Advance(2);
+            }
+            if (mode == "creature-save")
+                await File.WriteAllTextAsync(payloadPath, samples[^1].Payload, new UTF8Encoding(false));
+            else
+                Advance(2);
             await File.WriteAllTextAsync(output, JsonSerializer.Serialize(new CoreProcessResult(
                 Environment.ProcessId, runtime, samples.ToArray(), [])), new UTF8Encoding(false));
         }

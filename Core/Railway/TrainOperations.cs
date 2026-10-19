@@ -107,8 +107,24 @@ internal static class TrainOperations
         {
             var train = original;
             if (train.Activity == TrainActivity.Stopped) continue;
-            if (train.Activity == TrainActivity.Combat) continue;
-            if (train.Activity == TrainActivity.Retreating && train.RetreatDestination is null) continue;
+            if (train.Activity == TrainActivity.Combat)
+            {
+                if (train.Position is TrainPosition.Edge combatEdge && train.SpeedMetersPerSecond > 0
+                    && CombatQueries.TrainInCombat(world, train.Id)
+                    && world.Combats.Any(combat => combat.Location is WorldLocation.Edge location && location.Id == combatEdge.Id))
+                    train = Brake(world, content, train);
+                trains[train.Id] = train;
+                world = world with { Trains = world.Trains.Select(t => t.Id == train.Id ? train : t).ToImmutableArray() };
+                continue;
+            }
+            if (train.Activity == TrainActivity.Retreating && train.RetreatDestination is null)
+            {
+                if (train.Position is not TrainPosition.Edge) continue;
+                if (train.SpeedMetersPerSecond > 0) train = Brake(world, content, train);
+                trains[train.Id] = train;
+                world = world with { Trains = world.Trains.Select(t => t.Id == train.Id ? train : t).ToImmutableArray() };
+                continue;
+            }
             if (train.Activity == TrainActivity.Servicing)
             {
                 train = train with { RemainingDwellSteps = train.RemainingDwellSteps - 1 };
@@ -165,7 +181,132 @@ internal static class TrainOperations
                     StopRequested = false, QueueEnteredStep = null }, TrainActivity.Stopped, events);
             else trains[train.Id] = Wait(train, checked(step + 1), TrainDispatch.TrackWait(train, edge.Id), events);
         }
-        return (dispatch.Finish(world with { Trains = world.Trains.Select(t => trains[t.Id]).ToImmutableArray() }), events.ToImmutable());
+        world = world with { Trains = world.Trains.Select(t => trains[t.Id]).ToImmutableArray() };
+        var skipBreaks = new HashSet<TrainId>();
+        world = TurnEdgeRetreats(world, content, events, skipBreaks);
+        foreach (var train in world.Trains)
+            if (PendingEdgeRetreat(world, train) || CombatQueries.InDisengagement(world, train.Id))
+                skipBreaks.Add(train.Id);
+        return (dispatch.Finish(world, skipBreaks), events.ToImmutable());
+    }
+
+    private static bool PendingEdgeRetreat(WorldState world, TrainState train) =>
+        train.Activity == TrainActivity.Retreating && train.RetreatDestination is null
+        && train.Position is TrainPosition.Edge && !CombatQueries.InDisengagement(world, train.Id);
+
+    private static bool RetreatAhead(WorldState world, TrainState train)
+    {
+        var back = (TrainPosition.Edge)train.Position;
+        foreach (var other in world.Trains)
+        {
+            if (other.Id == train.Id || other.Position is not TrainPosition.Edge front) continue;
+            if (front.Id != back.Id || front.Track != back.Track || front.Direction != back.Direction) continue;
+            var ahead = back.Direction == TravelDirection.Forward
+                ? front.DistanceMeters > back.DistanceMeters : front.DistanceMeters < back.DistanceMeters;
+            if (ahead && (PendingEdgeRetreat(world, other) || CombatQueries.InDisengagement(world, other.Id)))
+                return true;
+        }
+        return false;
+    }
+
+    private static WorldState TurnEdgeRetreats(WorldState world, CoreContentProjection content,
+        ImmutableArray<CoreEvent>.Builder events, HashSet<TrainId> turned)
+    {
+        var leads = world.Trains.Where(train => PendingEdgeRetreat(world, train) && !RetreatAhead(world, train))
+            .OrderBy(train => ((TrainPosition.Edge)train.Position).Id.Value)
+            .ThenBy(train => ((TrainPosition.Edge)train.Position).Track)
+            .ThenBy(train => ((TrainPosition.Edge)train.Position).Direction == TravelDirection.Forward
+                ? -((TrainPosition.Edge)train.Position).DistanceMeters
+                : ((TrainPosition.Edge)train.Position).DistanceMeters)
+            .ThenBy(train => train.Id.Value).ToArray();
+        foreach (var lead in leads)
+        {
+            if (turned.Contains(lead.Id)) continue;
+            var queue = RetreatQueue(world, lead);
+            if (queue.Any(train => train.SpeedMetersPerSecond != 0 || turned.Contains(train.Id))) continue;
+            var position = (TrainPosition.Edge)lead.Position;
+            var edge = world.Edges.Single(item => item.Id == position.Id);
+            var departure = position.Direction == TravelDirection.Forward ? edge.Start : edge.End;
+            foreach (var train in queue)
+            {
+                var current = world.Trains.Single(item => item.Id == train.Id);
+                var edgePosition = (TrainPosition.Edge)current.Position;
+                var reversed = ChangeActivity(current with
+                {
+                    Position = edgePosition with { Direction = TrainDispatch.Opposite(edgePosition.Direction) },
+                    OrderFacing = current.OrderFacing == TrainOrderFacing.FirstEndLeading
+                        ? TrainOrderFacing.LastEndLeading : TrainOrderFacing.FirstEndLeading,
+                    RetreatDestination = departure
+                }, TrainActivity.Retreating, events);
+                world = world with
+                {
+                    Trains = world.Trains.Select(item => item.Id == reversed.Id ? reversed : item).ToImmutableArray()
+                };
+                world = LeaveEdgeCombat(world, reversed.Id);
+                turned.Add(reversed.Id);
+            }
+        }
+        return world;
+    }
+
+    private static TrainState[] RetreatQueue(WorldState world, TrainState lead)
+    {
+        var front = (TrainPosition.Edge)lead.Position;
+        var queue = new List<TrainState> { lead };
+        foreach (var other in world.Trains.OrderBy(train => train.Id.Value))
+        {
+            if (other.Id == lead.Id || other.Position is not TrainPosition.Edge back) continue;
+            if (back.Id != front.Id || back.Track != front.Track || back.Direction != front.Direction) continue;
+            var behind = front.Direction == TravelDirection.Forward
+                ? back.DistanceMeters < front.DistanceMeters : back.DistanceMeters > front.DistanceMeters;
+            if (!behind) continue;
+            queue.Add(other);
+        }
+        return queue.ToArray();
+    }
+
+    private static WorldState LeaveEdgeCombat(WorldState world, TrainId id)
+    {
+        var controller = new CombatController.Train(id);
+        var units = CombatQueries.Units(world, controller).ToHashSet();
+        if (!world.Combats.Any(combat => combat.Controllers.Any(state => state.Controller == controller))) return world;
+        return world with
+        {
+            Combats = world.Combats.Select(combat =>
+            {
+                if (!combat.Controllers.Any(state => state.Controller == controller)) return combat;
+                return combat with
+                {
+                    Controllers = combat.Controllers.Where(state => state.Controller != controller).Select(state =>
+                        state.FocusTarget is { } focus && units.Contains(focus) ? state with { FocusTarget = null } : state)
+                        .ToImmutableArray()
+                };
+            }).ToImmutableArray()
+        };
+    }
+
+    private static TrainState Brake(WorldState world, CoreContentProjection content, TrainState train)
+    {
+        var position = (TrainPosition.Edge)train.Position;
+        var edge = world.Edges.Single(item => item.Id == position.Id);
+        var capabilities = Capabilities(world, content, train);
+        var deceleration = Rule(world, content).BrakingDeceleration;
+        var speed = train.SpeedMetersPerSecond;
+        var motion = TrainMotion.Advance(speed * speed / (2 * deceleration), 0, speed, capabilities.Acceleration,
+            deceleration, capabilities.MaximumSpeedMetersPerSecond);
+        var forward = position.Direction == TravelDirection.Forward;
+        var next = forward ? position.DistanceMeters + motion.DistanceMeters : position.DistanceMeters - motion.DistanceMeters;
+        if (next <= 0 || next >= edge.LengthMeters)
+            return train with
+            {
+                Position = position with { DistanceMeters = next <= 0 ? 0 : edge.LengthMeters },
+                SpeedMetersPerSecond = 0
+            };
+        return train with
+        {
+            Position = position with { DistanceMeters = next },
+            SpeedMetersPerSecond = motion.SpeedMetersPerSecond
+        };
     }
 
     private static TrainState MoveEdge(ref WorldState world, CoreContentProjection content, TrainState train,

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Train.Core.Contracts;
+using Train.Core.Creatures;
 using Train.Core.World;
 
 namespace Train.Core.Combat;
@@ -13,6 +14,9 @@ internal static class CombatQueries
         => combat.Controllers.SelectMany(controller => Units(world, controller.Controller).Select(unit =>
                 new CombatParticipantView(unit, controller.Retreating, controller.RemainingDisengagementSteps,
                     controller.FocusTarget)))
+            .Concat(combat.Creatures.Select(creature => new CombatParticipantView(
+                new CombatUnitId.CreatureGroup(creature.Group), creature.Retreating,
+                creature.RemainingDisengagementSteps, null)))
             .OrderBy(participant => UnitKey(participant.Unit)).ToImmutableArray();
 
     internal static ImmutableArray<CombatUnitId> Units(WorldState world, CombatController controller)
@@ -45,8 +49,13 @@ internal static class CombatQueries
         var train = world.Trains.Single(t => t.Id == id);
         var controller = new CombatController.Train(id);
         return Controller(world, controller) is { } found
-            && SameLocation(found.Combat.Location, WorldState.Location(train.Position));
+            && SameCombatPlace(found.Combat.Location, train.Position);
     }
+
+    internal static bool SameCombatPlace(WorldLocation location, TrainPosition position)
+        => location is WorldLocation.Edge edge && position is TrainPosition.Edge train
+            ? edge.Id == train.Id
+            : SameLocation(location, WorldState.Location(position));
 
     internal static bool InDisengagement(WorldState world, TrainId id)
         => Controller(world, new CombatController.Train(id)) is { } found
@@ -96,7 +105,9 @@ internal static class CombatQueries
     }
 
     internal static bool IsParticipant(WorldState world, CombatState combat, CombatUnitId unit)
-        => combat.Controllers.Any(controller => Units(world, controller.Controller).Contains(unit));
+        => unit is CombatUnitId.CreatureGroup group
+            ? combat.Creatures.Any(creature => creature.Group == group.Id)
+            : combat.Controllers.Any(controller => Units(world, controller.Controller).Contains(unit));
 
     internal static CombatOwner OwnerOfUnit(WorldState world, CombatUnitId unit) => unit switch
     {
@@ -123,11 +134,18 @@ internal static class CombatQueries
     }
 
     internal static bool Armed(WorldState world, CoreContentProjection content, CombatUnitId unit)
-        => unit is CombatUnitId.Instance { Id: var id }
-            && CombatRules.Armed(world, content, world.Instances.Single(i => i.Id == id));
+        => unit switch
+        {
+            CombatUnitId.Instance { Id: var id } => CombatRules.Armed(world, content, world.Instances.Single(i => i.Id == id)),
+            CombatUnitId.CreatureGroup group => CreatureQueries.FindGroup(world, group.Id) is { } found
+                && CreatureQueries.GroupArmed(content, found),
+            _ => false
+        };
 
     internal static bool Hittable(WorldState world, CoreContentProjection content, CombatUnitId unit)
     {
+        if (unit is CombatUnitId.CreatureGroup group)
+            return CreatureQueries.FindGroup(world, group.Id) is { } found && CreatureQueries.GroupHittable(found);
         if (unit is not CombatUnitId.Instance { Id: var id }) return false;
         var instance = world.Instances.Single(i => i.Id == id);
         var design = world.Designs.Single(d => d.Design == instance.Design);
@@ -138,11 +156,15 @@ internal static class CombatQueries
         return total > 0;
     }
 
-    internal static long Durability(WorldState world, CombatUnitId unit)
-        => unit is CombatUnitId.Instance { Id: var id }
-            ? Math.Min(world.Instances.Single(i => i.Id == id).StructureDurability,
-                world.Designs.Single(d => d.Design == world.Instances.Single(i => i.Id == id).Design).MaxStructureDurability)
-            : 0;
+    internal static long Durability(WorldState world, CoreContentProjection content, CombatUnitId unit)
+        => unit switch
+        {
+            CombatUnitId.Instance { Id: var id } => Math.Min(world.Instances.Single(i => i.Id == id).StructureDurability,
+                world.Designs.Single(d => d.Design == world.Instances.Single(i => i.Id == id).Design).MaxStructureDurability),
+            CombatUnitId.CreatureGroup group => CreatureQueries.FindGroup(world, group.Id) is { } found
+                ? CreatureQueries.GroupDurability(content, found) : 0,
+            _ => 0
+        };
 
     internal static CombatUnitId? Target(WorldObjectId target) => target switch
     {
@@ -154,7 +176,7 @@ internal static class CombatQueries
     internal static bool Exists(WorldState world, CombatUnitId unit) => unit switch
     {
         CombatUnitId.Instance instance => world.Instances.Any(i => i.Id == instance.Id),
-        CombatUnitId.CreatureGroup => false,
+        CombatUnitId.CreatureGroup group => CreatureQueries.FindGroup(world, group.Id) is not null,
         _ => false
     };
 
