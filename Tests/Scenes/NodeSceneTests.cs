@@ -587,8 +587,7 @@ public sealed class NodeSceneTests
             else
             {
                 openFrames++;
-                Assert.IsFalse(next.Diagnostics.Any(problem => problem.Code == "station_platform_mismatch" &&
-                    problem.Subject is WorldObjectId.Node or WorldObjectId.Train));
+                Assert.IsFalse(next.Diagnostics.Any(problem => problem.Code == "station_platform_mismatch"));
                 Assert.IsInstanceOfType<Lookup<ScenePose>.Found>(next.FindPose(followed));
                 previous = next;
             }
