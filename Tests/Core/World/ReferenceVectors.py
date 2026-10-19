@@ -57,6 +57,13 @@ inputs = [
     (42, "combat.hit.v1", [1, 100, 0, 7, 0]),
     (42, "combat.hit.v1", [1, 100, 1, 2, 0]),
     (0, "combat.hit.v1", [MASK, MASK, 0, 1, 2147483647]),
+    (42, "combat.hit.v1", [1, 100, 2, 7, 3]),
+    (42, "creature.spawn.v1", [4, 9]),
+    (42, "creature.raid.target.v1", [4, 9]),
+    (42, "creature.raid.position.v1", [4, 9, 6]),
+    (42, "creature.wander.v1", [3, 9]),
+    (7, "creature.lair.node.v1", [12]),
+    (7, "creature.lair.type.v1", [12, 5]),
 ]
 
 assert mix(0) == 0xE220A8397B1DCDAF
