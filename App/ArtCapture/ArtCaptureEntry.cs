@@ -316,16 +316,17 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         var camera = World!.View.CameraRig.Camera.Transform;
         var focus = World.View.CameraRig.Focus;
         var display = World.Display!;
-        _images.Add(new(name, Host!.GetStatus()!.View.Position, World.Display!.DisplayedFrame!.SimulationSeconds,
+        var frame = display.DisplayedFrame!;
+        _images.Add(new(name, Host!.GetStatus()!.View.Position, frame.SimulationSeconds,
             World.View.Lighting.ToString().ToLowerInvariant(),
             Matrix(camera),
             [focus.X, focus.Y, focus.Z], _input!.Train.Value != 0 ? null :
-                _subjects.Where(subject => World.Display.DisplayedFrame.FindPose(subject) is Lookup<ScenePose>.Found)
+                _subjects.Where(subject => frame.FindPose(subject) is Lookup<ScenePose>.Found)
                     .Select(subject => subject.ToString()!).ToArray(),
-            World.Display.DisplayedFrame.Update.Effects.Select(effect => effect.Kind.ToString()).Distinct().ToArray(),
-            World.Display.Root.GetNodeOrNull("CombatEffects")?.GetChildren()
+            frame.Update.Effects.Select(effect => effect.Kind.ToString()).Distinct().ToArray(),
+            display.Root.GetNodeOrNull("CombatEffects")?.GetChildren()
                 .ToDictionary(child => child.Name.ToString(), child => child.GetChildCount()),
-            _input.Train.Value != 0 ? null : display.DisplayedFrame.Update.Frame,
+            _input.Train.Value != 0 ? null : frame.Update.Frame,
             _input.Train.Value != 0 ? null : display.PoseFrame?.SimulationSeconds,
             _input.Train.Value != 0 ? null : display.Objects.Values
                 .Where(item => item.Source.Parent is null && _subjects.Contains(item.Source.Subject))
