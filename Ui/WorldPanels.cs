@@ -226,7 +226,12 @@ public partial class WorldPanels : Control
     {
         if (buttons.Count != actions.Count) return false;
         for (var index = 0; index < buttons.Count; index++)
-            if (buttons[index].Name != actions[index].Name || buttons[index].Text != actions[index].Text) return false;
+        {
+            var button = buttons[index];
+            // 同名按钮加入树后，引擎会改掉节点名；按请求时记下的名字比较，避免每帧重建。
+            if (!GodotObject.IsInstanceValid(button) || button.GetMeta("ActionName").AsString() != actions[index].Name ||
+                button.Text != actions[index].Text) return false;
+        }
         return true;
     }
 
@@ -241,6 +246,7 @@ public partial class WorldPanels : Control
         foreach (var action in actions)
         {
             var button = UiStyle.Button(action.Name, action.Text, action.Press, action.Primary);
+            button.SetMeta("ActionName", action.Name);
             detail.Body.AddChild(button);
             detail.Buttons.Add(button);
         }
