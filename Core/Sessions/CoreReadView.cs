@@ -1,5 +1,6 @@
 using Train.Core.Contracts;
 using Train.Core.Combat;
+using Train.Core.Creatures;
 using Train.Core.Railway;
 using Train.Core.World;
 using Train.Core.Inventory;
@@ -87,9 +88,23 @@ internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Re
         return Lookup(combat is null ? null : CombatQueries.Read(State, combat));
     }
     public Lookup<CreatureGroupView> FindCreatureGroup(CreatureGroupId id)
-        => throw new NotImplementedException("FindCreatureGroup 尚未实现。");
-    public Lookup<CreatureView> FindCreature(CreatureId id) => throw new NotImplementedException("FindCreature 尚未实现。");
-    public Lookup<LairView> FindLair(LairId id) => throw new NotImplementedException("FindLair 尚未实现。");
+    {
+        if (id.Value == 0) throw new ArgumentException("生物群编号必须非零。", nameof(id));
+        var group = State.CreatureGroups.FirstOrDefault(item => item.Id == id);
+        return Lookup(group is null ? null : CreatureQueries.ReadGroup(Content, group));
+    }
+    public Lookup<CreatureView> FindCreature(CreatureId id)
+    {
+        if (id.Value == 0) throw new ArgumentException("生物编号必须非零。", nameof(id));
+        var creature = State.CreatureGroups.SelectMany(group => group.Creatures).FirstOrDefault(item => item.Id == id);
+        return Lookup(creature is null ? null : CreatureQueries.ReadCreature(Content, creature));
+    }
+    public Lookup<LairView> FindLair(LairId id)
+    {
+        if (id.Value == 0) throw new ArgumentException("聚落编号必须非零。", nameof(id));
+        var lair = State.Lairs.FirstOrDefault(item => item.Id == id);
+        return Lookup(lair is null ? null : CreatureQueries.ReadLair(State, lair));
+    }
     public CoreResult<TradeQuote> QuoteTrade(TradeQuoteRequest request)
     {
         InventoryCommands.Validate(request);

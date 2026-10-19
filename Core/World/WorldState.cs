@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text.Json.Serialization;
 using Train.Core.Combat;
+using Train.Core.Creatures;
 using Train.Core.Settlements;
 using Train.Core.Construction;
 using Train.Core.Railway;
@@ -72,6 +73,8 @@ internal sealed record WorldIdentities(ulong Node, ulong Edge, ulong Settlement,
 {
     [JsonRequired] public ulong Job { get; init; } = 1;
     [JsonRequired] public ulong Combat { get; init; } = 1;
+    [JsonRequired] public ulong Creature { get; init; } = 1;
+    [JsonRequired] public ulong CreatureGroup { get; init; } = 1;
 }
 
 internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<NodeMapItem> Nodes, ImmutableArray<EdgeMapItem> Edges,
@@ -90,11 +93,13 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
     [JsonRequired] public ImmutableArray<AutomaticRailRepair> AutomaticRailRepairs { get; init; } = [];
     [JsonRequired] public Money UnassignedServicePayments { get; init; } = new(0);
     [JsonRequired] public ImmutableArray<CombatState> Combats { get; init; } = [];
+    [JsonRequired] public ImmutableArray<CreatureGroupState> CreatureGroups { get; init; } = [];
 
     internal WorldSummary Map => new(Source.WorldSeed, Source.Configuration.Rules.Railway,
         Source.Configuration.WidthMeters, Source.Configuration.HeightMeters, Nodes.Select(ReadNode).ToImmutableArray(),
         Edges.Select(edge => edge with { Works = RailwayWorks.Views(this, edge) }).ToImmutableArray(),
-        Trains.Select(t => new TrainMapItem(t.Id, t.Position, t.Activity)).ToImmutableArray(), [],
+        Trains.Select(t => new TrainMapItem(t.Id, t.Position, t.Activity)).ToImmutableArray(),
+        CreatureGroups.Select(group => new CreatureGroupMapItem(group.Id, group.Location, group.Activity)).ToImmutableArray(),
         Combats.Select(c => new CombatMapItem(c.Id, c.Location)).ToImmutableArray());
 
     internal static int CountPlatforms(SettlementState settlement, IReadOnlyDictionary<InstanceId, InstanceState> instances,
@@ -265,7 +270,8 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
         }
         return new(location,
             Trains.Where(t => SameLocation(location, Location(t.Position))).Select(t => t.Id).ToImmutableArray(),
-            Instances.Where(i => SameLocation(Location(i), location)).Select(i => i.Id).ToImmutableArray(), [],
+            Instances.Where(i => SameLocation(Location(i), location)).Select(i => i.Id).ToImmutableArray(),
+            CreatureGroups.Where(group => SameLocation(location, group.Location)).Select(group => group.Id).ToImmutableArray(),
             Combats.Where(c => SameLocation(c.Location, location)).Select(c => c.Id).ToImmutableArray(), occupant);
     }
 
