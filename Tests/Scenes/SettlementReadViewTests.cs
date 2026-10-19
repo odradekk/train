@@ -33,7 +33,7 @@ public sealed class SettlementReadViewTests
         var oldView = new CountingCoreReadView(previous.Core);
         Assert.AreNotSame(oldView, view);
         await using var session = new WorldSceneSession(new(Guid.NewGuid()), previous with { Core = oldView },
-            WorldSceneSession.Generate, new(), new(), RailwayFixtures.EmptyNode);
+            new(), new(), RailwayFixtures.EmptyNode);
         session.Observe(basis with { Core = view }, []);
         session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location));
         var request = new SceneFrameRequest(.5, null, SceneDebugLayer.None);
@@ -52,7 +52,7 @@ public sealed class SettlementReadViewTests
         var basis = NodeFixtures.Snapshot();
         var view = new CountingCoreReadView(basis.Core);
         await using var session = new WorldSceneSession(new(Guid.NewGuid()), basis with { Core = view },
-            WorldSceneSession.Generate, new(), new(), RailwayFixtures.EmptyNode);
+            new(), new(), RailwayFixtures.EmptyNode);
         session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location));
         var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
         var frame = await RailwayFixtures.Settled(session, request);
@@ -77,7 +77,7 @@ public sealed class SettlementReadViewTests
         for (var pass = 0; pass < 4; pass++)
         {
             objects.Pump(snapshot, layout);
-            objects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>());
+            objects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>(), _ => null);
             await SceneFixtures.AwaitPendingWork(objects.PendingWork);
         }
         Assert.AreEqual(1, view.SettlementQueries[new(1)], "A fixed read view must materialize its settlement only once.");
@@ -94,10 +94,10 @@ public sealed class SettlementReadViewTests
         var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
         await using var objects = new SettlementObjects(_ => new(1));
         for (var pass = 0; pass < 3; pass++)
-            Assert.IsEmpty(objects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>()).Objects);
+            Assert.IsEmpty(objects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>(), _ => null).Objects);
         var instance = NodeFixtures.Station(2);
         var next = View(basis, NodeFixtures.Settlement(), new Lookup<InstanceView>.Found(instance));
-        var rendered = objects.Present(snapshot with { Core = next }, layout, default, ImmutableArray.CreateBuilder<SceneFog>());
+        var rendered = objects.Present(snapshot with { Core = next }, layout, default, ImmutableArray.CreateBuilder<SceneFog>(), _ => null);
         Assert.IsNotEmpty(rendered.Objects, "A new view at the same position must replace a cached Missing result.");
         Assert.AreEqual(1, missing.InstanceQueries[instance.Id]);
         Assert.AreEqual(1, next.InstanceQueries[instance.Id]);
@@ -112,7 +112,7 @@ public sealed class SettlementReadViewTests
         var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
         await using var objects = new SettlementObjects(_ => new(1));
         for (var pass = 0; pass < 3; pass++)
-            Assert.IsEmpty(objects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>()).Objects);
+            Assert.IsEmpty(objects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>(), _ => null).Objects);
         Assert.AreEqual(1, view.SettlementQueries[new(1)], "Missing settlements must not repeat the full query every frame.");
         Assert.IsEmpty(view.InstanceQueries);
     }

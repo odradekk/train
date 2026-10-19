@@ -313,7 +313,7 @@ public sealed class NodeAdmissionTests
             {
                 if (!ids.TryGetValue(key, out var id)) ids[key] = id = new(++next);
                 return id;
-            }, vehicles, new(), buildChunk: (data, from, old, token) =>
+            }, vehicles, new(), _ => null, buildChunk: (data, from, old, token) =>
             {
                 token.ThrowIfCancellationRequested();
                 var shape = size(from);

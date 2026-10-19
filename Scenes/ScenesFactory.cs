@@ -17,7 +17,7 @@ public static class ScenesFactory
         public SceneResult<IWorldSceneSession> OpenWorld(SceneBinding binding, SceneWorldSnapshot initial)
         {
             WorldSceneSession.ValidateSnapshot(initial);
-            return new SceneResult<IWorldSceneSession>.Success(new WorldSceneSession(binding, initial, WorldSceneSession.Generate, railwayCache, nodeCache, vehicleCache: vehicleCache));
+            return new SceneResult<IWorldSceneSession>.Success(new WorldSceneSession(binding, initial, railwayCache, nodeCache, vehicleCache: vehicleCache));
         }
         public SceneResult<IDesignEditSession> OpenEditor(IContentView content, DesignEvaluation initial)
         {

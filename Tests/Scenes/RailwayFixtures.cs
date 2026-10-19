@@ -21,7 +21,7 @@ internal static class RailwayFixtures
         double relief = 1, int tracks = 1, ulong steps = 0, ulong sequence = 0,
         IContentView? content = null, ImmutableArray<TrainView> trains = default,
         ImmutableArray<InstanceView> instances = default, int? trackLimit = null,
-        IEnumerable<TrainId>? missingTrains = null)
+        IEnumerable<TrainId>? missingTrains = null, IReadOnlyList<CreatureGroupView>? groups = null)
     {
         if (trains.IsDefault) trains = [];
         if (instances.IsDefault) instances = [];
@@ -38,7 +38,11 @@ internal static class RailwayFixtures
             Position = new(steps, sequence),
             InputIdentity = new("scenes-test"),
             World = new(3, Rule, directMeters, directMeters, [first, last], [edge],
-                trains.Select(train => new TrainMapItem(train.Id, train.Position, train.Activity)).ToImmutableArray(), [], []),
+                trains.Select(train => new TrainMapItem(train.Id, train.Position, train.Activity)).ToImmutableArray(),
+                (groups ?? []).Select(group => new CreatureGroupMapItem(group.Id, group.Location, group.Activity)).ToImmutableArray(), []),
+            CreatureGroups = (groups ?? []).ToDictionary(group => group.Id, group => (Lookup<CreatureGroupView>)new Lookup<CreatureGroupView>.Found(group)),
+            Creatures = (groups ?? []).SelectMany(group => group.Creatures).ToDictionary(creature => creature.Id,
+                creature => (Lookup<CreatureView>)new Lookup<CreatureView>.Found(creature)),
             Nodes = new Dictionary<NodeId, Lookup<NodeView>>
             {
                 [first.Id] = new Lookup<NodeView>.Found(new(first, [Edge], 80, 0, 80)),
@@ -58,6 +62,7 @@ internal static class RailwayFixtures
         IReadOnlyDictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>? terrains = null,
         IReadOnlyDictionary<DesignHash, ContentLookup<DesignEvaluation>>? designs = null,
         IReadOnlyDictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>? voxels = null,
+        IReadOnlyDictionary<CreatureDefinitionId, ContentLookup<CreatureAppearanceProjection>>? creatures = null,
         ulong generation = 1)
     {
         var terrainViews = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
@@ -82,7 +87,8 @@ internal static class RailwayFixtures
             RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>
             { [Rule] = new ContentLookup<RailwayAppearanceProjection>.Found(rules ?? Rules) },
             VoxelAppearances = voxelViews,
-            Designs = designViews
+            Designs = designViews,
+            Creatures = creatures ?? new Dictionary<CreatureDefinitionId, ContentLookup<CreatureAppearanceProjection>>()
         };
     }
 
@@ -131,7 +137,7 @@ internal static class RailwayFixtures
 
     internal static RailwayScene Controlled(SceneWorldSnapshot snapshot, SceneVehicles vehicles,
         Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null,
-        DisplayRate? displayRate = null, EdgeId? edge = null)
+        DisplayRate? displayRate = null, EdgeId? edge = null, PresentationState? presentation = null)
     {
         var ids = new Dictionary<string, SceneObjectId>();
         ulong next = 0;
@@ -139,7 +145,7 @@ internal static class RailwayFixtures
         {
             if (!ids.TryGetValue(key, out var id)) ids.Add(key, id = new(++next));
             return id;
-        }, vehicles, displayRate ?? new(), build ?? EmptySegment);
+        }, vehicles, displayRate ?? new(), _ => null, build ?? EmptySegment, presentation);
     }
 
     internal static async Task<SceneFrame> Settled(RailwayScene scene, SceneWorldSnapshot snapshot,

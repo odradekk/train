@@ -199,6 +199,7 @@ internal sealed class NodeScene : IAsyncDisposable
     private readonly Cache cache;
     private readonly ulong owner;
     private readonly Func<string, SceneObjectId> objectId;
+    private readonly Func<string, SceneObjectId?> findId;
     private readonly CancellationTokenSource cancellation = new();
     private readonly SceneVehicles vehicles;
     private readonly SettlementObjects settlement;
@@ -247,6 +248,8 @@ internal sealed class NodeScene : IAsyncDisposable
     private Built? built;
     private SceneProblem? failure;
     internal NodeId Node { get; }
+    private readonly PresentationState? presentation;
+    private readonly TerrainCollision.PatchCache terrainPatches = new();
     internal ScenePoint StreamingFocus => range.Focus;
     internal FollowedPath? StreamingFollow => followedPath;
     internal NodeLayout? Layout => layout ?? (pending?.IsCompletedSuccessfully == true ? pending.Result.Global.Layout : null);
@@ -280,12 +283,14 @@ internal sealed class NodeScene : IAsyncDisposable
     internal void SetBuildAllowed(bool allowed) { lock (workGate) buildAllowed = allowed; }
 
     internal NodeScene(SceneWorldSnapshot initial, NodeId node, Cache cache, Func<string, SceneObjectId> objectId, SceneVehicles vehicles, DisplayRate displayRate,
+        Func<string, SceneObjectId?> findId,
         Func<SceneWorldSnapshot, NodeId, Cached?, CancellationToken, Built>? generate = null,
         SceneVehicles.Cache? buildingCache = null, SceneVehicles.Cache? parkedCache = null,
         Func<Preparation, GridColumn, Part?, CancellationToken, Part>? buildChunk = null,
-        Func<Preparation, RailSegment, Part?, CancellationToken, Part>? buildRail = null, bool background = false)
+        Func<Preparation, RailSegment, Part?, CancellationToken, Part>? buildRail = null, bool background = false,
+        PresentationState? presentation = null)
     {
-        Node = node; this.cache = cache; this.objectId = objectId; owner = cache.Open(node); this.nodeBuild = generate;
+        Node = node; this.cache = cache; this.objectId = objectId; this.findId = findId; this.presentation = presentation; owner = cache.Open(node); this.nodeBuild = generate;
         this.vehicles = vehicles;
         this.displayRate = displayRate;
         this.buildChunk = buildChunk ?? ((data, from, old, token) => data.BuildChunk(from, old, token));
@@ -493,6 +498,17 @@ internal sealed class NodeScene : IAsyncDisposable
     }
 
     private void Attach(string key, Part part) => attached[key] = WorldSceneSession.Attach(part.Geometry, "node:" + key + ":", objectId);
+    internal static double GroundHeight(IEnumerable<Part> parts, double x, double z)
+    {
+        foreach (var part in parts)
+        {
+            if (part.Heights.Count == 0) continue;
+            var column = new GridColumn((int)Math.Floor(x - part.Origin.X), (int)Math.Floor(z - part.Origin.Z));
+            if (part.Heights.TryGetValue(column, out var height)) return height;
+        }
+        return 0;
+    }
+
     internal static string ChunkKey(GridColumn from) => "terrain:" + from.X + ":" + from.Z;
 
     private void ReconcileParts()
@@ -682,7 +698,7 @@ internal sealed class NodeScene : IAsyncDisposable
         var fog = ImmutableArray.CreateBuilder<SceneFog>();
         var trainFog = ImmutableArray.CreateBuilder<SceneFog>();
         var following = layout is null ? null : RenderTrains(snapshot, start, request.Interpolation, origin, objects,
-            picking, problems, trainFog, (target as WorldSceneTarget.Follow)?.Vehicle);
+            picking, problems, trainFog, (target as WorldSceneTarget.Follow)?.Vehicle, seconds);
         ScenePoint? focus = null;
         if (target is WorldSceneTarget.Follow follow && objects.FirstOrDefault(item => item.Parent is null &&
             item.Subject == new WorldObjectId.Instance(new InstanceId.Vehicle(follow.Vehicle))) is { } vehicle)
@@ -713,7 +729,7 @@ internal sealed class NodeScene : IAsyncDisposable
                         "The settlement layout copy is missing."));
                 }
             }
-            Add(settlement.Present(snapshot, layout, origin, fog, range, chunks.Keys, prefetch));
+            Add(settlement.Present(snapshot, layout, origin, fog, findId, range, chunks.Keys, prefetch, presentation, seconds));
         }
         if (failure is not null) problems.Add(failure);
         foreach (var problem in reported) problems.Add(problem);
@@ -733,12 +749,34 @@ internal sealed class NodeScene : IAsyncDisposable
         if (nearCompleted && awaitingDisplay) admissionFrame ??= stamp;
         var readiness = failure is not null ? SceneReadiness.Failed : !nearCompleted ? SceneReadiness.Loading :
             Complete(NodeStreaming.ViewCells) ? SceneReadiness.Ready : SceneReadiness.Partial;
+        var parts = new List<(string Key, Part Part)>();
+        if (built is not null)
+            parts.AddRange(built.Parts.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => (item.Key, item.Value)));
+        parts.AddRange(chunks.OrderBy(item => item.Key.Z).ThenBy(item => item.Key.X).Select(item => (ChunkKey(item.Key), item.Value)));
+        parts.AddRange(rails.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => (item.Key, item.Value)));
+        var terrain = ImmutableArray.CreateBuilder<TerrainCollisionPatch>();
+        var terrainKeys = new HashSet<string>();
+        foreach (var (key, part) in parts)
+        {
+            var terrainKey = "terrain:" + key;
+            terrainKeys.Add(terrainKey);
+            var patch = terrainPatches.Get(terrainKey, () => objectId(terrainKey), part.Origin, origin, part.Heights);
+            if (patch is not null) terrain.Add(patch);
+        }
+        terrainPatches.Retain(terrainKeys);
+        var effects = ImmutableArray<SceneEffectCue>.Empty;
+        if (presentation is { } state && layout is not null)
+        {
+            state.AddCreatures(objects, snapshot, new WorldLocation.Node(Node), origin, null, layout, seconds, objectId,
+                (x, z) => GroundHeight(parts.Select(item => item.Part), x, z));
+            if (failure is null)
+                effects = state.Finish(objects, snapshot, new WorldLocation.Node(Node), origin, null);
+        }
         return new(stamp, origin, seconds, readiness,
             objects.ToImmutable(), picking.ToImmutable(), fog.ToImmutable(), RailwayTerrain.UniqueProblems(problems), displayed,
-            node: layout, nodeParts: built is null ? [] : built.Parts.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => item.Value)
-                .Concat(chunks.OrderBy(item => item.Key.Z).ThenBy(item => item.Key.X).Select(item => item.Value))
-                .Concat(rails.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => item.Value)).ToImmutableArray(),
-            debugLayers: request.DebugLayers, nodeTracks: layout?.EntryTracks, pickRay: request.PickRay);
+            node: layout, nodeParts: parts.Select(item => item.Part).ToImmutableArray(),
+            debugLayers: request.DebugLayers, nodeTracks: layout?.EntryTracks, pickRay: request.PickRay,
+            effects: effects, terrain: terrain.DrainToImmutable());
 
         void Add(RenderedDesign geometry)
         { objects.AddRange(geometry.Objects); picking.AddRange(geometry.Picking); problems.AddRange(geometry.Diagnostics); }
@@ -1151,7 +1189,7 @@ internal sealed class NodeScene : IAsyncDisposable
     private FollowedPath? RenderTrains(SceneWorldSnapshot snapshot, SceneWorldSnapshot? previous, double interpolation,
         ScenePoint origin, ImmutableArray<SceneObject>.Builder objects,
         ImmutableArray<PickGrid>.Builder picking, ImmutableArray<SceneProblem>.Builder problems, ImmutableArray<SceneFog>.Builder fog,
-        VehicleId? followedVehicle)
+        VehicleId? followedVehicle, double seconds)
     {
         var trains = NodeTrains(snapshot);
         if (trains.Length == 0) return null;
@@ -1216,7 +1254,10 @@ internal sealed class NodeScene : IAsyncDisposable
                     continue;
                 }
                 if (vehicles.Reconcile(snapshot.Content, member, objectId) is { } body)
+                {
                     Add(RailwayVehicles.Place(body, pose, (positive ? 1 : -1) * arc));
+                    presentation?.ApplyTurrets(objects, member, "vehicle:" + member.Id + ":", findId, seconds, snapshot, origin);
+                }
                 else
                 {
                     var loading = SceneVehicles.Loading(member, ((ContentLookup<DesignEvaluation>.Found)evaluations[i]).Value, pose, objectId);

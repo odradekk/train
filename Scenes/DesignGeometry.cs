@@ -24,22 +24,30 @@ internal static class DesignGeometry
     internal static RenderedDesign Build(IContentView content, DesignEvaluation evaluation,
         WorldObjectId? subject, ScenePose rootPose, Func<string, SceneObjectId> id,
         ImmutableHashSet<PartId>? destroyed = null, DesignHash? worldDesign = null, WorldLocation? terrainLocation = null,
-        ulong wearSeed = 0)
+        ulong wearSeed = 0, StructureDamage.Report? damage = null)
     {
-        SceneGeometry.Validate(rootPose);
-        if (subject is WorldObjectId.Instance instance) wearSeed = InstanceWearSeed(instance.Id);
-        var projection = Projection(evaluation);
-        if (projection.Voxels.IsDefault || projection.NestedObjects.IsDefault || projection.Elements.IsDefault)
-            throw new ArgumentException("Design collections must be initialized.", nameof(evaluation));
-        var objects = ImmutableArray.CreateBuilder<SceneObject>();
-        var picking = ImmutableArray.CreateBuilder<PickGrid>();
-        var diagnostics = ImmutableArray.CreateBuilder<SceneProblem>();
-        var contentDiagnostics = evaluation switch
+        var diagnostics = evaluation switch
         {
             DesignEvaluation.Complete complete => complete.Diagnostics,
             DesignEvaluation.Partial partial => partial.Diagnostics,
             _ => ImmutableArray<ContentDiagnostic>.Empty
         };
+        return Build(content, Projection(evaluation), diagnostics, subject, rootPose, id, destroyed, worldDesign,
+            terrainLocation, wearSeed, damage);
+    }
+
+    internal static RenderedDesign Build(IContentView content, DesignSceneProjection projection,
+        ImmutableArray<ContentDiagnostic> contentDiagnostics, WorldObjectId? subject, ScenePose rootPose,
+        Func<string, SceneObjectId> id, ImmutableHashSet<PartId>? destroyed = null, DesignHash? worldDesign = null,
+        WorldLocation? terrainLocation = null, ulong wearSeed = 0, StructureDamage.Report? damage = null)
+    {
+        SceneGeometry.Validate(rootPose);
+        if (subject is WorldObjectId.Instance instance) wearSeed = InstanceWearSeed(instance.Id);
+        if (projection.Voxels.IsDefault || projection.NestedObjects.IsDefault || projection.Elements.IsDefault)
+            throw new ArgumentException("Design collections must be initialized.", nameof(projection));
+        var objects = ImmutableArray.CreateBuilder<SceneObject>();
+        var picking = ImmutableArray.CreateBuilder<PickGrid>();
+        var diagnostics = ImmutableArray.CreateBuilder<SceneProblem>();
         AddDiagnostics(contentDiagnostics, diagnostics, subject);
         var paths = new Dictionary<string, (SceneObjectId Id, ScenePose RootPose)>();
         var appearance = new Dictionary<VoxelDefinitionId, VoxelAppearanceProjection?>();
@@ -50,7 +58,7 @@ internal static class DesignGeometry
         foreach (var nested in projection.NestedObjects.OrderBy(item => item.NestedItemIndices.Length))
         {
             if (nested.NestedItemIndices.IsDefaultOrEmpty)
-                throw new ArgumentException("Nested paths must be nonempty.", nameof(evaluation));
+                throw new ArgumentException("Nested paths must be nonempty.", nameof(projection));
             if (nested.Details is NestedObjectDetails.FunctionalComposite functional && destroyed?.Contains(functional.Number) == true)
                 continue;
             if (nested.Details is NestedObjectDetails.MissingFunctionalComposite missing && destroyed?.Contains(missing.Number) == true)
@@ -69,10 +77,14 @@ internal static class DesignGeometry
             paths.Add(key, (objectId, composed));
             var cells = ImmutableArray.CreateBuilder<SceneCell>();
             var terrainSubject = terrainLocation is null ? null : new PickSubject.Terrain(terrainLocation);
+            var cellDamage = new Dictionary<GridPosition, float>();
             foreach (var voxel in voxelGroups.GetValueOrDefault(key) ?? [])
             {
                 if (destroyed?.Contains(voxel.Number) == true) continue;
-                if (!Enum.IsDefined(voxel.LocalOrientation)) throw new ArgumentException("Invalid voxel orientation.", nameof(evaluation));
+                if (damage is not null && damage.Removed.Contains(new(key, voxel.LocalAt))) continue;
+                if (damage is not null && damage.Damage.TryGetValue(new(key, voxel.LocalAt), out var amount))
+                    cellDamage[voxel.LocalAt] = amount;
+                if (!Enum.IsDefined(voxel.LocalOrientation)) throw new ArgumentException("Invalid voxel orientation.", nameof(projection));
                 if (!appearance.TryGetValue(voxel.Voxel, out var value))
                 {
                     var lookup = content.FindVoxelAppearance(voxel.Voxel);
@@ -106,10 +118,17 @@ internal static class DesignGeometry
             }
             else
             {
-                visuals = Meshes(grid, true, wearSeed);
-                objects.AddRange(Models(grid, objectId, subject, cell => id(key + ":model:" + cell.At), true, wearSeed));
+                var surface = new SurfaceState(true, wearSeed, damage?.SurfaceDamage ?? 0, damage?.Scorched ?? false);
+                visuals = Meshes(grid, true, wearSeed, cellDamage, surface);
+                objects.AddRange(Models(grid, objectId, subject, cell => id(key + ":model:" + cell.At), true, wearSeed, surface));
             }
-            objects.Add(new(objectId, parent, pose, subject, visuals, [], []));
+            var effects = damage is null ? [] : damage.Effects.Where(item => item.Path == key).Select(item => item.Effect).ToImmutableArray();
+            objects.Add(new(objectId, parent, pose, subject, visuals, [], effects));
+            if (damage is not null)
+                foreach (var light in damage.Lights.Where(item => item.Path == key))
+                    objects.Add(new(id(key + ":light:" + light.At), objectId,
+                        new(new(light.At.X + .5f, light.At.Y + .5f, light.At.Z + .5f), Quaternion.Identity),
+                        subject, [], [light.Light], []));
             if (cells.Count > 0 && (subject is not null || terrainLocation is not null)) picking.Add(new(objectId, composed, grid));
         }
 
@@ -124,9 +143,8 @@ internal static class DesignGeometry
 
     internal static string Key(ImmutableArray<int> path) => string.Join('/', path);
 
-    private static ulong InstanceWearSeed(InstanceId instance)
+    internal static void WriteInstance(Span<byte> identity, InstanceId instance)
     {
-        Span<byte> identity = stackalloc byte[9];
         var (kind, value) = instance switch
         {
             InstanceId.Vehicle vehicle => ((byte)1, vehicle.Id.Value),
@@ -135,6 +153,12 @@ internal static class DesignGeometry
         };
         identity[0] = kind;
         BinaryPrimitives.WriteUInt64LittleEndian(identity[1..], value);
+    }
+
+    private static ulong InstanceWearSeed(InstanceId instance)
+    {
+        Span<byte> identity = stackalloc byte[9];
+        WriteInstance(identity, instance);
         return BinaryPrimitives.ReadUInt64LittleEndian(SHA256.HashData(identity));
     }
 
@@ -150,7 +174,7 @@ internal static class DesignGeometry
     }
 
     internal static IEnumerable<SceneObject> Models(VoxelGrid grid, SceneObjectId parent, WorldObjectId? subject,
-        Func<SceneCell, SceneObjectId> id, bool wear, ulong wearSeed = 0)
+        Func<SceneCell, SceneObjectId> id, bool wear, ulong wearSeed = 0, SurfaceState? surface = null)
     {
         foreach (var cell in grid.Cells)
         {
@@ -167,7 +191,7 @@ internal static class DesignGeometry
             var heightPlane = new Vector4(up / height, (pose.Position.Y - bounds.Minimum.Y) / height);
             yield return new(id(cell), parent, pose, subject,
                 [new SceneVisual.Model(mesh.Model, mesh.SurfaceMaterials, cell.Paint,
-                    new(wear, wearSeed, 0, false), heightPlane)], [], []);
+                    surface ?? new(wear, wearSeed, 0, false), heightPlane)], [], []);
         }
     }
 
@@ -180,14 +204,16 @@ internal static class DesignGeometry
                 problem.Source?.Package, problem.Element, problem.Message));
     }
 
-    internal static ImmutableArray<SceneVisual> Meshes(VoxelGrid grid, bool wear, ulong wearSeed = 0)
+    internal static ImmutableArray<SceneVisual> Meshes(VoxelGrid grid, bool wear, ulong wearSeed = 0,
+        IReadOnlyDictionary<GridPosition, float>? cellDamage = null, SurfaceState? surface = null)
     {
         var shapes = new VoxelShapes(grid);
         var groups = new Dictionary<(GridPosition Chunk, SceneMaterial Material),
             (List<FaceQuad> Quads, Dictionary<FacePlane, uint[]> Planes)>();
         foreach (var cell in grid.Cells)
         {
-            if (!cell.Occludes) { shapes.Add(cell); continue; }
+            var amount = cellDamage is not null && cellDamage.TryGetValue(cell.At, out var found) ? found : 0;
+            if (!cell.Occludes) { shapes.Add(cell, amount); continue; }
             var cube = (VoxelPresentation.Cube)cell.Appearance!.Presentation;
             var axes = SceneGeometry.Axes(cell.Orientation);
             for (var face = GridFace.NegativeX; face <= GridFace.PositiveZ; face++)
@@ -208,7 +234,7 @@ internal static class DesignGeometry
                 var u = normal.X != 0 ? Vector3.UnitZ : Vector3.UnitX;
                 var v = Vector3.Cross(normal, u);
                 var plane = new FacePlane(face, normal.X != 0 ? at.X : normal.Y != 0 ? at.Y : at.Z,
-                    textureU, textureV, span);
+                    textureU, textureV, span, amount);
                 if (!wear)
                 {
                     if (!group.Planes.TryGetValue(plane, out var rows))
@@ -252,6 +278,7 @@ internal static class DesignGeometry
                 group.Quads.Add(new(at, plane, width, height, ExposedFaceEdges.None));
             }
         }
+        surface ??= new(wear, wearSeed, 0, false);
         var visuals = ImmutableArray.CreateBuilder<SceneVisual>(groups.Count + shapes.GroupCount);
         foreach (var (key, group) in groups)
         {
@@ -268,10 +295,9 @@ internal static class DesignGeometry
             var indices = ImmutableArray.CreateBuilder<int>(indexCount);
             foreach (var quad in group.Quads)
                 AddQuad(vertices, indices, quad.At, quad.Plane, quad.Width, quad.Height, quad.Edges);
-            visuals.Add(new SceneVisual.Geometry(new(key.Material, vertices.DrainToImmutable(), indices.DrainToImmutable()),
-                new(wear, wearSeed, 0, false)));
+            visuals.Add(new SceneVisual.Geometry(new(key.Material, vertices.DrainToImmutable(), indices.DrainToImmutable()), surface));
         }
-        visuals.AddRange(shapes.Build(new(wear, wearSeed, 0, false)));
+        visuals.AddRange(shapes.Build(surface));
         return visuals.DrainToImmutable();
 
         void AddQuad(ImmutableArray<SceneVertex>.Builder vertices, ImmutableArray<int>.Builder indices, GridPosition at, FacePlane plane,
@@ -312,12 +338,12 @@ internal static class DesignGeometry
                     TextureCoordinate(at, corner, plane.TextureV, plane.Span));
                 var bounds = grid.Bounds!;
                 var relativeHeight = (position.Y - bounds.Minimum.Y) / (bounds.Maximum.Y - bounds.Minimum.Y);
-                vertices.Add(new(position, normal, textureUv, uv, edges, Math.Clamp(relativeHeight, 0, 1), 0));
+                vertices.Add(new(position, normal, textureUv, uv, edges, Math.Clamp(relativeHeight, 0, 1), plane.Damage));
             }
         }
     }
 
-    private readonly record struct FacePlane(GridFace Face, int Layer, Vector3 TextureU, Vector3 TextureV, int Span);
+    private readonly record struct FacePlane(GridFace Face, int Layer, Vector3 TextureU, Vector3 TextureV, int Span, float Damage = 0);
     private readonly record struct FaceQuad(GridPosition At, FacePlane Plane, int Width, int Height, ExposedFaceEdges Edges);
 
     internal static float TextureCoordinate(GridPosition at, Vector3 corner, Vector3 axis, int span)
