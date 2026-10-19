@@ -17,6 +17,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
     private readonly SceneVehicles buildings;
     private readonly SceneVehicles parked;
     private readonly Dictionary<(VoxelDefinitionId Good, int Candidate), ScenePoint?> resourcePositions = [];
+    private NodeLayout.LairPlacement? resourceLair;
     private readonly HashSet<InstanceId> retainedBuildings = [];
     private readonly HashSet<InstanceId> retainedParked = [];
     private readonly HashSet<PlotId> retainedSites = [];
@@ -336,6 +337,11 @@ internal sealed class SettlementObjects : IAsyncDisposable
         ImmutableArray<SceneObject>.Builder objects, ImmutableArray<SceneProblem>.Builder problems)
     {
         var node = snapshot.Core.World.Nodes.Single(item => item.Id == layout.Node);
+        if (resourceLair != layout.Lair)
+        {
+            resourcePositions.Clear();
+            resourceLair = layout.Lair;
+        }
         foreach (var resource in node.Resources)
         {
             if (resource.Quantity <= 0 || resource.Good is not GoodId.Voxel good) continue;
@@ -360,7 +366,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
                     var z = Math.Floor(layout.Bounds.Minimum.Y + (layout.Bounds.Maximum.Y - layout.Bounds.Minimum.Y) *
                         RailwayRandom.Unit(snapshot.Core.World.WorldSeed, node.Id.Value, candidate, key ^ 0xCA013FACUL));
                     var candidatePoint = new ScenePoint(x, 0, z);
-                    position = layout.ContainsPlot(candidatePoint) ||
+                    position = layout.ContainsPlot(candidatePoint) || InLair(layout, candidatePoint) ||
                         !layout.ClearOfTracks(candidatePoint, RailwayCoordinates.BedBaseHalfWidth + RailwayCoordinates.BedBlendWidth)
                         ? null : candidatePoint with { Y = Math.Floor(RailwayTerrain.NodeGround(snapshot, node, candidatePoint, layout.Template)) + 1 };
                     resourcePositions.Add(positionKey, position);
@@ -381,6 +387,14 @@ internal sealed class SettlementObjects : IAsyncDisposable
                     cell => objectId(objectKey + ":model:" + cell.At), false));
             }
         }
+    }
+
+    private static bool InLair(NodeLayout layout, ScenePoint point)
+    {
+        if (layout.Lair is not { } lair || NodeLair.Region(lair) is not { } region) return false;
+        var blend = NodeSettlement.FlattenBlend;
+        return point.X >= region.Minimum.X - blend && point.X < region.Maximum.X + blend &&
+            point.Z >= region.Minimum.Y - blend && point.Z < region.Maximum.Y + blend;
     }
 
     public async ValueTask DisposeAsync()

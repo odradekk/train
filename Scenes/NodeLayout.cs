@@ -23,7 +23,9 @@ internal sealed partial class NodeLayout
     internal NodeId Node { get; }
     internal sealed record Stop(int PlotNumber, double LocalZ, ScenePoint Center, Vector3 Forward);
     internal sealed record ParkingLine(ScenePoint Start, Vector3 Forward, double Length);
+    internal sealed record LairPlacement(SceneModelProjection Model, int ShiftX, int ShiftZ);
     internal SettlementLayoutProjection? Template { get; private init; }
+    internal LairPlacement? Lair { get; private set; }
     internal ImmutableArray<Stop> Stops { get; private init; } = [];
     internal ImmutableArray<ParkingLine> Parking { get; private init; } = [];
     internal ImmutableArray<SceneProblem> Problems { get; private init; } = [];
@@ -146,8 +148,28 @@ internal sealed partial class NodeLayout
         result.PrepareTurns(turnEnvelope, rules.MaximumGrade);
         result.PrepareTrainRoutes();
         result.CaptureSamples(snapshot);
+        result.PlaceLair(snapshot);
         return result;
     }
+
+    private void PlaceLair(SceneWorldSnapshot snapshot)
+    {
+        if (LairModel(snapshot, Node) is not { } model) return;
+        var shift = NodeLair.Translation(this, model.Scene);
+        Lair = new(model, shift.X, shift.Z);
+    }
+
+    internal static (LairTypeId Type, ContentLookup<LairAppearanceProjection> Appearance)? LairContent(
+        SceneWorldSnapshot snapshot, NodeId node)
+    {
+        if (snapshot.Core.World.Nodes.Single(item => item.Id == node).Occupant is not NodeOccupant.Lair occupant) return null;
+        if (snapshot.Core.FindLair(occupant.Id) is not Lookup<LairView>.Found core) return null;
+        return (core.Value.Type, snapshot.Content.FindLair(core.Value.Type));
+    }
+
+    internal static SceneModelProjection? LairModel(SceneWorldSnapshot snapshot, NodeId node) =>
+        LairContent(snapshot, node)?.Appearance is ContentLookup<LairAppearanceProjection>.Found found
+            ? found.Value.SceneModel : null;
 
     internal static string ReadInputs(SceneWorldSnapshot snapshot, NodeId id)
     {
