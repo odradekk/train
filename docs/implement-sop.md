@@ -21,6 +21,8 @@ For Godot scene, resource, editor or runtime work, use the project's Godot MCP N
 
 Every Godot process an agent starts must use isolated user data, including imports, exports, editors and games. For manual commands, follow the [isolated child-process recipe](local-environment.md#agent-手动启动-godot); keep redirection inside the child process so a later test run still finds the real export templates. For exports from another source checkout, use `scripts/export-measurement.ps1 -SourceDirectory <checkout> -OutputDirectory <new-output-directory>`. The source checkout must be clean; the summary records its HEAD. The coordinator starts MCP editors through the [documented editor launcher](godot-mcp.md#启动服务).
 
+Never drive the user's desktop: no Computer Use and no global keyboard or mouse simulation (`SendKeys`, `SendInput`, AutoHotkey, pasting the clipboard into whatever has focus). When the target window loses focus, that input lands in the user's foreground window instead (#301, 2026-10-19). Drive the game through console commands, Godot MCP or test hooks; drive a native dialog only through messages addressed to its window handle, or avoid the dialog.
+
 ## 0. Prepare
 
 Read the coordinator's dispatch comment, the Issue body and all comments, `AGENTS.md`, the referenced design docs, ADRs and contracts, and the [Testing standard](#testing-standard). Verify the worktree path, branch, baseline and MCP assignment in the dispatch comment. Before environment setup, validation or export, read [Local validation and Windows builds](local-environment.md).

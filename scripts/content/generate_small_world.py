@@ -9,9 +9,9 @@ python scripts/content/generate_small_world.py --output-dir TestResults/reproduc
 生成只用 Python 标准库。
 自然地形与三十四种货物已有正式美术：十二种原料、六种生活货物和十六种工业与建造货物。
 车辆蓝图由创作模式维护；聚居地符号来自 ui_symbols；
-其余美术仍待制作，数值待配平，
-数值和画面待用户试玩确认；十一种车辆与两列小型起始车队已接入。
-校验同时检查正式内容的经济关系；不生成生物聚落或存档。
+其余美术仍待制作，数值和画面待用户试玩确认；十一种车辆与两列小型起始车队已接入，
+3 种生物、2 种生物聚落和 2 份聚落场景模型已接入。
+校验同时检查正式内容的经济关系；生成生物、聚落和场景模型，不生成存档。
 """
 
 import argparse
@@ -85,6 +85,40 @@ INITIAL_PLAN_PRIORITY = 0
 WEAPON_DAMAGE_SHARE = 0.1
 MACHINE_GUN_INTERVAL_SECONDS = 1
 CANNON_FACTOR = 4
+# 生物数值初值，待试玩确认。生命值等于一挺机枪 10/20/40 秒的伤害；伤害按
+# 373,300 结构耐久的小站点在 72 秒内被打掉约 48%/93% 反推。
+# id、显示名、调色板、体素坐标→调色板下标、生命值、速度（米/秒）、撤退阈值、
+# 袭击时长（秒）、武器伤害、攻击间隔（秒）。
+CREATURE_PROFILES = (
+    ("small-creature", "小型生物", ["foliage", "rock", "tree-trunk"],
+     {(0, 0, 0): 0, (1, 0, 0): 0, (2, 0, 0): 1, (1, 1, 0): 0}, 180, 2.5, 0.5, 72, 250, 1),
+    ("medium-creature", "中型生物", ["rock", "tree-trunk", "foliage"],
+     {(x, y, z): 0 for x in range(3) for y in (1, 2) for z in range(2)}
+     | {(0, 0, 0): 1, (2, 0, 0): 1, (0, 0, 1): 1, (2, 0, 1): 1,
+        (1, 3, 0): 2, (1, 3, 1): 2, (3, 1, 0): 0, (3, 2, 0): 0}, 360, 2.0, 0.5, 96, 900, 2),
+    ("large-creature", "大型生物", ["rock", "tree-trunk", "sandstone", "foliage"],
+     {(x, y, z): 0 for x in range(5) for y in (1, 2, 3) for z in range(3)}
+     | {(0, 0, 0): 1, (2, 0, 0): 1, (4, 0, 0): 1, (0, 0, 2): 1, (2, 0, 2): 1, (4, 0, 2): 1}
+     | {(x, 4, 1): 2 for x in range(5)}
+     | {(1, 4, 0): 3, (3, 4, 2): 3, (5, 2, 1): 0, (5, 3, 1): 0}, 720, 1.5, 0.4, 144, 1_950, 3),
+)
+# 聚落成员权重、间隔和奖励初值；成员身份与数值来自生物蓝图，不在这里重复。
+# 袭击是聚落周边的局部威胁，不是全图威胁。玩家建城前无法修复铁路，所以出动间隔较长；
+# 断轨工作给沿线列车留出到达并打断袭击的窗口。袭击半径只覆盖聚落相邻的边：按跳计算
+# 的路线不进入 NPC 聚居地，半径过大时出动路线会穿过玩家聚居地，而出动途中遇到玩家聚居地
+# 的战斗没有时长上限，因此两种聚落都取 1。
+# id、显示名、场景模型、生成权重、成员、成员上限、补充间隔（秒）、袭击间隔（秒）、
+# 游荡半径（跳）、袭击半径（跳）、断轨工作（秒）、清剿奖励。
+LAIR_PROFILES = (
+    ("small-nest", "巢穴", "lair-nest", 3,
+     (("small-creature", 3), ("medium-creature", 1)), 10, 120, 1_800, 2, 1, 120, 13_000),
+    ("large-hive", "大型巢群", "lair-hive", 2,
+     (("small-creature", 2), ("medium-creature", 2), ("large-creature", 1)), 12, 180, 2_700, 2, 1, 180, 30_000),
+)
+# 3 列武装列车各 3 挺机枪（162 DPS）持续 10 分钟可让典型镇投降。
+COMBAT_MORALE_DAMAGE_COEFFICIENT = 14.0
+COMBAT_MORALE_RECOVERY_PER_SECOND = 0.0005
+COMBAT_NEW_LAIR_INTERVAL_SECONDS = 10_800
 
 # 每批基准秒数、电量/工作量、劳动力/(工作量/秒)。
 PROCESS_PROFILES = {
@@ -1057,6 +1091,81 @@ def natural_models():
         yield model
 
 
+def creature_blueprints():
+    # 生物只使用不带 light 行为的场景体素；发光眼留给 #357 的美术决定。
+    for identity, name, palette, cells, hp, speed, retreat, duration, damage, interval in CREATURE_PROFILES:
+        value = blueprint(identity, name, "creature", palette, cells, {"behaviors": {
+            "creature": {"hp": hp, "speed": speed,
+                         "retreat_threshold": retreat, "raid_duration": duration},
+            "weapon": {"damage": damage, "interval": interval}}})
+        value["display"]["description"] = (
+            f"{name}正式定义：生命值、速度和攻击间隔待试玩确认；外观使用现有场景体素，正式美术待阶段 5/6。")
+        yield value
+
+
+def lair_scene_models():
+    nest = {(x, y, z): 0 if y == 0 else 1
+            for x in range(-4, 5) for z in range(-4, 5)
+            if x * x + z * z <= 16 for y in range(2 if x * x + z * z <= 4 else 1)}
+    for x in (-1, 0, 1):
+        for y in (0, 1):
+            nest.pop((x, y, 4), None)
+    for x, z in ((-4, -4), (4, -4), (-4, 4), (4, 4)):
+        nest[(x, 0, z)] = 2
+        nest[(x, 1, z)] = 2
+    for x, z in ((-3, 0), (0, -3), (3, 0)):
+        nest[(x, 1, z)] = 3
+    nest[(0, 2, 0)] = 3
+    # 一个聚落场景模型最多一盏灯。
+    nest[(0, 0, 4)] = 4
+    model = blueprint("lair-nest", "巢穴", "scene_model",
+                      ["subsoil", "rock", "tree-trunk", "foliage", "street-lamp"], nest)
+    model["display"]["description"] = "土丘、石环、尖刺和入口灯；生物聚落场景模型的正式外观待阶段 5/6。"
+    yield model
+
+    hive = {}
+    for x in range(-7, 8):
+        for z in range(-7, 8):
+            distance = x * x + z * z
+            if distance > 49:
+                continue
+            height = 3 if distance <= 9 else 2 if distance <= 25 else 1
+            for y in range(height):
+                hive[(x, y, z)] = 0 if y == 0 else 1
+    for x in (-1, 0, 1):
+        for y in (0, 1):
+            hive.pop((x, y, 7), None)
+    for x, z in ((-7, -7), (7, -7), (-7, 7), (7, 7)):
+        for y in range(3):
+            hive[(x, y, z)] = 3
+    for x, z in ((-5, 0), (0, -5), (5, 0), (0, 5), (0, 0)):
+        hive[(x, 2, z)] = 4
+    hive[(0, 0, 0)] = 2
+    hive[(0, 0, 7)] = 5
+    model = blueprint("lair-hive", "大型巢群", "scene_model",
+                      ["sandstone", "rock", "subsoil", "tree-trunk", "foliage", "street-lamp"], hive)
+    model["display"]["description"] = "砂岩丘、岩石层、尖刺和通风灯；生物聚落场景模型的正式外观待阶段 5/6。"
+    yield model
+
+
+def lair_types():
+    for identity, name, scene, weight, members, maximum, spawn, raid_interval, roaming, raid_radius, rail_work, reward in LAIR_PROFILES:
+        yield {"schema_version": 1, "id": identity,
+               "display": {"name": name,
+                           "description": "正式生物聚落类型；成员、间隔和奖励待试玩确认。"},
+               "generation_weight": weight,
+               "members": [{"creature": creature, "weight": member_weight}
+                           for creature, member_weight in members],
+               "maximum_members": maximum,
+               "spawn_interval_seconds": spawn,
+               "raid_interval_seconds": raid_interval,
+               "roaming_radius_hops": roaming,
+               "raid_radius_hops": raid_radius,
+               "rail_damage_work_seconds": rail_work,
+               "clearance_reward": reward,
+               "scene_model": scene}
+
+
 def railway_models():
     for tracks in (1, 2, 3):
         half_width = 10 + 17 * (tracks - 1)
@@ -1319,6 +1428,8 @@ def content_files():
         document("blueprints", "blueprint", model["id"], model)
     for model in construction_models():
         document("blueprints", "blueprint", model["id"], model)
+    for model in lair_scene_models():
+        document("blueprints", "blueprint", model["id"], model)
     for identity, name, surface, subsurface, rock, local_amplitude in (
         ("plains", "平原", "ground", "subsoil", "rock", 0.7),
         ("hills", "丘陵", "dry-grass", "subsoil", "rock", 18),
@@ -1368,6 +1479,8 @@ def content_files():
     document("blueprints", "blueprint", "heavy-turret",
              heavy_turret(voxel_definitions["cannon"]["simulation"]["behaviors"]["weapon"]))
 
+    for value in creature_blueprints():
+        document("blueprints", "blueprint", value["id"], value)
     for path in AUTHORED_FILES:
         if path.startswith("blueprints/"):
             value = json.loads((ROOT / "builtin/core/resources" / path).read_text(encoding="utf-8"))
@@ -1593,8 +1706,11 @@ def content_files():
         "rail_good": "rail", "repair_rail_units_per_break": 18,
         "appearance": {"ballast_voxel": "ballast", "minimum_curve_radius_meters": 80, "maximum_grade": 0.08}})
     document("combat-rules", "combat-rule", "basic-combat", {"schema_version": 1, "id": "basic-combat",
-        "retreat_seconds": 24, "morale_damage_coefficient": 0.015, "weapon_destroyed_morale_loss": 0.18,
-        "morale_recovery_per_second": 0.012, "surrender_threshold": 0.12, "new_lair_interval_seconds": 5400})
+        "retreat_seconds": 24, "morale_damage_coefficient": COMBAT_MORALE_DAMAGE_COEFFICIENT,
+        "weapon_destroyed_morale_loss": 0.18, "morale_recovery_per_second": COMBAT_MORALE_RECOVERY_PER_SECOND,
+        "surrender_threshold": 0.12, "new_lair_interval_seconds": COMBAT_NEW_LAIR_INTERVAL_SECONDS})
+    for value in lair_types():
+        document("lair-types", "lair-type", value["id"], value)
     # 初值待试玩；丘陵兜底所有有限起伏，不同上限保证交集处唯一匹配。
     bands = [{"terrain": terrain, "minimum_elevation": low, "maximum_elevation": high,
               "minimum_moisture": dry, "maximum_moisture": wet, "maximum_relief": relief,
@@ -1624,13 +1740,15 @@ def content_files():
     initial_money = ceil(START_BUDGET_MULTIPLIER * (cargo_capacity * max(values[good] for good, _, _ in goods) + freight_base_value))
     document("generation-profiles", "generation-profile", "basic-through-world", {
         "schema_version": 2, "id": "basic-through-world",
-        "display": {"name": "经济运输验证世界", "description": "真实货物、流程和六份模板计划；两列小型车队、十一种车辆与 NPC 现车已接入。数值待试玩，起始资金的委托可负担性待 #387 验证。"},
+        "display": {"name": "经济运输验证世界", "description": "真实货物、流程和六份模板计划；两列小型车队、十一种车辆、3 种生物、2 类生物聚落与 NPC 现车已接入。数值待试玩，起始资金的委托可负担性待 #387 验证。"},
         "configuration": {"width_meters": 1800, "height_meters": 1200, "minimum_node_spacing_meters": 300,
             "candidate_probability": 0.9, "elevation_noise": [{"scale_meters": 780, "amplitude": 14}, {"scale_meters": 260, "amplitude": 4}],
             "moisture_noise": [{"scale_meters": 600, "amplitude": 1}], "river_noise": [{"scale_meters": 900, "amplitude": 1}],
             "lake_elevation_threshold": 4, "river_band_half_width": 0.045, "terrain_bands": bands,
-            "terrain_sample_spacing_meters": 60, "settlement_ratio": 0.45, "lair_ratio": 0,
-            "hostile_settlement_ratio": 0, "lair_weights": [],
+            "terrain_sample_spacing_meters": 60, "settlement_ratio": 0.45, "lair_ratio": 0.2,
+            "hostile_settlement_ratio": 0,
+            "lair_weights": [{"type": identity, "weight": weight}
+                             for identity, _, _, weight, *_ in LAIR_PROFILES],
             "resources": resources,
             "initial_railway": {"maximum_tracks": 2, "minimum_initial_tracks": 1, "maximum_initial_tracks": 2, "additional_cycle_edges": 1},
             "budget": {"maximum_stage_retries": 4, "maximum_world_retries": 4, "maximum_candidates": 50000, "maximum_search_work": 4000000},
