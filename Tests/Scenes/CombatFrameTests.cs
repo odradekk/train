@@ -103,16 +103,26 @@ public sealed class CombatFrameTests
     }
 
     [TestMethod]
-    public void HitDamageDoesNotChooseRemovedCells()
+    public async Task HitDamageDoesNotChooseRemovedCells()
     {
-        var projection = Line(8);
+        var light = await DamagedMesh(1);
+        var heavy = await DamagedMesh(999);
+        Assert.IsTrue(light.Any(vertex => vertex.Damage > 0));
+        Assert.IsTrue(light.SequenceEqual(heavy));
+    }
+
+    private static async Task<SceneVertex[]> DamagedMesh(int damage)
+    {
         var body = RailwayFixtures.Instance() with { Structure = new(25, 100) };
-        var ignored = new CombatHit(new AttackSource.Weapon(new(body.Id, body.Design, RailwayFixtures.Location), new(1)),
-            new HitTarget.Structure(new(body.Id, body.Design, RailwayFixtures.Location)), 999);
-        var other = ignored with { Damage = 1 };
-        Assert.AreNotEqual(ignored.Damage, other.Damage);
-        var removed = StructureDamage.Assess(body, projection).Removed;
-        Assert.IsTrue(removed.SetEquals(StructureDamage.Assess(body, projection).Removed));
+        var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle() with { Scene = Line(8) });
+        await using var session = Open(content, body);
+        session.RequestView(new WorldSceneTarget.Location(RailwayFixtures.Location));
+        var settled = await RailwayFixtures.Settled(session, Request);
+        var snapshot = Snapshot(content, body, steps: 1);
+        var hit = new CombatHit(new AttackSource.Weapon(new(body.Id, body.Design, RailwayFixtures.Location), new(1)),
+            new HitTarget.Structure(new(body.Id, body.Design, RailwayFixtures.Location)), damage);
+        session.Observe(snapshot, [Envelope(snapshot, new CoreEvent.CombatHits(new(1), RailwayFixtures.Location, [hit]))]);
+        return Mesh(Present(session, settled), body).ToArray();
     }
 
     [TestMethod]
@@ -358,6 +368,28 @@ public sealed class CombatFrameTests
         return (Vector3.Normalize(forward), Vector3.Normalize(cell - worldPosition));
     }
 
+    private static (FixedContentView Content, InstanceView Instance, CreatureGroupView Group) Beast()
+    {
+        var (_, instance, evaluation) = Turret();
+        var creature = new CreatureDefinitionId("test:beast");
+        var content = RailwayFixtures.Content(design: evaluation, creatures: new Dictionary<CreatureDefinitionId, ContentLookup<CreatureAppearanceProjection>>
+        {
+            [creature] = new ContentLookup<CreatureAppearanceProjection>.Found(new(creature,
+                SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0))]), new("Beast", "")))
+        });
+        var group = new CreatureGroupView(new(7), null, RailwayFixtures.Location, null, CreatureActivity.Guarding, 0,
+            [new(new(3), creature, 10, 10)]);
+        return (content, instance, group);
+    }
+
+    private static (ScenePose Turret, Vector3 Creature) Poses(SceneFrame frame, InstanceView instance)
+    {
+        var root = frame.Objects.Single(item => item.Parent is null && item.Subject == new WorldObjectId.Instance(instance.Id));
+        var turret = frame.Objects.Single(item => item.Parent == root.Id && item.Visuals.Length > 0);
+        var creature = frame.Objects.Single(item => item.Subject is WorldObjectId.Creature).Pose.Position;
+        return (turret.Pose, creature);
+    }
+
     private static async Task<(ScenePose Turret, Vector3 Creature)> Pose(IContentView content, InstanceView instance,
         CreatureGroupView group, bool extra)
     {
@@ -381,20 +413,100 @@ public sealed class CombatFrameTests
     [TestMethod]
     public async Task PausedSimulationTimeKeepsCreatureAndTurretPoses()
     {
-        var (_, instance, evaluation) = Turret();
-        var creature = new CreatureDefinitionId("test:beast");
-        var content = RailwayFixtures.Content(design: evaluation, creatures:
-            new Dictionary<CreatureDefinitionId, ContentLookup<CreatureAppearanceProjection>>
-            {
-                [creature] = new ContentLookup<CreatureAppearanceProjection>.Found(new(creature,
-                    SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0))]), new("Beast", "")))
-            });
-        var group = new CreatureGroupView(new(7), null, RailwayFixtures.Location, null, CreatureActivity.Guarding, 0,
-            [new(new(3), creature, 10, 10)]);
-        var first = await Pose(content, instance, group, false);
-        var second = await Pose(content, instance, group, false);
+        var (content, instance, group) = Beast();
+        await using var session = Open(content, instance, group);
+        session.RequestView(new WorldSceneTarget.Location(RailwayFixtures.Location));
+        var settled = await RailwayFixtures.Settled(session, Request);
+        var armed = Snapshot(content, instance, steps: 1, group: group);
+        session.Observe(armed, [Envelope(armed, new CoreEvent.CombatHits(new(1), RailwayFixtures.Location,
+            [new CombatHit(new AttackSource.Weapon(new(instance.Id, instance.Design, RailwayFixtures.Location), new(9)),
+                new HitTarget.Part(new(instance.Id, instance.Design, RailwayFixtures.Location), new(1)), 1)]))]);
+        session.Observe(Snapshot(content, instance, steps: 2, group: group), []);
+        var held = new SceneFrameRequest(0, null, SceneDebugLayer.None);
+        var first = Poses(Present(session, settled, held), instance);
+        var second = Poses(Present(session, settled, held), instance);
         Assert.AreEqual(first.Turret, second.Turret);
         Assert.AreEqual(first.Creature, second.Creature);
+        var advanced = Poses(Present(session, settled, Request), instance);
+        Assert.AreNotEqual(first.Turret, advanced.Turret);
+        Assert.AreNotEqual(first.Creature, advanced.Creature);
+    }
+
+    [TestMethod]
+    public async Task SameStepDeathLeavesTheCreatureInTheQueryAndEmitsOnlyFragments()
+    {
+        var (_, instance, evaluation) = Turret();
+        var creature = new CreatureDefinitionId("test:beast");
+        var other = new CreatureDefinitionId("test:other");
+        var content = RailwayFixtures.Content(design: evaluation, creatures: new Dictionary<CreatureDefinitionId, ContentLookup<CreatureAppearanceProjection>>
+        {
+            [creature] = new ContentLookup<CreatureAppearanceProjection>.Found(new(creature,
+                SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0)) with { Paint = new("red") }]), new("Beast", ""))),
+            [other] = new ContentLookup<CreatureAppearanceProjection>.Found(new(other,
+                SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0)) with { Paint = new("blue") }]), new("Other", "")))
+        });
+        var group = new CreatureGroupView(new(7), null, RailwayFixtures.Location, null, CreatureActivity.Guarding, 0,
+            [new(new(3), creature, 10, 10)]);
+        await using var session = Open(content, instance, group);
+        session.RequestView(new WorldSceneTarget.Location(RailwayFixtures.Location));
+        var settled = await RailwayFixtures.Settled(session, Request);
+        var dead = Snapshot(content, instance, steps: 1, group: group);
+        session.Observe(dead, [Envelope(dead, new CoreEvent.CombatDestruction(new(1), RailwayFixtures.Location, [],
+            [new DestroyedUnit.Creature(new(group.Id, new(3), other, RailwayFixtures.Location))]))]);
+        var frame = Present(session, settled);
+        Assert.IsFalse(frame.Objects.Any(item => item.Subject is WorldObjectId.Creature));
+        Assert.AreEqual(1, frame.Update.Effects.Length);
+        Assert.AreEqual(SceneEffectKind.Fragments, frame.Update.Effects[0].Kind);
+        Assert.AreEqual(new PaintColor("blue"), frame.Update.Effects[0].Color);
+    }
+
+    [TestMethod]
+    public async Task ChangingViewDoesNotReplayCues()
+    {
+        var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle());
+        var instance = RailwayFixtures.Instance();
+        await using var session = Open(content, instance);
+        session.RequestView(new WorldSceneTarget.Location(RailwayFixtures.Location));
+        await RailwayFixtures.Settled(session, Request);
+        var armed = Snapshot(content, instance, steps: 1);
+        session.Observe(armed, [Envelope(armed, new CoreEvent.CombatHits(new(1), RailwayFixtures.Location, [Hit(instance)]))]);
+        session.RequestView(new WorldSceneTarget.Location(new WorldLocation.Node(new(2))));
+        Assert.IsEmpty(Present(session).Update.Effects);
+        session.RequestView(new WorldSceneTarget.Location(RailwayFixtures.Location));
+        var returned = await RailwayFixtures.Settled(session, new(1, null, SceneDebugLayer.None));
+        Assert.IsEmpty(returned.Update.Effects);
+
+        await using var followed = Open(content, instance);
+        followed.RequestView(new WorldSceneTarget.Follow(new(1), new(1)));
+        await RailwayFixtures.Settled(followed, Request);
+        var onEdge = Snapshot(content, instance, steps: 1);
+        followed.Observe(onEdge, [Envelope(onEdge, new CoreEvent.CombatHits(new(1), RailwayFixtures.Location, [Hit(instance)]))]);
+        var parked = RailwayFixtures.Train(0) with
+        {
+            Position = new TrainPosition.Node(new(1), null, null, null, null, NodeTravelPhase.Docked, 0, null)
+        };
+        followed.Observe(RailwayFixtures.Snapshot(4, 4, 0, steps: 2, content: content, trains: [parked], instances: [instance]), []);
+        Assert.IsEmpty(Present(followed).Update.Effects);
+    }
+
+    [TestMethod]
+    public async Task CuesObservedWhileLoadingAppearOnceTheSceneIsReady()
+    {
+        var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle());
+        var instance = RailwayFixtures.Instance();
+        await using var session = Open(content, instance);
+        session.RequestView(new WorldSceneTarget.Location(RailwayFixtures.Location));
+        var armed = Snapshot(content, instance, steps: 1);
+        session.Observe(armed, [Envelope(armed, new CoreEvent.CombatHits(new(1), RailwayFixtures.Location, [Hit(instance)]))]);
+        var frame = Present(session);
+        while (frame.Readiness != SceneReadiness.Ready)
+        {
+            Assert.IsEmpty(frame.Update.Effects);
+            await SceneFixtures.AwaitPendingWork(session.PendingNodeBuilds.Concat(session.PendingRailwayBuilds)
+                .Concat(session.PendingObjectBuilds).ToArray());
+            frame = Present(session);
+        }
+        Assert.IsTrue(frame.Update.Effects.Any(item => item.Kind == SceneEffectKind.Shot));
     }
 
     [TestMethod]
@@ -549,12 +661,8 @@ public sealed class CombatFrameTests
         ImmutableArray<VehicleId>? vehicles = null, CreatureGroupView? group = null) 
     {
         var train = RailwayFixtures.Train(0, vehicles ?? [new(1)]);
-        var snapshot = RailwayFixtures.Snapshot(4, 4, 0, steps: steps, content: content, trains: [train], instances: [instance]);
-        if (group is null) return snapshot;
-        return snapshot with
-        {
-            Core = new CreatureCore(snapshot.Core, group)
-        };
+        return RailwayFixtures.Snapshot(4, 4, 0, steps: steps, content: content, trains: [train], instances: [instance],
+            groups: group is null ? null : [group]);
     }
 
     private static SceneFrame Present(WorldSceneSession session, ISceneFrame? displayed = null, SceneFrameRequest? request = null) =>
@@ -595,36 +703,4 @@ public sealed class CombatFrameTests
         public CoreResult<SettlementFoundingPreview> PreviewSettlement(NodeId node) => inner.PreviewSettlement(node);
     }
 
-    private sealed class CreatureCore(ICoreReadView inner, CreatureGroupView group) : ICoreReadView
-    {
-        public WorldSummary World => inner.World with
-        {
-            CreatureGroups = [new(group.Id, group.Location, group.Activity)]
-        };
-        public Lookup<CreatureGroupView> FindCreatureGroup(CreatureGroupId id) =>
-            id == group.Id ? new Lookup<CreatureGroupView>.Found(group) : inner.FindCreatureGroup(id);
-        public SimulationPosition Position => inner.Position;
-        public CoreRevision Revision => inner.Revision;
-        public CoreInputId InputIdentity => inner.InputIdentity;
-        public CoreFault? Fault => inner.Fault;
-        public EconomyView Economy => inner.Economy;
-        public Lookup<NodeView> FindNode(NodeId id) => inner.FindNode(id);
-        public Lookup<EdgeView> FindEdge(EdgeId id) => inner.FindEdge(id);
-        public Lookup<LocationView> FindLocation(WorldLocation location) => inner.FindLocation(location);
-        public Lookup<TrainView> FindTrain(TrainId id) => inner.FindTrain(id);
-        public Lookup<InstanceView> FindInstance(InstanceId id) => inner.FindInstance(id);
-        public Lookup<SettlementView> FindSettlement(SettlementId id) => inner.FindSettlement(id);
-        public Lookup<InventoryView> FindInventory(InventoryId id) => inner.FindInventory(id);
-        public Lookup<LeaseView> FindLease(LeaseId id) => inner.FindLease(id);
-        public Lookup<FacilityView> FindFacility(FacilityKey key) => inner.FindFacility(key);
-        public Lookup<JobView> FindJob(JobId id) => inner.FindJob(id);
-        public Lookup<CombatView> FindCombat(CombatId id) => inner.FindCombat(id);
-        public Lookup<CreatureView> FindCreature(CreatureId id) => inner.FindCreature(id);
-        public Lookup<LairView> FindLair(LairId id) => inner.FindLair(id);
-        public CoreResult<TradeQuote> QuoteTrade(TradeQuoteRequest request) => inner.QuoteTrade(request);
-        public CoreResult<VehicleTradeQuote> QuoteVehicle(VehicleTradeQuoteRequest request) => inner.QuoteVehicle(request);
-        public CoreResult<LeaseQuote> QuoteLease(LeaseRequest request) => inner.QuoteLease(request);
-        public CoreResult<JobQuote> GetJobQuote(JobRequest request, JobFunding funding) => inner.GetJobQuote(request, funding);
-        public CoreResult<SettlementFoundingPreview> PreviewSettlement(NodeId node) => inner.PreviewSettlement(node);
-    }
 }

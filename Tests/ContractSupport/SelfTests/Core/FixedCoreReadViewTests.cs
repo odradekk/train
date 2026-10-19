@@ -67,6 +67,17 @@ public sealed class FixedCoreReadViewTests
         };
         Assert.AreSame(found, view.FindCombat(id));
         Assert.AreSame(combat, ((Lookup<CombatView>.Found)view.FindCombat(id)).Value);
+        var creature = new CreatureView(new(3), new("test:beast"), 10, 10);
+        var group = new CreatureGroupView(new(7), null, new WorldLocation.Node(new(1)), null, CreatureActivity.Guarding, 0, [creature]);
+        var grouped = new FixedCoreReadView
+        {
+            CreatureGroups = new Dictionary<CreatureGroupId, Lookup<CreatureGroupView>> { [group.Id] = new Lookup<CreatureGroupView>.Found(group) },
+            Creatures = new Dictionary<CreatureId, Lookup<CreatureView>> { [creature.Id] = new Lookup<CreatureView>.Found(creature) }
+        };
+        Assert.AreEqual(group, ((Lookup<CreatureGroupView>.Found)grouped.FindCreatureGroup(group.Id)).Value);
+        Assert.AreEqual(creature, ((Lookup<CreatureView>.Found)grouped.FindCreature(creature.Id)).Value);
+        AssertUnconfigured(() => grouped.FindCreatureGroup(new(8)));
+        AssertUnconfigured(() => grouped.FindCreature(new(4)));
         AssertUnconfigured(() => _ = new FixedCoreReadView().Fault);
         AssertUnconfigured(() => view.PreviewSettlement(new NodeId(1)));
     }
