@@ -9,6 +9,7 @@ using Train.Core.Contracts;
 using Train.App.Recording;
 using Train.App.Development;
 using Train.App.Measurement;
+using Train.App.Notifications;
 using Train.App.Editing;
 using Train.App.Authoring;
 using Train.Ui;
@@ -38,6 +39,7 @@ public partial class App : Node
     internal EditorService? Editor { get; private set; }
     internal AuthoringService? Authoring { get; private set; }
     internal TemplateSceneController? TemplateScenes { get; private set; }
+    internal NotificationPolicy Notifications { get; } = new();
 
     public App() => QuitAction = () => GetTree().Quit();
 
@@ -52,7 +54,7 @@ public partial class App : Node
             _logger = TrainLogger.StartSession(Path.Combine(userData, "logs"),
                 OS.IsDebugBuild() ? LogLevel.Debug : LogLevel.Info, new GodotLogOutput(), buffer);
             _dispatcher = new();
-            Host = CreateHost?.Invoke(_logger) ?? HostComposition.CreateHost(_logger, userData, _dispatcher);
+            Host = CreateHost?.Invoke(_logger) ?? HostComposition.CreateHost(_logger, userData, _dispatcher, Notifications);
             GetNode<MainMenu>("MainMenu").ExampleRequested += () => StartExample();
             Recording = new RecordingService(Host, new FileSaveStore(userData));
             var scenesFactory = CreateScenes?.Invoke() ?? HostComposition.CreateScenes();
@@ -81,7 +83,7 @@ public partial class App : Node
             icons.Diagnostic += message => _logger.Warning("ui", "goods_icon_unavailable", message);
             AddChild(icons);
             var ui = new GameUi { Name = "GameUi" };
-            ui.Initialize(GetNode<MainMenu>("MainMenu"), Host, _logger, WorldScenes, Recording, icons, Editor, Authoring, TemplateScenes);
+            ui.Initialize(GetNode<MainMenu>("MainMenu"), Host, _logger, WorldScenes, Recording, icons, Editor, Authoring, TemplateScenes, Notifications);
             AddChild(ui);
             var console = new GameConsole();
             Action<IReadOnlyList<string>>? simulationCommands = null;

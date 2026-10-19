@@ -48,13 +48,15 @@ internal static class RailwayTerrain
 
     private static (Layers? Terrain, CellProperties? Ballast) PrepareColumn(TerrainAppearanceProjection? terrain,
         VoxelDefinitionId ballastVoxel, double height, double distance, bool hasBed,
-        (double From, double To)? excludedY, Func<VoxelDefinitionId, CellProperties> property)
+        (double From, double To)? excludedY, Func<VoxelDefinitionId, CellProperties> property, double? lowestNeighbor = null)
     {
         // Prepare only emitted column layers: Appearance() records voxelReads and reports missing diagnostics.
         CellProperties? surface = null, subsurface = null, rock = null, ballast = null;
-        for (var depth = 0; depth < RailwayCoordinates.TerrainDepthCells; depth++)
+        var bottom = ColumnBottom(height, lowestNeighbor);
+        for (var depth = 0; ; depth++)
         {
             var y = height - depth;
+            if (y < bottom) break;
             if (excludedY is { } excluded && y >= excluded.From && y < excluded.To) continue;
             var bed = hasBed && BedLayer(depth, distance);
             if (bed)
@@ -82,11 +84,13 @@ internal static class RailwayTerrain
 
     internal static void FillColumn(ImmutableArray<SceneCell>.Builder cells, GridColumn column, double height,
         Layers? terrain, CellProperties? ballast, double trackDistance, bool hasBed,
-        double originY = 0, (double From, double To)? excludedY = null)
+        double originY = 0, (double From, double To)? excludedY = null, double? lowestNeighbor = null)
     {
-        for (var depth = 0; depth < RailwayCoordinates.TerrainDepthCells; depth++)
+        var bottom = ColumnBottom(height, lowestNeighbor);
+        for (var depth = 0; ; depth++)
         {
             var y = height - depth;
+            if (y < bottom) break;
             if (excludedY is { } excluded && y >= excluded.From && y < excluded.To) continue;
             var bed = hasBed && BedLayer(depth, trackDistance);
             var properties = bed ? ballast : depth == 0 ? terrain?.Surface : depth < 3 ? terrain?.Subsurface : terrain?.Rock;
@@ -94,6 +98,9 @@ internal static class RailwayTerrain
                 cells.Add(new(new(column.X, checked((int)(y - originY)), column.Z), properties));
         }
     }
+
+    private static double ColumnBottom(double height, double? lowestNeighbor) =>
+        Math.Min(height - (RailwayCoordinates.TerrainDepthCells - 1), (lowestNeighbor ?? height) + 1);
 
     private static bool BedLayer(int depth, double distance) => depth == 0 && distance <= RailwayCoordinates.BedBaseHalfWidth ||
         depth == 1 && distance <= RailwayCoordinates.BedTopHalfWidth;
@@ -227,8 +234,12 @@ internal static class RailwayTerrain
             terrains = new Dictionary<TerrainTypeId, TerrainAppearanceProjection?>();
             halfWidth = RailwayCoordinates.TerrainHalfWidth(path.Edge.Tracks);
             nextId = 1UL;
-            readsStartTerrain = Math.Max(0, begin - (path.Edge.Tracks > 0 ? TunnelPortalLookbackCells : 0)) < endpointBlend;
-            readsEndTerrain = path.LengthCells - end < endpointBlend;
+            // Inside a curve, adjacent columns differ in arc by about R/(R-lateral).
+            // At the 160-cell minimum radius and a 3-track half-width of 83, that is about 2.1, so the margin is 4.
+            const int neighborArc = 4;
+            var startArc = path.Edge.Tracks > 0 ? Math.Max(TunnelPortalLookbackCells, neighborArc) : neighborArc;
+            readsStartTerrain = Math.Max(0, begin - startArc) < endpointBlend;
+            readsEndTerrain = path.LengthCells - end - neighborArc < endpointBlend;
             terrainId = new SceneObjectId(0);
             GetTerrain(path.Edge.Terrain.TypeId);
             if (readsStartTerrain) GetTerrain(path.Start.Terrain.TypeId);
@@ -324,6 +335,40 @@ internal static class RailwayTerrain
             return new(arc, lateral, Math.Floor(height), terrain, water, tunnel);
         }
 
+        private double? LowestNeighbor(Dictionary<GridColumn, TerrainColumn> columns, Dictionary<GridColumn, double?> outside,
+            GridColumn column, double floorX, double floorZ)
+        {
+            double? lowest = null;
+            void Consider(int keyX, int keyZ, double x, double z)
+            {
+                var surface = NeighborSurface(columns, outside, new(keyX, keyZ), new(x + 0.5, 0, z + 0.5));
+                if (surface is double height && (lowest is null || height < lowest)) lowest = height;
+            }
+            Consider(column.X + 1, column.Z, floorX + 1, floorZ);
+            Consider(column.X - 1, column.Z, floorX - 1, floorZ);
+            Consider(column.X, column.Z + 1, floorX, floorZ + 1);
+            Consider(column.X, column.Z - 1, floorX, floorZ - 1);
+            return lowest;
+        }
+
+        private double? NeighborSurface(Dictionary<GridColumn, TerrainColumn> columns, Dictionary<GridColumn, double?> outside,
+            GridColumn key, ScenePoint center)
+        {
+            if (columns.TryGetValue(key, out var owned)) return owned.Height;
+            if (outside.TryGetValue(key, out var cached)) return cached;
+            var arc = path.Locate(center);
+            var frame = path.Sample(arc);
+            var lateral = (center.X - frame.Position.X) * frame.Right.X + (center.Z - frame.Position.Z) * frame.Right.Z;
+            double? surface = null;
+            if (Math.Abs(lateral) <= halfWidth)
+            {
+                var local = new GridColumn((int)Math.Floor(center.X - origin.X), (int)Math.Floor(center.Z - origin.Z));
+                surface = Column(center, local, arc, lateral).Height;
+            }
+            outside[key] = surface;
+            return surface;
+        }
+
         internal BoundaryData Boundary(NodeId node, NodeLayout.Entry entry)
         {
             var isStart = node == path.Start.Id;
@@ -332,6 +377,7 @@ internal static class RailwayTerrain
             var radius = NodeLayout.GroundMargin + halfWidth + RailwayCoordinates.BoundaryGridMargin;
             var cells = ImmutableArray.CreateBuilder<SceneCell>();
             var heights = ImmutableDictionary.CreateBuilder<GridColumn, double>();
+            var owned = new Dictionary<GridColumn, TerrainColumn>();
             var subject = new PickSubject.Terrain(new WorldLocation.Node(node));
             var properties = new Dictionary<VoxelDefinitionId, CellProperties>();
             for (var z = (int)Math.Floor(endpoint.Z - radius); z <= endpoint.Z + radius; z++)
@@ -347,11 +393,19 @@ internal static class RailwayTerrain
                 var rail = path.Sample(arc);
                 var lineLateral = (center.X - rail.Position.X) * rail.Right.X + (center.Z - rail.Position.Z) * rail.Right.Z;
                 var value = Column(center, new((int)(x - origin.X), (int)(z - origin.Z)), arc, lineLateral);
-                heights.Add(new(x, z), value.Height + 1);
-                var distance = TrackDistance(lineLateral);
+                var key = new GridColumn(x, z);
+                owned.Add(key, value);
+                heights.Add(key, value.Height + 1);
+            }
+            var outside = new Dictionary<GridColumn, double?>();
+            foreach (var (key, value) in owned)
+            {
+                cancellation.ThrowIfCancellationRequested();
+                var distance = TrackDistance(value.Offset);
                 var hasBed = path.Edge.Tracks > 0 && !value.Water && !value.Tunnel;
-                var layers = PrepareColumn(value.Terrain, path.Rules.BallastVoxel, value.Height, distance, hasBed, null, Property);
-                FillColumn(cells, new(x, z), value.Height, layers.Terrain, layers.Ballast, distance, hasBed);
+                var lowest = LowestNeighbor(owned, outside, key, key.X, key.Z);
+                var layers = PrepareColumn(value.Terrain, path.Rules.BallastVoxel, value.Height, distance, hasBed, null, Property, lowest);
+                FillColumn(cells, key, value.Height, layers.Terrain, layers.Ballast, distance, hasBed, lowestNeighbor: lowest);
             }
             return new(RailwayDependencies.Capture(snapshot, path, index, terrainReads, modelReads, models, voxelReads,
                 readsStartTerrain, readsEndTerrain), new(cells.ToImmutable()), heights.ToImmutable(), shift, diagnostics.ToImmutable());
@@ -399,6 +453,7 @@ internal static class RailwayTerrain
         {
             var cells = ImmutableArray.CreateBuilder<SceneCell>();
             var heights = ImmutableDictionary.CreateBuilder<GridColumn, double>();
+            var outside = new Dictionary<GridColumn, double?>();
             var waterVertices = new List<SceneVertex>();
             var waterIndices = new List<int>();
             foreach (var pair in columns)
@@ -418,9 +473,10 @@ internal static class RailwayTerrain
                     var upper = Math.Min(rail.Position.Y + RailwayCoordinates.TunnelCrownCells, surface);
                     if (upper > rail.Position.Y) excluded = (rail.Position.Y, upper);
                 }
+                var lowest = LowestNeighbor(columns, outside, column, column.X + origin.X, column.Z + origin.Z);
                 var layers = PrepareColumn(value.Terrain, path.Rules.BallastVoxel, value.Height, trackDistance, hasBed, excluded,
-                    id => PrepareVoxel(id, Appearance, subject));
-                FillColumn(cells, column, value.Height, layers.Terrain, layers.Ballast, trackDistance, hasBed, origin.Y, excluded);
+                    id => PrepareVoxel(id, Appearance, subject), lowest);
+                FillColumn(cells, column, value.Height, layers.Terrain, layers.Ballast, trackDistance, hasBed, origin.Y, excluded, lowest);
                 if (value.Water)
                 {
                     var y = (float)(WaterLevel(value.Arc) - origin.Y);

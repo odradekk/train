@@ -5,6 +5,7 @@ using Train.App;
 using Train.App.Editing;
 using Train.App.Authoring;
 using Train.App.Logging;
+using Train.App.Notifications;
 using Train.App.Recording;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
@@ -42,6 +43,11 @@ public partial class GameUi : CanvasLayer
     private TrainFormationPanel? _formation;
     private TrainPlanPanel? _plan;
     private EconomyPanels? _economy;
+    private NotificationPolicy _policy = null!;
+    private NotificationPanel? _notices;
+    private CombatPanel? _combat;
+    private readonly BattleReportLog _reports = new();
+    private SettlementFoundingPanel? _founding;
     private GoodsIconCache _icons = null!;
     private HFlowContainer _bar = null!;
     private readonly List<(SimulationSpeed? Speed, Button Button)> _speeds = [];
@@ -81,8 +87,8 @@ public partial class GameUi : CanvasLayer
 
     internal void Initialize(MainMenu menu, HostCoordinator? host, TrainLogger logger,
         WorldSceneController? scenes, RecordingService? recording, GoodsIconCache icons, EditorService editor,
-        AuthoringService? authoring, TemplateSceneController? templates)
-    { _menu = menu; _host = host; _logger = logger; _scenes = scenes; _recording = recording; _icons = icons; _editor = editor; _authoring = authoring; _templates = templates; }
+        AuthoringService? authoring, TemplateSceneController? templates, NotificationPolicy policy)
+    { _menu = menu; _host = host; _logger = logger; _scenes = scenes; _recording = recording; _icons = icons; _editor = editor; _authoring = authoring; _templates = templates; _policy = policy; }
 
     public override void _Ready()
     {
@@ -96,6 +102,7 @@ public partial class GameUi : CanvasLayer
         _map.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         _world.AddChild(_map);
         _map.ObjectClicked += OpenScene;
+        _map.CombatClicked += OpenCombat;
         _map.DisplayFailed += message =>
         { _logger.Warning("ui", "map_display_failed", message); ShowError(message); };
         _minimap = new();
@@ -161,8 +168,27 @@ public partial class GameUi : CanvasLayer
             _world.AddChild(_economy);
             _bar.AddChild(UiStyle.Button("EconomyReports", "经营报告", _economy.OpenReports));
             _panels.SettlementRequested += _economy.OpenSettlement;
+            _founding = new SettlementFoundingPanel { Name = "SettlementFounding" };
+            _founding.Initialize(_host, Submit);
+            _world.AddChild(_founding);
+            _panels.FoundingRequested += (target, node) => _founding.Open(target, node);
+            _founding.SettlementRequested += id =>
+            {
+                if (_host.GetStatus() is not { } status || _host.Content is not { } content) return;
+                _economy.OpenSettlement(new(status.Binding, content.Generation, new WorldObjectId.Settlement(id)), id);
+            };
             _panels.InventoryRequested += _economy.OpenTrainInventory;
             _economy.FormationRequested += _formation.Open;
+            _combat = new CombatPanel { Name = "CombatPanel" };
+            _combat.Initialize(Submit, ReportUiError);
+            _world.AddChild(_combat);
+            _notices = new NotificationPanel { Name = "NotificationPanel" };
+            _notices.Chosen += OpenNotice;
+            _world.AddChild(_notices);
+            _bar.AddChild(UiStyle.Button("Combats", "战斗", () => _combat.Open()));
+            _bar.AddChild(UiStyle.Button("Notices", "通知", () => _notices.ShowLog()));
+            _panels.TrainCombatRequested += _combat.OpenTrain;
+            _panels.SettlementCombatRequested += _combat.OpenSettlement;
             _formation.TrainCreated += train =>
             {
                 if (_host.GetStatus() is not { } status || _host.Content is not { } content) return;
@@ -180,7 +206,7 @@ public partial class GameUi : CanvasLayer
         _error.AddThemeColorOverride("font_color", UiStyle.Error);
         errorBody.AddChild(_error);
         _settings = new SettingsPanel { Name = "SettingsPanel" };
-        _settings.Initialize(_host, _logger, ShowError, _recording);
+        _settings.Initialize(_host, _logger, ShowError, _policy, _recording);
         _root.AddChild(_settings);
         _bar.AddChild(UiStyle.Button("Settings", "设置", _settings.Show));
         _library = new BlueprintLibraryPanel { Name = "BlueprintLibrary" }; _library.Initialize(_editor); _root.AddChild(_library);
@@ -234,6 +260,9 @@ public partial class GameUi : CanvasLayer
         if (_formation is not null) _formation.Visible = !editing && _formation.Visible;
         if (_plan is not null) _plan.Visible = !editing && _plan.Visible;
         if (_economy is not null) _economy.Visible = !editing && _economy.Visible;
+        if (_combat is not null) _combat.Visible = !editing && _combat.Visible;
+        if (_notices is not null) _notices.Visible = status is not null && !editing;
+        if (_founding is not null) _founding.Visible = !editing;
         if (editing) _editorPanel?.MoveToFront();
         _returnToMap?.SetVisible(showingScene);
         if (_newOperation != 0 && _host?.MissingConfirmation is { } missing &&
@@ -263,6 +292,8 @@ public partial class GameUi : CanvasLayer
                 _formation!.Refresh(_binding, _view, _content);
                 _plan!.Refresh(_binding, _view, _content);
                 _economy!.Refresh(_binding, _view, _content);
+                _combat!.Refresh(_binding, _view, _content, _host!.IsBusy, _reports);
+                _founding?.Refresh(_binding, _view, _content);
             }
         }
         else if (_view is not null)
@@ -271,8 +302,11 @@ public partial class GameUi : CanvasLayer
             _formation!.Refresh(default, _view, _content!);
             _plan!.Refresh(default, _view, _content!);
             _economy!.Close();
+            _founding?.Close();
             _icons.Bind(default, null);
-            _formation.Hide(); _plan.Hide();
+            _formation.Hide(); _plan.Hide(); _combat?.Hide(); _notices?.Hide();
+            _reports.Clear();
+            _notices?.Clear();
             _view = null; _content = null; _binding = default;
             _world.Hide(); _errorPanel.Hide(); _settings.Hide(); _missingErrorOperation = null;
             _menu.Show();
@@ -314,7 +348,14 @@ public partial class GameUi : CanvasLayer
             ReportUiError("当前操作不可提交：对象已失效或宿主正在操作。");
             return null;
         }
-        var result = _host.Submit(target.Binding, command, CommandSource.UserInterface, candidate);
+        SubmissionResult result;
+        try { result = _host.Submit(target.Binding, command, CommandSource.UserInterface, candidate); }
+        catch (NotImplementedException)
+        {
+            _logger.Warning("ui", "command_not_implemented", command.GetType().Name);
+            ShowError("该操作尚未实现。");
+            return null;
+        }
         if (CommandDiagnostics.Report(_logger, result) is { } problem) ShowError(problem);
         return (result as SubmissionResult.Completed)?.Receipt.Decision as CommandDecision.Accepted;
     }
@@ -329,6 +370,15 @@ public partial class GameUi : CanvasLayer
         ImmutableArray<EventEnvelope> events)
     {
         _economy?.Observe(binding, view, events);
+        if (_notices is not null && _binding.Session != binding.Session) _notices.Begin(binding.Session);
+        if (_notices is not null)
+        {
+            var previous = _binding == binding ? _view : null;
+            foreach (var envelope in events)
+                if (_policy.Classify(envelope.Event, previous, view) is { } notice)
+                    _notices.Add(notice, view, content);
+        }
+        _reports.Observe(binding, events);
         if (view.Fault is { } fault && (_binding != binding || _view?.Fault != fault))
             ShowError(CommandDiagnostics.Describe(fault));
         _map.SetView(view, content, _binding != binding);
@@ -355,7 +405,84 @@ public partial class GameUi : CanvasLayer
         };
         if (target is null) { ReportUiError("对象没有可观察的场景目标。"); return; }
         _scenes.Open(target);
+        if (id is WorldObjectId.Node clicked &&
+            status.View.World.Nodes.FirstOrDefault(item => item.Id == clicked.Id)?.Occupant is NodeOccupant.Empty)
+        {
+            _panels?.Refresh(_binding, status.View, _content!);
+            _panels?.OpenObject(id);
+        }
     }
+
+    private void OpenCombat(CombatId id)
+    {
+        if (_host?.GetStatus() is not { } status) return;
+        var item = status.View.World.Combats.FirstOrDefault(combat => combat.Id == id);
+        if (item is null) { ReportUiError("已不存在"); return; }
+        OpenLocation(item.Location);
+    }
+
+    private void OpenNotice(NotificationNotice notice)
+    {
+        if (_host?.GetStatus() is not { } status) { ReportUiError("已不存在"); return; }
+        var view = status.View;
+        switch (notice.Subject)
+        {
+            case WorldObjectId.Settlement settlement:
+                var occupied = view.World.Nodes.FirstOrDefault(item =>
+                    item.Occupant is NodeOccupant.Settlement node && node.Id == settlement.Id);
+                if (occupied is null) { ReportUiError("已不存在"); return; }
+                OpenLocation(new WorldLocation.Node(occupied.Id));
+                return;
+            case WorldObjectId.Instance instance:
+                if (view.FindInstance(instance.Id) is not Lookup<InstanceView>.Found found ||
+                    !LocationExists(view, found.Value.Location))
+                { ReportUiError("已不存在"); return; }
+                OpenLocation(found.Value.Location);
+                return;
+            case WorldObjectId.Train train:
+                if (!view.World.Trains.Any(item => item.Id == train.Id)) { ReportUiError("已不存在"); return; }
+                OpenScene(new WorldObjectId.Train(train.Id));
+                return;
+            case WorldObjectId.Combat combat:
+                var listed = view.World.Combats.FirstOrDefault(item => item.Id == combat.Id);
+                if (listed is null) { ReportUiError("已不存在"); return; }
+                OpenLocation(listed.Location);
+                return;
+            case { } subject when !SubjectExists(view, subject):
+                ReportUiError("已不存在");
+                return;
+        }
+        if (notice.Location is { } location) OpenLocation(location);
+        else ReportUiError("已不存在");
+    }
+
+    private void OpenLocation(WorldLocation location)
+    {
+        if (_scenes is null || _host?.GetStatus() is not { } status || !LocationExists(status.View, location))
+        { ReportUiError("已不存在"); return; }
+        _scenes.Open(new WorldSceneTarget.Location(location));
+    }
+
+    private static bool LocationExists(ICoreReadView view, WorldLocation location) => location switch
+    {
+        WorldLocation.Node node => view.World.Nodes.Any(item => item.Id == node.Id),
+        WorldLocation.Edge edge => view.World.Edges.Any(item => item.Id == edge.Id),
+        _ => false
+    };
+
+    private static bool SubjectExists(ICoreReadView view, WorldObjectId subject) => subject switch
+    {
+        WorldObjectId.Combat combat => view.World.Combats.Any(item => item.Id == combat.Id),
+        WorldObjectId.Train train => view.World.Trains.Any(item => item.Id == train.Id),
+        WorldObjectId.Node node => view.World.Nodes.Any(item => item.Id == node.Id),
+        WorldObjectId.Edge edge => view.World.Edges.Any(item => item.Id == edge.Id),
+        WorldObjectId.Settlement settlement => view.World.Nodes.Any(item =>
+            item.Occupant is NodeOccupant.Settlement occupied && occupied.Id == settlement.Id),
+        WorldObjectId.Lair lair => view.World.Nodes.Any(item =>
+            item.Occupant is NodeOccupant.Lair occupied && occupied.Id == lair.Id),
+        WorldObjectId.Instance instance => view.FindInstance(instance.Id) is Lookup<InstanceView>.Found,
+        _ => false
+    };
 
     private void OnReturnedToMap(SceneProblem? problem)
     {

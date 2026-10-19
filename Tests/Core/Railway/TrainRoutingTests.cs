@@ -40,21 +40,17 @@ public sealed class TrainRoutingTests
     }
 
     [TestMethod]
-    public void Track_selection_excludes_breaks_and_repairs_and_chooses_the_smallest_remaining_number()
+    public void Track_selection_excludes_breaks_and_chooses_the_smallest_remaining_number()
     {
         var edge = Edge(1, 1, 2, 5) with
         {
             Tracks = 4,
-            Breaks = [new(new(1), 1, 2)],
-            Works = [Work(RailwayWorkKind.RepairBreak, 2), Work(RailwayWorkKind.AddTrack, 3)]
+            Breaks = [new(new(1), 1, 2)]
         };
 
-        Assert.AreEqual(3, TrainRouting.FindTrack(edge));
+        Assert.AreEqual(2, TrainRouting.FindTrack(edge));
         Assert.AreEqual(1, TrainRouting.FindTrack(edge with { Breaks = [] }));
-        Assert.AreEqual(1, TrainRouting.FindTrack(Edge(1, 1, 2, 5) with
-        {
-            Works = [Work(RailwayWorkKind.AddTrack, 1)]
-        }));
+        Assert.AreEqual(1, TrainRouting.FindTrack(Edge(1, 1, 2, 5)));
     }
 
     [TestMethod]
@@ -68,11 +64,10 @@ public sealed class TrainRoutingTests
         edge = edge with
         {
             Tracks = 2,
-            Breaks = [new(new(1), 1, 2)],
-            Works = [Work(RailwayWorkKind.RepairBreak, 2)]
+            Breaks = [new(new(1), 1, 2)]
         };
-        Assert.IsNull(TrainRouting.FindTrack(edge));
-        Assert.IsNull(TrainRouting.FindRoute(nodes, [edge], new(1), new(2), 2));
+        Assert.AreEqual(2, TrainRouting.FindTrack(edge));
+        AssertRoute(TrainRouting.FindRoute(nodes, [edge], new(1), new(2), 2), 5, 1);
 
         edge = edge with { Tracks = 3 };
         AssertRoute(TrainRouting.FindRoute(nodes, [edge], new(1), new(2), 2), 5, 1);
@@ -177,10 +172,6 @@ public sealed class TrainRoutingTests
 
     private static EdgeMapItem Edge(ulong id, ulong start, ulong end, double length) =>
         new(new(id), new(start), new(end), length, Terrain, 1, 4, [], []);
-
-    private static RailwayWorkView Work(RailwayWorkKind kind, int track) =>
-        new(new((ulong)track), kind, track,
-            kind == RailwayWorkKind.RepairBreak ? new BreakId((ulong)track) : null, new(1), [], 0, []);
 
     private static PlanStop Waypoint(ulong node) => new PlanStop.Waypoint(new(node));
 

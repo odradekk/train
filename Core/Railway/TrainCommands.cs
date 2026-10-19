@@ -18,6 +18,18 @@ internal static class TrainCommands
                 if (broken.Edge.Value == 0 || broken.Track < 1 || !double.IsFinite(broken.DistanceMeters) || broken.DistanceMeters < 0)
                     throw new ArgumentException("断点须提供非零线路编号、正轨号及有限非负距离。", nameof(command));
                 return;
+            case CoreCommand.ExpandRail expand:
+                if (expand.Edge.Value == 0 || expand.MaterialSource.Value == 0)
+                    throw new ArgumentException("线路和材料来源编号必须非零。", nameof(command));
+                return;
+            case CoreCommand.RepairRail repair:
+                if (repair.Edge.Value == 0 || repair.Break.Value == 0 || repair.MaterialSource.Value == 0)
+                    throw new ArgumentException("线路、断点和材料来源编号必须非零。", nameof(command));
+                return;
+            case CoreCommand.SetAutomaticRailRepair automatic:
+                if (automatic.Edge.Value == 0 || automatic.MaterialSource is { Value: 0 })
+                    throw new ArgumentException("线路编号必须非零，材料来源必须为空或非零。", nameof(command));
+                return;
             case CoreCommand.FormTrain form:
                 if (form.OrderedVehicles.IsDefault || form.OrderedVehicles.Any(v => v.Value == 0))
                     throw new ArgumentException("车辆数组必须初始化且编号非零。", nameof(command));
@@ -50,21 +62,10 @@ internal static class TrainCommands
     internal static CommandEffect Execute(WorldState world, CoreContentProjection content, CoreCommand command, SimulationPosition boundary)
     {
         var step = boundary.CompletedSteps;
-        if (command is CoreCommand.DebugAddRailBreak broken)
-        {
-            var edge = world.Edges.FirstOrDefault(e => e.Id == broken.Edge);
-            if (edge is null) return Reject("object_missing", "Edge", new WorldObjectId.Edge(broken.Edge));
-            if (broken.Track > edge.Tracks || broken.DistanceMeters > edge.LengthMeters)
-                return Reject("invalid_state", "Break", new WorldObjectId.Edge(broken.Edge));
-            if (world.Next.Break == ulong.MaxValue) return Reject("identity_exhausted", "World.Next.Break");
-            var item = new TrackBreakView(new(world.Next.Break), broken.Track, broken.DistanceMeters);
-            return new CommandEffect.Accepted(content, [new CoreEvent.RailBroken(edge.Id, item)], world with
-            {
-                Edges = world.Edges.Select(e => e.Id == edge.Id ? e with { Breaks = e.Breaks.Add(item) } : e).ToImmutableArray(),
-                TrackHandoffs = world.TrackHandoffs.Where(h => h.Edge != edge.Id || h.Track != item.Track).ToImmutableArray(),
-                Next = world.Next with { Break = world.Next.Break + 1 }
-            });
-        }
+        if (command is CoreCommand.DebugAddRailBreak broken) return RailwayWorks.AddBreak(world, content, broken);
+        if (command is CoreCommand.ExpandRail expand) return RailwayWorks.Expand(world, content, expand);
+        if (command is CoreCommand.RepairRail repair) return RailwayWorks.Repair(world, content, repair);
+        if (command is CoreCommand.SetAutomaticRailRepair automatic) return RailwayWorks.SetAutomatic(world, content, automatic);
         if (command is CoreCommand.FormTrain form) return Form(world, content, form);
         var id = command switch
         {

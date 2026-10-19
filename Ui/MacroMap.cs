@@ -160,8 +160,11 @@ public partial class MacroMap : Control
                 Zoom = next;
                 QueueRedraw();
             }
-            else if (button.Pressed && button.ButtonIndex == MouseButton.Left && HitTest(button.Position) is { } hit)
-                RaiseObjectClicked(hit);
+            else if (button.Pressed && button.ButtonIndex == MouseButton.Left)
+            {
+                if (CombatAt(button.Position) is { } combat) CombatClicked?.Invoke(combat);
+                else if (HitTest(button.Position) is { } hit) RaiseObjectClicked(hit);
+            }
             AcceptEvent();
         }
         else if (input is InputEventMouseMotion motion && _dragging)
@@ -202,6 +205,7 @@ public partial class MacroMap : Control
         if (_resources.ButtonPressed || _platforms.ButtonPressed)
             foreach (var node in _world.Nodes) DrawInformation(node);
         foreach (var train in _world.Trains) DrawTrain(train);
+        DrawCombats();
     }
 
     internal string ResourceText(NodeResourceView resource) =>

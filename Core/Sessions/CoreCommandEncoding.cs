@@ -33,6 +33,9 @@ internal static class CoreCommandEncoding
                 CoreCommand.StartTrain => "train.start",
                 CoreCommand.StopTrain => "train.stop",
                 CoreCommand.DebugAddRailBreak => "rail.debug_add_break",
+                CoreCommand.ExpandRail => "rail.expand",
+                CoreCommand.RepairRail => "rail.repair",
+                CoreCommand.SetAutomaticRailRepair => "rail.set_automatic_repair",
                 CoreCommand.LoadGoods => "inventory.load_goods",
                 CoreCommand.UnloadGoods => "inventory.unload_goods",
                 CoreCommand.BuyGoods => "market.buy_goods",
@@ -225,6 +228,25 @@ internal static class CoreCommandEncoding
                     writer.WritePropertyName("distance_meters");
                     writer.WriteRawValue(addBreak.DistanceMeters.ToString("R", CultureInfo.InvariantCulture));
                     break;
+                case CoreCommand.ExpandRail expand:
+                    WriteIdentity(writer, "edge", expand.Edge.Value);
+                    WriteIdentity(writer, "material_source", expand.MaterialSource.Value);
+                    break;
+                case CoreCommand.RepairRail repair:
+                    WriteIdentity(writer, "edge", repair.Edge.Value);
+                    WriteIdentity(writer, "break", repair.Break.Value);
+                    WriteIdentity(writer, "material_source", repair.MaterialSource.Value);
+                    break;
+                case CoreCommand.SetAutomaticRailRepair automatic:
+                    WriteIdentity(writer, "edge", automatic.Edge.Value);
+                    writer.WritePropertyName("material_source");
+                    if (automatic.MaterialSource is { } source)
+                    {
+                        if (source.Value == 0) throw new ArgumentException("世界身份必须非零。", nameof(command));
+                        writer.WriteNumberValue(source.Value);
+                    }
+                    else writer.WriteNullValue();
+                    break;
             }
             writer.WriteEndObject();
         }
@@ -254,6 +276,9 @@ internal static class CoreCommandEncoding
                 "train.replace_run_plan" => ["input_format_version", "kind", "train", "plan"],
                 "train.disband" or "train.start" or "train.stop" => ["input_format_version", "kind", "train"],
                 "rail.debug_add_break" => ["input_format_version", "kind", "edge", "track", "distance_meters"],
+                "rail.expand" => ["input_format_version", "kind", "edge", "material_source"],
+                "rail.repair" => ["input_format_version", "kind", "edge", "break", "material_source"],
+                "rail.set_automatic_repair" => ["input_format_version", "kind", "edge", "material_source"],
                 "inventory.load_goods" or "inventory.unload_goods" => ["input_format_version", "kind", "train", "settlement", "local_inventory", "good", "quantity"],
                 "lease.acquire" => ["input_format_version", "kind", "request", "maximum_payment"],
                 "settlement.found" => ["input_format_version", "kind", "node", "material_source"],
@@ -402,6 +427,27 @@ internal static class CoreCommandEncoding
                 if (!distance.TryGetDouble(out var meters) || !double.IsFinite(meters) || meters < 0)
                     throw new InvalidField("/distance_meters");
                 return Success(new(null, new CoreCommand.DebugAddRailBreak(edge, trackNumber, meters)));
+            }
+            if (name is "rail.expand" or "rail.repair" or "rail.set_automatic_repair")
+            {
+                var edge = new EdgeId(Identity(Property(root, "edge", "", JsonValueKind.Number), "/edge"));
+                SettlementId? source = null;
+                if (name == "rail.set_automatic_repair")
+                {
+                    if (!root.TryGetProperty("material_source", out var material) || material.ValueKind is not (JsonValueKind.Number or JsonValueKind.Null))
+                        throw new InvalidField("/material_source");
+                    if (material.ValueKind == JsonValueKind.Number)
+                        source = new(Identity(material, "/material_source"));
+                }
+                else source = new(Identity(Property(root, "material_source", "", JsonValueKind.Number), "/material_source"));
+                CoreCommand decoded = name switch
+                {
+                    "rail.expand" => new CoreCommand.ExpandRail(edge, source!.Value),
+                    "rail.repair" => new CoreCommand.RepairRail(edge,
+                        new(Identity(Property(root, "break", "", JsonValueKind.Number), "/break")), source!.Value),
+                    _ => new CoreCommand.SetAutomaticRailRepair(edge, source)
+                };
+                return Success(new(null, decoded));
             }
             var train = new TrainId(Identity(Property(root, "train", "", JsonValueKind.Number), "/train"));
             CoreCommand command = name switch
