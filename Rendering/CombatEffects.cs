@@ -393,7 +393,7 @@ internal sealed class CombatEffects : IDisposable
             var delta = shot.Target - shot.P0;
             var length = delta.Length();
             var midpoint = (shot.P0 + shot.Target) * 0.5f;
-            var thickness = ShotThickness(midpoint);
+            var thickness = ShotThickness(shot.P0, shot.Target);
             shot.Node.Position = midpoint;
             shot.Node.Basis = length > 0.001f ? Basis.LookingAt(delta / length, Vector3.Up) : Basis.Identity;
             shot.Node.Scale = new Vector3(thickness, thickness, Math.Max(length, thickness));
@@ -420,13 +420,14 @@ internal sealed class CombatEffects : IDisposable
         shot.Node.Position = position;
     }
 
-    float ShotThickness(Vector3 midpoint)
+    float ShotThickness(Vector3 from, Vector3 to)
     {
         const float minimum = 0.2f;
         if (_camera is not { } camera) return minimum;
         var height = DisplayServer.WindowGetSize().Y;
         if (height <= 0) height = 1080;
-        var distance = Mathf.Max(1f, midpoint.DistanceTo(camera));
+        var nearest = Geometry3D.GetClosestPointToSegment(camera, from, to);
+        var distance = Mathf.Max(1f, nearest.DistanceTo(camera));
         var pixel = 2f * Mathf.Tan(Mathf.DegToRad(30f)) * distance / height;
         return Mathf.Max(minimum, pixel * 4f);
     }

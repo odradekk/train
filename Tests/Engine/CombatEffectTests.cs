@@ -69,6 +69,35 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public void LongShotNearCameraStaysWithinFourScreenPixels()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache);
+        var camera = new Camera3D { Fov = 60 };
+        var windowSize = DisplayServer.WindowGetSize();
+        var viewport = new SubViewport { Size = windowSize.Y > 0 ? windowSize : new(1920, 1080) };
+        TestScene.AddChild(viewport);
+        viewport.AddChild(camera);
+        try
+        {
+            var near = new Vector3(0, 0, -100);
+            var far = new Vector3(3200, 0, -100);
+            var frame = Frame(1, [], [Cue(1, SceneEffectKind.Shot,
+                from: new(far.X, far.Y, far.Z), to: new(near.X, near.Y, near.Z))]);
+            Commit(display, frame);
+            display.AdvanceEffects(frame, 0, camera.GlobalPosition);
+            var shot = One(display, "Shot");
+            var halfWidth = shot.GlobalBasis.Y * 0.5f;
+            var pixels = camera.UnprojectPosition(near + halfWidth)
+                .DistanceTo(camera.UnprojectPosition(near - halfWidth));
+            Require(pixels > 3.9f && pixels <= 4.01f,
+                $"长弹道近端的投影宽度应保持 4 像素，实际 {pixels} 像素。");
+        }
+        finally { viewport.Free(); }
+    }
+
+    [Test]
     public void PausedSimulationHoldsFragmentsAndOriginShiftKeepsThem()
     {
         using var dispatcher = new GodotMainThreadDispatcher();
