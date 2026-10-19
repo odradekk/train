@@ -154,22 +154,34 @@ internal sealed partial class NodeLayout
 
     private void PlaceLair(SceneWorldSnapshot snapshot)
     {
-        if (snapshot.Core.World.Nodes.Single(item => item.Id == Node).Occupant is not NodeOccupant.Lair occupant) return;
-        if (snapshot.Core.FindLair(occupant.Id) is not Lookup<LairView>.Found core) return;
-        var type = core.Value.Type;
-        var reference = new ContentReference.Core(new CoreDefinitionReference.Lair(type));
-        var lookup = snapshot.Content.FindLair(type);
-        if (lookup is not ContentLookup<LairAppearanceProjection>.Found found)
+        if (LairModel(snapshot, Node) is not { } model)
         {
-            var diagnostics = lookup is ContentLookup<LairAppearanceProjection>.Missing missing ? missing.Diagnostics : [];
-            var problems = ImmutableArray.CreateBuilder<SceneProblem>();
-            RailwayTerrain.ReportMissing(reference, diagnostics, "The lair scene model is missing.", problems,
-                new WorldObjectId.Node(Node));
-            Problems = Problems.AddRange(problems);
+            ReportMissingLair(snapshot);
             return;
         }
-        var shift = NodeLair.Translation(this, found.Value.SceneModel.Scene);
-        Lair = new(found.Value.SceneModel, shift.X, shift.Z);
+        var shift = NodeLair.Translation(this, model.Scene);
+        Lair = new(model, shift.X, shift.Z);
+    }
+
+    private void ReportMissingLair(SceneWorldSnapshot snapshot)
+    {
+        if (snapshot.Core.World.Nodes.Single(item => item.Id == Node).Occupant is not NodeOccupant.Lair occupant) return;
+        if (snapshot.Core.FindLair(occupant.Id) is not Lookup<LairView>.Found core) return;
+        var lookup = snapshot.Content.FindLair(core.Value.Type);
+        if (lookup is ContentLookup<LairAppearanceProjection>.Found) return;
+        var diagnostics = lookup is ContentLookup<LairAppearanceProjection>.Missing missing ? missing.Diagnostics : [];
+        var problems = ImmutableArray.CreateBuilder<SceneProblem>();
+        RailwayTerrain.ReportMissing(new ContentReference.Core(new CoreDefinitionReference.Lair(core.Value.Type)),
+            diagnostics, "The lair scene model is missing.", problems, new WorldObjectId.Node(Node));
+        Problems = Problems.AddRange(problems);
+    }
+
+    internal static SceneModelProjection? LairModel(SceneWorldSnapshot snapshot, NodeId node)
+    {
+        if (snapshot.Core.World.Nodes.Single(item => item.Id == node).Occupant is not NodeOccupant.Lair occupant) return null;
+        if (snapshot.Core.FindLair(occupant.Id) is not Lookup<LairView>.Found core) return null;
+        return snapshot.Content.FindLair(core.Value.Type) is ContentLookup<LairAppearanceProjection>.Found found
+            ? found.Value.SceneModel : null;
     }
 
     internal static string ReadInputs(SceneWorldSnapshot snapshot, NodeId id)

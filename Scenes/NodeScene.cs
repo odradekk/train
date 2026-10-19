@@ -65,8 +65,7 @@ internal sealed class NodeScene : IAsyncDisposable
             var boundary = BoundaryChunks.GetValueOrDefault(from) ?? [];
             var surfaces = SurfacesNear(from);
             var model = ModelChunks.GetValueOrDefault(from, []);
-            return RailwayDependencies.Values(new object?[] { TerrainInputs, Global.Layout.Template?.SceneModel.Design,
-                LairInputs(Global.Layout), from,
+            return RailwayDependencies.Values(new object?[] { TerrainInputs, Global.Layout.Template?.SceneModel.Design, from,
                 model.Select(voxel => voxel.Voxel).Distinct().Select(id => Appearances[id]).ToArray(),
                 bed.OrderBy(item => item.Key.X).ThenBy(item => item.Key.Z).ToArray(),
                 boundary.OrderBy(item => item.X).ThenBy(item => item.Z).ToArray(),
@@ -399,7 +398,7 @@ internal sealed class NodeScene : IAsyncDisposable
         try
         {
             var next = task.GetAwaiter().GetResult();
-            if (EntryTracksDiffer(snapshot, next.Global.Layout))
+            if (NeedsRefresh(snapshot, next.Global.Layout))
             {
                 ScheduleRefresh();
                 return;
@@ -413,7 +412,7 @@ internal sealed class NodeScene : IAsyncDisposable
     private void ScheduleRefresh()
     {
         if (!AcceptTrackChanges || refresh is not null || layout is null || prepared is null || failure is not null ||
-            cancellation.IsCancellationRequested || !EntryTracksDiffer(snapshot, layout)) return;
+            cancellation.IsCancellationRequested || !NeedsRefresh(snapshot, layout)) return;
         var captured = snapshot;
         var node = Node;
         var previous = cache.Read(node);
@@ -424,6 +423,9 @@ internal sealed class NodeScene : IAsyncDisposable
     private Preparation BuildPreparation(SceneWorldSnapshot current, NodeLayout currentLayout, Cached? previous, CancellationToken token) =>
         nodeBuild is null ? Prepare(current, currentLayout, previous, token) :
             new(current, nodeBuild(current, Node, previous, token), null, default, [], [], [], [], "", [], [], false);
+
+    private static bool NeedsRefresh(SceneWorldSnapshot snapshot, NodeLayout layout) =>
+        EntryTracksDiffer(snapshot, layout) || NodeLayout.LairModel(snapshot, layout.Node) != layout.Lair?.Model;
 
     private static bool EntryTracksDiffer(SceneWorldSnapshot snapshot, NodeLayout layout)
     {

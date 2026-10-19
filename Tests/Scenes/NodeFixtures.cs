@@ -164,7 +164,8 @@ internal static class NodeFixtures
 
     internal static SceneWorldSnapshot Snapshot(int platforms = 2, ImmutableArray<TrainView> trains = default,
         ImmutableArray<InstanceView> instances = default, IContentView? content = null,
-        ulong steps = 0, ulong sequence = 0, int tracks = 1, int? trackLimit = null, double platformLengthMeters = 96)
+        ulong steps = 0, ulong sequence = 0, int tracks = 1, int? trackLimit = null, double platformLengthMeters = 96,
+        bool sameSideEntry = false)
     {
         if (trains.IsDefault) trains = [Train()];
         if (instances.IsDefault)
@@ -176,13 +177,16 @@ internal static class NodeFixtures
                 })).ToImmutableArray();
         var node = Node(platforms);
         if (platforms > 0) instances = instances.Add(Station(platforms));
-        var neighbors = new[]
+        var neighbors = new List<NodeMapItem>
         {
             node with { Id = new(2), Position = new(600, 0), Occupant = new NodeOccupant.Empty(), Platforms = 0 },
             node with { Id = new(3), Position = new(0, -600), Occupant = new NodeOccupant.Empty(), Platforms = 0 }
         };
+        if (sameSideEntry)
+            neighbors.Add(node with { Id = new(4), Position = new(0, 600), Occupant = new NodeOccupant.Empty(), Platforms = 0 });
         ImmutableArray<NodeMapItem> nodes = [node, .. neighbors];
         ImmutableArray<EdgeMapItem> edges = [Edge(new(1), NodeId, new(2), tracks, trackLimit), Edge(new(2), new(3), NodeId, tracks, trackLimit)];
+        if (sameSideEntry) edges = edges.Add(Edge(new(3), NodeId, new(4), tracks, trackLimit));
         return new(new FixedCoreReadView
         {
             Position = new(steps, sequence), InputIdentity = new("scenes-test"),

@@ -30,18 +30,33 @@ internal static class NodeSettlement
             Point(pose, -x / 2, 0, z / 2), Point(pose, x / 2, 0, z / 2)];
     }
 
+    internal static ScenePanBounds? Bounds(DesignSceneProjection scene)
+    {
+        var points = new List<Vector2>();
+        if (scene.OccupiedBounds is { } occupied)
+        {
+            points.Add(new(occupied.Minimum.X, occupied.Minimum.Z));
+            points.Add(new(occupied.Maximum.X + 1, occupied.Maximum.Z + 1));
+        }
+        foreach (var (region, pose) in Flatten(scene))
+            points.AddRange(new[]
+            {
+                Point(pose, region.From.X, 0, region.From.Z), Point(pose, region.To.X + 1, 0, region.From.Z),
+                Point(pose, region.From.X, 0, region.To.Z + 1), Point(pose, region.To.X + 1, 0, region.To.Z + 1)
+            }.Select(point => new Vector2(point.X, point.Z)));
+        return points.Count == 0 ? null : new(points.Aggregate(Vector2.Min), points.Aggregate(Vector2.Max));
+    }
+
     internal static ScenePanBounds Bounds(SettlementLayoutProjection template)
     {
-        var points = template.Plots.SelectMany(Corners).Select(p => new Vector2(p.X, p.Z)).ToList();
-        var scene = template.SceneModel.Scene;
-        if (scene.OccupiedBounds is { } occupied)
-        { points.Add(new(occupied.Minimum.X, occupied.Minimum.Z)); points.Add(new(occupied.Maximum.X + 1, occupied.Maximum.Z + 1)); }
-        foreach (var (region, pose) in Flatten(scene))
+        var points = template.Plots.SelectMany(Corners).Select(corner => new Vector2(corner.X, corner.Z)).ToList();
+        if (Bounds(template.SceneModel.Scene) is { } scene)
         {
-            points.AddRange(new[] { Point(pose, region.From.X, 0, region.From.Z), Point(pose, region.To.X + 1, 0, region.From.Z),
-                Point(pose, region.From.X, 0, region.To.Z + 1), Point(pose, region.To.X + 1, 0, region.To.Z + 1) }.Select(p => new Vector2(p.X, p.Z)));
+            points.Add(scene.Minimum);
+            points.Add(scene.Maximum);
         }
-        return points.Count == 0 ? new(Vector2.Zero, Vector2.Zero) : new(points.Aggregate(Vector2.Min), points.Aggregate(Vector2.Max));
+        return points.Count == 0 ? new(Vector2.Zero, Vector2.Zero) :
+            new(points.Aggregate(Vector2.Min), points.Aggregate(Vector2.Max));
     }
 
     internal static IEnumerable<(FlattenRegion Region, ScenePose Pose)> Flatten(DesignSceneProjection scene)
