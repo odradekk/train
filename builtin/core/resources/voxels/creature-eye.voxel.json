@@ -1,0 +1,1 @@
+{"schema_version":3,"id":"creature-eye","appearance":{"allowed_orientations":"four_way","presentation":{"kind":"cube","material":"organic","faces":{"top":"top.png","side":"side.png","bottom":"top.png"},"tile_span":1},"behaviors":{"light":{}}},"display":{"name":"发光眼","description":"第五阶段生物样稿：发光眼，仅用于生物和聚落场景模型，脚本生成。","icon":"icon.png"}}
