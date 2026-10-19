@@ -66,10 +66,13 @@ internal sealed record TrainPositionSample(string Kind, ulong Id, double Distanc
     };
 }
 
+internal sealed record VehicleConditionSample(ulong Id, long StructureCurrent, long StructureMaximum,
+    int DamagedParts, int DestroyedParts);
 internal sealed record TrainSample(ulong Id, TrainPositionSample Position, string Activity, ulong Inventory, RunTotalsSample? CurrentRun,
-    ImmutableArray<RunReportSample> RecentReports);
-internal sealed record SettlementSample(ulong Id, ulong Node, ulong Inventory, ImmutableArray<ulong> VehiclesForSale,
-    ImmutableArray<ulong> CommissionJobs,
+    ImmutableArray<RunReportSample> RecentReports, ImmutableArray<VehicleConditionSample> Vehicles);
+internal sealed record NodeOccupantSample(ulong Id, string Occupant, ulong? Subject);
+internal sealed record SettlementSample(ulong Id, ulong Node, string Relation, bool Surrendered, ulong Inventory,
+    ImmutableArray<ulong> VehiclesForSale, ImmutableArray<ulong> CommissionJobs,
     ImmutableArray<MarketGoodSample> MarketGoods, ImmutableArray<FacilitySample> Facilities,
     long Residents, ImmutableArray<PopulationNeedSample> PopulationNeeds);
 internal sealed record LeaseSample(ulong Id, ulong Settlement, ulong Inventory, ulong ExpiresAtStep, bool Expired);
@@ -106,11 +109,11 @@ internal sealed record ProductionStateSample(SimulationPosition Position, int Or
     string Before, string After, ImmutableArray<ProblemSample> Reasons);
 internal sealed record InventorySample(ulong Id, long Capacity, long Used, long Available, string Access,
     ImmutableArray<GoodsSample> Goods);
-internal sealed record CommissionJobSample(ulong Id, string State, int Priority, long FrozenTotalWork,
+internal sealed record CommissionJobSample(ulong Id, string Kind, string State, int Priority, long FrozenTotalWork,
     double ProgressWork, double Progress, double ActualWorkPerSecond, ImmutableArray<string> Limits,
     ImmutableArray<GoodsSample> InvestedGoods, ImmutableArray<ProblemSample> Blockers)
 {
-    internal static CommissionJobSample From(ConstructionJobView job) => new(job.Id.Value, job.State.ToString(),
+    internal static CommissionJobSample From(ConstructionJobView job) => new(job.Id.Value, job.Kind.ToString(), job.State.ToString(),
         job.Priority, job.FrozenTotalWork, job.ProgressWork, job.Progress, job.ActualWorkPerSecond,
         job.Limits.Select(limit => limit.ToString()).ToImmutableArray(),
         job.InvestedGoods.Select(goods => new GoodsSample(GoodSample.From(goods.Good), goods.Quantity)).ToImmutableArray(),
@@ -118,7 +121,7 @@ internal sealed record CommissionJobSample(ulong Id, string State, int Priority,
 }
 
 internal sealed record EconomySample(SimulationPosition Position, long Wallet, ImmutableArray<TrainSample> Trains,
-    ImmutableArray<SettlementSample> Settlements, ImmutableArray<LeaseSample> Leases,
+    ImmutableArray<NodeOccupantSample> Nodes, ImmutableArray<SettlementSample> Settlements, ImmutableArray<LeaseSample> Leases,
     ImmutableArray<InventorySample> Inventories, long UnassignedServicePayments,
     ImmutableArray<CommissionJobSample> CommissionJobs)
 {
@@ -136,8 +139,23 @@ internal sealed record EconomySample(SimulationPosition Position, long Wallet, I
         return new(view.Position, view.Economy.Wallet.Value,
             trains.Select(train => new TrainSample(train.Id.Value, TrainPositionSample.From(train.Position), train.Activity.ToString(), train.Inventory.Value,
                 train.CurrentRun is { } run ? RunTotalsSample.From(run) : null,
-                train.RecentReports.Select(RunReportSample.From).ToImmutableArray())).ToImmutableArray(),
+                train.RecentReports.Select(RunReportSample.From).ToImmutableArray(),
+                train.Vehicles.Select(vehicle => Condition(view, vehicle)).ToImmutableArray())).ToImmutableArray(),
+            view.World.Nodes.OrderBy(node => node.Id.Value).Select(node => new NodeOccupantSample(node.Id.Value,
+                node.Occupant switch
+                {
+                    NodeOccupant.Settlement => "settlement",
+                    NodeOccupant.Lair => "lair",
+                    _ => "empty"
+                },
+                node.Occupant switch
+                {
+                    NodeOccupant.Settlement settlement => settlement.Id.Value,
+                    NodeOccupant.Lair lair => lair.Id.Value,
+                    _ => null
+                })).ToImmutableArray(),
             settlements.Select(settlement => new SettlementSample(settlement.Id.Value, settlement.Node.Value,
+                settlement.Relation.ToString(), settlement.Surrendered,
                 settlement.Inventory.Value, settlement.VehiclesForSale.Select(vehicle => vehicle.Value).ToImmutableArray(),
                 settlement.CommissionJobs.Select(job => job.Value).ToImmutableArray(),
                 settlement.Market.Goods.Select(good => new MarketGoodSample(GoodSample.From(good.Good), good.Stock,
@@ -161,6 +179,19 @@ internal sealed record EconomySample(SimulationPosition Position, long Wallet, I
             settlements.SelectMany(settlement => settlement.CommissionJobs).OrderBy(job => job.Value)
                 .Select(job => CommissionJobSample.From(((JobView.Construction)Found(view.FindJob(job))).Value))
                 .ToImmutableArray());
+    }
+
+    private static VehicleConditionSample Condition(ICoreReadView view, VehicleId vehicle)
+    {
+        var instance = Found(view.FindInstance(new InstanceId.Vehicle(vehicle)));
+        var damaged = 0;
+        var destroyed = 0;
+        foreach (var part in instance.Parts)
+        {
+            if (part.Destroyed) destroyed++;
+            else if (part.Durability.Maximum > 0 && part.Durability.EffectiveCurrent < part.Durability.Maximum) damaged++;
+        }
+        return new(vehicle.Value, instance.Structure.EffectiveCurrent, instance.Structure.Maximum, damaged, destroyed);
     }
 
     private static ImmutableArray<PopulationNeedView> Needs(PopulationExecution execution) => execution switch

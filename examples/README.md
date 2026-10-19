@@ -61,7 +61,12 @@ Station 的形状为 `{kind:"station",node,dwell_steps,goods_rules}`，省略后
 | `lease.acquire` | `request:{kind:"rent",settlement,capacity,duration_steps}`, `maximum_payment` | 租约示例、短测试 |
 | `inventory.unload_goods`／`inventory.load_goods` | `train,settlement,local_inventory,good,quantity` | 租约示例、短测试 |
 | `market.buy_vehicle` | `seller,vehicle,maximum_payment` | 仅测试专用短配方 |
-| `construction.commission_vehicle_work` | `facility,blueprint,sources,maximum_payment` | 委托成功与材料不足分支 |
+| `market.sell_vehicle` | `buyer,vehicle,minimum_receipt` | 仅测试专用短配方 |
+| `settlement.declare_war` | `settlement` | 仅测试专用短配方 |
+| `settlement.occupy` | `settlement,train` | 仅测试专用短配方 |
+| `engagement.set_train` | `train`，`rules:{priority,scope,encounter,retreat_structure_ratio}` | 仅测试专用短配方 |
+| `combat.retreat` | `train` | 仅测试专用短配方 |
+| `construction.commission_vehicle_work` | 制造：`facility,blueprint,sources,maximum_payment`；修理：`request` 与 `maximum_payment` | 委托成功与材料不足分支；修理仅测试专用短配方 |
 | `train.disband` | `train` | 断轨修复配方 |
 | `train.form` | `ordered_vehicles` | 断轨修复配方 |
 | `settlement.found` | `node,material_source` | 断轨修复配方；材料来源是列车 |
@@ -71,17 +76,17 @@ Station 的形状为 `{kind:"station",node,dwell_steps,goods_rules}`，省略后
 | `rail.set_automatic_repair` | `edge,material_source` | 断轨修复配方；`material_source` 为 JSON null 时关闭 |
 | `rail.debug_add_break` | `edge,track,distance_meters` | 断轨修复配方 |
 
-CLI 委托目前只支持制造车辆。`facility` 是执行施工的建筑编号，能力固定为 `Construction`；`blueprint` 是内置包中的车辆蓝图身份，由内容模块交出完整设计输入。`sources` 是按消费顺序排列的库存编号数组，必须显式给出，空数组表示整份 BOM 都从当地 NPC 补购。`maximum_payment` 为非负整数。任务优先级为 0；改装和修理的 CLI 配方入口尚未增加，核心改装和修理由模块用例验证。
+CLI 委托支持制造车辆，以及 `request.kind` 为 `repair_vehicle` 的修理。制造车辆时 `facility` 是执行施工的建筑编号，能力固定为 `Construction`；`blueprint` 是内置包中的车辆蓝图身份，由内容模块交出完整设计输入。`sources` 是按消费顺序排列的库存编号数组，必须显式给出，空数组表示整份材料都从当地 NPC 补购。`maximum_payment` 为非负整数。制造任务优先级为 0。修理的 `request` 含 `facility`、`vehicle`、`sources` 和 `priority`，设施形状与制造相同。改装的 CLI 配方入口尚未增加。
 
-租期必须是正式规则一天（5,184,000 步）的整数倍；配方不能借缩短租期加速验证。不支持本票未使用的续租、卖车、手动货物买卖或自动装卸。这些是 CLI 配方能力，没有新增游戏控制台命令，单命令手册不适用。
+租期必须是正式规则一天（5,184,000 步）的整数倍；配方不能借缩短租期加速验证。不支持本票未使用的续租、手动货物买卖或自动装卸。这些是 CLI 配方能力，没有新增游戏控制台命令，单命令手册不适用。
 
 `run`／`replay`／`resume` 的 JSON 另外包含：
 
-- `samples[]`：位置（节点位置包含可空 `entered_from`、`entered_track`、`next_edge`、`next_track`，与 Core 公开位置一致）、钱包、全局未归属委托工钱，全部列车的位置／活动／库存身份／当前运行累计／近期报告，全部聚居地的库存身份、待售车辆与委托任务编号，以及按任务编号查询的状态、工作进度、冻结工作量、投入货物和阻塞，全部租约的到期状态，以及这些对象引用的库存容量、已用、可用、权限和全部货物。数据直接来自公开查询；报告与当前累计保留 Core 给出的收付款、净现金流、运量、载运率和未完成规则，不重算。近期报告有核心规则规定的保留上限。
+- `samples[]`：位置（节点位置包含可空 `entered_from`、`entered_track`、`next_edge`、`next_track`，与 Core 公开位置一致）、钱包、全局未归属委托工钱，全部列车的位置／活动／库存身份／当前运行累计／近期报告／车辆结构耐久和受损／被毁部件数，全部节点的占据种类及聚居地或巢穴编号，全部聚居地的关系、是否投降、库存身份、待售车辆与委托任务编号，以及按任务编号查询的任务种类、状态、工作进度、冻结工作量、投入货物和阻塞，全部租约的到期状态，以及这些对象引用的库存容量、已用、可用、权限和全部货物。数据直接来自公开查询；报告与当前累计保留 Core 给出的收付款、净现金流、运量、载运率和未完成规则，不重算。近期报告有核心规则规定的保留上限。
 - `command_receipts[]`：配方中的零基 `command_index`、`kind`、`decision`（accepted／rejected）、`problems[{code,field,related_identities}]`、`quoted_total`。现车购买使用执行前的公开 `QuoteVehicle.Total`，车辆委托使用 `GetJobQuote.TotalPayment`；启动条件不足时为空，单纯资金不足时仍有已计算总额。其他命令为 null；报价不预留交易条件。
 - `samples[].settlements[]` 另含公开查询中的 `market_goods`（库存、补货目标、留用、可售／可收量及阻塞）、`facilities`（流程、状态、实际工作速率、限制、输出缓冲、潜在消耗及阻塞）、`residents` 和 `population_needs`。潜在消耗不是实际消耗。
 - `goods_transfers[]`、`production_completions[]`、`production_state_changes[]` 保留命令提交和推进返回的三类公开事件，含实际模拟位置和事件序号。成交记录含列车、聚居地、货物、数量及实际金额；生产完成量包含仍在输出缓冲中的货物。
-- `samples[].unassigned_service_payments` 是全局未归属委托工钱，`samples[].commission_jobs[]` 是委托任务详情，`samples[].settlements[].commission_jobs[]` 是当地任务编号。所有问题项（含 `blockers`、`reasons` 和 `incomplete_reasons`）均保留 `code`、`field`、`related_identities`。
+- `samples[].unassigned_service_payments` 是全局未归属委托工钱，`samples[].commission_jobs[]` 是委托任务详情（`kind` 为施工种类），`samples[].settlements[].commission_jobs[]` 是当地任务编号。所有问题项（含 `blockers`、`reasons` 和 `incomplete_reasons`）均保留 `code`、`field`、`related_identities`。
 
 需要按小时调查起步贸易时，只运行一次 Release `run`，再用 Python 3 标准库脚本汇总：
 

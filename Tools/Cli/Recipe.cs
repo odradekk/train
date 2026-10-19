@@ -84,10 +84,19 @@ internal sealed record RecipeCommand(
     int? Track = null,
     double? DistanceMeters = null,
     JsonElement MaterialSource = default,
-    ImmutableArray<ulong> OrderedVehicles = default)
+    ImmutableArray<ulong> OrderedVehicles = default,
+    ulong? Buyer = null,
+    long? MinimumReceipt = null,
+    JsonElement Rules = default)
 {
     internal void Validate()
     {
+        if (Kind == "construction.commission_vehicle_work" && Request is { ValueKind: JsonValueKind.Object })
+        {
+            RejectUnused(request: true, payment: true);
+            ParseRepair();
+            return;
+        }
         if (Kind is "construction.commission_vehicle_work" or "construction.start_owned")
         {
             RejectUnused(facility: Kind == "construction.commission_vehicle_work", request: Kind == "construction.start_owned",
@@ -106,6 +115,15 @@ internal sealed record RecipeCommand(
 
     internal CoreCommand Parse(IContentView content)
     {
+        if (Kind == "construction.commission_vehicle_work" && Request is { ValueKind: JsonValueKind.Object })
+        {
+            Validate();
+            var repair = ParseRepair();
+            return new CoreCommand.CommissionVehicleWork(new JobRequest.Repair(
+                new(new(repair.Facility.Building), CapabilityKind.Construction), new InstanceId.Vehicle(new(repair.Vehicle)),
+                repair.Sources.Select(source => new InventoryId(source)).ToImmutableArray(), repair.Priority),
+                new(MaximumPayment!.Value));
+        }
         if (Kind == "construction.commission_vehicle_work")
         {
             Validate();
@@ -130,19 +148,28 @@ internal sealed record RecipeCommand(
         var trainCommand = Kind is "train.replace_run_plan" or "train.start" or "train.stop" or "train.disband";
         var transfer = Kind is "inventory.load_goods" or "inventory.unload_goods";
         var lease = Kind == "lease.acquire";
-        var vehicle = Kind == "market.buy_vehicle";
+        var buyVehicle = Kind == "market.buy_vehicle";
+        var sellVehicle = Kind == "market.sell_vehicle";
         var form = Kind == "train.form";
         var found = Kind == "settlement.found";
         var expand = Kind == "rail.expand";
         var repair = Kind == "rail.repair";
         var automatic = Kind == "rail.set_automatic_repair";
         var debugBreak = Kind == "rail.debug_add_break";
-        if (!(trainCommand || transfer || lease || vehicle || form || found || expand || repair || automatic || debugBreak))
+        var declare = Kind == "settlement.declare_war";
+        var occupy = Kind == "settlement.occupy";
+        var engagement = Kind == "engagement.set_train";
+        var retreat = Kind == "combat.retreat";
+        if (!(trainCommand || transfer || lease || buyVehicle || sellVehicle || form || found || expand || repair
+            || automatic || debugBreak || declare || occupy || engagement || retreat))
             throw Invalid();
-        RejectUnused(train: trainCommand || transfer, plan: Kind == "train.replace_run_plan", request: lease,
-            vehicle: vehicle, payment: lease || vehicle, transfer: transfer, vehicles: form, node: found,
+        RejectUnused(train: trainCommand || transfer || occupy || engagement || retreat,
+            plan: Kind == "train.replace_run_plan", request: lease,
+            buyVehicle: buyVehicle, sellVehicle: sellVehicle, payment: lease || buyVehicle, minimumReceipt: sellVehicle,
+            transfer: transfer, vehicles: form, node: found,
             edge: expand || repair || automatic || debugBreak, railBreak: repair,
-            track: debugBreak, distance: debugBreak, material: found || expand || repair || automatic);
+            track: debugBreak, distance: debugBreak, material: found || expand || repair || automatic,
+            settlement: declare || occupy, rules: engagement);
         switch (Kind)
         {
             case "train.replace_run_plan" when Plan is { Stops.IsDefault: false, Stops.IsEmpty: false } plan:
@@ -161,6 +188,16 @@ internal sealed record RecipeCommand(
                     rent.DurationSteps), new(MaximumPayment.Value));
             case "market.buy_vehicle" when Seller is > 0 && Vehicle is > 0 && MaximumPayment is >= 0:
                 return new CoreCommand.BuyVehicle(new(Seller.Value), new(Vehicle.Value), new(MaximumPayment.Value));
+            case "market.sell_vehicle" when Buyer is > 0 && Vehicle is > 0 && MinimumReceipt is >= 0:
+                return new CoreCommand.SellVehicle(new(Buyer.Value), new(Vehicle.Value), new(MinimumReceipt.Value));
+            case "settlement.declare_war" when Settlement is > 0:
+                return new CoreCommand.DeclareWar(new(Settlement.Value));
+            case "settlement.occupy" when Settlement is > 0 && Train is > 0:
+                return new CoreCommand.OccupySettlement(new(Settlement.Value), new(Train.Value));
+            case "engagement.set_train" when Train is > 0 && EngagementRules() is { } rules:
+                return new CoreCommand.SetTrainEngagement(new(Train.Value), rules);
+            case "combat.retreat" when Train is > 0:
+                return new CoreCommand.Retreat(new(Train.Value));
             case "inventory.load_goods" or "inventory.unload_goods" when Settlement is > 0
                 && LocalInventory is > 0 && Good is not null && Quantity is > 0:
                 return Kind == "inventory.load_goods"
@@ -186,17 +223,23 @@ internal sealed record RecipeCommand(
         MaterialSource.ValueKind == JsonValueKind.Number && MaterialSource.TryGetUInt64(out var value) && value > 0
             ? value : null;
 
-    private void RejectUnused(bool train = false, bool plan = false, bool request = false, bool vehicle = false,
+    private void RejectUnused(bool train = false, bool plan = false, bool request = false, bool buyVehicle = false,
         bool payment = false, bool transfer = false, bool facility = false, bool vehicles = false, bool node = false,
-        bool edge = false, bool railBreak = false, bool track = false, bool distance = false, bool material = false)
+        bool edge = false, bool railBreak = false, bool track = false, bool distance = false, bool material = false,
+        bool sellVehicle = false, bool minimumReceipt = false, bool settlement = false, bool rules = false)
     {
         if ((train ? Train is null or 0 : Train is not null)
             || (plan ? Plan is null : Plan is not null)
             || (request ? Request is null : Request is not null)
-            || (vehicle ? Seller is null || Vehicle is null : Seller is not null || Vehicle is not null)
+            || (buyVehicle ? Seller is null or 0 || Vehicle is null or 0 : Seller is not null)
+            || (sellVehicle ? Buyer is null or 0 || Vehicle is null or 0 : Buyer is not null)
+            || (!buyVehicle && !sellVehicle && Vehicle is not null)
+            || (minimumReceipt ? MinimumReceipt is null : MinimumReceipt is not null)
+            || (rules ? Rules.ValueKind != JsonValueKind.Object : Rules.ValueKind != JsonValueKind.Undefined)
             || (payment ? MaximumPayment is null : MaximumPayment is not null)
             || (transfer ? Settlement is null || LocalInventory is null || Good is null || Quantity is null
-                : Settlement is not null || LocalInventory is not null || Good is not null || Quantity is not null)
+                : !settlement && Settlement is not null || LocalInventory is not null || Good is not null || Quantity is not null)
+            || (settlement && Settlement is null or 0)
             || (facility ? Facility is null || Blueprint is null || Sources.IsDefault
                 : Facility is not null || Blueprint is not null || !Sources.IsDefault)
             || (vehicles ? OrderedVehicles.IsDefault : !OrderedVehicles.IsDefault)
@@ -209,6 +252,57 @@ internal sealed record RecipeCommand(
                 ? MaterialSource.ValueKind == JsonValueKind.Undefined
                 : MaterialSource.ValueKind != JsonValueKind.Undefined))
             throw Invalid();
+    }
+
+    private RecipeRepairJob ParseRepair()
+    {
+        RecipeRepairJob job;
+        try
+        {
+            job = Request is { ValueKind: JsonValueKind.Object } element
+                ? JsonSerializer.Deserialize<RecipeRepairJob>(element, Recipe.Json) ?? throw Invalid()
+                : throw Invalid();
+        }
+        catch (JsonException) { throw Invalid(); }
+        if (job.Kind != "repair_vehicle" || job.Facility is not { Building: > 0, Capability: "construction" }
+            || job.Vehicle == 0 || job.Sources.IsDefault || job.Sources.Any(source => source == 0))
+            throw Invalid();
+        return job;
+    }
+
+    private TrainEngagementRules? EngagementRules()
+    {
+        if (Rules.ValueKind != JsonValueKind.Object || Rules.EnumerateObject().Count() != 4) return null;
+        try
+        {
+            var priority = Rules.GetProperty("priority").GetString() switch
+            {
+                "armed_first" => TargetPriority.ArmedFirst,
+                "lowest_durability" => TargetPriority.LowestDurability,
+                "highest_durability" => TargetPriority.HighestDurability,
+                _ => (TargetPriority?)null
+            };
+            var scope = Rules.GetProperty("scope").GetString() switch
+            {
+                "armed_only" => TargetScope.ArmedOnly,
+                "all" => TargetScope.All,
+                _ => (TargetScope?)null
+            };
+            var encounter = Rules.GetProperty("encounter").GetString() switch
+            {
+                "engage" => EncounterAction.Engage,
+                "retreat" => EncounterAction.Retreat,
+                _ => (EncounterAction?)null
+            };
+            var ratio = Rules.GetProperty("retreat_structure_ratio").GetDouble();
+            return priority is { } chosenPriority && scope is { } chosenScope && encounter is { } chosenEncounter
+                && double.IsFinite(ratio) && ratio is >= 0 and <= 1
+                ? new TrainEngagementRules(chosenPriority, chosenScope, chosenEncounter, ratio) : null;
+        }
+        catch (Exception error) when (error is KeyNotFoundException or InvalidOperationException or FormatException)
+        {
+            return null;
+        }
     }
 
     private RecipeLeaseRequest Lease()
@@ -251,6 +345,13 @@ internal sealed record RecipeCommand(
 
     private InvalidDataException Invalid() => new($"不支持的配方命令或参数：{Kind}。");
 }
+
+internal sealed record RecipeRepairJob(
+    [property: JsonRequired] string Kind,
+    [property: JsonRequired] RecipeFacility Facility,
+    [property: JsonRequired] ulong Vehicle,
+    [property: JsonRequired] ImmutableArray<ulong> Sources,
+    [property: JsonRequired] int Priority);
 
 internal sealed record RecipeOwnedJob(
     [property: JsonRequired] string Kind,
