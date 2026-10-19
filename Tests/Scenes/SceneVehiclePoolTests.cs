@@ -70,6 +70,36 @@ public sealed class SceneVehiclePoolTests
     }
 
     [TestMethod]
+    public async Task PartDurabilityChangePublishesANewBodyAndTheFrameReturnsToReady()
+    {
+        var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle());
+        var healthy = RailwayFixtures.Instance() with { Parts = [new(new(1), new(100, 100), false, false)] };
+        var damaged = healthy with { Parts = [new(new(1), new(40, 100), false, false)] };
+        await using var vehicles = new SceneVehicles();
+        Assert.IsNull(vehicles.Reconcile(content, healthy, Id));
+        await SceneFixtures.AwaitPendingWork(vehicles.PendingWork);
+        var first = vehicles.Reconcile(content, healthy, Id);
+        Assert.IsNotNull(first);
+        Assert.IsNull(vehicles.Reconcile(content, damaged, Id));
+        await SceneFixtures.AwaitPendingWork(vehicles.PendingWork);
+        var second = vehicles.Reconcile(content, damaged, Id);
+        Assert.IsNotNull(second);
+        Assert.AreNotSame(first, second);
+
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()),
+            RailwayFixtures.Snapshot(4, 4, 0, content: content, trains: [RailwayFixtures.Train(0)], instances: [healthy]), new(), new());
+        session.RequestView(new WorldSceneTarget.Location(RailwayFixtures.Location));
+        var before = await RailwayFixtures.Settled(session, new(1, null, SceneDebugLayer.None));
+        Assert.AreEqual(SceneReadiness.Ready, before.Readiness);
+        session.Observe(RailwayFixtures.Snapshot(4, 4, 0, steps: 1, content: content,
+            trains: [RailwayFixtures.Train(0)], instances: [damaged]), []);
+        var after = await RailwayFixtures.Settled(session, new(1, null, SceneDebugLayer.None), before);
+        Assert.AreEqual(SceneReadiness.Ready, after.Readiness);
+        Assert.IsTrue(after.Objects.Any(item => item.Subject == new WorldObjectId.Instance(damaged.Id) &&
+            item.Visuals.OfType<SceneVisual.Geometry>().Any()));
+    }
+
+    [TestMethod]
     public void UnknownLengthForwardsTheDesignDiagnosticSource()
     {
         var instance = RailwayFixtures.Instance();

@@ -171,9 +171,7 @@ internal sealed class SceneVehicles : IAsyncDisposable
         return RailwayDependencies.Values(new object?[] { instance.Id, instance.Design,
             instance.Details is InstanceDetails.Vehicle vehicle ? (object)vehicle.Size : null,
             WorldSceneSession.Destroyed(instance).OrderBy(part => part.Value).ToArray(),
-            instance.Structure.EffectiveCurrent, instance.Structure.Maximum,
-            instance.Parts.OrderBy(part => part.Part.Value).Select(part =>
-                (part.Part.Value, part.Durability.EffectiveCurrent, part.Durability.Maximum)).ToArray(), scene,
+            StructureDamage.Signature.From(instance), scene,
             found.Value is DesignEvaluation.Complete complete ? complete.Diagnostics : ((DesignEvaluation.Partial)found.Value).Diagnostics,
             scene.Voxels.Select(voxel => voxel.Voxel).Distinct().OrderBy(id => id.Value, StringComparer.Ordinal)
                 .Select(id => content.FindVoxelAppearance(id)).ToArray() });
