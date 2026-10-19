@@ -308,7 +308,8 @@ public class UiTests(Node testScene) : TestClass(testScene)
                 $"实际列表点击没有打开列车详情：rect={list.GetGlobalRect()}，item={list.GetItemRect(0)}，selected={string.Join(',', list.GetSelectedItems())}，hover={tree.Root.GuiGetHoveredControl()?.GetPath()}。");
             stop!.GrabFocus();
             await _input.PressKey(Key.Space);
-            Require(setup.Session.SubmitCount == 1 && ui.ErrorText.Contains("no_route/train.plan") &&
+            Require(setup.Session.SubmitCount == 1 && ui.ErrorText.Contains("没有可达路径。对象：列车 7。") &&
+                !ui.ErrorText.Contains("no_route") &&
                 ui.GetNode<Control>("Root/ErrorPanel").IsVisibleInTree(), "真实停车命令的拒绝没有显示在界面。");
             setup.Session.AssertComplete();
 

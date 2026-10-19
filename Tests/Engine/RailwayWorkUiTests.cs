@@ -95,7 +95,8 @@ public class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
             var help = panel.GetNode<VBoxContainer>("RailwayWork/Layout/Content/Body").GetChild<Label>(-1);
             Require(Find<ItemList>(panel, "Breaks").GetItemText(0).Contains("断点 2") && works.Contains("任务 2")
                 && works.Contains("任务 3") && works.Contains("夹具钢轨 × 7") && works.Contains("进度 25%")
-                && works.Contains("货物不足") && works.Contains("insufficient_goods") && !works.Contains($"× {computed}")
+                && works.Contains("货物不足：夹具钢轨") && works.Contains("对象：聚居地 1") &&
+                !works.Contains("insufficient_goods") && !works.Contains("voxel:") && !works.Contains($"× {computed}")
                 && !summary.Contains('\r') && !works.Contains('\r')
                 && help.Text.Contains("件数和是否允许在受理或拒绝后由核心给出") && !help.Text.Contains("工期"),
                 "施工面板没有照查询显示断点、已投入货物和未开工阻塞：" + works + "\n" + help.Text);
@@ -127,8 +128,8 @@ public class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
                 "关闭自动修复后没有重新查询：" + summary + "\n" + works);
             await _input.Activate(Find<Button>(panel, "ExpandRail"));
             await _input.Frames(2);
-            Require(ui.ErrorText.Contains("货物不足") && ui.ErrorText.Contains("insufficient_goods"),
-                "加轨拒绝没有显示核心问题：" + ui.ErrorText);
+            Require(ui.ErrorText.Contains("货物不足：夹具钢轨。对象：聚居地 1。") && !ui.ErrorText.Contains("insufficient_goods") &&
+                !ui.ErrorText.Contains("voxel:"), "加轨拒绝没有显示中文问题和货物：" + ui.ErrorText);
             Require(Find<Label>(panel, "Works").Text.Contains("夹具钢轨 × 7") && !Find<Label>(panel, "Works").Text.Contains($"× {computed}"),
                 "拒绝后面板改用了长度估算。");
             await DismissError(ui);
