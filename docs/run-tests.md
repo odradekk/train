@@ -245,10 +245,10 @@ dotnet-affected 退出码 166 表示空项目集合；其他非零退出码、12
 
 | job／入口 | 算式（秒） | 合计 |
 | --- | --- | --- |
-| Windows routine：`-Layer fast,integration` | `120 + 300 + 150 + 720 + 780` | 2070（34.5 分钟） |
-| Windows routine：`-Layer engine` | `120 + 300 + 120 + 1470` | 2010（33.5 分钟） |
-| Windows correctness：`-All -Layer all` | `300 + 150 + 720 + 780 + 120 + 1470` | 3540（59 分钟） |
-| Linux 全量：`-All -Layer all,stage` | `300 + 150 + 720 + 780 + 120 + 1470 + 300 + 300 + 120 + 780 + 180 + 600` | 5820（97 分钟） |
+| Windows routine：`-Layer fast,integration` | `改动分析 120 + 构建 300 + 快速 150 + 集成 720 + 独立隔离 780` | 2070（34.5 分钟） |
+| Windows routine：`-Layer engine` | `改动分析 120 + 构建 300 + Godot 导入 120 + 引擎用例 1470` | 2010（33.5 分钟） |
+| Windows correctness：`-All -Layer all` | `构建 300 + 快速 150 + 集成 720 + 独立隔离 780 + Godot 导入 120 + 引擎用例 1470` | 3540（59 分钟） |
+| Linux 全量：`-All -Layer all,stage` | `构建 300 + 快速 150 + 集成 720 + 独立隔离 780 + Godot 导入 120 + 引擎用例 1470 + benchmark 构建 300 + structure 300 + verify 120 + 阶段隔离 780 + 阶段 Core 用例 180 + Benchmark 600` | 5820（97 分钟） |
 
 改动分析的 120 秒只出现在非 `-All` 入口。Godot 导入的 120 秒在引擎计时之外，不占用 1470 秒引擎预算。routine 的第一个入口失败后仍会执行 engine 入口，因此两个入口相加，最坏 4080 秒（68 分钟）。
 
