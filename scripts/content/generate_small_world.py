@@ -65,7 +65,6 @@ PRODUCTION_RESERVE_HOURS = BASIC_RESERVE_HOURS / 2
 IMPROVEMENT_RESERVE_HOURS = BASIC_RESERVE_HOURS / 4
 LOCAL_FOOD_SHARE = 0.25
 WAREHOUSE_HEADROOM = 2
-WAREHOUSE_ROW_WIDTH = 8
 # 大仓库没有独立预算。件数是小仓库推导结果的这个倍数，待试玩确认。
 LARGE_WAREHOUSE_FACTOR = 2
 NPC_FILL_INPUTS_AND_LIVING_TARGETS = True
@@ -823,6 +822,25 @@ AUTHORED_FILES = (
     "blueprints/large-locomotive.blueprint.json",
     "blueprints/titan-armed-vehicle.blueprint.json",
     "blueprints/heavy-vehicle-factory.blueprint.json",
+    "blueprints/assembly-factory.blueprint.json",
+    "blueprints/basic-shed.blueprint.json",
+    "blueprints/bastion-fortress.blueprint.json",
+    "blueprints/building-materials-factory.blueprint.json",
+    "blueprints/chemical-factory.blueprint.json",
+    "blueprints/core-city-hub.blueprint.json",
+    "blueprints/electronics-factory.blueprint.json",
+    "blueprints/extraction-site.blueprint.json",
+    "blueprints/farm.blueprint.json",
+    "blueprints/food-factory.blueprint.json",
+    "blueprints/large-station.blueprint.json",
+    "blueprints/large-warehouse.blueprint.json",
+    "blueprints/light-industry-factory.blueprint.json",
+    "blueprints/metallurgy-factory.blueprint.json",
+    "blueprints/power-station.blueprint.json",
+    "blueprints/recovery-factory.blueprint.json",
+    "blueprints/small-station.blueprint.json",
+    "blueprints/small-warehouse.blueprint.json",
+    "blueprints/vehicle-workshop.blueprint.json",
     "voxels/machine-gun/model.glb",
     "voxels/cannon/model.glb",
     "voxels/bogie/model.glb",
@@ -1156,10 +1174,27 @@ def large_diesel_engine(propulsion):
     for x in (-1, 1):
         fill_box(cells, (x, 2, -8), (1, 4, 16), 1)
     fill_box(cells, (0, 3, -9), (1, 1, 18), 1)
-    return blueprint("large-diesel-engine", "大型柴油机", "large_equipment",
-                     ["structural-metal", "mechanical-components"], cells,
-                     {"behaviors": {"propulsion": {"traction": 9 * propulsion["traction"],
-                                                   "rated_speed": propulsion["rated_speed"]}}})
+    value = blueprint("large-diesel-engine", "大型柴油机", "large_equipment",
+                      ["structural-metal", "mechanical-components"], cells,
+                      {"behaviors": {"propulsion": {"traction": 9 * propulsion["traction"],
+                                                    "rated_speed": propulsion["rated_speed"]}}})
+    value["layout"]["palette"].extend([
+        {"voxel": "structural-metal", "paint": "#33373b"},
+        {"voxel": "structural-metal", "paint": "#626750"},
+        {"voxel": "mechanical-components", "paint": "#7e858b"},
+        {"voxel": "structural-metal", "paint": "#d9a62b"},
+    ])
+    for cell in value["layout"]["cells"]:
+        x, y, z, _ = cell
+        if y == 0:
+            cell[3] = 2
+        elif x in (-3, 3) and 1 <= y <= 6:
+            cell[3] = 3
+        elif -1 <= x <= 1 and 3 <= y <= 5 and -8 <= z <= 7:
+            cell[3] = 4
+        elif y == 7 and -1 <= z <= 0:
+            cell[3] = 5
+    return value
 
 
 def heavy_turret(cannon):
@@ -1170,6 +1205,15 @@ def heavy_turret(cannon):
                       {"behaviors": {"weapon": {"damage": ceil(cannon["damage"] * 6 / 4), "interval": cannon["interval"]}}},
                       {"behaviors": {"rotation": {"axis": "y", "pivot": [0, 0, 0], "range": [-180, 180], "speed": 90}}})
     value["display"]["description"] = "重炮塔正式设计：整圈转动仅属表现，战斗行为待战斗阶段验证；武器数值待试玩确认。"
+    for entry in value["layout"]["palette"]:
+        entry["paint"] = "#33373b"
+    value["layout"]["palette"].extend([
+        {"voxel": "structural-metal", "paint": "#626750"},
+        {"voxel": "structural-metal", "paint": "#7e858b"},
+    ])
+    for cell in value["layout"]["cells"]:
+        if cell[3] == 0 and cell[1] > 0:
+            cell[3] = 3 if cell[1] == 7 else 2
     return value
 
 
@@ -1185,71 +1229,25 @@ def gantry_crane():
         fill_box(cells, (x, 44, -64), (1, 2, 128), 0)
     fill_box(cells, (-2, 44, -1), (5, 4, 3), 1)
     fill_box(cells, (0, 42, 0), (1, 2, 1), 1)
-    return blueprint("gantry-crane", "龙门吊", "large_equipment", ["structural-metal", "mechanical-components"], cells,
-                     {"behaviors": {"construction": {"work_rate": 4, "max_plot_size": "giant", "max_size_class": "titan"}}})
-
-
-def building_shell(cells, origin, size):
-    x0, y0, z0 = origin
-    width, height, depth = size
-    x1, y1, z1 = x0 + width - 1, y0 + height - 1, z0 + depth - 1
-    for y in range(y0, y1 + 1):
-        belt = y in (y0, y1) or (y - y0) % 12 < 2
-        for x in range(x0, x1 + 1):
-            if belt or x in (x0, x1) or (x - x0) % 12 < 2:
-                for z in (z0, z1):
-                    cells[x, y, z] = 1 if belt else 0
-        for z in range(z0, z1 + 1):
-            if belt or z in (z0, z1) or (z - z0) % 12 < 2:
-                for x in (x0, x1):
-                    cells[x, y, z] = 1 if belt else 0
-
-
-def core_city_hub():
-    cells = {}
-    building_shell(cells, (-160, 0, -112), (320, 24, 224))
-    for x0 in (-144, 48):
-        building_shell(cells, (x0, 24, -32), (96, 48, 64))
-        building_shell(cells, (x0 + 16, 72, -24), (64, 48, 48))
-        cells.update({(x, 71, z): 1 for x in range(x0, x0 + 96) for z in range(-32, 32)})
-        cells.update({(x, 119, z): 1 for x in range(x0 + 16, x0 + 80) for z in range(-24, 24)})
-    building_shell(cells, (-28, 24, -24), (56, 144, 48))
-    building_shell(cells, (-16, 168, -16), (32, 64, 32))
-    cells.update({(x, 167, z): 1 for x in range(-28, 28) for z in range(-24, 24)})
-    cells.update({(x, 231, z): 1 for x in range(-16, 16) for z in range(-16, 16)})
-    # 基座的十字梁把塔楼、侧翼与外圈柱廊连成一体，不铺满巨型地块。
-    for y in (0, 23):
-        cells.update({(x, y, z): 1 for x in range(-160, 160) for z in range(-2, 2)})
-        cells.update({(x, y, z): 1 for x in range(-2, 2) for z in range(-112, 112)})
-    for x in range(-148, 141, 24):
-        for z in (-111, 110):
-            cells[x, 1, z] = 2
-    value = blueprint("core-city-hub", "核心城市中枢", "building",
-                      ["construction-material", "structural-metal", "storage-equipment"], cells,
-                      {"plot_size": "giant", "building_type": "warehouse", "facility_tags": []})
-    value["display"]["description"] = "320×224×232 格的城市仓储地标：长基座柱廊、两级侧翼与中央高塔；仓储来自实际货舱，外观待阶段试玩确认。"
-    return value
-
-
-def bastion_fortress():
-    cells = {(x, y, z): 0 for y in range(20) for x in range(-176, 176) for z in (-160, 159)}
-    cells.update({(x, y, z): 0 for y in range(20) for z in range(-160, 160) for x in (-176, 175)})
-    for x0 in (-176, 144):
-        for z0 in (-160, 128):
-            building_shell(cells, (x0, 0, z0), (32, 112, 32))
-            cells.update({(x, 111, z): 1 for x in range(x0, x0 + 32) for z in range(z0, z0 + 32)})
-            cells[x0 + 1, 1, z0 + 1] = 2
-            cells[x0 + 1, 2, z0 + 1] = 2
-    building_shell(cells, (-32, 0, 128), (64, 80, 32))
-    # 正面门洞通向内院；门楼两侧与城墙相连。
-    for x in range(-12, 12):
-        for y in range(16):
-            for z in (128, 159):
-                cells.pop((x, y, z), None)
-    value = blueprint("bastion-fortress", "棱堡要塞", "building",
-                      ["construction-material", "structural-metal", "storage-equipment"], cells,
-                      {"plot_size": "giant", "building_type": "defense", "facility_tags": []})
-    value["display"]["description"] = "352×320×112 格的围墙、四座角堡、门楼与内院；当前只由实际货舱提供仓储，不含武器，战斗用途待战斗阶段实现。"
+    value = blueprint("gantry-crane", "龙门吊", "large_equipment", ["structural-metal", "mechanical-components"], cells,
+                      {"behaviors": {"construction": {"work_rate": 4, "max_plot_size": "giant", "max_size_class": "titan"}}})
+    value["layout"]["palette"].extend([
+        {"voxel": "structural-metal", "paint": "#33373b"},
+        {"voxel": "structural-metal", "paint": "#626750"},
+        {"voxel": "structural-metal", "paint": "#d9a62b"},
+        {"voxel": "mechanical-components", "paint": "#7e858b"},
+        {"voxel": "mechanical-components", "paint": "#d9a62b"},
+    ])
+    for cell in value["layout"]["cells"]:
+        x, y, z, index = cell
+        if y <= 1:
+            cell[3] = 2
+        elif 2 <= y <= 43 and abs(x) >= 19:
+            cell[3] = 3
+        elif 44 <= y <= 45 and -1 <= z <= 1:
+            cell[3] = 4 if index == 0 else 6
+        elif 46 <= y <= 47:
+            cell[3] = 5
     return value
 
 
@@ -1374,23 +1372,6 @@ def content_files():
             files[f"voxels/{identity}/{side}"] = png(size, side_texture)
     files["voxels/shared/crate-bottom.png"] = png(32, crate_bottom_texture)
 
-    station = {(x, 0, z): 0 for x in range(-96, 96)
-               for z in (*range(-24, -20), *range(20, 24))}
-    station.update({(x, 0, z): 0 for x in range(-2, 2) for z in range(-20, 20)})
-    station[0, 1, -22] = station[0, 1, 22] = 1
-    document("blueprints", "blueprint", "small-station",
-             blueprint("small-station", "小站点", "building", ["construction-material", "platform-equipment"],
-                       station, {"plot_size": "small_station", "building_type": "station", "facility_tags": []}))
-    # 桥面在泰坦包络（轨面 Y=0 起共 38 格）之上；立柱只落在站台带上，地面连廊不跨站线道床。
-    large_station = {(x, 0, z): 0 for x in range(-128, 128)
-                     for z in (*range(-64, -60), *range(-24, -20), *range(20, 24), *range(60, 64))}
-    large_station.update({(x, 0, z): 0 for x in range(-2, 2) for z in range(-20, 20)})
-    large_station.update({(x, y, z): 0 for z in (-62, -22, 22, 62) for x in range(-2, 2) for y in range(1, 38)})
-    large_station[0, 1, -62] = large_station[0, 1, -22] = large_station[0, 1, 22] = large_station[0, 1, 62] = 1
-    large_station.update({(x, 38, z): 0 for x in range(-2, 2) for z in (*range(-62, -21), *range(22, 63))})
-    document("blueprints", "blueprint", "large-station",
-             blueprint("large-station", "大站点", "building", ["construction-material", "platform-equipment"],
-                       large_station, {"plot_size": "large_station", "building_type": "station", "facility_tags": []}))
     for model in railway_models():
         document("blueprints", "blueprint", model["id"], model)
     for model in natural_models():
@@ -1466,49 +1447,16 @@ def content_files():
                               "description": "正式经济流程；批量、价值与速率为待用户试玩确认的第一版。"}})
 
     # 吊机是独立货物；建筑只引用它，不手写汇总施工能力。
-    crane = {(x, y, 0): 0 for x in range(-8, 9) for y in range(8) if x in (-8, 8) or y == 7}
-    document("blueprints", "blueprint", "workshop-crane",
-             blueprint("workshop-crane", "车间吊机", "large_equipment", ["structural-metal"], crane,
-                       {"behaviors": {"construction": {"work_rate": 4, "max_plot_size": "large", "max_size_class": "large"}}}))
+    crane = {(x, y, 0): 0 if y < 7 else 1 for x in range(-8, 9) for y in range(8) if x in (-8, 8) or y == 7}
+    crane_blueprint = blueprint("workshop-crane", "车间吊机", "large_equipment", ["structural-metal", "structural-metal"], crane,
+                                {"behaviors": {"construction": {"work_rate": 4, "max_plot_size": "large", "max_size_class": "large"}}})
+    crane_blueprint["layout"]["palette"][0]["paint"] = "#33373b"
+    crane_blueprint["layout"]["palette"][1]["paint"] = "#d9a62b"
+    document("blueprints", "blueprint", "workshop-crane", crane_blueprint)
     document("blueprints", "blueprint", "gantry-crane", gantry_crane())
 
-    buildings = (
-        ("basic-shed", "基础工棚", "small", "construction", None, "construction-equipment"),
-        ("vehicle-workshop", "车辆车间", "medium", "construction", None, "workshop-crane"),
-        ("small-warehouse", "小仓库", "small", "warehouse", None, "storage-equipment"),
-        ("large-warehouse", "大仓库", "medium", "warehouse", None, "storage-equipment"),
-        ("power-station", "发电站", "medium", "power", None, "power-equipment"),
-        ("farm", "农场", "medium", "production", "agriculture", "industrial-machinery"),
-        ("food-factory", "食品厂", "small", "production", "food_processing", "industrial-machinery"),
-        ("extraction-site", "开采场", "medium", "production", "extraction", "extraction-equipment"),
-        ("metallurgy-factory", "冶金厂", "large", "production", "metallurgy", "industrial-machinery"),
-        ("building-materials-factory", "建材厂", "medium", "production", "building_materials", "industrial-machinery"),
-        ("light-industry-factory", "轻工厂", "medium", "production", "light_industry", "industrial-machinery"),
-        ("chemical-factory", "化工厂", "large", "production", "chemical", "industrial-machinery"),
-        ("assembly-factory", "装配厂", "large", "production", "assembly", "industrial-machinery"),
-        ("electronics-factory", "电子厂", "medium", "production", "electronics", "industrial-machinery"),
-        ("recovery-factory", "回收厂", "medium", "production", "recovery", "industrial-machinery"),
-    )
-    plot_sizes = {"heavy-vehicle-factory": blueprint_definitions["heavy-vehicle-factory"]["simulation"]["plot_size"]}
-    for identity, name, size, kind, tag, equipment in buildings:
-        plot_sizes[identity] = size
-        half_x, half_z, height = {"vehicle-workshop": (20, 40, 20),
-                                  "large-warehouse": (8, 15, 8)}.get(identity, (8, 10, 8))
-        cells = {(x, 0, z): 0 for x in range(-half_x, half_x) for z in range(-half_z, half_z)}
-        # 四角立柱和屋顶边框与地板相连，保留内部设备空间。
-        cells.update({(x, y, z): 0 for x in (-half_x, half_x - 1) for z in (-half_z, half_z - 1)
-                      for y in range(1, height)})
-        cells.update({(x, height - 1, z): 0 for x in range(-half_x, half_x) for z in range(-half_z, half_z)
-                      if x in (-half_x, half_x - 1) or z in (-half_z, half_z - 1)})
-        nested = equipment == "workshop-crane"
-        palette = ["construction-material"] if nested else ["construction-material", equipment]
-        if not nested:
-            cells[0, 1, 0] = 1
-        value = blueprint(identity, name, "building", palette, cells,
-                          {"plot_size": size, "building_type": kind, "facility_tags": [tag] if tag else []})
-        if nested:
-            value["layout"]["composites"] = [{"at": [0, 1, 0], "blueprint": equipment}]
-        document("blueprints", "blueprint", identity, value)
+    plot_sizes = {identity: definition["simulation"]["plot_size"]
+                  for identity, definition in blueprint_definitions.items() if definition["category"] == "building"}
 
     settlements = (
         ("agricultural-town", "农业镇", ("plains", "hills"), ("farm", "food-factory")),
@@ -1525,8 +1473,8 @@ def content_files():
                                  "population_min": 120, "population_max": 360},
                   "display": {"name": name, "description": "按 Demo 目录选择偏好地貌；经济参数待用户试玩确认。",
                               "map_symbol": "symbol.png", "major": identity == "industrial-city"}})
-        plots = [{"id": 1, "size": "small_station", "at": [-104, 1, -176], "orientation": "px_py", "building": "small-station"},
-                 {"id": 2, "size": "small_station", "at": [104, 1, -176], "orientation": "px_py"}]
+        plots = [{"id": 1, "size": plot_sizes["small-station"], "at": [-104, 1, -176], "orientation": "px_py", "building": "small-station"},
+                 {"id": 2, "size": plot_sizes["small-station"], "at": [104, 1, -176], "orientation": "px_py"}]
         prebuilt = ("vehicle-workshop", "small-warehouse", "power-station") + major_buildings
         # 各行列间隔足以容纳旋转后的大地块；第十地块留给建城工棚。
         positions = ((-224, 0), (0, 0), (224, 0), (-224, 224), (0, 224), (224, 224), (-224, 448), (0, 448))
@@ -1556,13 +1504,11 @@ def content_files():
                                if identity == "mining-town" else
                                "十地块布局，含两个站点地块与真实生产计划；普通库存与现车由核心按生成配置初始化。")}})
 
-    for value in (core_city_hub(), bastion_fortress()):
-        document("blueprints", "blueprint", value["id"], value)
     city = json.loads(files["settlement-templates/industrial-city.settlement-template.json"])
     city.update(id="core-city", scene_model="core-city-ground")
     city["plots"].extend([
-        {"id": 11, "size": "giant", "at": [-224, 1, 800], "orientation": "px_py", "building": "core-city-hub"},
-        {"id": 12, "size": "giant", "at": [224, 1, 800], "orientation": "px_py", "building": "bastion-fortress"},
+        {"id": 11, "size": plot_sizes["core-city-hub"], "at": [-224, 1, 800], "orientation": "px_py", "building": "core-city-hub"},
+        {"id": 12, "size": plot_sizes["bastion-fortress"], "at": [224, 1, 800], "orientation": "px_py", "building": "bastion-fortress"},
     ])
     city["display"] = {"name": "核心城市", "description": "工业城的十二地块布局；两座巨型仓储建筑、重型车辆工厂与原有工业和公共设施。要塞战斗用途待战斗阶段实现。"}
     document("settlement-templates", "settlement-template", "core-city", city)
@@ -1631,28 +1577,19 @@ def content_files():
             lines += len(entries) + (process["power_per_work"] > 0)
         fuel_units = ceil(demand * reserve_seconds / fuel["fuel_energy"])
         warehouse_budgets.append(ceil(living + material_units + fuel_units) + lines * BATCH_UNITS)
-    storage = voxel_definitions["storage-equipment"]["simulation"]["behaviors"]["storage"]["capacity"]
-    storage_count = WAREHOUSE_ROW_WIDTH * ceil(
-        max(warehouse_budgets) * WAREHOUSE_HEADROOM / (storage * WAREHOUSE_ROW_WIDTH))
-    for identity, count in (("small-warehouse", storage_count),
-                            ("large-warehouse", storage_count * LARGE_WAREHOUSE_FACTOR)):
-        warehouse = blueprint_definitions[identity]
-        warehouse["layout"]["cells"] = sorted(
-            [cell for cell in warehouse["layout"]["cells"] if cell[3] != 1] +
-            [[index % WAREHOUSE_ROW_WIDTH - WAREHOUSE_ROW_WIDTH // 2, 1,
-              index // WAREHOUSE_ROW_WIDTH - ceil(count / WAREHOUSE_ROW_WIDTH) // 2, 1]
-             for index in range(count)])
-        warehouse["display"]["description"] = (
-            "仓储件数取小仓库推导结果的固定倍数，是待试玩确认的初值；容量及租赁影响待用户试玩确认。"
-            if identity == "large-warehouse" else
-            "仓储规模按生活、生产和产出毛量估算；容量及租赁影响待用户试玩确认。")
-        document("blueprints", "blueprint", identity, warehouse)
+    small_capacity = sum(behavior["capacity"] for behavior in blueprint_behaviors("small-warehouse", "storage"))
+    large_capacity = sum(behavior["capacity"] for behavior in blueprint_behaviors("large-warehouse", "storage"))
+    required_capacity = ceil(max(warehouse_budgets) * WAREHOUSE_HEADROOM)
+    if small_capacity < required_capacity:
+        raise ValueError(f"small-warehouse: authored storage capacity {small_capacity} is below budget {required_capacity}")
+    if large_capacity < small_capacity * LARGE_WAREHOUSE_FACTOR:
+        raise ValueError(f"large-warehouse: authored storage capacity {large_capacity} is below {LARGE_WAREHOUSE_FACTOR} small warehouses")
 
     small_vehicle_materials = Counter()
     for identity, _, _, size, *_ in VEHICLES:
         if size == "small":
             layout = blueprint_definitions[identity]["layout"]
-            small_vehicle_materials |= Counter(layout["palette"][index]["voxel"] for *_, index in layout["cells"])
+            small_vehicle_materials |= Counter(layout["palette"][cell[3]]["voxel"].removeprefix("core:") for cell in layout["cells"])
     supplied_goods = {item["voxel"] for _, plans, _ in template_estimates for process, _ in plans
                       for item in ([process["extracts"]] if process["kind"] == "extraction" else process["outputs"])}
     construction_materials = Counter()
@@ -1660,7 +1597,7 @@ def content_files():
                  ("small-station", "basic-shed", "small-warehouse", "power-station", "extraction-site")):
         construction_materials |= Counter(material for identity in path
             for *_, index in blueprint_definitions[identity]["layout"]["cells"]
-            if (material := blueprint_definitions[identity]["layout"]["palette"][index]["voxel"]) not in supplied_goods)
+            if (material := blueprint_definitions[identity]["layout"]["palette"][index]["voxel"].removeprefix("core:")) not in supplied_goods)
     for template in list(template_definitions.values()):
         stock = construction_materials.copy()
         description = "一次性备有"
@@ -1742,7 +1679,7 @@ def content_files():
     cargo_capacity = sum(behavior["capacity"] for train in START_TRAINS for identity in train
                          for behavior in blueprint_behaviors(identity, "storage"))
     freight = blueprint_definitions["small-freight-wagon"]["layout"]
-    freight_base_value = sum(values[freight["palette"][index]["voxel"]] for *_, index in freight["cells"])
+    freight_base_value = sum(values[freight["palette"][index]["voxel"].removeprefix("core:")] for *_, index in freight["cells"])
     # 只估算两列起始车队满舱采购与小型货车组成的预算，不计算核心委托报价。
     initial_money = ceil(START_BUDGET_MULTIPLIER * (cargo_capacity * max(values[good] for good, _, _ in goods) + freight_base_value))
     document("generation-profiles", "generation-profile", "basic-through-world", {
