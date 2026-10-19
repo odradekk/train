@@ -26,6 +26,7 @@ public partial class WorldPanels : Control
     internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
     internal event Action<PanelTarget, SettlementId>? SettlementRequested;
     internal event Action<PanelTarget, NodeId>? FoundingRequested;
+    internal event Action<PanelTarget, EdgeId>? RailwayWorkRequested;
     internal event Action<PanelTarget, TrainId>? InventoryRequested;
     internal event Action<InstanceId>? RefitRequested;
     internal event Action<InstanceId>? VehicleServiceRequested;
@@ -153,6 +154,11 @@ public partial class WorldPanels : Control
                     if (Available(bound)) FoundingRequested?.Invoke(bound, node.Id);
                 }));
         }
+        if (target is WorldObjectId.Edge edge)
+            buttons.Add(UiStyle.Button("RailwayWork", "铁路施工…", () =>
+            {
+                if (Available(bound)) RailwayWorkRequested?.Invoke(bound, edge.Id);
+            }));
         if (target is WorldObjectId.Train train)
         {
             buttons.Add(UiStyle.Button("Inventory", "列车库存…", () =>
