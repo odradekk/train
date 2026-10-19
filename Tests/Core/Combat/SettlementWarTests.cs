@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core;
 using Train.Core.Contracts;
@@ -107,22 +106,14 @@ public sealed class SettlementWarTests
         var defendedSettlement = SettlementWarFixture.HostileSettlement(defended);
         using var defendedAtNode = SettlementWarFixture.MoveTrain(defended, defendedSettlement.Node);
         SettlementWarFixture.Reject(defendedAtNode, new CoreCommand.OccupySettlement(defendedSettlement.Id,
-            SettlementWarFixture.Train(defendedAtNode)), "invalid_state", "Settlement.Defence");
+            SettlementWarFixture.Train(defendedAtNode)), "conditions_not_met", "Settlement");
     }
 
     [TestMethod]
     public void Surrender_ends_the_combat_in_the_same_step_and_keeps_the_settlement()
     {
-        var content = CombatFixture.Content(armedBuilding: true, damage: 100);
-        content = content with
-        {
-            CombatRules = content.CombatRules.Select(rule => rule.Id == WorldFixture.Rules.Combat
-                ? rule with
-                {
-                    MoraleDamageCoefficient = .015, WeaponDestroyedMoraleLoss = .18,
-                    MoraleRecoveryPerSecond = .012, SurrenderThreshold = .9
-                } : rule).ToImmutableArray()
-        };
+        var content = SettlementWarFixture.MoraleRules(CombatFixture.Content(armedBuilding: true, damage: 100),
+            coefficient: .015, weaponLoss: .18, recovery: .012, threshold: .9);
         using var session = CombatFixture.SessionWithContent(content);
         var hostile = CombatFixture.HostileNode(session);
         var settlement = ((NodeOccupant.Settlement)session.State.World.Nodes
@@ -147,6 +138,37 @@ public sealed class SettlementWarTests
             return;
         }
         Assert.Fail("聚居地未在限定步数内投降。");
+    }
+
+    [TestMethod]
+    public void A_trade_rule_referencing_a_merged_lease_reports_the_reason_without_faulting()
+    {
+        using var original = SettlementWarFixture.Session(SettlementWarFixture.Content(),
+            [new GoodsQuantity(ConstructionFixture.Material, 5)]);
+        var settlement = SettlementWarFixture.Settlement(original);
+        var train = SettlementWarFixture.Train(original);
+        using var atSettlement = SettlementWarFixture.MoveTrain(original, settlement.Node, servicing: true);
+        var lease = SettlementWarFixture.Accept(atSettlement, new CoreCommand.AcquireLease(
+            new LeaseRequest.Rent(settlement.Id, 10, 1), new(1000))).Events
+            .Select(envelope => envelope.Event).OfType<CoreEvent.LeaseAcquired>().Single().Lease;
+        SettlementWarFixture.Accept(atSettlement, new CoreCommand.UnloadGoods(train, settlement.Id,
+            lease.Inventory, ConstructionFixture.Material, 5));
+        using var moved = SettlementWarFixture.MoveTrain(atSettlement,
+            SettlementWarFixture.AwayNode(atSettlement, settlement));
+        SettlementWarFixture.Accept(moved, new CoreCommand.DeclareWar(settlement.Id));
+        using var atNode = SettlementWarFixture.MoveTrain(moved, settlement.Node, servicing: true);
+        SettlementWarFixture.Accept(atNode, new CoreCommand.OccupySettlement(settlement.Id, train));
+
+        var result = SettlementWarFixture.Accept(atNode, new CoreCommand.ReplaceRunPlan(train, new(false,
+            [new PlanStop.Station(settlement.Node, 1, [new AutomaticGoodsRule(new AutomaticGoodsAction.Load(),
+                ConstructionFixture.Material, lease.Inventory, 5)])])));
+        var evaluated = result.Events.Select(envelope => envelope.Event)
+            .OfType<CoreEvent.AutomaticTradeEvaluated>().Last();
+        var incomplete = evaluated.Results.Single().IncompleteReasons.Single();
+
+        Assert.AreEqual("object_missing", incomplete.Code);
+        Assert.AreEqual("LocalInventory", incomplete.Field);
+        Assert.IsNull(atNode.Read().Fault);
     }
 
     [TestMethod]

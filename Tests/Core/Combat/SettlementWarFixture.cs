@@ -22,6 +22,18 @@ internal static class SettlementWarFixture
         };
     }
 
+    internal static CoreContentProjection MoraleRules(CoreContentProjection content, double coefficient,
+        double weaponLoss, double recovery, double threshold) => content with
+    {
+        CombatRules = content.CombatRules.Select(rule => rule.Id == WorldFixture.Rules.Combat
+            ? rule with
+            {
+                MoraleDamageCoefficient = coefficient, WeaponDestroyedMoraleLoss = weaponLoss,
+                MoraleRecoveryPerSecond = recovery, SurrenderThreshold = threshold
+            }
+            : rule).ToImmutableArray()
+    };
+
     internal static CoreSession Session(CoreContentProjection? content = null,
         ImmutableArray<GoodsQuantity> cargo = default)
         => CombatFixture.SessionWithContent(content ?? Content(), cargo: cargo);
@@ -43,7 +55,8 @@ internal static class SettlementWarFixture
         => session.State.World.Nodes.Where(node => node.Id != settlement.Node
             && node.Occupant is NodeOccupant.Empty).OrderBy(node => node.Id.Value).First().Id;
 
-    internal static CoreSession MoveTrain(CoreSession session, NodeId node, bool servicing = false)
+    internal static CoreSession MoveTrain(CoreSession session, NodeId node, bool servicing = false,
+        TrainId? only = null)
     {
         var platforms = session.State.World.Nodes.Single(item => item.Id == node).Platforms;
         var position = servicing && platforms > 0
@@ -54,18 +67,20 @@ internal static class SettlementWarFixture
         {
             World = session.State.World with
             {
-                Trains = session.State.World.Trains.Select(train => train with
-                {
-                    Position = position,
-                    Activity = servicing ? TrainActivity.Servicing : TrainActivity.Stopped,
-                    SpeedMetersPerSecond = 0,
-                    Plan = null,
-                    NextStopIndex = null,
-                    RemainingDwellSteps = 0,
-                    StopRequested = false,
-                    QueueEnteredStep = null,
-                    RetreatDestination = null
-                }).ToImmutableArray()
+                Trains = session.State.World.Trains.Select(train => only is { } id && train.Id != id
+                    ? train
+                    : train with
+                    {
+                        Position = position,
+                        Activity = servicing ? TrainActivity.Servicing : TrainActivity.Stopped,
+                        SpeedMetersPerSecond = 0,
+                        Plan = null,
+                        NextStopIndex = null,
+                        RemainingDwellSteps = 0,
+                        StopRequested = false,
+                        QueueEnteredStep = null,
+                        RetreatDestination = null
+                    }).ToImmutableArray()
             }
         });
     }

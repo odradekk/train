@@ -558,14 +558,14 @@ internal static class CombatResolution
     private static CombatOwner Owner(WorldState world, InstanceId instance)
         => CombatQueries.OwnerOfUnit(world, new CombatUnitId.Instance(instance));
 
-    private static ImmutableArray<GoodsQuantity> Merge(ImmutableArray<GoodsQuantity> current,
+    internal static ImmutableArray<GoodsQuantity> Merge(ImmutableArray<GoodsQuantity> current,
         ImmutableArray<GoodsQuantity> added)
     {
         if (added.IsEmpty) return current;
         var quantities = current.ToDictionary(good => good.Good, good => good.Quantity);
         foreach (var good in added)
             quantities[good.Good] = checked(quantities.GetValueOrDefault(good.Good) + good.Quantity);
-        return quantities.OrderBy(pair => WorldReferences.GoodKey(pair.Key))
+        return quantities.OrderBy(pair => WorldReferences.GoodKey(pair.Key), StringComparer.Ordinal)
             .Select(pair => new GoodsQuantity(pair.Key, pair.Value)).ToImmutableArray();
     }
 

@@ -79,17 +79,17 @@
 | 字段 | 当前取值与后续责任 |
 | --- | --- |
 | `VehiclesForSale` | 当地 NPC 拥有的实际停放车辆，按身份排序；来源包括世界生成的初始现车和玩家卖给当地的原实例 |
-| `Surrendered` | 当前没有投降机制，为 `false`；#352 接入投降状态 |
+| `Surrendered` | 保存的投降状态。只有敌对 NPC 聚居地在战斗中士气严格低于 `SurrenderThreshold` 时为 `true`；恢复至不低于阈值时解除 |
 | `CommissionJobs`、`Economy.UnassignedServicePayments` | #387 返回当地活动委托的任务编号（按受理顺序），并累计全局实际已付委托工钱；材料补购款、租金及各列车运行账目不计入该累计 |
 | `OwnedJobs` | #332 返回设施在该聚居地、资金来源为 `OwnInventory` 的活动制造、修理、改装、拆解任务编号，按 `JobId` 升序；种类、状态和进度经 `FindJob` 读取。暂停的拆解仍列出，完成或失败后与 `FindJob` 返回 `Missing` 同步移除；NPC 聚居地返回空数组 |
 | `Market.Goods`、`VehiclePurchaseCapacities`、设施 `PotentialConsumption` | #384 从当前真实库存、需求、能力和市场规则派生；字段定义见下文市场部分 |
 | `Economy.RecentRunReports` | #385 接入全局近期运行报告，按生成顺序返回；与列车查询共用同一份历史，包含已解编列车的报告 |
 | `Facilities` 中的施工设施 | 当前返回已实现的加工、回收和开采设施；施工详情查询仍待后票，未列出不表示不存在施工能力或活动施工任务；活动任务由 `FindJob` 查询 |
 | `ParkingCapacity` | `int.MaxValue` 表示 Demo 不限停放数量，不表示已实现有限停车容量 |
-| `MoraleRatio` | 暂定为满值 `1`；士气权威状态及初始值由 #352 接入 |
+| `MoraleRatio` | 保存的士气，初始为 `1`，范围 `[0,1]` |
 | `Engagement` | #350 保存并返回列车和聚居地的交战规则。聚居地默认 `(ArmedFirst, All)`；列车在生成或编组时按当时有无完好武器写入默认值，之后只由 `SetTrainEngagement`／`SetSettlementEngagement` 修改。目标、撤退与阈值规则见[战斗](#战斗) |
 
-上述暂定停车和士气值仅由查询给出，不加入持久状态；交战规则自 #350 起是持久状态。
+上述停车和士气值只由查询给出；自格式 23 起士气与投降状态加入持久状态，交战规则自 #350 起是持久状态。
 
 ### 建城与玩家聚居地
 
@@ -105,6 +105,23 @@
 建城完成事件和节点适配事件在资源事件之后、生产状态变化事件之前发出。
 
 建城命令沿用输入格式 2，规范字段顺序为 `{"input_format_version":2,"kind":"settlement.found","node":1,"material_source":1}`；两个身份均为非零 `ulong`，解码允许重排，拒绝缺失、未知、重复及非法字段。不新增控制台命令。
+
+### 宣战与占领
+
+#352 实现 `DeclareWar`、`OccupySettlement`、士气与投降。两条命令沿用输入格式 2，规范字段顺序为 `{"input_format_version":2,"kind":"settlement.declare_war","settlement":1}` 和 `{"input_format_version":2,"kind":"settlement.occupy","settlement":1,"train":1}`；身份均为非零 `ulong`，解码允许重排，拒绝缺失、未知、重复及非法字段。不新增控制台命令。
+
+- `DeclareWar` 只接受非敌对聚居地。对象不存在为 `object_missing / Settlement`；关系不是 `NonHostile` 为 `invalid_state / Settlement.Relation`；当地存在资金来源为 `NpcCommission` 的活动委托为 `invalid_state / Settlement.CommissionJobs`；目标节点上有玩家列车，或停有玩家自有的车辆为 `invalid_state / Settlement.Node`。成功后关系改为 `Hostile`，同时更新节点占据者、当地建筑和 NPC 停放车辆的 `Ownership`，清空投降并发出一次 `SettlementRelationChanged(NonHostile → Hostile)`。玩家自有停放车辆不动。租用库存的冻结由保存的关系与现有访问权规则派生，不新增冻结字段。
+- `OccupySettlement` 只接受敌对聚居地。对象不存在为 `object_missing / Settlement` 或 `object_missing / Train`；关系不是 `Hostile` 为 `invalid_state / Settlement.Relation`；指定列车不在该节点为 `invalid_state / Train.Position`；该节点仍有战斗为 `invalid_state / Settlement.Node`；未投降且当地仍有能开火的武器为 `conditions_not_met / Settlement`。这里的“能开火”复用战斗开战判断：建筑和 NPC 停放车辆中至少一件武器部件耐久大于零且定义未缺失。成功后关系改为 `PlayerOwned`，同步节点占据者、建筑和 NPC 停放车辆所有权；人口、统计进度、燃料、地块、受损建筑和士气原样保留；清空投降；当地全部租约（含已到期）的货物并入聚居地库存，允许超容，随后删除租约和租用库存，不退租金、不发 `LeaseExpired`；交易规则或命令之后引用这些已删除的租用库存时只返回 `object_missing / LocalInventory`，不冻结会话。玩家自有停放车辆不动。事件为 `SettlementRelationChanged(Hostile → PlayerOwned)` 后接节点适配产生的列车事件。
+- 关系变化后复用 `TrainOperations.AdaptNodes`：占领时列车已在当地，关系变为自有会影响站台需求；宣战要求节点上没有玩家列车，因此不额外适配。
+- 查询返回保存的 `MoraleRatio` 与 `Surrendered`。世界生成和建城的初始士气为 `1`，未投降。
+
+### 士气、投降与恢复
+
+- 战斗规则缺失（按世界所选身份找不到 `CombatRuleProjection`）时，士气、投降和恢复都不变，已有状态原样保留。
+- 每步伤害结算后，对每个本步受到实际伤害的聚居地（含玩家自有聚居地）更新一次士气。伤害项 = 本步实际扣除的耐久（部件与结构，按剩余有效耐久截断，建筑和停放车辆都算）÷ 步初该聚居地全部现存建筑的有效结构耐久上限之和 × `MoraleDamageCoefficient`；分母为零时不计伤害项。武器项 = 步初完好且定义存在的武器部件中本步被毁的数量（部件耐久归零，或所在单位被摧毁，每件只计一次）× `WeaponDestroyedMoraleLoss`。结果截断到 `[0,1]`。由于使用步初建筑上限，战斗中被摧毁的建筑仍计入分母。
+- 只有敌对 NPC 聚居地会投降：更新后士气严格低于 `SurrenderThreshold` 且尚未投降时置 `Surrendered`，并发一次 `SettlementSurrendered(combat, settlement)`。投降后该聚居地的建筑和停放车辆在战斗敌对判断中不算敌对：不开火、不被选为目标、不加入，也不会新开战斗；控制方不从未结束的战斗记录中移除。现有结束判断在同一步结束战斗。
+- 每步战斗阶段开头、加入和开战之前，节点上没有战斗的聚居地恢复 `MoraleRecoveryPerSecond × SimulationTime.StepSeconds`，最多到 `1`；已投降且士气达到或超过 `SurrenderThreshold` 时解除投降。解除不发事件。玩家列车仍在该节点且仍能攻击时，同一步重新开战。
+- 事件顺序：`CombatStarted`／`CombatJoined` → 活动变化与 `CombatRetreatStarted` → `CombatHits` → `CombatDestruction` → `TrainCompositionChanged` → `RunReported` → 伤害触发的 `CombatRetreatStarted` → `SettlementSurrendered` → `CombatEnded` → `LairCleared` → 恢复活动的 `TrainActivityChanged`。
 
 ### 自有车辆施工
 
@@ -402,7 +419,7 @@ NPC 现车使用独立的 `KeyedRandom` 版本 1，不消费上述阶段的随�
 
 ## 战斗
 
-#350 实现节点战斗：玩家列车到达敌对聚居地所在节点后，与该聚居地的建筑和停放车辆交战。#351 实现生物群、生物聚落、线路相遇、袭击、清剿和新聚落。宣战、士气、投降和占领归 #352；表现归 #353–#355。
+#350 实现节点战斗：玩家列车到达敌对聚居地所在节点后，与该聚居地的建筑和停放车辆交战。#351 实现生物群、生物聚落、线路相遇、袭击、清剿和新聚落。#352 实现宣战、占领、士气、投降和恢复；表现归 #353–#355。
 
 - 战斗按地点保存，一个地点最多一场。节点战斗的地点是 `WorldLocation.Node`；线路战斗的地点是生物群该步结束时的 `WorldLocation.Edge`（边号和距离）。参战者是控制方：列车或聚居地；生物群记在战斗的生物清单里，不是控制方。每场战斗保存编号、地点、开始步、按控制方排序的状态（加入步、是否撤退、脱离余步、集中目标）、生物参战状态和双方损失摘要；逐单位 `CombatParticipantView` 从控制方和生物群派生。地点详情按同一节点或同一条边列出战斗和生物群，世界摘要按群保存编号、地点和活动。
 - 开战和结束共用同一判断：某参战控制方未在撤退，至少一件完好、定义未缺失的武器，且攻击范围内有敌对、可命中目标；`ArmedOnly` 只把有完好武器的目标算作可攻击，`All` 不限。没有攻击者的敌对聚居地不产生战斗，无武器列车可以留下。已有战斗时，到达且有敌对目标的列车加入；`Encounter=Retreat` 的列车在开战或加入时开始撤退。
@@ -414,15 +431,15 @@ NPC 现车使用独立的 `KeyedRandom` 版本 1，不消费上述阶段的随�
 - 删除副作用：被毁建筑删除实例、空出地块、移除生产设施状态（输出缓冲并入聚居地库存，允许超容）并重算站台数；被毁车辆从列车或停放清单删除。车辆被毁导致成员变化时发 `TrainCompositionChanged`，部分幸存时带原顺序的幸存成员并保留列车库存；全部被毁时带空数组成员、删除列车和库存、把货物计入 `CargoLost` 并发 `RunReported(AllVehiclesDestroyed)`。部分车辆被毁不删货物。
 - 撤退：`Retreat` 命令和 `Encounter=Retreat` 都写入剩余脱离步数 `IntervalSteps(CombatRules.RetreatSeconds)`。脱离期间不开火，但仍可被攻击。`RetreatStructureRatio` 的阈值为幸存车辆有效结构之和除以上限之和，严格低于时在伤害结算后开始撤退；已被摧毁的车辆不计入分子或分母。节点战斗的目的地是按用时最近的自有或非敌对聚居地，排除战斗所在节点；用时相同按节点编号。没有目的地时保持 `Retreating` 原地每步重试，`Blockers` 报 `no_route`。到达后依次发 `TrainArrived`、`RetreatCompleted`、活动转 `Stopped`，保留计划。节点战斗结束时仍在脱离的列车直接完成脱离并驶向该目的地，不恢复原计划。线路上的列车在脱离计时结束前继续制动并留在战斗里。计时归零，或战斗因其他原因结束而列车仍在脱离时，等领头列车和同一铁轨、同一方向上跟在后面的全部列车都停稳，再整组翻转方向，不论这些列车属于哪场战斗。翻转的同时，每一列从各自所在的战斗中移出。翻转前的方向决定出发节点：正向是边的起点，反向是边的终点。组内每一列（含原先没有参战的跟随列车）都把 `RetreatDestination` 设为这个节点，活动为 `Retreating`，之后只走现有 `MoveEdge` 和节点到达：依次发 `TrainArrived`、`RetreatCompleted`，停稳后为 `Stopped`。同一步里，这些列车和仍在等停稳的线路撤退列车不参与断点前的整组翻转，避免刚转回去又被转回来。
 - 命令与拒绝：`FocusFire`、`Retreat`、`SetTrainEngagement`、`SetSettlementEngagement` 使用输入格式 2。战斗、控制方或目标不存在为 `object_missing`；控制方不参战、目标不参战或不敌对、目标超出 `ArmedOnly` 为 `invalid_state / Controller` 或 `/Target`；`FocusFire` 的非自有聚居地控制方为 `not_owned / Controller`，`SetSettlementEngagement` 的非自有聚居地为 `not_owned / Settlement`。不在战斗中的列车下 `Retreat` 拒绝 `invalid_state / Train.Activity`，重复撤退接受且状态不变。参战或撤退中的列车拒绝 `StartTrain`、`StopTrain`、`ReplaceRunPlan`、`DisbandTrain`（`invalid_state / Train.Activity`），含参战车辆的 `FormTrain` 拒绝 `invalid_state / OrderedVehicles`；判断依据是是否参战或撤退中，不看活动值。
-- 事件顺序：同一控制方的开战、加入和伤害事件按 `CombatStarted`／`CombatJoined` → 转为 `Combat` 或 `Retreating` 的 `TrainActivityChanged` 与 `Encounter=Retreat` 的 `CombatRetreatStarted` → `CombatHits` → `CombatDestruction` → `TrainCompositionChanged` → `RunReported` → 伤害触发的 `CombatRetreatStarted` → `CombatEnded` → 恢复活动的 `TrainActivityChanged` 排列。战斗结束后不补发中断期间的表现事件。
+- 事件顺序：同一控制方的开战、加入和伤害事件按 `CombatStarted`／`CombatJoined` → 转为 `Combat` 或 `Retreating` 的 `TrainActivityChanged` 与 `Encounter=Retreat` 的 `CombatRetreatStarted` → `CombatHits` → `CombatDestruction` → `TrainCompositionChanged` → `RunReported` → 伤害触发的 `CombatRetreatStarted` → `SettlementSurrendered` → `CombatEnded` → 恢复活动的 `TrainActivityChanged` 排列。战斗结束后不补发中断期间的表现事件。
 - 生物群活动。补充：到期步按聚落编号顺序，键 `creature.spawn.v1` 为 `[聚落编号, 步号]`。不检查是否有外出群。本聚落现存成员数达到上限则跳过。已有驻守群，或已有正在本聚落节点战斗的群时，新成员并入该群；否则另开一个驻守群。生物或生物群身份耗尽时抛异常，本步不提交，会话冻结在步前边界。出动只在驻守群没有同伴外出时发生。候选是半径内的玩家聚居地和有铁轨的边，先聚居地、再边号；没有候选且游荡半径大于 0 时改为游荡。键 `creature.raid.target.v1` 为 `[聚落编号, 步号]`，选中边后再用 `creature.raid.position.v1` `[聚落编号, 步号, 线路编号]` 取开区间内的距离。游荡、袭击聚居地、袭击线路和撤退会移动，速度是成员里有限正速度的最小值，缺投影的成员不参与，全体没有可用速度时为 0。撤退走向自己的聚落；袭击走向目标；没有目的地的游荡用 `creature.wander.v1` `[生物群编号, 步号]` 在非 NPC 邻居里选下一跳。有聚落时只走离该聚落不超过 `RoamingRadiusHops` 跳的节点；失去聚落的群不限跳数。袭击时长和撤退损失阈值取存活成员当前投影的最小值，缺投影的成员不参与。损失比例按加入战斗时的人数计算，（加入时人数 − 当前人数）/ 加入时人数，严格大于阈值才因损失撤退。在自己聚落节点作战的群不因时长或损失撤退。聚居地袭击的时长从到达目标节点当步起算，游荡从出动当步起算；到期后改为撤退。生物群每步只选一个目标，固定先取有完好武器的单位，范围是全部敌对且可命中的单位；该群本步开火的个体都打这个目标。每只个体在 `(步号 − 该群加入步) % IntervalSteps(IntervalSeconds) == 0` 的步攻击。超出该个体当前生命的伤害不转移到其他个体。正在撤退的群不开战、不加入。回到自己的聚落节点后并入驻守：已有 `Guarding` 时保留那个群的编号，否则保留编号更小、正在本节点战斗的群，都没有时到达的群自己变成 `Guarding`。成员按生物编号合并，不增加该群加入战斗时的人数。战斗结束时，没有聚落、正在撤退或目标是线路的群：没有聚落则改为游荡，否则改为撤退并清掉目标；聚居地目标恢复袭击聚居地并保留开始步；在自己聚落上的群并入驻守；其余改为游荡并保留开始步。失去聚落的群离开战斗时（脱离计时归零，或战斗结束）改为游荡，之后继续移动。
 - 查询。`FindCreature`、`FindCreatureGroup`、`FindLair` 的编号必须非零，否则抛 `ArgumentException`；不存在为 `Missing`。个体生命是保存值与当前上限的较小非负值，缺投影时上限用保存的生命。群速度见上。`FindLair` 列出 `Home` 为该聚落的群。地图摘要和地点查询按上面的地点规则列出群，不复制设计。
 - 线路战斗。同一条边上，列车中心与生物位置的起止差变号，或任一端差为 0，即相遇。本步才进入该边的一方，起点算在入口：正向为 0，反向为线路长度。地点取生物的步末位置，生物被吸到该点并成为 `Combat`；列车不改位置，从下一步起按制动减速度减速。一步内依次处理多个群，编号较小的优先；已经在一场战斗里的单位不再另开。只有速度为 0，且同轨同向紧挨在前面的列车是参战者时，后面的列车才加入。`Encounter=Retreat` 在开战或加入时开始撤退，速度不归零，先制动。掉头和返回见上面的撤退。
 - 线路袭击。群不在战斗中、活动为袭击线路、人在目标边上的目标距离，且从活动开始步算起已满 `IntervalSteps(RailDamageWorkSeconds)` 时，给该距离上的每一条铁轨写一个断点。断点编号或（该边开了自动修复时）任务编号不够覆盖每一条铁轨，则这一步什么都不写，下步再试。写成功后群改为撤退并清掉目标。自动修复会为每个新断点建立修复任务；任务在写出的这一步已用步数为 0，从下一步才开始计时。群在边上工作时若与列车相遇，先进入战斗，这一步不写断点。
 - 清剿。节点战斗结束、该节点上已经没有生物群、仍有玩家列车，且节点上是生物聚落时，奖励只入账一次：玩家一方的 `CombatEnded` 奖励与 `LairCleared.Reward` 是同一笔钱。事件先 `CombatEnded`，再 `LairCleared`。仍在其他战斗里且活动为 `Combat` 或 `Retreating` 的同聚落群只清掉聚落和目标，活动留到离开战斗；其余同聚落群改为游荡。
 - 新聚落。`step % IntervalSteps(NewLairIntervalSeconds) == 0` 时，在没有占用、没有建城任务、且不与玩家聚居地相邻的空节点里选一个。键 `creature.lair.node.v1` 为 `[步号]`，类型键 `creature.lair.type.v1` 为 `[步号, 节点编号]`，只在 `GenerationWeight > 0` 的类型里抽。发出 `LairCreated`。不自动生成驻守群。
-- 同一步的顺序。列车调度（移动、制动、线路撤退翻转和断点翻转）在前，然后是生物的到期、移动、回家并入、补充、出动和新聚落，然后是战斗（脱离计时、节点与线路的开战和加入、射击、结束、清剿），然后是聚居地资源、生产和建城，然后是铁路施工计时，最后才是线路破坏。事件按这个顺序追加。战斗内部仍是 `CombatStarted`／`CombatJoined` → 活动变化与 `CombatRetreatStarted` → `CombatHits` → `CombatDestruction` → `TrainCompositionChanged` → `RunReported` → 伤害触发的 `CombatRetreatStarted` → `CombatEnded` → `LairCleared` → 恢复活动的 `TrainActivityChanged`。生物移动、补充和活动变化本身不发事件。
-- 保存格式 22 在格式 20 的 `world.combats`、`world.next.combat`、列车 `engagement` 与可空 `retreat_destination`、聚居地 `engagement` 之外，增加 `creature_groups`、`next.creature` 和 `next.creature_group`。生物群保存编号、可空聚落、地点、方向、活动、活动开始步、可空目标和成员；成员保存编号、定义和生命。解码拒绝：群或成员乱序、编号不小于下一编号、空群、生命不大于 0、同一聚落两个 `Guarding`、`Guarding` 不在自己的聚落节点或带有目标、没有聚落的群不是游荡／战斗／撤退或带有目标、边上的距离不在开区间 `(0, 长度)` 或没有方向、线路目标距离不在该开区间。战斗另拒绝：开始步不在 `(0, 已完成步]`、同一地点两场、控制方重复或乱序、加入步早于开始步或晚于已完成步、控制方不在战斗地点、集中目标不是本战斗中的敌对参战者、损失单位仍存在。线路战斗里列车和车辆只要求在同一条边，生物必须停在战斗记录的距离上，并且活动是 `Combat` 或 `Retreating`。这些字段参加捕获、恢复、检查点和严格重放。
+- 同一步的顺序。列车调度（移动、制动、线路撤退翻转和断点翻转）在前，然后是生物的到期、移动、回家并入、补充、出动和新聚落，然后是战斗（脱离计时、节点与线路的开战和加入、射击、结束、清剿），然后是聚居地资源、生产和建城，然后是铁路施工计时，最后才是线路破坏。事件按这个顺序追加。战斗内部仍是 `CombatStarted`／`CombatJoined` → 活动变化与 `CombatRetreatStarted` → `CombatHits` → `CombatDestruction` → `TrainCompositionChanged` → `RunReported` → 伤害触发的 `CombatRetreatStarted` → `SettlementSurrendered` → `CombatEnded` → `LairCleared` → 恢复活动的 `TrainActivityChanged`。生物移动、补充和活动变化本身不发事件。
+- 保存格式 23 沿用格式 22 的 `world.combats`、`world.next.combat`、列车 `engagement` 与可空 `retreat_destination`、聚居地 `engagement`、`creature_groups`、`next.creature` 和 `next.creature_group`，并增加每座聚居地的 `morale` 和 `surrendered`。生物群保存编号、可空聚落、地点、方向、活动、活动开始步、可空目标和成员；成员保存编号、定义和生命。解码拒绝：群或成员乱序、编号不小于下一编号、空群、生命不大于 0、同一聚落两个 `Guarding`、`Guarding` 不在自己的聚落节点或带有目标、没有聚落的群不是游荡／战斗／撤退或带有目标、边上的距离不在开区间 `(0, 长度)` 或没有方向、线路目标距离不在该开区间。战斗另拒绝：开始步不在 `(0, 已完成步]`、同一地点两场、控制方重复或乱序、加入步早于开始步或晚于已完成步、控制方不在战斗地点、集中目标不是本战斗中的敌对参战者、损失单位仍存在。线路战斗里列车和车辆只要求在同一条边，生物必须停在战斗记录的距离上，并且活动是 `Combat` 或 `Retreating`。士气不是有限值或不在 `[0,1]`，或 `surrendered` 为 true 而关系不是 `Hostile` 时也拒绝。这些字段参加捕获、恢复、检查点和严格重放。
 
 ## 库存与租约
 

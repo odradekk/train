@@ -66,7 +66,7 @@ internal static class SettlementWar
         if (world.Combats.Any(combat => combat.Location is WorldLocation.Node location && location.Id == settlement.Node))
             return Reject("invalid_state", "Settlement.Node", subject);
         if (!settlement.Surrendered && HasIntactWeapon(world, content, settlement))
-            return Reject("invalid_state", "Settlement.Defence", subject);
+            return Reject("conditions_not_met", "Settlement", subject);
         var changed = ChangeRelation(world, settlement.Id, SettlementRelation.PlayerOwned);
         changed = MergeLeases(changed, settlement.Id);
         var adapted = TrainOperations.AdaptNodes(changed, content, boundary);
@@ -106,20 +106,15 @@ internal static class SettlementWar
         if (leases.Length == 0) return world;
         var settlement = world.Settlements.Single(item => item.Id == settlementId);
         var inventory = world.Inventories.Single(item => item.Id == settlement.Inventory);
-        var quantities = inventory.Goods.ToDictionary(good => good.Good, good => good.Quantity);
+        var goods = inventory.Goods;
         foreach (var lease in leases)
-        {
-            var leased = world.Inventories.Single(item => item.Id == lease.Inventory);
-            foreach (var good in leased.Goods)
-                quantities[good.Good] = checked(quantities.GetValueOrDefault(good.Good) + good.Quantity);
-        }
-        var merged = quantities.OrderBy(pair => WorldReferences.GoodKey(pair.Key), StringComparer.Ordinal)
-            .Select(pair => new GoodsQuantity(pair.Key, pair.Value)).ToImmutableArray();
+            goods = CombatResolution.Merge(goods,
+                world.Inventories.Single(item => item.Id == lease.Inventory).Goods);
         var leaseInventories = leases.Select(lease => lease.Inventory).ToHashSet();
         return world with
         {
             Inventories = world.Inventories.Select(item => item.Id == inventory.Id
-                    ? item with { Goods = merged } : item)
+                    ? item with { Goods = goods } : item)
                 .Where(item => !leaseInventories.Contains(item.Id)).ToImmutableArray(),
             Leases = world.Leases.Where(lease => lease.Settlement != settlementId).ToImmutableArray()
         };

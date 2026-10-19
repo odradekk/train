@@ -291,6 +291,8 @@ internal static class CoreCommandEncoding
                 "inventory.load_goods" or "inventory.unload_goods" => ["input_format_version", "kind", "train", "settlement", "local_inventory", "good", "quantity"],
                 "lease.acquire" => ["input_format_version", "kind", "request", "maximum_payment"],
                 "settlement.found" => ["input_format_version", "kind", "node", "material_source"],
+                "settlement.declare_war" => ["input_format_version", "kind", "settlement"],
+                "settlement.occupy" => ["input_format_version", "kind", "settlement", "train"],
                 "engagement.set_train" => ["input_format_version", "kind", "train", "rules"],
                 "engagement.set_settlement" => ["input_format_version", "kind", "settlement", "rules"],
                 "combat.retreat" => ["input_format_version", "kind", "train"],
