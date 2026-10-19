@@ -321,7 +321,6 @@ internal static class WorldStateValidation
         const string field = "/world/creature_groups";
         var creatureIds = new HashSet<ulong>();
         var guarding = new HashSet<ulong>();
-        var away = new HashSet<ulong>();
         foreach (var group in world.CreatureGroups)
         {
             var path = field + $"/{group.Id.Value}";
@@ -329,11 +328,12 @@ internal static class WorldStateValidation
             Items(group.Creatures, path + "/creatures");
             Require(!group.Creatures.IsEmpty, path + "/creatures");
             Require(Enum.IsDefined(group.Activity), path + "/activity");
-            Require(group.Home is { } home && world.Lairs.Any(lair => lair.Id == home), path + "/home");
-            var homeId = group.Home!.Value.Value;
-            if (CreatureQueries.IsGarrison(world, group)) Require(guarding.Add(homeId), path + "/activity");
-            else if (CreatureQueries.IsOut(world, group)) Require(away.Add(homeId), path + "/activity");
-            else throw new CoreStateFormatException(path + "/activity");
+            Require(group.Home is null || world.Lairs.Any(lair => lair.Id == group.Home), path + "/home");
+            if (group.Home is null)
+                Require(group.Activity is CreatureActivity.Wandering or CreatureActivity.Combat or CreatureActivity.Retreating
+                    && group.Objective is null, path + "/home");
+            if (group.Activity == CreatureActivity.Guarding)
+                Require(group.Home is { } garrison && guarding.Add(garrison.Value), path + "/activity");
             switch (group.Location)
             {
                 case WorldLocation.Node node:
@@ -349,7 +349,7 @@ internal static class WorldStateValidation
             }
             if (group.Activity == CreatureActivity.Guarding)
             {
-                var lair = world.Lairs.Single(item => item.Id == group.Home);
+                var lair = world.Lairs.Single(item => item.Id == group.Home!);
                 Require(group.Location is WorldLocation.Node node && node.Id == lair.Node && group.Objective is null,
                     path + "/activity");
             }
@@ -777,8 +777,9 @@ internal static class WorldStateValidation
                     && train.RemainingDwellSteps == 0, "/world/trains/activity");
                 break;
             case TrainActivity.Combat:
-                Require(train.Position is TrainPosition.Node && train.SpeedMetersPerSecond == 0
-                    && CombatQueries.TrainInCombat(world, train.Id), "/world/trains/activity");
+                Require(CombatQueries.TrainInCombat(world, train.Id)
+                    && (train.Position is TrainPosition.Node && train.SpeedMetersPerSecond == 0
+                        || train.Position is TrainPosition.Edge), "/world/trains/activity");
                 break;
             case TrainActivity.Retreating:
                 Require(train.Position is TrainPosition.Node or TrainPosition.Edge, "/world/trains/activity");
@@ -843,7 +844,7 @@ internal static class WorldStateValidation
                 {
                     case CombatController.Train train:
                         Require(trains.TryGetValue(train.Id, out var controllerTrain)
-                            && CombatQueries.SameLocation(combat.Location, WorldState.Location(controllerTrain.Position)),
+                            && CombatQueries.SameCombatPlace(combat.Location, controllerTrain.Position),
                             controllerPath + "/train");
                         break;
                     case CombatController.Settlement settlement:
@@ -858,7 +859,7 @@ internal static class WorldStateValidation
                 foreach (var unit in units)
                 {
                     Require(unit is CombatUnitId.Instance { Id: var id } && instances.ContainsKey(id)
-                        && CombatQueries.SameLocation(combat.Location, InstanceLocation(world, id, trains, settlements)),
+                        && CombatPlace(combat.Location, InstanceLocation(world, id, trains, settlements)),
                         controllerPath + "/units");
                 }
                 if (controller.FocusTarget is { } focus)
@@ -915,7 +916,7 @@ internal static class WorldStateValidation
                         case DestroyedUnit.Instance instance:
                             Require(unitsLost.Add(new CombatUnitId.Instance(instance.Value.Instance)), sidePath + "/units_lost");
                             Require(designs.ContainsKey(instance.Value.Design)
-                                && CombatQueries.SameLocation(instance.Value.Location, combat.Location)
+                                && CombatPlace(combat.Location, instance.Value.Location)
                                 && !instances.ContainsKey(instance.Value.Instance), sidePath + "/units_lost");
                             break;
                         case DestroyedUnit.Creature creature:
@@ -962,6 +963,11 @@ internal static class WorldStateValidation
             if (group.Activity == CreatureActivity.Combat)
                 Require(creatureCombatants.Contains(group.Id.Value), "/world/creature_groups/activity");
     }
+
+    private static bool CombatPlace(WorldLocation combat, WorldLocation unit)
+        => combat is WorldLocation.Edge edge && unit is WorldLocation.Edge at
+            ? edge.Id == at.Id
+            : CombatQueries.SameLocation(combat, unit);
 
     private static WorldLocation InstanceLocation(WorldState world, InstanceId id,
         Dictionary<TrainId, TrainState> trains, Dictionary<SettlementId, SettlementState> settlements)

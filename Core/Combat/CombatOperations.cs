@@ -12,7 +12,7 @@ internal static class CombatOperations
         TargetScope Scope, bool Retreat);
 
     internal static (WorldState World, ImmutableArray<CoreEvent> Events) Advance(WorldState world,
-        CoreContentProjection content, ulong step)
+        CoreContentProjection content, ulong step, WorldState before)
     {
         var events = ImmutableArray.CreateBuilder<CoreEvent>();
         world = RemoveDeparted(world);
@@ -67,7 +67,7 @@ internal static class CombatOperations
             var node = world.Nodes.Single(item => item.Id == nodeId);
             var groups = Groups(world, node);
             var creatures = CreaturesAt(world, node.Id);
-            if (!HasAttacker(world, content, groups, CreaturesOf(creatures))) continue;
+            if (!HasAttacker(world, content, groups, creatures.Select(creature => creature.Id))) continue;
             if (world.Next.Combat == ulong.MaxValue)
                 throw new InvalidOperationException("战斗身份已耗尽。");
             var controllers = groups.Select(group => new CombatControllerState(group.Controller, step, false, 0, null))
@@ -92,6 +92,8 @@ internal static class CombatOperations
                 world = CreatureQueries.Replace(world, creature with { Activity = CreatureActivity.Combat });
         }
 
+        world = EdgeCombat.Advance(world, before, content, step, events);
+
         foreach (var combat in world.Combats.ToArray())
             world = CombatResolution.Resolve(world, content, combat.Id, step, events);
 
@@ -99,24 +101,50 @@ internal static class CombatOperations
 
         foreach (var combat in world.Combats.ToArray())
         {
-            if (HasAttacker(world, content, CombatGroups(world, combat), combat.Creatures)) continue;
+            if (HasAttacker(world, content, CombatGroups(world, combat), combat.Creatures.Select(creature => creature.Group)))
+                continue;
+            var sides = ClearanceReward(world, content, combat, out var clearedLair, out var clearedNode, out var reward);
             events.Add(new CoreEvent.CombatEnded(combat.Id, combat.Location,
-                new CombatSummary(combat.StartedAtStep, step, combat.Sides)));
+                new CombatSummary(combat.StartedAtStep, step, sides)));
+            if (clearedLair is not null)
+            {
+                world = world with { Money = new(checked(world.Money.Value + reward.Value)) };
+                events.Add(new CoreEvent.LairCleared(clearedLair.Id, clearedNode, reward));
+            }
+            var turned = new HashSet<TrainId>();
             foreach (var state in combat.Controllers)
             {
                 if (state.Controller is not CombatController.Train controller) continue;
                 var train = world.Trains.Single(t => t.Id == controller.Id);
                 if (state.Retreating)
                 {
-                    var destination = ChooseDestination(world, content, train, combat.Location);
-                    train = TrainOperations.ChangeActivity(train with { SpeedMetersPerSecond = 0,
-                        RetreatDestination = destination }, TrainActivity.Retreating, events);
+                    if (train.Position is TrainPosition.Edge && state.RemainingDisengagementSteps > 0
+                        && turned.Add(controller.Id))
+                    {
+                        foreach (var item in EdgeCombat.TurnAround(world, train))
+                        {
+                            turned.Add(item.Id);
+                            world = world with
+                            {
+                                Trains = world.Trains.Select(t => t.Id == item.Id ? item : t).ToImmutableArray()
+                            };
+                        }
+                        train = world.Trains.Single(t => t.Id == controller.Id);
+                    }
+                    else if (train.Position is TrainPosition.Node)
+                    {
+                        var destination = ChooseDestination(world, content, train, combat.Location);
+                        train = TrainOperations.ChangeActivity(train with { SpeedMetersPerSecond = 0,
+                            RetreatDestination = destination }, TrainActivity.Retreating, events);
+                    }
                 }
-                else if (train.Activity == TrainActivity.Combat)
+                else if (train.Activity == TrainActivity.Combat && train.Position is TrainPosition.Node)
                 {
                     train = TrainOperations.ResolveNode(ref world, content, train, events,
                         new TrainDispatch(world, content), step, new(step, 0));
                 }
+                else if (train.Activity == TrainActivity.Combat)
+                    train = TrainOperations.ChangeActivity(train, TrainActivity.Running, events);
                 world = world with
                 {
                     Trains = world.Trains.Select(t => t.Id == train.Id ? train : t).ToImmutableArray()
@@ -129,9 +157,9 @@ internal static class CombatOperations
                 var objective = group.Objective;
                 var activity = group.Activity;
                 var started = group.ActivityStartedAtStep;
-                if (state.Retreating || group.Objective is CreatureObjective.Railway)
+                if (group.Home is null || state.Retreating || group.Objective is CreatureObjective.Railway)
                 {
-                    activity = CreatureActivity.Retreating;
+                    activity = group.Home is null ? CreatureActivity.Wandering : CreatureActivity.Retreating;
                     objective = null;
                     started = step;
                 }
@@ -139,9 +167,8 @@ internal static class CombatOperations
                     activity = CreatureActivity.RaidingSettlement;
                 else if (CreatureQueries.AtOwnLair(world, group))
                 {
-                    activity = CreatureActivity.Guarding;
-                    objective = null;
-                    started = step;
+                    world = CreatureOperations.BecomeGarrison(world, group, step);
+                    continue;
                 }
                 else
                 {
@@ -153,11 +180,61 @@ internal static class CombatOperations
                     Activity = activity, Objective = objective, ActivityStartedAtStep = started
                 });
             }
+            if (clearedLair is not null)
+                world = RemoveLair(world, clearedLair, step);
             world = world with { Combats = world.Combats.Where(c => c.Id != combat.Id).ToImmutableArray() };
         }
         world = RetryRetreatDestinations(world, content);
 
         return (world, events.ToImmutable());
+    }
+
+    private static ImmutableArray<CombatSideSummary> ClearanceReward(WorldState world, CoreContentProjection content,
+        CombatState combat, out LairState? lair, out NodeId node, out Money reward)
+    {
+        lair = null;
+        node = default;
+        reward = new(0);
+        if (combat.Location is not WorldLocation.Node location) return combat.Sides;
+        if (world.CreatureGroups.Any(group => group.Location is WorldLocation.Node at && at.Id == location.Id))
+            return combat.Sides;
+        if (!world.Trains.Any(train => train.Position is TrainPosition.Node at && at.Id == location.Id))
+            return combat.Sides;
+        if (world.Nodes.Single(item => item.Id == location.Id).Occupant is not NodeOccupant.Lair occupant)
+            return combat.Sides;
+        var found = world.Lairs.Single(item => item.Id == occupant.Id);
+        var type = content.LairTypes.FirstOrDefault(item => item.Id == found.Type);
+        if (type is null) return combat.Sides;
+        lair = found;
+        node = location.Id;
+        reward = type.ClearanceReward;
+        var paid = reward;
+        return combat.Sides.Select(side => side.Owner is CombatOwner.Player
+            ? side with { Reward = new(checked(side.Reward.Value + paid.Value)) } : side).ToImmutableArray();
+    }
+
+    private static WorldState RemoveLair(WorldState world, LairState lair, ulong step)
+    {
+        foreach (var group in world.CreatureGroups.Where(group => group.Home == lair.Id).ToArray())
+        {
+            var current = CreatureQueries.FindGroup(world, group.Id);
+            if (current is null) continue;
+            var fighting = current.Activity is CreatureActivity.Combat or CreatureActivity.Retreating
+                && CreatureQueries.InCombat(world, current.Id);
+            world = CreatureQueries.Replace(world, fighting
+                ? current with { Home = null, Objective = null }
+                : current with
+                {
+                    Home = null, Activity = CreatureActivity.Wandering, Objective = null,
+                    ActivityStartedAtStep = step
+                });
+        }
+        return world with
+        {
+            Lairs = world.Lairs.Where(item => item.Id != lair.Id).ToImmutableArray(),
+            Nodes = world.Nodes.Select(item => item.Id == lair.Node
+                ? item with { Occupant = new NodeOccupant.Empty() } : item).ToImmutableArray()
+        };
     }
 
     private static WorldState ApplyRetreatThresholds(WorldState world, CoreContentProjection content, ulong step,
@@ -245,7 +322,7 @@ internal static class CombatOperations
             var controllers = combat.Controllers.Where(state => state.Controller switch
             {
                 CombatController.Train train => world.Trains.Any(item => item.Id == train.Id
-                    && CombatQueries.SameLocation(combat.Location, WorldState.Location(item.Position))),
+                    && CombatQueries.SameCombatPlace(combat.Location, item.Position)),
                 CombatController.Settlement => true,
                 _ => false
             }).ToArray();
@@ -272,27 +349,43 @@ internal static class CombatOperations
     private static WorldState AdvanceRetreats(WorldState world, CoreContentProjection content)
     {
         var trains = world.Trains.ToDictionary(train => train.Id);
+        var turned = new HashSet<TrainId>();
         var combats = world.Combats.Select(combat =>
         {
             var controllers = combat.Controllers.Select(state =>
             {
                 if (!state.Retreating || state.Controller is not CombatController.Train train
                     || !trains.TryGetValue(train.Id, out var current)) return state;
-                var remaining = state.RemainingDisengagementSteps == 0 ? 0 : state.RemainingDisengagementSteps - 1;
+                var previous = state.RemainingDisengagementSteps;
+                var remaining = previous == 0 ? 0 : previous - 1;
                 if (remaining == 0 && current.RetreatDestination is null)
                 {
-                    var destination = ChooseDestination(world, content, current, combat.Location);
-                    trains[train.Id] = current with { RetreatDestination = destination };
+                    if (current.Position is TrainPosition.Edge)
+                    {
+                        if (previous > 0 && turned.Add(train.Id))
+                            foreach (var item in EdgeCombat.TurnAround(world, current))
+                            {
+                                turned.Add(item.Id);
+                                trains[item.Id] = item;
+                            }
+                    }
+                    else
+                    {
+                        var destination = ChooseDestination(world, content, current, combat.Location);
+                        trains[train.Id] = current with { RetreatDestination = destination };
+                    }
                 }
                 return state with { RemainingDisengagementSteps = remaining };
             }).ToImmutableArray();
-            var creatures = combat.Creatures.Select(state => state.Retreating
-                ? state with
-                {
-                    RemainingDisengagementSteps = state.RemainingDisengagementSteps == 0
-                        ? 0 : state.RemainingDisengagementSteps - 1
-                }
-                : state).ToImmutableArray();
+            var creatures = combat.Creatures.Select(state =>
+            {
+                if (!state.Retreating) return state;
+                var remaining = state.RemainingDisengagementSteps == 0 ? 0 : state.RemainingDisengagementSteps - 1;
+                return state with { RemainingDisengagementSteps = remaining };
+            }).Where(state => !(state.Retreating && state.RemainingDisengagementSteps == 0)).ToImmutableArray();
+            var present = creatures.Select(state => state.Group).ToHashSet();
+            controllers = controllers.Select(state => state.FocusTarget is CombatUnitId.CreatureGroup focus
+                && !present.Contains(focus.Id) ? state with { FocusTarget = null } : state).ToImmutableArray();
             return combat with { Controllers = controllers, Creatures = creatures };
         }).ToImmutableArray();
         return world with { Combats = combats, Trains = world.Trains.Select(train => trains[train.Id]).ToImmutableArray() };
@@ -342,9 +435,6 @@ internal static class CombatOperations
                 && group.Activity != CreatureActivity.Retreating && !CreatureQueries.InCombat(world, group.Id))
             .OrderBy(group => group.Id.Value).ToArray();
 
-    private static CreatureCombatantState[] CreaturesOf(CreatureGroupState[] groups) =>
-        groups.Select(group => new CreatureCombatantState(group.Id, 0, group.Creatures.Length, false, 0)).ToArray();
-
     private static NodeId[] ContestedNodes(WorldState world)
     {
         var seen = new HashSet<NodeId>();
@@ -384,8 +474,9 @@ internal static class CombatOperations
             Scope(world, state.Controller), state.Retreating)).ToImmutableArray();
 
     private static bool HasAttacker(WorldState world, CoreContentProjection content, ImmutableArray<Group> groups,
-        IReadOnlyList<CreatureCombatantState> creatures)
+        IEnumerable<CreatureGroupId> creatures)
     {
+        var ids = creatures.ToArray();
         foreach (var attacker in groups.Where(group => !group.Retreat))
             foreach (var unit in attacker.Units.Where(unit => CombatQueries.Armed(world, content, unit)))
             {
@@ -394,17 +485,19 @@ internal static class CombatOperations
                                  && CombatQueries.Hittable(world, content, other)
                                  && (attacker.Scope == TargetScope.All || CombatQueries.Armed(world, content, other))))
                         return true;
-                foreach (var creature in creatures)
+                foreach (var creature in ids)
                 {
-                    var other = new CombatUnitId.CreatureGroup(creature.Group);
+                    var other = new CombatUnitId.CreatureGroup(creature);
                     if (CombatQueries.Hostile(world, unit, other) && CombatQueries.Hittable(world, content, other)
                         && (attacker.Scope == TargetScope.All || CombatQueries.Armed(world, content, other)))
                         return true;
                 }
             }
-        foreach (var creature in creatures.Where(creature => !creature.Retreating))
+        foreach (var creature in ids)
         {
-            var attacker = new CombatUnitId.CreatureGroup(creature.Group);
+            var group = CreatureQueries.FindGroup(world, creature);
+            if (group is null || group.Activity == CreatureActivity.Retreating) continue;
+            var attacker = new CombatUnitId.CreatureGroup(creature);
             if (!CombatQueries.Armed(world, content, attacker)) continue;
             foreach (var target in groups)
                 foreach (var other in target.Units.Where(other => CombatQueries.Hostile(world, attacker, other)
@@ -448,8 +541,10 @@ internal static class CombatOperations
             if (group.Controller is CombatController.Train retreatTrain)
             {
                 var current = world.Trains.Single(t => t.Id == retreatTrain.Id);
-                current = TrainOperations.ChangeActivity(current with { SpeedMetersPerSecond = 0 },
-                    TrainActivity.Retreating, events);
+                current = TrainOperations.ChangeActivity(current with
+                {
+                    SpeedMetersPerSecond = current.Position is TrainPosition.Edge ? current.SpeedMetersPerSecond : 0
+                }, TrainActivity.Retreating, events);
                 world = world with { Trains = world.Trains.Select(t => t.Id == retreatTrain.Id ? current : t).ToImmutableArray() };
             }
             return world;
@@ -459,8 +554,10 @@ internal static class CombatOperations
         if (train.Activity is TrainActivity.Running or TrainActivity.Servicing or TrainActivity.Waiting
             or TrainActivity.NoRoute)
         {
-            train = TrainOperations.ChangeActivity(train with { SpeedMetersPerSecond = 0 },
-                TrainActivity.Combat, events);
+            train = TrainOperations.ChangeActivity(train with
+            {
+                SpeedMetersPerSecond = train.Position is TrainPosition.Edge ? train.SpeedMetersPerSecond : 0
+            }, TrainActivity.Combat, events);
             world = world with { Trains = world.Trains.Select(t => t.Id == train.Id ? train : t).ToImmutableArray() };
         }
         return world;

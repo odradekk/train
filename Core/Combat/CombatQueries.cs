@@ -49,8 +49,13 @@ internal static class CombatQueries
         var train = world.Trains.Single(t => t.Id == id);
         var controller = new CombatController.Train(id);
         return Controller(world, controller) is { } found
-            && SameLocation(found.Combat.Location, WorldState.Location(train.Position));
+            && SameCombatPlace(found.Combat.Location, train.Position);
     }
+
+    internal static bool SameCombatPlace(WorldLocation location, TrainPosition position)
+        => location is WorldLocation.Edge edge && position is TrainPosition.Edge train
+            ? edge.Id == train.Id
+            : SameLocation(location, WorldState.Location(position));
 
     internal static bool InDisengagement(WorldState world, TrainId id)
         => Controller(world, new CombatController.Train(id)) is { } found

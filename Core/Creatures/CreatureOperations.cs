@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
+using Train.Core.Combat;
 using Train.Core.Contracts;
+using Train.Core.Railway;
 using Train.Core.World;
 
 namespace Train.Core.Creatures;
@@ -8,14 +10,17 @@ internal static class CreatureOperations
 {
     private readonly record struct Link(NodeId Node, EdgeId Edge);
 
-    internal static WorldState Advance(WorldState world, CoreContentProjection content, ulong step)
+    internal static (WorldState World, ImmutableArray<CoreEvent> Events) Advance(WorldState world,
+        CoreContentProjection content, ulong step)
     {
+        var events = ImmutableArray.CreateBuilder<CoreEvent>();
         world = Expire(world, content, step);
-        world = MergeHome(world, step);
         world = Move(world, content, step);
         world = MergeHome(world, step);
         world = Spawn(world, content, step);
-        return Dispatch(world, content, step);
+        world = Dispatch(world, content, step);
+        world = FoundLairs(world, content, step, events);
+        return (world, events.ToImmutable());
     }
 
     private static WorldState Expire(WorldState world, CoreContentProjection content, ulong step)
@@ -25,7 +30,7 @@ internal static class CreatureOperations
             if (CreatureQueries.InCombat(world, group.Id)) continue;
             var expired = group.Activity switch
             {
-                CreatureActivity.Wandering => DurationElapsed(content, group, step),
+                CreatureActivity.Wandering when group.Home is not null => DurationElapsed(content, group, step),
                 CreatureActivity.RaidingSettlement when AtTarget(group) => DurationElapsed(content, group, step),
                 _ => false
             };
@@ -54,26 +59,33 @@ internal static class CreatureOperations
     {
         foreach (var group in world.CreatureGroups.ToArray())
         {
-            if (group.Activity != CreatureActivity.Retreating || group.Home is not { } home) continue;
+            if (group.Activity != CreatureActivity.Retreating || group.Home is null) continue;
             if (CreatureQueries.InCombat(world, group.Id) || !CreatureQueries.AtOwnLair(world, group)) continue;
             var current = CreatureQueries.FindGroup(world, group.Id);
             if (current is null) continue;
-            var guard = world.CreatureGroups.FirstOrDefault(item => item.Home == home && item.Id != group.Id
-                && item.Activity == CreatureActivity.Guarding);
-            if (guard is null)
-            {
-                world = CreatureQueries.Replace(world, current with
-                {
-                    Activity = CreatureActivity.Guarding, Objective = null, Direction = null,
-                    ActivityStartedAtStep = step
-                });
-                continue;
-            }
-            var creatures = guard.Creatures.AddRange(current.Creatures).OrderBy(creature => creature.Id.Value).ToImmutableArray();
-            world = CreatureQueries.Remove(world, current.Id);
-            world = CreatureQueries.Replace(world, guard with { Creatures = creatures });
+            world = BecomeGarrison(world, current, step);
         }
         return world;
+    }
+
+    internal static WorldState BecomeGarrison(WorldState world, CreatureGroupState group, ulong step)
+    {
+        if (group.Home is not { } home) return world;
+        var others = world.CreatureGroups.Where(other => other.Id != group.Id && other.Home == home).ToArray();
+        var keeper = others.Where(other => other.Activity == CreatureActivity.Guarding)
+            .OrderBy(other => other.Id.Value).FirstOrDefault()
+            ?? others.Where(other => other.Activity == CreatureActivity.Combat
+                && CreatureQueries.AtOwnLair(world, other) && other.Id.Value < group.Id.Value)
+                .OrderBy(other => other.Id.Value).FirstOrDefault();
+        if (keeper is null)
+            return CreatureQueries.Replace(world, group with
+            {
+                Activity = CreatureActivity.Guarding, Objective = null, Direction = null,
+                ActivityStartedAtStep = step
+            });
+        var creatures = keeper.Creatures.AddRange(group.Creatures).OrderBy(creature => creature.Id.Value).ToImmutableArray();
+        world = CreatureQueries.Remove(world, group.Id);
+        return CreatureQueries.Replace(world, keeper with { Creatures = creatures });
     }
 
     private static WorldState Move(WorldState world, CoreContentProjection content, ulong step)
@@ -194,7 +206,9 @@ internal static class CreatureOperations
     private static Link? Wander(WorldState world, CoreContentProjection content, CreatureGroupState group,
         NodeId node, ulong step)
     {
-        if (group.Home is not { } home) return null;
+        if (group.Home is not { } home)
+            return Pick(world, group, step, Neighbors(world, node)
+                .Where(link => !NpcSettlement(world, link.Node)).ToArray());
         var lair = world.Lairs.FirstOrDefault(item => item.Id == home);
         var projection = lair is null ? null : content.LairTypes.FirstOrDefault(type => type.Id == lair.Type);
         if (lair is null || projection is null) return null;
@@ -206,6 +220,14 @@ internal static class CreatureOperations
             .Select(links => links.OrderBy(link => link.Edge.Value).First())
             .OrderBy(link => link.Node.Value)
             .ToArray();
+        return Pick(world, group, step, candidates);
+    }
+
+    private static Link? Pick(WorldState world, CreatureGroupState group, ulong step, Link[] links)
+    {
+        var candidates = links.GroupBy(link => link.Node)
+            .Select(choices => choices.OrderBy(link => link.Edge.Value).First())
+            .OrderBy(link => link.Node.Value).ToArray();
         if (candidates.Length == 0) return null;
         var sample = KeyedRandom.Sample(new RandomKey(world.Source.WorldSeed, "creature.wander.v1",
             [group.Id.Value, step]));
@@ -380,6 +402,78 @@ internal static class CreatureOperations
             });
         }
         return world;
+    }
+
+    internal static (WorldState World, ImmutableArray<CoreEvent> Events) DamageRails(WorldState world,
+        CoreContentProjection content, ulong step)
+    {
+        var events = ImmutableArray.CreateBuilder<CoreEvent>();
+        foreach (var id in world.CreatureGroups.Select(group => group.Id).OrderBy(group => group.Value).ToArray())
+        {
+            var group = CreatureQueries.FindGroup(world, id);
+            if (group is null || CreatureQueries.InCombat(world, id) || group.Activity != CreatureActivity.RaidingRailway
+                || group.Objective is not CreatureObjective.Railway railway
+                || group.Location is not WorldLocation.Edge location
+                || location.Id != railway.Edge || !location.DistanceMeters.Equals(railway.DistanceMeters)
+                || group.Home is not { } home) continue;
+            var lair = world.Lairs.FirstOrDefault(item => item.Id == home);
+            var projection = lair is null ? null : content.LairTypes.FirstOrDefault(type => type.Id == lair.Type);
+            if (projection is null) continue;
+            var interval = WorldResources.IntervalSteps(projection.RailDamageWorkSeconds)
+                ?? throw new InvalidOperationException("线路破坏工期超出可表示范围。");
+            if (step < group.ActivityStartedAtStep || step - group.ActivityStartedAtStep < interval) continue;
+            var written = RailwayWorks.WriteBreaks(world, content, railway.Edge, railway.DistanceMeters, events);
+            if (written is null) continue;
+            world = CreatureQueries.Replace(written, group with
+            {
+                Activity = CreatureActivity.Retreating, Objective = null, ActivityStartedAtStep = step
+            });
+        }
+        return (world, events.ToImmutable());
+    }
+
+    private static WorldState FoundLairs(WorldState world, CoreContentProjection content, ulong step,
+        ImmutableArray<CoreEvent>.Builder events)
+    {
+        var rule = CombatRules.FindRule(world, content);
+        if (rule is null) return world;
+        var interval = WorldResources.IntervalSteps(rule.NewLairIntervalSeconds)
+            ?? throw new InvalidOperationException("新聚落间隔超出可表示范围。");
+        if (step % interval != 0) return world;
+        var players = world.Settlements.Where(settlement => settlement.Relation == SettlementRelation.PlayerOwned)
+            .Select(settlement => settlement.Node).ToHashSet();
+        var candidates = world.Nodes.Where(node => node.Occupant is NodeOccupant.Empty && node.FoundingJob is null
+                && !world.Edges.Any(edge => (edge.Start == node.Id && players.Contains(edge.End))
+                    || (edge.End == node.Id && players.Contains(edge.Start))))
+            .OrderBy(node => node.Id.Value).ToArray();
+        var types = content.LairTypes.Where(type => type.GenerationWeight > 0)
+            .OrderBy(type => type.Id.Value, StringComparer.Ordinal).ToArray();
+        if (candidates.Length == 0 || types.Length == 0) return world;
+        if (world.Next.Lair == ulong.MaxValue)
+            throw new InvalidOperationException("生物聚落身份已耗尽。");
+        var nodeSample = KeyedRandom.Sample(new RandomKey(world.Source.WorldSeed, "creature.lair.node.v1", [step]));
+        var node = candidates[(int)WorldRandom.Integer(nodeSample, 0, candidates.Length - 1)];
+        var weights = types.Sum(type => (long)type.GenerationWeight);
+        var typeSample = KeyedRandom.Sample(new RandomKey(world.Source.WorldSeed, "creature.lair.type.v1",
+            [step, node.Id.Value]));
+        var choice = WorldRandom.Integer(typeSample, 0, weights - 1);
+        LairTypeProjection? selected = null;
+        var cursor = 0L;
+        foreach (var type in types)
+        {
+            cursor += type.GenerationWeight;
+            if (choice < cursor) { selected = type; break; }
+        }
+        if (selected is null) return world;
+        var lair = new LairState(new(world.Next.Lair), node.Id, selected.Id);
+        events.Add(new CoreEvent.LairCreated(lair.Id, lair.Node, lair.Type));
+        return world with
+        {
+            Lairs = world.Lairs.Add(lair).OrderBy(item => item.Id.Value).ToImmutableArray(),
+            Nodes = world.Nodes.Select(item => item.Id == node.Id
+                ? item with { Occupant = new NodeOccupant.Lair(lair.Id) } : item).ToImmutableArray(),
+            Next = world.Next with { Lair = world.Next.Lair + 1 }
+        };
     }
 
     // Unit 落在 [0, 1)，乘长度后仍要严格落在 (0, 长度) 内。

@@ -174,8 +174,10 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
         return AdvanceWorld(steps, before =>
         {
             var (world, events) = TrainOperations.Advance(before.World, before.Content, before.Position.CompletedSteps);
-            world = CreatureOperations.Advance(world, before.Content, checked(before.Position.CompletedSteps + 1));
-            var combat = CombatOperations.Advance(world, before.Content, checked(before.Position.CompletedSteps + 1));
+            var creatures = CreatureOperations.Advance(world, before.Content, checked(before.Position.CompletedSteps + 1));
+            world = creatures.World;
+            events = events.AddRange(creatures.Events);
+            var combat = CombatOperations.Advance(world, before.Content, checked(before.Position.CompletedSteps + 1), before.World);
             world = combat.World;
             events = events.AddRange(combat.Events);
             // Content and definitions cannot change within this public Advance call.
@@ -219,9 +221,12 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
             world = founding.World;
             var railway = RailwayWorks.Advance(world, before.Content);
             world = railway.World;
+            var damage = CreatureOperations.DamageRails(world, before.Content, checked(before.Position.CompletedSteps + 1));
+            world = damage.World;
             events = events.AddRange(resources.Events);
             events = events.AddRange(founding.Events);
             events = events.AddRange(railway.Events);
+            events = events.AddRange(damage.Events);
             events = events.AddRange(world.Settlements.Where(s => !s.ProductionFacilities.IsEmpty).SelectMany(s =>
                 ProductionQueries.StateChanges(before.World, before.Content, world, before.Content, s.Id)));
             return (before.Content, world, InventoryLeases.ExpirationEvents(before.World, before.Position.CompletedSteps).AddRange(events));
