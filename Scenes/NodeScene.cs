@@ -740,6 +740,11 @@ internal sealed class NodeScene : IAsyncDisposable
                     diagnostics, "The lair scene model is missing.", problems, new WorldObjectId.Node(Node));
             }
             Add(settlement.Present(snapshot, layout, origin, fog, findId, range, chunks.Keys, prefetch, presentation, seconds));
+            if (layout.Lair is { } placed &&
+                snapshot.Core.World.Nodes.Single(item => item.Id == Node).Occupant is NodeOccupant.Lair occupant)
+                objects.Add(new(objectId("lair:" + occupant.Id.Value), null,
+                    new(RailwayCoordinates.Relative(new(placed.ShiftX, 0, placed.ShiftZ), origin), Quaternion.Identity),
+                    new WorldObjectId.Lair(occupant.Id), [], [], []));
         }
         if (failure is not null) problems.Add(failure);
         foreach (var problem in reported) problems.Add(problem);

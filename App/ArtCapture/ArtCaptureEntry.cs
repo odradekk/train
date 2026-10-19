@@ -9,6 +9,7 @@ using Train.App.Composition;
 using Train.App.Logging;
 using Train.App.Notifications;
 using Train.App.Saves;
+using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
 using Train.Ui;
@@ -48,7 +49,9 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
     private string? _sceneFailure;
     private string? _saveHash;
     private string? _output;
-    private WorldObjectId? _subject;
+    private WorldObjectId[] _subjects = [];
+    private CaptureInput? _input;
+    private Aabb? _subjectBounds;
     private readonly List<CaptureImage> _images = [];
     private System.Numerics.Vector3 _initialFront;
     private bool _turned;
@@ -66,6 +69,7 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
             foreach (var distance in new[] { "near", "follow", "far" })
             {
                 PlaceCamera(distance, 0, farDistance);
+                if (input.Train.Value == 0) await DisplayAsync();
                 await SaveImageAsync($"{scene}_{distance}_{lighting.ToString().ToLowerInvariant()}_0000.png");
             }
         }
@@ -74,22 +78,26 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         {
             await AdvanceTurnFrameAsync();
             PlaceCamera("follow", 0, farDistance);
-            await SaveImageAsync($"{scene}_turn_daylight_{frame:D4}.png");
+            await SaveImageAsync($"{scene}_{(input.Train.Value != 0 ? "turn" : "motion")}_daylight_{frame:D4}.png");
         }
-        RequireTurn();
+        if (input.Train.Value != 0) RequireTurn();
+        else _subjectBounds = SubjectBounds() ?? _subjectBounds;
         for (var frame = 0; frame < 60; frame++)
         {
             PlaceCamera("follow", Mathf.Tau * frame / 60, farDistance);
+            if (input.Train.Value == 0) await DisplayAsync(allowMissing: true);
             await SaveImageAsync($"{scene}_orbit_daylight_{frame:D4}.png");
         }
         var commit = typeof(ArtCaptureEntry).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!
             .InformationalVersion.Split('+')[^1];
         File.WriteAllText(Path.Combine(_output!, "manifest.json"), JsonSerializer.Serialize(new
         {
-            commit, inputSaveHash = _saveHash, scene, train = input.Train.Value,
+            commit, inputSaveHash = _saveHash, scene, train = input.Train.Value == 0 ? (ulong?)null : input.Train.Value,
+            lair = input.Lair?.Value, group = input.Group?.Value,
             viewportSize = new[] { owner.GetViewport().GetTexture().GetWidth(), owner.GetViewport().GetTexture().GetHeight() },
             images = _images
-        }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = true }));
+        }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = true,
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull }));
     }
 
     internal async Task RestoreAsync(CaptureInput input)
@@ -109,16 +117,18 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         await WaitAsync(() => !Host.IsBusy, () => { _dispatcher.Pump(); Host.ProcessFrame(0); });
         var status = Host.GetStatus() ?? throw new InvalidDataException("存档恢复失败。");
         if (Host.MissingConfirmation is not null) throw new InvalidDataException("存档依赖缺失。");
-        var train = input.Validate(status.View);
-        _subject = new WorldObjectId.Instance(new InstanceId.Vehicle(train.Vehicles[0]));
+        _input = input;
+        _subjects = input.Validate(status.View);
         Host.SetPaused(true);
         Host.AutoPauseOnFocusLoss = false;
         World = new(Host, CreateScenes(), _logger);
         World.ReturnedToMap += problem => _sceneFailure = problem?.Code ?? "场景已关闭";
         owner.AddChild(World.View);
-        World.Open(new WorldSceneTarget.Follow(input.Train, train.Vehicles[0]));
+        World.Open(input.Train.Value != 0
+            ? new WorldSceneTarget.Follow(input.Train, ((InstanceId.Vehicle)((WorldObjectId.Instance)_subjects[0]).Id).Id)
+            : new WorldSceneTarget.Location(input.Location));
         await DisplayAsync();
-        _initialFront = Front();
+        if (input.Train.Value != 0) _initialFront = Front();
     }
 
     private async Task WaitAsync(Func<bool> ready, Action pump)
@@ -135,9 +145,9 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         throw new TimeoutException("资源等待超过 120 秒。");
     }
 
-    internal Task DisplayAsync() => WaitAsync(
+    internal Task DisplayAsync(bool allowMissing = false) => WaitAsync(
         () => World!.Display?.DisplayedFrame is { Readiness: SceneReadiness.Ready } frame &&
-            frame.FindPose(_subject!) is Lookup<ScenePose>.Found,
+            (allowMissing || _subjects.Any(subject => frame.FindPose(subject) is Lookup<ScenePose>.Found)),
         () => World!.ProcessFrame(0, false));
 
     internal async Task AdvanceTurnFrameAsync()
@@ -145,8 +155,11 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         var step = Host!.Step(2);
         if (step.Problem is not null || step.Completed != 2)
             throw new InvalidOperationException($"运动推进失败：{step.Problem?.Code ?? "未完成两个模拟步"}。");
-        await DisplayAsync();
-        _turned |= System.Numerics.Vector3.DistanceSquared(_initialFront, Front()) > 1e-10f;
+        if (_input!.Group is { } group)
+            _subjects = Host.GetStatus()!.View.FindCreatureGroup(group) is Lookup<CreatureGroupView>.Found found
+                ? found.Value.Creatures.Select(creature => (WorldObjectId)new WorldObjectId.Creature(creature.Id)).ToArray() : [];
+        await DisplayAsync(allowMissing: _input!.Train.Value == 0);
+        if (_input.Train.Value != 0) _turned |= System.Numerics.Vector3.DistanceSquared(_initialFront, Front()) > 1e-10f;
     }
 
     internal void RequireTurn()
@@ -156,14 +169,26 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
 
     private System.Numerics.Vector3 Front()
     {
-        var pose = ((Lookup<ScenePose>.Found)World!.Display!.DisplayedFrame!.FindPose(_subject!)).Value;
+        var pose = ((Lookup<ScenePose>.Found)World!.Display!.DisplayedFrame!.FindPose(_subjects[0])).Value;
         return System.Numerics.Vector3.Transform(System.Numerics.Vector3.UnitZ, pose.Rotation);
     }
 
     private void PlaceCamera(string distance, float orbit, float farDistance)
     {
+        if (_input!.Train.Value == 0)
+        {
+            _subjectBounds ??= SubjectBounds() ?? throw new InvalidDataException("检查对象没有可显示的网格。");
+            var subjectBox = _subjectBounds.Value;
+            var subjectPitch = distance == "near" ? 0.2f : 0.55f;
+            var subjectYaw = 0.6f + orbit;
+            var subjectRange = distance == "far" ? farDistance : WorldCamera.DefaultDistance;
+            if (distance == "near") subjectRange = NearDistance(subjectBox.Size, new(
+                Mathf.Sin(subjectYaw) * Mathf.Cos(subjectPitch), Mathf.Sin(subjectPitch), Mathf.Cos(subjectYaw) * Mathf.Cos(subjectPitch)));
+            World!.View.CameraRig.PlaceAbsolute(subjectBox.GetCenter(), subjectRange, subjectYaw, subjectPitch);
+            return;
+        }
         var display = World!.Display!;
-        var vehicle = display.Objects.Values.Single(item => item.Source.Subject == _subject && item.Source.Parent is null);
+        var vehicle = display.Objects.Values.Single(item => item.Source.Subject == _subjects[0] && item.Source.Parent is null);
         Aabb? bounds = null;
         void Include(Node node)
         {
@@ -185,20 +210,53 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         {
             var direction = vehicle.Root.GlobalBasis.Inverse() * new Vector3(Mathf.Sin(yaw) * Mathf.Cos(pitch),
                 Mathf.Sin(pitch), Mathf.Cos(yaw) * Mathf.Cos(pitch));
-            var half = box.Size / 2;
-            var low = 0f;
-            var high = box.Size.Length() + 6;
-            // 求相机到包围盒的最短距离为 6 格，而非到车辆中心的距离。
-            for (var i = 0; i < 24; i++)
-            {
-                var middle = (low + high) / 2;
-                var outside = (direction * middle).Abs() - half;
-                outside = new(Mathf.Max(outside.X, 0), Mathf.Max(outside.Y, 0), Mathf.Max(outside.Z, 0));
-                if (outside.LengthSquared() < 36) low = middle; else high = middle;
-            }
-            range = (low + high) / 2;
+            range = NearDistance(box.Size, direction);
         }
         World.View.CameraRig.PlaceAbsolute(focus, range, yaw, pitch);
+    }
+
+    private static float NearDistance(Vector3 size, Vector3 direction)
+    {
+        var half = size / 2;
+        var low = 0f;
+        var high = size.Length() + 6;
+        // 相机距包围盒表面 6 格（约 3 米），而非距对象中心。
+        for (var i = 0; i < 24; i++)
+        {
+            var middle = (low + high) / 2;
+            var outside = (direction * middle).Abs() - half;
+            outside = new(Mathf.Max(outside.X, 0), Mathf.Max(outside.Y, 0), Mathf.Max(outside.Z, 0));
+            if (outside.LengthSquared() < 36) low = middle; else high = middle;
+        }
+        return (low + high) / 2;
+    }
+
+    private Aabb? SubjectBounds()
+    {
+        var display = World!.Display!;
+        if (_input!.Lair is { } lair)
+        {
+            if (Host!.GetStatus()!.View.FindLair(lair) is not Lookup<LairView>.Found found ||
+                Host.Content!.FindLair(found.Value.Type) is not ContentLookup<LairAppearanceProjection>.Found appearance ||
+                appearance.Value.SceneModel.Scene.OccupiedBounds is not { } bounds) return null;
+            var root = display.Objects.Values.SingleOrDefault(item => item.Source.Subject == _subjects[0]);
+            return root is null ? null : root.Root.GlobalTransform * new Aabb(
+                new(bounds.Minimum.X, bounds.Minimum.Y, bounds.Minimum.Z),
+                new(bounds.Maximum.X - bounds.Minimum.X + 1, bounds.Maximum.Y - bounds.Minimum.Y + 1, bounds.Maximum.Z - bounds.Minimum.Z + 1));
+        }
+        Aabb? result = null;
+        void Include(Node node)
+        {
+            if (node is MeshInstance3D { Mesh: not null } mesh)
+            {
+                var box = mesh.GlobalTransform * mesh.Mesh.GetAabb();
+                result = result is { } previous ? previous.Merge(box) : box;
+            }
+            foreach (var child in node.GetChildren()) Include(child);
+        }
+        foreach (var item in display.Objects.Values.Where(item => item.Source.Parent is null && _subjects.Contains(item.Source.Subject)))
+            Include(item.Root);
+        return result;
     }
 
     private async Task SaveImageAsync(string name)
@@ -215,7 +273,9 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
             World.View.Lighting.ToString().ToLowerInvariant(),
             [camera.Basis.X.X, camera.Basis.X.Y, camera.Basis.X.Z, camera.Basis.Y.X, camera.Basis.Y.Y, camera.Basis.Y.Z,
                 camera.Basis.Z.X, camera.Basis.Z.Y, camera.Basis.Z.Z, camera.Origin.X, camera.Origin.Y, camera.Origin.Z],
-            [focus.X, focus.Y, focus.Z]));
+            [focus.X, focus.Y, focus.Z], _input!.Train.Value != 0 ? null :
+                _subjects.Where(subject => World.Display.DisplayedFrame.FindPose(subject) is Lookup<ScenePose>.Found)
+                    .Select(subject => subject.ToString()!).ToArray()));
     }
 
     public void Dispose()
@@ -229,4 +289,4 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
 }
 
 internal sealed record CaptureImage(string File, SimulationPosition Position, double DisplaySeconds,
-    string Lighting, float[] CameraTransform, float[] Focus);
+    string Lighting, float[] CameraTransform, float[] Focus, string[]? VisibleSubjects = null);

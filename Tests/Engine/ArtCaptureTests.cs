@@ -24,6 +24,63 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
     public Task Changed_displayed_heading_satisfies_turn_requirement() => SampleMotion(turned: true);
 
     [Test]
+    public Task Lair_motion_samples_without_requiring_a_turn() => SampleMotion(turned: false, target: "lair");
+
+    [Test]
+    public Task Group_motion_samples_without_requiring_a_turn() => SampleMotion(turned: false, target: "group");
+
+    [Test]
+    public Task Last_group_member_can_disappear_during_sampling() =>
+        SampleMotion(turned: false, target: "group", missingAfterAdvance: true);
+
+    [Test]
+    public void Creature_capture_arguments_parse_and_reject_multiple_targets()
+    {
+        foreach (var target in new[] { "--capture-lair", "--capture-group" })
+        {
+            string[] arguments = ["--capture-save", "save.json", "--capture-location", "node:1",
+                target, "7", "--capture-name", "creatures"];
+            var input = CaptureInput.Parse(arguments);
+            Require(target == "--capture-lair" ? input.Lair == new LairId(7) && input.Group is null :
+                input.Group == new CreatureGroupId(7) && input.Lair is null, "必须解析选定的生物目标。");
+            foreach (var other in new[] { "--capture-train", "--capture-lair", "--capture-group" }.Where(value => value != target))
+            {
+                try
+                {
+                    CaptureInput.Parse([.. arguments, other, "1"]);
+                    throw new InvalidOperationException("多个截图目标未被拒绝。");
+                }
+                catch (ArgumentException) { }
+            }
+        }
+    }
+
+    [Test]
+    public void Creature_capture_validates_location_and_group_members()
+    {
+        var location = new WorldLocation.Node(new(1));
+        var lair = new CaptureInput("save.json", location, default, "lair", Lair: new(1));
+        var group = new CaptureInput("save.json", location, default, "group", Group: new(1));
+        var view = CreatureView();
+        Require(lair.Validate(view).SequenceEqual([new WorldObjectId.Lair(new(1))]), "聚落必须解析到聚落对象。");
+        Require(group.Validate(view).SequenceEqual([new WorldObjectId.Creature(new(1))]), "群必须解析到其成员。");
+        Reject(lair with { Location = new WorldLocation.Edge(new(1), 0) }, view, "生物聚落不在指定场景");
+        Reject(group with { Location = new WorldLocation.Edge(new(1), 0) }, view, "生物群不在指定场景");
+        Reject(group, CreatureView(empty: true), "指定生物群不存在或成员为空");
+
+        static void Reject(CaptureInput input, ICoreReadView core, string expected)
+        {
+            try
+            {
+                input.Validate(core);
+                throw new InvalidOperationException("无效生物截图目标未被拒绝。");
+            }
+            catch (InvalidDataException exception)
+            { Require(exception.Message.StartsWith(expected, StringComparison.Ordinal), exception.Message); }
+        }
+    }
+
+    [Test]
     public Task Missing_scene_is_rejected_before_output_or_core_writes() =>
         RejectRestore(scenePresent: false, trainPresent: true, trainEdge: 1, "指定场景不存在");
 
@@ -96,7 +153,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         finally { File.Delete(save); }
     }
 
-    private async Task SampleMotion(bool turned)
+    private async Task SampleMotion(bool turned, string? target = null, bool missingAfterAdvance = false)
     {
         var name = "capture-test-" + Guid.NewGuid().ToString("N");
         var root = ProjectSettings.GlobalizePath("res://.godot/validation");
@@ -104,19 +161,25 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         var save = Path.Combine(root, name + ".json");
         File.WriteAllText(save, SaveContainer.Encode(new(new(SaveContainer.FormatVersion, Guid.NewGuid(),
             "engine capture input", DateTimeOffset.UnixEpoch, new(0, 0), []), "opaque", "opaque")));
-        var core = new ScriptedCoreSession(View(true, true, 1));
+        var core = new ScriptedCoreSession(target is null ? View(true, true, 1) : CreatureView());
         for (ulong step = 1; step <= 120; step++)
             core.QueueAdvance(new(1, new(step, 0), [], null, null),
-                new FixedCoreReadView(new(step, 0), HostCoreScenario.Input));
+                target is null ? new FixedCoreReadView(new(step, 0), HostCoreScenario.Input) :
+                    CreatureView(empty: missingAfterAdvance, position: new(step, 0)));
         var sessionId = new SceneSessionId(Guid.NewGuid());
-        var subject = new WorldObjectId.Instance(new InstanceId.Vehicle(new(1)));
+        WorldObjectId subject = target switch
+        {
+            "lair" => new WorldObjectId.Lair(new(1)),
+            "group" => new WorldObjectId.Creature(new(1)),
+            _ => new WorldObjectId.Instance(new InstanceId.Vehicle(new(1)))
+        };
         FixedSceneFrame Frame(int index) => new()
         {
             Update = new(null, new(sessionId, new(1), new(1), (ulong)index + 1), System.Numerics.Vector3.Zero,
                 [], [], new([], []), []),
             SimulationSeconds = index * 2d / 60,
             Poses = ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty.Add(subject,
-                new Lookup<ScenePose>.Found(new(new(0, 0, index),
+                missingAfterAdvance && index > 0 ? new Lookup<ScenePose>.Missing() : new Lookup<ScenePose>.Found(new(new(0, 0, index),
                     System.Numerics.Quaternion.CreateFromAxisAngle(System.Numerics.Vector3.UnitY,
                         turned && index == 60 ? 0.1f : 0)))),
             TerrainHeightResult = new Lookup<double>.Missing()
@@ -127,7 +190,8 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
             {
                 Id = sessionId, Binding = binding,
                 RequestResults = ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>>.Empty
-                    .Add(new WorldSceneTarget.Follow(new(1), new(1)), new SceneResult<SceneRequestId>.Success(new(1))),
+                    .Add(target is null ? new WorldSceneTarget.Follow(new(1), new(1)) :
+                        new WorldSceneTarget.Location(new WorldLocation.Node(new(1))), new SceneResult<SceneRequestId>.Success(new(1))),
                 PresentResults = Enumerable.Range(0, 61).Select(index => (SceneResult<ISceneFrame>)
                     new SceneResult<ISceneFrame>.Success(Frame(index))).ToImmutableArray(),
                 ObserveResults = Enumerable.Range(1, 120).Select(step => (SceneResult<SimulationPosition>)
@@ -140,17 +204,20 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         };
         try
         {
-            await run.RestoreAsync(new(save, new WorldLocation.Edge(new(1), 0), new(1), name));
+            await run.RestoreAsync(target is null
+                ? new(save, new WorldLocation.Edge(new(1), 0), new(1), name)
+                : new(save, new WorldLocation.Node(new(1)), default, name,
+                    Lair: target == "lair" ? new(1) : null, Group: target == "group" ? new(1) : null));
             for (var frame = 1; frame <= 60; frame++)
             {
-                await run.AdvanceTurnFrameAsync();
+                await run.AdvanceTurnFrameAsync().WaitAsync(TimeSpan.FromSeconds(5));
                 Require(core.CurrentView.Position.CompletedSteps == (ulong)frame * 2,
                     "运动采样必须每帧只推进两个模拟步。");
                 Require(run.World!.Display!.DisplayedFrame!.SimulationSeconds == frame * 2d / 60,
                     "运动采样必须使用本次推进后的真实显示帧。");
             }
             if (turned) run.RequireTurn();
-            else
+            else if (target is null)
             {
                 try
                 {
@@ -164,6 +231,34 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
                 "运动采样不能提交核心命令或捕获存档。");
         }
         finally { File.Delete(save); }
+    }
+
+    private static FixedCoreReadView CreatureView(bool empty = false, SimulationPosition position = default)
+    {
+        var terrain = new TerrainView(new("fixture:terrain"), 0, []);
+        return new(position, HostCoreScenario.Input)
+        {
+            Nodes = new Dictionary<NodeId, Lookup<NodeView>>
+            {
+                [new(1)] = new Lookup<NodeView>.Found(new(new(new(1), new(0, 0), terrain,
+                    new NodeOccupant.Lair(new(1)), [], 0, 0, null), [], 0, 0, 0))
+            },
+            Edges = new Dictionary<EdgeId, Lookup<EdgeView>>
+            {
+                [new(1)] = new Lookup<EdgeView>.Found(new(new(new(1), new(1), new(2), 100,
+                    terrain, 1, 1, [], []), [], null))
+            },
+            Lairs = new Dictionary<LairId, Lookup<LairView>>
+            {
+                [new(1)] = new Lookup<LairView>.Found(new(new(1), new(1), new("fixture:lair"), [new(1)]))
+            },
+            CreatureGroups = new Dictionary<CreatureGroupId, Lookup<CreatureGroupView>>
+            {
+                [new(1)] = new Lookup<CreatureGroupView>.Found(new(new(1), new(1),
+                    new WorldLocation.Node(new(1)), null, CreatureActivity.Guarding, 0,
+                    empty ? [] : [new(new(1), new("fixture:creature"), 1, 1)]))
+            }
+        };
     }
 
     private static FixedCoreReadView View(bool scenePresent, bool trainPresent, ulong trainEdge)
