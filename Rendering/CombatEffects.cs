@@ -80,8 +80,6 @@ internal sealed class CombatEffects : IDisposable
     double _flickerSeconds;
     double _previousSimulation;
     double _timeOrigin;
-    bool _hasSimulation;
-    bool _timeOriginSet;
     double _shakeLeft;
     Vector3 _shakeDirection;
     bool _disposed;
@@ -112,10 +110,13 @@ internal sealed class CombatEffects : IDisposable
         IReadOnlyDictionary<SceneObjectId, SceneDisplay.DisplayObject> objects)
     {
         _cache.RequireMainThread();
-        ReadFrame(frame);
+        _simulationSeconds = frame.SimulationSeconds;
+        _patches = frame.Update.Environment.TerrainCollision;
         Align(previous, frame);
         Sync(objects);
         foreach (var cue in frame.Update.Effects) Play(cue);
+        _played.Clear();
+        foreach (var cue in frame.Update.Effects) _played.Add(cue.Id.Value);
         WriteTime();
     }
 
@@ -124,12 +125,11 @@ internal sealed class CombatEffects : IDisposable
         _cache.RequireMainThread();
         var real = Math.Max(0, realDelta);
         _realSeconds += real;
-        var simDelta = _hasSimulation ? Math.Max(0, frame.SimulationSeconds - _previousSimulation) : 0;
+        var simDelta = Math.Max(0, frame.SimulationSeconds - _previousSimulation);
         _previousSimulation = frame.SimulationSeconds;
-        _hasSimulation = true;
         _flickerSeconds += Math.Min(simDelta, real);
         _camera = camera;
-        ReadFrame(frame);
+        _simulationSeconds = frame.SimulationSeconds;
         WriteTime();
         foreach (var light in _lights.Values) UpdateLight(light);
         for (var index = _oneShots.Count - 1; index >= 0; index--)
@@ -159,7 +159,7 @@ internal sealed class CombatEffects : IDisposable
         _lights.Clear();
         _persistent.Clear();
         _oneShots.Clear();
-        if (GodotObject.IsInstanceValid(Root)) Root.Free();
+        Root.Free();
         foreach (var look in _looks)
         {
             look.Material.Dispose();
@@ -175,12 +175,6 @@ internal sealed class CombatEffects : IDisposable
         return new(mesh, material);
     }
 
-    void ReadFrame(ISceneFrame frame)
-    {
-        _simulationSeconds = frame.SimulationSeconds;
-        _patches = frame.Update.Environment.TerrainCollision;
-    }
-
     void Align(ISceneFrame? previous, ISceneFrame frame)
     {
         if (previous is null || previous.Update.Frame.Session != frame.Update.Frame.Session ||
@@ -189,13 +183,7 @@ internal sealed class CombatEffects : IDisposable
             ClearOneShots();
             _played.Clear();
             _timeOrigin = frame.SimulationSeconds;
-            _timeOriginSet = true;
             return;
-        }
-        if (!_timeOriginSet)
-        {
-            _timeOrigin = frame.SimulationSeconds;
-            _timeOriginSet = true;
         }
         var shift = frame.Update.Base is not null ? ToGodot(frame.Update.ShiftExistingRoots)
             : new Vector3((float)(previous.Origin.X - frame.Origin.X), (float)(previous.Origin.Y - frame.Origin.Y),
@@ -264,7 +252,8 @@ internal sealed class CombatEffects : IDisposable
                     PersistentEffectKind.Sparks => Appearance.Sparks,
                     _ => Appearance.Smoke
                 };
-                var node = Instance(appearance, effect.Kind.ToString(), effect.Strength, effect.Seed, 0, 0, PersistentTint(effect.Kind));
+                var node = Instance(appearance, effect.Kind.ToString(), effect.Strength, effect.Seed,
+                    _simulationSeconds, 0, PersistentTint(effect.Kind));
                 node.Position = ToGodot(effect.LocalPosition);
                 item.Root.AddChild(node);
                 _persistent[key] = new PersistentNode
@@ -483,7 +472,7 @@ internal sealed class CombatEffects : IDisposable
         }
     }
 
-    float Relative(double seconds) => (float)(seconds - (_timeOriginSet ? _timeOrigin : 0));
+    float Relative(double seconds) => (float)(seconds - _timeOrigin);
 
     double Age(double started) => Math.Max(0, _simulationSeconds - started);
 
@@ -491,7 +480,6 @@ internal sealed class CombatEffects : IDisposable
     {
         foreach (var patch in patches)
         {
-            if (patch.SpacingCells <= 0 || patch.Width < 1 || patch.Depth < 1 || patch.Heights.IsDefaultOrEmpty) continue;
             var x = (point.X - patch.Origin.X) / patch.SpacingCells;
             var z = (point.Z - patch.Origin.Z) / patch.SpacingCells;
             if (x < 0 || z < 0 || x > patch.Width - 1 || z > patch.Depth - 1) continue;
@@ -508,11 +496,7 @@ internal sealed class CombatEffects : IDisposable
         var z1 = Math.Min(z0 + 1, patch.Depth - 1);
         var tx = x1 == x0 ? 0 : x - x0;
         var tz = z1 == z0 ? 0 : z - z0;
-        float At(int ix, int iz)
-        {
-            var index = iz * patch.Width + ix;
-            return (uint)index < (uint)patch.Heights.Length ? patch.Heights[index] : 0;
-        }
+        float At(int ix, int iz) => patch.Heights[iz * patch.Width + ix];
         var a = At(x0, z0) + (float)tx * (At(x1, z0) - At(x0, z0));
         var b = At(x0, z1) + (float)tx * (At(x1, z1) - At(x0, z1));
         return a + (float)tz * (b - a);
