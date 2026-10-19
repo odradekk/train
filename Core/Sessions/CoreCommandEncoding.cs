@@ -44,6 +44,8 @@ internal static class CoreCommandEncoding
                 CoreCommand.SellVehicle => "market.sell_vehicle",
                 CoreCommand.AcquireLease => "lease.acquire",
                 CoreCommand.FoundSettlement => "settlement.found",
+                CoreCommand.DeclareWar => "settlement.declare_war",
+                CoreCommand.OccupySettlement => "settlement.occupy",
                 CoreCommand.SetTrainEngagement => "engagement.set_train",
                 CoreCommand.SetSettlementEngagement => "engagement.set_settlement",
                 CoreCommand.Retreat => "combat.retreat",
@@ -58,6 +60,13 @@ internal static class CoreCommandEncoding
                 case CoreCommand.FoundSettlement found:
                     WriteIdentity(writer, "node", found.Node.Value);
                     WriteIdentity(writer, "material_source", found.MaterialSource.Value);
+                    break;
+                case CoreCommand.DeclareWar war:
+                    WriteIdentity(writer, "settlement", war.Settlement.Value);
+                    break;
+                case CoreCommand.OccupySettlement occupy:
+                    WriteIdentity(writer, "settlement", occupy.Settlement.Value);
+                    WriteIdentity(writer, "train", occupy.PresentTrain.Value);
                     break;
                 case CoreCommand.SetTrainEngagement set:
                     WriteIdentity(writer, "train", set.Train.Value);
@@ -330,6 +339,13 @@ internal static class CoreCommandEncoding
                 return Success(new(null, new CoreCommand.FoundSettlement(
                     new(Identity(Property(root, "node", "", JsonValueKind.Number), "/node")),
                     new(Identity(Property(root, "material_source", "", JsonValueKind.Number), "/material_source")))));
+            if (name == "settlement.declare_war")
+                return Success(new(null, new CoreCommand.DeclareWar(
+                    new(Identity(Property(root, "settlement", "", JsonValueKind.Number), "/settlement")))));
+            if (name == "settlement.occupy")
+                return Success(new(null, new CoreCommand.OccupySettlement(
+                    new(Identity(Property(root, "settlement", "", JsonValueKind.Number), "/settlement")),
+                    new(Identity(Property(root, "train", "", JsonValueKind.Number), "/train")))));
             if (name == "engagement.set_train")
                 return Success(new(null, new CoreCommand.SetTrainEngagement(
                     new(Identity(Property(root, "train", "", JsonValueKind.Number), "/train")),
