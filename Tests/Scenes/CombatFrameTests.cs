@@ -591,6 +591,48 @@ public sealed class CombatFrameTests
     }
 
     [TestMethod]
+    public async Task CreatureEyeDamageFollowsIndividualHealthWithoutRebuildingAppearanceGeometry()
+    {
+        var creature = new CreatureDefinitionId("test:beast");
+        var eye = new VoxelDefinitionId("test:eye");
+        var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle(), creatures: new Dictionary<CreatureDefinitionId, ContentLookup<CreatureAppearanceProjection>>
+        {
+            [creature] = new ContentLookup<CreatureAppearanceProjection>.Found(new(creature,
+                SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0)) with { Voxel = eye }]), new("Beast", "")))
+        }, voxels: new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
+        { [eye] = new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube with
+            { Definition = eye, Behaviors = new(false, new(new("#ffffff"), 4)) }) });
+        var group = new CreatureGroupView(new(7), null, RailwayFixtures.Location, null, CreatureActivity.Guarding, 0,
+            [new(new(3), creature, 100, 100), new(new(4), creature, 25, 100)]);
+        var instance = RailwayFixtures.Instance();
+        await using var session = Open(content, instance, group);
+        session.RequestView(new WorldSceneTarget.Location(RailwayFixtures.Location));
+        var settled = await RailwayFixtures.Settled(session, Request);
+        SceneLight Eye(SceneFrame frame, ulong id) => frame.Objects.Single(item =>
+            item.Subject == new WorldObjectId.Creature(new(id)) && !item.Lights.IsEmpty).Lights.Single();
+        SceneMesh Mesh(SceneFrame frame, ulong id) => frame.Objects.Where(item =>
+            item.Subject == new WorldObjectId.Creature(new(id))).SelectMany(item => item.Visuals)
+            .OfType<SceneVisual.Geometry>().Single().Mesh;
+        Assert.AreEqual(0, Eye(settled, 3).Damage);
+        Assert.AreEqual(0, Eye(settled, 4).Damage);
+        Assert.AreSame(Mesh(settled, 3), Mesh(settled, 4));
+        var hurt = group with { Creatures = [new(new(3), creature, 10, 100), new(new(4), creature, 50, 100)] };
+        session.Observe(Snapshot(content, instance, steps: 1, group: hurt), []);
+        var damaged = Present(session, settled);
+        Assert.AreEqual(.6f, Eye(damaged, 3).Damage, 1e-5);
+        Assert.AreEqual(0, Eye(damaged, 4).Damage);
+        Assert.AreSame(Mesh(settled, 3), Mesh(damaged, 3));
+        var healed = group with { Creatures = [new(new(3), creature, 100, 100), new(new(4), creature, 0, 100)] };
+        var dead = Snapshot(content, instance, steps: 2, group: healed);
+        session.Observe(dead, [Envelope(dead, new CoreEvent.CombatDestruction(new(1), RailwayFixtures.Location, [],
+            [new DestroyedUnit.Creature(new(group.Id, new(4), creature, RailwayFixtures.Location))]))]);
+        var final = Present(session, damaged);
+        Assert.AreEqual(0, Eye(final, 3).Damage);
+        Assert.IsFalse(final.Objects.Any(item => item.Subject == new WorldObjectId.Creature(new(4))));
+        Assert.AreSame(Mesh(settled, 3), Mesh(final, 3));
+    }
+
+    [TestMethod]
     public async Task CreatureAppearanceComesFromThePairedContentViewAndDeathUsesTheEventDefinition()
     {
         var creature = new CreatureDefinitionId("test:beast");
