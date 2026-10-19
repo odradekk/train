@@ -337,31 +337,56 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
     public async Task SyntheticCombatLoadBuildsAndReleasesEffects()
     {
         await new UiTestInput(TestScene).Frames(1);
-        var baselineNodes = Performance.GetMonitor(Performance.Monitor.ObjectNodeCount);
-        var baselineResources = Performance.GetMonitor(Performance.Monitor.ObjectResourceCount);
         using var dispatcher = new GodotMainThreadDispatcher();
         using var cache = new AssetResourceCache(dispatcher);
         using var display = Attach(cache);
-        var objects = LoadObjects();
-        var shown = Sustain(display, objects, steps: 24);
-        Require(display.Objects.Values.Count(item => item.Root.GetNodeOrNull("Smoke") is not null) == 8, "持续负载仍只保留 8 处烟。");
-        Require(display.Objects.Values.Count(item => item.Root.GetNodeOrNull("Fire") is not null) == 24, "持续负载必须保留火。");
-        Require(display.Objects.Values.Count(item => item.Root.GetNodeOrNull("Sparks") is not null) == 24, "持续负载必须保留火花。");
-        Require(display.Objects.Values.Count(item => item.Root.GetNodeOrNull("SceneLight") is not null) == 24, "持续负载必须保留灯。");
-        Require(Count(display.Root, "Shot") > 0 && Count(display.Root, "Fragment") > 0 && Count(display.Root, "Smoke") > 0,
-            "持续负载中弹道、碎片和摧毁烟必须同时存在。");
-        Expire(display, objects, shown.Frame, shown.Sim);
-        var capture = System.Environment.GetEnvironmentVariable("TRAIN_UI_CAPTURE_DIR");
-        if (!string.IsNullOrWhiteSpace(capture) && DisplayServer.GetName() != "headless")
-            await RecordWindowedLoad(display, objects, capture);
+        var tree = TestScene.GetTree();
+        var nodes = new HashSet<Node>();
+        var resources = new HashSet<GodotObject>();
+        void Track(Node node)
+        {
+            if (!ReferenceEquals(node, display.Root) && !display.Root.IsAncestorOf(node)) return;
+            nodes.Add(node);
+            if (node is MeshInstance3D { Mesh: { } mesh }) resources.Add(mesh);
+            if (node is not GeometryInstance3D { MaterialOverride: { } material }) return;
+            resources.Add(material);
+            if (material is ShaderMaterial { Shader: { } shader }) resources.Add(shader);
+        }
+        foreach (var node in display.Root.FindChildren("*", "", true, false).OfType<Node>()) Track(node);
+        Track(display.Root);
+        void OnNodeAdded(Node node) => Track(node);
+        tree.NodeAdded += OnNodeAdded;
+        try
+        {
+            var objects = LoadObjects();
+            var shown = Sustain(display, objects, steps: 24);
+            Require(display.Objects.Values.Count(item => item.Root.GetNodeOrNull("Smoke") is not null) == 8, "持续负载仍只保留 8 处烟。");
+            Require(display.Objects.Values.Count(item => item.Root.GetNodeOrNull("Fire") is not null) == 24, "持续负载必须保留火。");
+            Require(display.Objects.Values.Count(item => item.Root.GetNodeOrNull("Sparks") is not null) == 24, "持续负载必须保留火花。");
+            Require(display.Objects.Values.Count(item => item.Root.GetNodeOrNull("SceneLight") is not null) == 24, "持续负载必须保留灯。");
+            Require(Count(display.Root, "Shot") > 0 && Count(display.Root, "Fragment") > 0 && Count(display.Root, "Smoke") > 0,
+                "持续负载中弹道、碎片和摧毁烟必须同时存在。");
+            Expire(display, objects, shown.Frame, shown.Sim);
+            var capture = System.Environment.GetEnvironmentVariable("TRAIN_UI_CAPTURE_DIR");
+            if (!string.IsNullOrWhiteSpace(capture) && DisplayServer.GetName() != "headless")
+                await RecordWindowedLoad(display, objects, capture);
+        }
+        finally { tree.NodeAdded -= OnNodeAdded; }
+        Require(nodes.Count > 0 && resources.OfType<Mesh>().Any() && resources.OfType<Material>().Any() &&
+            resources.OfType<Shader>().Any(),
+            $"负载快照不完整：节点 {nodes.Count}、网格 {resources.OfType<Mesh>().Count()}、" +
+            $"材质 {resources.OfType<Material>().Count()}、着色器 {resources.OfType<Shader>().Count()}。");
         display.Dispose();
         cache.Dispose();
         await new UiTestInput(TestScene).Frames(2);
-        var nodes = Performance.GetMonitor(Performance.Monitor.ObjectNodeCount);
-        var resources = Performance.GetMonitor(Performance.Monitor.ObjectResourceCount);
-        Require(Mathf.IsEqualApprox((float)nodes, (float)baselineNodes) &&
-            Mathf.IsEqualApprox((float)resources, (float)baselineResources),
-            $"负载释放后节点 {nodes}（基线 {baselineNodes}）、资源 {resources}（基线 {baselineResources}）没有回到基线。");
+        var leaked = nodes.Concat(resources).Where(GodotObject.IsInstanceValid).ToArray();
+        Require(leaked.Length == 0, $"负载释放后仍有 {leaked.Length} 个本用例建立的对象或资源有效：" +
+            string.Join("、", leaked.Take(5).Select(item => item switch
+            {
+                Node node => $"{node.GetType().Name} Name={node.Name}",
+                Resource resource => $"{resource.GetType().Name} Class={resource.GetClass()} ResourceName={resource.ResourceName}",
+                _ => item.GetType().Name
+            })));
     }
 
     private SceneDisplay Attach(AssetResourceCache cache)
