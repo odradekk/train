@@ -173,9 +173,9 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
             else if (reject)
             {
                 Require(app.Host!.GetStatus() is null && menu.IsVisibleInTree() && panel.IsVisibleInTree() &&
-                    ui.ErrorText.Contains("fixture_generation_rejected") &&
+                    ui.ErrorText.Contains("无法完成此操作。") && !ui.ErrorText.Contains("fixture_generation_rejected") &&
                     ui.GetNode<Control>("Root/ErrorPanel").IsVisibleInTree(),
-                    "创建失败未保留菜单与输入面板，或未显示具体拒绝原因。");
+                    "创建失败未保留菜单与输入面板，或未显示中文拒绝原因。");
             }
             else
             {
