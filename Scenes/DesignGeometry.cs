@@ -26,20 +26,28 @@ internal static class DesignGeometry
         ImmutableHashSet<PartId>? destroyed = null, DesignHash? worldDesign = null, WorldLocation? terrainLocation = null,
         ulong wearSeed = 0, StructureDamage.Report? damage = null)
     {
-        SceneGeometry.Validate(rootPose);
-        if (subject is WorldObjectId.Instance instance) wearSeed = InstanceWearSeed(instance.Id);
-        var projection = Projection(evaluation);
-        if (projection.Voxels.IsDefault || projection.NestedObjects.IsDefault || projection.Elements.IsDefault)
-            throw new ArgumentException("Design collections must be initialized.", nameof(evaluation));
-        var objects = ImmutableArray.CreateBuilder<SceneObject>();
-        var picking = ImmutableArray.CreateBuilder<PickGrid>();
-        var diagnostics = ImmutableArray.CreateBuilder<SceneProblem>();
-        var contentDiagnostics = evaluation switch
+        var diagnostics = evaluation switch
         {
             DesignEvaluation.Complete complete => complete.Diagnostics,
             DesignEvaluation.Partial partial => partial.Diagnostics,
             _ => ImmutableArray<ContentDiagnostic>.Empty
         };
+        return Build(content, Projection(evaluation), diagnostics, subject, rootPose, id, destroyed, worldDesign,
+            terrainLocation, wearSeed, damage);
+    }
+
+    internal static RenderedDesign Build(IContentView content, DesignSceneProjection projection,
+        ImmutableArray<ContentDiagnostic> contentDiagnostics, WorldObjectId? subject, ScenePose rootPose,
+        Func<string, SceneObjectId> id, ImmutableHashSet<PartId>? destroyed = null, DesignHash? worldDesign = null,
+        WorldLocation? terrainLocation = null, ulong wearSeed = 0, StructureDamage.Report? damage = null)
+    {
+        SceneGeometry.Validate(rootPose);
+        if (subject is WorldObjectId.Instance instance) wearSeed = InstanceWearSeed(instance.Id);
+        if (projection.Voxels.IsDefault || projection.NestedObjects.IsDefault || projection.Elements.IsDefault)
+            throw new ArgumentException("Design collections must be initialized.", nameof(projection));
+        var objects = ImmutableArray.CreateBuilder<SceneObject>();
+        var picking = ImmutableArray.CreateBuilder<PickGrid>();
+        var diagnostics = ImmutableArray.CreateBuilder<SceneProblem>();
         AddDiagnostics(contentDiagnostics, diagnostics, subject);
         var paths = new Dictionary<string, (SceneObjectId Id, ScenePose RootPose)>();
         var appearance = new Dictionary<VoxelDefinitionId, VoxelAppearanceProjection?>();
@@ -50,7 +58,7 @@ internal static class DesignGeometry
         foreach (var nested in projection.NestedObjects.OrderBy(item => item.NestedItemIndices.Length))
         {
             if (nested.NestedItemIndices.IsDefaultOrEmpty)
-                throw new ArgumentException("Nested paths must be nonempty.", nameof(evaluation));
+                throw new ArgumentException("Nested paths must be nonempty.", nameof(projection));
             if (nested.Details is NestedObjectDetails.FunctionalComposite functional && destroyed?.Contains(functional.Number) == true)
                 continue;
             if (nested.Details is NestedObjectDetails.MissingFunctionalComposite missing && destroyed?.Contains(missing.Number) == true)
@@ -76,7 +84,7 @@ internal static class DesignGeometry
                 if (damage is not null && damage.Removed.Contains(new(key, voxel.LocalAt))) continue;
                 if (damage is not null && damage.Damage.TryGetValue(new(key, voxel.LocalAt), out var amount))
                     cellDamage[voxel.LocalAt] = amount;
-                if (!Enum.IsDefined(voxel.LocalOrientation)) throw new ArgumentException("Invalid voxel orientation.", nameof(evaluation));
+                if (!Enum.IsDefined(voxel.LocalOrientation)) throw new ArgumentException("Invalid voxel orientation.", nameof(projection));
                 if (!appearance.TryGetValue(voxel.Voxel, out var value))
                 {
                     var lookup = content.FindVoxelAppearance(voxel.Voxel);

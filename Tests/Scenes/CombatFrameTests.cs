@@ -389,6 +389,8 @@ public sealed class CombatFrameTests
         await using var session = Open(content, instance, group);
         session.RequestView(new WorldSceneTarget.Location(RailwayFixtures.Location));
         var before = await RailwayFixtures.Settled(session, Request);
+        var again = Present(session, before);
+        Assert.AreSame(CreatureMesh(before), CreatureMesh(again));
         var updated = RailwayFixtures.Content(design: RailwayFixtures.Vehicle(), creatures:
             new Dictionary<CreatureDefinitionId, ContentLookup<CreatureAppearanceProjection>>
             { [creature] = new ContentLookup<CreatureAppearanceProjection>.Found(Appearance("green")) });
@@ -398,7 +400,11 @@ public sealed class CombatFrameTests
         var afterPaint = Paint(after);
         Assert.AreEqual(new PaintColor("red"), beforePaint);
         Assert.AreEqual(new PaintColor("green"), afterPaint);
+        Assert.AreNotSame(CreatureMesh(before), CreatureMesh(after));
     }
+
+    private static SceneMesh CreatureMesh(SceneFrame frame) => frame.Objects.Where(item => item.Subject is WorldObjectId.Creature)
+        .SelectMany(item => item.Visuals.OfType<SceneVisual.Geometry>()).Select(item => item.Mesh).First();
 
     private static PaintColor? Paint(SceneFrame frame) => frame.Objects.Where(item => item.Subject is WorldObjectId.Creature)
         .SelectMany(item => item.Visuals.OfType<SceneVisual.Geometry>()).Select(item => ((SceneMaterial.Voxel)item.Mesh.Material).Paint)

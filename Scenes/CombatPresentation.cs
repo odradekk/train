@@ -22,6 +22,8 @@ internal sealed class PresentationState
     private readonly List<InstanceView> seen = [];
     private Dictionary<WorldObjectId, ScenePose> poses = [];
     private readonly Dictionary<CreatureId, Vector3> creatures = [];
+    private readonly Dictionary<CreatureAppearanceProjection, (ImmutableArray<SceneObject> Objects, ImmutableDictionary<SceneObjectId, string> Keys)> templates = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<CreatureId, (CreatureAppearanceProjection Appearance, ImmutableArray<SceneObject> Objects)> bodies = [];
     private ulong nextEffect;
 
     internal void Clear()
@@ -34,6 +36,7 @@ internal sealed class PresentationState
         seen.Clear();
         poses.Clear();
         creatures.Clear();
+        bodies.Clear();
     }
 
     internal void Note(SceneWorldSnapshot snapshot, ImmutableArray<EventEnvelope> events, WorldLocation? here)
@@ -97,11 +100,10 @@ internal sealed class PresentationState
                 if (dead.Contains((group, creature.Id))) continue;
                 if (snapshot.Content.FindCreature(creature.Definition) is not ContentLookup<CreatureAppearanceProjection>.Found appearance)
                     continue;
-                var subject = new WorldObjectId.Creature(creature.Id);
                 var pose = new ScenePose(placed.Position + placed.Forward * (float)Pounce(creature.Id, seconds) + new Vector3(0, Bob(seconds), 0),
                     placed.Rotation);
-                objects.AddRange(DesignGeometry.Build(snapshot.Content, Evaluation(appearance.Value.Scene), subject, pose,
-                    key => objectId("creature:" + group.Value + ":" + creature.Id.Value + ":" + key)).Objects);
+                var body = Body(snapshot, appearance.Value, group, creature.Id, objectId);
+                objects.AddRange(SceneGeometry.Place(new(body, [], []), pose).Objects);
             }
         }
     }
@@ -492,9 +494,31 @@ internal sealed class PresentationState
         return roots;
     }
 
-    private static DesignEvaluation Evaluation(DesignSceneProjection scene) =>
-        new DesignEvaluation.Complete(scene.Design ?? new("creature"), new("creature"),
-            new(new("", ""), new DesignSpecification.Creature(null, null), new([], [], [])), null, scene, true, []);
+    private ImmutableArray<SceneObject> Body(SceneWorldSnapshot snapshot, CreatureAppearanceProjection appearance,
+        CreatureGroupId group, CreatureId creature, Func<string, SceneObjectId> objectId)
+    {
+        if (!templates.TryGetValue(appearance, out var template))
+        {
+            var local = new Dictionary<string, SceneObjectId>();
+            ulong next = 0;
+            var built = DesignGeometry.Build(snapshot.Content, appearance.Scene, [], new WorldObjectId.Creature(creature),
+                new(Vector3.Zero, Quaternion.Identity), key => local.TryGetValue(key, out var id) ? id : local[key] = new(++next));
+            templates[appearance] = template = (built.Objects, local.ToImmutableDictionary(item => item.Value, item => item.Key));
+        }
+        if (bodies.TryGetValue(creature, out var cached) && ReferenceEquals(cached.Appearance, appearance)) return cached.Objects;
+        var map = new Dictionary<SceneObjectId, SceneObjectId>();
+        foreach (var (old, key) in template.Keys)
+            map[old] = objectId("creature:" + group.Value + ":" + creature.Value + ":" + key);
+        var subject = new WorldObjectId.Creature(creature);
+        var remapped = template.Objects.Select(item => item with
+        {
+            Id = map[item.Id],
+            Parent = item.Parent is { } parent ? map[parent] : null,
+            Subject = subject
+        }).ToImmutableArray();
+        bodies[creature] = (appearance, remapped);
+        return remapped;
+    }
 
     private sealed class TurretAim(InstanceId instance, string path, RotationAppearance appearance, double startedAt,
         double startDegrees, HitTarget target, bool resolved, double targetDegrees)
