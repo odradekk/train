@@ -35,7 +35,7 @@ public sealed class RailwayBreakTests
         var builds = 0;
         var initial = NodeFixtures.Snapshot(platforms: 0, tracks: 1, trackLimit: 2, trains: []);
         await using var vehicles = new SceneVehicles();
-        await using var scene = new NodeScene(initial, NodeFixtures.NodeId, new(), SceneFixtures.NextId(), vehicles, new(), (_, node, _, token) =>
+        await using var scene = new NodeScene(initial, NodeFixtures.NodeId, new(), SceneFixtures.NextId(), vehicles, new(), _ => null, (_, node, _, token) =>
         {
             Interlocked.Increment(ref builds);
             return new(NodeLayout.Build(initial, node, token), ImmutableDictionary<string, NodeScene.Part>.Empty.Add("ground",

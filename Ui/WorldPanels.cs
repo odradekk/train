@@ -26,9 +26,12 @@ public partial class WorldPanels : Control
     internal event Action<PanelTarget, NodeId, ICoreReadView, IContentView>? FormationRequested;
     internal event Action<PanelTarget, SettlementId>? SettlementRequested;
     internal event Action<PanelTarget, NodeId>? FoundingRequested;
+    internal event Action<PanelTarget, EdgeId>? RailwayWorkRequested;
     internal event Action<PanelTarget, TrainId>? InventoryRequested;
     internal event Action<InstanceId>? RefitRequested;
     internal event Action<InstanceId>? VehicleServiceRequested;
+    internal event Action<TrainId>? TrainCombatRequested;
+    internal event Action<SettlementId>? SettlementCombatRequested;
 
     internal void Initialize(HostCoordinator host,
         Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit, Action<string> reportError)
@@ -143,20 +146,33 @@ public partial class WorldPanels : Control
             }, true));
             var occupant = _view.World.Nodes.FirstOrDefault(item => item.Id == node.Id)?.Occupant;
             if (occupant is NodeOccupant.Settlement settlement)
+            {
                 buttons.Add(UiStyle.Button("Economy", "库存、市场与服务…", () =>
                 {
                     if (Available(bound)) SettlementRequested?.Invoke(bound, settlement.Id);
                 }));
+                buttons.Add(UiStyle.Button("OpenSettlementCombat", "战斗…", () =>
+                {
+                    if (Available(bound)) SettlementCombatRequested?.Invoke(settlement.Id);
+                }));
+            }
             else if (occupant is NodeOccupant.Empty)
                 buttons.Add(UiStyle.Button("FoundSettlement", "建立聚居地…", () =>
                 {
                     if (Available(bound)) FoundingRequested?.Invoke(bound, node.Id);
                 }));
         }
+        if (target is WorldObjectId.Edge edge)
+            buttons.Add(UiStyle.Button("RailwayWork", "铁路施工…", () =>
+            {
+                if (Available(bound)) RailwayWorkRequested?.Invoke(bound, edge.Id);
+            }));
         if (target is WorldObjectId.Train train)
         {
             buttons.Add(UiStyle.Button("Inventory", "列车库存…", () =>
             { if (Available(bound)) InventoryRequested?.Invoke(bound, train.Id); }));
+            buttons.Add(UiStyle.Button("OpenCombat", "战斗…", () =>
+            { if (Available(bound)) TrainCombatRequested?.Invoke(train.Id); }));
             buttons.Add(UiStyle.Button("EditPlan", "编辑计划", () =>
             {
                 if (Available(bound) && _view.FindTrain(train.Id) is Lookup<TrainView>.Found found)

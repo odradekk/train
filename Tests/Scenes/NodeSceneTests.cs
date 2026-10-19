@@ -287,7 +287,7 @@ public sealed class NodeSceneTests
             vehicles.Reconcile(snapshot.Content, ((Lookup<InstanceView>.Found)snapshot.Core.FindInstance(
                 new InstanceId.Vehicle(new(train.Id.Value)))).Value, ObjectId);
         await SceneFixtures.AwaitPendingWork(vehicles.PendingWork);
-        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), ObjectId, vehicles, new(), (_, _, _, _) => built);
+        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), ObjectId, vehicles, new(), _ => null, (_, _, _, _) => built);
         await scene.BuildWork!;
         var stamp = new SceneFrameStamp(new(Guid.NewGuid()), new(1), new(1), 1);
         var frame = scene.Present(snapshot, new(1, null, SceneDebugLayer.None), stamp, null, default);
@@ -356,7 +356,7 @@ public sealed class NodeSceneTests
         {
             await using var objects = new SettlementObjects(SceneFixtures.NextId());
             RenderedDesign Present() => objects.Present(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId), default,
-                ImmutableArray.CreateBuilder<SceneFog>());
+                ImmutableArray.CreateBuilder<SceneFog>(), _ => null);
             var frame = Present();
             while (objects.PendingWork.Length > 0) { await SceneFixtures.AwaitPendingWork(objects.PendingWork); frame = Present(); }
             frames.Add(frame);
@@ -606,7 +606,7 @@ public sealed class NodeSceneTests
         var founded = WithNeighbor(CopiedSettlement(1, terrain: false));
         var empty = RailwayFixtures.ReplaceCore(founded, node: founded.Core.World.Nodes[0] with
             { Occupant = new NodeOccupant.Empty(), Platforms = 0 });
-        await using var session = new WorldSceneSession(new(Guid.NewGuid()), empty, WorldSceneSession.Generate, new(), new(),
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), empty, new(), new(),
             (input, node, _, token) => new(NodeLayout.Build(input, node, token),
                 ImmutableDictionary<string, NodeScene.Part>.Empty.Add("ground", new("fixed",
                     WorldSceneSession.BuildGeometry(id => new([new(id(""), null, SceneFixtures.Identity, null, [], [], [])], [], [])),
@@ -658,7 +658,7 @@ public sealed class NodeSceneTests
         var empty = RailwayFixtures.ReplaceCore(founded, node: founded.Core.World.Nodes[0] with
             { Occupant = new NodeOccupant.Empty(), Platforms = 0 });
         var calls = 0;
-        await using var session = new WorldSceneSession(new(Guid.NewGuid()), empty, WorldSceneSession.Generate, new(), new(),
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), empty, new(), new(),
             (input, node, _, token) =>
             {
                 if (Interlocked.Increment(ref calls) > 1) throw new RailwayBuildException("founded layout failed");
@@ -704,6 +704,313 @@ public sealed class NodeSceneTests
                     { [new(1)] = snapshot.Core.FindSettlement(new(1)) }
             }
         };
+    }
+
+    [TestMethod]
+    public void NodeSlopeMeetsAcrossAChunkBoundary()
+    {
+        var terrain = RailwayFixtures.TerrainAppearance with { LocalHeightNoise = [new(2, 40)] };
+        var layout = NodeFixtures.Layout;
+        var snapshot = NodeFixtures.EmptyNodeSnapshot(layout, []);
+        snapshot = snapshot with { Content = NodeFixtures.Content(terrain: terrain, layout: layout) };
+        var node = snapshot.Core.World.Nodes[0];
+        snapshot = RailwayFixtures.ReplaceCore(snapshot, node with { Terrain = node.Terrain with { Relief = 1 } });
+        var cells = CellsAcrossOneChunkBoundary(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+        Assert.IsTrue(CrossesChunk(cells), "A chunk boundary must step by more than six cells.");
+        AssertNodeColumnsMeet(cells);
+    }
+
+    [TestMethod]
+    public void FlattenSkirtMeetsAcrossAChunkBoundary()
+    {
+        var scene = SceneFixtures.Projection([]) with { RootFlatten = new(new(4, -8), new(20, 8), 80) };
+        var layout = NodeFixtures.Layout with { SceneModel = NodeFixtures.Layout.SceneModel with { Scene = scene } };
+        var snapshot = NodeFixtures.EmptyNodeSnapshot(layout, []);
+        var cells = CellsAcrossOneChunkBoundary(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+        Assert.IsTrue(CrossesChunk(cells), "The flatten skirt must step by more than six cells across a chunk boundary.");
+        AssertNodeColumnsMeet(cells);
+    }
+
+    [TestMethod]
+    public void ChunkInputsIncludeABedInTheNeighboringChunk()
+    {
+        var snapshot = NodeFixtures.Snapshot(trains: [], tracks: 1);
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        var prepared = NodeScene.Prepare(snapshot, layout);
+        Assert.IsTrue(RemovingANeighborBedChangesInputs(prepared, layout),
+            "The fixture must place a bed on the ring of a neighboring terrain chunk.");
+    }
+
+    [TestMethod]
+    public void BoundarySeamHasNoGaps()
+    {
+        var terrain = RailwayFixtures.TerrainAppearance with { LocalHeightNoise = [new(4, 40)] };
+        var snapshot = NodeFixtures.Snapshot(trains: [], tracks: 1, content: NodeFixtures.Content(terrain: terrain));
+        var node = snapshot.Core.World.Nodes.Single(item => item.Id == NodeFixtures.NodeId);
+        snapshot = RailwayFixtures.ReplaceCore(snapshot, node with { Terrain = node.Terrain with { Relief = 1 } }, worldSeed: 4);
+        var kept = snapshot.Core.World.Edges[0];
+        snapshot = snapshot with
+        {
+            Core = new FixedCoreReadView
+            {
+                Position = snapshot.Core.Position,
+                InputIdentity = snapshot.Core.InputIdentity,
+                World = snapshot.Core.World with { Edges = [kept] },
+                Nodes = snapshot.Core.World.Nodes.ToDictionary(item => item.Id, item => snapshot.Core.FindNode(item.Id)),
+                Edges = new Dictionary<EdgeId, Lookup<EdgeView>> { [kept.Id] = snapshot.Core.FindEdge(kept.Id) },
+                Settlements = new Dictionary<SettlementId, Lookup<SettlementView>> { [new(1)] = snapshot.Core.FindSettlement(new(1)) }
+            }
+        };
+        var columns = SeamColumns(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
+        var nodeAbove = 0;
+        var boundaryAbove = 0;
+        foreach (var (column, group) in columns)
+        {
+            if (group.Boundary) continue;
+            var surface = group.Cells.Max();
+            foreach (var neighbor in Orthogonal(column))
+            {
+                if (!columns.TryGetValue(neighbor, out var other) || !other.Boundary) continue;
+                var boundary = other.Cells.Max();
+                if (surface - boundary > nodeAbove) nodeAbove = surface - boundary;
+                if (boundary - surface > boundaryAbove) boundaryAbove = boundary - surface;
+            }
+        }
+        Assert.IsTrue(nodeAbove > RailwayCoordinates.TerrainDepthCells,
+            $"A node column must stand more than six cells above the boundary, found {nodeAbove}.");
+        Assert.IsTrue(boundaryAbove > RailwayCoordinates.TerrainDepthCells,
+            $"A boundary column must stand more than six cells above the node, found {boundaryAbove}.");
+        foreach (var (column, group) in columns)
+        foreach (var neighbor in Orthogonal(column))
+        {
+            if (!columns.TryGetValue(neighbor, out var other) || group.Boundary == other.Boundary) continue;
+            if (column.X > neighbor.X || column.X == neighbor.X && column.Z > neighbor.Z) continue;
+            var groupSurface = group.Cells.Max();
+            var otherSurface = other.Cells.Max();
+            var high = groupSurface >= otherSurface ? group.Cells : other.Cells;
+            var highAt = groupSurface >= otherSurface ? column : neighbor;
+            var lowAt = groupSurface >= otherSurface ? neighbor : column;
+            var lowSurface = Math.Min(groupSurface, otherSurface);
+            for (var y = lowSurface + 1; y <= Math.Max(groupSurface, otherSurface); y++)
+                Assert.IsTrue(high.Contains(y),
+                    $"({highAt.X},{highAt.Z}) is missing {y} above ({lowAt.X},{lowAt.Z}) at {lowSurface}.");
+        }
+    }
+
+    private static Dictionary<GridColumn, (HashSet<int> Cells, bool Boundary)> SeamColumns(SceneWorldSnapshot snapshot, NodeLayout layout)
+    {
+        var prepared = NodeScene.Prepare(snapshot, layout);
+        var node = snapshot.Core.World.Nodes.Single(item => item.Id == layout.Node);
+        var bed = Beds(prepared);
+        var chunks = new HashSet<GridColumn>();
+        var nodeHigher = false;
+        var boundaryHigher = false;
+        foreach (var (column, surface) in prepared.BoundarySurfaces)
+        {
+            var boundaryHeight = (int)Math.Floor(surface);
+            foreach (var neighbor in Orthogonal(column))
+            {
+                if (prepared.BoundarySurfaces.ContainsKey(neighbor) || !Inside(layout, neighbor)) continue;
+                var step = ColumnHeight(snapshot, node, layout, bed, neighbor) - boundaryHeight;
+                if (!nodeHigher && step > RailwayCoordinates.TerrainDepthCells)
+                {
+                    nodeHigher = true;
+                    IncludeSeamChunk(chunks, layout, neighbor);
+                }
+                else if (!boundaryHigher && step < -RailwayCoordinates.TerrainDepthCells)
+                {
+                    boundaryHigher = true;
+                    IncludeSeamChunk(chunks, layout, neighbor);
+                }
+            }
+            if (nodeHigher && boundaryHigher) break;
+        }
+        var parts = prepared.Global.Parts.Where(part => part.Key.StartsWith("boundary:", StringComparison.Ordinal)).ToList();
+        foreach (var from in chunks)
+            parts.Add(new(NodeScene.ChunkKey(from), prepared.BuildChunk(from)));
+        return SeamColumns(parts);
+    }
+
+    private static bool Inside(NodeLayout layout, GridColumn from) =>
+        from.X >= layout.Bounds.Minimum.X && from.X < layout.Bounds.Maximum.X &&
+        from.Z >= layout.Bounds.Minimum.Y && from.Z < layout.Bounds.Maximum.Y;
+
+    private static Dictionary<GridColumn, (HashSet<int> Cells, bool Boundary)> SeamColumns(
+        List<KeyValuePair<string, NodeScene.Part>> parts)
+    {
+        var columns = new Dictionary<GridColumn, (HashSet<int> Cells, bool Boundary)>();
+        foreach (var (key, part) in parts)
+        {
+            var boundary = key.StartsWith("boundary:", StringComparison.Ordinal);
+            if (!boundary && !key.StartsWith("terrain:", StringComparison.Ordinal)) continue;
+            foreach (var cell in part.Geometry.Geometry.Picking.SelectMany(pick => pick.Grid.Cells))
+            {
+                var local = new GridColumn(cell.At.X, cell.At.Z);
+                if (!part.Heights.TryGetValue(local, out var top) || cell.At.Y > top - 1) continue;
+                var at = new GridColumn(cell.At.X + (int)Math.Round(part.Origin.X), cell.At.Z + (int)Math.Round(part.Origin.Z));
+                var y = cell.At.Y + (int)Math.Round(part.Origin.Y);
+                if (!columns.TryGetValue(at, out var group))
+                    columns[at] = group = ([], boundary);
+                else if (group.Boundary != boundary)
+                    Assert.Fail($"Column ({at.X},{at.Z}) is both a node chunk and a boundary part.");
+                group.Cells.Add(y);
+            }
+        }
+        return columns;
+    }
+
+    private static bool RemovingANeighborBedChangesInputs(NodeScene.Preparation prepared, NodeLayout layout)
+    {
+        foreach (var (chunk, beds) in prepared.BedChunks)
+        foreach (var column in beds.Keys.ToArray())
+        foreach (var from in new[]
+        {
+            new GridColumn(chunk.X - VoxelGrid.ChunkSize, chunk.Z), new GridColumn(chunk.X + VoxelGrid.ChunkSize, chunk.Z),
+            new GridColumn(chunk.X, chunk.Z - VoxelGrid.ChunkSize), new GridColumn(chunk.X, chunk.Z + VoxelGrid.ChunkSize)
+        })
+        {
+            if (from.X < (int)layout.Bounds.Minimum.X || from.X >= (int)layout.Bounds.Maximum.X ||
+                from.Z < (int)layout.Bounds.Minimum.Y || from.Z >= (int)layout.Bounds.Maximum.Y) continue;
+            var outside = column.X < from.X || column.X >= from.X + VoxelGrid.ChunkSize ||
+                column.Z < from.Z || column.Z >= from.Z + VoxelGrid.ChunkSize;
+            var near = column.X >= from.X - 1 && column.X <= from.X + VoxelGrid.ChunkSize &&
+                column.Z >= from.Z - 1 && column.Z <= from.Z + VoxelGrid.ChunkSize;
+            if (!outside || !near) continue;
+            var before = prepared.ChunkInputs(from);
+            Assert.IsTrue(prepared.BedChunks[chunk].Remove(column));
+            Assert.AreNotEqual(before, prepared.ChunkInputs(from));
+            return true;
+        }
+        return false;
+    }
+
+    private static Dictionary<GridColumn, (HashSet<int> Cells, GridColumn Chunk)> CellsAcrossOneChunkBoundary(
+        SceneWorldSnapshot snapshot, NodeLayout layout)
+    {
+        var prepared = NodeScene.Prepare(snapshot, layout);
+        var node = snapshot.Core.World.Nodes.Single(item => item.Id == layout.Node);
+        var bed = Beds(prepared);
+        var size = VoxelGrid.ChunkSize;
+        var minX = (int)layout.Bounds.Minimum.X;
+        var maxX = (int)layout.Bounds.Maximum.X;
+        var minZ = (int)layout.Bounds.Minimum.Y;
+        var maxZ = (int)layout.Bounds.Maximum.Y;
+        GridColumn? left = null;
+        GridColumn? right = null;
+        for (var z = minZ; z < maxZ && left is null; z += size)
+        for (var x = minX; x < maxX && left is null; x += size)
+        {
+            if (x + size < maxX)
+                for (var i = 0; i < size && left is null; i++)
+                    Consider(new(x + size - 1, z + i), new(x + size, z + i));
+            if (left is null && z + size < maxZ)
+                for (var i = 0; i < size && left is null; i++)
+                    Consider(new(x + i, z + size - 1), new(x + i, z + size));
+
+            void Consider(GridColumn a, GridColumn b)
+            {
+                var step = Math.Abs(ColumnHeight(snapshot, node, layout, bed, a) - ColumnHeight(snapshot, node, layout, bed, b));
+                if (step <= RailwayCoordinates.TerrainDepthCells) return;
+                left = a;
+                right = b;
+            }
+        }
+        var chunks = new HashSet<GridColumn>();
+        if (left is { } first && right is { } second)
+        {
+            Include(first);
+            Include(second);
+            foreach (var neighbor in Orthogonal(first).Concat(Orthogonal(second))) Include(neighbor);
+        }
+        var cells = new Dictionary<GridColumn, (HashSet<int> Cells, GridColumn Chunk)>();
+        foreach (var from in chunks)
+        {
+            var part = prepared.BuildChunk(from);
+            if (part.Geometry.Geometry.Picking.IsEmpty) continue;
+            foreach (var cell in part.Geometry.Geometry.Picking.Single().Grid.Cells)
+            {
+                var column = new GridColumn(cell.At.X, cell.At.Z);
+                if (!part.Heights.TryGetValue(column, out var top) || cell.At.Y > top - 1) continue;
+                if (!cells.TryGetValue(column, out var group)) cells[column] = group = ([], from);
+                group.Cells.Add(cell.At.Y);
+            }
+        }
+        return cells;
+
+        void Include(GridColumn column)
+        {
+            if (column.X < minX || column.X >= maxX || column.Z < minZ || column.Z >= maxZ) return;
+            chunks.Add(new(minX + (int)Math.Floor((column.X - minX) / (double)size) * size,
+                minZ + (int)Math.Floor((column.Z - minZ) / (double)size) * size));
+        }
+    }
+
+    private static void IncludeSeamChunk(HashSet<GridColumn> chunks, NodeLayout layout, GridColumn column)
+    {
+        var size = VoxelGrid.ChunkSize;
+        var minX = (int)layout.Bounds.Minimum.X;
+        var minZ = (int)layout.Bounds.Minimum.Y;
+        var from = new GridColumn(minX + (int)Math.Floor((column.X - minX) / (double)size) * size,
+            minZ + (int)Math.Floor((column.Z - minZ) / (double)size) * size);
+        if (Inside(layout, from)) chunks.Add(from);
+    }
+
+    private static Dictionary<GridColumn, NodeScene.RailBed> Beds(NodeScene.Preparation prepared)
+    {
+        var bed = new Dictionary<GridColumn, NodeScene.RailBed>();
+        foreach (var chunk in prepared.BedChunks.Values)
+        foreach (var pair in chunk)
+            bed[pair.Key] = pair.Value;
+        return bed;
+    }
+
+    private static int ColumnHeight(SceneWorldSnapshot snapshot, NodeMapItem node, NodeLayout layout,
+        Dictionary<GridColumn, NodeScene.RailBed> bed, GridColumn column)
+    {
+        var raw = RailwayTerrain.NodeGround(snapshot, node, new(column.X + 0.5, 0, column.Z + 0.5), layout.Template);
+        if (bed.TryGetValue(column, out var rail))
+        {
+            var blend = Math.Clamp((rail.Distance - RailwayCoordinates.BedBaseHalfWidth) / RailwayCoordinates.BedBlendWidth, 0, 1);
+            raw = RailwayTerrain.BedHeight(rail.Height, rail.Distance) * (1 - blend) + raw * blend;
+        }
+        return (int)Math.Floor(raw);
+    }
+
+    private static bool CrossesChunk(Dictionary<GridColumn, (HashSet<int> Cells, GridColumn Chunk)> cells)
+    {
+        foreach (var (column, group) in cells)
+        {
+            var surface = group.Cells.Max();
+            foreach (var neighbor in Orthogonal(column))
+                if (cells.TryGetValue(neighbor, out var other) && other.Chunk != group.Chunk &&
+                    Math.Abs(surface - other.Cells.Max()) > RailwayCoordinates.TerrainDepthCells)
+                    return true;
+        }
+        return false;
+    }
+
+    private static void AssertNodeColumnsMeet(Dictionary<GridColumn, (HashSet<int> Cells, GridColumn Chunk)> cells)
+    {
+        foreach (var (column, group) in cells)
+        {
+            var surface = group.Cells.Max();
+            foreach (var neighbor in Orthogonal(column))
+            {
+                if (!cells.TryGetValue(neighbor, out var other)) continue;
+                var lower = other.Cells.Max();
+                if (lower >= surface) continue;
+                for (var y = lower + 1; y <= surface; y++)
+                    Assert.IsTrue(group.Cells.Contains(y), $"({column.X},{column.Z}) is missing {y} above ({neighbor.X},{neighbor.Z}) at {lower}.");
+            }
+        }
+    }
+
+    private static IEnumerable<GridColumn> Orthogonal(GridColumn column)
+    {
+        yield return new(column.X + 1, column.Z);
+        yield return new(column.X, column.Z + 1);
+        yield return new(column.X - 1, column.Z);
+        yield return new(column.X, column.Z - 1);
     }
 
     private static SceneWorldSnapshot CopiedSettlement(ulong generation, bool terrain = true, bool stationPlots = true,

@@ -63,7 +63,8 @@ internal sealed class SceneFrame : ISceneFrame
         RailwayPath? railway = null, ImmutableArray<RailwaySegment> segments = default,
         NodeLayout? node = null, ImmutableArray<NodeScene.Part> nodeParts = default,
         SceneDebugLayer debugLayers = SceneDebugLayer.None, ImmutableDictionary<EdgeId, int>? nodeTracks = null,
-        ScenePickRaySample? pickRay = null, ImmutableArray<SceneDebugLine> editLines = default)
+        ScenePickRaySample? pickRay = null, ImmutableArray<SceneDebugLine> editLines = default,
+        ImmutableArray<SceneEffectCue> effects = default, ImmutableArray<TerrainCollisionPatch> terrain = default)
     {
         Origin = origin;
         SimulationSeconds = seconds;
@@ -80,7 +81,8 @@ internal sealed class SceneFrame : ISceneFrame
         DebugLines = debugLayers == SceneDebugLayer.None ? [] :
             SceneDebugLines.Generate(debugLayers, picking, origin, railway, this.segments, node, nodeTracks, stamp, pickRay);
         if (!editLines.IsDefaultOrEmpty) DebugLines = DebugLines.AddRange(editLines);
-        var environment = new SceneEnvironment(fog.Select(item => item.WorldBounds).ToImmutableArray(), []);
+        var environment = new SceneEnvironment(fog.Select(item => item.WorldBounds).ToImmutableArray(),
+            terrain.IsDefault ? [] : terrain);
         var byId = objects.ToDictionary(item => item.Id);
         var composed = new Dictionary<SceneObjectId, ScenePose>();
         var visiting = new HashSet<SceneObjectId>();
@@ -102,7 +104,7 @@ internal sealed class SceneFrame : ISceneFrame
                 : old)).ToImmutableArray();
         var removed = previous is null ? ImmutableArray<SceneObjectId>.Empty : previous.Objects
             .Where(item => !byId.ContainsKey(item.Id)).Select(item => item.Id).ToImmutableArray();
-        Update = new(previous?.Update.Frame, stamp, shift, upserts, removed, environment, []);
+        Update = new(previous?.Update.Frame, stamp, shift, upserts, removed, environment, effects.IsDefault ? [] : effects);
 
         ScenePose Compose(SceneObjectId id)
         {

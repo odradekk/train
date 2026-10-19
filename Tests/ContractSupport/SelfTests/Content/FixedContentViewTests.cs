@@ -131,6 +131,18 @@ public sealed class FixedContentViewTests
         Assert.AreSame(absent, view.FindSettlementLayout(new(1)));
         AssertUnconfigured(() => view.FindSettlementLayout(new(2)));
         AssertUnconfigured(() => new FixedContentView().FindSettlementLayout(new(1)));
+        AssertUnconfigured(() => new FixedContentView().FindCreature(new("missing")));
+    }
+
+    [TestMethod]
+    public void CreatureAppearancesCopyExplicitResultsAndRejectUnknownInputs()
+    {
+        var absent = new ContentLookup<CreatureAppearanceProjection>.NotFound();
+        var creatures = new Dictionary<CreatureDefinitionId, ContentLookup<CreatureAppearanceProjection>> { [new("wolf")] = absent };
+        var view = new FixedContentView { Creatures = creatures };
+        creatures.Clear();
+        Assert.AreSame(absent, view.FindCreature(new("wolf")));
+        AssertUnconfigured(() => view.FindCreature(new("other")));
     }
 
     private static void AssertUnconfigured(Action operation)

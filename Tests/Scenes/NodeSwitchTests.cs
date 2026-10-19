@@ -58,7 +58,7 @@ public sealed class NodeSwitchTests
         var initial = NodeFixtures.Snapshot(platforms: 0, trains: [RailwayFixtures.Train(0, direction: TravelDirection.Reverse) with { LengthMeters = 26 }], content: content,
             tracks: 2, trackLimit: 2, platformLengthMeters: 0);
         var cache = new NodeScene.Cache();
-        await using var session = new WorldSceneSession(new(Guid.NewGuid()), initial, WorldSceneSession.Generate, new(), cache);
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), initial, new(), cache);
         session.RequestView(new WorldSceneTarget.Follow(new(1), new(1)));
         var displayed = await RailwayFixtures.Settled(session, Request);
         Assert.AreEqual(new WorldLocation.Node(NodeFixtures.NodeId), session.PrebuiltLocation);
@@ -134,7 +134,7 @@ public sealed class NodeSwitchTests
                     new WorldLocation.Edge(RailwayFixtures.Edge, ((TrainPosition.Edge)train.Position).DistanceMeters)
             }]);
         await using var session = new WorldSceneSession(new(Guid.NewGuid()), Snapshot(onEdge, 0),
-            WorldSceneSession.Generate, new(), new());
+            new(), new());
         session.RequestView(new WorldSceneTarget.Follow(onEdge.Id, onEdge.Vehicles[0]));
         var line = await RailwayFixtures.Settled(session, Request);
         var subject = new WorldObjectId.Instance(new InstanceId.Vehicle(onEdge.Vehicles[0]));
@@ -202,7 +202,7 @@ public sealed class NodeSwitchTests
         var approaching = RailwayFixtures.Train(0, direction: TravelDirection.Reverse);
         var cache = new NodeScene.Cache();
         await using var session = new WorldSceneSession(new(Guid.NewGuid()), Snapshot(approaching, 0),
-            WorldSceneSession.Generate, new(), cache);
+            new(), cache);
         session.RequestView(new WorldSceneTarget.Follow(new(1), new(1)));
         var lineA = await RailwayFixtures.Settled(session, Request);
         Assert.AreEqual(SceneReadiness.Ready, lineA.Readiness);
@@ -667,7 +667,7 @@ public sealed class NodeSwitchTests
 
     private static WorldSceneSession Open(SceneWorldSnapshot snapshot,
         Func<SceneWorldSnapshot, NodeId, NodeScene.Cached?, CancellationToken, NodeScene.Built> generate,
-        NodeScene.Cache? cache = null) => new(new(Guid.NewGuid()), snapshot, WorldSceneSession.Generate, new(), cache ?? new(), generate);
+        NodeScene.Cache? cache = null) => new(new(Guid.NewGuid()), snapshot, new(), cache ?? new(), generate);
     private static NodeScene.Built Boundary(SceneWorldSnapshot snapshot, NodeId node, NodeScene.Cached? previous,
         CancellationToken token)
     {
