@@ -49,10 +49,10 @@ internal static class StructureDamage
         var next = ratio < 1 && removedCount < cap && removedCount < order.Length ? order[removedCount] : (SceneVoxelProjection?)null;
         var damage = ImmutableDictionary.CreateBuilder<CellRef, float>();
         if (next is { } marked) damage[Cell(marked)] = 1;
-        var removedAt = removed.Select(cell => cell.At).ToHashSet();
+        var removedAt = order.Take(removedCount).Select(voxel => voxel.At).ToHashSet();
         var structureByAt = structure.ToDictionary(voxel => voxel.At);
-        foreach (var cell in removed)
-            foreach (var neighbor in Neighbors(cell.At))
+        foreach (var at in removedAt)
+            foreach (var neighbor in Neighbors(at))
                 if (!removedAt.Contains(neighbor) && structureByAt.TryGetValue(neighbor, out var voxel))
                     damage[Cell(voxel)] = 1;
         foreach (var part in instance.Parts.Where(part => !part.Destroyed && functional.Contains(part.Part)))
@@ -124,20 +124,14 @@ internal static class StructureDamage
     private static SceneVoxelProjection[] Order(InstanceId instance, DesignHash design, SceneVoxelProjection[] cells)
     {
         if (cells.Length == 0) return cells;
-        var min = new GridPosition(cells.Min(cell => cell.At.X), cells.Min(cell => cell.At.Y), cells.Min(cell => cell.At.Z));
-        var max = new GridPosition(cells.Max(cell => cell.At.X), cells.Max(cell => cell.At.Y), cells.Max(cell => cell.At.Z));
-        var center = new Vector3((min.X + max.X) / 2f, (min.Y + max.Y) / 2f, (min.Z + max.Z) / 2f);
-        var craters = Craters(instance, design, min, max, Math.Min(3, cells.Length));
+        var occupied = cells.Select(cell => cell.At).ToHashSet();
+        var exposed = cells.Where(cell => Neighbors(cell.At).Any(neighbor => !occupied.Contains(neighbor)))
+            .OrderBy(cell => cell.At.X).ThenBy(cell => cell.At.Y).ThenBy(cell => cell.At.Z).ToArray();
+        var craters = Craters(instance, design, exposed);
         int Compare(SceneVoxelProjection left, SceneVoxelProjection right)
         {
-            var leftCrater = Nearest(left);
-            var rightCrater = Nearest(right);
-            var crater = leftCrater.Index.CompareTo(rightCrater.Index);
-            if (crater != 0) return crater;
-            var distance = leftCrater.Distance.CompareTo(rightCrater.Distance);
+            var distance = Nearest(left).CompareTo(Nearest(right));
             if (distance != 0) return distance;
-            var shell = Shell(right).CompareTo(Shell(left));
-            if (shell != 0) return shell;
             var x = left.At.X.CompareTo(right.At.X);
             if (x != 0) return x;
             var y = left.At.Y.CompareTo(right.At.Y);
@@ -145,46 +139,35 @@ internal static class StructureDamage
         }
         return cells.OrderBy(cell => cell, Comparer<SceneVoxelProjection>.Create(Compare)).ToArray();
 
-        (int Index, double Distance) Nearest(SceneVoxelProjection cell)
+        double Nearest(SceneVoxelProjection cell)
         {
-            var best = 0;
             var distance = DistanceTo(cell, craters[0]);
             for (var index = 1; index < craters.Length; index++)
-            {
-                var candidate = DistanceTo(cell, craters[index]);
-                if (candidate < distance) { distance = candidate; best = index; }
-            }
-            return (best, distance);
+                distance = Math.Min(distance, DistanceTo(cell, craters[index]));
+            return distance;
         }
-        double Shell(SceneVoxelProjection cell) => Vector3.Distance(new(cell.At.X + .5f, cell.At.Y + .5f, cell.At.Z + .5f), center);
     }
 
-    private static Vector3[] Craters(InstanceId instance, DesignHash design, GridPosition min, GridPosition max, int count)
+    private static Vector3[] Craters(InstanceId instance, DesignHash design, SceneVoxelProjection[] exposed)
     {
         var text = Encoding.UTF8.GetBytes(design.Value);
         var identity = new byte[9 + text.Length];
-        var (kind, value) = instance switch
-        {
-            InstanceId.Vehicle vehicle => ((byte)1, vehicle.Id.Value),
-            InstanceId.Building building => ((byte)2, building.Id.Value),
-            _ => ((byte)0, 0UL)
-        };
-        identity[0] = kind;
-        BinaryPrimitives.WriteUInt64LittleEndian(identity.AsSpan(1), value);
+        DesignGeometry.WriteInstance(identity, instance);
         text.CopyTo(identity.AsSpan(9));
         var hash = SHA256.HashData(identity);
+        var count = Math.Min(3, exposed.Length);
         var craters = new Vector3[count];
+        var used = new HashSet<int>();
         for (var index = 0; index < count; index++)
         {
             var block = SHA256.HashData(hash.Append((byte)index).ToArray());
-            craters[index] = new(
-                Spread(block, 0, min.X, max.X), Spread(block, 4, min.Y, max.Y), Spread(block, 8, min.Z, max.Z));
+            var pick = (int)(BinaryPrimitives.ReadUInt32LittleEndian(block) % (uint)exposed.Length);
+            while (!used.Add(pick)) pick = (pick + 1) % exposed.Length;
+            var cell = exposed[pick];
+            craters[index] = new(cell.At.X + .5f, cell.At.Y + .5f, cell.At.Z + .5f);
         }
         return craters;
     }
-
-    private static float Spread(byte[] hash, int offset, int min, int max) =>
-        min + (max - min) * (BinaryPrimitives.ReadUInt32LittleEndian(hash.AsSpan(offset)) / (float)uint.MaxValue);
 
     private static double DistanceTo(SceneVoxelProjection cell, Vector3 crater) =>
         Vector3.Distance(new(cell.At.X + .5f, cell.At.Y + .5f, cell.At.Z + .5f), crater);
@@ -192,14 +175,7 @@ internal static class StructureDamage
     internal static ulong Seed(InstanceId instance, int part, GridPosition cell, byte tag)
     {
         Span<byte> identity = stackalloc byte[26];
-        var (kind, value) = instance switch
-        {
-            InstanceId.Vehicle vehicle => ((byte)1, vehicle.Id.Value),
-            InstanceId.Building building => ((byte)2, building.Id.Value),
-            _ => ((byte)0, 0UL)
-        };
-        identity[0] = kind;
-        BinaryPrimitives.WriteUInt64LittleEndian(identity[1..], value);
+        DesignGeometry.WriteInstance(identity, instance);
         BinaryPrimitives.WriteInt32LittleEndian(identity[9..], part);
         BinaryPrimitives.WriteInt32LittleEndian(identity[13..], cell.X);
         BinaryPrimitives.WriteInt32LittleEndian(identity[17..], cell.Y);

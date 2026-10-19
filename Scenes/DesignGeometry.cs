@@ -135,9 +135,8 @@ internal static class DesignGeometry
 
     internal static string Key(ImmutableArray<int> path) => string.Join('/', path);
 
-    private static ulong InstanceWearSeed(InstanceId instance)
+    internal static void WriteInstance(Span<byte> identity, InstanceId instance)
     {
-        Span<byte> identity = stackalloc byte[9];
         var (kind, value) = instance switch
         {
             InstanceId.Vehicle vehicle => ((byte)1, vehicle.Id.Value),
@@ -146,6 +145,12 @@ internal static class DesignGeometry
         };
         identity[0] = kind;
         BinaryPrimitives.WriteUInt64LittleEndian(identity[1..], value);
+    }
+
+    private static ulong InstanceWearSeed(InstanceId instance)
+    {
+        Span<byte> identity = stackalloc byte[9];
+        WriteInstance(identity, instance);
         return BinaryPrimitives.ReadUInt64LittleEndian(SHA256.HashData(identity));
     }
 

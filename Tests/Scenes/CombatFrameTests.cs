@@ -31,6 +31,39 @@ public sealed class CombatFrameTests
     }
 
     [TestMethod]
+    public void RemovalStartsOnExposedCellsAndGrowsEveryCraterTogether()
+    {
+        var cells = new List<SceneVoxelProjection>();
+        for (var x = 0; x < 3; x++)
+            for (var y = 0; y < 3; y++)
+                for (var z = 0; z < 3; z++)
+                    cells.Add(SceneFixtures.Cell(new(x, y, z), 1));
+        var order = StructureDamage.Assess(RailwayFixtures.Instance() with { Structure = new(0, 100) },
+            SceneFixtures.Projection(cells.ToImmutableArray())).Order;
+        var first = order[0].At;
+        Assert.IsTrue(first.X is 0 or 2 || first.Y is 0 or 2 || first.Z is 0 or 2);
+        var interior = order.Select((cell, index) => (cell.At, index)).Single(item => item.At == new GridPosition(1, 1, 1)).index;
+        Assert.IsTrue(interior > 0);
+    }
+
+    [TestMethod]
+    public void AdjacentDamageUsesRootCoordinates()
+    {
+        var nested = SceneFixtures.Cell(new(0, 0, 0), 1, path: [0]) with { LocalAt = new(4, 4, 4) };
+        var neighbor = SceneFixtures.Cell(new(1, 0, 0), 1);
+        var far = SceneFixtures.Cell(new(8, 0, 0), 1);
+        var projection = SceneFixtures.Projection([nested, neighbor, far]);
+        StructureDamage.Report? report = null;
+        for (ulong id = 1; id < 40 && report is null; id++)
+        {
+            var candidate = StructureDamage.Assess(RailwayFixtures.Instance(id) with { Structure = new(0, 100) }, projection);
+            if (candidate.Removed.Contains(new("0", nested.LocalAt))) report = candidate;
+        }
+        Assert.IsNotNull(report);
+        Assert.AreEqual(1, report!.Damage[new("", neighbor.LocalAt)]);
+    }
+
+    [TestMethod]
     public void HitDamageDoesNotChooseRemovedCells()
     {
         var projection = Line(8);
