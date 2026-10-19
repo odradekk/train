@@ -12,6 +12,7 @@
 | `rail-repair` | 种子 40 合编车队建城、建小仓库、扩建边 3，并完成一次手动修复和一次自动修复，1,029,600 步 | Release |
 | `retreat` | 种子 40 武装列车在油田战斗后撤到矿镇，修理进行中保存，修完后把燃料送到林业镇，38,000 步 | Debug |
 | `damaged-vehicle-trade` | 种子 40 同一场撤退后卖出受损武装车，买回并重新编组，38,000 步 | Debug |
+| `conquest` | 种子 40 三挺机枪的列车停在油田，战斗中保存，投降后占领，113,000 步 | Release |
 
 这些配方共用种子 40、`core:basic-through-world` 与 `stage1-world-v1`，存档元数据固定。默认车队由一列机车加三辆货车和一列机车加两辆货车、一辆武装车组成；采购后仍可委托小型货车的经济条件已由 #387 的正式配方补验，阶段 #300 复核。
 
@@ -62,10 +63,10 @@ Station 的形状为 `{kind:"station",node,dwell_steps,goods_rules}`，省略后
 | --- | --- | --- |
 | `lease.acquire` | `request:{kind:"rent",settlement,capacity,duration_steps}`, `maximum_payment` | 租约示例、短测试 |
 | `inventory.unload_goods`／`inventory.load_goods` | `train,settlement,local_inventory,good,quantity` | 租约示例、短测试 |
-| `market.buy_vehicle` | `seller,vehicle,maximum_payment` | 受损现车交易配方 |
+| `market.buy_vehicle` | `seller,vehicle,maximum_payment` | 受损现车交易、征服配方 |
 | `market.sell_vehicle` | `buyer,vehicle,minimum_receipt` | 受损现车交易配方 |
-| `settlement.declare_war` | `settlement` | 撤退与受损现车交易配方 |
-| `settlement.occupy` | `settlement,train` | 仅测试专用短配方 |
+| `settlement.declare_war` | `settlement` | 撤退、受损现车交易、征服配方 |
+| `settlement.occupy` | `settlement,train` | 征服配方 |
 | `engagement.set_train` | `train`，`rules:{priority,scope,encounter,retreat_structure_ratio}` | 仅测试专用短配方 |
 | `combat.retreat` | `train` | 撤退配方 |
 | `construction.commission_vehicle_work` | 制造：`facility,blueprint,sources,maximum_payment`；修理：`request` 与 `maximum_payment` | 委托成功与材料不足分支；修理为撤退配方 |
@@ -181,6 +182,12 @@ python -X utf8 Tools/Cli/summarize_starting_trade.py TestResults/trade-diagnosti
 
 验收证据都在这份配方的 `replay` 输出里。战斗损失是第 18000 步和第 25000 步的车辆 8 耐久。撤退是 `combat.retreat` 回执，以及列车离开节点 12、停到节点 13。修理进行中是 25,400 步样本的任务状态。修复后的运输是两笔 `goods_transfers`（第 6736 步买入、第 31337 步卖出）和终点满耐久。日常检查用 Debug `check` 对照已提交存档。
 
+## 征服
+
+`conquest/recipe.json` 使用种子 40。第 0 步从聚居地 6 购买车辆 16，报价 75,999，钱包变为 737,501；解散列车 2，用车辆 5、6、7、8、16 编成列车 3，并对聚居地 4 宣战。运行计划只有油田节点 12 一个停站，不循环，停留 200,000 步，列车在占领前不离开该节点。
+
+第 8000 步列车 3 在节点 12 战斗中，聚居地 4 为敌对且未投降，车辆 8 的结构耐久是 371,520／372,960。这是中途保存边界。第 112000 步战斗已经结束，聚居地仍投降，列车仍在节点 12；同一位置 `settlement.occupy` 被接受，关系变为玩家拥有。终点 113,000 步列车仍在节点 12，关系保持玩家拥有。胜负来自投降，不是武器被毁。Release 长示例在第 8000 步保存后继续到占领。
+
 ## 受损现车交易
 
 `damaged-vehicle-trade/recipe.json` 复制撤退配方直到列车 2 停在矿镇节点 13，不提交修理。第 25000 步车辆 8 的结构耐久是 369,504／372,960，钱包 813,508。货舱里还有开战前买入的 4 件燃料；第 32000 步把这 4 件卖给聚居地 5，实收 24，货舱清空后才能解编。
@@ -193,8 +200,8 @@ python -X utf8 Tools/Cli/summarize_starting_trade.py TestResults/trade-diagnosti
 
 同一份存档使用同一种构建配置制作和检查。日常测试只运行短经济命令、现车、容量和委托例子。本次车辆内容迭代中，`starting-trade` 只做 `make` 和一次正常读取；`lease-expiry` 通过 Linux runner 制作并执行长验证。长例不能放进日常集成层。
 
-[长示例脚本](../scripts/checks/run-long-example.ps1)构建一次 Release，然后并行执行三组：A 连续运行并严格重放；B 保存退出后由独立进程恢复；C 制作普通存档再从零按配方检查。保存边界为起步贸易 **432000**、租约到期 **5183999**、断轨修复 **959400**（扩建任务进行中）。`replay` 的输出作为连续基准，最后比较恢复后的完整检查点后缀，不额外运行一次 `run`。脚本创建独立运行目录，每条命令完成即保留退出码、耗时和日志，任何失败或未执行均非零退出。runner 触发与下载方法见[远端检查](../docs/run-tests.md#远端检查)。
+[长示例脚本](../scripts/checks/run-long-example.ps1)构建一次 Release，然后并行执行三组：A 连续运行并严格重放；B 保存退出后由独立进程恢复；C 制作普通存档再从零按配方检查。保存边界为起步贸易 **432000**、租约到期 **5183999**、断轨修复 **959400**（扩建任务进行中）、征服 **8000**（战斗进行中，宣战之后、占领之前）。`replay` 的输出作为连续基准，最后比较恢复后的完整检查点后缀，不额外运行一次 `run`。脚本创建独立运行目录，每条命令完成即保留退出码、耗时和日志，任何失败或未执行均非零退出。runner 触发与下载方法见[远端检查](../docs/run-tests.md#远端检查)。
 
-`basic-through`、`storage-tight`、`commission-branches`、`retreat`、`damaged-vehicle-trade`、`starting-trade` 和 `rail-repair` 的存档在 Windows 制作；`lease-expiry` 在 Linux runner 制作。`check` 在制作平台使用同种构建配置比较；Linux 重制不能验证 Windows 存档的一致性，反之亦然。基础例子的命令形式见[基础贯通](#基础贯通)，长示例使用表中 Release 配置。同机跨进程比较、保存恢复和本次录制的严格重放在两种平台都有效，不宣称跨平台确定性。
+`basic-through`、`storage-tight`、`commission-branches`、`retreat`、`damaged-vehicle-trade`、`starting-trade`、`rail-repair` 和 `conquest` 的存档在 Windows 制作；`lease-expiry` 在 Linux runner 制作。`check` 在制作平台使用同种构建配置比较；Linux 重制不能验证 Windows 存档的一致性，反之亦然。基础例子的命令形式见[基础贯通](#基础贯通)，长示例使用表中 Release 配置。同机跨进程比较、保存恢复和本次录制的严格重放在两种平台都有效，不宣称跨平台确定性。
 
 容量例子的普通存档用 Debug 制作，Windows 日常用例通过 `check` 对照已提交的 `storage-tight/save.json`，同时确认源文件保持不变。验收证据仍以具体构建、命令、实际耗时和日志为准；这些 CLI 检查不提供 Godot 界面、目标窗口交互或阶段 #299 四模块验收证据。

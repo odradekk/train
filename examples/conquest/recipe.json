@@ -1,0 +1,59 @@
+{
+  "format_version": 1,
+  "generation_profile": "core:basic-through-world",
+  "seed": 40,
+  "generator_version": "stage1-world-v1",
+  "save": {
+    "id": "b22c7977-b56a-406a-94c0-fe302015a91d",
+    "name": "征服",
+    "saved_at": "2026-10-20T00:00:00Z"
+  },
+  "commands": [
+    {
+      "at": { "completed_steps": 0, "sequence": 0 },
+      "kind": "market.buy_vehicle",
+      "seller": 6,
+      "vehicle": 16,
+      "maximum_payment": 9223372036854775807
+    },
+    {
+      "at": { "completed_steps": 0, "sequence": 1 },
+      "kind": "train.disband",
+      "train": 2
+    },
+    {
+      "at": { "completed_steps": 0, "sequence": 2 },
+      "kind": "train.form",
+      "ordered_vehicles": [5, 6, 7, 8, 16]
+    },
+    {
+      "at": { "completed_steps": 0, "sequence": 3 },
+      "kind": "settlement.declare_war",
+      "settlement": 4
+    },
+    {
+      "at": { "completed_steps": 0, "sequence": 4 },
+      "kind": "train.replace_run_plan",
+      "train": 3,
+      "plan": {
+        "loop": false,
+        "stops": [
+          { "kind": "station", "node": 12, "dwell_steps": 200000, "goods_rules": [] }
+        ]
+      }
+    },
+    {
+      "at": { "completed_steps": 0, "sequence": 5 },
+      "kind": "train.start",
+      "train": 3
+    },
+    {
+      "at": { "completed_steps": 112000, "sequence": 0 },
+      "kind": "settlement.occupy",
+      "settlement": 4,
+      "train": 3
+    }
+  ],
+  "target": { "completed_steps": 113000, "sequence": 0 },
+  "checkpoint_steps": [8000]
+}
