@@ -28,7 +28,7 @@ internal partial class EconomyPanels
         _vehicle = null; _vehicleQuote = null; _vehicleAvailable = false; _vehicleItems.Clear(); _capacityItems.Clear();
         _vehicleRows = List(body, "Vehicles", 270); _soldOut = Text(_vehicleRows, "SoldOut", "现车已售罄。");
         _vehicleDetails = Text(body, "VehicleDetails", "请选择实际车辆。");
-        var actions = new HBoxContainer(); body.AddChild(actions);
+        var actions = Footer(body);
         _vehicleQuoteButton = UiStyle.Button("QuoteVehicle", "获取报价", () => Quote(RequestVehicleQuote));
         _vehicleConfirm = UiStyle.Button("ConfirmVehicle", "确认买卖", ConfirmVehicle, true);
         _formPurchased = UiStyle.Button("FormPurchased", "编组…", () =>
@@ -101,7 +101,7 @@ internal partial class EconomyPanels
         _vehicleDetails.Text = $"车辆 {id.Value} · {(_vehicleAction == VehicleTradeAction.Buy ? "买入" : "卖出")}\n所在地：{WorldPanels.LocationText(value.Location, _view, _content)}\n归属：{WorldPanels.Relation(value.Ownership)} · {(locks.Count == 0 ? "未锁定" : string.Join("、", locks))}\n结构耐久：{value.Structure.EffectiveCurrent}/{value.Structure.Maximum}" +
             string.Concat(value.Parts.Select(part => $"\n部件 {part.Part.Value}：{part.Durability.EffectiveCurrent}/{part.Durability.Maximum}" +
                 (part.Destroyed ? "（已毁）" : part.DefinitionMissing ? "（定义缺失）" : ""))) +
-            (value.MissingContent.IsEmpty ? "" : "\n" + Problems(value.MissingContent)) +
+            (value.MissingContent.IsEmpty ? "" : "\n" + Problems(value.MissingContent, _content)) +
             (_vehicleAvailable ? "" : "\n所选车辆已不在这份买卖清单中，请重新选择。已购车辆可在本站编组。");
     }
 

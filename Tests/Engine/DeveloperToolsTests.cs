@@ -63,7 +63,8 @@ public class DeveloperToolsTests(Node testScene) : TestClass(testScene)
                 "重放允许普通保存或普通核心推进。");
             var console = app.GetChildren().OfType<GameConsole>().Single();
             console.SubmitLine("train start 1");
-            Require(app.GetChildren().OfType<GameUi>().Single().ErrorText.Contains("replay_read_only", StringComparison.Ordinal) &&
+            var replayError = app.GetChildren().OfType<GameUi>().Single().ErrorText;
+            Require(replayError.Contains("正在重放，不能修改。") && !replayError.Contains("replay_read_only") &&
                 setup.InitialSession.SubmitCount == 0,
                 "合并后的真实App列车命令未在重放中拒绝，或调用了已退役会话。");
             app.WorldScenes!.DebugLayers = SceneDebugLayer.Origin;

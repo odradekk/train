@@ -59,8 +59,8 @@ internal partial class EconomyPanels : Control
         RemoveWindow(_settlementPanel);
         _settlementTarget = new(_binding, _content.Generation, new WorldObjectId.Settlement(id));
         _settlementId = id; _settlement = null; _settlementRevision = null; _localId = null; _localOptions.Clear();
-        _settlementPanel = UiStyle.Panel(this, "Settlement", $"聚居地 {id.Value}", new(420, 70), 720,
-            () => _settlementPanel!.Hide(), out _settlementBody);
+        _settlementPanel = UiStyle.Panel(this, "Settlement", $"聚居地 {id.Value}", new(408, 68), 720,
+            () => _settlementPanel!.Hide(), out _settlementBody, fill: true);
         _state = Text(_settlementBody, "State", "");
         _wallet = Text(_settlementBody, "Wallet", "");
         _localChoice = new OptionButton { Name = "LocalInventory" };
@@ -70,7 +70,8 @@ internal partial class EconomyPanels : Control
             _localId = _localOptions[(int)index];
             RenderLocal(); ClearTradeQuote(); RenderMarket();
         };
-        var tabs = new TabContainer { Name = "Pages", CustomMinimumSize = new(680, 570) };
+        var tabs = new TabContainer { Name = "Pages", SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill, CustomMinimumSize = new(0, 160) };
         _settlementBody.AddChild(tabs);
         _stock = Page(tabs, "库存"); _stockRows = BuildStock(_stock);
         BuildTrade(Page(tabs, "市场"));
@@ -254,7 +255,7 @@ internal partial class EconomyPanels : Control
         if (result is CoreResult<T>.Success success) return success.Value;
         description.Text = result switch
         {
-            CoreResult<T>.Failure failure => "报价被拒绝：\n" + Problems(failure.Problems),
+            CoreResult<T>.Failure failure => "报价被拒绝：\n" + Problems(failure.Problems, _content),
             CoreResult<T>.Faulted fault => CommandDiagnostics.Describe(fault.Fault),
             _ => throw new InvalidOperationException("未知报价结果。")
         };
@@ -266,8 +267,8 @@ internal partial class EconomyPanels : Control
     {
         label.Text = "报价不锁定\n" + details +
             (revision == _view.Revision ? "" : "\n报价后状态已变化，确认时由核心按当前状态判断。") +
-            (blockers.IsEmpty ? "" : "\n受阻：\n" + Problems(blockers)) +
-            (warnings.IsDefaultOrEmpty ? "" : "\n短缺风险：\n" + Problems(warnings)) +
+            (blockers.IsEmpty ? "" : "\n受阻：\n" + Problems(blockers, _content)) +
+            (warnings.IsDefaultOrEmpty ? "" : "\n短缺风险：\n" + Problems(warnings, _content)) +
             (reason is null ? "" : "\n" + reason);
         label.AddThemeColorOverride("font_color", !blockers.IsEmpty ? UiStyle.Error :
             !warnings.IsDefaultOrEmpty || reason is not null ? UiStyle.Warning : UiStyle.Foreground);
@@ -306,9 +307,20 @@ internal partial class EconomyPanels : Control
     }
     private static VBoxContainer Page(TabContainer tabs, string title)
     {
-        var scroll = new ScrollContainer { Name = title, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled }; tabs.AddChild(scroll);
+        var page = new VBoxContainer { Name = title, SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill };
+        tabs.AddChild(page);
+        var scroll = new ScrollContainer { Name = "Page", SizeFlagsHorizontal = SizeFlags.ExpandFill, SizeFlagsVertical = SizeFlags.ExpandFill,
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        page.AddChild(scroll);
         var body = new VBoxContainer { Name = "Body", SizeFlagsHorizontal = SizeFlags.ExpandFill };
         body.AddThemeConstantOverride("separation", 10); scroll.AddChild(body); return body;
+    }
+
+    private static HBoxContainer Footer(VBoxContainer body)
+    {
+        var footer = new HBoxContainer { Name = "Footer" };
+        body.GetParent().GetParent().AddChild(footer);
+        return footer;
     }
     private static VBoxContainer List(Node parent, string name, int height)
     {
@@ -319,7 +331,8 @@ internal partial class EconomyPanels : Control
     { foreach (var child in node.GetChildren()) RemoveControl(child); }
     private static void RemoveControl(Node node) { node.GetParent().RemoveChild(node); node.QueueFree(); }
     private static void RemoveWindow(PanelContainer? panel) { if (panel is not null) RemoveControl(panel); }
-    private static string Problems(ImmutableArray<CoreProblem> problems) => string.Join("\n", problems.Select(CommandDiagnostics.Describe));
+    private static string Problems(ImmutableArray<CoreProblem> problems, IContentView content) =>
+        string.Join("\n", problems.Select(problem => CommandDiagnostics.Describe(problem, content)));
     private static LineEdit IntegerInput(Node parent, string name, string placeholder, string initial = "")
     { var edit = new LineEdit { Name = name, Text = initial, PlaceholderText = placeholder }; edit.AddThemeFontOverride("font", UiStyle.NumericFont()); parent.AddChild(edit); return edit; }
 }

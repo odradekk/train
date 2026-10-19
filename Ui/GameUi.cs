@@ -22,6 +22,11 @@ public partial class GameUi : CanvasLayer
     private AuthoringPanel? _authoringPanel;
     private TemplateSceneController? _templates;
     private Button? _authoringButton;
+    private bool _editing;
+    private bool _restoreEconomy;
+    private bool _restoreFormation;
+    private bool _restorePlan;
+    private bool _restoreCombat;
     private HostCoordinator? _host;
     private WorldSceneController? _scenes;
     private RecordingService? _recording;
@@ -252,6 +257,24 @@ public partial class GameUi : CanvasLayer
         var showingScene = _scenes?.View.Visible == true;
         var status = _host?.GetStatus();
         var editing = _editor.IsOpen || _authoring?.Form is not null;
+        if (editing != _editing)
+        {
+            if (editing)
+            {
+                _restoreEconomy = _economy?.Visible == true;
+                _restoreFormation = _formation?.Visible == true;
+                _restorePlan = _plan?.Visible == true;
+                _restoreCombat = _combat?.Visible == true;
+            }
+            else
+            {
+                if (_restoreEconomy && _economy is { Visible: false }) _economy.Show();
+                if (_restoreFormation && _formation is { Visible: false }) _formation.Show();
+                if (_restorePlan && _plan is { Visible: false }) _plan.Show();
+                if (_restoreCombat && _combat is { Visible: false }) _combat.Show();
+            }
+            _editing = editing;
+        }
         if (editing) _minimap.Clear();
         else _minimap.Refresh(_scenes, status?.View, status?.Binding ?? default, delta);
         if (_authoringButton is not null)
@@ -330,9 +353,7 @@ public partial class GameUi : CanvasLayer
     private void Report(CoreProblem? problem)
     {
         if (problem is null) return;
-        var message = CommandDiagnostics.Describe(problem);
-        _logger.Warning("ui", "simulation_control_denied", message);
-        ShowError(message);
+        ShowError(CommandDiagnostics.LogProblem(_logger, "ui", "simulation_control_denied", problem, _content));
     }
 
     private void SetSpeed(SimulationSpeed? speed)
@@ -364,7 +385,7 @@ public partial class GameUi : CanvasLayer
             ShowError("该操作尚未实现。");
             return null;
         }
-        if (CommandDiagnostics.Report(_logger, result) is { } problem) ShowError(problem);
+        if (CommandDiagnostics.Report(_logger, result, content) is { } problem) ShowError(problem);
         return (result as SubmissionResult.Completed)?.Receipt.Decision as CommandDecision.Accepted;
     }
 
@@ -566,8 +587,7 @@ public partial class GameUi : CanvasLayer
             var result = _host.BeginNewGame(profiles[profile.Selected].Id, value, "stage1-world-v1", _host.SessionOptions);
             if (result.Problem is { } problem)
             {
-                var message = CommandDiagnostics.Describe(problem);
-                _logger.Warning("application", "host_new_game_denied", message);
+                var message = CommandDiagnostics.LogProblem(_logger, "application", "host_new_game_denied", problem, _host.Content);
                 ShowError(message);
                 _newGameError.Text = message;
                 return;
@@ -596,7 +616,7 @@ public partial class GameUi : CanvasLayer
             _menu.CloseSaves();
         if (!result.Succeeded && result.Status is not (HostOperationStatus.Cancelled or HostOperationStatus.Discarded))
         {
-            var message = string.Join("；", result.Problems.Select(CommandDiagnostics.Describe)
+            var message = string.Join("\n", result.Problems.Select(problem => CommandDiagnostics.Describe(problem, _content))
                 .Concat(result.Diagnostics.Select(problem => problem.Message)));
             var operation = result.Kind switch
             { OperationKind.NewGame => "新游戏", OperationKind.Restore => "读档", OperationKind.Reload => "内容重载", _ => "宿主操作" };

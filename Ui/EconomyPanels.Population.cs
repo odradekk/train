@@ -17,7 +17,7 @@ internal partial class EconomyPanels
             $"居民 {population.Residents}",
             $"当前发布规则 {current.Rule.Value} · 修订 {current.PublishedRevision?.Value ?? "缺失"}"
         };
-        if (!current.Problems.IsEmpty) lines.Add("当前规则问题：\n" + Problems(current.Problems));
+        if (!current.Problems.IsEmpty) lines.Add("当前规则问题：\n" + Problems(current.Problems, _content));
         PopulationPeriodView? period = null;
         IEnumerable<PopulationNeedView> needs = [];
         switch (population.Execution)
@@ -30,7 +30,7 @@ internal partial class EconomyPanels
                 { PopulationTrend.Growing => "增长", PopulationTrend.Stable => "稳定", PopulationTrend.Declining => "下降", PopulationTrend.AtMinimum => "最低人口", _ => active.Trend.ToString() }));
                 break;
             case PopulationExecution.Disabled disabled:
-                lines.Add("人口消费已停用：\n" + Problems(disabled.Reasons));
+                lines.Add("人口消费已停用：\n" + Problems(disabled.Reasons, _content));
                 period = disabled.RetainedPeriod; needs = period?.Needs ?? [];
                 lines.Add(period is null ? "没有已开始的周期。" : "保留本期统计，停用期间不推进。"); break;
         }

@@ -105,16 +105,17 @@ public class SettlementFoundingUiTests(Node testScene) : TestClass(testScene)
             await OpenFounding(ui, 2);
             var blocked = Find<Label>(Founding(ui), "FoundingPreview").Text;
             var blockedTitle = LatestDetail(panels).FindChildren("*", "Label", true, false).Cast<Label>().First().Text;
-            Require(blocked.Contains("节点已被占据") && blocked.Contains("node_occupied"),
-                $"有阻止原因时没有显示核心原因。title={blockedTitle} text={blocked}");
+            Require(blocked.Contains("节点已被占据。对象：节点 3。") && !blocked.Contains("node_occupied"),
+                $"有阻止原因时没有显示中文原因。title={blockedTitle} text={blocked}");
             await _input.Choose(Find<OptionButton>(Founding(ui), "MaterialSource"), 1);
             Require(Find<Button>(Founding(ui), "ConfirmFounding").Disabled, "预览存在阻止原因时仍可确认。");
             await _input.Activate(Find<Button>(Founding(ui), "Close"));
             await CloseDetail(panels);
             await OpenFounding(ui, 1);
             var unavailable = Find<Label>(Founding(ui), "FoundingPreview").Text;
-            Require(unavailable.Contains("content_missing") && unavailable.Contains("Population.Rule") && !unavailable.Contains("短缺"),
-                "人口规则缺失被写成物资短缺或没有显示核心原因。");
+            Require(unavailable.Contains("所需内容缺失") && !unavailable.Contains("content_missing") &&
+                !unavailable.Contains("Population.Rule") && !unavailable.Contains("短缺"),
+                "人口规则缺失被写成物资短缺或露出了内部标识。");
             await _input.Choose(Find<OptionButton>(Founding(ui), "MaterialSource"), 1);
             Require(!Find<Button>(Founding(ui), "ConfirmFounding").Disabled, "人口规则缺失且已选列车时不能确认。");
             await _input.Activate(Find<Button>(Founding(ui), "Close"));
@@ -202,6 +203,35 @@ public class SettlementFoundingUiTests(Node testScene) : TestClass(testScene)
         }
     }
 
+    [Test]
+    public async Task Open_node_detail_replaces_founding_when_a_settlement_appears()
+    {
+        var before = World(1, null);
+        var after = World(2, null, new NodeOccupant.Settlement(new(2), SettlementRelation.PlayerOwned));
+        var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content());
+        await Run(setup, async ui =>
+        {
+            await OpenDetail(ui, 0);
+            var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
+            var detail = LatestDetail(panels);
+            var openDetails = panels.FindChildren("Details", "PanelContainer", true, false).Count;
+            Require(detail.Visible && detail.FindChildren("FoundSettlement", "Button", true, false).Cast<Button>().Any(),
+                "空节点没有建城按钮。");
+            var host = ui.GetParent<Train.App.App>().Host!;
+            setup.Session.QueueAdvance(new(1, after.Position, [], null, null), after);
+            Require(host.Step(1).Problem is null, "无法发布占用者变化。");
+            await _input.Frames(2);
+            Require(GodotObject.IsInstanceValid(detail) && detail.Visible &&
+                panels.FindChildren("Details", "PanelContainer", true, false).Count == openDetails,
+                "占用者变化关闭或另开了节点详情。");
+            Require(!detail.FindChildren("FoundSettlement", "Button", true, false).Any() &&
+                detail.FindChildren("Economy", "Button", true, false).Cast<Button>().Any(button => button.Text == "库存、市场与服务…") &&
+                detail.FindChildren("OpenSettlementCombat", "Button", true, false).Any(),
+                "聚居地占用者没有换成库存和战斗按钮。");
+        });
+        setup.Session.AssertComplete();
+    }
+
     private async Task Run(HostSimulationTests.HostSetup setup, Func<GameUi, Task> body)
     {
         var tree = TestScene.GetTree();
@@ -261,14 +291,14 @@ public class SettlementFoundingUiTests(Node testScene) : TestClass(testScene)
     private static PanelContainer LatestDetail(WorldPanels panels) =>
         panels.FindChildren("Details", "PanelContainer", true, false).Cast<PanelContainer>().Last();
 
-    private static FixedCoreReadView World(ulong revision, JobId? foundingJob)
+    private static FixedCoreReadView World(ulong revision, JobId? foundingJob, NodeOccupant? firstOccupant = null)
     {
         var terrain = new TerrainView(new("fixture:plain"), 0, []);
         NodeMapItem Node(ulong id, double x, double y, NodeOccupant occupant) =>
             new(new(id), new(x, y), terrain, occupant, [], 0, 1, id == 1 ? foundingJob : null);
         var nodes = new[]
         {
-            Node(1, 500, 900, new NodeOccupant.Empty()),
+            Node(1, 500, 900, firstOccupant ?? new NodeOccupant.Empty()),
             Node(2, 900, 900, new NodeOccupant.Empty()),
             Node(3, 1300, 900, new NodeOccupant.Empty()),
             Node(4, 500, 1400, new NodeOccupant.Lair(new(1))),

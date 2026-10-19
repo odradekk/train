@@ -79,7 +79,8 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
         ImmutableArray<FacilityView> facilities =
         [
             new(new(new(1), CapabilityKind.Production), process, true, 0, ProductionState.Running, 1, 1, [],
-                new(process, new("v1"), 10, 3, .3, [new(EconomyFixture.Food, 2)], true), [], [], []),
+                new(process, new("v1"), 10, 3, .3, [new(EconomyFixture.Food, 2)], true), [], [],
+                [new("output_blocked", "Facility", new WorldObjectId.Instance(new InstanceId.Building(new(1))), ["voxel:core:staple-food"])]),
             new(new(new(2), CapabilityKind.Production), missing, true, 0, ProductionState.ProcessMissing, 1, 0, [],
                 new(removed, new("v0"), 17, 4, 4.0 / 17, [new(EconomyFixture.Food, 4)], true), [], [], [])
         ];
@@ -102,6 +103,9 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
             Require(found.Text.StartsWith("当前定义：固定生产流程 · 修订 v2\n") &&
                 foundBatch.StartsWith("进行中批次：固定生产流程 · 启动修订 v1\n"),
                 "生产页未展示名称，或短于八位的修订未原样保留。");
+            var blockers = Find<Label>(found.GetParent(), "Blockers").Text;
+            Require(blockers.Contains("产出无法进入库存：主食。对象：建筑 1。") && !blockers.Contains("output_blocked"),
+                "生产受阻没有显示中文说明：" + blockers);
             var absent = specifications.Single(label => label.Text.Contains("定义标识：fixture:missing"));
             var absentBatch = Find<Label>(absent.GetParent(), "Batch").Text;
             Require(absent.Text.StartsWith("当前定义：流程定义缺失") &&
@@ -136,7 +140,7 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
             var needs = Enum.GetValues<PopulationNeed>().Select(kind => new PopulationNeedView(kind, 2, 0, 0, null)).ToImmutableArray();
             var pending = View(original, 2, new PopulationExecution.NotStarted(needs));
             economy.Refresh(binding, pending, content);
-            var population = economy.GetNode<Label>("Settlement/Layout/Content/Body/Pages/人口/Body/Population");
+            var population = economy.GetNode<Label>("Settlement/Layout/Content/Body/Pages/人口/Page/Body/Population");
             Require(population.Text.Contains("尚未开始") && population.Text.Contains("未结算") &&
                 !population.Text.Contains("满足率 0"), "尚未开始的人口被显示为零满足率。");
             Require(!population.Text.Contains("累计应需") && !population.Text.Contains("实际满足"),
@@ -304,7 +308,7 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
         await _input.Frames(2);
         foreach (var scroll in new[]
         {
-            Find<ScrollContainer>(economy, "生产"),
+            economy.GetNode<ScrollContainer>("Settlement/Layout/Content/Body/Pages/生产/Page"),
             economy.GetNode<ScrollContainer>("Settlement/Layout/Content")
         })
         {
