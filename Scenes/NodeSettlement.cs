@@ -8,6 +8,7 @@ namespace Train.Scenes;
 
 internal static class NodeSettlement
 {
+    internal const int FlattenBlend = 8;
     internal static SettlementLayoutProjection? Read(SceneWorldSnapshot snapshot, NodeId node) =>
         snapshot.Core.World.Nodes.Single(item => item.Id == node).Occupant is NodeOccupant.Settlement owner &&
         snapshot.Content.FindSettlementLayout(owner.Id) is ContentLookup<SettlementLayoutProjection>.Found found ? found.Value : null;
@@ -30,21 +31,36 @@ internal static class NodeSettlement
             Point(pose, -x / 2, 0, z / 2), Point(pose, x / 2, 0, z / 2)];
     }
 
-    internal static ScenePanBounds Bounds(SettlementLayoutProjection template)
+    internal static ScenePanBounds? Bounds(DesignSceneProjection scene)
     {
-        var points = template.Plots.SelectMany(Corners).Select(p => new Vector2(p.X, p.Z)).ToList();
-        var scene = template.SceneModel.Scene;
+        var points = new List<Vector2>();
         if (scene.OccupiedBounds is { } occupied)
-        { points.Add(new(occupied.Minimum.X, occupied.Minimum.Z)); points.Add(new(occupied.Maximum.X + 1, occupied.Maximum.Z + 1)); }
-        foreach (var (region, pose) in Flatten(scene))
         {
-            points.AddRange(new[] { Point(pose, region.From.X, 0, region.From.Z), Point(pose, region.To.X + 1, 0, region.From.Z),
-                Point(pose, region.From.X, 0, region.To.Z + 1), Point(pose, region.To.X + 1, 0, region.To.Z + 1) }.Select(p => new Vector2(p.X, p.Z)));
+            points.Add(new(occupied.Minimum.X, occupied.Minimum.Z));
+            points.Add(new(occupied.Maximum.X + 1, occupied.Maximum.Z + 1));
         }
-        return points.Count == 0 ? new(Vector2.Zero, Vector2.Zero) : new(points.Aggregate(Vector2.Min), points.Aggregate(Vector2.Max));
+        foreach (var (region, pose) in Flatten(scene))
+            points.AddRange(new[]
+            {
+                Point(pose, region.From.X, 0, region.From.Z), Point(pose, region.To.X + 1, 0, region.From.Z),
+                Point(pose, region.From.X, 0, region.To.Z + 1), Point(pose, region.To.X + 1, 0, region.To.Z + 1)
+            }.Select(point => new Vector2(point.X, point.Z)));
+        return points.Count == 0 ? null : new(points.Aggregate(Vector2.Min), points.Aggregate(Vector2.Max));
     }
 
-    private static IEnumerable<(FlattenRegion Region, ScenePose Pose)> Flatten(DesignSceneProjection scene)
+    internal static ScenePanBounds Bounds(SettlementLayoutProjection template)
+    {
+        var points = template.Plots.SelectMany(Corners).Select(corner => new Vector2(corner.X, corner.Z)).ToList();
+        if (Bounds(template.SceneModel.Scene) is { } scene)
+        {
+            points.Add(scene.Minimum);
+            points.Add(scene.Maximum);
+        }
+        return points.Count == 0 ? new(Vector2.Zero, Vector2.Zero) :
+            new(points.Aggregate(Vector2.Min), points.Aggregate(Vector2.Max));
+    }
+
+    internal static IEnumerable<(FlattenRegion Region, ScenePose Pose)> Flatten(DesignSceneProjection scene)
     {
         var identity = new ScenePose(Vector3.Zero, Quaternion.Identity);
         if (scene.RootFlatten is { } root) yield return (root, identity);
@@ -60,17 +76,21 @@ internal static class NodeSettlement
         }
     }
 
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SettlementLayoutProjection,
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<DesignSceneProjection,
         (FlattenRegion Region, ScenePose Pose)[]> flattenRegions = new();
-    internal static double FlattenGround(SettlementLayoutProjection template, ScenePoint point, double raw)
+    internal static double FlattenGround(SettlementLayoutProjection template, ScenePoint point, double raw) =>
+        FlattenGround(template.SceneModel.Scene, 0, 0, point, raw);
+
+    internal static double FlattenGround(DesignSceneProjection scene, int shiftX, int shiftZ, ScenePoint point, double raw)
     {
-        foreach (var (region, pose) in flattenRegions.GetValue(template, value => Flatten(value.SceneModel.Scene).ToArray()))
+        foreach (var (region, pose) in flattenRegions.GetValue(scene, value => Flatten(value).ToArray()))
         {
-            var local = Vector3.Transform(new Vector3((float)point.X, 0, (float)point.Z) - pose.Position, Quaternion.Conjugate(pose.Rotation));
+            var position = pose.Position + new Vector3(shiftX, 0, shiftZ);
+            var local = Vector3.Transform(new Vector3((float)point.X, 0, (float)point.Z) - position, Quaternion.Conjugate(pose.Rotation));
             var distance = Math.Max(Math.Max(region.From.X - local.X, local.X - region.To.X - 1),
                 Math.Max(region.From.Z - local.Z, local.Z - region.To.Z - 1));
-            var blend = Math.Clamp(distance / 8, 0, 1);
-            raw = (pose.Position.Y + region.Height - 1) * (1 - blend) + raw * blend;
+            var blend = Math.Clamp(distance / FlattenBlend, 0, 1);
+            raw = (position.Y + region.Height - 1) * (1 - blend) + raw * blend;
         }
         return raw;
     }

@@ -277,7 +277,10 @@ public sealed class NodePlacementTests
                 Settlements = new Dictionary<SettlementId, Lookup<SettlementView>> { [new(1)] = snapshot.Core.FindSettlement(new(1)) },
                 Instances = trains.SelectMany(train => train.Vehicles).Select(vehicle => (InstanceId)new InstanceId.Vehicle(vehicle))
                     .Concat(platforms > 0 ? new InstanceId[] { new InstanceId.Building(new(1)) } : [])
-                    .ToDictionary(id => id, id => snapshot.Core.FindInstance(id))
+                    .ToDictionary(id => id, id => snapshot.Core.FindInstance(id)),
+                Lairs = occupant is NodeOccupant.Lair lair
+                    ? new Dictionary<LairId, Lookup<LairView>> { [lair.Id] = new Lookup<LairView>.Missing() }
+                    : new Dictionary<LairId, Lookup<LairView>>()
             }
         };
     }
