@@ -1,1 +1,1 @@
-{"schema_version":1,"id":"basic-combat","retreat_seconds":24,"morale_damage_coefficient":0.015,"weapon_destroyed_morale_loss":0.18,"morale_recovery_per_second":0.012,"surrender_threshold":0.12,"new_lair_interval_seconds":5400}
+{"schema_version":1,"id":"basic-combat","retreat_seconds":24,"morale_damage_coefficient":14.0,"weapon_destroyed_morale_loss":0.18,"morale_recovery_per_second":0.0005,"surrender_threshold":0.12,"new_lair_interval_seconds":10800}
