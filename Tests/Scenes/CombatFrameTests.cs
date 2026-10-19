@@ -302,14 +302,15 @@ public sealed class CombatFrameTests
         var stamp = new SceneFrameStamp(new(Guid.NewGuid()), new(1), new(1), 1);
         try
         {
-            var opened = scene.Present(snapshot, null, target, Request, stamp, null);
-            SceneFrame frame;
-            if (opened.Readiness == SceneReadiness.Partial)
-                frame = opened;
-            else
+            var revision = 1ul;
+            var frame = scene.Present(snapshot, null, target, Request, stamp, null);
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            while (frame.Readiness == SceneReadiness.Loading && watch.Elapsed < TimeSpan.FromSeconds(5))
             {
-                await Task.WhenAny(scene.PendingWork);
-                frame = scene.Present(snapshot, null, target, Request, stamp with { Revision = 2 }, null);
+                var pending = scene.PendingWork;
+                if (pending.Length > 0) await Task.WhenAny(pending);
+                else await Task.Delay(10);
+                frame = scene.Present(snapshot, null, target, Request, stamp with { Revision = ++revision }, null);
             }
             Assert.AreEqual(SceneReadiness.Partial, frame.Readiness);
             Assert.IsTrue(frame.Update.Effects.Any(item => item.Kind == SceneEffectKind.Shot));
