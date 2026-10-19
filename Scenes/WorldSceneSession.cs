@@ -311,7 +311,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     {
         if (!settlementCaches.TryGetValue(id, out var caches))
             settlementCaches.Add(id, caches = (new(), new()));
-        return new(snapshot, id, nodeCache, objectId, vehicles, displayRate, nodeBuild, caches.Buildings, caches.Parked, background: background, findId: findId, presentation: presentation);
+        return new(snapshot, id, nodeCache, objectId, vehicles, displayRate, findId, nodeBuild, caches.Buildings, caches.Parked, background: background, presentation: presentation);
     }
 
     private static SceneObjectId? Find(Dictionary<string, SceneObjectId> map, string key) =>

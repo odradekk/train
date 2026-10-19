@@ -307,7 +307,7 @@ public sealed class NodeStreamingTests
         var caller = await Task.Factory.StartNew(() =>
         {
             var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), SceneFixtures.NextId(),
-                vehicles, new(), RailwayFixtures.EmptyNode, background: true);
+                vehicles, new(), _ => null, RailwayFixtures.EmptyNode, background: true);
             scene.Pump(allowBuild: false);
             return (Scene: scene, Thread: Environment.CurrentManagedThreadId);
         }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
@@ -1228,7 +1228,7 @@ public sealed class NodeStreamingTests
         {
             if (!ids.TryGetValue(key, out var id)) ids[key] = id = new(++next);
             return id;
-        }, vehicles, displayRate ?? new(), buildChunk: build ?? SmallPart, buildRail: buildRail);
+        }, vehicles, displayRate ?? new(), _ => null, buildChunk: build ?? SmallPart, buildRail: buildRail);
     }
 
     private static NodeScene.Part SmallPart(NodeScene.Preparation data, GridColumn from, NodeScene.Part? old, CancellationToken token)

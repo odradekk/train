@@ -190,7 +190,7 @@ public sealed class NodeLifecycleTests
         var ids = new Dictionary<string, SceneObjectId>();
         await using var vehicles = new SceneVehicles();
         await using var scene = new NodeScene(initial, NodeFixtures.NodeId, new(), key =>
-            ids.TryGetValue(key, out var id) ? id : ids[key] = new((ulong)ids.Count + 1), vehicles, new(),
+            ids.TryGetValue(key, out var id) ? id : ids[key] = new((ulong)ids.Count + 1), vehicles, new(), _ => null,
             buildChunk: (data, from, old, token) =>
             {
                 if (old?.Inputs == data.ChunkInputs(from)) return old;

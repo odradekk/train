@@ -179,9 +179,9 @@ internal sealed class SettlementObjects : IAsyncDisposable
     }
 
     internal RenderedDesign Present(SceneWorldSnapshot snapshot, NodeLayout layout, ScenePoint origin,
-        ImmutableArray<SceneFog>.Builder fog,         NodeRange? range = null, IReadOnlyCollection<GridColumn>? terrainChunks = null,
-        NodeRange? prefetch = null, PresentationState? presentation = null, double seconds = 0,
-        Func<string, SceneObjectId?>? findId = null)
+        ImmutableArray<SceneFog>.Builder fog, Func<string, SceneObjectId?> findId,
+        NodeRange? range = null, IReadOnlyCollection<GridColumn>? terrainChunks = null,
+        NodeRange? prefetch = null, PresentationState? presentation = null, double seconds = 0)
     {
         var objects = ImmutableArray.CreateBuilder<SceneObject>();
         var picking = ImmutableArray.CreateBuilder<PickGrid>();
@@ -200,7 +200,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
             if (hasBody)
             {
                 Add(SceneGeometry.Place(WorldSceneSession.Attach(body!.Geometry, "building:" + buildingId.Value + ":", objectId).Geometry, pose));
-                presentation?.ApplyTurrets(objects, instance, "building:" + buildingId.Value + ":", findId ?? (_ => null), seconds, snapshot, origin);
+                presentation?.ApplyTurrets(objects, instance, "building:" + buildingId.Value + ":", findId, seconds, snapshot, origin);
             }
             else objects.Add(new(objectId("building:" + buildingId.Value + ":"), null, pose, new WorldObjectId.Instance(instance.Id), [], [], []));
             if (!hasBody || !WorldSceneSession.Matches(body!, instance))
@@ -238,7 +238,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
             if (parked.Reconcile(snapshot.Content, instance, objectId) is { } rendered)
             {
                 Add(RailwayVehicles.Place(rendered, pose, 0));
-                presentation?.ApplyTurrets(objects, instance, "vehicle:" + instance.Id + ":", findId ?? (_ => null), seconds, snapshot, origin);
+                presentation?.ApplyTurrets(objects, instance, "vehicle:" + instance.Id + ":", findId, seconds, snapshot, origin);
             }
             else
             {

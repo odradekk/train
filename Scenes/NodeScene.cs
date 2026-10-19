@@ -283,13 +283,14 @@ internal sealed class NodeScene : IAsyncDisposable
     internal void SetBuildAllowed(bool allowed) { lock (workGate) buildAllowed = allowed; }
 
     internal NodeScene(SceneWorldSnapshot initial, NodeId node, Cache cache, Func<string, SceneObjectId> objectId, SceneVehicles vehicles, DisplayRate displayRate,
+        Func<string, SceneObjectId?> findId,
         Func<SceneWorldSnapshot, NodeId, Cached?, CancellationToken, Built>? generate = null,
         SceneVehicles.Cache? buildingCache = null, SceneVehicles.Cache? parkedCache = null,
         Func<Preparation, GridColumn, Part?, CancellationToken, Part>? buildChunk = null,
         Func<Preparation, RailSegment, Part?, CancellationToken, Part>? buildRail = null, bool background = false,
-        Func<string, SceneObjectId?>? findId = null, PresentationState? presentation = null)
+        PresentationState? presentation = null)
     {
-        Node = node; this.cache = cache; this.objectId = objectId; this.findId = findId ?? (_ => null); this.presentation = presentation; owner = cache.Open(node); this.nodeBuild = generate;
+        Node = node; this.cache = cache; this.objectId = objectId; this.findId = findId; this.presentation = presentation; owner = cache.Open(node); this.nodeBuild = generate;
         this.vehicles = vehicles;
         this.displayRate = displayRate;
         this.buildChunk = buildChunk ?? ((data, from, old, token) => data.BuildChunk(from, old, token));
@@ -728,7 +729,7 @@ internal sealed class NodeScene : IAsyncDisposable
                         "The settlement layout copy is missing."));
                 }
             }
-            Add(settlement.Present(snapshot, layout, origin, fog, range, chunks.Keys, prefetch, presentation, seconds, findId));
+            Add(settlement.Present(snapshot, layout, origin, fog, findId, range, chunks.Keys, prefetch, presentation, seconds));
         }
         if (failure is not null) problems.Add(failure);
         foreach (var problem in reported) problems.Add(problem);

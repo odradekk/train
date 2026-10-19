@@ -145,7 +145,7 @@ internal static class RailwayFixtures
         {
             if (!ids.TryGetValue(key, out var id)) ids.Add(key, id = new(++next));
             return id;
-        }, vehicles, displayRate ?? new(), build ?? EmptySegment, presentation: presentation);
+        }, vehicles, displayRate ?? new(), _ => null, build ?? EmptySegment, presentation);
     }
 
     internal static async Task<SceneFrame> Settled(RailwayScene scene, SceneWorldSnapshot snapshot,

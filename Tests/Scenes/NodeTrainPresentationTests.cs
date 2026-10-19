@@ -408,7 +408,7 @@ public sealed class NodeTrainPresentationTests
         {
             if (!ids.TryGetValue(key, out var id)) ids.Add(key, id = new(++next));
             return id;
-        }, vehicles, new(), RailwayFixtures.EmptyNode);
+        }, vehicles, new(), _ => null, RailwayFixtures.EmptyNode);
     }
 
     private static async Task<SceneFrame> Frame(NodeScene scene, SceneWorldSnapshot snapshot,

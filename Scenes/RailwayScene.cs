@@ -57,7 +57,8 @@ internal sealed class RailwayScene : IAsyncDisposable
         .Concat(retiredSegments.Where(item => !item.Task.IsCompleted).Select(item => item.Task)).ToArray();
 
     internal RailwayScene(SceneWorldSnapshot initial, EdgeId edge, RailwayCache cache, Func<string, SceneObjectId> objectId, SceneVehicles vehicles, DisplayRate displayRate,
-        Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null, Func<string, SceneObjectId?>? findId = null,
+        Func<string, SceneObjectId?> findId,
+        Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null,
         PresentationState? presentation = null)
     {
         this.cache = cache;
@@ -66,7 +67,7 @@ internal sealed class RailwayScene : IAsyncDisposable
         Edge = edge;
         owner = cache.OpenSession(edge);
         this.objectId = objectId;
-        this.findId = findId ?? (_ => null);
+        this.findId = findId;
         this.presentation = presentation;
         this.build = build ?? RailwayTerrain.Build;
         try { path = new RailwayPath(initial, edge, cancellation.Token); }

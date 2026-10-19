@@ -98,7 +98,7 @@ public sealed class SettlementPrebuildTests
         var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
         var stamp = new SceneFrameStamp(new(Guid.NewGuid()), new(1), new(1), 1);
         SceneFrame first;
-        await using (var candidate = new NodeScene(snapshot, NodeFixtures.NodeId, new(), Ids(), vehicles, new(),
+        await using (var candidate = new NodeScene(snapshot, NodeFixtures.NodeId, new(), Ids(), vehicles, new(), _ => null,
             RailwayFixtures.EmptyNode, buildingCache, parkedCache))
         {
             await Prepare(candidate);
@@ -108,7 +108,7 @@ public sealed class SettlementPrebuildTests
             Assert.IsTrue(first.Objects.Any(item => item.Subject == new WorldObjectId.Instance(new InstanceId.Building(new(1))) && !item.Visuals.IsEmpty));
             Assert.IsTrue(first.Objects.Any(item => item.Subject == new WorldObjectId.Instance(new InstanceId.Vehicle(new(2))) && !item.Visuals.IsEmpty));
         }
-        await using var reopened = new NodeScene(snapshot, NodeFixtures.NodeId, new(), Ids(), vehicles, new(),
+        await using var reopened = new NodeScene(snapshot, NodeFixtures.NodeId, new(), Ids(), vehicles, new(), _ => null,
             RailwayFixtures.EmptyNode, buildingCache, parkedCache);
         await Prepare(reopened);
         var second = reopened.Present(snapshot, request, stamp with { Revision = 2 }, null, default);
@@ -146,7 +146,7 @@ public sealed class SettlementPrebuildTests
         });
         var snapshot = Snapshot(content);
         await using var objects = new SettlementObjects(Ids());
-        var rendered = objects.Present(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId), default, ImmutableArray.CreateBuilder<SceneFog>());
+        var rendered = objects.Present(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId), default, ImmutableArray.CreateBuilder<SceneFog>(), _ => null);
         var problem = rendered.Diagnostics.Single(item => item.Code == (missing ? "content_missing" : "vehicle_length_unknown"));
         Assert.AreEqual(new WorldObjectId.Instance(instance.Id), problem.Subject);
         Assert.AreEqual(new PackageId("vehicles"), problem.Package);
@@ -163,7 +163,7 @@ public sealed class SettlementPrebuildTests
         snapshot = RailwayFixtures.ReplaceCore(snapshot, node: map);
         var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
         await using var objects = new SettlementObjects(Ids());
-        var first = objects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>());
+        var first = objects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>(), _ => null);
         Assert.IsTrue(first.Objects.Any(item => item.Subject is null), "The fixture must produce visible resource candidates.");
         var noGroundQueries = new FixedContentView
         {
@@ -176,7 +176,7 @@ public sealed class SettlementPrebuildTests
             { [SceneFixtures.Voxel] = content.FindVoxelAppearance(SceneFixtures.Voxel) }
         };
         // An unconfigured FindTerrain throws: repeated ground calculation would fail this frame.
-        var second = objects.Present(snapshot with { Content = noGroundQueries }, layout, default, ImmutableArray.CreateBuilder<SceneFog>());
+        var second = objects.Present(snapshot with { Content = noGroundQueries }, layout, default, ImmutableArray.CreateBuilder<SceneFog>(), _ => null);
         CollectionAssert.AreEqual(first.Objects.Where(item => item.Subject is null).Select(item => item.Pose).ToArray(),
             second.Objects.Where(item => item.Subject is null).Select(item => item.Pose).ToArray());
     }
@@ -205,7 +205,7 @@ public sealed class SettlementPrebuildTests
         Assert.AreNotSame(mesh, Mesh(Present(near), building), "Reentry after eviction rebuilds the released body.");
 
         RenderedDesign Present(NodeRange range) => objects.Present(snapshot, layout, default,
-            ImmutableArray.CreateBuilder<SceneFog>(), range);
+            ImmutableArray.CreateBuilder<SceneFog>(), _ => null, range);
         async Task Settle(NodeRange range)
         {
             for (var pass = 0; pass < 8; pass++)
@@ -242,7 +242,7 @@ public sealed class SettlementPrebuildTests
             objects.Pump(snapshot, layout, range);
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
             var fog = ImmutableArray.CreateBuilder<SceneFog>();
-            var rendered = objects.Present(snapshot, layout, default, fog, range);
+            var rendered = objects.Present(snapshot, layout, default, fog, _ => null, range);
             Assert.IsTrue(rendered.Objects.Any(item => item.Subject == new WorldObjectId.Instance(new InstanceId.Building(new(1)))));
             Assert.AreEqual(1, fog.Count, "Only the intersecting pending object contributes fog.");
             Assert.AreEqual(placement, fog[0].Pose);
@@ -257,7 +257,7 @@ public sealed class SettlementPrebuildTests
         var snapshot = Snapshot(StreamingContent(), parkedCount: 2);
         var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
         await using var allObjects = new SettlementObjects(Ids());
-        var full = allObjects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>());
+        var full = allObjects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>(), _ => null);
         var first = new WorldObjectId.Instance(new InstanceId.Vehicle(new(2)));
         var second = new WorldObjectId.Instance(new InstanceId.Vehicle(new(3)));
         var firstPose = full.Objects.Single(item => item.Subject == first).Pose;
@@ -269,7 +269,7 @@ public sealed class SettlementPrebuildTests
             "Both vehicles must occupy consecutive positions on the same parking line.");
         await using var focusedObjects = new SettlementObjects(Ids());
         var focus = new ScenePoint(secondPose.Position.X, secondPose.Position.Y, secondPose.Position.Z);
-        var focused = focusedObjects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>(), new(focus, 1));
+        var focused = focusedObjects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>(), _ => null, new(focus, 1));
         Assert.IsFalse(focused.Objects.Any(item => item.Subject == first));
         Assert.AreEqual(secondPose, focused.Objects.Single(item => item.Subject == second).Pose,
             "Culling the first vehicle must preserve the second vehicle's global parking position.");

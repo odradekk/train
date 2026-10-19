@@ -317,7 +317,7 @@ public sealed class SettlementObjectsTests
             release.Set();
             await SceneFixtures.AwaitPendingWork(pending).WaitAsync(TimeSpan.FromSeconds(5));
             var fog = ImmutableArray.CreateBuilder<SceneFog>();
-            objects.Present(departed, layout, default, fog);
+            objects.Present(departed, layout, default, fog, _ => null);
             Assert.AreEqual(0, objects.PendingWork.Length);
             Assert.AreEqual(0, fog.Count);
         }
@@ -325,7 +325,7 @@ public sealed class SettlementObjectsTests
     }
 
     private static RenderedDesign Present(SettlementObjects objects, SceneWorldSnapshot snapshot, NodeLayout layout) =>
-        objects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>());
+        objects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>(), _ => null);
 
     private static Func<string, SceneObjectId> StableIds()
     {
