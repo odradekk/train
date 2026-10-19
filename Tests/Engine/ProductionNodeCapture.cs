@@ -136,7 +136,11 @@ public partial class ProductionNodeCapture : Node
                 .ToDictionary(child => child.Name.ToString(), child => child.GetChildCount()),
             shotGeometry = display?.Root.GetNodeOrNull("CombatEffects/Shot")?.GetChildren().OfType<Node3D>()
                 .Select(shot => new { position = V(shot.GlobalPosition), scale = V(shot.Scale) }),
-            foggedRegions = frame?.Update.Environment.FoggedRegions,
+            foggedRegions = frame?.Update.Environment.FoggedRegions.Select(bounds => new
+            {
+                minimum = new[] { bounds.Minimum.X, bounds.Minimum.Y, bounds.Minimum.Z },
+                maximum = new[] { bounds.Maximum.X, bounds.Maximum.Y, bounds.Maximum.Z }
+            }),
             remainder = status?.Remainder, interpolation = status is null ? (double?)null : Math.Clamp(status.Remainder / SimulationTime.StepSeconds, 0, 1), frame = frame?.Update.Frame,
             origin = frame?.Origin, readiness = frame?.Readiness.ToString(), loading = world?.View.Loading, preparing = display?.IsPreparing,
             simulationSeconds = frame?.SimulationSeconds,
