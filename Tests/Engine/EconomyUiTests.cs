@@ -458,24 +458,35 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
         await Run(setup, async (ui, economy) =>
         {
             var window = ui.GetTree().Root;
-            window.Mode = Window.ModeEnum.Windowed;
-            window.Size = new Vector2I(1920, 1080);
-            await _input.Frames(2);
-            var visible = window.GetVisibleRect().Size;
-            Require(visible == new Vector2(1920, 1080), $"默认窗口不是 1920×1080：{visible}。");
-            await Page(economy, 1);
-            RequireInWindow(Find<Button>(economy, "ConfirmTrade"));
-            RequireInWindow(Find<Button>(economy, "QuoteTrade"));
-            await Page(economy, 2);
-            RequireInWindow(Find<Button>(economy, "ConfirmVehicle"));
-            RequireInWindow(Find<Button>(economy, "QuoteVehicle"));
-            RequireInWindow(Find<Button>(economy, "FormPurchased"));
-            await Page(economy, 3);
-            RequireInWindow(Find<Button>(economy, "ConfirmLease"));
-            RequireInWindow(Find<Button>(economy, "QuoteLease"));
-            await Page(economy, 7);
-            RequireInWindow(Find<Button>(economy, "ConfirmService"));
-            RequireInWindow(Find<Button>(economy, "RefreshServiceQuote"));
+            var mode = window.Mode;
+            var size = window.Size;
+            try
+            {
+                window.Mode = Window.ModeEnum.Windowed;
+                window.Size = new Vector2I(1920, 1080);
+                await _input.Frames(2);
+                var visible = window.GetVisibleRect().Size;
+                Require(visible == new Vector2(1920, 1080), $"默认窗口不是 1920×1080：{visible}。");
+                await Page(economy, 1);
+                RequireInWindow(Find<Button>(economy, "ConfirmTrade"));
+                RequireInWindow(Find<Button>(economy, "QuoteTrade"));
+                await Page(economy, 2);
+                RequireInWindow(Find<Button>(economy, "ConfirmVehicle"));
+                RequireInWindow(Find<Button>(economy, "QuoteVehicle"));
+                RequireInWindow(Find<Button>(economy, "FormPurchased"));
+                await Page(economy, 3);
+                RequireInWindow(Find<Button>(economy, "ConfirmLease"));
+                RequireInWindow(Find<Button>(economy, "QuoteLease"));
+                await Page(economy, 7);
+                RequireInWindow(Find<Button>(economy, "ConfirmService"));
+                RequireInWindow(Find<Button>(economy, "RefreshServiceQuote"));
+            }
+            finally
+            {
+                window.Mode = mode;
+                window.Size = size;
+                await _input.Frames(2);
+            }
         });
         setup.Session.AssertComplete();
     }
