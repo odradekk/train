@@ -10,7 +10,6 @@ using Train.Core.World;
 namespace Train.Core.Tests.Combat;
 
 [TestClass]
-[TestCategory("integration")]
 public sealed class SettlementWarLoopTests
 {
     [TestMethod]
@@ -31,7 +30,7 @@ public sealed class SettlementWarLoopTests
             SettlementWarFixture.AwayNode(atSettlement, settlement));
         SettlementWarFixture.Accept(away, new CoreCommand.DeclareWar(settlement.Id));
         using var fought = SettlementWarFixture.MoveTrain(away, settlement.Node);
-        AdvanceUntil(fought, view => view.World.Combats.IsEmpty
+        CombatFixture.AdvanceUntil(fought, view => view.World.Combats.IsEmpty
             && SettlementWarFixture.View(fought, settlement.Id).Surrendered, 10);
         using var conquered = SettlementWarFixture.MoveTrain(fought, settlement.Node, servicing: true);
         SettlementWarFixture.Accept(conquered, new CoreCommand.OccupySettlement(settlement.Id, train));
@@ -44,11 +43,13 @@ public sealed class SettlementWarLoopTests
         var facility = Facility(conquered, settlement.Id);
         var vehicle = conquered.State.World.Trains.Single().Vehicles.Single();
         using var repairing = SettlementWarFixture.MoveTrain(conquered, settlement.Node);
+        Assert.IsTrue(Instance(repairing, vehicle).StructureDurability < 1000,
+            $"战斗未损伤目标车辆：{Instance(repairing, vehicle).StructureDurability}");
         SettlementWarFixture.Accept(repairing, new CoreCommand.StartOwnedJob(new JobRequest.Repair(
             facility, new InstanceId.Vehicle(vehicle), [settlement.Inventory], 0)));
-        AdvanceUntil(repairing, _ => repairing.State.World.ConstructionJobs.IsEmpty
+        CombatFixture.AdvanceUntil(repairing, _ => repairing.State.World.ConstructionJobs.IsEmpty
             && Instance(repairing, vehicle).StructureDurability >= 1000, 400);
-        Assert.AreEqual(1000, Instance(repairing, vehicle).StructureDurability);
+        Assert.AreEqual(1000L, Instance(repairing, vehicle).StructureDurability);
 
         var edge = repairing.State.World.Edges.First(item =>
             (item.Start == settlement.Node || item.End == settlement.Node)
@@ -57,7 +58,7 @@ public sealed class SettlementWarLoopTests
         SettlementWarFixture.Accept(repairing, new CoreCommand.ReplaceRunPlan(train,
             new(false, [new PlanStop.Waypoint(destination)])));
         SettlementWarFixture.Accept(repairing, new CoreCommand.StartTrain(train));
-        AdvanceUntil(repairing, view => view.FindTrain(train) is Lookup<TrainView>.Found found
+        CombatFixture.AdvanceUntil(repairing, view => view.FindTrain(train) is Lookup<TrainView>.Found found
             && found.Value.Position is TrainPosition.Node node && node.Id == destination, 600);
     }
 
@@ -65,6 +66,16 @@ public sealed class SettlementWarLoopTests
     public void Destroyed_vehicles_are_not_relieved_and_a_poor_purchase_is_rejected()
     {
         var content = CombatFixture.Content(armedBuilding: true, damage: 100, parked: true);
+        content = content with
+        {
+            Designs = content.Designs.Select(design => design.Design == CombatFixture.ArmedVehicle
+                ? design with
+                {
+                    StructureHitWeight = 1,
+                    Parts = design.Parts.Select(part => part with { HitWeight = 0 }).ToImmutableArray()
+                }
+                : design).ToImmutableArray()
+        };
         using var session = CombatFixture.SessionWithContent(content, parked: true);
         using var atNode = SettlementWarFixture.MoveTrain(session, CombatFixture.HostileNode(session));
         var result = atNode.Advance(1);
@@ -135,9 +146,9 @@ public sealed class SettlementWarLoopTests
         SettlementWarFixture.Accept(together, new CoreCommand.DisbandTrain(damagedTrain));
         SettlementWarFixture.Accept(together, new CoreCommand.DisbandTrain(intactTrain));
 
-        var damagedQuote = Success(together.Read().QuoteVehicle(
+        var damagedQuote = WorldFixture.Success(together.Read().QuoteVehicle(
             new VehicleTradeQuoteRequest(seller.Id, damaged, VehicleTradeAction.Sell)));
-        var intactQuote = Success(together.Read().QuoteVehicle(
+        var intactQuote = WorldFixture.Success(together.Read().QuoteVehicle(
             new VehicleTradeQuoteRequest(seller.Id, intact, VehicleTradeAction.Sell)));
         Assert.IsTrue(damagedQuote.Total!.Value.Value < intactQuote.Total!.Value.Value);
 
@@ -159,17 +170,21 @@ public sealed class SettlementWarLoopTests
             {
                 var hash when hash == CombatFixture.ArmedVehicle => design with
                 {
-                    MaxStructureDurability = 1000,
+                    MaxStructureDurability = 1000, StructureHitWeight = 1,
+                    StructuralGoods = [new GoodsQuantity(new GoodId.Voxel(WorldFixture.Material), 10)],
                     Parts = design.Parts.Select(part => part with
                     {
+                        HitWeight = 0,
                         Capabilities = part.Capabilities.Select(capability => capability is PartCapability.Weapon
                             ? (PartCapability)new PartCapability.Weapon(100, 1) : capability).ToImmutableArray()
                     }).ToImmutableArray()
                 },
                 var hash when hash == CombatFixture.ArmedBuilding => design with
                 {
+                    StructureHitWeight = 0,
                     Parts = design.Parts.Select(part => part with
                     {
+                        HitWeight = 1,
                         Capabilities = part.Capabilities.Select(capability => capability is PartCapability.Weapon
                             ? (PartCapability)new PartCapability.Weapon(10, 1) : capability).ToImmutableArray()
                     }).ToImmutableArray()
@@ -195,18 +210,4 @@ public sealed class SettlementWarLoopTests
 
     private static InstanceState Instance(CoreSession session, VehicleId vehicle)
         => session.State.World.Instances.Single(item => item.Id == new InstanceId.Vehicle(vehicle));
-
-    private static void AdvanceUntil(CoreSession session, Func<ICoreReadView, bool> condition, int maximum)
-    {
-        for (var step = 0; step < maximum; step++)
-        {
-            var result = session.Advance(1);
-            Assert.IsNull(result.Fault, result.Diagnostic?.Message);
-            if (condition(session.Read())) return;
-        }
-        Assert.Fail("未在限定步数内到达游戏循环边界。");
-    }
-
-    private static T Success<T>(CoreResult<T> result) where T : notnull
-        => ((CoreResult<T>.Success)result).Value;
 }

@@ -10,9 +10,9 @@ namespace Train.Core.Tests.Combat;
 
 internal static class SettlementWarFixture
 {
-    internal static CoreContentProjection Content(bool armedBuilding = false)
+    internal static CoreContentProjection Content(bool armedBuilding = false, bool parked = false)
     {
-        var content = CombatFixture.Content(armedBuilding: armedBuilding, builder: true);
+        var content = CombatFixture.Content(armedBuilding: armedBuilding, builder: true, parked: parked);
         return content with
         {
             MarketRules = [content.MarketRules[0] with
@@ -34,9 +34,24 @@ internal static class SettlementWarFixture
             : rule).ToImmutableArray()
     };
 
+    private static readonly object Gate = new();
+    private static CoreState? _defaultState;
+
     internal static CoreSession Session(CoreContentProjection? content = null,
-        ImmutableArray<GoodsQuantity> cargo = default)
-        => CombatFixture.SessionWithContent(content ?? Content(), cargo: cargo);
+        ImmutableArray<GoodsQuantity> cargo = default, bool parked = false)
+    {
+        if (content is not null || !cargo.IsDefault || parked)
+            return CombatFixture.SessionWithContent(content ?? Content(), cargo: cargo, parked: parked);
+        lock (Gate)
+        {
+            if (_defaultState is null)
+            {
+                using var session = CombatFixture.SessionWithContent(Content());
+                _defaultState = session.State;
+            }
+            return new CoreSession(_defaultState);
+        }
+    }
 
     internal static SettlementState Settlement(CoreSession session)
         => session.State.World.Settlements.Where(item => item.Relation == SettlementRelation.NonHostile)
@@ -89,14 +104,7 @@ internal static class SettlementWarFixture
         => (SubmissionResult.Completed)session.Submit(command, CommandSource.AutomationTest);
 
     internal static SubmissionResult.Completed Accept(ICoreSession session, CoreCommand command)
-    {
-        var result = Submit(session, command);
-        if (result.Receipt.Decision is CommandDecision.Rejected rejected)
-            Assert.Fail(string.Join("; ", rejected.Problems.Select(problem =>
-                $"{problem.Code} {problem.Field} [{string.Join(",", problem.RelatedIdentities)}]")));
-        Assert.IsInstanceOfType<CommandDecision.Accepted>(result.Receipt.Decision);
-        return result;
-    }
+        => CombatFixture.Accepted(Submit(session, command));
 
     internal static void Reject(CoreSession session, CoreCommand command, string code, string field)
     {
@@ -111,10 +119,4 @@ internal static class SettlementWarFixture
 
     internal static SettlementView View(ICoreSession session, SettlementId settlement)
         => ((Lookup<SettlementView>.Found)session.Read().FindSettlement(settlement)).Value;
-
-    internal static InventoryView Inventory(ICoreSession session, InventoryId inventory)
-        => ((Lookup<InventoryView>.Found)session.Read().FindInventory(inventory)).Value;
-
-    internal static LeaseView Lease(ICoreSession session, LeaseId lease)
-        => ((Lookup<LeaseView>.Found)session.Read().FindLease(lease)).Value;
 }

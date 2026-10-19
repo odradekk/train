@@ -4,20 +4,21 @@ using Train.Core;
 using Train.Core.Contracts;
 using Train.Core.Sessions;
 using Train.Core.Tests.Construction;
+using Train.Core.Tests.Inventory;
 using Train.Core.Tests.World;
 using Train.Core.World;
 
 namespace Train.Core.Tests.Combat;
 
 [TestClass]
-[TestCategory("integration")]
 public sealed class SettlementWarTests
 {
     [TestMethod]
     public void Declare_war_changes_relation_and_ownership_and_reports_the_change()
     {
-        using var original = SettlementWarFixture.Session();
+        using var original = SettlementWarFixture.Session(SettlementWarFixture.Content(parked: true), parked: true);
         var settlement = SettlementWarFixture.Settlement(original);
+        var parked = settlement.ParkedVehicles.Single();
         using var session = SettlementWarFixture.MoveTrain(original,
             SettlementWarFixture.AwayNode(original, settlement));
 
@@ -33,6 +34,7 @@ public sealed class SettlementWarTests
         foreach (var plot in settlement.Plots.Where(plot => plot.Building is not null))
             Assert.AreEqual(SettlementRelation.Hostile, session.State.World.Instances
                 .Single(instance => instance.Id == new InstanceId.Building(plot.Building!.Value)).Ownership);
+        Assert.AreEqual(SettlementRelation.Hostile, Instance(session, parked).Ownership);
         Assert.AreEqual(1, SettlementWarFixture.View(session, settlement.Id).MoraleRatio, 0);
         Assert.IsFalse(SettlementWarFixture.View(session, settlement.Id).Surrendered);
     }
@@ -50,6 +52,26 @@ public sealed class SettlementWarTests
         using var atNode = SettlementWarFixture.MoveTrain(withVehicle, target.Node);
         SettlementWarFixture.Reject(atNode, new CoreCommand.DeclareWar(target.Id),
             "invalid_state", "Settlement.Node");
+
+        using var parkedSession = SettlementWarFixture.Session(SettlementWarFixture.Content(parked: true),
+            parked: true);
+        var parkedTarget = SettlementWarFixture.Settlement(parkedSession);
+        var parkedVehicle = parkedTarget.ParkedVehicles.Single();
+        using var playerParked = new CoreSession(parkedSession.State with
+        {
+            World = parkedSession.State.World with
+            {
+                Instances = parkedSession.State.World.Instances.Select(instance =>
+                    instance.Id == new InstanceId.Vehicle(parkedVehicle)
+                        ? instance with { Ownership = SettlementRelation.PlayerOwned } : instance)
+                    .ToImmutableArray()
+            }
+        });
+        using var movedParked = SettlementWarFixture.MoveTrain(playerParked,
+            SettlementWarFixture.AwayNode(playerParked, parkedTarget));
+        SettlementWarFixture.Reject(movedParked, new CoreCommand.DeclareWar(parkedTarget.Id),
+            "invalid_state", "Settlement.Node");
+        Assert.AreEqual(SettlementRelation.PlayerOwned, Instance(movedParked, parkedVehicle).Ownership);
 
         var content = CommissionFixture.Content();
         using var commissioned = CommissionFixture.Session(content);
@@ -72,8 +94,8 @@ public sealed class SettlementWarTests
 
         SettlementWarFixture.Accept(session, new CoreCommand.DeclareWar(settlement.Id));
 
-        Assert.AreEqual(InventoryAccess.Frozen, SettlementWarFixture.Inventory(session, lease.Inventory).Access);
-        Assert.AreEqual(lease.Id, SettlementWarFixture.Lease(session, lease.Id).Id);
+        Assert.AreEqual(InventoryAccess.Frozen, InventoryFixture.ReadInventory(session, lease.Inventory).Access);
+        Assert.AreEqual(lease.Id, InventoryFixture.Lease(session, lease.Id).Id);
     }
 
     [TestMethod]
@@ -112,43 +134,100 @@ public sealed class SettlementWarTests
     }
 
     [TestMethod]
+    public void A_parked_npc_vehicle_is_transferred_on_occupation_and_blocks_it_until_surrender()
+    {
+        using var original = SettlementWarFixture.Session(SettlementWarFixture.Content(parked: true),
+            parked: true);
+        var settlement = SettlementWarFixture.Settlement(original);
+        var parked = settlement.ParkedVehicles.Single();
+        using var away = SettlementWarFixture.MoveTrain(original,
+            SettlementWarFixture.AwayNode(original, settlement));
+        SettlementWarFixture.Accept(away, new CoreCommand.DeclareWar(settlement.Id));
+        Assert.AreEqual(SettlementRelation.Hostile, Instance(away, parked).Ownership);
+        using var atNode = SettlementWarFixture.MoveTrain(away, settlement.Node);
+        SettlementWarFixture.Reject(atNode, new CoreCommand.OccupySettlement(settlement.Id,
+            SettlementWarFixture.Train(atNode)), "conditions_not_met", "Settlement");
+
+        using var surrendered = new CoreSession(atNode.State with
+        {
+            World = atNode.State.World with
+            {
+                Settlements = atNode.State.World.Settlements.Select(item => item.Id == settlement.Id
+                    ? item with { Surrendered = true } : item).ToImmutableArray()
+            }
+        });
+        SettlementWarFixture.Accept(surrendered,
+            new CoreCommand.OccupySettlement(settlement.Id, SettlementWarFixture.Train(surrendered)));
+
+        Assert.AreEqual(SettlementRelation.PlayerOwned, Instance(surrendered, parked).Ownership);
+        Assert.IsFalse(SettlementWarFixture.View(surrendered, settlement.Id).Surrendered);
+    }
+
+    [TestMethod]
     public void Surrender_ends_the_combat_in_the_same_step_and_keeps_the_settlement()
     {
         var content = SettlementWarFixture.MoraleRules(CombatFixture.Content(armedBuilding: true, damage: 100),
-            coefficient: 10, weaponLoss: .18, recovery: .012, threshold: .9);
+            coefficient: 10, weaponLoss: 0, recovery: 0, threshold: .9);
         content = content with
         {
-            Designs = content.Designs.Select(design => design.Design != CombatFixture.ArmedBuilding
-                ? design : design with
+            Designs = content.Designs.Select(design => design.Design == CombatFixture.ArmedBuilding
+                ? design with
                 {
                     MaxStructureDurability = 1000,
                     Parts = design.Parts.Select(part => part with { MaxDurability = 1000 }).ToImmutableArray()
-                }).ToImmutableArray()
+                }
+                : design).ToImmutableArray()
         };
         using var session = CombatFixture.SessionWithContent(content, vehicles: 2);
         var hostile = CombatFixture.HostileNode(session);
         var settlement = ((NodeOccupant.Settlement)session.State.World.Nodes
             .Single(node => node.Id == hostile).Occupant).Id;
+        var train = SettlementWarFixture.Train(session);
         var station = session.State.World.Settlements.Single(item => item.Id == settlement).Plots
             .Single(plot => plot.TemplateNumber == 1).Building!.Value;
+        var armed = session.State.World.Settlements.Single(item => item.Id == settlement).Plots
+            .Single(plot => plot.TemplateNumber == 2).Building!.Value;
         using var atNode = SettlementWarFixture.MoveTrain(session, hostile);
 
+        CoreEvent.SettlementSurrendered? surrendered = null;
         for (var step = 0; step < 1000; step++)
         {
+            var before = atNode.State.World.Combats.SingleOrDefault()?.Id;
             var result = atNode.Advance(1);
             Assert.IsNull(result.Fault, result.Diagnostic?.Message);
             var events = result.Events.Select(envelope => envelope.Event).ToArray();
-            var surrender = Array.FindIndex(events, value => value is CoreEvent.SettlementSurrendered);
-            if (surrender < 0) continue;
-            Assert.AreEqual(settlement, ((CoreEvent.SettlementSurrendered)events[surrender]).Settlement);
-            Assert.IsTrue(events.Skip(surrender).Any(value => value is CoreEvent.CombatEnded));
+            var found = events.OfType<CoreEvent.SettlementSurrendered>().ToArray();
+            Assert.IsTrue(found.Length <= 1);
+            if (found.Length == 0) continue;
+            surrendered = found.Single();
+            var combat = events.OfType<CoreEvent.CombatStarted>().SingleOrDefault()?.Combat ?? before;
+            Assert.AreEqual(settlement, surrendered.Settlement);
+            Assert.AreEqual(combat, surrendered.Combat);
+            var index = Array.IndexOf(events, surrendered);
+            Assert.IsTrue(events.Skip(index).Any(value => value is CoreEvent.CombatEnded));
             Assert.IsEmpty(atNode.Read().World.Combats);
             Assert.IsTrue(SettlementWarFixture.View(atNode, settlement).Surrendered);
             Assert.IsInstanceOfType<Lookup<InstanceView>.Found>(atNode.Read().FindInstance(
                 new InstanceId.Building(station)));
-            return;
+            Assert.IsTrue(Instance(atNode, armed).Parts.All(part => part.Current > 0));
+            break;
         }
-        Assert.Fail("聚居地未在限定步数内投降。");
+        Assert.IsNotNull(surrendered);
+
+        var morale = SettlementWarFixture.Settlement(atNode, settlement).Morale;
+        var durability = Instance(atNode, armed).StructureDurability;
+        var occupation = SettlementWarFixture.Accept(atNode,
+            new CoreCommand.OccupySettlement(settlement, train));
+        var occupationEvents = occupation.Events.Select(envelope => envelope.Event).ToArray();
+        Assert.AreEqual(new CoreEvent.SettlementRelationChanged(settlement,
+            SettlementRelation.Hostile, SettlementRelation.PlayerOwned),
+            occupationEvents.OfType<CoreEvent.SettlementRelationChanged>().Single());
+        Assert.IsFalse(occupationEvents.Any(value => value is CoreEvent.LeaseExpired));
+        Assert.AreEqual(morale, SettlementWarFixture.Settlement(atNode, settlement).Morale, 0);
+        Assert.AreEqual(durability, Instance(atNode, armed).StructureDurability);
+        Assert.IsFalse(SettlementWarFixture.View(atNode, settlement).Surrendered);
+        Assert.AreEqual(SettlementRelation.PlayerOwned,
+            SettlementWarFixture.Settlement(atNode, settlement).Relation);
     }
 
     [TestMethod]
@@ -196,31 +275,48 @@ public sealed class SettlementWarTests
             .Select(envelope => envelope.Event).OfType<CoreEvent.LeaseAcquired>().Single().Lease;
         SettlementWarFixture.Accept(atSettlement, new CoreCommand.UnloadGoods(train, settlement.Id,
             lease.Inventory, ConstructionFixture.Material, 5));
-        Assert.AreEqual(5, SettlementWarFixture.Inventory(atSettlement, lease.Inventory).Used);
-        var inventoryBefore = SettlementWarFixture.Inventory(atSettlement, settlement.Inventory).Used;
+        Assert.AreEqual(5, InventoryFixture.ReadInventory(atSettlement, lease.Inventory).Used);
         using var moved = SettlementWarFixture.MoveTrain(atSettlement,
             SettlementWarFixture.AwayNode(atSettlement, settlement));
+        var expired = moved.Advance(1);
+        Assert.IsNull(expired.Fault,
+            $"{expired.Diagnostic?.Message}\n{expired.Diagnostic?.StackTrace}");
+        Assert.AreEqual(lease.Id,
+            expired.Events.Select(envelope => envelope.Event).OfType<CoreEvent.LeaseExpired>().Single().Lease);
+        Assert.IsTrue(InventoryFixture.Lease(moved, lease.Id).Expired);
+        var inventoryBefore = InventoryFixture.ReadInventory(moved, settlement.Inventory).Used;
+        var populationBefore = SettlementWarFixture.Settlement(moved, settlement.Id).PopulationState;
+        var fuelBefore = SettlementWarFixture.Settlement(moved, settlement.Id).FuelEnergyRemaining;
         SettlementWarFixture.Accept(moved, new CoreCommand.DeclareWar(settlement.Id));
         var moneyBeforeOccupation = moved.State.World.Money;
         using var atNode = SettlementWarFixture.MoveTrain(moved, settlement.Node);
 
-        SettlementWarFixture.Accept(atNode, new CoreCommand.OccupySettlement(settlement.Id, train));
+        var occupation = SettlementWarFixture.Accept(atNode,
+            new CoreCommand.OccupySettlement(settlement.Id, train));
 
         var after = SettlementWarFixture.Settlement(atNode, settlement.Id);
+        Assert.IsFalse(occupation.Events.Select(envelope => envelope.Event)
+            .Any(value => value is CoreEvent.LeaseExpired));
         Assert.AreEqual(SettlementRelation.PlayerOwned, after.Relation);
         Assert.AreEqual(new NodeOccupant.Settlement(settlement.Id, SettlementRelation.PlayerOwned),
             atNode.State.World.Nodes.Single(node => node.Id == settlement.Node).Occupant);
         foreach (var plot in settlement.Plots.Where(plot => plot.Building is not null))
             Assert.AreEqual(SettlementRelation.PlayerOwned, atNode.State.World.Instances
                 .Single(instance => instance.Id == new InstanceId.Building(plot.Building!.Value)).Ownership);
-        Assert.AreEqual(settlement.PopulationState, after.PopulationState);
-        Assert.AreEqual(settlement.FuelEnergyRemaining, after.FuelEnergyRemaining);
+        Assert.AreEqual(populationBefore, after.PopulationState);
+        Assert.AreEqual(fuelBefore, after.FuelEnergyRemaining);
         Assert.AreEqual(settlement.Plots, after.Plots);
         Assert.AreEqual(moneyBeforeOccupation, atNode.State.World.Money);
         Assert.IsTrue(moneyBeforeOccupation.Value < moneyBeforeLease.Value);
         Assert.IsInstanceOfType<Lookup<LeaseView>.Missing>(atNode.Read().FindLease(lease.Id));
         Assert.IsInstanceOfType<Lookup<InventoryView>.Missing>(atNode.Read().FindInventory(lease.Inventory));
-        Assert.AreEqual(inventoryBefore + 5, SettlementWarFixture.Inventory(atNode, after.Inventory).Used);
-        Assert.IsFalse(SettlementWarFixture.View(atNode, settlement.Id).Surrendered);
+        Assert.AreEqual(inventoryBefore + 5,
+            InventoryFixture.ReadInventory(atNode, after.Inventory).Used);
     }
+
+    private static InstanceState Instance(CoreSession session, BuildingId building)
+        => session.State.World.Instances.Single(item => item.Id == new InstanceId.Building(building));
+
+    private static InstanceState Instance(CoreSession session, VehicleId vehicle)
+        => session.State.World.Instances.Single(item => item.Id == new InstanceId.Vehicle(vehicle));
 }
