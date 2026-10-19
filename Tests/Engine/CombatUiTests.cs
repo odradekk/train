@@ -224,7 +224,7 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
             var ui = app.GetNode<GameUi>("GameUi");
             await Press(ui.GetNode<Button>("Root/World/Bar/TopBar/Notices"));
             var log = Find<PanelContainer>(ui, "NoticeLog");
-            var rows = log.FindChildren("Notice", "Button", true, false).Cast<Button>().ToArray();
+            var rows = log.FindChildren("*", "Button", true, false).Cast<Button>().ToArray();
             var surrender = rows.Single(button => button.Text.Contains("投降"));
             var relation = rows.Single(button => button.Text.Contains("变为自有"));
             Require(surrender.Text.Contains("警告") && surrender.Text.Contains("Town") &&
