@@ -289,7 +289,7 @@ public sealed class CombatFrameTests
         var snapshot = RailwayFixtures.Snapshot(800, 600, relief: 0, steps: 1, content: content,
             trains: [RailwayFixtures.Train(128)], instances: [instance]);
         var state = new PresentationState();
-        state.Note(snapshot, [Envelope(snapshot, new CoreEvent.CombatHits(new(1), RailwayFixtures.Location, [Hit(instance)]))],
+        state.Note(snapshot, snapshot, [Envelope(snapshot, new CoreEvent.CombatHits(new(1), RailwayFixtures.Location, [Hit(instance)]))],
             RailwayFixtures.Location);
         using var release = new ManualResetEventSlim();
         await using var vehicles = new SceneVehicles();
@@ -366,7 +366,7 @@ public sealed class CombatFrameTests
         var (content, instance, _) = Turret();
         var snapshot = Snapshot(content, instance, steps: 1);
         var state = new PresentationState();
-        state.Note(snapshot, [Envelope(snapshot, new CoreEvent.CombatHits(new(1), RailwayFixtures.Location, [Hit(instance)]))], RailwayFixtures.Location);
+        state.Note(snapshot, snapshot, [Envelope(snapshot, new CoreEvent.CombatHits(new(1), RailwayFixtures.Location, [Hit(instance)]))], RailwayFixtures.Location);
         var objects = ImmutableArray.CreateBuilder<SceneObject>();
         state.ApplyTurrets(objects, instance, "vehicle:" + instance.Id + ":", _ => { lookups++; return null; }, 1, snapshot, default);
         state.ApplyTurrets(objects, instance, "vehicle:" + instance.Id + ":", _ => { lookups++; return null; }, 1, snapshot, default);
@@ -384,7 +384,7 @@ public sealed class CombatFrameTests
         var instance = RailwayFixtures.Instance();
         var snapshot = Snapshot(content, instance, steps: 1);
         var state = new PresentationState();
-        state.Note(snapshot, [Envelope(snapshot, new CoreEvent.CombatHits(new(1), RailwayFixtures.Location,
+        state.Note(snapshot, snapshot, [Envelope(snapshot, new CoreEvent.CombatHits(new(1), RailwayFixtures.Location,
             [new CombatHit(new AttackSource.Weapon(new(instance.Id, instance.Design, RailwayFixtures.Location), new(9)),
                 new HitTarget.Part(new(instance.Id, instance.Design, RailwayFixtures.Location), new(1)), 1)]))],
             RailwayFixtures.Location);

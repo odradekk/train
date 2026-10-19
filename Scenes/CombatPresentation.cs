@@ -20,7 +20,6 @@ internal sealed class PresentationState
     private readonly Dictionary<CreatureId, (double StartedAt, HitTarget Target)> pounces = [];
     private readonly Dictionary<WorldObjectId, (ScenePoint Position, Quaternion Rotation)> poses = [];
     private readonly Dictionary<CreatureId, Vector3> creatures = [];
-    private SceneWorldSnapshot? previous;
     private ScenePoint frameOrigin;
     private readonly Dictionary<CreatureAppearanceProjection, (ImmutableArray<SceneObject> Objects, ImmutableDictionary<SceneObjectId, string> Keys)> templates = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<CreatureId, (CreatureAppearanceProjection Appearance, ImmutableArray<SceneObject> Objects)> bodies = [];
@@ -37,13 +36,13 @@ internal sealed class PresentationState
         bodies.Clear();
     }
 
-    internal void Note(SceneWorldSnapshot snapshot, ImmutableArray<EventEnvelope> events, WorldLocation? here)
+    internal void Note(SceneWorldSnapshot before, SceneWorldSnapshot snapshot, ImmutableArray<EventEnvelope> events, WorldLocation? here)
     {
         foreach (var item in events)
         {
             if (!InSpace(item.Event, here)) continue;
             var seconds = item.Position.CompletedSteps * SimulationTime.StepSeconds;
-            incoming.Add(new(item, StructureAims(previous, snapshot, item.Event)));
+            incoming.Add(new(item, StructureAims(before, snapshot, item.Event)));
             if (item.Event is CoreEvent.CombatHits hits)
                 foreach (var hit in hits.Hits)
                 {
@@ -53,7 +52,6 @@ internal sealed class PresentationState
                         pounces[creature.Individual.Creature] = (seconds, hit.Target);
                 }
         }
-        previous = snapshot;
     }
 
     internal void Acknowledge(SceneFrame? displayed, SceneRequestId request, SceneSpaceId space)

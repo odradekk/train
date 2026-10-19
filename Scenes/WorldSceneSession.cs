@@ -152,11 +152,12 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             previous = item;
         }
         if (fault is not null) return new SceneResult<SimulationPosition>.Faulted(fault);
-        if (input.Core.Position.CompletedSteps != snapshot.Core.Position.CompletedSteps)
-            interpolationStart = input.Core.Position.CompletedSteps == snapshot.Core.Position.CompletedSteps + 1 ? snapshot : null;
+        var before = snapshot;
+        if (input.Core.Position.CompletedSteps != before.Core.Position.CompletedSteps)
+            interpolationStart = input.Core.Position.CompletedSteps == before.Core.Position.CompletedSteps + 1 ? before : null;
         snapshot = input;
         lastEvent = previous;
-        presentation.Note(input, events, OpenLocation());
+        presentation.Note(before, input, events, OpenLocation());
         return new SceneResult<SimulationPosition>.Success(input.Core.Position);
     }
 
