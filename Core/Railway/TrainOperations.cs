@@ -201,7 +201,6 @@ internal static class TrainOperations
         {
             if (other.Id == train.Id || other.Position is not TrainPosition.Edge front) continue;
             if (front.Id != back.Id || front.Track != back.Track || front.Direction != back.Direction) continue;
-            if (OtherCombat(world, train.Id, other.Id)) continue;
             var ahead = back.Direction == TravelDirection.Forward
                 ? front.DistanceMeters > back.DistanceMeters : front.DistanceMeters < back.DistanceMeters;
             if (ahead && (PendingEdgeRetreat(world, other) || CombatQueries.InDisengagement(world, other.Id)))
@@ -260,24 +259,10 @@ internal static class TrainOperations
             if (back.Id != front.Id || back.Track != front.Track || back.Direction != front.Direction) continue;
             var behind = front.Direction == TravelDirection.Forward
                 ? back.DistanceMeters < front.DistanceMeters : back.DistanceMeters > front.DistanceMeters;
-            if (!behind || OtherCombat(world, lead.Id, other.Id)) continue;
+            if (!behind) continue;
             queue.Add(other);
         }
         return queue.ToArray();
-    }
-
-    private static bool OtherCombat(WorldState world, TrainId lead, TrainId follower)
-    {
-        CombatId? leadCombat = null;
-        CombatId? followerCombat = null;
-        foreach (var combat in world.Combats)
-        {
-            if (combat.Controllers.Any(state => state.Controller is CombatController.Train train && train.Id == lead))
-                leadCombat = combat.Id;
-            if (combat.Controllers.Any(state => state.Controller is CombatController.Train train && train.Id == follower))
-                followerCombat = combat.Id;
-        }
-        return followerCombat is not null && followerCombat != leadCombat;
     }
 
     private static WorldState LeaveEdgeCombat(WorldState world, TrainId id)

@@ -249,6 +249,7 @@ public sealed class CreatureRaidTests
             + TrainOperations.Capabilities(world, content, trains[1]).LengthMeters) / 2
             + TrainOperations.Rule(world, content).MinimumGapMeters;
         const double leadDistance = 80;
+        Assert.IsTrue(gap < leadDistance);
         var engagement = new TrainEngagementRules(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Retreat, 0);
         var plan = new RunPlan(false, [new PlanStop.Waypoint(ends[1])]);
         world = world with
@@ -263,7 +264,7 @@ public sealed class CreatureRaidTests
                 },
                 trains[1] with
                 {
-                    Position = new TrainPosition.Edge(edge.Id, 1, TravelDirection.Forward, leadDistance - 1),
+                    Position = new TrainPosition.Edge(edge.Id, 1, TravelDirection.Forward, leadDistance - gap),
                     Activity = TrainActivity.Running, SpeedMetersPerSecond = 0, Plan = plan, NextStopIndex = 0,
                     Engagement = engagement, OrderFacing = TrainOrderFacing.FirstEndLeading
                 }
@@ -333,6 +334,84 @@ public sealed class CreatureRaidTests
             Assert.AreEqual(TrainActivity.Stopped, train.Activity);
             Assert.AreEqual(edge.Start, ((TrainPosition.Node)train.Position).Id);
             Assert.AreEqual(1, events.OfType<CoreEvent.TrainArrived>().Count(arrived => arrived.Train == id));
+            Assert.AreEqual(1, events.OfType<CoreEvent.RetreatCompleted>().Count(completed => completed.Train == id));
+        }
+    }
+
+    [TestMethod]
+    public void Two_edge_combats_on_one_track_turn_back_together()
+    {
+        using var generated = CombatFixture.Session(trains: 2, armedBuilding: false, damage: 1);
+        var content = Tune(generated.State.Content, 100, 0, 1, Idle, null, maximum: 1);
+        var world = StopTrains(generated.State.World);
+        var ends = world.Nodes.Where(node => node.Occupant is NodeOccupant.Empty).Take(2).Select(node => node.Id).ToArray();
+        var (withLair, lair) = AddLair(world, EmptyNode(world, ends), content.LairTypes[0].Id);
+        world = SingleEdge(withLair, ends[0], ends[1], 10000, 1);
+        var edge = world.Edges.Single();
+        var trains = world.Trains.OrderBy(train => train.Id.Value).ToArray();
+        var gap = (TrainOperations.Capabilities(world, content, trains[0]).LengthMeters
+            + TrainOperations.Capabilities(world, content, trains[1]).LengthMeters) / 2
+            + TrainOperations.Rule(world, content).MinimumGapMeters;
+        const double leadDistance = 120;
+        Assert.IsTrue(gap < leadDistance);
+        var followerDistance = leadDistance - gap;
+        var engagement = new TrainEngagementRules(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0);
+        var plan = new RunPlan(false, [new PlanStop.Waypoint(ends[1])]);
+        var lead = trains[0] with
+        {
+            Position = new TrainPosition.Edge(edge.Id, 1, TravelDirection.Forward, leadDistance),
+            Activity = TrainActivity.Retreating, SpeedMetersPerSecond = 0, Plan = plan, NextStopIndex = 0,
+            RetreatDestination = null, Engagement = engagement, OrderFacing = TrainOrderFacing.FirstEndLeading
+        };
+        var follower = trains[1] with
+        {
+            Position = new TrainPosition.Edge(edge.Id, 1, TravelDirection.Forward, followerDistance),
+            Activity = TrainActivity.Combat, SpeedMetersPerSecond = 0, Plan = plan, NextStopIndex = 0,
+            Engagement = engagement, OrderFacing = TrainOrderFacing.FirstEndLeading
+        };
+        world = WithPacks(world with { Trains = [lead, follower] },
+            Pack(1, lair.Id, new WorldLocation.Edge(edge.Id, leadDistance), TravelDirection.Forward,
+                CreatureActivity.Combat, 1, null, Creature(1, "fixture:creature-a", 100)),
+            Pack(2, lair.Id, new WorldLocation.Edge(edge.Id, followerDistance), TravelDirection.Forward,
+                CreatureActivity.Combat, 1, null, Creature(2, "fixture:creature-a", 100)));
+        var front = new CombatState(new(world.Next.Combat), new WorldLocation.Edge(edge.Id, leadDistance), 1,
+            [new CombatControllerState(new CombatController.Train(lead.Id), 1, true, 0, null)],
+            [new CombatSideSummary(new CombatOwner.Player(), [], [], [], new(0)),
+                new CombatSideSummary(new CombatOwner.Creatures(), [], [], [], new(0))])
+        {
+            Creatures = [new CreatureCombatantState(new(1), 1, 1, false, 0)]
+        };
+        var rear = new CombatState(new(world.Next.Combat + 1), new WorldLocation.Edge(edge.Id, followerDistance), 1,
+            [new CombatControllerState(new CombatController.Train(follower.Id), 1, false, 0, null)],
+            [new CombatSideSummary(new CombatOwner.Player(), [], [], [], new(0)),
+                new CombatSideSummary(new CombatOwner.Creatures(), [], [], [], new(0))])
+        {
+            Creatures = [new CreatureCombatantState(new(2), 1, 1, false, 0)]
+        };
+        world = world with { Combats = [front, rear], Next = world.Next with { Combat = rear.Id.Value + 1 } };
+        using var session = Open(generated.State, world, content);
+        Step(session);
+        Assert.AreEqual(TravelDirection.Reverse, ((TrainPosition.Edge)ReadTrain(session, lead.Id).Position).Direction);
+        Assert.AreEqual(TravelDirection.Reverse, ((TrainPosition.Edge)ReadTrain(session, follower.Id).Position).Direction);
+        Assert.AreEqual(edge.Start, session.State.World.Trains.Single(item => item.Id == lead.Id).RetreatDestination);
+        Assert.AreEqual(edge.Start, session.State.World.Trains.Single(item => item.Id == follower.Id).RetreatDestination);
+        Assert.IsFalse(session.State.World.Combats.Any(combat => combat.Controllers.Any(state =>
+            state.Controller == new CombatController.Train(lead.Id)
+            || state.Controller == new CombatController.Train(follower.Id))));
+        var events = new List<CoreEvent>();
+        for (var step = 0; step < 4000; step++)
+        {
+            var leadTrain = ReadTrain(session, lead.Id);
+            var followerTrain = ReadTrain(session, follower.Id);
+            if (leadTrain.Activity == TrainActivity.Stopped && followerTrain.Activity == TrainActivity.Stopped)
+                break;
+            events.AddRange(Step(session).Events.Select(envelope => envelope.Event));
+        }
+        foreach (var id in new[] { lead.Id, follower.Id })
+        {
+            var train = ReadTrain(session, id);
+            Assert.AreEqual(TrainActivity.Stopped, train.Activity);
+            Assert.AreEqual(edge.Start, ((TrainPosition.Node)train.Position).Id);
             Assert.AreEqual(1, events.OfType<CoreEvent.RetreatCompleted>().Count(completed => completed.Train == id));
         }
     }
