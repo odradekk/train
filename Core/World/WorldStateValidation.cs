@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using Train.Core.Combat;
 using Train.Core.Contracts;
+using Train.Core.Creatures;
 using Train.Core.Settlements;
 using Train.Core.Trading;
 
@@ -18,6 +19,7 @@ internal static class WorldStateValidation
         Ordered(world.RailwayJobs, j => j.Id.Value, "/world/railway_jobs");
         Ordered(world.AutomaticRailRepairs, repair => repair.Edge.Value, "/world/automatic_rail_repairs");
         Ordered(world.Lairs, l => l.Id.Value, "/world/lairs");
+        Ordered(world.CreatureGroups, group => group.Id.Value, "/world/creature_groups");
         Ordered(world.Trains, t => t.Id.Value, "/world/trains");
         Ordered(world.Inventories, i => i.Id.Value, "/world/inventories");
         Ordered(world.Leases, l => l.Id.Value, "/world/leases");
@@ -200,6 +202,7 @@ internal static class WorldStateValidation
             Identity(lair.Type.Value, "/world/lairs/type");
             Require(nodes.TryGetValue(lair.Node, out var node) && node.Occupant == new NodeOccupant.Lair(lair.Id), "/world/lairs/node");
         }
+        ValidateCreatures(world, nodes, edges);
         foreach (var train in world.Trains)
         {
             ValidateTrain(world, train, nodes, edges);
@@ -307,6 +310,70 @@ internal static class WorldStateValidation
         Next(next.Job, world.ConstructionJobs.Select(j => j.Id.Value).Concat(world.FoundingJobs.Select(j => j.Id.Value))
             .Concat(world.RailwayJobs.Select(j => j.Id.Value)), "/world/next/job");
         Next(next.Combat, world.Combats.Select(c => c.Id.Value), "/world/next/combat");
+        Next(next.Creature, world.CreatureGroups.SelectMany(group => group.Creatures).Select(creature => creature.Id.Value),
+            "/world/next/creature");
+        Next(next.CreatureGroup, world.CreatureGroups.Select(group => group.Id.Value), "/world/next/creature_group");
+    }
+
+    private static void ValidateCreatures(WorldState world, Dictionary<NodeId, NodeMapItem> nodes,
+        Dictionary<EdgeId, EdgeMapItem> edges)
+    {
+        const string field = "/world/creature_groups";
+        var creatureIds = new HashSet<ulong>();
+        var guarding = new HashSet<ulong>();
+        var away = new HashSet<ulong>();
+        foreach (var group in world.CreatureGroups)
+        {
+            var path = field + $"/{group.Id.Value}";
+            Require(group.Id.Value != 0 && group.Id.Value < world.Next.CreatureGroup, path);
+            Items(group.Creatures, path + "/creatures");
+            Require(!group.Creatures.IsEmpty, path + "/creatures");
+            Require(Enum.IsDefined(group.Activity), path + "/activity");
+            Require(group.Home is { } home && world.Lairs.Any(lair => lair.Id == home), path + "/home");
+            var homeId = group.Home!.Value.Value;
+            if (CreatureQueries.IsGarrison(world, group)) Require(guarding.Add(homeId), path + "/activity");
+            else if (CreatureQueries.IsOut(world, group)) Require(away.Add(homeId), path + "/activity");
+            else throw new CoreStateFormatException(path + "/activity");
+            switch (group.Location)
+            {
+                case WorldLocation.Node node:
+                    Require(nodes.ContainsKey(node.Id) && group.Direction is null, path + "/location");
+                    break;
+                case WorldLocation.Edge edge:
+                    Require(edges.TryGetValue(edge.Id, out var edgeItem)
+                        && double.IsFinite(edge.DistanceMeters) && edge.DistanceMeters > 0
+                        && edge.DistanceMeters < edgeItem.LengthMeters
+                        && group.Direction is TravelDirection.Forward or TravelDirection.Reverse, path + "/location");
+                    break;
+                default: throw new CoreStateFormatException(path + "/location");
+            }
+            if (group.Activity == CreatureActivity.Guarding)
+            {
+                var lair = world.Lairs.Single(item => item.Id == group.Home);
+                Require(group.Location is WorldLocation.Node node && node.Id == lair.Node && group.Objective is null,
+                    path + "/activity");
+            }
+            else if (group.Activity is CreatureActivity.Wandering or CreatureActivity.Retreating)
+                Require(group.Objective is null, path + "/objective");
+            else if (group.Objective is CreatureObjective.Settlement settlement)
+                Require(nodes.TryGetValue(settlement.Node, out var target)
+                    && target.Occupant is NodeOccupant.Settlement, path + "/objective");
+            else if (group.Objective is CreatureObjective.Railway railway)
+                Require(edges.TryGetValue(railway.Edge, out var railwayEdge)
+                    && double.IsFinite(railway.DistanceMeters) && railway.DistanceMeters > 0
+                    && railway.DistanceMeters < railwayEdge.LengthMeters, path + "/objective");
+            else if (group.Activity is CreatureActivity.RaidingSettlement or CreatureActivity.RaidingRailway)
+                throw new CoreStateFormatException(path + "/objective");
+            ulong previous = 0;
+            foreach (var creature in group.Creatures)
+            {
+                Require(creature.Id.Value > previous && creature.Id.Value < world.Next.Creature
+                    && creatureIds.Add(creature.Id.Value), path + "/creatures");
+                previous = creature.Id.Value;
+                Identity(creature.Definition.Value, path + "/creatures/definition");
+                Require(creature.Health > 0, path + "/creatures/health");
+            }
+        }
     }
 
     private static void ValidateFounding(WorldState world)
@@ -738,6 +805,8 @@ internal static class WorldStateValidation
     {
         var controllers = new HashSet<(int Kind, ulong Id)>();
         var unitsLost = new HashSet<CombatUnitId>();
+        var creaturesLost = new HashSet<ulong>();
+        var creatureCombatants = new HashSet<ulong>();
         var partsLost = new HashSet<(int Kind, ulong Id, int Part)>();
         for (var index = 0; index < world.Combats.Length; index++)
         {
@@ -797,11 +866,28 @@ internal static class WorldStateValidation
                     var hostileParticipant = combat.Controllers
                         .Where(other => other.Controller != controller.Controller)
                         .SelectMany(other => CombatQueries.Units(world, other.Controller))
+                        .Concat(combat.Creatures.Select(creature => (CombatUnitId)new CombatUnitId.CreatureGroup(creature.Group)))
                         .Contains(focus);
                     Require(hostileParticipant
                         && units.Any(unit => CombatQueries.Hostile(world, unit, focus)),
                         controllerPath + "/focus_target");
                 }
+            }
+            Items(combat.Creatures, path + "/creatures");
+            ulong previousCreature = 0;
+            foreach (var creature in combat.Creatures)
+            {
+                var creaturePath = path + "/creatures";
+                Require(creature.Group.Value > previousCreature && creatureCombatants.Add(creature.Group.Value), creaturePath);
+                previousCreature = creature.Group.Value;
+                Require(creature.CountAtJoin > 0, creaturePath + "/count_at_join");
+                Require(creature.Retreating || creature.RemainingDisengagementSteps == 0,
+                    creaturePath + "/remaining_disengagement_steps");
+                Require(creature.JoinedAtStep >= combat.StartedAtStep, creaturePath + "/joined_at_step");
+                var group = world.CreatureGroups.FirstOrDefault(item => item.Id == creature.Group);
+                Require(group is not null
+                    && group.Activity is CreatureActivity.Combat or CreatureActivity.Retreating
+                    && CombatQueries.SameLocation(combat.Location, group.Location), creaturePath);
             }
             (int Kind, ulong Id) previousOwner = (-1, 0);
             var owners = new HashSet<(int Kind, ulong Id)>();
@@ -816,15 +902,32 @@ internal static class WorldStateValidation
                 (int Kind, ulong Id) previousUnit = (-1, 0);
                 foreach (var lost in side.UnitsLost)
                 {
-                    Require(lost is DestroyedUnit.Instance, sidePath + "/units_lost");
-                    var unit = (DestroyedUnit.Instance)lost;
-                    var unitKey = CombatQueries.UnitKey(new CombatUnitId.Instance(unit.Value.Instance));
-                    Require(unitKey.CompareTo(previousUnit) > 0 && unitsLost.Add(new CombatUnitId.Instance(unit.Value.Instance)),
-                        sidePath + "/units_lost");
+                    var unitKey = lost switch
+                    {
+                        DestroyedUnit.Instance instance => CombatQueries.UnitKey(new CombatUnitId.Instance(instance.Value.Instance)),
+                        DestroyedUnit.Creature creature => (2, creature.Value.Creature.Value),
+                        _ => throw new CoreStateFormatException(sidePath + "/units_lost")
+                    };
+                    Require(unitKey.CompareTo(previousUnit) > 0, sidePath + "/units_lost");
                     previousUnit = unitKey;
-                    Require(designs.ContainsKey(unit.Value.Design)
-                        && CombatQueries.SameLocation(unit.Value.Location, combat.Location)
-                        && !instances.ContainsKey(unit.Value.Instance), sidePath + "/units_lost");
+                    switch (lost)
+                    {
+                        case DestroyedUnit.Instance instance:
+                            Require(unitsLost.Add(new CombatUnitId.Instance(instance.Value.Instance)), sidePath + "/units_lost");
+                            Require(designs.ContainsKey(instance.Value.Design)
+                                && CombatQueries.SameLocation(instance.Value.Location, combat.Location)
+                                && !instances.ContainsKey(instance.Value.Instance), sidePath + "/units_lost");
+                            break;
+                        case DestroyedUnit.Creature creature:
+                            Require(side.Owner is CombatOwner.Creatures && creature.Value.Creature.Value != 0
+                                && creature.Value.Group.Value != 0 && creaturesLost.Add(creature.Value.Creature.Value),
+                                sidePath + "/units_lost");
+                            Identity(creature.Value.Definition.Value, sidePath + "/units_lost");
+                            Require(CombatQueries.SameLocation(creature.Value.Location, combat.Location)
+                                && !world.CreatureGroups.Any(group => group.Creatures.Any(item => item.Id == creature.Value.Creature)),
+                                sidePath + "/units_lost");
+                            break;
+                    }
                 }
                 Items(side.PartsLost, sidePath + "/parts_lost");
                 (int Kind, ulong Id, int Part) previousPart = (-1, 0, -1);
@@ -852,7 +955,12 @@ internal static class WorldStateValidation
             foreach (var controller in combat.Controllers)
                 Require(owners.Contains(OwnerKey(CombatQueries.Owner(world, controller.Controller))),
                     path + "/sides/owner");
+            if (combat.Creatures.Length > 0 || combat.Sides.Any(side => side.UnitsLost.OfType<DestroyedUnit.Creature>().Any()))
+                Require(owners.Contains(OwnerKey(new CombatOwner.Creatures())), path + "/sides/owner");
         }
+        foreach (var group in world.CreatureGroups)
+            if (group.Activity == CreatureActivity.Combat)
+                Require(creatureCombatants.Contains(group.Id.Value), "/world/creature_groups/activity");
     }
 
     private static WorldLocation InstanceLocation(WorldState world, InstanceId id,
@@ -937,7 +1045,12 @@ internal static class WorldStateValidation
             foreach (var controller in combat.Controllers)
                 Require(controller.JoinedAtStep >= combat.StartedAtStep && controller.JoinedAtStep <= completedSteps,
                     "/world/combats/controllers/joined_at_step");
+            foreach (var creature in combat.Creatures)
+                Require(creature.JoinedAtStep >= combat.StartedAtStep && creature.JoinedAtStep <= completedSteps,
+                    "/world/combats/creatures/joined_at_step");
         }
+        foreach (var group in world.CreatureGroups)
+            Require(group.ActivityStartedAtStep <= completedSteps, "/world/creature_groups/activity_started_at_step");
         foreach (var settlement in world.Settlements)
         {
             Require(settlement.PopulationState.LastSettlement is not { } report || report.Position.CompletedSteps <= completedSteps,

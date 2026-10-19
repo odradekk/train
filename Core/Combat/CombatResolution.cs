@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Train.Core.Contracts;
+using Train.Core.Creatures;
 using Train.Core.Trading;
 using Train.Core.World;
 
@@ -32,10 +33,28 @@ internal static class CombatResolution
                 }
             }
         }
+        foreach (var combatant in combat.Creatures.Where(state => !state.Retreating))
+        {
+            var group = CreatureQueries.FindGroup(world, combatant.Group);
+            if (group is null) continue;
+            var target = ChooseCreatureTarget(world, content, combat, group);
+            if (target is not { } selected) continue;
+            foreach (var creature in group.Creatures.OrderBy(item => item.Id.Value))
+            {
+                var weapon = CreatureQueries.Projection(content, creature.Definition)?.Weapon;
+                if (weapon is null) continue;
+                var interval = WorldResources.IntervalSteps(weapon.IntervalSeconds)
+                    ?? throw new InvalidOperationException("武器间隔超出可表示范围。");
+                if ((step - combatant.JoinedAtStep) % interval != 0) continue;
+                if (CreatureShot(world, content, combat, group, creature, weapon.Damage, selected, step) is { } shot)
+                    shots.Add(shot);
+            }
+        }
         if (shots.Count == 0) return world;
 
         var structureDamage = new Dictionary<InstanceId, long>();
         var partDamage = new Dictionary<(InstanceId Instance, PartId Part), long>();
+        var creatureDamage = new Dictionary<CreatureId, long>();
         foreach (var shot in shots)
         {
             if (shot.Hit is HitTarget.Structure structure)
@@ -47,6 +66,11 @@ internal static class CombatResolution
             {
                 var key = (part.Instance.Instance, part.HitPart);
                 partDamage[key] = checked(partDamage.GetValueOrDefault(key) + shot.Damage);
+            }
+            else if (shot.Hit is HitTarget.Creature creature)
+            {
+                var creatureId = creature.Individual.Creature;
+                creatureDamage[creatureId] = checked(creatureDamage.GetValueOrDefault(creatureId) + shot.Damage);
             }
         }
 
@@ -87,17 +111,14 @@ internal static class CombatResolution
             } : item).ToImmutableArray();
         }
         world = world with { Instances = instances };
+        world = ApplyCreatureDamage(world, content, combat, creatureDamage, destroyedUnits);
         events.Add(new CoreEvent.CombatHits(id, combat.Location,
             shots.Select(shot => new CombatHit(shot.Source, shot.Hit, shot.Damage)).ToImmutableArray()));
         if (destroyedParts.Count > 0 || destroyedUnits.Count > 0)
             events.Add(new CoreEvent.CombatDestruction(id, combat.Location,
                 destroyedParts.OrderBy(part => CombatQueries.UnitKey(new CombatUnitId.Instance(part.Instance.Instance)))
                     .ThenBy(part => part.Part.Value).ToImmutableArray(),
-                destroyedUnits.OrderBy(unit => unit switch
-                {
-                    DestroyedUnit.Instance instance => CombatQueries.UnitKey(new CombatUnitId.Instance(instance.Value.Instance)),
-                    _ => (int.MaxValue, ulong.MaxValue)
-                }).ToImmutableArray()));
+                destroyedUnits.OrderBy(LossKey).ToImmutableArray()));
         return Remove(world, content, id, destroyedParts, destroyedUnits, step, events);
     }
 
@@ -124,6 +145,7 @@ internal static class CombatResolution
         var attacker = CombatQueries.Units(world, controller.Controller).First();
         var candidates = combat.Controllers.Where(state => state.Controller != controller.Controller)
             .SelectMany(state => CombatQueries.Units(world, state.Controller))
+            .Concat(combat.Creatures.Select(creature => (CombatUnitId)new CombatUnitId.CreatureGroup(creature.Group)))
             .Where(unit => CombatQueries.Hostile(world, attacker, unit)
                 && (scope == TargetScope.All || CombatQueries.Armed(world, content, unit))
                 && CombatQueries.Hittable(world, content, unit)).ToArray();
@@ -137,9 +159,9 @@ internal static class CombatResolution
         }
         return priority switch
         {
-            TargetPriority.LowestDurability => candidates.OrderBy(unit => CombatQueries.Durability(world, unit))
+            TargetPriority.LowestDurability => candidates.OrderBy(unit => CombatQueries.Durability(world, content, unit))
                 .ThenBy(CombatQueries.UnitKey).First(),
-            TargetPriority.HighestDurability => candidates.OrderByDescending(unit => CombatQueries.Durability(world, unit))
+            TargetPriority.HighestDurability => candidates.OrderByDescending(unit => CombatQueries.Durability(world, content, unit))
                 .ThenBy(CombatQueries.UnitKey).First(),
             _ => candidates.OrderBy(CombatQueries.UnitKey).First()
         };
@@ -148,19 +170,6 @@ internal static class CombatResolution
     private static Shot? Roll(WorldState world, CoreContentProjection content, CombatState combat,
         CombatUnitId attacker, PartId weapon, long damage, CombatUnitId target, ulong step)
     {
-        if (target is not CombatUnitId.Instance { Id: var targetId }) return null;
-        var instance = world.Instances.Single(i => i.Id == targetId);
-        var design = world.Designs.Single(d => d.Design == instance.Design);
-        var buckets = new List<(long Weight, PartId? Part)>();
-        var total = design.StructureHitWeight;
-        buckets.Add((total, null));
-        foreach (var part in design.Parts.OrderBy(part => part.Id.Value))
-        {
-            if (InstanceCapabilities.DefinitionMissing(world, content, design.Design, part) || part.HitWeight <= 0) continue;
-            total = checked(total + part.HitWeight);
-            buckets.Add((part.HitWeight, part.Id));
-        }
-        if (total <= 0) return null;
         var kind = attacker is CombatUnitId.Instance { Id: InstanceId.Vehicle } ? 0UL
             : attacker is CombatUnitId.Instance { Id: InstanceId.Building } ? 1UL
             : throw new InvalidOperationException("射击者种类无效。");
@@ -172,6 +181,60 @@ internal static class CombatResolution
         };
         var sample = KeyedRandom.Sample(new RandomKey(world.Source.WorldSeed, "combat.hit.v1",
             [combat.Id.Value, step, kind, identity, (ulong)weapon.Value]));
+        var attackerInstance = world.Instances.Single(item => item.Id == AttackerInstance(attacker));
+        var source = new AttackSource.Weapon(Reference(attackerInstance,
+            world.Designs.Single(design => design.Design == attackerInstance.Design), combat.Location), weapon);
+        return target switch
+        {
+            CombatUnitId.CreatureGroup creatureTarget => HitCreature(world, combat, source, sample, damage, creatureTarget),
+            CombatUnitId.Instance instance => HitInstance(world, content, combat, source, sample, damage, instance.Id),
+            _ => null
+        };
+    }
+
+    private static CombatUnitId? ChooseCreatureTarget(WorldState world, CoreContentProjection content,
+        CombatState combat, CreatureGroupState group)
+    {
+        var attacker = new CombatUnitId.CreatureGroup(group.Id);
+        var candidates = combat.Controllers.SelectMany(state => CombatQueries.Units(world, state.Controller))
+            .Where(unit => CombatQueries.Hostile(world, attacker, unit) && CombatQueries.Hittable(world, content, unit))
+            .ToArray();
+        if (candidates.Length == 0) return null;
+        var armed = candidates.Where(unit => CombatQueries.Armed(world, content, unit)).ToArray();
+        if (armed.Length > 0) candidates = armed;
+        return candidates.OrderBy(CombatQueries.UnitKey).First();
+    }
+
+    private static Shot? CreatureShot(WorldState world, CoreContentProjection content, CombatState combat,
+        CreatureGroupState group, CreatureState creature, long damage, CombatUnitId target, ulong step)
+    {
+        var sample = KeyedRandom.Sample(new RandomKey(world.Source.WorldSeed, "combat.hit.v1",
+            [combat.Id.Value, step, 2, group.Id.Value, creature.Id.Value]));
+        var source = new AttackSource.Creature(new CreaturePresentationRef(group.Id, creature.Id,
+            creature.Definition, combat.Location));
+        return target switch
+        {
+            CombatUnitId.CreatureGroup victim => HitCreature(world, combat, source, sample, damage, victim),
+            CombatUnitId.Instance instance => HitInstance(world, content, combat, source, sample, damage, instance.Id),
+            _ => null
+        };
+    }
+
+    private static Shot? HitInstance(WorldState world, CoreContentProjection content, CombatState combat,
+        AttackSource source, ulong sample, long damage, InstanceId targetId)
+    {
+        var instance = world.Instances.Single(item => item.Id == targetId);
+        var design = world.Designs.Single(item => item.Design == instance.Design);
+        var buckets = new List<(long Weight, PartId? Part)>();
+        var total = design.StructureHitWeight;
+        buckets.Add((total, null));
+        foreach (var part in design.Parts.OrderBy(part => part.Id.Value))
+        {
+            if (InstanceCapabilities.DefinitionMissing(world, content, design.Design, part) || part.HitWeight <= 0) continue;
+            total = checked(total + part.HitWeight);
+            buckets.Add((part.HitWeight, part.Id));
+        }
+        if (total <= 0) return null;
         var choice = WorldRandom.Integer(sample, 0, total - 1);
         PartId? hitPart = null;
         foreach (var bucket in buckets)
@@ -187,11 +250,54 @@ internal static class CombatResolution
         var hit = hitPart is { } partId
             ? (HitTarget)new HitTarget.Part(reference, partId)
             : new HitTarget.Structure(reference);
-        var source = new AttackSource.Weapon(Reference(world.Instances.Single(i => i.Id == AttackerInstance(attacker)),
-            world.Designs.Single(d => d.Design == world.Instances.Single(i => i.Id == AttackerInstance(attacker)).Design),
-            combat.Location), weapon);
-        return new Shot(target, source, hit, damage);
+        return new Shot(new CombatUnitId.Instance(targetId), source, hit, damage);
     }
+
+    private static Shot? HitCreature(WorldState world, CombatState combat, AttackSource source, ulong sample,
+        long damage, CombatUnitId.CreatureGroup target)
+    {
+        var group = CreatureQueries.FindGroup(world, target.Id);
+        if (group is null || group.Creatures.IsEmpty) return null;
+        var members = group.Creatures.OrderBy(creature => creature.Id.Value).ToArray();
+        var index = (int)WorldRandom.Integer(sample, 0, members.Length - 1);
+        var victim = members[index];
+        return new Shot(target, source, new HitTarget.Creature(new CreaturePresentationRef(group.Id, victim.Id,
+            victim.Definition, combat.Location)), damage);
+    }
+
+    private static WorldState ApplyCreatureDamage(WorldState world, CoreContentProjection content, CombatState combat,
+        Dictionary<CreatureId, long> damage, List<DestroyedUnit> destroyed)
+    {
+        if (damage.Count == 0) return world;
+        var groups = world.CreatureGroups.Select(group =>
+        {
+            if (!group.Creatures.Any(creature => damage.ContainsKey(creature.Id))) return group;
+            var kept = ImmutableArray.CreateBuilder<CreatureState>();
+            foreach (var creature in group.Creatures.OrderBy(item => item.Id.Value))
+            {
+                if (!damage.TryGetValue(creature.Id, out var incoming) || incoming <= 0)
+                {
+                    kept.Add(creature);
+                    continue;
+                }
+                var effective = CreatureQueries.EffectiveHealth(content, creature);
+                var next = effective - Math.Min(incoming, effective);
+                if (effective > 0 && next == 0)
+                    destroyed.Add(new DestroyedUnit.Creature(new CreaturePresentationRef(group.Id, creature.Id,
+                        creature.Definition, combat.Location)));
+                if (next > 0) kept.Add(creature with { Health = next });
+            }
+            return group with { Creatures = kept.ToImmutable() };
+        }).Where(group => !group.Creatures.IsEmpty).ToImmutableArray();
+        return world with { CreatureGroups = groups };
+    }
+
+    private static (int Kind, ulong Id) LossKey(DestroyedUnit unit) => unit switch
+    {
+        DestroyedUnit.Instance instance => CombatQueries.UnitKey(new CombatUnitId.Instance(instance.Value.Instance)),
+        DestroyedUnit.Creature creature => (2, creature.Value.Creature.Value),
+        _ => (int.MaxValue, ulong.MaxValue)
+    };
 
     private static InstanceId AttackerInstance(CombatUnitId unit) => unit switch
     {
@@ -334,13 +440,17 @@ internal static class CombatResolution
         var combats = world.Combats.Select(combat =>
         {
             var controllers = combat.Controllers.Where(controller => Alive(world, controller.Controller)).ToArray();
-            var units = controllers.SelectMany(controller => CombatQueries.Units(world, controller.Controller)).ToHashSet();
+            var creatures = combat.Creatures.Where(state => CreatureQueries.FindGroup(world, state.Group) is not null).ToArray();
+            var units = controllers.SelectMany(controller => CombatQueries.Units(world, controller.Controller))
+                .Concat(creatures.Select(state => (CombatUnitId)new CombatUnitId.CreatureGroup(state.Group)))
+                .ToHashSet();
             return combat with
             {
                 Controllers = controllers.Select(controller => controller with
                 {
                     FocusTarget = controller.FocusTarget is { } focus && units.Contains(focus) ? focus : null
-                }).OrderBy(controller => CombatQueries.ControllerKey(controller.Controller)).ToImmutableArray()
+                }).OrderBy(controller => CombatQueries.ControllerKey(controller.Controller)).ToImmutableArray(),
+                Creatures = creatures.OrderBy(state => state.Group.Value).ToImmutableArray()
             };
         }).ToImmutableArray();
         return world with { Combats = combats };
@@ -362,10 +472,7 @@ internal static class CombatResolution
         for (var position = 0; position < sides.Length; position++)
             if (sides[position].Owner == owner) { index = position; break; }
         var side = index >= 0 ? sides[index] : new CombatSideSummary(owner, [], [], [], new(0));
-        var mergedUnits = side.UnitsLost.AddRange(units)
-            .OrderBy(unit => unit is DestroyedUnit.Instance instance
-                ? CombatQueries.UnitKey(new CombatUnitId.Instance(instance.Value.Instance))
-                : (int.MaxValue, ulong.MaxValue)).ToImmutableArray();
+        var mergedUnits = side.UnitsLost.AddRange(units).OrderBy(LossKey).ToImmutableArray();
         var mergedParts = side.PartsLost.AddRange(parts)
             .OrderBy(part => CombatQueries.UnitKey(new CombatUnitId.Instance(part.Instance.Instance)))
             .ThenBy(part => part.Part.Value).ToImmutableArray();

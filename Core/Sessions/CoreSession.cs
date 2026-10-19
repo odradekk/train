@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Train.Core.Contracts;
 using Train.Core.Combat;
+using Train.Core.Creatures;
 using Train.Core.World;
 using Train.Core.Railway;
 using Train.Core.Inventory;
@@ -173,6 +174,7 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
         return AdvanceWorld(steps, before =>
         {
             var (world, events) = TrainOperations.Advance(before.World, before.Content, before.Position.CompletedSteps);
+            world = CreatureOperations.Advance(world, before.Content, checked(before.Position.CompletedSteps + 1));
             var combat = CombatOperations.Advance(world, before.Content, checked(before.Position.CompletedSteps + 1));
             world = combat.World;
             events = events.AddRange(combat.Events);

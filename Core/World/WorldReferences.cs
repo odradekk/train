@@ -64,6 +64,10 @@ internal static class WorldReferences
             }
         }
         foreach (var lair in world.Lairs) Add(new CoreDefinitionReference.Lair(lair.Type), $"World.Lairs[{lair.Id.Value}].Type");
+        foreach (var group in world.CreatureGroups)
+            foreach (var creature in group.Creatures)
+                Add(new CoreDefinitionReference.Creature(creature.Definition),
+                    $"World.CreatureGroups[{group.Id.Value}].Creatures[{creature.Id.Value}].Definition");
         foreach (var job in world.ConstructionJobs)
         {
             var path = $"World.ConstructionJobs[{job.Id.Value}]";

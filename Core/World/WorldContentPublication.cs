@@ -140,6 +140,7 @@ internal static class WorldContentPublication
             "World.Edges" => new WorldObjectId.Edge(new(id)),
             "World.Settlements" => new WorldObjectId.Settlement(new(id)),
             "World.Lairs" => new WorldObjectId.Lair(new(id)),
+            "World.CreatureGroups" => new WorldObjectId.CreatureGroup(new(id)),
             "World.Inventories" => new WorldObjectId.Inventory(new(id)),
             _ => null
         };
