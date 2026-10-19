@@ -7,6 +7,7 @@ using Godot;
 using Train.App.Assets;
 using Train.App.Composition;
 using Train.App.Logging;
+using Train.App.Notifications;
 using Train.App.Saves;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
@@ -42,7 +43,7 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
     private TrainLogger? _logger;
     internal HostCoordinator? Host { get; private set; }
     internal WorldSceneController? World { get; private set; }
-    internal Func<TrainLogger, string, GodotMainThreadDispatcher, HostCoordinator> CreateHost { get; set; } = HostComposition.CreateHost;
+    internal Func<TrainLogger, string, GodotMainThreadDispatcher, NotificationPolicy, HostCoordinator> CreateHost { get; set; } = HostComposition.CreateHost;
     internal Func<IScenesFactory> CreateScenes { get; set; } = HostComposition.CreateScenes;
     private string? _sceneFailure;
     private string? _saveHash;
@@ -102,7 +103,7 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         _dispatcher = new();
         _logger = TrainLogger.StartSession(ProjectSettings.GlobalizePath("res://.godot/art-capture/logs"),
             LogLevel.Info, new GodotLogOutput());
-        Host = CreateHost(_logger, OS.GetUserDataDir(), _dispatcher);
+        Host = CreateHost(_logger, OS.GetUserDataDir(), _dispatcher, new NotificationPolicy());
         var restored = Host.BeginRestore(document.CorePayload, document.ContentPayload, Host.SessionOptions!);
         if (restored.Problem is { } problem) throw new InvalidDataException($"恢复失败：{problem.Code}");
         await WaitAsync(() => !Host.IsBusy, () => { _dispatcher.Pump(); Host.ProcessFrame(0); });

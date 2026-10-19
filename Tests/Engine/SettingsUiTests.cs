@@ -1,6 +1,8 @@
 using Chickensoft.GoDotTest;
 using Chickensoft.GodotTestDriver;
 using Godot;
+using Train.App;
+using Train.App.Notifications;
 using Train.Ui;
 using static Train.Engine.Tests.Assertions;
 
@@ -13,6 +15,7 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
     {
         await LoadSettings(1, 1.25, 91, true, invalid: false);
         await LoadSettings(2, 1.25, 91, true, invalid: false);
+        await LoadSettings(1, 1.25, 91, true, invalid: false, encounter: 2);
     }
 
     [Test]
@@ -26,9 +29,11 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
         await LoadSettings(1, 3.0, 91, true, invalid: true);
         await LoadSettings(1, 1.25, -1, true, invalid: true);
         await LoadSettings(1, 1.25, long.MaxValue, true, invalid: true);
+        await LoadSettings(1, 1.25, 91, true, invalid: true, encounter: "no");
     }
 
-    private async Task LoadSettings(Variant mode, Variant scale, Variant fps, Variant focus, bool invalid)
+    private async Task LoadSettings(Variant mode, Variant scale, Variant fps, Variant focus, bool invalid,
+        Variant? encounter = null)
     {
         var tree = TestScene.GetTree();
         var fixture = new Fixture(tree);
@@ -46,6 +51,7 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
                 config.SetValue("display", "scale", scale);
                 config.SetValue("display", "fps", fps);
                 config.SetValue("game", "focus_pause", focus);
+                if (encounter is { } notification) config.SetValue("notifications", "encounter", notification);
                 Require(config.Save("user://settings.cfg") == Error.Ok, "未能保存真实启动配置情景。");
             }
             var setup = new HostSimulationTests.HostSetup();
@@ -59,6 +65,12 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
             var selectedMode = panel.FindChildren("WindowMode", "OptionButton", true, false)
                 .Cast<OptionButton>().Single().Selected;
             var expectedMode = invalid ? 0 : mode.AsInt32();
+            var expectedEncounter = invalid || encounter is null ? (int)NotificationAction.SlowToOne : encounter.Value.AsInt32();
+            var encounterBox = panel.FindChildren("Notify_encounter", "OptionButton", true, false)
+                .Cast<OptionButton>().Single();
+            Require(encounterBox.Selected == expectedEncounter &&
+                app.Notifications.Action(NotificationCategory.Encounter) == (NotificationAction)expectedEncounter,
+                $"通知设置未与显示设置一起应用：selected={encounterBox.Selected}，expected={expectedEncounter}。");
             Require(selectedMode == expectedMode &&
                 Mathf.IsEqualApprox(tree.Root.ContentScaleFactor, invalid ? 1 : 1.25f) &&
                 Godot.Engine.MaxFps == (invalid ? 73 : 91) &&
