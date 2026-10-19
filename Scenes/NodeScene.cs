@@ -722,11 +722,12 @@ internal sealed class NodeScene : IAsyncDisposable
         }
         terrainPatches.Retain(terrainKeys);
         var effects = ImmutableArray<SceneEffectCue>.Empty;
-        if (presentation is { } state)
+        if (presentation is { } state && layout is not null)
         {
             state.AddCreatures(objects, snapshot, new WorldLocation.Node(Node), origin, null, layout, seconds, objectId,
                 (x, z) => GroundHeight(parts.Select(item => item.Part), x, z));
-            effects = state.Finish(objects, snapshot, new WorldLocation.Node(Node), origin, null);
+            if (readiness == SceneReadiness.Ready)
+                effects = state.Finish(objects, snapshot, new WorldLocation.Node(Node), origin, null);
         }
         return new(stamp, origin, seconds, readiness,
             objects.ToImmutable(), picking.ToImmutable(), fog.ToImmutable(), RailwayTerrain.UniqueProblems(problems), displayed,
@@ -1102,7 +1103,6 @@ internal sealed class NodeScene : IAsyncDisposable
             for (var i = 0; i < members.Length; i++)
             {
                 var member = members[i];
-                presentation?.Seen(member);
                 var arc = center + (positive ? 1 : -1) * (known ? total / 2.0 - consumed - lengths[i]!.Value / 2.0 : 0);
                 consumed += lengths[i] ?? 0;
                 var pose = RailwayVehicles.Pose(path.Sample(arc), origin, positive);
@@ -1116,7 +1116,7 @@ internal sealed class NodeScene : IAsyncDisposable
                 if (vehicles.Reconcile(snapshot.Content, member, objectId) is { } body)
                 {
                     Add(RailwayVehicles.Place(body, pose, (positive ? 1 : -1) * arc));
-                    presentation?.ApplyTurrets(objects, member, "vehicle:" + member.Id + ":", findId, seconds, snapshot);
+                    presentation?.ApplyTurrets(objects, member, "vehicle:" + member.Id + ":", findId, seconds, snapshot, origin);
                 }
                 else
                 {

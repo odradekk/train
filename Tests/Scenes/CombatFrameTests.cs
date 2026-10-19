@@ -323,8 +323,8 @@ public sealed class CombatFrameTests
         var state = new PresentationState();
         state.Note(snapshot, [Envelope(snapshot, new CoreEvent.CombatHits(new(1), RailwayFixtures.Location, [Hit(instance)]))], RailwayFixtures.Location);
         var objects = ImmutableArray.CreateBuilder<SceneObject>();
-        state.ApplyTurrets(objects, instance, "vehicle:" + instance.Id + ":", _ => { lookups++; return null; }, 1, snapshot);
-        state.ApplyTurrets(objects, instance, "vehicle:" + instance.Id + ":", _ => { lookups++; return null; }, 1, snapshot);
+        state.ApplyTurrets(objects, instance, "vehicle:" + instance.Id + ":", _ => { lookups++; return null; }, 1, snapshot, default);
+        state.ApplyTurrets(objects, instance, "vehicle:" + instance.Id + ":", _ => { lookups++; return null; }, 1, snapshot, default);
         Assert.AreEqual(1, lookups);
     }
 
@@ -349,7 +349,7 @@ public sealed class CombatFrameTests
         objects.Add(new(root, null, host, new WorldObjectId.Instance(instance.Id), [], [], []));
         objects.Add(new(turret, root, new(Vector3.Zero, Quaternion.Identity), null, [], [], []));
         var key = "vehicle:" + instance.Id + ":0";
-        state.ApplyTurrets(objects, instance, "vehicle:" + instance.Id + ":", asked => asked == key ? turret : null, 1, snapshot);
+        state.ApplyTurrets(objects, instance, "vehicle:" + instance.Id + ":", asked => asked == key ? turret : null, 1, snapshot, default);
         var aimed = objects.Single(item => item.Id == turret).Pose;
         var worldRotation = Quaternion.Normalize(host.Rotation * aimed.Rotation);
         var worldPosition = host.Position + Vector3.Transform(aimed.Position, host.Rotation);

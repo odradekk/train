@@ -193,7 +193,6 @@ internal sealed class SettlementObjects : IAsyncDisposable
         foreach (var item in placed)
         {
             var instance = item.Instance;
-            presentation?.Seen(instance);
             var buildingId = ((InstanceId.Building)instance.Id).Id;
             var pose = item.Pose with { Position = item.Pose.Position - RailwayCoordinates.Relative(origin, default) };
             var body = buildings.Prepare(snapshot.Content, instance);
@@ -201,7 +200,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
             if (hasBody)
             {
                 Add(SceneGeometry.Place(WorldSceneSession.Attach(body!.Geometry, "building:" + buildingId.Value + ":", objectId).Geometry, pose));
-                presentation?.ApplyTurrets(objects, instance, "building:" + buildingId.Value + ":", findId ?? (_ => null), seconds, snapshot);
+                presentation?.ApplyTurrets(objects, instance, "building:" + buildingId.Value + ":", findId ?? (_ => null), seconds, snapshot, origin);
             }
             else objects.Add(new(objectId("building:" + buildingId.Value + ":"), null, pose, new WorldObjectId.Instance(instance.Id), [], [], []));
             if (!hasBody || !WorldSceneSession.Matches(body!, instance))
@@ -228,7 +227,6 @@ internal sealed class SettlementObjects : IAsyncDisposable
         foreach (var item in vehicles)
         {
             var instance = item.Instance;
-            presentation?.Seen(instance);
             var pose = item.Pose with { Position = item.Pose.Position - RailwayCoordinates.Relative(origin, default) };
             if (item.Bounds is null)
             {
@@ -240,7 +238,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
             if (parked.Reconcile(snapshot.Content, instance, objectId) is { } rendered)
             {
                 Add(RailwayVehicles.Place(rendered, pose, 0));
-                presentation?.ApplyTurrets(objects, instance, "vehicle:" + instance.Id + ":", findId ?? (_ => null), seconds, snapshot);
+                presentation?.ApplyTurrets(objects, instance, "vehicle:" + instance.Id + ":", findId ?? (_ => null), seconds, snapshot, origin);
             }
             else
             {

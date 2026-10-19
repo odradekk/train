@@ -14,14 +14,14 @@ internal sealed class PresentationState
     private const int LineStaggerCells = 8;
     private const int BesideCells = 12;
     private const double PounceSeconds = 0.4;
-    private readonly List<(double Seconds, CoreEvent Event)> incoming = [];
-    private readonly List<SceneEffectCue> pending = [];
+    private readonly List<Noted> incoming = [];
+    private readonly List<HeldCue> pending = [];
     private readonly Dictionary<(InstanceId Instance, string Path), TurretAim> turrets = [];
     private readonly Dictionary<CreatureId, (double StartedAt, HitTarget Target)> pounces = [];
-    private readonly Dictionary<InstanceId, ImmutableHashSet<StructureDamage.CellRef>> removed = [];
-    private readonly List<InstanceView> seen = [];
-    private Dictionary<WorldObjectId, ScenePose> poses = [];
+    private readonly Dictionary<WorldObjectId, (ScenePoint Position, Quaternion Rotation)> poses = [];
     private readonly Dictionary<CreatureId, Vector3> creatures = [];
+    private SceneWorldSnapshot? previous;
+    private ScenePoint frameOrigin;
     private readonly Dictionary<CreatureAppearanceProjection, (ImmutableArray<SceneObject> Objects, ImmutableDictionary<SceneObjectId, string> Keys)> templates = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<CreatureId, (CreatureAppearanceProjection Appearance, ImmutableArray<SceneObject> Objects)> bodies = [];
     private ulong nextEffect;
@@ -32,8 +32,6 @@ internal sealed class PresentationState
         pending.Clear();
         turrets.Clear();
         pounces.Clear();
-        removed.Clear();
-        seen.Clear();
         poses.Clear();
         creatures.Clear();
         bodies.Clear();
@@ -41,11 +39,11 @@ internal sealed class PresentationState
 
     internal void Note(SceneWorldSnapshot snapshot, ImmutableArray<EventEnvelope> events, WorldLocation? here)
     {
-        var seconds = snapshot.Core.Position.CompletedSteps * SimulationTime.StepSeconds;
         foreach (var item in events)
         {
             if (!InSpace(item.Event, here)) continue;
-            incoming.Add((seconds, item.Event));
+            var seconds = item.Position.CompletedSteps * SimulationTime.StepSeconds;
+            incoming.Add(new(item, StructureAims(previous, snapshot, item.Event)));
             if (item.Event is CoreEvent.CombatHits hits)
                 foreach (var hit in hits.Hits)
                 {
@@ -55,6 +53,7 @@ internal sealed class PresentationState
                         pounces[creature.Individual.Creature] = (seconds, hit.Target);
                 }
         }
+        previous = snapshot;
     }
 
     internal void Acknowledge(SceneFrame? displayed, SceneRequestId request, SceneSpaceId space)
@@ -65,8 +64,9 @@ internal sealed class PresentationState
     }
 
     internal void ApplyTurrets(ImmutableArray<SceneObject>.Builder objects, InstanceView instance, string prefix,
-        Func<string, SceneObjectId?> findId, double seconds, SceneWorldSnapshot snapshot)
+        Func<string, SceneObjectId?> findId, double seconds, SceneWorldSnapshot snapshot, ScenePoint origin)
     {
+        frameOrigin = origin;
         foreach (var aim in turrets.Values.Where(item => item.Instance == instance.Id).ToArray())
         {
             if (findId(prefix + aim.Path) is not { } id)
@@ -92,8 +92,9 @@ internal sealed class PresentationState
         ScenePoint origin, RailwayPath? path, NodeLayout? layout, double seconds, Func<string, SceneObjectId> objectId,
         Func<double, double, double>? ground = null)
     {
+        frameOrigin = origin;
         creatures.Clear();
-        var dead = Dead(incoming.Select(item => item.Event));
+        var dead = Dead(incoming.Select(item => item.Envelope.Event));
         var combatGroups = CombatGroups(snapshot, here);
         var index = 0;
         if (here is WorldLocation.Edge && path is null) return;
@@ -120,148 +121,161 @@ internal sealed class PresentationState
     internal ImmutableArray<SceneEffectCue> Finish(ImmutableArray<SceneObject>.Builder objects, SceneWorldSnapshot snapshot,
         WorldLocation? here, ScenePoint origin, RailwayPath? path)
     {
+        frameOrigin = origin;
         var composed = Compose(objects);
-        foreach (var (seconds, item) in incoming)
+        foreach (var noted in incoming)
         {
-            switch (item)
+            var seconds = noted.Envelope.Position.CompletedSteps * SimulationTime.StepSeconds;
+            switch (noted.Envelope.Event)
             {
                 case CoreEvent.CombatHits hits:
                     foreach (var hit in hits.Hits)
-                        AddHit(snapshot, composed, hit, seconds);
+                        AddHit(snapshot, composed.Roots, noted, hit, seconds);
                     break;
                 case CoreEvent.CombatDestruction destruction:
                     foreach (var unit in destruction.Units)
-                        AddUnit(snapshot, unit, seconds, path, origin);
+                        AddUnit(snapshot, unit, seconds, path);
                     foreach (var part in destruction.Parts)
-                        AddPart(snapshot, composed, part, seconds, path, origin);
+                        AddPart(snapshot, composed.Roots, part, seconds, path);
                     break;
                 case CoreEvent.RailBroken broken when path is not null && here is WorldLocation.Edge edge && broken.Edge == edge.Id:
-                    var sample = path.Sample(broken.Break.DistanceMeters * RailwayCoordinates.CellsPerMeter);
-                    Cue(SceneEffectKind.RailwayDamage, RailwayCoordinates.Relative(sample.Position, origin), null, null, null, null, seconds);
+                    Cue(SceneEffectKind.RailwayDamage, path.Sample(broken.Break.DistanceMeters * RailwayCoordinates.CellsPerMeter).Position,
+                        null, null, null, null, seconds);
                     break;
             }
         }
         incoming.Clear();
-        poses = composed;
-        Remember(snapshot);
-        return pending.ToImmutableArray();
+        poses.Clear();
+        foreach (var (subject, pose) in composed.Roots)
+            poses[subject] = (World(pose.Position, origin), pose.Rotation);
+        return Emit(origin);
     }
 
-    private void AddHit(SceneWorldSnapshot snapshot, Dictionary<WorldObjectId, ScenePose> composed, CombatHit hit, double seconds)
+    private void AddHit(SceneWorldSnapshot snapshot, Dictionary<WorldObjectId, ScenePose> roots, Noted noted, CombatHit hit, double seconds)
     {
-        var from = Source(snapshot, composed, hit.Source) ?? TargetPoint(snapshot, composed, hit.Target) ?? Vector3.Zero;
-        var to = TargetPoint(snapshot, composed, hit.Target) ?? from;
+        var from = Source(snapshot, roots, hit.Source);
+        var to = TargetPoint(snapshot, roots, hit.Target);
         var subject = HitSubject(hit.Target);
-        var (color, collision) = Struck(snapshot, hit.Target);
+        var (color, collision) = Struck(snapshot, noted, hit.Target);
         Cue(SceneEffectKind.Shot, from, to, color, collision, subject, seconds);
         Cue(SceneEffectKind.Impact, to, null, color, collision, subject, seconds);
         Cue(SceneEffectKind.Fragments, to, null, color, collision, subject, seconds);
     }
 
-    private void AddUnit(SceneWorldSnapshot snapshot, DestroyedUnit unit, double seconds, RailwayPath? path, ScenePoint origin)
+    private void AddUnit(SceneWorldSnapshot snapshot, DestroyedUnit unit, double seconds, RailwayPath? path)
     {
         switch (unit)
         {
             case DestroyedUnit.Instance instance:
                 var subject = new WorldObjectId.Instance(instance.Value.Instance);
-                var at = poses.TryGetValue(subject, out var pose) ? pose.Position : Map(instance.Value.Location, path, origin);
-                Cue(SceneEffectKind.Destruction, at, null, null, null, subject, seconds);
+                Cue(SceneEffectKind.Destruction, Point(subject) ?? Map(instance.Value.Location, path), null, null, null, subject, seconds);
                 break;
             case DestroyedUnit.Creature creature:
                 var body = new WorldObjectId.Creature(creature.Value.Creature);
-                var position = creatures.TryGetValue(creature.Value.Creature, out var placed) ? placed :
-                    poses.TryGetValue(body, out var old) ? old.Position : Map(creature.Value.Location, path, origin);
+                var position = creatures.TryGetValue(creature.Value.Creature, out var placed) ? World(placed, frameOrigin) :
+                    Point(body) ?? Map(creature.Value.Location, path);
                 var (color, collision) = CreatureFragments(snapshot, creature.Value.Definition);
                 Cue(SceneEffectKind.Fragments, position, null, color, collision, body, seconds);
                 break;
         }
     }
 
-    private void AddPart(SceneWorldSnapshot snapshot, Dictionary<WorldObjectId, ScenePose> composed, DestroyedPart part,
-        double seconds, RailwayPath? path, ScenePoint origin)
+    private void AddPart(SceneWorldSnapshot snapshot, Dictionary<WorldObjectId, ScenePose> roots, DestroyedPart part,
+        double seconds, RailwayPath? path)
     {
         var subject = new WorldObjectId.Instance(part.Instance.Instance);
-        var at = CellCenter(snapshot, composed, part.Instance.Instance, part.Instance.Design, part.Part) ??
-            (poses.TryGetValue(subject, out var pose) ? pose.Position : Map(part.Instance.Location, path, origin));
+        var at = CellCenter(snapshot, roots, part.Instance.Instance, part.Instance.Design, part.Part) is { } center
+            ? World(center, frameOrigin) : Point(subject) ?? Map(part.Instance.Location, path);
         var (color, collision) = PartSurface(snapshot, part.Instance.Design, part.Part);
         Cue(SceneEffectKind.Fragments, at, null, color, collision, subject, seconds);
     }
 
-    private void Cue(SceneEffectKind kind, Vector3 from, Vector3? to, PaintColor? color, VoxelCollision? collision,
+    private void Cue(SceneEffectKind kind, Vector3? from, Vector3? to, PaintColor? color, VoxelCollision? collision,
         WorldObjectId? subject, double seconds) =>
-        pending.Add(new(new(++nextEffect), kind, from, to, color, collision, subject, seconds));
+        Cue(kind, from is { } start ? World(start, frameOrigin) : null, to is { } end ? World(end, frameOrigin) : null,
+            color, collision, subject, seconds);
 
-    private Vector3? Source(SceneWorldSnapshot snapshot, Dictionary<WorldObjectId, ScenePose> composed, AttackSource source) => source switch
+    private void Cue(SceneEffectKind kind, ScenePoint? from, ScenePoint? to, PaintColor? color, VoxelCollision? collision,
+        WorldObjectId? subject, double seconds)
     {
-        AttackSource.Weapon weapon => CellCenter(snapshot, composed, weapon.Instance.Instance, weapon.Instance.Design, weapon.WeaponPart),
-        AttackSource.Creature creature => creatures.TryGetValue(creature.Individual.Creature, out var placed) ? placed :
-            poses.TryGetValue(new WorldObjectId.Creature(creature.Individual.Creature), out var pose) ? pose.Position : null,
-        _ => null
-    };
-
-    private Vector3? TargetPoint(SceneWorldSnapshot snapshot, Dictionary<WorldObjectId, ScenePose> composed, HitTarget target) => target switch
-    {
-        HitTarget.Part part => CellCenter(snapshot, composed, part.Instance.Instance, part.Instance.Design, part.HitPart),
-        HitTarget.Creature creature => creatures.TryGetValue(creature.Individual.Creature, out var placed) ? placed :
-            poses.TryGetValue(new WorldObjectId.Creature(creature.Individual.Creature), out var pose) ? pose.Position : null,
-        HitTarget.Structure structure => StructureCenter(snapshot, composed, structure.Instance),
-        _ => null
-    };
-
-    private Vector3? StructureCenter(SceneWorldSnapshot snapshot, Dictionary<WorldObjectId, ScenePose> composed, InstancePresentationRef instance)
-    {
-        var subject = new WorldObjectId.Instance(instance.Instance);
-        var root = poses.TryGetValue(subject, out var previous) ? previous.Position :
-            composed.TryGetValue(subject, out var current) ? current.Position : (Vector3?)null;
-        if (Known(instance.Instance) is not { } found ||
-            snapshot.Content.FindDesign(found.Design) is not ContentLookup<DesignEvaluation>.Found design ||
-            design.Value is DesignEvaluation.Failed || !composed.TryGetValue(subject, out var pose))
-            return root;
-        var report = StructureDamage.Assess(found, DesignGeometry.Projection(design.Value));
-        if (!removed.TryGetValue(instance.Instance, out var before)) return pose.Position;
-        var fresh = report.Removed.Where(cell => !before.Contains(cell)).ToArray();
-        if (fresh.Length == 0) return pose.Position;
-        var sum = Vector3.Zero;
-        foreach (var cell in fresh)
-        {
-            var voxel = DesignGeometry.Projection(design.Value).Voxels.First(item =>
-                new StructureDamage.CellRef(DesignGeometry.Key(item.ObjectPath), item.LocalAt) == cell);
-            sum += pose.Position + Vector3.Transform(new(voxel.At.X + .5f, voxel.At.Y + .5f, voxel.At.Z + .5f), pose.Rotation);
-        }
-        return sum / fresh.Length;
+        if (from is not { } start) return;
+        if (kind == SceneEffectKind.Shot && to is null) return;
+        pending.Add(new(new(++nextEffect), kind, start, to, color, collision, subject, seconds));
     }
 
-    private Vector3? CellCenter(SceneWorldSnapshot snapshot, Dictionary<WorldObjectId, ScenePose> composed,
+    private ImmutableArray<SceneEffectCue> Emit(ScenePoint origin) => pending.Select(item => new SceneEffectCue(item.Id, item.Kind,
+        Frame(item.From, origin), item.To is { } to ? Frame(to, origin) : null, item.Color, item.Collision, item.Subject,
+        item.StartedAt)).ToImmutableArray();
+
+    private Vector3? Source(SceneWorldSnapshot snapshot, Dictionary<WorldObjectId, ScenePose> roots, AttackSource source) => source switch
+    {
+        AttackSource.Weapon weapon => CellCenter(snapshot, roots, weapon.Instance.Instance, weapon.Instance.Design, weapon.WeaponPart),
+        AttackSource.Creature creature => CreatureFrame(creature.Individual.Creature),
+        _ => null
+    };
+
+    private Vector3? TargetPoint(SceneWorldSnapshot snapshot, Dictionary<WorldObjectId, ScenePose> roots, HitTarget target) => target switch
+    {
+        HitTarget.Part part => CellCenter(snapshot, roots, part.Instance.Instance, part.Instance.Design, part.HitPart),
+        HitTarget.Creature creature => CreatureFrame(creature.Individual.Creature),
+        HitTarget.Structure structure => StructureFrame(roots, structure),
+        _ => null
+    };
+
+    private Vector3? StructureFrame(Dictionary<WorldObjectId, ScenePose> roots, HitTarget.Structure structure)
+    {
+        if (Aim(structure) is not { } aim) return null;
+        return Offset(roots, new WorldObjectId.Instance(structure.Instance.Instance), aim.Local);
+    }
+
+    private Vector3? CellCenter(SceneWorldSnapshot snapshot, Dictionary<WorldObjectId, ScenePose> roots,
         InstanceId instance, DesignHash design, PartId part)
     {
         var subject = new WorldObjectId.Instance(instance);
-        if (!composed.TryGetValue(subject, out var pose) && !poses.TryGetValue(subject, out pose)) return null;
-        if (snapshot.Content.FindDesign(design) is not ContentLookup<DesignEvaluation>.Found found || found.Value is DesignEvaluation.Failed)
-            return pose.Position;
-        var voxel = DesignGeometry.Projection(found.Value).Voxels.Where(item => item.Number == part)
-            .OrderBy(item => item.At.X).ThenBy(item => item.At.Y).ThenBy(item => item.At.Z).FirstOrDefault();
-        return voxel is null ? pose.Position :
-            pose.Position + Vector3.Transform(new(voxel.At.X + .5f, voxel.At.Y + .5f, voxel.At.Z + .5f), pose.Rotation);
+        if (snapshot.Content.FindDesign(design) is ContentLookup<DesignEvaluation>.Found found && found.Value is not DesignEvaluation.Failed)
+        {
+            var voxel = DesignGeometry.Projection(found.Value).Voxels.Where(item => item.Number == part)
+                .OrderBy(item => item.At.X).ThenBy(item => item.At.Y).ThenBy(item => item.At.Z).FirstOrDefault();
+            if (voxel is not null)
+                return Offset(roots, subject, new(voxel.At.X + .5f, voxel.At.Y + .5f, voxel.At.Z + .5f));
+        }
+        return Offset(roots, subject, Vector3.Zero);
     }
 
-    private (PaintColor? Color, VoxelCollision? Collision) Struck(SceneWorldSnapshot snapshot, HitTarget target) => target switch
+    private Vector3? Offset(Dictionary<WorldObjectId, ScenePose> roots, WorldObjectId subject, Vector3 local)
+    {
+        if (roots.TryGetValue(subject, out var pose))
+            return pose.Position + Vector3.Transform(local, pose.Rotation);
+        if (!poses.TryGetValue(subject, out var world)) return null;
+        return Frame(world.Position, frameOrigin) + Vector3.Transform(local, world.Rotation);
+    }
+
+    private Vector3? CreatureFrame(CreatureId creature)
+    {
+        if (creatures.TryGetValue(creature, out var placed)) return placed;
+        return poses.TryGetValue(new WorldObjectId.Creature(creature), out var world) ? Frame(world.Position, frameOrigin) : null;
+    }
+
+    private ScenePoint? Point(WorldObjectId subject) =>
+        poses.TryGetValue(subject, out var world) ? world.Position : null;
+
+    private (PaintColor? Color, VoxelCollision? Collision) Struck(SceneWorldSnapshot snapshot, Noted noted, HitTarget target) => target switch
     {
         HitTarget.Part part => PartSurface(snapshot, part.Instance.Design, part.HitPart),
-        HitTarget.Structure structure => StructureSurface(snapshot, structure.Instance),
+        HitTarget.Structure structure => StructureColor(snapshot, noted, structure),
         HitTarget.Creature creature => CreatureFragments(snapshot, creature.Individual.Definition),
         _ => (null, null)
     };
 
-    private (PaintColor? Color, VoxelCollision? Collision) StructureSurface(SceneWorldSnapshot snapshot, InstancePresentationRef instance)
+    private (PaintColor? Color, VoxelCollision? Collision) StructureColor(SceneWorldSnapshot snapshot, Noted noted, HitTarget.Structure structure)
     {
-        if (Known(instance.Instance) is not { } found ||
-            snapshot.Content.FindDesign(found.Design) is not ContentLookup<DesignEvaluation>.Found design ||
+        StructureAim? aim = null;
+        foreach (var item in noted.Structures)
+            if (item.Target.Equals(structure)) aim = item;
+        if (aim is not { } found || snapshot.Content.FindDesign(structure.Instance.Design) is not ContentLookup<DesignEvaluation>.Found design ||
             design.Value is DesignEvaluation.Failed) return (null, null);
-        var report = StructureDamage.Assess(found, DesignGeometry.Projection(design.Value));
-        var before = removed.GetValueOrDefault(instance.Instance) ?? [];
         var voxel = DesignGeometry.Projection(design.Value).Voxels.FirstOrDefault(item =>
-            report.Removed.Contains(new(DesignGeometry.Key(item.ObjectPath), item.LocalAt)) &&
-            !before.Contains(new(DesignGeometry.Key(item.ObjectPath), item.LocalAt)));
+            DesignGeometry.Key(item.ObjectPath) == found.Path && item.LocalAt == found.At);
         return voxel is null ? (null, null) : Surface(snapshot, voxel);
     }
 
@@ -287,32 +301,93 @@ internal sealed class PresentationState
         return voxel is null ? (null, null) : Surface(snapshot, voxel);
     }
 
-    private static Vector3 Map(WorldLocation location, RailwayPath? path, ScenePoint origin)
+    private static ScenePoint? Map(WorldLocation location, RailwayPath? path)
     {
         if (path is not null && location is WorldLocation.Edge edge && edge.Id == path.Edge.Id)
-            return RailwayCoordinates.Relative(path.Sample(edge.DistanceMeters * RailwayCoordinates.CellsPerMeter).Position, origin);
-        return Vector3.Zero;
-    }
-
-    internal void Seen(InstanceView instance) => seen.Add(instance);
-
-    private InstanceView? Known(InstanceId id)
-    {
-        for (var index = seen.Count - 1; index >= 0; index--)
-            if (seen[index].Id == id) return seen[index];
+            return path.Sample(edge.DistanceMeters * RailwayCoordinates.CellsPerMeter).Position;
         return null;
     }
 
-    private void Remember(SceneWorldSnapshot snapshot)
+    private static ScenePoint World(Vector3 frame, ScenePoint origin) =>
+        new(origin.X + frame.X, origin.Y + frame.Y, origin.Z + frame.Z);
+
+    private static Vector3 Frame(ScenePoint point, ScenePoint origin) =>
+        new((float)(point.X - origin.X), (float)(point.Y - origin.Y), (float)(point.Z - origin.Z));
+
+    private StructureAim? Aim(HitTarget.Structure structure)
     {
-        foreach (var instance in seen)
-        {
-            if (snapshot.Content.FindDesign(instance.Design) is not ContentLookup<DesignEvaluation>.Found design ||
-                design.Value is DesignEvaluation.Failed) continue;
-            removed[instance.Id] = StructureDamage.Assess(instance, DesignGeometry.Projection(design.Value)).Removed;
-        }
-        seen.Clear();
+        StructureAim? aim = null;
+        foreach (var noted in incoming)
+            foreach (var item in noted.Structures)
+                if (item.Target.Equals(structure)) aim = item;
+        return aim;
     }
+
+    private static ImmutableArray<StructureAim> StructureAims(SceneWorldSnapshot? before, SceneWorldSnapshot after, CoreEvent item)
+    {
+        if (item is not CoreEvent.CombatHits hits) return [];
+        var builder = ImmutableArray.CreateBuilder<StructureAim>();
+        foreach (var hit in hits.Hits)
+            if (hit.Target is HitTarget.Structure structure && Choose(before, after, structure) is { } aim)
+                builder.Add(aim);
+        return builder.ToImmutable();
+    }
+
+    private static StructureAim? Choose(SceneWorldSnapshot? before, SceneWorldSnapshot after, HitTarget.Structure structure)
+    {
+        var current = Find(after, structure.Instance.Instance);
+        var content = after.Content;
+        if (current is null)
+        {
+            current = Find(before, structure.Instance.Instance);
+            content = before?.Content;
+        }
+        if (current is null || content is null ||
+            content.FindDesign(current.Design) is not ContentLookup<DesignEvaluation>.Found design ||
+            design.Value is DesignEvaluation.Failed) return null;
+        var projection = DesignGeometry.Projection(design.Value);
+        var report = StructureDamage.Assess(current, projection);
+        var oldRemoved = Find(before, structure.Instance.Instance) is { } previousInstance
+            ? StructureDamage.Assess(previousInstance, projection).Removed : [];
+        var fresh = new List<SceneVoxelProjection>();
+        foreach (var cell in report.Removed)
+        {
+            if (oldRemoved.Contains(cell)) continue;
+            if (Voxel(projection, cell) is { } voxel) fresh.Add(voxel);
+        }
+        SceneVoxelProjection? chosen;
+        Vector3 local;
+        if (fresh.Count > 0)
+        {
+            var sum = Vector3.Zero;
+            foreach (var voxel in fresh) sum += new Vector3(voxel.At.X + .5f, voxel.At.Y + .5f, voxel.At.Z + .5f);
+            local = sum / fresh.Count;
+            chosen = fresh[0];
+        }
+        else
+        {
+            chosen = null;
+            foreach (var cell in report.Order)
+            {
+                if (report.Removed.Contains(cell)) continue;
+                chosen = Voxel(projection, cell);
+                break;
+            }
+            if (chosen is null) return null;
+            local = new(chosen.At.X + .5f, chosen.At.Y + .5f, chosen.At.Z + .5f);
+        }
+        return new(structure, local, DesignGeometry.Key(chosen.ObjectPath), chosen.LocalAt);
+    }
+
+    private static SceneVoxelProjection? Voxel(DesignSceneProjection projection, StructureDamage.CellRef cell)
+    {
+        foreach (var voxel in projection.Voxels)
+            if (DesignGeometry.Key(voxel.ObjectPath) == cell.Path && voxel.LocalAt == cell.At) return voxel;
+        return null;
+    }
+
+    private static InstanceView? Find(SceneWorldSnapshot? snapshot, InstanceId id) =>
+        snapshot?.Core.FindInstance(id) is Lookup<InstanceView>.Found found ? found.Value : null;
 
     private void NoteTurret(SceneWorldSnapshot snapshot, AttackSource.Weapon weapon, HitTarget target, double seconds)
     {
@@ -351,8 +426,9 @@ internal sealed class PresentationState
 
     private void Resolve(TurretAim aim, ImmutableArray<SceneObject>.Builder objects, SceneObjectId turret, SceneWorldSnapshot snapshot)
     {
-        var pose = ComposeAll(objects)[turret];
-        var target = TargetPoint(snapshot, Compose(objects), aim.Target) ?? pose.Position + Vector3.UnitZ;
+        var posed = Compose(objects);
+        var pose = posed.All[turret];
+        if (TargetPoint(snapshot, posed.Roots, aim.Target) is not { } target) return;
         var local = Vector3.Transform(target - pose.Position, Quaternion.Inverse(pose.Rotation));
         var degrees = aim.Appearance.Axis switch
         {
@@ -425,7 +501,7 @@ internal sealed class PresentationState
         if (elapsed < 0 || elapsed > PounceSeconds) return Vector3.Zero;
         var amount = (float)Math.Sin(elapsed / PounceSeconds * Math.PI);
         var direction = placed.Forward;
-        if (TargetPoint(snapshot, Compose(objects), pounce.Target) is { } point)
+        if (TargetPoint(snapshot, Compose(objects).Roots, pounce.Target) is { } point)
         {
             var toward = new Vector3(point.X - placed.Position.X, 0, point.Z - placed.Position.Z);
             if (toward.LengthSquared() > 1e-4f) direction = Vector3.Normalize(toward);
@@ -476,33 +552,19 @@ internal sealed class PresentationState
         _ => false
     };
 
-    private static Dictionary<SceneObjectId, ScenePose> ComposeAll(IReadOnlyList<SceneObject> objects)
-    {
-        var byId = objects.ToDictionary(item => item.Id);
-        var composed = new Dictionary<SceneObjectId, ScenePose>();
-        ScenePose Pose(SceneObjectId id)
-        {
-            if (composed.TryGetValue(id, out var pose)) return pose;
-            var item = byId[id];
-            pose = item.Parent is { } parent && byId.ContainsKey(parent) ? SceneGeometry.Compose(Pose(parent), item.Pose) : item.Pose;
-            composed[id] = pose;
-            return pose;
-        }
-        foreach (var item in objects) Pose(item.Id);
-        return composed;
-    }
+    private readonly record struct PlacedPoses(Dictionary<SceneObjectId, ScenePose> All, Dictionary<WorldObjectId, ScenePose> Roots);
 
-    private static Dictionary<WorldObjectId, ScenePose> Compose(IReadOnlyList<SceneObject> objects)
+    private static PlacedPoses Compose(IReadOnlyList<SceneObject> objects)
     {
         var byId = objects.ToDictionary(item => item.Id);
-        var composed = new Dictionary<SceneObjectId, ScenePose>();
+        var all = new Dictionary<SceneObjectId, ScenePose>();
         var roots = new Dictionary<WorldObjectId, ScenePose>();
         ScenePose Pose(SceneObjectId id)
         {
-            if (composed.TryGetValue(id, out var pose)) return pose;
+            if (all.TryGetValue(id, out var pose)) return pose;
             var item = byId[id];
             pose = item.Parent is { } parent && byId.ContainsKey(parent) ? SceneGeometry.Compose(Pose(parent), item.Pose) : item.Pose;
-            composed[id] = pose;
+            all[id] = pose;
             return pose;
         }
         foreach (var item in objects)
@@ -510,7 +572,7 @@ internal sealed class PresentationState
             var pose = Pose(item.Id);
             if (item.Subject is not null && item.Parent is null) roots[item.Subject] = pose;
         }
-        return roots;
+        return new(all, roots);
     }
 
     private ImmutableArray<SceneObject> Body(SceneWorldSnapshot snapshot, CreatureAppearanceProjection appearance,
@@ -570,4 +632,11 @@ internal sealed class PresentationState
                 Quaternion.Normalize(installed.Rotation * extra));
         }
     }
+
+    private sealed record Noted(EventEnvelope Envelope, ImmutableArray<StructureAim> Structures);
+
+    private readonly record struct StructureAim(HitTarget Target, Vector3 Local, string Path, GridPosition At);
+
+    private sealed record HeldCue(SceneEffectId Id, SceneEffectKind Kind, ScenePoint From, ScenePoint? To,
+        PaintColor? Color, VoxelCollision? Collision, WorldObjectId? Subject, double StartedAt);
 }

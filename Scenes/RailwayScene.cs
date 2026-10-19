@@ -78,12 +78,9 @@ internal sealed class RailwayScene : IAsyncDisposable
     {
         var (start, seconds) = SceneFrame.SampleTime(snapshot, previous, request.Interpolation);
         if (path is null)
-        {
-            var waitingEffects = Effects(snapshot, ImmutableArray.CreateBuilder<SceneObject>(), seconds, switchedOrigin ?? default);
             return new(stamp, switchedOrigin ?? default, seconds, failure is null ? SceneReadiness.Loading : SceneReadiness.Failed,
                 [], [], [new(new SceneBounds(new(float.MinValue), new(float.MaxValue)))], failure is null ? [] : [failure], displayed,
-                debugLayers: request.DebugLayers, pickRay: request.PickRay, effects: waitingEffects);
-        }
+                debugLayers: request.DebugLayers, pickRay: request.PickRay);
 
         RefreshPath(snapshot);
         var trains = PlaceTrains(snapshot, start, request.Interpolation);
@@ -125,7 +122,7 @@ internal sealed class RailwayScene : IAsyncDisposable
             if (patch is not null) terrain.Add(patch);
         }
         terrainPatches.Retain(terrainKeys);
-        var effects = Effects(snapshot, frame.Objects, seconds, origin);
+        var effects = Effects(snapshot, frame.Objects, seconds, origin, ready && failure is null);
         return new(stamp, origin, seconds, failure is not null ? SceneReadiness.Failed : segments.Count == 0 ? SceneReadiness.Loading :
             ready ? SceneReadiness.Ready : SceneReadiness.Partial, frame.Objects.ToImmutable(), frame.Picking.ToImmutable(),
             frame.Fog.ToImmutable(), RailwayTerrain.UniqueProblems(frame.Problems), displayed, path,
@@ -342,12 +339,11 @@ internal sealed class RailwayScene : IAsyncDisposable
     }
 
     private ImmutableArray<SceneEffectCue> Effects(SceneWorldSnapshot snapshot, ImmutableArray<SceneObject>.Builder objects,
-        double seconds, ScenePoint origin)
+        double seconds, ScenePoint origin, bool ready)
     {
-        if (presentation is not { } state) return [];
-        if (path is not null)
-            state.AddCreatures(objects, snapshot, new WorldLocation.Edge(Edge, 0), origin, path, null, seconds, objectId);
-        return state.Finish(objects, snapshot, new WorldLocation.Edge(Edge, 0), origin, path);
+        if (presentation is not { } state || path is null) return [];
+        state.AddCreatures(objects, snapshot, new WorldLocation.Edge(Edge, 0), origin, path, null, seconds, objectId);
+        return ready ? state.Finish(objects, snapshot, new WorldLocation.Edge(Edge, 0), origin, path) : [];
     }
 
     private bool RenderTrains(SceneWorldSnapshot snapshot, ImmutableArray<TrainPlacement> trains, ScenePoint origin,
@@ -359,7 +355,6 @@ internal sealed class RailwayScene : IAsyncDisposable
             if (!train.TrackAvailable) continue;
             foreach (var member in train.Members)
             {
-                presentation?.Seen(member.Instance);
                 var pose = RailwayVehicles.Pose(path!.SampleWithNodes(member.CenterArc, train.Offset,
                     ((TrainPosition.Edge)train.Train.Position).Track), origin, train.Positive);
                 if (!train.LengthsKnown)
@@ -379,7 +374,7 @@ internal sealed class RailwayScene : IAsyncDisposable
                 var placed = RailwayVehicles.Place(geometry, pose, (train.Positive ? 1 : -1) * member.TrackArc);
                 var hidden = segments.Values.Any(segment => segment.Source.Tunnels.Any(interval => member.CenterArc >= interval.Start && member.CenterArc <= interval.End));
                 frame.Add(placed, hidden);
-                presentation?.ApplyTurrets(frame.Objects, member.Instance, "vehicle:" + member.Instance.Id + ":", findId, seconds, snapshot);
+                presentation?.ApplyTurrets(frame.Objects, member.Instance, "vehicle:" + member.Instance.Id + ":", findId, seconds, snapshot, origin);
             }
         }
         return waiting;
