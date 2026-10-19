@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics;
 using Godot;
 using Train.App.Assets;
@@ -11,6 +12,7 @@ internal sealed class SceneDisplay : IDisposable
 {
     internal sealed record DisplayObject(SceneObject Source, Node3D Root, PreparedVisual[] Visuals);
     private readonly SceneResources _resources;
+    private readonly CombatEffects _effects;
     private readonly AssetResourceCache _cache;
     private readonly bool _completeInitialFrame;
     private Dictionary<SceneObjectId, DisplayObject> _objects = [];
@@ -40,7 +42,22 @@ internal sealed class SceneDisplay : IDisposable
         _cache = cache;
         _completeInitialFrame = completeInitialFrame;
         _resources = new(cache, content);
+        try
+        {
+            _effects = new(cache);
+            Root.AddChild(_effects.Root);
+        }
+        catch
+        {
+            _resources.Dispose();
+            throw;
+        }
     }
+
+    internal void SetFollowedTrain(ImmutableArray<VehicleId> vehicles, bool shakeEnabled) =>
+        _effects.SetView(vehicles, shakeEnabled);
+
+    internal Vector3 AdvanceEffects(ISceneFrame frame, double realDelta) => _effects.Advance(frame, realDelta);
 
     internal void ClearDebugLines()
     {
@@ -222,6 +239,7 @@ internal sealed class SceneDisplay : IDisposable
     internal void UpdateConstructionFog(System.Collections.Immutable.ImmutableArray<VehicleId> vehicles)
     {
         _cache.RequireMainThread();
+        _effects.SetVehicles(vehicles);
         var followedVehicles = vehicles.ToHashSet();
         foreach (var item in _objects.Values)
         {
@@ -258,6 +276,7 @@ internal sealed class SceneDisplay : IDisposable
     private void Commit(PreparedFrame prepared)
     {
         _cache.RequireMainThread();
+        var previous = DisplayedFrame;
         var update = prepared.Frame.Update;
         var next = prepared.Objects;
         // 先摘除退役或换父的对象，避免退役父节点释放仍在使用的子对象。
@@ -316,6 +335,7 @@ internal sealed class SceneDisplay : IDisposable
         _spaceOrigin = prepared.Frame.Origin;
         _posedObjects.Clear();
         Root.Visible = true;
+        _effects.Apply(previous, prepared.Frame, _objects);
     }
 
     public void Dispose()
@@ -324,6 +344,7 @@ internal sealed class SceneDisplay : IDisposable
         if (_disposed) return;
         _disposed = true;
         CancelPreparation();
+        _effects.Dispose();
         foreach (var item in _objects.Values) item.Root.GetParent()?.RemoveChild(item.Root);
         foreach (var item in _objects.Values)
         {

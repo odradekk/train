@@ -32,7 +32,8 @@ instance uniform vec4 relative_height_plane : instance_index(0) = vec4(0.0);
 varying vec2 face_uv;
 varying flat int exposed_edges;
 varying float relative_height;
-varying float vertex_damage;
+// 同一面的损伤相同。flat 避免插值后无法判断顶点损伤等于 1。
+varying flat float vertex_damage;
 varying vec3 local_position;
 varying vec3 local_normal;
 
@@ -104,6 +105,32 @@ void fragment() {
             float top_dust = model_height ? 0.0 : max(normalize(local_normal).y, 0.0);
             color.rgb = mix(color.rgb, vec3(0.23, 0.20, 0.16), bottom_dust * 0.14 + top_dust * 0.08);
         }
+    }
+    float damage_amount = clamp(vertex_damage == 1.0 ? surface_damage : vertex_damage, 0.0, 0.65);
+    if (damage_amount > 0.0) {
+        vec3 cell = floor(local_position);
+        float noise = hash_value(ivec3(cell));
+        float fine = mottling(local_position * 5.0);
+        vec3 burned = vec3(0.045, 0.038, 0.032);
+        if (material_category == PAINTED_METAL) {
+            vec3 steel = vec3(0.62, 0.64, 0.66);
+            color.rgb = mix(color.rgb, mix(steel, burned, smoothstep(0.4, 0.75, fine)), damage_amount);
+        } else if (material_category == BARE_METAL) {
+            vec3 heat = mix(vec3(0.45, 0.28, 0.16), burned, smoothstep(0.3, 0.8, fine));
+            color.rgb = mix(color.rgb, heat, damage_amount);
+        } else if (material_category == CONCRETE) {
+            float crack = 1.0 - smoothstep(0.0, 0.08, abs(fract(local_position.x * 3.0 + noise * 2.0) - 0.5) - 0.42);
+            color.rgb = mix(color.rgb, vec3(0.55, 0.52, 0.48), damage_amount * fine * 0.7);
+            color.rgb = mix(color.rgb, burned, damage_amount * max(crack, fine * 0.35));
+        } else if (material_category == GLASS) {
+            vec2 centered = face_uv - vec2(0.5);
+            float spoke = abs(fract(atan(centered.y, centered.x) * 2.2 + noise) - 0.5);
+            float crack = (1.0 - smoothstep(0.02, 0.12, spoke)) * (1.0 - smoothstep(0.05, 0.55, length(centered)));
+            color.rgb = mix(color.rgb, vec3(0.75, 0.82, 0.86), damage_amount * crack);
+        } else {
+            color.rgb = mix(color.rgb, burned, damage_amount * mix(0.55, 1.0, fine));
+        }
+        if (scorched) color.rgb = mix(color.rgb, burned, damage_amount * 0.45);
     }
     ALBEDO = color.rgb;
     ROUGHNESS = rail_steel ? mix(0.8, material_roughness, rail_head) : material_roughness;
