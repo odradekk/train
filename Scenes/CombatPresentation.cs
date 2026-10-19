@@ -344,12 +344,12 @@ internal sealed class PresentationState
     {
         var pose = ComposeAll(objects)[turret];
         var target = TargetPoint(snapshot, Compose(objects), aim.Target) ?? pose.Position + Vector3.UnitZ;
-        var delta = target - pose.Position;
+        var local = Vector3.Transform(target - pose.Position, Quaternion.Inverse(pose.Rotation));
         var degrees = aim.Appearance.Axis switch
         {
-            RotationAxis.X => Math.Atan2(delta.Y, delta.Z),
-            RotationAxis.Z => Math.Atan2(delta.Y, delta.X),
-            _ => Math.Atan2(delta.X, delta.Z)
+            RotationAxis.X => Math.Atan2(-local.Y, local.Z),
+            RotationAxis.Z => Math.Atan2(local.Y, local.X),
+            _ => Math.Atan2(local.X, local.Z)
         } * 180 / Math.PI;
         aim.TargetDegrees = Math.Clamp(degrees, aim.Appearance.MinimumDegrees, aim.Appearance.MaximumDegrees);
         aim.Resolved = true;

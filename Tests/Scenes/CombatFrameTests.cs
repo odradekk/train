@@ -309,6 +309,46 @@ public sealed class CombatFrameTests
         Assert.AreNotEqual(Quaternion.Identity, once.Turret.Rotation);
     }
 
+    [TestMethod]
+    public void TurretAimUsesTheLocalFrameWhenTheHostIsRotated()
+    {
+        var turned = Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2);
+        var hosted = Aim(RotationAxis.Y, new(10, 0, 0), new(Vector3.Zero, turned));
+        Assert.IsTrue(Vector3.Dot(hosted.Forward, hosted.Toward) > 0.99f);
+        var dipped = Aim(RotationAxis.X, new(0, -8, 4), new(Vector3.Zero, Quaternion.Identity));
+        Assert.IsTrue(Vector3.Dot(dipped.Forward, dipped.Toward) > 0.99f);
+    }
+
+    private static (Vector3 Forward, Vector3 Toward) Aim(RotationAxis axis, GridPosition target, ScenePose host)
+    {
+        var rotation = new RotationAppearance(axis, new(0, 0, 0), -180, 180, 3600);
+        var cells = ImmutableArray.Create(SceneFixtures.Cell(new(0, 0, 0), 9, path: [0]), SceneFixtures.Cell(target, 1));
+        var nested = ImmutableArray.Create(new NestedObjectProjection([0], new(0, 0, 0), VoxelOrientation.PxPy,
+            new NestedObjectDetails.FunctionalComposite(new("test:turret"), new(9), rotation)));
+        var evaluation = RailwayFixtures.Vehicle() with { Scene = SceneFixtures.Projection(cells, nested) };
+        var content = RailwayFixtures.Content(design: evaluation);
+        var instance = RailwayFixtures.Instance();
+        var snapshot = Snapshot(content, instance, steps: 1);
+        var state = new PresentationState();
+        state.Note(snapshot, [Envelope(snapshot, new CoreEvent.CombatHits(new(1), RailwayFixtures.Location,
+            [new CombatHit(new AttackSource.Weapon(new(instance.Id, instance.Design, RailwayFixtures.Location), new(9)),
+                new HitTarget.Part(new(instance.Id, instance.Design, RailwayFixtures.Location), new(1)), 1)]))],
+            RailwayFixtures.Location);
+        var root = new SceneObjectId(1);
+        var turret = new SceneObjectId(2);
+        var objects = ImmutableArray.CreateBuilder<SceneObject>();
+        objects.Add(new(root, null, host, new WorldObjectId.Instance(instance.Id), [], [], []));
+        objects.Add(new(turret, root, new(Vector3.Zero, Quaternion.Identity), null, [], [], []));
+        var key = "vehicle:" + instance.Id + ":0";
+        state.ApplyTurrets(objects, instance, "vehicle:" + instance.Id + ":", asked => asked == key ? turret : new(9), 1, snapshot);
+        var aimed = objects.Single(item => item.Id == turret).Pose;
+        var worldRotation = Quaternion.Normalize(host.Rotation * aimed.Rotation);
+        var worldPosition = host.Position + Vector3.Transform(aimed.Position, host.Rotation);
+        var forward = Vector3.Transform(axis == RotationAxis.Z ? Vector3.UnitX : Vector3.UnitZ, worldRotation);
+        var cell = Vector3.Transform(new Vector3(target.X + .5f, target.Y + .5f, target.Z + .5f), host.Rotation) + host.Position;
+        return (Vector3.Normalize(forward), Vector3.Normalize(cell - worldPosition));
+    }
+
     private static async Task<(ScenePose Turret, Vector3 Creature)> Pose(IContentView content, InstanceView instance,
         CreatureGroupView group, bool extra)
     {

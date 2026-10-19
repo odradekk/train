@@ -642,7 +642,7 @@ internal sealed class NodeScene : IAsyncDisposable
         var fog = ImmutableArray.CreateBuilder<SceneFog>();
         var trainFog = ImmutableArray.CreateBuilder<SceneFog>();
         var following = layout is null ? null : RenderTrains(snapshot, start, request.Interpolation, origin, objects,
-            picking, problems, trainFog, (target as WorldSceneTarget.Follow)?.Vehicle);
+            picking, problems, trainFog, (target as WorldSceneTarget.Follow)?.Vehicle, seconds);
         ScenePoint? focus = null;
         if (target is WorldSceneTarget.Follow follow && objects.FirstOrDefault(item => item.Parent is null &&
             item.Subject == new WorldObjectId.Instance(new InstanceId.Vehicle(follow.Vehicle))) is { } vehicle)
@@ -1034,7 +1034,7 @@ internal sealed class NodeScene : IAsyncDisposable
     private FollowedPath? RenderTrains(SceneWorldSnapshot snapshot, SceneWorldSnapshot? previous, double interpolation,
         ScenePoint origin, ImmutableArray<SceneObject>.Builder objects,
         ImmutableArray<PickGrid>.Builder picking, ImmutableArray<SceneProblem>.Builder problems, ImmutableArray<SceneFog>.Builder fog,
-        VehicleId? followedVehicle)
+        VehicleId? followedVehicle, double seconds)
     {
         var trains = NodeTrains(snapshot);
         if (trains.Length == 0) return null;
@@ -1100,7 +1100,10 @@ internal sealed class NodeScene : IAsyncDisposable
                     continue;
                 }
                 if (vehicles.Reconcile(snapshot.Content, member, objectId) is { } body)
+                {
                     Add(RailwayVehicles.Place(body, pose, (positive ? 1 : -1) * arc));
+                    Presentation?.ApplyTurrets(objects, member, "vehicle:" + member.Id + ":", objectId, seconds, snapshot);
+                }
                 else
                 {
                     var loading = SceneVehicles.Loading(member, ((ContentLookup<DesignEvaluation>.Found)evaluations[i]).Value, pose, objectId);
