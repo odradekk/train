@@ -141,9 +141,21 @@ public sealed class FixedCoreReadView : ICoreReadView
     public Lookup<CombatView> FindCombat(CombatId id)
         => combats.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindCombat));
 
-    public Lookup<CreatureGroupView> FindCreatureGroup(CreatureGroupId id) => throw Unconfigured(nameof(FindCreatureGroup));
+    private ImmutableDictionary<CreatureGroupId, Lookup<CreatureGroupView>> creatureGroups = ImmutableDictionary<CreatureGroupId, Lookup<CreatureGroupView>>.Empty;
+    public IReadOnlyDictionary<CreatureGroupId, Lookup<CreatureGroupView>> CreatureGroups
+    {
+        init => creatureGroups = value.ToImmutableDictionary();
+    }
+    public Lookup<CreatureGroupView> FindCreatureGroup(CreatureGroupId id)
+        => creatureGroups.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindCreatureGroup));
 
-    public Lookup<CreatureView> FindCreature(CreatureId id) => throw Unconfigured(nameof(FindCreature));
+    private ImmutableDictionary<CreatureId, Lookup<CreatureView>> creatures = ImmutableDictionary<CreatureId, Lookup<CreatureView>>.Empty;
+    public IReadOnlyDictionary<CreatureId, Lookup<CreatureView>> Creatures
+    {
+        init => creatures = value.ToImmutableDictionary();
+    }
+    public Lookup<CreatureView> FindCreature(CreatureId id)
+        => creatures.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindCreature));
 
     public Lookup<LairView> FindLair(LairId id) => throw Unconfigured(nameof(FindLair));
 

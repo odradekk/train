@@ -55,7 +55,7 @@ internal sealed class VoxelShapes(VoxelGrid grid)
         return result;
     }
 
-    internal void Add(SceneCell cell)
+    internal void Add(SceneCell cell, float damage = 0)
     {
         if (cell.Appearance?.Presentation is not VoxelPresentation.Cube cube) return;
         var shape = shapes[cell.Properties.ShapeName];
@@ -96,7 +96,7 @@ internal sealed class VoxelShapes(VoxelGrid grid)
                 var faceUv = new Vector2(Vector3.Dot(corner - center, u) + .5f, Vector3.Dot(corner - center, v) + .5f);
                 var bounds = grid.Bounds!;
                 var height = (position.Y - bounds.Minimum.Y) / (bounds.Maximum.Y - bounds.Minimum.Y);
-                group.Vertices.Add(new(position, normal, textureUv, faceUv, edges, Math.Clamp(height, 0, 1), 0));
+                group.Vertices.Add(new(position, normal, textureUv, faceUv, edges, Math.Clamp(height, 0, 1), damage));
             }
             for (var index = 1; index < face.Corners.Length - 1; index++)
             {

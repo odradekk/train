@@ -70,6 +70,36 @@ public sealed class SceneVehiclePoolTests
     }
 
     [TestMethod]
+    public async Task PartDurabilityChangePublishesANewBodyAndTheFrameReturnsToReady()
+    {
+        var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle());
+        var healthy = RailwayFixtures.Instance() with { Parts = [new(new(1), new(100, 100), false, false)] };
+        var damaged = healthy with { Parts = [new(new(1), new(40, 100), false, false)] };
+        await using var vehicles = new SceneVehicles();
+        Assert.IsNull(vehicles.Reconcile(content, healthy, Id));
+        await SceneFixtures.AwaitPendingWork(vehicles.PendingWork);
+        var first = vehicles.Reconcile(content, healthy, Id);
+        Assert.IsNotNull(first);
+        Assert.IsNull(vehicles.Reconcile(content, damaged, Id));
+        await SceneFixtures.AwaitPendingWork(vehicles.PendingWork);
+        var second = vehicles.Reconcile(content, damaged, Id);
+        Assert.IsNotNull(second);
+        Assert.AreNotSame(first, second);
+
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()),
+            RailwayFixtures.Snapshot(4, 4, 0, content: content, trains: [RailwayFixtures.Train(0)], instances: [healthy]), new(), new());
+        session.RequestView(new WorldSceneTarget.Location(RailwayFixtures.Location));
+        var before = await RailwayFixtures.Settled(session, new(1, null, SceneDebugLayer.None));
+        Assert.AreEqual(SceneReadiness.Ready, before.Readiness);
+        session.Observe(RailwayFixtures.Snapshot(4, 4, 0, steps: 1, content: content,
+            trains: [RailwayFixtures.Train(0)], instances: [damaged]), []);
+        var after = await RailwayFixtures.Settled(session, new(1, null, SceneDebugLayer.None), before);
+        Assert.AreEqual(SceneReadiness.Ready, after.Readiness);
+        Assert.IsTrue(after.Objects.Any(item => item.Subject == new WorldObjectId.Instance(damaged.Id) &&
+            item.Visuals.OfType<SceneVisual.Geometry>().Any()));
+    }
+
+    [TestMethod]
     public void UnknownLengthForwardsTheDesignDiagnosticSource()
     {
         var instance = RailwayFixtures.Instance();
@@ -150,6 +180,45 @@ public sealed class SceneVehiclePoolTests
         await SceneFixtures.AwaitPendingWork(rebound.PendingWork);
         Assert.IsNotNull(rebound.Reconcile(changed, instance, Id));
         Assert.AreEqual(1, builds, "A changed projection must rebuild even when the design hash remains the same.");
+    }
+
+    [TestMethod]
+    public async Task InFlightBodyThatNoLongerMatchesTheCurrentInstanceIsDiscarded()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var builds = 0;
+        await using var pool = new SceneVehicles(build: (content, instance) =>
+        {
+            if (Interlocked.Increment(ref builds) == 1)
+            {
+                entered.Set();
+                release.Wait();
+            }
+            return RailwayVehicles.Build(content, instance);
+        });
+        var first = RailwayFixtures.Vehicle();
+        var second = RailwayFixtures.Vehicle(lengthCells: 16, design: new("other"));
+        var content = RailwayFixtures.Content(designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+        {
+            [first.Design] = new ContentLookup<DesignEvaluation>.Found(first),
+            [second.Design] = new ContentLookup<DesignEvaluation>.Found(second)
+        });
+        var instance = RailwayFixtures.Instance();
+        try
+        {
+            Assert.IsNull(pool.Reconcile(content, instance, Id));
+            Assert.IsTrue(entered.Wait(TimeSpan.FromSeconds(2)));
+            var updated = instance with { Design = second.Design };
+            Assert.IsNull(pool.Reconcile(content, updated, Id));
+            release.Set();
+            await SceneFixtures.AwaitPendingWork(pool.PendingWork);
+            Assert.IsNull(pool.Reconcile(content, updated, Id));
+            await SceneFixtures.AwaitPendingWork(pool.PendingWork);
+            Assert.IsNotNull(pool.Reconcile(content, updated, Id));
+            Assert.AreEqual(2, builds);
+        }
+        finally { release.Set(); }
     }
 }
 

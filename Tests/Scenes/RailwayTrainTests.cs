@@ -130,8 +130,9 @@ public sealed class RailwayTrainTests
         var hash = new DesignHash("unavailable-vehicle");
         var reference = new ContentReference.Design(hash);
         var package = new PackageId("vehicle-package");
+        var element = new DesignElementPath.Cell([], 0);
         var diagnostic = new ContentDiagnostic("original_content_problem", ContentDiagnosticSeverity.Error, "lookup", reference,
-            new(package, "vehicles.json"), "design", null, "Unavailable vehicle design.");
+            new(package, "vehicles.json"), "design", element, "Unavailable vehicle design.");
         var lookup = failed ? (ContentLookup<DesignEvaluation>)new ContentLookup<DesignEvaluation>.Found(new DesignEvaluation.Failed([diagnostic])) :
             new ContentLookup<DesignEvaluation>.Missing([diagnostic]);
         var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle(),
@@ -141,8 +142,10 @@ public sealed class RailwayTrainTests
         await using var vehicles = new SceneVehicles();
         await using var scene = RailwayFixtures.Controlled(snapshot, vehicles);
         var frame = await RailwayFixtures.Settled(scene, snapshot, Target, Request, Stamp);
-        Assert.IsTrue(frame.Diagnostics.Any(problem => problem.Code == diagnostic.Code && problem.Content == reference && problem.Package == package));
-        Assert.IsTrue(frame.Diagnostics.Any(problem => problem.Code == "content_missing" && problem.Content == reference && problem.Package == package));
+        Assert.IsTrue(frame.Diagnostics.Any(problem => problem.Code == diagnostic.Code && problem.Content == reference &&
+            problem.Package == package && problem.Element == element));
+        Assert.IsTrue(frame.Diagnostics.Any(problem => problem.Code == "content_missing" && problem.Content == reference &&
+            problem.Package == package && problem.Element == element));
         Assert.IsFalse(frame.Diagnostics.Any(problem => problem.Code == "vehicle_length_unknown"));
         var valid = frame.Objects.Single(item => item.Parent is null && item.Subject == new WorldObjectId.Instance(new InstanceId.Vehicle(new(1))));
         Assert.IsTrue(valid.Visuals.IsEmpty);

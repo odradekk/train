@@ -132,7 +132,7 @@ public sealed class SettlementObjectsTests
         var settlement = NodeFixtures.Settlement() with { Plots =
             [NodeFixtures.Settlement().Plots[0] with { Occupant = new PlotOccupant.Construction(new(77)) }] };
         var opened = Snapshot(settlement: settlement, node: NodeFixtures.Node(0));
-        await using var session = new WorldSceneSession(new(Guid.NewGuid()), opened, WorldSceneSession.Generate, new(), new(), RailwayFixtures.EmptyNode);
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), opened, new(), new(), RailwayFixtures.EmptyNode);
         Assert.IsInstanceOfType<SceneResult<SceneRequestId>.Success>(session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location)));
         var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
         var first = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(request, null)).Value;
@@ -317,7 +317,7 @@ public sealed class SettlementObjectsTests
             release.Set();
             await SceneFixtures.AwaitPendingWork(pending).WaitAsync(TimeSpan.FromSeconds(5));
             var fog = ImmutableArray.CreateBuilder<SceneFog>();
-            objects.Present(departed, layout, default, fog);
+            objects.Present(departed, layout, default, fog, _ => null);
             Assert.AreEqual(0, objects.PendingWork.Length);
             Assert.AreEqual(0, fog.Count);
         }
@@ -325,7 +325,7 @@ public sealed class SettlementObjectsTests
     }
 
     private static RenderedDesign Present(SettlementObjects objects, SceneWorldSnapshot snapshot, NodeLayout layout) =>
-        objects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>());
+        objects.Present(snapshot, layout, default, ImmutableArray.CreateBuilder<SceneFog>(), _ => null);
 
     private static Func<string, SceneObjectId> StableIds()
     {

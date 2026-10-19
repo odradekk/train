@@ -287,7 +287,7 @@ public sealed class NodeSceneTests
             vehicles.Reconcile(snapshot.Content, ((Lookup<InstanceView>.Found)snapshot.Core.FindInstance(
                 new InstanceId.Vehicle(new(train.Id.Value)))).Value, ObjectId);
         await SceneFixtures.AwaitPendingWork(vehicles.PendingWork);
-        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), ObjectId, vehicles, new(), (_, _, _, _) => built);
+        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), ObjectId, vehicles, new(), _ => null, (_, _, _, _) => built);
         await scene.BuildWork!;
         var stamp = new SceneFrameStamp(new(Guid.NewGuid()), new(1), new(1), 1);
         var frame = scene.Present(snapshot, new(1, null, SceneDebugLayer.None), stamp, null, default);
@@ -356,7 +356,7 @@ public sealed class NodeSceneTests
         {
             await using var objects = new SettlementObjects(SceneFixtures.NextId());
             RenderedDesign Present() => objects.Present(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId), default,
-                ImmutableArray.CreateBuilder<SceneFog>());
+                ImmutableArray.CreateBuilder<SceneFog>(), _ => null);
             var frame = Present();
             while (objects.PendingWork.Length > 0) { await SceneFixtures.AwaitPendingWork(objects.PendingWork); frame = Present(); }
             frames.Add(frame);
@@ -606,7 +606,7 @@ public sealed class NodeSceneTests
         var founded = WithNeighbor(CopiedSettlement(1, terrain: false));
         var empty = RailwayFixtures.ReplaceCore(founded, node: founded.Core.World.Nodes[0] with
             { Occupant = new NodeOccupant.Empty(), Platforms = 0 });
-        await using var session = new WorldSceneSession(new(Guid.NewGuid()), empty, WorldSceneSession.Generate, new(), new(),
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), empty, new(), new(),
             (input, node, _, token) => new(NodeLayout.Build(input, node, token),
                 ImmutableDictionary<string, NodeScene.Part>.Empty.Add("ground", new("fixed",
                     WorldSceneSession.BuildGeometry(id => new([new(id(""), null, SceneFixtures.Identity, null, [], [], [])], [], [])),
@@ -658,7 +658,7 @@ public sealed class NodeSceneTests
         var empty = RailwayFixtures.ReplaceCore(founded, node: founded.Core.World.Nodes[0] with
             { Occupant = new NodeOccupant.Empty(), Platforms = 0 });
         var calls = 0;
-        await using var session = new WorldSceneSession(new(Guid.NewGuid()), empty, WorldSceneSession.Generate, new(), new(),
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), empty, new(), new(),
             (input, node, _, token) =>
             {
                 if (Interlocked.Increment(ref calls) > 1) throw new RailwayBuildException("founded layout failed");

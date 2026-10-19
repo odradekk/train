@@ -50,7 +50,7 @@ public sealed class PickRayTests
     public async Task PresentRejectsInvalidSamplesBeforeAdvancingRevisionAndRemainsUsable()
     {
         await using var session = new WorldSceneSession(new(Guid.NewGuid()),
-            NodeFixtures.Snapshot(trains: [], instances: []), WorldSceneSession.Generate,
+            NodeFixtures.Snapshot(trains: [], instances: []),
             new(), new(), nodeBuild: RailwayFixtures.EmptyNode);
         Assert.IsInstanceOfType<SceneResult<SceneRequestId>.Success>(
             session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location)));

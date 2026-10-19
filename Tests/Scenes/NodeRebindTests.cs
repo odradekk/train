@@ -134,7 +134,7 @@ public sealed class NodeRebindTests
         .SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().First().Mesh;
 
     private static WorldSceneSession Open(SceneWorldSnapshot snapshot, RailwayCache railways, NodeScene.Cache nodes, SceneVehicles.Cache? vehicles = null) =>
-        new(new(Guid.NewGuid()), snapshot, WorldSceneSession.Generate, railways, nodes,
+        new(new(Guid.NewGuid()), snapshot, railways, nodes,
             RailwayFixtures.EmptyNode, vehicles);
 
 }
