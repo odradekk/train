@@ -144,9 +144,7 @@ dotnet Tools/Cli/bin/Debug/net10.0/Train.Cli.dll save . examples/basic-through/r
 
 每批交付遵循上文目录、源文件和三光照检查规则。历史首个切片的两张浏览器样稿曾作为该批 PNG 的生成器，不自动成为所有 Demo 资产的唯一源；新批次须明确选择 PNG 本身或生成工具。正式性能测量、完整窗口长测和最终人工验收必须在全量正式资产交付后执行。
 
-#395 本检查点只完成小型机车一份蓝图的创作模式迁移，按精确路径追加到 `AUTHORED_FILES`；其余八份车辆蓝图继续由生成器维护，后续逐份制作和检查。大型机车与泰坦武装车保持此前样机交付，不在这批重做。
-
-第三阶段样稿沿用以下制作方式，后续按具体对象复用：三台样机蓝图由创作模式写出，按精确路径登记在 `scripts/content/generate_small_world.py` 的 `AUTHORED_FILES`，生成器保留文件并检查存在和 Schema。嵌套设备继续由生成器维护。机枪、火炮和转向架的唯一源是 `art-source/core/voxels/<id>/model.blend`，纹理打包在源文件中，与部位有关的磨损画在模型贴图上；导出的 GLB 登记为手工文件，体素绑定和 Keep File 声明仍由生成器输出。转向架使用 `bare_metal` 表面，保留 `icon.png`，不再输出转向架面贴图；轮对仍由宿主专用表现生成。共用面贴图继续使用原生成器，四种运行时磨损复用 `Rendering/scene_material.gdshader`；色卡由选色器直接绘制，轮面辨识标记由宿主的轮对表现生成。
+第三阶段样稿沿用以下制作方式，后续按具体对象复用：车辆蓝图及重型车辆工厂样机蓝图由创作模式维护，按精确路径登记在 `scripts/content/generate_small_world.py` 的 `AUTHORED_FILES`，生成器保留文件并检查存在和 Schema。嵌套设备继续由生成器维护。机枪、火炮和转向架的唯一源是 `art-source/core/voxels/<id>/model.blend`，纹理打包在源文件中，与部位有关的磨损画在模型贴图上；导出的 GLB 登记为手工文件，体素绑定和 Keep File 声明仍由生成器输出。转向架使用 `bare_metal` 表面，保留 `icon.png`，不再输出转向架面贴图；轮对仍由宿主专用表现生成。共用面贴图继续使用原生成器，四种运行时磨损复用 `Rendering/scene_material.gdshader`；色卡由选色器直接绘制，轮面辨识标记由宿主的轮对表现生成。
 
 ## Demo 范围
 
