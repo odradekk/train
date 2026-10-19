@@ -97,7 +97,20 @@ internal sealed class RailwayScene : IAsyncDisposable
         if (target is WorldSceneTarget.Follow || hasSameSpaceCamera)
         {
             var step = RailwayCoordinates.OriginStepCells;
-            origin = new ScenePoint(Math.Floor(focus.X / step) * step, Math.Floor(focus.Y / step) * step, Math.Floor(focus.Z / step) * step);
+            origin = Snap(focus);
+            // 自由观察的第一帧原点就在线路采样点上，尚未落在步进格角。
+            // 相机还留在该格内时保持这个原点；按投影重新取整会跳到格角，
+            // 显示帧未提交时焦点已经换算，定位就离开正在显示的帧。
+            if (hasSameSpaceCamera && target is not WorldSceneTarget.Follow &&
+                SameCell(RailwayCoordinates.Add(camera!.Frame.Origin, camera.Focus), camera.Frame.Origin))
+                origin = camera.Frame.Origin;
+
+            ScenePoint Snap(ScenePoint point) => new(Math.Floor(point.X / step) * step,
+                Math.Floor(point.Y / step) * step, Math.Floor(point.Z / step) * step);
+            bool SameCell(ScenePoint left, ScenePoint right) =>
+                Math.Floor(left.X / step) == Math.Floor(right.X / step) &&
+                Math.Floor(left.Y / step) == Math.Floor(right.Y / step) &&
+                Math.Floor(left.Z / step) == Math.Floor(right.Z / step);
         }
         origin = switchedOrigin ?? origin;
         displayRate.Update(seconds);

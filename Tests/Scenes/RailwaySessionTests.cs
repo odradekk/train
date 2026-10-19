@@ -69,7 +69,9 @@ public sealed class RailwaySessionTests
         var next = await RailwayFixtures.Settled(scene, snapshot, target,
             request with { Camera = new(first, Vector3.Zero) },
             Stamp(first.Update.Frame.Revision + 1), displayed: first);
-        AssertLocation(next, next.Update.ShiftExistingRoots);
+        Assert.AreEqual(first.Origin, next.Origin);
+        Assert.AreEqual(Vector3.Zero, next.Update.ShiftExistingRoots);
+        AssertLocation(next, Vector3.Zero);
         var centers = next.DebugLines.Chunk(2).Select(lines =>
             ((Lookup<WorldLocation>.Found)next.Locate(
                 (lines[0].From + lines[0].To + lines[1].From + lines[1].To) / 4)).Value)
