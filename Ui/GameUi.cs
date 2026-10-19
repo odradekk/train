@@ -616,7 +616,7 @@ public partial class GameUi : CanvasLayer
             _menu.CloseSaves();
         if (!result.Succeeded && result.Status is not (HostOperationStatus.Cancelled or HostOperationStatus.Discarded))
         {
-            var message = string.Join("；", result.Problems.Select(problem => CommandDiagnostics.Describe(problem, _content))
+            var message = string.Join("\n", result.Problems.Select(problem => CommandDiagnostics.Describe(problem, _content))
                 .Concat(result.Diagnostics.Select(problem => problem.Message)));
             var operation = result.Kind switch
             { OperationKind.NewGame => "新游戏", OperationKind.Restore => "读档", OperationKind.Reload => "内容重载", _ => "宿主操作" };

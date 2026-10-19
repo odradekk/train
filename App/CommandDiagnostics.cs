@@ -19,7 +19,7 @@ internal static class CommandDiagnostics
             _ => default
         };
         if (problems.IsDefault) return null;
-        var message = string.Join("；", problems.Select(problem => Describe(problem, content)));
+        var message = string.Join("\n", problems.Select(problem => Describe(problem, content)));
         var receipt = (result as SubmissionResult.Completed)?.Receipt;
         logger.Log(LogLevel.Warning, "train", "train_command_failed", message,
             new Dictionary<string, object?> { ["command_id"] = receipt?.Number,
