@@ -8,7 +8,7 @@ python scripts/content/generate_small_world.py --output-dir TestResults/reproduc
 只检查存在和 JSON Schema。校验模式拒绝缺失、多余或其他生成文件字节不同的文件（校验需要 jsonschema）。
 生成只用 Python 标准库。
 自然地形与三十四种货物已有正式美术：十二种原料、六种生活货物和十六种工业与建造货物。
-小型机车保留第一阶段风格样稿，聚居地符号来自 ui_symbols；
+车辆蓝图由创作模式维护；聚居地符号来自 ui_symbols；
 其余美术仍待制作，数值和画面待用户试玩确认；十一种车辆与两列小型起始车队已接入，
 3 种生物、2 种生物聚落和 2 份聚落场景模型已接入。
 校验同时检查正式内容的经济关系；生成生物、聚落和场景模型，不生成存档。
@@ -28,18 +28,6 @@ from ui_symbols import SETTLEMENT_SYMBOLS, png, symbol_png
 
 ROOT = Path(__file__).resolve().parents[2]
 JSON_LIMIT = 1024 * 1024
-VEHICLES = (
-    # id、名称、角色、档位、长宽高、轨距、转向架高度、轴距、端距、设备组数。
-    ("small-locomotive", "小型机车", "locomotive", "small", 52, 7, 9, 3, 1, 2, 4, 1),
-    ("small-freight-wagon", "小型货车", "freight", "small", 52, 7, 9, 3, 1, 2, 4, 1),
-    ("small-armed-wagon", "小型武装车", "armed", "small", 52, 7, 9, 3, 1, 2, 4, 1),
-    ("medium-locomotive", "中型机车", "locomotive", "medium", 64, 10, 13, 7, 2, 3, 6, 2),
-    ("medium-freight-wagon", "中型货车", "freight", "medium", 64, 10, 13, 7, 2, 3, 6, 2),
-    ("medium-armed-wagon", "中型武装车", "armed", "medium", 64, 10, 13, 7, 2, 3, 6, 2),
-    ("large-freight-wagon", "大型货车", "freight", "large", 80, 14, 18, 7, 2, 3, 8, 3),
-    ("extra-large-locomotive", "超大型机车", "locomotive", "extra_large", 104, 20, 26, 15, 4, 5, 10, 4),
-    ("extra-large-freight-wagon", "超大型货车", "freight", "extra_large", 104, 20, 26, 15, 4, 5, 10, 4),
-)
 START_TRAINS = (
     ("small-locomotive", "small-freight-wagon", "small-freight-wagon", "small-freight-wagon"),
     ("small-locomotive", "small-freight-wagon", "small-freight-wagon", "small-armed-wagon"),
@@ -97,32 +85,36 @@ INITIAL_PLAN_PRIORITY = 0
 WEAPON_DAMAGE_SHARE = 0.1
 MACHINE_GUN_INTERVAL_SECONDS = 1
 CANNON_FACTOR = 4
-# 生物数值初值，待试玩确认。生命值按一挺机枪 10/20/40 秒击杀；伤害按
+# 生物数值初值，待试玩确认。生命值等于一挺机枪 10/20/40 秒的伤害；伤害按
 # 373,300 结构耐久的小站点在 72 秒内被打掉约 48%/93% 反推。
-CREATURE_HIT_POINTS = (180, 360, 720)
-CREATURE_SPEED_METERS_PER_SECOND = (2.5, 2.0, 1.5)
-CREATURE_RETREAT_THRESHOLD = (0.5, 0.5, 0.4)
-CREATURE_RAID_DURATION_SECONDS = (72, 96, 144)
-CREATURE_WEAPON_DAMAGE = (250, 900, 1950)
-CREATURE_WEAPON_INTERVAL_SECONDS = (1, 2, 3)
-# 聚落成员权重；成员身份与数值来自生物蓝图，不在这里重复。
-LAIR_GENERATION_WEIGHTS = (3, 2)
-LAIR_MEMBERS = (
-    (("small-creature", 3), ("medium-creature", 1)),
-    (("small-creature", 2), ("medium-creature", 2), ("large-creature", 1)),
+# id、显示名、调色板、体素坐标→调色板下标、生命值、速度（米/秒）、撤退阈值、
+# 袭击时长（秒）、武器伤害、攻击间隔（秒）。
+CREATURE_PROFILES = (
+    ("small-creature", "小型生物", ["foliage", "rock", "tree-trunk"],
+     {(0, 0, 0): 0, (1, 0, 0): 0, (2, 0, 0): 1, (1, 1, 0): 0}, 180, 2.5, 0.5, 72, 250, 1),
+    ("medium-creature", "中型生物", ["rock", "tree-trunk", "foliage"],
+     {(x, y, z): 0 for x in range(3) for y in (1, 2) for z in range(2)}
+     | {(0, 0, 0): 1, (2, 0, 0): 1, (0, 0, 1): 1, (2, 0, 1): 1,
+        (1, 3, 0): 2, (1, 3, 1): 2, (3, 1, 0): 0, (3, 2, 0): 0}, 360, 2.0, 0.5, 96, 900, 2),
+    ("large-creature", "大型生物", ["rock", "tree-trunk", "sandstone", "foliage"],
+     {(x, y, z): 0 for x in range(5) for y in (1, 2, 3) for z in range(3)}
+     | {(0, 0, 0): 1, (2, 0, 0): 1, (4, 0, 0): 1, (0, 0, 2): 1, (2, 0, 2): 1, (4, 0, 2): 1}
+     | {(x, 4, 1): 2 for x in range(5)}
+     | {(1, 4, 0): 3, (3, 4, 2): 3, (5, 2, 1): 0, (5, 3, 1): 0}, 720, 1.5, 0.4, 144, 1_950, 3),
 )
-LAIR_MAXIMUM_MEMBERS = (10, 12)
-LAIR_SPAWN_INTERVAL_SECONDS = (120, 180)
-# 袭击是聚落周边的局部威胁，不是全图威胁。玩家建城前无法修复铁路，出动间隔必须
-# 长于断点累积速度；断轨工作给沿线列车留出到达并打断袭击的窗口。巢群半径 1：
-# Hops 不进入 NPC 聚居地，种子 40 的巢群（节点 4）只覆盖边 7/10，出动路线从节点 7 进入，
-# 不经过节点 11；半径 2 会使边 14 的路线穿过节点 11，而出动途中遇到玩家聚居地的
-# 战斗没有时长上限。
-LAIR_RAID_INTERVAL_SECONDS = (1800, 2700)
-LAIR_ROAMING_RADIUS_HOPS = (2, 2)
-LAIR_RAID_RADIUS_HOPS = (1, 1)
-LAIR_RAIL_DAMAGE_WORK_SECONDS = (120, 180)
-LAIR_CLEARANCE_REWARDS = (13_000, 30_000)
+# 聚落成员权重、间隔和奖励初值；成员身份与数值来自生物蓝图，不在这里重复。
+# 袭击是聚落周边的局部威胁，不是全图威胁。玩家建城前无法修复铁路，所以出动间隔较长；
+# 断轨工作给沿线列车留出到达并打断袭击的窗口。袭击半径只覆盖聚落相邻的边：Hops 不进入
+# NPC 聚居地，半径过大时出动路线会穿过玩家聚居地，而出动途中遇到玩家聚居地的战斗没有
+# 时长上限，因此两种聚落都取 1。
+# id、显示名、场景模型、生成权重、成员、成员上限、补充间隔（秒）、袭击间隔（秒）、
+# 游荡半径（跳）、袭击半径（跳）、断轨工作（秒）、清剿奖励。
+LAIR_PROFILES = (
+    ("small-nest", "巢穴", "lair-nest", 3,
+     (("small-creature", 3), ("medium-creature", 1)), 10, 120, 1_800, 2, 1, 120, 13_000),
+    ("large-hive", "大型巢群", "lair-hive", 2,
+     (("small-creature", 2), ("medium-creature", 2), ("large-creature", 1)), 12, 180, 2_700, 2, 1, 180, 30_000),
+)
 # 3 列武装列车各 3 挺机枪（162 DPS）持续 10 分钟可让典型镇投降。
 COMBAT_MORALE_DAMAGE_COEFFICIENT = 14.0
 COMBAT_MORALE_RECOVERY_PER_SECOND = 0.0005
@@ -874,6 +866,15 @@ AUTHORED_FILES = (
     "voxels/machine-gun/model.glb",
     "voxels/cannon/model.glb",
     "voxels/bogie/model.glb",
+    "blueprints/small-locomotive.blueprint.json",
+    "blueprints/small-freight-wagon.blueprint.json",
+    "blueprints/small-armed-wagon.blueprint.json",
+    "blueprints/medium-locomotive.blueprint.json",
+    "blueprints/medium-freight-wagon.blueprint.json",
+    "blueprints/medium-armed-wagon.blueprint.json",
+    "blueprints/large-freight-wagon.blueprint.json",
+    "blueprints/extra-large-locomotive.blueprint.json",
+    "blueprints/extra-large-freight-wagon.blueprint.json",
 )
 
 
@@ -1092,31 +1093,11 @@ def natural_models():
 
 def creature_blueprints():
     # 生物只使用不带 light 行为的场景体素；发光眼留给 #357 的美术决定。
-    specs = (
-        ("small-creature", "小型生物",
-         ["foliage", "rock", "tree-trunk"],
-         {(0, 0, 0): 0, (1, 0, 0): 0, (2, 0, 0): 1, (1, 1, 0): 0}, 0),
-        ("medium-creature", "中型生物",
-         ["rock", "tree-trunk", "foliage"],
-         {(x, y, z): 0 for x in range(3) for y in (1, 2) for z in range(2)}
-         | {(0, 0, 0): 1, (2, 0, 0): 1, (0, 0, 1): 1, (2, 0, 1): 1,
-            (1, 3, 0): 2, (1, 3, 1): 2, (3, 1, 0): 0, (3, 2, 0): 0}, 1),
-        ("large-creature", "大型生物",
-         ["rock", "tree-trunk", "sandstone", "foliage"],
-         {(x, y, z): 0 for x in range(5) for y in (1, 2, 3) for z in range(3)}
-         | {(0, 0, 0): 1, (2, 0, 0): 1, (4, 0, 0): 1,
-            (0, 0, 2): 1, (2, 0, 2): 1, (4, 0, 2): 1}
-         | {(x, 4, 1): 2 for x in range(5)}
-         | {(1, 4, 0): 3, (3, 4, 2): 3, (5, 2, 1): 0, (5, 3, 1): 0}, 2),
-    )
-    for identity, name, palette, cells, index in specs:
+    for identity, name, palette, cells, hp, speed, retreat, duration, damage, interval in CREATURE_PROFILES:
         value = blueprint(identity, name, "creature", palette, cells, {"behaviors": {
-            "creature": {"hp": CREATURE_HIT_POINTS[index],
-                         "speed": CREATURE_SPEED_METERS_PER_SECOND[index],
-                         "retreat_threshold": CREATURE_RETREAT_THRESHOLD[index],
-                         "raid_duration": CREATURE_RAID_DURATION_SECONDS[index]},
-            "weapon": {"damage": CREATURE_WEAPON_DAMAGE[index],
-                       "interval": CREATURE_WEAPON_INTERVAL_SECONDS[index]}}})
+            "creature": {"hp": hp, "speed": speed,
+                         "retreat_threshold": retreat, "raid_duration": duration},
+            "weapon": {"damage": damage, "interval": interval}}})
         value["display"]["description"] = (
             f"{name}正式定义：生命值、速度和攻击间隔待试玩确认；外观使用现有场景体素，正式美术待阶段 5/6。")
         yield value
@@ -1159,7 +1140,6 @@ def lair_scene_models():
             hive[(x, y, z)] = 3
     for x, z in ((-5, 0), (0, -5), (5, 0), (0, 5), (0, 0)):
         hive[(x, 2, z)] = 4
-    hive[(0, 2, 0)] = 4
     hive[(0, 0, 0)] = 2
     hive[(0, 0, 7)] = 5
     model = blueprint("lair-hive", "大型巢群", "scene_model",
@@ -1169,23 +1149,20 @@ def lair_scene_models():
 
 
 def lair_types():
-    for index, (identity, name, scene) in enumerate((
-        ("small-nest", "巢穴", "lair-nest"),
-        ("large-hive", "大型巢群", "lair-hive"),
-    )):
+    for identity, name, scene, weight, members, maximum, spawn, raid_interval, roaming, raid_radius, rail_work, reward in LAIR_PROFILES:
         yield {"schema_version": 1, "id": identity,
                "display": {"name": name,
                            "description": "正式生物聚落类型；成员、间隔和奖励待试玩确认。"},
-               "generation_weight": LAIR_GENERATION_WEIGHTS[index],
-               "members": [{"creature": creature, "weight": weight}
-                           for creature, weight in LAIR_MEMBERS[index]],
-               "maximum_members": LAIR_MAXIMUM_MEMBERS[index],
-               "spawn_interval_seconds": LAIR_SPAWN_INTERVAL_SECONDS[index],
-               "raid_interval_seconds": LAIR_RAID_INTERVAL_SECONDS[index],
-               "roaming_radius_hops": LAIR_ROAMING_RADIUS_HOPS[index],
-               "raid_radius_hops": LAIR_RAID_RADIUS_HOPS[index],
-               "rail_damage_work_seconds": LAIR_RAIL_DAMAGE_WORK_SECONDS[index],
-               "clearance_reward": LAIR_CLEARANCE_REWARDS[index],
+               "generation_weight": weight,
+               "members": [{"creature": creature, "weight": member_weight}
+                           for creature, member_weight in members],
+               "maximum_members": maximum,
+               "spawn_interval_seconds": spawn,
+               "raid_interval_seconds": raid_interval,
+               "roaming_radius_hops": roaming,
+               "raid_radius_hops": raid_radius,
+               "rail_damage_work_seconds": rail_work,
+               "clearance_reward": reward,
                "scene_model": scene}
 
 
@@ -1238,56 +1215,6 @@ def construction_models():
                       ["road-barrier", "rail-stack", "concrete", "street-lamp"], repair)
     model["display"]["description"] = "缺口两端的黄黑路障、新钢轨和混凝土轨枕堆，以及两盏工作灯；材料在开通铁轨净空外。"
     yield model
-
-
-def vehicle(spec):
-    identity, name, role, size, length, width, height, gauge, frame_height, axle_spacing, end_margin, units = spec
-    x0, z0 = -(width // 2), -(length // 2)
-    x1, z1 = x0 + width - 1, z0 + length - 1
-    if size == "small" and role == "locomotive":
-        volume = {(x, 1, z) for x in range(-3, 4) for z in range(-26, 26)}
-        volume |= {(x, y, z) for x in range(-3, 4) for y in range(2, 9) for z in range(16, 24)}
-        volume |= {(x, y, z) for x in range(-2, 3) for y in range(2, 8) for z in range(-24, 16)}
-        directions = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
-        cells = {at: 0 for at in volume
-                 if any(tuple(at[i] + delta[i] for i in range(3)) not in volume for delta in directions)}
-    else:
-        cells = {(x, y, z): 0 for x in range(x0, x1 + 1) for y in range(frame_height, height)
-                 for z in range(z0, z1 + 1)
-                 if x in (x0, x1) or y in (frame_height, height - 1) or z in (z0, z1)}
-    left, right = -(gauge + 1) // 2, (gauge - 1) // 2
-    for first, last in ((z0 + end_margin, z0 + end_margin + axle_spacing),
-                        (z1 - end_margin - axle_spacing, z1 - end_margin)):
-        for z in range(first, last + 1):
-            for y in range(frame_height):
-                for x in (left, right):
-                    cells[x, y, z] = 1 if z in (first, last) else 0
-            for x in range(left, right + 1):
-                cells[x, frame_height - 1, z] = 1 if z in (first, last) else 0
-    if size == "small" and role == "locomotive":
-        cells.update({(0, 6, 23): 3, (2, 5, 5): 2, (2, 5, 1): 2, (2, 5, -3): 2, (-2, 3, -20): 4})
-    else:
-        if role == "locomotive":
-            for z in range(-3 * units, 3 * units, 2):
-                cells[0, frame_height + 1, z] = 2
-            cells[0, frame_height + 1, z1 - 1] = 3
-        storage_count = {"locomotive": 1, "freight": 2 * units, "armed": units}[role]
-        for index in range(storage_count):
-            cells[1, frame_height + 1, 2 * index] = 4
-        if role == "armed":
-            for index in range(units):
-                cells[x0, frame_height + 2, 4 * index] = 5
-    value = blueprint(identity, name, "vehicle",
-                      ["structural-metal", "bogie", "propulsion-equipment", "control-equipment", "storage-equipment"],
-                      cells, {"size_class": size})
-    if role == "armed":
-        value["layout"]["palette"].append({"voxel": "machine-gun"})
-    value["display"]["description"] = f"{name}：能力和价值来自实际部件，数值与外观待试玩确认。"
-    if size == "small" and role == "locomotive":
-        value["display"]["description"] = "第一阶段铁路机车风格样稿：驾驶室、机器间、检修走廊和端部平台；画面待用户阶段试玩确认。"
-    if role == "armed":
-        value["display"]["description"] += " 静态武器只提供合法设计输入，战斗行为待战斗阶段验证。"
-    return value
 
 
 def fill_box(cells, origin, size, index):
@@ -1552,10 +1479,6 @@ def content_files():
     document("blueprints", "blueprint", "heavy-turret",
              heavy_turret(voxel_definitions["cannon"]["simulation"]["behaviors"]["weapon"]))
 
-    # 输出补色需要货物材质，车辆须等武器等体素登记后再输出。
-    for spec in VEHICLES:
-        value = vehicle(spec)
-        document("blueprints", "blueprint", value["id"], value)
     for value in creature_blueprints():
         document("blueprints", "blueprint", value["id"], value)
     for path in AUTHORED_FILES:
@@ -1714,10 +1637,11 @@ def content_files():
         raise ValueError(f"large-warehouse: authored storage capacity {large_capacity} is below {LARGE_WAREHOUSE_FACTOR} small warehouses")
 
     small_vehicle_materials = Counter()
-    for identity, _, _, size, *_ in VEHICLES:
-        if size == "small":
-            layout = blueprint_definitions[identity]["layout"]
-            small_vehicle_materials |= Counter(layout["palette"][cell[3]]["voxel"].removeprefix("core:") for cell in layout["cells"])
+    for definition in blueprint_definitions.values():
+        if definition["category"] == "vehicle" and definition["simulation"]["size_class"] == "small":
+            layout = definition["layout"]
+            small_vehicle_materials |= Counter(layout["palette"][index]["voxel"].removeprefix("core:")
+                                               for *_, index in layout["cells"])
     supplied_goods = {item["voxel"] for _, plans, _ in template_estimates for process, _ in plans
                       for item in ([process["extracts"]] if process["kind"] == "extraction" else process["outputs"])}
     construction_materials = Counter()
@@ -1810,7 +1734,8 @@ def content_files():
     cargo_capacity = sum(behavior["capacity"] for train in START_TRAINS for identity in train
                          for behavior in blueprint_behaviors(identity, "storage"))
     freight = blueprint_definitions["small-freight-wagon"]["layout"]
-    freight_base_value = sum(values[freight["palette"][index]["voxel"].removeprefix("core:")] for *_, index in freight["cells"])
+    freight_base_value = sum(values[freight["palette"][index]["voxel"].removeprefix("core:")]
+                             for *_, index in freight["cells"])
     # 只估算两列起始车队满舱采购与小型货车组成的预算，不计算核心委托报价。
     initial_money = ceil(START_BUDGET_MULTIPLIER * (cargo_capacity * max(values[good] for good, _, _ in goods) + freight_base_value))
     document("generation-profiles", "generation-profile", "basic-through-world", {
@@ -1822,8 +1747,7 @@ def content_files():
             "lake_elevation_threshold": 4, "river_band_half_width": 0.045, "terrain_bands": bands,
             "terrain_sample_spacing_meters": 60, "settlement_ratio": 0.45, "lair_ratio": 0.2,
             "hostile_settlement_ratio": 0,
-            "lair_weights": [{"type": "small-nest", "weight": LAIR_GENERATION_WEIGHTS[0]},
-                             {"type": "large-hive", "weight": LAIR_GENERATION_WEIGHTS[1]}],
+            "lair_weights": [{"type": row[0], "weight": row[3]} for row in LAIR_PROFILES],
             "resources": resources,
             "initial_railway": {"maximum_tracks": 2, "minimum_initial_tracks": 1, "maximum_initial_tracks": 2, "additional_cycle_edges": 1},
             "budget": {"maximum_stage_retries": 4, "maximum_world_retries": 4, "maximum_candidates": 50000, "maximum_search_work": 4000000},
@@ -1910,7 +1834,7 @@ def main():
             target.write_bytes(data)
         paints_path.parent.mkdir(parents=True, exist_ok=True)
         paints_path.write_bytes(paints_source)
-    print(f"{'校验' if args.check else '生成'} {len(files)} 个文件；超大型蓝图 {len(files['blueprints/extra-large-locomotive.blueprint.json'])} 字节。")
+    print(f"{'校验' if args.check else '生成'} {len(files)} 个文件。")
     return 0
 
 
