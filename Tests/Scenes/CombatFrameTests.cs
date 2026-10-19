@@ -425,6 +425,58 @@ public sealed class CombatFrameTests
     }
 
     [TestMethod]
+    public async Task CreaturesStaggerAndPounceTowardTheTarget()
+    {
+        var creature = new CreatureDefinitionId("test:beast");
+        var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle(), creatures: new Dictionary<CreatureDefinitionId, ContentLookup<CreatureAppearanceProjection>>
+        {
+            [creature] = new ContentLookup<CreatureAppearanceProjection>.Found(new(creature,
+                SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0))]), new("Beast", "")))
+        });
+        var group = new CreatureGroupView(new(7), null, RailwayFixtures.Location, null, CreatureActivity.Guarding, 0,
+            [new(new(3), creature, 10, 10), new(new(4), creature, 10, 10)]);
+        var instance = RailwayFixtures.Instance();
+        await using var session = Open(content, instance, group);
+        session.RequestView(new WorldSceneTarget.Location(RailwayFixtures.Location));
+        var settled = await RailwayFixtures.Settled(session, Request);
+        var first = CreatureAt(settled, 3);
+        var second = CreatureAt(settled, 4);
+        var separated = Vector3.Distance(first, second);
+        var oppositeSides = Math.Sqrt(24d * 24d + 8d * 8d);
+        Assert.IsTrue(Math.Abs(separated - 8) < 0.05 || Math.Abs(separated - oppositeSides) < 0.05);
+        var individual = new CreaturePresentationRef(group.Id, new(3), creature, RailwayFixtures.Location);
+        var armed = Snapshot(content, instance, steps: 1, group: group);
+        session.Observe(armed, [Envelope(armed, new CoreEvent.CombatHits(new(1), RailwayFixtures.Location,
+            [new CombatHit(new AttackSource.Creature(individual),
+                new HitTarget.Part(new(instance.Id, instance.Design, RailwayFixtures.Location), new(1)), 1)]))]);
+        session.Observe(Snapshot(content, instance, steps: 2, group: group), []);
+        var frame = Present(session, settled);
+        var moved = CreatureAt(frame, 3);
+        var vehicle = frame.Objects.Single(item => item.Parent is null && item.Subject == new WorldObjectId.Instance(instance.Id)).Pose.Position;
+        var delta = new Vector3(moved.X - first.X, 0, moved.Z - first.Z);
+        var toward = new Vector3(vehicle.X - first.X, 0, vehicle.Z - first.Z);
+        Assert.IsTrue(delta.Length() > 0.05f);
+        Assert.IsTrue(Vector3.Dot(Vector3.Normalize(delta), Vector3.Normalize(toward)) > 0.9f);
+    }
+
+    [TestMethod]
+    public void NodeCreatureHeightUsesALoadedColumn()
+    {
+        var snapshot = NodeFixtures.Snapshot(platforms: 0, trains: [], instances: []);
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        var prepared = NodeScene.Prepare(snapshot, layout, null, default);
+        var chunk = prepared.BuildChunk(new((int)layout.Bounds.Minimum.X, (int)layout.Bounds.Minimum.Y));
+        var column = chunk.Heights.First();
+        var x = chunk.Origin.X + column.Key.X + 0.5;
+        var z = chunk.Origin.Z + column.Key.Z + 0.5;
+        Assert.AreEqual(column.Value, NodeScene.GroundHeight([chunk], x, z), 1e-6);
+        Assert.AreEqual(0, NodeScene.GroundHeight([chunk], x + 10000, z));
+    }
+
+    private static Vector3 CreatureAt(SceneFrame frame, ulong id) =>
+        frame.Objects.Single(item => item.Parent is null && item.Subject == new WorldObjectId.Creature(new(id))).Pose.Position;
+
+    [TestMethod]
     public async Task PresentationOnlyContentUpdateRebuildsTheCreature()
     {
         var creature = new CreatureDefinitionId("test:beast");

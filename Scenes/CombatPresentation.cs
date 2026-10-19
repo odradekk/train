@@ -17,7 +17,7 @@ internal sealed class PresentationState
     private readonly List<(double Seconds, CoreEvent Event)> incoming = [];
     private readonly List<SceneEffectCue> pending = [];
     private readonly Dictionary<(InstanceId Instance, string Path), TurretAim> turrets = [];
-    private readonly Dictionary<CreatureId, double> pounces = [];
+    private readonly Dictionary<CreatureId, (double StartedAt, HitTarget Target)> pounces = [];
     private readonly Dictionary<InstanceId, ImmutableHashSet<StructureDamage.CellRef>> removed = [];
     private readonly List<InstanceView> seen = [];
     private Dictionary<WorldObjectId, ScenePose> poses = [];
@@ -52,7 +52,7 @@ internal sealed class PresentationState
                     if (hit.Source is AttackSource.Weapon weapon)
                         NoteTurret(snapshot, weapon, hit.Target, seconds);
                     if (hit.Source is AttackSource.Creature creature)
-                        pounces[creature.Individual.Creature] = seconds;
+                        pounces[creature.Individual.Creature] = (seconds, hit.Target);
                 }
         }
     }
@@ -89,7 +89,8 @@ internal sealed class PresentationState
     }
 
     internal void AddCreatures(ImmutableArray<SceneObject>.Builder objects, SceneWorldSnapshot snapshot, WorldLocation here,
-        ScenePoint origin, RailwayPath? path, NodeLayout? layout, double seconds, Func<string, SceneObjectId> objectId)
+        ScenePoint origin, RailwayPath? path, NodeLayout? layout, double seconds, Func<string, SceneObjectId> objectId,
+        Func<double, double, double>? ground = null)
     {
         creatures.Clear();
         var dead = Dead(incoming.Select(item => item.Event));
@@ -102,13 +103,13 @@ internal sealed class PresentationState
             var combat = combatGroups.Contains(group);
             foreach (var creature in found.Value.Creatures)
             {
-                var placed = Place(snapshot, here, origin, path, layout, found.Value, creature, index, combat);
+                var placed = Place(snapshot, here, origin, path, layout, found.Value, creature, index, combat, ground);
                 index++;
                 creatures[creature.Id] = placed.Position;
                 if (dead.Contains((group, creature.Id))) continue;
                 if (snapshot.Content.FindCreature(creature.Definition) is not ContentLookup<CreatureAppearanceProjection>.Found appearance)
                     continue;
-                var pose = new ScenePose(placed.Position + placed.Forward * (float)Pounce(creature.Id, seconds) + new Vector3(0, Bob(seconds), 0),
+                var pose = new ScenePose(placed.Position + PounceOffset(snapshot, objects, creature.Id, placed, seconds) + new Vector3(0, Bob(seconds), 0),
                     placed.Rotation);
                 var body = Body(snapshot, appearance.Value, group, creature.Id, objectId);
                 objects.AddRange(SceneGeometry.Place(new(body, [], []), pose).Objects);
@@ -396,7 +397,8 @@ internal sealed class PresentationState
     }
 
     private (Vector3 Position, Vector3 Forward, Quaternion Rotation) Place(SceneWorldSnapshot snapshot, WorldLocation here,
-        ScenePoint origin, RailwayPath? path, NodeLayout? layout, CreatureGroupView group, CreatureView creature, int index, bool combat)
+        ScenePoint origin, RailwayPath? path, NodeLayout? layout, CreatureGroupView group, CreatureView creature, int index, bool combat,
+        Func<double, double, double>? ground)
     {
         var side = Side(snapshot.Core.World.WorldSeed, combat ? CombatId(snapshot, here) : 0, creature.Id.Value);
         if (here is WorldLocation.Edge && path is not null)
@@ -404,22 +406,31 @@ internal sealed class PresentationState
             var distance = group.Location is WorldLocation.Edge edge ? edge.DistanceMeters : 0;
             var sample = path.Sample(distance * RailwayCoordinates.CellsPerMeter);
             var lateral = combat ? LineSideCells : BesideCells;
-            var along = combat ? index * LineStaggerCells : 0;
             var relative = RailwayCoordinates.Relative(sample.Position, origin);
-            return (relative + sample.Right * (side * lateral) + sample.Forward * along, sample.Forward,
+            return (relative + sample.Right * (side * lateral) + sample.Forward * (index * LineStaggerCells), sample.Forward,
                 RailwayCoordinates.Rotation(sample.Forward));
         }
         var outward = !combat || layout is null ? side * BesideCells :
             side < 0 ? layout.Bounds.Minimum.X - LineSideCells : layout.Bounds.Maximum.X + LineSideCells;
-        var alongZ = combat && layout is not null ? layout.Bounds.Minimum.Y + index * LineStaggerCells : 0;
-        return (new((float)(outward - origin.X), 0, (float)(alongZ - origin.Z)), Vector3.UnitX, Quaternion.Identity);
+        var alongZ = (combat && layout is not null ? layout.Bounds.Minimum.Y : 0) + index * LineStaggerCells;
+        var height = ground?.Invoke(outward, alongZ) ?? 0;
+        return (new((float)(outward - origin.X), (float)(height - origin.Y), (float)(alongZ - origin.Z)), Vector3.UnitX, Quaternion.Identity);
     }
 
-    private double Pounce(CreatureId creature, double seconds)
+    private Vector3 PounceOffset(SceneWorldSnapshot snapshot, ImmutableArray<SceneObject>.Builder objects,
+        CreatureId creature, (Vector3 Position, Vector3 Forward, Quaternion Rotation) placed, double seconds)
     {
-        if (!pounces.TryGetValue(creature, out var started)) return 0;
-        var elapsed = seconds - started;
-        return elapsed < 0 || elapsed > PounceSeconds ? 0 : Math.Sin(elapsed / PounceSeconds * Math.PI);
+        if (!pounces.TryGetValue(creature, out var pounce)) return Vector3.Zero;
+        var elapsed = seconds - pounce.StartedAt;
+        if (elapsed < 0 || elapsed > PounceSeconds) return Vector3.Zero;
+        var amount = (float)Math.Sin(elapsed / PounceSeconds * Math.PI);
+        var direction = placed.Forward;
+        if (TargetPoint(snapshot, Compose(objects), pounce.Target) is { } point)
+        {
+            var toward = new Vector3(point.X - placed.Position.X, 0, point.Z - placed.Position.Z);
+            if (toward.LengthSquared() > 1e-4f) direction = Vector3.Normalize(toward);
+        }
+        return direction * amount;
     }
 
     private static float Bob(double seconds) => (float)(Math.Sin(seconds * Math.Tau) * 0.2);

@@ -455,6 +455,17 @@ internal sealed class NodeScene : IAsyncDisposable
     }
 
     private void Attach(string key, Part part) => attached[key] = WorldSceneSession.Attach(part.Geometry, "node:" + key + ":", objectId);
+    internal static double GroundHeight(IEnumerable<Part> parts, double x, double z)
+    {
+        foreach (var part in parts)
+        {
+            if (part.Heights.Count == 0) continue;
+            var column = new GridColumn((int)Math.Floor(x - part.Origin.X), (int)Math.Floor(z - part.Origin.Z));
+            if (part.Heights.TryGetValue(column, out var height)) return height;
+        }
+        return 0;
+    }
+
     internal static string ChunkKey(GridColumn from) => "terrain:" + from.X + ":" + from.Z;
 
     private void ReconcileParts()
@@ -713,7 +724,8 @@ internal sealed class NodeScene : IAsyncDisposable
         var effects = ImmutableArray<SceneEffectCue>.Empty;
         if (presentation is { } state)
         {
-            state.AddCreatures(objects, snapshot, new WorldLocation.Node(Node), origin, null, layout, seconds, objectId);
+            state.AddCreatures(objects, snapshot, new WorldLocation.Node(Node), origin, null, layout, seconds, objectId,
+                (x, z) => GroundHeight(parts.Select(item => item.Part), x, z));
             effects = state.Finish(objects, snapshot, new WorldLocation.Node(Node), origin, null);
         }
         return new(stamp, origin, seconds, readiness,
