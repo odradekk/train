@@ -64,13 +64,14 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         Directory.CreateDirectory(_output!);
         var scene = input.Location is WorldLocation.Edge edge ? $"edge-{edge.Id.Value}" : $"node-{((WorldLocation.Node)input.Location).Id.Value}";
         var farDistance = input.Location is WorldLocation.Node ? WorldCamera.NodeMaximumDistance : WorldCamera.MaximumDistance;
+        if (input.Train.Value == 0) await PrepareSubjectCameraAsync(farDistance);
         foreach (var lighting in new[] { InspectionLighting.Daylight, InspectionLighting.Overcast, InspectionLighting.Night })
         {
             World!.View.SetLighting(lighting);
             foreach (var distance in new[] { "near", "follow", "far" })
             {
                 PlaceCamera(distance, 0, farDistance);
-                if (input.Train.Value == 0) await DisplayAsync();
+                if (input.Train.Value == 0) await DisplayAsync(includeCamera: true);
                 await SaveImageAsync($"{scene}_{distance}_{lighting.ToString().ToLowerInvariant()}_0000.png");
             }
         }
@@ -79,14 +80,19 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         {
             await AdvanceTurnFrameAsync();
             PlaceCamera("follow", 0, farDistance);
+            if (input.Train.Value == 0) await DisplayAsync(allowMissing: true, includeCamera: true);
             await SaveImageAsync($"{scene}_{(input.Train.Value != 0 ? "turn" : "motion")}_daylight_{frame:D4}.png");
         }
         if (input.Train.Value != 0) RequireTurn();
-        else _subjectBounds = SubjectBounds() ?? _subjectBounds;
+        else if (SubjectBounds() is { } bounds)
+        {
+            _subjectBounds = bounds;
+            _subjectOrigin = World.Display!.PoseFrame!.Origin;
+        }
         for (var frame = 0; frame < 60; frame++)
         {
             PlaceCamera("follow", Mathf.Tau * frame / 60, farDistance);
-            if (input.Train.Value == 0) await DisplayAsync(allowMissing: true);
+            if (input.Train.Value == 0) await DisplayAsync(allowMissing: true, includeCamera: true);
             await SaveImageAsync($"{scene}_orbit_daylight_{frame:D4}.png");
         }
         var commit = typeof(ArtCaptureEntry).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!
@@ -147,10 +153,34 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         throw new TimeoutException("资源等待超过 120 秒。");
     }
 
-    internal Task DisplayAsync(bool allowMissing = false) => WaitAsync(
+    internal Task DisplayAsync(bool allowMissing = false, bool includeCamera = false) => WaitAsync(
         () => World!.Display?.DisplayedFrame is { Readiness: SceneReadiness.Ready } frame &&
-            (allowMissing || _subjects.Any(subject => frame.FindPose(subject) is Lookup<ScenePose>.Found)),
+            (allowMissing || _subjects.Any(subject => frame.FindPose(subject) is Lookup<ScenePose>.Found)) &&
+            (!includeCamera || _input!.Train.Value != 0 || CaptureAreaReady(frame)),
         () => World!.ProcessFrame(0, false));
+
+    internal async Task PrepareSubjectCameraAsync(float farDistance)
+    {
+        PlaceCamera("follow", 0, farDistance);
+        await DisplayAsync(includeCamera: true);
+        _subjectBounds = null;
+    }
+
+    private bool CaptureAreaReady(ISceneFrame frame)
+    {
+        if (frame.Update.Environment.FoggedRegions.IsEmpty) return true;
+        var area = SubjectBounds();
+        var position = World!.View.CameraRig.Camera.GlobalPosition;
+        area = area is { } bounds ? bounds.Expand(position) : new Aabb(position, Vector3.Zero);
+        if (area is not { } box) return true;
+        var origin = World.Display!.PoseFrame!.Origin;
+        box.Position += new Vector3((float)(origin.X - frame.Origin.X),
+            (float)(origin.Y - frame.Origin.Y), (float)(origin.Z - frame.Origin.Z));
+        // Ready 允许地形仍在生成；只等待会遮住本次对象和相机之间区域的灰色生成遮罩。
+        return !frame.Update.Environment.FoggedRegions.Any(fog =>
+            box.Position.X < fog.Maximum.X && box.End.X > fog.Minimum.X &&
+            box.Position.Z < fog.Maximum.Z && box.End.Z > fog.Minimum.Z);
+    }
 
     internal async Task AdvanceTurnFrameAsync()
     {
@@ -180,7 +210,11 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
     {
         if (_input!.Train.Value == 0)
         {
-            _subjectBounds ??= SubjectBounds() ?? throw new InvalidDataException("检查对象没有可显示的网格。");
+            if (_subjectBounds is null)
+            {
+                _subjectBounds = SubjectBounds() ?? throw new InvalidDataException("检查对象没有可显示的网格。");
+                _subjectOrigin = World!.Display!.PoseFrame!.Origin;
+            }
             var subjectBox = _subjectBounds.Value;
             var origin = World!.Display!.PoseFrame!.Origin;
             subjectBox.Position += new Vector3((float)(_subjectOrigin.X - origin.X),
@@ -240,7 +274,6 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
     private Aabb? SubjectBounds()
     {
         var display = World!.Display!;
-        _subjectOrigin = display.PoseFrame!.Origin;
         if (_input!.Lair is { } lair)
         {
             if (Host!.GetStatus()!.View.FindLair(lair) is not Lookup<LairView>.Found found ||

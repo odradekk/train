@@ -42,6 +42,10 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         await SampleMotion(turned: false, target: "group", rebaseCamera: true);
 
     [Test]
+    public async Task Creature_capture_waits_for_local_terrain_before_caching_camera_bounds() =>
+        await SampleMotion(turned: false, target: "group", waitForTerrain: true);
+
+    [Test]
     public void Motion_steps_are_optional_and_require_a_positive_integer()
     {
         string[] arguments = ["--capture-save", "save.json", "--capture-location", "node:1",
@@ -184,7 +188,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         finally { File.Delete(save); }
     }
 
-    private async Task SampleMotion(bool turned, string? target = null, bool missingAfterAdvance = false, ulong motionSteps = 2, bool rebaseCamera = false)
+    private async Task SampleMotion(bool turned, string? target = null, bool missingAfterAdvance = false, ulong motionSteps = 2, bool rebaseCamera = false, bool waitForTerrain = false)
     {
         var name = "capture-test-" + Guid.NewGuid().ToString("N");
         var root = ProjectSettings.GlobalizePath("res://.godot/validation");
@@ -209,15 +213,20 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
                 new(System.Numerics.Vector3.UnitX, System.Numerics.Vector3.UnitZ, new(1, 0), new(1, 0), ExposedFaceEdges.None, 0, 0),
                 new(System.Numerics.Vector3.UnitY, System.Numerics.Vector3.UnitZ, new(0, 1), new(0, 1), ExposedFaceEdges.None, 1, 0)],
             [0, 1, 2]);
+        ulong? firstPresentation = null;
+        var terrainReady = !waitForTerrain;
         System.Numerics.Vector3 Position(int index) => rebaseCamera
             ? index == 0 ? new(10, 20, 30) : new(-4086, 20, -8162)
-            : new(0, 0, index);
+            : new(waitForTerrain ? 100 : 0, waitForTerrain && terrainReady ? 20 : 0, index);
         FixedSceneFrame Frame(int index) => new()
         {
             Origin = rebaseCamera && index > 0 ? new(4096, 0, 8192) : default,
             Update = new(null, new(sessionId, new(1), new(1), (ulong)index + 1), System.Numerics.Vector3.Zero,
-                rebaseCamera ? [new(new(1), null, new(Position(index), System.Numerics.Quaternion.Identity), subject,
-                    [new SceneVisual.Geometry(mesh, new(false, 0, 0, false))], [], [])] : [], [], new([], []), []),
+                rebaseCamera || waitForTerrain ? [new(new(1), null, new(Position(index), System.Numerics.Quaternion.Identity), subject,
+                    [new SceneVisual.Geometry(mesh, new(false, 0, 0, false))], [], [])] : [], [],
+                new(!waitForTerrain ? [] : terrainReady
+                    ? [new(new(1000, -128, 1000), new(1010, 128, 1010))]
+                    : [new(new(90, -128, -10), new(110, 128, 10))], []), []),
             SimulationSeconds = (ulong)index * motionSteps / 60d,
             Poses = ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty.Add(subject,
                 missingAfterAdvance && index > 0 ? new Lookup<ScenePose>.Missing() : new Lookup<ScenePose>.Found(new(Position(index),
@@ -225,6 +234,13 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
                         turned && index == 60 ? 0.1f : 0)))),
             TerrainHeightResult = new Lookup<double>.Missing()
         };
+        ISceneFrame PresentFrame(SceneFrameRequest request)
+        {
+            firstPresentation ??= Godot.Engine.GetProcessFrames();
+            terrainReady = !waitForTerrain || Godot.Engine.GetProcessFrames() > firstPresentation.Value &&
+                request.Camera is { Focus.X: > 90 };
+            return Frame((int)(core.CurrentView.Position.CompletedSteps / motionSteps));
+        }
         var factory = new FixedDisplayFactory
         {
             OpenWorldCall = (binding, _) => new SceneResult<IWorldSceneSession>.Success(new CaptureDisplaySession(new FixedDisplaySession
@@ -235,7 +251,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
                         new WorldSceneTarget.Location(new WorldLocation.Node(new(1))), new SceneResult<SceneRequestId>.Success(new(1))),
                 ObserveResults = Enumerable.Range(1, (int)(60 * motionSteps)).Select(step => (SceneResult<SimulationPosition>)
                     new SceneResult<SimulationPosition>.Success(new((ulong)step, 0))).ToImmutableArray()
-            }, () => Frame((int)(core.CurrentView.Position.CompletedSteps / motionSteps))))
+            }, PresentFrame))
         };
         using var run = new ArtCaptureRun(TestScene)
         {
@@ -247,6 +263,14 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
                 ? new(save, new WorldLocation.Edge(new(1), 0), new(1), name, MotionSteps: motionSteps)
                 : new(save, new WorldLocation.Node(new(1)), default, name,
                     Lair: target == "lair" ? new(1) : null, Group: target == "group" ? new(1) : null, MotionSteps: motionSteps));
+            if (waitForTerrain)
+            {
+                await run.PrepareSubjectCameraAsync(96).WaitAsync(TimeSpan.FromSeconds(5));
+                Require(terrainReady, "Ready 帧仍有对象所在区域的生成遮罩时，截图入口必须继续等待。");
+                run.PlaceCamera("follow", 0, 96);
+                Require(run.World!.View.CameraRig.Focus.Y > 20,
+                    "固定相机必须使用地形完成后的显示姿态，不能缓存灰罩内的旧高度。");
+            }
             if (rebaseCamera)
             {
                 Require(run.World!.Display!.PoseFrame!.Origin == default,
@@ -294,7 +318,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         finally { File.Delete(save); }
     }
 
-    private sealed class CaptureDisplaySession(FixedDisplaySession session, Func<ISceneFrame> frame) : IWorldSceneSession
+    private sealed class CaptureDisplaySession(FixedDisplaySession session, Func<SceneFrameRequest, ISceneFrame> frame) : IWorldSceneSession
     {
         public SceneSessionId Id => session.Id;
         public SceneBinding Binding => session.Binding;
@@ -302,7 +326,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         public SceneResult<SimulationPosition> Observe(SceneWorldSnapshot snapshot, ImmutableArray<EventEnvelope> events) =>
             session.Observe(snapshot, events);
         public SceneResult<ISceneFrame> Present(SceneFrameRequest request, ISceneFrame? displayedFrame) =>
-            new SceneResult<ISceneFrame>.Success(frame());
+            new SceneResult<ISceneFrame>.Success(frame(request));
         public SceneResult<PickSubject> Resolve(SceneHit hit) => session.Resolve(hit);
         public ValueTask DisposeAsync() => session.DisposeAsync();
     }
