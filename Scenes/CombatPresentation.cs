@@ -34,6 +34,7 @@ internal sealed class PresentationState
         poses.Clear();
         creatures.Clear();
         bodies.Clear();
+        templates.Clear();
     }
 
     internal void Note(SceneWorldSnapshot before, SceneWorldSnapshot snapshot, ImmutableArray<EventEnvelope> events, WorldLocation? here)
@@ -92,28 +93,36 @@ internal sealed class PresentationState
     {
         frameOrigin = origin;
         creatures.Clear();
+        var alive = new HashSet<CreatureId>();
+        var used = new HashSet<CreatureAppearanceProjection>(ReferenceEqualityComparer.Instance);
         var dead = Dead(incoming.Select(item => item.Envelope.Event));
         var combatGroups = CombatGroups(snapshot, here);
         var index = 0;
-        if (here is WorldLocation.Edge && path is null) return;
-        foreach (var group in Groups(snapshot, here))
+        if (here is not WorldLocation.Edge || path is not null)
         {
-            if (snapshot.Core.FindCreatureGroup(group) is not Lookup<CreatureGroupView>.Found found) continue;
-            var combat = combatGroups.Contains(group);
-            foreach (var creature in found.Value.Creatures)
+            foreach (var group in Groups(snapshot, here))
             {
-                var placed = Place(snapshot, here, origin, path, layout, found.Value, creature, index, combat, ground);
-                index++;
-                creatures[creature.Id] = placed.Position;
-                if (dead.Contains((group, creature.Id))) continue;
-                if (snapshot.Content.FindCreature(creature.Definition) is not ContentLookup<CreatureAppearanceProjection>.Found appearance)
-                    continue;
-                var pose = new ScenePose(placed.Position + PounceOffset(snapshot, objects, creature.Id, placed, seconds) + new Vector3(0, Bob(seconds), 0),
-                    placed.Rotation);
-                var body = Body(snapshot, appearance.Value, group, creature.Id, objectId);
-                objects.AddRange(SceneGeometry.Place(new(body, [], []), pose).Objects);
+                if (snapshot.Core.FindCreatureGroup(group) is not Lookup<CreatureGroupView>.Found found) continue;
+                var combat = combatGroups.Contains(group);
+                foreach (var creature in found.Value.Creatures)
+                {
+                    var placed = Place(snapshot, here, origin, path, layout, found.Value, creature, index, combat, ground);
+                    index++;
+                    creatures[creature.Id] = placed.Position;
+                    if (dead.Contains((group, creature.Id))) continue;
+                    if (snapshot.Content.FindCreature(creature.Definition) is not ContentLookup<CreatureAppearanceProjection>.Found appearance)
+                        continue;
+                    alive.Add(creature.Id);
+                    used.Add(appearance.Value);
+                    var pose = new ScenePose(placed.Position + PounceOffset(snapshot, objects, creature.Id, placed, seconds) + new Vector3(0, Bob(seconds), 0),
+                        placed.Rotation);
+                    var body = Body(snapshot, appearance.Value, group, creature.Id, objectId);
+                    objects.AddRange(SceneGeometry.Place(new(body, [], []), pose).Objects);
+                }
             }
         }
+        foreach (var id in bodies.Keys.Where(id => !alive.Contains(id)).ToArray()) bodies.Remove(id);
+        foreach (var appearance in templates.Keys.Where(item => !used.Contains(item)).ToArray()) templates.Remove(appearance);
     }
 
     internal ImmutableArray<SceneEffectCue> Finish(ImmutableArray<SceneObject>.Builder objects, SceneWorldSnapshot snapshot,
