@@ -250,18 +250,42 @@ public partial class MacroMap : Control
     private void DrawEdge(EdgeMapItem edge)
     {
         if (EdgePoints(edge) is not { } ends) return;
+        var delta = ends.End - ends.Start;
+        var longEnough = delta.LengthSquared() >= 1;
+        var normal = longEnough ? delta.Normalized().Orthogonal() : Vector2.Zero;
         if (edge.Tracks == 0)
-        {
             DrawDashedLine(ends.Start, ends.End, new Color(Ink, .5f), 1, 4);
-            return;
-        }
-        var normal = (ends.End - ends.Start).Normalized().Orthogonal();
-        DrawLine(ends.Start, ends.End, Colors.White, edge.Tracks == 1 ? 7 : 5 * (edge.Tracks - 1) + 6, true);
-        for (var track = 0; track < edge.Tracks; track++)
+        else
         {
-            var offset = normal * ((track - (edge.Tracks - 1) / 2f) * 5);
-            DrawLine(ends.Start + offset, ends.End + offset, Ink, 2, true);
+            DrawLine(ends.Start, ends.End, Colors.White, edge.Tracks == 1 ? 7 : 5 * (edge.Tracks - 1) + 6, true);
+            for (var track = 0; track < edge.Tracks; track++)
+            {
+                var offset = normal * ((track - (edge.Tracks - 1) / 2f) * 5);
+                DrawLine(ends.Start + offset, ends.End + offset, Ink, 2, true);
+            }
         }
+        if (!longEnough) return;
+        var midpoint = (ends.Start + ends.End) / 2;
+        if (!edge.Works.IsDefaultOrEmpty && edge.Works.Any(work => !work.InvestedGoods.IsDefaultOrEmpty))
+        {
+            DrawDashedLine(ends.Start, ends.End, UiStyle.Warning, 2, 4);
+            DrawConstructionMark(midpoint - normal * 16);
+        }
+        if (!edge.Breaks.IsDefaultOrEmpty) DrawBreakMark(midpoint + normal * 16);
+    }
+
+    private void DrawConstructionMark(Vector2 point)
+    {
+        DrawRect(new Rect2(point - new Vector2(6, 6), new Vector2(12, 12)), UiStyle.Warning);
+        DrawLine(point + new Vector2(-4, 3), point + new Vector2(0, -4), Colors.White, 2);
+        DrawLine(point + new Vector2(0, -4), point + new Vector2(4, 3), Colors.White, 2);
+    }
+
+    private void DrawBreakMark(Vector2 point)
+    {
+        DrawCircle(point, 7, UiStyle.Error);
+        DrawLine(point + new Vector2(-5, -2), point + new Vector2(-1, -2), Colors.White, 2);
+        DrawLine(point + new Vector2(1, 2), point + new Vector2(5, 2), Colors.White, 2);
     }
 
     private void DrawNode(NodeMapItem node)
