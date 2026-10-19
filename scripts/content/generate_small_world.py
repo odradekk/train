@@ -1747,7 +1747,8 @@ def content_files():
             "lake_elevation_threshold": 4, "river_band_half_width": 0.045, "terrain_bands": bands,
             "terrain_sample_spacing_meters": 60, "settlement_ratio": 0.45, "lair_ratio": 0.2,
             "hostile_settlement_ratio": 0,
-            "lair_weights": [{"type": row[0], "weight": row[3]} for row in LAIR_PROFILES],
+            "lair_weights": [{"type": identity, "weight": weight}
+                             for identity, _, _, weight, *_ in LAIR_PROFILES],
             "resources": resources,
             "initial_railway": {"maximum_tracks": 2, "minimum_initial_tracks": 1, "maximum_initial_tracks": 2, "additional_cycle_edges": 1},
             "budget": {"maximum_stage_retries": 4, "maximum_world_retries": 4, "maximum_candidates": 50000, "maximum_search_work": 4000000},
