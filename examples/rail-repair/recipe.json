@@ -325,7 +325,7 @@
       },
       "kind": "rail.repair",
       "edge": 3,
-      "break": 1,
+      "break": 9,
       "material_source": 7
     },
     {
