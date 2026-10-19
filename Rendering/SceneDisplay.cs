@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics;
 using Godot;
 using Train.App.Assets;
@@ -11,6 +12,7 @@ internal sealed class SceneDisplay : IDisposable
 {
     internal sealed record DisplayObject(SceneObject Source, Node3D Root, PreparedVisual[] Visuals);
     private readonly SceneResources _resources;
+    private readonly CombatEffects _effects;
     private readonly AssetResourceCache _cache;
     private readonly bool _completeInitialFrame;
     private Dictionary<SceneObjectId, DisplayObject> _objects = [];
@@ -40,7 +42,16 @@ internal sealed class SceneDisplay : IDisposable
         _cache = cache;
         _completeInitialFrame = completeInitialFrame;
         _resources = new(cache, content);
+        _effects = new(cache);
+        Root.AddChild(_effects.Root);
     }
+
+    internal void SetFollowedTrain(ImmutableArray<VehicleId> vehicles) => _effects.SetFollowedTrain(vehicles);
+
+    internal Vector3 AdvanceEffects(ISceneFrame frame, double realDelta, Vector3? camera = null) =>
+        _effects.Advance(frame, realDelta, camera);
+
+    internal double FlickerSeconds => _effects.FlickerSeconds;
 
     internal void ClearDebugLines()
     {
@@ -258,6 +269,7 @@ internal sealed class SceneDisplay : IDisposable
     private void Commit(PreparedFrame prepared)
     {
         _cache.RequireMainThread();
+        var previous = DisplayedFrame;
         var update = prepared.Frame.Update;
         var next = prepared.Objects;
         // 先摘除退役或换父的对象，避免退役父节点释放仍在使用的子对象。
@@ -303,6 +315,12 @@ internal sealed class SceneDisplay : IDisposable
             if (_debugLines is not null) Root.AddChild(_debugLines.Root);
         }
         prepared.Transferred = true;
+        DisplayedFrame = prepared.Frame;
+        PoseFrame = prepared.Frame;
+        _spaceOrigin = prepared.Frame.Origin;
+        _posedObjects.Clear();
+        Root.Visible = true;
+        _effects.Apply(previous, prepared.Frame, _objects);
         foreach (var item in old.Values)
         {
             var surviving = next.GetValueOrDefault(item.Source.Id);
@@ -311,11 +329,6 @@ internal sealed class SceneDisplay : IDisposable
             if (surviving is null) item.Root.Free();
         }
         if (!ReferenceEquals(oldFog, _fog)) oldFog?.Dispose();
-        DisplayedFrame = prepared.Frame;
-        PoseFrame = prepared.Frame;
-        _spaceOrigin = prepared.Frame.Origin;
-        _posedObjects.Clear();
-        Root.Visible = true;
     }
 
     public void Dispose()
@@ -324,6 +337,7 @@ internal sealed class SceneDisplay : IDisposable
         if (_disposed) return;
         _disposed = true;
         CancelPreparation();
+        _effects.Dispose();
         foreach (var item in _objects.Values) item.Root.GetParent()?.RemoveChild(item.Root);
         foreach (var item in _objects.Values)
         {

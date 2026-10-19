@@ -924,6 +924,51 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
         finally { await fixture.Cleanup(); }
     }
 
+    [Test]
+    public async Task CombatCuePlaysOncePerSessionAndLeavesNothingAfterClose()
+    {
+        var cue = new SceneEffectCue(new(9), SceneEffectKind.Shot, default, new NVector3(4, 1, 0), null, null, null, 0);
+        var first = Frame(1, effects: [cue]);
+        var again = Frame(2, first.Update.Frame, effects: [cue]);
+        var sessions = new List<FixedDisplaySession>();
+        var fixture = new Fixture(TestScene.GetTree());
+        try
+        {
+            var app = await Ready(fixture, new Setup(), Factory(binding =>
+            {
+                var id = sessions.Count == 0 ? SceneId : new SceneSessionId(Guid.NewGuid());
+                var frames = sessions.Count == 0
+                    ? ImmutableArray.Create(Success(first), Success(again))
+                    : ImmutableArray.Create(Success(Frame(1, session: id, effects: [cue])));
+                var session = Session(binding, frames, id: id);
+                sessions.Add(session);
+                return session;
+            }));
+            var world = app.WorldScenes!;
+            world.Open(Target);
+            world.Display!.Timestamp = () => 0;
+            world.ProcessFrame(0, false);
+            var shots = world.Display.Root.GetNode("CombatEffects").GetNode("Shot");
+            Require(shots.GetChildCount() == 1, "提交后的射击必须播放一次。");
+            var played = shots.GetChild(0);
+            var identity = played.GetInstanceId();
+            world.ProcessFrame(0, false);
+            Require(shots.GetChildCount() == 1 && GodotObject.IsInstanceValid(played) && played.GetInstanceId() == identity,
+                "下一帧带着同一 Id 时不得再播放。");
+            Require(ReferenceEquals(sessions[0].PresentCalls[1].DisplayedFrame, first), "第二次 Present 必须带上已提交的帧。");
+            var root = world.Display.Root;
+            world.ReturnToMap();
+            Require(world.Display is null && !GodotObject.IsInstanceValid(root) && !GodotObject.IsInstanceValid(played),
+                "关闭场景后不得留下特效节点。");
+            world.Open(Target);
+            world.Display!.Timestamp = () => 0;
+            world.ProcessFrame(0, false);
+            var replay = world.Display.Root.GetNode("CombatEffects").GetNode("Shot");
+            Require(sessions.Count == 2 && replay.GetChildCount() == 1, "新会话里的同一 Id 必须再播放一次。");
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
     private async Task<Train.App.App> Ready(Fixture fixture, Setup setup, FixedDisplayFactory factory)
     {
         var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
@@ -968,9 +1013,10 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
         ScenePoint origin = default, NVector3 shift = default, ScenePick? pick = null,
         ImmutableArray<SceneProblem> diagnostics = default, SceneSessionId? session = null,
         Lookup<double>? height = null, ulong request = 1, ImmutableArray<SceneDebugLine> debugLines = default,
-        ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>? poses = null, ulong space = 1) => new()
+        ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>? poses = null, ulong space = 1,
+        ImmutableArray<SceneEffectCue> effects = default) => new()
     {
-        Update = new(baseline, Stamp(revision, session) with { Request = new(request), Space = new(space) }, shift, objects.IsDefault ? [Object(1)] : objects, [], new([], []), []),
+        Update = new(baseline, Stamp(revision, session) with { Request = new(request), Space = new(space) }, shift, objects.IsDefault ? [Object(1)] : objects, [], new([], []), effects.IsDefault ? [] : effects),
         Origin = origin, Readiness = readiness, PickResult = pick,
         DebugLines = debugLines.IsDefault ? [] : debugLines,
         Diagnostics = diagnostics.IsDefault ? [] : diagnostics,
