@@ -58,7 +58,8 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             await _input.Frames(3);
             Require(setup.Session.SubmitCount == 1 && before.QuoteCount == count && Find<Button>(economy, "ConfirmService").Disabled,
                 "旧价被拒绝后自动重报、重试或仍可确认。");
-            Require(ui.ErrorText.Contains("price_changed"), "拒绝没有显示核心原因。");
+            Require(ui.ErrorText.Contains("无法完成此操作。") && !ui.ErrorText.Contains("price_changed") &&
+                !ui.ErrorText.Contains("fixture:"), "拒绝没有显示中文原因。");
             await _input.Activate(Find<Button>(economy, "RefreshServiceQuote"));
             var confirm = Find<Button>(economy, "ConfirmService");
             Require(!confirm.Disabled, "有效报价应可确认。");
@@ -81,10 +82,12 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             await SelectRepair(economy);
             await _input.Activate(Find<Button>(economy, "RefreshServiceQuote"));
             var description = Find<Label>(economy, "ServiceQuote");
-            Require(description.Text.Contains("fixture:missing") && description.Text.Contains("fixture:capacity") &&
-                Find<Button>(economy, "ConfirmService").Disabled, "报价没有完整显示所有阻塞或允许提交。");
+            Require(description.Text.Contains("货物不足") && description.Text.Contains("可用容量不足") &&
+                !description.Text.Contains("fixture:") && Find<Button>(economy, "ConfirmService").Disabled,
+                "报价没有完整显示所有阻塞或允许提交。");
             var row = Find<Label>(Find<VBoxContainer>(economy, "ServiceJobs"), "ServiceJob_4");
-            Require(row.Text.Contains("fixture:missing") && row.Text.Contains("劳动力"), "队列缺料和工作限制未显示。");
+            Require(row.Text.Contains("货物不足") && row.Text.Contains("劳动力") && !row.Text.Contains("fixture:"),
+                "队列缺料和工作限制未显示。");
             var next = new ServiceView(2, nullPayment: true);
             var host = ui.GetParent<Train.App.App>().Host!;
             setup.Session.QueueAdvance(new(1, next.Position, [], null, null), next);
@@ -319,7 +322,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             await _input.Activate(Find<Button>(economy, "PauseServiceJob_4"));
             await _input.Frames(2);
             Require(!economy.FindChildren("ServiceJob_4", "Label", true, false).Any(), "任务离开OwnedJobs后仍被缓存展示。");
-            var serviceButtons = economy.GetNode<ScrollContainer>("Settlement/Layout/Content/Body/Pages/建造与工地")
+            var serviceButtons = economy.GetNode<VBoxContainer>("Settlement/Layout/Content/Body/Pages/建造与工地")
                 .FindChildren("*", "Button", true, false).OfType<Button>().Select(button => button.Text).ToArray();
             Require(!serviceButtons.Any(text => text.Contains("取消") || text.Contains("退款") || text.Contains("优先级")),
                 "车辆服务按钮集合含取消、退款或优先级：" + string.Join("、", serviceButtons));
@@ -555,7 +558,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             var firstSource = text.IndexOf("库存 10", StringComparison.Ordinal);
             var secondSource = text.IndexOf("库存 12", StringComparison.Ordinal);
             Require(text.Contains("来源扣料") && firstSource >= 0 && secondSource > firstSource && text.Contains("材料款：500") &&
-                text.Contains("地块已被占用") && text.Contains("plot_occupied") && Find<Button>(economy, "ConfirmService").Disabled,
+                text.Contains("地块已被占用") && !text.Contains("plot_occupied") && Find<Button>(economy, "ConfirmService").Disabled,
                 "建筑报价没有显示来源、费用或核心阻止原因。");
             var quotes = blocked.QuoteCount;
             await _input.ClickItem(Find<ItemList>(economy, "ServiceSourceOrder"), 1);
@@ -646,7 +649,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
                 Find<Label>(economy, "ServiceJob_7").Text.Contains("预留：无") &&
                 Find<Label>(economy, "ServiceJob_9").Text.Contains("目标：地块 3") && Find<Label>(economy, "ServiceJob_4").Text.Contains("目标：车辆 9"),
                 "任务行没有列出建筑、地块、车辆目标或匹配的库存预留。");
-            var serviceButtons = economy.GetNode<ScrollContainer>("Settlement/Layout/Content/Body/Pages/建造与工地")
+            var serviceButtons = economy.GetNode<VBoxContainer>("Settlement/Layout/Content/Body/Pages/建造与工地")
                 .FindChildren("*", "Button", true, false).OfType<Button>().Select(button => button.Text).ToArray();
             Require(!serviceButtons.Any(text => text.Contains("取消") || text.Contains("退款") || text.Contains("优先级")),
                 "建筑任务行出现了取消、退款或优先级：" + string.Join("、", serviceButtons));
@@ -766,13 +769,70 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
                 "地块 3 · 模板编号 3 · 中\n占用：空地\n" +
                 "地块 4 · 模板编号 4 · 大\n占用：工地 · 任务 4 · 制造 · 资源受阻\n工作 20/100 · 20.0%";
             Require(text == expected, "地块页没有逐行对应尺寸和占用。\n" + text);
-            Require(Find<ScrollContainer>(economy, "地块与建筑").GetNode<VBoxContainer>("Body").GetChildCount() == 1,
+            Require(Find<VBoxContainer>(economy, "地块与建筑").GetNode<ScrollContainer>("Page")
+                .GetNode<VBoxContainer>("Body").GetChildCount() == 1,
                 "只读地块页出现了操作控件。");
             Require(setup.Session.SubmitCount == 0, "打开地块页提交了命令。");
             HideCaptureChrome(ui);
             await UiCapture.Capture(TestScene, "plots");
         });
         setup.Session.AssertComplete();
+    }
+
+    [Test]
+    public async Task Leaving_the_refit_editor_keeps_the_service_form_and_invalidates_the_quote()
+    {
+        var setup = new HostSimulationTests.HostSetup(new ServiceView(), EconomyFixture.Content());
+        await Run(setup, async (ui, economy) =>
+        {
+            var draft = new DesignDraft(new("改装", ""), new DesignSpecification.Vehicle(SizeClass.Medium), new([], [], []));
+            setup.ContentFactory!.EvaluateDesignCall = (_, design) => new ContentResult<DesignEvaluation>.Success(
+                new DesignEvaluation.Complete(new("design"), new("composition"), design, null,
+                    new(null, null, null, true, null, null, [], [], [], [], []), true, []));
+            await Services(economy);
+            await _input.Choose(Find<OptionButton>(economy, "ServiceOperation"), 1);
+            await _input.Choose(Find<OptionButton>(economy, "ServiceFacility"), 0);
+            await _input.Choose(Find<OptionButton>(economy, "ServiceSource"), 1);
+            await _input.Activate(Find<Button>(economy, "AddServiceSource"));
+            var facility = Find<OptionButton>(economy, "ServiceFacility").Selected;
+            var sources = Find<ItemList>(economy, "ServiceSourceOrder");
+            var source = sources.GetItemText(0);
+            var tabs = Find<TabContainer>(economy, "Pages");
+            var quote = Find<Label>(economy, "ServiceQuote").Text;
+            Require(tabs.GetTabTitle(tabs.CurrentTab) == "建造与工地" && sources.ItemCount == 1, "服务表单没有停在建造页。");
+            var editor = ui.GetParent<Train.App.App>().Editor!;
+            await OpenAndLeave(ui, editor, draft, "ExitEditor");
+            Require(economy.Visible && economy.GetNode<Control>("Settlement").Visible &&
+                tabs.GetTabTitle(tabs.CurrentTab) == "建造与工地" &&
+                Find<OptionButton>(economy, "ServiceOperation").Selected == 1 &&
+                Find<OptionButton>(economy, "ServiceFacility").Selected == facility &&
+                sources.ItemCount == 1 && sources.GetItemText(0) == source &&
+                Find<Label>(economy, "ServiceQuote").Text == quote,
+                "退出编辑器没有恢复建造页、设施或材料来源。");
+            await OpenAndLeave(ui, editor, draft, "ReturnToVehicleServices");
+            Require(economy.Visible && tabs.GetTabTitle(tabs.CurrentTab) == "建造与工地" &&
+                Find<OptionButton>(economy, "ServiceOperation").Selected == 2 &&
+                Find<OptionButton>(economy, "ServiceFacility").Selected == facility &&
+                sources.ItemCount == 1 && sources.GetItemText(0) == source &&
+                Find<Label>(economy, "ServiceQuote").Text.Contains("输入已改变，请获取报价。"),
+                "返回车辆服务重建了面板，或没有作废报价。");
+        });
+        setup.Session.AssertComplete();
+    }
+
+    private async Task OpenAndLeave(GameUi ui, Train.App.Editing.EditorService editor, DesignDraft draft, string button)
+    {
+        editor.Open(draft, new DraftTarget.Instance(new InstanceId.Vehicle(new(9))));
+        await _input.WaitUntil(() => editor.Session is not null || !editor.IsOpen && editor.Message is not null);
+        Require(editor.Session is not null, "编辑器没有打开：" + editor.Message);
+        await _input.Frames(2);
+        Require(!ui.GetNode<EconomyPanels>("Root/World/EconomyPanels").Visible, "编辑器打开时经济面板仍可见。");
+        await _input.Activate(Find<Button>(ui, button));
+        await _input.Frames(2);
+        var leave = ui.FindChildren("LeaveEditor", "PanelContainer", true, false).Cast<CanvasItem>().Single();
+        if (leave.Visible) await _input.Activate(Find<Button>(ui, "DiscardAndLeave"));
+        await _input.WaitUntil(() => !editor.IsOpen && ui.GetNode<EconomyPanels>("Root/World/EconomyPanels").Visible);
+        await _input.Frames(2);
     }
 
     private static void HideCaptureChrome(GameUi ui)

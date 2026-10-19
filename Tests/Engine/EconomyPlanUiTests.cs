@@ -92,7 +92,7 @@ public class EconomyPlanUiTests(Node testScene) : TestClass(testScene)
             await input.Frames(2);
             var bar = tabs.GetTabBar();
             await input.Click(bar.GlobalPosition + bar.GetTabRect(4).GetCenter());
-            economy.GetNode<ScrollContainer>("Settlement/Layout/Content/Body/Pages/生产").EnsureControlVisible(
+            economy.GetNode<ScrollContainer>("Settlement/Layout/Content/Body/Pages/生产/Page").EnsureControlVisible(
                 Find<Label>(specificationLabel.GetParent(), "Batch"));
             await UiCapture.Capture(TestScene, "production-frozen-batch");
             await input.Click(bar.GlobalPosition + bar.GetTabRect(5).GetCenter());

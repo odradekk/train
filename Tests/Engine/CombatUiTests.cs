@@ -105,7 +105,8 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
             var ui = app.GetNode<GameUi>("GameUi");
             var combat = await SelectBattlefield(ui);
             var state = Find<Label>(combat, "CombatState").Text;
-            Require(state.Contains("敌对") && state.Contains("士气：0.40") && state.Contains("已投降") && state.Contains("no_route"),
+            Require(state.Contains("敌对") && state.Contains("士气：0.40") && state.Contains("已投降") &&
+                state.Contains("没有可达路径") && !state.Contains("no_route"),
                 state);
             Require(Find<OptionButton>(combat, "TrainPriority").Selected == (int)TargetPriority.ArmedFirst &&
                 Find<OptionButton>(combat, "TrainScope").Selected == (int)TargetScope.All &&

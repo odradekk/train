@@ -147,7 +147,7 @@ internal sealed partial class RailwayWorkPanel : Control
                 $"进度 {(work.Progress * 100).ToString("0.##", CultureInfo.InvariantCulture)}%"
             };
             if (!work.Blockers.IsDefaultOrEmpty)
-                foreach (var blocker in work.Blockers) lines.Add("阻塞：" + CommandDiagnostics.Describe(blocker));
+                foreach (var blocker in work.Blockers) lines.Add("阻塞：" + CommandDiagnostics.Describe(blocker, content));
             blocks.Add(string.Join('\n', lines));
         }
         return string.Join("\n\n", blocks);

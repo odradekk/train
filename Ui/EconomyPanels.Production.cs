@@ -58,7 +58,7 @@ internal partial class EconomyPanels
             };
             row.State.Text = $"建筑 {facility.Key.Building.Value} · {(facility.Key.Capability == CapabilityKind.Extraction ? "开采" : "加工／回收")} · {state}\n计划{(facility.Enabled ? "启用" : "停用")} · 优先级 {facility.Priority}\n当前能力 {facility.CapabilityWorkPerSecond:0.###} 工作/秒 · 上一步实际 {facility.ActualWorkPerSecond:0.###} 工作/秒";
             row.Blockers.Visible = !facility.Blockers.IsEmpty;
-            row.Blockers.Text = "受阻：\n" + Problems(facility.Blockers);
+            row.Blockers.Text = "受阻：\n" + Problems(facility.Blockers, _content);
             row.Limits.Visible = !facility.Limits.IsEmpty;
             row.Limits.Text = "上一步限制：" + string.Join("、", facility.Limits.Select(limit => limit switch
             { WorkLimit.Capability => "设施能力", WorkLimit.Power => "电力", WorkLimit.Labor => "劳动力", _ => limit.ToString() }));
