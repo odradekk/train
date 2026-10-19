@@ -496,18 +496,45 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
     {
         var setup = new HostSimulationTests.HostSetup(
             EconomyFixture.Create(vehicle: EconomyFixture.VehicleState.Owned), EconomyFixture.Content());
-        await Run(setup, async (ui, _) =>
+        await Run(setup, async (ui, economy) =>
         {
-            var button = ui.GetNode<WorldPanels>("Root/World/WorldPanels")
-                .FindChildren("RefitParkedVehicle", "Button", true, false).Cast<Button>()
-                .First(item => item.Text.Contains("车辆 9"));
-            var editor = ui.GetParent<Train.App.App>().Editor!;
-            var error = ui.GetNode<Control>("Root/ErrorPanel");
-            if (error.Visible) await _input.Activate(Find<Button>(error, "Close"));
-            Require(!editor.IsOpen && !error.Visible, "点击前编辑器或错误已经打开。");
-            await _input.Click(button.GetGlobalRect().GetCenter());
-            await _input.Frames(3);
-            Require(!editor.IsOpen && !error.Visible, "被聚居地面板盖住的改装按钮被点到了。");
+            var window = ui.GetTree().Root;
+            var mode = window.Mode;
+            var size = window.Size;
+            try
+            {
+                window.Mode = Window.ModeEnum.Windowed;
+                window.Size = new Vector2I(1920, 1080);
+                await _input.Frames(3);
+                var visible = window.GetVisibleRect().Size;
+                Require(visible == new Vector2(1920, 1080), $"默认窗口不是 1920×1080：{visible}。");
+                var detail = ui.GetNode<WorldPanels>("Root/World/WorldPanels")
+                    .FindChildren("Details", "PanelContainer", true, false).Cast<PanelContainer>()
+                    .Single(panel => panel.Visible);
+                var settlement = economy.GetNode<PanelContainer>("Settlement");
+                var settlementRect = settlement.GetGlobalRect();
+                var detailRect = detail.GetGlobalRect();
+                Require(settlementRect.Encloses(detailRect),
+                    $"聚居地面板没有盖住节点详情：聚居地 {settlementRect}，详情 {detailRect}。");
+                var button = detail.FindChildren("RefitParkedVehicle", "Button", true, false).Cast<Button>()
+                    .First(item => item.Text.Contains("车辆 9"));
+                var point = button.GetGlobalRect().GetCenter();
+                Require(settlementRect.HasPoint(point),
+                    $"点击点不在聚居地面板内：点 {point}，聚居地 {settlementRect}。");
+                var editor = ui.GetParent<Train.App.App>().Editor!;
+                var error = ui.GetNode<Control>("Root/ErrorPanel");
+                if (error.Visible) await _input.Activate(Find<Button>(error, "Close"));
+                Require(!editor.IsOpen && !error.Visible, "点击前编辑器或错误已经打开。");
+                await _input.Click(point);
+                await _input.Frames(3);
+                Require(!editor.IsOpen && !error.Visible, "被聚居地面板盖住的改装按钮被点到了。");
+            }
+            finally
+            {
+                window.Mode = mode;
+                window.Size = size;
+                await _input.Frames(2);
+            }
         });
         setup.Session.AssertComplete();
     }

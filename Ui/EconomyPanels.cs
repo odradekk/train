@@ -59,7 +59,7 @@ internal partial class EconomyPanels : Control
         RemoveWindow(_settlementPanel);
         _settlementTarget = new(_binding, _content.Generation, new WorldObjectId.Settlement(id));
         _settlementId = id; _settlement = null; _settlementRevision = null; _localId = null; _localOptions.Clear();
-        _settlementPanel = UiStyle.Panel(this, "Settlement", $"聚居地 {id.Value}", new(408, 70), 720,
+        _settlementPanel = UiStyle.Panel(this, "Settlement", $"聚居地 {id.Value}", new(408, 68), 720,
             () => _settlementPanel!.Hide(), out _settlementBody, fill: true);
         _state = Text(_settlementBody, "State", "");
         _wallet = Text(_settlementBody, "Wallet", "");
