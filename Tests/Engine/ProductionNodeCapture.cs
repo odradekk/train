@@ -134,6 +134,12 @@ public partial class ProductionNodeCapture : Node
             effects = frame?.Update.Effects.Select(effect => new { effect.Id, kind = effect.Kind.ToString(), effect.StartedAtSimulationSeconds, subject = effect.Subject?.ToString() }),
             visibleEffects = display?.Root.GetNodeOrNull("CombatEffects")?.GetChildren()
                 .ToDictionary(child => child.Name.ToString(), child => child.GetChildCount()),
+            sceneLights = display?.Objects.Values.Where(item => !item.Source.Lights.IsEmpty).Select(item => new
+            {
+                id = item.Source.Id.Value, subject = item.Source.Subject?.ToString(),
+                damage = item.Source.Lights.Select(light => light.Damage),
+                energy = item.Root.GetChildren().OfType<OmniLight3D>().Select(light => light.LightEnergy)
+            }),
             shotGeometry = display?.Root.GetNodeOrNull("CombatEffects/Shot")?.GetChildren().OfType<Node3D>()
                 .Select(shot => new { position = V(shot.GlobalPosition), scale = V(shot.Scale) }),
             foggedRegions = frame?.Update.Environment.FoggedRegions.Select(bounds => new
