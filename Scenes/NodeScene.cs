@@ -56,17 +56,20 @@ internal sealed class NodeScene : IAsyncDisposable
         Dictionary<GridColumn, Dictionary<GridColumn, RailBed>> BedChunks,
         Dictionary<GridColumn, HashSet<GridColumn>> BoundaryChunks, string TerrainInputs,
         ImmutableDictionary<string, RailSegment> Rails,
+        Dictionary<GridColumn, double> BoundarySurfaces,
         bool HasChunks = true)
     {
         internal string ChunkInputs(GridColumn from)
         {
-            var bed = BedChunks.GetValueOrDefault(from) ?? [];
+            var bed = BedsNear(from);
             var boundary = BoundaryChunks.GetValueOrDefault(from) ?? [];
+            var surfaces = SurfacesNear(from);
             var model = ModelChunks.GetValueOrDefault(from, []);
             return RailwayDependencies.Values(new object?[] { TerrainInputs, Global.Layout.Template?.SceneModel.Design, from,
                 model.Select(voxel => voxel.Voxel).Distinct().Select(id => Appearances[id]).ToArray(),
                 bed.OrderBy(item => item.Key.X).ThenBy(item => item.Key.Z).ToArray(),
-                boundary.OrderBy(item => item.X).ThenBy(item => item.Z).ToArray() });
+                boundary.OrderBy(item => item.X).ThenBy(item => item.Z).ToArray(),
+                surfaces.OrderBy(item => item.Key.X).ThenBy(item => item.Key.Z).ToArray() });
         }
 
         internal Part BuildChunk(GridColumn from, Part? previous = null, CancellationToken token = default)
@@ -75,8 +78,47 @@ internal sealed class NodeScene : IAsyncDisposable
             var inputs = ChunkInputs(from);
             return previous?.Inputs == inputs ? previous : TerrainPart(Snapshot,
                 Snapshot.Core.World.Nodes.Single(node => node.Id == Global.Layout.Node), Global.Layout, Terrain, BallastVoxel, Appearances,
-                BedChunks.GetValueOrDefault(from) ?? [], BoundaryChunks.GetValueOrDefault(from) ?? [],
-                ModelChunks.GetValueOrDefault(from, []), from, token) with { Inputs = inputs };
+                BedsNear(from), BoundaryChunks.GetValueOrDefault(from) ?? [],
+                ModelChunks.GetValueOrDefault(from, []), from, SurfacesNear(from), token) with { Inputs = inputs };
+        }
+
+        private Dictionary<GridColumn, RailBed> BedsNear(GridColumn from)
+        {
+            var beds = new Dictionary<GridColumn, RailBed>();
+            foreach (var key in ChunkNeighborhood(from))
+            {
+                if (!BedChunks.TryGetValue(key, out var chunk)) continue;
+                foreach (var (column, rail) in chunk)
+                    if (NearChunk(from, column)) beds[column] = rail;
+            }
+            return beds;
+        }
+
+        private Dictionary<GridColumn, double> SurfacesNear(GridColumn from)
+        {
+            var surfaces = new Dictionary<GridColumn, double>();
+            foreach (var key in ChunkNeighborhood(from))
+            {
+                if (!BoundaryChunks.TryGetValue(key, out var columns)) continue;
+                foreach (var column in columns)
+                    if (NearChunk(from, column)) surfaces[column] = BoundarySurfaces[column];
+            }
+            return surfaces;
+        }
+
+        private static IEnumerable<GridColumn> ChunkNeighborhood(GridColumn from)
+        {
+            var size = VoxelGrid.ChunkSize;
+            for (var z = from.Z - size; z <= from.Z + size; z += size)
+            for (var x = from.X - size; x <= from.X + size; x += size)
+                yield return new(x, z);
+        }
+
+        private static bool NearChunk(GridColumn from, GridColumn column)
+        {
+            var size = VoxelGrid.ChunkSize;
+            return column.X >= from.X - 1 && column.X <= from.X + size &&
+                column.Z >= from.Z - 1 && column.Z <= from.Z + size;
         }
     }
 
@@ -375,7 +417,7 @@ internal sealed class NodeScene : IAsyncDisposable
 
     private Preparation BuildPreparation(SceneWorldSnapshot current, NodeLayout currentLayout, Cached? previous, CancellationToken token) =>
         nodeBuild is null ? Prepare(current, currentLayout, previous, token) :
-            new(current, nodeBuild(current, Node, previous, token), null, default, [], [], [], [], "", [], false);
+            new(current, nodeBuild(current, Node, previous, token), null, default, [], [], [], [], "", [], [], false);
 
     private static bool EntryTracksDiffer(SceneWorldSnapshot snapshot, NodeLayout layout)
     {
@@ -792,6 +834,7 @@ internal sealed class NodeScene : IAsyncDisposable
         var diagnostics = ImmutableArray.CreateBuilder<SceneProblem>();
         var bed = new Dictionary<GridColumn, RailBed>();
         var boundaryColumns = new HashSet<GridColumn>();
+        var boundarySurfaces = new Dictionary<GridColumn, double>();
         var boundaries = ImmutableDictionary.CreateBuilder<EdgeId, RailwayTerrain.BoundaryData>();
         var boundaryOwners = new Dictionary<GridColumn, (EdgeId Edge, double Distance)>();
         var terrainInputs = RailwayDependencies.Values(new object?[] { snapshot.Core.World.WorldSeed, map.Position, map.Terrain.TypeId,
@@ -822,17 +865,19 @@ internal sealed class NodeScene : IAsyncDisposable
                     boundaryOwners[global] = (entry.Edge, distance);
             }
         }
+        var allowedByEdge = new Dictionary<EdgeId, ImmutableHashSet<GridColumn>>();
         foreach (var entry in layout.Entries)
         {
             var boundary = boundaries[entry.Edge];
             GridColumn Global(GridColumn column) => new((int)Math.Round(column.X + boundary.Origin.X), (int)Math.Round(column.Z + boundary.Origin.Z));
             var allowed = boundary.Heights.Keys.Where(column => boundaryOwners[Global(column)].Edge == entry.Edge).ToImmutableHashSet();
-            var inputs = RailwayDependencies.Values(new object[] { layout.Inputs, boundary.Dependencies.Key,
-                boundary.Heights.Keys.Where(column => !allowed.Contains(column)).OrderBy(column => column.X).ThenBy(column => column.Z).ToArray() });
-            Put("boundary:" + entry.Edge.Value, inputs, () => GridPart(
-                boundary.Grid.Cells.Where(cell => allowed.Contains(new(cell.At.X, cell.At.Z))).ToImmutableArray(),
-                boundary.Heights.Where(item => allowed.Contains(item.Key)).ToImmutableDictionary(), [], boundary.Origin));
-            foreach (var column in allowed) boundaryColumns.Add(Global(column));
+            allowedByEdge[entry.Edge] = allowed;
+            foreach (var column in allowed)
+            {
+                var global = Global(column);
+                boundaryColumns.Add(global);
+                boundarySurfaces[global] = boundary.Heights[column] - 1 + Math.Round(boundary.Origin.Y);
+            }
         }
         var anyTracks = snapshot.Core.World.Edges.Any(edge => (edge.Start == node || edge.End == node) && edge.Tracks > 0);
         var stationKey = RailwayDependencies.Values(new object[] { layout.Inputs, anyTracks });
@@ -871,9 +916,22 @@ internal sealed class NodeScene : IAsyncDisposable
         }
         var uniqueProblems = RailwayTerrain.UniqueProblems(diagnostics);
         var problemInputs = RailwayDependencies.Values(uniqueProblems);
+        foreach (var entry in layout.Entries)
+        {
+            var boundary = boundaries[entry.Edge];
+            var allowed = allowedByEdge[entry.Edge];
+            var skirt = ExtendBoundary(boundary, allowed);
+            var inputs = RailwayDependencies.Values(new object[] { layout.Inputs, boundary.Dependencies.Key,
+                boundary.Heights.Keys.Where(column => !allowed.Contains(column)).OrderBy(column => column.X).ThenBy(column => column.Z).ToArray(),
+                skirt.Bottoms });
+            Put("boundary:" + entry.Edge.Value, inputs, () => GridPart(
+                boundary.Grid.Cells.Where(cell => allowed.Contains(new(cell.At.X, cell.At.Z))).Concat(skirt.Cells).ToImmutableArray(),
+                boundary.Heights.Where(item => allowed.Contains(item.Key)).ToImmutableDictionary(), [], boundary.Origin));
+        }
         Put("diagnostics", problemInputs, () => GridPart([], ImmutableDictionary<GridColumn, double>.Empty, uniqueProblems));
         return new(snapshot, new(layout, parts.ToImmutable(), boundaries.ToImmutable()), terrain, ballastVoxel,
-            appearances, modelChunks, bedChunks, boundaryChunks, terrainInputs, rails.ToImmutable());
+            appearances, modelChunks, bedChunks, boundaryChunks, terrainInputs, rails.ToImmutable(),
+            BoundarySurfaces: boundarySurfaces);
 
         void Put(string name, string inputs, Func<Part> create)
         {
@@ -919,6 +977,56 @@ internal sealed class NodeScene : IAsyncDisposable
                 if (arc == length) break;
             }
         }
+
+        (SceneCell[] Cells, int[][] Bottoms) ExtendBoundary(RailwayTerrain.BoundaryData boundary, ImmutableHashSet<GridColumn> allowed)
+        {
+            var originX = (int)Math.Round(boundary.Origin.X);
+            var originY = (int)Math.Round(boundary.Origin.Y);
+            var originZ = (int)Math.Round(boundary.Origin.Z);
+            var left = (int)layout.Bounds.Minimum.X;
+            var right = (int)layout.Bounds.Maximum.X;
+            var back = (int)layout.Bounds.Minimum.Y;
+            var front = (int)layout.Bounds.Maximum.Y;
+            var columns = new Dictionary<GridColumn, (int MinY, CellProperties Rock)>();
+            foreach (var cell in boundary.Grid.Cells)
+            {
+                var local = new GridColumn(cell.At.X, cell.At.Z);
+                if (!allowed.Contains(local)) continue;
+                if (!columns.TryGetValue(local, out var known) || cell.At.Y < known.MinY)
+                    columns[local] = (cell.At.Y, cell.Properties);
+            }
+            var cells = new List<SceneCell>();
+            var bottoms = new List<int[]>();
+            var ground = new Dictionary<GridColumn, int>();
+            foreach (var (local, column) in columns)
+            {
+                token.ThrowIfCancellationRequested();
+                var at = new GridColumn(local.X + originX, local.Z + originZ);
+                int? lowest = null;
+                foreach (var neighbor in new[] { new GridColumn(at.X + 1, at.Z), new GridColumn(at.X - 1, at.Z), new GridColumn(at.X, at.Z + 1), new GridColumn(at.X, at.Z - 1) })
+                {
+                    if (allowed.Contains(new(neighbor.X - originX, neighbor.Z - originZ))) continue;
+                    int surface;
+                    if (boundarySurfaces.TryGetValue(neighbor, out var owned))
+                        surface = (int)Math.Floor(owned);
+                    else if (neighbor.X >= left && neighbor.X < right && neighbor.Z >= back && neighbor.Z < front)
+                    {
+                        if (!ground.TryGetValue(neighbor, out surface))
+                            ground[neighbor] = surface = NodeColumn(snapshot, map, layout, bed, neighbor).Height;
+                    }
+                    else continue;
+                    if (lowest is null || surface < lowest) lowest = surface;
+                }
+                if (lowest is not int floor) continue;
+                var start = floor + 1 - originY;
+                if (start >= column.MinY) continue;
+                for (var y = start; y < column.MinY; y++)
+                    cells.Add(new(new(local.X, y, local.Z), column.Rock));
+                bottoms.Add([at.X, at.Z, floor + 1]);
+            }
+            bottoms.Sort(static (left, right) => left[0] != right[0] ? left[0].CompareTo(right[0]) : left[1].CompareTo(right[1]));
+            return (cells.ToArray(), bottoms.ToArray());
+        }
     }
 
     private static object TerrainInputs(IContentView content, TerrainTypeId id)
@@ -940,7 +1048,7 @@ internal sealed class NodeScene : IAsyncDisposable
     private static Part TerrainPart(SceneWorldSnapshot snapshot, NodeMapItem node, NodeLayout layout,
         TerrainAppearanceProjection? terrain, VoxelDefinitionId ballastVoxel, Dictionary<VoxelDefinitionId, VoxelAppearanceProjection?> appearances,
         Dictionary<GridColumn, RailBed> bed, HashSet<GridColumn> boundaryColumns, ImmutableArray<SceneVoxelProjection> model,
-        GridColumn from, CancellationToken token)
+        GridColumn from, Dictionary<GridColumn, double> boundarySurfaces, CancellationToken token)
     {
         var cellCount = terrain is null ? 0 :
             (VoxelGrid.ChunkSize * VoxelGrid.ChunkSize - boundaryColumns.Count) * RailwayCoordinates.TerrainDepthCells;
@@ -949,15 +1057,22 @@ internal sealed class NodeScene : IAsyncDisposable
         var subject = new PickSubject.Terrain(new WorldLocation.Node(node.Id));
         var layers = RailwayTerrain.PrepareLayers(terrain, id => appearances.GetValueOrDefault(id), subject);
         var ballast = bed.Count > 0 ? RailwayTerrain.PrepareVoxel(ballastVoxel, id => appearances.GetValueOrDefault(id), subject) : null;
+        var bounds = layout.Bounds;
+        var left = (int)bounds.Minimum.X;
+        var right = (int)bounds.Maximum.X;
+        var back = (int)bounds.Minimum.Y;
+        var front = (int)bounds.Maximum.Y;
+        var computed = new Dictionary<GridColumn, (int Height, double Distance)>();
         for (var z = from.Z; z < from.Z + VoxelGrid.ChunkSize; z++)
         for (var x = from.X; x < from.X + VoxelGrid.ChunkSize; x++)
         {
             token.ThrowIfCancellationRequested();
             var column = new GridColumn(x, z);
             if (boundaryColumns.Contains(column)) continue;
-            var (height, distance) = Column(column);
+            var (height, distance) = At(column);
             heights.Add(column, height + 1);
-            RailwayTerrain.FillColumn(cells, column, height, layers, ballast, distance, double.IsFinite(distance));
+            RailwayTerrain.FillColumn(cells, column, height, layers, ballast, distance, double.IsFinite(distance),
+                lowestNeighbor: Lowest(column));
         }
         var modelCells = ImmutableArray.CreateBuilder<SceneCell>();
         foreach (var voxel in model)
@@ -972,18 +1087,42 @@ internal sealed class NodeScene : IAsyncDisposable
         var occupied = modelCells.Select(cell => cell.At).ToHashSet();
         return GridPart(cells.Where(cell => !occupied.Contains(cell.At)).Concat(modelCells).ToImmutableArray(), heights.ToImmutable(), []);
 
-        (int Height, double Distance) Column(GridColumn column)
+        (int Height, double Distance) At(GridColumn column)
         {
-            var raw = RailwayTerrain.NodeGround(snapshot, node, new(column.X + 0.5, 0, column.Z + 0.5), layout.Template);
-            var rail = bed.GetValueOrDefault(column);
-            var distance = rail?.Distance ?? double.PositiveInfinity;
-            if (rail is not null)
-            {
-                var blend = Math.Clamp((distance - RailwayCoordinates.BedBaseHalfWidth) / RailwayCoordinates.BedBlendWidth, 0, 1);
-                raw = RailwayTerrain.BedHeight(rail.Height, distance) * (1 - blend) + raw * blend;
-            }
-            return ((int)Math.Floor(raw), distance);
+            if (!computed.TryGetValue(column, out var value))
+                computed[column] = value = NodeColumn(snapshot, node, layout, bed, column);
+            return value;
         }
+
+        double? Lowest(GridColumn column)
+        {
+            double? lowest = null;
+            void Consider(GridColumn neighbor)
+            {
+                if (neighbor.X < left || neighbor.X >= right || neighbor.Z < back || neighbor.Z >= front) return;
+                var surface = boundarySurfaces.TryGetValue(neighbor, out var owned) ? owned : At(neighbor).Height;
+                if (lowest is null || surface < lowest) lowest = surface;
+            }
+            Consider(new(column.X + 1, column.Z));
+            Consider(new(column.X - 1, column.Z));
+            Consider(new(column.X, column.Z + 1));
+            Consider(new(column.X, column.Z - 1));
+            return lowest;
+        }
+    }
+
+    private static (int Height, double Distance) NodeColumn(SceneWorldSnapshot snapshot, NodeMapItem node, NodeLayout layout,
+        Dictionary<GridColumn, RailBed> bed, GridColumn column)
+    {
+        var raw = RailwayTerrain.NodeGround(snapshot, node, new(column.X + 0.5, 0, column.Z + 0.5), layout.Template);
+        var rail = bed.GetValueOrDefault(column);
+        var distance = rail?.Distance ?? double.PositiveInfinity;
+        if (rail is not null)
+        {
+            var blend = Math.Clamp((distance - RailwayCoordinates.BedBaseHalfWidth) / RailwayCoordinates.BedBlendWidth, 0, 1);
+            raw = RailwayTerrain.BedHeight(rail.Height, distance) * (1 - blend) + raw * blend;
+        }
+        return ((int)Math.Floor(raw), distance);
     }
 
     private static Part GridPart(ImmutableArray<SceneCell> cells, ImmutableDictionary<GridColumn, double> heights,

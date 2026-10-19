@@ -755,6 +755,116 @@ public sealed class RailwayTerrainTests
         Assert.IsNull(cache.Find(equivalent, path, 0));
     }
 
+    [TestMethod]
+    public void TunnelPortalsFillDownToTheNeighboringGround()
+    {
+        var snapshot = TunnelSnapshot(true, amplitude: 30.3);
+        var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
+        var segment = Build(snapshot);
+        var cells = SegmentCells(segment);
+        AssertColumnsMeet(path, cells);
+        foreach (var portal in segment.Tunnels.SelectMany(interval => new[] { interval.Start, interval.End }))
+            Assert.IsTrue(SteepNear(path, cells, portal, 16), $"Portal at {portal} must step by more than six cells.");
+    }
+
+    [TestMethod]
+    public void SteepSeamFillsDownAcrossSegments()
+    {
+        var terrain = RailwayFixtures.TerrainAppearance with { LocalHeightNoise = [new(1, 12)] };
+        var meters = (RailwayCoordinates.SegmentLengthCells + 1) / RailwayCoordinates.CellsPerMeter;
+        var snapshot = RailwayFixtures.ReplaceCore(RailwayFixtures.Snapshot(meters, meters, relief: 1, content: Content(terrain)), worldSeed: 2UL);
+        var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
+        var segments = new[] { Build(snapshot, 0), Build(snapshot, 1) };
+        var cells = SegmentCells(segments);
+        var maxSeam = 0;
+        foreach (var (column, group) in cells)
+        foreach (var neighbor in Orthogonal(column))
+            if (cells.TryGetValue(neighbor, out var other) && other.Segment.Index != group.Segment.Index)
+                maxSeam = Math.Max(maxSeam, Math.Abs(group.Cells.Max() - other.Cells.Max()));
+        Assert.IsTrue(maxSeam > RailwayCoordinates.TerrainDepthCells, "The seam must step by more than six cells.");
+        AssertColumnsMeet(path, cells);
+    }
+
+    [TestMethod]
+    public void FlatGroundKeepsSixCellsInEveryColumn()
+    {
+        var cells = SegmentCells(Build(Short()));
+        Assert.IsTrue(cells.Count > 0);
+        foreach (var column in cells.Values)
+            Assert.AreEqual(RailwayCoordinates.TerrainDepthCells, column.Cells.Count);
+    }
+
+    private static Dictionary<(int X, int Z), (HashSet<int> Cells, RailwaySegment Segment)> SegmentCells(params RailwaySegment[] segments)
+    {
+        var cells = new Dictionary<(int X, int Z), (HashSet<int> Cells, RailwaySegment Segment)>();
+        foreach (var segment in segments)
+        {
+            var grid = segment.Geometry.Picking.OrderByDescending(item => item.Grid.Cells.Count()).First().Grid;
+            foreach (var cell in grid.Cells)
+            {
+                var key = ((int)Math.Floor(segment.Origin.X) + cell.At.X, (int)Math.Floor(segment.Origin.Z) + cell.At.Z);
+                var y = (int)Math.Floor(segment.Origin.Y) + cell.At.Y;
+                if (!cells.TryGetValue(key, out var column)) cells[key] = column = ([], segment);
+                column.Cells.Add(y);
+            }
+        }
+        return cells;
+    }
+
+    private static void AssertColumnsMeet(RailwayPath path, Dictionary<(int X, int Z), (HashSet<int> Cells, RailwaySegment Segment)> cells)
+    {
+        foreach (var (column, group) in cells)
+        {
+            var surface = group.Cells.Max();
+            foreach (var neighbor in Orthogonal(column))
+            {
+                if (!cells.TryGetValue(neighbor, out var other)) continue;
+                var lower = other.Cells.Max();
+                if (lower >= surface) continue;
+                for (var y = lower + 1; y <= surface; y++)
+                {
+                    if (Excavated(path, group.Segment, column, y, surface)) continue;
+                    Assert.IsTrue(group.Cells.Contains(y),
+                        $"({column.X},{column.Z}) is missing {y} above ({neighbor.X},{neighbor.Z}) at {lower}.");
+                }
+            }
+        }
+    }
+
+    private static bool SteepNear(RailwayPath path, Dictionary<(int X, int Z), (HashSet<int> Cells, RailwaySegment Segment)> cells, double portal, double reach)
+    {
+        foreach (var (column, group) in cells)
+        {
+            var point = new ScenePoint(column.X + 0.5, 0, column.Z + 0.5);
+            if (Math.Abs(path.Locate(point) - portal) > reach) continue;
+            var surface = group.Cells.Max();
+            foreach (var neighbor in Orthogonal(column))
+                if (cells.TryGetValue(neighbor, out var other) && Math.Abs(surface - other.Cells.Max()) > RailwayCoordinates.TerrainDepthCells)
+                    return true;
+        }
+        return false;
+    }
+
+    private static bool Excavated(RailwayPath path, RailwaySegment segment, (int X, int Z) column, int y, int surface)
+    {
+        var point = new ScenePoint(column.X + 0.5, 0, column.Z + 0.5);
+        var arc = path.Locate(point);
+        if (!segment.Tunnels.Any(interval => arc >= interval.Start && arc <= interval.End)) return false;
+        var rail = path.Sample(arc);
+        var offset = (point.X - rail.Position.X) * rail.Right.X + (point.Z - rail.Position.Z) * rail.Right.Z;
+        if (Math.Abs(offset) >= RailwayCoordinates.TunnelShoulder(path.Edge.Tracks)) return false;
+        var upper = Math.Min(rail.Position.Y + RailwayCoordinates.TunnelCrownCells, surface);
+        return y >= rail.Position.Y && y < upper;
+    }
+
+    private static IEnumerable<(int X, int Z)> Orthogonal((int X, int Z) column)
+    {
+        yield return (column.X + 1, column.Z);
+        yield return (column.X - 1, column.Z);
+        yield return (column.X, column.Z + 1);
+        yield return (column.X, column.Z - 1);
+    }
+
     private static SceneWorldSnapshot TunnelSnapshot(bool includeModel, bool diagonal = false, double amplitude = 100)
     {
         var terrain = RailwayFixtures.TerrainAppearance with
