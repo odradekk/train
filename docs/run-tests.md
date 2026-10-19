@@ -81,6 +81,7 @@ gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selec
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=starting-trade
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=rail-repair
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=conquest
+gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=operating-failure
 # 阶段验收：工作流使用 master，代码使用固定的完整 40 位提交 SHA
 gh workflow run windows-checks.yml --repo odradekk/train --ref master -f selection=long-example -f example=lease-expiry -f commit=<完整 SHA>
 # 显式请求 Windows 常规或完整正确性检查
