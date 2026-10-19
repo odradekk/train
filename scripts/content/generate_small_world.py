@@ -217,7 +217,8 @@ RECOVERY = (
 TEMPLATE_PLANS = {
     "agricultural-town": ((6, "production", "grain-farming", True), (7, "production", "staple-food-processing", True)),
     "mining-town": ((6, "extraction", "stone-quarrying", True), (7, "production", "structural-metal-smelting", True),
-                    (8, "production", "construction-material-processing", True)),
+                    (8, "production", "construction-material-processing", True),
+                    (9, "production", "rail-making", True)),
     "forestry-town": ((6, "extraction", "timber-harvesting", True), (7, "production", "lumber-processing", True)),
     "oilfield-town": ((6, "extraction", "crude-oil-extraction", True), (7, "production", "oil-refining", True)),
     "industrial-city": ((6, "production", "electrical-components-assembly", True),
@@ -1526,7 +1527,7 @@ def content_files():
         plots = [{"id": 1, "size": "small_station", "at": [-104, 1, -176], "orientation": "px_py", "building": "small-station"},
                  {"id": 2, "size": "small_station", "at": [104, 1, -176], "orientation": "px_py"}]
         prebuilt = ("vehicle-workshop", "small-warehouse", "power-station") + major_buildings
-        # 各行列间隔足以容纳旋转后的大地块；第十地块留给建城工棚。
+        # 各行列间隔足以容纳旋转后的大地块；第十地块留给建城工棚。矿镇把空的第九地块改为大地块，放第二座冶金厂。
         positions = ((-224, 0), (0, 0), (224, 0), (-224, 224), (0, 224), (224, 224), (-224, 448), (0, 448))
         for index, (x, z) in enumerate(positions):
             plot = {"id": index + 3, "size": plot_sizes[prebuilt[index]] if index < len(prebuilt) else "small",
@@ -1534,6 +1535,10 @@ def content_files():
             if index < len(prebuilt):
                 plot["building"] = prebuilt[index]
             plots.append(plot)
+        if identity == "mining-town":
+            rail_plot = next(plot for plot in plots if plot["id"] == 9)
+            rail_plot["size"] = "large"
+            rail_plot["building"] = "metallurgy-factory"
         ground = {(x, 0, z): 0 for x in range(-328, 328) for z in range(-2, 2)}
         ground.update({(x, 0, z): 0 for x in range(-2, 2) for z in range(-232, 552)})
         for row in (224, 448):
@@ -1549,7 +1554,10 @@ def content_files():
                   "production_plans": [{"plot": plot, "capability": capability, "process": process,
                                         "enabled": enabled, "priority": INITIAL_PLAN_PRIORITY}
                                        for plot, capability, process, enabled in TEMPLATE_PLANS[identity]],
-                  "display": {"name": name + "经济布局", "description": "十地块布局，含两个站点地块与真实生产计划；普通库存与现车由核心按生成配置初始化。"}})
+                  "display": {"name": name + "经济布局", "description":
+                              ("十地块布局，地块 9 为第二座冶金厂并启用炼轨；含两个站点地块与真实生产计划；普通库存与现车由核心按生成配置初始化。"
+                               if identity == "mining-town" else
+                               "十地块布局，含两个站点地块与真实生产计划；普通库存与现车由核心按生成配置初始化。")}})
 
     for value in (core_city_hub(), bastion_fortress()):
         document("blueprints", "blueprint", value["id"], value)

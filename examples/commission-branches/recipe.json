@@ -14,11 +14,11 @@
         "loop": false,
         "stops": [
           {
-            "node": 13,
+            "node": 8,
             "kind": "station",
             "goods_rules": [
               {
-                "local_inventory": 5,
+                "local_inventory": 3,
                 "action": {
                   "maximum_unit_price": null,
                   "kind": "buy"
@@ -109,7 +109,7 @@
       "kind": "train.start"
     },
     {
-      "facility": 37,
+      "facility": 38,
       "kind": "construction.commission_vehicle_work",
       "at": {
         "completed_steps": 10000,
@@ -120,7 +120,7 @@
       "maximum_payment": 9223372036854775807
     },
     {
-      "facility": 37,
+      "facility": 38,
       "kind": "construction.commission_vehicle_work",
       "at": {
         "completed_steps": 10000,

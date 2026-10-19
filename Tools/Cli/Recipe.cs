@@ -67,7 +67,7 @@ internal sealed record RecipeCommand(
     [property: JsonRequired] string Kind,
     ulong? Train = null,
     RecipePlan? Plan = null,
-    RecipeLeaseRequest? Request = null,
+    JsonElement? Request = null,
     ulong? Seller = null,
     ulong? Vehicle = null,
     long? MaximumPayment = null,
@@ -77,45 +77,72 @@ internal sealed record RecipeCommand(
     long? Quantity = null,
     ulong? Facility = null,
     string? Blueprint = null,
-    ImmutableArray<ulong> Sources = default)
+    ImmutableArray<ulong> Sources = default,
+    ulong? Node = null,
+    ulong? Edge = null,
+    ulong? Break = null,
+    int? Track = null,
+    double? DistanceMeters = null,
+    [property: JsonConverter(typeof(RecipeOptionalIdConverter))] RecipeOptionalId? MaterialSource = null,
+    ImmutableArray<ulong> OrderedVehicles = default)
 {
     internal void Validate()
     {
-        if (Kind != "construction.commission_vehicle_work") { Parse(); return; }
-        if (Facility is null or 0 || string.IsNullOrWhiteSpace(Blueprint) || Sources.IsDefault
-            || Sources.Any(source => source == 0) || MaximumPayment is null or < 0
-            || Train is not null || Plan is not null || Request is not null || Seller is not null || Vehicle is not null
-            || Settlement is not null || LocalInventory is not null || Good is not null || Quantity is not null)
-            throw Invalid();
+        if (Kind is "construction.commission_vehicle_work" or "construction.start_owned")
+        {
+            RejectUnused(facility: Kind == "construction.commission_vehicle_work", request: Kind == "construction.start_owned",
+                payment: Kind == "construction.commission_vehicle_work");
+            if (Kind == "construction.commission_vehicle_work")
+            {
+                if (Facility is null or 0 || string.IsNullOrWhiteSpace(Blueprint) || Sources.IsDefault
+                    || Sources.Any(source => source == 0) || MaximumPayment is null or < 0)
+                    throw Invalid();
+            }
+            else ParseOwned(null);
+            return;
+        }
+        Parse();
     }
 
     internal CoreCommand Parse(IContentView content)
     {
-        if (Kind != "construction.commission_vehicle_work") return Parse();
-        Validate();
-        var blueprint = content.FindBlueprint(new(BlueprintLibrary.Packages, new(Blueprint!)));
-        if (blueprint is not ContentLookup<BlueprintRecord>.Found
-            { Value.Evaluation: DesignEvaluation.Complete { IsValid: true, Core: { } design } })
-            throw new InvalidDataException($"委托蓝图不可用：{Blueprint}。");
-        return new CoreCommand.CommissionVehicleWork(new JobRequest.BuildVehicle(
-            new(new(Facility!.Value), CapabilityKind.Construction), design,
-            Sources.Select(source => new InventoryId(source)).ToImmutableArray(), 0), new(MaximumPayment!.Value));
+        if (Kind == "construction.commission_vehicle_work")
+        {
+            Validate();
+            return new CoreCommand.CommissionVehicleWork(new JobRequest.BuildVehicle(
+                new(new(Facility!.Value), CapabilityKind.Construction), BlueprintDesign(content, Blueprint!),
+                Sources.Select(source => new InventoryId(source)).ToImmutableArray(), 0), new(MaximumPayment!.Value));
+        }
+        if (Kind == "construction.start_owned")
+        {
+            Validate();
+            var job = ParseOwned(content);
+            return new CoreCommand.StartOwnedJob(new JobRequest.BuildBuilding(
+                new(new(job.Facility.Building), CapabilityKind.Construction), new(job.Plot),
+                BlueprintDesign(content, job.Blueprint),
+                job.Sources.Select(source => new InventoryId(source)).ToImmutableArray(), job.Priority));
+        }
+        return Parse();
     }
 
     internal CoreCommand Parse()
     {
-        var trainCommand = Kind is "train.replace_run_plan" or "train.start" or "train.stop";
+        var trainCommand = Kind is "train.replace_run_plan" or "train.start" or "train.stop" or "train.disband";
         var transfer = Kind is "inventory.load_goods" or "inventory.unload_goods";
         var lease = Kind == "lease.acquire";
         var vehicle = Kind == "market.buy_vehicle";
-        if (!(trainCommand || transfer || lease || vehicle) || Facility is not null || Blueprint is not null || !Sources.IsDefault
-            || (trainCommand || transfer ? Train is null or 0 : Train is not null)
-            || Kind != "train.replace_run_plan" && Plan is not null
-            || !lease && Request is not null
-            || !vehicle && (Seller is not null || Vehicle is not null)
-            || !(lease || vehicle) && MaximumPayment is not null
-            || !transfer && (Settlement is not null || LocalInventory is not null || Good is not null || Quantity is not null))
+        var form = Kind == "train.form";
+        var found = Kind == "settlement.found";
+        var expand = Kind == "rail.expand";
+        var repair = Kind == "rail.repair";
+        var automatic = Kind == "rail.set_automatic_repair";
+        var debugBreak = Kind == "rail.debug_add_break";
+        if (!(trainCommand || transfer || lease || vehicle || form || found || expand || repair || automatic || debugBreak))
             throw Invalid();
+        RejectUnused(train: trainCommand || transfer, plan: Kind == "train.replace_run_plan", request: lease,
+            vehicle: vehicle, payment: lease || vehicle, transfer: transfer, vehicles: form, node: found,
+            edge: expand || repair || automatic || debugBreak, railBreak: repair,
+            track: debugBreak, distance: debugBreak, material: found || expand || repair || automatic);
         switch (Kind)
         {
             case "train.replace_run_plan" when Plan is { Stops.IsDefault: false, Stops.IsEmpty: false } plan:
@@ -123,7 +150,12 @@ internal sealed record RecipeCommand(
                     plan.Stops.Select(stop => stop?.Parse() ?? throw Invalid()).ToImmutableArray()));
             case "train.start": return new CoreCommand.StartTrain(new(Train!.Value));
             case "train.stop": return new CoreCommand.StopTrain(new(Train!.Value));
-            case "lease.acquire" when Request is { Kind: "rent", Settlement: > 0, Capacity: > 0, DurationSteps: > 0 } rent
+            case "train.disband": return new CoreCommand.DisbandTrain(new(Train!.Value));
+            case "train.form" when !OrderedVehicles.IsDefault && OrderedVehicles.All(id => id > 0):
+                return new CoreCommand.FormTrain(OrderedVehicles.Select(id => new VehicleId(id)).ToImmutableArray());
+            case "settlement.found" when MaterialSource?.Value is > 0:
+                return new CoreCommand.FoundSettlement(new(Node!.Value), new(RequiredMaterial()));
+            case "lease.acquire" when Lease() is { Kind: "rent", Settlement: > 0, Capacity: > 0, DurationSteps: > 0 } rent
                 && MaximumPayment is >= 0:
                 return new CoreCommand.AcquireLease(new LeaseRequest.Rent(new(rent.Settlement), rent.Capacity,
                     rent.DurationSteps), new(MaximumPayment.Value));
@@ -136,12 +168,117 @@ internal sealed record RecipeCommand(
                         Good.Parse(), Quantity.Value)
                     : new CoreCommand.UnloadGoods(new(Train!.Value), new(Settlement.Value), new(LocalInventory.Value),
                         Good.Parse(), Quantity.Value);
+            case "rail.expand" when MaterialSource?.Value is > 0:
+                return new CoreCommand.ExpandRail(new(Edge!.Value), new(RequiredMaterial()));
+            case "rail.repair" when MaterialSource?.Value is > 0:
+                return new CoreCommand.RepairRail(new(Edge!.Value), new(Break!.Value), new(RequiredMaterial()));
+            case "rail.set_automatic_repair":
+                return new CoreCommand.SetAutomaticRailRepair(new(Edge!.Value),
+                    MaterialSource!.Value.Value is { } source ? new SettlementId(source) : null);
+            case "rail.debug_add_break" when Track is >= 1 && DistanceMeters is >= 0 && double.IsFinite(DistanceMeters.Value):
+                return new CoreCommand.DebugAddRailBreak(new(Edge!.Value), Track.Value, DistanceMeters.Value);
             default: throw Invalid();
         }
     }
 
+    private ulong RequiredMaterial() => MaterialSource!.Value.Value ?? throw Invalid();
+
+    private void RejectUnused(bool train = false, bool plan = false, bool request = false, bool vehicle = false,
+        bool payment = false, bool transfer = false, bool facility = false, bool vehicles = false, bool node = false,
+        bool edge = false, bool railBreak = false, bool track = false, bool distance = false, bool material = false)
+    {
+        if ((train ? Train is null or 0 : Train is not null)
+            || (plan ? Plan is null : Plan is not null)
+            || (request ? Request is null : Request is not null)
+            || (vehicle ? Seller is null || Vehicle is null : Seller is not null || Vehicle is not null)
+            || (payment ? MaximumPayment is null : MaximumPayment is not null)
+            || (transfer ? Settlement is null || LocalInventory is null || Good is null || Quantity is null
+                : Settlement is not null || LocalInventory is not null || Good is not null || Quantity is not null)
+            || (facility ? Facility is null || Blueprint is null || Sources.IsDefault
+                : Facility is not null || Blueprint is not null || !Sources.IsDefault)
+            || (vehicles ? OrderedVehicles.IsDefault : !OrderedVehicles.IsDefault)
+            || (node ? Node is null or 0 : Node is not null)
+            || (edge ? Edge is null or 0 : Edge is not null)
+            || (railBreak ? Break is null or 0 : Break is not null)
+            || (track ? Track is null : Track is not null)
+            || (distance ? DistanceMeters is null : DistanceMeters is not null)
+            || (material ? MaterialSource is null : MaterialSource is not null))
+            throw Invalid();
+    }
+
+    private RecipeLeaseRequest Lease()
+    {
+        try
+        {
+            return Request is { ValueKind: JsonValueKind.Object } element
+                ? JsonSerializer.Deserialize<RecipeLeaseRequest>(element, Recipe.Json) ?? throw Invalid()
+                : throw Invalid();
+        }
+        catch (JsonException) { throw Invalid(); }
+    }
+
+    private RecipeOwnedJob ParseOwned(IContentView? content)
+    {
+        RecipeOwnedJob job;
+        try
+        {
+            job = Request is { ValueKind: JsonValueKind.Object } element
+                ? JsonSerializer.Deserialize<RecipeOwnedJob>(element, Recipe.Json) ?? throw Invalid()
+                : throw Invalid();
+        }
+        catch (JsonException) { throw Invalid(); }
+        if (job.Kind != "build_building" || job.Facility is not { Building: > 0, Capability: "construction" }
+            || job.Plot == 0 || string.IsNullOrWhiteSpace(job.Blueprint) || job.Sources.IsDefault
+            || job.Sources.Any(source => source == 0))
+            throw Invalid();
+        if (content is not null) BlueprintDesign(content, job.Blueprint);
+        return job;
+    }
+
+    private static DesignInput BlueprintDesign(IContentView content, string blueprint)
+    {
+        var found = content.FindBlueprint(new(BlueprintLibrary.Packages, new(blueprint)));
+        if (found is not ContentLookup<BlueprintRecord>.Found
+            { Value.Evaluation: DesignEvaluation.Complete { IsValid: true, Core: { } design } })
+            throw new InvalidDataException($"蓝图不可用：{blueprint}。");
+        return design;
+    }
+
     private InvalidDataException Invalid() => new($"不支持的配方命令或参数：{Kind}。");
 }
+
+internal readonly record struct RecipeOptionalId(ulong? Value);
+
+internal sealed class RecipeOptionalIdConverter : JsonConverter<RecipeOptionalId>
+{
+    public override bool HandleNull => true;
+
+    public override RecipeOptionalId Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null) return new(null);
+        if (reader.TokenType != JsonTokenType.Number || !reader.TryGetUInt64(out var value) || value == 0)
+            throw new JsonException("材料来源必须是非零身份或 null。");
+        return new(value);
+    }
+
+    public override void Write(Utf8JsonWriter writer, RecipeOptionalId value, JsonSerializerOptions options)
+    {
+        if (value.Value is { } number) writer.WriteNumberValue(number);
+        else writer.WriteNullValue();
+    }
+}
+
+internal sealed record RecipeOwnedJob(
+    [property: JsonRequired] string Kind,
+    [property: JsonRequired] RecipeFacility Facility,
+    [property: JsonRequired] ulong Plot,
+    [property: JsonRequired] string Blueprint,
+    [property: JsonRequired] ImmutableArray<ulong> Sources,
+    [property: JsonRequired] int Priority);
+
+internal sealed record RecipeFacility(
+    [property: JsonRequired] ulong Building,
+    [property: JsonRequired] string Capability);
 
 internal sealed record RecipeLeaseRequest(
     [property: JsonRequired] string Kind,
