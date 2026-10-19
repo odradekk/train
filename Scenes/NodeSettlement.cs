@@ -44,7 +44,7 @@ internal static class NodeSettlement
         return points.Count == 0 ? new(Vector2.Zero, Vector2.Zero) : new(points.Aggregate(Vector2.Min), points.Aggregate(Vector2.Max));
     }
 
-    private static IEnumerable<(FlattenRegion Region, ScenePose Pose)> Flatten(DesignSceneProjection scene)
+    internal static IEnumerable<(FlattenRegion Region, ScenePose Pose)> Flatten(DesignSceneProjection scene)
     {
         var identity = new ScenePose(Vector3.Zero, Quaternion.Identity);
         if (scene.RootFlatten is { } root) yield return (root, identity);
@@ -60,17 +60,21 @@ internal static class NodeSettlement
         }
     }
 
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SettlementLayoutProjection,
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<DesignSceneProjection,
         (FlattenRegion Region, ScenePose Pose)[]> flattenRegions = new();
-    internal static double FlattenGround(SettlementLayoutProjection template, ScenePoint point, double raw)
+    internal static double FlattenGround(SettlementLayoutProjection template, ScenePoint point, double raw) =>
+        FlattenGround(template.SceneModel.Scene, 0, 0, point, raw);
+
+    internal static double FlattenGround(DesignSceneProjection scene, int shiftX, int shiftZ, ScenePoint point, double raw)
     {
-        foreach (var (region, pose) in flattenRegions.GetValue(template, value => Flatten(value.SceneModel.Scene).ToArray()))
+        foreach (var (region, pose) in flattenRegions.GetValue(scene, value => Flatten(value).ToArray()))
         {
-            var local = Vector3.Transform(new Vector3((float)point.X, 0, (float)point.Z) - pose.Position, Quaternion.Conjugate(pose.Rotation));
+            var position = pose.Position + new Vector3(shiftX, 0, shiftZ);
+            var local = Vector3.Transform(new Vector3((float)point.X, 0, (float)point.Z) - position, Quaternion.Conjugate(pose.Rotation));
             var distance = Math.Max(Math.Max(region.From.X - local.X, local.X - region.To.X - 1),
                 Math.Max(region.From.Z - local.Z, local.Z - region.To.Z - 1));
             var blend = Math.Clamp(distance / 8, 0, 1);
-            raw = (pose.Position.Y + region.Height - 1) * (1 - blend) + raw * blend;
+            raw = (position.Y + region.Height - 1) * (1 - blend) + raw * blend;
         }
         return raw;
     }

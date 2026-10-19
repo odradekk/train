@@ -23,10 +23,12 @@ internal sealed partial class NodeLayout
     internal NodeId Node { get; }
     internal sealed record Stop(int PlotNumber, double LocalZ, ScenePoint Center, Vector3 Forward);
     internal sealed record ParkingLine(ScenePoint Start, Vector3 Forward, double Length);
+    internal sealed record LairPlacement(SceneModelProjection Model, int ShiftX, int ShiftZ);
     internal SettlementLayoutProjection? Template { get; private init; }
+    internal LairPlacement? Lair { get; private set; }
     internal ImmutableArray<Stop> Stops { get; private init; } = [];
     internal ImmutableArray<ParkingLine> Parking { get; private init; } = [];
-    internal ImmutableArray<SceneProblem> Problems { get; private init; } = [];
+    internal ImmutableArray<SceneProblem> Problems { get; private set; } = [];
     // Both build paths finish the geometry before assigning the final bounds and publishing the layout.
     internal ScenePanBounds Bounds { get; private set; } = null!;
     private ImmutableArray<Stop> routeStops = [];
@@ -146,7 +148,28 @@ internal sealed partial class NodeLayout
         result.PrepareTurns(turnEnvelope, rules.MaximumGrade);
         result.PrepareTrainRoutes();
         result.CaptureSamples(snapshot);
+        result.PlaceLair(snapshot);
         return result;
+    }
+
+    private void PlaceLair(SceneWorldSnapshot snapshot)
+    {
+        if (snapshot.Core.World.Nodes.Single(item => item.Id == Node).Occupant is not NodeOccupant.Lair occupant) return;
+        if (snapshot.Core.FindLair(occupant.Id) is not Lookup<LairView>.Found core) return;
+        var type = core.Value.Type;
+        var reference = new ContentReference.Core(new CoreDefinitionReference.Lair(type));
+        var lookup = snapshot.Content.FindLair(type);
+        if (lookup is not ContentLookup<LairAppearanceProjection>.Found found)
+        {
+            var diagnostics = lookup is ContentLookup<LairAppearanceProjection>.Missing missing ? missing.Diagnostics : [];
+            var problems = ImmutableArray.CreateBuilder<SceneProblem>();
+            RailwayTerrain.ReportMissing(reference, diagnostics, "The lair scene model is missing.", problems,
+                new WorldObjectId.Node(Node));
+            Problems = Problems.AddRange(problems);
+            return;
+        }
+        var shift = NodeLair.Translation(this, found.Value.SceneModel.Scene);
+        Lair = new(found.Value.SceneModel, shift.X, shift.Z);
     }
 
     internal static string ReadInputs(SceneWorldSnapshot snapshot, NodeId id)

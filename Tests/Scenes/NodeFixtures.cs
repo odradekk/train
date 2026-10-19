@@ -205,7 +205,9 @@ internal static class NodeFixtures
         bool missing = false, DesignEvaluation? design = null, TerrainAppearanceProjection? terrain = null,
         RailwayAppearanceProjection? rules = null, VoxelAppearanceProjection? voxel = null,
         IReadOnlyDictionary<DesignHash, ContentLookup<DesignEvaluation>>? designs = null,
-        SettlementLayoutProjection? layout = null)
+        SettlementLayoutProjection? layout = null,
+        IReadOnlyDictionary<LairTypeId, ContentLookup<LairAppearanceProjection>>? lairs = null,
+        IReadOnlyDictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>? voxelAppearances = null)
     {
         design ??= RailwayFixtures.Vehicle();
         var hash = design is DesignEvaluation.Complete complete ? complete.Design : SceneFixtures.Design;
@@ -215,18 +217,22 @@ internal static class NodeFixtures
             [StationDesign] = new ContentLookup<DesignEvaluation>.Found(StationEvaluation())
         };
         foreach (var item in designs ?? ImmutableDictionary<DesignHash, ContentLookup<DesignEvaluation>>.Empty) evaluations[item.Key] = item.Value;
+        var appearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
+        {
+            [SceneFixtures.Voxel] = new ContentLookup<VoxelAppearanceProjection>.Found(voxel ?? SceneFixtures.Cube),
+            [Concrete] = missing ? new ContentLookup<VoxelAppearanceProjection>.Missing([]) :
+                new ContentLookup<VoxelAppearanceProjection>.Found(concrete ?? ConcreteCube)
+        };
+        if (voxelAppearances is not null)
+            foreach (var item in voxelAppearances) appearances[item.Key] = item.Value;
         return new()
         {
             Generation = new(generation), Core = SceneFixtures.Content().Core,
             Voxels = [new(Concrete, null), new(SceneFixtures.Voxel, null)],
             Designs = evaluations,
             SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>> { [new(1)] = new ContentLookup<SettlementLayoutProjection>.Found(layout ?? Layout) },
-            VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
-            {
-                [SceneFixtures.Voxel] = new ContentLookup<VoxelAppearanceProjection>.Found(voxel ?? SceneFixtures.Cube),
-                [Concrete] = missing ? new ContentLookup<VoxelAppearanceProjection>.Missing([]) :
-                    new ContentLookup<VoxelAppearanceProjection>.Found(concrete ?? ConcreteCube)
-            },
+            Lairs = lairs ?? new Dictionary<LairTypeId, ContentLookup<LairAppearanceProjection>>(),
+            VoxelAppearances = appearances,
             Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
             { [RailwayFixtures.Terrain] = new ContentLookup<TerrainAppearanceProjection>.Found(terrain ?? RailwayFixtures.TerrainAppearance) },
             RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>

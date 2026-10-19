@@ -93,7 +93,7 @@ internal static class RailwayFixtures
     }
 
     internal static SceneWorldSnapshot ReplaceCore(SceneWorldSnapshot snapshot, NodeMapItem? node = null, EdgeMapItem? edge = null,
-        ulong? worldSeed = null)
+        ulong? worldSeed = null, IReadOnlyDictionary<LairId, Lookup<LairView>>? lairs = null)
     {
         var world = snapshot.Core.World;
         var nodes = world.Nodes.Select(item => node is not null && item.Id == node.Id ? node : item).ToImmutableArray();
@@ -121,7 +121,10 @@ internal static class RailwayFixtures
                     .SelectMany(item => item.Value.Plots.Select(plot => plot.Occupant).OfType<PlotOccupant.Building>()
                         .Select(building => (InstanceId)new InstanceId.Building(building.Id))
                         .Concat(item.Value.ParkedVehicles.Select(vehicle => (InstanceId)new InstanceId.Vehicle(vehicle)))))
-                .Distinct().ToDictionary(id => id, id => snapshot.Core.FindInstance(id))
+                .Distinct().ToDictionary(id => id, id => snapshot.Core.FindInstance(id)),
+                Lairs = lairs ?? (snapshot.Core is FixedCoreReadView core
+                    ? core.Lairs.ToDictionary(pair => pair.Key, pair => pair.Value)
+                    : new Dictionary<LairId, Lookup<LairView>>())
             }
         };
     }

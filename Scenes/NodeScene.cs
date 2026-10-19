@@ -65,7 +65,8 @@ internal sealed class NodeScene : IAsyncDisposable
             var boundary = BoundaryChunks.GetValueOrDefault(from) ?? [];
             var surfaces = SurfacesNear(from);
             var model = ModelChunks.GetValueOrDefault(from, []);
-            return RailwayDependencies.Values(new object?[] { TerrainInputs, Global.Layout.Template?.SceneModel.Design, from,
+            return RailwayDependencies.Values(new object?[] { TerrainInputs, Global.Layout.Template?.SceneModel.Design,
+                LairInputs(Global.Layout), from,
                 model.Select(voxel => voxel.Voxel).Distinct().Select(id => Appearances[id]).ToArray(),
                 bed.OrderBy(item => item.Key.X).ThenBy(item => item.Key.Z).ToArray(),
                 boundary.OrderBy(item => item.X).ThenBy(item => item.Z).ToArray(),
@@ -863,6 +864,11 @@ internal sealed class NodeScene : IAsyncDisposable
             foreach (var id in new[] { terrain.SurfaceVoxel, terrain.SubsurfaceVoxel, terrain.RockVoxel }.Distinct())
                 appearances[id] = (snapshot.Content.FindVoxelAppearance(id) as ContentLookup<VoxelAppearanceProjection>.Found)?.Value;
         var model = layout.Template?.SceneModel.Scene.Voxels ?? [];
+        if (layout.Lair is { } placed)
+            model = model.AddRange(placed.Model.Scene.Voxels.Select(voxel => voxel with
+            {
+                At = new(voxel.At.X + placed.ShiftX, voxel.At.Y, voxel.At.Z + placed.ShiftZ)
+            }));
         foreach (var voxel in model.Select(v => v.Voxel).Distinct())
             appearances[voxel] = (snapshot.Content.FindVoxelAppearance(voxel) as ContentLookup<VoxelAppearanceProjection>.Found)?.Value;
         var modelChunks = model.GroupBy(v => new GridColumn((int)Math.Floor((double)v.At.X / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize,
@@ -876,7 +882,8 @@ internal sealed class NodeScene : IAsyncDisposable
         var boundaries = ImmutableDictionary.CreateBuilder<EdgeId, RailwayTerrain.BoundaryData>();
         var boundaryOwners = new Dictionary<GridColumn, (EdgeId Edge, double Distance)>();
         var terrainInputs = RailwayDependencies.Values(new object?[] { snapshot.Core.World.WorldSeed, map.Position, map.Terrain.TypeId,
-            map.Terrain.Relief, TerrainInputs(snapshot.Content, map.Terrain.TypeId), NodeSettlement.Inputs(layout.Template) });
+            map.Terrain.Relief, TerrainInputs(snapshot.Content, map.Terrain.TypeId), NodeSettlement.Inputs(layout.Template),
+            LairInputs(layout) });
         foreach (var entry in layout.Entries)
         {
             var path = new RailwayPath(snapshot, entry.Edge, token);
@@ -1067,6 +1074,9 @@ internal sealed class NodeScene : IAsyncDisposable
         }
     }
 
+    private static object? LairInputs(NodeLayout layout) => layout.Lair is { } lair
+        ? new object?[] { lair.Model.Design, lair.ShiftX, lair.ShiftZ } : null;
+
     private static object TerrainInputs(IContentView content, TerrainTypeId id)
     {
         var lookup = content.FindTerrain(id);
@@ -1152,7 +1162,10 @@ internal sealed class NodeScene : IAsyncDisposable
     private static (int Height, double Distance) NodeColumn(SceneWorldSnapshot snapshot, NodeMapItem node, NodeLayout layout,
         Dictionary<GridColumn, RailBed> bed, GridColumn column)
     {
-        var raw = RailwayTerrain.NodeGround(snapshot, node, new(column.X + 0.5, 0, column.Z + 0.5), layout.Template);
+        var point = new ScenePoint(column.X + 0.5, 0, column.Z + 0.5);
+        var raw = RailwayTerrain.NodeGround(snapshot, node, point, layout.Template);
+        if (layout.Lair is { } lair)
+            raw = NodeSettlement.FlattenGround(lair.Model.Scene, lair.ShiftX, lair.ShiftZ, point, raw);
         var rail = bed.GetValueOrDefault(column);
         var distance = rail?.Distance ?? double.PositiveInfinity;
         if (rail is not null)
