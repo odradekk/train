@@ -283,6 +283,41 @@ public sealed class CombatFrameTests
     }
 
     [TestMethod]
+    public async Task PartialFrameEmitsAnObservedHit()
+    {
+        var (content, instance, _) = Turret();
+        var snapshot = RailwayFixtures.Snapshot(800, 600, relief: 0, steps: 1, content: content,
+            trains: [RailwayFixtures.Train(128)], instances: [instance]);
+        var state = new PresentationState();
+        state.Note(snapshot, [Envelope(snapshot, new CoreEvent.CombatHits(new(1), RailwayFixtures.Location, [Hit(instance)]))],
+            RailwayFixtures.Location);
+        using var release = new ManualResetEventSlim();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = RailwayFixtures.Controlled(snapshot, vehicles, (input, path, index, token) =>
+        {
+            if (index != 2) release.Wait(token);
+            return RailwayFixtures.EmptySegment(input, path, index, token);
+        }, presentation: state);
+        var target = new WorldSceneTarget.Location(new WorldLocation.Edge(RailwayFixtures.Edge, 128));
+        var stamp = new SceneFrameStamp(new(Guid.NewGuid()), new(1), new(1), 1);
+        try
+        {
+            var opened = scene.Present(snapshot, null, target, Request, stamp, null);
+            SceneFrame frame;
+            if (opened.Readiness == SceneReadiness.Partial)
+                frame = opened;
+            else
+            {
+                await Task.WhenAny(scene.PendingWork);
+                frame = scene.Present(snapshot, null, target, Request, stamp with { Revision = 2 }, null);
+            }
+            Assert.AreEqual(SceneReadiness.Partial, frame.Readiness);
+            Assert.IsTrue(frame.Update.Effects.Any(item => item.Kind == SceneEffectKind.Shot));
+        }
+        finally { release.Set(); }
+    }
+
+    [TestMethod]
     public async Task RailBreakEmitsRailwayDamageAndRepairEmitsNothing()
     {
         var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle());

@@ -137,7 +137,7 @@ internal static class RailwayFixtures
 
     internal static RailwayScene Controlled(SceneWorldSnapshot snapshot, SceneVehicles vehicles,
         Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null,
-        DisplayRate? displayRate = null, EdgeId? edge = null)
+        DisplayRate? displayRate = null, EdgeId? edge = null, PresentationState? presentation = null)
     {
         var ids = new Dictionary<string, SceneObjectId>();
         ulong next = 0;
@@ -145,7 +145,7 @@ internal static class RailwayFixtures
         {
             if (!ids.TryGetValue(key, out var id)) ids.Add(key, id = new(++next));
             return id;
-        }, vehicles, displayRate ?? new(), build ?? EmptySegment);
+        }, vehicles, displayRate ?? new(), build ?? EmptySegment, presentation: presentation);
     }
 
     internal static async Task<SceneFrame> Settled(RailwayScene scene, SceneWorldSnapshot snapshot,

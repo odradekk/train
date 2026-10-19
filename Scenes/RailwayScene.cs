@@ -135,7 +135,7 @@ internal sealed class RailwayScene : IAsyncDisposable
             if (patch is not null) terrain.Add(patch);
         }
         terrainPatches.Retain(terrainKeys);
-        var effects = Effects(snapshot, frame.Objects, seconds, origin, ready && failure is null);
+        var effects = Effects(snapshot, frame.Objects, seconds, origin, segments.Count > 0 && failure is null);
         return new(stamp, origin, seconds, failure is not null ? SceneReadiness.Failed : segments.Count == 0 ? SceneReadiness.Loading :
             ready ? SceneReadiness.Ready : SceneReadiness.Partial, frame.Objects.ToImmutable(), frame.Picking.ToImmutable(),
             frame.Fog.ToImmutable(), RailwayTerrain.UniqueProblems(frame.Problems), displayed, path,
@@ -352,11 +352,11 @@ internal sealed class RailwayScene : IAsyncDisposable
     }
 
     private ImmutableArray<SceneEffectCue> Effects(SceneWorldSnapshot snapshot, ImmutableArray<SceneObject>.Builder objects,
-        double seconds, ScenePoint origin, bool ready)
+        double seconds, ScenePoint origin, bool emit)
     {
         if (presentation is not { } state || path is null) return [];
         state.AddCreatures(objects, snapshot, new WorldLocation.Edge(Edge, 0), origin, path, null, seconds, objectId);
-        return ready ? state.Finish(objects, snapshot, new WorldLocation.Edge(Edge, 0), origin, path) : [];
+        return emit ? state.Finish(objects, snapshot, new WorldLocation.Edge(Edge, 0), origin, path) : [];
     }
 
     private bool RenderTrains(SceneWorldSnapshot snapshot, ImmutableArray<TrainPlacement> trains, ScenePoint origin,

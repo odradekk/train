@@ -768,7 +768,7 @@ internal sealed class NodeScene : IAsyncDisposable
         {
             state.AddCreatures(objects, snapshot, new WorldLocation.Node(Node), origin, null, layout, seconds, objectId,
                 (x, z) => GroundHeight(parts.Select(item => item.Part), x, z));
-            if (readiness == SceneReadiness.Ready)
+            if (failure is null)
                 effects = state.Finish(objects, snapshot, new WorldLocation.Node(Node), origin, null);
         }
         return new(stamp, origin, seconds, readiness,
