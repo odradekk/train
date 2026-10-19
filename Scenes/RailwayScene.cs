@@ -39,6 +39,7 @@ internal sealed class RailwayScene : IAsyncDisposable
     private readonly List<SegmentWork> retiredSegments = [];
     private readonly SceneVehicles vehicles;
     internal PresentationState? Presentation { get; set; }
+    private readonly TerrainCollision.PatchCache terrainPatches = new();
     private RailwayPath? path;
     private SceneProblem? failure;
     private bool waitingSegments;
@@ -111,11 +112,15 @@ internal sealed class RailwayScene : IAsyncDisposable
         var ready = Enumerable.Range(Math.Max(0, middle - radius), Math.Min(path.SegmentCount - 1, middle + radius) -
             Math.Max(0, middle - radius) + 1).All(segments.ContainsKey) && !waiting;
         var terrain = ImmutableArray.CreateBuilder<TerrainCollisionPatch>();
+        var terrainKeys = new HashSet<string>();
         foreach (var segment in segments.Values.OrderBy(item => item.Source.Index))
         {
-            var patch = TerrainCollision.Patch(new(0), segment.Source.Origin, origin, segment.Source.Heights);
-            if (patch is not null) terrain.Add(patch with { Id = objectId("terrain:" + segment.Source.Index) });
+            var key = "terrain:" + segment.Source.Index;
+            terrainKeys.Add(key);
+            var patch = terrainPatches.Get(key, () => objectId(key), segment.Source.Origin, origin, segment.Source.Heights);
+            if (patch is not null) terrain.Add(patch);
         }
+        terrainPatches.Retain(terrainKeys);
         var effects = Effects(snapshot, frame.Objects, seconds, origin);
         return new(stamp, origin, seconds, failure is not null ? SceneReadiness.Failed : segments.Count == 0 ? SceneReadiness.Loading :
             ready ? SceneReadiness.Ready : SceneReadiness.Partial, frame.Objects.ToImmutable(), frame.Picking.ToImmutable(),

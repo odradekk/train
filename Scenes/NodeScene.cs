@@ -206,6 +206,7 @@ internal sealed class NodeScene : IAsyncDisposable
     private SceneProblem? failure;
     internal NodeId Node { get; }
     internal PresentationState? Presentation { get; set; }
+    private readonly TerrainCollision.PatchCache terrainPatches = new();
     internal ScenePoint StreamingFocus => range.Focus;
     internal FollowedPath? StreamingFollow => followedPath;
     internal NodeLayout? Layout => layout ?? (pending?.IsCompletedSuccessfully == true ? pending.Result.Global.Layout : null);
@@ -698,11 +699,15 @@ internal sealed class NodeScene : IAsyncDisposable
         parts.AddRange(chunks.OrderBy(item => item.Key.Z).ThenBy(item => item.Key.X).Select(item => (ChunkKey(item.Key), item.Value)));
         parts.AddRange(rails.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => (item.Key, item.Value)));
         var terrain = ImmutableArray.CreateBuilder<TerrainCollisionPatch>();
+        var terrainKeys = new HashSet<string>();
         foreach (var (key, part) in parts)
         {
-            var patch = TerrainCollision.Patch(new(0), part.Origin, origin, part.Heights);
-            if (patch is not null) terrain.Add(patch with { Id = objectId("terrain:" + key) });
+            var terrainKey = "terrain:" + key;
+            terrainKeys.Add(terrainKey);
+            var patch = terrainPatches.Get(terrainKey, () => objectId(terrainKey), part.Origin, origin, part.Heights);
+            if (patch is not null) terrain.Add(patch);
         }
+        terrainPatches.Retain(terrainKeys);
         var effects = ImmutableArray<SceneEffectCue>.Empty;
         if (Presentation is { } state)
         {

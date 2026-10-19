@@ -64,6 +64,45 @@ public sealed class CombatFrameTests
     }
 
     [TestMethod]
+    public async Task TerrainPatchesFillMissingColumnsAndStayCached()
+    {
+        var heights = ImmutableDictionary.CreateRange(new Dictionary<GridColumn, double>
+        {
+            [new(0, 0)] = 3,
+            [new(8, 4)] = 7
+        });
+        var sparse = TerrainCollision.Patch(new(1), default, default, heights)!;
+        Assert.AreEqual(3, sparse.Width);
+        Assert.AreEqual(2, sparse.Depth);
+        Assert.AreEqual(sparse.Width * sparse.Depth, sparse.Heights.Length);
+        Assert.AreEqual(3, sparse.Heights[0] + sparse.Origin.Y, 1e-4);
+        Assert.AreEqual(7, sparse.Heights[5] + sparse.Origin.Y, 1e-4);
+        Assert.AreEqual(3, sparse.Heights[1] + sparse.Origin.Y, 1e-4);
+
+        var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle());
+        await using var session = Open(content, RailwayFixtures.Instance());
+        session.RequestView(new WorldSceneTarget.Location(RailwayFixtures.Location));
+        var line = await RailwayFixtures.Settled(session, Request);
+        Assert.IsNotEmpty(line.Update.Environment.TerrainCollision);
+        var repeated = Present(session, line);
+        Assert.AreSame(line.Update.Environment.TerrainCollision[0], repeated.Update.Environment.TerrainCollision[0]);
+
+        var nodeSnapshot = NodeFixtures.Snapshot(platforms: 0, trains: [], instances: []);
+        var layout = NodeLayout.Build(nodeSnapshot, NodeFixtures.NodeId);
+        var prepared = NodeScene.Prepare(nodeSnapshot, layout, null, default);
+        var from = new GridColumn((int)layout.Bounds.Minimum.X, (int)layout.Bounds.Minimum.Y);
+        var chunk = prepared.BuildChunk(from);
+        Assert.IsTrue(chunk.Heights.Count > 0);
+        var nodePatch = TerrainCollision.Patch(new(2), chunk.Origin, default, chunk.Heights)!;
+        Assert.AreEqual(nodePatch.Width * nodePatch.Depth, nodePatch.Heights.Length);
+        var minX = chunk.Heights.Keys.Min(column => column.X);
+        var minZ = chunk.Heights.Keys.Min(column => column.Z);
+        var sample = chunk.Heights.Keys.First(column => (column.X - minX) % 4 == 0 && (column.Z - minZ) % 4 == 0);
+        var index = (sample.Z - minZ) / 4 * nodePatch.Width + (sample.X - minX) / 4;
+        Assert.AreEqual(chunk.Heights[sample], nodePatch.Heights[index] + nodePatch.Origin.Y, 1e-3);
+    }
+
+    [TestMethod]
     public void HitDamageDoesNotChooseRemovedCells()
     {
         var projection = Line(8);
