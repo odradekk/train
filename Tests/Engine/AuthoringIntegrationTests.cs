@@ -1,4 +1,5 @@
 using Chickensoft.GoDotTest;
+using Chickensoft.GodotTestDriver;
 using Godot;
 using Train.App.Authoring;
 using Train.App.Editing;
@@ -76,6 +77,67 @@ public class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
                 "真实非网格表单必须写入并经普通重载进入投影。");
         }
         finally { form.QueueFree(); await new UiTestInput(TestScene).Frames(2); }
+    }
+
+    [Test]
+    [Chickensoft.GoDotTest.Timeout(120000)]
+    public async Task Real_external_source_change_is_rejected_with_diagnostic_not_host_fault_in_ui()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var id = Guid.NewGuid();
+        var directory = Path.Combine(AuthoringPaths.ModsDirectory(OS.GetUserDataDir()), id.ToString("D"));
+        try
+        {
+            ContentFixture.WriteMod(directory, id);
+            var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
+            await FramesUntil(TestScene, () => !app.Host!.IsBusy, timeout: TimeSpan.FromSeconds(60));
+            var host = app.Host!;
+            Require(host.BeginNewGame(new("core:basic-through-world"), 1, "stage1-world-v1", host.SessionOptions!).Problem is null,
+                "真实新局请求被拒绝。");
+            await FramesUntil(TestScene, () => !host.IsBusy && host.GetStatus() is not null, timeout: TimeSpan.FromSeconds(60));
+            var original = host.Content!;
+            var service = app.Authoring!;
+            Require(service.CanUse, "真实开发构建必须允许创作模式。");
+            service.Open(directory, new(id.ToString("D")));
+            await FramesUntil(TestScene, () => !service.IsBusy && service.Package is not null);
+            service.OpenDefinition(new(DefinitionKind.Voxel, "engine-food"), grid: false);
+            Require(service.Form is not null, "真实源包没有打开体素表单。");
+            service.SaveForm(service.Form!);
+            await FramesUntil(TestScene, () => !service.IsBusy);
+            var saved = service.Drafts().Single();
+            var path = Path.Combine(directory, "resources/voxels/engine-food.voxel.json");
+            var external = File.ReadAllText(path) + "\n ";
+            File.WriteAllText(path, external);
+            var ui = app.GetNode<GameUi>("GameUi");
+            var panel = Find<AuthoringPanel>(ui, "Authoring");
+            panel.Open();
+            await new UiTestInput(TestScene).Activate(Find<Button>(panel, "Publish"));
+            await FramesUntil(TestScene, () => !service.IsBusy && !host.IsBusy);
+            Require(service.LastWrite is { Success: false, Completed.IsEmpty: true },
+                "外部修改必须拒绝全部写入：" + service.Message);
+            Require(File.ReadAllText(path) == external, "外部修改必须保持原样。");
+            Require(service.Package is not null && service.Drafts().Single().Id == saved.Id,
+                "来源冲突必须保留源包和草稿。");
+            Require(ReferenceEquals(original, host.Content), "拒绝写入不得切换内存内容。");
+            var result = Find<Label>(panel, "AuthoringResult").Text;
+            Require(result.Contains("stale_basis", StringComparison.Ordinal) &&
+                result.Contains("源包已发生外部修改", StringComparison.Ordinal) &&
+                result.Contains("未写入任何文件", StringComparison.Ordinal) &&
+                result.Contains("草稿保留", StringComparison.Ordinal) &&
+                result.Contains("请重新载入", StringComparison.Ordinal) &&
+                result.Contains("处理外部修改后重新校验", StringComparison.Ordinal),
+                "真实创作面板必须显示诊断、未写入、草稿保留与重新载入提示：" + result);
+            Require(ui.ErrorText.Contains("源包已发生外部修改", StringComparison.Ordinal) &&
+                ui.ErrorText.Contains("请重新载入", StringComparison.Ordinal) &&
+                !ui.ErrorText.Contains("发生故障", StringComparison.Ordinal) &&
+                !ui.ErrorText.Contains("package_write_failed", StringComparison.Ordinal),
+                "真实 GameUi 弹窗必须只显示诊断与重新载入提示：" + ui.ErrorText);
+        }
+        finally
+        {
+            try { await fixture.Cleanup(); }
+            finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+        }
     }
 
     [Test]

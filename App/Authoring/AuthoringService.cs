@@ -257,7 +257,12 @@ internal sealed class AuthoringService : IDisposable
                         "校验结果中没有目标源包，未写入文件。")]);
             }
             written = PackageWriter.Execute(fixedSource, plan, target.IsCore);
-            if (!written.Success) return new ContentResult<IContentCandidate>.Faulted("package_write_failed", written.Message ?? "包写入失败。", null);
+            if (!written.Success)
+                return new ContentResult<IContentCandidate>.Failure([new(
+                    written.Failed is null ? "stale_basis" : "package_write_failed",
+                    ContentDiagnosticSeverity.Error, "authoring", null,
+                    new(target.Package, written.Failed?.RelativePath ?? ""), "package", null,
+                    written.Message ?? "包写入失败。")]);
             return host.ContentFactory.PrepareLoad(request, files, assets);
         });
         if (begun.Problem is { } problem) Report(CommandDiagnostics.Describe(problem));
