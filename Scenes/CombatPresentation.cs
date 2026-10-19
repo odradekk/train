@@ -65,15 +65,23 @@ internal sealed class PresentationState
     }
 
     internal void ApplyTurrets(ImmutableArray<SceneObject>.Builder objects, InstanceView instance, string prefix,
-        Func<string, SceneObjectId> objectId, double seconds, SceneWorldSnapshot snapshot)
+        Func<string, SceneObjectId?> findId, double seconds, SceneWorldSnapshot snapshot)
     {
         foreach (var aim in turrets.Values.Where(item => item.Instance == instance.Id).ToArray())
         {
-            var id = objectId(prefix + aim.Path);
+            if (findId(prefix + aim.Path) is not { } id)
+            {
+                turrets.Remove((aim.Instance, aim.Path));
+                continue;
+            }
             var index = -1;
             for (var cursor = 0; cursor < objects.Count; cursor++)
                 if (objects[cursor].Id == id) { index = cursor; break; }
-            if (index < 0) continue;
+            if (index < 0)
+            {
+                turrets.Remove((aim.Instance, aim.Path));
+                continue;
+            }
             if (!aim.Resolved) Resolve(aim, objects, id, snapshot);
             if (!aim.Resolved) continue;
             objects[index] = objects[index] with { Pose = aim.Pose(objects[index].Pose, seconds) };

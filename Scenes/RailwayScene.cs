@@ -31,6 +31,7 @@ internal sealed class RailwayScene : IAsyncDisposable
     private readonly RailwayCache cache;
     private readonly ulong owner;
     private readonly Func<string, SceneObjectId> objectId;
+    private readonly Func<string, SceneObjectId?> findId;
     private readonly Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment> build;
     private readonly CancellationTokenSource cancellation = new();
     private readonly Dictionary<int, ConnectedSegment> segments = [];
@@ -56,7 +57,7 @@ internal sealed class RailwayScene : IAsyncDisposable
         .Concat(retiredSegments.Where(item => !item.Task.IsCompleted).Select(item => item.Task)).ToArray();
 
     internal RailwayScene(SceneWorldSnapshot initial, EdgeId edge, RailwayCache cache, Func<string, SceneObjectId> objectId, SceneVehicles vehicles, DisplayRate displayRate,
-        Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null)
+        Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null, Func<string, SceneObjectId?>? findId = null)
     {
         this.cache = cache;
         this.vehicles = vehicles;
@@ -64,6 +65,7 @@ internal sealed class RailwayScene : IAsyncDisposable
         Edge = edge;
         owner = cache.OpenSession(edge);
         this.objectId = objectId;
+        this.findId = findId ?? (_ => null);
         this.build = build ?? RailwayTerrain.Build;
         try { path = new RailwayPath(initial, edge, cancellation.Token); }
         catch (RailwayBuildException error) { Fail(error); }
@@ -375,7 +377,7 @@ internal sealed class RailwayScene : IAsyncDisposable
                 var placed = RailwayVehicles.Place(geometry, pose, (train.Positive ? 1 : -1) * member.TrackArc);
                 var hidden = segments.Values.Any(segment => segment.Source.Tunnels.Any(interval => member.CenterArc >= interval.Start && member.CenterArc <= interval.End));
                 frame.Add(placed, hidden);
-                Presentation?.ApplyTurrets(frame.Objects, member.Instance, "vehicle:" + member.Instance.Id + ":", objectId, seconds, snapshot);
+                Presentation?.ApplyTurrets(frame.Objects, member.Instance, "vehicle:" + member.Instance.Id + ":", findId, seconds, snapshot);
             }
         }
         return waiting;

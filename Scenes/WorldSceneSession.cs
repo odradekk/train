@@ -88,10 +88,10 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         switch (CurrentLocation(snapshot, value))
         {
             case WorldLocation.Edge edge:
-                railway = new(snapshot, edge.Id, railwayCache, ObjectId, vehicles: vehicles, displayRate: displayRate);
+                railway = new(snapshot, edge.Id, railwayCache, ObjectId, vehicles: vehicles, displayRate: displayRate, findId: key => Find(ids, key));
                 break;
             case WorldLocation.Node location:
-                node = OpenNode(location.Id, ObjectId);
+                node = OpenNode(location.Id, ObjectId, key => Find(ids, key));
                 break;
             default:
                 throw new ArgumentException("Invalid location target.");
@@ -243,7 +243,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         {
             if (candidate?.Node?.Node == node.Node) CancelCandidate();
             node.AcceptTrackChanges = false;
-            successor = OpenNode(node.Node, ObjectId, background: true);
+            successor = OpenNode(node.Node, ObjectId, key => Find(ids, key), background: true);
         }
         if (successor is null) return null;
         if (!successor.Failed)
@@ -290,8 +290,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         {
             CancelCandidate(); ids = [];
             var map = ids;
-            if (location is WorldLocation.Edge edge) railway = new(snapshot, edge.Id, railwayCache, key => AssignId(map, key), vehicles: vehicles, displayRate: displayRate);
-            else if (location is WorldLocation.Node atNode) node = OpenNode(atNode.Id, key => AssignId(map, key));
+            if (location is WorldLocation.Edge edge) railway = new(snapshot, edge.Id, railwayCache, key => AssignId(map, key), vehicles: vehicles, displayRate: displayRate, findId: key => Find(map, key));
+            else if (location is WorldLocation.Node atNode) node = OpenNode(atNode.Id, key => AssignId(map, key), key => Find(map, key));
             else throw new ArgumentException("Invalid follow location.");
         }
         sceneOrigin = displayed is null ? null : SceneFrame.SwitchOrigin(displayed, node?.Layout, railway?.Path);
@@ -309,12 +309,15 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         foreach (var id in settlementCaches.Keys.Where(id => id != node?.Node && id != candidate?.Node?.Node).ToArray())
             settlementCaches.Remove(id);
     }
-    private NodeScene OpenNode(NodeId id, Func<string, SceneObjectId> objectId, bool background = false)
+    private NodeScene OpenNode(NodeId id, Func<string, SceneObjectId> objectId, Func<string, SceneObjectId?> findId, bool background = false)
     {
         if (!settlementCaches.TryGetValue(id, out var caches))
             settlementCaches.Add(id, caches = (new(), new()));
-        return new(snapshot, id, nodeCache, objectId, vehicles, displayRate, nodeBuild, caches.Buildings, caches.Parked, background: background);
+        return new(snapshot, id, nodeCache, objectId, vehicles, displayRate, nodeBuild, caches.Buildings, caches.Parked, background: background, findId: findId);
     }
+
+    private static SceneObjectId? Find(Dictionary<string, SceneObjectId> map, string key) =>
+        map.TryGetValue(key, out var id) ? id : null;
     private void Prebuild()
     {
         if (target is not WorldSceneTarget.Follow follow) return;
@@ -338,8 +341,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         {
             var map = new Dictionary<string, SceneObjectId>();
             candidate = wanted is WorldLocation.Node atNode
-                ? new(wanted, map, Node: OpenNode(atNode.Id, key => AssignId(map, key), background: true))
-                : new(wanted, map, Railway: new(snapshot, ((WorldLocation.Edge)wanted).Id, railwayCache, key => AssignId(map, key), vehicles: vehicles, displayRate: displayRate));
+                ? new(wanted, map, Node: OpenNode(atNode.Id, key => AssignId(map, key), key => Find(map, key), background: true))
+                : new(wanted, map, Railway: new(snapshot, ((WorldLocation.Edge)wanted).Id, railwayCache, key => AssignId(map, key), vehicles: vehicles, displayRate: displayRate, findId: key => Find(map, key)));
         }
         try
         {

@@ -157,6 +157,7 @@ internal sealed class NodeScene : IAsyncDisposable
     private readonly Cache cache;
     private readonly ulong owner;
     private readonly Func<string, SceneObjectId> objectId;
+    private readonly Func<string, SceneObjectId?> findId;
     private readonly CancellationTokenSource cancellation = new();
     private readonly SceneVehicles vehicles;
     private readonly SettlementObjects settlement;
@@ -243,9 +244,10 @@ internal sealed class NodeScene : IAsyncDisposable
         Func<SceneWorldSnapshot, NodeId, Cached?, CancellationToken, Built>? generate = null,
         SceneVehicles.Cache? buildingCache = null, SceneVehicles.Cache? parkedCache = null,
         Func<Preparation, GridColumn, Part?, CancellationToken, Part>? buildChunk = null,
-        Func<Preparation, RailSegment, Part?, CancellationToken, Part>? buildRail = null, bool background = false)
+        Func<Preparation, RailSegment, Part?, CancellationToken, Part>? buildRail = null, bool background = false,
+        Func<string, SceneObjectId?>? findId = null)
     {
-        Node = node; this.cache = cache; this.objectId = objectId; owner = cache.Open(node); this.nodeBuild = generate;
+        Node = node; this.cache = cache; this.objectId = objectId; this.findId = findId ?? (_ => null); owner = cache.Open(node); this.nodeBuild = generate;
         this.vehicles = vehicles;
         this.displayRate = displayRate;
         this.buildChunk = buildChunk ?? ((data, from, old, token) => data.BuildChunk(from, old, token));
@@ -673,7 +675,7 @@ internal sealed class NodeScene : IAsyncDisposable
                         "The settlement layout copy is missing."));
                 }
             }
-            Add(settlement.Present(snapshot, layout, origin, fog, range, chunks.Keys, prefetch, Presentation, seconds));
+            Add(settlement.Present(snapshot, layout, origin, fog, range, chunks.Keys, prefetch, Presentation, seconds, findId));
         }
         if (failure is not null) problems.Add(failure);
         foreach (var problem in reported) problems.Add(problem);
@@ -1102,7 +1104,7 @@ internal sealed class NodeScene : IAsyncDisposable
                 if (vehicles.Reconcile(snapshot.Content, member, objectId) is { } body)
                 {
                     Add(RailwayVehicles.Place(body, pose, (positive ? 1 : -1) * arc));
-                    Presentation?.ApplyTurrets(objects, member, "vehicle:" + member.Id + ":", objectId, seconds, snapshot);
+                    Presentation?.ApplyTurrets(objects, member, "vehicle:" + member.Id + ":", findId, seconds, snapshot);
                 }
                 else
                 {
