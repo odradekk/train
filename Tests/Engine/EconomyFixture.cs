@@ -153,6 +153,7 @@ internal static class EconomyFixture
         };
         return new(projection, new(generation))
         {
+            Voxels = [],
             LocalDrafts = drafts.IsDefault ? [] : drafts,
             Blueprints = [.. new[] { vehicleBlueprint, otherBlueprint }.OfType<BlueprintRecord>().Select(record =>
                 new BlueprintSummary(record.Address, record.Definition.Display,
