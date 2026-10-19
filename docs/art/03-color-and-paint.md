@@ -75,11 +75,11 @@
 
 [#339](https://github.com/odradekk/train/issues/339) 已通过 [#588](https://github.com/odradekk/train/pull/588) 落实 Godot 渲染端的涂装规则：只有 `painted_metal` 和 `concrete` 接受涂装；立方体面图 Alpha 作为可涂权重，Alpha 0 保留原色且不产生透明。模型渲染端按场景提供的各表面材质类别分别决定是否涂装；模型 Alpha 只用于 MASK 镂空裁剪，不作为涂装权重。
 
-[#583](https://github.com/odradekk/train/issues/583) 已将现有 26 个 `painted_metal`／`concrete` 体素定义的可涂贴图迁为中性纹样，并为内置设计和示例存档补齐默认 `paint`。现有车辆及共用面贴图仍从唯一源 `scripts/content/generate_small_world.py` 生成，共用图继续引用同一 PNG。#338 的临时样例不成为正式资产源。
+[#583](https://github.com/odradekk/train/issues/583) 已将现有 26 个 `painted_metal`／`concrete` 体素定义的可涂贴图迁为中性纹样，并为内置设计和示例存档补齐默认 `paint`。车辆蓝图中，大型机车和泰坦武装车已由创作模式维护；#395 本检查点再迁移小型机车一份，其余八份仍从 `scripts/content/generate_small_world.py` 生成。共用面贴图仍由该脚本生成，共用图继续引用同一 PNG。#338 的临时样例不成为正式资产源。
 
 每个可涂体素定义只有一个默认色，迁移时沿用原贴图可涂部分的基色；经批准的正式美术批次可以替换占位基色，#393 将建筑材料、混凝土块改为 `CONCRETE`，结构块改为 `STEEL`。这些基色由 `scripts/content/generate_small_world.py` 中的基色常量确定，例如下表车辆体素使用的 `BLUE`、`RED`，以及 `concrete` 使用的 `CONCRETE`（`#a8a59e`）。
 
-默认色只在生成器里维护一份。生成器在输出内置设计前，为引用可涂体素且尚未写 `paint` 的调色板项补默认色，包含嵌套组装体和场景模型中的设计。同一体素在所有内置设计里使用同一个默认色，不按车辆另定涂装方案；已经显式写入的 `paint` 保持不变，包括 `tunnel-portal-*` 的 `#000000`。Scenes 直接放置的可涂原料使用生成器输出的内部色表，当前只有原油资源堆。
+默认色只在生成器里维护一份。生成器在输出内置设计前，为引用可涂体素且尚未写 `paint` 的调色板项补默认色，包含嵌套组装体和场景模型中的设计。生成设计沿用体素的默认色；创作模式维护的车辆蓝图在自身调色板中保存涂装方案；已经显式写入的 `paint` 保持不变，包括 `tunnel-portal-*` 的 `#000000`。Scenes 直接放置的可涂原料使用生成器输出的内部色表，当前只有原油资源堆。
 
 按[用途倾向](#用途倾向)给具体设计换涂装方案，由制作该设计的美术工单（如 [#391](https://github.com/odradekk/train/issues/391)）在它自己的蓝图里修改。
 

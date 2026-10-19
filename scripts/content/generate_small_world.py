@@ -8,7 +8,7 @@ python scripts/content/generate_small_world.py --output-dir TestResults/reproduc
 只检查存在和 JSON Schema。校验模式拒绝缺失、多余或其他生成文件字节不同的文件（校验需要 jsonschema）。
 生成只用 Python 标准库。
 自然地形与三十四种货物已有正式美术：十二种原料、六种生活货物和十六种工业与建造货物。
-小型机车保留第一阶段风格样稿，聚居地符号来自 ui_symbols；
+车辆迁移先完成小型机车一份创作模式蓝图，其余八份仍由脚本生成；聚居地符号来自 ui_symbols；
 其余美术仍待制作，数值待配平，
 数值和画面待用户试玩确认；十一种车辆与两列小型起始车队已接入。
 校验同时检查正式内容的经济关系；不生成生物聚落或存档。
@@ -30,7 +30,6 @@ ROOT = Path(__file__).resolve().parents[2]
 JSON_LIMIT = 1024 * 1024
 VEHICLES = (
     # id、名称、角色、档位、长宽高、轨距、转向架高度、轴距、端距、设备组数。
-    ("small-locomotive", "小型机车", "locomotive", "small", 52, 7, 9, 3, 1, 2, 4, 1),
     ("small-freight-wagon", "小型货车", "freight", "small", 52, 7, 9, 3, 1, 2, 4, 1),
     ("small-armed-wagon", "小型武装车", "armed", "small", 52, 7, 9, 3, 1, 2, 4, 1),
     ("medium-locomotive", "中型机车", "locomotive", "medium", 64, 10, 13, 7, 2, 3, 6, 2),
@@ -826,6 +825,7 @@ AUTHORED_FILES = (
     "voxels/machine-gun/model.glb",
     "voxels/cannon/model.glb",
     "voxels/bogie/model.glb",
+    "blueprints/small-locomotive.blueprint.json",
 )
 
 
@@ -1097,17 +1097,9 @@ def vehicle(spec):
     identity, name, role, size, length, width, height, gauge, frame_height, axle_spacing, end_margin, units = spec
     x0, z0 = -(width // 2), -(length // 2)
     x1, z1 = x0 + width - 1, z0 + length - 1
-    if size == "small" and role == "locomotive":
-        volume = {(x, 1, z) for x in range(-3, 4) for z in range(-26, 26)}
-        volume |= {(x, y, z) for x in range(-3, 4) for y in range(2, 9) for z in range(16, 24)}
-        volume |= {(x, y, z) for x in range(-2, 3) for y in range(2, 8) for z in range(-24, 16)}
-        directions = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
-        cells = {at: 0 for at in volume
-                 if any(tuple(at[i] + delta[i] for i in range(3)) not in volume for delta in directions)}
-    else:
-        cells = {(x, y, z): 0 for x in range(x0, x1 + 1) for y in range(frame_height, height)
-                 for z in range(z0, z1 + 1)
-                 if x in (x0, x1) or y in (frame_height, height - 1) or z in (z0, z1)}
+    cells = {(x, y, z): 0 for x in range(x0, x1 + 1) for y in range(frame_height, height)
+             for z in range(z0, z1 + 1)
+             if x in (x0, x1) or y in (frame_height, height - 1) or z in (z0, z1)}
     left, right = -(gauge + 1) // 2, (gauge - 1) // 2
     for first, last in ((z0 + end_margin, z0 + end_margin + axle_spacing),
                         (z1 - end_margin - axle_spacing, z1 - end_margin)):
@@ -1117,27 +1109,22 @@ def vehicle(spec):
                     cells[x, y, z] = 1 if z in (first, last) else 0
             for x in range(left, right + 1):
                 cells[x, frame_height - 1, z] = 1 if z in (first, last) else 0
-    if size == "small" and role == "locomotive":
-        cells.update({(0, 6, 23): 3, (2, 5, 5): 2, (2, 5, 1): 2, (2, 5, -3): 2, (-2, 3, -20): 4})
-    else:
-        if role == "locomotive":
-            for z in range(-3 * units, 3 * units, 2):
-                cells[0, frame_height + 1, z] = 2
-            cells[0, frame_height + 1, z1 - 1] = 3
-        storage_count = {"locomotive": 1, "freight": 2 * units, "armed": units}[role]
-        for index in range(storage_count):
-            cells[1, frame_height + 1, 2 * index] = 4
-        if role == "armed":
-            for index in range(units):
-                cells[x0, frame_height + 2, 4 * index] = 5
+    if role == "locomotive":
+        for z in range(-3 * units, 3 * units, 2):
+            cells[0, frame_height + 1, z] = 2
+        cells[0, frame_height + 1, z1 - 1] = 3
+    storage_count = {"locomotive": 1, "freight": 2 * units, "armed": units}[role]
+    for index in range(storage_count):
+        cells[1, frame_height + 1, 2 * index] = 4
+    if role == "armed":
+        for index in range(units):
+            cells[x0, frame_height + 2, 4 * index] = 5
     value = blueprint(identity, name, "vehicle",
                       ["structural-metal", "bogie", "propulsion-equipment", "control-equipment", "storage-equipment"],
                       cells, {"size_class": size})
     if role == "armed":
         value["layout"]["palette"].append({"voxel": "machine-gun"})
     value["display"]["description"] = f"{name}：能力和价值来自实际部件，数值与外观待试玩确认。"
-    if size == "small" and role == "locomotive":
-        value["display"]["description"] = "第一阶段铁路机车风格样稿：驾驶室、机器间、检修走廊和端部平台；画面待用户阶段试玩确认。"
     if role == "armed":
         value["display"]["description"] += " 静态武器只提供合法设计输入，战斗行为待战斗阶段验证。"
     return value
@@ -1315,7 +1302,7 @@ def content_files():
         if simulation is not None:
             value["simulation"] = simulation
             value["appearance"]["presentation"]["shapes"] = (
-                ALL_SHAPES if identity in ("structural-block", "construction-block") else
+                ALL_SHAPES if identity in ("structural-metal", "structural-block", "construction-block") else
                 ["cube", "plate"] if identity == "glass" else ["cube"])
         if identity in ("machine-gun", "cannon"):
             value["appearance"]["presentation"] = {
@@ -1649,10 +1636,11 @@ def content_files():
         document("blueprints", "blueprint", identity, warehouse)
 
     small_vehicle_materials = Counter()
-    for identity, _, _, size, *_ in VEHICLES:
-        if size == "small":
-            layout = blueprint_definitions[identity]["layout"]
-            small_vehicle_materials |= Counter(layout["palette"][index]["voxel"] for *_, index in layout["cells"])
+    for definition in blueprint_definitions.values():
+        if definition["category"] == "vehicle" and definition["simulation"]["size_class"] == "small":
+            layout = definition["layout"]
+            small_vehicle_materials |= Counter(layout["palette"][index]["voxel"].removeprefix("core:")
+                                               for *_, index in layout["cells"])
     supplied_goods = {item["voxel"] for _, plans, _ in template_estimates for process, _ in plans
                       for item in ([process["extracts"]] if process["kind"] == "extraction" else process["outputs"])}
     construction_materials = Counter()
