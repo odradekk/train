@@ -34,6 +34,11 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
 
         Commit(display, preview);
         var first = One(display, "Shot");
+        Require(first.Scale.X >= 0.2f - 0.001f && first.Scale.Y >= 0.2f - 0.001f, "没有相机时弹道粗细至少 0.2 格。");
+        display.AdvanceEffects(preview, 0, new Vector3(0, 0, 48));
+        var near = first.Scale.X;
+        display.AdvanceEffects(preview, 0, new Vector3(0, 0, 240));
+        Require(near >= 0.2f - 0.001f && first.Scale.X > near + 0.2f, "240 格外的弹道必须比 48 格外更粗。");
         var identity = first.GetInstanceId();
         var shown = Frame(2, [], [shot], basis: preview.Update.Frame);
         Commit(display, shown);
@@ -94,36 +99,55 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public void DamagedLightPulsesStayWithinThreePerRealSecond()
+    public void FlickerClockStaysWithinRealTimeAndDamageDecidesTheLight()
     {
         using var dispatcher = new GodotMainThreadDispatcher();
         using var cache = new AssetResourceCache(dispatcher);
         using var display = Attach(cache);
-        var damaged = new SceneLight(new("#ffcc88"), 6, 1, 1);
-        var steady = new SceneLight(new("#ffffff"), 6, 0, 2);
-        Commit(display, Frame(1, [Object(1, [damaged]), Object(2, [steady])], []));
-        var pulsing = display.Objects[new(1)].Root.GetNode<OmniLight3D>("SceneLight");
-        var constant = display.Objects[new(2)].Root.GetNode<OmniLight3D>("SceneLight");
-        var ons = new List<double>();
-        if (pulsing.LightEnergy > 0) ons.Add(0);
-        double real = 0, sim = 0;
-        for (var step = 0; step < 120; step++)
+        Commit(display, Frame(1,
+        [
+            Object(1, [new SceneLight(new("#ffcc88"), 6, 1, 1)]),
+            Object(2, [new SceneLight(new("#ffffff"), 6, 0, 1)]),
+            Object(3, [new SceneLight(new("#ffcc88"), 6, 0.2f, 1)])
+        ], []));
+        var heavy = display.Objects[new(1)].Root.GetNode<OmniLight3D>("SceneLight");
+        var steady = display.Objects[new(2)].Root.GetNode<OmniLight3D>("SceneLight");
+        var mild = display.Objects[new(3)].Root.GetNode<OmniLight3D>("SceneLight");
+        var samples = 0;
+        var heavyOn = 0;
+        var mildOff = 0;
+        var heavyOffWhenMildOff = 0;
+        double real = 0, sim = 0, sample = 0.2;
+        var start = display.FlickerSeconds;
+        while (display.FlickerSeconds < 0.2 + 19 * 0.4)
         {
             real += 1d / 60;
             sim += 8d / 60;
-            var before = pulsing.LightEnergy;
             display.AdvanceEffects(Frame(1, [], [], seconds: sim), 1d / 60);
-            if (before <= 0 && pulsing.LightEnergy > 0) ons.Add(real);
-            Require(Mathf.IsEqualApprox(constant.LightEnergy, 1), "未受损的灯必须保持点亮。");
+            Require(Mathf.IsEqualApprox(steady.LightEnergy, 1), "未受损的灯必须保持点亮。");
+            if (display.FlickerSeconds + 1e-9 < sample) continue;
+            samples++;
+            var heavyLit = heavy.LightEnergy > 0;
+            var mildLit = mild.LightEnergy > 0;
+            if (heavyLit) heavyOn++;
+            if (!mildLit)
+            {
+                mildOff++;
+                if (!heavyLit) heavyOffWhenMildOff++;
+            }
+            sample += 0.4;
         }
-        Require(ons.Count >= 4, "受损灯在 8 倍速下必须多次试图点亮，否则额度没有被测到。");
-        foreach (var time in ons)
-            Require(ons.Count(other => other > time - 1d && other <= time + 1e-9) <= 3,
-                $"受损灯每真实秒亮起超过 3 次：{ons.Count} 次，窗口落在 {time:F3}。");
-        var energy = pulsing.LightEnergy;
+        Require(display.FlickerSeconds - start <= real + 1e-6 && display.FlickerSeconds - start > real - 0.05,
+            "8 倍速下闪烁时钟不得快于真实时间。");
+        Require(samples == 20 && heavyOn > 0 && heavyOn < samples && mildOff < samples - heavyOn,
+            "重伤要比轻伤更常熄灭，并且两种状态都出现。");
+        Require(heavyOffWhenMildOff == mildOff, "同一散列下，轻伤熄灭时重伤也必须熄灭。");
+        var clock = display.FlickerSeconds;
+        var energy = heavy.LightEnergy;
         display.AdvanceEffects(Frame(1, [], [], seconds: sim), 0.5);
-        Require(Mathf.IsEqualApprox(pulsing.LightEnergy, energy) && Mathf.IsEqualApprox(constant.LightEnergy, 1),
-            "模拟时间不变时灯光状态不得变化。");
+        Require(Mathf.IsEqualApprox((float)display.FlickerSeconds, (float)clock) &&
+            Mathf.IsEqualApprox(heavy.LightEnergy, energy) && Mathf.IsEqualApprox(steady.LightEnergy, 1),
+            "模拟时间暂停时闪烁时钟和灯光都不得变化。");
     }
 
     [Test]
@@ -226,7 +250,7 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
         var rear = new VehicleId(8);
         var outsider = new VehicleId(9);
         WorldObjectId Vehicle(VehicleId id) => new WorldObjectId.Instance(new InstanceId.Vehicle(id));
-        display.SetFollowedTrain([lead, rear], true);
+        display.SetFollowedTrain([lead, rear]);
         var shown = Frame(1, [], [Cue(1, SceneEffectKind.Impact, subject: Vehicle(rear))]);
         Commit(display, shown);
         var offset = display.AdvanceEffects(shown, 0);
@@ -243,10 +267,6 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
         shown = Frame(4, [], [Cue(4, SceneEffectKind.Impact, subject: Vehicle(lead))], basis: shown.Update.Frame);
         Commit(display, shown);
         Require(display.AdvanceEffects(shown, 0).Length() > 0.14f, "新的命中必须重新开始抖动。");
-        display.SetFollowedTrain([lead, rear], false);
-        shown = Frame(5, [], [Cue(5, SceneEffectKind.Impact, subject: Vehicle(lead))], basis: shown.Update.Frame);
-        Commit(display, shown);
-        Require(display.AdvanceEffects(shown, 0) == Vector3.Zero, "关闭镜头抖动后偏移必须为零。");
 
         var camera = new WorldCamera();
         TestScene.AddChild(camera);
@@ -271,6 +291,79 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
         finally { camera.Free(); }
     }
 
+    [Test]
+    public void FragmentsRestOnBilinearGroundAndFallThroughWithoutIt()
+    {
+        var sloped = new TerrainCollisionPatch(new(1), NVector3.Zero, 2, 2, 2, [0, 2, 4, 6]);
+        var sampled = CombatEffects.GroundHeight(new(1, 0, 1), [sloped]);
+        Require(sampled is not null && Mathf.IsEqualApprox(sampled.Value, 3), "补丁高度必须按双线性插值。");
+        Require(CombatEffects.GroundHeight(new(80, 0, 80), [sloped]) is null, "补丁外不得取样。");
+
+        var wide = new TerrainCollisionPatch(new(2), new NVector3(-200, 0, -200), 21, 21, 20,
+            Enumerable.Repeat(2f, 21 * 21).ToImmutableArray());
+        var environment = new SceneEnvironment([], [wide]);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache);
+        var shown = Frame(1, [Object(1)],
+        [
+            Cue(1, SceneEffectKind.Fragments, from: new(0, 6, 0), collision: new VoxelCollision.FullBox()),
+            Cue(2, SceneEffectKind.Fragments, from: new(1, 6, 0), collision: new VoxelCollision.LocalBox(default, new(1, 1, 1))),
+            Cue(3, SceneEffectKind.Fragments, from: new(-1, 6, 0), collision: new VoxelCollision.None()),
+            Cue(4, SceneEffectKind.Fragments, from: new(0, 6, 1)),
+            Cue(5, SceneEffectKind.Fragments, from: new(500, 6, 500), collision: new VoxelCollision.FullBox())
+        ], environment: environment);
+        Commit(display, shown);
+        var advanced = Frame(2, [Object(1)], [], seconds: 1.6, basis: shown.Update.Frame, environment: environment);
+        display.AdvanceEffects(advanced, 0);
+        var nodes = Nodes(display, "Fragment");
+        var landed = nodes.Where(node => Mathf.IsEqualApprox(node.Position.Y, 2)).ToArray();
+        var falling = nodes.Where(node => node.Position.Y < 1).ToArray();
+        Require(nodes.Count == 30 && landed.Length == 12 && falling.Length == 18,
+            "整箱和局部箱都停在补丁高度上，None、空碰撞和补丁外继续下落。");
+        var parked = landed.Select(node => node.Position).ToArray();
+        display.AdvanceEffects(Frame(3, [Object(1)], [], seconds: 2.2, basis: shown.Update.Frame, environment: environment), 0);
+        Require(landed.Select(node => node.Position).Zip(parked).All(pair => pair.First.DistanceTo(pair.Second) < 0.001f),
+            "落地后不得继续下落。");
+        var held = nodes.Select(node => node.Position).ToArray();
+        Commit(display, Frame(4, [Object(1) with { Pose = new(new(40, 0, 0), NQuaternion.Identity) }], [],
+            seconds: 2.2, basis: shown.Update.Frame, environment: environment));
+        Require(nodes.Select(node => node.Position).Zip(held).All(pair => pair.First.DistanceTo(pair.Second) < 0.001f),
+            "对象姿态变化不得带动已经放出的碎片。");
+    }
+
+    [Test]
+    [Chickensoft.GoDotTest.Timeout(180000)]
+    public async Task SyntheticCombatLoadBuildsAndReleasesEffects()
+    {
+        await new UiTestInput(TestScene).Frames(1);
+        var baselineNodes = Performance.GetMonitor(Performance.Monitor.ObjectNodeCount);
+        var baselineResources = Performance.GetMonitor(Performance.Monitor.ObjectResourceCount);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache);
+        var objects = LoadObjects();
+        var shown = Sustain(display, objects, steps: 24);
+        Require(display.Objects.Values.Count(item => item.Root.GetNodeOrNull("Smoke") is not null) == 8, "持续负载仍只保留 8 处烟。");
+        Require(display.Objects.Values.Count(item => item.Root.GetNodeOrNull("Fire") is not null) == 24, "持续负载必须保留火。");
+        Require(display.Objects.Values.Count(item => item.Root.GetNodeOrNull("Sparks") is not null) == 24, "持续负载必须保留火花。");
+        Require(display.Objects.Values.Count(item => item.Root.GetNodeOrNull("SceneLight") is not null) == 24, "持续负载必须保留灯。");
+        Require(Count(display.Root, "Shot") > 0 && Count(display.Root, "Fragment") > 0 && Count(display.Root, "Smoke") > 0,
+            "持续负载中弹道、碎片和摧毁烟必须同时存在。");
+        Expire(display, objects, shown.Frame, shown.Sim);
+        var capture = System.Environment.GetEnvironmentVariable("TRAIN_UI_CAPTURE_DIR");
+        if (!string.IsNullOrWhiteSpace(capture) && DisplayServer.GetName() != "headless")
+            await RecordWindowedLoad(display, objects, capture);
+        display.Dispose();
+        cache.Dispose();
+        await new UiTestInput(TestScene).Frames(2);
+        var nodes = Performance.GetMonitor(Performance.Monitor.ObjectNodeCount);
+        var resources = Performance.GetMonitor(Performance.Monitor.ObjectResourceCount);
+        Require(Mathf.IsEqualApprox((float)nodes, (float)baselineNodes) &&
+            Mathf.IsEqualApprox((float)resources, (float)baselineResources),
+            $"负载释放后节点 {nodes}（基线 {baselineNodes}）、资源 {resources}（基线 {baselineResources}）没有回到基线。");
+    }
+
     private SceneDisplay Attach(AssetResourceCache cache)
     {
         var display = new SceneDisplay(cache, new FixedContentView()) { Timestamp = () => 0 };
@@ -287,12 +380,12 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
     private static FixedSceneFrame Frame(ulong revision, ImmutableArray<SceneObject> objects,
         ImmutableArray<SceneEffectCue> effects, double seconds = 0, SceneFrameStamp? basis = null,
         NVector3 shift = default, ScenePoint origin = default, ImmutableArray<SceneObjectId> removed = default,
-        SceneSessionId? session = null, ulong space = 1) => new()
+        SceneSessionId? session = null, ulong space = 1, SceneEnvironment? environment = null) => new()
     {
         Origin = origin,
         SimulationSeconds = seconds,
         Update = new(basis, new(session ?? Session, new(1), new(space), revision), shift,
-            objects, removed.IsDefault ? [] : removed, new([], []), effects)
+            objects, removed.IsDefault ? [] : removed, environment ?? new([], []), effects)
     };
 
     private static SceneObject Object(ulong id, ImmutableArray<SceneLight> lights = default,
@@ -300,25 +393,217 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
         new(default, NQuaternion.Identity), null, [], lights.IsDefault ? [] : lights, effects.IsDefault ? [] : effects);
 
     private static SceneEffectCue Cue(ulong id, SceneEffectKind kind, double started = 0, NVector3 from = default,
-        NVector3? to = null, WorldObjectId? subject = null) =>
-        new(new(id), kind, from, to, null, null, subject, started);
+        NVector3? to = null, WorldObjectId? subject = null, VoxelCollision? collision = null) =>
+        new(new(id), kind, from, to, null, collision, subject, started);
 
-    private static int Count(Node root, string name) => Named(root, name).Count();
+    private static (FixedSceneFrame Frame, double Sim) Sustain(SceneDisplay display, ImmutableArray<SceneObject> objects, int steps)
+    {
+        FixedSceneFrame? shown = null;
+        double sim = 0;
+        ulong revision = 1;
+        ulong cueId = 1;
+        for (var step = 0; step < steps; step++)
+        {
+            var cues = new List<SceneEffectCue>
+            {
+                Cue(cueId++, SceneEffectKind.Shot, started: sim, from: new(-2, 1, 0), to: new(2, 1, 0)),
+                Cue(cueId++, SceneEffectKind.Impact, started: sim, from: new(0, 1, 0)),
+                Cue(cueId++, SceneEffectKind.Fragments, started: sim, from: new(0, 2, 0), collision: new VoxelCollision.FullBox())
+            };
+            if (step % 24 == 0)
+                cues.Add(Cue(cueId++, SceneEffectKind.Destruction, started: sim, from: new(0, 1, 0)));
+            var frame = Frame(revision++, objects, [.. cues], seconds: sim, basis: shown?.Update.Frame);
+            Commit(display, frame);
+            shown = frame;
+            sim += 1d / 12;
+            display.AdvanceEffects(Frame(revision, objects, [], seconds: sim, basis: shown.Update.Frame), 1d / 12);
+        }
+        return (shown!, sim);
+    }
+
+    private static void Expire(SceneDisplay display, ImmutableArray<SceneObject> objects, FixedSceneFrame shown, double sim,
+        SceneSessionId? session = null)
+    {
+        var end = Frame(900, [], [], seconds: sim + 4, basis: shown.Update.Frame,
+            removed: [.. objects.Select(item => item.Id)], session: session);
+        Commit(display, end);
+        display.AdvanceEffects(Frame(901, [], [], seconds: sim + 4, basis: end.Update.Frame, session: session), 0);
+        Require(display.Objects.Count == 0 && Count(display.Root, "Shot") == 0 && Count(display.Root, "Fragment") == 0 &&
+            Count(display.Root, "Flash") == 0 && Count(display.Root, "Fireball") == 0 && Count(display.Root, "Smoke") == 0,
+            "负载结束后对象、弹道、碎片、闪光和烟都必须消失。");
+    }
+
+    private static ImmutableArray<SceneObject> LoadObjects()
+    {
+        var objects = new SceneObject[24];
+        for (var index = 0; index < 24; index++)
+        {
+            var id = (ulong)(index + 1);
+            var angle = index / 24f * Mathf.Tau;
+            objects[index] = new(new(id), null, new(new(Mathf.Cos(angle) * 3, 0, Mathf.Sin(angle) * 3), NQuaternion.Identity),
+                null, [], [new SceneLight(new("#ffcc88"), 8, index == 0 ? 0.8f : 0, id)],
+                [
+                    new PersistentSceneEffect(PersistentEffectKind.Smoke, default, 1, id),
+                    new PersistentSceneEffect(PersistentEffectKind.Fire, default, 1, id),
+                    new PersistentSceneEffect(PersistentEffectKind.Sparks, default, 1, id)
+                ]);
+        }
+        return [.. objects];
+    }
+
+    private async Task RecordWindowedLoad(SceneDisplay display, ImmutableArray<SceneObject> objects, string directory)
+    {
+        var window = TestScene.GetWindow();
+        window.Mode = Window.ModeEnum.Windowed;
+        window.Size = new Vector2I(1280, 720);
+        var camera = new Camera3D { Current = true, Position = new Vector3(3.2f, 2.4f, 4.6f) };
+        var mesh = new BoxMesh { Size = new Vector3(0.7f, 0.7f, 0.7f) };
+        var material = new StandardMaterial3D { AlbedoColor = new(0.55f, 0.55f, 0.52f) };
+        var box = new MeshInstance3D { Mesh = mesh, MaterialOverride = material, Position = new(0.15f, 0.35f, -0.85f) };
+        TestScene.AddChild(camera);
+        TestScene.AddChild(box);
+        camera.LookAt(new Vector3(0, 1, 0), Vector3.Up);
+        try
+        {
+            SceneObject PictureObject(ulong id, Vector3 at, params PersistentSceneEffect[] effects) => new(new(id), null,
+                new(new NVector3(at.X, at.Y, at.Z), NQuaternion.Identity), null, [],
+                id == 1 ? [new SceneLight(new("#ffcc88"), 6, 0, 1)] : [], [.. effects]);
+            var picture = Frame(1,
+            [
+                PictureObject(1, new(0, 0.6f, 0), new PersistentSceneEffect(PersistentEffectKind.Smoke, default, 1, 1)),
+                PictureObject(2, new(-1.3f, 0.5f, 0.2f), new PersistentSceneEffect(PersistentEffectKind.Fire, default, 1, 2)),
+                PictureObject(3, new(0.55f, 1.2f, 1.15f), new PersistentSceneEffect(PersistentEffectKind.Sparks, default, 1, 3))
+            ],
+            [
+                Cue(1, SceneEffectKind.Shot, from: new(-1.6f, 1.85f, 0.2f), to: new(1.6f, 1.85f, 0.2f)),
+                Cue(2, SceneEffectKind.Fragments, from: new(-0.2f, 1.15f, 1.35f), collision: new VoxelCollision.FullBox())
+            ], session: OtherSession);
+            Commit(display, picture);
+            var visible = Frame(2, picture.Update.Upserts, [], seconds: 0.08, basis: picture.Update.Frame, session: OtherSession);
+            display.AdvanceEffects(visible, 0, camera.GlobalPosition);
+            await TestScene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+            await TestScene.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+            Directory.CreateDirectory(directory);
+            using var image = window.GetTexture().GetImage();
+            Require(image.SavePng(Path.Combine(directory, "combat-effects.png")) == Error.Ok, "战斗特效截图保存失败。");
+            var first = await SampleLoad(display, objects, camera, 1, picture);
+            var eighth = await SampleLoad(display, objects, camera, 8, first.Frame);
+            File.WriteAllText(Path.Combine(directory, "combat-load.json"), System.Text.Json.JsonSerializer.Serialize(new
+            {
+                note = "合成特效负载，不是目录里的繁忙战斗。繁忙战斗要等 #351 和 #356，由 #303 测量。",
+                speed1 = first.Report,
+                speed8 = eighth.Report
+            }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+            Expire(display, objects, eighth.Frame, eighth.Sim, OtherSession);
+        }
+        finally
+        {
+            if (GodotObject.IsInstanceValid(box)) box.Free();
+            if (GodotObject.IsInstanceValid(camera)) camera.Free();
+            mesh.Dispose();
+            material.Dispose();
+        }
+    }
+
+    private async Task<(FixedSceneFrame Frame, double Sim, object Report)> SampleLoad(SceneDisplay display,
+        ImmutableArray<SceneObject> objects, Camera3D camera, int speed, FixedSceneFrame shown)
+    {
+        var times = new List<double>();
+        var marks = new List<object>();
+        double sim = shown.SimulationSeconds;
+        double hit = sim;
+        double destruction = sim;
+        ulong revision = shown.Update.Frame.Revision + 1;
+        ulong cueId = 1_000 + (ulong)speed * 100_000;
+        var process = System.Diagnostics.Process.GetCurrentProcess();
+        var cpuStart = process.TotalProcessorTime;
+        var wall = System.Diagnostics.Stopwatch.StartNew();
+        double elapsed = 0;
+        double previous = 0;
+        const double warmup = 5;
+        const double sample = 30;
+        var marked = new bool[2];
+        object Snapshot(string phase) => new
+        {
+            phase,
+            videoMemUsed = RenderingServer.GetRenderingInfo(RenderingServer.RenderingInfo.VideoMemUsed),
+            objects = Performance.GetMonitor(Performance.Monitor.ObjectCount),
+            nodes = Performance.GetMonitor(Performance.Monitor.ObjectNodeCount),
+            resources = Performance.GetMonitor(Performance.Monitor.ObjectResourceCount)
+        };
+        while (elapsed < warmup + sample)
+        {
+            await TestScene.ToSignal(TestScene.GetTree(), SceneTree.SignalName.ProcessFrame);
+            var now = wall.Elapsed.TotalSeconds;
+            var realDelta = Math.Max(0.001, now - previous);
+            previous = now;
+            elapsed += realDelta;
+            sim += realDelta * speed;
+            var cues = new List<SceneEffectCue>();
+            while (hit <= sim)
+            {
+                cues.Add(Cue(cueId++, SceneEffectKind.Shot, started: hit, from: new(-2, 1, 0), to: new(2, 1, 0)));
+                cues.Add(Cue(cueId++, SceneEffectKind.Impact, started: hit, from: new(0, 1, 0)));
+                cues.Add(Cue(cueId++, SceneEffectKind.Fragments, started: hit, from: new(0, 2, 0),
+                    collision: new VoxelCollision.FullBox()));
+                hit += 1d / 12;
+            }
+            while (destruction <= sim)
+            {
+                cues.Add(Cue(cueId++, SceneEffectKind.Destruction, started: destruction, from: new(0, 1, 0)));
+                destruction += 2;
+            }
+            if (cues.Count > 0)
+            {
+                var frame = Frame(revision++, objects, [.. cues], seconds: sim, basis: shown.Update.Frame, session: OtherSession);
+                Commit(display, frame);
+                shown = frame;
+            }
+            display.AdvanceEffects(Frame(revision, objects, [], seconds: sim, basis: shown.Update.Frame, session: OtherSession),
+                realDelta, camera.GlobalPosition);
+            if (elapsed < warmup) continue;
+            times.Add(realDelta);
+            var index = !marked[0] ? 0 : !marked[1] && elapsed >= warmup + sample / 2 ? 1 : -1;
+            if (index >= 0)
+            {
+                marked[index] = true;
+                process.Refresh();
+                marks.Add(Snapshot(index == 0 ? "start" : "middle"));
+            }
+        }
+        process.Refresh();
+        marks.Add(Snapshot("end"));
+        var cpu = (process.TotalProcessorTime - cpuStart).TotalSeconds / Math.Max(wall.Elapsed.TotalSeconds, 0.001);
+        var report = new
+        {
+            speed,
+            frames = times.Count,
+            p50Seconds = Percentile(times, 50),
+            p95Seconds = Percentile(times, 95),
+            p99Seconds = Percentile(times, 99),
+            maxSeconds = times.Max(),
+            processCpu = cpu,
+            processorCount = System.Environment.ProcessorCount,
+            samples = marks
+        };
+        return (shown, sim, report);
+    }
+
+    private static double Percentile(List<double> values, double percent)
+    {
+        var sorted = values.OrderBy(value => value).ToArray();
+        var rank = (int)Math.Ceiling(percent / 100d * sorted.Length);
+        return sorted[Math.Clamp(rank, 1, sorted.Length) - 1];
+    }
+
+    private static int Count(Node root, string name)
+    {
+        var effects = root.Name == "CombatEffects" ? root : root.GetNode("CombatEffects");
+        return effects.GetNodeOrNull(name)?.GetChildCount() ?? 0;
+    }
 
     private static List<MeshInstance3D> Nodes(SceneDisplay display, string name) =>
-        Named(display.Root, name).OfType<MeshInstance3D>().ToList();
-
-    private static IEnumerable<Node> Named(Node root, string name) =>
-        root.FindChildren("*", "", true, false).Where(node => HasName(node, name));
-
-    private static bool HasName(Node node, string name)
-    {
-        var text = node.Name.ToString();
-        if (text == name) return true;
-        if (!text.StartsWith(name) || text.Length == name.Length) return false;
-        var suffix = text[name.Length];
-        return suffix is '@' || char.IsDigit(suffix);
-    }
+        display.Root.GetNode("CombatEffects").GetNode(name).GetChildren().OfType<MeshInstance3D>().ToList();
 
     private static MeshInstance3D One(SceneDisplay display, string name)
     {

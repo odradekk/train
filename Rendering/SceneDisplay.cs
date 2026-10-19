@@ -42,22 +42,16 @@ internal sealed class SceneDisplay : IDisposable
         _cache = cache;
         _completeInitialFrame = completeInitialFrame;
         _resources = new(cache, content);
-        try
-        {
-            _effects = new(cache);
-            Root.AddChild(_effects.Root);
-        }
-        catch
-        {
-            _resources.Dispose();
-            throw;
-        }
+        _effects = new(cache);
+        Root.AddChild(_effects.Root);
     }
 
-    internal void SetFollowedTrain(ImmutableArray<VehicleId> vehicles, bool shakeEnabled) =>
-        _effects.SetView(vehicles, shakeEnabled);
+    internal void SetFollowedTrain(ImmutableArray<VehicleId> vehicles) => _effects.SetFollowedTrain(vehicles);
 
-    internal Vector3 AdvanceEffects(ISceneFrame frame, double realDelta) => _effects.Advance(frame, realDelta);
+    internal Vector3 AdvanceEffects(ISceneFrame frame, double realDelta, Vector3? camera = null) =>
+        _effects.Advance(frame, realDelta, camera);
+
+    internal double FlickerSeconds => _effects.FlickerSeconds;
 
     internal void ClearDebugLines()
     {
@@ -239,7 +233,6 @@ internal sealed class SceneDisplay : IDisposable
     internal void UpdateConstructionFog(System.Collections.Immutable.ImmutableArray<VehicleId> vehicles)
     {
         _cache.RequireMainThread();
-        _effects.SetVehicles(vehicles);
         var followedVehicles = vehicles.ToHashSet();
         foreach (var item in _objects.Values)
         {
@@ -322,6 +315,12 @@ internal sealed class SceneDisplay : IDisposable
             if (_debugLines is not null) Root.AddChild(_debugLines.Root);
         }
         prepared.Transferred = true;
+        DisplayedFrame = prepared.Frame;
+        PoseFrame = prepared.Frame;
+        _spaceOrigin = prepared.Frame.Origin;
+        _posedObjects.Clear();
+        Root.Visible = true;
+        _effects.Apply(previous, prepared.Frame, _objects);
         foreach (var item in old.Values)
         {
             var surviving = next.GetValueOrDefault(item.Source.Id);
@@ -330,12 +329,6 @@ internal sealed class SceneDisplay : IDisposable
             if (surviving is null) item.Root.Free();
         }
         if (!ReferenceEquals(oldFog, _fog)) oldFog?.Dispose();
-        DisplayedFrame = prepared.Frame;
-        PoseFrame = prepared.Frame;
-        _spaceOrigin = prepared.Frame.Origin;
-        _posedObjects.Clear();
-        Root.Visible = true;
-        _effects.Apply(previous, prepared.Frame, _objects);
     }
 
     public void Dispose()
