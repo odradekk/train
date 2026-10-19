@@ -488,7 +488,8 @@ public sealed class NodeSceneTests
     [TestMethod]
     public async Task SettlementFoundedAfterOpeningReplacesTheSceneInTheSameSpace()
     {
-        var founded = CopiedSettlement(1, terrain: false);
+        var train = NodeFixtures.Train();
+        var founded = CopiedSettlement(1, terrain: false, train: train);
         var empty = RailwayFixtures.ReplaceCore(founded, node: founded.Core.World.Nodes[0] with
             { Occupant = new NodeOccupant.Empty(), Platforms = 0 });
         await using var session = Open(empty);
@@ -501,6 +502,9 @@ public sealed class NodeSceneTests
         Assert.AreEqual(before.Update.Frame.Request, held.Update.Frame.Request);
         Assert.AreEqual(before.Update.Frame.Space, held.Update.Frame.Space);
         Assert.IsFalse(held.Diagnostics.Any(problem => problem.Detail.Contains("layout copy")));
+        Assert.IsFalse(held.Diagnostics.Any(problem => problem.Code == "station_platform_mismatch"));
+        Assert.IsInstanceOfType<Lookup<ScenePose>.Found>(held.FindPose(
+            new WorldObjectId.Instance(new InstanceId.Vehicle(train.Vehicles[0]))));
         var after = await RailwayFixtures.Settled(session, new(1, null, SceneDebugLayer.None), before);
         Assert.AreEqual(before.Update.Frame.Session, after.Update.Frame.Session);
         Assert.AreEqual(before.Update.Frame.Request, after.Update.Frame.Request);
@@ -511,6 +515,7 @@ public sealed class NodeSceneTests
         Assert.IsTrue(after.Objects.Any(item => item.Subject is WorldObjectId.Instance && before.Objects.All(old => old.Id != item.Id)));
         Assert.IsFalse(after.Diagnostics.Any(problem => problem.Code == "railway_update_pending"));
         Assert.IsFalse(after.Diagnostics.Any(problem => problem.Code == "content_missing" && problem.Detail.Contains("layout copy")));
+        Assert.IsFalse(after.Diagnostics.Any(problem => problem.Code == "station_platform_mismatch"));
     }
 
     [TestMethod]
@@ -572,13 +577,22 @@ public sealed class NodeSceneTests
         session.Observe(founded, []);
         SceneFrame? swapped = null;
         var previous = displayed;
+        var openFrames = 0;
+        var followed = new WorldObjectId.Instance(new InstanceId.Vehicle(docked.Vehicles[0]));
         for (var attempt = 0; attempt < 40 && swapped is null; attempt++)
         {
             await SceneFixtures.AwaitPendingWork(session.PendingNodeBuilds);
             var next = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(request, previous)).Value;
             if (!SamePan(previous, next)) swapped = next;
-            else previous = next;
+            else
+            {
+                openFrames++;
+                Assert.IsFalse(next.Diagnostics.Any(problem => problem.Code == "station_platform_mismatch"));
+                Assert.IsInstanceOfType<Lookup<ScenePose>.Found>(next.FindPose(followed));
+                previous = next;
+            }
         }
+        Assert.IsTrue(openFrames > 0, "The open scene must present at least one frame before the founded layout replaces it.");
         Assert.IsNotNull(swapped);
         var after = Vehicle(swapped, docked.Vehicles[0]);
         Assert.IsTrue(Vector2.Distance(new(before.X, before.Z), new(after.X, after.Z)) > NodeStreaming.NearCells,
@@ -1014,7 +1028,7 @@ public sealed class NodeSceneTests
     }
 
     private static SceneWorldSnapshot CopiedSettlement(ulong generation, bool terrain = true, bool stationPlots = true,
-        VoxelDefinitionId? ballast = null, double radius = 1)
+        VoxelDefinitionId? ballast = null, double radius = 1, TrainView? train = null)
     {
         var basis = NodeFixtures.Content(generation, rules: RailwayFixtures.Rules with
         { MinimumCurveRadiusMeters = radius, BallastVoxel = ballast ?? RailwayFixtures.Rules.BallastVoxel });
@@ -1053,12 +1067,24 @@ public sealed class NodeSceneTests
         station = station with { Details = new InstanceDetails.Building(new(1), plotSize) };
         settlement = settlement with { Plots = settlement.Plots.Select(plot => plot with { Size = plotSize }).ToImmutableArray() };
         var map = snapshot.Core.World.Nodes[0];
+        var instances = new Dictionary<InstanceId, Lookup<InstanceView>>
+            { [new InstanceId.Building(new(1))] = new Lookup<InstanceView>.Found(station) };
+        var trains = ImmutableArray<TrainMapItem>.Empty;
+        var trainViews = new Dictionary<TrainId, Lookup<TrainView>>();
+        if (train is not null)
+        {
+            var vehicle = RailwayFixtures.Instance(train: train.Id) with { Location = new WorldLocation.Node(NodeFixtures.NodeId) };
+            instances[vehicle.Id] = new Lookup<InstanceView>.Found(vehicle);
+            trains = [new(train.Id, train.Position, train.Activity)];
+            trainViews[train.Id] = new Lookup<TrainView>.Found(train);
+        }
         return snapshot with { Core = new FixedCoreReadView
         {
             Position = snapshot.Core.Position, InputIdentity = snapshot.Core.InputIdentity,
-            World = snapshot.Core.World with { Nodes = [map], Edges = [] },
+            World = snapshot.Core.World with { Nodes = [map], Edges = [], Trains = trains },
             Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [map.Id] = new Lookup<NodeView>.Found(new(map, [], 80, 0, 80)) },
-            Instances = new Dictionary<InstanceId, Lookup<InstanceView>> { [new InstanceId.Building(new(1))] = new Lookup<InstanceView>.Found(station) },
+            Instances = instances,
+            Trains = trainViews,
             Settlements = new Dictionary<SettlementId, Lookup<SettlementView>> { [new(1)] = new Lookup<SettlementView>.Found(settlement) }
         } };
     }
