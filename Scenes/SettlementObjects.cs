@@ -200,7 +200,18 @@ internal sealed class SettlementObjects : IAsyncDisposable
             var hasBody = body is not null;
             if (hasBody)
             {
+                var root = objects.Count;
                 Add(SceneGeometry.Place(WorldSceneSession.Attach(body!.Geometry, "building:" + buildingId.Value + ":", objectId).Geometry, pose));
+                if (Settlement(snapshot, layout)?.Facilities.Any(facility =>
+                        facility.Key.Building == buildingId && facility.State == ProductionState.Running) == true &&
+                    item.Bounds is { } occupied)
+                {
+                    while (objects[root].Parent is not null) root++;
+                    objects[root] = objects[root] with { Effects = objects[root].Effects.Add(new(PersistentEffectKind.FacilitySmoke,
+                        new((occupied.Minimum.X + occupied.Maximum.X) / 2f, occupied.Maximum.Y,
+                            (occupied.Minimum.Z + occupied.Maximum.Z) / 2f),
+                        .25f, StructureDamage.Seed(instance.Id, 0, default, 6))) };
+                }
                 presentation?.ApplyTurrets(objects, instance, "building:" + buildingId.Value + ":", findId, seconds, snapshot, origin);
             }
             else objects.Add(new(objectId("building:" + buildingId.Value + ":"), null, pose, new WorldObjectId.Instance(instance.Id), [], [], []));

@@ -13,6 +13,42 @@ namespace Train.Scenes.Tests;
 public sealed class SettlementObjectsTests
 {
     [TestMethod]
+    public async Task RunningFacilitiesShareOneStableRoofSmokeAndStoppingRemovesIt()
+    {
+        var evaluation = NodeFixtures.StationEvaluation();
+        evaluation = evaluation with { Scene = evaluation.Scene with
+        { OccupiedBounds = new(new(-2, -1, -4), new(3, 5, 7)) } };
+        var content = NodeFixtures.Content(designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+        { [NodeFixtures.StationDesign] = new ContentLookup<DesignEvaluation>.Found(evaluation) });
+        var facility = new FacilityView(new(new(1), CapabilityKind.Production), null, true, 0,
+            ProductionState.Running, 1, 1, [], null, [], [], []);
+        var settlement = NodeFixtures.Settlement() with { Facilities =
+            [facility, facility with { Key = new(new(1), CapabilityKind.Extraction) },
+                facility with { Key = new(new(99), CapabilityKind.Production) }] };
+        var station = NodeFixtures.Station(2) with { Structure = new(40, 100) };
+        var snapshot = Snapshot(content: content, settlement: settlement, station: station);
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        await using var objects = new SettlementObjects(StableIds());
+        var rendered = await Settle(objects, snapshot, layout);
+        var root = rendered.Objects.Single(item => item.Parent is null && item.Subject == new WorldObjectId.Instance(station.Id));
+        var smoke = root.Effects.Single(item => item.Kind == PersistentEffectKind.FacilitySmoke);
+        Assert.AreEqual(new Vector3(1, 6, 2), smoke.LocalPosition);
+        Assert.AreEqual(.25f, smoke.Strength);
+        Assert.AreEqual(1, rendered.Objects.SelectMany(item => item.Effects).Count(item => item.Kind == PersistentEffectKind.FacilitySmoke));
+        Assert.IsTrue(root.Effects.Any(item => item.Kind == PersistentEffectKind.Smoke));
+        await using var reopened = new SettlementObjects(StableIds());
+        Assert.AreEqual(smoke, (await Settle(reopened, snapshot, layout)).Objects.SelectMany(item => item.Effects)
+            .Single(item => item.Kind == PersistentEffectKind.FacilitySmoke));
+        foreach (var state in Enum.GetValues<ProductionState>().Where(state => state != ProductionState.Running))
+        {
+            var stopped = Snapshot(content: content, station: station, settlement: settlement with
+            { Facilities = settlement.Facilities.Select(item => item with { State = state }).ToImmutableArray() });
+            Assert.IsFalse(Present(objects, stopped, layout).Objects.SelectMany(item => item.Effects)
+                .Any(item => item.Kind == PersistentEffectKind.FacilitySmoke), state.ToString());
+        }
+    }
+
+    [TestMethod]
     public async Task Destroyed_building_parts_match_a_cold_build_after_cached_geometry_is_replaced()
     {
         var original = Snapshot();

@@ -65,6 +65,14 @@ internal static class StructureDamage
         var lights = ImmutableArray.CreateBuilder<PlacedLight>();
         var effects = ImmutableArray.CreateBuilder<PlacedEffect>();
         var partRatios = instance.Parts.ToDictionary(part => part.Part);
+        var parts = content?.FindDesign(instance.Design) switch
+        {
+            ContentLookup<DesignEvaluation>.Found { Value: DesignEvaluation.Complete { Core: { } core } } => core.Design.Parts,
+            ContentLookup<DesignEvaluation>.Found { Value: DesignEvaluation.Partial partial } => partial.KnownSubtotal.Parts,
+            _ => []
+        };
+        var leaking = parts.Where(part => !part.Missing && part.Capabilities.Any(capability =>
+            capability is PartCapability.Propulsion or PartCapability.Power)).Select(part => part.Id).ToHashSet();
         foreach (var voxel in projection.Voxels.Where(voxel => !voxel.Missing && !destroyed.Contains(voxel.Number) && !removed.Contains(Cell(voxel))))
         {
             if (content?.FindVoxelAppearance(voxel.Voxel) is not ContentLookup<VoxelAppearanceProjection>.Found { Value.Behaviors.Light: { } light })
@@ -90,6 +98,19 @@ internal static class StructureDamage
             effects.Add(new(DesignGeometry.Key(cell.ObjectPath), new(PersistentEffectKind.Sparks,
                 new(cell.LocalAt.X + .5f, cell.LocalAt.Y + .5f, cell.LocalAt.Z + .5f),
                 (float)loss, Seed(instance.Id, part.Part.Value, cell.LocalAt, 4))));
+            if (!leaking.Contains(part.Part)) continue;
+            var bottom = projection.Voxels.Where(voxel => voxel.Number == part.Part && !voxel.Missing)
+                .OrderBy(voxel => voxel.At.Y).ThenBy(voxel => voxel.At.X).ThenBy(voxel => voxel.At.Z).First();
+            var rotation = Quaternion.Identity;
+            for (var depth = 1; depth <= bottom.ObjectPath.Length; depth++)
+            {
+                var nested = projection.NestedObjects.First(item => item.NestedItemIndices.SequenceEqual(bottom.ObjectPath.Take(depth)));
+                rotation = Quaternion.Normalize(rotation * SceneGeometry.Placement(nested.At, nested.Orientation).Rotation);
+            }
+            effects.Add(new(DesignGeometry.Key(bottom.ObjectPath), new(PersistentEffectKind.Leak,
+                new Vector3(bottom.LocalAt.X + .5f, bottom.LocalAt.Y + .5f, bottom.LocalAt.Z + .5f) -
+                    Vector3.Transform(Vector3.UnitY * .5f, Quaternion.Inverse(rotation)),
+                (float)loss, Seed(instance.Id, part.Part.Value, bottom.LocalAt, 5))));
         }
         return new(ratio, (float)(1 - ratio), removedCount > 0, order.Select(Cell).ToImmutableArray(), removed,
             damage.ToImmutable(), lights.DrainToImmutable(), effects.DrainToImmutable());

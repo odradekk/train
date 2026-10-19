@@ -208,6 +208,51 @@ public sealed class CombatFrameTests
     }
 
     [TestMethod]
+    public void OnlyDamagedPropulsionAndPowerPartsLeakAtTheirLowestCellInLocalCoordinates()
+    {
+        var high = SceneFixtures.Cell(new(-4, 3, 0), 1);
+        var low = SceneFixtures.Cell(new(2, -1, 5), 1, path: [0, 2]) with { LocalAt = new(7, 8, 9) };
+        var tied = SceneFixtures.Cell(new(3, -1, 0), 1);
+        var power = SceneFixtures.Cell(new(0, 0, 0), 2);
+        var control = SceneFixtures.Cell(new(1, 0, 0), 3);
+        var projection = SceneFixtures.Projection([high, tied, low, power, control],
+            [new([0], new(-5, -9, -4), VoxelOrientation.PxPy, new NestedObjectDetails.Assembly(null)),
+                new([0, 2], default, VoxelOrientation.PxPy, new NestedObjectDetails.Assembly(null))]) with
+        { Elements = [Element(high, true), Element(power, true), Element(control, true)] };
+        var evaluation = NodeFixtures.StationEvaluation();
+        var basis = evaluation.Core!.Design.Parts[0];
+        evaluation = evaluation with { Scene = projection, Core = evaluation.Core with { Design = evaluation.Core.Design with
+        {
+            Parts = [basis with { Id = new(1), Capabilities = [new PartCapability.Propulsion(1, 1)] },
+                basis with { Id = new(2), Capabilities = [new PartCapability.Power(1)] },
+                basis with { Id = new(3), Capabilities = [new PartCapability.Control()] }]
+        } } };
+        var body = RailwayFixtures.Instance() with { Parts = [new(new(1), new(25, 100), false, false),
+            new(new(2), new(50, 100), false, false), new(new(3), new(50, 100), false, false)] };
+        var content = SceneFixtures.Content(evaluation, body.Design);
+        var report = StructureDamage.Assess(body, projection, content);
+        var leaks = report.Effects.Where(item => item.Effect.Kind == PersistentEffectKind.Leak).ToArray();
+        Assert.AreEqual(2, leaks.Length);
+        Assert.AreEqual("0/2", leaks[0].Path);
+        Assert.AreEqual(new Vector3(7.5f, 8, 9.5f), leaks[0].Effect.LocalPosition);
+        Assert.AreEqual(.75f, leaks[0].Effect.Strength);
+        Assert.AreEqual("", leaks[1].Path);
+        Assert.AreEqual(new Vector3(.5f, 0, .5f), leaks[1].Effect.LocalPosition);
+        Assert.AreEqual(3, report.Effects.Count(item => item.Effect.Kind == PersistentEffectKind.Sparks));
+        CollectionAssert.AreEqual(leaks, StructureDamage.Assess(body, projection, content).Effects
+            .Where(item => item.Effect.Kind == PersistentEffectKind.Leak).ToArray());
+        var rotated = projection with { Voxels = projection.Voxels.SetItem(2, low with { At = new(-13, -2, 5) }),
+            NestedObjects = projection.NestedObjects.SetItem(1,
+            projection.NestedObjects[1] with { Orientation = VoxelOrientation.PyNx }) };
+        var rotatedLeak = StructureDamage.Assess(body, rotated, content).Effects.First(item => item.Effect.Kind == PersistentEffectKind.Leak);
+        Assert.IsTrue(Vector3.Distance(new Vector3(7, 8.5f, 9.5f), rotatedLeak.Effect.LocalPosition) < 1e-5);
+        var repaired = body with { Parts = body.Parts.Select(part => part with { Durability = new(100, 100) }).ToImmutableArray() };
+        Assert.IsFalse(StructureDamage.Assess(repaired, projection, content).Effects.Any(item => item.Effect.Kind == PersistentEffectKind.Leak));
+        var destroyed = body with { Parts = body.Parts.Select(part => part with { Destroyed = true }).ToImmutableArray() };
+        Assert.IsFalse(StructureDamage.Assess(destroyed, projection, content).Effects.Any(item => item.Effect.Kind == PersistentEffectKind.Leak));
+    }
+
+    [TestMethod]
     public async Task TwoFreshSessionsBuildTheSameVerticesForTheSameDurability()
     {
         var evaluation = RailwayFixtures.Vehicle(cells: Enumerable.Range(0, 6).Select(i => new GridPosition(i, 0, 0)).ToImmutableArray());
