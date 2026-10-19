@@ -28,7 +28,7 @@ internal sealed partial class NodeLayout
     internal LairPlacement? Lair { get; private set; }
     internal ImmutableArray<Stop> Stops { get; private init; } = [];
     internal ImmutableArray<ParkingLine> Parking { get; private init; } = [];
-    internal ImmutableArray<SceneProblem> Problems { get; private set; } = [];
+    internal ImmutableArray<SceneProblem> Problems { get; private init; } = [];
     // Both build paths finish the geometry before assigning the final bounds and publishing the layout.
     internal ScenePanBounds Bounds { get; private set; } = null!;
     private ImmutableArray<Stop> routeStops = [];
@@ -154,35 +154,22 @@ internal sealed partial class NodeLayout
 
     private void PlaceLair(SceneWorldSnapshot snapshot)
     {
-        if (LairModel(snapshot, Node) is not { } model)
-        {
-            ReportMissingLair(snapshot);
-            return;
-        }
+        if (LairModel(snapshot, Node) is not { } model) return;
         var shift = NodeLair.Translation(this, model.Scene);
         Lair = new(model, shift.X, shift.Z);
     }
 
-    private void ReportMissingLair(SceneWorldSnapshot snapshot)
-    {
-        if (snapshot.Core.World.Nodes.Single(item => item.Id == Node).Occupant is not NodeOccupant.Lair occupant) return;
-        if (snapshot.Core.FindLair(occupant.Id) is not Lookup<LairView>.Found core) return;
-        var lookup = snapshot.Content.FindLair(core.Value.Type);
-        if (lookup is ContentLookup<LairAppearanceProjection>.Found) return;
-        var diagnostics = lookup is ContentLookup<LairAppearanceProjection>.Missing missing ? missing.Diagnostics : [];
-        var problems = ImmutableArray.CreateBuilder<SceneProblem>();
-        RailwayTerrain.ReportMissing(new ContentReference.Core(new CoreDefinitionReference.Lair(core.Value.Type)),
-            diagnostics, "The lair scene model is missing.", problems, new WorldObjectId.Node(Node));
-        Problems = Problems.AddRange(problems);
-    }
-
-    internal static SceneModelProjection? LairModel(SceneWorldSnapshot snapshot, NodeId node)
+    internal static (LairTypeId Type, ContentLookup<LairAppearanceProjection> Appearance)? LairContent(
+        SceneWorldSnapshot snapshot, NodeId node)
     {
         if (snapshot.Core.World.Nodes.Single(item => item.Id == node).Occupant is not NodeOccupant.Lair occupant) return null;
         if (snapshot.Core.FindLair(occupant.Id) is not Lookup<LairView>.Found core) return null;
-        return snapshot.Content.FindLair(core.Value.Type) is ContentLookup<LairAppearanceProjection>.Found found
-            ? found.Value.SceneModel : null;
+        return (core.Value.Type, snapshot.Content.FindLair(core.Value.Type));
     }
+
+    internal static SceneModelProjection? LairModel(SceneWorldSnapshot snapshot, NodeId node) =>
+        LairContent(snapshot, node)?.Appearance is ContentLookup<LairAppearanceProjection>.Found found
+            ? found.Value.SceneModel : null;
 
     internal static string ReadInputs(SceneWorldSnapshot snapshot, NodeId id)
     {

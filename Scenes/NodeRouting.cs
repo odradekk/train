@@ -18,15 +18,13 @@ internal sealed partial class NodeLayout
     internal ImmutableDictionary<EdgeId, int> EntryTracks => entryTracks;
     internal Stop Bypass { get; private set; } = null!;
     internal IEnumerable<(Func<double, RailwaySample> Sample, double Length)> AllTurnRoutes() =>
-        TurnGeometry(includeShared: true);
+        turnRails.Select(Route).Concat(sharedTurnRails.Select(rail => Route(rail.Path)));
 
     internal IEnumerable<(Func<double, RailwaySample> Sample, double Length)> TurnRoutes() =>
-        TurnGeometry(includeShared: false);
+        turnRails.Select(Route).Concat(
+            sharedTurnRails.Where(rail => !BuiltOver(rail.Lane, rail.Edge)).Select(rail => Route(rail.Path)));
 
-    private IEnumerable<(Func<double, RailwaySample> Sample, double Length)> TurnGeometry(bool includeShared) =>
-        turnRails.Select(route => ((Func<double, RailwaySample>)route.Sample, route.Length)).Concat(
-            sharedTurnRails.Where(rail => includeShared || !BuiltOver(rail.Lane, rail.Edge))
-                .Select(rail => ((Func<double, RailwaySample>)rail.Path.Sample, rail.Path.Length)));
+    private static (Func<double, RailwaySample> Sample, double Length) Route(NodeRailPath path) => (path.Sample, path.Length);
 
     private bool BuiltOver(int lane, EdgeId edge) =>
         Enumerable.Range(1, entryTracks.GetValueOrDefault(edge)).Any(number =>

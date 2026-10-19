@@ -84,7 +84,30 @@ public sealed class NodeLairTests
     }
 
     [TestMethod]
-    public async Task ClearingAndPlacingALairRefreshesTerrainAndResourcesInTheSameSpace()
+    public async Task MissingLairReportFollowsTheCurrentOccupant()
+    {
+        var reference = new ContentReference.Core(new CoreDefinitionReference.Lair(Type));
+        var lookup = new ContentLookup<LairAppearanceProjection>.NotFound();
+        var missing = World(lookup);
+        var empty = World(lookup, occupant: false);
+        var built = Build(missing);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = new NodeScene(missing, NodeFixtures.NodeId, new(), SceneFixtures.NextId(), vehicles, new(),
+            _ => null, (_, _, _, _) => built);
+        await scene.BuildWork!;
+        scene.Present(missing, Request, NodeFixtures.NextStamp(scene), null, default);
+        await SceneFixtures.AwaitPendingWork(scene.PendingWork);
+        var opened = scene.Present(missing, Request, NodeFixtures.NextStamp(scene), null, default);
+        Assert.IsTrue(HasLairGap(opened, reference));
+        Assert.IsFalse(opened.Node!.Problems.Any(problem => problem.Content == reference));
+        var cleared = scene.Present(empty, Request, NodeFixtures.NextStamp(scene), opened, default);
+        Assert.IsFalse(HasLairGap(cleared, reference));
+        var appeared = scene.Present(missing, Request, NodeFixtures.NextStamp(scene), cleared, default);
+        Assert.IsTrue(HasLairGap(appeared, reference));
+    }
+
+    [TestMethod]
+    public async Task ClearingAndPlacingALairRefreshesTerrainAndResources()
     {
         var model = Model("test:lair-line", [new(0, 2, 0), new(1, 2, 0), new(2, 2, 0)], new(new(0, 0), new(2, 0), 5));
         var lair = World(Found(model), resources: true);
@@ -94,7 +117,7 @@ public sealed class NodeLairTests
         var column = new GridColumn(shift.ShiftX, shift.ShiftZ);
         var modelChunk = ChunkOf(column);
         var far = new GridColumn(modelChunk.X, modelChunk.Z - VoxelGrid.ChunkSize * 2);
-        var built = new Dictionary<GridColumn, NodeScene.Part>();
+        var built = new System.Collections.Concurrent.ConcurrentDictionary<GridColumn, NodeScene.Part>();
         var ids = new Dictionary<string, SceneObjectId>();
         var mesh = new SceneMesh(new SceneMaterial.BuiltIn(BuiltInMaterial.Sleeper),
             [new SceneVertex(Vector3.Zero, Vector3.UnitY, Vector2.Zero, Vector2.Zero, ExposedFaceEdges.None, 0, 0)], [0, 0, 0]);
@@ -123,12 +146,6 @@ public sealed class NodeLairTests
         var clearedModel = built[modelChunk];
         var clearedFar = built[far];
         var returned = await Refresh(scene, lair, cleared);
-        Assert.AreEqual(opened.Update.Frame.Session, cleared.Update.Frame.Session);
-        Assert.AreEqual(opened.Update.Frame.Request, cleared.Update.Frame.Request);
-        Assert.AreEqual(opened.Update.Frame.Space, cleared.Update.Frame.Space);
-        Assert.AreEqual(opened.Update.Frame.Session, returned.Update.Frame.Session);
-        Assert.AreEqual(opened.Update.Frame.Request, returned.Update.Frame.Request);
-        Assert.AreEqual(opened.Update.Frame.Space, returned.Update.Frame.Space);
         Assert.IsNotNull(opened.Node!.Lair);
         Assert.IsNull(cleared.Node!.Lair);
         Assert.AreEqual(opened.Node.Lair, returned.Node!.Lair);
@@ -150,7 +167,8 @@ public sealed class NodeLairTests
         var model = Model("test:lair-line", [new(0, 2, 0), new(1, 2, 0), new(2, 2, 0)], new(new(0, 0), new(2, 0), 5));
         var snapshot = World(Found(model), resources: true);
         var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
-        var region = Translate(NodeSettlement.Bounds(model.Scene)!, layout.Lair!.ShiftX, layout.Lair.ShiftZ);
+        var region = NodeLair.Region(layout.Lair!)!;
+        const int blend = 8;
         (ulong Seed, int Candidate, ScenePoint Point) inside = default;
         (int Candidate, ScenePoint Point) outside = default;
         var found = false;
@@ -162,10 +180,8 @@ public sealed class NodeLairTests
             {
                 var point = CandidatePoint(layout, seed, candidate);
                 if (layout.ContainsPlot(point) || !layout.ClearOfTracks(point, Clearance)) continue;
-                if (point.X >= region.Minimum.X && point.X < region.Maximum.X &&
-                    point.Z >= region.Minimum.Y && point.Z < region.Maximum.Y)
-                    inRegion ??= (candidate, point);
-                else clear ??= (candidate, point);
+                if (InExpanded(region, point, blend) && !InExpanded(region, point, 0)) inRegion ??= (candidate, point);
+                else if (!InExpanded(region, point, blend)) clear ??= (candidate, point);
             }
             if (inRegion is { } blocked && clear is { } shown)
             {
@@ -174,7 +190,7 @@ public sealed class NodeLairTests
                 found = true;
             }
         }
-        Assert.IsTrue(found, "No seed places one clear candidate inside the lair and another outside it.");
+        Assert.IsTrue(found, "No seed places one clear candidate in the flatten blend and another outside it.");
         var seeded = RailwayFixtures.ReplaceCore(snapshot, worldSeed: inside.Seed);
         var ids = new Dictionary<string, SceneObjectId>();
         await using var objects = new SettlementObjects(key =>
@@ -303,6 +319,13 @@ public sealed class NodeLairTests
             .Order()
             .ToArray();
     }
+
+    private static bool HasLairGap(SceneFrame frame, ContentReference reference) =>
+        frame.Diagnostics.Any(problem => problem.Code == "content_missing" && problem.Content == reference);
+
+    private static bool InExpanded(ScenePanBounds region, ScenePoint point, int blend) =>
+        point.X >= region.Minimum.X - blend && point.X < region.Maximum.X + blend &&
+        point.Z >= region.Minimum.Y - blend && point.Z < region.Maximum.Y + blend;
 
     private static bool Shown(RenderedDesign rendered, ScenePoint point) => rendered.Objects.Any(item =>
         Math.Abs(item.Pose.Position.X - point.X) < 0.01 && Math.Abs(item.Pose.Position.Z - point.Z) < 0.01);

@@ -732,6 +732,13 @@ internal sealed class NodeScene : IAsyncDisposable
                         "The settlement layout copy is missing."));
                 }
             }
+            if (NodeLayout.LairContent(snapshot, Node) is { } lair &&
+                lair.Appearance is not ContentLookup<LairAppearanceProjection>.Found)
+            {
+                var diagnostics = lair.Appearance is ContentLookup<LairAppearanceProjection>.Missing missing ? missing.Diagnostics : [];
+                RailwayTerrain.ReportMissing(new ContentReference.Core(new CoreDefinitionReference.Lair(lair.Type)),
+                    diagnostics, "The lair scene model is missing.", problems, new WorldObjectId.Node(Node));
+            }
             Add(settlement.Present(snapshot, layout, origin, fog, findId, range, chunks.Keys, prefetch, presentation, seconds));
         }
         if (failure is not null) problems.Add(failure);

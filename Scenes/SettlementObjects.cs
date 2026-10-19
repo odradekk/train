@@ -391,10 +391,10 @@ internal sealed class SettlementObjects : IAsyncDisposable
 
     private static bool InLair(NodeLayout layout, ScenePoint point)
     {
-        if (layout.Lair is not { } lair || NodeSettlement.Bounds(lair.Model.Scene) is not { } footprint) return false;
-        var minimum = footprint.Minimum + new Vector2(lair.ShiftX, lair.ShiftZ);
-        var maximum = footprint.Maximum + new Vector2(lair.ShiftX, lair.ShiftZ);
-        return point.X >= minimum.X && point.X < maximum.X && point.Z >= minimum.Y && point.Z < maximum.Y;
+        if (layout.Lair is not { } lair || NodeLair.Region(lair) is not { } region) return false;
+        var blend = NodeSettlement.FlattenBlend;
+        return point.X >= region.Minimum.X - blend && point.X < region.Maximum.X + blend &&
+            point.Z >= region.Minimum.Y - blend && point.Z < region.Maximum.Y + blend;
     }
 
     public async ValueTask DisposeAsync()

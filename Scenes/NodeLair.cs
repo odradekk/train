@@ -23,7 +23,7 @@ internal static class NodeLair
             for (var step = sign > 0 ? 0 : 1; step <= span; step++)
             {
                 var shift = (X: rx * sign * step, Z: rz * sign * step);
-                var region = Region(footprint, shift);
+                var region = Translated(footprint, shift.X, shift.Z);
                 if (Fits(region, inner) && Clears(region, samples)) return shift;
             }
         // The rail-bed voxel filter drops cells that still overlap a track.
@@ -45,14 +45,18 @@ internal static class NodeLair
         return samples;
     }
 
-    private static ScenePanBounds Region(ScenePanBounds footprint, (int X, int Z) shift) => new(
-        footprint.Minimum + new Vector2(shift.X, shift.Z), footprint.Maximum + new Vector2(shift.X, shift.Z));
+    internal static ScenePanBounds? Region(NodeLayout.LairPlacement placement) =>
+        NodeSettlement.Bounds(placement.Model.Scene) is { } footprint
+            ? Translated(footprint, placement.ShiftX, placement.ShiftZ) : null;
+
+    private static ScenePanBounds Translated(ScenePanBounds footprint, int shiftX, int shiftZ) => new(
+        footprint.Minimum + new Vector2(shiftX, shiftZ), footprint.Maximum + new Vector2(shiftX, shiftZ));
 
     private static bool Fits(ScenePanBounds region, ScenePanBounds inner)
     {
-        var skirt = new Vector2(8, 8);
-        return region.Minimum.X - skirt.X >= inner.Minimum.X && region.Minimum.Y - skirt.Y >= inner.Minimum.Y &&
-            region.Maximum.X + skirt.X <= inner.Maximum.X && region.Maximum.Y + skirt.Y <= inner.Maximum.Y;
+        var skirt = NodeSettlement.FlattenBlend;
+        return region.Minimum.X - skirt >= inner.Minimum.X && region.Minimum.Y - skirt >= inner.Minimum.Y &&
+            region.Maximum.X + skirt <= inner.Maximum.X && region.Maximum.Y + skirt <= inner.Maximum.Y;
     }
 
     private static bool Clears(ScenePanBounds region, List<(double X, double Z)> samples)

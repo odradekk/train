@@ -8,6 +8,7 @@ namespace Train.Scenes;
 
 internal static class NodeSettlement
 {
+    internal const int FlattenBlend = 8;
     internal static SettlementLayoutProjection? Read(SceneWorldSnapshot snapshot, NodeId node) =>
         snapshot.Core.World.Nodes.Single(item => item.Id == node).Occupant is NodeOccupant.Settlement owner &&
         snapshot.Content.FindSettlementLayout(owner.Id) is ContentLookup<SettlementLayoutProjection>.Found found ? found.Value : null;
@@ -88,7 +89,7 @@ internal static class NodeSettlement
             var local = Vector3.Transform(new Vector3((float)point.X, 0, (float)point.Z) - position, Quaternion.Conjugate(pose.Rotation));
             var distance = Math.Max(Math.Max(region.From.X - local.X, local.X - region.To.X - 1),
                 Math.Max(region.From.Z - local.Z, local.Z - region.To.Z - 1));
-            var blend = Math.Clamp(distance / 8, 0, 1);
+            var blend = Math.Clamp(distance / FlattenBlend, 0, 1);
             raw = (position.Y + region.Height - 1) * (1 - blend) + raw * blend;
         }
         return raw;
