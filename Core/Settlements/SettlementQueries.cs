@@ -32,7 +32,7 @@ internal static class SettlementQueries
             plots, settlement.ParkedVehicles, ParkingCapacity: int.MaxValue, world.Nodes.Single(n => n.Id == settlement.Node).Platforms,
             world.OccupiedPlatforms(settlement.Node), VehicleTrades.ForSale(world, settlement), VehicleTrades.PurchaseCapacities(world, content, settlement),
             facilities, power, PopulationQueries.Read(world, content, settlement, step),
-            Engagement: settlement.Engagement, MoraleRatio: 1, Surrendered: false,
+            Engagement: settlement.Engagement, MoraleRatio: settlement.Morale, Surrendered: settlement.Surrendered,
             CommissionJobs: world.ConstructionJobs.Where(j => j.Settlement == settlement.Id && j.Funding == JobFunding.NpcCommission)
                 .OrderBy(j => j.Id.Value).Select(j => j.Id).ToImmutableArray(),
             OwnedJobs: settlement.Relation != SettlementRelation.PlayerOwned ? [] : world.ConstructionJobs

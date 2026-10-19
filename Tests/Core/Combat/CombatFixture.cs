@@ -75,8 +75,27 @@ internal static class CombatFixture
         };
     }
 
+    private static readonly object Gate = new();
+    private static CoreState? _defaultState;
+
     internal static CoreSession Session(int trains = 1, bool armedBuilding = true, long damage = 1,
         ImmutableArray<GoodsQuantity> cargo = default, int vehicles = 1, bool builder = false, bool parked = false)
+    {
+        if (trains != 1 || !armedBuilding || damage != 1 || !cargo.IsDefault || vehicles != 1 || builder || parked)
+            return CreateSession(trains, armedBuilding, damage, cargo, vehicles, builder, parked);
+        lock (Gate)
+        {
+            if (_defaultState is null)
+            {
+                using var session = CreateSession(trains, armedBuilding, damage, cargo, vehicles, builder, parked);
+                _defaultState = session.State;
+            }
+            return new CoreSession(_defaultState);
+        }
+    }
+
+    private static CoreSession CreateSession(int trains, bool armedBuilding, long damage,
+        ImmutableArray<GoodsQuantity> cargo, int vehicles, bool builder, bool parked)
     {
         var prepared = CoreFactory.Create().PrepareNew(Input(trains, cargo, vehicles, parked: parked),
             Content(armedBuilding, damage, builder, parked), WorldFixture.Options);

@@ -48,6 +48,12 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
                 throw new ArgumentException("节点和材料列车编号必须非零。", nameof(command));
             return ExecuteCommand(command, source, content => SettlementFounding.Execute(State.World, content, found));
         }
+        if (command is CoreCommand.DeclareWar or CoreCommand.OccupySettlement)
+        {
+            SettlementWar.Validate(command);
+            return ExecuteCommand(command, source, content => SettlementWar.Execute(State.World, content, command,
+                new(State.Position.CompletedSteps, checked(State.Position.Sequence + 1))));
+        }
         if (command is CoreCommand.PublishContent publish)
         {
             WorldInputs.ValidateContent(publish.Content);

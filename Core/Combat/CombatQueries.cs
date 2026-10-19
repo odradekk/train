@@ -121,6 +121,7 @@ internal static class CombatQueries
     {
         var leftOwner = OwnerOfUnit(world, left);
         var rightOwner = OwnerOfUnit(world, right);
+        if (Surrendered(world, leftOwner) || Surrendered(world, rightOwner)) return false;
         if (leftOwner is CombatOwner.Creatures || rightOwner is CombatOwner.Creatures)
             return leftOwner is not CombatOwner.Creatures || rightOwner is not CombatOwner.Creatures;
         return (leftOwner, rightOwner) switch
@@ -132,6 +133,10 @@ internal static class CombatQueries
             _ => false
         };
     }
+
+    private static bool Surrendered(WorldState world, CombatOwner owner)
+        => owner is CombatOwner.Settlement settlement
+            && world.Settlements.Single(item => item.Id == settlement.Id).Surrendered;
 
     internal static bool Armed(WorldState world, CoreContentProjection content, CombatUnitId unit)
         => unit switch
