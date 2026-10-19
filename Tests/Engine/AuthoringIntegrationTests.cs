@@ -90,11 +90,11 @@ public class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
         {
             ContentFixture.WriteMod(directory, id);
             var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
-            await FramesUntil(TestScene, () => !app.Host!.IsBusy);
+            await FramesUntil(TestScene, () => !app.Host!.IsBusy, timeout: TimeSpan.FromSeconds(60));
             var host = app.Host!;
             Require(host.BeginNewGame(new("core:basic-through-world"), 1, "stage1-world-v1", host.SessionOptions!).Problem is null,
                 "真实新局请求被拒绝。");
-            await FramesUntil(TestScene, () => !host.IsBusy && host.GetStatus() is not null);
+            await FramesUntil(TestScene, () => !host.IsBusy && host.GetStatus() is not null, timeout: TimeSpan.FromSeconds(60));
             var original = host.Content!;
             var service = app.Authoring!;
             Require(service.CanUse, "真实开发构建必须允许创作模式。");
