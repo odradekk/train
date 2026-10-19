@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Train.Core.Combat;
 using Train.Core.Contracts;
 using Train.Core.Creatures;
 using Train.Core.Sessions;
@@ -244,6 +245,61 @@ internal static class CreatureTestSupport
 
     internal static CreatureGroupState State(ICoreSession session, ulong id)
         => ((CoreSession)session).State.World.CreatureGroups.Single(group => group.Id == new CreatureGroupId(id));
+
+    internal static CoreState EdgeCombatEvidence()
+    {
+        using var generated = CombatFixture.Session(armedBuilding: false, damage: 1);
+        var primary = Animal(generated.State.Content, "fixture:creature-a", 100, 0, 1, Idle, new PartCapability.Weapon(1, 1));
+        var secondary = Animal(generated.State.Content, "fixture:creature-b", 100, 0, 1, Idle, null);
+        var content = Lairs(generated.State.Content, primary, secondary, 2, Idle, Idle, 0, 0);
+        var world = StopTrains(generated.State.World);
+        var candidates = world.Edges.Where(item => item.Tracks > 0 && item.LengthMeters > 2).ToArray();
+        Assert.IsTrue(candidates.Length > 0,
+            "没有可用的边：" + string.Join(", ", world.Edges.Take(8).Select(item =>
+                $"{item.Id.Value}:{item.LengthMeters}:{item.Tracks}:{item.Start.Value}:{item.End.Value}")));
+        var edge = candidates.OrderByDescending(item => item.LengthMeters).First();
+        if (edge.Start.Value > edge.End.Value)
+        {
+            edge = edge with { Start = edge.End, End = edge.Start };
+            world = world with
+            {
+                Edges = world.Edges.Select(item => item.Id == edge.Id ? edge : item).ToImmutableArray()
+            };
+        }
+        var fight = edge.LengthMeters / 2;
+        var engagement = new TrainEngagementRules(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0);
+        var train = world.Trains.OrderBy(item => item.Id.Value).First() with
+        {
+            Position = new TrainPosition.Edge(edge.Id, 1, TravelDirection.Forward, fight),
+            Activity = TrainActivity.Retreating, SpeedMetersPerSecond = 5, Plan = null, NextStopIndex = null,
+            RetreatDestination = null, Engagement = engagement
+        };
+        world = world with { Trains = world.Trains.Select(item => item.Id == train.Id ? train : item).ToImmutableArray() };
+        var (withLair, lair) = AddLair(world, EmptyNode(world), content.LairTypes[0].Id);
+        world = WithPacks(withLair,
+            Pack(1, lair.Id, new WorldLocation.Edge(edge.Id, fight), TravelDirection.Forward, CreatureActivity.Combat, 1,
+                null, Creature(1, "fixture:creature-a", 100)),
+            Pack(2, lair.Id, new WorldLocation.Edge(edge.Id, edge.LengthMeters / 5), TravelDirection.Forward,
+                CreatureActivity.RaidingRailway, 1, new CreatureObjective.Railway(edge.Id, edge.LengthMeters / 10),
+                Creature(2, "fixture:creature-a", 100)));
+        var combatId = world.Next.Combat;
+        world = world with
+        {
+            Combats =
+            [
+                new CombatState(new(combatId), new WorldLocation.Edge(edge.Id, fight), 1,
+                    [new CombatControllerState(new CombatController.Train(train.Id), 1, true, 30UL,
+                        new CombatUnitId.CreatureGroup(new(1)))],
+                    [new CombatSideSummary(new CombatOwner.Player(), [], [], [], new(0)),
+                        new CombatSideSummary(new CombatOwner.Creatures(), [], [], [], new(0))])
+                {
+                    Creatures = [new CreatureCombatantState(new(1), 1, 1, false, 0)]
+                }
+            ],
+            Next = world.Next with { Combat = combatId + 1 }
+        };
+        return generated.State with { World = world, Content = content, Position = new(1, 0) };
+    }
 
     private static CoreState Generated(WorldGenerationInput input, CoreContentProjection content)
     {

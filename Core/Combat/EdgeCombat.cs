@@ -57,7 +57,7 @@ internal static class EdgeCombat
                 var end = ((TrainPosition.Edge)train.Position).DistanceMeters;
                 var reached = Crosses(TrainStart(before, train, edge), end, location.DistanceMeters, location.DistanceMeters);
                 var behind = combat.Controllers.Any(state => state.Controller is CombatController.Train controller
-                    && world.Trains.Any(item => item.Id == controller.Id && Behind(train, item)));
+                    && world.Trains.Any(item => item.Id == controller.Id && QueuedBehind(world, train, item)));
                 if (!reached && !behind) continue;
                 var group = world.CreatureGroups.FirstOrDefault(item =>
                     combat.Creatures.Any(creature => creature.Group == item.Id) && CanFight(world, content, train, item));
@@ -67,24 +67,6 @@ internal static class EdgeCombat
             }
         }
         return world;
-    }
-
-    internal static TrainState[] TurnAround(WorldState world, TrainState train)
-    {
-        if (train.Position is not TrainPosition.Edge lead) return [train];
-        var turned = new List<TrainState> { Reverse(train) };
-        foreach (var other in world.Trains)
-        {
-            if (other.Id == train.Id || other.Position is not TrainPosition.Edge follower) continue;
-            if (follower.Id != lead.Id || follower.Track != lead.Track || follower.Direction != lead.Direction)
-                continue;
-            if (!(lead.Direction == TravelDirection.Forward
-                    ? follower.DistanceMeters < lead.DistanceMeters
-                    : follower.DistanceMeters > lead.DistanceMeters)) continue;
-            if (OtherCombat(world, train.Id, other.Id)) continue;
-            turned.Add(Reverse(other));
-        }
-        return turned.ToArray();
     }
 
     private static WorldState Open(WorldState world, CoreContentProjection content, ulong step,
@@ -204,28 +186,24 @@ internal static class EdgeCombat
             && train.Position is TrainPosition.Edge position && position.Id == edge
             && !CombatQueries.TrainInCombat(world, train.Id);
 
-    private static bool Behind(TrainState follower, TrainState lead)
+    private static bool QueuedBehind(WorldState world, TrainState follower, TrainState lead)
     {
-        if (follower.Position is not TrainPosition.Edge back || lead.Position is not TrainPosition.Edge front)
-            return false;
+        if (follower.SpeedMetersPerSecond != 0) return false;
+        if (follower.Position is not TrainPosition.Edge back || lead.Position is not TrainPosition.Edge front) return false;
         if (back.Id != front.Id || back.Track != front.Track || back.Direction != front.Direction) return false;
-        return front.Direction == TravelDirection.Forward
-            ? back.DistanceMeters < front.DistanceMeters
-            : back.DistanceMeters > front.DistanceMeters;
-    }
-
-    private static bool OtherCombat(WorldState world, TrainId lead, TrainId follower)
-    {
-        CombatId? leadCombat = null;
-        CombatId? followerCombat = null;
-        foreach (var combat in world.Combats)
+        var behind = front.Direction == TravelDirection.Forward
+            ? back.DistanceMeters < front.DistanceMeters : back.DistanceMeters > front.DistanceMeters;
+        if (!behind) return false;
+        foreach (var other in world.Trains)
         {
-            if (combat.Controllers.Any(state => state.Controller is CombatController.Train train && train.Id == lead))
-                leadCombat = combat.Id;
-            if (combat.Controllers.Any(state => state.Controller is CombatController.Train train && train.Id == follower))
-                followerCombat = combat.Id;
+            if (other.Id == follower.Id || other.Id == lead.Id || other.Position is not TrainPosition.Edge between) continue;
+            if (between.Id != back.Id || between.Track != back.Track || between.Direction != back.Direction) continue;
+            var middle = back.Direction == TravelDirection.Forward
+                ? between.DistanceMeters > back.DistanceMeters && between.DistanceMeters < front.DistanceMeters
+                : between.DistanceMeters < back.DistanceMeters && between.DistanceMeters > front.DistanceMeters;
+            if (middle) return false;
         }
-        return followerCombat is not null && followerCombat != leadCombat;
+        return true;
     }
 
     private static bool CanFight(WorldState world, CoreContentProjection content, TrainState train, CreatureGroupState group)
@@ -266,19 +244,6 @@ internal static class EdgeCombat
         var start = rightStart - leftStart;
         var end = rightEnd - leftEnd;
         return start == 0 || end == 0 || Math.Sign(start) != Math.Sign(end);
-    }
-
-    private static TrainState Reverse(TrainState train)
-    {
-        var position = (TrainPosition.Edge)train.Position;
-        return train with
-        {
-            Position = position with { Direction = TrainDispatch.Opposite(position.Direction) },
-            OrderFacing = train.OrderFacing == TrainOrderFacing.FirstEndLeading
-                ? TrainOrderFacing.LastEndLeading : TrainOrderFacing.FirstEndLeading,
-            Activity = TrainActivity.Retreating,
-            RetreatDestination = null
-        };
     }
 
     private static CombatSideSummary Side(WorldState world, CombatController controller)

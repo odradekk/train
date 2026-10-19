@@ -99,6 +99,43 @@ public sealed class CoreProcessTests
     }
 
     [TestMethod]
+    [TestCategory("integration")]
+    public async Task Creature_execution_is_byte_identical_across_processes()
+    {
+        var directory = CreateDirectory();
+        try
+        {
+            var first = await Run(directory, "creature-first", "creature-complete");
+            var second = await Run(directory, "creature-second", "creature-complete");
+            AssertIndependent(first, second);
+            AssertSamples(first.Samples, second.Samples);
+            Assert.IsTrue(first.Samples.Length >= 3);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [TestMethod]
+    [TestCategory("integration")]
+    public async Task Creature_save_in_one_process_restores_the_same_execution_in_another()
+    {
+        var directory = CreateDirectory();
+        try
+        {
+            var continuous = await Run(directory, "creature-continuous", "creature-complete");
+            var saved = await Run(directory, "creature-saved", "creature-save");
+            var restored = await Run(directory, "creature-restored", "creature-resume");
+            AssertIndependent(continuous, saved);
+            AssertIndependent(saved, restored);
+            AssertSamples(continuous.Samples[..2], saved.Samples);
+            AssertSamples(continuous.Samples[2..], restored.Samples);
+            Assert.AreEqual(saved.Samples[^1].Payload,
+                await File.ReadAllTextAsync(Path.Combine(directory, "state.json")));
+            StringAssert.Contains(saved.Samples[0].Payload, "creature_group");
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [TestMethod]
     [TestCategory("stage")]
     public async Task Production_recording_replays_from_disk_in_a_new_process()
     {

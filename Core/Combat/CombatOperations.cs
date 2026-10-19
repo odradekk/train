@@ -16,7 +16,7 @@ internal static class CombatOperations
     {
         var events = ImmutableArray.CreateBuilder<CoreEvent>();
         world = RemoveDeparted(world);
-        world = AdvanceRetreats(world, content);
+        world = AdvanceRetreats(world, content, step);
 
         foreach (var existing in world.Combats.ToArray())
         {
@@ -111,32 +111,15 @@ internal static class CombatOperations
                 world = world with { Money = new(checked(world.Money.Value + reward.Value)) };
                 events.Add(new CoreEvent.LairCleared(clearedLair.Id, clearedNode, reward));
             }
-            var turned = new HashSet<TrainId>();
             foreach (var state in combat.Controllers)
             {
                 if (state.Controller is not CombatController.Train controller) continue;
                 var train = world.Trains.Single(t => t.Id == controller.Id);
-                if (state.Retreating)
+                if (state.Retreating && train.Position is TrainPosition.Node)
                 {
-                    if (train.Position is TrainPosition.Edge && state.RemainingDisengagementSteps > 0
-                        && turned.Add(controller.Id))
-                    {
-                        foreach (var item in EdgeCombat.TurnAround(world, train))
-                        {
-                            turned.Add(item.Id);
-                            world = world with
-                            {
-                                Trains = world.Trains.Select(t => t.Id == item.Id ? item : t).ToImmutableArray()
-                            };
-                        }
-                        train = world.Trains.Single(t => t.Id == controller.Id);
-                    }
-                    else if (train.Position is TrainPosition.Node)
-                    {
-                        var destination = ChooseDestination(world, content, train, combat.Location);
-                        train = TrainOperations.ChangeActivity(train with { SpeedMetersPerSecond = 0,
-                            RetreatDestination = destination }, TrainActivity.Retreating, events);
-                    }
+                    var destination = ChooseDestination(world, content, train, combat.Location);
+                    train = TrainOperations.ChangeActivity(train with { SpeedMetersPerSecond = 0,
+                        RetreatDestination = destination }, TrainActivity.Retreating, events);
                 }
                 else if (train.Activity == TrainActivity.Combat && train.Position is TrainPosition.Node)
                 {
@@ -346,10 +329,10 @@ internal static class CombatOperations
         return world with { Combats = combats };
     }
 
-    private static WorldState AdvanceRetreats(WorldState world, CoreContentProjection content)
+    private static WorldState AdvanceRetreats(WorldState world, CoreContentProjection content, ulong step)
     {
         var trains = world.Trains.ToDictionary(train => train.Id);
-        var turned = new HashSet<TrainId>();
+        var leaving = new List<CreatureGroupId>();
         var combats = world.Combats.Select(combat =>
         {
             var controllers = combat.Controllers.Select(state =>
@@ -358,22 +341,10 @@ internal static class CombatOperations
                     || !trains.TryGetValue(train.Id, out var current)) return state;
                 var previous = state.RemainingDisengagementSteps;
                 var remaining = previous == 0 ? 0 : previous - 1;
-                if (remaining == 0 && current.RetreatDestination is null)
+                if (remaining == 0 && current.RetreatDestination is null && current.Position is TrainPosition.Node)
                 {
-                    if (current.Position is TrainPosition.Edge)
-                    {
-                        if (previous > 0 && turned.Add(train.Id))
-                            foreach (var item in EdgeCombat.TurnAround(world, current))
-                            {
-                                turned.Add(item.Id);
-                                trains[item.Id] = item;
-                            }
-                    }
-                    else
-                    {
-                        var destination = ChooseDestination(world, content, current, combat.Location);
-                        trains[train.Id] = current with { RetreatDestination = destination };
-                    }
+                    var destination = ChooseDestination(world, content, current, combat.Location);
+                    trains[train.Id] = current with { RetreatDestination = destination };
                 }
                 return state with { RemainingDisengagementSteps = remaining };
             }).ToImmutableArray();
@@ -382,13 +353,26 @@ internal static class CombatOperations
                 if (!state.Retreating) return state;
                 var remaining = state.RemainingDisengagementSteps == 0 ? 0 : state.RemainingDisengagementSteps - 1;
                 return state with { RemainingDisengagementSteps = remaining };
-            }).Where(state => !(state.Retreating && state.RemainingDisengagementSteps == 0)).ToImmutableArray();
-            var present = creatures.Select(state => state.Group).ToHashSet();
+            }).ToArray();
+            foreach (var state in creatures)
+                if (state.Retreating && state.RemainingDisengagementSteps == 0) leaving.Add(state.Group);
+            var staying = creatures.Where(state => !(state.Retreating && state.RemainingDisengagementSteps == 0)).ToArray();
+            var present = staying.Select(state => state.Group).ToHashSet();
             controllers = controllers.Select(state => state.FocusTarget is CombatUnitId.CreatureGroup focus
                 && !present.Contains(focus.Id) ? state with { FocusTarget = null } : state).ToImmutableArray();
-            return combat with { Controllers = controllers, Creatures = creatures };
+            return combat with { Controllers = controllers, Creatures = staying.ToImmutableArray() };
         }).ToImmutableArray();
-        return world with { Combats = combats, Trains = world.Trains.Select(train => trains[train.Id]).ToImmutableArray() };
+        world = world with { Combats = combats, Trains = world.Trains.Select(train => trains[train.Id]).ToImmutableArray() };
+        foreach (var id in leaving)
+        {
+            var group = CreatureQueries.FindGroup(world, id);
+            if (group is null || group.Home is not null || group.Activity != CreatureActivity.Retreating) continue;
+            world = CreatureQueries.Replace(world, group with
+            {
+                Activity = CreatureActivity.Wandering, Objective = null, ActivityStartedAtStep = step
+            });
+        }
+        return world;
     }
 
     private static WorldState RetryRetreatDestinations(WorldState world, CoreContentProjection content)

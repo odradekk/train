@@ -220,10 +220,11 @@ internal sealed class TrainDispatch
             .ThenByDescending(b => b.Id.Value).FirstOrDefault();
     }
 
-    internal WorldState Finish(WorldState world)
+    internal WorldState Finish(WorldState world, IReadOnlySet<TrainId>? skipBreaks = null)
     {
+        skipBreaks ??= new HashSet<TrainId>();
         var trains = world.Trains.ToDictionary(t => t.Id);
-        foreach (var group in world.Trains.Where(t => t.Position is TrainPosition.Edge)
+        foreach (var group in world.Trains.Where(t => t.Position is TrainPosition.Edge && !skipBreaks.Contains(t.Id))
                      .GroupBy(t => { var p = (TrainPosition.Edge)t.Position; return (p.Id, p.Track); }))
         {
             var edge = world.Edges.Single(e => e.Id == group.Key.Id);

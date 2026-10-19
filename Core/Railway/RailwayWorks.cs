@@ -112,13 +112,11 @@ internal static class RailwayWorks
         return new CommandEffect.Accepted(content, events.ToImmutable(), WithDependencies(world, content), created.ToImmutable());
     }
 
-    // 身份不够覆盖每一股时原样返回 null，调用方下步再试。股数为 0 时没有可写的断口。
     internal static WorldState? WriteBreaks(WorldState world, CoreContentProjection content, EdgeId edgeId,
         double distance, ImmutableArray<CoreEvent>.Builder events)
     {
         var edge = world.Edges.FirstOrDefault(item => item.Id == edgeId);
-        if (edge is null || edge.Tracks == 0) return edge is null ? null : world;
-        if (!double.IsFinite(distance) || distance <= 0 || distance >= edge.LengthMeters) return null;
+        if (edge is null) return null;
         if (!CanAllocate(world.Next.Break, edge.Tracks)) return null;
         var auto = world.AutomaticRailRepairs.FirstOrDefault(item => item.Edge == edge.Id);
         if (auto is not null && !CanAllocate(world.Next.Job, edge.Tracks)) return null;
