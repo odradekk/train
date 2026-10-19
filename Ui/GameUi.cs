@@ -211,7 +211,7 @@ public partial class GameUi : CanvasLayer
         _error.AddThemeColorOverride("font_color", UiStyle.Error);
         errorBody.AddChild(_error);
         _settings = new SettingsPanel { Name = "SettingsPanel" };
-        _settings.Initialize(_host, _logger, ShowError, _policy, _recording);
+        _settings.Initialize(_host, _logger, ShowError, _policy, _recording, _scenes?.View.CameraRig);
         _root.AddChild(_settings);
         _bar.AddChild(UiStyle.Button("Settings", "设置", _settings.Show));
         _library = new BlueprintLibraryPanel { Name = "BlueprintLibrary" }; _library.Initialize(_editor); _root.AddChild(_library);

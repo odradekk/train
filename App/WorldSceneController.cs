@@ -197,6 +197,9 @@ internal sealed class WorldSceneController : IDisposable
             }
             if (frame.Update.Base is { } baseline && baseline != displayed?.Update.Frame)
             { _fullReplacement = true; return; }
+            var followed = _target is WorldSceneTarget.Follow follow &&
+                status.View.FindTrain(follow.Train) is Lookup<TrainView>.Found train ? train.Value.Vehicles : [];
+            _display.SetFollowedTrain(followed);
             var shift = _fullReplacement ? (Vector3?)null : _display.UpdatePoses(frame);
             if (_pickRay is { } sample && sample.Frame.Update.Frame.Space != frame.Update.Frame.Space) _pickRay = null;
             using var prepared = _display!.Prepare(frame);
@@ -214,6 +217,7 @@ internal sealed class WorldSceneController : IDisposable
                 View.CameraRig.DisplayedFrame(frame, FollowSubject(),
                     _target is WorldSceneTarget.Location { Value: WorldLocation.Edge }, shift);
                 View.CameraRig.Update(delta);
+                View.CameraRig.SetShake(_display.AdvanceEffects(frame, delta, View.CameraRig.Camera.GlobalPosition));
                 if (_pendingNodeFocus is { } focus && frame.NodePanBounds is not null)
                 {
                     View.CameraRig.MoveFocus(new((float)(focus.X - frame.Origin.X), 0,
@@ -222,8 +226,7 @@ internal sealed class WorldSceneController : IDisposable
                     _pendingNodeFrame = null;
                 }
             }
-            _display.UpdateConstructionFog(_target is WorldSceneTarget.Follow follow &&
-                status.View.FindTrain(follow.Train) is Lookup<TrainView>.Found train ? train.Value.Vehicles : []);
+            _display.UpdateConstructionFog(followed);
         }
         catch (Exception exception) { AdapterFailed(exception, SceneStage.Present); }
     }
@@ -265,6 +268,7 @@ internal sealed class WorldSceneController : IDisposable
         {
             _display!.CancelPreparation();
             _target = target;
+            _display.SetFollowedTrain([]);
             _display.UpdateConstructionFog([]);
             _request = success.Value;
             _pickRay = null;
