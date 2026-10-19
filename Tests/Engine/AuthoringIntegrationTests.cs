@@ -85,7 +85,7 @@ public class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
     {
         var fixture = new Fixture(TestScene.GetTree());
         var id = Guid.NewGuid();
-        var directory = Path.Combine(OS.GetUserDataDir(), "mods", id.ToString("D"));
+        var directory = Path.Combine(AuthoringPaths.ModsDirectory(OS.GetUserDataDir()), id.ToString("D"));
         try
         {
             ContentFixture.WriteMod(directory, id);
