@@ -15,10 +15,16 @@ internal partial class EconomyPanels
         if (_services is null || _settlement is null || _settlementTarget?.Binding != binding) return;
         foreach (var envelope in events)
         {
-            if (envelope.Event is CoreEvent.InstanceDesignChanged { Instance: InstanceId.Vehicle vehicle } changed &&
-                vehicle.Id == _serviceSelectedVehicle && _serviceCompletion is null)
-                _serviceResult.Text = view.FindInstance(vehicle) is Lookup<InstanceView>.Found found
-                    ? $"核心已确认车辆 {vehicle.Id.Value} 设计变化 · 当前设计 {found.Value.Design.Value}" : $"已不存在：车辆 {vehicle.Id.Value}";
+            if (envelope.Event is CoreEvent.InstanceDesignChanged changed &&
+                _serviceSelectedTarget is { } selected && changed.Instance == selected.Instance && _serviceCompletion is null)
+                _serviceResult.Text = changed.Instance switch
+                {
+                    InstanceId.Vehicle vehicle => view.FindInstance(vehicle) is Lookup<InstanceView>.Found vehicleFound
+                        ? $"核心已确认车辆 {vehicle.Id.Value} 设计变化 · 当前设计 {vehicleFound.Value.Design.Value}" : $"已不存在：车辆 {vehicle.Id.Value}",
+                    InstanceId.Building building => view.FindInstance(building) is Lookup<InstanceView>.Found buildingFound
+                        ? $"核心已确认建筑 {building.Id.Value} 设计变化 · 当前设计 {buildingFound.Value.Design.Value}" : $"已不存在：建筑 {building.Id.Value}",
+                    _ => "设计变化已确认。"
+                };
             if (envelope.Event is not CoreEvent.ConstructionCompleted completed) continue;
             var createdHere = completed.CreatedInstance is { } instance && view.FindInstance(instance) is
                 Lookup<InstanceView>.Found { Value.Location: WorldLocation.Node node } && node.Id == _settlement.Node;
@@ -39,7 +45,7 @@ internal partial class EconomyPanels
             if (_view.FindJob(id) is Lookup<JobView>.Found { Value: JobView.Construction job })
             {
                 var value = job.Value;
-                label.Text += $"建筑 {value.Facility.Building.Value} · {ServiceKind(value.Kind)} · {ServiceState(value.State)}\n工作 {value.ProgressWork:0.###}/{value.FrozenTotalWork} · {value.Progress:P1} · 实际 {value.ActualWorkPerSecond:0.###} 工作/秒\n限制：{string.Join("、", value.Limits.Select(ServiceLimit))}\n投入：{ServiceGoods(value.InvestedGoods)}\n" + Problems(value.Blockers);
+                label.Text += $"建筑 {value.Facility.Building.Value} · {ServiceKind(value.Kind)} · {ServiceState(value.State)}\n工作 {value.ProgressWork:0.###}/{value.FrozenTotalWork} · {value.Progress:P1} · 实际 {value.ActualWorkPerSecond:0.###} 工作/秒\n限制：{string.Join("、", value.Limits.Select(ServiceLimit))}\n投入：{ServiceGoods(value.InvestedGoods)}\n{JobTarget(value.Target)}\n{JobReservations(id)}\n" + Problems(value.Blockers);
                 if (_settlement.OwnedJobs.Contains(id) && value.Kind == ConstructionKind.Deconstruction)
                 {
                     if (!_servicePauseButtons.TryGetValue(id, out var button))
@@ -78,4 +84,35 @@ internal partial class EconomyPanels
         if (ReadCurrent()) { _settlementRevision = null; Refresh(_binding, _view, _content); }
     }
 
+    private static string JobTarget(ConstructionTarget target) => target switch
+    {
+        ConstructionTarget.NewVehicle => "目标：新车辆",
+        ConstructionTarget.NewBuilding building => $"目标：地块 {building.Plot.Value}",
+        ConstructionTarget.NewAssembly => "目标：新组装",
+        ConstructionTarget.Existing existing => existing.Instance switch
+        {
+            InstanceId.Vehicle vehicle => $"目标：车辆 {vehicle.Id.Value}",
+            InstanceId.Building building => $"目标：建筑 {building.Id.Value}",
+            _ => "目标：实例"
+        },
+        _ => "目标：未知"
+    };
+
+    private string JobReservations(JobId id)
+    {
+        var inventories = new List<InventoryId> { _settlement!.Inventory };
+        foreach (var leaseId in _settlement.Leases)
+            if (_view.FindLease(leaseId) is Lookup<LeaseView>.Found lease) inventories.Add(lease.Value.Inventory);
+        foreach (var summary in _view.World.Trains)
+            if (_view.FindTrain(summary.Id) is Lookup<TrainView>.Found train &&
+                train.Value.Position is TrainPosition.Node node && node.Id == _settlement.Node)
+                inventories.Add(train.Value.Inventory);
+        var lines = new List<string>();
+        foreach (var inventory in inventories.Distinct())
+            if (_view.FindInventory(inventory) is Lookup<InventoryView>.Found found)
+                foreach (var reservation in found.Value.Reservations)
+                    if (reservation.Job == id)
+                        lines.Add($"库存 {inventory.Value} · 容量 {reservation.Capacity} · 预计返还 {ServiceGoods(reservation.ExpectedReturns)}");
+        return lines.Count == 0 ? "预留：无" : "预留：" + string.Join("；", lines);
+    }
 }

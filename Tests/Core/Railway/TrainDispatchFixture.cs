@@ -49,10 +49,11 @@ internal static class TrainDispatchFixture
         Assert.Fail("未在限定步数内到达铁路测试边界。");
     }
 
-    internal static void Step(ICoreSession session)
+    internal static AdvanceResult Step(ICoreSession session)
     {
         var result = session.Advance(1);
         Assert.IsNull(result.Fault);
         Assert.AreEqual(1u, result.CompletedSteps);
+        return result;
     }
 }

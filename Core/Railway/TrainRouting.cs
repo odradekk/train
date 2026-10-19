@@ -65,9 +65,7 @@ internal static class TrainRouting
     {
         for (var track = 1; track <= edge.Tracks; track++)
         {
-            if (edge.Breaks.Any(item => item.Track == track) ||
-                edge.Works.Any(work => work.Kind == RailwayWorkKind.RepairBreak && work.Track == track))
-                continue;
+            if (edge.Breaks.Any(item => item.Track == track)) continue;
             return track;
         }
         return null;

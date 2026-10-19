@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using Godot;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
@@ -11,6 +12,7 @@ internal partial class EconomyPanels
     private Label _power = null!;
     private Label _labor = null!;
     private Label _noFacilities = null!;
+    private bool _syncingPlan;
     private readonly Dictionary<FacilityKey, FacilityRow> _facilityRows = [];
     private sealed record ProductionGoodsRows(VBoxContainer Control)
     {
@@ -18,13 +20,18 @@ internal partial class EconomyPanels
     }
     private sealed record FacilityRow(VBoxContainer Control, Label State, Label Blockers, Label Limits,
         Label CurrentSpecification, Label CurrentOutputs, ProductionGoodsRows Outputs, Label Batch,
-        ProductionGoodsRows FrozenOutputs, Label OutputBuffer, ProductionGoodsRows Buffer);
+        ProductionGoodsRows FrozenOutputs, Label OutputBuffer, ProductionGoodsRows Buffer, Label PlanMessage,
+        OptionButton ProcessChoice, List<ProcessRef?> Processes, LineEdit Priority, Button Apply, Button Stop)
+    {
+        internal bool ProcessEdited;
+        internal ProcessRef? EditedProcess;
+        internal string? EditedPriority;
+    }
 
     private void BuildProduction(VBoxContainer body)
     {
         _production = body; _facilityRows.Clear();
         _power = Text(body, "Power", ""); _labor = Text(body, "Labor", "");
-        Text(body, "ReadOnly", "生产计划只读");
         _noFacilities = Text(body, "Empty", "没有生产设施。");
     }
 
@@ -41,7 +48,7 @@ internal partial class EconomyPanels
         foreach (var facility in settlement.Facilities)
         {
             if (!_facilityRows.TryGetValue(facility.Key, out var row))
-                _facilityRows.Add(facility.Key, row = BuildFacilityRow());
+                _facilityRows.Add(facility.Key, row = BuildFacilityRow(facility.Key));
             var state = facility.State switch
             {
                 ProductionState.Disabled => "已停用", ProductionState.Running => "生产中",
@@ -78,10 +85,11 @@ internal partial class EconomyPanels
             RefreshProductionGoods(row.FrozenOutputs, facility.Batch?.FrozenOutputs ?? []);
             row.OutputBuffer.Text = facility.OutputBuffer.IsEmpty ? "输出缓冲：空" : "输出缓冲（尚未入库）：";
             RefreshProductionGoods(row.Buffer, facility.OutputBuffer);
+            SyncPlan(row, facility);
         }
     }
 
-    private FacilityRow BuildFacilityRow()
+    private FacilityRow BuildFacilityRow(FacilityKey key)
     {
         var box = new VBoxContainer { Name = "Facility" }; _production.AddChild(box);
         var state = Text(box, "State", ""); var blockers = Text(box, "Blockers", "");
@@ -92,7 +100,119 @@ internal partial class EconomyPanels
         var frozen = new VBoxContainer { Name = "FrozenOutputs" }; box.AddChild(frozen);
         var outputBuffer = Text(box, "OutputBuffer", "");
         var buffer = new VBoxContainer { Name = "Buffer" }; box.AddChild(buffer);
-        return new(box, state, blockers, limits, current, currentOutputs, new(outputs), batch, new(frozen), outputBuffer, new(buffer));
+        var message = Text(box, "PlanMessage", "");
+        var processes = new List<ProcessRef?>();
+        var choice = new OptionButton { Name = $"PlanProcess_{key.Building.Value}" };
+        box.AddChild(choice);
+        choice.ItemSelected += _ =>
+        {
+            if (_syncingPlan || !_facilityRows.TryGetValue(key, out var row) || choice.Selected < 0 || choice.Selected >= row.Processes.Count) return;
+            row.ProcessEdited = true;
+            row.EditedProcess = row.Processes[choice.Selected];
+            row.Apply.Disabled = !CanEditPlan() || choice.Selected <= 0 || row.EditedProcess is null;
+        };
+        Text(box, "PlanPriorityHint", "优先级（整数，越小越先）");
+        var priority = new LineEdit { Name = $"PlanPriority_{key.Building.Value}" }; box.AddChild(priority);
+        priority.TextChanged += text =>
+        {
+            if (!_syncingPlan && _facilityRows.TryGetValue(key, out var row)) row.EditedPriority = text;
+        };
+        var apply = UiStyle.Button($"ApplyPlan_{key.Building.Value}", "应用计划", () => ApplyProductionPlan(key, true), true);
+        var stop = UiStyle.Button($"StopPlan_{key.Building.Value}", "停用", () => ApplyProductionPlan(key, false), true);
+        box.AddChild(apply); box.AddChild(stop);
+        return new(box, state, blockers, limits, current, currentOutputs, new(outputs), batch, new(frozen), outputBuffer, new(buffer),
+            message, choice, processes, priority, apply, stop);
+    }
+
+    private void SyncPlan(FacilityRow row, FacilityView facility)
+    {
+        _syncingPlan = true;
+        try
+        {
+            var next = new List<ProcessRef?> { null };
+            next.AddRange(CandidateProcesses(facility.Key));
+            while (row.ProcessChoice.ItemCount > next.Count) row.ProcessChoice.RemoveItem(row.ProcessChoice.ItemCount - 1);
+            while (row.Processes.Count > next.Count) row.Processes.RemoveAt(row.Processes.Count - 1);
+            for (var index = 0; index < next.Count; index++)
+            {
+                var text = next[index] is { } process ? ProcessName(process) : "选择流程";
+                if (index == row.ProcessChoice.ItemCount)
+                {
+                    row.Processes.Add(next[index]);
+                    row.ProcessChoice.AddItem(text);
+                }
+                else
+                {
+                    row.Processes[index] = next[index];
+                    if (row.ProcessChoice.GetItemText(index) != text) row.ProcessChoice.SetItemText(index, text);
+                }
+            }
+            var selected = row.ProcessEdited
+                ? row.EditedProcess is null ? 0 : next.FindIndex(item => item == row.EditedProcess)
+                : facility.Process is { } current ? next.FindIndex(item => item == current) : 0;
+            if (selected < 0) selected = 0;
+            if (row.ProcessChoice.Selected != selected) row.ProcessChoice.Select(selected);
+            var priority = row.EditedPriority ?? facility.Priority.ToString(CultureInfo.InvariantCulture);
+            if (!row.Priority.HasFocus() && row.Priority.Text != priority) row.Priority.Text = priority;
+            var editable = CanEditPlan();
+            row.ProcessChoice.Disabled = !editable;
+            row.Priority.Editable = editable;
+            row.Apply.Disabled = !editable || row.ProcessChoice.Selected <= 0;
+            row.Stop.Disabled = !editable || facility.Process is null || !facility.Enabled;
+            row.PlanMessage.Text = "";
+        }
+        finally { _syncingPlan = false; }
+    }
+
+    private ProcessRef[] CandidateProcesses(FacilityKey key)
+    {
+        var tags = FacilityTags(key);
+        return _content.Core.Processes.Where(process => CapabilityMatches(key.Capability, process.Details) &&
+                (tags is null || !tags.Value.IsEmpty && tags.Value.Contains(process.RequiredFacilityTag)))
+            .Select(ProcessReference).OfType<ProcessRef>().ToArray();
+    }
+
+    private static bool CapabilityMatches(CapabilityKind capability, ProcessDetails details) => capability switch
+    {
+        CapabilityKind.Extraction => details is ProcessDetails.Extraction,
+        CapabilityKind.Production => details is ProcessDetails.Production or ProcessDetails.Recovery,
+        _ => false
+    };
+
+    private static ProcessRef? ProcessReference(ProcessProjection process) => process.Details switch
+    {
+        ProcessDetails.Production production => new ProcessRef.Production(production.Id),
+        ProcessDetails.Extraction extraction => new ProcessRef.Production(extraction.Id),
+        ProcessDetails.Recovery recovery => new ProcessRef.Recovery(recovery.Id),
+        _ => null
+    };
+
+    private ImmutableArray<FacilityTag>? FacilityTags(FacilityKey key)
+    {
+        if (_view.FindInstance(new InstanceId.Building(key.Building)) is not Lookup<InstanceView>.Found instance) return null;
+        if (_content.FindDesign(instance.Value.Design) is not ContentLookup<DesignEvaluation>.Found { Value: DesignEvaluation.Complete { Core: { } input } })
+            return null;
+        return input.Design.Kind is DesignKind.Building building ? building.FacilityTags : null;
+    }
+
+    private bool CanEditPlan() => CanAct && _settlement?.Relation == SettlementRelation.PlayerOwned;
+
+    private void ApplyProductionPlan(FacilityKey key, bool enabled)
+    {
+        if (!CanEditPlan() || !_facilityRows.TryGetValue(key, out var row)) return;
+        var facility = _settlement!.Facilities.FirstOrDefault(item => item.Key == key);
+        ProcessRef? process = enabled
+            ? row.ProcessEdited ? row.EditedProcess : row.Processes.ElementAtOrDefault(row.ProcessChoice.Selected)
+            : facility?.Process;
+        if (facility is null || process is null || enabled && row.Apply.Disabled || !enabled && row.Stop.Disabled) return;
+        if (!int.TryParse(row.EditedPriority ?? row.Priority.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var priority))
+        { row.PlanMessage.Text = "优先级须为整数。"; return; }
+        var accepted = _submit(_settlementTarget, new CoreCommand.SetProductionPlan(key, process, enabled, priority));
+        if (accepted is not null && ReadCurrent())
+        {
+            row.ProcessEdited = false; row.EditedProcess = null; row.EditedPriority = null;
+            _settlementRevision = null; Refresh(_binding, _view, _content);
+        }
     }
 
     private void RefreshProductionGoods(ProductionGoodsRows rows, ImmutableArray<GoodsQuantity> goods)

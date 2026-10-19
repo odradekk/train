@@ -1398,10 +1398,10 @@ def content_files():
         document("blueprints", "blueprint", model["id"], model)
     for identity, name, surface, subsurface, rock, local_amplitude in (
         ("plains", "平原", "ground", "subsoil", "rock", 0.7),
-        ("hills", "丘陵", "dry-grass", "subsoil", "rock", 2.8),
+        ("hills", "丘陵", "dry-grass", "subsoil", "rock", 18),
         ("forest", "森林", "forest-ground", "subsoil", "rock", 0.7),
         ("desert", "荒漠", "sand", "sand", "sandstone", 0.7),
-        ("mountains", "山地", "gravel", "rock", "rock", 2.8),
+        ("mountains", "山地", "gravel", "rock", "rock", 18),
     ):
         description = f"{name}地表、下层与岩层，以及铁路沿线的局部起伏。"
         decorations, density = [], 0
