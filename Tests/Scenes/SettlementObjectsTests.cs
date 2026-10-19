@@ -146,6 +146,47 @@ public sealed class SettlementObjectsTests
     }
 
     [TestMethod]
+    public async Task BuildingLoadingFogOnlyCoversTheFirstBuildWhileDamageRebuildKeepsGeometry()
+    {
+        using var release = new ManualResetEventSlim();
+        await using var objects = new SettlementObjects(StableIds(), (content, instance) =>
+        {
+            release.Wait();
+            return WorldSceneSession.BuildObject(content, instance, SceneFixtures.Identity);
+        });
+        try
+        {
+            var evaluation = NodeFixtures.StationEvaluation();
+            evaluation = evaluation with { Scene = evaluation.Scene with { OccupiedBounds = new(new(0, 0, -22), new(0, 0, 22)) } };
+            var content = NodeFixtures.Content(designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+            { [NodeFixtures.StationDesign] = new ContentLookup<DesignEvaluation>.Found(evaluation) });
+            var snapshot = Snapshot(content: content);
+            var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+            var fog = ImmutableArray.CreateBuilder<SceneFog>();
+            var loading = objects.Present(snapshot, layout, default, fog, _ => null);
+            Assert.AreEqual(loading.Objects.Single().Pose, fog.Single().Pose);
+            release.Set();
+            var first = await Settle(objects, snapshot, layout);
+
+            release.Reset();
+            var station = NodeFixtures.Station(2);
+            var damaged = Snapshot(content: content, station: station with
+            {
+                Parts = station.Parts.Select(part => part.Part == new PartId(1)
+                    ? part with { Durability = new(0, part.Durability.Maximum), Destroyed = true } : part).ToImmutableArray()
+            });
+            fog.Clear();
+            var rebuilding = objects.Present(damaged, layout, default, fog, _ => null);
+            Assert.IsTrue(objects.PendingWork.Length > 0);
+            Assert.AreSame(first.Picking.Single().Grid, rebuilding.Picking.Single().Grid);
+            CollectionAssert.AreEqual(first.Objects.SelectMany(item => item.Visuals).ToArray(),
+                rebuilding.Objects.SelectMany(item => item.Visuals).ToArray());
+            Assert.AreEqual(0, fog.Count, "The existing building geometry must remain visible without loading fog during a damage rebuild.");
+        }
+        finally { release.Set(); }
+    }
+
+    [TestMethod]
     public async Task BuildingReconciliationKeepsIdentityAndRejectsLateWork()
     {
         using var release = new ManualResetEventSlim();

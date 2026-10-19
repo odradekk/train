@@ -204,7 +204,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
                 presentation?.ApplyTurrets(objects, instance, "building:" + buildingId.Value + ":", findId, seconds, snapshot, origin);
             }
             else objects.Add(new(objectId("building:" + buildingId.Value + ":"), null, pose, new WorldObjectId.Instance(instance.Id), [], [], []));
-            if (!hasBody || !WorldSceneSession.Matches(body!, instance))
+            if (!hasBody)
             {
                 if (snapshot.Content.FindDesign(instance.Design) is ContentLookup<DesignEvaluation>.Found evaluation &&
                     evaluation.Value is not DesignEvaluation.Failed && DesignGeometry.Projection(evaluation.Value).OccupiedBounds is { } bounds)
