@@ -73,6 +73,11 @@ public partial class WorldPanels : Control
         {
             var valid = detail.Target.IsAvailable(binding, view, _host.PanelGenerationCurrent(detail.Target.Binding, detail.Target.Generation));
             detail.Text.Text = valid ? Describe(detail.Target.Object) : "已不存在\n\n对象或所属对局已失效。请从当前列表重新打开。";
+            if (valid)
+            {
+                var actions = Actions(detail.Target);
+                if (!SameActions(detail.Buttons, actions)) ReplaceActions(detail, actions);
+            }
             foreach (var button in detail.Buttons) button.Disabled = !valid || _host.IsBusy;
         }
         if (_disbandTarget is { } target)
@@ -137,75 +142,114 @@ public partial class WorldPanels : Control
         text.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         text.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         scroll.AddChild(text); body.AddChild(scroll);
-        List<Button> buttons = [];
+        var detail = new Detail(bound, panel, text, body, []);
+        ReplaceActions(detail, Actions(bound));
+        _details.Add(detail);
+        Refresh(_binding, _view, _content);
+    }
+
+    private List<(string Name, string Text, bool Primary, Action Press)> Actions(PanelTarget bound)
+    {
+        var target = bound.Object;
+        var actions = new List<(string Name, string Text, bool Primary, Action Press)>();
         if (target is WorldObjectId.Node node)
         {
-            buttons.Add(UiStyle.Button("Form", "编组", () =>
+            actions.Add(("Form", "编组", true, () =>
             {
                 if (Available(bound)) FormationRequested?.Invoke(bound, node.Id, _view, _content);
-            }, true));
+            }));
             var occupant = _view.World.Nodes.FirstOrDefault(item => item.Id == node.Id)?.Occupant;
             if (occupant is NodeOccupant.Settlement settlement)
             {
-                buttons.Add(UiStyle.Button("Economy", "库存、市场与服务…", () =>
+                actions.Add(("Economy", "库存、市场与服务…", false, () =>
                 {
                     if (Available(bound)) SettlementRequested?.Invoke(bound, settlement.Id);
                 }));
-                buttons.Add(UiStyle.Button("OpenSettlementCombat", "战斗…", () =>
+                actions.Add(("OpenSettlementCombat", "战斗…", false, () =>
                 {
                     if (Available(bound)) SettlementCombatRequested?.Invoke(settlement.Id);
                 }));
             }
             else if (occupant is NodeOccupant.Empty)
-                buttons.Add(UiStyle.Button("FoundSettlement", "建立聚居地…", () =>
+                actions.Add(("FoundSettlement", "建立聚居地…", false, () =>
                 {
                     if (Available(bound)) FoundingRequested?.Invoke(bound, node.Id);
                 }));
         }
         if (target is WorldObjectId.Edge edge)
-            buttons.Add(UiStyle.Button("RailwayWork", "铁路施工…", () =>
+            actions.Add(("RailwayWork", "铁路施工…", false, () =>
             {
                 if (Available(bound)) RailwayWorkRequested?.Invoke(bound, edge.Id);
             }));
         if (target is WorldObjectId.Train train)
         {
-            buttons.Add(UiStyle.Button("Inventory", "列车库存…", () =>
+            actions.Add(("Inventory", "列车库存…", false, () =>
             { if (Available(bound)) InventoryRequested?.Invoke(bound, train.Id); }));
-            buttons.Add(UiStyle.Button("OpenCombat", "战斗…", () =>
+            actions.Add(("OpenCombat", "战斗…", false, () =>
             { if (Available(bound)) TrainCombatRequested?.Invoke(train.Id); }));
-            buttons.Add(UiStyle.Button("EditPlan", "编辑计划", () =>
+            actions.Add(("EditPlan", "编辑计划", true, () =>
             {
                 if (Available(bound) && _view.FindTrain(train.Id) is Lookup<TrainView>.Found found)
                     PlanRequested?.Invoke(bound, found.Value, _view, _content);
-            }, true));
-            buttons.Add(UiStyle.Button("Start", "启动", () => _submit(bound, new CoreCommand.StartTrain(train.Id)), true));
-            buttons.Add(UiStyle.Button("Stop", "停车", () => _submit(bound, new CoreCommand.StopTrain(train.Id))));
-            buttons.Add(UiStyle.Button("Disband", "解编…", () => ConfirmDisband(bound, train.Id)));
+            }));
+            actions.Add(("Start", "启动", true, () => _submit(bound, new CoreCommand.StartTrain(train.Id))));
+            actions.Add(("Stop", "停车", false, () => _submit(bound, new CoreCommand.StopTrain(train.Id))));
+            actions.Add(("Disband", "解编…", false, () => ConfirmDisband(bound, train.Id)));
         }
         if (target is WorldObjectId.Train refitTrain && _view.FindTrain(refitTrain.Id) is Lookup<TrainView>.Found trainForRefit)
             foreach (var vehicle in trainForRefit.Value.Vehicles)
             {
-                buttons.Add(UiStyle.Button("RefitVehicle", $"改装车辆 {vehicle.Value}…", () => { if (Available(bound)) RefitRequested?.Invoke(new InstanceId.Vehicle(vehicle)); }));
+                var id = vehicle;
+                actions.Add(("RefitVehicle", $"改装车辆 {id.Value}…", false, () => { if (Available(bound)) RefitRequested?.Invoke(new InstanceId.Vehicle(id)); }));
                 if (trainForRefit.Value.Position is TrainPosition.Node)
-                    buttons.Add(UiStyle.Button("VehicleServices", $"车辆 {vehicle.Value} 服务…", () => { if (Available(bound)) VehicleServiceRequested?.Invoke(new InstanceId.Vehicle(vehicle)); }));
+                    actions.Add(("VehicleServices", $"车辆 {id.Value} 服务…", false, () => { if (Available(bound)) VehicleServiceRequested?.Invoke(new InstanceId.Vehicle(id)); }));
             }
         if (target is WorldObjectId.Node refitNode && _view.FindLocation(new WorldLocation.Node(refitNode.Id)) is Lookup<LocationView>.Found locationForRefit)
             foreach (var vehicle in locationForRefit.Value.Instances.OfType<InstanceId.Vehicle>())
             {
-                buttons.Add(UiStyle.Button("RefitParkedVehicle", $"改装车辆 {vehicle.Id.Value}…", () => { if (Available(bound)) RefitRequested?.Invoke(vehicle); }));
-                if (_view.FindInstance(vehicle) is Lookup<InstanceView>.Found { Value.Ownership: SettlementRelation.PlayerOwned })
-                    buttons.Add(UiStyle.Button("ParkedVehicleServices", $"车辆 {vehicle.Id.Value} 服务…", () => { if (Available(bound)) VehicleServiceRequested?.Invoke(vehicle); }));
+                var id = vehicle;
+                actions.Add(("RefitParkedVehicle", $"改装车辆 {id.Id.Value}…", false, () => { if (Available(bound)) RefitRequested?.Invoke(id); }));
+                if (_view.FindInstance(id) is Lookup<InstanceView>.Found { Value.Ownership: SettlementRelation.PlayerOwned })
+                    actions.Add(("ParkedVehicleServices", $"车辆 {id.Id.Value} 服务…", false, () => { if (Available(bound)) VehicleServiceRequested?.Invoke(id); }));
             }
         if (target is WorldObjectId.Instance instance)
         {
-            buttons.Add(UiStyle.Button("RefitDesign", "改装设计…", () => { if (Available(bound)) RefitRequested?.Invoke(instance.Id); }));
+            actions.Add(("RefitDesign", "改装设计…", false, () => { if (Available(bound)) RefitRequested?.Invoke(instance.Id); }));
             if (instance.Id is InstanceId.Vehicle && _view.FindInstance(instance.Id) is Lookup<InstanceView>.Found
                 { Value.Ownership: SettlementRelation.PlayerOwned, Value.Location: WorldLocation.Node })
-                buttons.Add(UiStyle.Button("VehicleServices", "车辆服务…", () => { if (Available(bound)) VehicleServiceRequested?.Invoke(instance.Id); }));
+                actions.Add(("VehicleServices", "车辆服务…", false, () => { if (Available(bound)) VehicleServiceRequested?.Invoke(instance.Id); }));
         }
-        foreach (var button in buttons) body.AddChild(button);
-        _details.Add(new(bound, panel, text, buttons));
-        Refresh(_binding, _view, _content);
+        return actions;
+    }
+
+    private static bool SameActions(List<Button> buttons, List<(string Name, string Text, bool Primary, Action Press)> actions)
+    {
+        if (buttons.Count != actions.Count) return false;
+        for (var index = 0; index < buttons.Count; index++)
+        {
+            var button = buttons[index];
+            // 同名按钮加入树后，引擎会改掉节点名；按请求时记下的名字比较，避免每帧重建。
+            if (!GodotObject.IsInstanceValid(button) || button.GetMeta("ActionName").AsString() != actions[index].Name ||
+                button.Text != actions[index].Text) return false;
+        }
+        return true;
+    }
+
+    private static void ReplaceActions(Detail detail, List<(string Name, string Text, bool Primary, Action Press)> actions)
+    {
+        foreach (var button in detail.Buttons)
+        {
+            detail.Body.RemoveChild(button);
+            button.QueueFree();
+        }
+        detail.Buttons.Clear();
+        foreach (var action in actions)
+        {
+            var button = UiStyle.Button(action.Name, action.Text, action.Press, action.Primary);
+            button.SetMeta("ActionName", action.Name);
+            detail.Body.AddChild(button);
+            detail.Buttons.Add(button);
+        }
     }
 
     private bool Available(PanelTarget target)
@@ -287,7 +331,7 @@ public partial class WorldPanels : Control
         {
             var value = foundTrain.Value;
             text.AppendLine($"状态：{Activity(value.Activity)}\n位置：{PositionText(value.Position)}\n速度：{value.SpeedMetersPerSecond:0.00} m/s\n编组：{string.Join(" → ", value.Vehicles.Select(id => $"车辆 {id.Value}"))}\n总长：{value.LengthMeters:0.##} m\n总质量：{value.MassTons:0.##} t\n牵引：{value.TractionKilonewtons:0.##} kN\n加速度：{value.Acceleration:0.##} m/s²\n");
-            foreach (var problem in value.Blockers) text.AppendLine(CommandDiagnostics.Describe(problem));
+            foreach (var problem in value.Blockers) text.AppendLine(CommandDiagnostics.Describe(problem, _content));
             text.AppendLine("\n运行计划");
             if (value.Plan is { } plan)
             {
@@ -315,7 +359,7 @@ public partial class WorldPanels : Control
                 text.AppendLine(vehicle.Train is { } trainId ? $"编组：列车 {trainId.Value}" : "未编组");
             else if (value.Details is InstanceDetails.Building building)
                 text.AppendLine($"地块：{building.Plot.Value}");
-            foreach (var problem in value.MissingContent) text.AppendLine(CommandDiagnostics.Describe(problem));
+            foreach (var problem in value.MissingContent) text.AppendLine(CommandDiagnostics.Describe(problem, _content));
         }
         else return "已不存在";
         return text.ToString();
@@ -337,5 +381,5 @@ public partial class WorldPanels : Control
     { TrainActivity.Running => "运行", TrainActivity.Servicing => "装卸", TrainActivity.Waiting => "等待",
         TrainActivity.Stopped => "等待 · 已停车", TrainActivity.NoRoute => "受阻", TrainActivity.Combat => "战斗",
         TrainActivity.Retreating => "撤退", _ => activity.ToString() };
-    private sealed record Detail(PanelTarget Target, PanelContainer Panel, Label Text, List<Button> Buttons);
+    private sealed record Detail(PanelTarget Target, PanelContainer Panel, Label Text, VBoxContainer Body, List<Button> Buttons);
 }

@@ -220,7 +220,7 @@ public partial class CombatPanel : Control
             {
                 text.AppendLine($"列车 {trainId.Value}");
                 foreach (var problem in train.Value.Blockers.Where(problem => problem.Code == "no_route"))
-                    text.AppendLine(CommandDiagnostics.Describe(problem));
+                    text.AppendLine(CommandDiagnostics.Describe(problem, _content));
             }
             else text.AppendLine($"列车 {trainId.Value} 已不存在");
         }

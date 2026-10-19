@@ -81,8 +81,11 @@ public sealed class HostReplayTests
 
         commands.Execute(["start", "1"]);
 
-        StringAssert.Contains(errors.Single(), "replay_read_only");
-        Assert.AreEqual("NotAccepted", run.Host.Logs.Single(log => log.EventId == "train_command_failed").Attributes["decision"]);
+        Assert.AreEqual("正在重放，不能修改。", errors.Single());
+        var failed = run.Host.Logs.Single(log => log.EventId == "train_command_failed");
+        Assert.AreEqual("NotAccepted", failed.Attributes["decision"]);
+        var problem = (IReadOnlyDictionary<string, object?>)((IReadOnlyList<object?>)failed.Attributes["problems"]!).Single()!;
+        Assert.AreEqual("replay_read_only", problem["code"]);
         Assert.AreEqual(binding, run.Host.Host.GetStatus()!.Binding);
         Assert.AreEqual(0, run.Host.Session.SubmitCount);
         Assert.AreEqual(0, run.Replay.AdvanceCalls.Count);

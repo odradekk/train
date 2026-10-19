@@ -238,7 +238,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     private NodeScene? AdvanceSuccessor()
     {
         if (node is null) return null;
-        if (successor is null && FoundedSinceOpen(node))
+        if (successor is null && node.FoundedSinceOpen(snapshot))
         {
             if (candidate?.Node?.Node == node.Node) CancelCandidate();
             node.AcceptTrackChanges = false;
@@ -263,14 +263,6 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         }
         if (successor.Failure is { } problem) node.Report(problem);
         return null;
-    }
-
-    private bool FoundedSinceOpen(NodeScene current)
-    {
-        if (current.Layout is not { Template: null }) return false;
-        var map = snapshot.Core.World.Nodes.FirstOrDefault(item => item.Id == current.Node);
-        if (map?.Occupant is not NodeOccupant.Settlement owner) return false;
-        return snapshot.Content.FindSettlementLayout(owner.Id) is ContentLookup<SettlementLayoutProjection>.Found;
     }
 
     private void Switch(WorldLocation location, SceneFrame? displayed)

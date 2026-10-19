@@ -253,6 +253,13 @@ internal sealed class NodeScene : IAsyncDisposable
     internal ScenePoint StreamingFocus => range.Focus;
     internal FollowedPath? StreamingFollow => followedPath;
     internal NodeLayout? Layout => layout ?? (pending?.IsCompletedSuccessfully == true ? pending.Result.Global.Layout : null);
+    internal bool FoundedSinceOpen(SceneWorldSnapshot snapshot)
+    {
+        if (Layout is not { Template: null }) return false;
+        var map = snapshot.Core.World.Nodes.FirstOrDefault(item => item.Id == Node);
+        if (map?.Occupant is not NodeOccupant.Settlement owner) return false;
+        return snapshot.Content.FindSettlementLayout(owner.Id) is ContentLookup<SettlementLayoutProjection>.Found;
+    }
     private RailwayPath AdjacentRailway(EdgeId edge)
     {
         if (!adjacentRailways.TryGetValue(edge, out var railway))
@@ -337,11 +344,12 @@ internal sealed class NodeScene : IAsyncDisposable
         if (followedTrain is { Position: TrainPosition.Node onNode } && Layout is { } ownLayout)
         {
             var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(Node)).Value;
-            var stops = settlement.Platforms(snapshot, ownLayout, ImmutableArray.CreateBuilder<SceneProblem>(), false);
-            var station = onNode.PlatformNumber is { } number ? number - 1 : -1;
-            if (station < stops.Length)
+            var founded = FoundedSinceOpen(snapshot);
+            var stops = founded ? [] :
+                settlement.Platforms(snapshot, ownLayout, ImmutableArray.CreateBuilder<SceneProblem>(), false);
+            if (TrainStop(founded, ownLayout, onNode, stops) is { } placed)
             {
-                var path = new NodeTrainPath(ownLayout, dimensions, onNode, station >= 0 ? stops[station] : ownLayout.Bypass,
+                var path = new NodeTrainPath(ownLayout, dimensions, onNode, placed.Stop,
                     followedTrain.LengthMeters * RailwayCoordinates.CellsPerMeter, AdjacentRailway);
                 focus = path.Sample(path.Arc(onNode.DistanceMeters)).Position;
                 following = FollowPath(path, followedTrain, onNode.DistanceMeters);
@@ -1203,6 +1211,14 @@ internal sealed class NodeScene : IAsyncDisposable
                 cells.IsEmpty ? [] : [new(root, pose, grid)], problems);
         }), heights, origin);
 
+    private static (int Station, NodeLayout.Stop Stop)? TrainStop(bool founded, NodeLayout layout,
+        TrainPosition.Node position, ImmutableArray<NodeLayout.Stop> platforms)
+    {
+        var station = founded ? -1 : position.PlatformNumber is { } number ? number - 1 : -1;
+        if (station >= platforms.Length) return null;
+        return (station, station >= 0 ? platforms[station] : layout.Bypass);
+    }
+
     private TrainView[] NodeTrains(SceneWorldSnapshot snapshot) => snapshot.Core.World.Trains
         .Where(item => item.Position is TrainPosition.Node position && position.Id == Node)
         .Select(item => snapshot.Core.FindTrain(item.Id)).OfType<Lookup<TrainView>.Found>()
@@ -1218,12 +1234,13 @@ internal sealed class NodeScene : IAsyncDisposable
         FollowedPath? following = null;
         var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(Node)).Value;
         var queues = QueuePositions(trains, dimensions);
-        var mapping = Platforms(snapshot);
+        var founded = FoundedSinceOpen(snapshot);
+        var mapping = founded ? new PlatformMap([], []) : Platforms(snapshot);
         problems.AddRange(mapping.Problems);
         var platforms = mapping.Stops;
         var oldTrains = previous is null ? [] : NodeTrains(previous);
         var oldQueues = QueuePositions(oldTrains, dimensions);
-        var oldPlatforms = previous is null ? [] : Platforms(previous, cacheProjections: false).Stops;
+        var oldPlatforms = founded || previous is null ? [] : Platforms(previous, cacheProjections: false).Stops;
         foreach (var train in trains)
         {
             var members = train.Vehicles.Select(id => ((Lookup<InstanceView>.Found)snapshot.Core.FindInstance(new InstanceId.Vehicle(id))).Value).ToArray();
@@ -1231,17 +1248,17 @@ internal sealed class NodeScene : IAsyncDisposable
             var lengths = evaluations.Select(value => RailwayVehicles.Length((value as ContentLookup<DesignEvaluation>.Found)?.Value)).ToArray();
             var known = lengths.All(length => length is > 0);
             var total = known ? lengths.Sum(length => length!.Value) : 0;
-            var station = ((TrainPosition.Node)train.Position).PlatformNumber is { } number ? number - 1 : -1;
             var position = (TrainPosition.Node)train.Position;
             var entry = layout!.TrainEntry(position.EnteredFrom);
             var positive = train.OrderFacing == TrainOrderFacing.FirstEndLeading;
-            if (station >= platforms.Length)
+            if (TrainStop(founded, layout, position, platforms) is not { } placed)
             {
                 problems.Add(new("station_platform_mismatch", SceneStage.Reconcile, new WorldObjectId.Train(train.Id),
                     null, null, null, "The assigned platform has no matching station slot."));
                 continue;
             }
-            var path = new NodeTrainPath(layout, dimensions, position, station >= 0 ? platforms[station] : layout.Bypass,
+            var station = placed.Station;
+            var path = new NodeTrainPath(layout, dimensions, position, placed.Stop,
                 train.LengthMeters * RailwayCoordinates.CellsPerMeter, AdjacentRailway);
             var queue = queues.GetValueOrDefault(train.Id);
             var distance = position.DistanceMeters;

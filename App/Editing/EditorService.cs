@@ -63,7 +63,7 @@ internal sealed class EditorService : IDisposable
         _reopenMessage = null;
         _lastState = null;
         _readFailed = false;
-        if (Host.BeginEditing() is { } problem) { Report(CommandDiagnostics.Describe(problem)); return; }
+        if (Host.BeginEditing() is { } problem) { Report(problem); return; }
         FixedContent = Host.Content!;
         Target = target;
         SaveTarget = saveTarget;
@@ -326,7 +326,7 @@ internal sealed class EditorService : IDisposable
                 if (begun.Problem is { } problem)
                 {
                     _afterClose = null;
-                    Report(CommandDiagnostics.Describe(problem));
+                    Report(problem);
                     return;
                 }
                 _saving = new PendingSave.LocalDraft(session, snapshot, begun.Operation);
@@ -412,7 +412,7 @@ internal sealed class EditorService : IDisposable
             var begun = Host.BeginContentEdit(new ContentEdit.SaveBlueprint(target, snapshot.Draft), WriteRequired);
             if (begun.Problem is { } problem)
             {
-                Reopen(snapshot, source, target, draft, CommandDiagnostics.Describe(problem));
+                Reopen(snapshot, source, target, draft, CommandDiagnostics.Describe(problem, Host.Content), problem);
                 return false;
             }
             _saving = new PendingSave.Blueprint(snapshot, source, target, draft, begun.Operation);
@@ -429,7 +429,7 @@ internal sealed class EditorService : IDisposable
         if (IsOpen || IsBusy) { Report("请先结束编辑。"); return; }
         ClearFeedback();
         var begun = Host.BeginContentEdit(new ContentEdit.DeleteBlueprint(address), WriteRequired);
-        if (begun.Problem is { } problem) Report(CommandDiagnostics.Describe(problem));
+        if (begun.Problem is { } problem) Report(problem);
     }
 
     private FileWriteResult WriteRequired(IContentCandidate candidate)
@@ -492,7 +492,7 @@ internal sealed class EditorService : IDisposable
     private static string OperationMessage(HostOperationResult result) =>
         result.Message ?? result.FaultCode ?? string.Join("\n", result.Diagnostics.Select(Describe));
 
-    private void Reopen(EditSnapshot snapshot, DraftTarget source, BlueprintSaveTarget target, DraftId draft, string message)
+    private void Reopen(EditSnapshot snapshot, DraftTarget source, BlueprintSaveTarget target, DraftId draft, string message, CoreProblem? problem = null)
     {
         _saving = null;
         Open(snapshot.Draft, source, target, unsaved: true);
@@ -500,7 +500,8 @@ internal sealed class EditorService : IDisposable
         {
             _draft = draft;
             _reopenMessage = message;
-            _logger.Warning("editor", "editor_operation_failed", message);
+            _logger.Warning("editor", "editor_operation_failed", message, problem is { } rejected
+                ? new Dictionary<string, object?> { ["problems"] = new[] { CommandDiagnostics.ProblemRecord(rejected) } } : null);
         }
     }
 
@@ -613,6 +614,16 @@ internal sealed class EditorService : IDisposable
         var message = string.Join("\n", problems.Select(Describe));
         if (message.Length != 0) Report(message);
     }
+    internal string LogRejected(string category, string eventId, CoreProblem problem) =>
+        CommandDiagnostics.LogProblem(_logger, category, eventId, problem, Host.Content);
+
+    internal void Report(CoreProblem problem)
+    {
+        Message = CommandDiagnostics.LogProblem(_logger, "editor", "editor_operation_failed", problem, Host.Content);
+        HasError = true;
+        Changed?.Invoke();
+    }
+
     internal void Report(string message)
     {
         Message = message;
