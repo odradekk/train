@@ -4,25 +4,29 @@ using Train.Core.Contracts;
 namespace Train.App.ArtCapture;
 
 internal sealed record CaptureInput(string SavePath, WorldLocation Location, TrainId Train, string Name,
-    LairId? Lair = null, CreatureGroupId? Group = null)
+    LairId? Lair = null, CreatureGroupId? Group = null, ulong MotionSteps = 2)
 {
     internal static CaptureInput Parse(IReadOnlyList<string> arguments)
     {
-        const string usage = "用法：--capture-save <存档> --capture-location edge:<ID>|node:<ID> --capture-train <ID>|--capture-lair <ID>|--capture-group <ID> --capture-name <名称>";
+        const string usage = "用法：--capture-save <存档> --capture-location edge:<ID>|node:<ID> --capture-train <ID>|--capture-lair <ID>|--capture-group <ID> --capture-name <名称> [--capture-motion-steps <正整数>]";
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
         for (var i = 0; i < arguments.Count; i += 2)
         {
             if (i + 1 >= arguments.Count || arguments[i] is not
-                ("--capture-save" or "--capture-location" or "--capture-train" or "--capture-lair" or "--capture-group" or "--capture-name") ||
+                ("--capture-save" or "--capture-location" or "--capture-train" or "--capture-lair" or "--capture-group" or "--capture-name" or "--capture-motion-steps") ||
                 !values.TryAdd(arguments[i], arguments[i + 1])) throw new ArgumentException(usage);
         }
         var targets = new[] { "--capture-train", "--capture-lair", "--capture-group" }.Where(values.ContainsKey).ToArray();
-        if (values.Count != 4 || targets.Length != 1 || !values.ContainsKey("--capture-save") ||
+        if (targets.Length != 1 || !values.ContainsKey("--capture-save") ||
             !values.ContainsKey("--capture-location") || !values.ContainsKey("--capture-name")) throw new ArgumentException(usage);
         var scene = values["--capture-location"].Split(':');
         if (scene.Length != 2 || scene[0] is not ("edge" or "node") ||
             !ulong.TryParse(scene[1], NumberStyles.None, CultureInfo.InvariantCulture, out var id) || id == 0 ||
             !ulong.TryParse(values[targets[0]], NumberStyles.None, CultureInfo.InvariantCulture, out var target) || target == 0)
+            throw new ArgumentException(usage);
+        var motionSteps = 2UL;
+        if (values.TryGetValue("--capture-motion-steps", out var steps) &&
+            (!ulong.TryParse(steps, NumberStyles.None, CultureInfo.InvariantCulture, out motionSteps) || motionSteps == 0))
             throw new ArgumentException(usage);
         var name = values["--capture-name"];
         if (name.Length == 0 || name.Any(character => !char.IsAsciiLetterOrDigit(character) && character is not ('-' or '_')))
@@ -30,7 +34,7 @@ internal sealed record CaptureInput(string SavePath, WorldLocation Location, Tra
         return new(Path.GetFullPath(values["--capture-save"]),
             scene[0] == "edge" ? new WorldLocation.Edge(new(id), 0) : new WorldLocation.Node(new(id)),
             new(targets[0] == "--capture-train" ? target : 0), name,
-            targets[0] == "--capture-lair" ? new(target) : null, targets[0] == "--capture-group" ? new(target) : null);
+            targets[0] == "--capture-lair" ? new(target) : null, targets[0] == "--capture-group" ? new(target) : null, motionSteps);
     }
 
     internal WorldObjectId[] Validate(ICoreReadView core)

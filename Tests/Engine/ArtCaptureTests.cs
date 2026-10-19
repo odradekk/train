@@ -30,6 +30,29 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
     public Task Group_motion_samples_without_requiring_a_turn() => SampleMotion(turned: false, target: "group");
 
     [Test]
+    public Task Eight_step_motion_samples_the_requested_simulation_interval() =>
+        SampleMotion(turned: false, target: "group", motionSteps: 8);
+
+    [Test]
+    public void Motion_steps_are_optional_and_require_a_positive_integer()
+    {
+        string[] arguments = ["--capture-save", "save.json", "--capture-location", "node:1",
+            "--capture-group", "1", "--capture-name", "combat"];
+        Require(CaptureInput.Parse(arguments).MotionSteps == 2, "默认运动序列必须保持每帧两步。");
+        Require(CaptureInput.Parse([.. arguments, "--capture-motion-steps", "8"]).MotionSteps == 8,
+            "必须解析每帧八步的运动序列。");
+        foreach (var value in new[] { "0", "-1", "1.5", "invalid", "18446744073709551616" })
+        {
+            try
+            {
+                CaptureInput.Parse([.. arguments, "--capture-motion-steps", value]);
+                throw new InvalidOperationException("非法的运动步数未被拒绝。");
+            }
+            catch (ArgumentException) { }
+        }
+    }
+
+    [Test]
     public Task Last_group_member_can_disappear_during_sampling() =>
         SampleMotion(turned: false, target: "group", missingAfterAdvance: true);
 
@@ -153,7 +176,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         finally { File.Delete(save); }
     }
 
-    private async Task SampleMotion(bool turned, string? target = null, bool missingAfterAdvance = false)
+    private async Task SampleMotion(bool turned, string? target = null, bool missingAfterAdvance = false, ulong motionSteps = 2)
     {
         var name = "capture-test-" + Guid.NewGuid().ToString("N");
         var root = ProjectSettings.GlobalizePath("res://.godot/validation");
@@ -162,7 +185,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         File.WriteAllText(save, SaveContainer.Encode(new(new(SaveContainer.FormatVersion, Guid.NewGuid(),
             "engine capture input", DateTimeOffset.UnixEpoch, new(0, 0), []), "opaque", "opaque")));
         var core = new ScriptedCoreSession(target is null ? View(true, true, 1) : CreatureView());
-        for (ulong step = 1; step <= 120; step++)
+        for (ulong step = 1; step <= 60 * motionSteps; step++)
             core.QueueAdvance(new(1, new(step, 0), [], null, null),
                 target is null ? new FixedCoreReadView(new(step, 0), HostCoreScenario.Input) :
                     CreatureView(empty: missingAfterAdvance, position: new(step, 0)));
@@ -177,7 +200,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         {
             Update = new(null, new(sessionId, new(1), new(1), (ulong)index + 1), System.Numerics.Vector3.Zero,
                 [], [], new([], []), []),
-            SimulationSeconds = index * 2d / 60,
+            SimulationSeconds = (ulong)index * motionSteps / 60d,
             Poses = ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty.Add(subject,
                 missingAfterAdvance && index > 0 ? new Lookup<ScenePose>.Missing() : new Lookup<ScenePose>.Found(new(new(0, 0, index),
                     System.Numerics.Quaternion.CreateFromAxisAngle(System.Numerics.Vector3.UnitY,
@@ -194,7 +217,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
                         new WorldSceneTarget.Location(new WorldLocation.Node(new(1))), new SceneResult<SceneRequestId>.Success(new(1))),
                 PresentResults = Enumerable.Range(0, 61).Select(index => (SceneResult<ISceneFrame>)
                     new SceneResult<ISceneFrame>.Success(Frame(index))).ToImmutableArray(),
-                ObserveResults = Enumerable.Range(1, 120).Select(step => (SceneResult<SimulationPosition>)
+                ObserveResults = Enumerable.Range(1, (int)(60 * motionSteps)).Select(step => (SceneResult<SimulationPosition>)
                     new SceneResult<SimulationPosition>.Success(new((ulong)step, 0))).ToImmutableArray()
             })
         };
@@ -205,15 +228,15 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         try
         {
             await run.RestoreAsync(target is null
-                ? new(save, new WorldLocation.Edge(new(1), 0), new(1), name)
+                ? new(save, new WorldLocation.Edge(new(1), 0), new(1), name, MotionSteps: motionSteps)
                 : new(save, new WorldLocation.Node(new(1)), default, name,
-                    Lair: target == "lair" ? new(1) : null, Group: target == "group" ? new(1) : null));
+                    Lair: target == "lair" ? new(1) : null, Group: target == "group" ? new(1) : null, MotionSteps: motionSteps));
             for (var frame = 1; frame <= 60; frame++)
             {
                 await run.AdvanceTurnFrameAsync().WaitAsync(TimeSpan.FromSeconds(5));
-                Require(core.CurrentView.Position.CompletedSteps == (ulong)frame * 2,
-                    "运动采样必须每帧只推进两个模拟步。");
-                Require(run.World!.Display!.DisplayedFrame!.SimulationSeconds == frame * 2d / 60,
+                Require(core.CurrentView.Position.CompletedSteps == (ulong)frame * motionSteps,
+                    "运动采样必须每帧只推进指定数量的模拟步。");
+                Require(run.World!.Display!.DisplayedFrame!.SimulationSeconds == (ulong)frame * motionSteps / 60d,
                     "运动采样必须使用本次推进后的真实显示帧。");
             }
             if (turned) run.RequireTurn();

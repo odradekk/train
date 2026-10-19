@@ -94,6 +94,7 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         {
             commit, inputSaveHash = _saveHash, scene, train = input.Train.Value == 0 ? (ulong?)null : input.Train.Value,
             lair = input.Lair?.Value, group = input.Group?.Value,
+            motionSteps = input.MotionSteps,
             viewportSize = new[] { owner.GetViewport().GetTexture().GetWidth(), owner.GetViewport().GetTexture().GetHeight() },
             images = _images
         }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = true,
@@ -152,9 +153,10 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
 
     internal async Task AdvanceTurnFrameAsync()
     {
-        var step = Host!.Step(2);
-        if (step.Problem is not null || step.Completed != 2)
-            throw new InvalidOperationException($"运动推进失败：{step.Problem?.Code ?? "未完成两个模拟步"}。");
+        var steps = _input!.MotionSteps;
+        var step = Host!.Step(steps);
+        if (step.Problem is not null || step.Completed != steps)
+            throw new InvalidOperationException($"运动推进失败：{step.Problem?.Code ?? $"未完成 {steps} 个模拟步"}。");
         if (_input!.Group is { } group)
             _subjects = Host.GetStatus()!.View.FindCreatureGroup(group) is Lookup<CreatureGroupView>.Found found
                 ? found.Value.Creatures.Select(creature => (WorldObjectId)new WorldObjectId.Creature(creature.Id)).ToArray() : [];
@@ -275,7 +277,10 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
                 camera.Basis.Z.X, camera.Basis.Z.Y, camera.Basis.Z.Z, camera.Origin.X, camera.Origin.Y, camera.Origin.Z],
             [focus.X, focus.Y, focus.Z], _input!.Train.Value != 0 ? null :
                 _subjects.Where(subject => World.Display.DisplayedFrame.FindPose(subject) is Lookup<ScenePose>.Found)
-                    .Select(subject => subject.ToString()!).ToArray()));
+                    .Select(subject => subject.ToString()!).ToArray(),
+            World.Display.DisplayedFrame.Update.Effects.Select(effect => effect.Kind.ToString()).Distinct().ToArray(),
+            World.Display.Root.GetNodeOrNull("CombatEffects")?.GetChildren()
+                .ToDictionary(child => child.Name.ToString(), child => child.GetChildCount())));
     }
 
     public void Dispose()
@@ -289,4 +294,5 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
 }
 
 internal sealed record CaptureImage(string File, SimulationPosition Position, double DisplaySeconds,
-    string Lighting, float[] CameraTransform, float[] Focus, string[]? VisibleSubjects = null);
+    string Lighting, float[] CameraTransform, float[] Focus, string[]? VisibleSubjects = null,
+    string[]? EffectKinds = null, Dictionary<string, int>? VisibleEffects = null);
