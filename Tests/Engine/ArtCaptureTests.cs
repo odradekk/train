@@ -18,20 +18,28 @@ namespace Train.Engine.Tests;
 public class ArtCaptureTests(Node testScene) : TestClass(testScene)
 {
     [Test]
-    public Task Straight_motion_is_rejected_without_core_commands_or_save_capture() => SampleMotion(turned: false);
+    public async Task Straight_motion_is_rejected_without_core_commands_or_save_capture() =>
+        await SampleMotion(turned: false);
 
     [Test]
-    public Task Changed_displayed_heading_satisfies_turn_requirement() => SampleMotion(turned: true);
+    public async Task Changed_displayed_heading_satisfies_turn_requirement() =>
+        await SampleMotion(turned: true);
 
     [Test]
-    public Task Lair_motion_samples_without_requiring_a_turn() => SampleMotion(turned: false, target: "lair");
+    public async Task Lair_motion_samples_without_requiring_a_turn() =>
+        await SampleMotion(turned: false, target: "lair");
 
     [Test]
-    public Task Group_motion_samples_without_requiring_a_turn() => SampleMotion(turned: false, target: "group");
+    public async Task Group_motion_samples_without_requiring_a_turn() =>
+        await SampleMotion(turned: false, target: "group");
 
     [Test]
-    public Task Eight_step_motion_samples_the_requested_simulation_interval() =>
-        SampleMotion(turned: false, target: "group", motionSteps: 8);
+    public async Task Eight_step_motion_samples_the_requested_simulation_interval() =>
+        await SampleMotion(turned: false, target: "group", motionSteps: 8);
+
+    [Test]
+    public async Task Fixed_group_camera_preserves_focus_when_the_display_origin_changes() =>
+        await SampleMotion(turned: false, target: "group", rebaseCamera: true);
 
     [Test]
     public void Motion_steps_are_optional_and_require_a_positive_integer()
@@ -53,8 +61,8 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public Task Last_group_member_can_disappear_during_sampling() =>
-        SampleMotion(turned: false, target: "group", missingAfterAdvance: true);
+    public async Task Last_group_member_can_disappear_during_sampling() =>
+        await SampleMotion(turned: false, target: "group", missingAfterAdvance: true);
 
     [Test]
     public void Creature_capture_arguments_parse_and_reject_multiple_targets()
@@ -104,16 +112,16 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public Task Missing_scene_is_rejected_before_output_or_core_writes() =>
-        RejectRestore(scenePresent: false, trainPresent: true, trainEdge: 1, "指定场景不存在");
+    public async Task Missing_scene_is_rejected_before_output_or_core_writes() =>
+        await RejectRestore(scenePresent: false, trainPresent: true, trainEdge: 1, "指定场景不存在");
 
     [Test]
-    public Task Missing_train_is_rejected_before_output_or_core_writes() =>
-        RejectRestore(scenePresent: true, trainPresent: false, trainEdge: 1, "指定列车不存在或编组为空");
+    public async Task Missing_train_is_rejected_before_output_or_core_writes() =>
+        await RejectRestore(scenePresent: true, trainPresent: false, trainEdge: 1, "指定列车不存在或编组为空");
 
     [Test]
-    public Task Train_in_another_scene_is_rejected_before_output_or_core_writes() =>
-        RejectRestore(scenePresent: true, trainPresent: true, trainEdge: 2, "列车不在指定场景");
+    public async Task Train_in_another_scene_is_rejected_before_output_or_core_writes() =>
+        await RejectRestore(scenePresent: true, trainPresent: true, trainEdge: 2, "列车不在指定场景");
 
     [Test]
     public async Task Missing_save_is_rejected_before_host_creation()
@@ -176,7 +184,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         finally { File.Delete(save); }
     }
 
-    private async Task SampleMotion(bool turned, string? target = null, bool missingAfterAdvance = false, ulong motionSteps = 2)
+    private async Task SampleMotion(bool turned, string? target = null, bool missingAfterAdvance = false, ulong motionSteps = 2, bool rebaseCamera = false)
     {
         var name = "capture-test-" + Guid.NewGuid().ToString("N");
         var root = ProjectSettings.GlobalizePath("res://.godot/validation");
@@ -187,7 +195,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         var core = new ScriptedCoreSession(target is null ? View(true, true, 1) : CreatureView());
         for (ulong step = 1; step <= 60 * motionSteps; step++)
             core.QueueAdvance(new(1, new(step, 0), [], null, null),
-                target is null ? new FixedCoreReadView(new(step, 0), HostCoreScenario.Input) :
+                target is null ? View(true, true, 1, new(step, 0)) :
                     CreatureView(empty: missingAfterAdvance, position: new(step, 0)));
         var sessionId = new SceneSessionId(Guid.NewGuid());
         WorldObjectId subject = target switch
@@ -196,30 +204,38 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
             "group" => new WorldObjectId.Creature(new(1)),
             _ => new WorldObjectId.Instance(new InstanceId.Vehicle(new(1)))
         };
+        var mesh = new SceneMesh(new SceneMaterial.BuiltIn(BuiltInMaterial.RailSteel),
+            [new(System.Numerics.Vector3.Zero, System.Numerics.Vector3.UnitZ, new(0, 0), new(0, 0), ExposedFaceEdges.None, 0, 0),
+                new(System.Numerics.Vector3.UnitX, System.Numerics.Vector3.UnitZ, new(1, 0), new(1, 0), ExposedFaceEdges.None, 0, 0),
+                new(System.Numerics.Vector3.UnitY, System.Numerics.Vector3.UnitZ, new(0, 1), new(0, 1), ExposedFaceEdges.None, 1, 0)],
+            [0, 1, 2]);
+        System.Numerics.Vector3 Position(int index) => rebaseCamera
+            ? index == 0 ? new(10, 20, 30) : new(-4086, 20, -8162)
+            : new(0, 0, index);
         FixedSceneFrame Frame(int index) => new()
         {
+            Origin = rebaseCamera && index > 0 ? new(4096, 0, 8192) : default,
             Update = new(null, new(sessionId, new(1), new(1), (ulong)index + 1), System.Numerics.Vector3.Zero,
-                [], [], new([], []), []),
+                rebaseCamera ? [new(new(1), null, new(Position(index), System.Numerics.Quaternion.Identity), subject,
+                    [new SceneVisual.Geometry(mesh, new(false, 0, 0, false))], [], [])] : [], [], new([], []), []),
             SimulationSeconds = (ulong)index * motionSteps / 60d,
             Poses = ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty.Add(subject,
-                missingAfterAdvance && index > 0 ? new Lookup<ScenePose>.Missing() : new Lookup<ScenePose>.Found(new(new(0, 0, index),
+                missingAfterAdvance && index > 0 ? new Lookup<ScenePose>.Missing() : new Lookup<ScenePose>.Found(new(Position(index),
                     System.Numerics.Quaternion.CreateFromAxisAngle(System.Numerics.Vector3.UnitY,
                         turned && index == 60 ? 0.1f : 0)))),
             TerrainHeightResult = new Lookup<double>.Missing()
         };
         var factory = new FixedDisplayFactory
         {
-            OpenWorldCall = (binding, _) => new SceneResult<IWorldSceneSession>.Success(new FixedDisplaySession
+            OpenWorldCall = (binding, _) => new SceneResult<IWorldSceneSession>.Success(new CaptureDisplaySession(new FixedDisplaySession
             {
                 Id = sessionId, Binding = binding,
                 RequestResults = ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>>.Empty
                     .Add(target is null ? new WorldSceneTarget.Follow(new(1), new(1)) :
                         new WorldSceneTarget.Location(new WorldLocation.Node(new(1))), new SceneResult<SceneRequestId>.Success(new(1))),
-                PresentResults = Enumerable.Range(0, 61).Select(index => (SceneResult<ISceneFrame>)
-                    new SceneResult<ISceneFrame>.Success(Frame(index))).ToImmutableArray(),
                 ObserveResults = Enumerable.Range(1, (int)(60 * motionSteps)).Select(step => (SceneResult<SimulationPosition>)
                     new SceneResult<SimulationPosition>.Success(new((ulong)step, 0))).ToImmutableArray()
-            })
+            }, () => Frame((int)(core.CurrentView.Position.CompletedSteps / motionSteps))))
         };
         using var run = new ArtCaptureRun(TestScene)
         {
@@ -231,9 +247,31 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
                 ? new(save, new WorldLocation.Edge(new(1), 0), new(1), name, MotionSteps: motionSteps)
                 : new(save, new WorldLocation.Node(new(1)), default, name,
                     Lair: target == "lair" ? new(1) : null, Group: target == "group" ? new(1) : null, MotionSteps: motionSteps));
+            if (rebaseCamera)
+            {
+                Require(run.World!.Display!.PoseFrame!.Origin == default,
+                    "首次固定相机定位必须发生在原点切换之前。");
+                run.PlaceCamera("follow", 0, 240);
+            }
             for (var frame = 1; frame <= 60; frame++)
             {
                 await run.AdvanceTurnFrameAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                if (rebaseCamera)
+                {
+                    Require(run.World!.Display!.PoseFrame!.Origin == new ScenePoint(4096, 0, 8192),
+                        "推进后必须实际切换显示原点，才能验证缓存坐标的转换。");
+                    var camera = run.World.View.CameraRig;
+                    var focus = camera.Focus;
+                    var cameraPosition = camera.Camera.Position;
+                    run.PlaceCamera("follow", 0, 240);
+                    Require(camera.Focus.DistanceTo(focus) < 0.001f &&
+                        camera.Camera.Position.DistanceTo(cameraPosition) < 0.001f,
+                        "浮动原点切换后，重复固定相机定位必须保持世界焦点和相机位置。");
+                    var displayedMesh = run.World.Display!.Root.FindChildren("*", nameof(MeshInstance3D), true, false)
+                        .OfType<MeshInstance3D>().Single();
+                    Require(camera.Focus.DistanceTo((displayedMesh.GlobalTransform * displayedMesh.Mesh.GetAabb()).GetCenter()) < 0.001f,
+                        "固定相机必须继续对准实际显示对象，不能使用旧原点下的包围盒。");
+                }
                 Require(core.CurrentView.Position.CompletedSteps == (ulong)frame * motionSteps,
                     "运动采样必须每帧只推进指定数量的模拟步。");
                 Require(run.World!.Display!.DisplayedFrame!.SimulationSeconds == (ulong)frame * motionSteps / 60d,
@@ -254,6 +292,19 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
                 "运动采样不能提交核心命令或捕获存档。");
         }
         finally { File.Delete(save); }
+    }
+
+    private sealed class CaptureDisplaySession(FixedDisplaySession session, Func<ISceneFrame> frame) : IWorldSceneSession
+    {
+        public SceneSessionId Id => session.Id;
+        public SceneBinding Binding => session.Binding;
+        public SceneResult<SceneRequestId> RequestView(WorldSceneTarget target) => session.RequestView(target);
+        public SceneResult<SimulationPosition> Observe(SceneWorldSnapshot snapshot, ImmutableArray<EventEnvelope> events) =>
+            session.Observe(snapshot, events);
+        public SceneResult<ISceneFrame> Present(SceneFrameRequest request, ISceneFrame? displayedFrame) =>
+            new SceneResult<ISceneFrame>.Success(frame());
+        public SceneResult<PickSubject> Resolve(SceneHit hit) => session.Resolve(hit);
+        public ValueTask DisposeAsync() => session.DisposeAsync();
     }
 
     private static FixedCoreReadView CreatureView(bool empty = false, SimulationPosition position = default)
@@ -284,14 +335,14 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         };
     }
 
-    private static FixedCoreReadView View(bool scenePresent, bool trainPresent, ulong trainEdge)
+    private static FixedCoreReadView View(bool scenePresent, bool trainPresent, ulong trainEdge, SimulationPosition position = default)
     {
         var edge = new EdgeMapItem(new(1), new(1), new(2), 100,
             new(new("fixture:terrain"), 0, []), 1, 1, [], []);
         var train = new TrainView(new(1), new TrainPosition.Edge(new(trainEdge), 1, TravelDirection.Forward, 10),
             TrainActivity.Running, [new(1)], new(1), 0, 6, 1, 1, 1, 10, null, null, 0,
             new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0), [], null, [], TrainOrderFacing.FirstEndLeading, null);
-        return new(new(0, 0), HostCoreScenario.Input)
+        return new(position, HostCoreScenario.Input)
         {
             Edges = new Dictionary<EdgeId, Lookup<EdgeView>>
             {

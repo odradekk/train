@@ -52,6 +52,7 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
     private WorldObjectId[] _subjects = [];
     private CaptureInput? _input;
     private Aabb? _subjectBounds;
+    private ScenePoint _subjectOrigin;
     private readonly List<CaptureImage> _images = [];
     private System.Numerics.Vector3 _initialFront;
     private bool _turned;
@@ -175,12 +176,15 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         return System.Numerics.Vector3.Transform(System.Numerics.Vector3.UnitZ, pose.Rotation);
     }
 
-    private void PlaceCamera(string distance, float orbit, float farDistance)
+    internal void PlaceCamera(string distance, float orbit, float farDistance)
     {
         if (_input!.Train.Value == 0)
         {
             _subjectBounds ??= SubjectBounds() ?? throw new InvalidDataException("检查对象没有可显示的网格。");
             var subjectBox = _subjectBounds.Value;
+            var origin = World!.Display!.PoseFrame!.Origin;
+            subjectBox.Position += new Vector3((float)(_subjectOrigin.X - origin.X),
+                (float)(_subjectOrigin.Y - origin.Y), (float)(_subjectOrigin.Z - origin.Z));
             var subjectPitch = distance == "near" ? 0.2f : 0.55f;
             var subjectYaw = 0.6f + orbit;
             var subjectRange = distance == "far" ? farDistance : WorldCamera.DefaultDistance;
@@ -236,6 +240,7 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
     private Aabb? SubjectBounds()
     {
         var display = World!.Display!;
+        _subjectOrigin = display.PoseFrame!.Origin;
         if (_input!.Lair is { } lair)
         {
             if (Host!.GetStatus()!.View.FindLair(lair) is not Lookup<LairView>.Found found ||
