@@ -145,7 +145,15 @@ public sealed class FixedContentView : IContentView
     public ContentLookup<CreatureAppearanceProjection> FindCreature(CreatureDefinitionId id)
         => creatures.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindCreature));
 
-    public ContentLookup<LairAppearanceProjection> FindLair(LairTypeId id) => throw Unconfigured(nameof(FindLair));
+    private ImmutableDictionary<LairTypeId, ContentLookup<LairAppearanceProjection>> lairs =
+        ImmutableDictionary<LairTypeId, ContentLookup<LairAppearanceProjection>>.Empty;
+    public IReadOnlyDictionary<LairTypeId, ContentLookup<LairAppearanceProjection>> Lairs
+    {
+        get => lairs;
+        init => lairs = value.ToImmutableDictionary();
+    }
+    public ContentLookup<LairAppearanceProjection> FindLair(LairTypeId id)
+        => lairs.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindLair));
 
     private ImmutableDictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>> terrains = ImmutableDictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>.Empty;
     public IReadOnlyDictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>> Terrains

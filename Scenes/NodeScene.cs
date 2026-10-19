@@ -398,7 +398,7 @@ internal sealed class NodeScene : IAsyncDisposable
         try
         {
             var next = task.GetAwaiter().GetResult();
-            if (EntryTracksDiffer(snapshot, next.Global.Layout))
+            if (NeedsRefresh(snapshot, next.Global.Layout))
             {
                 ScheduleRefresh();
                 return;
@@ -412,7 +412,7 @@ internal sealed class NodeScene : IAsyncDisposable
     private void ScheduleRefresh()
     {
         if (!AcceptTrackChanges || refresh is not null || layout is null || prepared is null || failure is not null ||
-            cancellation.IsCancellationRequested || !EntryTracksDiffer(snapshot, layout)) return;
+            cancellation.IsCancellationRequested || !NeedsRefresh(snapshot, layout)) return;
         var captured = snapshot;
         var node = Node;
         var previous = cache.Read(node);
@@ -423,6 +423,9 @@ internal sealed class NodeScene : IAsyncDisposable
     private Preparation BuildPreparation(SceneWorldSnapshot current, NodeLayout currentLayout, Cached? previous, CancellationToken token) =>
         nodeBuild is null ? Prepare(current, currentLayout, previous, token) :
             new(current, nodeBuild(current, Node, previous, token), null, default, [], [], [], [], "", [], [], false);
+
+    private static bool NeedsRefresh(SceneWorldSnapshot snapshot, NodeLayout layout) =>
+        EntryTracksDiffer(snapshot, layout) || NodeLayout.LairModel(snapshot, layout.Node) != layout.Lair?.Model;
 
     private static bool EntryTracksDiffer(SceneWorldSnapshot snapshot, NodeLayout layout)
     {
@@ -729,6 +732,13 @@ internal sealed class NodeScene : IAsyncDisposable
                         "The settlement layout copy is missing."));
                 }
             }
+            if (NodeLayout.LairContent(snapshot, Node) is { } lair &&
+                lair.Appearance is not ContentLookup<LairAppearanceProjection>.Found)
+            {
+                var diagnostics = lair.Appearance is ContentLookup<LairAppearanceProjection>.Missing missing ? missing.Diagnostics : [];
+                RailwayTerrain.ReportMissing(new ContentReference.Core(new CoreDefinitionReference.Lair(lair.Type)),
+                    diagnostics, "The lair scene model is missing.", problems, new WorldObjectId.Node(Node));
+            }
             Add(settlement.Present(snapshot, layout, origin, fog, findId, range, chunks.Keys, prefetch, presentation, seconds));
         }
         if (failure is not null) problems.Add(failure);
@@ -863,6 +873,11 @@ internal sealed class NodeScene : IAsyncDisposable
             foreach (var id in new[] { terrain.SurfaceVoxel, terrain.SubsurfaceVoxel, terrain.RockVoxel }.Distinct())
                 appearances[id] = (snapshot.Content.FindVoxelAppearance(id) as ContentLookup<VoxelAppearanceProjection>.Found)?.Value;
         var model = layout.Template?.SceneModel.Scene.Voxels ?? [];
+        if (layout.Lair is { } placed)
+            model = model.AddRange(placed.Model.Scene.Voxels.Select(voxel => voxel with
+            {
+                At = new(voxel.At.X + placed.ShiftX, voxel.At.Y, voxel.At.Z + placed.ShiftZ)
+            }));
         foreach (var voxel in model.Select(v => v.Voxel).Distinct())
             appearances[voxel] = (snapshot.Content.FindVoxelAppearance(voxel) as ContentLookup<VoxelAppearanceProjection>.Found)?.Value;
         var modelChunks = model.GroupBy(v => new GridColumn((int)Math.Floor((double)v.At.X / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize,
@@ -876,7 +891,8 @@ internal sealed class NodeScene : IAsyncDisposable
         var boundaries = ImmutableDictionary.CreateBuilder<EdgeId, RailwayTerrain.BoundaryData>();
         var boundaryOwners = new Dictionary<GridColumn, (EdgeId Edge, double Distance)>();
         var terrainInputs = RailwayDependencies.Values(new object?[] { snapshot.Core.World.WorldSeed, map.Position, map.Terrain.TypeId,
-            map.Terrain.Relief, TerrainInputs(snapshot.Content, map.Terrain.TypeId), NodeSettlement.Inputs(layout.Template) });
+            map.Terrain.Relief, TerrainInputs(snapshot.Content, map.Terrain.TypeId), NodeSettlement.Inputs(layout.Template),
+            LairInputs(layout) });
         foreach (var entry in layout.Entries)
         {
             var path = new RailwayPath(snapshot, entry.Edge, token);
@@ -1067,6 +1083,9 @@ internal sealed class NodeScene : IAsyncDisposable
         }
     }
 
+    private static object? LairInputs(NodeLayout layout) => layout.Lair is { } lair
+        ? new object?[] { lair.Model.Design, lair.ShiftX, lair.ShiftZ } : null;
+
     private static object TerrainInputs(IContentView content, TerrainTypeId id)
     {
         var lookup = content.FindTerrain(id);
@@ -1152,7 +1171,10 @@ internal sealed class NodeScene : IAsyncDisposable
     private static (int Height, double Distance) NodeColumn(SceneWorldSnapshot snapshot, NodeMapItem node, NodeLayout layout,
         Dictionary<GridColumn, RailBed> bed, GridColumn column)
     {
-        var raw = RailwayTerrain.NodeGround(snapshot, node, new(column.X + 0.5, 0, column.Z + 0.5), layout.Template);
+        var point = new ScenePoint(column.X + 0.5, 0, column.Z + 0.5);
+        var raw = RailwayTerrain.NodeGround(snapshot, node, point, layout.Template);
+        if (layout.Lair is { } lair)
+            raw = NodeSettlement.FlattenGround(lair.Model.Scene, lair.ShiftX, lair.ShiftZ, point, raw);
         var rail = bed.GetValueOrDefault(column);
         var distance = rail?.Distance ?? double.PositiveInfinity;
         if (rail is not null)

@@ -122,6 +122,8 @@ public class VehicleServiceDeconstructionIntegrationTests(Node testScene) : Test
         configuration["height_meters"] = 600;
         configuration["candidate_probability"] = 1;
         configuration["settlement_ratio"] = 1;
+        configuration["lair_ratio"] = 0;
+        configuration["lair_weights"] = new JsonArray();
         configuration["initial_railway"]!["additional_cycle_edges"] = 0;
         configuration["lake_elevation_threshold"] = -100;
         configuration["river_band_half_width"] = 0;

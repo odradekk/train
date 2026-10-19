@@ -17,12 +17,19 @@ internal sealed partial class NodeLayout
     private ImmutableDictionary<EdgeId, int> entryTracks = ImmutableDictionary<EdgeId, int>.Empty;
     internal ImmutableDictionary<EdgeId, int> EntryTracks => entryTracks;
     internal Stop Bypass { get; private set; } = null!;
+    internal IEnumerable<(Func<double, RailwaySample> Sample, double Length)> AllTurnRoutes() =>
+        turnRails.Select(Route).Concat(sharedTurnRails.Select(rail => Route(rail.Path)));
+
     internal IEnumerable<(Func<double, RailwaySample> Sample, double Length)> TurnRoutes() =>
-        turnRails.Select(route => ((Func<double, RailwaySample>)route.Sample, route.Length))
-        .Concat(sharedTurnRails.Where(rail => !Enumerable.Range(1, entryTracks.GetValueOrDefault(rail.Edge))
-            .Any(number => Math.Abs(RailwayCoordinates.TrackOffset(number, entryTracks[rail.Edge]) * 2 /
-                RailwayCoordinates.TrackSpacing - rail.Lane) < ConnectionTolerance))
-            .Select(rail => ((Func<double, RailwaySample>)rail.Path.Sample, rail.Path.Length)));
+        turnRails.Select(Route).Concat(
+            sharedTurnRails.Where(rail => !BuiltOver(rail.Lane, rail.Edge)).Select(rail => Route(rail.Path)));
+
+    private static (Func<double, RailwaySample> Sample, double Length) Route(NodeRailPath path) => (path.Sample, path.Length);
+
+    private bool BuiltOver(int lane, EdgeId edge) =>
+        Enumerable.Range(1, entryTracks.GetValueOrDefault(edge)).Any(number =>
+            Math.Abs(RailwayCoordinates.TrackOffset(number, entryTracks[edge]) * 2 / RailwayCoordinates.TrackSpacing - lane) <
+            ConnectionTolerance);
 
     internal Entry? TrainEntry(EdgeId? enteredFrom) => enteredFrom is { } edge
         ? Entries.FirstOrDefault(entry => entry.Edge == edge)
