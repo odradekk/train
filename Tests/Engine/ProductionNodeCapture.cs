@@ -134,6 +134,9 @@ public partial class ProductionNodeCapture : Node
             effects = frame?.Update.Effects.Select(effect => new { effect.Id, kind = effect.Kind.ToString(), effect.StartedAtSimulationSeconds, subject = effect.Subject?.ToString() }),
             visibleEffects = display?.Root.GetNodeOrNull("CombatEffects")?.GetChildren()
                 .ToDictionary(child => child.Name.ToString(), child => child.GetChildCount()),
+            shotGeometry = display?.Root.GetNodeOrNull("CombatEffects/Shot")?.GetChildren().OfType<Node3D>()
+                .Select(shot => new { position = V(shot.GlobalPosition), scale = V(shot.Scale) }),
+            foggedRegions = frame?.Update.Environment.FoggedRegions,
             remainder = status?.Remainder, interpolation = status is null ? (double?)null : Math.Clamp(status.Remainder / SimulationTime.StepSeconds, 0, 1), frame = frame?.Update.Frame,
             origin = frame?.Origin, readiness = frame?.Readiness.ToString(), loading = world?.View.Loading, preparing = display?.IsPreparing,
             simulationSeconds = frame?.SimulationSeconds,
