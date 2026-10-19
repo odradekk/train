@@ -56,7 +56,7 @@ public class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
             var broken = Marks(map, view, RailwayWorkUiFixture.BreakEdge);
             var active = Marks(map, view, RailwayWorkUiFixture.ActiveEdge);
             Require(!RegionHas(image, map, zero, UiStyle.Warning, 18) && !RegionHas(image, map, zero, UiStyle.Error, 18),
-                "零轨且未开工的线路中点附近出现了施工或断点颜色。");
+                "零轨线路中点附近出现了施工或断点颜色。");
             Require(RegionHas(image, map, broken.Break, UiStyle.Error, 3),
                 "断点标记不是严重色。" + Describe(image, map, broken.Break));
             Require(!RegionHas(image, map, broken.Construction, UiStyle.Warning, 8),
@@ -92,10 +92,18 @@ public class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
             Require(summary.Contains("线路 3") && summary.Contains("400") && summary.Contains("铁轨 1 / 上限 2")
                 && summary.Contains("聚居地 1") && !summary.Contains("自动修复：关闭") && !summary.Contains("聚居地 2"),
                 "施工面板没有显示线路查询或列入了非自有聚居地：" + summary);
+            var help = panel.GetNode<VBoxContainer>("RailwayWork/Layout/Content/Body").GetChild<Label>(-1);
             Require(Find<ItemList>(panel, "Breaks").GetItemText(0).Contains("断点 2") && works.Contains("任务 2")
-                && works.Contains("任务 3") && works.Contains("夹具钢轨 × 7") && works.Contains("货物不足")
-                && works.Contains("insufficient_goods") && !works.Contains($"× {computed}"),
-                "施工面板没有照查询显示断点、已投入货物和未开工阻塞：" + works);
+                && works.Contains("任务 3") && works.Contains("夹具钢轨 × 7") && works.Contains("进度 25%")
+                && works.Contains("货物不足") && works.Contains("insufficient_goods") && !works.Contains($"× {computed}")
+                && !summary.Contains('\r') && !works.Contains('\r')
+                && help.Text.Contains("件数和是否允许在受理或拒绝后由核心给出") && !help.Text.Contains("工期"),
+                "施工面板没有照查询显示断点、已投入货物和未开工阻塞：" + works + "\n" + help.Text);
+            await _input.Frames(2);
+            var scroll = panel.GetNode<ScrollContainer>("RailwayWork/Layout/Content");
+            var autoRepair = Find<Button>(panel, "DisableAutomaticRepair").GetGlobalRect();
+            Require(scroll.ScrollVertical == 0 && autoRepair.End.Y <= scroll.GetGlobalRect().End.Y + 1,
+                "1080p 下要滚动才能看到关闭自动修复。");
             Require(Find<OptionButton>(panel, "MaterialSource").ItemCount == 1, "材料来源应只有自有聚居地。");
             await UiCapture.Capture(TestScene, "railway-panel");
             await _input.Activate(Find<Button>(panel, "Close"));
@@ -321,7 +329,7 @@ public class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
         }
     }
 
-    private async Task Run(HostSimulationTests.HostSetup setup, System.Func<GameUi, Task> body,
+    private async Task Run(HostSimulationTests.HostSetup setup, Func<GameUi, Task> body,
         IScenesFactory? scenes = null)
     {
         var tree = TestScene.GetTree();

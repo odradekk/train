@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.Immutable;
 using System.Linq;
 using Godot;
 using Train.Content.Contracts;
@@ -251,21 +250,21 @@ public partial class MacroMap : Control
     private void DrawEdge(EdgeMapItem edge)
     {
         if (EdgePoints(edge) is not { } ends) return;
+        var delta = ends.End - ends.Start;
+        var longEnough = delta.LengthSquared() >= 1;
+        var normal = longEnough ? delta.Normalized().Orthogonal() : Vector2.Zero;
         if (edge.Tracks == 0)
             DrawDashedLine(ends.Start, ends.End, new Color(Ink, .5f), 1, 4);
         else
         {
-            var trackNormal = (ends.End - ends.Start).Normalized().Orthogonal();
             DrawLine(ends.Start, ends.End, Colors.White, edge.Tracks == 1 ? 7 : 5 * (edge.Tracks - 1) + 6, true);
             for (var track = 0; track < edge.Tracks; track++)
             {
-                var offset = trackNormal * ((track - (edge.Tracks - 1) / 2f) * 5);
+                var offset = normal * ((track - (edge.Tracks - 1) / 2f) * 5);
                 DrawLine(ends.Start + offset, ends.End + offset, Ink, 2, true);
             }
         }
-        var delta = ends.End - ends.Start;
-        if (delta.LengthSquared() < 1) return;
-        var normal = delta.Normalized().Orthogonal();
+        if (!longEnough) return;
         var midpoint = (ends.Start + ends.End) / 2;
         if (!edge.Works.IsDefaultOrEmpty && edge.Works.Any(work => !work.InvestedGoods.IsDefaultOrEmpty))
         {

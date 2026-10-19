@@ -88,7 +88,7 @@ internal static class RailwayWorkUiFixture
             Node(3, 1500, 850, new NodeOccupant.Empty()),
             Node(4, 500, 850, new NodeOccupant.Empty())
         };
-        var pending = new RailwayWorkView(new(1), RailwayWorkKind.AddTrack, 1, null, new(1), [], 0, [Blocker()]);
+        var unstartedRepair = new RailwayWorkView(new(1), RailwayWorkKind.RepairBreak, 1, new BreakId(1), new(1), [], 0, [Blocker()]);
         EdgeView Edge(ulong id, ulong start, ulong end, double length, int tracks, ImmutableArray<TrackBreakView> breaks,
             ImmutableArray<RailwayWorkView> works, SettlementId? auto)
         {
@@ -98,8 +98,8 @@ internal static class RailwayWorkUiFixture
         }
         var edges = new[]
         {
-            Edge(ZeroTrackEdge, 1, 2, 800, 0, [], [pending], null),
-            Edge(BreakEdge, 2, 3, 500, 1, [new(new(1), 1, 120)], [], null),
+            Edge(ZeroTrackEdge, 1, 2, 800, 0, [], [], null),
+            Edge(BreakEdge, 2, 3, 500, 1, [new(new(1), 1, 120)], [unstartedRepair], new(1)),
             Edge(ActiveEdge, 3, 4, ActiveLengthMeters, 1, [new(new(2), 1, 80)], activeWorks, autoRepair)
         };
         var rule = new RuleStatusView(new("fixture:economy"), null, []);

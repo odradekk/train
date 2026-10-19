@@ -1,8 +1,5 @@
-using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
-using System.Linq;
-using System.Text;
 using Godot;
 using Train.App;
 using Train.Content.Contracts;
@@ -13,7 +10,7 @@ namespace Train.Ui;
 internal sealed partial class RailwayWorkPanel : Control
 {
     private HostCoordinator _host = null!;
-    private System.Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> _submit = null!;
+    private Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> _submit = null!;
     private PanelContainer _panel = null!;
     private Label _summary = null!;
     private ItemList _breaks = null!;
@@ -27,7 +24,7 @@ internal sealed partial class RailwayWorkPanel : Control
     private bool _open;
     private string? _breakSignature, _sourceSignature;
 
-    internal void Initialize(HostCoordinator host, System.Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit)
+    internal void Initialize(HostCoordinator host, Func<PanelTarget?, CoreCommand, CommandDecision.Accepted?> submit)
     { _host = host; _submit = submit; }
 
     public override void _Ready()
@@ -55,7 +52,7 @@ internal sealed partial class RailwayWorkPanel : Control
         body.AddChild(_repair);
         body.AddChild(_enable);
         body.AddChild(_disable);
-        var help = UiStyle.Label("提交时由核心扣除材料并判断是否允许。件数、工期和权限在受理或拒绝后显示。关闭本面板不会提交命令。");
+        var help = UiStyle.Label("提交时由核心扣除材料并判断是否允许。件数和是否允许在受理或拒绝后由核心给出。关闭本面板不会提交命令。");
         help.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         body.AddChild(help);
         _panel.Hide();
@@ -120,35 +117,40 @@ internal sealed partial class RailwayWorkPanel : Control
     private string Summary(ICoreReadView view, IContentView content, EdgeView edge, GoodId? rail)
     {
         var map = edge.Map;
-        var text = new StringBuilder();
-        text.AppendLine($"线路 {map.Id.Value}");
-        text.AppendLine($"{WorldPanels.NodeName(map.Start, view, content)} — {WorldPanels.NodeName(map.End, view, content)}");
-        text.AppendLine($"长度 {map.LengthMeters.ToString("0.##", CultureInfo.InvariantCulture)} m");
-        text.AppendLine($"铁轨 {map.Tracks} / 上限 {map.TrackLimit}");
-        text.AppendLine("自动修复：" + (edge.AutoRepairMaterialSource is { } source ? SettlementText(view, content, source) : "关闭"));
-        if (rail is null) text.AppendLine("铁路规则不可用");
-        if (_sourceIds.Count == 0) text.AppendLine("没有自有聚居地");
-        if (map.Breaks.IsDefaultOrEmpty) text.AppendLine("没有断点");
-        return text.ToString().TrimEnd();
+        var lines = new List<string>
+        {
+            $"线路 {map.Id.Value}",
+            $"{WorldPanels.NodeName(map.Start, view, content)} — {WorldPanels.NodeName(map.End, view, content)}",
+            $"长度 {map.LengthMeters.ToString("0.##", CultureInfo.InvariantCulture)} m",
+            $"铁轨 {map.Tracks} / 上限 {map.TrackLimit}",
+            "自动修复：" + (edge.AutoRepairMaterialSource is { } source ? SettlementText(view, content, source) : "关闭")
+        };
+        if (rail is null) lines.Add("铁路规则不可用");
+        if (_sourceIds.Count == 0) lines.Add("没有自有聚居地");
+        if (map.Breaks.IsDefaultOrEmpty) lines.Add("没有断点");
+        return string.Join('\n', lines);
     }
 
     private string Works(ICoreReadView view, IContentView content, EdgeView edge)
     {
         if (edge.Map.Works.IsDefaultOrEmpty) return "没有施工";
-        var text = new StringBuilder();
+        var blocks = new List<string>();
         foreach (var work in edge.Map.Works)
         {
             var kind = work.Kind == RailwayWorkKind.AddTrack ? "加轨" : "修复断点";
             var repairing = work.RepairingBreak is { } repair ? $" · 断点 {repair.Value}" : "";
-            text.AppendLine($"{kind} · 任务 {work.Id.Value}{repairing} · {work.Track} 号轨 · {SettlementText(view, content, work.MaterialSource)}");
-            text.AppendLine(work.InvestedGoods.IsDefaultOrEmpty ? "已投入：尚未投入"
-                : "已投入：" + string.Join("、", work.InvestedGoods.Select(good => $"{WorldPanels.GoodName(good.Good, content)} × {good.Quantity}")));
-            text.AppendLine($"进度 {work.Progress.ToString("0.###", CultureInfo.InvariantCulture)}");
+            var lines = new List<string>
+            {
+                $"{kind} · 任务 {work.Id.Value}{repairing} · {work.Track} 号轨 · {SettlementText(view, content, work.MaterialSource)}",
+                work.InvestedGoods.IsDefaultOrEmpty ? "已投入：尚未投入"
+                    : "已投入：" + string.Join("、", work.InvestedGoods.Select(good => $"{WorldPanels.GoodName(good.Good, content)} × {good.Quantity}")),
+                $"进度 {(work.Progress * 100).ToString("0.##", CultureInfo.InvariantCulture)}%"
+            };
             if (!work.Blockers.IsDefaultOrEmpty)
-                foreach (var blocker in work.Blockers) text.AppendLine("阻塞：" + CommandDiagnostics.Describe(blocker));
-            text.AppendLine();
+                foreach (var blocker in work.Blockers) lines.Add("阻塞：" + CommandDiagnostics.Describe(blocker));
+            blocks.Add(string.Join('\n', lines));
         }
-        return text.ToString().TrimEnd();
+        return string.Join("\n\n", blocks);
     }
 
     private void BindBreaks(EdgeView edge)
