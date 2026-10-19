@@ -38,6 +38,18 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         await SampleMotion(turned: false, target: "group", motionSteps: 8);
 
     [Test]
+    public async Task Group_motion_waits_for_the_advanced_sample_after_an_old_ready_frame() =>
+        await SampleMotion(turned: false, target: "group", motionSteps: 8, delayAdvancedFrame: true);
+
+    [Test]
+    public async Task First_one_step_group_sample_waits_for_a_new_committed_frame() =>
+        await SampleMotion(turned: false, target: "group", motionSteps: 1, delayAdvancedFrame: true);
+
+    [Test]
+    public async Task Train_motion_keeps_its_existing_ready_frame_wait_behavior() =>
+        await SampleMotion(turned: false, delayAdvancedFrame: true);
+
+    [Test]
     public async Task Fixed_group_camera_preserves_focus_when_the_display_origin_changes() =>
         await SampleMotion(turned: false, target: "group", rebaseCamera: true);
 
@@ -188,7 +200,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         finally { File.Delete(save); }
     }
 
-    private async Task SampleMotion(bool turned, string? target = null, bool missingAfterAdvance = false, ulong motionSteps = 2, bool rebaseCamera = false, bool waitForTerrain = false)
+    private async Task SampleMotion(bool turned, string? target = null, bool missingAfterAdvance = false, ulong motionSteps = 2, bool rebaseCamera = false, bool waitForTerrain = false, bool delayAdvancedFrame = false)
     {
         var name = "capture-test-" + Guid.NewGuid().ToString("N");
         var root = ProjectSettings.GlobalizePath("res://.godot/validation");
@@ -215,6 +227,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
             [0, 1, 2]);
         ulong? firstPresentation = null;
         var terrainReady = !waitForTerrain;
+        ulong? advancedPresentation = null;
         System.Numerics.Vector3 Position(int index) => rebaseCamera
             ? index == 0 ? new(10, 20, 30) : new(-4086, 20, -8162)
             : new(waitForTerrain ? 100 : 0, waitForTerrain && terrainReady ? 20 : 0, index);
@@ -222,7 +235,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         {
             Origin = rebaseCamera && index > 0 ? new(4096, 0, 8192) : default,
             Update = new(null, new(sessionId, new(1), new(1), (ulong)index + 1), System.Numerics.Vector3.Zero,
-                rebaseCamera || waitForTerrain ? [new(new(1), null, new(Position(index), System.Numerics.Quaternion.Identity), subject,
+                rebaseCamera || waitForTerrain || delayAdvancedFrame ? [new(new(1), null, new(Position(index), System.Numerics.Quaternion.Identity), subject,
                     [new SceneVisual.Geometry(mesh, new(false, 0, 0, false))], [], [])] : [], [],
                 new(!waitForTerrain ? [] : terrainReady
                     ? [new(new(1000, -128, 1000), new(1010, 128, 1010))]
@@ -239,7 +252,13 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
             firstPresentation ??= Godot.Engine.GetProcessFrames();
             terrainReady = !waitForTerrain || Godot.Engine.GetProcessFrames() > firstPresentation.Value &&
                 request.Camera is { Focus.X: > 90 };
-            return Frame((int)(core.CurrentView.Position.CompletedSteps / motionSteps));
+            var index = (int)(core.CurrentView.Position.CompletedSteps / motionSteps);
+            if (delayAdvancedFrame && index == 1)
+            {
+                advancedPresentation ??= Godot.Engine.GetProcessFrames();
+                if (Godot.Engine.GetProcessFrames() == advancedPresentation.Value) return Frame(0);
+            }
+            return Frame(index);
         }
         var factory = new FixedDisplayFactory
         {
@@ -279,7 +298,29 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
             }
             for (var frame = 1; frame <= 60; frame++)
             {
-                await run.AdvanceTurnFrameAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                var advance = run.AdvanceTurnFrameAsync();
+                if (delayAdvancedFrame && frame == 1)
+                {
+                    Require(advancedPresentation is not null, "推进后必须先呈现仍然 Ready 的旧采样。");
+                    if (target is null)
+                    {
+                        Require(advance.IsCompletedSuccessfully && run.World!.Display!.DisplayedFrame!.SimulationSeconds == 0,
+                            "列车截图必须保持原有 Ready 等待行为，不受生物采样同步条件影响。");
+                        break;
+                    }
+                    Require(!advance.IsCompleted, "生物采样不能在旧 Ready 帧仍可用时结束推进等待。");
+                }
+                await advance.WaitAsync(TimeSpan.FromSeconds(5));
+                if (delayAdvancedFrame && frame == 1)
+                {
+                    Require(Godot.Engine.GetProcessFrames() > advancedPresentation!.Value,
+                        "生物采样必须跨过真实处理帧，等待新候选可提交。");
+                    var displayed = run.World!.Display!;
+                    Require(displayed.DisplayedFrame!.SimulationSeconds == motionSteps / 60d,
+                        "完成等待后必须显示本次推进后的采样时间。");
+                    Require(displayed.Objects.Values.Single(item => item.Source.Subject == subject).Root.Position.Z == 1,
+                        "完成等待后必须接入新采样的实际对象姿态。");
+                }
                 if (rebaseCamera)
                 {
                     Require(run.World!.Display!.PoseFrame!.Origin == new ScenePoint(4096, 0, 8192),

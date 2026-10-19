@@ -153,9 +153,13 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         throw new TimeoutException("资源等待超过 120 秒。");
     }
 
-    internal Task DisplayAsync(bool allowMissing = false, bool includeCamera = false) => WaitAsync(
+    internal Task DisplayAsync(bool allowMissing = false, bool includeCamera = false, SceneFrameStamp? after = null) => WaitAsync(
         () => World!.Display?.DisplayedFrame is { Readiness: SceneReadiness.Ready } frame &&
+            (after is null || frame.Update.Frame != after) &&
             (allowMissing || _subjects.Any(subject => frame.FindPose(subject) is Lookup<ScenePose>.Found)) &&
+            // 普通插值最多落后一步；旧 Ready 网格仍在显示时不能继续推进下一张生物截图。
+            (_input!.Train.Value != 0 || frame.SimulationSeconds + 1e-9 >=
+                Math.Max(0, (double)Host!.GetStatus()!.View.Position.CompletedSteps - 1) * SimulationTime.StepSeconds) &&
             (!includeCamera || _input!.Train.Value != 0 || CaptureAreaReady(frame)),
         () => World!.ProcessFrame(0, false));
 
@@ -185,13 +189,15 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
     internal async Task AdvanceTurnFrameAsync()
     {
         var steps = _input!.MotionSteps;
+        var previousFrame = World!.Display!.DisplayedFrame!.Update.Frame;
         var step = Host!.Step(steps);
         if (step.Problem is not null || step.Completed != steps)
             throw new InvalidOperationException($"运动推进失败：{step.Problem?.Code ?? $"未完成 {steps} 个模拟步"}。");
         if (_input!.Group is { } group)
             _subjects = Host.GetStatus()!.View.FindCreatureGroup(group) is Lookup<CreatureGroupView>.Found found
                 ? found.Value.Creatures.Select(creature => (WorldObjectId)new WorldObjectId.Creature(creature.Id)).ToArray() : [];
-        await DisplayAsync(allowMissing: _input!.Train.Value == 0);
+        await DisplayAsync(allowMissing: _input!.Train.Value == 0,
+            after: _input.Train.Value != 0 ? null : previousFrame);
         if (_input.Train.Value != 0) _turned |= System.Numerics.Vector3.DistanceSquared(_initialFront, Front()) > 1e-10f;
     }
 
@@ -309,17 +315,26 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         if (error != Error.Ok) throw new IOException($"截图写盘失败：{error}。");
         var camera = World!.View.CameraRig.Camera.Transform;
         var focus = World.View.CameraRig.Focus;
+        var display = World.Display!;
         _images.Add(new(name, Host!.GetStatus()!.View.Position, World.Display!.DisplayedFrame!.SimulationSeconds,
             World.View.Lighting.ToString().ToLowerInvariant(),
-            [camera.Basis.X.X, camera.Basis.X.Y, camera.Basis.X.Z, camera.Basis.Y.X, camera.Basis.Y.Y, camera.Basis.Y.Z,
-                camera.Basis.Z.X, camera.Basis.Z.Y, camera.Basis.Z.Z, camera.Origin.X, camera.Origin.Y, camera.Origin.Z],
+            Matrix(camera),
             [focus.X, focus.Y, focus.Z], _input!.Train.Value != 0 ? null :
                 _subjects.Where(subject => World.Display.DisplayedFrame.FindPose(subject) is Lookup<ScenePose>.Found)
                     .Select(subject => subject.ToString()!).ToArray(),
             World.Display.DisplayedFrame.Update.Effects.Select(effect => effect.Kind.ToString()).Distinct().ToArray(),
             World.Display.Root.GetNodeOrNull("CombatEffects")?.GetChildren()
-                .ToDictionary(child => child.Name.ToString(), child => child.GetChildCount())));
+                .ToDictionary(child => child.Name.ToString(), child => child.GetChildCount()),
+            _input.Train.Value != 0 ? null : display.DisplayedFrame.Update.Frame,
+            _input.Train.Value != 0 ? null : display.PoseFrame?.SimulationSeconds,
+            _input.Train.Value != 0 ? null : display.Objects.Values
+                .Where(item => item.Source.Parent is null && _subjects.Contains(item.Source.Subject))
+                .ToDictionary(item => item.Source.Subject!.ToString()!, item => Matrix(item.Root.GlobalTransform))));
     }
+
+    private static float[] Matrix(Transform3D value) =>
+        [value.Basis.X.X, value.Basis.X.Y, value.Basis.X.Z, value.Basis.Y.X, value.Basis.Y.Y, value.Basis.Y.Z,
+            value.Basis.Z.X, value.Basis.Z.Y, value.Basis.Z.Z, value.Origin.X, value.Origin.Y, value.Origin.Z];
 
     public void Dispose()
     {
@@ -333,4 +348,5 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
 
 internal sealed record CaptureImage(string File, SimulationPosition Position, double DisplaySeconds,
     string Lighting, float[] CameraTransform, float[] Focus, string[]? VisibleSubjects = null,
-    string[]? EffectKinds = null, Dictionary<string, int>? VisibleEffects = null);
+    string[]? EffectKinds = null, Dictionary<string, int>? VisibleEffects = null,
+    SceneFrameStamp? DisplayFrame = null, double? PoseSeconds = null, Dictionary<string, float[]>? SubjectTransforms = null);
