@@ -33,6 +33,9 @@ if (args.Length > 0 && string.Equals(args[0], "--train-process", StringCompariso
 if (args.Length > 0 && string.Equals(args[0], "--dispatch-process", StringComparison.Ordinal))
     return await TrainDispatchProcessDriver.RunAsync(args[1..]);
 
+if (args.Length > 0 && string.Equals(args[0], "--railway-process", StringComparison.Ordinal))
+    return await RailwayProcessDriver.RunAsync(args[1..]);
+
 if (args.Length > 0 && string.Equals(args[0], "--inventory-process", StringComparison.Ordinal))
     return await InventoryProcessDriver.RunAsync(args[1..]);
 

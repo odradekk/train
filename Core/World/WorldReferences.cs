@@ -85,6 +85,11 @@ internal static class WorldReferences
             definitions.Add(new(new CoreDefinitionReference.Rule(job.Rule), job.StartedFromRevision, path + ".Rule", false));
             foreach (var good in job.InvestedGoods) Good(good.Good, path + ".InvestedGoods");
         }
+        foreach (var job in world.RailwayJobs)
+        {
+            var path = $"World.RailwayJobs[{job.Id.Value}]";
+            foreach (var good in job.InvestedGoods) Good(good.Good, path + ".InvestedGoods");
+        }
         foreach (var train in world.Trains)
         {
             if (train.Plan is not { } plan) continue;
