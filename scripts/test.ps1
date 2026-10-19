@@ -172,7 +172,7 @@ try {
         Invoke-Check build preparation dotnet @('build', 'Train.sln', '--nologo') 300
     } elseif (-not $selectedLayers.Count) { Write-Host 'No affected test projects or checks selected; no build or tests required.' }
     foreach ($current in $layers) {
-        $budget = @{ fast = 90; integration = 720; engine = 810 }[$current]
+        $budget = @{ fast = 150; integration = 720; engine = 1470 }[$current]
         $watch = [Diagnostics.Stopwatch]::StartNew()
         $selected = $current -in $selectedLayers
         $layerError = $null

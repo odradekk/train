@@ -61,8 +61,8 @@ public sealed class WorldDeterminismTests
         using var session = candidate.Activate();
         var world = session.Read().World;
         var capture = Success(session.Capture(CapturePurpose.Save));
-        // 格式 22 增加空的 creature_groups 与 next.creature、next.creature_group；节点、线路和生成结构不变。
-        Assert.AreEqual("3BD83857AC4B227D8D861152580A2CA0A3E9D0CE817F957D69A273929248F320",
+        // 格式 23 增加每座聚居地的 morale 与 surrendered；节点、线路和生成结构不变。
+        Assert.AreEqual("98C0110AA7DE45445CA39E089CD731182B32BDF0DC9D3C6CCC5B213FDEB9C081",
             capture.Checkpoint.Sha256);
         Assert.AreEqual(19, world.Nodes.Length);
         Assert.AreEqual(22, world.Edges.Length);

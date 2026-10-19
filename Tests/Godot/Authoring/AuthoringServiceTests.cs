@@ -82,6 +82,17 @@ public sealed class AuthoringServiceTests
         Assert.AreSame(fixture.Host.Content, fixture.Coordinator.Content);
         Assert.AreEqual(1, fixture.Service.Drafts().Length);
         StringAssert.Contains(fixture.Service.Message!, "未写入任何文件");
+        StringAssert.Contains(fixture.Service.Message!, "草稿保留");
+        StringAssert.Contains(fixture.Service.Message!, "请重新载入");
+        Assert.AreEqual(HostOperationStatus.Rejected, fixture.LastOperation!.Status);
+        Assert.IsNull(fixture.LastOperation.FaultCode);
+        var diagnostic = fixture.LastOperation.Diagnostics.Single();
+        Assert.AreEqual("stale_basis", diagnostic.Code);
+        Assert.AreEqual("", diagnostic.Source!.Path);
+        StringAssert.Contains(diagnostic.Message, "未写入任何文件");
+        StringAssert.Contains(diagnostic.Message, "草稿保留");
+        StringAssert.Contains(diagnostic.Message, "请重新载入");
+        StringAssert.Contains(diagnostic.Message, "处理外部修改后重新校验");
     }
 
     [TestMethod]
@@ -245,6 +256,11 @@ public sealed class AuthoringServiceTests
         Assert.IsTrue(File.Exists(fixture.DraftPath(saved.Id)));
         Assert.AreSame(fixture.Host.Content, fixture.Coordinator.Content);
         StringAssert.Contains(fixture.Service.Message!, "请重新载入源包");
+        Assert.AreEqual(HostOperationStatus.Rejected, fixture.LastOperation!.Status);
+        var diagnostic = fixture.LastOperation.Diagnostics.Single();
+        Assert.AreEqual("package_write_failed", diagnostic.Code);
+        Assert.AreEqual("source.txt", diagnostic.Source!.Path);
+        StringAssert.Contains(fixture.Service.Message!, "写入已停止，已完成项保留");
     }
 
     [TestMethod]
@@ -328,6 +344,8 @@ public sealed class AuthoringServiceTests
         Assert.IsFalse(File.Exists(fixture.Output));
         Assert.AreSame(fixture.Host.Content, fixture.Coordinator.Content);
         Assert.AreEqual(1, fixture.Service.Drafts().Length);
+        Assert.AreEqual(HostOperationStatus.Faulted, fixture.LastOperation!.Status);
+        Assert.IsNull(fixture.Service.LastWrite);
         StringAssert.Contains(fixture.Service.Message!, "native package encoder unavailable");
     }
 
