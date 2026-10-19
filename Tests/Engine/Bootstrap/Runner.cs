@@ -38,7 +38,8 @@ public partial class Runner : Node
                     return;
                 }
                 GoTest.Adapter = new ReportAdapter(System.Environment.GetEnvironmentVariable("TRAIN_ENGINE_REPORT")!);
-                GoTest.TimeoutMilliseconds = 60000;
+                // 默认上限按多 pair 负载实测取 1.5 倍；慢用例用 [Timeout] 单独放宽。
+                GoTest.TimeoutMilliseconds = 90000;
                 var screenshot = System.Environment.GetEnvironmentVariable("TRAIN_ENGINE_SCREENSHOT") == "1";
                 await GoTest.RunTests(assembly, this, TestEnvironment.From(OS.GetCmdlineUserArgs()),
                     predicate: operation => (operation.Suite.TestClassType.Name is "ScreenshotTests" or "SceneMaterialPixelTests") == screenshot);
