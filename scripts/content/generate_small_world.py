@@ -1686,7 +1686,8 @@ def content_files():
     cargo_capacity = sum(behavior["capacity"] for train in START_TRAINS for identity in train
                          for behavior in blueprint_behaviors(identity, "storage"))
     freight = blueprint_definitions["small-freight-wagon"]["layout"]
-    freight_base_value = sum(values[freight["palette"][index]["voxel"]] for *_, index in freight["cells"])
+    freight_base_value = sum(values[freight["palette"][index]["voxel"].removeprefix("core:")]
+                             for *_, index in freight["cells"])
     # 只估算两列起始车队满舱采购与小型货车组成的预算，不计算核心委托报价。
     initial_money = ceil(START_BUDGET_MULTIPLIER * (cargo_capacity * max(values[good] for good, _, _ in goods) + freight_base_value))
     document("generation-profiles", "generation-profile", "basic-through-world", {
