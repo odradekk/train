@@ -12,7 +12,7 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
     {
         var prepared = PrepareNew(repository, recipe);
         using var session = prepared.Core;
-        return Execute(prepared, recipe, recipe.Target, verifyReplay);
+        return Execute(prepared, recipe, recipe.Target, verifyReplay).Output;
     }
 
     internal void Save(string repository, Recipe recipe, string target, ulong? untilStep)
@@ -20,9 +20,9 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
         var prepared = PrepareNew(repository, recipe);
         using var session = prepared.Core;
         var end = untilStep is { } step ? new SimulationPosition(step, 0) : recipe.Target;
-        Execute(prepared, recipe, end, false);
+        var executed = Execute(prepared, recipe, end, false);
         var state = Require(session.Capture(CapturePurpose.Save));
-        var embedded = Require(content.Capture(prepared.Content, state.References));
+        var embedded = Require(content.Capture(executed.Content, state.References));
         var document = new SaveDocument(new(SaveContainer.FormatVersion, recipe.Save.Id, recipe.Save.Name,
             recipe.Save.SavedAt, new(state.Position.CompletedSteps, state.Position.Sequence),
             embedded.ReferencedPackages.Select(p => new SavePackage(p.Id.Value, p.Version)).ToImmutableArray()),
@@ -36,14 +36,14 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
     {
         var prepared = PrepareRestore(repository, Store(path).Read(path));
         using var session = prepared.Core;
-        return Execute(prepared, recipe, recipe.Target, false);
+        return Execute(prepared, recipe, recipe.Target, false).Output;
     }
 
     internal void CheckExample(string repository, Recipe recipe, string path)
     {
         var fresh = PrepareNew(repository, recipe);
         using var freshSession = fresh.Core;
-        var actual = Execute(fresh, recipe, recipe.Target, false);
+        var actual = Execute(fresh, recipe, recipe.Target, false).Output;
         var restored = PrepareRestore(repository, Store(path).Read(path));
         using var restoredSession = restored.Core;
         CompareInputs(fresh.InputIdentity, restored.InputIdentity);
@@ -104,10 +104,11 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
         return (candidate.Activate(), view, state.InputIdentity);
     }
 
-    private RunOutput Execute((ICoreSession Core, IContentView Content, CoreInputId InputIdentity) prepared, Recipe recipe,
+    private (RunOutput Output, IContentView Content) Execute((ICoreSession Core, IContentView Content, CoreInputId InputIdentity) prepared, Recipe recipe,
         SimulationPosition target, bool verifyReplay)
     {
         var session = prepared.Core;
+        var view = prepared.Content;
         var start = session.Read().Position;
         if (Order(target, start) < 0 || Order(target, recipe.Target) > 0)
             throw new InvalidDataException("目标位置不在配方的剩余运行范围内。");
@@ -137,7 +138,12 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
                 _ => null
             };
             var submission = session.Submit(parsed, CommandSource.Console);
-            if (submission is SubmissionResult.Completed completed) Observe(completed.Events);
+            if (submission is SubmissionResult.Completed completed)
+            {
+                if (completed.Receipt.Decision is CommandDecision.Accepted { SettlementCopies: { Length: > 0 } copies })
+                    view = content.WithSettlementCopies(view, copies);
+                Observe(completed.Events);
+            }
             switch (submission)
             {
                 case SubmissionResult.Completed { Receipt.Decision: CommandDecision.Accepted }:
@@ -158,9 +164,9 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
         }
         AdvanceTo(target);
         var samples = checkpoints.ToImmutable();
-        if (verifyReplay) VerifyReplay(session.ReadRecording(), prepared.Content, samples);
-        return new(Environment.ProcessId, runtime, prepared.InputIdentity, samples, accepted, rejected, verifyReplay,
-            observations.ToImmutable(), receipts.ToImmutable(), transfers.ToImmutable(), completions.ToImmutable(), stateChanges.ToImmutable());
+        if (verifyReplay) VerifyReplay(session.ReadRecording(), view, samples);
+        return (new(Environment.ProcessId, runtime, prepared.InputIdentity, samples, accepted, rejected, verifyReplay,
+            observations.ToImmutable(), receipts.ToImmutable(), transfers.ToImmutable(), completions.ToImmutable(), stateChanges.ToImmutable()), view);
 
         void Observe(ImmutableArray<EventEnvelope> events)
         {

@@ -217,7 +217,8 @@ RECOVERY = (
 TEMPLATE_PLANS = {
     "agricultural-town": ((6, "production", "grain-farming", True), (7, "production", "staple-food-processing", True)),
     "mining-town": ((6, "extraction", "stone-quarrying", True), (7, "production", "structural-metal-smelting", True),
-                    (8, "production", "construction-material-processing", True)),
+                    (8, "production", "construction-material-processing", True),
+                    (9, "production", "rail-making", True)),
     "forestry-town": ((6, "extraction", "timber-harvesting", True), (7, "production", "lumber-processing", True)),
     "oilfield-town": ((6, "extraction", "crude-oil-extraction", True), (7, "production", "oil-refining", True)),
     "industrial-city": ((6, "production", "electrical-components-assembly", True),
@@ -1511,7 +1512,8 @@ def content_files():
 
     settlements = (
         ("agricultural-town", "农业镇", ("plains", "hills"), ("farm", "food-factory")),
-        ("mining-town", "矿业镇", ("mountains", "hills"), ("extraction-site", "metallurgy-factory", "building-materials-factory")),
+        ("mining-town", "矿业镇", ("mountains", "hills"),
+         ("extraction-site", "metallurgy-factory", "building-materials-factory", "metallurgy-factory")),
         ("forestry-town", "林业镇", ("forest",), ("extraction-site", "light-industry-factory")),
         ("oilfield-town", "油田镇", ("desert",), ("extraction-site", "chemical-factory")),
         ("industrial-city", "工业城", ("plains",), ("assembly-factory", "electronics-factory", "recovery-factory", "heavy-vehicle-factory")),
@@ -1549,7 +1551,10 @@ def content_files():
                   "production_plans": [{"plot": plot, "capability": capability, "process": process,
                                         "enabled": enabled, "priority": INITIAL_PLAN_PRIORITY}
                                        for plot, capability, process, enabled in TEMPLATE_PLANS[identity]],
-                  "display": {"name": name + "经济布局", "description": "十地块布局，含两个站点地块与真实生产计划；普通库存与现车由核心按生成配置初始化。"}})
+                  "display": {"name": name + "经济布局", "description":
+                              ("十地块布局，地块 9 为第二座冶金厂并启用炼轨；含两个站点地块与真实生产计划；普通库存与现车由核心按生成配置初始化。"
+                               if identity == "mining-town" else
+                               "十地块布局，含两个站点地块与真实生产计划；普通库存与现车由核心按生成配置初始化。")}})
 
     for value in (core_city_hub(), bastion_fortress()):
         document("blueprints", "blueprint", value["id"], value)

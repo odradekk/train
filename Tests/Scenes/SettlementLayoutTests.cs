@@ -207,7 +207,7 @@ public sealed class SettlementLayoutTests
             "agricultural-town" => new[] { PlotSize.Medium, PlotSize.Small, PlotSize.Small, PlotSize.Small },
             "forestry-town" => [PlotSize.Medium, PlotSize.Medium, PlotSize.Small, PlotSize.Small],
             "industrial-city" or "core-city" => [PlotSize.Large, PlotSize.Medium, PlotSize.Medium, PlotSize.Large],
-            "mining-town" => [PlotSize.Medium, PlotSize.Large, PlotSize.Medium, PlotSize.Small],
+            "mining-town" => [PlotSize.Medium, PlotSize.Large, PlotSize.Medium, PlotSize.Large],
             _ => [PlotSize.Medium, PlotSize.Large, PlotSize.Small, PlotSize.Small]
         };
         var template = NodeFixtures.Layout with
