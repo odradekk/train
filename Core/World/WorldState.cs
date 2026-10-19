@@ -27,6 +27,8 @@ internal sealed record SettlementState(SettlementId Id, NodeId Node, SettlementT
     [JsonRequired] public double LastConstructionPowerDemand { get; init; }
     [JsonRequired] public double LastConstructionActualSupply { get; init; }
     [JsonRequired] public double LastConstructionAllocatedLabor { get; init; }
+    [JsonRequired] public double Morale { get; init; } = 1;
+    [JsonRequired] public bool Surrendered { get; init; }
 }
 internal sealed record ProductionBatchState(ProcessRef Process, SemanticRevision StartedFromRevision,
     ImmutableArray<GoodsQuantity> FrozenOutputs, long FrozenWorkRequired, double FrozenPowerPerWork,

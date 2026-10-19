@@ -17,6 +17,8 @@ internal static class CombatOperations
         var events = ImmutableArray.CreateBuilder<CoreEvent>();
         world = RemoveDeparted(world);
         world = AdvanceRetreats(world, content, step);
+        world = SettlementMorale.Recover(world, content);
+        var moraleDamage = ImmutableArray.CreateBuilder<(CombatId Combat, ImmutableArray<SettlementMoraleDamage> Damage)>();
 
         foreach (var existing in world.Combats.ToArray())
         {
@@ -95,9 +97,15 @@ internal static class CombatOperations
         world = EdgeCombat.Advance(world, before, content, step, events);
 
         foreach (var combat in world.Combats.ToArray())
-            world = CombatResolution.Resolve(world, content, combat.Id, step, events);
+        {
+            var resolution = CombatResolution.Resolve(world, content, combat.Id, step, events);
+            world = resolution.World;
+            if (!resolution.Damage.IsEmpty) moraleDamage.Add((combat.Id, resolution.Damage));
+        }
 
         world = ApplyRetreatThresholds(world, content, step, events);
+        foreach (var damage in moraleDamage)
+            world = SettlementMorale.Apply(world, before, content, damage.Combat, damage.Damage, events);
 
         foreach (var combat in world.Combats.ToArray())
         {
