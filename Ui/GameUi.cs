@@ -22,6 +22,11 @@ public partial class GameUi : CanvasLayer
     private AuthoringPanel? _authoringPanel;
     private TemplateSceneController? _templates;
     private Button? _authoringButton;
+    private bool _editing;
+    private bool _restoreEconomy;
+    private bool _restoreFormation;
+    private bool _restorePlan;
+    private bool _restoreCombat;
     private HostCoordinator? _host;
     private WorldSceneController? _scenes;
     private RecordingService? _recording;
@@ -252,6 +257,24 @@ public partial class GameUi : CanvasLayer
         var showingScene = _scenes?.View.Visible == true;
         var status = _host?.GetStatus();
         var editing = _editor.IsOpen || _authoring?.Form is not null;
+        if (editing != _editing)
+        {
+            if (editing)
+            {
+                _restoreEconomy = _economy?.Visible == true;
+                _restoreFormation = _formation?.Visible == true;
+                _restorePlan = _plan?.Visible == true;
+                _restoreCombat = _combat?.Visible == true;
+            }
+            else
+            {
+                if (_restoreEconomy && _economy is { Visible: false }) _economy.Show();
+                if (_restoreFormation && _formation is { Visible: false }) _formation.Show();
+                if (_restorePlan && _plan is { Visible: false }) _plan.Show();
+                if (_restoreCombat && _combat is { Visible: false }) _combat.Show();
+            }
+            _editing = editing;
+        }
         if (editing) _minimap.Clear();
         else _minimap.Refresh(_scenes, status?.View, status?.Binding ?? default, delta);
         if (_authoringButton is not null)
