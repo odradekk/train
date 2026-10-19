@@ -10,8 +10,8 @@ internal static class CombatResolution
 {
     private sealed record Shot(CombatUnitId Target, AttackSource Source, HitTarget Hit, long Damage);
 
-    internal static WorldState Resolve(WorldState world, CoreContentProjection content, CombatId id, ulong step,
-        ImmutableArray<CoreEvent>.Builder events)
+    internal static (WorldState World, ImmutableArray<SettlementMoraleDamage> Damage) Resolve(WorldState world,
+        CoreContentProjection content, CombatId id, ulong step, ImmutableArray<CoreEvent>.Builder events)
     {
         var combat = world.Combats.Single(c => c.Id == id);
         var shots = new List<Shot>();
@@ -50,11 +50,12 @@ internal static class CombatResolution
                     shots.Add(shot);
             }
         }
-        if (shots.Count == 0) return world;
+        if (shots.Count == 0) return (world, []);
 
         var structureDamage = new Dictionary<InstanceId, long>();
         var partDamage = new Dictionary<(InstanceId Instance, PartId Part), long>();
         var creatureDamage = new Dictionary<CreatureId, long>();
+        var moraleDamage = new Dictionary<SettlementId, (long Damage, int Weapons)>();
         foreach (var shot in shots)
         {
             if (shot.Hit is HitTarget.Structure structure)
@@ -94,6 +95,7 @@ internal static class CombatResolution
                 var current = parts[index].Current;
                 var remaining = Math.Max(0, Math.Min(current, specification.MaxDurability));
                 var applied = Math.Min(damage, remaining);
+                AddSettlementDamage(moraleDamage, world, instanceId, applied);
                 overflow = checked(overflow + damage - applied);
                 var next = remaining - applied;
                 parts = parts.SetItem(index, new PartDurability(key.Part, next));
@@ -103,6 +105,7 @@ internal static class CombatResolution
             var structure = Math.Max(0, Math.Min(instance.StructureDurability, design.MaxStructureDurability));
             var incoming = checked(structureDamage.GetValueOrDefault(instanceId) + overflow);
             var nextStructure = incoming > 0 ? Math.Max(0, structure - incoming) : instance.StructureDurability;
+            AddSettlementDamage(moraleDamage, world, instanceId, incoming > 0 ? structure - nextStructure : 0);
             if (incoming > 0 && structure > 0 && nextStructure == 0)
                 destroyedUnits.Add(new DestroyedUnit.Instance(Reference(instance, design, combat.Location)));
             instances = instances.Select(item => item.Id == instanceId ? item with
@@ -110,6 +113,7 @@ internal static class CombatResolution
                 StructureDurability = nextStructure, Parts = parts
             } : item).ToImmutableArray();
         }
+        AddWeaponDamage(moraleDamage, world, content, destroyedParts, destroyedUnits);
         world = world with { Instances = instances };
         world = ApplyCreatureDamage(world, content, combat, creatureDamage, destroyedUnits);
         events.Add(new CoreEvent.CombatHits(id, combat.Location,
@@ -119,7 +123,65 @@ internal static class CombatResolution
                 destroyedParts.OrderBy(part => CombatQueries.UnitKey(new CombatUnitId.Instance(part.Instance.Instance)))
                     .ThenBy(part => part.Part.Value).ToImmutableArray(),
                 destroyedUnits.OrderBy(LossKey).ToImmutableArray()));
-        return Remove(world, content, id, destroyedParts, destroyedUnits, step, events);
+        var damages = moraleDamage.OrderBy(pair => pair.Key.Value)
+            .Select(pair => new SettlementMoraleDamage(pair.Key, pair.Value.Damage, pair.Value.Weapons))
+            .ToImmutableArray();
+        return (Remove(world, content, id, destroyedParts, destroyedUnits, step, events), damages);
+    }
+
+    private static void AddSettlementDamage(Dictionary<SettlementId, (long Damage, int Weapons)> damage,
+        WorldState world, InstanceId instance, long amount)
+    {
+        if (amount <= 0 || SettlementOf(world, instance) is not { } settlement) return;
+        var current = damage.GetValueOrDefault(settlement);
+        damage[settlement] = (checked(current.Damage + amount), current.Weapons);
+    }
+
+    private static void AddWeaponDamage(Dictionary<SettlementId, (long Damage, int Weapons)> damage,
+        WorldState world, CoreContentProjection content, List<DestroyedPart> parts, List<DestroyedUnit> units)
+    {
+        var destroyed = parts.Select(part => (part.Instance.Instance, part.Part)).ToHashSet();
+        foreach (var part in parts)
+        {
+            if (SettlementOf(world, part.Instance.Instance) is not { } settlement
+                || !IsWeapon(world, content, part.Instance.Instance, part.Part)) continue;
+            AddWeapon(damage, settlement);
+        }
+        foreach (var destroyedUnit in units.OfType<DestroyedUnit.Instance>())
+        {
+            var instanceId = destroyedUnit.Value.Instance;
+            if (SettlementOf(world, instanceId) is not { } settlement) continue;
+            var instance = world.Instances.Single(item => item.Id == instanceId);
+            var design = world.Designs.Single(item => item.Design == instance.Design);
+            for (var index = 0; index < design.Parts.Length; index++)
+            {
+                var part = design.Parts[index];
+                if (!part.Capabilities.Any(capability => capability is PartCapability.Weapon)
+                    || InstanceCapabilities.DefinitionMissing(world, content, design.Design, part)
+                    || Math.Min(instance.Parts[index].Current, part.MaxDurability) <= 0
+                    || destroyed.Contains((instanceId, part.Id))) continue;
+                AddWeapon(damage, settlement);
+            }
+        }
+    }
+
+    private static void AddWeapon(Dictionary<SettlementId, (long Damage, int Weapons)> damage, SettlementId settlement)
+    {
+        var current = damage.GetValueOrDefault(settlement);
+        damage[settlement] = (current.Damage, checked(current.Weapons + 1));
+    }
+
+    private static SettlementId? SettlementOf(WorldState world, InstanceId instance)
+        => CombatQueries.ControllerOf(world, instance) is CombatController.Settlement settlement
+            ? settlement.Id : null;
+
+    private static bool IsWeapon(WorldState world, CoreContentProjection content, InstanceId instance, PartId part)
+    {
+        var state = world.Instances.Single(item => item.Id == instance);
+        var design = world.Designs.Single(item => item.Design == state.Design);
+        var specification = design.Parts.Single(item => item.Id == part);
+        return !InstanceCapabilities.DefinitionMissing(world, content, design.Design, specification)
+            && specification.Capabilities.Any(capability => capability is PartCapability.Weapon);
     }
 
     private static IEnumerable<(PartId Part, long Damage, double Interval)> Weapons(WorldState world,
@@ -496,14 +558,14 @@ internal static class CombatResolution
     private static CombatOwner Owner(WorldState world, InstanceId instance)
         => CombatQueries.OwnerOfUnit(world, new CombatUnitId.Instance(instance));
 
-    private static ImmutableArray<GoodsQuantity> Merge(ImmutableArray<GoodsQuantity> current,
+    internal static ImmutableArray<GoodsQuantity> Merge(ImmutableArray<GoodsQuantity> current,
         ImmutableArray<GoodsQuantity> added)
     {
         if (added.IsEmpty) return current;
         var quantities = current.ToDictionary(good => good.Good, good => good.Quantity);
         foreach (var good in added)
             quantities[good.Good] = checked(quantities.GetValueOrDefault(good.Good) + good.Quantity);
-        return quantities.OrderBy(pair => WorldReferences.GoodKey(pair.Key))
+        return quantities.OrderBy(pair => WorldReferences.GoodKey(pair.Key), StringComparer.Ordinal)
             .Select(pair => new GoodsQuantity(pair.Key, pair.Value)).ToImmutableArray();
     }
 
