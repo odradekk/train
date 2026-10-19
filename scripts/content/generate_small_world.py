@@ -1178,22 +1178,20 @@ def large_diesel_engine(propulsion):
                       ["structural-metal", "mechanical-components"], cells,
                       {"behaviors": {"propulsion": {"traction": 9 * propulsion["traction"],
                                                     "rated_speed": propulsion["rated_speed"]}}})
-    value["layout"]["palette"].extend([
-        {"voxel": "structural-metal", "paint": "#33373b"},
-        {"voxel": "structural-metal", "paint": "#626750"},
-        {"voxel": "mechanical-components", "paint": "#7e858b"},
-        {"voxel": "structural-metal", "paint": "#d9a62b"},
-    ])
+    value["display"]["description"] = "钢灰机身由石墨机座和端板分区，窄黄色顶标标出柴油机的检修位置。"
+    palette = value["layout"]["palette"]
+    colors = ("#7e858b", "#33373b", "#d9a62b")
+    # 每个原项展开为三种涂装，区域只选颜色，保留货物、朝向及其他格属性。
+    value["layout"]["palette"] = [{**entry, "paint": color} for entry in palette for color in colors]
     for cell in value["layout"]["cells"]:
-        x, y, z, _ = cell
-        if y == 0:
-            cell[3] = 2
-        elif x in (-3, 3) and 1 <= y <= 6:
-            cell[3] = 3
-        elif -1 <= x <= 1 and 3 <= y <= 5 and -8 <= z <= 7:
-            cell[3] = 4
+        _, y, z, original = cell
+        if y == 0 or (z in (-10, 9) and 1 <= y <= 6):
+            zone = 1
         elif y == 7 and -1 <= z <= 0:
-            cell[3] = 5
+            zone = 2
+        else:
+            zone = 0
+        cell[3] = original * len(colors) + zone
     return value
 
 
@@ -1204,7 +1202,7 @@ def heavy_turret(cannon):
     value = blueprint("heavy-turret", "重炮塔", "large_equipment", ["structural-metal", "mechanical-components"], cells,
                       {"behaviors": {"weapon": {"damage": ceil(cannon["damage"] * 6 / 4), "interval": cannon["interval"]}}},
                       {"behaviors": {"rotation": {"axis": "y", "pivot": [0, 0, 0], "range": [-180, 180], "speed": 90}}})
-    value["display"]["description"] = "重炮塔正式设计：整圈转动仅属表现，战斗行为待战斗阶段验证；武器数值待试玩确认。"
+    value["display"]["description"] = "石墨炮座和炮管托起橄榄绿炮塔，钢灰顶盖划出旋转战斗设备的上部轮廓。"
     for entry in value["layout"]["palette"]:
         entry["paint"] = "#33373b"
     value["layout"]["palette"].extend([
@@ -1231,23 +1229,19 @@ def gantry_crane():
     fill_box(cells, (0, 42, 0), (1, 2, 1), 1)
     value = blueprint("gantry-crane", "龙门吊", "large_equipment", ["structural-metal", "mechanical-components"], cells,
                       {"behaviors": {"construction": {"work_rate": 4, "max_plot_size": "giant", "max_size_class": "titan"}}})
-    value["layout"]["palette"].extend([
-        {"voxel": "structural-metal", "paint": "#33373b"},
-        {"voxel": "structural-metal", "paint": "#626750"},
-        {"voxel": "structural-metal", "paint": "#d9a62b"},
-        {"voxel": "mechanical-components", "paint": "#7e858b"},
-        {"voxel": "mechanical-components", "paint": "#d9a62b"},
-    ])
+    value["display"]["description"] = "石墨长基轨支承钢灰立柱，连续黄色顶梁与钢灰小车勾勒龙门吊的吊装跨度。"
+    palette = value["layout"]["palette"]
+    colors = ("#33373b", "#7e858b", "#d9a62b")
+    value["layout"]["palette"] = [{**entry, "paint": color} for entry in palette for color in colors]
     for cell in value["layout"]["cells"]:
-        x, y, z, index = cell
+        _, y, _, original = cell
         if y <= 1:
-            cell[3] = 2
-        elif 2 <= y <= 43 and abs(x) >= 19:
-            cell[3] = 3
-        elif 44 <= y <= 45 and -1 <= z <= 1:
-            cell[3] = 4 if index == 0 else 6
-        elif 46 <= y <= 47:
-            cell[3] = 5
+            zone = 0
+        elif 44 <= y <= 45:
+            zone = 2
+        else:
+            zone = 1
+        cell[3] = original * len(colors) + zone
     return value
 
 
@@ -1452,6 +1446,7 @@ def content_files():
                                 {"behaviors": {"construction": {"work_rate": 4, "max_plot_size": "large", "max_size_class": "large"}}})
     crane_blueprint["layout"]["palette"][0]["paint"] = "#33373b"
     crane_blueprint["layout"]["palette"][1]["paint"] = "#d9a62b"
+    crane_blueprint["display"]["description"] = "石墨双立柱支承连续黄色横梁，形成开敞的车间吊装门架。"
     document("blueprints", "blueprint", "workshop-crane", crane_blueprint)
     document("blueprints", "blueprint", "gantry-crane", gantry_crane())
 
