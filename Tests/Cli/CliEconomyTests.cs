@@ -162,6 +162,76 @@ public sealed partial class CliProcessTests
         Directory.Delete(directory, recursive: true);
     }
 
+    [TestMethod]
+    public async Task New_recipe_commands_return_the_documented_first_receipt()
+    {
+        var directory = CreateDirectory();
+        try
+        {
+            var recipe = await WriteEconomyRecipe(directory, "railway-commands", """
+                [
+                  {"at":{"completed_steps":0,"sequence":0},"kind":"settlement.found","node":14,"material_source":1},
+                  {"at":{"completed_steps":0,"sequence":1},"kind":"train.disband","train":1},
+                  {"at":{"completed_steps":0,"sequence":2},"kind":"train.form","ordered_vehicles":[1,1]},
+                  {"at":{"completed_steps":0,"sequence":3},"kind":"construction.start_owned","request":{
+                    "kind":"build_building","facility":{"building":999999,"capability":"construction"},
+                    "plot":1,"blueprint":"core:small-warehouse","sources":[],"priority":0}},
+                  {"at":{"completed_steps":0,"sequence":4},"kind":"rail.expand","edge":3,"material_source":6},
+                  {"at":{"completed_steps":0,"sequence":5},"kind":"rail.repair","edge":3,"break":1,"material_source":6},
+                  {"at":{"completed_steps":0,"sequence":6},"kind":"rail.set_automatic_repair","edge":3,"material_source":6},
+                  {"at":{"completed_steps":0,"sequence":7},"kind":"rail.debug_add_break","edge":3,"track":99,"distance_meters":10},
+                  {"at":{"completed_steps":0,"sequence":8},"kind":"rail.set_automatic_repair","edge":3,"material_source":null}
+                ]
+                """, 1);
+            var output = Path.Combine(directory, "railway-commands.json");
+            await Run(directory, "railway-commands", "run", Repository, recipe, output);
+            var result = await ReadEconomyOutput(output);
+            (string Kind, string Decision, string? Code, string? Field)[] expected =
+            [
+                ("settlement.found", "rejected", "node_occupied", "Node"),
+                ("train.disband", "accepted", null, null),
+                ("train.form", "rejected", "vehicle_duplicate", "OrderedVehicles"),
+                ("construction.start_owned", "rejected", "object_missing", "Facility"),
+                ("rail.expand", "rejected", "not_owned", "MaterialSource"),
+                ("rail.repair", "rejected", "object_missing", "Break"),
+                ("rail.set_automatic_repair", "rejected", "not_owned", "MaterialSource"),
+                ("rail.debug_add_break", "rejected", "invalid_state", "Break"),
+                ("rail.set_automatic_repair", "accepted", null, null)
+            ];
+            Assert.AreEqual(expected.Length, result.CommandReceipts.Length);
+            for (var index = 0; index < expected.Length; index++)
+            {
+                var receipt = result.CommandReceipts[index];
+                Assert.AreEqual(index, receipt.CommandIndex);
+                Assert.AreEqual(expected[index].Kind, receipt.Kind);
+                Assert.AreEqual(expected[index].Decision, receipt.Decision);
+                if (expected[index].Code is null) Assert.IsEmpty(receipt.Problems);
+                else
+                {
+                    var problem = receipt.Problems.Single();
+                    Assert.AreEqual(expected[index].Code, problem.Code);
+                    Assert.AreEqual(expected[index].Field, problem.Field);
+                }
+            }
+
+            var missing = await WriteEconomyRecipe(directory, "missing-material-source", """
+                [
+                  {"at":{"completed_steps":0,"sequence":0},"kind":"rail.set_automatic_repair","edge":3}
+                ]
+                """, 1);
+            await Run(directory, "missing-material-source", 1, "run", Repository, missing,
+                Path.Combine(directory, "missing-material-source.json"));
+            var error = await File.ReadAllTextAsync(Path.Combine(directory, "missing-material-source.stderr.log"));
+            StringAssert.Contains(error, "不支持的配方命令或参数：rail.set_automatic_repair");
+        }
+        catch
+        {
+            TestContext.WriteLine($"CLI 失败证据：{directory}");
+            throw;
+        }
+        Directory.Delete(directory, recursive: true);
+    }
+
     private static async Task<string> WriteEconomyRecipe(string directory, string name, string commands,
         ulong targetStep, params ulong[] checkpointSteps)
     {

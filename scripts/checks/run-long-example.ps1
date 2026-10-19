@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('starting-trade', 'lease-expiry')]
+    [ValidateSet('starting-trade', 'lease-expiry', 'rail-repair')]
     [string] $Example,
     [string] $Root = (Join-Path $PSScriptRoot '../..')
 )
@@ -17,7 +17,11 @@ $run = Join-Path $root "TestResults/long-example-$([DateTime]::UtcNow.ToString('
 New-Item -ItemType Directory -Path $run | Out-Null
 $recipe = Join-Path $root "examples/$Example/recipe.json"
 $cli = Join-Path $root 'Tools/Cli/bin/Release/net10.0/Train.Cli.dll'
-$saveStep = if ($Example -eq 'starting-trade') { '432000' } else { '5183999' }
+$saveStep = switch ($Example) {
+    'starting-trade' { '432000' }
+    'lease-expiry' { '5183999' }
+    'rail-repair' { '959400' }
+}
 $continuous = Join-Path $run 'continuous.json'
 $prefix = Join-Path $run 'prefix.save.json'
 $resumed = Join-Path $run 'resumed.json'
