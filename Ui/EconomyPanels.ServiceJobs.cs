@@ -45,7 +45,7 @@ internal partial class EconomyPanels
             if (_view.FindJob(id) is Lookup<JobView>.Found { Value: JobView.Construction job })
             {
                 var value = job.Value;
-                label.Text += $"建筑 {value.Facility.Building.Value} · {ServiceKind(value.Kind)} · {ServiceState(value.State)}\n工作 {value.ProgressWork:0.###}/{value.FrozenTotalWork} · {value.Progress:P1} · 实际 {value.ActualWorkPerSecond:0.###} 工作/秒\n限制：{string.Join("、", value.Limits.Select(ServiceLimit))}\n投入：{ServiceGoods(value.InvestedGoods)}\n{JobTarget(value.Target)}\n{JobReservations(id)}\n" + Problems(value.Blockers);
+                label.Text += $"建筑 {value.Facility.Building.Value} · {ServiceKind(value.Kind)} · {ServiceState(value.State)}\n工作 {value.ProgressWork:0.###}/{value.FrozenTotalWork} · {value.Progress:P1} · 实际 {value.ActualWorkPerSecond:0.###} 工作/秒\n限制：{string.Join("、", value.Limits.Select(ServiceLimit))}\n投入：{ServiceGoods(value.InvestedGoods)}\n{JobTarget(value.Target)}\n{JobReservations(id)}\n" + Problems(value.Blockers, _content);
                 if (_settlement.OwnedJobs.Contains(id) && value.Kind == ConstructionKind.Deconstruction)
                 {
                     if (!_servicePauseButtons.TryGetValue(id, out var button))

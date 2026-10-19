@@ -175,8 +175,7 @@ public partial class App : Node
         void Reload()
         {
             if (Host!.BeginReload(source).Problem is { } problem)
-                _logger!.Warning("content", "content_reload_failed", CommandDiagnostics.Describe(problem),
-                    new Dictionary<string, object?> { ["code"] = problem.Code, ["field"] = problem.Field });
+                CommandDiagnostics.LogProblem(_logger!, "content", "content_reload_failed", problem, Host.Content);
         }
         if (Editor!.RequestClose(Reload) is { } failure)
             _logger!.Warning("content", failure.Code, failure.Message);

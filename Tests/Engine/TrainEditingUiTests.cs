@@ -89,7 +89,8 @@ public class TrainEditingUiTests(Node testScene) : TestClass(testScene)
                 station.GetNode<LineEdit>("Stop/DwellSeconds").Text == "2", "计划行增删重排或秒输入未保留。");
             var apply = Find<Button>(editor, "Apply");
             await _input.Activate(apply);
-            Require(setup.Session.SubmitCount == 2 && editor.Visible && ui.ErrorText.Contains("no_route/train.plan") &&
+            Require(setup.Session.SubmitCount == 2 && editor.Visible && ui.ErrorText.Contains("没有可达路径。对象：列车 7。") &&
+                !ui.ErrorText.Contains("no_route") &&
                 rows.GetChild(0) == waypoint && station.GetNode<LineEdit>("Stop/DwellSeconds").Text == "2",
                 "计划拒绝没有显示原因或保留原草稿顺序和输入。");
             await UiCapture.Capture(TestScene, "plan-rejected");
