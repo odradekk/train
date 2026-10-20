@@ -154,9 +154,9 @@ public class SettlementFoundingUiTests(Node testScene) : TestClass(testScene)
             app.CreateHost = logger => ContentFixture.CreateHost(logger, directory, dispatcher);
             await fixture.AddToRoot(app);
             var host = app.Host!;
-            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher);
+            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher, timeout: ContentPreparationTimeout);
             host.BeginNewGame(new("core:basic-through-world"), 1, "stage1-world-v1", host.SessionOptions!);
-            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher);
+            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher, timeout: ContentPreparationTimeout);
             var status = host.GetStatus()!;
             var content = host.Content!;
             var nodes = status.View.World.Nodes;

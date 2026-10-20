@@ -31,15 +31,15 @@ public class VehicleServiceIntegrationTests(Node testScene) : TestClass(testScen
             using var logger = new TrainLogger(Path.Combine(directory, "test-logs"), LogLevel.Info, new GodotLogOutput());
             using var host = ContentFixture.CreateHost(logger, directory, dispatcher);
             using var restored = ContentFixture.CreateHost(logger, directory, dispatcher);
-            async Task Pump(HostCoordinator current) => await FramesUntil(TestScene, () =>
+            async Task Pump(HostCoordinator current, TimeSpan? timeout = null) => await FramesUntil(TestScene, () =>
             {
                 current.ProcessFrame(0);
                 return !current.IsBusy;
-            }, dispatcher);
+            }, dispatcher, timeout);
 
             Require(host.BeginNewGame(new("core:basic-through-world"), 1, "stage1-world-v1", host.SessionOptions!).Problem is null,
                 "真实制造情景未能开始新局。");
-            await Pump(host);
+            await Pump(host, ContentPreparationTimeout);
             Require(host.GetStatus() is not null, "真实制造情景没有活动会话。");
 
             var original = ((ContentLookup<BlueprintRecord>.Found)host.Content!.FindBlueprint(
@@ -69,7 +69,7 @@ public class VehicleServiceIntegrationTests(Node testScene) : TestClass(testScen
                 var document = store.Read(path);
                 Require(restored.BeginRestore(document.CorePayload, document.ContentPayload, host.SessionOptions!, capture.Identity).Problem is null,
                     "真实文件恢复请求被拒绝。");
-                await Pump(restored);
+                await Pump(restored, ContentPreparationTimeout);
                 Require(restored.GetStatus() is not null && Saved(restored).Core.Encode() == capture.Core.Encode(),
                     "真实保存恢复改变核心状态，或重复扣款、扣料、创建任务。");
                 Require(restored.Content!.FindBlueprint(saved.Address) is ContentLookup<BlueprintRecord>.Found,
