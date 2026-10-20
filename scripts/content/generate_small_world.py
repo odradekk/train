@@ -891,7 +891,7 @@ GOODS_ART = {
     "fuel": cube_art("painted_metal", 1, "side.png", None, fuel_texture),
     "mechanical-components": cube_art("painted_metal", 1, "side.png", "shared/equipment-underside.png", mechanical_components_texture),
     "construction-material": cube_art("concrete", 4, None, None, construction_material_texture),
-    "structural-metal": cube_art("painted_metal", 4, "side.png", "shared/vehicle-underside.png", structural_metal_texture),
+    "structural-metal": cube_art("painted_metal", 4, "side.png", "shared/vehicle-underside.png", structural_metal_texture, shapes=ALL_SHAPES),
     "specialty-material": cube_art("bare_metal", 1, "side.png", None, specialty_material_texture),
     "glass": cube_art("glass", 1, None, None, glass_texture, shapes=["cube", "plate"]),
     "lumber": cube_art("organic", 1, "side.png", None, lumber_texture),
