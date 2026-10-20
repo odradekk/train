@@ -1419,7 +1419,7 @@ def content_files():
         if simulation is not None:
             value["simulation"] = simulation
             value["appearance"]["presentation"]["shapes"] = (
-                ALL_SHAPES if identity in ("structural-block", "construction-block") else
+                ALL_SHAPES if identity in ("structural-metal", "structural-block", "construction-block") else
                 ["cube", "plate"] if identity == "glass" else ["cube"])
         if identity in ("machine-gun", "cannon"):
             value["appearance"]["presentation"] = {
