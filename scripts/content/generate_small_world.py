@@ -1423,7 +1423,7 @@ def content_files():
                 presentation["tile_span"] = tile_span
         value = {"schema_version": 3, "id": identity,
                  "appearance": {"allowed_orientations": "four_way", "presentation": presentation},
-                 "display": {"name": name, "description": description or f"{name}的第一版正式定义；数值待配平，占位贴图待美术制作。",
+                 "display": {"name": name, "description": description,
                              "icon": icon_path}}
         if simulation is not None:
             value["simulation"] = simulation
