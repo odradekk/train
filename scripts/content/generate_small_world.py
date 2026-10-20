@@ -1406,7 +1406,8 @@ def content_files():
               "organic": (99, 143, 81, 255), "equipment": EQUIPMENT_FACE + (255,)}
     for material, color in colors.items():
         files[f"voxels/shared/{material}-face.png"] = png(32, lambda x, y: color)
-        files[f"voxels/shared/{material}-icon.png"] = png(128, lambda x, y: color)
+        if material != "soil":
+            files[f"voxels/shared/{material}-icon.png"] = png(128, lambda x, y: color)
     for name in SETTLEMENT_SYMBOLS:
         files[f"settlement-types/{name}/symbol.png"] = symbol_png(name)
 
