@@ -17,32 +17,38 @@ void vertex() {
 	float elapsed = max(simulation_seconds - start_seconds, 0.0);
 	float phase = lifetime <= 0.0 ? 1.0 : clamp(elapsed / max(lifetime, 0.001), 0.0, 1.0);
 	effect_alpha = strength * (1.0 - smoothstep(0.72, 1.0, phase));
-	if (appearance <= 2 || appearance == 6 || appearance == 7) {
-		float index = UV2.x;
-		float count = max(UV2.y, 1.0);
-		bool looping = lifetime <= 0.0;
-		float local = looping
-			? fract(elapsed * 0.35 + seed + index / count)
-			: clamp((phase - index / count * 0.45) / 0.55, 0.0, 1.0);
-		// 相位两端都是 0，循环回到起点时不会突然以满透明度出现。
-		effect_alpha = strength * smoothstep(0.0, 0.18, local) * (1.0 - smoothstep(0.62, 1.0, local));
+	if (appearance <= 2 || appearance == 4 || appearance == 6 || appearance == 7 || appearance == 8) {
 		float node_scale = max(length(MODEL_MATRIX[0].xyz), 0.001);
-		float rise = (appearance == 0 ? local * (looping ? 1.6 : 2.2)
-			: appearance == 1 ? local * 0.35 : local * 0.7) * node_scale;
-		float angle = index * 2.399963 + seed * 6.283185;
-		float spread = (appearance == 2 ? 0.2 : 0.16) * node_scale;
-		vec3 scatter = vec3(cos(angle), 0.0, sin(angle)) * spread * (looping ? 1.0 : local);
-		float size = (appearance == 0 ? mix(0.4, 1.1, local) * (0.5 + strength * 0.45)
-			: appearance == 1 ? 0.42 + strength * 0.38 : 0.1) * node_scale;
-		if (appearance == 6) {
-			rise = -local * local * 1.8 * node_scale;
-			spread = 0.06 * node_scale;
-			scatter = vec3(cos(angle), 0.0, sin(angle)) * spread;
-			size = 0.12 * node_scale;
-		} else if (appearance == 7) {
-			rise = local * 0.2 * node_scale;
-			scatter = vec3(cos(angle), 0.0, sin(angle)) * local * 1.8 * node_scale;
-			size = mix(0.5, 1.6, local) * node_scale;
+		vec3 scatter = vec3(0.0);
+		float rise = 0.0;
+		vec2 dimensions = vec2(node_scale);
+		if (appearance != 4 && appearance != 8) {
+			float index = UV2.x;
+			float count = max(UV2.y, 1.0);
+			bool looping = lifetime <= 0.0;
+			float local = looping
+				? fract(elapsed * 0.35 + seed + index / count)
+				: clamp((phase - index / count * 0.45) / 0.55, 0.0, 1.0);
+			// 相位两端都是 0，循环回到起点时不会突然以满透明度出现。
+			effect_alpha = strength * smoothstep(0.0, 0.18, local) * (1.0 - smoothstep(0.62, 1.0, local));
+			rise = (appearance == 0 ? local * (looping ? 1.6 : 2.2)
+				: appearance == 1 ? local * 0.35 : local * 0.7) * node_scale;
+			float angle = index * 2.399963 + seed * 6.283185;
+			float spread = (appearance == 2 ? 0.2 : 0.16) * node_scale;
+			scatter = vec3(cos(angle), 0.0, sin(angle)) * spread * (looping ? 1.0 : local);
+			float size = (appearance == 0 ? mix(0.4, 1.1, local) * (0.5 + strength * 0.45)
+				: appearance == 1 ? 0.42 + strength * 0.38 : 0.1) * node_scale;
+			if (appearance == 6) {
+				rise = -local * local * 1.8 * node_scale;
+				spread = 0.06 * node_scale;
+				scatter = vec3(cos(angle), 0.0, sin(angle)) * spread;
+				size = 0.12 * node_scale;
+			} else if (appearance == 7) {
+				rise = local * 0.2 * node_scale;
+				scatter = vec3(cos(angle), 0.0, sin(angle)) * local * 1.8 * node_scale;
+				size = mix(0.5, 1.6, local) * node_scale;
+			}
+			dimensions = vec2(size, size * (appearance == 6 ? 1.8 : appearance == 7 ? 0.3 : 1.0));
 		}
 		vec3 origin = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
 		MODELVIEW_MATRIX = VIEW_MATRIX * mat4(
@@ -50,7 +56,6 @@ void vertex() {
 			vec4(INV_VIEW_MATRIX[1].xyz, 0.0),
 			vec4(INV_VIEW_MATRIX[2].xyz, 0.0),
 			vec4(origin + scatter + vec3(0.0, rise, 0.0), 1.0));
-		vec2 dimensions = vec2(size, size * (appearance == 6 ? 1.8 : appearance == 7 ? 0.3 : 1.0));
 		VERTEX = vec3((UV - vec2(0.5)) * dimensions, 0.0);
 	}
 }
@@ -62,7 +67,7 @@ void fragment() {
 	vec4 mask = texture(particle_mask, UV);
 	float opacity = appearance == 0 || appearance == 7 ? mask.r
 		: appearance == 1 || appearance == 8 ? mask.g
-		: appearance == 6 ? mask.a : appearance == 5 ? 1.0 : mask.b;
+		: appearance == 6 ? mask.a : appearance == 3 || appearance == 5 ? 1.0 : mask.b;
 	ALBEDO = color;
 	EMISSION = appearance == 0 || appearance == 5 || appearance == 6 || appearance == 7 ? vec3(0.0) : color;
 	ALPHA = effect_alpha * opacity;

@@ -73,7 +73,7 @@ internal sealed class CombatEffects : IDisposable
     readonly Dictionary<(ulong Object, ulong Seed), LiveLight> _lights = [];
     readonly List<OneShot> _oneShots = [];
     readonly HashSet<ulong> _played = [];
-    readonly List<double> _flashes = [];
+    readonly List<(double Time, bool Impact)> _flashes = [];
     ImmutableArray<VehicleId> _followed = [];
     ImmutableArray<TerrainCollisionPatch> _patches = [];
     Vector3? _camera;
@@ -103,11 +103,11 @@ internal sealed class CombatEffects : IDisposable
             Look(Appearance.Fire, Quads(3)),
             Look(Appearance.Sparks, Quads(6)),
             Look(Appearance.Shot, new BoxMesh { Size = Vector3.One }),
-            Look(Appearance.Flash, new SphereMesh { Radius = 0.5f, Height = 1, RadialSegments = 8, Rings = 4 }),
+            Look(Appearance.Flash, Quads(1)),
             Look(Appearance.Fragment, new BoxMesh { Size = Vector3.One }),
             Look(Appearance.Leak, Quads(5)),
             Look(Appearance.Dust, Quads(6)),
-            Look(Appearance.Fireball, new SphereMesh { Radius = 0.5f, Height = 1, RadialSegments = 8, Rings = 4 })
+            Look(Appearance.Fireball, Quads(1))
         ];
     }
 
@@ -305,7 +305,7 @@ internal sealed class CombatEffects : IDisposable
                     AddShot(from, ToGodot(to), cue.StartedAtSimulationSeconds, color ?? new Color(1, 0.95f, 0.8f));
                 break;
             case SceneEffectKind.Impact:
-                if (age < ImpactSeconds && TakeFlash())
+                if (age < ImpactSeconds && TakeFlash(impact: true))
                     AddBurst(Appearance.Flash, "Flash", from, cue, ImpactSeconds, 0.55f, color ?? new Color(1, 0.95f, 0.8f));
                 Shake(cue);
                 break;
@@ -473,13 +473,11 @@ internal sealed class CombatEffects : IDisposable
         return roll >= damage * 0.5;
     }
 
-    bool TakeFlash() => Allow(_flashes);
-
-    bool Allow(List<double> times)
+    bool TakeFlash(bool impact = false)
     {
-        times.RemoveAll(time => _realSeconds - time >= 1);
-        if (times.Count >= 3) return false;
-        times.Add(_realSeconds);
+        _flashes.RemoveAll(flash => _realSeconds - flash.Time >= 1);
+        if (_flashes.Count >= 3 || impact && _flashes.Count(flash => flash.Impact) >= 2) return false;
+        _flashes.Add((_realSeconds, impact));
         return true;
     }
 
