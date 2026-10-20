@@ -132,6 +132,21 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         if (input.Target is WorldObjectId.Train train && status.View.FindTrain(train.Id) is Lookup<TrainView>.Found foundTrain)
             World.Open(new WorldSceneTarget.Follow(train.Id, foundTrain.Value.Vehicles[0]));
         else World.Open(new WorldSceneTarget.Location(input.Location));
+        if (input.Target is WorldObjectId.Instance { Id: InstanceId.Building building } && input.Location is WorldLocation.Node node)
+        {
+            await DisplayAsync(allowMissing: true);
+            var frame = World.Display!.DisplayedFrame!;
+            if (frame.FindPose(input.Target) is not Lookup<ScenePose>.Found)
+            {
+                if (status.View.FindNode(node.Id) is not Lookup<NodeView>.Found { Value.Map.Occupant: NodeOccupant.Settlement settlement } ||
+                    status.View.FindSettlement(settlement.Id) is not Lookup<SettlementView>.Found foundSettlement ||
+                    foundSettlement.Value.Plots.FirstOrDefault(plot => plot.Occupant is PlotOccupant.Building occupant && occupant.Id == building.Id) is not { } plot ||
+                    frame.NodeOverview?.Plots.FirstOrDefault(item => item.TemplatePlotNumber == plot.TemplatePlotNumber) is not { Corners.IsEmpty: false } placement)
+                    throw new InvalidDataException("无法从节点总览定位截图建筑的地块。");
+                World.FocusNode(node.Id, new(frame.Origin.X + placement.Corners.Average(point => point.X), 0,
+                    frame.Origin.Z + placement.Corners.Average(point => point.Y)));
+            }
+        }
         await DisplayAsync();
         if (input.Target is WorldObjectId.Train) _initialFront = Front();
     }

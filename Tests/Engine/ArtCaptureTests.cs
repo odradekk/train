@@ -83,6 +83,35 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public async Task Building_outside_the_initial_view_is_loaded_from_its_overview_plot()
+    {
+        var target = new WorldObjectId.Instance(new InstanceId.Building(new(1)));
+        var positioned = false;
+        await SampleCamera(target, request =>
+        {
+            positioned = request.Camera is { Focus.X: > 195 and < 205, Focus.Z: > -85 and < -75 };
+            var frame = CameraFrame(new(200, 2, -80), new(4096, 0, 8192), subject: target);
+            return new FixedSceneFrame
+            {
+                Origin = frame.Origin,
+                TerrainHeightResult = frame.TerrainHeightResult,
+                NodePanBounds = new(new(-400, -400), new(400, 400)),
+                NodeOverview = new([new(7, PlotSize.SmallStation,
+                    [new(190, -90), new(210, -90), new(210, -70), new(190, -70)])], []),
+                Update = positioned ? frame.Update : frame.Update with { Upserts = [] },
+                Poses = positioned ? frame.Poses : ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty
+                    .Add(target, new Lookup<ScenePose>.Missing())
+            };
+        }, async run =>
+        {
+            Require(positioned, "建筑截图必须先按模板地块编号移动流送焦点。");
+            await run.PrepareSubjectCameraAsync(96).WaitAsync(TimeSpan.FromSeconds(5));
+            Require(run.World!.View.CameraRig.Focus.DistanceTo(new(200.5f, 2.5f, -80)) < .001f,
+                "粗定位后必须继续用实际建筑网格确定取景中心。");
+        }, coreView: CreatureView(settlementBuilding: true));
+    }
+
+    [Test]
     public async Task Creature_capture_waits_for_local_terrain_before_caching_camera_bounds()
     {
         var ready = false;
@@ -451,14 +480,14 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
     }
 
     private async Task SampleCamera(WorldObjectId target, Func<SceneFrameRequest, ISceneFrame> frame,
-        Func<ArtCaptureRun, Task> inspect, LairAppearanceProjection? appearance = null)
+        Func<ArtCaptureRun, Task> inspect, LairAppearanceProjection? appearance = null, FixedCoreReadView? coreView = null)
     {
         var name = "capture-test-" + Guid.NewGuid().ToString("N");
         Directory.CreateDirectory(ProjectSettings.GlobalizePath("res://.godot/validation"));
         var save = Output(name) + ".json";
         File.WriteAllText(save, SaveContainer.Encode(new(new(SaveContainer.FormatVersion, Guid.NewGuid(),
             "engine capture input", DateTimeOffset.UnixEpoch, new(0, 0), []), "opaque", "opaque")));
-        var core = new ScriptedCoreSession(CreatureView());
+        var core = new ScriptedCoreSession(coreView ?? CreatureView());
         var factory = new FixedDisplayFactory
         {
             OpenWorldCall = (binding, _) => new SceneResult<IWorldSceneSession>.Success(new CaptureDisplaySession(new FixedDisplaySession
@@ -474,7 +503,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         };
         try
         {
-            await run.RestoreAsync(new(save, new WorldLocation.Node(new(1)), target, name));
+            await run.RestoreAsync(new(save, new WorldLocation.Node(new(1)), target, name)).WaitAsync(TimeSpan.FromSeconds(5));
             await inspect(run);
             Require(core.SubmitCount == 0 && core.CaptureCount == 0, "相机检查不能提交命令或捕获存档。");
         }
@@ -494,7 +523,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         public ValueTask DisposeAsync() => session.DisposeAsync();
     }
 
-    private static FixedCoreReadView CreatureView(bool empty = false, SimulationPosition position = default, bool buildingPresent = true, ulong buildingNode = 1)
+    private static FixedCoreReadView CreatureView(bool empty = false, SimulationPosition position = default, bool buildingPresent = true, ulong buildingNode = 1, bool settlementBuilding = false)
     {
         var terrain = new TerrainView(new("fixture:terrain"), 0, []);
         return new(position, HostCoreScenario.Input)
@@ -502,7 +531,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
             Nodes = new Dictionary<NodeId, Lookup<NodeView>>
             {
                 [new(1)] = new Lookup<NodeView>.Found(new(new(new(1), new(0, 0), terrain,
-                    new NodeOccupant.Lair(new(1)), [], 0, 0, null), [], 0, 0, 0))
+                    settlementBuilding ? new NodeOccupant.Settlement(new(1), SettlementRelation.NonHostile) : new NodeOccupant.Lair(new(1)), [], 0, 0, null), [], 0, 0, 0))
             },
             Edges = new Dictionary<EdgeId, Lookup<EdgeView>>
             {
@@ -517,6 +546,16 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
                         new InstanceDetails.Building(new(1), PlotSize.SmallStation), InstanceLock.None, new(100, 100), [], []))
                     : new Lookup<InstanceView>.Missing()
             },
+            Settlements = settlementBuilding ? new Dictionary<SettlementId, Lookup<SettlementView>>
+            {
+                [new(1)] = new Lookup<SettlementView>.Found(new(new(1), new(1), new("fixture:town"), null,
+                    SettlementRelation.NonHostile, new(1),
+                    [new(new(1), 7, PlotSize.SmallStation, [BuildingKind.Station], new PlotOccupant.Building(new(1)))],
+                    [], 0, 0, 0, [], [], [], new(0, 0, 0, 0),
+                    new(new(new("fixture:population"), null, []), 0, 0, 0, 0, new PopulationExecution.NotStarted([]), null, []),
+                    new(TargetPriority.ArmedFirst, TargetScope.All), 1, false, [], [], [],
+                    new(new(new("fixture:market"), null, []), new(0, 0, 0, 0, 0, 0, 0), [])))
+            } : new Dictionary<SettlementId, Lookup<SettlementView>>(),
             Lairs = new Dictionary<LairId, Lookup<LairView>>
             {
                 [new(1)] = new Lookup<LairView>.Found(new(new(1), new(1), new("fixture:lair"), [new(1)]))
