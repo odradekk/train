@@ -14,6 +14,13 @@ internal sealed record RenderedDesign(ImmutableArray<SceneObject> Objects,
 
 internal static class DesignGeometry
 {
+    internal static ImmutableArray<PartProjection> Parts(DesignEvaluation? evaluation) => evaluation switch
+    {
+        DesignEvaluation.Complete { Core: { } core } => core.Design.Parts,
+        DesignEvaluation.Partial partial => partial.KnownSubtotal.Parts,
+        _ => []
+    };
+
     internal static DesignSceneProjection Projection(DesignEvaluation evaluation) => evaluation switch
     {
         DesignEvaluation.Complete complete => complete.Scene,
@@ -126,7 +133,7 @@ internal static class DesignGeometry
             objects.Add(new(objectId, parent, pose, subject, visuals, [], effects));
             if (damage is null)
                 objects.AddRange(Lights(grid, objectId, subject, cell => id(key + ":light:" + cell.At)));
-            if (damage is not null)
+            else
                 foreach (var light in damage.Lights.Where(item => item.Path == key))
                     objects.Add(new(id(key + ":light:" + light.At), objectId,
                         new(new(light.At.X + .5f, light.At.Y + .5f, light.At.Z + .5f), Quaternion.Identity),

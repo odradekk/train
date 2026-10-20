@@ -16,6 +16,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
     private readonly Func<string, SceneObjectId> objectId;
     private readonly SceneVehicles buildings;
     private readonly SceneVehicles parked;
+    private readonly Dictionary<InstanceId, (BuiltGeometry Source, BuiltGeometry Smoking)> facilitySmoke = [];
     private readonly Dictionary<(VoxelDefinitionId Good, int Candidate), ScenePoint?> resourcePositions = [];
     private NodeLayout.LairPlacement? resourceLair;
     private readonly HashSet<InstanceId> retainedBuildings = [];
@@ -145,6 +146,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
         var placed = Select(BuildingPlacements(snapshot, layout), retainedBuildings,
             item => item.Instance.Id, item => item.Bounds, item => item.Pose, range, prefetch);
         buildings.Retain(placed.Select(item => item.Instance.Id));
+        foreach (var id in facilitySmoke.Keys.Where(id => !retainedBuildings.Contains(id)).ToArray()) facilitySmoke.Remove(id);
         foreach (var item in placed) buildings.Prepare(snapshot.Content, item.Instance, allowBuild);
         var vehicles = Select(ParkedPlacements(snapshot, layout), retainedParked,
             item => item.Instance.Id, item => item.Bounds, item => item.Pose, range, prefetch);
@@ -200,23 +202,31 @@ internal sealed class SettlementObjects : IAsyncDisposable
             var hasBody = body is not null;
             if (hasBody)
             {
-                var root = objects.Count;
-                Add(SceneGeometry.Place(WorldSceneSession.Attach(body!.Geometry, "building:" + buildingId.Value + ":", objectId).Geometry, pose));
+                var geometry = body!.Geometry;
                 if (Settlement(snapshot, layout)?.Facilities.Any(facility =>
                         facility.Key.Building == buildingId && facility.State == ProductionState.Running) == true &&
                     item.Bounds is { } occupied)
                 {
-                    while (objects[root].Parent is not null) root++;
-                    objects[root] = objects[root] with { Effects = objects[root].Effects.Add(new(PersistentEffectKind.FacilitySmoke,
-                        new((occupied.Minimum.X + occupied.Maximum.X) / 2f, occupied.Maximum.Y,
-                            (occupied.Minimum.Z + occupied.Maximum.Z) / 2f),
-                        .25f, StructureDamage.Seed(instance.Id, 0, default, 6))) };
+                    if (!facilitySmoke.TryGetValue(instance.Id, out var cached) || !ReferenceEquals(cached.Source, geometry))
+                        facilitySmoke[instance.Id] = cached = (geometry, geometry with
+                        {
+                            Geometry = geometry.Geometry with { Objects = geometry.Geometry.Objects.Select(source => source.Parent is not null ? source : source with
+                            {
+                                Effects = source.Effects.Add(new(PersistentEffectKind.FacilitySmoke,
+                                    new((occupied.Minimum.X + occupied.Maximum.X) / 2f, occupied.Maximum.Y,
+                                        (occupied.Minimum.Z + occupied.Maximum.Z) / 2f),
+                                    .25f, StructureDamage.Seed(instance.Id, 0, default, 6)))
+                            }).ToImmutableArray() }
+                        });
+                    geometry = cached.Smoking;
                 }
+                else facilitySmoke.Remove(instance.Id);
+                Add(SceneGeometry.Place(WorldSceneSession.Attach(geometry, "building:" + buildingId.Value + ":", objectId).Geometry, pose));
                 presentation?.ApplyTurrets(objects, instance, "building:" + buildingId.Value + ":", findId, seconds, snapshot, origin);
             }
-            else objects.Add(new(objectId("building:" + buildingId.Value + ":"), null, pose, new WorldObjectId.Instance(instance.Id), [], [], []));
-            if (!hasBody)
+            else
             {
+                objects.Add(new(objectId("building:" + buildingId.Value + ":"), null, pose, new WorldObjectId.Instance(instance.Id), [], [], []));
                 if (snapshot.Content.FindDesign(instance.Design) is ContentLookup<DesignEvaluation>.Found evaluation &&
                     evaluation.Value is not DesignEvaluation.Failed && DesignGeometry.Projection(evaluation.Value).OccupiedBounds is { } bounds)
                     fog.Add(new(new(new(bounds.Minimum.X, bounds.Minimum.Y, bounds.Minimum.Z),
@@ -299,12 +309,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
                     Instance(snapshot.Core, new InstanceId.Building(building.Id), cacheProjections) is not Lookup<InstanceView>.Found instance ||
                     snapshot.Content.FindDesign(instance.Value.Design) is not ContentLookup<DesignEvaluation>.Found found ||
                     found.Value is DesignEvaluation.Failed || instance.Value.Structure.EffectiveCurrent <= 0) continue;
-                var parts = found.Value switch
-                {
-                    DesignEvaluation.Complete { Core: { } core } => core.Design.Parts,
-                    DesignEvaluation.Partial partial => partial.KnownSubtotal.Parts,
-                    _ => []
-                };
+                var parts = DesignGeometry.Parts(found.Value);
                 var scene = DesignGeometry.Projection(found.Value);
                 var destroyed = WorldSceneSession.Destroyed(instance.Value);
                 foreach (var part in parts.Where(part => !part.Missing && !destroyed.Contains(part.Id) &&
@@ -319,14 +324,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
                         localZ = voxel.At.Z;
                     else if (scene.NestedObjects.FirstOrDefault(item => item.Details is NestedObjectDetails.FunctionalComposite composite && composite.Number == part.Id) is { } nested)
                     {
-                        var pose = new ScenePose(Vector3.Zero, Quaternion.Identity);
-                        for (var depth = 1; depth <= nested.NestedItemIndices.Length; depth++)
-                        {
-                            var path = nested.NestedItemIndices.Take(depth);
-                            var parent = scene.NestedObjects.First(item => item.NestedItemIndices.SequenceEqual(path));
-                            pose = SceneGeometry.Compose(pose, SceneGeometry.Placement(parent.At, parent.Orientation));
-                        }
-                        localZ = pose.Position.Z;
+                        localZ = SceneGeometry.NestedPose(scene, nested.NestedItemIndices).Position.Z;
                     }
                     if (localZ is null) continue;
                     var stop = layout.Stops.Where(stop => stop.PlotNumber == plot.TemplatePlotNumber)

@@ -253,6 +253,58 @@ public sealed class CombatFrameTests
     }
 
     [TestMethod]
+    public void LeakPrefersAnyClearBottomThenTheFirstExposedSideAndStopsWhenEnclosed()
+    {
+        var low = SceneFixtures.Cell(new(0, 1, 0), 1);
+        var high = SceneFixtures.Cell(new(2, 2, 0), 1);
+        var floor = SceneFixtures.Cell(new(0, 0, 0), 2);
+        var body = RailwayFixtures.Instance() with { Parts = [new(new(1), new(40, 100), false, false)] };
+        var evaluation = NodeFixtures.StationEvaluation();
+        evaluation = evaluation with { Core = evaluation.Core! with { Design = evaluation.Core.Design with
+        { Parts = [evaluation.Core.Design.Parts[0] with { Id = new(1), Capabilities = [new PartCapability.Power(1)] }] } } };
+        StructureDamage.Report Assess(params SceneVoxelProjection[] cells)
+        {
+            var projection = SceneFixtures.Projection(cells.ToImmutableArray()) with { Elements = [Element(low, true)] };
+            return StructureDamage.Assess(body, projection, SceneFixtures.Content(evaluation with { Scene = projection }, body.Design));
+        }
+        Assert.AreEqual(new Vector3(2.5f, 2, .5f), Assess(high, floor, low).Effects
+            .Single(item => item.Effect.Kind == PersistentEffectKind.Leak).Effect.LocalPosition);
+        var blocked = new[] { high, floor, low, SceneFixtures.Cell(new(2, 1, 0), 2) };
+        var side = Assess(blocked).Effects.Single(item => item.Effect.Kind == PersistentEffectKind.Leak);
+        Assert.AreEqual(new Vector3(0, 1.5f, .5f), side.Effect.LocalPosition);
+        Assert.AreEqual(.6f, side.Effect.Strength);
+        var enclosed = blocked.Concat(new[] { low, high }.SelectMany(cell => new[]
+        {
+            cell.At with { X = cell.At.X - 1 }, cell.At with { X = cell.At.X + 1 },
+            cell.At with { Z = cell.At.Z - 1 }, cell.At with { Z = cell.At.Z + 1 },
+            cell.At with { Y = cell.At.Y + 1 }
+        }).Select(at => SceneFixtures.Cell(at, 2))).ToArray();
+        var sealedReport = Assess(enclosed);
+        Assert.IsFalse(sealedReport.Effects.Any(item => item.Effect.Kind == PersistentEffectKind.Leak));
+        Assert.AreEqual(1, sealedReport.Effects.Count(item => item.Effect.Kind == PersistentEffectKind.Sparks));
+    }
+
+    [TestMethod]
+    public void RemovedStructuralFloorDoesNotBlockTheLeak()
+    {
+        var power = SceneFixtures.Cell(new(0, 1, 0), 1);
+        var cells = Enumerable.Range(0, 5).Select(x => SceneFixtures.Cell(new(x, 0, 0), 2)).Append(power).ToImmutableArray();
+        var body = RailwayFixtures.Instance() with { Structure = new(0, 100), Parts = [new(new(1), new(50, 100), false, false)] };
+        var evaluation = NodeFixtures.StationEvaluation();
+        evaluation = evaluation with { Core = evaluation.Core! with { Design = evaluation.Core.Design with
+        { Parts = [evaluation.Core.Design.Parts[0] with { Id = new(1), Capabilities = [new PartCapability.Power(1)] }] } } };
+        var projection = SceneFixtures.Projection(cells) with { Elements = [Element(power, true)] };
+        var content = SceneFixtures.Content(evaluation with { Scene = projection }, body.Design);
+        var removed = StructureDamage.Assess(body, projection, content).Removed.First().At;
+        power = power with { At = removed with { Y = 1 }, LocalAt = removed with { Y = 1 } };
+        projection = projection with { Voxels = cells.SetItem(cells.Length - 1, power) };
+        var report = StructureDamage.Assess(body, projection, content);
+        Assert.IsTrue(report.Removed.Any(cell => cell.At == removed));
+        Assert.AreEqual(new Vector3(removed.X + .5f, 1, removed.Z + .5f), report.Effects
+            .Single(item => item.Effect.Kind == PersistentEffectKind.Leak).Effect.LocalPosition);
+    }
+
+    [TestMethod]
     public async Task TwoFreshSessionsBuildTheSameVerticesForTheSameDurability()
     {
         var evaluation = RailwayFixtures.Vehicle(cells: Enumerable.Range(0, 6).Select(i => new GridPosition(i, 0, 0)).ToImmutableArray());

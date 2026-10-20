@@ -186,6 +186,17 @@ internal sealed class VoxelGrid
 
 internal static class SceneGeometry
 {
+    internal static ScenePose NestedPose(DesignSceneProjection projection, ImmutableArray<int> path)
+    {
+        var pose = new ScenePose(Vector3.Zero, Quaternion.Identity);
+        for (var depth = 1; depth <= path.Length; depth++)
+        {
+            var nested = projection.NestedObjects.First(item => item.NestedItemIndices.SequenceEqual(path.Take(depth)));
+            pose = Compose(pose, Placement(nested.At, nested.Orientation));
+        }
+        return pose;
+    }
+
     private static readonly (Vector3 Right, Vector3 Up, Vector3 Forward)[] OrientationAxes =
         Enum.GetValues<VoxelOrientation>().Select(CreateAxes).ToArray();
 

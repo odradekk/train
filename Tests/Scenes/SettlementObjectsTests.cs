@@ -36,6 +36,13 @@ public sealed class SettlementObjectsTests
         Assert.AreEqual(.25f, smoke.Strength);
         Assert.AreEqual(1, rendered.Objects.SelectMany(item => item.Effects).Count(item => item.Kind == PersistentEffectKind.FacilitySmoke));
         Assert.IsTrue(root.Effects.Any(item => item.Kind == PersistentEffectKind.Smoke));
+        var unchanged = Present(objects, snapshot, layout);
+        var stamp = new SceneFrameStamp(new(Guid.NewGuid()), new(1), new(1), 1);
+        var before = new SceneFrame(stamp, default, 0, SceneReadiness.Ready, rendered.Objects, rendered.Picking, [], []);
+        var after = new SceneFrame(stamp with { Revision = 2 }, default, 0, SceneReadiness.Ready,
+            unchanged.Objects, unchanged.Picking, [], [], before);
+        Assert.IsFalse(after.Update.Upserts.Any(item => item.Subject == new WorldObjectId.Instance(station.Id)),
+            "同一运行状态的建筑不能因设施烟效果数组改变而每帧重新提交。");
         await using var reopened = new SettlementObjects(StableIds());
         Assert.AreEqual(smoke, (await Settle(reopened, snapshot, layout)).Objects.SelectMany(item => item.Effects)
             .Single(item => item.Kind == PersistentEffectKind.FacilitySmoke));
