@@ -1,0 +1,371 @@
+{
+  "format_version": 1,
+  "generation_profile": "core:basic-through-world",
+  "seed": 40,
+  "generator_version": "stage1-world-v1",
+  "save": {
+    "id": "837ba744-06ec-4dd1-8e8c-00097eb1d4c2",
+    "name": "清剿",
+    "saved_at": "2026-10-20T00:00:00Z"
+  },
+  "commands": [
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 0
+      },
+      "kind": "market.buy_vehicle",
+      "seller": 6,
+      "vehicle": 16,
+      "maximum_payment": 9223372036854775807
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 1
+      },
+      "kind": "train.disband",
+      "train": 1
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 2
+      },
+      "kind": "train.disband",
+      "train": 2
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 3
+      },
+      "kind": "train.form",
+      "ordered_vehicles": [
+        1,
+        2,
+        3,
+        4,
+        6,
+        7,
+        8,
+        16,
+        5
+      ]
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 4
+      },
+      "kind": "train.replace_run_plan",
+      "train": 3,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 12,
+            "dwell_steps": 1200,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:fuel"
+                },
+                "local_inventory": 4,
+                "target_quantity": 64
+              }
+            ]
+          },
+          {
+            "kind": "station",
+            "node": 13,
+            "dwell_steps": 900000,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "sell",
+                  "minimum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:fuel"
+                },
+                "local_inventory": 5,
+                "target_quantity": 0
+              },
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:construction-material"
+                },
+                "local_inventory": 5,
+                "target_quantity": 2108
+              },
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:platform-equipment"
+                },
+                "local_inventory": 5,
+                "target_quantity": 2
+              },
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:construction-equipment"
+                },
+                "local_inventory": 5,
+                "target_quantity": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 5
+      },
+      "kind": "train.start",
+      "train": 3
+    },
+    {
+      "at": {
+        "completed_steps": 517500,
+        "sequence": 0
+      },
+      "kind": "train.replace_run_plan",
+      "train": 3,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 11,
+            "dwell_steps": 3000,
+            "goods_rules": []
+          }
+        ]
+      }
+    },
+    {
+      "at": {
+        "completed_steps": 517500,
+        "sequence": 1
+      },
+      "kind": "train.start",
+      "train": 3
+    },
+    {
+      "at": {
+        "completed_steps": 524100,
+        "sequence": 0
+      },
+      "kind": "settlement.found",
+      "node": 11,
+      "material_source": 3
+    },
+    {
+      "at": {
+        "completed_steps": 524100,
+        "sequence": 1
+      },
+      "kind": "train.replace_run_plan",
+      "train": 3,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 13,
+            "dwell_steps": 500000,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:construction-material"
+                },
+                "local_inventory": 5,
+                "target_quantity": 412
+              },
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:storage-equipment"
+                },
+                "local_inventory": 5,
+                "target_quantity": 96
+              },
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:rail"
+                },
+                "local_inventory": 5,
+                "target_quantity": 278
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "at": {
+        "completed_steps": 524100,
+        "sequence": 2
+      },
+      "kind": "train.start",
+      "train": 3
+    },
+    {
+      "at": {
+        "completed_steps": 702900,
+        "sequence": 0
+      },
+      "kind": "train.replace_run_plan",
+      "train": 3,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 11,
+            "dwell_steps": 1500000,
+            "goods_rules": []
+          }
+        ]
+      }
+    },
+    {
+      "at": {
+        "completed_steps": 702900,
+        "sequence": 1
+      },
+      "kind": "train.start",
+      "train": 3
+    },
+    {
+      "at": {
+        "completed_steps": 709500,
+        "sequence": 0
+      },
+      "kind": "construction.start_owned",
+      "request": {
+        "kind": "build_building",
+        "facility": {
+          "building": 44,
+          "capability": "construction"
+        },
+        "plot": 70,
+        "blueprint": "core:small-warehouse",
+        "sources": [
+          9
+        ],
+        "priority": 0
+      }
+    },
+    {
+      "at": {
+        "completed_steps": 953400,
+        "sequence": 0
+      },
+      "kind": "inventory.unload_goods",
+      "train": 3,
+      "settlement": 7,
+      "local_inventory": 10,
+      "good": {
+        "kind": "voxel",
+        "definition": "core:rail"
+      },
+      "quantity": 278
+    },
+    {
+      "at": {
+        "completed_steps": 953400,
+        "sequence": 1
+      },
+      "kind": "rail.expand",
+      "edge": 1,
+      "material_source": 7
+    },
+    {
+      "at": {
+        "completed_steps": 1026000,
+        "sequence": 0
+      },
+      "kind": "engagement.set_train",
+      "train": 3,
+      "rules": {
+        "priority": "armed_first",
+        "scope": "armed_only",
+        "encounter": "engage",
+        "retreat_structure_ratio": 0
+      }
+    },
+    {
+      "at": {
+        "completed_steps": 1026000,
+        "sequence": 1
+      },
+      "kind": "train.replace_run_plan",
+      "train": 3,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 1,
+            "dwell_steps": 80000,
+            "goods_rules": []
+          }
+        ]
+      }
+    },
+    {
+      "at": {
+        "completed_steps": 1026000,
+        "sequence": 2
+      },
+      "kind": "train.start",
+      "train": 3
+    }
+  ],
+  "checkpoint_steps": [
+    1043200
+  ],
+  "target": {
+    "completed_steps": 1045000,
+    "sequence": 0
+  }
+}
