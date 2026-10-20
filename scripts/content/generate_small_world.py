@@ -1238,34 +1238,52 @@ def creature_blueprints():
 
 
 def lair_scene_models():
-    for identity, name, radius, height, door_half, door_height, ribs in (
-        ("lair-nest", "巢穴", 6, 9, 3, 4, (-3, 0, 3)),
-        ("lair-hive", "大型巢群", 9, 12, 5, 8, (-4, 0, 4)),
-    ):
-        cells = {(x, 0, z): 0 for x in range(-radius, radius + 1)
-                 for z in range(-radius, radius + 1) if x * x + z * z <= radius * radius}
-        opening = {y: door_half if y <= door_height else
-                   door_half - ceil((y - door_height) * (door_half + 1) / (height - door_height - 1))
-                   for y in range(1, height)}
-        for y in range(1, height):
-            for x in range(-radius, radius + 1):
-                for z in range(-radius, radius + 1):
-                    shell = x * x + z * z <= (radius - .5) ** 2 * (1 - ((y - 1) / height) ** 2)
-                    doorway = abs(x) <= opening[y] and z >= -radius + 2
-                    if shell and not doorway:
-                        cells[(x, y, z)] = 2 if z == -radius + 1 and abs(x) <= door_half else 1
-        for z in ribs:
-            previous = door_half + 1
-            for y, half in opening.items():
+    def entrance(cells, opening, back, front):
+        for y, half in enumerate(opening, 1):
+            for x in range(-half, half + 1):
+                for z in range(back + 1, front + 1):
+                    cells.pop((x, y, z), None)
+                cells[(x, y, back)] = 2
+        for z in range(back + 1, front):
+            previous = opening[0] + 1
+            for y, half in enumerate(opening, 1):
                 edge = half + 1
                 for x in range(edge, previous + 1):
                     cells[(x, y, z)] = 3
                     cells[(-x, y, z)] = 3
                 previous = edge
-        cells[(0, height - 2, ribs[-1])] = 4
-        model = blueprint(identity, name, "scene_model", ["subsoil", *CREATURE_COLORS], cells)
-        model["display"]["description"] = "土层托起高耸甲壳，分段骨肋沿入口向上收拢，宽阔洞口深处露出暗红组织和一处微光。"
-        yield model
+
+    nest = {(x, 0, z): 0 for x in range(-6, 7) for z in range(-6, 7) if x * x + z * z <= 36}
+    for y, radius in enumerate((5.4, 5.4, 5.3, 5.0, 4.6, 4.0, 3.0, 1.5), 1):
+        for x in range(-6, 7):
+            for z in range(-6, 7):
+                if x * x + z * z <= 36 and x * x + (z + 1) ** 2 <= radius * radius:
+                    nest[(x, y, z)] = 1
+    entrance(nest, (3, 3, 3, 3, 2, 1, 0, -1), 0, 4)
+    nest[(0, 3, 0)] = 4
+    model = blueprint("lair-nest", "巢穴", "scene_model", ["subsoil", *CREATURE_COLORS], nest)
+    model["display"]["description"] = "低宽的封闭甲壳丘覆在土层上，带肋骨拱收拢成洞口，短洞尽头的暗红软组织中透出一处微光。"
+    yield model
+
+    hive = {(x, 0, z): 0 for x in range(-9, 10) for z in range(-9, 10) if x * x + z * z <= 81}
+    for y, (width, depth) in enumerate(((5.8, 5.2), (6.3, 5.2), (6.6, 5.2), (6.6, 5.2),
+                                       (6.6, 5.2), (6.5, 5.2), (6.4, 5.2), (6.2, 5.2),
+                                       (5.6, 3.8), (4.0, 2.8), (1.5, 1.2)), 1):
+        for x in range(-9, 10):
+            for z in range(-9, 10):
+                if x * x + z * z <= 81 and (x / width) ** 2 + ((z - 1) / depth) ** 2 <= 1:
+                    hive[(x, y, z)] = 1
+    for center in (-6, 6):
+        for y, radius in enumerate((2.4, 2.8, 2.7, 2.4, 1.8, .9), 1):
+            for x in range(center - 3, center + 4):
+                for z in range(-6, 1):
+                    if x * x + z * z <= 81 and (x - center) ** 2 + (z + 3) ** 2 <= radius * radius:
+                        hive[(x, y, z)] = 1
+    entrance(hive, (5, 5, 5, 5, 5, 5, 5, 5, 3, 1, -1), 1, 5)
+    hive[(0, 6, 1)] = 4
+    model = blueprint("lair-hive", "大型巢群", "scene_model", ["subsoil", *CREATURE_COLORS], hive)
+    model["display"]["description"] = "中央高囊连着两侧低矮甲壳囊，高骨拱沿中央囊向上收窄，短洞尽头由暗红软组织封住，内侧亮着一处发光组织。"
+    yield model
 
 
 def lair_types():
