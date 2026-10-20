@@ -436,6 +436,89 @@ public sealed class CreatureBehaviorTests
     }
 
     [TestMethod]
+    [DataRow("settlement")]
+    [DataRow("railway")]
+    public void Enroute_settlement_fight_retreats_when_the_raid_duration_elapses(string objectiveKind)
+    {
+        var baseline = CombatWorld;
+        var content = Tune(baseline.Content, 10, 0, 1, 2 * Tick, new PartCapability.Weapon(1, 1), maximum: 1);
+        var world = StopTrains(baseline.World);
+        var settlement = Friendly(world);
+        world = PlayerOwned(world, settlement.Id);
+        var target = world.Settlements.Where(item => item.Id != settlement.Id).OrderBy(item => item.Id.Value).First();
+        world = PlayerOwned(world, target.Id);
+        var (withLair, lair) = AddLair(world, EmptyNode(world, settlement.Node, target.Node), content.LairTypes[0].Id);
+        world = PlaceTrain(withLair, new(EmptyNode(withLair, settlement.Node, target.Node), null, null, null, null,
+            NodeTravelPhase.Waiting, 0, null), TrainActivity.Stopped, 0, null);
+        var edge = world.Edges.First(item => item.LengthMeters > 2);
+        var railway = objectiveKind == "railway";
+        world = WithPacks(world, Pack(1, lair.Id, new WorldLocation.Node(settlement.Node), null,
+            railway ? CreatureActivity.RaidingRailway : CreatureActivity.RaidingSettlement, 0,
+            railway ? new CreatureObjective.Railway(edge.Id, 1) : new CreatureObjective.Settlement(target.Node),
+            Creature(1, "fixture:creature-a", 10)));
+        using var session = Open(baseline, world, content);
+
+        Step(session);
+        Assert.AreEqual(CreatureActivity.Combat, Group(session, 1).Activity);
+        Assert.IsTrue(((CoreSession)session).State.World.Combats.Single().Controllers.Any(controller =>
+            controller.Controller is CombatController.Settlement));
+        Step(session);
+        Assert.AreEqual(CreatureActivity.Combat, Group(session, 1).Activity);
+        var result = Step(session);
+        Assert.AreEqual(CreatureActivity.Retreating, Group(session, 1).Activity);
+        Assert.IsNull(State(session, 1).Objective);
+        Assert.IsTrue(result.Events.Select(envelope => envelope.Event).OfType<CoreEvent.CombatRetreatStarted>().Any());
+    }
+
+    [TestMethod]
+    public void Target_settlement_fight_keeps_the_arrival_clock()
+    {
+        var baseline = CombatWorld;
+        var content = Tune(baseline.Content, 10, 0, 1, 3 * Tick, new PartCapability.Weapon(1, 1), maximum: 1);
+        var world = StopTrains(baseline.World);
+        var settlement = Friendly(world);
+        world = PlayerOwned(world, settlement.Id);
+        var (withLair, lair) = AddLair(world, EmptyNode(world, settlement.Node), content.LairTypes[0].Id);
+        world = PlaceTrain(withLair, new(EmptyNode(withLair, settlement.Node), null, null, null, null,
+            NodeTravelPhase.Waiting, 0, null), TrainActivity.Stopped, 0, null);
+        world = WithPacks(world, Pack(1, lair.Id, new WorldLocation.Node(settlement.Node), null,
+            CreatureActivity.RaidingSettlement, 0, new CreatureObjective.Settlement(settlement.Node),
+            Creature(1, "fixture:creature-a", 10)));
+        using var session = Open(baseline, world, content);
+
+        Step(session);
+        Assert.AreEqual(CreatureActivity.Combat, Group(session, 1).Activity);
+        Step(session);
+        Assert.AreEqual(CreatureActivity.Combat, Group(session, 1).Activity);
+        Step(session);
+        Assert.AreEqual(CreatureActivity.Retreating, Group(session, 1).Activity);
+    }
+
+    [TestMethod]
+    public void Train_only_fight_does_not_use_the_settlement_duration_cap()
+    {
+        var baseline = CombatWorld;
+        var content = Tune(baseline.Content, 10, 0, 1, 2 * Tick, new PartCapability.Weapon(1, 1), maximum: 1);
+        var world = StopTrains(baseline.World);
+        var target = Friendly(world);
+        world = PlayerOwned(world, target.Id);
+        var fight = EmptyNode(world, target.Node);
+        var (withLair, lair) = AddLair(world, EmptyNode(world, target.Node, fight), content.LairTypes[0].Id);
+        var engagement = new TrainEngagementRules(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0);
+        world = PlaceTrain(withLair, new(fight, null, null, null, null, NodeTravelPhase.Waiting, 0, null),
+            TrainActivity.Stopped, 0, null, engagement);
+        world = WithPacks(world, Pack(1, lair.Id, new WorldLocation.Node(fight), null,
+            CreatureActivity.RaidingSettlement, 0, new CreatureObjective.Settlement(target.Node),
+            Creature(1, "fixture:creature-a", 10)));
+        using var session = Open(baseline, world, content);
+
+        for (var step = 0; step < 5; step++) Step(session);
+        Assert.AreEqual(CreatureActivity.Combat, Group(session, 1).Activity);
+        Assert.IsFalse(((CoreSession)session).State.World.Combats.Single().Controllers.Any(controller =>
+            controller.Controller is CombatController.Settlement));
+    }
+
+    [TestMethod]
     public void Focus_fire_overrides_armed_first_on_the_following_step()
     {
         var baseline = CombatWorld;
