@@ -83,6 +83,38 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public async Task Fixed_capture_does_not_wait_for_fog_around_a_subject_that_moves_out_of_view()
+    {
+        var moved = false;
+        var viewFogged = true;
+        var distantFog = new SceneBounds(new(490, -128, -10), new(510, 128, 10));
+        var viewFog = new SceneBounds(new(-2, -128, -2), new(2, 128, 2));
+        await SampleCamera(new WorldObjectId.CreatureGroup(new(1)), _ => CameraFrame(
+            moved ? new(500, 0, 0) : System.Numerics.Vector3.Zero, default,
+            moved ? viewFogged ? [distantFog, viewFog] : [distantFog] : []), async run =>
+        {
+            await run.PrepareSubjectCameraAsync(96);
+            var camera = run.World!.View.CameraRig;
+            var focus = camera.Focus;
+            var position = camera.Camera.Position;
+            var previous = run.World.Display!.DisplayedFrame!.Update.Frame;
+            moved = true;
+            await run.DisplayAsync(after: previous).WaitAsync(TimeSpan.FromSeconds(5));
+            run.PlaceCamera("follow", 0, 96);
+            Require(camera.Focus.DistanceTo(focus) < .001f && camera.Camera.Position.DistanceTo(position) < .001f,
+                "主体移出取景后，相机必须保持初始取景。");
+            var waiting = run.DisplayAsync(allowMissing: true, includeCamera: true);
+            Require(!waiting.IsCompleted, "主体移远后，缓存取景区内的雾仍必须阻止截图。");
+            viewFogged = false;
+            await waiting.WaitAsync(TimeSpan.FromSeconds(5));
+            var frame = run.World.Display.DisplayedFrame!;
+            Require(frame.Update.Environment.FoggedRegions.Contains(distantFog) &&
+                frame.FindPose(new WorldObjectId.Creature(new(1))) is Lookup<ScenePose>.Found { Value.Position.X: 500 },
+                "远处主体和常驻雾必须保留，完成等待不能依赖将它们隐藏。");
+        });
+    }
+
+    [Test]
     public async Task Building_outside_the_initial_view_is_loaded_from_its_overview_plot()
     {
         var target = new WorldObjectId.Instance(new InstanceId.Building(new(1)));

@@ -187,13 +187,19 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
     private bool CaptureAreaReady(ISceneFrame frame)
     {
         if (frame.Update.Environment.FoggedRegions.IsEmpty) return true;
-        var area = SubjectBounds();
+        var area = _input!.Target is WorldObjectId.Train ? SubjectBounds() : _subjectBounds;
+        var origin = World!.Display!.PoseFrame!.Origin;
+        if (_input.Target is not WorldObjectId.Train && area is { } cached)
+        {
+            cached.Position += new Vector3((float)(_subjectOrigin.X - origin.X),
+                (float)(_subjectOrigin.Y - origin.Y), (float)(_subjectOrigin.Z - origin.Z));
+            area = cached;
+        }
         var position = World!.View.CameraRig.Camera.GlobalPosition;
         var box = area is { } bounds ? bounds.Expand(position) : new Aabb(position, Vector3.Zero);
-        var origin = World.Display!.PoseFrame!.Origin;
         box.Position += new Vector3((float)(origin.X - frame.Origin.X),
             (float)(origin.Y - frame.Origin.Y), (float)(origin.Z - frame.Origin.Z));
-        // Ready 允许地形仍在生成；只等待会遮住本次对象和相机之间区域的灰色生成遮罩。
+        // Ready 允许地形仍在生成；只等待会遮住本次取景和相机之间区域的灰色生成遮罩。
         return !frame.Update.Environment.FoggedRegions.Any(fog =>
             box.Position.X < fog.Maximum.X && box.End.X > fog.Minimum.X &&
             box.Position.Z < fog.Maximum.Z && box.End.Z > fog.Minimum.Z);
