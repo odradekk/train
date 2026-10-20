@@ -1266,8 +1266,8 @@ def lair_scene_models():
     yield model
 
     hive = {(x, 0, z): 0 for x in range(-9, 10) for z in range(-9, 10) if x * x + z * z <= 81}
-    for y, (width, depth) in enumerate(((5.8, 5.2), (6.3, 5.2), (6.6, 5.2), (6.6, 5.2),
-                                       (6.6, 5.2), (6.5, 5.2), (6.4, 5.2), (6.2, 5.2),
+    for y, (width, depth) in enumerate(((5.8, 4.2), (6.3, 4.2), (6.6, 4.2), (6.6, 4.2),
+                                       (6.6, 4.2), (6.5, 4.2), (6.4, 4.2), (6.2, 4.2),
                                        (5.6, 3.8), (4.0, 2.8), (1.5, 1.2)), 1):
         for x in range(-9, 10):
             for z in range(-9, 10):
