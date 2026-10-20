@@ -33,10 +33,15 @@ public partial class ProductionNodeCapture : Node
         void Observe()
         {
             if (run.World?.Display is not { DisplayedFrame: { } frame } display) return;
+            var view = run.Host!.GetStatus()!.View;
             frames.WriteLine(JsonSerializer.Serialize(new
             {
-                draw = Godot.Engine.GetFramesDrawn(), position = run.Host!.GetStatus()!.View.Position,
+                draw = Godot.Engine.GetFramesDrawn(), position = view.Position,
                 frame = frame.Update.Frame, displaySeconds = frame.SimulationSeconds,
+                effects = frame.Update.Effects.Select(effect => new
+                {
+                    effect.Id, kind = effect.Kind.ToString(), subject = effect.Subject?.ToString(), effect.StartedAtSimulationSeconds
+                }),
                 visibleEffects = display.Root.GetNodeOrNull("CombatEffects")?.GetChildren()
                     .ToDictionary(child => child.Name.ToString(), child => child.GetChildCount()),
                 persistentEffects = display.Objects.Values.SelectMany(item => item.Root.GetChildren().OfType<MeshInstance3D>())
@@ -48,11 +53,18 @@ public partial class ProductionNodeCapture : Node
                     lights = item.Source.Lights, energy = item.Root.GetChildren().OfType<OmniLight3D>().Select(light => light.LightEnergy)
                 }),
                 targetInstance = input.Target is WorldObjectId.Instance instance &&
-                    run.Host!.GetStatus()!.View.FindInstance(instance.Id) is Lookup<InstanceView>.Found found ? new
+                    view.FindInstance(instance.Id) is Lookup<InstanceView>.Found found ? new
                     {
                         found.Value.Structure, damagedParts = found.Value.Parts.Where(part => part.Destroyed ||
                             part.Durability.EffectiveCurrent < part.Durability.Maximum)
-                    } : null
+                    } : null,
+                targetGroup = input.Target is WorldObjectId.CreatureGroup group &&
+                    view.FindCreatureGroup(group.Id) is Lookup<CreatureGroupView>.Found foundGroup
+                    ? foundGroup.Value.Creatures.Select(creature => new { creature.Id, creature.Health, creature.MaximumHealth }) : null,
+                facilities = input.Location is WorldLocation.Node node &&
+                    view.FindNode(node.Id) is Lookup<NodeView>.Found { Value.Map.Occupant: NodeOccupant.Settlement settlement } &&
+                    view.FindSettlement(settlement.Id) is Lookup<SettlementView>.Found foundSettlement
+                    ? foundSettlement.Value.Facilities.Select(facility => new { facility.Key, state = facility.State.ToString() }) : null
             }));
         }
         RenderingServer.FramePostDraw += Observe;

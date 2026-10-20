@@ -98,6 +98,7 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
             commit, inputSaveHash = _saveHash, scene, train = (input.Target as WorldObjectId.Train)?.Id.Value,
             lair = (input.Target as WorldObjectId.Lair)?.Id.Value, group = (input.Target as WorldObjectId.CreatureGroup)?.Id.Value,
             building = (input.Target as WorldObjectId.Instance)?.Id is InstanceId.Building building ? (ulong?)building.Id.Value : null,
+            vehicle = (input.Target as WorldObjectId.Instance)?.Id is InstanceId.Vehicle vehicle ? (ulong?)vehicle.Id.Value : null,
             motionSteps = input.MotionSteps,
             viewportSize = new[] { owner.GetViewport().GetTexture().GetWidth(), owner.GetViewport().GetTexture().GetHeight() },
             images = _images

@@ -7,15 +7,15 @@ internal sealed record CaptureInput(string SavePath, WorldLocation Location, Wor
 {
     internal static CaptureInput Parse(IReadOnlyList<string> arguments)
     {
-        const string usage = "用法：--capture-save <存档> --capture-location edge:<ID>|node:<ID> --capture-train <ID>|--capture-lair <ID>|--capture-group <ID>|--capture-building <ID> --capture-name <名称> [--capture-motion-steps <正整数>]";
+        const string usage = "用法：--capture-save <存档> --capture-location edge:<ID>|node:<ID> --capture-train <ID>|--capture-lair <ID>|--capture-group <ID>|--capture-building <ID>|--capture-vehicle <ID> --capture-name <名称> [--capture-motion-steps <正整数>]";
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
         for (var i = 0; i < arguments.Count; i += 2)
         {
             if (i + 1 >= arguments.Count || arguments[i] is not
-                ("--capture-save" or "--capture-location" or "--capture-train" or "--capture-lair" or "--capture-group" or "--capture-building" or "--capture-name" or "--capture-motion-steps") ||
+                ("--capture-save" or "--capture-location" or "--capture-train" or "--capture-lair" or "--capture-group" or "--capture-building" or "--capture-vehicle" or "--capture-name" or "--capture-motion-steps") ||
                 !values.TryAdd(arguments[i], arguments[i + 1])) throw new ArgumentException(usage);
         }
-        var targets = new[] { "--capture-train", "--capture-lair", "--capture-group", "--capture-building" }.Where(values.ContainsKey).ToArray();
+        var targets = new[] { "--capture-train", "--capture-lair", "--capture-group", "--capture-building", "--capture-vehicle" }.Where(values.ContainsKey).ToArray();
         if (targets.Length != 1 || !values.ContainsKey("--capture-save") ||
             !values.ContainsKey("--capture-location") || !values.ContainsKey("--capture-name")) throw new ArgumentException(usage);
         var scene = values["--capture-location"].Split(':');
@@ -37,6 +37,7 @@ internal sealed record CaptureInput(string SavePath, WorldLocation Location, Wor
                 "--capture-train" => new WorldObjectId.Train(new(target)),
                 "--capture-lair" => new WorldObjectId.Lair(new(target)),
                 "--capture-building" => new WorldObjectId.Instance(new InstanceId.Building(new(target))),
+                "--capture-vehicle" => new WorldObjectId.Instance(new InstanceId.Vehicle(new(target))),
                 _ => new WorldObjectId.CreatureGroup(new(target))
             }, name, motionSteps);
     }
@@ -50,12 +51,12 @@ internal sealed record CaptureInput(string SavePath, WorldLocation Location, Wor
                 _ => false
             }))
             throw new InvalidDataException("指定场景不存在。");
-        if (Target is WorldObjectId.Instance { Id: InstanceId.Building building })
+        if (Target is WorldObjectId.Instance(var instance))
         {
-            if (core.FindInstance(building) is not Lookup<InstanceView>.Found foundBuilding)
-                throw new InvalidDataException("指定建筑不存在。");
-            if (Location is not WorldLocation.Node at || foundBuilding.Value.Location is not WorldLocation.Node buildingAt || at.Id != buildingAt.Id)
-                throw new InvalidDataException("建筑不在指定节点场景。");
+            if (core.FindInstance(instance) is not Lookup<InstanceView>.Found foundInstance)
+                throw new InvalidDataException("指定实例不存在。");
+            if (!SameScene(Location, foundInstance.Value.Location))
+                throw new InvalidDataException("实例不在指定场景。");
             return [Target];
         }
         if (Target is WorldObjectId.Lair(var lair))
@@ -70,13 +71,7 @@ internal sealed record CaptureInput(string SavePath, WorldLocation Location, Wor
         {
             if (core.FindCreatureGroup(group) is not Lookup<CreatureGroupView>.Found foundGroup || foundGroup.Value.Creatures.IsEmpty)
                 throw new InvalidDataException("指定生物群不存在或成员为空。");
-            var presentGroup = (Location, foundGroup.Value.Location) switch
-            {
-                (WorldLocation.Edge left, WorldLocation.Edge right) => left.Id == right.Id,
-                (WorldLocation.Node left, WorldLocation.Node right) => left.Id == right.Id,
-                _ => false
-            };
-            if (!presentGroup) throw new InvalidDataException("生物群不在指定场景。");
+            if (!SameScene(Location, foundGroup.Value.Location)) throw new InvalidDataException("生物群不在指定场景。");
             return foundGroup.Value.Creatures.Select(creature => (WorldObjectId)new WorldObjectId.Creature(creature.Id)).ToArray();
         }
         if (Target is not WorldObjectId.Train(var trainId)) throw new ArgumentException("不支持的截图对象。");
@@ -91,4 +86,11 @@ internal sealed record CaptureInput(string SavePath, WorldLocation Location, Wor
         if (!present) throw new InvalidDataException($"列车不在指定场景。当前位置：{found.Value.Position}");
         return [new WorldObjectId.Instance(new InstanceId.Vehicle(found.Value.Vehicles[0]))];
     }
+
+    private static bool SameScene(WorldLocation left, WorldLocation right) => (left, right) switch
+    {
+        (WorldLocation.Edge a, WorldLocation.Edge b) => a.Id == b.Id,
+        (WorldLocation.Node a, WorldLocation.Node b) => a.Id == b.Id,
+        _ => false
+    };
 }

@@ -179,15 +179,16 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
     [Test]
     public void Capture_arguments_parse_and_reject_multiple_targets()
     {
-        foreach (var target in new[] { "--capture-lair", "--capture-group", "--capture-building" })
+        foreach (var target in new[] { "--capture-lair", "--capture-group", "--capture-building", "--capture-vehicle" })
         {
             string[] arguments = ["--capture-save", "save.json", "--capture-location", "node:1",
                 target, "7", "--capture-name", "creatures"];
             var input = CaptureInput.Parse(arguments);
             Require(target == "--capture-lair" ? input.Target == new WorldObjectId.Lair(new(7)) :
                 target == "--capture-group" ? input.Target == new WorldObjectId.CreatureGroup(new(7)) :
-                input.Target == new WorldObjectId.Instance(new InstanceId.Building(new(7))), "必须解析选定的截图目标。");
-            foreach (var other in new[] { "--capture-train", "--capture-lair", "--capture-group", "--capture-building" }.Where(value => value != target))
+                target == "--capture-building" ? input.Target == new WorldObjectId.Instance(new InstanceId.Building(new(7))) :
+                input.Target == new WorldObjectId.Instance(new InstanceId.Vehicle(new(7))), "必须解析选定的截图目标。");
+            foreach (var other in new[] { "--capture-train", "--capture-lair", "--capture-group", "--capture-building", "--capture-vehicle" }.Where(value => value != target))
             {
                 try
                 {
@@ -244,6 +245,21 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
             }
             catch (InvalidDataException) { }
         }
+    }
+
+    [Test]
+    public void Vehicle_capture_validates_the_instance_scene_without_matching_edge_distance()
+    {
+        var vehicle = new CaptureInput("save.json", new WorldLocation.Edge(new(1), 0),
+            new WorldObjectId.Instance(new InstanceId.Vehicle(new(1))), "vehicle");
+        var view = CreatureView();
+        Require(vehicle.Validate(view).SequenceEqual([vehicle.Target]), "同线路上的车辆必须解析到自身实例，不比较线路距离。");
+        try
+        {
+            (vehicle with { Location = new WorldLocation.Node(new(1)) }).Validate(view);
+            throw new InvalidOperationException("车辆不在所选节点时未被拒绝。");
+        }
+        catch (InvalidDataException) { }
     }
 
     [Test]
@@ -540,6 +556,9 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
             },
             Instances = new Dictionary<InstanceId, Lookup<InstanceView>>
             {
+                [new InstanceId.Vehicle(new(1))] = new Lookup<InstanceView>.Found(new(new InstanceId.Vehicle(new(1)),
+                    new("fixture:vehicle"), new("fixture"), new WorldLocation.Edge(new(1), 10), SettlementRelation.PlayerOwned,
+                    new InstanceDetails.Vehicle(SizeClass.Small, null), InstanceLock.None, new(100, 100), [], [])),
                 [new InstanceId.Building(new(1))] = buildingPresent
                     ? new Lookup<InstanceView>.Found(new(new InstanceId.Building(new(1)), new("fixture:building"), new("fixture"),
                         new WorldLocation.Node(new(buildingNode)), SettlementRelation.NonHostile,
