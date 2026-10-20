@@ -60,10 +60,10 @@ internal sealed class RealAuthoringFixture : IDisposable
     internal async Task Start()
     {
         Require(Host.BeginReload(CommandSource.AutomationTest).Problem is null, "初始加载请求被拒绝。");
-        await Pump(() => !Host.IsBusy);
+        await Pump(() => !Host.IsBusy, ContentPreparationTimeout);
         Require(LastOperation?.Succeeded == true && Host.Content is not null, "真实初始内容加载失败：" + LastOperation);
         Require(Host.BeginNewGame(new("core:basic-through-world"), 1, "stage1-world-v1", Host.SessionOptions!).Problem is null, "新局请求被拒绝。");
-        await Pump(() => !Host.IsBusy);
+        await Pump(() => !Host.IsBusy, ContentPreparationTimeout);
         Require(Host.GetStatus() is not null, "真实核心未创建普通会话。");
     }
 
