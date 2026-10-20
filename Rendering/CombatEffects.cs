@@ -256,9 +256,10 @@ internal sealed class CombatEffects : IDisposable
                     PersistentEffectKind.Leak => Appearance.Leak,
                     _ => Appearance.Smoke
                 };
+                // 与着色器的 0.35 周期/秒一致，先用 double 取整周期再转相对时间，保留大时刻的相位。
+                var started = Math.Floor(_timeOrigin * .35) / .35;
                 var node = Instance(appearance, effect.Kind.ToString(), effect.Strength, effect.Seed,
-                    effect.Kind is PersistentEffectKind.FacilitySmoke or PersistentEffectKind.Leak ? 0 : _simulationSeconds,
-                    0, PersistentTint(effect.Kind));
+                    started, 0, PersistentTint(effect.Kind));
                 node.Position = ToGodot(effect.LocalPosition);
                 item.Root.AddChild(node);
                 _persistent[key] = new PersistentNode
@@ -277,14 +278,12 @@ internal sealed class CombatEffects : IDisposable
     (SceneDisplay.DisplayObject Item, PersistentSceneEffect Effect)[] DesiredEffects(
         IReadOnlyDictionary<SceneObjectId, SceneDisplay.DisplayObject> objects)
     {
-        var listed = objects.Values.SelectMany(item => item.Source.Effects.Select(effect => (Item: item, Effect: effect)))
-            .Where(item => item.Effect.Kind is PersistentEffectKind.Smoke or PersistentEffectKind.Fire or
-                PersistentEffectKind.Sparks or PersistentEffectKind.Leak or PersistentEffectKind.FacilitySmoke)
-            .ToArray();
-        var smoke = listed.Where(item => item.Effect.Kind is PersistentEffectKind.Smoke or PersistentEffectKind.FacilitySmoke)
-            .OrderByDescending(item => item.Effect.Strength).ThenBy(item => item.Item.Source.Id.Value).ThenBy(item => item.Effect.Seed)
-            .Take(SmokeCap);
-        return [.. smoke, .. listed.Where(item => item.Effect.Kind is not PersistentEffectKind.Smoke and not PersistentEffectKind.FacilitySmoke)];
+        return [.. objects.Values.SelectMany(item => item.Source.Effects.Select(effect => (Item: item, Effect: effect)))
+            .GroupBy(item => item.Effect.Kind is PersistentEffectKind.Smoke or PersistentEffectKind.FacilitySmoke)
+            .SelectMany(group => group.Key
+                ? group.OrderByDescending(item => item.Effect.Strength).ThenBy(item => item.Item.Source.Id.Value)
+                    .ThenBy(item => item.Effect.Seed).Take(SmokeCap)
+                : group.AsEnumerable())];
     }
 
     void Play(SceneEffectCue cue)
@@ -314,7 +313,7 @@ internal sealed class CombatEffects : IDisposable
                     if (age < CollapseDustSeconds)
                         AddBurst(Appearance.Dust, "Dust", ground + Vector3.Up * .15f, cue,
                             CollapseDustSeconds, 1.4f, new Color(.45f, .43f, .4f));
-                    AddFragments(cue, ground, color ?? FragmentColor, DestructionBurst, age, collapse: true);
+                    AddFragments(cue, from, color ?? FragmentColor, DestructionBurst, age, collapse: true);
                     break;
                 }
                 if (age < FireballSeconds && TakeFlash())
@@ -343,14 +342,17 @@ internal sealed class CombatEffects : IDisposable
             var position = from;
             if (collapse)
             {
-                position += new Vector3(velocity.X * .2f, 1 + Mathf.Abs(velocity.Y) * .2f, velocity.Z * .2f);
+                position += new Vector3(velocity.X * .2f, 0, velocity.Z * .2f);
+                var ground = GroundHeight(position, _patches) ?? from.Y;
+                var height = (Mix(cue.Id.Value, (ulong)(index + 300)) % 1000) / 1000f;
+                position.Y = Mathf.Lerp(ground, Math.Max(ground, from.Y), height);
                 velocity = new Vector3(velocity.X * .08f, -2, velocity.Z * .08f);
             }
             var shot = new OneShot
             {
                 Node = node, Started = cue.StartedAtSimulationSeconds, Lifetime = FragmentSeconds,
                 P0 = position, Velocity = velocity, Falls = true,
-                TestGround = cue.FragmentCollision is VoxelCollision.FullBox or VoxelCollision.LocalBox
+                TestGround = collapse || cue.FragmentCollision is VoxelCollision.FullBox or VoxelCollision.LocalBox
             };
             _oneShots.Add(shot);
             Group(collapse ? "Collapse" : "Fragment").AddChild(node);

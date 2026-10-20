@@ -279,26 +279,35 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public void FacilitySmokeAndLeaksKeepTheirSimulationPhaseWhenTheSceneReopens()
+    public void PersistentEffectsKeepTheirSimulationPhaseAtLargeTimesAndWhenTheSceneReopens()
     {
         using var dispatcher = new GodotMainThreadDispatcher();
         using var cache = new AssetResourceCache(dispatcher);
         using var first = Attach(cache);
         using var reopened = Attach(cache);
-        var source = Object(1, effects:
-            [new(PersistentEffectKind.FacilitySmoke, new(0, 3, 0), .25f, 41),
-                new(PersistentEffectKind.Leak, new(1, 2, 0), .5f, 42)]);
-        Commit(first, Frame(1, [source], [], seconds: 20));
-        first.AdvanceEffects(Frame(2, [], [], seconds: 25), 0);
-        Commit(reopened, Frame(1, [source], [], seconds: 25, session: OtherSession));
-        foreach (var name in new[] { "FacilitySmoke", "Leak" })
+        var kinds = Enum.GetValues<PersistentEffectKind>();
+        var source = Object(1, effects: [.. kinds.Select((kind, index) =>
+            new PersistentSceneEffect(kind, new(index, 3, 0), .5f, (ulong)(41 + index)))]);
+        const double initial = 1_000_000_000.125;
+        const double current = initial + .125;
+        Commit(first, Frame(1, [source], [], seconds: initial));
+        first.AdvanceEffects(Frame(2, [], [], seconds: current), 0);
+        Commit(reopened, Frame(1, [source], [], seconds: current, session: OtherSession));
+        foreach (var kind in kinds)
         {
-            var a = first.Objects[new(1)].Root.GetNode<MeshInstance3D>(name);
-            var b = reopened.Objects[new(1)].Root.GetNode<MeshInstance3D>(name);
-            static float Elapsed(MeshInstance3D node) => ((ShaderMaterial)node.MaterialOverride)
-                .GetShaderParameter("simulation_seconds").AsSingle() - node.GetInstanceShaderParameter("start_seconds").AsSingle();
-            Require(a.Position == b.Position && Mathf.IsEqualApprox(Elapsed(a), Elapsed(b)),
-                "相同模拟时刻重开场景，持续效果的位置和相位必须相同。");
+            var a = first.Objects[new(1)].Root.GetNode<MeshInstance3D>(kind.ToString());
+            var b = reopened.Objects[new(1)].Root.GetNode<MeshInstance3D>(kind.ToString());
+            static float Phase(MeshInstance3D node)
+            {
+                var elapsed = ((ShaderMaterial)node.MaterialOverride).GetShaderParameter("simulation_seconds").AsSingle()
+                    - node.GetInstanceShaderParameter("start_seconds").AsSingle();
+                var cycles = elapsed * .35f;
+                return cycles - MathF.Floor(cycles);
+            }
+            var expected = (float)(current * .35 - Math.Floor(current * .35));
+            Require(a.Position == b.Position && MathF.Abs(Phase(a) - Phase(b)) < .0001f &&
+                MathF.Abs(Phase(a) - expected) < .0001f,
+                $"{kind} 在大模拟时刻推进并重开，必须保留着色器 float32 下的模拟相位。");
             Require(Mathf.IsEqualApprox(a.GetInstanceShaderParameter("seed").AsSingle(),
                 b.GetInstanceShaderParameter("seed").AsSingle()), "重开场景不得改变持续效果的种子。");
         }
@@ -310,20 +319,29 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
         using var dispatcher = new GodotMainThreadDispatcher();
         using var cache = new AssetResourceCache(dispatcher);
         using var display = Attach(cache);
+        var ground = new TerrainCollisionPatch(new(1), new NVector3(-10, 0, -10), 2, 2, 20, [2, 2, 2, 2]);
+        var environment = new SceneEnvironment([], [ground]);
         var shown = Frame(1, [], [.. Enumerable.Range(1, 3).Select(id => Cue((ulong)id,
-            SceneEffectKind.Destruction, subject: new WorldObjectId.Instance(new InstanceId.Building(new((ulong)id))))) ]);
+            SceneEffectKind.Destruction, from: new(0, 6, 0),
+            subject: new WorldObjectId.Instance(new InstanceId.Building(new((ulong)id))))) ], environment: environment);
         Commit(display, shown);
         Require(Count(display.Root, "Fireball") == 0 && Count(display.Root, "Flash") == 0 &&
             Count(display.Root, "Dust") == 3, "建筑倒塌应扬起灰尘，不产生火球或闪光。");
         var cubes = Nodes(display, "Collapse");
         var initial = Positions(cubes);
+        Require(initial.All(position => position.Y >= 2 && position.Y <= 6) && initial.Any(position => position.Y > 4),
+            "碎块应从实际建筑中心到地面之间开始坠落。");
         display.AdvanceEffects(Frame(2, [], [], seconds: .1), 0);
         Require(Positions(cubes).Zip(initial).All(pair => pair.First.Y < pair.Second.Y),
             "建筑碎块必须从一开始就向下坠落。");
-        shown = Frame(3, [], [Cue(20, SceneEffectKind.Destruction, started: .1,
+        display.AdvanceEffects(Frame(3, [], [], seconds: 1), 0);
+        Require(Positions(cubes).All(position => position.Y >= 2) &&
+            Positions(cubes).Any(position => Mathf.IsEqualApprox(position.Y, 2)),
+            "建筑 cue 没有 FragmentCollision 时，碎块也必须停在取样地面上。");
+        shown = Frame(3, [], [Cue(20, SceneEffectKind.Destruction, started: 1,
                 subject: new WorldObjectId.Instance(new InstanceId.Vehicle(new(7)))),
-            Cue(21, SceneEffectKind.Impact, started: .1), Cue(22, SceneEffectKind.Impact, started: .1),
-            Cue(23, SceneEffectKind.Impact, started: .1)], seconds: .1, basis: shown.Update.Frame);
+            Cue(21, SceneEffectKind.Impact, started: 1), Cue(22, SceneEffectKind.Impact, started: 1),
+            Cue(23, SceneEffectKind.Impact, started: 1)], seconds: 1, basis: shown.Update.Frame);
         Commit(display, shown);
         Require(Count(display.Root, "Fireball") == 1 && Count(display.Root, "Smoke") == 1 &&
             Count(display.Root, "Flash") == 2 && Count(display.Root, "Fragment") == 18,
