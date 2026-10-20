@@ -18,7 +18,7 @@ import argparse
 from collections import Counter
 import hashlib
 import json
-from math import ceil, cos, pi, sin
+from math import atan2, ceil, cos, pi, sin
 from pathlib import Path
 import subprocess
 import sys
@@ -976,17 +976,21 @@ def icon(identity):
         color = CREATURE_COLORS[identity]
         if identity == "creature-carapace":
             polygon([(24, 78), (29, 49), (51, 28), (81, 30), (101, 58), (96, 92), (48, 103)], color)
-            line((61, 35), (64, 92), tint(color, 28)[:3], 5)
+            for a, b in (((29, 62), (97, 70)), ((42, 42), (90, 47)), ((60, 32), (62, 98))):
+                line(a, b, tint(color, -20)[:3], 8)
         elif identity == "creature-tissue":
             polygon([(25, 69), (35, 39), (65, 28), (96, 43), (103, 76), (81, 100), (45, 100)], color)
             for y in (53, 67, 81):
-                line((43, y), (87, y + 6), tint(color, 23)[:3], 5)
+                line((38, y), (87, y + 6), tint(color, 23)[:3], 8)
         elif identity == "creature-bone":
-            polygon([(28, 100), (47, 52), (83, 23), (79, 63), (60, 101)], color)
-            line((48, 91), (76, 41), tint(color, 25)[:3], 5)
+            polygon([(28, 100), (39, 65), (58, 37), (88, 23), (76, 55), (68, 82), (60, 101)], color)
+            line((43, 94), (71, 44), tint(color, -25)[:3], 8)
+            line((57, 94), (77, 41), tint(color, 20)[:3], 8)
         else:
             polygon([(18, 65), (42, 43), (82, 43), (111, 65), (83, 88), (42, 88)], color)
+            polygon([(40, 64), (52, 47), (78, 47), (91, 64), (78, 84), (52, 84)], tint(color, 25)[:3])
             line((64, 49), (64, 82), GLASS, 12)
+            polygon([(46, 51), (56, 51), (56, 61), (46, 61)], (237, 199, 120))
     else:
         raise ValueError(identity)
     return png(128, lambda x, y: pixels[y][x])
@@ -1054,18 +1058,42 @@ def scene_assets(files, voxel):
 
 def creature_texture(identity, x, y, side=False):
     variation = grain(x, y, 32, 357) / 2
-    if identity == "creature-tissue":
-        variation += 4 * sin(2 * pi * (y + 2 * sin(x * pi / 16)) / 16)
+    if identity == "creature-carapace":
+        band = y + 3 * sin(2 * pi * x / 32)
+        u, v = (x + 8 * (int(band // 16) % 2)) % 32, band % 16
+        variation += -15 if v < 1 or u == 0 else -5 if v < 2 or u == 1 else 0
+        variation += 2 * sin(2 * pi * (x + y) / 32)
+    elif identity == "creature-tissue":
+        variation += 6 * sin(2 * pi * y / 16 + .8 * sin(2 * pi * x / 32))
+        variation += 2 * sin(2 * pi * (3 * x + 2 * y) / 32)
     elif identity == "creature-bone":
-        variation += 3 * sin(2 * pi * (x if side else x + y) / 16)
-    elif identity == "creature-eye" and side:
-        if abs(x - 15.5) < 2 and abs(y - 15.5) < 9:
-            return tint((48, 39, 31))
-        variation += 16 * cos((y - 15.5) * pi / 32)
+        distance = ((x - 15.5) ** 2 + (y - 15.5) ** 2) ** .5
+        fibers = sin(2 * pi * x / 8 + .3 * sin(2 * pi * y / 32)) if side else sin(distance * pi / 6)
+        variation += 4 * fibers - (7 if fibers > .94 else 0)
+    elif identity == "creature-eye":
+        dx, dy = x - 15.5, y - 15.5
+        radius = ((dx / 12) ** 2 + (dy / 11) ** 2) ** .5
+        if side:
+            if radius > 1:
+                variation -= 48
+            elif abs(dx) < 2 and abs(dy) < 9:
+                return tint((48, 39, 31))
+            else:
+                variation += 8 * sin(atan2(dy, dx) * 18) - (18 if radius > .86 else 0)
+            if (dx + 4) ** 2 + (dy + 4) ** 2 < 2.5:
+                return tint((237, 199, 120))
+        else:
+            variation += 4 * sin(radius * pi * 6)
     return tint(CREATURE_COLORS[identity], round(variation))
 
 
 def creature_assets(files, voxel):
+    descriptions = {
+        "creature-carapace": "深灰绿色的分片甲壳，表面有细缝和微小孔纹。",
+        "creature-tissue": "暗红色纤维组织，表面有弯曲的组织带和细褶。",
+        "creature-bone": "浅骨色硬质组织，侧面有顺向细纹，断面可见环纹。",
+        "creature-eye": "琥珀色发光眼，带放射状虹膜和竖向瞳孔。",
+    }
     for identity, name in (("creature-carapace", "甲壳"), ("creature-tissue", "软组织"),
                            ("creature-bone", "骨刺"), ("creature-eye", "发光眼")):
         files[f"voxels/{identity}/top.png"] = png(32, lambda x, y: creature_texture(identity, x, y))
@@ -1073,7 +1101,7 @@ def creature_assets(files, voxel):
         files[f"voxels/{identity}/icon.png"] = icon(identity)
         voxel(identity, name, "organic", faces("top.png", "side.png"), "icon.png",
               tile_span=1, light=identity == "creature-eye",
-              description=f"第五阶段生物样稿：{name}，仅用于生物和聚落场景模型，脚本生成。")
+              description=descriptions[identity])
 
 
 def faces(top, side=None, bottom=None):
@@ -1129,35 +1157,60 @@ def natural_models():
 
 
 def creature_blueprints():
-    small = {(x, y, z): 0 for x in range(-2, 3) for z in range(-2, 3) for y in (1, 2)
-             if abs(x) + abs(z) < 4}
-    small.update({(x, 0, z): 1 for x in (-3, -2, 2, 3) for z in (-2, 0, 2)})
-    small.update({(x, 1, z): 1 for x in (-2, 2) for z in (-2, 2)})
-    small.update({(x, y, 3): 1 for x in (-1, 0, 1) for y in (1, 2)})
-    small.update({(-1, 3, -2): 2, (1, 3, -2): 2, (0, 2, 3): 3})
+    small = {(x, y, z): 0 for x in range(-2, 2) for z in range(-2, 1) for y in (1, 2)
+             if y == 1 or z >= -1}
+    small.update({(x, y, 1): 0 for x in (-1, 0) for y in (1, 2)})
+    small.update({(x, 1, -3): 0 for x in (-1, 0)})
+    small.update({(x, 0, z): 1 for x in (-3, -2, 1, 2) for z in (-2, 0, 2)})
+    small.update({(x, 1, z): 1 for x in (-3, 2) for z in (-2, 0, 2)})
+    small.update({(x, 1, 2): 1 for x in range(-2, 2)})
+    small.update({(x, 1, z): 1 for x in (-1, 0) for z in (-1, 0)})
+    small.update({(x, 3, z): 2 for x in (-2, 1) for z in (-1, 0)})
+    small.update({(-1, 2, 2): 1, (0, 2, 2): 3})
 
-    medium = {(x, y, z): 0 for x in range(-2, 3) for z in range(-2, 2) for y in range(2, 5)}
-    medium.update({(x, y, z): 1 for x in (-2, 2) for z in (-1, 1) for y in (0, 1)})
-    medium.update({(x, y, z): 1 for x in (-1, 0, 1) for z in (2, 3) for y in (3, 4, 5)})
-    medium.update({(x, 2, z): 2 for x in (-3, 3) for z in (1, 2, 3)})
-    medium.update({(-2, 5, -1): 2, (2, 5, -1): 2, (0, 4, 3): 3})
+    medium = {(x, y, z): 0 for x in range(-2, 2) for z in range(-3, 1) for y in (2, 3)}
+    medium.update({(x, y, z): 0 for x in range(-3, 3) for z in (0, 1) for y in (3, 4)})
+    medium.update({(x, y, z): 0 for x in range(-2, 2) for z in (2, 3) for y in (4, 5)})
+    medium.update({(x, y, -4): 0 for x in (-1, 0) for y in (2, 3)})
+    medium.update({(x, y, z): 1 for x in (-3, 2) for z in (-3, 1) for y in range(3)})
+    medium.update({(x, 3, 1): 1 for x in (-3, 2)})
+    medium.update({(x, 0, z): 1 for x in (-4, 3) for z in (-3, 1)})
+    medium.update({(x, y, 2): 1 for x in (-2, 1) for y in (2, 3)})
+    medium.update({(x, 4, 3): 1 for x in range(-2, 2)})
+    medium.update({(x, 2, z): 1 for x in (-1, 0) for z in (-2, -1)})
+    medium.update({(x, 2, 2): 2 for x in (-4, -3, 2, 3)})
+    medium.update({(x, 2, 3): 2 for x in (-4, 3)})
+    medium.update({(x, 5, 1): 2 for x in (-2, 1)})
+    medium[(0, 5, 3)] = 3
 
-    large = {(x, y, z): 0 for x in range(-4, 5) for z in range(-4, 4) for y in range(2, 6)
-             if x * x + z * z <= 25}
-    large.update({(x, y, z): 1 for x in (-4, 4) for z in (-3, 0, 3) for y in (0, 1)})
-    large.update({(x, y, z): 1 for x in range(-2, 3) for z in (4, 5) for y in (3, 4, 5)})
-    large.update({(0, 6, z): 2 for z in range(-4, 4)})
-    large.update({(0, 7, z): 2 for z in (-3, 0, 3)})
-    large.update({(0, y, z): 0 for z in (-7, -6, -5) for y in (2, 3)})
-    large.update({(-1, 4, 5): 3, (1, 4, 5): 3, (0, 3, 6): 2})
+    large = {(x, y, z): 0 for x in range(-4, 4) for z in range(-4, 4) for y in range(2, 6)
+             if (2 * x + 1) ** 2 + (2 * z + 1) ** 2 <= (80 if y <= 3 else 64)}
+    large.update({(x, y, z): 0 for x in range(-2, 2) for z in (4, 5) for y in (3, 4, 5)
+                  if (x, y, z) not in ((-2, 5, 5), (1, 5, 5))})
+    large.update({(x, y, z): 0 for x in (-1, 0) for z in (-7, -6, -5) for y in (2, 3)})
+    large.update({(x, y, 6): 0 for x in range(-2, 2) for y in (3, 4)})
+    large.update({(x, 0, z): 1 for x in (-5, -4, 3, 4) for z in (-3, 0, 3)})
+    large.update({(x, 1, z): 1 for x in (-4, 3) for z in (-3, 0, 3)})
+    large.update({(x, 2, 3): 1 for x in (-4, 3)})
+    large.update({(x, 2, z): 1 for x in range(-2, 2) for z in range(-2, 2)
+                  if (x, z) not in ((-2, -2), (1, -2))})
+    large.update({(x, 3, z): 1 for x in range(-2, 2) for z in (4, 5)})
+    large.update({(x, 6, z): 2 for x in (-1, 0) for z in range(-3, 3)})
+    large.update({(x, 7, z): 2 for x in (-1, 0) for z in (-3, 0, 2)})
+    large.update({(x, y, 6): 2 for x in (-2, 1) for y in (2, 3)})
+    large.update({(x, 4, 6): 3 for x in (-1, 0)})
     bodies = {"small-creature": small, "medium-creature": medium, "large-creature": large}
+    descriptions = {
+        "small-creature": "低伏的六足甲壳生物，短背覆甲，腹部与足部露出暗红组织，前端有一只发光眼。",
+        "medium-creature": "前身抬高的四足生物，宽肩下方伸出骨钳，抬起的头部有一只发光眼。",
+        "large-creature": "宽重甲壳覆盖躯干，双列骨脊沿背部延伸，后接长尾，前端有一对发光眼。",
+    }
     for identity, name, hp, speed, retreat, duration, damage, interval in CREATURE_PROFILES:
         value = blueprint(identity, name, "creature", list(CREATURE_COLORS), bodies[identity], {"behaviors": {
             "creature": {"hp": hp, "speed": speed,
                          "retreat_threshold": retreat, "raid_duration": duration},
             "weapon": {"damage": damage, "interval": interval}}})
-        value["display"]["description"] = (
-            f"{name}第五阶段样稿：甲壳、软组织、骨刺和发光眼；正式资源由第六阶段替换，战斗数值待试玩确认。")
+        value["display"]["description"] = descriptions[identity]
         yield value
 
 
@@ -1173,13 +1226,18 @@ def lair_scene_models():
         for y in range(1, 5):
             nest[(x, y, 3)] = 3
     nest.update({(x, 4, 3): 3 for x in (-1, 0, 1)})
-    for x, z in ((-5, -2), (5, -2), (0, -5)):
+    for x in (-3, 3):
         for y in (1, 2):
-            nest[(x, y, z)] = 3
+            nest[(x, y, 2)] = 3
+    for x in (-2, 2):
+        nest[(x, 3, 2)] = 3
+    for x in (-1, 1):
+        for y in (1, 2):
+            nest[(x, y, 2)] = 2
     nest[(0, 3, 3)] = 4
     model = blueprint("lair-nest", "巢穴", "scene_model",
                       ["subsoil", *CREATURE_COLORS], nest)
-    model["display"]["description"] = "第五阶段巢穴样稿：甲壳土丘、软组织和骨质入口，入口内一处发光组织。"
+    model["display"]["description"] = "低矮的甲壳丘由土层托起，骨质拱门围住入口，门内露出暗红组织和一处微光。"
     yield model
 
     hive = {(x, 0, z): 0 for x in range(-9, 10) for z in range(-9, 10) if x * x + z * z <= 81}
@@ -1194,13 +1252,22 @@ def lair_scene_models():
         for y in range(1, 7):
             hive[(x, y, 4)] = 3
     hive.update({(x, 6, 4): 3 for x in range(-2, 3)})
-    for x, z in ((-7, -3), (7, -3), (-6, 3), (6, 3), (0, -7)):
+    for x in (-3, 3):
+        for z in range(-2, 3):
+            for y in (1, 2):
+                hive[(x, y, z)] = 3
+    for x in (-2, 2):
         for y in range(1, 5):
-            hive[(x, y, z)] = 3
+            hive[(x, y, 2)] = 2
+    for x in (-1, 1):
+        for y in (1, 2):
+            hive[(x, y, 1)] = 2
     hive[(0, 5, 4)] = 4
+    for x in (-7, 7):
+        hive.pop((x, 1, -3))
     model = blueprint("lair-hive", "大型巢群", "scene_model",
                       ["subsoil", *CREATURE_COLORS], hive)
-    model["display"]["description"] = "第五阶段大型巢群样稿：相连的甲壳囊、骨质拱门和内侧一处发光组织。"
+    model["display"]["description"] = "中央高囊连接两侧低囊，骨质支撑贴住甲壳外壁，高拱门内藏着暗红组织和一处微光。"
     yield model
 
 
