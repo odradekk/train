@@ -31,7 +31,7 @@ public static class AuthoringCoreProbe
             Require(preview is SceneResult<IEditPreview>.Success { Value.CanApply: true }, "真实 core 编辑预览不可应用。");
             fixture.Editor.Apply(((SceneResult<IEditPreview>.Success)preview!).Value, false);
             fixture.Editor.SaveDraft(); await fixture.Pump(() => !fixture.Editor.IsBusy);
-            fixture.Service.Publish(); await fixture.Pump(() => !fixture.Service.IsBusy);
+            fixture.Service.Publish(); await fixture.Pump(() => !fixture.Service.IsBusy, ContentPreparationTimeout);
             Require(fixture.Service.LastWrite is { Success: true } && fixture.LastOperation?.Succeeded == true,
                 "真实源码写入或普通重载失败：" + fixture.Service.Message);
             Require(fixture.Host.Content!.FindBlueprint(new(BlueprintLibrary.Packages, new("core:small-locomotive")))

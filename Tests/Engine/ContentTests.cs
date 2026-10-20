@@ -23,10 +23,10 @@ public class ContentTests(Node testScene) : TestClass(testScene)
         try
         {
             var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
-            await FramesUntil(TestScene, () => !app.Host!.IsBusy);
+            await FramesUntil(TestScene, () => !app.Host!.IsBusy, timeout: ContentPreparationTimeout);
             var host = app.Host!;
             host.BeginNewGame(new("core:basic-through-world"), 40, "stage1-world-v1", host.SessionOptions!);
-            await FramesUntil(TestScene, () => !host.IsBusy);
+            await FramesUntil(TestScene, () => !host.IsBusy, timeout: ContentPreparationTimeout);
             var before = host.GetStatus()!;
             var vehicle = before.View.FindSettlement(new(6)) is Lookup<SettlementView>.Found settlement
                 ? settlement.Value.VehiclesForSale.First() : throw new InvalidOperationException("缺少农业镇。");
@@ -52,12 +52,12 @@ public class ContentTests(Node testScene) : TestClass(testScene)
         try
         {
             var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
-            await FramesUntil(TestScene, () => !app.Host!.IsBusy);
+            await FramesUntil(TestScene, () => !app.Host!.IsBusy, timeout: ContentPreparationTimeout);
             var host = app.Host!;
             Require(host.Content is not null && host.GetStatus() is null, "启动必须先准备内容并留在菜单。");
             Require(host.BeginNewGame(new("core:basic-through-world"), 1, "stage1-world-v1", host.SessionOptions!).Problem is null,
                 "真实新局请求被拒绝。");
-            await FramesUntil(TestScene, () => !host.IsBusy);
+            await FramesUntil(TestScene, () => !host.IsBusy, timeout: ContentPreparationTimeout);
             var created = host.GetStatus();
             Require(created is { PlayerPaused: true } && created.View.World.Nodes.Length > 0 && created.View.World.Trains.Length == 2,
                 "正式内容没有生成暂停的小世界与两列初始列车。");
@@ -79,7 +79,7 @@ public class ContentTests(Node testScene) : TestClass(testScene)
             var entry = saves.List().Single(entry => entry.Header.Id == saveId && !entry.Automatic);
             Require(File.Exists(entry.Path), "保存没有生成真实文件。");
             Require(saves.Load(entry) is null, "真实读档请求失败。");
-            await FramesUntil(TestScene, () => !saves.HasPendingWork && !host.IsBusy);
+            await FramesUntil(TestScene, () => !saves.HasPendingWork && !host.IsBusy, timeout: ContentPreparationTimeout);
             var restored = host.GetStatus()!;
             Require(restored.Binding != created.Binding && restored.PlayerPaused && saves.Status!.Identity.Id == saveId,
                 "读档没有更换运行绑定、保留存档身份并暂停。");
@@ -143,9 +143,9 @@ public class ContentTests(Node testScene) : TestClass(testScene)
             app.CreateHost = logger => ContentFixture.CreateHost(logger, directory, dispatcher);
             await fixture.AddToRoot(app);
             var host = app.Host!;
-            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher);
+            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher, timeout: ContentPreparationTimeout);
             host.BeginNewGame(new("core:basic-through-world"), 1, "stage1-world-v1", host.SessionOptions!);
-            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher);
+            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher, timeout: ContentPreparationTimeout);
             Require(host.GetStatus() is not null, "真实内容夹具没有生成世界。");
             var original = host.Content!;
             var before = Checkpoint(host);
@@ -155,7 +155,7 @@ public class ContentTests(Node testScene) : TestClass(testScene)
             File.WriteAllText(file, definition.ToJsonString());
             var console = app.GetChildren().OfType<GameConsole>().Single();
             console.SubmitLine("reload");
-            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher);
+            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher, timeout: ContentPreparationTimeout);
             var business = host.Content!;
             Require(business.Generation.Value == original.Generation.Value + 1 && business.Core.Identity != original.Core.Identity &&
                 host.GetStatus()!.View.InputIdentity == business.Core.Identity &&
@@ -168,14 +168,14 @@ public class ContentTests(Node testScene) : TestClass(testScene)
             using (var input = new InputEventAction { Action = Train.App.App.ReloadContentAction, Pressed = true })
                 Input.ParseInputEvent(input);
             Input.FlushBufferedEvents();
-            await FramesUntil(TestScene, () => !host.IsBusy && host.Content!.Generation.Value > business.Generation.Value, dispatcher);
+            await FramesUntil(TestScene, () => !host.IsBusy && host.Content!.Generation.Value > business.Generation.Value, dispatcher, timeout: ContentPreparationTimeout);
             var presentation = host.Content!;
             Require(presentation.Core.Identity == business.Core.Identity && Checkpoint(host).Sha256 == published.Sha256,
                 "纯表现重载改变了核心输入或检查点。");
             Require(presentation.FindVoxelDisplay(new("core:staple-food")) is ContentLookup<VoxelDisplayProjection>.Found
                 { Value.Display.Name: "引擎重载主食" }, "新显示资料没有生效。");
             console.SubmitLine("reload");
-            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher);
+            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher, timeout: ContentPreparationTimeout);
             Require(ReferenceEquals(presentation, host.Content) && Checkpoint(host).Sha256 == published.Sha256,
                 "无变化重载仍发布了内容或提交核心命令。");
         }
@@ -201,16 +201,16 @@ public class ContentTests(Node testScene) : TestClass(testScene)
             app.CreateHost = logger => ContentFixture.CreateHost(logger, directory, dispatcher);
             await fixture.AddToRoot(app);
             var host = app.Host!;
-            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher);
+            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher, timeout: ContentPreparationTimeout);
             host.BeginNewGame(new("core:basic-through-world"), 1, "stage1-world-v1", host.SessionOptions!);
-            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher);
+            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher, timeout: ContentPreparationTimeout);
             var old = host.Content!;
             var status = host.GetStatus()!;
             var checkpoint = Checkpoint(host);
             File.WriteAllText(Path.Combine(directory, "resources/voxels/staple-food.voxel.json"), "{ invalid JSON");
             var console = app.GetChildren().OfType<GameConsole>().Single();
             console.SubmitLine("reload");
-            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher);
+            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher, timeout: ContentPreparationTimeout);
             Require(ReferenceEquals(old, host.Content) && host.GetStatus()!.Binding == status.Binding &&
                 host.GetStatus()!.View.InputIdentity == old.Core.Identity && Checkpoint(host).Sha256 == checkpoint.Sha256,
                 "真实内容准备失败仍改变了活动核心、内容或配对。");

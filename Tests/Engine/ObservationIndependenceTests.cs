@@ -47,7 +47,7 @@ public class ObservationIndependenceTests(Node testScene) : TestClass(testScene)
             try
             {
                 var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
-                await FramesUntil(TestScene, () => !app.Host!.IsBusy);
+                await FramesUntil(TestScene, () => !app.Host!.IsBusy, timeout: ContentPreparationTimeout);
                 app.SetProcess(false);
                 var host = app.Host!;
                 var saves = app.Saves!;
@@ -56,7 +56,7 @@ public class ObservationIndependenceTests(Node testScene) : TestClass(testScene)
                     recipe.RootElement.GetProperty("seed").GetUInt64(),
                     recipe.RootElement.GetProperty("generator_version").GetString()!,
                     host.SessionOptions!).Problem is null, "无法生成测试自己的存档世界。");
-                await FramesUntil(TestScene, () => { app._Process(0); return !host.IsBusy; });
+                await FramesUntil(TestScene, () => { app._Process(0); return !host.IsBusy; }, timeout: ContentPreparationTimeout);
                 var identity = saves.Status!.Identity;
                 owned.Add(identity.Id);
                 Require(saves.Save() is null, "无法通过生产存档路径保存测试世界。");
@@ -89,7 +89,7 @@ public class ObservationIndependenceTests(Node testScene) : TestClass(testScene)
         {
             // 不设置 CreateHost/CreateScenes：App 使用生产 HostComposition 的三个真实工厂。
             var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
-            await FramesUntil(TestScene, () => !app.Host!.IsBusy);
+            await FramesUntil(TestScene, () => !app.Host!.IsBusy, timeout: ContentPreparationTimeout);
             app.SetProcess(false);
             var host = app.Host!;
             host.AutoPauseOnFocusLoss = false;
@@ -106,7 +106,7 @@ public class ObservationIndependenceTests(Node testScene) : TestClass(testScene)
             {
                 app._Process(0);
                 return !host.IsBusy && !app.Saves!.HasPendingWork;
-            }, timeout: TimeSpan.FromSeconds(60), description: $"{variant.Name} 读档后等待宿主和存档空闲");
+            }, timeout: ContentPreparationTimeout, description: $"{variant.Name} 读档后等待宿主和存档空闲");
             Require(host.GetStatus() is { PlayerPaused: true, IsFrozen: false }, "示例新局未成功激活。");
             Require(host.SetSpeed(variant.Speed) is null, "无法设置测试倍速。");
 

@@ -25,7 +25,7 @@ public class AppTests(Node testScene) : TestClass(testScene)
         try
         {
             var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
-            await FramesUntil(TestScene, () => !app.Host!.IsBusy);
+            await FramesUntil(TestScene, () => !app.Host!.IsBusy, timeout: ContentPreparationTimeout);
             var console = app.GetChildren().OfType<GameConsole>().Single();
             Require(console.LogEvents.Any(e => e.EventId == TrainLogger.ApplicationReadyEventId), "App startup event missing.");
             Require(output.Contains("[application][application_ready]"), "App startup event did not reach Godot output.");
@@ -66,7 +66,7 @@ public class AppTests(Node testScene) : TestClass(testScene)
             var requests = 0;
             app.QuitAction = () => requests++;
             await fixture.AddToRoot(app);
-            await FramesUntil(TestScene, () => !app.Host!.IsBusy);
+            await FramesUntil(TestScene, () => !app.Host!.IsBusy, timeout: ContentPreparationTimeout);
             var menu = app.GetNode<MainMenu>("MainMenu");
             Require(menu.IsNodeReady() && menu.IsVisibleInTree(), "Main menu is not ready and visible.");
             var quit = menu.GetNode<Button>("%QuitGame");
@@ -94,11 +94,11 @@ public class AppTests(Node testScene) : TestClass(testScene)
         try
         {
             var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
-            await FramesUntil(TestScene, () => !app.Host!.IsBusy);
+            await FramesUntil(TestScene, () => !app.Host!.IsBusy, timeout: ContentPreparationTimeout);
             await input.Frames();
             var menu = app.GetNode<MainMenu>("MainMenu");
             await input.Activate(menu.GetNode<Button>("%Example"));
-            await FramesUntil(TestScene, () => app.Saves!.Status is not null && !app.Saves.IsBusy);
+            await FramesUntil(TestScene, () => app.Saves!.Status is not null && !app.Saves.IsBusy, timeout: ContentPreparationTimeout);
             await FramesUntil(TestScene, () => app.GetNode<MacroMap>("GameUi/Root/World/MacroMap").IsVisibleInTree());
             var status = app.Host!.GetStatus()!;
             var save = app.Saves!.Status!;
@@ -122,7 +122,7 @@ public class AppTests(Node testScene) : TestClass(testScene)
         try
         {
             var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
-            await FramesUntil(TestScene, () => !app.Host!.IsBusy);
+            await FramesUntil(TestScene, () => !app.Host!.IsBusy, timeout: ContentPreparationTimeout);
             var panel = app.GetNode<MainMenu>("MainMenu").GetChildren().OfType<SavePanel>().Single();
             foreach (var invalidJson in new[] { false, true })
             {
@@ -149,7 +149,7 @@ public class AppTests(Node testScene) : TestClass(testScene)
         try
         {
             var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
-            await FramesUntil(TestScene, () => !app.Host!.IsBusy);
+            await FramesUntil(TestScene, () => !app.Host!.IsBusy, timeout: ContentPreparationTimeout);
             var content = app.Host!.Content;
             Require(content is { Generation.Value: > 0 }, "App did not publish initial content.");
             Require(content!.FindVoxelDisplay(new("core:staple-food")) is ContentLookup<VoxelDisplayProjection>.Found,
@@ -173,7 +173,7 @@ public class AppTests(Node testScene) : TestClass(testScene)
         {
             ContentFixture.WriteMod(directory, id);
             var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
-            await FramesUntil(TestScene, () => !app.Host!.IsBusy);
+            await FramesUntil(TestScene, () => !app.Host!.IsBusy, timeout: ContentPreparationTimeout);
             var before = app.Host!.Content!;
             Require(before.FindVoxelDisplay(new(id.ToString("D") + ":engine-food")) is ContentLookup<VoxelDisplayProjection>.Found,
                 "Production composition did not enable the installed Mod.");
@@ -185,7 +185,7 @@ public class AppTests(Node testScene) : TestClass(testScene)
             using var input = new InputEventAction { Action = Train.App.App.ReloadContentAction, Pressed = true };
             Input.ParseInputEvent(input);
             Input.FlushBufferedEvents();
-            await FramesUntil(TestScene, () => !app.Host.IsBusy && app.Host.Content!.Generation != before.Generation);
+            await FramesUntil(TestScene, () => !app.Host.IsBusy && app.Host.Content!.Generation != before.Generation, timeout: ContentPreparationTimeout);
             Require(app.Host.Content!.Generation.Value == before.Generation.Value + 1 && app.Host.Content.Core.Identity != before.Core.Identity,
                 "reload_content input did not publish the modified Mod exactly once.");
         }
