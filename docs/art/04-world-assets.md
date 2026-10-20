@@ -112,49 +112,6 @@
 - 桥和隧道口按 1–3 条铁轨各做 1 份，各共 3 份；不按地貌增加变体。
 - 其余装饰（灌木、草丛、花）放到 Demo。
 
-### 第五阶段生物与聚落样稿
-
-三种生物朝局部 +Z，依次用低伏六足、抬高前身的四足、带背脊和长尾的重甲轮廓区分。
-巢穴由低矮甲壳丘和骨质入口组成；大型巢群由相连的甲壳囊和高拱门组成。
-两种聚落的发光组织嵌在入口内，不再放置单独的路灯块。正式外观由 #361 替换，战斗数值不随样稿改变。
-
-四种体素都使用 `organic` 材质，不涂装、不加磨损；图案用低对比的连续纹理，不逐格画外框。
-
-| 体素 | 样稿底色 | 用途 |
-| --- | --- | --- |
-| `creature-carapace` | `#4a524c` | 暗色甲壳与主体 |
-| `creature-tissue` | `#764540` | 肢体、颈部和聚落内侧软组织 |
-| `creature-bone` | `#c2b68a` | 骨刺、背脊和入口拱门 |
-| `creature-eye` | `#d78735` | 琥珀色眼与发光组织，带 `light` |
-
-| 每份模型 | 发光体素／OmniLight3D 数 |
-| --- | --- |
-| 小型生物 | 1 |
-| 中型生物 | 1 |
-| 大型生物 | 2 |
-| 巢穴 | 1 |
-| 大型巢群 | 1 |
-
-繁忙战斗下的总灯数尚未优化，按用户 10-17 的决定作为性能差距保留。
-
-下表路径均相对于 `builtin/core/resources/voxels/`。每个体素的底面复用自己的 `top.png`，四个侧面复用自己的 `side.png`。
-唯一源均为 `scripts/content/generate_small_world.py`，面图由 `creature_texture` 生成，128×128 图标由 `icon` 生成；没有图像模型输入。
-
-| 文件 | 来源 |
-| --- | --- |
-| `creature-carapace/top.png` | 脚本 |
-| `creature-carapace/side.png` | 脚本 |
-| `creature-carapace/icon.png` | 脚本 |
-| `creature-tissue/top.png` | 脚本 |
-| `creature-tissue/side.png` | 脚本 |
-| `creature-tissue/icon.png` | 脚本 |
-| `creature-bone/top.png` | 脚本 |
-| `creature-bone/side.png` | 脚本 |
-| `creature-bone/icon.png` | 脚本 |
-| `creature-eye/top.png` | 脚本 |
-| `creature-eye/side.png` | 脚本 |
-| `creature-eye/icon.png` | 脚本 |
-
 ### 实测时调整
 
 雾的起止距离、水位和河宽、站台长度按当前阶段列车与站点蓝图实测决定。
