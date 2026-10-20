@@ -1259,7 +1259,7 @@ def lair_scene_models():
             for z in range(-6, 7):
                 if x * x + z * z <= 36 and x * x + (z + 1) ** 2 <= radius * radius:
                     nest[(x, y, z)] = 1
-    entrance(nest, (3, 3, 3, 3, 2, 1, 0, -1), 0, 4)
+    entrance(nest, (3, 3, 3, 3, 1, -1), 0, 4)
     nest[(0, 3, 0)] = 4
     model = blueprint("lair-nest", "巢穴", "scene_model", ["subsoil", *CREATURE_COLORS], nest)
     model["display"]["description"] = "低宽的封闭甲壳丘覆在土层上，带肋骨拱收拢成洞口，短洞尽头的暗红软组织中透出一处微光。"
