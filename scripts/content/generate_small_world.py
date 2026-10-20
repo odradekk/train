@@ -7,7 +7,7 @@ python scripts/content/generate_small_world.py --output-dir TestResults/reproduc
 脚本生成 resources/，手绘图标按 HAND_DRAWN_ICONS 保留；创作模式蓝图和 Blender 导出按 AUTHORED_FILES 保留，
 只检查存在和 JSON Schema。校验模式拒绝缺失、多余或其他生成文件字节不同的文件（校验需要 jsonschema）。
 生成只用 Python 标准库。
-自然地形与三十四种货物已有正式美术：十二种原料、六种生活货物和十六种工业与建造货物。
+自然地形与四十六种货物已有正式美术：十二种原料、六种生活货物、十六种工业与建造货物和十二种设备部件武器。
 车辆蓝图由创作模式维护；聚居地符号来自 ui_symbols；
 其余美术仍待制作，数值和画面待用户试玩确认；十一种车辆与两列小型起始车队已接入，
 3 种生物、2 种生物聚落和 2 份聚落场景模型已接入。
@@ -141,36 +141,36 @@ RESOURCE_PROFILES = (
 RAW_GOODS = {row[1] for row in RESOURCE_PROFILES} | {"grain", "produce", "animal-products", "natural-fiber"}
 ALL_SHAPES = ["cube", "half", "plate", "wedge", "corner-wedge", "beam", "cylinder"]
 
-# id、显示名、质量/耐久对照的已有货物、共享占位图族。
+# id、显示名、质量/耐久对照的已有货物。
 # 只复制这两个物理字段，不继承对照货物的功能或经济身份。
 NEW_GOODS = (
-    ("ferrous-ore", "铁矿石", "staple-food", "soil"),
-    ("conductive-ore", "导电金属矿", "staple-food", "soil"),
-    ("rare-mineral", "稀有矿物", "staple-food", "soil"),
-    ("silica", "硅砂", "staple-food", "soil"),
-    ("coal", "煤", "staple-food", "soil"),
-    ("crude-oil", "原油", "staple-food", "organic"),
-    ("grain", "谷物", "staple-food", "organic"),
-    ("produce", "果蔬", "staple-food", "organic"),
-    ("animal-products", "畜产品", "staple-food", "organic"),
-    ("timber", "原木", "staple-food", "organic"),
-    ("natural-fiber", "天然纤维", "staple-food", "organic"),
-    ("conductive-metal", "导电金属", "consumer-goods", "equipment"),
-    ("specialty-material", "特种材料", "consumer-goods", "equipment"),
-    ("glass", "玻璃", "consumer-goods", "equipment"),
-    ("chemical-feedstock", "化工原料", "consumer-goods", "organic"),
-    ("polymer", "聚合物", "consumer-goods", "organic"),
-    ("lumber", "木材", "consumer-goods", "organic"),
-    ("textile", "纺织品", "consumer-goods", "organic"),
-    ("mechanical-components", "机械部件", "consumer-electronics", "equipment"),
-    ("electrical-components", "电气部件", "consumer-electronics", "equipment"),
-    ("electronic-components", "电子部件", "consumer-electronics", "equipment"),
-    ("structural-block", "结构块", "structural-metal", "equipment"),
-    ("construction-block", "混凝土块", "structural-metal", "soil"),
-    ("rail", "铁轨", "structural-metal", "equipment"),
-    ("lamp", "灯具", "control-equipment", "equipment"),
-    ("machine-gun", "机枪", "propulsion-equipment", "equipment"),
-    ("cannon", "火炮", "propulsion-equipment", "equipment"),
+    ("ferrous-ore", "铁矿石", "staple-food"),
+    ("conductive-ore", "导电金属矿", "staple-food"),
+    ("rare-mineral", "稀有矿物", "staple-food"),
+    ("silica", "硅砂", "staple-food"),
+    ("coal", "煤", "staple-food"),
+    ("crude-oil", "原油", "staple-food"),
+    ("grain", "谷物", "staple-food"),
+    ("produce", "果蔬", "staple-food"),
+    ("animal-products", "畜产品", "staple-food"),
+    ("timber", "原木", "staple-food"),
+    ("natural-fiber", "天然纤维", "staple-food"),
+    ("conductive-metal", "导电金属", "consumer-goods"),
+    ("specialty-material", "特种材料", "consumer-goods"),
+    ("glass", "玻璃", "consumer-goods"),
+    ("chemical-feedstock", "化工原料", "consumer-goods"),
+    ("polymer", "聚合物", "consumer-goods"),
+    ("lumber", "木材", "consumer-goods"),
+    ("textile", "纺织品", "consumer-goods"),
+    ("mechanical-components", "机械部件", "consumer-electronics"),
+    ("electrical-components", "电气部件", "consumer-electronics"),
+    ("electronic-components", "电子部件", "consumer-electronics"),
+    ("structural-block", "结构块", "structural-metal"),
+    ("construction-block", "混凝土块", "structural-metal"),
+    ("rail", "铁轨", "structural-metal"),
+    ("lamp", "灯具", "control-equipment"),
+    ("machine-gun", "机枪", "propulsion-equipment"),
+    ("cannon", "火炮", "propulsion-equipment"),
 )
 
 # id、设施标签、投入种类、产出种类；批量只按 BATCH_UNITS 推导。
@@ -799,41 +799,128 @@ def medical_supplies_texture(x, y, side=False):
     return tint((197, 214, 212), -24 if seam else 0)
 
 
+def faces(top, side=None, bottom=None):
+    return {"top": top, "side": side or top, "bottom": bottom or top}
+
+
+def propulsion_texture(x, y, side=False):
+    grille = 4 <= x < 28 and y % 8 in (2, 3) if side else x % 8 in (2, 3) and y % 8 in (2, 3)
+    return tint(BLUE, -22 if grille else grain(x, y, 32, 0x511))
+
+
+def control_texture(x, y, side=False):
+    if side and 3 <= x < 29:
+        return tint(GLASS, grain(x, y, 32, 0x512))[:3] + (0,)
+    return tint(BLUE, -12 if not side and x % 16 in (0, 1) else grain(x, y, 32, 0x515))
+
+
+def storage_texture(x, y, side=False):
+    rib = x % 16 in (0, 1, 14, 15) if side else (x + y) % 16 in (2, 3) or (x - y) % 16 in (2, 3)
+    return tint(RED, -16 if rib else grain(x, y, 32, 0x513))
+
+
+def machinery_texture(x, y, side=False):
+    if side and 6 <= x < 26 and 9 <= y < 23:
+        return tint(STEEL, -35 if y % 6 in (0, 1) else -8)[:3] + (0,)
+    panel = x in (1, 30) or (not side and y in (1, 30))
+    return tint(EQUIPMENT_FACE, -18 if panel else grain(x, y, 32, 0x561))
+
+
+def extraction_texture(x, y, side=False):
+    if not side and (x - 15.5) ** 2 + (y - 15.5) ** 2 < 120:
+        tooth = (x + y) % 8 < 3
+        return tint(STEEL, -35 if tooth else -8)[:3] + (0,)
+    flute = (x + (y // 4 if side else 0)) % 16 in (3, 4)
+    return tint(EQUIPMENT_FACE, -28 if flute else grain(x, y, 32, 0x562))
+
+
+def construction_texture(x, y, side=False):
+    if side and 12 <= y < 20:
+        return tint(GRAPHITE if (x + y) % 16 < 8 else YELLOW)[:3] + (0,)
+    joint = x in (1, 30) or (not side and y in (1, 30))
+    return tint(EQUIPMENT_FACE, -20 if joint else grain(x, y, 32, 0x563))
+
+
+def power_texture(x, y, side=False):
+    vent = (y % 8 in (2, 3) and 4 <= x < 28) if side else (x - 15.5) ** 2 + (y - 15.5) ** 2 < 100
+    return tint(EQUIPMENT_FACE, -32 if vent and (side or (x + y) % 4 < 2) else grain(x, y, 32, 0x564))
+
+
+def platform_texture(x, y, side=False):
+    if side and 5 <= x < 27 and 4 <= y < 15:
+        return tint(GLASS)[:3] + (0,)
+    if side and y in (19, 20) and x in (8, 9, 22, 23):
+        return tint((77, 124, 95) if x < 16 else (168, 77, 61))[:3] + (0,)
+    joint = x in (1, 30) or (not side and y in (1, 30))
+    return tint(EQUIPMENT_FACE, -18 if joint else grain(x, y, 32, 0x565))
+
+
+def lamp_texture(x, y, side=False):
+    vent = x % 8 in (2, 3) if not side else y % 8 in (2, 3)
+    return tint(EQUIPMENT_FACE, -24 if vent else grain(x, y, 32, 0x566))
+
+
+def lamp_front_texture(x, y):
+    if 4 <= x < 28 and 4 <= y < 28:
+        return tint((226, 222, 204), -8 if x % 4 == 0 or y % 4 == 0 else 0)[:3] + (0,)
+    return tint(EQUIPMENT_FACE, grain(x, y, 32, 0x567))
+
+
+def cube_art(material, span, side, bottom, texture, front=None, shapes=None):
+    presentation = {"kind": "cube", "material": material, "faces": faces("top.png", side, bottom),
+                    "tile_span": span, "shapes": shapes or ["cube"]}
+    if front is not None:
+        presentation["faces"]["front"] = "front.png"
+    return presentation, texture, front
+
+
 GOODS_ART = {
-    "ferrous-ore": ("stone_soil", 2, None, None, ferrous_ore_texture),
-    "conductive-ore": ("stone_soil", 2, None, None, conductive_ore_texture),
-    "rare-mineral": ("stone_soil", 2, None, None, rare_mineral_texture),
-    "stone": ("stone_soil", 2, None, None, stone_texture),
-    "silica": ("stone_soil", 2, None, None, silica_texture),
-    "coal": ("stone_soil", 2, None, None, coal_texture),
-    "crude-oil": ("painted_metal", 1, "side.png", None, crude_oil_texture),
-    "grain": ("organic", 1, "side.png", None, grain_texture),
-    "produce": ("organic", 1, "side.png", "shared/crate-bottom.png", produce_texture),
-    "animal-products": ("organic", 1, "side.png", "shared/crate-bottom.png", animal_products_texture),
-    "timber": ("organic", 1, "side.png", None, timber_texture),
-    "natural-fiber": ("organic", 1, "side.png", None, natural_fiber_texture),
-    "conductive-metal": ("bare_metal", 1, "side.png", None, conductive_metal_texture),
-    "fuel": ("painted_metal", 1, "side.png", None, fuel_texture),
-    "mechanical-components": ("painted_metal", 1, "side.png", "shared/equipment-underside.png", mechanical_components_texture),
-    "construction-material": ("concrete", 4, None, None, construction_material_texture),
-    "structural-metal": ("painted_metal", 4, "side.png", "shared/vehicle-underside.png", structural_metal_texture),
-    "specialty-material": ("bare_metal", 1, "side.png", None, specialty_material_texture),
-    "glass": ("glass", 1, None, None, glass_texture),
-    "lumber": ("organic", 1, "side.png", None, lumber_texture),
-    "textile": ("organic", 1, "side.png", None, textile_texture),
-    "chemical-feedstock": ("painted_metal", 1, "side.png", None, chemical_feedstock_texture),
-    "polymer": ("polymer_rubber", 1, "side.png", None, polymer_texture),
-    "electrical-components": ("painted_metal", 1, "side.png", "shared/equipment-underside.png", electrical_components_texture),
-    "electronic-components": ("painted_metal", 1, "side.png", "shared/equipment-underside.png", electronic_components_texture),
-    "structural-block": ("painted_metal", 1, None, None, structural_block_texture),
-    "construction-block": ("concrete", 1, None, None, construction_block_texture),
-    "rail": ("bare_metal", 1, "side.png", None, rail_texture),
-    "staple-food": ("organic", 1, "side.png", None, staple_food_texture),
-    "prepared-food": ("bare_metal", 1, "side.png", None, prepared_food_texture),
-    "clothing": ("organic", 1, "side.png", None, clothing_texture),
-    "consumer-goods": ("polymer_rubber", 1, "side.png", None, consumer_goods_texture),
-    "consumer-electronics": ("polymer_rubber", 1, "side.png", None, consumer_electronics_texture),
-    "medical-supplies": ("polymer_rubber", 1, "side.png", None, medical_supplies_texture),
+    "ferrous-ore": cube_art("stone_soil", 2, None, None, ferrous_ore_texture),
+    "conductive-ore": cube_art("stone_soil", 2, None, None, conductive_ore_texture),
+    "rare-mineral": cube_art("stone_soil", 2, None, None, rare_mineral_texture),
+    "stone": cube_art("stone_soil", 2, None, None, stone_texture),
+    "silica": cube_art("stone_soil", 2, None, None, silica_texture),
+    "coal": cube_art("stone_soil", 2, None, None, coal_texture),
+    "crude-oil": cube_art("painted_metal", 1, "side.png", None, crude_oil_texture),
+    "grain": cube_art("organic", 1, "side.png", None, grain_texture),
+    "produce": cube_art("organic", 1, "side.png", "shared/crate-bottom.png", produce_texture),
+    "animal-products": cube_art("organic", 1, "side.png", "shared/crate-bottom.png", animal_products_texture),
+    "timber": cube_art("organic", 1, "side.png", None, timber_texture),
+    "natural-fiber": cube_art("organic", 1, "side.png", None, natural_fiber_texture),
+    "conductive-metal": cube_art("bare_metal", 1, "side.png", None, conductive_metal_texture),
+    "fuel": cube_art("painted_metal", 1, "side.png", None, fuel_texture),
+    "mechanical-components": cube_art("painted_metal", 1, "side.png", "shared/equipment-underside.png", mechanical_components_texture),
+    "construction-material": cube_art("concrete", 4, None, None, construction_material_texture),
+    "structural-metal": cube_art("painted_metal", 4, "side.png", "shared/vehicle-underside.png", structural_metal_texture),
+    "specialty-material": cube_art("bare_metal", 1, "side.png", None, specialty_material_texture),
+    "glass": cube_art("glass", 1, None, None, glass_texture, shapes=["cube", "plate"]),
+    "lumber": cube_art("organic", 1, "side.png", None, lumber_texture),
+    "textile": cube_art("organic", 1, "side.png", None, textile_texture),
+    "chemical-feedstock": cube_art("painted_metal", 1, "side.png", None, chemical_feedstock_texture),
+    "polymer": cube_art("polymer_rubber", 1, "side.png", None, polymer_texture),
+    "electrical-components": cube_art("painted_metal", 1, "side.png", "shared/equipment-underside.png", electrical_components_texture),
+    "electronic-components": cube_art("painted_metal", 1, "side.png", "shared/equipment-underside.png", electronic_components_texture),
+    "structural-block": cube_art("painted_metal", 1, None, None, structural_block_texture, shapes=ALL_SHAPES),
+    "construction-block": cube_art("concrete", 1, None, None, construction_block_texture, shapes=ALL_SHAPES),
+    "rail": cube_art("bare_metal", 1, "side.png", None, rail_texture),
+    "staple-food": cube_art("organic", 1, "side.png", None, staple_food_texture),
+    "prepared-food": cube_art("bare_metal", 1, "side.png", None, prepared_food_texture),
+    "clothing": cube_art("organic", 1, "side.png", None, clothing_texture),
+    "consumer-goods": cube_art("polymer_rubber", 1, "side.png", None, consumer_goods_texture),
+    "consumer-electronics": cube_art("polymer_rubber", 1, "side.png", None, consumer_electronics_texture),
+    "medical-supplies": cube_art("polymer_rubber", 1, "side.png", None, medical_supplies_texture),
+    "propulsion-equipment": cube_art("painted_metal", 1, "side.png", "shared/equipment-underside.png", propulsion_texture),
+    "control-equipment": cube_art("painted_metal", 1, "side.png", "shared/equipment-underside.png", control_texture),
+    "storage-equipment": cube_art("painted_metal", 1, "side.png", "shared/equipment-underside.png", storage_texture),
+    "industrial-machinery": cube_art("painted_metal", 1, "side.png", "shared/equipment-underside.png", machinery_texture),
+    "extraction-equipment": cube_art("painted_metal", 1, "side.png", "shared/equipment-underside.png", extraction_texture),
+    "construction-equipment": cube_art("painted_metal", 1, "side.png", "shared/equipment-underside.png", construction_texture),
+    "power-equipment": cube_art("painted_metal", 1, "side.png", "shared/equipment-underside.png", power_texture),
+    "platform-equipment": cube_art("painted_metal", 1, "side.png", "shared/equipment-underside.png", platform_texture),
+    "lamp": cube_art("painted_metal", 1, "side.png", "shared/equipment-underside.png", lamp_texture, lamp_front_texture),
+    "bogie": ({"kind": "mesh", "model": "model.glb", "surface_materials": ["bare_metal"]}, None, None),
+    "machine-gun": ({"kind": "mesh", "model": "model.glb", "surface_materials": ["painted_metal", "bare_metal"]}, None, None),
+    "cannon": ({"kind": "mesh", "model": "model.glb", "surface_materials": ["painted_metal", "bare_metal"]}, None, None),
 }
 # 表中货物的 icon.png 是唯一源，生成器只生成 Keep File 导入声明。
 HAND_DRAWN_ICONS = tuple(f"voxels/{identity}/icon.png" for identity in GOODS_ART)
@@ -890,32 +977,6 @@ def underside_texture(x, y):
     return tint((0x2b, 0x2e, 0x31))
 
 
-def engine_texture(x, y):
-    return tint(BLUE, -22 if 4 <= x < 28 and y % 8 in (2, 3) else grain(x, y, 32, 0x511))
-
-
-def control_texture(x, y):
-    window = 3 <= x < 29
-    color = tint(GLASS if window else BLUE, grain(x, y, 32, 0x512))
-    return color[:3] + (0,) if window else color
-
-
-def storage_texture(x, y):
-    return tint(RED, -12 if x in (2, 3, 28, 29) else 8 if 23 <= x < 27 and 12 <= y < 18 else grain(x, y, 32, 0x513))
-
-
-def grille_texture(x, y):
-    return tint(BLUE, -18 if x % 8 in (2, 3) and y % 8 in (2, 3) else grain(x, y, 32, 0x514))
-
-
-def equipment_roof_texture(x, y):
-    return tint(BLUE, grain(x, y, 32, 0x515))
-
-
-def storage_roof_texture(x, y):
-    return tint(RED, grain(x, y, 32, 0x516))
-
-
 def icon(identity):
     pixels = [[(0, 0, 0, 0) for _ in range(128)] for _ in range(128)]
 
@@ -940,39 +1001,7 @@ def icon(identity):
                     if 0 <= x + dx < 128 and 0 <= y + dy < 128:
                         pixels[y + dy][x + dx] = tint(color)
 
-    def box(x, y, width, height, depth, color):
-        polygon([(x,y),(x+depth,y-depth),(x+width+depth,y-depth),(x+width,y)], tint(color, 18)[:3])
-        polygon([(x+width,y),(x+width+depth,y-depth),(x+width+depth,y+height-depth),(x+width,y+height)], tint(color, -16)[:3])
-        polygon([(x,y),(x+width,y),(x+width,y+height),(x,y+height)], color)
-
-    if identity == "bogie":
-        for x in (35, 79):
-            for y in range(65, 104):
-                for px in range(x - 16, x + 17):
-                    radius = ((px - x) / 16) ** 2 + ((y - 84) / 19) ** 2
-                    if radius <= 1:
-                        pixels[y][px] = tint(GLASS if radius > .72 else STEEL if radius < .15 else GRAPHITE)
-        box(20, 53, 75, 18, 12, GRAPHITE)
-        line((27,62),(90,62), STEEL, 3)
-    elif identity == "propulsion-equipment":
-        box(25, 54, 61, 43, 19, BLUE)
-        box(32, 39, 43, 15, 12, BLUE)
-        for y in (65, 74, 83):
-            line((34,y),(76,y), GLASS, 4)
-        box(80, 39, 10, 16, 9, GRAPHITE)
-        line((38,41),(48,41), YELLOW, 3)
-    elif identity == "control-equipment":
-        box(28, 70, 55, 29, 20, BLUE)
-        polygon([(33,38),(77,38),(88,69),(43,69)], BLUE)
-        polygon([(42,45),(69,45),(77,61),(48,61)], GLASS)
-        line((43,80),(54,80), YELLOW, 3)
-        line((70,81),(77,74), GRAPHITE, 4)
-    elif identity == "storage-equipment":
-        box(24, 44, 61, 53, 19, RED)
-        for x in (34, 53, 72):
-            line((x,50),(x,91), tint(RED, -18)[:3], 3)
-        line((76,67),(76,77), STEEL, 3)
-    elif identity in CREATURE_COLORS:
+    if identity in CREATURE_COLORS:
         color = CREATURE_COLORS[identity]
         if identity == "creature-carapace":
             polygon([(24, 78), (29, 49), (51, 28), (81, 30), (101, 58), (96, 92), (48, 103)], color)
@@ -996,19 +1025,6 @@ def style_assets(files):
     for name, size in (("vehicle-underside", 128), ("equipment-underside", 32)):
         texture = lambda x, y: underside_texture(x, y)[:3] + (0,)
         files[f"voxels/shared/{name}.png"] = png(size, texture)
-    for identity, size, top, side in (
-        ("propulsion-equipment", 32, grille_texture, engine_texture),
-        ("control-equipment", 32, equipment_roof_texture, control_texture),
-        ("storage-equipment", 32, storage_roof_texture, storage_texture),
-    ):
-        top = neutral_texture(top, DEFAULT_PAINTS[identity])
-        side = neutral_texture(side, DEFAULT_PAINTS[identity])
-        files[f"voxels/{identity}/top.png"] = png(size, top)
-        if side is not None:
-            files[f"voxels/{identity}/side.png"] = png(size, side)
-    for identity in ("bogie", "propulsion-equipment",
-                     "control-equipment", "storage-equipment"):
-        files[f"voxels/{identity}/icon.png"] = icon(identity)
 
 
 def scene_assets(files, voxel):
@@ -1076,8 +1092,6 @@ def creature_assets(files, voxel):
               description=f"第五阶段生物样稿：{name}，仅用于生物和聚落场景模型，脚本生成。")
 
 
-def faces(top, side=None, bottom=None):
-    return {"top": top, "side": side or top, "bottom": bottom or top}
 
 
 def keep_import(path):
@@ -1393,42 +1407,25 @@ def content_files():
     for material, color in colors.items():
         files[f"voxels/shared/{material}-face.png"] = png(32, lambda x, y: color)
         files[f"voxels/shared/{material}-icon.png"] = png(128, lambda x, y: color)
-    files["voxels/shared/paintable-face.png"] = png(32, lambda x, y: (255, 255, 255, 255))
     for name in SETTLEMENT_SYMBOLS:
         files[f"settlement-types/{name}/symbol.png"] = symbol_png(name)
 
     def voxel(identity, name, material=None, face_paths=None, icon_path=None, simulation=None, wheelset=False, light=False,
               tile_span=None, description=None):
         if identity in GOODS_ART:
-            material, tile_span, side, bottom, _ = GOODS_ART[identity]
-            face_paths, icon_path = faces("top.png", side, bottom), "icon.png"
+            presentation = GOODS_ART[identity][0]
+            icon_path = "icon.png"
             description = raw_description.format(name)
-        if material in PAINTABLE_MATERIALS:
-            if identity not in DEFAULT_PAINTS:
-                raise ValueError(f"{identity}: paintable voxel has no default paint")
-            face_paths = {face: "shared/paintable-face.png" if path in (
-                "shared/equipment-face.png", "shared/soil-face.png") else path for face, path in face_paths.items()}
+        else:
+            presentation = {"kind": "cube", "material": material, "faces": face_paths}
+            if tile_span is not None:
+                presentation["tile_span"] = tile_span
         value = {"schema_version": 3, "id": identity,
-                 "appearance": {"allowed_orientations": "four_way",
-                                "presentation": {"kind": "cube", "material": material,
-                                                 "faces": face_paths}},
+                 "appearance": {"allowed_orientations": "four_way", "presentation": presentation},
                  "display": {"name": name, "description": description or f"{name}的第一版正式定义；数值待配平，占位贴图待美术制作。",
                              "icon": icon_path}}
-        if tile_span is not None:
-            value["appearance"]["presentation"]["tile_span"] = tile_span
         if simulation is not None:
             value["simulation"] = simulation
-            value["appearance"]["presentation"]["shapes"] = (
-                ALL_SHAPES if identity in ("structural-block", "construction-block") else
-                ["cube", "plate"] if identity == "glass" else ["cube"])
-        if identity in ("machine-gun", "cannon"):
-            value["appearance"]["presentation"] = {
-                "kind": "mesh", "model": "model.glb", "surface_materials": ["painted_metal", "bare_metal"]}
-            value["display"]["description"] = f"{name}的第三阶段模型样稿；数值待配平，画面待用户阶段试玩确认。"
-        if identity == "bogie":
-            value["appearance"]["presentation"] = {
-                "kind": "mesh", "model": "model.glb", "surface_materials": ["bare_metal"]}
-            value["display"]["description"] = f"{name}的第三阶段模型样稿；数值待配平，画面待用户阶段试玩确认。"
         if wheelset:
             value["appearance"]["behaviors"] = {"wheelset": {}}
         if light:
@@ -1443,22 +1440,15 @@ def content_files():
             simulation["behaviors"] = behaviors
         return simulation
 
-    sample_description = "{}的第一阶段风格样稿；数值待配平，画面待用户阶段试玩确认。"
     raw_description = "{}的正式美术；数值待配平，画面待用户阶段试玩确认。"
     voxel("structural-metal", "结构金属", simulation=good("structural-metal", 0.028, 260))
     voxel("construction-material", "建筑材料", simulation=good("construction-material", 0.046, 220))
-    voxel("bogie", "转向架", "bare_metal", faces("shared/equipment-face.png"),
-          "icon.png", good("bogie", 0.034, 240), wheelset=True)
-    voxel("platform-equipment", "站台设备", "painted_metal", faces("shared/equipment-face.png"),
-          "shared/equipment-icon.png", good("platform-equipment", 0.024, behaviors={"platform": {}}))
-    voxel("propulsion-equipment", "柴油机组", "painted_metal", faces("top.png", "side.png", "shared/equipment-underside.png"),
-          "icon.png", good("propulsion-equipment", 1.12, behaviors={"propulsion": {"traction": 240, "rated_speed": 22}}),
-          tile_span=1, description=sample_description.format("柴油机组"))
-    voxel("control-equipment", "驾驶台", "painted_metal", faces("top.png", "side.png", "shared/equipment-underside.png"),
-          "icon.png", good("control-equipment", 0.018, behaviors={"control": {}}), tile_span=1, description=sample_description.format("驾驶台"))
-    voxel("storage-equipment", "货舱", "painted_metal", faces("top.png", "side.png", "shared/equipment-underside.png"),
-          "icon.png", good("storage-equipment", 0.016, behaviors={"storage": {"capacity": 180}}),
-          tile_span=1, description=sample_description.format("货舱"))
+    voxel("bogie", "转向架", simulation=good("bogie", 0.034, 240), wheelset=True)
+    voxel("platform-equipment", "站台设备", simulation=good("platform-equipment", 0.024, behaviors={"platform": {}}))
+    voxel("propulsion-equipment", "柴油机组", simulation=good("propulsion-equipment", 1.12,
+          behaviors={"propulsion": {"traction": 240, "rated_speed": 22}}))
+    voxel("control-equipment", "驾驶台", simulation=good("control-equipment", 0.018, behaviors={"control": {}}))
+    voxel("storage-equipment", "货舱", simulation=good("storage-equipment", 0.016, behaviors={"storage": {"capacity": 180}}))
     goods = (("staple-food", "主食", 0.7), ("clothing", "衣物", 0.8),
              ("prepared-food", "加工食品", 0.6), ("consumer-goods", "日用品", 1.4),
              ("consumer-electronics", "消费电子", 1.6), ("medical-supplies", "医疗用品", 0.4))
@@ -1468,15 +1458,21 @@ def content_files():
     scene_assets(files, voxel)
     creature_assets(files, voxel)
     style_assets(files)
-    for identity, (material, tile_span, side, _, texture) in GOODS_ART.items():
-        size = 32 * tile_span
+    for identity, (presentation, texture, front) in GOODS_ART.items():
+        if presentation["kind"] != "cube":
+            continue
+        material = presentation["material"]
+        size = 32 * presentation["tile_span"]
         top = neutral_texture(texture, DEFAULT_PAINTS[identity]) if material in PAINTABLE_MATERIALS else texture
         files[f"voxels/{identity}/top.png"] = png(size, top)
-        if side is not None:
+        side = presentation["faces"]["side"]
+        if side != "top.png":
             side_texture = lambda x, y: texture(x, y, side=True)
             if material in PAINTABLE_MATERIALS:
                 side_texture = neutral_texture(side_texture, DEFAULT_PAINTS[identity])
             files[f"voxels/{identity}/{side}"] = png(size, side_texture)
+        if front is not None:
+            files[f"voxels/{identity}/front.png"] = png(size, neutral_texture(front, DEFAULT_PAINTS[identity]))
     files["voxels/shared/crate-bottom.png"] = png(32, crate_bottom_texture)
 
     for model in railway_models():
@@ -1514,22 +1510,18 @@ def content_files():
         # 额定功率在模板和建筑布局就绪后统一推导。
         ("power-equipment", "发电机", {"power": {}}),
     ):
-        voxel(identity, name, "painted_metal", faces("shared/equipment-face.png"),
-              "shared/equipment-icon.png", good(identity, 0.08, behaviors=behavior))
+        voxel(identity, name, simulation=good(identity, 0.08, behaviors=behavior))
     fuel = good("fuel", 0.7)
     voxel("fuel", "燃料", simulation=fuel)
 
-    for identity, name, physical_source, texture in NEW_GOODS:
+    for identity, name, physical_source in NEW_GOODS:
         source = voxel_definitions[physical_source]["simulation"]
         simulation = good(identity, source["mass"], source["max_durability"])
         if identity in ("machine-gun", "cannon"):
             factor = CANNON_FACTOR if identity == "cannon" else 1
             simulation["behaviors"] = {"weapon": {"damage": ceil(source["max_durability"] * WEAPON_DAMAGE_SHARE) * factor,
                                                    "interval": MACHINE_GUN_INTERVAL_SECONDS * factor}}
-        material = {"soil": "stone_soil", "organic": "organic", "equipment": "painted_metal"}[texture]
-        face_paths, icon_path = faces(f"shared/{texture}-face.png"), f"shared/{texture}-icon.png"
-        voxel(identity, name, material, face_paths, icon_path, simulation,
-              light=identity == "lamp")
+        voxel(identity, name, simulation=simulation, light=identity == "lamp")
 
     document("blueprints", "blueprint", "large-diesel-engine",
              large_diesel_engine(voxel_definitions["propulsion-equipment"]["simulation"]["behaviors"]["propulsion"]))
