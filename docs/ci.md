@@ -33,7 +33,7 @@ gh pr edit <PR号> --repo odradekk/train --add-label ci:correctness
 
 手动运行可选择 ref 和 `routine` 或 `correctness`。Windows job 只接受上述 PR 事件和这两种手动选择，不在 master push 或 schedule 时运行。触发和查看命令见[远端检查](run-tests.md#远端检查)。
 
-`correctness` 运行六个现有 MSTest 项目、结构与公开面、Core/Content/Scenes 隔离、内容示例 Schema 及当前 App 的非导出真实 Godot 集成用例。入口复用一次游戏构建和导入并运行独立引擎测试程序集；集成层 MSTest、structure、verify 与可选 Schema 共用最多 4 个并发任务和 1170 秒截止时间；选中的 isolate 在该队列结束后独立运行，使用 780 秒上限，队列失败也执行且不计入集成层耗时；收到停止请求时不启动尚未开始的独立隔离检查。导出冒烟对同一次 Windows 导出运行两次，用 `-Layer engine -ExportWindows` 另外显式选择；Benchmark、长测、人工和额外平台也不属于此选择。
+`correctness` 运行六个现有 MSTest 项目、结构与公开面、Core/Content/Scenes 隔离、内容示例 Schema 及当前 App 的非导出真实 Godot 集成用例。入口复用一次游戏构建和导入并运行独立引擎测试程序集；集成层 MSTest、structure、verify 与可选 Schema 共用最多 4 个并发任务和 720 秒截止时间；选中的 isolate 在该队列结束后独立运行，使用 780 秒上限，队列失败也执行且不计入集成层耗时；收到停止请求时不启动尚未开始的独立隔离检查。导出冒烟对同一次 Windows 导出运行两次，用 `-Layer engine -ExportWindows` 另外显式选择；Benchmark、长测、人工和额外平台也不属于此选择。
 
 GitHub 要求 `workflow_dispatch` 文件已存在于默认分支，所以新工作流合并前使用 PR 标签取得远端证据。见 [GitHub 触发文档](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)。
 
@@ -49,7 +49,7 @@ GitHub 要求 `workflow_dispatch` 文件已存在于默认分支，所以新工�
 
 以上四种事件／选择复用同一个 Linux job，只有它们能分配带 `[self-hosted, linux, nightly]` 标签的 runner；PR 和其他事件被白名单条件排除。这些路径不分配 Windows runner。运行名区分 `Linux post-merge`、`Linux nightly` 和带示例名的 `Linux long-example`。目前只有一台匹配的 runner，任务自然排队，不设置额外并发组；runner 排队超过 24 小时会被 GitHub 取消。触发、查看和下载方法见[远端检查](run-tests.md#远端检查)。
 
-全量检查 job 上限为 115 分钟（计算见[执行与边界](run-tests.md#执行与边界)）；长示例初始上限分别为 starting-trade 105 分钟、lease-expiry 485 分钟。长示例按三组 Windows 最坏实测耗时的最大值加构建时间，再乘 1.5、向上取整到分钟；[初始计算记录](https://github.com/odradekk/train/issues/565#issuecomment-6232396762)列出 #299、#546 的命令数据和暂停处理。Linux 实测的 1.5 倍若超过既有上限，按[预算原则](contracts/testing.md#预算调整原则)上调。不设置单条 CLI 命令超时。
+全量检查 job 上限为 130 分钟（计算见[执行与边界](run-tests.md#执行与边界)）；长示例初始上限分别为 starting-trade 105 分钟、lease-expiry 485 分钟。长示例按三组 Windows 最坏实测耗时的最大值加构建时间，再乘 1.5、向上取整到分钟；[初始计算记录](https://github.com/odradekk/train/issues/565#issuecomment-6232396762)列出 #299、#546 的命令数据和暂停处理。Linux 实测的 1.5 倍若超过既有上限，按[预算原则](contracts/testing.md#预算调整原则)上调。不设置单条 CLI 命令超时。
 
 局域网自托管 runner `lan-linux-nightly` 由 systemd 服务运行，主机提供 PowerShell、Godot 和 Python；版本与环境配置见[Linux 验证与自托管 runner](local-environment.md#linux-验证与自托管-runner)。checkout 后，job 使用固定 SHA 的 `actions/setup-dotnet` 按 `global.json` 准备 SDK，安装到 `${{ runner.tool_cache }}/dotnet`，避开系统包管理器维护的目录。action 将该目录加入 PATH 并导出 `DOTNET_ROOT`，后续 CLI、Godot 和 `dotnet tool restore` 共用它；环境记录保留实际版本和 `DOTNET_ROOT`。workflow 不含主机安装路径，不安装额外 Godot，不使用 xvfb。job 仅授予 `contents: read`，checkout 完整历史与所选 SHA，`persist-credentials: false`。schedule 使用默认分支的工作流，新的 SDK 准备方式在本 PR 合并后才用于定时运行。
 
@@ -67,6 +67,6 @@ Linux 的所有必需步骤失败均传播到 job，不使用 `continue-on-error
 
 摘要发布和上传步骤使用 `always()`；失败后仍执行，取消时尽可能收集已产生文件。强制终止 runner 或上传服务不可用时不能保证上传。入口非零状态直接传递给步骤；快速、集成和显式 correctness 失败会令 job 失败，常规选择的 Godot 准备和独立引擎步骤均暂用 `continue-on-error`。Godot 下载失败时准备步骤的失败可见，引擎被选中时引擎步骤也报告缺环境；若其他必需步骤成功，常规 job 仍为绿色。后续上传不改变这些规则。工具准备失败仍尝试入口，让所选检查报告缺环境；若连 PowerShell 都未准备好，只保留已产生的环境记录与 Actions 原始日志，不宣称执行通过。
 
-Windows job 上限为 85 分钟，为工具下载、构建与检查预留时间，并结束卡住的任务；入口预算合计与 job 上限的关系见[执行与边界](run-tests.md#执行与边界)，Linux 上限见[Linux runner](#linux-夜间运行)。当前检查的实际耗时以各次运行摘要为准。
+Windows job 上限为 101 分钟，为工具下载、构建与检查预留时间，并结束卡住的任务；入口预算合计与 job 上限的关系见[执行与边界](run-tests.md#执行与边界)，Linux 上限见[Linux runner](#linux-夜间运行)。当前检查的实际耗时以各次运行摘要为准。
 
 私有仓库的 Windows 托管运行消耗付费 Actions 分钟，包含全层的 correctness 路径要求显式请求。测试证据与复用规则见 [Testing standard](implement-sop.md#testing-standard)。
