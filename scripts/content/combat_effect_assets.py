@@ -1,7 +1,7 @@
 """特效和损伤遮罩的唯一源；生成或 --check 核对 Rendering/Effects/。"""
 
 import argparse
-from math import atan2, floor, hypot, sin
+from math import atan2, cos, floor, hypot, sin, tau
 from pathlib import Path
 import sys
 
@@ -42,9 +42,14 @@ def rgba(*channels):
     return tuple(round(max(0, min(1, value)) * 255) for value in channels)
 
 
+CHIPS = tuple((hash_value(i, 71), hash_value(i, 83),
+               .025 + hash_value(i, 97) * .11, .02 + hash_value(i, 113) * .075,
+               hash_value(i, 127) * tau) for i in range(9))
+
+
 def damage_pixel(x, y):
     u, v = (x + .5) / SIZE, (y + .5) / SIZE
-    coarse = grain(u, v)
+    coarse = noise(u, v, 3) * .55 + noise(u, v, 7) * .3 + noise(u, v, 19) * .15
     distances = []
     cx, cy = floor(u * 4), floor(v * 4)
     for dy in range(-1, 2):
@@ -55,7 +60,15 @@ def damage_pixel(x, y):
             distances.append(hypot(u * 4 - px, v * 4 - py))
     distances.sort()
     crack = 1 - smooth(.015, .065, distances[1] - distances[0])
-    spall = (1 - smooth(.12, .36, distances[0])) * smooth(.35, .65, coarse)
+    spall = 0
+    chipped_edge = (noise(u, v, 37) - .5) * .55
+    aggregate = .55 + .45 * smooth(.35, .7, noise(u, v, 61))
+    for px, py, width, height, rotation in CHIPS:
+        dx, dy = (u - px + .5) % 1 - .5, (v - py + .5) % 1 - .5
+        rx = abs((dx * cos(rotation) - dy * sin(rotation)) / width)
+        ry = abs((dx * sin(rotation) + dy * cos(rotation)) / height)
+        edge = max(rx + ry * .42, ry + rx * .22) + chipped_edge
+        spall = max(spall, (1 - smooth(.94, 1.02, edge)) * aggregate)
     angle = atan2(v - .5, u - .5)
     radius = hypot(u - .5, v - .5)
     spoke = 1 - smooth(.02, .13, abs(sin(angle * 5 + noise(u, v, 8) * .55)))
