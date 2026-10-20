@@ -210,6 +210,7 @@ public sealed class SettlementLayoutTests
         var flatten = groundJson.RootElement.GetProperty("appearance").GetProperty("flatten");
         var from = flatten.GetProperty("from");
         var to = flatten.GetProperty("to");
+        var cells = GroundCells(groundJson.RootElement, new(Vector3.Zero, Quaternion.Identity)).ToArray();
         var template = BuiltIn(name);
         template = template with
         {
@@ -218,7 +219,9 @@ public sealed class SettlementLayoutTests
                 ReadPosition(plot.GetProperty("at")), ReadEnum<VoxelOrientation>(plot.GetProperty("orientation")))).ToImmutableArray(),
             SceneModel = template.SceneModel with { Scene = template.SceneModel.Scene with
             {
-                OccupiedBounds = new(new(from[0].GetInt32(), 0, from[1].GetInt32()), new(to[0].GetInt32(), 0, to[1].GetInt32())),
+                OccupiedBounds = new(
+                    new((int)Math.Floor(cells.Min(cell => cell.X)), (int)Math.Floor(cells.Min(cell => cell.Y)), (int)Math.Floor(cells.Min(cell => cell.Z))),
+                    new((int)Math.Floor(cells.Max(cell => cell.X)), (int)Math.Floor(cells.Max(cell => cell.Y)), (int)Math.Floor(cells.Max(cell => cell.Z)))),
                 RootFlatten = new(new(from[0].GetInt32(), from[1].GetInt32()), new(to[0].GetInt32(), to[1].GetInt32()), flatten.GetProperty("height").GetInt32())
             } }
         };
@@ -253,7 +256,7 @@ public sealed class SettlementLayoutTests
             if (!buckets.TryGetValue(key, out var points)) buckets[key] = points = [];
             points.Add(new((float)point.X, (float)point.Z));
         }
-        foreach (var cell in GroundCells(groundJson.RootElement, new(Vector3.Zero, Quaternion.Identity)))
+        foreach (var cell in cells)
         {
             var point = new ScenePoint(cell.X, cell.Y, cell.Z);
             Assert.IsFalse(NodeSettlement.ContainsPlot(template, point), $"{name}: ground cell {cell} overlaps a plot envelope.");
