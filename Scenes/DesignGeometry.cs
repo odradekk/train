@@ -14,6 +14,13 @@ internal sealed record RenderedDesign(ImmutableArray<SceneObject> Objects,
 
 internal static class DesignGeometry
 {
+    internal static ImmutableArray<PartProjection> Parts(DesignEvaluation? evaluation) => evaluation switch
+    {
+        DesignEvaluation.Complete { Core: { } core } => core.Design.Parts,
+        DesignEvaluation.Partial partial => partial.KnownSubtotal.Parts,
+        _ => []
+    };
+
     internal static DesignSceneProjection Projection(DesignEvaluation evaluation) => evaluation switch
     {
         DesignEvaluation.Complete complete => complete.Scene,
@@ -124,7 +131,9 @@ internal static class DesignGeometry
             }
             var effects = damage is null ? [] : damage.Effects.Where(item => item.Path == key).Select(item => item.Effect).ToImmutableArray();
             objects.Add(new(objectId, parent, pose, subject, visuals, [], effects));
-            if (damage is not null)
+            if (damage is null)
+                objects.AddRange(Lights(grid, objectId, subject, cell => id(key + ":light:" + cell.At)));
+            else
                 foreach (var light in damage.Lights.Where(item => item.Path == key))
                     objects.Add(new(id(key + ":light:" + light.At), objectId,
                         new(new(light.At.X + .5f, light.At.Y + .5f, light.At.Z + .5f), Quaternion.Identity),
@@ -171,6 +180,16 @@ internal static class DesignGeometry
         BinaryPrimitives.WriteDoubleLittleEndian(identity[17..], position.Y);
         BinaryPrimitives.WriteDoubleLittleEndian(identity[25..], position.Z);
         return BinaryPrimitives.ReadUInt64LittleEndian(SHA256.HashData(identity));
+    }
+
+    internal static IEnumerable<SceneObject> Lights(VoxelGrid grid, SceneObjectId parent, WorldObjectId? subject,
+        Func<SceneCell, SceneObjectId> id)
+    {
+        foreach (var cell in grid.Cells)
+            if (cell.MissingReference is null && cell.Appearance?.Behaviors.Light is { } light)
+                yield return new(id(cell), parent,
+                    new(new(cell.At.X + .5f, cell.At.Y + .5f, cell.At.Z + .5f), Quaternion.Identity),
+                    subject, [], [new(light.Color, light.RangeCells, 0, 0)], []);
     }
 
     internal static IEnumerable<SceneObject> Models(VoxelGrid grid, SceneObjectId parent, WorldObjectId? subject,

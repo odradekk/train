@@ -55,17 +55,16 @@ internal static class StructureDamage
             foreach (var neighbor in Neighbors(at))
                 if (!removedAt.Contains(neighbor) && structureByAt.TryGetValue(neighbor, out var voxel))
                     damage[Cell(voxel)] = 1;
-        foreach (var part in instance.Parts.Where(part => !part.Destroyed && functional.Contains(part.Part)))
-        {
-            var loss = (float)(1 - Ratio(part.Durability));
-            if (loss <= 0) continue;
-            foreach (var voxel in projection.Voxels.Where(voxel => voxel.Number == part.Part && !voxel.Missing))
-                damage[Cell(voxel)] = loss;
-        }
         var lights = ImmutableArray.CreateBuilder<PlacedLight>();
         var effects = ImmutableArray.CreateBuilder<PlacedEffect>();
         var partRatios = instance.Parts.ToDictionary(part => part.Part);
-        foreach (var voxel in projection.Voxels.Where(voxel => !voxel.Missing && !destroyed.Contains(voxel.Number) && !removed.Contains(Cell(voxel))))
+        var parts = DesignGeometry.Parts((content?.FindDesign(instance.Design) as ContentLookup<DesignEvaluation>.Found)?.Value);
+        var leaking = parts.Where(part => !part.Missing && part.Capabilities.Any(capability =>
+            capability is PartCapability.Propulsion or PartCapability.Power)).Select(part => part.Id).ToHashSet();
+        var remaining = projection.Voxels.Where(voxel => !voxel.Missing && !destroyed.Contains(voxel.Number) &&
+            !removed.Contains(Cell(voxel))).ToArray();
+        var occupied = remaining.Select(voxel => voxel.At).ToHashSet();
+        foreach (var voxel in remaining)
         {
             if (content?.FindVoxelAppearance(voxel.Voxel) is not ContentLookup<VoxelAppearanceProjection>.Found { Value.Behaviors.Light: { } light })
                 continue;
@@ -84,18 +83,43 @@ internal static class StructureDamage
         {
             var loss = 1 - Ratio(part.Durability);
             if (loss <= 0) continue;
-            var cell = projection.Voxels.Where(voxel => voxel.Number == part.Part && !voxel.Missing)
-                .OrderBy(voxel => voxel.At.X).ThenBy(voxel => voxel.At.Y).ThenBy(voxel => voxel.At.Z).FirstOrDefault();
+            var cells = remaining.Where(voxel => voxel.Number == part.Part)
+                .OrderBy(voxel => voxel.At.Y).ThenBy(voxel => voxel.At.X).ThenBy(voxel => voxel.At.Z).ToArray();
+            foreach (var voxel in cells) damage[Cell(voxel)] = (float)loss;
+            var cell = cells.OrderBy(voxel => voxel.At.X).ThenBy(voxel => voxel.At.Y).ThenBy(voxel => voxel.At.Z).FirstOrDefault();
             if (cell is null) continue;
             effects.Add(new(DesignGeometry.Key(cell.ObjectPath), new(PersistentEffectKind.Sparks,
                 new(cell.LocalAt.X + .5f, cell.LocalAt.Y + .5f, cell.LocalAt.Z + .5f),
                 (float)loss, Seed(instance.Id, part.Part.Value, cell.LocalAt, 4))));
+            if (!leaking.Contains(part.Part)) continue;
+            var source = LeakSource(cells, occupied);
+            if (source is not { } leak) continue;
+            var rotation = SceneGeometry.NestedPose(projection, leak.Voxel.ObjectPath).Rotation;
+            var local = new Vector3(leak.Voxel.LocalAt.X + .5f, leak.Voxel.LocalAt.Y + .5f, leak.Voxel.LocalAt.Z + .5f) +
+                Vector3.Transform(leak.Normal * .5f, Quaternion.Inverse(rotation));
+            effects.Add(new(DesignGeometry.Key(leak.Voxel.ObjectPath), new(PersistentEffectKind.Leak,
+                local, (float)loss, Seed(instance.Id, part.Part.Value, leak.Voxel.LocalAt, 5))));
         }
         return new(ratio, (float)(1 - ratio), removedCount > 0, order.Select(Cell).ToImmutableArray(), removed,
             damage.ToImmutable(), lights.DrainToImmutable(), effects.DrainToImmutable());
     }
 
     internal static bool Removed(Report report, SceneVoxelProjection voxel) => report.Removed.Contains(Cell(voxel));
+
+    private static (SceneVoxelProjection Voxel, Vector3 Normal)? LeakSource(SceneVoxelProjection[] cells, HashSet<GridPosition> occupied)
+    {
+        foreach (var cell in cells)
+            if (!occupied.Contains(cell.At with { Y = cell.At.Y - 1 })) return (cell, -Vector3.UnitY);
+        foreach (var cell in cells)
+        {
+            // 固定侧面顺序：-X、+X、-Z、+Z；竖直方向按整个设计坐标判断。
+            if (!occupied.Contains(cell.At with { X = cell.At.X - 1 })) return (cell, -Vector3.UnitX);
+            if (!occupied.Contains(cell.At with { X = cell.At.X + 1 })) return (cell, Vector3.UnitX);
+            if (!occupied.Contains(cell.At with { Z = cell.At.Z - 1 })) return (cell, -Vector3.UnitZ);
+            if (!occupied.Contains(cell.At with { Z = cell.At.Z + 1 })) return (cell, Vector3.UnitZ);
+        }
+        return null;
+    }
 
     private static CellRef Cell(SceneVoxelProjection voxel) => new(DesignGeometry.Key(voxel.ObjectPath), voxel.LocalAt);
 

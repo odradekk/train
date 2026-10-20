@@ -117,6 +117,13 @@ internal sealed class PresentationState
                     var pose = new ScenePose(placed.Position + PounceOffset(snapshot, objects, creature.Id, placed, seconds) + new Vector3(0, Bob(seconds), 0),
                         placed.Rotation);
                     var body = Body(snapshot, appearance.Value, group, creature.Id, objectId);
+                    var ratio = (double)creature.Health / creature.MaximumHealth;
+                    var lightDamage = (float)Math.Max(0, (StructureDamage.FireRatio - ratio) / StructureDamage.FireRatio);
+                    if (lightDamage > 0)
+                        body = body.Select(item => item.Lights.IsEmpty ? item : item with
+                        {
+                            Lights = item.Lights.Select(light => light with { Damage = lightDamage }).ToImmutableArray()
+                        }).ToImmutableArray();
                     objects.AddRange(SceneGeometry.Place(new(body, [], []), pose).Objects);
                 }
             }

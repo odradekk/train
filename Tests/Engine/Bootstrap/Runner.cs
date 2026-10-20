@@ -28,6 +28,7 @@ public partial class Runner : Node
                 {
                     "--package-restart-child" => "Train.Engine.Tests.PackageRestartTests",
                     "--authoring-core-probe" => "Train.Engine.Tests.AuthoringCoreProbe",
+                    "--art-capture-evidence" => "Train.Engine.Tests.ProductionNodeCapture",
                     _ => null
                 };
                 if (childType is not null)

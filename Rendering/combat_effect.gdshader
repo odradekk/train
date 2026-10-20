@@ -16,7 +16,7 @@ void vertex() {
 	float elapsed = max(simulation_seconds - start_seconds, 0.0);
 	float phase = lifetime <= 0.0 ? 1.0 : clamp(elapsed / max(lifetime, 0.001), 0.0, 1.0);
 	effect_alpha = strength * (1.0 - smoothstep(0.72, 1.0, phase));
-	if (appearance <= 2) {
+	if (appearance <= 2 || appearance == 6 || appearance == 7) {
 		float index = UV2.x;
 		float count = max(UV2.y, 1.0);
 		bool looping = lifetime <= 0.0;
@@ -33,13 +33,24 @@ void vertex() {
 		vec3 scatter = vec3(cos(angle), 0.0, sin(angle)) * spread * (looping ? 1.0 : local);
 		float size = (appearance == 0 ? mix(0.4, 1.1, local) * (0.5 + strength * 0.45)
 			: appearance == 1 ? 0.42 + strength * 0.38 : 0.1) * node_scale;
+		if (appearance == 6) {
+			rise = -local * local * 1.8 * node_scale;
+			spread = 0.06 * node_scale;
+			scatter = vec3(cos(angle), 0.0, sin(angle)) * spread;
+			size = 0.12 * node_scale;
+		} else if (appearance == 7) {
+			rise = local * 0.2 * node_scale;
+			scatter = vec3(cos(angle), 0.0, sin(angle)) * local * 1.8 * node_scale;
+			size = mix(0.5, 1.6, local) * node_scale;
+		}
 		vec3 origin = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
 		MODELVIEW_MATRIX = VIEW_MATRIX * mat4(
 			vec4(INV_VIEW_MATRIX[0].xyz, 0.0),
 			vec4(INV_VIEW_MATRIX[1].xyz, 0.0),
 			vec4(INV_VIEW_MATRIX[2].xyz, 0.0),
 			vec4(origin + scatter + vec3(0.0, rise, 0.0), 1.0));
-		VERTEX = vec3((UV - vec2(0.5)) * size, 0.0);
+		vec2 dimensions = vec2(size, size * (appearance == 6 ? 1.8 : appearance == 7 ? 0.3 : 1.0));
+		VERTEX = vec3((UV - vec2(0.5)) * dimensions, 0.0);
 	}
 }
 
@@ -47,8 +58,9 @@ void fragment() {
 	vec3 color = tint.rgb;
 	// flicker_seconds 不快于真实时间；6 rad/s 约每秒变亮一次。
 	if (appearance == 1) color *= 0.75 + 0.25 * sin(flicker_seconds * 6.0 + seed * 20.0);
-	float disk = appearance <= 2 ? 1.0 - smoothstep(0.15, 0.5, length(UV - vec2(0.5))) : 1.0;
+	float disk = appearance <= 2 || appearance == 6 || appearance == 7
+		? 1.0 - smoothstep(0.15, 0.5, length(UV - vec2(0.5))) : 1.0;
 	ALBEDO = color;
-	EMISSION = appearance == 0 || appearance == 5 ? vec3(0.0) : color;
+	EMISSION = appearance == 0 || appearance >= 5 ? vec3(0.0) : color;
 	ALPHA = effect_alpha * disk;
 }

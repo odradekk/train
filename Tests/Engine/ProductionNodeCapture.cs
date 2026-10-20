@@ -17,8 +17,35 @@ public partial class ProductionNodeCapture : Node
     private ulong _draw;
     private string? _lastPhase;
     private bool _worldRecorded;
+    private int _sequenceLeft;
+    private Task _pngWrites = Task.CompletedTask;
+    private bool _recording;
 
     public static void Start(Node root) => root.AddChild(new ProductionNodeCapture { Name = "ProductionNodeCapture" });
+
+    public static async Task<int> Run(Node owner)
+    {
+        var input = Train.App.ArtCapture.CaptureInput.Parse(OS.GetCmdlineUserArgs().Skip(1).ToArray());
+        using var run = new Train.App.ArtCapture.ArtCaptureRun(owner);
+        var path = ProjectSettings.GlobalizePath($"res://.godot/validation/{input.Name}.effects.jsonl");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        using var frames = new StreamWriter(path);
+        void Observe()
+        {
+            if (run.World?.Display is not { DisplayedFrame: { } frame } display) return;
+            frames.WriteLine(JsonSerializer.Serialize(new
+            {
+                draw = Godot.Engine.GetFramesDrawn(), position = run.Host!.GetStatus()!.View.Position,
+                frame = frame.Update.Frame, displaySeconds = frame.SimulationSeconds,
+                visibleEffects = display.Root.GetNodeOrNull("CombatEffects")?.GetChildren()
+                    .ToDictionary(child => child.Name.ToString(), child => child.GetChildCount())
+            }));
+        }
+        RenderingServer.FramePostDraw += Observe;
+        try { await run.CaptureAsync(input); }
+        finally { RenderingServer.FramePostDraw -= Observe; }
+        return 0;
+    }
 
     public override void _Ready()
     {
@@ -44,6 +71,14 @@ public partial class ProductionNodeCapture : Node
         };
         var route = new Button { Text = "Demo 停靠 / 途经计划", Name = "CaptureRoute" };
         bar.AddChild(route);
+        var sequence = new Button { Text = "连续记录 120 帧", Name = "CaptureSequence" };
+        bar.AddChild(sequence);
+        sequence.Pressed += () =>
+        {
+            if (_sequenceLeft != 0 || !_pngWrites.IsCompleted) return;
+            _sequenceLeft = 120;
+            _recording = true;
+        };
         layer.AddChild(_status);
         route.Pressed += () =>
         {
@@ -58,6 +93,12 @@ public partial class ProductionNodeCapture : Node
 
     private void Capture()
     {
+        if (_pngWrites.IsFaulted) _pngWrites.GetAwaiter().GetResult();
+        if (_recording && _sequenceLeft == 0 && _pngWrites.IsCompleted)
+        {
+            _recording = false;
+            GD.Print("PRODUCTION PNG SEQUENCE COMPLETED: " + _directory);
+        }
         var status = _app.Host?.GetStatus();
         var world = _app.WorldScenes;
         var display = world?.Display;
@@ -73,12 +114,23 @@ public partial class ProductionNodeCapture : Node
             _ => "no-train"
         };
         string? screenshot = null;
-        if (pose is not null && phase != _lastPhase)
+        if (frame is not null && (_sequenceLeft > 0 || pose is not null && phase != _lastPhase))
         {
             screenshot = $"{_draw:D8}-{phase}.png";
-            using var image = GetViewport().GetTexture().GetImage();
-            if (image.SavePng(Path.Combine(_directory, screenshot)) != Error.Ok) throw new IOException("逐帧取证截图保存失败。");
+            var image = GetViewport().GetTexture().GetImage();
+            var path = Path.Combine(_directory, screenshot);
+            var previousWrite = _pngWrites;
+            // 视口只在主线程读回；每份图像交给后台串行编码，避免编码耗时改变模拟帧。
+            _pngWrites = Task.Run(async () =>
+            {
+                using (image)
+                {
+                    await previousWrite.ConfigureAwait(false);
+                    if (image.SavePng(path) != Error.Ok) throw new IOException("逐帧取证截图保存失败。");
+                }
+            });
             _lastPhase = phase;
+            if (_sequenceLeft > 0) _sequenceLeft--;
         }
         if (!_worldRecorded && status is not null)
         {
@@ -102,14 +154,24 @@ public partial class ProductionNodeCapture : Node
             draw = ++_draw, usec = Time.GetTicksUsec(), engineDraw = Godot.Engine.GetFramesDrawn(),
             train = (ulong)_train.Value, subject = _subject?.ToString(), phase, corePosition = status?.View.Position,
             trainPosition = train?.Position.ToString(), plan, planLoop = train?.Plan?.Loop, nextStop = train?.NextStopIndex, dwellSteps = train?.RemainingDwellSteps, activity = train?.Activity.ToString(), speed = train?.SpeedMetersPerSecond,
-            paused = status?.IsPaused, remainder = status?.Remainder, interpolation = status is null ? (double?)null : Math.Clamp(status.Remainder / SimulationTime.StepSeconds, 0, 1), frame = frame?.Update.Frame,
+            paused = status?.IsPaused, requestedSpeed = status?.Speed.ToString(), actualSpeed = status?.ActualSpeed,
+            effects = frame?.Update.Effects.Select(effect => new { effect.Id, kind = effect.Kind.ToString(), effect.StartedAtSimulationSeconds, subject = effect.Subject?.ToString() }),
+            visibleEffects = display?.Root.GetNodeOrNull("CombatEffects")?.GetChildren()
+                .ToDictionary(child => child.Name.ToString(), child => child.GetChildCount()),
+            sceneLights = display?.Objects.Values.Where(item => !item.Source.Lights.IsEmpty).Select(item => new
+            {
+                id = item.Source.Id.Value, subject = item.Source.Subject?.ToString(),
+                damage = item.Source.Lights.Select(light => light.Damage),
+                energy = item.Root.GetChildren().OfType<OmniLight3D>().Select(light => light.LightEnergy)
+            }),
+            remainder = status?.Remainder, interpolation = status is null ? (double?)null : Math.Clamp(status.Remainder / SimulationTime.StepSeconds, 0, 1), frame = frame?.Update.Frame,
             origin = frame?.Origin, readiness = frame?.Readiness.ToString(), loading = world?.View.Loading, preparing = display?.IsPreparing,
             simulationSeconds = frame?.SimulationSeconds,
             findPosePosition = pose is null ? null : new[] { pose.Position.X, pose.Position.Y, pose.Position.Z },
             findPoseRotation = pose is null ? null : new[] { pose.Rotation.X, pose.Rotation.Y, pose.Rotation.Z, pose.Rotation.W },
             vehiclePosition = node is null ? null : V(node.GlobalPosition), vehicleRotation = node is null ? null : Q(node.GlobalBasis.GetRotationQuaternion()),
             cameraPosition = camera is null ? null : V(camera.GlobalPosition), cameraRotation = camera is null ? null : Q(camera.GlobalBasis.GetRotationQuaternion()),
-            focus = world is null ? null : V(world.View.CameraRig.Focus), screenshot
+            focus = world is null ? null : V(world.View.CameraRig.Focus), screenshot, pngWritesComplete = _pngWrites.IsCompleted
         }));
     }
 
@@ -119,6 +181,7 @@ public partial class ProductionNodeCapture : Node
     public override void _ExitTree()
     {
         RenderingServer.FramePostDraw -= Capture;
+        _pngWrites.GetAwaiter().GetResult();
         _frames?.Dispose();
     }
 }

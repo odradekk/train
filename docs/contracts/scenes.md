@@ -4,6 +4,8 @@
 
 ## 当前实现状态
 
+#357 为节点中的生物聚落提供 `WorldObjectId.Lair` 锚点，`FindPose(Lair)` 可读取其场景姿态；聚落体素模型仍烘入地形区块。
+
 按 [#581 用户确认](https://github.com/odradekk/train/issues/581#issuecomment-6244790041)，当前 Demo 保留以下已知限制：
 
 - 线路与节点场景的空间边界不重叠，交接时最多约半列车悬于未构建侧；26 米列车约为 12.8 米，每次持续约 0.05–0.8 秒。104 米列车最多约 52 米，在 1× 的线路 11 → 节点 8 交接中持续约 9.1 秒，也按[用户确认](https://github.com/odradekk/train/issues/581#issuecomment-6246042954)保留为 Demo 已知限制。

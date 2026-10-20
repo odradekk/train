@@ -87,21 +87,19 @@ MACHINE_GUN_INTERVAL_SECONDS = 1
 CANNON_FACTOR = 4
 # 生物数值初值，待试玩确认。生命值等于一挺机枪 10/20/40 秒的伤害；伤害按
 # 373,300 结构耐久的小站点在 72 秒内被打掉约 48%/93% 反推。
-# id、显示名、调色板、体素坐标→调色板下标、生命值、速度（米/秒）、撤退阈值、
+# id、显示名、生命值、速度（米/秒）、撤退阈值、
 # 袭击时长（秒）、武器伤害、攻击间隔（秒）。
 CREATURE_PROFILES = (
-    ("small-creature", "小型生物", ["foliage", "rock", "tree-trunk"],
-     {(0, 0, 0): 0, (1, 0, 0): 0, (2, 0, 0): 1, (1, 1, 0): 0}, 180, 2.5, 0.5, 72, 250, 1),
-    ("medium-creature", "中型生物", ["rock", "tree-trunk", "foliage"],
-     {(x, y, z): 0 for x in range(3) for y in (1, 2) for z in range(2)}
-     | {(0, 0, 0): 1, (2, 0, 0): 1, (0, 0, 1): 1, (2, 0, 1): 1,
-        (1, 3, 0): 2, (1, 3, 1): 2, (3, 1, 0): 0, (3, 2, 0): 0}, 360, 2.0, 0.5, 96, 900, 2),
-    ("large-creature", "大型生物", ["rock", "tree-trunk", "sandstone", "foliage"],
-     {(x, y, z): 0 for x in range(5) for y in (1, 2, 3) for z in range(3)}
-     | {(0, 0, 0): 1, (2, 0, 0): 1, (4, 0, 0): 1, (0, 0, 2): 1, (2, 0, 2): 1, (4, 0, 2): 1}
-     | {(x, 4, 1): 2 for x in range(5)}
-     | {(1, 4, 0): 3, (3, 4, 2): 3, (5, 2, 1): 0, (5, 3, 1): 0}, 720, 1.5, 0.4, 144, 1_950, 3),
+    ("small-creature", "小型生物", 180, 2.5, 0.5, 72, 250, 1),
+    ("medium-creature", "中型生物", 360, 2.0, 0.5, 96, 900, 2),
+    ("large-creature", "大型生物", 720, 1.5, 0.4, 144, 1_950, 3),
 )
+CREATURE_COLORS = {
+    "creature-carapace": (74, 82, 76),
+    "creature-tissue": (118, 69, 64),
+    "creature-bone": (194, 182, 138),
+    "creature-eye": (215, 135, 53),
+}
 # 聚落成员权重、间隔和奖励初值；成员身份与数值来自生物蓝图，不在这里重复。
 # 袭击是聚落周边的局部威胁，不是全图威胁。玩家建城前无法修复铁路，所以出动间隔较长；
 # 断轨工作给沿线列车留出到达并打断袭击的窗口。袭击半径只覆盖聚落相邻的边：按跳计算
@@ -974,6 +972,21 @@ def icon(identity):
         for x in (34, 53, 72):
             line((x,50),(x,91), tint(RED, -18)[:3], 3)
         line((76,67),(76,77), STEEL, 3)
+    elif identity in CREATURE_COLORS:
+        color = CREATURE_COLORS[identity]
+        if identity == "creature-carapace":
+            polygon([(24, 78), (29, 49), (51, 28), (81, 30), (101, 58), (96, 92), (48, 103)], color)
+            line((61, 35), (64, 92), tint(color, 28)[:3], 5)
+        elif identity == "creature-tissue":
+            polygon([(25, 69), (35, 39), (65, 28), (96, 43), (103, 76), (81, 100), (45, 100)], color)
+            for y in (53, 67, 81):
+                line((43, y), (87, y + 6), tint(color, 23)[:3], 5)
+        elif identity == "creature-bone":
+            polygon([(28, 100), (47, 52), (83, 23), (79, 63), (60, 101)], color)
+            line((48, 91), (76, 41), tint(color, 25)[:3], 5)
+        else:
+            polygon([(18, 65), (42, 43), (82, 43), (111, 65), (83, 88), (42, 88)], color)
+            line((64, 49), (64, 82), GLASS, 12)
     else:
         raise ValueError(identity)
     return png(128, lambda x, y: pixels[y][x])
@@ -1039,6 +1052,30 @@ def scene_assets(files, voxel):
               tile_span=span, light=identity == "street-lamp", description=f"用于自然环境和铁路场景的{name}。")
 
 
+def creature_texture(identity, x, y, side=False):
+    variation = grain(x, y, 32, 357) / 2
+    if identity == "creature-tissue":
+        variation += 4 * sin(2 * pi * (y + 2 * sin(x * pi / 16)) / 16)
+    elif identity == "creature-bone":
+        variation += 3 * sin(2 * pi * (x if side else x + y) / 16)
+    elif identity == "creature-eye" and side:
+        if abs(x - 15.5) < 2 and abs(y - 15.5) < 9:
+            return tint((48, 39, 31))
+        variation += 16 * cos((y - 15.5) * pi / 32)
+    return tint(CREATURE_COLORS[identity], round(variation))
+
+
+def creature_assets(files, voxel):
+    for identity, name in (("creature-carapace", "甲壳"), ("creature-tissue", "软组织"),
+                           ("creature-bone", "骨刺"), ("creature-eye", "发光眼")):
+        files[f"voxels/{identity}/top.png"] = png(32, lambda x, y: creature_texture(identity, x, y))
+        files[f"voxels/{identity}/side.png"] = png(32, lambda x, y: creature_texture(identity, x, y, side=True))
+        files[f"voxels/{identity}/icon.png"] = icon(identity)
+        voxel(identity, name, "organic", faces("top.png", "side.png"), "icon.png",
+              tile_span=1, light=identity == "creature-eye",
+              description=f"第五阶段生物样稿：{name}，仅用于生物和聚落场景模型，脚本生成。")
+
+
 def faces(top, side=None, bottom=None):
     return {"top": top, "side": side or top, "bottom": bottom or top}
 
@@ -1092,59 +1129,78 @@ def natural_models():
 
 
 def creature_blueprints():
-    # 生物只使用不带 light 行为的场景体素；发光眼留给 #357 的美术决定。
-    for identity, name, palette, cells, hp, speed, retreat, duration, damage, interval in CREATURE_PROFILES:
-        value = blueprint(identity, name, "creature", palette, cells, {"behaviors": {
+    small = {(x, y, z): 0 for x in range(-2, 3) for z in range(-2, 3) for y in (1, 2)
+             if abs(x) + abs(z) < 4}
+    small.update({(x, 0, z): 1 for x in (-3, -2, 2, 3) for z in (-2, 0, 2)})
+    small.update({(x, 1, z): 1 for x in (-2, 2) for z in (-2, 2)})
+    small.update({(x, y, 3): 1 for x in (-1, 0, 1) for y in (1, 2)})
+    small.update({(-1, 3, -2): 2, (1, 3, -2): 2, (0, 2, 3): 3})
+
+    medium = {(x, y, z): 0 for x in range(-2, 3) for z in range(-2, 2) for y in range(2, 5)}
+    medium.update({(x, y, z): 1 for x in (-2, 2) for z in (-1, 1) for y in (0, 1)})
+    medium.update({(x, y, z): 1 for x in (-1, 0, 1) for z in (2, 3) for y in (3, 4, 5)})
+    medium.update({(x, 2, z): 2 for x in (-3, 3) for z in (1, 2, 3)})
+    medium.update({(-2, 5, -1): 2, (2, 5, -1): 2, (0, 4, 3): 3})
+
+    large = {(x, y, z): 0 for x in range(-4, 5) for z in range(-4, 4) for y in range(2, 6)
+             if x * x + z * z <= 25}
+    large.update({(x, y, z): 1 for x in (-4, 4) for z in (-3, 0, 3) for y in (0, 1)})
+    large.update({(x, y, z): 1 for x in range(-2, 3) for z in (4, 5) for y in (3, 4, 5)})
+    large.update({(0, 6, z): 2 for z in range(-4, 4)})
+    large.update({(0, 7, z): 2 for z in (-3, 0, 3)})
+    large.update({(0, y, z): 0 for z in (-7, -6, -5) for y in (2, 3)})
+    large.update({(-1, 4, 5): 3, (1, 4, 5): 3, (0, 3, 6): 2})
+    bodies = {"small-creature": small, "medium-creature": medium, "large-creature": large}
+    for identity, name, hp, speed, retreat, duration, damage, interval in CREATURE_PROFILES:
+        value = blueprint(identity, name, "creature", list(CREATURE_COLORS), bodies[identity], {"behaviors": {
             "creature": {"hp": hp, "speed": speed,
                          "retreat_threshold": retreat, "raid_duration": duration},
             "weapon": {"damage": damage, "interval": interval}}})
         value["display"]["description"] = (
-            f"{name}正式定义：生命值、速度和攻击间隔待试玩确认；外观使用现有场景体素，正式美术待阶段 5/6。")
+            f"{name}第五阶段样稿：甲壳、软组织、骨刺和发光眼；正式资源由第六阶段替换，战斗数值待试玩确认。")
         yield value
 
 
 def lair_scene_models():
-    nest = {(x, y, z): 0 if y == 0 else 1
-            for x in range(-4, 5) for z in range(-4, 5)
-            if x * x + z * z <= 16 for y in range(2 if x * x + z * z <= 4 else 1)}
-    for x in (-1, 0, 1):
-        for y in (0, 1):
-            nest.pop((x, y, 4), None)
-    for x, z in ((-4, -4), (4, -4), (-4, 4), (4, 4)):
-        nest[(x, 0, z)] = 2
-        nest[(x, 1, z)] = 2
-    for x, z in ((-3, 0), (0, -3), (3, 0)):
-        nest[(x, 1, z)] = 3
-    nest[(0, 2, 0)] = 3
-    # 一个聚落场景模型最多一盏灯。
-    nest[(0, 0, 4)] = 4
+    nest = {(x, 0, z): 0 for x in range(-6, 7) for z in range(-6, 7) if x * x + z * z <= 36}
+    for x in range(-5, 6):
+        for z in range(-5, 6):
+            distance = x * x + z * z
+            for y in range(1, 4 if distance <= 9 else 3 if distance <= 20 else 1):
+                if not (abs(x) <= 1 and z >= 3 and y <= 2):
+                    nest[(x, y, z)] = 2 if distance <= 4 else 1
+    for x in (-2, 2):
+        for y in range(1, 5):
+            nest[(x, y, 3)] = 3
+    nest.update({(x, 4, 3): 3 for x in (-1, 0, 1)})
+    for x, z in ((-5, -2), (5, -2), (0, -5)):
+        for y in (1, 2):
+            nest[(x, y, z)] = 3
+    nest[(0, 3, 3)] = 4
     model = blueprint("lair-nest", "巢穴", "scene_model",
-                      ["subsoil", "rock", "tree-trunk", "foliage", "street-lamp"], nest)
-    model["display"]["description"] = "土丘、石环、尖刺和入口灯；生物聚落场景模型的正式外观待阶段 5/6。"
+                      ["subsoil", *CREATURE_COLORS], nest)
+    model["display"]["description"] = "第五阶段巢穴样稿：甲壳土丘、软组织和骨质入口，入口内一处发光组织。"
     yield model
 
-    hive = {}
-    for x in range(-7, 8):
-        for z in range(-7, 8):
-            distance = x * x + z * z
-            if distance > 49:
-                continue
-            height = 3 if distance <= 9 else 2 if distance <= 25 else 1
-            for y in range(height):
-                hive[(x, y, z)] = 0 if y == 0 else 1
-    for x in (-1, 0, 1):
-        for y in (0, 1):
-            hive.pop((x, y, 7), None)
-    for x, z in ((-7, -7), (7, -7), (-7, 7), (7, 7)):
-        for y in range(3):
+    hive = {(x, 0, z): 0 for x in range(-9, 10) for z in range(-9, 10) if x * x + z * z <= 81}
+    for center_x, center_z, radius, height in ((0, 0, 5, 7), (-5, -2, 3, 4), (5, -2, 3, 4)):
+        for x in range(center_x - radius, center_x + radius + 1):
+            for z in range(center_z - radius, center_z + radius + 1):
+                distance = (x - center_x) ** 2 + (z - center_z) ** 2
+                for y in range(1, height - int(distance ** .5)):
+                    if distance <= radius * radius and not (abs(x) <= 2 and z >= 3 and y <= 3):
+                        hive[(x, y, z)] = 2 if abs(x) <= 1 and z >= 2 else 1
+    for x in (-3, 3):
+        for y in range(1, 7):
+            hive[(x, y, 4)] = 3
+    hive.update({(x, 6, 4): 3 for x in range(-2, 3)})
+    for x, z in ((-7, -3), (7, -3), (-6, 3), (6, 3), (0, -7)):
+        for y in range(1, 5):
             hive[(x, y, z)] = 3
-    for x, z in ((-5, 0), (0, -5), (5, 0), (0, 5), (0, 0)):
-        hive[(x, 2, z)] = 4
-    hive[(0, 0, 0)] = 2
-    hive[(0, 0, 7)] = 5
+    hive[(0, 5, 4)] = 4
     model = blueprint("lair-hive", "大型巢群", "scene_model",
-                      ["sandstone", "rock", "subsoil", "tree-trunk", "foliage", "street-lamp"], hive)
-    model["display"]["description"] = "砂岩丘、岩石层、尖刺和通风灯；生物聚落场景模型的正式外观待阶段 5/6。"
+                      ["subsoil", *CREATURE_COLORS], hive)
+    model["display"]["description"] = "第五阶段大型巢群样稿：相连的甲壳囊、骨质拱门和内侧一处发光组织。"
     yield model
 
 
@@ -1410,6 +1466,7 @@ def content_files():
         voxel(identity, name, simulation=good(identity, mass))
     voxel("stone", "石料", simulation=good("stone", 0.042))
     scene_assets(files, voxel)
+    creature_assets(files, voxel)
     style_assets(files)
     for identity, (material, tile_span, side, _, texture) in GOODS_ART.items():
         size = 32 * tile_span

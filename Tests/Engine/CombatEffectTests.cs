@@ -69,6 +69,35 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public void LongShotNearCameraStaysWithinFourScreenPixels()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache);
+        var camera = new Camera3D { Fov = 60 };
+        var windowSize = DisplayServer.WindowGetSize();
+        var viewport = new SubViewport { Size = windowSize.Y > 0 ? windowSize : new(1920, 1080) };
+        TestScene.AddChild(viewport);
+        viewport.AddChild(camera);
+        try
+        {
+            var near = new Vector3(0, 0, -100);
+            var far = new Vector3(3200, 0, -100);
+            var frame = Frame(1, [], [Cue(1, SceneEffectKind.Shot,
+                from: new(far.X, far.Y, far.Z), to: new(near.X, near.Y, near.Z))]);
+            Commit(display, frame);
+            display.AdvanceEffects(frame, 0, camera.GlobalPosition);
+            var shot = One(display, "Shot");
+            var halfWidth = shot.GlobalBasis.Y * 0.5f;
+            var pixels = camera.UnprojectPosition(near + halfWidth)
+                .DistanceTo(camera.UnprojectPosition(near - halfWidth));
+            Require(pixels > 3.9f && pixels <= 4.01f,
+                $"长弹道近端的投影宽度应保持 4 像素，实际 {pixels} 像素。");
+        }
+        finally { viewport.Free(); }
+    }
+
+    [Test]
     public void PausedSimulationHoldsFragmentsAndOriginShiftKeepsThem()
     {
         using var dispatcher = new GodotMainThreadDispatcher();
@@ -182,7 +211,9 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
         var effects = ImmutableArray.Create(
             new PersistentSceneEffect(PersistentEffectKind.Smoke, default, 1, 1),
             new PersistentSceneEffect(PersistentEffectKind.Fire, default, 1, 2),
-            new PersistentSceneEffect(PersistentEffectKind.Sparks, default, 1, 3));
+            new PersistentSceneEffect(PersistentEffectKind.Sparks, default, 1, 3),
+            new PersistentSceneEffect(PersistentEffectKind.Leak, default, .5f, 4),
+            new PersistentSceneEffect(PersistentEffectKind.FacilitySmoke, default, .25f, 5));
         var first = Frame(1, [Object(1, [new SceneLight(new("#ffffff"), 4, 0, 1)], effects)],
             [Cue(1, SceneEffectKind.Fragments)]);
         Commit(display, first);
@@ -190,13 +221,16 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
         var smoke = root.GetNode<MeshInstance3D>("Smoke");
         var fire = root.GetNode<MeshInstance3D>("Fire");
         var sparks = root.GetNode<MeshInstance3D>("Sparks");
+        var leak = root.GetNode<MeshInstance3D>("Leak");
+        var facility = root.GetNode<MeshInstance3D>("FacilitySmoke");
         var light = root.GetNode<OmniLight3D>("SceneLight");
         var mesh = smoke.Mesh;
         var material = smoke.MaterialOverride;
         var fragment = Nodes(display, "Fragment")[0];
         Commit(display, Frame(2, [], [], basis: first.Update.Frame, removed: [new(1)]));
         Require(!GodotObject.IsInstanceValid(smoke) && !GodotObject.IsInstanceValid(fire) &&
-            !GodotObject.IsInstanceValid(sparks) && !GodotObject.IsInstanceValid(light), "删除对象必须释放它的灯和持续效果。");
+            !GodotObject.IsInstanceValid(sparks) && !GodotObject.IsInstanceValid(light) &&
+            !GodotObject.IsInstanceValid(leak) && !GodotObject.IsInstanceValid(facility), "删除对象必须释放它的灯和持续效果。");
         Require(GodotObject.IsInstanceValid(fragment) && GodotObject.IsInstanceValid(mesh) &&
             GodotObject.IsInstanceValid(material), "已播放的碎片和共享资源必须留下。");
         display.Dispose();
@@ -206,13 +240,13 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public void SmokeCapKeepsTheEightStrongest()
+    public void SmokeCapKeepsTheEightStrongestDamageAndFacilitySources()
     {
         using var dispatcher = new GodotMainThreadDispatcher();
         using var cache = new AssetResourceCache(dispatcher);
         using var display = Attach(cache);
         var objects = Enumerable.Range(1, 10).Select(id => Object((ulong)id, effects:
-            [new PersistentSceneEffect(PersistentEffectKind.Smoke, default, id, (ulong)id)])).ToList();
+            [new PersistentSceneEffect(PersistentEffectKind.Smoke, default, id <= 4 ? id * .05f : id * .1f, (ulong)id)])).ToList();
         objects[0] = objects[0] with
         {
             Effects =
@@ -220,24 +254,102 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
                 .. objects[0].Effects,
                 new PersistentSceneEffect(PersistentEffectKind.Fire, default, 1, 1),
                 new PersistentSceneEffect(PersistentEffectKind.Leak, default, 1, 1),
-                new PersistentSceneEffect(PersistentEffectKind.FacilitySmoke, default, 1, 1)
+                new PersistentSceneEffect(PersistentEffectKind.FacilitySmoke, default, .25f, 1)
             ]
         };
+        objects[1] = objects[1] with { Effects = objects[1].Effects.Add(
+            new PersistentSceneEffect(PersistentEffectKind.FacilitySmoke, default, .25f, 2)) };
         var frame = Frame(1, [.. objects], [Cue(1, SceneEffectKind.Destruction)]);
         Commit(display, frame);
         for (ulong id = 1; id <= 10; id++)
         {
             var smoke = display.Objects[new(id)].Root.GetNodeOrNull<MeshInstance3D>("Smoke");
-            if (id <= 2) Require(smoke is null, $"较弱的冒烟 {id} 不应保留。");
-            else Require(smoke is not null && Mathf.IsEqualApprox(smoke.GetInstanceShaderParameter("strength").AsSingle(), id),
+            if (id <= 4) Require(smoke is null, $"较弱的冒烟 {id} 不应保留。");
+            else Require(smoke is not null && Mathf.IsEqualApprox(smoke.GetInstanceShaderParameter("strength").AsSingle(), id * .1f),
                 $"较强的冒烟 {id} 必须保留。");
         }
         Require(display.Objects[new(1)].Root.GetNodeOrNull("Fire") is not null, "火不受冒烟上限影响。");
-        Require(display.Objects[new(1)].Root.GetNodeOrNull("Leak") is null &&
-            display.Objects[new(1)].Root.GetNodeOrNull("FacilitySmoke") is null, "本阶段不播放漏液和设施烟。");
+        Require(display.Objects[new(1)].Root.GetNodeOrNull("Leak") is not null,
+            "漏液不占冒烟额度，必须与火和烟并存。");
         Require(Count(display.Root.GetNode("CombatEffects"), "Smoke") == 1 &&
-            display.Objects.Values.Count(item => item.Root.GetNodeOrNull("Smoke") is not null) == 8,
-            "摧毁烟柱不占用 8 处冒烟额度。");
+            display.Objects.Values.Sum(item => item.Root.GetChildren().Count(child =>
+                child.Name.ToString() is "Smoke" or "FacilitySmoke")) == 8 &&
+            display.Objects.Values.Count(item => item.Root.GetNodeOrNull("FacilitySmoke") is not null) == 2,
+            "损伤烟和设施烟共用 8 处额度，摧毁烟柱不占用额度。");
+    }
+
+    [Test]
+    public void PersistentEffectsKeepTheirSimulationPhaseAtLargeTimesAndWhenTheSceneReopens()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var first = Attach(cache);
+        using var reopened = Attach(cache);
+        var kinds = Enum.GetValues<PersistentEffectKind>();
+        var source = Object(1, effects: [.. kinds.Select((kind, index) =>
+            new PersistentSceneEffect(kind, new(index, 3, 0), .5f, (ulong)(41 + index)))]);
+        const double initial = 1_000_000_000.125;
+        const double current = initial + .125;
+        Commit(first, Frame(1, [source], [], seconds: initial));
+        first.AdvanceEffects(Frame(2, [], [], seconds: current), 0);
+        Commit(reopened, Frame(1, [source], [], seconds: current, session: OtherSession));
+        foreach (var kind in kinds)
+        {
+            var a = first.Objects[new(1)].Root.GetNode<MeshInstance3D>(kind.ToString());
+            var b = reopened.Objects[new(1)].Root.GetNode<MeshInstance3D>(kind.ToString());
+            static float Phase(MeshInstance3D node)
+            {
+                var elapsed = ((ShaderMaterial)node.MaterialOverride).GetShaderParameter("simulation_seconds").AsSingle()
+                    - node.GetInstanceShaderParameter("start_seconds").AsSingle();
+                var cycles = elapsed * .35f;
+                return cycles - MathF.Floor(cycles);
+            }
+            var expected = (float)(current * .35 - Math.Floor(current * .35));
+            Require(a.Position == b.Position && MathF.Abs(Phase(a) - Phase(b)) < .0001f &&
+                MathF.Abs(Phase(a) - expected) < .0001f,
+                $"{kind} 在大模拟时刻推进并重开，必须保留着色器 float32 下的模拟相位。");
+            Require(Mathf.IsEqualApprox(a.GetInstanceShaderParameter("seed").AsSingle(),
+                b.GetInstanceShaderParameter("seed").AsSingle()), "重开场景不得改变持续效果的种子。");
+        }
+    }
+
+    [Test]
+    public void BuildingsCollapseDownwardWithoutUsingTheVehicleExplosionFlashBudget()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache);
+        var ground = new TerrainCollisionPatch(new(1), new NVector3(-10, 0, -10), 2, 2, 20, [2, 2, 2, 2]);
+        var environment = new SceneEnvironment([], [ground]);
+        var shown = Frame(1, [], [.. Enumerable.Range(1, 3).Select(id => Cue((ulong)id,
+            SceneEffectKind.Destruction, from: new(0, 6, 0),
+            subject: new WorldObjectId.Instance(new InstanceId.Building(new((ulong)id))))) ], environment: environment);
+        Commit(display, shown);
+        Require(Count(display.Root, "Fireball") == 0 && Count(display.Root, "Flash") == 0 &&
+            Count(display.Root, "Dust") == 3, "建筑倒塌应扬起灰尘，不产生火球或闪光。");
+        var cubes = Nodes(display, "Collapse");
+        var initial = Positions(cubes);
+        Require(initial.All(position => position.Y >= 2 && position.Y <= 6) && initial.Any(position => position.Y > 4),
+            "碎块应从实际建筑中心到地面之间开始坠落。");
+        display.AdvanceEffects(Frame(2, [], [], seconds: .1), 0);
+        Require(Positions(cubes).Zip(initial).All(pair => pair.First.Y < pair.Second.Y),
+            "建筑碎块必须从一开始就向下坠落。");
+        display.AdvanceEffects(Frame(3, [], [], seconds: 1), 0);
+        Require(Positions(cubes).All(position => position.Y >= 2) &&
+            Positions(cubes).Any(position => Mathf.IsEqualApprox(position.Y, 2)),
+            "建筑 cue 没有 FragmentCollision 时，碎块也必须停在取样地面上。");
+        shown = Frame(3, [], [Cue(20, SceneEffectKind.Destruction, started: 1,
+                subject: new WorldObjectId.Instance(new InstanceId.Vehicle(new(7)))),
+            Cue(21, SceneEffectKind.Impact, started: 1), Cue(22, SceneEffectKind.Impact, started: 1),
+            Cue(23, SceneEffectKind.Impact, started: 1)], seconds: 1, basis: shown.Update.Frame);
+        Commit(display, shown);
+        Require(Count(display.Root, "Fireball") == 1 && Count(display.Root, "Smoke") == 1 &&
+            Count(display.Root, "Flash") == 2 && Count(display.Root, "Fragment") == 18,
+            "车辆仍爆炸，建筑倒塌不消耗每真实秒三次的闪光额度。");
+        display.AdvanceEffects(Frame(4, [], [], seconds: 4), 0);
+        Require(Count(display.Root, "Collapse") == 0 && Count(display.Root, "Dust") == 0 &&
+            Count(display.Root, "Fragment") == 0 && Count(display.Root, "Smoke") == 0,
+            "倒塌与爆炸结束后不得留下残骸或持久效果。");
     }
 
     [Test]

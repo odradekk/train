@@ -13,6 +13,49 @@ namespace Train.Scenes.Tests;
 public sealed class SettlementObjectsTests
 {
     [TestMethod]
+    public async Task RunningFacilitiesShareOneStableRoofSmokeAndStoppingRemovesIt()
+    {
+        var evaluation = NodeFixtures.StationEvaluation();
+        evaluation = evaluation with { Scene = evaluation.Scene with
+        { OccupiedBounds = new(new(-2, -1, -4), new(3, 5, 7)) } };
+        var content = NodeFixtures.Content(designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+        { [NodeFixtures.StationDesign] = new ContentLookup<DesignEvaluation>.Found(evaluation) });
+        var facility = new FacilityView(new(new(1), CapabilityKind.Production), null, true, 0,
+            ProductionState.Running, 1, 1, [], null, [], [], []);
+        var settlement = NodeFixtures.Settlement() with { Facilities =
+            [facility, facility with { Key = new(new(1), CapabilityKind.Extraction) },
+                facility with { Key = new(new(99), CapabilityKind.Production) }] };
+        var station = NodeFixtures.Station(2) with { Structure = new(40, 100) };
+        var snapshot = Snapshot(content: content, settlement: settlement, station: station);
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        await using var objects = new SettlementObjects(StableIds());
+        var rendered = await Settle(objects, snapshot, layout);
+        var root = rendered.Objects.Single(item => item.Parent is null && item.Subject == new WorldObjectId.Instance(station.Id));
+        var smoke = root.Effects.Single(item => item.Kind == PersistentEffectKind.FacilitySmoke);
+        Assert.AreEqual(new Vector3(1, 6, 2), smoke.LocalPosition);
+        Assert.AreEqual(.25f, smoke.Strength);
+        Assert.AreEqual(1, rendered.Objects.SelectMany(item => item.Effects).Count(item => item.Kind == PersistentEffectKind.FacilitySmoke));
+        Assert.IsTrue(root.Effects.Any(item => item.Kind == PersistentEffectKind.Smoke));
+        var unchanged = Present(objects, snapshot, layout);
+        var stamp = new SceneFrameStamp(new(Guid.NewGuid()), new(1), new(1), 1);
+        var before = new SceneFrame(stamp, default, 0, SceneReadiness.Ready, rendered.Objects, rendered.Picking, [], []);
+        var after = new SceneFrame(stamp with { Revision = 2 }, default, 0, SceneReadiness.Ready,
+            unchanged.Objects, unchanged.Picking, [], [], before);
+        Assert.IsFalse(after.Update.Upserts.Any(item => item.Subject == new WorldObjectId.Instance(station.Id)),
+            "同一运行状态的建筑不能因设施烟效果数组改变而每帧重新提交。");
+        await using var reopened = new SettlementObjects(StableIds());
+        Assert.AreEqual(smoke, (await Settle(reopened, snapshot, layout)).Objects.SelectMany(item => item.Effects)
+            .Single(item => item.Kind == PersistentEffectKind.FacilitySmoke));
+        foreach (var state in Enum.GetValues<ProductionState>().Where(state => state != ProductionState.Running))
+        {
+            var stopped = Snapshot(content: content, station: station, settlement: settlement with
+            { Facilities = settlement.Facilities.Select(item => item with { State = state }).ToImmutableArray() });
+            Assert.IsFalse(Present(objects, stopped, layout).Objects.SelectMany(item => item.Effects)
+                .Any(item => item.Kind == PersistentEffectKind.FacilitySmoke), state.ToString());
+        }
+    }
+
+    [TestMethod]
     public async Task Destroyed_building_parts_match_a_cold_build_after_cached_geometry_is_replaced()
     {
         var original = Snapshot();
@@ -143,6 +186,47 @@ public sealed class SettlementObjectsTests
         Assert.IsTrue(frame.Update.Removed.Contains(site.Id));
         Assert.IsFalse(frame.Objects.Any(item => item.Id == site.Id));
         Assert.IsTrue(frame.Objects.Any(item => item.Subject is WorldObjectId.Instance { Id: InstanceId.Building }));
+    }
+
+    [TestMethod]
+    public async Task BuildingLoadingFogOnlyCoversTheFirstBuildWhileDamageRebuildKeepsGeometry()
+    {
+        using var release = new ManualResetEventSlim();
+        await using var objects = new SettlementObjects(StableIds(), (content, instance) =>
+        {
+            release.Wait();
+            return WorldSceneSession.BuildObject(content, instance, SceneFixtures.Identity);
+        });
+        try
+        {
+            var evaluation = NodeFixtures.StationEvaluation();
+            evaluation = evaluation with { Scene = evaluation.Scene with { OccupiedBounds = new(new(0, 0, -22), new(0, 0, 22)) } };
+            var content = NodeFixtures.Content(designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+            { [NodeFixtures.StationDesign] = new ContentLookup<DesignEvaluation>.Found(evaluation) });
+            var snapshot = Snapshot(content: content);
+            var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+            var fog = ImmutableArray.CreateBuilder<SceneFog>();
+            var loading = objects.Present(snapshot, layout, default, fog, _ => null);
+            Assert.AreEqual(loading.Objects.Single().Pose, fog.Single().Pose);
+            release.Set();
+            var first = await Settle(objects, snapshot, layout);
+
+            release.Reset();
+            var station = NodeFixtures.Station(2);
+            var damaged = Snapshot(content: content, station: station with
+            {
+                Parts = station.Parts.Select(part => part.Part == new PartId(1)
+                    ? part with { Durability = new(0, part.Durability.Maximum), Destroyed = true } : part).ToImmutableArray()
+            });
+            fog.Clear();
+            var rebuilding = objects.Present(damaged, layout, default, fog, _ => null);
+            Assert.IsTrue(objects.PendingWork.Length > 0);
+            Assert.AreSame(first.Picking.Single().Grid, rebuilding.Picking.Single().Grid);
+            CollectionAssert.AreEqual(first.Objects.SelectMany(item => item.Visuals).ToArray(),
+                rebuilding.Objects.SelectMany(item => item.Visuals).ToArray());
+            Assert.AreEqual(0, fog.Count, "The existing building geometry must remain visible without loading fog during a damage rebuild.");
+        }
+        finally { release.Set(); }
     }
 
     [TestMethod]

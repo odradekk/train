@@ -17,6 +17,7 @@ internal sealed class CombatEffects : IDisposable
     const double FragmentSeconds = 2.5;
     const double FireballSeconds = 0.4;
     const double DestructionSmokeSeconds = 3;
+    const double CollapseDustSeconds = 1.2;
     const double ShakeSeconds = 0.25;
     const float ShakeDistance = 0.15f;
     const double FlickerBucket = 0.4;
@@ -24,7 +25,7 @@ internal sealed class CombatEffects : IDisposable
     const int DestructionBurst = 18;
     const int RailwayBurst = 4;
 
-    enum Appearance { Smoke, Fire, Sparks, Shot, Flash, Fragment }
+    enum Appearance { Smoke, Fire, Sparks, Shot, Flash, Fragment, Leak, Dust }
 
     sealed class SharedLook(Mesh mesh, ShaderMaterial material)
     {
@@ -100,7 +101,9 @@ internal sealed class CombatEffects : IDisposable
             Look(Appearance.Sparks, Quads(6)),
             Look(Appearance.Shot, new BoxMesh { Size = Vector3.One }),
             Look(Appearance.Flash, new SphereMesh { Radius = 0.5f, Height = 1, RadialSegments = 8, Rings = 4 }),
-            Look(Appearance.Fragment, new BoxMesh { Size = Vector3.One })
+            Look(Appearance.Fragment, new BoxMesh { Size = Vector3.One }),
+            Look(Appearance.Leak, Quads(5)),
+            Look(Appearance.Dust, Quads(6))
         ];
     }
 
@@ -250,10 +253,13 @@ internal sealed class CombatEffects : IDisposable
                 {
                     PersistentEffectKind.Fire => Appearance.Fire,
                     PersistentEffectKind.Sparks => Appearance.Sparks,
+                    PersistentEffectKind.Leak => Appearance.Leak,
                     _ => Appearance.Smoke
                 };
+                // 与着色器的 0.35 周期/秒一致，先用 double 取整周期再转相对时间，保留大时刻的相位。
+                var started = Math.Floor(_timeOrigin * .35) / .35;
                 var node = Instance(appearance, effect.Kind.ToString(), effect.Strength, effect.Seed,
-                    _simulationSeconds, 0, PersistentTint(effect.Kind));
+                    started, 0, PersistentTint(effect.Kind));
                 node.Position = ToGodot(effect.LocalPosition);
                 item.Root.AddChild(node);
                 _persistent[key] = new PersistentNode
@@ -272,13 +278,12 @@ internal sealed class CombatEffects : IDisposable
     (SceneDisplay.DisplayObject Item, PersistentSceneEffect Effect)[] DesiredEffects(
         IReadOnlyDictionary<SceneObjectId, SceneDisplay.DisplayObject> objects)
     {
-        var listed = objects.Values.SelectMany(item => item.Source.Effects.Select(effect => (Item: item, Effect: effect)))
-            .Where(item => item.Effect.Kind is PersistentEffectKind.Smoke or PersistentEffectKind.Fire or PersistentEffectKind.Sparks)
-            .ToArray();
-        var smoke = listed.Where(item => item.Effect.Kind == PersistentEffectKind.Smoke)
-            .OrderByDescending(item => item.Effect.Strength).ThenBy(item => item.Item.Source.Id.Value).ThenBy(item => item.Effect.Seed)
-            .Take(SmokeCap);
-        return [.. smoke, .. listed.Where(item => item.Effect.Kind != PersistentEffectKind.Smoke)];
+        return [.. objects.Values.SelectMany(item => item.Source.Effects.Select(effect => (Item: item, Effect: effect)))
+            .GroupBy(item => item.Effect.Kind is PersistentEffectKind.Smoke or PersistentEffectKind.FacilitySmoke)
+            .SelectMany(group => group.Key
+                ? group.OrderByDescending(item => item.Effect.Strength).ThenBy(item => item.Item.Source.Id.Value)
+                    .ThenBy(item => item.Effect.Seed).Take(SmokeCap)
+                : group.AsEnumerable())];
     }
 
     void Play(SceneEffectCue cue)
@@ -302,6 +307,15 @@ internal sealed class CombatEffects : IDisposable
                 AddFragments(cue, from, color ?? FragmentColor, FragmentBurst, age);
                 break;
             case SceneEffectKind.Destruction:
+                if (cue.Subject is WorldObjectId.Instance { Id: InstanceId.Building })
+                {
+                    var ground = new Vector3(from.X, GroundHeight(from, _patches) ?? from.Y, from.Z);
+                    if (age < CollapseDustSeconds)
+                        AddBurst(Appearance.Dust, "Dust", ground + Vector3.Up * .15f, cue,
+                            CollapseDustSeconds, 1.4f, new Color(.45f, .43f, .4f));
+                    AddFragments(cue, from, color ?? FragmentColor, DestructionBurst, age, collapse: true);
+                    break;
+                }
                 if (age < FireballSeconds && TakeFlash())
                     AddBurst(Appearance.Flash, "Fireball", from, cue, FireballSeconds, 2.2f, color ?? new Color(1, 0.55f, 0.2f));
                 if (age < DestructionSmokeSeconds)
@@ -315,7 +329,7 @@ internal sealed class CombatEffects : IDisposable
         }
     }
 
-    void AddFragments(SceneEffectCue cue, Vector3 from, Color color, int count, double age)
+    void AddFragments(SceneEffectCue cue, Vector3 from, Color color, int count, double age, bool collapse = false)
     {
         if (age >= FragmentSeconds) return;
         for (var index = 0; index < count; index++)
@@ -324,14 +338,24 @@ internal sealed class CombatEffects : IDisposable
             var node = Instance(Appearance.Fragment, "Fragment", 1, cue.Id.Value + (ulong)index,
                 cue.StartedAtSimulationSeconds, (float)FragmentSeconds, color);
             node.Scale = Vector3.One * size;
+            var velocity = Velocity(cue.Id.Value, index);
+            var position = from;
+            if (collapse)
+            {
+                position += new Vector3(velocity.X * .2f, 0, velocity.Z * .2f);
+                var ground = GroundHeight(position, _patches) ?? from.Y;
+                var height = (Mix(cue.Id.Value, (ulong)(index + 300)) % 1000) / 1000f;
+                position.Y = Mathf.Lerp(ground, Math.Max(ground, from.Y), height);
+                velocity = new Vector3(velocity.X * .08f, -2, velocity.Z * .08f);
+            }
             var shot = new OneShot
             {
                 Node = node, Started = cue.StartedAtSimulationSeconds, Lifetime = FragmentSeconds,
-                P0 = from, Velocity = Velocity(cue.Id.Value, index), Falls = true,
-                TestGround = cue.FragmentCollision is VoxelCollision.FullBox or VoxelCollision.LocalBox
+                P0 = position, Velocity = velocity, Falls = true,
+                TestGround = collapse || cue.FragmentCollision is VoxelCollision.FullBox or VoxelCollision.LocalBox
             };
             _oneShots.Add(shot);
-            Group("Fragment").AddChild(node);
+            Group(collapse ? "Collapse" : "Fragment").AddChild(node);
             Place(shot);
         }
     }
@@ -393,7 +417,7 @@ internal sealed class CombatEffects : IDisposable
             var delta = shot.Target - shot.P0;
             var length = delta.Length();
             var midpoint = (shot.P0 + shot.Target) * 0.5f;
-            var thickness = ShotThickness(midpoint);
+            var thickness = ShotThickness(shot.P0, shot.Target);
             shot.Node.Position = midpoint;
             shot.Node.Basis = length > 0.001f ? Basis.LookingAt(delta / length, Vector3.Up) : Basis.Identity;
             shot.Node.Scale = new Vector3(thickness, thickness, Math.Max(length, thickness));
@@ -420,13 +444,14 @@ internal sealed class CombatEffects : IDisposable
         shot.Node.Position = position;
     }
 
-    float ShotThickness(Vector3 midpoint)
+    float ShotThickness(Vector3 from, Vector3 to)
     {
         const float minimum = 0.2f;
         if (_camera is not { } camera) return minimum;
         var height = DisplayServer.WindowGetSize().Y;
         if (height <= 0) height = 1080;
-        var distance = Mathf.Max(1f, midpoint.DistanceTo(camera));
+        var nearest = Geometry3D.GetClosestPointToSegment(camera, from, to);
+        var distance = Mathf.Max(1f, nearest.DistanceTo(camera));
         var pixel = 2f * Mathf.Tan(Mathf.DegToRad(30f)) * distance / height;
         return Mathf.Max(minimum, pixel * 4f);
     }
@@ -574,6 +599,8 @@ internal sealed class CombatEffects : IDisposable
     {
         PersistentEffectKind.Fire => new Color(1, 0.45f, 0.12f),
         PersistentEffectKind.Sparks => new Color(1, 0.78f, 0.35f),
+        PersistentEffectKind.Leak => new Color(.15f, .12f, .09f),
+        PersistentEffectKind.FacilitySmoke => new Color(.5f, .52f, .54f),
         _ => new Color(0.55f, 0.55f, 0.55f)
     };
 

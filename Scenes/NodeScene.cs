@@ -748,6 +748,11 @@ internal sealed class NodeScene : IAsyncDisposable
                     diagnostics, "The lair scene model is missing.", problems, new WorldObjectId.Node(Node));
             }
             Add(settlement.Present(snapshot, layout, origin, fog, findId, range, chunks.Keys, prefetch, presentation, seconds));
+            if (layout.Lair is { } placed &&
+                snapshot.Core.World.Nodes.Single(item => item.Id == Node).Occupant is NodeOccupant.Lair occupant)
+                objects.Add(new(objectId("lair:" + occupant.Id.Value), null,
+                    new(RailwayCoordinates.Relative(new(placed.ShiftX, 0, placed.ShiftZ), origin), Quaternion.Identity),
+                    new WorldObjectId.Lair(occupant.Id), [], [], []));
         }
         if (failure is not null) problems.Add(failure);
         foreach (var problem in reported) problems.Add(problem);
@@ -1204,6 +1209,7 @@ internal sealed class NodeScene : IAsyncDisposable
                 .Select(problem => problem.Content!).Distinct()) visuals.Add(new SceneVisual.Missing(reference, false));
             objects.Add(new(root, null, pose, null, visuals.ToImmutable(), [], []));
             objects.AddRange(DesignGeometry.Models(grid, root, null, cell => id(":model:" + cell.At), false));
+            objects.AddRange(DesignGeometry.Lights(grid, root, null, cell => id(":light:" + cell.At)));
             foreach (var cell in cells.Where(cell => cell.MissingReference is not null))
                 objects.Add(new(id("missing:" + cell.At), root, new(new(cell.At.X, cell.At.Y, cell.At.Z), Quaternion.Identity), null,
                     [new SceneVisual.Missing(cell.MissingReference!, true)], [], []));
