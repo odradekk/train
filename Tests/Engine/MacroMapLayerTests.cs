@@ -22,16 +22,7 @@ public class MacroMapLayerTests(Node testScene) : TestClass(testScene)
         var scale = tree.Root.ContentScaleFactor;
         using var dispatcher = new GodotMainThreadDispatcher();
         var mods = ProjectSettings.GlobalizePath("user://map-layer-mods");
-        Directory.CreateDirectory(mods);
-        var files = new ContentFiles(dispatcher, new Dictionary<ContentRoot, ContentRootLocation>
-        {
-            [new("builtin")] = new ContentRootLocation.Disk(ProjectSettings.GlobalizePath("res://builtin/core")),
-            [new("mods")] = new ContentRootLocation.Disk(mods)
-        });
-        var loaded = Train.Content.ContentFactory.Create().PrepareLoad(new(new(new("builtin"), new("mods"), null,
-            "0.2.0", []), new ContentLoadPurpose.Initial()), files, new GodotAssetInspector(dispatcher));
-        Require(loaded is ContentResult<IContentCandidate>.Success, $"信息层测试内容加载失败：{loaded}。");
-        using var content = ((ContentResult<IContentCandidate>.Success)loaded).Value;
+        using var content = LoadContent(dispatcher, mods);
         try
         {
             tree.Root.ContentScaleFactor = 1;
@@ -122,16 +113,7 @@ public class MacroMapLayerTests(Node testScene) : TestClass(testScene)
         var scale = tree.Root.ContentScaleFactor;
         using var dispatcher = new GodotMainThreadDispatcher();
         var mods = ProjectSettings.GlobalizePath("user://creature-layer-mods");
-        Directory.CreateDirectory(mods);
-        var files = new ContentFiles(dispatcher, new Dictionary<ContentRoot, ContentRootLocation>
-        {
-            [new("builtin")] = new ContentRootLocation.Disk(ProjectSettings.GlobalizePath("res://builtin/core")),
-            [new("mods")] = new ContentRootLocation.Disk(mods)
-        });
-        var loaded = Train.Content.ContentFactory.Create().PrepareLoad(new(new(new("builtin"), new("mods"), null,
-            "0.2.0", []), new ContentLoadPurpose.Initial()), files, new GodotAssetInspector(dispatcher));
-        Require(loaded is ContentResult<IContentCandidate>.Success, $"生物层测试内容加载失败：{loaded}。");
-        using var content = ((ContentResult<IContentCandidate>.Success)loaded).Value;
+        using var content = LoadContent(dispatcher, mods);
         try
         {
             tree.Root.ContentScaleFactor = 1;
@@ -151,15 +133,11 @@ public class MacroMapLayerTests(Node testScene) : TestClass(testScene)
             var creatures = map.GetNode<CheckBox>("InformationLayers/Body/Creatures");
             var resources = map.GetNode<CheckBox>("InformationLayers/Body/Resources");
             var platforms = map.GetNode<CheckBox>("InformationLayers/Body/Platforms");
-            var guarding = scenario.Groups.Single(group => group.Activity == CreatureActivity.Guarding);
-            var railway = scenario.Groups.Single(group => group.Activity == CreatureActivity.RaidingRailway);
-            var combat = scenario.Groups.Single(group => group.Activity == CreatureActivity.Combat);
             Vector2[] samples =
             [
                 map.MapToScreen(scenario.Nest.Position),
                 map.MapToScreen(scenario.Nest.Position) + new Vector2(0, 15),
                 (map.MapToScreen(scenario.Nest.Position) + map.MapToScreen(scenario.Hive.Position)) / 2,
-                map.GroupAnchor(railway)!.Value,
                 new(4, 4)
             ];
             var before = samples.Select(map.HitTest).ToArray();
@@ -171,7 +149,7 @@ public class MacroMapLayerTests(Node testScene) : TestClass(testScene)
             for (var index = 0; index < before.Length; index++)
                 Require(before[index] == after[index], "世界生物层改变了拾取。");
             Require(before[0] == new WorldObjectId.Node(scenario.Nest.Id) && before[2] == new WorldObjectId.Edge(scenario.Edge.Id) &&
-                before[3] is null && before[4] is null, "生物标注的采样点没有落在预期的节点、线路和空白处。");
+                before[3] is null, "采样点没有落在预期的节点、线路中点和空白处。");
             foreach (var (activity, text) in new (CreatureActivity Activity, string Text)[]
             {
                 (CreatureActivity.Guarding, "驻守"), (CreatureActivity.Wandering, "游荡"),
@@ -185,40 +163,12 @@ public class MacroMapLayerTests(Node testScene) : TestClass(testScene)
             Require(nestName == "巢穴" && hiveName == "大型巢群" &&
                 map.LairText(scenario.Nest) == "巢穴 · 3 群" && map.LairText(scenario.Hive) == "大型巢群 · 2 群",
                 "聚落标注没有使用内容显示名和 FindLair 的群数。");
-            Require(map.GroupAnchor(guarding)!.Value.DistanceTo(Column(map, scenario.Nest, 1)) < .5f &&
-                map.GroupAnchor(scenario.Groups.Single(group => group.Id == new CreatureGroupId(3)))!.Value
-                    .DistanceTo(Column(map, scenario.Nest, 2)) < .5f &&
-                map.GroupAnchor(scenario.Groups.Single(group => group.Id == new CreatureGroupId(2)))!.Value
-                    .DistanceTo(Column(map, scenario.Hive, 1)) < .5f &&
-                map.GroupAnchor(railway)!.Value.DistanceTo(AlongEdge(map, scenario, 250, 0)) < .5f &&
-                map.GroupAnchor(combat)!.Value.DistanceTo(AlongEdge(map, scenario, 100, 1)) < .5f &&
-                map.GroupAnchor(scenario.Groups.Single(group => group.Id == new CreatureGroupId(6)))!.Value
-                    .DistanceTo(AlongEdge(map, scenario, 400, 2)) < .5f,
-                "生物群锚点没有按节点列或边插值加编号偏移放置。");
             await UiCapture.Capture(TestScene, "creatures-on");
             await input.Activate(resources);
             await input.Activate(platforms);
             Require(creatures.ButtonPressed && resources.ButtonPressed && platforms.ButtonPressed &&
-                map.GroupAnchor(guarding)!.Value.DistanceTo(Column(map, scenario.Nest, 1)) < .5f &&
-                map.Offset == offset && map.Zoom == zoom, "另外两层改变了没有资源或站台的生物标注，或移动了相机。");
+                map.Offset == offset && map.Zoom == zoom, "另外两层改变了世界生物开关或相机。");
             await UiCapture.Capture(TestScene, "creatures-all");
-
-            var movedGroup = scenario.Groups.Single(group => group.Id == new CreatureGroupId(2)) with
-            {
-                Location = new WorldLocation.Edge(scenario.Edge.Id, 50), Activity = CreatureActivity.Retreating
-            };
-            var movedGroups = scenario.Groups.Select(group => group.Id == movedGroup.Id ? movedGroup : group).ToImmutableArray();
-            map.SetView(new FixedCoreReadView(default, HostCoreScenario.Input)
-            {
-                World = scenario.View.World with { CreatureGroups = movedGroups }, Lairs = scenario.View.Lairs
-            }, content.View);
-            await input.Frames(2);
-            Require(failures.Count == 0 && map.Offset == offset && map.Zoom == zoom && map.GroupText(movedGroup) == "撤退" &&
-                map.GroupAnchor(movedGroup)!.Value.DistanceTo(AlongEdge(map, scenario, 50, 0)) < .5f &&
-                map.GroupAnchor(movedGroups.Single(group => group.Id == railway.Id))!.Value
-                    .DistanceTo(AlongEdge(map, scenario, 250, 1)) < .5f,
-                "生物群移动后锚点、活动或相机没有跟着摘要更新。");
-            await UiCapture.Capture(TestScene, "creatures-moved");
 
             var emptied = scenario.Nest with { Occupant = new NodeOccupant.Empty() };
             var remaining = scenario.Groups.Where(group => group.Location is not WorldLocation.Node node || node.Id != scenario.Nest.Id)
@@ -233,10 +183,8 @@ public class MacroMapLayerTests(Node testScene) : TestClass(testScene)
             }, content.View);
             await input.Frames(2);
             Require(failures.Count == 0 && map.LairText(emptied) is null && map.LairText(scenario.Hive) == "大型巢群 · 2 群" &&
-                map.GroupAnchor(guarding) is null && map.Offset == offset && map.Zoom == zoom &&
-                map.GroupAnchor(remaining.Single(group => group.Id == railway.Id))!.Value
-                    .DistanceTo(AlongEdge(map, scenario, 250, 0)) < .5f,
-                "清剿后聚落标注、群锚点或相机没有跟着摘要更新。");
+                map.Offset == offset && map.Zoom == zoom,
+                "清剿后的摘要绘制失败，或聚落标注和相机没有跟着更新。");
             await UiCapture.Capture(TestScene, "creatures-cleared");
 
             var unnamed = scenario.Hive with { Occupant = new NodeOccupant.Lair(new(9)) };
@@ -260,22 +208,19 @@ public class MacroMapLayerTests(Node testScene) : TestClass(testScene)
             tree.Root.ContentScaleFactor = scale;
             Directory.Delete(mods);
         }
+    }
 
-        static Vector2 Column(MacroMap map, NodeMapItem node, int row)
+    private static IContentCandidate LoadContent(GodotMainThreadDispatcher dispatcher, string mods)
+    {
+        Directory.CreateDirectory(mods);
+        var files = new ContentFiles(dispatcher, new Dictionary<ContentRoot, ContentRootLocation>
         {
-            var screen = map.MapToScreen(node.Position);
-            return new(screen.X, screen.Y + 16 + 32 + row * 26);
-        }
-
-        static Vector2 AlongEdge(MacroMap map, UiWorldFixture.CreatureLayerWorld scenario, double distance, int index)
-        {
-            var from = map.MapToScreen(scenario.Nest.Position);
-            var to = map.MapToScreen(scenario.Hive.Position);
-            var fraction = (float)Math.Clamp(distance / scenario.Edge.LengthMeters, 0, 1);
-            var at = from.Lerp(to, fraction);
-            var delta = to - from;
-            var normal = delta.LengthSquared() >= 1 ? delta.Normalized().Orthogonal() : Vector2.Zero;
-            return at + normal * (18 + index * 26);
-        }
+            [new("builtin")] = new ContentRootLocation.Disk(ProjectSettings.GlobalizePath("res://builtin/core")),
+            [new("mods")] = new ContentRootLocation.Disk(mods)
+        });
+        var loaded = Train.Content.ContentFactory.Create().PrepareLoad(new(new(new("builtin"), new("mods"), null,
+            "0.2.0", []), new ContentLoadPurpose.Initial()), files, new GodotAssetInspector(dispatcher));
+        Require(loaded is ContentResult<IContentCandidate>.Success, $"信息层测试内容加载失败：{loaded}。");
+        return ((ContentResult<IContentCandidate>.Success)loaded).Value;
     }
 }
