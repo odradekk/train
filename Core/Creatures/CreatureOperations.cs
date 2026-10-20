@@ -119,8 +119,31 @@ internal static class CreatureOperations
             return ApproachRailway(group, edge, location.DistanceMeters, railway.DistanceMeters, delta, step);
         var forward = direction == TravelDirection.Forward;
         var far = forward ? edge.End : edge.Start;
+        var behind = forward ? edge.Start : edge.End;
+        var turn = false;
+        if (Destination(world, group) is { } goal)
+        {
+            var hops = Hops(world, goal);
+            int? farHops = hops.TryGetValue(far, out var farHop) ? farHop : null;
+            int? behindHops = hops.TryGetValue(behind, out var behindHop) ? behindHop : null;
+            turn = behindHops is { } better && (farHops is null || better < farHops);
+        }
+        else if (group.Activity == CreatureActivity.Wandering)
+            turn = NpcSettlement(world, far) && !NpcSettlement(world, behind);
+        if (turn)
+        {
+            forward = !forward;
+            far = forward ? edge.End : edge.Start;
+        }
         return AdvanceOnEdge(world, group, edge, forward, location.DistanceMeters, far, delta, step);
     }
+
+    private static NodeId? Destination(WorldState world, CreatureGroupState group) => group.Activity switch
+    {
+        CreatureActivity.Retreating when group.Home is { } home => world.Lairs.FirstOrDefault(lair => lair.Id == home)?.Node,
+        CreatureActivity.RaidingSettlement when group.Objective is CreatureObjective.Settlement target => target.Node,
+        _ => null
+    };
 
     private static CreatureGroupState LeaveNode(WorldState world, CoreContentProjection content,
         CreatureGroupState group, NodeId node, double delta, ulong step)
@@ -142,12 +165,7 @@ internal static class CreatureOperations
             if (endpoint is not { } nearer || NextHop(world, node, nearer) is not { } railwayHop) return group;
             return Enter(world, group, railwayHop, node, delta, step);
         }
-        var destination = group.Activity switch
-        {
-            CreatureActivity.Retreating when group.Home is { } home => world.Lairs.FirstOrDefault(lair => lair.Id == home)?.Node,
-            CreatureActivity.RaidingSettlement when group.Objective is CreatureObjective.Settlement target => target.Node,
-            _ => null
-        };
+        var destination = Destination(world, group);
         if (destination is { } goal)
         {
             if (goal == node) return group;
