@@ -1244,13 +1244,14 @@ def lair_scene_models():
                 for z in range(back + 1, front + 1):
                     cells.pop((x, y, z), None)
                 cells[(x, y, back)] = 2
-        for z in range(back + 1, front):
+        for z in range(back, front + 1):
+            material = 3 if (z - back) % 2 == 0 else 1
             previous = opening[0] + 1
             for y, half in enumerate(opening, 1):
                 edge = half + 1
                 for x in range(edge, previous + 1):
-                    cells[(x, y, z)] = 3
-                    cells[(-x, y, z)] = 3
+                    cells[(x, y, z)] = material
+                    cells[(-x, y, z)] = material
                 previous = edge
 
     nest = {(x, 0, z): 0 for x in range(-6, 7) for z in range(-6, 7) if x * x + z * z <= 36}
