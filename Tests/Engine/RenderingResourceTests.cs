@@ -30,6 +30,10 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         var mesh = instance.Mesh;
         var material = Material(followed);
         var originalShader = material.Shader;
+        var damageMask = material.GetShaderParameter("damage_mask").AsGodotObject() as Texture2D;
+        using var damageImage = damageMask?.GetImage();
+        Require(damageMask is not null && damageMask.GetWidth() == 128 && damageMask.GetHeight() == 128 && damageImage?.HasMipmaps() == true,
+            "场景材质必须加载带 Mipmap 的正式损伤遮罩。");
 
         resources.ExemptConstructionFog(followed, true);
 
@@ -38,6 +42,9 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         Require(ReferenceEquals(instance.Mesh, mesh), "雾豁免不应重建车辆网格。");
         AssertSurface(material, source.Surface);
         Require(material.GetShaderParameter("rail_steel").AsBool(), "切换着色器不能丢失材质参数。");
+        Require(material.GetShaderParameter("damage_mask").AsGodotObject() == damageMask &&
+            Material(other).GetShaderParameter("damage_mask").AsGodotObject() == damageMask,
+            "普通和跟随材质必须共享同一份损伤遮罩。");
         var next = source with { Surface = new(false, 31, 0.75f, true) };
         followed.Update(next);
         AssertSurface(material, next.Surface);
@@ -47,6 +54,10 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         Require(material.Shader == originalShader, "离开跟随目标后必须恢复普通构建雾遮挡。");
         AssertSurface(material, next.Surface);
         Require(ReferenceEquals(instance.Mesh, mesh), "移除豁免不应重建车辆网格。");
+        followed.Dispose();
+        other.Dispose();
+        resources.Dispose();
+        Require(!GodotObject.IsInstanceValid(damageMask), "释放场景资源必须释放损伤遮罩。");
     }
 
     [Test]

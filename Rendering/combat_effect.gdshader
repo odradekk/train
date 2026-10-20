@@ -4,6 +4,7 @@ render_mode unshaded, blend_mix, cull_disabled, shadows_disabled, depth_draw_opa
 uniform float simulation_seconds = 0.0;
 uniform float flicker_seconds = 0.0;
 uniform int appearance = 0;
+uniform sampler2D particle_mask : filter_linear_mipmap, repeat_disable;
 instance uniform float start_seconds = 0.0;
 instance uniform float strength = 1.0;
 instance uniform float seed = 0.0;
@@ -58,9 +59,11 @@ void fragment() {
 	vec3 color = tint.rgb;
 	// flicker_seconds 不快于真实时间；6 rad/s 约每秒变亮一次。
 	if (appearance == 1) color *= 0.75 + 0.25 * sin(flicker_seconds * 6.0 + seed * 20.0);
-	float disk = appearance <= 2 || appearance == 6 || appearance == 7
-		? 1.0 - smoothstep(0.15, 0.5, length(UV - vec2(0.5))) : 1.0;
+	vec4 mask = texture(particle_mask, UV);
+	float opacity = appearance == 0 || appearance == 7 ? mask.r
+		: appearance == 1 || appearance == 8 ? mask.g
+		: appearance == 6 ? mask.a : appearance == 5 ? 1.0 : mask.b;
 	ALBEDO = color;
-	EMISSION = appearance == 0 || appearance >= 5 ? vec3(0.0) : color;
-	ALPHA = effect_alpha * disk;
+	EMISSION = appearance == 0 || appearance == 5 || appearance == 6 || appearance == 7 ? vec3(0.0) : color;
+	ALPHA = effect_alpha * opacity;
 }

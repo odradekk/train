@@ -13,7 +13,7 @@ namespace Train.Scenes.Tests;
 public sealed class SettlementObjectsTests
 {
     [TestMethod]
-    public async Task RunningFacilitiesShareOneStableRoofSmokeAndStoppingRemovesIt()
+    public async Task RunningFacilitiesShareStableSmokeAndLightAndStoppingRemovesBoth()
     {
         var evaluation = NodeFixtures.StationEvaluation();
         evaluation = evaluation with { Scene = evaluation.Scene with
@@ -36,6 +36,10 @@ public sealed class SettlementObjectsTests
         Assert.AreEqual(.25f, smoke.Strength);
         Assert.AreEqual(1, rendered.Objects.SelectMany(item => item.Effects).Count(item => item.Kind == PersistentEffectKind.FacilitySmoke));
         Assert.IsTrue(root.Effects.Any(item => item.Kind == PersistentEffectKind.Smoke));
+        var lamp = rendered.Objects.Single(item => item.Parent == root.Id && !item.Lights.IsEmpty);
+        Assert.AreEqual(new Vector3(1, 5, 8.2f), lamp.Pose.Position);
+        Assert.AreEqual(1, rendered.Objects.SelectMany(item => item.Lights).Count());
+        Assert.AreEqual(0, lamp.Lights.Single().Damage);
         var unchanged = Present(objects, snapshot, layout);
         var stamp = new SceneFrameStamp(new(Guid.NewGuid()), new(1), new(1), 1);
         var before = new SceneFrame(stamp, default, 0, SceneReadiness.Ready, rendered.Objects, rendered.Picking, [], []);
@@ -46,13 +50,25 @@ public sealed class SettlementObjectsTests
         await using var reopened = new SettlementObjects(StableIds());
         Assert.AreEqual(smoke, (await Settle(reopened, snapshot, layout)).Objects.SelectMany(item => item.Effects)
             .Single(item => item.Kind == PersistentEffectKind.FacilitySmoke));
+        Assert.AreEqual(lamp.Lights.Single(), Present(reopened, snapshot, layout).Objects.SelectMany(item => item.Lights).Single());
+        foreach (var (durability, expectedDamage) in new[] { (25L, 0f), (24L, .04f), (10L, .6f) })
+        {
+            var damaged = Snapshot(content: content, settlement: settlement, station: station with { Structure = new(durability, 100) });
+            var light = (await Settle(objects, damaged, layout)).Objects.SelectMany(item => item.Lights).Single();
+            Assert.AreEqual(expectedDamage, light.Damage, 1e-5);
+            Assert.AreEqual(lamp.Lights.Single().Seed, light.Seed);
+        }
         foreach (var state in Enum.GetValues<ProductionState>().Where(state => state != ProductionState.Running))
         {
             var stopped = Snapshot(content: content, station: station, settlement: settlement with
             { Facilities = settlement.Facilities.Select(item => item with { State = state }).ToImmutableArray() });
-            Assert.IsFalse(Present(objects, stopped, layout).Objects.SelectMany(item => item.Effects)
+            var inactive = await Settle(objects, stopped, layout);
+            Assert.IsEmpty(inactive.Objects.SelectMany(item => item.Lights));
+            Assert.IsFalse(inactive.Objects.SelectMany(item => item.Effects)
                 .Any(item => item.Kind == PersistentEffectKind.FacilitySmoke), state.ToString());
         }
+        var empty = Snapshot(content: content, station: station, settlement: settlement with { Plots = [] });
+        Assert.IsFalse(Present(objects, empty, layout).Objects.Any(item => item.Subject == root.Subject));
     }
 
     [TestMethod]

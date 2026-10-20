@@ -226,6 +226,12 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
         var light = root.GetNode<OmniLight3D>("SceneLight");
         var mesh = smoke.Mesh;
         var material = smoke.MaterialOverride;
+        var mask = ((ShaderMaterial)material).GetShaderParameter("particle_mask").AsGodotObject() as Texture2D;
+        Require(mask is not null && mask.GetWidth() == 128 && mask.GetHeight() == 128,
+            "特效必须加载正式的四通道遮罩。");
+        Require(mask!.GetInstanceId() == ((ShaderMaterial)fire.MaterialOverride).GetShaderParameter("particle_mask").AsGodotObject().GetInstanceId() &&
+            smoke.MaterialOverride == facility.MaterialOverride,
+            "烟、设施烟和火必须复用正式遮罩，同种外观复用材质。");
         var fragment = Nodes(display, "Fragment")[0];
         Commit(display, Frame(2, [], [], basis: first.Update.Frame, removed: [new(1)]));
         Require(!GodotObject.IsInstanceValid(smoke) && !GodotObject.IsInstanceValid(fire) &&
@@ -236,7 +242,7 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
         display.Dispose();
         display.Dispose();
         Require(!GodotObject.IsInstanceValid(fragment) && !GodotObject.IsInstanceValid(mesh) &&
-            !GodotObject.IsInstanceValid(material), "释放显示后节点和共享资源都必须失效。");
+            !GodotObject.IsInstanceValid(material) && !GodotObject.IsInstanceValid(mask), "释放显示后节点和共享资源都必须失效。");
     }
 
     [Test]
@@ -462,7 +468,11 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
             if (node is MeshInstance3D { Mesh: { } mesh }) resources.Add(mesh);
             if (node is not GeometryInstance3D { MaterialOverride: { } material }) return;
             resources.Add(material);
-            if (material is ShaderMaterial { Shader: { } shader }) resources.Add(shader);
+            if (material is ShaderMaterial { Shader: { } shader } shaderMaterial)
+            {
+                resources.Add(shader);
+                if (shaderMaterial.GetShaderParameter("particle_mask").AsGodotObject() is Texture2D texture) resources.Add(texture);
+            }
         }
         foreach (var node in display.Root.FindChildren("*", "", true, false).OfType<Node>()) Track(node);
         Track(display.Root);

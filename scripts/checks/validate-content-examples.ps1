@@ -9,4 +9,6 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $python -B -X utf8 (Join-Path $root 'scripts/content/generate_small_world.py') --check
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $python -X utf8 (Join-Path $root 'scripts/content/ui_symbols.py') --check
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& $python -B -X utf8 (Join-Path $root 'scripts/content/combat_effect_assets.py') --check
 exit $LASTEXITCODE

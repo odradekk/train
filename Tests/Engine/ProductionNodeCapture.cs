@@ -38,7 +38,21 @@ public partial class ProductionNodeCapture : Node
                 draw = Godot.Engine.GetFramesDrawn(), position = run.Host!.GetStatus()!.View.Position,
                 frame = frame.Update.Frame, displaySeconds = frame.SimulationSeconds,
                 visibleEffects = display.Root.GetNodeOrNull("CombatEffects")?.GetChildren()
-                    .ToDictionary(child => child.Name.ToString(), child => child.GetChildCount())
+                    .ToDictionary(child => child.Name.ToString(), child => child.GetChildCount()),
+                persistentEffects = display.Objects.Values.SelectMany(item => item.Root.GetChildren().OfType<MeshInstance3D>())
+                    .Where(node => node.Name.ToString() is "Smoke" or "Fire" or "Sparks" or "Leak" or "FacilitySmoke")
+                    .GroupBy(node => node.Name.ToString()).ToDictionary(group => group.Key, group => group.Count()),
+                sceneLights = display.Objects.Values.Where(item => !item.Source.Lights.IsEmpty).Select(item => new
+                {
+                    id = item.Source.Id.Value, subject = item.Source.Subject?.ToString(),
+                    lights = item.Source.Lights, energy = item.Root.GetChildren().OfType<OmniLight3D>().Select(light => light.LightEnergy)
+                }),
+                targetInstance = input.Target is WorldObjectId.Instance instance &&
+                    run.Host!.GetStatus()!.View.FindInstance(instance.Id) is Lookup<InstanceView>.Found found ? new
+                    {
+                        found.Value.Structure, damagedParts = found.Value.Parts.Where(part => part.Destroyed ||
+                            part.Durability.EffectiveCurrent < part.Durability.Maximum)
+                    } : null
             }));
         }
         RenderingServer.FramePostDraw += Observe;

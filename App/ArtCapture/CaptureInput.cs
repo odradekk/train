@@ -7,15 +7,15 @@ internal sealed record CaptureInput(string SavePath, WorldLocation Location, Wor
 {
     internal static CaptureInput Parse(IReadOnlyList<string> arguments)
     {
-        const string usage = "用法：--capture-save <存档> --capture-location edge:<ID>|node:<ID> --capture-train <ID>|--capture-lair <ID>|--capture-group <ID> --capture-name <名称> [--capture-motion-steps <正整数>]";
+        const string usage = "用法：--capture-save <存档> --capture-location edge:<ID>|node:<ID> --capture-train <ID>|--capture-lair <ID>|--capture-group <ID>|--capture-building <ID> --capture-name <名称> [--capture-motion-steps <正整数>]";
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
         for (var i = 0; i < arguments.Count; i += 2)
         {
             if (i + 1 >= arguments.Count || arguments[i] is not
-                ("--capture-save" or "--capture-location" or "--capture-train" or "--capture-lair" or "--capture-group" or "--capture-name" or "--capture-motion-steps") ||
+                ("--capture-save" or "--capture-location" or "--capture-train" or "--capture-lair" or "--capture-group" or "--capture-building" or "--capture-name" or "--capture-motion-steps") ||
                 !values.TryAdd(arguments[i], arguments[i + 1])) throw new ArgumentException(usage);
         }
-        var targets = new[] { "--capture-train", "--capture-lair", "--capture-group" }.Where(values.ContainsKey).ToArray();
+        var targets = new[] { "--capture-train", "--capture-lair", "--capture-group", "--capture-building" }.Where(values.ContainsKey).ToArray();
         if (targets.Length != 1 || !values.ContainsKey("--capture-save") ||
             !values.ContainsKey("--capture-location") || !values.ContainsKey("--capture-name")) throw new ArgumentException(usage);
         var scene = values["--capture-location"].Split(':');
@@ -36,6 +36,7 @@ internal sealed record CaptureInput(string SavePath, WorldLocation Location, Wor
             {
                 "--capture-train" => new WorldObjectId.Train(new(target)),
                 "--capture-lair" => new WorldObjectId.Lair(new(target)),
+                "--capture-building" => new WorldObjectId.Instance(new InstanceId.Building(new(target))),
                 _ => new WorldObjectId.CreatureGroup(new(target))
             }, name, motionSteps);
     }
@@ -49,6 +50,14 @@ internal sealed record CaptureInput(string SavePath, WorldLocation Location, Wor
                 _ => false
             }))
             throw new InvalidDataException("指定场景不存在。");
+        if (Target is WorldObjectId.Instance { Id: InstanceId.Building building })
+        {
+            if (core.FindInstance(building) is not Lookup<InstanceView>.Found foundBuilding)
+                throw new InvalidDataException("指定建筑不存在。");
+            if (Location is not WorldLocation.Node at || foundBuilding.Value.Location is not WorldLocation.Node buildingAt || at.Id != buildingAt.Id)
+                throw new InvalidDataException("建筑不在指定节点场景。");
+            return [Target];
+        }
         if (Target is WorldObjectId.Lair(var lair))
         {
             if (core.FindLair(lair) is not Lookup<LairView>.Found foundLair)

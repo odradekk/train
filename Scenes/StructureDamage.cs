@@ -69,7 +69,7 @@ internal static class StructureDamage
             if (content?.FindVoxelAppearance(voxel.Voxel) is not ContentLookup<VoxelAppearanceProjection>.Found { Value.Behaviors.Light: { } light })
                 continue;
             var partRatio = functional.Contains(voxel.Number) && partRatios.TryGetValue(voxel.Number, out var part) ? Ratio(part.Durability) : ratio;
-            var lightDamage = functional.Contains(voxel.Number) ? (float)(1 - partRatio) : (float)Math.Max(0, (FireRatio - ratio) / FireRatio);
+            var lightDamage = functional.Contains(voxel.Number) ? (float)(1 - partRatio) : StructureLightDamage(instance.Structure);
             lights.Add(new(DesignGeometry.Key(voxel.ObjectPath), voxel.LocalAt,
                 new(light.Color, light.RangeCells, lightDamage, Seed(instance.Id, voxel.Number.Value, voxel.LocalAt, 1))));
         }
@@ -125,6 +125,9 @@ internal static class StructureDamage
 
     private static double Ratio(DurabilityView durability) =>
         durability.Maximum <= 0 ? 1 : Math.Clamp((double)durability.EffectiveCurrent / durability.Maximum, 0, 1);
+
+    internal static float StructureLightDamage(DurabilityView durability) =>
+        (float)Math.Max(0, (FireRatio - Ratio(durability)) / FireRatio);
 
     private static Vector3 Center(SceneVoxelProjection[] structure, ImmutableHashSet<CellRef> removed)
     {
