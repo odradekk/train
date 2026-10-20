@@ -17,6 +17,8 @@ internal static class Assertions
             throw new InvalidOperationException(message);
     }
 
+    internal static readonly TimeSpan ContentPreparationTimeout = TimeSpan.FromSeconds(60);
+
     internal static async Task FramesUntil(Node testScene, Func<bool> completed,
         GodotMainThreadDispatcher? dispatcher = null, TimeSpan? timeout = null,
         [CallerArgumentExpression(nameof(completed))] string? description = null)

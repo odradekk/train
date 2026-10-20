@@ -41,9 +41,9 @@ public class EconomyPlanUiTests(Node testScene) : TestClass(testScene)
             app.CreateHost = logger => ContentFixture.CreateHost(logger, directory, dispatcher);
             await fixture.AddToRoot(app);
             var host = app.Host!;
-            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher);
+            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher, timeout: ContentPreparationTimeout);
             host.BeginNewGame(new("core:basic-through-world"), 1, "stage1-world-v1", host.SessionOptions!);
-            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher);
+            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher, timeout: ContentPreparationTimeout);
             Require(host.GetStatus() is not null && host.Step(120).Completed == 120, "冻结规格情景未能开始生产与人口消费。");
             var before = host.GetStatus()!.View;
             var settlementId = before.World.Nodes.Select(item => item.Occupant).OfType<NodeOccupant.Settlement>().First().Id;
@@ -57,7 +57,7 @@ public class EconomyPlanUiTests(Node testScene) : TestClass(testScene)
             populationRule["simulation"]!["labor_ratio"] = .59;
             File.WriteAllText(populationPath, populationRule.ToJsonString());
             Require(host.BeginReload(CommandSource.UserInterface).Problem is null, "内容发布请求被拒绝。");
-            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher);
+            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher, timeout: ContentPreparationTimeout);
             var status = host.GetStatus()!;
             var current = ((Lookup<SettlementView>.Found)status.View.FindSettlement(settlementId)).Value;
             var batch = current.Facilities.Single(item => item.Process == new ProcessRef.Production(new("core:test"))).Batch;
@@ -124,10 +124,10 @@ public class EconomyPlanUiTests(Node testScene) : TestClass(testScene)
             app.CreateHost = logger => ContentFixture.CreateHost(logger, directory, dispatcher);
             await fixture.AddToRoot(app);
             var host = app.Host!;
-            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher);
+            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher, timeout: ContentPreparationTimeout);
             Require(host.BeginNewGame(new("core:basic-through-world"), 1, "stage1-world-v1", host.SessionOptions!).Problem is null,
                 "经济情景未能请求真实新局。");
-            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher);
+            await FramesUntil(TestScene, () => !host.IsBusy, dispatcher, timeout: ContentPreparationTimeout);
             Require(host.GetStatus() is not null, "经济情景没有建立真实世界。");
             var view = host.GetStatus()!.View;
             var trainId = view.World.Trains[0].Id;

@@ -139,7 +139,7 @@ public class DeveloperToolsTests(Node testScene) : TestClass(testScene)
         {
             var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
             await fixture.AddToRoot(app);
-            await FramesUntil(TestScene, () => !app.Host!.IsBusy);
+            await FramesUntil(TestScene, () => !app.Host!.IsBusy, timeout: ContentPreparationTimeout);
             var inspector = app.GetChildren().OfType<DeveloperInspector>().Single();
             Require(app.Host!.Content is not null && app.Host.GetStatus() is null &&
                 app.Development is not null && !inspector.Visible,
