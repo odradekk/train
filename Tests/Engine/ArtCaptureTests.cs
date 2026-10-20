@@ -11,6 +11,7 @@ using Train.Core.Contracts;
 using Train.Core.ContractSupport;
 using Train.Scenes.Contracts;
 using Train.Scenes.ContractSupport;
+using Train.Ui;
 using static Train.Engine.Tests.Assertions;
 
 namespace Train.Engine.Tests;
@@ -27,35 +28,93 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
 
     [Test]
     public async Task Lair_motion_samples_without_requiring_a_turn() =>
-        await SampleMotion(turned: false, target: "lair");
+        await SampleMotion(turned: false, target: new WorldObjectId.Lair(new(1)));
 
     [Test]
     public async Task Group_motion_samples_without_requiring_a_turn() =>
-        await SampleMotion(turned: false, target: "group");
+        await SampleMotion(turned: false, target: new WorldObjectId.CreatureGroup(new(1)));
 
     [Test]
     public async Task Eight_step_motion_samples_the_requested_simulation_interval() =>
-        await SampleMotion(turned: false, target: "group", motionSteps: 8);
+        await SampleMotion(turned: false, target: new WorldObjectId.CreatureGroup(new(1)), motionSteps: 8);
 
     [Test]
     public async Task Group_motion_waits_for_the_advanced_sample_after_an_old_ready_frame() =>
-        await SampleMotion(turned: false, target: "group", motionSteps: 8, delayAdvancedFrame: true);
+        await SampleMotion(turned: false, target: new WorldObjectId.CreatureGroup(new(1)), motionSteps: 8, delayAdvancedFrame: true);
 
     [Test]
     public async Task First_one_step_group_sample_waits_for_a_new_committed_frame() =>
-        await SampleMotion(turned: false, target: "group", motionSteps: 1, delayAdvancedFrame: true);
+        await SampleMotion(turned: false, target: new WorldObjectId.CreatureGroup(new(1)), motionSteps: 1, delayAdvancedFrame: true);
 
     [Test]
     public async Task Train_motion_keeps_its_existing_ready_frame_wait_behavior() =>
         await SampleMotion(turned: false, delayAdvancedFrame: true);
 
     [Test]
-    public async Task Fixed_group_camera_preserves_focus_when_the_display_origin_changes() =>
-        await SampleMotion(turned: false, target: "group", rebaseCamera: true);
+    public async Task Fixed_group_camera_preserves_focus_when_the_display_origin_changes()
+    {
+        var advanced = false;
+        await SampleCamera(new WorldObjectId.CreatureGroup(new(1)), _ => CameraFrame(
+            advanced ? new(-4086, 20, -8162) : new(10, 20, 30),
+            advanced ? new(4096, 0, 8192) : default), async run =>
+        {
+            await run.PrepareSubjectCameraAsync(240);
+            run.PlaceCamera("follow", 0, 240);
+            var previous = run.World!.Display!.DisplayedFrame!.Update.Frame;
+            advanced = true;
+            await run.DisplayAsync(after: previous).WaitAsync(TimeSpan.FromSeconds(5));
+            var camera = run.World!.View.CameraRig;
+            var focus = camera.Focus;
+            var position = camera.Camera.Position;
+            run.PlaceCamera("follow", 0, 240);
+            Require(camera.Focus.DistanceTo(focus) < 0.001f && camera.Camera.Position.DistanceTo(position) < 0.001f,
+                "浮动原点切换后，固定相机必须保持世界焦点和位置。");
+            Require(camera.Focus.DistanceTo(new(-4085.5f, 20.5f, -8162)) < 0.001f,
+                "固定相机必须继续对准实际显示对象。");
+        });
+    }
 
     [Test]
-    public async Task Creature_capture_waits_for_local_terrain_before_caching_camera_bounds() =>
-        await SampleMotion(turned: false, target: "group", waitForTerrain: true);
+    public async Task Creature_capture_waits_for_local_terrain_before_caching_camera_bounds()
+    {
+        var ready = false;
+        ulong? first = null;
+        await SampleCamera(new WorldObjectId.CreatureGroup(new(1)), request =>
+        {
+            first ??= Godot.Engine.GetProcessFrames();
+            ready = Godot.Engine.GetProcessFrames() > first.Value && request.Camera is { Focus.X: > 90 };
+            return CameraFrame(new(100, ready ? 20 : 0, 0), default,
+                ready ? [new(new(1000, -128, 1000), new(1010, 128, 1010))]
+                    : [new(new(90, -128, -10), new(110, 128, 10))]);
+        }, async run =>
+        {
+            await run.PrepareSubjectCameraAsync(96).WaitAsync(TimeSpan.FromSeconds(5));
+            Require(ready, "截图必须等待对象所在区域的生成遮罩消失。");
+            run.PlaceCamera("follow", 0, 96);
+            Require(run.World!.View.CameraRig.Focus.Y > 20, "固定相机必须使用地形完成后的显示姿态。");
+        });
+    }
+
+    [Test]
+    public async Task Lair_camera_uses_content_bounds_when_the_anchor_has_no_mesh()
+    {
+        var scene = new DesignSceneProjection(null, new(new(-3, 0, -5), new(4, 7, 6)), null,
+            true, null, null, [], [], [], [], []);
+        var appearance = new LairAppearanceProjection(new("fixture:lair"),
+            new(new("fixture:model"), scene, new("聚落", "")), new(new("聚落", ""), null, null, false));
+        await SampleCamera(new WorldObjectId.Lair(new(1)), _ => CameraFrame(new(100, 20, 30), default, subject: new WorldObjectId.Lair(new(1))), async run =>
+        {
+            await run.PrepareSubjectCameraAsync(96);
+            run.PlaceCamera("follow", 0, 96);
+            Require(run.World!.View.CameraRig.Focus.DistanceTo(new(101, 24, 31)) < 0.001f,
+                "没有网格的聚落锚点必须使用内容占用范围确定相机焦点。");
+            var focus = run.World.View.CameraRig.Focus;
+            run.PlaceCamera("near", 0, 96);
+            Require(run.World.View.CameraRig.Focus.DistanceTo(focus) < 0.001f &&
+                run.World.View.CameraRig.Camera.Position.DistanceTo(focus) < WorldCamera.DefaultDistance,
+                "聚落近景必须保持模型中心，并根据模型范围缩近。");
+        }, appearance);
+    }
 
     [Test]
     public void Motion_steps_are_optional_and_require_a_positive_integer()
@@ -78,7 +137,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
 
     [Test]
     public async Task Last_group_member_can_disappear_during_sampling() =>
-        await SampleMotion(turned: false, target: "group", missingAfterAdvance: true);
+        await SampleMotion(turned: false, target: new WorldObjectId.CreatureGroup(new(1)), missingAfterAdvance: true);
 
     [Test]
     public void Creature_capture_arguments_parse_and_reject_multiple_targets()
@@ -88,8 +147,8 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
             string[] arguments = ["--capture-save", "save.json", "--capture-location", "node:1",
                 target, "7", "--capture-name", "creatures"];
             var input = CaptureInput.Parse(arguments);
-            Require(target == "--capture-lair" ? input.Lair == new LairId(7) && input.Group is null :
-                input.Group == new CreatureGroupId(7) && input.Lair is null, "必须解析选定的生物目标。");
+            Require(target == "--capture-lair" ? input.Target == new WorldObjectId.Lair(new(7)) :
+                input.Target == new WorldObjectId.CreatureGroup(new(7)), "必须解析选定的生物目标。");
             foreach (var other in new[] { "--capture-train", "--capture-lair", "--capture-group" }.Where(value => value != target))
             {
                 try
@@ -106,8 +165,8 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
     public void Creature_capture_validates_location_and_group_members()
     {
         var location = new WorldLocation.Node(new(1));
-        var lair = new CaptureInput("save.json", location, default, "lair", Lair: new(1));
-        var group = new CaptureInput("save.json", location, default, "group", Group: new(1));
+        var lair = new CaptureInput("save.json", location, new WorldObjectId.Lair(new(1)), "lair");
+        var group = new CaptureInput("save.json", location, new WorldObjectId.CreatureGroup(new(1)), "group");
         var view = CreatureView();
         Require(lair.Validate(view).SequenceEqual([new WorldObjectId.Lair(new(1))]), "聚落必须解析到聚落对象。");
         Require(group.Validate(view).SequenceEqual([new WorldObjectId.Creature(new(1))]), "群必须解析到其成员。");
@@ -149,7 +208,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         };
         try
         {
-            await run.RestoreAsync(new(Path.Combine(Output(name), "missing.json"), new WorldLocation.Edge(new(1), 0), new(1), name));
+            await run.RestoreAsync(new(Path.Combine(Output(name), "missing.json"), new WorldLocation.Edge(new(1), 0), new WorldObjectId.Train(new(1)), name));
             throw new InvalidOperationException("缺存档未被拒绝。");
         }
         catch (IOException) { }
@@ -186,7 +245,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         {
             try
             {
-                await run.RestoreAsync(new(save, new WorldLocation.Edge(new(1), 0), new(1), name));
+                await run.RestoreAsync(new(save, new WorldLocation.Edge(new(1), 0), new WorldObjectId.Train(new(1)), name));
                 throw new InvalidOperationException("无效输入未被拒绝。");
             }
             catch (InvalidDataException exception)
@@ -200,7 +259,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         finally { File.Delete(save); }
     }
 
-    private async Task SampleMotion(bool turned, string? target = null, bool missingAfterAdvance = false, ulong motionSteps = 2, bool rebaseCamera = false, bool waitForTerrain = false, bool delayAdvancedFrame = false)
+    private async Task SampleMotion(bool turned, WorldObjectId? target = null, bool missingAfterAdvance = false, ulong motionSteps = 2, bool delayAdvancedFrame = false)
     {
         var name = "capture-test-" + Guid.NewGuid().ToString("N");
         var root = ProjectSettings.GlobalizePath("res://.godot/validation");
@@ -208,16 +267,17 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         var save = Path.Combine(root, name + ".json");
         File.WriteAllText(save, SaveContainer.Encode(new(new(SaveContainer.FormatVersion, Guid.NewGuid(),
             "engine capture input", DateTimeOffset.UnixEpoch, new(0, 0), []), "opaque", "opaque")));
-        var core = new ScriptedCoreSession(target is null ? View(true, true, 1) : CreatureView());
+        target ??= new WorldObjectId.Train(new(1));
+        var core = new ScriptedCoreSession(target is WorldObjectId.Train ? View(true, true, 1) : CreatureView());
         for (ulong step = 1; step <= 60 * motionSteps; step++)
             core.QueueAdvance(new(1, new(step, 0), [], null, null),
-                target is null ? View(true, true, 1, new(step, 0)) :
+                target is WorldObjectId.Train ? View(true, true, 1, new(step, 0)) :
                     CreatureView(empty: missingAfterAdvance, position: new(step, 0)));
         var sessionId = new SceneSessionId(Guid.NewGuid());
         WorldObjectId subject = target switch
         {
-            "lair" => new WorldObjectId.Lair(new(1)),
-            "group" => new WorldObjectId.Creature(new(1)),
+            WorldObjectId.Lair => target,
+            WorldObjectId.CreatureGroup => new WorldObjectId.Creature(new(1)),
             _ => new WorldObjectId.Instance(new InstanceId.Vehicle(new(1)))
         };
         var mesh = new SceneMesh(new SceneMaterial.BuiltIn(BuiltInMaterial.RailSteel),
@@ -225,21 +285,14 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
                 new(System.Numerics.Vector3.UnitX, System.Numerics.Vector3.UnitZ, new(1, 0), new(1, 0), ExposedFaceEdges.None, 0, 0),
                 new(System.Numerics.Vector3.UnitY, System.Numerics.Vector3.UnitZ, new(0, 1), new(0, 1), ExposedFaceEdges.None, 1, 0)],
             [0, 1, 2]);
-        ulong? firstPresentation = null;
-        var terrainReady = !waitForTerrain;
         ulong? advancedPresentation = null;
-        System.Numerics.Vector3 Position(int index) => rebaseCamera
-            ? index == 0 ? new(10, 20, 30) : new(-4086, 20, -8162)
-            : new(waitForTerrain ? 100 : 0, waitForTerrain && terrainReady ? 20 : 0, index);
+        System.Numerics.Vector3 Position(int index) => new(0, 0, index);
         FixedSceneFrame Frame(int index) => new()
         {
-            Origin = rebaseCamera && index > 0 ? new(4096, 0, 8192) : default,
             Update = new(null, new(sessionId, new(1), new(1), (ulong)index + 1), System.Numerics.Vector3.Zero,
-                rebaseCamera || waitForTerrain || delayAdvancedFrame ? [new(new(1), null, new(Position(index), System.Numerics.Quaternion.Identity), subject,
+                delayAdvancedFrame ? [new(new(1), null, new(Position(index), System.Numerics.Quaternion.Identity), subject,
                     [new SceneVisual.Geometry(mesh, new(false, 0, 0, false))], [], [])] : [], [],
-                new(!waitForTerrain ? [] : terrainReady
-                    ? [new(new(1000, -128, 1000), new(1010, 128, 1010))]
-                    : [new(new(90, -128, -10), new(110, 128, 10))], []), []),
+                new([], []), []),
             SimulationSeconds = (ulong)index * motionSteps / 60d,
             Poses = ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty.Add(subject,
                 missingAfterAdvance && index > 0 ? new Lookup<ScenePose>.Missing() : new Lookup<ScenePose>.Found(new(Position(index),
@@ -249,9 +302,6 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         };
         ISceneFrame PresentFrame(SceneFrameRequest request)
         {
-            firstPresentation ??= Godot.Engine.GetProcessFrames();
-            terrainReady = !waitForTerrain || Godot.Engine.GetProcessFrames() > firstPresentation.Value &&
-                request.Camera is { Focus.X: > 90 };
             var index = (int)(core.CurrentView.Position.CompletedSteps / motionSteps);
             if (delayAdvancedFrame && index == 1)
             {
@@ -266,7 +316,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
             {
                 Id = sessionId, Binding = binding,
                 RequestResults = ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>>.Empty
-                    .Add(target is null ? new WorldSceneTarget.Follow(new(1), new(1)) :
+                    .Add(target is WorldObjectId.Train ? new WorldSceneTarget.Follow(new(1), new(1)) :
                         new WorldSceneTarget.Location(new WorldLocation.Node(new(1))), new SceneResult<SceneRequestId>.Success(new(1))),
                 ObserveResults = Enumerable.Range(1, (int)(60 * motionSteps)).Select(step => (SceneResult<SimulationPosition>)
                     new SceneResult<SimulationPosition>.Success(new((ulong)step, 0))).ToImmutableArray()
@@ -278,31 +328,15 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         };
         try
         {
-            await run.RestoreAsync(target is null
-                ? new(save, new WorldLocation.Edge(new(1), 0), new(1), name, MotionSteps: motionSteps)
-                : new(save, new WorldLocation.Node(new(1)), default, name,
-                    Lair: target == "lair" ? new(1) : null, Group: target == "group" ? new(1) : null, MotionSteps: motionSteps));
-            if (waitForTerrain)
-            {
-                await run.PrepareSubjectCameraAsync(96).WaitAsync(TimeSpan.FromSeconds(5));
-                Require(terrainReady, "Ready 帧仍有对象所在区域的生成遮罩时，截图入口必须继续等待。");
-                run.PlaceCamera("follow", 0, 96);
-                Require(run.World!.View.CameraRig.Focus.Y > 20,
-                    "固定相机必须使用地形完成后的显示姿态，不能缓存灰罩内的旧高度。");
-            }
-            if (rebaseCamera)
-            {
-                Require(run.World!.Display!.PoseFrame!.Origin == default,
-                    "首次固定相机定位必须发生在原点切换之前。");
-                run.PlaceCamera("follow", 0, 240);
-            }
+            await run.RestoreAsync(new(save, target is WorldObjectId.Train
+                ? new WorldLocation.Edge(new(1), 0) : new WorldLocation.Node(new(1)), target, name, motionSteps));
             for (var frame = 1; frame <= 60; frame++)
             {
                 var advance = run.AdvanceTurnFrameAsync();
                 if (delayAdvancedFrame && frame == 1)
                 {
                     Require(advancedPresentation is not null, "推进后必须先呈现仍然 Ready 的旧采样。");
-                    if (target is null)
+                    if (target is WorldObjectId.Train)
                     {
                         Require(advance.IsCompletedSuccessfully && run.World!.Display!.DisplayedFrame!.SimulationSeconds == 0,
                             "列车截图必须保持原有 Ready 等待行为，不受生物采样同步条件影响。");
@@ -321,29 +355,13 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
                     Require(displayed.Objects.Values.Single(item => item.Source.Subject == subject).Root.Position.Z == 1,
                         "完成等待后必须接入新采样的实际对象姿态。");
                 }
-                if (rebaseCamera)
-                {
-                    Require(run.World!.Display!.PoseFrame!.Origin == new ScenePoint(4096, 0, 8192),
-                        "推进后必须实际切换显示原点，才能验证缓存坐标的转换。");
-                    var camera = run.World.View.CameraRig;
-                    var focus = camera.Focus;
-                    var cameraPosition = camera.Camera.Position;
-                    run.PlaceCamera("follow", 0, 240);
-                    Require(camera.Focus.DistanceTo(focus) < 0.001f &&
-                        camera.Camera.Position.DistanceTo(cameraPosition) < 0.001f,
-                        "浮动原点切换后，重复固定相机定位必须保持世界焦点和相机位置。");
-                    var displayedMesh = run.World.Display!.Root.FindChildren("*", nameof(MeshInstance3D), true, false)
-                        .OfType<MeshInstance3D>().Single();
-                    Require(camera.Focus.DistanceTo((displayedMesh.GlobalTransform * displayedMesh.Mesh.GetAabb()).GetCenter()) < 0.001f,
-                        "固定相机必须继续对准实际显示对象，不能使用旧原点下的包围盒。");
-                }
                 Require(core.CurrentView.Position.CompletedSteps == (ulong)frame * motionSteps,
                     "运动采样必须每帧只推进指定数量的模拟步。");
                 Require(run.World!.Display!.DisplayedFrame!.SimulationSeconds == (ulong)frame * motionSteps / 60d,
                     "运动采样必须使用本次推进后的真实显示帧。");
             }
             if (turned) run.RequireTurn();
-            else if (target is null)
+            else if (target is WorldObjectId.Train)
             {
                 try
                 {
@@ -355,6 +373,61 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
             }
             Require(core.SubmitCount == 0 && core.CaptureCount == 0,
                 "运动采样不能提交核心命令或捕获存档。");
+        }
+        finally { File.Delete(save); }
+    }
+
+    private static FixedSceneFrame CameraFrame(System.Numerics.Vector3 position, ScenePoint origin,
+        ImmutableArray<SceneBounds> fog = default, WorldObjectId? subject = null)
+    {
+        subject ??= new WorldObjectId.Creature(new(1));
+        var pose = new ScenePose(position, System.Numerics.Quaternion.Identity);
+        var mesh = new SceneMesh(new SceneMaterial.BuiltIn(BuiltInMaterial.RailSteel),
+            [new(System.Numerics.Vector3.Zero, System.Numerics.Vector3.UnitZ, new(0, 0), new(0, 0), ExposedFaceEdges.None, 0, 0),
+                new(System.Numerics.Vector3.UnitX, System.Numerics.Vector3.UnitZ, new(1, 0), new(1, 0), ExposedFaceEdges.None, 0, 0),
+                new(System.Numerics.Vector3.UnitY, System.Numerics.Vector3.UnitZ, new(0, 1), new(0, 1), ExposedFaceEdges.None, 1, 0)],
+            [0, 1, 2]);
+        return new()
+        {
+            Origin = origin,
+            Update = new(null, new(new(Guid.Empty), new(1), new(1), Godot.Engine.GetProcessFrames() + 1 + (ulong)origin.X),
+                System.Numerics.Vector3.Zero,
+                [new(new(1), null, pose, subject, subject is WorldObjectId.Lair ? [] :
+                    [new SceneVisual.Geometry(mesh, new(false, 0, 0, false))], [], [])], [],
+                new(fog.IsDefault ? [] : fog, []), []),
+            Poses = ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty.Add(subject,
+                new Lookup<ScenePose>.Found(pose)),
+            TerrainHeightResult = new Lookup<double>.Missing()
+        };
+    }
+
+    private async Task SampleCamera(WorldObjectId target, Func<SceneFrameRequest, ISceneFrame> frame,
+        Func<ArtCaptureRun, Task> inspect, LairAppearanceProjection? appearance = null)
+    {
+        var name = "capture-test-" + Guid.NewGuid().ToString("N");
+        Directory.CreateDirectory(ProjectSettings.GlobalizePath("res://.godot/validation"));
+        var save = Output(name) + ".json";
+        File.WriteAllText(save, SaveContainer.Encode(new(new(SaveContainer.FormatVersion, Guid.NewGuid(),
+            "engine capture input", DateTimeOffset.UnixEpoch, new(0, 0), []), "opaque", "opaque")));
+        var core = new ScriptedCoreSession(CreatureView());
+        var factory = new FixedDisplayFactory
+        {
+            OpenWorldCall = (binding, _) => new SceneResult<IWorldSceneSession>.Success(new CaptureDisplaySession(new FixedDisplaySession
+            {
+                Id = new(Guid.Empty), Binding = binding,
+                RequestResults = ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>>.Empty.Add(
+                    new WorldSceneTarget.Location(new WorldLocation.Node(new(1))), new SceneResult<SceneRequestId>.Success(new(1)))
+            }, frame))
+        };
+        using var run = new ArtCaptureRun(TestScene)
+        {
+            CreateHost = (logger, _, _, _) => CreateHost(core, logger, appearance), CreateScenes = () => factory
+        };
+        try
+        {
+            await run.RestoreAsync(new(save, new WorldLocation.Node(new(1)), target, name));
+            await inspect(run);
+            Require(core.SubmitCount == 0 && core.CaptureCount == 0, "相机检查不能提交命令或捕获存档。");
         }
         finally { File.Delete(save); }
     }
@@ -420,7 +493,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         };
     }
 
-    private static HostCoordinator CreateHost(ScriptedCoreSession session, TrainLogger logger)
+    private static HostCoordinator CreateHost(ScriptedCoreSession session, TrainLogger logger, LairAppearanceProjection? appearance = null)
     {
         var capture = new FixedCoreCapture(new(new(0, 0), "fixed", "fixed"), HostCoreScenario.References,
             "opaque", HostCoreScenario.Input, new(1));
@@ -430,7 +503,12 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
             PrepareRestoreCall = (_, _, _) => new CoreResult<ICoreSessionCandidate>.Success(new ScriptedCoreCandidate(session,
                 HostCoreScenario.References))
         };
-        var view = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1));
+        var view = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1))
+        {
+            Lairs = appearance is null ? new Dictionary<LairTypeId, ContentLookup<LairAppearanceProjection>>() :
+                new Dictionary<LairTypeId, ContentLookup<LairAppearanceProjection>>
+                { [appearance.Id] = new ContentLookup<LairAppearanceProjection>.Found(appearance) }
+        };
         var content = new ScriptedContentFactory
         {
             DecodeCaptureCall = _ => new ContentResult<IContentCapture>.Success(new FixedContentCapture("opaque")),

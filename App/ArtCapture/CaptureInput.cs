@@ -3,8 +3,7 @@ using Train.Core.Contracts;
 
 namespace Train.App.ArtCapture;
 
-internal sealed record CaptureInput(string SavePath, WorldLocation Location, TrainId Train, string Name,
-    LairId? Lair = null, CreatureGroupId? Group = null, ulong MotionSteps = 2)
+internal sealed record CaptureInput(string SavePath, WorldLocation Location, WorldObjectId Target, string Name, ulong MotionSteps = 2)
 {
     internal static CaptureInput Parse(IReadOnlyList<string> arguments)
     {
@@ -33,8 +32,12 @@ internal sealed record CaptureInput(string SavePath, WorldLocation Location, Tra
             throw new ArgumentException("输出名称只接受英文字母、数字、连字符和下划线。");
         return new(Path.GetFullPath(values["--capture-save"]),
             scene[0] == "edge" ? new WorldLocation.Edge(new(id), 0) : new WorldLocation.Node(new(id)),
-            new(targets[0] == "--capture-train" ? target : 0), name,
-            targets[0] == "--capture-lair" ? new(target) : null, targets[0] == "--capture-group" ? new(target) : null, motionSteps);
+            targets[0] switch
+            {
+                "--capture-train" => new WorldObjectId.Train(new(target)),
+                "--capture-lair" => new WorldObjectId.Lair(new(target)),
+                _ => new WorldObjectId.CreatureGroup(new(target))
+            }, name, motionSteps);
     }
 
     internal WorldObjectId[] Validate(ICoreReadView core)
@@ -46,7 +49,7 @@ internal sealed record CaptureInput(string SavePath, WorldLocation Location, Tra
                 _ => false
             }))
             throw new InvalidDataException("指定场景不存在。");
-        if (Lair is { } lair)
+        if (Target is WorldObjectId.Lair(var lair))
         {
             if (core.FindLair(lair) is not Lookup<LairView>.Found foundLair)
                 throw new InvalidDataException("指定生物聚落不存在。");
@@ -54,7 +57,7 @@ internal sealed record CaptureInput(string SavePath, WorldLocation Location, Tra
                 throw new InvalidDataException("生物聚落不在指定场景。");
             return [new WorldObjectId.Lair(lair)];
         }
-        if (Group is { } group)
+        if (Target is WorldObjectId.CreatureGroup(var group))
         {
             if (core.FindCreatureGroup(group) is not Lookup<CreatureGroupView>.Found foundGroup || foundGroup.Value.Creatures.IsEmpty)
                 throw new InvalidDataException("指定生物群不存在或成员为空。");
@@ -67,7 +70,8 @@ internal sealed record CaptureInput(string SavePath, WorldLocation Location, Tra
             if (!presentGroup) throw new InvalidDataException("生物群不在指定场景。");
             return foundGroup.Value.Creatures.Select(creature => (WorldObjectId)new WorldObjectId.Creature(creature.Id)).ToArray();
         }
-        if (core.FindTrain(Train) is not Lookup<TrainView>.Found found || found.Value.Vehicles.IsEmpty)
+        if (Target is not WorldObjectId.Train(var trainId)) throw new ArgumentException("不支持的截图对象。");
+        if (core.FindTrain(trainId) is not Lookup<TrainView>.Found found || found.Value.Vehicles.IsEmpty)
             throw new InvalidDataException("指定列车不存在或编组为空。");
         var present = (Location, found.Value.Position) switch
         {
