@@ -987,10 +987,19 @@ def icon(identity):
             line((43, 94), (71, 44), tint(color, -25)[:3], 8)
             line((57, 94), (77, 41), tint(color, 20)[:3], 8)
         else:
-            polygon([(18, 65), (42, 43), (82, 43), (111, 65), (83, 88), (42, 88)], color)
-            polygon([(40, 64), (52, 47), (78, 47), (91, 64), (78, 84), (52, 84)], tint(color, 25)[:3])
-            line((64, 49), (64, 82), GLASS, 12)
-            polygon([(46, 51), (56, 51), (56, 61), (46, 61)], (237, 199, 120))
+            polygon([(17, 64), (28, 51), (43, 40), (64, 35), (85, 40), (100, 51),
+                     (112, 64), (100, 77), (85, 88), (64, 93), (43, 88), (28, 77)], color)
+            for y in range(41, 88):
+                for x in range(41, 88):
+                    if (x - 64) ** 2 + (y - 64) ** 2 <= 23 ** 2:
+                        pixels[y][x] = tint(color, 30)
+            for y in range(45, 84):
+                for x in range(61, 67):
+                    pixels[y][x] = tint(GLASS)
+            for y in range(48, 57):
+                for x in range(49, 58):
+                    if (x - 53) ** 2 + (y - 52) ** 2 <= 4 ** 2:
+                        pixels[y][x] = tint((237, 199, 120))
     else:
         raise ValueError(identity)
     return png(128, lambda x, y: pixels[y][x])
@@ -1215,60 +1224,34 @@ def creature_blueprints():
 
 
 def lair_scene_models():
-    nest = {(x, 0, z): 0 for x in range(-6, 7) for z in range(-6, 7) if x * x + z * z <= 36}
-    for x in range(-5, 6):
-        for z in range(-5, 6):
-            distance = x * x + z * z
-            for y in range(1, 4 if distance <= 9 else 3 if distance <= 20 else 1):
-                if not (abs(x) <= 1 and z >= 3 and y <= 2):
-                    nest[(x, y, z)] = 2 if distance <= 4 else 1
-    for x in (-2, 2):
-        for y in range(1, 5):
-            nest[(x, y, 3)] = 3
-    nest.update({(x, 4, 3): 3 for x in (-1, 0, 1)})
-    for x in (-3, 3):
-        for y in (1, 2):
-            nest[(x, y, 2)] = 3
-    for x in (-2, 2):
-        nest[(x, 3, 2)] = 3
-    for x in (-1, 1):
-        for y in (1, 2):
-            nest[(x, y, 2)] = 2
-    nest[(0, 3, 3)] = 4
-    model = blueprint("lair-nest", "巢穴", "scene_model",
-                      ["subsoil", *CREATURE_COLORS], nest)
-    model["display"]["description"] = "低矮的甲壳丘由土层托起，骨质拱门围住入口，门内露出暗红组织和一处微光。"
-    yield model
-
-    hive = {(x, 0, z): 0 for x in range(-9, 10) for z in range(-9, 10) if x * x + z * z <= 81}
-    for center_x, center_z, radius, height in ((0, 0, 5, 7), (-5, -2, 3, 4), (5, -2, 3, 4)):
-        for x in range(center_x - radius, center_x + radius + 1):
-            for z in range(center_z - radius, center_z + radius + 1):
-                distance = (x - center_x) ** 2 + (z - center_z) ** 2
-                for y in range(1, height - int(distance ** .5)):
-                    if distance <= radius * radius and not (abs(x) <= 2 and z >= 3 and y <= 3):
-                        hive[(x, y, z)] = 2 if abs(x) <= 1 and z >= 2 else 1
-    for x in (-3, 3):
-        for y in range(1, 7):
-            hive[(x, y, 4)] = 3
-    hive.update({(x, 6, 4): 3 for x in range(-2, 3)})
-    for x in (-3, 3):
-        for z in range(-2, 3):
-            for y in (1, 2):
-                hive[(x, y, z)] = 3
-    for x in (-2, 2):
-        for y in range(1, 5):
-            hive[(x, y, 2)] = 2
-    for x in (-1, 1):
-        for y in (1, 2):
-            hive[(x, y, 1)] = 2
-    hive[(0, 5, 4)] = 4
-    for x in (-7, 7):
-        hive.pop((x, 1, -3))
-    model = blueprint("lair-hive", "大型巢群", "scene_model",
-                      ["subsoil", *CREATURE_COLORS], hive)
-    model["display"]["description"] = "中央高囊连接两侧低囊，骨质支撑贴住甲壳外壁，高拱门内藏着暗红组织和一处微光。"
-    yield model
+    for identity, name, radius, height, door_half, door_height, ribs in (
+        ("lair-nest", "巢穴", 6, 9, 3, 4, (-3, 0, 3)),
+        ("lair-hive", "大型巢群", 9, 12, 5, 8, (-4, 0, 4)),
+    ):
+        cells = {(x, 0, z): 0 for x in range(-radius, radius + 1)
+                 for z in range(-radius, radius + 1) if x * x + z * z <= radius * radius}
+        opening = {y: door_half if y <= door_height else
+                   door_half - ceil((y - door_height) * (door_half + 1) / (height - door_height - 1))
+                   for y in range(1, height)}
+        for y in range(1, height):
+            for x in range(-radius, radius + 1):
+                for z in range(-radius, radius + 1):
+                    shell = x * x + z * z <= (radius - .5) ** 2 * (1 - ((y - 1) / height) ** 2)
+                    doorway = abs(x) <= opening[y] and z >= -radius + 2
+                    if shell and not doorway:
+                        cells[(x, y, z)] = 2 if z == -radius + 1 and abs(x) <= door_half else 1
+        for z in ribs:
+            previous = door_half + 1
+            for y, half in opening.items():
+                edge = half + 1
+                for x in range(edge, previous + 1):
+                    cells[(x, y, z)] = 3
+                    cells[(-x, y, z)] = 3
+                previous = edge
+        cells[(0, height - 2, ribs[-1])] = 4
+        model = blueprint(identity, name, "scene_model", ["subsoil", *CREATURE_COLORS], cells)
+        model["display"]["description"] = "土层托起高耸甲壳，分段骨肋沿入口向上收拢，宽阔洞口深处露出暗红组织和一处微光。"
+        yield model
 
 
 def lair_types():
@@ -1287,6 +1270,93 @@ def lair_types():
                "rail_damage_work_seconds": rail_work,
                "clearance_reward": reward,
                "scene_model": scene}
+
+
+def settlement_ground(identity, name, plots, flatten):
+    palette = ["concrete", "dry-grass", "subsoil", "foliage", "rock", "gravel",
+               "tree-trunk", "street-lamp", "sandstone", "rail-stack"]
+    cells = {}
+
+    def fill(voxel, xs, ys, zs):
+        cells.update({(x, y, z): palette.index(voxel) for x in xs for y in ys for z in zs})
+
+    core = identity == "core-city"
+    front = 580 if core else 340
+    for z in (-112, 96, 336) + ((576,) if core else ()):
+        fill("concrete", range(-228, 228), (0,), range(z, z + 4))
+    for x in (-114, 110):
+        fill("concrete", range(x, x + 4), (0,), range(-112, front))
+    for x in (-106, 102):
+        # The station boundary row at -120 is inside NodeScene's railway model filter.
+        fill("concrete", range(x, x + 4), (0,), range(-119, -108))
+    half_sizes = {"small": 24, "medium": 48, "large": 96, "giant": 192}
+    for plot in plots[2:]:
+        x, _, z = plot["at"]
+        start = -108 if z == 0 else 100 if z == 224 else 340 if z == 448 else 580
+        fill("concrete", range(x - 2, x + 2), (0,), range(start, z - half_sizes[plot["size"]]))
+
+    composites = []
+    for left, back in ((-96, -96), (48, 56)):
+        def feature(voxel, us, ys, vs):
+            fill(voxel, range(left + us.start, left + us.stop), ys, range(back + vs.start, back + vs.stop))
+
+        if identity == "agricultural-town":
+            feature("dry-grass", range(32), (0,), range(16))
+            for u in range(0, 25, 6):
+                feature("subsoil", range(u, u + 2), (1,), range(2, 14))
+            feature("foliage", range(32), range(1, 4), range(2))
+        elif identity == "mining-town":
+            feature("concrete", range(32), (0,), range(16))
+            for y, u, v, material in ((1, 4, 2, "gravel"), (2, 6, 3, "gravel"),
+                                       (3, 8, 4, "rock"), (4, 10, 5, "rock")):
+                feature(material, range(u, 32 - u), (y,), range(v, 16 - v))
+        elif identity == "forestry-town":
+            feature("concrete", range(32), (0,), range(22))
+            for u, y, v, length in ((4, 1, 3, 24), (4, 1, 7, 24), (4, 1, 11, 24),
+                                     (6, 2, 5, 20), (6, 2, 9, 20)):
+                log = blueprint("", "原木", "scene_model", ["tree-trunk"],
+                                {(x, along, z): 0 for along in range(length)
+                                 for x, z in ((0, 1), (1, 0), (1, 1), (1, 2), (2, 1))})
+                for key in ("id", "schema_version"):
+                    log.pop(key)
+                log["display"]["description"] = "树皮包裹的横置原木。"
+                composites.append({"at": [left + u, y, back + v], "orientation": "py_px", "design": log})
+            tree = next(natural_models())
+            for u in (2, 14, 26):
+                for x, y, z, index in tree["layout"]["cells"]:
+                    cells[(left + u + x, 1 + y, back + 18 + z)] = palette.index(tree["layout"]["palette"][index]["voxel"])
+        elif identity == "oilfield-town":
+            feature("concrete", range(32), (0,), range(16))
+            for u in range(32):
+                for v in range(16):
+                    edge = min(u, 31 - u, v, 15 - v)
+                    if v < 3 and 14 <= u < 18:
+                        continue
+                    for y in range(1, 4):
+                        if y - 1 <= edge < 3:
+                            cells[(left + u, y, back + v)] = palette.index("subsoil" if y == 1 else "sandstone")
+        else:
+            feature("concrete", range(32), (0,), range(16))
+            feature("rail-stack", range(4, 28), range(1, 3), range(3, 7))
+            for u in (2, 12, 22):
+                feature("concrete", range(u, u + 6), range(1, 3), range(10, 14))
+                feature("concrete", range(u + 1, u + 5), (3,), range(11, 13))
+
+    lamps = [(-108, -104), (108, -104), (-216, -104), (216, -104),
+             (-108, 88), (108, 88), (-108, 328), (108, 328)]
+    if core:
+        lamps.extend([(-108, 568), (108, 568)])
+    for x, z in lamps:
+        fill("concrete", (x,), range(1, 8), (z,))
+        fill("street-lamp", (x,), (8,), (z,))
+    model = blueprint(identity + "-ground", name + "地面", "scene_model", palette, cells,
+                      appearance={"flatten": flatten})
+    if composites:
+        model["layout"]["composites"] = composites
+    feature_name = {"agricultural-town": "田垄与树篱", "mining-town": "层叠矸石堆",
+                    "forestry-town": "原木堆与成排树木", "oilfield-town": "土石围堰地坪"}.get(identity, "钢轨堆与混凝土块垛")
+    model["display"]["description"] = f"混凝土道路连接站前与各地块，路肩设灯，空地布置{feature_name}。"
+    return model
 
 
 def railway_models():
@@ -1659,13 +1729,8 @@ def content_files():
             if index < len(prebuilt):
                 plot["building"] = prebuilt[index]
             plots.append(plot)
-        ground = {(x, 0, z): 0 for x in range(-328, 328) for z in range(-2, 2)}
-        ground.update({(x, 0, z): 0 for x in range(-2, 2) for z in range(-232, 552)})
-        for row in (224, 448):
-            ground.update({(x, 0, z): 0 for x in range(-328, 328) for z in range(row - 2, row + 2)})
         document("blueprints", "blueprint", identity + "-ground",
-                 blueprint(identity + "-ground", name + "地面", "scene_model", ["ground"], ground,
-                           appearance={"flatten": {"from": [-328, -232], "to": [327, 551], "height": 1}}))
+                 settlement_ground(identity, name, plots, {"from": [-328, -232], "to": [327, 551], "height": 1}))
         document("settlement-templates", "settlement-template", identity,
                  {"schema_version": 2, "id": identity, "settlement_type": identity, "weight": 3,
                   "scene_model": identity + "-ground", "plots": plots,
@@ -1687,13 +1752,8 @@ def content_files():
     ])
     city["display"] = {"name": "核心城市", "description": "工业城的十二地块布局；两座巨型仓储建筑、重型车辆工厂与原有工业和公共设施。要塞战斗用途待战斗阶段实现。"}
     document("settlement-templates", "settlement-template", "core-city", city)
-    ground = {(x, 0, z): 0 for x in range(-432, 432) for z in range(-2, 2)}
-    ground.update({(x, 0, z): 0 for x in range(-2, 2) for z in range(-232, 1000)})
-    for row in (224, 448, 800):
-        ground.update({(x, 0, z): 0 for x in range(-432, 432) for z in range(row - 2, row + 2)})
     document("blueprints", "blueprint", "core-city-ground",
-             blueprint("core-city-ground", "核心城市地面", "scene_model", ["ground"], ground,
-                       appearance={"flatten": {"from": [-432, -232], "to": [431, 999], "height": 1}}))
+             settlement_ground("core-city", "核心城市", city["plots"], {"from": [-432, -232], "to": [431, 999], "height": 1}))
 
     def blueprint_behaviors(blueprint_id, capability):
         definition = blueprint_definitions[blueprint_id.removeprefix("core:")]

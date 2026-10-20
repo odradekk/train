@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Numerics;
+using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
@@ -111,18 +112,7 @@ public sealed class SettlementLayoutTests
     public void BuiltInEntryRoutesAvoidPlotsAndKeepBoundarySeams(string name)
     {
         var template = BuiltIn(name);
-        // Relative neighbor positions from Core/Content basic-through-world, stage1-world-v1, seed 1 unless noted.
-        var directions = name switch
-        {
-            "agricultural-town" => new[] { (-265.3085649692, -182.1578229789, 2), (-81.0690387397, 510.6881578092, 1) },
-            "forestry-town" => [(-60.9718018707, -381.0477076283, 2), (358.5731750499, 121.6423645788, 1), (-324.3229181812, 321.9691101042, 1)],
-            // Core/Content basic-through-world, stage1-world-v1: seed 3 node 7,
-            // neighbor positions minus node position (edge 4, then edge 11).
-            "industrial-city" => [(-148.38793418295586, -488.0024821802351, 0), (160.36416210039397, 268.20095053938314, 1)],
-            "core-city" => [(-358.5731750499, -121.6423645788, 1), (176.5248729302, 270.6175196155, 1)],
-            "mining-town" => [(-170.2681302793, -363.7352263776, 2)],
-            _ => [(-325.113162602, -37.2153213957, 1), (423.301398003, 71.3265811644, 1)]
-        };
+        var directions = BuiltInDirections(name);
         var snapshot = Snapshot(template, directions);
         var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
         Assert.IsEmpty(layout.Problems);
@@ -198,6 +188,117 @@ public sealed class SettlementLayoutTests
                 }
             }
         }
+    }
+
+    [TestMethod]
+    [TestCategory("integration")]
+    [DataRow("agricultural-town")]
+    [DataRow("forestry-town")]
+    [DataRow("industrial-city")]
+    [DataRow("core-city")]
+    [DataRow("mining-town")]
+    [DataRow("oilfield-town")]
+    public void BuiltInGroundCellsStayOutsidePlotsAndRailCorridors(string name)
+    {
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "Train.sln"))) root = root.Parent;
+        Assert.IsNotNull(root);
+        var resources = Path.Combine(root.FullName, "builtin", "core", "resources");
+        using var templateJson = JsonDocument.Parse(File.ReadAllText(Path.Combine(resources, "settlement-templates", name + ".settlement-template.json")));
+        var source = templateJson.RootElement;
+        using var groundJson = JsonDocument.Parse(File.ReadAllText(Path.Combine(resources, "blueprints", source.GetProperty("scene_model").GetString() + ".blueprint.json")));
+        var flatten = groundJson.RootElement.GetProperty("appearance").GetProperty("flatten");
+        var from = flatten.GetProperty("from");
+        var to = flatten.GetProperty("to");
+        var template = BuiltIn(name);
+        template = template with
+        {
+            Plots = source.GetProperty("plots").EnumerateArray().Select(plot => new SettlementPlotLayout(
+                plot.GetProperty("id").GetInt32(), ReadEnum<PlotSize>(plot.GetProperty("size")),
+                ReadPosition(plot.GetProperty("at")), ReadEnum<VoxelOrientation>(plot.GetProperty("orientation")))).ToImmutableArray(),
+            SceneModel = template.SceneModel with { Scene = template.SceneModel.Scene with
+            {
+                OccupiedBounds = new(new(from[0].GetInt32(), 0, from[1].GetInt32()), new(to[0].GetInt32(), 0, to[1].GetInt32())),
+                RootFlatten = new(new(from[0].GetInt32(), from[1].GetInt32()), new(to[0].GetInt32(), to[1].GetInt32()), flatten.GetProperty("height").GetInt32())
+            } }
+        };
+        var snapshot = Snapshot(template, BuiltInDirections(name));
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        var routes = layout.StationRoutes(true).Concat(layout.AllTurnRoutes()).ToList();
+        foreach (var entry in layout.Entries)
+        {
+            // The one- and two-track forms include the reserved center and both outer approach lines.
+            routes.AddRange(layout.EntryRoutes(entry, 1));
+            routes.AddRange(layout.EntryRoutes(entry, entry.TrackLimit));
+            for (var lane = 1 - entry.TrackLimit; lane < entry.TrackLimit; lane++)
+            for (var station = 0; station < layout.StationRoutes(false).Count(); station++)
+            {
+                var route = layout.Connection(entry.Edge, lane, station);
+                routes.Add((route.Sample, route.Length));
+            }
+        }
+        foreach (var parking in layout.Parking)
+            routes.Add((arc => new(RailwayCoordinates.Add(parking.Start, parking.Forward * (float)arc), parking.Forward,
+                Vector3.Cross(Vector3.UnitY, parking.Forward)), parking.Length));
+
+        const double step = .5;
+        // Half a sampling step bounds the distance to the unsampled centerline.
+        var clearance = RailwayCoordinates.DecorationVoxelClearance + step / 2;
+        var buckets = new Dictionary<(int X, int Z), List<Vector2>>();
+        foreach (var (sample, length) in routes)
+        for (var arc = 0d; arc < length + step; arc += step)
+        {
+            var point = sample(Math.Min(arc, length)).Position;
+            var key = Bucket(point.X, point.Z);
+            if (!buckets.TryGetValue(key, out var points)) buckets[key] = points = [];
+            points.Add(new((float)point.X, (float)point.Z));
+        }
+        foreach (var cell in GroundCells(groundJson.RootElement, new(Vector3.Zero, Quaternion.Identity)))
+        {
+            var point = new ScenePoint(cell.X, cell.Y, cell.Z);
+            Assert.IsFalse(NodeSettlement.ContainsPlot(template, point), $"{name}: ground cell {cell} overlaps a plot envelope.");
+            var key = Bucket(cell.X, cell.Z);
+            for (var x = key.X - 1; x <= key.X + 1; x++)
+            for (var z = key.Z - 1; z <= key.Z + 1; z++)
+                if (buckets.TryGetValue((x, z), out var points))
+                    Assert.IsTrue(points.All(rail => Vector2.DistanceSquared(new(cell.X, cell.Z), rail) >= clearance * clearance),
+                        $"{name}: ground cell {cell} overlaps a rail corridor.");
+        }
+
+        static (int X, int Z) Bucket(double x, double z) => ((int)Math.Floor(x / 32), (int)Math.Floor(z / 32));
+    }
+
+    private static IEnumerable<Vector3> GroundCells(JsonElement design, ScenePose pose)
+    {
+        var layout = design.GetProperty("layout");
+        foreach (var cell in layout.GetProperty("cells").EnumerateArray())
+            yield return pose.Position + Vector3.Transform(new(cell[0].GetInt32() + .5f, cell[1].GetInt32() + .5f, cell[2].GetInt32() + .5f), pose.Rotation);
+        if (!layout.TryGetProperty("composites", out var children)) yield break;
+        foreach (var child in children.EnumerateArray())
+        {
+            var orientation = child.TryGetProperty("orientation", out var value) ? ReadEnum<VoxelOrientation>(value) : VoxelOrientation.PxPy;
+            var childPose = SceneGeometry.Compose(pose, SceneGeometry.Placement(ReadPosition(child.GetProperty("at")), orientation));
+            foreach (var cell in GroundCells(child.GetProperty("design"), childPose)) yield return cell;
+        }
+    }
+
+    private static GridPosition ReadPosition(JsonElement value) => new(value[0].GetInt32(), value[1].GetInt32(), value[2].GetInt32());
+    private static T ReadEnum<T>(JsonElement value) where T : struct, Enum => Enum.Parse<T>(value.GetString()!.Replace("_", ""), ignoreCase: true);
+
+    private static (double X, double Z, int Tracks)[] BuiltInDirections(string name)
+    {
+        // Relative neighbor positions from Core/Content basic-through-world, stage1-world-v1, seed 1 unless noted.
+        return name switch
+        {
+            "agricultural-town" => new[] { (-265.3085649692, -182.1578229789, 2), (-81.0690387397, 510.6881578092, 1) },
+            "forestry-town" => [(-60.9718018707, -381.0477076283, 2), (358.5731750499, 121.6423645788, 1), (-324.3229181812, 321.9691101042, 1)],
+            // Core/Content basic-through-world, stage1-world-v1: seed 3 node 7,
+            // neighbor positions minus node position (edge 4, then edge 11).
+            "industrial-city" => [(-148.38793418295586, -488.0024821802351, 0), (160.36416210039397, 268.20095053938314, 1)],
+            "core-city" => [(-358.5731750499, -121.6423645788, 1), (176.5248729302, 270.6175196155, 1)],
+            "mining-town" => [(-170.2681302793, -363.7352263776, 2)],
+            _ => [(-325.113162602, -37.2153213957, 1), (423.301398003, 71.3265811644, 1)]
+        };
     }
 
     private static SettlementLayoutProjection BuiltIn(string name)
