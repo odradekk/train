@@ -134,6 +134,14 @@ public partial class ProbeRunner : Node
             using var texture = GD.Load<Texture2D>($"res://Ui/Symbols/{name}.png");
             Require(texture is not null, $"Actual game PCK is missing the host symbol {name}.");
         }
+        foreach (var name in new[] { "damage-mask", "particle-mask" })
+        {
+            using var texture = GD.Load<Texture2D>($"res://Rendering/Effects/{name}.png");
+            Require(texture is not null, $"Actual game PCK is missing the combat mask {name}.");
+            using var image = texture!.GetImage();
+            Require(image is not null && !image.IsEmpty() && image.GetWidth() == 128 && image.GetHeight() == 128 && image.HasMipmaps(),
+                $"Actual game PCK combat mask {name} lost its image or mipmaps.");
+        }
         foreach (var (name, kind) in new[] { ("broken.png", AssetKind.Png), ("broken.glb", AssetKind.Glb) })
         {
             var result = inspector.Inspect(kind, new(name), Success(files.Read(new(mod, name), 100)));

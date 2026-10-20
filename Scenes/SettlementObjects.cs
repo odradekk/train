@@ -208,16 +208,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
                     item.Bounds is { } occupied)
                 {
                     if (!facilitySmoke.TryGetValue(instance.Id, out var cached) || !ReferenceEquals(cached.Source, geometry))
-                        facilitySmoke[instance.Id] = cached = (geometry, geometry with
-                        {
-                            Geometry = geometry.Geometry with { Objects = geometry.Geometry.Objects.Select(source => source.Parent is not null ? source : source with
-                            {
-                                Effects = source.Effects.Add(new(PersistentEffectKind.FacilitySmoke,
-                                    new((occupied.Minimum.X + occupied.Maximum.X) / 2f, occupied.Maximum.Y,
-                                        (occupied.Minimum.Z + occupied.Maximum.Z) / 2f),
-                                    .25f, StructureDamage.Seed(instance.Id, 0, default, 6)))
-                            }).ToImmutableArray() }
-                        });
+                        facilitySmoke[instance.Id] = cached = (geometry, WithFacilityActivity(geometry, instance, occupied));
                     geometry = cached.Smoking;
                 }
                 else facilitySmoke.Remove(instance.Id);
@@ -294,6 +285,24 @@ internal sealed class SettlementObjects : IAsyncDisposable
             picking.AddRange(rendered.Picking);
             problems.AddRange(rendered.Diagnostics);
         }
+    }
+
+    private static BuiltGeometry WithFacilityActivity(BuiltGeometry source, InstanceView instance, SceneBounds bounds)
+    {
+        var root = source.Geometry.Objects.Single(item => item.Parent is null);
+        var lightId = new SceneObjectId(source.Keys.Keys.Max(id => id.Value) + 1);
+        var centerX = (bounds.Minimum.X + bounds.Maximum.X) / 2f;
+        var light = new SceneObject(lightId, root.Id,
+            new(new(centerX, bounds.Maximum.Y - 1, bounds.Maximum.Z + .2f), Quaternion.Identity), root.Subject, [],
+            [new(new("#ffd08a"), 12, StructureDamage.StructureLightDamage(instance.Structure),
+                StructureDamage.Seed(instance.Id, 0, default, 7))], []);
+        var smoking = source.Geometry.Objects.Select(item => item.Id != root.Id ? item : item with
+        {
+            Effects = item.Effects.Add(new(PersistentEffectKind.FacilitySmoke,
+                new(centerX, bounds.Maximum.Y, (bounds.Minimum.Z + bounds.Maximum.Z) / 2f),
+                .25f, StructureDamage.Seed(instance.Id, 0, default, 6)))
+        }).Append(light).ToImmutableArray();
+        return new(source.Geometry with { Objects = smoking }, source.Keys.Add(lightId, ":light:facility"));
     }
 
     internal ImmutableArray<NodeLayout.Stop> Platforms(SceneWorldSnapshot snapshot, NodeLayout layout,

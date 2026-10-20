@@ -97,6 +97,8 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         {
             commit, inputSaveHash = _saveHash, scene, train = (input.Target as WorldObjectId.Train)?.Id.Value,
             lair = (input.Target as WorldObjectId.Lair)?.Id.Value, group = (input.Target as WorldObjectId.CreatureGroup)?.Id.Value,
+            building = (input.Target as WorldObjectId.Instance)?.Id is InstanceId.Building building ? (ulong?)building.Id.Value : null,
+            vehicle = (input.Target as WorldObjectId.Instance)?.Id is InstanceId.Vehicle vehicle ? (ulong?)vehicle.Id.Value : null,
             motionSteps = input.MotionSteps,
             viewportSize = new[] { owner.GetViewport().GetTexture().GetWidth(), owner.GetViewport().GetTexture().GetHeight() },
             images = _images
@@ -131,6 +133,21 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         if (input.Target is WorldObjectId.Train train && status.View.FindTrain(train.Id) is Lookup<TrainView>.Found foundTrain)
             World.Open(new WorldSceneTarget.Follow(train.Id, foundTrain.Value.Vehicles[0]));
         else World.Open(new WorldSceneTarget.Location(input.Location));
+        if (input.Target is WorldObjectId.Instance { Id: InstanceId.Building building } && input.Location is WorldLocation.Node node)
+        {
+            await DisplayAsync(allowMissing: true);
+            var frame = World.Display!.DisplayedFrame!;
+            if (frame.FindPose(input.Target) is not Lookup<ScenePose>.Found)
+            {
+                if (status.View.FindNode(node.Id) is not Lookup<NodeView>.Found { Value.Map.Occupant: NodeOccupant.Settlement settlement } ||
+                    status.View.FindSettlement(settlement.Id) is not Lookup<SettlementView>.Found foundSettlement ||
+                    foundSettlement.Value.Plots.FirstOrDefault(plot => plot.Occupant is PlotOccupant.Building occupant && occupant.Id == building.Id) is not { } plot ||
+                    frame.NodeOverview?.Plots.FirstOrDefault(item => item.TemplatePlotNumber == plot.TemplatePlotNumber) is not { Corners.IsEmpty: false } placement)
+                    throw new InvalidDataException("无法从节点总览定位截图建筑的地块。");
+                World.FocusNode(node.Id, new(frame.Origin.X + placement.Corners.Average(point => point.X), 0,
+                    frame.Origin.Z + placement.Corners.Average(point => point.Y)));
+            }
+        }
         await DisplayAsync();
         if (input.Target is WorldObjectId.Train) _initialFront = Front();
     }
@@ -170,13 +187,19 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
     private bool CaptureAreaReady(ISceneFrame frame)
     {
         if (frame.Update.Environment.FoggedRegions.IsEmpty) return true;
-        var area = SubjectBounds();
+        var area = _input!.Target is WorldObjectId.Train ? SubjectBounds() : _subjectBounds;
+        var origin = World!.Display!.PoseFrame!.Origin;
+        if (_input.Target is not WorldObjectId.Train && area is { } cached)
+        {
+            cached.Position += new Vector3((float)(_subjectOrigin.X - origin.X),
+                (float)(_subjectOrigin.Y - origin.Y), (float)(_subjectOrigin.Z - origin.Z));
+            area = cached;
+        }
         var position = World!.View.CameraRig.Camera.GlobalPosition;
         var box = area is { } bounds ? bounds.Expand(position) : new Aabb(position, Vector3.Zero);
-        var origin = World.Display!.PoseFrame!.Origin;
         box.Position += new Vector3((float)(origin.X - frame.Origin.X),
             (float)(origin.Y - frame.Origin.Y), (float)(origin.Z - frame.Origin.Z));
-        // Ready 允许地形仍在生成；只等待会遮住本次对象和相机之间区域的灰色生成遮罩。
+        // Ready 允许地形仍在生成；只等待会遮住本次取景和相机之间区域的灰色生成遮罩。
         return !frame.Update.Environment.FoggedRegions.Any(fog =>
             box.Position.X < fog.Maximum.X && box.End.X > fog.Minimum.X &&
             box.Position.Z < fog.Maximum.Z && box.End.Z > fog.Minimum.Z);

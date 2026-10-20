@@ -180,26 +180,43 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public void TenImpactsShareThreeFlashes()
+    public void ImpactsReserveFireballsWithinEveryRollingRealSecond()
     {
         using var dispatcher = new GodotMainThreadDispatcher();
         using var cache = new AssetResourceCache(dispatcher);
         using var display = Attach(cache);
-        var impacts = Enumerable.Range(1, 10).Select(id => Cue((ulong)id, SceneEffectKind.Impact)).ToImmutableArray();
-        var shown = Frame(1, [], impacts);
-        Commit(display, shown);
-        Require(Count(display.Root, "Flash") == 3, "同一真实时刻的 10 次命中只能留下 3 次闪光。");
-        var more = Enumerable.Range(11, 10).Select(id => Cue((ulong)id, SceneEffectKind.Impact)).ToImmutableArray();
-        shown = Frame(2, [], more, basis: shown.Update.Frame);
-        Commit(display, shown);
-        Require(Count(display.Root, "Flash") == 3, "同一真实秒内的后续命中不得再加闪光。");
-        shown = Frame(3, [], [Cue(100, SceneEffectKind.Destruction)], basis: shown.Update.Frame);
-        Commit(display, shown);
-        Require(Count(display.Root, "Flash") == 3 && Count(display.Root, "Fireball") == 0, "火球和命中闪光共用额度。");
-        Require(Count(display.Root, "Fragment") == 18 && Count(display.Root, "Smoke") == 1, "超出闪光额度时碎片和烟仍要播放。");
-        display.AdvanceEffects(Frame(3, [], [], seconds: shown.SimulationSeconds), 1);
-        Commit(display, Frame(4, [], [Cue(101, SceneEffectKind.Impact)], basis: shown.Update.Frame));
-        Require(Count(display.Root, "Flash") == 4, "满一秒后应允许一次新的闪光，且旧闪光仍在。");
+        FixedSceneFrame? shown = null;
+        ulong cueId = 1;
+        var created = new List<(double Time, bool Impact)>();
+        var previousTime = 0d;
+        foreach (var (time, impacts, destructions, expectedFlashes, expectedFireballs) in new[]
+        {
+            (0d, 10, 1, 2, 1), (.5, 10, 1, 0, 0), (1d, 0, 4, 0, 3), (1.5, 10, 1, 0, 0),
+            (2d, 10, 0, 2, 0), (2.5, 10, 1, 0, 1), (3d, 10, 1, 2, 0), (3.5, 0, 2, 0, 1)
+        })
+        {
+            // 模拟时间固定，旧节点不会过期；数量差只统计本次真实时刻的创建。
+            if (shown is not null) display.AdvanceEffects(shown, time - previousTime);
+            var flashes = Count(display.Root, "Flash");
+            var fireballs = Count(display.Root, "Fireball");
+            var cues = Enumerable.Range(0, impacts).Select(_ => Cue(cueId++, SceneEffectKind.Impact))
+                .Concat(Enumerable.Range(0, destructions).Select(_ => Cue(cueId++, SceneEffectKind.Destruction))).ToImmutableArray();
+            var frame = Frame((shown?.Update.Frame.Revision ?? 0) + 1, [], cues, basis: shown?.Update.Frame);
+            Commit(display, frame);
+            var newFlashes = Count(display.Root, "Flash") - flashes;
+            var newFireballs = Count(display.Root, "Fireball") - fireballs;
+            Require(newFlashes == expectedFlashes && newFireballs == expectedFireballs,
+                $"真实时刻{time}的命中/火球创建数为{newFlashes}/{newFireballs}，应为{expectedFlashes}/{expectedFireballs}。");
+            created.AddRange(Enumerable.Repeat((time, true), newFlashes));
+            created.AddRange(Enumerable.Repeat((time, false), newFireballs));
+            var window = created.Where(item => time - item.Time < 1).ToArray();
+            Require(window.Length <= 3 && window.Count(item => item.Impact) <= 2,
+                "任意滚动真实秒内，闪光加火球最多3次，普通命中最多2次。");
+            shown = frame;
+            previousTime = time;
+        }
+        Require(Count(display.Root, "Fragment") == 11 * 18 && Count(display.Root, "Smoke") == 11,
+            "摧毁超过闪光额度时，碎片和烟仍要播放。");
     }
 
     [Test]
@@ -226,6 +243,12 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
         var light = root.GetNode<OmniLight3D>("SceneLight");
         var mesh = smoke.Mesh;
         var material = smoke.MaterialOverride;
+        var mask = ((ShaderMaterial)material).GetShaderParameter("particle_mask").AsGodotObject() as Texture2D;
+        Require(mask is not null && mask.GetWidth() == 128 && mask.GetHeight() == 128,
+            "特效必须加载正式的四通道遮罩。");
+        Require(mask!.GetInstanceId() == ((ShaderMaterial)fire.MaterialOverride).GetShaderParameter("particle_mask").AsGodotObject().GetInstanceId() &&
+            smoke.MaterialOverride == facility.MaterialOverride,
+            "烟、设施烟和火必须复用正式遮罩，同种外观复用材质。");
         var fragment = Nodes(display, "Fragment")[0];
         Commit(display, Frame(2, [], [], basis: first.Update.Frame, removed: [new(1)]));
         Require(!GodotObject.IsInstanceValid(smoke) && !GodotObject.IsInstanceValid(fire) &&
@@ -236,7 +259,7 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
         display.Dispose();
         display.Dispose();
         Require(!GodotObject.IsInstanceValid(fragment) && !GodotObject.IsInstanceValid(mesh) &&
-            !GodotObject.IsInstanceValid(material), "释放显示后节点和共享资源都必须失效。");
+            !GodotObject.IsInstanceValid(material) && !GodotObject.IsInstanceValid(mask), "释放显示后节点和共享资源都必须失效。");
     }
 
     [Test]
@@ -462,7 +485,11 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
             if (node is MeshInstance3D { Mesh: { } mesh }) resources.Add(mesh);
             if (node is not GeometryInstance3D { MaterialOverride: { } material }) return;
             resources.Add(material);
-            if (material is ShaderMaterial { Shader: { } shader }) resources.Add(shader);
+            if (material is ShaderMaterial { Shader: { } shader } shaderMaterial)
+            {
+                resources.Add(shader);
+                if (shaderMaterial.GetShaderParameter("particle_mask").AsGodotObject() is Texture2D texture) resources.Add(texture);
+            }
         }
         foreach (var node in display.Root.FindChildren("*", "", true, false).OfType<Node>()) Track(node);
         Track(display.Root);

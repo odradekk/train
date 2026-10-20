@@ -1,7 +1,9 @@
 using System.Buffers.Binary;
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Numerics;
 using System.Security.Cryptography;
+using System.Text;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
@@ -609,7 +611,12 @@ internal sealed class PresentationState
         {
             Id = map[item.Id],
             Parent = item.Parent is { } parent ? map[parent] : null,
-            Subject = subject
+            Subject = subject,
+            Lights = item.Lights.IsEmpty ? item.Lights : item.Lights.Select(light => light with
+            {
+                Seed = BinaryPrimitives.ReadUInt64LittleEndian(SHA256.HashData(
+                    Encoding.UTF8.GetBytes(creature.Value.ToString(CultureInfo.InvariantCulture) + ":" + template.Keys[item.Id])))
+            }).ToImmutableArray()
         }).ToImmutableArray();
         bodies[creature] = (appearance, remapped);
         return remapped;

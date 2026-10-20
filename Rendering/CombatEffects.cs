@@ -25,7 +25,7 @@ internal sealed class CombatEffects : IDisposable
     const int DestructionBurst = 18;
     const int RailwayBurst = 4;
 
-    enum Appearance { Smoke, Fire, Sparks, Shot, Flash, Fragment, Leak, Dust }
+    enum Appearance { Smoke, Fire, Sparks, Shot, Flash, Fragment, Leak, Dust, Fireball }
 
     sealed class SharedLook(Mesh mesh, ShaderMaterial material)
     {
@@ -66,13 +66,14 @@ internal sealed class CombatEffects : IDisposable
 
     readonly AssetResourceCache _cache;
     readonly Shader _shader;
+    readonly Texture2D _particleMask;
     readonly SharedLook[] _looks;
     readonly Dictionary<string, Node3D> _groups = [];
     readonly Dictionary<(ulong Object, PersistentEffectKind Kind, ulong Seed), PersistentNode> _persistent = [];
     readonly Dictionary<(ulong Object, ulong Seed), LiveLight> _lights = [];
     readonly List<OneShot> _oneShots = [];
     readonly HashSet<ulong> _played = [];
-    readonly List<double> _flashes = [];
+    readonly List<(double Time, bool Impact)> _flashes = [];
     ImmutableArray<VehicleId> _followed = [];
     ImmutableArray<TerrainCollisionPatch> _patches = [];
     Vector3? _camera;
@@ -94,16 +95,19 @@ internal sealed class CombatEffects : IDisposable
         _cache = cache;
         _shader = ResourceLoader.Load<Shader>("res://Rendering/combat_effect.gdshader", cacheMode: ResourceLoader.CacheMode.Ignore)
             ?? throw new InvalidOperationException("战斗特效着色器无法加载。");
+        _particleMask = ResourceLoader.Load<Texture2D>("res://Rendering/Effects/particle-mask.png", cacheMode: ResourceLoader.CacheMode.Ignore)
+            ?? throw new InvalidOperationException("战斗特效遮罩无法加载。");
         _looks =
         [
             Look(Appearance.Smoke, Quads(4)),
             Look(Appearance.Fire, Quads(3)),
             Look(Appearance.Sparks, Quads(6)),
             Look(Appearance.Shot, new BoxMesh { Size = Vector3.One }),
-            Look(Appearance.Flash, new SphereMesh { Radius = 0.5f, Height = 1, RadialSegments = 8, Rings = 4 }),
+            Look(Appearance.Flash, Quads(1)),
             Look(Appearance.Fragment, new BoxMesh { Size = Vector3.One }),
             Look(Appearance.Leak, Quads(5)),
-            Look(Appearance.Dust, Quads(6))
+            Look(Appearance.Dust, Quads(6)),
+            Look(Appearance.Fireball, Quads(1))
         ];
     }
 
@@ -169,12 +173,14 @@ internal sealed class CombatEffects : IDisposable
             look.Mesh.Dispose();
         }
         _shader.Dispose();
+        _particleMask.Dispose();
     }
 
     SharedLook Look(Appearance appearance, Mesh mesh)
     {
         var material = new ShaderMaterial { Shader = _shader };
         material.SetShaderParameter("appearance", (int)appearance);
+        material.SetShaderParameter("particle_mask", _particleMask);
         return new(mesh, material);
     }
 
@@ -299,7 +305,7 @@ internal sealed class CombatEffects : IDisposable
                     AddShot(from, ToGodot(to), cue.StartedAtSimulationSeconds, color ?? new Color(1, 0.95f, 0.8f));
                 break;
             case SceneEffectKind.Impact:
-                if (age < ImpactSeconds && TakeFlash())
+                if (age < ImpactSeconds && TakeFlash(impact: true))
                     AddBurst(Appearance.Flash, "Flash", from, cue, ImpactSeconds, 0.55f, color ?? new Color(1, 0.95f, 0.8f));
                 Shake(cue);
                 break;
@@ -317,7 +323,7 @@ internal sealed class CombatEffects : IDisposable
                     break;
                 }
                 if (age < FireballSeconds && TakeFlash())
-                    AddBurst(Appearance.Flash, "Fireball", from, cue, FireballSeconds, 2.2f, color ?? new Color(1, 0.55f, 0.2f));
+                    AddBurst(Appearance.Fireball, "Fireball", from, cue, FireballSeconds, 2.2f, color ?? new Color(1, 0.55f, 0.2f));
                 if (age < DestructionSmokeSeconds)
                     AddBurst(Appearance.Smoke, "Smoke", from, cue, DestructionSmokeSeconds, 1.4f, new Color(0.45f, 0.43f, 0.4f));
                 AddFragments(cue, from, color ?? FragmentColor, DestructionBurst, age);
@@ -467,13 +473,11 @@ internal sealed class CombatEffects : IDisposable
         return roll >= damage * 0.5;
     }
 
-    bool TakeFlash() => Allow(_flashes);
-
-    bool Allow(List<double> times)
+    bool TakeFlash(bool impact = false)
     {
-        times.RemoveAll(time => _realSeconds - time >= 1);
-        if (times.Count >= 3) return false;
-        times.Add(_realSeconds);
+        _flashes.RemoveAll(flash => _realSeconds - flash.Time >= 1);
+        if (_flashes.Count >= 3 || impact && _flashes.Count(flash => flash.Impact) >= 2) return false;
+        _flashes.Add((_realSeconds, impact));
         return true;
     }
 

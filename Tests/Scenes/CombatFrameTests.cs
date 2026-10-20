@@ -667,12 +667,14 @@ public sealed class CombatFrameTests
             .OfType<SceneVisual.Geometry>().Single().Mesh;
         Assert.AreEqual(0, Eye(settled, 3).Damage);
         Assert.AreEqual(0, Eye(settled, 4).Damage);
+        Assert.AreNotEqual(Eye(settled, 3).Seed, Eye(settled, 4).Seed);
         Assert.AreSame(Mesh(settled, 3), Mesh(settled, 4));
         var hurt = group with { Creatures = [new(new(3), creature, 10, 100), new(new(4), creature, 50, 100)] };
         session.Observe(Snapshot(content, instance, steps: 1, group: hurt), []);
         var damaged = Present(session, settled);
         Assert.AreEqual(.6f, Eye(damaged, 3).Damage, 1e-5);
         Assert.AreEqual(0, Eye(damaged, 4).Damage);
+        Assert.AreEqual(Eye(settled, 3).Seed, Eye(damaged, 3).Seed);
         Assert.AreSame(Mesh(settled, 3), Mesh(damaged, 3));
         var healed = group with { Creatures = [new(new(3), creature, 100, 100), new(new(4), creature, 0, 100)] };
         var dead = Snapshot(content, instance, steps: 2, group: healed);
@@ -682,6 +684,10 @@ public sealed class CombatFrameTests
         Assert.AreEqual(0, Eye(final, 3).Damage);
         Assert.IsFalse(final.Objects.Any(item => item.Subject == new WorldObjectId.Creature(new(4))));
         Assert.AreSame(Mesh(settled, 3), Mesh(final, 3));
+        await using var reopened = Open(content, instance, group);
+        reopened.RequestView(new WorldSceneTarget.Location(RailwayFixtures.Location));
+        var cold = await RailwayFixtures.Settled(reopened, Request);
+        Assert.AreEqual(Eye(settled, 3).Seed, Eye(cold, 3).Seed);
     }
 
     [TestMethod]
@@ -712,6 +718,8 @@ public sealed class CombatFrameTests
         Assert.AreEqual(2, eyes.Length);
         var body = settled.Objects.Single(item => item.Subject == new WorldObjectId.Creature(new(3)) && item.Parent is null);
         Assert.IsTrue(eyes.All(item => item.Parent == body.Id && item.Lights.Single().Damage == 0));
+        Assert.AreEqual(eyes.Length, eyes.Select(item => item.Lights.Single().Seed).Distinct().Count(),
+            "同一生物不同格子的眼灯不能共用闪烁种子。");
         CollectionAssert.AreEquivalent(new[] { new Vector3(-.5f, 1.5f, .5f), new Vector3(1.5f, 1.5f, .5f) },
             eyes.Select(item => item.Pose.Position).ToArray());
         var dead = Snapshot(content, instance, steps: 1, group: group with { Creatures = [] });

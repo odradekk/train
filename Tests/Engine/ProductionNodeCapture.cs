@@ -33,16 +33,67 @@ public partial class ProductionNodeCapture : Node
         void Observe()
         {
             if (run.World?.Display is not { DisplayedFrame: { } frame } display) return;
+            var view = run.Host!.GetStatus()!.View;
             frames.WriteLine(JsonSerializer.Serialize(new
             {
-                draw = Godot.Engine.GetFramesDrawn(), position = run.Host!.GetStatus()!.View.Position,
+                draw = Godot.Engine.GetFramesDrawn(), position = view.Position,
                 frame = frame.Update.Frame, displaySeconds = frame.SimulationSeconds,
+                effects = frame.Update.Effects.Select(effect => new
+                {
+                    effect.Id, kind = effect.Kind.ToString(), subject = effect.Subject?.ToString(), effect.StartedAtSimulationSeconds,
+                    from = new[] { effect.From.X, effect.From.Y, effect.From.Z },
+                    to = effect.To is { } target ? new[] { target.X, target.Y, target.Z } : null
+                }),
                 visibleEffects = display.Root.GetNodeOrNull("CombatEffects")?.GetChildren()
-                    .ToDictionary(child => child.Name.ToString(), child => child.GetChildCount())
+                    .ToDictionary(child => child.Name.ToString(), child => child.GetChildCount()),
+                persistentEffects = display.Objects.Values.SelectMany(item => item.Root.GetChildren().OfType<MeshInstance3D>())
+                    .Where(node => node.Name.ToString() is "Smoke" or "Fire" or "Sparks" or "Leak" or "FacilitySmoke")
+                    .GroupBy(node => node.Name.ToString()).ToDictionary(group => group.Key, group => group.Count()),
+                sceneLights = display.Objects.Values.Where(item => !item.Source.Lights.IsEmpty).Select(item => new
+                {
+                    id = item.Source.Id.Value, subject = item.Source.Subject?.ToString(),
+                    lights = item.Source.Lights, energy = item.Root.GetChildren().OfType<OmniLight3D>().Select(light => light.LightEnergy)
+                }),
+                targetInstance = input.Target is WorldObjectId.Instance instance &&
+                    view.FindInstance(instance.Id) is Lookup<InstanceView>.Found found ? new
+                    {
+                        found.Value.Structure, damagedParts = found.Value.Parts.Where(part => part.Destroyed ||
+                            part.Durability.EffectiveCurrent < part.Durability.Maximum)
+                    } : null,
+                targetGroup = input.Target is WorldObjectId.CreatureGroup group &&
+                    view.FindCreatureGroup(group.Id) is Lookup<CreatureGroupView>.Found foundGroup
+                    ? foundGroup.Value.Creatures.Select(creature => new { creature.Id, creature.Health, creature.MaximumHealth }) : null,
+                facilities = input.Location is WorldLocation.Node node &&
+                    view.FindNode(node.Id) is Lookup<NodeView>.Found { Value.Map.Occupant: NodeOccupant.Settlement settlement } &&
+                    view.FindSettlement(settlement.Id) is Lookup<SettlementView>.Found foundSettlement
+                    ? foundSettlement.Value.Facilities.Select(facility => new { facility.Key, state = facility.State.ToString() }) : null
             }));
         }
         RenderingServer.FramePostDraw += Observe;
-        try { await run.CaptureAsync(input); }
+        try
+        {
+            await run.CaptureAsync(input);
+            var range = input.Location is WorldLocation.Node ? Train.Ui.WorldCamera.NodeMaximumDistance : Train.Ui.WorldCamera.MaximumDistance;
+            run.PlaceCamera("far", 0, range);
+            await run.DisplayAsync(allowMissing: true, includeCamera: true);
+            await owner.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+            var directory = ProjectSettings.GlobalizePath($"res://.godot/validation/{input.Name}.views");
+            Directory.CreateDirectory(directory);
+            using var image = owner.GetViewport().GetTexture().GetImage();
+            if (image.SavePng(Path.Combine(directory, "paused-far.png")) != Error.Ok)
+                throw new IOException("补充远景截图写出失败。");
+            var camera = run.World!.View.CameraRig;
+            File.WriteAllText(Path.Combine(directory, "manifest.json"), JsonSerializer.Serialize(new
+            {
+                sourceManifest = $"../{input.Name}/manifest.json",
+                position = run.Host!.GetStatus()!.View.Position, nominalRangeCells = range,
+                displayFrame = run.World.Display!.DisplayedFrame!.Update.Frame,
+                displaySeconds = run.World.Display.DisplayedFrame.SimulationSeconds,
+                origin = new[] { run.World.Display.PoseFrame!.Origin.X, run.World.Display.PoseFrame.Origin.Y, run.World.Display.PoseFrame.Origin.Z },
+                cameraPosition = new[] { camera.Camera.GlobalPosition.X, camera.Camera.GlobalPosition.Y, camera.Camera.GlobalPosition.Z },
+                focus = new[] { camera.Focus.X, camera.Focus.Y, camera.Focus.Z }
+            }));
+        }
         finally { RenderingServer.FramePostDraw -= Observe; }
         return 0;
     }

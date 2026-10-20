@@ -124,6 +124,7 @@ internal sealed class SceneResources : IDisposable
     private readonly Shader _waterShader;
     private readonly Shader _fogShader;
     private readonly Shader _followedShader;
+    private readonly Texture2D _damageMask;
     private readonly Dictionary<SceneMesh, GeometryResource> _geometry = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<ModelMaterialKey, ModelMaterialResource> _modelMaterials = [];
     private bool _disposed;
@@ -143,8 +144,10 @@ internal sealed class SceneResources : IDisposable
                 ?? throw new InvalidOperationException("构建雾着色器无法加载。");
             _followedShader = ResourceLoader.Load<Shader>("res://Rendering/followed_vehicle.gdshader", cacheMode: ResourceLoader.CacheMode.Ignore)
                 ?? throw new InvalidOperationException("跟随车辆着色器无法加载。");
+            _damageMask = ResourceLoader.Load<Texture2D>("res://Rendering/Effects/damage-mask.png", cacheMode: ResourceLoader.CacheMode.Ignore)
+                ?? throw new InvalidOperationException("损伤遮罩无法加载。");
         }
-        catch { _fogShader?.Dispose(); _waterShader?.Dispose(); _surfaceShader.Dispose(); throw; }
+        catch { _damageMask?.Dispose(); _followedShader?.Dispose(); _fogShader?.Dispose(); _waterShader?.Dispose(); _surfaceShader.Dispose(); throw; }
     }
 
     internal ShaderMaterial ConstructionFogMaterial() => new() { Shader = _fogShader };
@@ -373,6 +376,7 @@ internal sealed class SceneResources : IDisposable
             material.SetShaderParameter("material_metallic", metallic);
             material.SetShaderParameter("material_specular", specular);
             material.SetShaderParameter("material_category", (int)category);
+            material.SetShaderParameter("damage_mask", _damageMask);
             SetPaint(material, paint);
             return material;
         }
@@ -405,5 +409,6 @@ internal sealed class SceneResources : IDisposable
         _waterShader.Dispose();
         _fogShader.Dispose();
         _followedShader.Dispose();
+        _damageMask.Dispose();
     }
 }
