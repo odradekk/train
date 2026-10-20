@@ -214,8 +214,60 @@ public sealed class CreatureBehaviorTests
         Step(session);
         var location = (WorldLocation.Edge)Group(session, 1).Location;
         Assert.AreEqual(edge.Id, location.Id);
-        Assert.AreEqual(9.75, location.DistanceMeters);
-        Assert.AreEqual(TravelDirection.Forward, Group(session, 1).Direction);
+        Assert.AreEqual(8.75, location.DistanceMeters);
+        Assert.AreEqual(TravelDirection.Reverse, Group(session, 1).Direction);
+        for (var step = 0; step < 20 && Group(session, 1).Location is WorldLocation.Edge; step++)
+            Step(session);
+        var group = Group(session, 1);
+        Assert.AreEqual(CreatureActivity.Wandering, group.Activity);
+        Assert.AreEqual(new WorldLocation.Node(lair.Node), group.Location);
+        Assert.IsNull(group.Direction);
+    }
+
+    [TestMethod]
+    public void Retreating_group_facing_an_npc_endpoint_merges_into_the_home_garrison()
+    {
+        var baseline = Multi;
+        var lair = baseline.World.Lairs.Single();
+        var npc = baseline.World.Settlements.OrderBy(item => item.Id.Value).First();
+        var mid = EmptyNode(baseline.World, lair.Node);
+        Assert.AreNotEqual(npc.Node, mid);
+        Assert.IsTrue(Npc(baseline.World, npc.Node));
+        var content = Tune(baseline.Content, 10, 60, 1, Idle, null, maximum: 2);
+        var stopped = StopTrains(baseline.World);
+        var templates = stopped.Edges.OrderBy(edge => edge.Id.Value).Take(2).ToArray();
+        var homeEdge = templates[0] with
+        {
+            Start = lair.Node, End = mid, LengthMeters = 10, Tracks = 0, Breaks = [], Works = []
+        };
+        var npcEdge = templates[1] with
+        {
+            Start = npc.Node, End = mid, LengthMeters = 10, Tracks = 0, Breaks = [], Works = []
+        };
+        var distance = Math.BitIncrement(0d);
+        var world = WithPacks(stopped with { Edges = [homeEdge, npcEdge], TrackHandoffs = [] },
+            Pack(1, lair.Id, new WorldLocation.Edge(npcEdge.Id, distance), TravelDirection.Reverse,
+                CreatureActivity.Retreating, 0, null, Creature(1, "fixture:creature-a", 10)),
+            Pack(2, lair.Id, new WorldLocation.Node(lair.Node), null, CreatureActivity.Guarding, 0, null,
+                Creature(2, "fixture:creature-a", 10)));
+        using var session = Open(baseline, world, content);
+        Step(session);
+        var moved = Group(session, 1);
+        var onEdge = (WorldLocation.Edge)moved.Location;
+        Assert.AreEqual(npcEdge.Id, onEdge.Id);
+        Assert.IsTrue(onEdge.DistanceMeters > distance);
+        Assert.AreEqual(TravelDirection.Forward, moved.Direction);
+        var merged = false;
+        for (var step = 0; step < 30 && !merged; step++)
+        {
+            Step(session);
+            merged = session.State.World.CreatureGroups.All(group => group.Id.Value != 1);
+        }
+        Assert.IsTrue(merged);
+        var guard = Group(session, 2);
+        Assert.AreEqual(CreatureActivity.Guarding, guard.Activity);
+        Assert.AreEqual(new WorldLocation.Node(lair.Node), guard.Location);
+        CollectionAssert.AreEqual(new[] { 1UL, 2UL }, guard.Creatures.Select(creature => creature.Id.Value).ToArray());
     }
 
     [TestMethod]
