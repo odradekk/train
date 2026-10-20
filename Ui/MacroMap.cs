@@ -31,7 +31,7 @@ public partial class MacroMap : Control
     private bool _fitPending;
     private float _fitZoom = 1;
     private PanelContainer _layers = null!;
-    private CheckBox _resources = null!, _platforms = null!;
+    private CheckBox _resources = null!, _platforms = null!, _creatures = null!;
     private float _layersTop;
     private readonly Dictionary<NodeId, int> _platformQueues = [];
     private ICoreReadView? _queueView;
@@ -57,10 +57,10 @@ public partial class MacroMap : Control
         body.AddChild(UiStyle.Label("地图信息层", true));
         _resources = new CheckBox { Name = "Resources", Text = "节点资源" };
         _platforms = new CheckBox { Name = "Platforms", Text = "站台占用" };
+        _creatures = new CheckBox { Name = "Creatures", Text = "世界生物" };
         AddLayer(_resources, "货物图标 · 名称与剩余储量");
         AddLayer(_platforms, "站台 占用/总数 · 排队列车数");
-        AddLayer(new CheckBox { Name = "Creatures", Text = "世界生物", Disabled = true,
-            TooltipText = "阶段 5 接入世界生物信息层" }, "阶段 5 接入，图例待开放");
+        AddLayer(_creatures, "群活动 · 聚落类型与群数");
         _layers.AddChild(body);
         AddChild(_layers);
         _layers.Resized += () => PositionLayerPanel(_layersTop);
@@ -202,8 +202,12 @@ public partial class MacroMap : Control
         }
         foreach (var edge in _world.Edges) DrawEdge(edge);
         foreach (var node in _world.Nodes) DrawNode(node);
-        if (_resources.ButtonPressed || _platforms.ButtonPressed)
+        if (_resources.ButtonPressed || _platforms.ButtonPressed || _creatures.ButtonPressed)
             foreach (var node in _world.Nodes) DrawInformation(node);
+        if (_creatures.ButtonPressed)
+            foreach (var group in _world.CreatureGroups.OrderBy(group => group.Id.Value))
+                if (group.Location is WorldLocation.Edge && GroupAnchor(group) is { } anchor)
+                    DrawCreaturePill(GroupText(group), anchor);
         foreach (var train in _world.Trains) DrawTrain(train);
         DrawCombats();
     }
@@ -217,9 +221,68 @@ public partial class MacroMap : Control
     internal string PlatformText(NodeMapItem node) =>
         $"站台 {node.OccupiedPlatforms}/{node.Platforms} · 排队 {_platformQueues.GetValueOrDefault(node.Id)}";
 
+    internal string GroupText(CreatureGroupMapItem group) => group.Activity switch
+    {
+        CreatureActivity.Guarding => "驻守",
+        CreatureActivity.Wandering => "游荡",
+        CreatureActivity.RaidingSettlement => "袭击聚居地",
+        CreatureActivity.RaidingRailway => "袭击线路",
+        CreatureActivity.Combat => "战斗",
+        CreatureActivity.Retreating => "撤退",
+        _ => throw new ArgumentOutOfRangeException(nameof(group), group.Activity, null)
+    };
+
+    internal string? LairText(NodeMapItem node)
+    {
+        if (node.Occupant is not NodeOccupant.Lair lair || View is null) return null;
+        string? name = null;
+        var count = 0;
+        if (View.FindLair(lair.Id) is Lookup<LairView>.Found found)
+        {
+            count = found.Value.Groups.Length;
+            if (_content?.FindLair(found.Value.Type) is ContentLookup<LairAppearanceProjection>.Found appearance
+                && !string.IsNullOrWhiteSpace(appearance.Value.Display.Text.Name))
+                name = appearance.Value.Display.Text.Name;
+        }
+        if (name is null)
+        {
+            Fail($"聚落 {lair.Id.Value} 缺少可显示的类型名称。");
+            return "?";
+        }
+        return $"{name} · {count} 群";
+    }
+
+    internal Vector2? GroupAnchor(CreatureGroupMapItem group)
+    {
+        if (_world is null || !_world.CreatureGroups.Any(item => item.Id == group.Id && item.Location == group.Location))
+            return null;
+        switch (group.Location)
+        {
+            case WorldLocation.Node located when _nodes.TryGetValue(located.Id, out var node):
+                var index = 0;
+                foreach (var item in GroupsOnNode(node.Id))
+                {
+                    if (item.Id == group.Id)
+                        return CreatureColumnStart(node) + new Vector2(0, (node.Occupant is NodeOccupant.Lair ? 26 : 0) + index * 26);
+                    index++;
+                }
+                return null;
+            case WorldLocation.Edge edge when EdgeDistancePoint(edge.Id, edge.DistanceMeters) is { } point:
+                var order = 0;
+                foreach (var item in _world.CreatureGroups.OrderBy(item => item.Id.Value))
+                {
+                    if (item.Location is not WorldLocation.Edge onEdge || onEdge.Id != edge.Id) continue;
+                    if (item.Id == group.Id) return point + EdgeNormal(edge.Id) * (18 + order * 26);
+                    order++;
+                }
+                return null;
+            default:
+                return null;
+        }
+    }
+
     private void DrawInformation(NodeMapItem node)
     {
-        var font = UiStyle.NumericFont();
         var point = MapToScreen(node.Position) + new Vector2(0, NodeDisplay(node).Radius + 32);
         if (_resources.ButtonPressed)
             foreach (var resource in node.Resources)
@@ -231,16 +294,50 @@ public partial class MacroMap : Control
             }
         if (_platforms.ButtonPressed && (node.Platforms > 0 || _platformQueues.GetValueOrDefault(node.Id) > 0))
             DrawAnnotation(PlatformText(node), point, 0);
+        if (!_creatures.ButtonPressed) return;
+        if (node.Occupant is NodeOccupant.Lair && LairText(node) is { } lair)
+            DrawCreaturePill(lair, CreatureColumnStart(node));
+        foreach (var group in GroupsOnNode(node.Id))
+            if (GroupAnchor(group) is { } anchor)
+                DrawCreaturePill(GroupText(group), anchor);
+    }
 
-        Rect2 DrawAnnotation(string text, Vector2 center, int iconWidth)
-        {
-            var width = font.GetStringSize(text, HorizontalAlignment.Left, -1, 14).X + iconWidth + 12;
-            var rectangle = new Rect2(center - new Vector2(width / 2, 0), new(width, 24));
-            DrawRect(rectangle, new Color(24 / 255f, 28 / 255f, 33 / 255f, .9f));
-            DrawString(font, rectangle.Position + new Vector2(iconWidth + 6, 17), text,
-                HorizontalAlignment.Left, -1, 14, UiStyle.Foreground);
-            return rectangle;
-        }
+    private Vector2 CreatureColumnStart(NodeMapItem node)
+    {
+        var point = MapToScreen(node.Position) + new Vector2(0, NodeDisplay(node).Radius + 32);
+        if (_resources.ButtonPressed)
+            point.Y += 26 * node.Resources.Length;
+        if (_platforms.ButtonPressed && (node.Platforms > 0 || _platformQueues.GetValueOrDefault(node.Id) > 0))
+            point.Y += 26;
+        return point;
+    }
+
+    private IEnumerable<CreatureGroupMapItem> GroupsOnNode(NodeId id) =>
+        _world!.CreatureGroups.Where(group => group.Location is WorldLocation.Node node && node.Id == id)
+            .OrderBy(group => group.Id.Value);
+
+    private Vector2 EdgeNormal(EdgeId id)
+    {
+        if (!_edges.TryGetValue(id, out var edge) || EdgePoints(edge) is not { } ends) return Vector2.Zero;
+        var delta = ends.End - ends.Start;
+        return delta.LengthSquared() >= 1 ? delta.Normalized().Orthogonal() : Vector2.Zero;
+    }
+
+    private void DrawCreaturePill(string text, Vector2 center)
+    {
+        var rectangle = DrawAnnotation(text, center, 24);
+        DrawTextureRect(_lairSymbol, new Rect2(rectangle.Position + new Vector2(3, 2), new Vector2(20, 20)), false, UiStyle.Error);
+    }
+
+    private Rect2 DrawAnnotation(string text, Vector2 center, int iconWidth)
+    {
+        var font = UiStyle.NumericFont();
+        var width = font.GetStringSize(text, HorizontalAlignment.Left, -1, 14).X + iconWidth + 12;
+        var rectangle = new Rect2(center - new Vector2(width / 2, 0), new(width, 24));
+        DrawRect(rectangle, new Color(24 / 255f, 28 / 255f, 33 / 255f, .9f));
+        DrawString(font, rectangle.Position + new Vector2(iconWidth + 6, 17), text,
+            HorizontalAlignment.Left, -1, 14, UiStyle.Foreground);
+        return rectangle;
     }
 
     private (Vector2 Start, Vector2 End)? EdgePoints(EdgeMapItem edge) =>
@@ -349,13 +446,20 @@ public partial class MacroMap : Control
         DrawString(font, position, text, HorizontalAlignment.Left, -1, size, color);
     }
 
+    private Vector2? EdgeDistancePoint(EdgeId id, double distanceMeters)
+    {
+        if (_edges.TryGetValue(id, out var edge) && EdgePoints(edge) is { } ends)
+            return ends.Start.Lerp(ends.End, edge.LengthMeters > 0
+                ? (float)Math.Clamp(distanceMeters / edge.LengthMeters, 0, 1) : 0);
+        return null;
+    }
+
     private Vector2? TrainPoint(TrainMapItem train)
     {
         if (train.Position is TrainPosition.Node node && _nodes.TryGetValue(node.Id, out var at))
             return MapToScreen(at.Position) + new Vector2(25, -22);
-        if (train.Position is TrainPosition.Edge moving && _edges.TryGetValue(moving.Id, out var edge) && EdgePoints(edge) is { } ends)
-            return ends.Start.Lerp(ends.End, edge.LengthMeters > 0
-                ? (float)Math.Clamp(moving.DistanceMeters / edge.LengthMeters, 0, 1) : 0);
+        if (train.Position is TrainPosition.Edge moving)
+            return EdgeDistancePoint(moving.Id, moving.DistanceMeters);
         return null;
     }
 
