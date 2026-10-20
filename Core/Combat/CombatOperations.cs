@@ -263,7 +263,7 @@ internal static class CombatOperations
                 var loss = state.CountAtJoin <= 0 ? 0
                     : (state.CountAtJoin - group.Creatures.Length) / (double)state.CountAtJoin;
                 var ratio = CreatureQueries.MinRetreatRatio(content, group);
-                var duration = CreatureDurationElapsed(content, group, step);
+                var duration = CreatureDurationElapsed(content, latest, state, group, step);
                 if ((ratio is { } threshold && loss > threshold) || duration)
                     world = RetreatCreature(world, content, combat.Id, group, step, events);
             }
@@ -271,14 +271,23 @@ internal static class CombatOperations
         return world;
     }
 
-    private static bool CreatureDurationElapsed(CoreContentProjection content, CreatureGroupState group, ulong step)
+    private static bool CreatureDurationElapsed(CoreContentProjection content, CombatState combat,
+        CreatureCombatantState state, CreatureGroupState group, ulong step)
     {
-        var counts = group.Objective is null || group.Objective is CreatureObjective.Settlement target
+        var atTarget = group.Objective is CreatureObjective.Settlement target
             && group.Location is WorldLocation.Node node && node.Id == target.Node;
+        var counts = group.Objective is null || atTarget;
+        var started = group.ActivityStartedAtStep;
+        if (!atTarget && group.Objective is CreatureObjective.Settlement or CreatureObjective.Railway
+            && combat.Controllers.Any(controller => controller.Controller is CombatController.Settlement))
+        {
+            counts = true;
+            started = state.JoinedAtStep;
+        }
         if (!counts || CreatureQueries.MinRaidDuration(content, group) is not { } seconds) return false;
         var interval = WorldResources.IntervalSteps(seconds)
             ?? throw new InvalidOperationException("袭击时长超出可表示范围。");
-        return step >= group.ActivityStartedAtStep && step - group.ActivityStartedAtStep >= interval;
+        return step >= started && step - started >= interval;
     }
 
     private static WorldState RetreatCreature(WorldState world, CoreContentProjection content, CombatId id,

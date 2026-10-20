@@ -61,6 +61,36 @@ internal static class UiWorldFixture
         };
     }
 
+    internal readonly record struct CreatureLayerWorld(FixedCoreReadView View, NodeMapItem Nest, NodeMapItem Hive,
+        EdgeMapItem Edge, ImmutableArray<CreatureGroupMapItem> Groups);
+
+    internal static CreatureLayerWorld CreatureLayer()
+    {
+        var original = Map();
+        var nest = original.World.Nodes[0] with { Occupant = new NodeOccupant.Lair(new(1)) };
+        var hive = original.World.Nodes[1] with { Occupant = new NodeOccupant.Lair(new(2)) };
+        var edge = new EdgeMapItem(new(1), nest.Id, hive.Id, 500, nest.Terrain, 1, 1, [], []);
+        ImmutableArray<CreatureGroupMapItem> groups =
+        [
+            new(new(1), new WorldLocation.Node(nest.Id), CreatureActivity.Guarding),
+            new(new(3), new WorldLocation.Node(nest.Id), CreatureActivity.RaidingSettlement),
+            new(new(2), new WorldLocation.Node(hive.Id), CreatureActivity.Wandering),
+            new(new(4), new WorldLocation.Edge(edge.Id, 250), CreatureActivity.RaidingRailway),
+            new(new(5), new WorldLocation.Edge(edge.Id, 100), CreatureActivity.Combat),
+            new(new(6), new WorldLocation.Edge(edge.Id, 400), CreatureActivity.Retreating)
+        ];
+        var view = new FixedCoreReadView(default, HostCoreScenario.Input)
+        {
+            World = original.World with { Nodes = [nest, hive], Edges = [edge], CreatureGroups = groups },
+            Lairs = new Dictionary<LairId, Lookup<LairView>>
+            {
+                [new(1)] = new Lookup<LairView>.Found(new(new(1), nest.Id, new("core:small-nest"), [new(1), new(4), new(6)])),
+                [new(2)] = new Lookup<LairView>.Found(new(new(2), hive.Id, new("core:large-hive"), [new(2), new(3)]))
+            }
+        };
+        return new(view, nest, hive, edge, groups);
+    }
+
     internal static FixedCoreReadView Save(CoreInputId input)
         => Create(Scenario.Save, default, input);
 
