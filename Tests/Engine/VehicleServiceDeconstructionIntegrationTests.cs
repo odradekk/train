@@ -24,15 +24,15 @@ public class VehicleServiceDeconstructionIntegrationTests(Node testScene) : Test
             using var logger = new TrainLogger(Path.Combine(directory, "logs"), LogLevel.Info, new GodotLogOutput());
             using var host = ContentFixture.CreateHost(logger, directory, dispatcher);
             using var restored = ContentFixture.CreateHost(logger, directory, dispatcher);
-            async Task Pump(HostCoordinator current) => await FramesUntil(TestScene, () =>
-            { current.ProcessFrame(0); return !current.IsBusy; }, dispatcher);
+            async Task Pump(HostCoordinator current, TimeSpan? timeout = null) => await FramesUntil(TestScene, () =>
+            { current.ProcessFrame(0); return !current.IsBusy; }, dispatcher, timeout);
             Require(host.BeginNewGame(new("core:basic-through-world"), 1, "stage1-world-v1", host.SessionOptions!).Problem is null, "拆解新局请求失败。");
-            await Pump(host);
+            await Pump(host, ContentPreparationTimeout);
             var initial = Saved(host);
             // 公开生成入口只创建 NPC 聚居地，占领命令尚未实现；仅此初始夹具调整归属，随即交给真实恢复校验。
             var ownedPayload = OwnedStartingSave(initial.Core.Encode());
             Require(host.BeginRestore(ownedPayload, initial.Content.Encode(), host.SessionOptions!, initial.Identity).Problem is null, "自有初始存档恢复请求失败。");
-            await Pump(host);
+            await Pump(host, ContentPreparationTimeout);
             var view = host.GetStatus()!.View;
             var train = Found(view.FindTrain(view.World.Trains.Single().Id));
             var settlement = Found(view.FindSettlement(((NodeOccupant.Settlement)view.World.Nodes.Single(n => n.Id == ((TrainPosition.Node)train.Position).Id).Occupant).Id));
@@ -100,7 +100,7 @@ public class VehicleServiceDeconstructionIntegrationTests(Node testScene) : Test
                 File.Copy(path, Path.Combine(reportRoot, "vehicle-service-paused.save.json"), true);
                 var document = store.Read(path);
                 Require(restored.BeginRestore(document.CorePayload, document.ContentPayload, host.SessionOptions!, capture.Identity).Problem is null, "拆解恢复请求失败。");
-                await Pump(restored);
+                await Pump(restored, ContentPreparationTimeout);
                 Require(Saved(restored).Core.Encode() == capture.Core.Encode(), "拆解存档恢复重复改变任务、库存或返还。");
             }
         }

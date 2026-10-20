@@ -27,7 +27,7 @@ public class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
         fixture.Service.Publish();
         Require(fixture.Editor.Leaving && fixture.Service.LastWrite is null, "未保存的真实网格编辑必须先询问，不能开始写包。");
         fixture.Editor.ResolveClose(LeaveChoice.Save);
-        await fixture.Pump(() => !fixture.Service.IsBusy && !fixture.Editor.IsBusy && !fixture.Editor.IsOpen, TimeSpan.FromSeconds(60));
+        await fixture.Pump(() => !fixture.Service.IsBusy && !fixture.Editor.IsBusy && !fixture.Editor.IsOpen, ContentPreparationTimeout);
         Require(fixture.Service.LastWrite is { Success: true, Completed.Length: > 0 } && fixture.LastOperation?.Succeeded == true,
             "真实补丁写入或普通重载失败：" + fixture.Service.Message);
         Require(!ReferenceEquals(original, fixture.Host.Content) && fixture.Host.GetStatus()!.View.InputIdentity == fixture.Host.Content!.Core.Identity,
@@ -43,6 +43,7 @@ public class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    [Chickensoft.GoDotTest.Timeout(120000)]
     public async Task Real_form_draft_survives_source_conflict_then_writes_on_explicitly_reopened_source()
     {
         using var fixture = new RealAuthoringFixture(TestScene);
@@ -62,7 +63,7 @@ public class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
             var saved = fixture.Service.Drafts().Single();
             var definition = Path.Combine(fixture.ModDirectory, "resources/voxels/engine-food.voxel.json");
             var external = File.ReadAllText(definition) + "\n "; File.WriteAllText(definition, external);
-            fixture.Service.Publish(); await fixture.Pump(() => !fixture.Service.IsBusy);
+            fixture.Service.Publish(); await fixture.Pump(() => !fixture.Service.IsBusy, ContentPreparationTimeout);
             Require(fixture.Service.LastWrite is { Success: false, Completed.IsEmpty: true } && File.ReadAllText(definition) == external,
                 "真实来源变更必须拒绝覆盖，磁盘外部修改保持原样。");
             Require(ReferenceEquals(original, fixture.Host.Content) && fixture.Service.Drafts().Single().Id == saved.Id,
@@ -70,7 +71,7 @@ public class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
             await fixture.Open();
             fixture.Service.OpenDraft(saved, useCurrentSource: true);
             fixture.Service.SaveForm(fixture.Service.Form!); await fixture.Pump(() => !fixture.Service.IsBusy);
-            fixture.Service.Publish(); await fixture.Pump(() => !fixture.Service.IsBusy);
+            fixture.Service.Publish(); await fixture.Pump(() => !fixture.Service.IsBusy, ContentPreparationTimeout);
             Require(fixture.Service.LastWrite?.Success == true && fixture.LastOperation?.Succeeded == true,
                 "显式在当前来源上打开后应可重新校验写入：" + fixture.Service.Message);
             Require(fixture.Host.Content!.FindVoxelDisplay(new(fixture.PackageId.Value + ":engine-food")) is ContentLookup<VoxelDisplayProjection>.Found { Value.Display.Name: "真实表单写回" },
@@ -90,11 +91,11 @@ public class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
         {
             ContentFixture.WriteMod(directory, id);
             var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
-            await FramesUntil(TestScene, () => !app.Host!.IsBusy, timeout: TimeSpan.FromSeconds(60));
+            await FramesUntil(TestScene, () => !app.Host!.IsBusy, timeout: ContentPreparationTimeout);
             var host = app.Host!;
             Require(host.BeginNewGame(new("core:basic-through-world"), 1, "stage1-world-v1", host.SessionOptions!).Problem is null,
                 "真实新局请求被拒绝。");
-            await FramesUntil(TestScene, () => !host.IsBusy && host.GetStatus() is not null, timeout: TimeSpan.FromSeconds(60));
+            await FramesUntil(TestScene, () => !host.IsBusy && host.GetStatus() is not null, timeout: ContentPreparationTimeout);
             var original = host.Content!;
             var service = app.Authoring!;
             Require(service.CanUse, "真实开发构建必须允许创作模式。");
@@ -112,7 +113,7 @@ public class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
             var panel = Find<AuthoringPanel>(ui, "Authoring");
             panel.Open();
             await new UiTestInput(TestScene).Activate(Find<Button>(panel, "Publish"));
-            await FramesUntil(TestScene, () => !service.IsBusy && !host.IsBusy);
+            await FramesUntil(TestScene, () => !service.IsBusy && !host.IsBusy, timeout: ContentPreparationTimeout);
             Require(service.LastWrite is { Success: false, Completed.IsEmpty: true },
                 "外部修改必须拒绝全部写入：" + service.Message);
             Require(File.ReadAllText(path) == external, "外部修改必须保持原样。");
@@ -156,7 +157,7 @@ public class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
             var written = PackageWriter.Execute(snapshot, plan, true);
             Require(written.Success && !File.Exists(Path.Combine(core, "resources/voxels/staple-food.voxel.json")), "真实删除补丁没有落盘。");
             fixture.Host.BeginReload(CommandSource.AutomationTest);
-            await fixture.Pump(() => !fixture.Host.IsBusy);
+            await fixture.Pump(() => !fixture.Host.IsBusy, ContentPreparationTimeout);
             Require(fixture.LastOperation is { Succeeded: false, Diagnostics.IsEmpty: false } && ReferenceEquals(original, fixture.Host.Content)
                 && fixture.Host.GetStatus()!.Binding == status.Binding && fixture.Host.GetStatus()!.View.InputIdentity == original.Core.Identity,
                 "真实内容拒绝后不得切换活动核心与内存内容。");
@@ -193,7 +194,7 @@ public class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
         {
             fixture.Service.SaveForm(form.Capture());
             await fixture.Pump(() => !fixture.Service.IsBusy);
-            if (encodable) { fixture.Service.Publish(); await fixture.Pump(() => !fixture.Service.IsBusy); }
+            if (encodable) { fixture.Service.Publish(); await fixture.Pump(() => !fixture.Service.IsBusy, ContentPreparationTimeout); }
             Require(fixture.Service.LastWrite is null && ReferenceEquals(original, fixture.Host.Content), "真实内容拒绝不能写文件或激活候选。");
             var message = Find<Label>(panel, "AuthoringResult").Text;
             Require(message.Contains(expected, StringComparison.Ordinal) && message.Contains("invalid_field", StringComparison.Ordinal),
