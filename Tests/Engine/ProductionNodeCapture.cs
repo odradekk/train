@@ -23,6 +23,30 @@ public partial class ProductionNodeCapture : Node
 
     public static void Start(Node root) => root.AddChild(new ProductionNodeCapture { Name = "ProductionNodeCapture" });
 
+    public static async Task<int> Run(Node owner)
+    {
+        var input = Train.App.ArtCapture.CaptureInput.Parse(OS.GetCmdlineUserArgs().Skip(1).ToArray());
+        using var run = new Train.App.ArtCapture.ArtCaptureRun(owner);
+        var path = ProjectSettings.GlobalizePath($"res://.godot/validation/{input.Name}.effects.jsonl");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        using var frames = new StreamWriter(path);
+        void Observe()
+        {
+            if (run.World?.Display is not { DisplayedFrame: { } frame } display) return;
+            frames.WriteLine(JsonSerializer.Serialize(new
+            {
+                draw = Godot.Engine.GetFramesDrawn(), position = run.Host!.GetStatus()!.View.Position,
+                frame = frame.Update.Frame, displaySeconds = frame.SimulationSeconds,
+                visibleEffects = display.Root.GetNodeOrNull("CombatEffects")?.GetChildren()
+                    .ToDictionary(child => child.Name.ToString(), child => child.GetChildCount())
+            }));
+        }
+        RenderingServer.FramePostDraw += Observe;
+        try { await run.CaptureAsync(input); }
+        finally { RenderingServer.FramePostDraw -= Observe; }
+        return 0;
+    }
+
     public override void _Ready()
     {
         _directory = ProjectSettings.GlobalizePath($"res://.godot/validation/production-node-capture-{DateTime.UtcNow:yyyyMMddTHHmmssfff}");
