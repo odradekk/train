@@ -76,10 +76,13 @@ dotnet build Tests/Engine/Train.Engine.Tests.csproj -c Debug
 ```powershell
 # 分支全量检查：全部正确性层和 Linux 阶段检查
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=nightly
-# 三份长示例各自触发，不进入日常测试层
+# 长示例各自触发，不进入日常测试层
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=lease-expiry
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=starting-trade
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=rail-repair
+gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=conquest
+gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=clearance
+gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=operating-failure
 # 阶段验收：工作流使用 master，代码使用固定的完整 40 位提交 SHA
 gh workflow run windows-checks.yml --repo odradekk/train --ref master -f selection=long-example -f example=lease-expiry -f commit=<完整 SHA>
 # 显式请求 Windows 常规或完整正确性检查

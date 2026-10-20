@@ -1,6 +1,6 @@
 # 示例存档与配方
 
-`basic-through` 是游戏内基础示例；另外四个经济示例只供开发与阶段验收，不进入 Windows 导出的 PCK。所有配方都加载已提交的正式 `builtin/core`，通过公开 Core 命令推进真实模拟，不重跑内容生成器或修改存档内部状态。
+`basic-through` 是游戏内基础示例；其余示例只供开发与阶段验收，不进入 Windows 导出的 PCK。所有配方都加载已提交的正式 `builtin/core`，通过公开 Core 命令推进真实模拟，不重跑内容生成器或修改存档内部状态。
 
 | 目录 | 场景与检查 | 制作／检查配置 |
 | --- | --- | --- |
@@ -10,6 +10,11 @@
 | `commission-branches` | 两列起始列车满载采购后，首笔小型货车委托受理，第二笔真实缺货且不扣款 | Debug |
 | `lease-expiry` | 租用 1 点仓储、存入主食，越过一天租期后卸货被拒、取货成功，5,184,001 步 | Release |
 | `rail-repair` | 种子 40 合编车队建城、建小仓库、扩建边 3，并完成一次手动修复和一次自动修复，1,029,600 步 | Release |
+| `retreat` | 种子 40 武装列车在油田战斗后撤到矿镇，修理进行中保存，修完后把燃料送到林业镇，38,000 步 | Debug |
+| `damaged-vehicle-trade` | 种子 40 同一场撤退后卖出受损武装车，买回并重新编组，38,000 步 | Debug |
+| `conquest` | 种子 40 三挺机枪的列车停在油田，战斗中保存，投降后占领，113,000 步 | Release |
+| `clearance` | 种子 40 三挺机枪的列车进入巢穴，战斗中保存，清空后节点 1 为空且钱包增加 13,000，1,045,000 步 | Release |
+| `operating-failure` | 种子 40 一挺机枪的合编列车进入巢穴，列车被毁且巢穴仍在，再空跑 54,200 步，1,160,000 步 | Release |
 
 这些配方共用种子 40、`core:basic-through-world` 与 `stage1-world-v1`，存档元数据固定。默认车队由一列机车加三辆货车和一列机车加两辆货车、一辆武装车组成；采购后仍可委托小型货车的经济条件已由 #387 的正式配方补验，阶段 #300 复核。
 
@@ -60,32 +65,33 @@ Station 的形状为 `{kind:"station",node,dwell_steps,goods_rules}`，省略后
 | --- | --- | --- |
 | `lease.acquire` | `request:{kind:"rent",settlement,capacity,duration_steps}`, `maximum_payment` | 租约示例、短测试 |
 | `inventory.unload_goods`／`inventory.load_goods` | `train,settlement,local_inventory,good,quantity` | 租约示例、短测试 |
-| `market.buy_vehicle` | `seller,vehicle,maximum_payment` | 仅测试专用短配方 |
-| `construction.commission_vehicle_work` | `facility,blueprint,sources,maximum_payment` | 委托成功与材料不足分支 |
-| `train.disband` | `train` | 断轨修复配方 |
-| `train.form` | `ordered_vehicles` | 断轨修复配方 |
-| `settlement.declare_war` | `settlement` | 战斗取证临时配方 |
-| `engagement.set_train` | `train,rules` | 战斗取证临时配方 |
-| `settlement.found` | `node,material_source` | 断轨修复配方；材料来源是列车 |
-| `construction.start_owned` | `request` | 断轨修复配方；只支持 `build_building`，`blueprint` 由内容模块交出设计 |
-| `rail.expand` | `edge,material_source` | 断轨修复配方；材料来源是自有聚居地 |
+| `market.buy_vehicle` | `seller,vehicle,maximum_payment` | 受损现车交易、征服、清剿配方 |
+| `market.sell_vehicle` | `buyer,vehicle,minimum_receipt` | 受损现车交易配方 |
+| `settlement.declare_war` | `settlement` | 撤退、受损现车交易、征服配方 |
+| `settlement.occupy` | `settlement,train` | 征服配方 |
+| `engagement.set_train` | `train`，`rules:{priority,scope,encounter,retreat_structure_ratio}` | 清剿、合法经营失败配方 |
+| `combat.retreat` | `train` | 撤退配方 |
+| `construction.commission_vehicle_work` | 制造：`facility,blueprint,sources,maximum_payment`；修理：`request` 与 `maximum_payment` | 委托成功与材料不足分支；修理为撤退配方 |
+| `train.disband` | `train` | 断轨修复、清剿、合法经营失败配方 |
+| `train.form` | `ordered_vehicles` | 断轨修复、清剿、合法经营失败配方 |
+| `settlement.found` | `node,material_source` | 断轨修复、清剿、合法经营失败配方；材料来源是列车 |
+| `construction.start_owned` | `request` | 断轨修复、清剿、合法经营失败配方；只支持 `build_building`，`blueprint` 由内容模块交出设计 |
+| `rail.expand` | `edge,material_source` | 断轨修复、清剿、合法经营失败配方；材料来源是自有聚居地 |
 | `rail.repair` | `edge,break,material_source` | 断轨修复配方 |
 | `rail.set_automatic_repair` | `edge,material_source` | 断轨修复配方；`material_source` 为 JSON null 时关闭 |
 | `rail.debug_add_break` | `edge,track,distance_meters` | 断轨修复配方 |
 
-`engagement.set_train` 的 `rules` 包含 `priority`（`armed_first`、`lowest_durability`、`highest_durability`）、`scope`（`armed_only`、`all`）、`encounter`（`engage`、`retreat`）和 `retreat_structure_ratio`（0–1 的有限数）。它设置既有列车规则，不改变武器或生物数值；宣战和派车可由同一配方重复执行。
+CLI 委托支持制造车辆，以及 `request.kind` 为 `repair_vehicle` 的修理。制造车辆时 `facility` 是执行施工的建筑编号，能力固定为 `Construction`；`blueprint` 是内置包中的车辆蓝图身份，由内容模块交出完整设计输入。`sources` 是按消费顺序排列的库存编号数组，必须显式给出，空数组表示整份材料都从当地 NPC 补购。`maximum_payment` 为非负整数。制造任务优先级为 0。修理的 `request` 含 `facility`、`vehicle`、`sources` 和 `priority`，设施形状与制造相同。改装的 CLI 配方入口尚未增加。
 
-CLI 委托目前只支持制造车辆。`facility` 是执行施工的建筑编号，能力固定为 `Construction`；`blueprint` 是内置包中的车辆蓝图身份，由内容模块交出完整设计输入。`sources` 是按消费顺序排列的库存编号数组，必须显式给出，空数组表示整份 BOM 都从当地 NPC 补购。`maximum_payment` 为非负整数。任务优先级为 0；改装和修理的 CLI 配方入口尚未增加，核心改装和修理由模块用例验证。
-
-租期必须是正式规则一天（5,184,000 步）的整数倍；配方不能借缩短租期加速验证。不支持本票未使用的续租、卖车、手动货物买卖或自动装卸。这些是 CLI 配方能力，没有新增游戏控制台命令，单命令手册不适用。
+租期必须是正式规则一天（5,184,000 步）的整数倍；配方不能借缩短租期加速验证。不支持本票未使用的续租、手动货物买卖或自动装卸。这些是 CLI 配方能力，没有新增游戏控制台命令，单命令手册不适用。
 
 `run`／`replay`／`resume` 的 JSON 另外包含：
 
-- `samples[]`：位置（节点位置包含可空 `entered_from`、`entered_track`、`next_edge`、`next_track`，与 Core 公开位置一致）、钱包、全局未归属委托工钱，全部列车的位置／活动／库存身份／当前运行累计／近期报告，全部聚居地的库存身份、待售车辆与委托任务编号，以及按任务编号查询的状态、工作进度、冻结工作量、投入货物和阻塞，全部租约的到期状态，以及这些对象引用的库存容量、已用、可用、权限和全部货物。数据直接来自公开查询；报告与当前累计保留 Core 给出的收付款、净现金流、运量、载运率和未完成规则，不重算。近期报告有核心规则规定的保留上限。
+- `samples[]`：位置（节点位置包含可空 `entered_from`、`entered_track`、`next_edge`、`next_track`，与 Core 公开位置一致）、钱包、全局未归属委托工钱，全部列车的位置／活动／库存身份／当前运行累计／近期报告／车辆结构耐久和受损／被毁部件数，全部节点的占据种类及聚居地或巢穴编号，全部聚居地的关系、是否投降、库存身份、待售车辆与委托任务编号，以及按任务编号查询的任务种类、状态、工作进度、冻结工作量、投入货物和阻塞，全部租约的到期状态，以及这些对象引用的库存容量、已用、可用、权限和全部货物。数据直接来自公开查询；报告与当前累计保留 Core 给出的收付款、净现金流、运量、载运率和未完成规则，不重算。近期报告有核心规则规定的保留上限。
 - `command_receipts[]`：配方中的零基 `command_index`、`kind`、`decision`（accepted／rejected）、`problems[{code,field,related_identities}]`、`quoted_total`。现车购买使用执行前的公开 `QuoteVehicle.Total`，车辆委托使用 `GetJobQuote.TotalPayment`；启动条件不足时为空，单纯资金不足时仍有已计算总额。其他命令为 null；报价不预留交易条件。
 - `samples[].settlements[]` 另含公开查询中的 `market_goods`（库存、补货目标、留用、可售／可收量及阻塞）、`facilities`（流程、状态、实际工作速率、限制、输出缓冲、潜在消耗及阻塞）、`residents` 和 `population_needs`。潜在消耗不是实际消耗。
 - `goods_transfers[]`、`production_completions[]`、`production_state_changes[]` 保留命令提交和推进返回的三类公开事件，含实际模拟位置和事件序号。成交记录含列车、聚居地、货物、数量及实际金额；生产完成量包含仍在输出缓冲中的货物。
-- `samples[].unassigned_service_payments` 是全局未归属委托工钱，`samples[].commission_jobs[]` 是委托任务详情，`samples[].settlements[].commission_jobs[]` 是当地任务编号。所有问题项（含 `blockers`、`reasons` 和 `incomplete_reasons`）均保留 `code`、`field`、`related_identities`。
+- `samples[].unassigned_service_payments` 是全局未归属委托工钱，`samples[].commission_jobs[]` 是委托任务详情（`kind` 为施工种类），`samples[].settlements[].commission_jobs[]` 是当地任务编号。所有问题项（含 `blockers`、`reasons` 和 `incomplete_reasons`）均保留 `code`、`field`、`related_identities`。
 
 需要按小时调查起步贸易时，只运行一次 Release `run`，再用 Python 3 标准库脚本汇总：
 
@@ -170,14 +176,50 @@ python -X utf8 Tools/Cli/summarize_starting_trade.py TestResults/trade-diagnosti
 
 边 3 从节点 2 到节点 5，长 389.0883023726584 米，开局 1/2 轨。扩建消耗 273 件 Rail，两次修复各 18 件，合计 309 件。矿镇节点 13 距离起点 563 米，是这趟配方的 Rail 卖方。
 
+## 撤退
+
+`retreat/recipe.json` 使用种子 40 和公开命令。列车 2 先到油田节点 12，在第 6736 步向聚居地 4 买入 4 件燃料，实付 16，钱包 813,484。买完后经节点 13 折返。第 9000 步列车在边 15 上，此时对聚居地 4 宣战；宣战不能在玩家车辆已经停在该节点时提交。列车回到节点 12 后进入战斗，第 15000 步车辆 8 的结构耐久为 372,852／372,960。第 18000 步撤退时为 371,052／372,960。第 25000 步列车已停在矿镇节点 13，车辆 8 为 369,504／372,960。
+
+第 25000 步向矿镇施工建筑 30 提交车辆 8 的 `repair_vehicle`，材料来源为空，报价 637，任务 1 的冻结工作量为 120。长示例式的中途保存边界是 25,400：任务仍为 `Working`，已完成工作 26.67。第 28000 步任务结束，车辆 8 恢复到 372,960／372,960。列车随后开往林业镇节点 8，第 31337 步向聚居地 3 卖出 2 件燃料，实收 12。油田在宣战后是敌对节点，回程不经过它。林业镇从开局就消耗燃料，第 8000 步可收量已经是 1。配方目标是 38,000 步：列车 2 停在节点 8，车辆 8 结构耐久满，钱包 812,859。
+
+验收证据都在这份配方的 `replay` 输出里。战斗损失是第 18000 步和第 25000 步的车辆 8 耐久。撤退是 `combat.retreat` 回执，以及列车离开节点 12、停到节点 13。修理进行中是 25,400 步样本的任务状态。修复后的运输是两笔 `goods_transfers`（第 6736 步买入、第 31337 步卖出）和终点满耐久。日常检查用 Debug `check` 对照已提交存档。
+
+## 征服
+
+`conquest/recipe.json` 使用种子 40。第 0 步从聚居地 6 购买车辆 16，报价 75,999，钱包变为 737,501；解散列车 2，用车辆 5、6、7、8、16 编成列车 3，并对聚居地 4 宣战。运行计划只有油田节点 12 一个停站，不循环，停留 200,000 步，列车在占领前不离开该节点。
+
+第 8000 步列车 3 在节点 12 战斗中，聚居地 4 为敌对且未投降，车辆 8 的结构耐久是 371,520／372,960。这是中途保存边界。第 112000 步战斗已经结束，聚居地仍投降，列车仍在节点 12；同一位置 `settlement.occupy` 被接受，关系变为玩家拥有。终点 113,000 步列车仍在节点 12，关系保持玩家拥有。胜负来自投降，不是武器被毁。Release 长示例在第 8000 步保存后继续到占领。
+
+## 清剿
+
+`clearance/recipe.json` 使用种子 40。第 0 步从聚居地 6 购买车辆 16，报价 75,999，钱包变为 737,501。解散两列起始列车，用车辆 1、2、3、4、6、7、8、16、5 编成列车 3：车辆 8 一挺机枪，车辆 16 两挺，共三挺。其后的建城、小仓库、278 件 Rail 和边 1 扩建与合法经营失败使用同一时点；边 1 是这两份配方扩建的唯一巢穴边。建城节点在袭击半径之外，编号与断轨修复同一种子的运行一致，本配方的这些命令全部被接受。边 1 没有出现挡住进路的断轨，所以没有提交 `rail.repair`。
+
+第 1026000 步列车仍停在节点 11，钱包 707,771。此时把交战设为优先武装、只打武装单位、接敌、撤退结构比 0，计划改为只停节点 1，然后发车。中途保存边界是 1,043,200：列车 3 在节点 1 战斗中，节点 1 仍是巢穴，钱包仍是 707,771，九辆车都在，车辆 8 的结构耐久是 281,710／372,960，没有部件被毁。`resume` 从这里继续，经过清空和奖励入账。终点 1,045,000 步节点 1 为空，钱包 720,771，比战斗中多 13,000；列车 3 停在节点 1，车辆 8 为 280,810／372,960，其余车辆仍是满耐久。
+
+Release 长示例在 1,043,200 步保存后恢复到终点。严格重放的样本就是上述钱包、节点占据和车辆耐久。
+
+## 合法经营失败
+
+`operating-failure/recipe.json` 使用种子 40。前缀沿断轨修复：第 0 步解散两列起始列车，用车辆 1、2、3、4、6、7、8、5 编成列车 3，其中只有车辆 8 有一挺机枪。随后按断轨修复的时点在节点 11 建城、建造小仓库，把 278 件 Rail 卸进新城，并对边 1 扩建。边 1 连接节点 1 的巢穴，开局没有轨道；278 是这条边铺满第二轨所需的数量。建城节点、施工建筑、地块和库存编号与断轨修复同一种子的运行一致，本配方里这些命令全部被接受。
+
+第 1026000 步列车仍停在节点 11。此时把列车 3 的交战设为优先武装、只打武装单位、接敌、撤退结构比 0，计划改为只停节点 1，然后发车。第 1060000 步列车在节点 1 战斗中，节点 1 仍是巢穴，钱包 783,770。车辆 2 的结构耐久是 208,980／373,220，已毁部件 2；车辆 8 是 110,990／372,960，已毁部件 1。中途保存边界是 1,105,800：已经没有列车，钱包仍是 783,770，节点 1 仍是巢穴。终点 1,160,000 步同样没有列车，钱包仍是 783,770。从列车消失到终点是 54,200 步，没有清剿奖励，也没有新列车。节点 11 的玩家聚居地是进巢之前建的，失败之后没有再得到车辆或资金。边 1 上没有出现挡住进路的断轨，所以没有提交 `rail.repair`。
+
+Release 长示例在 1,105,800 步保存后恢复到终点。严格重放的样本就是上述钱包、列车和节点占据。
+
+## 受损现车交易
+
+`damaged-vehicle-trade/recipe.json` 复制撤退配方直到列车 2 停在矿镇节点 13，不提交修理。第 25000 步车辆 8 的结构耐久是 369,504／372,960，钱包 813,508。货舱里还有开战前买入的 4 件燃料；第 32000 步把这 4 件卖给聚居地 5，实收 24，货舱清空后才能解编。
+
+第 35000 步解散列车 2，并把车辆 8 卖给聚居地 5。卖出前的列车样本就是这一步的起点：耐久 369,504／372,960，钱包 813,508。卖出回执为 accepted，卖出后钱包 846,505，差额 32,997。中途保存边界是 36,000，此时玩家列车只剩列车 1，车辆 8 在买方，`resume` 才会买回。第 37000 步买回，回执 `quoted_total` 为 40,331，钱包变为 806,174。同一位置用车辆 5、6、7、8 编成列车 3。终点 38,000 步的 `trains[].vehicles` 里，车辆 8 仍是 369,504／372,960。
+
 ## 重制与长验证
 
 当前核心状态格式为 23：#332 的车辆改装、拆解使用格式 16，#342 的冻结建城任务使用格式 17，#541 的节点进出铁轨使用格式 18，#343 将施工目标改为实例并增加地块后使用格式 19，#350 增加战斗、交战规则和撤退目的地后使用格式 20，#344 增加铁路扩建与修复任务及按边自动修复来源后使用格式 21，#351 增加生物群后使用格式 22，#352 增加聚居地士气与投降后使用格式 23，命令输入和重放外壳仍为格式 2；格式 1–22 的示例存档和重放起点须重新制作，不能手工修改生成载荷。断轨修复的公开配方是 `rail-repair`。#622 已接入设置生产计划。
 
 同一份存档使用同一种构建配置制作和检查。日常测试只运行短经济命令、现车、容量和委托例子。本次车辆内容迭代中，`starting-trade` 只做 `make` 和一次正常读取；`lease-expiry` 通过 Linux runner 制作并执行长验证。长例不能放进日常集成层。
 
-[长示例脚本](../scripts/checks/run-long-example.ps1)构建一次 Release，然后并行执行三组：A 连续运行并严格重放；B 保存退出后由独立进程恢复；C 制作普通存档再从零按配方检查。保存边界为起步贸易 **432000**、租约到期 **5183999**、断轨修复 **959400**（扩建任务进行中）。`replay` 的输出作为连续基准，最后比较恢复后的完整检查点后缀，不额外运行一次 `run`。脚本创建独立运行目录，每条命令完成即保留退出码、耗时和日志，任何失败或未执行均非零退出。runner 触发与下载方法见[远端检查](../docs/run-tests.md#远端检查)。
+[长示例脚本](../scripts/checks/run-long-example.ps1)构建一次 Release，然后并行执行三组：A 连续运行并严格重放；B 保存退出后由独立进程恢复；C 制作普通存档再从零按配方检查。保存边界为起步贸易 **432000**、租约到期 **5183999**、断轨修复 **959400**（扩建任务进行中）、征服 **8000**（战斗进行中，宣战之后、占领之前）、清剿 **1043200**（巢穴战斗进行中，清空之前）、合法经营失败 **1105800**（列车已经消失，巢穴仍在）。`replay` 的输出作为连续基准，最后比较恢复后的完整检查点后缀，不额外运行一次 `run`。脚本创建独立运行目录，每条命令完成即保留退出码、耗时和日志，任何失败或未执行均非零退出。runner 触发与下载方法见[远端检查](../docs/run-tests.md#远端检查)。
 
-`basic-through`、`storage-tight`、`commission-branches`、`starting-trade` 和 `rail-repair` 的存档在 Windows 制作；`lease-expiry` 在 Linux runner 制作。`check` 在制作平台使用同种构建配置比较；Linux 重制不能验证 Windows 存档的一致性，反之亦然。基础例子的命令形式见[基础贯通](#基础贯通)，长示例使用表中 Release 配置。同机跨进程比较、保存恢复和本次录制的严格重放在两种平台都有效，不宣称跨平台确定性。
+`basic-through`、`storage-tight`、`commission-branches`、`retreat`、`damaged-vehicle-trade`、`starting-trade`、`rail-repair`、`conquest`、`clearance` 和 `operating-failure` 的存档在 Windows 制作；`lease-expiry` 在 Linux runner 制作。`check` 在制作平台使用同种构建配置比较；Linux 重制不能验证 Windows 存档的一致性，反之亦然。基础例子的命令形式见[基础贯通](#基础贯通)，长示例使用表中 Release 配置。同机跨进程比较、保存恢复和本次录制的严格重放在两种平台都有效，不宣称跨平台确定性。
 
 容量例子的普通存档用 Debug 制作，Windows 日常用例通过 `check` 对照已提交的 `storage-tight/save.json`，同时确认源文件保持不变。验收证据仍以具体构建、命令、实际耗时和日志为准；这些 CLI 检查不提供 Godot 界面、目标窗口交互或阶段 #299 四模块验收证据。

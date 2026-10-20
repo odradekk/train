@@ -180,13 +180,7 @@ public sealed partial class CliProcessTests
                   {"at":{"completed_steps":0,"sequence":5},"kind":"rail.repair","edge":3,"break":1,"material_source":6},
                   {"at":{"completed_steps":0,"sequence":6},"kind":"rail.set_automatic_repair","edge":3,"material_source":6},
                   {"at":{"completed_steps":0,"sequence":7},"kind":"rail.debug_add_break","edge":3,"track":99,"distance_meters":10},
-                  {"at":{"completed_steps":0,"sequence":8},"kind":"rail.set_automatic_repair","edge":3,"material_source":null},
-                  {"at":{"completed_steps":0,"sequence":9},"kind":"settlement.declare_war","settlement":999999},
-                  {"at":{"completed_steps":0,"sequence":10},"kind":"engagement.set_train","train":999999,
-                   "rules":{"priority":"armed_first","scope":"all","encounter":"engage","retreat_structure_ratio":0}},
-                  {"at":{"completed_steps":0,"sequence":11},"kind":"engagement.set_train","train":2,
-                   "rules":{"priority":"armed_first","scope":"all","encounter":"engage","retreat_structure_ratio":0}},
-                  {"at":{"completed_steps":0,"sequence":12},"kind":"settlement.declare_war","settlement":5}
+                  {"at":{"completed_steps":0,"sequence":8},"kind":"rail.set_automatic_repair","edge":3,"material_source":null}
                 ]
                 """, 1);
             var output = Path.Combine(directory, "railway-commands.json");
@@ -202,11 +196,7 @@ public sealed partial class CliProcessTests
                 ("rail.repair", "rejected", "object_missing", "Break"),
                 ("rail.set_automatic_repair", "rejected", "not_owned", "MaterialSource"),
                 ("rail.debug_add_break", "rejected", "invalid_state", "Break"),
-                ("rail.set_automatic_repair", "accepted", null, null),
-                ("settlement.declare_war", "rejected", "object_missing", "Settlement"),
-                ("engagement.set_train", "rejected", "object_missing", "Train"),
-                ("engagement.set_train", "accepted", null, null),
-                ("settlement.declare_war", "accepted", null, null)
+                ("rail.set_automatic_repair", "accepted", null, null)
             ];
             Assert.AreEqual(expected.Length, result.CommandReceipts.Length);
             for (var index = 0; index < expected.Length; index++)
@@ -243,18 +233,68 @@ public sealed partial class CliProcessTests
     }
 
     [TestMethod]
-    public void Combat_recipe_commands_reject_missing_invalid_and_unused_arguments()
+    public async Task Combat_recipe_commands_return_the_documented_first_receipt()
     {
-        Assert.Throws<InvalidDataException>(() => new RecipeCommand(new(0, 0), "settlement.declare_war").Validate());
-        Assert.Throws<InvalidDataException>(() => new RecipeCommand(new(0, 0), "settlement.declare_war", Settlement: 0).Validate());
-        Assert.Throws<InvalidDataException>(() => new RecipeCommand(new(0, 0), "settlement.declare_war", Train: 1, Settlement: 5).Validate());
-        Assert.Throws<InvalidDataException>(() => new RecipeCommand(new(0, 0), "engagement.set_train", Train: 2).Validate());
-        Assert.Throws<InvalidDataException>(() => new RecipeCommand(new(0, 0), "engagement.set_train", Train: 2,
-            Rules: new("armed_first", "invalid", "engage", 0)).Validate());
-        Assert.Throws<InvalidDataException>(() => new RecipeCommand(new(0, 0), "engagement.set_train", Train: 2,
-            Rules: new("armed_first", "all", "engage", 1.1)).Validate());
-        Assert.Throws<InvalidDataException>(() => new RecipeCommand(new(0, 0), "train.start", Train: 2,
-            Rules: new("armed_first", "all", "engage", 0)).Validate());
+        var directory = CreateDirectory();
+        try
+        {
+            var recipe = await WriteEconomyRecipe(directory, "combat-commands", """
+                [
+                  {"at":{"completed_steps":0,"sequence":0},"kind":"settlement.declare_war","settlement":6},
+                  {"at":{"completed_steps":0,"sequence":1},"kind":"settlement.declare_war","settlement":5},
+                  {"at":{"completed_steps":0,"sequence":2},"kind":"settlement.occupy","settlement":5,"train":999999},
+                  {"at":{"completed_steps":0,"sequence":3},"kind":"engagement.set_train","train":999999,"rules":{
+                    "priority":"armed_first","scope":"armed_only","encounter":"engage","retreat_structure_ratio":0}},
+                  {"at":{"completed_steps":0,"sequence":4},"kind":"combat.retreat","train":1},
+                  {"at":{"completed_steps":0,"sequence":5},"kind":"market.sell_vehicle","buyer":6,"vehicle":1,"minimum_receipt":0},
+                  {"at":{"completed_steps":0,"sequence":6},"kind":"construction.commission_vehicle_work","maximum_payment":0,"request":{
+                    "kind":"repair_vehicle","facility":{"building":38,"capability":"construction"},
+                    "vehicle":1,"sources":[],"priority":0}}
+                ]
+                """, 1);
+            var output = Path.Combine(directory, "combat-commands.json");
+            await Run(directory, "combat-commands", "run", Repository, recipe, output);
+            var result = await ReadEconomyOutput(output);
+            (string Kind, string Decision, string? Code, string? Field)[] expected =
+            [
+                ("settlement.declare_war", "rejected", "invalid_state", "Settlement.Node"),
+                ("settlement.declare_war", "accepted", null, null),
+                ("settlement.occupy", "rejected", "object_missing", "Train"),
+                ("engagement.set_train", "rejected", "object_missing", "Train"),
+                ("combat.retreat", "rejected", "invalid_state", "Train.Activity"),
+                ("market.sell_vehicle", "rejected", "vehicle_in_train", "Vehicle.Details.Train"),
+                ("construction.commission_vehicle_work", "rejected", "invalid_state", "Instance.Durability")
+            ];
+            Assert.AreEqual(expected.Length, result.CommandReceipts.Length);
+            for (var index = 0; index < expected.Length; index++)
+            {
+                var receipt = result.CommandReceipts[index];
+                Assert.AreEqual(index, receipt.CommandIndex);
+                Assert.AreEqual(expected[index].Kind, receipt.Kind);
+                Assert.AreEqual(expected[index].Decision, receipt.Decision);
+                if (expected[index].Code is null) Assert.IsEmpty(receipt.Problems);
+                else
+                {
+                    var problem = receipt.Problems.Single();
+                    Assert.AreEqual(expected[index].Code, problem.Code);
+                    Assert.AreEqual(expected[index].Field, problem.Field);
+                }
+            }
+            var opening = result.Samples[0];
+            var home = opening.Settlements.Single(settlement => settlement.Id == 6);
+            Assert.AreEqual("NonHostile", home.Relation);
+            Assert.IsFalse(home.Surrendered);
+            Assert.IsTrue(opening.Nodes.Any(node => node.Occupant == "lair" && node.Subject is not null));
+            var armed = opening.Trains.SelectMany(train => train.Vehicles).First(vehicle => vehicle.StructureMaximum > 0);
+            Assert.AreEqual(0, armed.DamagedParts);
+            Assert.AreEqual(0, armed.DestroyedParts);
+        }
+        catch
+        {
+            TestContext.WriteLine($"CLI 失败证据：{directory}");
+            throw;
+        }
+        Directory.Delete(directory, recursive: true);
     }
 
     private static async Task<string> WriteEconomyRecipe(string directory, string name, string commands,
