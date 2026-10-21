@@ -30,6 +30,29 @@ public partial class ProductionNodeCapture : Node
         var path = ProjectSettings.GlobalizePath($"res://.godot/validation/{input.Name}.effects.jsonl");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         using var frames = new StreamWriter(path);
+        var hitsPath = ProjectSettings.GlobalizePath($"res://.godot/validation/{input.Name}.combat-hits.jsonl");
+        using var hits = new StreamWriter(hitsPath);
+        run.Boundary += events =>
+        {
+            foreach (var envelope in events)
+            {
+                if (envelope.Event is not CoreEvent.CombatHits combat) continue;
+                hits.WriteLine(JsonSerializer.Serialize(new
+                {
+                    step = envelope.Position.CompletedSteps,
+                    seconds = envelope.Position.CompletedSteps * SimulationTime.StepSeconds,
+                    weaponHits = combat.Hits.Count(hit => hit.Source is AttackSource.Weapon),
+                    creatureHits = combat.Hits.Count(hit => hit.Source is AttackSource.Creature),
+                    sources = combat.Hits.Select(hit => hit.Source switch
+                    {
+                        AttackSource.Weapon => "weapon",
+                        AttackSource.Creature => "creature",
+                        _ => "other"
+                    })
+                }));
+                hits.Flush();
+            }
+        };
         void Observe()
         {
             if (run.World?.Display is not { DisplayedFrame: { } frame } display) return;
@@ -38,6 +61,7 @@ public partial class ProductionNodeCapture : Node
             {
                 draw = Godot.Engine.GetFramesDrawn(), position = view.Position,
                 frame = frame.Update.Frame, displaySeconds = frame.SimulationSeconds,
+                effectsSeconds = display.FlickerSeconds,
                 effects = frame.Update.Effects.Select(effect => new
                 {
                     effect.Id, kind = effect.Kind.ToString(), subject = effect.Subject?.ToString(), effect.StartedAtSimulationSeconds,

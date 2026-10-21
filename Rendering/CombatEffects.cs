@@ -14,6 +14,8 @@ internal sealed class CombatEffects : IDisposable
     internal const int SmokeCap = 8;
     const double ShotSeconds = 0.15;
     const double ImpactSeconds = 0.12;
+    // 创建帧的 Advance 先消耗一帧再首次绘制；0.12 秒保证 60 FPS 下画满 6 帧（0.10 秒）并留出淡出尾巴。
+    const double VisibleSeconds = 0.12;
     const double FragmentSeconds = 2.5;
     const double FireballSeconds = 0.4;
     const double DestructionSmokeSeconds = 3;
@@ -54,6 +56,7 @@ internal sealed class CombatEffects : IDisposable
         internal MeshInstance3D Node { get; init; } = null!;
         internal double Started { get; init; }
         internal double Lifetime { get; init; }
+        internal double? HoldStarted { get; init; }
         internal Vector3 P0 { get; set; }
         internal Vector3 Target { get; set; }
         internal Vector3 Velocity { get; init; }
@@ -142,7 +145,8 @@ internal sealed class CombatEffects : IDisposable
         for (var index = _oneShots.Count - 1; index >= 0; index--)
         {
             var shot = _oneShots[index];
-            if (Age(shot.Started) >= shot.Lifetime)
+            var held = shot.HoldStarted is { } holdStarted && _flickerSeconds - holdStarted < VisibleSeconds;
+            if (Age(shot.Started) >= shot.Lifetime && !held)
             {
                 shot.Node.Free();
                 _oneShots.RemoveAt(index);
@@ -371,7 +375,8 @@ internal sealed class CombatEffects : IDisposable
         var node = Instance(Appearance.Shot, "Shot", 1, 0, started, (float)ShotSeconds, color);
         var shot = new OneShot
         {
-            Node = node, Started = started, Lifetime = ShotSeconds, P0 = from, Target = to, Shot = true
+            Node = node, Started = started, Lifetime = ShotSeconds, P0 = from, Target = to, Shot = true,
+            HoldStarted = _flickerSeconds
         };
         _oneShots.Add(shot);
         Group("Shot").AddChild(node);
@@ -384,7 +389,8 @@ internal sealed class CombatEffects : IDisposable
         node.Scale = Vector3.One * scale;
         var shot = new OneShot
         {
-            Node = node, Started = cue.StartedAtSimulationSeconds, Lifetime = lifetime, P0 = at
+            Node = node, Started = cue.StartedAtSimulationSeconds, Lifetime = lifetime, P0 = at,
+            HoldStarted = appearance is Appearance.Flash ? _flickerSeconds : null
         };
         _oneShots.Add(shot);
         Group(name).AddChild(node);
@@ -413,6 +419,11 @@ internal sealed class CombatEffects : IDisposable
         node.SetInstanceShaderParameter("start_seconds", Relative(started));
         node.SetInstanceShaderParameter("lifetime", lifetime);
         node.SetInstanceShaderParameter("tint", tint);
+        if (appearance is Appearance.Shot or Appearance.Flash)
+        {
+            node.SetInstanceShaderParameter("hold_start", (float)_flickerSeconds);
+            node.SetInstanceShaderParameter("hold_seconds", (float)VisibleSeconds);
+        }
         return node;
     }
 

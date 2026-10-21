@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Reflection;
@@ -46,6 +47,7 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
     internal WorldSceneController? World { get; private set; }
     internal Func<TrainLogger, string, GodotMainThreadDispatcher, NotificationPolicy, HostCoordinator> CreateHost { get; set; } = HostComposition.CreateHost;
     internal Func<IScenesFactory> CreateScenes { get; set; } = HostComposition.CreateScenes;
+    internal event Action<ImmutableArray<EventEnvelope>>? Boundary;
     private string? _sceneFailure;
     private string? _saveHash;
     private string? _output;
@@ -118,6 +120,7 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         _logger = TrainLogger.StartSession(ProjectSettings.GlobalizePath("res://.godot/art-capture/logs"),
             LogLevel.Info, new GodotLogOutput());
         Host = CreateHost(_logger, OS.GetUserDataDir(), _dispatcher, new NotificationPolicy());
+        Host.BoundaryCompleted += (_, _, _, events) => Boundary?.Invoke(events);
         var restored = Host.BeginRestore(document.CorePayload, document.ContentPayload, Host.SessionOptions!);
         if (restored.Problem is { } problem) throw new InvalidDataException($"恢复失败：{problem.Code}");
         await WaitAsync(() => !Host.IsBusy, () => { _dispatcher.Pump(); Host.ProcessFrame(0); });
@@ -174,7 +177,7 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
             (_input!.Target is WorldObjectId.Train || frame.SimulationSeconds + 1e-9 >=
                 Math.Max(0, (double)Host!.GetStatus()!.View.Position.CompletedSteps - 1) * SimulationTime.StepSeconds) &&
             (!includeCamera || CaptureAreaReady(frame)),
-        () => World!.ProcessFrame(0, false));
+        () => World!.ProcessFrame(0, false, SimulationTime.StepSeconds));
 
     internal async Task PrepareSubjectCameraAsync(float farDistance)
     {
@@ -350,7 +353,8 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
             _input.Target is WorldObjectId.Train ? null : display.PoseFrame?.SimulationSeconds,
             _input.Target is WorldObjectId.Train ? null : display.Objects.Values
                 .Where(item => item.Source.Parent is null && _subjects.Contains(item.Source.Subject))
-                .ToDictionary(item => item.Source.Subject!.ToString()!, item => Matrix(item.Root.GlobalTransform))));
+                .ToDictionary(item => item.Source.Subject!.ToString()!, item => Matrix(item.Root.GlobalTransform)),
+            display.FlickerSeconds));
     }
 
     private static float[] Matrix(Transform3D value) =>
@@ -370,4 +374,5 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
 internal sealed record CaptureImage(string File, SimulationPosition Position, double DisplaySeconds,
     string Lighting, float[] CameraTransform, float[] Focus, string[]? VisibleSubjects = null,
     string[]? EffectKinds = null,
-    SceneFrameStamp? DisplayFrame = null, double? PoseSeconds = null, Dictionary<string, float[]>? SubjectTransforms = null);
+    SceneFrameStamp? DisplayFrame = null, double? PoseSeconds = null, Dictionary<string, float[]>? SubjectTransforms = null,
+    double EffectsSeconds = 0);
