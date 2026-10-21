@@ -184,6 +184,27 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 | `route-frames.jsonl`、`route-ranges.jsonl`、`route-analysis.json` | 整路逐帧轨迹、范围变化及离线覆盖结果；不能把未知或观察不足当作通过 |
 | `measured.save.json`、截图 | 对应情景生成的存档副本或画面 |
 
+### 内容加载与设计求值成本
+
+`Tools/Cli` 的 `measure-content` 用真实 Core／Content 工厂、磁盘内容端口和纯 .NET 资产检查器测量正式包 `builtin/core` 的内容成本，不经过 Godot。每组用一个新的 Release 进程运行，进程峰值只对应该组：
+
+```powershell
+dotnet build Tools/Cli/Train.Cli.csproj -c Release
+foreach ($group in 'load', 'evaluate', 'history', 'capture', 'restore') {
+    dotnet Tools/Cli/bin/Release/net10.0/Train.Cli.dll measure-content . examples/starting-trade/save.json "TestResults/content-cost/$group.json" $group
+}
+```
+
+| 组 | 操作 |
+| --- | --- |
+| `load` | `Discover`、`PrepareLoad(Initial)`；初始视图的驻留内存 |
+| `evaluate` | `EvaluateDesign`：`titan-armed-vehicle`、`core-city-hub`、`bastion-fortress` |
+| `history` | 初始视图与恢复视图的驻留内存；无变化重载；4 次有效重载（只在内存中改一份体素的显示名）和 4 次草稿保存，每次之后的历史驻留增量 |
+| `capture` | `Capture`、`Encode`、`DecodeCapture`；1 个、草稿保存后 5 个和有效重载后 5 个历史视图的 `CaptureReplay` 与 `Encode` |
+| `restore` | `DecodeState`（核心，单独计时，不计入内容成本）、`DecodeCapture`、`PrepareLoad(Restore)`；上述三种复现载荷的 `DecodeReplay` |
+
+单项操作先运行一次记为冷启动，再运行 5 次热运行；每次运行前强制 GC。JSON 记录每次运行的耗时、分配字节、GC 次数，加载类操作另记文件读取和资产检查的耗时，载荷记录 UTF-8 字节、SHA-256 和各段大小。另记强制 GC 后的驻留增量、进程峰值工作集和峰值私有提交量，以及构建提交、输入文件的数量、字节和 SHA-256、运行时与 GC 模式。工具不写阈值或达标判断，也不采集外部负载；同机负载由测量人在每批前后另行记录。任何诊断错误或异常都使命令返回非零，且不留下结果文件。
+
 ## 阶段检查与候选基准
 
 `stage` 在所有平台始终运行 structure、verify、Core/Content/Scenes/Godot 隔离重建、两项生产 Core 确定性用例和独立 Release Benchmark。确定性用例通过生产命令日志与回放接口，在新进程逐检查点比较回放，以及每步写盘、读盘、恢复后与连续运行比较。它们属于阶段层，快速层和集成层不包含这些用例。
