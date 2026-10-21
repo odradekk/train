@@ -178,6 +178,9 @@
     "completed_steps": 18000,
     "sequence": 0
   },
+  "checkpoint_steps": [
+    17000
+  ],
   "expectations": [
     {
       "at": 18000,
