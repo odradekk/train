@@ -91,7 +91,7 @@ public partial class WorldPanels : Control
     internal void OpenList(WorldListKind kind)
     {
         if (_view is null) return;
-        if (_lists.TryGetValue(kind, out var existing)) { existing.Panel.Show(); existing.Panel.MoveToFront(); return; }
+        if (_lists.TryGetValue(kind, out var existing)) { existing.Panel.Show(); UiStyle.BringToFront(existing.Panel); return; }
         PanelContainer panel = null!;
         var title = kind switch { WorldListKind.Nodes => "节点", WorldListKind.Edges => "线路", _ => "车队" };
         panel = UiStyle.Panel(this, kind + "List", title, new(24, 68), 360, () => panel.Hide(), out var body);
@@ -131,7 +131,7 @@ public partial class WorldPanels : Control
     {
         var bound = new PanelTarget(_binding, _content.Generation, target);
         var existing = _details.FirstOrDefault(detail => detail.Target == bound);
-        if (existing is not null) { existing.Panel.Show(); existing.Panel.MoveToFront(); return; }
+        if (existing is not null) { existing.Panel.Show(); UiStyle.BringToFront(existing.Panel); return; }
         PanelContainer panel = null!;
         panel = UiStyle.Panel(this, "Details", NameOf(target), new(408, 68), 420,
             () => { _details.RemoveAll(detail => detail.Panel == panel); panel.QueueFree(); }, out var body);

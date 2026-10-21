@@ -71,7 +71,7 @@ internal partial class TrainFormationPanel : Control
                 _candidates.Add((id.Id, text)); _available.AddItem(text);
             }
         }
-        MoveToFront(); Show(); Refresh(target.Binding, view, content);
+        Show(); UiStyle.BringToFront(this); Refresh(target.Binding, view, content);
     }
 
     private void AddSelected()

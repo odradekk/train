@@ -264,12 +264,19 @@ public class UiTests(Node testScene) : TestClass(testScene)
             var exposed = new Vector2((upper.End.X + lower.End.X) / 2, lower.End.Y - 20);
             Require(lower.HasPoint(exposed) && !upper.HasPoint(exposed), $"通知记录没有露出可点击的部分：{lower} / {upper}。");
             await _input.Click(exposed);
+            var toasts = (Control)ui.FindChild("Toasts", true, false);
             Require(Above(notices, fleet), "点击下层的通知记录没有把它移到最前。");
+            Require(Above(toasts, notices) && Above(toasts, fleet), "置前的业务面板盖住了通知提示。");
+            await _input.Activate(bar.GetNode<Button>("Fleet"));
+            Require(Above(fleet, notices) && Above(toasts, fleet), "被盖住的车队列表再点顶栏按钮没有到最前，或盖住了通知提示。");
+            await _input.Activate(bar.GetNode<Button>("Notices"));
+            Require(Above(notices, fleet), "被盖住的通知记录再点顶栏「通知」没有到最前。");
             await _input.Activate(bar.GetNode<Button>("Settings"));
             await _input.Click(exposed);
             var settings = (Control)ui.GetNode("Root/SettingsPanel").FindChild("Settings", true, false);
             var minimap = ui.World.GetChildren().OfType<NodeMinimap>().Single();
-            Require(Above(settings, notices) && Above(settings, fleet), "业务面板盖过了设置。");
+            Require(Above(settings, notices) && Above(settings, fleet) && Above(settings, toasts) &&
+                Above(ui.GetNode("Root/ErrorPanel"), toasts), "业务面板或通知提示盖过了设置或错误界面。");
             Require(Above(notices, minimap) && Above(fleet, minimap), "业务面板移到了节点小地图之下。");
             setup.Session.AssertComplete();
         }

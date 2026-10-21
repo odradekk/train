@@ -203,7 +203,8 @@ public partial class GameUi : CanvasLayer
             _combat = new CombatPanel { Name = "CombatPanel" };
             _combat.Initialize(Submit, ReportUiError);
             _world.AddChild(_combat);
-            _notices = new NotificationPanel { Name = "NotificationPanel" };
+            // 提示放在地图层之后的 Root 中：业务面板置前时不会盖住它，之后加入 Root 的设置、错误等界面仍在它之上。
+            _notices = new NotificationPanel { Name = "NotificationPanel", ToastParent = _root };
             _notices.Chosen += OpenNotice;
             _world.AddChild(_notices);
             _bar.AddChild(UiStyle.Button("Combats", "战斗", () => _combat.Open()));

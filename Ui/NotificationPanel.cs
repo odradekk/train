@@ -69,10 +69,12 @@ public partial class NotificationPanel : Control
         _toasts.Add(new(panel, 6));
     }
 
+    internal Control? ToastParent { get; init; }
+
     internal void ShowLog()
     {
         _log.Show();
-        _log.MoveToFront();
+        UiStyle.BringToFront(_log);
     }
 
     public override void _Ready()
@@ -81,7 +83,7 @@ public partial class NotificationPanel : Control
         MouseFilter = MouseFilterEnum.Ignore;
         _toastsBox = new VBoxContainer { Name = "Toasts", MouseFilter = MouseFilterEnum.Ignore };
         _toastsBox.AddThemeConstantOverride("separation", 8);
-        AddChild(_toastsBox);
+        (ToastParent ?? this).AddChild(_toastsBox);
         _infoIcon = GD.Load<Texture2D>("res://Ui/Symbols/notification-info.png");
         _completeIcon = GD.Load<Texture2D>("res://Ui/Symbols/notification-complete.png");
         _warningIcon = GD.Load<Texture2D>("res://Ui/Symbols/warning.png");
@@ -100,6 +102,7 @@ public partial class NotificationPanel : Control
     public override void _Process(double delta)
     {
         // 提示按真实时间消失，不跟模拟步。
+        _toastsBox.Visible = IsVisibleInTree();
         _toastsBox.Position = new(Math.Max(8, Size.X - 480), 68);
         for (var index = _toasts.Count - 1; index >= 0; index--)
         {
