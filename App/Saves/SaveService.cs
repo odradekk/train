@@ -43,6 +43,7 @@ internal sealed class SaveService : IDisposable
 
     internal event Action? Changed;
     internal SaveStatus? Status => _host.GetSaveStatus();
+    internal bool IsReplay => _host.GetStatus() is { IsReplay: true };
     internal ImmutableArray<(string Kind, string Path)> PendingWrites =>
         _writes.Select(write => (write.Kind.ToString(), write.Path)).ToImmutableArray();
     internal string? LastMessage { get; private set; }

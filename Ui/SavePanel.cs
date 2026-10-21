@@ -136,7 +136,7 @@ public partial class SavePanel : Window
         if (_service is null) return;
         var status = _service.Status;
         _current.Visible = status is not null;
-        _status.Text = status is null ? "当前没有活动会话" :
+        _status.Text = status is null ? _service.IsReplay ? "只读重放中，不能存档" : "当前没有活动会话" :
             $"{status.Identity.Name} · {status.Identity.Id} · {(status.Unsaved ? "未保存" : "已保存")}" +
             (status.Frozen ? "（核心已冻结，不能保存）" : "");
         foreach (var button in _operations) button.Disabled = _service.IsBusy;
