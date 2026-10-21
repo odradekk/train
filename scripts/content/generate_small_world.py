@@ -234,16 +234,22 @@ RECOVERY = (
     ("cannon", ("structural-metal", "mechanical-components")),
 )
 TEMPLATE_PLANS = {
-    "agricultural-town": ((6, "production", "grain-farming", True), (7, "production", "staple-food-processing", True)),
+    "agricultural-town": ((6, "production", "grain-farming", True), (7, "production", "staple-food-processing", True),
+                          (8, "production", "fiber-farming", True)),
     "mining-town": ((6, "extraction", "stone-quarrying", True), (7, "production", "structural-metal-smelting", True),
                     (8, "production", "construction-material-processing", True),
-                    (9, "production", "rail-making", True)),
-    "forestry-town": ((6, "extraction", "timber-harvesting", True), (7, "production", "lumber-processing", True)),
+                    (9, "production", "rail-making", True),
+                    (11, "extraction", "ferrous-mining", True), (12, "extraction", "coal-mining", True)),
+    "forestry-town": ((6, "extraction", "timber-harvesting", True), (7, "production", "lumber-processing", True),
+                      (8, "production", "textile-making", True), (9, "production", "clothing-making", True)),
     "oilfield-town": ((6, "extraction", "crude-oil-extraction", True), (7, "production", "oil-refining", True)),
     "industrial-city": ((6, "production", "electrical-components-assembly", True),
                         (7, "production", "electronic-components-assembly", True),
                         (8, "production", "recover-electronic-components", False)),
 }
+# 城市电子投入没有 NPC 产地，由玩家建自有生产链后供货，把建设循环接到城市工业上。
+PLAYER_SUPPLIED_INPUTS = frozenset(("conductive-metal", "glass", "polymer", "specialty-material"))
+PROCESS_NAMES = {"oil-refining": "炼油", "coal-fuel-production": "煤制燃料"}
 
 
 def process_definitions():
@@ -1313,9 +1319,10 @@ def settlement_ground(identity, name, plots, flatten):
     def fill(voxel, xs, ys, zs):
         cells.update({(x, y, z): palette.index(voxel) for x in xs for y in ys for z in zs})
 
-    core = identity == "core-city"
-    front = 580 if core else 340
-    for z in (-112, 96, 336) + ((576,) if core else ()):
+    # 第四行起的地块需要再铺一条横路，竖路随之延长。
+    deep = max(plot["at"][2] for plot in plots) > 448
+    front = 580 if deep else 340
+    for z in (-112, 96, 336) + ((576,) if deep else ()):
         fill("concrete", range(-228, 228), (0,), range(z, z + 4))
     for x in (-114, 110):
         fill("concrete", range(x, x + 4), (0,), range(-112, front))
@@ -1377,7 +1384,7 @@ def settlement_ground(identity, name, plots, flatten):
 
     lamps = [(-108, -104), (108, -104), (-216, -104), (216, -104),
              (-108, 88), (108, 88), (-108, 328), (108, 328)]
-    if core:
+    if deep:
         lamps.extend([(-108, 568), (108, 568)])
     for x, z in lamps:
         fill("concrete", (x,), range(1, 8), (z,))
@@ -1729,7 +1736,7 @@ def content_files():
         name = voxel_definitions[item["voxel"]]["display"]["name"]
         document("processes", "process", identity,
                  {"schema_version": 1, "id": identity, "simulation": simulation,
-                  "display": {"name": operation + name,
+                  "display": {"name": PROCESS_NAMES.get(identity, operation + name),
                               "description": "正式经济流程；批量、价值与速率为待用户试玩确认的第一版。"}})
 
     # 吊机是独立货物；建筑只引用它，不手写汇总施工能力。
@@ -1748,10 +1755,12 @@ def content_files():
                   for identity, definition in blueprint_definitions.items() if definition["category"] == "building"}
 
     settlements = (
-        ("agricultural-town", "农业镇", ("plains", "hills"), ("farm", "food-factory")),
+        ("agricultural-town", "农业镇", ("plains", "hills"), ("farm", "food-factory", "farm")),
         ("mining-town", "矿业镇", ("mountains", "hills"),
-         ("extraction-site", "metallurgy-factory", "building-materials-factory", "metallurgy-factory")),
-        ("forestry-town", "林业镇", ("forest",), ("extraction-site", "light-industry-factory")),
+         ("extraction-site", "metallurgy-factory", "building-materials-factory", "metallurgy-factory",
+          "extraction-site", "extraction-site")),
+        ("forestry-town", "林业镇", ("forest",),
+         ("extraction-site", "light-industry-factory", "light-industry-factory", "light-industry-factory")),
         ("oilfield-town", "油田镇", ("desert",), ("extraction-site", "chemical-factory")),
         ("industrial-city", "工业城", ("plains",), ("assembly-factory", "electronics-factory", "recovery-factory", "heavy-vehicle-factory")),
     )
@@ -1762,19 +1771,28 @@ def content_files():
                                  "population_min": 120, "population_max": 360},
                   "display": {"name": name, "description": "按 Demo 目录选择偏好地貌；经济参数待用户试玩确认。",
                               "map_symbol": "symbol.png", "major": identity == "industrial-city"}})
+        # 工业城的二号站点地块用大站点尺寸：左缘不动；向外让出进深，使最内侧站线与一号站点共用，
+        # 城镇一侧的站线、道路和地块都保持原位。
+        large_station = identity == "industrial-city"
+        second_station = ({"id": 2, "size": plot_sizes["large-station"], "at": [136, 1, -296], "orientation": "px_py"}
+                          if large_station else
+                          {"id": 2, "size": plot_sizes["small-station"], "at": [104, 1, -176], "orientation": "px_py"})
         plots = [{"id": 1, "size": plot_sizes["small-station"], "at": [-104, 1, -176], "orientation": "px_py", "building": "small-station"},
-                 {"id": 2, "size": plot_sizes["small-station"], "at": [104, 1, -176], "orientation": "px_py"}]
-        prebuilt = ("vehicle-workshop", "small-warehouse", "power-station") + major_buildings
-        # 各行列间隔足以容纳旋转后的大地块；第十地块留给建城工棚。
-        positions = ((-224, 0), (0, 0), (224, 0), (-224, 224), (0, 224), (224, 224), (-224, 448), (0, 448))
-        for index, (x, z) in enumerate(positions):
-            plot = {"id": index + 3, "size": plot_sizes[prebuilt[index]] if index < len(prebuilt) else "small",
-                    "at": [x, 1, z], "orientation": "px_py"}
-            if index < len(prebuilt):
-                plot["building"] = prebuilt[index]
+                 second_station]
+        # 矿业镇的六条计划超出小仓库的储备规模，改用大仓库。
+        warehouse = "large-warehouse" if identity == "mining-town" else "small-warehouse"
+        prebuilt = ("vehicle-workshop", warehouse, "power-station") + major_buildings
+        # 各行列间隔足以容纳旋转后的大地块；第十地块留给建城工棚，更多预建建筑接在它后面。
+        buildings = (prebuilt + (None,) * 7)[:7] + (None,) + prebuilt[7:]
+        positions = ((-224, 0), (0, 0), (224, 0), (-224, 224), (0, 224), (224, 224), (-224, 448), (0, 448), (224, 448), (-224, 672))
+        for index, building in enumerate(buildings):
+            x, z = positions[index]
+            plot = {"id": index + 3, "size": plot_sizes[building] if building else "small", "at": [x, 1, z], "orientation": "px_py"}
+            if building:
+                plot["building"] = building
             plots.append(plot)
-        document("blueprints", "blueprint", identity + "-ground",
-                 settlement_ground(identity, name, plots, {"from": [-328, -232], "to": [327, 551], "height": 1}))
+        ground = {"from": [-328, -400 if large_station else -232], "to": [327, positions[len(buildings) - 1][1] + 103], "height": 1}
+        document("blueprints", "blueprint", identity + "-ground", settlement_ground(identity, name, plots, ground))
         document("settlement-templates", "settlement-template", identity,
                  {"schema_version": 2, "id": identity, "settlement_type": identity, "weight": 3,
                   "scene_model": identity + "-ground", "plots": plots,
@@ -1783,10 +1801,10 @@ def content_files():
                   "production_plans": [{"plot": plot, "capability": capability, "process": process,
                                         "enabled": enabled, "priority": INITIAL_PLAN_PRIORITY}
                                        for plot, capability, process, enabled in TEMPLATE_PLANS[identity]],
-                  "display": {"name": name + "经济布局", "description":
-                              ("十地块布局，地块 9 为第二座冶金厂并启用炼轨；含两个站点地块与真实生产计划；普通库存与现车由核心按生成配置初始化。"
-                               if identity == "mining-town" else
-                               "十地块布局，含两个站点地块与真实生产计划；普通库存与现车由核心按生成配置初始化。")}})
+                  "display": {"name": name + "经济布局", "description": {
+                      "mining-town": "十二地块布局，地块 9 为第二座冶金厂并启用炼轨，地块 11、12 开采铁矿石和煤；",
+                      "industrial-city": "十地块布局，地块 2 为空的大站点地块；"}.get(identity, "十地块布局，")
+                      + "含两个站点地块与真实生产计划；普通库存与现车由核心按生成配置初始化。"}})
 
     city = json.loads(files["settlement-templates/industrial-city.settlement-template.json"])
     city.update(id="core-city", scene_model="core-city-ground")
@@ -1794,10 +1812,10 @@ def content_files():
         {"id": 11, "size": plot_sizes["core-city-hub"], "at": [-224, 1, 800], "orientation": "px_py", "building": "core-city-hub"},
         {"id": 12, "size": plot_sizes["bastion-fortress"], "at": [224, 1, 800], "orientation": "px_py", "building": "bastion-fortress"},
     ])
-    city["display"] = {"name": "核心城市", "description": "工业城的十二地块布局；核心城市中枢提供仓储，棱堡要塞在保留仓储的同时于角堡和门楼装有武器，并预建重型车辆工厂与原有工业和公共设施。"}
+    city["display"] = {"name": "核心城市", "description": "工业城的十二地块布局，地块 2 为空的大站点地块；核心城市中枢提供仓储，棱堡要塞在保留仓储的同时于角堡和门楼装有武器，并预建重型车辆工厂与原有工业和公共设施。"}
     document("settlement-templates", "settlement-template", "core-city", city)
     document("blueprints", "blueprint", "core-city-ground",
-             settlement_ground("core-city", "核心城市", city["plots"], {"from": [-432, -232], "to": [431, 999], "height": 1}))
+             settlement_ground("core-city", "核心城市", city["plots"], {"from": [-432, -400], "to": [431, 999], "height": 1}))
 
     def blueprint_behaviors(blueprint_id, capability):
         definition = blueprint_definitions[blueprint_id.removeprefix("core:")]
@@ -1856,11 +1874,13 @@ def content_files():
             lines += len(entries) + (process["power_per_work"] > 0)
         fuel_units = ceil(demand * reserve_seconds / fuel["fuel_energy"])
         warehouse_budgets.append(ceil(living + material_units + fuel_units) + lines * BATCH_UNITS)
+    for (template, _, _), budget in zip(template_estimates, warehouse_budgets):
+        capacity = sum(behavior["capacity"] for plot in template["plots"] if "building" in plot
+                       for behavior in blueprint_behaviors(plot["building"], "storage"))
+        if capacity < ceil(budget * WAREHOUSE_HEADROOM):
+            raise ValueError(f"{template['id']}: prebuilt storage capacity {capacity} is below budget {ceil(budget * WAREHOUSE_HEADROOM)}")
     small_capacity = sum(behavior["capacity"] for behavior in blueprint_behaviors("small-warehouse", "storage"))
     large_capacity = sum(behavior["capacity"] for behavior in blueprint_behaviors("large-warehouse", "storage"))
-    required_capacity = ceil(max(warehouse_budgets) * WAREHOUSE_HEADROOM)
-    if small_capacity < required_capacity:
-        raise ValueError(f"small-warehouse: authored storage capacity {small_capacity} is below budget {required_capacity}")
     if large_capacity < small_capacity * LARGE_WAREHOUSE_FACTOR:
         raise ValueError(f"large-warehouse: authored storage capacity {large_capacity} is below {LARGE_WAREHOUSE_FACTOR} small warehouses")
 
@@ -1944,8 +1964,8 @@ def content_files():
               "minimum_moisture": dry, "maximum_moisture": wet, "maximum_relief": relief,
               "detour_multiplier": detour, "maximum_tracks": tracks}
              for terrain, low, high, dry, wet, relief, detour, tracks in (
-                 ("plains", 0, 18, 0.2, 0.75, 1.4, 1.12, 2),
-                 ("hills", 0, 18, 0, 1, sys.float_info.max, 1.40, 2),
+                 ("plains", 0, 18, 0.2, 0.75, 1.4, 1.12, 3),
+                 ("hills", 0, 18, 0, 1, sys.float_info.max, 1.40, 3),
                  ("forest", 0, 18, 0.65, 1, 18, 1.25, 2),
                  ("desert", 0, 18, 0, 0.2, 19, 1.25, 2),
                  ("mountains", 11, 18, 0, 1, 20, 1.65, 1),
@@ -1968,7 +1988,7 @@ def content_files():
     initial_money = ceil(START_BUDGET_MULTIPLIER * (cargo_capacity * max(values[good] for good, _, _ in goods) + freight_base_value))
     document("generation-profiles", "generation-profile", "basic-through-world", {
         "schema_version": 2, "id": "basic-through-world",
-        "display": {"name": "经济运输验证世界", "description": "真实货物、流程和六份模板计划；两列小型车队、十一种车辆、3 种生物、2 类生物聚落与 NPC 现车已接入。数值待试玩，起始资金的委托可负担性待 #387 验证。"},
+        "display": {"name": "经济运输验证世界", "description": "真实货物、流程和六份模板计划；两列小型车队、十一种车辆、3 种生物、2 类生物聚落与 NPC 现车已接入。数值待试玩。"},
         "configuration": {"width_meters": 1800, "height_meters": 1200, "minimum_node_spacing_meters": 300,
             "candidate_probability": 0.9, "elevation_noise": [{"scale_meters": 780, "amplitude": 14}, {"scale_meters": 260, "amplitude": 4}],
             "moisture_noise": [{"scale_meters": 600, "amplitude": 1}], "river_noise": [{"scale_meters": 900, "amplitude": 1}],
@@ -1978,7 +1998,7 @@ def content_files():
             "lair_weights": [{"type": identity, "weight": weight}
                              for identity, _, _, weight, *_ in LAIR_PROFILES],
             "resources": resources,
-            "initial_railway": {"maximum_tracks": 2, "minimum_initial_tracks": 1, "maximum_initial_tracks": 2, "additional_cycle_edges": 1},
+            "initial_railway": {"maximum_tracks": 3, "minimum_initial_tracks": 1, "maximum_initial_tracks": 2, "additional_cycle_edges": 1},
             "budget": {"maximum_stage_retries": 4, "maximum_world_retries": 4, "maximum_candidates": 50000, "maximum_search_work": 4000000},
             "npc_initialization": {"fill_inputs_and_living_targets": NPC_FILL_INPUTS_AND_LIVING_TARGETS,
                                    "output_reserve_hours": PRODUCTION_RESERVE_HOURS,
@@ -2051,7 +2071,7 @@ def main():
             return 1
         check_schemas(files | {path: (resources / path).read_bytes()
                                for path in AUTHORED_FILES if path.endswith(".json")})
-        result = subprocess.run([sys.executable, str(ROOT / "scripts/content/check_economy.py"), str(args.output_dir)])
+        result = subprocess.run([sys.executable, "-B", str(ROOT / "scripts/content/check_economy.py"), str(args.output_dir)])
         if result.returncode:
             return result.returncode
     else:
