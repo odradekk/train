@@ -14,10 +14,8 @@
         "completed_steps": 0,
         "sequence": 0
       },
-      "kind": "market.buy_vehicle",
-      "seller": 6,
-      "vehicle": 16,
-      "maximum_payment": 9223372036854775807
+      "kind": "train.disband",
+      "train": 1
     },
     {
       "at": {
@@ -25,20 +23,12 @@
         "sequence": 1
       },
       "kind": "train.disband",
-      "train": 1
-    },
-    {
-      "at": {
-        "completed_steps": 0,
-        "sequence": 2
-      },
-      "kind": "train.disband",
       "train": 2
     },
     {
       "at": {
         "completed_steps": 0,
-        "sequence": 3
+        "sequence": 2
       },
       "kind": "train.form",
       "ordered_vehicles": [
@@ -49,14 +39,13 @@
         6,
         7,
         8,
-        16,
         5
       ]
     },
     {
       "at": {
         "completed_steps": 0,
-        "sequence": 4
+        "sequence": 3
       },
       "kind": "train.replace_run_plan",
       "train": 3,
@@ -143,7 +132,7 @@
     {
       "at": {
         "completed_steps": 0,
-        "sequence": 5
+        "sequence": 4
       },
       "kind": "train.start",
       "train": 3
@@ -359,13 +348,37 @@
       },
       "kind": "train.start",
       "train": 3
+    },
+    {
+      "at": {
+        "completed_steps": 1050000,
+        "sequence": 0
+      },
+      "kind": "combat.retreat",
+      "train": 3,
+      "expected_decision": "rejected"
+    },
+    {
+      "at": {
+        "completed_steps": 1050000,
+        "sequence": 1
+      },
+      "kind": "engagement.set_train",
+      "train": 3,
+      "rules": {
+        "priority": "armed_first",
+        "scope": "armed_only",
+        "encounter": "engage",
+        "retreat_structure_ratio": 0
+      },
+      "expected_decision": "accepted"
     }
   ],
   "checkpoint_steps": [
     1043200
   ],
   "target": {
-    "completed_steps": 1045000,
+    "completed_steps": 1060000,
     "sequence": 0
   }
 }

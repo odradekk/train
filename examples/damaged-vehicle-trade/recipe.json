@@ -4,13 +4,16 @@
   "seed": 40,
   "generator_version": "stage1-world-v1",
   "save": {
-    "id": "223bc2f7-c39f-4572-bcbb-6c81c79f234f",
+    "id": "b22c7977-b56a-406a-94c0-fe302015a91d",
     "name": "受损现车交易",
     "saved_at": "2026-10-20T00:00:00Z"
   },
   "commands": [
     {
-      "at": { "completed_steps": 0, "sequence": 0 },
+      "at": {
+        "completed_steps": 0,
+        "sequence": 0
+      },
       "kind": "train.replace_run_plan",
       "train": 2,
       "plan": {
@@ -20,39 +23,158 @@
             "kind": "station",
             "node": 12,
             "dwell_steps": 1500,
+            "goods_rules": []
+          }
+        ]
+      }
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 1
+      },
+      "kind": "train.start",
+      "train": 2
+    },
+    {
+      "at": {
+        "completed_steps": 7500,
+        "sequence": 0
+      },
+      "kind": "train.disband",
+      "train": 2
+    },
+    {
+      "at": {
+        "completed_steps": 7500,
+        "sequence": 1
+      },
+      "kind": "market.sell_vehicle",
+      "buyer": 4,
+      "vehicle": 8,
+      "minimum_receipt": 0
+    },
+    {
+      "at": {
+        "completed_steps": 7500,
+        "sequence": 2
+      },
+      "kind": "train.form",
+      "ordered_vehicles": [
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "at": {
+        "completed_steps": 7500,
+        "sequence": 3
+      },
+      "kind": "engagement.set_train",
+      "train": 3,
+      "rules": {
+        "priority": "armed_first",
+        "scope": "all",
+        "encounter": "engage",
+        "retreat_structure_ratio": 0
+      }
+    },
+    {
+      "at": {
+        "completed_steps": 7500,
+        "sequence": 4
+      },
+      "kind": "train.replace_run_plan",
+      "train": 3,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 12,
+            "dwell_steps": 1500,
             "goods_rules": [
               {
-                "action": { "kind": "buy", "maximum_unit_price": null },
-                "good": { "kind": "voxel", "definition": "core:fuel" },
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:fuel"
+                },
                 "local_inventory": 4,
                 "target_quantity": 4
               }
             ]
           },
-          { "kind": "waypoint", "node": 13 },
-          { "kind": "station", "node": 12, "dwell_steps": 80000, "goods_rules": [] }
+          {
+            "kind": "waypoint",
+            "node": 14
+          }
         ]
       }
     },
     {
-      "at": { "completed_steps": 0, "sequence": 1 },
+      "at": {
+        "completed_steps": 7500,
+        "sequence": 5
+      },
       "kind": "train.start",
-      "train": 2
+      "train": 3
     },
     {
-      "at": { "completed_steps": 9000, "sequence": 0 },
+      "at": {
+        "completed_steps": 11000,
+        "sequence": 0
+      },
       "kind": "settlement.declare_war",
       "settlement": 4
     },
     {
-      "at": { "completed_steps": 18000, "sequence": 0 },
-      "kind": "combat.retreat",
-      "train": 2
+      "at": {
+        "completed_steps": 16000,
+        "sequence": 0
+      },
+      "kind": "train.replace_run_plan",
+      "train": 3,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 12,
+            "dwell_steps": 30000,
+            "goods_rules": []
+          }
+        ]
+      }
     },
     {
-      "at": { "completed_steps": 32000, "sequence": 0 },
+      "at": {
+        "completed_steps": 16000,
+        "sequence": 1
+      },
+      "kind": "train.start",
+      "train": 3
+    },
+    {
+      "at": {
+        "completed_steps": 26000,
+        "sequence": 0
+      },
+      "kind": "combat.retreat",
+      "train": 3,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 36000,
+        "sequence": 0
+      },
       "kind": "train.replace_run_plan",
-      "train": 2,
+      "train": 3,
       "plan": {
         "loop": false,
         "stops": [
@@ -62,8 +184,14 @@
             "dwell_steps": 2000,
             "goods_rules": [
               {
-                "action": { "kind": "sell", "minimum_unit_price": null },
-                "good": { "kind": "voxel", "definition": "core:fuel" },
+                "action": {
+                  "kind": "sell",
+                  "minimum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:fuel"
+                },
                 "local_inventory": 5,
                 "target_quantity": 0
               }
@@ -73,35 +201,61 @@
       }
     },
     {
-      "at": { "completed_steps": 32000, "sequence": 1 },
+      "at": {
+        "completed_steps": 36000,
+        "sequence": 1
+      },
       "kind": "train.start",
-      "train": 2
+      "train": 3
     },
     {
-      "at": { "completed_steps": 35000, "sequence": 0 },
+      "at": {
+        "completed_steps": 37000,
+        "sequence": 0
+      },
       "kind": "train.disband",
-      "train": 2
+      "train": 3
     },
     {
-      "at": { "completed_steps": 35000, "sequence": 1 },
+      "at": {
+        "completed_steps": 37000,
+        "sequence": 1
+      },
       "kind": "market.sell_vehicle",
       "buyer": 5,
-      "vehicle": 8,
-      "minimum_receipt": 0
+      "vehicle": 5,
+      "minimum_receipt": 0,
+      "expected_decision": "accepted"
     },
     {
-      "at": { "completed_steps": 37000, "sequence": 0 },
+      "at": {
+        "completed_steps": 39000,
+        "sequence": 0
+      },
       "kind": "market.buy_vehicle",
       "seller": 5,
-      "vehicle": 8,
-      "maximum_payment": 9223372036854775807
+      "vehicle": 5,
+      "maximum_payment": 34286,
+      "expected_decision": "accepted"
     },
     {
-      "at": { "completed_steps": 37000, "sequence": 1 },
+      "at": {
+        "completed_steps": 39000,
+        "sequence": 1
+      },
       "kind": "train.form",
-      "ordered_vehicles": [5, 6, 7, 8]
+      "ordered_vehicles": [
+        5,
+        6,
+        7
+      ]
     }
   ],
-  "target": { "completed_steps": 38000, "sequence": 0 },
-  "checkpoint_steps": [36000]
+  "checkpoint_steps": [
+    38000
+  ],
+  "target": {
+    "completed_steps": 40000,
+    "sequence": 0
+  }
 }
