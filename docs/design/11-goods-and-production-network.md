@@ -195,7 +195,7 @@ Cannon                 → Structural Metal + Mechanical Components
 
 ## Demo 范围
 
-上表除 Future Product Families 占位外的货物（含武器）、5 种 Primary Production、Forward Production DAG 与首批 Recovery Skeleton、Paint 作为 Presentation Override。本文冻结结构与语义，不冻结配方数量；范围归属见 [10](10-resources-and-extraction.md)。
+上表除 Future Product Families 占位外的货物（含武器）、4 种 Primary Production、Forward Production DAG 与首批 Recovery Skeleton、Paint 作为 Presentation Override。本文冻结结构与语义，不冻结配方数量；范围归属见 [10](10-resources-and-extraction.md)。
 
 ## Demo 之后
 

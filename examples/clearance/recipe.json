@@ -284,10 +284,10 @@
       "request": {
         "kind": "build_building",
         "facility": {
-          "building": 44,
+          "building": 51,
           "capability": "construction"
         },
-        "plot": 70,
+        "plot": 72,
         "blueprint": "core:small-warehouse",
         "sources": [
           9

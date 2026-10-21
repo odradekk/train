@@ -248,7 +248,7 @@ public sealed partial class CliProcessTests
                   {"at":{"completed_steps":0,"sequence":4},"kind":"combat.retreat","train":1},
                   {"at":{"completed_steps":0,"sequence":5},"kind":"market.sell_vehicle","buyer":6,"vehicle":1,"minimum_receipt":0},
                   {"at":{"completed_steps":0,"sequence":6},"kind":"construction.commission_vehicle_work","maximum_payment":0,"request":{
-                    "kind":"repair_vehicle","facility":{"building":38,"capability":"construction"},
+                    "kind":"repair_vehicle","facility":{"building":44,"capability":"construction"},
                     "vehicle":1,"sources":[],"priority":0}}
                 ]
                 """, 1);
