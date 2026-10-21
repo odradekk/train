@@ -190,6 +190,7 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 
 ```powershell
 dotnet build Tools/Cli/Train.Cli.csproj -c Release
+New-Item -ItemType Directory -Force TestResults/content-cost | Out-Null
 foreach ($group in 'load', 'evaluate', 'history', 'capture', 'restore') {
     dotnet Tools/Cli/bin/Release/net10.0/Train.Cli.dll measure-content . examples/starting-trade/save.json "TestResults/content-cost/$group.json" $group
 }
