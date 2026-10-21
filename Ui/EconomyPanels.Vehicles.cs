@@ -92,17 +92,21 @@ internal partial class EconomyPanels
         var value = found.Value;
         _vehicleAvailable = _vehicleAction == VehicleTradeAction.Buy ? _settlement!.VehiclesForSale.Contains(id)
             : _settlement!.ParkedVehicles.Contains(id) && value.Ownership == SettlementRelation.PlayerOwned;
-        if (!_vehicleAvailable) MissingSelection(ref _vehicleQuote, _vehicleDescription, "车辆");
+        // 成交后车辆仍在清单里，只是买卖方向反过来了。
+        var traded = !_vehicleAvailable && _vehicleItems.TryGetValue(id, out var listed) && listed.Action != _vehicleAction;
+        var result = _vehicleAction == VehicleTradeAction.Buy ? "已买入，可在本站编组" : "已卖出，现为本站待售";
+        if (traded) ResetQuote(ref _vehicleQuote, _vehicleDescription, $"车辆 {id.Value} {result}。");
+        else if (!_vehicleAvailable) MissingSelection(ref _vehicleQuote, _vehicleDescription, "车辆");
         var locks = new List<string>();
         if (value.Lock.HasFlag(InstanceLock.UnderRefit)) locks.Add("改装中");
         if (value.Lock.HasFlag(InstanceLock.UnderRepair)) locks.Add("修理中");
         if (value.Lock.HasFlag(InstanceLock.UnderDeconstruction)) locks.Add("拆解中");
         if (value.Lock.HasFlag(InstanceLock.Combat)) locks.Add("战斗中");
-        _vehicleDetails.Text = $"车辆 {id.Value} · {(_vehicleAction == VehicleTradeAction.Buy ? "买入" : "卖出")}\n所在地：{WorldPanels.LocationText(value.Location, _view, _content)}\n归属：{WorldPanels.Relation(value.Ownership)} · {(locks.Count == 0 ? "未锁定" : string.Join("、", locks))}\n结构耐久：{value.Structure.EffectiveCurrent}/{value.Structure.Maximum}" +
+        _vehicleDetails.Text = $"车辆 {id.Value} · {(traded ? result : _vehicleAction == VehicleTradeAction.Buy ? "买入" : "卖出")}\n所在地：{WorldPanels.LocationText(value.Location, _view, _content)}\n归属：{WorldPanels.Relation(value.Ownership)} · {(locks.Count == 0 ? "未锁定" : string.Join("、", locks))}\n结构耐久：{value.Structure.EffectiveCurrent}/{value.Structure.Maximum}" +
             string.Concat(value.Parts.Select(part => $"\n部件 {part.Part.Value}：{part.Durability.EffectiveCurrent}/{part.Durability.Maximum}" +
                 (part.Destroyed ? "（已毁）" : part.DefinitionMissing ? "（定义缺失）" : ""))) +
             (value.MissingContent.IsEmpty ? "" : "\n" + Problems(value.MissingContent, _content)) +
-            (_vehicleAvailable ? "" : "\n所选车辆已不在这份买卖清单中，请重新选择。已购车辆可在本站编组。");
+            (_vehicleAvailable || traded ? "" : "\n所选车辆已不在这份买卖清单中，请重新选择。");
     }
 
     private void RequestVehicleQuote()

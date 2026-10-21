@@ -75,6 +75,7 @@ public partial class WorldPanels : Control
             detail.Text.Text = valid ? Describe(detail.Target.Object) : "已不存在\n\n对象或所属对局已失效。请从当前列表重新打开。";
             if (valid)
             {
+                detail.Title.Text = NameOf(detail.Target.Object);
                 var actions = Actions(detail.Target);
                 if (!SameActions(detail.Buttons, actions)) ReplaceActions(detail, actions);
             }
@@ -142,7 +143,7 @@ public partial class WorldPanels : Control
         text.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         text.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         scroll.AddChild(text); body.AddChild(scroll);
-        var detail = new Detail(bound, panel, text, body, []);
+        var detail = new Detail(bound, panel, panel.GetNode<Label>("Layout/Heading/Title"), text, body, []);
         ReplaceActions(detail, Actions(bound));
         _details.Add(detail);
         Refresh(_binding, _view, _content);
@@ -325,7 +326,7 @@ public partial class WorldPanels : Control
             var map = foundEdge.Value.Map;
             text.AppendLine($"起点 / 终点：{NodeName(map.Start)} / {NodeName(map.End)}\n线路长度：{map.LengthMeters:0.##} m\n铁轨：{map.Tracks} / 上限 {map.TrackLimit}\n地貌：{map.Terrain.TypeId.Value}\n");
             foreach (var track in foundEdge.Value.Tracks)
-                text.AppendLine($"{track.Number} 号轨：{string.Join("、", track.Trains.Select(id => $"列车 {id.Value}"))}");
+                text.AppendLine($"{track.Number} 号轨：{(track.Trains.IsEmpty ? "空闲" : string.Join("、", track.Trains.Select(id => $"列车 {id.Value}")))}");
         }
         else if (target is WorldObjectId.Train train && _view.FindTrain(train.Id) is Lookup<TrainView>.Found foundTrain)
         {
@@ -381,5 +382,6 @@ public partial class WorldPanels : Control
     { TrainActivity.Running => "运行", TrainActivity.Servicing => "装卸", TrainActivity.Waiting => "等待",
         TrainActivity.Stopped => "等待 · 已停车", TrainActivity.NoRoute => "受阻", TrainActivity.Combat => "战斗",
         TrainActivity.Retreating => "撤退", _ => activity.ToString() };
-    private sealed record Detail(PanelTarget Target, PanelContainer Panel, Label Text, VBoxContainer Body, List<Button> Buttons);
+    private sealed record Detail(PanelTarget Target, PanelContainer Panel, Label Title, Label Text, VBoxContainer Body,
+        List<Button> Buttons);
 }

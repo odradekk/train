@@ -42,8 +42,9 @@ internal static class UiStyle
             MouseFilter = Control.MouseFilterEnum.Stop, MouseForcePassScrollEvents = false };
         var box = new VBoxContainer { Name = "Layout" };
         box.AddThemeConstantOverride("separation", 12);
-        var heading = new HBoxContainer();
+        var heading = new HBoxContainer { Name = "Heading" };
         var label = Label(title, true);
+        label.Name = "Title";
         label.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
         heading.AddChild(label);
         heading.AddChild(Button("Close", "×", close));
