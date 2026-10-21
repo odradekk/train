@@ -83,7 +83,9 @@ internal partial class WorldSceneView : Node3D
     }
     internal void SetHighQuality(bool high)
     {
-        // 美术 05 的高档还包括 PCSS 软阴影；实测它让现有场景的大片阴影内部变亮，按“画质选项按实测结果开放”暂不打开。
+        // 比阴影近平面更靠近太阳的投射体会被钳制，PCSS 半影随之放大；pancake 要盖住最高建筑（core-city-hub 116 米，太阳 40°）。
+        _sun.LightAngularDistance = high ? 0.1f : 0f;
+        _sun.DirectionalShadowPancakeSize = high ? 220f : 20f;
         foreach (var environment in new[] { _environment, _inspectionEnvironment })
         { environment.SsilEnabled = high; environment.SsrEnabled = high; }
     }

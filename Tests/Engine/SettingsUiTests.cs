@@ -152,13 +152,18 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
         var views = new[] { app.WorldScenes?.View, app.TemplateScenes?.View, ui.GetNode<DesignEditorPanel>("Root/DesignEditor").Scene.View }
             .OfType<WorldSceneView>().ToArray();
         Require(views.Length >= 2, "缺少世界或编辑器场景视图，无法检查画质。");
+        float defaultPancake;
+        using (var probe = new DirectionalLight3D())
+            defaultPancake = probe.DirectionalShadowPancakeSize;
         foreach (var view in views)
         {
             var environment = view.CurrentEnvironment;
             var sun = view.GetNode<DirectionalLight3D>("Sun");
-            Require(environment.SsilEnabled == high && environment.SsrEnabled == high && sun.LightAngularDistance == 0,
+            Require(environment.SsilEnabled == high && environment.SsrEnabled == high
+                && (sun.LightAngularDistance > 0) == high
+                && (high || Mathf.IsEqualApprox(sun.DirectionalShadowPancakeSize, defaultPancake)),
                 $"{view.Name} 的画质没有按设置应用：SSIL={environment.SsilEnabled}，SSR={environment.SsrEnabled}，" +
-                $"太阳角直径={sun.LightAngularDistance}，期望高档={high}。");
+                $"太阳角直径={sun.LightAngularDistance}，pancake={sun.DirectionalShadowPancakeSize}，期望高档={high}。");
         }
         TimeSpan? expected = autoSaveMinutes == 0 ? null : TimeSpan.FromMinutes(autoSaveMinutes);
         Require(Option(panel, "Quality").Selected == (high ? 1 : 0) && app.Saves!.AutoSaveInterval == expected &&
