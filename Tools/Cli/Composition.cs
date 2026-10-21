@@ -10,6 +10,13 @@ internal static class Composition
     internal static CliRunner Create() => new(Train.Core.CoreFactory.Create(),
         Train.Content.ContentFactory.Create(), Identity());
 
+    internal static ContentMeasurement CreateContentMeasurement()
+    {
+        var core = Train.Core.CoreFactory.Create();
+        var content = Train.Content.ContentFactory.Create();
+        return new(core, content, new CliRunner(core, content, Identity()));
+    }
+
     private static RuntimeIdentity Identity()
     {
         var directory = AppContext.BaseDirectory;
