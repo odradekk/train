@@ -83,7 +83,7 @@ public partial class App : Node
             icons.Diagnostic += message => _logger.Warning("ui", "goods_icon_unavailable", message);
             AddChild(icons);
             var ui = new GameUi { Name = "GameUi" };
-            ui.Initialize(GetNode<MainMenu>("MainMenu"), Host, _logger, WorldScenes, Recording, icons, Editor, Authoring, TemplateScenes, Notifications);
+            ui.Initialize(GetNode<MainMenu>("MainMenu"), Host, _logger, WorldScenes, Recording, icons, Editor, Authoring, TemplateScenes, Notifications, Saves);
             AddChild(ui);
             var console = new GameConsole();
             Action<IReadOnlyList<string>>? simulationCommands = null;

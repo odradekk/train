@@ -307,6 +307,7 @@ public class WorldSceneTargetTests(Node testScene) : TestClass(testScene)
 
     private static FixedCoreReadView View(bool alternatives, bool initial, bool minimap = false) => new(new(initial ? 0UL : 1UL, 0), HostCoreScenario.Input)
     {
+        Economy = UiWorldFixture.Economy,
         World = new(1, new("fixture:railway"), 1, 1, [], [], minimap
             ? [new(Train, new TrainPosition.Node(new(1), null, null, null, null, NodeTravelPhase.Waiting, 80, null), TrainActivity.Stopped)] : [], [], []),
         Trains = new Dictionary<TrainId, Lookup<TrainView>>
