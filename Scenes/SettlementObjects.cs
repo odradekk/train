@@ -12,6 +12,7 @@ namespace Train.Scenes;
 internal sealed class SettlementObjects : IAsyncDisposable
 {
     internal const int ParkedVehicleLimit = 8;
+    private const int ConstructionCopySpacing = 48;
     private readonly Dictionary<VoxelDefinitionId, (VoxelAppearanceProjection Appearance, VoxelGrid Grid, ImmutableArray<SceneVisual> Visuals)> resourceVisuals = [];
     private readonly Func<string, SceneObjectId> objectId;
     private readonly SceneVehicles buildings;
@@ -22,7 +23,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
     private readonly HashSet<InstanceId> retainedBuildings = [];
     private readonly HashSet<InstanceId> retainedParked = [];
     private readonly HashSet<PlotId> retainedSites = [];
-    private readonly Dictionary<PlotId, (PlotSize Size, SceneMesh Mesh)> siteMeshes = [];
+    private readonly Dictionary<DesignHash, BuiltGeometry> siteGeometry = [];
     private ICoreReadView? readView;
     private Lookup<SettlementView>? settlement;
     private readonly Dictionary<InstanceId, Lookup<InstanceView>> instances = [];
@@ -99,7 +100,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
         return result.ToArray();
     }
 
-    private readonly record struct ConstructionSite(PlotId Plot, ScenePose Pose, SceneBounds Bounds, SceneMesh Mesh);
+    private readonly record struct ConstructionSite(PlotId Plot, ScenePose Pose, SceneBounds Bounds, int CopiesX, int CopiesZ);
 
     private ConstructionSite[] ConstructionPlacements(SceneWorldSnapshot snapshot, NodeLayout layout)
     {
@@ -110,12 +111,46 @@ internal sealed class SettlementObjects : IAsyncDisposable
             if (plot.Occupant is not PlotOccupant.Construction) continue;
             if (template.Plots.FirstOrDefault(item => item.Number == plot.TemplatePlotNumber) is not { } placement) continue;
             var (x, z, _) = NodeSettlement.Size(plot.Size);
-            if (!siteMeshes.TryGetValue(plot.Id, out var cached) || cached.Size != plot.Size)
-                siteMeshes[plot.Id] = cached = (plot.Size, ConstructionSites.Plot(plot.Size, plot.Id));
             result.Add(new(plot.Id, SceneGeometry.Placement(placement.At, placement.Orientation),
-                new(new(-x / 2f, 0, -z / 2f), new(x / 2f, 4, z / 2f)), cached.Mesh));
+                new(new(-x / 2f, 0, -z / 2f), new(x / 2f, 4, z / 2f)),
+                Math.Max(1, x / ConstructionCopySpacing), Math.Max(1, z / ConstructionCopySpacing)));
         }
         return result.ToArray();
+    }
+
+    private BuiltGeometry? ConstructionGeometry(SceneWorldSnapshot snapshot, NodeLayout layout,
+        out ContentReference? reference, out ImmutableArray<ContentDiagnostic> diagnostics, out string detail)
+    {
+        var node = snapshot.Core.World.Nodes.Single(item => item.Id == layout.Node);
+        var terrainLookup = snapshot.Content.FindTerrain(node.Terrain.TypeId);
+        if (terrainLookup is not ContentLookup<TerrainAppearanceProjection>.Found terrain)
+        {
+            reference = new ContentReference.Core(new CoreDefinitionReference.Terrain(node.Terrain.TypeId));
+            diagnostics = terrainLookup is ContentLookup<TerrainAppearanceProjection>.Missing missing ? missing.Diagnostics : [];
+            detail = "Terrain appearance is missing.";
+            return null;
+        }
+        var hash = terrain.Value.ConstructionSite;
+        var design = snapshot.Content.FindDesign(hash);
+        if (design is ContentLookup<DesignEvaluation>.Found found && found.Value is DesignEvaluation.Complete or DesignEvaluation.Partial)
+        {
+            reference = null;
+            diagnostics = [];
+            detail = "";
+            if (!siteGeometry.TryGetValue(hash, out var built))
+                siteGeometry[hash] = built = WorldSceneSession.BuildGeometry(assign =>
+                    DesignGeometry.Build(snapshot.Content, found.Value, null, new(Vector3.Zero, Quaternion.Identity), assign));
+            return built;
+        }
+        reference = new ContentReference.Design(hash);
+        diagnostics = design switch
+        {
+            ContentLookup<DesignEvaluation>.Missing missing => missing.Diagnostics,
+            ContentLookup<DesignEvaluation>.Found { Value: DesignEvaluation.Failed failed } => failed.Diagnostics,
+            _ => []
+        };
+        detail = "Construction scene model is missing.";
+        return null;
     }
 
     private static TItem[] Select<TItem, TKey>(TItem[] items, HashSet<TKey> retained, Func<TItem, TKey> key,
@@ -229,10 +264,36 @@ internal sealed class SettlementObjects : IAsyncDisposable
         var sites = ConstructionPlacements(snapshot, layout);
         var placedSites = Select(sites, retainedSites, item => item.Plot, item => item.Bounds, item => item.Pose, range, prefetch);
         Fog(sites, placedSites, item => item.Plot, item => item.Bounds, item => item.Pose);
+        BuiltGeometry? siteBuilt = null;
+        ContentReference? missingReference = null;
+        var missingDiagnostics = ImmutableArray<ContentDiagnostic>.Empty;
+        var missingDetail = "";
+        if (placedSites.Length > 0)
+            siteBuilt = ConstructionGeometry(snapshot, layout, out missingReference, out missingDiagnostics, out missingDetail);
         foreach (var item in placedSites)
-            objects.Add(new(objectId("construction:" + item.Plot.Value), null,
-                item.Pose with { Position = item.Pose.Position - shift }, null,
-                [new SceneVisual.Geometry(item.Mesh, new(false, 0, 0, false))], [], []));
+        {
+            if (siteBuilt is null)
+            {
+                objects.Add(new(objectId("construction:" + item.Plot.Value + ":missing"), null,
+                    item.Pose with { Position = item.Pose.Position - shift }, null,
+                    [new SceneVisual.Missing(missingReference!, false)], [], []));
+                RailwayTerrain.ReportMissing(missingReference!, missingDiagnostics, missingDetail, problems);
+                continue;
+            }
+            var index = 0;
+            for (var iz = 0; iz < item.CopiesZ; iz++)
+            for (var ix = 0; ix < item.CopiesX; ix++, index++)
+            {
+                var local = new Vector3((ix - (item.CopiesX - 1) * 0.5f) * ConstructionCopySpacing, 0,
+                    (iz - (item.CopiesZ - 1) * 0.5f) * ConstructionCopySpacing);
+                var pose = new ScenePose(item.Pose.Position + Vector3.Transform(local, item.Pose.Rotation) - shift, item.Pose.Rotation);
+                var copy = SceneGeometry.Place(WorldSceneSession.Attach(siteBuilt,
+                    "construction:" + item.Plot.Value + ":" + index + ":", objectId).Geometry, pose);
+                objects.AddRange(copy.Objects);
+                picking.AddRange(copy.Picking);
+                problems.AddRange(copy.Diagnostics);
+            }
+        }
 
         var allParked = ParkedPlacements(snapshot, layout);
         var vehicles = Select(allParked, retainedParked, item => item.Instance.Id, item => item.Bounds, item => item.Pose, range, prefetch);

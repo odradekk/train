@@ -150,7 +150,7 @@ public partial class InspectionLightingPreview : Node
             Assets = assets,
             Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>> { [Design] = new ContentLookup<DesignEvaluation>.Found(evaluation) },
             Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
-            { [Terrain] = new ContentLookup<TerrainAppearanceProjection>.Found(new(Terrain, ground, ground, ground, [], [], 0, [], new("预览地面", ""))) },
+            { [Terrain] = new ContentLookup<TerrainAppearanceProjection>.Found(new(Terrain, ground, ground, ground, [], [], 0, [], new("construction-site"), new("预览地面", ""))) },
             RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>
             { [Rule] = new ContentLookup<RailwayAppearanceProjection>.Found(new(Rule, ground, 40, 0.12)) },
             VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>

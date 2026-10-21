@@ -167,11 +167,14 @@ internal sealed class WorldLoader
         {
             var bridge = references.Scene(package, source.Path, subject, model.Bridge, "/railway_models");
             var portal = references.Scene(package, source.Path, subject, model.TunnelPortal, "/railway_models");
-            if (bridge is not null && portal is not null) railwayModels.Add(new(model.Tracks, bridge.Design, portal.Design));
+            var repair = references.Scene(package, source.Path, subject, model.RepairSite, "/railway_models");
+            if (bridge is not null && portal is not null && repair is not null)
+                railwayModels.Add(new(model.Tracks, bridge.Design, portal.Design, repair.Design));
         }
-        return Active(package) ? new(source.Id, source.SurfaceVoxel, source.SubsurfaceVoxel, source.RockVoxel,
+        var construction = references.Scene(package, source.Path, subject, source.ConstructionSite, "/construction_site");
+        return Active(package) && construction is not null ? new(source.Id, source.SurfaceVoxel, source.SubsurfaceVoxel, source.RockVoxel,
             source.LocalHeightNoise, decorations.ToImmutable(), source.DecorationTargetPerSquareMeter,
-            railwayModels.ToImmutable(), source.Display) : null;
+            railwayModels.ToImmutable(), construction.Design, source.Display) : null;
     }
 
     private static void ResolveRule(LoadPackage package, ParsedRule rule, References references)

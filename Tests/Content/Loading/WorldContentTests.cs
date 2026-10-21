@@ -40,8 +40,22 @@ public sealed class WorldContentTests
         {
             Assert.AreEqual(expected, model.Bridge);
             Assert.AreEqual(expected, model.TunnelPortal);
+            Assert.AreEqual(expected, model.RepairSite);
             Assert.IsInstanceOfType<C.DesignEvaluation.Complete>(Found(candidate.View.FindDesign(model.Bridge)));
         }
+        Assert.AreEqual(expected, appearance.ConstructionSite);
+    }
+
+    [TestMethod]
+    public void Version_one_terrain_types_are_rejected()
+    {
+        var fixture = WorldContentFixtures.Content();
+        var terrain = WorldContentFixtures.Terrain();
+        terrain["schema_version"] = 1;
+        fixture.AddFile(ContentFixture.BuiltIn, "resources/terrain-types/plains.terrain-type.json", terrain.ToJsonString());
+        var failure = Failure(fixture.Prepare());
+        var diagnostic = failure.Diagnostics.Single(item => item.Code == "unsupported_format");
+        Assert.AreEqual("/schema_version", diagnostic.Field);
     }
 
     [TestMethod]

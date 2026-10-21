@@ -110,6 +110,7 @@ internal static class NodeFixtures
     internal static readonly VoxelDefinitionId Concrete = new("test:concrete");
     internal static readonly WorldLocation Location = new WorldLocation.Node(NodeId);
     internal static readonly DesignHash StationDesign = new("test-station");
+    internal static readonly VoxelDefinitionId ConstructionVoxel = new("test:construction-voxel");
     internal static SettlementLayoutProjection Layout => new(new(1), new("test:town"),
         new(new("test-ground"), SceneFixtures.Projection([]), new("Ground", "")),
         [new(1, PlotSize.SmallStation, new(0, 0, 0), VoxelOrientation.PzPy)], new("Town", ""));
@@ -136,6 +137,20 @@ internal static class NodeFixtures
         return new(StationDesign, core.Composition, SceneFixtures.Draft with { Specification = new DesignSpecification.Building(PlotSize.SmallStation, BuildingKind.Station, []) },
             new(new("scenes-test"), core, []), SceneFixtures.Projection(cells) with { Design = StationDesign }, true, []);
     }
+    internal static DesignEvaluation.Complete ConstructionEvaluation()
+    {
+        var cell = SceneFixtures.Cell(new(0, 0, 0)) with { Voxel = ConstructionVoxel };
+        return SceneFixtures.Evaluation(SceneFixtures.Projection([cell]) with { Design = RailwayFixtures.ConstructionModel }) with
+        { Design = RailwayFixtures.ConstructionModel };
+    }
+
+    internal static VoxelAppearanceProjection ConstructionCube => SceneFixtures.Cube with
+    {
+        Definition = ConstructionVoxel,
+        Presentation = new VoxelPresentation.Cube([new("cube")], MaterialCategory.PaintedMetal, 1,
+            new("construction-site"), new("construction-site"), new("construction-site"), new("construction-site"))
+    };
+
     internal static VoxelAppearanceProjection ConcreteCube => SceneFixtures.Cube with
     {
         Definition = Concrete,
@@ -225,14 +240,16 @@ internal static class NodeFixtures
         var evaluations = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
         {
             [hash] = new ContentLookup<DesignEvaluation>.Found(design),
-            [StationDesign] = new ContentLookup<DesignEvaluation>.Found(StationEvaluation())
+            [StationDesign] = new ContentLookup<DesignEvaluation>.Found(StationEvaluation()),
+            [RailwayFixtures.ConstructionModel] = new ContentLookup<DesignEvaluation>.Found(ConstructionEvaluation())
         };
         foreach (var item in designs ?? ImmutableDictionary<DesignHash, ContentLookup<DesignEvaluation>>.Empty) evaluations[item.Key] = item.Value;
         var appearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
         {
             [SceneFixtures.Voxel] = new ContentLookup<VoxelAppearanceProjection>.Found(voxel ?? SceneFixtures.Cube),
             [Concrete] = missing ? new ContentLookup<VoxelAppearanceProjection>.Missing([]) :
-                new ContentLookup<VoxelAppearanceProjection>.Found(concrete ?? ConcreteCube)
+                new ContentLookup<VoxelAppearanceProjection>.Found(concrete ?? ConcreteCube),
+            [ConstructionVoxel] = new ContentLookup<VoxelAppearanceProjection>.Found(ConstructionCube)
         };
         if (voxelAppearances is not null)
             foreach (var item in voxelAppearances) appearances[item.Key] = item.Value;

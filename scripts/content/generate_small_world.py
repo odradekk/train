@@ -1691,12 +1691,14 @@ def content_files():
         elif identity in ("hills", "mountains"):
             decorations, density = [("rock-small", 3), ("rock-large", 1)], .0007
         document("terrain-types", "terrain-type", identity,
-                 {"schema_version": 1, "id": identity, "display": {"name": name, "description": description},
+                 {"schema_version": 2, "id": identity, "display": {"name": name, "description": description},
                   "surface_voxel": surface, "subsurface_voxel": subsurface, "rock_voxel": rock,
                   "local_height_noise": [{"scale_meters": 140, "amplitude": local_amplitude}],
                   "decorations": [{"scene_model": model, "weight": weight} for model, weight in decorations],
                   "decoration_target_per_square_meter": density,
-                  "railway_models": [{"tracks": n, "bridge": f"bridge-{n}", "tunnel_portal": f"tunnel-portal-{n}"} for n in (1, 2, 3)]})
+                  "construction_site": "construction-site",
+                  "railway_models": [{"tracks": n, "bridge": f"bridge-{n}", "tunnel_portal": f"tunnel-portal-{n}",
+                                      "repair_site": "railway-repair-site"} for n in (1, 2, 3)]})
     for identity, name, behavior in (
         ("industrial-machinery", "机床", {"production": {"work_rate": REFERENCE_WORK_RATE}}),
         ("extraction-equipment", "钻头", {"extraction": {"work_rate": REFERENCE_WORK_RATE}}),

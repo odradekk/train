@@ -110,10 +110,12 @@ public sealed class ProcessLoadingTests
         fixture.AddAsset(ContentFixture.Mods, "provider/resources/voxels/block/icon.png", [4, 5, 6], new C.AssetMetadata.Png(128, 128));
         var terrain = WorldContentFixtures.Terrain();
         foreach (var key in new[] { "surface_voxel", "subsurface_voxel", "rock_voxel" }) terrain[key] = "core:scenery";
+        terrain["construction_site"] = "core:scene";
         foreach (var model in terrain["railway_models"]!.AsArray())
         {
             model!["bridge"] = "core:scene";
             model["tunnel_portal"] = "core:scene";
+            model["repair_site"] = "core:scene";
         }
         fixture.AddFile(ContentFixture.Mods, "provider/resources/terrain-types/plains.terrain-type.json", terrain.ToJsonString());
         var dependencies = declared ? new JsonArray(new JsonObject { ["id"] = provider, ["min_version"] = "1.0.0" }) : new JsonArray();
