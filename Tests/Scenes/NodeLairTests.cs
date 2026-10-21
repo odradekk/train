@@ -372,10 +372,10 @@ public sealed class NodeLairTests
         return new(x, 0, z);
     }
 
-    private static NodeScene.Built Build(SceneWorldSnapshot snapshot) =>
+    internal static NodeScene.Built Build(SceneWorldSnapshot snapshot) =>
         NodeFixtures.Build(snapshot, NodeLayout.Build(snapshot, NodeFixtures.NodeId));
 
-    private static SceneWorldSnapshot World(ContentLookup<LairAppearanceProjection> lair, bool occupant = true,
+    internal static SceneWorldSnapshot World(ContentLookup<LairAppearanceProjection> lair, bool occupant = true,
         int tracks = 1, int? trackLimit = null, bool sameSideEntry = false, bool resources = false, bool light = false)
     {
         var content = NodeFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = Radius },
@@ -396,10 +396,10 @@ public sealed class NodeLairTests
             : new Dictionary<LairId, Lookup<LairView>>());
     }
 
-    private static ContentLookup<LairAppearanceProjection> Found(SceneModelProjection model) =>
+    internal static ContentLookup<LairAppearanceProjection> Found(SceneModelProjection model) =>
         new ContentLookup<LairAppearanceProjection>.Found(new(Type, model, new(new(model.Design.Value, ""), null, null, false)));
 
-    private static SceneModelProjection Model(string name, GridPosition[] cells, FlattenRegion? flatten)
+    internal static SceneModelProjection Model(string name, GridPosition[] cells, FlattenRegion? flatten)
     {
         var voxels = cells.Select(at => SceneFixtures.Cell(at) with { Voxel = LairVoxel }).ToImmutableArray();
         return new(new(name), SceneFixtures.Projection(voxels) with
@@ -411,7 +411,7 @@ public sealed class NodeLairTests
         }, new(name, ""));
     }
 
-    private static string[] LairCells(NodeScene.Built built) => built.Parts.Values.SelectMany(CellsOf).Where(cell => cell.Appearance?.Definition == LairVoxel)
+    internal static string[] LairCells(NodeScene.Built built) => built.Parts.Values.SelectMany(CellsOf).Where(cell => cell.Appearance?.Definition == LairVoxel)
         .Select(cell => $"{cell.At.X},{cell.At.Y},{cell.At.Z},{cell.Orientation}").Order().ToArray();
 
     private static string[] LairCells(NodeScene.Part part) => CellsOf(part).Where(cell => cell.Appearance?.Definition == LairVoxel)

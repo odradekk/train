@@ -206,6 +206,7 @@ public class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
             var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
             Require(panels.IsObjectOpen(new WorldObjectId.Edge(new(RailwayWorkUiFixture.ActiveEdge))), "点线路后没有打开线路详情。");
             var description = Find<Label>(LatestDetail(panels), "Description").Text;
+            Require(description.Contains("线路长度") && !description.Contains('\r'), description);
             Require(description.Contains("1 号轨：空闲"), $"没有列车的轨道冒号后为空：{description}");
             await DismissError(ui);
             await _input.Activate(Find<Button>(LatestDetail(panels), "RailwayWork"));

@@ -363,7 +363,7 @@ public partial class WorldPanels : Control
             foreach (var problem in value.MissingContent) text.AppendLine(CommandDiagnostics.Describe(problem, _content));
         }
         else return "已不存在";
-        return text.ToString();
+        return text.ToString().ReplaceLineEndings("\n");
     }
 
     private string GoodName(GoodId good) => GoodName(good, _content);

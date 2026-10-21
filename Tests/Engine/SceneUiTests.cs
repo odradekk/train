@@ -317,7 +317,7 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
                     NVector3.Zero, NVector3.UnitY, 1, []);
                 var frame = new FixedSceneFrame { Update = new(null, stamp, NVector3.Zero, [Geometry()], [], new([], []), []),
                     NodePanBounds = minimap ? new(new(-120, -60), new(240, 120)) : null,
-                    NodeOverview = minimap ? new([], [[new(-120, 0), new(240, 0)]]) : null,
+                    NodeOverview = minimap ? new([], [[new(-120, 0), new(240, 0)]], []) : null,
                     Origin = minimap ? new(1000, 0, -2000) : default,
                     PickResult = new ScenePick.Hit(hit), TerrainHeightResult = new Lookup<double>.Found(0),
                     Poses = ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty.Add(new WorldObjectId.Instance(Vehicle),

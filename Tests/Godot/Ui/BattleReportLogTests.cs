@@ -35,6 +35,7 @@ public sealed class BattleReportLogTests
         StringAssert.Contains(text, "× 4");
         StringAssert.Contains(text, "奖励：9");
         Assert.IsFalse(text.Contains("999", StringComparison.Ordinal));
+        Assert.IsFalse(text.Contains('\r'));
         log.Observe(session, []);
         Assert.AreEqual(1, log.Reports.Count);
     }
