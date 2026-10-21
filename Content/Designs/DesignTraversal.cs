@@ -76,61 +76,163 @@ internal static class DesignTraversal
     }
 
     internal static string Hash(C.DesignDraft draft, bool composition) =>
-        ContentHash.FromCanonicalJson(writer => JsonSerializer.Serialize(writer, Canonical(draft, composition)));
+        ContentHash.FromCanonicalJson(writer => WriteCanonical(writer, draft, composition));
 
-    private static object Canonical(C.DesignDraft draft, bool composition)
+    // 设计哈希和构成哈希已经入档：各层键按 Ordinal 顺序直接写出，字节须与原先按键排序的对象序列化结果一致。
+    private static void WriteCanonical(Utf8JsonWriter writer, C.DesignDraft draft, bool composition)
     {
-        var cells = Cells(draft).Select(item =>
+        var rotation = draft.Specification switch
         {
-            var entry = draft.Layout.Palette[item.Cell.PaletteIndex];
-            var cell = Map(("at", Position(item.Cell.At)), ("orientation", DesignEvaluator.Wire(entry.Orientation)), ("voxel", entry.Voxel.Value));
-            if (!composition) { cell["shape"] = entry.Shape?.Name; cell["paint"] = entry.Paint?.Value; }
-            return cell;
-        }).ToArray();
-        var nested = Items(draft).Select(item =>
+            C.DesignSpecification.Assembly assembly => assembly.Rotation,
+            C.DesignSpecification.FunctionalComposite composite => composite.Rotation,
+            _ => null
+        };
+        writer.WriteStartObject();
+        if (rotation is not null)
         {
-            var orientation = Orientation(item.Item);
-            var value = Map(("at", Position(At(item.Item))), ("orientation", DesignEvaluator.Wire(orientation)));
-            if (item.Item is C.NestedDesignItem.FunctionalCompositeReference reference)
-            { value["blueprint"] = reference.Definition.Value; if (!composition) value["paint"] = reference.Paint?.Value; }
-            else value["design"] = Canonical(Copy(item.Item)!, composition);
-            return value;
-        }).ToArray();
-        var result = Map(("layout", Map(("cells", cells), ("composites", nested))),
-            ("display", composition ? Map() : Map(("name", draft.Display.Name), ("description", draft.Display.Description))));
-        C.RotationAppearance? rotation = null;
+            writer.WriteStartObject("appearance");
+            writer.WriteStartObject("behaviors");
+            writer.WriteStartObject("rotation");
+            writer.WriteString("axis", DesignEvaluator.Wire(rotation.Axis));
+            WritePosition(writer, "pivot", rotation.Pivot);
+            writer.WriteStartArray("range");
+            writer.WriteNumberValue(rotation.MinimumDegrees);
+            writer.WriteNumberValue(rotation.MaximumDegrees);
+            writer.WriteEndArray();
+            writer.WriteNumber("speed", rotation.SpeedDegreesPerSecond);
+            writer.WriteEndObject();
+            writer.WriteEndObject();
+            writer.WriteEndObject();
+        }
+        else if (draft.Specification is C.DesignSpecification.SceneModel { Flatten: { } flatten })
+        {
+            writer.WriteStartObject("appearance");
+            writer.WriteStartObject("flatten");
+            WriteColumn(writer, "from", flatten.From);
+            writer.WriteNumber("height", flatten.Height);
+            WriteColumn(writer, "to", flatten.To);
+            writer.WriteEndObject();
+            writer.WriteEndObject();
+        }
+        var category = draft.Specification switch
+        {
+            C.DesignSpecification.Vehicle => "vehicle",
+            C.DesignSpecification.Building => "building",
+            C.DesignSpecification.Creature => "creature",
+            C.DesignSpecification.SceneModel => "scene_model",
+            C.DesignSpecification.Assembly or C.DesignSpecification.FunctionalComposite => "large_equipment",
+            _ => null
+        };
+        if (category is not null) writer.WriteString("category", category);
+        writer.WriteStartObject("display");
+        if (!composition)
+        {
+            writer.WriteString("description", draft.Display.Description);
+            writer.WriteString("name", draft.Display.Name);
+        }
+        writer.WriteEndObject();
+        writer.WriteStartObject("layout");
+        writer.WriteStartArray("cells");
+        var orientations = draft.Layout.Palette.Select(entry => DesignEvaluator.Wire(entry.Orientation)).ToArray();
+        foreach (var (cell, _) in Cells(draft))
+        {
+            var entry = draft.Layout.Palette[cell.PaletteIndex];
+            writer.WriteStartObject();
+            WritePosition(writer, "at", cell.At);
+            writer.WriteString("orientation", orientations[cell.PaletteIndex]);
+            if (!composition)
+            {
+                writer.WriteString("paint", entry.Paint?.Value);
+                writer.WriteString("shape", entry.Shape?.Name);
+            }
+            writer.WriteString("voxel", entry.Voxel.Value);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+        writer.WriteStartArray("composites");
+        foreach (var (item, _) in Items(draft))
+        {
+            writer.WriteStartObject();
+            WritePosition(writer, "at", At(item));
+            var reference = item as C.NestedDesignItem.FunctionalCompositeReference;
+            if (reference is not null) writer.WriteString("blueprint", reference.Definition.Value);
+            else
+            {
+                writer.WritePropertyName("design");
+                WriteCanonical(writer, Copy(item)!, composition);
+            }
+            writer.WriteString("orientation", DesignEvaluator.Wire(Orientation(item)));
+            if (reference is not null && !composition) writer.WriteString("paint", reference.Paint?.Value);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+        writer.WriteEndObject();
         switch (draft.Specification)
         {
             case C.DesignSpecification.Vehicle vehicle:
-                result["category"] = "vehicle"; result["simulation"] = Map(("size_class", DesignEvaluator.Wire(vehicle.Size!.Value))); break;
-            case C.DesignSpecification.Building building:
-                result["category"] = "building"; result["simulation"] = Map(("plot_size", DesignEvaluator.Wire(building.PlotSize!.Value)),
-                    ("building_type", DesignEvaluator.Wire(building.Kind!.Value)), ("facility_tags", building.FacilityTags.Select(tag => DesignEvaluator.Wire(tag)).Order(StringComparer.Ordinal).ToArray())); break;
-            case C.DesignSpecification.Creature creature:
-                result["category"] = "creature";
-                var behavior = Map();
-                if (creature.Behavior is { } stats) behavior["creature"] = Map(("hp", stats.HitPoints), ("speed", stats.SpeedMetersPerSecond),
-                    ("retreat_threshold", stats.RetreatThreshold), ("raid_duration", stats.RaidDurationSeconds));
-                if (creature.Weapon is { } weapon) behavior["weapon"] = Map(("damage", weapon.Damage), ("interval", weapon.IntervalSeconds));
-                result["simulation"] = Map(("behaviors", behavior));
+                writer.WriteStartObject("simulation");
+                writer.WriteString("size_class", DesignEvaluator.Wire(vehicle.Size!.Value));
+                writer.WriteEndObject();
                 break;
-            case C.DesignSpecification.SceneModel model:
-                result["category"] = "scene_model";
-                if (model.Flatten is { } flatten) result["appearance"] = Map(("flatten", Map(("from", new[] { flatten.From.X, flatten.From.Z }),
-                    ("to", new[] { flatten.To.X, flatten.To.Z }), ("height", flatten.Height)))); break;
-            case C.DesignSpecification.Assembly assembly:
-                result["category"] = "large_equipment"; rotation = assembly.Rotation; break;
+            case C.DesignSpecification.Building building:
+                var plot = DesignEvaluator.Wire(building.PlotSize!.Value);
+                writer.WriteStartObject("simulation");
+                writer.WriteString("building_type", DesignEvaluator.Wire(building.Kind!.Value));
+                writer.WriteStartArray("facility_tags");
+                foreach (var tag in building.FacilityTags.Select(tag => DesignEvaluator.Wire(tag)).Order(StringComparer.Ordinal))
+                    writer.WriteStringValue(tag);
+                writer.WriteEndArray();
+                writer.WriteString("plot_size", plot);
+                writer.WriteEndObject();
+                break;
+            case C.DesignSpecification.Creature creature:
+                writer.WriteStartObject("simulation");
+                writer.WriteStartObject("behaviors");
+                if (creature.Behavior is { } stats)
+                {
+                    writer.WriteStartObject("creature");
+                    writer.WriteNumber("hp", stats.HitPoints);
+                    writer.WriteNumber("raid_duration", stats.RaidDurationSeconds);
+                    writer.WriteNumber("retreat_threshold", stats.RetreatThreshold);
+                    writer.WriteNumber("speed", stats.SpeedMetersPerSecond);
+                    writer.WriteEndObject();
+                }
+                if (creature.Weapon is { } weapon)
+                {
+                    writer.WriteStartObject("weapon");
+                    writer.WriteNumber("damage", weapon.Damage);
+                    writer.WriteNumber("interval", weapon.IntervalSeconds);
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndObject();
+                writer.WriteEndObject();
+                break;
             case C.DesignSpecification.FunctionalComposite composite:
-                result["category"] = "large_equipment"; rotation = composite.Rotation;
-                result["simulation"] = Map(("behaviors", Behaviors(composite.Behaviors))); break;
+                writer.WriteStartObject("simulation");
+                writer.WritePropertyName("behaviors");
+                Behaviors(composite.Behaviors).WriteTo(writer);
+                writer.WriteEndObject();
+                break;
         }
-        if (rotation is not null) result["appearance"] = Map(("behaviors", Map(("rotation", Map(
-            ("axis", DesignEvaluator.Wire(rotation.Axis)), ("pivot", Position(rotation.Pivot)),
-            ("range", new[] { rotation.MinimumDegrees, rotation.MaximumDegrees }), ("speed", rotation.SpeedDegreesPerSecond))))));
-        return result;
+        writer.WriteEndObject();
     }
 
-    private static int[] Position(C.GridPosition at) => [at.X, at.Y, at.Z];
+    private static void WritePosition(Utf8JsonWriter writer, string name, C.GridPosition at)
+    {
+        writer.WriteStartArray(name);
+        writer.WriteNumberValue(at.X);
+        writer.WriteNumberValue(at.Y);
+        writer.WriteNumberValue(at.Z);
+        writer.WriteEndArray();
+    }
+
+    private static void WriteColumn(Utf8JsonWriter writer, string name, C.GridColumn column)
+    {
+        writer.WriteStartArray(name);
+        writer.WriteNumberValue(column.X);
+        writer.WriteNumberValue(column.Z);
+        writer.WriteEndArray();
+    }
     internal static JsonElement Behaviors(ImmutableArray<K.PartCapability> capabilities)
     {
         using var stream = new MemoryStream();
@@ -143,6 +245,4 @@ internal static class DesignTraversal
         using var json = JsonDocument.Parse(stream.ToArray());
         return json.RootElement.Clone();
     }
-    private static SortedDictionary<string, object?> Map(params (string Key, object? Value)[] entries) =>
-        new(entries.ToDictionary(entry => entry.Key, entry => entry.Value), StringComparer.Ordinal);
 }
