@@ -32,6 +32,21 @@ START_TRAINS = (
     ("small-locomotive", "small-freight-wagon", "small-freight-wagon", "small-freight-wagon"),
     ("small-locomotive", "small-freight-wagon", "small-freight-wagon", "small-armed-wagon"),
 )
+# 标准测试世界的车辆池：20 列 80 辆；长编组、拥挤站点和繁忙战斗配方在第 0 步从同一车辆池重新编组。
+STANDARD_TRAINS = (
+    ("titan-armed-vehicle",),
+    *[("large-locomotive",) + ("large-freight-wagon",) * 15] * 2,
+    *[("medium-locomotive", "medium-freight-wagon", "medium-freight-wagon")] * 10,
+    *[("small-locomotive",) + ("medium-armed-wagon",) * 3] * 3,
+    ("small-locomotive", "small-freight-wagon"),
+    *[("small-locomotive",)] * 3,
+)
+
+STANDARD_WIDTH_METERS = 3300
+STANDARD_HEIGHT_METERS = 3100
+STANDARD_SETTLEMENT_RATIO = 0.5
+STANDARD_LAIR_RATIO = 0.3
+STANDARD_SEARCH_WORK = 400000000
 
 # 这些是内容初值，不是报价、补货或运行规则；全部待用户试玩确认。
 BATCH_UNITS = 4
@@ -1988,10 +2003,7 @@ def content_files():
                              for *_, index in freight["cells"])
     # 只估算两列起始车队满舱采购与小型货车组成的预算，不计算核心委托报价。
     initial_money = ceil(START_BUDGET_MULTIPLIER * (cargo_capacity * max(values[good] for good, _, _ in goods) + freight_base_value))
-    document("generation-profiles", "generation-profile", "basic-through-world", {
-        "schema_version": 2, "id": "basic-through-world",
-        "display": {"name": "经济运输验证世界", "description": "真实货物、流程和六份模板计划；两列小型车队、十一种车辆、3 种生物、2 类生物聚落与 NPC 现车已接入。数值待试玩。"},
-        "configuration": {"width_meters": 1800, "height_meters": 1200, "minimum_node_spacing_meters": 300,
+    configuration = {"width_meters": 1800, "height_meters": 1200, "minimum_node_spacing_meters": 300,
             "candidate_probability": 0.9, "elevation_noise": [{"scale_meters": 780, "amplitude": 14}, {"scale_meters": 260, "amplitude": 4}],
             "moisture_noise": [{"scale_meters": 600, "amplitude": 1}], "river_noise": [{"scale_meters": 900, "amplitude": 1}],
             "lake_elevation_threshold": 4, "river_band_half_width": 0.045, "terrain_bands": bands,
@@ -2011,8 +2023,22 @@ def content_files():
                                   "require_station": True, "exclude_adjacent_lairs": True, "fully_loaded_purchase_rounds_per_train": 1,
                                   "required_affordable_commission_design": "small-freight-wagon"},
             "rules": {"population": "basic-population", "market": "basic-market", "construction": "basic-construction",
-                      "railway": "basic-railway", "combat": "basic-combat"}},
+                      "railway": "basic-railway", "combat": "basic-combat"}}
+    document("generation-profiles", "generation-profile", "basic-through-world", {
+        "schema_version": 2, "id": "basic-through-world",
+        "display": {"name": "经济运输验证世界", "description": "真实货物、流程和六份模板计划；两列小型车队、十一种车辆、3 种生物、2 类生物聚落与 NPC 现车已接入。数值待试玩。"},
+        "configuration": configuration,
         "start": {"initial_money": initial_money, "trains": [{"vehicles": train, "inventory": []} for train in START_TRAINS]}})
+    standard_capacity = sum(behavior["capacity"] for train in STANDARD_TRAINS for identity in train
+                            for behavior in blueprint_behaviors(identity, "storage"))
+    document("generation-profiles", "generation-profile", "standard-world", {
+        "schema_version": 2, "id": "standard-world",
+        "display": {"name": "标准测试世界", "description": "开发与性能测试用的发展后世界，不是默认新局：约 50 个节点、25 个聚居地，起始车队 20 列 80 辆，含泰坦和长编组车辆。数值待试玩。"},
+        "configuration": {**configuration, "width_meters": STANDARD_WIDTH_METERS, "height_meters": STANDARD_HEIGHT_METERS,
+                          "settlement_ratio": STANDARD_SETTLEMENT_RATIO, "lair_ratio": STANDARD_LAIR_RATIO,
+                          "budget": {**configuration["budget"], "maximum_search_work": STANDARD_SEARCH_WORK}},
+        "start": {"initial_money": ceil(START_BUDGET_MULTIPLIER * (standard_capacity * max(values[good] for good, _, _ in goods) + freight_base_value)),
+                  "trains": [{"vehicles": train, "inventory": []} for train in STANDARD_TRAINS]}})
     for path in list(files) + list(HAND_DRAWN_ICONS) + list(AUTHORED_FILES):
         if path.endswith((".png", ".glb")):
             files[path + ".import"] = keep_import(path)

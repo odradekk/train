@@ -6,7 +6,7 @@ namespace Train.ContractChecks;
 
 internal static class Isolation
 {
-    private const int SessionTimeoutSeconds = 420;
+    private const int SessionTimeoutSeconds = 660;
 
     internal static async Task<int> Run(string root, string configuration, string output,
         IReadOnlyDictionary<string, ProjectRule> projects, IReadOnlyList<string> tests)

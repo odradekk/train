@@ -226,13 +226,19 @@ internal sealed class SettlementObjects : IAsyncDisposable
         var problems = ImmutableArray.CreateBuilder<SceneProblem>();
         Pump(snapshot, layout, range, prefetch: prefetch);
         var allBuildings = BuildingPlacements(snapshot, layout);
+        var allParked = ParkedPlacements(snapshot, layout);
+        var shift = RailwayCoordinates.Relative(origin, default);
+        if (presentation is not null)
+            presentation.Place(allBuildings.Concat(allParked).Select(item =>
+                (Subject: (WorldObjectId)new WorldObjectId.Instance(item.Instance.Id),
+                    Pose: item.Pose with { Position = item.Pose.Position - shift })));
         var placed = Select(allBuildings, retainedBuildings, item => item.Instance.Id, item => item.Bounds, item => item.Pose, range, prefetch);
         Fog(allBuildings, placed, item => item.Instance.Id, item => item.Bounds, item => item.Pose);
         foreach (var item in placed)
         {
             var instance = item.Instance;
             var buildingId = ((InstanceId.Building)instance.Id).Id;
-            var pose = item.Pose with { Position = item.Pose.Position - RailwayCoordinates.Relative(origin, default) };
+            var pose = item.Pose with { Position = item.Pose.Position - shift };
             var body = buildings.Prepare(snapshot.Content, instance);
             var hasBody = body is not null;
             if (hasBody)
@@ -260,7 +266,6 @@ internal sealed class SettlementObjects : IAsyncDisposable
             }
         }
 
-        var shift = RailwayCoordinates.Relative(origin, default);
         var sites = ConstructionPlacements(snapshot, layout);
         var placedSites = Select(sites, retainedSites, item => item.Plot, item => item.Bounds, item => item.Pose, range, prefetch);
         Fog(sites, placedSites, item => item.Plot, item => item.Bounds, item => item.Pose);
@@ -295,13 +300,12 @@ internal sealed class SettlementObjects : IAsyncDisposable
             }
         }
 
-        var allParked = ParkedPlacements(snapshot, layout);
         var vehicles = Select(allParked, retainedParked, item => item.Instance.Id, item => item.Bounds, item => item.Pose, range, prefetch);
         Fog(allParked, vehicles, item => item.Instance.Id, item => item.Bounds, item => item.Pose);
         foreach (var item in vehicles)
         {
             var instance = item.Instance;
-            var pose = item.Pose with { Position = item.Pose.Position - RailwayCoordinates.Relative(origin, default) };
+            var pose = item.Pose with { Position = item.Pose.Position - shift };
             if (item.Bounds is null)
             {
                 var unplaced = SceneVehicles.Unplaced(snapshot.Content, instance, item.Design, item.Length, pose, objectId);

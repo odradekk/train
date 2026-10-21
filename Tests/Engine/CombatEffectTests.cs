@@ -528,6 +528,179 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
             })));
     }
 
+    [Test]
+    public void FastForwardHoldsShotsAndFlashesForSixRenderedFrames()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache);
+        var shown = Frame(1, [],
+            [Cue(1, SceneEffectKind.Shot, to: new(8, 1, 0)), Cue(2, SceneEffectKind.Impact, from: new(1, 1, 0))]);
+        Commit(display, shown);
+        double sim = 0;
+        var visible = 0;
+        for (var frame = 1; frame <= 8; frame++)
+        {
+            sim += 8d / 60;
+            shown = Frame((ulong)frame + 1, [], [], seconds: sim, basis: shown.Update.Frame);
+            Commit(display, shown);
+            display.AdvanceEffects(shown, 1d / 60);
+            var shots = Nodes(display, "Shot");
+            var flashes = Nodes(display, "Flash");
+            if (frame == 8)
+            {
+                Require(shots.Count == 0 && flashes.Count == 0, "8× 下可见期结束后必须删除射击和闪光。");
+                continue;
+            }
+            Require(shots.Count == 1 && flashes.Count == 1, $"8× 第 {frame} 帧的射击和闪光必须还在。");
+            Require(Alpha(shots[0]) > 0 && Alpha(flashes[0]) > 0, $"8× 第 {frame} 帧的透明度必须非零。");
+            if (frame > 6) continue;
+            Require(Alpha(shots[0]) > 0.01f && Alpha(flashes[0]) > 0.01f,
+                $"8× 第 {frame} 帧的射击和闪光必须清晰可见。");
+            visible++;
+        }
+        Require(visible == 6, $"8× 下至少需要 6 个连续清晰绘制帧，实际 {visible}。");
+        Require(Mathf.IsEqualApprox((float)display.FlickerSeconds, (float)(8d / 60)),
+            "8× 下表现时钟必须每帧只前进 1/60 真实秒。");
+    }
+
+    [Test]
+    public void OneTimeKeepsTheNaturalShotAndFlashFade()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache);
+        var shown = Frame(1, [],
+            [Cue(1, SceneEffectKind.Shot, to: new(8, 1, 0)), Cue(2, SceneEffectKind.Impact, from: new(1, 1, 0))]);
+        Commit(display, shown);
+        double sim = 0;
+        for (var frame = 1; frame <= 9; frame++)
+        {
+            sim += 1d / 60;
+            shown = Frame((ulong)frame + 1, [], [], seconds: sim, basis: shown.Update.Frame);
+            Commit(display, shown);
+            display.AdvanceEffects(shown, 1d / 60);
+            var shots = Nodes(display, "Shot");
+            var flashes = Nodes(display, "Flash");
+            var flashExpected = frame <= 7;
+            var shotExpected = frame <= 8;
+            Require(flashes.Count == (flashExpected ? 1 : 0), $"1× 第 {frame} 帧的闪光寿命必须不变。");
+            Require(shots.Count == (shotExpected ? 1 : 0), $"1× 第 {frame} 帧的射击寿命必须不变。");
+            if (flashExpected)
+                Require(Mathf.IsEqualApprox(Alpha(flashes[0]), NaturalAlpha(flashes[0])),
+                    $"1× 第 {frame} 帧的闪光淡出不得改变。");
+            if (shotExpected)
+                Require(Mathf.IsEqualApprox(Alpha(shots[0]), NaturalAlpha(shots[0])),
+                    $"1× 第 {frame} 帧的射击淡出不得改变。");
+        }
+    }
+
+    [Test]
+    public void PausedSimulationFreezesTheVisibleFloor()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache);
+        var shown = Frame(1, [],
+            [Cue(1, SceneEffectKind.Shot, to: new(8, 1, 0)), Cue(2, SceneEffectKind.Impact, from: new(1, 1, 0))]);
+        Commit(display, shown);
+        double sim = 0;
+        for (var frame = 1; frame <= 4; frame++)
+        {
+            sim += 8d / 60;
+            shown = Frame((ulong)frame + 1, [], [], seconds: sim, basis: shown.Update.Frame);
+            Commit(display, shown);
+            display.AdvanceEffects(shown, 1d / 60);
+        }
+        var shot = Nodes(display, "Shot").Single();
+        var flash = Nodes(display, "Flash").Single();
+        var alpha = Alpha(shot);
+        var flashAlpha = Alpha(flash);
+        var clock = display.FlickerSeconds;
+        for (var frame = 0; frame < 30; frame++)
+            display.AdvanceEffects(Frame(100 + (ulong)frame, [], [], seconds: sim), 1d / 60);
+        Require(Nodes(display, "Shot").Count == 1 && Nodes(display, "Flash").Count == 1,
+            "模拟停住时节点必须保留。");
+        Require(Mathf.IsEqualApprox((float)display.FlickerSeconds, (float)clock) &&
+            Mathf.IsEqualApprox(Alpha(shot), alpha) && Mathf.IsEqualApprox(Alpha(flash), flashAlpha),
+            "模拟停住时表现时钟和透明度都不得变化。");
+        for (var frame = 1; frame <= 4; frame++)
+        {
+            sim += 8d / 60;
+            shown = Frame(140 + (ulong)frame, [], [], seconds: sim, basis: shown.Update.Frame);
+            Commit(display, shown);
+            display.AdvanceEffects(shown, 1d / 60);
+        }
+        Require(Nodes(display, "Shot").Count == 0 && Nodes(display, "Flash").Count == 0,
+            "模拟恢复后可见期必须继续走完并删除节点。");
+    }
+
+    [Test]
+    public void FlashCapStillLimitsCreationsWhileFlashesLiveLonger()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache);
+        ulong cue = 1;
+        ulong revision = 1;
+        var shown = Frame(revision, [], [.. Enumerable.Range(0, 10).Select(_ =>
+            Cue(cue++, SceneEffectKind.Impact, from: new(1, 1, 0)))]);
+        Commit(display, shown);
+        Require(Count(display.Root, "Flash") == 2, "10 次命中在闪光额度内只能创建 2 个闪光。");
+        double sim = 0;
+        for (var frame = 1; frame <= 6; frame++)
+        {
+            sim += 8d / 60;
+            shown = Frame(++revision, [], [], seconds: sim, basis: shown.Update.Frame);
+            Commit(display, shown);
+            display.AdvanceEffects(shown, 1d / 60);
+        }
+        Require(Count(display.Root, "Flash") == 2, "闪光节点必须活过 0.10 真实秒。");
+        shown = Frame(++revision, [], [.. Enumerable.Range(0, 10).Select(_ =>
+            Cue(cue++, SceneEffectKind.Impact, from: new(2, 1, 0), started: sim))], seconds: sim, basis: shown.Update.Frame);
+        Commit(display, shown);
+        display.AdvanceEffects(shown, 0);
+        Require(Count(display.Root, "Flash") == 2,
+            $"同一滚动真实秒内，新命中仍受闪光上限约束（实际 {Count(display.Root, "Flash")}）。");
+        for (var frame = 0; frame < 60; frame++)
+        {
+            sim += 8d / 60;
+            shown = Frame(++revision, [], [], seconds: sim, basis: shown.Update.Frame);
+            Commit(display, shown);
+            display.AdvanceEffects(shown, 1d / 60);
+        }
+        Require(Count(display.Root, "Flash") == 0, "旧闪光必须已经结束。");
+        shown = Frame(++revision, [], [.. Enumerable.Range(0, 10).Select(_ =>
+            Cue(cue++, SceneEffectKind.Impact, from: new(3, 1, 0), started: sim))], seconds: sim, basis: shown.Update.Frame);
+        Commit(display, shown);
+        display.AdvanceEffects(shown, 0);
+        Require(Count(display.Root, "Flash") == 2,
+            $"滚动窗口结束后必须重新允许 2 次命中闪光（实际 {Count(display.Root, "Flash")}）。");
+    }
+
+    [Test]
+    public void FastForwardKeepsOtherEffectsOnTheirSimulationLifetime()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache);
+        var shown = Frame(1, [], [Cue(1, SceneEffectKind.Destruction, from: new(1, 1, 0))]);
+        Commit(display, shown);
+        Require(Count(display.Root, "Fireball") == 1,
+            $"车辆摧毁必须创建火球（实际 {Count(display.Root, "Fireball")}）。");
+        double sim = 0;
+        for (var frame = 1; frame <= 3; frame++)
+        {
+            sim += 8d / 60;
+            shown = Frame((ulong)frame + 1, [], [], seconds: sim, basis: shown.Update.Frame);
+            Commit(display, shown);
+            display.AdvanceEffects(shown, 1d / 60);
+        }
+        Require(Count(display.Root, "Fireball") == 0, "火球必须仍按 0.4 模拟秒删除，不得套用最短可见期。");
+        Require(Count(display.Root, "Fragment") > 0 && Count(display.Root, "Smoke") == 1,
+            "碎片和烟的寿命不得改变。");
+    }
+
     private SceneDisplay Attach(AssetResourceCache cache)
     {
         var display = new SceneDisplay(cache, new FixedContentView()) { Timestamp = () => 0 };
@@ -591,7 +764,7 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
         var end = Frame(900, [], [], seconds: sim + 4, basis: shown.Update.Frame,
             removed: [.. objects.Select(item => item.Id)], session: session);
         Commit(display, end);
-        display.AdvanceEffects(Frame(901, [], [], seconds: sim + 4, basis: end.Update.Frame, session: session), 0);
+        display.AdvanceEffects(Frame(901, [], [], seconds: sim + 4, basis: end.Update.Frame, session: session), 0.5);
         Require(display.Objects.Count == 0 && Count(display.Root, "Shot") == 0 && Count(display.Root, "Fragment") == 0 &&
             Count(display.Root, "Flash") == 0 && Count(display.Root, "Fireball") == 0 && Count(display.Root, "Smoke") == 0,
             "负载结束后对象、弹道、碎片、闪光和烟都必须消失。");
@@ -758,6 +931,25 @@ public class CombatEffectTests(Node testScene) : TestClass(testScene)
         var sorted = values.OrderBy(value => value).ToArray();
         var rank = (int)Math.Ceiling(percent / 100d * sorted.Length);
         return sorted[Math.Clamp(rank, 1, sorted.Length) - 1];
+    }
+
+    private static float Alpha(MeshInstance3D node) => Alpha(node, hold: true);
+
+    private static float NaturalAlpha(MeshInstance3D node) => Alpha(node, hold: false);
+
+    private static float Alpha(MeshInstance3D node, bool hold)
+    {
+        var material = (ShaderMaterial)node.MaterialOverride;
+        var elapsed = Mathf.Max(material.GetShaderParameter("simulation_seconds").AsSingle() -
+            node.GetInstanceShaderParameter("start_seconds").AsSingle(), 0);
+        var lifetime = node.GetInstanceShaderParameter("lifetime").AsSingle();
+        var phase = lifetime <= 0 ? 1 : Mathf.Clamp(elapsed / Mathf.Max(lifetime, .001f), 0, 1);
+        var holdSeconds = node.GetInstanceShaderParameter("hold_seconds").AsSingle();
+        if (hold && holdSeconds > 0)
+            phase = Mathf.Min(phase, Mathf.Clamp(
+                (material.GetShaderParameter("flicker_seconds").AsSingle() -
+                    node.GetInstanceShaderParameter("hold_start").AsSingle()) / holdSeconds, 0, 1));
+        return 1 - Mathf.SmoothStep(.72f, 1, phase);
     }
 
     private static int Count(Node root, string name)

@@ -143,7 +143,7 @@ internal sealed class WorldSceneController : IDisposable
         catch (Exception exception) { AdapterFailed(exception, SceneStage.Reconcile); }
     }
 
-    internal void ProcessFrame(double delta, bool minimized)
+    internal void ProcessFrame(double delta, bool minimized, double? effectsDelta = null)
     {
         _dispatcher.RequireMainThread();
         _dispatcher.Pump();
@@ -217,7 +217,8 @@ internal sealed class WorldSceneController : IDisposable
                 View.CameraRig.DisplayedFrame(frame, FollowSubject(),
                     _target is WorldSceneTarget.Location { Value: WorldLocation.Edge }, shift);
                 View.CameraRig.Update(delta);
-                View.CameraRig.SetShake(_display.AdvanceEffects(frame, delta, View.CameraRig.Camera.GlobalPosition));
+                View.CameraRig.SetShake(_display.AdvanceEffects(frame, effectsDelta ?? delta,
+                    View.CameraRig.Camera.GlobalPosition));
                 if (_pendingNodeFocus is { } focus && frame.NodePanBounds is not null)
                 {
                     View.CameraRig.MoveFocus(new((float)(focus.X - frame.Origin.X), 0,
@@ -233,6 +234,19 @@ internal sealed class WorldSceneController : IDisposable
 
     private WorldObjectId? FollowSubject() => _target is WorldSceneTarget.Follow follow
         ? new WorldObjectId.Instance(new InstanceId.Vehicle(follow.Vehicle)) : null;
+
+    internal WorldLocation? ViewedLocation(ICoreReadView core) => _target switch
+    {
+        WorldSceneTarget.Location location => location.Value,
+        WorldSceneTarget.Follow follow when core.FindTrain(follow.Train) is Lookup<TrainView>.Found train =>
+            train.Value.Position switch
+            {
+                TrainPosition.Node node => new WorldLocation.Node(node.Id),
+                TrainPosition.Edge edge => new WorldLocation.Edge(edge.Id, edge.DistanceMeters),
+                _ => null
+            },
+        _ => null
+    };
 
     internal NodeId? ViewedNode(ICoreReadView core) => _target switch
     {

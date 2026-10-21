@@ -297,6 +297,45 @@ public sealed partial class CliProcessTests
         Directory.Delete(directory, recursive: true);
     }
 
+    [TestMethod]
+    [DataRow("accepted", 1)]
+    [DataRow("rejected", 0)]
+    public async Task Expected_decision_mismatch_fails_the_cli(string expected, int exitCode)
+    {
+        var directory = CreateDirectory();
+        try
+        {
+            var recipe = await WriteEconomyRecipe(directory, "expected-decision", $$"""
+                [{"at":{"completed_steps":0,"sequence":0},"kind":"combat.retreat","train":1,
+                  "expected_decision":"{{expected}}"}]
+                """, 1);
+            await Run(directory, "expected-decision", exitCode, "run", Repository, recipe,
+                Path.Combine(directory, "expected-decision.json"));
+            if (exitCode != 0)
+            {
+                var error = await File.ReadAllTextAsync(Path.Combine(directory, "expected-decision.stderr.log"));
+                StringAssert.Contains(error, "命令 0");
+                StringAssert.Contains(error, "combat.retreat");
+                StringAssert.Contains(error, "rejected");
+
+                var invalid = await WriteEconomyRecipe(directory, "invalid-expected-decision", """
+                    [{"at":{"completed_steps":0,"sequence":0},"kind":"combat.retreat","train":1,
+                      "expected_decision":"maybe"}]
+                    """, 1);
+                await Run(directory, "invalid-expected-decision", 1, "run", Repository, invalid,
+                    Path.Combine(directory, "invalid-expected-decision.json"));
+                StringAssert.Contains(await File.ReadAllTextAsync(
+                    Path.Combine(directory, "invalid-expected-decision.stderr.log")), "expected_decision");
+            }
+        }
+        catch
+        {
+            TestContext.WriteLine($"CLI 失败证据：{directory}");
+            throw;
+        }
+        Directory.Delete(directory, recursive: true);
+    }
+
     private static async Task<string> WriteEconomyRecipe(string directory, string name, string commands,
         ulong targetStep, params ulong[] checkpointSteps)
     {

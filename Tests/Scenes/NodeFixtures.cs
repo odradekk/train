@@ -180,7 +180,8 @@ internal static class NodeFixtures
     internal static SceneWorldSnapshot Snapshot(int platforms = 2, ImmutableArray<TrainView> trains = default,
         ImmutableArray<InstanceView> instances = default, IContentView? content = null,
         ulong steps = 0, ulong sequence = 0, int tracks = 1, int? trackLimit = null, double platformLengthMeters = 96,
-        bool sameSideEntry = false, IReadOnlyList<CreatureGroupView>? groups = null, IReadOnlyList<CombatView>? combats = null)
+        bool sameSideEntry = false, IReadOnlyList<CreatureGroupView>? groups = null, IReadOnlyList<CombatView>? combats = null,
+        SettlementView? settlement = null)
     {
         if (trains.IsDefault) trains = [Train()];
         if (instances.IsDefault)
@@ -221,7 +222,7 @@ internal static class NodeFixtures
                     trains.Where(train => train.Position is TrainPosition.Edge position && position.Id == item.Id && position.Track == number)
                         .Select(train => train.Id).ToImmutableArray())).ToImmutableArray(), null))),
             Trains = trains.ToDictionary(train => train.Id, train => (Lookup<TrainView>)new Lookup<TrainView>.Found(train)),
-            Settlements = new Dictionary<SettlementId, Lookup<SettlementView>> { [new(1)] = new Lookup<SettlementView>.Found(Settlement(platforms)) },
+            Settlements = new Dictionary<SettlementId, Lookup<SettlementView>> { [new(1)] = new Lookup<SettlementView>.Found(settlement ?? Settlement(platforms)) },
             Instances = instances.ToDictionary(instance => instance.Id, instance => (Lookup<InstanceView>)new Lookup<InstanceView>.Found(instance))
         }, content ?? Content());
     }

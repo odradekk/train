@@ -7,7 +7,8 @@ using System.Globalization;
 Console.OutputEncoding = Encoding.UTF8;
 
 if (!(args.Length == 4 && (args[0] is "run" or "replay" or "make" or "check")
-    || args.Length == 5 && (args[0] is "save" or "resume")
+    || args.Length == 5 && (args[0] is "save" or "resume"
+        || args[0] == "measure-content" && ContentMeasurement.Groups.Contains(args[4]))
     || args.Length == 3 && args[0] == "compare"))
 {
     Console.Error.WriteLine("用法：Train.Cli run|replay <repository> <recipe.json> <output.json>");
@@ -15,10 +16,20 @@ if (!(args.Length == 4 && (args[0] is "run" or "replay" or "make" or "check")
     Console.Error.WriteLine("      Train.Cli make|check <repository> <recipe.json> <save.json>");
     Console.Error.WriteLine("      Train.Cli save <repository> <recipe.json> <save.json> <until-step>");
     Console.Error.WriteLine("      Train.Cli resume <repository> <recipe.json> <save.json> <output.json>");
+    Console.Error.WriteLine("      Train.Cli measure-content <repository> <save.json> <output.json> load|evaluate|history|capture|restore");
     return 2;
 }
 try
 {
+    if (args[0] == "measure-content")
+    {
+        // 失败的测量不能留下上一次的结果。
+        File.Delete(args[3]);
+        var report = Composition.CreateContentMeasurement().Measure(args[1], args[2], args[4]);
+        File.WriteAllText(args[3], report.ToJsonString(new JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
+        Console.WriteLine("内容测量已完成。");
+        return 0;
+    }
     var runner = Composition.Create();
     if (args[0] == "compare")
     {

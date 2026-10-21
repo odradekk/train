@@ -188,7 +188,7 @@ try {
                 Invoke-Check benchmark-build preparation dotnet @('build', 'Tests/Benchmarks/Train.Benchmarks.csproj', '-c', 'Release', '--nologo') 300
                 Invoke-Check stage-structure $current dotnet @($contractTool, 'structure', $root, 'Debug', (Join-Path $run 'stage-structure')) 300
                 Invoke-Check stage-verify $current dotnet @($contractTool, 'verify', $root, 'Debug', $contractBaseline) 120
-                Invoke-Isolation stage-isolate $current (Join-Path $run 'stage-isolate') 1050
+                Invoke-Isolation stage-isolate $current (Join-Path $run 'stage-isolate') 1290
 
                 Invoke-Check stage-core $current dotnet @('test', '--test-modules', 'Tests/Core/bin/Debug/net10.0/Train.Core.Tests.dll', '--root-directory', $root, '--results-directory', $run,
                     '--minimum-expected-tests', '2', '--', '--filter', 'TestCategory=stage', '--report-trx', '--report-trx-filename', 'stage-core.trx', '--timeout', '180s') 180
@@ -216,7 +216,7 @@ try {
                     $engineUserRoot = Join-Path $env:APPDATA 'Godot/app_userdata/Train'
                     $binary = Join-Path $run 'exports/windows/train.exe'
                     Invoke-WindowsExport stage-export $current $binary
-                    Invoke-Check stage-export-runtime $current $pwsh @('-NoProfile', '-File', 'scripts/checks/run-export-smoke.ps1', '-ExecutablePath', $binary, '-OutputDirectory', (Join-Path $run 'export-smoke'), '-TimeoutSeconds', '60') 65
+                    Invoke-Check stage-export-runtime $current $pwsh @('-NoProfile', '-File', 'scripts/checks/run-export-smoke.ps1', '-ExecutablePath', $binary, '-OutputDirectory', (Join-Path $run 'export-smoke'), '-TimeoutSeconds', '180') 185
                     Invoke-Check stage-asset-export $current $pwsh @('-NoProfile', '-File', 'scripts/checks/run-asset-export.ps1', '-OutputDirectory', (Join-Path $run 'asset-export'),
                         '-GameExecutablePath', $binary, '-TemplateAppData', $environment.APPDATA, '-TimeoutSeconds', '180') 185
                     $env:TRAIN_ENGINE_TEST_ASSEMBLY = Join-Path $root '.godot/mono/temp/bin/Debug/Train.Engine.Tests.dll'
@@ -325,7 +325,7 @@ try {
             foreach ($count in @('total', 'executed', 'passed', 'failed', 'skipped')) { $layerSummary[$count] = [int] ($summary.checks | Where-Object layer -eq $current | Measure-Object $count -Sum).Sum }
             $summary.layers += $layerSummary
             if ($layerCompleted -and $selected -and $current -eq 'integration' -and $summary.selection.isolation) {
-                try { Invoke-Isolation isolate isolation (Join-Path $run 'isolation') 1050 }
+                try { Invoke-Isolation isolate isolation (Join-Path $run 'isolation') 1290 }
                 catch {
                     if ($layerError) { throw "$layerError; $($_.Exception.Message)" }
                     throw

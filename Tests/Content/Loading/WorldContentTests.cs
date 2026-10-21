@@ -193,6 +193,19 @@ public sealed class WorldContentTests
     }
 
     [TestMethod]
+    public void Starting_train_inventory_accepts_large_equipment_and_rejects_vehicles()
+    {
+        var fixture = InitializedTemplate();
+        Change(fixture, ProfilePath, json => json["start"]!["trains"]![1]!["inventory"] = JsonNode.Parse("""[{"blueprint":"device","quantity":2}]"""));
+        using (var candidate = fixture.Load())
+            Assert.AreEqual(new K.GoodsQuantity(new K.GoodId.Composite(new("core:device")), 2),
+                World(candidate.View).Start.Trains[1].Inventory.Single());
+
+        Change(fixture, ProfilePath, json => json["start"]!["trains"]![1]!["inventory"]![0]!["blueprint"] = "engine");
+        Assert.IsTrue(Failure(fixture.Prepare()).Diagnostics.Any(d => d.Code == "reference_wrong_kind" && d.Field == "/start/trains/inventory"));
+    }
+
+    [TestMethod]
     [DataRow("missing-founding-plot", "/founding/0/plot", "invalid_field")]
     [DataRow("founding-fit", "/founding/0/building", "invalid_field")]
     [DataRow("inventory-vehicle", "/inventory", "reference_wrong_kind")]
