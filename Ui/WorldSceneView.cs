@@ -83,10 +83,9 @@ internal partial class WorldSceneView : Node3D
     }
     internal void SetHighQuality(bool high)
     {
+        // 美术 05 的高档还包括 PCSS 软阴影；实测它让现有场景的大片阴影内部变亮，按“画质选项按实测结果开放”暂不打开。
         foreach (var environment in new[] { _environment, _inspectionEnvironment })
         { environment.SsilEnabled = high; environment.SsrEnabled = high; }
-        // Godot 在方向光角直径大于 0 时使用 PCSS 软阴影；0.5° 接近太阳的视直径。
-        _sun.LightAngularDistance = high ? 0.5f : 0;
     }
     internal void SetLighting(InspectionLighting mode)
     {

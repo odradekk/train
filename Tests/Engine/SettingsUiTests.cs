@@ -156,7 +156,7 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
         {
             var environment = view.CurrentEnvironment;
             var sun = view.GetNode<DirectionalLight3D>("Sun");
-            Require(environment.SsilEnabled == high && environment.SsrEnabled == high && sun.LightAngularDistance > 0 == high,
+            Require(environment.SsilEnabled == high && environment.SsrEnabled == high && sun.LightAngularDistance == 0,
                 $"{view.Name} 的画质没有按设置应用：SSIL={environment.SsilEnabled}，SSR={environment.SsrEnabled}，" +
                 $"太阳角直径={sun.LightAngularDistance}，期望高档={high}。");
         }
