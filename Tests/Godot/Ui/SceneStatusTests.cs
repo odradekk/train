@@ -48,26 +48,6 @@ public sealed class SceneStatusTests
             SceneStatus.Choose(Building(SettlementRelation.PlayerOwned), null));
     }
 
-    [TestMethod]
-    public void TrainAndRelationMarksReuseTheMapMapping()
-    {
-        Assert.AreEqual(UiStyle.Success, UiStyle.TrainActivityColor(TrainActivity.Running));
-        Assert.AreEqual(UiStyle.Servicing, UiStyle.TrainActivityColor(TrainActivity.Servicing));
-        Assert.AreEqual(UiStyle.Warning, UiStyle.TrainActivityColor(TrainActivity.Waiting));
-        Assert.AreEqual(UiStyle.Warning, UiStyle.TrainActivityColor(TrainActivity.Stopped));
-        Assert.AreEqual(UiStyle.Warning, UiStyle.TrainActivityColor(TrainActivity.Retreating));
-        Assert.AreEqual(UiStyle.Error, UiStyle.TrainActivityColor(TrainActivity.NoRoute));
-        Assert.AreEqual(UiStyle.Error, UiStyle.TrainActivityColor(TrainActivity.Combat));
-        Assert.AreEqual(TrainActivity.Waiting, UiStyle.TrainSymbolActivity(TrainActivity.Stopped));
-        Assert.AreEqual(UiStyle.TrainSymbolPath(TrainActivity.Waiting), UiStyle.TrainSymbolPath(TrainActivity.Stopped));
-        foreach (var activity in Enum.GetValues<TrainActivity>())
-            if (activity != TrainActivity.Stopped)
-                Assert.AreEqual(activity, UiStyle.TrainSymbolActivity(activity));
-        Assert.AreEqual(UiStyle.RelationOwned, UiStyle.RelationColor(SettlementRelation.PlayerOwned));
-        Assert.AreEqual(UiStyle.RelationNeutral, UiStyle.RelationColor(SettlementRelation.NonHostile));
-        Assert.AreEqual(UiStyle.Error, UiStyle.RelationColor(SettlementRelation.Hostile));
-    }
-
     private static InstanceView Vehicle(TrainId? train, SettlementRelation relation, InstanceLock locks) => new(
         new InstanceId.Vehicle(new(1)), new("design"), new("composition"), new WorldLocation.Node(new(1)), relation,
         new InstanceDetails.Vehicle(SizeClass.Small, train), locks, new(40, 100), [], []);

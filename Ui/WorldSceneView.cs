@@ -114,6 +114,11 @@ internal partial class WorldSceneView : Node3D
         if (Lighting == InspectionLighting.Night) _workLights.Position = CameraRig.Focus;
     }
 
+    public override void _Notification(int what)
+    {
+        if (what == NotificationWMMouseExit) Pointer = null;
+    }
+
     internal void SetActive(bool active)
     {
         Visible = active;

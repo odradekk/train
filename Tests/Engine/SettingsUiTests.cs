@@ -15,7 +15,7 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
     {
         await LoadSettings(1, 1.25, 91, true, invalid: false);
         await LoadSettings(2, 1.25, 91, true, invalid: false);
-        await LoadSettings(1, 1.25, 91, true, invalid: false, encounter: 2);
+        await LoadSettings(1, 1.25, 91, true, invalid: false, encounter: 2, alwaysShow: true);
     }
 
     [Test]
@@ -40,76 +40,6 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Always_show_scene_status_defaults_off_persists_and_reloads()
-    {
-        var tree = TestScene.GetTree();
-        var path = ProjectSettings.GlobalizePath("user://settings.cfg");
-        var original = File.Exists(path) ? File.ReadAllBytes(path) : null;
-        var previousMode = tree.Root.Mode;
-        var previousScale = tree.Root.ContentScaleFactor;
-        var previousFps = Godot.Engine.MaxFps;
-        Fixture? fixture = null;
-        try
-        {
-            Godot.Engine.MaxFps = 73;
-            using (var config = new ConfigFile())
-            {
-                config.SetValue("display", "mode", 0);
-                config.SetValue("display", "scale", 1.0);
-                config.SetValue("display", "fps", 73);
-                config.SetValue("game", "focus_pause", false);
-                config.SetValue("game", "camera_shake", true);
-                config.SetValue("display", "quality", 0);
-                config.SetValue("game", "autosave_minutes", 5);
-                Require(config.Save("user://settings.cfg") == Error.Ok, "未能写入缺少场景状态键的旧设置。");
-            }
-            fixture = new Fixture(tree);
-            var first = await Boot(fixture);
-            var firstBox = StatusBox(first.Panel);
-            Require(!firstBox.ButtonPressed && firstBox.Text == "一直显示血条和状态图标" && !first.Overlay.Always &&
-                first.Ui.ErrorText.Length == 0,
-                "旧设置缺少场景状态键时没有保持默认关闭。");
-            firstBox.ButtonPressed = true;
-            using (var saved = new ConfigFile())
-            {
-                Require(saved.Load("user://settings.cfg") == Error.Ok &&
-                    saved.HasSectionKey("game", "always_show_scene_status") &&
-                    saved.GetValue("game", "always_show_scene_status").VariantType == Variant.Type.Bool &&
-                    saved.GetValue("game", "always_show_scene_status").AsBool() && first.Overlay.Always,
-                    "勾选一直显示没有写入设置或生效。");
-            }
-            await fixture.Cleanup();
-            fixture = new Fixture(tree);
-            var second = await Boot(fixture);
-            var secondBox = StatusBox(second.Panel);
-            Require(secondBox.ButtonPressed && second.Overlay.Always, "重新加载后没有恢复一直显示场景状态。");
-        }
-        finally
-        {
-            if (fixture is not null) await fixture.Cleanup();
-            tree.Root.Mode = previousMode;
-            tree.Root.ContentScaleFactor = previousScale;
-            Godot.Engine.MaxFps = previousFps;
-            if (original is null) File.Delete(path); else File.WriteAllBytes(path, original);
-        }
-    }
-
-    private async Task<(GameUi Ui, SettingsPanel Panel, SceneStatusOverlay Overlay)> Boot(Fixture fixture)
-    {
-        var setup = new HostSimulationTests.HostSetup();
-        var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
-        app.CreateHost = logger => setup.Create(logger);
-        await fixture.AddToRoot(app);
-        await new UiTestInput(TestScene).WaitUntil(() => app.Host!.GetStatus() is not null);
-        var ui = app.GetNode<GameUi>("GameUi");
-        return (ui, ui.GetNode<SettingsPanel>("Root/SettingsPanel"),
-            ui.World.GetNode<SceneStatusOverlay>("SceneStatusOverlay"));
-    }
-
-    private static CheckButton StatusBox(SettingsPanel panel) =>
-        panel.FindChildren("AlwaysShowSceneStatus", "CheckButton", true, false).Cast<CheckButton>().Single();
-
-    [Test]
     public async Task Quality_and_autosave_apply_at_startup_persist_changes_and_reject_invalid_values()
     {
         await LoadSettings(1, 1.25, 91, true, invalid: false, quality: 1, autoSave: 0);
@@ -121,7 +51,7 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
 
     private async Task LoadSettings(Variant mode, Variant scale, Variant fps, Variant focus, bool invalid,
         Variant? encounter = null, Variant? cameraShake = null, Variant? quality = null, Variant? autoSave = null,
-        bool changeThroughUi = false)
+        Variant? alwaysShow = null, bool changeThroughUi = false)
     {
         var tree = TestScene.GetTree();
         var fixture = new Fixture(tree);
@@ -143,6 +73,7 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
                 if (encounter is { } notification) config.SetValue("notifications", "encounter", notification);
                 if (quality is { } qualityValue) config.SetValue("display", "quality", qualityValue);
                 if (autoSave is { } autoSaveValue) config.SetValue("game", "autosave_minutes", autoSaveValue);
+                if (alwaysShow is { } show) config.SetValue("game", "always_show_scene_status", show);
                 Require(config.Save("user://settings.cfg") == Error.Ok, "未能保存真实启动配置情景。");
             }
             var setup = new HostSimulationTests.HostSetup();
@@ -175,16 +106,27 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
             var expectedHigh = !invalid && quality is { } highValue && highValue.AsInt32() == 1;
             var expectedAutoSave = invalid || autoSave is null ? 5 : autoSave.Value.AsInt32();
             AssertQualityAndAutoSave(app, ui, panel, expectedHigh, expectedAutoSave);
+            var expectedStatus = !invalid && alwaysShow?.AsBool() == true;
+            var statusBox = panel.FindChildren("AlwaysShowSceneStatus", "CheckButton", true, false)
+                .Cast<CheckButton>().Single();
+            var status = ui.World.GetNode<SceneStatusOverlay>("SceneStatusOverlay");
+            Require(statusBox.Text == "一直显示血条和状态图标" && statusBox.ButtonPressed == expectedStatus &&
+                status.Always == expectedStatus,
+                $"一直显示场景状态未按设置应用：勾选={statusBox.ButtonPressed}，覆盖层={status.Always}，期望={expectedStatus}。");
             if (changeThroughUi)
             {
                 Select(panel, "Quality", expectedHigh ? 0 : 1);
                 Select(panel, "AutoSave", 0);
                 AssertQualityAndAutoSave(app, ui, panel, !expectedHigh, 0);
+                statusBox.ButtonPressed = !statusBox.ButtonPressed;
                 using var saved = new ConfigFile();
-                Require(saved.Load("user://settings.cfg") == Error.Ok &&
-                    saved.GetValue("display", "quality").AsInt32() == (expectedHigh ? 0 : 1) &&
-                    saved.GetValue("game", "autosave_minutes").AsInt32() == 0,
-                    "界面修改的画质或自动存档没有写入设置文件。");
+                Require(saved.Load("user://settings.cfg") == Error.Ok, "未能读回设置文件。");
+                var shown = saved.GetValue("game", "always_show_scene_status");
+                Require(saved.GetValue("display", "quality").AsInt32() == (expectedHigh ? 0 : 1) &&
+                    saved.GetValue("game", "autosave_minutes").AsInt32() == 0 &&
+                    shown.VariantType == Variant.Type.Bool && shown.AsBool() == !expectedStatus &&
+                    status.Always == !expectedStatus,
+                    "界面修改的画质、自动存档或一直显示没有写入设置文件。");
             }
             if (DisplayServer.GetName() != "headless")
             {

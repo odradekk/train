@@ -40,7 +40,6 @@ internal partial class SceneStatusOverlay : Control
     private const float TrackHeight = 6;
     private const float Lift = 28;
     private static readonly Color Track = new("1a1e24");
-    private readonly Dictionary<TrainActivity, Texture2D?> _symbols = [];
     private readonly List<Placed> _placed = [];
 
     internal bool Always { get; set; }
@@ -121,8 +120,7 @@ internal partial class SceneStatusOverlay : Control
         switch (icon)
         {
             case SceneStatus.Icon.Train train:
-                if (Symbol(train.Activity) is { } texture)
-                    DrawTextureRect(texture, rect, false, UiStyle.TrainActivityColor(train.Activity));
+                DrawTextureRect(UiStyle.TrainSymbol(train.Activity), rect, false, UiStyle.TrainActivityColor(train.Activity));
                 break;
             case SceneStatus.Icon.Relation relation:
                 var color = UiStyle.RelationColor(relation.Ownership);
@@ -135,14 +133,5 @@ internal partial class SceneStatusOverlay : Control
                 else DrawArc(center, radius, 0, Mathf.Tau, 24, color, 2, true);
                 break;
         }
-    }
-
-    private Texture2D? Symbol(TrainActivity activity)
-    {
-        var key = UiStyle.TrainSymbolActivity(activity);
-        if (_symbols.TryGetValue(key, out var texture)) return texture;
-        texture = GD.Load<Texture2D>(UiStyle.TrainSymbolPath(key));
-        _symbols[key] = texture;
-        return texture;
     }
 }

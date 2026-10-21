@@ -22,19 +22,21 @@ internal static class UiStyle
         _ => Error
     };
 
-    internal static TrainActivity TrainSymbolActivity(TrainActivity activity) =>
-        activity == TrainActivity.Stopped ? TrainActivity.Waiting : activity;
-
-    internal static string TrainSymbolPath(TrainActivity activity) => TrainSymbolActivity(activity) switch
+    internal static Texture2D TrainSymbol(TrainActivity activity)
     {
-        TrainActivity.Running => "res://Ui/Symbols/train-running.png",
-        TrainActivity.Servicing => "res://Ui/Symbols/train-servicing.png",
-        TrainActivity.Waiting => "res://Ui/Symbols/train-waiting.png",
-        TrainActivity.NoRoute => "res://Ui/Symbols/warning.png",
-        TrainActivity.Combat => "res://Ui/Symbols/train-combat.png",
-        TrainActivity.Retreating => "res://Ui/Symbols/train-retreating.png",
-        _ => "res://Ui/Symbols/warning.png"
-    };
+        if (activity == TrainActivity.Stopped) activity = TrainActivity.Waiting;
+        var path = activity switch
+        {
+            TrainActivity.Running => "res://Ui/Symbols/train-running.png",
+            TrainActivity.Servicing => "res://Ui/Symbols/train-servicing.png",
+            TrainActivity.Waiting => "res://Ui/Symbols/train-waiting.png",
+            TrainActivity.NoRoute => "res://Ui/Symbols/warning.png",
+            TrainActivity.Combat => "res://Ui/Symbols/train-combat.png",
+            TrainActivity.Retreating => "res://Ui/Symbols/train-retreating.png",
+            _ => "res://Ui/Symbols/warning.png"
+        };
+        return GD.Load<Texture2D>(path);
+    }
 
     internal static Color RelationColor(SettlementRelation relation) => relation switch
     {

@@ -11,9 +11,6 @@ public partial class MacroMap : Control
 {
     private static readonly Color Ink = new("#2a2a2a");
     private readonly Texture2D _lairSymbol = GD.Load<Texture2D>("res://Ui/Symbols/lair.png");
-    private readonly Dictionary<TrainActivity, Texture2D> _trainSymbols =
-        Enum.GetValues<TrainActivity>().Select(UiStyle.TrainSymbolActivity).Distinct()
-            .ToDictionary(activity => activity, activity => GD.Load<Texture2D>(UiStyle.TrainSymbolPath(activity)));
     private IContentView? _content;
     private WorldSummary? _world;
     private readonly Dictionary<NodeId, NodeMapItem> _nodes = [];
@@ -434,9 +431,8 @@ public partial class MacroMap : Control
                 direction = (ends.End - ends.Start).Normalized() * (moving.Direction == TravelDirection.Forward ? 1 : -1);
             rotation = direction.Angle();
         }
-        var activity = UiStyle.TrainSymbolActivity(train.Activity);
         DrawSetTransform(point, rotation);
-        DrawTextureRect(_trainSymbols[activity], new Rect2(-7, -7, 14, 14), false);
+        DrawTextureRect(UiStyle.TrainSymbol(train.Activity), new Rect2(-7, -7, 14, 14), false);
         DrawSetTransform(Vector2.Zero);
     }
 
