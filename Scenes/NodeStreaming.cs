@@ -20,6 +20,22 @@ internal static class NodeStreaming
     internal static double AdvanceCells(double mappedSpeedCells, double rate) =>
         Math.Clamp(mappedSpeedCells * rate * PrefetchLeadSeconds, 0, MaximumPrefetchLeadCells);
 
+    // A Location view shows the settlement as a whole, so its prefetch circle must cover the template and parking lines.
+    internal static NodeRange SettlementPrefetch(NodeLayout layout)
+    {
+        var bounds = NodeSettlement.Bounds(layout.Template!);
+        var minimum = bounds.Minimum;
+        var maximum = bounds.Maximum;
+        foreach (var line in layout.Parking)
+        {
+            var end = RailwayCoordinates.Add(line.Start, line.Forward * (float)line.Length);
+            minimum = Vector2.Min(minimum, Vector2.Min(new((float)line.Start.X, (float)line.Start.Z), new((float)end.X, (float)end.Z)));
+            maximum = Vector2.Max(maximum, Vector2.Max(new((float)line.Start.X, (float)line.Start.Z), new((float)end.X, (float)end.Z)));
+        }
+        var center = (minimum + maximum) / 2;
+        return new(new(center.X, 0, center.Y), Vector2.Distance(minimum, maximum) / 2);
+    }
+
     internal static bool OverlapsTerrain(SceneBounds bounds, IEnumerable<GridColumn> chunks) => chunks.Any(from =>
         bounds.Minimum.X < from.X + VoxelGrid.ChunkSize && bounds.Maximum.X > from.X &&
         bounds.Minimum.Z < from.Z + VoxelGrid.ChunkSize && bounds.Maximum.Z > from.Z);
