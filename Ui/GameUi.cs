@@ -45,6 +45,7 @@ public partial class GameUi : CanvasLayer
     private Button? _returnToMap;
     private Label _clock = null!;
     private MacroMap _map = null!;
+    private SceneStatusOverlay _status = null!;
     private NodeMinimap _minimap = null!;
     private WorldPanels? _panels;
     private TrainFormationPanel? _formation;
@@ -117,6 +118,9 @@ public partial class GameUi : CanvasLayer
         _map = new MacroMap { Name = "MacroMap" };
         _map.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         _world.AddChild(_map);
+        _status = new SceneStatusOverlay { Name = "SceneStatusOverlay", MouseFilter = Control.MouseFilterEnum.Ignore };
+        _status.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _world.AddChild(_status);
         _map.ObjectClicked += OpenScene;
         _map.CombatClicked += OpenCombat;
         _map.DisplayFailed += message =>
@@ -231,7 +235,8 @@ public partial class GameUi : CanvasLayer
         _editorPanel = new DesignEditorPanel { Name = "DesignEditor" }; _editorPanel.Initialize(_editor); _editorPanel.LibraryRequested += _library.Open; _root.AddChild(_editorPanel);
         // 设置在加入场景树时立即应用画质，所以编辑器的场景视图要先创建。
         _settings = new SettingsPanel { Name = "SettingsPanel" };
-        _settings.Initialize(_host, _logger, ShowError, _policy, _recording, _scenes?.View.CameraRig, _saves, SetHighQuality);
+        _settings.Initialize(_host, _logger, ShowError, _policy, _recording, _scenes?.View.CameraRig, _saves, SetHighQuality,
+            show => _status.Always = show);
         _root.AddChild(_settings);
         _bar.AddChild(UiStyle.Button("Settings", "设置", _settings.Show));
         _bar.AddChild(UiStyle.Button("NewDesign", "新建设计…", _library.NewDraft));
@@ -269,6 +274,9 @@ public partial class GameUi : CanvasLayer
     {
         var showingScene = _scenes?.View.Visible == true;
         var status = _host?.GetStatus();
+        _status.Scenes = _scenes;
+        _status.Core = status?.View;
+        _status.Selected = _panels?.OpenInstances() ?? [];
         var editing = _editor.IsOpen || _authoring?.Form is not null;
         if (editing != _editing)
         {
