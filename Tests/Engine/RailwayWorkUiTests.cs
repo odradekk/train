@@ -144,6 +144,34 @@ public class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public async Task Long_break_list_shows_every_row_and_the_wheel_scrolls_the_panel()
+    {
+        var setup = new HostSimulationTests.HostSetup(RailwayWorkUiFixture.WithManyBreaks(), RailwayWorkUiFixture.Content());
+        await Run(setup, async ui =>
+        {
+            var panel = await OpenFromList(ui, (int)RailwayWorkUiFixture.ActiveEdge - 1);
+            var breaks = Find<ItemList>(panel, "Breaks");
+            await _input.Frames(2);
+            Require(breaks.ItemCount == 60 && Enumerable.Range(0, breaks.ItemCount)
+                    .All(index => breaks.GetItemRect(index).End.Y <= breaks.Size.Y),
+                $"断点列表没有完整显示每一行：高度 {breaks.Size.Y}，末行 {breaks.GetItemRect(breaks.ItemCount - 1)}");
+            var scroll = panel.GetNode<ScrollContainer>("RailwayWork/Layout/Content");
+            var wheel = breaks.GlobalPosition + breaks.Size / 2;
+            for (var notch = 0; notch < 3; notch++)
+            {
+                await _input.MouseButton(wheel, MouseButton.WheelDown, true);
+                await _input.MouseButton(wheel, MouseButton.WheelDown, false);
+            }
+            await _input.WaitUntil(() => scroll.ScrollVertical > 0);
+            var row = Enumerable.Range(2, breaks.ItemCount - 2).First(index =>
+                scroll.GetGlobalRect().Grow(-20).HasPoint(breaks.GlobalPosition + breaks.GetItemRect(index).GetCenter()));
+            await _input.ClickItem(breaks, row);
+            Require(breaks.IsSelected(row), $"滚动后无法选中第 {row + 1} 个断点。");
+        });
+        setup.Session.AssertComplete();
+    }
+
+    [Test]
     public async Task Map_click_opens_line_detail_and_the_detail_button_opens_the_panel()
     {
         var setup = new HostSimulationTests.HostSetup(RailwayWorkUiFixture.Create(), RailwayWorkUiFixture.Content());

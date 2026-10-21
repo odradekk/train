@@ -20,6 +20,9 @@ internal static class RailwayWorkUiFixture
     internal static FixedCoreReadView Create(ulong revision = 1) =>
         Build(revision, [StartedWork(), UnstartedWork()], new(1), 18);
 
+    internal static FixedCoreReadView WithManyBreaks() =>
+        Build(1, [StartedWork(), UnstartedWork()], new(1), 18, activeBreaks: 60);
+
     internal static FixedCoreReadView WithoutAutomaticRepair(ulong revision) =>
         Build(revision, [StartedWork()], null, 18);
 
@@ -77,7 +80,8 @@ internal static class RailwayWorkUiFixture
         };
     }
 
-    private static FixedCoreReadView Build(ulong revision, ImmutableArray<RailwayWorkView> activeWorks, SettlementId? autoRepair, long railQuantity)
+    private static FixedCoreReadView Build(ulong revision, ImmutableArray<RailwayWorkView> activeWorks, SettlementId? autoRepair, long railQuantity,
+        int activeBreaks = 1)
     {
         var terrain = new TerrainView(new("core:plains"), 0, []);
         NodeMapItem Node(ulong id, double x, double y, NodeOccupant occupant) => new(new(id), new(x, y), terrain, occupant, [], 0, 1, null);
@@ -100,7 +104,9 @@ internal static class RailwayWorkUiFixture
         {
             Edge(ZeroTrackEdge, 1, 2, 800, 0, [], [], null),
             Edge(BreakEdge, 2, 3, 500, 1, [new(new(1), 1, 120)], [unstartedRepair], new(1)),
-            Edge(ActiveEdge, 3, 4, ActiveLengthMeters, 1, [new(new(2), 1, 80)], activeWorks, autoRepair)
+            Edge(ActiveEdge, 3, 4, ActiveLengthMeters, 1,
+                [.. Enumerable.Range(0, activeBreaks).Select(index => new TrackBreakView(new((ulong)index + 2), 1, 80 + index * 10))],
+                activeWorks, autoRepair)
         };
         var rule = new RuleStatusView(new("fixture:economy"), null, []);
         SettlementView Settlement(ulong id, ulong node, SettlementRelation relation, ulong inventory) => new(new(id), new(node),
