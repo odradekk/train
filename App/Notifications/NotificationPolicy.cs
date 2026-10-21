@@ -14,7 +14,14 @@ internal enum NotificationCategory
     Surrender,
     LairCleared,
     Relation,
-    RunDestroyed
+    RunDestroyed,
+    Population,
+    Construction,
+    Railway,
+    TrainOperation,
+    Resource,
+    Lease,
+    Founding
 }
 
 internal sealed record NotificationNotice(
@@ -22,7 +29,8 @@ internal sealed record NotificationNotice(
     NotificationLevel Level,
     string Text,
     WorldLocation? Location,
-    WorldObjectId? Subject);
+    WorldObjectId? Subject,
+    GoodId? Good = null);
 
 internal sealed class NotificationPolicy
 {
@@ -51,6 +59,13 @@ internal sealed class NotificationPolicy
         NotificationCategory.LairCleared => "lair_cleared",
         NotificationCategory.Relation => "relation",
         NotificationCategory.RunDestroyed => "run_destroyed",
+        NotificationCategory.Population => "population",
+        NotificationCategory.Construction => "construction",
+        NotificationCategory.Railway => "railway",
+        NotificationCategory.TrainOperation => "train_operation",
+        NotificationCategory.Resource => "resource",
+        NotificationCategory.Lease => "lease",
+        NotificationCategory.Founding => "founding",
         _ => throw new ArgumentOutOfRangeException(nameof(category))
     };
 
@@ -65,6 +80,13 @@ internal sealed class NotificationPolicy
         NotificationCategory.LairCleared => "清剿",
         NotificationCategory.Relation => "关系变化",
         NotificationCategory.RunDestroyed => "列车全毁",
+        NotificationCategory.Population => "人口",
+        NotificationCategory.Construction => "施工",
+        NotificationCategory.Railway => "铁路",
+        NotificationCategory.TrainOperation => "列车运行",
+        NotificationCategory.Resource => "资源",
+        NotificationCategory.Lease => "租约",
+        NotificationCategory.Founding => "建城",
         _ => throw new ArgumentOutOfRangeException(nameof(category))
     };
 
@@ -99,8 +121,71 @@ internal sealed class NotificationPolicy
         CoreEvent.RunReported { Report.Reason: RunEndReason.AllVehiclesDestroyed } reported =>
             Notice(NotificationCategory.RunDestroyed, NotificationLevel.Severe, RunDestroyedText, null,
                 new WorldObjectId.Train(reported.Report.Train)),
+        CoreEvent.RunReported { Report.Reason: RunEndReason.PlanCompleted } reported =>
+            Notice(NotificationCategory.TrainOperation, NotificationLevel.Completion, "运行计划走完。", null,
+                new WorldObjectId.Train(reported.Report.Train)),
+        CoreEvent.TrainActivityChanged { After: TrainActivity.NoRoute } blocked =>
+            Notice(NotificationCategory.TrainOperation, NotificationLevel.Warning, "受阻：没有可达路径。", null,
+                new WorldObjectId.Train(blocked.Train)),
+        CoreEvent.PopulationShortageChanged changed => Notice(NotificationCategory.Population,
+            changed.Shortage ? NotificationLevel.Warning : NotificationLevel.Completion,
+            $"{NeedName(changed.Need)}{(changed.Shortage ? "短缺" : "短缺恢复")}。", null,
+            new WorldObjectId.Settlement(changed.Settlement)),
+        CoreEvent.PopulationMinimumReached minimum => Notice(NotificationCategory.Population, NotificationLevel.Severe,
+            "人口降至最低。", null, new WorldObjectId.Settlement(minimum.Settlement)),
+        CoreEvent.ConstructionCompleted completed => Notice(NotificationCategory.Construction, NotificationLevel.Completion,
+            $"{KindName(completed.Kind)}完成。", null, CompletedSubject(completed, previous)),
+        CoreEvent.ConstructionStateChanged { After: ConstructionState.ResourceBlocked or ConstructionState.Failed } changed =>
+            Notice(NotificationCategory.Construction, NotificationLevel.Warning,
+                changed.After == ConstructionState.Failed ? "施工失败。" : "施工缺料。", null, JobSettlement(changed.Job, current)),
+        CoreEvent.RailBroken broken => Notice(NotificationCategory.Railway, NotificationLevel.Warning, "铁轨断开。",
+            new WorldLocation.Edge(broken.Edge, broken.Break.DistanceMeters), null),
+        CoreEvent.RailRepaired repaired => Notice(NotificationCategory.Railway, NotificationLevel.Completion, "铁轨修复。",
+            EdgeMiddle(repaired.Edge, current), null),
+        CoreEvent.RailExpanded expanded => Notice(NotificationCategory.Railway, NotificationLevel.Completion,
+            $"线路扩建到 {expanded.Tracks} 条轨。", EdgeMiddle(expanded.Edge, current), null),
+        CoreEvent.RailwayWorkChanged changed => Notice(NotificationCategory.Railway, NotificationLevel.Warning,
+            "铁路施工受阻。", EdgeMiddle(changed.Edge, current), null),
+        // 可再生资源在开采快于恢复时会反复归零又恢复，只通知不可再生资源的耗尽。
+        CoreEvent.ResourceExhausted { Renewable: false } exhausted => Notice(NotificationCategory.Resource,
+            NotificationLevel.Warning, "资源耗尽。", new WorldLocation.Node(exhausted.Node), null, exhausted.Good),
+        CoreEvent.ResourceRegenerated regenerated => Notice(NotificationCategory.Resource, NotificationLevel.Information,
+            "资源再生。", new WorldLocation.Node(regenerated.Node), null, regenerated.Good),
+        CoreEvent.LeaseExpired expired => Notice(NotificationCategory.Lease, NotificationLevel.Warning, "仓库租约到期。",
+            null, new WorldObjectId.Settlement(expired.Settlement)),
+        CoreEvent.SettlementFounded founded => Notice(NotificationCategory.Founding, NotificationLevel.Completion,
+            "建城完成。", null, new WorldObjectId.Settlement(founded.Settlement)),
         _ => null
     };
+
+    private static string NeedName(PopulationNeed need) => need switch
+    {
+        PopulationNeed.Food => "主食", PopulationNeed.Clothing => "衣物", PopulationNeed.ImprovedDiet => "改善饮食",
+        PopulationNeed.ConsumerGoods => "日用品", PopulationNeed.ConsumerElectronics => "消费电子",
+        PopulationNeed.MedicalSupplies => "医疗用品", _ => need.ToString()
+    };
+
+    private static string KindName(ConstructionKind kind) => kind switch
+    {
+        ConstructionKind.Construction => "建造", ConstructionKind.Refit => "改装", ConstructionKind.Repair => "修理",
+        ConstructionKind.Deconstruction => "拆解", _ => kind.ToString()
+    };
+
+    private static WorldObjectId? CompletedSubject(CoreEvent.ConstructionCompleted completed, ICoreReadView? previous) =>
+        completed switch
+        {
+            { CreatedInstance: { } created } => new WorldObjectId.Instance(created),
+            { Kind: not ConstructionKind.Deconstruction, Target: ConstructionTarget.Existing existing } =>
+                new WorldObjectId.Instance(existing.Instance),
+            _ => JobSettlement(completed.Job, previous)
+        };
+
+    private static WorldObjectId? JobSettlement(JobId job, ICoreReadView? view) =>
+        view?.FindJob(job) is Lookup<JobView>.Found { Value: JobView.Construction construction }
+            ? new WorldObjectId.Settlement(construction.Value.Settlement) : null;
+
+    private static WorldLocation EdgeMiddle(EdgeId edge, ICoreReadView? view) => new WorldLocation.Edge(edge,
+        view?.FindEdge(edge) is Lookup<EdgeView>.Found found ? found.Value.Map.LengthMeters / 2 : 0);
 
     private NotificationNotice Encounter(string text, CombatId combat, WorldLocation? location) =>
         Notice(NotificationCategory.Encounter, NotificationLevel.Warning, text, location, new WorldObjectId.Combat(combat));
@@ -157,5 +242,5 @@ internal sealed class NotificationPolicy
     };
 
     private static NotificationNotice Notice(NotificationCategory category, NotificationLevel level, string text,
-        WorldLocation? location, WorldObjectId? subject) => new(category, level, text, location, subject);
+        WorldLocation? location, WorldObjectId? subject, GoodId? good = null) => new(category, level, text, location, subject, good);
 }

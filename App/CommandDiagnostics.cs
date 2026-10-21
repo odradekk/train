@@ -43,6 +43,10 @@ internal static class CommandDiagnostics
 
     internal static string Describe(CoreFault _) => "核心模拟发生故障。";
 
+    // 冻结后普通保存会被拒绝，提示里要给出仍然可走的两条路。
+    internal static string DescribeFrozen(CoreFault fault) => Describe(fault) +
+        "模拟已停止，不能普通保存。可以在「设置」的「报告问题」导出复现包，或在「存档」里读取更早的存档，包括自动存档。";
+
     internal static string Describe(CoreProblem problem, IContentView? content = null)
     {
         var sentence = Sentence(problem.Code);

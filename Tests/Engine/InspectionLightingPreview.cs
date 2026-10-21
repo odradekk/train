@@ -93,6 +93,7 @@ public partial class InspectionLightingPreview : Node
             InstanceLock.None, new(100, 100), [], []);
         return new(new(0, 0), HostCoreScenario.Input)
         {
+            Economy = UiWorldFixture.Economy,
             World = new(3, Rule, 256, 256, [first, last], [edge], [new(train.Id, train.Position, train.Activity)], [], []),
             Nodes = new Dictionary<NodeId, Lookup<NodeView>>
             { [first.Id] = new Lookup<NodeView>.Found(new(first, [Edge], 80, 0, 80)), [last.Id] = new Lookup<NodeView>.Found(new(last, [Edge], 80, 0, 80)) },

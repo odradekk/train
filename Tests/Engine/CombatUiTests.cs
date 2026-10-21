@@ -475,6 +475,7 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
         ImmutableArray<EventEnvelope> events = item is null ? [] : [new(new(step, 0), 0, item)];
         session.QueueAdvance(new(1, new(step, 0), events, null, null), new FixedCoreReadView(new(step, 0), HostCoreScenario.Input, null, new(1))
         {
+            Economy = UiWorldFixture.Economy,
             World = new(0, new("fixture:railway"), 100, 100, [], [], [], [], [])
         });
     }
@@ -556,6 +557,7 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
         internal FixedCoreReadView View(SimulationPosition position, bool combatPresent = true, bool settlementPresent = true) =>
             rich ? Battlefield(position, combatPresent, settlementPresent) : new(position, HostCoreScenario.Input, null, new(1))
             {
+                Economy = UiWorldFixture.Economy,
                 World = new(0, new("fixture:railway"), 100, 100, [], [], [], [], [])
             };
 
@@ -612,6 +614,7 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
                 new(new(new("preview:market"), null, []), new(0, 0, 0, 0, 0, 0, 0), []));
             return new(position, HostCoreScenario.Input, null, new(1))
             {
+                Economy = UiWorldFixture.Economy,
                 World = new(1, new("fixture:railway"), 1000, 600, [settlementNode, far], [edge],
                     [new(train.Id, trainPosition, train.Activity)], [], listed),
                 Nodes = new Dictionary<NodeId, Lookup<NodeView>>

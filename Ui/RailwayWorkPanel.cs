@@ -65,7 +65,7 @@ internal sealed partial class RailwayWorkPanel : Control
         _open = true;
         _breakSignature = _sourceSignature = null;
         _panel.Show();
-        _panel.MoveToFront();
+        UiStyle.BringToFront(_panel);
         if (_host.GetStatus() is { } status && _host.Content is { } content)
             Refresh(status.Binding, status.View, content);
     }

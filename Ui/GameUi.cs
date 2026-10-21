@@ -7,6 +7,7 @@ using Train.App.Authoring;
 using Train.App.Logging;
 using Train.App.Notifications;
 using Train.App.Recording;
+using Train.App.Saves;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
@@ -30,6 +31,7 @@ public partial class GameUi : CanvasLayer
     private HostCoordinator? _host;
     private WorldSceneController? _scenes;
     private RecordingService? _recording;
+    private SaveService? _saves;
     private TrainLogger _logger = null!;
     private MainMenu _menu = null!;
     private Control _root = null!;
@@ -68,6 +70,7 @@ public partial class GameUi : CanvasLayer
     internal ICoreReadView? View => _view;
     internal string ErrorText => _error.Text;
     internal Rect2 PanelArea { get; private set; }
+    internal Control World => _world;
     internal event Action? PanelAreaChanged;
 
     private void UpdatePanelArea()
@@ -91,10 +94,17 @@ public partial class GameUi : CanvasLayer
         _editorPanel?.Scene.View.SetLighting(mode);
     }
 
+    private void SetHighQuality(bool high)
+    {
+        _scenes?.View.SetHighQuality(high);
+        _templates?.View.SetHighQuality(high);
+        _editorPanel?.Scene.View.SetHighQuality(high);
+    }
+
     internal void Initialize(MainMenu menu, HostCoordinator? host, TrainLogger logger,
         WorldSceneController? scenes, RecordingService? recording, GoodsIconCache icons, EditorService editor,
-        AuthoringService? authoring, TemplateSceneController? templates, NotificationPolicy policy)
-    { _menu = menu; _host = host; _logger = logger; _scenes = scenes; _recording = recording; _icons = icons; _editor = editor; _authoring = authoring; _templates = templates; _policy = policy; }
+        AuthoringService? authoring, TemplateSceneController? templates, NotificationPolicy policy, SaveService? saves)
+    { _menu = menu; _host = host; _logger = logger; _scenes = scenes; _recording = recording; _icons = icons; _editor = editor; _authoring = authoring; _templates = templates; _policy = policy; _saves = saves; }
 
     public override void _Ready()
     {
@@ -131,6 +141,7 @@ public partial class GameUi : CanvasLayer
         _root.Resized += UpdatePanelArea;
         _world.VisibilityChanged += UpdatePanelArea;
         _clock = UiStyle.Label("");
+        _clock.Name = "Clock";
         _clock.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
         _bar.AddChild(_clock);
         if (_scenes is not null)
@@ -192,7 +203,8 @@ public partial class GameUi : CanvasLayer
             _combat = new CombatPanel { Name = "CombatPanel" };
             _combat.Initialize(Submit, ReportUiError);
             _world.AddChild(_combat);
-            _notices = new NotificationPanel { Name = "NotificationPanel" };
+            // 提示放在地图层之后的 Root 中：业务面板置前时不会盖住它，之后加入 Root 的设置、错误等界面仍在它之上。
+            _notices = new NotificationPanel { Name = "NotificationPanel", ToastParent = _root };
             _notices.Chosen += OpenNotice;
             _world.AddChild(_notices);
             _bar.AddChild(UiStyle.Button("Combats", "战斗", () => _combat.Open()));
@@ -215,12 +227,13 @@ public partial class GameUi : CanvasLayer
         _error.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         _error.AddThemeColorOverride("font_color", UiStyle.Error);
         errorBody.AddChild(_error);
-        _settings = new SettingsPanel { Name = "SettingsPanel" };
-        _settings.Initialize(_host, _logger, ShowError, _policy, _recording, _scenes?.View.CameraRig);
-        _root.AddChild(_settings);
-        _bar.AddChild(UiStyle.Button("Settings", "设置", _settings.Show));
         _library = new BlueprintLibraryPanel { Name = "BlueprintLibrary" }; _library.Initialize(_editor); _root.AddChild(_library);
         _editorPanel = new DesignEditorPanel { Name = "DesignEditor" }; _editorPanel.Initialize(_editor); _editorPanel.LibraryRequested += _library.Open; _root.AddChild(_editorPanel);
+        // 设置在加入场景树时立即应用画质，所以编辑器的场景视图要先创建。
+        _settings = new SettingsPanel { Name = "SettingsPanel" };
+        _settings.Initialize(_host, _logger, ShowError, _policy, _recording, _scenes?.View.CameraRig, _saves, SetHighQuality);
+        _root.AddChild(_settings);
+        _bar.AddChild(UiStyle.Button("Settings", "设置", _settings.Show));
         _bar.AddChild(UiStyle.Button("NewDesign", "新建设计…", _library.NewDraft));
         _bar.AddChild(UiStyle.Button("BlueprintLibrary", "蓝图库…", _library.Open));
         if (_authoring is not null)
@@ -309,7 +322,8 @@ public partial class GameUi : CanvasLayer
         }
         if (status is not null)
         {
-            _clock.Text = $"{UiInput.FormatTime(status.View.Position.CompletedSteps)}   {(status.IsPaused ? "已暂停" : "运行中")}   实际 {status.ActualSpeed:0.00}×";
+            _clock.Text = $"{UiInput.FormatTime(status.View.Position.CompletedSteps)}   {PauseText(status)}   " +
+                $"实际 {status.ActualSpeed:0.00}×   资金 {status.View.Economy.Wallet.Value}";
             foreach (var (speed, button) in _speeds)
             {
                 button.Disabled = _host!.IsBusy || editing;
@@ -415,7 +429,7 @@ public partial class GameUi : CanvasLayer
         }
         _reports.Observe(binding, events);
         if (view.Fault is { } fault && (_binding != binding || _view?.Fault != fault))
-            ShowError(CommandDiagnostics.Describe(fault));
+            ShowError(CommandDiagnostics.DescribeFrozen(fault));
         _map.SetView(view, content, _binding != binding);
         _icons.Bind(binding, content);
         // 边界内 IsBusy 为 true；面板在 _Process 消费此视图，避免禁用按钮打断当前点击。
@@ -447,6 +461,15 @@ public partial class GameUi : CanvasLayer
             _panels?.Refresh(_binding, status.View, _content!);
             _panels?.OpenObject(id);
         }
+    }
+
+    // 玩家和通知暂停由暂停按钮表示；这里列出其他仍然生效的来源，避免倍速按钮按下却不推进时看不出原因。
+    private static string PauseText(HostStatus status)
+    {
+        if (!status.IsPaused) return "运行中";
+        var reasons = new[] { (status.FocusPaused, "失焦"), (status.EditingPaused, "编辑"),
+            (status.OperationLocked, "处理中"), (status.IsFrozen, "故障") }.Where(item => item.Item1).Select(item => item.Item2);
+        return reasons.Any() ? $"已暂停（{string.Join("、", reasons)}）" : "已暂停";
     }
 
     private void OpenCombat(CombatId id)
@@ -619,13 +642,18 @@ public partial class GameUi : CanvasLayer
     private void OnOperationEnded(HostOperationResult result)
     {
         if (result.Kind == OperationKind.Restore && result.Succeeded)
+        {
             _menu.CloseSaves();
+            if (!result.Problems.IsEmpty)
+                ShowMessage("读档完成，内容已适配", "以下状态已按当前安装的内容调整：\n" +
+                    string.Join("\n", result.Problems.Select(problem => CommandDiagnostics.Describe(problem, _content))));
+        }
         if (!result.Succeeded && result.Status is not (HostOperationStatus.Cancelled or HostOperationStatus.Discarded))
         {
             var message = string.Join("\n", result.Problems.Select(problem => CommandDiagnostics.Describe(problem, _content))
                 .Concat(result.Diagnostics.Select(problem => problem.Message)));
             var operation = result.Kind switch
-            { OperationKind.NewGame => "新游戏", OperationKind.Restore => "读档", OperationKind.Reload => "内容重载", _ => "宿主操作" };
+            { OperationKind.NewGame => "新游戏", OperationKind.Restore => "读档", OperationKind.Reload => _host?.Content is null ? "启动内容加载" : "内容重载", _ => "宿主操作" };
             if (result.Status == HostOperationStatus.Faulted)
                 message = result.Fault is { } fault ? CommandDiagnostics.Describe(fault) : $"{operation}发生故障：{result.FaultCode}。";
             else if (message.Length == 0) message = result.Status == HostOperationStatus.NotAccepted
@@ -641,9 +669,12 @@ public partial class GameUi : CanvasLayer
             _newGame!.Hide();
     }
 
-    internal void ShowError(string message)
+    internal void ShowError(string message) => ShowMessage("操作未完成", message);
+
+    private void ShowMessage(string title, string message)
     {
         _missingErrorOperation = null;
+        ((Label)_errorPanel.FindChild("Title", true, false)).Text = title;
         _error.Text = message; _errorPanel.Show(); _errorPanel.MoveToFront();
         _errorPanel.Position = new(Math.Max(16, _root.Size.X - _errorPanel.Size.X - 24), 68);
     }

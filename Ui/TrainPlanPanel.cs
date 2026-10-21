@@ -76,6 +76,7 @@ internal partial class TrainPlanPanel : Control
             _rows.RemoveAt(_rows.Count - 1); _rowsBox.RemoveChild(row.Box); row.Box.QueueFree();
         }
         Show();
+        UiStyle.BringToFront(this);
         RefreshState(target.Binding, view, content);
     }
 
