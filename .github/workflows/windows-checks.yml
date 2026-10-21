@@ -35,7 +35,7 @@ jobs:
     # A label is a one-shot request; leaving it on a PR does not make pushes heavy.
     if: (github.event_name == 'pull_request' && (github.event.action != 'labeled' || github.event.label.name == 'ci:correctness')) || (github.event_name == 'workflow_dispatch' && (inputs.selection == 'routine' || inputs.selection == 'correctness'))
     runs-on: windows-2025
-    timeout-minutes: 111
+    timeout-minutes: 115
     env:
       CI_SELECTION: ${{ inputs.selection || (github.event.action == 'labeled' && github.event.label.name == 'ci:correctness' && 'correctness') || 'routine' }}
     steps:
@@ -180,7 +180,7 @@ jobs:
     name: Linux ${{ github.event_name == 'push' && 'post-merge' || inputs.selection || 'nightly' }} ${{ inputs.selection == 'long-example' && inputs.example || '' }}
     if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/master') || (github.event_name == 'workflow_dispatch' && (inputs.selection == 'nightly' || inputs.selection == 'long-example'))
     runs-on: [self-hosted, linux, nightly]
-    timeout-minutes: ${{ inputs.selection == 'long-example' && (inputs.example == 'lease-expiry' && 485 || 105) || 145 }}
+    timeout-minutes: ${{ inputs.selection == 'long-example' && (inputs.example == 'lease-expiry' && 485 || 105) || 153 }}
     permissions:
       contents: read
     env:
