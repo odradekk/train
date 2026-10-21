@@ -38,6 +38,7 @@ public partial class ProductionNodeCapture : Node
             {
                 draw = Godot.Engine.GetFramesDrawn(), position = view.Position,
                 frame = frame.Update.Frame, displaySeconds = frame.SimulationSeconds,
+                effectsSeconds = display.FlickerSeconds,
                 effects = frame.Update.Effects.Select(effect => new
                 {
                     effect.Id, kind = effect.Kind.ToString(), subject = effect.Subject?.ToString(), effect.StartedAtSimulationSeconds,

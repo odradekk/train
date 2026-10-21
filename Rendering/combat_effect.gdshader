@@ -10,12 +10,17 @@ instance uniform float strength = 1.0;
 instance uniform float seed = 0.0;
 instance uniform vec4 tint : source_color = vec4(1.0);
 instance uniform float lifetime = 0.0;
+instance uniform float hold_start = 0.0;
+instance uniform float hold_seconds = 0.0;
 
 varying float effect_alpha;
 
 void vertex() {
 	float elapsed = max(simulation_seconds - start_seconds, 0.0);
 	float phase = lifetime <= 0.0 ? 1.0 : clamp(elapsed / max(lifetime, 0.001), 0.0, 1.0);
+	if (hold_seconds > 0.0) {
+		phase = min(phase, clamp((flicker_seconds - hold_start) / hold_seconds, 0.0, 1.0));
+	}
 	effect_alpha = strength * (1.0 - smoothstep(0.72, 1.0, phase));
 	if (appearance <= 2 || appearance == 4 || appearance == 6 || appearance == 7 || appearance == 8) {
 		float node_scale = max(length(MODEL_MATRIX[0].xyz), 0.001);
