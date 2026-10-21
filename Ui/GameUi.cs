@@ -403,9 +403,9 @@ public partial class GameUi : CanvasLayer
         if (_notices is not null)
         {
             var previous = _binding == binding ? _view : null;
-            foreach (var envelope in events)
-                if (_policy.Classify(envelope.Event, previous, view) is { } notice)
-                    _notices.Add(notice, view, content);
+            foreach (var notice in events.Select(envelope => _policy.Classify(envelope.Event, previous, view))
+                         .OfType<NotificationNotice>().Distinct())
+                _notices.Add(notice, view, content);
         }
         _reports.Observe(binding, events);
         if (view.Fault is { } fault && (_binding != binding || _view?.Fault != fault))

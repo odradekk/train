@@ -251,6 +251,61 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public async Task One_retreat_notice_per_train_and_cleared_lair_notice_opens_its_node()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var host = new CombatHost(rich: true);
+        FixedDisplaySession? scene = null;
+        var target = new WorldSceneTarget.Location(new WorldLocation.Node(new(2)));
+        var failure = new SceneResult<ISceneFrame>.Failure([
+            new("notice_probe", SceneStage.Present, null, null, null, null, "只记录清剿节点。")]);
+        var scenes = new FixedDisplayFactory
+        {
+            OpenWorldCall = (binding, _) =>
+            {
+                scene = new FixedDisplaySession
+                {
+                    Id = new(Guid.Parse("00000000-0000-0000-0000-000000674001")),
+                    Binding = binding,
+                    RequestResults = ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>>.Empty.Add(
+                        target, new SceneResult<SceneRequestId>.Success(new(1))),
+                    PresentResults = [failure]
+                };
+                return new SceneResult<IWorldSceneSession>.Success(scene);
+            }
+        };
+        Train.App.App? app = null;
+        try
+        {
+            app = await Boot(fixture, (_, logger) => host.Create(logger), () => scenes);
+            host.Session.QueueAdvance(new(1, new(1, 0),
+            [
+                new(new(1, 0), 0, new CoreEvent.CombatRetreatStarted(new(5),
+                    new CombatUnitId.Instance(new InstanceId.Vehicle(new(11))), 3)),
+                new(new(1, 0), 1, new CoreEvent.CombatRetreatStarted(new(5),
+                    new CombatUnitId.Instance(CombatHost.SecondVehicle), 3)),
+                new(new(1, 0), 2, new CoreEvent.LairCleared(new(3), new(2), new Money(0)))
+            ], null, null), host.View(new(1, 0)));
+            Require(app.Host!.SetPaused(false) is null, "无法推进撤退和清剿。");
+            app.Host.ProcessFrame(SimulationTime.StepSeconds);
+            app.Host.SetPaused(true);
+            await _input.Frames();
+            var ui = app.GetNode<GameUi>("GameUi");
+            await Press(ui.GetNode<Button>("Root/World/Bar/TopBar/Notices"));
+            var rows = Find<PanelContainer>(ui, "NoticeLog").FindChildren("*", "Button", true, false).Cast<Button>().ToArray();
+            var retreats = rows.Where(button => button.Text.Contains("开始撤退")).ToArray();
+            var cleared = rows.Where(button => button.Text.Contains("生物聚落被清剿")).ToArray();
+            Require(retreats.Length == 1 && retreats[0].Text.Contains("列车 7") && cleared.Length == 1,
+                $"同一列车的一次撤退应只有一条通知，清剿应有一条：{string.Join(" | ", rows.Select(button => button.Text))}");
+            await Press(cleared[0]);
+            await _input.WaitUntil(() => scene is { RequestCalls.Count: 1, IsDisposed: true });
+            Require(scene!.RequestCalls[0] == target && ui.ErrorText != "已不存在",
+                $"清剿通知没有打开节点：{string.Join(", ", scene.RequestCalls)} / {ui.ErrorText}");
+        }
+        finally { await Cleanup(fixture, app); }
+    }
+
+    [Test]
     public async Task Combat_marker_opens_the_combat_edge_location()
     {
         var fixture = new Fixture(TestScene.GetTree());
@@ -453,6 +508,7 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
         private readonly FixedCoreCapture _capture = new(new(new(0, 0), "combat", "combat"),
             HostCoreScenario.References, "combat core", HostCoreScenario.Input, new(1));
         private readonly CoreSessionOptions _options = new(new("fixture", "fixture", "fixture", "fixture", "fixture"), true, 1);
+        internal static readonly InstanceId SecondVehicle = new InstanceId.Vehicle(new(12));
         internal GateSession? Gate { get; private set; }
         internal ScriptedCoreSession Session => Gate!.Inner;
         internal int Restores { get; private set; }
@@ -576,6 +632,7 @@ public class CombatUiTests(Node testScene) : TestClass(testScene)
                 Instances = new Dictionary<InstanceId, Lookup<InstanceView>>
                 {
                     [vehicle.Id] = new Lookup<InstanceView>.Found(vehicle),
+                    [SecondVehicle] = new Lookup<InstanceView>.Found(vehicle with { Id = SecondVehicle }),
                     [building.Id] = new Lookup<InstanceView>.Found(building)
                 },
                 Settlements = new Dictionary<SettlementId, Lookup<SettlementView>>

@@ -86,7 +86,7 @@ internal sealed class NotificationPolicy
         CoreEvent.CombatJoined joined => Encounter("有单位加入战斗。", joined.Combat, CombatLocation(current, joined.Combat)),
         CoreEvent.CombatDestruction destruction => Destruction(destruction, previous),
         CoreEvent.CombatRetreatStarted retreat => Notice(NotificationCategory.RetreatStarted, NotificationLevel.Warning,
-            "开始撤退。", null, UnitSubject(retreat.Unit)),
+            "开始撤退。", null, UnitSubject(retreat.Unit, current)),
         CoreEvent.RetreatCompleted completed => Notice(NotificationCategory.RetreatCompleted, NotificationLevel.Completion,
             "撤退到达。", new WorldLocation.Node(completed.Node), new WorldObjectId.Train(completed.Train)),
         CoreEvent.CombatEnded ended => Notice(NotificationCategory.CombatEnded, NotificationLevel.Completion,
@@ -94,7 +94,7 @@ internal sealed class NotificationPolicy
         CoreEvent.SettlementSurrendered surrendered => Notice(NotificationCategory.Surrender, NotificationLevel.Warning,
             "投降。", null, new WorldObjectId.Settlement(surrendered.Settlement)),
         CoreEvent.LairCleared cleared => Notice(NotificationCategory.LairCleared, NotificationLevel.Completion,
-            "生物聚落被清剿。", new WorldLocation.Node(cleared.Node), new WorldObjectId.Lair(cleared.Lair)),
+            "生物聚落被清剿。", new WorldLocation.Node(cleared.Node), null),
         CoreEvent.SettlementRelationChanged changed => Relation(changed),
         CoreEvent.RunReported { Report.Reason: RunEndReason.AllVehiclesDestroyed } reported =>
             Notice(NotificationCategory.RunDestroyed, NotificationLevel.Severe, RunDestroyedText, null,
@@ -146,8 +146,11 @@ internal sealed class NotificationPolicy
     private static WorldLocation? CombatLocation(ICoreReadView? current, CombatId combat) =>
         current?.World.Combats.FirstOrDefault(item => item.Id == combat)?.Location;
 
-    private static WorldObjectId UnitSubject(CombatUnitId unit) => unit switch
+    // 列车的每辆车各发一条撤退事件；主体归到列车，同一边界的相同通知只显示一次。
+    private static WorldObjectId UnitSubject(CombatUnitId unit, ICoreReadView? current) => unit switch
     {
+        CombatUnitId.Instance instance when current?.FindInstance(instance.Id) is Lookup<InstanceView>.Found
+            { Value.Details: InstanceDetails.Vehicle { Train: { } train } } => new WorldObjectId.Train(train),
         CombatUnitId.Instance instance => new WorldObjectId.Instance(instance.Id),
         CombatUnitId.CreatureGroup group => new WorldObjectId.CreatureGroup(group.Id),
         _ => throw new ArgumentOutOfRangeException(nameof(unit))
