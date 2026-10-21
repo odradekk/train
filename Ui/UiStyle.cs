@@ -61,6 +61,7 @@ internal static class UiStyle
         GameUi? ui = null;
         var content = body;
         var queued = false;
+        var shown = panel.Visible;
         void Fit()
         {
             queued = false;
@@ -79,6 +80,15 @@ internal static class UiStyle
             panel.Position = new(Math.Clamp(preferred.X, area.Position.X, Math.Max(area.Position.X, area.End.X - panel.Size.X)),
                 top);
         }
+        void Raise()
+        {
+            if (!GodotObject.IsInstanceValid(panel) || !panel.IsInsideTree()) return;
+            panel.MoveToFront();
+            // 地图层的业务面板分属不同的所有者控件，所有者也要移到地图层最前才能盖住别的面板。
+            // 只在地图层内移动，所以直接挂在 Root 下的设置、错误等界面仍在业务面板之上。
+            if (ui?.World is not { } world || !world.IsAncestorOf(panel)) return;
+            for (var owner = panel.GetParent<Control>(); owner != world; owner = owner.GetParent<Control>()) owner.MoveToFront();
+        }
         void QueueFit()
         {
             if (queued || !panel.IsInsideTree() || !panel.IsVisibleInTree()) return;
@@ -89,6 +99,13 @@ internal static class UiStyle
         parent.Resized += QueueFit;
         panel.Resized += QueueFit;
         panel.VisibilityChanged += QueueFit;
+        panel.VisibilityChanged += () =>
+        {
+            // 只在面板自己被打开时移到最前；祖先显隐变化不改变面板之间的先后。
+            if (panel.Visible && !shown) Raise();
+            shown = panel.Visible;
+        };
+        panel.GuiInput += input => { if (input is InputEventMouseButton { Pressed: true }) Raise(); };
         content.MinimumSizeChanged += QueueFit;
         panel.Ready += () =>
         {
@@ -97,6 +114,9 @@ internal static class UiStyle
             ui = ancestor as GameUi;
             if (ui is not null) ui.PanelAreaChanged += QueueFit;
             QueueFit();
+            // 按需创建的面板（例如对象详情）加入时就是打开的；启动时创建后立即隐藏的面板不移动。
+            shown = panel.Visible;
+            Callable.From(() => { if (panel.Visible) Raise(); }).CallDeferred();
         };
         panel.TreeExiting += () =>
         {

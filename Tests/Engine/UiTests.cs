@@ -241,6 +241,55 @@ public class UiTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public async Task Opening_or_clicking_a_covered_panel_raises_it_below_settings_and_above_the_minimap()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var setup = new HostSimulationTests.HostSetup(UiWorldFixture.Map());
+        try
+        {
+            var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
+            app.CreateHost = logger => setup.Create(logger);
+            await fixture.AddToRoot(app);
+            await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
+            var ui = app.GetNode<GameUi>("GameUi");
+            var bar = ui.GetNode<Control>("Root/World/Bar/TopBar");
+            await _input.Activate(bar.GetNode<Button>("Notices"));
+            await _input.Activate(bar.GetNode<Button>("Fleet"));
+            await _input.Frames(2);
+            var notices = (Control)ui.FindChild("NoticeLog", true, false);
+            var fleet = (Control)ui.FindChild("FleetList", true, false);
+            Require(Above(fleet, notices), "后打开的车队列表没有盖住先打开的通知记录。");
+            var lower = notices.GetGlobalRect();
+            var upper = fleet.GetGlobalRect();
+            var exposed = new Vector2((upper.End.X + lower.End.X) / 2, lower.End.Y - 20);
+            Require(lower.HasPoint(exposed) && !upper.HasPoint(exposed), $"通知记录没有露出可点击的部分：{lower} / {upper}。");
+            await _input.Click(exposed);
+            Require(Above(notices, fleet), "点击下层的通知记录没有把它移到最前。");
+            await _input.Activate(bar.GetNode<Button>("Settings"));
+            await _input.Click(exposed);
+            var settings = (Control)ui.GetNode("Root/SettingsPanel").FindChild("Settings", true, false);
+            var minimap = ui.World.GetChildren().OfType<NodeMinimap>().Single();
+            Require(Above(settings, notices) && Above(settings, fleet), "业务面板盖过了设置。");
+            Require(Above(notices, minimap) && Above(fleet, minimap), "业务面板移到了节点小地图之下。");
+            setup.Session.AssertComplete();
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
+    // 同一 CanvasLayer 内按场景树顺序绘制和接收输入：在最近公共祖先下排在后面的在上面。
+    private static bool Above(Node upper, Node lower)
+    {
+        var lowerPath = new List<Node>();
+        for (var node = lower; node is not null; node = node.GetParent()) lowerPath.Add(node);
+        for (Node? node = upper, child = null; node is not null; child = node, node = node.GetParent())
+        {
+            var index = lowerPath.IndexOf(node);
+            if (index > 0 && child is not null) return child.GetIndex() > lowerPath[index - 1].GetIndex();
+        }
+        return false;
+    }
+
+    [Test]
     public async Task Speed_buttons_preserve_focus_pause_and_select_only_the_current_control()
     {
         var tree = TestScene.GetTree();

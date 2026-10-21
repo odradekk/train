@@ -70,6 +70,7 @@ public partial class GameUi : CanvasLayer
     internal ICoreReadView? View => _view;
     internal string ErrorText => _error.Text;
     internal Rect2 PanelArea { get; private set; }
+    internal Control World => _world;
     internal event Action? PanelAreaChanged;
 
     private void UpdatePanelArea()
