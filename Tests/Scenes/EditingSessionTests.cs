@@ -77,6 +77,40 @@ public sealed class EditingSessionTests
     }
 
     [TestMethod]
+    public void UnchangedStateRepresentsWithoutUpsertsAndUndoMatchesAColdSession()
+    {
+        var draft = EditingFixtures.Draft(new(0, 0, 0), new(1, 0, 0));
+        using var session = EditingFixtures.Open(draft);
+        var first = EditingFixtures.Frame(session);
+        var again = EditingFixtures.Value(session.Present(EditingFixtures.View(), first));
+        Assert.IsTrue(again.Update.Upserts.IsEmpty);
+        Assert.IsTrue(again.Update.Removed.IsEmpty);
+        var added = EditingFixtures.Apply(session, EditingFixtures.Add(new(2, 0, 0)));
+        Assert.AreEqual(3, added.Elements.Length);
+        Assert.IsTrue(added.IsDirty);
+        Assert.IsFalse(EditingFixtures.Value(session.Present(EditingFixtures.View(), again)).Update.Upserts.IsEmpty);
+
+        var undone = EditingFixtures.Value(session.Undo());
+        using var cold = EditingFixtures.Open(draft);
+        var expected = cold.Read();
+        Assert.IsFalse(undone.IsDirty);
+        CollectionAssert.AreEqual(expected.Snapshot.Draft.Layout.Cells, undone.Snapshot.Draft.Layout.Cells);
+        CollectionAssert.AreEqual(expected.Elements.Select(e => (e.Id, e.Kind, e.At, e.Locked)).ToArray(),
+            undone.Elements.Select(e => (e.Id, e.Kind, e.At, e.Locked)).ToArray());
+        var coldFrame = EditingFixtures.Frame(cold);
+        var undoneFrame = EditingFixtures.Frame(session);
+        Assert.AreEqual(coldFrame.Update.Upserts.Length, undoneFrame.Update.Upserts.Length);
+        foreach (var (a, b) in coldFrame.Update.Upserts.Zip(undoneFrame.Update.Upserts))
+        {
+            Assert.AreEqual((a.Id, a.Parent, a.Pose, a.Subject), (b.Id, b.Parent, b.Pose, b.Subject));
+            CollectionAssert.AreEqual(Vertices(a), Vertices(b));
+        }
+
+        static SceneVertex[] Vertices(SceneObject item) =>
+            item.Visuals.OfType<SceneVisual.Geometry>().SelectMany(visual => visual.Mesh.Vertices).ToArray();
+    }
+
+    [TestMethod]
     public void EvaluationRequiresDeeplyEqualCurrentDraftAndMatchingStamp()
     {
         var child = EditingFixtures.Draft(new GridPosition(0, 0, 0)) with { Specification = new DesignSpecification.Assembly(null) };
