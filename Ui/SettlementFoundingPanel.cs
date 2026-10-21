@@ -61,7 +61,7 @@ internal partial class SettlementFoundingPanel : Control
         _trainIds.Clear();
         if (_trains is not null) _trains.Clear();
         _panel.Show();
-        _panel.MoveToFront();
+        UiStyle.BringToFront(_panel);
         if (_host.GetStatus() is { } status && _host.Content is { } content)
             Refresh(status.Binding, status.View, content);
     }

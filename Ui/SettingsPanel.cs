@@ -3,15 +3,19 @@ using Train.App;
 using Train.App.Logging;
 using Train.App.Notifications;
 using Train.App.Recording;
+using Train.App.Saves;
 
 namespace Train.Ui;
 
 public partial class SettingsPanel : Control
 {
     private const string Path = "user://settings.cfg";
+    private static readonly int[] AutoSaveMinutes = [0, 5, 10, 15, 30];
     private HostCoordinator? _host;
     private NotificationPolicy _policy = null!;
     private RecordingService? _recording;
+    private SaveService? _saves;
+    private Action<bool>? _setHighQuality;
     private TrainLogger _logger = null!;
     private Action<string> _showError = null!;
     private Window _window = null!;
@@ -20,12 +24,18 @@ public partial class SettingsPanel : Control
     private int _fps;
     private bool _focusPause;
     private bool _cameraShake = true;
+    private bool _highQuality;
+    private int _autoSaveMinutes = 5;
     private WorldCamera? _camera;
     private NotificationAction[] _actions = Defaults();
 
     internal void Initialize(HostCoordinator? host, TrainLogger logger, Action<string> showError,
-        NotificationPolicy policy, RecordingService? recording = null, WorldCamera? camera = null)
-    { _host = host; _logger = logger; _showError = showError; _policy = policy; _recording = recording; _camera = camera; }
+        NotificationPolicy policy, RecordingService? recording = null, WorldCamera? camera = null,
+        SaveService? saves = null, Action<bool>? setHighQuality = null)
+    {
+        _host = host; _logger = logger; _showError = showError; _policy = policy; _recording = recording; _camera = camera;
+        _saves = saves; _setHighQuality = setHighQuality;
+    }
 
     public override void _Ready()
     {
@@ -43,21 +53,27 @@ public partial class SettingsPanel : Control
                 var configFps = config.GetValue("display", "fps", _fps);
                 var focusPause = config.GetValue("game", "focus_pause", false);
                 var cameraShake = config.GetValue("game", "camera_shake", true);
+                var configQuality = config.GetValue("display", "quality", 0);
+                var configAutoSave = config.GetValue("game", "autosave_minutes", 5);
                 var displayValid = mode.VariantType == Variant.Type.Int && mode.AsInt64() is >= 0 and <= 2 &&
                     (configScale.VariantType is Variant.Type.Int or Variant.Type.Float) &&
                     double.IsFinite(configScale.AsDouble()) && configScale.AsDouble() is >= 0.75 and <= 2 &&
                     configFps.VariantType == Variant.Type.Int && configFps.AsInt64() is >= 0 and <= 1000 &&
-                    focusPause.VariantType == Variant.Type.Bool && cameraShake.VariantType == Variant.Type.Bool;
+                    focusPause.VariantType == Variant.Type.Bool && cameraShake.VariantType == Variant.Type.Bool &&
+                    configQuality.VariantType == Variant.Type.Int && configQuality.AsInt64() is 0 or 1 &&
+                    configAutoSave.VariantType == Variant.Type.Int && AutoSaveMinutes.Any(minutes => minutes == configAutoSave.AsInt64());
                 if (!displayValid || !TryReadNotifications(config, out var actions))
                 {
                     Report("设置文件包含无效值，使用当前工程默认设置。", Error.InvalidData);
-                    _mode = 0; _scale = 1; _fps = Engine.MaxFps; _focusPause = false; _cameraShake = true; _actions = Defaults();
+                    _mode = 0; _scale = 1; _fps = Engine.MaxFps; _focusPause = false; _cameraShake = true;
+                    _highQuality = false; _autoSaveMinutes = 5; _actions = Defaults();
                 }
                 else
                 {
                     _mode = mode.AsInt32(); _scale = (float)configScale.AsDouble();
                     _fps = configFps.AsInt32(); _focusPause = focusPause.AsBool();
-                    _cameraShake = cameraShake.AsBool(); _actions = actions;
+                    _cameraShake = cameraShake.AsBool(); _highQuality = configQuality.AsInt32() == 1;
+                    _autoSaveMinutes = configAutoSave.AsInt32(); _actions = actions;
                 }
             }
             else if (result != Error.FileNotFound) Report("无法读取设置文件，使用当前工程默认设置。", result);
@@ -68,6 +84,10 @@ public partial class SettingsPanel : Control
         modes.Select(_mode);
         AddRow(body, "窗口模式", modes);
         modes.ItemSelected += index => { _mode = (int)index; Save(); };
+        var quality = Options("Quality", ["中", "高"]);
+        quality.Select(_highQuality ? 1 : 0);
+        AddRow(body, "画质", quality);
+        quality.ItemSelected += index => { _highQuality = index == 1; Save(); };
         var scale = new SpinBox { Name = "UiScale", MinValue = 0.75, MaxValue = 2, Step = 0.25,
             Value = _scale, Suffix = "×", CustomMinimumSize = new(280, 38) };
         AddRow(body, "界面缩放", scale);
@@ -83,6 +103,13 @@ public partial class SettingsPanel : Control
         var shake = new CheckButton { Name = "CameraShake", Text = "镜头抖动", ButtonPressed = _cameraShake };
         shake.Toggled += value => { _cameraShake = value; Save(); };
         body.AddChild(shake);
+        if (_saves is not null)
+        {
+            var autoSave = Options("AutoSave", AutoSaveMinutes.Select(minutes => minutes == 0 ? "关闭" : $"{minutes} 分钟").ToArray());
+            autoSave.Select(Array.IndexOf(AutoSaveMinutes, _autoSaveMinutes));
+            AddRow(body, "自动存档", autoSave);
+            autoSave.ItemSelected += index => { _autoSaveMinutes = AutoSaveMinutes[index]; Save(); };
+        }
         body.AddChild(UiStyle.Label("通知", true));
         foreach (var category in Enum.GetValues<NotificationCategory>())
         {
@@ -116,6 +143,10 @@ public partial class SettingsPanel : Control
         Engine.MaxFps = _fps;
         if (_host is not null) _host.AutoPauseOnFocusLoss = _focusPause;
         if (_camera is not null) _camera.ShakeEnabled = _cameraShake;
+        _setHighQuality?.Invoke(_highQuality);
+        // 重设间隔会重新开始计时，所以只在间隔变化时调用。
+        TimeSpan? autoSave = _autoSaveMinutes == 0 ? null : TimeSpan.FromMinutes(_autoSaveMinutes);
+        if (_saves is not null && _saves.AutoSaveInterval != autoSave) _saves.SetAutoSaveInterval(autoSave);
         foreach (var category in Enum.GetValues<NotificationCategory>())
             _policy.SetAction(category, _actions[(int)category]);
     }
@@ -127,8 +158,10 @@ public partial class SettingsPanel : Control
         config.SetValue("display", "mode", _mode);
         config.SetValue("display", "scale", _scale);
         config.SetValue("display", "fps", _fps);
+        config.SetValue("display", "quality", _highQuality ? 1 : 0);
         config.SetValue("game", "focus_pause", _focusPause);
         config.SetValue("game", "camera_shake", _cameraShake);
+        config.SetValue("game", "autosave_minutes", _autoSaveMinutes);
         foreach (var category in Enum.GetValues<NotificationCategory>())
             config.SetValue("notifications", NotificationPolicy.Key(category), (int)_actions[(int)category]);
         if (config.Save(Path) is var error && error != Error.Ok)

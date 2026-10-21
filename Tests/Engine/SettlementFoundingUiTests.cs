@@ -316,6 +316,7 @@ public class SettlementFoundingUiTests(Node testScene) : TestClass(testScene)
                 [new(EconomyFixture.Food, 12)], 180, blockers));
         return new(new(0, revision), HostCoreScenario.Input, revision: new(revision))
         {
+            Economy = UiWorldFixture.Economy,
             World = new(1, new("fixture:railway"), 4000, 2400, nodes.ToImmutableArray(), [],
                 trains.Select(train => new TrainMapItem(train.Id, train.Position, train.Activity)).ToImmutableArray(), [], []),
             Nodes = nodes.ToDictionary(node => node.Id, node => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(node, [], 80, 0, 80))),
