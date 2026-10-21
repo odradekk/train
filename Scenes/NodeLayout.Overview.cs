@@ -40,7 +40,15 @@ internal sealed partial class NodeLayout
                 points.Add(new((float)(point.X - origin.X), (float)(point.Z - origin.Z)));
             }
         }).ToImmutableArray();
+        var lair = ImmutableArray<Vector2>.Empty;
+        if (Lair is { } placement && NodeLair.Region(placement) is { } region)
+        {
+            var shift = new Vector2((float)origin.X, (float)origin.Z);
+            var minimum = region.Minimum - shift;
+            var maximum = region.Maximum - shift;
+            lair = [minimum, new(maximum.X, minimum.Y), maximum, new(minimum.X, maximum.Y)];
+        }
         overviewOrigin = origin;
-        return overview = new(plots, tracks);
+        return overview = new(plots, tracks, lair);
     }
 }

@@ -297,7 +297,7 @@ public class WorldSceneTargetTests(Node testScene) : TestClass(testScene)
         Update = new(null, new(SceneId, new(request), new(space), revision), NVector3.Zero,
             [], [], new([], []), []),
         Readiness = readiness, SimulationSeconds = revision == 1 ? 0 : 1d / 60,
-        Origin = origin, NodePanBounds = bounds, NodeOverview = overview ? new([], []) : null,
+        Origin = origin, NodePanBounds = bounds, NodeOverview = overview ? new([], [], []) : null,
         PickResult = new ScenePick.Miss(),
         Diagnostics = diagnostics.IsDefault ? [] : diagnostics,
         Poses = ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty.Add(Subject(vehicle),
