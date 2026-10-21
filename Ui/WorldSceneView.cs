@@ -16,6 +16,7 @@ internal partial class WorldSceneView : Node3D
     internal bool Loading => _message.Visible;
     internal bool LoadingOverlayVisible => _overlay.Visible;
     internal bool Interactive { get; set; }
+    internal Vector2? Pointer { get; private set; }
     internal InspectionLighting Lighting { get; private set; }
     internal event Action<Vector2>? PickRequested;
     internal event Action? ReturnRequested;
@@ -116,6 +117,7 @@ internal partial class WorldSceneView : Node3D
     internal void SetActive(bool active)
     {
         Visible = active;
+        if (!active) Pointer = null;
         CameraRig.Camera.Current = active;
         _worldEnvironment.Environment = active ? CurrentEnvironment : null;
     }
@@ -129,6 +131,7 @@ internal partial class WorldSceneView : Node3D
     public override void _UnhandledInput(InputEvent input)
     {
         if (!IsVisibleInTree()) return;
+        if (Interactive && input is InputEventMouseMotion seen) Pointer = seen.Position;
         if (input is InputEventKey { Pressed: true, Echo: false, Keycode: Key.Escape }
             && ReturnRequested is { } returnRequested)
             returnRequested();
