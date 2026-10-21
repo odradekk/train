@@ -6,6 +6,8 @@ import math
 from pathlib import Path
 import sys
 
+from generate_small_world import PLAYER_SUPPLIED_INPUTS
+
 
 def local(reference):
     return reference.removeprefix("core:")
@@ -334,8 +336,10 @@ class Economy:
                 if "population_min" in settlement_type:
                     row["available_labor"] = {"min": settlement_type["population_min"] * rule["simulation"]["labor_ratio"], "max": settlement_type["population_max"] * rule["simulation"]["labor_ratio"]}
             rows[identity] = row
-        for row in rows.values():
+        for identity, row in rows.items():
             row["imports_without_enabled_supplier"] = sorted(set(row["import_dependencies"]) - enabled_outputs)
+            for good in sorted(set(row["imports_without_enabled_supplier"]) - PLAYER_SUPPLIED_INPUTS):
+                self.error("settlement-template", identity, "production_plans", f"enabled plan input {good} has no enabled NPC supplier")
             inputs, outputs = Counter(), Counter()
             for plan in row["plans"]:
                 inputs.update(plan["inputs_per_second"])
@@ -347,6 +351,12 @@ class Economy:
             row["fuel_energy_per_second"] = {"produced": generated, "power_demand": row["power_demand"],
                                              "net": generated - row["power_demand"]}
         self.report["templates"] = rows
+        for identity, rule in self.data["population-rule"].items():
+            for need, parameters in rule["simulation"]["needs"].items():
+                goods = {local(entry["good"]) for entry in rule["simulation"]["consumption_goods"]
+                         if any(item["need"] == need for item in entry["satisfies"])}
+                self.require(parameters["class"] != "basic" or goods & enabled_outputs, "population-rule", identity,
+                             f"simulation.needs.{need}", "basic need has no enabled NPC supplier")
         npc = {}
         for identity, profile in self.data["generation-profile"].items():
             parameters = profile["configuration"]["npc_initialization"]

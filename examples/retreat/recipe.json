@@ -54,7 +54,7 @@
       "kind": "construction.commission_vehicle_work",
       "request": {
         "kind": "repair_vehicle",
-        "facility": { "building": 30, "capability": "construction" },
+        "facility": { "building": 34, "capability": "construction" },
         "vehicle": 8,
         "sources": [],
         "priority": 0
