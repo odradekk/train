@@ -441,6 +441,24 @@ public sealed class HostCoordinatorTests
     }
 
     [TestMethod]
+    public void Restore_reports_core_adaptations_as_a_committed_warning()
+    {
+        using var fixture = CreateFixture();
+        var adapted = new CoreProblem("fixture_adapted", "inventory", new WorldObjectId.Train(new(7)), []);
+        var candidate = new ScriptedCoreCandidate(fixture.Session, HostCoreScenario.References, adaptation: [adapted]);
+        fixture.Core.PrepareRestoreCall = (_, _, _) => new CoreResult<ICoreSessionCandidate>.Success(candidate);
+        HostOperationResult? ended = null;
+        fixture.Host.OperationEnded += result => ended = result;
+        var operation = fixture.Host.BeginRestore("core-state", "content-state", HostFixture.Options);
+        fixture.PumpUntil(() => ended is not null);
+        Assert.AreEqual(operation.Operation, ended!.Operation);
+        Assert.AreEqual(HostOperationStatus.CommittedWithWarnings, ended.Status);
+        Assert.IsTrue(ended.Succeeded);
+        CollectionAssert.AreEqual(new[] { adapted }, ended.Problems.ToArray());
+        Assert.IsTrue(fixture.Host.GetStatus()!.PlayerPaused);
+    }
+
+    [TestMethod]
     public void Missing_confirmation_is_specific_to_the_prepared_candidate()
     {
         using var fixture = CreateFixture();
@@ -501,6 +519,62 @@ public sealed class HostCoordinatorTests
         finally { release.Set(); fixture.PumpUntil(() => abandoned.Disposals == 1); }
         Assert.AreEqual(0, abandoned.Activations);
         Assert.AreSame(fixture.Content, fixture.Host.Content);
+    }
+
+    [TestMethod]
+    public void Focus_changes_during_an_operation_lock_keep_both_pause_sources()
+    {
+        using var fixture = CreateFixture();
+        fixture.ReadyHost();
+        fixture.Host.AutoPauseOnFocusLoss = true;
+        fixture.Host.SetSpeed(SimulationSpeed.Four);
+        fixture.Host.SetPaused(false);
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var abandoned = new ScriptedContentCandidate(new FixedContentView(fixture.Content.Core, new(2)),
+            fixture.Content, ContentChange.Presentation);
+        fixture.Load = _ =>
+        {
+            entered.Set();
+            HostFixture.WaitForSignal(release, "重载准备任务的放行信号未触发");
+            return new ContentResult<IContentCandidate>.Success(abandoned);
+        };
+        try
+        {
+            var op = fixture.Host.BeginReload(CommandSource.Console);
+            HostFixture.WaitForSignal(entered, "重载准备任务未进入");
+            fixture.Host.SetFocused(false);
+            Assert.IsTrue(fixture.Host.GetStatus() is { OperationLocked: true, FocusPaused: true });
+            fixture.Host.SetFocused(true);
+            Assert.IsTrue(fixture.Host.GetStatus() is { OperationLocked: true, FocusPaused: false, IsPaused: true });
+            fixture.Host.SetFocused(false);
+            Assert.IsTrue(fixture.Host.Cancel(op.Operation));
+            Assert.IsTrue(fixture.Host.GetStatus() is
+                { OperationLocked: false, FocusPaused: true, PlayerPaused: false, IsPaused: true, Speed: SimulationSpeed.Four });
+            fixture.Host.SetFocused(true);
+            Assert.IsFalse(fixture.Host.GetStatus()!.IsPaused);
+        }
+        finally { release.Set(); fixture.PumpUntil(() => abandoned.Disposals == 1); }
+    }
+
+    [TestMethod]
+    public void Regaining_focus_keeps_a_frozen_session_paused()
+    {
+        using var fixture = CreateFixture();
+        var session = fixture.ReadyHost();
+        fixture.Host.AutoPauseOnFocusLoss = true;
+        var position = new SimulationPosition(1, 0);
+        var fault = new CoreFault("fixture_fault", position, "advance", "inventory", null);
+        session.QueueAdvance(new(0, position, [], fault, new("fixture message", "fixture stack")),
+            new FixedCoreReadView(position, HostCoreScenario.Input, fault)
+            { World = new(1, new("fixture:railway"), 100, 100, [], [], [], [], []) });
+        fixture.Host.SetPaused(false);
+        fixture.Host.ProcessFrame(1);
+        fixture.Host.SetFocused(false);
+        fixture.Host.SetFocused(true);
+        Assert.IsTrue(fixture.Host.GetStatus() is { IsFrozen: true, FocusPaused: false, PlayerPaused: false, IsPaused: true });
+        fixture.Host.ProcessFrame(1);
+        Assert.AreEqual(1, session.AdvanceCount);
     }
 
     [TestMethod]

@@ -45,6 +45,7 @@ public class UiTests(Node testScene) : TestClass(testScene)
         { Occupant = new NodeOccupant.Settlement(new(node.Id.Value), SettlementRelation.Hostile) }).ToImmutableArray();
         var view = new FixedCoreReadView(default, HostCoreScenario.Input)
         {
+            Economy = UiWorldFixture.Economy,
             World = original.World with { Nodes = nodes, Trains = [] },
             Nodes = nodes.ToDictionary(node => node.Id, node => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(node, [], 80, 0, 80))),
             Locations = nodes.ToDictionary(node => (WorldLocation)new WorldLocation.Node(node.Id), node =>
@@ -132,7 +133,7 @@ public class UiTests(Node testScene) : TestClass(testScene)
         var original = UiWorldFixture.Map();
         var lair = original.World.Nodes[1] with { Occupant = new NodeOccupant.Lair(new(1)) };
         var view = new FixedCoreReadView(default, HostCoreScenario.Input)
-        { World = original.World with { Nodes = original.World.Nodes.SetItem(1, lair) } };
+        { Economy = UiWorldFixture.Economy, World = original.World with { Nodes = original.World.Nodes.SetItem(1, lair) } };
         try
         {
             var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
@@ -263,6 +264,8 @@ public class UiTests(Node testScene) : TestClass(testScene)
             Require(status.Speed == SimulationSpeed.Two && !status.PlayerPaused && status.FocusPaused &&
                 controls[2].ButtonPressed && controls.Count(button => button.ButtonPressed) == 1,
                 "真实倍速输入未解除玩家暂停、保留失焦暂停并单选当前速度。");
+            var clock = bar.GetNode<Label>("Clock");
+            await _input.WaitUntil(() => clock.Text.Contains("已暂停（失焦）") && clock.Text.Contains("资金 "));
             controls[0].GrabFocus();
             await _input.PressKey(Key.Space);
             status = host.GetStatus()!;

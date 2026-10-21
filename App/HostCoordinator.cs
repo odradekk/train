@@ -729,10 +729,12 @@ internal sealed class HostCoordinator : IDisposable
                 _active = group; _content = group.Content;
                 activatedCore = null;
                 UpdateFocusPause();
-                foreach (var problem in prepared.CoreCandidate?.AdaptationReport ?? [])
+                var adaptations = prepared.CoreCandidate?.AdaptationReport ?? [];
+                foreach (var problem in adaptations)
                     _logger.Log(LogLevel.Info, "application", "host_state_adapted", problem.Code,
                         new Dictionary<string, object?> { ["operation_id"] = operation.Id, ["code"] = problem.Code,
                             ["field"] = problem.Field, ["subject"] = problem.Subject?.ToString() }, null);
+                if (!adaptations.IsDefaultOrEmpty) { status = HostOperationStatus.CommittedWithWarnings; problems = adaptations; }
                 Dispatch([]);
                 try { old?.Dispose(); }
                 catch (Exception exception) { LogHostFailure("host_retirement_failed", exception); }

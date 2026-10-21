@@ -140,6 +140,11 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
                 "核心契约诊断未记录一次或丢失诊断栈。");
             Require(app.Host.GetStatus()!.IsFrozen && setup.Session.AdvanceCount == 1,
                 "冻结帧或控制台再次驱动了核心。");
+            var ui = app.GetNode<GameUi>("GameUi");
+            var clock = ui.GetNode<Label>("Root/World/Bar/TopBar/Clock");
+            await FramesUntil(() => clock.Text.Contains("已暂停（故障）"));
+            Require(ui.ErrorText.Contains("报告问题") && ui.ErrorText.Contains("更早的存档"),
+                $"冻结提示没有给出导出复现包和读取更早存档两条路：{ui.ErrorText}");
         }
         finally { await fixture.Cleanup(); }
     }
@@ -162,7 +167,7 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
 
     private static FixedCoreReadView EmptyView(SimulationPosition position, CoreFault? fault = null) =>
         new(position, HostCoreScenario.Input, fault)
-        { World = new(0, new("fixture:railway"), 100, 100, [], [], [], [], []) };
+        { Economy = UiWorldFixture.Economy, World = new(0, new("fixture:railway"), 100, 100, [], [], [], [], []) };
 
     internal sealed class HostSetup
     {

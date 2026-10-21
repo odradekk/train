@@ -105,6 +105,7 @@ internal static class NodeTransitionFixture
         {
             Position = new(step, 0),
             InputIdentity = content.Core.Identity,
+            Economy = UiWorldFixture.Economy,
             World = new(3, Rule, 1200, 1200, nodes, edges, [new(train.Id, position, activity)], [], []),
             Nodes = nodes.ToDictionary(n => n.Id, n => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(n, edges.Where(e => e.Start == n.Id || e.End == n.Id).Select(e => e.Id).ToImmutableArray(), 80, n.Id.Value == 1 ? 96 : 0, 80))),
             Edges = edges.ToDictionary(e => e.Id, e => (Lookup<EdgeView>)new Lookup<EdgeView>.Found(new(e, [new(1, null, []), new(2, null, [])], null))),

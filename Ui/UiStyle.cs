@@ -44,6 +44,7 @@ internal static class UiStyle
         box.AddThemeConstantOverride("separation", 12);
         var heading = new HBoxContainer();
         var label = Label(title, true);
+        label.Name = "Title";
         label.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
         heading.AddChild(label);
         heading.AddChild(Button("Close", "×", close));

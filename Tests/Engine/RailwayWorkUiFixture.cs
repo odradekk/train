@@ -116,6 +116,7 @@ internal static class RailwayWorkUiFixture
         }
         return new(new(0, revision), HostCoreScenario.Input, revision: new(revision))
         {
+            Economy = UiWorldFixture.Economy,
             World = new(7, new("fixture:railway"), 2000, 1200, nodes.ToImmutableArray(),
                 edges.Select(edge => edge.Map).ToImmutableArray(), [], [], []),
             Nodes = nodes.ToDictionary(node => node.Id, node => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(node, [], 80, 40, 80))),

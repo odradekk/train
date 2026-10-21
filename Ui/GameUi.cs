@@ -140,6 +140,7 @@ public partial class GameUi : CanvasLayer
         _root.Resized += UpdatePanelArea;
         _world.VisibilityChanged += UpdatePanelArea;
         _clock = UiStyle.Label("");
+        _clock.Name = "Clock";
         _clock.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
         _bar.AddChild(_clock);
         if (_scenes is not null)
@@ -319,7 +320,8 @@ public partial class GameUi : CanvasLayer
         }
         if (status is not null)
         {
-            _clock.Text = $"{UiInput.FormatTime(status.View.Position.CompletedSteps)}   {(status.IsPaused ? "已暂停" : "运行中")}   实际 {status.ActualSpeed:0.00}×";
+            _clock.Text = $"{UiInput.FormatTime(status.View.Position.CompletedSteps)}   {PauseText(status)}   " +
+                $"实际 {status.ActualSpeed:0.00}×   资金 {status.View.Economy.Wallet.Value}";
             foreach (var (speed, button) in _speeds)
             {
                 button.Disabled = _host!.IsBusy || editing;
@@ -419,7 +421,7 @@ public partial class GameUi : CanvasLayer
         }
         _reports.Observe(binding, events);
         if (view.Fault is { } fault && (_binding != binding || _view?.Fault != fault))
-            ShowError(CommandDiagnostics.Describe(fault));
+            ShowError(CommandDiagnostics.DescribeFrozen(fault));
         _map.SetView(view, content, _binding != binding);
         _icons.Bind(binding, content);
         // 边界内 IsBusy 为 true；面板在 _Process 消费此视图，避免禁用按钮打断当前点击。
@@ -451,6 +453,15 @@ public partial class GameUi : CanvasLayer
             _panels?.Refresh(_binding, status.View, _content!);
             _panels?.OpenObject(id);
         }
+    }
+
+    // 玩家和通知暂停由暂停按钮表示；这里列出其他仍然生效的来源，避免倍速按钮按下却不推进时看不出原因。
+    private static string PauseText(HostStatus status)
+    {
+        if (!status.IsPaused) return "运行中";
+        var reasons = new[] { (status.FocusPaused, "失焦"), (status.EditingPaused, "编辑"),
+            (status.OperationLocked, "处理中"), (status.IsFrozen, "故障") }.Where(item => item.Item1).Select(item => item.Item2);
+        return reasons.Any() ? $"已暂停（{string.Join("、", reasons)}）" : "已暂停";
     }
 
     private void OpenCombat(CombatId id)
@@ -623,13 +634,18 @@ public partial class GameUi : CanvasLayer
     private void OnOperationEnded(HostOperationResult result)
     {
         if (result.Kind == OperationKind.Restore && result.Succeeded)
+        {
             _menu.CloseSaves();
+            if (!result.Problems.IsEmpty)
+                ShowMessage("读档完成，内容已适配", "以下状态已按当前安装的内容调整：\n" +
+                    string.Join("\n", result.Problems.Select(problem => CommandDiagnostics.Describe(problem, _content))));
+        }
         if (!result.Succeeded && result.Status is not (HostOperationStatus.Cancelled or HostOperationStatus.Discarded))
         {
             var message = string.Join("\n", result.Problems.Select(problem => CommandDiagnostics.Describe(problem, _content))
                 .Concat(result.Diagnostics.Select(problem => problem.Message)));
             var operation = result.Kind switch
-            { OperationKind.NewGame => "新游戏", OperationKind.Restore => "读档", OperationKind.Reload => "内容重载", _ => "宿主操作" };
+            { OperationKind.NewGame => "新游戏", OperationKind.Restore => "读档", OperationKind.Reload => _host?.Content is null ? "启动内容加载" : "内容重载", _ => "宿主操作" };
             if (result.Status == HostOperationStatus.Faulted)
                 message = result.Fault is { } fault ? CommandDiagnostics.Describe(fault) : $"{operation}发生故障：{result.FaultCode}。";
             else if (message.Length == 0) message = result.Status == HostOperationStatus.NotAccepted
@@ -645,9 +661,12 @@ public partial class GameUi : CanvasLayer
             _newGame!.Hide();
     }
 
-    internal void ShowError(string message)
+    internal void ShowError(string message) => ShowMessage("操作未完成", message);
+
+    private void ShowMessage(string title, string message)
     {
         _missingErrorOperation = null;
+        ((Label)_errorPanel.FindChild("Title", true, false)).Text = title;
         _error.Text = message; _errorPanel.Show(); _errorPanel.MoveToFront();
         _errorPanel.Position = new(Math.Max(16, _root.Size.X - _errorPanel.Size.X - 24), 68);
     }
