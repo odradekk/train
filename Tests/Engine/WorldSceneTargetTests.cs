@@ -260,6 +260,30 @@ public class WorldSceneTargetTests(Node testScene) : TestClass(testScene)
         }
         finally { await fixture.Cleanup(); }
     }
+    [Test]
+    public async Task Opening_a_node_focuses_the_node_origin_not_the_pan_bounds_center()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var target = new WorldSceneTarget.Location(new WorldLocation.Node(new(1)));
+        // 显示坐标 = 节点坐标 − Origin；平移范围中心 (−400, 400) 离节点原点几百米。
+        var frame = Frame(1, 1, 1, 3, NVector3.Zero, origin: new(300, 0, -500),
+            bounds: new(new(-900, -100), new(100, 900)), overview: true);
+        try
+        {
+            var app = await Ready(fixture, new Setup(true, minimap: true), Factory(binding => new()
+            {
+                Id = SceneId, Binding = binding, PresentResults = [Success(frame)],
+                RequestResults = ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>>.Empty
+                    .Add(target, new SceneResult<SceneRequestId>.Success(new(1)))
+            }));
+            var world = app.WorldScenes!;
+            world.Open(target);
+            world.ProcessFrame(0, false);
+            Near(world.View.CameraRig.Focus, new(-300, 0, 500));
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
     private async Task<Train.App.App> Ready(Fixture fixture, Setup setup, FixedDisplayFactory factory)
     {
         var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
