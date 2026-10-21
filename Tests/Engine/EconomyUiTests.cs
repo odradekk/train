@@ -553,6 +553,8 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
             panels.OpenObject(new WorldObjectId.Node(new(1)));
             await _input.Frames();
             var detail = panels.FindChildren("Details", "PanelContainer", true, false).Cast<PanelContainer>().Single();
+            var nodeText = Find<Label>(detail, "Description").Text;
+            Require(nodeText.Contains("占据者：") && !nodeText.Contains('\r'), nodeText);
             Require(Named(detail, "RefitParkedVehicle").Any(button => button.Text.Contains("车辆 9")) &&
                 !Named(detail, "ParkedVehicleServices").Any(button => button.Text.Contains("车辆 9")),
                 "非自有停放车辆出现了服务按钮。");
@@ -566,6 +568,8 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
             await _input.Frames();
             var train = panels.FindChildren("Details", "PanelContainer", true, false).Cast<PanelContainer>()
                 .Single(panel => GodotObject.IsInstanceValid(panel) && panel.Visible);
+            var trainText = Find<Label>(train, "Description").Text;
+            Require(trainText.Contains("状态：") && !trainText.Contains('\r'), trainText);
             Require(Named(train, "RefitVehicle").Any(button => button.Text == "改装车辆 10…") &&
                 Named(train, "VehicleServices").Any(button => button.Text == "车辆 10 服务…"),
                 "停在节点的列车没有车辆改装和服务按钮。");
