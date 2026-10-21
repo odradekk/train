@@ -87,10 +87,13 @@ internal sealed record RecipeCommand(
     ImmutableArray<ulong> OrderedVehicles = default,
     ulong? Buyer = null,
     long? MinimumReceipt = null,
-    JsonElement Rules = default)
+    JsonElement Rules = default,
+    string? ExpectedDecision = null)
 {
     internal void Validate()
     {
+        if (ExpectedDecision is not null and not ("accepted" or "rejected"))
+            throw new InvalidDataException($"不支持的 expected_decision：{ExpectedDecision}。");
         if (Kind == "construction.commission_vehicle_work" && Request is { ValueKind: JsonValueKind.Object })
         {
             RejectUnused(request: true, payment: true);

@@ -313,8 +313,26 @@
         "completed_steps": 1026000,
         "sequence": 0
       },
+      "kind": "train.disband",
+      "train": 3
+    },
+    {
+      "at": {
+        "completed_steps": 1026000,
+        "sequence": 1
+      },
+      "kind": "train.form",
+      "ordered_vehicles": [
+        5
+      ]
+    },
+    {
+      "at": {
+        "completed_steps": 1026000,
+        "sequence": 2
+      },
       "kind": "engagement.set_train",
-      "train": 3,
+      "train": 4,
       "rules": {
         "priority": "armed_first",
         "scope": "armed_only",
@@ -325,10 +343,10 @@
     {
       "at": {
         "completed_steps": 1026000,
-        "sequence": 1
+        "sequence": 3
       },
       "kind": "train.replace_run_plan",
-      "train": 3,
+      "train": 4,
       "plan": {
         "loop": false,
         "stops": [
@@ -344,18 +362,32 @@
     {
       "at": {
         "completed_steps": 1026000,
-        "sequence": 2
+        "sequence": 4
       },
       "kind": "train.start",
-      "train": 3
+      "train": 4
+    },
+    {
+      "at": {
+        "completed_steps": 1099000,
+        "sequence": 0
+      },
+      "kind": "engagement.set_train",
+      "train": 4,
+      "rules": {
+        "priority": "armed_first",
+        "scope": "armed_only",
+        "encounter": "engage",
+        "retreat_structure_ratio": 0
+      },
+      "expected_decision": "rejected"
     }
   ],
   "checkpoint_steps": [
-    1060000,
-    1105800
+    1060000
   ],
   "target": {
-    "completed_steps": 1160000,
+    "completed_steps": 1100000,
     "sequence": 0
   }
 }

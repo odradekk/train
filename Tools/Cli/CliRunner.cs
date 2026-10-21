@@ -167,6 +167,12 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
                 case SubmissionResult.NotAccepted notAccepted:
                     throw new InvalidDataException($"命令未受理：{notAccepted.Reason.Code} {notAccepted.Reason.Field}。");
             }
+            if (command.ExpectedDecision is { } expected && expected != receipts[^1].Decision)
+            {
+                var problems = string.Join(", ", receipts[^1].Problems.Select(problem => $"{problem.Code}: {problem.Field}"));
+                throw new InvalidDataException($"命令 {index}（{command.Kind}）的裁决不符：预期 {expected}，实际 {receipts[^1].Decision}"
+                    + (problems.Length == 0 ? "。" : $"；问题：{problems}。"));
+            }
             Sample();
         }
         AdvanceTo(target);

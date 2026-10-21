@@ -21,9 +21,9 @@ $saveStep = switch ($Example) {
     'starting-trade' { '432000' }
     'lease-expiry' { '5183999' }
     'rail-repair' { '959400' }
-    'conquest' { '8000' }
+    'conquest' { '40000' }
     'clearance' { '1043200' }
-    'operating-failure' { '1105800' }
+    'operating-failure' { '1060000' }
 }
 $continuous = Join-Path $run 'continuous.json'
 $prefix = Join-Path $run 'prefix.save.json'
