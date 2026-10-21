@@ -111,7 +111,7 @@ internal static class CommandDiagnostics
         "inputs_missing" => "原料或可采储量不足。",
         "power_unavailable" => "电力不足。",
         "labor_unavailable" => "劳动力不足。",
-        "platform_required" => "列车未在站台停稳。",
+        "platform_required" => "列车不在本站停靠：先在运行计划里把本站设为停靠站，等列车在站台停稳后再操作。",
         "platform_wait" => "正在等待空闲站台。",
         "track_wait" => "正在等待可进入的铁轨。",
         "control_missing" => "列车没有可用的控制。",

@@ -134,7 +134,7 @@ public partial class NotificationPanel : Control
         var verb = notice.Text.TrimEnd('。');
         if (notice.Good is { } good) verb = $"{WorldPanels.GoodName(good, content)} {verb}";
         var line = name is null || notice.Category is NotificationCategory.Encounter or NotificationCategory.Destruction
-            or NotificationCategory.CombatEnded or NotificationCategory.LairCleared
+            or NotificationCategory.CombatEnded
             ? verb : $"{name} {verb}";
         return notice.Location is { } location ? $"{line} · {WorldPanels.LocationText(location, view, content)}" : line;
     }
@@ -194,7 +194,6 @@ public partial class NotificationPanel : Control
             ? layout.Value.Display.Name : $"聚居地 {settlement.Id.Value}",
         WorldObjectId.Instance instance => InstanceName(instance.Id, view),
         WorldObjectId.CreatureGroup group => $"生物群 {group.Id.Value}",
-        WorldObjectId.Lair => "生物聚落",
         _ => null
     };
 

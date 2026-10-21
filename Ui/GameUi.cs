@@ -342,21 +342,26 @@ public partial class GameUi : CanvasLayer
         }
         else if (_view is not null)
         {
-            _panels!.Invalidate();
-            _formation!.Refresh(default, _view, _content!);
-            _plan!.Refresh(default, _view, _content!);
-            _economy!.Close();
-            _founding?.Close();
-            _railway?.Close();
+            CloseSessionPanels();
             _icons.Bind(default, null);
-            _formation.Hide(); _plan.Hide(); _combat?.Hide(); _notices?.Hide();
-            _reports.Clear();
-            _notices?.Clear();
             _view = null; _content = null; _binding = default;
             _world.Hide(); _errorPanel.Hide(); _settings.Hide(); _missingErrorOperation = null;
             _menu.Show();
         }
         _menu.SetGameStartEnabled(_host?.SessionOptions is not null && !_host.IsBusy && _host.Content is not null);
+    }
+
+    private void CloseSessionPanels()
+    {
+        _panels!.Invalidate();
+        _formation!.Refresh(default, _view!, _content!);
+        _plan!.Refresh(default, _view!, _content!);
+        _economy!.Close();
+        _founding?.Close();
+        _railway?.Close();
+        _formation.Hide(); _plan.Hide(); _combat?.Close(); _notices?.Hide();
+        _reports.Clear();
+        _notices?.Clear();
     }
 
     private void OnEditorChanged()
@@ -412,14 +417,15 @@ public partial class GameUi : CanvasLayer
     private void OnBoundary(HostBinding binding, ICoreReadView view, IContentView content,
         ImmutableArray<EventEnvelope> events)
     {
+        if (_view is not null && _binding != binding) CloseSessionPanels();
         _economy?.Observe(binding, view, events);
         if (_notices is not null && _binding.Session != binding.Session) _notices.Begin(binding.Session);
         if (_notices is not null)
         {
             var previous = _binding == binding ? _view : null;
-            foreach (var envelope in events)
-                if (_policy.Classify(envelope.Event, previous, view) is { } notice)
-                    _notices.Add(notice, view, content);
+            foreach (var notice in events.Select(envelope => _policy.Classify(envelope.Event, previous, view))
+                         .OfType<NotificationNotice>().Distinct())
+                _notices.Add(notice, view, content);
         }
         _reports.Observe(binding, events);
         if (view.Fault is { } fault && (_binding != binding || _view?.Fault != fault))
