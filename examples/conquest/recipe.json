@@ -70,7 +70,17 @@
     },
     {
       "at": {
-        "completed_steps": 380000,
+        "completed_steps": 335000,
+        "sequence": 0
+      },
+      "kind": "settlement.occupy",
+      "settlement": 4,
+      "train": 2,
+      "expected_decision": "rejected"
+    },
+    {
+      "at": {
+        "completed_steps": 337000,
         "sequence": 0
       },
       "kind": "settlement.occupy",
@@ -80,10 +90,13 @@
     }
   ],
   "target": {
-    "completed_steps": 381000,
+    "completed_steps": 338000,
     "sequence": 0
   },
   "checkpoint_steps": [
-    40000
+    40000,
+    335000,
+    336000,
+    337000
   ]
 }
