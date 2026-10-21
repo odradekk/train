@@ -8,6 +8,10 @@ internal static class UiWorldFixture
 {
     private enum Scenario { Map, Save, Scene, Formation }
 
+    // 顶栏每帧显示资金，凡是交给 GameUi 的固定读视图都要配置经济视图。
+    internal static EconomyView Economy { get; } = new(new(0), Rule, Rule, Rule, new(0), []);
+    private static RuleStatusView Rule => new(new("fixture:economy"), null, []);
+
     internal static ScriptedCoreSession Session(ICoreReadView view)
     {
         var capture = new FixedCoreCapture(new(view.Position, "UI recording start", "ui-start"),
@@ -53,6 +57,7 @@ internal static class UiWorldFixture
         var nodes = ImmutableArray.Create(first, second, empty);
         return new(default, HostCoreScenario.Input)
         {
+            Economy = UiWorldFixture.Economy,
             World = original.World with { Nodes = nodes, Edges = [edge], Trains = trains },
             Nodes = nodes.ToDictionary(node => node.Id, node => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(node, [], 80, 0, 80))),
             // 已持有站台及线路上的列车不配置 FindTrain；意外查询会直接使测试失败。
@@ -81,6 +86,7 @@ internal static class UiWorldFixture
         ];
         var view = new FixedCoreReadView(default, HostCoreScenario.Input)
         {
+            Economy = UiWorldFixture.Economy,
             World = original.World with { Nodes = [nest, hive], Edges = [edge], CreatureGroups = groups },
             Lairs = new Dictionary<LairId, Lookup<LairView>>
             {
@@ -140,6 +146,7 @@ internal static class UiWorldFixture
         ImmutableArray<EdgeId> connected = scenario == Scenario.Scene ? [edge.Id] : [];
         return new(tick, input)
         {
+            Economy = UiWorldFixture.Economy,
             World = new(1, new("fixture:railway"), 1000, 600, [first, second],
                 scenario == Scenario.Scene ? [edge] : [], formed ? [new(train.Id, position, train.Activity)] : [], [], []),
             Nodes = new Dictionary<NodeId, Lookup<NodeView>>

@@ -82,7 +82,7 @@ public class RecordingTests(Node testScene) : TestClass(testScene)
             window = window with { Checkpoints = segment.Checkpoints, FaultSegments = [segment] };
             setup.Session.QueueAdvance(new(0, fault.Position, [], fault, new("recording fault", "engine stack")),
                 new FixedCoreReadView(fault.Position, HostCoreScenario.Input, fault)
-                { World = app.Host!.GetStatus()!.View.World });
+                { Economy = UiWorldFixture.Economy, World = app.Host!.GetStatus()!.View.World });
             app.Host!.Step(1);
             await FramesUntil(() => !recording.IsBusy && recording.Status?.Frozen == true);
             var faultPath = Directory.GetFiles(recording.EvidenceDirectory,

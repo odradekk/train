@@ -53,6 +53,7 @@ public partial class CombatPanel : Control
     internal void Open()
     {
         Show();
+        UiStyle.BringToFront(this);
         if (IsNodeReady() && _view is not null && _content is not null) Render();
     }
 
@@ -62,6 +63,7 @@ public partial class CombatPanel : Control
         _rulesTrain = null;
         if (_view is not null && CombatContaining(_view, train) is { } combat) SelectedCombat = combat;
         Show();
+        UiStyle.BringToFront(this);
         if (IsNodeReady() && _view is not null && _content is not null) Render();
     }
 
@@ -70,6 +72,7 @@ public partial class CombatPanel : Control
         ContextSettlement = settlement;
         _rulesSettlement = null;
         Show();
+        UiStyle.BringToFront(this);
         if (IsNodeReady() && _view is not null && _content is not null) Render();
     }
 
