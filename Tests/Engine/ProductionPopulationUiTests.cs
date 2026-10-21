@@ -54,6 +54,23 @@ public class ProductionPopulationUiTests(Node testScene) : TestClass(testScene)
                 Require(ratio is null || !text.Contains("未进入线路"), "有数值的载运率被显示为未定义。");
                 Require(text.Contains("服务费用：17 · 净现金流 -17"), "运行报告未展示核心返回的服务费用。");
             }
+            CoreProblem shortage = new("insufficient_goods", "Quantity", new WorldObjectId.Inventory(new(10)), []);
+            var incomplete = new RunAccumulatorView(new(0, 0), new(0), new(0), new(0), 0, 0, null,
+            [
+                new(0, 0, TradeAction.Load, EconomyFixture.Food, 100, 0, new(0), [shortage]),
+                new(0, 1, TradeAction.Unload, EconomyFixture.Food, 100, 0, new(0), [shortage])
+            ]);
+            economy.Refresh(binding, new FixedCoreReadView(original.Position, original.InputIdentity, revision: new(revision))
+            {
+                World = original.World,
+                Economy = original.Economy with
+                {
+                    RecentRunReports = [new(new(7), original.Position, RunEndReason.PlanCompleted, incomplete)]
+                }
+            }, content);
+            var reports = economy.GetNode<Label>("EconomyReports/Layout/Content/Body/ReportsScroll/Reports/ReportsText").Text;
+            Require(reports.Split("补货目标以内").Length == 2,
+                $"货物不足的装载规则应说明补货目标保留，卸载规则不应：{reports}");
             Require(setup.Session.SubmitCount == 0, "只读经营报告提交了命令。");
         }
         finally { await fixture.Cleanup(); }

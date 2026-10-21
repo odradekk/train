@@ -392,16 +392,11 @@ public class UiTests(Node testScene) : TestClass(testScene)
                 new(new("fixture", "fixture", "fixture", "fixture", "fixture"), true, 1));
             Require(result.Problem is null, "替换对局的有限情景未被接受。");
             await _input.WaitUntil(() => app.Host.GetStatus()!.Binding != binding);
-            Require(confirmation.GetOkButton().Disabled && replacement.SubmitCount == 0 && setup.Session.SubmitCount == 1,
-                "替换对局后旧解编目标仍可确认，或产生额外提交。");
-            confirmation.GetCancelButton().GrabFocus();
-            await _input.PressKey(Key.Space, window: confirmation);
-            Require(!confirmation.Visible, "旧解编确认窗口没有经真实取消输入关闭。");
-            var text = panels.FindChildren("Description", "Label", true, false).Cast<Label>().Single();
-            Require(stop.Disabled && text.Text.Contains("已不存在"), "旧对局详情没有明确失效。");
-            await _input.Click(stop.GetGlobalRect().GetCenter());
-            Require(replacement.SubmitCount == 0 && setup.Session.SubmitCount == 1,
-                "旧对局按钮仍向当前或已退出会话提交。");
+            await _input.Frames();
+            Require(!confirmation.Visible && !GodotObject.IsInstanceValid(stop) &&
+                panels.FindChildren("Description", "Label", true, false).Count == 0 &&
+                replacement.SubmitCount == 0 && setup.Session.SubmitCount == 1,
+                "替换对局后旧详情或解编确认窗口仍然打开，或产生额外提交。");
             replacement.AssertComplete();
         }
         finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }

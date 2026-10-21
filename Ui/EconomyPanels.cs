@@ -166,6 +166,8 @@ internal partial class EconomyPanels : Control
         if (_view.FindInventory(id) is Lookup<InventoryView>.Found found) _locals.Add((found.Value, lease));
     }
 
+    private const string ReservedStockHint = "聚居地库存在补货目标以内的部分留给本地，自动装载和买入只取超出部分。";
+
     private InventoryView? Local => _locals.FirstOrDefault(local => local.Inventory.Id == _localId).Inventory;
     private bool CanAct => Current(_settlementTarget) && _settlement is not null &&
         !_host.IsBusy && _view.Fault is null;
@@ -184,7 +186,8 @@ internal partial class EconomyPanels : Control
             { InventoryAccess.ReadWrite => "可存取", InventoryAccess.WithdrawOnly => "只取不存", _ => "已冻结：禁止存取" };
             rows.Access.AddThemeColorOverride("font_color", inventory.Access switch
             { InventoryAccess.ReadWrite => UiStyle.Success, InventoryAccess.WithdrawOnly => UiStyle.Warning, _ => UiStyle.Error });
-            rows.Capacity.Text = $"容量 {inventory.Capacity} · 已用 {inventory.Used} · 预留 {inventory.Reserved} · 可用 {inventory.Available}\n货物质量 {inventory.GoodsMassTons:0.###} t";
+            rows.Capacity.Text = $"容量 {inventory.Capacity} · 已用 {inventory.Used} · 预留 {inventory.Reserved} · 可用 {inventory.Available}\n货物质量 {inventory.GoodsMassTons:0.###} t" +
+                (inventory.Owner is InventoryOwner.Settlement ? "\n" + ReservedStockHint : "");
         }
         var stacks = inventory?.Stacks ?? [];
         foreach (var id in rows.Goods.Keys.Where(id => !stacks.Any(stack => stack.Good == id)).ToArray())
@@ -193,6 +196,9 @@ internal partial class EconomyPanels : Control
         {
             if (!rows.Goods.TryGetValue(stack.Good, out var row)) rows.Goods.Add(stack.Good, row = CreateGoodRow(parent, stack.Good));
             UpdateGoodRow(row, stack.Good, stack.Quantity, stack.DefinitionMissing || inventory!.Access == InventoryAccess.Frozen);
+            if (inventory.Owner is InventoryOwner.Settlement &&
+                _settlement?.Market.Goods.FirstOrDefault(item => item.Good == stack.Good) is { RestockTarget: > 0 } market)
+                row.Name.Text += $" · 补货目标 {market.RestockTarget}";
         }
     }
 

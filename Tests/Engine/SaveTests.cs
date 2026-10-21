@@ -68,6 +68,48 @@ public class SaveTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public async Task Loading_a_save_in_game_closes_the_previous_sessions_panels()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var setup = new SaveSetup();
+        var owned = new HashSet<Guid>();
+        Train.App.App? app = null;
+        try
+        {
+            app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
+            app.CreateHost = setup.Create;
+            await fixture.AddToRoot(app);
+            await _input.WaitUntil(() => app.Saves!.Status is not null);
+            owned.Add(app.Saves!.Status!.Identity.Id);
+            var ui = app.GetNode<GameUi>("GameUi");
+            var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
+            var combat = ui.GetNode<CombatPanel>("Root/World/CombatPanel");
+            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Nodes"));
+            await _input.ClickItem(panels.GetNode<ItemList>("NodesList/Layout/Content/Body/Objects"), 0);
+            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Fleet"));
+            await _input.ClickItem(panels.GetNode<ItemList>("FleetList/Layout/Content/Body/Objects"), 0);
+            await _input.Activate(panels.FindChildren("OpenCombat", "Button", true, false).Cast<Button>().Single());
+            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/EconomyReports"));
+            Require(panels.FindChildren("Description", "Label", true, false).Count == 2 && combat.Visible &&
+                combat.ContextTrain == new TrainId(7) && Find<PanelContainer>(ui, "EconomyReports").IsVisibleInTree(),
+                "没有打开上一局的节点和列车详情、战斗面板与经营报告。");
+            var binding = app.Host!.GetStatus()!.Binding;
+            var panel = app.GetNode<MainMenu>("MainMenu").GetChildren().OfType<SavePanel>().Single();
+            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Saves"));
+            await _input.Activate(UiTestInput.SaveButton(panel, "保存"), panel);
+            await _input.WaitUntil(() => !app.Saves.HasPendingWork && panel.Entries.Count > 0);
+            await _input.Activate(UiTestInput.SaveButton(panel, "读取最近存档"), panel);
+            await _input.WaitUntil(() => app.Host.GetStatus() is { } status && status.Binding != binding);
+            await _input.Frames();
+            Require(panels.FindChildren("Description", "Label", true, false).Count == 0 && !combat.Visible &&
+                combat.ContextTrain is null && combat.SelectedCombat is null &&
+                ui.FindChildren("EconomyReports", "PanelContainer", true, false).Count == 0,
+                "读档后仍留着上一局的详情、战斗面板或经营报告。");
+        }
+        finally { await Cleanup(fixture, app, owned); }
+    }
+
+    [Test]
     public async Task In_game_saves_real_input_discards_unsaved_session_and_invalidates_old_drafts()
     {
         var fixture = new Fixture(TestScene.GetTree());

@@ -22,12 +22,10 @@ public sealed class NodeCacheTests
     public void Closing_keeps_permanent_parts_then_the_parts_nearest_the_initial_focus()
     {
         var layout = Layout();
-        var bounds = layout.PanBounds(default);
-        var center = new ScenePoint((bounds.Minimum.X + bounds.Maximum.X) / 2, 0,
-            (bounds.Minimum.Y + bounds.Maximum.Y) / 2);
+        // 初始焦点是节点原点。
         var permanent = Part();
-        var near = Part(new(new((float)center.X, 0, (float)center.Z), new((float)center.X + 1, 1, (float)center.Z + 1)));
-        var far = Part(new(new((float)center.X + 100, 0, (float)center.Z), new((float)center.X + 101, 1, (float)center.Z + 1)));
+        var near = Part(new(new(0, 0, 0), new(1, 1, 1)));
+        var far = Part(new(new(100, 0, 0), new(101, 1, 1)));
         var budget = permanent.ArrayBytes + near.ArrayBytes;
         var cache = new NodeScene.Cache(budget);
         var owner = cache.Open(new(1));
