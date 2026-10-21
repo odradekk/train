@@ -594,6 +594,77 @@ public sealed class CombatFrameTests
     }
 
     [TestMethod]
+    public async Task WeaponHitsOutsideTheFocusRangeKeepTheirShotEndpoints()
+    {
+        var parked = RailwayFixtures.Instance(7, train: null) with { Location = NodeFixtures.Location };
+        var member = RailwayFixtures.Instance(1, train: new TrainId(1)) with { Location = NodeFixtures.Location };
+        var train = NodeFixtures.Train(1, vehicles: [new(1)]);
+        var snapshot = NodeFixtures.Snapshot(platforms: 2, trains: [train], instances: [member, parked],
+            settlement: NodeFixtures.Settlement() with { ParkedVehicles = [new(7)] });
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), snapshot, new(), new());
+        session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location));
+        var open = await RailwayFixtures.Settled(session, Request);
+        var parkedPose = ((Lookup<ScenePose>.Found)open.FindPose(new WorldObjectId.Instance(parked.Id))).Value;
+        var near = new SceneCameraSample(open, parkedPose.Position);
+        var hits = new CombatHit[]
+        {
+            new(new AttackSource.Weapon(new(parked.Id, parked.Design, NodeFixtures.Location), new(1)),
+                new HitTarget.Structure(new(member.Id, member.Design, NodeFixtures.Location)), 4),
+            new(new AttackSource.Weapon(new(member.Id, member.Design, NodeFixtures.Location), new(1)),
+                new HitTarget.Structure(new(parked.Id, parked.Design, NodeFixtures.Location)), 4)
+        }.ToImmutableArray();
+        var attacked = NodeFixtures.Snapshot(platforms: 2, trains: [train], instances: [member, parked], steps: 1,
+            settlement: NodeFixtures.Settlement() with { ParkedVehicles = [new(7)] });
+        session.Observe(attacked, [Envelope(attacked, new CoreEvent.CombatHits(new(1), NodeFixtures.Location, hits))]);
+        var nearFrame = Present(session, open, new(1, near, SceneDebugLayer.None));
+        var nearShots = Shots(nearFrame);
+        Assert.AreEqual(2, nearShots.Length);
+        var cleared = Present(session, nearFrame, new(1, near, SceneDebugLayer.None));
+        Assert.IsEmpty(Shots(cleared));
+
+        // 焦点移到保留范围外：建筑和停放车不再合成，且上一帧位姿已不再包含停放车。
+        var far = new SceneCameraSample(cleared, parkedPose.Position + new Vector3(0, 0, 400));
+        var farFrame = Present(session, cleared, new(1, far, SceneDebugLayer.None));
+        Assert.IsInstanceOfType<Lookup<ScenePose>.Missing>(farFrame.FindPose(new WorldObjectId.Instance(parked.Id)));
+        Assert.IsInstanceOfType<Lookup<ScenePose>.Found>(farFrame.FindPose(new WorldObjectId.Instance(member.Id)));
+        Assert.IsEmpty(Shots(farFrame));
+        var farAttacked = NodeFixtures.Snapshot(platforms: 2, trains: [train], instances: [member, parked], steps: 3,
+            settlement: NodeFixtures.Settlement() with { ParkedVehicles = [new(7)] });
+        session.Observe(farAttacked, [Envelope(farAttacked, new CoreEvent.CombatHits(new(1), NodeFixtures.Location, hits))]);
+        var hitFrame = Present(session, farFrame, new(1, far, SceneDebugLayer.None));
+        Assert.IsInstanceOfType<Lookup<ScenePose>.Missing>(hitFrame.FindPose(new WorldObjectId.Instance(parked.Id)));
+        var farShots = Shots(hitFrame);
+        Assert.AreEqual(2, farShots.Length);
+        foreach (var subject in new WorldObjectId[] { new WorldObjectId.Instance(member.Id), new WorldObjectId.Instance(parked.Id) })
+        {
+            var before = nearShots.Single(item => item.Subject == subject);
+            var after = farShots.Single(item => item.Subject == subject);
+            AssertPoint(before, nearFrame, after, hitFrame);
+        }
+    }
+
+    private static ImmutableArray<SceneEffectCue> Shots(ISceneFrame frame) =>
+        frame.Update.Effects.Where(item => item.Kind == SceneEffectKind.Shot).ToImmutableArray();
+
+    private static void AssertPoint(SceneEffectCue expected, ISceneFrame expectedFrame,
+        SceneEffectCue actual, ISceneFrame actualFrame)
+    {
+        var before = ToWorld(expected.From, expectedFrame);
+        var after = ToWorld(actual.From, actualFrame);
+        Assert.AreEqual(before.X, after.X, 1e-3, "Shot.From.X");
+        Assert.AreEqual(before.Y, after.Y, 1e-3, "Shot.From.Y");
+        Assert.AreEqual(before.Z, after.Z, 1e-3, "Shot.From.Z");
+        var expectedTo = ToWorld(expected.To!.Value, expectedFrame);
+        var actualTo = ToWorld(actual.To!.Value, actualFrame);
+        Assert.AreEqual(expectedTo.X, actualTo.X, 1e-3, "Shot.To.X");
+        Assert.AreEqual(expectedTo.Y, actualTo.Y, 1e-3, "Shot.To.Y");
+        Assert.AreEqual(expectedTo.Z, actualTo.Z, 1e-3, "Shot.To.Z");
+    }
+
+    private static Vector3 ToWorld(Vector3 point, ISceneFrame frame) =>
+        new((float)(point.X + frame.Origin.X), (float)(point.Y + frame.Origin.Y), (float)(point.Z + frame.Origin.Z));
+
+    [TestMethod]
     public async Task ChangingViewDoesNotReplayCues()
     {
         var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle());

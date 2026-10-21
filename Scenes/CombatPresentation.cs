@@ -21,6 +21,7 @@ internal sealed class PresentationState
     private readonly Dictionary<(InstanceId Instance, string Path), TurretAim> turrets = [];
     private readonly Dictionary<CreatureId, (double StartedAt, HitTarget Target)> pounces = [];
     private readonly Dictionary<WorldObjectId, (ScenePoint Position, Quaternion Rotation)> poses = [];
+    private readonly Dictionary<WorldObjectId, ScenePose> placements = [];
     private readonly Dictionary<CreatureId, Vector3> creatures = [];
     private ScenePoint frameOrigin;
     private readonly Dictionary<CreatureAppearanceProjection, (ImmutableArray<SceneObject> Objects, ImmutableDictionary<SceneObjectId, string> Keys)> templates = new(ReferenceEqualityComparer.Instance);
@@ -34,9 +35,17 @@ internal sealed class PresentationState
         turrets.Clear();
         pounces.Clear();
         poses.Clear();
+        placements.Clear();
         creatures.Clear();
         bodies.Clear();
         templates.Clear();
+    }
+
+    // 聚居地已排位的建筑和停放车辆，帧内坐标；用于本帧未按焦点范围合成的实例。
+    internal void Place(IEnumerable<(WorldObjectId Subject, ScenePose Pose)> items)
+    {
+        placements.Clear();
+        foreach (var (subject, pose) in items) placements[subject] = pose;
     }
 
     internal void Note(SceneWorldSnapshot before, SceneWorldSnapshot snapshot, ImmutableArray<EventEnvelope> events, WorldLocation? here)
@@ -267,7 +276,8 @@ internal sealed class PresentationState
     {
         if (roots.TryGetValue(subject, out var pose))
             return pose.Position + Vector3.Transform(local, pose.Rotation);
-        if (!poses.TryGetValue(subject, out var world)) return null;
+        if (!poses.TryGetValue(subject, out var world))
+            return placements.TryGetValue(subject, out var placed) ? placed.Position + Vector3.Transform(local, placed.Rotation) : null;
         return Frame(world.Position, frameOrigin) + Vector3.Transform(local, world.Rotation);
     }
 
