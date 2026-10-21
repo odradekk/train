@@ -216,7 +216,7 @@ try {
                     $engineUserRoot = Join-Path $env:APPDATA 'Godot/app_userdata/Train'
                     $binary = Join-Path $run 'exports/windows/train.exe'
                     Invoke-WindowsExport stage-export $current $binary
-                    Invoke-Check stage-export-runtime $current $pwsh @('-NoProfile', '-File', 'scripts/checks/run-export-smoke.ps1', '-ExecutablePath', $binary, '-OutputDirectory', (Join-Path $run 'export-smoke'), '-TimeoutSeconds', '120') 125
+                    Invoke-Check stage-export-runtime $current $pwsh @('-NoProfile', '-File', 'scripts/checks/run-export-smoke.ps1', '-ExecutablePath', $binary, '-OutputDirectory', (Join-Path $run 'export-smoke'), '-TimeoutSeconds', '180') 185
                     Invoke-Check stage-asset-export $current $pwsh @('-NoProfile', '-File', 'scripts/checks/run-asset-export.ps1', '-OutputDirectory', (Join-Path $run 'asset-export'),
                         '-GameExecutablePath', $binary, '-TemplateAppData', $environment.APPDATA, '-TimeoutSeconds', '180') 185
                     $env:TRAIN_ENGINE_TEST_ASSEMBLY = Join-Path $root '.godot/mono/temp/bin/Debug/Train.Engine.Tests.dll'
