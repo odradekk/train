@@ -99,7 +99,7 @@ internal sealed class PresentationState
         var used = new HashSet<CreatureAppearanceProjection>(ReferenceEqualityComparer.Instance);
         var dead = Dead(incoming.Select(item => item.Envelope.Event));
         var combatGroups = CombatGroups(snapshot, here);
-        var index = 0;
+        var lanes = new Dictionary<int, double>();
         if (here is not WorldLocation.Edge || path is not null)
         {
             foreach (var group in Groups(snapshot, here))
@@ -108,17 +108,22 @@ internal sealed class PresentationState
                 var combat = combatGroups.Contains(group);
                 foreach (var creature in found.Value.Creatures)
                 {
-                    var placed = Place(snapshot, here, origin, path, layout, found.Value, creature, index, combat, ground);
-                    index++;
+                    var appearance = snapshot.Content.FindCreature(creature.Definition) is ContentLookup<CreatureAppearanceProjection>.Found located
+                        ? located.Value : null;
+                    var occupied = appearance?.Scene.OccupiedBounds;
+                    var minZ = occupied?.Minimum.Z ?? 0;
+                    var endZ = occupied is null ? LineStaggerCells : occupied.Maximum.Z + 1;
+                    var side = Side(snapshot.Core.World.WorldSeed, combat ? CombatId(snapshot, here) : 0, creature.Id.Value);
+                    var along = lanes.TryGetValue(side, out var tail) ? tail - minZ : 0d;
+                    lanes[side] = along + endZ;
+                    var placed = Place(here, origin, path, layout, found.Value, along, side, combat, ground);
                     creatures[creature.Id] = placed.Position;
-                    if (dead.Contains((group, creature.Id))) continue;
-                    if (snapshot.Content.FindCreature(creature.Definition) is not ContentLookup<CreatureAppearanceProjection>.Found appearance)
-                        continue;
+                    if (dead.Contains((group, creature.Id)) || appearance is null) continue;
                     alive.Add(creature.Id);
-                    used.Add(appearance.Value);
+                    used.Add(appearance);
                     var pose = new ScenePose(placed.Position + PounceOffset(snapshot, objects, creature.Id, placed, seconds) + new Vector3(0, Bob(seconds), 0),
                         placed.Rotation);
-                    var body = Body(snapshot, appearance.Value, group, creature.Id, objectId);
+                    var body = Body(snapshot, appearance, group, creature.Id, objectId);
                     var ratio = (double)creature.Health / creature.MaximumHealth;
                     var lightDamage = (float)Math.Max(0, (StructureDamage.FireRatio - ratio) / StructureDamage.FireRatio);
                     if (lightDamage > 0)
@@ -488,23 +493,22 @@ internal sealed class PresentationState
         return dead;
     }
 
-    private (Vector3 Position, Vector3 Forward, Quaternion Rotation) Place(SceneWorldSnapshot snapshot, WorldLocation here,
-        ScenePoint origin, RailwayPath? path, NodeLayout? layout, CreatureGroupView group, CreatureView creature, int index, bool combat,
-        Func<double, double, double>? ground)
+    private static (Vector3 Position, Vector3 Forward, Quaternion Rotation) Place(WorldLocation here,
+        ScenePoint origin, RailwayPath? path, NodeLayout? layout, CreatureGroupView group, double along, int side,
+        bool combat, Func<double, double, double>? ground)
     {
-        var side = Side(snapshot.Core.World.WorldSeed, combat ? CombatId(snapshot, here) : 0, creature.Id.Value);
         if (here is WorldLocation.Edge && path is not null)
         {
             var distance = group.Location is WorldLocation.Edge edge ? edge.DistanceMeters : 0;
             var sample = path.Sample(distance * RailwayCoordinates.CellsPerMeter);
             var lateral = combat ? LineSideCells : BesideCells;
             var relative = RailwayCoordinates.Relative(sample.Position, origin);
-            return (relative + sample.Right * (side * lateral) + sample.Forward * (index * LineStaggerCells), sample.Forward,
+            return (relative + sample.Right * (side * lateral) + sample.Forward * (float)along, sample.Forward,
                 RailwayCoordinates.Rotation(sample.Forward));
         }
         var outward = !combat || layout is null ? side * BesideCells :
             side < 0 ? layout.Bounds.Minimum.X - LineSideCells : layout.Bounds.Maximum.X + LineSideCells;
-        var alongZ = (combat && layout is not null ? layout.Bounds.Minimum.Y : 0) + index * LineStaggerCells;
+        var alongZ = (combat && layout is not null ? layout.Bounds.Minimum.Y : 0) + along;
         var height = ground?.Invoke(outward, alongZ) ?? 0;
         return (new((float)(outward - origin.X), (float)(height - origin.Y), (float)(alongZ - origin.Z)), Vector3.UnitX, Quaternion.Identity);
     }
