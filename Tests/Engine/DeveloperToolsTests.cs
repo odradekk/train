@@ -45,18 +45,32 @@ public class DeveloperToolsTests(Node testScene) : TestClass(testScene)
     {
         var fixture = new Fixture(TestScene.GetTree());
         var setup = Setup();
+        using var output = new GodotOutputCapture();
+        OS.AddLogger(output);
         try
         {
             var app = await Ready(fixture, setup);
             var tools = app.Development!;
             Require(app.Host!.RenameSave("unsaved fixture") is null, "无法准备离开保护。");
             var binding = app.Host.GetStatus()!.Binding;
+            var ui = app.GetNode<GameUi>("GameUi");
+            ui.GetNode<Button>("Root/World/Bar/TopBar/Settings").EmitSignal(BaseButton.SignalName.Pressed);
+            var settings = ui.GetNode<SettingsPanel>("Root/SettingsPanel");
+            settings.GetNode<Button>("Settings/Layout/Content/Body/ReportIssue").EmitSignal(BaseButton.SignalName.Pressed);
+            var report = settings.GetNode<IssueReportPanel>("IssueReportPanel");
+            Require(report.Visible, "没有打开报告问题窗口。");
             Require(tools.OpenReplay(setup.ReplayPath) is null && app.Saves!.Leaving is { Waiting: false },
                 "打开复现包绕过了未保存对局的离开保护。");
+            var saves = app.GetNode<MainMenu>("MainMenu").GetChildren().OfType<SavePanel>().Single();
+            await Until(() => saves.Visible);
+            Require(!output.Contains("another exclusive child"),
+                "报告问题窗口开着时弹出离开确认，触发了 Godot 的独占子窗口错误。");
             Require(setup.InitialSession.DisposeCount == 0 && app.Host.GetStatus()!.Binding == binding,
                 "确认离开之前替换了核心。");
             app.Saves!.ChooseLeave(LeaveChoice.Discard);
             await Until(() => app.Host.GetStatus() is { IsReplay: true } && !tools.IsBusy);
+            await Until(() => report.FindChildren("*", "Label", true, false).Cast<Label>()
+                .Any(label => label.Text.Contains("只读重放")));
             Require(setup.InitialSession.DisposeCount == 1 && app.Host.GetStatus()!.Binding != binding,
                 "重放候选激活后没有退役原会话。");
             Require(app.Saves.Save()?.Code == "replay_read_only" && app.Host.Step(1).Problem?.Code == "replay_read_only",
@@ -90,7 +104,7 @@ public class DeveloperToolsTests(Node testScene) : TestClass(testScene)
                 setup.Candidates.All(candidate => candidate.ActivationCount == 1) &&
                 app.Host.GetStatus()!.View.Position == new SimulationPosition(2, 0), "普通读档未激活独立候选或未释放重放。");
         }
-        finally { await fixture.Cleanup(); CleanFiles(setup); }
+        finally { OS.RemoveLogger(output); await fixture.Cleanup(); CleanFiles(setup); }
     }
 
     [Test]
