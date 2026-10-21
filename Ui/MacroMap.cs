@@ -11,15 +11,6 @@ public partial class MacroMap : Control
 {
     private static readonly Color Ink = new("#2a2a2a");
     private readonly Texture2D _lairSymbol = GD.Load<Texture2D>("res://Ui/Symbols/lair.png");
-    private readonly Dictionary<TrainActivity, Texture2D> _trainSymbols = new()
-    {
-        [TrainActivity.Running] = GD.Load<Texture2D>("res://Ui/Symbols/train-running.png"),
-        [TrainActivity.Servicing] = GD.Load<Texture2D>("res://Ui/Symbols/train-servicing.png"),
-        [TrainActivity.Waiting] = GD.Load<Texture2D>("res://Ui/Symbols/train-waiting.png"),
-        [TrainActivity.NoRoute] = GD.Load<Texture2D>("res://Ui/Symbols/warning.png"),
-        [TrainActivity.Combat] = GD.Load<Texture2D>("res://Ui/Symbols/train-combat.png"),
-        [TrainActivity.Retreating] = GD.Load<Texture2D>("res://Ui/Symbols/train-retreating.png")
-    };
     private IContentView? _content;
     private WorldSummary? _world;
     private readonly Dictionary<NodeId, NodeMapItem> _nodes = [];
@@ -361,9 +352,9 @@ public partial class MacroMap : Control
         }
         var color = node.Occupant switch
         {
-            NodeOccupant.Settlement { Relation: SettlementRelation.PlayerOwned } => new Color("#2b77d0"),
-            NodeOccupant.Lair or NodeOccupant.Settlement { Relation: SettlementRelation.Hostile } => new Color("#c9423a"),
-            _ => new Color("#7f8893")
+            NodeOccupant.Settlement settlement => UiStyle.RelationColor(settlement.Relation),
+            NodeOccupant.Lair => UiStyle.Error,
+            _ => UiStyle.RelationNeutral
         };
         DrawCircle(point, radius, Colors.White);
         DrawArc(point, radius, 0, Mathf.Tau, 48, color, 3, true);
@@ -429,13 +420,7 @@ public partial class MacroMap : Control
     private void DrawTrain(TrainMapItem train)
     {
         if (TrainPoint(train) is not { } point) return;
-        var color = train.Activity switch
-        {
-            TrainActivity.Running => new Color("#2f9e5c"),
-            TrainActivity.Servicing => new Color("#2aa3b3"),
-            TrainActivity.Stopped or TrainActivity.Waiting or TrainActivity.Retreating => new Color("#d8962a"),
-            _ => new Color("#c9423a")
-        };
+        var color = UiStyle.TrainActivityColor(train.Activity);
         DrawCapsule(point, Ink, 7);
         DrawCapsule(point, color, 6);
         var rotation = 0f;
@@ -446,9 +431,8 @@ public partial class MacroMap : Control
                 direction = (ends.End - ends.Start).Normalized() * (moving.Direction == TravelDirection.Forward ? 1 : -1);
             rotation = direction.Angle();
         }
-        var activity = train.Activity == TrainActivity.Stopped ? TrainActivity.Waiting : train.Activity;
         DrawSetTransform(point, rotation);
-        DrawTextureRect(_trainSymbols[activity], new Rect2(-7, -7, 14, 14), false);
+        DrawTextureRect(UiStyle.TrainSymbol(train.Activity), new Rect2(-7, -7, 14, 14), false);
         DrawSetTransform(Vector2.Zero);
     }
 

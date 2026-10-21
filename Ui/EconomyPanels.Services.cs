@@ -251,12 +251,48 @@ internal partial class EconomyPanels
         var funding = _settlement!.Relation == SettlementRelation.PlayerOwned ? JobFunding.OwnInventory : JobFunding.NpcCommission;
         _serviceQuote = ReadQuote(_view.GetJobQuote(request, funding), _serviceDescription);
         if (_serviceQuote is not { } quote) return;
+        var reasons = new[]
+        {
+            FacilityBlockReason(facility, _serviceOperation.Selected == 0 ? null : _serviceSelectedTarget?.Instance, quote.Blockers),
+            funding == JobFunding.NpcCommission && quote.TotalPayment is null ? "总付款未提供，不能确认。" : null
+        }.OfType<string>().ToArray();
         ShowQuote(_serviceDescription, quote.Revision,
             $"{(funding == JobFunding.OwnInventory ? "自有设施" : "NPC 委托")} · 报价修订 {quote.Revision.Value} · 总工作量 {quote.TotalWork}\n需求：{ServiceGoods(quote.RequiredGoods)}\n来源扣料：\n" +
             string.Join("\n", quote.SourceConsumption.Select(source => $"库存 {source.Inventory.Value}：{ServiceGoods(source.Goods)}")) +
             $"\nNPC 补购：{ServiceGoods(quote.NpcPurchases)}\n材料款：{Amount(quote.MaterialPayment)} · 工钱：{Amount(quote.ServicePayment)} · 总额：{Amount(quote.TotalPayment)}", quote.Blockers,
-            reason: funding == JobFunding.NpcCommission && quote.TotalPayment is null ? "总付款未提供，不能确认。" : null);
+            reason: reasons.Length == 0 ? null : string.Join("\n", reasons));
         _serviceConfirm.Disabled = !CanAct || !quote.Blockers.IsEmpty || (funding == JobFunding.NpcCommission && quote.TotalPayment is null);
+    }
+
+    // 执行建筑正被施工锁定和施工上限不够，核心报同一个问题；这里按读视图区分，并写出实际档位。
+    private string? FacilityBlockReason(FacilityKey facility, InstanceId? target, ImmutableArray<CoreProblem> blockers)
+    {
+        if (!blockers.Any(problem => problem is { Code: "conditions_not_met", Field: "Facility" }) ||
+            _view.FindInstance(new InstanceId.Building(facility.Building)) is not Lookup<InstanceView>.Found found)
+            return null;
+        if ((found.Value.Lock & (InstanceLock.UnderRefit | InstanceLock.UnderRepair | InstanceLock.UnderDeconstruction)) != 0)
+            return "执行建筑自身正在改装、修理或拆解，完成前不能执行其他施工。";
+        var limits = _content.FindDesign(found.Value.Design) is ContentLookup<DesignEvaluation>.Found
+            { Value: DesignEvaluation.Complete { Core: { } core } }
+            ? core.Design.Parts.Where(part => !part.Missing).SelectMany(part => part.Capabilities)
+                .OfType<PartCapability.Construction>().ToArray() : [];
+        if (limits.Length == 0) return "执行建筑没有可用的施工能力。";
+        var details = target is not null && _view.FindInstance(target) is Lookup<InstanceView>.Found item ? item.Value.Details : null;
+        return details switch
+        {
+            InstanceDetails.Building building =>
+                $"施工上限不足：执行建筑最高施工{PlotSizeName(limits.Max(item => item.MaximumBuildingPlotSize))}地块的建筑，" +
+                $"目标建筑为{PlotSizeName(building.Size)}" + building.Size switch
+                {
+                    PlotSize.SmallStation => "，按大地块计。",
+                    PlotSize.LargeStation => "，按巨型地块计。",
+                    _ => "。"
+                },
+            InstanceDetails.Vehicle vehicle => limits.Max(item => item.MaximumVehicleSize) is { } maximum
+                ? $"施工上限不足：执行建筑最高施工{SizeName(maximum)}车辆，目标车辆为{SizeName(vehicle.Size)}。"
+                : "执行建筑不能施工车辆。",
+            _ => "执行建筑的施工上限低于目标设计的档位。"
+        };
     }
 
     private string ServiceGoods(ImmutableArray<GoodsQuantity> goods) => goods.IsEmpty ? "无" :

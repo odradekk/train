@@ -362,6 +362,30 @@ public sealed class NodeStreamingTests
     }
 
     [TestMethod]
+    public async Task First_range_without_a_camera_sample_is_centered_on_the_node_origin()
+    {
+        var layout = NodeFixtures.Layout with
+        {
+            SceneModel = NodeFixtures.Layout.SceneModel with
+            {
+                Scene = SceneFixtures.Projection([SceneFixtures.Cell(new(-64, 0, -64)), SceneFixtures.Cell(new(639, 0, 639), 2)]) with
+                { OccupiedBounds = new(new(-64, 0, -64), new(639, 0, 639)) }
+            }
+        };
+        var snapshot = NodeFixtures.EmptyNodeSnapshot(layout, [], 0);
+        var cache = new NodeScene.Cache();
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles, cache);
+        await scene.BuildWork!;
+        var bounds = scene.Layout!.PanBounds(default);
+        Assert.IsTrue(((bounds.Minimum + bounds.Maximum) / 2).Length() > NodeStreaming.PrefetchCells,
+            "The fixture's pan bounds must be centered away from the node origin.");
+        await Settle(scene, snapshot, null);
+        CollectionAssert.AreEquivalent(new NodeRange(default, NodeStreaming.PrefetchCells).Chunks(scene.Layout).ToArray(),
+            Chunks(cache).Keys.ToArray(), "Before the first camera sample the node must stream around its origin.");
+    }
+
+    [TestMethod]
     public async Task Parts_fill_available_slots_in_priority_order_and_commit_without_waiting_for_the_batch()
     {
         var snapshot = Snapshot(true);
@@ -1245,7 +1269,7 @@ public sealed class NodeStreamingTests
         return new(data.ChunkInputs(from), geometry, ImmutableDictionary<GridColumn, double>.Empty.Add(from, 1));
     }
 
-    private static async Task Settle(NodeScene scene, SceneWorldSnapshot snapshot, ScenePoint focus)
+    private static async Task Settle(NodeScene scene, SceneWorldSnapshot snapshot, ScenePoint? focus)
     {
         await scene.BuildWork!;
         SceneFrame? frame = null;

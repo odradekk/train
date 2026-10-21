@@ -234,6 +234,19 @@ internal sealed class WorldSceneController : IDisposable
     private WorldObjectId? FollowSubject() => _target is WorldSceneTarget.Follow follow
         ? new WorldObjectId.Instance(new InstanceId.Vehicle(follow.Vehicle)) : null;
 
+    internal WorldLocation? ViewedLocation(ICoreReadView core) => _target switch
+    {
+        WorldSceneTarget.Location location => location.Value,
+        WorldSceneTarget.Follow follow when core.FindTrain(follow.Train) is Lookup<TrainView>.Found train =>
+            train.Value.Position switch
+            {
+                TrainPosition.Node node => new WorldLocation.Node(node.Id),
+                TrainPosition.Edge edge => new WorldLocation.Edge(edge.Id, edge.DistanceMeters),
+                _ => null
+            },
+        _ => null
+    };
+
     internal NodeId? ViewedNode(ICoreReadView core) => _target switch
     {
         WorldSceneTarget.Location { Value: WorldLocation.Node node } => node.Id,
