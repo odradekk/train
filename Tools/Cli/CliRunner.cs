@@ -50,18 +50,25 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
         Compare(Require(restoredSession.Capture(CapturePurpose.Save)).Checkpoint, actual.Checkpoints[^1]);
     }
 
-    private static FileSaveStore Store(string path) => new(Path.GetDirectoryName(Path.GetFullPath(path))!);
+    internal static FileSaveStore Store(string path) => new(Path.GetDirectoryName(Path.GetFullPath(path))!);
 
-    private IContentCandidate Load(string repository, ContentLoadPurpose purpose)
+    internal static ContentInstallation Installation(string repository)
     {
         const string versionPrefix = "config/version=";
         var versionLine = File.ReadLines(Path.Combine(repository, "project.godot"))
             .Single(line => line.StartsWith(versionPrefix, StringComparison.Ordinal));
         var gameVersion = JsonSerializer.Deserialize<string>(versionLine[versionPrefix.Length..])
             ?? throw new InvalidDataException("project.godot 缺少游戏版本。");
-        var loaded = Require(content.PrepareLoad(new(new(CliContentFiles.BuiltIn,
-            CliContentFiles.Mods, null, gameVersion, []), purpose),
-            new CliContentFiles(repository), new AssetInspector()));
+        return new(CliContentFiles.BuiltIn, CliContentFiles.Mods, null, gameVersion, []);
+    }
+
+    private IContentCandidate Load(string repository, ContentLoadPurpose purpose) =>
+        Load(Installation(repository), purpose, new CliContentFiles(repository), new AssetInspector());
+
+    internal IContentCandidate Load(ContentInstallation installation, ContentLoadPurpose purpose,
+        IContentFiles files, IAssetInspector inspector)
+    {
+        var loaded = Require(content.PrepareLoad(new(installation, purpose), files, inspector));
         if (loaded.Report.Diagnostics.Any(d => d.Severity == ContentDiagnosticSeverity.Error))
         {
             var message = string.Join('\n', loaded.Report.Diagnostics.Select(d => $"{d.Field}: {d.Code} {d.Message}"));
@@ -267,7 +274,7 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
                 + $"预期 {different.Difference.Expected}，实际 {different.Difference.Actual}。");
     }
 
-    private static T Require<T>(CoreResult<T> result) where T : notnull => result switch
+    internal static T Require<T>(CoreResult<T> result) where T : notnull => result switch
     {
         CoreResult<T>.Success success => success.Value,
         CoreResult<T>.Failure failure => throw new InvalidDataException(string.Join('\n', failure.Problems.Select(p => $"{p.Code}: {p.Field}"))),
@@ -275,7 +282,7 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
         _ => throw new InvalidOperationException("未知核心结果。")
     };
 
-    private static T Require<T>(ContentResult<T> result) where T : notnull => result switch
+    internal static T Require<T>(ContentResult<T> result) where T : notnull => result switch
     {
         ContentResult<T>.Success success => success.Value,
         ContentResult<T>.Failure failure => throw new InvalidDataException(string.Join('\n', failure.Diagnostics.Select(d => $"{d.Code}: {d.Field} {d.Message}"))),
