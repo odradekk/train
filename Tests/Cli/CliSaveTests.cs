@@ -8,6 +8,40 @@ namespace Train.Cli.Tests;
 public sealed partial class CliProcessTests
 {
     [TestMethod]
+    public async Task Count_expectations_gate_make_and_unknown_keys_are_rejected()
+    {
+        var directory = CreateDirectory();
+        try
+        {
+            var recipe = JsonNode.Parse(await File.ReadAllTextAsync(RecipePath))!.AsObject();
+            // 基础贯通的两列起始列车各为 4 辆车。
+            recipe["expectations"] = JsonNode.Parse("""[{"at":200,"key":"largest_train_vehicles","minimum":4,"maximum":4}]""");
+            await Make("holding", 0);
+            recipe["expectations"]![0]!["minimum"] = 5;
+            await Make("unreachable", 1);
+            StringAssert.Contains(await File.ReadAllTextAsync(Path.Combine(directory, "unreachable.stderr.log")), "实际 4");
+            recipe["expectations"]![0]!["key"] = "unknown";
+            await Make("unknown", 1);
+            StringAssert.Contains(await File.ReadAllTextAsync(Path.Combine(directory, "unknown.stderr.log")), "key");
+
+            async Task Make(string name, int exitCode)
+            {
+                var path = Path.Combine(directory, name + ".recipe.json");
+                var save = Path.Combine(directory, name + ".save.json");
+                await File.WriteAllTextAsync(path, recipe.ToJsonString());
+                await Run(directory, name, exitCode, "make", Repository, path, save);
+                Assert.AreEqual(exitCode == 0, File.Exists(save));
+            }
+        }
+        catch
+        {
+            TestContext.WriteLine($"CLI 失败证据：{directory}");
+            throw;
+        }
+        Directory.Delete(directory, recursive: true);
+    }
+
+    [TestMethod]
     public async Task Save_in_one_process_resumes_in_another_with_the_continuous_checkpoint_suffix()
     {
         var directory = CreateDirectory();
@@ -94,6 +128,7 @@ public sealed partial class CliProcessTests
     [DataRow("commission-branches")]
     [DataRow("retreat")]
     [DataRow("damaged-vehicle-trade")]
+    [DataRow("long-consist")]
     public async Task Committed_example_checks_without_changing_committed_files(string example)
     {
         var directory = CreateDirectory();

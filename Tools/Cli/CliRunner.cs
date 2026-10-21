@@ -205,7 +205,17 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
         void Sample()
         {
             checkpoints.Add(Require(session.Capture(CapturePurpose.Save)).Checkpoint);
-            observations.Add(EconomySample.Read(session.Read()));
+            var view = session.Read();
+            observations.Add(EconomySample.Read(view));
+            if (view.Position.Sequence != 0) return;
+            foreach (var expectation in recipe.Expectations.Where(item => item.At == view.Position.CompletedSteps))
+            {
+                var actual = WorldCounts.Read(view, expectation.Node is { } node ? new NodeId(node) : null)[expectation.Key];
+                if (actual < expectation.Minimum || actual > expectation.Maximum)
+                    throw new InvalidDataException($"{expectation.At}:0 的 {expectation.Key}"
+                        + (expectation.Node is { } at ? $"（节点 {at}）" : "")
+                        + $"不符：预期 {expectation.Minimum?.ToString() ?? "-∞"}–{expectation.Maximum?.ToString() ?? "∞"}，实际 {actual}。");
+            }
         }
         void AdvanceTo(SimulationPosition target)
         {

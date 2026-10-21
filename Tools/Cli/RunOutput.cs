@@ -123,7 +123,7 @@ internal sealed record CommissionJobSample(ulong Id, string Kind, string State, 
 internal sealed record EconomySample(SimulationPosition Position, long Wallet, ImmutableArray<TrainSample> Trains,
     ImmutableArray<NodeOccupantSample> Nodes, ImmutableArray<SettlementSample> Settlements, ImmutableArray<LeaseSample> Leases,
     ImmutableArray<InventorySample> Inventories, long UnassignedServicePayments,
-    ImmutableArray<CommissionJobSample> CommissionJobs)
+    ImmutableArray<CommissionJobSample> CommissionJobs, ImmutableSortedDictionary<string, double> Counts)
 {
     internal static EconomySample Read(ICoreReadView view)
     {
@@ -178,7 +178,7 @@ internal sealed record EconomySample(SimulationPosition Position, long Wallet, I
                 .ToImmutableArray(), view.Economy.UnassignedServicePayments.Value,
             settlements.SelectMany(settlement => settlement.CommissionJobs).OrderBy(job => job.Value)
                 .Select(job => CommissionJobSample.From(((JobView.Construction)Found(view.FindJob(job))).Value))
-                .ToImmutableArray());
+                .ToImmutableArray(), WorldCounts.Read(view));
     }
 
     private static VehicleConditionSample Condition(ICoreReadView view, VehicleId vehicle)

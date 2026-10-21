@@ -1,0 +1,122 @@
+{
+  "format_version": 1,
+  "generation_profile": "core:standard-world",
+  "seed": 44,
+  "generator_version": "stage1-world-v1",
+  "save": {
+    "id": "ca7e06b5-a301-4b2f-bbde-9b02dcbf8d24",
+    "name": "长编组",
+    "saved_at": "2026-10-21T00:00:00Z"
+  },
+  "commands": [
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 0
+      },
+      "kind": "train.disband",
+      "train": 2
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 1
+      },
+      "kind": "train.disband",
+      "train": 3
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 2
+      },
+      "kind": "train.form",
+      "ordered_vehicles": [
+        2,
+        18,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33
+      ]
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 3
+      },
+      "kind": "train.replace_run_plan",
+      "train": 21,
+      "plan": {
+        "loop": true,
+        "stops": [
+          {
+            "kind": "waypoint",
+            "node": 21
+          },
+          {
+            "kind": "waypoint",
+            "node": 15
+          }
+        ]
+      }
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 4
+      },
+      "kind": "train.start",
+      "train": 21
+    }
+  ],
+  "target": {
+    "completed_steps": 1800,
+    "sequence": 0
+  },
+  "expectations": [
+    {
+      "at": 1800,
+      "key": "largest_train_vehicles",
+      "minimum": 32,
+      "maximum": 32
+    },
+    {
+      "at": 1800,
+      "key": "largest_train_meters",
+      "minimum": 1280,
+      "maximum": 1280
+    },
+    {
+      "at": 1800,
+      "key": "trains_running",
+      "minimum": 1
+    }
+  ]
+}
