@@ -18,7 +18,7 @@
       "train": 2,
       "rules": {
         "priority": "armed_first",
-        "scope": "all",
+        "scope": "armed_only",
         "encounter": "engage",
         "retreat_structure_ratio": 0
       }
@@ -28,6 +28,14 @@
         "completed_steps": 0,
         "sequence": 1
       },
+      "kind": "settlement.declare_war",
+      "settlement": 3
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 2
+      },
       "kind": "train.replace_run_plan",
       "train": 2,
       "plan": {
@@ -35,7 +43,7 @@
         "stops": [
           {
             "kind": "station",
-            "node": 12,
+            "node": 8,
             "dwell_steps": 400000,
             "goods_rules": []
           }
@@ -44,16 +52,8 @@
     },
     {
       "at": {
-        "completed_steps": 11000,
-        "sequence": 0
-      },
-      "kind": "settlement.declare_war",
-      "settlement": 4
-    },
-    {
-      "at": {
-        "completed_steps": 11500,
-        "sequence": 0
+        "completed_steps": 0,
+        "sequence": 3
       },
       "kind": "train.start",
       "train": 2
@@ -64,39 +64,33 @@
         "sequence": 0
       },
       "kind": "settlement.occupy",
-      "settlement": 4,
+      "settlement": 3,
       "train": 2,
       "expected_decision": "rejected"
     },
     {
       "at": {
-        "completed_steps": 335000,
+        "completed_steps": 380000,
         "sequence": 0
       },
       "kind": "settlement.occupy",
-      "settlement": 4,
-      "train": 2,
-      "expected_decision": "rejected"
-    },
-    {
-      "at": {
-        "completed_steps": 337000,
-        "sequence": 0
-      },
-      "kind": "settlement.occupy",
-      "settlement": 4,
+      "settlement": 3,
       "train": 2,
       "expected_decision": "accepted"
     }
   ],
-  "target": {
-    "completed_steps": 338000,
-    "sequence": 0
-  },
   "checkpoint_steps": [
     40000,
-    335000,
-    336000,
-    337000
-  ]
+    360000,
+    362000,
+    364000,
+    366000,
+    368000,
+    370000,
+    380000
+  ],
+  "target": {
+    "completed_steps": 382000,
+    "sequence": 0
+  }
 }
