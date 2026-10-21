@@ -44,6 +44,7 @@ internal static class UiStyle
         box.AddThemeConstantOverride("separation", 12);
         var heading = new HBoxContainer();
         var label = Label(title, true);
+        label.Name = "Title";
         label.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
         heading.AddChild(label);
         heading.AddChild(Button("Close", "×", close));
@@ -60,6 +61,7 @@ internal static class UiStyle
         GameUi? ui = null;
         var content = body;
         var queued = false;
+        var shown = panel.Visible;
         void Fit()
         {
             queued = false;
@@ -88,14 +90,22 @@ internal static class UiStyle
         parent.Resized += QueueFit;
         panel.Resized += QueueFit;
         panel.VisibilityChanged += QueueFit;
+        panel.VisibilityChanged += () =>
+        {
+            // 只在面板自己被打开时移到最前；祖先显隐变化不改变面板之间的先后。
+            if (panel.Visible && !shown) BringToFront(panel);
+            shown = panel.Visible;
+        };
+        panel.GuiInput += input => { if (input is InputEventMouseButton { Pressed: true }) BringToFront(panel); };
         content.MinimumSizeChanged += QueueFit;
         panel.Ready += () =>
         {
-            Node? ancestor = parent;
-            while (ancestor is not null && ancestor is not GameUi) ancestor = ancestor.GetParent();
-            ui = ancestor as GameUi;
+            ui = FindGameUi(parent);
             if (ui is not null) ui.PanelAreaChanged += QueueFit;
             QueueFit();
+            // 按需创建的面板（例如对象详情）加入时就是打开的；启动时创建后立即隐藏的面板不移动。
+            shown = panel.Visible;
+            Callable.From(() => { if (panel.Visible) BringToFront(panel); }).CallDeferred();
         };
         panel.TreeExiting += () =>
         {
@@ -104,5 +114,22 @@ internal static class UiStyle
         };
         parent.AddChild(panel);
         return panel;
+    }
+
+    internal static void BringToFront(Control control)
+    {
+        if (!GodotObject.IsInstanceValid(control) || !control.IsInsideTree()) return;
+        control.MoveToFront();
+        // 地图层的业务面板分属不同的所有者控件，所有者也要移到地图层最前才能盖住别的面板。
+        // 只在地图层内移动，所以 Root 下的通知提示、设置和错误等界面仍在业务面板之上。
+        if (FindGameUi(control)?.World is not { } world || !world.IsAncestorOf(control)) return;
+        for (var owner = control.GetParent<Control>(); owner != world; owner = owner.GetParent<Control>()) owner.MoveToFront();
+    }
+
+    private static GameUi? FindGameUi(Node node)
+    {
+        Node? ancestor = node;
+        while (ancestor is not null && ancestor is not GameUi) ancestor = ancestor.GetParent();
+        return ancestor as GameUi;
     }
 }

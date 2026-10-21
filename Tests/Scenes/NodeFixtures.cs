@@ -165,7 +165,7 @@ internal static class NodeFixtures
     internal static SceneWorldSnapshot Snapshot(int platforms = 2, ImmutableArray<TrainView> trains = default,
         ImmutableArray<InstanceView> instances = default, IContentView? content = null,
         ulong steps = 0, ulong sequence = 0, int tracks = 1, int? trackLimit = null, double platformLengthMeters = 96,
-        bool sameSideEntry = false)
+        bool sameSideEntry = false, IReadOnlyList<CreatureGroupView>? groups = null, IReadOnlyList<CombatView>? combats = null)
     {
         if (trains.IsDefault) trains = [Train()];
         if (instances.IsDefault)
@@ -191,7 +191,13 @@ internal static class NodeFixtures
         {
             Position = new(steps, sequence), InputIdentity = new("scenes-test"),
             World = new(3, RailwayFixtures.Rule, 1200, 1200, nodes, edges,
-                trains.Select(train => new TrainMapItem(train.Id, train.Position, train.Activity)).ToImmutableArray(), [], []),
+                trains.Select(train => new TrainMapItem(train.Id, train.Position, train.Activity)).ToImmutableArray(),
+                (groups ?? []).Select(group => new CreatureGroupMapItem(group.Id, group.Location, group.Activity)).ToImmutableArray(),
+                (combats ?? []).Select(combat => new CombatMapItem(combat.Id, combat.Location)).ToImmutableArray()),
+            CreatureGroups = (groups ?? []).ToDictionary(group => group.Id, group => (Lookup<CreatureGroupView>)new Lookup<CreatureGroupView>.Found(group)),
+            Creatures = (groups ?? []).SelectMany(group => group.Creatures).ToDictionary(creature => creature.Id,
+                creature => (Lookup<CreatureView>)new Lookup<CreatureView>.Found(creature)),
+            Combats = (combats ?? []).ToDictionary(combat => combat.Id, combat => (Lookup<CombatView>)new Lookup<CombatView>.Found(combat)),
             Nodes = nodes.ToDictionary(item => item.Id, item => (Lookup<NodeView>)new Lookup<NodeView>.Found(new(item,
                 edges.Where(edge => edge.Start == item.Id || edge.End == item.Id).Select(edge => edge.Id).ToImmutableArray(),
                 80, item.Id == NodeId ? platformLengthMeters : 0, 80))),
@@ -211,7 +217,8 @@ internal static class NodeFixtures
         IReadOnlyDictionary<DesignHash, ContentLookup<DesignEvaluation>>? designs = null,
         SettlementLayoutProjection? layout = null,
         IReadOnlyDictionary<LairTypeId, ContentLookup<LairAppearanceProjection>>? lairs = null,
-        IReadOnlyDictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>? voxelAppearances = null)
+        IReadOnlyDictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>? voxelAppearances = null,
+        IReadOnlyDictionary<CreatureDefinitionId, ContentLookup<CreatureAppearanceProjection>>? creatures = null)
     {
         design ??= RailwayFixtures.Vehicle();
         var hash = design is DesignEvaluation.Complete complete ? complete.Design : SceneFixtures.Design;
@@ -240,7 +247,8 @@ internal static class NodeFixtures
             Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
             { [RailwayFixtures.Terrain] = new ContentLookup<TerrainAppearanceProjection>.Found(terrain ?? RailwayFixtures.TerrainAppearance) },
             RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>
-            { [RailwayFixtures.Rule] = new ContentLookup<RailwayAppearanceProjection>.Found(rules ?? RailwayFixtures.Rules) }
+            { [RailwayFixtures.Rule] = new ContentLookup<RailwayAppearanceProjection>.Found(rules ?? RailwayFixtures.Rules) },
+            Creatures = creatures ?? new Dictionary<CreatureDefinitionId, ContentLookup<CreatureAppearanceProjection>>()
         };
     }
 }
