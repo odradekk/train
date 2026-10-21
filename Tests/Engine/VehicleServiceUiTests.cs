@@ -270,6 +270,35 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public async Task Facility_block_names_the_plot_tiers_or_the_facility_lock()
+    {
+        var tier = new ServiceView(owned: true, facilityBlocked: true, targetPlot: PlotSize.SmallStation);
+        var setup = new HostSimulationTests.HostSetup(tier, EconomyFixture.Content());
+        await Run(setup, async (ui, economy) =>
+        {
+            await Services(economy);
+            await _input.Choose(Find<OptionButton>(economy, "ServiceOperation"), 1);
+            await _input.Choose(Find<OptionButton>(economy, "ServiceFacility"), 0);
+            var targets = Find<OptionButton>(economy, "ServiceVehicle");
+            await _input.Choose(targets, Enumerable.Range(0, targets.ItemCount).Single(index => targets.GetItemText(index).Contains("建筑 21")));
+            await _input.Activate(Find<Button>(economy, "RefreshServiceQuote"));
+            var description = Find<Label>(economy, "ServiceQuote");
+            Require(description.Text.Contains("最高施工小地块") && description.Text.Contains("目标建筑为小站点，按大地块计"),
+                $"施工上限受阻没有写出执行建筑和目标的地块档位：{description.Text}");
+            var locked = new ServiceView(2, owned: true, facilityBlocked: true, targetPlot: PlotSize.SmallStation,
+                buildingLock: InstanceLock.UnderRepair);
+            var host = ui.GetParent<Train.App.App>().Host!;
+            setup.Session.QueueAdvance(new(1, locked.Position, [], null, null), locked);
+            Require(host.Step(1).Problem is null, "无法发布执行建筑锁定的边界。");
+            economy.Refresh(host.GetStatus()!.Binding, locked, host.Content!);
+            await _input.Activate(Find<Button>(economy, "RefreshServiceQuote"));
+            Require(locked.QuoteCount == 1 && description.Text.Contains("执行建筑自身正在") && !description.Text.Contains("最高施工"),
+                $"执行建筑被锁定时仍说成施工上限不足：{description.Text}");
+        });
+        setup.Session.AssertComplete();
+    }
+
+    [Test]
     public async Task Owned_dismantle_uses_core_quote_and_starts_owned_job_with_default_priority()
     {
         var before = new ServiceView(owned: true, completed: true);
@@ -876,7 +905,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
         finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
     }
 
-    private sealed class ServiceView(ulong revision = 1, bool blocked = false, bool nullPayment = false, bool completed = false, bool missingFacility = false, DesignInput? expectedDesign = null, bool owned = false, bool paused = false, bool changedDesign = false, bool emptyPlot = false, bool constructionPlot = false, InstanceLock buildingLock = InstanceLock.None, bool buildingWork = false, bool buildingPaused = false) : ICoreReadView
+    private sealed class ServiceView(ulong revision = 1, bool blocked = false, bool nullPayment = false, bool completed = false, bool missingFacility = false, DesignInput? expectedDesign = null, bool owned = false, bool paused = false, bool changedDesign = false, bool emptyPlot = false, bool constructionPlot = false, InstanceLock buildingLock = InstanceLock.None, bool buildingWork = false, bool buildingPaused = false, bool facilityBlocked = false, PlotSize targetPlot = PlotSize.Small) : ICoreReadView
     {
         private readonly ICoreReadView basis = EconomyFixture.Create(revision, vehicle: EconomyFixture.VehicleState.Owned);
         private static readonly FacilityKey Facility = new(new(20), CapabilityKind.Construction);
@@ -934,6 +963,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
             ImmutableArray<CoreProblem> problems = blocked
                 ? [.. Missing, new("insufficient_capacity", "queue", null, ["fixture:capacity"])] : [];
             if (blocked && request is JobRequest.BuildBuilding) problems = problems.Add(new("plot_occupied", "Plot", null, []));
+            if (facilityBlocked) problems = problems.Add(new("conditions_not_met", "Facility", new WorldObjectId.Instance(new InstanceId.Building(Facility.Building)), []));
             LastQuote = new(request, funding, Revision, 100, [new(EconomyFixture.Food, 7)],
                 [.. sources.Select(id => new JobMaterialSourceView(id, [new(EconomyFixture.Food, 2)]))],
                 [new(EconomyFixture.Food, 3)], new(500), new(231), nullPayment ? null : new(999), problems);
@@ -955,7 +985,7 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
                 return new Lookup<InstanceView>.Found(vehicle.Value with { Design = new("changed-vehicle") });
             if (id is InstanceId.Building { Id.Value: 21 })
                 return new Lookup<InstanceView>.Found(new(id, new("fixture-plain-building"), new("fixture-plain-composition"),
-                    new WorldLocation.Node(new(1)), SettlementRelation.PlayerOwned, new InstanceDetails.Building(new(2), PlotSize.Small),
+                    new WorldLocation.Node(new(1)), SettlementRelation.PlayerOwned, new InstanceDetails.Building(new(2), targetPlot),
                     InstanceLock.None, new(100, 100), [], []));
             if (id is InstanceId.Building { Id.Value: 20 })
                 return new Lookup<InstanceView>.Found(new(id, new("fixture-service-building"), new("fixture-building-composition"),
