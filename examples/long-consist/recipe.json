@@ -14,21 +14,96 @@
         "completed_steps": 0,
         "sequence": 0
       },
-      "kind": "train.disband",
-      "train": 2
+      "kind": "train.replace_run_plan",
+      "train": 2,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 21,
+            "dwell_steps": 100000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
     },
     {
       "at": {
         "completed_steps": 0,
         "sequence": 1
       },
-      "kind": "train.disband",
-      "train": 3
+      "kind": "train.replace_run_plan",
+      "train": 3,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 21,
+            "dwell_steps": 100000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
     },
     {
       "at": {
         "completed_steps": 0,
         "sequence": 2
+      },
+      "kind": "train.start",
+      "train": 2,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 3
+      },
+      "kind": "train.start",
+      "train": 3,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 16000,
+        "sequence": 0
+      },
+      "kind": "construction.commission_vehicle_work",
+      "facility": 84,
+      "blueprint": "core:titan-armed-vehicle",
+      "sources": [
+        27,
+        28
+      ],
+      "maximum_payment": 1000000000000,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 16000,
+        "sequence": 1
+      },
+      "kind": "train.disband",
+      "train": 2,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 16000,
+        "sequence": 2
+      },
+      "kind": "train.disband",
+      "train": 3,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 16000,
+        "sequence": 3
       },
       "kind": "train.form",
       "ordered_vehicles": [
@@ -64,12 +139,13 @@
         31,
         32,
         33
-      ]
+      ],
+      "expected_decision": "accepted"
     },
     {
       "at": {
-        "completed_steps": 0,
-        "sequence": 3
+        "completed_steps": 16000,
+        "sequence": 4
       },
       "kind": "train.replace_run_plan",
       "train": 21,
@@ -78,43 +154,45 @@
         "stops": [
           {
             "kind": "waypoint",
-            "node": 21
+            "node": 15
           },
           {
             "kind": "waypoint",
-            "node": 15
+            "node": 28
           }
         ]
-      }
+      },
+      "expected_decision": "accepted"
     },
     {
       "at": {
-        "completed_steps": 0,
-        "sequence": 4
+        "completed_steps": 16000,
+        "sequence": 5
       },
       "kind": "train.start",
-      "train": 21
+      "train": 21,
+      "expected_decision": "accepted"
     }
   ],
   "target": {
-    "completed_steps": 1800,
+    "completed_steps": 18000,
     "sequence": 0
   },
   "expectations": [
     {
-      "at": 1800,
+      "at": 18000,
       "key": "largest_train_vehicles",
       "minimum": 32,
       "maximum": 32
     },
     {
-      "at": 1800,
+      "at": 18000,
       "key": "largest_train_meters",
       "minimum": 1280,
       "maximum": 1280
     },
     {
-      "at": 1800,
+      "at": 18000,
       "key": "trains_running",
       "minimum": 1
     }

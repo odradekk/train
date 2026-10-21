@@ -1,0 +1,1416 @@
+{
+  "format_version": 1,
+  "generation_profile": "core:standard-world",
+  "seed": 44,
+  "generator_version": "stage1-world-v1",
+  "save": {
+    "id": "5367ba1a-e6d8-4870-94e0-2ec2145b1a40",
+    "name": "标准世界",
+    "saved_at": "2026-10-22T00:00:00Z"
+  },
+  "commands": [
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 0
+      },
+      "kind": "train.replace_run_plan",
+      "train": 1,
+      "plan": {
+        "loop": true,
+        "stops": [
+          {
+            "kind": "waypoint",
+            "node": 21
+          },
+          {
+            "kind": "waypoint",
+            "node": 15
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 1
+      },
+      "kind": "train.replace_run_plan",
+      "train": 2,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 21,
+            "dwell_steps": 100000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 2
+      },
+      "kind": "train.replace_run_plan",
+      "train": 3,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 21,
+            "dwell_steps": 100000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 3
+      },
+      "kind": "train.replace_run_plan",
+      "train": 13,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 2,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 4
+      },
+      "kind": "train.replace_run_plan",
+      "train": 12,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "waypoint",
+            "node": 11
+          },
+          {
+            "kind": "station",
+            "node": 1,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 5
+      },
+      "kind": "train.replace_run_plan",
+      "train": 16,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 9,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 6
+      },
+      "kind": "train.replace_run_plan",
+      "train": 11,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 31,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 7
+      },
+      "kind": "train.replace_run_plan",
+      "train": 17,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 46,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 8
+      },
+      "kind": "train.replace_run_plan",
+      "train": 18,
+      "plan": {
+        "loop": true,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 7,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          },
+          {
+            "kind": "waypoint",
+            "node": 16
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 9
+      },
+      "kind": "train.replace_run_plan",
+      "train": 19,
+      "plan": {
+        "loop": true,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 7,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          },
+          {
+            "kind": "waypoint",
+            "node": 16
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 10
+      },
+      "kind": "train.replace_run_plan",
+      "train": 20,
+      "plan": {
+        "loop": true,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 7,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          },
+          {
+            "kind": "waypoint",
+            "node": 16
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 11
+      },
+      "kind": "train.start",
+      "train": 1,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 12
+      },
+      "kind": "train.start",
+      "train": 2,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 13
+      },
+      "kind": "train.start",
+      "train": 3,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 14
+      },
+      "kind": "train.start",
+      "train": 11,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 15
+      },
+      "kind": "train.start",
+      "train": 12,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 16
+      },
+      "kind": "train.start",
+      "train": 16,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 17
+      },
+      "kind": "train.start",
+      "train": 17,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 18
+      },
+      "kind": "train.start",
+      "train": 18,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 19
+      },
+      "kind": "train.start",
+      "train": 19,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 20
+      },
+      "kind": "train.start",
+      "train": 20,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 21
+      },
+      "kind": "construction.commission_vehicle_work",
+      "facility": 54,
+      "blueprint": "core:small-freight-wagon",
+      "sources": [],
+      "maximum_payment": 1000000000000,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 22
+      },
+      "kind": "construction.commission_vehicle_work",
+      "facility": 32,
+      "blueprint": "core:small-freight-wagon",
+      "sources": [],
+      "maximum_payment": 1000000000000,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 23
+      },
+      "kind": "construction.commission_vehicle_work",
+      "facility": 25,
+      "blueprint": "core:small-freight-wagon",
+      "sources": [],
+      "maximum_payment": 1000000000000,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 24
+      },
+      "kind": "construction.commission_vehicle_work",
+      "facility": 61,
+      "blueprint": "core:small-freight-wagon",
+      "sources": [],
+      "maximum_payment": 1000000000000,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 4000,
+        "sequence": 0
+      },
+      "kind": "train.start",
+      "train": 13,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 12000,
+        "sequence": 0
+      },
+      "kind": "settlement.declare_war",
+      "settlement": 2,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 16000,
+        "sequence": 0
+      },
+      "kind": "settlement.declare_war",
+      "settlement": 1,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 16000,
+        "sequence": 1
+      },
+      "kind": "construction.commission_vehicle_work",
+      "facility": 84,
+      "blueprint": "core:titan-armed-vehicle",
+      "sources": [
+        27,
+        28
+      ],
+      "maximum_payment": 1000000000000,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 18000,
+        "sequence": 0
+      },
+      "kind": "train.replace_run_plan",
+      "train": 2,
+      "plan": {
+        "loop": true,
+        "stops": [
+          {
+            "kind": "waypoint",
+            "node": 29
+          },
+          {
+            "kind": "waypoint",
+            "node": 21
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 18000,
+        "sequence": 1
+      },
+      "kind": "train.replace_run_plan",
+      "train": 3,
+      "plan": {
+        "loop": true,
+        "stops": [
+          {
+            "kind": "waypoint",
+            "node": 28
+          },
+          {
+            "kind": "waypoint",
+            "node": 15
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 19000,
+        "sequence": 0
+      },
+      "kind": "settlement.declare_war",
+      "settlement": 15,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 20000,
+        "sequence": 0
+      },
+      "kind": "train.replace_run_plan",
+      "train": 4,
+      "plan": {
+        "loop": true,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 15,
+            "dwell_steps": 600,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:staple-food"
+                },
+                "local_inventory": 8,
+                "target_quantity": 1000
+              }
+            ]
+          },
+          {
+            "kind": "station",
+            "node": 21,
+            "dwell_steps": 600,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "sell",
+                  "minimum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:staple-food"
+                },
+                "local_inventory": 11,
+                "target_quantity": 0
+              }
+            ]
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 20000,
+        "sequence": 1
+      },
+      "kind": "train.replace_run_plan",
+      "train": 5,
+      "plan": {
+        "loop": true,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 15,
+            "dwell_steps": 600,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:staple-food"
+                },
+                "local_inventory": 8,
+                "target_quantity": 1000
+              }
+            ]
+          },
+          {
+            "kind": "station",
+            "node": 21,
+            "dwell_steps": 600,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "sell",
+                  "minimum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:staple-food"
+                },
+                "local_inventory": 11,
+                "target_quantity": 0
+              }
+            ]
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 20000,
+        "sequence": 2
+      },
+      "kind": "train.replace_run_plan",
+      "train": 6,
+      "plan": {
+        "loop": true,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 16,
+            "dwell_steps": 600,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:staple-food"
+                },
+                "local_inventory": 9,
+                "target_quantity": 1000
+              }
+            ]
+          },
+          {
+            "kind": "station",
+            "node": 30,
+            "dwell_steps": 600,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "sell",
+                  "minimum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:staple-food"
+                },
+                "local_inventory": 14,
+                "target_quantity": 0
+              }
+            ]
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 20000,
+        "sequence": 3
+      },
+      "kind": "train.replace_run_plan",
+      "train": 7,
+      "plan": {
+        "loop": true,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 16,
+            "dwell_steps": 600,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:staple-food"
+                },
+                "local_inventory": 9,
+                "target_quantity": 1000
+              }
+            ]
+          },
+          {
+            "kind": "station",
+            "node": 30,
+            "dwell_steps": 600,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "sell",
+                  "minimum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:staple-food"
+                },
+                "local_inventory": 14,
+                "target_quantity": 0
+              }
+            ]
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 20000,
+        "sequence": 4
+      },
+      "kind": "train.replace_run_plan",
+      "train": 8,
+      "plan": {
+        "loop": true,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 43,
+            "dwell_steps": 600,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:staple-food"
+                },
+                "local_inventory": 21,
+                "target_quantity": 1000
+              }
+            ]
+          },
+          {
+            "kind": "station",
+            "node": 36,
+            "dwell_steps": 600,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "sell",
+                  "minimum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:staple-food"
+                },
+                "local_inventory": 17,
+                "target_quantity": 0
+              }
+            ]
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 20000,
+        "sequence": 5
+      },
+      "kind": "train.replace_run_plan",
+      "train": 9,
+      "plan": {
+        "loop": true,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 6,
+            "dwell_steps": 600,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:staple-food"
+                },
+                "local_inventory": 4,
+                "target_quantity": 1000
+              }
+            ]
+          },
+          {
+            "kind": "station",
+            "node": 21,
+            "dwell_steps": 600,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "sell",
+                  "minimum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:staple-food"
+                },
+                "local_inventory": 11,
+                "target_quantity": 0
+              }
+            ]
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 20000,
+        "sequence": 6
+      },
+      "kind": "train.replace_run_plan",
+      "train": 10,
+      "plan": {
+        "loop": true,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 6,
+            "dwell_steps": 600,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:staple-food"
+                },
+                "local_inventory": 4,
+                "target_quantity": 1000
+              }
+            ]
+          },
+          {
+            "kind": "station",
+            "node": 21,
+            "dwell_steps": 600,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "sell",
+                  "minimum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:staple-food"
+                },
+                "local_inventory": 11,
+                "target_quantity": 0
+              }
+            ]
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 20000,
+        "sequence": 7
+      },
+      "kind": "train.start",
+      "train": 4,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 20000,
+        "sequence": 8
+      },
+      "kind": "train.start",
+      "train": 5,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 20000,
+        "sequence": 9
+      },
+      "kind": "train.start",
+      "train": 6,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 20000,
+        "sequence": 10
+      },
+      "kind": "train.start",
+      "train": 7,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 20000,
+        "sequence": 11
+      },
+      "kind": "train.start",
+      "train": 8,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 20000,
+        "sequence": 12
+      },
+      "kind": "train.start",
+      "train": 9,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 20000,
+        "sequence": 13
+      },
+      "kind": "train.start",
+      "train": 10,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 21000,
+        "sequence": 0
+      },
+      "kind": "settlement.declare_war",
+      "settlement": 24,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 30000,
+        "sequence": 0
+      },
+      "kind": "settlement.occupy",
+      "settlement": 2,
+      "train": 13,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 30000,
+        "sequence": 1
+      },
+      "kind": "settlement.occupy",
+      "settlement": 1,
+      "train": 12,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 30000,
+        "sequence": 2
+      },
+      "kind": "settlement.occupy",
+      "settlement": 15,
+      "train": 11,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 30000,
+        "sequence": 3
+      },
+      "kind": "settlement.occupy",
+      "settlement": 24,
+      "train": 17,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 31000,
+        "sequence": 0
+      },
+      "kind": "train.replace_run_plan",
+      "train": 13,
+      "plan": {
+        "loop": true,
+        "stops": [
+          {
+            "kind": "waypoint",
+            "node": 6
+          },
+          {
+            "kind": "waypoint",
+            "node": 2
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 31000,
+        "sequence": 1
+      },
+      "kind": "train.replace_run_plan",
+      "train": 12,
+      "plan": {
+        "loop": true,
+        "stops": [
+          {
+            "kind": "waypoint",
+            "node": 2
+          },
+          {
+            "kind": "waypoint",
+            "node": 1
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 31000,
+        "sequence": 2
+      },
+      "kind": "train.replace_run_plan",
+      "train": 11,
+      "plan": {
+        "loop": true,
+        "stops": [
+          {
+            "kind": "waypoint",
+            "node": 36
+          },
+          {
+            "kind": "waypoint",
+            "node": 31
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 31000,
+        "sequence": 3
+      },
+      "kind": "train.replace_run_plan",
+      "train": 17,
+      "plan": {
+        "loop": true,
+        "stops": [
+          {
+            "kind": "waypoint",
+            "node": 43
+          },
+          {
+            "kind": "waypoint",
+            "node": 44
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 36000,
+        "sequence": 0
+      },
+      "kind": "settlement.declare_war",
+      "settlement": 6,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 42000,
+        "sequence": 0
+      },
+      "kind": "settlement.occupy",
+      "settlement": 6,
+      "train": 16,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 44000,
+        "sequence": 0
+      },
+      "kind": "train.replace_run_plan",
+      "train": 16,
+      "plan": {
+        "loop": true,
+        "stops": [
+          {
+            "kind": "waypoint",
+            "node": 13
+          },
+          {
+            "kind": "waypoint",
+            "node": 9
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 70000,
+        "sequence": 0
+      },
+      "kind": "construction.start_owned",
+      "request": {
+        "kind": "dismantle_building",
+        "facility": {
+          "building": 15,
+          "capability": "construction"
+        },
+        "building": 8,
+        "priority": 0
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 95000,
+        "sequence": 0
+      },
+      "kind": "engagement.set_train",
+      "train": 14,
+      "rules": {
+        "priority": "armed_first",
+        "scope": "all",
+        "encounter": "engage",
+        "retreat_structure_ratio": 0
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 95000,
+        "sequence": 1
+      },
+      "kind": "train.replace_run_plan",
+      "train": 14,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 3,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 95000,
+        "sequence": 2
+      },
+      "kind": "train.start",
+      "train": 14,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 95000,
+        "sequence": 3
+      },
+      "kind": "engagement.set_train",
+      "train": 15,
+      "rules": {
+        "priority": "armed_first",
+        "scope": "all",
+        "encounter": "engage",
+        "retreat_structure_ratio": 0
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 95000,
+        "sequence": 4
+      },
+      "kind": "train.replace_run_plan",
+      "train": 15,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 11,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 95000,
+        "sequence": 5
+      },
+      "kind": "train.start",
+      "train": 15,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 98000,
+        "sequence": 0
+      },
+      "kind": "settlement.declare_war",
+      "settlement": 3,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 98000,
+        "sequence": 1
+      },
+      "kind": "settlement.declare_war",
+      "settlement": 7,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 112000,
+        "sequence": 0
+      },
+      "kind": "construction.start_owned",
+      "request": {
+        "kind": "dismantle_building",
+        "facility": {
+          "building": 9,
+          "capability": "construction"
+        },
+        "building": 10,
+        "priority": 0
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 112000,
+        "sequence": 1
+      },
+      "kind": "construction.start_owned",
+      "request": {
+        "kind": "dismantle_building",
+        "facility": {
+          "building": 2,
+          "capability": "construction"
+        },
+        "building": 3,
+        "priority": 0
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 112000,
+        "sequence": 2
+      },
+      "kind": "construction.start_owned",
+      "request": {
+        "kind": "dismantle_building",
+        "facility": {
+          "building": 114,
+          "capability": "construction"
+        },
+        "building": 115,
+        "priority": 0
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 112000,
+        "sequence": 3
+      },
+      "kind": "construction.start_owned",
+      "request": {
+        "kind": "dismantle_building",
+        "facility": {
+          "building": 184,
+          "capability": "construction"
+        },
+        "building": 185,
+        "priority": 0
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 112000,
+        "sequence": 4
+      },
+      "kind": "construction.start_owned",
+      "request": {
+        "kind": "dismantle_building",
+        "facility": {
+          "building": 39,
+          "capability": "construction"
+        },
+        "building": 40,
+        "priority": 0
+      },
+      "expected_decision": "accepted"
+    }
+  ],
+  "target": {
+    "completed_steps": 125800,
+    "sequence": 0
+  },
+  "checkpoint_steps": [
+    110000
+  ],
+  "expectations": [
+    {
+      "at": 110000,
+      "key": "creatures_wandering",
+      "minimum": 1
+    },
+    {
+      "at": 125800,
+      "key": "nodes",
+      "minimum": 50,
+      "maximum": 50
+    },
+    {
+      "at": 125800,
+      "key": "settlements",
+      "minimum": 25,
+      "maximum": 25
+    },
+    {
+      "at": 125800,
+      "key": "player_settlements",
+      "minimum": 5,
+      "maximum": 5
+    },
+    {
+      "at": 125800,
+      "key": "trains_in_plan",
+      "minimum": 20,
+      "maximum": 20
+    },
+    {
+      "at": 125800,
+      "key": "vehicles_in_plan",
+      "minimum": 80,
+      "maximum": 80
+    },
+    {
+      "at": 125800,
+      "key": "trains_running",
+      "minimum": 1
+    },
+    {
+      "at": 125800,
+      "key": "trains_servicing",
+      "minimum": 1
+    },
+    {
+      "at": 125800,
+      "key": "trains_queued",
+      "minimum": 1
+    },
+    {
+      "at": 125800,
+      "key": "buildings",
+      "minimum": 100
+    },
+    {
+      "at": 125800,
+      "key": "facilities_running",
+      "minimum": 50
+    },
+    {
+      "at": 125800,
+      "key": "jobs_working",
+      "minimum": 10
+    },
+    {
+      "at": 125800,
+      "key": "dismantles_working",
+      "minimum": 1
+    },
+    {
+      "at": 125800,
+      "key": "titan_builds_working",
+      "minimum": 1
+    },
+    {
+      "at": 125800,
+      "key": "titan_trains_in_plan",
+      "minimum": 1
+    },
+    {
+      "at": 125800,
+      "key": "creatures",
+      "minimum": 100
+    },
+    {
+      "at": 125800,
+      "key": "creatures_guarding",
+      "minimum": 1
+    },
+    {
+      "at": 125800,
+      "key": "creatures_raiding",
+      "minimum": 1
+    },
+    {
+      "at": 125800,
+      "key": "armed_combats",
+      "minimum": 3
+    },
+    {
+      "at": 125800,
+      "key": "armed_line_combats",
+      "minimum": 1
+    },
+    {
+      "at": 125800,
+      "key": "armed_node_combats",
+      "minimum": 1
+    }
+  ]
+}
