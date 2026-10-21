@@ -188,9 +188,26 @@ public sealed class BuiltInContentTests
             Assert.AreEqual(kind, building.Type, id);
             var capabilities = design.Core.Design.Parts.SelectMany(part => part.Capabilities).ToArray();
             Assert.IsTrue(capabilities.OfType<K.PartCapability.Storage>().Any(storage => storage.Capacity > 0), id);
-            Assert.IsTrue(capabilities.All(capability => capability is K.PartCapability.Storage), id);
+            if (id == "core-city-hub")
+                Assert.IsTrue(capabilities.All(capability => capability is K.PartCapability.Storage), id);
+            else
+                Assert.IsTrue(capabilities.OfType<K.PartCapability.Weapon>().Any(), id);
             Assert.IsTrue(city.Plots.Any(plot => plot.Size == K.PlotSize.Giant && plot.PrebuiltDesign == design.Design), id);
         }
+        foreach (var (id, plotSize) in new[] { ("defense-tower", K.PlotSize.Small), ("heavy-battery", K.PlotSize.Medium) })
+        {
+            var design = Complete(view, id);
+            Assert.IsNotNull(design.Core);
+            var building = (K.DesignKind.Building)design.Core.Design.Kind;
+            Assert.AreEqual(plotSize, building.PlotSize, id);
+            Assert.AreEqual(K.BuildingKind.Defense, building.Type, id);
+            Assert.IsTrue(design.Core.Design.Parts.SelectMany(part => part.Capabilities).OfType<K.PartCapability.Weapon>().Any(), id);
+        }
+        var battery = Complete(view, "heavy-battery").Core!.Design;
+        Assert.IsTrue(battery.BillOfMaterials.Any(item =>
+            item.Good is K.GoodId.Composite composite
+            && composite.Definition.Value == "core:heavy-turret"
+            && item.Quantity == 1));
         foreach (var (id, plotSize, maximumPlot, maximumVehicle, component) in new[]
                  {
                      ("basic-shed", K.PlotSize.Small, K.PlotSize.Medium, (K.SizeClass?)null, "construction-equipment"),

@@ -1534,6 +1534,36 @@ def gantry_crane():
     return value
 
 
+def defense_tower():
+    cells = {}
+    fill_box(cells, (-5, 0, -5), (10, 2, 10), 0)
+    fill_box(cells, (-2, 2, -2), (4, 14, 4), 0)
+    fill_box(cells, (-4, 16, -4), (8, 1, 8), 1)
+    cells[(0, 17, 3)] = 2
+    value = blueprint("defense-tower", "防御塔", "building",
+                      ["construction-material", "structural-metal", "machine-gun"], cells,
+                      {"plot_size": "small", "building_type": "defense", "facility_tags": []})
+    value["layout"]["palette"][2]["orientation"] = "px_py"
+    value["display"]["description"] = "小地块防御塔：建筑材料塔身托起结构金属顶台，顶台朝正面装一挺机枪。火力数值待用户试玩确认。"
+    return value
+
+
+def heavy_battery():
+    cells = {}
+    fill_box(cells, (-16, 0, -16), (32, 2, 32), 0)
+    for x in range(-16, 16):
+        for z in (-16, 15):
+            if not (z == 15 and -2 <= x <= 2):
+                cells[(x, 2, z)] = 0
+    for z in range(-15, 15):
+        cells[(-16, 2, z)] = cells[(15, 2, z)] = 0
+    value = blueprint("heavy-battery", "重炮台", "building", ["construction-material"], cells,
+                      {"plot_size": "medium", "building_type": "defense", "facility_tags": []})
+    value["layout"]["composites"] = [{"at": [0, 2, 0], "orientation": "px_py", "blueprint": "heavy-turret"}]
+    value["display"]["description"] = "中地块重炮台：建筑材料平台与胸墙围住中央一座重炮塔，正面留出开口。火力数值待用户试玩确认。"
+    return value
+
+
 def content_files():
     files = {}
     processes = process_definitions()
@@ -1718,6 +1748,8 @@ def content_files():
     crane_blueprint["display"]["description"] = "石墨双立柱支承连续黄色横梁，形成开敞的车间吊装门架。"
     document("blueprints", "blueprint", "workshop-crane", crane_blueprint)
     document("blueprints", "blueprint", "gantry-crane", gantry_crane())
+    document("blueprints", "blueprint", "defense-tower", defense_tower())
+    document("blueprints", "blueprint", "heavy-battery", heavy_battery())
 
     plot_sizes = {identity: definition["simulation"]["plot_size"]
                   for identity, definition in blueprint_definitions.items() if definition["category"] == "building"}
@@ -1780,7 +1812,7 @@ def content_files():
         {"id": 11, "size": plot_sizes["core-city-hub"], "at": [-224, 1, 800], "orientation": "px_py", "building": "core-city-hub"},
         {"id": 12, "size": plot_sizes["bastion-fortress"], "at": [224, 1, 800], "orientation": "px_py", "building": "bastion-fortress"},
     ])
-    city["display"] = {"name": "核心城市", "description": "工业城的十二地块布局，地块 2 为空的大站点地块；两座巨型仓储建筑、重型车辆工厂与原有工业和公共设施。要塞战斗用途待战斗阶段实现。"}
+    city["display"] = {"name": "核心城市", "description": "工业城的十二地块布局，地块 2 为空的大站点地块；核心城市中枢提供仓储，棱堡要塞在保留仓储的同时于角堡和门楼装有武器，并预建重型车辆工厂与原有工业和公共设施。"}
     document("settlement-templates", "settlement-template", "core-city", city)
     document("blueprints", "blueprint", "core-city-ground",
              settlement_ground("core-city", "核心城市", city["plots"], {"from": [-432, -400], "to": [431, 999], "height": 1}))
