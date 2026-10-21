@@ -78,7 +78,7 @@ internal static class DesignTraversal
     internal static string Hash(C.DesignDraft draft, bool composition) =>
         ContentHash.FromCanonicalJson(writer => WriteCanonical(writer, draft, composition));
 
-    // 设计哈希和构成哈希已经入档：各层键按 Ordinal 顺序直接写出，字节须与原先按键排序的对象序列化结果一致。
+    // 设计哈希和构成哈希已写入存档，规范 JSON 的字节不能变：每层的键必须按 Ordinal 顺序写出。
     private static void WriteCanonical(Utf8JsonWriter writer, C.DesignDraft draft, bool composition)
     {
         var rotation = draft.Specification switch
