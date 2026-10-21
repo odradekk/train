@@ -41,7 +41,6 @@ internal sealed class ContentMeasurement(ICoreFactory core, IContentFactory cont
             case "history": MeasureHistory(savePath); break;
             case "capture": MeasureCapture(savePath); break;
             case "restore": MeasureRestore(savePath); break;
-            default: throw new ArgumentException($"未知的测量组：{group}。", nameof(group));
         }
         using var process = Process.GetCurrentProcess();
         process.Refresh();
