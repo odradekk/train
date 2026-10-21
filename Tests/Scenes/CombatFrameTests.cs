@@ -748,8 +748,7 @@ public sealed class CombatFrameTests
         var first = CreatureAt(settled, 3);
         var second = CreatureAt(settled, 4);
         var separated = Vector3.Distance(first, second);
-        var oppositeSides = Math.Sqrt(24d * 24d + 8d * 8d);
-        Assert.IsTrue(Math.Abs(separated - 8) < 0.05 || Math.Abs(separated - oppositeSides) < 0.05);
+        Assert.IsTrue(Math.Abs(separated - 8) < 0.05 || Math.Abs(separated - 24) < 0.05);
         var individual = new CreaturePresentationRef(group.Id, new(3), creature, RailwayFixtures.Location);
         var armed = Snapshot(content, instance, steps: 1, group: group);
         session.Observe(armed, [Envelope(armed, new CoreEvent.CombatHits(new(1), RailwayFixtures.Location,
@@ -763,6 +762,101 @@ public sealed class CombatFrameTests
         var toward = new Vector3(vehicle.X - first.X, 0, vehicle.Z - first.Z);
         Assert.IsTrue(delta.Length() > 0.05f);
         Assert.IsTrue(Vector3.Dot(Vector3.Normalize(delta), Vector3.Normalize(toward)) > 0.9f);
+    }
+
+    [TestMethod]
+    public async Task ADozenCreaturesDoNotOverlapOnAnEdge()
+    {
+        var (content, group) = Dozen(RailwayFixtures.Location, views =>
+            RailwayFixtures.Content(design: RailwayFixtures.Vehicle(), creatures: views));
+        AssertSeparated(await EdgeFrame(content, group, false), 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
+        AssertSeparated(await EdgeFrame(content, group, true), 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
+    }
+
+    [TestMethod]
+    public async Task ADozenCreaturesDoNotOverlapAtANode()
+    {
+        var (content, group) = Dozen(NodeFixtures.Location, views => NodeFixtures.Content(creatures: views));
+        AssertSeparated(await NodeFrame(content, group, false), 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
+        AssertSeparated(await NodeFrame(content, group, true), 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
+    }
+
+    [TestMethod]
+    public async Task ADeadMemberKeepsItsPlaceBetweenTheLiving()
+    {
+        var large = new CreatureDefinitionId("test:large");
+        var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle(), creatures: new Dictionary<CreatureDefinitionId, ContentLookup<CreatureAppearanceProjection>>
+        { [large] = new ContentLookup<CreatureAppearanceProjection>.Found(Footprint(large, -5, 4, -7, 6)) });
+        // 种子 3、非战斗：1、2、4 都在正侧，2 夹在 1 和 4 之间。
+        var group = new CreatureGroupView(new(7), null, RailwayFixtures.Location, null, CreatureActivity.Guarding, 0,
+            [new(new(1), large, 10, 10), new(new(2), large, 10, 10), new(new(4), large, 10, 10)]);
+        var instance = RailwayFixtures.Instance();
+        await using var session = Open(content, instance, group);
+        session.RequestView(new WorldSceneTarget.Location(RailwayFixtures.Location));
+        var settled = await RailwayFixtures.Settled(session, Request);
+        var snapshot = Snapshot(content, instance, group: group);
+        session.Observe(snapshot, [Envelope(snapshot, new CoreEvent.CombatDestruction(new(1), RailwayFixtures.Location, [],
+            [new DestroyedUnit.Creature(new(group.Id, new(2), large, RailwayFixtures.Location))]))]);
+        var frame = Present(session, settled);
+        AssertSeparated(frame, [1, 4]);
+        Assert.IsFalse(frame.Objects.Any(item => item.Subject is WorldObjectId.Creature creature && creature.Id.Value == 2));
+        var fragments = frame.Update.Effects.Single(item => item.Kind == SceneEffectKind.Fragments);
+        Assert.AreEqual(new WorldObjectId.Creature(new(2)), fragments.Subject);
+        var point = fragments.From;
+        Assert.IsFalse(Inside(CreatureMeshBounds(frame, 1), point));
+        Assert.IsFalse(Inside(CreatureMeshBounds(frame, 4), point));
+    }
+
+    [TestMethod]
+    public async Task TwoGroupsAtOneEdgeDoNotOverlap()
+    {
+        var large = new CreatureDefinitionId("test:large");
+        var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle(), creatures: new Dictionary<CreatureDefinitionId, ContentLookup<CreatureAppearanceProjection>>
+        { [large] = new ContentLookup<CreatureAppearanceProjection>.Found(Footprint(large, -5, 4, -7, 6)) });
+        CreatureGroupView Line(ulong id, ulong first) => new(new(id), null, RailwayFixtures.Location, null, CreatureActivity.Guarding, 0,
+            Enumerable.Range(0, 4).Select(offset => new CreatureView(new(first + (ulong)offset), large, 10, 10)).ToImmutableArray());
+        var groups = new[] { Line(7, 1), Line(8, 5) };
+        var snapshot = RailwayFixtures.Snapshot(4, 4, 0, content: content, trains: [RailwayFixtures.Train(0, [new(1)])],
+            instances: [RailwayFixtures.Instance()], groups: groups);
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), snapshot, new(), new());
+        session.RequestView(new WorldSceneTarget.Location(RailwayFixtures.Location));
+        AssertSeparated(await RailwayFixtures.Settled(session, Request), [1, 2, 3, 4, 5, 6, 7, 8]);
+    }
+
+    [TestMethod]
+    public async Task HitsAndPounceStayOnTheTargetedCreature()
+    {
+        var large = new CreatureDefinitionId("test:large");
+        var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle(), creatures: new Dictionary<CreatureDefinitionId, ContentLookup<CreatureAppearanceProjection>>
+        { [large] = new ContentLookup<CreatureAppearanceProjection>.Found(Footprint(large, -5, 4, -7, 6)) });
+        var group = new CreatureGroupView(new(7), null, RailwayFixtures.Location, null, CreatureActivity.Guarding, 0,
+            [new(new(1), large, 10, 10), new(new(2), large, 10, 10)]);
+        var instance = RailwayFixtures.Instance();
+        await using var session = Open(content, instance, group);
+        session.RequestView(new WorldSceneTarget.Location(RailwayFixtures.Location));
+        var settled = await RailwayFixtures.Settled(session, Request);
+        var attacker = new CreaturePresentationRef(group.Id, new(1), large, RailwayFixtures.Location);
+        var target = new CreaturePresentationRef(group.Id, new(2), large, RailwayFixtures.Location);
+        var armed = Snapshot(content, instance, steps: 1, group: group);
+        session.Observe(armed, [Envelope(armed, new CoreEvent.CombatHits(new(1), RailwayFixtures.Location,
+            [new CombatHit(new AttackSource.Creature(attacker), new HitTarget.Creature(target), 1)]))]);
+        session.Observe(Snapshot(content, instance, steps: 2, group: group), []);
+        var frame = Present(session, settled);
+        var effects = frame.Update.Effects.Where(item => item.Kind is SceneEffectKind.Shot or SceneEffectKind.Impact).ToArray();
+        Assert.IsTrue(effects.Any(item => item.Kind == SceneEffectKind.Shot));
+        Assert.IsTrue(effects.Any(item => item.Kind == SceneEffectKind.Impact));
+        var roots = new[] { (Id: 1ul, Position: CreatureAt(frame, 1)), (Id: 2ul, Position: CreatureAt(frame, 2)) };
+        foreach (var effect in effects)
+        {
+            Assert.AreEqual(new WorldObjectId.Creature(new(2)), effect.Subject);
+            var point = effect.Kind == SceneEffectKind.Shot ? effect.To!.Value : effect.From;
+            Assert.AreEqual(2ul, roots.MinBy(item => Vector3.Distance(item.Position, point)).Id);
+        }
+        var before = CreatureAt(settled, 1);
+        var delta = new Vector3(roots[0].Position.X - before.X, 0, roots[0].Position.Z - before.Z);
+        Assert.IsTrue(delta.Length() > 0.05f);
+        var toward = Vector3.Normalize(new Vector3(roots[1].Position.X - before.X, 0, roots[1].Position.Z - before.Z));
+        Assert.IsTrue(Vector3.Dot(Vector3.Normalize(delta), toward) > 0.9f);
     }
 
     [TestMethod]
@@ -781,6 +875,82 @@ public sealed class CombatFrameTests
 
     private static Vector3 CreatureAt(SceneFrame frame, ulong id) =>
         frame.Objects.Single(item => item.Parent is null && item.Subject == new WorldObjectId.Creature(new(id))).Pose.Position;
+
+    private static (FixedContentView Content, CreatureGroupView Group) Dozen(WorldLocation location,
+        Func<Dictionary<CreatureDefinitionId, ContentLookup<CreatureAppearanceProjection>>, FixedContentView> content)
+    {
+        var small = new CreatureDefinitionId("test:small");
+        var large = new CreatureDefinitionId("test:large");
+        var views = new Dictionary<CreatureDefinitionId, ContentLookup<CreatureAppearanceProjection>>
+        {
+            [small] = new ContentLookup<CreatureAppearanceProjection>.Found(Footprint(small, -3, 2, -3, 2)),
+            [large] = new ContentLookup<CreatureAppearanceProjection>.Found(Footprint(large, -5, 4, -7, 6))
+        };
+        // 种子 3、战斗 0 和 1 下 9 与 10 同侧，且 9 更短、紧排在 10 前；固定 8 格或只加前一只长度都会相交。
+        var members = Enumerable.Range(1, 12).Select(number =>
+            new CreatureView(new((ulong)number), number == 9 ? small : large, 10, 10)).ToImmutableArray();
+        return (content(views), new(new(7), null, location, null, CreatureActivity.Guarding, 0, members));
+    }
+
+    private static CreatureAppearanceProjection Footprint(CreatureDefinitionId id, int minX, int maxX, int minZ, int maxZ) =>
+        new(id, SceneFixtures.Projection([
+            SceneFixtures.Cell(new(minX, 0, minZ)),
+            SceneFixtures.Cell(new(maxX, 0, maxZ), 2)]) with
+        {
+            OccupiedBounds = new(new(minX, 0, minZ), new(maxX, 0, maxZ))
+        }, new(id.Value, ""));
+
+    private static async Task<SceneFrame> EdgeFrame(FixedContentView content, CreatureGroupView group, bool combat)
+    {
+        var snapshot = RailwayFixtures.Snapshot(4, 4, 0, content: content, trains: [RailwayFixtures.Train(0, [new(1)])],
+            instances: [RailwayFixtures.Instance()], groups: [group],
+            combats: combat ? [new CombatView(new(1), group.Location, 1, [new(new CombatUnitId.CreatureGroup(group.Id), false, 0, null)])] : null);
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), snapshot, new(), new());
+        session.RequestView(new WorldSceneTarget.Location(RailwayFixtures.Location));
+        return await RailwayFixtures.Settled(session, Request);
+    }
+
+    private static async Task<SceneFrame> NodeFrame(FixedContentView content, CreatureGroupView group, bool combat)
+    {
+        var snapshot = NodeFixtures.Snapshot(platforms: 0, trains: [], instances: [], content: content, groups: [group],
+            combats: combat ? [new CombatView(new(1), group.Location, 1, [new(new CombatUnitId.CreatureGroup(group.Id), false, 0, null)])] : null);
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), snapshot, new(), new(), RailwayFixtures.EmptyNode);
+        session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location));
+        return await RailwayFixtures.Settled(session, Request);
+    }
+
+    private static void AssertSeparated(SceneFrame frame, params ulong[] ids)
+    {
+        var bounds = ids.Select(id => CreatureMeshBounds(frame, id)).ToArray();
+        for (var left = 0; left < bounds.Length; left++)
+            for (var right = left + 1; right < bounds.Length; right++)
+            {
+                var gapX = Math.Max(bounds[left].Min.X - bounds[right].Max.X, bounds[right].Min.X - bounds[left].Max.X);
+                var gapY = Math.Max(bounds[left].Min.Y - bounds[right].Max.Y, bounds[right].Min.Y - bounds[left].Max.Y);
+                var gapZ = Math.Max(bounds[left].Min.Z - bounds[right].Max.Z, bounds[right].Min.Z - bounds[left].Max.Z);
+                Assert.IsTrue(gapX >= -0.001f || gapY >= -0.001f || gapZ >= -0.001f,
+                    $"Creatures {ids[left]} and {ids[right]} overlap.");
+            }
+    }
+
+    private static (Vector3 Min, Vector3 Max) CreatureMeshBounds(SceneFrame frame, ulong id)
+    {
+        var root = frame.Objects.Single(item => item.Parent is null && item.Subject == new WorldObjectId.Creature(new(id)));
+        var min = new Vector3(float.PositiveInfinity);
+        var max = new Vector3(float.NegativeInfinity);
+        foreach (var vertex in root.Visuals.OfType<SceneVisual.Geometry>().SelectMany(item => item.Mesh.Vertices))
+        {
+            var point = root.Pose.Position + Vector3.Transform(vertex.Position, root.Pose.Rotation);
+            min = Vector3.Min(min, point);
+            max = Vector3.Max(max, point);
+        }
+        return (min, max);
+    }
+
+    private static bool Inside((Vector3 Min, Vector3 Max) box, Vector3 point) =>
+        point.X > box.Min.X && point.X < box.Max.X &&
+        point.Y > box.Min.Y && point.Y < box.Max.Y &&
+        point.Z > box.Min.Z && point.Z < box.Max.Z;
 
     [TestMethod]
     public async Task PresentationOnlyContentUpdateRebuildsTheCreature()
