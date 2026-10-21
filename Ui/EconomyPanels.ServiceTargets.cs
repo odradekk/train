@@ -168,7 +168,7 @@ internal partial class EconomyPanels
             _view.World.Nodes.FirstOrDefault(item => item.Id == node.Id)?.Occupant is not NodeOccupant.Settlement settlement) return;
         if (_settlementPanel is not null && GodotObject.IsInstanceValid(_settlementPanel) && _settlementId == settlement.Id
             && _settlementTarget is { } target && _host.PanelGenerationCurrent(target.Binding, target.Generation))
-        { Show(); _settlementPanel.Show(); }
+        { Show(); _settlementPanel.Show(); UiStyle.BringToFront(_settlementPanel); }
         else OpenSettlement(new(_binding, _content.Generation, new WorldObjectId.Settlement(settlement.Id)), settlement.Id);
         _serviceSelectedTarget = new(vehicle); _serviceOperation.Select(2);
         if (_content.LocalDrafts.Any(saved => saved.Target == new DraftTarget.Instance(instance)))

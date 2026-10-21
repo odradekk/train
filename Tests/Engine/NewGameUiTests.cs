@@ -71,7 +71,7 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
                 new(new("fixture:second"), new("第二配置", ""))]
         };
         var view = new FixedCoreReadView(default, HostCoreScenario.Input)
-        { World = new(42, new("fixture:railway"), 100, 100, [], [], [], [], []) };
+        { Economy = UiWorldFixture.Economy, World = new(42, new("fixture:railway"), 100, 100, [], [], [], [], []) };
         var session = UiWorldFixture.Session(view);
         var candidate = new ScriptedCoreCandidate(session, HostCoreScenario.References,
             missing ? [new(new CoreDefinitionReference.Voxel(new("fixture:missing")), "vehicles[0]")] : []);

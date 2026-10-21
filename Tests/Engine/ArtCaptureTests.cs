@@ -576,6 +576,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
         var terrain = new TerrainView(new("fixture:terrain"), 0, []);
         return new(position, HostCoreScenario.Input)
         {
+            Economy = UiWorldFixture.Economy,
             Nodes = new Dictionary<NodeId, Lookup<NodeView>>
             {
                 [new(1)] = new Lookup<NodeView>.Found(new(new(new(1), new(0, 0), terrain,
@@ -629,6 +630,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
             new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0), [], null, [], TrainOrderFacing.FirstEndLeading, null);
         return new(position, HostCoreScenario.Input)
         {
+            Economy = UiWorldFixture.Economy,
             Edges = new Dictionary<EdgeId, Lookup<EdgeView>>
             {
                 [new(1)] = scenePresent ? new Lookup<EdgeView>.Found(new(edge, [], null)) : new Lookup<EdgeView>.Missing()

@@ -131,6 +131,7 @@ internal sealed class DeveloperToolsFixture
             [], null, [], TrainOrderFacing.FirstEndLeading, null);
         return new(new(step, 0), HostCoreScenario.Input, revision: new(step))
         {
+            Economy = UiWorldFixture.Economy,
             World = new(1, new("fixture:railway"), 100, 100, [node.Map], [], [new(new(1), train.Position, train.Activity)], [], []),
             Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [new(1)] = new Lookup<NodeView>.Found(node) },
             Trains = new Dictionary<TrainId, Lookup<TrainView>> { [new(1)] = new Lookup<TrainView>.Found(train) }
