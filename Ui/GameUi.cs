@@ -45,6 +45,7 @@ public partial class GameUi : CanvasLayer
     private Button? _returnToMap;
     private Label _clock = null!;
     private MacroMap _map = null!;
+    private SceneStatusOverlay _status = null!;
     private NodeMinimap _minimap = null!;
     private WorldPanels? _panels;
     private TrainFormationPanel? _formation;
@@ -117,6 +118,9 @@ public partial class GameUi : CanvasLayer
         _map = new MacroMap { Name = "MacroMap" };
         _map.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         _world.AddChild(_map);
+        _status = new SceneStatusOverlay { Name = "SceneStatusOverlay", MouseFilter = Control.MouseFilterEnum.Ignore };
+        _status.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _world.AddChild(_status);
         _map.ObjectClicked += OpenScene;
         _map.CombatClicked += OpenCombat;
         _map.DisplayFailed += message =>
@@ -231,7 +235,8 @@ public partial class GameUi : CanvasLayer
         _editorPanel = new DesignEditorPanel { Name = "DesignEditor" }; _editorPanel.Initialize(_editor); _editorPanel.LibraryRequested += _library.Open; _root.AddChild(_editorPanel);
         // 设置在加入场景树时立即应用画质，所以编辑器的场景视图要先创建。
         _settings = new SettingsPanel { Name = "SettingsPanel" };
-        _settings.Initialize(_host, _logger, ShowError, _policy, _recording, _scenes?.View.CameraRig, _saves, SetHighQuality);
+        _settings.Initialize(_host, _logger, ShowError, _policy, _recording, _scenes?.View.CameraRig, _saves, SetHighQuality,
+            show => _status.Always = show);
         _root.AddChild(_settings);
         _bar.AddChild(UiStyle.Button("Settings", "设置", _settings.Show));
         _bar.AddChild(UiStyle.Button("NewDesign", "新建设计…", _library.NewDraft));
@@ -269,6 +274,9 @@ public partial class GameUi : CanvasLayer
     {
         var showingScene = _scenes?.View.Visible == true;
         var status = _host?.GetStatus();
+        _status.Scenes = _scenes;
+        _status.Core = status?.View;
+        _status.Selected = _panels?.OpenInstances() ?? [];
         var editing = _editor.IsOpen || _authoring?.Form is not null;
         if (editing != _editing)
         {
@@ -342,21 +350,26 @@ public partial class GameUi : CanvasLayer
         }
         else if (_view is not null)
         {
-            _panels!.Invalidate();
-            _formation!.Refresh(default, _view, _content!);
-            _plan!.Refresh(default, _view, _content!);
-            _economy!.Close();
-            _founding?.Close();
-            _railway?.Close();
+            CloseSessionPanels();
             _icons.Bind(default, null);
-            _formation.Hide(); _plan.Hide(); _combat?.Hide(); _notices?.Hide();
-            _reports.Clear();
-            _notices?.Clear();
             _view = null; _content = null; _binding = default;
             _world.Hide(); _errorPanel.Hide(); _settings.Hide(); _missingErrorOperation = null;
             _menu.Show();
         }
         _menu.SetGameStartEnabled(_host?.SessionOptions is not null && !_host.IsBusy && _host.Content is not null);
+    }
+
+    private void CloseSessionPanels()
+    {
+        _panels!.Invalidate();
+        _formation!.Refresh(default, _view!, _content!);
+        _plan!.Refresh(default, _view!, _content!);
+        _economy!.Close();
+        _founding?.Close();
+        _railway?.Close();
+        _formation.Hide(); _plan.Hide(); _combat?.Close(); _notices?.Hide();
+        _reports.Clear();
+        _notices?.Clear();
     }
 
     private void OnEditorChanged()
@@ -412,14 +425,15 @@ public partial class GameUi : CanvasLayer
     private void OnBoundary(HostBinding binding, ICoreReadView view, IContentView content,
         ImmutableArray<EventEnvelope> events)
     {
+        if (_view is not null && _binding != binding) CloseSessionPanels();
         _economy?.Observe(binding, view, events);
         if (_notices is not null && _binding.Session != binding.Session) _notices.Begin(binding.Session);
         if (_notices is not null)
         {
             var previous = _binding == binding ? _view : null;
-            foreach (var envelope in events)
-                if (_policy.Classify(envelope.Event, previous, view) is { } notice)
-                    _notices.Add(notice, view, content);
+            foreach (var notice in events.Select(envelope => _policy.Classify(envelope.Event, previous, view))
+                         .OfType<NotificationNotice>().Distinct())
+                _notices.Add(notice, view, content);
         }
         _reports.Observe(binding, events);
         if (view.Fault is { } fault && (_binding != binding || _view?.Fault != fault))

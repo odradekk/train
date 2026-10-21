@@ -15,7 +15,7 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
     {
         await LoadSettings(1, 1.25, 91, true, invalid: false);
         await LoadSettings(2, 1.25, 91, true, invalid: false);
-        await LoadSettings(1, 1.25, 91, true, invalid: false, encounter: 2);
+        await LoadSettings(1, 1.25, 91, true, invalid: false, encounter: 2, alwaysShow: true);
     }
 
     [Test]
@@ -51,7 +51,7 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
 
     private async Task LoadSettings(Variant mode, Variant scale, Variant fps, Variant focus, bool invalid,
         Variant? encounter = null, Variant? cameraShake = null, Variant? quality = null, Variant? autoSave = null,
-        bool changeThroughUi = false)
+        Variant? alwaysShow = null, bool changeThroughUi = false)
     {
         var tree = TestScene.GetTree();
         var fixture = new Fixture(tree);
@@ -73,6 +73,7 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
                 if (encounter is { } notification) config.SetValue("notifications", "encounter", notification);
                 if (quality is { } qualityValue) config.SetValue("display", "quality", qualityValue);
                 if (autoSave is { } autoSaveValue) config.SetValue("game", "autosave_minutes", autoSaveValue);
+                if (alwaysShow is { } show) config.SetValue("game", "always_show_scene_status", show);
                 Require(config.Save("user://settings.cfg") == Error.Ok, "未能保存真实启动配置情景。");
             }
             var setup = new HostSimulationTests.HostSetup();
@@ -105,16 +106,27 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
             var expectedHigh = !invalid && quality is { } highValue && highValue.AsInt32() == 1;
             var expectedAutoSave = invalid || autoSave is null ? 5 : autoSave.Value.AsInt32();
             AssertQualityAndAutoSave(app, ui, panel, expectedHigh, expectedAutoSave);
+            var expectedStatus = !invalid && alwaysShow?.AsBool() == true;
+            var statusBox = panel.FindChildren("AlwaysShowSceneStatus", "CheckButton", true, false)
+                .Cast<CheckButton>().Single();
+            var status = ui.World.GetNode<SceneStatusOverlay>("SceneStatusOverlay");
+            Require(statusBox.Text == "一直显示血条和状态图标" && statusBox.ButtonPressed == expectedStatus &&
+                status.Always == expectedStatus,
+                $"一直显示场景状态未按设置应用：勾选={statusBox.ButtonPressed}，覆盖层={status.Always}，期望={expectedStatus}。");
             if (changeThroughUi)
             {
                 Select(panel, "Quality", expectedHigh ? 0 : 1);
                 Select(panel, "AutoSave", 0);
                 AssertQualityAndAutoSave(app, ui, panel, !expectedHigh, 0);
+                statusBox.ButtonPressed = !statusBox.ButtonPressed;
                 using var saved = new ConfigFile();
-                Require(saved.Load("user://settings.cfg") == Error.Ok &&
-                    saved.GetValue("display", "quality").AsInt32() == (expectedHigh ? 0 : 1) &&
-                    saved.GetValue("game", "autosave_minutes").AsInt32() == 0,
-                    "界面修改的画质或自动存档没有写入设置文件。");
+                Require(saved.Load("user://settings.cfg") == Error.Ok, "未能读回设置文件。");
+                var shown = saved.GetValue("game", "always_show_scene_status");
+                Require(saved.GetValue("display", "quality").AsInt32() == (expectedHigh ? 0 : 1) &&
+                    saved.GetValue("game", "autosave_minutes").AsInt32() == 0 &&
+                    shown.VariantType == Variant.Type.Bool && shown.AsBool() == !expectedStatus &&
+                    status.Always == !expectedStatus,
+                    "界面修改的画质、自动存档或一直显示没有写入设置文件。");
             }
             if (DisplayServer.GetName() != "headless")
             {
@@ -152,13 +164,17 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
         var views = new[] { app.WorldScenes?.View, app.TemplateScenes?.View, ui.GetNode<DesignEditorPanel>("Root/DesignEditor").Scene.View }
             .OfType<WorldSceneView>().ToArray();
         Require(views.Length >= 2, "缺少世界或编辑器场景视图，无法检查画质。");
+        var defaultPancake = ClassDB.ClassGetPropertyDefaultValue("DirectionalLight3D",
+            DirectionalLight3D.PropertyName.DirectionalShadowPancakeSize).AsSingle();
         foreach (var view in views)
         {
             var environment = view.CurrentEnvironment;
             var sun = view.GetNode<DirectionalLight3D>("Sun");
-            Require(environment.SsilEnabled == high && environment.SsrEnabled == high && sun.LightAngularDistance == 0,
+            Require(environment.SsilEnabled == high && environment.SsrEnabled == high
+                && (sun.LightAngularDistance > 0) == high
+                && (high || Mathf.IsEqualApprox(sun.DirectionalShadowPancakeSize, defaultPancake)),
                 $"{view.Name} 的画质没有按设置应用：SSIL={environment.SsilEnabled}，SSR={environment.SsrEnabled}，" +
-                $"太阳角直径={sun.LightAngularDistance}，期望高档={high}。");
+                $"太阳角直径={sun.LightAngularDistance}，pancake={sun.DirectionalShadowPancakeSize}，期望高档={high}。");
         }
         TimeSpan? expected = autoSaveMinutes == 0 ? null : TimeSpan.FromMinutes(autoSaveMinutes);
         Require(Option(panel, "Quality").Selected == (high ? 1 : 0) && app.Saves!.AutoSaveInterval == expected &&

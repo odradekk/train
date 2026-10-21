@@ -180,6 +180,8 @@ public class EconomyPlanUiTests(Node testScene) : TestClass(testScene)
             }
             Require(train.CurrentRun is { SalesReceipts.Value: > 0, TransportedUnits: 10 }, "面板规则没有执行真实卖出交易。");
             await input.Frames(2);
+            var title = panels.GetNode<Label>("Details/Layout/Heading/Title").Text;
+            Require(title == $"列车 {trainId.Value} · 装卸", $"启动后列车详情标题没有跟随当前状态：{title}");
             var description = Find<Label>(panels, "Description").Text;
             Require(description.Contains("销售收入 " + train.CurrentRun!.SalesReceipts.Value) && description.Contains("运输数量 10"),
                 "列车详情没有显示真实交易后的运行累计。");

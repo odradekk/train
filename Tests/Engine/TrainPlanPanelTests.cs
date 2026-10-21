@@ -98,6 +98,13 @@ public class TrainPlanPanelTests(Node testScene) : TestClass(testScene)
             Require(Selected(Find<OptionButton>(rule, "Good")).Contains("缺失") &&
                 Selected(Find<OptionButton>(rule, "Inventory")).Contains("非本站库存 12"),
                 "复杂计划未显示缺失货物和保留的非本站库存。");
+            var node = first.GetNode<OptionButton>("Stop/Node");
+            var other = Enumerable.Range(0, node.ItemCount).First(index => index != node.Selected && !node.IsItemDisabled(index));
+            node.Select(other); node.EmitSignal(OptionButton.SignalName.ItemSelected, other);
+            var inventory = Find<OptionButton>(rule, "Inventory");
+            Require(Selected(inventory) == "请选择本地库存" &&
+                Enumerable.Range(0, inventory.ItemCount).All(index => !inventory.GetItemText(index).Contains("非本站库存")),
+                $"换节点后仍保留上一站的库存选择：{Selected(inventory)}");
             first.GetNode<LineEdit>("Stop/DwellSeconds").Text = "9";
             Find<LineEdit>(rule, "TargetQuantity").Text = "8";
             Find<LineEdit>(rule, "UnitPrice").Text = "7";

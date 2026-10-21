@@ -22,16 +22,11 @@ internal sealed class NodeScene : IAsyncDisposable
             (long)Geometry.Geometry.Picking.Length * IntPtr.Size + ProblemBytes(Geometry.Geometry.Diagnostics);
     }
     internal sealed record Built(NodeLayout Layout, ImmutableDictionary<string, Part> Parts,
+        ImmutableDictionary<EdgeId, RailwayTerrain.BoundaryData> Boundaries);
+    internal sealed record Cached(string LayoutInputs, ImmutableDictionary<string, Part> Parts,
         ImmutableDictionary<EdgeId, RailwayTerrain.BoundaryData> Boundaries)
     {
-        internal ScenePoint InitialFocus { get; } = Center(Layout.PanBounds(default));
-        private static ScenePoint Center(ScenePanBounds bounds) => new((bounds.Minimum.X + bounds.Maximum.X) / 2, 0,
-            (bounds.Minimum.Y + bounds.Maximum.Y) / 2);
-    }
-    internal sealed record Cached(string LayoutInputs, ScenePoint InitialFocus, ImmutableDictionary<string, Part> Parts,
-        ImmutableDictionary<EdgeId, RailwayTerrain.BoundaryData> Boundaries)
-    {
-        internal static Cached From(Built built) => new(built.Layout.Inputs, built.InitialFocus, built.Parts, built.Boundaries);
+        internal static Cached From(Built built) => new(built.Layout.Inputs, built.Parts, built.Boundaries);
     }
     internal sealed record RailSegment(string Key, Func<double, RailwaySample> Sample, double Begin, double End,
         SceneBounds Bounds, string Inputs)
@@ -166,7 +161,7 @@ internal sealed class NodeScene : IAsyncDisposable
                     if (pair.Key != idle[^1].Key) { nodes.Remove(pair.Key); continue; }
                     var fixedBytes = FixedBytes(built);
                     if (fixedBytes > idleBudget) { nodes.Remove(pair.Key); continue; }
-                    var range = new NodeRange(built.InitialFocus, 0);
+                    var range = new NodeRange(default, 0);
                     var parts = ImmutableDictionary.CreateBuilder<string, Part>();
                     var retained = fixedBytes;
                     foreach (var part in built.Parts.OrderBy(part => part.Value.Bounds is null ? 0 : 1)
@@ -308,7 +303,7 @@ internal sealed class NodeScene : IAsyncDisposable
         {
             try { layout = NodeLayout.Build(initial, node); }
             catch (RailwayBuildException error) { Fail(error); return; }
-            InitializeRange(layout);
+            InitializeRange();
         }
         var previous = cache.Read(node);
         pending = Task.Run(() =>
@@ -317,11 +312,10 @@ internal sealed class NodeScene : IAsyncDisposable
             return BuildPreparation(initial, currentLayout, previous, cancellation.Token);
         }, cancellation.Token);
     }
-    private void InitializeRange(NodeLayout value)
+    // 首个相机采样前以节点原点为焦点：站点和巢穴都在原点附近，范围中心可能离它们几百米（#674）。
+    private void InitializeRange()
     {
-        var bounds = value.PanBounds(default);
-        range = new(new((bounds.Minimum.X + bounds.Maximum.X) / 2, 0,
-            (bounds.Minimum.Y + bounds.Maximum.Y) / 2), NodeStreaming.PrefetchCells);
+        range = new(default, NodeStreaming.PrefetchCells);
         prefetch = range;
     }
     internal void Pump(SceneWorldSnapshot? current = null, ScenePoint? focus = null, bool allowBuild = true, TrainView? enteringTrain = null,
@@ -366,7 +360,7 @@ internal sealed class NodeScene : IAsyncDisposable
             {
                 prepared = pending.GetAwaiter().GetResult();
                 built = prepared.Global;
-                if (layout is null) { layout = built.Layout; InitializeRange(layout); }
+                if (layout is null) { layout = built.Layout; InitializeRange(); }
                 if (focus is { } initialFocus) range = new(initialFocus, NodeStreaming.PrefetchCells);
                 foreach (var part in built.Parts.OrderBy(item => item.Key, StringComparer.Ordinal)) Attach(part.Key, part.Value);
                 if (cache.Read(Node) is { } previous)

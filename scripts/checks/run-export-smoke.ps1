@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory)][string] $ExecutablePath,
     [Parameter(Mandatory)][string] $OutputDirectory,
-    [ValidateRange(1, 2147478)][int] $TimeoutSeconds = 60
+    [ValidateRange(1, 2147478)][int] $TimeoutSeconds = 180
 )
 
 $ErrorActionPreference = 'Stop'

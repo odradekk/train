@@ -35,7 +35,6 @@ public partial class IssueReportPanel : Window
         Title = "报告问题";
         Size = new Vector2I(680, 460);
         Transient = true;
-        Exclusive = true;
         Visible = false;
         CloseRequested += Hide;
         var margin = new MarginContainer();
@@ -113,7 +112,7 @@ public partial class IssueReportPanel : Window
     private void RefreshStatus()
     {
         var status = _service?.Status;
-        _status.Text = status is null ? "当前没有活动会话" :
+        _status.Text = status is null ? _service?.IsReplay == true ? "只读重放中，不录制新的复现包" : "当前没有活动会话" :
             status.Frozen ? "录制已停止在故障边界（核心已冻结，仍可导出）" :
             status.Incomplete ? "录制不完整" :
             !status.HasUsableStart ? "尚无可用起点" : "正在录制";

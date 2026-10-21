@@ -16,6 +16,7 @@ internal partial class WorldSceneView : Node3D
     internal bool Loading => _message.Visible;
     internal bool LoadingOverlayVisible => _overlay.Visible;
     internal bool Interactive { get; set; }
+    internal Vector2? Pointer { get; private set; }
     internal InspectionLighting Lighting { get; private set; }
     internal event Action<Vector2>? PickRequested;
     internal event Action? ReturnRequested;
@@ -83,7 +84,9 @@ internal partial class WorldSceneView : Node3D
     }
     internal void SetHighQuality(bool high)
     {
-        // 美术 05 的高档还包括 PCSS 软阴影；实测它让现有场景的大片阴影内部变亮，按“画质选项按实测结果开放”暂不打开。
+        // 比阴影近平面更靠近太阳的投射体会被钳制，PCSS 半影随之放大；pancake 要盖住最高建筑（core-city-hub 116 米，太阳 40°）。
+        _sun.LightAngularDistance = high ? 0.1f : 0f;
+        _sun.DirectionalShadowPancakeSize = high ? 220f : 20f;
         foreach (var environment in new[] { _environment, _inspectionEnvironment })
         { environment.SsilEnabled = high; environment.SsrEnabled = high; }
     }
@@ -113,9 +116,15 @@ internal partial class WorldSceneView : Node3D
         if (Lighting == InspectionLighting.Night) _workLights.Position = CameraRig.Focus;
     }
 
+    public override void _Notification(int what)
+    {
+        if (what == NotificationWMMouseExit) Pointer = null;
+    }
+
     internal void SetActive(bool active)
     {
         Visible = active;
+        if (!active) Pointer = null;
         CameraRig.Camera.Current = active;
         _worldEnvironment.Environment = active ? CurrentEnvironment : null;
     }
@@ -129,6 +138,7 @@ internal partial class WorldSceneView : Node3D
     public override void _UnhandledInput(InputEvent input)
     {
         if (!IsVisibleInTree()) return;
+        if (Interactive && input is InputEventMouseMotion seen) Pointer = seen.Position;
         if (input is InputEventKey { Pressed: true, Echo: false, Keycode: Key.Escape }
             && ReturnRequested is { } returnRequested)
             returnRequested();
