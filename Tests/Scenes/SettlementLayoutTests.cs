@@ -84,9 +84,10 @@ public sealed class SettlementLayoutTests
     }
 
     [TestMethod]
+    [TestCategory("integration")]
     public void CollinearStationPlotsShareThroughLinesAndDifferentAxesAreDiagnosed()
     {
-        var template = BuiltIn("agricultural-town");
+        var template = BuiltIn("agricultural-town").Template;
         var layout = NodeLayout.Build(Snapshot(template, [(600, 0, 1)]), NodeFixtures.NodeId);
         Assert.AreEqual(4, layout.Stops.Length);
         Assert.AreEqual(3, layout.StationRoutes(false).Count());
@@ -103,6 +104,7 @@ public sealed class SettlementLayoutTests
     }
 
     [TestMethod]
+    [TestCategory("integration")]
     [DataRow("agricultural-town")]
     [DataRow("forestry-town")]
     [DataRow("industrial-city")]
@@ -111,13 +113,17 @@ public sealed class SettlementLayoutTests
     [DataRow("oilfield-town")]
     public void BuiltInEntryRoutesAvoidPlotsAndKeepBoundarySeams(string name)
     {
-        var template = BuiltIn(name);
+        var template = BuiltIn(name).Template;
         var directions = BuiltInDirections(name);
         var snapshot = Snapshot(template, directions);
         var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
         Assert.IsEmpty(layout.Problems);
-        Assert.AreEqual(4, layout.Stops.Length);
-        Assert.AreEqual(3, layout.StationRoutes(false).Count());
+        // Plot 1 is a small station centred at z -176 (lines -216, -136). The cities' plot 2 is a large
+        // station centred at z -296 (lines -376, -336, -256, -216); lines keep first-appearance order.
+        var largeStation = name is "industrial-city" or "core-city";
+        double[] lines = largeStation ? [-216, -136, -376, -336, -256] : [-216, -136];
+        Assert.AreEqual(largeStation ? 6 : 4, layout.Stops.Length);
+        Assert.AreEqual(lines.Length + 1, layout.StationRoutes(false).Count(), "Station lines plus the fixed bypass.");
         foreach (var entry in layout.Entries)
         {
             var edge = snapshot.Core.World.Edges.Single(item => item.Id == entry.Edge);
@@ -140,14 +146,13 @@ public sealed class SettlementLayoutTests
             }
             var radius = RailwayFixtures.Rules.MinimumCurveRadiusMeters * 2;
             for (var lane = 1 - edge.TrackLimit; lane < edge.TrackLimit; lane++)
-            for (var station = 0; station < 2; station++)
+            for (var station = 0; station < lines.Length; station++)
             {
                 var curve = layout.Connection(entry.Edge, lane, station);
                 var end = curve.Sample(curve.Length);
-                // Both station plots share x-directed lines at -176 +/- 40.
                 // Ground bounds extend by 32 cells to the connection targets.
                 var expectedX = entry.Side * (name == "core-city" ? 464 : 360);
-                var expected = new ScenePoint(expectedX, 1, -216 + station * 80);
+                var expected = new ScenePoint(expectedX, 1, lines[station]);
                 Assert.IsTrue(Vector3.Distance(RailwayCoordinates.Relative(end.Position, expected), Vector3.Zero) < .002f,
                     $"{name} edge {entry.Edge.Value} lane {lane}: endpoint {end.Position}, expected {expected}");
                 Assert.IsTrue(Vector3.Distance(end.Forward, -entry.Side * Vector3.UnitX) < .0001f);
@@ -173,7 +178,7 @@ public sealed class SettlementLayoutTests
                 }
             }
             var reservedRoutes = Enumerable.Range(1 - edge.TrackLimit, 2 * edge.TrackLimit - 1)
-                .SelectMany(lane => Enumerable.Range(0, 2).Select(station => layout.Connection(entry.Edge, lane, station)));
+                .SelectMany(lane => Enumerable.Range(0, lines.Length).Select(station => layout.Connection(entry.Edge, lane, station)));
             foreach (var route in reservedRoutes)
             for (var arc = 0.0; arc <= route.Length + 0.5; arc += 0.5)
             {
@@ -200,31 +205,7 @@ public sealed class SettlementLayoutTests
     [DataRow("oilfield-town")]
     public void BuiltInGroundCellsStayOutsidePlotsAndRailCorridors(string name)
     {
-        var root = new DirectoryInfo(AppContext.BaseDirectory);
-        while (root is not null && !File.Exists(Path.Combine(root.FullName, "Train.sln"))) root = root.Parent;
-        Assert.IsNotNull(root);
-        var resources = Path.Combine(root.FullName, "builtin", "core", "resources");
-        using var templateJson = JsonDocument.Parse(File.ReadAllText(Path.Combine(resources, "settlement-templates", name + ".settlement-template.json")));
-        var source = templateJson.RootElement;
-        using var groundJson = JsonDocument.Parse(File.ReadAllText(Path.Combine(resources, "blueprints", source.GetProperty("scene_model").GetString() + ".blueprint.json")));
-        var flatten = groundJson.RootElement.GetProperty("appearance").GetProperty("flatten");
-        var from = flatten.GetProperty("from");
-        var to = flatten.GetProperty("to");
-        var cells = GroundCells(groundJson.RootElement, new(Vector3.Zero, Quaternion.Identity)).ToArray();
-        var template = BuiltIn(name);
-        template = template with
-        {
-            Plots = source.GetProperty("plots").EnumerateArray().Select(plot => new SettlementPlotLayout(
-                plot.GetProperty("id").GetInt32(), ReadEnum<PlotSize>(plot.GetProperty("size")),
-                ReadPosition(plot.GetProperty("at")), ReadEnum<VoxelOrientation>(plot.GetProperty("orientation")))).ToImmutableArray(),
-            SceneModel = template.SceneModel with { Scene = template.SceneModel.Scene with
-            {
-                OccupiedBounds = new(
-                    new((int)Math.Floor(cells.Min(cell => cell.X)), (int)Math.Floor(cells.Min(cell => cell.Y)), (int)Math.Floor(cells.Min(cell => cell.Z))),
-                    new((int)Math.Floor(cells.Max(cell => cell.X)), (int)Math.Floor(cells.Max(cell => cell.Y)), (int)Math.Floor(cells.Max(cell => cell.Z)))),
-                RootFlatten = new(new(from[0].GetInt32(), from[1].GetInt32()), new(to[0].GetInt32(), to[1].GetInt32()), flatten.GetProperty("height").GetInt32())
-            } }
-        };
+        var (template, cells) = BuiltIn(name);
         var snapshot = Snapshot(template, BuiltInDirections(name));
         var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
         Assert.IsEmpty(layout.Problems, name);
@@ -305,40 +286,34 @@ public sealed class SettlementLayoutTests
         };
     }
 
-    private static SettlementLayoutProjection BuiltIn(string name)
+    private static (SettlementLayoutProjection Template, Vector3[] GroundCells) BuiltIn(string name)
     {
-        var sizes = name switch
-        {
-            "agricultural-town" => new[] { PlotSize.Medium, PlotSize.Small, PlotSize.Small, PlotSize.Small },
-            "forestry-town" => [PlotSize.Medium, PlotSize.Medium, PlotSize.Small, PlotSize.Small],
-            "industrial-city" or "core-city" => [PlotSize.Large, PlotSize.Medium, PlotSize.Medium, PlotSize.Large],
-            "mining-town" => [PlotSize.Medium, PlotSize.Large, PlotSize.Medium, PlotSize.Large],
-            _ => [PlotSize.Medium, PlotSize.Large, PlotSize.Small, PlotSize.Small]
-        };
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "Train.sln"))) root = root.Parent;
+        Assert.IsNotNull(root);
+        var resources = Path.Combine(root.FullName, "builtin", "core", "resources");
+        using var templateJson = JsonDocument.Parse(File.ReadAllText(Path.Combine(resources, "settlement-templates", name + ".settlement-template.json")));
+        var source = templateJson.RootElement;
+        using var groundJson = JsonDocument.Parse(File.ReadAllText(Path.Combine(resources, "blueprints", source.GetProperty("scene_model").GetString() + ".blueprint.json")));
+        var flatten = groundJson.RootElement.GetProperty("appearance").GetProperty("flatten");
+        var from = flatten.GetProperty("from");
+        var to = flatten.GetProperty("to");
+        var cells = GroundCells(groundJson.RootElement, new(Vector3.Zero, Quaternion.Identity)).ToArray();
         var template = NodeFixtures.Layout with
         {
             SourceTemplate = new("core:" + name),
             SceneModel = new(new(name + "-ground"), SceneFixtures.Projection([]) with
             {
-                OccupiedBounds = name == "core-city" ? new(new(-432, 0, -232), new(431, 0, 999)) : new(new(-328, 0, -232), new(327, 0, 551)),
-                RootFlatten = name == "core-city" ? new(new(-432, -232), new(431, 999), 1) : new(new(-328, -232), new(327, 551), 1)
+                OccupiedBounds = new(
+                    new((int)Math.Floor(cells.Min(cell => cell.X)), (int)Math.Floor(cells.Min(cell => cell.Y)), (int)Math.Floor(cells.Min(cell => cell.Z))),
+                    new((int)Math.Floor(cells.Max(cell => cell.X)), (int)Math.Floor(cells.Max(cell => cell.Y)), (int)Math.Floor(cells.Max(cell => cell.Z)))),
+                RootFlatten = new(new(from[0].GetInt32(), from[1].GetInt32()), new(to[0].GetInt32(), to[1].GetInt32()), flatten.GetProperty("height").GetInt32())
             }, new(name, "")),
-            Plots = [new(1, PlotSize.SmallStation, new(-104, 1, -176), VoxelOrientation.PxPy),
-                new(2, PlotSize.SmallStation, new(104, 1, -176), VoxelOrientation.PxPy),
-                new(3, PlotSize.Medium, new(-224, 1, 0), VoxelOrientation.PxPy),
-                new(4, PlotSize.Small, new(0, 1, 0), VoxelOrientation.PxPy),
-                new(5, PlotSize.Medium, new(224, 1, 0), VoxelOrientation.PxPy),
-                new(6, sizes[0], new(-224, 1, 224), VoxelOrientation.PxPy),
-                new(7, sizes[1], new(0, 1, 224), VoxelOrientation.PxPy),
-                new(8, sizes[2], new(224, 1, 224), VoxelOrientation.PxPy),
-                new(9, sizes[3], new(-224, 1, 448), VoxelOrientation.PxPy),
-                new(10, PlotSize.Small, new(0, 1, 448), VoxelOrientation.PxPy)]
+            Plots = source.GetProperty("plots").EnumerateArray().Select(plot => new SettlementPlotLayout(
+                plot.GetProperty("id").GetInt32(), ReadEnum<PlotSize>(plot.GetProperty("size")),
+                ReadPosition(plot.GetProperty("at")), ReadEnum<VoxelOrientation>(plot.GetProperty("orientation")))).ToImmutableArray()
         };
-        return name == "core-city" ? template with
-        {
-            Plots = template.Plots.Add(new(11, PlotSize.Giant, new(-224, 1, 800), VoxelOrientation.PxPy))
-                .Add(new(12, PlotSize.Giant, new(224, 1, 800), VoxelOrientation.PxPy))
-        } : template;
+        return (template, cells);
     }
 
     private static SceneWorldSnapshot Snapshot(SettlementLayoutProjection template, (double X, double Z, int Tracks)[] directions, int platforms = 0)
