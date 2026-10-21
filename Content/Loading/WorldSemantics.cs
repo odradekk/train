@@ -53,6 +53,7 @@ internal static class WorldSemantics
             .Concat(templates.SelectMany(t => t.Core.SpecialInitialInventory).Select(q => q.Good).OfType<K.GoodId.Voxel>().Select(g => g.Definition))
             .Concat(profile.Start.Trains.SelectMany(t => t.Inventory).Select(q => q.Good).OfType<K.GoodId.Voxel>().Select(g => g.Definition)).ToHashSet();
         var composites = templates.SelectMany(t => t.Core.SpecialInitialInventory).Select(q => q.Good)
+            .Concat(profile.Start.Trains.SelectMany(t => t.Inventory).Select(q => q.Good))
             .OfType<K.GoodId.Composite>().Select(g => g.Definition).ToHashSet();
         var byId = blueprints.ToDictionary(b => b.Address.Id.Value, StringComparer.Ordinal);
         foreach (var blueprint in blueprints.Where(b => designs.Contains(((C.DesignEvaluation.Complete)b.Evaluation).Design))) Include(blueprint.Definition);

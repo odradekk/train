@@ -15,8 +15,9 @@
 | `conquest` | 种子 40 列车 2 攻击带武装待售车的林业镇，战斗中保存，投降后占领，382,000 步 | Release |
 | `clearance` | 种子 40 一挺机枪的合编列车进入巢穴，战斗中保存，清空后节点 1 为空且钱包增加 13,000，1,060,000 步 | Release |
 | `operating-failure` | 种子 40 无武装机车进入巢穴，列车被毁且巢穴仍在，1,100,000 步 | Release |
+| `long-consist` | 标准测试世界种子 44，第 0 步编成 2 台大型机车加 30 辆大型货车的 32 辆列车，往返节点 15 与 21，1,800 步 | Debug |
 
-这些配方共用种子 40、`core:basic-through-world` 与 `stage1-world-v1`，存档元数据固定。默认车队由一列机车加三辆货车和一列机车加两辆货车、一辆武装车组成；采购后仍可委托小型货车的经济条件已由 #387 的正式配方补验，阶段 #300 复核。
+除长编组外，这些配方共用种子 40、`core:basic-through-world` 与 `stage1-world-v1`，存档元数据固定。默认车队由一列机车加三辆货车和一列机车加两辆货车、一辆武装车组成；采购后仍可委托小型货车的经济条件已由 #387 的正式配方补验，阶段 #300 复核。
 
 启用生物聚落后，种子 40 的 14 个节点中有 6 个聚居地和 2 个生物聚落：节点 1 为巢穴，节点 4 为大型巢群。两列起始列车停在节点 14，其边邻居是空节点 9 和聚居地 13；起点约束排除与生物聚落相邻的节点。四游戏小时内这两处聚落不影响 `starting-trade` 的成交。#364 补齐矿镇、农业镇和林业镇的生产链后为 318 笔转运，钱包 813,500 → 811,545 → 812,841 → 813,194 → 813,876。
 
@@ -60,6 +61,14 @@ Godot 开发构建（编辑器运行和调试导出）的主菜单提供“从�
 Station 的形状为 `{kind:"station",node,dwell_steps,goods_rules}`，省略后两项分别表示 0 和空规则。每条规则为 `{action,good,local_inventory,target_quantity}`；Buy 动作为 `{kind:"buy",maximum_unit_price:null}`，Sell 为 `{kind:"sell",minimum_unit_price:null}`，限价也可填非负整数。货物使用 `{kind:"voxel",definition:"core:fuel"}`。数组保留业务顺序，核心按实际需求、库存、钱包和容量裁决。
 
 命令可以带可选的 `expected_decision`，取值为 `accepted` 或 `rejected`，加载时校验。CLI 记录回执后比较实际裁决，不一致时以非零退出码失败，并在错误中指出命令序号、命令种类、实际裁决和问题项；`run`、`replay`、`make`、`check` 和 `resume` 都经过同一检查。它只断言裁决，不断言问题码、数值或状态。
+
+配方可以带可选的 `expectations` 数组，每项为 `{at,key,node,minimum,maximum}`：在 `at:0` 边界读取一个计数，`minimum` 与 `maximum` 至少给一个，均含边界；`node` 可省略，给出时只统计该节点上的对象。`at` 必须是 `checkpoint_steps` 之一或序号为 0 的 `target`。未知的 `key` 在读取配方时拒绝；不符时 `run`、`replay`、`make`、`check` 和 `resume` 都以非零退出码失败，报告位置、键、预期范围和实际值，`make` 不写存档。`samples[].counts` 在每个样本记录同一组全世界计数。计数只读公开查询，当前的键：
+
+| key | 含义 |
+| --- | --- |
+| `largest_train_vehicles` | 最长列车的车辆数 |
+| `largest_train_meters` | 最长列车的长度（米） |
+| `trains_running` | 活动为 `Running` 的列车数 |
 
 新增配方命令如下，均带已有的 `at` 位置，名称沿用核心输入格式 2：
 
@@ -222,6 +231,10 @@ Release 长示例在 1,043,200 步保存后恢复到终点。严格重放的样�
 
 买回命令的 `maximum_payment` 是 34,286，比车辆 5 在聚居地 5 的完好买入价 34,287 少 1。车辆 5 的完好报价由同一设计的单独探针测得；现车价格按当前结构耐久折算，受损车报价 34,060。上限因此能证明卖出的是受损车：如果车辆 5 没有受损，买回会以 `price_condition_failed / MaximumPayment` 被拒绝，配方的 `accepted` 断言随即失败。
 
+## 长编组
+
+`long-consist/recipe.json` 使用标准测试世界（`core:standard-world`）种子 44，满足 [Demo 清单](../docs/content/demo-catalog.md#大尺寸与拥挤场景专项样例)的长编组样例。起始车队的 20 列车都停在节点 15（农业镇）。第 0 步解散列车 2 和 3（各为 1 台大型机车加 15 辆大型货车），按车辆 2、18、3–17、19–33 编成列车 21，即两台大型机车在前、30 辆大型货车在后，长 1,280 米；计划在节点 21（核心城市）与 15 之间往返，不停站，然后发车。目标 1,800 步时列车在边 23 上运行，位置读数为 187 米；其余 18 列车停在节点 15。配方的 `expectations` 断言最长列车 32 辆、1,280 米，且至少 1 列在运行。存档用 Debug 制作，日常 Windows 检查对照已提交存档。
+
 ## 重制与长验证
 
 当前核心状态格式为 23：#332 的车辆改装、拆解使用格式 16，#342 的冻结建城任务使用格式 17，#541 的节点进出铁轨使用格式 18，#343 将施工目标改为实例并增加地块后使用格式 19，#350 增加战斗、交战规则和撤退目的地后使用格式 20，#344 增加铁路扩建与修复任务及按边自动修复来源后使用格式 21，#351 增加生物群后使用格式 22，#352 增加聚居地士气与投降后使用格式 23，命令输入和重放外壳仍为格式 2；格式 1–22 的示例存档和重放起点须重新制作，不能手工修改生成载荷。断轨修复的公开配方是 `rail-repair`。#622 已接入设置生产计划。
@@ -230,6 +243,6 @@ Release 长示例在 1,043,200 步保存后恢复到终点。严格重放的样�
 
 [长示例脚本](../scripts/checks/run-long-example.ps1)构建一次 Release，然后并行执行三组：A 连续运行并严格重放；B 保存退出后由独立进程恢复；C 制作普通存档再从零按配方检查。保存边界为起步贸易 **432000**、租约到期 **5183999**、断轨修复 **959400**（扩建任务进行中）、征服 **40000**（战斗进行中，宣战之后、占领之前）、清剿 **1043200**（巢穴战斗进行中，清空之前）、合法经营失败 **1060000**（无武装机车进入巢穴之后）。`replay` 的输出作为连续基准，最后比较恢复后的完整检查点后缀，不额外运行一次 `run`。脚本创建独立运行目录，每条命令完成即保留退出码、耗时和日志，任何失败或未执行均非零退出。runner 触发与下载方法见[远端检查](../docs/run-tests.md#远端检查)。
 
-`basic-through`、`storage-tight`、`commission-branches`、`retreat`、`damaged-vehicle-trade`、`starting-trade`、`rail-repair`、`conquest`、`clearance` 和 `operating-failure` 的存档在 Windows 制作；`lease-expiry` 在 Linux runner 制作。`check` 在制作平台使用同种构建配置比较；Linux 重制不能验证 Windows 存档的一致性，反之亦然。基础例子的命令形式见[基础贯通](#基础贯通)，长示例使用表中 Release 配置。同机跨进程比较、保存恢复和本次录制的严格重放在两种平台都有效，不宣称跨平台确定性。
+`basic-through`、`storage-tight`、`commission-branches`、`retreat`、`damaged-vehicle-trade`、`long-consist`、`starting-trade`、`rail-repair`、`conquest`、`clearance` 和 `operating-failure` 的存档在 Windows 制作；`lease-expiry` 在 Linux runner 制作。`check` 在制作平台使用同种构建配置比较；Linux 重制不能验证 Windows 存档的一致性，反之亦然。基础例子的命令形式见[基础贯通](#基础贯通)，长示例使用表中 Release 配置。同机跨进程比较、保存恢复和本次录制的严格重放在两种平台都有效，不宣称跨平台确定性。
 
 容量例子的普通存档用 Debug 制作，Windows 日常用例通过 `check` 对照已提交的 `storage-tight/save.json`，同时确认源文件保持不变。验收证据仍以具体构建、命令、实际耗时和日志为准；这些 CLI 检查不提供 Godot 界面、目标窗口交互或阶段 #299 四模块验收证据。

@@ -332,19 +332,7 @@ internal sealed class WorldLoader
         foreach (var train in source.Start.Trains)
         {
             var vehicles = train.Vehicles.Select(a => Vehicle(a, "/start/trains/vehicles")).OfType<K.DesignHash>().ToImmutableArray();
-            var inventory = ImmutableArray.CreateBuilder<K.GoodsQuantity>();
-            foreach (var quantity in train.Inventory)
-                switch (quantity.Reference)
-                {
-                    case ParsedInventoryReference.Voxel good:
-                        references.Good(package, source.Path, subject, good.Id, "/start/trains/inventory");
-                        inventory.Add(new(new K.GoodId.Voxel(good.Id), quantity.Quantity));
-                        break;
-                    case ParsedInventoryReference.Blueprint blueprint:
-                        references.Need(package, source.Path, subject, blueprint.Address.Id.Value, false, "/start/trains/inventory");
-                        break;
-                }
-            trains.Add(new(vehicles, inventory.ToImmutable()));
+            trains.Add(new(vehicles, references.Inventory(package, source.Path, subject, train.Inventory, "/start/trains/inventory")));
         }
         if (!Active(package) || commission is null) return null;
         var npc = config.NpcInitialization;

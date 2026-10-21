@@ -14,7 +14,8 @@ internal sealed record Recipe(
     [property: JsonRequired] RecipeSave Save,
     [property: JsonRequired] ImmutableArray<RecipeCommand> Commands,
     [property: JsonRequired] SimulationPosition Target,
-    ImmutableArray<ulong> CheckpointSteps = default)
+    ImmutableArray<ulong> CheckpointSteps = default,
+    ImmutableArray<RecipeExpectation> Expectations = default)
 {
     internal static readonly JsonSerializerOptions Json = new()
     {
@@ -53,9 +54,31 @@ internal sealed record Recipe(
                 throw new InvalidDataException("checkpoint_steps 必须严格递增且不超过 target。");
             lastCheckpoint = step;
         }
-        return recipe with { CheckpointSteps = recipe.CheckpointSteps.IsDefault ? [] : recipe.CheckpointSteps };
+        recipe = recipe with
+        {
+            CheckpointSteps = recipe.CheckpointSteps.IsDefault ? [] : recipe.CheckpointSteps,
+            Expectations = recipe.Expectations.IsDefault ? [] : recipe.Expectations
+        };
+        foreach (var expectation in recipe.Expectations)
+        {
+            if (expectation is null || !WorldCounts.Keys.Contains(expectation.Key)
+                || expectation.Minimum is null && expectation.Maximum is null || expectation.Node == 0)
+                throw new InvalidDataException("expectations 每项须有已知 key 与 minimum 或 maximum，node 须为正整数。");
+            if (!recipe.CheckpointSteps.Contains(expectation.At)
+                && !(recipe.Target.CompletedSteps == expectation.At && recipe.Target.Sequence == 0))
+                throw new InvalidDataException($"expectations.at {expectation.At} 必须是 checkpoint_steps 之一或序号为 0 的 target。");
+        }
+        return recipe;
     }
 }
+
+// 在 at:0 边界检查一个计数，minimum 与 maximum 都含边界。
+internal sealed record RecipeExpectation(
+    [property: JsonRequired] ulong At,
+    [property: JsonRequired] string Key,
+    ulong? Node = null,
+    double? Minimum = null,
+    double? Maximum = null);
 
 internal sealed record RecipeSave(
     [property: JsonRequired] Guid Id,

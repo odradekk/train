@@ -135,6 +135,9 @@ public class VehicleServiceDeconstructionIntegrationTests(Node testScene) : Test
         configuration["npc_initialization"]!["for_sale_vehicle_candidates"] = new JsonArray();
         configuration["npc_initialization"]!["output_reserve_hours"] = 0;
         File.WriteAllText(path, profile.ToJsonString());
+        // 下面只保留这个配置用到的蓝图，其他生成配置引用的车辆会缺失。
+        foreach (var other in Directory.EnumerateFiles(Path.GetDirectoryName(path)!, "*.json").Where(other => other != path))
+            File.Delete(other);
         foreach (var templatePath in Directory.EnumerateFiles(Path.Combine(directory, "resources", "settlement-templates"), "*.json"))
         {
             var template = JsonNode.Parse(File.ReadAllText(templatePath))!;
