@@ -14,7 +14,7 @@ public sealed class FrameDisplayScenarioTests
     {
         var overview = new SceneNodeOverview([new(7, PlotSize.Small,
             [new(-2, -3), new(2, -3), new(2, 3), new(-2, 3)])],
-            [[new(-10, 0), new(10, 0)]]);
+            [[new(-10, 0), new(10, 0)]], []);
         var frame = new FixedSceneFrame
         {
             Update = new(null, WorldRequestScenario.Hit.Frame, Vector3.Zero, [], [], new([], []), []),
@@ -47,6 +47,7 @@ public sealed class FrameDisplayScenarioTests
         Assert.IsNotNull(retained.NodeOverview);
         Assert.AreEqual(new Vector2(-2, -3), retained.NodeOverview.Plots[0].Corners[0]);
         Assert.AreEqual(new Vector2(10, 0), retained.NodeOverview.Tracks[0][1]);
+        Assert.IsTrue(retained.NodeOverview.Lair.IsEmpty);
     }
 
     [TestMethod]

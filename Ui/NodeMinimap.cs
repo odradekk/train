@@ -166,6 +166,15 @@ internal partial class NodeMinimap : Control
                     _occupants[plot.TemplatePlotNumber] is PlotOccupant.Construction ? "dc9556" : "8bb4c7"));
             }
         }
+        if (_overview.Lair.Length >= 3)
+        {
+            var hostile = new Color("c9423a");
+            var corners = _overview.Lair.Select(point => NodeToMap(new(point.X, point.Y), rectangle)).ToArray();
+            _background.DrawColoredPolygon(corners, new Color(hostile.R, hostile.G, hostile.B, 0.45f));
+            _background.DrawPolyline([.. corners, corners[0]], hostile, 2, true);
+            var center = corners.Aggregate(Vector2.Zero, (total, point) => total + point) / corners.Length;
+            _background.DrawArc(center, 8, 0, Mathf.Tau, 24, hostile, 2, true);
+        }
         foreach (var track in _overview.Tracks)
         {
             if (track.Length < 2) continue;

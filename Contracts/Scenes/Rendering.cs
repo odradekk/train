@@ -55,7 +55,7 @@ public enum SceneDebugLayer { None = 0, Chunks = 1, RailwaySegments = 2, Origin 
 public sealed record SceneDebugLine(Vector3 From, Vector3 To, Vector4 Color);
 public sealed record SceneOverviewPlot(int TemplatePlotNumber, PlotSize Size, ImmutableArray<Vector2> Corners);
 public sealed record SceneNodeOverview(ImmutableArray<SceneOverviewPlot> Plots,
-    ImmutableArray<ImmutableArray<Vector2>> Tracks);
+    ImmutableArray<ImmutableArray<Vector2>> Tracks, ImmutableArray<Vector2> Lair);
 
 public interface ISceneFrame
 {
