@@ -24,7 +24,7 @@ public sealed class NotificationPolicyTests
         Assert.AreEqual(NotificationAction.SlowToOne, policy.Decide(new CoreEvent.CombatJoined(new(4), new CombatUnitId.CreatureGroup(new(2)))));
         Assert.IsNull(policy.Classify(new CoreEvent.CombatHits(new(4), new WorldLocation.Node(new(1)), []), null, null));
         Assert.IsNull(policy.Classify(new CoreEvent.LairCreated(new(1), new(1), new("lair")), null, null));
-        Assert.IsNull(policy.Classify(new CoreEvent.RunReported(Report(RunEndReason.PlanCompleted)), null, null));
+        Assert.IsNull(policy.Classify(new CoreEvent.RunReported(Report(RunEndReason.LoopCompleted)), null, null));
         Assert.IsNull(policy.Classify(new CoreEvent.SettlementRelationChanged(new(1),
             SettlementRelation.Hostile, SettlementRelation.NonHostile), null, null));
     }
@@ -117,6 +117,97 @@ public sealed class NotificationPolicyTests
         Assert.AreEqual(edge, notice!.Location);
         Assert.AreEqual(new WorldObjectId.Combat(new(8)), notice.Subject);
     }
+
+    [TestMethod]
+    public void Economy_railway_and_population_events_use_their_categories_levels_and_jump_targets()
+    {
+        var policy = new NotificationPolicy();
+        var settlement = new WorldObjectId.Settlement(new(4));
+        var train = new WorldObjectId.Train(new(7));
+        var ore = new GoodId.Voxel(new("ore"));
+        var job = new ConstructionJobView(new(5), ConstructionKind.Construction, new(4),
+            new(new(1), CapabilityKind.Construction), new ConstructionTarget.NewVehicle(new("design")),
+            ConstructionState.ResourceBlocked, 0, 0, 0, 0, 0, [], [], []);
+        var jobs = new FixedCoreReadView
+        {
+            Jobs = new Dictionary<JobId, Lookup<JobView>> { [new(5)] = new Lookup<JobView>.Found(new JobView.Construction(job)) },
+            Edges = new Dictionary<EdgeId, Lookup<EdgeView>> { [new(3)] = new Lookup<EdgeView>.Missing() }
+        };
+        var expected = new (CoreEvent Event, NotificationCategory Category, NotificationLevel Level, WorldObjectId? Subject)[]
+        {
+            (new CoreEvent.RunReported(Report(RunEndReason.PlanCompleted)), NotificationCategory.TrainOperation,
+                NotificationLevel.Completion, train),
+            (new CoreEvent.TrainActivityChanged(new(7), TrainActivity.Running, TrainActivity.NoRoute, Position(), []),
+                NotificationCategory.TrainOperation, NotificationLevel.Warning, train),
+            (new CoreEvent.PopulationShortageChanged(new(4), PopulationNeed.Food, true), NotificationCategory.Population,
+                NotificationLevel.Warning, settlement),
+            (new CoreEvent.PopulationShortageChanged(new(4), PopulationNeed.Food, false), NotificationCategory.Population,
+                NotificationLevel.Completion, settlement),
+            (new CoreEvent.PopulationMinimumReached(new(4), 1), NotificationCategory.Population, NotificationLevel.Severe, settlement),
+            (new CoreEvent.ConstructionCompleted(new(5), ConstructionKind.Construction, job.Target, new InstanceId.Vehicle(new(9)), []),
+                NotificationCategory.Construction, NotificationLevel.Completion, new WorldObjectId.Instance(new InstanceId.Vehicle(new(9)))),
+            (new CoreEvent.ConstructionCompleted(new(5), ConstructionKind.Refit,
+                new ConstructionTarget.Existing(new InstanceId.Vehicle(new(8)), new("design")), null, []),
+                NotificationCategory.Construction, NotificationLevel.Completion, new WorldObjectId.Instance(new InstanceId.Vehicle(new(8)))),
+            (new CoreEvent.ConstructionCompleted(new(5), ConstructionKind.Deconstruction,
+                new ConstructionTarget.Existing(new InstanceId.Vehicle(new(8)), new("design")), null, []),
+                NotificationCategory.Construction, NotificationLevel.Completion, settlement),
+            (new CoreEvent.ConstructionStateChanged(new(5), ConstructionState.Working, ConstructionState.ResourceBlocked, []),
+                NotificationCategory.Construction, NotificationLevel.Warning, settlement),
+            (new CoreEvent.ConstructionStateChanged(new(5), ConstructionState.Working, ConstructionState.Failed, []),
+                NotificationCategory.Construction, NotificationLevel.Warning, settlement),
+            (new CoreEvent.LeaseExpired(new(2), new(4), new(6)), NotificationCategory.Lease, NotificationLevel.Warning, settlement),
+            (new CoreEvent.SettlementFounded(new(4), new(1), 100), NotificationCategory.Founding, NotificationLevel.Completion, settlement),
+        };
+        foreach (var (item, category, level, subject) in expected)
+        {
+            var notice = policy.Classify(item, jobs, jobs);
+            Assert.IsNotNull(notice, item.ToString());
+            Assert.AreEqual((category, level, subject), (notice.Category, notice.Level, notice.Subject), item.ToString());
+            Assert.AreEqual(NotificationAction.None, policy.Decide(item), item.ToString());
+        }
+        var edgeNotices = new CoreEvent[]
+        {
+            new CoreEvent.RailBroken(new(3), new(new(1), 0, 120)), new CoreEvent.RailRepaired(new(3), new(1), 0),
+            new CoreEvent.RailExpanded(new(3), 2), new CoreEvent.RailwayWorkChanged(new(3), new(6), [])
+        }.Select(item => policy.Classify(item, jobs, jobs)!).ToArray();
+        CollectionAssert.AreEqual(new[] { NotificationLevel.Warning, NotificationLevel.Completion, NotificationLevel.Completion,
+            NotificationLevel.Warning }, edgeNotices.Select(item => item.Level).ToArray());
+        Assert.IsTrue(edgeNotices.All(item => item.Category == NotificationCategory.Railway &&
+            item.Location is WorldLocation.Edge { Id.Value: 3 }));
+        Assert.AreEqual(new WorldLocation.Edge(new(3), 120), edgeNotices[0].Location);
+        var exhausted = policy.Classify(new CoreEvent.ResourceExhausted(new(2), ore, false), null, null)!;
+        var regenerated = policy.Classify(new CoreEvent.ResourceRegenerated(new(2), ore, 40), null, null)!;
+        Assert.AreEqual((NotificationCategory.Resource, NotificationLevel.Warning, ore), (exhausted.Category, exhausted.Level, exhausted.Good));
+        Assert.AreEqual((NotificationCategory.Resource, NotificationLevel.Information, ore),
+            (regenerated.Category, regenerated.Level, regenerated.Good));
+        Assert.AreEqual(new WorldLocation.Node(new(2)), exhausted.Location);
+    }
+
+    [TestMethod]
+    public void New_categories_default_to_no_action_and_unstable_or_routine_events_do_not_notify()
+    {
+        var policy = new NotificationPolicy();
+        foreach (var category in new[] { NotificationCategory.Population, NotificationCategory.Construction,
+            NotificationCategory.Railway, NotificationCategory.TrainOperation, NotificationCategory.Resource,
+            NotificationCategory.Lease, NotificationCategory.Founding })
+            Assert.AreEqual(NotificationAction.None, policy.Action(category));
+        var ore = new GoodId.Voxel(new("ore"));
+        var silent = new CoreEvent[]
+        {
+            new CoreEvent.ResourceExhausted(new(2), ore, true),
+            new CoreEvent.ResourceRecovered(new(2), ore, 1),
+            new CoreEvent.TrainActivityChanged(new(7), TrainActivity.NoRoute, TrainActivity.Running, Position(), []),
+            new CoreEvent.ConstructionStateChanged(new(5), ConstructionState.ResourceBlocked, ConstructionState.Working, []),
+            new CoreEvent.ProductionStateChanged(new(new(1), CapabilityKind.Production), ProductionState.Running,
+                ProductionState.WaitingForInputs, []),
+            new CoreEvent.RunReported(Report(RunEndReason.PlanReplaced)),
+        };
+        foreach (var item in silent) Assert.IsNull(policy.Classify(item, null, null), item.ToString());
+    }
+
+    private static TrainPosition Position() =>
+        new TrainPosition.Node(new(1), null, null, null, null, NodeTravelPhase.Docked, 0, null);
 
     private static CoreEvent.CombatDestruction Destruction(InstanceId id) => new(new(1), new WorldLocation.Node(new(1)),
         [new(InstanceRef(id), new(4))], []);

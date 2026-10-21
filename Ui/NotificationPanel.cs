@@ -129,6 +129,7 @@ public partial class NotificationPanel : Control
         if (notice.Category == NotificationCategory.RunDestroyed)
             return name is null ? notice.Text : $"{name}\n{notice.Text}";
         var verb = notice.Text.TrimEnd('。');
+        if (notice.Good is { } good) verb = $"{WorldPanels.GoodName(good, content)} {verb}";
         var line = name is null || notice.Category is NotificationCategory.Encounter or NotificationCategory.Destruction
             or NotificationCategory.CombatEnded or NotificationCategory.LairCleared
             ? verb : $"{name} {verb}";
