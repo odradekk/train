@@ -63,7 +63,9 @@ internal partial class EconomyPanels
         foreach (var rule in run.IncompleteRules)
             lines.Add($"未完成规则：停靠站 {rule.StopIndex + 1} / 规则 {rule.RuleIndex + 1} · " +
                 (rule.Action switch { TradeAction.Buy => "买入", TradeAction.Sell => "卖出", TradeAction.Load => "装载", TradeAction.Unload => "卸载", _ => rule.Action.ToString() }) +
-                $" {WorldPanels.GoodName(rule.Good, content)} · {rule.CompletedQuantity}/{rule.RequestedQuantity} · 实际金额 {rule.ActualAmount.Value}\n" + Problems(rule.IncompleteReasons, content));
+                $" {WorldPanels.GoodName(rule.Good, content)} · {rule.CompletedQuantity}/{rule.RequestedQuantity} · 实际金额 {rule.ActualAmount.Value}\n" + Problems(rule.IncompleteReasons, content) +
+                (rule.Action is TradeAction.Buy or TradeAction.Load &&
+                    rule.IncompleteReasons.Any(problem => problem.Code == "insufficient_goods") ? "\n" + ReservedStockHint : ""));
         return string.Join("\n", lines);
     }
 

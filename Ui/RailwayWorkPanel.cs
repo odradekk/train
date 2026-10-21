@@ -36,7 +36,7 @@ internal sealed partial class RailwayWorkPanel : Control
         _summary.Name = "Summary";
         _summary.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         body.AddChild(_summary);
-        _breaks = new ItemList { Name = "Breaks", CustomMinimumSize = new(0, 72) };
+        _breaks = new ItemList { Name = "Breaks", AutoHeight = true };
         body.AddChild(_breaks);
         _works = UiStyle.Label("");
         _works.Name = "Works";

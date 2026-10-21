@@ -95,7 +95,12 @@ internal partial class TrainPlanPanel : Control
         var row = new Row(box, node, kind, seconds, rules, add);
         add.Pressed += () => AddRule(row);
         kind.ItemSelected += _ => UpdateStopKind(row);
-        node.ItemSelected += _ => RefreshInventories([row]);
+        node.ItemSelected += _ =>
+        {
+            // 库存属于节点；换节点后旧选择不再适用，只有打开已有计划时才保留非本站库存。
+            foreach (var rule in row.Goods) rule.Inventory.Select(-1);
+            RefreshInventories([row]);
+        };
         controls.AddChild(node); controls.AddChild(kind); controls.AddChild(seconds);
         var up = UiStyle.Button("MoveUp", "↑", () => Move(row, -1));
         var down = UiStyle.Button("MoveDown", "↓", () => Move(row, 1));

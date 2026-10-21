@@ -175,9 +175,9 @@ internal partial class WorldCamera : Node3D
         Camera.Transform = new Transform3D(Basis.LookingAt(Focus - position, Vector3.Up), position + offset);
     }
 
-    private static Vector3 InitialFocus(ISceneFrame frame) => frame.NodePanBounds is { } bounds
-        ? new Vector3((bounds.Minimum.X + bounds.Maximum.X) / 2f, 0f,
-            (bounds.Minimum.Y + bounds.Maximum.Y) / 2f)
+    // 节点场景首次打开时看节点原点（站点和巢穴所在处），与 Scenes 首帧预加载一致；显示坐标 = 节点坐标 − Origin。
+    private static Vector3 InitialFocus(ISceneFrame frame) => frame.NodePanBounds is not null
+        ? new Vector3((float)-frame.Origin.X, (float)-frame.Origin.Y, (float)-frame.Origin.Z)
         : Vector3.Zero;
 
     private static float Heading(ScenePose pose)

@@ -301,7 +301,10 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
             await UiCapture.Capture(TestScene, "economy-vehicle");
             await _input.Activate(Find<Button>(economy, "ConfirmVehicle"));
             await _input.WaitUntil(() => ReferenceEquals(ui.View, owned));
-            Require(!Find<Label>(economy, "VehicleQuote").Text.Contains("917"), "车辆离开买卖清单后仍显示旧总额。");
+            var details = Find<Label>(economy, "VehicleDetails").Text;
+            var quote = Find<Label>(economy, "VehicleQuote").Text;
+            Require(!quote.Contains("917") && details.Contains("已买入") && !details.Contains("已不在") && !quote.Contains("已不存在"),
+                $"买入成交后仍显示旧总额，或把已成交说成不在清单中：{details} / {quote}");
             await _input.Activate(Find<Button>(economy, "FormPurchased"));
             var formation = ui.GetNode<TrainFormationPanel>("Root/World/TrainFormationPanel");
             var available = Find<ItemList>(formation, "AvailableVehicles");
@@ -319,6 +322,30 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
                 formed.FindInstance(new InstanceId.Vehicle(new(9))) is Lookup<InstanceView>.Found
                     { Value.Details: InstanceDetails.Vehicle { Train: { Value: 8 } } },
                 "购入车辆没有进入新列车8，或原列车7被替换。");
+        });
+        setup.Session.AssertComplete();
+    }
+
+    [Test]
+    public async Task Sold_vehicle_detail_reports_the_sale_instead_of_a_missing_selection()
+    {
+        var before = EconomyFixture.Create(vehicle: EconomyFixture.VehicleState.Owned);
+        var sold = EconomyFixture.Create(2);
+        var setup = new HostSimulationTests.HostSetup(before, EconomyFixture.Content());
+        setup.Session.QueueSubmit(new CoreCommand.SellVehicle(new(1), new(9), new(917)), CommandSource.UserInterface,
+            Completed(1, before, sold, new CommandDecision.Accepted([], [])), sold);
+        await Run(setup, async (ui, economy) =>
+        {
+            await Page(economy, 2);
+            await _input.Activate(Find<Button>(economy, "SelectSellVehicle"));
+            await _input.Activate(Find<Button>(economy, "QuoteVehicle"));
+            await _input.Activate(Find<Button>(economy, "ConfirmVehicle"));
+            await _input.WaitUntil(() => ReferenceEquals(ui.View, sold));
+            var details = Find<Label>(economy, "VehicleDetails").Text;
+            var quote = Find<Label>(economy, "VehicleQuote").Text;
+            Require(Find<Button>(economy, "SelectBuyVehicle").Visible && details.Contains("已卖出") &&
+                !details.Contains("已不在") && !quote.Contains("已不存在"),
+                $"卖出成交后详情把仍在清单中的车辆说成已不在：{details} / {quote}");
         });
         setup.Session.AssertComplete();
     }
@@ -553,6 +580,8 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
             panels.OpenObject(new WorldObjectId.Node(new(1)));
             await _input.Frames();
             var detail = panels.FindChildren("Details", "PanelContainer", true, false).Cast<PanelContainer>().Single();
+            var nodeText = Find<Label>(detail, "Description").Text;
+            Require(nodeText.Contains("占据者：") && !nodeText.Contains('\r'), nodeText);
             Require(Named(detail, "RefitParkedVehicle").Any(button => button.Text.Contains("车辆 9")) &&
                 !Named(detail, "ParkedVehicleServices").Any(button => button.Text.Contains("车辆 9")),
                 "非自有停放车辆出现了服务按钮。");
@@ -566,6 +595,8 @@ public class EconomyUiTests(Node testScene) : TestClass(testScene)
             await _input.Frames();
             var train = panels.FindChildren("Details", "PanelContainer", true, false).Cast<PanelContainer>()
                 .Single(panel => GodotObject.IsInstanceValid(panel) && panel.Visible);
+            var trainText = Find<Label>(train, "Description").Text;
+            Require(trainText.Contains("状态：") && !trainText.Contains('\r'), trainText);
             Require(Named(train, "RefitVehicle").Any(button => button.Text == "改装车辆 10…") &&
                 Named(train, "VehicleServices").Any(button => button.Text == "车辆 10 服务…"),
                 "停在节点的列车没有车辆改装和服务按钮。");

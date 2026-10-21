@@ -53,6 +53,7 @@ internal sealed class RecordingService : IDisposable
         private set => _lastMessage = value;
     }
     internal bool IsBusy => _pending is not null || _faults.Count != 0 || _closing || _host.IsBusy;
+    internal bool IsReplay => _host.GetStatus() is { IsReplay: true };
     private HostStatus? OrdinaryStatus => _host.GetStatus() is { IsReplay: false } status ? status : null;
     internal RecordingStatus? Status => OrdinaryStatus is not { } status ? null : new(
         _binding == status.Binding && _window is { Starts.Length: > 0 } ? _window.Starts[0].State.Position : status.View.Position,

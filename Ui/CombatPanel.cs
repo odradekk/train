@@ -67,6 +67,14 @@ public partial class CombatPanel : Control
         if (IsNodeReady() && _view is not null && _content is not null) Render();
     }
 
+    internal void Close()
+    {
+        SelectedCombat = null; SelectedParticipant = null; SelectedFocus = null;
+        ContextTrain = null; ContextSettlement = null; OccupyTrain = null;
+        _rulesTrain = null; _rulesSettlement = null;
+        Hide();
+    }
+
     internal void OpenSettlement(SettlementId settlement)
     {
         ContextSettlement = settlement;
@@ -167,7 +175,7 @@ public partial class CombatPanel : Control
         if (SelectedFocus is not null && !focusPresent)
             text.AppendLine("集中目标已不存在");
         AppendContext(text, view);
-        _state.Text = text.ToString();
+        _state.Text = text.ToString().ReplaceLineEndings("\n");
         Sync(_combats, view.World.Combats.Select(item => new Choice($"Combat{item.Id.Value}",
             $"{BattleReportLog.Place(item.Location)}", () => SelectedCombat = item.Id)).ToArray());
         Sync(_participants, combat?.Participants.Select(item => new Choice(UnitName(item.Unit),
@@ -182,7 +190,7 @@ public partial class CombatPanel : Control
         Sync(_occupyTrains, trains);
         if (OccupyTrain is { } occupy && !trains.Any(item => item.Name == $"OccupyTrain{occupy.Value}"))
             text.AppendLine("在场列车已不存在");
-        _state.Text = text.ToString();
+        _state.Text = text.ToString().ReplaceLineEndings("\n");
         var train = Train(view);
         if (train is not null && _rulesTrain != train.Id)
         {
