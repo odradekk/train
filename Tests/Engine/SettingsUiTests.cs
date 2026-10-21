@@ -39,8 +39,19 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
         await LoadSettings(1, 1.25, 91, true, invalid: true, cameraShake: "no");
     }
 
+    [Test]
+    public async Task Quality_and_autosave_apply_at_startup_persist_changes_and_reject_invalid_values()
+    {
+        await LoadSettings(1, 1.25, 91, true, invalid: false, quality: 1, autoSave: 0);
+        await LoadSettings(1, 1.25, 91, true, invalid: false, quality: 0, autoSave: 30, changeThroughUi: true);
+        await LoadSettings(1, 1.25, 91, true, invalid: true, quality: 2);
+        await LoadSettings(1, 1.25, 91, true, invalid: true, autoSave: 7);
+        await LoadSettings(1, 1.25, 91, true, invalid: true, autoSave: "5");
+    }
+
     private async Task LoadSettings(Variant mode, Variant scale, Variant fps, Variant focus, bool invalid,
-        Variant? encounter = null, Variant? cameraShake = null)
+        Variant? encounter = null, Variant? cameraShake = null, Variant? quality = null, Variant? autoSave = null,
+        bool changeThroughUi = false)
     {
         var tree = TestScene.GetTree();
         var fixture = new Fixture(tree);
@@ -60,6 +71,8 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
                 config.SetValue("game", "focus_pause", focus);
                 if (cameraShake is { } shake) config.SetValue("game", "camera_shake", shake);
                 if (encounter is { } notification) config.SetValue("notifications", "encounter", notification);
+                if (quality is { } qualityValue) config.SetValue("display", "quality", qualityValue);
+                if (autoSave is { } autoSaveValue) config.SetValue("game", "autosave_minutes", autoSaveValue);
                 Require(config.Save("user://settings.cfg") == Error.Ok, "未能保存真实启动配置情景。");
             }
             var setup = new HostSimulationTests.HostSetup();
@@ -89,6 +102,20 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
                 $"启动设置未应用或未回退：mode={selectedMode}/{expectedMode}，scale={tree.Root.ContentScaleFactor}，fps={Godot.Engine.MaxFps}，focus={app.Host!.AutoPauseOnFocusLoss}，invalid={invalid}。");
             Require(shakeBox.Text == "镜头抖动" && shakeBox.ButtonPressed == expectedShake && shakeEnabled == expectedShake,
                 $"镜头抖动未按设置应用到相机：显示={shakeBox.ButtonPressed}，相机={shakeEnabled}，期望={expectedShake}。");
+            var expectedHigh = !invalid && quality is { } highValue && highValue.AsInt32() == 1;
+            var expectedAutoSave = invalid || autoSave is null ? 5 : autoSave.Value.AsInt32();
+            AssertQualityAndAutoSave(app, ui, panel, expectedHigh, expectedAutoSave);
+            if (changeThroughUi)
+            {
+                Select(panel, "Quality", expectedHigh ? 0 : 1);
+                Select(panel, "AutoSave", 0);
+                AssertQualityAndAutoSave(app, ui, panel, !expectedHigh, 0);
+                using var saved = new ConfigFile();
+                Require(saved.Load("user://settings.cfg") == Error.Ok &&
+                    saved.GetValue("display", "quality").AsInt32() == (expectedHigh ? 0 : 1) &&
+                    saved.GetValue("game", "autosave_minutes").AsInt32() == 0,
+                    "界面修改的画质或自动存档没有写入设置文件。");
+            }
             if (DisplayServer.GetName() != "headless")
             {
                 var expectedWindowMode = expectedMode switch
@@ -118,5 +145,35 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
             Godot.Engine.MaxFps = previousFps;
             if (original is null) File.Delete(path); else File.WriteAllBytes(path, original);
         }
+    }
+
+    private static void AssertQualityAndAutoSave(Train.App.App app, GameUi ui, SettingsPanel panel, bool high, int autoSaveMinutes)
+    {
+        var views = new[] { app.WorldScenes?.View, app.TemplateScenes?.View, ui.GetNode<DesignEditorPanel>("Root/DesignEditor").Scene.View }
+            .OfType<WorldSceneView>().ToArray();
+        Require(views.Length >= 2, "缺少世界或编辑器场景视图，无法检查画质。");
+        foreach (var view in views)
+        {
+            var environment = view.CurrentEnvironment;
+            var sun = view.GetNode<DirectionalLight3D>("Sun");
+            Require(environment.SsilEnabled == high && environment.SsrEnabled == high && sun.LightAngularDistance > 0 == high,
+                $"{view.Name} 的画质没有按设置应用：SSIL={environment.SsilEnabled}，SSR={environment.SsrEnabled}，" +
+                $"太阳角直径={sun.LightAngularDistance}，期望高档={high}。");
+        }
+        TimeSpan? expected = autoSaveMinutes == 0 ? null : TimeSpan.FromMinutes(autoSaveMinutes);
+        Require(Option(panel, "Quality").Selected == (high ? 1 : 0) && app.Saves!.AutoSaveInterval == expected &&
+            Option(panel, "AutoSave").GetItemText(Option(panel, "AutoSave").Selected) ==
+                (autoSaveMinutes == 0 ? "关闭" : $"{autoSaveMinutes} 分钟"),
+            $"画质或自动存档的显示与生效值不一致：间隔={app.Saves!.AutoSaveInterval}，期望={expected}。");
+    }
+
+    private static OptionButton Option(SettingsPanel panel, string name) =>
+        panel.FindChildren(name, "OptionButton", true, false).Cast<OptionButton>().Single();
+
+    private static void Select(SettingsPanel panel, string name, int index)
+    {
+        var option = Option(panel, name);
+        option.Select(index);
+        option.EmitSignal(OptionButton.SignalName.ItemSelected, index);
     }
 }

@@ -7,6 +7,7 @@ using Train.App.Authoring;
 using Train.App.Logging;
 using Train.App.Notifications;
 using Train.App.Recording;
+using Train.App.Saves;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
@@ -30,6 +31,7 @@ public partial class GameUi : CanvasLayer
     private HostCoordinator? _host;
     private WorldSceneController? _scenes;
     private RecordingService? _recording;
+    private SaveService? _saves;
     private TrainLogger _logger = null!;
     private MainMenu _menu = null!;
     private Control _root = null!;
@@ -91,10 +93,17 @@ public partial class GameUi : CanvasLayer
         _editorPanel?.Scene.View.SetLighting(mode);
     }
 
+    private void SetHighQuality(bool high)
+    {
+        _scenes?.View.SetHighQuality(high);
+        _templates?.View.SetHighQuality(high);
+        _editorPanel?.Scene.View.SetHighQuality(high);
+    }
+
     internal void Initialize(MainMenu menu, HostCoordinator? host, TrainLogger logger,
         WorldSceneController? scenes, RecordingService? recording, GoodsIconCache icons, EditorService editor,
-        AuthoringService? authoring, TemplateSceneController? templates, NotificationPolicy policy)
-    { _menu = menu; _host = host; _logger = logger; _scenes = scenes; _recording = recording; _icons = icons; _editor = editor; _authoring = authoring; _templates = templates; _policy = policy; }
+        AuthoringService? authoring, TemplateSceneController? templates, NotificationPolicy policy, SaveService? saves)
+    { _menu = menu; _host = host; _logger = logger; _scenes = scenes; _recording = recording; _icons = icons; _editor = editor; _authoring = authoring; _templates = templates; _policy = policy; _saves = saves; }
 
     public override void _Ready()
     {
@@ -215,12 +224,13 @@ public partial class GameUi : CanvasLayer
         _error.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         _error.AddThemeColorOverride("font_color", UiStyle.Error);
         errorBody.AddChild(_error);
-        _settings = new SettingsPanel { Name = "SettingsPanel" };
-        _settings.Initialize(_host, _logger, ShowError, _policy, _recording, _scenes?.View.CameraRig);
-        _root.AddChild(_settings);
-        _bar.AddChild(UiStyle.Button("Settings", "设置", _settings.Show));
         _library = new BlueprintLibraryPanel { Name = "BlueprintLibrary" }; _library.Initialize(_editor); _root.AddChild(_library);
         _editorPanel = new DesignEditorPanel { Name = "DesignEditor" }; _editorPanel.Initialize(_editor); _editorPanel.LibraryRequested += _library.Open; _root.AddChild(_editorPanel);
+        // 设置在加入场景树时立即应用画质，所以编辑器的场景视图要先创建。
+        _settings = new SettingsPanel { Name = "SettingsPanel" };
+        _settings.Initialize(_host, _logger, ShowError, _policy, _recording, _scenes?.View.CameraRig, _saves, SetHighQuality);
+        _root.AddChild(_settings);
+        _bar.AddChild(UiStyle.Button("Settings", "设置", _settings.Show));
         _bar.AddChild(UiStyle.Button("NewDesign", "新建设计…", _library.NewDraft));
         _bar.AddChild(UiStyle.Button("BlueprintLibrary", "蓝图库…", _library.Open));
         if (_authoring is not null)

@@ -28,7 +28,7 @@ internal partial class WorldSceneView : Node3D
     private readonly Sky _inspectionSky;
     private readonly ProceduralSkyMaterial _inspectionSkyMaterial = new();
     private readonly Node3D _workLights = new() { Name = "InspectionWorkLights", Visible = false };
-    private Godot.Environment CurrentEnvironment => Lighting is InspectionLighting.Game or InspectionLighting.Daylight
+    internal Godot.Environment CurrentEnvironment => Lighting is InspectionLighting.Game or InspectionLighting.Daylight
         ? _environment : _inspectionEnvironment;
 
     internal WorldSceneView()
@@ -80,6 +80,13 @@ internal partial class WorldSceneView : Node3D
     {
         _environment.SdfgiEnabled = sdfgi;
         GetViewport().UseTaa = taa;
+    }
+    internal void SetHighQuality(bool high)
+    {
+        foreach (var environment in new[] { _environment, _inspectionEnvironment })
+        { environment.SsilEnabled = high; environment.SsrEnabled = high; }
+        // Godot 在方向光角直径大于 0 时使用 PCSS 软阴影；0.5° 接近太阳的视直径。
+        _sun.LightAngularDistance = high ? 0.5f : 0;
     }
     internal void SetLighting(InspectionLighting mode)
     {
