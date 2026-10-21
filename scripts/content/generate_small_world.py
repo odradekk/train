@@ -2039,7 +2039,7 @@ def main():
             return 1
         check_schemas(files | {path: (resources / path).read_bytes()
                                for path in AUTHORED_FILES if path.endswith(".json")})
-        result = subprocess.run([sys.executable, str(ROOT / "scripts/content/check_economy.py"), str(args.output_dir)])
+        result = subprocess.run([sys.executable, "-B", str(ROOT / "scripts/content/check_economy.py"), str(args.output_dir)])
         if result.returncode:
             return result.returncode
     else:
