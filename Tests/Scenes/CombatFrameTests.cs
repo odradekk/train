@@ -769,16 +769,16 @@ public sealed class CombatFrameTests
     {
         var (content, group) = Dozen(RailwayFixtures.Location, views =>
             RailwayFixtures.Content(design: RailwayFixtures.Vehicle(), creatures: views));
-        AssertSeparated(await EdgeFrame(content, group, false));
-        AssertSeparated(await EdgeFrame(content, group, true));
+        AssertSeparated(await EdgeFrame(content, group, false), 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
+        AssertSeparated(await EdgeFrame(content, group, true), 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
     }
 
     [TestMethod]
     public async Task ADozenCreaturesDoNotOverlapAtANode()
     {
         var (content, group) = Dozen(NodeFixtures.Location, views => NodeFixtures.Content(creatures: views));
-        AssertSeparated(await NodeFrame(content, group, false));
-        AssertSeparated(await NodeFrame(content, group, true));
+        AssertSeparated(await NodeFrame(content, group, false), 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
+        AssertSeparated(await NodeFrame(content, group, true), 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
     }
 
     [TestMethod]

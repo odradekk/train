@@ -116,7 +116,7 @@ internal sealed class PresentationState
                     var side = Side(snapshot.Core.World.WorldSeed, combat ? CombatId(snapshot, here) : 0, creature.Id.Value);
                     var along = lanes.TryGetValue(side, out var tail) ? tail - minZ : 0d;
                     lanes[side] = along + endZ;
-                    var placed = Place(snapshot, here, origin, path, layout, found.Value, creature, along, combat, ground);
+                    var placed = Place(here, origin, path, layout, found.Value, along, side, combat, ground);
                     creatures[creature.Id] = placed.Position;
                     if (dead.Contains((group, creature.Id)) || appearance is null) continue;
                     alive.Add(creature.Id);
@@ -493,11 +493,10 @@ internal sealed class PresentationState
         return dead;
     }
 
-    private (Vector3 Position, Vector3 Forward, Quaternion Rotation) Place(SceneWorldSnapshot snapshot, WorldLocation here,
-        ScenePoint origin, RailwayPath? path, NodeLayout? layout, CreatureGroupView group, CreatureView creature, double along, bool combat,
-        Func<double, double, double>? ground)
+    private static (Vector3 Position, Vector3 Forward, Quaternion Rotation) Place(WorldLocation here,
+        ScenePoint origin, RailwayPath? path, NodeLayout? layout, CreatureGroupView group, double along, int side,
+        bool combat, Func<double, double, double>? ground)
     {
-        var side = Side(snapshot.Core.World.WorldSeed, combat ? CombatId(snapshot, here) : 0, creature.Id.Value);
         if (here is WorldLocation.Edge && path is not null)
         {
             var distance = group.Location is WorldLocation.Edge edge ? edge.DistanceMeters : 0;
