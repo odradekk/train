@@ -227,6 +227,7 @@ public sealed class SettlementLayoutTests
         };
         var snapshot = Snapshot(template, BuiltInDirections(name));
         var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        Assert.IsEmpty(layout.Problems, name);
         var routes = layout.StationRoutes(true).Concat(layout.AllTurnRoutes()).ToList();
         foreach (var entry in layout.Entries)
         {

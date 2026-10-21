@@ -114,6 +114,7 @@ public sealed class BuiltInContentTests
         long Storage(C.DesignEvaluation.Complete design) => design.Core!.Design.Parts.SelectMany(part => part.Capabilities)
             .OfType<K.PartCapability.Storage>().Sum(item => item.Capacity);
         Assert.IsTrue(Storage(largeWarehouse) > Storage(Complete(view, "small-warehouse")));
+        Assert.IsTrue(view.Core.SettlementTemplates.Any(template => template.Plots.Any(plot => plot.Size == K.PlotSize.LargeStation)));
         foreach (var (id, productionBuildings) in new (string, string[])[]
                  {
                      ("agricultural-town", ["farm", "food-factory"]),
@@ -127,9 +128,12 @@ public sealed class BuiltInContentTests
             var template = view.Core.SettlementTemplates.Single(item => item.Id.Value == "core:" + id);
             Assert.IsTrue(view.Core.SettlementTypes.Any(type => type.Id == template.Type), id);
             Assert.IsTrue(template.Plots.Length >= 8, id);
-            Assert.IsTrue(template.Plots.Count(plot => plot.Size == K.PlotSize.SmallStation) >= 2, id);
+            Assert.IsTrue(template.Plots.Count(plot => plot.Size is K.PlotSize.SmallStation or K.PlotSize.LargeStation) >= 2, id);
+            Assert.IsTrue(template.Plots.Any(plot => plot.PrebuiltDesign is { } prebuilt
+                && Found(view.FindDesign(prebuilt)) is C.DesignEvaluation.Complete { Core.Design.Kind: K.DesignKind.Building { Type: K.BuildingKind.Warehouse } } warehouse
+                && Storage(warehouse) > 0), id);
             Complete(view, id + "-ground");
-            foreach (var building in productionBuildings.Concat(["small-station", "vehicle-workshop", "small-warehouse", "power-station"]))
+            foreach (var building in productionBuildings.Concat(["small-station", "vehicle-workshop", "power-station"]))
             {
                 var design = Complete(view, building);
                 Assert.IsNotNull(design.Core);
@@ -139,7 +143,6 @@ public sealed class BuiltInContentTests
                 {
                     "small-station" => capabilities.OfType<K.PartCapability.Platform>().Any(),
                     "vehicle-workshop" or "heavy-vehicle-factory" => capabilities.OfType<K.PartCapability.Construction>().Any(),
-                    "small-warehouse" => capabilities.OfType<K.PartCapability.Storage>().Any(storage => storage.Capacity > 0),
                     "power-station" => capabilities.OfType<K.PartCapability.Power>().Any(power => power.EnergyPerSecond > 0),
                     "extraction-site" => capabilities.OfType<K.PartCapability.Extraction>().Any(extraction => extraction.WorkPerSecond > 0),
                     _ => capabilities.OfType<K.PartCapability.Production>().Any(production => production.WorkPerSecond > 0)
