@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Reflection;
@@ -47,7 +46,6 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
     internal WorldSceneController? World { get; private set; }
     internal Func<TrainLogger, string, GodotMainThreadDispatcher, NotificationPolicy, HostCoordinator> CreateHost { get; set; } = HostComposition.CreateHost;
     internal Func<IScenesFactory> CreateScenes { get; set; } = HostComposition.CreateScenes;
-    internal event Action<ImmutableArray<EventEnvelope>>? Boundary;
     private string? _sceneFailure;
     private string? _saveHash;
     private string? _output;
@@ -120,7 +118,6 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         _logger = TrainLogger.StartSession(ProjectSettings.GlobalizePath("res://.godot/art-capture/logs"),
             LogLevel.Info, new GodotLogOutput());
         Host = CreateHost(_logger, OS.GetUserDataDir(), _dispatcher, new NotificationPolicy());
-        Host.BoundaryCompleted += (_, _, _, events) => Boundary?.Invoke(events);
         var restored = Host.BeginRestore(document.CorePayload, document.ContentPayload, Host.SessionOptions!);
         if (restored.Problem is { } problem) throw new InvalidDataException($"恢复失败：{problem.Code}");
         await WaitAsync(() => !Host.IsBusy, () => { _dispatcher.Pump(); Host.ProcessFrame(0); });
