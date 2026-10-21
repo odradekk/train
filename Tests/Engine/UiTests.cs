@@ -278,6 +278,9 @@ public class UiTests(Node testScene) : TestClass(testScene)
             Require(Above(settings, notices) && Above(settings, fleet) && Above(settings, toasts) &&
                 Above(ui.GetNode("Root/ErrorPanel"), toasts), "业务面板或通知提示盖过了设置或错误界面。");
             Require(Above(notices, minimap) && Above(fleet, minimap), "业务面板移到了节点小地图之下。");
+            var markers = ui.World.GetChildren().OfType<SceneStatusOverlay>().Single();
+            Require(Above(minimap, markers) && Above(fleet, markers) && Above(toasts, markers),
+                "场景状态覆盖层盖住了小地图、业务面板或通知提示。");
             setup.Session.AssertComplete();
         }
         finally { await fixture.Cleanup(); }
