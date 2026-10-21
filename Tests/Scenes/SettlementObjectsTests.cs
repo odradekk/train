@@ -262,6 +262,26 @@ public sealed class SettlementObjectsTests
     }
 
     [TestMethod]
+    public async Task PartialConstructionDesignReportsDiagnosticsOncePerFrame()
+    {
+        var diagnostic = new ContentDiagnostic("partial_construction", ContentDiagnosticSeverity.Warning, "build",
+            new ContentReference.Design(RailwayFixtures.ConstructionModel), null, "", null, "Partial construction.");
+        var partial = new DesignEvaluation.Partial(EditingFixtures.Draft(new GridPosition(0, 0, 0)),
+            new(new ComputedValue<double>.Known(0), new ComputedValue<Money>.Known(new(0)),
+                new ComputedValue<long>.Known(0), new ComputedValue<ImmutableArray<PartProjection>>.Known([]),
+                new ComputedValue<ImmutableArray<GoodsQuantity>>.Known([]), new ComputedValue<int>.Known(0)),
+            new(0, new(0), 0, [], []), null, SceneFixtures.Projection([]), [diagnostic]);
+        var plot = NodeFixtures.Settlement().Plots[0] with { Size = PlotSize.Giant, Occupant = new PlotOccupant.Construction(new(77)) };
+        var snapshot = Snapshot(content: Content(NodeFixtures.Layout, construction: new ContentLookup<DesignEvaluation>.Found(partial)),
+            settlement: NodeFixtures.Settlement() with { Plots = [plot] }, node: NodeFixtures.Node(0));
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        await using var objects = new SettlementObjects(StableIds());
+        var rendered = await Settle(objects, snapshot, layout);
+        Assert.AreEqual(64, rendered.Objects.Length);
+        Assert.AreEqual(1, rendered.Diagnostics.Count(problem => problem.Code == "partial_construction"));
+    }
+
+    [TestMethod]
     public async Task ConstructionSiteIsRemovedOnTheFrameTheBuildingAppears()
     {
         var settlement = NodeFixtures.Settlement() with { Plots =

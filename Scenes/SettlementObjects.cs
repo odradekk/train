@@ -275,6 +275,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
         var missingDetail = "";
         if (placedSites.Length > 0)
             siteBuilt = ConstructionGeometry(snapshot, layout, out missingReference, out missingDiagnostics, out missingDetail);
+        if (siteBuilt is not null) problems.AddRange(siteBuilt.Geometry.Diagnostics);
         foreach (var item in placedSites)
         {
             if (siteBuilt is null)
@@ -296,7 +297,6 @@ internal sealed class SettlementObjects : IAsyncDisposable
                     "construction:" + item.Plot.Value + ":" + index + ":", objectId).Geometry, pose);
                 objects.AddRange(copy.Objects);
                 picking.AddRange(copy.Picking);
-                problems.AddRange(copy.Diagnostics);
             }
         }
 
