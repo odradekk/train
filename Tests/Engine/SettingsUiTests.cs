@@ -152,9 +152,8 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
         var views = new[] { app.WorldScenes?.View, app.TemplateScenes?.View, ui.GetNode<DesignEditorPanel>("Root/DesignEditor").Scene.View }
             .OfType<WorldSceneView>().ToArray();
         Require(views.Length >= 2, "缺少世界或编辑器场景视图，无法检查画质。");
-        float defaultPancake;
-        using (var probe = new DirectionalLight3D())
-            defaultPancake = probe.DirectionalShadowPancakeSize;
+        var defaultPancake = ClassDB.ClassGetPropertyDefaultValue("DirectionalLight3D",
+            DirectionalLight3D.PropertyName.DirectionalShadowPancakeSize).AsSingle();
         foreach (var view in views)
         {
             var environment = view.CurrentEnvironment;
