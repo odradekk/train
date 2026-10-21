@@ -21,7 +21,8 @@ internal static class RailwayFixtures
         double relief = 1, int tracks = 1, ulong steps = 0, ulong sequence = 0,
         IContentView? content = null, ImmutableArray<TrainView> trains = default,
         ImmutableArray<InstanceView> instances = default, int? trackLimit = null,
-        IEnumerable<TrainId>? missingTrains = null, IReadOnlyList<CreatureGroupView>? groups = null)
+        IEnumerable<TrainId>? missingTrains = null, IReadOnlyList<CreatureGroupView>? groups = null,
+        IReadOnlyList<CombatView>? combats = null)
     {
         if (trains.IsDefault) trains = [];
         if (instances.IsDefault) instances = [];
@@ -39,10 +40,12 @@ internal static class RailwayFixtures
             InputIdentity = new("scenes-test"),
             World = new(3, Rule, directMeters, directMeters, [first, last], [edge],
                 trains.Select(train => new TrainMapItem(train.Id, train.Position, train.Activity)).ToImmutableArray(),
-                (groups ?? []).Select(group => new CreatureGroupMapItem(group.Id, group.Location, group.Activity)).ToImmutableArray(), []),
+                (groups ?? []).Select(group => new CreatureGroupMapItem(group.Id, group.Location, group.Activity)).ToImmutableArray(),
+                (combats ?? []).Select(combat => new CombatMapItem(combat.Id, combat.Location)).ToImmutableArray()),
             CreatureGroups = (groups ?? []).ToDictionary(group => group.Id, group => (Lookup<CreatureGroupView>)new Lookup<CreatureGroupView>.Found(group)),
             Creatures = (groups ?? []).SelectMany(group => group.Creatures).ToDictionary(creature => creature.Id,
                 creature => (Lookup<CreatureView>)new Lookup<CreatureView>.Found(creature)),
+            Combats = (combats ?? []).ToDictionary(combat => combat.Id, combat => (Lookup<CombatView>)new Lookup<CombatView>.Found(combat)),
             Nodes = new Dictionary<NodeId, Lookup<NodeView>>
             {
                 [first.Id] = new Lookup<NodeView>.Found(new(first, [Edge], 80, 0, 80)),
