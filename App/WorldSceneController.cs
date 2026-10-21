@@ -143,7 +143,7 @@ internal sealed class WorldSceneController : IDisposable
         catch (Exception exception) { AdapterFailed(exception, SceneStage.Reconcile); }
     }
 
-    internal void ProcessFrame(double delta, bool minimized)
+    internal void ProcessFrame(double delta, bool minimized, double? effectsDelta = null)
     {
         _dispatcher.RequireMainThread();
         _dispatcher.Pump();
@@ -217,7 +217,8 @@ internal sealed class WorldSceneController : IDisposable
                 View.CameraRig.DisplayedFrame(frame, FollowSubject(),
                     _target is WorldSceneTarget.Location { Value: WorldLocation.Edge }, shift);
                 View.CameraRig.Update(delta);
-                View.CameraRig.SetShake(_display.AdvanceEffects(frame, delta, View.CameraRig.Camera.GlobalPosition));
+                View.CameraRig.SetShake(_display.AdvanceEffects(frame, effectsDelta ?? delta,
+                    View.CameraRig.Camera.GlobalPosition));
                 if (_pendingNodeFocus is { } focus && frame.NodePanBounds is not null)
                 {
                     View.CameraRig.MoveFocus(new((float)(focus.X - frame.Origin.X), 0,
