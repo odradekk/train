@@ -46,7 +46,7 @@ internal sealed class BattleReportLog
             foreach (var cargo in side.CargoLost) text.AppendLine($"损失货物：{Good(cargo.Good)} × {cargo.Quantity}");
             text.AppendLine($"奖励：{side.Reward.Value}");
         }
-        return text.ToString();
+        return text.ToString().ReplaceLineEndings("\n");
     }
 
     internal static string Place(WorldLocation location) => location switch

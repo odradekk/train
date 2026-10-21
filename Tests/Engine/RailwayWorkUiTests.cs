@@ -177,6 +177,8 @@ public class RailwayWorkUiTests(Node testScene) : TestClass(testScene)
                 "点线路后没有进入线路场景。");
             var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
             Require(panels.IsObjectOpen(new WorldObjectId.Edge(new(RailwayWorkUiFixture.ActiveEdge))), "点线路后没有打开线路详情。");
+            var description = Find<Label>(LatestDetail(panels), "Description").Text;
+            Require(description.Contains("线路长度") && !description.Contains('\r'), description);
             await DismissError(ui);
             await _input.Activate(Find<Button>(LatestDetail(panels), "RailwayWork"));
             Require(panel.GetNode<PanelContainer>("RailwayWork").Visible && Find<Label>(panel, "Works").Text.Contains("任务 3"),
