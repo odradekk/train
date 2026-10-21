@@ -138,8 +138,10 @@ internal static class UiWorldFixture
                 new InstanceDetails.Vehicle(SizeClass.Medium, ordered.Contains(id.Id) ? train.Id : null),
                 InstanceLock.None, new(100, 100), [], [])));
         ImmutableArray<EdgeId> connected = scenario == Scenario.Scene ? [edge.Id] : [];
+        var rule = new RuleStatusView(new("fixture:economy"), null, []);
         return new(tick, input)
         {
+            Economy = new(new(0), rule, rule, rule, new(0), []),
             World = new(1, new("fixture:railway"), 1000, 600, [first, second],
                 scenario == Scenario.Scene ? [edge] : [], formed ? [new(train.Id, position, train.Activity)] : [], [], []),
             Nodes = new Dictionary<NodeId, Lookup<NodeView>>

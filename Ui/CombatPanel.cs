@@ -65,6 +65,14 @@ public partial class CombatPanel : Control
         if (IsNodeReady() && _view is not null && _content is not null) Render();
     }
 
+    internal void Close()
+    {
+        SelectedCombat = null; SelectedParticipant = null; SelectedFocus = null;
+        ContextTrain = null; ContextSettlement = null; OccupyTrain = null;
+        _rulesTrain = null; _rulesSettlement = null;
+        Hide();
+    }
+
     internal void OpenSettlement(SettlementId settlement)
     {
         ContextSettlement = settlement;
