@@ -11,6 +11,39 @@
   "commands": [
     {
       "at": { "completed_steps": 0, "sequence": 0 },
+      "kind": "market.buy_vehicle",
+      "seller": 6,
+      "vehicle": 17,
+      "maximum_payment": 9223372036854775807
+    },
+    {
+      "at": { "completed_steps": 0, "sequence": 1 },
+      "kind": "train.disband",
+      "train": 1
+    },
+    {
+      "at": { "completed_steps": 0, "sequence": 2 },
+      "kind": "train.form",
+      "ordered_vehicles": [1, 2, 3, 4, 17]
+    },
+    {
+      "at": { "completed_steps": 0, "sequence": 3 },
+      "kind": "train.replace_run_plan",
+      "train": 3,
+      "plan": {
+        "loop": false,
+        "stops": [
+          { "kind": "station", "node": 12, "dwell_steps": 60000, "goods_rules": [] }
+        ]
+      }
+    },
+    {
+      "at": { "completed_steps": 0, "sequence": 4 },
+      "kind": "train.start",
+      "train": 3
+    },
+    {
+      "at": { "completed_steps": 0, "sequence": 5 },
       "kind": "train.replace_run_plan",
       "train": 2,
       "plan": {
@@ -35,19 +68,53 @@
       }
     },
     {
-      "at": { "completed_steps": 0, "sequence": 1 },
+      "at": { "completed_steps": 0, "sequence": 6 },
       "kind": "train.start",
       "train": 2
     },
     {
-      "at": { "completed_steps": 9000, "sequence": 0 },
+      "at": { "completed_steps": 8800, "sequence": 0 },
+      "kind": "train.disband",
+      "train": 3
+    },
+    {
+      "at": { "completed_steps": 8800, "sequence": 1 },
+      "kind": "market.sell_vehicle",
+      "buyer": 4,
+      "vehicle": 17,
+      "minimum_receipt": 0
+    },
+    {
+      "at": { "completed_steps": 8800, "sequence": 2 },
+      "kind": "train.form",
+      "ordered_vehicles": [1, 2, 3, 4]
+    },
+    {
+      "at": { "completed_steps": 8800, "sequence": 3 },
+      "kind": "train.replace_run_plan",
+      "train": 4,
+      "plan": {
+        "loop": false,
+        "stops": [
+          { "kind": "waypoint", "node": 14 }
+        ]
+      }
+    },
+    {
+      "at": { "completed_steps": 8800, "sequence": 4 },
+      "kind": "train.start",
+      "train": 4
+    },
+    {
+      "at": { "completed_steps": 11000, "sequence": 0 },
       "kind": "settlement.declare_war",
       "settlement": 4
     },
     {
       "at": { "completed_steps": 18000, "sequence": 0 },
       "kind": "combat.retreat",
-      "train": 2
+      "train": 2,
+      "expected_decision": "accepted"
     },
     {
       "at": { "completed_steps": 25000, "sequence": 0 },
@@ -59,7 +126,8 @@
         "sources": [],
         "priority": 0
       },
-      "maximum_payment": 9223372036854775807
+      "maximum_payment": 9223372036854775807,
+      "expected_decision": "accepted"
     },
     {
       "at": { "completed_steps": 28000, "sequence": 0 },

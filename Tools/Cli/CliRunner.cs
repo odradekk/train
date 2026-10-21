@@ -144,21 +144,32 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
                     view = content.WithSettlementCopies(view, copies);
                 Observe(completed.Events);
             }
+            string decision;
             switch (submission)
             {
                 case SubmissionResult.Completed { Receipt.Decision: CommandDecision.Accepted }:
                     accepted++;
-                    receipts.Add(new(index, command.Kind, "accepted", [], quotedTotal));
+                    decision = "accepted";
+                    receipts.Add(new(index, command.Kind, decision, [], quotedTotal));
                     break;
-                case SubmissionResult.Completed { Receipt.Decision: CommandDecision.Rejected decision }:
+                case SubmissionResult.Completed { Receipt.Decision: CommandDecision.Rejected rejectedDecision }:
                     rejected++;
-                    receipts.Add(new(index, command.Kind, "rejected",
-                        decision.Problems.Select(ProblemSample.From).ToImmutableArray(), quotedTotal));
+                    decision = "rejected";
+                    receipts.Add(new(index, command.Kind, decision,
+                        rejectedDecision.Problems.Select(ProblemSample.From).ToImmutableArray(), quotedTotal));
                     break;
                 case SubmissionResult.Completed { Receipt.Decision: CommandDecision.Faulted fault }:
                     throw new InvalidDataException($"命令故障：{fault.Fault.Code} {fault.Fault.Field}。");
                 case SubmissionResult.NotAccepted notAccepted:
                     throw new InvalidDataException($"命令未受理：{notAccepted.Reason.Code} {notAccepted.Reason.Field}。");
+                default:
+                    throw new InvalidOperationException("未知提交结果。");
+            }
+            if (command.ExpectedDecision is { } expected && expected != decision)
+            {
+                var problems = string.Join(", ", receipts[^1].Problems.Select(problem => $"{problem.Code}: {problem.Field}"));
+                throw new InvalidDataException($"命令 {index}（{command.Kind}）的裁决不符：预期 {expected}，实际 {decision}"
+                    + (problems.Length == 0 ? "。" : $"；问题：{problems}。"));
             }
             Sample();
         }
