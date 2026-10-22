@@ -336,6 +336,62 @@ public sealed partial class CliProcessTests
         Directory.Delete(directory, recursive: true);
     }
 
+    [TestMethod]
+    public async Task Rejected_command_for_a_vanished_train_keeps_earlier_and_later_commands_across_resume()
+    {
+        var directory = CreateDirectory();
+        try
+        {
+            // 同一步内先解散列车 2，再对它发车：目标已消失，只拒绝这一条，不重试、不换目标、不撤销解散，后续命令照常执行。
+            var recipe = await WriteEconomyRecipe(directory, "vanished-target", """
+                [
+                  {"at":{"completed_steps":100,"sequence":0},"kind":"train.disband","train":2},
+                  {"at":{"completed_steps":100,"sequence":1},"kind":"train.start","train":2},
+                  {"at":{"completed_steps":100,"sequence":2},"kind":"train.replace_run_plan","train":1,
+                   "plan":{"loop":true,"stops":[{"kind":"waypoint","node":5},{"kind":"waypoint","node":2}]}},
+                  {"at":{"completed_steps":100,"sequence":3},"kind":"train.start","train":1}
+                ]
+                """, 300, 100, 200);
+            var continuousPath = Path.Combine(directory, "continuous.json");
+            var resumedPath = Path.Combine(directory, "resumed.json");
+            var save = Path.Combine(directory, "vanished.save.json");
+            await Run(directory, "vanished-replay", "replay", Repository, recipe, continuousPath);
+            await Run(directory, "vanished-save", "save", Repository, recipe, save, "100");
+            await Run(directory, "vanished-resume", "resume", Repository, recipe, save, resumedPath);
+            await Run(directory, "vanished-compare", "compare", continuousPath, resumedPath);
+            var continuous = await ReadEconomyOutput(continuousPath);
+            var resumed = await ReadEconomyOutput(resumedPath);
+            Assert.IsTrue(continuous.ReplayVerified);
+            CollectionAssert.AreEqual(new[] { "accepted", "rejected", "accepted", "accepted" },
+                continuous.CommandReceipts.Select(receipt => receipt.Decision).ToArray());
+            var problem = continuous.CommandReceipts[1].Problems.Single();
+            Assert.AreEqual("object_missing", problem.Code);
+            Assert.AreEqual("Train", problem.Field);
+            Assert.AreEqual(JsonSerializer.Serialize(continuous.CommandReceipts, Recipe.Json),
+                JsonSerializer.Serialize(resumed.CommandReceipts, Recipe.Json));
+
+            var before = continuous.Samples.First(sample => sample.Position == new SimulationPosition(100, 0));
+            var final = continuous.Samples[^1];
+            var disbanded = before.Trains.Single(train => train.Id == 2).Vehicles.Select(vehicle => vehicle.Id).ToArray();
+            Assert.IsNotEmpty(disbanded);
+            CollectionAssert.AreEqual(new[] { 1UL }, final.Trains.Select(train => train.Id).ToArray());
+            Assert.AreEqual("Running", continuous.Samples.First(sample => sample.Position == new SimulationPosition(200, 0))
+                .Trains.Single().Activity);
+            CollectionAssert.AreEqual(before.Trains.Single(train => train.Id == 1).Vehicles.Select(vehicle => vehicle.Id).ToArray(),
+                final.Trains.Single().Vehicles.Select(vehicle => vehicle.Id).ToArray(),
+                "被拒绝的发车不能把已解散的车辆交给别的列车。");
+            var boundary = new SimulationPosition(100, 0);
+            CollectionAssert.AreEqual(continuous.Checkpoints.SkipWhile(checkpoint => checkpoint.Position != boundary).ToArray(),
+                resumed.Checkpoints.ToArray());
+        }
+        catch
+        {
+            TestContext.WriteLine($"CLI 失败证据：{directory}");
+            throw;
+        }
+        Directory.Delete(directory, recursive: true);
+    }
+
     private static async Task<string> WriteEconomyRecipe(string directory, string name, string commands,
         ulong targetStep, params ulong[] checkpointSteps)
     {
