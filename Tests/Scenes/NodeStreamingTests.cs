@@ -871,7 +871,7 @@ public sealed class NodeStreamingTests
             previousRemaining = remaining;
         } while (remaining > 0 || scene.HasPendingBuilds);
         Assert.IsTrue(demanded.All(Chunks(cache).ContainsKey));
-        Assert.IsFalse(Chunks(cache).ContainsKey(stale ? new(288, 288) : new(0, 0)));
+        Assert.AreEqual(stale ? default(ScenePoint) : new ScenePoint(288, 0, 288), scene.StreamingFocus);
     }
 
     [TestMethod]

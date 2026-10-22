@@ -319,7 +319,7 @@ internal sealed class NodeScene : IAsyncDisposable
         prefetch = range;
     }
     internal void Pump(SceneWorldSnapshot? current = null, ScenePoint? focus = null, bool allowBuild = true, TrainView? enteringTrain = null,
-        FollowedPath? following = null, TrainView? followedTrain = null)
+        FollowedPath? following = null, TrainView? followedTrain = null, WorldSceneTarget? target = null)
     {
         SetBuildAllowed(allowBuild);
         if (current is not null) snapshot = current;
@@ -351,7 +351,7 @@ internal sealed class NodeScene : IAsyncDisposable
         }
         followedPath = following;
         if (focus is { } requestedFocus) range = new(requestedFocus, NodeStreaming.PrefetchCells);
-        prefetch = new(following?.Ahead ?? range.Focus, NodeStreaming.PrefetchCells);
+        UpdatePrefetch(target, following);
         var hadLayout = layout is not null;
         if (hadLayout) settlement.Pump(snapshot, layout!, range, allowBuild, prefetch);
         if (prepared is null && pending?.IsCompleted == true)
@@ -381,13 +381,21 @@ internal sealed class NodeScene : IAsyncDisposable
             catch (RailwayBuildException error) { Fail(error); return; }
         }
         if (focus is { } point) range = new(point, NodeStreaming.PrefetchCells);
-        prefetch = new(following?.Ahead ?? range.Focus, NodeStreaming.PrefetchCells);
+        UpdatePrefetch(target, following);
         if (prepared is null) return;
         if (!hadLayout) settlement.Pump(snapshot, layout!, range, allowBuild, prefetch);
         lock (workGate) ReconcileParts();
         cache.Publish(Node, owner, built! with
         { Parts = prepared.Global.Parts.SetItems(chunks.Select(item => new KeyValuePair<string, Part>(ChunkKey(item.Key), item.Value))).SetItems(rails) });
         ScheduleRefresh();
+    }
+
+    private void UpdatePrefetch(WorldSceneTarget? target, FollowedPath? following)
+    {
+        if (target is WorldSceneTarget.Location && layout is { Template: not null })
+            prefetch = NodeStreaming.SettlementPrefetch(layout);
+        else
+            prefetch = new(following?.Ahead ?? range.Focus, NodeStreaming.PrefetchCells);
     }
 
     private void AcceptRefresh(SceneWorldSnapshot? current = null)
@@ -555,7 +563,7 @@ internal sealed class NodeScene : IAsyncDisposable
         if (failure is not null) return;
         AdmitCompletedParts();
         var neededChunks = range.Chunks(layout!);
-        if (prefetch.Focus != range.Focus) neededChunks = neededChunks.Concat(prefetch.Chunks(layout!)).Distinct();
+        if (prefetch != range) neededChunks = neededChunks.Concat(prefetch.Chunks(layout!)).Distinct();
         var terrain = prepared!.HasChunks ? neededChunks.Where(from =>
             {
                 var key = ChunkKey(from);
@@ -712,7 +720,7 @@ internal sealed class NodeScene : IAsyncDisposable
             camera.Frame.Update.Frame.Session == stamp.Session && camera.Frame.Update.Frame.Request == stamp.Request &&
             camera.Frame.Update.Frame.Space == stamp.Space)
             focus = RailwayCoordinates.Add(camera.Frame.Origin, camera.Focus);
-        Pump(snapshot, focus, following: following);
+        Pump(snapshot, focus, following: following, target: target);
         var shift = new ScenePose(RailwayCoordinates.Relative(default, origin), Quaternion.Identity);
         foreach (var part in attached.OrderBy(item => item.Key, StringComparer.Ordinal)) Add(SceneGeometry.Place(part.Value.Geometry, shift));
         var terrainFog = ImmutableArray.CreateBuilder<SceneFog>();
