@@ -16,6 +16,9 @@ public sealed class TrainDispatchRecoveryTests
     [DataRow("queue")]
     [DataRow("handoff")]
     [DataRow("returning")]
+    [DataRow("opposing")]
+    [DataRow("following")]
+    [DataRow("replan")]
     public void Saved_dispatch_state_restores_the_same_suffix(string boundary)
     {
         var state = TrainDispatchRecoveryScenario.State(boundary);
@@ -25,10 +28,26 @@ public sealed class TrainDispatchRecoveryTests
         Assert.AreEqual(capture.Encode(), decoded.Encode());
         using var candidate = Success(CoreFactory.Create().PrepareRestore(decoded, state.Content, Options));
         using var resumed = candidate.Activate();
-        var expected = TrainDispatchRecoveryScenario.Suffix(continuous);
-        var actual = TrainDispatchRecoveryScenario.Suffix(resumed);
+        var expected = TrainDispatchRecoveryScenario.Suffix(continuous, boundary);
+        var actual = TrainDispatchRecoveryScenario.Suffix(resumed, boundary);
         CollectionAssert.AreEqual(expected.Samples, actual.Samples);
         CollectionAssert.AreEqual(expected.Events, actual.Events);
+        // 恢复后的后缀必须真的走过这个边界：对向等待的老车最终发车，跟车保持次序，换计划的列车离站。
+        var trains = resumed.Read();
+        TrainPosition Position(ulong id) => ((Lookup<TrainView>.Found)trains.FindTrain(new(id))).Value.Position;
+        switch (boundary)
+        {
+            case "opposing":
+                Assert.IsFalse(Position(2) is TrainPosition.Node { Id.Value: 1 }, "同向老车在对向队列之后仍未发车。");
+                break;
+            case "following":
+                Assert.IsTrue(Position(1) is TrainPosition.Node { Id.Value: 2 }, "前车没有到达节点 2。");
+                Assert.IsFalse(Position(2) is TrainPosition.Edge { DistanceMeters: <= 30 }, "后车没有跟着前进。");
+                break;
+            case "replan":
+                Assert.IsFalse(Position(1) is TrainPosition.Node { Id.Value: 1 }, "换计划后列车 1 仍未离开节点 1。");
+                break;
+        }
     }
 
     [TestMethod]
@@ -139,11 +158,34 @@ internal static class TrainDispatchRecoveryScenario
 {
     internal static CoreState State(string boundary)
     {
-        var state = TrainDispatchFixture.State(count: boundary == "queue" ? 2 : 1);
+        var state = boundary switch
+        {
+            "queue" or "replan" => TrainDispatchFixture.State(count: 2),
+            "opposing" => TrainDispatchFixture.State(count: 3),
+            "following" => TrainDispatchFixture.State(count: 2, length: 100),
+            _ => TrainDispatchFixture.State(count: 1)
+        };
         var world = state.World;
         var first = world.Trains[0];
         switch (boundary)
         {
+            case "opposing":
+                world = world with { Trains = [TrainDispatchFixture.OnEdge(first, 19.99, 2),
+                    TrainDispatchFixture.Queued(world.Trains[1], 1, 1, 2), TrainDispatchFixture.Queued(world.Trains[2], 2, 2, 1)] };
+                break;
+            case "following":
+                world = world with { Trains = [TrainDispatchFixture.OnEdge(first, 40, 1), TrainDispatchFixture.OnEdge(world.Trains[1], 30, 8)] };
+                break;
+            case "replan":
+                // 列车 1 在站台服务，列车 2 排队；边界之后由后缀把列车 1 换成直达计划。
+                var station = state with { World = world with { Trains = world.Trains.Select(train => train with
+                    { Activity = TrainActivity.Running, Plan = new(false, [new PlanStop.Station(new(1), 2, []), new PlanStop.Waypoint(new(2))]) })
+                    .ToImmutableArray() } };
+                using (var session = new CoreSession(station))
+                {
+                    TrainDispatchFixture.Until(session, () => TrainDispatchFixture.View(session, 1).Activity == TrainActivity.Servicing);
+                    return session.State;
+                }
             case "queue":
                 world = world with { Trains = [first with { Position = new TrainPosition.Edge(new(1), 1, TravelDirection.Forward, 10),
                     Activity = TrainActivity.Running }, world.Trains[1] with { Activity = TrainActivity.Waiting, QueueEnteredStep = 3 }] };
@@ -164,7 +206,7 @@ internal static class TrainDispatchRecoveryScenario
         return state with { Position = new(5, 0), World = world };
     }
 
-    internal static (TrainProcessSample[] Samples, string[] Events) Suffix(ICoreSession session)
+    internal static (TrainProcessSample[] Samples, string[] Events) Suffix(ICoreSession session, string boundary)
     {
         var samples = new List<TrainProcessSample>();
         var events = new List<string>();
@@ -174,10 +216,13 @@ internal static class TrainDispatchRecoveryScenario
             samples.Add(new(capture.Position, capture.Encode(), capture.Checkpoint.CanonicalText, capture.Checkpoint.Sha256, Query(session)));
         }
         Sample();
-        for (var step = 0; step < 12; step++)
+        if (boundary == "replan") TrainRecoveryFixture.Submit(session, new CoreCommand.ReplaceRunPlan(new(1), TrainDispatchFixture.Plan(2)), events);
+        // 原有三个边界只看紧接着的几步；新边界要走到对向发车、跟车拉开和离站。
+        int[] sampled = boundary is "queue" or "handoff" or "returning" ? [0, 5, 11] : [99, 199, 299, 399, 499, 599, 699, 799, 899];
+        for (var step = 0; step <= sampled[^1]; step++)
         {
             TrainRecoveryFixture.Advance(session, events);
-            if (step is 0 or 5 or 11) Sample();
+            if (sampled.Contains(step)) Sample();
         }
         return (samples.ToArray(), events.ToArray());
     }

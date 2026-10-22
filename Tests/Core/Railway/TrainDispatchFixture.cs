@@ -49,6 +49,15 @@ internal static class TrainDispatchFixture
         Assert.Fail("未在限定步数内到达铁路测试边界。");
     }
 
+    internal static RunPlan Plan(ulong node) => new(false, [new PlanStop.Waypoint(new(node))]);
+    internal static TrainState Queued(TrainState train, ulong node, ulong age, ulong target) => train with
+    { Position = WorldFixture.Node(new(node), NodeTravelPhase.Departing,
+            WorldFixture.ApproachLength + (node == 1 ? WorldFixture.PlatformLength : 0) + WorldFixture.DepartureLength,
+            nextEdge: new(1)), Activity = TrainActivity.Waiting, QueueEnteredStep = age, Plan = Plan(target) };
+    internal static TrainState OnEdge(TrainState train, double distance, double speed, bool reverse = false, int track = 1) => train with
+    { Position = new TrainPosition.Edge(new(1), track, reverse ? TravelDirection.Reverse : TravelDirection.Forward, distance),
+        Activity = TrainActivity.Running, SpeedMetersPerSecond = speed, Plan = Plan(reverse ? 1UL : 2UL) };
+
     internal static AdvanceResult Step(ICoreSession session)
     {
         var result = session.Advance(1);

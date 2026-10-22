@@ -71,6 +71,25 @@ public sealed class ConstructionProcessTests
         Directory.Delete(directory, recursive: true);
     }
 
+    [TestMethod]
+    public async Task Construction_failing_after_the_save_boundary_matches_the_uninterrupted_run()
+    {
+        var root = TestContext.TestRunResultsDirectory ?? throw new AssertFailedException("缺少当前测试结果目录。");
+        var directory = Path.Combine(root, "construction-failure-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var continuous = await Run(directory, "complete", "failure");
+        var saved = await Run(directory, "save", "failure");
+        var resumed = await Run(directory, "resume", "failure");
+        Assert.AreEqual(3, new[] { continuous, saved, resumed }.Select(r => r.ProcessId).Distinct().Count());
+        Assert.AreEqual(continuous.Samples[0], saved.Samples.Single());
+        CollectionAssert.AreEqual(continuous.Samples, resumed.Samples);
+        CollectionAssert.AreEqual(continuous.Events, resumed.Events);
+        Assert.AreEqual(1, continuous.Events.Select(e => JsonDocument.Parse(e).RootElement).Count(e =>
+            e.GetProperty("Kind").GetString() == "ConstructionStateChanged" && JsonDocument.Parse(e.GetProperty("Value").GetString()!)
+                .RootElement.GetProperty("After").GetInt32() == (int)ConstructionState.Failed));
+        Directory.Delete(directory, recursive: true);
+    }
+
     private async Task<ConstructionProcessResult> Run(string directory, string mode, string? scenario = null)
     {
         var output = Path.Combine(directory, mode + ".json");
