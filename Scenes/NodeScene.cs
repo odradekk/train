@@ -392,7 +392,7 @@ internal sealed class NodeScene : IAsyncDisposable
 
     private void UpdatePrefetch(WorldSceneTarget? target, FollowedPath? following)
     {
-        if (target is WorldSceneTarget.Location && layout is { Template: { Plots.Length: > 0 } })
+        if (target is WorldSceneTarget.Location && layout is { Template: not null })
             prefetch = NodeStreaming.SettlementPrefetch(layout);
         else
             prefetch = new(following?.Ahead ?? range.Focus, NodeStreaming.PrefetchCells);
@@ -563,7 +563,7 @@ internal sealed class NodeScene : IAsyncDisposable
         if (failure is not null) return;
         AdmitCompletedParts();
         var neededChunks = range.Chunks(layout!);
-        if (prefetch.Focus != range.Focus) neededChunks = neededChunks.Concat(prefetch.Chunks(layout!)).Distinct();
+        if (prefetch != range) neededChunks = neededChunks.Concat(prefetch.Chunks(layout!)).Distinct();
         var terrain = prepared!.HasChunks ? neededChunks.Where(from =>
             {
                 var key = ChunkKey(from);

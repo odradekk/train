@@ -871,7 +871,9 @@ public sealed class NodeStreamingTests
             previousRemaining = remaining;
         } while (remaining > 0 || scene.HasPendingBuilds);
         Assert.IsTrue(demanded.All(Chunks(cache).ContainsKey));
-        Assert.IsFalse(Chunks(cache).ContainsKey(stale ? new(288, 288) : new(0, 0)));
+        // A Location view prefetches the whole settlement template, so the built chunks are limited to the focus and settlement circles.
+        var allowed = demanded.Concat(NodeStreaming.SettlementPrefetch(scene.Layout!).Chunks(scene.Layout!)).ToHashSet();
+        Assert.IsTrue(Chunks(cache).Keys.All(allowed.Contains), "Only the focus and settlement prefetch chunks may be built.");
     }
 
     [TestMethod]
