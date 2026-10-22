@@ -21,7 +21,7 @@ internal sealed class PreparedVisual : IDisposable
 
     internal Node3D Node { get; } = new();
     internal SceneVisual Visual { get; private set; }
-    internal void ExemptConstructionFog(bool exempt, Shader normal, Shader followed)
+    internal void ExemptConstructionFog(bool exempt, Shader normal, Shader followed, Shader normalModel, Shader followedModel)
     {
         if (_constructionFogExempt == exempt) return;
         if (exempt && Visual is SceneVisual.Model model && _materials.Count == 0)
@@ -34,8 +34,12 @@ internal sealed class PreparedVisual : IDisposable
         }
         _constructionFogExempt = exempt;
         foreach (var material in _materials)
+        {
             if (material.Shader == normal || material.Shader == followed)
                 material.Shader = exempt ? followed : normal;
+            else if (material.Shader == normalModel || material.Shader == followedModel)
+                material.Shader = exempt ? followedModel : normalModel;
+        }
         foreach (var material in _owned.OfType<StandardMaterial3D>())
         {
             material.StencilMode = exempt ? BaseMaterial3D.StencilModeEnum.Custom : BaseMaterial3D.StencilModeEnum.Disabled;
@@ -124,6 +128,8 @@ internal sealed class SceneResources : IDisposable
     private readonly Shader _waterShader;
     private readonly Shader _fogShader;
     private readonly Shader _followedShader;
+    private readonly Shader _modelShader;
+    private readonly Shader _followedModelShader;
     private readonly Texture2D _damageMask;
     private readonly Dictionary<SceneMesh, GeometryResource> _geometry = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<ModelMaterialKey, ModelMaterialResource> _modelMaterials = [];
@@ -144,16 +150,24 @@ internal sealed class SceneResources : IDisposable
                 ?? throw new InvalidOperationException("构建雾着色器无法加载。");
             _followedShader = ResourceLoader.Load<Shader>("res://Rendering/followed_vehicle.gdshader", cacheMode: ResourceLoader.CacheMode.Ignore)
                 ?? throw new InvalidOperationException("跟随车辆着色器无法加载。");
+            _modelShader = ResourceLoader.Load<Shader>("res://Rendering/scene_model.gdshader", cacheMode: ResourceLoader.CacheMode.Ignore)
+                ?? throw new InvalidOperationException("模型材质着色器无法加载。");
+            _followedModelShader = ResourceLoader.Load<Shader>("res://Rendering/followed_model.gdshader", cacheMode: ResourceLoader.CacheMode.Ignore)
+                ?? throw new InvalidOperationException("跟随模型着色器无法加载。");
             _damageMask = ResourceLoader.Load<Texture2D>("res://Rendering/Effects/damage-mask.png", cacheMode: ResourceLoader.CacheMode.Ignore)
                 ?? throw new InvalidOperationException("损伤遮罩无法加载。");
         }
-        catch { _damageMask?.Dispose(); _followedShader?.Dispose(); _fogShader?.Dispose(); _waterShader?.Dispose(); _surfaceShader.Dispose(); throw; }
+        catch
+        {
+            _damageMask?.Dispose(); _followedModelShader?.Dispose(); _modelShader?.Dispose(); _followedShader?.Dispose();
+            _fogShader?.Dispose(); _waterShader?.Dispose(); _surfaceShader.Dispose(); throw;
+        }
     }
 
     internal ShaderMaterial ConstructionFogMaterial() => new() { Shader = _fogShader };
 
     internal void ExemptConstructionFog(PreparedVisual visual, bool exempt) =>
-        visual.ExemptConstructionFog(exempt, _surfaceShader, _followedShader);
+        visual.ExemptConstructionFog(exempt, _surfaceShader, _followedShader, _modelShader, _followedModelShader);
 
     internal PreparedVisual Prepare(SceneVisual visual)
     {
@@ -247,11 +261,10 @@ internal sealed class SceneResources : IDisposable
         var key = new ModelMaterialKey(model.Asset, index, model.Materials[index], model.Paint, model.Surface);
         if (!_modelMaterials.TryGetValue(key, out var entry))
         {
-            var material = SurfaceMaterial(key.Category, source.BaseColorFactor, source.BaseColorTexture, key.Paint);
+            var material = SurfaceMaterial(key.Category, source.BaseColorFactor, source.BaseColorTexture, key.Paint, _modelShader);
             try
             {
                 SetSurface(material, key.State);
-                material.SetShaderParameter("model_height", true);
                 material.SetShaderParameter("alpha_cutout", source.AlphaMode == AssetAlphaMode.Mask);
                 material.SetShaderParameter("alpha_cutoff", source.AlphaCutoff);
             }
@@ -353,7 +366,8 @@ internal sealed class SceneResources : IDisposable
         return preparedMaterial;
     }
 
-    private ShaderMaterial SurfaceMaterial(MaterialCategory category, Color color, Texture2D? texture = null, PaintColor? paint = null)
+    private ShaderMaterial SurfaceMaterial(MaterialCategory category, Color color, Texture2D? texture = null, PaintColor? paint = null,
+        Shader? shader = null)
     {
         var (roughness, metallic, specular) = category switch
         {
@@ -366,7 +380,7 @@ internal sealed class SceneResources : IDisposable
             MaterialCategory.Organic => (0.75f, 0.0f, 0.35f),
             _ => throw new ArgumentOutOfRangeException(nameof(category))
         };
-        var material = new ShaderMaterial { Shader = _surfaceShader };
+        var material = new ShaderMaterial { Shader = shader ?? _surfaceShader };
         try
         {
             material.SetShaderParameter("base_color", color);
@@ -409,6 +423,8 @@ internal sealed class SceneResources : IDisposable
         _waterShader.Dispose();
         _fogShader.Dispose();
         _followedShader.Dispose();
+        _modelShader.Dispose();
+        _followedModelShader.Dispose();
         _damageMask.Dispose();
     }
 }
