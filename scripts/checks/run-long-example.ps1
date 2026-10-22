@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('starting-trade', 'lease-expiry', 'rail-repair', 'conquest', 'clearance', 'operating-failure', 'long-consist', 'standard-world')]
+    [ValidateSet('starting-trade', 'lease-expiry', 'rail-repair', 'conquest', 'clearance', 'operating-failure', 'long-consist', 'standard-world', 'standard-world-long')]
     [string] $Example,
     [string] $Root = (Join-Path $PSScriptRoot '../..')
 )
@@ -26,19 +26,33 @@ $saveStep = switch ($Example) {
     'operating-failure' { '1060000' }
     'long-consist' { '17000' }
     'standard-world' { '110000' }
+    'standard-world-long' { '773800' }
 }
 $continuous = Join-Path $run 'continuous.json'
 $prefix = Join-Path $run 'prefix.save.json'
 $resumed = Join-Path $run 'resumed.json'
 $remade = Join-Path $run 'remade.save.json'
+$repeated = Join-Path $run 'repeated.json'
 $commands = [ordered]@{
     build = @{ arguments = @('build', 'Tools/Cli/Train.Cli.csproj', '-c', 'Release'); requires = @() }
     replay = @{ arguments = @($cli, 'replay', $root, $recipe, $continuous); requires = @('build') }
     save = @{ arguments = @($cli, 'save', $root, $recipe, $prefix, $saveStep); requires = @('build') }
     resume = @{ arguments = @($cli, 'resume', $root, $recipe, $prefix, $resumed); requires = @('save') }
-    make = @{ arguments = @($cli, 'make', $root, $recipe, $remade); requires = @('build') }
-    check = @{ arguments = @($cli, 'check', $root, $recipe, $remade); requires = @('make') }
-    compare = @{ arguments = @($cli, 'compare', $continuous, $resumed); requires = @('replay', 'resume') }
+}
+if ($Example -eq 'standard-world-long') {
+    # 长测没有已提交存档：用另一个进程的重复运行代替制作与检查。
+    $commands.run = @{ arguments = @($cli, 'run', $root, $recipe, $repeated); requires = @('build') }
+    $simulations = @(@{ names = @('replay') }, @{ names = @('run') }, @{ names = @('save', 'resume') })
+} else {
+    $commands.make = @{ arguments = @($cli, 'make', $root, $recipe, $remade); requires = @('build') }
+    $commands.check = @{ arguments = @($cli, 'check', $root, $recipe, $remade); requires = @('make') }
+    $simulations = @(@{ names = @('replay') }, @{ names = @('save', 'resume') }, @{ names = @('make', 'check') })
+}
+$commands.compare = @{ arguments = @($cli, 'compare', $continuous, $resumed); requires = @('replay', 'resume') }
+$comparisons = @(@{ names = @('compare') })
+if ($commands.Contains('run')) {
+    $commands['compare-repeat'] = @{ arguments = @($cli, 'compare', $continuous, $repeated); requires = @('replay', 'run') }
+    $comparisons += @{ names = @('compare-repeat') }
 }
 $records = [ordered]@{}
 foreach ($name in $commands.Keys) {
@@ -54,8 +68,8 @@ $watch = [Diagnostics.Stopwatch]::StartNew()
 # Each batch finishes before the next; only the three independent simulation groups overlap.
 foreach ($batch in @(
     @{ groups = @(@{ names = @('build') }) },
-    @{ groups = @(@{ names = @('replay') }, @{ names = @('save', 'resume') }, @{ names = @('make', 'check') }) },
-    @{ groups = @(@{ names = @('compare') }) }
+    @{ groups = $simulations },
+    @{ groups = $comparisons }
 )) {
     $batch.groups | ForEach-Object -Parallel {
         $ErrorActionPreference = 'Stop'

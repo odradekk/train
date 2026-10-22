@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
@@ -8,11 +10,13 @@ namespace Train.Cli;
 
 internal sealed class CliRunner(ICoreFactory core, IContentFactory content, RuntimeIdentity runtime)
 {
-    internal RunOutput Run(string repository, Recipe recipe, bool verifyReplay)
+    private static readonly JsonSerializerOptions ProgressJson = new(Recipe.Json) { WriteIndented = false };
+
+    internal RunOutput Run(string repository, Recipe recipe, bool verifyReplay, string? progress = null)
     {
         var prepared = PrepareNew(repository, recipe);
         using var session = prepared.Core;
-        return Execute(prepared, recipe, recipe.Target, verifyReplay).Output;
+        return Execute(prepared, recipe, recipe.Target, verifyReplay, progress).Output;
     }
 
     internal void Save(string repository, Recipe recipe, string target, ulong? untilStep)
@@ -20,7 +24,8 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
         var prepared = PrepareNew(repository, recipe);
         using var session = prepared.Core;
         var end = untilStep is { } step ? new SimulationPosition(step, 0) : recipe.Target;
-        var executed = Execute(prepared, recipe, end, false);
+        var executed = Execute(prepared, recipe, end, false, null);
+        RequireNoFindings(executed.Output);
         var state = Require(session.Capture(CapturePurpose.Save));
         var embedded = Require(content.Capture(executed.Content, state.References));
         var document = new SaveDocument(new(SaveContainer.FormatVersion, recipe.Save.Id, recipe.Save.Name,
@@ -32,18 +37,19 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
         if (result.CleanupMessage is not null) Console.Error.WriteLine(result.CleanupMessage);
     }
 
-    internal RunOutput Resume(string repository, Recipe recipe, string path)
+    internal RunOutput Resume(string repository, Recipe recipe, string path, string? progress = null)
     {
         var prepared = PrepareRestore(repository, Store(path).Read(path));
         using var session = prepared.Core;
-        return Execute(prepared, recipe, recipe.Target, false).Output;
+        return Execute(prepared, recipe, recipe.Target, false, progress).Output;
     }
 
     internal void CheckExample(string repository, Recipe recipe, string path)
     {
         var fresh = PrepareNew(repository, recipe);
         using var freshSession = fresh.Core;
-        var actual = Execute(fresh, recipe, recipe.Target, false).Output;
+        var actual = Execute(fresh, recipe, recipe.Target, false, null).Output;
+        RequireNoFindings(actual);
         var restored = PrepareRestore(repository, Store(path).Read(path));
         using var restoredSession = restored.Core;
         CompareInputs(fresh.InputIdentity, restored.InputIdentity);
@@ -111,8 +117,14 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
         return (candidate.Activate(), view, state.InputIdentity);
     }
 
+    internal static void RequireNoFindings(RunOutput output)
+    {
+        if (!output.Findings.IsDefaultOrEmpty)
+            throw new InvalidDataException("不变量不满足：\n" + string.Join('\n', output.Findings));
+    }
+
     private (RunOutput Output, IContentView Content) Execute((ICoreSession Core, IContentView Content, CoreInputId InputIdentity) prepared, Recipe recipe,
-        SimulationPosition target, bool verifyReplay)
+        SimulationPosition target, bool verifyReplay, string? progress)
     {
         var session = prepared.Core;
         var view = prepared.Content;
@@ -128,7 +140,15 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
         var checkpointSteps = recipe.CheckpointSteps.IsDefault ? [] : recipe.CheckpointSteps;
         var accepted = 0;
         var rejected = 0;
+        var findings = ImmutableArray.CreateBuilder<string>();
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+        var jobProgress = new Dictionary<JobId, double>();
+        long retainedBytes = 0;
+        using var progressWriter = progress is null ? null : new StreamWriter(progress, false, new UTF8Encoding(false)) { AutoFlush = true };
+        var clock = Stopwatch.StartNew();
         Sample();
+        var measured = (Steps: start.CompletedSteps, Seconds: 0d, Transfers: 0, Completions: 0,
+            Progress: new Dictionary<JobId, double>(jobProgress));
         for (var index = 0; index < recipe.Commands.Length; index++)
         {
             var command = recipe.Commands[index];
@@ -179,7 +199,8 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
         var samples = checkpoints.ToImmutable();
         if (verifyReplay) VerifyReplay(session.ReadRecording(), view, samples);
         return (new(Environment.ProcessId, runtime, prepared.InputIdentity, samples, accepted, rejected, verifyReplay,
-            observations.ToImmutable(), receipts.ToImmutable(), transfers.ToImmutable(), completions.ToImmutable(), stateChanges.ToImmutable()), view);
+            observations.ToImmutable(), receipts.ToImmutable(), transfers.ToImmutable(), completions.ToImmutable(), stateChanges.ToImmutable(),
+            findings.ToImmutable()), view);
 
         void Observe(ImmutableArray<EventEnvelope> events)
         {
@@ -205,8 +226,11 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
         void Sample()
         {
             checkpoints.Add(Require(session.Capture(CapturePurpose.Save)).Checkpoint);
+            retainedBytes += checkpoints[^1].CanonicalText.Length * sizeof(char);
             var read = session.Read();
             observations.Add(EconomySample.Read(read, view));
+            foreach (var (item, field, detail) in WorldInvariants.Check(read, jobProgress))
+                if (reported.Add(item + " " + field)) findings.Add($"{read.Position} {item} {field}：{detail}");
             if (read.Position.Sequence != 0) return;
             foreach (var expectation in recipe.Expectations.Where(item => item.At == read.Position.CompletedSteps))
             {
@@ -217,13 +241,13 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
                         + $"不符：预期 {expectation.Minimum?.ToString() ?? "-∞"}–{expectation.Maximum?.ToString() ?? "∞"}，实际 {actual}。");
             }
         }
-        void AdvanceTo(SimulationPosition target)
+        void AdvanceTo(SimulationPosition until)
         {
             var position = session.Read().Position;
-            while (position.CompletedSteps < target.CompletedSteps)
+            while (position.CompletedSteps < until.CompletedSteps)
             {
                 var next = checkpointSteps.FirstOrDefault(step => step > position.CompletedSteps
-                    && step < target.CompletedSteps, target.CompletedSteps);
+                    && step < until.CompletedSteps, until.CompletedSteps);
                 var steps = (uint)Math.Min(uint.MaxValue, next - position.CompletedSteps);
                 var result = session.Advance(steps);
                 if (result.Fault is not null || result.CompletedSteps != steps)
@@ -231,8 +255,32 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
                 Observe(result.Events);
                 position = result.Position;
                 Sample();
+                if (checkpointSteps.Contains(position.CompletedSteps) || position == target) Measure();
             }
-            if (position != target) throw new InvalidDataException($"模拟位置不符：预期 {target}，实际 {position}。");
+            if (position != until) throw new InvalidDataException($"模拟位置不符：预期 {until}，实际 {position}。");
+        }
+
+        void Measure()
+        {
+            if (progressWriter is null) return;
+            var read = session.Read();
+            var seconds = clock.Elapsed.TotalSeconds;
+            var counts = WorldCounts.Read(read, view).ToBuilder();
+            counts["goods_transfers"] = transfers.Count - measured.Transfers;
+            counts["production_completions"] = completions.Count - measured.Completions;
+            counts["jobs_progressed"] = jobProgress.Count(job => job.Value > measured.Progress.GetValueOrDefault(job.Key));
+            var misses = recipe.Load is { } load && read.Position.CompletedSteps >= load.From
+                ? load.Targets.Where(item => counts[item.Key] < item.Minimum || counts[item.Key] > item.Maximum)
+                    .Select(item => $"{item.Key}={counts[item.Key]}").ToImmutableArray()
+                : [];
+            using var process = Process.GetCurrentProcess();
+            progressWriter.WriteLine(JsonSerializer.Serialize(new RunMeasurement(read.Position, seconds,
+                (read.Position.CompletedSteps - measured.Steps) / (seconds - measured.Seconds),
+                GC.GetTotalMemory(forceFullCollection: true), process.PrivateMemorySize64, process.WorkingSet64,
+                retainedBytes, counts.ToImmutable(), misses), ProgressJson));
+            // 强制回收和写进度的时间不算进下一段的模拟速度。
+            measured = (read.Position.CompletedSteps, clock.Elapsed.TotalSeconds, transfers.Count, completions.Count,
+                new Dictionary<JobId, double>(jobProgress));
         }
     }
 
