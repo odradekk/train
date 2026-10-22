@@ -1,0 +1,1049 @@
+{
+  "format_version": 1,
+  "generation_profile": "core:standard-world",
+  "seed": 44,
+  "generator_version": "stage1-world-v1",
+  "save": {
+    "id": "7d3c1b52-9a4e-4f1d-8b6a-2e5c0f9d4a13",
+    "name": "拥挤站点",
+    "saved_at": "2026-10-22T00:00:00Z"
+  },
+  "commands": [
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 0
+      },
+      "kind": "settlement.declare_war",
+      "settlement": 2,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 1
+      },
+      "kind": "train.replace_run_plan",
+      "train": 18,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 2,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 2
+      },
+      "kind": "train.replace_run_plan",
+      "train": 4,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 29,
+            "dwell_steps": 600,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:construction-material"
+                },
+                "local_inventory": 13,
+                "target_quantity": 960
+              },
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:platform-equipment"
+                },
+                "local_inventory": 13,
+                "target_quantity": 2
+              }
+            ]
+          },
+          {
+            "kind": "station",
+            "node": 2,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 3
+      },
+      "kind": "train.replace_run_plan",
+      "train": 2,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 21,
+            "dwell_steps": 100000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 4
+      },
+      "kind": "train.replace_run_plan",
+      "train": 3,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 21,
+            "dwell_steps": 100000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 5
+      },
+      "kind": "train.start",
+      "train": 18,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 6
+      },
+      "kind": "train.start",
+      "train": 4,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 7
+      },
+      "kind": "train.start",
+      "train": 2,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 8
+      },
+      "kind": "train.start",
+      "train": 3,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 9
+      },
+      "kind": "train.disband",
+      "train": 1,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 10
+      },
+      "kind": "train.disband",
+      "train": 5,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 11
+      },
+      "kind": "train.disband",
+      "train": 6,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 12
+      },
+      "kind": "train.disband",
+      "train": 7,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 13
+      },
+      "kind": "train.disband",
+      "train": 8,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 14
+      },
+      "kind": "train.disband",
+      "train": 9,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 15
+      },
+      "kind": "train.disband",
+      "train": 10,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 16
+      },
+      "kind": "train.disband",
+      "train": 11,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 17
+      },
+      "kind": "train.disband",
+      "train": 12,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 18
+      },
+      "kind": "train.disband",
+      "train": 13,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 19
+      },
+      "kind": "train.disband",
+      "train": 14,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 20
+      },
+      "kind": "train.disband",
+      "train": 15,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 21
+      },
+      "kind": "train.disband",
+      "train": 16,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 22
+      },
+      "kind": "train.disband",
+      "train": 17,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 23
+      },
+      "kind": "train.disband",
+      "train": 19,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 24
+      },
+      "kind": "train.disband",
+      "train": 20,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 14000,
+        "sequence": 0
+      },
+      "kind": "settlement.occupy",
+      "settlement": 2,
+      "train": 18,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 14000,
+        "sequence": 1
+      },
+      "kind": "train.disband",
+      "train": 18,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 14000,
+        "sequence": 2
+      },
+      "kind": "construction.start_owned",
+      "request": {
+        "facility": {
+          "building": 15,
+          "capability": "construction"
+        },
+        "priority": 0,
+        "kind": "dismantle_building",
+        "building": 11
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 14000,
+        "sequence": 3
+      },
+      "kind": "construction.start_owned",
+      "request": {
+        "facility": {
+          "building": 9,
+          "capability": "construction"
+        },
+        "priority": 0,
+        "kind": "dismantle_building",
+        "building": 14
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 16000,
+        "sequence": 0
+      },
+      "kind": "construction.commission_vehicle_work",
+      "facility": 84,
+      "blueprint": "core:titan-armed-vehicle",
+      "sources": [
+        27,
+        28
+      ],
+      "maximum_payment": 1000000000000,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 16000,
+        "sequence": 1
+      },
+      "kind": "train.replace_run_plan",
+      "train": 2,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 15,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 16000,
+        "sequence": 2
+      },
+      "kind": "train.replace_run_plan",
+      "train": 3,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 15,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 26000,
+        "sequence": 0
+      },
+      "kind": "train.disband",
+      "train": 2,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 26000,
+        "sequence": 1
+      },
+      "kind": "train.disband",
+      "train": 3,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 32000,
+        "sequence": 0
+      },
+      "kind": "inventory.unload_goods",
+      "train": 4,
+      "settlement": 2,
+      "local_inventory": 2,
+      "good": {
+        "kind": "voxel",
+        "definition": "core:construction-material"
+      },
+      "quantity": 960,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 32000,
+        "sequence": 1
+      },
+      "kind": "inventory.unload_goods",
+      "train": 4,
+      "settlement": 2,
+      "local_inventory": 2,
+      "good": {
+        "kind": "voxel",
+        "definition": "core:platform-equipment"
+      },
+      "quantity": 2,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 32000,
+        "sequence": 2
+      },
+      "kind": "train.replace_run_plan",
+      "train": 4,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 15,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 36000,
+        "sequence": 0
+      },
+      "kind": "construction.start_owned",
+      "request": {
+        "facility": {
+          "building": 15,
+          "capability": "construction"
+        },
+        "priority": 0,
+        "kind": "dismantle_building",
+        "building": 8
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 46000,
+        "sequence": 0
+      },
+      "kind": "train.disband",
+      "train": 4,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 113000,
+        "sequence": 0
+      },
+      "kind": "construction.start_owned",
+      "request": {
+        "facility": {
+          "building": 15,
+          "capability": "construction"
+        },
+        "priority": 0,
+        "kind": "dismantle_building",
+        "building": 9
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 271000,
+        "sequence": 0
+      },
+      "kind": "construction.start_owned",
+      "request": {
+        "facility": {
+          "building": 15,
+          "capability": "construction"
+        },
+        "priority": 0,
+        "kind": "build_building",
+        "plot": 12,
+        "blueprint": "core:large-station",
+        "sources": [
+          2
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 0
+      },
+      "kind": "train.form",
+      "ordered_vehicles": [
+        34,
+        35,
+        36,
+        3,
+        4,
+        5
+      ],
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 1
+      },
+      "kind": "train.form",
+      "ordered_vehicles": [
+        37,
+        38,
+        39,
+        6,
+        7,
+        8
+      ],
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 2
+      },
+      "kind": "train.form",
+      "ordered_vehicles": [
+        40,
+        41,
+        42,
+        9,
+        10,
+        11
+      ],
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 3
+      },
+      "kind": "train.form",
+      "ordered_vehicles": [
+        43,
+        44,
+        45,
+        12,
+        13,
+        14
+      ],
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 4
+      },
+      "kind": "train.form",
+      "ordered_vehicles": [
+        46,
+        47,
+        48,
+        15,
+        16,
+        17
+      ],
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 5
+      },
+      "kind": "train.form",
+      "ordered_vehicles": [
+        49,
+        50,
+        51,
+        19,
+        20,
+        21
+      ],
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 6
+      },
+      "kind": "train.form",
+      "ordered_vehicles": [
+        52,
+        53,
+        54,
+        22,
+        23,
+        24
+      ],
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 7
+      },
+      "kind": "train.form",
+      "ordered_vehicles": [
+        55,
+        56,
+        57,
+        25,
+        26,
+        27
+      ],
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 8
+      },
+      "kind": "train.form",
+      "ordered_vehicles": [
+        58,
+        59,
+        60,
+        28,
+        29,
+        30
+      ],
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 9
+      },
+      "kind": "train.form",
+      "ordered_vehicles": [
+        61,
+        62,
+        63,
+        31,
+        32,
+        33
+      ],
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 10
+      },
+      "kind": "train.replace_run_plan",
+      "train": 21,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 2,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 11
+      },
+      "kind": "train.start",
+      "train": 21,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 12
+      },
+      "kind": "train.replace_run_plan",
+      "train": 22,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 2,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 13
+      },
+      "kind": "train.start",
+      "train": 22,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 14
+      },
+      "kind": "train.replace_run_plan",
+      "train": 23,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 2,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 15
+      },
+      "kind": "train.start",
+      "train": 23,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 16
+      },
+      "kind": "train.replace_run_plan",
+      "train": 24,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 2,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 17
+      },
+      "kind": "train.start",
+      "train": 24,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 18
+      },
+      "kind": "train.replace_run_plan",
+      "train": 25,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 2,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 19
+      },
+      "kind": "train.start",
+      "train": 25,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 20
+      },
+      "kind": "train.replace_run_plan",
+      "train": 26,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 2,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 21
+      },
+      "kind": "train.start",
+      "train": 26,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 22
+      },
+      "kind": "train.replace_run_plan",
+      "train": 27,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 2,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 23
+      },
+      "kind": "train.start",
+      "train": 27,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 24
+      },
+      "kind": "train.replace_run_plan",
+      "train": 28,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 2,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 25
+      },
+      "kind": "train.start",
+      "train": 28,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 26
+      },
+      "kind": "train.replace_run_plan",
+      "train": 29,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 2,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 27
+      },
+      "kind": "train.start",
+      "train": 29,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 28
+      },
+      "kind": "train.replace_run_plan",
+      "train": 30,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 2,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 880000,
+        "sequence": 29
+      },
+      "kind": "train.start",
+      "train": 30,
+      "expected_decision": "accepted"
+    }
+  ],
+  "target": {
+    "completed_steps": 910000,
+    "sequence": 0
+  },
+  "checkpoint_steps": [
+    880000
+  ],
+  "expectations": [
+    {
+      "at": 910000,
+      "key": "platforms",
+      "node": 2,
+      "minimum": 4,
+      "maximum": 4
+    },
+    {
+      "at": 910000,
+      "key": "occupied_platforms",
+      "node": 2,
+      "minimum": 4,
+      "maximum": 4
+    },
+    {
+      "at": 910000,
+      "key": "trains_in_plan",
+      "node": 2,
+      "minimum": 10,
+      "maximum": 10
+    },
+    {
+      "at": 910000,
+      "key": "vehicles_in_plan",
+      "node": 2,
+      "minimum": 60,
+      "maximum": 60
+    },
+    {
+      "at": 910000,
+      "key": "trains_queued",
+      "node": 2,
+      "minimum": 6,
+      "maximum": 6
+    }
+  ]
+}

@@ -1,0 +1,834 @@
+{
+  "format_version": 1,
+  "generation_profile": "core:standard-world",
+  "seed": 44,
+  "generator_version": "stage1-world-v1",
+  "save": {
+    "id": "c4e8a1f2-6b3d-4e59-9a07-5d2f8b1c3e64",
+    "name": "繁忙战斗",
+    "saved_at": "2026-10-22T00:00:00Z"
+  },
+  "commands": [
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 0
+      },
+      "kind": "settlement.declare_war",
+      "settlement": 2,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 1
+      },
+      "kind": "train.replace_run_plan",
+      "train": 18,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 2,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 2
+      },
+      "kind": "train.replace_run_plan",
+      "train": 3,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 2,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 3
+      },
+      "kind": "train.replace_run_plan",
+      "train": 4,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 29,
+            "dwell_steps": 600,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:construction-material"
+                },
+                "local_inventory": 13,
+                "target_quantity": 960
+              }
+            ]
+          },
+          {
+            "kind": "station",
+            "node": 2,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 4
+      },
+      "kind": "train.replace_run_plan",
+      "train": 5,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 17,
+            "dwell_steps": 600,
+            "goods_rules": [
+              {
+                "action": {
+                  "kind": "buy",
+                  "maximum_unit_price": null
+                },
+                "good": {
+                  "kind": "voxel",
+                  "definition": "core:construction-material"
+                },
+                "local_inventory": 10,
+                "target_quantity": 960
+              }
+            ]
+          },
+          {
+            "kind": "station",
+            "node": 2,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 5
+      },
+      "kind": "train.replace_run_plan",
+      "train": 2,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 34,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 6
+      },
+      "kind": "train.start",
+      "train": 18,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 7
+      },
+      "kind": "train.start",
+      "train": 4,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 8
+      },
+      "kind": "train.start",
+      "train": 5,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 9
+      },
+      "kind": "train.start",
+      "train": 2,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 10
+      },
+      "kind": "train.disband",
+      "train": 1,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 11
+      },
+      "kind": "train.disband",
+      "train": 6,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 12
+      },
+      "kind": "train.disband",
+      "train": 7,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 13
+      },
+      "kind": "train.disband",
+      "train": 8,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 14
+      },
+      "kind": "train.disband",
+      "train": 9,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 15
+      },
+      "kind": "train.disband",
+      "train": 10,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 16
+      },
+      "kind": "train.disband",
+      "train": 11,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 17
+      },
+      "kind": "train.disband",
+      "train": 12,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 18
+      },
+      "kind": "train.disband",
+      "train": 13,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 19
+      },
+      "kind": "train.disband",
+      "train": 14,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 20
+      },
+      "kind": "train.disband",
+      "train": 15,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 21
+      },
+      "kind": "train.disband",
+      "train": 16,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 22
+      },
+      "kind": "train.disband",
+      "train": 17,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 23
+      },
+      "kind": "train.disband",
+      "train": 19,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 0,
+        "sequence": 24
+      },
+      "kind": "train.disband",
+      "train": 20,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 4000,
+        "sequence": 0
+      },
+      "kind": "train.start",
+      "train": 3,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 14000,
+        "sequence": 0
+      },
+      "kind": "settlement.occupy",
+      "settlement": 2,
+      "train": 18,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 14000,
+        "sequence": 1
+      },
+      "kind": "train.disband",
+      "train": 18,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 14000,
+        "sequence": 2
+      },
+      "kind": "construction.start_owned",
+      "request": {
+        "facility": {
+          "building": 15,
+          "capability": "construction"
+        },
+        "priority": 0,
+        "kind": "dismantle_building",
+        "building": 11
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 14000,
+        "sequence": 3
+      },
+      "kind": "construction.start_owned",
+      "request": {
+        "facility": {
+          "building": 9,
+          "capability": "construction"
+        },
+        "priority": 0,
+        "kind": "dismantle_building",
+        "building": 14
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 32000,
+        "sequence": 0
+      },
+      "kind": "inventory.unload_goods",
+      "train": 3,
+      "settlement": 2,
+      "local_inventory": 2,
+      "good": {
+        "kind": "composite",
+        "definition": "core:heavy-turret"
+      },
+      "quantity": 1,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 32000,
+        "sequence": 1
+      },
+      "kind": "inventory.unload_goods",
+      "train": 3,
+      "settlement": 2,
+      "local_inventory": 2,
+      "good": {
+        "kind": "voxel",
+        "definition": "core:machine-gun"
+      },
+      "quantity": 1,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 32000,
+        "sequence": 2
+      },
+      "kind": "inventory.unload_goods",
+      "train": 4,
+      "settlement": 2,
+      "local_inventory": 2,
+      "good": {
+        "kind": "voxel",
+        "definition": "core:construction-material"
+      },
+      "quantity": 960,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 32000,
+        "sequence": 3
+      },
+      "kind": "train.replace_run_plan",
+      "train": 3,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 34,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 32000,
+        "sequence": 4
+      },
+      "kind": "train.disband",
+      "train": 4,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 33000,
+        "sequence": 0
+      },
+      "kind": "construction.start_owned",
+      "request": {
+        "facility": {
+          "building": 9,
+          "capability": "construction"
+        },
+        "priority": 0,
+        "kind": "build_building",
+        "plot": 20,
+        "blueprint": "core:defense-tower",
+        "sources": [
+          2
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 82000,
+        "sequence": 0
+      },
+      "kind": "inventory.unload_goods",
+      "train": 5,
+      "settlement": 2,
+      "local_inventory": 2,
+      "good": {
+        "kind": "voxel",
+        "definition": "core:construction-material"
+      },
+      "quantity": 960,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 82000,
+        "sequence": 1
+      },
+      "kind": "train.disband",
+      "train": 5,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 82000,
+        "sequence": 2
+      },
+      "kind": "construction.start_owned",
+      "request": {
+        "facility": {
+          "building": 15,
+          "capability": "construction"
+        },
+        "priority": 0,
+        "kind": "build_building",
+        "plot": 15,
+        "blueprint": "core:heavy-battery",
+        "sources": [
+          2
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 92000,
+        "sequence": 0
+      },
+      "kind": "construction.start_owned",
+      "request": {
+        "facility": {
+          "building": 9,
+          "capability": "construction"
+        },
+        "priority": 0,
+        "kind": "dismantle_building",
+        "building": 8
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 169000,
+        "sequence": 0
+      },
+      "kind": "construction.start_owned",
+      "request": {
+        "facility": {
+          "building": 9,
+          "capability": "construction"
+        },
+        "priority": 0,
+        "kind": "build_building",
+        "plot": 18,
+        "blueprint": "core:defense-tower",
+        "sources": [
+          2
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 325000,
+        "sequence": 0
+      },
+      "kind": "train.form",
+      "ordered_vehicles": [
+        64,
+        65,
+        66,
+        67,
+        41,
+        42
+      ],
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 325000,
+        "sequence": 1
+      },
+      "kind": "engagement.set_train",
+      "train": 21,
+      "rules": {
+        "priority": "armed_first",
+        "scope": "all",
+        "encounter": "engage",
+        "retreat_structure_ratio": 0
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 325000,
+        "sequence": 2
+      },
+      "kind": "train.replace_run_plan",
+      "train": 21,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 2,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 325000,
+        "sequence": 3
+      },
+      "kind": "train.start",
+      "train": 21,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 325000,
+        "sequence": 4
+      },
+      "kind": "train.form",
+      "ordered_vehicles": [
+        68,
+        69,
+        70,
+        71,
+        44,
+        45
+      ],
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 325000,
+        "sequence": 5
+      },
+      "kind": "engagement.set_train",
+      "train": 22,
+      "rules": {
+        "priority": "armed_first",
+        "scope": "all",
+        "encounter": "engage",
+        "retreat_structure_ratio": 0
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 325000,
+        "sequence": 6
+      },
+      "kind": "train.replace_run_plan",
+      "train": 22,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 2,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 325000,
+        "sequence": 7
+      },
+      "kind": "train.start",
+      "train": 22,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 325000,
+        "sequence": 8
+      },
+      "kind": "train.form",
+      "ordered_vehicles": [
+        72,
+        73,
+        74,
+        75,
+        47,
+        48
+      ],
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 325000,
+        "sequence": 9
+      },
+      "kind": "engagement.set_train",
+      "train": 23,
+      "rules": {
+        "priority": "armed_first",
+        "scope": "all",
+        "encounter": "engage",
+        "retreat_structure_ratio": 0
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 325000,
+        "sequence": 10
+      },
+      "kind": "train.replace_run_plan",
+      "train": 23,
+      "plan": {
+        "loop": false,
+        "stops": [
+          {
+            "kind": "station",
+            "node": 2,
+            "dwell_steps": 1000000,
+            "goods_rules": []
+          }
+        ]
+      },
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 325000,
+        "sequence": 11
+      },
+      "kind": "train.start",
+      "train": 23,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 343000,
+        "sequence": 0
+      },
+      "kind": "creature.debug_spawn_group",
+      "node": 2,
+      "creature": "core:small-creature",
+      "count": 24,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 343000,
+        "sequence": 1
+      },
+      "kind": "creature.debug_spawn_group",
+      "node": 2,
+      "creature": "core:medium-creature",
+      "count": 12,
+      "expected_decision": "accepted"
+    },
+    {
+      "at": {
+        "completed_steps": 343000,
+        "sequence": 2
+      },
+      "kind": "creature.debug_spawn_group",
+      "node": 2,
+      "creature": "core:large-creature",
+      "count": 4,
+      "expected_decision": "accepted"
+    }
+  ],
+  "target": {
+    "completed_steps": 343060,
+    "sequence": 0
+  },
+  "checkpoint_steps": [
+    330000,
+    343000,
+    343001
+  ],
+  "expectations": [
+    {
+      "at": 343001,
+      "key": "armed_node_combats",
+      "node": 2,
+      "minimum": 1,
+      "maximum": 1
+    },
+    {
+      "at": 343001,
+      "key": "armed_trains_in_combat",
+      "node": 2,
+      "minimum": 3,
+      "maximum": 3
+    },
+    {
+      "at": 343001,
+      "key": "armed_buildings",
+      "node": 2,
+      "minimum": 3,
+      "maximum": 3
+    },
+    {
+      "at": 343001,
+      "key": "creatures",
+      "node": 2,
+      "minimum": 40,
+      "maximum": 40
+    },
+    {
+      "at": 343001,
+      "key": "large_creatures",
+      "node": 2,
+      "minimum": 4,
+      "maximum": 4
+    }
+  ]
+}

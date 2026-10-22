@@ -19,7 +19,7 @@ on:
       example:
         description: Long example (used only by long-example)
         type: choice
-        options: [starting-trade, lease-expiry, rail-repair, conquest, clearance, operating-failure, long-consist, standard-world]
+        options: [starting-trade, lease-expiry, rail-repair, conquest, clearance, operating-failure, long-consist, standard-world, busy-combat, crowded-station]
         default: starting-trade
       soak_seconds:
         description: 窗口长测循环时长（秒，仅 window-soak 使用）
@@ -184,7 +184,7 @@ jobs:
     name: Linux ${{ github.event_name == 'push' && 'post-merge' || inputs.selection || 'nightly' }} ${{ inputs.selection == 'long-example' && inputs.example || '' }}
     if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/master') || (github.event_name == 'workflow_dispatch' && (inputs.selection == 'nightly' || inputs.selection == 'long-example' || inputs.selection == 'window-soak'))
     runs-on: [self-hosted, linux, nightly]
-    timeout-minutes: ${{ inputs.selection == 'long-example' && (inputs.example == 'lease-expiry' && 485 || 105) || inputs.selection == 'window-soak' && 200 || 153 }}
+    timeout-minutes: ${{ inputs.selection == 'long-example' && (inputs.example == 'lease-expiry' && 485 || inputs.example == 'crowded-station' && 175 || 105) || inputs.selection == 'window-soak' && 200 || 153 }}
     permissions:
       contents: read
     env:

@@ -24,7 +24,7 @@ internal sealed partial class MeasurementRun
     private static readonly WorldObjectId.Node SoakNodeBattle = new(new(3));
     private static readonly WorldObjectId.Edge SoakLineBattle = new(new(15));
     private static readonly TrainId SoakTrain = new(1);
-    // 线路战斗在保存点 700 步后结束，所以另设一档不含线路战斗的负载。
+    // 线路战斗在保存点后约 1,500 步（约 25 游戏秒）结束，所以另设一档不含线路战斗的负载。
     private static readonly string[] SoakLineBattleKeys = ["armed_combats", "armed_line_combats"];
 
     private readonly List<object> _soakSamples = [];

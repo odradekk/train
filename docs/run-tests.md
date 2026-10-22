@@ -85,6 +85,8 @@ gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selec
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=operating-failure
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=long-consist
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=standard-world
+gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=busy-combat
+gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=crowded-station
 # 测试机器上的正式窗口长测；先与协调者确认 runner 时段和主机条件
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=window-soak -f soak_seconds=7200
 # 阶段验收：工作流使用 master，代码使用固定的完整 40 位提交 SHA

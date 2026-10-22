@@ -9,9 +9,9 @@ internal static class WorldCounts
 {
     internal static readonly ImmutableArray<string> Keys =
     [
-        "armed_combats", "armed_line_combats", "armed_node_combats", "buildings", "creatures",
+        "armed_buildings", "armed_combats", "armed_line_combats", "armed_node_combats", "armed_trains_in_combat", "buildings", "creatures",
         "creatures_guarding", "creatures_raiding", "creatures_wandering", "dismantles_working", "facilities_running", "jobs_working",
-        "largest_train_meters", "largest_train_vehicles", "nodes", "player_settlements", "settlements",
+        "large_creatures", "largest_train_meters", "largest_train_vehicles", "nodes", "occupied_platforms", "platforms", "player_settlements", "settlements",
         "titan_builds_working", "titan_trains_in_plan", "trains_in_plan", "trains_queued", "trains_running",
         "trains_servicing", "vehicles_in_plan"
     ];
@@ -36,9 +36,13 @@ internal static class WorldCounts
             groups.Where(group => activity(group.Activity)).Sum(group => group.Creatures.Length);
         return new Dictionary<string, double>
         {
+            ["armed_buildings"] = settlements.Sum(settlement => settlement.Plots.Count(plot => plot.Occupant is PlotOccupant.Building building
+                && Armed(new InstanceId.Building(building.Id)))),
             ["armed_combats"] = armedCombats.Length,
             ["armed_line_combats"] = armedCombats.Count(combat => combat.Location is WorldLocation.Edge),
             ["armed_node_combats"] = armedCombats.Count(combat => combat.Location is WorldLocation.Node),
+            ["armed_trains_in_combat"] = trains.Count(train => train.Activity == TrainActivity.Combat
+                && train.Vehicles.Any(vehicle => Armed(new InstanceId.Vehicle(vehicle)))),
             ["buildings"] = settlements.Sum(settlement => settlement.Plots.Count(plot => plot.Occupant is PlotOccupant.Building)),
             ["creatures"] = Creatures(_ => true),
             ["creatures_guarding"] = Creatures(activity => activity == CreatureActivity.Guarding),
@@ -47,9 +51,13 @@ internal static class WorldCounts
             ["dismantles_working"] = working.Count(job => job.Kind == ConstructionKind.Deconstruction),
             ["facilities_running"] = settlements.Sum(settlement => settlement.Facilities.Count(facility => facility.State == ProductionState.Running)),
             ["jobs_working"] = working.Length,
+            // 清单的“大型生物”就是内置定义 core:large-creature；生物投影没有尺寸档位。
+            ["large_creatures"] = groups.Sum(group => group.Creatures.Count(creature => creature.Definition.Value == "core:large-creature")),
             ["largest_train_meters"] = trains.Select(train => train.LengthMeters).DefaultIfEmpty().Max(),
             ["largest_train_vehicles"] = trains.Select(train => train.Vehicles.Length).DefaultIfEmpty().Max(),
             ["nodes"] = nodes.Length,
+            ["occupied_platforms"] = nodes.Sum(item => item.OccupiedPlatforms),
+            ["platforms"] = nodes.Sum(item => item.Platforms),
             ["player_settlements"] = settlements.Count(settlement => settlement.Relation == SettlementRelation.PlayerOwned),
             ["settlements"] = settlements.Length,
             ["titan_builds_working"] = working.Count(job => job.Target is ConstructionTarget.NewVehicle vehicle
@@ -63,11 +71,11 @@ internal static class WorldCounts
             ["vehicles_in_plan"] = inPlan.Sum(train => train.Vehicles.Length)
         }.ToImmutableSortedDictionary(StringComparer.Ordinal);
 
-        bool ArmedPlayerUnit(CombatUnitId unit)
+        bool ArmedPlayerUnit(CombatUnitId unit) => unit is CombatUnitId.Instance { Id: var id }
+            && Found(view.FindInstance(id)).Ownership == SettlementRelation.PlayerOwned && Armed(id);
+        bool Armed(InstanceId id)
         {
-            if (unit is not CombatUnitId.Instance { Id: var id }) return false;
             var instance = Found(view.FindInstance(id));
-            if (instance.Ownership != SettlementRelation.PlayerOwned) return false;
             var weapons = Design(instance.Design).Parts.Where(part => part.Capabilities.Any(capability => capability is PartCapability.Weapon))
                 .Select(part => part.Id).ToHashSet();
             return instance.Parts.Any(part => weapons.Contains(part.Part) && !part.Destroyed && !part.DefinitionMissing);

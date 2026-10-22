@@ -107,6 +107,12 @@ internal sealed class CoreSession(CoreState state, int retainedRecordingStarts =
             ProductionCommands.Validate(productionPlan);
             return ExecuteCommand(command, source, content => ProductionCommands.Execute(State.World, content, productionPlan));
         }
+        if (command is CoreCommand.DebugSpawnCreatureGroup spawn)
+        {
+            CreatureOperations.ValidateDebugSpawn(spawn);
+            return ExecuteCommand(command, source, content => CreatureOperations.DebugSpawn(State.World, content, spawn,
+                State.Position.CompletedSteps));
+        }
         TrainCommands.Validate(command);
         return ExecuteCommand(command, source, content => TrainCommands.Execute(State.World, content, command,
             new(State.Position.CompletedSteps, checked(State.Position.Sequence + 1))));
