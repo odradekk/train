@@ -6,14 +6,17 @@ param(
     [Parameter(Mandatory)][string] $OutputDirectory,
     [ValidateSet('map-1x', 'map-8x', 'follow-1x', 'follow-8x', 'node-1x', 'node-8x',
         'sdfgi-off', 'sdfgi-on', 'taa-off', 'taa-on', 'scene-node', 'scene-node-first',
-        'scene-edge', 'scene-follow', 'scene-follow-8x', 'scene-memory', 'scene-capture', 'scene-map', 'scene-reference',
+        'scene-edge', 'scene-follow', 'scene-follow-8x', 'scene-memory', 'scene-capture', 'scene-map', 'scene-reference', 'scene-editor',
         'scene-route-1x', 'scene-route-2x', 'scene-route-4x', 'scene-route-8x', 'scene-route-capture-1x', 'scene-route-capture-8x')]
     [string[]] $Scenario = @('map-1x', 'map-8x', 'follow-1x', 'follow-8x', 'node-1x', 'node-8x',
         'sdfgi-off', 'sdfgi-on', 'taa-off', 'taa-on'),
     [ValidateRange(1, 2147483647)][int] $Repeat = 3,
     # 启动器超时上限 2147478 秒，扣除 scene-memory 的 600 秒退出余量。
     [ValidateRange(0, 2146878)][int] $DurationSeconds = 0,
-    [string] $ReferencePath
+    [string] $ReferencePath,
+    # scene-* 情景的目标列车与节点；省略时游戏使用列车 1、节点 2。
+    [ValidateRange(1, 9223372036854775807)][long] $TrainId,
+    [ValidateRange(1, 9223372036854775807)][long] $NodeId
 )
 
 $ErrorActionPreference = 'Stop'
@@ -186,6 +189,8 @@ public sealed class MeasurementDisplayAwake : IDisposable
                     "--measure=$name", '--measure-input', $InputPath, '--measure-output', $reportPath, '--measure-identity', $identityPath)
                 if ($isScene -or $DurationSeconds -gt 0) { $arguments += @('--measure-duration', $DurationSeconds.ToString([Globalization.CultureInfo]::InvariantCulture)) }
                 if ($ReferencePath) { $arguments += @('--measure-reference', $ReferencePath) }
+                if ($PSBoundParameters.ContainsKey('TrainId')) { $arguments += @('--measure-train', $TrainId.ToString([Globalization.CultureInfo]::InvariantCulture)) }
+                if ($PSBoundParameters.ContainsKey('NodeId')) { $arguments += @('--measure-node', $NodeId.ToString([Globalization.CultureInfo]::InvariantCulture)) }
                 $result = Invoke-HiddenProcess -FilePath $ExecutablePath -TimeoutSeconds $timeout -ArgumentList $arguments
                 $result.Output | Set-Content -LiteralPath (Join-Path $runDirectory 'process.log') -Encoding utf8
                 $godotLog = Join-Path $runDirectory 'godot.log'
