@@ -40,6 +40,7 @@ $failure = $null
 $displayAwake = $null
 $displayAwakeState = @{ acquired = $false; restored = $false }
 $idleInhibit = $false
+$wrapper = $null
 try {
     if (-not $IsWindows -and -not $IsLinux) { throw '测量入口需要 Windows 或 Linux Release 导出与真实窗口。' }
     # 执行状态属于原生线程；专用线程持有到 finally，不能依赖 PowerShell 的运行线程。
@@ -98,6 +99,12 @@ public sealed class MeasurementDisplayAwake : IDisposable
             $idleInhibit = $probe.ExitCode -eq 0 -and -not $probe.TimedOut
         }
         catch { $idleInhibit = $false }
+        # 测试机器的合成器会改写窗口尺寸；gamescope 给游戏固定的 1920×1080 输出（用户 2026-10-22 决定）。
+        if (-not (Get-Command gamescope -ErrorAction SilentlyContinue)) {
+            throw 'Linux 测量需要 gamescope 提供固定的 1920×1080 输出，主机上找不到 gamescope。'
+        }
+        $wrapper = @{ program = 'gamescope'; version = ((& gamescope --version 2>&1) | Select-Object -First 1) -as [string]
+            arguments = @('-w', '1920', '-h', '1080', '-W', '1920', '-H', '1080', '--') }
     }
     if ($Scenario.Count -eq 0) { throw '至少选择一个情景。' }
     $ExecutablePath = (Resolve-Path -LiteralPath $ExecutablePath).Path
@@ -163,6 +170,7 @@ public sealed class MeasurementDisplayAwake : IDisposable
                     ForEach-Object { (Get-Content -LiteralPath (Join-Path $_.FullName 'online')) -eq '1' })
                 platform_profile = Get-Content -LiteralPath /sys/firmware/acpi/platform_profile -ErrorAction SilentlyContinue
                 idle_inhibit = $idleInhibit
+                display_wrapper = $wrapper
             }
         }
     }
@@ -254,11 +262,10 @@ public sealed class MeasurementDisplayAwake : IDisposable
                 if ($ReferencePath) { $arguments += @('--measure-reference', $ReferencePath) }
                 if ($PSBoundParameters.ContainsKey('TrainId')) { $arguments += @('--measure-train', $TrainId.ToString([Globalization.CultureInfo]::InvariantCulture)) }
                 if ($PSBoundParameters.ContainsKey('NodeId')) { $arguments += @('--measure-node', $NodeId.ToString([Globalization.CultureInfo]::InvariantCulture)) }
-                $result = if ($idleInhibit) {
-                    Invoke-HiddenProcess -FilePath 'systemd-inhibit' -TimeoutSeconds $timeout -ArgumentList (@(
-                        '--what=idle:sleep', '--who=train-measure', '--why=window measurement', '--mode=block', $ExecutablePath) + $arguments)
-                }
-                else { Invoke-HiddenProcess -FilePath $ExecutablePath -TimeoutSeconds $timeout -ArgumentList $arguments }
+                $launch = @($ExecutablePath) + $arguments
+                if ($null -ne $wrapper) { $launch = @($wrapper.program) + $wrapper.arguments + $launch }
+                if ($idleInhibit) { $launch = @('systemd-inhibit', '--what=idle:sleep', '--who=train-measure', '--why=window measurement', '--mode=block') + $launch }
+                $result = Invoke-HiddenProcess -FilePath $launch[0] -TimeoutSeconds $timeout -ArgumentList @($launch | Select-Object -Skip 1)
                 $result.Output | Set-Content -LiteralPath (Join-Path $runDirectory 'process.log') -Encoding utf8
                 $godotLog = Join-Path $runDirectory 'godot.log'
                 $godotLines = @(if (Test-Path -LiteralPath $godotLog -PathType Leaf) {
@@ -306,6 +313,7 @@ finally {
         Write-Json $summaryPath @{
             succeeded = $null -eq $failure; error = $failure; runs = @($runs.ToArray())
             display_awake = $(if ($IsWindows) { $displayAwakeState } else { @{ idle_inhibit = $idleInhibit } })
+            display_wrapper = $wrapper
             scope = @{
                 final_performance = $false
                 warmup_seconds = 5; sample_seconds = $(if ($DurationSeconds -gt 0) { $DurationSeconds } else { 30 }); repetitions = $Repeat

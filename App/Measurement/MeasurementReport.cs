@@ -24,6 +24,8 @@ internal static class MeasurementReport
         var scene = scenario.StartsWith("scene-", StringComparison.Ordinal);
         // 测量入口写入的身份标明是否在用户指定的测试机器上运行；缺省按开发机处理。
         var testMachine = identity.TryGetValue("machine", out var machine) && machine?.ToString() == "test";
+        var nested = identity.TryGetValue("system", out var system) && system is JsonElement { ValueKind: JsonValueKind.Object } host &&
+            host.TryGetProperty("display_wrapper", out var wrapper) && wrapper.ValueKind == JsonValueKind.Object;
         return JsonSerializer.Serialize(new
         {
             outcome = failure is null ? "completed" : "failed",
@@ -35,6 +37,7 @@ internal static class MeasurementReport
                 content = scene ? "formal-assets-at-tested-commit" : "placeholder",
                 art_review = scene ? "美术 Issue #358–#363、#393–#396 的 PR 已合并，正式外观仍待用户目视确认" : null,
                 thresholds = "帧耗时尾部、加载等待等阈值待用户确认，本报告不判定通过",
+                composition = nested ? "游戏在 gamescope 嵌套合成器中以 1920×1080 输出运行，画面先经 gamescope 合成再交给主机合成器；参数见 identity.system.display_wrapper" : null,
                 final_performance = false,
                 unmeasured = Unmeasured(scenario, testMachine) },
             identity,
