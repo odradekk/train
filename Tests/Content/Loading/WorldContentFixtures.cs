@@ -109,10 +109,10 @@ internal static class WorldContentFixtures
         """)!.AsObject();
 
     internal static JsonObject Terrain() => JsonNode.Parse("""
-        {"schema_version":1,"id":"plains","display":{"name":"平原","description":"测试地貌"},
+        {"schema_version":2,"id":"plains","display":{"name":"平原","description":"测试地貌"},
         "surface_voxel":"scenery","subsurface_voxel":"scenery","rock_voxel":"scenery","local_height_noise":[],
-        "decorations":[],"decoration_target_per_square_meter":0,
-        "railway_models":[{"tracks":1,"bridge":"scene","tunnel_portal":"scene"},{"tracks":2,"bridge":"scene","tunnel_portal":"scene"}]}
+        "decorations":[],"decoration_target_per_square_meter":0,"construction_site":"scene",
+        "railway_models":[{"tracks":1,"bridge":"scene","tunnel_portal":"scene","repair_site":"scene"},{"tracks":2,"bridge":"scene","tunnel_portal":"scene","repair_site":"scene"}]}
         """)!.AsObject();
 
     internal static JsonObject Profile()

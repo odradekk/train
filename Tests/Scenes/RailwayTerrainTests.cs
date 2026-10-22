@@ -142,7 +142,7 @@ public sealed class RailwayTerrainTests
             "voxel" => RailwayFixtures.Content(voxels: new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
             { [SceneFixtures.Voxel] = new ContentLookup<VoxelAppearanceProjection>.Missing(source) }),
             _ => RailwayFixtures.Content(
-                terrain: RailwayFixtures.TerrainAppearance with { RailwayModels = [new(1, ModelHash, ModelHash)] },
+                terrain: RailwayFixtures.TerrainAppearance with { RailwayModels = [new(1, ModelHash, ModelHash, ModelHash)] },
                 designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
                 {
                     [ModelHash] = kind == "model_failed"
@@ -435,7 +435,7 @@ public sealed class RailwayTerrainTests
                 .Append(SceneFixtures.Cell(childAt, path: [0]) with { Voxel = ModelVoxel }).ToImmutableArray(),
             [nested]) with { Design = ModelHash };
         var model = SceneFixtures.Evaluation(projection) with { Design = ModelHash };
-        var terrain = RailwayFixtures.TerrainAppearance with { RailwayModels = [new(1, ModelHash, ModelHash)] };
+        var terrain = RailwayFixtures.TerrainAppearance with { RailwayModels = [new(1, ModelHash, ModelHash, ModelHash)] };
         var snapshot = WithFeatures(RailwayFixtures.Snapshot(400, 400, relief: 0, content: Content(terrain, model)), ["river"]);
         var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
         var start = path.Sample(0);
@@ -483,7 +483,7 @@ public sealed class RailwayTerrainTests
                 cells.Add(SceneFixtures.Cell(new(x, -2, z)) with { Voxel = ModelVoxel });
         var halfWidth = xs.Max(x => Math.Abs(x + 0.5));
         var model = SceneFixtures.Evaluation(SceneFixtures.Projection(cells.ToImmutable()) with { Design = ModelHash }) with { Design = ModelHash };
-        var terrain = RailwayFixtures.TerrainAppearance with { RailwayModels = [new(3, ModelHash, ModelHash)] };
+        var terrain = RailwayFixtures.TerrainAppearance with { RailwayModels = [new(3, ModelHash, ModelHash, ModelHash)] };
         var snapshot = WithFeatures(RailwayFixtures.ReplaceCore(RailwayFixtures.Snapshot(400, 50, relief: 0, tracks: 3,
             content: Content(terrain, model, rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 80 })), worldSeed: 3UL), ["river"]);
         var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
@@ -533,7 +533,7 @@ public sealed class RailwayTerrainTests
         var projection = SceneFixtures.Projection(roots.Select(at => SceneFixtures.Cell(at) with { Voxel = ModelVoxel }).ToImmutableArray())
             with { Design = ModelHash };
         var model = SceneFixtures.Evaluation(projection) with { Design = ModelHash };
-        var terrain = RailwayFixtures.TerrainAppearance with { RailwayModels = [new(1, ModelHash, ModelHash)] };
+        var terrain = RailwayFixtures.TerrainAppearance with { RailwayModels = [new(1, ModelHash, ModelHash, ModelHash)] };
         var snapshot = WithFeatures(RailwayFixtures.Snapshot(400, 400, relief: 0, content: Content(terrain, model)), ["river"]);
         var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
         var water = RiverCenter(path);
@@ -580,7 +580,7 @@ public sealed class RailwayTerrainTests
     [TestMethod]
     public void RiverProducesWaterAndTheModelForTheActualTrackCount()
     {
-        var terrain = RailwayFixtures.TerrainAppearance with { RailwayModels = [new(1, ModelHash, ModelHash)] };
+        var terrain = RailwayFixtures.TerrainAppearance with { RailwayModels = [new(1, ModelHash, ModelHash, ModelHash)] };
         var snapshot = WithFeatures(Short(Content(terrain, Model())), ["river"]);
         var segment = Build(snapshot);
         Assert.IsTrue(Meshes(segment).Any(mesh => mesh.Material is SceneMaterial.BuiltIn { Kind: BuiltInMaterial.Water }));
@@ -594,7 +594,7 @@ public sealed class RailwayTerrainTests
     public void GradedBridgeFlattenFootprintUsesHorizontalProjection()
     {
         var model = Model(flatten: new(new(30, 0), new(31, 0), 10));
-        var terrain = RailwayFixtures.TerrainAppearance with { RailwayModels = [new(1, ModelHash, ModelHash)] };
+        var terrain = RailwayFixtures.TerrainAppearance with { RailwayModels = [new(1, ModelHash, ModelHash, ModelHash)] };
         var snapshot = WithFeatures(RailwayFixtures.Snapshot(1000, 1000, relief: 2, content: Content(terrain, model)), ["river"]);
         var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
         const ulong riverPlacementPurpose = 20;
@@ -680,7 +680,7 @@ public sealed class RailwayTerrainTests
     [TestMethod]
     public void BridgeDesignChangesInvalidateSegmentsThatResolvedIt()
     {
-        var terrain = RailwayFixtures.TerrainAppearance with { RailwayModels = [new(1, ModelHash, ModelHash)] };
+        var terrain = RailwayFixtures.TerrainAppearance with { RailwayModels = [new(1, ModelHash, ModelHash, ModelHash)] };
         var snapshot = WithFeatures(RailwayFixtures.Snapshot(132, 132, relief: 0, content: Content(terrain, Model())), ["river"]);
         var bridgeSegment = Build(snapshot, 1);
         var distantSegment = Build(snapshot, 2);
@@ -702,7 +702,7 @@ public sealed class RailwayTerrainTests
     [TestMethod]
     public void LongerBridgeDesignInvalidatesTheSegmentThatOwnedNoSpan()
     {
-        var terrain = RailwayFixtures.TerrainAppearance with { RailwayModels = [new(1, ModelHash, ModelHash)] };
+        var terrain = RailwayFixtures.TerrainAppearance with { RailwayModels = [new(1, ModelHash, ModelHash, ModelHash)] };
         var snapshot = WithFeatures(RailwayFixtures.Snapshot(400, 400, relief: 0, content: Content(terrain, Model())), ["river"]);
         var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
         var water = RiverCenter(path);
@@ -870,7 +870,7 @@ public sealed class RailwayTerrainTests
         var terrain = RailwayFixtures.TerrainAppearance with
         {
             LocalHeightNoise = [new(1_000_000, amplitude)],
-            RailwayModels = includeModel ? [new(1, ModelHash, ModelHash)] : []
+            RailwayModels = includeModel ? [new(1, ModelHash, ModelHash, ModelHash)] : []
         };
         var basis = RailwayFixtures.Snapshot(4, 4, relief: 1, content: Content(terrain, PortalModel()));
         var snapshot = RailwayFixtures.ReplaceCore(basis, worldSeed: 4);
