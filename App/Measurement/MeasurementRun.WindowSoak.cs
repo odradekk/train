@@ -248,6 +248,8 @@ internal sealed partial class MeasurementRun
         var saves = _app.Saves!;
         await SoakOperationTimed("save", "save", async () =>
         {
+            // 自动存档可能正在写入；玩家会等它写完再保存。
+            await Wait(() => !saves.IsBusy);
             var start = Seconds();
             if (saves.Save() is { } failure) throw new IOException(failure.Code + ": " + failure.Message);
             await Wait(() => !saves.IsBusy);

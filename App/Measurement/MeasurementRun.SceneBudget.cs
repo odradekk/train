@@ -214,6 +214,7 @@ internal sealed partial class MeasurementRun
     private async Task LoadSceneInput(bool restoreInput = false)
     {
         _scenePhase = "load";
+        await Wait(() => !_app.Saves!.IsBusy);
         var menu = _app.GetNode<MainMenu>("MainMenu");
         using var input = File.OpenRead(_input);
         var header = SaveContainer.ReadHeader(input);
