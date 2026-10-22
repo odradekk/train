@@ -41,6 +41,8 @@ internal sealed partial class MeasurementRun : IDisposable
     private readonly TrainId _train;
     private readonly NodeId _node;
     private int SampleSeconds => _sceneDuration > 0 ? _sceneDuration : 30;
+    private static readonly Vector2I WindowSize = new(1920, 1080);
+    private static readonly string[] SoftwareAdapters = ["llvmpipe", "lavapipe", "softpipe", "swiftshader"];
 
     internal MeasurementRun(App app, IReadOnlyList<string> arguments)
     {
@@ -59,15 +61,15 @@ internal sealed partial class MeasurementRun : IDisposable
         _scenario = values["scenario"];
         if (_scenario is not ("map-1x" or "map-8x" or "follow-1x" or "follow-8x" or "node-1x" or "node-8x" or
             "sdfgi-off" or "sdfgi-on" or "taa-off" or "taa-on" or "scene-node" or "scene-node-first" or
-            "scene-edge" or "scene-follow" or "scene-follow-8x" or "scene-memory" or "scene-capture" or "scene-map" or "scene-reference" or "scene-editor" or
+            "scene-edge" or "scene-follow" or "scene-follow-8x" or "scene-memory" or "scene-soak" or "scene-capture" or "scene-map" or "scene-reference" or "scene-editor" or
             "scene-route-1x" or "scene-route-2x" or "scene-route-4x" or "scene-route-8x" or
             "scene-route-capture-1x" or "scene-route-capture-8x"))
             throw new ArgumentException("未知测量情景。");
         if (values.TryGetValue("--measure-duration", out var duration))
         {
             if (!int.TryParse(duration, out _sceneDuration) || _sceneDuration < 0 ||
-                _scenario != "scene-memory" && _sceneDuration > 120)
-                throw new ArgumentException("测量时长必须是非负整数秒；除 scene-memory 外只能缩短 120 秒采样。");
+                _scenario is not ("scene-memory" or "scene-soak") && _sceneDuration > 120)
+                throw new ArgumentException("测量时长必须是非负整数秒；除 scene-memory 和 scene-soak 外只能缩短 120 秒采样。");
         }
         if ((values.ContainsKey("--measure-train") || values.ContainsKey("--measure-node")) &&
             !_scenario.StartsWith("scene-", StringComparison.Ordinal))
@@ -99,6 +101,10 @@ internal sealed partial class MeasurementRun : IDisposable
         try
         {
             if (DisplayServer.GetName() == "headless") throw new InvalidOperationException("测量需要真实绘制窗口。");
+            var adapter = RenderingServer.GetVideoAdapterName();
+            if (RenderingServer.GetVideoAdapterType() == RenderingDevice.DeviceType.Cpu ||
+                SoftwareAdapters.Any(name => adapter.Contains(name, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException($"测量需要硬件渲染，当前适配器为 {adapter}。");
             if (_scenario.StartsWith("scene-", StringComparison.Ordinal))
             {
                 await RunSceneBudget();
@@ -231,6 +237,9 @@ internal sealed partial class MeasurementRun : IDisposable
         _identity["gpu_vendor"] = RenderingServer.GetVideoAdapterVendor();
         _identity["gpu_api"] = RenderingServer.GetVideoAdapterApiVersion();
         _identity["gpu_driver"] = OS.GetVideoAdapterDriverInfo();
+        _identity["gpu_type"] = RenderingServer.GetVideoAdapterType().ToString();
+        _identity["display_server"] = DisplayServer.GetName();
+        _identity["refresh_rate"] = DisplayServer.ScreenGetRefreshRate();
         _identity["renderer"] = RenderingServer.GetCurrentRenderingMethod();
         _identity["rendering_driver"] = RenderingServer.GetCurrentRenderingDriverName();
         _identity["window_size"] = new[] { _app.GetWindow().Size.X, _app.GetWindow().Size.Y };
@@ -254,12 +263,18 @@ internal sealed partial class MeasurementRun : IDisposable
         _identity["speed_window_method"] = "连续目标秒后的首个绘制帧作为窗口边界；窗口共享边界帧，不插值；末尾不足目标秒部分仅计入整段";
         _identity["percentile_method"] = "nearest-rank";
         _identity["simulation_work_scope"] = "frame-driver advancement, including boundary consumers; excludes candidate preparation and render submission";
-        _identity["cache_scope"] = "fresh process and user data; OS file and driver shader caches are not cleared";
+        _identity["cache_scope"] = OperatingSystem.IsLinux()
+            ? "fresh process and user data; the isolated XDG_CACHE_HOME gives each run an empty Mesa shader cache; OS file cache is not cleared"
+            : "fresh process and user data; OS file and driver shader caches are not cleared";
     }
 
     private void OnDraw()
     {
         if (_disposed || _app.Host!.GetStatus() is not { } status) return;
+        var window = _app.GetWindow().Size;
+        var viewport = _app.GetViewport().GetTexture().GetSize();
+        if (window != WindowSize || viewport != (Vector2)WindowSize)
+            _drawFailure ??= new InvalidOperationException($"测量窗口与视口必须保持 1920×1080，实际为 {window}／{viewport}。");
         if (_scenario.StartsWith("scene-", StringComparison.Ordinal))
         {
             OnSceneDraw();

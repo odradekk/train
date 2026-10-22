@@ -1,5 +1,5 @@
 name: Windows checks
-run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'push' || inputs.selection == 'nightly' || inputs.selection == 'long-example') && 'Linux' || 'Windows' }} ${{ github.event_name == 'push' && 'post-merge' || github.event_name == 'schedule' && 'nightly' || inputs.selection || (github.event.action == 'labeled' && github.event.label.name == 'ci:correctness' && 'correctness') || (github.event.action == 'labeled' && 'unrelated-label') || 'routine' }} ${{ inputs.selection == 'long-example' && inputs.example || '' }} · ${{ github.event.pull_request.head.sha || inputs.commit || github.sha }}
+run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'push' || inputs.selection == 'nightly' || inputs.selection == 'long-example' || inputs.selection == 'window-soak') && 'Linux' || 'Windows' }} ${{ github.event_name == 'push' && 'post-merge' || github.event_name == 'schedule' && 'nightly' || inputs.selection || (github.event.action == 'labeled' && github.event.label.name == 'ci:correctness' && 'correctness') || (github.event.action == 'labeled' && 'unrelated-label') || 'routine' }} ${{ inputs.selection == 'long-example' && inputs.example || '' }} · ${{ github.event.pull_request.head.sha || inputs.commit || github.sha }}
 
 on:
   push:
@@ -14,13 +14,17 @@ on:
       selection:
         description: Check selection
         type: choice
-        options: [routine, correctness, nightly, long-example]
+        options: [routine, correctness, nightly, long-example, window-soak]
         default: routine
       example:
         description: Long example (used only by long-example)
         type: choice
         options: [starting-trade, lease-expiry, rail-repair, conquest, clearance, operating-failure, long-consist, standard-world, busy-combat, crowded-station]
         default: starting-trade
+      soak_seconds:
+        description: 窗口长测循环时长（秒，仅 window-soak 使用）
+        type: string
+        default: '7200'
       commit:
         description: 要测试的完整 40 位提交 SHA，留空则测试触发的 ref
         type: string
@@ -178,9 +182,9 @@ jobs:
 
   nightly:
     name: Linux ${{ github.event_name == 'push' && 'post-merge' || inputs.selection || 'nightly' }} ${{ inputs.selection == 'long-example' && inputs.example || '' }}
-    if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/master') || (github.event_name == 'workflow_dispatch' && (inputs.selection == 'nightly' || inputs.selection == 'long-example'))
+    if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/master') || (github.event_name == 'workflow_dispatch' && (inputs.selection == 'nightly' || inputs.selection == 'long-example' || inputs.selection == 'window-soak'))
     runs-on: [self-hosted, linux, nightly]
-    timeout-minutes: ${{ inputs.selection == 'long-example' && (inputs.example == 'lease-expiry' && 485 || inputs.example == 'crowded-station' && 175 || 105) || 153 }}
+    timeout-minutes: ${{ inputs.selection == 'long-example' && (inputs.example == 'lease-expiry' && 485 || inputs.example == 'crowded-station' && 175 || 105) || inputs.selection == 'window-soak' && 200 || 153 }}
     permissions:
       contents: read
     env:
@@ -253,6 +257,16 @@ jobs:
             $source | Set-Content -LiteralPath (Join-Path $directory $name) -Encoding utf8
           }
           pwsh -NoProfile -File (Join-Path $directory 'run-long-example.ps1') -Example $env:LONG_EXAMPLE -Root $env:GITHUB_WORKSPACE
+          exit $LASTEXITCODE
+
+      # The test machine's live desktop session provides the real 1080p window; see docs/ci.md.
+      - name: Window soak
+        if: env.CI_SELECTION == 'window-soak'
+        shell: pwsh
+        env:
+          SOAK_SECONDS: ${{ inputs.soak_seconds }}
+        run: |
+          pwsh -NoProfile -File scripts/checks/run-window-soak.ps1 -CacheDirectory (Join-Path $env:RUNNER_TOOL_CACHE 'godot-export-templates/4.7.2-stable') -SoakSeconds $env:SOAK_SECONDS
           exit $LASTEXITCODE
 
       - name: Publish available reports
