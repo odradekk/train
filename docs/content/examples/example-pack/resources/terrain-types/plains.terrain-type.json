@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "id": "plains",
   "display": {"name": "平原", "description": "开阔的平原地貌。"},
   "surface_voxel": "grassland",
@@ -18,21 +18,25 @@
     }
   ],
   "decoration_target_per_square_meter": 0.001,
+  "construction_site": "grove",
   "railway_models": [
     {
       "tracks": 1,
       "bridge": "grove",
-      "tunnel_portal": "grove"
+      "tunnel_portal": "grove",
+      "repair_site": "grove"
     },
     {
       "tracks": 2,
       "bridge": "grove",
-      "tunnel_portal": "grove"
+      "tunnel_portal": "grove",
+      "repair_site": "grove"
     },
     {
       "tracks": 3,
       "bridge": "grove",
-      "tunnel_portal": "grove"
+      "tunnel_portal": "grove",
+      "repair_site": "grove"
     }
   ]
 }

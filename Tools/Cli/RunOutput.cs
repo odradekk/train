@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json.Serialization;
+using Train.Content.Contracts;
 using Train.Core.Contracts;
 
 namespace Train.Cli;
@@ -125,7 +126,7 @@ internal sealed record EconomySample(SimulationPosition Position, long Wallet, I
     ImmutableArray<InventorySample> Inventories, long UnassignedServicePayments,
     ImmutableArray<CommissionJobSample> CommissionJobs, ImmutableSortedDictionary<string, double> Counts)
 {
-    internal static EconomySample Read(ICoreReadView view)
+    internal static EconomySample Read(ICoreReadView view, IContentView content)
     {
         var trains = view.World.Trains.OrderBy(train => train.Id.Value)
             .Select(train => Found(view.FindTrain(train.Id))).ToArray();
@@ -178,7 +179,7 @@ internal sealed record EconomySample(SimulationPosition Position, long Wallet, I
                 .ToImmutableArray(), view.Economy.UnassignedServicePayments.Value,
             settlements.SelectMany(settlement => settlement.CommissionJobs).OrderBy(job => job.Value)
                 .Select(job => CommissionJobSample.From(((JobView.Construction)Found(view.FindJob(job))).Value))
-                .ToImmutableArray(), WorldCounts.Read(view));
+                .ToImmutableArray(), WorldCounts.Read(view, content));
     }
 
     private static VehicleConditionSample Condition(ICoreReadView view, VehicleId vehicle)
