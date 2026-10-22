@@ -16,7 +16,7 @@ internal sealed partial class MeasurementRun
 {
     private const int SoakBodySeconds = 720;
     private const int SoakRoundTrips = 8;
-    private const double SoakSampleSeconds = 15;
+    private const double SoakSampleSeconds = 10;
     private const string SoakFullLoad = "full";
     private const string SoakLoadWithoutLineBattle = "all-but-line-battle";
     private const string SoakLoadBelow = "below-recipe";
@@ -181,17 +181,28 @@ internal sealed partial class MeasurementRun
         foreach (var speed in speeds) await SampleSoakView("line", speed);
         await SoakOpen("line-to-node", SoakNodeBattle);
         foreach (var speed in speeds) await SampleSoakView("node-battle", speed);
-        await SoakOperationTimed("return-map", "return-map", async () => { var start = Seconds(); await ReturnSceneMap(); return (Seconds() - start, null); });
-        await HoldSoakMap(1);
+        await SoakReturnMap();
+        await SoakOpen("line-reopen", SoakLineBattle);
+        await SoakReturnMap();
         await SoakOpen("follow", new WorldObjectId.Train(SoakTrain));
         foreach (var speed in speeds) await SampleSoakView("follow", speed);
-        await SoakOperationTimed("return-map", "return-map", async () => { var start = Seconds(); await ReturnSceneMap(); return (Seconds() - start, null); });
-        await HoldSoakMap(1);
+        await SoakReturnMap();
         await RunSoakEditor();
         await HoldSoakMap(1);
         _soakMap.Add((Seconds(), _soakMapSteady.Private, _soakMapSteady.Working, _soakMapSteady.Video));
         _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(new { kind = "natural-map", segment = _soakSegment, round,
             at = Seconds(), memory = SceneSteady(), load = _soakLoad, load_class = _soakLoadClass }, SceneJson));
+    }
+
+    private async Task SoakReturnMap()
+    {
+        await SoakOperationTimed("return-map", "return-map", async () =>
+        {
+            var start = Seconds();
+            await ReturnSceneMap();
+            return (Seconds() - start, null);
+        });
+        await HoldSoakMap(1);
     }
 
     private async Task RunSoakEditor()
