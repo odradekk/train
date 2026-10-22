@@ -39,7 +39,7 @@ internal static class NodeTransitionFixture
             { [Cube] = new ContentLookup<VoxelAppearanceProjection>.Found(new(Cube, AllowedVoxelOrientations.All24, new VoxelCollision.None(),
                 new VoxelPresentation.Cube([], MaterialCategory.PaintedMetal, 1, asset.Revision, asset.Revision, asset.Revision, asset.Revision), new(false, null))) },
             Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
-            { [Terrain] = new ContentLookup<TerrainAppearanceProjection>.Found(new(Terrain, Cube, Cube, Cube, [], [], 0, [], new("Preview", ""))) },
+            { [Terrain] = new ContentLookup<TerrainAppearanceProjection>.Found(new(Terrain, Cube, Cube, Cube, [], [], 0, [], new("construction-site"), new("Preview", ""))) },
             RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>
             { [Rule] = new ContentLookup<RailwayAppearanceProjection>.Found(new(Rule, Cube, 80, .12)) },
             SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>

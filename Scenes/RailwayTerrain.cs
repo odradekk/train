@@ -420,6 +420,7 @@ internal static class RailwayTerrain
 
         private void PlaceModels(Dictionary<GridColumn, TerrainColumn> columns)
         {
+            PlaceRepairs(columns);
             foreach (var arc in waterRegions.Select(region => region.Center))
                 if (path.Edge.Tracks > 0) PlaceBridge(arc, columns);
 
@@ -494,8 +495,7 @@ internal static class RailwayTerrain
             foreach (var missing in cells.Where(cell => cell.MissingReference is not null))
                 objects.Add(new(new(nextId++), terrainId, SceneGeometry.Placement(missing.At, missing.Orientation), null,
                 [new SceneVisual.Missing(missing.MissingReference!, true)], [], []));
-            foreach (var mesh in RailwayMeshes.Build(path, index, origin, column =>
-                columns.TryGetValue(column, out var value) && !value.Water && !value.Tunnel ? value.Height + 1 : null))
+            foreach (var mesh in RailwayMeshes.Build(path, index, origin))
                 visuals.Add(new SceneVisual.Geometry(mesh, new(false, 0, 0, false)));
             if (waterVertices.Count > 0) visuals.Add(new SceneVisual.Geometry(new(new SceneMaterial.BuiltIn(BuiltInMaterial.Water),
             waterVertices.ToImmutableArray(), waterIndices.ToImmutableArray()), new(false, 0, 0, false)));
@@ -573,6 +573,31 @@ internal static class RailwayTerrain
             if (path.Edge.Terrain.FeatureIds.Contains("lake")) yield return (path.LengthCells *
             (0.3 + 0.5 * RailwayRandom.Unit(path.Seed, path.Edge.Id.Value, 0, LakePlacementPurpose)), 48);
         }
+        private void PlaceRepairs(Dictionary<GridColumn, TerrainColumn> columns)
+        {
+            if (path.Edge.Breaks.IsDefaultOrEmpty || path.Edge.Works.IsDefaultOrEmpty) return;
+            foreach (var gap in path.Edge.Breaks.OrderBy(item => item.Id.Value).ThenBy(item => item.Track))
+            {
+                if (gap.Track < 1 || gap.Track > path.Edge.Tracks) continue;
+                if (!path.Edge.Works.Any(work => RailwayCoordinates.IsBreakRepair(work) && work.RepairingBreak == gap.Id)) continue;
+                var center = gap.DistanceMeters * RailwayCoordinates.CellsPerMeter;
+                if (!OwnsArc(center)) continue;
+                var terrain = GetTerrain(path.Edge.Terrain.TypeId);
+                modelReads.Add(new(path.Edge.Terrain.TypeId, -1, RailwayModelRole.RepairSite));
+                var model = terrain?.RailwayModels.FirstOrDefault(item => item.Tracks == path.Edge.Tracks);
+                if (model is null)
+                {
+                    ReportMissingModel(center);
+                    continue;
+                }
+                var offset = RailwayCoordinates.TrackOffset(gap.Track, path.Edge.Tracks);
+                var sample = path.Sample(center, offset);
+                var forward = offset < 0 ? -sample.Forward : sample.Forward;
+                AddModel(model.RepairSite, new(RailwayCoordinates.Relative(sample.Position, origin),
+                    RailwayCoordinates.Rotation(forward)), null, columns);
+            }
+        }
+
         private void PlacePortal(double arc, bool exit, Dictionary<GridColumn, TerrainColumn> columns)
         {
             var terrain = GetTerrain(path.Edge.Terrain.TypeId);
