@@ -599,10 +599,11 @@ public sealed class CombatFrameTests
         var parked = RailwayFixtures.Instance(7, train: null) with { Location = NodeFixtures.Location };
         var member = RailwayFixtures.Instance(1, train: new TrainId(1)) with { Location = NodeFixtures.Location };
         var train = NodeFixtures.Train(1, vehicles: [new(1)]);
+        var combat = new CombatView(new(1), NodeFixtures.Location, 1, []);
         var snapshot = NodeFixtures.Snapshot(platforms: 2, trains: [train], instances: [member, parked],
-            settlement: NodeFixtures.Settlement() with { ParkedVehicles = [new(7)] });
+            settlement: NodeFixtures.Settlement() with { ParkedVehicles = [new(7)] }, combats: [combat]);
         await using var session = new WorldSceneSession(new(Guid.NewGuid()), snapshot, new(), new());
-        session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location));
+        session.RequestView(new WorldSceneTarget.Combat(combat.Id));
         var open = await RailwayFixtures.Settled(session, Request);
         var parkedPose = ((Lookup<ScenePose>.Found)open.FindPose(new WorldObjectId.Instance(parked.Id))).Value;
         var near = new SceneCameraSample(open, parkedPose.Position);
@@ -614,7 +615,7 @@ public sealed class CombatFrameTests
                 new HitTarget.Structure(new(parked.Id, parked.Design, NodeFixtures.Location)), 4)
         }.ToImmutableArray();
         var attacked = NodeFixtures.Snapshot(platforms: 2, trains: [train], instances: [member, parked], steps: 1,
-            settlement: NodeFixtures.Settlement() with { ParkedVehicles = [new(7)] });
+            settlement: NodeFixtures.Settlement() with { ParkedVehicles = [new(7)] }, combats: [combat]);
         session.Observe(attacked, [Envelope(attacked, new CoreEvent.CombatHits(new(1), NodeFixtures.Location, hits))]);
         var nearFrame = Present(session, open, new(1, near, SceneDebugLayer.None));
         var nearShots = Shots(nearFrame);
@@ -629,7 +630,7 @@ public sealed class CombatFrameTests
         Assert.IsInstanceOfType<Lookup<ScenePose>.Found>(farFrame.FindPose(new WorldObjectId.Instance(member.Id)));
         Assert.IsEmpty(Shots(farFrame));
         var farAttacked = NodeFixtures.Snapshot(platforms: 2, trains: [train], instances: [member, parked], steps: 3,
-            settlement: NodeFixtures.Settlement() with { ParkedVehicles = [new(7)] });
+            settlement: NodeFixtures.Settlement() with { ParkedVehicles = [new(7)] }, combats: [combat]);
         session.Observe(farAttacked, [Envelope(farAttacked, new CoreEvent.CombatHits(new(1), NodeFixtures.Location, hits))]);
         var hitFrame = Present(session, farFrame, new(1, far, SceneDebugLayer.None));
         Assert.IsInstanceOfType<Lookup<ScenePose>.Missing>(hitFrame.FindPose(new WorldObjectId.Instance(parked.Id)));

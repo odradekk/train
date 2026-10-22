@@ -42,8 +42,34 @@ internal sealed partial class DesignEditSession : IDesignEditSession
     private bool disposed;
     public EditSessionId Id { get; } = new(Guid.NewGuid());
     public ContentGeneration Content { get; }
+    // 宿主每帧 Read／Present；EditObject 不可变，派生值按同一棵树、同一保存基准和同一锁表复用，大设计不再逐帧遍历。
+    // 几何按修订号复用：拾取对象带修订号，撤销回到同一棵树也要换新修订号。
+    private EditObject? derivedRoot;
+    private ulong? renderedRevision;
+    private ImmutableArray<EditElement> elements, lockedElements;
+    private DesignDraft? exported, dirtySaved;
+    private bool dirty;
+    private (EditElementId? Entered, int? HighestY) renderedView;
+    private RenderedDesign? rendered;
     private EditStamp Stamp => new(Id, new(revision), Content);
-    private ImmutableArray<EditElement> Elements => EditLayout.Elements(root).ToImmutableArray();
+    private ImmutableArray<EditElement> Elements
+    {
+        get
+        {
+            Derive();
+            return elements;
+        }
+    }
+
+    private void Derive()
+    {
+        if (ReferenceEquals(derivedRoot, root)) return;
+        elements = EditLayout.Elements(root).ToImmutableArray();
+        exported = root.Export();
+        lockedElements = default;
+        dirtySaved = null;
+        derivedRoot = root;
+    }
     private ImmutableArray<int> EnteredPath => entered is { } id ? Elements.First(element => element.Id == id).ObjectPath : [];
 
     internal DesignEditSession(IContentView view, DesignEvaluation initial)
@@ -63,16 +89,22 @@ internal sealed partial class DesignEditSession : IDesignEditSession
     public EditSnapshot Capture()
     {
         CheckOpen();
-        var draft = root.Export();
-        captures[revision] = draft;
-        return new(Stamp, draft);
+        Derive();
+        captures[revision] = exported!;
+        return new(Stamp, exported!);
     }
     public EditState Read()
     {
         CheckOpen();
         var snapshot = Capture();
-        return new(snapshot, !EditLayout.Same(snapshot.Draft, saved), undo.Count > 0, redo.Count > 0,
-            entered, selection, Elements.Select(element => element with { Locked = locks.ContainsKey(element.Id) }).ToImmutableArray(),
+        if (!ReferenceEquals(dirtySaved, saved))
+        {
+            dirty = !EditLayout.Same(snapshot.Draft, saved);
+            dirtySaved = saved;
+        }
+        if (lockedElements.IsDefault)
+            lockedElements = elements.Select(element => element with { Locked = locks.ContainsKey(element.Id) }).ToImmutableArray();
+        return new(snapshot, dirty, undo.Count > 0, redo.Count > 0, entered, selection, lockedElements,
             evaluation, evaluation is null ? [] : EditContent.Diagnostics(evaluation));
     }
 
@@ -420,7 +452,13 @@ internal sealed partial class DesignEditSession : IDesignEditSession
         if (displayedFrame is not null && displayedFrame.Update.Frame.Session != frameSession)
             throw new ArgumentException("Displayed frame belongs to another session.", nameof(displayedFrame));
         var path = EnteredPath;
-        var geometry = EditGeometry.Build(EditLayout.At(root, path), content, Id, new(revision), options.HighestVisibleY, ObjectId, ModelId, path);
+        if (renderedRevision != revision || renderedView != (entered, options.HighestVisibleY))
+        {
+            rendered = EditGeometry.Build(EditLayout.At(root, path), content, Id, new(revision), options.HighestVisibleY, ObjectId, ModelId, path);
+            renderedRevision = revision;
+            renderedView = (entered, options.HighestVisibleY);
+        }
+        var geometry = rendered!;
         var selectedPaths = selection.IsEmpty ? ImmutableArray.Create(path) : Elements.Where(element => selection.Contains(element.Id) && element.Kind != EditElementKind.Cell)
             .Select(element => element.ObjectPath).ToImmutableArray();
         var pose = new ScenePose(Vector3.Zero, Quaternion.Identity);
@@ -451,6 +489,7 @@ internal sealed partial class DesignEditSession : IDesignEditSession
 
     private void RegisterLocks(DesignSceneProjection projection)
     {
+        lockedElements = default;
         foreach (var value in projection.EditLocks)
         {
             var entry = Elements.FirstOrDefault(element => EditLayout.Same(element.Path, value.Element));
@@ -460,6 +499,7 @@ internal sealed partial class DesignEditSession : IDesignEditSession
     }
     private void RegisterMissing(EditObject node)
     {
+        lockedElements = default;
         foreach (var cell in node.Cells)
         {
             var voxel = node.Palette[cell.PaletteIndex].Voxel;
