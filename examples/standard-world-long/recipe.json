@@ -109,6 +109,14 @@
         "minimum": 1
       },
       {
+        "key": "creatures_wandering",
+        "minimum": 1
+      },
+      {
+        "key": "creatures_raiding",
+        "minimum": 1
+      },
+      {
         "key": "armed_combats",
         "minimum": 3
       },

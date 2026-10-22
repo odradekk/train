@@ -39,20 +39,18 @@ $commands = [ordered]@{
     save = @{ arguments = @($cli, 'save', $root, $recipe, $prefix, $saveStep); requires = @('build') }
     resume = @{ arguments = @($cli, 'resume', $root, $recipe, $prefix, $resumed); requires = @('save') }
 }
+$commands.compare = @{ arguments = @($cli, 'compare', $continuous, $resumed); requires = @('replay', 'resume') }
+$comparisons = @(@{ names = @('compare') })
 if ($Example -eq 'standard-world-long') {
     # 长测没有已提交存档：用另一个进程的重复运行代替制作与检查。
     $commands.run = @{ arguments = @($cli, 'run', $root, $recipe, $repeated); requires = @('build') }
+    $commands['compare-repeat'] = @{ arguments = @($cli, 'compare', $continuous, $repeated); requires = @('replay', 'run') }
     $simulations = @(@{ names = @('replay') }, @{ names = @('run') }, @{ names = @('save', 'resume') })
+    $comparisons += @{ names = @('compare-repeat') }
 } else {
     $commands.make = @{ arguments = @($cli, 'make', $root, $recipe, $remade); requires = @('build') }
     $commands.check = @{ arguments = @($cli, 'check', $root, $recipe, $remade); requires = @('make') }
     $simulations = @(@{ names = @('replay') }, @{ names = @('save', 'resume') }, @{ names = @('make', 'check') })
-}
-$commands.compare = @{ arguments = @($cli, 'compare', $continuous, $resumed); requires = @('replay', 'resume') }
-$comparisons = @(@{ names = @('compare') })
-if ($commands.Contains('run')) {
-    $commands['compare-repeat'] = @{ arguments = @($cli, 'compare', $continuous, $repeated); requires = @('replay', 'run') }
-    $comparisons += @{ names = @('compare-repeat') }
 }
 $records = [ordered]@{}
 foreach ($name in $commands.Keys) {
@@ -122,7 +120,22 @@ foreach ($batch in @(
 
 $watch.Stop()
 $passed = @($state.records.Values | Where-Object { $_.status -ne 'passed' }).Count -eq 0
-$summary = [ordered]@{ identity = $identity; checks = @($state.records.Values); seconds = $watch.Elapsed.TotalSeconds; outcome = $(if ($passed) { 'passed' } else { 'failed' }) }
+# 负载目标不满足不能写通过：汇总各进度文件里每个未满足的键出现的点数和首末位置。
+$load = [ordered]@{}
+foreach ($file in Get-ChildItem -LiteralPath $run -Filter '*.progress.jsonl' | Sort-Object Name) {
+    foreach ($line in Get-Content -LiteralPath $file.FullName) {
+        $measurement = $line | ConvertFrom-Json
+        foreach ($miss in $measurement.load_misses) {
+            $key = "$($file.Name.Split('.')[0]):$(($miss -split '=')[0])"
+            if (-not $load.Contains($key)) { $load[$key] = [ordered]@{ points = 0; first = $measurement.position.completed_steps } }
+            $load[$key].points++
+            $load[$key].last = $measurement.position.completed_steps
+        }
+    }
+}
+$outcome = if (-not $passed) { 'failed' } elseif ($load.Count -gt 0) { 'load_unmet' } else { 'passed' }
+$summary = [ordered]@{ identity = $identity; checks = @($state.records.Values); load_unmet = $load; seconds = $watch.Elapsed.TotalSeconds; outcome = $outcome }
 $summary | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $summaryPath -Encoding utf8
-Write-Host "SUMMARY=$summaryPath outcome=$($summary.outcome) seconds=$($summary.seconds)"
-if (-not $passed) { exit 1 }
+foreach ($key in $load.Keys) { Write-Host "LOAD_UNMET $key points=$($load[$key].points) first=$($load[$key].first) last=$($load[$key].last)" }
+Write-Host "SUMMARY=$summaryPath outcome=$outcome seconds=$($summary.seconds)"
+if ($outcome -ne 'passed') { exit 1 }
