@@ -451,8 +451,14 @@ internal sealed record RecipeGood(
     [property: JsonRequired] string Kind,
     [property: JsonRequired] string Definition)
 {
-    internal GoodId Parse() => Kind == "voxel" && !string.IsNullOrWhiteSpace(Definition)
-        ? new GoodId.Voxel(new(Definition)) : throw new InvalidDataException("配方货物须为 voxel 并提供 definition。");
+    internal GoodId Parse() => string.IsNullOrWhiteSpace(Definition)
+        ? throw new InvalidDataException("配方货物须提供 definition。")
+        : Kind switch
+        {
+            "voxel" => new GoodId.Voxel(new(Definition)),
+            "composite" => new GoodId.Composite(new(Definition)),
+            _ => throw new InvalidDataException("配方货物须为 voxel 或 composite。")
+        };
 }
 
 internal sealed record RecipeGoodsRule(
