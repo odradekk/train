@@ -328,8 +328,31 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
     private void Compare(CoreCheckpoint expected, CoreCheckpoint actual)
     {
         if (Require(core.CompareCheckpoints(expected, actual)) is CheckpointComparison.Different different)
-            throw new InvalidDataException($"检查点不同：{different.Difference.Position} {different.Difference.Field}；"
+            throw new InvalidDataException($"检查点不同：{different.Difference.Position} {different.Difference.Field}"
+                + $"{Objects(expected.CanonicalText, different.Difference.Field)}；"
                 + $"预期 {different.Difference.Expected}，实际 {different.Difference.Actual}。");
+    }
+
+    // 字段指针里的数组只有下标；沿指针列出经过的数组元素的 id，报告差异属于哪个对象。
+    private static string Objects(string canonical, string field)
+    {
+        using var document = JsonDocument.Parse(canonical);
+        var current = document.RootElement;
+        var objects = new List<string>();
+        var name = "";
+        foreach (var segment in field.Split('/').Skip(1).Select(part => part.Replace("~1", "/").Replace("~0", "~")))
+        {
+            if (current.ValueKind == JsonValueKind.Object && current.TryGetProperty(segment, out var property))
+            {
+                (current, name) = (property, segment);
+                continue;
+            }
+            if (current.ValueKind != JsonValueKind.Array || !int.TryParse(segment, out var index) || index >= current.GetArrayLength()) break;
+            current = current[index];
+            if (current.ValueKind == JsonValueKind.Object && current.TryGetProperty("id", out var id))
+                objects.Add($"{name} {id.GetRawText()}");
+        }
+        return objects.Count == 0 ? "" : $"（对象：{string.Join(" / ", objects)}）";
     }
 
     internal static T Require<T>(CoreResult<T> result) where T : notnull => result switch
