@@ -15,6 +15,9 @@ public sealed class TrainDispatchProcessTests
     [DataRow("queue")]
     [DataRow("handoff")]
     [DataRow("returning")]
+    [DataRow("opposing")]
+    [DataRow("following")]
+    [DataRow("replan")]
     public async Task Dispatch_state_restores_from_file_in_an_independent_process(string boundary)
     {
         var root = TestContext.TestRunResultsDirectory ?? throw new AssertFailedException("缺少测试结果目录。");

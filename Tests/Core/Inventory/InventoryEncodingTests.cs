@@ -28,6 +28,28 @@ public sealed class InventoryEncodingTests
     }
 
     [TestMethod]
+    public void Unload_other_good_kinds_and_both_lease_requests_have_fixed_canonical_vectors()
+    {
+        var assembly = new string('A', 64);
+        (CoreCommand Command, string Payload)[] cases =
+        [
+            (new CoreCommand.UnloadGoods(new(1), new(2), new(3), new GoodId.Composite(new("fixture:plate")), 5),
+                "{\"input_format_version\":2,\"kind\":\"inventory.unload_goods\",\"train\":1,\"settlement\":2,\"local_inventory\":3,\"good\":{\"kind\":\"composite\",\"definition\":\"fixture:plate\"},\"quantity\":5}"),
+            (new CoreCommand.LoadGoods(new(1), new(2), new(3), new GoodId.Assembly(new(assembly)), 6),
+                "{\"input_format_version\":2,\"kind\":\"inventory.load_goods\",\"train\":1,\"settlement\":2,\"local_inventory\":3,\"good\":{\"kind\":\"assembly\",\"composition\":\"" + assembly + "\"},\"quantity\":6}"),
+            (new CoreCommand.AcquireLease(new LeaseRequest.Rent(new(2), 3, 5184000), new(24)),
+                "{\"input_format_version\":2,\"kind\":\"lease.acquire\",\"request\":{\"kind\":\"rent\",\"settlement\":2,\"capacity\":3,\"duration_steps\":5184000},\"maximum_payment\":24}"),
+            (new CoreCommand.AcquireLease(new LeaseRequest.Renew(new(7), 1), new(0)),
+                "{\"input_format_version\":2,\"kind\":\"lease.acquire\",\"request\":{\"kind\":\"renew\",\"lease\":7,\"duration_steps\":1},\"maximum_payment\":0}")
+        ];
+        foreach (var (command, payload) in cases)
+        {
+            Assert.AreEqual(payload, CoreCommandEncoding.Encode(command));
+            Assert.AreEqual(payload, CoreCommandEncoding.Encode(((CoreResult<DecodedCommand>.Success)CoreCommandEncoding.Decode(payload)).Value.Command));
+        }
+    }
+
+    [TestMethod]
     public void Invalid_command_prerequisites_are_rejected_before_encoding()
     {
         CoreCommand[] commands = [

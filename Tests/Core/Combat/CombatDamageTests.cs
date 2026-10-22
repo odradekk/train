@@ -85,6 +85,37 @@ public sealed class CombatDamageTests
     }
 
     [TestMethod]
+    public void Same_step_damage_does_not_depend_on_the_order_attackers_are_enumerated()
+    {
+        // 同一列车里轻重两门武器互换编组位置，攻击单位的遍历顺序随之反转。重武器单独就能摧毁目标，
+        // 逐发结算会在其中一种顺序里丢掉另一发；同一步结算时两种顺序都记两发命中、摧毁一次。
+        var heavy = new DesignHash(string.Concat(Enumerable.Repeat("C1", 32)));
+        var content = StructureTarget(25);
+        var light = content.Designs.Single(design => design.Design == CombatFixture.ArmedVehicle);
+        content = content with { Designs = content.Designs.Add(light with
+        {
+            Design = heavy,
+            Parts = light.Parts.Select(part => part with { Capabilities = part.Capabilities.Select(capability =>
+                capability is PartCapability.Weapon weapon ? weapon with { Damage = 30 } : capability).ToImmutableArray() }).ToImmutableArray()
+        }) };
+        foreach (var order in new ImmutableArray<DesignHash>[] { [CombatFixture.ArmedVehicle, heavy], [heavy, CombatFixture.ArmedVehicle] })
+        {
+            using var session = CombatFixture.SessionWithContent(content, designs: order);
+            var hostile = CombatFixture.HostileNode(session);
+            var building = HostileBuilding(session, hostile);
+            CombatFixture.Send(session, hostile, new TrainId(1));
+            var events = CombatFixture.AdvanceUntilEvent(session, e => e is CoreEvent.CombatHits, maximum: 10000);
+            var damage = events.OfType<CoreEvent.CombatHits>().Single().Hits
+                .Where(hit => hit.Source is AttackSource.Weapon { Instance.Instance: InstanceId.Vehicle })
+                .Select(hit => hit.Damage).Order().ToArray();
+            CollectionAssert.AreEqual(new long[] { 10, 30 }, damage, $"编组顺序 {string.Join(",", order)}");
+            Assert.AreEqual(1, events.OfType<CoreEvent.CombatDestruction>().Single().Units
+                .Count(unit => unit is DestroyedUnit.Instance instance && instance.Value.Instance == building));
+            Assert.IsInstanceOfType<Lookup<InstanceView>.Missing>(session.Read().FindInstance(building));
+        }
+    }
+
+    [TestMethod]
     public void Same_step_hits_report_a_destroyed_unit_only_once()
     {
         var content = StructureTarget(15);
