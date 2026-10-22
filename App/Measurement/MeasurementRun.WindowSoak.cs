@@ -33,6 +33,13 @@ internal sealed partial class MeasurementRun
     private readonly List<(double At, double Private, double Working, double Video)> _soakMap = [];
     private readonly List<(int Segment, double At, long LiveBytes)> _soakHeaps = [];
     private readonly Dictionary<int, DateTimeOffset> _soakSlots = [];
+    private readonly List<object> _soakRejectedLoads = [];
+    private readonly List<object> _soakDecay = [];
+    private HostOperationResult? _soakLastRestore;
+    private double? _soakBody;
+    private double _soakResetAt, _soakLastDecayAt;
+    private ulong _soakResetSteps;
+    private int _soakRoundTripsAttempted;
     private (string Key, double? Minimum, double? Maximum)[] _soakExpectations = [];
     private ImmutableSortedDictionary<string, double>? _soakLoad;
     private Task<(ImmutableSortedDictionary<string, double> Counts, double At, double Seconds)>? _soakCounting;
@@ -79,7 +86,6 @@ internal sealed partial class MeasurementRun
     {
         var host = _app.Host!;
         var duration = _sceneDuration > 0 ? _sceneDuration : 7200;
-        var body = Math.Min(SoakBodySeconds, duration * 0.6);
         ReadSoakExpectations();
         _soakSaveId = SaveHeaderId();
         _app.Notifications.SetAction(NotificationCategory.Encounter, NotificationAction.None);
@@ -87,6 +93,7 @@ internal sealed partial class MeasurementRun
             default_value = NotificationPolicy.DefaultAction(NotificationCategory.Encounter).ToString(),
             reason = "设计 00 允许性能测试关闭遇敌自动降速并记录；否则新战斗会把 8× 采样降到 1×" };
         host.BoundaryCompleted += CountSoakEncounters;
+        host.OperationEnded += CaptureSoakRestore;
         try
         {
             await HoldSceneMap("initial-map");
@@ -98,15 +105,26 @@ internal sealed partial class MeasurementRun
                 await ResetSoakSegment();
                 var bodyStarted = Seconds();
                 var round = 0;
-                do { await RunSoakRound(round++); } while (Seconds() - bodyStarted < body);
+                do
+                {
+                    var roundStarted = Seconds();
+                    var roundSteps = host.GetStatus()!.View.Position.CompletedSteps;
+                    await RunSoakRound(round++);
+                    // 录制要在同一会话里攒满保留数加一个起点才会裁剪。按首轮实测的每真实秒步数（含编辑器暂停）
+                    // 把每段主体定为 1.3 倍所需时长，所有段等长；短预演最多用总时长的 60%。
+                    _soakBody ??= Math.Min(duration * 0.6, Math.Max(SoakBodySeconds, 1.3 * RecordingService.StartIntervalSteps *
+                        host.SessionOptions!.RetainedRecordingStarts / Math.Max(1e-9,
+                        (host.GetStatus()!.View.Position.CompletedSteps - roundSteps) / (Seconds() - roundStarted))));
+                } while (Seconds() - bodyStarted < _soakBody);
                 for (var trip = 0; trip < SoakRoundTrips; trip++) await RunSoakRoundTrip(trip % 2 == 0 ? SoakSettlement : SoakLineBattle);
             } while (Seconds() - started < duration);
             _soakHeaps.Add((_soakSegment, Seconds(), CollectSceneHeap(_soakSegment, "final-map")));
-            _sceneEvidence["soak"] = SummarizeSoak(Seconds() - started, body);
+            _sceneEvidence["soak"] = SummarizeSoak(Seconds() - started, _soakBody ?? 0);
         }
         finally
         {
             host.BoundaryCompleted -= CountSoakEncounters;
+            host.OperationEnded -= CaptureSoakRestore;
             _soakSample = null;
             _soakPeak = null;
         }
@@ -144,6 +162,9 @@ internal sealed partial class MeasurementRun
         var host = _app.Host!;
         host.SetPaused(true);
         AssertSoakTargets();
+        _soakResetAt = Seconds();
+        _soakLastDecayAt = 0;
+        _soakResetSteps = host.GetStatus()!.View.Position.CompletedSteps;
         // 每段都在刚读入的同一保存点、暂停的地图上强制回收，作为相同状态下的存活堆读数。
         _soakHeaps.Add((_soakSegment, Seconds(), CollectSceneHeap(_soakSegment, "reset-map")));
         await HoldSoakMap(2);
@@ -258,11 +279,27 @@ internal sealed partial class MeasurementRun
             await Wait(() => !saves.IsBusy);
             return (Seconds() - start, null);
         });
+        var saved = _app.Host!.GetStatus()!.View.Position;
+        var loaded = false;
+        _soakRoundTripsAttempted++;
+        _soakLastRestore = null;
         await SoakOperationTimed("load", "load", async () =>
         {
-            await LoadSceneInput();
-            return (_sceneLoadCompleted - _sceneLoadButton, null);
+            loaded = await LoadSceneInput(allowRejected: true);
+            return (loaded ? _sceneLoadCompleted - _sceneLoadButton : null, null);
         });
+        if (!loaded)
+        {
+            // 被拒绝的读档保留原对局继续；不取读档后首显样本。
+            var problem = _soakLastRestore?.Problems.FirstOrDefault();
+            _soakRejectedLoads.Add(new { segment = _soakSegment, at = Seconds(), saved_at = saved,
+                operation = _soakLastRestore?.Operation, status = _soakLastRestore?.Status.ToString(),
+                code = problem?.Code ?? _soakLastRestore?.FaultCode, field = problem?.Field, message = _app.Saves!.LastMessage });
+            _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(new { kind = "rejected-load", at = Seconds(), segment = _soakSegment,
+                saved_at = saved, status = _soakLastRestore?.Status.ToString(), problems = _soakLastRestore?.Problems }, SceneJson));
+            await HoldSoakMap(1);
+            return;
+        }
         await HoldSoakMap(1);
         await SoakOpen(firstDisplay is WorldObjectId.Node ? "reload-node" : "reload-line", firstDisplay, _sceneLoadButton);
         await ReturnSceneMap();
@@ -337,6 +374,12 @@ internal sealed partial class MeasurementRun
             _soakCounting = null;
             _soakLoad = counts;
             _soakLoadTakenAt = at;
+            if (_soakResetAt > 0 && at >= _soakResetAt && at - _soakLastDecayAt >= 10)
+            {
+                _soakDecay.Add(new { segment = _soakSegment, seconds_after_reset = at - _soakResetAt,
+                    steps_after_reset = status.View.Position.CompletedSteps - _soakResetSteps, counts });
+                _soakLastDecayAt = at;
+            }
             var failed = _soakExpectations.Where(item => !counts.TryGetValue(item.Key, out var value) ||
                 item.Minimum is { } minimum && value < minimum || item.Maximum is { } maximum && value > maximum)
                 .Select(item => item.Key).ToArray();
@@ -371,6 +414,11 @@ internal sealed partial class MeasurementRun
             sample.Classes[_soakLoadClass] = sample.Classes.GetValueOrDefault(_soakLoadClass) + 1;
         }
         _soakPeak?.Observe(_scenePrivate, _sceneWorking, RenderingServer.GetRenderingInfo(RenderingServer.RenderingInfo.VideoMemUsed));
+    }
+
+    private void CaptureSoakRestore(HostOperationResult result)
+    {
+        if (result.Kind == OperationKind.Restore) _soakLastRestore = result;
     }
 
     private void CountSoakEncounters(HostBinding binding, ICoreReadView view, IContentView content, ImmutableArray<EventEnvelope> events) =>
@@ -474,6 +522,16 @@ internal sealed partial class MeasurementRun
             recording = new { start_interval_steps = RecordingService.StartIntervalSteps,
                 retained_starts = _app.Host!.SessionOptions!.RetainedRecordingStarts, trims = _soakTrims,
                 incomplete_seconds = _soakIncompleteSeconds, source = "同一会话内录制起点位置前移" },
+            round_trips = new
+            {
+                evidence = _soakRejectedLoads.Count > 0 ? "failed" : "passed",
+                attempted = _soakRoundTripsAttempted, loaded = _soakRoundTripsAttempted - _soakRejectedLoads.Count,
+                rejected = _soakRejectedLoads.Count, rejections = _soakRejectedLoads,
+                rule = "手动保存后读同一存档；被拒绝时记录并在原对局继续，不取读档后首显样本"
+            },
+            load_decay = new { interval_seconds = 10, rule = "每次重置后每 10 秒取一次负载计数", series = _soakDecay },
+            body_sizing = new { rule = "首轮实测每真实秒步数（含编辑器暂停）下，1.3 × 起点间隔 × 保留起点数所需时长；不少于 720 秒，不超过总时长的 60%",
+                body_seconds = body },
             loads = _soakLoads, encounters = _soakEncounters,
             uncovered = new[] { "process_first_open_node", "process_first_open_line", "process_first_follow" }
         };

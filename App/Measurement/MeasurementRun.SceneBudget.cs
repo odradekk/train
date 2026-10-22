@@ -211,7 +211,8 @@ internal sealed partial class MeasurementRun
         }
     }
 
-    private async Task LoadSceneInput(bool restoreInput = false)
+    // allowRejected 只用于长测的玩家存档往返：被拒绝的读档保留原对局，返回 false 供调用方记录。
+    private async Task<bool> LoadSceneInput(bool restoreInput = false, bool allowRejected = false)
     {
         _scenePhase = "load";
         await Wait(() => !_app.Saves!.IsBusy);
@@ -241,9 +242,11 @@ internal sealed partial class MeasurementRun
             return !_app.Saves!.IsBusy && _app.Host!.GetStatus() is not null;
         });
         _sceneLoadCompleted = Seconds();
-        if (_app.Host!.GetStatus()!.Binding == previous)
+        var replaced = _app.Host!.GetStatus()!.Binding != previous;
+        if (!replaced && !allowRejected)
             throw new InvalidOperationException("读档没有替换当前对局：" + _app.Saves!.LastMessage);
         panel.EmitSignal(Window.SignalName.CloseRequested);
+        if (!replaced) return false;
         if (_app.Host!.SetSpeed(SimulationSpeed.One) is not null || _app.Host.SetPaused(false) is not null)
             throw new InvalidOperationException("不能启动测量负载。");
         var previousDraw = _sceneDrawCount;
@@ -253,6 +256,7 @@ internal sealed partial class MeasurementRun
         _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(new { kind = "load-map", button = _sceneLoadButton,
             completed = _sceneLoadCompleted, map_drawn = _sceneLastDraw }, SceneJson));
         if (_app.Host!.GetStatus()!.IsReplay) throw new InvalidDataException("测量输入不能是重放。");
+        return true;
     }
 
     private async Task OpenSceneMeasured(string name, WorldObjectId target, double? loadButton = null)
