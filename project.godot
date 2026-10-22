@@ -73,4 +73,5 @@ reload_content={
 
 [rendering]
 
+limits/global_shader_variables/buffer_size=131072
 renderer/rendering_method="forward_plus"

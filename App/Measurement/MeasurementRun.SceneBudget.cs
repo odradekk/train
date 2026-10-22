@@ -139,10 +139,12 @@ internal sealed partial class MeasurementRun
                     await Wait(() => Seconds() - warming >= 5);
                     _scenePhase = "follow-8x-sample";
                     _sceneTiming = new(_sceneLastDraw, host.GetStatus()!.View.Position.CompletedSteps);
+                    _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(new { kind = "sample-load", edge = "start", load = SceneLoadCounts() }, SceneJson));
                     var started = Seconds();
                     await Wait(() => Seconds() - started >= (_sceneDuration > 0 ? _sceneDuration : 120));
                     _timing = _sceneTiming.Summarize();
                     _sceneTiming = null;
+                    _sceneOperationTrace.WriteLine(JsonSerializer.Serialize(new { kind = "sample-load", edge = "end", load = SceneLoadCounts() }, SceneJson));
                 }
             }
             else if (_scenario == "scene-editor")
@@ -247,12 +249,14 @@ internal sealed partial class MeasurementRun
         _sceneProbeEvents.Clear();
         _sceneOpeningFrames.Clear();
         var before = SceneCacheState();
+        var loadAtClick = SceneLoadCounts();
         _sceneTarget = target;
         var peakBefore = new { private_bytes = _scenePeakPrivate, working_set_bytes = _scenePeakWorking };
         if (target is WorldObjectId.Node node && _app.Host!.GetStatus()!.View.FindNode(node.Id) is not Lookup<NodeView>.Found)
             throw new InvalidDataException($"测量存档中没有节点 {node.Id.Value}。");
-        // 与 GameUi.OpenScene 相同，跟随列车的首车。
-        var follow = target is WorldObjectId.Train ? new WorldObjectId.Instance(new InstanceId.Vehicle(MeasuredTrain().Vehicles[0])) : null;
+        // 与 GameUi.OpenScene 相同。
+        var follow = target is WorldObjectId.Train ? new WorldObjectId.Instance(new InstanceId.Vehicle(FollowedVehicle.Of(
+            MeasuredTrain(), _app.Host!.GetStatus()!.View, _app.Host.Content!))) : null;
         _subject = follow;
         _sceneClick = Seconds();
         if (_scenario == "scene-reference") _app.Host!.SetPaused(true);
@@ -308,7 +312,7 @@ internal sealed partial class MeasurementRun
                 click_to_operable = _sceneOperable > 0 ? ProbeCosts(_sceneClick, _sceneOperable) : null,
                 operable_to_ready = _sceneOperable > 0 ? ProbeCosts(_sceneOperable, _sceneReady) : null
             },
-            first_near = _sceneFirstNearDetail, last_probe = _sceneProbeDetail, cache_at_click = before,
+            first_near = _sceneFirstNearDetail, last_probe = _sceneProbeDetail, cache_at_click = before, load_at_click = loadAtClick,
             drag = new { issued_at = _sceneDragIssued ? (double?)_sceneDragAt : null,
                 issued_draw = _sceneDragIssued ? (long?)_sceneDragDraw : null,
                 before = new { yaw_radians = _sceneBeforeDrag.X, pitch_radians = _sceneBeforeDrag.Y },
@@ -531,6 +535,13 @@ internal sealed partial class MeasurementRun
         _sceneCollectionTrace.Flush();
     }
 
+    private static string Location(WorldLocation location) => location switch
+    {
+        WorldLocation.Node node => "node:" + node.Id.Value,
+        WorldLocation.Edge edge => "edge:" + edge.Id.Value,
+        _ => throw new InvalidOperationException("未知地点。")
+    };
+
     private object SceneLoadCounts()
     {
         var core = _app.Host!.GetStatus()!.View;
@@ -549,6 +560,14 @@ internal sealed partial class MeasurementRun
                 },
                 activity = train.Activity.ToString(),
                 speed = train.SpeedMetersPerSecond, has_plan = train.Plan is not null }),
+            combats = core.World.Combats.Select(item => new { id = item.Id.Value, location = Location(item.Location),
+                participants = core.FindCombat(item.Id) is Lookup<CombatView>.Found combat ? combat.Value.Participants.Length : 0 }).ToArray(),
+            creature_groups = core.World.CreatureGroups.Select(item => core.FindCreatureGroup(item.Id) is Lookup<CreatureGroupView>.Found group
+                ? new { id = item.Id.Value, location = Location(group.Value.Location), activity = group.Value.Activity.ToString(),
+                    creatures = group.Value.Creatures.Length, alive = group.Value.Creatures.Count(creature => creature.Health > 0) }
+                : null).ToArray(),
+            creatures = core.World.CreatureGroups.Sum(item => core.FindCreatureGroup(item.Id) is Lookup<CreatureGroupView>.Found group
+                ? group.Value.Creatures.Length : 0),
             settlements = settlements.Length, buildings = settlements.Sum(settlement => settlement.Plots.Count(plot => plot.Occupant is PlotOccupant.Building)),
             parked_vehicles = settlements.Sum(settlement => settlement.ParkedVehicles.Length),
             active_facilities = settlements.Sum(settlement => settlement.Facilities.Count(facility => facility.ActualWorkPerSecond > 0)),
