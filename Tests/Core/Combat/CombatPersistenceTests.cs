@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
@@ -83,6 +84,47 @@ public sealed class CombatPersistenceTests
             Assert.AreEqual(Success(session.Capture(CapturePurpose.Save)).Encode(),
                 Success(restored.Capture(CapturePurpose.Save)).Encode());
         }
+    }
+
+    [TestMethod]
+    public void Part_and_vehicle_destruction_after_restore_match_the_uninterrupted_run()
+    {
+        // 保存在开战后、任何部件被毁之前；之后部件被毁、一辆车被摧毁使编组变短、最后整列被毁，恢复的会话逐段与不中断运行相同。
+        var content = CombatFixture.Content(damage: 1) with
+        {
+            Designs = CombatFixture.Content(damage: 1).Designs.Select(design => design.Design != CombatFixture.ArmedBuilding
+                ? design : design with
+                {
+                    Parts = design.Parts.Select(part => part with { Capabilities = [new PartCapability.Weapon(30, 1)] }).ToImmutableArray()
+                }).ToImmutableArray()
+        };
+        using var session = CombatFixture.SessionWithContent(content, vehicles: 2);
+        var hostile = CombatFixture.HostileNode(session);
+        var train = new TrainId(1);
+        CombatFixture.Send(session, hostile, train);
+        CombatFixture.AdvanceUntil(session, view => view.World.Combats.Any());
+        var factory = CoreFactory.Create();
+        var saved = Success(session.Capture(CapturePurpose.Save));
+        using var candidate = Success(factory.PrepareRestore(Success(factory.DecodeState(saved.Encode())), content, WorldFixture.Options));
+        using var restored = candidate.Activate();
+        var events = new List<CoreEvent>();
+        for (var round = 0; round < 60 && session.Read().FindTrain(train) is Lookup<TrainView>.Found; round++)
+        {
+            var left = session.Advance(60);
+            var right = restored.Advance(60);
+            Assert.IsNull(left.Fault);
+            Assert.IsNull(right.Fault);
+            CollectionAssert.AreEqual(left.Events.Select(envelope => envelope.Event.GetType().Name).ToArray(),
+                right.Events.Select(envelope => envelope.Event.GetType().Name).ToArray());
+            Assert.AreEqual(Success(session.Capture(CapturePurpose.Save)).Encode(), Success(restored.Capture(CapturePurpose.Save)).Encode());
+            events.AddRange(left.Events.Select(envelope => envelope.Event));
+        }
+        var destruction = events.OfType<CoreEvent.CombatDestruction>().ToArray();
+        Assert.IsTrue(destruction.Any(value => value.Parts.Any(part => part.Instance.Instance is InstanceId.Vehicle)), "没有车辆部件被毁。");
+        Assert.AreEqual(2, destruction.SelectMany(value => value.Units).Count(unit => unit is DestroyedUnit.Instance { Value.Instance: InstanceId.Vehicle }));
+        CollectionAssert.AreEqual(new[] { 1, 0 }, events.OfType<CoreEvent.TrainCompositionChanged>()
+            .Where(value => value.Train == train).Select(value => value.Vehicles.Length).ToArray(), "编组应先变短再清空。");
+        Assert.IsInstanceOfType<Lookup<TrainView>.Missing>(restored.Read().FindTrain(train));
     }
 
     [TestMethod]
