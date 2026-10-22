@@ -58,15 +58,15 @@ internal sealed partial class MeasurementRun : IDisposable
         _scenario = values["scenario"];
         if (_scenario is not ("map-1x" or "map-8x" or "follow-1x" or "follow-8x" or "node-1x" or "node-8x" or
             "sdfgi-off" or "sdfgi-on" or "taa-off" or "taa-on" or "scene-node" or "scene-node-first" or
-            "scene-edge" or "scene-follow" or "scene-follow-8x" or "scene-memory" or "scene-capture" or "scene-map" or "scene-reference" or
+            "scene-edge" or "scene-follow" or "scene-follow-8x" or "scene-memory" or "scene-soak" or "scene-capture" or "scene-map" or "scene-reference" or
             "scene-route-1x" or "scene-route-2x" or "scene-route-4x" or "scene-route-8x" or
             "scene-route-capture-1x" or "scene-route-capture-8x"))
             throw new ArgumentException("未知测量情景。");
         if (values.TryGetValue("--measure-duration", out var duration))
         {
             if (!int.TryParse(duration, out _sceneDuration) || _sceneDuration < 0 ||
-                _scenario != "scene-memory" && _sceneDuration > 120)
-                throw new ArgumentException("测量时长必须是非负整数秒；除 scene-memory 外只能缩短 120 秒采样。");
+                _scenario is not ("scene-memory" or "scene-soak") && _sceneDuration > 120)
+                throw new ArgumentException("测量时长必须是非负整数秒；除 scene-memory 和 scene-soak 外只能缩短 120 秒采样。");
         }
         _input = Path.GetFullPath(values["--measure-input"]);
         _sceneReferencePath = values.TryGetValue("--measure-reference", out var reference) ? Path.GetFullPath(reference) : null;

@@ -4,6 +4,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string] $CacheDirectory,
+    [ValidateRange(1, 2145678)][int] $SoakSeconds = 7200,
     [string] $Root = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent)
 )
 
@@ -67,6 +68,10 @@ try {
     & pwsh -NoProfile -File (Join-Path $Root 'scripts/measure.ps1') -ExecutablePath $executable -InputPath $save `
         -OutputDirectory (Join-Path $results 'reference') -Scenario scene-reference -Repeat 1 -Machine test
     if ($LASTEXITCODE -ne 0) { throw "scene-reference 测量失败，退出码 $LASTEXITCODE。" }
+    & pwsh -NoProfile -File (Join-Path $Root 'scripts/measure.ps1') -ExecutablePath $executable -InputPath $save `
+        -OutputDirectory (Join-Path $results 'soak') -Scenario scene-soak -Repeat 1 -Machine test -DurationSeconds $SoakSeconds `
+        -ReferencePath (Join-Path $results 'reference/scene-reference-1/scene-reference.json')
+    if ($LASTEXITCODE -ne 0) { throw "scene-soak 测量失败，退出码 $LASTEXITCODE。" }
 }
 finally {
     Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue

@@ -21,6 +21,10 @@ on:
         type: choice
         options: [starting-trade, lease-expiry, rail-repair, conquest, clearance, operating-failure, long-consist, standard-world]
         default: starting-trade
+      soak_seconds:
+        description: 窗口长测循环时长（秒，仅 window-soak 使用）
+        type: string
+        default: '7200'
       commit:
         description: 要测试的完整 40 位提交 SHA，留空则测试触发的 ref
         type: string
@@ -259,8 +263,10 @@ jobs:
       - name: Window soak
         if: env.CI_SELECTION == 'window-soak'
         shell: pwsh
+        env:
+          SOAK_SECONDS: ${{ inputs.soak_seconds }}
         run: |
-          pwsh -NoProfile -File scripts/checks/run-window-soak.ps1 -CacheDirectory (Join-Path $env:RUNNER_TOOL_CACHE 'godot-export-templates/4.7.2-stable')
+          pwsh -NoProfile -File scripts/checks/run-window-soak.ps1 -CacheDirectory (Join-Path $env:RUNNER_TOOL_CACHE 'godot-export-templates/4.7.2-stable') -SoakSeconds $env:SOAK_SECONDS
           exit $LASTEXITCODE
 
       # Temporary for #397: records GPU, driver and display before the window soak is designed.

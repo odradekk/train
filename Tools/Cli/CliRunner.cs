@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text.Json;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
+using Train.App.Measurement;
 using Train.App.Saves;
 
 namespace Train.Cli;

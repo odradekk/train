@@ -2,9 +2,9 @@ using System.Collections.Immutable;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 
-namespace Train.Cli;
+namespace Train.App.Measurement;
 
-// 配方期望和样本共用的计数，全部来自公开查询；指定节点时只统计位于该节点的对象。
+// 配方期望、样本和窗口长测共用的计数，全部来自公开查询；指定节点时只统计位于该节点的对象。
 internal static class WorldCounts
 {
     internal static readonly ImmutableArray<string> Keys =

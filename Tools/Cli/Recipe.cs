@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Train.App.Measurement;
 using Train.Core.Contracts;
 using Train.Content.Contracts;
 

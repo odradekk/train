@@ -76,7 +76,9 @@ internal sealed partial class MeasurementRun
         _sceneEvidence["collections"] = "scene-collections.jsonl";
         _sceneEvidence["probe_costs"] = "scene-probe-costs.jsonl";
         _sceneEvidence["clock"] = "Stopwatch.GetTimestamp / Stopwatch.Frequency; absolute monotonic seconds";
-        _sceneEvidence["scope"] = "current implemented stage load; not the complete standard mixed load";
+        _sceneEvidence["scope"] = _scenario == "scene-soak"
+            ? "standard-world standard mixed load; frames classified against the recipe expectations at the save point"
+            : "current implemented stage load; not the complete standard mixed load";
         _sceneEvidence["capture_only"] = _scenario == "scene-capture";
         _sceneEvidence["reference_only"] = _scenario == "scene-reference";
         _sceneEvidence["unobservable_cache_state"] = new[] { "prebuild_tasks", "node_cache_entries" };
@@ -102,6 +104,17 @@ internal sealed partial class MeasurementRun
                 await ReturnSceneMap();
                 await LoadSceneInput();
                 await OpenSceneMeasured("reference-follow", new WorldObjectId.Train(new(1)));
+                // 窗口长测另打开节点 3 和边 15；参考运行在世界里有这两处时一并记录。
+                var world = host.GetStatus()!.View.World;
+                if (world.Nodes.Any(node => node.Id == SoakNodeBattle.Id) && world.Edges.Any(edge => edge.Id == SoakLineBattle.Id))
+                {
+                    await ReturnSceneMap();
+                    await LoadSceneInput();
+                    await OpenSceneMeasured("reference-node-battle", SoakNodeBattle);
+                    await ReturnSceneMap();
+                    await LoadSceneInput();
+                    await OpenSceneMeasured("reference-line-battle", SoakLineBattle);
+                }
                 WriteSceneReference();
             }
             else if (_scenario is "scene-node" or "scene-node-first" or "scene-capture")
@@ -144,6 +157,10 @@ internal sealed partial class MeasurementRun
                     _timing = _sceneTiming.Summarize();
                     _sceneTiming = null;
                 }
+            }
+            else if (_scenario == "scene-soak")
+            {
+                await RunWindowSoak();
             }
             else if (_scenario == "scene-memory")
             {
@@ -188,7 +205,7 @@ internal sealed partial class MeasurementRun
         }
     }
 
-    private async Task LoadSceneInput()
+    private async Task LoadSceneInput(bool restoreInput = false)
     {
         _scenePhase = "load";
         var menu = _app.GetNode<MainMenu>("MainMenu");
@@ -197,7 +214,7 @@ internal sealed partial class MeasurementRun
         var store = new FileSaveStore(OS.GetUserDataDir());
         Directory.CreateDirectory(store.DirectoryFor(header.Id));
         var copy = store.PathFor(header.Id);
-        if (!File.Exists(copy)) File.Copy(_input, copy);
+        if (restoreInput || !File.Exists(copy)) File.Copy(_input, copy, overwrite: true);
         menu.OpenSaves();
         var panel = menu.GetChildren().OfType<SavePanel>().Single();
         var list = SceneUiDescendants(panel).OfType<ItemList>().Single();
@@ -243,7 +260,8 @@ internal sealed partial class MeasurementRun
         var before = SceneCacheState();
         _sceneTarget = target;
         var peakBefore = new { private_bytes = _scenePeakPrivate, working_set_bytes = _scenePeakWorking };
-        var follow = target is WorldObjectId.Train ? new WorldObjectId.Instance(new InstanceId.Vehicle(new(1))) : null;
+        var follow = target is WorldObjectId.Train train ? new WorldObjectId.Instance(new InstanceId.Vehicle(
+            ((Lookup<TrainView>.Found)_app.Host!.GetStatus()!.View.FindTrain(train.Id)).Value.Vehicles[0])) : null;
         _subject = follow;
         _sceneClick = Seconds();
         if (_scenario == "scene-reference") _app.Host!.SetPaused(true);
@@ -447,7 +465,8 @@ internal sealed partial class MeasurementRun
                 _sceneLoggedProbeState = _probeState;
             }
             loggingSeconds += Seconds() - loggingStarted;
-            if (now - _sceneLastLoadSample >= 1 && (_sceneOperation is null || _scenario == "scene-reference"))
+            if (_scenario == "scene-soak") ObserveSoakFrame(now, status, interval);
+            else if (now - _sceneLastLoadSample >= 1 && (_sceneOperation is null || _scenario == "scene-reference"))
             {
                 var loadRecord = new { kind = "active-load", phase = _scenePhase, load = SceneLoadCounts() };
                 loggingStarted = Seconds();
@@ -525,7 +544,7 @@ internal sealed partial class MeasurementRun
             peak_private_bytes = _scenePeakPrivate, peak_working_set_bytes = _scenePeakWorking };
     }
 
-    private void CollectSceneHeap(int cycle, string phase)
+    private long CollectSceneHeap(int cycle, string phase)
     {
         ResetSceneProbe();
         _sceneProbeDetail = _sceneFirstNearDetail = null;
@@ -536,11 +555,13 @@ internal sealed partial class MeasurementRun
         GC.WaitForPendingFinalizers();
         GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
         var heap = GC.GetGCMemoryInfo();
+        var live = GC.GetTotalMemory(false);
         _sceneCollectionTrace!.WriteLine(JsonSerializer.Serialize(new { cycle, phase, at = Seconds(),
-            seconds = Seconds() - started, natural, managed_live_bytes = GC.GetTotalMemory(false),
+            seconds = Seconds() - started, natural, managed_live_bytes = live,
             heap_bytes = heap.HeapSizeBytes, fragmented_bytes = heap.FragmentedBytes,
             committed_bytes = heap.TotalCommittedBytes }, SceneJson));
         _sceneCollectionTrace.Flush();
+        return live;
     }
 
     private object SceneLoadCounts()
@@ -591,6 +612,7 @@ internal sealed partial class MeasurementRun
     private void OnSceneSaveChanged()
     {
         if (_sceneOperationTrace is null) return;
+        if (_scenario == "scene-soak") ObserveSoakAutosaves();
         _sceneOperationTrace.WriteLine(JsonSerializer.Serialize(new { kind = "save-state", at = Seconds(),
             busy = _app.Saves!.IsBusy, pending_writes = _app.Saves.PendingWrites
                 .Select(write => new { write.Kind, write.Path }).ToArray() }, SceneJson));

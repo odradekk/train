@@ -6,7 +6,7 @@ param(
     [Parameter(Mandatory)][string] $OutputDirectory,
     [ValidateSet('map-1x', 'map-8x', 'follow-1x', 'follow-8x', 'node-1x', 'node-8x',
         'sdfgi-off', 'sdfgi-on', 'taa-off', 'taa-on', 'scene-node', 'scene-node-first',
-        'scene-edge', 'scene-follow', 'scene-follow-8x', 'scene-memory', 'scene-capture', 'scene-map', 'scene-reference',
+        'scene-edge', 'scene-follow', 'scene-follow-8x', 'scene-memory', 'scene-soak', 'scene-capture', 'scene-map', 'scene-reference',
         'scene-route-1x', 'scene-route-2x', 'scene-route-4x', 'scene-route-8x', 'scene-route-capture-1x', 'scene-route-capture-8x')]
     [string[]] $Scenario = @('map-1x', 'map-8x', 'follow-1x', 'follow-8x', 'node-1x', 'node-8x',
         'sdfgi-off', 'sdfgi-on', 'taa-off', 'taa-on'),
@@ -168,6 +168,9 @@ public sealed class MeasurementDisplayAwake : IDisposable
         $isScene = $name.StartsWith('scene-', [StringComparison]::Ordinal)
         $timeout = if ($name -eq 'scene-memory') {
             if ($DurationSeconds -eq 0) { 7800 } else { $DurationSeconds + 600 }
+        } elseif ($name -eq 'scene-soak') {
+            # 长测在到时后跑完当前一段（最长约 15 分钟），再加读档与退出余量。
+            $(if ($DurationSeconds -eq 0) { 7200 } else { $DurationSeconds }) + 1800
         } elseif ($name.StartsWith('scene-route-', [StringComparison]::Ordinal)) { 3600 }
         elseif ($isScene) { 600 } else {
             # 实测采样外耗时最多 39.5 秒；总耗时取 1.5 倍并向上取整到 30 秒，不降低原有预算。
