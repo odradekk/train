@@ -27,8 +27,14 @@ uniform ivec2 wear_seed = ivec2(0);
 uniform float surface_damage = 0.0;
 uniform sampler2D damage_mask : filter_linear_mipmap_anisotropic, repeat_enable;
 uniform bool scorched = false;
-uniform bool model_height = false;
+// 只有模型变体声明实例变量：Godot 为每个用到实例变量的实例在全局缓冲区预留 16 个 vec4，
+// 体素网格每块一个实例，全部预留会超过默认 4096 个实例的上限。
+#ifdef MODEL_HEIGHT
+const bool model_height = true;
 instance uniform vec4 relative_height_plane : instance_index(0) = vec4(0.0);
+#else
+const bool model_height = false;
+#endif
 
 varying vec2 face_uv;
 varying flat int exposed_edges;
@@ -41,7 +47,11 @@ varying vec3 local_normal;
 void vertex() {
     face_uv = UV2;
     exposed_edges = int(CUSTOM0.x);
-    relative_height = model_height ? dot(vec4(VERTEX, 1.0), relative_height_plane) : CUSTOM0.y;
+#ifdef MODEL_HEIGHT
+    relative_height = dot(vec4(VERTEX, 1.0), relative_height_plane);
+#else
+    relative_height = CUSTOM0.y;
+#endif
     vertex_damage = CUSTOM0.z;
     local_position = VERTEX;
     local_normal = NORMAL;

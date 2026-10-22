@@ -159,7 +159,7 @@ public sealed class SettlementMoraleTests
     }
 
     [TestMethod]
-    public void A_surrendered_settlement_recovers_and_reengages_when_morale_reaches_the_threshold()
+    public void A_surrendered_settlement_does_not_fire_or_recover_while_the_hostile_train_is_at_its_node()
     {
         var content = SettlementWarFixture.MoraleRules(CombatFixture.Content(armedBuilding: true, damage: 100),
             coefficient: 0, weaponLoss: .95, recovery: .6, threshold: .9);
@@ -180,23 +180,88 @@ public sealed class SettlementMoraleTests
         Assert.IsTrue(surrender, "聚居地未投降。");
         var morale = SettlementWarFixture.Settlement(atNode, settlement.Id).Morale;
         Assert.AreEqual(1 - .95, morale, 1e-9);
+        var vehicles = Vehicles(atNode);
 
-        atNode.Advance(1);
-        Assert.AreEqual(morale + .01, SettlementWarFixture.Settlement(atNode, settlement.Id).Morale, 1e-9);
-        Assert.IsTrue(SettlementWarFixture.View(atNode, settlement.Id).Surrendered);
-        Assert.IsEmpty(atNode.Read().World.Combats);
-
-        var released = false;
-        for (var step = 0; step < 200 && !released; step++)
+        var events = ImmutableArray.CreateBuilder<CoreEvent>();
+        for (var step = 0; step < 200; step++)
         {
             var result = atNode.Advance(1);
-            var after = SettlementWarFixture.Settlement(atNode, settlement.Id);
-            if (after.Surrendered) continue;
-            released = true;
-            Assert.IsTrue(after.Morale >= .9);
-            Assert.IsTrue(result.Events.Select(envelope => envelope.Event).Any(value => value is CoreEvent.CombatStarted));
+            Assert.IsNull(result.Fault, result.Diagnostic?.Message);
+            events.AddRange(result.Events.Select(envelope => envelope.Event));
         }
-        Assert.IsTrue(released, "聚居地未解除投降。");
+        Assert.AreEqual(morale, SettlementWarFixture.Settlement(atNode, settlement.Id).Morale, 1e-12);
+        Assert.IsTrue(SettlementWarFixture.View(atNode, settlement.Id).Surrendered);
+        Assert.IsEmpty(atNode.Read().World.Combats);
+        Assert.IsFalse(events.Any(value => value is CoreEvent.CombatStarted or CoreEvent.SettlementSurrendered));
+        CollectionAssert.AreEqual(vehicles, Vehicles(atNode));
+
+        using var left = SettlementWarFixture.MoveTrain(atNode,
+            SettlementWarFixture.AwayNode(atNode, settlement));
+        var released = 0;
+        while (released < 200)
+        {
+            released++;
+            var result = left.Advance(1);
+            Assert.IsNull(result.Fault, result.Diagnostic?.Message);
+            if (!SettlementWarFixture.Settlement(left, settlement.Id).Surrendered) break;
+        }
+        Assert.AreEqual(85, released, "解除投降的步数与阈值不符。");
+        Assert.IsTrue(SettlementWarFixture.Settlement(left, settlement.Id).Morale >= .9);
+        Assert.IsEmpty(left.Read().World.Combats);
+    }
+
+    [TestMethod]
+    public void A_creature_group_at_the_node_freezes_recovery_until_it_leaves()
+    {
+        var baseline = CombatWorld;
+        var unarmed = Animal(baseline.Content, "fixture:creature-b", 1000, 0, 1, Idle, null);
+        var content = SettlementWarFixture.MoraleRules(
+            Lairs(baseline.Content, unarmed, unarmed, 1, Idle, Idle, 0, 0),
+            coefficient: 0, weaponLoss: 0, recovery: .6, threshold: .9);
+        var settlement = baseline.World.Settlements.Where(item => item.Relation == SettlementRelation.Hostile)
+            .OrderBy(item => item.Id.Value).First();
+        var world = baseline.World with
+        {
+            Trains = [],
+            Settlements = baseline.World.Settlements.Select(item => item.Id == settlement.Id
+                ? item with { Morale = .5, Surrendered = true } : item).ToImmutableArray()
+        };
+        var (withLair, lair) = AddLair(world, EmptyNode(world, settlement.Node), content.LairTypes[0].Id);
+        using var raided = Open(baseline, WithPacks(withLair,
+            Pack(1, lair.Id, new WorldLocation.Node(settlement.Node), null,
+                CreatureActivity.RaidingSettlement, 0, new CreatureObjective.Settlement(settlement.Node),
+                Creature(1, "fixture:creature-b", 1000))), content);
+
+        Step(raided);
+        Assert.AreEqual(.5, SettlementWarFixture.Settlement(raided, settlement.Id).Morale, 1e-12);
+        Assert.IsTrue(SettlementWarFixture.View(raided, settlement.Id).Surrendered);
+        Assert.IsEmpty(raided.Read().World.Combats);
+
+        using var cleared = Open(baseline, withLair, content);
+        Step(cleared);
+        Assert.AreEqual(.51, SettlementWarFixture.Settlement(cleared, settlement.Id).Morale, 1e-9);
+    }
+
+    [TestMethod]
+    public void A_non_hostile_settlement_recovers_while_a_player_train_is_at_its_node()
+    {
+        var content = SettlementWarFixture.MoraleRules(SettlementWarFixture.Content(),
+            coefficient: 0, weaponLoss: 0, recovery: .6, threshold: .9);
+        using var original = CombatFixture.SessionWithContent(content);
+        var settlement = SettlementWarFixture.Settlement(original);
+        var world = original.State.World with
+        {
+            Settlements = original.State.World.Settlements.Select(item => item.Id == settlement.Id
+                ? item with { Morale = .5 } : item).ToImmutableArray()
+        };
+        using var atNode = SettlementWarFixture.MoveTrain(
+            new CoreSession(original.State with { World = world }), settlement.Node);
+
+        var result = atNode.Advance(1);
+
+        Assert.IsNull(result.Fault, result.Diagnostic?.Message);
+        Assert.AreEqual(.51, SettlementWarFixture.Settlement(atNode, settlement.Id).Morale, 1e-9);
+        Assert.IsEmpty(atNode.Read().World.Combats);
     }
 
     [TestMethod]
@@ -288,6 +353,16 @@ public sealed class SettlementMoraleTests
     private static long BuildingCap(CoreSession session, SettlementState settlement)
         => settlement.Plots.Where(plot => plot.Building is not null)
             .Sum(plot => Design(session, plot.Building!.Value).MaxStructureDurability);
+
+    private static string[] Vehicles(CoreSession session)
+    {
+        var world = session.State.World;
+        return world.Trains.Single().Vehicles.Select(vehicle =>
+        {
+            var instance = world.Instances.Single(item => item.Id == new InstanceId.Vehicle(vehicle));
+            return $"{instance.StructureDurability}/{string.Join(",", instance.Parts.Select(part => part.Current))}";
+        }).ToArray();
+    }
 
     private static long CurrentStructure(CoreSession session, SettlementState settlement)
         => settlement.Plots.Where(plot => plot.Building is not null)

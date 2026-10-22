@@ -38,6 +38,8 @@ internal sealed partial class MeasurementRun : IDisposable
     private Exception? _drawFailure;
     private bool _disposed;
     private TrainId? _measuredTrain;
+    private readonly TrainId _train;
+    private readonly NodeId _node;
     private int SampleSeconds => _sceneDuration > 0 ? _sceneDuration : 30;
     private static readonly Vector2I WindowSize = new(1920, 1080);
     private static readonly string[] SoftwareAdapters = ["llvmpipe", "lavapipe", "softpipe", "swiftshader"];
@@ -51,14 +53,15 @@ internal sealed partial class MeasurementRun : IDisposable
         for (var i = 0; i < arguments.Count; i++)
         {
             if (arguments[i].StartsWith("--measure=", StringComparison.Ordinal)) continue;
-            if (arguments[i] is not ("--measure-input" or "--measure-output" or "--measure-identity" or "--measure-duration" or "--measure-reference") ||
+            if (arguments[i] is not ("--measure-input" or "--measure-output" or "--measure-identity" or "--measure-duration" or "--measure-reference" or
+                    "--measure-train" or "--measure-node") ||
                 ++i >= arguments.Count) throw new ArgumentException("测量需要情景、输入存档、输出报告和构建身份路径。");
             values.Add(arguments[i - 1], arguments[i]);
         }
         _scenario = values["scenario"];
         if (_scenario is not ("map-1x" or "map-8x" or "follow-1x" or "follow-8x" or "node-1x" or "node-8x" or
             "sdfgi-off" or "sdfgi-on" or "taa-off" or "taa-on" or "scene-node" or "scene-node-first" or
-            "scene-edge" or "scene-follow" or "scene-follow-8x" or "scene-memory" or "scene-soak" or "scene-capture" or "scene-map" or "scene-reference" or
+            "scene-edge" or "scene-follow" or "scene-follow-8x" or "scene-memory" or "scene-soak" or "scene-capture" or "scene-map" or "scene-reference" or "scene-editor" or
             "scene-route-1x" or "scene-route-2x" or "scene-route-4x" or "scene-route-8x" or
             "scene-route-capture-1x" or "scene-route-capture-8x"))
             throw new ArgumentException("未知测量情景。");
@@ -68,6 +71,11 @@ internal sealed partial class MeasurementRun : IDisposable
                 _scenario is not ("scene-memory" or "scene-soak") && _sceneDuration > 120)
                 throw new ArgumentException("测量时长必须是非负整数秒；除 scene-memory 和 scene-soak 外只能缩短 120 秒采样。");
         }
+        if ((values.ContainsKey("--measure-train") || values.ContainsKey("--measure-node")) &&
+            !_scenario.StartsWith("scene-", StringComparison.Ordinal))
+            throw new ArgumentException("--measure-train 和 --measure-node 只用于 scene-* 情景。");
+        _train = new(TargetId(values, "--measure-train", 1));
+        _node = new(TargetId(values, "--measure-node", 2));
         _input = Path.GetFullPath(values["--measure-input"]);
         _sceneReferencePath = values.TryGetValue("--measure-reference", out var reference) ? Path.GetFullPath(reference) : null;
         _output = Path.GetFullPath(values["--measure-output"]);
@@ -76,6 +84,12 @@ internal sealed partial class MeasurementRun : IDisposable
             ?? throw new InvalidDataException("缺少构建身份。");
         Directory.CreateDirectory(Path.GetDirectoryName(_output)!);
         RenderingServer.FramePostDraw += OnDraw;
+    }
+
+    private static ulong TargetId(Dictionary<string, string> values, string name, ulong fallback)
+    {
+        if (!values.TryGetValue(name, out var text)) return fallback;
+        return ulong.TryParse(text, out var id) && id > 0 ? id : throw new ArgumentException(name + " 必须是正整数编号。");
     }
 
     internal void Start() => _ = Run();

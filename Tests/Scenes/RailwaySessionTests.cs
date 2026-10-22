@@ -191,6 +191,54 @@ public sealed class RailwaySessionTests
     }
 
     [TestMethod]
+    public async Task SampleLongConsistKeepsBodiesBeyondTheSegmentWindowAndFogsTheirPicks()
+    {
+        // Demo 长编组样例的尺寸：32 辆共 1,280 米，远超跟随时保留的分段窗口。
+        const int vehicleCells = 80;
+        var content = Content(RailwayFixtures.Vehicle(lengthCells: vehicleCells));
+        var members = Enumerable.Range(1, 32).Select(id => new VehicleId((ulong)id)).ToImmutableArray();
+        Assert.IsTrue(members.Length * vehicleCells >
+            (RailwayCoordinates.ViewRadiusSegments * 2 + 1 + RailwayCoordinates.MaxPrefetchSegments) * RailwayCoordinates.SegmentLengthCells);
+        var instances = members.Select(id => RailwayFixtures.Instance(id.Value)).ToImmutableArray();
+        var old = RailwayFixtures.Snapshot(1400, 1400, 0, content: content,
+            trains: [RailwayFixtures.Train(667, members)], instances: instances);
+        await using var vehicles = new SceneVehicles();
+        await using var scene = RailwayFixtures.Controlled(old, vehicles);
+        var before = await Settled(scene, old, followed: new(30));
+        var next = RailwayFixtures.Snapshot(1400, 1400, 0, content: content,
+            trains: [RailwayFixtures.Train(669, members)], instances: instances);
+        var after = await Settled(scene, next, displayed: before,
+            revision: before.Update.Frame.Revision + 1, followed: new(30));
+        Assert.AreEqual(new ScenePoint(0, 0, RailwayCoordinates.OriginStepCells), after.Origin);
+        Assert.AreEqual(new Vector3(0, 0, (float)-RailwayCoordinates.OriginStepCells), after.Update.ShiftExistingRoots);
+        var focus = Pose(after, 30).Position;
+        var fogged = 0;
+        foreach (var id in members)
+        {
+            var index = (int)id.Value - 1;
+            var subject = new WorldObjectId.Instance(new InstanceId.Vehicle(id));
+            var oldBody = before.Objects.Single(item => item.Parent is null && item.Subject == subject);
+            var body = after.Objects.Single(item => item.Id == oldBody.Id);
+            Assert.AreSame(((SceneVisual.Geometry)oldBody.Visuals[0]).Mesh, ((SceneVisual.Geometry)body.Visuals[0]).Mesh);
+            // 编组中心 1,334／1,338 格，首车中心在其前方半列长减半车长处；车 30 跨过 256 格原点边界。
+            AssertPosition(before, id.Value, new(0, 0, 1334 + 1240 - vehicleCells * index));
+            AssertPosition(after, id.Value, new(0, 0, (float)(1338 + 1240 - vehicleCells * index - RailwayCoordinates.OriginStepCells)));
+            var pose = Pose(after, id.Value);
+            var pick = after.Pick(new(pose.Position + new Vector3(.5f, 10, .5f), -Vector3.UnitY, 20));
+            // 焦点一段之内必在 Ready 范围；窗口外的车体照常显示，但其下分段未加载，拾取按雾区返回 NotReady。
+            if (pick is ScenePick.NotReady && Math.Abs(pose.Position.Z - focus.Z) > RailwayCoordinates.SegmentLengthCells)
+            {
+                fogged++;
+                continue;
+            }
+            var hit = (ScenePick.Hit)pick;
+            Assert.AreEqual(subject, ((PickSubject.WorldObject)hit.Value.Subject).Object);
+            Assert.AreEqual(after.Update.Frame, hit.Value.Frame);
+        }
+        Assert.IsTrue(fogged > 0);
+    }
+
+    [TestMethod]
     public async Task EightTimesProgressDoesNotWaitForBlockedSegmentsAndOldTasksCannotPublishAfterClose()
     {
         using var release = new ManualResetEventSlim();
