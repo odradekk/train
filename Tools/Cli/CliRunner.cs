@@ -205,12 +205,12 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
         void Sample()
         {
             checkpoints.Add(Require(session.Capture(CapturePurpose.Save)).Checkpoint);
-            var view = session.Read();
-            observations.Add(EconomySample.Read(view));
-            if (view.Position.Sequence != 0) return;
-            foreach (var expectation in recipe.Expectations.Where(item => item.At == view.Position.CompletedSteps))
+            var read = session.Read();
+            observations.Add(EconomySample.Read(read, view));
+            if (read.Position.Sequence != 0) return;
+            foreach (var expectation in recipe.Expectations.Where(item => item.At == read.Position.CompletedSteps))
             {
-                var actual = WorldCounts.Read(view, expectation.Node is { } node ? new NodeId(node) : null)[expectation.Key];
+                var actual = WorldCounts.Read(read, view, expectation.Node is { } node ? new NodeId(node) : null)[expectation.Key];
                 if (actual < expectation.Minimum || actual > expectation.Maximum)
                     throw new InvalidDataException($"{expectation.At}:0 的 {expectation.Key}"
                         + (expectation.Node is { } at ? $"（节点 {at}）" : "")

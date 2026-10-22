@@ -606,6 +606,25 @@ public sealed class BuildingConstructionTests
     }
 
     [TestMethod]
+    public void Construction_investing_a_composite_good_survives_save_and_restore()
+    {
+        var composite = new GoodId.Composite(new("fixture:turret"));
+        var plotted = WithPlot(Content(), PlotSize.Small);
+        var content = plotted with { Goods = plotted.Goods.Add(new(composite, WorldFixture.Revision, new(1), 1, false, null)) };
+        var basis = Building(content, PlotSize.Small, BuildingKind.Production, '9');
+        var design = basis with { Design = basis.Design with { BillOfMaterials = [new(composite, 1), new(Material, 2)], BillOfMaterialsItemCount = 3 } };
+        using var empty = Session(content);
+        using var session = new CoreSession(empty.State with { World = empty.State.World with
+        {
+            Inventories = empty.State.World.Inventories.Select(i => i.Id != Local ? i : i with
+                { Goods = i.Goods.Insert(0, new(composite, 1)) }).ToImmutableArray()
+        } });
+        var job = Start(session, BuildOn(Empty(session), design));
+        CollectionAssert.AreEqual(new[] { new GoodsQuantity(composite, 1), new GoodsQuantity(Material, 2) }, job.InvestedGoods.ToArray());
+        RoundTrip(session, content);
+    }
+
+    [TestMethod]
     public void Equipment_rejects_insufficient_return_capacity_and_failure_only_releases_the_reservation()
     {
         var stored = Content(stock: 2);

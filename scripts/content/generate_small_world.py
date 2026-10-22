@@ -47,6 +47,7 @@ STANDARD_HEIGHT_METERS = 3100
 STANDARD_SETTLEMENT_RATIO = 0.5
 STANDARD_LAIR_RATIO = 0.3
 STANDARD_SEARCH_WORK = 400000000
+STANDARD_FIRST_TITAN_LOAD = 16000
 
 # 这些是内容初值，不是报价、补货或运行规则；全部待用户试玩确认。
 BATCH_UNITS = 4
@@ -2031,6 +2032,14 @@ def content_files():
         "start": {"initial_money": initial_money, "trains": [{"vehicles": train, "inventory": []} for train in START_TRAINS]}})
     standard_capacity = sum(behavior["capacity"] for train in STANDARD_TRAINS for identity in train
                             for behavior in blueprint_behaviors(identity, "storage"))
+    # 两列大型列车运来泰坦委托的整份材料：第一列只装结构金属，其余都在第二列。
+    titan = blueprint_definitions["titan-armed-vehicle"]["layout"]
+    titan_voxels = Counter(titan["palette"][index]["voxel"].removeprefix("core:") for *_, index in titan["cells"])
+    titan_voxels["structural-metal"] -= STANDARD_FIRST_TITAN_LOAD
+    standard_inventory = {1: [{"voxel": "structural-metal", "quantity": STANDARD_FIRST_TITAN_LOAD}],
+                          2: [{"voxel": good, "quantity": quantity} for good, quantity in sorted(titan_voxels.items())]
+                          + [{"blueprint": good.removeprefix("core:"), "quantity": quantity}
+                             for good, quantity in sorted(Counter(item["blueprint"] for item in titan["composites"]).items())]}
     document("generation-profiles", "generation-profile", "standard-world", {
         "schema_version": 2, "id": "standard-world",
         "display": {"name": "标准测试世界", "description": "开发与性能测试用的发展后世界，不是默认新局：约 50 个节点、25 个聚居地，起始车队 20 列 80 辆，含泰坦和长编组车辆。数值待试玩。"},
@@ -2038,7 +2047,8 @@ def content_files():
                           "settlement_ratio": STANDARD_SETTLEMENT_RATIO, "lair_ratio": STANDARD_LAIR_RATIO,
                           "budget": {**configuration["budget"], "maximum_search_work": STANDARD_SEARCH_WORK}},
         "start": {"initial_money": ceil(START_BUDGET_MULTIPLIER * (standard_capacity * max(values[good] for good, _, _ in goods) + freight_base_value)),
-                  "trains": [{"vehicles": train, "inventory": []} for train in STANDARD_TRAINS]}})
+                  "trains": [{"vehicles": train, "inventory": standard_inventory.get(index, [])}
+                             for index, train in enumerate(STANDARD_TRAINS)]}})
     for path in list(files) + list(HAND_DRAWN_ICONS) + list(AUTHORED_FILES):
         if path.endswith((".png", ".glb")):
             files[path + ".import"] = keep_import(path)

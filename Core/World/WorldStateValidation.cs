@@ -586,14 +586,14 @@ internal static class WorldStateValidation
             Items(job.LastLimits, path + "/last_limits");
             Require(job.LastLimits.All(l => Enum.IsDefined(l))
                 && job.LastLimits.SequenceEqual(job.LastLimits.Distinct().Order()), path + "/last_limits");
-            ProductionGoods(job.InvestedGoods, path + "/invested_goods");
+            ConstructionGoods(job.InvestedGoods, path + "/invested_goods");
             Items(job.SourceConsumption, path + "/source_consumption");
             Require(job.SourceConsumption.Select(s => s.Inventory).Distinct().Count() == job.SourceConsumption.Length, path + "/source_consumption");
             var totals = new Dictionary<GoodId, Int128>();
             foreach (var source in job.SourceConsumption)
             {
                 Require(source.Inventory.Value > 0 && source.Inventory.Value < world.Next.Inventory, path + "/source_consumption/inventory");
-                ProductionGoods(source.Goods, path + "/source_consumption/goods");
+                ConstructionGoods(source.Goods, path + "/source_consumption/goods");
                 Require(!source.Goods.IsEmpty, path + "/source_consumption/goods");
                 foreach (var good in source.Goods) totals[good.Good] = totals.GetValueOrDefault(good.Good) + good.Quantity;
             }
@@ -643,6 +643,17 @@ internal static class WorldStateValidation
                 field + "/batch/frozen_labor_per_work");
             ProductionGoods(batch.FrozenOutputs, field + "/batch/frozen_outputs");
             Require(!batch.FrozenOutputs.IsEmpty, field + "/batch/frozen_outputs");
+        }
+    }
+
+    // 施工材料清单可以含大型设备，生产批次只产出体素货物。
+    private static void ConstructionGoods(ImmutableArray<GoodsQuantity> goods, string field)
+    {
+        Strings(goods, g => WorldReferences.GoodKey(g.Good), field);
+        foreach (var good in goods)
+        {
+            Good(good.Good, field);
+            Require(good.Quantity > 0, field);
         }
     }
 
