@@ -36,7 +36,7 @@ internal static class MeasurementReport
                 art_review = scene ? "美术 Issue #358–#363、#393–#396 的 PR 已合并，正式外观仍待用户目视确认" : null,
                 thresholds = "帧耗时尾部、加载等待等阈值待用户确认，本报告不判定通过",
                 final_performance = false,
-                unmeasured = testMachine ? new[] { "full_demo_load", "long_runs" } : new[] { "full_demo_load", "target_hardware", "long_runs" } },
+                unmeasured = Unmeasured(scenario, testMachine) },
             identity,
             timing,
             memory = memory.Select(sample => new
@@ -47,5 +47,14 @@ internal static class MeasurementReport
             }),
             operations
         }, Json);
+    }
+
+    private static string[] Unmeasured(string scenario, bool testMachine)
+    {
+        // 窗口长测本身就是完整窗口长测，未覆盖的是核心长测、新进程首开和配方负载只在重置后短暂成立。
+        string[] gaps = scenario == "scene-soak"
+            ? ["core_24h_long_run_#367", "process_first_open_node_line_follow", "full_recipe_load_only_briefly_after_each_reset"]
+            : ["full_demo_load", "long_runs"];
+        return testMachine ? gaps : [.. gaps, "target_hardware"];
     }
 }

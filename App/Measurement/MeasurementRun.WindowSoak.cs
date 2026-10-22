@@ -395,8 +395,10 @@ internal sealed partial class MeasurementRun
         {
             if (_app.Recording?.Status is { } recording)
             {
-                if (_soakRecording is { } last && last.Binding == status.Binding && recording.From.CompletedSteps > last.From) _soakTrims++;
-                _soakRecording = (status.Binding, recording.From.CompletedSteps);
+                // 读档后到首个起点写成前，From 退回当前位置；只比较前后两次都有可用起点的读数。
+                if (recording.HasUsableStart && _soakRecording is { } last && last.Binding == status.Binding &&
+                    recording.From.CompletedSteps > last.From) _soakTrims++;
+                _soakRecording = recording.HasUsableStart ? (status.Binding, recording.From.CompletedSteps) : null;
                 if (recording.Incomplete) _soakIncompleteSeconds += _soakLoadAt > 0 ? now - _soakLoadAt : 0;
             }
             var view = status.View;
@@ -521,7 +523,7 @@ internal sealed partial class MeasurementRun
                 slot_overwrites = _soakAutosaveOverwrites, source = "自动存档槽文件头的保存时间" },
             recording = new { start_interval_steps = RecordingService.StartIntervalSteps,
                 retained_starts = _app.Host!.SessionOptions!.RetainedRecordingStarts, trims = _soakTrims,
-                incomplete_seconds = _soakIncompleteSeconds, source = "同一会话内录制起点位置前移" },
+                incomplete_seconds = _soakIncompleteSeconds, source = "同一会话内前后两次读数都有可用起点时，最早起点位置前移" },
             round_trips = new
             {
                 evidence = _soakRejectedLoads.Count > 0 ? "failed" : "passed",

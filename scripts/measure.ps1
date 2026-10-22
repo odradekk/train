@@ -311,8 +311,10 @@ finally {
                 warmup_seconds = 5; sample_seconds = $(if ($DurationSeconds -gt 0) { $DurationSeconds } else { 30 }); repetitions = $Repeat
                 scene_duration_seconds_argument = $DurationSeconds
                 scene_timing = '新 scene 情景的预热、采样和运行时长以各运行报告为准；DurationSeconds=0 使用情景默认值。'
-                external_load = '每秒记录总 CPU、可用物理内存、页面输入与读取速率及 Godot/dotnet 的 PID、名称、累计 CPU 秒、工作集；保留并发负载，不要求暂停其他任务。'
-                limitation = '开发机真实窗口测量，仅用于重复采样与证据核对，不代表目标硬件最终性能。'
+                external_load = $(if ($IsWindows) { '每秒记录总 CPU、可用物理内存、页面输入与读取速率及 Godot/train/dotnet 的 PID、名称、累计 CPU 秒、工作集；保留并发负载，不要求暂停其他任务。' }
+                    else { '每秒记录 /proc/stat 总 CPU 占用、MemAvailable、最高温区温度、交流电状态及 Godot/train/dotnet 的 PID、名称、累计 CPU 秒、工作集；保留并发负载。' })
+                limitation = $(if ($Machine -eq 'test') { '用户 2026-10-22 指定的测试机器上的真实窗口测量；阈值待用户确认，不判定通过。' }
+                    else { '开发机真实窗口测量，仅用于重复采样与证据核对，不代表目标硬件最终性能。' })
             }
         }
     }
