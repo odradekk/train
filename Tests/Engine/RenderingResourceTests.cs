@@ -35,7 +35,10 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         Require(damageMask is not null && damageMask.GetWidth() == 128 && damageMask.GetHeight() == 128 && damageImage?.HasMipmaps() == true,
             "场景材质必须加载带 Mipmap 的正式损伤遮罩。");
 
+        // Godot 为每个带实例变量的实例在全局缓冲区预留 16 个 vec4；体素网格实例数量大，不能占用。
+        Require(InstanceUniforms(instance).Length == 0, "体素网格不能使用实例变量。");
         resources.ExemptConstructionFog(followed, true);
+        Require(InstanceUniforms(instance).Length == 0, "跟随的体素网格不能使用实例变量。");
 
         Require(material.Shader != originalShader && Material(other).Shader == originalShader,
             "雾豁免只能改变被跟随车辆的材质。");
@@ -136,7 +139,7 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         {
             var material = (ShaderMaterial)instance.GetSurfaceOverrideMaterial(index);
             AssertSurface(material, source.Surface);
-            Require(material.GetShaderParameter("model_height").AsBool(), "模型高度平面没有启用。");
+            Require(InstanceUniforms(instance).SequenceEqual(["relative_height_plane"]), "模型高度平面没有启用。");
             Require(instance.GetInstanceShaderParameter("relative_height_plane").AsVector4().IsEqualApprox(new Vector4(0.1f, 0.2f, 0.3f, 0.4f)), "模型相对高度平面丢失。");
             Require(material.GetInstanceId() == Instance(second).GetSurfaceOverrideMaterial(index).GetInstanceId(),
                 "不同高度平面的实例没有共享相同表面材质。");
@@ -158,6 +161,7 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         var privateMaterial = (ShaderMaterial)instance.GetSurfaceOverrideMaterial(0);
         Require(privateMaterial.GetInstanceId() != shared.GetInstanceId() && privateMaterial.Shader != normalShader &&
             shared.Shader == normalShader, "跟随模型必须私有化材质，不能豁免另一实例的构建雾。");
+        Require(InstanceUniforms(instance).SequenceEqual(["relative_height_plane"]), "跟随模型丢失高度平面实例变量。");
         AssertSurface(privateMaterial, source.Surface);
         resources.ExemptConstructionFog(first, false);
         Require(privateMaterial.Shader == normalShader, "取消跟随必须恢复普通模型着色器。");
@@ -408,6 +412,8 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
          new(NVector3.UnitY, NVector3.UnitZ, new NVector2(3.3f, -2.2f), NVector2.UnitY, ExposedFaceEdges.MinimumV | ExposedFaceEdges.MaximumV, 0.875f, 0.75f)], [0, 1, 2]);
 
     private static MeshInstance3D Instance(PreparedVisual visual) => visual.Node.GetChildren().OfType<MeshInstance3D>().Single();
+    private static string[] InstanceUniforms(GeometryInstance3D instance) =>
+        [.. RenderingServer.InstanceGeometryGetShaderParameterList(instance.GetInstance()).Select(item => item["name"].AsString())];
     private static ShaderMaterial Material(PreparedVisual visual) => (ShaderMaterial)Instance(visual).MaterialOverride;
     private static FixedContentView Content(ContentAsset asset) => new()
     {
