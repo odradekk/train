@@ -66,6 +66,32 @@ public sealed class CoreCommandEncodingTests
     }
 
     [TestMethod]
+    public void Creature_spawn_has_a_fixed_vector_and_strict_fields()
+    {
+        const string payload = "{\"input_format_version\":2,\"kind\":\"creature.debug_spawn_group\",\"node\":18446744073709551615,\"creature\":\"core:large-creature\",\"count\":2147483647}";
+        var command = new CoreCommand.DebugSpawnCreatureGroup(new(ulong.MaxValue), new("core:large-creature"), int.MaxValue);
+        Assert.AreEqual(payload, CoreCommandEncoding.Encode(command));
+        Assert.AreEqual(command, Decode("{\"count\":2147483647,\"creature\":\"core:large-creature\",\"node\":18446744073709551615,\"kind\":\"creature.debug_spawn_group\",\"input_format_version\":2}"));
+        foreach (var (fields, field) in new[]
+        {
+            ("\"node\":0,\"creature\":\"core:a\",\"count\":1", "/node"),
+            ("\"node\":1,\"creature\":\"\",\"count\":1", "/creature"),
+            ("\"node\":1,\"creature\":1,\"count\":1", "/creature"),
+            ("\"node\":1,\"creature\":\"core:a\",\"count\":0", "/count"),
+            ("\"node\":1,\"creature\":\"core:a\",\"count\":2147483648", "/count"),
+            ("\"node\":1,\"creature\":\"core:a\"", "/count"),
+            ("\"node\":1,\"creature\":\"core:a\",\"count\":1,\"extra\":0", "/extra")
+        })
+        {
+            var failure = (CoreResult<DecodedCommand>.Failure)CoreCommandEncoding.Decode(
+                "{\"input_format_version\":2,\"kind\":\"creature.debug_spawn_group\"," + fields + "}");
+            Assert.AreEqual(field, failure.Problems.Single().Field, fields);
+        }
+        Assert.ThrowsExactly<ArgumentException>(() => CoreCommandEncoding.Encode(new CoreCommand.DebugSpawnCreatureGroup(new(0), new("core:a"), 1)));
+        Assert.ThrowsExactly<ArgumentException>(() => CoreCommandEncoding.Encode(new CoreCommand.DebugSpawnCreatureGroup(new(1), new("core:a"), 0)));
+    }
+
+    [TestMethod]
     public void Formation_preserves_vehicle_order_and_has_a_fixed_vector()
     {
         const string payload = "{\"input_format_version\":2,\"kind\":\"train.form\",\"ordered_vehicles\":[9,2,7]}";

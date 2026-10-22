@@ -153,6 +153,8 @@ internal sealed record RecipeCommand(
     ulong? Buyer = null,
     long? MinimumReceipt = null,
     JsonElement Rules = default,
+    string? Creature = null,
+    int? Count = null,
     string? ExpectedDecision = null)
 {
     internal void Validate()
@@ -225,17 +227,18 @@ internal sealed record RecipeCommand(
         var repair = Kind == "rail.repair";
         var automatic = Kind == "rail.set_automatic_repair";
         var debugBreak = Kind == "rail.debug_add_break";
+        var spawn = Kind == "creature.debug_spawn_group";
         var declare = Kind == "settlement.declare_war";
         var occupy = Kind == "settlement.occupy";
         var engagement = Kind == "engagement.set_train";
         var retreat = Kind == "combat.retreat";
         if (!(trainCommand || transfer || lease || buyVehicle || sellVehicle || form || found || expand || repair
-            || automatic || debugBreak || declare || occupy || engagement || retreat))
+            || automatic || debugBreak || spawn || declare || occupy || engagement || retreat))
             throw Invalid();
         RejectUnused(train: trainCommand || transfer || occupy || engagement || retreat,
             plan: Kind == "train.replace_run_plan", request: lease,
             buyVehicle: buyVehicle, sellVehicle: sellVehicle, payment: lease || buyVehicle, minimumReceipt: sellVehicle,
-            transfer: transfer, vehicles: form, node: found,
+            transfer: transfer, vehicles: form, node: found || spawn, creature: spawn,
             edge: expand || repair || automatic || debugBreak, railBreak: repair,
             track: debugBreak, distance: debugBreak, material: found || expand || repair || automatic,
             settlement: declare || occupy, rules: engagement);
@@ -282,6 +285,8 @@ internal sealed record RecipeCommand(
                 return new CoreCommand.SetAutomaticRailRepair(new(Edge!.Value), null);
             case "rail.set_automatic_repair" when SourceId() is { } source:
                 return new CoreCommand.SetAutomaticRailRepair(new(Edge!.Value), new(source));
+            case "creature.debug_spawn_group" when !string.IsNullOrWhiteSpace(Creature) && Count is >= 1:
+                return new CoreCommand.DebugSpawnCreatureGroup(new(Node!.Value), new(Creature), Count.Value);
             case "rail.debug_add_break" when Track is >= 1 && DistanceMeters is >= 0 && double.IsFinite(DistanceMeters.Value):
                 return new CoreCommand.DebugAddRailBreak(new(Edge!.Value), Track.Value, DistanceMeters.Value);
             default: throw Invalid();
@@ -295,7 +300,8 @@ internal sealed record RecipeCommand(
     private void RejectUnused(bool train = false, bool plan = false, bool request = false, bool buyVehicle = false,
         bool payment = false, bool transfer = false, bool facility = false, bool vehicles = false, bool node = false,
         bool edge = false, bool railBreak = false, bool track = false, bool distance = false, bool material = false,
-        bool sellVehicle = false, bool minimumReceipt = false, bool settlement = false, bool rules = false)
+        bool sellVehicle = false, bool minimumReceipt = false, bool settlement = false, bool rules = false,
+        bool creature = false)
     {
         if ((train ? Train is null or 0 : Train is not null)
             || (plan ? Plan is null : Plan is not null)
@@ -317,6 +323,7 @@ internal sealed record RecipeCommand(
             || (railBreak ? Break is null or 0 : Break is not null)
             || (track ? Track is null : Track is not null)
             || (distance ? DistanceMeters is null : DistanceMeters is not null)
+            || (creature ? Creature is null || Count is null : Creature is not null || Count is not null)
             || (material
                 ? MaterialSource.ValueKind == JsonValueKind.Undefined
                 : MaterialSource.ValueKind != JsonValueKind.Undefined))
@@ -486,8 +493,14 @@ internal sealed record RecipeGood(
     [property: JsonRequired] string Kind,
     [property: JsonRequired] string Definition)
 {
-    internal GoodId Parse() => Kind == "voxel" && !string.IsNullOrWhiteSpace(Definition)
-        ? new GoodId.Voxel(new(Definition)) : throw new InvalidDataException("配方货物须为 voxel 并提供 definition。");
+    internal GoodId Parse() => string.IsNullOrWhiteSpace(Definition)
+        ? throw new InvalidDataException("配方货物须提供 definition。")
+        : Kind switch
+        {
+            "voxel" => new GoodId.Voxel(new(Definition)),
+            "composite" => new GoodId.Composite(new(Definition)),
+            _ => throw new InvalidDataException("配方货物须为 voxel 或 composite。")
+        };
 }
 
 internal sealed record RecipeGoodsRule(

@@ -44,6 +44,7 @@ public abstract record CoreCommand
 
     public sealed record PublishContent(CoreContentProjection Content) : CoreCommand;
     public sealed record DebugAddRailBreak(EdgeId Edge, int Track, double DistanceMeters) : CoreCommand;
+    public sealed record DebugSpawnCreatureGroup(NodeId Node, CreatureDefinitionId Creature, int Count) : CoreCommand;
 }
 
 public abstract record CombatController
