@@ -13,8 +13,9 @@ internal static class RailwayFixtures
     internal static readonly TerrainTypeId Terrain = new("test:terrain");
     internal static readonly RuleDefinitionId Rule = new("test:railway");
     internal static readonly WorldLocation Location = new WorldLocation.Edge(Edge, 0);
+    internal static readonly DesignHash ConstructionModel = new("test:construction-site");
     internal static TerrainAppearanceProjection TerrainAppearance => new(Terrain,
-        SceneFixtures.Voxel, SceneFixtures.Voxel, SceneFixtures.Voxel, [], [], 0, [], new("Terrain", ""));
+        SceneFixtures.Voxel, SceneFixtures.Voxel, SceneFixtures.Voxel, [], [], 0, [], ConstructionModel, new("Terrain", ""));
     internal static RailwayAppearanceProjection Rules => new(Rule, SceneFixtures.Voxel, 40, 0.12);
 
     internal static SceneWorldSnapshot Snapshot(double lengthMeters = 800, double directMeters = 600,

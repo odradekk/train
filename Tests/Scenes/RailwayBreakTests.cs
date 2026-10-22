@@ -22,15 +22,13 @@ public sealed class RailwayBreakTests
     public async Task BreakWithinFourMetersOfAnEdgeEndStopsAtTheEdgeAndLeavesTheNodeUnchanged()
     {
         var path = Path([new TrackBreakView(new(1), 1, 2)], [Repair(new(1), 1, new(1))]);
-        var meshes = RailwayMeshes.Build(path, 0, default, _ => 4);
+        var meshes = RailwayMeshes.Build(path, 0, default);
         var points = meshes.SelectMany(mesh => mesh.Vertices).Select(vertex => vertex.Position).ToArray();
         Assert.IsTrue(points.All(point => Along(path, point) >= -1e-3f && Along(path, point) <= path.LengthCells + 1e-3f));
         var rails = Band(meshes, BuiltInMaterial.RailSteel, path, 0, 8, true);
         Assert.IsFalse(rails.Any(point => Along(path, point) is > .5f and < 11f));
         Assert.IsTrue(rails.Any(point => Along(path, point) > 13f));
-        var construction = Of(meshes, BuiltInMaterial.Construction);
-        Assert.IsTrue(construction.Any(point => Along(path, point) < 1f));
-        Assert.IsTrue(construction.All(point => Along(path, point) >= -1e-3f));
+        Assert.IsFalse(meshes.Any(mesh => mesh.Material is SceneMaterial.BuiltIn { Kind: BuiltInMaterial.Construction }));
 
         var builds = 0;
         var initial = NodeFixtures.Snapshot(platforms: 0, tracks: 1, trackLimit: 2, trains: []);
@@ -60,24 +58,12 @@ public sealed class RailwayBreakTests
     }
 
     [TestMethod]
-    public void BarrierOnASegmentBoundaryAndOnTheEdgeEndIsDrawnOnce()
+    public void RepairSiteIsPlacedOnceByTheSegmentThatOwnsTheGapCenter()
     {
-        var boundary = RailwayCoordinates.SegmentLengthCells;
-        var path = Path([new TrackBreakView(new(1), 1, boundary / RailwayCoordinates.CellsPerMeter - RailwayCoordinates.BreakGapCells / 4)],
-            [Repair(new(1), 1, new(1))]);
-        var first = RailwayMeshes.Build(path, 0, default, _ => 4);
-        var second = RailwayMeshes.Build(path, 1, default, _ => 4);
-        Assert.IsFalse(Of(first, BuiltInMaterial.Construction).Any(point => Along(path, point) >= boundary - 1));
-        Assert.IsTrue(Of(second, BuiltInMaterial.Construction).Any(point => Math.Abs(Along(path, point) - boundary) < 1));
-
-        var limit = path.LengthCells;
-        var ended = Path([new TrackBreakView(new(1), 1, limit / RailwayCoordinates.CellsPerMeter - RailwayCoordinates.BreakGapCells / 4)],
-            [Repair(new(1), 1, new(1))]);
-        var lastIndex = (int)((limit - 1) / RailwayCoordinates.SegmentLengthCells);
-        var earlier = lastIndex == 0 ? [] : RailwayMeshes.Build(ended, lastIndex - 1, default, _ => 4);
-        var last = RailwayMeshes.Build(ended, lastIndex, default, _ => 4);
-        Assert.IsFalse(Of(earlier, BuiltInMaterial.Construction).Any(point => Along(ended, point) >= limit - 1));
-        Assert.IsTrue(Of(last, BuiltInMaterial.Construction).Any(point => Math.Abs(Along(ended, point) - limit) < 1));
+        var meters = RailwayCoordinates.SegmentLengthCells / RailwayCoordinates.CellsPerMeter;
+        var (snapshot, path) = RepairScene(1, [new(new(1), 1, meters)], [Repair(new(1), 1, new(1))], RepairContent(1));
+        Assert.AreEqual(0, RepairPoints(Segment(snapshot, path, 0)).Count);
+        Assert.AreEqual(4, RepairPoints(Segment(snapshot, path, 1)).Count);
     }
 
     [TestMethod]
@@ -90,26 +76,85 @@ public sealed class RailwayBreakTests
         Assert.IsFalse(open.Any(mesh => mesh.Material is SceneMaterial.BuiltIn { Kind: BuiltInMaterial.Construction }));
 
         var repaired = Path([new TrackBreakView(new(1), 1, 20)], [Repair(new(1), 1, new(1))]);
-        var grounded = RailwayMeshes.Build(repaired, 0, default, _ => 4);
-        var barriers = Band(grounded, BuiltInMaterial.Construction, repaired, 0, 8, true, true);
-        var yard = Band(grounded, BuiltInMaterial.Construction, repaired, 0, 8, false);
-        Assert.IsTrue(barriers.Any());
-        Assert.IsTrue(yard.Any());
-        Assert.AreEqual(4, yard.Min(point => point.Y), 1e-3);
-        Assert.IsTrue(yard.All(point => point.Y >= 4 - 1e-3f));
-        var steelYard = Of(grounded, BuiltInMaterial.RailSteel).Where(point => Lateral(repaired, point, 40, 0) > 8).ToArray();
-        Assert.IsTrue(steelYard.Any());
-        Assert.AreEqual(4, steelYard.Min(point => point.Y), 1e-3);
+        var grounded = RailwayMeshes.Build(repaired, 0, default);
+        Assert.IsFalse(grounded.Any(mesh => mesh.Material is SceneMaterial.BuiltIn { Kind: BuiltInMaterial.Construction }));
+        Assert.IsTrue(Band(grounded, BuiltInMaterial.Sleeper, repaired, 0, 8, true).Any(point => point.Y > 0 && Along(repaired, point) is > 32f and < 48f));
+    }
 
-        var bridge = RailwayMeshes.Build(repaired, 0, default, _ => null);
-        Assert.IsTrue(Band(bridge, BuiltInMaterial.Construction, repaired, 0, 8, true, true).Any());
-        Assert.IsFalse(Band(bridge, BuiltInMaterial.Construction, repaired, 0, 8, false).Any());
+    [TestMethod]
+    [DataRow(1, 1)]
+    [DataRow(2, 1)]
+    [DataRow(2, 2)]
+    [DataRow(3, 1)]
+    [DataRow(3, 2)]
+    [DataRow(3, 3)]
+    public void RepairSitePointsPositiveXOutwardAndClearsOpenTracks(int tracks, int broken)
+    {
+        const double meters = 20;
+        var center = meters * RailwayCoordinates.CellsPerMeter;
+        var (snapshot, path) = RepairScene(tracks, [new(new(1), broken, meters)], [Repair(new(1), broken, new(1))], RepairContent(tracks));
+        var points = RepairPoints(Segment(snapshot, path, 0));
+        Assert.AreEqual(4, points.Count);
+        var offset = RailwayCoordinates.TrackOffset(broken, tracks);
+        var side = offset < 0 ? -1 : 1;
+        Assert.IsTrue(points.Any(point => Math.Abs(SignedLateral(path, point, center) - (offset + side * 88.5)) < 0.05));
+        Assert.IsTrue(points.Any(point => Math.Abs(SignedLateral(path, point, center) - (offset - side * 87.5)) < 0.05));
+        foreach (var point in points)
+        {
+            var lateral = SignedLateral(path, point, center);
+            if (Math.Abs(lateral - offset) < 2) continue;
+            for (var track = 1; track <= tracks; track++)
+            {
+                if (track == broken) continue;
+                Assert.IsTrue(Math.Abs(lateral - RailwayCoordinates.TrackOffset(track, tracks)) >= NodeLayout.PlatformClearance - 0.05);
+            }
+        }
+    }
 
-        var two = Path([new TrackBreakView(new(1), 1, 20)], [Repair(new(1), 1, new(1))], tracks: 2);
-        var props = Band(RailwayMeshes.Build(two, 0, default, _ => 4), BuiltInMaterial.Construction, two, RailwayCoordinates.TrackOffset(1, 2), 8, false);
-        var openOffset = RailwayCoordinates.TrackOffset(2, 2);
-        Assert.IsTrue(props.Any());
-        Assert.IsTrue(props.All(point => Lateral(two, point, 40, openOffset) >= NodeLayout.PlatformClearance - 0.05));
+    [TestMethod]
+    public void MissingRepairDesignReportsContentMissingWithoutACubeMesh()
+    {
+        var reference = new ContentReference.Design(RepairDesign);
+        var (snapshot, path) = RepairScene(1, [new(new(1), 1, 20)], [Repair(new(1), 1, new(1))], RepairContent(1, missingDesign: true));
+        var segment = Segment(snapshot, path, 0);
+        Assert.AreEqual(0, RepairPoints(segment).Count);
+        Assert.IsFalse(segment.Geometry.Objects.SelectMany(item => item.Visuals).Any(visual =>
+            visual is SceneVisual.Geometry { Mesh.Material: SceneMaterial.BuiltIn { Kind: BuiltInMaterial.Construction } }));
+        Assert.IsTrue(segment.Geometry.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Missing>().Any(visual => visual.Reference == reference));
+        Assert.IsTrue(segment.Geometry.Diagnostics.Any(problem => problem.Code == "content_missing" && problem.Content == reference));
+    }
+
+    [TestMethod]
+    public void OnlyTheOwningSegmentReportsAMissingRepairSite()
+    {
+        var meters = RailwayCoordinates.SegmentLengthCells / RailwayCoordinates.CellsPerMeter;
+        var reference = new ContentReference.Design(RepairDesign);
+        var (snapshot, path) = RepairScene(1, [new(new(1), 1, meters)], [Repair(new(1), 1, new(1))], RepairContent(1, missingDesign: true));
+        bool Missing(RailwaySegment segment) => segment.Geometry.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Missing>()
+            .Any(visual => visual.Reference == reference);
+        Assert.IsFalse(Missing(Segment(snapshot, path, 0)));
+        Assert.IsTrue(Missing(Segment(snapshot, path, 1)));
+    }
+
+    [TestMethod]
+    public void RepairWithoutAMatchingTrackModelReportsTheTerrain()
+    {
+        var reference = new ContentReference.Core(new CoreDefinitionReference.Terrain(RailwayFixtures.Terrain));
+        var (snapshot, path) = RepairScene(2, [new(new(1), 1, 20)], [Repair(new(1), 1, new(1))], RepairContent(1));
+        var segment = Segment(snapshot, path, 0);
+        Assert.AreEqual(0, RepairPoints(segment).Count);
+        Assert.IsTrue(segment.Geometry.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Missing>().Any(visual => visual.Reference == reference));
+        Assert.IsTrue(segment.Geometry.Diagnostics.Any(problem => problem.Code == "content_missing" && problem.Content == reference));
+    }
+
+    [TestMethod]
+    public void BreakWithoutRepairWorkDoesNotPlaceTheRepairSite()
+    {
+        var content = RepairContent(1);
+        var bare = RepairScene(1, [new(new(1), 1, 20)], [Repair(new(1), 1, null, RailwayWorkKind.AddTrack)], content);
+        Assert.AreEqual(0, RepairPoints(Segment(bare.Snapshot, bare.Path, 0)).Count);
+        var other = RepairScene(1, [new(new(1), 1, 20)], [Repair(new(1), 1, new(99))], content);
+        Assert.AreEqual(0, RepairPoints(Segment(other.Snapshot, other.Path, 0)).Count);
     }
 
     [TestMethod]
@@ -266,6 +311,58 @@ public sealed class RailwayBreakTests
                     .ToDictionary(id => id, id => first.Core.FindInstance(id))
             }
         };
+    }
+
+    private static readonly VoxelDefinitionId RepairVoxel = new("test:repair-voxel");
+    private static readonly DesignHash RepairDesign = new("test:repair-site");
+
+    private static DesignEvaluation.Complete RepairModel() =>
+        SceneFixtures.Evaluation(SceneFixtures.Projection([
+            SceneFixtures.Cell(new(0, 0, -9), 1) with { Voxel = RepairVoxel },
+            SceneFixtures.Cell(new(0, 0, 9), 2) with { Voxel = RepairVoxel },
+            SceneFixtures.Cell(new(88, 0, 0), 3) with { Voxel = RepairVoxel },
+            SceneFixtures.Cell(new(-88, 0, 0), 4) with { Voxel = RepairVoxel }
+        ]) with { Design = RepairDesign }) with { Design = RepairDesign };
+
+    private static IContentView RepairContent(int tracks, bool missingDesign = false) => RailwayFixtures.Content(
+        terrain: RailwayFixtures.TerrainAppearance with { RailwayModels = [new(tracks, RepairDesign, RepairDesign, RepairDesign)] },
+        design: missingDesign ? null : RepairModel(),
+        designs: missingDesign ? new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+        { [RepairDesign] = new ContentLookup<DesignEvaluation>.Missing([]) } : null,
+        voxels: new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
+        { [RepairVoxel] = new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube with { Definition = RepairVoxel }) });
+
+    private static (SceneWorldSnapshot Snapshot, RailwayPath Path) RepairScene(int tracks, ImmutableArray<TrackBreakView> breaks,
+        ImmutableArray<RailwayWorkView> works, IContentView content)
+    {
+        var basis = RailwayFixtures.Snapshot(100, 100, 0, tracks, trackLimit: Math.Max(tracks, 1), content: content);
+        var snapshot = RailwayFixtures.ReplaceCore(basis, edge: basis.Core.World.Edges[0] with { Breaks = breaks, Works = works });
+        return (snapshot, new(snapshot, RailwayFixtures.Edge));
+    }
+
+    private static RailwaySegment Segment(SceneWorldSnapshot snapshot, RailwayPath path, int index) =>
+        RailwayTerrain.Build(snapshot, path, index, CancellationToken.None);
+
+    private static List<Vector3> RepairPoints(RailwaySegment segment)
+    {
+        var points = new List<Vector3>();
+        foreach (var grid in segment.Geometry.Picking)
+            foreach (var cell in grid.Grid.Cells)
+            {
+                if (cell.Appearance?.Definition != RepairVoxel) continue;
+                var local = Vector3.Transform(new Vector3(cell.At.X + 0.5f, cell.At.Y + 0.5f, cell.At.Z + 0.5f), grid.Pose.Rotation);
+                points.Add(new((float)segment.Origin.X + grid.Pose.Position.X + local.X,
+                    (float)segment.Origin.Y + grid.Pose.Position.Y + local.Y,
+                    (float)segment.Origin.Z + grid.Pose.Position.Z + local.Z));
+            }
+        return points;
+    }
+
+    private static float SignedLateral(RailwayPath path, Vector3 point, double arc)
+    {
+        var sample = path.Sample(arc);
+        var delta = point - RailwayCoordinates.Relative(sample.Position, default);
+        return delta.X * sample.Right.X + delta.Z * sample.Right.Z;
     }
 
     private static RailwayPath Path(ImmutableArray<TrackBreakView> Breaks, ImmutableArray<RailwayWorkView> Works = default, int tracks = 1)

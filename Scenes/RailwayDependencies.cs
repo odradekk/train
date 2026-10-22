@@ -9,7 +9,7 @@ using Train.Scenes.Contracts;
 
 namespace Train.Scenes;
 
-internal enum RailwayModelRole { Decoration, Bridge, Tunnel }
+internal enum RailwayModelRole { Decoration, Bridge, Tunnel, RepairSite }
 internal readonly record struct RailwayModelRead(TerrainTypeId Terrain, int Slot, RailwayModelRole Role);
 internal sealed class RailwayDependencies
 {
@@ -106,7 +106,13 @@ internal sealed class RailwayDependencies
             else
             {
                 var model = t.RailwayModels.FirstOrDefault(item => item.Tracks == edge.Tracks);
-                values.Add(slot.Role == RailwayModelRole.Bridge ? model?.Bridge : model?.TunnelPortal);
+                values.Add(slot.Role switch
+                {
+                    RailwayModelRole.Bridge => model?.Bridge,
+                    RailwayModelRole.Tunnel => model?.TunnelPortal,
+                    RailwayModelRole.RepairSite => model?.RepairSite,
+                    _ => null
+                });
             }
         }
         foreach (var hash in models)
