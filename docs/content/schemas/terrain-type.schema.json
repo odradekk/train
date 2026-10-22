@@ -14,11 +14,12 @@
     "local_height_noise",
     "decorations",
     "decoration_target_per_square_meter",
-    "railway_models"
+    "railway_models",
+    "construction_site"
   ],
   "properties": {
     "schema_version": {
-      "const": 1
+      "const": 2
     },
     "id": {
       "$ref": "common.schema.json#/$defs/localId"
@@ -87,6 +88,9 @@
       "type": "number",
       "minimum": 0
     },
+    "construction_site": {
+      "$ref": "common.schema.json#/$defs/definitionRef"
+    },
     "railway_models": {
       "type": "array",
       "items": {
@@ -95,7 +99,8 @@
         "required": [
           "tracks",
           "bridge",
-          "tunnel_portal"
+          "tunnel_portal",
+          "repair_site"
         ],
         "properties": {
           "tracks": {
@@ -107,6 +112,9 @@
             "$ref": "common.schema.json#/$defs/definitionRef"
           },
           "tunnel_portal": {
+            "$ref": "common.schema.json#/$defs/definitionRef"
+          },
+          "repair_site": {
             "$ref": "common.schema.json#/$defs/definitionRef"
           }
         }

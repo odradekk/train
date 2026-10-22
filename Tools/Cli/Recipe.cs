@@ -133,7 +133,7 @@ internal sealed record RecipeCommand(
                     || Sources.Any(source => source == 0) || MaximumPayment is null or < 0)
                     throw Invalid();
             }
-            else ParseOwned(null);
+            else if (ParseDismantle() is null) ParseOwned(null);
             return;
         }
         Parse();
@@ -160,6 +160,7 @@ internal sealed record RecipeCommand(
         if (Kind == "construction.start_owned")
         {
             Validate();
+            if (ParseDismantle() is { } dismantle) return new CoreCommand.StartOwnedJob(dismantle);
             var job = ParseOwned(content);
             return new CoreCommand.StartOwnedJob(new JobRequest.BuildBuilding(
                 new(new(job.Facility.Building), CapabilityKind.Construction), new(job.Plot),
@@ -360,6 +361,18 @@ internal sealed record RecipeCommand(
         return job;
     }
 
+    private JobRequest.Dismantle? ParseDismantle()
+    {
+        if (Request is not { ValueKind: JsonValueKind.Object } element || !element.TryGetProperty("kind", out var kind)
+            || kind.ValueKind != JsonValueKind.String || kind.GetString() != "dismantle_building")
+            return null;
+        RecipeDismantleJob job;
+        try { job = JsonSerializer.Deserialize<RecipeDismantleJob>(element, Recipe.Json) ?? throw Invalid(); }
+        catch (JsonException) { throw Invalid(); }
+        if (job.Facility is not { Building: > 0, Capability: "construction" } || job.Building == 0) throw Invalid();
+        return new(new(new(job.Facility.Building), CapabilityKind.Construction), new InstanceId.Building(new(job.Building)), job.Priority);
+    }
+
     private static DesignInput BlueprintDesign(IContentView content, string blueprint)
     {
         var found = content.FindBlueprint(new(BlueprintLibrary.Packages, new(blueprint)));
@@ -385,6 +398,12 @@ internal sealed record RecipeOwnedJob(
     [property: JsonRequired] ulong Plot,
     [property: JsonRequired] string Blueprint,
     [property: JsonRequired] ImmutableArray<ulong> Sources,
+    [property: JsonRequired] int Priority);
+
+internal sealed record RecipeDismantleJob(
+    [property: JsonRequired] string Kind,
+    [property: JsonRequired] RecipeFacility Facility,
+    [property: JsonRequired] ulong Building,
     [property: JsonRequired] int Priority);
 
 internal sealed record RecipeFacility(

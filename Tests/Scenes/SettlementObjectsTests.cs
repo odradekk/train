@@ -172,17 +172,113 @@ public sealed class SettlementObjectsTests
         await using var objects = new SettlementObjects(StableIds());
         var rendered = await Settle(objects, snapshot, layout);
         Assert.AreEqual(0, rendered.Diagnostics.Length);
-        var site = rendered.Objects.Single();
-        Assert.IsNull(site.Subject);
-        var mesh = site.Visuals.OfType<SceneVisual.Geometry>().Single().Mesh;
-        Assert.IsInstanceOfType<SceneMaterial.BuiltIn>(mesh.Material);
-        Assert.AreEqual(BuiltInMaterial.Construction, ((SceneMaterial.BuiltIn)mesh.Material).Kind);
-        Assert.AreSame(mesh, (await Settle(objects, snapshot, layout)).Objects.Single().Visuals.OfType<SceneVisual.Geometry>().Single().Mesh);
+        var sites = rendered.Objects;
+        Assert.AreEqual(8, sites.Length);
+        Assert.IsTrue(sites.All(item => item.Subject is null && ConstructionMesh(item)));
+        var mesh = sites[0].Visuals.OfType<SceneVisual.Geometry>().Single().Mesh;
+        Assert.IsTrue(sites.All(item => item.Visuals.OfType<SceneVisual.Geometry>().Single().Mesh == mesh));
+        var again = await Settle(objects, snapshot, layout);
+        CollectionAssert.AreEqual(sites.Select(item => item.Id).ToArray(), again.Objects.Select(item => item.Id).ToArray());
+        Assert.IsTrue(again.Objects.All(item => ReferenceEquals(mesh, item.Visuals.OfType<SceneVisual.Geometry>().Single().Mesh)));
 
         var built = await Settle(objects, Snapshot(), layout);
         Assert.IsTrue(built.Objects.Any(item => item.Subject is WorldObjectId.Instance { Id: InstanceId.Building }));
-        Assert.IsFalse(built.Objects.Any(item => item.Subject is null && item.Visuals.OfType<SceneVisual.Geometry>()
-            .Any(visual => visual.Mesh.Material is SceneMaterial.BuiltIn { Kind: BuiltInMaterial.Construction })));
+        Assert.IsFalse(built.Objects.Any(ConstructionMesh));
+    }
+
+    [TestMethod]
+    public async Task ConstructionCopiesFollowPlotSizeAndStayInsideThePlot()
+    {
+        (PlotSize Size, int Copies)[] cases =
+        [
+            (PlotSize.Small, 1), (PlotSize.Medium, 4), (PlotSize.Large, 16), (PlotSize.Giant, 64),
+            (PlotSize.SmallStation, 8), (PlotSize.LargeStation, 20)
+        ];
+        await using var objects = new SettlementObjects(StableIds());
+        SceneMesh? shared = null;
+        foreach (var (size, copies) in cases)
+        {
+            var settlement = NodeFixtures.Settlement() with { Plots =
+                [NodeFixtures.Settlement().Plots[0] with { Size = size, Occupant = new PlotOccupant.Construction(new(77)) }] };
+            var snapshot = Snapshot(settlement: settlement, node: NodeFixtures.Node(0));
+            var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+            var rendered = await Settle(objects, snapshot, layout);
+            Assert.AreEqual(copies, rendered.Objects.Length, size.ToString());
+            var placement = NodeFixtures.Layout.Plots[0];
+            var pose = SceneGeometry.Placement(placement.At, placement.Orientation);
+            var (x, z, _) = NodeSettlement.Size(size);
+            var nx = Math.Max(1, x / 48);
+            var nz = Math.Max(1, z / 48);
+            var expected = new List<Vector3>();
+            for (var iz = 0; iz < nz; iz++)
+            for (var ix = 0; ix < nx; ix++)
+                expected.Add(new((ix - (nx - 1) * 0.5f) * 48, 0, (iz - (nz - 1) * 0.5f) * 48));
+            var actual = rendered.Objects.Select(item =>
+            {
+                Assert.IsTrue(Math.Abs(Quaternion.Dot(pose.Rotation, item.Pose.Rotation)) > 0.99999f);
+                return Vector3.Transform(item.Pose.Position - pose.Position, Quaternion.Conjugate(pose.Rotation));
+            }).ToArray();
+            Assert.AreEqual(expected.Count, actual.Length);
+            foreach (var point in expected)
+                Assert.IsTrue(actual.Any(item => Vector3.Distance(item, point) < 0.01f), $"{size} has no copy at {point}.");
+            foreach (var point in actual)
+            {
+                Assert.IsTrue(Math.Abs(point.X) <= x / 2f + 0.01f, size.ToString());
+                Assert.IsTrue(Math.Abs(point.Z) <= z / 2f + 0.01f, size.ToString());
+            }
+            var mesh = rendered.Objects[0].Visuals.OfType<SceneVisual.Geometry>().Single().Mesh;
+            shared ??= mesh;
+            Assert.IsTrue(rendered.Objects.All(item => ReferenceEquals(shared, item.Visuals.OfType<SceneVisual.Geometry>().Single().Mesh)));
+        }
+    }
+
+    [TestMethod]
+    [DataRow("design")]
+    [DataRow("failed")]
+    [DataRow("terrain")]
+    public async Task MissingConstructionContentMarksEachPlotOnce(string kind)
+    {
+        ContentReference reference = kind == "terrain"
+            ? new ContentReference.Core(new CoreDefinitionReference.Terrain(RailwayFixtures.Terrain))
+            : new ContentReference.Design(RailwayFixtures.ConstructionModel);
+        var content = Content(NodeFixtures.Layout);
+        if (kind == "failed")
+            content = Content(NodeFixtures.Layout, construction: new ContentLookup<DesignEvaluation>.Found(new DesignEvaluation.Failed([])));
+        if (kind == "terrain")
+            content = Content(NodeFixtures.Layout, terrain: new ContentLookup<TerrainAppearanceProjection>.Missing([]));
+        var plot = NodeFixtures.Settlement().Plots[0] with { Occupant = new PlotOccupant.Construction(new(77)) };
+        var settlement = NodeFixtures.Settlement() with { Plots =
+            [plot, plot with { Id = new(2), Occupant = new PlotOccupant.Construction(new(78)) }] };
+        var snapshot = Snapshot(content: content, settlement: settlement, node: NodeFixtures.Node(0));
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        await using var objects = new SettlementObjects(StableIds());
+        var rendered = await Settle(objects, snapshot, layout);
+        Assert.AreEqual(2, rendered.Objects.Length);
+        Assert.IsTrue(rendered.Objects.All(item => item.Visuals.Single() is SceneVisual.Missing missing && missing.Reference == reference));
+        Assert.AreEqual(1, rendered.Diagnostics.Count(problem => problem.Code == "content_missing" && problem.Content == reference));
+        Assert.IsFalse(rendered.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Any());
+        var again = await Settle(objects, snapshot, layout);
+        CollectionAssert.AreEqual(rendered.Objects.Select(item => item.Id).ToArray(), again.Objects.Select(item => item.Id).ToArray());
+    }
+
+    [TestMethod]
+    public async Task PartialConstructionDesignReportsDiagnosticsOncePerFrame()
+    {
+        var diagnostic = new ContentDiagnostic("partial_construction", ContentDiagnosticSeverity.Warning, "build",
+            new ContentReference.Design(RailwayFixtures.ConstructionModel), null, "", null, "Partial construction.");
+        var partial = new DesignEvaluation.Partial(EditingFixtures.Draft(new GridPosition(0, 0, 0)),
+            new(new ComputedValue<double>.Known(0), new ComputedValue<Money>.Known(new(0)),
+                new ComputedValue<long>.Known(0), new ComputedValue<ImmutableArray<PartProjection>>.Known([]),
+                new ComputedValue<ImmutableArray<GoodsQuantity>>.Known([]), new ComputedValue<int>.Known(0)),
+            new(0, new(0), 0, [], []), null, SceneFixtures.Projection([]), [diagnostic]);
+        var plot = NodeFixtures.Settlement().Plots[0] with { Size = PlotSize.Giant, Occupant = new PlotOccupant.Construction(new(77)) };
+        var snapshot = Snapshot(content: Content(NodeFixtures.Layout, construction: new ContentLookup<DesignEvaluation>.Found(partial)),
+            settlement: NodeFixtures.Settlement() with { Plots = [plot] }, node: NodeFixtures.Node(0));
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        await using var objects = new SettlementObjects(StableIds());
+        var rendered = await Settle(objects, snapshot, layout);
+        Assert.AreEqual(64, rendered.Objects.Length);
+        Assert.AreEqual(1, rendered.Diagnostics.Count(problem => problem.Code == "partial_construction"));
     }
 
     [TestMethod]
@@ -195,12 +291,12 @@ public sealed class SettlementObjectsTests
         Assert.IsInstanceOfType<SceneResult<SceneRequestId>.Success>(session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location)));
         var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
         var first = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(request, null)).Value;
-        var site = first.Objects.Single(item => item.Subject is null && item.Visuals.OfType<SceneVisual.Geometry>()
-            .Any(visual => visual.Mesh.Material is SceneMaterial.BuiltIn { Kind: BuiltInMaterial.Construction }));
+        var sites = first.Objects.Where(ConstructionMesh).ToArray();
+        Assert.AreEqual(8, sites.Length);
         session.Observe(Snapshot(), []);
         var frame = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(request, first)).Value;
-        Assert.IsTrue(frame.Update.Removed.Contains(site.Id));
-        Assert.IsFalse(frame.Objects.Any(item => item.Id == site.Id));
+        Assert.IsTrue(sites.All(site => frame.Update.Removed.Contains(site.Id)));
+        Assert.IsFalse(frame.Objects.Any(item => sites.Any(site => site.Id == item.Id)));
         Assert.IsTrue(frame.Objects.Any(item => item.Subject is WorldObjectId.Instance { Id: InstanceId.Building }));
     }
 
@@ -467,18 +563,26 @@ public sealed class SettlementObjectsTests
         } };
     }
 
+    private static bool ConstructionMesh(SceneObject item) => item.Visuals.OfType<SceneVisual.Geometry>().Any(visual =>
+        visual.Mesh.Material is SceneMaterial.Voxel { Texture.Value: "construction-site" });
+
     private static IContentView Content(SettlementLayoutProjection template,
-        ContentLookup<VoxelAppearanceProjection>? resource = null) => new FixedContentView
+        ContentLookup<VoxelAppearanceProjection>? resource = null,
+        ContentLookup<DesignEvaluation>? construction = null,
+        ContentLookup<TerrainAppearanceProjection>? terrain = null) => new FixedContentView
     {
         Generation = new(1), Core = SceneFixtures.Content().Core,
         SettlementLayouts = new Dictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>
         { [new(1)] = new ContentLookup<SettlementLayoutProjection>.Found(template) },
         Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
-        { [NodeFixtures.StationDesign] = new ContentLookup<DesignEvaluation>.Found(NodeFixtures.StationEvaluation()) },
+        {
+            [NodeFixtures.StationDesign] = new ContentLookup<DesignEvaluation>.Found(NodeFixtures.StationEvaluation()),
+            [RailwayFixtures.ConstructionModel] = construction ?? new ContentLookup<DesignEvaluation>.Missing([])
+        },
         VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
         { [SceneFixtures.Voxel] = resource ?? new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube) },
         Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
-        { [RailwayFixtures.Terrain] = new ContentLookup<TerrainAppearanceProjection>.Found(RailwayFixtures.TerrainAppearance) },
+        { [RailwayFixtures.Terrain] = terrain ?? new ContentLookup<TerrainAppearanceProjection>.Found(RailwayFixtures.TerrainAppearance) },
         RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>
         { [RailwayFixtures.Rule] = new ContentLookup<RailwayAppearanceProjection>.Found(RailwayFixtures.Rules) }
     };

@@ -13,8 +13,7 @@ internal static class RailwayMeshes
     private const double RingErrorCells = .0198;
     private const double SleeperSpacingCells = 1.5;
     private const float SleeperHalfLengthCells = .3f;
-    internal static ImmutableArray<SceneMesh> Build(RailwayPath path, int segment, ScenePoint origin,
-        Func<GridColumn, double?>? ground = null)
+    internal static ImmutableArray<SceneMesh> Build(RailwayPath path, int segment, ScenePoint origin)
     {
         if (path.Edge.Tracks == 0) return [];
         var start = segment * RailwayCoordinates.SegmentLengthCells;
@@ -22,7 +21,7 @@ internal static class RailwayMeshes
         if (start >= end) return [];
         var gaps = Gaps(path.Edge, path.LengthCells);
         return Build(path.Sample, start, end, origin, path.Edge.Tracks, gaps)
-            .AddRange(BreakProps(path, start, end, origin, ground, gaps));
+            .AddRange(BreakProps(path, start, end, origin, gaps));
     }
 
     internal static ImmutableArray<SceneMesh> Build(Func<double, RailwaySample> sample, double start, double end, ScenePoint origin) =>
@@ -51,8 +50,7 @@ internal static class RailwayMeshes
         }
     }
 
-    private readonly record struct TrackGap(BreakId Id, int Track, double Center, double From, double To,
-        double BarrierFrom, double BarrierTo);
+    private readonly record struct TrackGap(BreakId Id, int Track, double Center, double From, double To);
 
     private static TrackGap[] Gaps(EdgeMapItem edge, double limit)
     {
@@ -61,12 +59,9 @@ internal static class RailwayMeshes
         return edge.Breaks.Where(item => item.Track >= 1 && item.Track <= edge.Tracks).Select(item =>
         {
             var center = item.DistanceMeters * RailwayCoordinates.CellsPerMeter;
-            var rawFrom = center - half;
-            var rawTo = center + half;
-            var from = Math.Max(0, rawFrom);
-            var to = Math.Min(limit, rawTo);
-            return new TrackGap(item.Id, item.Track, center, from, to,
-                rawFrom < 0 ? from + BarrierHalfLength : from, rawTo > limit ? to - BarrierHalfLength : to);
+            var from = Math.Max(0, center - half);
+            var to = Math.Min(limit, center + half);
+            return new TrackGap(item.Id, item.Track, center, from, to);
         }).Where(gap => gap.To - gap.From > 1e-4).ToArray();
     }
 
@@ -174,22 +169,15 @@ internal static class RailwayMeshes
         return new[] { rails.Build(), sleepers.Build() }.Where(mesh => !mesh.Vertices.IsEmpty).ToImmutableArray();
     }
 
-    private const float PropHalfWidth = 1.2f;
-    private const float BarrierHalfLength = .25f;
-
-    private static ImmutableArray<SceneMesh> BreakProps(RailwayPath path, double start, double end, ScenePoint origin,
-        Func<GridColumn, double?>? ground, TrackGap[] gaps)
+    private static ImmutableArray<SceneMesh> BreakProps(RailwayPath path, double start, double end, ScenePoint origin, TrackGap[] gaps)
     {
         if (gaps.Length == 0) return [];
         var tracks = path.Edge.Tracks;
         var debris = new MeshBuilder(BuiltInMaterial.Sleeper, 256);
-        var steel = new MeshBuilder(BuiltInMaterial.RailSteel, 256);
-        var construction = new MeshBuilder(BuiltInMaterial.Construction, 512);
         var limit = path.LengthCells;
         foreach (var gap in gaps.OrderBy(item => item.Id.Value))
         {
-            var overlaps = gap.To > start && gap.From < end;
-            if (!overlaps && !Owns(gap.BarrierFrom) && !Owns(gap.BarrierTo)) continue;
+            if (gap.To <= start || gap.From >= end) continue;
             var center = gap.Center;
             var offset = RailwayCoordinates.TrackOffset(gap.Track, tracks);
             foreach (var along in new[] { -4d, 4d })
@@ -201,49 +189,9 @@ internal static class RailwayMeshes
                 var up = Vector3.Normalize(Vector3.Cross(sample.Forward, sample.Right));
                 debris.Box(RailwayCoordinates.Relative(sample.Position, origin) + up * .35f, sample.Right, up, sample.Forward, .35f, .12f, .25f);
             }
-            if (!path.Edge.Works.Any(work => RailwayCoordinates.IsBreakRepair(work) && work.RepairingBreak == gap.Id)) continue;
-            Barrier(offset, gap.BarrierFrom);
-            Barrier(offset, gap.BarrierTo);
-            if (ground is null || center < 0 || center >= limit || center < start || center >= end) continue;
-            var sideSign = offset < 0 ? -1 : 1;
-            var clearance = NodeLayout.PlatformClearance + PropHalfWidth;
-            var place = offset + sideSign * clearance;
-            for (var track = 1; track <= tracks; track++)
-            {
-                var lane = RailwayCoordinates.TrackOffset(track, tracks);
-                place = sideSign > 0 ? Math.Max(place, lane + clearance) : Math.Min(place, lane - clearance);
-            }
-            GroundBox(debris, 0, PropHalfWidth, .6f, PropHalfWidth);
-            GroundBox(steel, 2.5f, .8f, .7f, .8f);
-            GroundBox(construction, -2.5f, .35f, 1.1f, .35f);
-            GroundBox(construction, 5f, .35f, 1.1f, .35f);
-
-            void Barrier(double lane, double arc)
-            {
-                if (!Owns(arc)) return;
-                var sample = At(arc, lane);
-                var up = Vector3.Normalize(Vector3.Cross(sample.Forward, sample.Right));
-                construction.Box(RailwayCoordinates.Relative(sample.Position, origin) + up * .75f,
-                    sample.Right, up, sample.Forward, 4f, .75f, BarrierHalfLength);
-            }
-            bool Owns(double arc) => arc >= start && (arc < end || arc >= end - 1e-4 && end >= limit - 1e-4);
-            void GroundBox(MeshBuilder builder, float along, float halfX, float halfY, float halfZ)
-            {
-                var arc = center + along;
-                if (arc - halfZ < 0 || arc + halfZ > limit) return;
-                var sample = At(arc, place);
-                var column = new GridColumn((int)Math.Floor(sample.Position.X - origin.X), (int)Math.Floor(sample.Position.Z - origin.Z));
-                if (ground(column) is not double surface) return;
-                var forward = new Vector3(sample.Forward.X, 0, sample.Forward.Z);
-                var right = new Vector3(sample.Right.X, 0, sample.Right.Z);
-                if (forward.LengthSquared() < 1e-8f) forward = Vector3.UnitZ;
-                if (right.LengthSquared() < 1e-8f) right = Vector3.UnitX;
-                var point = RailwayCoordinates.Relative(sample.Position, origin);
-                builder.Box(new(point.X, (float)(surface - origin.Y) + halfY, point.Z),
-                    Vector3.Normalize(right), Vector3.UnitY, Vector3.Normalize(forward), halfX, halfY, halfZ);
-            }
         }
-        return new[] { debris.Build(), steel.Build(), construction.Build() }.Where(mesh => !mesh.Vertices.IsEmpty).ToImmutableArray();
+        var mesh = debris.Build();
+        return mesh.Vertices.IsEmpty ? [] : [mesh];
 
         RailwaySample At(double arc, double offset)
         {
