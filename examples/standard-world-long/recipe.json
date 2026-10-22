@@ -1,0 +1,135 @@
+{
+  "format_version": 1,
+  "base": "../standard-world/recipe.json",
+  "commands": [
+    {
+      "at": {
+        "completed_steps": 197800,
+        "sequence": 0
+      },
+      "kind": "train.start",
+      "train": 11,
+      "expected_decision": "accepted"
+    }
+  ],
+  "target": {
+    "completed_steps": 1421800,
+    "sequence": 0
+  },
+  "checkpoint_steps": [
+    125800,
+    161800,
+    197800,
+    233800,
+    269800,
+    305800,
+    341800,
+    377800,
+    413800,
+    449800,
+    485800,
+    521800,
+    557800,
+    593800,
+    629800,
+    665800,
+    701800,
+    737800,
+    773800,
+    809800,
+    845800,
+    881800,
+    917800,
+    953800,
+    989800,
+    1025800,
+    1061800,
+    1097800,
+    1133800,
+    1169800,
+    1205800,
+    1241800,
+    1277800,
+    1313800,
+    1349800,
+    1385800
+  ],
+  "load": {
+    "from": 125800,
+    "targets": [
+      {
+        "key": "trains_in_plan",
+        "minimum": 20
+      },
+      {
+        "key": "vehicles_in_plan",
+        "minimum": 80
+      },
+      {
+        "key": "trains_running",
+        "minimum": 1
+      },
+      {
+        "key": "trains_servicing",
+        "minimum": 1
+      },
+      {
+        "key": "trains_queued",
+        "minimum": 1
+      },
+      {
+        "key": "settlements",
+        "minimum": 25,
+        "maximum": 25
+      },
+      {
+        "key": "player_settlements",
+        "minimum": 5
+      },
+      {
+        "key": "buildings",
+        "minimum": 100
+      },
+      {
+        "key": "facilities_running",
+        "minimum": 50
+      },
+      {
+        "key": "jobs_working",
+        "minimum": 10
+      },
+      {
+        "key": "creatures",
+        "minimum": 100
+      },
+      {
+        "key": "creatures_guarding",
+        "minimum": 1
+      },
+      {
+        "key": "armed_combats",
+        "minimum": 3
+      },
+      {
+        "key": "armed_node_combats",
+        "minimum": 1
+      },
+      {
+        "key": "armed_line_combats",
+        "minimum": 1
+      },
+      {
+        "key": "goods_transfers",
+        "minimum": 1
+      },
+      {
+        "key": "production_completions",
+        "minimum": 1
+      },
+      {
+        "key": "jobs_progressed",
+        "minimum": 1
+      }
+    ]
+  }
+}
