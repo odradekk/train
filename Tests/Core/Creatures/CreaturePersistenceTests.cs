@@ -38,6 +38,54 @@ public sealed class CreaturePersistenceTests
     }
 
     [TestMethod]
+    public void Debug_spawn_places_a_homeless_wandering_group_that_restores_and_strictly_replays()
+    {
+        var baseline = Multi;
+        var content = Content(baseline.Content, 10, 0, maximum: 2);
+        var node = EmptyNode(baseline.World);
+        var nextCreature = baseline.World.Next.Creature;
+        using var session = Open(baseline, StopTrains(baseline.World), content);
+        var checkpoints = new List<CoreCheckpoint> { WorldFixture.Success(session.Capture(CapturePurpose.Save)).Checkpoint };
+        Reject(new CoreCommand.DebugSpawnCreatureGroup(new(ulong.MaxValue), new("fixture:creature-a"), 1), "object_missing", "Node");
+        Reject(new CoreCommand.DebugSpawnCreatureGroup(node, new("fixture:missing"), 1), "content_missing", "Creature");
+        var created = (CommandDecision.Accepted)Combat.CombatFixture.Accepted(session.Submit(
+            new CoreCommand.DebugSpawnCreatureGroup(node, new("fixture:creature-a"), 3), CommandSource.AutomationTest)).Receipt.Decision;
+        var id = ((WorldObjectId.CreatureGroup)created.Created.Single()).Id;
+        var group = Group(session, id.Value);
+        Assert.IsNull(group.Home);
+        Assert.AreEqual(CreatureActivity.Wandering, group.Activity);
+        Assert.AreEqual(new WorldLocation.Node(node), group.Location);
+        CollectionAssert.AreEqual(new[] { nextCreature, nextCreature + 1, nextCreature + 2 }, group.Creatures.Select(c => c.Id.Value).ToArray());
+        Assert.IsTrue(group.Creatures.All(c => c.Definition == new CreatureDefinitionId("fixture:creature-a") && c.Health == 10));
+        Step(session);
+        var saved = WorldFixture.Success(session.Capture(CapturePurpose.Save));
+        checkpoints.Add(saved.Checkpoint);
+
+        var factory = CoreFactory.Create();
+        using (var candidate = WorldFixture.Success(factory.PrepareRestore(WorldFixture.Success(factory.DecodeState(saved.Encode())), content, WorldFixture.Options)))
+        using (var restored = (CoreSession)candidate.Activate())
+            Assert.AreEqual(saved.Encode(), WorldFixture.Success(restored.Capture(CapturePurpose.Save)).Encode());
+
+        var recording = session.ReadRecording();
+        StringAssert.Contains(recording.Commands[^1].CanonicalPayload, "creature.debug_spawn_group");
+        using var replay = WorldFixture.Success(factory.PrepareReplay(new(2, WorldFixture.Options.Runtime, recording.Starts[0].State.Encode(),
+            recording.Commands, checkpoints.ToImmutableArray(), recording.EndPosition, null), WorldFixture.Options.Runtime, [content]));
+        foreach (var checkpoint in checkpoints)
+        {
+            var result = replay.Advance(uint.MaxValue, checkpoint.Position);
+            Assert.IsNull(result.Difference);
+            Assert.IsInstanceOfType<CheckpointComparison.Equal>(WorldFixture.Success(factory.CompareCheckpoints(checkpoint, replay.CaptureBoundary().Checkpoint)));
+        }
+        Assert.AreEqual(ReplayStop.EndOfRecording, replay.Advance(0).Stop);
+
+        void Reject(CoreCommand command, string code, string field)
+        {
+            var decision = (CommandDecision.Rejected)((SubmissionResult.Completed)session.Submit(command, CommandSource.AutomationTest)).Receipt.Decision;
+            Assert.AreEqual((code, field), (decision.Problems.Single().Code, decision.Problems.Single().Field));
+        }
+    }
+
+    [TestMethod]
     public void Railway_objective_roundtrips()
     {
         var baseline = Multi;

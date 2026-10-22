@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using Train.Core.Combat;
 using Train.Core.Contracts;
 using Train.Core.Railway;
+using Train.Core.Sessions;
 using Train.Core.World;
 
 namespace Train.Core.Creatures;
@@ -21,6 +22,31 @@ internal static class CreatureOperations
         world = Dispatch(world, content, step);
         world = FoundLairs(world, content, step, events);
         return (world, events.ToImmutable());
+    }
+
+    internal static void ValidateDebugSpawn(CoreCommand.DebugSpawnCreatureGroup command)
+    {
+        if (command.Node.Value == 0 || !WorldFormat.IsIdentity(command.Creature.Value) || command.Count < 1)
+            throw new ArgumentException("生物群须提供非零节点编号、合法生物定义和正数量。", nameof(command));
+    }
+
+    // 开发命令：在节点放一群无家的游荡生物，供规模样例和测试使用。
+    internal static CommandEffect DebugSpawn(WorldState world, CoreContentProjection content,
+        CoreCommand.DebugSpawnCreatureGroup command, ulong step)
+    {
+        var node = new WorldObjectId.Node(command.Node);
+        if (world.Nodes.All(item => item.Id != command.Node))
+            return new CommandEffect.Rejected([new("object_missing", "Node", node, [])]);
+        if (CreatureQueries.Projection(content, command.Creature) is not { HitPoints: > 0 } projection)
+            return new CommandEffect.Rejected([new("content_missing", "Creature", node, [command.Creature.Value])]);
+        if (world.Next.CreatureGroup == ulong.MaxValue || ulong.MaxValue - world.Next.Creature < (ulong)command.Count)
+            return new CommandEffect.Rejected([new("identity_exhausted", "World.Next.Creature", node, [])]);
+        var first = world.Next.Creature;
+        var group = new CreatureGroupState(new(world.Next.CreatureGroup), null, new WorldLocation.Node(command.Node), null,
+            CreatureActivity.Wandering, step, null, Enumerable.Range(0, command.Count)
+                .Select(index => new CreatureState(new(first + (ulong)index), command.Creature, projection.HitPoints)).ToImmutableArray());
+        world = world with { Next = world.Next with { Creature = first + (ulong)command.Count, CreatureGroup = group.Id.Value + 1 } };
+        return new CommandEffect.Accepted(content, [], CreatureQueries.Replace(world, group), [new WorldObjectId.CreatureGroup(group.Id)]);
     }
 
     private static WorldState Expire(WorldState world, CoreContentProjection content, ulong step)

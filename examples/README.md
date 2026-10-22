@@ -98,6 +98,7 @@ Station 的形状为 `{kind:"station",node,dwell_steps,goods_rules}`，省略后
 | `rail.repair` | `edge,break,material_source` | 断轨修复配方 |
 | `rail.set_automatic_repair` | `edge,material_source` | 断轨修复配方；`material_source` 为 JSON null 时关闭 |
 | `rail.debug_add_break` | `edge,track,distance_meters` | 断轨修复配方 |
+| `creature.debug_spawn_group` | `node,creature,count` | 繁忙战斗配方；在节点放一群无家的游荡生物 |
 
 CLI 委托支持制造车辆，以及 `request.kind` 为 `repair_vehicle` 的修理。`construction.start_owned` 另支持 `request:{kind:"dismantle_building",facility,building,priority}`，由玩家所有聚居地的施工建筑拆解建筑。制造车辆时 `facility` 是执行施工的建筑编号，能力固定为 `Construction`；`blueprint` 是内置包中的车辆蓝图身份，由内容模块交出完整设计输入。`sources` 是按消费顺序排列的库存编号数组，必须显式给出，空数组表示整份材料都从当地 NPC 补购。`maximum_payment` 为非负整数。制造任务优先级为 0。修理的 `request` 含 `facility`、`vehicle`、`sources` 和 `priority`，设施形状与制造相同。改装的 CLI 配方入口尚未增加。
 

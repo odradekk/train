@@ -599,6 +599,7 @@ Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.BuyGoods|public seale
 Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.BuyVehicle|public sealed record BuyVehicle(SettlementId Seller, VehicleId Vehicle, Money MaximumPayment) : CoreCommand;
 Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.CommissionVehicleWork|public sealed record CommissionVehicleWork(JobRequest Request, Money MaximumPayment) : CoreCommand;
 Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.DebugAddRailBreak|public sealed record DebugAddRailBreak(EdgeId Edge, int Track, double DistanceMeters) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.DebugSpawnCreatureGroup|public sealed record DebugSpawnCreatureGroup(NodeId Node, CreatureDefinitionId Creature, int Count) : CoreCommand;
 Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.DeclareWar|public sealed record DeclareWar(SettlementId Settlement) : CoreCommand;
 Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.DisbandTrain|public sealed record DisbandTrain(TrainId Train) : CoreCommand;
 Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.ExpandRail|public sealed record ExpandRail(EdgeId Edge, SettlementId MaterialSource) : CoreCommand;
