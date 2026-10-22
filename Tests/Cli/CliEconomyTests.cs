@@ -383,6 +383,9 @@ public sealed partial class CliProcessTests
             var boundary = new SimulationPosition(100, 0);
             CollectionAssert.AreEqual(continuous.Checkpoints.SkipWhile(checkpoint => checkpoint.Position != boundary).ToArray(),
                 resumed.Checkpoints.ToArray());
+            // 进度文件在每个检查点和终点各有一行；恢复的进程从保存点之后开始测量。
+            CollectionAssert.AreEqual(new ulong[] { 100, 200, 300 }, ProgressSteps(continuousPath));
+            CollectionAssert.AreEqual(new ulong[] { 200, 300 }, ProgressSteps(resumedPath));
         }
         catch
         {
@@ -403,6 +406,9 @@ public sealed partial class CliProcessTests
         await File.WriteAllTextAsync(path, recipe.ToJsonString());
         return path;
     }
+
+    private static ulong[] ProgressSteps(string output) => File.ReadAllLines(output + ".progress.jsonl")
+        .Select(line => JsonNode.Parse(line)!["position"]!["completed_steps"]!.GetValue<ulong>()).ToArray();
 
     private static async Task<RunOutput> ReadEconomyOutput(string path) =>
         JsonSerializer.Deserialize<RunOutput>(await File.ReadAllTextAsync(path), Recipe.Json)

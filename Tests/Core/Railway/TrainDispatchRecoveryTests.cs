@@ -177,13 +177,15 @@ internal static class TrainDispatchRecoveryScenario
                 world = world with { Trains = [TrainDispatchFixture.OnEdge(first, 40, 1), TrainDispatchFixture.OnEdge(world.Trains[1], 30, 8)] };
                 break;
             case "replan":
-                // 列车 1 在站台服务，列车 2 排队；边界之后由后缀把列车 1 换成直达计划。
+                // 列车 1 在站台服务、列车 2 排队时把列车 1 换成直达计划；边界落在已替换、尚未离站之间。
                 var station = state with { World = world with { Trains = world.Trains.Select(train => train with
                     { Activity = TrainActivity.Running, Plan = new(false, [new PlanStop.Station(new(1), 2, []), new PlanStop.Waypoint(new(2))]) })
                     .ToImmutableArray() } };
                 using (var session = new CoreSession(station))
                 {
                     TrainDispatchFixture.Until(session, () => TrainDispatchFixture.View(session, 1).Activity == TrainActivity.Servicing);
+                    TrainDispatchFixture.Submit(session, new CoreCommand.ReplaceRunPlan(new(1), TrainDispatchFixture.Plan(2)));
+                    Assert.IsTrue(TrainDispatchFixture.View(session, 1).Position is TrainPosition.Node { Id.Value: 1 }, "替换后列车 1 应仍在站台。");
                     return session.State;
                 }
             case "queue":
@@ -216,7 +218,6 @@ internal static class TrainDispatchRecoveryScenario
             samples.Add(new(capture.Position, capture.Encode(), capture.Checkpoint.CanonicalText, capture.Checkpoint.Sha256, Query(session)));
         }
         Sample();
-        if (boundary == "replan") TrainRecoveryFixture.Submit(session, new CoreCommand.ReplaceRunPlan(new(1), TrainDispatchFixture.Plan(2)), events);
         // 原有三个边界只看紧接着的几步；新边界要走到对向发车、跟车拉开和离站。
         int[] sampled = boundary is "queue" or "handoff" or "returning" ? [0, 5, 11] : [99, 199, 299, 399, 499, 599, 699, 799, 899];
         for (var step = 0; step <= sampled[^1]; step++)

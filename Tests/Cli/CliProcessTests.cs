@@ -110,6 +110,13 @@ public sealed partial class CliProcessTests
             StringAssert.Contains(await File.ReadAllTextAsync(Path.Combine(directory, "empty-compare.stderr.log")),
                 "运行结果缺少检查点。");
 
+            var shorter = JsonNode.Parse(await File.ReadAllTextAsync(second))!;
+            shorter["checkpoints"]!.AsArray().RemoveAt(shorter["checkpoints"]!.AsArray().Count - 1);
+            await File.WriteAllTextAsync(changed, shorter.ToJsonString());
+            await Run(directory, "shorter-compare", 1, "compare", first, changed);
+            StringAssert.Contains(await File.ReadAllTextAsync(Path.Combine(directory, "shorter-compare.stderr.log")),
+                "检查点数量不同。");
+
             modified["input_identity"]!["value"] = "different-core-input";
             await File.WriteAllTextAsync(changed, modified.ToJsonString());
             await Run(directory, "changed-input-compare", 1, "compare", changed, second);
