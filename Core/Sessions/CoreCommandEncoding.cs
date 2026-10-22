@@ -33,6 +33,7 @@ internal static class CoreCommandEncoding
                 CoreCommand.StartTrain => "train.start",
                 CoreCommand.StopTrain => "train.stop",
                 CoreCommand.DebugAddRailBreak => "rail.debug_add_break",
+                CoreCommand.DebugSpawnCreatureGroup => "creature.debug_spawn_group",
                 CoreCommand.ExpandRail => "rail.expand",
                 CoreCommand.RepairRail => "rail.repair",
                 CoreCommand.SetAutomaticRailRepair => "rail.set_automatic_repair",
@@ -237,6 +238,13 @@ internal static class CoreCommandEncoding
                     writer.WritePropertyName("distance_meters");
                     writer.WriteRawValue(addBreak.DistanceMeters.ToString("R", CultureInfo.InvariantCulture));
                     break;
+                case CoreCommand.DebugSpawnCreatureGroup spawn:
+                    WriteIdentity(writer, "node", spawn.Node.Value);
+                    if (!WorldFormat.IsIdentity(spawn.Creature.Value)) throw new ArgumentException("生物定义身份无效。", nameof(command));
+                    if (spawn.Count < 1) throw new ArgumentException("生物数量必须为正。", nameof(command));
+                    writer.WriteString("creature", spawn.Creature.Value);
+                    writer.WriteNumber("count", spawn.Count);
+                    break;
                 case CoreCommand.ExpandRail expand:
                     WriteIdentity(writer, "edge", expand.Edge.Value);
                     WriteIdentity(writer, "material_source", expand.MaterialSource.Value);
@@ -285,6 +293,7 @@ internal static class CoreCommandEncoding
                 "train.replace_run_plan" => ["input_format_version", "kind", "train", "plan"],
                 "train.disband" or "train.start" or "train.stop" => ["input_format_version", "kind", "train"],
                 "rail.debug_add_break" => ["input_format_version", "kind", "edge", "track", "distance_meters"],
+                "creature.debug_spawn_group" => ["input_format_version", "kind", "node", "creature", "count"],
                 "rail.expand" => ["input_format_version", "kind", "edge", "material_source"],
                 "rail.repair" => ["input_format_version", "kind", "edge", "break", "material_source"],
                 "rail.set_automatic_repair" => ["input_format_version", "kind", "edge", "material_source"],
@@ -445,6 +454,15 @@ internal static class CoreCommandEncoding
                 if (!distance.TryGetDouble(out var meters) || !double.IsFinite(meters) || meters < 0)
                     throw new InvalidField("/distance_meters");
                 return Success(new(null, new CoreCommand.DebugAddRailBreak(edge, trackNumber, meters)));
+            }
+            if (name == "creature.debug_spawn_group")
+            {
+                var node = new NodeId(Identity(Property(root, "node", "", JsonValueKind.Number), "/node"));
+                var creature = Text(Property(root, "creature", "", JsonValueKind.String), "/creature");
+                if (!WorldFormat.IsIdentity(creature)) throw new InvalidField("/creature");
+                var count = Property(root, "count", "", JsonValueKind.Number);
+                if (!count.TryGetInt32(out var creatures) || creatures < 1) throw new InvalidField("/count");
+                return Success(new(null, new CoreCommand.DebugSpawnCreatureGroup(node, new(creature!), creatures)));
             }
             if (name is "rail.expand" or "rail.repair" or "rail.set_automatic_repair")
             {

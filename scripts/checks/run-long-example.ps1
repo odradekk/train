@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('starting-trade', 'lease-expiry', 'rail-repair', 'conquest', 'clearance', 'operating-failure', 'long-consist', 'standard-world')]
+    [ValidateSet('starting-trade', 'lease-expiry', 'rail-repair', 'conquest', 'clearance', 'operating-failure', 'long-consist', 'standard-world', 'busy-combat', 'crowded-station')]
     [string] $Example,
     [string] $Root = (Join-Path $PSScriptRoot '../..')
 )
@@ -26,6 +26,8 @@ $saveStep = switch ($Example) {
     'operating-failure' { '1060000' }
     'long-consist' { '17000' }
     'standard-world' { '110000' }
+    'busy-combat' { '330000' }
+    'crowded-station' { '880000' }
 }
 $continuous = Join-Path $run 'continuous.json'
 $prefix = Join-Path $run 'prefix.save.json'
