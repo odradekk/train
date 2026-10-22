@@ -13,7 +13,9 @@ param(
     [ValidateRange(1, 2147483647)][int] $Repeat = 3,
     # 启动器超时上限 2147478 秒，扣除 scene-memory 的 600 秒退出余量。
     [ValidateRange(0, 2146878)][int] $DurationSeconds = 0,
-    [string] $ReferencePath
+    [string] $ReferencePath,
+    # test 只用于用户 2026-10-22 指定的测试机器，即 Linux runner lan-linux-nightly 所在主机。
+    [ValidateSet('development', 'test')][string] $Machine = 'development'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,10 +36,11 @@ $summaryPath = $null
 $failure = $null
 $displayAwake = $null
 $displayAwakeState = @{ acquired = $false; restored = $false }
+$idleInhibit = $false
 try {
-    if (-not $IsWindows) { throw '测量入口需要 Windows Release 导出与真实窗口。' }
+    if (-not $IsWindows -and -not $IsLinux) { throw '测量入口需要 Windows 或 Linux Release 导出与真实窗口。' }
     # 执行状态属于原生线程；专用线程持有到 finally，不能依赖 PowerShell 的运行线程。
-    if (-not ('MeasurementDisplayAwake' -as [type])) {
+    if ($IsWindows -and -not ('MeasurementDisplayAwake' -as [type])) {
         Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
@@ -80,8 +83,19 @@ public sealed class MeasurementDisplayAwake : IDisposable
 }
 "@
     }
-    $displayAwake = [MeasurementDisplayAwake]::new()
-    $displayAwakeState.acquired = $true
+    if ($IsWindows) {
+        $displayAwake = [MeasurementDisplayAwake]::new()
+        $displayAwakeState.acquired = $true
+    }
+    else {
+        # 合成器是否遵守 logind 的空闲抑制取决于主机；这里只记录能否取得抑制。
+        try {
+            $probe = Invoke-HiddenProcess -FilePath 'systemd-inhibit' -TimeoutSeconds 30 -ArgumentList @(
+                '--what=idle:sleep', '--who=train-measure', '--why=window measurement', '--mode=block', 'true')
+            $idleInhibit = $probe.ExitCode -eq 0 -and -not $probe.TimedOut
+        }
+        catch { $idleInhibit = $false }
+    }
     if ($Scenario.Count -eq 0) { throw '至少选择一个情景。' }
     $ExecutablePath = (Resolve-Path -LiteralPath $ExecutablePath).Path
     $InputPath = (Resolve-Path -LiteralPath $InputPath).Path
@@ -105,7 +119,7 @@ public sealed class MeasurementDisplayAwake : IDisposable
     if ($assemblies.Count -ne 1) { throw '导出目录必须包含唯一的 Train.dll。' }
 
     # 短命进程读取元数据，避免同一终端复测不同构建时程序集身份冲突或 DLL 锁定。
-    $build = & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -Command {
+    $build = & (Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })) -NoProfile -Command {
         param($path)
         $ErrorActionPreference = 'Stop'
         [Reflection.Assembly]::LoadFrom($path).GetCustomAttributes(
@@ -123,11 +137,30 @@ public sealed class MeasurementDisplayAwake : IDisposable
         pck = Get-FileIdentity $pck
         assembly = Get-FileIdentity $assemblies[0].FullName
         input = Get-FileIdentity $InputPath
-        system = @{
-            os = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
-            processors = @(Get-CimInstance Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors)
-            physical_memory_bytes = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
-            display_adapters = @(Get-CimInstance Win32_VideoController | Select-Object Name, DriverVersion, PNPDeviceID)
+        machine = $Machine
+        machine_basis = $(if ($Machine -eq 'test') { '用户 2026-10-22 决定 Demo 阶段测试机器为 Linux runner lan-linux-nightly 所在主机：https://github.com/odradekk/train/issues/397#issuecomment-6336919759' } else { '开发机，不是测试机器' })
+        system = if ($IsWindows) {
+            @{
+                os = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
+                processors = @(Get-CimInstance Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors)
+                physical_memory_bytes = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
+                display_adapters = @(Get-CimInstance Win32_VideoController | Select-Object Name, DriverVersion, PNPDeviceID)
+            }
+        }
+        else {
+            @{
+                os = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
+                processors = @(@{ Name = (Select-String -LiteralPath /proc/cpuinfo -Pattern '^model name\s*:\s*(.+)$' |
+                    Select-Object -First 1).Matches[0].Groups[1].Value; NumberOfLogicalProcessors = [Environment]::ProcessorCount })
+                physical_memory_bytes = [long](Select-String -LiteralPath /proc/meminfo -Pattern '^MemTotal:\s+(\d+) kB$').Matches[0].Groups[1].Value * 1024
+                # 只记录显示类型和 X 显示编号，不记录 socket 路径。
+                display_environment = @(@($(if ($env:DISPLAY) { "x11 $env:DISPLAY" }), $(if ($env:WAYLAND_DISPLAY) { 'wayland' })) | Where-Object { $_ })
+                ac_online = @(Get-ChildItem /sys/class/power_supply -ErrorAction SilentlyContinue |
+                    Where-Object { (Get-Content -LiteralPath (Join-Path $_.FullName 'type') -ErrorAction SilentlyContinue) -eq 'Mains' } |
+                    ForEach-Object { (Get-Content -LiteralPath (Join-Path $_.FullName 'online')) -eq '1' })
+                platform_profile = Get-Content -LiteralPath /sys/firmware/acpi/platform_profile -ErrorAction SilentlyContinue
+                idle_inhibit = $idleInhibit
+            }
         }
     }
 
@@ -152,26 +185,53 @@ public sealed class MeasurementDisplayAwake : IDisposable
             Write-Json $identityPath $identity
             $run = @{ scenario = $name; repeat = $iteration; report = $reportPath; external_load = $loadPath; succeeded = $false }
             $runs.Add($run)
-            $previousAppData = $env:APPDATA
-            $previousLocalAppData = $env:LOCALAPPDATA
+            $userDirectories = if ($IsWindows) { @{ APPDATA = 'appdata'; LOCALAPPDATA = 'localappdata' } }
+            else { @{ XDG_CONFIG_HOME = 'config'; XDG_DATA_HOME = 'data'; XDG_CACHE_HOME = 'cache' } }
+            $previousUserDirectories = @{}
+            foreach ($variable in $userDirectories.Keys) { $previousUserDirectories[$variable] = [Environment]::GetEnvironmentVariable($variable) }
             $job = $null
             try {
-                $env:APPDATA = Join-Path $runDirectory 'appdata'
-                $env:LOCALAPPDATA = Join-Path $runDirectory 'localappdata'
-                [System.IO.Directory]::CreateDirectory($env:APPDATA) | Out-Null
-                [System.IO.Directory]::CreateDirectory($env:LOCALAPPDATA) | Out-Null
+                foreach ($variable in $userDirectories.Keys) {
+                    $directory = Join-Path $runDirectory $userDirectories[$variable]
+                    [System.IO.Directory]::CreateDirectory($directory) | Out-Null
+                    [Environment]::SetEnvironmentVariable($variable, $directory)
+                }
                 $job = Start-Job -ArgumentList $loadPath, $stopPath, $readyPath -ScriptBlock {
                     param($loadPath, $stopPath, $readyPath)
                     $ErrorActionPreference = 'Stop'
+                    $previousCpu = $null
                     while (-not (Test-Path -LiteralPath $stopPath)) {
-                        $cpu = Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'"
-                        $memory = Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory
-                        $processes = @(Get-Process | Where-Object { $_.ProcessName -like 'Godot*' -or $_.ProcessName -eq 'dotnet' } |
+                        $processes = @(Get-Process | Where-Object { $_.ProcessName -like 'Godot*' -or $_.ProcessName -like 'train*' -or $_.ProcessName -eq 'dotnet' } |
                             ForEach-Object { @{ pid = $_.Id; name = $_.ProcessName; cpu_seconds = $_.CPU; working_set_bytes = $_.WorkingSet64 } })
-                        @{ utc = [DateTime]::UtcNow.ToString('O'); total_cpu_percent = $cpu.PercentProcessorTime; processes = $processes
-                            available_bytes = $memory.AvailableBytes; pages_input_per_sec = $memory.PagesInputPerSec
-                            page_reads_per_sec = $memory.PageReadsPerSec } |
-                            ConvertTo-Json -Depth 5 -Compress | Add-Content -LiteralPath $loadPath -Encoding utf8
+                        $record = if ($IsWindows) {
+                            $cpu = Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'"
+                            $memory = Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory
+                            @{ total_cpu_percent = $cpu.PercentProcessorTime; available_bytes = $memory.AvailableBytes
+                                pages_input_per_sec = $memory.PagesInputPerSec; page_reads_per_sec = $memory.PageReadsPerSec }
+                        }
+                        else {
+                            # /proc/stat 首行是全部 CPU 的累计时钟数；第 4、5 项为空闲与 I/O 等待。
+                            $ticks = @((Get-Content -LiteralPath /proc/stat -TotalCount 1) -split '\s+' | Select-Object -Skip 1 -First 8 | ForEach-Object { [long]$_ })
+                            $cpuPercent = $null
+                            if ($null -ne $previousCpu) {
+                                $total = ($ticks | Measure-Object -Sum).Sum - ($previousCpu | Measure-Object -Sum).Sum
+                                $idle = $ticks[3] + $ticks[4] - $previousCpu[3] - $previousCpu[4]
+                                if ($total -gt 0) { $cpuPercent = 100 * ($total - $idle) / $total }
+                            }
+                            $previousCpu = $ticks
+                            $temperatures = @(Get-ChildItem /sys/class/thermal -Filter 'thermal_zone*' -ErrorAction SilentlyContinue |
+                                ForEach-Object { Get-Content -LiteralPath (Join-Path $_.FullName 'temp') -ErrorAction SilentlyContinue } |
+                                ForEach-Object { [double]$_ / 1000 })
+                            @{ total_cpu_percent = $cpuPercent
+                                available_bytes = [long](Select-String -LiteralPath /proc/meminfo -Pattern '^MemAvailable:\s+(\d+) kB$').Matches[0].Groups[1].Value * 1024
+                                max_thermal_celsius = ($temperatures | Measure-Object -Maximum).Maximum
+                                ac_online = @(Get-ChildItem /sys/class/power_supply -ErrorAction SilentlyContinue |
+                                    Where-Object { (Get-Content -LiteralPath (Join-Path $_.FullName 'type') -ErrorAction SilentlyContinue) -eq 'Mains' } |
+                                    ForEach-Object { (Get-Content -LiteralPath (Join-Path $_.FullName 'online')) -eq '1' }) }
+                        }
+                        $record.utc = [DateTime]::UtcNow.ToString('O')
+                        $record.processes = $processes
+                        $record | ConvertTo-Json -Depth 5 -Compress | Add-Content -LiteralPath $loadPath -Encoding utf8
                         [System.IO.File]::WriteAllText($readyPath, '')
                         Start-Sleep -Seconds 1
                     }
@@ -186,7 +246,11 @@ public sealed class MeasurementDisplayAwake : IDisposable
                     "--measure=$name", '--measure-input', $InputPath, '--measure-output', $reportPath, '--measure-identity', $identityPath)
                 if ($isScene -or $DurationSeconds -gt 0) { $arguments += @('--measure-duration', $DurationSeconds.ToString([Globalization.CultureInfo]::InvariantCulture)) }
                 if ($ReferencePath) { $arguments += @('--measure-reference', $ReferencePath) }
-                $result = Invoke-HiddenProcess -FilePath $ExecutablePath -TimeoutSeconds $timeout -ArgumentList $arguments
+                $result = if ($idleInhibit) {
+                    Invoke-HiddenProcess -FilePath 'systemd-inhibit' -TimeoutSeconds $timeout -ArgumentList (@(
+                        '--what=idle:sleep', '--who=train-measure', '--why=window measurement', '--mode=block', $ExecutablePath) + $arguments)
+                }
+                else { Invoke-HiddenProcess -FilePath $ExecutablePath -TimeoutSeconds $timeout -ArgumentList $arguments }
                 $result.Output | Set-Content -LiteralPath (Join-Path $runDirectory 'process.log') -Encoding utf8
                 $godotLog = Join-Path $runDirectory 'godot.log'
                 $godotLines = @(if (Test-Path -LiteralPath $godotLog -PathType Leaf) {
@@ -207,8 +271,7 @@ public sealed class MeasurementDisplayAwake : IDisposable
                     $report.scope.final_performance -ne $false) { throw "$name/$iteration 报告未完成、不是 Release 或缺少真实绘制帧。" }
             }
             finally {
-                $env:APPDATA = $previousAppData
-                $env:LOCALAPPDATA = $previousLocalAppData
+                foreach ($variable in $previousUserDirectories.Keys) { [Environment]::SetEnvironmentVariable($variable, $previousUserDirectories[$variable]) }
                 if ($null -ne $job) {
                     [System.IO.File]::WriteAllText($stopPath, '')
                     try {
@@ -234,7 +297,7 @@ finally {
     if ($null -ne $summaryPath) {
         Write-Json $summaryPath @{
             succeeded = $null -eq $failure; error = $failure; runs = @($runs.ToArray())
-            display_awake = $displayAwakeState
+            display_awake = $(if ($IsWindows) { $displayAwakeState } else { @{ idle_inhibit = $idleInhibit } })
             scope = @{
                 final_performance = $false
                 warmup_seconds = 5; sample_seconds = $(if ($DurationSeconds -gt 0) { $DurationSeconds } else { 30 }); repetitions = $Repeat

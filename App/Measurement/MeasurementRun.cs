@@ -39,6 +39,8 @@ internal sealed partial class MeasurementRun : IDisposable
     private bool _disposed;
     private TrainId? _measuredTrain;
     private int SampleSeconds => _sceneDuration > 0 ? _sceneDuration : 30;
+    private static readonly Vector2I WindowSize = new(1920, 1080);
+    private static readonly string[] SoftwareAdapters = ["llvmpipe", "lavapipe", "softpipe", "swiftshader"];
 
     internal MeasurementRun(App app, IReadOnlyList<string> arguments)
     {
@@ -85,6 +87,10 @@ internal sealed partial class MeasurementRun : IDisposable
         try
         {
             if (DisplayServer.GetName() == "headless") throw new InvalidOperationException("测量需要真实绘制窗口。");
+            var adapter = RenderingServer.GetVideoAdapterName();
+            if (RenderingServer.GetVideoAdapterType() == RenderingDevice.DeviceType.Cpu ||
+                SoftwareAdapters.Any(name => adapter.Contains(name, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException($"测量需要硬件渲染，当前适配器为 {adapter}。");
             if (_scenario.StartsWith("scene-", StringComparison.Ordinal))
             {
                 await RunSceneBudget();
@@ -217,6 +223,9 @@ internal sealed partial class MeasurementRun : IDisposable
         _identity["gpu_vendor"] = RenderingServer.GetVideoAdapterVendor();
         _identity["gpu_api"] = RenderingServer.GetVideoAdapterApiVersion();
         _identity["gpu_driver"] = OS.GetVideoAdapterDriverInfo();
+        _identity["gpu_type"] = RenderingServer.GetVideoAdapterType().ToString();
+        _identity["display_server"] = DisplayServer.GetName();
+        _identity["refresh_rate"] = DisplayServer.ScreenGetRefreshRate();
         _identity["renderer"] = RenderingServer.GetCurrentRenderingMethod();
         _identity["rendering_driver"] = RenderingServer.GetCurrentRenderingDriverName();
         _identity["window_size"] = new[] { _app.GetWindow().Size.X, _app.GetWindow().Size.Y };
@@ -246,6 +255,10 @@ internal sealed partial class MeasurementRun : IDisposable
     private void OnDraw()
     {
         if (_disposed || _app.Host!.GetStatus() is not { } status) return;
+        var window = _app.GetWindow().Size;
+        var viewport = _app.GetViewport().GetTexture().GetSize();
+        if (window != WindowSize || viewport != (Vector2)WindowSize)
+            _drawFailure ??= new InvalidOperationException($"测量窗口与视口必须保持 1920×1080，实际为 {window}／{viewport}。");
         if (_scenario.StartsWith("scene-", StringComparison.Ordinal))
         {
             OnSceneDraw();

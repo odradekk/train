@@ -2,7 +2,9 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string] $OutputDirectory,
-    [string] $SourceDirectory = (Split-Path $PSScriptRoot -Parent)
+    [string] $SourceDirectory = (Split-Path $PSScriptRoot -Parent),
+    # 默认取已安装的 Release 模板；Linux 测试机器传入已核对的模板文件。
+    [string] $TemplatePath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -10,8 +12,10 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'checks/Invoke-HiddenProcess.ps1')
 
 $originalDirectory = Get-Location
+$userDirectories = if ($IsWindows) { @{ APPDATA = 'appdata'; LOCALAPPDATA = 'localappdata' } }
+else { @{ XDG_CONFIG_HOME = 'config'; XDG_DATA_HOME = 'data'; XDG_CACHE_HOME = 'cache' } }
 $environment = @{}
-foreach ($name in @('APPDATA', 'LOCALAPPDATA')) {
+foreach ($name in $userDirectories.Keys) {
     $environment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
 }
 $templateDirectory = $null
@@ -32,7 +36,7 @@ function Invoke-MeasurementBuildStep([string] $Name, [string] $FilePath, [string
 }
 
 try {
-    if (-not $IsWindows) { throw '测量构建只支持 Windows Release 导出。' }
+    if (-not $IsWindows -and -not $IsLinux) { throw '测量构建只支持 Windows 与 Linux Release 导出。' }
     $repo = (Resolve-Path -LiteralPath $SourceDirectory).Path
     $commit = & git -C $repo rev-parse HEAD
     if ($LASTEXITCODE -ne 0) { throw '无法读取构建提交。' }
@@ -56,22 +60,31 @@ try {
     }
     [IO.Directory]::CreateDirectory($OutputDirectory) | Out-Null
     $summaryPath = Join-Path $OutputDirectory 'export-summary.json'
-    $sourceTemplate = Join-Path $environment.APPDATA 'Godot/export_templates/4.7.2.stable.mono/windows_release_x86_64.exe'
-    if (-not (Test-Path -LiteralPath $sourceTemplate -PathType Leaf)) { throw "缺少已安装的 Windows Release 模板：$sourceTemplate" }
-    $env:APPDATA = Join-Path $OutputDirectory 'appdata'
-    $env:LOCALAPPDATA = Join-Path $OutputDirectory 'localappdata'
-    [IO.Directory]::CreateDirectory($env:LOCALAPPDATA) | Out-Null
-    $templateDirectory = Join-Path $env:APPDATA 'Godot/export_templates/4.7.2.stable.mono'
+    $templateName = if ($IsWindows) { 'windows_release_x86_64.exe' } else { 'linux_release.x86_64' }
+    $sourceTemplate = if ($TemplatePath) { $TemplatePath }
+    elseif ($IsWindows) { Join-Path $environment.APPDATA "Godot/export_templates/4.7.2.stable.mono/$templateName" }
+    else {
+        $data = if ($environment.XDG_DATA_HOME) { $environment.XDG_DATA_HOME } else { Join-Path $HOME '.local/share' }
+        Join-Path $data "godot/export_templates/4.7.2.stable.mono/$templateName"
+    }
+    if (-not (Test-Path -LiteralPath $sourceTemplate -PathType Leaf)) { throw "缺少 Release 导出模板 $templateName。" }
+    foreach ($name in $userDirectories.Keys) {
+        $directory = Join-Path $OutputDirectory $userDirectories[$name]
+        [IO.Directory]::CreateDirectory($directory) | Out-Null
+        [Environment]::SetEnvironmentVariable($name, $directory, 'Process')
+    }
+    $templateDirectory = if ($IsWindows) { Join-Path $env:APPDATA 'Godot/export_templates/4.7.2.stable.mono' }
+    else { Join-Path $env:XDG_DATA_HOME 'godot/export_templates/4.7.2.stable.mono' }
     [IO.Directory]::CreateDirectory($templateDirectory) | Out-Null
-    Copy-Item -LiteralPath $sourceTemplate -Destination $templateDirectory
+    Copy-Item -LiteralPath $sourceTemplate -Destination (Join-Path $templateDirectory $templateName)
     Set-Location -LiteralPath $repo
     Invoke-MeasurementBuildStep 'build' 'dotnet' @('build', 'Train.csproj', '-c', 'ExportRelease')
     Invoke-MeasurementBuildStep 'import' $env:GODOT @('--headless', '--path', $repo, '--recovery-mode',
         '--log-file', (Join-Path $OutputDirectory 'import-godot.log'), '--editor', '--import')
-    $binary = Join-Path $OutputDirectory 'train.exe'
+    $binary = Join-Path $OutputDirectory $(if ($IsWindows) { 'train.exe' } else { 'train.x86_64' })
     Invoke-MeasurementBuildStep 'export' $env:GODOT @('--headless', '--path', $repo,
-        '--log-file', (Join-Path $OutputDirectory 'export-godot.log'), '--export-release', 'Windows Desktop', $binary)
-    Invoke-MeasurementBuildStep 'optimizations' (Join-Path $PSHOME 'pwsh.exe') @('-NoProfile', '-File',
+        '--log-file', (Join-Path $OutputDirectory 'export-godot.log'), '--export-release', $(if ($IsWindows) { 'Windows Desktop' } else { 'Linux' }), $binary)
+    Invoke-MeasurementBuildStep 'optimizations' (Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })) @('-NoProfile', '-File',
         (Join-Path $PSScriptRoot 'checks/check-export-optimizations.ps1'), '-ExportDirectory', $OutputDirectory)
     $afterCommit = & git -C $repo rev-parse HEAD
     if ($LASTEXITCODE -ne 0 -or $commit -ne $afterCommit) { throw '导出期间 HEAD 发生变化；此构建不能用于测量。' }
