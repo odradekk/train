@@ -233,10 +233,17 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
             foreach (var (item, field, detail) in WorldInvariants.Check(read, jobProgress))
                 if (reported.Add(item + " " + field)) findings.Add($"{read.Position} {item} {field}：{detail}");
             // 每个样本都要能通过读档时的状态校验，否则问题要等到恢复时才暴露。
-            if (core.DecodeState(capture.Encode()) is CoreResult<ICoreCapture>.Failure decode)
-                foreach (var problem in decode.Problems)
-                    if (reported.Add("state " + problem.Field))
-                        findings.Add($"{read.Position} state {problem.Field}：读档校验拒绝（{problem.Code}）");
+            switch (core.DecodeState(capture.Encode()))
+            {
+                case CoreResult<ICoreCapture>.Failure decode:
+                    foreach (var problem in decode.Problems)
+                        if (reported.Add("state " + problem.Field))
+                            findings.Add($"{read.Position} state {problem.Field}：读档校验拒绝（{problem.Code}）");
+                    break;
+                case CoreResult<ICoreCapture>.Faulted fault when reported.Add("state fault " + fault.Fault.Field):
+                    findings.Add($"{read.Position} state {fault.Fault.Field}：读档校验故障（{fault.Fault.Code}）");
+                    break;
+            }
             if (read.Position.Sequence != 0) return;
             foreach (var expectation in recipe.Expectations.Where(item => item.At == read.Position.CompletedSteps))
             {
