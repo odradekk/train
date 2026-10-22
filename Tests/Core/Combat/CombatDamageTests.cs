@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Train.Core;
 using Train.Core.Combat;
 using Train.Core.Contracts;
 using Train.Core.Sessions;
@@ -401,6 +402,47 @@ public sealed class CombatDamageTests
         CombatFixture.AdvanceUntil(session, view => view.FindInstance(station) is Lookup<InstanceView>.Missing, 1000);
         Assert.AreEqual(0, ((Lookup<SettlementView>.Found)session.Read().FindSettlement(settlementId)).Value.Platforms);
         Assert.IsTrue(session.Read().World.Combats.Any());
+    }
+
+    [TestMethod]
+    public void Destroying_a_station_platform_part_reduces_the_node_platform_count()
+    {
+        var content = CombatFixture.Content(damage: 1) with
+        {
+            Designs = CombatFixture.Content(damage: 1).Designs.Select(design =>
+                design.Design == WorldFixture.Station ? design with
+                {
+                    StructureHitWeight = 0,
+                    Parts = design.Parts.Select(part => part.Capabilities.Any(capability => capability is PartCapability.Platform)
+                        ? part with { MaxDurability = 1, HitWeight = 1 }
+                        : part with { HitWeight = 0 }).ToImmutableArray()
+                } : design).ToImmutableArray()
+        };
+        var platformPart = content.Designs.Single(design => design.Design == WorldFixture.Station).Parts
+            .Single(part => part.Capabilities.Any(capability => capability is PartCapability.Platform)).Id;
+        using var session = CombatFixture.SessionWithContent(content);
+        var hostile = CombatFixture.HostileNode(session);
+        var train = new TrainId(1);
+        var settlementId = ((Lookup<LocationView>.Found)session.Read().FindLocation(
+            new WorldLocation.Node(hostile))).Value.Occupant is NodeOccupant.Settlement occupant
+            ? occupant.Id : throw new AssertFailedException("敌对节点没有聚居地。");
+        var station = Station(session, hostile);
+        Assert.AreEqual(1, ((Lookup<SettlementView>.Found)session.Read().FindSettlement(settlementId)).Value.Platforms);
+        CombatFixture.Accepted(session.Submit(new CoreCommand.SetTrainEngagement(train,
+            new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0)), CommandSource.AutomationTest));
+        CombatFixture.Send(session, hostile, train);
+        CombatFixture.AdvanceUntil(session, view => view.World.Combats.Any());
+        var combat = session.Read().World.Combats.Single();
+        CombatFixture.Accepted(session.Submit(new CoreCommand.FocusFire(combat.Id, new CombatController.Train(train),
+            new WorldObjectId.Instance(station)), CommandSource.AutomationTest));
+        CombatFixture.AdvanceUntil(session, view => view.FindInstance(station) is Lookup<InstanceView>.Found found
+            && found.Value.Parts.Single(part => part.Part == platformPart).Destroyed, 1000);
+        var instance = ((Lookup<InstanceView>.Found)session.Read().FindInstance(station)).Value;
+        Assert.IsTrue(instance.Structure.EffectiveCurrent > 0);
+        Assert.IsTrue(instance.Parts.Single(part => part.Part == platformPart).Destroyed);
+        Assert.AreEqual(0, ((Lookup<SettlementView>.Found)session.Read().FindSettlement(settlementId)).Value.Platforms);
+        var captured = WorldFixture.Success(session.Capture(CapturePurpose.Save));
+        WorldFixture.Success(CoreFactory.Create().DecodeState(captured.Encode()));
     }
 
     [TestMethod]

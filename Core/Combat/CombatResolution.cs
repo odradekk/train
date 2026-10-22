@@ -402,8 +402,9 @@ internal static class CombatResolution
                     new CombatUnitId.Instance(new InstanceId.Vehicle(train.Vehicles[0]))), [],
                 [], world.Inventories.Single(i => i.Id == train.Inventory).Goods);
 
+        var changed = instanceIds.Concat(parts.Select(part => part.Instance.Instance)).ToHashSet();
         var buildingNodes = world.Settlements.Where(settlement => settlement.Plots.Any(plot =>
-                plot.Building is { } building && instanceIds.Contains(new InstanceId.Building(building))))
+                plot.Building is { } building && changed.Contains(new InstanceId.Building(building))))
             .Select(settlement => settlement.Node).ToHashSet();
         world = RemoveVehicles(world, content, instanceIds, step, events);
         world = RemoveBuildings(world, instanceIds);
