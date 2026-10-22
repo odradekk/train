@@ -620,6 +620,7 @@ internal sealed partial class MeasurementRun
                 { material = group.Key.ToString(), meshes = group.Count(), vertices = group.Sum(mesh => (long)mesh.Vertices.Length),
                     triangles = group.Sum(mesh => (long)mesh.TriangleIndices.Length / 3) }).ToArray(),
             followed_train = _sceneTarget is WorldObjectId.Train ? TrainGeometry(objects) : null,
+            render_instances = RenderInstances(_app.WorldScenes.Display.Root),
             count_seconds = Seconds() - started
         }, SceneJson));
     }
@@ -640,6 +641,31 @@ internal sealed partial class MeasurementRun
         }).ToArray();
         return new { train = _train.Value, members = members.Length, displayed_bodies = members.Count(item => item.displayed),
             vertices = members.Sum(item => item.vertices), triangles = members.Sum(item => item.triangles), per_member = members };
+    }
+
+    // Godot 为每个带实例变量的几何实例在全局着色器缓冲区预留 16 个 vec4，默认缓冲区可容纳 4096 个这样的实例。
+    private static object RenderInstances(Node root)
+    {
+        static IEnumerable<GeometryInstance3D> Geometry(Node node)
+        {
+            foreach (var child in node.GetChildren())
+            {
+                if (child is GeometryInstance3D geometry) yield return geometry;
+                foreach (var descendant in Geometry(child)) yield return descendant;
+            }
+        }
+        static bool Surface(GeometryInstance3D item) =>
+            (item.MaterialOverride is ShaderMaterial { Shader: { } shader } && shader.Code.Contains("scene_surface.gdshaderinc")) ||
+            item is MeshInstance3D mesh && Enumerable.Range(0, mesh.GetSurfaceOverrideMaterialCount()).Any(index =>
+                mesh.GetSurfaceOverrideMaterial(index) is ShaderMaterial { Shader: { } shader } && shader.Code.Contains("scene_surface.gdshaderinc"));
+        var instances = Geometry(root).ToArray();
+        return new
+        {
+            geometry_instances = instances.Length,
+            surface_shader_instances = instances.Count(Surface),
+            instance_uniform_instances = instances.Count(item => RenderingServer.InstanceGeometryGetShaderParameterList(item.GetInstance()).Count > 0),
+            instance_uniform_capacity = (int)ProjectSettings.GetSetting("rendering/limits/global_shader_variables/buffer_size", 65536) / 16
+        };
     }
 
     private static IEnumerable<Node> SceneUiDescendants(Node node)
