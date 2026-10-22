@@ -45,7 +45,7 @@ internal sealed partial class MeasurementRun
 
     private void LoadSceneReference()
     {
-        if (_scenario is "scene-reference" or "scene-map" || IsRouteMeasurement) return;
+        if (_scenario is "scene-reference" or "scene-map" or "scene-editor" || IsRouteMeasurement) return;
         if (_sceneReferencePath is null) throw new ArgumentException("场景测量需要 --measure-reference；先单独运行 scene-reference。");
         _probeReference = JsonSerializer.Deserialize<ProbeReference>(File.ReadAllText(_sceneReferencePath), SceneJson)
             ?? throw new InvalidDataException("参考运行数据缺失。");

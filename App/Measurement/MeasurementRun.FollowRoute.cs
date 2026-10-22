@@ -53,8 +53,7 @@ internal sealed partial class MeasurementRun
         {
             var host = _app.Host!;
             var speed = RouteSpeed;
-            var train = ((Lookup<TrainView>.Found)host.GetStatus()!.View.FindTrain(new(1))).Value;
-            if (train.Vehicles.IsEmpty) throw new InvalidDataException("路线测量需要列车1的现有编组。");
+            var train = MeasuredTrain();
             _subject = new WorldObjectId.Instance(new InstanceId.Vehicle(train.Vehicles[0]));
             _sceneTarget = new WorldObjectId.Train(train.Id);
             host.SetSpeed(speed);
@@ -101,9 +100,12 @@ internal sealed partial class MeasurementRun
                     if (second is not null) { coreCompletedAt ??= Seconds(); finalNode ??= node.Id; }
                     else middle ??= node.Id;
                 }
+                // 终点按车头判断：原路返回后跟随的首车在车尾，长编组车尾要再走一列车长才进入终点节点。
+                var head = new WorldObjectId.Instance(new InstanceId.Vehicle(
+                    train.OrderFacing == TrainOrderFacing.FirstEndLeading ? train.Vehicles[0] : train.Vehicles[^1]));
                 if (coreCompletedAt is not null && _routeSceneFrame is { } latest &&
                     _app.WorldScenes!.Display?.DisplayedFrame is { } drawn && drawn.Update.Frame.Space == latest.Update.Frame.Space &&
-                    drawn.FindPose(_subject) is Lookup<ScenePose>.Found finalPose &&
+                    drawn.FindPose(head) is Lookup<ScenePose>.Found finalPose &&
                     drawn.Locate(finalPose.Value.Position) is Lookup<WorldLocation>.Found { Value: WorldLocation.Node atNode } && atNode.Id == finalNode)
                 {
                     if (!routeCompleted)
@@ -171,7 +173,7 @@ internal sealed partial class MeasurementRun
             _app.WorldScenes!.Display?.DisplayedFrame is { } old && old.Update.Frame.Space == previous.Update.Frame.Space)
         {
             var core = _app.Host!.GetStatus()!.View;
-            var current = ((Lookup<TrainView>.Found)core.FindTrain(new(1))).Value.Position;
+            var current = ((Lookup<TrainView>.Found)core.FindTrain(_train)).Value.Position;
             var edge = current as TrainPosition.Edge ?? _routePreviousPosition as TrainPosition.Edge;
             var multipleTracks = edge is not null && core.FindEdge(edge.Id) is Lookup<EdgeView>.Found found && found.Value.Map.Tracks > 1;
             _routeTransition = new(old.Update.Frame, old.Origin, frame.Update.Frame, frame.Origin, multipleTracks);
@@ -216,7 +218,7 @@ internal sealed partial class MeasurementRun
             var now = Seconds();
             var completed = status.View.Position.CompletedSteps;
             var frame = _routeSceneFrame; var display = _app.WorldScenes!.Display;
-            var train = ((Lookup<TrainView>.Found)status.View.FindTrain(new(1))).Value;
+            var train = ((Lookup<TrainView>.Found)status.View.FindTrain(_train)).Value;
             var vehicles = new List<RouteVehicle>(); var displayedVehicles = new List<RouteVehicle>();
             if (frame is not null)
             {

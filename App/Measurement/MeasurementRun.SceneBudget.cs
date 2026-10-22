@@ -95,27 +95,27 @@ internal sealed partial class MeasurementRun
             }
             else if (_scenario == "scene-reference")
             {
-                await OpenSceneMeasured("reference-node", new WorldObjectId.Node(new(2)));
+                await OpenSceneMeasured("reference-node", new WorldObjectId.Node(_node));
                 await ReturnSceneMap();
                 await LoadSceneInput();
                 await OpenSceneMeasured("reference-edge", new WorldObjectId.Edge(new(11)));
                 await ReturnSceneMap();
                 await LoadSceneInput();
-                await OpenSceneMeasured("reference-follow", new WorldObjectId.Train(new(1)));
+                await OpenSceneMeasured("reference-follow", new WorldObjectId.Train(_train));
                 WriteSceneReference();
             }
             else if (_scenario is "scene-node" or "scene-node-first" or "scene-capture")
             {
-                await OpenSceneMeasured("map-node", new WorldObjectId.Node(new(2)));
+                await OpenSceneMeasured("map-node", new WorldObjectId.Node(_node));
                 if (_scenario == "scene-node")
                 {
                     await ReturnSceneMap();
-                    await OpenSceneMeasured("node-reopen", new WorldObjectId.Node(new(2)));
+                    await OpenSceneMeasured("node-reopen", new WorldObjectId.Node(_node));
                     await OpenSceneMeasured("node-to-edge", new WorldObjectId.Edge(new(11)));
-                    await OpenSceneMeasured("edge-to-node", new WorldObjectId.Node(new(2)));
+                    await OpenSceneMeasured("edge-to-node", new WorldObjectId.Node(_node));
                     await ReturnSceneMap();
                     await LoadSceneInput();
-                    await OpenSceneMeasured("reload-node", new WorldObjectId.Node(new(2)), _sceneLoadButton);
+                    await OpenSceneMeasured("reload-node", new WorldObjectId.Node(_node), _sceneLoadButton);
                 }
             }
             else if (_scenario == "scene-edge")
@@ -129,7 +129,7 @@ internal sealed partial class MeasurementRun
             }
             else if (_scenario is "scene-follow" or "scene-follow-8x")
             {
-                await OpenSceneMeasured("map-follow", new WorldObjectId.Train(new(1)));
+                await OpenSceneMeasured("map-follow", new WorldObjectId.Train(_train));
                 if (_scenario == "scene-follow-8x")
                 {
                     host.SetSpeed(SimulationSpeed.Eight);
@@ -145,6 +145,10 @@ internal sealed partial class MeasurementRun
                     _sceneTiming = null;
                 }
             }
+            else if (_scenario == "scene-editor")
+            {
+                await RunEditorMeasurement();
+            }
             else if (_scenario == "scene-memory")
             {
                 await HoldSceneMap("initial-map");
@@ -153,7 +157,7 @@ internal sealed partial class MeasurementRun
                 var cycle = 0;
                 do
                 {
-                    await OpenSceneMeasured("memory-node", new WorldObjectId.Node(new(2)));
+                    await OpenSceneMeasured("memory-node", new WorldObjectId.Node(_node));
                     await ReturnSceneMap();
                     await HoldSceneMap("retired-map");
                     cycle++;
@@ -165,11 +169,13 @@ internal sealed partial class MeasurementRun
                 _sceneEvidence["cycles"] = cycle;
                 _sceneEvidence["memory_loop_seconds"] = Seconds() - started;
             }
-            ReadIdentity(new TrainId(1), IsRouteMeasurement ? RouteSpeed :
+            ReadIdentity(_train, IsRouteMeasurement ? RouteSpeed :
                 _scenario == "scene-follow-8x" ? SimulationSpeed.Eight : SimulationSpeed.One);
+            _identity["node"] = _node.Value;
             _identity["warmup_seconds"] = _scenario == "scene-follow-8x" ? 5 : 0;
             _identity["sample_seconds"] = IsRouteMeasurement ? _timing!.ElapsedSeconds :
-                _scenario == "scene-follow-8x" ? (_sceneDuration > 0 ? _sceneDuration : 120) : 0;
+                _scenario == "scene-follow-8x" ? (_sceneDuration > 0 ? _sceneDuration : 120) :
+                _scenario == "scene-editor" ? SampleSeconds : 0;
             if (_app.WorldScenes!.View.Visible) await ReturnSceneMap();
             await HoldSceneMap("final-map");
             _sceneEvidence["final_map"] = SceneSteady();
@@ -243,7 +249,10 @@ internal sealed partial class MeasurementRun
         var before = SceneCacheState();
         _sceneTarget = target;
         var peakBefore = new { private_bytes = _scenePeakPrivate, working_set_bytes = _scenePeakWorking };
-        var follow = target is WorldObjectId.Train ? new WorldObjectId.Instance(new InstanceId.Vehicle(new(1))) : null;
+        if (target is WorldObjectId.Node node && _app.Host!.GetStatus()!.View.FindNode(node.Id) is not Lookup<NodeView>.Found)
+            throw new InvalidDataException($"测量存档中没有节点 {node.Id.Value}。");
+        // 与 GameUi.OpenScene 相同，跟随列车的首车。
+        var follow = target is WorldObjectId.Train ? new WorldObjectId.Instance(new InstanceId.Vehicle(MeasuredTrain().Vehicles[0])) : null;
         _subject = follow;
         _sceneClick = Seconds();
         if (_scenario == "scene-reference") _app.Host!.SetPaused(true);
@@ -319,6 +328,10 @@ internal sealed partial class MeasurementRun
         if (_scenario == "scene-capture") await CaptureSceneImage(name + "-ready");
         ResetSceneProbe();
     }
+
+    private TrainView MeasuredTrain() =>
+        _app.Host!.GetStatus()!.View.FindTrain(_train) is Lookup<TrainView>.Found { Value: { Vehicles.IsEmpty: false } train }
+            ? train : throw new InvalidDataException($"测量存档中没有非空编组的列车 {_train.Value}。");
 
     private void FlushSceneProbeEvents()
     {
@@ -527,7 +540,14 @@ internal sealed partial class MeasurementRun
             .Select(id => ((Lookup<SettlementView>.Found)core.FindSettlement(id)).Value).ToArray();
         return new { at = Seconds(), position = core.Position, nodes = core.World.Nodes.Length, edges = core.World.Edges.Length,
             trains = trains.Length, train_vehicles = trains.Sum(train => train.Vehicles.Length),
-            train_states = trains.Select(train => new { id = train.Id.Value, activity = train.Activity.ToString(),
+            train_states = trains.Select(train => new { id = train.Id.Value, vehicles = train.Vehicles.Length,
+                position = train.Position switch
+                {
+                    TrainPosition.Edge edge => "edge:" + edge.Id.Value,
+                    TrainPosition.Node node => "node:" + node.Id.Value,
+                    _ => throw new InvalidOperationException("未知列车位置。")
+                },
+                activity = train.Activity.ToString(),
                 speed = train.SpeedMetersPerSecond, has_plan = train.Plan is not null }),
             settlements = settlements.Length, buildings = settlements.Sum(settlement => settlement.Plots.Count(plot => plot.Occupant is PlotOccupant.Building)),
             parked_vehicles = settlements.Sum(settlement => settlement.ParkedVehicles.Length),
@@ -584,8 +604,8 @@ internal sealed partial class MeasurementRun
     private void RecordReadyGeometry(ISceneFrame frame, double at)
     {
         var started = Seconds();
-        var meshes = _app.WorldScenes!.Display!.Objects.Values.Select(item => item.Source)
-            .Where(item => item.Parent is null && item.Subject is null)
+        var objects = _app.WorldScenes!.Display!.Objects.Values.Select(item => item.Source).ToArray();
+        var meshes = objects.Where(item => item.Parent is null && item.Subject is null)
             .SelectMany(item => item.Visuals.OfType<SceneVisual.Geometry>()).Select(item => item.Mesh).ToArray();
         var terrain = meshes.Where(mesh => mesh.Material is not SceneMaterial.BuiltIn).ToArray();
         _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(new
@@ -599,8 +619,53 @@ internal sealed partial class MeasurementRun
                 .GroupBy(mesh => ((SceneMaterial.BuiltIn)mesh.Material).Kind).Select(group => new
                 { material = group.Key.ToString(), meshes = group.Count(), vertices = group.Sum(mesh => (long)mesh.Vertices.Length),
                     triangles = group.Sum(mesh => (long)mesh.TriangleIndices.Length / 3) }).ToArray(),
+            followed_train = _sceneTarget is WorldObjectId.Train ? TrainGeometry(objects) : null,
+            render_instances = RenderInstances(_app.WorldScenes.Display.Root),
             count_seconds = Seconds() - started
         }, SceneJson));
+    }
+
+    // 证明大设计实际显示为完整车体而非空壳：按成员统计已发布车体及其子对象的几何量。
+    private object TrainGeometry(SceneObject[] objects)
+    {
+        var children = objects.Where(item => item.Parent is not null).ToLookup(item => item.Parent!.Value);
+        IEnumerable<SceneMesh> Meshes(SceneObject item) => item.Visuals.OfType<SceneVisual.Geometry>().Select(visual => visual.Mesh)
+            .Concat(children[item.Id].SelectMany(Meshes));
+        var members = MeasuredTrain().Vehicles.Select(vehicle =>
+        {
+            var subject = new WorldObjectId.Instance(new InstanceId.Vehicle(vehicle));
+            var body = objects.FirstOrDefault(item => item.Parent is null && item.Subject == subject);
+            var meshes = body is null ? [] : Meshes(body).ToArray();
+            return new { vehicle = vehicle.Value, displayed = body is not null, meshes = meshes.Length,
+                vertices = meshes.Sum(mesh => (long)mesh.Vertices.Length), triangles = meshes.Sum(mesh => (long)mesh.TriangleIndices.Length / 3) };
+        }).ToArray();
+        return new { train = _train.Value, members = members.Length, displayed_bodies = members.Count(item => item.displayed),
+            vertices = members.Sum(item => item.vertices), triangles = members.Sum(item => item.triangles), per_member = members };
+    }
+
+    // Godot 为每个带实例变量的几何实例在全局着色器缓冲区预留 16 个 vec4，默认缓冲区可容纳 4096 个这样的实例。
+    private static object RenderInstances(Node root)
+    {
+        static IEnumerable<GeometryInstance3D> Geometry(Node node)
+        {
+            foreach (var child in node.GetChildren())
+            {
+                if (child is GeometryInstance3D geometry) yield return geometry;
+                foreach (var descendant in Geometry(child)) yield return descendant;
+            }
+        }
+        static bool Surface(GeometryInstance3D item) =>
+            (item.MaterialOverride is ShaderMaterial { Shader: { } shader } && shader.Code.Contains("scene_surface.gdshaderinc")) ||
+            item is MeshInstance3D mesh && Enumerable.Range(0, mesh.GetSurfaceOverrideMaterialCount()).Any(index =>
+                mesh.GetSurfaceOverrideMaterial(index) is ShaderMaterial { Shader: { } shader } && shader.Code.Contains("scene_surface.gdshaderinc"));
+        var instances = Geometry(root).ToArray();
+        return new
+        {
+            geometry_instances = instances.Length,
+            surface_shader_instances = instances.Count(Surface),
+            instance_uniform_instances = instances.Count(item => RenderingServer.InstanceGeometryGetShaderParameterList(item.GetInstance()).Count > 0),
+            instance_uniform_capacity = (int)ProjectSettings.GetSetting("rendering/limits/global_shader_variables/buffer_size", 65536) / 16
+        };
     }
 
     private static IEnumerable<Node> SceneUiDescendants(Node node)
