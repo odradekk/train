@@ -101,6 +101,8 @@ dotnet tool restore
 pwsh -NoProfile -File scripts/test.ps1 -All -Layer all,stage
 ```
 
+窗口长测是唯一需要渲染上下文的 Linux 路径：它在 runner 用户自己的桌面会话里打开游戏窗口，用户目录、导出模板和构建都隔离在本次运行的目录里，不写入 runner 用户的 `~/.local/share/godot`。测量要求游戏窗口和视口固定为 1920×1080。主机合成器会改写普通窗口的尺寸，所以窗口长测要求主机安装 gamescope，游戏在 gamescope 嵌套合成器中运行，gamescope 版本和参数记入测量身份；未安装时测量失败。长测期间主机接交流电、无人使用，锁屏和息屏由用户手动关闭，因为 runner 用户取不到 `systemd-inhibit` 空闲抑制（[用户决定](https://github.com/odradekk/train/issues/397#issuecomment-6344215466)）。用法见 [CI](ci.md#linux-夜间运行)。
+
 Linux 执行全部快速、集成、headless engine 和非 Windows 阶段检查，平台范围见[统一测试入口](run-tests.md#阶段检查与候选基准)。当前检查不需要渲染上下文，因此不使用 xvfb；headless Godot 使用 Dummy 音频。上述配置和命令是运行要求，执行证据以各次摘要、日志和 Issue 评论为准。
 
 For Windows cross-export, verify a writable Windows mount and choose a dedicated output directory. For example, if `/mnt/windows-d` is mounted:

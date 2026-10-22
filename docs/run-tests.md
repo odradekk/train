@@ -87,6 +87,8 @@ gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selec
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=standard-world
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=busy-combat
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=long-example -f example=crowded-station
+# 测试机器上的正式窗口长测；先与协调者确认 runner 时段和主机条件
+gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=window-soak -f soak_seconds=7200
 # 阶段验收：工作流使用 master，代码使用固定的完整 40 位提交 SHA
 gh workflow run windows-checks.yml --repo odradekk/train --ref master -f selection=long-example -f example=lease-expiry -f commit=<完整 SHA>
 # 显式请求 Windows 常规或完整正确性检查
@@ -113,7 +115,7 @@ Linux 全量结果可承担同份代码的完整回归，但不替代真实窗�
 
 标准世界变体读取 `examples/standard-world/save.json`，那里节点战斗、线路战斗、施工、生产和站台排队都在进行。参考结果不经过宿主帧驱动：同一进程直接用核心和内容工厂恢复同一存档，每 100 步推进并捕获检查点，共 600 步。三个 App 经生产 `SaveService.StartExample` 打开同一份文档，分别以 1×／60 Hz、8× 不规则帧间隔加暂停帧、8× 下依次打开节点战斗场景、线路战斗场景和跟随场景再返回地图，在相同位置与参考结果逐个比较；所有宿主变体共有的驱动错误也会因此暴露。
 
-`scripts/export-measurement.ps1` 为测量生成并保留 Windows Release 导出，先读[本地 Windows 环境要求](local-environment.md#windows-export-and-runtime-validation)。它拒绝脏工作树，导出结束后确认 HEAD 未变且工作树仍干净。它隔离用户目录，只复制已安装的 Windows Release 模板并在结束时清理该副本。构建和测量的输出都须使用新目录或空目录；仓库内构建目录须被 Git 忽略，推荐 `TestResults/`。统一测试入口会删除自己的导出二进制；测量需要另行保留完整导出。
+`scripts/export-measurement.ps1` 为测量生成并保留 Windows 或 Linux Release 导出，先读[本地 Windows 环境要求](local-environment.md#windows-export-and-runtime-validation)。它拒绝脏工作树，导出结束后确认 HEAD 未变且工作树仍干净。它隔离用户目录（Windows 为 `APPDATA`／`LOCALAPPDATA`，Linux 为 XDG 目录），只复制 Release 模板并在结束时清理该副本：默认取已安装的模板，`-TemplatePath` 可指定已核对的模板文件；Linux 使用 `Linux` 预设，输出 `train.x86_64`。构建和测量的输出都须使用新目录或空目录；仓库内构建目录须被 Git 忽略，推荐 `TestResults/`。统一测试入口会删除自己的导出二进制；测量需要另行保留完整导出。
 
 测量导出同样执行共享的程序集优化检查，结果记入 `export-summary.json` 的 `optimizations` 步骤；检查失败时拒绝该构建。
 
@@ -158,7 +160,7 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 
 | 情景 | 实际路径 |
 | --- | --- |
-| `scene-reference` | 独立参考运行，暂停至初始 Ready 后恢复仿真，再观察 10 秒；各空间首次 Ready 及焦点再移动 16 m 后的 Ready 帧记录公开对象和地形，输出 `scene-reference.json`，不作性能样本 |
+| `scene-reference` | 独立参考运行，暂停至初始 Ready 后恢复仿真，再观察 10 秒；各空间首次 Ready 及焦点再移动 16 m 后的 Ready 帧记录公开对象和地形，输出 `scene-reference.json`，不作性能样本。世界里有节点 3 和边 15 时一并记录，供 `scene-soak` 使用 |
 | `scene-map` | 同存档的新进程地图内存基线，不打开场景 |
 | `scene-node` | 地图首次打开节点 2、返回地图后重开、节点→线路 11、线路→节点、读档回地图后立即再开节点 |
 | `scene-node-first` | 只测地图首次打开节点 2，用于规模点 |
@@ -168,6 +170,7 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 | `scene-route-1x`、`scene-route-2x`、`scene-route-4x`、`scene-route-8x` | seed 40 起步贸易存档，跟随列车 1 走完线路→节点→线路路线，终点节点的显示帧定位到车头（按编组朝向取首车或末车）后，再补齐交接后的车身轨迹；记录 Scenes／实际显示的前方覆盖、车身覆盖、边界截断和未知，倍率取自原生帧循环 |
 | `scene-route-capture-1x`、`scene-route-capture-8x` | 同一路线的独立截图运行，截图开销不计作计时证据 |
 | `scene-memory` | 重复打开节点并返回地图；每 10 轮及结束后执行完整 GC；默认两小时，不使用其时延作正式性能证据 |
+| `scene-soak` | 正式窗口长测，输入为 `examples/standard-world/save.json`，见下文[窗口长测](#窗口长测) |
 | `scene-capture` | 单独记录部分就绪、Ready 画面及雾区拾取；截图回读与编码使该进程不能作时延或内存性能证据 |
 | `scene-editor` | 地图稳态 5 秒并强制 GC 后，经蓝图库「复制到本局…」打开泰坦样机 `core:titan-armed-vehicle`，记录点击到会话就绪和首个 Ready 编辑帧绘制的时间、样机格数、部件数与编辑帧几何量；保持编辑器 30 秒采样帧时间与内存（`DurationSeconds` 可改为 1–120 秒）；再执行与 `Tests/Engine/TitanEditingTests.cs` 相同的编辑序列：样机内一块空长方体整块加入 5,000 格（确认），49 次单格删除凑满 50 步，连续撤销 50 步、重做 50 步，每步等新修订实际绘制后才做下一步，`editor-step` 记录调用耗时和调用到新修订绘制的时延，格数、步数或撤销重做结果不符时测量失败；最后经「退出」「放弃本次修改」回到地图，地图稳态 5 秒后再强制 GC |
 
@@ -192,6 +195,18 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 | `scene-reference.json` | 仅参考情景生成的参考数据 |
 | `route-frames.jsonl`、`route-ranges.jsonl`、`route-analysis.json` | 整路逐帧轨迹、范围变化及离线覆盖结果；不能把未知或观察不足当作通过 |
 | `measured.save.json`、截图 | 对应情景生成的存档副本或画面 |
+
+### 窗口长测
+
+`scene-soak` 在默认录制和默认 5 分钟自动存档下按段循环，直到 `DurationSeconds`（默认 7200 秒）用完，再跑完当前一段。每段：
+
+1. 把标准世界存档复制回用户目录并经存档面板读取，暂停后核对节点 2 是玩家聚居地、节点 3 与边 15 各有玩家武装参战的战斗、列车 1 在运行，任一不成立即失败；随后强制 GC，作为相同地图状态下的存活堆读数，再打开边 15 采样线路战斗。
+2. 主体至少 12 分钟、不读档，让自动存档槽和录制起点在同一会话里轮换。每轮依次：地图、地图→节点 2、节点→边 15、边 15→节点 3、返回地图、地图→边 15、跟随列车 1、设计编辑器（打开列车 1 首车，上色一格、撤销、重做后放弃）。每个视图取 10 秒 8× 样本，每段首轮另取 1× 样本；编辑器打开时宿主暂停模拟。
+3. 段末 8 次保存并读取玩家自己的存档，读档后首个打开的场景在节点 2 与边 15 之间交替。
+
+遇敌自动降速在长测中设为 `None` 并记入报告，避免新战斗把 8× 样本降到 1×。负载按配方在保存点的期望计数，计数在后台线程每秒最多一次，每帧按最近一次结果分为 `full`、`all-but-line-battle` 和 `below-recipe`；计数耗时写入 `scene-probe-costs.jsonl`。自动存档按槽文件头的保存时间计数；录制裁剪只在同一会话、前后两次读数都有可用起点时，按最早起点位置前移计数。玩家存档的读档被拒绝时，长测记录操作、保存位置、状态和问题字段，在原对局继续且不取读档后首显样本，`round_trips.evidence` 记为 `failed`；标准世界重置失败仍使运行失败。每段主体按首轮实测的每真实秒步数定长，保证同一会话能攒够录制起点而发生裁剪，见报告的 `body_sizing`。报告的 `identity.scene_budget.soak` 汇总各视图与倍速的帧耗时分位数、超过 16.7 ms 的帧比例、实际步数／秒与负载分类比例，各类操作的时延分布、前后三分之一中位数和每小时斜率、相对前一地图稳态的峰值增量，以及内存斜率与每段存活堆。Godot 显存读数在集成显卡上是共享系统内存。
+
+测量窗口和视口必须在整段运行中保持 1920×1080，适配器不能是软件渲染，否则立即失败。Linux 上 `measure.ps1` 总在 gamescope 嵌套合成器中启动游戏，找不到 gamescope 时失败。进程首次打开节点、线路和首次跟随需要新进程，不在长测范围内。测试机器上的触发方式见[远端检查](#远端检查)和 [CI](ci.md#linux-夜间运行)。
 
 ### 内容加载与设计求值成本
 
