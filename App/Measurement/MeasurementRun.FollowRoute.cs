@@ -100,9 +100,12 @@ internal sealed partial class MeasurementRun
                     if (second is not null) { coreCompletedAt ??= Seconds(); finalNode ??= node.Id; }
                     else middle ??= node.Id;
                 }
+                // 终点按车头判断：原路返回后跟随的首车在车尾，长编组车尾要再走一列车长才进入终点节点。
+                var head = new WorldObjectId.Instance(new InstanceId.Vehicle(
+                    train.OrderFacing == TrainOrderFacing.FirstEndLeading ? train.Vehicles[0] : train.Vehicles[^1]));
                 if (coreCompletedAt is not null && _routeSceneFrame is { } latest &&
                     _app.WorldScenes!.Display?.DisplayedFrame is { } drawn && drawn.Update.Frame.Space == latest.Update.Frame.Space &&
-                    drawn.FindPose(_subject) is Lookup<ScenePose>.Found finalPose &&
+                    drawn.FindPose(head) is Lookup<ScenePose>.Found finalPose &&
                     drawn.Locate(finalPose.Value.Position) is Lookup<WorldLocation>.Found { Value: WorldLocation.Node atNode } && atNode.Id == finalNode)
                 {
                     if (!routeCompleted)
