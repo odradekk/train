@@ -457,7 +457,7 @@ public partial class GameUi : CanvasLayer
             WorldObjectId.Edge edge when status.View.FindEdge(edge.Id) is Lookup<EdgeView>.Found found =>
                 new WorldSceneTarget.Location(new WorldLocation.Edge(edge.Id, found.Value.Map.LengthMeters / 2)),
             WorldObjectId.Train train when status.View.FindTrain(train.Id) is Lookup<TrainView>.Found found &&
-                !found.Value.Vehicles.IsEmpty => new WorldSceneTarget.Follow(train.Id, found.Value.Vehicles[0]),
+                !found.Value.Vehicles.IsEmpty => new WorldSceneTarget.Follow(train.Id, FollowedVehicle.Of(found.Value, status.View, _host.Content)),
             _ => null
         };
         if (target is null) { ReportUiError("对象没有可观察的场景目标。"); return; }

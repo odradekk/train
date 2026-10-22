@@ -254,8 +254,9 @@ internal sealed partial class MeasurementRun
         var peakBefore = new { private_bytes = _scenePeakPrivate, working_set_bytes = _scenePeakWorking };
         if (target is WorldObjectId.Node node && _app.Host!.GetStatus()!.View.FindNode(node.Id) is not Lookup<NodeView>.Found)
             throw new InvalidDataException($"测量存档中没有节点 {node.Id.Value}。");
-        // 与 GameUi.OpenScene 相同，跟随列车的首车。
-        var follow = target is WorldObjectId.Train ? new WorldObjectId.Instance(new InstanceId.Vehicle(MeasuredTrain().Vehicles[0])) : null;
+        // 与 GameUi.OpenScene 相同。
+        var follow = target is WorldObjectId.Train ? new WorldObjectId.Instance(new InstanceId.Vehicle(FollowedVehicle.Of(
+            MeasuredTrain(), _app.Host!.GetStatus()!.View, _app.Host.Content!))) : null;
         _subject = follow;
         _sceneClick = Seconds();
         if (_scenario == "scene-reference") _app.Host!.SetPaused(true);
