@@ -229,6 +229,7 @@ internal sealed partial class MeasurementRun
         var index = entries.Select((entry, index) => (entry, index)).Single(pair => pair.entry.Path == copy).index;
         list.Select(index);
         var button = SceneUiDescendants(panel).OfType<Button>().Single(item => item.Text == "读取选中存档");
+        var previous = _app.Host!.GetStatus()?.Binding;
         _sceneLoadButton = Seconds();
         button.EmitSignal(BaseButton.SignalName.Pressed);
         await Wait(() =>
@@ -240,6 +241,8 @@ internal sealed partial class MeasurementRun
             return !_app.Saves!.IsBusy && _app.Host!.GetStatus() is not null;
         });
         _sceneLoadCompleted = Seconds();
+        if (_app.Host!.GetStatus()!.Binding == previous)
+            throw new InvalidOperationException("读档没有替换当前对局：" + _app.Saves!.LastMessage);
         panel.EmitSignal(Window.SignalName.CloseRequested);
         if (_app.Host!.SetSpeed(SimulationSpeed.One) is not null || _app.Host.SetPaused(false) is not null)
             throw new InvalidOperationException("不能启动测量负载。");

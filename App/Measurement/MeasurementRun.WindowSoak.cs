@@ -37,7 +37,7 @@ internal sealed partial class MeasurementRun
     private ImmutableSortedDictionary<string, double>? _soakLoad;
     private Task<(ImmutableSortedDictionary<string, double> Counts, double At, double Seconds)>? _soakCounting;
     private string _soakLoadClass = SoakLoadBelow;
-    private double _soakLoadAt;
+    private double _soakLoadAt, _soakLoadTakenAt;
     private SoakSample? _soakSample;
     private SoakPeak? _soakPeak;
     private (double Private, double Working, double Video) _soakMapSteady;
@@ -148,7 +148,10 @@ internal sealed partial class MeasurementRun
         _soakHeaps.Add((_soakSegment, Seconds(), CollectSceneHeap(_soakSegment, "reset-map")));
         await HoldSoakMap(2);
         await SoakOpen("reset-line", SoakLineBattle, _sceneLoadButton);
-        await SampleSoakView("line-battle", SimulationSpeed.Eight, () => _soakLoad?.GetValueOrDefault("armed_line_combats") == 0);
+        // 只认采样开始后取得的计数；上一段末尾的计数里线路战斗早已结束。
+        var sampling = Seconds();
+        await SampleSoakView("line-battle", SimulationSpeed.Eight,
+            () => _soakLoadTakenAt > sampling && _soakLoad?.GetValueOrDefault("armed_line_combats") == 0);
         await ReturnSceneMap();
     }
 
@@ -333,6 +336,7 @@ internal sealed partial class MeasurementRun
             var (counts, at, seconds) = counting.GetAwaiter().GetResult();
             _soakCounting = null;
             _soakLoad = counts;
+            _soakLoadTakenAt = at;
             var failed = _soakExpectations.Where(item => !counts.TryGetValue(item.Key, out var value) ||
                 item.Minimum is { } minimum && value < minimum || item.Maximum is { } maximum && value > maximum)
                 .Select(item => item.Key).ToArray();

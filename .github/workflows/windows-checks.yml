@@ -1,5 +1,5 @@
 name: Windows checks
-run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'push' || inputs.selection == 'nightly' || inputs.selection == 'long-example' || inputs.selection == 'window-soak' || inputs.selection == 'hardware-probe') && 'Linux' || 'Windows' }} ${{ github.event_name == 'push' && 'post-merge' || github.event_name == 'schedule' && 'nightly' || inputs.selection || (github.event.action == 'labeled' && github.event.label.name == 'ci:correctness' && 'correctness') || (github.event.action == 'labeled' && 'unrelated-label') || 'routine' }} ${{ inputs.selection == 'long-example' && inputs.example || '' }} · ${{ github.event.pull_request.head.sha || inputs.commit || github.sha }}
+run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'push' || inputs.selection == 'nightly' || inputs.selection == 'long-example' || inputs.selection == 'window-soak') && 'Linux' || 'Windows' }} ${{ github.event_name == 'push' && 'post-merge' || github.event_name == 'schedule' && 'nightly' || inputs.selection || (github.event.action == 'labeled' && github.event.label.name == 'ci:correctness' && 'correctness') || (github.event.action == 'labeled' && 'unrelated-label') || 'routine' }} ${{ inputs.selection == 'long-example' && inputs.example || '' }} · ${{ github.event.pull_request.head.sha || inputs.commit || github.sha }}
 
 on:
   push:
@@ -14,7 +14,7 @@ on:
       selection:
         description: Check selection
         type: choice
-        options: [routine, correctness, nightly, long-example, window-soak, hardware-probe]
+        options: [routine, correctness, nightly, long-example, window-soak]
         default: routine
       example:
         description: Long example (used only by long-example)
@@ -182,9 +182,9 @@ jobs:
 
   nightly:
     name: Linux ${{ github.event_name == 'push' && 'post-merge' || inputs.selection || 'nightly' }} ${{ inputs.selection == 'long-example' && inputs.example || '' }}
-    if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/master') || (github.event_name == 'workflow_dispatch' && (inputs.selection == 'nightly' || inputs.selection == 'long-example' || inputs.selection == 'window-soak' || inputs.selection == 'hardware-probe'))
+    if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/master') || (github.event_name == 'workflow_dispatch' && (inputs.selection == 'nightly' || inputs.selection == 'long-example' || inputs.selection == 'window-soak'))
     runs-on: [self-hosted, linux, nightly]
-    timeout-minutes: ${{ inputs.selection == 'long-example' && (inputs.example == 'lease-expiry' && 485 || 105) || inputs.selection == 'window-soak' && 200 || inputs.selection == 'hardware-probe' && 15 || 153 }}
+    timeout-minutes: ${{ inputs.selection == 'long-example' && (inputs.example == 'lease-expiry' && 485 || 105) || inputs.selection == 'window-soak' && 200 || 153 }}
     permissions:
       contents: read
     env:
@@ -268,113 +268,6 @@ jobs:
         run: |
           pwsh -NoProfile -File scripts/checks/run-window-soak.ps1 -CacheDirectory (Join-Path $env:RUNNER_TOOL_CACHE 'godot-export-templates/4.7.2-stable') -SoakSeconds $env:SOAK_SECONDS
           exit $LASTEXITCODE
-
-      # Temporary for #397: records GPU, driver and display before the window soak is designed.
-      # The repository is public, so the output omits host, network and user identities.
-      - name: Hardware probe
-        if: env.CI_SELECTION == 'hardware-probe'
-        shell: bash
-        run: |
-          set +e
-          root="$RUNNER_TEMP/hardware-probe"
-          rm -rf "$root"
-          mkdir -p "$root/project" "$root/xdg/config" "$root/xdg/data" "$root/xdg/cache" TestResults/ci
-          raw="$root/hardware.txt"
-          p() { printf '\n### %s\n' "$1"; timeout 60 bash -c "$1" 2>&1; echo "(exit $?)"; }
-          {
-            p 'uname -srvmo'
-            p 'cat /etc/os-release'
-            p 'lscpu'
-            p 'free -h'
-            p 'df -h --output=size,used,avail,pcent "$GITHUB_WORKSPACE" /tmp'
-            p 'lspci -nnk | grep -EA3 "VGA|3D|Display"'
-            p 'lsmod | grep -E "^(nvidia|amdgpu|i915|xe|nouveau|radeon)"'
-            p 'nvidia-smi'
-            p 'cat /proc/driver/nvidia/version'
-            p 'ls -l /dev/dri'
-            p 'groups=" $(id -Gn) "; for g in video render; do case "$groups" in *" $g "*) echo "$g: member";; *) echo "$g: not member";; esac; done'
-            p 'vulkaninfo --summary | grep -vi uuid'
-            p 'ls /usr/share/vulkan/icd.d /etc/vulkan/icd.d'
-            p 'eglinfo -B'
-            p 'glxinfo -B'
-            p 'echo "DISPLAY=${DISPLAY-} WAYLAND_DISPLAY=${WAYLAND_DISPLAY-} XDG_SESSION_TYPE=${XDG_SESSION_TYPE-} XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR-}"'
-            p 'ls /tmp/.X11-unix'
-            p 'find /run/user -maxdepth 2 -name "wayland-*"'
-            p 'loginctl list-sessions --no-legend | wc -l; for s in $(loginctl list-sessions --no-legend | awk "{print \$1}"); do loginctl show-session "$s" -p Type -p Class -p Seat -p State -p Remote; echo; done'
-            p 'ps -eo comm= | grep -Ei "^(xorg|xwayland|gnome-shell|kwin_wayland|kwin_x11|sway|weston|cage|gamescope|gdm|gdm3|sddm|lightdm)$" | sort | uniq -c'
-            p 'for t in Xvfb xvfb-run Xorg weston sway cage gamescope xrandr vulkaninfo glxinfo eglinfo nvidia-smi; do command -v "$t" >/dev/null && echo "$t: present" || echo "$t: missing"; done'
-            p '"$GODOT" --headless --version'
-            p 'ls "${XDG_DATA_HOME:-$HOME/.local/share}/godot/export_templates"'
-            p 'sudo -n true && echo "sudo: passwordless" || echo "sudo: unavailable"'
-          } > "$raw"
-
-          cat > "$root/project/project.godot" <<'EOF'
-          config_version=5
-
-          [application]
-          config/name="hardware-probe"
-          run/main_scene="res://probe.tscn"
-          EOF
-          cat > "$root/project/probe.tscn" <<'EOF'
-          [gd_scene load_steps=2 format=3]
-
-          [ext_resource type="Script" path="res://probe.gd" id="1"]
-
-          [node name="Probe" type="Node3D"]
-          script = ExtResource("1")
-          EOF
-          cat > "$root/project/probe.gd" <<'EOF'
-          extends Node3D
-
-          var frames := 0
-          var start := 0
-
-          func _ready() -> void:
-              var adapter := RenderingServer.get_video_adapter_name()
-              var type := RenderingServer.get_video_adapter_type()
-              print("adapter=", adapter)
-              print("vendor=", RenderingServer.get_video_adapter_vendor())
-              print("api=", RenderingServer.get_video_adapter_api_version())
-              print("adapter_type=", type)
-              print("driver=", RenderingServer.get_current_rendering_driver_name(), " method=", RenderingServer.get_current_rendering_method())
-              print("display=", DisplayServer.get_name())
-              print("screen=", DisplayServer.screen_get_size(), " refresh=", DisplayServer.screen_get_refresh_rate())
-              print("window=", get_window().size, " viewport=", get_viewport().get_visible_rect().size)
-              var name := adapter.to_lower()
-              var software := type == RenderingDevice.DEVICE_TYPE_CPU or name.contains("llvmpipe") or name.contains("lavapipe") or name.contains("softpipe") or name.contains("swiftshader")
-              print("software=", software)
-              start = Time.get_ticks_msec()
-
-          func _process(_delta: float) -> void:
-              frames += 1
-              var elapsed := Time.get_ticks_msec() - start
-              if elapsed >= 5000:
-                  print("frames=", frames, " fps=", frames * 1000.0 / elapsed)
-                  get_tree().quit()
-          EOF
-
-          render() {
-            local label="$1" driver="$2"
-            shift 2
-            printf '\n### render: %s\n' "$label"
-            XDG_CONFIG_HOME="$root/xdg/config" XDG_DATA_HOME="$root/xdg/data" XDG_CACHE_HOME="$root/xdg/cache" \
-              timeout 60 "$@" "$GODOT" --path "$root/project" --display-driver "$driver" \
-              --rendering-method forward_plus --rendering-driver vulkan --resolution 1920x1080 2>&1
-            echo "(exit $?)"
-          }
-          {
-            displays=()
-            [ -n "${DISPLAY-}" ] && displays+=("$DISPLAY")
-            for socket in /tmp/.X11-unix/X*; do [ -S "$socket" ] && displays+=(":${socket##*/X}"); done
-            [ ${#displays[@]} -eq 0 ] && printf '\n### render: no X display found\n'
-            for display in $(printf '%s\n' "${displays[@]}" | sort -u); do render "x11 $display" x11 env DISPLAY="$display"; done
-            for socket in /run/user/*/wayland-*; do [ -S "$socket" ] && render "wayland ${socket##*/}" wayland env XDG_RUNTIME_DIR="${socket%/*}" WAYLAND_DISPLAY="${socket##*/}"; done
-            command -v xvfb-run >/dev/null && render "xvfb-run (software only)" x11 xvfb-run -a -s "-screen 0 1920x1080x24"
-          } >> "$raw"
-
-          sed -e "s|$(id -un)|<user>|g" -e "s|$(cat /proc/sys/kernel/hostname)|<host>|g" "$raw" > TestResults/ci/hardware.txt
-          cat TestResults/ci/hardware.txt
-          rm -rf "$root"
 
       - name: Publish available reports
         if: always()
