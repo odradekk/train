@@ -11,7 +11,15 @@ internal sealed record RunOutput(int ProcessId,
     [property: JsonRequired] ImmutableArray<CoreCheckpoint> Checkpoints, int AcceptedCommands, int RejectedCommands,
     bool ReplayVerified, ImmutableArray<EconomySample> Samples, ImmutableArray<RecipeReceipt> CommandReceipts,
     ImmutableArray<GoodsTransferSample> GoodsTransfers, ImmutableArray<ProductionCompletedSample> ProductionCompletions,
-    ImmutableArray<ProductionStateSample> ProductionStateChanges);
+    ImmutableArray<ProductionStateSample> ProductionStateChanges, ImmutableArray<string> Findings = default);
+
+// run、replay、resume 进度文件的一行：墙钟、内存和实际负载随运行变化，不进检查点比较。区间计数从本进程上一个测量点算起。
+internal sealed record RunMeasurement(SimulationPosition Position, double ElapsedSeconds, double StepsPerSecond,
+    long ManagedBytes, long PrivateBytes, long WorkingSetBytes, long RetainedCheckpointBytes,
+    ImmutableSortedDictionary<string, double> Counts, ImmutableArray<string> LoadMisses)
+{
+    internal static readonly ImmutableArray<string> IntervalKeys = ["goods_transfers", "jobs_progressed", "production_completions"];
+}
 
 internal sealed record RecipeReceipt(int CommandIndex, string Kind, string Decision,
     ImmutableArray<ProblemSample> Problems, long? QuotedTotal);

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Train.Core.Contracts;
 using Train.Content.Contracts;
@@ -15,7 +16,8 @@ internal sealed record Recipe(
     [property: JsonRequired] ImmutableArray<RecipeCommand> Commands,
     [property: JsonRequired] SimulationPosition Target,
     ImmutableArray<ulong> CheckpointSteps = default,
-    ImmutableArray<RecipeExpectation> Expectations = default)
+    ImmutableArray<RecipeExpectation> Expectations = default,
+    RecipeLoad? Load = null)
 {
     internal static readonly JsonSerializerOptions Json = new()
     {
@@ -26,7 +28,7 @@ internal sealed record Recipe(
 
     internal static Recipe Read(string path)
     {
-        var recipe = JsonSerializer.Deserialize<Recipe>(File.ReadAllText(path), Json)
+        var recipe = Merge(path).Deserialize<Recipe>(Json)
             ?? throw new InvalidDataException("配方为空。");
         if (recipe.FormatVersion != 1) throw new InvalidDataException("不支持的配方版本。");
         if (string.IsNullOrWhiteSpace(recipe.GenerationProfile) || string.IsNullOrWhiteSpace(recipe.GeneratorVersion)
@@ -68,9 +70,49 @@ internal sealed record Recipe(
                 && !(recipe.Target.CompletedSteps == expectation.At && recipe.Target.Sequence == 0))
                 throw new InvalidDataException($"expectations.at {expectation.At} 必须是 checkpoint_steps 之一或序号为 0 的 target。");
         }
+        if (recipe.Load is { } load && (load.Targets.IsDefaultOrEmpty || load.Targets.Any(target => target is null
+            || !WorldCounts.Keys.Contains(target.Key) && !RunMeasurement.IntervalKeys.Contains(target.Key)
+            || target.Minimum is null && target.Maximum is null)))
+            throw new InvalidDataException("load.targets 每项须有已知 key 与 minimum 或 maximum。");
         return recipe;
     }
+
+    // base 配方提供生成输入、元数据、命令、检查点和预期；本配方的命令只能在 base 目标及之后，
+    // 所以 base 目标之前的运行与 base 示例完全相同。检查点和预期接在 base 之后，由合并后的整体校验。
+    private static JsonObject Merge(string path)
+    {
+        var recipe = JsonNode.Parse(File.ReadAllText(path)) as JsonObject ?? throw new InvalidDataException("配方为空。");
+        if (!recipe.TryGetPropertyValue("base", out var reference)) return recipe;
+        recipe.Remove("base");
+        var parent = Merge(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path))!,
+            reference?.GetValue<string>() ?? throw new InvalidDataException("base 必须是配方路径字符串。")));
+        var end = parent["target"]?["completed_steps"]?.GetValue<ulong>() ?? throw new InvalidDataException("base 缺少 target。");
+        if (recipe["commands"] is JsonArray commands && commands.Any(command =>
+                command?["at"]?["completed_steps"]?.GetValue<ulong>() is not { } step || step < end))
+            throw new InvalidDataException($"本配方的命令必须在 base 目标 {end} 步之后。");
+        foreach (var name in new[] { "generation_profile", "seed", "generator_version", "save" })
+        {
+            if (recipe.ContainsKey(name)) throw new InvalidDataException($"本配方不能覆盖 base 的 {name}。");
+            recipe[name] = parent[name]?.DeepClone();
+        }
+        foreach (var name in new[] { "commands", "checkpoint_steps", "expectations" })
+            recipe[name] = new JsonArray([.. Items(parent[name]), .. Items(recipe[name])]);
+        return recipe;
+
+        static IEnumerable<JsonNode?> Items(JsonNode? array) => array is JsonArray items
+            ? items.Select(item => item?.DeepClone()) : [];
+    }
 }
+
+// 从 From 步起，每个测量点按目标逐项判定实际负载；不满足只记录在进度文件中，不中止运行。
+internal sealed record RecipeLoad(
+    [property: JsonRequired] ulong From,
+    [property: JsonRequired] ImmutableArray<RecipeLoadTarget> Targets);
+
+internal sealed record RecipeLoadTarget(
+    [property: JsonRequired] string Key,
+    double? Minimum = null,
+    double? Maximum = null);
 
 // 在 at:0 边界检查一个计数，minimum 与 maximum 都含边界。
 internal sealed record RecipeExpectation(

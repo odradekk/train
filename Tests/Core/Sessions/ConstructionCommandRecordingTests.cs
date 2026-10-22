@@ -205,6 +205,34 @@ public sealed class ConstructionCommandRecordingTests
         }
     }
 
+    [TestMethod]
+    public void Vehicle_payloads_match_handwritten_canonical_json()
+    {
+        var design = BuildingDesign();
+        var change = new DesignChangeProjection(new(new string('A', 64)), new(new string('B', 64)), design, [], [], [], 0);
+        const string facility = "\"facility\":{\"building\":7,\"capability\":\"construction\"}";
+        var build = "{\"kind\":\"build_vehicle\"," + facility + ",\"design\":" + DesignJson() + ",\"sources\":[4],\"priority\":1}";
+        var refit = "{\"kind\":\"refit_vehicle\"," + facility + ",\"vehicle\":8,\"change\":" + ChangeJson() + ",\"sources\":[4],\"priority\":1}";
+        (CoreCommand Command, string Payload)[] cases =
+        [
+            (new CoreCommand.StartOwnedJob(new JobRequest.BuildVehicle(new(new(7), CapabilityKind.Construction), design, [new(4)], 1)),
+                "{\"input_format_version\":2,\"kind\":\"construction.start_owned\",\"request\":" + build + "}"),
+            (new CoreCommand.CommissionVehicleWork(new JobRequest.BuildVehicle(new(new(7), CapabilityKind.Construction), design, [new(4)], 1), new(123)),
+                "{\"input_format_version\":2,\"kind\":\"construction.commission_vehicle_work\",\"request\":" + build + ",\"maximum_payment\":123}"),
+            (new CoreCommand.StartOwnedJob(new JobRequest.Refit(new(new(7), CapabilityKind.Construction), new InstanceId.Vehicle(new(8)), change, [new(4)], 1)),
+                "{\"input_format_version\":2,\"kind\":\"construction.start_owned\",\"request\":" + refit + "}"),
+            (new CoreCommand.CommissionVehicleWork(new JobRequest.Refit(new(new(7), CapabilityKind.Construction), new InstanceId.Vehicle(new(8)), change, [new(4)], 1), new(123)),
+                "{\"input_format_version\":2,\"kind\":\"construction.commission_vehicle_work\",\"request\":" + refit + ",\"maximum_payment\":123}"),
+            (new CoreCommand.ApplyInstanceDesign(new InstanceId.Vehicle(new(8)), change),
+                "{\"input_format_version\":2,\"kind\":\"instance.apply_design\",\"vehicle\":8,\"change\":" + ChangeJson() + "}")
+        ];
+        foreach (var (command, payload) in cases)
+        {
+            Assert.AreEqual(payload, CoreCommandEncoding.Encode(command));
+            Assert.AreEqual(payload, CoreCommandEncoding.Encode(Decode(payload)));
+        }
+    }
+
     private static string BuildPayload(string kind, string plot) =>
         "{\"input_format_version\":2,\"kind\":\"construction.start_owned\",\"request\":{\"kind\":\"" + kind
         + "\",\"facility\":{\"building\":7,\"capability\":\"construction\"}," + plot + "\"design\":" + DesignJson()

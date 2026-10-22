@@ -35,7 +35,7 @@ internal static class TrainDispatchProcessDriver
                 }
                 else
                 {
-                    var suffix = TrainDispatchRecoveryScenario.Suffix(session);
+                    var suffix = TrainDispatchRecoveryScenario.Suffix(session, args[1]);
                     await File.WriteAllTextAsync(args[2], JsonSerializer.Serialize(new TrainProcessResult(Environment.ProcessId,
                         CoreProcessDriver.Identity(), suffix.Samples, [], suffix.Events)));
                 }

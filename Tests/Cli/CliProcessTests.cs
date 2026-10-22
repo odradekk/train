@@ -83,6 +83,40 @@ public sealed partial class CliProcessTests
             StringAssert.Contains(await File.ReadAllTextAsync(Path.Combine(directory, "changed-compare.stderr.log")),
                 "/next_command_number");
 
+            var moved = JsonNode.Parse(await File.ReadAllTextAsync(first))!;
+            var movedCheckpoint = moved["checkpoints"]![1]!;
+            var movedState = JsonNode.Parse(movedCheckpoint["canonical_text"]!.GetValue<string>())!;
+            movedState["world"]!["trains"]![1]!["position"]!["distance_meters"] = 1;
+            var movedText = movedState.ToJsonString();
+            movedCheckpoint["canonical_text"] = movedText;
+            movedCheckpoint["sha256"] = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(movedText)));
+            await File.WriteAllTextAsync(changed, moved.ToJsonString());
+            await Run(directory, "moved-compare", 1, "compare", changed, second);
+            var movedError = await File.ReadAllTextAsync(Path.Combine(directory, "moved-compare.stderr.log"));
+            StringAssert.Contains(movedError, "/world/trains/1/position/distance_meters");
+            StringAssert.Contains(movedError, "对象：trains {\"value\":2}");
+
+            var otherBuild = JsonNode.Parse(await File.ReadAllTextAsync(first))!;
+            otherBuild["runtime"]!["game_build"] = "other-build";
+            await File.WriteAllTextAsync(changed, otherBuild.ToJsonString());
+            await Run(directory, "runtime-compare", 1, "compare", changed, second);
+            StringAssert.Contains(await File.ReadAllTextAsync(Path.Combine(directory, "runtime-compare.stderr.log")),
+                "构建或运行环境不兼容，不能验证确定性一致。");
+
+            var empty = JsonNode.Parse(await File.ReadAllTextAsync(first))!;
+            empty["checkpoints"] = new JsonArray();
+            await File.WriteAllTextAsync(changed, empty.ToJsonString());
+            await Run(directory, "empty-compare", 1, "compare", changed, second);
+            StringAssert.Contains(await File.ReadAllTextAsync(Path.Combine(directory, "empty-compare.stderr.log")),
+                "运行结果缺少检查点。");
+
+            var shorter = JsonNode.Parse(await File.ReadAllTextAsync(second))!;
+            shorter["checkpoints"]!.AsArray().RemoveAt(shorter["checkpoints"]!.AsArray().Count - 1);
+            await File.WriteAllTextAsync(changed, shorter.ToJsonString());
+            await Run(directory, "shorter-compare", 1, "compare", first, changed);
+            StringAssert.Contains(await File.ReadAllTextAsync(Path.Combine(directory, "shorter-compare.stderr.log")),
+                "检查点数量不同。");
+
             modified["input_identity"]!["value"] = "different-core-input";
             await File.WriteAllTextAsync(changed, modified.ToJsonString());
             await Run(directory, "changed-input-compare", 1, "compare", changed, second);

@@ -54,10 +54,13 @@ try
     else
     {
         var recipe = Recipe.Read(args[2]);
-        var result = args[0] == "resume" ? runner.Resume(args[1], recipe, args[3])
-            : runner.Run(args[1], recipe, args[0] == "replay");
-        File.WriteAllText(args[0] == "resume" ? args[4] : args[3],
-            JsonSerializer.Serialize(result, Recipe.Json), new UTF8Encoding(false));
+        var output = args[0] == "resume" ? args[4] : args[3];
+        var progress = output + ".progress.jsonl";
+        var result = args[0] == "resume" ? runner.Resume(args[1], recipe, args[3], progress)
+            : runner.Run(args[1], recipe, args[0] == "replay", progress);
+        File.WriteAllText(output, JsonSerializer.Serialize(result, Recipe.Json), new UTF8Encoding(false));
+        // 违反不变量时仍先写出完整结果，方便定位和比较。
+        CliRunner.RequireNoFindings(result);
     }
     return 0;
 }
