@@ -11,7 +11,7 @@ internal static class WorldCounts
     [
         "armed_buildings", "armed_combats", "armed_line_combats", "armed_node_combats", "armed_trains_in_combat", "buildings", "creatures",
         "creatures_guarding", "creatures_raiding", "creatures_wandering", "dismantles_working", "facilities_running", "jobs_working",
-        "large_creatures", "largest_train_meters", "largest_train_vehicles", "nodes", "player_settlements", "settlements",
+        "large_creatures", "largest_train_meters", "largest_train_vehicles", "nodes", "occupied_platforms", "platforms", "player_settlements", "settlements",
         "titan_builds_working", "titan_trains_in_plan", "trains_in_plan", "trains_queued", "trains_running",
         "trains_servicing", "vehicles_in_plan"
     ];
@@ -56,6 +56,8 @@ internal static class WorldCounts
             ["largest_train_meters"] = trains.Select(train => train.LengthMeters).DefaultIfEmpty().Max(),
             ["largest_train_vehicles"] = trains.Select(train => train.Vehicles.Length).DefaultIfEmpty().Max(),
             ["nodes"] = nodes.Length,
+            ["occupied_platforms"] = nodes.Sum(item => item.OccupiedPlatforms),
+            ["platforms"] = nodes.Sum(item => item.Platforms),
             ["player_settlements"] = settlements.Count(settlement => settlement.Relation == SettlementRelation.PlayerOwned),
             ["settlements"] = settlements.Length,
             ["titan_builds_working"] = working.Count(job => job.Target is ConstructionTarget.NewVehicle vehicle

@@ -45,7 +45,7 @@ GitHub 要求 `workflow_dispatch` 文件已存在于默认分支，所以新工�
 
 同一 `windows-checks.yml` 在每日 UTC 20:23（北京时间 04:23）的 schedule、master push 和手动 `nightly` 时，调用 `scripts/test.ps1 -All -Layer all,stage`。它执行全部快速、集成、无界面引擎和 Linux 阶段检查；`all` 本身仍只含前三层。阶段平台范围见[阶段检查与候选基准](run-tests.md#阶段检查与候选基准)。
 
-手动选择 `long-example` 时，`example` choice 输入接受 `starting-trade`、`lease-expiry`、`rail-repair`、`conquest`、`clearance`、`operating-failure`、`long-consist` 和 `standard-world`，通过环境变量传给[长示例脚本](../scripts/checks/run-long-example.ps1)。这条路径构建一次 Release CLI，并行运行 replay、save → resume、make → check 三组，再比较恢复后缀；不运行全量检查或恢复 dotnet-affected。每条命令完成即写入记录、日志和 `TestResults/long-example-<时间>-<7位提交>/summary.json`，失败依赖保持 `not_started`，任何失败或未执行使脚本非零退出。示例检查的平台分工见[示例手册](../examples/README.md#重制与长验证)。
+手动选择 `long-example` 时，`example` choice 输入接受 `starting-trade`、`lease-expiry`、`rail-repair`、`conquest`、`clearance`、`operating-failure`、`long-consist`、`standard-world`、`busy-combat` 和 `crowded-station`，通过环境变量传给[长示例脚本](../scripts/checks/run-long-example.ps1)。这条路径构建一次 Release CLI，并行运行 replay、save → resume、make → check 三组，再比较恢复后缀；不运行全量检查或恢复 dotnet-affected。每条命令完成即写入记录、日志和 `TestResults/long-example-<时间>-<7位提交>/summary.json`，失败依赖保持 `not_started`，任何失败或未执行使脚本非零退出。示例检查的平台分工见[示例手册](../examples/README.md#重制与长验证)。
 
 以上四种事件／选择复用同一个 Linux job，只有它们能分配带 `[self-hosted, linux, nightly]` 标签的 runner；PR 和其他事件被白名单条件排除。这些路径不分配 Windows runner。运行名区分 `Linux post-merge`、`Linux nightly` 和带示例名的 `Linux long-example`。目前只有一台匹配的 runner，任务自然排队，不设置额外并发组；runner 排队超过 24 小时会被 GitHub 取消。触发、查看和下载方法见[远端检查](run-tests.md#远端检查)。
 
