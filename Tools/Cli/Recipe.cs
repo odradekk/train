@@ -77,15 +77,15 @@ internal sealed record Recipe(
         return recipe;
     }
 
-    // base 配方提供生成输入、元数据和前段运行；本配方只能在 base 目标之后追加命令、检查点和预期，
-    // 所以 base 目标之前的运行与 base 示例完全相同。
+    // base 配方提供生成输入、元数据、命令、检查点和预期；本配方的命令只能在 base 目标及之后，
+    // 所以 base 目标之前的运行与 base 示例完全相同。检查点和预期接在 base 之后，由合并后的整体校验。
     private static JsonObject Merge(string path)
     {
         var recipe = JsonNode.Parse(File.ReadAllText(path)) as JsonObject ?? throw new InvalidDataException("配方为空。");
         if (!recipe.TryGetPropertyValue("base", out var reference)) return recipe;
         recipe.Remove("base");
         var parent = Merge(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path))!,
-            reference?.GetValue<string>() ?? throw new InvalidDataException("base 必须是相对路径。")));
+            reference?.GetValue<string>() ?? throw new InvalidDataException("base 必须是配方路径字符串。")));
         var end = parent["target"]?["completed_steps"]?.GetValue<ulong>() ?? throw new InvalidDataException("base 缺少 target。");
         if (recipe["commands"] is JsonArray commands && commands.Any(command =>
                 command?["at"]?["completed_steps"]?.GetValue<ulong>() is not { } step || step < end))
@@ -95,8 +95,6 @@ internal sealed record Recipe(
             if (recipe.ContainsKey(name)) throw new InvalidDataException($"本配方不能覆盖 base 的 {name}。");
             recipe[name] = parent[name]?.DeepClone();
         }
-        foreach (var name in new[] { "format_version", "load" })
-            if (!recipe.ContainsKey(name) && parent[name] is { } value) recipe[name] = value.DeepClone();
         foreach (var name in new[] { "commands", "checkpoint_steps", "expectations" })
             recipe[name] = new JsonArray([.. Items(parent[name]), .. Items(recipe[name])]);
         return recipe;
@@ -106,7 +104,7 @@ internal sealed record Recipe(
     }
 }
 
-// 从 From 步起，每个测量点按目标逐项判定实际负载；不满足只记录在进度文件和结果中，不中止运行。
+// 从 From 步起，每个测量点按目标逐项判定实际负载；不满足只记录在进度文件中，不中止运行。
 internal sealed record RecipeLoad(
     [property: JsonRequired] ulong From,
     [property: JsonRequired] ImmutableArray<RecipeLoadTarget> Targets);

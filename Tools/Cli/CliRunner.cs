@@ -12,7 +12,7 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
 {
     private static readonly JsonSerializerOptions ProgressJson = new(Recipe.Json) { WriteIndented = false };
 
-    internal RunOutput Run(string repository, Recipe recipe, bool verifyReplay, string? progress = null)
+    internal RunOutput Run(string repository, Recipe recipe, bool verifyReplay, string progress)
     {
         var prepared = PrepareNew(repository, recipe);
         using var session = prepared.Core;
@@ -37,7 +37,7 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
         if (result.CleanupMessage is not null) Console.Error.WriteLine(result.CleanupMessage);
     }
 
-    internal RunOutput Resume(string repository, Recipe recipe, string path, string? progress = null)
+    internal RunOutput Resume(string repository, Recipe recipe, string path, string progress)
     {
         var prepared = PrepareRestore(repository, Store(path).Read(path));
         using var session = prepared.Core;
