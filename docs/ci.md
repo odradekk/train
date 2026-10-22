@@ -49,7 +49,7 @@ GitHub 要求 `workflow_dispatch` 文件已存在于默认分支，所以新工�
 
 以上四种事件／选择复用同一个 Linux job，只有它们能分配带 `[self-hosted, linux, nightly]` 标签的 runner；PR 和其他事件被白名单条件排除。这些路径不分配 Windows runner。运行名区分 `Linux post-merge`、`Linux nightly` 和带示例名的 `Linux long-example`。目前只有一台匹配的 runner，任务自然排队，不设置额外并发组；runner 排队超过 24 小时会被 GitHub 取消。触发、查看和下载方法见[远端检查](run-tests.md#远端检查)。
 
-全量检查 job 上限为 153 分钟（计算见[执行与边界](run-tests.md#执行与边界)）；长示例初始上限分别为 starting-trade 105 分钟、lease-expiry 485 分钟。长示例按三组 Windows 最坏实测耗时的最大值加构建时间，再乘 1.5、向上取整到分钟；[初始计算记录](https://github.com/odradekk/train/issues/565#issuecomment-6232396762)列出 #299、#546 的命令数据和暂停处理。Linux 实测的 1.5 倍若超过既有上限，按[预算原则](contracts/testing.md#预算调整原则)上调。不设置单条 CLI 命令超时。
+全量检查 job 上限为 153 分钟（计算见[执行与边界](run-tests.md#执行与边界)）；长示例初始上限分别为 starting-trade 105 分钟、lease-expiry 485 分钟、crowded-station 175 分钟，其余 105 分钟。长示例按三组 Windows 最坏实测耗时的最大值加构建时间，再乘 1.5、向上取整到分钟；[初始计算记录](https://github.com/odradekk/train/issues/565#issuecomment-6232396762)列出 #299、#546 的命令数据和暂停处理。Linux 实测的 1.5 倍若超过既有上限，按[预算原则](contracts/testing.md#预算调整原则)上调。不设置单条 CLI 命令超时。
 
 局域网自托管 runner `lan-linux-nightly` 由 systemd 服务运行，主机提供 PowerShell、Godot 和 Python；版本与环境配置见[Linux 验证与自托管 runner](local-environment.md#linux-验证与自托管-runner)。checkout 后，job 使用固定 SHA 的 `actions/setup-dotnet` 按 `global.json` 准备 SDK，安装到 `${{ runner.tool_cache }}/dotnet`，避开系统包管理器维护的目录。action 将该目录加入 PATH 并导出 `DOTNET_ROOT`，后续 CLI、Godot 和 `dotnet tool restore` 共用它；环境记录保留实际版本和 `DOTNET_ROOT`。workflow 不含主机安装路径，不安装额外 Godot，不使用 xvfb。job 仅授予 `contents: read`，checkout 完整历史与所选 SHA，`persist-credentials: false`。schedule 使用默认分支的工作流，新的 SDK 准备方式在本 PR 合并后才用于定时运行。
 
