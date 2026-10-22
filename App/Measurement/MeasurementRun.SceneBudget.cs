@@ -536,20 +536,25 @@ internal sealed partial class MeasurementRun
             return;
         }
         // Linux 没有私有字节计数：用常驻匿名页加交换页代替，峰值取 0.2 秒采样中的最大值而不是内核高水位。
-        long anonymous = 0, swapped = 0;
+        long? working = null, peakWorking = null, anonymous = null, swapped = null;
         foreach (var line in File.ReadLines("/proc/self/status"))
         {
-            var fields = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            // 字段名后是制表符和对齐空格，例如 "VmRSS:	  123456 kB"。
+            var fields = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
             long Bytes() => long.Parse(fields[1]) * 1024;
             switch (fields[0])
             {
-                case "VmRSS:": _sceneWorking = Bytes(); break;
-                case "VmHWM:": _scenePeakWorking = Bytes(); break;
+                case "VmRSS:": working = Bytes(); break;
+                case "VmHWM:": peakWorking = Bytes(); break;
                 case "RssAnon:": anonymous = Bytes(); break;
                 case "VmSwap:": swapped = Bytes(); break;
             }
         }
-        _scenePrivate = anonymous + swapped;
+        if (working is null || peakWorking is null || anonymous is null)
+            throw new InvalidDataException("/proc/self/status 缺少 VmRSS、VmHWM 或 RssAnon。");
+        _sceneWorking = working.Value;
+        _scenePeakWorking = peakWorking.Value;
+        _scenePrivate = anonymous.Value + (swapped ?? 0);
         _scenePeakPrivate = Math.Max(_scenePeakPrivate, _scenePrivate);
     }
 

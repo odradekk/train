@@ -31,7 +31,7 @@ internal sealed partial class MeasurementRun
     private readonly Dictionary<string, SoakTotals> _soakTotals = new(StringComparer.Ordinal);
     private readonly List<SoakOperation> _soakOperations = [];
     private readonly List<(double At, double Private, double Working, double Video)> _soakMap = [];
-    private readonly List<(int Segment, double At, long LiveBytes)> _soakHeaps = [];
+    private readonly List<(int Segment, string Phase, double At, long LiveBytes)> _soakHeaps = [];
     private readonly Dictionary<int, DateTimeOffset> _soakSlots = [];
     private readonly List<object> _soakRejectedLoads = [];
     private readonly List<object> _soakDecay = [];
@@ -50,7 +50,7 @@ internal sealed partial class MeasurementRun
     private (double Private, double Working, double Video) _soakMapSteady;
     private (HostBinding Binding, ulong From)? _soakRecording;
     private Guid _soakSaveId;
-    private int _soakSegment, _soakAutosaves, _soakAutosaveOverwrites, _soakTrims, _soakEncounters, _soakLoads;
+    private int _soakSegment, _soakAutosaves, _soakAutosaveOverwrites, _soakTrims, _soakEncounters, _soakLoads, _soakLoadAttempts;
     private double _soakIncompleteSeconds;
 
     private sealed record SoakOperation(string Type, string Name, int Segment, double At, double? Seconds,
@@ -118,7 +118,7 @@ internal sealed partial class MeasurementRun
                 } while (Seconds() - bodyStarted < _soakBody);
                 for (var trip = 0; trip < SoakRoundTrips; trip++) await RunSoakRoundTrip(trip % 2 == 0 ? SoakSettlement : SoakLineBattle);
             } while (Seconds() - started < duration);
-            _soakHeaps.Add((_soakSegment, Seconds(), CollectSceneHeap(_soakSegment, "final-map")));
+            _soakHeaps.Add((_soakSegment, "final", Seconds(), CollectSceneHeap(_soakSegment, "final-map")));
             _sceneEvidence["soak"] = SummarizeSoak(Seconds() - started, _soakBody ?? 0);
         }
         finally
@@ -159,6 +159,10 @@ internal sealed partial class MeasurementRun
             await LoadSceneInput(restoreInput: true);
             return (_sceneLoadCompleted - _sceneLoadButton, null);
         });
+        _soakLoadAttempts++;
+        _soakLoads++;
+        // 读档换了会话，场景会话随之重建；之后的首次打开是冷打开。
+        _sceneOpenedTargets.Clear();
         var host = _app.Host!;
         host.SetPaused(true);
         AssertSoakTargets();
@@ -166,7 +170,7 @@ internal sealed partial class MeasurementRun
         _soakLastDecayAt = 0;
         _soakResetSteps = host.GetStatus()!.View.Position.CompletedSteps;
         // 每段都在刚读入的同一保存点、暂停的地图上强制回收，作为相同状态下的存活堆读数。
-        _soakHeaps.Add((_soakSegment, Seconds(), CollectSceneHeap(_soakSegment, "reset-map")));
+        _soakHeaps.Add((_soakSegment, "reset", Seconds(), CollectSceneHeap(_soakSegment, "reset-map")));
         await HoldSoakMap(2);
         await SoakOpen("reset-line", SoakLineBattle, _sceneLoadButton);
         // 只认采样开始后取得的计数；上一段末尾的计数里线路战斗早已结束。
@@ -288,6 +292,8 @@ internal sealed partial class MeasurementRun
             loaded = await LoadSceneInput(allowRejected: true);
             return (loaded ? _sceneLoadCompleted - _sceneLoadButton : null, null);
         });
+        _soakLoadAttempts++;
+        if (loaded) { _soakLoads++; _sceneOpenedTargets.Clear(); }
         if (!loaded)
         {
             // 被拒绝的读档保留原对局继续；不取读档后首显样本。
@@ -321,7 +327,6 @@ internal sealed partial class MeasurementRun
         var (seconds, ready) = await run();
         var peak = _soakPeak;
         _soakPeak = null;
-        if (type is "load" or "reset") _soakLoads++;
         _soakOperations.Add(new(type, name, _soakSegment, at, seconds, ready,
             peak.Private - map.Private, peak.Working - map.Working, peak.Video - map.Video,
             peak.Private - before.Private, peak.Working - before.Working, peak.Video - before.Video));
@@ -384,7 +389,8 @@ internal sealed partial class MeasurementRun
                 item.Minimum is { } minimum && value < minimum || item.Maximum is { } maximum && value > maximum)
                 .Select(item => item.Key).ToArray();
             _soakLoadClass = failed.Length == 0 ? SoakFullLoad :
-                failed.All(key => SoakLineBattleKeys.Contains(key)) ? SoakLoadWithoutLineBattle : SoakLoadBelow;
+                failed.Contains("armed_line_combats") && failed.All(key => SoakLineBattleKeys.Contains(key))
+                    ? SoakLoadWithoutLineBattle : SoakLoadBelow;
             _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(new { kind = "soak-load", at, applied = now, segment = _soakSegment,
                 phase = _scenePhase, load_class = _soakLoadClass, failed, counts, trims = _soakTrims,
                 recording = _app.Recording?.Status }, SceneJson));
@@ -477,7 +483,7 @@ internal sealed partial class MeasurementRun
         {
             seconds, segments = _soakSegment, body_seconds = body, round_trips_per_segment = SoakRoundTrips,
             sample_seconds = SoakSampleSeconds,
-            load_classes = new { full = "配方保存点的全部期望成立", all_but_line_battle = "只有 armed_combats 与 armed_line_combats 不成立",
+            load_classes = new { full = "配方保存点的全部期望成立", all_but_line_battle = "armed_line_combats 不成立，其余不成立的只有 armed_combats",
                 below_recipe = "其他期望不成立；这些帧不是标准负载证据", frame_rule = "每帧按最近一次（每秒最多一次）计数分类" },
             views = _soakTotals.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => new
             {
@@ -516,8 +522,8 @@ internal sealed partial class MeasurementRun
                 godot_video_bytes_per_hour = MemorySlope(item => item.Video),
                 godot_video_label = "Godot 渲染缓冲区、纹理与总分配；集成显卡上是共享的系统内存，不是独立显存",
                 private_label = OperatingSystem.IsWindows() ? "Windows 私有字节" : "Linux RssAnon + VmSwap；峰值为 0.2 秒采样最大值",
-                reset_heaps = _soakHeaps.Select(item => new { segment = item.Segment, at = item.At, live_bytes = item.LiveBytes,
-                    over_first_bytes = item.LiveBytes - _soakHeaps[0].LiveBytes })
+                reset_heaps = _soakHeaps.Select(item => new { segment = item.Segment, phase = item.Phase, at = item.At,
+                    live_bytes = item.LiveBytes, over_first_bytes = item.LiveBytes - _soakHeaps[0].LiveBytes })
             },
             autosave = new { interval_seconds = _app.Saves!.AutoSaveInterval?.TotalSeconds, writes = _soakAutosaves,
                 slot_overwrites = _soakAutosaveOverwrites, source = "自动存档槽文件头的保存时间" },
@@ -534,7 +540,7 @@ internal sealed partial class MeasurementRun
             load_decay = new { interval_seconds = 10, rule = "每次重置后每 10 秒取一次负载计数", series = _soakDecay },
             body_sizing = new { rule = "首轮实测每真实秒步数（含编辑器暂停）下，1.3 × 起点间隔 × 保留起点数所需时长；不少于 720 秒，不超过总时长的 60%",
                 body_seconds = body },
-            loads = _soakLoads, encounters = _soakEncounters,
+            loads = new { attempted = _soakLoadAttempts, succeeded = _soakLoads }, encounters = _soakEncounters,
             uncovered = new[] { "process_first_open_node", "process_first_open_line", "process_first_follow" }
         };
     }

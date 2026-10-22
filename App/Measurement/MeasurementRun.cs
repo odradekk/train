@@ -263,7 +263,9 @@ internal sealed partial class MeasurementRun : IDisposable
         _identity["speed_window_method"] = "连续目标秒后的首个绘制帧作为窗口边界；窗口共享边界帧，不插值；末尾不足目标秒部分仅计入整段";
         _identity["percentile_method"] = "nearest-rank";
         _identity["simulation_work_scope"] = "frame-driver advancement, including boundary consumers; excludes candidate preparation and render submission";
-        _identity["cache_scope"] = "fresh process and user data; OS file and driver shader caches are not cleared";
+        _identity["cache_scope"] = OperatingSystem.IsLinux()
+            ? "fresh process and user data; the isolated XDG_CACHE_HOME gives each run an empty Mesa shader cache; OS file cache is not cleared"
+            : "fresh process and user data; OS file and driver shader caches are not cleared";
     }
 
     private void OnDraw()
