@@ -192,6 +192,47 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
         }
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
+    [Test]
+    public async Task Element_list_updated_in_place_matches_a_full_rebuild_and_keeps_selection_rows()
+    {
+        var fixture = await Ready();
+        try
+        {
+            var panel = EditorPanel(fixture); var session = fixture.Factory.Session!;
+            var list = panel.FindChildren("*", "ItemList", true, false).OfType<ItemList>().Single();
+            var revision = 100UL;
+            async Task<string[]> Show(IEnumerable<EditElement> elements, ImmutableArray<EditElementId> selection = default)
+            {
+                var values = elements.ToImmutableArray();
+                session.SetState(state => state with
+                {
+                    Snapshot = state.Snapshot with { Stamp = state.Snapshot.Stamp with { Revision = new(++revision) } },
+                    Elements = values, Selection = selection.IsDefault ? [] : selection
+                });
+                await FramesUntil(TestScene, () => list.ItemCount == values.Length && fixture.Editor.State?.Snapshot.Stamp.Revision.Value == revision);
+                await new UiTestInput(TestScene).Frames(2);
+                return [.. Enumerable.Range(0, list.ItemCount).Select(list.GetItemText)];
+            }
+            static EditElement Cell(ulong id, bool locked = false) => new(new(id), null, EditElementKind.Cell, new((int)id, 0, 0), null, [], locked);
+            var initial = Enumerable.Range(1, 600).Select(id => Cell((ulong)id)).ToList();
+            await Show(initial);
+            // 相邻的小变化走原地更新：先删 300、插 1000 和 1001、改 301，再删 500 和 501。
+            var inserted = initial.Where(item => item.Id.Value != 300).Select(item => item.Id.Value == 301 ? Cell(301, true) : item).ToList();
+            inserted.InsertRange(299, [Cell(1000), Cell(1001)]);
+            var removed = inserted.Where(item => item.Id.Value is not (500 or 501)).ToList();
+            var updated = new List<string[]>();
+            updated.Add(await Show(inserted, [new(1001)]));
+            Require(list.GetSelectedItems() is [var selected] && list.GetItemText(selected).StartsWith("1001 ·"), "选中元素必须对应更新后的同一行。");
+            updated.Add(await Show(removed));
+            foreach (var (elements, index) in new[] { inserted, removed }.Select((elements, index) => (elements, index)))
+            {
+                await Show(Enumerable.Range(2000, 600).Select(id => Cell((ulong)id)));
+                var rebuilt = await Show(elements);
+                Require(updated[index].AsEnumerable().SequenceEqual(rebuilt), "原地更新后的元素列表必须与整表重建相同。");
+            }
+        }
+        finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
+    }
     private static DesignEditorPanel EditorPanel(EditorPreview fixture) => Find<DesignEditorPanel>(fixture.App, "DesignEditor");
     private static bool Displayed(Control panel, string text) => panel.FindChildren("*", "Label", true, false).OfType<Label>()
         .Any(label => label.IsVisibleInTree() && label.Text.Contains(text, StringComparison.Ordinal));

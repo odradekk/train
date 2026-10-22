@@ -347,7 +347,11 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
                 PrepareRestoreCall = (_, _, _) => new CoreResult<ICoreSessionCandidate>.Success(Candidate()),
                 PrepareNewCall = (_, _, _) => new CoreResult<ICoreSessionCandidate>.Success(Candidate()) };
             var contentView = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1))
-            { GenerationProfiles = [new(new("fixture:world"), new("固定世界", ""))] };
+            {
+                GenerationProfiles = [new(new("fixture:world"), new("固定世界", ""))],
+                // 点击列车时按车长找参考中心车辆；单车列车查不到设计时仍跟随这辆车。
+                Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>> { [new("fixture-design")] = new ContentLookup<DesignEvaluation>.NotFound() }
+            };
             var content = new ScriptedContentFactory { CaptureCall = (view, _) => new ContentResult<IContentCapture>.Success(new FixedContentCapture("scene-ui", view.PersistentRevision)),
                 CaptureReplayCall = (history, _) => new ContentResult<IContentReplayCapture>.Success(new FixedContentReplayCapture(history, "ui recording content")),
                 DecodeCaptureCall = _ => new ContentResult<IContentCapture>.Success(new FixedContentCapture("scene-ui")),

@@ -28,6 +28,7 @@ internal static class ConstructionProcessDriver
             var output = args[1];
             var directory = args[2];
             var building = args.Length > 3 && args[3] == "building";
+            var failing = args.Length > 3 && args[3] == "failure";
             var original = building ? BuildingOriginal : Original;
             var factory = CoreFactory.Create();
             var samples = new List<ConstructionProcessSample>();
@@ -73,10 +74,15 @@ internal static class ConstructionProcessDriver
             }
             else
             {
-                using var session = mode == "resume" ? Restore(building ? original : Updated) : Session(original);
+                using var session = mode == "resume" ? Restore(building || failing ? original : Updated) : Session(original);
                 if (mode != "resume")
                 {
                     if (building) BeginBuilding(session, original);
+                    else if (failing)
+                    {
+                        Start(session, Build(original, Local));
+                        Step(session);
+                    }
                     else
                     {
                         Start(session, Build(original, Local));
@@ -87,6 +93,17 @@ internal static class ConstructionProcessDriver
                 samples.Add(Sample(WorldFixture.Success(session.Capture(CapturePurpose.Save))));
                 if (mode == "save")
                     await File.WriteAllTextAsync(Path.Combine(directory, "state.json"), samples[0].Payload, new UTF8Encoding(false));
+                else if (failing)
+                {
+                    // 保存边界之后发布去掉施工能力的内容：进行中的任务失败并释放设施，恢复的进程必须得到同样的失败。
+                    events.AddRange(Accept(session, new CoreCommand.PublishContent(Disqualified(original))).Events.Select(Event));
+                    for (var step = 0; step < 2; step++)
+                    {
+                        events.AddRange(Step(session).Events.Select(Event));
+                        samples.Add(Sample(WorldFixture.Success(session.Capture(CapturePurpose.Save))));
+                    }
+                    Assert.IsInstanceOfType<Lookup<JobView>.Missing>(session.Read().FindJob(new(1)));
+                }
                 else if (building)
                 {
                     FinishBuilding(session, original);
@@ -155,6 +172,15 @@ internal static class ConstructionProcessDriver
         }
         catch (Exception exception) { Console.Error.WriteLine(exception); return 1; }
     }
+
+    private static CoreContentProjection Disqualified(CoreContentProjection content) => Changed(content) with
+    {
+        Designs = content.Designs.Select(d => d.Design != WorldFixture.Station ? d : d with
+        {
+            Parts = d.Parts.Select(p => p with { Capabilities = p.Capabilities.Where(c => c is not PartCapability.Construction)
+                .ToImmutableArray() }).ToImmutableArray()
+        }).ToImmutableArray()
+    };
 
     private static CoreContentProjection WithBuilding(CoreContentProjection content)
     {

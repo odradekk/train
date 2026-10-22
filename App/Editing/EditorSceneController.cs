@@ -23,6 +23,7 @@ internal sealed class EditorSceneController : IDisposable
     private bool _retrying;
     internal WorldSceneView View { get; } = new();
     internal SceneDisplay? Display => _display;
+    internal EditStamp? DisplayedStamp => _displayStamp;
     internal EditViewOptions Options { get; set; } = new(new(GridAxis.Y, 0), null, SceneDebugLayer.None);
     internal event Action<ScenePick>? Picked;
     internal EditorSceneController(EditorService service)

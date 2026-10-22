@@ -26,6 +26,7 @@ internal partial class DesignEditorPanel : Control
     private VBoxContainer _equipment = null!;
     private readonly List<VoxelOrientation> _allowedOrientations = [];
     private readonly List<EditElementId> _elementIds = [];
+    private readonly List<(EditElementId Id, string Text)> _elementRows = [];
     private SpinBox _x = null!, _y = null!, _z = null!, _endX = null!, _endY = null!, _endZ = null!, _width = null!, _plane = null!, _cut = null!;
     private IEditPreview? _preview;
     internal event Action? LibraryRequested;
@@ -308,15 +309,34 @@ internal partial class DesignEditorPanel : Control
         _previewText.Text = "";
         var current = _scene.EnteredDraft ?? state.Snapshot.Draft;
         _name.Text = current.Display.Name; _description.Text = current.Display.Description;
-        _elements.Clear();
-        _elementIds.Clear();
-        foreach (var item in state.Elements)
-        {
-            _elementIds.Add(item.Id);
-            var prefix = item.Parent is { } parent ? $"↳ {parent.Value} / " : "";
-            _elements.AddItem($"{prefix}{item.Id.Value} · {item.Kind} {item.At}{(item.Locked ? " [锁定]" : "")}");
-        }
+        ShowElements([.. state.Elements.Select(item => (item.Id, Text:
+            $"{(item.Parent is { } parent ? $"↳ {parent.Value} / " : "")}{item.Id.Value} · {item.Kind} {item.At}{(item.Locked ? " [锁定]" : "")}"))]);
         ShowEvaluation(state);
+    }
+    // 泰坦约 2.8 万行；整表重建时引擎要重新排版全部行，一帧约 1.7 秒。只改变化的区间，变化太大才整表重建。
+    private void ShowElements((EditElementId Id, string Text)[] rows)
+    {
+        var change = RowChange.Between(_elementRows, rows);
+        if (change.Removed + change.Inserted > 256)
+        {
+            _elements.Clear();
+            foreach (var row in rows) _elements.AddItem(row.Text);
+        }
+        else
+        {
+            var replaced = Math.Min(change.Removed, change.Inserted);
+            for (var index = change.Start; index < change.Start + replaced; index++) _elements.SetItemText(index, rows[index].Text);
+            for (var index = change.Start + change.Removed - 1; index >= change.Start + replaced; index--) _elements.RemoveItem(index);
+            for (var index = change.Start + replaced; index < change.Start + change.Inserted; index++)
+            {
+                _elements.AddItem(rows[index].Text);
+                _elements.MoveItem(_elements.ItemCount - 1, index);
+            }
+        }
+        _elementRows.Clear();
+        _elementRows.AddRange(rows);
+        _elementIds.Clear();
+        _elementIds.AddRange(rows.Select(row => row.Id));
     }
     private void RefreshPalette()
     {

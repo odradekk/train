@@ -54,7 +54,9 @@ internal sealed partial class MeasurementRun
             var host = _app.Host!;
             var speed = RouteSpeed;
             var train = MeasuredTrain();
-            _subject = new WorldObjectId.Instance(new InstanceId.Vehicle(train.Vehicles[0]));
+            // 与 GameUi.OpenScene 相同。
+            var followed = FollowedVehicle.Of(train, host.GetStatus()!.View, host.Content!);
+            _subject = new WorldObjectId.Instance(new InstanceId.Vehicle(followed));
             _sceneTarget = new WorldObjectId.Train(train.Id);
             host.SetSpeed(speed);
             host.SetPaused(false);
@@ -148,7 +150,7 @@ internal sealed partial class MeasurementRun
             var routeAnalysis = FollowRouteAnalysis.Analyze(directory);
             _sceneEvidence["route"] = new
             {
-                train = train.Id.Value, vehicle = train.Vehicles[0].Value, first_edge = first?.Value, middle_node = middle?.Value,
+                train = train.Id.Value, vehicle = followed.Value, first_edge = first?.Value, middle_node = middle?.Value,
                 second_edge = second?.Value, transitions, route_completed = routeCompleted, preview_seconds = _sceneDuration, frames = _routeFrames,
                 decision_end_draw = _routeDecisionEndDraw, postroll_frames = _routeDecisionEndDraw == 0 ? 0 : _routeFrames - _routeDecisionEndDraw,
                 analysis = routeAnalysis.Summary, startup = routeAnalysis.Startup,

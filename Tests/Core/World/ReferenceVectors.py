@@ -64,6 +64,15 @@ inputs = [
     (42, "creature.wander.v1", [3, 9]),
     (7, "creature.lair.node.v1", [12]),
     (7, "creature.lair.type.v1", [12, 5]),
+    (40, "settlement.founding.type", [14]),
+    (40, "settlement.founding.template", [14, 16, *b"core:mining-town"]),
+    (44, "world.stage1.v1.npc.vehicle.count", [3, 7, 0]),
+    (44, "world.stage1.v1.npc.vehicle.choice", [3, 7, 2]),
+    # ResourceStateTests 用 WorldResources.Sample 核对这四个值：货物身份按 UTF-8 长度与字节展开，再接序号。
+    (42, "resource.regeneration.node.v1", [16, *b"fixture:material", 0]),
+    (42, "resource.regeneration.reserve.v1", [16, *b"fixture:material", 0]),
+    (42, "resource.regeneration.node.v1", [16, *b"fixture:material", 1]),
+    (42, "resource.regeneration.reserve.v1", [len("矿:铁".encode()), *"矿:铁".encode(), 0]),
 ]
 
 assert mix(0) == 0xE220A8397B1DCDAF

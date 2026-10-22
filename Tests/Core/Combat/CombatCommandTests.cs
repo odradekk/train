@@ -32,6 +32,14 @@ public sealed class CombatCommandTests
         const string retreatPayload = "{\"input_format_version\":2,\"kind\":\"combat.retreat\",\"train\":7}";
         Assert.AreEqual(retreatPayload, CoreCommandEncoding.Encode(new CoreCommand.Retreat(new(7))));
         Assert.AreEqual(new CoreCommand.Retreat(new(7)), Decode(retreatPayload));
+
+        const string warPayload = "{\"input_format_version\":2,\"kind\":\"settlement.declare_war\",\"settlement\":3}";
+        Assert.AreEqual(warPayload, CoreCommandEncoding.Encode(new CoreCommand.DeclareWar(new(3))));
+        Assert.AreEqual(new CoreCommand.DeclareWar(new(3)), Decode(warPayload));
+
+        const string occupyPayload = "{\"input_format_version\":2,\"kind\":\"settlement.occupy\",\"settlement\":3,\"train\":7}";
+        Assert.AreEqual(occupyPayload, CoreCommandEncoding.Encode(new CoreCommand.OccupySettlement(new(3), new(7))));
+        Assert.AreEqual(new CoreCommand.OccupySettlement(new(3), new(7)), Decode(occupyPayload));
     }
 
     [TestMethod]
