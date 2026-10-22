@@ -1003,7 +1003,7 @@
     }
   ],
   "target": {
-    "completed_steps": 905000,
+    "completed_steps": 910000,
     "sequence": 0
   },
   "checkpoint_steps": [
@@ -1011,35 +1011,35 @@
   ],
   "expectations": [
     {
-      "at": 905000,
+      "at": 910000,
       "key": "platforms",
       "node": 2,
       "minimum": 4,
       "maximum": 4
     },
     {
-      "at": 905000,
+      "at": 910000,
       "key": "occupied_platforms",
       "node": 2,
       "minimum": 4,
       "maximum": 4
     },
     {
-      "at": 905000,
+      "at": 910000,
       "key": "trains_in_plan",
       "node": 2,
       "minimum": 10,
       "maximum": 10
     },
     {
-      "at": 905000,
+      "at": 910000,
       "key": "vehicles_in_plan",
       "node": 2,
       "minimum": 60,
       "maximum": 60
     },
     {
-      "at": 905000,
+      "at": 910000,
       "key": "trains_queued",
       "node": 2,
       "minimum": 6,
