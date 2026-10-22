@@ -35,6 +35,7 @@ internal sealed partial class MeasurementRun
     private readonly Dictionary<int, DateTimeOffset> _soakSlots = [];
     private (string Key, double? Minimum, double? Maximum)[] _soakExpectations = [];
     private ImmutableSortedDictionary<string, double>? _soakLoad;
+    private Task<(ImmutableSortedDictionary<string, double> Counts, double At, double Seconds)>? _soakCounting;
     private string _soakLoadClass = SoakLoadBelow;
     private double _soakLoadAt;
     private SoakSample? _soakSample;
@@ -219,8 +220,8 @@ internal sealed partial class MeasurementRun
             await Wait(() => _sceneDrawCount > draw);
             return (Seconds() - start, null);
         });
-        // 编辑器打开时宿主暂停模拟（HostCoordinator.BeginEditing），8× 样本记录的是暂停下的帧。
-        await SampleSoakView("editor", SimulationSpeed.Eight);
+        // 编辑器打开时宿主暂停模拟（HostCoordinator.BeginEditing）且不接受倍速设置，样本记录的是暂停下的帧。
+        await SampleSoakView("editor", _app.Host!.GetStatus()!.Speed, setSpeed: false);
         var cell = editor.State!.Elements.First(element => element.Kind == EditElementKind.Cell && !element.Locked);
         editor.Select(new EditSelection.Elements([cell.Id]));
         if (editor.Preview(new EditOperation.PaintSelection(new PaintColor("#c03030"))) is not SceneResult<IEditPreview>.Success preview)
@@ -292,10 +293,10 @@ internal sealed partial class MeasurementRun
         _soakMapSteady = SoakSteady();
     }
 
-    private async Task SampleSoakView(string view, SimulationSpeed speed, Func<bool>? ended = null)
+    private async Task SampleSoakView(string view, SimulationSpeed speed, Func<bool>? ended = null, bool setSpeed = true)
     {
         var host = _app.Host!;
-        if (host.SetSpeed(speed) is not null || host.SetPaused(false) is not null)
+        if (setSpeed && (host.SetSpeed(speed) is not null || host.SetPaused(false) is not null))
             throw new InvalidOperationException("不能设置长测倍速。");
         _scenePhase = $"{view}-{(int)speed}x";
         var started = _sceneLastDraw;
@@ -321,30 +322,41 @@ internal sealed partial class MeasurementRun
         });
     }
 
-    // 由场景绘制回调调用：负载计数和录制状态每秒最多读一次，帧按最近一次计数分类。
+    // 由场景绘制回调调用：负载计数每秒最多启动一次。标准世界一次计数约 50 ms，放在主线程会形成每秒一次的长帧；
+    // 核心读视图和内容世代不可变，可在后台线程读取，帧按最近一次完成的计数分类。
     private void ObserveSoakFrame(double now, HostStatus status, double interval)
     {
-        if (now - _soakLoadAt >= 1)
+        if (_soakCounting is { IsCompleted: true } counting)
         {
-            var started = Seconds();
-            _soakLoad = WorldCounts.Read(status.View, _app.Host!.Content!);
-            var failed = _soakExpectations.Where(item => !_soakLoad.TryGetValue(item.Key, out var value) ||
+            var (counts, at, seconds) = counting.GetAwaiter().GetResult();
+            _soakCounting = null;
+            _soakLoad = counts;
+            var failed = _soakExpectations.Where(item => !counts.TryGetValue(item.Key, out var value) ||
                 item.Minimum is { } minimum && value < minimum || item.Maximum is { } maximum && value > maximum)
                 .Select(item => item.Key).ToArray();
             _soakLoadClass = failed.Length == 0 ? SoakFullLoad :
                 failed.All(key => SoakLineBattleKeys.Contains(key)) ? SoakLoadWithoutLineBattle : SoakLoadBelow;
-            var countSeconds = Seconds() - started;
+            _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(new { kind = "soak-load", at, applied = now, segment = _soakSegment,
+                phase = _scenePhase, load_class = _soakLoadClass, failed, counts, trims = _soakTrims,
+                recording = _app.Recording?.Status }, SceneJson));
+            _sceneCostTrace!.WriteLine(JsonSerializer.Serialize(new { kind = "load-count", at, applied = now, draw = _sceneDrawCount,
+                seconds, thread = "background" }, SceneJson));
+        }
+        if (_soakCounting is null && now - _soakLoadAt >= 1)
+        {
             if (_app.Recording?.Status is { } recording)
             {
                 if (_soakRecording is { } last && last.Binding == status.Binding && recording.From.CompletedSteps > last.From) _soakTrims++;
                 _soakRecording = (status.Binding, recording.From.CompletedSteps);
                 if (recording.Incomplete) _soakIncompleteSeconds += _soakLoadAt > 0 ? now - _soakLoadAt : 0;
             }
-            _sceneOperationTrace!.WriteLine(JsonSerializer.Serialize(new { kind = "soak-load", at = now, segment = _soakSegment,
-                phase = _scenePhase, load_class = _soakLoadClass, failed, counts = _soakLoad, trims = _soakTrims,
-                recording = _app.Recording?.Status }, SceneJson));
-            _sceneCostTrace!.WriteLine(JsonSerializer.Serialize(new { kind = "load-count", at = now, draw = _sceneDrawCount,
-                seconds = countSeconds }, SceneJson));
+            var view = status.View;
+            var content = _app.Host!.Content!;
+            _soakCounting = Task.Run(() =>
+            {
+                var started = Seconds();
+                return (WorldCounts.Read(view, content), started, Seconds() - started);
+            });
             _soakLoadAt = now;
         }
         if (_soakSample is { } sample && interval > 0)
