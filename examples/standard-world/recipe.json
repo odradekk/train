@@ -1295,7 +1295,7 @@
     }
   ],
   "target": {
-    "completed_steps": 125800,
+    "completed_steps": 125050,
     "sequence": 0
   },
   "checkpoint_steps": [
@@ -1308,107 +1308,107 @@
       "minimum": 1
     },
     {
-      "at": 125800,
+      "at": 125050,
       "key": "nodes",
       "minimum": 50,
       "maximum": 50
     },
     {
-      "at": 125800,
+      "at": 125050,
       "key": "settlements",
       "minimum": 25,
       "maximum": 25
     },
     {
-      "at": 125800,
+      "at": 125050,
       "key": "player_settlements",
       "minimum": 5,
       "maximum": 5
     },
     {
-      "at": 125800,
+      "at": 125050,
       "key": "trains_in_plan",
       "minimum": 20,
       "maximum": 20
     },
     {
-      "at": 125800,
+      "at": 125050,
       "key": "vehicles_in_plan",
       "minimum": 80,
       "maximum": 80
     },
     {
-      "at": 125800,
+      "at": 125050,
       "key": "trains_running",
       "minimum": 1
     },
     {
-      "at": 125800,
+      "at": 125050,
       "key": "trains_servicing",
       "minimum": 1
     },
     {
-      "at": 125800,
+      "at": 125050,
       "key": "trains_queued",
       "minimum": 1
     },
     {
-      "at": 125800,
+      "at": 125050,
       "key": "buildings",
       "minimum": 100
     },
     {
-      "at": 125800,
+      "at": 125050,
       "key": "facilities_running",
       "minimum": 50
     },
     {
-      "at": 125800,
+      "at": 125050,
       "key": "jobs_working",
       "minimum": 10
     },
     {
-      "at": 125800,
+      "at": 125050,
       "key": "dismantles_working",
       "minimum": 1
     },
     {
-      "at": 125800,
+      "at": 125050,
       "key": "titan_builds_working",
       "minimum": 1
     },
     {
-      "at": 125800,
+      "at": 125050,
       "key": "titan_trains_in_plan",
       "minimum": 1
     },
     {
-      "at": 125800,
+      "at": 125050,
       "key": "creatures",
       "minimum": 100
     },
     {
-      "at": 125800,
+      "at": 125050,
       "key": "creatures_guarding",
       "minimum": 1
     },
     {
-      "at": 125800,
+      "at": 125050,
       "key": "creatures_raiding",
       "minimum": 1
     },
     {
-      "at": 125800,
+      "at": 125050,
       "key": "armed_combats",
       "minimum": 3
     },
     {
-      "at": 125800,
+      "at": 125050,
       "key": "armed_line_combats",
       "minimum": 1
     },
     {
-      "at": 125800,
+      "at": 125050,
       "key": "armed_node_combats",
       "minimum": 1
     }
