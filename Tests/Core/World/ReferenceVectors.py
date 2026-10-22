@@ -64,6 +64,10 @@ inputs = [
     (42, "creature.wander.v1", [3, 9]),
     (7, "creature.lair.node.v1", [12]),
     (7, "creature.lair.type.v1", [12, 5]),
+    (40, "settlement.founding.type", [14]),
+    (40, "settlement.founding.template", [14, 16, *b"core:mining-town"]),
+    (44, "world.stage1.v1.npc.vehicle.count", [3, 7, 0]),
+    (44, "world.stage1.v1.npc.vehicle.choice", [3, 7, 2]),
 ]
 
 assert mix(0) == 0xE220A8397B1DCDAF
