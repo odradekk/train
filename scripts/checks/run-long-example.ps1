@@ -26,7 +26,7 @@ $saveStep = switch ($Example) {
     'operating-failure' { '1060000' }
     'long-consist' { '17000' }
     'standard-world' { '110000' }
-    'standard-world-long' { '773800' }
+    'standard-world-long' { '773050' }
 }
 $continuous = Join-Path $run 'continuous.json'
 $prefix = Join-Path $run 'prefix.save.json'
