@@ -43,7 +43,9 @@ internal sealed partial class DesignEditSession : IDesignEditSession
     public EditSessionId Id { get; } = new(Guid.NewGuid());
     public ContentGeneration Content { get; }
     // 宿主每帧 Read／Present；EditObject 不可变，派生值按同一棵树、同一保存基准和同一锁表复用，大设计不再逐帧遍历。
-    private EditObject? derivedRoot, renderedRoot;
+    // 几何按修订号复用：拾取对象带修订号，撤销回到同一棵树也要换新修订号。
+    private EditObject? derivedRoot;
+    private ulong? renderedRevision;
     private ImmutableArray<EditElement> elements, lockedElements;
     private DesignDraft? exported, dirtySaved;
     private bool dirty;
@@ -450,10 +452,10 @@ internal sealed partial class DesignEditSession : IDesignEditSession
         if (displayedFrame is not null && displayedFrame.Update.Frame.Session != frameSession)
             throw new ArgumentException("Displayed frame belongs to another session.", nameof(displayedFrame));
         var path = EnteredPath;
-        if (!ReferenceEquals(renderedRoot, root) || renderedView != (entered, options.HighestVisibleY))
+        if (renderedRevision != revision || renderedView != (entered, options.HighestVisibleY))
         {
             rendered = EditGeometry.Build(EditLayout.At(root, path), content, Id, new(revision), options.HighestVisibleY, ObjectId, ModelId, path);
-            renderedRoot = root;
+            renderedRevision = revision;
             renderedView = (entered, options.HighestVisibleY);
         }
         var geometry = rendered!;

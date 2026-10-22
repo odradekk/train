@@ -111,6 +111,19 @@ public sealed class EditingSessionTests
     }
 
     [TestMethod]
+    public void UndoBackToThePresentedTreePicksWithTheCurrentRevision()
+    {
+        using var session = EditingFixtures.Open(EditingFixtures.Draft(new(0, 0, 0), new(1, 0, 0)));
+        EditingFixtures.Frame(session);
+        EditingFixtures.Apply(session, EditingFixtures.Add(new(2, 0, 0)));
+        EditingFixtures.Value(session.Undo());
+        var frame = EditingFixtures.Frame(session);
+        var revision = session.Read().Snapshot.Stamp.Revision;
+        foreach (var x in new[] { .5f, 1.5f })
+            Assert.AreEqual(revision, ((PickSubject.Editing)((ScenePick.Hit)frame.Pick(EditingFixtures.Ray(x))).Value.Subject).Revision);
+    }
+
+    [TestMethod]
     public void EvaluationRequiresDeeplyEqualCurrentDraftAndMatchingStamp()
     {
         var child = EditingFixtures.Draft(new GridPosition(0, 0, 0)) with { Specification = new DesignSpecification.Assembly(null) };
