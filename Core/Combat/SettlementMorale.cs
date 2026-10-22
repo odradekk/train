@@ -16,6 +16,7 @@ internal static class SettlementMorale
         {
             if (world.Combats.Any(combat => combat.Location is WorldLocation.Node node
                     && node.Id == settlement.Node)) return settlement;
+            if (HasHostileUnit(world, settlement)) return settlement;
             var morale = Math.Min(1, settlement.Morale + rule.MoraleRecoveryPerSecond * SimulationTime.StepSeconds);
             var surrendered = settlement.Surrendered && morale < rule.SurrenderThreshold;
             if (morale == settlement.Morale && surrendered == settlement.Surrendered) return settlement;
@@ -51,6 +52,14 @@ internal static class SettlementMorale
         }
         return world;
     }
+
+    // 生物群对所有聚居地敌对；玩家列车只对敌对聚居地敌对。
+    private static bool HasHostileUnit(WorldState world, SettlementState settlement)
+        => world.CreatureGroups.Any(group => group.Location is WorldLocation.Node node
+            && node.Id == settlement.Node)
+            || (settlement.Relation == SettlementRelation.Hostile
+                && world.Trains.Any(train => train.Position is TrainPosition.Node node
+                    && node.Id == settlement.Node));
 
     private static long BuildingDurability(WorldState world, SettlementId id)
     {
