@@ -499,6 +499,41 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
     [Test]
+    public async Task Design_diagnostic_keeps_message_and_locate_button_and_status_omits_blank_segments()
+    {
+        var fixture = await Ready();
+        try
+        {
+            var session = fixture.Factory.Session!;
+            var evaluation = (DesignEvaluation.Complete)session.Read().CurrentEvaluation!;
+            var diagnostic = new ContentDiagnostic("design_invalid", ContentDiagnosticSeverity.Error, "evaluate",
+                new ContentReference.Design(new("empty-design")),
+                null, "/layout/cells", new DesignElementPath.Cell([], 0), "布局必须非空。");
+            session.SetState(state => state with
+            {
+                IsDirty = true,
+                CurrentEvaluation = evaluation with { Diagnostics = [diagnostic] },
+                EvaluationDiagnostics = [diagnostic]
+            });
+            var panel = EditorPanel(fixture);
+            await FramesUntil(TestScene, () => Displayed(panel, "布局必须非空。") && Displayed(panel, "未保存修改"));
+            var status = panel.FindChildren("*", "Label", true, false).OfType<Label>()
+                .Single(label => label.IsVisibleInTree() && label.Text.StartsWith("层级 ", StringComparison.Ordinal));
+            var segments = status.Text.Split(" · ", StringSplitOptions.None);
+            Require(segments.All(segment => !string.IsNullOrWhiteSpace(segment)) && segments.Contains("未保存修改"),
+                "状态行只能保留非空段，并包含未保存修改。实际：" + status.Text);
+            Require(Displayed(panel, "布局必须非空。") && !Displayed(panel, "design_invalid") && !Displayed(panel, "DesignHash")
+                && !Displayed(panel, "/layout/cells") && !Displayed(panel, "包："),
+                "设计诊断只显示说明，不显示内部码、哈希、路径和包。");
+            var rows = panel.FindChildren("*", "HBoxContainer", true, false).OfType<HBoxContainer>().Where(box =>
+                box.GetChildren().OfType<Label>().Any(label => label.Text.Contains("布局必须非空。", StringComparison.Ordinal))).ToArray();
+            Require(rows.Length == 1, "含「布局必须非空。」的诊断行必须恰好一行。实际：" + rows.Length);
+            Require(rows[0].GetChildren().OfType<Button>().Any(button => button.Name == "LocateDiagnostic" && button.Text == "定位"),
+                "设计诊断行必须保留定位按钮。");
+        }
+        finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
+    }
+    [Test]
     public async Task Preview_conflict_preserves_code_definition_package_and_blocked_operation_in_both_outputs()
     {
         var fixture = await Ready();
