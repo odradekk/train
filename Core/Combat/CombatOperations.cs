@@ -67,6 +67,11 @@ internal static class CombatOperations
             if (world.Combats.Any(combat => combat.Location is WorldLocation.Node location && location.Id == nodeId))
                 continue;
             var node = world.Nodes.Single(item => item.Id == nodeId);
+            if (!world.CreatureGroups.Any(group => group.Location is WorldLocation.Node at && at.Id == nodeId)
+                && (node.Occupant is not NodeOccupant.Settlement settlement
+                    || !CombatQueries.Hostile(world, new CombatOwner.Player(),
+                        CombatQueries.Owner(world, new CombatController.Settlement(settlement.Id)))))
+                continue;
             var groups = Groups(world, node);
             var creatures = CreaturesAt(world, node.Id);
             if (!HasAttacker(world, content, groups, creatures.Select(creature => creature.Id))) continue;
@@ -317,6 +322,7 @@ internal static class CombatOperations
 
     private static WorldState RemoveDeparted(WorldState world)
     {
+        if (world.Combats.IsEmpty) return world;
         var combats = world.Combats.Select(combat =>
         {
             var controllers = combat.Controllers.Where(state => state.Controller switch
@@ -348,6 +354,7 @@ internal static class CombatOperations
 
     private static WorldState AdvanceRetreats(WorldState world, CoreContentProjection content, ulong step)
     {
+        if (world.Combats.IsEmpty) return world;
         var trains = world.Trains.ToDictionary(train => train.Id);
         var leaving = new List<CreatureGroupId>();
         var combats = world.Combats.Select(combat =>
@@ -394,8 +401,11 @@ internal static class CombatOperations
 
     private static WorldState RetryRetreatDestinations(WorldState world, CoreContentProjection content)
     {
-        var trains = world.Trains.Select(train => train.Activity == TrainActivity.Retreating
-            && train.RetreatDestination is null && !CombatQueries.TrainInCombat(world, train.Id)
+        bool Pending(TrainState train) => train.Activity == TrainActivity.Retreating
+            && train.RetreatDestination is null && !CombatQueries.TrainInCombat(world, train.Id);
+
+        if (!world.Trains.Any(Pending)) return world;
+        var trains = world.Trains.Select(train => Pending(train)
             ? train with { RetreatDestination = ChooseDestination(world, content, train,
                 WorldState.Location(train.Position)) }
             : train).ToImmutableArray();
