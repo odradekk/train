@@ -229,7 +229,6 @@ public partial class GameUi : CanvasLayer
         _error.Name = "Error";
         _error.CustomMinimumSize = new(500, 0);
         _error.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-        _error.AddThemeColorOverride("font_color", UiStyle.Error);
         errorBody.AddChild(_error);
         _library = new BlueprintLibraryPanel { Name = "BlueprintLibrary" }; _library.Initialize(_editor); _root.AddChild(_library);
         _editorPanel = new DesignEditorPanel { Name = "DesignEditor" }; _editorPanel.Initialize(_editor); _editorPanel.LibraryRequested += _library.Open; _root.AddChild(_editorPanel);
@@ -653,8 +652,7 @@ public partial class GameUi : CanvasLayer
         {
             _menu.CloseSaves();
             if (!result.Problems.IsEmpty)
-                ShowMessage("读档完成，内容已适配", "以下状态已按当前安装的内容调整：\n" +
-                    string.Join("\n", result.Problems.Select(problem => CommandDiagnostics.Describe(problem, _content))));
+                ShowMessage("读档完成，内容已适配", string.Join("\n", result.Problems.Select(AdaptationLine)), UiStyle.Info);
         }
         if (!result.Succeeded && result.Status is not (HostOperationStatus.Cancelled or HostOperationStatus.Discarded))
         {
@@ -677,13 +675,19 @@ public partial class GameUi : CanvasLayer
             _newGame!.Hide();
     }
 
-    internal void ShowError(string message) => ShowMessage("操作未完成", message);
+    internal void ShowError(string message) => ShowMessage("操作未完成", message, UiStyle.Error);
 
-    private void ShowMessage(string title, string message)
+    private static string AdaptationLine(CoreProblem problem) => problem.Code == "content_changed"
+        ? "存档保存后安装的内容有变化，已按当前内容调整存档状态。"
+        : "部分状态已按当前安装的内容调整。";
+
+    private void ShowMessage(string title, string message, Color color)
     {
         _missingErrorOperation = null;
         ((Label)_errorPanel.FindChild("Title", true, false)).Text = title;
-        _error.Text = message; _errorPanel.Show(); _errorPanel.MoveToFront();
+        _error.Text = message;
+        _error.AddThemeColorOverride("font_color", color);
+        _errorPanel.Show(); _errorPanel.MoveToFront();
         _errorPanel.Position = new(Math.Max(16, _root.Size.X - _errorPanel.Size.X - 24), 68);
     }
 
