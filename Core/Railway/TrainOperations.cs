@@ -212,6 +212,7 @@ internal static class TrainOperations
     private static WorldState TurnEdgeRetreats(WorldState world, CoreContentProjection content,
         ImmutableArray<CoreEvent>.Builder events, HashSet<TrainId> turned)
     {
+        if (world.Trains.All(train => train.Activity != TrainActivity.Retreating)) return world;
         var leads = world.Trains.Where(train => PendingEdgeRetreat(world, train) && !RetreatAhead(world, train))
             .OrderBy(train => ((TrainPosition.Edge)train.Position).Id.Value)
             .ThenBy(train => ((TrainPosition.Edge)train.Position).Track)

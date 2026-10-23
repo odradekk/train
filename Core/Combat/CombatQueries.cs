@@ -118,9 +118,10 @@ internal static class CombatQueries
     };
 
     internal static bool Hostile(WorldState world, CombatUnitId left, CombatUnitId right)
+        => Hostile(world, OwnerOfUnit(world, left), OwnerOfUnit(world, right));
+
+    internal static bool Hostile(WorldState world, CombatOwner leftOwner, CombatOwner rightOwner)
     {
-        var leftOwner = OwnerOfUnit(world, left);
-        var rightOwner = OwnerOfUnit(world, right);
         if (Surrendered(world, leftOwner) || Surrendered(world, rightOwner)) return false;
         if (leftOwner is CombatOwner.Creatures || rightOwner is CombatOwner.Creatures)
             return leftOwner is not CombatOwner.Creatures || rightOwner is not CombatOwner.Creatures;
