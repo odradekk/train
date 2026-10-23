@@ -4,7 +4,26 @@ internal sealed class GodotMainThreadDispatcher : IDisposable
 {
     private readonly int _mainThread = Environment.CurrentManagedThreadId;
     private readonly Queue<(Action Execute, Action Cancel)> _pending = new();
+    private int _directCalls;
     private bool _disposed;
+
+    internal T InvokeOnCallingThread<T>(Func<T> action)
+    {
+        lock (_pending)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _directCalls++;
+        }
+        try { return action(); }
+        finally
+        {
+            lock (_pending)
+            {
+                _directCalls--;
+                if (_disposed && _directCalls == 0) Monitor.PulseAll(_pending);
+            }
+        }
+    }
 
     internal T Invoke<T>(Func<T> action)
     {
@@ -57,6 +76,8 @@ internal sealed class GodotMainThreadDispatcher : IDisposable
         {
             _disposed = true;
             while (_pending.TryDequeue(out var request)) request.Cancel();
+            // 这些调用不依赖主线程；返回前结束它们，防止引擎清理仍在使用的对象。
+            while (_directCalls != 0) Monitor.Wait(_pending);
         }
     }
 }
