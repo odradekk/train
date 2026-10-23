@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Train.Scenes.ContractSupport;
 using Chickensoft.GoDotTest;
+using Chickensoft.GodotTestDriver;
 using Godot;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
@@ -56,9 +57,9 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
             ImmutableArray<GoodsQuantity> bom = [new(voxel, 3), new(assembly, 2)];
             ImmutableArray<PartCapability> capabilities =
             [
-                new PartCapability.Propulsion(12.5, 34), new PartCapability.Control(), new PartCapability.Storage(56),
-                new PartCapability.Production(0.0001), new PartCapability.Extraction(8),
-                new PartCapability.Construction(9, PlotSize.SmallStation, SizeClass.Titan), new PartCapability.Power(10),
+                new PartCapability.Propulsion(12.56789, 34.56789), new PartCapability.Control(), new PartCapability.Storage(56),
+                new PartCapability.Production(7.1234), new PartCapability.Extraction(8.56789),
+                new PartCapability.Construction(9.87654, PlotSize.SmallStation, SizeClass.Titan), new PartCapability.Power(10.12345),
                 new PartCapability.Weapon(11, 1.2345), new PartCapability.Platform()
             ];
             var projection = new DesignProjection(new("fixture-design"), new("fixture-composition"), new DesignKind.Vehicle(SizeClass.Small, 1),
@@ -78,9 +79,9 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
             var rows = string.Join("\n", Enumerable.Range(0, list.ItemCount).Select(list.GetItemText));
             Require(rows.Contains("体素 (0, 0, 0)") && rows.Contains("组装体 (8, 0, 0)") && rows.Contains("功能复合体"),
                 "层级列表必须显示中文种类和数值坐标。");
-            foreach (var text in new[] { "转动设备 × 2", "牵引力 12.5 kN", "额定速度 34 m/s", "控制", "库存容量 56",
-                         "生产工作量 0.0001/秒", "开采工作量 8/秒", "施工工作量 9/秒", "小站点", "泰坦", "能量 10/秒",
-                         "武器伤害 11", "1.2345 秒", "站台", "部件定义不可用", "(-2, 3, 4)" })
+            foreach (var text in new[] { "转动设备 × 2", "牵引力 12.57 kN", "额定速度 34.57 m/s", "控制", "库存容量 56",
+                         "生产工作量 7.12/秒", "开采工作量 8.57/秒", "施工工作量 9.88/秒", "小站点", "泰坦", "能量 10.12/秒",
+                         "武器伤害 11", "1.23 秒", "站台", "部件定义不可用", "(-2, 3, 4)" })
                 Require(Displayed(panel, text), $"设计信息缺少玩家文字或数值：{text}");
             foreach (var text in new[] { "GridPosition {", "GoodId", "Voxel {", "Assembly {", "Propulsion {", "fixture-assembly-composition", "fixture:missing-part", "fixture-design" })
                 Require(!rows.Contains(text, StringComparison.Ordinal) && !Displayed(panel, text), $"编辑器不能显示记录原文或内部标识：{text}");
@@ -101,6 +102,38 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
             await FramesUntil(TestScene, () => Displayed(panel, "BOM：无"));
         }
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
+    }
+    [Test]
+    public async Task Unpublished_nested_assembly_bom_uses_a_placeholder_instead_of_a_composition_hash()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        try
+        {
+            var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
+            app.Saves!.SetAutoSaveInterval(null);
+            var host = app.Host!;
+            await FramesUntil(TestScene, () => !host.IsBusy, timeout: ContentPreparationTimeout);
+            Require(host.BeginNewGame(new("core:basic-through-world"), 1, "stage1-world-v1", host.SessionOptions!).Problem is null,
+                "真实新局必须可创建。");
+            await FramesUntil(TestScene, () => !host.IsBusy, timeout: ContentPreparationTimeout);
+            var child = new DesignDraft(new("嵌套储物设备", ""), new DesignSpecification.Assembly(null),
+                new([new(new("core:storage-equipment"), VoxelOrientation.PxPy, null, null)], [new(new(0, 0, 0), 0)], []));
+            var draft = new DesignDraft(new("未发布组装体", ""), new DesignSpecification.Assembly(null),
+                new([new(new("core:structural-metal"), VoxelOrientation.PxPy, null, null)], [new(new(0, 0, 0), 0)],
+                    [new NestedDesignItem.AssemblyCopy(new(1, 0, 0), VoxelOrientation.PxPy, child)]));
+            app.Editor!.Open(draft, new DraftTarget.LocalBlueprint(null));
+            await FramesUntil(TestScene, () => app.Editor.Session is not null);
+            var panel = Find<DesignEditorPanel>(app, "DesignEditor");
+            await FramesUntil(TestScene, () => Displayed(panel, "BOM："));
+            var evaluation = (DesignEvaluation.Complete)app.Editor.State!.CurrentEvaluation!;
+            var composition = evaluation.Core!.Design.BillOfMaterials.Select(item => item.Good).OfType<GoodId.Assembly>().Single().Composition;
+            var information = panel.FindChildren("*", "Label", true, false).OfType<Label>().Single(label => label.Text.Contains("BOM："));
+            GD.Print("issue-743 unpublished assembly information: " + information.Text);
+            await UiCapture.Capture(TestScene, "player-editor-unpublished-assembly");
+            Require(information.Text.Contains("组装体（名称不可用）", StringComparison.Ordinal) && !information.Text.Contains(composition.Value, StringComparison.Ordinal),
+                "未发布的嵌套组装体必须说明名称不可用，不能回退成构成哈希。");
+        }
+        finally { await fixture.Cleanup(); }
     }
     [Test]
     public async Task Unavailable_instance_design_shows_a_player_reason_and_logs_the_hash()

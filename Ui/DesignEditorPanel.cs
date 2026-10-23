@@ -441,8 +441,17 @@ internal partial class DesignEditorPanel : Control
         }
     }
     private static string Computed<T>(ComputedValue<T> value, Func<T, string> format) where T : notnull => value is ComputedValue<T>.Known known ? format(known.Value) : "未知";
-    private string Bom(ImmutableArray<GoodsQuantity> values) => values.IsEmpty ? "无" :
-        string.Join("、", values.Select(item => $"{WorldPanels.GoodName(item.Good, _service.FixedContent!)} × {item.Quantity}"));
+    private string Bom(ImmutableArray<GoodsQuantity> values)
+    {
+        if (values.IsEmpty) return "无";
+        return string.Join("、", values.Select(item =>
+        {
+            var name = item.Good is GoodId.Assembly &&
+                _service.FixedContent!.FindGood(item.Good) is not ContentLookup<GoodPresentation>.Found
+                    ? "组装体（名称不可用）" : WorldPanels.GoodName(item.Good, _service.FixedContent!);
+            return $"{name} × {item.Quantity}";
+        }));
+    }
     private static string BoundsText(GridBounds? bounds) => bounds is null ? "未知" :
         $"X {bounds.Minimum.X}～{bounds.Maximum.X}，Y {bounds.Minimum.Y}～{bounds.Maximum.Y}，Z {bounds.Minimum.Z}～{bounds.Maximum.Z}";
     private string CompleteInformation(DesignEvaluation.Complete evaluation)
@@ -465,15 +474,15 @@ internal partial class DesignEditorPanel : Control
             ? found.Value.Text.Name : "部件定义不可用";
     private static string CapabilityText(PartCapability capability) => capability switch
     {
-        PartCapability.Propulsion value => $"牵引力 {value.TractionKilonewtons} kN，额定速度 {value.RatedSpeedMetersPerSecond} m/s",
+        PartCapability.Propulsion value => $"牵引力 {value.TractionKilonewtons:0.##} kN，额定速度 {value.RatedSpeedMetersPerSecond:0.##} m/s",
         PartCapability.Control => "控制",
         PartCapability.Storage value => $"库存容量 {value.Capacity}",
-        PartCapability.Production value => $"生产工作量 {value.WorkPerSecond}/秒",
-        PartCapability.Extraction value => $"开采工作量 {value.WorkPerSecond}/秒",
-        PartCapability.Construction value => $"施工工作量 {value.WorkPerSecond}/秒，最大建筑地块尺寸 {EconomyPanels.PlotSizeName(value.MaximumBuildingPlotSize)}"
+        PartCapability.Production value => $"生产工作量 {value.WorkPerSecond:0.##}/秒",
+        PartCapability.Extraction value => $"开采工作量 {value.WorkPerSecond:0.##}/秒",
+        PartCapability.Construction value => $"施工工作量 {value.WorkPerSecond:0.##}/秒，最大建筑地块尺寸 {EconomyPanels.PlotSizeName(value.MaximumBuildingPlotSize)}"
             + $"，最大车辆尺寸 {(value.MaximumVehicleSize is { } size ? EconomyPanels.SizeName(size) : "无")}",
-        PartCapability.Power value => $"能量 {value.EnergyPerSecond}/秒",
-        PartCapability.Weapon value => $"武器伤害 {value.Damage}，间隔 {value.IntervalSeconds} 秒",
+        PartCapability.Power value => $"能量 {value.EnergyPerSecond:0.##}/秒",
+        PartCapability.Weapon value => $"武器伤害 {value.Damage}，间隔 {value.IntervalSeconds:0.##} 秒",
         PartCapability.Platform => "站台",
         _ => "未知能力"
     };
