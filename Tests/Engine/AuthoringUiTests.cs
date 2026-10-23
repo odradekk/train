@@ -92,9 +92,9 @@ public class AuthoringUiTests(Node testScene) : TestClass(testScene)
     [Test]
     public async Task Plot_selection_uses_array_index_even_when_plot_numbers_repeat()
     {
-        var source = new DefinitionDraft.SettlementTemplate(new("town", new("core:town"), 3, new("core:town-scene"),
+        var source = new DefinitionDraft.SettlementTemplate(new("town", new("城镇模板", "说明"), new("core:town"), 3, new("core:town-scene"),
             [new(7, PlotSize.Small, new(1, 0, 2), VoxelOrientation.PxPy, null), new(7, PlotSize.Large, new(8, 0, 9), VoxelOrientation.PzPy, new("core:warehouse"))],
-            [new(7, new("core:house"))], [new(new GoodId.Voxel(new("core:steel")), 15)], []));
+            [new(7, new("core:house"))], [new TemplateInventoryDraft.Voxel(new("core:steel"), 15)], []));
         var form = Mount(source);
         try
         {
@@ -105,8 +105,8 @@ public class AuthoringUiTests(Node testScene) : TestClass(testScene)
             form.SelectPlot(0);
             Require(TestScene.GetViewport().GuiGetFocusOwner() == numberFields[0].GetParent(), "DraftIndex 0 必须定位第一行。");
             var captured = ((DefinitionDraft.SettlementTemplate)form.Capture()).Value;
-            Require(captured.Plots.SequenceEqual(source.Value.Plots) && captured.FoundingBuildings.SequenceEqual(source.Value.FoundingBuildings) && captured.Inventory.SequenceEqual(source.Value.Inventory) && captured.Type == source.Value.Type && captured.SceneModel == source.Value.SceneModel,
-                "未编辑模板时必须保留重复编号、场景模型、建筑与库存字段。");
+            Require(captured.Plots.SequenceEqual(source.Value.Plots) && captured.FoundingBuildings.SequenceEqual(source.Value.FoundingBuildings) && captured.Inventory.SequenceEqual(source.Value.Inventory) && captured.Type == source.Value.Type && captured.SceneModel == source.Value.SceneModel && captured.Display == source.Value.Display,
+                "未编辑模板时必须保留重复编号、显示文本、场景模型、建筑与库存字段。");
         }
         finally { form.QueueFree(); await new UiTestInput(TestScene).Frames(2); }
     }
@@ -217,7 +217,7 @@ public class AuthoringUiTests(Node testScene) : TestClass(testScene)
             controller.PlotSelected += panel.SelectPlot;
             service.OpenCore();
             await FramesUntil(TestScene, () => { service.Process(); return service.Package is not null; });
-            service.NewDefinition(new DefinitionDraft.SettlementTemplate(new("repeated-plots", null, 1, null,
+            service.NewDefinition(new DefinitionDraft.SettlementTemplate(new("repeated-plots", new("", ""), null, 1, null,
                 [new(5, PlotSize.Small, new(0, 0, 0), VoxelOrientation.PxPy, null), new(5, PlotSize.Large, new(8, 0, 0), VoxelOrientation.PxPy, null)], [], [], [])));
             panel.Open(); service.PreviewTemplate(service.Form!);
             await FramesUntil(TestScene, () => { service.Process(); controller.Process(0); return controller.View.Interactive; });

@@ -377,7 +377,7 @@ public sealed class AuthoringServiceTests
     {
         using var fixture = new AuthoringFixture();
         fixture.Open();
-        fixture.Service.NewDefinition(new DefinitionDraft.SettlementTemplate(new("template", null, null, null, [], [], [], [])));
+        fixture.Service.NewDefinition(new DefinitionDraft.SettlementTemplate(new("template", new("", ""), null, null, null, [], [], [], [])));
         fixture.Scenes.PreviewTemplateCall = (content, _, revision) => new SceneResult<ITemplatePreview>.Success(new FixedTemplatePreview(content.Generation, new(revision.Value + 1)));
         fixture.Service.PreviewTemplate(fixture.Service.Form!).GetAwaiter().GetResult();
         fixture.Pump(() => fixture.Service.Message != "正在准备模板预览…");
@@ -413,7 +413,7 @@ public sealed class AuthoringServiceTests
         using var started = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
         fixture.Open();
-        fixture.Service.NewDefinition(new DefinitionDraft.SettlementTemplate(new("old-template", null, null, null, [], [], [], [])));
+        fixture.Service.NewDefinition(new DefinitionDraft.SettlementTemplate(new("old-template", new("", ""), null, null, null, [], [], [], [])));
         fixture.Scenes.PreviewTemplateCall = (content, draft, revision) =>
         {
             Assert.AreEqual("old-template", draft.LocalId);
@@ -431,7 +431,7 @@ public sealed class AuthoringServiceTests
             Assert.IsNull(fixture.Editor.RequestClose(() => closed = true));
             fixture.Service.ResolveClose(LeaveChoice.Discard, null);
             Assert.IsTrue(closed);
-            var next = new DefinitionDraft.SettlementTemplate(new("new-template", null, null, null, [], [], [], []));
+            var next = new DefinitionDraft.SettlementTemplate(new("new-template", new("", ""), null, null, null, [], [], [], []));
             fixture.Service.NewDefinition(next);
             Assert.AreEqual(next, fixture.Service.Form);
         }

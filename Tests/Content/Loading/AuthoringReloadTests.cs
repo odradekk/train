@@ -1,6 +1,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static Train.Content.Tests.Loading.WorldContentFixtures;
 using C = Train.Content.Contracts;
+using K = Train.Core.Contracts;
 
 namespace Train.Content.Tests.Loading;
 
@@ -73,6 +74,26 @@ public sealed class AuthoringReloadTests
         Assert.AreEqual(100L, oldType.MinimumInitialPopulation);
         Assert.AreEqual(200L, oldType.MaximumInitialPopulation);
         Assert.AreEqual(2, initial.View.Core.SettlementTemplates.Single().Weight);
+    }
+
+    [TestMethod]
+    public void New_template_writes_display_and_reloads_without_mutating_old_view()
+    {
+        var fixture = WorldContentFixtures.Content();
+        using var initial = fixture.Load();
+        var package = Open(fixture);
+        var template = (C.DefinitionDraft.SettlementTemplate)Found(package.Read(new(C.DefinitionKind.SettlementTemplate, "farm-start")));
+        var created = template with
+        {
+            Value = template.Value with { LocalId = "new-start", Display = new("新农庄", "新建说明") }
+        };
+        Apply(fixture, package, new C.PackageEdit.WriteDefinition(created));
+        using var reloaded = Reload(fixture, initial.View);
+        var actual = reloaded.View.Core.SettlementTemplates.Single(item => item.Id.Value == "core:new-start");
+        Assert.AreEqual(template.Value.Weight, actual.Weight);
+        Assert.AreEqual(created.Value.Display, Found(reloaded.View.FindDefinitionDisplay(new K.CoreDefinitionReference.Template(actual.Id))).Text);
+        Assert.IsFalse(initial.View.Core.SettlementTemplates.Any(item => item.Id.Value == "core:new-start"));
+        Assert.AreEqual(2, initial.View.Core.SettlementTemplates.Single(item => item.Id.Value == "core:farm-start").Weight);
     }
 
     private static C.DesignEvaluation.Complete Blueprint(C.IContentView view, string id) =>

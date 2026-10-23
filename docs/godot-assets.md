@@ -12,7 +12,7 @@
 
 - [资源线程说明](https://docs.godotengine.org/en/4.7/tutorials/performance/thread_safe_apis.html#resources)禁止多线程修改同一资源。PNG 每次调用独占一个 `Image`，在同一线程创建、`LoadPngFromBuffer`、取尺寸并释放；[PNG 解码器](https://github.com/godotengine/godot/blob/4.7.2-stable/drivers/png/png_driver_common.cpp#L62-L125)使用私有解码状态和像素缓冲，不创建 GPU 纹理。不得跨线程共享这个可变实例。
 - [PCK 文件实现](https://github.com/godotengine/godot/blob/4.7.2-stable/core/io/file_access_pack.cpp#L443-L629)每次打开持有独立文件句柄、位置和目录遍历列表。加载期间只读已挂载的 PCK 索引，不挂载、替换或清空资源包；文件和目录实例不跨调用共享。打开、读取和取错误都在同一调用线程完成；[FileAccess](https://docs.godotengine.org/en/4.7/classes/class_fileaccess.html#class-fileaccess-method-get-open-error)和[DirAccess](https://docs.godotengine.org/en/4.7/classes/class_diraccess.html#class-diraccess-method-get-open-error)的打开错误按线程记录。
-- 原生 [DirAccessWindows.change_dir](https://github.com/godotengine/godot/blob/4.7.2-stable/drivers/windows/dir_access_windows.cpp#L188-L223)会临时改变进程工作目录，构造器又在锁外读取它，不能据此证明源码目录枚举的线程安全，所以源码运行使用 .NET 磁盘实现。Godot 原生枚举默认隐藏隐藏项，磁盘实现保留它们；当前内置根已核对两者文件名和类型一致，没有为此增加过滤。
+- 原生 [DirAccessWindows.change_dir](https://github.com/godotengine/godot/blob/4.7.2-stable/drivers/windows/dir_access_windows.cpp#L188-L223)会临时改变进程工作目录，构造器又在锁外读取它，不能据此证明源码目录枚举的线程安全，所以源码运行使用 .NET 磁盘实现。Godot 原生枚举默认不列出隐藏项，磁盘实现保留它们；当前内置根已核对两者文件名和类型一致，没有为此增加过滤。
 
 真实引擎测试验证源码运行时的资源枚举、读取和 PNG 检查在工作线程上不经 `Pump()` 完成，GLB 仍需泵送。测试使用编辑器二进制，不覆盖 PCK 分支；后者由 Windows Release 导出中的实际读档对照测量验证，包括恢复检查点、诊断和内容配对。
 

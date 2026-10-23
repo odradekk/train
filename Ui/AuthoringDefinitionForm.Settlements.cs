@@ -36,7 +36,7 @@ internal partial class AuthoringDefinitionForm
     }
     private Func<DefinitionDraft> Template(SettlementTemplateDraft v)
     {
-        var id = Field(this, "本地 ID", v.LocalId); var type = Field(this, "聚居地类型 ID（可空）", v.Type?.Value); var weight = Field(this, "权重（可空）", v.Weight); var scene = Field(this, "场景模型蓝图 ID（可空）", v.SceneModel?.Value);
+        var id = Field(this, "本地 ID", v.LocalId); var display = Display(v.Display); var type = Field(this, "聚居地类型 ID（可空）", v.Type?.Value); var weight = Field(this, "权重（可空）", v.Weight); var scene = Field(this, "场景模型蓝图 ID（可空）", v.SceneModel?.Value);
         var plots = Rows("地块", v.Plots, () => new TemplatePlotDraft(_plots.Count + 1, PlotSize.Small, new(0, 0, 0), VoxelOrientation.PxPy, null), (box, plot) =>
         {
             var number = Field(box, "地块编号", plot.Number); var size = Field(box, "地块尺寸", plot.Size);
@@ -49,12 +49,27 @@ internal partial class AuthoringDefinitionForm
             var plot = Field(box, "地块编号", building.PlotNumber); var blueprint = Field(box, "建筑蓝图 ID", building.Building.Value);
             return () => new(Int(plot), new(blueprint.Text));
         });
-        var inventory = Rows("初始库存", v.Inventory, () => new GoodsQuantity(new GoodId.Voxel(new("")), 1), (box, item) =>
+        var inventory = Rows("初始库存", v.Inventory, () => new TemplateInventoryDraft.Voxel(new(""), 1), (box, item) =>
         {
-            var kind = Field(box, "货物类型 Voxel/Composite/Assembly", item.Good switch { GoodId.Voxel => "Voxel", GoodId.Composite => "Composite", _ => "Assembly" });
-            var reference = Field(box, "货物 ID 或构成哈希", item.Good switch { GoodId.Voxel g => g.Definition.Value, GoodId.Composite g => g.Definition.Value, GoodId.Assembly g => g.Composition.Value, _ => "" });
-            var quantity = Field(box, "数量", item.Quantity);
-            return () => new(kind.Text switch { "Voxel" => new GoodId.Voxel(new(reference.Text)), "Composite" => new GoodId.Composite(new(reference.Text)), "Assembly" => new GoodId.Assembly(new(reference.Text)), _ => throw new FormatException("无效的货物类型。") }, Long(quantity));
+            var kind = Field(box, "引用类型 voxel/blueprint", item is TemplateInventoryDraft.Blueprint ? "blueprint" : "voxel");
+            var reference = Field(box, "引用 ID", item switch
+            {
+                TemplateInventoryDraft.Voxel voxel => voxel.Id.Value,
+                TemplateInventoryDraft.Blueprint blueprint => blueprint.Id.Value,
+                _ => ""
+            });
+            var quantity = Field(box, "数量", item switch
+            {
+                TemplateInventoryDraft.Voxel voxel => voxel.Quantity,
+                TemplateInventoryDraft.Blueprint blueprint => blueprint.Quantity,
+                _ => 1L
+            });
+            return () => (TemplateInventoryDraft)(kind.Text switch
+            {
+                "voxel" => new TemplateInventoryDraft.Voxel(new(reference.Text), Long(quantity)),
+                "blueprint" => (TemplateInventoryDraft)new TemplateInventoryDraft.Blueprint(new(reference.Text), Long(quantity)),
+                _ => throw new FormatException("无效的引用类型。")
+            });
         });
         var plans = Rows("生产计划", v.ProductionPlans, () => new TemplateProductionPlan(1, CapabilityKind.Production, new ProcessRef.Production(new("")), true, 0), (box, plan) =>
         {
@@ -64,6 +79,6 @@ internal partial class AuthoringDefinitionForm
             var enabled = Flag(box, "启用计划", plan.Enabled); var priority = Field(box, "优先级", plan.Priority);
             return () => new(Int(plot), EnumValue<CapabilityKind>(capability), kind.Text switch { "Production" => new ProcessRef.Production(new(process.Text)), "Recovery" => new ProcessRef.Recovery(new(process.Text)), _ => throw new FormatException("无效的工序类型。") }, enabled.ButtonPressed, Int(priority));
         });
-        return () => new DefinitionDraft.SettlementTemplate(new(id.Text, string.IsNullOrWhiteSpace(type.Text) ? null : new SettlementTypeId(type.Text), OptionalInt(weight), BlueprintReference(scene), plots(), founding(), inventory(), plans()));
+        return () => new DefinitionDraft.SettlementTemplate(new(id.Text, display(), string.IsNullOrWhiteSpace(type.Text) ? null : new SettlementTypeId(type.Text), OptionalInt(weight), BlueprintReference(scene), plots(), founding(), inventory(), plans()));
     }
 }

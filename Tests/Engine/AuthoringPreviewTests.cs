@@ -26,7 +26,7 @@ public class AuthoringPreviewTests(Node testScene) : TestClass(testScene)
         var overlay = new CanvasLayer(); TestScene.AddChild(overlay); overlay.AddChild(form);
         try
         {
-            var draft = new DefinitionDraft.SettlementTemplate(new("repeated-plots", new("core:agricultural-town"), 1,
+            var draft = new DefinitionDraft.SettlementTemplate(new("repeated-plots", new("", ""), new("core:agricultural-town"), 1,
                 new(fixture.PackageId.Value + ":preview-ground"),
                 [new(7, PlotSize.Small, new(-32, 1, 0), VoxelOrientation.PxPy, null),
                  new(7, PlotSize.Small, new(32, 1, 0), VoxelOrientation.PxPy, null)], [], [], []));

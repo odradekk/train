@@ -266,7 +266,7 @@ public sealed class TemplatePreviewTests
             Assert.ThrowsExactly<ArgumentException>(() => preview.PickPlot(ray));
     }
 
-    private static SettlementTemplateDraft Draft(ImmutableArray<TemplatePlotDraft> plots) => new("preview", null, null, null, plots, [], [], []);
+    private static SettlementTemplateDraft Draft(ImmutableArray<TemplatePlotDraft> plots) => new("preview", new("", ""), null, null, null, plots, [], [], []);
     private static FixedContentView Content(params (BlueprintId Id, ContentLookup<BlueprintRecord> Value)[] blueprints) => new()
     {
         Generation = new(7),
