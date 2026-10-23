@@ -64,6 +64,8 @@ public sealed class NodeCorridorTests
         }
         while (remaining.Sum() > 0)
         {
+            Assert.AreEqual(RailwayCoordinates.MaxConcurrentBuilds, scene.PendingWork.Count(work => !work.IsCompleted),
+                "Static work must occupy at most the two owned build slots.");
             // Release one slot at a time so worker scheduling cannot reorder the observed dispatches.
             occupied.Dequeue().SetResult();
             var work = await started.Reader.ReadAsync(timeout.Token);

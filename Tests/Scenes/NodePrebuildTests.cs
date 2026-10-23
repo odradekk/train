@@ -11,15 +11,23 @@ public sealed class NodePrebuildTests
     public async Task A_pending_node_candidate_does_not_stop_the_active_railway_display_range()
     {
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var release = new ManualResetEventSlim();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle());
-        var train = RailwayFixtures.Train(400, direction: TravelDirection.Reverse, speed: 22);
-        var initial = RailwayFixtures.Snapshot(content: content, trains: [train], instances: [RailwayFixtures.Instance()]);
-        await using var session = new WorldSceneSession(new(Guid.NewGuid()), initial, new(), new(),
+        var train = RailwayFixtures.Train(280);
+        var initial = RailwayFixtures.Snapshot(lengthMeters: 449, directMeters: 449, relief: 0,
+            content: content, trains: [train], instances: [RailwayFixtures.Instance()]);
+        var path = new RailwayPath(initial, RailwayFixtures.Edge, default);
+        var middle = (int)(280 * RailwayCoordinates.CellsPerMeter / RailwayCoordinates.SegmentLengthCells);
+        var radius = RailwayCoordinates.ViewRadiusSegments;
+        var cache = new RailwayCache();
+        cache.Publish(RailwayFixtures.Edge, cache.OpenSession(RailwayFixtures.Edge),
+            Enumerable.Range(middle - radius, 2 * radius + 1)
+                .Select(index => RailwayFixtures.EmptySegment(initial, path, index, default)));
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), initial, cache, new(),
             (current, node, previous, token) =>
             {
                 entered.TrySetResult();
-                release.Wait(token);
+                release.Task.Wait(token);
                 return RailwayFixtures.EmptyNode(current, node, previous, token);
             });
         try
@@ -32,16 +40,16 @@ public sealed class NodePrebuildTests
             var building = session.PendingPrebuilds;
             Assert.IsTrue(building.Any(work => !work.IsCompleted));
 
-            // Move beyond the warmed segments while the independent node builder remains blocked.
-            var moved = train with { Position = ((TrainPosition.Edge)train.Position) with { DistanceMeters = 180 } };
-            session.Observe(RailwayFixtures.Snapshot(content: content, steps: 1,
+            // The newly needed final metre lies beyond focal ±64 m while the node builder remains blocked.
+            var moved = train with { Position = ((TrainPosition.Edge)train.Position) with { DistanceMeters = 340 } };
+            session.Observe(RailwayFixtures.Snapshot(lengthMeters: 449, directMeters: 449, relief: 0, content: content, steps: 1,
                 trains: [moved], instances: [RailwayFixtures.Instance()]), []);
             var active = await RailwayFixtures.Settled(session, request, displayed);
             Assert.AreEqual(SceneReadiness.Ready, active.Readiness,
                 "The full railway display range must still receive build slots during candidate preparation.");
             Assert.IsTrue(building.Any(work => !work.IsCompleted), "The test must not rely on the candidate completing.");
         }
-        finally { release.Set(); }
+        finally { release.TrySetResult(); }
     }
 
     [TestMethod]
