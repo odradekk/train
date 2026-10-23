@@ -44,7 +44,7 @@ public class ContentPortsTests(Node testScene) : TestClass(testScene)
             System.IO.File.WriteAllBytes(Path.Combine(physical, "first.bin"), [1, 2, 3]);
             System.IO.File.WriteAllBytes(Path.Combine(physical, "second.bin"), [4, 5, 6]);
             var fixtureRoot = new ContentRoot("fixture");
-            var port = new ContentFiles(new Dictionary<ContentRoot, ContentRootLocation>
+            var port = new ContentFiles(dispatcher, new Dictionary<ContentRoot, ContentRootLocation>
             {
                 [fixtureRoot] = new ContentRootLocation.Resource(fixture)
             });
@@ -58,7 +58,7 @@ public class ContentPortsTests(Node testScene) : TestClass(testScene)
             Directory.Delete(physical);
         }
         var root = new ContentRoot("builtin");
-        IContentFiles files = new ContentFiles(new Dictionary<ContentRoot, ContentRootLocation>
+        IContentFiles files = new ContentFiles(dispatcher, new Dictionary<ContentRoot, ContentRootLocation>
         {
             [root] = new ContentRootLocation.Resource("res://builtin/legacy-host/resources/voxels/grain")
         });

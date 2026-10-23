@@ -713,7 +713,7 @@ public sealed class EditorServiceTests
         {
             if (userLibrary)
             {
-                Files = new(new Dictionary<ContentRoot, ContentRootLocation>
+                Files = new(_dispatcher, new Dictionary<ContentRoot, ContentRootLocation>
                 {
                     [new("user-library")] = new ContentRootLocation.Disk(AuthoringPaths.UserLibraryDirectory(_root))
                 });

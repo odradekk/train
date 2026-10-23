@@ -70,7 +70,7 @@ public partial class ProbeRunner : Node
         var mod = new ContentRoot("mod");
         var production = new ContentRoot("production");
         var modDirectory = Path.Combine(data, "mods");
-        IContentFiles files = new ContentFiles(new Dictionary<ContentRoot, ContentRootLocation>
+        IContentFiles files = new ContentFiles(dispatcher, new Dictionary<ContentRoot, ContentRootLocation>
         {
             [packed] = new ContentRootLocation.Resource("res://assets"),
             [mod] = new ContentRootLocation.Disk(modDirectory),

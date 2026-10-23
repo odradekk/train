@@ -42,7 +42,7 @@ internal sealed class RealAuthoringFixture : IDisposable
              "layout":{"palette":[{"voxel":"core:tree-trunk"}],"cells":[[0,0,0,0]]},
              "display":{"name":"真实创作模型","description":"隔离本地 Mod"}}
             """);
-        Files = new ContentFiles(new Dictionary<ContentRoot, ContentRootLocation>
+        Files = new ContentFiles(Dispatcher, new Dictionary<ContentRoot, ContentRootLocation>
         {
             [new("builtin")] = new ContentRootLocation.Disk(writableCore ?? ProjectSettings.GlobalizePath("res://builtin/core")),
             [new("mods")] = new ContentRootLocation.Disk(Mods)
