@@ -38,7 +38,7 @@ internal partial class DesignEditorPanel : Control
     private EditSessionId? _paletteSession;
     private readonly List<GridPosition> _stroke = [];
     private ConfirmationDialog _confirm = null!;
-    private PanelContainer _leave = null!;
+    private PanelContainer _leave = null!, _topBar = null!, _toolsPanel = null!, _inspectorPanel = null!, _bottomPanel = null!;
     private Button _saveBlueprint = null!;
     private Button _returnServices = null!;
     internal event Action<InstanceId>? ServiceRequested;
@@ -54,7 +54,7 @@ internal partial class DesignEditorPanel : Control
     {
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect); MouseFilter = MouseFilterEnum.Ignore;
         AddChild(_scene.View); _scene.Picked += Pick;
-        var top = new PanelContainer(); top.SetAnchorsAndOffsetsPreset(LayoutPreset.TopWide); AddChild(top);
+        var top = _topBar = new PanelContainer(); top.SetAnchorsAndOffsetsPreset(LayoutPreset.TopWide); AddChild(top);
         var bar = new HFlowContainer(); top.AddChild(bar);
         _name = new LineEdit { CustomMinimumSize = new(160, 36), PlaceholderText = "名称" }; bar.AddChild(_name);
         _description = new LineEdit { CustomMinimumSize = new(180, 36), PlaceholderText = "说明" }; bar.AddChild(_description);
@@ -73,7 +73,7 @@ internal partial class DesignEditorPanel : Control
                 _service.RequestClose(() => ServiceRequested?.Invoke(vehicle));
         });
         bar.AddChild(_returnServices);
-        var left = Panel("Tools", "体素与工具", new(8, 64), 270, out var tools);
+        var left = _toolsPanel = Panel("Tools", "体素与工具", new(8, 64), 270, out var tools);
         _voxel = Choice(tools, []); _voxel.ItemSelected += _ => RefreshShapes();
         _shape = Choice(tools, []); _orientation = Choice(tools, []);
         _paint = new ColorPickerButton { Color = Colors.White, CustomMinimumSize = new(240, 32) }; tools.AddChild(_paint);
@@ -106,7 +106,7 @@ internal partial class DesignEditorPanel : Control
         _axis.ItemSelected += _ => Plane(); _plane.ValueChanged += _ => Plane();
         Add(tools, "RetryScene", "重试场景", () => _scene.Process(0, true));
         _equipment = new VBoxContainer(); tools.AddChild(_equipment);
-        var right = Panel("Inspector", "层级与精确参数", new(1000, 64), 290, out var inspector);
+        var right = _inspectorPanel = Panel("Inspector", "层级与精确参数", new(1000, 64), 290, out var inspector);
         right.SetAnchorsAndOffsetsPreset(LayoutPreset.TopRight);
         right.OffsetLeft = -310; right.OffsetRight = -8; right.OffsetTop = 64;
         _elements = new ItemList { CustomMinimumSize = new(260, 160), SelectMode = ItemList.SelectModeEnum.Multi }; inspector.AddChild(_elements);
@@ -137,7 +137,7 @@ internal partial class DesignEditorPanel : Control
         Add(inspector, "Remove", "删除选区", () => Preview(new EditOperation.RemoveSelection()));
         Add(inspector, "Paint", "选区涂装", () => Preview(new EditOperation.PaintSelection(Paint())));
         Add(inspector, "Shape", "选区形状", () => { if (Shape() is { } shape) Preview(new EditOperation.ShapeSelection(shape)); });
-        var bottom = new PanelContainer(); bottom.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomWide); bottom.OffsetTop = -220; AddChild(bottom);
+        var bottom = _bottomPanel = new PanelContainer(); bottom.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomWide); bottom.OffsetTop = -220; AddChild(bottom);
         var scroll = new ScrollContainer { CustomMinimumSize = new(0, 210) }; bottom.AddChild(scroll);
         var information = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill }; scroll.AddChild(information);
         _status = UiStyle.Label(""); _previewText = UiStyle.Label(""); _information = UiStyle.Label("");
@@ -158,6 +158,14 @@ internal partial class DesignEditorPanel : Control
         foreach (var number in new[] { _x, _y, _z, _endX, _endY, _endZ, _width }) number.ValueChanged += _ => InvalidatePreview();
         foreach (var choice in new[] { _voxel, _shape, _orientation, _tool, _action }) choice.ItemSelected += _ => InvalidatePreview();
         _paint.ColorChanged += _ => InvalidatePreview();
+    }
+    private Rect2 FramingArea()
+    {
+        var left = _toolsPanel.GetGlobalRect().End.X;
+        var right = _inspectorPanel.GetGlobalRect().Position.X;
+        var top = _topBar.GetGlobalRect().End.Y;
+        var bottom = _bottomPanel.GetGlobalRect().Position.Y;
+        return new(left, top, Mathf.Max(0f, right - left), Mathf.Max(0f, bottom - top));
     }
     private PanelContainer Panel(string name, string title, Vector2 position, float width, out VBoxContainer body)
     {
@@ -279,7 +287,7 @@ internal partial class DesignEditorPanel : Control
     }
     public override void _Process(double delta)
     {
-        Visible = _service.IsOpen; _scene.Process(delta);
+        Visible = _service.IsOpen; _scene.VisibleArea = FramingArea(); _scene.Process(delta);
         if (!Visible) return;
         _saveBlueprint.Visible = _service.Target is not DraftTarget.PackageDefinition;
         _returnServices.Visible = _service.Target is DraftTarget.Instance { Id: InstanceId.Vehicle };

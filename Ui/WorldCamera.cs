@@ -9,6 +9,7 @@ internal partial class WorldCamera : Node3D
     internal const float DefaultDistance = 48f;
     internal const float MaximumDistance = 240f;
     internal const float NodeMaximumDistance = 96f;
+    internal const float ZoomStep = 0.15f;
     private const float OrbitSensitivity = 0.006f;
     private const float MinimumPitch = 0.15f;
     private const float MaximumPitch = 1.35f;
@@ -23,10 +24,16 @@ internal partial class WorldCamera : Node3D
     private float _orbitYaw;
     private float _pitch = 0.55f;
     private float _distance = DefaultDistance;
+    private float _zoomCeiling = MaximumDistance;
     private bool _hasFollowPose;
     private ScenePanBounds? NodePanBounds => _follow is null && !_railwayPan ? _frame?.NodePanBounds : null;
 
     public Vector3 Focus { get; private set; }
+    internal float ZoomCeiling
+    {
+        get => _zoomCeiling;
+        set => _zoomCeiling = value;
+    }
     public Camera3D Camera { get; } = new() { Fov = 60f, Near = 0.1f, Far = 4000f };
     internal bool ShakeEnabled { get; set; } = true;
     internal Vector3 ShakeOffset { get; private set; }
@@ -119,8 +126,8 @@ internal partial class WorldCamera : Node3D
 
     public void Zoom(float amount)
     {
-        _distance = Mathf.Clamp(_distance * Mathf.Exp(-amount * 0.15f), 8f,
-            NodePanBounds is null ? MaximumDistance : NodeMaximumDistance);
+        _distance = Mathf.Clamp(_distance * Mathf.Exp(-amount * ZoomStep), 8f,
+            NodePanBounds is null ? _zoomCeiling : NodeMaximumDistance);
         PlaceCamera();
     }
 
