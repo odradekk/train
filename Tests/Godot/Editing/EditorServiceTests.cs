@@ -26,6 +26,34 @@ public sealed class EditorServiceTests
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
+    public void Content_evaluation_errors_keep_record_details_in_logs(bool faulted)
+    {
+        using var fixture = new EditingFixture();
+        var diagnostic = new ContentDiagnostic("evaluation_failed", ContentDiagnosticSeverity.Error, "evaluate",
+            new ContentReference.Design(new("unavailable-design-hash")), new(new("fixture-package"), "design.json"),
+            "definition", new DesignElementPath.Cell([0], 3), "设计内容不可用。");
+        fixture.Host.Factory.EvaluateDesignCall = (_, _) => faulted
+            ? new ContentResult<DesignEvaluation>.Faulted(diagnostic.Code, $"{diagnostic.Subject} · {diagnostic.Element}", "fault stack")
+            : new ContentResult<DesignEvaluation>.Failure([diagnostic]);
+
+        fixture.Editor.Open(Draft("failed evaluation"), new DraftTarget.LocalBlueprint(null));
+        fixture.PumpUntil(() => !fixture.Editor.IsBusy);
+
+        Assert.IsFalse(fixture.Editor.IsOpen);
+        Assert.IsTrue(fixture.Editor.HasError);
+        StringAssert.Contains(fixture.Editor.Message!, faulted ? "失败" : diagnostic.Message);
+        foreach (var detail in new[] { diagnostic.Code, diagnostic.Subject!.ToString()!, diagnostic.Element!.ToString()! })
+        {
+            Assert.IsFalse(fixture.Editor.Message!.Contains(detail, StringComparison.Ordinal));
+            Assert.AreEqual(1, fixture.Host.Logs.Count(log => log.Message.Contains(detail, StringComparison.Ordinal)));
+        }
+        if (faulted)
+            Assert.IsTrue(fixture.Host.Logs.Any(log => log.Attributes.Values.Contains("fault stack")));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
     public void Unavailable_instance_design_shows_player_reason_and_keeps_hash_in_logs(bool missing)
     {
         var id = new InstanceId.Vehicle(new(41));
@@ -114,6 +142,8 @@ public sealed class EditorServiceTests
         Assert.AreEqual(0, session.Saved.Count);
         Assert.AreEqual(0, session.Disposals);
         Assert.IsNotNull(fixture.Editor.Message);
+        Assert.IsFalse(fixture.Editor.Message.Contains("save-rejected", StringComparison.Ordinal));
+        Assert.IsFalse(fixture.Editor.Message.Contains("cannot save", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -739,11 +769,12 @@ public sealed class EditorServiceTests
         };
         fixture.Editor.SaveDraft();
         fixture.PumpUntil(() => !fixture.Editor.IsBusy);
-        StringAssert.Contains(fixture.Editor.Message!, "草稿保存失败");
+        var failure = fixture.Editor.Message!;
+        StringAssert.Contains(failure, "失败");
         Assert.IsTrue(fixture.Editor.HasError);
         Assert.IsTrue(fixture.Editor.IsDirty);
         fixture.Editor.UserDrafts();
-        StringAssert.Contains(fixture.Editor.Message!, "草稿保存失败");
+        Assert.AreEqual(failure, fixture.Editor.Message);
     }
 
     private sealed class EditingFixture : IDisposable

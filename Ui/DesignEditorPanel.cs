@@ -233,7 +233,7 @@ internal partial class DesignEditorPanel : Control
         string ConflictText(EditConflict conflict)
         {
             var text = EditorService.Explain(conflict.Problem, _service.Host.Content);
-            return conflict.Cell is { } cell ? $"({cell.X}, {cell.Y}, {cell.Z})：{text}" : text;
+            return conflict.Cell is { } cell ? $"{PositionText(cell)}：{text}" : text;
         }
     }
     private void Apply()
