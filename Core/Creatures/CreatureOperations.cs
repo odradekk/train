@@ -451,6 +451,7 @@ internal static class CreatureOperations
     internal static (WorldState World, ImmutableArray<CoreEvent> Events) DamageRails(WorldState world,
         CoreContentProjection content, ulong step)
     {
+        if (world.CreatureGroups.IsEmpty) return (world, []);
         var events = ImmutableArray.CreateBuilder<CoreEvent>();
         foreach (var id in world.CreatureGroups.Select(group => group.Id).OrderBy(group => group.Value).ToArray())
         {
