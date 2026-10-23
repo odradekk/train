@@ -452,6 +452,51 @@ public class UiTests(Node testScene) : TestClass(testScene)
         }
     }
 
+    [Test]
+    public async Task Restore_adaptation_notice_states_the_content_change_in_info_color()
+    {
+        var tree = TestScene.GetTree();
+        var fixture = new Fixture(tree);
+        var setup = new HostSimulationTests.HostSetup(UiWorldFixture.Map());
+        var previous = new string('a', 64);
+        var current = new string('b', 64);
+        var problem = new CoreProblem("content_changed", "InputIdentity", null, [previous, current]);
+        var replacement = UiWorldFixture.Session(UiWorldFixture.Map());
+        setup.ReplacementCandidate = new(replacement, HostCoreScenario.References, adaptation: [problem]);
+        try
+        {
+            var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
+            app.CreateHost = logger => setup.Create(logger);
+            await fixture.AddToRoot(app);
+            await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
+            var ui = app.GetNode<GameUi>("GameUi");
+            var binding = app.Host!.GetStatus()!.Binding;
+            var started = app.Host.BeginRestore("opaque core", "opaque content",
+                new(new("fixture", "fixture", "fixture", "fixture", "fixture"), true, 1));
+            Require(started.Problem is null, "内容适配读档未被接受。");
+            var panel = ui.GetNode<Control>("Root/ErrorPanel");
+            await _input.WaitUntil(() => app.Host.GetStatus()!.Binding != binding && panel.Visible);
+            var body = panel.GetNode<Label>("Layout/Content/Body/Error");
+            var title = panel.GetNode<Label>("Layout/Heading/Title");
+            var commandText = CommandDiagnostics.Describe(problem);
+            Require(panel.IsVisibleInTree() &&
+                title.Text == "读档完成，内容已适配" &&
+                ui.ErrorText.Length > 0 &&
+                !ui.ErrorText.Contains(commandText) &&
+                !ui.ErrorText.Contains(problem.Code) &&
+                !ui.ErrorText.Contains(problem.Field) &&
+                !ui.ErrorText.Contains(previous) &&
+                !ui.ErrorText.Contains(current) &&
+                body.GetThemeColor("font_color").IsEqualApprox(UiStyle.Info),
+                $"读档适配说明不正确：title={title.Text}，text={ui.ErrorText}，color={body.GetThemeColor("font_color")}。");
+            ui.ShowError("颜色探针");
+            Require(ui.ErrorText == "颜色探针" && body.GetThemeColor("font_color").IsEqualApprox(UiStyle.Error),
+                $"随后的错误没有回到错误色：text={ui.ErrorText}，color={body.GetThemeColor("font_color")}。");
+            replacement.AssertComplete();
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
 }
 
 internal static class UiCapture
