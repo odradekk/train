@@ -39,7 +39,7 @@ internal partial class DesignEditorPanel : Control
     private readonly List<GridPosition> _stroke = [];
     private ConfirmationDialog _confirm = null!;
     private PanelContainer _leave = null!;
-    private Button _saveBlueprint = null!;
+    private Button _undo = null!, _redo = null!, _saveBlueprint = null!;
     private Button _returnServices = null!;
     internal event Action<InstanceId>? ServiceRequested;
     internal EditorSceneController Scene => _scene;
@@ -64,7 +64,8 @@ internal partial class DesignEditorPanel : Control
                 Preview(new EditOperation.Properties(new(_name.Text, _description.Text),
                     (_scene.EnteredDraft ?? state.Snapshot.Draft).Specification));
         });
-        Add(bar, "Undo", "撤销", _service.Undo); Add(bar, "Redo", "重做", _service.Redo);
+        _undo = UiStyle.Button("Undo", "撤销", _service.Undo); bar.AddChild(_undo);
+        _redo = UiStyle.Button("Redo", "重做", _service.Redo); bar.AddChild(_redo);
         Add(bar, "SaveDraft", "保存草稿", _service.SaveDraft); _saveBlueprint = UiStyle.Button("SaveBlueprint", "保存蓝图…", SaveBlueprint); bar.AddChild(_saveBlueprint);
         Add(bar, "ExitEditor", "退出", () => _service.RequestClose(() => { }));
         _returnServices = UiStyle.Button("ReturnToVehicleServices", "返回车辆服务", () =>
@@ -281,6 +282,8 @@ internal partial class DesignEditorPanel : Control
     {
         Visible = _service.IsOpen; _scene.Process(delta);
         if (!Visible) return;
+        _undo.Disabled = _service.State?.CanUndo != true;
+        _redo.Disabled = _service.State?.CanRedo != true;
         _saveBlueprint.Visible = _service.Target is not DraftTarget.PackageDefinition;
         _returnServices.Visible = _service.Target is DraftTarget.Instance { Id: InstanceId.Vehicle };
         _leave.Visible = _service.Leaving; if (_service.Leaving) _leave.MoveToFront();
