@@ -1025,7 +1025,7 @@ internal sealed class NodeScene : IAsyncDisposable
                 // One-cell arc sampling plus a bed-width margin encloses the track profile and its end caps.
                 var margin = new Vector3((float)RailwayCoordinates.BedBaseHalfWidth);
                 rails.Add(key, new(key, sample, begin, end, new(minimum - margin, maximum + margin),
-                    new("", RailwayDependencies.Values(new object[] { inputs, route, begin, end }))));
+                    new(inputs, RailwayDependencies.Values(new object[] { route, begin, end }))));
 
                 void Include(double arc)
                 {
