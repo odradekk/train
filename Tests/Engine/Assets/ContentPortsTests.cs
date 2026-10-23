@@ -33,7 +33,7 @@ public class ContentPortsTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public void Resource_roots_read_fixed_bytes_and_enumerate_source_tree_names()
+    public async Task Resource_files_and_png_inspection_complete_on_worker_without_pumping()
     {
         using var dispatcher = new GodotMainThreadDispatcher();
         var fixture = "res://.godot/validation/content-files-" + Guid.NewGuid().ToString("N");
@@ -72,5 +72,34 @@ public class ContentPortsTests(Node testScene) : TestClass(testScene)
         Require(bytes.AsSpan().StartsWith(new byte[] { 137, 80, 78, 71 }), "读取的不是原始 PNG 字节。");
         Require(files.Read(path, bytes.Length - 1) is ContentIoResult<ImmutableArray<byte>>.Failure { Kind: ContentIoFailure.LimitExceeded }, "资源读取未遵守大小上限。");
         Require(files.Read(new(root, "missing.png"), 100) is ContentIoResult<ImmutableArray<byte>>.Failure { Kind: ContentIoFailure.Missing }, "缺失资源错误分类不正确。");
+
+        var inspector = new GodotAssetInspector(dispatcher);
+        var revision = new AssetRevision("source-png");
+        var expected = inspector.Inspect(AssetKind.Png, revision, bytes);
+        Require(expected is AssetInspection.Success { Metadata: AssetMetadata.Png }, "PNG 主线程检查失败。");
+        var mainThread = Environment.CurrentManagedThreadId;
+        var entered = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var background = Task.Run(() =>
+        {
+            entered.SetResult(Environment.CurrentManagedThreadId);
+            var workerEntries = files.Enumerate(new(root, ""));
+            var workerRead = files.Read(path, 4 * 1024 * 1024);
+            var workerPng = inspector.Inspect(AssetKind.Png, revision, bytes);
+            return (workerEntries, workerRead, workerPng);
+        });
+        Require(await entered.Task.WaitAsync(TimeSpan.FromSeconds(30)) != mainThread, "资源检查没有进入工作线程。");
+        try
+        {
+            await FramesUntil(TestScene, () => background.IsCompleted);
+            var actual = await background;
+            Require(actual.workerEntries is ContentIoResult<ImmutableArray<ContentFileEntry>>.Success workerFound &&
+                workerFound.Value.OrderBy(entry => entry.Name, StringComparer.Ordinal).SequenceEqual(
+                    ((ContentIoResult<ImmutableArray<ContentFileEntry>>.Success)entries).Value.OrderBy(entry => entry.Name, StringComparer.Ordinal)),
+                "工作线程枚举结果与主线程不一致。");
+            Require(actual.workerRead is ContentIoResult<ImmutableArray<byte>>.Success workerBytes &&
+                workerBytes.Value.AsSpan().SequenceEqual(bytes.AsSpan()), "工作线程读取结果与主线程不一致。");
+            Require(actual.workerPng == expected, "工作线程 PNG 检查结果与主线程不一致。");
+        }
+        finally { dispatcher.Dispose(); }
     }
 }
