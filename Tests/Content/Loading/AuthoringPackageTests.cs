@@ -129,42 +129,58 @@ public sealed class AuthoringPackageTests
         var json = Json(plan.Changes.Single(c => c.RelativePath == WorldContentFixtures.TemplatePath));
         Assert.AreEqual(17, json["weight"]!.GetValue<int>());
         Assert.IsTrue(JsonNode.DeepEquals(WorldContentFixtures.Template()["display"], json["display"]));
-        Rejected(ContentFactory.Create().PreparePackageWrite(package,
-            [new C.PackageEdit.WriteDefinition(template with { Value = template.Value with { LocalId = "new-template" } })]), "/display");
+        var renamed = template with { Value = template.Value with { Display = new("改名农庄", "已改说明") } };
+        var renamedJson = Json(Plan(package, new C.PackageEdit.WriteDefinition(renamed)).Changes.Single(c => c.RelativePath == WorldContentFixtures.TemplatePath));
+        Assert.AreEqual("改名农庄", renamedJson["display"]!["name"]!.GetValue<string>());
+        Assert.AreEqual("已改说明", renamedJson["display"]!["description"]!.GetValue<string>());
+        var created = template with { Value = template.Value with { LocalId = "new-template" } };
+        var createdJson = Json(Plan(package, new C.PackageEdit.WriteDefinition(created)).Changes.Single(c => c.RelativePath.Contains("new-template", StringComparison.Ordinal)));
+        Assert.AreEqual("农庄", createdJson["display"]!["name"]!.GetValue<string>());
+        Assert.AreEqual("最小模板", createdJson["display"]!["description"]!.GetValue<string>());
     }
 
     [TestMethod]
-    public void Template_inventory_preserves_voxels_and_composites_and_refuses_unrepresentable_blueprints()
+    public void Template_inventory_round_trips_voxel_composite_and_assembly_references()
     {
         var fixture = WorldContentFixtures.InitializedTemplate();
-        WorldContentFixtures.Change(fixture, WorldContentFixtures.TemplatePath,
-            json => json["inventory"]!.AsArray().RemoveAt(2));
         var package = Open(fixture);
         var template = (C.DefinitionDraft.SettlementTemplate)Read(package, C.DefinitionKind.SettlementTemplate, "farm-start");
-        CollectionAssert.AreEqual(new K.GoodsQuantity[]
-        {
-            new(new K.GoodId.Voxel(new("core:block")), 11),
-            new(new K.GoodId.Composite(new("core:device")), 2)
-        }, template.Value.Inventory.ToArray());
-        var change = Plan(package, new C.PackageEdit.WriteDefinition(template)).Changes.Single(c => c.RelativePath == WorldContentFixtures.TemplatePath);
-        Assert.IsTrue(JsonNode.DeepEquals(JsonNode.Parse("""[{"voxel":"core:block","quantity":11},{"blueprint":"core:device","quantity":2}]"""), Json(change)["inventory"]));
-        Rejected(ContentFactory.Create().PreparePackageWrite(package, [new C.PackageEdit.WriteDefinition(template with
-        {
-            Value = template.Value with { Inventory = [new(new K.GoodId.Assembly(new("opaque-composition")), 1)] }
-        })]), "/inventory/0");
-        foreach (var id in new[] { "core:frame", "core:unknown", "11111111-1111-4111-8111-111111111111:device" })
-            Rejected(ContentFactory.Create().PreparePackageWrite(package, [new C.PackageEdit.WriteDefinition(template with
-            {
-                Value = template.Value with { Inventory = [new(new K.GoodId.Composite(new(id)), 1)] }
-            })]), "/inventory/0", "invalid_field");
-        foreach (var id in new[] { "frame", "unknown" })
-        {
-            WorldContentFixtures.Change(fixture, WorldContentFixtures.TemplatePath,
-                json => json["inventory"] = JsonNode.Parse($$"""[{"blueprint":"{{id}}","quantity":1}]"""));
-            var lookup = Open(fixture).Read(new(C.DefinitionKind.SettlementTemplate, "farm-start"));
-            Assert.IsInstanceOfType<C.ContentLookup<C.DefinitionDraft>.Missing>(lookup);
-            Assert.IsTrue(((C.ContentLookup<C.DefinitionDraft>.Missing)lookup).Diagnostics.Any(d => d.Field == "/inventory/0"));
-        }
+        C.TemplateInventoryDraft[] expected =
+        [
+            new C.TemplateInventoryDraft.Voxel(new("core:block"), 11),
+            new C.TemplateInventoryDraft.Blueprint(new("core:device"), 2),
+            new C.TemplateInventoryDraft.Blueprint(new("core:frame"), 3)
+        ];
+        CollectionAssert.AreEqual(expected, template.Value.Inventory.ToArray());
+        var plan = Plan(package, new C.PackageEdit.WriteDefinition(template));
+        var change = plan.Changes.Single(c => c.RelativePath == WorldContentFixtures.TemplatePath);
+        Assert.IsTrue(JsonNode.DeepEquals(JsonNode.Parse("""[{"voxel":"core:block","quantity":11},{"blueprint":"core:device","quantity":2},{"blueprint":"core:frame","quantity":3}]"""), Json(change)["inventory"]));
+        Apply(fixture, plan);
+        var reread = (C.DefinitionDraft.SettlementTemplate)Read(Open(fixture), C.DefinitionKind.SettlementTemplate, "farm-start");
+        CollectionAssert.AreEqual(expected, reread.Value.Inventory.ToArray());
+    }
+
+    [TestMethod]
+    public void Template_inventory_round_trips_a_cross_package_blueprint_reference()
+    {
+        const string id = "11111111-1111-4111-8111-111111111111";
+        const string dependency = "22222222-2222-4222-8222-222222222222";
+        var fixture = new ContentFixture();
+        var root = new C.ContentRoot("inventory-mod");
+        fixture.AddFile(root, "mod.json", $$"""{"schema_version":2,"id":"{{id}}","name":"测试包","version":"1.0.0","authors":["作者"],"dependencies":[{"id":"{{dependency}}","name":"基础扩展","min_version":"1.0.0"}]}""");
+        fixture.AddDirectory(root, "resources");
+        var package = Success(ContentFactory.Create().OpenAuthoringPackage(root, new(id), new("source"), fixture));
+        var draft = new C.DefinitionDraft.SettlementTemplate(new("outpost", new("前哨", "跨包库存"), null, 1, null, [], [],
+            [new C.TemplateInventoryDraft.Blueprint(new(dependency + ":widget"), 4)], []));
+        var change = Plan(package, new C.PackageEdit.WriteDefinition(draft)).Changes.Single();
+        Assert.IsTrue(JsonNode.DeepEquals(JsonNode.Parse($$"""[{"blueprint":"{{dependency}}:widget","quantity":4}]"""), Json(change)["inventory"]));
+        Assert.AreEqual("前哨", Json(change)["display"]!["name"]!.GetValue<string>());
+        fixture.AddFile(root, change.RelativePath, change.Bytes!.Value.ToArray());
+        var reread = (C.DefinitionDraft.SettlementTemplate)Read(
+            Success(ContentFactory.Create().OpenAuthoringPackage(root, new(id), new("source"), fixture)),
+            C.DefinitionKind.SettlementTemplate, "outpost");
+        Assert.AreEqual(draft.Value.Display, reread.Value.Display);
+        Assert.AreEqual(draft.Value.Inventory.Single(), reread.Value.Inventory.Single());
     }
 
     [TestMethod]
