@@ -196,6 +196,56 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 | `route-frames.jsonl`、`route-ranges.jsonl`、`route-analysis.json` | 整路逐帧轨迹、范围变化及离线覆盖结果；不能把未知或观察不足当作通过 |
 | `measured.save.json`、截图 | 对应情景生成的存档副本或画面 |
 
+### 流式宿主记录
+
+`scene-route-*` 的流式记录默认关闭。原有路线入口不传新参数时，镜头、采样与原有输出保持原行为。单组可用 `-StreamingDiagnostics -RouteCamera default|farthest`；固定矩阵使用：
+
+```powershell
+pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/starting-trade/save.json -OutputDirectory TestResults/streaming-matrix -StreamingMatrix
+```
+
+矩阵使用与当前提交 `examples/starting-trade/save.json` SHA256 相同的输入，目标为列车 1，复用 `scene-route-1x`、`scene-route-8x` 各自的完整线路→节点→线路路线。输入身份保留在每个进程的 `identity.json.input.sha256`，构建身份仍由原有入口校验。每种速度分别使用默认和最远镜头，各运行 3 个新进程；目录例如 `scene-route-8x-farthest-2`。`-Repeat 1 -DurationSeconds 30` 只作预演，完整基线使用默认 `DurationSeconds=0`。矩阵不能同时指定 `Scenario`、`RouteCamera`、`ReferencePath`、`TrainId` 或 `NodeId`。
+
+应用参数为 `--measure-streaming` 和 `--measure-route-camera default|farthest`。记录开启时窗口与视口仍固定为 1920×1080，相机世界偏航为 0、俯仰为 0.55 rad，关闭镜头震动和按地形抬高镜头，以固定同一路径的相机几何。相机焦点继续正常跟随；默认距离为 48 格，最远在线路为 240 格、节点为 96 格。每个绘制帧记录实际相机位置、焦点、距离和角度，距离单位为格（1 格 = 0.5 米）。普通游戏与未开启流式记录的测量不采用这些镜头设置。
+
+窗口标签按核心列车参考中心的有向里程划分，单位是**核心米**，只用于分组，不用于推算场景速度：
+
+| 标签 | 半开区间与条件 |
+| --- | --- |
+| `node-entry` | 距即将进入／当前节点入口边界 `[-128, +128)` 米，边界前为负 |
+| `node-exit` | 距当前／刚离开节点出口边界 `[-128, +128)` 米，边界前为负 |
+| `line-middle` | 在线路上，沿当前行驶方向距两端均至少 128 米 |
+| `outside-windows` | 上述标签均不匹配 |
+
+线路逆行时先换算有向进度。节点全程长度为核心查询的进站、站台、出站长度之和。标签可以重叠（包括恰好距线路终点 128 米同时属于中段和入口窗口）；排序后用 `|` 连接为分析的 `window` 值，各组统计不相加。
+
+宿主记录文件如下。所有 `at`、`started`、`ended` 和覆盖 `seconds` 均为相对于本次路线起点的单调真实秒；probe 开始／结束也使用同一起点。
+
+| 文件／字段 | 含义 |
+| --- | --- |
+| `streaming-frames.jsonl` | 每绘制帧的 `draw`、`at`、`steps`、`coordinates`、`displayed`、显示车辆的 `displayed_position`、空间交接 `transition`、`window`、实际 `camera` 和最近覆盖样本 `coverage_draw` |
+| `coordinates` | 显示车辆位置当前采用的场景坐标身份；车辆位置已加该帧原点，故同空间浮动原点变化不会制造位移 |
+| `camera` | 镜头在相机支架坐标中的 `position`、`focus`，实际 `distance_cells`、世界偏航／俯仰（rad），`near_cells`／`far_cells` 是相机视深裁剪值 |
+| `streaming-host.jsonl` | 每条含 `display`、`at` 和 `value`；`value` 含候选序号 `candidate`、完整 `frame`、可空 `object` 和 `stage`。`display` 区分重新创建的宿主显示实例 |
+| `ResourcesPrepared` | 该候选中此对象的全部视觉资源已新建或复用；不是整个帧资源准备结束 |
+| `Committed` | 此对象所属候选完成 `SceneDisplay.Commit` 后记录；时间线止于提交，不增加首次绘制阶段 |
+| `HostCancelled` | 宿主放弃此候选，`object=null`；同一帧重试分配新的 `candidate`，不沿用被取消候选的准备时间 |
+| `streaming-coverage.jsonl` | 每次实际覆盖采样的 `seconds`、D 的完整 `frame`、`window`、`draw` 和 `sample`；无已提交帧时 `sample=null` |
+| `sample` | `eligible`、`terrain`、`fog_only`、`neither`、三类排除计数、缺地形／无雾缺口比例和 `missing_terrain_points`；空分母的比例为 null，不能当作 0 |
+| `missing_terrain_points` | 每个缺地形点的 D 根坐标 `root`、该场景稳定坐标 `absolute` 及 `fog_only`。当前宿主记录保留这些点，部件归属在 Scenes 诊断契约确认后接入 |
+| `streaming-probes.jsonl` | 覆盖查询和整个流式绘制回调的实际起止、耗时。`coverage` 嵌套于 `streaming-draw`，后者嵌套于既有 `route-observer`，不能相加重复计算 |
+| `streaming-analysis.json` | 逐区间实际倍率／场景速度、窗口汇总、覆盖缺口区间与分位数，以及按显示实例、候选、完整帧和对象严格配对的准备完成→提交时延 |
+
+覆盖只查询已提交帧 `D = SceneDisplay.DisplayedFrame`，不查询最新但尚未提交的帧。对屏幕均匀分布的 32×18 个点投射射线，经实际显示根的逆变换转入 D 根空间，与稳定场景 `Y=0`（D 局部 `Y=-D.Origin.Y`）求交。没有正向交点、交点在近裁剪面之前或远裁剪面之后，不计入分母。相机裁剪值是视深；入口按每条射线的夹角换算有效距离，不把远裁剪面误作以相机为中心的球面。
+
+有效点优先调用 `D.TerrainHeight`：有值记为有地形；否则检查 D 已提交的施工雾盒，点的 XZ 与基准高度 Y 均落在盒子范围内记为只有雾；否则记为无地形无雾。雾使用玩家实际看到的盒子，不使用 Scenes 内部弧段规则。线路地形成员关系由 `TerrainHeight` 判断，不使用网格 AABB 并集估计弯道覆盖。这是**视野地面基准面投影覆盖率**，不衡量山坡、水面、隧道及建筑遮挡后的真实地形像素可见性。
+
+覆盖以 5 Hz 为目标频率，显示空间或窗口改变时补采；记录真实采样间隔。未采样的绘制帧只引用最近样本的 draw，不能当作该帧新测得的覆盖。缺地形比例 `>0` 和 `neither` 比例 `>0` 分别形成连续缺口，以左保持估计持续时间，报告 nearest-rank p50／p99、最大值、总时长和原始区间。遇到未知、空间或窗口改变即截断，开放首尾标记 `left_censored`／`right_censored`；结束时使用真实最后绘制帧时刻截断尾区间。低频样本无法排除采样间的短缺口。
+
+场景速度使用实际显示车辆的连续三维轨迹距离，格数乘 0.5 后除以真实秒。同空间绝对坐标消除浮动原点影响；跨空间使用记录的交接原点差对齐，缺少交接、缺少姿态或多轨边界不能确认连续对应时，速度为 null 并记 `unknown`。实际模拟倍率为完成步数增量除以 `SimulationTime.StepsPerSecond` 再除真实秒；窗口均值按区间实际持续时间加权，场景均值仅包含已知区间并另报未知数量。
+
+记录关闭的帧时间对照使用原有 `scene-route-8x`，master 和本分支各至少 3 个独立进程，比较差值与 master 自身运行波动；不设置新的通过阈值，由 reviewer 验收。原始主线构建与新增记录构建分别保留真实 SHA，不能将记录构建的身份改写成主线 SHA。
+
 ### 窗口长测
 
 `scene-soak` 在默认录制和测量设定的 5 分钟自动存档下按段循环，直到 `DurationSeconds`（默认 7200 秒）用完，再跑完当前一段。产品默认间隔为 1 小时，长测为在段内观察到自动存档轮换而缩短。每段：

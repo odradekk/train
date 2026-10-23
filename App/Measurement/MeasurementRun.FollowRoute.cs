@@ -48,6 +48,7 @@ internal sealed partial class MeasurementRun
                 foreach (var sample in _routeSamples) frames.WriteLine(JsonSerializer.Serialize(sample, SceneJson));
             using (var ranges = new StreamWriter(Path.Combine(directory, "route-ranges.jsonl")))
                 foreach (var change in _routeRangeChanges) ranges.WriteLine(JsonSerializer.Serialize(change, SceneJson));
+            WriteStreamingTrace(directory);
         }
         try
         {
@@ -56,6 +57,7 @@ internal sealed partial class MeasurementRun
             var train = MeasuredTrain();
             // 与 GameUi.OpenScene 相同。
             var followed = FollowedVehicle.Of(train, host.GetStatus()!.View, host.Content!);
+            StartStreamingRoute(followed);
             _subject = new WorldObjectId.Instance(new InstanceId.Vehicle(followed));
             _sceneTarget = new WorldObjectId.Train(train.Id);
             host.SetSpeed(speed);
@@ -163,6 +165,7 @@ internal sealed partial class MeasurementRun
         finally
         {
             _routeSampling = false;
+            if (_streamingDisplay is not null) _streamingDisplay.Observe = null;
             if (!traceWritten) WriteTrace();
         }
     }
@@ -170,6 +173,7 @@ internal sealed partial class MeasurementRun
     private void RecordRoutePresented(ISceneFrame frame)
     {
         if (!_routeSampling) return;
+        ObserveStreamingDisplay();
         var started = Seconds();
         if (_routeSceneFrame is { } previous && previous.Update.Frame.Space != frame.Update.Frame.Space &&
             _app.WorldScenes!.Display?.DisplayedFrame is { } old && old.Update.Frame.Space == previous.Update.Frame.Space)
@@ -279,6 +283,7 @@ internal sealed partial class MeasurementRun
                 train.Vehicles.Select(id => id.Value).ToArray(), train.LengthMeters,
                 operable, _routeTransition, _routeDecisionEndDraw == 0, display?.DisplayedFrame?.Readiness);
             _routeSamples.Add(sample);
+            RecordStreamingDraw(sample, train, status.View);
             _routeTransition = null;
             _routePreviousPosition = train.Position;
             _routePresentedCost = 0;

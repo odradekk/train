@@ -21,6 +21,9 @@ internal sealed class SceneDisplay : IDisposable
     private FogGroup? _pendingFog;
     private DebugLineGroup? _pendingDebugLines;
     private ISceneFrame? _preparingFrame;
+    private long _candidate;
+    private HashSet<SceneObjectId>? _reportedResources;
+    internal Action<SceneDisplayEvent>? Observe { get; set; }
     private ScenePoint _spaceOrigin;
     private HashSet<SceneObjectId> _posedObjects = [];
     private bool _disposed;
@@ -101,7 +104,12 @@ internal sealed class SceneDisplay : IDisposable
              previousFrame.Update.Frame.Request != frame.Update.Frame.Request ||
              previousFrame.Update.Frame.Space != frame.Update.Frame.Space))
             CancelPreparation();
-        frame = _preparingFrame ??= frame;
+        if (_preparingFrame is null)
+        {
+            _preparingFrame = frame;
+            _candidate++;
+        }
+        frame = _preparingFrame;
         var spaceChanged = DisplayedFrame is { } displayed
             ? displayed.Update.Frame.Session != frame.Update.Frame.Session || displayed.Update.Frame.Space != frame.Update.Frame.Space
             : _completeInitialFrame;
@@ -152,6 +160,8 @@ internal sealed class SceneDisplay : IDisposable
                     }
                 }
                 next[source.Id] = new(source, root, visuals);
+                if (Observe is { } observe && (_reportedResources ??= []).Add(source.Id))
+                    observe(new(_candidate, frame.Update.Frame, source.Id, SceneDisplayStage.ResourcesPrepared));
             }
             foreach (var item in next.Values)
                 if (item.Source.Parent is { } parent && !next.ContainsKey(parent))
@@ -168,7 +178,7 @@ internal sealed class SceneDisplay : IDisposable
                 if (BudgetExpired()) return null;
                 _pendingDebugLines = new(frame.DebugLines);
             }
-            var prepared = new PreparedFrame(this, frame, next, [.. _pendingVisuals.Values],
+            var prepared = new PreparedFrame(this, _candidate, frame, next, [.. _pendingVisuals.Values],
                 [.. _pendingRoots.Values], _pendingFog ?? _fog!, _pendingFog is not null,
                 frame.DebugLines.IsEmpty ? null : _pendingDebugLines ?? _debugLines, _pendingDebugLines is not null);
             _pendingFog = null;
@@ -176,6 +186,7 @@ internal sealed class SceneDisplay : IDisposable
             _pendingVisuals.Clear();
             _pendingRoots.Clear();
             _preparingFrame = null;
+            _reportedResources = null;
             return prepared;
         }
         catch
@@ -281,6 +292,7 @@ internal sealed class SceneDisplay : IDisposable
     internal void CancelPreparation()
     {
         _cache.RequireMainThread();
+        var cancelled = _preparingFrame;
         foreach (var visual in _pendingVisuals.Values) visual.Dispose();
         _pendingVisuals.Clear();
         _preparingFrame = null;
@@ -290,6 +302,9 @@ internal sealed class SceneDisplay : IDisposable
         _pendingFog = null;
         _pendingDebugLines?.Dispose();
         _pendingDebugLines = null;
+        _reportedResources = null;
+        if (cancelled is not null)
+            Observe?.Invoke(new(_candidate, cancelled.Update.Frame, null, SceneDisplayStage.HostCancelled));
     }
 
     private void Commit(PreparedFrame prepared)
@@ -355,6 +370,9 @@ internal sealed class SceneDisplay : IDisposable
             if (surviving is null) item.Root.Free();
         }
         if (!ReferenceEquals(oldFog, _fog)) oldFog?.Dispose();
+        if (Observe is { } observe)
+            foreach (var source in update.Upserts)
+                observe(new(prepared.Candidate, update.Frame, source.Id, SceneDisplayStage.Committed));
     }
 
     public void Dispose()
@@ -381,10 +399,11 @@ internal sealed class SceneDisplay : IDisposable
         PoseFrame = null;
     }
 
-    internal sealed class PreparedFrame(SceneDisplay owner, ISceneFrame frame,
+    internal sealed class PreparedFrame(SceneDisplay owner, long candidate, ISceneFrame frame,
         Dictionary<SceneObjectId, DisplayObject> objects, List<PreparedVisual> visuals,
         List<Node3D> roots, FogGroup fog, bool ownsFog, DebugLineGroup? debugLines, bool ownsDebugLines) : IDisposable
     {
+        internal long Candidate { get; } = candidate;
         internal bool Transferred { get; set; }
         private bool _disposed;
         internal ISceneFrame Frame { get; } = frame;
@@ -404,6 +423,7 @@ internal sealed class SceneDisplay : IDisposable
             foreach (var root in roots) if (GodotObject.IsInstanceValid(root)) root.Free();
             if (ownsFog) Fog.Dispose();
             if (ownsDebugLines) DebugLines?.Dispose();
+            owner.Observe?.Invoke(new(Candidate, Frame.Update.Frame, null, SceneDisplayStage.HostCancelled));
         }
     }
 

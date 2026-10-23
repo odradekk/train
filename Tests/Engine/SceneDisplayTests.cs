@@ -50,7 +50,18 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         long timestamp = 0;
         display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
         var candidate = Frame(2, [Object(2, mesh) with { Subject = subject }, Object(3, mesh)], first.Update.Frame);
+        List<SceneDisplayEvent> events = [];
+        display.Observe = item =>
+        {
+            if (item.Stage == SceneDisplayStage.Committed)
+                Require(ReferenceEquals(display.DisplayedFrame, candidate) &&
+                    display.Objects[new(3)].Root.IsInsideTree(), "提交记录必须在完整候选进入显示树后发出。");
+            events.Add(item);
+        };
         Require(display.Prepare(candidate) is null, "锁定候选必须在第一个资源后暂停。");
+        Require(events.Count == 1 && events[0].Object == new SceneObjectId(2) &&
+            events[0].Stage == SceneDisplayStage.ResourcesPrepared && events[0].Frame == candidate.Update.Frame,
+            "单个对象资源就绪必须立即记录，不能等待整个候选准备完成。");
         var latest = Frame(3,
             [Object(2, mesh, new(-70, 0, 0)) with { Subject = subject }, Object(4, mesh)],
             first.Update.Frame, new(-100, 0, 0), new(100, 0, 0),
@@ -61,7 +72,13 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         Require(prepared is not null, "第二次调用必须完成锁定候选，不能等待最新帧追加的对象。");
         Require(ReferenceEquals(display.PoseFrame, latest) && ReferenceEquals(display.DisplayedFrame, first),
             "准备期间姿态帧必须更新，网格基准必须保持最后完整帧。");
+        Require(events.Count == 2 && events.All(item => item.Stage == SceneDisplayStage.ResourcesPrepared),
+            "分预算恢复不得重复记录对象资源，也不能提前记录提交。");
         prepared!.Commit();
+        Require(events.Count == 4 && events.All(item => item.Frame == candidate.Update.Frame &&
+            item.Candidate == events[0].Candidate) &&
+            events.Count(item => item.Stage == SceneDisplayStage.Committed) == 2,
+            "较新输入不能覆盖冻结候选的完整身份，提交必须逐对象记录。");
         display.UpdatePoses(latest);
         Require(ReferenceEquals(display.DisplayedFrame, candidate) && ReferenceEquals(display.PoseFrame, latest),
             "提交锁定候选后必须恢复最新姿态帧。");
@@ -76,6 +93,78 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         Require(!display.CanSelect(Hit(4)), "最新帧新增但尚未显示的对象不得可选。");
         Require(!display.CanSelect(Hit(3)), "候选更新而最新帧省略的对象无法证明兼容，不得可选。");
         await new UiTestInput(TestScene).Frames(2);
+    }
+
+    [Test]
+    public async Task Resource_prepared_waits_for_every_visual_of_the_object()
+    {
+        await new UiTestInput(TestScene).Frames(2);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView());
+        var baseline = Frame(1, []);
+        Commit(display, baseline);
+        var source = Object(1, Mesh());
+        source = source with { Visuals = [source.Visuals[0], source.Visuals[0]] };
+        List<SceneDisplayEvent> events = [];
+        display.Observe = events.Add;
+        long timestamp = 0;
+        display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
+        var frame = Frame(2, [source], baseline.Update.Frame);
+        Require(display.Prepare(frame) is null && events.Count == 0,
+            "只准备一个视觉资源不能记录整个对象资源就绪。");
+        using var prepared = Prepare(display, frame);
+        Require(events.Count == 1 && events[0].Object == source.Id &&
+            events[0].Stage == SceneDisplayStage.ResourcesPrepared,
+            "全部视觉资源准备完才记录一次对象资源就绪。");
+        prepared.Commit();
+        Require(events.Count == 2 && events[1].Stage == SceneDisplayStage.Committed,
+            "对象提交应在资源就绪之后单独记录。");
+    }
+
+    [Test]
+    public async Task Cancelled_candidates_keep_their_identity_when_the_same_frame_is_retried()
+    {
+        await new UiTestInput(TestScene).Frames(2);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView());
+        var reused = Mesh();
+        var first = Frame(1, [Object(1, reused)]);
+        Commit(display, first);
+        List<SceneDisplayEvent> events = [];
+        display.Observe = events.Add;
+        long timestamp = 0;
+        display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
+        var frame = Frame(2, [Object(1, reused), Object(2, Mesh()), Object(3, Mesh())],
+            first.Update.Frame);
+        Require(display.Prepare(frame) is null, "候选必须在准备后续对象前暂停。");
+        Require(events.Count == 2 && events.All(item => item.Stage == SceneDisplayStage.ResourcesPrepared),
+            "复用视觉与新资源对象都必须记录资源就绪。");
+        var cancelledCandidate = events[0].Candidate;
+        display.CancelPreparation();
+        Require(events[^1] == new SceneDisplayEvent(cancelledCandidate, frame.Update.Frame, null,
+            SceneDisplayStage.HostCancelled), "取消必须单独记录原候选身份。");
+        display.CancelPreparation();
+        Require(events.Count == 3, "重复清理不能重复记录取消。");
+        await new UiTestInput(TestScene).Frames(1);
+        display.Timestamp = () => timestamp;
+        var abandoned = Prepare(display, frame);
+        var abandonedCandidate = events[^1].Candidate;
+        Require(abandonedCandidate != cancelledCandidate, "同一帧重试必须具有不同候选身份。");
+        abandoned.Dispose();
+        abandoned.Dispose();
+        Require(events.Count(item => item.Stage == SceneDisplayStage.HostCancelled) == 2 &&
+            events[^1] == new SceneDisplayEvent(abandonedCandidate, frame.Update.Frame, null,
+                SceneDisplayStage.HostCancelled), "完整准备后丢弃也必须准确且仅记录一次取消。");
+        Require(events.All(item => item.Stage != SceneDisplayStage.Committed), "取消候选不能记录成功提交。");
+        using var retry = Prepare(display, frame);
+        var committedCandidate = events[^1].Candidate;
+        retry.Commit();
+        Require(committedCandidate != abandonedCandidate && events.Count(item =>
+            item.Stage == SceneDisplayStage.Committed && item.Candidate == committedCandidate) == 3,
+            "再次重试的提交不能归因于已经取消的候选。");
+        display.Observe = null;
     }
 
     [Test]

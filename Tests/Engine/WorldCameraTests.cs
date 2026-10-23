@@ -18,6 +18,56 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
     private static readonly WorldObjectId Second = new WorldObjectId.Instance(new InstanceId.Vehicle(new(2)));
 
     [Test]
+    public void Measurement_camera_keeps_world_angles_and_tracks_focus_with_space_distance_limits()
+    {
+        var camera = AttachCamera();
+        try
+        {
+            camera.SetMeasurementCamera(farthest: false);
+            camera.DisplayedFrame(Frame(poses: Poses((First, Pose(10, 2, 20, 1.2f))),
+                height: new Lookup<double>.Found(1000)), First);
+            camera.SetShake(new(12, 34, 56));
+            AssertView(48);
+            Near(camera.Focus, new(10, 2, 20));
+
+            camera.SetMeasurementCamera(farthest: true);
+            AssertView(240);
+            camera.DisplayedFrame(Frame(revision: 2,
+                poses: Poses((First, Pose(40, 5, -30, -1.4f))),
+                height: new Lookup<double>.Found(2000)), First);
+            camera.Update(0.5);
+            Near(camera.Focus, new(40, 5, -30));
+            AssertView(240);
+
+            camera.DisplayedFrame(Frame(space: 2, revision: 3, bounds: NodeBounds,
+                poses: Poses((First, Pose(40, 5, -30, Mathf.Pi))),
+                height: new Lookup<double>.Found(3000)), First);
+            camera.Update(0.5);
+            AssertView(96);
+            camera.SetMeasurementCamera(farthest: false);
+            AssertView(48);
+            camera.SetMeasurementCamera(farthest: true);
+            camera.DisplayedFrame(Frame(space: 3, revision: 4,
+                poses: Poses((First, Pose(40, 5, -30, 0)))), First);
+            AssertView(240);
+        }
+        finally { camera.Free(); }
+
+        void AssertView(float distance)
+        {
+            var transform = camera.Camera.Transform;
+            var offset = transform.Origin - camera.Focus;
+            var actualYaw = Mathf.Atan2(offset.X, offset.Z);
+            var actualPitch = Mathf.Atan2(offset.Y, new Vector2(offset.X, offset.Z).Length());
+            Require(Mathf.Abs(offset.Length() - distance) < 0.001f,
+                $"测量相机实际距离应为 {distance}，实际 {offset.Length()}。");
+            Require(Mathf.Abs(actualYaw) < 0.001f && Mathf.Abs(actualPitch - 0.55f) < 0.001f,
+                $"测量相机实际世界偏航和俯仰应为 0、0.55，实际 {actualYaw}、{actualPitch}。");
+            Near(-transform.Basis.Z, -offset.Normalized());
+        }
+    }
+
+    [Test]
     public void Node_free_camera_at_farthest_zoom_and_lowest_pitch_stays_inside_display_radius()
     {
         var camera = AttachCamera();
