@@ -622,7 +622,7 @@ public sealed class NodeSceneTests
             { Occupant = new NodeOccupant.Empty(), Platforms = 0 });
         await using var session = new WorldSceneSession(new(Guid.NewGuid()), empty, new(), new(),
             (input, node, _, token) => new(NodeLayout.Build(input, node, token),
-                ImmutableDictionary<string, NodeScene.Part>.Empty.Add("ground", new("fixed",
+                ImmutableDictionary<string, NodeScene.Part>.Empty.Add("ground", new(new("", "fixed"),
                     WorldSceneSession.BuildGeometry(id => new([new(id(""), null, SceneFixtures.Identity, null, [], [], [])], [], [])),
                     ImmutableDictionary<GridColumn, double>.Empty)), []));
         var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
@@ -678,7 +678,7 @@ public sealed class NodeSceneTests
                 if (Interlocked.Increment(ref calls) > 1) throw new RailwayBuildException("founded layout failed");
                 var layout = NodeLayout.Build(input, node, token);
                 return new(layout, ImmutableDictionary<string, NodeScene.Part>.Empty.Add("ground",
-                    new("fixed", WorldSceneSession.BuildGeometry(id => new([new(id(""), null, SceneFixtures.Identity, null, [], [], [])], [], [])),
+                    new(new("", "fixed"), WorldSceneSession.BuildGeometry(id => new([new(id(""), null, SceneFixtures.Identity, null, [], [], [])], [], [])),
                         ImmutableDictionary<GridColumn, double>.Empty)), []);
             });
         session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location));
