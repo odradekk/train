@@ -387,7 +387,6 @@ internal partial class DesignEditorPanel : Control
         _shownFrameDiagnostics = _service.FrameDiagnostics;
         foreach (var problem in _shownFrameDiagnostics)
             _diagnostics.AddChild(UiStyle.Label(EditorService.Describe(problem)));
-        IEnumerable<ContentDiagnostic> diagnostics = state.EvaluationDiagnostics;
         _information.Text = state.CurrentEvaluation switch
         {
             null => "评估中；合法性、BOM 和转动范围尚未确认。",
@@ -411,14 +410,13 @@ internal partial class DesignEditorPanel : Control
                 Add(row, "LocateLockedElement", "定位锁定项", () => _service.Locate(locked.Element));
             }
         }
-        diagnostics = diagnostics.Concat(state.CurrentEvaluation switch
+        foreach (var diagnostic in state.CurrentEvaluation switch
         {
             DesignEvaluation.Complete complete => complete.Diagnostics,
             DesignEvaluation.Partial partial => partial.Diagnostics,
             DesignEvaluation.Failed failed => failed.Diagnostics,
             _ => []
-        });
-        foreach (var diagnostic in diagnostics)
+        })
         {
             var row = new HBoxContainer(); _diagnostics.AddChild(row); row.AddChild(UiStyle.Label(diagnostic.Message));
             if (diagnostic.Element is { } path) Add(row, "LocateDiagnostic", "定位", () => _service.Locate(path));

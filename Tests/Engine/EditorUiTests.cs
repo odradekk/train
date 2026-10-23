@@ -507,12 +507,13 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
             var session = fixture.Factory.Session!;
             var evaluation = (DesignEvaluation.Complete)session.Read().CurrentEvaluation!;
             var diagnostic = new ContentDiagnostic("design_invalid", ContentDiagnosticSeverity.Error, "evaluate",
-                new ContentReference.Design(new("21347E80A50CB8EB400B0F8568BC32CA16248F2E06E8017E97ID7C0230490D")),
+                new ContentReference.Design(new("empty-design")),
                 null, "/layout/cells", new DesignElementPath.Cell([], 0), "布局必须非空。");
             session.SetState(state => state with
             {
                 IsDirty = true,
-                CurrentEvaluation = evaluation with { Diagnostics = [diagnostic] }
+                CurrentEvaluation = evaluation with { Diagnostics = [diagnostic] },
+                EvaluationDiagnostics = [diagnostic]
             });
             var panel = EditorPanel(fixture);
             await FramesUntil(TestScene, () => Displayed(panel, "布局必须非空。") && Displayed(panel, "未保存修改"));
@@ -524,9 +525,10 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
             Require(Displayed(panel, "布局必须非空。") && !Displayed(panel, "design_invalid") && !Displayed(panel, "DesignHash")
                 && !Displayed(panel, "/layout/cells") && !Displayed(panel, "包："),
                 "设计诊断只显示说明，不显示内部码、哈希、路径和包。");
-            var row = panel.FindChildren("*", "HBoxContainer", true, false).OfType<HBoxContainer>().Single(box =>
-                box.GetChildren().OfType<Label>().Any(label => label.Text.Contains("布局必须非空。", StringComparison.Ordinal)));
-            Require(row.GetChildren().OfType<Button>().Any(button => button.Name == "LocateDiagnostic" && button.Text == "定位"),
+            var rows = panel.FindChildren("*", "HBoxContainer", true, false).OfType<HBoxContainer>().Where(box =>
+                box.GetChildren().OfType<Label>().Any(label => label.Text.Contains("布局必须非空。", StringComparison.Ordinal))).ToArray();
+            Require(rows.Length == 1, "含「布局必须非空。」的诊断行必须恰好一行。实际：" + rows.Length);
+            Require(rows[0].GetChildren().OfType<Button>().Any(button => button.Name == "LocateDiagnostic" && button.Text == "定位"),
                 "设计诊断行必须保留定位按钮。");
         }
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
