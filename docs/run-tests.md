@@ -206,7 +206,7 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 
 矩阵使用与当前提交 `examples/starting-trade/save.json` SHA256 相同的输入，目标为列车 1，复用 `scene-route-1x`、`scene-route-8x` 各自的完整线路→节点→线路路线。输入身份保留在每个进程的 `identity.json.input.sha256`，构建身份仍由原有入口校验。每种速度分别使用默认和最远镜头，各运行 3 个新进程；目录例如 `scene-route-8x-farthest-2`。`-Repeat 1 -DurationSeconds 30` 只作预演，完整基线使用默认 `DurationSeconds=0`。矩阵不能同时指定 `Scenario`、`RouteCamera`、`ReferencePath`、`TrainId` 或 `NodeId`。
 
-应用参数为 `--measure-streaming` 和 `--measure-route-camera default|farthest`。记录开启时窗口与视口仍固定为 1920×1080，相机世界偏航为 0、俯仰为 0.55 rad，关闭镜头震动和按地形抬高镜头，以固定同一路径的相机几何。相机焦点继续正常跟随；默认距离为 48 格，最远在线路为 240 格、节点为 96 格。每个绘制帧记录实际相机位置、焦点、距离和角度，距离单位为格（1 格 = 0.5 米）。普通游戏与未开启流式记录的测量不采用这些镜头设置。
+应用参数为 `--measure-streaming` 和 `--measure-route-camera default|farthest`。记录开启时窗口与视口仍固定为 1920×1080，使用玩家默认跟随相机：偏航跟随车体，保留默认俯仰与按地形抬高镜头，仅通过现有 `ShakeEnabled` 关闭镜头震动。默认缩放距离保持 48 格；最远档通过现有 `Zoom` 拉到 `ZoomCeiling`，跟随时线路和节点均为 240 格，96 格只适用于节点自由平移。每个绘制帧记录实际相机位置、焦点、距离和角度，包含地形避让造成的变化；距离单位为格（1 格 = 0.5 米）。
 
 窗口标签按核心列车参考中心的有向里程划分，单位是**核心米**，只用于分组，不用于推算场景速度：
 
@@ -227,12 +227,11 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 | `coordinates` | 显示车辆位置当前采用的场景坐标身份；车辆位置已加该帧原点，故同空间浮动原点变化不会制造位移 |
 | `camera` | 镜头在相机支架坐标中的 `position`、`focus`，实际 `distance_cells`、世界偏航／俯仰（rad），`near_cells`／`far_cells` 是相机视深裁剪值 |
 | `streaming-host.jsonl` | 每条含 `display`、`at` 和 `value`；`value` 含候选序号 `candidate`、完整 `frame`、可空 `object` 和 `stage`。`display` 区分重新创建的宿主显示实例 |
-| `ResourcesPrepared` | 该候选中此对象的全部视觉资源已新建或复用；不是整个帧资源准备结束 |
-| `Committed` | 此对象所属候选完成 `SceneDisplay.Commit` 后记录；时间线止于提交，不增加首次绘制阶段 |
+| `ResourcesPrepared` | 仅当此对象至少一个视觉资源不能通过 `CanReuseVisual` 复用、需要新准备时记录；在该对象全部视觉资源就绪后发出，不等待整个候选。全复用的姿态更新、仅删除视觉与无视觉对象不记录 |
+| `Committed` | 仅为上述新准备视觉资源的对象，在所属候选完成 `SceneDisplay.Commit` 后记录；时间线止于提交，不增加首次绘制阶段 |
 | `HostCancelled` | 宿主放弃此候选，`object=null`；同一帧重试分配新的 `candidate`，不沿用被取消候选的准备时间 |
 | `streaming-coverage.jsonl` | 每次实际覆盖采样的 `seconds`、D 的完整 `frame`、`window`、`draw` 和 `sample`；无已提交帧时 `sample=null` |
-| `sample` | `eligible`、`terrain`、`fog_only`、`neither`、三类排除计数、缺地形／无雾缺口比例和 `missing_terrain_points`；空分母的比例为 null，不能当作 0 |
-| `missing_terrain_points` | 每个缺地形点的 D 根坐标 `root`、该场景稳定坐标 `absolute` 及 `fog_only`。当前宿主记录保留这些点，部件归属在 Scenes 诊断契约确认后接入 |
+| `sample` | 仅保留 `eligible`、`terrain`、`fog_only`、`neither`、三类排除计数和缺地形／无雾缺口比例；空分母的比例为 null，不能当作 0。不保留逐点坐标；Scenes 诊断契约确认后，在采样时在线归属部件，只存各类别计数 |
 | `streaming-probes.jsonl` | 覆盖查询和整个流式绘制回调的实际起止、耗时。`coverage` 嵌套于 `streaming-draw`，后者嵌套于既有 `route-observer`，不能相加重复计算 |
 | `streaming-analysis.json` | 逐区间实际倍率／场景速度、窗口汇总、覆盖缺口区间与分位数，以及按显示实例、候选、完整帧和对象严格配对的准备完成→提交时延 |
 

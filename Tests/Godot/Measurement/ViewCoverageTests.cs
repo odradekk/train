@@ -11,13 +11,12 @@ namespace Train.Godot.Tests.Measurement;
 public sealed class ViewCoverageTests
 {
     [TestMethod]
-    public void IntersectsStableZeroPlaneAndKeepsRootAndAbsoluteMissingPoints()
+    public void IntersectsStableZeroPlaneInDisplayedRootCoordinates()
     {
-        var frame = Frame(new(100, 20, 300));
+        var frame = Frame(new(100, 20, 300), fog: [new(new(2, -20, 4), new(2, -20, 4))]);
         var sample = ViewCoverage.Sample(frame, [new(new(2, -10, 4), new(0, -2, 0), 1, 20)]);
-        Assert.AreEqual(1, sample.Neither);
-        Assert.AreEqual(new ScenePoint(2, -20, 4), sample.MissingTerrainPoints[0].Root);
-        Assert.AreEqual(new ScenePoint(102, 0, 304), sample.MissingTerrainPoints[0].Absolute);
+        Assert.AreEqual(1, sample.FogOnly);
+        Assert.AreEqual(1, sample.Eligible);
     }
 
     [TestMethod]
@@ -48,8 +47,6 @@ public sealed class ViewCoverageTests
         var sample = ViewCoverage.Sample(frame, [Vertical(0, 0), Vertical(1, 1), Vertical(2, 0)]);
         Assert.AreEqual(1, sample.Terrain);
         Assert.AreEqual(1, sample.FogOnly);
-        Assert.IsTrue(sample.MissingTerrainPoints[0].FogOnly);
-        Assert.IsFalse(sample.MissingTerrainPoints[1].FogOnly);
         Assert.AreEqual(1, sample.Neither);
         // A box may contain the XZ point while missing the stable baseline in Y.
         var elevatedFog = Frame(fog: [new(new(-10, 1, -10), new(10, 2, 10))]);
@@ -76,7 +73,7 @@ public sealed class ViewCoverageTests
     {
         var stamp = Frame().Update.Frame;
         var gap = ViewCoverage.Sample(Frame(), [Vertical(0, 0)]);
-        var clear = gap with { Terrain = 1, Neither = 0, MissingTerrainPoints = [] };
+        var clear = gap with { Terrain = 1, Neither = 0 };
         var result = ViewCoverage.Analyze([
             new(0, stamp, "a", gap), new(.2, stamp, "a", gap), new(.7, stamp, "a", clear),
             new(1, stamp, "a", gap), new(1.4, stamp, "a", null),

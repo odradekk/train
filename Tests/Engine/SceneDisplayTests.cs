@@ -102,17 +102,18 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         using var dispatcher = new GodotMainThreadDispatcher();
         using var cache = new AssetResourceCache(dispatcher);
         using var display = Attach(cache, new FixedContentView());
-        var baseline = Frame(1, []);
+        var original = Object(1, Mesh());
+        var baseline = Frame(1, [original]);
         Commit(display, baseline);
-        var source = Object(1, Mesh());
-        source = source with { Visuals = [source.Visuals[0], source.Visuals[0]] };
+        var added = Object(1, Mesh()).Visuals[0];
+        var source = original with { Visuals = [original.Visuals[0], added, added] };
         List<SceneDisplayEvent> events = [];
         display.Observe = events.Add;
         long timestamp = 0;
         display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
         var frame = Frame(2, [source], baseline.Update.Frame);
         Require(display.Prepare(frame) is null && events.Count == 0,
-            "只准备一个视觉资源不能记录整个对象资源就绪。");
+            "复用一个、只新准备一个视觉资源不能记录整个对象资源就绪。");
         using var prepared = Prepare(display, frame);
         Require(events.Count == 1 && events[0].Object == source.Id &&
             events[0].Stage == SceneDisplayStage.ResourcesPrepared,
@@ -120,6 +121,33 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         prepared.Commit();
         Require(events.Count == 2 && events[1].Stage == SceneDisplayStage.Committed,
             "对象提交应在资源就绪之后单独记录。");
+    }
+
+    [Test]
+    public async Task Reused_or_removed_visuals_and_empty_objects_do_not_emit_resource_timings()
+    {
+        await new UiTestInput(TestScene).Frames(2);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView());
+        var moving = Object(1, Mesh());
+        var shrinking = Object(2, Mesh());
+        shrinking = shrinking with { Visuals = [shrinking.Visuals[0], shrinking.Visuals[0]] };
+        var emptied = Object(3, Mesh());
+        var first = Frame(1, [moving, shrinking, emptied]);
+        Commit(display, first);
+        List<SceneDisplayEvent> events = [];
+        display.Observe = events.Add;
+        var empty = Object(4, Mesh()) with { Visuals = [] };
+        Commit(display, Frame(2, [
+            moving with { Pose = new(new(10, 0, 0), NQuaternion.Identity) },
+            shrinking with { Visuals = [shrinking.Visuals[0]] },
+            emptied with { Visuals = [] }, empty], first.Update.Frame));
+        Require(events.Count == 0, "姿态、删减视觉与无视觉对象都没有新准备视觉资源，不应记录资源时延。");
+        Near(display.Objects[moving.Id].Root.Position, new(10, 0, 0));
+        Require(display.Objects[shrinking.Id].Visuals.Length == 1 &&
+            display.Objects[emptied.Id].Visuals.Length == 0 && display.Objects.ContainsKey(empty.Id),
+            "不记录资源时延的更新仍须正常提交。");
     }
 
     [Test]
@@ -139,14 +167,15 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         var frame = Frame(2, [Object(1, reused), Object(2, Mesh()), Object(3, Mesh())],
             first.Update.Frame);
         Require(display.Prepare(frame) is null, "候选必须在准备后续对象前暂停。");
-        Require(events.Count == 2 && events.All(item => item.Stage == SceneDisplayStage.ResourcesPrepared),
-            "复用视觉与新资源对象都必须记录资源就绪。");
+        Require(events.Count == 1 && events[0].Object == new SceneObjectId(2) &&
+            events[0].Stage == SceneDisplayStage.ResourcesPrepared,
+            "只为新准备视觉资源的对象记录资源就绪，复用对象不记录。");
         var cancelledCandidate = events[0].Candidate;
         display.CancelPreparation();
         Require(events[^1] == new SceneDisplayEvent(cancelledCandidate, frame.Update.Frame, null,
             SceneDisplayStage.HostCancelled), "取消必须单独记录原候选身份。");
         display.CancelPreparation();
-        Require(events.Count == 3, "重复清理不能重复记录取消。");
+        Require(events.Count == 2, "重复清理不能重复记录取消。");
         await new UiTestInput(TestScene).Frames(1);
         display.Timestamp = () => timestamp;
         var abandoned = Prepare(display, frame);
@@ -162,7 +191,7 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         var committedCandidate = events[^1].Candidate;
         retry.Commit();
         Require(committedCandidate != abandonedCandidate && events.Count(item =>
-            item.Stage == SceneDisplayStage.Committed && item.Candidate == committedCandidate) == 3,
+            item.Stage == SceneDisplayStage.Committed && item.Candidate == committedCandidate) == 2,
             "再次重试的提交不能归因于已经取消的候选。");
         display.Observe = null;
     }

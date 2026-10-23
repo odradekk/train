@@ -26,7 +26,6 @@ internal partial class WorldCamera : Node3D
     private float _distance = DefaultDistance;
     private bool _hasFollowPose;
     private bool _clearancePending;
-    private bool? _measurementFarthest;
     private ScenePanBounds? NodePanBounds => _follow is null && !_railwayPan ? _frame?.NodePanBounds : null;
     internal Func<SceneObjectId, float?>? ObjectTop { get; set; }
 
@@ -143,13 +142,6 @@ internal partial class WorldCamera : Node3D
         PlaceCamera();
     }
 
-    internal void SetMeasurementCamera(bool farthest)
-    {
-        _measurementFarthest = farthest;
-        ShakeEnabled = false;
-        PlaceCamera();
-    }
-
     public void Pan(Vector3 horizontal)
     {
         if (_frame is null || _follow is not null || !_railwayPan && _frame.NodePanBounds is null)
@@ -207,12 +199,6 @@ internal partial class WorldCamera : Node3D
 
     private Vector3 OrbitPosition()
     {
-        if (_measurementFarthest is { } farthest)
-        {
-            var distance = !farthest ? DefaultDistance :
-                _frame?.NodePanBounds is not null ? NodeMaximumDistance : MaximumDistance;
-            return Focus + new Vector3(0, distance * Mathf.Sin(.55f), distance * Mathf.Cos(.55f));
-        }
         var yaw = _bodyYaw + _orbitYaw;
         var horizontal = _distance * Mathf.Cos(_pitch);
         return Focus + new Vector3(Mathf.Sin(yaw) * horizontal, _distance * Mathf.Sin(_pitch),
@@ -238,7 +224,7 @@ internal partial class WorldCamera : Node3D
     private void PlaceCamera()
     {
         var position = OrbitPosition();
-        if (_measurementFarthest is null && _frame?.TerrainHeight(position.X, position.Z) is Lookup<double>.Found terrain)
+        if (_frame?.TerrainHeight(position.X, position.Z) is Lookup<double>.Found terrain)
             position.Y = Mathf.Max(position.Y, (float)terrain.Value + TerrainClearance);
         var offset = ShakeEnabled ? ShakeOffset : Vector3.Zero;
         Camera.Transform = new Transform3D(Basis.LookingAt(Focus - position, Vector3.Up), position + offset);

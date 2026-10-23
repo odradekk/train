@@ -33,13 +33,13 @@ internal sealed partial class MeasurementRun
     private void StartStreamingRoute(VehicleId followed)
     {
         if (!_streamingEnabled) return;
-        if (_app.Host!.GetStatus()!.View.World.WorldSeed != 40)
-            throw new InvalidDataException("流式测量使用 seed 40 起步贸易存档。");
         _streamingFollowed = followed;
-        _app.WorldScenes!.View.CameraRig.SetMeasurementCamera(_streamingCamera == "farthest");
+        var camera = _app.WorldScenes!.View.CameraRig;
+        camera.ShakeEnabled = false;
+        if (_streamingCamera == "farthest") camera.Zoom(-100);
         _sceneEvidence["streaming"] = new
         {
-            enabled = true, camera = _streamingCamera, camera_yaw_radians = 0, camera_pitch_radians = .55,
+            enabled = true, camera = _streamingCamera, camera_shake = false,
             window_boundary_core_meters = 128, grid_columns = ViewCoverage.Columns, grid_rows = ViewCoverage.Rows,
             coverage_hz = 5, ground_plane_scene_y = 0,
             attribution = "host objects only; Scenes part attribution awaits contract confirmation",

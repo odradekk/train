@@ -4,9 +4,8 @@ using Train.Scenes.Contracts;
 namespace Train.App.Measurement;
 
 internal sealed record CoverageRay(ScenePoint Origin, ScenePoint Direction, double NearDistance, double FarDistance);
-internal sealed record CoverageMissingPoint(ScenePoint Root, ScenePoint Absolute, bool FogOnly);
 internal sealed record CoverageSample(int Eligible, int Terrain, int FogOnly, int Neither,
-    int ExcludedNoForward, int ExcludedNear, int ExcludedFar, CoverageMissingPoint[] MissingTerrainPoints)
+    int ExcludedNoForward, int ExcludedNear, int ExcludedFar)
 {
     public bool Known => Eligible > 0;
     public int MissingTerrain => FogOnly + Neither;
@@ -31,7 +30,6 @@ internal static class ViewCoverage
     internal static CoverageSample Sample(ISceneFrame displayedFrame, IEnumerable<CoverageRay> rays)
     {
         int terrain = 0, fogOnly = 0, neither = 0, noForward = 0, near = 0, far = 0;
-        var missing = new List<CoverageMissingPoint>();
         var planeY = -displayedFrame.Origin.Y;
         foreach (var ray in rays)
         {
@@ -48,11 +46,10 @@ internal static class ViewCoverage
                 point.X >= box.Minimum.X && point.X <= box.Maximum.X &&
                 point.Y >= box.Minimum.Y && point.Y <= box.Maximum.Y &&
                 point.Z >= box.Minimum.Z && point.Z <= box.Maximum.Z);
-            missing.Add(new(point, new(point.X + displayedFrame.Origin.X, 0, point.Z + displayedFrame.Origin.Z), inFog));
             if (inFog) fogOnly++;
             else neither++;
         }
-        return new(terrain + fogOnly + neither, terrain, fogOnly, neither, noForward, near, far, missing.ToArray());
+        return new(terrain + fogOnly + neither, terrain, fogOnly, neither, noForward, near, far);
     }
 
     internal static CoverageAnalysis Analyze(IReadOnlyList<CoverageObservation> observations, double? endedSeconds = null)
