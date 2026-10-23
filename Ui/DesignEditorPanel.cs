@@ -295,12 +295,17 @@ internal partial class DesignEditorPanel : Control
         _saveBlueprint.Visible = _service.Target is not DraftTarget.PackageDefinition;
         _returnServices.Visible = _service.Target is DraftTarget.Instance { Id: InstanceId.Vehicle };
         _leave.Visible = _service.Leaving; if (_service.Leaving) _leave.MoveToFront();
-        _status.Text = (_service.State is { } active
-            ? $"层级 {active.EnteredObject?.Value.ToString() ?? "根"} · 已选 {active.Selection.Length} · " : "")
-            + (_service.Message ?? "")
-            + (_service.SceneUnavailable ? " · 场景不可用，可保存、退出或重试" : "")
-            + (_service.Host.GetSaveStatus()?.Frozen == true ? " · 核心已冻结；本局草稿仅保留到离开本局，无法写入存档；用户库草稿可写盘；有效蓝图暂不可保存" : "")
-            + (_service.IsDirty ? " · 未保存修改" : "");
+        var active = _service.State;
+        var segments = new[]
+        {
+            active is null ? "" : $"层级 {active.EnteredObject?.Value.ToString() ?? "根"}",
+            active is null ? "" : $"已选 {active.Selection.Length}",
+            _service.Message ?? "",
+            _service.SceneUnavailable ? "场景不可用，可保存、退出或重试" : "",
+            _service.Host.GetSaveStatus()?.Frozen == true ? "核心已冻结；本局草稿仅保留到离开本局，无法写入存档；用户库草稿可写盘；有效蓝图暂不可保存" : "",
+            _service.IsDirty ? "未保存修改" : ""
+        };
+        _status.Text = string.Join(" · ", segments.Where(segment => !string.IsNullOrWhiteSpace(segment)));
         if (_service.State is not { } state) return;
         if (_paletteSession != state.Snapshot.Stamp.Session) { _paletteSession = state.Snapshot.Stamp.Session; RefreshPalette(); }
         for (var index = 0; index < _elementIds.Count; index++)
@@ -415,7 +420,7 @@ internal partial class DesignEditorPanel : Control
         });
         foreach (var diagnostic in diagnostics)
         {
-            var row = new HBoxContainer(); _diagnostics.AddChild(row); row.AddChild(UiStyle.Label(EditorService.Describe(diagnostic)));
+            var row = new HBoxContainer(); _diagnostics.AddChild(row); row.AddChild(UiStyle.Label(diagnostic.Message));
             if (diagnostic.Element is { } path) Add(row, "LocateDiagnostic", "定位", () => _service.Locate(path));
         }
     }
@@ -446,9 +451,9 @@ internal partial class DesignEditorPanel : Control
                 + $" · 转动范围 {Computed(sweep.SweptCells, cells => $"{cells.Length} 格")}"
                 + $" · 冲突 {Computed(sweep.ConflictCells, cells => cells.IsEmpty ? "无" : string.Join("、", cells))}";
             foreach (var reason in (sweep.SweptCells as ComputedValue<ImmutableArray<GridPosition>>.Unknown)?.Reasons ?? [])
-                text += $"\n范围未知：{reason.Code} · 包 {reason.Source?.Package.Value ?? "未知"} · {reason.Message}";
+                text += $"\n范围未知：{reason.Message}";
             foreach (var reason in (sweep.ConflictCells as ComputedValue<ImmutableArray<GridPosition>>.Unknown)?.Reasons ?? [])
-                text += $"\n冲突未知：{reason.Code} · 包 {reason.Source?.Package.Value ?? "未知"} · {reason.Message}";
+                text += $"\n冲突未知：{reason.Message}";
         }
         return text;
     }
