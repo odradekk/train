@@ -16,9 +16,12 @@ internal sealed class NodeCorridor
         var stops = position.PlatformNumber is { } number
             ? platforms.Skip(number - 1).Take(1)
             : platforms.Append(layout.Bypass);
+        var fallbackEntry = layout.TrainEntry(position.EnteredFrom);
         var exits = position.NextEdge is { } edge
             ? layout.Entries.Where(entry => entry.Edge == edge)
-            : layout.Entries.Where(entry => layout.EntryTracks.GetValueOrDefault(entry.Edge) > 0);
+            : layout.Entries.Where(exit => layout.EntryTracks.GetValueOrDefault(exit.Edge) > 0 &&
+                (position.EnteredFrom is not null || fallbackEntry is null || exit.Side != fallbackEntry.Side ||
+                 layout.HasTurn(-fallbackEntry.Side)));
         var routes = ImmutableArray.CreateBuilder<ScenePoint[]>();
         foreach (var stop in stops.Distinct())
         foreach (var exit in exits.Cast<NodeLayout.Entry?>().DefaultIfEmpty())

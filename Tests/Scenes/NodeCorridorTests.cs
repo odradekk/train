@@ -27,6 +27,18 @@ public sealed class NodeCorridorTests
     }
 
     [TestMethod]
+    public void Train_without_entry_history_in_an_empty_dead_end_covers_the_existing_fallback_route()
+    {
+        var snapshot = RailwayFixtures.Snapshot(4, 4, 0);
+        var layout = NodeLayout.Build(snapshot, new(1));
+        var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(new(1))).Value;
+        var position = new TrainPosition.Node(new(1), null, null, null, null, NodeTravelPhase.Docked, 0, null);
+        var corridor = new NodeCorridor(layout, dimensions, position, 104, []);
+        var path = new NodeTrainPath(layout, dimensions, position, layout.Bypass, 104, null);
+        AssertCovered(corridor, layout, path, path.Arc(0), path.Length);
+    }
+
+    [TestMethod]
     public void Unknown_choices_cover_the_finite_union_and_known_choices_narrow_it()
     {
         var snapshot = NodeFixtures.Snapshot(tracks: 2, sameSideEntry: true);

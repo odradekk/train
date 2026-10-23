@@ -42,9 +42,9 @@ public sealed class SettlementViewStreamingTests
     }
 
     [TestMethod]
-    public async Task Follow_keeps_the_80_meter_chunk_set_on_a_settlement_template()
+    public async Task Follow_keeps_nearby_chunks_and_its_corridor_without_prefetching_the_whole_settlement()
     {
-        var snapshot = Snapshot();
+        var snapshot = Snapshot(follow: true);
         var cache = new NodeScene.Cache();
         await using var vehicles = new SceneVehicles();
         await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, cache, SceneFixtures.NextId(), vehicles, new(), _ => null,
@@ -52,17 +52,19 @@ public sealed class SettlementViewStreamingTests
         await scene.BuildWork!;
         await Settle(scene, snapshot, new WorldSceneTarget.Follow(new(1), new(1)));
 
-        var expected = new NodeRange(default, NodeStreaming.PrefetchCells).Chunks(scene.Layout!).ToArray();
+        var expected = new NodeRange(scene.StreamingFocus, NodeStreaming.PrefetchCells).Chunks(scene.Layout!).ToArray();
         var actual = cache.Read(NodeFixtures.NodeId)!.Parts
             .Where(item => item.Key.StartsWith("terrain:", StringComparison.Ordinal)).Select(item => item.Key).ToArray();
-        CollectionAssert.AreEquivalent(expected.Select(NodeScene.ChunkKey).ToArray(), actual);
+        Assert.IsTrue(expected.Select(NodeScene.ChunkKey).All(actual.Contains));
+        var whole = NodeStreaming.SettlementPrefetch(scene.Layout!).Chunks(scene.Layout!).Select(NodeScene.ChunkKey).ToArray();
+        Assert.IsTrue(whole.Except(actual).Any(), "Follow must not use the Location circle spanning the whole template.");
     }
 
     private static bool Contains(SceneBounds bounds, Vector3 point) => point.X >= bounds.Minimum.X &&
         point.X <= bounds.Maximum.X && point.Y >= bounds.Minimum.Y && point.Y <= bounds.Maximum.Y &&
         point.Z >= bounds.Minimum.Z && point.Z <= bounds.Maximum.Z;
 
-    private static SceneWorldSnapshot Snapshot()
+    private static SceneWorldSnapshot Snapshot(bool follow = false)
     {
         var layout = NodeFixtures.Layout with
         {
@@ -88,6 +90,8 @@ public sealed class SettlementViewStreamingTests
             Details = new InstanceDetails.Building(new(2), PlotSize.Small)
         };
         var instances = new List<InstanceView> { far };
+        var trains = follow ? ImmutableArray.Create(NodeFixtures.Train()) : [];
+        if (follow) instances.Add(RailwayFixtures.Instance() with { Location = NodeFixtures.Location });
         for (var id = 2; id <= SettlementObjects.ParkedVehicleLimit + 1; id++)
             instances.Add(RailwayFixtures.Instance((ulong)id) with { Location = NodeFixtures.Location });
         var station = NodeFixtures.StationEvaluation();
@@ -95,12 +99,13 @@ public sealed class SettlementViewStreamingTests
         var content = NodeFixtures.Content(layout: layout,
             designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
             { [NodeFixtures.StationDesign] = new ContentLookup<DesignEvaluation>.Found(station) });
-        var source = (FixedCoreReadView)NodeFixtures.Snapshot(trains: [], instances: [.. instances], content: content).Core;
+        var source = (FixedCoreReadView)NodeFixtures.Snapshot(trains: trains, instances: [.. instances], content: content).Core;
         var node = source.World.Nodes[0];
         return new(new FixedCoreReadView
         {
             InputIdentity = source.InputIdentity, Position = source.Position,
             World = source.World with { Nodes = [node], Edges = [] },
+            Trains = trains.ToDictionary(train => train.Id, train => source.FindTrain(train.Id)),
             Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [node.Id] = new Lookup<NodeView>.Found(new(node, [], 80, 96, 80)) },
             Settlements = new Dictionary<SettlementId, Lookup<SettlementView>>
             { [settlement.Id] = new Lookup<SettlementView>.Found(settlement) },

@@ -82,7 +82,7 @@ public sealed class NodeRebindTests
         await using var session = Open(initial, railwayCache, nodeCache);
         session.RequestView(new WorldSceneTarget.Follow(new(1), new(1)));
         var first = await RailwayFixtures.Settled(session, Request);
-        Assert.IsNull(session.PrebuiltLocation);
+        Assert.AreEqual(new WorldLocation.Node(new(1)), session.PrebuiltLocation);
         Assert.IsNotNull(railwayCache.Find(initial, new(initial, new(1)), 0));
 
         var atNode = NodeFixtures.Train(enteredFrom: new(1), nextEdge: new(2));
@@ -123,7 +123,8 @@ public sealed class NodeRebindTests
         await RailwayFixtures.Settled(session, Request, second);
         await SceneFixtures.AwaitPendingWork(session.PendingPrebuilds);
         await RailwayFixtures.Settled(session, Request, second);
-        Assert.IsNull(session.PrebuiltLocation);
+        Assert.AreEqual(new WorldLocation.Node(new(1)), session.PrebuiltLocation,
+            "Reversal prepares the newly known front node even while stopped.");
         Assert.IsNull(nodeCache.Read(new(3)), "An empty candidate leaves no idle cache entry.");
         Assert.IsTrue(nodeCache.IdleBytes <= NodeScene.Cache.DefaultIdleBudget);
         Assert.IsNotNull(railwayCache.Find(stopped, new(stopped, new(2)), 0));

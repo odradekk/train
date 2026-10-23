@@ -16,6 +16,7 @@ internal sealed partial class NodeLayout
     private readonly List<(EdgeId Edge, int Lane, NodeRailPath Path)> sharedTurnRails = [];
     private ImmutableDictionary<EdgeId, int> entryTracks = ImmutableDictionary<EdgeId, int>.Empty;
     internal ImmutableDictionary<EdgeId, int> EntryTracks => entryTracks;
+    internal bool HasTurn(int side) => turns.ContainsKey(side);
     internal Stop Bypass { get; private set; } = null!;
     internal IEnumerable<(Func<double, RailwaySample> Sample, double Length)> AllTurnRoutes() =>
         turnRails.Select(Route).Concat(sharedTurnRails.Select(rail => Route(rail.Path)));
