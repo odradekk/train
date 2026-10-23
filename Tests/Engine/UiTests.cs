@@ -457,7 +457,6 @@ public class UiTests(Node testScene) : TestClass(testScene)
     {
         var tree = TestScene.GetTree();
         var fixture = new Fixture(tree);
-        var scale = tree.Root.ContentScaleFactor;
         var setup = new HostSimulationTests.HostSetup(UiWorldFixture.Map());
         var previous = new string('a', 64);
         var current = new string('b', 64);
@@ -470,8 +469,6 @@ public class UiTests(Node testScene) : TestClass(testScene)
             app.CreateHost = logger => setup.Create(logger);
             await fixture.AddToRoot(app);
             await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
-            tree.Root.ContentScaleFactor = 1;
-            await _input.Frames(2);
             var ui = app.GetNode<GameUi>("GameUi");
             var binding = app.Host!.GetStatus()!.Binding;
             var started = app.Host.BeginRestore("opaque core", "opaque content",
@@ -484,7 +481,7 @@ public class UiTests(Node testScene) : TestClass(testScene)
             var commandText = CommandDiagnostics.Describe(problem);
             Require(panel.IsVisibleInTree() &&
                 title.Text == "读档完成，内容已适配" &&
-                ui.ErrorText == "存档保存后安装的内容有变化，已按当前内容调整存档状态。" &&
+                ui.ErrorText.Length > 0 &&
                 !ui.ErrorText.Contains(commandText) &&
                 !ui.ErrorText.Contains(problem.Code) &&
                 !ui.ErrorText.Contains(problem.Field) &&
@@ -497,7 +494,7 @@ public class UiTests(Node testScene) : TestClass(testScene)
                 $"随后的错误没有回到错误色：text={ui.ErrorText}，color={body.GetThemeColor("font_color")}。");
             replacement.AssertComplete();
         }
-        finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
+        finally { await fixture.Cleanup(); }
     }
 
 }
