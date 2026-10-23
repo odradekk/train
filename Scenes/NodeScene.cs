@@ -1157,7 +1157,9 @@ internal sealed class NodeScene : IAsyncDisposable
             modelCells.Add(new(voxel.At, new(voxel.Orientation, appearance, voxel.Shape, voxel.Paint, subject, [], missing)));
         }
         var occupied = modelCells.Select(cell => cell.At).ToHashSet();
-        return GridPart(cells.Where(cell => !occupied.Contains(cell.At)).Concat(modelCells).ToImmutableArray(), heights.ToImmutable(), []);
+        cells.RemoveAll(cell => occupied.Contains(cell.At));
+        cells.AddRange(modelCells);
+        return GridPart(cells.DrainToImmutable(), heights.ToImmutable(), []);
 
         (int Height, double Distance) At(GridColumn column)
         {
