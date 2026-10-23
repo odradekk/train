@@ -85,10 +85,13 @@ public sealed class GeometryTests
     {
         var first = new SceneCell(new(0, 0, 0), new(VoxelOrientation.PxPy, SceneFixtures.Cube, null,
             null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), []));
-        ImmutableArray<SceneCell> cells = [first, first with { At = new(32, 0, 0) }, first with { At = new(1, 0, 0) }];
+        ImmutableArray<SceneCell> cells = [first, first with { At = new(32, 0, 0) }, first with { At = new(1, 0, 0) },
+            first with { At = new(0, 0, 15) }, first with { At = new(0, 0, 16) },
+            first with { At = new(-1, -1, -17) }, first with { At = new(-1, -1, -16) }];
         var grid = new VoxelGrid(cells);
         Assert.AreEqual(cells.Length, grid.Cells.Count());
         foreach (var cell in cells) Assert.AreEqual(cell, grid.Find(cell.At));
+        Assert.AreEqual(new SceneBounds(new(-1, -1, -17), new(33, 1, 17)), grid.Bounds);
         Assert.ThrowsExactly<ArgumentException>(() => new VoxelGrid([.. cells, first]));
     }
 

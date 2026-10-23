@@ -54,22 +54,31 @@ internal readonly record struct SceneCell(GridPosition At, CellProperties Proper
 internal sealed class VoxelGrid
 {
     internal const int ChunkSize = 32;
-    private readonly Dictionary<GridPosition, int[]> chunks = [];
+    private const int HalfSize = ChunkSize * ChunkSize * ChunkSize / 2;
+    private readonly Dictionary<GridPosition, int[][]> chunks = [];
     private readonly ImmutableArray<CellProperties?> entries;
     internal IEnumerable<SceneCell> Cells
     {
         get
         {
-            foreach (var (key, values) in chunks)
-            for (var index = 0; index < values.Length; index++)
-                if (values[index] != 0)
-                    yield return new(new((key.X << 5) + (index & 31),
-                        (key.Y << 5) + ((index >> 5) & 31), (key.Z << 5) + (index >> 10)), entries[values[index]]!);
+            foreach (var (key, halves) in chunks)
+            for (var half = 0; half < halves.Length; half++)
+            {
+                var values = halves[half];
+                for (var offset = 0; offset < values.Length; offset++)
+                    if (values[offset] != 0)
+                    {
+                        var index = half * HalfSize + offset;
+                        yield return new(new((key.X << 5) + (index & 31),
+                            (key.Y << 5) + ((index >> 5) & 31), (key.Z << 5) + (index >> 10)), entries[values[offset]]!);
+                    }
+            }
         }
     }
     internal SceneBounds? Bounds { get; }
     internal IEnumerable<GridPosition> Chunks => chunks.Keys;
-    internal long ArrayBytes => chunks.Values.Sum(values => (long)values.Length * sizeof(int)) +
+    internal long ArrayBytes => chunks.Values.Sum(halves => (long)halves.Length * IntPtr.Size +
+        halves.Sum(values => (long)values.Length * sizeof(int))) +
         (long)entries.Length * IntPtr.Size + entries.Sum(entry => (long)(entry?.Path.Length ?? 0) * sizeof(int)) +
         entries.Where(entry => entry?.Appearance is not null).Select(entry => entry!.Appearance!).Distinct()
             .Sum(appearance => appearance.Presentation switch
@@ -88,7 +97,7 @@ internal sealed class VoxelGrid
         var minimum = new GridPosition(int.MaxValue, int.MaxValue, int.MaxValue);
         var maximum = new GridPosition(int.MinValue, int.MinValue, int.MinValue);
         var previousChunk = default(GridPosition);
-        int[]? values = null;
+        int[][]? values = null;
         CellProperties? previousProperties = null;
         var previousId = 0;
         foreach (var cell in cells)
@@ -97,11 +106,13 @@ internal sealed class VoxelGrid
             if (values is null || key != previousChunk)
             {
                 if (!chunks.TryGetValue(key, out values))
-                    chunks.Add(key, values = new int[ChunkSize * ChunkSize * ChunkSize]);
+                    chunks.Add(key, values = [new int[HalfSize], new int[HalfSize]]);
                 previousChunk = key;
             }
             var index = Index(cell.At);
-            if (values[index] != 0) throw new ArgumentException("Cells overlap.", nameof(cells));
+            var half = values[index / HalfSize];
+            var offset = index % HalfSize;
+            if (half[offset] != 0) throw new ArgumentException("Cells overlap.", nameof(cells));
             var id = previousId;
             if (id == 0 || !ReferenceEquals(previousProperties, cell.Properties))
             {
@@ -114,7 +125,7 @@ internal sealed class VoxelGrid
                 previousProperties = cell.Properties;
                 previousId = id;
             }
-            values[index] = id;
+            half[offset] = id;
             minimum = new(Math.Min(minimum.X, cell.At.X), Math.Min(minimum.Y, cell.At.Y), Math.Min(minimum.Z, cell.At.Z));
             maximum = new(Math.Max(maximum.X, cell.At.X), Math.Max(maximum.Y, cell.At.Y), Math.Max(maximum.Z, cell.At.Z));
         }
@@ -125,7 +136,12 @@ internal sealed class VoxelGrid
 
     internal static GridPosition Chunk(GridPosition cell) => new(cell.X >> 5, cell.Y >> 5, cell.Z >> 5);
     private static int Index(GridPosition cell) => (cell.X & 31) + ChunkSize * ((cell.Y & 31) + ChunkSize * (cell.Z & 31));
-    private int EntryAt(GridPosition cell) => chunks.TryGetValue(Chunk(cell), out var values) ? values[Index(cell)] : 0;
+    private int EntryAt(GridPosition cell)
+    {
+        if (!chunks.TryGetValue(Chunk(cell), out var values)) return 0;
+        var index = Index(cell);
+        return values[index / HalfSize][index % HalfSize];
+    }
     internal SceneCell? Find(GridPosition cell)
     {
         var id = EntryAt(cell);
