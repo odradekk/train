@@ -56,6 +56,56 @@ public sealed class NodeCandidateTests
     }
 
     [TestMethod]
+    public async Task A_completed_replacement_waits_for_the_old_offer_receipt_then_reports_added_and_removed_objects()
+    {
+        var rebuilding = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var builds = 0;
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), Snapshot(), new(), new(),
+            (current, node, previous, token) =>
+            {
+                var number = Interlocked.Increment(ref builds);
+                if (number == 2)
+                {
+                    rebuilding.TrySetResult();
+                    release.Wait(token);
+                }
+                return Marker(current, node, previous, token, number == 1 ? "before" : "after");
+            });
+        try
+        {
+            session.RequestView(Follow);
+            var displayed = await Prepare(session);
+            var offered = Candidate(session, null);
+            var oldIds = offered.Upserts.Select(item => item.Id).ToArray();
+            Assert.IsTrue(oldIds.Length > 0);
+
+            // A changed track count rebuilds the candidate through the existing preparation boundary.
+            session.Observe(Snapshot(steps: 1, tracks: 2), []);
+            displayed = Present(session, displayed);
+            var pending = session.PendingPrebuilds;
+            Assert.IsTrue(pending.Length > 0, "The changed candidate must own real rebuild work.");
+            await rebuilding.Task;
+            Assert.AreSame(offered, Candidate(session, null));
+            release.Set();
+            await SceneFixtures.AwaitPendingWork(pending);
+            Present(session, displayed);
+
+            Assert.AreSame(offered, Candidate(session, null),
+                "Even completed replacement objects must not alter an offer still awaiting preparation.");
+            var delta = Candidate(session, offered.Frame);
+            Assert.AreEqual(offered.Frame, delta.Base);
+            Assert.AreEqual(offered.Frame.Space, delta.Frame.Space);
+            Assert.IsTrue(delta.Upserts.Any(item => !item.Visuals.IsEmpty && !oldIds.Contains(item.Id)),
+                "Confirming the old offer must expose the newly completed visual objects.");
+            CollectionAssert.AreEquivalent(oldIds, delta.Removed.ToArray(),
+                "The replacement must remove the objects acknowledged from the old offer.");
+            AssertVisualOnly(delta);
+        }
+        finally { release.Set(); }
+    }
+
+    [TestMethod]
     public async Task RequestView_cancels_the_candidate_and_an_old_receipt_cannot_acknowledge_its_replacement()
     {
         await using var session = Open(Snapshot());
@@ -129,24 +179,27 @@ public sealed class NodeCandidateTests
 
     private static TrainView Train() => RailwayFixtures.Train(1, direction: TravelDirection.Reverse, speed: 1);
 
-    private static SceneWorldSnapshot Snapshot(TrainView? train = null, ulong steps = 0)
+    private static SceneWorldSnapshot Snapshot(TrainView? train = null, ulong steps = 0, int tracks = 1)
     {
         train ??= Train();
-        return RailwayFixtures.Snapshot(4, 4, 0, steps: steps,
+        return RailwayFixtures.Snapshot(4, 4, 0, steps: steps, tracks: tracks,
             content: RailwayFixtures.Content(rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 },
                 design: RailwayFixtures.Vehicle()), trains: [train], instances: [RailwayFixtures.Instance()]);
     }
 
     private static WorldSceneSession Open(SceneWorldSnapshot snapshot) => new(new(Guid.NewGuid()), snapshot, new(), new(),
-        (current, node, previous, token) =>
-        {
-            var built = RailwayFixtures.EmptyNode(current, node, previous, token);
-            var geometry = WorldSceneSession.BuildGeometry(id => new(
-                [new(id("marker"), null, new(new(7, 0, 9), Quaternion.Identity), null,
-                    [new SceneVisual.Wheelset(1, 1, 1, 0)], [], [])], [], []));
-            return built with { Parts = built.Parts.Add("marker", new("fixed", geometry,
-                ImmutableDictionary<GridColumn, double>.Empty)) };
-        });
+        (current, node, previous, token) => Marker(current, node, previous, token, "marker"));
+
+    private static NodeScene.Built Marker(SceneWorldSnapshot snapshot, NodeId node, NodeScene.Cached? previous,
+        CancellationToken token, string key)
+    {
+        var built = RailwayFixtures.EmptyNode(snapshot, node, previous, token);
+        var geometry = WorldSceneSession.BuildGeometry(id => new(
+            [new(id("marker"), null, new(new(7, 0, 9), Quaternion.Identity), null,
+                [new SceneVisual.Wheelset(1, 1, 1, 0)], [], [])], [], []));
+        return built with { Parts = built.Parts.Add(key, new("fixed", geometry,
+            ImmutableDictionary<GridColumn, double>.Empty)) };
+    }
 
     private static async Task<SceneFrame> Prepare(WorldSceneSession session)
     {
