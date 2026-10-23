@@ -18,7 +18,7 @@ internal static class HostComposition
         var builtin = new ContentRoot("builtin");
         var mods = new ContentRoot("mods");
         var userLibrary = new ContentRoot("user-library");
-        var files = new ContentFiles(dispatcher, new Dictionary<ContentRoot, ContentRootLocation>
+        var files = new ContentFiles(new Dictionary<ContentRoot, ContentRootLocation>
         {
             [builtin] = new ContentRootLocation.Resource(AuthoringPaths.BuiltInCoreResourceDirectory),
             [mods] = new ContentRootLocation.Disk(AuthoringPaths.ModsDirectory(userData)),

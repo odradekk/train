@@ -213,7 +213,7 @@ public class MacroMapLayerTests(Node testScene) : TestClass(testScene)
     private static IContentCandidate LoadContent(GodotMainThreadDispatcher dispatcher, string mods)
     {
         Directory.CreateDirectory(mods);
-        var files = new ContentFiles(dispatcher, new Dictionary<ContentRoot, ContentRootLocation>
+        var files = new ContentFiles(new Dictionary<ContentRoot, ContentRootLocation>
         {
             [new("builtin")] = new ContentRootLocation.Disk(ProjectSettings.GlobalizePath("res://builtin/core")),
             [new("mods")] = new ContentRootLocation.Disk(mods)

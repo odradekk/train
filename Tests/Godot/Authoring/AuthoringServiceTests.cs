@@ -465,7 +465,7 @@ public sealed class AuthoringServiceTests
         {
             Directory.CreateDirectory(Core);
             File.WriteAllText(Path.Combine(Core, "source.txt"), "original");
-            var files = new ContentFiles(dispatcher, new Dictionary<ContentRoot, ContentRootLocation>
+            var files = new ContentFiles(new Dictionary<ContentRoot, ContentRootLocation>
             { [new("builtin")] = new ContentRootLocation.Disk(Core), [new("mods")] = new ContentRootLocation.Disk(Mods) });
             Coordinator = new(Host.Core, Host.Factory, files, new UnconfiguredAssetInspector(), new(new("builtin"), new("mods"), null, "test", []), Host.Logger, sessionOptions: HostFixture.Options);
             Editor = new(Coordinator, Scenes, new FileSaveStore(root), Host.Logger);

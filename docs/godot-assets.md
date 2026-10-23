@@ -4,9 +4,17 @@
 
 ## 文件与线程
 
-在 Godot 主线程创建 `GodotMainThreadDispatcher`，每帧调用 `Pump()`。`Invoke<T>(Func<T>)` 在主线程直接执行；后台调用入队并等待自己的结果。主线程不能同步等待后台加载任务。纯 .NET 磁盘 I/O 和 GLB JSON 预检留在调用线程；Godot 文件、图片与 GLB 解码、资源创建和释放经 dispatcher 串行执行。哈希由 Content 计算，缓存使用其不透明的 `AssetRevision`。
+在 Godot 主线程创建 `GodotMainThreadDispatcher` 和 `ContentFiles`，每帧调用 `Pump()`。`Invoke<T>(Func<T>)` 在主线程直接执行；后台调用入队并等待自己的结果。主线程不能同步等待后台加载任务。文件枚举、原始字节读取、PNG 尺寸检查和 GLB JSON 预检在调用线程完成；GLB 解码，以及贴图、网格、材质等运行资源的创建和释放仍由 dispatcher 在主线程协调。哈希由 Content 计算，缓存使用其不透明的 `AssetRevision`。
 
-`ContentFiles(GodotMainThreadDispatcher, IReadOnlyDictionary<ContentRoot, ContentRootLocation>)` 接收构造方提供的根登记表：`ContentRootLocation.Disk(absoluteDirectory)` 或 `ContentRootLocation.Resource("res://...")`。端口不判断开发／导出环境；未登记的根属于调用错误。磁盘根本身及根以下路径各段都拒绝链接／reparse point，枚举保留 File／Directory／Link。读取最多消费 `maximumBytes + 1` 字节，返回不可变副本，区分 Missing、LimitExceeded、LinkedPath 和 Inaccessible。
+`ContentFiles(IReadOnlyDictionary<ContentRoot, ContentRootLocation>)` 接收构造方提供的根登记表：`ContentRootLocation.Disk(absoluteDirectory)` 或 `ContentRootLocation.Resource("res://...")`。只有 `ContentFiles` 在构造时用 `OS.HasFeature("template")` 区分资源根的实现：[导出模板具有 template 特征，编辑器二进制没有](https://docs.godotengine.org/en/4.7/tutorials/export/feature_tags.html)。源码运行把资源根通过 `ProjectSettings.GlobalizePath` 解析成绝对路径，复用 `DiskContentFiles`；导出使用 PCK 的 `DirAccess`／`FileAccess`。显式磁盘根始终使用磁盘实现；未登记的根属于调用错误。磁盘根本身及根以下路径各段都拒绝链接／reparse point，枚举保留 File／Directory／Link。读取最多消费 `maximumBytes + 1` 字节，返回不可变副本，区分 Missing、LimitExceeded、LinkedPath 和 Inaccessible。
+
+线程划分依据是 Godot 4.7 文档与 4.7.2 源码，升级引擎时需要重新核对：
+
+- [资源线程说明](https://docs.godotengine.org/en/4.7/tutorials/performance/thread_safe_apis.html#resources)禁止多线程修改同一资源。PNG 每次调用独占一个 `Image`，在同一线程创建、`LoadPngFromBuffer`、取尺寸并释放；[PNG 解码器](https://github.com/godotengine/godot/blob/4.7.2-stable/drivers/png/png_driver_common.cpp#L62-L125)使用私有解码状态和像素缓冲，不创建 GPU 纹理。不得跨线程共享这个可变实例。
+- [PCK 文件实现](https://github.com/godotengine/godot/blob/4.7.2-stable/core/io/file_access_pack.cpp#L443-L629)每次打开持有独立文件句柄、位置和目录遍历列表。加载期间只读已挂载的 PCK 索引，不挂载、替换或清空资源包；文件和目录实例不跨调用共享。打开、读取和取错误都在同一调用线程完成；[FileAccess](https://docs.godotengine.org/en/4.7/classes/class_fileaccess.html#class-fileaccess-method-get-open-error)和[DirAccess](https://docs.godotengine.org/en/4.7/classes/class_diraccess.html#class-diraccess-method-get-open-error)的打开错误按线程记录。
+- 原生 [DirAccessWindows.change_dir](https://github.com/godotengine/godot/blob/4.7.2-stable/drivers/windows/dir_access_windows.cpp#L188-L223)会临时改变进程工作目录，构造器又在锁外读取它，不能据此证明源码目录枚举的线程安全，所以源码运行使用 .NET 磁盘实现。Godot 原生枚举默认隐藏隐藏项，磁盘实现保留它们；当前内置根已核对两者文件名和类型一致，没有为此增加过滤。
+
+真实引擎测试验证源码运行时的资源枚举、读取和 PNG 检查在工作线程上不经 `Pump()` 完成，GLB 仍需泵送。测试使用编辑器二进制，不覆盖 PCK 分支；后者由 Windows Release 导出中的实际读档对照测量验证，包括恢复检查点、诊断和内容配对。
 
 停止泵送时必须调用 dispatcher 的 `Dispose()`：未开始的请求被取消，后台等待者结束；新请求被拒绝，已开始的请求照常完成。停止接收新加载后，宿主继续泵送已有调用并释放资源租约，再关闭 dispatcher。不得先停泵、同步等待仍需主线程的资源释放；主线程已有的租约可直接释放。缓存的 `Dispose()` 拒绝新获取，但不夺走已有租约。
 

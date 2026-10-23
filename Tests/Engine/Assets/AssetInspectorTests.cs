@@ -10,6 +10,39 @@ namespace Train.Engine.Tests.Assets;
 public class AssetInspectorTests(Node testScene) : TestClass(testScene)
 {
     [Test]
+    public async Task Worker_glb_inspection_requires_main_thread_pumping()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        var inspector = new GodotAssetInspector(dispatcher);
+        var bytes = GlbFixture.Create();
+        var expected = Glb(inspector, bytes);
+        var mainThread = System.Environment.CurrentManagedThreadId;
+        var entered = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var background = Task.Run(() =>
+        {
+            entered.SetResult(System.Environment.CurrentManagedThreadId);
+            return Glb(inspector, bytes);
+        });
+        Require(await entered.Task.WaitAsync(TimeSpan.FromSeconds(30)) != mainThread, "GLB 检查没有进入工作线程。");
+        try
+        {
+            Require(!background.IsCompleted, "GLB 在主线程泵送前完成。");
+            await FramesUntil(TestScene, () => background.IsCompleted, dispatcher);
+            var actual = await background;
+            Require(actual with { Surfaces = expected.Surfaces } == expected &&
+                actual.Surfaces.SequenceEqual(expected.Surfaces), "GLB 工作线程请求的检查结果与主线程不一致。");
+        }
+        finally { dispatcher.Dispose(); }
+
+        try
+        {
+            await Task.Run(() => Glb(inspector, bytes));
+            throw new InvalidOperationException("关闭 dispatcher 后工作线程 GLB 检查仍然成功。");
+        }
+        catch (ObjectDisposedException) { }
+    }
+
+    [Test]
     public void Rectangular_png_reports_dimensions_and_damaged_png_cannot_decode()
     {
         using var dispatcher = new GodotMainThreadDispatcher();

@@ -44,7 +44,7 @@ internal static class ContentFixture
     {
         var root = new ContentRoot("builtin");
         var mods = new ContentRoot("mods");
-        var files = new ContentFiles(dispatcher, new Dictionary<ContentRoot, ContentRootLocation>
+        var files = new ContentFiles(new Dictionary<ContentRoot, ContentRootLocation>
         {
             [root] = new ContentRootLocation.Disk(builtin),
             [mods] = new ContentRootLocation.Disk(Path.Combine(builtin, "mods"))
