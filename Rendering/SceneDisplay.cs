@@ -8,7 +8,7 @@ using Train.Scenes.Contracts;
 
 namespace Train.Rendering;
 
-internal sealed class SceneDisplay : IDisposable
+internal sealed partial class SceneDisplay : IDisposable
 {
     internal sealed record DisplayObject(SceneObject Source, Node3D Root, PreparedVisual[] Visuals);
     private readonly SceneResources _resources;
@@ -86,7 +86,7 @@ internal sealed class SceneDisplay : IDisposable
         _debugLines = null;
     }
 
-    internal PreparedFrame? Prepare(ISceneFrame frame)
+    internal PreparedFrame? Prepare(ISceneFrame frame, TimeSpan? budget = null)
     {
         _cache.RequireMainThread();
         if (frame.Readiness == SceneReadiness.Loading ||
@@ -105,19 +105,15 @@ internal sealed class SceneDisplay : IDisposable
         var spaceChanged = DisplayedFrame is { } displayed
             ? displayed.Update.Frame.Session != frame.Update.Frame.Session || displayed.Update.Frame.Space != frame.Update.Frame.Space
             : _completeInitialFrame;
-        var processFrame = Engine.GetProcessFrames();
-        if (_budgetFrame != processFrame)
-        {
-            _budgetFrame = processFrame;
-            _preparationTime = TimeSpan.Zero;
-        }
+        ResetPreparationBudget();
         var started = Timestamp();
         var preparedResource = false;
         var update = frame.Update;
         var next = update.Base is null ? new Dictionary<SceneObjectId, DisplayObject>() : new(_objects);
         // 首次打开或切换空间时一次提交首个可操作帧，避免列车继续驶出尚未接入的空间。
-        bool BudgetExpired() => !spaceChanged && preparedResource &&
-            _preparationTime + Stopwatch.GetElapsedTime(started, Timestamp()) >= PreparationBudget;
+        bool BudgetExpired() => !spaceChanged && (preparedResource || budget is not null) &&
+            (_preparationTime + Stopwatch.GetElapsedTime(started, Timestamp()) >= PreparationBudget ||
+             budget is { } allowance && Stopwatch.GetElapsedTime(started, Timestamp()) >= allowance);
         try
         {
             if (update.Base is not null && update.ShiftExistingRoots != System.Numerics.Vector3.Zero)
@@ -144,7 +140,7 @@ internal sealed class SceneDisplay : IDisposable
                         {
                             if (BudgetExpired())
                                 return null;
-                            visual = _resources.Prepare(source.Visuals[i]);
+                            visual = TakeCandidateVisual(update.Frame, key, source.Visuals[i]) ?? _resources.Prepare(source.Visuals[i]);
                             _pendingVisuals.Add(key, visual);
                             preparedResource = true;
                         }
@@ -187,6 +183,14 @@ internal sealed class SceneDisplay : IDisposable
         {
             _preparationTime += Stopwatch.GetElapsedTime(started, Timestamp());
         }
+    }
+
+    private static void ResetPreparationBudget()
+    {
+        var processFrame = Engine.GetProcessFrames();
+        if (_budgetFrame == processFrame) return;
+        _budgetFrame = processFrame;
+        _preparationTime = TimeSpan.Zero;
     }
 
     internal Vector3 UpdatePoses(ISceneFrame frame)
@@ -363,6 +367,7 @@ internal sealed class SceneDisplay : IDisposable
         if (_disposed) return;
         _disposed = true;
         CancelPreparation();
+        CancelCandidate();
         _effects.Dispose();
         foreach (var item in _objects.Values) item.Root.GetParent()?.RemoveChild(item.Root);
         foreach (var item in _objects.Values)

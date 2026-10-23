@@ -178,7 +178,9 @@ internal sealed partial class MeasurementRun
             var current = ((Lookup<TrainView>.Found)core.FindTrain(_train)).Value.Position;
             var edge = current as TrainPosition.Edge ?? _routePreviousPosition as TrainPosition.Edge;
             var multipleTracks = edge is not null && core.FindEdge(edge.Id) is Lookup<EdgeView>.Found found && found.Value.Map.Tracks > 1;
-            _routeTransition = new(old.Update.Frame, old.Origin, frame.Update.Frame, frame.Origin, multipleTracks);
+            var candidate = _app.WorldScenes.Display.CandidateProgress(frame.Update.Frame);
+            _routeTransition = new(old.Update.Frame, old.Origin, frame.Update.Frame, frame.Origin, multipleTracks,
+                candidate?.Prepared, candidate?.Received);
         }
         _routeSceneFrame = frame;
         _routeObjects.Clear();
