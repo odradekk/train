@@ -148,7 +148,3 @@ public sealed class ViewCoverageTests
         Update = new(null, new(new(Guid.Empty), new(1), new(1), 1), default, [], [], new(fog.IsDefault ? [] : fog, []), [])
     };
 }
-
-
-
-

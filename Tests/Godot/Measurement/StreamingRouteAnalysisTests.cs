@@ -161,6 +161,3 @@ public sealed class StreamingRouteAnalysisTests
     private static StreamingHostEvent Event(int display, long candidate, SceneFrameStamp stamp, ulong id,
         SceneDisplayStage stage, double at) => new(display, at, new(candidate, stamp, new(id), stage));
 }
-
-
-

@@ -107,7 +107,3 @@ internal static class ViewCoverage
         return new(sorted.Length, sorted.Sum(), Percentile(.5), Percentile(.99), sorted.Length == 0 ? null : sorted[^1]);
     }
 }
-
-
-
-
