@@ -401,11 +401,11 @@ internal static class CombatOperations
 
     private static WorldState RetryRetreatDestinations(WorldState world, CoreContentProjection content)
     {
-        if (!world.Trains.Any(train => train.Activity == TrainActivity.Retreating
-                && train.RetreatDestination is null && !CombatQueries.TrainInCombat(world, train.Id)))
-            return world;
-        var trains = world.Trains.Select(train => train.Activity == TrainActivity.Retreating
-            && train.RetreatDestination is null && !CombatQueries.TrainInCombat(world, train.Id)
+        bool Pending(TrainState train) => train.Activity == TrainActivity.Retreating
+            && train.RetreatDestination is null && !CombatQueries.TrainInCombat(world, train.Id);
+
+        if (!world.Trains.Any(Pending)) return world;
+        var trains = world.Trains.Select(train => Pending(train)
             ? train with { RetreatDestination = ChooseDestination(world, content, train,
                 WorldState.Location(train.Position)) }
             : train).ToImmutableArray();
