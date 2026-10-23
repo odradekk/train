@@ -14,15 +14,14 @@ Read the coordinator's dispatch comment, the Issue body and all comments, `AGENT
 
 ## 1. Create the worker
 
-Create the worker with Paseo `create_agent` in the same workspace, title `work #<n>`. You choose the model (user decisions 2026-10-18 and 2026-10-23), except that art Issues must use GPT:
+Create the worker with Paseo `create_agent` in the same workspace, title `work #<n>`. Since the user's 2026-10-23 decision, GPT is the default worker because DeepSeek and Grok quota is nearly used up:
 
 | Issue | Worker `provider` and `settings` |
 | --- | --- |
-| Art (`责任：美术`) | `codex/gpt-6.1-sol`, `{ modeId: full-access, thinkingOptionId: xhigh }`. Only GPT can generate images. Do not turn on Fast (`service_tier: priority`). |
-| Other Issues | `codebuddy-code/deepseek-v4.1-flash`, `{ modeId: fullAccess, thinkingOptionId: max }`, or `cursor/grok-4.7`, `{ modeId: agent, thinkingOptionId: xhigh, features: { auto_accept: true } }`. The two are about equally capable. |
-| Complex work, such as hard optimization, performance or diagnosis | `codex/gpt-6.1-sol`, `{ modeId: full-access, thinkingOptionId: xhigh }`, no Fast. Do not use Claude Opus as a worker. |
+| All Issues | `codex/gpt-6.1-sol`, `{ modeId: full-access, thinkingOptionId: xhigh }`. Do not turn on Fast (`service_tier: priority`). Art Issues must use GPT, because only GPT can generate images. |
+| Fallback when GPT is unavailable, not for art | `codebuddy-code/deepseek-v4.1-flash`, `{ modeId: fullAccess, thinkingOptionId: max }`, or `cursor/grok-4.7`, `{ modeId: agent, thinkingOptionId: xhigh, features: { auto_accept: true } }`. |
 
-Use GPT for art and complex work only; ordinary Issues stay on DeepSeek or Grok. DeepSeek and Grok are somewhat weaker than GPT 6.1 Sol. Give them more guidance: name the files, the existing code to reuse and the checks to run; approve plans in small steps; review every delivery line by line and run more of the risk-relevant checks yourself. If a worker's model keeps failing or runs out of quota, replace the worker with another allowed model and hand over through the approved-plan comment.
+Do not use Claude Opus as a worker. DeepSeek and Grok are somewhat weaker than GPT 6.1 Sol. Give them more guidance: name the files, the existing code to reuse and the checks to run; approve plans in small steps; review every delivery line by line and run more of the risk-relevant checks yourself. If a worker's model keeps failing or runs out of quota, replace the worker with another allowed model and hand over through the approved-plan comment.
 
 Each client reads its own MCP config: Codex `.codex/config.toml`, Cursor `.cursor/mcp.json`, Claude and CodeBuddy `.mcp.json`. Once the worker starts, confirm it sees the `godot` tools when the Issue needs them; if not, ask the coordinator to fix the port or reload the worker instead of retrying.
 

@@ -11,19 +11,21 @@ internal static class SettlementMorale
     internal static WorldState Recover(WorldState world, CoreContentProjection content)
     {
         if (CombatRules.FindRule(world, content) is not { } rule) return world;
-        var changed = false;
-        var settlements = world.Settlements.Select(settlement =>
+        ImmutableArray<SettlementState>.Builder? settlements = null;
+        for (var index = 0; index < world.Settlements.Length; index++)
         {
+            var settlement = world.Settlements[index];
+            if (settlement.Morale == 1 && !settlement.Surrendered) continue;
             if (world.Combats.Any(combat => combat.Location is WorldLocation.Node node
-                    && node.Id == settlement.Node)) return settlement;
-            if (HasHostileUnit(world, settlement)) return settlement;
+                    && node.Id == settlement.Node)) continue;
+            if (HasHostileUnit(world, settlement)) continue;
             var morale = Math.Min(1, settlement.Morale + rule.MoraleRecoveryPerSecond * SimulationTime.StepSeconds);
             var surrendered = settlement.Surrendered && morale < rule.SurrenderThreshold;
-            if (morale == settlement.Morale && surrendered == settlement.Surrendered) return settlement;
-            changed = true;
-            return settlement with { Morale = morale, Surrendered = surrendered };
-        }).ToImmutableArray();
-        return changed ? world with { Settlements = settlements } : world;
+            if (morale == settlement.Morale && surrendered == settlement.Surrendered) continue;
+            settlements ??= world.Settlements.ToBuilder();
+            settlements[index] = settlement with { Morale = morale, Surrendered = surrendered };
+        }
+        return settlements is null ? world : world with { Settlements = settlements.ToImmutable() };
     }
 
     internal static WorldState Apply(WorldState world, WorldState before, CoreContentProjection content,

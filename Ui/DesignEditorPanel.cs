@@ -228,8 +228,13 @@ internal partial class DesignEditorPanel : Control
         if (_preview is { } current) _service.ReportProblems(current.Conflicts.Select(conflict => conflict.Problem));
         _previewText.Text = _preview is { } p
             ? $"覆盖 {p.CoveredCells} · 影响 {p.AffectedCells} · 跳过 {p.SkippedCells} · 占格{(p.OccupancyComplete ? "完整" : "未知")}\n"
-                + string.Join("；", p.Conflicts.Select(c => $"{c.Cell}：{EditorService.Describe(c.Problem)}"))
+                + string.Join("；", p.Conflicts.Select(ConflictText))
             : "预览不可用";
+        string ConflictText(EditConflict conflict)
+        {
+            var text = EditorService.Explain(conflict.Problem, _service.Host.Content);
+            return conflict.Cell is { } cell ? $"({cell.X}, {cell.Y}, {cell.Z})：{text}" : text;
+        }
     }
     private void Apply()
     {
@@ -386,7 +391,7 @@ internal partial class DesignEditorPanel : Control
         _shownEvaluation = state.CurrentEvaluation;
         _shownFrameDiagnostics = _service.FrameDiagnostics;
         foreach (var problem in _shownFrameDiagnostics)
-            _diagnostics.AddChild(UiStyle.Label(EditorService.Describe(problem)));
+            _diagnostics.AddChild(UiStyle.Label(EditorService.Explain(problem, _service.Host.Content)));
         _information.Text = state.CurrentEvaluation switch
         {
             null => "评估中；合法性、BOM 和转动范围尚未确认。",
@@ -406,7 +411,7 @@ internal partial class DesignEditorPanel : Control
             foreach (var locked in scene.EditLocks)
             {
                 var row = new HBoxContainer(); _diagnostics.AddChild(row);
-                row.AddChild(UiStyle.Label($"缺失定义 {locked.Reference} · 所属包 {locked.Package.Value} · 受阻操作：{string.Join("、", locked.BlockedOperations)}"));
+                row.AddChild(UiStyle.Label(EditorService.Explain(locked, _service.Host.Content)));
                 Add(row, "LocateLockedElement", "定位锁定项", () => _service.Locate(locked.Element));
             }
         }
