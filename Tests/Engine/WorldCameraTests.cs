@@ -383,6 +383,83 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public void Building_top_lifts_focus_above_a_lower_hit_and_keeps_the_orbit()
+    {
+        var camera = AttachCamera();
+        try
+        {
+            camera.ObjectTop = id => id.Value == 1 ? 40f : null;
+            camera.DisplayedFrame(Frame(bounds: NodeBounds, pick: Building(1, 2)), null);
+            var offset = camera.Camera.Position - camera.Focus;
+            camera.MoveFocus(new(10, 999, 20));
+            Near(camera.Focus, new(10, 40, 20));
+            Near(camera.Camera.Position - camera.Focus, offset);
+        }
+        finally { camera.Free(); }
+    }
+
+    [Test]
+    public void Taller_neighbor_lifts_the_camera_one_cell_above_its_top()
+    {
+        var camera = AttachCamera();
+        try
+        {
+            camera.DisplayedFrame(Frame(bounds: NodeBounds), null);
+            var offset = camera.Camera.Position - camera.Focus;
+            var focus = new Vector3(10, 0, 20);
+            camera.ObjectTop = id => id.Value == 2 ? 70f : 40f;
+            camera.DisplayedFrame(Frame(bounds: NodeBounds, picks: ImmutableDictionary<SceneRay, ScenePick>.Empty
+                .Add(WorldCamera.ClearanceRay(focus.X, focus.Z), Building(1, 2))
+                .Add(WorldCamera.ClearanceRay(focus.X + offset.X, focus.Z + offset.Z), Building(2, 3))), null);
+            camera.MoveFocus(focus);
+            Near(camera.Focus, new(focus.X, 71f - offset.Y, focus.Z));
+            Near(camera.Camera.Position, new(focus.X + offset.X, 71f, focus.Z + offset.Z));
+        }
+        finally { camera.Free(); }
+    }
+
+    [Test]
+    public void Terrain_hit_uses_the_surface_and_a_miss_keeps_the_height()
+    {
+        var camera = AttachCamera();
+        try
+        {
+            camera.DisplayedFrame(Frame(bounds: NodeBounds, pick: Ground(12)), null);
+            camera.MoveFocus(new(10, 0, 20));
+            Near(camera.Focus, new(10, 12, 20));
+            camera.DisplayedFrame(Frame(revision: 2, bounds: NodeBounds), null);
+            camera.MoveFocus(new(4, 0, -6));
+            Near(camera.Focus, new(4, 12, -6));
+        }
+        finally { camera.Free(); }
+    }
+
+    [Test]
+    public void NotReady_or_a_missing_top_lifts_on_a_later_frame()
+    {
+        var camera = AttachCamera();
+        try
+        {
+            camera.ObjectTop = _ => 40f;
+            camera.DisplayedFrame(Frame(bounds: NodeBounds, pick: new ScenePick.NotReady()), null);
+            camera.MoveFocus(new(10, 0, 20));
+            Near(camera.Focus, new(10, 0, 20));
+            camera.DisplayedFrame(Frame(revision: 2, bounds: NodeBounds, pick: Building(1, 2)), null);
+            Near(camera.Focus, new(10, 40, 20));
+
+            float? top = null;
+            camera.ObjectTop = _ => top;
+            camera.DisplayedFrame(Frame(revision: 3, bounds: NodeBounds, pick: Building(1, 2)), null);
+            camera.MoveFocus(new(-8, 0, 6));
+            Near(camera.Focus, new(-8, 40, 6));
+            top = 18f;
+            camera.DisplayedFrame(Frame(revision: 4, bounds: NodeBounds, pick: Building(1, 2)), null);
+            Near(camera.Focus, new(-8, 18, 6));
+        }
+        finally { camera.Free(); }
+    }
+
+    [Test]
     public void Minimap_focus_clamps_to_node_bounds_and_preserves_orbit_and_distance()
     {
         var camera = AttachCamera();
@@ -417,15 +494,28 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
     private static FixedSceneFrame Frame(ulong space = 1, ulong revision = 1,
         SceneFrameStamp? @base = null, NVector3 shift = default, ScenePoint origin = default,
         ScenePanBounds? bounds = null, ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>? poses = null,
-        Lookup<double>? height = null, SceneSessionId? session = null) => new()
+        Lookup<double>? height = null, SceneSessionId? session = null, ScenePick? pick = null,
+        ImmutableDictionary<SceneRay, ScenePick>? picks = null) => new()
     {
         Update = new(@base, new(session ?? Session, new(1), new(space), revision), shift,
             [], [], new([], []), []),
         Origin = origin,
         NodePanBounds = bounds,
         Poses = poses ?? ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty,
-        TerrainHeightResult = height ?? new Lookup<double>.Missing()
+        TerrainHeightResult = height ?? new Lookup<double>.Missing(),
+        PickResult = pick ?? new ScenePick.Miss(),
+        Picks = picks ?? ImmutableDictionary<SceneRay, ScenePick>.Empty
     };
+
+    private static readonly ScenePanBounds NodeBounds = new(new(-100, -100), new(100, 100));
+
+    private static ScenePick Building(ulong id, float y) => new ScenePick.Hit(new(new(Session, new(1), new(1), 1), new(id),
+        new PickSubject.WorldObject(new WorldObjectId.Instance(new InstanceId.Building(new(id))), null, null),
+        default, GridFace.PositiveY, new(0, y, 0), NVector3.UnitY, 1, []));
+
+    private static ScenePick Ground(float y) => new ScenePick.Hit(new(new(Session, new(1), new(1), 1), null,
+        new PickSubject.Terrain(new WorldLocation.Node(new(1))),
+        default, GridFace.PositiveY, new(0, y, 0), NVector3.UnitY, 1, []));
 
     private static ScenePose Pose(float x, float y, float z, float yaw = 0) => new(new(x, y, z),
         NQuaternion.CreateFromAxisAngle(NVector3.UnitY, yaw));

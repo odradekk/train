@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.App;
+using Train.App.Saves;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
 using Train.Core.Contracts;
@@ -147,6 +148,31 @@ public sealed class HostDesignSubmissionTests
         Assert.IsFalse(fixture.Host.PanelGenerationCurrent(binding, opened));
         Assert.IsTrue(fixture.Host.PanelGenerationCurrent(binding, reloaded.Generation));
         reload.Dispose();
+        fixture.AssertNoUnexpectedFailures();
+    }
+
+    [TestMethod]
+    public void Blueprint_save_keeps_the_opened_panel_generation()
+    {
+        using var fixture = new HostFixture();
+        fixture.ReadyHost();
+        var binding = fixture.Host.GetStatus()!.Binding;
+        var opened = fixture.Content.Generation;
+        var activated = new FixedContentView(fixture.Content.Core, new(opened.Value + 1));
+        using var candidate = new ScriptedContentCandidate(activated, fixture.Content,
+            ContentChange.Library | ContentChange.Persistent,
+            edit: new PreparedContentEdit.BlueprintSaved(new(BlueprintLibrary.Local, new("published")), new("published-design")));
+        fixture.Factory.PrepareEditCall = (basis, edit) =>
+        {
+            Assert.AreSame(fixture.Content, basis);
+            Assert.IsInstanceOfType<ContentEdit.SaveBlueprint>(edit);
+            return new ContentResult<IContentCandidate>.Success(candidate);
+        };
+        var draft = new DesignDraft(new("发布蓝图", ""), new DesignSpecification.Vehicle(SizeClass.Small), new([], [], []));
+        Assert.IsNull(fixture.Host.BeginContentEdit(new ContentEdit.SaveBlueprint(
+            new BlueprintSaveTarget.New(BlueprintLibrary.Local), draft), _ => new FileWriteResult(true)).Problem);
+        fixture.PumpUntil(() => !fixture.Host.IsBusy && ReferenceEquals(fixture.Host.Content, activated));
+        Assert.IsTrue(fixture.Host.PanelGenerationCurrent(binding, opened), "保存蓝图后打开时的世代失效。");
         fixture.AssertNoUnexpectedFailures();
     }
 

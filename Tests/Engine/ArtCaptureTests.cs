@@ -127,6 +127,7 @@ public class ArtCaptureTests(Node testScene) : TestClass(testScene)
             {
                 Origin = frame.Origin,
                 TerrainHeightResult = frame.TerrainHeightResult,
+                PickResult = new ScenePick.Miss(),
                 NodePanBounds = new(new(-400, -400), new(400, 400)),
                 NodeOverview = new([new(7, PlotSize.SmallStation,
                     [new(190, -90), new(210, -90), new(210, -70), new(190, -70)])], [], []),
