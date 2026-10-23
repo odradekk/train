@@ -279,7 +279,7 @@ internal sealed class WorldSceneController : IDisposable
         }
         var prepared = display.Prepare(frame, half);
         PrepareCandidate(prepared is null ? half : whole);
-        return prepared;
+        return prepared ?? (!display.IsPreparingCandidate ? display.Prepare(frame, whole) : null);
     }
 
     private void PrepareCandidate(TimeSpan budget)

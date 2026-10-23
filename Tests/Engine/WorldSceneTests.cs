@@ -1004,6 +1004,39 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public async Task Candidate_without_resource_work_lends_its_budget_to_the_active_update()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var first = Frame(1);
+        var idle = Frame(2, first.Update.Frame, objects: []);
+        var active = Frame(3, idle.Update.Frame,
+            objects: Enumerable.Range(2, 4).Select(id => Object((ulong)id)).ToImmutableArray());
+        var full = Frame(10, space: 2, objects: [Object(20) with { Visuals = [] }]).Update;
+        var delta = Frame(11, full.Frame, space: 2, objects: [Object(21) with { Visuals = [] }]).Update;
+        try
+        {
+            var app = await Ready(fixture, new Setup(), Factory(binding => Session(binding,
+                [Success(first), Success(idle), Success(active)], candidates:
+                [new SceneResult<SceneUpdate?>.Success(null), new SceneResult<SceneUpdate?>.Success(full),
+                    new SceneResult<SceneUpdate?>.Success(delta)])));
+            var world = app.WorldScenes!;
+            world.Open(Target);
+            world.Display!.Timestamp = () => 0;
+            world.ProcessFrame(0, false);
+            long timestamp = 0;
+            world.Display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency / 4000;
+            await new UiTestInput(TestScene).Frames(1);
+            world.ProcessFrame(0, false);
+            Require(world.Display.PreparedCandidate == full.Frame, "先完成无视觉的候选，并进入活动侧先执行的下一帧。");
+            await new UiTestInput(TestScene).Frames(1);
+            world.ProcessFrame(0, false);
+            Require(world.Display.PreparedCandidate == delta.Frame && ReferenceEquals(world.Display.DisplayedFrame, active),
+                "候选无需创建资源时，活动侧即使先执行也应借用剩余4ms预算完成更新。");
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
+    [Test]
     public async Task Idle_active_update_lends_its_budget_to_the_prebuilt_candidate()
     {
         var fixture = new Fixture(TestScene.GetTree());
