@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Threading.Channels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
@@ -9,6 +10,73 @@ namespace Train.Scenes.Tests;
 [TestClass]
 public sealed class NodeCorridorTests
 {
+    [TestMethod]
+    public async Task Static_build_slots_dispatch_display_then_corridor_then_peripheral_prefetch()
+    {
+        var template = NodeFixtures.Layout with { Plots = [], SceneModel = NodeFixtures.Layout.SceneModel with
+        { Scene = SceneFixtures.Projection([]) with { OccupiedBounds = new(new(-640, 0, -640), new(639, 0, 639)) } } };
+        var train = NodeFixtures.Train() with
+        { Position = new TrainPosition.Node(NodeFixtures.NodeId, null, null, null, null, NodeTravelPhase.Approaching, 0, null) };
+        var snapshot = NodeFixtures.EmptyNodeSnapshot(template, [train], travelMeters: 240);
+        var layout = NodeLayout.Build(snapshot, NodeFixtures.NodeId);
+        var position = (TrainPosition.Node)train.Position;
+        var path = new NodeTrainPath(layout, Dimensions(snapshot), position, layout.Bypass,
+            train.LengthMeters * RailwayCoordinates.CellsPerMeter, null);
+        var focus = path.Sample(path.Arc(0)).Position;
+        var range = new NodeRange(focus, NodeStreaming.PrefetchCells);
+        var corridor = new NodeCorridor(layout, Dimensions(snapshot), position,
+            train.LengthMeters * RailwayCoordinates.CellsPerMeter, []);
+        var prepared = NodeScene.Prepare(snapshot, layout, null, default);
+        var remaining = new int[3];
+        foreach (var from in range.Chunks(layout).Concat(corridor.Chunks).Distinct())
+            remaining[Band(new(new(from.X, -128, from.Z), new(from.X + VoxelGrid.ChunkSize, 128, from.Z + VoxelGrid.ChunkSize)))]++;
+        foreach (var rail in prepared.Rails.Values.Where(rail => range.Intersects(rail.Bounds) || corridor.Intersects(rail.Bounds)))
+            remaining[Band(rail.Bounds)]++;
+        Assert.IsTrue(remaining.All(count => count > RailwayCoordinates.MaxConcurrentBuilds),
+            "Display, corridor and peripheral prefetch must all have work competing for the two slots.");
+
+        var started = Channel.CreateUnbounded<(int Band, TaskCompletionSource Release)>();
+        var empty = WorldSceneSession.BuildGeometry(_ => new([], [], []));
+        NodeScene.Part Build(SceneBounds bounds, CancellationToken token)
+        {
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            started.Writer.TryWrite((Band(bounds), release));
+            release.Task.Wait(token);
+            return new("", empty, ImmutableDictionary<GridColumn, double>.Empty);
+        }
+        await using var vehicles = new SceneVehicles();
+        ulong next = 0;
+        await using var scene = new NodeScene(snapshot, NodeFixtures.NodeId, new(), _ => new(++next),
+            vehicles, new(), _ => null,
+            buildChunk: (_, from, _, token) => Build(new(new(from.X, -128, from.Z),
+                new(from.X + VoxelGrid.ChunkSize, 128, from.Z + VoxelGrid.ChunkSize)), token),
+            buildRail: (_, rail, _, token) => Build(rail.Bounds, token));
+        await scene.BuildWork!;
+        scene.Pump(focus: focus, following: new(focus, [], []), target: new WorldSceneTarget.Follow(train.Id, new(1)));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var occupied = new Queue<TaskCompletionSource>();
+        for (var slot = 0; slot < RailwayCoordinates.MaxConcurrentBuilds; slot++)
+        {
+            var work = await started.Reader.ReadAsync(timeout.Token);
+            Assert.AreEqual(0, work.Band);
+            remaining[work.Band]--;
+            occupied.Enqueue(work.Release);
+        }
+        while (remaining.Sum() > 0)
+        {
+            // Release one slot at a time so worker scheduling cannot reorder the observed dispatches.
+            occupied.Dequeue().SetResult();
+            var work = await started.Reader.ReadAsync(timeout.Token);
+            Assert.AreEqual(Array.FindIndex(remaining, count => count > 0), work.Band,
+                "Display work must precede the remaining route corridor, which must precede peripheral prefetch.");
+            remaining[work.Band]--;
+            occupied.Enqueue(work.Release);
+        }
+
+        int Band(SceneBounds bounds) => range.Around(NodeStreaming.ViewCells).Intersects(bounds) ? 0 :
+            corridor.Intersects(bounds) ? 1 : 2;
+    }
+
     [TestMethod]
     public void Straight_corridor_includes_the_32m_band_without_filling_the_node()
     {

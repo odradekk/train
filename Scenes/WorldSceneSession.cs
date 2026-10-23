@@ -249,7 +249,6 @@ internal sealed class WorldSceneSession : IWorldSceneSession
                 current.Prepared = prepared;
                 current.PreparedObjects = current.OfferedObjects;
                 current.Offered = null;
-                building.AcknowledgeCandidate();
             }
             else if (prepared != current.Prepared)
             {
@@ -335,7 +334,6 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         if (candidate is { } next && SameLocation(next.Location, location) && next.Node is not { Layout: null })
         {
             railway = next.Railway; node = next.Node; ids = next.Ids; space = next.Space;
-            node?.AcknowledgeCandidate();
             candidate = null;
         }
         else
@@ -380,7 +378,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         if (railway is not null && train.Position is TrainPosition.Edge at && snapshot.Core.FindEdge(at.Id) is Lookup<EdgeView>.Found current)
         {
             wanted = new WorldLocation.Node(at.Direction == TravelDirection.Forward ? current.Value.Map.End : current.Value.Map.Start);
-            startCandidate = railway.DisplayPrepared;
+            startCandidate = railway.Ready;
         }
         if (node is not null && (train.Position as TrainPosition.Node)?.NextEdge is { } next && snapshot.Core.FindEdge(next) is Lookup<EdgeView>.Found edge)
             wanted = new WorldLocation.Edge(next, edge.Value.Map.Start == node.Node ? 0 : edge.Value.Map.LengthMeters);
@@ -389,7 +387,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         if (SameLocation(rejectedCandidate, wanted)) return;
         rejectedCandidate = null;
         var allowBuild = wanted is WorldLocation.Node
-            ? railway?.DisplayPrepared == true || candidate?.Node is not null
+            ? railway?.Ready == true || candidate?.Node is not null
             : node?.HasPendingBuilds != true && railway?.HasPendingBuilds != true;
         // Keep at most one background candidate alive, including cancellation that is still draining.
         if (allowBuild && startCandidate && candidate is null && retiringCandidate?.IsCompleted != false)
@@ -399,7 +397,6 @@ internal sealed class WorldSceneSession : IWorldSceneSession
                 ? new(wanted, map, new(++nextSpace), Node: OpenNode(atNode.Id, key => AssignId(map, key), key => Find(map, key), background: true))
                 : new(wanted, map, new(++nextSpace), Railway: new(snapshot, ((WorldLocation.Edge)wanted).Id, railwayCache, key => AssignId(map, key), vehicles: vehicles, displayRate: displayRate, findId: key => Find(map, key), presentation: presentation));
         }
-        if (railway is not null) railway.LimitToDisplay = candidate?.Node is { HasPendingBuilds: true };
         try
         {
             if (candidate?.Node is { } candidateNode)

@@ -52,8 +52,7 @@ internal sealed class RailwayScene : IAsyncDisposable
     internal EdgeId Edge { get; }
     internal RailwayPath? Path => path;
     internal bool Failed => failure is not null;
-    internal bool LimitToDisplay { get; set; }
-    internal bool DisplayPrepared { get; private set; }
+    internal bool Ready { get; private set; }
     internal bool HasPendingBuilds => waitingSegments || PendingWork.Any(task => !task.IsCompleted) || vehicles.HasPendingBuilds;
     internal Task[] PendingWork => pendingSegments.Values.Select(item => (Task)item.Task).Concat(vehicles.PendingWork)
         .Concat(retiredSegments.Where(item => !item.Task.IsCompleted).Select(item => item.Task)).ToArray();
@@ -126,14 +125,8 @@ internal sealed class RailwayScene : IAsyncDisposable
         if (failure is not null) frame.Problems.Add(failure);
         RetireCompletedWork();
         var radius = RailwayCoordinates.ViewRadiusSegments;
-        var ready = Enumerable.Range(Math.Max(0, middle - radius), Math.Min(path.SegmentCount - 1, middle + radius) -
+        Ready = Enumerable.Range(Math.Max(0, middle - radius), Math.Min(path.SegmentCount - 1, middle + radius) -
             Math.Max(0, middle - radius) + 1).All(segments.ContainsKey) && !waiting;
-        var neededDisplay = Math.Max(0, focal - NodeStreaming.ViewCells);
-        var displayEnd = Math.Min(path.LengthCells, focal + NodeStreaming.ViewCells);
-        DisplayPrepared = Enumerable.Range((int)(neededDisplay / RailwayCoordinates.SegmentLengthCells),
-            Math.Min(path.SegmentCount - 1, (int)(displayEnd / RailwayCoordinates.SegmentLengthCells)) -
-            (int)(neededDisplay / RailwayCoordinates.SegmentLengthCells) + 1)
-            .All(index => segments.ContainsKey(index) && !staleSegments.Contains(index)) && !waiting;
         var terrain = ImmutableArray.CreateBuilder<TerrainCollisionPatch>();
         var terrainKeys = new HashSet<string>();
         foreach (var segment in segments.Values.OrderBy(item => item.Source.Index))
@@ -146,7 +139,7 @@ internal sealed class RailwayScene : IAsyncDisposable
         terrainPatches.Retain(terrainKeys);
         var effects = Effects(snapshot, frame.Objects, seconds, origin, segments.Count > 0 && failure is null);
         return new(stamp, origin, seconds, failure is not null ? SceneReadiness.Failed : segments.Count == 0 ? SceneReadiness.Loading :
-            ready ? SceneReadiness.Ready : SceneReadiness.Partial, frame.Objects.ToImmutable(), frame.Picking.ToImmutable(),
+            Ready ? SceneReadiness.Ready : SceneReadiness.Partial, frame.Objects.ToImmutable(), frame.Picking.ToImmutable(),
             frame.Fog.ToImmutable(), RailwayTerrain.UniqueProblems(frame.Problems), displayed, path,
             segments.Values.Select(item => item.Source).ToImmutableArray(), debugLayers: request.DebugLayers, pickRay: request.PickRay,
             effects: effects, terrain: terrain.DrainToImmutable());
@@ -244,10 +237,8 @@ internal sealed class RailwayScene : IAsyncDisposable
             if (segments.ContainsKey(index) && !staleSegments.Contains(index)) continue;
             if (pendingSegments.ContainsKey(index)) continue;
             if (cache.Find(snapshot, path!, index) is { } cached) Connect(cached);
-            else if (allowBuild && (!LimitToDisplay || index * RailwayCoordinates.SegmentLengthCells <=
-                focal + NodeStreaming.ViewCells &&
-                (index + 1) * RailwayCoordinates.SegmentLengthCells >= focal - NodeStreaming.ViewCells) &&
-                failure is null && pendingSegments.Count + retiredSegments.Count(work => !work.Task.IsCompleted) < RailwayCoordinates.MaxConcurrentBuilds)
+            else if (allowBuild && failure is null &&
+                pendingSegments.Count + retiredSegments.Count(work => !work.Task.IsCompleted) < RailwayCoordinates.MaxConcurrentBuilds)
             {
                 var currentPath = path!;
                 var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);

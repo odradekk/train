@@ -164,7 +164,6 @@ internal sealed class SettlementObjects : IAsyncDisposable
         {
             var area = bounds(item);
             var at = pose(item);
-            if (area is not null && corridor?.Intersects(area, at) == true) corridorRetained?.Add(key(item));
             return range is null || area is null || corridorRetained?.Contains(key(item)) == true ||
                 range.Value.Intersects(area, at) || corridor?.Intersects(area, at) == true || prefetch is { } ahead && ahead.Intersects(area, at) ||
                 retained.Contains(key(item)) && range.Value.Around(NodeStreaming.RetainCells).Intersects(area, at);
@@ -247,6 +246,8 @@ internal sealed class SettlementObjects : IAsyncDisposable
             var hasBody = body is not null;
             if (hasBody)
             {
+                if (item.Bounds is { } bounds && corridor?.Intersects(bounds, item.Pose) == true)
+                    corridorBuildings.Add(instance.Id);
                 var geometry = body!.Geometry;
                 if (Settlement(snapshot, layout)?.Facilities.Any(facility =>
                         facility.Key.Building == buildingId && facility.State == ProductionState.Running) == true &&
@@ -319,6 +320,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
             var design = (ContentLookup<DesignEvaluation>.Found)item.Design;
             if (parked.Reconcile(snapshot.Content, instance, objectId) is { } rendered)
             {
+                if (corridor?.Intersects(item.Bounds, item.Pose) == true) corridorParked.Add(instance.Id);
                 Add(RailwayVehicles.Place(rendered, pose, 0));
                 presentation?.ApplyTurrets(objects, instance, "vehicle:" + instance.Id + ":", findId, seconds, snapshot, origin);
             }

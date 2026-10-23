@@ -8,6 +8,43 @@ namespace Train.Scenes.Tests;
 public sealed class NodePrebuildTests
 {
     [TestMethod]
+    public async Task A_pending_node_candidate_does_not_stop_the_active_railway_display_range()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle());
+        var train = RailwayFixtures.Train(400, direction: TravelDirection.Reverse, speed: 22);
+        var initial = RailwayFixtures.Snapshot(content: content, trains: [train], instances: [RailwayFixtures.Instance()]);
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), initial, new(), new(),
+            (current, node, previous, token) =>
+            {
+                entered.TrySetResult();
+                release.Wait(token);
+                return RailwayFixtures.EmptyNode(current, node, previous, token);
+            });
+        try
+        {
+            session.RequestView(new WorldSceneTarget.Follow(train.Id, new(1)));
+            var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
+            var displayed = await RailwayFixtures.Settled(session, request);
+            await entered.Task;
+            Assert.AreEqual(SceneReadiness.Ready, displayed.Readiness);
+            var building = session.PendingPrebuilds;
+            Assert.IsTrue(building.Any(work => !work.IsCompleted));
+
+            // Move beyond the warmed segments while the independent node builder remains blocked.
+            var moved = train with { Position = ((TrainPosition.Edge)train.Position) with { DistanceMeters = 180 } };
+            session.Observe(RailwayFixtures.Snapshot(content: content, steps: 1,
+                trains: [moved], instances: [RailwayFixtures.Instance()]), []);
+            var active = await RailwayFixtures.Settled(session, request, displayed);
+            Assert.AreEqual(SceneReadiness.Ready, active.Readiness,
+                "The full railway display range must still receive build slots during candidate preparation.");
+            Assert.IsTrue(building.Any(work => !work.IsCompleted), "The test must not rely on the candidate completing.");
+        }
+        finally { release.Set(); }
+    }
+
+    [TestMethod]
     public async Task A_known_front_node_starts_prebuilding_before_the_last_prefetch_range()
     {
         var train = RailwayFixtures.Train(400, direction: TravelDirection.Reverse, speed: 10);

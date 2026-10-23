@@ -629,7 +629,7 @@ internal sealed class NodeScene : IAsyncDisposable
 
     private void AdmitCompletedParts()
     {
-        if ((nearCompleted || preparingCandidate) && awaitingDisplay) return;
+        if (!preparingCandidate && nearCompleted && awaitingDisplay) return;
         var near = range.Around(NodeStreaming.NearCells);
         long vertices = 0;
         var visuals = 0;
@@ -658,13 +658,7 @@ internal sealed class NodeScene : IAsyncDisposable
             pathBatch |= followedPath?.Priority.Count > 0 && priority.Distance == 0;
             count++;
         }
-        if ((nearCompleted || preparingCandidate) && count > 0) awaitingDisplay = true;
-    }
-
-    internal void AcknowledgeCandidate()
-    {
-        awaitingDisplay = false;
-        admissionFrame = null;
+        if (!preparingCandidate && nearCompleted && count > 0) awaitingDisplay = true;
     }
 
     internal ImmutableArray<SceneObject> CandidateObjects(SceneWorldSnapshot current)
@@ -856,7 +850,7 @@ internal sealed class NodeScene : IAsyncDisposable
         { Add(minimum.X, maximum.X, minimum.Y, maximum.Y); return; }
         var retained = range.Around(NodeStreaming.RetainCells).Window(layout);
         var ahead = prefetch.Window(layout);
-        var corridorChunks = chunks.Keys.Where(from => retainedCorridorParts.Contains(ChunkKey(from))).ToArray();
+        var corridorChunks = chunks.Keys.Where(from => InCorridor(ChunkKey(from), ChunkBounds(from))).ToArray();
         var left = Math.Min(retained.Left, Math.Min(ahead.Left, corridorChunks.Select(from => from.X).DefaultIfEmpty(retained.Left).Min()));
         var right = Math.Max(retained.Right, Math.Max(ahead.Right, corridorChunks.Select(from => from.X + VoxelGrid.ChunkSize).DefaultIfEmpty(retained.Right).Max()));
         var back = Math.Min(retained.Back, Math.Min(ahead.Back, corridorChunks.Select(from => from.Z).DefaultIfEmpty(retained.Back).Min()));
