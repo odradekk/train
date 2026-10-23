@@ -49,10 +49,16 @@ public sealed record LairTypeDraft(string LocalId, DisplayText Display,
 public sealed record TemplatePlotDraft(int Number, PlotSize Size, GridPosition At,
     VoxelOrientation Orientation, BlueprintId? PrebuiltBuilding);
 public sealed record FoundingBuildingDraft(int PlotNumber, BlueprintId Building);
-public sealed record SettlementTemplateDraft(string LocalId, SettlementTypeId? Type,
+public abstract record TemplateInventoryDraft
+{
+    private TemplateInventoryDraft() { }
+    public sealed record Voxel(VoxelDefinitionId Id, long Quantity) : TemplateInventoryDraft;
+    public sealed record Blueprint(BlueprintId Id, long Quantity) : TemplateInventoryDraft;
+}
+public sealed record SettlementTemplateDraft(string LocalId, DisplayText Display, SettlementTypeId? Type,
     int? Weight, BlueprintId? SceneModel, ImmutableArray<TemplatePlotDraft> Plots,
     ImmutableArray<FoundingBuildingDraft> FoundingBuildings,
-    ImmutableArray<GoodsQuantity> Inventory, ImmutableArray<TemplateProductionPlan> ProductionPlans);
+    ImmutableArray<TemplateInventoryDraft> Inventory, ImmutableArray<TemplateProductionPlan> ProductionPlans);
 public abstract record DefinitionDraft
 {
     private DefinitionDraft() { }

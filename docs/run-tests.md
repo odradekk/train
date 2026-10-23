@@ -67,7 +67,7 @@ dotnet build Tests/Engine/Train.Engine.Tests.csproj -c Debug
 
 开发创作的宿主集成用例位于 `Tests/Godot/Authoring/`：同份纯 .NET 写入器以真实文件验证来源冲突、显式删除、Keep File 追加文本和部分完成；测试程序集的 `--package-write-process` 子进程在第 N 项发布完成后发信号并阻塞，父进程收到信号后终止，核对已写文件与未列入补丁的普通包文件，不依赖随机时机。这里保留的 `draft.json` 是普通包文件，不是 `user://authoring-drafts/packages/…` 下的草稿。协调用例用列明情景替身验证关闭保护、候选不激活与失败协调；`AuthoringUiTests` 在真实 Godot 中检查原始输入脏标记和逐类型字段。
 
-`Tests/Engine/AuthoringIntegrationTests` 使用真实 Core／Content／Scenes 工厂和隔离用户目录下的临时本地 Mod，验证网格编辑、真实定义草稿编码、写前叠加校验、逐文件写入、普通重载激活，以及来源冲突、非网格表单写回和真实内容拒绝。新模板的 `/display` 契约缺口（#595）与未完成生物聚落字段的 `invalid_field` 验证按普通诊断路径显示字段。`PackageRestartTests` 的 `--package-restart-child` 子进程执行真实 `PackageWritePlan` 与生产写入器，首项完成后发信号阻塞，父进程确定性终止；另一子进程普通加载，断言真实内容给出缺失资产诊断且磁盘不自动恢复。`AuthoringPreviewTests` 接入真实模板帧、重复地块编号的数组下标拾取与刷新相机；设置 `TRAIN_UI_CAPTURE_DIR` 后有窗口运行保留地表轮廓截图供视觉检查。自动用例不写仓库 `builtin/core`；手工 `--authoring-core-probe` 入口使用编辑器二进制验证源码 core 的打开、网格编辑、草稿、写包与普通重载，并在 `finally` 恢复原始字节，另记录运行前后 Git 状态。完整 #300 联调、保存／恢复／严格重放仍需阶段验收。Keep File 导入器本身沿用既有资产导出证据，本票只验证追加项文本。
+`Tests/Engine/AuthoringIntegrationTests` 使用真实 Core／Content／Scenes 工厂和隔离用户目录下的临时本地 Mod，验证网格编辑、真实定义草稿编码、写前叠加校验、逐文件写入、普通重载激活，以及来源冲突、非网格表单写回和真实内容拒绝。新建模板写入显示文本并经普通重载进入内容；错误类别的库存蓝图在写文件前被普通加载拒绝。未完成生物聚落字段的 `invalid_field` 仍按普通诊断路径显示字段。`PackageRestartTests` 的 `--package-restart-child` 子进程执行真实 `PackageWritePlan` 与生产写入器，首项完成后发信号阻塞，父进程确定性终止；另一子进程普通加载，断言真实内容给出缺失资产诊断且磁盘不自动恢复。`AuthoringPreviewTests` 接入真实模板帧、重复地块编号的数组下标拾取与刷新相机；设置 `TRAIN_UI_CAPTURE_DIR` 后有窗口运行保留地表轮廓截图供视觉检查。自动用例不写仓库 `builtin/core`；手工 `--authoring-core-probe` 入口使用编辑器二进制验证源码 core 的打开、网格编辑、草稿、写包与普通重载，并在 `finally` 恢复原始字节，另记录运行前后 Git 状态。完整 #300 联调、保存／恢复／严格重放仍需阶段验收。Keep File 导入器本身沿用既有资产导出证据，本票只验证追加项文本。
 
 ## 远端检查
 

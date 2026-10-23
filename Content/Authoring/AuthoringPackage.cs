@@ -82,7 +82,7 @@ internal sealed class AuthoringPackage : C.IAuthoringPackage
             var path = DefinitionDraftJson.Path(address);
             if (!_files.TryGetValue(path, out var bytes)) return new C.ContentLookup<C.DefinitionDraft>.NotFound();
             using var document = Parse(bytes, path);
-            var draft = DefinitionDraftJson.Read(document.RootElement, address.Kind, _package, IsComposite, IsRecovery);
+            var draft = DefinitionDraftJson.Read(document.RootElement, address.Kind, _package, IsRecovery);
             if (DefinitionDraftJson.Address(draft) != address) Fail("/id", "定义 ID 与文件名不一致。");
             return new C.ContentLookup<C.DefinitionDraft>.Found(draft);
         }
@@ -102,14 +102,6 @@ internal sealed class AuthoringPackage : C.IAuthoringPackage
             throw new DefinitionFormatException(error.Field, error.Message, error.Code);
         }
         return document;
-    }
-
-    private bool IsComposite(string reference)
-    {
-        var prefix = Package.Value + ":";
-        if (!reference.StartsWith(prefix, StringComparison.Ordinal)) return false;
-        var lookup = Read(new(C.DefinitionKind.Blueprint, reference[prefix.Length..]));
-        return lookup is C.ContentLookup<C.DefinitionDraft>.Found { Value: C.DefinitionDraft.Blueprint { Value.Specification: C.DesignSpecification.FunctionalComposite } };
     }
 
     private bool IsRecovery(string reference)
@@ -139,17 +131,11 @@ internal sealed class AuthoringPackage : C.IAuthoringPackage
                 case C.PackageEdit.WriteDefinition write:
                     var address = DefinitionDraftJson.Address(write.Draft);
                     var path = DefinitionDraftJson.Path(address);
-                    JsonNode? display = null;
-                    if (address.Kind == C.DefinitionKind.SettlementTemplate && _files.TryGetValue(path, out var original))
-                    {
-                        using var document = Parse(original, path);
-                        display = JsonNode.Parse(Required(document.RootElement, "display", "").GetRawText());
-                    }
                     try
                     {
-                        var bytes = Encode(DefinitionDraftJson.Write(write.Draft, display));
+                        var bytes = Encode(DefinitionDraftJson.Write(write.Draft));
                         using (var document = JsonDocument.Parse(bytes))
-                            DefinitionDraftJson.Read(document.RootElement, address.Kind, isComposite: IsComposite);
+                            DefinitionDraftJson.Read(document.RootElement, address.Kind);
                         Change(path, bytes.ToImmutableArray());
                     }
                     catch (ArgumentException exception) { Fail("/value", exception.Message); }
