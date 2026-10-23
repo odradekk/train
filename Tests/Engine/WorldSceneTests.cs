@@ -1004,6 +1004,64 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public async Task Promoted_partial_candidate_reuses_visuals_without_preparing_again_and_releases_the_remainder()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var first = Frame(1);
+        var idle = Frame(2, first.Update.Frame, objects: []);
+        var candidate = Frame(10, space: 2,
+            objects: Enumerable.Range(20, 10).Select(id => Object((ulong)id)).ToImmutableArray()).Update;
+        var promoted = Frame(11, space: 2, objects: [Object(20)]);
+        try
+        {
+            var app = await Ready(fixture, new Setup(), Factory(binding => Session(binding,
+                [Success(first), Success(idle), Success(promoted)], candidates:
+                [new SceneResult<SceneUpdate?>.Success(null), new SceneResult<SceneUpdate?>.Success(candidate),
+                    new SceneResult<SceneUpdate?>.Success(null)])));
+            var world = app.WorldScenes!;
+            world.Open(Target);
+            var display = world.Display!;
+            display.Timestamp = () => 0;
+            world.ProcessFrame(0, false);
+            var before = OrphanRoots();
+            display.Timestamp = () => (display.CandidateProgress(candidate.Frame)?.Prepared ?? 0) *
+                (System.Diagnostics.Stopwatch.Frequency / 1000);
+            await new UiTestInput(TestScene).Frames(1);
+            world.ProcessFrame(0, false);
+            var candidateNodes = OrphanRoots().Except(before).Select(GodotObject.InstanceFromId).OfType<Node3D>().ToArray();
+            Require(display.CandidateProgress(candidate.Frame) is (4, 10) && candidateNodes.Length == 4,
+                "切换前必须只准备部分候选视觉，并保留未准备的来源。");
+            var candidateIds = candidateNodes.Select(node => node.GetInstanceId()).ToHashSet();
+            var seen = new HashSet<ulong>();
+            display.Timestamp = () =>
+            {
+                seen.UnionWith(OrphanRoots().Except(before));
+                return 0;
+            };
+            await new UiTestInput(TestScene).Frames(1);
+            world.ProcessFrame(0, false);
+            var active = display.Objects[new(20)];
+            Require(ReferenceEquals(display.DisplayedFrame, promoted) && world.View.Interactive &&
+                candidateNodes.Any(node => ReferenceEquals(node, active.Visuals[0].Node)),
+                "切换帧必须直接复用已准备的候选视觉。");
+            Require(seen.Except(candidateIds).All(id => id == active.Root.GetInstanceId()),
+                "正式准备后不得再次创建候选视觉；只允许新增正式对象根节点。");
+            Require(candidateNodes.Where(node => !ReferenceEquals(node, active.Visuals[0].Node))
+                .All(node => !GodotObject.IsInstanceValid(node)) && !display.IsPreparingCandidate &&
+                display.CandidateProgress(candidate.Frame) is null,
+                "提交后必须释放未移交的候选视觉和候选来源。");
+        }
+        finally { await fixture.Cleanup(); }
+
+        static HashSet<ulong> OrphanRoots()
+        {
+            using var nodes = (Godot.Collections.Array)Node.GetOrphanNodeIds();
+            return nodes.Select(id => id.AsUInt64()).Where(id =>
+                GodotObject.InstanceFromId(id) is Node3D node && node.GetParent() is null).ToHashSet();
+        }
+    }
+
+    [Test]
     public async Task Candidate_without_resource_work_lends_its_budget_to_the_active_update()
     {
         var fixture = new Fixture(TestScene.GetTree());

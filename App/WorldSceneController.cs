@@ -260,7 +260,8 @@ internal sealed class WorldSceneController : IDisposable
     private SceneDisplay.PreparedFrame? PrepareResources(ISceneFrame frame)
     {
         var display = _display!;
-        if (!display.IsPreparingCandidate) return display.Prepare(frame);
+        if (!display.IsPreparingCandidate || display.HasCandidateFor(frame.Update.Frame))
+            return display.Prepare(frame);
         var half = TimeSpan.FromMilliseconds(2);
         var whole = TimeSpan.FromMilliseconds(4);
         if (!View.Interactive)
