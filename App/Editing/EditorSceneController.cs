@@ -21,7 +21,11 @@ internal sealed class EditorSceneController : IDisposable
     private DesignEvaluation? _evaluation;
     private readonly EditorOverlay _overlay = new();
     private bool _retrying;
+    private bool _openingFramed;
+    private const float OpeningYaw = 0.6f;
+    private const float OpeningPitch = 0.55f;
     internal WorldSceneView View { get; } = new();
+    internal Rect2 VisibleArea { get; set; }
     internal SceneDisplay? Display => _display;
     internal EditStamp? DisplayedStamp => _displayStamp;
     internal EditViewOptions Options { get; set; } = new(new(GridAxis.Y, 0), null, SceneDebugLayer.None);
@@ -102,6 +106,7 @@ internal sealed class EditorSceneController : IDisposable
                     prepared.Commit();
                     _displayStamp = _stamp;
                     View.ShowFrame(prepared.Frame, null);
+                    FrameOpening(prepared.Frame);
                     _overlay.DrawPlane(Options.WorkPlane, prepared.Frame.Origin, EnteredTransform());
                     if (_retrying && prepared.Frame.Update.Base is null)
                     {
@@ -254,8 +259,71 @@ internal sealed class EditorSceneController : IDisposable
         _evaluation = null;
         _retrying = false;
         _overlay.Visible = false;
+        _openingFramed = false;
+        View.CameraRig.ZoomCeiling = WorldCamera.MaximumDistance;
         View.SetActive(false);
         View.SetLoading(false);
+    }
+    private void FrameOpening(ISceneFrame frame)
+    {
+        if (_openingFramed) return;
+        if (OccupiedBounds() is not { } bounds)
+        {
+            _openingFramed = true;
+            return;
+        }
+        var area = VisibleArea;
+        if (area.Size.X < 1f || area.Size.Y < 1f) return;
+        _openingFramed = true;
+        var minimum = DisplayMinimum(bounds, frame);
+        var maximum = minimum + new Vector3(bounds.Maximum.X - bounds.Minimum.X + 1,
+            bounds.Maximum.Y - bounds.Minimum.Y + 1, bounds.Maximum.Z - bounds.Minimum.Z + 1);
+        var focus = (minimum + maximum) * 0.5f;
+        var fitted = FitDistance(focus, minimum, maximum, area);
+        var camera = View.CameraRig;
+        // 比取景距离多一个滚轮步长，第一下向外才是 exp(0.15)，而不是停在取景距离上。
+        var ceiling = Mathf.Min(camera.Camera.Far - 1f,
+            Mathf.Max(WorldCamera.MaximumDistance, fitted * Mathf.Exp(WorldCamera.ZoomStep)));
+        camera.ZoomCeiling = ceiling;
+        camera.PlaceAbsolute(focus, fitted, OpeningYaw, OpeningPitch);
+    }
+    private float FitDistance(Vector3 focus, Vector3 minimum, Vector3 maximum, Rect2 area)
+    {
+        var low = 8f;
+        var high = View.CameraRig.Camera.Far - 1f;
+        if (!ProjectsInside(focus, minimum, maximum, high, area)) return high;
+        for (var step = 0; step < 24; step++)
+        {
+            var mid = (low + high) * 0.5f;
+            if (ProjectsInside(focus, minimum, maximum, mid, area)) high = mid;
+            else low = mid;
+        }
+        return high;
+    }
+    private bool ProjectsInside(Vector3 focus, Vector3 minimum, Vector3 maximum, float distance, Rect2 area)
+    {
+        var camera = View.CameraRig;
+        camera.PlaceAbsolute(focus, distance, OpeningYaw, OpeningPitch);
+        var view = camera.Camera;
+        for (var corner = 0; corner < 8; corner++)
+        {
+            var point = new Vector3((corner & 1) == 0 ? minimum.X : maximum.X,
+                (corner & 2) == 0 ? minimum.Y : maximum.Y, (corner & 4) == 0 ? minimum.Z : maximum.Z);
+            if (view.IsPositionBehind(point)) return false;
+            if (!area.HasPoint(view.UnprojectPosition(point))) return false;
+        }
+        return true;
+    }
+    private GridBounds? OccupiedBounds() => _evaluation switch
+    {
+        DesignEvaluation.Complete complete => complete.Scene.OccupiedBounds,
+        DesignEvaluation.Partial partial => partial.Scene.OccupiedBounds,
+        _ => null
+    };
+    private static Vector3 DisplayMinimum(GridBounds bounds, ISceneFrame frame)
+    {
+        var origin = frame.Origin;
+        return new(bounds.Minimum.X - (float)origin.X, bounds.Minimum.Y - (float)origin.Y, bounds.Minimum.Z - (float)origin.Z);
     }
     public void Dispose()
     {
