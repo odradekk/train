@@ -221,7 +221,7 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
             await _input.Frames();
             await _input.MouseButton(end, MouseButton.Left, false);
             Require(camera.Focus.DistanceTo(new(-70, 0, 70)) < .001f &&
-                frame.LastPickRay is null && session.ResolveCalls.Count == 0,
+                IsDownward(frame.LastPickRay) && session.ResolveCalls.Count == 0,
                 "小地图左键拖动未定位，或穿透为场景拾取。");
             var focus = camera.Focus;
             var distance = camera.Camera.Position.DistanceTo(focus);
@@ -238,11 +238,12 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
                 list.GetItemAtPosition(list.GetItemRect(0).GetCenter(), true) == 0);
             panel.Position = minimap.Position;
             await _input.Frames();
+            var clearanceRay = frame.LastPickRay;
             var overlap = minimap.GlobalPosition + new Vector2(20, 45);
             Require(panel.GetGlobalRect().HasPoint(overlap) && minimap.GetGlobalRect().HasPoint(overlap),
                 $"覆盖夹具没有重叠：panel={panel.GetGlobalRect()}，minimap={minimap.GetGlobalRect()}，click={overlap}。");
             await _input.Click(overlap);
-            Require(camera.Focus.DistanceTo(focus) < .001f && frame.LastPickRay is null,
+            Require(camera.Focus.DistanceTo(focus) < .001f && ReferenceEquals(frame.LastPickRay, clearanceRay),
                 $"覆盖小地图的面板点击穿透：before={focus}，after={camera.Focus}，pick={frame.LastPickRay}，" +
                 $"panel={panel.GetGlobalRect()}，minimap={minimap.GetGlobalRect()}，mask={Input.GetMouseButtonMask()}，" +
                 $"hover={TestScene.GetViewport().GuiGetHoveredControl()?.GetPath()}。");
@@ -260,11 +261,40 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
             await _input.WaitUntil(() => app.WorldScenes.View.Interactive && session.RequestCalls.Count == 2);
             Require(session.RequestCalls.SequenceEqual(new[] { TrainTarget, NodeTarget }) &&
                 app.WorldScenes.View.CameraRig.Focus.DistanceTo(new(target.X, 0, target.Y)) < .001f &&
-                minimap.IsVisibleInTree() && setup.Frames[^1].LastPickRay is null,
+                minimap.IsVisibleInTree() && IsDownward(setup.Frames[^1].LastPickRay),
                 "跟随节点内列车时，小地图未复用会话切换自由相机并定位。");
         }
         finally { await Cleanup(fixture, app); }
     }
+
+    [Test]
+    public async Task Node_minimap_click_raises_focus_to_the_displayed_building_top()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var setup = new Setup(minimap: true, buildingTop: 40);
+        Train.App.App? app = null;
+        try
+        {
+            app = await Ready(fixture, setup);
+            var map = app.GetNode<MacroMap>("GameUi/Root/World/MacroMap");
+            await Open(app, setup, map.GlobalPosition + map.MapToScreen(new(250, 300)), NodeTarget);
+            var minimap = app.GetNode<NodeMinimap>("GameUi/Root/World/NodeMinimap");
+            await _input.WaitUntil(minimap.IsVisibleInTree);
+            var camera = app.WorldScenes!.View.CameraRig;
+            var offset = camera.Camera.Position - camera.Focus;
+            var target = new Vector2(80, 25);
+            await _input.Click(minimap.GlobalPosition + minimap.NodeToMap(target));
+            Require(camera.Focus.DistanceTo(new(target.X, 40, target.Y)) < .001f &&
+                (camera.Camera.Position - camera.Focus).DistanceTo(offset) < .001f &&
+                setup.Scenes[^1].ResolveCalls.Count == 0,
+                "经控制器点到建筑后，焦点没有抬到已显示网格的顶面。");
+        }
+        finally { await Cleanup(fixture, app); }
+    }
+
+    private static bool IsDownward(SceneRay? ray) => ray is not null &&
+        Math.Abs(ray.Direction.X) < 0.001f && ray.Direction.Y < -0.99f && Math.Abs(ray.Direction.Z) < 0.001f;
+
     private async Task<Train.App.App> Ready(Fixture fixture, Setup setup)
     {
         _previousScale = TestScene.GetTree().Root.ContentScaleFactor;
@@ -305,8 +335,11 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
         internal readonly List<FixedSceneFrame> Frames = [];
         internal bool RejectNext;
         internal FixedDisplayFactory Factory { get; }
-        internal Setup(bool minimap = false)
+        private readonly float _buildingTop;
+
+        internal Setup(bool minimap = false, float buildingTop = 0)
         {
+            _buildingTop = buildingTop;
             Factory = new() { OpenWorldCall = (binding, _) =>
             {
                 if (RejectNext) return new SceneResult<IWorldSceneSession>.Failure([new("fixture_node_failed", SceneStage.Build,
@@ -364,13 +397,13 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
             return host;
         }
 
-        private static SceneObject Geometry()
+        private SceneObject Geometry()
         {
             var mesh = new SceneMesh(new SceneMaterial.BuiltIn(BuiltInMaterial.Sleeper),
-                [new(new(-20, 0, -20), NVector3.UnitY, new(0, 0), new(0, 0), ExposedFaceEdges.None, 0, 0),
-                 new(new(-20, 0, 20), NVector3.UnitY, new(0, 1), new(0, 1), ExposedFaceEdges.None, 0, 0),
-                 new(new(20, 0, 20), NVector3.UnitY, new(1, 1), new(1, 1), ExposedFaceEdges.None, 0, 0),
-                 new(new(20, 0, -20), NVector3.UnitY, new(1, 0), new(1, 0), ExposedFaceEdges.None, 0, 0)], [0, 1, 2, 0, 2, 3]);
+                [new(new(-20, _buildingTop, -20), NVector3.UnitY, new(0, 0), new(0, 0), ExposedFaceEdges.None, 0, 0),
+                 new(new(-20, _buildingTop, 20), NVector3.UnitY, new(0, 1), new(0, 1), ExposedFaceEdges.None, 0, 0),
+                 new(new(20, _buildingTop, 20), NVector3.UnitY, new(1, 1), new(1, 1), ExposedFaceEdges.None, 0, 0),
+                 new(new(20, _buildingTop, -20), NVector3.UnitY, new(1, 0), new(1, 0), ExposedFaceEdges.None, 0, 0)], [0, 1, 2, 0, 2, 3]);
             return new(new(1), null, new(NVector3.Zero, System.Numerics.Quaternion.Identity),
                 new WorldObjectId.Instance(Vehicle), [new SceneVisual.Geometry(mesh, new(false, 0, 0, false))], [], []);
         }

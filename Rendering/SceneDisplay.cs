@@ -37,6 +37,32 @@ internal sealed class SceneDisplay : IDisposable
     internal bool IsPreparing => _preparingFrame is not null;
     internal IReadOnlyDictionary<SceneObjectId, DisplayObject> Objects => _objects;
 
+    // 显示坐标 = 显示根局部坐标 + 根节点平移，与 Pick 射线和镜头焦点一致。
+    internal float? ObjectTopY(SceneObjectId id)
+    {
+        _cache.RequireMainThread();
+        if (!_objects.TryGetValue(id, out var item)) return null;
+        while (item.Source.Parent is { } parent)
+        {
+            if (!_objects.TryGetValue(parent, out item)) return null;
+        }
+        float? top = null;
+        Visit(item.Root);
+        return top;
+
+        void Visit(Node node)
+        {
+            if (node is Node3D spatial && !spatial.IsVisibleInTree()) return;
+            if (node is MeshInstance3D mesh && mesh.Mesh is not null)
+            {
+                var bounds = Root.GlobalTransform.AffineInverse() * mesh.GlobalTransform * mesh.GetAabb();
+                var y = bounds.Position.Y + bounds.Size.Y + Root.Position.Y;
+                top = top is { } current ? MathF.Max(current, y) : y;
+            }
+            foreach (var child in node.GetChildren()) Visit(child);
+        }
+    }
+
     internal SceneDisplay(AssetResourceCache cache, IContentView content, bool completeInitialFrame = false)
     {
         _cache = cache;

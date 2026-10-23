@@ -49,6 +49,7 @@ internal sealed class WorldSceneController : IDisposable
         _host = host; _factory = factory; _logger = logger;
         _cache = new(_dispatcher);
         host.BoundaryCompleted += Observe;
+        View.CameraRig.ObjectTop = id => _display?.ObjectTopY(id);
         View.PickRequested += Pick;
         View.ReturnRequested += ReturnToMap;
         View.SetActive(false);
