@@ -406,6 +406,28 @@ public sealed class EditorServiceTests
     }
 
     [TestMethod]
+    public void Undo_and_redo_rejection_reports_a_chinese_message_without_scene_details()
+    {
+        using var fixture = new EditingFixture();
+        fixture.Open();
+        var problems = ImmutableArray.Create(new SceneProblem("invalid_operation", SceneStage.Edit, null, null, null, null,
+            "There is no edit to restore."));
+        fixture.Session.UndoCall = () => new SceneResult<EditState>.Failure(problems);
+        fixture.Editor.Undo();
+        AssertWithoutSceneDetails(fixture.Editor.Message);
+        fixture.Session.RedoCall = () => new SceneResult<EditState>.Failure(problems);
+        fixture.Editor.Redo();
+        AssertWithoutSceneDetails(fixture.Editor.Message);
+
+        static void AssertWithoutSceneDetails(string? message)
+        {
+            Assert.IsFalse(string.IsNullOrEmpty(message));
+            Assert.IsFalse(message!.Contains("invalid_operation", StringComparison.Ordinal));
+            Assert.IsFalse(message.Contains("There is no edit to restore.", StringComparison.Ordinal));
+        }
+    }
+
+    [TestMethod]
     public void Closing_clears_old_error_and_new_open_failure_keeps_its_reason()
     {
         using var fixture = new EditingFixture();
