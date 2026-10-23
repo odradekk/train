@@ -153,16 +153,20 @@ internal sealed class SettlementObjects : IAsyncDisposable
         return null;
     }
 
+    private readonly HashSet<InstanceId> corridorBuildings = [];
+    private readonly HashSet<InstanceId> corridorParked = [];
+
     private static TItem[] Select<TItem, TKey>(TItem[] items, HashSet<TKey> retained, Func<TItem, TKey> key,
-        Func<TItem, SceneBounds?> bounds, Func<TItem, ScenePose> pose, NodeRange? range, NodeRange? prefetch)
+        Func<TItem, SceneBounds?> bounds, Func<TItem, ScenePose> pose, NodeRange? range, NodeRange? prefetch, NodeCorridor? corridor = null, HashSet<TKey>? corridorRetained = null)
         where TKey : notnull
     {
         var selected = items.Where(item =>
         {
             var area = bounds(item);
             var at = pose(item);
-            return range is null || area is null ||
-                range.Value.Intersects(area, at) || prefetch is { } ahead && ahead.Intersects(area, at) ||
+            if (area is not null && corridor?.Intersects(area, at) == true) corridorRetained?.Add(key(item));
+            return range is null || area is null || corridorRetained?.Contains(key(item)) == true ||
+                range.Value.Intersects(area, at) || corridor?.Intersects(area, at) == true || prefetch is { } ahead && ahead.Intersects(area, at) ||
                 retained.Contains(key(item)) && range.Value.Around(NodeStreaming.RetainCells).Intersects(area, at);
         }).ToArray();
         retained.Clear();
@@ -176,15 +180,15 @@ internal sealed class SettlementObjects : IAsyncDisposable
     }
 
     internal void Pump(SceneWorldSnapshot snapshot, NodeLayout layout, NodeRange? range = null, bool allowBuild = true,
-        NodeRange? prefetch = null)
+        NodeRange? prefetch = null, NodeCorridor? corridor = null)
     {
         var placed = Select(BuildingPlacements(snapshot, layout), retainedBuildings,
-            item => item.Instance.Id, item => item.Bounds, item => item.Pose, range, prefetch);
+            item => item.Instance.Id, item => item.Bounds, item => item.Pose, range, prefetch, corridor, corridorBuildings);
         buildings.Retain(placed.Select(item => item.Instance.Id));
         foreach (var id in facilitySmoke.Keys.Where(id => !retainedBuildings.Contains(id)).ToArray()) facilitySmoke.Remove(id);
         foreach (var item in placed) buildings.Prepare(snapshot.Content, item.Instance, allowBuild);
         var vehicles = Select(ParkedPlacements(snapshot, layout), retainedParked,
-            item => item.Instance.Id, item => item.Bounds, item => item.Pose, range, prefetch);
+            item => item.Instance.Id, item => item.Bounds, item => item.Pose, range, prefetch, corridor, corridorParked);
         parked.Retain(vehicles.Select(item => item.Instance.Id));
         foreach (var item in vehicles)
             if (item.Bounds is not null) parked.Prepare(snapshot.Content, item.Instance, allowBuild);
@@ -219,12 +223,12 @@ internal sealed class SettlementObjects : IAsyncDisposable
     internal RenderedDesign Present(SceneWorldSnapshot snapshot, NodeLayout layout, ScenePoint origin,
         ImmutableArray<SceneFog>.Builder fog, Func<string, SceneObjectId?> findId,
         NodeRange? range = null, IReadOnlyCollection<GridColumn>? terrainChunks = null,
-        NodeRange? prefetch = null, PresentationState? presentation = null, double seconds = 0)
+        NodeRange? prefetch = null, PresentationState? presentation = null, double seconds = 0, bool allowBuild = true, NodeCorridor? corridor = null)
     {
         var objects = ImmutableArray.CreateBuilder<SceneObject>();
         var picking = ImmutableArray.CreateBuilder<PickGrid>();
         var problems = ImmutableArray.CreateBuilder<SceneProblem>();
-        Pump(snapshot, layout, range, prefetch: prefetch);
+        Pump(snapshot, layout, range, allowBuild, prefetch, corridor);
         var allBuildings = BuildingPlacements(snapshot, layout);
         var allParked = ParkedPlacements(snapshot, layout);
         var shift = RailwayCoordinates.Relative(origin, default);
@@ -232,7 +236,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
             presentation.Place(allBuildings.Concat(allParked).Select(item =>
                 (Subject: (WorldObjectId)new WorldObjectId.Instance(item.Instance.Id),
                     Pose: item.Pose with { Position = item.Pose.Position - shift })));
-        var placed = Select(allBuildings, retainedBuildings, item => item.Instance.Id, item => item.Bounds, item => item.Pose, range, prefetch);
+        var placed = Select(allBuildings, retainedBuildings, item => item.Instance.Id, item => item.Bounds, item => item.Pose, range, prefetch, corridor, corridorBuildings);
         Fog(allBuildings, placed, item => item.Instance.Id, item => item.Bounds, item => item.Pose);
         foreach (var item in placed)
         {
@@ -267,7 +271,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
         }
 
         var sites = ConstructionPlacements(snapshot, layout);
-        var placedSites = Select(sites, retainedSites, item => item.Plot, item => item.Bounds, item => item.Pose, range, prefetch);
+        var placedSites = Select(sites, retainedSites, item => item.Plot, item => item.Bounds, item => item.Pose, range, prefetch, corridor);
         Fog(sites, placedSites, item => item.Plot, item => item.Bounds, item => item.Pose);
         BuiltGeometry? siteBuilt = null;
         ContentReference? missingReference = null;
@@ -300,7 +304,7 @@ internal sealed class SettlementObjects : IAsyncDisposable
             }
         }
 
-        var vehicles = Select(allParked, retainedParked, item => item.Instance.Id, item => item.Bounds, item => item.Pose, range, prefetch);
+        var vehicles = Select(allParked, retainedParked, item => item.Instance.Id, item => item.Bounds, item => item.Pose, range, prefetch, corridor, corridorParked);
         Fog(allParked, vehicles, item => item.Instance.Id, item => item.Bounds, item => item.Pose);
         foreach (var item in vehicles)
         {

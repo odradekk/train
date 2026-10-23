@@ -8,6 +8,30 @@ namespace Train.Scenes.Tests;
 public sealed class NodePrebuildTests
 {
     [TestMethod]
+    public async Task A_known_front_node_starts_prebuilding_before_the_last_prefetch_range()
+    {
+        var train = RailwayFixtures.Train(400, direction: TravelDirection.Reverse, speed: 10);
+        var snapshot = RailwayFixtures.Snapshot(content: RailwayFixtures.Content(design: RailwayFixtures.Vehicle()),
+            trains: [train], instances: [RailwayFixtures.Instance()]);
+        var oldThresholdCells = RailwayScene.PrefetchSegments(train.SpeedMetersPerSecond, 1) * RailwayCoordinates.SegmentLengthCells;
+        Assert.IsTrue(((TrainPosition.Edge)train.Position).DistanceMeters * RailwayCoordinates.CellsPerMeter > oldThresholdCells,
+            "The train must remain outside the former final-prefetch trigger range.");
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), snapshot, new(), new(),
+            (current, node, previous, token) =>
+            {
+                entered.TrySetResult();
+                return RailwayFixtures.EmptyNode(current, node, previous, token);
+            });
+        session.RequestView(new WorldSceneTarget.Follow(train.Id, new(1)));
+        var frame = await RailwayFixtures.Settled(session, new(1, null, SceneDebugLayer.None));
+        Assert.AreNotEqual(SceneReadiness.Loading, frame.Readiness);
+        Assert.AreEqual(new WorldLocation.Node(new(1)), session.PrebuiltLocation,
+            "Once the active display is prepared, its known front node must start without reaching the old trigger range.");
+        await entered.Task;
+    }
+
+    [TestMethod]
     public async Task A_vehicle_that_leaves_the_scene_without_a_ready_body_does_not_block_follow_prebuilding()
     {
         using var content = new SceneFixtures.BlockedAppearanceView(RailwayFixtures.Content(

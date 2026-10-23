@@ -318,15 +318,17 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         if (railway is not null && train.Position is TrainPosition.Edge at && snapshot.Core.FindEdge(at.Id) is Lookup<EdgeView>.Found current)
         {
             wanted = new WorldLocation.Node(at.Direction == TravelDirection.Forward ? current.Value.Map.End : current.Value.Map.Start);
-            startCandidate = railway.FrontNode(snapshot, train) is not null;
+            startCandidate = railway.DisplayPrepared;
         }
         if (node is not null && (train.Position as TrainPosition.Node)?.NextEdge is { } next && snapshot.Core.FindEdge(next) is Lookup<EdgeView>.Found edge)
             wanted = new WorldLocation.Edge(next, edge.Value.Map.Start == node.Node ? 0 : edge.Value.Map.LengthMeters);
         if (wanted is null || !SameLocation(candidate?.Location, wanted)) CancelCandidate();
         if (wanted is null) { rejectedCandidate = null; return; }
-        if (startCandidate && SameLocation(rejectedCandidate, wanted)) return;
+        if (SameLocation(rejectedCandidate, wanted)) return;
         rejectedCandidate = null;
-        var allowBuild = node?.HasPendingBuilds != true && railway?.HasPendingBuilds != true;
+        var allowBuild = wanted is WorldLocation.Node
+            ? railway?.DisplayPrepared == true || candidate?.Node is not null
+            : node?.HasPendingBuilds != true && railway?.HasPendingBuilds != true;
         // Keep at most one background candidate alive, including cancellation that is still draining.
         if (allowBuild && startCandidate && candidate is null && retiringCandidate?.IsCompleted != false)
         {
@@ -335,6 +337,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
                 ? new(wanted, map, Node: OpenNode(atNode.Id, key => AssignId(map, key), key => Find(map, key), background: true))
                 : new(wanted, map, Railway: new(snapshot, ((WorldLocation.Edge)wanted).Id, railwayCache, key => AssignId(map, key), vehicles: vehicles, displayRate: displayRate, findId: key => Find(map, key), presentation: presentation));
         }
+        if (railway is not null) railway.LimitToDisplay = candidate?.Node is { HasPendingBuilds: true };
         try
         {
             if (candidate?.Node is { } candidateNode)

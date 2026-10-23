@@ -754,9 +754,12 @@ public sealed class NodeStreamingTests
         var ahead = new ScenePoint(0, 0, -40 + lead);
         var demanded = new NodeRange(ahead, 160).Chunks(scene.Layout!).ToArray();
         Assert.IsTrue(demanded.All(started.ContainsKey), "The entire predicted circle must be built from the train head.");
-        Assert.IsFalse(started.Keys.Any(from => from.Z > ahead.Z + 160),
-            "A unit or sign error must not move prefetch beyond the predicted circle.");
-        Assert.IsFalse(started.ContainsKey(new(0, 448)), "The lead remains capped at 160 m even at 64x.");
+        var corridor = new NodeCorridor(scene.Layout!,
+            ((Lookup<NodeView>.Found)current.Core.FindNode(NodeFixtures.NodeId)).Value,
+            (TrainPosition.Node)train.Position, train.LengthMeters * RailwayCoordinates.CellsPerMeter, []);
+        Assert.IsTrue(started.Keys.All(from => new NodeRange(scene.StreamingFocus, NodeStreaming.PrefetchCells).Intersects(from) ||
+            new NodeRange(ahead, NodeStreaming.PrefetchCells).Intersects(from) || corridor.Chunks.Contains(from)),
+            "Work beyond the predictive circles must belong to the finite remaining node corridor.");
     }
 
     [TestMethod]
@@ -799,8 +802,12 @@ public sealed class NodeStreamingTests
         var boundary = new NodeRange(scene.Layout.TrainBoundary(entry).Position, 160);
         Assert.IsTrue(predicted.Chunks(scene.Layout).All(started.ContainsKey),
             "The first candidate must build the circle ahead of the predicted head, using the session rate.");
-        Assert.IsTrue(started.Keys.All(from => boundary.Intersects(from) || predicted.Intersects(from)),
-            "The candidate must retain the existing two circles and capped lead.");
+        var corridor = new NodeCorridor(scene.Layout,
+            ((Lookup<NodeView>.Found)snapshot.Core.FindNode(NodeFixtures.NodeId)).Value,
+            new TrainPosition.Node(NodeFixtures.NodeId, new(1), 1, null, null, NodeTravelPhase.Approaching, 0, null),
+            train.LengthMeters * RailwayCoordinates.CellsPerMeter, []);
+        Assert.IsTrue(started.Keys.All(from => boundary.Intersects(from) || predicted.Intersects(from) || corridor.Chunks.Contains(from)),
+            "Additional candidate work must belong to the finite node corridor.");
     }
 
     [TestMethod]

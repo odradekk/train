@@ -234,6 +234,12 @@ internal sealed class NodeScene : IAsyncDisposable
     private NodeRange range;
     private NodeRange prefetch;
     private FollowedPath? followedPath;
+    private NodeCorridor? corridor;
+    private bool preparingCandidate;
+    private (NodeLayout Layout, EdgeId? Entry, int? Track, EdgeId? Exit, int? ExitTrack, int? Platform, bool Departing, double Length)? corridorInput;
+    private ImmutableArray<NodeLayout.Stop> corridorPlatforms = [];
+    private readonly HashSet<string> retainedCorridorParts = [];
+
     private readonly DisplayRate displayRate;
     private bool nearCompleted;
     private bool awaitingDisplay;
@@ -322,6 +328,7 @@ internal sealed class NodeScene : IAsyncDisposable
         FollowedPath? following = null, TrainView? followedTrain = null, WorldSceneTarget? target = null)
     {
         SetBuildAllowed(allowBuild);
+        preparingCandidate = enteringTrain is not null;
         if (current is not null) snapshot = current;
         AcceptRefresh();
         if (cancellation.IsCancellationRequested || failure is not null) return;
@@ -349,11 +356,15 @@ internal sealed class NodeScene : IAsyncDisposable
                 following = FollowPath(path, followedTrain, onNode.DistanceMeters);
             }
         }
+        var corridorTrain = enteringTrain ?? followedTrain;
+        if (target is WorldSceneTarget.Follow follow && snapshot.Core.FindTrain(follow.Train) is Lookup<TrainView>.Found found)
+            corridorTrain = found.Value;
+        UpdateCorridor(corridorTrain);
         followedPath = following;
         if (focus is { } requestedFocus) range = new(requestedFocus, NodeStreaming.PrefetchCells);
         UpdatePrefetch(target, following);
         var hadLayout = layout is not null;
-        if (hadLayout) settlement.Pump(snapshot, layout!, range, allowBuild, prefetch);
+        if (hadLayout) settlement.Pump(snapshot, layout!, range, allowBuild, prefetch, corridor);
         if (prepared is null && pending?.IsCompleted == true)
         {
             try
@@ -383,11 +394,30 @@ internal sealed class NodeScene : IAsyncDisposable
         if (focus is { } point) range = new(point, NodeStreaming.PrefetchCells);
         UpdatePrefetch(target, following);
         if (prepared is null) return;
-        if (!hadLayout) settlement.Pump(snapshot, layout!, range, allowBuild, prefetch);
+        if (!hadLayout) settlement.Pump(snapshot, layout!, range, allowBuild, prefetch, corridor);
         lock (workGate) ReconcileParts();
         cache.Publish(Node, owner, built! with
         { Parts = prepared.Global.Parts.SetItems(chunks.Select(item => new KeyValuePair<string, Part>(ChunkKey(item.Key), item.Value))).SetItems(rails) });
         ScheduleRefresh();
+    }
+
+    private void UpdateCorridor(TrainView? train)
+    {
+        if (train is null || Layout is not { } currentLayout) return;
+        var position = train.Position switch
+        {
+            TrainPosition.Node at => at,
+            TrainPosition.Edge at => new TrainPosition.Node(Node, at.Id, at.Track, null, null, NodeTravelPhase.Approaching, 0, null),
+            _ => throw new ArgumentException("Invalid corridor position.")
+        };
+        var platforms = settlement.Platforms(snapshot, currentLayout, ImmutableArray.CreateBuilder<SceneProblem>());
+        var input = (currentLayout, position.EnteredFrom, position.EnteredTrack, position.NextEdge, position.NextTrack,
+            position.PlatformNumber, position.Phase == NodeTravelPhase.Departing, train.LengthMeters);
+        if (corridorInput == input && corridorPlatforms.SequenceEqual(platforms)) return;
+        corridorInput = input;
+        corridorPlatforms = platforms;
+        var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(Node)).Value;
+        corridor = new(currentLayout, dimensions, position, train.LengthMeters * RailwayCoordinates.CellsPerMeter, platforms);
     }
 
     private void UpdatePrefetch(WorldSceneTarget? target, FollowedPath? following)
@@ -450,6 +480,8 @@ internal sealed class NodeScene : IAsyncDisposable
     private void Adopt(Preparation next)
     {
         RetireStreaming();
+        corridorInput = null;
+        retainedCorridorParts.Clear();
         var previousBuilt = built;
         prepared = next;
         built = next.Global;
@@ -528,18 +560,18 @@ internal sealed class NodeScene : IAsyncDisposable
     {
         var retention = range.Around(NodeStreaming.RetainCells);
         foreach (var key in completedParts.Keys.Where(key => !retention.Intersects(completedParts[key].Bounds) &&
-            !prefetch.Intersects(completedParts[key].Bounds)).ToArray())
+            !prefetch.Intersects(completedParts[key].Bounds) && !InCorridor(key, completedParts[key].Bounds)).ToArray())
             completedParts.Remove(key);
         foreach (var key in pendingParts.Keys.Where(key => !range.Intersects(pendingParts[key].Bounds) &&
-            !prefetch.Intersects(pendingParts[key].Bounds)).ToArray())
+            !prefetch.Intersects(pendingParts[key].Bounds) && !InCorridor(key, pendingParts[key].Bounds)).ToArray())
         {
             var work = pendingParts[key];
             work.Cancellation.Cancel(); retiring.Add(work); pendingParts.Remove(key);
         }
-        foreach (var from in chunks.Keys.Where(from => !retention.Intersects(from) && !prefetch.Intersects(from)).ToArray())
+        foreach (var from in chunks.Keys.Where(from => !retention.Intersects(from) && !prefetch.Intersects(from) && !InCorridor(ChunkKey(from), ChunkBounds(from))).ToArray())
         { rebuilding.Remove(ChunkKey(from)); chunks.Remove(from); attached.Remove(ChunkKey(from)); }
         foreach (var key in rails.Keys.Where(key => !retention.Intersects(prepared!.Rails[key].Bounds) &&
-            !prefetch.Intersects(prepared.Rails[key].Bounds)).ToArray())
+            !prefetch.Intersects(prepared.Rails[key].Bounds) && !InCorridor(key, prepared.Rails[key].Bounds)).ToArray())
         { rebuilding.Remove(key); rails.Remove(key); attached.Remove(key); railFogDirty = true; }
         foreach (var key in pendingParts.Where(pair => pair.Value.Task.IsCompleted).Select(pair => pair.Key).ToArray())
         {
@@ -564,6 +596,7 @@ internal sealed class NodeScene : IAsyncDisposable
         AdmitCompletedParts();
         var neededChunks = range.Chunks(layout!);
         if (prefetch != range) neededChunks = neededChunks.Concat(prefetch.Chunks(layout!)).Distinct();
+        if (corridor is not null) neededChunks = neededChunks.Concat(corridor.Chunks).Distinct();
         var terrain = prepared!.HasChunks ? neededChunks.Where(from =>
             {
                 var key = ChunkKey(from);
@@ -573,63 +606,22 @@ internal sealed class NodeScene : IAsyncDisposable
         var tracks = prepared.Rails.Values.Where(segment =>
                 (!rails.ContainsKey(segment.Key) || rebuilding.Contains(segment.Key)) &&
                 !pendingParts.ContainsKey(segment.Key) && !completedParts.ContainsKey(segment.Key) &&
-                (range.Intersects(segment.Bounds) || prefetch.Intersects(segment.Bounds)))
+                (range.Intersects(segment.Bounds) || prefetch.Intersects(segment.Bounds) || corridor?.Intersects(segment.Bounds) == true))
             .Select(segment => (segment.Key, segment.Bounds, Chunk: (GridColumn?)null));
         waitingParts = new(terrain.Concat(tracks).OrderBy(item => Priority(item.Bounds)).ThenBy(item => item.Key, StringComparer.Ordinal));
         StartParts();
     }
 
+    private bool InCorridor(string key, SceneBounds bounds) => retainedCorridorParts.Contains(key) || corridor?.Intersects(bounds) == true;
+
     private (int Ring, double Distance, double Progress) Priority(SceneBounds bounds)
     {
         var (distance, progress) = followedPath?.Priority is { Count: > 0 } path
-            ? PathPriority(bounds, path) : (range.DistanceSquared(bounds), 0);
-        return (!nearCompleted && !range.Around(NodeStreaming.NearCells).Intersects(bounds) ? 1 : 0,
+            ? NodeStreaming.PathPriority(bounds, path) : (range.DistanceSquared(bounds), 0);
+        var ring = !nearCompleted && range.Around(NodeStreaming.NearCells).Intersects(bounds) ? 0 :
+            range.Around(NodeStreaming.ViewCells).Intersects(bounds) ? 1 : corridor?.Intersects(bounds) == true ? 2 : 3;
+        return (corridor is null ? !nearCompleted && !range.Around(NodeStreaming.NearCells).Intersects(bounds) ? 1 : 0 : ring,
             distance, progress);
-    }
-
-    private static (double Distance, double Progress) PathPriority(SceneBounds bounds, IReadOnlyList<ScenePoint> path)
-    {
-        if (path.Count == 0) return (double.PositiveInfinity, 0);
-        var distance = new NodeRange(path[0], 0).DistanceSquared(bounds);
-        if (distance == 0) return (0, 0);
-        for (var i = 1; i < path.Count; i++)
-        {
-            distance = Math.Min(distance, new NodeRange(path[i], 0).DistanceSquared(bounds));
-            var from = path[i - 1];
-            var dx = path[i].X - from.X;
-            var dz = path[i].Z - from.Z;
-            double enter = 0, exit = 1;
-            for (var axis = 0; axis < 2; axis++)
-            {
-                var start = axis == 0 ? from.X : from.Z;
-                var delta = axis == 0 ? dx : dz;
-                var minimum = axis == 0 ? bounds.Minimum.X : bounds.Minimum.Z;
-                var maximum = axis == 0 ? bounds.Maximum.X : bounds.Maximum.Z;
-                if (delta == 0)
-                {
-                    if (start < minimum || start > maximum) { enter = 1; exit = 0; break; }
-                }
-                else
-                {
-                    var first = (minimum - start) / delta;
-                    var last = (maximum - start) / delta;
-                    enter = Math.Max(enter, Math.Min(first, last));
-                    exit = Math.Min(exit, Math.Max(first, last));
-                }
-            }
-            if (enter <= exit) return (0, i - 1 + enter);
-            var lengthSquared = dx * dx + dz * dz;
-            for (var corner = 0; corner < 4 && lengthSquared > 0; corner++)
-            {
-                var x = corner % 2 == 0 ? bounds.Minimum.X : bounds.Maximum.X;
-                var z = corner < 2 ? bounds.Minimum.Z : bounds.Maximum.Z;
-                var along = Math.Clamp(((x - from.X) * dx + (z - from.Z) * dz) / lengthSquared, 0, 1);
-                var offsetX = from.X + along * dx - x;
-                var offsetZ = from.Z + along * dz - z;
-                distance = Math.Min(distance, offsetX * offsetX + offsetZ * offsetZ);
-            }
-        }
-        return (distance, 0);
     }
 
     private static SceneBounds ChunkBounds(GridColumn from) => new(new(from.X, -128, from.Z),
@@ -648,7 +640,7 @@ internal sealed class NodeScene : IAsyncDisposable
             .Select(item => (item.Key, item.Value, Priority: Priority(item.Value.Bounds)))
             .OrderBy(item => item.Priority).ThenBy(item => item.Key, StringComparer.Ordinal).ToArray())
         {
-            if (!nearCompleted && !near.Intersects(ready.Bounds) && PathPriority(ready.Bounds, followedPath?.Loading ?? []).Distance >
+            if (!preparingCandidate && !nearCompleted && !near.Intersects(ready.Bounds) && NodeStreaming.PathPriority(ready.Bounds, followedPath?.Loading ?? []).Distance >
                 pathMargin * pathMargin) continue;
             // One indivisible part may exceed the batch target, but must never block the queue.
             // Keep path parts separate from peripheral work.
@@ -659,6 +651,7 @@ internal sealed class NodeScene : IAsyncDisposable
             else { rails[key] = ready.Part; railFogDirty = true; }
             rebuilding.Remove(key);
             Attach(key, ready.Part);
+            if (corridor?.Intersects(ready.Bounds) == true) retainedCorridorParts.Add(key);
             completedParts.Remove(key);
             vertices += ready.Vertices;
             visuals += ready.Visuals;
@@ -749,7 +742,7 @@ internal sealed class NodeScene : IAsyncDisposable
                 RailwayTerrain.ReportMissing(new ContentReference.Core(new CoreDefinitionReference.Lair(lair.Type)),
                     diagnostics, "The lair scene model is missing.", problems, new WorldObjectId.Node(Node));
             }
-            Add(settlement.Present(snapshot, layout, origin, fog, findId, range, chunks.Keys, prefetch, presentation, seconds));
+            Add(settlement.Present(snapshot, layout, origin, fog, findId, range, chunks.Keys, prefetch, presentation, seconds, corridor: corridor));
             if (layout.Lair is { } placed &&
                 snapshot.Core.World.Nodes.Single(item => item.Id == Node).Occupant is NodeOccupant.Lair occupant)
                 objects.Add(new(objectId("lair:" + occupant.Id.Value), null,
@@ -847,10 +840,11 @@ internal sealed class NodeScene : IAsyncDisposable
         { Add(minimum.X, maximum.X, minimum.Y, maximum.Y); return; }
         var retained = range.Around(NodeStreaming.RetainCells).Window(layout);
         var ahead = prefetch.Window(layout);
-        var left = Math.Min(retained.Left, ahead.Left);
-        var right = Math.Max(retained.Right, ahead.Right);
-        var back = Math.Min(retained.Back, ahead.Back);
-        var front = Math.Max(retained.Front, ahead.Front);
+        var corridorChunks = chunks.Keys.Where(from => retainedCorridorParts.Contains(ChunkKey(from))).ToArray();
+        var left = Math.Min(retained.Left, Math.Min(ahead.Left, corridorChunks.Select(from => from.X).DefaultIfEmpty(retained.Left).Min()));
+        var right = Math.Max(retained.Right, Math.Max(ahead.Right, corridorChunks.Select(from => from.X + VoxelGrid.ChunkSize).DefaultIfEmpty(retained.Right).Max()));
+        var back = Math.Min(retained.Back, Math.Min(ahead.Back, corridorChunks.Select(from => from.Z).DefaultIfEmpty(retained.Back).Min()));
+        var front = Math.Max(retained.Front, Math.Max(ahead.Front, corridorChunks.Select(from => from.Z + VoxelGrid.ChunkSize).DefaultIfEmpty(retained.Front).Max()));
         Add(minimum.X, left, minimum.Y, maximum.Y);
         Add(right, maximum.X, minimum.Y, maximum.Y);
         Add(left, right, minimum.Y, back);
@@ -1330,7 +1324,7 @@ internal sealed class NodeScene : IAsyncDisposable
             SamplePath(path, center - halfLength, Math.Min(head + NodeStreaming.ViewCells + NodeStreaming.PathSampleCells, path.Length)));
     }
 
-    private static ScenePoint[] SamplePath(NodeTrainPath path, double begin, double end)
+    internal static ScenePoint[] SamplePath(NodeTrainPath path, double begin, double end)
     {
         var intervals = Math.Max(1, (int)Math.Ceiling((end - begin) / NodeStreaming.PathSampleCells));
         var points = new ScenePoint[intervals + 1];
