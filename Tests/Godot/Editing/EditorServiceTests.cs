@@ -464,9 +464,11 @@ public sealed class EditorServiceTests
             new ContentReference.Blueprint(new(BlueprintLibrary.Packages, new("missing-design"))), new("missing-package"), null, "受阻操作");
         fixture.Session.CaptureObjectCall = _ => new SceneResult<DesignDraft>.Failure([problem]);
         Assert.IsNull(fixture.Editor.CaptureObject(new(10)));
+        StringAssert.Contains(fixture.Editor.Message!, "场景出现问题，详情见日志。");
+        StringAssert.Contains(fixture.Editor.Message!, "来源内容包不可用。");
         foreach (var value in new[] { "object_missing", "missing-design", "missing-package", "受阻操作" })
         {
-            StringAssert.Contains(fixture.Editor.Message!, value);
+            Assert.IsFalse(fixture.Editor.Message!.Contains(value, StringComparison.Ordinal));
             Assert.IsTrue(fixture.Host.Logs.Any(log => log.Message.Contains(value, StringComparison.Ordinal)));
         }
         fixture.Session.CaptureObjectCall = _ => throw new InvalidOperationException("capture exception");
@@ -526,7 +528,12 @@ public sealed class EditorServiceTests
         Assert.IsTrue(fixture.Editor.IsDirty);
         Assert.IsTrue(fixture.Editor.SceneUnavailable);
         Assert.AreSame(fixture.Session, fixture.Editor.Session);
-        StringAssert.Contains(fixture.Editor.Message!, read ? "read failed" : "capture failed");
+        var detail = read ? "read failed" : "capture failed";
+        var sentence = read ? "无法读取当前设计，详情见日志。" : "无法捕获当前设计，详情见日志。";
+        StringAssert.Contains(fixture.Editor.Message!, sentence);
+        Assert.IsFalse(fixture.Editor.Message!.Contains(detail, StringComparison.Ordinal));
+        Assert.IsTrue(fixture.Host.Logs.Any(log => log.Message.Contains(detail, StringComparison.Ordinal)
+            && log.Message.Contains(read ? "editor_read_failed" : "editor_capture_failed", StringComparison.Ordinal)));
     }
 
     [TestMethod]

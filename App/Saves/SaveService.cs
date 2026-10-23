@@ -13,6 +13,8 @@ internal enum LeaveChoice { Save, Discard, Cancel }
 
 internal sealed class SaveService : IDisposable
 {
+    internal const int DefaultAutoSaveMinutes = 60;
+
     private readonly HostCoordinator _host;
     private readonly FileSaveStore _store;
     private readonly EditorService _editor;
@@ -51,7 +53,7 @@ internal sealed class SaveService : IDisposable
     internal LeavePrompt? Leaving { get; private set; }
     internal bool HasPendingWork => _writes.Count != 0 || _read is not null || _import is not null || _restore is not null;
     internal bool IsBusy => HasPendingWork || _leave is not null || _host.IsBusy;
-    internal TimeSpan? AutoSaveInterval { get; private set; } = TimeSpan.FromMinutes(5);
+    internal TimeSpan? AutoSaveInterval { get; private set; } = TimeSpan.FromMinutes(DefaultAutoSaveMinutes);
     internal MissingPrompt? Missing
     {
         get

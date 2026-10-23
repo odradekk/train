@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 using System.IO.Compression;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -24,6 +26,7 @@ internal sealed record RecordingPackage(RecordingPackage.Manifest Header,
 
     private static readonly UTF8Encoding Utf8 = new(false, true);
     private static readonly JsonSerializerOptions Json = CreateOptions();
+    private static readonly JsonSerializerOptions DigestJson = new(Json) { Converters = { new StringDigest() } };
 
     internal static RecordingPackage Capture(CoreRecordingWindow window, IContentReplayCapture content,
         RuntimeIdentity runtime) => new(new(2, runtime, window.EndPosition,
@@ -64,8 +67,27 @@ internal sealed record RecordingPackage(RecordingPackage.Manifest Header,
     internal void Validate(string path)
     {
         var decoded = Read(path);
-        if (JsonSerializer.Serialize(this, Json) != JsonSerializer.Serialize(decoded, Json))
+        if (!Digest(this).AsSpan().SequenceEqual(Digest(decoded)))
             throw new InvalidDataException("录制 ZIP 读回值与写入快照不一致。");
+    }
+
+    private static byte[] Digest(RecordingPackage package)
+    {
+        using var sha = SHA256.Create();
+        using var sink = new CryptoStream(Stream.Null, sha, CryptoStreamMode.Write);
+        JsonSerializer.Serialize(sink, package, DigestJson);
+        sink.FlushFinalBlock();
+        return sha.Hash!;
+    }
+
+    // 长字符串转义要按长度 6 倍租缓冲区，所以按字符串哈希。
+    private sealed class StringDigest : JsonConverter<string>
+    {
+        public override string Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+            => throw new NotSupportedException();
+
+        public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options)
+            => writer.WriteBase64StringValue(SHA256.HashData(MemoryMarshal.AsBytes(value.AsSpan())));
     }
 
     internal static RecordingPackage Read(string path)

@@ -20,7 +20,7 @@ internal partial class AuthoringPanel : Control
         ("体素", id => new DefinitionDraft.Voxel(new(id, new(id, ""), null, null, AllowedVoxelOrientations.None, new VoxelCollision.None(), null, new(false, null)))),
         ("聚居地类型", id => new DefinitionDraft.SettlementType(new(id, new(id, ""), null, false, null, [], null, null))),
         ("生物聚落类型", id => new DefinitionDraft.LairType(new(id, new(id, ""), null, null, [], null, null, null, null, null, null, null))),
-        ("聚居地模板", id => new DefinitionDraft.SettlementTemplate(new(id, null, null, null, [], [], [], [])))
+        ("聚居地模板", id => new DefinitionDraft.SettlementTemplate(new(id, new(id, ""), null, null, null, [], [], [], [])))
     ];
     private static DefinitionDraft.Blueprint Blueprint(string id, DesignSpecification specification) =>
         new(id, new(new(id, ""), specification, new([], [], [])));

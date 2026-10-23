@@ -11,6 +11,7 @@ internal static class EdgeCombat
     internal static WorldState Advance(WorldState world, WorldState before, CoreContentProjection content, ulong step,
         ImmutableArray<CoreEvent>.Builder events)
     {
+        if (world.CreatureGroups.IsEmpty) return world;
         foreach (var id in world.CreatureGroups.Select(group => group.Id).OrderBy(group => group.Value).ToArray())
         {
             var group = CreatureQueries.FindGroup(world, id);

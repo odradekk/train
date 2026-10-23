@@ -10,7 +10,7 @@ namespace Train.Ui;
 public partial class SettingsPanel : Control
 {
     private const string Path = "user://settings.cfg";
-    private static readonly int[] AutoSaveMinutes = [0, 5, 10, 15, 30];
+    private static readonly int[] AutoSaveMinutes = [0, 5, 10, 15, 30, 60, 120];
     private HostCoordinator? _host;
     private NotificationPolicy _policy = null!;
     private RecordingService? _recording;
@@ -27,7 +27,7 @@ public partial class SettingsPanel : Control
     private bool _cameraShake = true;
     private bool _alwaysShowSceneStatus;
     private bool _highQuality;
-    private int _autoSaveMinutes = 5;
+    private int _autoSaveMinutes = SaveService.DefaultAutoSaveMinutes;
     private WorldCamera? _camera;
     private NotificationAction[] _actions = Defaults();
 
@@ -57,7 +57,7 @@ public partial class SettingsPanel : Control
                 var cameraShake = config.GetValue("game", "camera_shake", true);
                 var alwaysShowSceneStatus = config.GetValue("game", "always_show_scene_status", false);
                 var configQuality = config.GetValue("display", "quality", 0);
-                var configAutoSave = config.GetValue("game", "autosave_minutes", 5);
+                var configAutoSave = config.GetValue("game", "autosave_minutes", SaveService.DefaultAutoSaveMinutes);
                 var displayValid = mode.VariantType == Variant.Type.Int && mode.AsInt64() is >= 0 and <= 2 &&
                     (configScale.VariantType is Variant.Type.Int or Variant.Type.Float) &&
                     double.IsFinite(configScale.AsDouble()) && configScale.AsDouble() is >= 0.75 and <= 2 &&
@@ -70,7 +70,7 @@ public partial class SettingsPanel : Control
                 {
                     Report("设置文件包含无效值，使用当前工程默认设置。", Error.InvalidData);
                     _mode = 0; _scale = 1; _fps = Engine.MaxFps; _focusPause = false; _cameraShake = true;
-                    _alwaysShowSceneStatus = false; _highQuality = false; _autoSaveMinutes = 5; _actions = Defaults();
+                    _alwaysShowSceneStatus = false; _highQuality = false; _autoSaveMinutes = SaveService.DefaultAutoSaveMinutes; _actions = Defaults();
                 }
                 else
                 {
@@ -114,7 +114,7 @@ public partial class SettingsPanel : Control
         body.AddChild(alwaysStatus);
         if (_saves is not null)
         {
-            var autoSave = Options("AutoSave", AutoSaveMinutes.Select(minutes => minutes == 0 ? "关闭" : $"{minutes} 分钟").ToArray());
+            var autoSave = Options("AutoSave", AutoSaveMinutes.Select(minutes => minutes == 0 ? "关闭" : minutes % 60 == 0 ? $"{minutes / 60} 小时" : $"{minutes} 分钟").ToArray());
             autoSave.Select(Array.IndexOf(AutoSaveMinutes, _autoSaveMinutes));
             AddRow(body, "自动存档", autoSave);
             autoSave.ItemSelected += index => { _autoSaveMinutes = AutoSaveMinutes[index]; Save(); };
