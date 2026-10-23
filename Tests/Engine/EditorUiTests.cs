@@ -573,6 +573,25 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
         }
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
+    [Test]
+    public async Task Undo_and_redo_buttons_follow_history_state()
+    {
+        var fixture = await Ready();
+        try
+        {
+            var panel = EditorPanel(fixture); var session = fixture.Factory.Session!;
+            var undo = Find<Button>(panel, "Undo"); var redo = Find<Button>(panel, "Redo");
+            await FramesUntil(TestScene, () => undo.Disabled && redo.Disabled);
+            session.SetState(state => state with { CanUndo = true, CanRedo = false });
+            await FramesUntil(TestScene, () => !undo.Disabled && redo.Disabled);
+            session.SetState(state => state with { CanUndo = false, CanRedo = true });
+            await FramesUntil(TestScene, () => undo.Disabled && !redo.Disabled);
+            session.SetState(state => state with { CanUndo = true, CanRedo = true });
+            await FramesUntil(TestScene, () => !undo.Disabled && !redo.Disabled);
+        }
+        finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
+    }
+
     private static SceneObject VisibleObject() => new(new(1), null,
         new(default, System.Numerics.Quaternion.Identity), null,
         [new SceneVisual.Geometry(new(new SceneMaterial.BuiltIn(BuiltInMaterial.Sleeper),

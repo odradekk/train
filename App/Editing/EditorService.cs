@@ -530,8 +530,8 @@ internal sealed class EditorService : IDisposable
         Changed?.Invoke();
     }
 
-    internal void Undo() => Change(session => session.Undo());
-    internal void Redo() => Change(session => session.Redo());
+    internal void Undo() => Change(session => session.Undo(), "没有可撤销的步骤。");
+    internal void Redo() => Change(session => session.Redo(), "没有可重做的步骤。");
     internal void Select(EditSelection selection) => Change(session => session.Select(selection));
     internal void Enter(EditElementId? element) => Change(session => session.Enter(element));
     internal void Apply(IEditPreview preview, bool confirmed) => Change(session => session.Apply(preview, confirmed));
@@ -548,13 +548,14 @@ internal sealed class EditorService : IDisposable
         catch (Exception error) { Report(error.Message); }
         return null;
     }
-    private void Change(Func<IDesignEditSession, SceneResult<EditState>> operation)
+    private void Change(Func<IDesignEditSession, SceneResult<EditState>> operation, string? noHistory = null)
     {
         if (Session is null || SceneUnavailable || IsBusy) return;
         try
         {
             var result = operation(Session);
             if (result is SceneResult<EditState>.Success success) _lastState = success.Value;
+            else if (noHistory is not null && result is SceneResult<EditState>.Failure) Report(noHistory);
             else ReportResult(result);
             Changed?.Invoke();
         }
