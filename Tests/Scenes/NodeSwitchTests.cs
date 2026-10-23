@@ -417,7 +417,7 @@ public sealed class NodeSwitchTests
         var origin = SceneFrame.SwitchOrigin(line, layout, null)!.Value;
         var empty = WorldSceneSession.BuildGeometry(_ => new([], [], []));
         var node = new SceneFrame(stamp with { Space = new(2) }, origin, 0, SceneReadiness.Ready, [], [], [], [],
-            node: layout, nodeParts: [new(new("", ""), empty, boundary.Heights, boundary.Origin)]);
+            node: layout, nodeParts: [new("", empty, boundary.Heights, boundary.Origin)]);
         var endpoint = path.Sample(reverse ? 0 : path.LengthCells).Position;
         var point = RailwayCoordinates.Relative(new(Math.Floor(endpoint.X) + 40.5, 0, Math.Floor(endpoint.Z) + .5), line.Origin);
         AssertHeight(line, node, point);
@@ -680,7 +680,7 @@ public sealed class NodeSwitchTests
             var pose = new ScenePose(RailwayCoordinates.Relative(boundary.Origin, default), Quaternion.Identity);
             return new([new(root, null, pose, null, DesignGeometry.Meshes(grid, false), [], [])], [new(root, pose, grid)], boundary.Problems);
         });
-        return new(layout, ImmutableDictionary<string, NodeScene.Part>.Empty.Add("boundary", new(new("", ""), geometry, boundary.Heights, boundary.Origin)), []);
+        return new(layout, ImmutableDictionary<string, NodeScene.Part>.Empty.Add("boundary", new("", geometry, boundary.Heights, boundary.Origin)), []);
     }
     private static void AssertHeight(ISceneFrame before, ISceneFrame after, Vector3 point)
     {

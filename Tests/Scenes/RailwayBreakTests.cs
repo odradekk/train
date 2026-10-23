@@ -37,7 +37,7 @@ public sealed class RailwayBreakTests
         {
             Interlocked.Increment(ref builds);
             return new(NodeLayout.Build(initial, node, token), ImmutableDictionary<string, NodeScene.Part>.Empty.Add("ground",
-                new(new("", "fixed"), WorldSceneSession.BuildGeometry(id => new([new(id(""), null, SceneFixtures.Identity, null, [], [], [])], [], [])),
+                new("fixed", WorldSceneSession.BuildGeometry(id => new([new(id(""), null, SceneFixtures.Identity, null, [], [], [])], [], [])),
                     ImmutableDictionary<GridColumn, double>.Empty)), []);
         });
         await scene.BuildWork!;

@@ -105,7 +105,7 @@ public sealed class NodeLifecycleTests
             Interlocked.Increment(ref builds);
             var layout = NodeLayout.Build(input, node, token);
             return new(layout, ImmutableDictionary<string, NodeScene.Part>.Empty.Add("test-ground",
-                new(new("", "fixed"), WorldSceneSession.BuildGeometry(id => DesignGeometry.Build(input.Content,
+                new("fixed", WorldSceneSession.BuildGeometry(id => DesignGeometry.Build(input.Content,
                     SceneFixtures.Evaluation(SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0))])),
                     null, SceneFixtures.Identity, id)), ImmutableDictionary<GridColumn, double>.Empty)), []);
         });

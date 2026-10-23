@@ -11,9 +11,7 @@ internal sealed class NodeScene : IAsyncDisposable
 {
     internal sealed record FollowedPath(ScenePoint Ahead, IReadOnlyList<ScenePoint> Priority, IReadOnlyList<ScenePoint> Loading);
 
-    internal readonly record struct PartInputs(string Shared, string Local);
-
-    internal sealed record Part(PartInputs Inputs, BuiltGeometry Geometry, ImmutableDictionary<GridColumn, double> Heights,
+    internal sealed record Part(string Inputs, BuiltGeometry Geometry, ImmutableDictionary<GridColumn, double> Heights,
         ScenePoint Origin = default, SceneBounds? Bounds = null)
     {
         internal long ArrayBytes { get; } = Geometry.Geometry.Objects.Sum(item => (long)IntPtr.Size *
@@ -31,7 +29,7 @@ internal sealed class NodeScene : IAsyncDisposable
         internal static Cached From(Built built) => new(built.Layout.Inputs, built.Parts, built.Boundaries);
     }
     internal sealed record RailSegment(string Key, Func<double, RailwaySample> Sample, double Begin, double End,
-        SceneBounds Bounds, PartInputs Inputs)
+        SceneBounds Bounds, string Inputs)
     {
         private ImmutableArray<SceneBounds> footprint;
         internal ImmutableArray<SceneBounds> Footprint => footprint.IsDefault ? footprint = RailwayMeshes.Footprint(
@@ -56,17 +54,17 @@ internal sealed class NodeScene : IAsyncDisposable
         Dictionary<GridColumn, double> BoundarySurfaces,
         bool HasChunks = true)
     {
-        internal PartInputs ChunkInputs(GridColumn from)
+        internal string ChunkInputs(GridColumn from)
         {
             var bed = BedsNear(from);
             var boundary = BoundaryChunks.GetValueOrDefault(from) ?? [];
             var surfaces = SurfacesNear(from);
             var model = ModelChunks.GetValueOrDefault(from, []);
-            return new(TerrainInputs, RailwayDependencies.Values(new object?[] { Global.Layout.Template?.SceneModel.Design, from,
+            return RailwayDependencies.Values(new object?[] { TerrainInputs, Global.Layout.Template?.SceneModel.Design, from,
                 model.Select(voxel => voxel.Voxel).Distinct().Select(id => Appearances[id]).ToArray(),
                 bed.OrderBy(item => item.Key.X).ThenBy(item => item.Key.Z).ToArray(),
                 boundary.OrderBy(item => item.X).ThenBy(item => item.Z).ToArray(),
-                surfaces.OrderBy(item => item.Key.X).ThenBy(item => item.Key.Z).ToArray() }));
+                surfaces.OrderBy(item => item.Key.X).ThenBy(item => item.Key.Z).ToArray() });
         }
 
         internal Part BuildChunk(GridColumn from, Part? previous = null, CancellationToken token = default)
@@ -1007,8 +1005,7 @@ internal sealed class NodeScene : IAsyncDisposable
         void Put(string name, string inputs, Func<Part> create)
         {
             token.ThrowIfCancellationRequested();
-            var key = new PartInputs("", inputs);
-            parts.Add(name, previous?.Parts.TryGetValue(name, out var old) == true && old.Inputs == key ? old : create() with { Inputs = key });
+            parts.Add(name, previous?.Parts.TryGetValue(name, out var old) == true && old.Inputs == inputs ? old : create() with { Inputs = inputs });
         }
         void AddRoute(string route, string inputs, Func<double, RailwaySample> sample, double length)
         {
@@ -1025,7 +1022,7 @@ internal sealed class NodeScene : IAsyncDisposable
                 // One-cell arc sampling plus a bed-width margin encloses the track profile and its end caps.
                 var margin = new Vector3((float)RailwayCoordinates.BedBaseHalfWidth);
                 rails.Add(key, new(key, sample, begin, end, new(minimum - margin, maximum + margin),
-                    new(inputs, RailwayDependencies.Values(new object[] { route, begin, end }))));
+                    RailwayDependencies.Values(new object[] { inputs, route, begin, end })));
 
                 void Include(double arc)
                 {
@@ -1114,7 +1111,7 @@ internal sealed class NodeScene : IAsyncDisposable
                 .Select(voxel => content.FindVoxelAppearance(voxel)).ToArray() };
     }
 
-    private static Part MeshPart(ImmutableArray<SceneMesh> meshes) => new(new("", ""), WorldSceneSession.BuildGeometry(id =>
+    private static Part MeshPart(ImmutableArray<SceneMesh> meshes) => new("", WorldSceneSession.BuildGeometry(id =>
         new([new(id(""), null, new(Vector3.Zero, Quaternion.Identity), null,
             meshes.Select(mesh => (SceneVisual)new SceneVisual.Geometry(mesh, new(false, 0, 0, false))).ToImmutableArray(), [], [])], [], [])),
         ImmutableDictionary<GridColumn, double>.Empty);
@@ -1206,7 +1203,7 @@ internal sealed class NodeScene : IAsyncDisposable
     }
 
     private static Part GridPart(ImmutableArray<SceneCell> cells, ImmutableDictionary<GridColumn, double> heights,
-        ImmutableArray<SceneProblem> problems, ScenePoint origin = default) => new(new("", ""), WorldSceneSession.BuildGeometry(id =>
+        ImmutableArray<SceneProblem> problems, ScenePoint origin = default) => new("", WorldSceneSession.BuildGeometry(id =>
         {
             var grid = new VoxelGrid(cells); var root = id("");
             var pose = new ScenePose(RailwayCoordinates.Relative(origin, default), Quaternion.Identity);

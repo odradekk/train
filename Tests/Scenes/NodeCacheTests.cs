@@ -92,7 +92,7 @@ public sealed class NodeCacheTests
 
     private static NodeLayout Layout() => NodeLayout.Build(NodeFixtures.Snapshot(platforms: 0, trains: []), NodeFixtures.NodeId);
 
-    private static NodeScene.Part Part(SceneBounds? bounds = null) => new(new("", "fixed"),
+    private static NodeScene.Part Part(SceneBounds? bounds = null) => new("fixed",
         WorldSceneSession.BuildGeometry(id => DesignGeometry.Build(SceneFixtures.Content(),
             SceneFixtures.Evaluation(SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0))])),
             null, SceneFixtures.Identity, id)), ImmutableDictionary<GridColumn, double>.Empty, Bounds: bounds);

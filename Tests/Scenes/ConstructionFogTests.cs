@@ -15,7 +15,7 @@ public sealed class ConstructionFogTests
     {
         RailwaySample Sample(double arc) => new(new(0, 0, arc), Vector3.UnitZ, Vector3.UnitX);
         var segment = new NodeScene.RailSegment("rail", Sample, begin, end,
-            new(new(-11, -11, (float)begin - 11), new(11, 11, (float)end + 11)), new("", "inputs"));
+            new(new(-11, -11, (float)begin - 11), new(11, 11, (float)end + 11)), "inputs");
         SceneBounds[] missing = [new(new(-20, -10, (float)begin - 2), new(20, 10, (float)begin)),
             new(new(-20, -10, (float)end), new(20, 10, (float)end + 2))];
         var fog = ConstructionFog.Clip(missing, segment.Footprint);
