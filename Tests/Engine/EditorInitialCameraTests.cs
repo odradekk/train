@@ -29,6 +29,8 @@ public class EditorInitialCameraTests(Node testScene) : TestClass(testScene)
             Require(Mathf.IsEqualApprox(camera.OrbitYawRadians, 0.6f) && Mathf.IsEqualApprox(camera.OrbitPitchRadians, 0.55f),
                 $"取景姿态应为偏航 0.6、俯仰 0.55，实际 {camera.OrbitYawRadians}、{camera.OrbitPitchRadians}。");
             CornersInside(camera, box, fixture.Controller.VisibleArea);
+            camera.Orbit(80f, -40f);
+            camera.Zoom(1f);
             var posed = Pose(camera);
             var displayed = fixture.Controller.Display!.DisplayedFrame;
             var preview = (SceneResult<IEditPreview>.Success)fixture.Editor.Preview(new EditOperation.Properties(

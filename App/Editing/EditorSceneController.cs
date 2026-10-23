@@ -279,13 +279,13 @@ internal sealed class EditorSceneController : IDisposable
         var maximum = minimum + new Vector3(bounds.Maximum.X - bounds.Minimum.X + 1,
             bounds.Maximum.Y - bounds.Minimum.Y + 1, bounds.Maximum.Z - bounds.Minimum.Z + 1);
         var focus = (minimum + maximum) * 0.5f;
-        var fitted = FitDistance(focus, minimum, maximum, Inset(area));
+        var fitted = FitDistance(focus, minimum, maximum, area);
         var camera = View.CameraRig;
         // 比取景距离多一个滚轮步长，第一下向外才是 exp(0.15)，而不是停在取景距离上。
         var ceiling = Mathf.Min(camera.Camera.Far - 1f,
             Mathf.Max(WorldCamera.MaximumDistance, fitted * Mathf.Exp(WorldCamera.ZoomStep)));
         camera.ZoomCeiling = ceiling;
-        camera.PlaceAbsolute(focus, Mathf.Min(fitted, ceiling), OpeningYaw, OpeningPitch);
+        camera.PlaceAbsolute(focus, fitted, OpeningYaw, OpeningPitch);
     }
     private float FitDistance(Vector3 focus, Vector3 minimum, Vector3 maximum, Rect2 area)
     {
@@ -310,7 +310,6 @@ internal sealed class EditorSceneController : IDisposable
             var point = new Vector3((corner & 1) == 0 ? minimum.X : maximum.X,
                 (corner & 2) == 0 ? minimum.Y : maximum.Y, (corner & 4) == 0 ? minimum.Z : maximum.Z);
             if (view.IsPositionBehind(point)) return false;
-            if ((point - view.GlobalPosition).Dot(-view.GlobalBasis.Z) <= view.Near) return false;
             if (!area.HasPoint(view.UnprojectPosition(point))) return false;
         }
         return true;
@@ -325,11 +324,6 @@ internal sealed class EditorSceneController : IDisposable
     {
         var origin = frame.Origin;
         return new(bounds.Minimum.X - (float)origin.X, bounds.Minimum.Y - (float)origin.Y, bounds.Minimum.Z - (float)origin.Z);
-    }
-    private static Rect2 Inset(Rect2 area)
-    {
-        var inset = new Rect2(area.Position + Vector2.One, area.Size - new Vector2(2f, 2f));
-        return inset.Size.X >= 1f && inset.Size.Y >= 1f ? inset : area;
     }
     public void Dispose()
     {
