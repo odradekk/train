@@ -24,6 +24,82 @@ public sealed class EditorServiceTests
         new(null, null, null, true, null, null, [], [], [], [], []), true, []);
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Content_evaluation_errors_keep_record_details_in_logs(bool faulted)
+    {
+        using var fixture = new EditingFixture();
+        var diagnostic = new ContentDiagnostic("evaluation_failed", ContentDiagnosticSeverity.Error, "evaluate",
+            new ContentReference.Design(new("unavailable-design-hash")), new(new("fixture-package"), "design.json"),
+            "definition", new DesignElementPath.Cell([0], 3), "设计内容不可用。");
+        fixture.Host.Factory.EvaluateDesignCall = (_, _) => faulted
+            ? new ContentResult<DesignEvaluation>.Faulted(diagnostic.Code, $"{diagnostic.Subject} · {diagnostic.Element}", "fault stack")
+            : new ContentResult<DesignEvaluation>.Failure([diagnostic]);
+
+        fixture.Editor.Open(Draft("failed evaluation"), new DraftTarget.LocalBlueprint(null));
+        fixture.PumpUntil(() => !fixture.Editor.IsBusy);
+
+        Assert.IsFalse(fixture.Editor.IsOpen);
+        Assert.IsTrue(fixture.Editor.HasError);
+        StringAssert.Contains(fixture.Editor.Message!, faulted ? "失败" : diagnostic.Message);
+        foreach (var detail in new[] { diagnostic.Code, diagnostic.Subject!.ToString()!, diagnostic.Element!.ToString()! })
+        {
+            Assert.IsFalse(fixture.Editor.Message!.Contains(detail, StringComparison.Ordinal));
+            Assert.AreEqual(1, fixture.Host.Logs.Count(log => log.Message.Contains(detail, StringComparison.Ordinal)));
+        }
+        if (faulted)
+            Assert.IsTrue(fixture.Host.Logs.Any(log => log.Attributes.Values.Contains("fault stack")));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Unavailable_instance_design_shows_player_reason_and_keeps_hash_in_logs(bool missing)
+    {
+        var id = new InstanceId.Vehicle(new(41));
+        var hash = new DesignHash("unavailable-instance-design-hash");
+        using var fixture = new EditingFixture(configure: host =>
+        {
+            var content = new FixedContentView(host.Content.Core, host.Content.Generation)
+            {
+                LocalDrafts = [],
+                Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+                {
+                    [hash] = missing ? new ContentLookup<DesignEvaluation>.Missing([])
+                        : new ContentLookup<DesignEvaluation>.NotFound()
+                }
+            };
+            host.Load = _ => new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(content));
+            var view = new FixedCoreReadView(new(0, 0), content.Core.Identity)
+            {
+                Instances = new Dictionary<InstanceId, Lookup<InstanceView>>
+                {
+                    [id] = new Lookup<InstanceView>.Found(new(id, hash, new("composition"),
+                        new WorldLocation.Node(new(1)), SettlementRelation.PlayerOwned,
+                        new InstanceDetails.Vehicle(SizeClass.Small, null), InstanceLock.None, new(1, 1), [], []))
+                }
+            };
+            var restore = host.Core.PrepareRestoreCall!;
+            host.Core.PrepareRestoreCall = (saved, projection, options) =>
+            {
+                restore(saved, projection, options);
+                return new CoreResult<ICoreSessionCandidate>.Success(new ScriptedCoreCandidate(
+                    new ScriptedCoreSession(view), HostCoreScenario.References));
+            };
+        });
+
+        fixture.Editor.OpenInstance(id);
+
+        Assert.IsFalse(fixture.Editor.IsOpen);
+        Assert.IsTrue(fixture.Editor.HasError);
+        StringAssert.Contains(fixture.Editor.Message!, "设计");
+        StringAssert.Contains(fixture.Editor.Message!, "不可用");
+        Assert.IsFalse(fixture.Editor.Message!.Contains(hash.Value, StringComparison.Ordinal));
+        Assert.IsTrue(fixture.Host.Logs.Any(log => log.Message.Contains(hash.Value, StringComparison.Ordinal)
+            || log.Attributes.Values.Any(value => value is string text && text.Contains(hash.Value, StringComparison.Ordinal))));
+    }
+
+    [TestMethod]
     public void Cancel_keeps_dirty_session_and_discard_runs_pending_action_once()
     {
         using var fixture = new EditingFixture();
@@ -66,6 +142,8 @@ public sealed class EditorServiceTests
         Assert.AreEqual(0, session.Saved.Count);
         Assert.AreEqual(0, session.Disposals);
         Assert.IsNotNull(fixture.Editor.Message);
+        Assert.IsFalse(fixture.Editor.Message.Contains("save-rejected", StringComparison.Ordinal));
+        Assert.IsFalse(fixture.Editor.Message.Contains("cannot save", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -691,11 +769,12 @@ public sealed class EditorServiceTests
         };
         fixture.Editor.SaveDraft();
         fixture.PumpUntil(() => !fixture.Editor.IsBusy);
-        StringAssert.Contains(fixture.Editor.Message!, "草稿保存失败");
+        var failure = fixture.Editor.Message!;
+        StringAssert.Contains(failure, "失败");
         Assert.IsTrue(fixture.Editor.HasError);
         Assert.IsTrue(fixture.Editor.IsDirty);
         fixture.Editor.UserDrafts();
-        StringAssert.Contains(fixture.Editor.Message!, "草稿保存失败");
+        Assert.AreEqual(failure, fixture.Editor.Message);
     }
 
     private sealed class EditingFixture : IDisposable
@@ -709,8 +788,9 @@ public sealed class EditorServiceTests
         internal ContentFiles? Files { get; }
         private readonly GodotMainThreadDispatcher _dispatcher = new();
         private readonly string _root = Path.Combine(Path.GetTempPath(), "train-editor-tests", Guid.NewGuid().ToString("N"));
-        internal EditingFixture(bool userLibrary = false)
+        internal EditingFixture(bool userLibrary = false, Action<HostFixture>? configure = null)
         {
+            configure?.Invoke(Host);
             if (userLibrary)
             {
                 Files = new(_dispatcher, new Dictionary<ContentRoot, ContentRootLocation>

@@ -661,7 +661,7 @@ public partial class GameUi : CanvasLayer
             var operation = result.Kind switch
             { OperationKind.NewGame => "新游戏", OperationKind.Restore => "读档", OperationKind.Reload => _host?.Content is null ? "启动内容加载" : "内容重载", _ => "宿主操作" };
             if (result.Status == HostOperationStatus.Faulted)
-                message = result.Fault is { } fault ? CommandDiagnostics.Describe(fault) : $"{operation}发生故障：{result.FaultCode}。";
+                message = result.Fault is { } fault ? CommandDiagnostics.Describe(fault) : $"{operation}发生故障，详情见日志。";
             else if (message.Length == 0) message = result.Status == HostOperationStatus.NotAccepted
                 ? $"{operation}当前无法执行，请稍后重试。" : $"{operation}准备失败，请检查内容或输入。";
             ShowError(message);
