@@ -81,7 +81,7 @@ internal partial class EconomyPanels
         ShowVehicleDetails();
     }
 
-    private static string SizeName(SizeClass size) => size switch
+    internal static string SizeName(SizeClass size) => size switch
     { SizeClass.Small => "小型", SizeClass.Medium => "中型", SizeClass.Large => "大型", SizeClass.ExtraLarge => "超大型", SizeClass.Titan => "泰坦", _ => size.ToString() };
 
     private void ShowVehicleDetails()

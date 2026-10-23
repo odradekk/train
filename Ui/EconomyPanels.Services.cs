@@ -373,7 +373,7 @@ internal partial class EconomyPanels
         PlotSize.SmallStation => "小站点", PlotSize.LargeStation => "大站点", _ => size.ToString()
     };
 
-    private static string ServiceLibrary(BlueprintLibrary value) => value switch
+    internal static string ServiceLibrary(BlueprintLibrary value) => value switch
     { BlueprintLibrary.Packages => "内容包", BlueprintLibrary.Local => "本局库", BlueprintLibrary.User => "用户库", _ => value.ToString() };
     private static string ServiceKind(ConstructionKind value) => value switch
     { ConstructionKind.Construction => "制造", ConstructionKind.Repair => "修理", ConstructionKind.Refit => "改装", ConstructionKind.Deconstruction => "拆解", _ => value.ToString() };
