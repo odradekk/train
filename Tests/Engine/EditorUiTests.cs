@@ -4,6 +4,8 @@ using Chickensoft.GoDotTest;
 using Godot;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
+using Train.Core.Contracts;
+using Train.Core.ContractSupport;
 using Train.App.Saves;
 using Train.Ui;
 using Train.Scenes.Contracts;
@@ -168,7 +170,12 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
             fixture.Editor.Preview(new EditOperation.Properties(new("另一个预览", ""), EditorPreviewSession.Draft.Specification));
             await ActivateEditorButton(panel, "Apply");
             Require(session.ApplyCalls.Count == 1 && fixture.Editor.Session.Capture() == before, "被拒绝的旧预览不得改变草稿或修订。");
-            await FramesUntil(TestScene, () => Displayed(panel, "stale_preview") && Displayed(panel, "预览已过期"));
+            await FramesUntil(TestScene, () => Displayed(panel, "场景已更新，请重新操作。") && !Displayed(panel, "stale_preview"));
+            Require(!Displayed(panel, "预览已过期"), "过期预览的玩家文字不能带出原始说明。");
+            await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
+            Require(ConsoleShows(fixture, "stale_preview") && ConsoleShows(fixture, "预览已过期"),
+                "过期预览的诊断码和原始说明必须留在控制台。");
+            await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
         }
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
@@ -180,14 +187,18 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
         {
             var panel = EditorPanel(fixture); var input = new UiTestInput(TestScene);
             var list = panel.FindChildren("*", "ItemList", true, false).OfType<ItemList>().Single();
-            foreach (var (id, code, detail) in new[] { (20, "edit_locked", "缺失定义锁定"), (30, "functional_composite_closed", "功能复合体是封闭引用") })
+            foreach (var (id, shown, hidden) in new[]
+                     {
+                         (20, "缺失定义已锁定，不能进行这个操作。", "edit_locked"),
+                         (30, "场景出现问题，详情见日志。", "functional_composite_closed")
+                     })
             {
                 await EnsureVisible(list);
                 var index = Enumerable.Range(0, list.ItemCount).Single(item => list.GetItemText(item).StartsWith($"{id} ·"));
                 await input.ClickItem(list, index);
                 await ActivateEditorButton(panel, "EnterObject");
                 Require(fixture.Editor.State!.EnteredObject is null, "进入被拒绝时必须保留原层级。");
-                await FramesUntil(TestScene, () => Displayed(panel, code) && Displayed(panel, detail));
+                await FramesUntil(TestScene, () => Displayed(panel, shown) && !Displayed(panel, hidden));
             }
         }
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
@@ -236,6 +247,19 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
     private static DesignEditorPanel EditorPanel(EditorPreview fixture) => Find<DesignEditorPanel>(fixture.App, "DesignEditor");
     private static bool Displayed(Control panel, string text) => panel.FindChildren("*", "Label", true, false).OfType<Label>()
         .Any(label => label.IsVisibleInTree() && label.Text.Contains(text, StringComparison.Ordinal));
+    private static bool ConsoleShows(EditorPreview fixture, string text) => fixture.App.FindChildren("*", "RichTextLabel", true, false)
+        .OfType<RichTextLabel>().Any(label => label.IsVisibleInTree() && label.GetParsedText().Contains(text, StringComparison.Ordinal));
+    private static int Count(string text, string value)
+    {
+        var count = 0;
+        var index = 0;
+        while ((index = text.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += value.Length;
+        }
+        return count;
+    }
     private async Task EnsureVisible(Control control)
     {
         for (var parent = control.GetParent(); parent is not null; parent = parent.GetParent())
@@ -370,15 +394,14 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
             await new UiTestInput(TestScene).Frames(2);
             Require(fixture.Editor.Message == message && Displayed(panel, "蓝图发布被拒绝"),
                 "成功帧诊断不得覆盖发布失败原因。");
-            var texts = new[] { "content_missing", "missing-editor-device", "fixture-package", "设备编辑受阻", "蓝图发布被拒绝" };
-            foreach (var text in texts)
+            foreach (var text in new[] { "引用的定义缺失，相关部分不能显示或编辑。", "来源内容包不可用。", "蓝图发布被拒绝" })
                 Require(Displayed(EditorPanel(fixture), text), $"成功帧诊断必须在编辑器显示：{text}");
+            foreach (var text in new[] { "content_missing", "missing-editor-device", "fixture-package", "设备编辑受阻" })
+                Require(!Displayed(EditorPanel(fixture), text), $"成功帧诊断不能向玩家显示：{text}");
             await UiCapture.Capture(TestScene, "player-editor-failure-diagnostics");
             await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
-            foreach (var text in texts)
-                Require(fixture.App.FindChildren("*", "RichTextLabel", true, false).OfType<RichTextLabel>()
-                    .Any(label => label.IsVisibleInTree() && label.GetParsedText().Contains(text, StringComparison.Ordinal)),
-                    $"成功帧诊断必须在控制台显示：{text}");
+            foreach (var text in new[] { "content_missing", "missing-editor-device", "fixture-package", "设备编辑受阻", "蓝图发布被拒绝" })
+                Require(ConsoleShows(fixture, text), $"成功帧诊断必须在控制台显示：{text}");
             await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
             session.PresentCall = (_, _) => new SceneResult<ISceneFrame>.Success(new FixedSceneFrame
             {
@@ -387,8 +410,9 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
             });
             fixture.Controller.Process(0);
             await new UiTestInput(TestScene).Frames(2);
-            Require(!Displayed(panel, "content_missing") && fixture.Editor.Message == message &&
-                Displayed(panel, "蓝图发布被拒绝"), "诊断清除后列表必须移除旧诊断，仍保留发布失败原因。");
+            Require(!Displayed(panel, "content_missing") && !Displayed(panel, "引用的定义缺失") &&
+                fixture.Editor.Message == message && Displayed(panel, "蓝图发布被拒绝"),
+                "诊断清除后列表必须移除旧诊断，仍保留发布失败原因。");
             fixture.Editor.RequestClose(() => { });
             fixture.Editor.ResolveClose(LeaveChoice.Discard);
             await new UiTestInput(TestScene).Frames(2);
@@ -432,8 +456,15 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
             fixture.Controller.Process(0);
             await new UiTestInput(TestScene).Frames(2);
             var panel = EditorPanel(fixture);
-            Require(Displayed(panel, "first_failure") && Displayed(panel, "second_failure"),
-                "场景失败的所有问题必须同时显示，不能只保留最后一条。");
+            var shown = panel.FindChildren("*", "Label", true, false).OfType<Label>()
+                .Where(label => label.IsVisibleInTree()).Sum(label => Count(label.Text, "场景出现问题，详情见日志。"));
+            Require(shown == 2 && !Displayed(panel, "first_failure") && !Displayed(panel, "second_failure")
+                && !Displayed(panel, "第一条场景失败") && !Displayed(panel, "第二条场景失败"),
+                "场景失败的每条问题都要显示玩家说明，不能只保留最后一条，也不能显示诊断码。");
+            await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
+            Require(ConsoleShows(fixture, "first_failure") && ConsoleShows(fixture, "second_failure"),
+                "两条场景失败的诊断码必须留在控制台。");
+            await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
         }
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
@@ -534,7 +565,7 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
     [Test]
-    public async Task Preview_conflict_preserves_code_definition_package_and_blocked_operation_in_both_outputs()
+    public async Task Preview_conflict_shows_player_text_and_keeps_raw_values_in_the_log()
     {
         var fixture = await Ready();
         try
@@ -543,18 +574,100 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
             session.PreviewCall = operation => new FixedEditPreview(session.Capture().Stamp, operation)
             {
                 CanApply = false,
-                Conflicts = [new(null, null, new("edit_locked", SceneStage.Edit, null,
-                    new ContentReference.Design(new("locked-device")), new("missing-package"), null, "缺失定义禁止旋转。"))]
+                Conflicts =
+                [
+                    new(new(1, 0, 2), null, new("occupancy_conflict", SceneStage.Edit, null, null, null, null,
+                        "The brush intersects another object's cells.")),
+                    new(null, null, new("edit_locked", SceneStage.Edit, null,
+                        new ContentReference.Design(new("locked-device")), new("missing-package"), null, "缺失定义禁止旋转。"))
+                ]
             };
             var panel = EditorPanel(fixture);
             await ActivateEditorButton(panel, "Properties");
-            var texts = new[] { "edit_locked", "locked-device", "missing-package", "禁止旋转" };
-            foreach (var text in texts) Require(Displayed(panel, text), $"预览冲突界面缺少：{text}");
+            foreach (var text in new[] { "(1, 0, 2)", "与其他部分的占格重叠。", "缺失定义已锁定，不能进行这个操作。", "来源内容包不可用。" })
+                Require(Displayed(panel, text), $"预览冲突界面缺少：{text}");
+            foreach (var text in new[] { "GridPosition", "occupancy_conflict", "edit_locked", "locked-device", "missing-package", "禁止旋转", "The brush intersects" })
+                Require(!Displayed(panel, text), $"预览冲突不能向玩家显示：{text}");
+            await UiCapture.Capture(TestScene, "player-editor-preview-conflict");
             await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
-            foreach (var text in texts)
-                Require(fixture.App.FindChildren("*", "RichTextLabel", true, false).OfType<RichTextLabel>()
-                    .Any(label => label.IsVisibleInTree() && label.GetParsedText().Contains(text, StringComparison.Ordinal)),
-                    $"预览冲突控制台缺少：{text}");
+            foreach (var text in new[] { "occupancy_conflict", "The brush intersects", "edit_locked", "locked-device", "missing-package", "禁止旋转" })
+                Require(ConsoleShows(fixture, text), $"预览冲突控制台缺少：{text}");
+        }
+        finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
+    }
+    [Test]
+    public async Task Missing_definition_locks_show_package_names_and_keep_raw_values_in_the_log()
+    {
+        var named = new PackageId("named-lock-package");
+        var missing = new PackageId("missing-lock-package");
+        var fixture = new EditorPreview
+        {
+            Name = "EditorLockFixture",
+            Content = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1))
+            {
+                Blueprints = [], LocalDrafts = [], Voxels = [], GenerationProfiles = [],
+                Packages =
+                [
+                    new(new PackageMetadata(named, "装甲包", "1", [], []), new("named-root"), PackageState.Available, []),
+                    new(null, new("missing-root"), PackageState.Disabled, [])
+                ]
+            }
+        };
+        TestScene.AddChild(fixture);
+        try
+        {
+            await FramesUntil(TestScene, () => fixture.Editor.Session is not null && fixture.Controller.Display?.DisplayedFrame is not null);
+            var session = fixture.Factory.Session!;
+            var cell = new DesignElementPath.Cell([], 0);
+            var composite = new DesignElementPath.FunctionalComposite([], 1);
+            var current = (DesignEvaluation.Complete)session.Read().CurrentEvaluation!;
+            var locked = current with
+            {
+                Scene = current.Scene with
+                {
+                    EditLocks =
+                    [
+                        new(cell, new ContentReference.Core(new CoreDefinitionReference.Voxel(new("named-lock-package:missing-voxel"))),
+                            named, [LockedDesignOperation.Move, LockedDesignOperation.Paint], []),
+                        new(composite, new ContentReference.Core(new CoreDefinitionReference.Composite(new("missing-lock-package:missing-part"))),
+                            missing, [LockedDesignOperation.Enter, LockedDesignOperation.Rotate], [])
+                    ]
+                }
+            };
+            ((ScriptedContentFactory)fixture.App.Host!.ContentFactory).EvaluateDesignCall = (_, draft) =>
+                new ContentResult<DesignEvaluation>.Success(locked with { Definition = draft });
+            session.Change(session.Capture().Draft);
+            var panel = EditorPanel(fixture);
+            await FramesUntil(TestScene, () => Displayed(panel, "装甲包") && Displayed(panel, "来源内容包不可用。"));
+            foreach (var text in new[]
+                     {
+                         "缺失定义，相关部分不能显示或编辑。", "来源内容包：装甲包。", "受阻操作：移动选区、涂装。",
+                         "受阻操作：进入所选设备、选区旋转 90°。"
+                     })
+                Require(Displayed(panel, text), $"锁定行缺少：{text}");
+            foreach (var text in new[] { "named-lock-package", "missing-lock-package", "missing-voxel", "missing-part", "Move", "Paint", "Enter", "Rotate" })
+                Require(!Displayed(panel, text), $"锁定行不能向玩家显示：{text}");
+            await UiCapture.Capture(TestScene, "player-editor-lock-rows");
+            DesignElementPath? located = null;
+            session.LocateCall = (_, path) =>
+            {
+                located = path;
+                return new SceneResult<EditElementId>.Success(new(1));
+            };
+            var row = panel.FindChildren("*", "HBoxContainer", true, false).OfType<HBoxContainer>().Single(box =>
+                box.GetChildren().OfType<Label>().Any(label => label.Text.Contains("装甲包", StringComparison.Ordinal)));
+            var button = row.GetChildren().OfType<Button>().Single(item => item.Name == "LocateLockedElement" && item.Text == "定位锁定项");
+            await EnsureVisible(button);
+            await new UiTestInput(TestScene).Activate(button);
+            await FramesUntil(TestScene, () => located is DesignElementPath.Cell locatedCell && locatedCell.CellIndex == 0
+                && fixture.Editor.State!.Selection.Contains(new EditElementId(1)));
+            await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
+            foreach (var text in new[] { "named-lock-package:missing-voxel", "missing-lock-package:missing-part", "named-lock-package", "missing-lock-package" })
+                Require(ConsoleShows(fixture, text), $"锁定行控制台缺少：{text}");
+            var logs = fixture.App.FindChildren("*", "", true, false).OfType<GameConsole>().Single().LogEvents;
+            foreach (var text in new[] { "禁止：Move、Paint", "禁止：Enter、Rotate" })
+                Require(logs.Any(log => log.EventId == "editor_design_locked" && log.Message.Contains(text, StringComparison.Ordinal)),
+                    $"锁定行日志缺少：{text}");
         }
         finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }

@@ -612,8 +612,13 @@ internal sealed class EditorService : IDisposable
 
     internal void ReportProblems(IEnumerable<SceneProblem> problems)
     {
-        var message = string.Join("\n", problems.Select(Describe));
-        if (message.Length != 0) Report(message);
+        var listed = problems.ToArray();
+        if (listed.Length == 0) return;
+        foreach (var problem in listed)
+            _logger.Warning("editor", "editor_operation_failed", Describe(problem));
+        Message = string.Join("\n", listed.Select(problem => Explain(problem, Host.Content)));
+        HasError = true;
+        Changed?.Invoke();
     }
     internal string LogRejected(string category, string eventId, CoreProblem problem) =>
         CommandDiagnostics.LogProblem(_logger, category, eventId, problem, Host.Content);
@@ -651,6 +656,48 @@ internal sealed class EditorService : IDisposable
         $"{diagnostic.Code}：{diagnostic.Message} · {diagnostic.Subject} · 包：{diagnostic.Source?.Package.Value ?? "未知"} · {diagnostic.Field} · {diagnostic.Element}";
     internal static string Describe(SceneProblem problem) =>
         $"{problem.Code}：{problem.Detail} · {problem.Stage} · {problem.Content} · 包：{problem.Package?.Value ?? "未知"} · {problem.Element}";
+    internal static string Explain(SceneProblem problem, IContentView? content)
+    {
+        var sentence = Sentence(problem.Code);
+        return problem.Package is { } package ? sentence + PackageText(package, content) : sentence;
+    }
+    internal static string Explain(DesignEditLock locked, IContentView? content) =>
+        "缺失定义，相关部分不能显示或编辑。" + PackageText(locked.Package, content)
+        + "受阻操作：" + string.Join("、", locked.BlockedOperations.Select(OperationName)) + "。";
+    private static string PackageText(PackageId package, IContentView? content)
+    {
+        var name = content?.Packages.FirstOrDefault(item => item.Metadata?.Id == package)?.Metadata?.Name;
+        return string.IsNullOrWhiteSpace(name) ? "来源内容包不可用。" : $"来源内容包：{name}。";
+    }
+    private static string OperationName(LockedDesignOperation operation) => operation switch
+    {
+        LockedDesignOperation.Move => "移动选区",
+        LockedDesignOperation.Rotate => "选区旋转 90°",
+        LockedDesignOperation.Copy => "复制选区",
+        LockedDesignOperation.Remove => "删除选区",
+        LockedDesignOperation.Replace => "替换",
+        LockedDesignOperation.Paint => "涂装",
+        LockedDesignOperation.ChangeShape => "形状",
+        LockedDesignOperation.Enter => "进入所选设备",
+        _ => "未知操作"
+    };
+    private static string Sentence(string code) => code switch
+    {
+        "content_missing" or "reference_missing" => "引用的定义缺失，相关部分不能显示或编辑。",
+        "occupancy_conflict" => "与其他部分的占格重叠。",
+        "invalid_operation" => "当前对象不支持这个操作。",
+        "edit_locked" => "缺失定义已锁定，不能进行这个操作。",
+        "target_missing" => "目标已不存在，请重新选择。",
+        "region_limit" => "选区超过上限，请缩小范围。",
+        "confirmation_required" => "请先确认这次修改。",
+        "design_invalid" => "设计不合法，不能开始编辑。",
+        "editor_read_failed" => "无法读取当前设计，详情见日志。",
+        "editor_capture_failed" => "无法捕获当前设计，详情见日志。",
+        "editor_display_failed" => "场景显示失败，详情见日志。",
+        "editor_pick_failed" => "无法拾取设计，详情见日志。",
+        _ when code.StartsWith("stale_", StringComparison.Ordinal) => "场景已更新，请重新操作。",
+        _ => "场景出现问题，详情见日志。"
+    };
     private static string Describe<T>(ContentResult<T> result) where T : notnull => result switch
     {
         ContentResult<T>.Failure failure => string.Join("\n", failure.Diagnostics.Select(Describe)),
@@ -658,12 +705,11 @@ internal sealed class EditorService : IDisposable
         _ => ""
     };
     private void ReportResult<T>(ContentResult<T> result) where T : notnull => Report(Describe(result));
-    private void ReportResult<T>(SceneResult<T> result) where T : notnull => Report(result switch
+    private void ReportResult<T>(SceneResult<T> result) where T : notnull
     {
-        SceneResult<T>.Failure failure => string.Join("\n", failure.Problems.Select(Describe)),
-        SceneResult<T>.Faulted fault => Describe(fault.Problem),
-        _ => ""
-    });
+        if (result is SceneResult<T>.Failure failure) ReportProblems(failure.Problems);
+        else if (result is SceneResult<T>.Faulted fault) ReportProblems([fault.Problem]);
+    }
     public void Dispose()
     {
         if (_disposed) return;
