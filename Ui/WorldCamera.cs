@@ -129,6 +129,7 @@ internal partial class WorldCamera : Node3D
 
     internal void PlaceAbsolute(Vector3 focus, float distance, float yaw, float pitch)
     {
+        _clearancePending = false;
         Focus = focus;
         _targetPosition = focus;
         _bodyYaw = _targetYaw = 0;
@@ -161,13 +162,13 @@ internal partial class WorldCamera : Node3D
     private bool ApplyClearance()
     {
         if (_frame is null) return true;
-        var aim = Aim();
+        var aim = OrbitPosition();
         var focusPick = _frame.Pick(ClearanceRay(Focus.X, Focus.Z));
         var cameraPick = _frame.Pick(ClearanceRay(aim.X, aim.Z));
         if (focusPick is ScenePick.NotReady || cameraPick is ScenePick.NotReady) return false;
         if (!Surface(focusPick, out var focusTop) || !Surface(cameraPick, out var cameraTop)) return false;
         if (focusTop is { } focusY) Focus = new(Focus.X, focusY, Focus.Z);
-        aim = Aim();
+        aim = OrbitPosition();
         if (cameraTop is { } top && top + TerrainClearance > aim.Y)
             Focus = new(Focus.X, Focus.Y + top + TerrainClearance - aim.Y, Focus.Z);
         return true;
@@ -194,7 +195,7 @@ internal partial class WorldCamera : Node3D
         }
     }
 
-    private Vector3 Aim()
+    private Vector3 OrbitPosition()
     {
         var yaw = _bodyYaw + _orbitYaw;
         var horizontal = _distance * Mathf.Cos(_pitch);
@@ -220,10 +221,7 @@ internal partial class WorldCamera : Node3D
 
     private void PlaceCamera()
     {
-        var yaw = _bodyYaw + _orbitYaw;
-        var horizontalDistance = _distance * Mathf.Cos(_pitch);
-        var position = Focus + new Vector3(Mathf.Sin(yaw) * horizontalDistance,
-            _distance * Mathf.Sin(_pitch), Mathf.Cos(yaw) * horizontalDistance);
+        var position = OrbitPosition();
         if (_frame?.TerrainHeight(position.X, position.Z) is Lookup<double>.Found terrain)
             position.Y = Mathf.Max(position.Y, (float)terrain.Value + TerrainClearance);
         var offset = ShakeEnabled ? ShakeOffset : Vector3.Zero;

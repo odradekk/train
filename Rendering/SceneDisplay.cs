@@ -56,7 +56,7 @@ internal sealed class SceneDisplay : IDisposable
             if (node is MeshInstance3D mesh && mesh.Mesh is not null)
             {
                 var bounds = Root.GlobalTransform.AffineInverse() * mesh.GlobalTransform * mesh.GetAabb();
-                var y = bounds.Position.Y + bounds.Size.Y + Root.Position.Y;
+                var y = bounds.End.Y + Root.Position.Y;
                 top = top is { } current ? MathF.Max(current, y) : y;
             }
             foreach (var child in node.GetChildren()) Visit(child);
