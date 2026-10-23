@@ -700,7 +700,7 @@ internal sealed class HostCoordinator : IDisposable
                 else
                 {
                     _content = candidate.Activate();
-                    if (_active is not null) { InstallContent(_content, false); Dispatch([]); }
+                    if (_active is not null) { InstallContent(_content, operation.Kind == OperationKind.Edit); Dispatch([]); }
                     LogContentResult(operation.Id, prepared, status.ToString(), true, kind: operation.Kind);
                 }
             }
