@@ -44,6 +44,28 @@ public sealed class SaveServiceTests
     }
 
     [TestMethod]
+    public void Changing_interval_restarts_timing_from_the_change()
+    {
+        using var run = new Run();
+        run.Service.SetAutoSaveInterval(TimeSpan.FromSeconds(10));
+        run.Process();
+        run.Now = 5;
+        run.Service.SetAutoSaveInterval(TimeSpan.FromSeconds(30));
+        run.Now = 10;
+        run.Process();
+        Assert.IsFalse(run.Service.HasPendingWork);
+        run.Now = 34;
+        run.Process();
+        Assert.IsFalse(run.Service.HasPendingWork);
+        Assert.AreEqual(0, run.Host.Factory.CaptureCount);
+        run.Now = 35;
+        run.Process();
+        run.Drain();
+        Assert.AreEqual(1, run.Host.Factory.CaptureCount);
+        Assert.IsTrue(File.Exists(run.Store.AutoPathFor(run.Id, 0)));
+    }
+
+    [TestMethod]
     public void Manual_save_conflict_is_busy_and_one_pending_automatic_capture_uses_latest_content()
     {
         using var run = new Run(blockFirstWrite: true);

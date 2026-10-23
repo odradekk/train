@@ -43,7 +43,7 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
     public async Task Quality_and_autosave_apply_at_startup_persist_changes_and_reject_invalid_values()
     {
         await LoadSettings(1, 1.25, 91, true, invalid: false, quality: 1, autoSave: 0);
-        await LoadSettings(1, 1.25, 91, true, invalid: false, quality: 0, autoSave: 30, changeThroughUi: true);
+        await LoadSettings(1, 1.25, 91, true, invalid: false, quality: 0, autoSave: 120, changeThroughUi: true);
         await LoadSettings(1, 1.25, 91, true, invalid: true, quality: 2);
         await LoadSettings(1, 1.25, 91, true, invalid: true, autoSave: 7);
         await LoadSettings(1, 1.25, 91, true, invalid: true, autoSave: "5");
@@ -104,7 +104,7 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
             Require(shakeBox.Text == "镜头抖动" && shakeBox.ButtonPressed == expectedShake && shakeEnabled == expectedShake,
                 $"镜头抖动未按设置应用到相机：显示={shakeBox.ButtonPressed}，相机={shakeEnabled}，期望={expectedShake}。");
             var expectedHigh = !invalid && quality is { } highValue && highValue.AsInt32() == 1;
-            var expectedAutoSave = invalid || autoSave is null ? 5 : autoSave.Value.AsInt32();
+            var expectedAutoSave = invalid || autoSave is null ? 60 : autoSave.Value.AsInt32();
             AssertQualityAndAutoSave(app, ui, panel, expectedHigh, expectedAutoSave);
             var expectedStatus = !invalid && alwaysShow?.AsBool() == true;
             var statusBox = panel.FindChildren("AlwaysShowSceneStatus", "CheckButton", true, false)
@@ -116,14 +116,14 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
             if (changeThroughUi)
             {
                 Select(panel, "Quality", expectedHigh ? 0 : 1);
-                Select(panel, "AutoSave", 0);
-                AssertQualityAndAutoSave(app, ui, panel, !expectedHigh, 0);
+                Select(panel, "AutoSave", 5);
+                AssertQualityAndAutoSave(app, ui, panel, !expectedHigh, 60);
                 statusBox.ButtonPressed = !statusBox.ButtonPressed;
                 using var saved = new ConfigFile();
                 Require(saved.Load("user://settings.cfg") == Error.Ok, "未能读回设置文件。");
                 var shown = saved.GetValue("game", "always_show_scene_status");
                 Require(saved.GetValue("display", "quality").AsInt32() == (expectedHigh ? 0 : 1) &&
-                    saved.GetValue("game", "autosave_minutes").AsInt32() == 0 &&
+                    saved.GetValue("game", "autosave_minutes").AsInt32() == 60 &&
                     shown.VariantType == Variant.Type.Bool && shown.AsBool() == !expectedStatus &&
                     status.Always == !expectedStatus,
                     "界面修改的画质、自动存档或一直显示没有写入设置文件。");
@@ -177,9 +177,9 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
                 $"太阳角直径={sun.LightAngularDistance}，pancake={sun.DirectionalShadowPancakeSize}，期望高档={high}。");
         }
         TimeSpan? expected = autoSaveMinutes == 0 ? null : TimeSpan.FromMinutes(autoSaveMinutes);
+        var expectedText = autoSaveMinutes == 0 ? "关闭" : autoSaveMinutes % 60 == 0 ? $"{autoSaveMinutes / 60} 小时" : $"{autoSaveMinutes} 分钟";
         Require(Option(panel, "Quality").Selected == (high ? 1 : 0) && app.Saves!.AutoSaveInterval == expected &&
-            Option(panel, "AutoSave").GetItemText(Option(panel, "AutoSave").Selected) ==
-                (autoSaveMinutes == 0 ? "关闭" : $"{autoSaveMinutes} 分钟"),
+            Option(panel, "AutoSave").GetItemText(Option(panel, "AutoSave").Selected) == expectedText,
             $"画质或自动存档的显示与生效值不一致：间隔={app.Saves!.AutoSaveInterval}，期望={expected}。");
     }
 

@@ -10,7 +10,7 @@ using Train.Scenes.Contracts;
 
 namespace Train.App.Measurement;
 
-// 窗口长测按段循环。每段先把标准世界重置到配方保存点；主体内不读档，让实时 5 分钟的自动存档和
+// 窗口长测按段循环。每段先把标准世界重置到配方保存点；主体内不读档，让测量设定的 5 分钟自动存档和
 // 每 18,000 步的录制起点都能在同一会话里累积到轮换；段末反复保存并读取玩家自己的存档。
 internal sealed partial class MeasurementRun
 {
@@ -89,6 +89,8 @@ internal sealed partial class MeasurementRun
         ReadSoakExpectations();
         _soakSaveId = SaveHeaderId();
         _app.Notifications.SetAction(NotificationCategory.Encounter, NotificationAction.None);
+        // 产品默认 1 小时；每段主体约 12 分钟，改用 5 分钟才能在同一会话里观察到 3 槽轮换。
+        _app.Saves!.SetAutoSaveInterval(TimeSpan.FromMinutes(5));
         _identity["encounter_action"] = new { value = NotificationAction.None.ToString(),
             default_value = NotificationPolicy.DefaultAction(NotificationCategory.Encounter).ToString(),
             reason = "设计 00 允许性能测试关闭遇敌自动降速并记录；否则新战斗会把 8× 采样降到 1×" };
