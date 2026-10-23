@@ -10,6 +10,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'checks/Invoke-HiddenProcess.ps1')
+trap { [Console]::Error.WriteLine((ConvertTo-ConsoleOutput ($_ | Out-String) ([IO.Path]::GetFullPath($SourceDirectory)))); exit 1 }
 
 $originalDirectory = Get-Location
 $userDirectories = if ($IsWindows) { @{ APPDATA = 'appdata'; LOCALAPPDATA = 'localappdata' } }
@@ -117,6 +118,6 @@ finally {
             ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $summaryPath -Encoding utf8
     }
 }
-if ($null -ne $failure) { Write-Error $failure -ErrorAction Continue; exit 1 }
-Write-Host "测量构建已保留：$binary"
+if ($null -ne $failure) { [Console]::Error.WriteLine((ConvertTo-ConsoleOutput $failure ([IO.Path]::GetFullPath($SourceDirectory)))); exit 1 }
+Write-Host (ConvertTo-ConsoleOutput "测量构建已保留：$binary" $repo)
 exit 0

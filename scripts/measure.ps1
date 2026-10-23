@@ -24,6 +24,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'checks/Invoke-HiddenProcess.ps1')
+trap { [Console]::Error.WriteLine((ConvertTo-ConsoleOutput ($_ | Out-String) (Split-Path $PSScriptRoot -Parent))); exit 1 }
 
 function Get-FileIdentity([string] $Path) {
     @{ path = $Path; sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
@@ -299,7 +300,7 @@ public sealed class MeasurementDisplayAwake : IDisposable
                 }
             }
             $run.succeeded = $true
-            Write-Host "$name/$iteration 完成：$reportPath"
+            Write-Host (ConvertTo-ConsoleOutput "$name/$iteration 完成：$reportPath" $repo)
         }
     }
 }
@@ -327,6 +328,6 @@ finally {
         }
     }
 }
-if ($null -ne $failure) { Write-Error $failure -ErrorAction Continue; exit 1 }
-Write-Host "测量完成：$summaryPath"
+if ($null -ne $failure) { [Console]::Error.WriteLine((ConvertTo-ConsoleOutput $failure $repo)); exit 1 }
+Write-Host (ConvertTo-ConsoleOutput "测量完成：$summaryPath" $repo)
 exit 0
