@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -64,8 +65,17 @@ internal sealed record RecordingPackage(RecordingPackage.Manifest Header,
     internal void Validate(string path)
     {
         var decoded = Read(path);
-        if (JsonSerializer.Serialize(this, Json) != JsonSerializer.Serialize(decoded, Json))
+        if (!Digest(this).AsSpan().SequenceEqual(Digest(decoded)))
             throw new InvalidDataException("录制 ZIP 读回值与写入快照不一致。");
+    }
+
+    private static byte[] Digest(RecordingPackage package)
+    {
+        using var sha = SHA256.Create();
+        using var sink = new CryptoStream(Stream.Null, sha, CryptoStreamMode.Write);
+        JsonSerializer.Serialize(sink, package, Json);
+        sink.FlushFinalBlock();
+        return sha.Hash!.ToArray();
     }
 
     internal static RecordingPackage Read(string path)
