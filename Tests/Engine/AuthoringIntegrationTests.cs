@@ -169,11 +169,47 @@ public class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task New_template_display_gap_is_reported_with_field_without_writing()
+    [Chickensoft.GoDotTest.Timeout(120000)]
+    public async Task New_template_display_is_written_and_reloaded()
     {
         using var fixture = new RealAuthoringFixture(TestScene);
         await fixture.Start(); await fixture.Open();
-        await RejectedForm(fixture, new DefinitionDraft.SettlementTemplate(new("new-template", new("core:agricultural-town"), 1, null, [], [], [], [])), "/display");
+        var original = fixture.Host.Content!;
+        var draft = NewTemplate([]);
+        fixture.Service.NewDefinition(draft);
+        var panel = new AuthoringPanel(); panel.Initialize(fixture.Service, fixture.Editor); TestScene.AddChild(panel); panel.Open();
+        var form = panel.FindChildren("DefinitionForm", "", true, false).OfType<AuthoringDefinitionForm>().Single();
+        try
+        {
+            var captured = (DefinitionDraft.SettlementTemplate)form.Capture();
+            Require(captured.Value.Display == draft.Value.Display, "表单必须读出新建模板的显示文本。");
+            fixture.Service.SaveForm(captured);
+            await fixture.Pump(() => !fixture.Service.IsBusy);
+            fixture.Service.Publish();
+            await fixture.Pump(() => !fixture.Service.IsBusy, ContentPreparationTimeout);
+            var path = Path.Combine(fixture.ModDirectory, "resources", "settlement-templates", "new-template.settlement-template.json");
+            Require(fixture.Service.LastWrite?.Success == true && fixture.LastOperation?.Succeeded == true && File.Exists(path),
+                "新建模板必须写入并完成普通重载：" + fixture.Service.Message);
+            var id = fixture.PackageId.Value + ":new-template";
+            Require(fixture.Host.Content!.Core.SettlementTemplates.Any(template => template.Id.Value == id),
+                "普通重载后的核心投影必须包含新模板。");
+            Require(fixture.Host.Content.FindDefinitionDisplay(new CoreDefinitionReference.Template(new(id))) is ContentLookup<ContentDisplay>.Found found && found.Value.Text == draft.Value.Display,
+                "重载后的显示文本必须来自草稿。");
+            Require(!original.Core.SettlementTemplates.Any(template => template.Id.Value == id),
+                "写入和重载不得改写旧内存内容。");
+        }
+        finally { panel.QueueFree(); await new UiTestInput(TestScene).Frames(2); }
+    }
+
+    [Test]
+    [Chickensoft.GoDotTest.Timeout(120000)]
+    public async Task Wrong_kind_inventory_blueprint_is_rejected_without_writing()
+    {
+        using var fixture = new RealAuthoringFixture(TestScene);
+        await fixture.Start(); await fixture.Open();
+        await RejectedForm(fixture, NewTemplate([new TemplateInventoryDraft.Blueprint(new("core:agricultural-town-ground"), 1)]), "/inventory", code: "reference_wrong_kind");
+        Require(!File.Exists(Path.Combine(fixture.ModDirectory, "resources", "settlement-templates", "new-template.settlement-template.json")),
+            "错误类别的库存蓝图不得留下模板文件。");
     }
 
     [Test]
@@ -184,7 +220,11 @@ public class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
         await RejectedForm(fixture, new DefinitionDraft.LairType(new("new-lair", new("生物聚落", ""), null, null, [], null, null, null, null, null, null, null)), "/generation_weight");
     }
 
-    private async Task RejectedForm(RealAuthoringFixture fixture, DefinitionDraft draft, string expected, bool encodable = true)
+    private static DefinitionDraft.SettlementTemplate NewTemplate(params TemplateInventoryDraft[] inventory) =>
+        new(new("new-template", new("新建模板", "隔离说明"), new("core:agricultural-town"), 1, new("core:agricultural-town-ground"),
+            [new(2, PlotSize.SmallStation, new(104, 1, -176), VoxelOrientation.PxPy, null)], [], [.. inventory], []));
+
+    private async Task RejectedForm(RealAuthoringFixture fixture, DefinitionDraft draft, string expected, bool encodable = true, string code = "invalid_field")
     {
         var original = fixture.Host.Content!;
         fixture.Service.NewDefinition(draft);
@@ -197,7 +237,7 @@ public class AuthoringIntegrationTests(Node testScene) : TestClass(testScene)
             if (encodable) { fixture.Service.Publish(); await fixture.Pump(() => !fixture.Service.IsBusy, ContentPreparationTimeout); }
             Require(fixture.Service.LastWrite is null && ReferenceEquals(original, fixture.Host.Content), "真实内容拒绝不能写文件或激活候选。");
             var message = Find<Label>(panel, "AuthoringResult").Text;
-            Require(message.Contains(expected, StringComparison.Ordinal) && message.Contains("invalid_field", StringComparison.Ordinal),
+            Require(message.Contains(expected, StringComparison.Ordinal) && message.Contains(code, StringComparison.Ordinal),
                 "真实面板必须按普通诊断路径显示错误与字段位置：" + message);
             Require(fixture.Service.Drafts().Length == (encodable ? 1 : 0), "仅成功编码的草稿可以落盘；写包拒绝须保留已保存草稿。");
         }
