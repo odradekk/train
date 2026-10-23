@@ -20,6 +20,23 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
     private static readonly SceneSessionId Session = new(Guid.Parse("7dd364aa-df8f-4144-b345-fc130ea11ca9"));
 
     [Test]
+    public async Task Building_top_is_the_whole_displayed_object_and_empty_when_absent()
+    {
+        await new UiTestInput(TestScene).Frames(2);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView());
+        var parent = Object(1, Peak(25), new(0, 10, 0));
+        var child = Object(2, Peak(1), new(0, 4, 0), new(1));
+        Commit(display, Frame(1, [parent, child]));
+        NearY(display.ObjectTopY(new(1)), 35);
+        NearY(display.ObjectTopY(new(2)), 35);
+        Require(display.ObjectTopY(new(9)) is null, "未显示的物体不应有顶面。");
+        display.UpdatePoses(Frame(2, [parent, child], display.DisplayedFrame!.Update.Frame, new(0, -5, 0)));
+        NearY(display.ObjectTopY(new(2)), 35);
+    }
+
+    [Test]
     public async Task Locked_candidate_finishes_before_new_objects_and_uses_latest_pose_after_commit()
     {
         await new UiTestInput(TestScene).Frames(2);
@@ -762,6 +779,13 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         SceneObjectId? parent = null) => new(new(id), parent, new(position, NQuaternion.Identity),
         null, [new SceneVisual.Geometry(mesh, new(false, 0, 0, false))], [], []);
 
+    private static SceneMesh Peak(float height) => new(new SceneMaterial.BuiltIn(BuiltInMaterial.RailSteel),
+        [
+            new(NVector3.Zero, NVector3.UnitY, new(0, 0), new(0, 0), ExposedFaceEdges.None, 0, 0),
+            new(NVector3.UnitX, NVector3.UnitY, new(1, 0), new(1, 0), ExposedFaceEdges.None, 0, 0),
+            new(new(0, height, 0), NVector3.UnitY, new(0, 1), new(0, 1), ExposedFaceEdges.None, 1, 0)
+        ], [0, 1, 2]);
+
     private static SceneMesh Mesh(SceneMaterial? material = null) => new(
         material ?? new SceneMaterial.BuiltIn(BuiltInMaterial.RailSteel),
         [
@@ -787,4 +811,7 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
 
     private static void Near(Vector3 actual, Vector3 expected) => Require(actual.DistanceTo(expected) < 0.001,
         $"期望坐标 {expected}，实际 {actual}。");
+
+    private static void NearY(float? actual, float expected) =>
+        Require(actual is { } value && MathF.Abs(value - expected) < 0.001f, $"顶面应为 {expected}，实际 {actual}。");
 }
