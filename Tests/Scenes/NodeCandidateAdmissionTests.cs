@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Train.Content.Contracts;
 using Train.Scenes.Contracts;
 
 namespace Train.Scenes.Tests;
