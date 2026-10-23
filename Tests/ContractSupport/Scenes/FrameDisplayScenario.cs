@@ -86,6 +86,12 @@ public sealed class FixedDisplaySession : IWorldSceneSession
         return presentIndex < PresentResults.Length ? PresentResults[presentIndex++] : throw FrameDisplayScenario.Unconfigured("显示帧");
     }
 
+    public SceneResult<SceneUpdate?> PresentCandidate(SceneFrameStamp? prepared)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        return new SceneResult<SceneUpdate?>.Success(null);
+    }
+
     public SceneResult<PickSubject> Resolve(SceneHit hit)
     {
         ObjectDisposedException.ThrowIf(disposed, this);

@@ -105,6 +105,10 @@ Follow 单候选的布局和准备在后台完成。当前场景仍有等待中�
 
 ## 显示更新与资源
 
+`PresentCandidate(prepared)` 只供宿主预先准备跟随线路的下一节点视觉资源，不返回显示帧，也不参与 `Present` 的网格基准 D。无候选时返回 `Success(null)`；`prepared=null` 返回候选全部对象、`Base=null`，否则返回相对该回执的增量。宿主完整准备后才回传 `SceneUpdate.Frame`，未完成时继续传旧回执，已提供的更新保持到回执或候选撤销。无变化时可返回同一帧身份的空增量。外会话回执违反前提并抛 ArgumentException；已失效的本会话回执取得完整集合。候选撤销或换目标后，新候选使用不复用的 Space，宿主据此释放旧候选独有资源。
+
+候选 `SceneUpdate` 的 Effects、Environment 内集合均为空，ShiftExistingRoots 为零；宿主只消费 Upserts／Removed 中的 SceneVisual，不接入对象姿态、雾、拾取或特效。候选升为当前节点时沿用 Space 与对象身份，正式 `Present` 仍按 D 返回完整更新，宿主按正式更新的姿态及视觉参数接入已准备资源。候选构建失败只使该候选返回 Failure，当前场景与核心继续运行；会话 Faulted 仍遵循会话故障规则。所有操作沿用世界会话的串行调用与不可变值所有权。
+
 `ISceneFrame` 是可保留的不可变显示边界，包含同一时刻的姿态、拾取、空间映射和显示更新。帧身份统一使用 `Update.Frame`。`Present` 的 `displayedFrame` 必须是已经完整接入 Godot 的最后一帧 D，作为网格基准；不能传仅计算或准备过的帧。以 D 请求的准备期间姿态、相机和拾取使用最新返回帧 P，不使 P 成为网格基准；传 null 时保持旧画面和相机直到提交，样本仍使用 D。`Update.Base=null` 唯一表示完整替换：首次、传 null 或空间变更时返回该帧的全部对象。增量更新的 Base 必须等于 D 的 `Update.Frame`。
 
 Godot 按以下语义准备并一次接入资源更新：完整替换时移除旧场景；增量相对 D 给现存根加 `ShiftExistingRoots`，再删除 Removed、加入或替换 Upserts，最后替换 Environment。准备期间已显示对象可先按 P 更新姿态；锁定候选 C 的 Base、Session、Request、Space 变化时取消准备，否则完成 C 后提交，并在提交同帧重施最新 P 姿态，不能重复叠加平移，规则见[Godot 契约](godot.md#显示帧相机与输入)。Upserts、Environment、效果和调试线已经使用新原点；父子关系无环，每个存活对象的父对象必须存在。移除包含不再存在的子对象，Godot 不猜测级联业务语义。同一更新内 ID 不重复且不同时出现在删除与更新中。

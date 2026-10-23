@@ -70,6 +70,7 @@ public sealed class TemplateConsumer(IScenesFactory factory, ISceneDisplay displ
 public sealed class WorldConsumer(IWorldSceneSession session, ISceneDisplay display) : IAsyncDisposable
 {
     private ISceneFrame? displayedFrame;
+    private SceneFrameStamp? preparedStamp;
     private ScenePickRaySample? pickRay;
 
     public static SceneResult<IWorldSceneSession> Open(IScenesFactory factory,
@@ -124,6 +125,28 @@ public sealed class WorldConsumer(IWorldSceneSession session, ISceneDisplay disp
             displayedFrame = success.Value;
         }
         return presented;
+    }
+
+    public SceneResult<SceneUpdate?> PrepareCandidate(Action<SceneVisual> prepareVisual)
+    {
+        var result = session.PresentCandidate(preparedStamp);
+        if (result is SceneResult<SceneUpdate?>.Success { Value.Base: { } basis } && basis != preparedStamp)
+            result = session.PresentCandidate(null);
+        if (result is not SceneResult<SceneUpdate?>.Success success)
+        {
+            preparedStamp = null;
+            return result;
+        }
+        if (success.Value is not { } update)
+        {
+            preparedStamp = null;
+            return result;
+        }
+        // 只准备候选视觉；回执不替代已接入的 displayedFrame，也不调用显示入口。
+        foreach (var item in update.Upserts)
+        foreach (var visual in item.Visuals) prepareVisual(visual);
+        preparedStamp = update.Frame;
+        return result;
     }
 
     public SceneResult<PickSubject>? PickCurrent(SceneRay ray, Action<ScenePick> showPick)

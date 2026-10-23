@@ -25,7 +25,7 @@ public sealed record SceneFrameStamp(SceneSessionId Session, SceneRequestId Requ
 public enum SceneStage { Input, Build, Reconcile, Present, Pick, Edit, Close }
 public sealed record SceneProblem(string Code, SceneStage Stage, WorldObjectId? Subject,
     ContentReference? Content, PackageId? Package, DesignElementPath? Element, string Detail);
-public abstract record SceneResult<T> where T : notnull
+public abstract record SceneResult<T>
 {
     private SceneResult() { }
     public sealed record Success(T Value) : SceneResult<T>;

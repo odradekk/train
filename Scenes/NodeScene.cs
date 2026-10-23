@@ -629,7 +629,7 @@ internal sealed class NodeScene : IAsyncDisposable
 
     private void AdmitCompletedParts()
     {
-        if (nearCompleted && awaitingDisplay) return;
+        if ((nearCompleted || preparingCandidate) && awaitingDisplay) return;
         var near = range.Around(NodeStreaming.NearCells);
         long vertices = 0;
         var visuals = 0;
@@ -644,7 +644,7 @@ internal sealed class NodeScene : IAsyncDisposable
                 pathMargin * pathMargin) continue;
             // One indivisible part may exceed the batch target, but must never block the queue.
             // Keep path parts separate from peripheral work.
-            if (nearCompleted && count > 0 && (vertices + ready.Vertices > NodeStreaming.AdmissionVertexLimit ||
+            if ((nearCompleted || preparingCandidate) && count > 0 && (vertices + ready.Vertices > NodeStreaming.AdmissionVertexLimit ||
                 visuals + ready.Visuals > NodeStreaming.AdmissionVisualLimit ||
                 pathBatch && priority.Distance != 0)) break;
             if (ready.Chunk is { } from) chunks[from] = ready.Part;
@@ -658,7 +658,23 @@ internal sealed class NodeScene : IAsyncDisposable
             pathBatch |= followedPath?.Priority.Count > 0 && priority.Distance == 0;
             count++;
         }
-        if (nearCompleted && count > 0) awaitingDisplay = true;
+        if ((nearCompleted || preparingCandidate) && count > 0) awaitingDisplay = true;
+    }
+
+    internal void AcknowledgeCandidate()
+    {
+        awaitingDisplay = false;
+        admissionFrame = null;
+    }
+
+    internal ImmutableArray<SceneObject> CandidateObjects(SceneWorldSnapshot current)
+    {
+        var objects = attached.OrderBy(item => item.Key, StringComparer.Ordinal)
+            .SelectMany(item => item.Value.Geometry.Objects).ToImmutableArray();
+        if (layout is null) return objects;
+        var instances = settlement.Present(current, layout, default, ImmutableArray.CreateBuilder<SceneFog>(), findId,
+            range, chunks.Keys, prefetch, allowBuild: false, corridor: corridor);
+        return objects.AddRange(instances.Objects);
     }
 
     // Caller holds workGate; only Pump replaces the priority order and consumes results.
