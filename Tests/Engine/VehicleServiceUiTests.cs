@@ -545,6 +545,58 @@ public class VehicleServiceUiTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public async Task Blueprint_publish_keeps_service_node_and_train_panels()
+    {
+        BlueprintRecord Blueprint(string id, string name)
+        {
+            var design = new DesignInput(Train.Core.ContractSupport.HostCoreScenario.Input,
+                new(new("service-design"), new("service-composition"), new DesignKind.Vehicle(SizeClass.Small, 2),
+                    [], 10, 10, 1, new(100), [], [new(EconomyFixture.Food, 1)], 1, [], true, []), []);
+            var definition = new DesignDraft(new(name, ""), new DesignSpecification.Vehicle(SizeClass.Small), new([], [], []));
+            var evaluation = new DesignEvaluation.Complete(design.Design.Design, design.Design.Composition, definition, design,
+                new(null, new(new(0, 0, 0), new(1, 1, 1)), null, true, null, null, [], [], [], [], []), true, []);
+            return new(new(BlueprintLibrary.Local, new(id)), definition, [], evaluation);
+        }
+        var existing = Blueprint("existing-blueprint", "原制造蓝图");
+        var published = Blueprint("published-blueprint", "发布后的蓝图");
+        var content = EconomyFixture.Content(vehicleBlueprint: existing);
+        var activated = EconomyFixture.Content(generation: content.Generation.Value + 1,
+            vehicleBlueprint: existing, otherBlueprint: published);
+        var setup = new HostSimulationTests.HostSetup(new ServiceView(), content);
+        using var candidate = new ScriptedContentCandidate(activated, content, ContentChange.Library | ContentChange.Persistent,
+            edit: new PreparedContentEdit.BlueprintSaved(published.Address, ((DesignEvaluation.Complete)published.Evaluation).Design));
+        await Run(setup, async (ui, economy) =>
+        {
+            setup.ContentFactory!.PrepareEditCall = (basis, edit) =>
+            {
+                Require(ReferenceEquals(basis, content) && edit is ContentEdit.SaveBlueprint, "保存蓝图没有按当前内容准备。");
+                return new ContentResult<IContentCandidate>.Success(candidate);
+            };
+            await Services(economy);
+            var panels = ui.GetNode<WorldPanels>("Root/World/WorldPanels");
+            await _input.Activate(ui.GetNode<Button>("Root/World/Bar/TopBar/Fleet"));
+            await _input.ClickItem(ui.GetNode<ItemList>("Root/World/WorldPanels/FleetList/Layout/Content/Body/Objects"), 0);
+            var host = ui.GetParent<Train.App.App>().Host!;
+            Require(host.BeginContentEdit(new ContentEdit.SaveBlueprint(
+                new BlueprintSaveTarget.New(BlueprintLibrary.Local), published.Definition),
+                _ => new Train.App.Saves.FileWriteResult(true)).Problem is null, "保存蓝图编辑被拒绝。");
+            await _input.WaitUntil(() => !host.IsBusy && ReferenceEquals(host.Content, activated));
+            await _input.Frames(2);
+            var nodeText = Find<Button>(panels, "Economy").GetParent().FindChildren("Description", "Label", true, false)
+                .OfType<Label>().Single().Text;
+            Require(nodeText.Contains("占据者") && !nodeText.Contains("已不存在"), "发布蓝图后节点详情失效。");
+            var choices = Find<OptionButton>(economy, "ServiceBlueprint");
+            Require(Enumerable.Range(0, choices.ItemCount).Any(index => choices.GetItemText(index).Contains("发布后的蓝图")),
+                "发布蓝图后服务页设计下拉没有新蓝图。");
+            await _input.Activate(Find<Button>(panels, "EditPlan"));
+            var plan = ui.GetNode<TrainPlanPanel>("Root/World/TrainPlanPanel");
+            Require(plan.Visible && !ui.ErrorText.Contains("已不存在") && !ui.ErrorText.Contains("操作未提交"),
+                $"发布蓝图后编辑计划没有打开或报了对象失效。visible={plan.Visible} error={ui.ErrorText}");
+        });
+        setup.Session.AssertComplete();
+    }
+
+    [Test]
     public async Task Building_blueprint_quotes_sources_and_submits_build_building_on_owned_settlement()
     {
         var design = new DesignInput(Train.Core.ContractSupport.HostCoreScenario.Input,
