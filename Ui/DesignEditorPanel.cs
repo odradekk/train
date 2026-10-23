@@ -331,7 +331,7 @@ internal partial class DesignEditorPanel : Control
         var current = _scene.EnteredDraft ?? state.Snapshot.Draft;
         _name.Text = current.Display.Name; _description.Text = current.Display.Description;
         ShowElements([.. state.Elements.Select(item => (item.Id, Text:
-            $"{(item.Parent is { } parent ? $"↳ {parent.Value} / " : "")}{item.Id.Value} · {item.Kind} {item.At}{(item.Locked ? " [锁定]" : "")}"))]);
+            $"{(item.Parent is { } parent ? $"↳ {parent.Value} / " : "")}{item.Id.Value} · {ElementKindText(item.Kind)} {PositionText(item.At)}{(item.Locked ? " [锁定]" : "")}"))]);
         ShowEvaluation(state);
     }
     // 泰坦约 2.8 万行；整表重建时引擎要重新排版全部行，一帧约 1.7 秒。只改变化的区间，变化太大才整表重建。
@@ -383,8 +383,21 @@ internal partial class DesignEditorPanel : Control
             AllowedVoxelOrientations.FourWay => new[] { VoxelOrientation.PxPy, VoxelOrientation.PzPy, VoxelOrientation.NxPy, VoxelOrientation.NzPy },
             _ => Enum.GetValues<VoxelOrientation>()
         };
-        foreach (var orientation in orientations) { _allowedOrientations.Add(orientation); _orientation.AddItem(orientation.ToString()); }
+        foreach (var orientation in orientations) { _allowedOrientations.Add(orientation); _orientation.AddItem(OrientationText(orientation)); }
     }
+    private static string OrientationText(VoxelOrientation orientation)
+    {
+        var name = orientation.ToString();
+        return $"右 {Axis(name[..2])} · 上 {Axis(name[2..])}";
+        static string Axis(string axis) => $"{(axis[0] == 'P' ? "+" : "-")}{char.ToUpperInvariant(axis[1])}";
+    }
+    private static string ElementKindText(EditElementKind kind) => kind switch
+    {
+        EditElementKind.Cell => "体素", EditElementKind.Assembly => "组装体",
+        EditElementKind.FunctionalComposite => "功能复合体", EditElementKind.SceneModel => "场景模型",
+        _ => "未知元素"
+    };
+    private static string PositionText(GridPosition position) => $"({position.X}, {position.Y}, {position.Z})";
     private void ShowEvaluation(EditState state)
     {
         foreach (var child in _diagnostics.GetChildren()) { _diagnostics.RemoveChild(child); child.QueueFree(); }
@@ -428,10 +441,11 @@ internal partial class DesignEditorPanel : Control
         }
     }
     private static string Computed<T>(ComputedValue<T> value, Func<T, string> format) where T : notnull => value is ComputedValue<T>.Known known ? format(known.Value) : "未知";
-    private static string Bom(ImmutableArray<GoodsQuantity> values) => string.Join("、", values.Select(item => $"{item.Good} × {item.Quantity}"));
+    private string Bom(ImmutableArray<GoodsQuantity> values) => values.IsEmpty ? "无" :
+        string.Join("、", values.Select(item => $"{WorldPanels.GoodName(item.Good, _service.FixedContent!)} × {item.Quantity}"));
     private static string BoundsText(GridBounds? bounds) => bounds is null ? "未知" :
         $"X {bounds.Minimum.X}～{bounds.Maximum.X}，Y {bounds.Minimum.Y}～{bounds.Maximum.Y}，Z {bounds.Minimum.Z}～{bounds.Maximum.Z}";
-    private static string CompleteInformation(DesignEvaluation.Complete evaluation)
+    private string CompleteInformation(DesignEvaluation.Complete evaluation)
     {
         var projection = evaluation.Core?.Design;
         var scene = evaluation.Scene;
@@ -440,11 +454,29 @@ internal partial class DesignEditorPanel : Control
         {
             text += $"\n质量 {projection.MassTons:0.###} t · 结构耐久上限 {projection.MaxStructureDurability} · 总 Value {projection.StructuralBaseValue.Value}";
             text += "\nBOM：" + Bom(projection.BillOfMaterials);
-            text += "\n部件：" + string.Join("；", projection.Parts.Select(part => $"{part.Id.Value} {part.Definition}：{string.Join("、", part.Capabilities)}"));
+            text += "\n部件：" + (projection.Parts.IsEmpty ? "无" : string.Join("；", projection.Parts.Select(part =>
+                $"{part.Id.Value} {PartName(part.Definition)}：{string.Join("、", part.Capabilities.Select(CapabilityText))}")));
         }
         if (!scene.OccupancyComplete) text += "\n占格未知，不能确认完整冲突检查。";
         return text;
     }
+    private string PartName(CoreDefinitionReference definition) =>
+        _service.FixedContent!.FindDefinitionDisplay(definition) is ContentLookup<ContentDisplay>.Found found
+            ? found.Value.Text.Name : "部件定义不可用";
+    private static string CapabilityText(PartCapability capability) => capability switch
+    {
+        PartCapability.Propulsion value => $"牵引力 {value.TractionKilonewtons} kN，额定速度 {value.RatedSpeedMetersPerSecond} m/s",
+        PartCapability.Control => "控制",
+        PartCapability.Storage value => $"库存容量 {value.Capacity}",
+        PartCapability.Production value => $"生产工作量 {value.WorkPerSecond}/秒",
+        PartCapability.Extraction value => $"开采工作量 {value.WorkPerSecond}/秒",
+        PartCapability.Construction value => $"施工工作量 {value.WorkPerSecond}/秒，最大建筑地块尺寸 {EconomyPanels.PlotSizeName(value.MaximumBuildingPlotSize)}"
+            + $"，最大车辆尺寸 {(value.MaximumVehicleSize is { } size ? EconomyPanels.SizeName(size) : "无")}",
+        PartCapability.Power value => $"能量 {value.EnergyPerSecond}/秒",
+        PartCapability.Weapon value => $"武器伤害 {value.Damage}，间隔 {value.IntervalSeconds} 秒",
+        PartCapability.Platform => "站台",
+        _ => "未知能力"
+    };
     private static string SweepInformation(DesignSceneProjection scene)
     {
         var text = "";
@@ -452,7 +484,7 @@ internal partial class DesignEditorPanel : Control
         {
             text += $"\n设备路径 [{string.Join(",", sweep.NestedItemIndices)}]"
                 + $" · 转动范围 {Computed(sweep.SweptCells, cells => $"{cells.Length} 格")}"
-                + $" · 冲突 {Computed(sweep.ConflictCells, cells => cells.IsEmpty ? "无" : string.Join("、", cells))}";
+                + $" · 冲突 {Computed(sweep.ConflictCells, cells => cells.IsEmpty ? "无" : string.Join("、", cells.Select(PositionText)))}";
             foreach (var reason in (sweep.SweptCells as ComputedValue<ImmutableArray<GridPosition>>.Unknown)?.Reasons ?? [])
                 text += $"\n范围未知：{reason.Message}";
             foreach (var reason in (sweep.ConflictCells as ComputedValue<ImmutableArray<GridPosition>>.Unknown)?.Reasons ?? [])

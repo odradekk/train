@@ -24,6 +24,54 @@ public sealed class EditorServiceTests
         new(null, null, null, true, null, null, [], [], [], [], []), true, []);
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Unavailable_instance_design_shows_player_reason_and_keeps_hash_in_logs(bool missing)
+    {
+        var id = new InstanceId.Vehicle(new(41));
+        var hash = new DesignHash("unavailable-instance-design-hash");
+        using var fixture = new EditingFixture(configure: host =>
+        {
+            var content = new FixedContentView(host.Content.Core, host.Content.Generation)
+            {
+                LocalDrafts = [],
+                Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
+                {
+                    [hash] = missing ? new ContentLookup<DesignEvaluation>.Missing([])
+                        : new ContentLookup<DesignEvaluation>.NotFound()
+                }
+            };
+            host.Load = _ => new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(content));
+            var view = new FixedCoreReadView(new(0, 0), content.Core.Identity)
+            {
+                Instances = new Dictionary<InstanceId, Lookup<InstanceView>>
+                {
+                    [id] = new Lookup<InstanceView>.Found(new(id, hash, new("composition"),
+                        new WorldLocation.Node(new(1)), SettlementRelation.PlayerOwned,
+                        new InstanceDetails.Vehicle(SizeClass.Small, null), InstanceLock.None, new(1, 1), [], []))
+                }
+            };
+            var restore = host.Core.PrepareRestoreCall!;
+            host.Core.PrepareRestoreCall = (saved, projection, options) =>
+            {
+                restore(saved, projection, options);
+                return new CoreResult<ICoreSessionCandidate>.Success(new ScriptedCoreCandidate(
+                    new ScriptedCoreSession(view), HostCoreScenario.References));
+            };
+        });
+
+        fixture.Editor.OpenInstance(id);
+
+        Assert.IsFalse(fixture.Editor.IsOpen);
+        Assert.IsTrue(fixture.Editor.HasError);
+        StringAssert.Contains(fixture.Editor.Message!, "设计");
+        StringAssert.Contains(fixture.Editor.Message!, "不可用");
+        Assert.IsFalse(fixture.Editor.Message!.Contains(hash.Value, StringComparison.Ordinal));
+        Assert.IsTrue(fixture.Host.Logs.Any(log => log.Message.Contains(hash.Value, StringComparison.Ordinal)
+            || log.Attributes.Values.Any(value => value is string text && text.Contains(hash.Value, StringComparison.Ordinal))));
+    }
+
+    [TestMethod]
     public void Cancel_keeps_dirty_session_and_discard_runs_pending_action_once()
     {
         using var fixture = new EditingFixture();
@@ -709,8 +757,9 @@ public sealed class EditorServiceTests
         internal ContentFiles? Files { get; }
         private readonly GodotMainThreadDispatcher _dispatcher = new();
         private readonly string _root = Path.Combine(Path.GetTempPath(), "train-editor-tests", Guid.NewGuid().ToString("N"));
-        internal EditingFixture(bool userLibrary = false)
+        internal EditingFixture(bool userLibrary = false, Action<HostFixture>? configure = null)
         {
+            configure?.Invoke(Host);
             if (userLibrary)
             {
                 Files = new(_dispatcher, new Dictionary<ContentRoot, ContentRootLocation>

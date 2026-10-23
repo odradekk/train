@@ -121,7 +121,11 @@ internal sealed class EditorService : IDisposable
             ContentLookup<DesignEvaluation>.Found { Value: DesignEvaluation.Partial value } => value.Definition,
             _ => null
         };
-        if (draft is null) Report($"实例设计不可用：{found.Value.Design.Value}");
+        if (draft is null)
+        {
+            _logger.Warning("editor", "editor_design_unavailable", $"实例设计不可用：{found.Value.Design.Value}");
+            Report("实例设计缺失或不可用，暂时无法编辑。");
+        }
         else Open(draft, target);
     }
 

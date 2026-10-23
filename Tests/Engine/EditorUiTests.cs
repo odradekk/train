@@ -15,11 +15,164 @@ namespace Train.Engine.Tests;
 
 public class EditorUiTests(Node testScene) : TestClass(testScene)
 {
-    private async Task<EditorPreview> Ready()
+    private async Task<EditorPreview> Ready(EditorPreview? fixture = null)
     {
-        var fixture = new EditorPreview { Name = "EditorUiFixture" }; TestScene.AddChild(fixture);
+        fixture ??= new EditorPreview { Name = "EditorUiFixture" }; TestScene.AddChild(fixture);
         await FramesUntil(TestScene, () => fixture.Editor.Session is not null && fixture.Controller.Display?.DisplayedFrame is not null);
         return fixture;
+    }
+    [Test]
+    public async Task Editor_details_show_item_names_capabilities_and_numeric_coordinates()
+    {
+        var voxel = new GoodId.Voxel(new("fixture:motor"));
+        var assembly = new GoodId.Assembly(new("fixture-assembly-composition"));
+        var definition = new CoreDefinitionReference.Voxel(voxel.Definition);
+        var missing = new CoreDefinitionReference.Composite(new("fixture:missing-part"));
+        var address = new BlueprintAddress(BlueprintLibrary.User, new("fixture-equipment"));
+        var evaluation = (DesignEvaluation.Complete)EditorPreviewSession.Evaluate(EditorPreviewSession.Draft);
+        var content = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1))
+        {
+            LocalDrafts = [], Voxels = [], GenerationProfiles = [],
+            Blueprints = [new(address, new("设备样本", ""), null, true, [])],
+            BlueprintRecords = new Dictionary<BlueprintAddress, ContentLookup<BlueprintRecord>>
+            {
+                [address] = new ContentLookup<BlueprintRecord>.Found(new(address, evaluation.Definition, [], evaluation))
+            },
+            Goods = new Dictionary<GoodId, ContentLookup<GoodPresentation>>
+            {
+                [voxel] = new ContentLookup<GoodPresentation>.Found(new(voxel, new(new("牵引电机", ""), null, null, false), null, false)),
+                [assembly] = new ContentLookup<GoodPresentation>.Found(new(assembly, new(new("转动设备", ""), null, null, false), null, false))
+            },
+            DefinitionDisplays = new Dictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>
+            {
+                [definition] = new ContentLookup<ContentDisplay>.Found(new(new("牵引电机", ""), null, null, false)),
+                [missing] = new ContentLookup<ContentDisplay>.NotFound()
+            }
+        };
+        var fixture = await Ready(new EditorPreview { Name = "EditorTextFixture", Content = content });
+        try
+        {
+            var session = fixture.Factory.Session!;
+            ImmutableArray<GoodsQuantity> bom = [new(voxel, 3), new(assembly, 2)];
+            ImmutableArray<PartCapability> capabilities =
+            [
+                new PartCapability.Propulsion(12.5, 34), new PartCapability.Control(), new PartCapability.Storage(56),
+                new PartCapability.Production(0.0001), new PartCapability.Extraction(8),
+                new PartCapability.Construction(9, PlotSize.SmallStation, SizeClass.Titan), new PartCapability.Power(10),
+                new PartCapability.Weapon(11, 1.2345), new PartCapability.Platform()
+            ];
+            var projection = new DesignProjection(new("fixture-design"), new("fixture-composition"), new DesignKind.Vehicle(SizeClass.Small, 1),
+                [new(new(1), definition, voxel, 1, 1, new(1), capabilities, false), new(new(2), missing, voxel, 1, 1, new(1), [], true)],
+                2, 2, 1, new(1), [], bom, 5, [], true, []);
+            evaluation = evaluation with
+            {
+                Core = new(HostCoreScenario.Input, projection, []),
+                Scene = evaluation.Scene with { RotationSweeps = [new([0],
+                    new ComputedValue<ImmutableArray<GridPosition>>.Known([new(-2, 3, 4)]),
+                    new ComputedValue<ImmutableArray<GridPosition>>.Known([new(-2, 3, 4)]))] }
+            };
+            session.SetState(state => state with { CurrentEvaluation = evaluation });
+            var panel = EditorPanel(fixture);
+            await FramesUntil(TestScene, () => Displayed(panel, "牵引电机 × 3"));
+            var list = panel.FindChildren("*", "ItemList", true, false).OfType<ItemList>().Single();
+            var rows = string.Join("\n", Enumerable.Range(0, list.ItemCount).Select(list.GetItemText));
+            Require(rows.Contains("体素 (0, 0, 0)") && rows.Contains("组装体 (8, 0, 0)") && rows.Contains("功能复合体"),
+                "层级列表必须显示中文种类和数值坐标。");
+            foreach (var text in new[] { "转动设备 × 2", "牵引力 12.5 kN", "额定速度 34 m/s", "控制", "库存容量 56",
+                         "生产工作量 0.0001/秒", "开采工作量 8/秒", "施工工作量 9/秒", "小站点", "泰坦", "能量 10/秒",
+                         "武器伤害 11", "1.2345 秒", "站台", "部件定义不可用", "(-2, 3, 4)" })
+                Require(Displayed(panel, text), $"设计信息缺少玩家文字或数值：{text}");
+            foreach (var text in new[] { "GridPosition {", "GoodId", "Voxel {", "Assembly {", "Propulsion {", "fixture-assembly-composition", "fixture:missing-part", "fixture-design" })
+                Require(!rows.Contains(text, StringComparison.Ordinal) && !Displayed(panel, text), $"编辑器不能显示记录原文或内部标识：{text}");
+            Require(panel.FindChildren("PlaceEquipment", "Button", true, false).OfType<Button>().Single().Text.Contains("用户库"),
+                "设备来源必须使用中文库名。");
+            await UiCapture.Capture(TestScene, "player-editor-item-text");
+
+            session.SetState(state => state with
+            {
+                CurrentEvaluation = new DesignEvaluation.Partial(evaluation.Definition,
+                    new(new ComputedValue<double>.Unknown([]), new ComputedValue<Money>.Unknown([]), new ComputedValue<long>.Unknown([]),
+                        new ComputedValue<ImmutableArray<PartProjection>>.Unknown([]), new ComputedValue<ImmutableArray<GoodsQuantity>>.Known(bom),
+                        new ComputedValue<int>.Unknown([])), new(0, new(0), 0, [], []), null, evaluation.Scene, [])
+            });
+            await FramesUntil(TestScene, () => Displayed(panel, "信息不完整") && Displayed(panel, "转动设备 × 2"));
+            Require(!Displayed(panel, assembly.Composition.Value) && !Displayed(panel, "GoodId"), "部分评估的材料清单也必须使用物品名称。");
+            session.SetState(state => state with { CurrentEvaluation = evaluation with { Core = evaluation.Core! with { Design = projection with { BillOfMaterials = [] } } } });
+            await FramesUntil(TestScene, () => Displayed(panel, "BOM：无"));
+        }
+        finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
+    }
+    [Test]
+    public async Task Unavailable_instance_design_shows_a_player_reason_and_logs_the_hash()
+    {
+        var id = new InstanceId.Vehicle(new(41));
+        var hash = new DesignHash("unavailable-instance-design-hash");
+        var world = WorldSceneFixture.EmptyWorld(new(0, 0));
+        var fixture = await Ready(new EditorPreview
+        {
+            Name = "EditorUnavailableDesignFixture",
+            Content = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1))
+            {
+                Blueprints = [], LocalDrafts = [], Voxels = [], GenerationProfiles = [],
+                Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>> { [hash] = new ContentLookup<DesignEvaluation>.NotFound() }
+            },
+            World = new(world.Position, world.InputIdentity)
+            {
+                Economy = world.Economy, World = world.World,
+                Trains = new Dictionary<TrainId, Lookup<TrainView>> { [new(1)] = new Lookup<TrainView>.Missing() },
+                Instances = new Dictionary<InstanceId, Lookup<InstanceView>>
+                {
+                    [id] = new Lookup<InstanceView>.Found(new(id, hash, new("composition"), new WorldLocation.Node(new(1)),
+                        SettlementRelation.PlayerOwned, new InstanceDetails.Vehicle(SizeClass.Small, null), InstanceLock.None, new(1, 1), [], []))
+                }
+            }
+        });
+        try
+        {
+            fixture.Editor.OpenInstance(id);
+            var panel = EditorPanel(fixture);
+            await FramesUntil(TestScene, () => Displayed(panel, "设计缺失或不可用"));
+            Require(!Displayed(panel, hash.Value), "设计不可用时，玩家提示不能带出设计哈希。");
+            await UiCapture.Capture(TestScene, "player-editor-design-unavailable");
+            await new UiTestInput(TestScene).PressKey(Key.Quoteleft);
+            Require(ConsoleShows(fixture, hash.Value), "设计不可用的原始哈希必须保留在日志中。");
+        }
+        finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
+    }
+    [Test]
+    public async Task Orientation_labels_preserve_allowed_order_and_selected_orientation()
+    {
+        var core = HostContentScenario.CreateProjection(HostCoreScenario.Input);
+        var voxels = new[] { new VoxelDefinitionId("fixture:fixed"), new VoxelDefinitionId("fixture:four-way"), new VoxelDefinitionId("fixture:all-axes") };
+        var content = new FixedContentView(core, new(1))
+        {
+            Blueprints = [], LocalDrafts = [], GenerationProfiles = [], Voxels = [.. voxels.Select(id => new VoxelCatalogEntry(id, core.Goods[0]))],
+            VoxelDisplays = voxels.ToDictionary(id => id, id => (ContentLookup<VoxelDisplayProjection>)new ContentLookup<VoxelDisplayProjection>.Found(new(id, new(id.Value, ""), new("icon")))),
+            VoxelAppearances = voxels.Select((id, index) => (id, index)).ToDictionary(item => item.id, item =>
+                (ContentLookup<VoxelAppearanceProjection>)new ContentLookup<VoxelAppearanceProjection>.Found(new(item.id, (AllowedVoxelOrientations)item.index,
+                    new VoxelCollision.FullBox(), new VoxelPresentation.Mesh(new("model"), []), new(false, null))))
+        };
+        var fixture = await Ready(new EditorPreview { Name = "EditorOrientationFixture", Content = content });
+        try
+        {
+            var panel = EditorPanel(fixture);
+            var choices = panel.FindChildren("*", "OptionButton", true, false).OfType<OptionButton>().ToArray();
+            var palette = choices.Single(choice => choice.ItemCount == 3 && choice.GetItemText(0).Contains("fixture:fixed"));
+            var orientation = choices.Single(choice => choice.ItemCount == 1 && choice.GetItemText(0) == "右 +X · 上 +Y");
+            var input = new UiTestInput(TestScene);
+            foreach (var (index, count, last) in new[] { (0, 1, "右 +X · 上 +Y"), (1, 4, "右 -Z · 上 +Y"), (2, 24, "右 -Z · 上 -Y") })
+            {
+                await input.Choose(palette, index);
+                Require(orientation.ItemCount == count && orientation.GetItemText(0) == "右 +X · 上 +Y" && orientation.GetItemText(count - 1) == last,
+                    "朝向标签必须保留固定、四向和全部朝向的原顺序。");
+            }
+            Require(orientation.GetItemText(18) == "右 +Z · 上 +Y", "转轴标签必须按右方向轴、上方向轴解释。");
+            await input.Choose(orientation, 23);
+            await ActivateEditorButton(panel, "Preview");
+            Require(fixture.Factory.Session!.PreviewCalls.Last() is EditOperation.Cells { Action: CellEdit.Add { Value.Orientation: VoxelOrientation.NzNy } },
+                "更换朝向文字后，所选下标仍必须提交原来的正交朝向。");
+        }
+        finally { fixture.QueueFree(); await new UiTestInput(TestScene).Frames(3); }
     }
     [Test]
     public async Task Editor_uses_displayed_frame_for_picking_and_clears_old_sweep_immediately_after_change()
