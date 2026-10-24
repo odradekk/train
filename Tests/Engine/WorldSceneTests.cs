@@ -1085,6 +1085,106 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public async Task Candidate_waiting_for_packing_lends_its_remaining_budget_to_active_uploads() =>
+        await Waiting_packing_lends_remaining_budget(candidateFirst: true);
+
+    [Test]
+    public async Task Active_waiting_for_packing_lends_its_remaining_budget_to_candidate_uploads() =>
+        await Waiting_packing_lends_remaining_budget(candidateFirst: false);
+
+    private async Task Waiting_packing_lends_remaining_budget(bool candidateFirst)
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var first = Frame(1);
+        var idle = Frame(2, first.Update.Frame, objects: []);
+        var activeMesh = Mesh with { };
+        var candidateMesh = Mesh with { };
+        var active = Frame(3, candidateFirst ? first.Update.Frame : idle.Update.Frame,
+            objects: Enumerable.Range(2, 6).Select(id => Object((ulong)id,
+                new SceneVisual.Geometry(activeMesh, new(false, 0, 0, false)))).ToImmutableArray());
+        var candidate = Frame(10, space: 2,
+            objects: Enumerable.Range(20, 10).Select(id => Object((ulong)id,
+                new SceneVisual.Geometry(candidateMesh, new(false, 0, 0, false)))).ToImmutableArray()).Update;
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task packing = Task.CompletedTask;
+        try
+        {
+            var app = await Ready(fixture, new Setup(), Factory(binding => Session(binding,
+                candidateFirst ? [Success(first), Success(active)] : [Success(first), Success(idle), Success(active)],
+                candidates: candidateFirst
+                    ? [new SceneResult<SceneUpdate?>.Success(null), new SceneResult<SceneUpdate?>.Success(candidate)]
+                    : [new SceneResult<SceneUpdate?>.Success(null), new SceneResult<SceneUpdate?>.Success(candidate),
+                        new SceneResult<SceneUpdate?>.Success(candidate)])));
+            var world = app.WorldScenes!;
+            world.Open(Target);
+            var display = world.Display!;
+            display.Timestamp = () => 0;
+            world.ProcessFrame(0, false);
+            if (candidateFirst) Prime(display, active);
+            else
+            {
+                display.ReceiveCandidate(candidate);
+                display.PrepareCandidate(TimeSpan.Zero);
+                display.CandidatePacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+                long timestamp = 0;
+                display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
+                await new UiTestInput(TestScene).Frames(1);
+                world.ProcessFrame(0, false);
+                Require(ReferenceEquals(display.DisplayedFrame, idle) &&
+                    display.CandidateProgress(candidate.Frame) is (0, 10),
+                    "先执行一次候选优先调度而不上传资源，使下一帧正式侧先执行。");
+                display.Timestamp = () => 0;
+            }
+            var packMesh = display.PackMesh;
+            display.PackMesh = (mesh, cancellation) =>
+            {
+                entered.TrySetResult();
+                release.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellation).GetAwaiter().GetResult();
+                return packMesh(mesh, cancellation);
+            };
+            if (candidateFirst)
+            {
+                display.ReceiveCandidate(candidate);
+                display.PrepareCandidate(TimeSpan.Zero);
+                packing = display.CandidatePacking;
+            }
+            else
+            {
+                using var prepared = display.Prepare(active, TimeSpan.Zero);
+                Require(prepared is null, "零预算只能启动正式侧后台打包。");
+                packing = display.PreparationPacking;
+            }
+            entered.Task.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+            var activePrepared = 0;
+            display.Observe = item =>
+            {
+                if (item.Stage == Train.Rendering.SceneDisplayStage.ResourcesPrepared && item.Frame == active.Update.Frame)
+                    activePrepared++;
+            };
+            // 只有后执行侧的每次资源准备计费1ms，先执行侧始终停在后台打包入口。
+            display.Timestamp = () => (candidateFirst ? activePrepared :
+                display.CandidateProgress(candidate.Frame)!.Value.Prepared) *
+                (System.Diagnostics.Stopwatch.Frequency / 1000);
+            await new UiTestInput(TestScene).Frames(1);
+            Require(world.View.Interactive, "共享预算测试必须从已可操作的正式场景进入交替调度。");
+            world.ProcessFrame(0, false);
+            Require(!packing.IsCompleted && display.IsPreparing && display.IsPreparingCandidate &&
+                ReferenceEquals(display.DisplayedFrame, candidateFirst ? first : idle),
+                "先执行侧必须仍在等待后台数组，两侧均未提交，旧正式帧保持显示。");
+            Require(candidateFirst ? activePrepared == 4 && display.CandidateProgress(candidate.Frame) is (0, 10)
+                    : activePrepared == 0 && display.CandidateProgress(candidate.Frame) is (4, 10),
+                $"先执行侧等待打包时，后执行侧必须借用共享4ms预算，超过2ms后仍继续准备资源；正式已准备{activePrepared}，候选进度{display.CandidateProgress(candidate.Frame)}。");
+        }
+        finally
+        {
+            release.TrySetResult();
+            try { packing.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult(); }
+            finally { await fixture.Cleanup(); }
+        }
+    }
+
+    [Test]
     public async Task Candidate_without_resource_work_lends_its_budget_to_the_active_update()
     {
         var fixture = new Fixture(TestScene.GetTree());
