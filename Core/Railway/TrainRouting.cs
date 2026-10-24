@@ -48,8 +48,7 @@ internal static class TrainRouting
 
                 if (visited.Contains(next) || FindTrack(edge) is null)
                     continue;
-                if (next != target && occupants[next] is (NodeOccupant.Lair or
-                    NodeOccupant.Settlement { Relation: SettlementRelation.Hostile }))
+                if (next != target && !CanTransit(occupants[next]))
                     continue;
 
                 var time = best.TimeSeconds + edge.LengthMeters / maximumSpeedMetersPerSecond;
@@ -61,6 +60,36 @@ internal static class TrainRouting
         }
     }
 
+    internal static HashSet<NodeId> ReachableNodes(ImmutableArray<NodeMapItem> nodes,
+        ImmutableArray<EdgeMapItem> edges, NodeId start)
+    {
+        var occupants = nodes.ToDictionary(node => node.Id, node => node.Occupant);
+        var reachable = new HashSet<NodeId> { start };
+        var pending = new Queue<NodeId>();
+        pending.Enqueue(start);
+        while (pending.TryDequeue(out var current))
+        {
+            foreach (var edge in edges)
+            {
+                NodeId next;
+                if (edge.Start == current)
+                    next = edge.End;
+                else if (edge.End == current)
+                    next = edge.Start;
+                else
+                    continue;
+
+                if (reachable.Contains(next) || FindTrack(edge) is null)
+                    continue;
+                reachable.Add(next);
+                // FindRoute 允许巢穴和敌对聚居地作为终点，但不能经过它们中转。
+                if (CanTransit(occupants[next]))
+                    pending.Enqueue(next);
+            }
+        }
+        return reachable;
+    }
+
     internal static int? FindTrack(EdgeMapItem edge)
     {
         for (var track = 1; track <= edge.Tracks; track++)
@@ -70,6 +99,9 @@ internal static class TrainRouting
         }
         return null;
     }
+
+    private static bool CanTransit(NodeOccupant occupant) => occupant is not (NodeOccupant.Lair or
+        NodeOccupant.Settlement { Relation: SettlementRelation.Hostile });
 
     private static int CompareRoutes(double firstTime, ImmutableArray<EdgeId> first,
         double secondTime, ImmutableArray<EdgeId> second)

@@ -34,7 +34,7 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         var child = Object(2, new(1));
         var other = Object(3, null);
         var first = Frame(1, null, [parent, child, other]);
-        using (var prepared = display.Prepare(first)!) prepared.Commit();
+        using (var prepared = Prepare(display, first)) prepared.Commit();
         display.UpdateConstructionFog([new(7)]);
         var childRoot = display.Objects[new(2)].Root;
         var childVisual = display.Objects[new(2)].Visuals[0];
@@ -109,6 +109,8 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         await new UiTestInput(TestScene).Frames(1);
         display.Timestamp = () => (display.CandidateProgress(first.Frame)?.Prepared ?? 0) *
             (System.Diagnostics.Stopwatch.Frequency / 1000);
+        display.PrepareCandidate(TimeSpan.Zero);
+        display.CandidatePacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
         display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
         Require(display.CandidateProgress(first.Frame) is (4, 10) && display.PendingCandidateVisuals == 6,
             "预算中断后，待准备项必须与剩余来源一一对应。");
@@ -125,6 +127,8 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         }
         await new UiTestInput(TestScene).Frames(1);
         display.Timestamp = () => 0;
+        display.PrepareCandidate(TimeSpan.Zero);
+        display.CandidatePacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
         display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
         Require(display.PreparedCandidate == latest.Frame && display.PendingCandidateVisuals == 0 &&
             display.CandidateProgress(latest.Frame) is (3, 3),
@@ -134,6 +138,8 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         display.ReceiveCandidate(delta);
         Require(display.CandidateProgress(delta.Frame) is (2, 3) && display.PendingCandidateVisuals == 1,
             "增量必须只撤销指定对象并排入新增视觉。");
+        display.PrepareCandidate(TimeSpan.Zero);
+        display.CandidatePacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
         display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
         Require(display.PreparedCandidate == delta.Frame && display.PendingCandidateVisuals == 0,
             "增量完成后待准备队列必须为空。");
@@ -195,7 +201,7 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public void Geometry_uploads_outward_faces_and_all_vertex_and_surface_channels()
+    public async Task Geometry_uploads_outward_faces_and_all_vertex_and_surface_channels()
     {
         using var dispatcher = new GodotMainThreadDispatcher();
         using var cache = new AssetResourceCache(dispatcher);
@@ -203,7 +209,8 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         using var resources = new SceneResources(cache, Content(asset));
         var source = Triangle(new SceneMaterial.Voxel(asset.Revision, MaterialCategory.PaintedMetal, new("#80a0c0")));
         var surface = new SurfaceState(true, 0xfedcba9876543210UL, 0.375f, true);
-        using var visual = resources.Prepare(new SceneVisual.Geometry(source, surface));
+        var packed = await Task.Run(() => PackedSceneMesh.Create(source, CancellationToken.None));
+        using var visual = resources.Prepare(new SceneVisual.Geometry(source, surface), packed);
         var instance = Instance(visual);
         var mesh = (ArrayMesh)instance.Mesh;
         using var arrays = mesh.SurfaceGetArrays(0);
@@ -213,6 +220,9 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         var faceUv = arrays[(int)Mesh.ArrayType.TexUV2].AsVector2Array();
         var custom = arrays[(int)Mesh.ArrayType.Custom0].AsFloat32Array();
         var indices = arrays[(int)Mesh.ArrayType.Index].AsInt32Array();
+        Require(vertices.Length == source.Vertices.Length && normals.Length == vertices.Length &&
+            uv.Length == vertices.Length && faceUv.Length == vertices.Length && custom.Length == vertices.Length * 4 &&
+            indices.Length == source.TriangleIndices.Length, "后台打包必须保留全部顶点、索引与表现通道。");
         var customFormat = ((ulong)mesh.SurfaceGetFormat(0) >> (int)Mesh.ArrayFormat.FormatCustom0Shift)
             & (ulong)Mesh.ArrayFormat.FormatCustomMask;
         Require(customFormat == (ulong)Mesh.ArrayCustomFormat.RgbaFloat, "表现通道需要完整 float 精度。");
@@ -228,7 +238,12 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
             Near(custom[index * 4], (int)expected.ExposedEdges);
             Near(custom[index * 4 + 1], expected.RelativeHeight);
             Near(custom[index * 4 + 2], expected.Damage);
+            Near(custom[index * 4 + 3], 0);
         }
+        for (var index = 0; index < indices.Length; index += 3)
+            Require(indices[index] == source.TriangleIndices[index] &&
+                indices[index + 1] == source.TriangleIndices[index + 2] &&
+                indices[index + 2] == source.TriangleIndices[index + 1], "后台打包必须完整保留三角形顺序并转换绕序。");
         var material = Material(visual);
         AssertSurface(material, surface);
         Require(material.GetShaderParameter("has_paint").AsBool(), "几何涂装开关未上传。");
@@ -541,6 +556,17 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         [new(NVector3.Zero, NVector3.UnitZ, new NVector2(0.1f, 0.2f), NVector2.Zero, ExposedFaceEdges.MinimumU, 0.125f, 0.25f),
          new(NVector3.UnitX, NVector3.UnitZ, new NVector2(0.4f, 0.3f), NVector2.UnitX, ExposedFaceEdges.MaximumU, 0.5f, 0.375f),
          new(NVector3.UnitY, NVector3.UnitZ, new NVector2(3.3f, -2.2f), NVector2.UnitY, ExposedFaceEdges.MinimumV | ExposedFaceEdges.MaximumV, 0.875f, 0.75f)], [0, 1, 2]);
+
+    private static SceneDisplay.PreparedFrame Prepare(SceneDisplay display, ISceneFrame frame)
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        while (watch.Elapsed < TimeSpan.FromSeconds(30))
+        {
+            if (display.Prepare(frame) is { } prepared) return prepared;
+            display.PreparationPacking.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+        }
+        throw new InvalidOperationException("显示准备超时。");
+    }
 
     private static MeshInstance3D Instance(PreparedVisual visual) => visual.Node.GetChildren().OfType<MeshInstance3D>().Single();
     private static string[] InstanceUniforms(GeometryInstance3D instance) =>

@@ -170,7 +170,24 @@ internal sealed class SceneResources : IDisposable
     internal void ExemptConstructionFog(PreparedVisual visual, bool exempt) =>
         visual.ExemptConstructionFog(exempt, _surfaceShader, _followedShader, _modelShader, _followedModelShader);
 
-    internal PreparedVisual Prepare(SceneVisual visual)
+    private bool HasGeometry(SceneMesh mesh) => _geometry.ContainsKey(mesh);
+
+    internal AssetLease<ArrayMesh>? AcquireCachedGeometry(SceneMesh mesh)
+    {
+        _cache.RequireMainThread();
+        return HasGeometry(mesh) ? AcquireGeometry(mesh, null) : null;
+    }
+
+    internal PreparedVisual? TryPrepare(SceneVisual visual, SceneMeshPacking? packing)
+    {
+        _cache.RequireMainThread();
+        PackedSceneMesh? data = null;
+        if (visual is SceneVisual.Geometry geometry && !HasGeometry(geometry.Mesh) && packing is not null &&
+            !packing.TryTake(geometry.Mesh, out data)) return null;
+        return Prepare(visual, data);
+    }
+
+    internal PreparedVisual Prepare(SceneVisual visual, PackedSceneMesh? data = null)
     {
         _cache.RequireMainThread();
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -180,7 +197,7 @@ internal sealed class SceneResources : IDisposable
             switch (visual)
             {
                 case SceneVisual.Geometry geometry:
-                    var mesh = result.Own(AcquireGeometry(geometry.Mesh));
+                    var mesh = result.Own(AcquireGeometry(geometry.Mesh, data));
                     var material = GeometryMaterial(result, geometry.Mesh.Material);
                     SetSurface(material, geometry.Surface);
                     result.Node.AddChild(new MeshInstance3D { Mesh = mesh.Value, MaterialOverride = material });
@@ -283,11 +300,11 @@ internal sealed class SceneResources : IDisposable
         });
     }
 
-    private AssetLease<ArrayMesh> AcquireGeometry(SceneMesh source)
+    private AssetLease<ArrayMesh> AcquireGeometry(SceneMesh source, PackedSceneMesh? data)
     {
         if (!_geometry.TryGetValue(source, out var entry))
         {
-            entry = new(CreateMesh(source));
+            entry = new(CreateMesh(data ?? PackedSceneMesh.Create(source, CancellationToken.None)));
             _geometry.Add(source, entry);
         }
         entry.Users++;
@@ -300,36 +317,16 @@ internal sealed class SceneResources : IDisposable
         });
     }
 
-    private static ArrayMesh CreateMesh(SceneMesh source)
+    private static ArrayMesh CreateMesh(PackedSceneMesh source)
     {
         using var arrays = new Godot.Collections.Array();
         arrays.Resize((int)Mesh.ArrayType.Max);
-        var positions = new Vector3[source.Vertices.Length];
-        var normals = new Vector3[source.Vertices.Length];
-        var textureUvs = new Vector2[source.Vertices.Length];
-        var faceUvs = new Vector2[source.Vertices.Length];
-        var custom = new float[source.Vertices.Length * 4];
-        for (var index = 0; index < source.Vertices.Length; index++)
-        {
-            var vertex = source.Vertices[index];
-            positions[index] = new(vertex.Position.X, vertex.Position.Y, vertex.Position.Z);
-            normals[index] = new(vertex.Normal.X, vertex.Normal.Y, vertex.Normal.Z);
-            textureUvs[index] = new(vertex.TextureUv.X, vertex.TextureUv.Y);
-            faceUvs[index] = new(vertex.FaceUv.X, vertex.FaceUv.Y);
-            custom[index * 4] = (int)vertex.ExposedEdges;
-            custom[index * 4 + 1] = vertex.RelativeHeight;
-            custom[index * 4 + 2] = vertex.Damage;
-        }
-        arrays[(int)Mesh.ArrayType.Vertex] = positions;
-        arrays[(int)Mesh.ArrayType.Normal] = normals;
-        arrays[(int)Mesh.ArrayType.TexUV] = textureUvs;
-        arrays[(int)Mesh.ArrayType.TexUV2] = faceUvs;
-        arrays[(int)Mesh.ArrayType.Custom0] = custom;
-        var indices = source.TriangleIndices.ToArray();
-        // 契约为外侧看 CCW，Godot 为 CW；不反转外向法线。
-        for (var index = 0; index < indices.Length; index += 3)
-            (indices[index + 1], indices[index + 2]) = (indices[index + 2], indices[index + 1]);
-        arrays[(int)Mesh.ArrayType.Index] = indices;
+        arrays[(int)Mesh.ArrayType.Vertex] = source.Positions;
+        arrays[(int)Mesh.ArrayType.Normal] = source.Normals;
+        arrays[(int)Mesh.ArrayType.TexUV] = source.TextureUvs;
+        arrays[(int)Mesh.ArrayType.TexUV2] = source.FaceUvs;
+        arrays[(int)Mesh.ArrayType.Custom0] = source.Custom;
+        arrays[(int)Mesh.ArrayType.Index] = source.Indices;
         var mesh = new ArrayMesh();
         try
         {
