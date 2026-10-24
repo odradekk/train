@@ -22,7 +22,7 @@ internal sealed class ContentFiles : IContentFiles
         _roots = roots.ToDictionary(pair => pair.Key, pair => pair.Value switch
         {
             ContentRootLocation.Disk disk => (IContentFiles)new DiskContentFiles(disk.Directory),
-            ContentRootLocation.Resource resource => new ResourceContentFiles(dispatcher, resource.Path),
+            ContentRootLocation.Resource resource => ResourceFiles(dispatcher, resource.Path),
             _ => throw new ArgumentException("未知的内容根种类。", nameof(roots))
         });
     }
@@ -35,6 +35,17 @@ internal sealed class ContentFiles : IContentFiles
 
     private IContentFiles Find(ContentRoot root) => _roots.TryGetValue(root, out var files)
         ? files : throw new ArgumentException($"未登记的内容根：{root.Key}。", nameof(root));
+
+    private static IContentFiles ResourceFiles(GodotMainThreadDispatcher dispatcher, string root)
+    {
+        if (!root.StartsWith("res://", StringComparison.Ordinal))
+            throw new ArgumentException("资源根必须使用 res://。", nameof(root));
+        ValidatePath(root[6..].TrimEnd('/'));
+        // 原生 DirAccess 会临时改变进程工作目录；源码运行复用磁盘端口。
+        return OS.HasFeature("template")
+            ? new ResourceContentFiles(dispatcher, root)
+            : new DiskContentFiles(ProjectSettings.GlobalizePath(root));
+    }
 
     internal static void ValidatePath(string path)
     {
@@ -50,9 +61,6 @@ internal sealed class ContentFiles : IContentFiles
 
         internal ResourceContentFiles(GodotMainThreadDispatcher dispatcher, string root)
         {
-            if (!root.StartsWith("res://", StringComparison.Ordinal))
-                throw new ArgumentException("资源根必须使用 res://。", nameof(root));
-            ValidatePath(root[6..].TrimEnd('/'));
             _dispatcher = dispatcher;
             _root = root.TrimEnd('/');
             if (_root == "res:") _root = "res://";
@@ -61,7 +69,7 @@ internal sealed class ContentFiles : IContentFiles
         public ContentIoResult<ImmutableArray<ContentFileEntry>> Enumerate(ContentPath directory)
         {
             ValidatePath(directory.RelativePath);
-            return _dispatcher.Invoke<ContentIoResult<ImmutableArray<ContentFileEntry>>>(() =>
+            return _dispatcher.InvokeOnCallingThread<ContentIoResult<ImmutableArray<ContentFileEntry>>>(() =>
             {
                 var path = PathFor(directory.RelativePath);
                 if (HasLink(path)) return Failure<ImmutableArray<ContentFileEntry>>(ContentIoFailure.LinkedPath, path);
@@ -85,7 +93,7 @@ internal sealed class ContentFiles : IContentFiles
         {
             ArgumentOutOfRangeException.ThrowIfNegative(maximumBytes);
             ValidatePath(file.RelativePath);
-            return _dispatcher.Invoke<ContentIoResult<ImmutableArray<byte>>>(() =>
+            return _dispatcher.InvokeOnCallingThread<ContentIoResult<ImmutableArray<byte>>>(() =>
             {
                 var path = PathFor(file.RelativePath);
                 if (HasLink(path)) return Failure<ImmutableArray<byte>>(ContentIoFailure.LinkedPath, path);

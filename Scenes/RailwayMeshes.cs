@@ -96,54 +96,65 @@ internal static class RailwayMeshes
                 new(-.2f * width, -.8f * height), new(-width, -.8f * height)];
             return (gauge, height, width, profile);
         }).ToArray();
+        var railSpans = new List<(double Offset, double Start, double End, int Steps,
+            float Width, float Height, Vector2[] Profile)>[tracks];
+        var railCapacity = 0;
+        for (var track = 1; track <= tracks; track++)
+        {
+            var planned = railSpans[track - 1] = [];
+            var offset = RailwayCoordinates.TrackOffset(track, tracks);
+            var spans = OpenSpans(start, end, gaps.Where(gap => gap.Track == track));
+            foreach (var (gauge, height, width, profile) in sections)
+            foreach (var railOffset in new[] { offset - gauge / 2, offset + gauge / 2 })
+            foreach (var (spanStart, spanEnd) in spans)
+            {
+                var steps = RingSteps(sampleAt, spanStart, spanEnd, railOffset, width, height);
+                planned.Add((railOffset, spanStart, spanEnd, steps, width, height, profile));
+                railCapacity += 6 * (profile.Length * steps + 6);
+            }
+        }
         var sleeperCount = (int)(Math.Ceiling(end / SleeperSpacingCells) - Math.Ceiling(start / SleeperSpacingCells));
-        var rails = new MeshBuilder(BuiltInMaterial.RailSteel);
+        var rails = new MeshBuilder(BuiltInMaterial.RailSteel, railCapacity);
         var sleepers = new MeshBuilder(BuiltInMaterial.Sleeper, sleeperCount * tracks * 5 * 6 * 6);
         for (var track = 1; track <= tracks; track++)
         {
             var offset = RailwayCoordinates.TrackOffset(track, tracks);
-            var spans = OpenSpans(start, end, gaps.Where(gap => gap.Track == track));
-            foreach (var (gauge, height, width, profile) in sections)
+            foreach (var (railOffset, spanStart, spanEnd, steps, width, height, profile) in railSpans[track - 1])
             {
-                foreach (var railOffset in new[] { offset - gauge / 2, offset + gauge / 2 })
-                foreach (var (spanStart, spanEnd) in spans)
+                var previous = Ring(spanStart);
+                for (var step = 1; step <= steps; step++)
                 {
-                    var previous = Ring(spanStart);
-                    var steps = RingSteps(sampleAt, spanStart, spanEnd, railOffset, width, height);
-                    for (var step = 1; step <= steps; step++)
+                    var next = Ring(spanStart + (spanEnd - spanStart) * step / steps);
+                    for (var side = 0; side < profile.Length; side++)
                     {
-                        var next = Ring(spanStart + (spanEnd - spanStart) * step / steps);
-                        for (var side = 0; side < profile.Length; side++)
-                        {
-                            var following = (side + 1) % profile.Length;
-                            rails.Quad(previous[side], previous[following], next[following], next[side], railHead: side == 6);
-                        }
-                        previous = next;
+                        var following = (side + 1) % profile.Length;
+                        rails.Quad(previous[side], previous[following], next[following], next[side], railHead: side == 6);
                     }
-                    Cap(spanStart, false);
-                    Cap(spanEnd, true);
+                    previous = next;
+                }
+                Cap(spanStart, false);
+                Cap(spanEnd, true);
 
-                    Vector3[] Ring(double arc) => profile.Select(point => Point(arc, point)).ToArray();
-                    Vector3 Point(double arc, Vector2 point)
+                Vector3[] Ring(double arc) => profile.Select(point => Point(arc, point)).ToArray();
+                Vector3 Point(double arc, Vector2 point)
+                {
+                    var sample = sampleAt(arc, railOffset);
+                    var up = Vector3.Normalize(Vector3.Cross(sample.Forward, sample.Right));
+                    return RailwayCoordinates.Relative(sample.Position, origin) + sample.Right * point.X + up * point.Y;
+                }
+                void Cap(double arc, bool forward)
+                {
+                    Rectangle(-width, width, -height, -.8f * height);
+                    Rectangle(-.2f * width, .2f * width, -.8f * height, -.2f * height);
+                    Rectangle(-width, width, -.2f * height, 0);
+                    void Rectangle(float left, float right, float bottom, float top)
                     {
-                        var sample = sampleAt(arc, railOffset);
-                        var up = Vector3.Normalize(Vector3.Cross(sample.Forward, sample.Right));
-                        return RailwayCoordinates.Relative(sample.Position, origin) + sample.Right * point.X + up * point.Y;
-                    }
-                    void Cap(double arc, bool forward)
-                    {
-                        Rectangle(-width, width, -height, -.8f * height);
-                        Rectangle(-.2f * width, .2f * width, -.8f * height, -.2f * height);
-                        Rectangle(-width, width, -.2f * height, 0);
-                        void Rectangle(float left, float right, float bottom, float top)
-                        {
-                            var a = Point(arc, new(left, bottom));
-                            var b = Point(arc, new(right, bottom));
-                            var c = Point(arc, new(right, top));
-                            var d = Point(arc, new(left, top));
-                            if (forward) rails.Quad(a, b, c, d);
-                            else rails.Quad(d, c, b, a);
-                        }
+                        var a = Point(arc, new(left, bottom));
+                        var b = Point(arc, new(right, bottom));
+                        var c = Point(arc, new(right, top));
+                        var d = Point(arc, new(left, top));
+                        if (forward) rails.Quad(a, b, c, d);
+                        else rails.Quad(d, c, b, a);
                     }
                 }
             }

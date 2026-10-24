@@ -121,7 +121,11 @@ internal sealed class EditorService : IDisposable
             ContentLookup<DesignEvaluation>.Found { Value: DesignEvaluation.Partial value } => value.Definition,
             _ => null
         };
-        if (draft is null) Report($"实例设计不可用：{found.Value.Design.Value}");
+        if (draft is null)
+        {
+            _logger.Warning("editor", "editor_design_unavailable", $"实例设计不可用：{found.Value.Design.Value}");
+            Report("实例设计缺失或不可用，暂时无法编辑。");
+        }
         else Open(draft, target);
     }
 
@@ -341,12 +345,12 @@ internal sealed class EditorService : IDisposable
     {
         var encoded = Host.ContentFactory.EncodeDraft(draft);
         if (encoded is not ContentResult<string>.Success success)
-            return new(false, "draft_encoding_failed", Describe(encoded));
+            return new(false, "draft_encoding_failed", LogContentFailure(encoded));
         return _store.Write(DraftPath(draft), path => FileSaveStore.WriteCandidate(path, success.Value), path =>
         {
             var decoded = Host.ContentFactory.DecodeDraft(File.ReadAllText(path, new UTF8Encoding(false, true)));
             if (decoded is not ContentResult<SavedContentDraft>.Success)
-                throw new InvalidDataException(Describe(decoded));
+                throw new InvalidDataException(LogContentFailure(decoded));
         }, overwrite: true);
     }
 
@@ -381,7 +385,7 @@ internal sealed class EditorService : IDisposable
                     {
                         if (include(success.Value.Target)) drafts.Add(success.Value);
                     }
-                    else Report($"{file}：{Describe(result)}");
+                    else Report($"{file}：{LogContentFailure(result)}");
                 }
                 catch (Exception error) { Report($"{file}：{error.Message}"); }
             }
@@ -490,7 +494,9 @@ internal sealed class EditorService : IDisposable
     }
 
     private static string OperationMessage(HostOperationResult result) =>
-        result.Message ?? result.FaultCode ?? string.Join("\n", result.Diagnostics.Select(Describe));
+        result.FaultCode is not null ? "内容保存失败，详情见日志。"
+        : !result.Diagnostics.IsEmpty ? string.Join("\n", result.Diagnostics.Select(diagnostic => diagnostic.Message))
+        : result.Message ?? "内容保存失败，详情见日志。";
 
     private void Reopen(EditSnapshot snapshot, DraftTarget source, BlueprintSaveTarget target, DraftId draft, string message, CoreProblem? problem = null)
     {
@@ -698,13 +704,29 @@ internal sealed class EditorService : IDisposable
         _ when code.StartsWith("stale_", StringComparison.Ordinal) => "场景已更新，请重新操作。",
         _ => "场景出现问题，详情见日志。"
     };
-    private static string Describe<T>(ContentResult<T> result) where T : notnull => result switch
+    private string LogContentFailure<T>(ContentResult<T> result) where T : notnull
     {
-        ContentResult<T>.Failure failure => string.Join("\n", failure.Diagnostics.Select(Describe)),
-        ContentResult<T>.Faulted fault => $"{fault.Code}：{fault.Message}",
-        _ => ""
-    };
-    private void ReportResult<T>(ContentResult<T> result) where T : notnull => Report(Describe(result));
+        switch (result)
+        {
+            case ContentResult<T>.Failure failure:
+                foreach (var diagnostic in failure.Diagnostics)
+                    _logger.Warning("editor", "editor_operation_failed", Describe(diagnostic));
+                return failure.Diagnostics.IsEmpty ? "内容处理失败，详情见日志。"
+                    : string.Join("\n", failure.Diagnostics.Select(diagnostic => diagnostic.Message));
+            case ContentResult<T>.Faulted fault:
+                _logger.Error("editor", "editor_operation_failed", $"{fault.Code}：{fault.Message}",
+                    new Dictionary<string, object?> { ["diagnostic_stack_trace"] = fault.StackTrace });
+                return "内容处理失败，详情见日志。";
+            default:
+                return "";
+        }
+    }
+    private void ReportResult<T>(ContentResult<T> result) where T : notnull
+    {
+        Message = LogContentFailure(result);
+        HasError = true;
+        Changed?.Invoke();
+    }
     private void ReportResult<T>(SceneResult<T> result) where T : notnull
     {
         if (result is SceneResult<T>.Failure failure) ReportProblems(failure.Problems);
