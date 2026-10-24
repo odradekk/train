@@ -44,7 +44,7 @@ internal sealed class SceneFrame : ISceneFrame
     private readonly ImmutableArray<RailwaySegment> segments;
     private readonly ImmutableArray<SceneFog> fog;
     private readonly NodeLayout? node;
-    private readonly ImmutableArray<NodeScene.Part> nodeParts;
+    private readonly NodeHeights nodeHeights;
     internal RailwayPath? Railway => railway;
     internal NodeLayout? Node => node;
     internal sealed class StaticGeometry
@@ -196,7 +196,7 @@ internal sealed class SceneFrame : ISceneFrame
         SceneReadiness readiness, ImmutableArray<SceneObject> objects, ImmutableArray<PickGrid> picking,
         ImmutableArray<SceneFog> fog, ImmutableArray<SceneProblem> diagnostics, SceneFrame? displayed = null,
         RailwayPath? railway = null, ImmutableArray<RailwaySegment> segments = default,
-        NodeLayout? node = null, ImmutableArray<NodeScene.Part> nodeParts = default,
+        NodeLayout? node = null, NodeHeights? nodeHeights = null,
         SceneDebugLayer debugLayers = SceneDebugLayer.None, ImmutableDictionary<EdgeId, int>? nodeTracks = null,
         ScenePickRaySample? pickRay = null, ImmutableArray<SceneDebugLine> editLines = default,
         ImmutableArray<SceneEffectCue> effects = default, ImmutableArray<TerrainCollisionPatch> terrain = default,
@@ -213,7 +213,7 @@ internal sealed class SceneFrame : ISceneFrame
         this.railway = railway;
         this.node = node;
         NodeOverview = node?.Overview(origin);
-        this.nodeParts = nodeParts.IsDefault ? [] : nodeParts;
+        this.nodeHeights = nodeHeights ?? NodeHeights.Empty;
         this.segments = segments.IsDefault ? [] : segments;
         this.fog = fog;
         DebugLines = debugLayers == SceneDebugLayer.None ? [] :
@@ -318,14 +318,8 @@ internal sealed class SceneFrame : ISceneFrame
         if (!SceneGeometry.Finite(point)) throw new ArgumentException("Point must be finite.", nameof(point));
         if (node is not null)
         {
-            foreach (var part in nodeParts)
-            {
-                var x = Math.Floor(point.X + Origin.X - part.Origin.X);
-                var z = Math.Floor(point.Z + Origin.Z - part.Origin.Z);
-                if (x >= int.MinValue && x <= int.MaxValue && z >= int.MinValue && z <= int.MaxValue &&
-                    part.Heights.ContainsKey(new((int)x, (int)z))) return new Lookup<WorldLocation>.Found(new WorldLocation.Node(node.Node));
-            }
-            return new Lookup<WorldLocation>.Missing();
+            return nodeHeights.At(point.X + Origin.X, point.Z + Origin.Z) is not null
+                ? new Lookup<WorldLocation>.Found(new WorldLocation.Node(node.Node)) : new Lookup<WorldLocation>.Missing();
         }
         if (railway is null) return new Lookup<WorldLocation>.Missing();
         var distance = railway.Locate(RailwayCoordinates.Add(Origin, point));
@@ -339,14 +333,8 @@ internal sealed class SceneFrame : ISceneFrame
         var point = new ScenePoint(x + Origin.X, 0, z + Origin.Z);
         if (node is not null)
         {
-            foreach (var part in nodeParts)
-            {
-                var localX = Math.Floor(point.X - part.Origin.X);
-                var localZ = Math.Floor(point.Z - part.Origin.Z);
-                if (localX >= int.MinValue && localX <= int.MaxValue && localZ >= int.MinValue && localZ <= int.MaxValue &&
-                    part.Heights.TryGetValue(new((int)localX, (int)localZ), out var height)) return new Lookup<double>.Found(height - Origin.Y);
-            }
-            return new Lookup<double>.Missing();
+            return nodeHeights.At(point.X, point.Z) is { } height
+                ? new Lookup<double>.Found(height - Origin.Y) : new Lookup<double>.Missing();
         }
         foreach (var segment in segments)
         {

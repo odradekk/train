@@ -432,7 +432,7 @@ public sealed class NodeSwitchTests
         var origin = SceneFrame.SwitchOrigin(line, layout, null)!.Value;
         var empty = WorldSceneSession.BuildGeometry(_ => new([], [], []));
         var node = new SceneFrame(stamp with { Space = new(2) }, origin, 0, SceneReadiness.Ready, [], [], [], [],
-            node: layout, nodeParts: [new("", empty, boundary.Heights, boundary.Origin)]);
+            node: layout, nodeHeights: NodeHeights.Empty.WithPart((0, 0, 0, "boundary"), new("", empty, boundary.Heights, boundary.Origin)));
         var endpoint = path.Sample(reverse ? 0 : path.LengthCells).Position;
         var point = RailwayCoordinates.Relative(new(Math.Floor(endpoint.X) + 40.5, 0, Math.Floor(endpoint.Z) + .5), line.Origin);
         AssertHeight(line, node, point);

@@ -286,7 +286,7 @@ internal sealed class NodeScene : IAsyncDisposable
     private ImmutableDictionary<string, Part>? presentedParts;
     private ScenePoint? staticOrigin;
     private SceneFrame.StaticGeometry staticGeometry = SceneFrame.StaticGeometry.Empty;
-    private ImmutableArray<Part> staticParts = [];
+    private NodeHeights nodeHeights = NodeHeights.Empty;
     private ImmutableArray<TerrainCollisionPatch> staticTerrain = [];
     private SceneProblem? failure;
     internal NodeId Node { get; }
@@ -956,13 +956,13 @@ internal sealed class NodeScene : IAsyncDisposable
         if (presentation is { } state && layout is not null)
         {
             state.AddCreatures(objects, snapshot, new WorldLocation.Node(Node), origin, null, layout, seconds, objectId,
-                (x, z) => GroundHeight(staticParts, x, z));
+                (x, z) => nodeHeights.At(x, z) ?? 0);
             if (failure is null)
                 effects = state.Finish(objects, snapshot, new WorldLocation.Node(Node), origin, null);
         }
         return new(stamp, origin, seconds, readiness,
             objects.ToImmutable(), picking.ToImmutable(), fog.ToImmutable(), RailwayTerrain.UniqueProblems(problems), displayed,
-            node: layout, nodeParts: staticParts,
+            node: layout, nodeHeights: nodeHeights,
             debugLayers: request.DebugLayers, nodeTracks: layout?.EntryTracks, pickRay: request.PickRay,
             effects: effects, terrain: staticTerrain, staticGeometry: staticGeometry, staticPickOffset: trainPicks);
 
@@ -979,22 +979,30 @@ internal sealed class NodeScene : IAsyncDisposable
         foreach (var key in staticChanges)
         {
             var terrainKey = "terrain:" + key;
-            if (framePartKeys.Remove(key, out var oldOrder)) frameParts = frameParts.Remove(oldOrder);
+            var hadPrevious = framePartKeys.Remove(key, out var oldOrder);
+            if (hadPrevious) frameParts = frameParts.Remove(oldOrder);
             if (!attached.TryGetValue(key, out var part))
-            { changes[key] = null; terrainPatches.Remove(terrainKey); continue; }
+            {
+                changes[key] = null;
+                terrainPatches.Remove(terrainKey);
+                if (hadPrevious) nodeHeights = nodeHeights.WithPart(oldOrder, null);
+                continue;
+            }
             changes[key] = SceneGeometry.Place(part.Geometry, shift);
             var raw = cacheParts[key];
             var patch = terrainPatches.Get(terrainKey, () => objectId(terrainKey), raw.Origin, origin, raw.Heights);
             var order = PartOrder(key);
+            if (hadPrevious && oldOrder != order) nodeHeights = nodeHeights.WithPart(oldOrder, null);
             framePartKeys[key] = order;
             frameParts = frameParts.SetItem(order, (raw, patch));
+            nodeHeights = nodeHeights.WithPart(order, raw);
         }
         staticChanges.Clear();
         staticGeometry = staticGeometry.Apply(changes);
-        staticParts = frameParts.Values.Select(item => item.Part).ToImmutableArray();
         staticTerrain = frameParts.Values.Where(item => item.Terrain is not null).Select(item => item.Terrain!).ToImmutableArray();
         presentedParts = cacheParts;
         staticOrigin = origin;
+
     }
 
     private (int Kind, int Z, int X, string Key) PartOrder(string key)
