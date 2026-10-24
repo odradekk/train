@@ -33,7 +33,7 @@ internal static class CombatResolution
                         targetChosen = true;
                     }
                     if (target is not { } selected) continue;
-                    // 原流程没有目标时不会报告间隔超限。
+                    // 没有目标时不因间隔超限故障，已有录制和存档的回放结果保持不变。
                     if (interval is null) throw new InvalidOperationException("武器间隔超出可表示范围。");
                     if (Roll(world, content, combat, unit, weapon.Part, weapon.Damage, selected, step) is { } shot)
                         shots.Add(shot);
