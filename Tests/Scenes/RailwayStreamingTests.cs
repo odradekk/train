@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
+using Train.Core.ContractSupport;
 using Train.Scenes.Contracts;
 
 namespace Train.Scenes.Tests;
@@ -91,10 +93,48 @@ public sealed class RailwayStreamingTests
     public void Coverage_preserves_double_precision_at_the_strip_boundary()
     {
         var path = new RailwayPath(RailwayFixtures.Snapshot(lengthMeters: 800, directMeters: 800, relief: 0), RailwayFixtures.Edge);
-        var coverage = new RailwayStreamingCoverage(path, default, new(new(Guid.Empty), 1));
+        var coverage = new RailwayStreamingCoverage(path, new(new(Guid.Empty), 1)).At(default);
         var width = RailwayCoordinates.TerrainHalfWidth(1);
         Assert.AreEqual(1, coverage.FindTerrainParts(width - 1e-7, 64).Length);
         Assert.IsTrue(coverage.FindTerrainParts(width + 1e-7, 64).IsEmpty);
+    }
+
+    [TestMethod]
+    public void Coverage_owns_whole_columns_and_excludes_unbuilt_endpoint_caps()
+    {
+        var path = new RailwayPath(RailwayFixtures.Snapshot(lengthMeters: 800, directMeters: 800, relief: 0), RailwayFixtures.Edge);
+        var coverage = new RailwayStreamingCoverage(path, new(new(Guid.Empty), 1)).At(default);
+        foreach (var z in new[] { 127.01, 127.99, 128.01, 128.99 })
+        {
+            var owner = coverage.FindTerrainParts(.1, z).Single();
+            Assert.AreEqual(z < 128 ? "0" : "1", owner.Key);
+        }
+        Assert.IsTrue(coverage.FindTerrainParts(.1, -.01).IsEmpty);
+        Assert.AreEqual(1, coverage.FindTerrainParts(.1, path.LengthCells + .99).Length);
+        Assert.IsTrue(coverage.FindTerrainParts(.1, path.LengthCells + 1.01).IsEmpty);
+    }
+
+    [TestMethod]
+    public void Coverage_keeps_segment_local_columns_far_from_the_world_origin()
+    {
+        var original = RailwayFixtures.Snapshot(lengthMeters: 800, directMeters: 800, relief: 0);
+        var nodes = original.Core.World.Nodes.Select(node => node with
+            { Position = node.Position with { X = node.Position.X + 3_000_000_000 } }).ToImmutableArray();
+        var snapshot = original with { Core = new FixedCoreReadView
+        {
+            World = original.Core.World with { Nodes = nodes },
+            Position = original.Core.Position, InputIdentity = original.Core.InputIdentity,
+            Edges = new Dictionary<EdgeId, Lookup<EdgeView>> { [RailwayFixtures.Edge] = original.Core.FindEdge(RailwayFixtures.Edge) },
+            Nodes = nodes.ToDictionary(node => node.Id, node => (Lookup<NodeView>)new Lookup<NodeView>.Found(
+                ((Lookup<NodeView>.Found)original.Core.FindNode(node.Id)).Value with { Map = node }))
+        } };
+        var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
+        var coverage = new RailwayStreamingCoverage(path, new(new(Guid.Empty), 1));
+        var first = coverage.At(new(6_000_000_000, 0, 0));
+        var shifted = coverage.At(new(6_000_000_256, 0, 0));
+        var owner = first.FindTerrainParts(.1, 64).Single();
+        Assert.AreEqual("0", owner.Key);
+        Assert.AreEqual(owner, shifted.FindTerrainParts(-255.9, 64).Single());
     }
 
     [TestMethod]
@@ -113,6 +153,12 @@ public sealed class RailwayStreamingTests
         var z = sample.Position.Z - frame.Origin.Z;
         var expected = coverage.FindTerrainParts(x, z);
         Assert.AreEqual(1, expected.Length);
+        CollectionAssert.AreEqual(expected.ToArray(), coverage.FindTerrainParts(
+            Math.Floor(sample.Position.X) + .01 - frame.Origin.X,
+            Math.Floor(sample.Position.Z) + .01 - frame.Origin.Z).ToArray());
+        CollectionAssert.AreEqual(expected.ToArray(), coverage.FindTerrainParts(
+            Math.Floor(sample.Position.X) + .99 - frame.Origin.X,
+            Math.Floor(sample.Position.Z) + .99 - frame.Origin.Z).ToArray());
         Assert.IsFalse(observer.Changes.Any(item => item.Stage == SceneStreamingStage.Needed && item.Attempt.Part == expected[0]));
         var outside = RailwayCoordinates.Add(sample.Position, sample.Right * (float)(RailwayCoordinates.TerrainHalfWidth(1) + 10));
         Assert.IsTrue(coverage.FindTerrainParts(outside.X - frame.Origin.X, outside.Z - frame.Origin.Z).IsEmpty);

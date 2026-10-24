@@ -51,6 +51,7 @@ internal sealed class RailwayScene : IAsyncDisposable
     private ScenePoint? fogOrigin;
     private readonly DisplayRate displayRate;
     internal SceneStreamingScope? Streaming { get; }
+    private RailwayStreamingCoverage? streamingCoverage;
     private static string SegmentKey(int index) => index.ToString(CultureInfo.InvariantCulture);
     internal EdgeId Edge { get; }
     internal RailwayPath? Path => path;
@@ -145,8 +146,12 @@ internal sealed class RailwayScene : IAsyncDisposable
         terrainPatches.Retain(terrainKeys);
         var effects = Effects(snapshot, frame.Objects, seconds, origin, segments.Count > 0 && failure is null);
         if (Streaming is { } streaming)
+        {
+            if (streamingCoverage is null || !ReferenceEquals(streamingCoverage.Path, path))
+                streamingCoverage = new(path, streaming.Id);
             streaming.Frame(stamp, segments.Keys.Select(index => streaming.PartId(SceneStreamingPartKind.RailwaySegment, SegmentKey(index))),
-                new RailwayStreamingCoverage(path, origin, streaming.Id));
+                streamingCoverage.At(origin));
+        }
         return new(stamp, origin, seconds, failure is not null ? SceneReadiness.Failed : segments.Count == 0 ? SceneReadiness.Loading :
             ready ? SceneReadiness.Ready : SceneReadiness.Partial, frame.Objects.ToImmutable(), frame.Picking.ToImmutable(),
             frame.Fog.ToImmutable(), RailwayTerrain.UniqueProblems(frame.Problems), displayed, path,
