@@ -604,6 +604,7 @@ public class EditorUiTests(Node testScene) : TestClass(testScene)
             session.PresentCall = (_, _) => new SceneResult<ISceneFrame>.Success(first);
             display.Timestamp = () => 0;
             controller.Process(0);
+            await FramesUntil(TestScene, () => ReferenceEquals(display.DisplayedFrame, first));
             var geometry = display.Objects[new(1)].Visuals[0].Node;
             fixture.Editor.Select(new EditSelection.Elements([new(1)]));
             var pending = new FixedSceneFrame
