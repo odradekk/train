@@ -555,13 +555,19 @@ public sealed class NodeSceneTests
         session.Observe(founded, []);
         SceneFrame? swapped = null;
         var previous = displayed;
-        for (var attempt = 0; attempt < 40 && swapped is null; attempt++)
+        for (var attempt = 0; attempt < 256 && swapped is null; attempt++)
         {
             await SceneFixtures.AwaitPendingWork(session.PendingNodeBuilds);
             var next = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(
-                new(1, new(previous, aim, 6656), SceneDebugLayer.None), previous)).Value;
+                new(1, new(previous, aim, 1), SceneDebugLayer.None), previous)).Value;
             if (!SamePan(previous, next)) swapped = next;
-            else previous = next;
+            else
+            {
+                previous = next;
+                var successor = (NodeScene)typeof(WorldSceneSession).GetField("successor",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(session)!;
+                await SceneFixtures.AwaitPendingWork(successor.PendingFarWork);
+            }
         }
         Assert.IsNotNull(swapped);
         Assert.IsInstanceOfType<ScenePick.Hit>(swapped.Pick(new(aim, -Vector3.UnitY, 80)));

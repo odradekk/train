@@ -206,10 +206,15 @@ public sealed class RailwaySessionTests
             trains: [RailwayFixtures.Train(667, members)], instances: instances);
         await using var vehicles = new SceneVehicles();
         await using var scene = RailwayFixtures.Controlled(old, vehicles);
+        scene.SetFineTerrainBuildAllowed(false);
+        scene.SetTerrainViewRadius(members.Length * vehicleCells);
         var before = await Settled(scene, old, followed: new(30));
         var next = RailwayFixtures.Snapshot(1400, 1400, 0, content: content,
             trains: [RailwayFixtures.Train(669, members)], instances: instances);
         var after = await Settled(scene, next, displayed: before,
+            revision: before.Update.Frame.Revision + 1, followed: new(30));
+        await SceneFixtures.AwaitPendingWork(scene.PendingFarWork);
+        after = await Settled(scene, next, displayed: before,
             revision: before.Update.Frame.Revision + 1, followed: new(30));
         Assert.AreEqual(new ScenePoint(0, 0, RailwayCoordinates.OriginStepCells), after.Origin);
         Assert.AreEqual(new Vector3(0, 0, (float)-RailwayCoordinates.OriginStepCells), after.Update.ShiftExistingRoots);

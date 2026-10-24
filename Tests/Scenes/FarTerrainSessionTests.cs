@@ -54,6 +54,7 @@ public sealed class FarTerrainSessionTests
         FarTerrainView before;
         Task[] queued;
         // Hold publication until RequestView has revoked the candidate's lifetime.
+        lock (Field<object>(node, "workGate"))
         lock (Field<object>(terrain, "gate"))
         {
             node.SetTerrainViewRadius(1);
@@ -115,6 +116,7 @@ public sealed class FarTerrainSessionTests
             await started.Task;
             var successor = Field<NodeScene>(session, "successor");
             var terrain = Field<FarTerrain>(successor, "farTerrain");
+            lock (Field<object>(successor, "workGate"))
             lock (Field<object>(terrain, "gate"))
             {
                 release.Set();
