@@ -17,6 +17,41 @@ public sealed class NodeSwitchTests
     private static readonly SceneFrameRequest Request = new(1, null, SceneDebugLayer.None);
 
     [TestMethod]
+    public async Task Node_candidate_waits_for_a_displayed_ready_frame_in_the_current_railway_scope()
+    {
+        var snapshot = RailwayFixtures.Snapshot(content: RailwayFixtures.Content(design: RailwayFixtures.Vehicle()),
+            trains: [RailwayFixtures.Train()], instances: [RailwayFixtures.Instance()]);
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), snapshot, new(), new(), RailwayFixtures.EmptyNode);
+        var follow = new WorldSceneTarget.Follow(new(1), new(1));
+        session.RequestView(follow);
+        var loading = Present(session, null);
+        Assert.AreNotEqual(SceneReadiness.Ready, loading.Readiness);
+        var ready = await ReadyWithReceipt(loading);
+        Present(session, null);
+        Assert.IsNull(session.PrebuiltLocation, "Computing Ready without a displayed receipt must not start a node candidate.");
+        Present(session, ready);
+        Assert.IsInstanceOfType<WorldLocation.Node>(session.PrebuiltLocation);
+
+        session.RequestView(follow);
+        var current = await ReadyWithReceipt(ready);
+        Present(session, current);
+        Assert.IsInstanceOfType<WorldLocation.Node>(session.PrebuiltLocation,
+            "Only a Ready receipt from the new request and space may start its candidate.");
+
+        async Task<SceneFrame> ReadyWithReceipt(SceneFrame receipt)
+        {
+            for (var attempt = 0; attempt < 1000; attempt++)
+            {
+                await SceneFixtures.AwaitPendingWork(session.PendingRailwayBuilds.Concat(session.PendingObjectBuilds).ToArray());
+                var frame = Present(session, receipt);
+                Assert.IsNull(session.PrebuiltLocation, "Loading or an old scope's Ready receipt must not start prebuilding.");
+                if (frame.Readiness == SceneReadiness.Ready) return frame;
+            }
+            throw new AssertFailedException("The active railway did not reach Ready.");
+        }
+    }
+
+    [TestMethod]
     [DataRow(0d, 8d, 0d)]
     [DataRow(20d, 1d, 10d)]
     [DataRow(20d, 8d, 80d)]
@@ -116,6 +151,24 @@ public sealed class NodeSwitchTests
         Assert.IsTrue(railSegments.Values.Where(segment => near.Intersects(segment.Bounds))
             .All(segment => cache.Read(NodeFixtures.NodeId)!.Parts.ContainsKey(segment.Key)));
 
+        var loadingEnvelope = new NodeRange(route.Sample(26).Position,
+            NodeStreaming.ViewCells + 2 * NodeStreaming.PathSampleCells);
+        var deferredChunk = corridor.Chunks.First(from => !loadingEnvelope.Intersects(from) && !near.Intersects(from));
+        var deferredKey = NodeScene.ChunkKey(deferredChunk);
+        var fullCandidate = ((SceneResult<SceneUpdate?>.Success)session.PresentCandidate(null)).Value!;
+        var candidateFrame = observer.Snapshot().OfType<SceneStreamingEvent.Frame>()
+            .Single(value => value.Stamp == fullCandidate.Frame);
+        Assert.IsTrue(candidateFrame.Parts.Any(part => part.Part.Key == deferredKey));
+        var deferredIds = observer.Snapshot().OfType<SceneStreamingEvent.Changed>()
+            .Last(value => value.Stage == SceneStreamingStage.Admitted && value.Attempt.Part.Key == deferredKey).Objects;
+        Assert.IsTrue(deferredIds.Length > 0 && deferredIds.All(id => fullCandidate.Upserts.Any(item => item.Id == id)));
+        Assert.AreSame(fullCandidate, ((SceneResult<SceneUpdate?>.Success)session.PresentCandidate(null)).Value);
+        session.PresentCandidate(fullCandidate.Frame);
+        Assert.AreEqual(1, observer.Snapshot().OfType<SceneStreamingEvent.Frame>().Count(value => value.Stamp == fullCandidate.Frame),
+            "Returning a held offer or its unchanged acknowledgement must not duplicate a streaming Frame stamp.");
+        var buildsBefore = observer.Snapshot().OfType<SceneStreamingEvent.Changed>()
+            .Count(value => value.Stage == SceneStreamingStage.Started && value.Attempt.Part.Key == deferredKey);
+
         session.Observe(NodeFixtures.Snapshot(platforms: 0, trains: [train with
         { Position = new TrainPosition.Node(NodeFixtures.NodeId, inlet.Edge, 1, null, null, NodeTravelPhase.Approaching, 0, null) }],
             content: content, steps: 1, tracks: 2, trackLimit: 2, platformLengthMeters: 0), []);
@@ -125,7 +178,13 @@ public sealed class NodeSwitchTests
             .Any(value => value.Scene == candidate.Scene));
         Assert.AreNotEqual(SceneReadiness.Loading, first.Readiness,
             "The candidate must supply the near zone before handover; the train head may extend the forward demand.");
-        await RailwayFixtures.Settled(session, Request, first);
+        Assert.IsFalse(deferredIds.Any(first.ContainsObject), "The first promoted frame must leave the far corridor queued.");
+        Assert.IsFalse(StreamingScenario.AssertFrameMatches(observer.Snapshot(), first).Parts.Any(part => part.Part.Key == deferredKey));
+        var settled = await RailwayFixtures.Settled(session, Request, first);
+        Assert.IsTrue(deferredIds.All(settled.ContainsObject), "Later admitted batches must keep the exact candidate object identities.");
+        Assert.AreEqual(buildsBefore, observer.Snapshot().OfType<SceneStreamingEvent.Changed>()
+            .Count(value => value.Stage == SceneStreamingStage.Started && value.Attempt.Part.Key == deferredKey),
+            "Moving a prebuilt part back to the admission queue must not build it again.");
         var retained = cache.Read(NodeFixtures.NodeId)!;
         var expected = new NodeRange(entry, NodeStreaming.PrefetchCells).Chunks(expectedLayout)
             .Select(NodeScene.ChunkKey).ToArray();

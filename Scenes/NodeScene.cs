@@ -380,6 +380,7 @@ internal sealed class NodeScene : IAsyncDisposable
         FollowedPath? following = null, TrainView? followedTrain = null, WorldSceneTarget? target = null)
     {
         SetBuildAllowed(allowBuild);
+        var promote = preparingCandidate && enteringTrain is null;
         preparingCandidate = enteringTrain is not null;
         if (current is not null) snapshot = current;
         AcceptRefresh();
@@ -450,7 +451,11 @@ internal sealed class NodeScene : IAsyncDisposable
         UpdatePrefetch(target, following);
         if (prepared is null) return;
         if (!hadLayout) settlement.Pump(snapshot, layout!, range, allowBuild, prefetch, corridor);
-        lock (workGate) ReconcileParts();
+        lock (workGate)
+        {
+            if (promote) DeferCandidateParts();
+            ReconcileParts();
+        }
         if (!ReferenceEquals(publishedBuilt, built) || !ReferenceEquals(publishedParts, cacheParts))
         {
             cache.Publish(Node, owner, built! with { Parts = cacheParts });
@@ -850,21 +855,46 @@ internal sealed class NodeScene : IAsyncDisposable
     private static SceneBounds ChunkBounds(GridColumn from) => new(new(from.X, -128, from.Z),
         new(from.X + VoxelGrid.ChunkSize, 128, from.Z + VoxelGrid.ChunkSize));
 
+    private bool InInitialRange(SceneBounds bounds) => range.Around(NodeStreaming.NearCells).Intersects(bounds) ||
+        NodeStreaming.PathPriority(bounds, followedPath?.Loading ?? []).Distance <=
+            NodeStreaming.PathSampleCells * NodeStreaming.PathSampleCells;
+
+    private void DeferCandidateParts()
+    {
+        foreach (var (from, part) in chunks.Where(pair => !InInitialRange(ChunkBounds(pair.Key))).ToArray())
+        {
+            var key = ChunkKey(from);
+            if (!rebuilding.Contains(key)) completedParts.Add(key, new(part, ChunkBounds(from), from, CachedPart(key)));
+            chunks.Remove(from);
+            ChangeTerrain(from, false);
+            Detach(key);
+        }
+        foreach (var (key, part) in rails.Where(pair => !InInitialRange(prepared!.Rails[pair.Key].Bounds)).ToArray())
+        {
+            if (!rebuilding.Contains(key)) completedParts.Add(key, new(part, prepared!.Rails[key].Bounds, null, CachedPart(key)));
+            IndexRail(key, false);
+            rails.Remove(key);
+            peripheralRails.Remove(key);
+            Detach(key);
+            railFogDirty = true;
+        }
+        nearCompleted = awaitingDisplay = false;
+        admissionFrame = null;
+        streamingPlan = null;
+    }
+
     private void AdmitCompletedParts()
     {
         if (!preparingCandidate && nearCompleted && awaitingDisplay) return;
-        var near = range.Around(NodeStreaming.NearCells);
         long vertices = 0;
         var visuals = 0;
         var count = 0;
         var pathBatch = false;
-        const double pathMargin = NodeStreaming.PathSampleCells;
         foreach (var (key, ready, priority) in completedParts
             .Select(item => (item.Key, item.Value, Priority: Priority(item.Value.Bounds)))
             .OrderBy(item => item.Priority).ThenBy(item => item.Key, StringComparer.Ordinal).ToArray())
         {
-            if (!preparingCandidate && !nearCompleted && !near.Intersects(ready.Bounds) && NodeStreaming.PathPriority(ready.Bounds, followedPath?.Loading ?? []).Distance >
-                pathMargin * pathMargin) continue;
+            if (!preparingCandidate && !nearCompleted && !InInitialRange(ready.Bounds)) continue;
             // One indivisible part may exceed the batch target, but must never block the queue.
             // Keep path parts separate from peripheral work.
             if ((nearCompleted || preparingCandidate) && count > 0 && (vertices + ready.Vertices > NodeStreaming.AdmissionVertexLimit ||

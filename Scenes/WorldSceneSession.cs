@@ -38,6 +38,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         internal readonly Dictionary<string, SceneObjectId> ByKey = [];
         internal readonly Dictionary<SceneObjectId, string> Keys = [];
         internal readonly List<SceneObjectId> New = [];
+        internal readonly HashSet<SceneObjectId> Prebuilt = [];
         internal SceneFrame? Frame;
         internal ImmutableArray<TerrainCollisionPatch> Terrain;
         internal HashSet<SceneObjectId> TerrainIds = [];
@@ -235,7 +236,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             if (retire is not null) closingScenes.Add(retire.DisposeAsync().AsTask());
             if (railway is not null) sceneOrigin = null;
             RetainObjectIds(frame);
-            Prebuild();
+            Prebuild(displayedFrame as SceneFrame);
             PruneCaches();
             return new SceneResult<ISceneFrame>.Success(frame);
         }
@@ -309,6 +310,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     private void RetainObjectIds(SceneFrame frame)
     {
         var assigned = ids;
+        if (assigned.Prebuilt.Count > 0)
+            foreach (var item in frame.Update.Upserts) assigned.Prebuilt.Remove(item.Id);
         var terrain = frame.Update.Environment.TerrainCollision;
         HashSet<SceneObjectId>? previousTerrain = null;
         if (assigned.Terrain != terrain)
@@ -328,7 +331,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
 
         void RemoveIfAbsent(SceneObjectId id)
         {
-            if (!frame.ContainsObject(id) && !assigned.TerrainIds.Contains(id) && assigned.Keys.Remove(id, out var key))
+            if (!assigned.Prebuilt.Contains(id) && !frame.ContainsObject(id) &&
+                !assigned.TerrainIds.Contains(id) && assigned.Keys.Remove(id, out var key))
                 assigned.ByKey.Remove(key);
         }
     }
@@ -382,6 +386,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         if (candidate is { } next && SameLocation(next.Location, location) && next.Node is not { Layout: null })
         {
             railway = next.Railway; node = next.Node; ids = next.Ids; space = next.Space;
+            if (node is not null) ids.Prebuilt.UnionWith(ids.Keys.Keys);
             candidate = null;
             railway?.Streaming?.Activate();
             node?.Streaming?.Activate();
@@ -426,7 +431,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
 
     private static SceneObjectId? Find(ObjectIds map, string key) =>
         map.ByKey.TryGetValue(key, out var id) ? id : null;
-    private void Prebuild()
+    private void Prebuild(SceneFrame? displayed)
     {
         if (target is not WorldSceneTarget.Follow follow) return;
         var train = ((Lookup<TrainView>.Found)snapshot.Core.FindTrain(follow.Train)).Value;
@@ -435,7 +440,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         if (railway is not null && train.Position is TrainPosition.Edge at && snapshot.Core.FindEdge(at.Id) is Lookup<EdgeView>.Found current)
         {
             wanted = new WorldLocation.Node(at.Direction == TravelDirection.Forward ? current.Value.Map.End : current.Value.Map.Start);
-            startCandidate = railway.Ready;
+            startCandidate = displayed is { Readiness: SceneReadiness.Ready } &&
+                displayed.Update.Frame.Request == request && displayed.Update.Frame.Space == space;
         }
         if (node is not null && (train.Position as TrainPosition.Node)?.NextEdge is { } next && snapshot.Core.FindEdge(next) is Lookup<EdgeView>.Found edge)
             wanted = new WorldLocation.Edge(next, edge.Value.Map.Start == node.Node ? 0 : edge.Value.Map.LengthMeters);
@@ -444,7 +450,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         if (SameLocation(rejectedCandidate, wanted)) return;
         rejectedCandidate = null;
         var allowBuild = wanted is WorldLocation.Node
-            ? railway?.Ready == true || candidate?.Node is not null
+            ? startCandidate || candidate?.Node is not null
             : node?.HasPendingBuilds != true && railway?.HasPendingBuilds != true;
         // Keep at most one background candidate alive, including cancellation that is still draining.
         if (allowBuild && startCandidate && candidate is null && retiringCandidate?.IsCompleted != false)
