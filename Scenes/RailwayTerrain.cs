@@ -163,6 +163,36 @@ internal static class RailwayTerrain
     internal static BoundaryData NodeBoundary(SceneWorldSnapshot snapshot, RailwayPath path, NodeId node, NodeLayout.Entry entry, CancellationToken token) =>
         new SegmentBuilder(snapshot, path, node == path.Start.Id ? 0 : path.SegmentCount - 1, token).Boundary(node, entry);
 
+    internal static Dictionary<GridColumn, T> SampleColumns<T>(RailwayPath path, int index, ScenePoint origin,
+        Func<ScenePoint, GridColumn, double, double, T> create, CancellationToken cancellation = default)
+    {
+        var columns = new Dictionary<GridColumn, T>();
+        var begin = index * RailwayCoordinates.SegmentLengthCells;
+        var end = Math.Min(path.LengthCells, begin + RailwayCoordinates.SegmentLengthCells);
+        var halfWidth = RailwayCoordinates.TerrainHalfWidth(path.Edge.Tracks);
+        for (var arc = begin; arc <= end; arc = Math.Min(end, arc + 0.5))
+        {
+            cancellation.ThrowIfCancellationRequested();
+            var sample = path.Sample(arc);
+            for (var offset = -halfWidth; offset <= halfWidth; offset += 0.5)
+            {
+                var point = path.Sample(arc, offset).Position;
+                var wx = Math.Floor(point.X); var wz = Math.Floor(point.Z);
+                var column = new GridColumn(checked((int)(wx - origin.X)), checked((int)(wz - origin.Z)));
+                if (columns.ContainsKey(column)) continue;
+                var center = new ScenePoint(wx + 0.5, sample.Position.Y, wz + 0.5);
+                var located = path.Locate(center);
+                if (located < begin || located >= end && index != path.SegmentCount - 1) continue;
+                var nearest = path.Sample(located);
+                var lateral = (center.X - nearest.Position.X) * nearest.Right.X + (center.Z - nearest.Position.Z) * nearest.Right.Z;
+                if (Math.Abs(lateral) > halfWidth) continue;
+                columns.Add(column, create(center, column, located, lateral));
+            }
+            if (arc == end) break;
+        }
+        return columns;
+    }
+
     private sealed class SegmentBuilder
     {
         private readonly SceneWorldSnapshot snapshot;
@@ -284,31 +314,8 @@ internal static class RailwayTerrain
             return (tunnelIntervals.ToImmutable(), portals);
         }
 
-        private Dictionary<GridColumn, TerrainColumn> SampleColumns()
-        {
-            var columns = new Dictionary<GridColumn, TerrainColumn>();
-            for (var arc = begin; arc <= end; arc = Math.Min(end, arc + 0.5))
-            {
-                cancellation.ThrowIfCancellationRequested();
-                var sample = path.Sample(arc);
-                for (var offset = -(double)halfWidth; offset <= halfWidth; offset += 0.5)
-                {
-                    var point = path.Sample(arc, offset).Position;
-                    var wx = Math.Floor(point.X); var wz = Math.Floor(point.Z);
-                    var column = new GridColumn(checked((int)(wx - origin.X)), checked((int)(wz - origin.Z)));
-                    if (columns.ContainsKey(column)) continue;
-                    var center = new ScenePoint(wx + 0.5, sample.Position.Y, wz + 0.5);
-                    var located = path.Locate(center);
-                    if (located < begin || located >= end && index != path.SegmentCount - 1) continue;
-                    var nearest = path.Sample(located);
-                    var lateral = (center.X - nearest.Position.X) * nearest.Right.X + (center.Z - nearest.Position.Z) * nearest.Right.Z;
-                    if (Math.Abs(lateral) > halfWidth) continue;
-                    columns.Add(column, Column(center, column, located, lateral));
-                }
-                if (arc == end) break;
-            }
-            return columns;
-        }
+        private Dictionary<GridColumn, TerrainColumn> SampleColumns() =>
+            RailwayTerrain.SampleColumns(path, index, origin, Column, cancellation);
 
         private TerrainColumn Column(ScenePoint center, GridColumn column, double arc, double lateral)
         {

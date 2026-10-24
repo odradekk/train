@@ -20,6 +20,51 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
     private static readonly SceneSessionId Session = new(Guid.Parse("7dd364aa-df8f-4144-b345-fc130ea11ca9"));
 
     [Test]
+    public async Task Promoted_subset_retains_prebuilt_visuals_for_later_batches_until_the_space_changes()
+    {
+        await new UiTestInput(TestScene).Frames(2);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView());
+        Commit(display, Frame(1, []));
+        var a = Object(1, Mesh());
+        var b = Object(2, Mesh());
+        var c = Object(3, Mesh());
+        var candidate = Frame(2, [a, b, c], space: 2);
+        var before = OrphanIds();
+        display.ReceiveCandidate(candidate.Update);
+        await new UiTestInput(TestScene).Frames(1);
+        display.Timestamp = () => 0;
+        display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
+        var detached = NewOrphanRoots(before);
+        Require(detached.Length == 3, "候选必须预备三个脱树视觉。");
+        var meshes = detached.ToDictionary(node => node,
+            node => node.GetChild<MeshInstance3D>(0).Mesh);
+        var first = Frame(3, [a], space: 2);
+        Commit(display, first);
+        var firstVisual = display.Objects[a.Id].Visuals[0];
+        Require(detached.Contains(firstVisual.Node) && display.CandidateProgress(first.Update.Frame) is (2, 3),
+            "缩小后的晋升首帧必须保留尚未接入的B和C。");
+        var next = Frame(4, [b], first.Update.Frame, space: 2);
+        using (var prepared = Prepare(display, next))
+        {
+            var visual = prepared.Objects[b.Id].Visuals[0];
+            Require(detached.Contains(visual.Node) && ReferenceEquals(meshes[visual.Node],
+                visual.Node.GetChild<MeshInstance3D>(0).Mesh),
+                "后续批次必须转移预备视觉及同一网格，不能再次Prepare。");
+            prepared.Commit();
+            Require(ReferenceEquals(visual, display.Objects[b.Id].Visuals[0]),
+                "提交必须保留已转移的PreparedVisual本体。");
+        }
+        var unused = detached.Single(node => node.GetParent() is null);
+        var unusedMesh = meshes[unused];
+        Require(display.CandidateProgress(next.Update.Frame) is (1, 3), "C必须继续等待后续批次。");
+        Commit(display, Frame(5, [], space: 3));
+        Require(!GodotObject.IsInstanceValid(unused) && !GodotObject.IsInstanceValid(unusedMesh) &&
+            !display.HasCandidateFor(candidate.Update.Frame), "切换Space必须释放尚未取用的C及其网格。");
+    }
+
+    [Test]
     public async Task Prebuilt_candidate_obeys_its_budget_and_remains_detached_until_all_visuals_are_prepared()
     {
         await new UiTestInput(TestScene).Frames(2);
@@ -179,7 +224,22 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         long timestamp = 0;
         display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
         var candidate = Frame(2, [Object(2, mesh) with { Subject = subject }, Object(3, mesh)], first.Update.Frame);
+        List<SceneDisplayEvent> events = [];
+        display.Observe = item =>
+        {
+            if (item.Stage == SceneDisplayStage.FrameCommitted)
+                Require(ReferenceEquals(display.DisplayedFrame, candidate) &&
+                    display.Objects[new(3)].Root.IsInsideTree(), "提交记录必须在完整候选进入显示树后发出。");
+            events.Add(item);
+        };
         Require(display.Prepare(candidate) is null, "锁定候选必须在第一个资源后暂停。");
+        Require(events.Count == 2 && events[0].Stage == SceneDisplayStage.FramePreparationStarted &&
+            events[0].Object is null && events[0].ResourceObjects is { } required &&
+            required.SequenceEqual(new SceneObjectId[] { new(2), new(3) }),
+            "候选冻结时必须一次列出完整的新视觉资源对象。");
+        Require(events[1].Object == new SceneObjectId(2) &&
+            events[1].Stage == SceneDisplayStage.ResourcesPrepared && events[1].Frame == candidate.Update.Frame,
+            "单个对象资源就绪必须立即记录，不能等待整个候选准备完成。");
         var latest = Frame(3,
             [Object(2, mesh, new(-70, 0, 0)) with { Subject = subject }, Object(4, mesh)],
             first.Update.Frame, new(-100, 0, 0), new(100, 0, 0),
@@ -190,7 +250,16 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         Require(prepared is not null, "第二次调用必须完成锁定候选，不能等待最新帧追加的对象。");
         Require(ReferenceEquals(display.PoseFrame, latest) && ReferenceEquals(display.DisplayedFrame, first),
             "准备期间姿态帧必须更新，网格基准必须保持最后完整帧。");
+        Require(events.Count(item => item.Stage == SceneDisplayStage.ResourcesPrepared) == 2 &&
+            events[^1].Stage == SceneDisplayStage.FramePrepared &&
+            events.Count(item => item.Stage == SceneDisplayStage.FramePreparationStarted) == 1 &&
+            events[0].ResourceObjects!.Value.SequenceEqual(new SceneObjectId[] { new(2), new(3) }),
+            "分预算恢复不得重复记录对象资源，也不能提前记录提交。");
         prepared!.Commit();
+        Require(events.Count == 5 && events.All(item => item.Frame == candidate.Update.Frame &&
+            item.Candidate == events[0].Candidate) &&
+            events[^1].Stage == SceneDisplayStage.FrameCommitted && events[^1].Object is null,
+            "较新输入不能覆盖冻结候选的完整身份，完整提交必须仅记录一次。");
         display.UpdatePoses(latest);
         Require(ReferenceEquals(display.DisplayedFrame, candidate) && ReferenceEquals(display.PoseFrame, latest),
             "提交锁定候选后必须恢复最新姿态帧。");
@@ -205,6 +274,128 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         Require(!display.CanSelect(Hit(4)), "最新帧新增但尚未显示的对象不得可选。");
         Require(!display.CanSelect(Hit(3)), "候选更新而最新帧省略的对象无法证明兼容，不得可选。");
         await new UiTestInput(TestScene).Frames(2);
+    }
+
+    [Test]
+    public async Task Resource_prepared_waits_for_every_visual_of_the_object()
+    {
+        await new UiTestInput(TestScene).Frames(2);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView());
+        var original = Object(1, Mesh());
+        var baseline = Frame(1, [original]);
+        Commit(display, baseline);
+        var reused = display.Objects[original.Id].Visuals[0];
+        var added = Object(1, Mesh()).Visuals[0];
+        var source = original with { Visuals = [original.Visuals[0], added, added] };
+        List<SceneDisplayEvent> events = [];
+        display.Observe = events.Add;
+        long timestamp = 0;
+        display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
+        var frame = Frame(2, [source], baseline.Update.Frame);
+        Require(display.Prepare(frame) is null && events.Count == 1 &&
+            events[0].Stage == SceneDisplayStage.FramePreparationStarted && events[0].Object is null &&
+            events[0].ResourceObjects is { } required && required.SequenceEqual(new[] { source.Id }),
+            "复用一个、只新准备一个视觉资源不能记录整个对象资源就绪。");
+        using var prepared = Prepare(display, frame);
+        Require(ReferenceEquals(prepared.Objects[source.Id].Visuals[0], reused) &&
+            prepared.Objects[source.Id].Visuals.Length == 3,
+            "多视觉对象必须保留已显示的视觉资源，并准备其余两个视觉资源。");
+        Require(events.Count == 3 && events[2].Stage == SceneDisplayStage.FramePrepared && events[1].Object == source.Id &&
+            events[1].Stage == SceneDisplayStage.ResourcesPrepared,
+            "全部视觉资源准备完才记录一次对象资源就绪。");
+        prepared.Commit();
+        Require(events.Count == 4 && events[3].Stage == SceneDisplayStage.FrameCommitted &&
+            events[3].Object is null,
+            "帧提交应在对象资源就绪与整帧准备完成之后记录一次。");
+    }
+
+    [Test]
+    public async Task Reused_or_removed_visuals_and_empty_objects_do_not_emit_resource_timings()
+    {
+        await new UiTestInput(TestScene).Frames(2);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView());
+        var moving = Object(1, Mesh());
+        var shrinking = Object(2, Mesh());
+        shrinking = shrinking with { Visuals = [shrinking.Visuals[0], shrinking.Visuals[0]] };
+        var emptied = Object(3, Mesh());
+        var first = Frame(1, [moving, shrinking, emptied]);
+        Commit(display, first);
+        List<SceneDisplayEvent> events = [];
+        display.Observe = events.Add;
+        var empty = Object(4, Mesh()) with { Visuals = [] };
+        Commit(display, Frame(2, [
+            moving with { Pose = new(new(10, 0, 0), NQuaternion.Identity) },
+            shrinking with { Visuals = [shrinking.Visuals[0]] },
+            emptied with { Visuals = [] }, empty], first.Update.Frame));
+        Require(events.Count == 3 && events[0].Stage == SceneDisplayStage.FramePreparationStarted &&
+            events[0].ResourceObjects is { IsEmpty: true } &&
+            events[1].Stage == SceneDisplayStage.FramePrepared && events[2].Stage == SceneDisplayStage.FrameCommitted &&
+            events.All(item => item.Object is null && item.Frame == display.DisplayedFrame!.Update.Frame),
+            "全复用候选也必须准确记录完整准备与实际提交，但不能虚构逐对象资源时延。");
+        Near(display.Objects[moving.Id].Root.Position, new(10, 0, 0));
+        Require(display.Objects[shrinking.Id].Visuals.Length == 1 &&
+            display.Objects[emptied.Id].Visuals.Length == 0 && display.Objects.ContainsKey(empty.Id),
+            "不记录资源时延的更新仍须正常提交。");
+    }
+
+    [Test]
+    public async Task Cancelled_candidates_keep_their_identity_when_the_same_frame_is_retried()
+    {
+        await new UiTestInput(TestScene).Frames(2);
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView());
+        var reused = Mesh();
+        var first = Frame(1, [Object(1, reused)]);
+        Commit(display, first);
+        List<SceneDisplayEvent> events = [];
+        display.Observe = events.Add;
+        long timestamp = 0;
+        display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
+        var frame = Frame(2, [Object(1, reused), Object(2, Mesh()), Object(3, Mesh())],
+            first.Update.Frame);
+        Require(display.Prepare(frame) is null, "候选必须在准备后续对象前暂停。");
+        Require(events.Count == 2 && events[0].Stage == SceneDisplayStage.FramePreparationStarted &&
+            events[0].Object is null && events[0].ResourceObjects is { } required &&
+            required.SequenceEqual(new SceneObjectId[] { new(2), new(3) }) &&
+            events[1].Object == new SceneObjectId(2) && events[1].Stage == SceneDisplayStage.ResourcesPrepared,
+            "只为新准备视觉资源的对象记录资源就绪，复用对象不记录。");
+        var cancelledCandidate = events[0].Candidate;
+        display.CancelPreparation();
+        Require(events[^1] == new SceneDisplayEvent(cancelledCandidate, frame.Update.Frame, null,
+            SceneDisplayStage.HostCancelled), "取消必须单独记录原候选身份。");
+        display.CancelPreparation();
+        Require(events.Count == 3, "重复清理不能重复记录取消。");
+        await new UiTestInput(TestScene).Frames(1);
+        display.Timestamp = () => timestamp;
+        var abandoned = Prepare(display, frame);
+        var abandonedCandidate = events[^1].Candidate;
+        Require(abandonedCandidate != cancelledCandidate, "同一帧重试必须具有不同候选身份。");
+        abandoned.Dispose();
+        abandoned.Dispose();
+        Require(events.Count(item => item.Stage == SceneDisplayStage.HostCancelled) == 2 &&
+            events[^1] == new SceneDisplayEvent(abandonedCandidate, frame.Update.Frame, null,
+                SceneDisplayStage.HostCancelled), "完整准备后丢弃也必须准确且仅记录一次取消。");
+        Require(events.All(item => item.Stage != SceneDisplayStage.FrameCommitted), "取消候选不能记录成功提交。");
+        using var retry = Prepare(display, frame);
+        var committedCandidate = events[^1].Candidate;
+        retry.Commit();
+        Require(committedCandidate != abandonedCandidate && events.Count(item =>
+            item.Stage == SceneDisplayStage.FrameCommitted) == 1 &&
+            events[^1] == new SceneDisplayEvent(committedCandidate, frame.Update.Frame, null,
+                SceneDisplayStage.FrameCommitted),
+            "再次重试的提交不能归因于已经取消的候选。");
+        var starts = events.Where(item => item.Stage == SceneDisplayStage.FramePreparationStarted).ToArray();
+        Require(starts.Length == 3 && starts.Select(item => item.Candidate).Distinct().Count() == 3 &&
+            starts.Select(item => item.Candidate).SequenceEqual(new[] { cancelledCandidate, abandonedCandidate, committedCandidate }) &&
+            starts.All(item => item.Frame == frame.Update.Frame && item.Object is null &&
+                item.ResourceObjects is { } objects && objects.SequenceEqual(new SceneObjectId[] { new(2), new(3) })),
+            "每次重试必须重新冻结完整资源集合，并发出不同身份的开始通知。");
+        display.Observe = null;
     }
 
     [Test]

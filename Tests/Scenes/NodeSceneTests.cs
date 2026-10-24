@@ -8,6 +8,7 @@ using Train.Content.ContractSupport;
 using Train.Core.Contracts;
 using Train.Core.ContractSupport;
 using Train.Scenes.Contracts;
+using Train.Scenes.ContractSupport;
 
 namespace Train.Scenes.Tests;
 
@@ -492,9 +493,13 @@ public sealed class NodeSceneTests
         var founded = CopiedSettlement(1, terrain: false, train: train);
         var empty = RailwayFixtures.ReplaceCore(founded, node: founded.Core.World.Nodes[0] with
             { Occupant = new NodeOccupant.Empty(), Platforms = 0 });
-        await using var session = Open(empty);
+        var observer = new RecordingStreamingObserver();
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), empty, new(), new(), observer: observer);
         session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location));
         var before = await RailwayFixtures.Settled(session, new(1, null, SceneDebugLayer.None));
+        var active = observer.Snapshot().OfType<SceneStreamingEvent.Opened>()
+            .Single(value => value.Role == SceneStreamingRole.Active);
+        Assert.AreEqual(active.Scene, StreamingScenario.AssertFrameMatches(observer.Snapshot(), before).Scene);
         session.Observe(founded, []);
         var held = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(new(1, null, SceneDebugLayer.None), before)).Value;
         Assert.AreEqual(before.NodePanBounds, held.NodePanBounds);
@@ -516,6 +521,16 @@ public sealed class NodeSceneTests
         Assert.IsFalse(after.Diagnostics.Any(problem => problem.Code == "railway_update_pending"));
         Assert.IsFalse(after.Diagnostics.Any(problem => problem.Code == "content_missing" && problem.Detail.Contains("layout copy")));
         Assert.IsFalse(after.Diagnostics.Any(problem => problem.Code == "station_platform_mismatch"));
+        var successor = observer.Snapshot().OfType<SceneStreamingEvent.Opened>()
+            .Single(value => value.Role == SceneStreamingRole.Successor);
+        Assert.AreNotEqual(active.Scene, successor.Scene);
+        Assert.AreEqual(successor.Scene, StreamingScenario.AssertFrameMatches(observer.Snapshot(), after).Scene);
+        Assert.IsTrue(observer.Snapshot().OfType<SceneStreamingEvent.Activated>()
+            .Any(value => value.Scene == successor.Scene));
+        await session.DisposeAsync();
+        var closed = observer.Snapshot().OfType<SceneStreamingEvent.Closed>().Select(value => value.Scene).ToArray();
+        Assert.IsTrue(closed.Contains(active.Scene));
+        Assert.IsTrue(closed.Contains(successor.Scene));
     }
 
     [TestMethod]

@@ -196,6 +196,66 @@ pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measuremen
 | `route-frames.jsonl`、`route-ranges.jsonl`、`route-analysis.json` | 整路逐帧轨迹、范围变化及离线覆盖结果；不能把未知或观察不足当作通过 |
 | `measured.save.json`、截图 | 对应情景生成的存档副本或画面 |
 
+### 流式宿主记录
+
+`scene-route-*` 的流式记录默认关闭。原有路线入口不传新参数时，镜头、采样与原有输出保持原行为。单组可用 `-StreamingDiagnostics -RouteCamera default|farthest`；`Scenario` 和 `RouteCamera` 均支持多值，以下组合生成完整矩阵：
+
+```powershell
+& ./scripts/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/starting-trade/save.json -OutputDirectory TestResults/streaming-matrix -Scenario scene-route-1x,scene-route-8x -StreamingDiagnostics -RouteCamera default,farthest
+```
+
+矩阵使用 `examples/starting-trade/save.json` 作为输入，默认目标为列车 1，复用 `scene-route-1x`、`scene-route-8x` 各自的完整线路→节点→线路路线。输入身份保留在每个进程的 `identity.json.input.sha256`，构建身份仍由原有入口校验。每种速度分别使用默认和最远镜头，各运行 3 个新进程；目录例如 `scene-route-8x-farthest-2`。`-Repeat 1 -DurationSeconds 30` 只作预演，完整基线使用默认 `DurationSeconds=0`。显式指定 `RouteCamera` 需要启用 `StreamingDiagnostics`。
+
+应用参数为 `--measure-streaming` 和 `--measure-route-camera default|farthest`。记录开启时窗口与视口仍固定为 1920×1080，使用玩家默认跟随相机：偏航跟随车体，保留默认俯仰与按地形抬高镜头，仅通过现有 `ShakeEnabled` 关闭镜头震动。默认缩放距离保持 48 格；最远档通过现有 `Zoom` 拉到 `ZoomCeiling`，跟随时线路和节点均为 240 格，96 格只适用于节点自由平移。每个绘制帧记录实际相机位置、焦点、距离和角度，包含地形避让造成的变化；距离单位为格（1 格 = 0.5 米）。
+
+窗口标签按核心列车参考中心的有向里程划分，单位是**核心米**，只用于分组，不用于推算场景速度：
+
+| 标签 | 半开区间与条件 |
+| --- | --- |
+| `node-entry` | 距即将进入／当前节点入口边界 `[-128, +128)` 米，边界前为负 |
+| `node-exit` | 距当前／刚离开节点出口边界 `[-128, +128)` 米，边界前为负 |
+| `line-middle` | 在线路上，沿当前行驶方向距两端均至少 128 米 |
+| `outside-windows` | 上述标签均不匹配 |
+
+线路逆行时先换算有向进度。节点全程长度为核心查询的进站、站台、出站长度之和。标签可以重叠（包括恰好距线路终点 128 米同时属于中段和入口窗口）；排序后用 `|` 连接为分析的 `window` 值，各组统计不相加。
+
+宿主按 `Admitted.Objects` 关联部件与对象，并在锁定准备帧 C 时冻结映射。仅保留 D 和 C 的覆盖查询引用，候选替换或取消后释放旧引用。null 覆盖表示布局未知，空结果表示预期地面域外；两者均不表示已需求未显示。
+
+宿主记录文件如下。所有 `at`、`started`、`ended` 和覆盖 `seconds` 均为相对于本次路线起点的单调真实秒；probe 开始／结束也使用同一起点。
+
+场景事件与部件时刻的统计截止于最后一次路线绘制采样；路线结束后、写文件期间到达的后台构建事件不计入。截止时仍未观测完成的阶段保留 null。
+
+| 文件／字段 | 含义 |
+| --- | --- |
+| `streaming-frames.jsonl` | 每绘制帧的 `draw`、`at`、`steps`、`coordinates`、`displayed`、显示车辆的 `displayed_position`、空间交接 `transition`、`window`、实际 `camera` 和最近覆盖样本 `coverage_draw` |
+| `coordinates` | 显示车辆位置当前采用的场景坐标身份；车辆位置已加该帧原点，故同空间浮动原点变化不会制造位移 |
+| `camera` | 镜头在相机支架坐标中的 `position`、`focus`，实际 `distance_cells`、世界偏航／俯仰（rad），`near_cells`／`far_cells` 是相机视深裁剪值 |
+| `streaming-scenes.jsonl` | Scenes 回调仅在调用时读取时钟并入队；每个 streaming-draw 内批量回放事件，回放成本包含在该 probe 内。原始事件含 `at`、`kind` 和相关身份；Frame 仅存 `scene`、`stamp`、`parts`，不序列化 Coverage 或保留逐点数据 |
+| `streaming-parts.jsonl` | 按 `attempt` 记录 Needed、Queued、Started、Built/CacheHit、Admitted、宿主资源准备及实际 SceneDisplay.Commit 结束的时刻；`outcome` 为 committed/cancelled/failed/unfinished。未观测阶段为 null，不能推定零时延；缓存外圈部件可能先提交后进入需求，此时保留原始时间，already_visible_before_demand=true，needed_to_committed_seconds=null |
+| `missing_parts` | 仅统计实际已提交帧 D 所属场景中，当前 Needed 且尚未显示的部件，按最新尝试阶段计数：needed_not_queued、queued、started、built_waiting_admission、admitted_waiting_resources、prepared_waiting_commit、cancelled、failed。DemandEnded/Closed 的历史部件不计入；视野内未进入需求的缺口由覆盖分类 not_needed 报告 |
+| `preview_parts` | 预览场景按 Candidate／Successor role 分别统计阶段，避免将尚未成为 D 的预览需求计入当前显示缺口 |
+| `rebuilding_parts` | 部件旧 attempt 仍在 D 显示、最新 attempt 尚未显示时，按新 attempt 阶段单列重建数量，不计入 missing_parts |
+| `streaming-host.jsonl` | 每条含 `display`、`at` 和 `value`；`value` 含候选序号 `candidate`、完整 `frame`、可空 `object`、`stage` 和可空 `resource_objects`。`display` 区分重新创建的宿主显示实例 |
+| `ResourcesPrepared` | 仅当此对象至少一个视觉资源不能通过 `CanReuseVisual` 复用、需要新准备时记录；在该对象全部视觉资源就绪后发出，不等待整个候选。全复用的姿态更新、仅删除视觉与无视觉对象不记录 |
+| `FramePreparationStarted` / `FramePrepared` / `FrameCommitted` | 内部帧级通知，`object=null`；分别在冻结候选、完整 PreparedFrame 生成及实际 Commit 结束时发出。开始通知的 `resource_objects` 列出至少一个视觉资源需要新准备的对象，其余通知为 null。全复用和无视觉候选也发，不替代逐对象资源事件。逐部件资源准备时间取同一成功候选中、与 Admitted.Objects 匹配的 ResourcesPrepared 最大值；尚未提交时可取截止时仍有效且已完成该部件准备的候选。已取消候选不参与，无新视觉对象为 null |
+| `HostCancelled` | 宿主放弃此候选，`object=null`；同一帧重试分配新的 `candidate`，不沿用被取消候选的准备时间 |
+| `streaming-coverage.jsonl` | 每次实际覆盖采样的 `seconds`、D 的完整 `frame`、`window`、`draw` 和 `sample`；无已提交帧时 `sample=null` |
+| `sample` | 仅保留 `eligible`、`terrain`、`fog_only`、`neither`、三类排除计数和缺地形／无雾缺口比例；空分母的比例为 null，不能当作 0。不保留逐点坐标；仅对 fog_only／neither 点调用绑定 D 帧布局的 `FindTerrainParts` 在线归属。`part_categories` 按 category 聚合，只保存 category、fog_only、neither，不保存完整 PartId 或 terrain 计数。分类为 not_needed、needed_<stage>、outside_terrain_domain、layout_unknown；重建时仍显示旧 attempt 的部件归 displayed。同一点对应多个部件时，每个不同类别各计一次，总计可能超过缺地形点数 |
+| `streaming-probes.jsonl` | 覆盖查询和整个流式绘制回调的实际起止、耗时，包含事件批量回放与覆盖归属查询成本。`coverage` 嵌套于 `streaming-draw`，后者嵌套于既有 `route-observer`，不能相加重复计算 |
+| `streaming-analysis.json` | 逐区间实际倍率／场景速度、窗口汇总、覆盖缺口区间与分位数。`coverage_by_window` 按窗口汇总 category 的 fog_only／neither 计数；窗口 `sample_intervals` 只使用该窗口内的样本，缺口分析仍保留完整序列的窗口边界删失。`already_visible_before_demand` 报告先显示后进入需求的尝试数，这类样本排除 Needed→Commit 延时分布；`part_outcomes` 汇总部件尝试结果，`part_latency_seconds` 报告已观测阶段差值的 n/p50/p95/p99/max，包括 Needed→Queued 和 Admitted→ResourcesPrepared；n=0 时分位数为 null。`parts_by_window_and_kind` 按窗口和 PartKind 给出同样的分布、尝试结果、取消和未完成数；窗口用原始 Frame.Stamp/Parts 与实际绘制帧 Displayed 精确关联，取该尝试首次实际显示时的窗口，未显示尝试归 not-observed；部件 committed 时间来自实际 FrameCommitted 回调，以完整帧身份联结 Parts；逐帧是否已显示仍仅使用实际 D 的 Parts |
+
+覆盖只查询已提交帧 `D = SceneDisplay.DisplayedFrame`，不查询最新但尚未提交的帧。对屏幕均匀分布的 32×18 个点投射射线，经实际显示根的逆变换转入 D 根空间，与稳定场景 `Y=0`（D 局部 `Y=-D.Origin.Y`）求交。没有正向交点、交点在近裁剪面之前或远裁剪面之后，不计入分母。相机裁剪值是视深；入口按每条射线的夹角换算有效距离，不把远裁剪面误作以相机为中心的球面。
+
+有效点优先调用 `D.TerrainHeight`：有值记为有地形；否则检查 D 已提交的施工雾盒，点的 XZ 与基准高度 Y 均落在盒子范围内记为只有雾；否则记为无地形无雾。雾使用玩家实际看到的盒子，不使用 Scenes 内部弧段规则。线路地形成员关系由 `TerrainHeight` 判断，不使用网格 AABB 并集估计弯道覆盖。这是**视野地面基准面投影覆盖率**，不衡量山坡、水面、隧道及建筑遮挡后的真实地形像素可见性。
+
+线路部件归属按生成器实际体素列判断，查询开销计入 coverage probe。
+
+覆盖以 5 Hz 为目标频率，显示空间或窗口改变时补采；记录真实采样间隔。未采样的绘制帧只引用最近样本的 draw，不能当作该帧新测得的覆盖。缺地形比例 `>0` 和 `neither` 比例 `>0` 分别形成连续缺口，以左保持估计持续时间，报告 nearest-rank p50／p99、最大值、总时长和原始区间。遇到未知、空间或窗口改变即截断，开放首尾标记 `left_censored`／`right_censored`；结束时使用真实最后绘制帧时刻截断尾区间。低频样本无法排除采样间的短缺口。
+
+场景速度使用实际显示车辆的连续三维轨迹距离，格数乘 0.5 后除以真实秒。同空间绝对坐标消除浮动原点影响；跨空间使用记录的交接原点差对齐，缺少交接、缺少姿态或多轨边界不能确认连续对应时，速度为 null 并记 `unknown`。实际模拟倍率为完成步数增量除以 `SimulationTime.StepsPerSecond` 再除真实秒；窗口均值按区间实际持续时间加权，场景均值仅包含已知区间并另报未知数量。
+
+记录关闭的帧时间对照使用原有 `scene-route-8x`，master 和本分支各至少 3 个独立进程，比较差值与 master 自身运行波动；不设置新的通过阈值，由 reviewer 验收。原始主线构建与新增记录构建分别保留真实 SHA，不能将记录构建的身份改写成主线 SHA。
+
 ### 窗口长测
 
 `scene-soak` 在默认录制和测量设定的 5 分钟自动存档下按段循环，直到 `DurationSeconds`（默认 7200 秒）用完，再跑完当前一段。产品默认间隔为 1 小时，长测为在段内观察到自动存档轮换而缩短。每段：

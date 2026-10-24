@@ -235,7 +235,6 @@ internal sealed class WorldSceneController : IDisposable
                 _fullReplacement = false;
                 View.SetLoading(false);
                 View.Interactive = true;
-                if (_display.HasCandidateFor(prepared.Frame.Update.Frame)) _display.CancelCandidate();
             }
             if (!_fullReplacement && _display.DisplayedFrame is not null)
             {

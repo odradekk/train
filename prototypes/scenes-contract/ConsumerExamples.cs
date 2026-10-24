@@ -1,10 +1,37 @@
 using System.Collections.Immutable;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Numerics;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
 
 namespace Train.Scenes.ContractSamples;
+
+public sealed class StreamingConsumer : ISceneStreamingObserver
+{
+    private readonly ConcurrentQueue<(long Timestamp, SceneStreamingEvent Event)> events = new();
+
+    public void OnEvent(SceneStreamingEvent value)
+    {
+        var timestamp = Stopwatch.GetTimestamp();
+        events.Enqueue((timestamp, value));
+    }
+
+    public void Drain(Action<long, SceneStreamingEvent> consume)
+    {
+        while (events.TryDequeue(out var value))
+            consume(value.Timestamp, value.Event);
+    }
+
+    public static ImmutableArray<SceneStreamingPartId>? FindTerrainParts(
+        SceneStreamingEvent.Frame streamed, ISceneFrame displayedFrame, double x, double z)
+    {
+        if (streamed.Stamp != displayedFrame.Update.Frame)
+            throw new ArgumentException("覆盖查询必须对应实际提交帧。", nameof(streamed));
+        return streamed.Coverage?.FindTerrainParts(x, z);
+    }
+}
 
 public interface ISceneDisplay
 {

@@ -6,6 +6,7 @@ namespace Train.Rendering;
 internal sealed partial class SceneDisplay
 {
     private SceneUpdate? _candidateUpdate;
+    private bool _candidatePromoted;
     private SceneFrameStamp? _candidateScope;
     private readonly Dictionary<(SceneObjectId Object, int Index), SceneVisual> _candidateSources = [];
     private readonly Dictionary<SceneObjectId, int> _candidateSourceCounts = [];
@@ -125,6 +126,7 @@ internal sealed partial class SceneDisplay
         _candidatePendingNodes.Clear();
         _candidateUpdate = null;
         _candidateScope = null;
+        _candidatePromoted = false;
         PreparedCandidate = null;
     }
 }

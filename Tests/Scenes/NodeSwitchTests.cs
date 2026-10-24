@@ -7,6 +7,7 @@ using Train.Content.ContractSupport;
 using Train.Core.Contracts;
 using Train.Core.ContractSupport;
 using Train.Scenes.Contracts;
+using Train.Scenes.ContractSupport;
 
 namespace Train.Scenes.Tests;
 
@@ -58,9 +59,16 @@ public sealed class NodeSwitchTests
         var initial = NodeFixtures.Snapshot(platforms: 0, trains: [RailwayFixtures.Train(0, direction: TravelDirection.Reverse) with { LengthMeters = 26 }], content: content,
             tracks: 2, trackLimit: 2, platformLengthMeters: 0);
         var cache = new NodeScene.Cache();
-        await using var session = new WorldSceneSession(new(Guid.NewGuid()), initial, new(), cache);
+        var observer = new RecordingStreamingObserver();
+        await using var session = new WorldSceneSession(new(Guid.NewGuid()), initial, new(), cache, observer: observer);
         session.RequestView(new WorldSceneTarget.Follow(new(1), new(1)));
         var displayed = await RailwayFixtures.Settled(session, Request);
+        var active = observer.Snapshot().OfType<SceneStreamingEvent.Opened>()
+            .Single(value => value.Role == SceneStreamingRole.Active);
+        var candidate = observer.Snapshot().OfType<SceneStreamingEvent.Opened>()
+            .Single(value => value.Role == SceneStreamingRole.Candidate);
+        Assert.AreNotEqual(active.Scene, candidate.Scene);
+        Assert.AreEqual(active.Scene, StreamingScenario.AssertFrameMatches(observer.Snapshot(), displayed).Scene);
         Assert.AreEqual(new WorldLocation.Node(NodeFixtures.NodeId), session.PrebuiltLocation);
         var expectedLayout = NodeLayout.Build(initial, NodeFixtures.NodeId);
         var inlet = expectedLayout.EntryFor(new(1));
@@ -112,6 +120,9 @@ public sealed class NodeSwitchTests
         { Position = new TrainPosition.Node(NodeFixtures.NodeId, inlet.Edge, 1, null, null, NodeTravelPhase.Approaching, 0, null) }],
             content: content, steps: 1, tracks: 2, trackLimit: 2, platformLengthMeters: 0), []);
         var first = Present(session, displayed);
+        Assert.AreEqual(candidate.Scene, StreamingScenario.AssertFrameMatches(observer.Snapshot(), first).Scene);
+        Assert.IsTrue(observer.Snapshot().OfType<SceneStreamingEvent.Activated>()
+            .Any(value => value.Scene == candidate.Scene));
         Assert.AreNotEqual(SceneReadiness.Loading, first.Readiness,
             "The candidate must supply the near zone before handover; the train head may extend the forward demand.");
         await RailwayFixtures.Settled(session, Request, first);
@@ -128,6 +139,10 @@ public sealed class NodeSwitchTests
         var wholeCount = (expectedLayout.Bounds.Maximum.X - expectedLayout.Bounds.Minimum.X) / VoxelGrid.ChunkSize *
             (expectedLayout.Bounds.Maximum.Y - expectedLayout.Bounds.Minimum.Y) / VoxelGrid.ChunkSize;
         Assert.IsTrue(terrain.Length < wholeCount, "The corridor must leave distant node chunks unbuilt.");
+        await session.DisposeAsync();
+        var closed = observer.Snapshot().OfType<SceneStreamingEvent.Closed>().Select(value => value.Scene).ToArray();
+        Assert.IsTrue(closed.Contains(active.Scene));
+        Assert.IsTrue(closed.Contains(candidate.Scene));
     }
 
     [TestMethod]
