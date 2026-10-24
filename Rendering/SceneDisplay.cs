@@ -280,8 +280,6 @@ internal sealed partial class SceneDisplay : IDisposable
             {
                 var visual = source.Visuals[index];
                 if (CanReuseVisual(previous, index, visual)) continue;
-                if (HasCandidateFor(frame.Update.Frame) &&
-                    _candidateVisuals.TryGetValue((source.Id, index), out var candidate) && candidate.CanUpdate(visual)) continue;
                 yield return visual;
             }
         }

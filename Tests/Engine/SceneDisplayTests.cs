@@ -1401,6 +1401,7 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         using var cache = new AssetResourceCache(dispatcher);
         List<string> failures = [];
         foreach (var formalDependsOnCandidate in new[] { true, false })
+        foreach (var sameKey in formalDependsOnCandidate ? new[] { false, true } : new[] { false })
         {
             using var display = Attach(cache, new FixedContentView());
             var baseline = Frame(1, []);
@@ -1421,12 +1422,13 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
             };
             if (formalDependsOnCandidate)
             {
-                var candidate = Frame(2, [Object(2, a)], space: 2);
+                var candidate = Frame(2, [Object(2, a)]);
                 display.ReceiveCandidate(candidate.Update);
                 PrimeCandidate(display);
                 display.PrepareCandidate(TimeSpan.FromMilliseconds(4));
                 Require(display.PreparedCandidate == candidate.Update.Frame, "候选必须先独占A的网格租约。");
-                var formal = Frame(3, [Object(3, b), Object(4, a)], baseline.Update.Frame);
+                var formalId = sameKey ? 2UL : 4UL;
+                var formal = Frame(3, [Object(3, b), Object(formalId, a)], baseline.Update.Frame);
                 Require(display.Prepare(formal, TimeSpan.Zero) is null, "正式帧只启动打包。");
                 var packing = display.PreparationPacking;
                 try
@@ -1437,12 +1439,12 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
                 finally { release.Set(); }
                 packing.WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
                 using var prepared = display.Prepare(formal);
-                if (prepared is null) failures.Add("正式打包依赖的候选A租约在取消候选后丢失");
+                if (prepared is null) failures.Add($"正式打包依赖的{(sameKey ? "同键" : "不同键")}候选A租约在取消候选后丢失");
                 else
                 {
                     prepared.Commit();
-                    Require(display.Objects.Count == 2 && display.Objects[new(4)].Visuals.Length == 1 &&
-                        GodotObject.IsInstanceValid(MeshOf(display.Objects[new(4)])), "正式帧必须持有有效A资源。");
+                    Require(display.Objects.Count == 2 && display.Objects[new(formalId)].Visuals.Length == 1 &&
+                        GodotObject.IsInstanceValid(MeshOf(display.Objects[new(formalId)])), "正式帧必须持有有效A资源。");
                 }
             }
             else
