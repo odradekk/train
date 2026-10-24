@@ -223,13 +223,14 @@ internal sealed class TrainDispatch
     internal WorldState Finish(WorldState world, IReadOnlySet<TrainId>? skipBreaks = null)
     {
         skipBreaks ??= new HashSet<TrainId>();
-        var trains = world.Trains.ToDictionary(t => t.Id);
+        Dictionary<TrainId, TrainState>? trains = null;
         foreach (var group in world.Trains.Where(t => t.Position is TrainPosition.Edge && !skipBreaks.Contains(t.Id))
                      .GroupBy(t => { var p = (TrainPosition.Edge)t.Position; return (p.Id, p.Track); }))
         {
             var edge = world.Edges.Single(e => e.Id == group.Key.Id);
             if (group.Any(t => t.SpeedMetersPerSecond != 0 || t.ReturningFromBreak is not null
                 || AheadBreak(edge, t) is null)) continue;
+            trains ??= world.Trains.ToDictionary(t => t.Id);
             foreach (var train in group)
                 trains[train.Id] = train with
                 {
@@ -238,10 +239,18 @@ internal sealed class TrainDispatch
                     ReturningFromBreak = AheadBreak(edge, train)!.Id
                 };
         }
-        world = world with { Trains = world.Trains.Select(t => trains[t.Id]).ToImmutableArray() };
-        var requests = world.Trains.Select(t => (Train: t, Edge: RequestedEdge(world, _content, t, _capabilities[t.Id])))
-            .Where(r => r.Edge is not null).Select(r => (r.Edge!.Id, ((TrainPosition.Node)r.Train.Position).NextTrack,
-                Direction(r.Edge, ((TrainPosition.Node)r.Train.Position).Id))).ToHashSet();
+        if (trains is not null)
+            world = world with { Trains = world.Trains.Select(t => trains[t.Id]).ToImmutableArray() };
+        HashSet<(EdgeId Edge, int? Track, TravelDirection Direction)>? requests = null;
+        foreach (var train in world.Trains)
+            if (RequestedEdge(world, _content, train, _capabilities[train.Id]) is { } edge)
+            {
+                requests ??= [];
+                var position = (TrainPosition.Node)train.Position;
+                requests.Add((edge.Id, position.NextTrack, Direction(edge, position.Id)));
+            }
+        if (requests is null)
+            return world.TrackHandoffs.IsEmpty ? world : world with { TrackHandoffs = [] };
         var handoffs = _world.TrackHandoffs.Where(h => !_usedHandoffs.Contains((h.Edge, h.Track))
             && requests.Contains((h.Edge, h.Track, h.Direction))).ToDictionary(h => (h.Edge, h.Track));
         foreach (var (key, occupants) in _tracks)
