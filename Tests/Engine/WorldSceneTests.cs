@@ -1004,7 +1004,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public async Task Promoted_partial_candidate_reuses_visuals_without_preparing_again_and_releases_the_remainder()
+    public async Task Promoted_partial_candidate_reuses_later_batches_and_retains_the_remainder_until_space_changes()
     {
         var fixture = new Fixture(TestScene.GetTree());
         var first = Frame(1);
@@ -1012,11 +1012,14 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
         var candidate = Frame(10, space: 2,
             objects: Enumerable.Range(20, 10).Select(id => Object((ulong)id)).ToImmutableArray()).Update;
         var promoted = Frame(11, space: 2, objects: [Object(20)]);
+        var batch = Frame(12, promoted.Update.Frame, space: 2, objects: [Object(21)]);
+        var moved = Frame(13, space: 3, objects: []);
         try
         {
             var app = await Ready(fixture, new Setup(), Factory(binding => Session(binding,
-                [Success(first), Success(idle), Success(promoted)], candidates:
+                [Success(first), Success(idle), Success(promoted), Success(batch), Success(moved)], candidates:
                 [new SceneResult<SceneUpdate?>.Success(null), new SceneResult<SceneUpdate?>.Success(candidate),
+                    new SceneResult<SceneUpdate?>.Success(null), new SceneResult<SceneUpdate?>.Success(null),
                     new SceneResult<SceneUpdate?>.Success(null)])));
             var world = app.WorldScenes!;
             world.Open(Target);
@@ -1047,9 +1050,24 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             Require(seen.Except(candidateIds).All(id => id == active.Root.GetInstanceId()),
                 "正式准备后不得再次创建候选视觉；只允许新增正式对象根节点。");
             Require(candidateNodes.Where(node => !ReferenceEquals(node, active.Visuals[0].Node))
-                .All(node => !GodotObject.IsInstanceValid(node)) && !display.IsPreparingCandidate &&
-                display.CandidateProgress(candidate.Frame) is null,
-                "提交后必须释放未移交的候选视觉和候选来源。");
+                .All(GodotObject.IsInstanceValid) && display.CandidateProgress(candidate.Frame) is (3, 10) &&
+                display.PendingCandidateVisuals == 6,
+                "晋升首帧提交后必须保留未取用的视觉；未完成的候选准备不能继续派工。");
+            await new UiTestInput(TestScene).Frames(1);
+            world.ProcessFrame(0, false);
+            var later = display.Objects[new(21)];
+            Require(ReferenceEquals(display.DisplayedFrame, batch) &&
+                candidateNodes.Any(node => ReferenceEquals(node, later.Visuals[0].Node)) &&
+                display.CandidateProgress(candidate.Frame) is (2, 10) && display.PendingCandidateVisuals == 6,
+                "后续接入批次必须复用候选视觉，并继续保留尚未取用的资源。");
+            Require(seen.Except(candidateIds).All(id => id == active.Root.GetInstanceId() || id == later.Root.GetInstanceId()),
+                "后续批次也只能新增正式对象根，不能重做候选资源准备。");
+            var unused = candidateNodes.Where(node => node.GetParent() is null).ToArray();
+            Require(unused.Length == 2, "未接入的两个已准备视觉必须继续留在树外。");
+            world.ProcessFrame(0, false);
+            Require(ReferenceEquals(display.DisplayedFrame, moved) && unused.All(node => !GodotObject.IsInstanceValid(node)) &&
+                !display.IsPreparingCandidate && display.CandidateProgress(candidate.Frame) is null,
+                "Space 改变时必须释放全部尚未取用的候选视觉和来源。");
         }
         finally { await fixture.Cleanup(); }
 
