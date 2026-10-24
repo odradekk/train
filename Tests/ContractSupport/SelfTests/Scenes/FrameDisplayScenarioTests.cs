@@ -51,6 +51,29 @@ public sealed class FrameDisplayScenarioTests
     }
 
     [TestMethod]
+    public void DisplayHeightMatchesConfiguredExactTerrain()
+    {
+        var frame = new FixedSceneFrame
+        {
+            Update = new(null, WorldRequestScenario.Hit.Frame, Vector3.Zero, [], [], new([], []), []),
+            Heights = System.Collections.Immutable.ImmutableDictionary<(double, double), Lookup<double>>.Empty
+                .Add((1, 2), new Lookup<double>.Found(7)),
+            TerrainHeightResult = new Lookup<double>.Missing()
+        };
+        Assert.AreEqual((double?)7, frame.DisplayTerrainHeight(1, 2));
+        Assert.IsNull(frame.DisplayTerrainHeight(3, 4));
+        FrameDisplayScenario.AssertPreciseDisplayHeight(frame, 1, 2);
+        var distant = new FixedSceneFrame
+        {
+            Update = frame.Update, Heights = frame.Heights,
+            TerrainHeightResult = new Lookup<double>.Missing(), DisplayTerrainHeightResult = 42
+        };
+        Assert.AreEqual((double?)7, distant.DisplayTerrainHeight(1, 2));
+        Assert.AreEqual((double?)42, distant.DisplayTerrainHeight(3, 4));
+        FrameDisplayScenario.AssertPreciseDisplayHeight(frame, 3, 4);
+    }
+
+    [TestMethod]
     public void DesignPreviewRequiresConfigurationAndPassesExactInputs()
     {
         var content = new Train.Content.ContractSupport.FixedContentView();

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Numerics;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
@@ -22,6 +23,7 @@ public sealed class FixedSceneFrame : ISceneFrame
     public ImmutableDictionary<Vector3, Lookup<WorldLocation>> Locations { get; init; } = ImmutableDictionary<Vector3, Lookup<WorldLocation>>.Empty;
     public ImmutableDictionary<(double X, double Z), Lookup<double>> Heights { get; init; } = ImmutableDictionary<(double, double), Lookup<double>>.Empty;
     public Lookup<double>? TerrainHeightResult { get; init; }
+    public double? DisplayTerrainHeightResult { get; init; }
     public SceneRay? LastPickRay { get; private set; }
 
     public ScenePick Pick(SceneRay ray)
@@ -34,6 +36,8 @@ public sealed class FixedSceneFrame : ISceneFrame
         ? value : throw FrameDisplayScenario.Unconfigured("对象姿态");
     public Lookup<WorldLocation> Locate(Vector3 point) => Locations.TryGetValue(point, out var value)
         ? value : throw FrameDisplayScenario.Unconfigured("位置映射");
+    public double? DisplayTerrainHeight(double x, double z) =>
+        TerrainHeight(x, z) is Lookup<double>.Found found ? found.Value : DisplayTerrainHeightResult;
     public Lookup<double> TerrainHeight(double x, double z) => Heights.TryGetValue((x, z), out var value)
         ? value : TerrainHeightResult ?? throw FrameDisplayScenario.Unconfigured("地形高度");
 }
@@ -140,5 +144,11 @@ public sealed class FixedDisplayFactory : IScenesFactory
 
 public static class FrameDisplayScenario
 {
+    public static void AssertPreciseDisplayHeight(ISceneFrame frame, double x, double z)
+    {
+        if (frame.TerrainHeight(x, z) is Lookup<double>.Found found)
+            Assert.AreEqual((double?)found.Value, frame.DisplayTerrainHeight(x, z));
+    }
+
     internal static InvalidOperationException Unconfigured(string operation) => new($"UNCONFIGURED: {operation}未配置。");
 }

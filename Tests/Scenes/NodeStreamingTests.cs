@@ -540,7 +540,7 @@ public sealed class NodeStreamingTests
     }
 
     [TestMethod]
-    public async Task Unbuilt_and_unloaded_regions_are_fogged_and_not_pickable()
+    public async Task Regions_outside_the_required_window_without_far_terrain_are_not_pickable()
     {
         var snapshot = Snapshot(true);
         await using var vehicles = new SceneVehicles();
@@ -550,10 +550,10 @@ public sealed class NodeStreamingTests
         var loaded = Chunks(cache).Keys.First();
         var frame = Present(scene, snapshot);
         Assert.IsInstanceOfType<ScenePick.Hit>(frame.Pick(Ray(loaded)));
-        Assert.IsInstanceOfType<ScenePick.NotReady>(frame.Pick(Ray(new(288, 288))));
+        Assert.IsInstanceOfType<ScenePick.Miss>(frame.Pick(Ray(new(288, 288))));
         await Settle(scene, snapshot, new(288, 0, 288));
         var after = Present(scene, snapshot, frame);
-        Assert.IsInstanceOfType<ScenePick.NotReady>(after.Pick(Ray(loaded)));
+        Assert.IsInstanceOfType<ScenePick.Miss>(after.Pick(Ray(loaded)));
         Assert.IsInstanceOfType<Lookup<double>.Missing>(after.TerrainHeight(loaded.X + .5, loaded.Z + .5));
         Assert.IsTrue(after.Update.Removed.Length > 0);
         Assert.IsInstanceOfType<ScenePick.Hit>(frame.Pick(Ray(loaded)));
@@ -879,7 +879,7 @@ public sealed class NodeStreamingTests
             _ => cameraStamp
         };
         var camera = new SceneFrame(cameraStamp, new(256, 0, 256), 0, SceneReadiness.Ready, [], [], [], []);
-        var request = Request with { Camera = new(camera, new(32, 0, 32)) };
+        var request = Request with { Camera = new(camera, new(32, 0, 32), 6656) };
         var bounds = scene.Layout!.PanBounds(default);
         var focus = stale ? new ScenePoint((bounds.Minimum.X + bounds.Maximum.X) / 2, 0,
             (bounds.Minimum.Y + bounds.Maximum.Y) / 2) : new ScenePoint(288, 0, 288);
@@ -946,20 +946,25 @@ public sealed class NodeStreamingTests
             // At the node centre, 320 m/s reaches the 160 m lead cap; the head contributes another 4 cells.
             var retained = new NodeRange(default, 192).Window(scene.Layout!);
             var ahead = new NodeRange(new(0, 0, 324), 160).Window(scene.Layout!);
+            var dimensions = ((Lookup<NodeView>.Found)snapshot.Core.FindNode(NodeFixtures.NodeId)).Value;
+            var corridor = new NodeCorridor(scene.Layout!, dimensions, (TrainPosition.Node)train.Position,
+                train.LengthMeters * RailwayCoordinates.CellsPerMeter, []);
             var columns = (Math.Max(retained.Right, ahead.Right) - Math.Min(retained.Left, ahead.Left)) / 32;
             var rows = (Math.Max(retained.Front, ahead.Front) - Math.Min(retained.Back, ahead.Back)) / 32;
             var fog = frame.Update.Environment.FoggedRegions
                 .Where(bounds => bounds.Minimum.Y == -128 && bounds.Maximum.Y == 128).ToArray();
-            Assert.IsTrue(fog.Length <= 4 + rows * ((columns + 1) / 2),
-                "Merged runs are bounded by the combined retention and forward-prefetch window.");
+            Assert.IsTrue(fog.Length <= rows * ((columns + 1) / 2) + corridor.Chunks.Count,
+                "Merged runs are bounded by the combined retention, forward-prefetch window and corridor.");
             var connected = Chunks(cache);
             foreach (var from in new NodeRange(default, 10000).Chunks(scene.Layout!))
             {
                 var point = new Vector3(from.X + 16, 0, from.Z + 16);
                 var covered = fog.Any(bounds => point.X > bounds.Minimum.X && point.X < bounds.Maximum.X &&
                     point.Z > bounds.Minimum.Z && point.Z < bounds.Maximum.Z);
-                Assert.AreEqual(!connected.ContainsKey(from), covered,
-                    $"Terrain chunk {from} must be fogged exactly when its geometry is absent.");
+                var required = from.X >= Math.Min(retained.Left, ahead.Left) && from.X < Math.Max(retained.Right, ahead.Right) &&
+                    from.Z >= Math.Min(retained.Back, ahead.Back) && from.Z < Math.Max(retained.Front, ahead.Front);
+                Assert.AreEqual((required || corridor.Chunks.Contains(from)) && !connected.ContainsKey(from), covered,
+                    $"Terrain chunk {from} must be fogged exactly when required and absent.");
             }
             await SceneFixtures.AwaitPendingWork(scene.PendingWork);
         }

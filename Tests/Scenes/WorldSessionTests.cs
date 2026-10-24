@@ -53,8 +53,8 @@ public sealed class WorldSessionTests
         Assert.IsNull(combatFrame.NodePanBounds);
         Assert.AreEqual(locatedFrame.Origin, combatFrame.Origin);
         Assert.AreEqual(locatedFrame.Locate(Vector3.Zero), combatFrame.Locate(Vector3.Zero));
-        var combatCamera = Present(combat, combatFrame, new SceneCameraSample(combatFrame, Vector3.Zero));
-        var locatedCamera = Present(located, locatedFrame, new SceneCameraSample(locatedFrame, Vector3.Zero));
+        var combatCamera = Present(combat, combatFrame, new SceneCameraSample(combatFrame, Vector3.Zero, 6656));
+        var locatedCamera = Present(located, locatedFrame, new SceneCameraSample(locatedFrame, Vector3.Zero, 6656));
         Assert.AreEqual(locatedCamera.Origin, combatCamera.Origin);
     }
 
@@ -164,7 +164,11 @@ public sealed class WorldSessionTests
         var foreign = Present(other);
         Assert.ThrowsExactly<ArgumentException>(() => session.Present(Request, foreign));
         Assert.ThrowsExactly<ArgumentException>(() => session.Present(Request with { Interpolation = double.NaN }, frame));
-        Assert.AreEqual(frame.Update.Frame, Present(session, frame).Update.Base);
+        foreach (var radius in new[] { 0d, -1d, double.NaN, double.PositiveInfinity, double.NegativeInfinity })
+            Assert.ThrowsExactly<ArgumentException>(() => session.Present(
+                Request with { Camera = new(frame, Vector3.Zero, radius) }, frame));
+        Assert.AreEqual(frame.Update.Frame,
+            Present(session, frame, new(frame, Vector3.Zero, 1)).Update.Base);
     }
 
     [TestMethod]

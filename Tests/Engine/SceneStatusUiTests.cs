@@ -263,5 +263,6 @@ public class SceneStatusUiTests(Node testScene) : TestClass(testScene)
             Inner.Poses.TryGetValue(subject, out var pose) ? pose : new Lookup<ScenePose>.Missing();
         public Lookup<WorldLocation> Locate(NVector3 point) => new Lookup<WorldLocation>.Missing();
         public Lookup<double> TerrainHeight(double x, double z) => new Lookup<double>.Missing();
+        public double? DisplayTerrainHeight(double x, double z) => null;
     }
 }

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Core.ContractSupport;
 using Train.Scenes.Contracts;
@@ -23,6 +24,178 @@ public sealed class RailwayStreamingTests
             if (!ids.TryGetValue(key, out var id)) ids.Add(key, id = new(++next));
             return id;
         }, vehicles, new(), _ => null, build ?? RailwayFixtures.EmptySegment, streaming: streaming);
+    }
+
+    [TestMethod]
+    public async Task Follow_far_terrain_covers_only_the_bounded_prefetch_interval_on_a_long_curve()
+    {
+        const double focal = (4000 - 8) * RailwayCoordinates.CellsPerMeter;
+        const double radius = 16;
+        var snapshot = RailwayFixtures.Snapshot(lengthMeters: 4000, directMeters: 3000, relief: 0,
+            content: RailwayFixtures.Content(design: RailwayFixtures.Vehicle()),
+            trains: [RailwayFixtures.Train(focal / RailwayCoordinates.CellsPerMeter, speed: 1000)],
+            instances: [RailwayFixtures.Instance()]);
+        // Keep the short remaining interval inside one parent tile near its leading edge,
+        // so generating its height caps does not process a long stretch of the railway.
+        foreach (var node in snapshot.Core.World.Nodes)
+            snapshot = RailwayFixtures.ReplaceCore(snapshot, node: node with
+                { Position = node.Position with { X = 256, Y = node.Position.Y - 2472 } });
+        await using var vehicles = new SceneVehicles();
+        await using var scene = RailwayFixtures.Controlled(snapshot, vehicles);
+        scene.SetTerrainViewRadius(radius);
+        scene.SetFineTerrainBuildAllowed(false);
+        var target = new WorldSceneTarget.Follow(new(1), new(1));
+        var request = new SceneFrameRequest(1, null, SceneDebugLayer.None);
+        var stamp = new SceneFrameStamp(new(Guid.Empty), new(1), new(1), 1);
+        var frame = scene.Present(snapshot, null, target, request, stamp, null);
+        while (scene.HasPendingBuilds || scene.HasPendingCoarseTerrain || scene.PendingFarWork.Length > 0)
+        {
+            await Task.WhenAll(scene.PendingWork.Concat(scene.PendingFarWork));
+            stamp = stamp with { Revision = stamp.Revision + 1 };
+            frame = scene.Present(snapshot, null, target, request, stamp, null);
+        }
+
+        var path = scene.Path!;
+        var sweep = path.Bounds(focal, Math.Min(path.LengthCells, focal + 256 * RailwayCoordinates.CellsPerMeter), default, 0);
+        var distantStart = path.Sample(0).Position;
+        var coarseCount = 0;
+        foreach (var item in frame.Objects)
+        foreach (var geometry in item.Visuals.OfType<SceneVisual.Geometry>())
+        {
+            var vertices = geometry.Mesh.Vertices;
+            var minX = vertices.Min(vertex => vertex.Position.X);
+            var maxX = vertices.Max(vertex => vertex.Position.X);
+            var minZ = vertices.Min(vertex => vertex.Position.Z);
+            var maxZ = vertices.Max(vertex => vertex.Position.Z);
+            if (maxX - minX != TerrainTile.ParentCells || maxZ - minZ != TerrainTile.ParentCells) continue;
+            coarseCount++;
+            var x = frame.Origin.X + item.Pose.Position.X;
+            var z = frame.Origin.Z + item.Pose.Position.Z;
+            Assert.IsTrue(x + maxX >= sweep.Minimum.X - radius && x + minX <= sweep.Maximum.X + radius &&
+                z + maxZ >= sweep.Minimum.Z - radius && z + minZ <= sweep.Maximum.Z + radius,
+                "Every coarse tile must intersect the current bounded prefetch interval.");
+            Assert.IsFalse(distantStart.X >= x + minX && distantStart.X <= x + maxX &&
+                distantStart.Z >= z + minZ && distantStart.Z <= z + maxZ,
+                "Following near the end must not generate terrain at the distant line start.");
+        }
+        Assert.IsTrue(coarseCount > 0, "The assertion must inspect generated coarse terrain.");
+    }
+
+    [TestMethod]
+    public async Task New_L0_waits_for_only_the_current_far_unit_and_one_more_pump()
+    {
+        var content = new BlockedFarInitialization();
+        var snapshot = RailwayFixtures.Snapshot(relief: 0, content: content);
+        var observer = new RecordingStreamingObserver();
+        var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseL0 = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var newBuilds = 0;
+        var moved = false;
+        Task? movingPump = null;
+        await using var vehicles = new SceneVehicles();
+        await using var scene = Open(snapshot, vehicles, Scope(observer), build: (input, path, index, token) =>
+        {
+            if (Volatile.Read(ref moved))
+            {
+                var count = Interlocked.Increment(ref newBuilds);
+                if (count == 1) firstStarted.TrySetResult();
+                if (count == 2) secondStarted.TrySetResult();
+                releaseL0.Task.GetAwaiter().GetResult();
+            }
+            return RailwayFixtures.EmptySegment(input, path, index, token);
+        });
+        var initialLocation = new WorldLocation.Edge(RailwayFixtures.Edge, 100);
+        var newLocation = new WorldLocation.Edge(RailwayFixtures.Edge, 650);
+        try
+        {
+            scene.Pump(snapshot, initialLocation);
+            while (scene.HasPendingBuilds)
+            {
+                await Task.WhenAll(scene.PendingWork);
+                scene.Pump(snapshot, initialLocation);
+            }
+            content.Armed = true;
+            scene.SetTerrainViewRadius(1);
+            scene.Pump(snapshot, initialLocation);
+            await content.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            var currentFar = scene.PendingFarWork;
+            Assert.AreEqual(1, currentFar.Length);
+
+            Volatile.Write(ref moved, true);
+            // The real far unit holds FarTerrain's lock, so Pump can wait in PumpFar
+            // after it has already demanded and scheduled the new L0 range.
+            movingPump = Task.Run(() => scene.Pump(snapshot, newLocation));
+            await firstStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.AreEqual(1, Volatile.Read(ref newBuilds));
+            content.Release.TrySetResult();
+            await Task.WhenAll(currentFar).WaitAsync(TimeSpan.FromSeconds(10));
+            await movingPump.WaitAsync(TimeSpan.FromSeconds(10));
+
+            Assert.AreEqual(0, scene.PendingFarWork.Length,
+                "Waiting L0 must prevent another far unit from taking the released slot.");
+            Assert.IsTrue(scene.HasPendingFarTerrain,
+                "The worker must yield while real far terrain still needs work.");
+            Assert.AreEqual(1, Volatile.Read(ref newBuilds));
+            var queuedBefore = observer.Snapshot().OfType<SceneStreamingEvent.Changed>()
+                .Count(item => item.Stage == SceneStreamingStage.Queued);
+            var waiting = observer.Snapshot().OfType<SceneStreamingEvent.Changed>()
+                .Where(item => item.Stage == SceneStreamingStage.Needed)
+                .Select(item => item.Attempt).Except(observer.Snapshot().OfType<SceneStreamingEvent.Changed>()
+                    .Where(item => item.Stage == SceneStreamingStage.Queued).Select(item => item.Attempt)).ToHashSet();
+            Assert.IsTrue(waiting.Count > 0);
+
+            scene.Pump(snapshot, newLocation);
+            var queued = observer.Snapshot().OfType<SceneStreamingEvent.Changed>()
+                .Where(item => item.Stage == SceneStreamingStage.Queued).ToArray();
+            Assert.AreEqual(queuedBefore + 1, queued.Length);
+            Assert.IsTrue(waiting.Contains(queued.Last().Attempt));
+            await secondStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.AreEqual(2, Volatile.Read(ref newBuilds));
+        }
+        finally
+        {
+            content.Release.TrySetResult();
+            releaseL0.TrySetResult();
+            if (movingPump is not null) await movingPump;
+        }
+    }
+
+    private sealed class BlockedFarInitialization : IContentView
+    {
+        private readonly IContentView source = RailwayFixtures.Content();
+        private int blocked;
+        internal bool Armed;
+        internal readonly TaskCompletionSource Entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal readonly TaskCompletionSource Release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public ContentGeneration Generation => source.Generation;
+        public CoreContentProjection Core => source.Core;
+        public ContentLookup<RailwayAppearanceProjection> FindRailwayAppearance(RuleDefinitionId rule) => source.FindRailwayAppearance(rule);
+        public ContentLookup<VoxelAppearanceProjection> FindVoxelAppearance(VoxelDefinitionId definition) => source.FindVoxelAppearance(definition);
+        public ContentLookup<TerrainAppearanceProjection> FindTerrain(TerrainTypeId terrain)
+        {
+            if (Armed && Interlocked.Exchange(ref blocked, 1) == 0)
+            {
+                Entered.TrySetResult();
+                Release.Task.GetAwaiter().GetResult();
+            }
+            return source.FindTerrain(terrain);
+        }
+        public ContentRevision PersistentRevision => throw new NotSupportedException();
+        public ImmutableArray<PackageStatus> Packages => throw new NotSupportedException();
+        public ImmutableArray<VoxelCatalogEntry> Voxels => throw new NotSupportedException();
+        public ImmutableArray<BlueprintSummary> Blueprints => throw new NotSupportedException();
+        public ImmutableArray<SavedContentDraft> LocalDrafts => throw new NotSupportedException();
+        public ImmutableArray<GenerationProfileSummary> GenerationProfiles => throw new NotSupportedException();
+        public ContentLookup<BlueprintRecord> FindBlueprint(BlueprintAddress address) => throw new NotSupportedException();
+        public ContentLookup<DesignEvaluation> FindDesign(DesignHash hash) => throw new NotSupportedException();
+        public ContentLookup<VoxelDisplayProjection> FindVoxelDisplay(VoxelDefinitionId definition) => throw new NotSupportedException();
+        public ContentLookup<ContentDisplay> FindDefinitionDisplay(CoreDefinitionReference definition) => throw new NotSupportedException();
+        public ContentLookup<GoodPresentation> FindGood(GoodId good) => throw new NotSupportedException();
+        public ContentLookup<ContentAsset> FindAsset(AssetRevision revision) => throw new NotSupportedException();
+        public ContentLookup<SettlementLayoutProjection> FindSettlementLayout(SettlementId settlement) => throw new NotSupportedException();
+        public ContentLookup<CreatureAppearanceProjection> FindCreature(CreatureDefinitionId creature) => throw new NotSupportedException();
+        public ContentLookup<LairAppearanceProjection> FindLair(LairTypeId lair) => throw new NotSupportedException();
     }
 
     [TestMethod]

@@ -69,6 +69,34 @@ public sealed class ViewCoverageTests
     }
 
     [TestMethod]
+    public void ClassifiesExactTerrainThenFogThenSimplifiedTerrainAndKeepsOnlyGapAttribution()
+    {
+        var exact = new FixedSceneFrame
+        {
+            Update = Frame(fog: [new(new(-1, -1, -1), new(1, 1, 1))]).Update,
+            TerrainHeightResult = new Lookup<double>.Missing(),
+            Heights = ImmutableDictionary<(double, double), Lookup<double>>.Empty
+                .Add((0, 0), new Lookup<double>.Found(20))
+        };
+        var frame = new DisplayTerrainFrame(exact, [(0, 0), (1, 0), (2, 0)]);
+        var part = new SceneStreamingPartId(new(new(Guid.Empty), 1), SceneStreamingPartKind.NodeTerrain, "opaque");
+        var sample = ViewCoverage.Sample(frame,
+            [Vertical(0, 0), Vertical(1, 0), Vertical(2, 0), Vertical(3, 0)],
+            new TerrainCoverage(part), _ => "queued");
+
+        Assert.AreEqual(4, sample.Eligible);
+        Assert.AreEqual(1, sample.Terrain);
+        Assert.AreEqual(1, sample.FogOnly);
+        Assert.AreEqual(1, sample.SimplifiedTerrain);
+        Assert.AreEqual(1, sample.Neither);
+        Assert.AreEqual(2, sample.MissingTerrain);
+        Assert.AreEqual(.5, sample.MissingTerrainRatio!.Value);
+        Assert.AreEqual(2, sample.PartCategories!.Sum(value => value.FogOnly + value.Neither));
+        Assert.AreEqual(1, sample.PartCategories!.Single(value => value.Category == "needed_queued").FogOnly);
+        Assert.AreEqual(1, sample.PartCategories!.Single(value => value.Category == "outside_terrain_domain").Neither);
+    }
+
+    [TestMethod]
     public void GapEstimatesUseActualSpacingAndCensorAtUnknownSpaceWindowAndEnds()
     {
         var stamp = Frame().Update.Frame;
@@ -186,6 +214,23 @@ public sealed class ViewCoverageTests
     private sealed class TerrainCoverage(SceneStreamingPartId part) : ISceneStreamingCoverage
     {
         public ImmutableArray<SceneStreamingPartId> FindTerrainParts(double x, double z) => x < 3 ? [part] : [];
+    }
+
+    private sealed class DisplayTerrainFrame(FixedSceneFrame frame, ImmutableArray<(double X, double Z)> points) : ISceneFrame
+    {
+        public ScenePoint Origin => frame.Origin;
+        public ScenePanBounds? NodePanBounds => frame.NodePanBounds;
+        public SceneNodeOverview? NodeOverview => frame.NodeOverview;
+        public SceneReadiness Readiness => frame.Readiness;
+        public double SimulationSeconds => frame.SimulationSeconds;
+        public SceneUpdate Update => frame.Update;
+        public ImmutableArray<SceneProblem> Diagnostics => frame.Diagnostics;
+        public ImmutableArray<SceneDebugLine> DebugLines => frame.DebugLines;
+        public ScenePick Pick(SceneRay ray) => frame.Pick(ray);
+        public Lookup<ScenePose> FindPose(WorldObjectId subject) => frame.FindPose(subject);
+        public Lookup<WorldLocation> Locate(System.Numerics.Vector3 point) => frame.Locate(point);
+        public Lookup<double> TerrainHeight(double x, double z) => frame.TerrainHeight(x, z);
+        public double? DisplayTerrainHeight(double x, double z) => points.Contains((x, z)) ? 0 : null;
     }
 
     private static CoverageRay Ray(double x, double y, double z) => new(new(0, 10, 0), new(x, y, z), 0, 100);

@@ -606,7 +606,7 @@ public sealed class CombatFrameTests
         session.RequestView(new WorldSceneTarget.Combat(combat.Id));
         var open = await RailwayFixtures.Settled(session, Request);
         var parkedPose = ((Lookup<ScenePose>.Found)open.FindPose(new WorldObjectId.Instance(parked.Id))).Value;
-        var near = new SceneCameraSample(open, parkedPose.Position);
+        var near = new SceneCameraSample(open, parkedPose.Position, 6656);
         var hits = new CombatHit[]
         {
             new(new AttackSource.Weapon(new(parked.Id, parked.Design, NodeFixtures.Location), new(1)),
@@ -624,7 +624,7 @@ public sealed class CombatFrameTests
         Assert.IsEmpty(Shots(cleared));
 
         // 焦点移到保留范围外：建筑和停放车不再合成，且上一帧位姿已不再包含停放车。
-        var far = new SceneCameraSample(cleared, parkedPose.Position + new Vector3(0, 0, 400));
+        var far = new SceneCameraSample(cleared, parkedPose.Position + new Vector3(0, 0, 400), 6656);
         var farFrame = Present(session, cleared, new(1, far, SceneDebugLayer.None));
         Assert.IsInstanceOfType<Lookup<ScenePose>.Missing>(farFrame.FindPose(new WorldObjectId.Instance(parked.Id)));
         Assert.IsInstanceOfType<Lookup<ScenePose>.Found>(farFrame.FindPose(new WorldObjectId.Instance(member.Id)));

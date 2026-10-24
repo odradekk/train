@@ -9,6 +9,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
 {
     private readonly RailwayCache railwayCache;
     private readonly NodeScene.Cache nodeCache;
+    private readonly FarTerrain.Cache farCache = new();
+    private double terrainViewRadiusCells;
     private readonly SceneVehicles vehicles;
     private readonly DisplayRate displayRate;
     private readonly ISceneStreamingObserver? observer;
@@ -63,6 +65,9 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     internal Task[] PendingNodeBuilds => (node?.PendingWork ?? []).Concat(successor?.PendingWork ?? []).ToArray();
     internal Task[] PendingPrebuilds => (candidate?.Node?.PendingWork ?? []).Concat(candidate?.Railway?.PendingWork ?? [])
         .Concat(retiringCandidate is { IsCompleted: false } ? [retiringCandidate] : []).ToArray();
+    internal Task[] PendingFarBuilds => (node?.PendingFarWork ?? []).Concat(railway?.PendingFarWork ?? [])
+        .Concat(candidate?.Node?.PendingFarWork ?? []).Concat(candidate?.Railway?.PendingFarWork ?? []).ToArray();
+    internal bool HasPendingFarTerrain => node?.HasPendingFarTerrain == true || railway?.HasPendingFarTerrain == true;
     internal WorldLocation? PrebuiltLocation => candidate?.Location;
     internal Func<long> Timestamp { get; set; } = System.Diagnostics.Stopwatch.GetTimestamp;
 
@@ -110,7 +115,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         {
             case WorldLocation.Edge edge:
                 railway = new(snapshot, edge.Id, railwayCache, ObjectId, vehicles: vehicles, displayRate: displayRate,
-                    findId: key => Find(ids, key), presentation: presentation, streaming: OpenStreaming(edge, SceneStreamingRole.Active));
+                    findId: key => Find(ids, key), presentation: presentation, streaming: OpenStreaming(edge, SceneStreamingRole.Active),
+                    farCache: farCache);
                 break;
             case WorldLocation.Node location:
                 node = OpenNode(location.Id, ObjectId, key => Find(ids, key));
@@ -204,8 +210,11 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             throw new ArgumentException("Invalid frame request.", nameof(frameRequest));
         if (displayedFrame is not null && (displayedFrame is not SceneFrame || displayedFrame.Update.Frame.Session != Id))
             throw new ArgumentException("The displayed frame belongs to another session.", nameof(displayedFrame));
-        if (frameRequest.Camera is { } camera && (!SceneGeometry.Finite(camera.Focus) || camera.Frame.Update.Frame.Session != Id))
+        if (frameRequest.Camera is { } camera && (!SceneGeometry.Finite(camera.Focus) ||
+            !double.IsFinite(camera.TerrainViewRadiusCells) || camera.TerrainViewRadiusCells <= 0 ||
+            camera.Frame.Update.Frame.Session != Id))
             throw new ArgumentException("Camera must use this session's displayed space.", nameof(frameRequest));
+        if (frameRequest.Camera is { } terrainCamera) terrainViewRadiusCells = terrainCamera.TerrainViewRadiusCells;
         if (frameRequest.PickRay is { } pickRay)
         {
             if (pickRay.Frame is null || pickRay.Frame.Update.Frame.Session != Id)
@@ -228,7 +237,15 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             closingScenes.RemoveAll(task => task.IsCompleted);
             presentation.Acknowledge(displayedFrame as SceneFrame, request, space);
             candidate?.Node?.SetBuildAllowed(false);
+            candidate?.Node?.SetFarBuildAllowed(false);
+            candidate?.Railway?.SetFarBuildAllowed(false);
+            successor?.SetFarBuildAllowed(false);
             var retire = AdvanceSuccessor();
+            PrioritizeCandidateTerrain();
+            node?.SetTerrainViewRadius(terrainViewRadiusCells);
+            railway?.SetTerrainViewRadius(terrainViewRadiusCells);
+            node?.SetFarBuildAllowed(true);
+            railway?.SetFarBuildAllowed(true);
             var stamp = new SceneFrameStamp(Id, request, space, ++revision);
             var frame = node is not null
                 ? node.Present(snapshot, frameRequest, stamp, displayedFrame as SceneFrame, sceneOrigin ?? default, target, interpolationStart)
@@ -398,7 +415,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             var map = ids;
             if (location is WorldLocation.Edge edge) railway = new(snapshot, edge.Id, railwayCache, key => AssignId(map, key),
                 vehicles: vehicles, displayRate: displayRate, findId: key => Find(map, key), presentation: presentation,
-                streaming: OpenStreaming(edge, SceneStreamingRole.Active));
+                streaming: OpenStreaming(edge, SceneStreamingRole.Active), farCache: farCache);
             else if (location is WorldLocation.Node atNode) node = OpenNode(atNode.Id, key => AssignId(map, key), key => Find(map, key));
             else throw new ArgumentException("Invalid follow location.");
         }
@@ -414,6 +431,11 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     private void PruneCaches()
     {
         railwayCache.Retain(railway?.Edge, candidate?.Railway?.Edge);
+        farCache.Retain(new[] { node is null ? null : "node:" + node.Node.Value,
+            railway is null ? null : "edge:" + railway.Edge.Value,
+            candidate?.Node is { } nextNode ? "node:" + nextNode.Node.Value : null,
+            candidate?.Railway is { } nextEdge ? "edge:" + nextEdge.Edge.Value : null }
+            .OfType<string>());
         foreach (var id in settlementCaches.Keys.Where(id => id != node?.Node && id != candidate?.Node?.Node).ToArray())
             settlementCaches.Remove(id);
     }
@@ -426,7 +448,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         if (!settlementCaches.TryGetValue(id, out var caches))
             settlementCaches.Add(id, caches = (new(), new()));
         return new(snapshot, id, nodeCache, objectId, vehicles, displayRate, findId, nodeBuild, caches.Buildings, caches.Parked,
-            background: background, presentation: presentation, streaming: OpenStreaming(new WorldLocation.Node(id), role));
+            background: background, presentation: presentation, streaming: OpenStreaming(new WorldLocation.Node(id), role), farCache: farCache);
     }
 
     private static SceneObjectId? Find(ObjectIds map, string key) =>
@@ -461,15 +483,25 @@ internal sealed class WorldSceneSession : IWorldSceneSession
                     role: SceneStreamingRole.Candidate))
                 : new(wanted, map, new(++nextSpace), Railway: new(snapshot, ((WorldLocation.Edge)wanted).Id, railwayCache, key => AssignId(map, key),
                     vehicles: vehicles, displayRate: displayRate, findId: key => Find(map, key), presentation: presentation,
-                    streaming: OpenStreaming(wanted, SceneStreamingRole.Candidate)));
+                    streaming: OpenStreaming(wanted, SceneStreamingRole.Candidate), farCache: farCache));
         }
         try
         {
+            var allowFar = node?.HasPendingBuilds != true && railway?.HasPendingBuilds != true &&
+                node?.HasPendingCoarseTerrain != true && railway?.HasPendingCoarseTerrain != true;
             if (candidate?.Node is { } candidateNode)
             {
+                candidateNode.SetTerrainViewRadius(terrainViewRadiusCells);
+                candidateNode.SetFarBuildAllowed(allowFar);
                 candidateNode.Pump(snapshot, allowBuild: allowBuild, enteringTrain: train);
             }
-            if (wanted is WorldLocation.Edge atEdge) candidate?.Railway?.Pump(snapshot, atEdge, allowBuild);
+            if (wanted is WorldLocation.Edge atEdge && candidate?.Railway is { } candidateRailway)
+            {
+                candidateRailway.SetTerrainViewRadius(terrainViewRadiusCells);
+                candidateRailway.SetFarBuildAllowed(allowFar);
+                candidateRailway.Pump(snapshot, atEdge, allowBuild);
+            }
+            PrioritizeCandidateTerrain();
             if (candidate?.Node?.Failed == true || candidate?.Railway?.Failed == true)
             {
                 candidateFailure = candidate.Node?.Failure ?? new("build_failed", SceneStage.Build, null, null, null, null, "Candidate construction failed.");
@@ -481,6 +513,14 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             candidateFailure = new("build_failed", SceneStage.Build, null, null, null, null, error.ToString());
             rejectedCandidate = wanted; CancelCandidate();
         }
+    }
+
+    private void PrioritizeCandidateTerrain()
+    {
+        var allowFine = candidate?.Node?.HasPendingBuilds != true && candidate?.Railway?.HasPendingBuilds != true &&
+            candidate?.Node?.HasPendingCoarseTerrain != true && candidate?.Railway?.HasPendingCoarseTerrain != true;
+        node?.SetFineTerrainBuildAllowed(allowFine);
+        railway?.SetFineTerrainBuildAllowed(allowFine);
     }
 
     internal static BuiltGeometry BuildGeometry(Func<Func<string, SceneObjectId>, RenderedDesign> build)

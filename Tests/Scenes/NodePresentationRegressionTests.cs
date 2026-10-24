@@ -32,7 +32,7 @@ public sealed class NodePresentationRegressionTests
             Assert.AreEqual(SceneReadiness.Ready, first.Readiness);
             Assert.IsTrue(first.Objects.Length > 0);
             block = true;
-            var request = new SceneFrameRequest(1, new(first, new(160, 0, 0)), SceneDebugLayer.None);
+            var request = new SceneFrameRequest(1, new(first, new(160, 0, 0), 6656), SceneDebugLayer.None);
             var moved = scene.Present(snapshot, request, NodeFixtures.NextStamp(scene), first, default);
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.AreEqual(SceneReadiness.Partial, moved.Readiness);

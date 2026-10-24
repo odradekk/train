@@ -21,7 +21,7 @@ internal sealed class CombatEffects : IDisposable
     const double DestructionSmokeSeconds = 3;
     const double CollapseDustSeconds = 1.2;
     const double ShakeSeconds = 0.25;
-    const float ShakeDistance = 0.15f;
+    internal const float ShakeDistance = 0.15f;
     const double FlickerBucket = 0.4;
     const int FragmentBurst = 6;
     const int DestructionBurst = 18;

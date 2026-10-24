@@ -172,7 +172,8 @@ internal sealed class WorldSceneController : IDisposable
             var displayed = _fullReplacement ? null : actual;
             var poseFrame = _fullReplacement ? actual : _display.PoseFrame;
             var camera = poseFrame is null ? null : new SceneCameraSample(poseFrame,
-                ToNumerics(View.CameraRig.Focus - (_fullReplacement ? _display.Root.Position : Vector3.Zero)));
+                ToNumerics(View.CameraRig.Focus - (_fullReplacement ? _display.Root.Position : Vector3.Zero)),
+                View.CameraRig.TerrainViewRadiusCells);
             var interpolation = status.Remainder / SimulationTime.StepSeconds;
             var result = _session.Present(new(Math.Clamp(interpolation, 0, 1), camera, DebugLayers, _pickRay), displayed);
             if (result is SceneResult<ISceneFrame>.Failure { Problems: var problems } &&

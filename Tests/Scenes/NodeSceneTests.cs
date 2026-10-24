@@ -559,7 +559,7 @@ public sealed class NodeSceneTests
         {
             await SceneFixtures.AwaitPendingWork(session.PendingNodeBuilds);
             var next = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(
-                new(1, new(previous, aim), SceneDebugLayer.None), previous)).Value;
+                new(1, new(previous, aim, 6656), SceneDebugLayer.None), previous)).Value;
             if (!SamePan(previous, next)) swapped = next;
             else previous = next;
         }
@@ -662,7 +662,7 @@ public sealed class NodeSceneTests
         {
             await SceneFixtures.AwaitPendingWork(session.PendingNodeBuilds);
             var request = aim is { } at
-                ? new SceneFrameRequest(1, new SceneCameraSample(displayed, at), SceneDebugLayer.None)
+                ? new SceneFrameRequest(1, new SceneCameraSample(displayed, at, 6656), SceneDebugLayer.None)
                 : new SceneFrameRequest(1, null, SceneDebugLayer.None);
             var next = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(request, displayed)).Value;
             var stable = next.Readiness is not SceneReadiness.Loading && session.PendingNodeBuilds.Length == 0 &&
@@ -996,7 +996,7 @@ public sealed class NodeSceneTests
     private static int ColumnHeight(SceneWorldSnapshot snapshot, NodeMapItem node, NodeLayout layout,
         Dictionary<GridColumn, NodeScene.RailBed> bed, GridColumn column)
     {
-        var raw = RailwayTerrain.NodeGround(snapshot, node, new(column.X + 0.5, 0, column.Z + 0.5), layout.Template);
+        var raw = TerrainSurface.NodeGround(snapshot, node, new(column.X + 0.5, 0, column.Z + 0.5), layout.Template);
         if (bed.TryGetValue(column, out var rail))
         {
             var blend = Math.Clamp((rail.Distance - RailwayCoordinates.BedBaseHalfWidth) / RailwayCoordinates.BedBlendWidth, 0, 1);

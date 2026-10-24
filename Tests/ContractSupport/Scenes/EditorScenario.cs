@@ -154,6 +154,7 @@ public sealed class EditorSession : IDesignEditSession
         public Lookup<ScenePose> FindPose(WorldObjectId subject) => frame.FindPose(subject);
         public Lookup<WorldLocation> Locate(NVector3 point) => frame.Locate(point);
         public Lookup<double> TerrainHeight(double x, double z) => frame.TerrainHeight(x, z);
+        public double? DisplayTerrainHeight(double x, double z) => frame.DisplayTerrainHeight(x, z);
     }
 
 }

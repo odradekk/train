@@ -258,6 +258,11 @@ internal sealed class NodeScene : IAsyncDisposable
     private ScenePoint? railFogOrigin;
     private readonly Dictionary<string, CompletedPart> completedParts = [];
     private readonly object workGate = new();
+    private readonly FarTerrain farTerrain;
+    private readonly FarTerrainQueue farBuilds;
+    private double terrainViewRadiusCells;
+    private bool farBuildAllowed = true;
+    private HashSet<SceneObjectId> candidateFarObjects = [];
     private Queue<(string Key, SceneBounds Bounds, GridColumn? Chunk)> waitingParts = [];
     private readonly Dictionary<string, PartWork> pendingParts = [];
     private readonly List<PartWork> retiring = [];
@@ -324,6 +329,19 @@ internal sealed class NodeScene : IAsyncDisposable
         }
     }
     internal bool Failed => failure is not null;
+    internal Task[] PendingFarWork => farBuilds.PendingWork.ToArray();
+    internal bool HasPendingFarTerrain => terrainViewRadiusCells > 0 && (prepared is null || farTerrain.HasPendingWork);
+    internal bool HasPendingCoarseTerrain => terrainViewRadiusCells > 0 && (prepared is null || farTerrain.HasPendingCoarse);
+    internal void SetTerrainViewRadius(double radius) { if (radius > 0) terrainViewRadiusCells = radius; }
+    internal void SetFineTerrainBuildAllowed(bool allowed) => farTerrain.SetFineBuildAllowed(allowed);
+    internal void SetFarBuildAllowed(bool allowed)
+    {
+        lock (workGate)
+        {
+            farBuildAllowed = allowed;
+            if (!allowed) farBuilds.PauseForL0(true);
+        }
+    }
     internal bool HasPendingBuilds
     {
         get
@@ -333,7 +351,14 @@ internal sealed class NodeScene : IAsyncDisposable
                 vehicles.HasPendingBuilds || settlement.HasPendingBuilds;
         }
     }
-    internal void SetBuildAllowed(bool allowed) { lock (workGate) buildAllowed = allowed; }
+    internal void SetBuildAllowed(bool allowed)
+    {
+        lock (workGate)
+        {
+            buildAllowed = allowed;
+            if (!allowed) farBuilds.PauseForL0(true);
+        }
+    }
 
     internal NodeScene(SceneWorldSnapshot initial, NodeId node, Cache cache, Func<string, SceneObjectId> objectId, SceneVehicles vehicles, DisplayRate displayRate,
         Func<string, SceneObjectId?> findId,
@@ -341,12 +366,19 @@ internal sealed class NodeScene : IAsyncDisposable
         SceneVehicles.Cache? buildingCache = null, SceneVehicles.Cache? parkedCache = null,
         Func<Preparation, GridColumn, Part?, CancellationToken, Part>? buildChunk = null,
         Func<Preparation, RailSegment, Part?, CancellationToken, Part>? buildRail = null, bool background = false,
-        PresentationState? presentation = null, SceneStreamingScope? streaming = null)
+        PresentationState? presentation = null, SceneStreamingScope? streaming = null,
+        FarTerrain.Cache? farCache = null)
     {
         Streaming = streaming;
         Node = node; this.cache = cache; this.objectId = objectId; this.findId = findId; this.presentation = presentation; owner = cache.Open(node); this.nodeBuild = generate;
         this.vehicles = vehicles;
         this.displayRate = displayRate;
+        farTerrain = new(farCache ?? new());
+        farBuilds = new(128, () =>
+        {
+            lock (workGate)
+                if (!cancellation.IsCancellationRequested) StartParts();
+        });
         this.buildChunk = buildChunk ?? ((data, from, old, token) => data.BuildChunk(from, old, token));
         this.buildRail = buildRail ?? ((data, segment, old, token) => segment.Build(old, token));
         snapshot = initial;
@@ -455,6 +487,7 @@ internal sealed class NodeScene : IAsyncDisposable
         {
             if (promote) DeferCandidateParts();
             ReconcileParts();
+            PumpFar();
         }
         if (!ReferenceEquals(publishedBuilt, built) || !ReferenceEquals(publishedParts, cacheParts))
         {
@@ -463,6 +496,26 @@ internal sealed class NodeScene : IAsyncDisposable
             publishedParts = cacheParts;
         }
         ScheduleRefresh();
+    }
+
+    private void PumpFar()
+    {
+        if (terrainViewRadiusCells <= 0 || prepared is null || layout is null) return;
+        farBuilds.PauseForL0(true);
+        farTerrain.BindNode(prepared);
+        var domain = layout.PanBounds(default);
+        var minimum = Vector2.Min(domain.Minimum, new((float)range.Focus.X, (float)range.Focus.Z));
+        var maximum = Vector2.Max(domain.Maximum, new((float)range.Focus.X, (float)range.Focus.Z));
+        if (followedPath is { } following)
+            foreach (var point in following.Priority)
+            {
+                minimum = Vector2.Min(minimum, new((float)point.X, (float)point.Z));
+                maximum = Vector2.Max(maximum, new((float)point.X, (float)point.Z));
+            }
+        farTerrain.Demand(range.Focus, terrainViewRadiusCells, new(minimum, maximum), followedPath?.Priority);
+        if (farTerrain.HasRunnableWork) farBuilds.Enqueue("terrain", farTerrain.Advance);
+        StartParts();
+        if (farBuilds.Failure is { } error) Fail(new RailwayBuildException(error.Message));
     }
 
     internal void InvalidatePlatforms() => corridorPlatformsDirty = true;
@@ -950,6 +1003,15 @@ internal sealed class NodeScene : IAsyncDisposable
             candidateInstances = instances;
             candidateInstancesInput = instanceInput;
         }
+        var farObjects = farTerrain.Objects(default, objectId);
+        var nextFar = farObjects.Select(item => item.Id).ToHashSet();
+        foreach (var item in farObjects)
+        {
+            if (!candidateObjects.TryGetValue(item.Id, out var old) || item != old) upserts[item.Id] = item;
+            candidateObjects[item.Id] = item;
+        }
+        foreach (var id in candidateFarObjects.Except(nextFar)) { candidateObjects.Remove(id); removed.Add(id); }
+        candidateFarObjects = nextFar;
         return (full ? candidateObjects.Values.OrderBy(item => item.Id.Value).ToImmutableArray() :
             upserts.Values.OrderBy(item => item.Id.Value).ToImmutableArray(),
             full ? [] : removed.OrderBy(id => id.Value).ToImmutableArray());
@@ -958,9 +1020,11 @@ internal sealed class NodeScene : IAsyncDisposable
     // Caller holds workGate; only Pump replaces the priority order and consumes results.
     private void StartParts()
     {
-        if (!buildAllowed || cancellation.IsCancellationRequested || failure is not null || pendingParts.Values.Any(work => work.Task.IsFaulted)) return;
+        if (cancellation.IsCancellationRequested) return;
+        farBuilds.PauseForL0(true);
+        if (!buildAllowed || failure is not null || pendingParts.Values.Any(work => work.Task.IsFaulted)) return;
         while (waitingParts.Count > 0 && pendingParts.Values.Count(work => !work.Task.IsCompleted) +
-            retiring.Count(work => !work.Task.IsCompleted) < RailwayCoordinates.MaxConcurrentBuilds)
+            retiring.Count(work => !work.Task.IsCompleted) + farBuilds.RunningCount < RailwayCoordinates.MaxConcurrentBuilds)
         {
             var item = waitingParts.Dequeue();
             var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
@@ -973,6 +1037,9 @@ internal sealed class NodeScene : IAsyncDisposable
             _ = task.ContinueWith(_ => { lock (workGate) StartParts(); }, CancellationToken.None,
                 TaskContinuationOptions.None, TaskScheduler.Default);
         }
+        var occupied = pendingParts.Values.Count(work => !work.Task.IsCompleted) + retiring.Count(work => !work.Task.IsCompleted);
+        var free = Math.Max(0, RailwayCoordinates.MaxConcurrentBuilds - occupied - farBuilds.RunningCount);
+        farBuilds.Pump(Math.Min(free, Math.Max(0, 1 - farBuilds.RunningCount)), waitingParts.Count > 0 || !farBuildAllowed);
     }
     private void Fail(RailwayBuildException error)
     {
@@ -982,6 +1049,8 @@ internal sealed class NodeScene : IAsyncDisposable
     internal SceneFrame Present(SceneWorldSnapshot snapshot, SceneFrameRequest request, SceneFrameStamp stamp,
         SceneFrame? displayed, ScenePoint origin, WorldSceneTarget? target = null, SceneWorldSnapshot? previous = null)
     {
+        if (request.Camera is { } cameraSample && cameraSample.Frame.Update.Frame.Session == stamp.Session &&
+            cameraSample.Frame.Update.Frame.Space == stamp.Space) SetTerrainViewRadius(cameraSample.TerrainViewRadiusCells);
         if (admissionFrame is { } offered && displayed?.Update.Frame is { } shown &&
             shown.Session == offered.Session && shown.Request == offered.Request && shown.Space == offered.Space &&
             shown.Revision >= offered.Revision)
@@ -1046,6 +1115,8 @@ internal sealed class NodeScene : IAsyncDisposable
                     new(RailwayCoordinates.Relative(new(placed.ShiftX, 0, placed.ShiftZ), origin), Quaternion.Identity),
                     new WorldObjectId.Lair(occupant.Id), [], [], []));
         }
+        var farView = farTerrain.View;
+        objects.AddRange(farTerrain.Objects(origin, objectId, farView));
         if (failure is not null) problems.Add(failure);
         foreach (var problem in reported) problems.Add(problem);
         reported.Clear();
@@ -1077,7 +1148,8 @@ internal sealed class NodeScene : IAsyncDisposable
             objects.ToImmutable(), picking.ToImmutable(), fog.ToImmutable(), RailwayTerrain.UniqueProblems(problems), displayed,
             node: layout, nodeHeights: nodeHeights,
             debugLayers: request.DebugLayers, nodeTracks: layout?.EntryTracks, pickRay: request.PickRay,
-            effects: effects, terrain: staticTerrain, staticGeometry: staticGeometry, staticPickOffset: trainPicks);
+            effects: effects, terrain: staticTerrain, staticGeometry: staticGeometry, staticPickOffset: trainPicks,
+            farTerrain: farView);
 
         void Add(RenderedDesign geometry)
         { objects.AddRange(geometry.Objects); picking.AddRange(geometry.Picking); problems.AddRange(geometry.Diagnostics); }
@@ -1178,22 +1250,16 @@ internal sealed class NodeScene : IAsyncDisposable
 
     private void TerrainFog(ScenePoint origin, ImmutableArray<SceneFog>.Builder fog)
     {
-        var minimum = layout!.Bounds.Minimum;
-        var maximum = layout.Bounds.Maximum;
+        var retained = range.Around(NodeStreaming.RetainCells).Window(layout!);
+        var ahead = prefetch.Window(layout!);
+        var left = Math.Min(retained.Left, ahead.Left);
+        var right = Math.Max(retained.Right, ahead.Right);
+        var back = Math.Min(retained.Back, ahead.Back);
+        var front = Math.Max(retained.Front, ahead.Front);
         if (prepared is null)
-        { Add(minimum.X, maximum.X, minimum.Y, maximum.Y); return; }
-        var retained = range.Around(NodeStreaming.RetainCells).Window(layout);
-        var ahead = prefetch.Window(layout);
-        var left = Math.Min(retained.Left, Math.Min(ahead.Left, corridorTerrainX.Count == 0 ? retained.Left : corridorTerrainX.Min.X));
-        var right = Math.Max(retained.Right, Math.Max(ahead.Right, corridorTerrainX.Count == 0 ? retained.Right : corridorTerrainX.Max.X + VoxelGrid.ChunkSize));
-        var back = Math.Min(retained.Back, Math.Min(ahead.Back, corridorTerrainZ.Count == 0 ? retained.Back : corridorTerrainZ.Min.Z));
-        var front = Math.Max(retained.Front, Math.Max(ahead.Front, corridorTerrainZ.Count == 0 ? retained.Front : corridorTerrainZ.Max.Z + VoxelGrid.ChunkSize));
+        { Add(left, right, back, front); return; }
         if (terrainFogWindow == (left, right, back, front) && dirtyTerrainRows.Count == 0 && terrainFogOrigin == origin)
-        { fog.AddRange(cachedTerrainFog); return; }
-        Add(minimum.X, left, minimum.Y, maximum.Y);
-        Add(right, maximum.X, minimum.Y, maximum.Y);
-        Add(left, right, minimum.Y, back);
-        Add(left, right, front, maximum.Y);
+        { fog.AddRange(cachedTerrainFog); AddCorridor(); return; }
         var window = (left, right, back, front);
         if (terrainFogWindow is not { } old || old.Left != left || old.Right != right)
         {
@@ -1226,6 +1292,15 @@ internal sealed class NodeScene : IAsyncDisposable
             foreach (var bounds in terrainFogRows[z]) Add(bounds.Minimum.X, bounds.Maximum.X, bounds.Minimum.Z, bounds.Maximum.Z);
         cachedTerrainFog = fog.ToImmutable();
         terrainFogOrigin = origin;
+        AddCorridor();
+
+        void AddCorridor()
+        {
+            foreach (var from in unbuiltCorridorChunks)
+                if (!terrainChunks.Contains(from) &&
+                    (from.X < left || from.X >= right || from.Z < back || from.Z >= front))
+                    Add(from.X, from.X + VoxelGrid.ChunkSize, from.Z, from.Z + VoxelGrid.ChunkSize);
+        }
 
         void Add(double left, double right, double back, double front)
         {
@@ -1563,17 +1638,9 @@ internal sealed class NodeScene : IAsyncDisposable
         Dictionary<GridColumn, RailBed> bed, GridColumn column)
     {
         var point = new ScenePoint(column.X + 0.5, 0, column.Z + 0.5);
-        var raw = RailwayTerrain.NodeGround(snapshot, node, point, layout.Template);
-        if (layout.Lair is { } lair)
-            raw = NodeSettlement.FlattenGround(lair.Model.Scene, lair.ShiftX, lair.ShiftZ, point, raw);
         var rail = bed.GetValueOrDefault(column);
-        var distance = rail?.Distance ?? double.PositiveInfinity;
-        if (rail is not null)
-        {
-            var blend = Math.Clamp((distance - RailwayCoordinates.BedBaseHalfWidth) / RailwayCoordinates.BedBlendWidth, 0, 1);
-            raw = RailwayTerrain.BedHeight(rail.Height, distance) * (1 - blend) + raw * blend;
-        }
-        return ((int)Math.Floor(raw), distance);
+        var raw = TerrainSurface.NodeHeight(snapshot, node, layout, point, rail);
+        return ((int)Math.Floor(raw), rail?.Distance ?? double.PositiveInfinity);
     }
 
     private static Part GridPart(ImmutableArray<SceneCell> cells, ImmutableDictionary<GridColumn, double> heights,
@@ -1765,9 +1832,11 @@ internal sealed class NodeScene : IAsyncDisposable
     {
         PartWork[] parts;
         Task[] ownedWork;
+        Task closingFar;
         lock (workGate)
         {
             cancellation.Cancel();
+            closingFar = farBuilds.DisposeAsync().AsTask();
             Streaming?.CancelPending();
             cache.Close(Node, owner);
             waitingParts.Clear();
@@ -1775,7 +1844,7 @@ internal sealed class NodeScene : IAsyncDisposable
             parts = pendingParts.Values.Concat(retiring).ToArray();
             foreach (var work in parts) work.Cancellation.Cancel();
             ownedWork = (pending is null ? Array.Empty<Task>() : [pending]).Concat(refresh is null ? [] : [refresh])
-                .Concat(parts.Select(item => item.Task)).ToArray();
+                .Concat(parts.Select(item => item.Task)).Append(closingFar).ToArray();
         }
         try { await Task.WhenAll(ownedWork).ConfigureAwait(false); }
         catch (Exception) { /* Retired scene work cannot be attached or published. */ }

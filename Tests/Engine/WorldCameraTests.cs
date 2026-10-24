@@ -18,6 +18,48 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
     private static readonly WorldObjectId Second = new WorldObjectId.Instance(new InstanceId.Vehicle(new(2)));
 
     [Test]
+    public async Task Projection_envelope_recomputes_after_resize_and_contains_actual_far_corners()
+    {
+        var viewport = new SubViewport { Size = new(1600, 900) };
+        TestScene.AddChild(viewport);
+        var camera = new WorldCamera();
+        viewport.AddChild(camera);
+        try
+        {
+            double normalRadius = 0;
+            foreach (var size in new Vector2I[] { new(1600, 900), new(3200, 900) })
+            {
+                viewport.Size = size;
+                await TestScene.ToSignal(TestScene.GetTree(), SceneTree.SignalName.ProcessFrame);
+                foreach (var keep in new[] { Camera3D.KeepAspectEnum.Height, Camera3D.KeepAspectEnum.Width })
+                {
+                    camera.Camera.KeepAspect = keep;
+                    var radius = camera.TerrainViewRadiusCells;
+                    if (keep == Camera3D.KeepAspectEnum.Height)
+                    {
+                        if (size.X == 1600) normalRadius = radius;
+                        else Require(radius > normalRadius, "视口变宽后必须重算并扩大完整投影包络。");
+                    }
+                    foreach (var pitch in new[] { .15f, .55f, 1.35f })
+                        foreach (var yaw in new[] { 0f, 1.5f, 3f, 4.5f })
+                        {
+                            camera.SetShake(new(.15f, 0, 0));
+                            camera.PlaceAbsolute(Vector3.Zero, WorldCamera.MaximumDistance, yaw, pitch);
+                            foreach (var x in new[] { 0, size.X })
+                                foreach (var y in new[] { 0, size.Y })
+                                {
+                                    var corner = camera.Camera.ProjectPosition(new(x, y), camera.Camera.Far);
+                                    Require(new Vector2(corner.X - camera.Focus.X, corner.Z - camera.Focus.Z).Length() <= radius,
+                                        "实际相机的整个远平面必须落在地形水平包络内。");
+                                }
+                        }
+                }
+            }
+        }
+        finally { viewport.Free(); }
+    }
+
+    [Test]
     public void Node_free_camera_at_farthest_zoom_and_lowest_pitch_stays_inside_display_radius()
     {
         var camera = AttachCamera();
@@ -141,6 +183,29 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
             var prepared = Frame(revision: 2, height: new Lookup<double>.Found(200));
             camera.DisplayedFrame(prepared, null);
             Require(camera.Camera.Position.Y > 200, "接入成功后必须使用新显示帧地形。");
+        }
+        finally { camera.Free(); }
+    }
+
+    [Test]
+    public void Distant_terrain_clearance_uses_only_the_current_displayed_frame()
+    {
+        var camera = AttachCamera();
+        try
+        {
+            camera.DisplayedFrame(Frame(displayHeight: 100), null);
+            Require(Math.Abs(camera.Camera.Position.Y - 101) < 0.001,
+                "精确地形缺失时，相机必须位于已显示远景地形上方一格。");
+            var prepared = Frame(revision: 2, displayHeight: 200);
+            camera.Update(0.1);
+            Require(Math.Abs(camera.Camera.Position.Y - 101) < 0.001,
+                "尚未显示的帧不能改变相机净空。");
+            camera.DisplayedFrame(prepared, null);
+            Require(Math.Abs(camera.Camera.Position.Y - 201) < 0.001,
+                "新显示帧必须立即更新远景地形净空。");
+            camera.DisplayedFrame(Frame(revision: 3, displayHeight: 50), null);
+            Require(Math.Abs(camera.Camera.Position.Y - 51) < 0.001,
+                "远景地形降低后不能保留先前帧的高度。");
         }
         finally { camera.Free(); }
     }
@@ -460,6 +525,30 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public void Minimap_NotReady_uses_distant_terrain_and_retries_when_height_is_missing()
+    {
+        var camera = AttachCamera();
+        try
+        {
+            camera.DisplayedFrame(Frame(bounds: NodeBounds, pick: new ScenePick.NotReady()), null);
+            camera.MoveFocus(new(10, 0, 20));
+            Near(camera.Focus, new(10, 0, 20));
+            camera.DisplayedFrame(Frame(revision: 2, bounds: NodeBounds,
+                pick: new ScenePick.NotReady(), displayHeight: 40), null);
+            Near(camera.Focus, new(10, 40, 20));
+            Require(camera.Camera.Position.Y > 40, "待就绪拾取必须以当前远景高度抬高相机。");
+            camera.MoveFocus(new(-8, 0, 6));
+            Near(camera.Focus, new(-8, 40, 6));
+            camera.DisplayedFrame(Frame(revision: 3, bounds: NodeBounds,
+                pick: new ScenePick.NotReady(), displayHeight: 80), null);
+            camera.MoveFocus(new(4, 0, -6));
+            Near(camera.Focus, new(4, 80, -6));
+            Require(camera.Camera.Position.Y > 80, "小地图跳转必须使用新显示帧的远景高度。");
+        }
+        finally { camera.Free(); }
+    }
+
+    [Test]
     public void Minimap_focus_clamps_to_node_bounds_and_preserves_orbit_and_distance()
     {
         var camera = AttachCamera();
@@ -495,7 +584,7 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
         SceneFrameStamp? @base = null, NVector3 shift = default, ScenePoint origin = default,
         ScenePanBounds? bounds = null, ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>? poses = null,
         Lookup<double>? height = null, SceneSessionId? session = null, ScenePick? pick = null,
-        ImmutableDictionary<SceneRay, ScenePick>? picks = null) => new()
+        ImmutableDictionary<SceneRay, ScenePick>? picks = null, double? displayHeight = null) => new()
     {
         Update = new(@base, new(session ?? Session, new(1), new(space), revision), shift,
             [], [], new([], []), []),
@@ -503,6 +592,7 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
         NodePanBounds = bounds,
         Poses = poses ?? ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty,
         TerrainHeightResult = height ?? new Lookup<double>.Missing(),
+        DisplayTerrainHeightResult = displayHeight,
         PickResult = pick ?? new ScenePick.Miss(),
         Picks = picks ?? ImmutableDictionary<SceneRay, ScenePick>.Empty
     };
