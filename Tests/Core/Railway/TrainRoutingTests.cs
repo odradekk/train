@@ -22,6 +22,8 @@ public sealed class TrainRoutingTests
         AssertRoute(TrainRouting.FindRoute(nodes, edges, new(2), new(2), 2), 0);
         var blockedEdges = edges.SetItem(1, edges[1] with { Tracks = 0 });
         AssertRoute(TrainRouting.FindRoute(nodes, blockedEdges, new(1), new(3), 2), 12, 10);
+        AssertReachabilityMatchesRoutes(nodes, edges);
+        AssertReachabilityMatchesRoutes(nodes, blockedEdges);
     }
 
     [TestMethod]
@@ -60,6 +62,7 @@ public sealed class TrainRoutingTests
         var edge = Edge(1, 1, 2, 5) with { Tracks = 0 };
         Assert.IsNull(TrainRouting.FindTrack(edge));
         Assert.IsNull(TrainRouting.FindRoute(nodes, [edge], new(1), new(2), 2));
+        AssertReachabilityMatchesRoutes(nodes, [edge]);
 
         edge = edge with
         {
@@ -68,6 +71,8 @@ public sealed class TrainRoutingTests
         };
         Assert.AreEqual(2, TrainRouting.FindTrack(edge));
         AssertRoute(TrainRouting.FindRoute(nodes, [edge], new(1), new(2), 2), 5, 1);
+        AssertReachabilityMatchesRoutes(nodes, [edge]);
+        AssertReachabilityMatchesRoutes(nodes, [edge with { Tracks = 1 }]);
 
         edge = edge with { Tracks = 3 };
         AssertRoute(TrainRouting.FindRoute(nodes, [edge], new(1), new(2), 2), 5, 1);
@@ -90,6 +95,8 @@ public sealed class TrainRoutingTests
             Assert.IsNull(TrainRouting.FindRoute(nodes, edges.RemoveAt(2), new(1), new(3), 2));
             AssertRoute(TrainRouting.FindRoute(nodes, edges, new(1), new(2), 2), 1, 1);
             AssertRoute(TrainRouting.FindRoute(nodes, edges, new(2), new(3), 2), 1, 2);
+            AssertReachabilityMatchesRoutes(nodes, edges);
+            AssertReachabilityMatchesRoutes(nodes, edges.RemoveAt(2));
         }
     }
 
@@ -102,6 +109,7 @@ public sealed class TrainRoutingTests
             ImmutableArray<NodeMapItem> nodes =
                 [Node(1), Node(2, new NodeOccupant.Settlement(new(1), relation)), Node(3)];
             AssertRoute(TrainRouting.FindRoute(nodes, edges, new(1), new(3), 2), 2, 1, 2);
+            AssertReachabilityMatchesRoutes(nodes, edges);
         }
     }
 
@@ -154,6 +162,18 @@ public sealed class TrainRoutingTests
         Assert.AreEqual(6.0, Predict(nodes, edges, new(1), new(false, [Waypoint(2), Station(3)]), 0));
         Assert.AreEqual(6.0, Predict(nodes, edges, new(1), new(true, [Waypoint(2), Waypoint(3)]), 0));
         Assert.AreEqual(1.0, Predict(nodes, edges, new(1), new(false, [Station(3)]), 0));
+    }
+
+    private static void AssertReachabilityMatchesRoutes(ImmutableArray<NodeMapItem> nodes,
+        ImmutableArray<EdgeMapItem> edges)
+    {
+        foreach (var start in nodes)
+        {
+            var reachable = TrainRouting.ReachableNodes(nodes, edges, start.Id);
+            foreach (var target in nodes)
+                Assert.AreEqual(TrainRouting.FindRoute(nodes, edges, start.Id, target.Id, 2) is not null,
+                    reachable.Contains(target.Id), $"{start.Id} -> {target.Id}");
+        }
     }
 
     private static double? Predict(ImmutableArray<NodeMapItem> nodes, ImmutableArray<EdgeMapItem> edges,
