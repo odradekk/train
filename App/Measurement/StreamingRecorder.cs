@@ -34,10 +34,12 @@ internal sealed class StreamingRecorder(Func<double>? clock = null) : ISceneStre
     private readonly Dictionary<SceneStreamingSceneId, SceneFrameStamp> _latest = [];
     private readonly Dictionary<(int Display, long Candidate, SceneFrameStamp Frame), HostCandidate> _preparing = [];
     private readonly HashSet<SceneStreamingAttemptId> _ready = [];
-    private sealed class HostCandidate(SceneFrameStamp frame)
+    private sealed class HostCandidate(SceneFrameStamp frame, double opened)
     {
         internal SceneFrameStamp Frame = frame;
-        internal bool Ready;
+        internal double Opened = opened;
+        internal double? CompletedPreparation;
+        internal HashSet<SceneObjectId>? Required;
         internal readonly Dictionary<SceneObjectId, double> Resources = [];
     }
     private readonly HashSet<SceneStreamingSceneId> _closed = [];
@@ -107,10 +109,12 @@ internal sealed class StreamingRecorder(Func<double>? clock = null) : ISceneStre
             return;
         }
         if (!_preparing.TryGetValue(key, out var candidate))
-            _preparing.Add(key, candidate = new(value.Frame));
+            _preparing.Add(key, candidate = new(value.Frame, item.At));
+        if (value.Stage == SceneDisplayStage.FramePreparationStarted)
+            candidate.Required = value.ResourceObjects?.ToHashSet();
         if (value.Stage == SceneDisplayStage.ResourcesPrepared && value.Object is { } obj)
             candidate.Resources[obj] = item.At;
-        if (value.Stage == SceneDisplayStage.FramePrepared) candidate.Ready = true;
+        if (value.Stage == SceneDisplayStage.FramePrepared) candidate.CompletedPreparation = item.At;
         if (value.Stage == SceneDisplayStage.FrameCommitted)
         {
             if (_frames.TryGetValue(value.Frame, out var frame))
@@ -130,9 +134,16 @@ internal sealed class StreamingRecorder(Func<double>? clock = null) : ISceneStre
     private void RefreshReady()
     {
         _ready.Clear();
-        foreach (var candidate in _preparing.Values.Where(value => value.Ready))
-            if (_frames.TryGetValue(candidate.Frame, out var frame)) _ready.UnionWith(frame.Parts);
+        foreach (var candidate in _preparing.Values)
+            if (_frames.TryGetValue(candidate.Frame, out var frame))
+                foreach (var part in frame.Parts)
+                    if (_attempts.TryGetValue(part, out var state) && IsPrepared(candidate, state)) _ready.Add(part);
     }
+
+    private static bool IsPrepared(HostCandidate candidate, AttemptState state, double until = double.PositiveInfinity) =>
+        candidate.Opened <= until && (candidate.CompletedPreparation is { } completed && completed <= until ||
+            candidate.Required is { } required && state.Objects.Where(required.Contains)
+                .All(obj => candidate.Resources.TryGetValue(obj, out var at) && at <= until));
 
     internal void Displayed(SceneFrameStamp? stamp)
     {
@@ -162,16 +173,29 @@ internal sealed class StreamingRecorder(Func<double>? clock = null) : ISceneStre
         .Where(pair => !_closed.Contains(pair.Key.Scene) && _attempts[pair.Value].Needed)
         .Select(pair => Category(pair.Key)).Where(category => category != "committed")
         .GroupBy(category => category).ToDictionary(group => group.Key, group => group.Count());
-    internal StreamingSceneEvent[] Events(double origin) => _events.Select(value => value with { At = value.At - origin }).ToArray();
-    internal StreamingPartTiming[] Timings(double origin) => _attempts.Select(pair =>
+    internal StreamingSceneEvent[] Events(double origin, double until = double.PositiveInfinity) => _events
+        .Where(value => value.At <= until).Select(value => value with { At = value.At - origin }).ToArray();
+    internal StreamingPartTiming[] Timings(double origin, double until = double.PositiveInfinity) => _attempts
+        .Where(pair => pair.Value.Times.Values.Any(at => at <= until)).Select(pair =>
     {
         var state = pair.Value;
-        double? At(SceneStreamingStage stage) => state.Times.TryGetValue(stage, out var at) ? at - origin : null;
-        return new StreamingPartTiming(pair.Key, state.Committed is not null ? "committed" :
-            state.Times.ContainsKey(SceneStreamingStage.Cancelled) ? "cancelled" :
-            state.Times.ContainsKey(SceneStreamingStage.Failed) ? "failed" : "unfinished",
+        double? At(SceneStreamingStage stage) => state.Times.TryGetValue(stage, out var at) && at <= until ? at - origin : null;
+        var committed = state.Committed is { } done && done <= until ? state.Committed : null;
+        var prepared = committed is not null ? state.Prepared : null;
+        if (committed is null)
+        {
+            var candidates = _preparing.Values.Where(candidate => IsPrepared(candidate, state, until) &&
+                _frames.TryGetValue(candidate.Frame, out var frame) && frame.Parts.Contains(pair.Key));
+            var times = candidates.Select(candidate => state.Objects.Where(candidate.Resources.ContainsKey)
+                .Select(obj => candidate.Resources[obj]).Where(at => at <= until).ToArray())
+                .Where(times => times.Length > 0).Select(times => times.Max()).ToArray();
+            if (times.Length > 0) prepared = times.Min();
+        }
+        return new StreamingPartTiming(pair.Key, committed is not null ? "committed" :
+            At(SceneStreamingStage.Cancelled) is not null ? "cancelled" :
+            At(SceneStreamingStage.Failed) is not null ? "failed" : "unfinished",
             At(SceneStreamingStage.Needed), At(SceneStreamingStage.Queued), At(SceneStreamingStage.Started),
             At(SceneStreamingStage.Built) ?? At(SceneStreamingStage.CacheHit), At(SceneStreamingStage.Admitted),
-            state.Prepared - origin, state.Committed - origin);
+            prepared - origin, committed - origin);
     }).ToArray();
 }

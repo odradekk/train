@@ -108,6 +108,15 @@ internal sealed class SceneDisplay : IDisposable
         {
             _preparingFrame = frame;
             _candidate++;
+            if (Observe is { } observe)
+            {
+                var required = frame.Update.Upserts.Where(source =>
+                {
+                    _objects.TryGetValue(source.Id, out var previous);
+                    return source.Visuals.Where((visual, index) => !CanReuseVisual(previous, index, visual)).Any();
+                }).Select(source => source.Id).ToImmutableArray();
+                observe(new(_candidate, frame.Update.Frame, null, SceneDisplayStage.FramePreparationStarted, required));
+            }
         }
         frame = _preparingFrame;
         var spaceChanged = DisplayedFrame is { } displayed

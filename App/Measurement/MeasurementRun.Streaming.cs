@@ -139,8 +139,9 @@ internal sealed partial class MeasurementRun
         Write("streaming-coverage.jsonl", _streamingCoverage);
         Write("streaming-probes.jsonl", _streamingProbes);
         _streamingRecorder?.Drain();
-        var parts = _streamingRecorder?.Timings(_routeStarted) ?? [];
-        var sceneEvents = _streamingRecorder?.Events(_routeStarted) ?? [];
+        var until = _routeStarted + (_routeSamples.Count > 0 ? _routeSamples[^1].At : 0);
+        var parts = _streamingRecorder?.Timings(_routeStarted, until) ?? [];
+        var sceneEvents = _streamingRecorder?.Events(_routeStarted, until) ?? [];
         Write("streaming-scenes.jsonl", sceneEvents);
         Write("streaming-parts.jsonl", parts);
         object Distribution(IEnumerable<double?> values)

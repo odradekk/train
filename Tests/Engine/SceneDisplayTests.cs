@@ -59,8 +59,12 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
             events.Add(item);
         };
         Require(display.Prepare(candidate) is null, "锁定候选必须在第一个资源后暂停。");
-        Require(events.Count == 1 && events[0].Object == new SceneObjectId(2) &&
-            events[0].Stage == SceneDisplayStage.ResourcesPrepared && events[0].Frame == candidate.Update.Frame,
+        Require(events.Count == 2 && events[0].Stage == SceneDisplayStage.FramePreparationStarted &&
+            events[0].Object is null && events[0].ResourceObjects is { } required &&
+            required.SequenceEqual(new SceneObjectId[] { new(2), new(3) }),
+            "候选冻结时必须一次列出完整的新视觉资源对象。");
+        Require(events[1].Object == new SceneObjectId(2) &&
+            events[1].Stage == SceneDisplayStage.ResourcesPrepared && events[1].Frame == candidate.Update.Frame,
             "单个对象资源就绪必须立即记录，不能等待整个候选准备完成。");
         var latest = Frame(3,
             [Object(2, mesh, new(-70, 0, 0)) with { Subject = subject }, Object(4, mesh)],
@@ -73,10 +77,12 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         Require(ReferenceEquals(display.PoseFrame, latest) && ReferenceEquals(display.DisplayedFrame, first),
             "准备期间姿态帧必须更新，网格基准必须保持最后完整帧。");
         Require(events.Count(item => item.Stage == SceneDisplayStage.ResourcesPrepared) == 2 &&
-            events[^1].Stage == SceneDisplayStage.FramePrepared,
+            events[^1].Stage == SceneDisplayStage.FramePrepared &&
+            events.Count(item => item.Stage == SceneDisplayStage.FramePreparationStarted) == 1 &&
+            events[0].ResourceObjects!.Value.SequenceEqual(new SceneObjectId[] { new(2), new(3) }),
             "分预算恢复不得重复记录对象资源，也不能提前记录提交。");
         prepared!.Commit();
-        Require(events.Count == 6 && events.All(item => item.Frame == candidate.Update.Frame &&
+        Require(events.Count == 7 && events.All(item => item.Frame == candidate.Update.Frame &&
             item.Candidate == events[0].Candidate) &&
             events.Count(item => item.Stage == SceneDisplayStage.Committed) == 2,
             "较新输入不能覆盖冻结候选的完整身份，提交必须逐对象记录。");
@@ -113,15 +119,17 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         long timestamp = 0;
         display.Timestamp = () => timestamp += System.Diagnostics.Stopwatch.Frequency;
         var frame = Frame(2, [source], baseline.Update.Frame);
-        Require(display.Prepare(frame) is null && events.Count == 0,
+        Require(display.Prepare(frame) is null && events.Count == 1 &&
+            events[0].Stage == SceneDisplayStage.FramePreparationStarted && events[0].Object is null &&
+            events[0].ResourceObjects is { } required && required.SequenceEqual(new[] { source.Id }),
             "复用一个、只新准备一个视觉资源不能记录整个对象资源就绪。");
         using var prepared = Prepare(display, frame);
-        Require(events.Count == 2 && events[1].Stage == SceneDisplayStage.FramePrepared && events[0].Object == source.Id &&
-            events[0].Stage == SceneDisplayStage.ResourcesPrepared,
+        Require(events.Count == 3 && events[2].Stage == SceneDisplayStage.FramePrepared && events[1].Object == source.Id &&
+            events[1].Stage == SceneDisplayStage.ResourcesPrepared,
             "全部视觉资源准备完才记录一次对象资源就绪。");
         prepared.Commit();
-        Require(events.Count == 4 && events[2].Stage == SceneDisplayStage.Committed &&
-            events[3].Stage == SceneDisplayStage.FrameCommitted,
+        Require(events.Count == 5 && events[3].Stage == SceneDisplayStage.Committed &&
+            events[4].Stage == SceneDisplayStage.FrameCommitted,
             "对象提交应在资源就绪之后单独记录。");
     }
 
@@ -145,9 +153,10 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
             moving with { Pose = new(new(10, 0, 0), NQuaternion.Identity) },
             shrinking with { Visuals = [shrinking.Visuals[0]] },
             emptied with { Visuals = [] }, empty], first.Update.Frame));
-        Require(events.Count == 2 && events[0].Stage == SceneDisplayStage.FramePrepared &&
-            events[1].Stage == SceneDisplayStage.FrameCommitted && events.All(item => item.Object is null) &&
-            events[0].Frame == display.DisplayedFrame!.Update.Frame && events[1].Frame == display.DisplayedFrame.Update.Frame,
+        Require(events.Count == 3 && events[0].Stage == SceneDisplayStage.FramePreparationStarted &&
+            events[0].ResourceObjects is { IsEmpty: true } &&
+            events[1].Stage == SceneDisplayStage.FramePrepared && events[2].Stage == SceneDisplayStage.FrameCommitted &&
+            events.All(item => item.Object is null && item.Frame == display.DisplayedFrame!.Update.Frame),
             "全复用候选也必须准确记录完整准备与实际提交，但不能虚构逐对象资源时延。");
         Near(display.Objects[moving.Id].Root.Position, new(10, 0, 0));
         Require(display.Objects[shrinking.Id].Visuals.Length == 1 &&
@@ -172,15 +181,17 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         var frame = Frame(2, [Object(1, reused), Object(2, Mesh()), Object(3, Mesh())],
             first.Update.Frame);
         Require(display.Prepare(frame) is null, "候选必须在准备后续对象前暂停。");
-        Require(events.Count == 1 && events[0].Object == new SceneObjectId(2) &&
-            events[0].Stage == SceneDisplayStage.ResourcesPrepared,
+        Require(events.Count == 2 && events[0].Stage == SceneDisplayStage.FramePreparationStarted &&
+            events[0].Object is null && events[0].ResourceObjects is { } required &&
+            required.SequenceEqual(new SceneObjectId[] { new(2), new(3) }) &&
+            events[1].Object == new SceneObjectId(2) && events[1].Stage == SceneDisplayStage.ResourcesPrepared,
             "只为新准备视觉资源的对象记录资源就绪，复用对象不记录。");
         var cancelledCandidate = events[0].Candidate;
         display.CancelPreparation();
         Require(events[^1] == new SceneDisplayEvent(cancelledCandidate, frame.Update.Frame, null,
             SceneDisplayStage.HostCancelled), "取消必须单独记录原候选身份。");
         display.CancelPreparation();
-        Require(events.Count == 2, "重复清理不能重复记录取消。");
+        Require(events.Count == 3, "重复清理不能重复记录取消。");
         await new UiTestInput(TestScene).Frames(1);
         display.Timestamp = () => timestamp;
         var abandoned = Prepare(display, frame);
@@ -198,6 +209,12 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         Require(committedCandidate != abandonedCandidate && events.Count(item =>
             item.Stage == SceneDisplayStage.Committed && item.Candidate == committedCandidate) == 2,
             "再次重试的提交不能归因于已经取消的候选。");
+        var starts = events.Where(item => item.Stage == SceneDisplayStage.FramePreparationStarted).ToArray();
+        Require(starts.Length == 3 && starts.Select(item => item.Candidate).Distinct().Count() == 3 &&
+            starts.Select(item => item.Candidate).SequenceEqual(new[] { cancelledCandidate, abandonedCandidate, committedCandidate }) &&
+            starts.All(item => item.Frame == frame.Update.Frame && item.Object is null &&
+                item.ResourceObjects is { } objects && objects.SequenceEqual(new SceneObjectId[] { new(2), new(3) })),
+            "每次重试必须重新冻结完整资源集合，并发出不同身份的开始通知。");
         display.Observe = null;
     }
 

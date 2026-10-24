@@ -92,6 +92,70 @@ public sealed class StreamingRecorderTests
     }
 
     [TestMethod]
+    public void EachPartBecomesReadyBeforeTheWholeCandidateAndCancellationDoesNotCarryReadiness()
+    {
+        var recorder = new StreamingRecorder(() => 1);
+        var first = Attempt();
+        var second = new SceneStreamingAttemptId(first.Part with { Key = "second" }, 1);
+        var empty = new SceneStreamingAttemptId(first.Part with { Key = "empty" }, 1);
+        foreach (var part in new[] { first, second, empty }) Change(recorder, part, SceneStreamingStage.Needed);
+        Change(recorder, first, SceneStreamingStage.Admitted, [new(7), new(8)]);
+        Change(recorder, second, SceneStreamingStage.Admitted, [new(9)]);
+        Change(recorder, empty, SceneStreamingStage.Admitted);
+        recorder.OnEvent(new SceneStreamingEvent.Frame(Scene, Stamp(), [first, second, empty], null));
+        ImmutableArray<SceneObjectId> required = [new(8), new(9)];
+        recorder.Host(new(1, 2, new(1, Stamp(), null, SceneDisplayStage.FramePreparationStarted, required)));
+        Assert.AreEqual("prepared_waiting_commit", recorder.Category(empty.Part));
+        Assert.IsNull(recorder.Timings(0).Single(value => value.Attempt == empty).ResourcesPrepared);
+        recorder.Host(new(1, 3, new(1, Stamp(), new(8), SceneDisplayStage.ResourcesPrepared)));
+        Assert.AreEqual("prepared_waiting_commit", recorder.Category(first.Part));
+        Assert.AreEqual("admitted_waiting_resources", recorder.Category(second.Part));
+        Assert.AreEqual(3d, recorder.Timings(0).Single(value => value.Attempt == first).ResourcesPrepared);
+        recorder.Host(new(1, 4, new(1, Stamp(), null, SceneDisplayStage.HostCancelled)));
+        Assert.AreEqual("admitted_waiting_resources", recorder.Category(first.Part));
+        Assert.IsNull(recorder.Timings(0).Single(value => value.Attempt == first).ResourcesPrepared);
+        recorder.Host(new(1, 5, new(2, Stamp(), null, SceneDisplayStage.FramePreparationStarted, required)));
+        Assert.AreEqual("admitted_waiting_resources", recorder.Category(first.Part));
+        recorder.Host(new(1, 6, new(2, Stamp(), new(8), SceneDisplayStage.ResourcesPrepared)));
+        recorder.Host(new(1, 7, new(2, Stamp(), new(9), SceneDisplayStage.ResourcesPrepared)));
+        recorder.Host(new(1, 8, new(2, Stamp(), null, SceneDisplayStage.FrameCommitted)));
+        var timing = recorder.Timings(0).Single(value => value.Attempt == first);
+        Assert.AreEqual(6d, timing.ResourcesPrepared);
+        Assert.AreEqual(8d, timing.Committed);
+    }
+
+    [TestMethod]
+    public void TraceCutoffExcludesLateBuildsAndDoesNotBorrowPreparationFromALaterCommit()
+    {
+        double now = 1;
+        var recorder = new StreamingRecorder(() => now);
+        var building = Attempt();
+        var preparing = new SceneStreamingAttemptId(building.Part with { Key = "preparing" }, 1);
+        Change(recorder, building, SceneStreamingStage.Needed);
+        Change(recorder, building, SceneStreamingStage.Queued);
+        Change(recorder, preparing, SceneStreamingStage.Needed);
+        Change(recorder, preparing, SceneStreamingStage.Admitted, [new(7)]);
+        recorder.OnEvent(new SceneStreamingEvent.Frame(Scene, Stamp(), [preparing], null));
+        ImmutableArray<SceneObjectId> required = [new(7)];
+        recorder.Host(new(1, 2, new(1, Stamp(), null, SceneDisplayStage.FramePreparationStarted, required)));
+        recorder.Host(new(1, 3, new(1, Stamp(), new(7), SceneDisplayStage.ResourcesPrepared)));
+        Assert.AreEqual(3d, recorder.Timings(0, 4).Single(value => value.Attempt == preparing).ResourcesPrepared);
+        recorder.Host(new(1, 5, new(1, Stamp(), null, SceneDisplayStage.FrameCommitted)));
+        now = 6;
+        Change(recorder, building, SceneStreamingStage.Built);
+        Change(recorder, building, SceneStreamingStage.Cancelled);
+        Change(recorder, Attempt(2), SceneStreamingStage.Needed);
+        recorder.Drain();
+        var timings = recorder.Timings(0, 4);
+        Assert.AreEqual(2, timings.Length);
+        Assert.IsTrue(timings.All(value => value.Outcome == "unfinished"));
+        Assert.IsTrue(timings.All(value => value.Committed is null && value.ResourcesPrepared is null));
+        Assert.IsNull(timings.Single(value => value.Attempt == building).Built);
+        Assert.IsTrue(recorder.Events(0, 4).All(value => value.At <= 4));
+        Assert.IsFalse(recorder.Events(0, 4).Any(value => value.Stage == SceneStreamingStage.Built));
+    }
+
+    [TestMethod]
     public void MissingCountsExcludeEndedDemandAndClosedScenes()
     {
         var recorder = new StreamingRecorder(() => 1);
