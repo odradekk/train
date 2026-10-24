@@ -11,7 +11,6 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'checks/Invoke-HiddenProcess.ps1')
 
-$originalDirectory = Get-Location
 $userDirectories = if ($IsWindows) { @{ APPDATA = 'appdata'; LOCALAPPDATA = 'localappdata' } }
 else { @{ XDG_CONFIG_HOME = 'config'; XDG_DATA_HOME = 'data'; XDG_CACHE_HOME = 'cache' } }
 $environment = @{}
@@ -24,7 +23,7 @@ $failure = $null
 $steps = [System.Collections.Generic.List[object]]::new()
 
 function Invoke-MeasurementBuildStep([string] $Name, [string] $FilePath, [string[]] $Arguments) {
-    $result = Invoke-HiddenProcess -FilePath $FilePath -ArgumentList $Arguments -TimeoutSeconds 180
+    $result = Invoke-HiddenProcess -FilePath $FilePath -ArgumentList $Arguments -TimeoutSeconds 180 -WorkingDirectory $repo
     $result.Output | Set-Content -LiteralPath (Join-Path $OutputDirectory "$Name-process.log") -Encoding utf8
     $steps.Add([ordered]@{
         name = $Name; exit_code = $result.ExitCode; timed_out = $result.TimedOut
@@ -77,7 +76,6 @@ try {
     else { Join-Path $env:XDG_DATA_HOME 'godot/export_templates/4.7.2.stable.mono' }
     [IO.Directory]::CreateDirectory($templateDirectory) | Out-Null
     Copy-Item -LiteralPath $sourceTemplate -Destination (Join-Path $templateDirectory $templateName)
-    Set-Location -LiteralPath $repo
     Invoke-MeasurementBuildStep 'build' 'dotnet' @('build', 'Train.csproj', '-c', 'ExportRelease')
     Invoke-MeasurementBuildStep 'import' $env:GODOT @('--headless', '--path', $repo, '--recovery-mode',
         '--log-file', (Join-Path $OutputDirectory 'import-godot.log'), '--editor', '--import')
@@ -100,7 +98,6 @@ try {
 catch { $failure = $_.Exception.Message }
 finally {
     foreach ($name in $environment.Keys) { [Environment]::SetEnvironmentVariable($name, $environment[$name], 'Process') }
-    Set-Location -LiteralPath $originalDirectory.Path
     if ($null -ne $templateDirectory) {
         try {
             $resolvedTemplate = [IO.Path]::GetFullPath($templateDirectory)

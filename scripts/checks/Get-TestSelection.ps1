@@ -53,7 +53,7 @@ function Get-TestSelection {
 
     $arguments = @('affected', '-p', $root, '--filter-file-path', (Join-Path $root 'Train.sln'),
         '--from', $selection.mergeBase, '--uncommitted', 'all', '--format', 'json', '--output-dir', $OutputDirectory)
-    $result = Invoke-HiddenProcess dotnet $arguments 120
+    $result = Invoke-HiddenProcess dotnet $arguments 120 -WorkingDirectory $root
     $result.Output | Set-Content (Join-Path $OutputDirectory 'selection.log')
     $selection.analysis = @{ command = @('dotnet') + $arguments; exitCode = $result.ExitCode; seconds = $result.DurationMs / 1000; timedOut = $result.TimedOut; cleanupSucceeded = $result.CleanupSucceeded }
     $selection.analysis | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $OutputDirectory 'selection-process.json')
