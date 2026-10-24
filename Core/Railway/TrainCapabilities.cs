@@ -43,17 +43,22 @@ internal sealed record TrainCapabilities(double LengthMeters, double MassTons,
             }
         }
         var inventory = world.Inventories.Single(i => i.Id == train.Inventory).Goods;
-        var goods = content.Goods.AddRange(world.DesignGoods.Where(g => g.Good is GoodId.Assembly));
-        var missing = ImmutableArray.CreateBuilder<GoodId>();
-        foreach (var stack in inventory.OrderBy(s => GoodOrder(s.Good).Kind)
-                     .ThenBy(s => GoodOrder(s.Good).Identity, StringComparer.Ordinal))
+        ImmutableArray<GoodId> missingGoods = [];
+        if (!inventory.IsEmpty)
         {
-            var definition = goods.SingleOrDefault(g => g.Good == stack.Good);
-            if (definition is null) missing.Add(stack.Good);
-            else mass += definition.MassTons * stack.Quantity;
+            var goods = content.Goods.AddRange(world.DesignGoods.Where(g => g.Good is GoodId.Assembly));
+            var missing = ImmutableArray.CreateBuilder<GoodId>();
+            foreach (var stack in inventory.OrderBy(s => GoodOrder(s.Good).Kind)
+                         .ThenBy(s => GoodOrder(s.Good).Identity, StringComparer.Ordinal))
+            {
+                var definition = goods.SingleOrDefault(g => g.Good == stack.Good);
+                if (definition is null) missing.Add(stack.Good);
+                else mass += definition.MassTons * stack.Quantity;
+            }
+            missingGoods = missing.OrderBy(WorldReferences.GoodKey, StringComparer.Ordinal).ToImmutableArray();
         }
         return new(length, mass, traction, maximumSpeed ?? 0, mass > 0 ? traction / mass : 0,
-            hasControl, missing.OrderBy(WorldReferences.GoodKey, StringComparer.Ordinal).ToImmutableArray());
+            hasControl, missingGoods);
     }
 
     internal CoreProblem? DepartureProblem(TrainId train, double minimumAcceleration)
