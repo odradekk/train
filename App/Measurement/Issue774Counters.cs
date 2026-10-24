@@ -12,6 +12,7 @@ internal sealed class Issue774Counters : IDisposable
 {
     private readonly StreamWriter _writer;
     private readonly HostCoordinator _host;
+    private readonly string _stoppedPath;
     private HostBinding? _binding;
     private ulong _previousSteps;
     private long _boundaries, _frames;
@@ -22,6 +23,7 @@ internal sealed class Issue774Counters : IDisposable
     internal Issue774Counters(string directory, HostCoordinator host)
     {
         _writer = new(Path.Combine(directory, "gc-counters.jsonl"));
+        _stoppedPath = Path.Combine(directory, "gc-stopped.signal");
         _host = host;
         host.BoundaryCompleted += Boundary;
         _writer.WriteLine(JsonSerializer.Serialize(new { kind = "config", pid = Environment.ProcessId,
@@ -64,6 +66,17 @@ internal sealed class Issue774Counters : IDisposable
     public void Dispose()
     {
         MarkNow("run-end");
+        // Godot exits immediately after reporting. Keep it alive until the external
+        // collector has stopped and completed rundown, outside all measured windows.
+        if (Sample)
+        {
+            var waiting = Stopwatch.StartNew();
+            while (!File.Exists(_stoppedPath))
+            {
+                if (waiting.Elapsed.TotalSeconds > 45) throw new TimeoutException("#774 external collector did not acknowledge stop.");
+                Thread.Sleep(50);
+            }
+        }
         _host.BoundaryCompleted -= Boundary;
         _writer.Dispose();
     }

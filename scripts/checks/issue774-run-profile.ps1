@@ -35,6 +35,7 @@ try {
     $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $PSHOME $(if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' })))
     $start.UseShellExecute = $false; $start.CreateNoWindow = $true
     $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
+    $start.StandardOutputEncoding = [Text.Encoding]::UTF8; $start.StandardErrorEncoding = [Text.Encoding]::UTF8
     foreach ($argument in @('-NoProfile','-File',(Resolve-Path -LiteralPath $MeasureScript).Path) + $measureArgs) { $start.ArgumentList.Add($argument) }
     $measure = [Diagnostics.Process]::Start($start)
     $stdout = $measure.StandardOutput.ReadToEndAsync(); $stderr = $measure.StandardError.ReadToEndAsync()
@@ -46,6 +47,7 @@ try {
                 $startTrace = [Diagnostics.ProcessStartInfo]::new((Resolve-Path -LiteralPath $DotnetTracePath).Path)
                 $startTrace.UseShellExecute = $false; $startTrace.CreateNoWindow = $true
                 $startTrace.RedirectStandardOutput = $true; $startTrace.RedirectStandardError = $true
+                $startTrace.StandardOutputEncoding = [Text.Encoding]::UTF8; $startTrace.StandardErrorEncoding = [Text.Encoding]::UTF8
                 foreach ($argument in @('collect','--process-id',"$target",'--providers',
                     'Microsoft-Windows-DotNETRuntime:0x19:5,Train-Issue774:0xffffffffffffffff:5',
                     '--buffersize','256','--duration','00:01:10:00','--output',(Join-Path $ready.DirectoryName 'game.nettrace'),
@@ -56,6 +58,15 @@ try {
                 $collector | Add-Member NoteProperty ErrTask ($collector.StandardError.ReadToEndAsync())
                 $collector | Add-Member NoteProperty EvidenceDirectory $ready.DirectoryName
                 $collectors.Add($collector)
+            }
+        }
+        foreach ($collector in $collectors) {
+            $signal = Join-Path $collector.EvidenceDirectory 'gc-stopped.signal'
+            if ($collector.HasExited -and -not (Test-Path -LiteralPath $signal)) {
+                $collector.OutTask.GetAwaiter().GetResult() | Set-Content -LiteralPath (Join-Path $collector.EvidenceDirectory 'trace.stdout.log')
+                $collector.ErrTask.GetAwaiter().GetResult() | Set-Content -LiteralPath (Join-Path $collector.EvidenceDirectory 'trace.stderr.log')
+                if ($collector.ExitCode -ne 0) { throw "Trace collector exited $($collector.ExitCode)." }
+                [IO.File]::WriteAllText($signal, 'collector exited 0')
             }
         }
         Start-Sleep -Milliseconds 200
