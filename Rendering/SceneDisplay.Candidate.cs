@@ -90,7 +90,9 @@ internal sealed partial class SceneDisplay
         }
         finally
         {
-            _preparationTime += Stopwatch.GetElapsedTime(started, Timestamp());
+            var elapsed = Stopwatch.GetElapsedTime(started, Timestamp());
+            _preparationTime += elapsed;
+            Measure?.Invoke(SceneDisplayWork.PrepareCandidate, elapsed);
         }
     }
 

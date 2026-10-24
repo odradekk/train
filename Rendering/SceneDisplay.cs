@@ -32,6 +32,7 @@ internal sealed partial class SceneDisplay : IDisposable
     private long _candidate;
     private HashSet<SceneObjectId>? _reportedResources;
     internal Action<SceneDisplayEvent>? Observe { get; set; }
+    internal Action<SceneDisplayWork, TimeSpan>? Measure { get; set; }
     private ScenePoint _spaceOrigin;
     private HashSet<SceneObjectId> _posedObjects = [];
     private bool _disposed;
@@ -224,7 +225,9 @@ internal sealed partial class SceneDisplay : IDisposable
         }
         finally
         {
-            _preparationTime += Stopwatch.GetElapsedTime(started, Timestamp());
+            var elapsed = Stopwatch.GetElapsedTime(started, Timestamp());
+            _preparationTime += elapsed;
+            Measure?.Invoke(SceneDisplayWork.Prepare, elapsed);
         }
     }
 
@@ -521,7 +524,13 @@ internal sealed partial class SceneDisplay : IDisposable
         internal DebugLineGroup? DebugLines { get; } = debugLines;
         internal void Commit()
         {
-            owner.Commit(this);
+            var measure = owner.Measure;
+            var started = measure is null ? 0 : owner.Timestamp();
+            try { owner.Commit(this); }
+            finally
+            {
+                measure?.Invoke(SceneDisplayWork.Commit, Stopwatch.GetElapsedTime(started, owner.Timestamp()));
+            }
         }
         public void Dispose()
         {
