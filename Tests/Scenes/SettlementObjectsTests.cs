@@ -574,7 +574,7 @@ public sealed class SettlementObjectsTests
         var instances = (vehicles.IsDefault ? ImmutableArray<InstanceView>.Empty : vehicles).Add(station);
         return basis with { Core = new FixedCoreReadView
         {
-            Position = basis.Core.Position, InputIdentity = basis.Core.InputIdentity,
+            Position = basis.Core.Position, Revision = basis.Core.Revision, InputIdentity = basis.Core.InputIdentity,
             World = basis.Core.World with { Nodes = [node], Edges = [], Trains = [] },
             Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [node.Id] = new Lookup<NodeView>.Found(new(node, [], 80, 0, 80)) },
             Settlements = new Dictionary<SettlementId, Lookup<SettlementView>> { [settlement.Id] = new Lookup<SettlementView>.Found(settlement) },
