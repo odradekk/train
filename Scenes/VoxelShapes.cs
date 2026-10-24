@@ -33,7 +33,6 @@ internal sealed class VoxelShapes(VoxelGrid grid)
     };
     private readonly Dictionary<(GridPosition Chunk, SceneMaterial Material),
         (List<SceneVertex> Vertices, List<int> Indices)> groups = [];
-    internal int GroupCount => groups.Count;
 
     internal static string Name(VoxelShape? selected, VoxelAppearanceProjection? appearance) => selected?.Name ??
         (appearance?.Presentation is VoxelPresentation.Cube { Shapes.IsDefaultOrEmpty: false } cube ? cube.Shapes[0].Name : "cube");

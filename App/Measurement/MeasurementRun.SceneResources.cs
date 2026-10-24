@@ -17,7 +17,12 @@ internal sealed partial class MeasurementRun
 
     private void ObserveSceneResources()
     {
-        var display = _app.WorldScenes!.Display;
+        if (_measuredEditorPanel is not null && _app.Editor!.IsOpen) return;
+        ObserveSceneResources(_app.WorldScenes!.Display);
+    }
+
+    private void ObserveSceneResources(SceneDisplay? display)
+    {
         if (ReferenceEquals(display, _resourceDisplay)) return;
         if (_resourceDisplay is not null) _resourceDisplay.Measure = null;
         _resourceDisplay = display;

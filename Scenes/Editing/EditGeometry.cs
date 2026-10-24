@@ -6,18 +6,24 @@ using Train.Scenes.Contracts;
 
 namespace Train.Scenes.Editing;
 
-internal static class EditGeometry
+internal sealed class EditGeometry
 {
-    internal static RenderedDesign Build(EditObject root, EditContent content, EditSessionId session,
+    private sealed record GridGeometry(VoxelGrid Grid, ImmutableArray<SceneCell> Cells,
+        Dictionary<GridPosition, DesignGeometry.MeshGroups> Chunks);
+    private Dictionary<EditElementId, GridGeometry> grids = [];
+
+    internal RenderedDesign Build(EditObject root, EditContent content, EditSessionId session,
         EditRevision revision, int? highestY, Func<EditElementId, SceneObjectId> objectId,
         Func<SceneObjectId, GridPosition, SceneObjectId> modelId,
-        ImmutableArray<int> rootPath = default)
+        ImmutableArray<int> rootPath = default, EditElementId rootElement = default)
     {
+        Dictionary<EditElementId, GridGeometry> nextGrids = [];
         var objects = ImmutableArray.CreateBuilder<SceneObject>();
         var picking = ImmutableArray.CreateBuilder<PickGrid>();
         var problems = ImmutableArray.CreateBuilder<SceneProblem>();
         var identity = new ScenePose(Vector3.Zero, Quaternion.Identity);
         Add(root, default, null, identity, identity, rootPath.IsDefault ? [] : rootPath);
+        grids = nextGrids;
         return new(objects.ToImmutable(), picking.ToImmutable(), problems.ToImmutable());
 
         void Add(EditObject value, EditElementId element, SceneObjectId? parent, ScenePose pose,
@@ -33,7 +39,7 @@ internal static class EditGeometry
                 AddCell(cell.At, entry.Voxel, entry.Orientation, entry.Shape, entry.Paint, cell.Id,
                     new DesignElementPath.Cell(path, i));
             }
-            AddGrid(id, parent, pose, composed, cells);
+            AddGrid(parent is null ? rootElement : element, id, parent, pose, composed, cells);
             for (var i = 0; i < value.Children.Length; i++)
             {
                 var child = value.Children[i];
@@ -71,7 +77,7 @@ internal static class EditGeometry
                     compositeCells.Add(new(voxel.LocalAt, new(voxel.LocalOrientation, appearance,
                         voxel.Shape, composite.Paint ?? voxel.Paint, new PickSubject.Editing(session, revision, child.Id), childPath, reference)));
                 }
-                AddGrid(childId, id, childPose, childComposed, compositeCells);
+                AddGrid(child.Id, childId, id, childPose, childComposed, compositeCells);
             }
 
             void AddCell(GridPosition at, VoxelDefinitionId voxel, VoxelOrientation orientation,
@@ -96,18 +102,56 @@ internal static class EditGeometry
             }
         }
 
-        void AddGrid(SceneObjectId id, SceneObjectId? parent, ScenePose pose, ScenePose composed,
+        void AddGrid(EditElementId element, SceneObjectId id, SceneObjectId? parent, ScenePose pose, ScenePose composed,
             ImmutableArray<SceneCell>.Builder cells)
         {
-            var grid = new VoxelGrid(cells.ToImmutable());
-            objects.Add(new(id, parent, pose, null, DesignGeometry.Meshes(grid, true), [], []));
+            var values = cells.ToImmutable();
+            var grid = new VoxelGrid(values);
+            grids.TryGetValue(element, out var previous);
+            var sameHeight = previous is not null && previous.Grid.Bounds?.Minimum.Y == grid.Bounds?.Minimum.Y &&
+                previous.Grid.Bounds?.Maximum.Y == grid.Bounds?.Maximum.Y;
+            HashSet<GridPosition> changed = [];
+            if (sameHeight)
+            {
+                foreach (var cell in values)
+                    if (previous!.Grid.Find(cell.At) is not { } old || !SameAppearance(old, cell)) Change(cell.At);
+                foreach (var cell in previous!.Cells)
+                    if (!grid.Contains(cell.At)) Change(cell.At);
+            }
+            Dictionary<GridPosition, DesignGeometry.MeshGroups> chunks = [];
+            foreach (var chunk in grid.Chunks)
+                chunks.Add(chunk, sameHeight && !changed.Contains(chunk) && previous!.Chunks.TryGetValue(chunk, out var cached)
+                    ? cached : DesignGeometry.MeshChunk(grid, chunk));
+            nextGrids.Add(element, new(grid, values, chunks));
+            // 完整生成先交出所有立方体，再交出其他形状；增量拼接保持同一次序。
+            var visuals = chunks.Values.SelectMany(chunk => chunk.Cubes)
+                .Concat(chunks.Values.SelectMany(chunk => chunk.Shapes)).ToImmutableArray();
+            objects.Add(new(id, parent, pose, null, visuals, [], []));
             objects.AddRange(DesignGeometry.Models(grid, id, null, cell => modelId(id, cell.At), true));
             if (cells.Count > 0) picking.Add(new(id, composed, grid));
+
+            void Change(GridPosition at)
+            {
+                changed.Add(VoxelGrid.Chunk(at));
+                for (var axis = 0; axis < 3; axis++)
+                {
+                    var x = axis == 0 ? 1 : 0;
+                    var y = axis == 1 ? 1 : 0;
+                    var z = axis == 2 ? 1 : 0;
+                    changed.Add(VoxelGrid.Chunk(new(at.X + x, at.Y + y, at.Z + z)));
+                    changed.Add(VoxelGrid.Chunk(new(at.X - x, at.Y - y, at.Z - z)));
+                }
+            }
         }
 
         bool Visible(GridPosition at, ScenePose pose) => highestY is null ||
             Math.Floor((pose.Position + Vector3.Transform(new Vector3(at.X + .5f, at.Y + .5f, at.Z + .5f), pose.Rotation)).Y) <= highestY;
     }
+
+    // 拾取修订和元素路径会变化，但不参与网格生成。
+    private static bool SameAppearance(SceneCell left, SceneCell right) =>
+        left.Appearance == right.Appearance && left.Orientation == right.Orientation && left.Shape == right.Shape &&
+        left.Paint == right.Paint && left.MissingReference == right.MissingReference;
 
     internal static ImmutableArray<SceneDebugLine> SweepLines(DesignEvaluation? evaluation,
         ImmutableArray<ImmutableArray<int>> selectedPaths, ScenePose enteredPose)

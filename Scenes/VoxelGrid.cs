@@ -61,18 +61,24 @@ internal sealed class VoxelGrid
     {
         get
         {
-            foreach (var (key, halves) in chunks)
-            for (var half = 0; half < halves.Length; half++)
-            {
-                var values = halves[half];
-                for (var offset = 0; offset < values.Length; offset++)
-                    if (values[offset] != 0)
-                    {
-                        var index = half * HalfSize + offset;
-                        yield return new(new((key.X << 5) + (index & 31),
-                            (key.Y << 5) + ((index >> 5) & 31), (key.Z << 5) + (index >> 10)), entries[values[offset]]!);
-                    }
-            }
+            foreach (var key in chunks.Keys)
+            foreach (var cell in CellsInChunk(key)) yield return cell;
+        }
+    }
+
+    internal IEnumerable<SceneCell> CellsInChunk(GridPosition key)
+    {
+        if (!chunks.TryGetValue(key, out var halves)) yield break;
+        for (var half = 0; half < halves.Length; half++)
+        {
+            var values = halves[half];
+            for (var offset = 0; offset < values.Length; offset++)
+                if (values[offset] != 0)
+                {
+                    var index = half * HalfSize + offset;
+                    yield return new(new((key.X << 5) + (index & 31),
+                        (key.Y << 5) + ((index >> 5) & 31), (key.Z << 5) + (index >> 10)), entries[values[offset]]!);
+                }
         }
     }
     internal SceneBounds? Bounds { get; }
